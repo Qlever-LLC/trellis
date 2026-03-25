@@ -1,11 +1,4 @@
-export type DocEntry = {
-  title: string;
-  description: string;
-  href: string;
-  eyebrow: string;
-};
-
-export const docs: DocEntry[] = [
+export const docs = [
   {
     title: "Prepare NATS",
     description:
@@ -48,7 +41,9 @@ export const docs: DocEntry[] = [
     href: "/docs/installing-services",
     eyebrow: "Operations",
   },
-];
+] as const;
+
+export type DocEntry = (typeof docs)[number];
 
 export function getDoc(pathname: string): DocEntry | null {
   return docs.find((doc) => doc.href === pathname) ?? null;

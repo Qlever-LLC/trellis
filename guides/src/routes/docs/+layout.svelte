@@ -1,11 +1,13 @@
 <script lang="ts">
+  
   import type { Snippet } from "svelte";
+import { resolve } from "$app/paths";
   import { page } from "$app/state";
   import { docs, getDoc, getPrevNext } from "$lib/docs";
 
   let { children }: { children: Snippet } = $props();
 
-  const pathname = $derived(normalizePath(page.url.pathname));
+  const pathname = $derived(normalizePath(page.route.id ?? page.url.pathname));
   const currentDoc = $derived(getDoc(pathname));
   const neighbors = $derived(getPrevNext(pathname));
   const title = $derived(
@@ -38,7 +40,7 @@
                 ? "bg-base-200 font-medium text-base-content"
                 : "text-base-content/75",
             ]}
-            href={doc.href}
+            href={resolve(doc.href)}
           >
             <span class="block">{doc.title}</span>
             <span class="mt-1 block text-xs leading-5 text-base-content/55"
@@ -79,7 +81,7 @@
           {#if neighbors.prev}
             <a
               class="rounded-box border border-base-300 bg-base-100 p-4 hover:bg-base-200/40"
-              href={neighbors.prev.href}
+              href={resolve(neighbors.prev.href)}
             >
               <span
                 class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/45"
@@ -99,7 +101,7 @@
           {#if neighbors.next}
             <a
               class="rounded-box border border-base-300 bg-base-100 p-4 hover:bg-base-200/40 md:text-right"
-              href={neighbors.next.href}
+              href={resolve(neighbors.next.href)}
             >
               <span
                 class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/45"

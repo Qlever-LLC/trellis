@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { resolve } from "$app/paths";
   import { docs } from "$lib/docs";
 </script>
 
@@ -23,7 +24,7 @@
           <li>
             <a
               class="block px-4 py-4 hover:bg-base-200/40 sm:px-5"
-              href={doc.href}
+              href={resolve(doc.href)}
             >
               <p
                 class="text-xs font-medium uppercase tracking-[0.14em] text-base-content/50"
