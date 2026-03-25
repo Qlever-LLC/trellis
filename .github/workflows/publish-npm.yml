@@ -134,6 +134,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          npm_tag=latest
+          if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" == *-* ]]; then
+            npm_tag=rc
+          fi
+
           packages=(
             js/packages/result/npm
             js/packages/contracts/npm
@@ -147,7 +152,7 @@ jobs:
             generated/js/sdks/activity/npm
           )
           for pkg in "${packages[@]}"; do
-            npm publish --access public "$pkg"
+            npm publish --access public --tag "$npm_tag" "$pkg"
           done
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
