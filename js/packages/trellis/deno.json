@@ -1,0 +1,31 @@
+{
+  "extends": "../../deno.json",
+  "name": "@trellis/trellis",
+  "version": "0.1.0",
+  "exports": {
+    ".": "./index.ts",
+    "./browser": "./browser.ts",
+    "./tracing": "./tracing.ts",
+    "./contracts/*": "./contracts/*",
+    "./errors": "./errors/index.ts",
+    "./errors/*": "./errors/*",
+    "./helpers": "./helpers.ts",
+    "./helpers.ts": "./helpers.ts",
+    "./models": "./models/index.ts",
+    "./models/*": "./models/*"
+  },
+  "tasks": {
+    "test": "PINO_LEVEL=fatal deno test --allow-env --allow-sys --allow-write --allow-run --allow-read --allow-net",
+    "test:nats": "TRELLIS_TEST_NATS=1 PINO_LEVEL=fatal deno test --allow-env --allow-sys --allow-write --allow-run --allow-read --allow-net",
+    "dev": "deno run --watch main.ts"
+  },
+  "compilerOptions": {
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "dom.asynciterable",
+      "deno.ns"
+    ],
+    "verbatimModuleSyntax": true
+  }
+}

@@ -1,0 +1,40 @@
+[workspace]
+members = [
+  "crates/trellis-auth",
+  "crates/trellis-cli-participant",
+  "crates/trellis-sdk-auth",
+  "crates/trellis-sdk-trellis-core",
+  "crates/trellis-server",
+  "crates/trellis-contracts",
+  "crates/trellis-codegen-ts",
+  "crates/trellis-codegen-rust",
+  "crates/trellis-client",
+  "crates/trellis-cli",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.5.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[workspace.dependencies]
+base64 = "0.22"
+ed25519-dalek = "2.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+thiserror = "1.0"
+tokio = { version = "1.37", features = ["macros", "rt-multi-thread", "time"] }
+async-nats = "0.38"
+bytes = "1.6"
+futures-util = "0.3"
+clap = { version = "4.5", features = ["derive"] }
+clap_complete = "4.5"
+comfy-table = "7.1"
+heck = "0.5"
+jsonschema = "0.30"
+miette = { version = "7.2", features = ["fancy"] }
+owo-colors = "4.1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }

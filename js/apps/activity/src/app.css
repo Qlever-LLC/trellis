@@ -1,0 +1,103 @@
+@import "tailwindcss";
+
+@plugin "daisyui" {
+  themes: false;
+}
+
+@plugin "daisyui/theme" {
+  name: "activity";
+  default: true;
+  prefersdark: false;
+  color-scheme: light;
+
+  --color-base-100: oklch(97% 0.02 78);
+  --color-base-200: oklch(94% 0.03 78);
+  --color-base-300: oklch(89% 0.04 78);
+  --color-base-content: oklch(29% 0.045 42);
+  --color-primary: oklch(58% 0.17 35);
+  --color-primary-content: oklch(98% 0.015 80);
+  --color-secondary: oklch(62% 0.12 185);
+  --color-secondary-content: oklch(16% 0.02 185);
+  --color-accent: oklch(72% 0.14 110);
+  --color-accent-content: oklch(21% 0.03 110);
+  --color-neutral: oklch(38% 0.05 45);
+  --color-neutral-content: oklch(96% 0.02 80);
+  --color-info: oklch(68% 0.11 235);
+  --color-info-content: oklch(16% 0.03 235);
+  --color-success: oklch(71% 0.13 150);
+  --color-success-content: oklch(18% 0.02 150);
+  --color-warning: oklch(80% 0.15 85);
+  --color-warning-content: oklch(25% 0.04 85);
+  --color-error: oklch(62% 0.19 28);
+  --color-error-content: oklch(98% 0.02 80);
+
+  --radius-selector: 1rem;
+  --radius-field: 0.9rem;
+  --radius-box: 1.25rem;
+  --border: 1px;
+  --depth: 1;
+  --noise: 0;
+}
+
+:root {
+  font-family: "Avenir Next", "Segoe UI", sans-serif;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, rgba(217, 119, 61, 0.2), transparent 28%),
+    radial-gradient(circle at right 18%, rgba(14, 165, 233, 0.14), transparent 24%),
+    linear-gradient(180deg, #fff8ee 0%, #f6efe0 46%, #efe5d4 100%);
+  color: oklch(28% 0.045 42);
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(166, 63, 39, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(166, 63, 39, 0.06) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.22), transparent 92%);
+}
+
+h1,
+h2,
+h3,
+.display {
+  font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+#svelte,
+[data-theme] {
+  min-height: 100vh;
+}
+
+.mono {
+  font-family: "SFMono-Regular", "Consolas", monospace;
+}
+
+.paper-panel {
+  background: linear-gradient(180deg, rgba(255, 251, 244, 0.9), rgba(249, 242, 229, 0.82));
+}

@@ -1,0 +1,114 @@
+@import "tailwindcss";
+
+@plugin "@tailwindcss/typography";
+
+@plugin "daisyui" {
+  themes:
+    business --default,
+    dracula --prefersdark;
+  logs: false;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+}
+
+#svelte,
+[data-theme] {
+  min-height: 100vh;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.docs-prose {
+  max-width: none;
+  color: var(--color-base-content);
+}
+
+.docs-prose :where(h1, h2, h3, h4, h5, h6) {
+  scroll-margin-top: 7rem;
+  color: var(--color-base-content);
+}
+
+.docs-prose :where(p, li, strong, em, blockquote) {
+  color: var(--color-base-content);
+}
+
+.docs-prose :where(code):not(:where(pre code)) {
+  border-radius: 0.375rem;
+  padding-inline: 0.35rem;
+  padding-block: 0.15rem;
+  background: color-mix(in oklab, var(--color-base-300) 45%, transparent);
+  color: var(--color-secondary);
+}
+
+.docs-prose :where(a) {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+.docs-prose :where(a:hover) {
+  text-decoration: underline;
+}
+
+.docs-prose :where(ul, ol) {
+  color: var(--color-base-content);
+}
+
+.docs-prose :where(hr) {
+  border-color: color-mix(in oklab, var(--color-base-content) 18%, transparent);
+}
+
+.docs-prose :where(table) {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.docs-prose :where(th, td) {
+  border: 1px solid
+    color-mix(in oklab, var(--color-base-content) 18%, transparent);
+  padding: 0.65rem 0.8rem;
+}
+
+.docs-prose :where(th) {
+  background: color-mix(in oklab, var(--color-base-300) 45%, transparent);
+}
+
+.docs-prose pre,
+.docs-prose .shiki {
+  overflow-x: auto;
+  border-radius: 0.75rem;
+  border: 1px solid
+    color-mix(in oklab, var(--color-base-content) 12%, transparent);
+  background: #0d1117;
+  color: #e6edf3;
+  padding: 1rem 1.1rem;
+}
+
+.docs-prose pre code,
+.docs-prose .shiki code {
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  border-radius: 0;
+}
+
+.heading-anchor {
+  margin-left: 0.35rem;
+  opacity: 0.55;
+}
+
+.heading-anchor:hover {
+  opacity: 1;
+}
+
+.heading-anchor::after {
+  content: "#";
+}

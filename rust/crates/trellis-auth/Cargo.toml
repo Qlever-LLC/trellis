@@ -1,0 +1,18 @@
+[package]
+name = "trellis-auth"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+base64.workspace = true
+ed25519-dalek.workspace = true
+rand = "0.8"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+trellis-client = { path = "../trellis-client" }
+trellis-sdk-auth = { path = "../trellis-sdk-auth" }
+url = "2.5"

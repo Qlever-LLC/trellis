@@ -1,0 +1,141 @@
+import { isErr } from "@trellis/result";
+
+import type {
+  ServiceRegistryEntry,
+  Session,
+  UserProjectionEntry,
+} from "./schemas.ts";
+
+type KVResult<T> = { take(): T };
+
+type KVLike<V> = {
+  get: (key: string) => Promise<KVResult<{ value: V } | V | unknown>>;
+};
+
+export type SessionPrincipal = {
+  active: boolean;
+  capabilities: string[];
+  email: string;
+  name: string;
+  serviceState?: ServiceRegistryEntry;
+};
+
+export type SessionPrincipalError = {
+  reason:
+    | "unknown_service"
+    | "service_disabled"
+    | "user_not_found"
+    | "user_inactive"
+    | "insufficient_permissions"
+    | "service_role_on_user";
+  context?: Record<string, unknown>;
+};
+
+type SessionPrincipalResult =
+  | { ok: true; value: SessionPrincipal }
+  | { ok: false; error: SessionPrincipalError };
+
+function unwrapValue<V>(entry: { value: V } | V): V {
+  if (entry && typeof entry === "object" && "value" in entry) {
+    return (entry as { value: V }).value;
+  }
+  return entry as V;
+}
+
+function hasAllCapabilities(granted: string[], required: string[]): boolean {
+  return required.every((capability) => granted.includes(capability));
+}
+
+function hasServiceOnlyCapability(capabilities: string[]): boolean {
+  return capabilities.some((capability) => capability === "service" || capability.startsWith("service:"));
+}
+
+export async function resolveSessionPrincipal(
+  session: Session,
+  sessionKey: string,
+  deps: {
+    servicesKV: KVLike<ServiceRegistryEntry>;
+    usersKV: KVLike<UserProjectionEntry>;
+  },
+): Promise<SessionPrincipalResult> {
+  if (session.type === "service") {
+    const serviceEntry = (await deps.servicesKV.get(sessionKey)).take();
+    if (isErr(serviceEntry)) {
+      return {
+        ok: false,
+        error: { reason: "unknown_service", context: { sessionKey } },
+      };
+    }
+
+    const service = unwrapValue(serviceEntry as { value: ServiceRegistryEntry } | ServiceRegistryEntry);
+    if (!service.active) {
+      return {
+        ok: false,
+        error: {
+          reason: "service_disabled",
+          context: { service: service.displayName, sessionKey },
+        },
+      };
+    }
+
+    return {
+      ok: true,
+      value: {
+        active: true,
+        capabilities: service.capabilities ?? [],
+        email: session.email,
+        name: session.name,
+        serviceState: service,
+      },
+    };
+  }
+
+  const projectionEntry = (await deps.usersKV.get(session.trellisId)).take();
+  if (isErr(projectionEntry)) {
+    return {
+      ok: false,
+      error: {
+        reason: "user_not_found",
+        context: { origin: session.origin, id: session.id },
+      },
+    };
+  }
+
+  const projection = unwrapValue(
+    projectionEntry as { value: UserProjectionEntry } | UserProjectionEntry,
+  );
+  if (!projection.active) {
+    return {
+      ok: false,
+      error: {
+        reason: "user_inactive",
+        context: { origin: session.origin, id: session.id },
+      },
+    };
+  }
+
+  const currentCapabilities = projection.capabilities ?? [];
+  if (!hasAllCapabilities(currentCapabilities, session.delegatedCapabilities)) {
+    return {
+      ok: false,
+      error: { reason: "insufficient_permissions" },
+    };
+  }
+
+  if (hasServiceOnlyCapability(session.delegatedCapabilities)) {
+    return {
+      ok: false,
+      error: { reason: "service_role_on_user" },
+    };
+  }
+
+  return {
+    ok: true,
+    value: {
+      active: true,
+      capabilities: session.delegatedCapabilities,
+      email: session.email,
+      name: session.name,
+    },
+  };
+}

@@ -1,0 +1,121 @@
+name: Release CLI
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Create or update the GitHub release"
+        required: false
+        default: false
+        type: boolean
+  push:
+    tags:
+      - "v*"
+  pull_request:
+    paths:
+      - ".github/workflows/release-cli.yml"
+      - "rust/**"
+
+env:
+  CARGO_TERM_COLOR: always
+  SHOULD_PUBLISH: ${{ startsWith(github.ref, 'refs/tags/') || inputs.publish == true }}
+
+jobs:
+  verify:
+    name: Verify trellis CLI
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      - name: Run trellis CLI tests
+        run: cargo test -p trellis-cli --locked
+        working-directory: rust
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs: verify
+    runs-on: ${{ matrix.runner }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - runner: macos-13
+            target: x86_64-apple-darwin
+          - runner: macos-14
+            target: aarch64-apple-darwin
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Rust build artifacts
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      - name: Build release binary
+        run: cargo build -p trellis-cli --release --locked --target ${{ matrix.target }}
+        working-directory: rust
+
+      - name: Package CLI archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME:-dev}"
+          target="${{ matrix.target }}"
+          archive="trellis-${version}-${target}.tar.gz"
+          staging="dist/${target}"
+          mkdir -p "$staging"
+          cp "rust/target/${target}/release/trellis" "$staging/trellis"
+          tar -C "$staging" -czf "dist/$archive" trellis
+          shasum -a 256 "dist/$archive" > "dist/$archive.sha256"
+
+      - name: Upload packaged CLI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: trellis-cli-${{ matrix.target }}
+          path: |
+            dist/*.tar.gz
+            dist/*.sha256
+
+  release:
+    name: Publish GitHub release
+    if: env.SHOULD_PUBLISH == 'true'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download packaged artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: trellis-cli-*
+          merge-multiple: true
+
+      - name: Publish release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/*.sha256
+          generate_release_notes: true

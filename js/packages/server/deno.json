@@ -1,0 +1,17 @@
+{
+  "extends": "../../deno.json",
+  "name": "@trellis/server",
+  "version": "0.1.0",
+  "exports": {
+    ".": "./mod.ts",
+    "./deno": "./deno.ts",
+    "./node": "./node.ts"
+  },
+  "tasks": {
+    "test": "PINO_LEVEL=fatal deno test -A"
+  },
+  "compilerOptions": {
+    "strict": true,
+    "verbatimModuleSyntax": true
+  }
+}

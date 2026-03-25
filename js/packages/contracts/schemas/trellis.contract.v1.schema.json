@@ -1,0 +1,302 @@
+{
+  "$schema": "https://json-schema.org/draft/2019-09/schema",
+  "$id": "https://trellis.dev/schemas/trellis.contract.v1.schema.json",
+  "title": "Trellis Contract Manifest v1",
+  "type": "object",
+  "required": ["format", "id", "displayName", "description", "kind"],
+  "properties": {
+    "format": {
+      "const": "trellis.contract.v1"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "displayName": {
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1
+    },
+    "kind": {
+      "type": "string",
+      "minLength": 1
+    },
+    "uses": {
+      "$ref": "#/$defs/uses"
+    },
+    "rpc": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/rpcMethod"
+      }
+    },
+    "events": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/event"
+      }
+    },
+    "subjects": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/subject"
+      }
+    },
+    "errors": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/errorDecl"
+      }
+    },
+    "resources": {
+      "$ref": "#/$defs/resources"
+    }
+  },
+  "$defs": {
+    "resources": {
+      "type": "object",
+      "properties": {
+        "kv": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "minLength": 1
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/kvResource"
+          }
+        }
+      }
+    },
+    "uses": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/useRef"
+      }
+    },
+    "useRpc": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "call": {
+          "$ref": "#/$defs/capabilities"
+        }
+      }
+    },
+    "usePubSub": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "publish": {
+          "$ref": "#/$defs/capabilities"
+        },
+        "subscribe": {
+          "$ref": "#/$defs/capabilities"
+        }
+      }
+    },
+    "useRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract"],
+      "properties": {
+        "contract": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rpc": {
+          "$ref": "#/$defs/useRpc"
+        },
+        "events": {
+          "$ref": "#/$defs/usePubSub"
+        },
+        "subjects": {
+          "$ref": "#/$defs/usePubSub"
+        }
+      }
+    },
+    "kvResource": {
+      "type": "object",
+      "required": ["purpose"],
+      "additionalProperties": false,
+      "properties": {
+        "purpose": {
+          "type": "string",
+          "minLength": 1
+        },
+        "required": {
+          "type": "boolean",
+          "default": true
+        },
+        "history": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1
+        },
+        "ttlMs": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        },
+        "maxValueBytes": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "errorRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "rpcMethod": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "subject", "inputSchema", "outputSchema"],
+      "properties": {
+        "version": {
+          "type": "string",
+          "pattern": "^v[0-9]+$"
+        },
+        "subject": {
+          "type": "string",
+          "minLength": 1
+        },
+        "inputSchema": {
+          "type": ["object", "boolean"]
+        },
+        "outputSchema": {
+          "type": ["object", "boolean"]
+        },
+        "capabilities": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "call": {
+              "$ref": "#/$defs/capabilities"
+            }
+          }
+        },
+        "errors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/errorRef"
+          }
+        }
+      }
+    },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "subject", "eventSchema"],
+      "properties": {
+        "version": {
+          "type": "string",
+          "pattern": "^v[0-9]+$"
+        },
+        "subject": {
+          "type": "string",
+          "minLength": 1
+        },
+        "params": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^/.*"
+          }
+        },
+        "eventSchema": {
+          "type": ["object", "boolean"]
+        },
+        "capabilities": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "publish": {
+              "$ref": "#/$defs/capabilities"
+            },
+            "subscribe": {
+              "$ref": "#/$defs/capabilities"
+            }
+          }
+        }
+      }
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subject"],
+      "properties": {
+        "subject": {
+          "type": "string",
+          "minLength": 1
+        },
+        "schema": {
+          "type": ["object", "boolean"]
+        },
+        "capabilities": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "publish": {
+              "$ref": "#/$defs/capabilities"
+            },
+            "subscribe": {
+              "$ref": "#/$defs/capabilities"
+            }
+          }
+        }
+      }
+    },
+    "errorDecl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "schema": {
+          "type": ["object", "boolean"]
+        }
+      }
+    }
+  }
+}

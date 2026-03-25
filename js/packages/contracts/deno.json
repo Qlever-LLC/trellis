@@ -1,0 +1,22 @@
+{
+  "extends": "../../deno.json",
+  "name": "@trellis/contracts",
+  "version": "0.1.0",
+  "exports": {
+    ".": "./mod.ts",
+    "./canonical.ts": "./canonical.ts",
+    "./protocol.ts": "./protocol.ts",
+    "./runtime.ts": "./runtime.ts",
+    "./schema_pointers.ts": "./schema_pointers.ts"
+  },
+  "tasks": {
+    "generate": "deno task -c ../../deno.json build:contracts",
+    "generate:watch": "deno task -c ../../deno.json build:contracts",
+    "build:core": "deno task -c ../../deno.json build:contracts",
+    "pack": "cargo run --manifest-path ../../../rust/Cargo.toml -p trellis-cli --bin trellis -- contracts pack --manifest ../../../generated/contracts/manifests/trellis.core@v1.json --manifest ../../../generated/contracts/manifests/trellis.auth@v1.json --output ../../../generated/contracts/dist/catalog.v1.json --contracts-out ../../../generated/contracts/dist/contracts",
+    "test": "deno test -A"
+  },
+  "compilerOptions": {
+    "strict": true
+  }
+}

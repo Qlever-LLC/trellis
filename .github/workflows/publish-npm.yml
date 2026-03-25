@@ -1,0 +1,153 @@
+name: Publish NPM Packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish packages to npm"
+        required: false
+        default: false
+        type: boolean
+  push:
+    tags:
+      - "v*"
+  pull_request:
+    paths:
+      - ".github/workflows/publish-npm.yml"
+      - "js/deno.json"
+      - "js/tools/npm/**"
+      - "js/packages/auth/**"
+      - "js/packages/contracts/**"
+      - "js/packages/telemetry/**"
+      - "js/packages/result/**"
+      - "js/packages/server/**"
+      - "js/packages/trellis/**"
+      - "js/packages/trellis-svelte/**"
+      - "js/services/trellis/contracts/**"
+      - "js/services/activity/contracts/**"
+
+jobs:
+  build:
+    name: Build npm packages
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: 2.7.7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build publishable npm packages
+        run: deno task build:npm
+        working-directory: js
+
+      - name: Validate package archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          packages=(
+            js/packages/result/npm
+            js/packages/contracts/npm
+            js/packages/telemetry/npm
+            js/packages/auth/npm
+            js/packages/server/npm
+            js/packages/trellis/npm
+            js/packages/trellis-svelte/npm
+            generated/js/sdks/auth/npm
+            generated/js/sdks/trellis-core/npm
+            generated/js/sdks/activity/npm
+          )
+          for pkg in "${packages[@]}"; do
+            npm pack "$pkg" >/dev/null
+          done
+
+      - name: Smoke test package imports
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/trellis-npm-smoke
+          mkdir -p /tmp/trellis-npm-smoke
+          cd /tmp/trellis-npm-smoke
+          npm init -y >/dev/null
+          npm pack "$GITHUB_WORKSPACE/js/packages/result/npm" --pack-destination . >/dev/null
+          npm pack "$GITHUB_WORKSPACE/js/packages/contracts/npm" --pack-destination . >/dev/null
+          npm pack "$GITHUB_WORKSPACE/js/packages/telemetry/npm" --pack-destination . >/dev/null
+          npm pack "$GITHUB_WORKSPACE/js/packages/auth/npm" --pack-destination . >/dev/null
+          npm pack "$GITHUB_WORKSPACE/js/packages/server/npm" --pack-destination . >/dev/null
+          npm pack "$GITHUB_WORKSPACE/js/packages/trellis/npm" --pack-destination . >/dev/null
+          npm install \
+            ./trellis-result-0.1.0.tgz \
+            ./trellis-contracts-0.1.0.tgz \
+            ./trellis-telemetry-0.1.0.tgz \
+            ./trellis-auth-0.1.0.tgz \
+            ./trellis-server-0.1.0.tgz \
+            ./trellis-trellis-0.1.0.tgz >/dev/null
+          node --input-type=module <<'EOF'
+          await import("@trellis/telemetry");
+          await import("@trellis/telemetry/env");
+          await import("@trellis/telemetry/trellis");
+          await import("@trellis/auth/protocol");
+          await import("@trellis/trellis");
+          await import("@trellis/trellis/tracing");
+          await import("@trellis/server");
+          await import("@trellis/server/node");
+          EOF
+
+  publish:
+    name: Publish to npm
+    if: ${{ startsWith(github.ref, 'refs/tags/') || inputs.publish == true }}
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: 2.7.7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Build publishable npm packages
+        run: deno task build:npm
+        working-directory: js
+
+      - name: Publish packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          packages=(
+            js/packages/result/npm
+            js/packages/contracts/npm
+            js/packages/telemetry/npm
+            js/packages/auth/npm
+            js/packages/server/npm
+            js/packages/trellis/npm
+            js/packages/trellis-svelte/npm
+            generated/js/sdks/auth/npm
+            generated/js/sdks/trellis-core/npm
+            generated/js/sdks/activity/npm
+          )
+          for pkg in "${packages[@]}"; do
+            npm publish --access public "$pkg"
+          done
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

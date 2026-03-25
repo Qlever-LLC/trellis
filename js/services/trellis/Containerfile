@@ -1,0 +1,17 @@
+FROM docker.io/denoland/deno:2.7.7 AS runtime
+
+WORKDIR /app
+
+LABEL io.trellis.contract.path="/trellis/contract.json"
+
+COPY js /app/js
+COPY generated/js /app/generated/js
+COPY generated/contracts/manifests/trellis.auth@v1.json /trellis/contract.json
+
+WORKDIR /app/js/services/trellis
+
+RUN deno cache --lock=../../deno.lock --frozen main.ts
+
+EXPOSE 3000
+
+CMD ["deno", "run", "--lock=../../deno.lock", "--frozen", "--allow-env", "--allow-sys", "--allow-read", "--allow-net", "--allow-ffi", "main.ts"]

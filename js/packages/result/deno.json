@@ -1,0 +1,12 @@
+{
+  "extends": "../../deno.json",
+  "name": "@trellis/result",
+  "version": "0.1.0",
+  "exports": "./mod.ts",
+  "tasks": {
+    "test": "deno test"
+  },
+  "compilerOptions": {
+    "verbatimModuleSyntax": true
+  }
+}

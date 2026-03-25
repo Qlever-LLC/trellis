@@ -1,0 +1,10 @@
+{
+  "extends": "../../deno.json",
+  "name": "@trellis/svelte",
+  "version": "0.1.0",
+  "exports": "./src/index.ts",
+  "compilerOptions": {
+    "lib": ["dom", "dom.iterable", "dom.asynciterable", "esnext", "deno.ns"],
+    "verbatimModuleSyntax": true
+  }
+}

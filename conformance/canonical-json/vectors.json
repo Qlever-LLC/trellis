@@ -1,0 +1,33 @@
+[
+  {
+    "name": "sorted-object",
+    "input": {
+      "b": 1,
+      "a": "x"
+    },
+    "canonical": "{\"a\":\"x\",\"b\":1}",
+    "digest": "zasGfp876zLRJSz9Y-SSWS_sv1kbDQjK2yS7F_OGQkY"
+  },
+  {
+    "name": "nested-mixed-values",
+    "input": {
+      "z": [
+        3,
+        {
+          "b": false,
+          "a": null
+        }
+      ],
+      "a": {
+        "d": "x",
+        "c": [
+          2,
+          1
+        ]
+      },
+      "m": true
+    },
+    "canonical": "{\"a\":{\"c\":[2,1],\"d\":\"x\"},\"m\":true,\"z\":[3,{\"a\":null,\"b\":false}]}",
+    "digest": "jQrlRPuAKU3T3oolG4lvsPk7_FUB7kM9jAU9dyqzXYU"
+  }
+]

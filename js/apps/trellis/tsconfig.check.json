@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@trellis/auth": ["../../packages/auth/mod.ts"],
+      "@trellis/contracts": ["../../packages/contracts/mod.ts"],
+      "@trellis/contracts/*": ["../../packages/contracts/*"],
+      "@trellis/result": ["../../packages/result/mod.ts"],
+      "@trellis/sdk-auth": ["../../../generated/js/sdks/auth/mod.ts"],
+      "@trellis/server": ["../../packages/server/mod.ts"],
+      "@trellis/svelte": ["../../packages/trellis-svelte/src/index.ts"],
+      "@trellis/telemetry": ["../../packages/telemetry/mod.ts"],
+      "@trellis/telemetry/*": ["../../packages/telemetry/*"],
+      "@trellis/trellis": ["../../packages/trellis/index.ts"]
+    }
+  }
+}

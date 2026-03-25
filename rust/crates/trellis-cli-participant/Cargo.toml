@@ -1,0 +1,22 @@
+[package]
+name = "trellis-cli-participant"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+build = "build.rs"
+
+[build-dependencies]
+trellis-codegen-rust = { path = "../trellis-codegen-rust" }
+
+[dependencies]
+serde_json.workspace = true
+trellis-auth = { path = "../trellis-auth" }
+trellis-client = { path = "../trellis-client" }
+trellis-contracts = { path = "../trellis-contracts" }
+trellis-server = { path = "../trellis-server" }
+trellis-sdk-auth = { path = "../trellis-sdk-auth" }
+trellis-sdk-core = { path = "../trellis-sdk-trellis-core" }
+
+[dev-dependencies]
+tempfile = "3"
+trellis-codegen-rust = { path = "../trellis-codegen-rust" }

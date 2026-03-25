@@ -1,0 +1,14 @@
+{
+  "name": "@trellis/telemetry",
+  "version": "0.1.0",
+  "exports": {
+    ".": "./mod.ts",
+    "./core": "./core.ts",
+    "./env": "./env.ts",
+    "./nats": "./nats.ts",
+    "./result": "./result.ts",
+    "./runtime": "./runtime.ts",
+    "./trace": "./trace.ts",
+    "./trellis": "./trellis.ts"
+  }
+}

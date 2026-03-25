@@ -1,0 +1,21 @@
+{
+  "extends": "../../deno.json",
+  "tasks": {
+    "dev": "vite dev",
+    "build": "deno task -c ../../deno.json build:contracts && vite build",
+    "preview": "vite preview",
+    "check": "deno task -c ../../deno.json build:contracts && svelte-kit sync && svelte-check --tsconfig ./tsconfig.check.json"
+  },
+  "compilerOptions": {
+    "types": [
+      "npm:vite/client"
+    ]
+  }
+  "lint": {
+    "rules": {
+      "exclude": [
+        "import-map-remap"
+      ]
+    }
+  }
+}

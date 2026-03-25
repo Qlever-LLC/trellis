@@ -1,0 +1,20 @@
+{
+  "extends": "../../deno.json",
+  "name": "@trellis/auth",
+  "version": "0.1.0",
+  "exports": {
+    ".": "./mod.ts",
+    "./browser": "./browser.ts",
+    "./protocol": "./protocol.ts"
+  },
+  "compilerOptions": {
+    "lib": [
+      "esnext",
+      "deno.ns",
+      "dom",
+      "dom.iterable",
+      "dom.asynciterable"
+    ],
+    "verbatimModuleSyntax": true
+  }
+}

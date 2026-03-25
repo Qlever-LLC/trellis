@@ -1,0 +1,18 @@
+[Unit]
+Description=Trellis web app
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+ContainerName=trellis-app
+Image=ghcr.io/REPLACE_ME/trellis-app:REPLACE_ME
+PublishPort=8080:80
+ReadOnly=true
+Tmpfs=/var/cache/nginx
+Tmpfs=/var/run
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,56 @@
+[
+  {
+    "name": "proof-layout-v1",
+    "seed": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+    "sessionKey": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+    "oauthInit": {
+      "redirectTo": "https://example.com/app",
+      "sig": "VwDIApru8bFUnMafwFg7RYUhIgTpzeZT1RawmB-PE6dVdwiivjQvR1ECLE6bZ4pRKgFKpMDyiitUL9zXMFb2CQ"
+    },
+    "bind": {
+      "authToken": "auth-token-123",
+      "sig": "KUKkjqZwKsT52w50KB9odID2YAAZZ9084ZcY6jjDY2mxJS40UkDn4QJA9-wzBCxtjTp2GIauJOCIA6QA2p-GAQ"
+    },
+    "natsConnect": {
+      "bindingToken": "binding-token-123",
+      "bindingTokenSig": "kOHpKkHJfDTpMKIUyat5vsYGgnDIUeHBde32S-6Ijh8MD762nZvyEDY37IU6Dc8AL08HuUm-nJ5N_OuT9tKsCg",
+      "iat": 1735689600,
+      "iatSig": "gi641PQZTV6SqalXlWtakgl_hF-PLbM13NC_VTeRer7pprLCD5m9lGruiQ827g5vnKqmcnAIL0-eB8L9AOiDAg"
+    },
+    "rpcProof": {
+      "subject": "rpc.v1.Trellis.Catalog",
+      "payload": "{\"hello\":\"world\",\"count\":3}",
+      "payloadHashBase64url": "B9NZAKcRUVMOVGP27nJk7y_igjlJJOGaxCpFIALxsLo",
+      "proofInputHex": "0000002b41364548765f504f454c3464634e3059353076416d57666b316a436270513166486479475a424a564d6267000000167270632e76312e5472656c6c69732e436174616c6f670000002007d35900a71151530e5463f6ee7264ef2fe282394924e19ac42a452002f1b0ba",
+      "proofDigestBase64url": "SpgQzWdN1YpFMboIXAXC_d-uFTFzRI-SqP73M_MAhDk",
+      "proof": "-I25Z3EKNLoWCgcZ4EqgWmZ8C-KWshwScjVLgbJ4hpF5LlXnqRgsgOEjrD2A4vPur_4u_E9dU2stQ7EAVkJ6Bg"
+    }
+  },
+  {
+    "name": "proof-layout-v1-local-redirect",
+    "seed": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+    "sessionKey": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+    "oauthInit": {
+      "redirectTo": "http://localhost:3000/callback?next=%2Fdash",
+      "sig": "QSWaKGNEymubaRjZ4E0YM2HdNoD2l2BevWt-3FpETy7KiGf4SE-iukOFHErlAxGULvMqCRlV2_sCqGx1AOe_CQ"
+    },
+    "bind": {
+      "authToken": "bind-xyz",
+      "sig": "xwnSZQCULYOzezGQb0sQ-yhmYxCxWazr48ntyowaSjw53EfABv1jtuotmZ-xIvLTFAm-r7kCjzwdBJgxZvNgCw"
+    },
+    "natsConnect": {
+      "bindingToken": "binding-token-789",
+      "bindingTokenSig": "xFWdgubF2gAb3IOVzS1iV56chPODlQNjOBHLvs-FppVvZy6Lgmpm_AC1MUhs5v9scgI_4AQQop32fPBcnHJmDQ",
+      "iat": 1735689660,
+      "iatSig": "BrZhllDQAioUt0NIyP74ZwXyx4-or_CgXJ5889TIv3yM60c2McMOJuaJpyyRqrUwDD_S_4AMXwiaZV6WVpacAw"
+    },
+    "rpcProof": {
+      "subject": "rpc.v1.Auth.ValidateRequest",
+      "payload": "{\"path\":\"/auth/me\",\"method\":\"POST\",\"body\":{\"ok\":true}}",
+      "payloadHashBase64url": "5xzohNwAIkLMEjRw_3uLh7adB_2BOUPD1sObIMk0x1Y",
+      "proofInputHex": "0000002b41364548765f504f454c3464634e3059353076416d57666b316a436270513166486479475a424a564d62670000001b7270632e76312e417574682e56616c69646174655265717565737400000020e71ce884dc002242cc123470ff7b8b87b69d07fd813943c3d6c39b20c934c756",
+      "proofDigestBase64url": "i9ZldDHt3oof1YlBz0BqwtgAY-5eQbN0XagOXOCd_5c",
+      "proof": "bnlBxoLyBK9KBoiG_kj347QSdGxkQ9CtsA23Mey3vjj_SNLd9VRpxviX8IvW_-U5dfzOyEWQvOrHz0QXiwyMCw"
+    }
+  }
+]

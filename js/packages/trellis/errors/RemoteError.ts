@@ -1,0 +1,87 @@
+import { Result, UnexpectedError } from "@trellis/result";
+import Type, { type Static } from "typebox";
+import { ParseError, Value } from "typebox/value";
+import { ValidationError } from "./ValidationError.ts";
+import { TrellisError } from "./TrellisError.ts";
+import type { TrellisErrorData } from "../models/trellis/TrellisError.ts";
+import { TrellisErrorDataSchema } from "../models/trellis/TrellisError.ts";
+
+export const RemoteErrorDataSchema = Type.Object({
+  id: Type.String(),
+  type: Type.Literal("RemoteError"),
+  message: Type.String(),
+  remoteError: Type.Any(),
+  context: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+  traceId: Type.Optional(Type.String()),
+});
+export type RemoteErrorData = Static<typeof RemoteErrorDataSchema>;
+
+/**
+ * Error for wrapping errors received from remote Trellis services.
+ * This is the only error type with parseJSON/parseObject methods for deserializing remote errors.
+ */
+export class RemoteError extends TrellisError<RemoteErrorData> {
+  override readonly name = "RemoteError" as const;
+  readonly remoteError: TrellisErrorData;
+
+  constructor(
+    options: ErrorOptions & {
+      error: TrellisErrorData;
+      context?: Record<string, unknown>;
+      id?: string;
+    },
+  ) {
+    const { error, ...baseOptions } = options;
+    super(`Remote error: ${error.message}`, baseOptions);
+    this.remoteError = error;
+  }
+
+  /**
+   * Serializes error to a plain object.
+   *
+   * @returns Plain object representation of the error
+   */
+  override toSerializable(): RemoteErrorData {
+    return {
+      ...this.baseSerializable(),
+      type: this.name,
+      remoteError: this.remoteError,
+    } as RemoteErrorData;
+  }
+
+  /**
+   * Parses and validates a plain object as TrellisErrorData.
+   * Use this to deserialize errors received from remote services.
+   *
+   * @param obj - Plain object to validate
+   * @returns Result containing validated TrellisError or a ValidationError or UnexpectedError
+   */
+  static parse(
+    data: unknown,
+  ): Result<TrellisErrorData, ValidationError | UnexpectedError> {
+    return Result.try(() =>
+      typeof data === "string" ? JSON.parse(data) : data,
+    ).andThen(
+      (obj): Result<TrellisErrorData, ValidationError | UnexpectedError> => {
+        const parseResult = Result.try(() =>
+          Value.Parse(TrellisErrorDataSchema, obj),
+        );
+        if (parseResult.isErr()) {
+          const cause = parseResult.error.cause;
+          if (cause instanceof ParseError) {
+            const errors = Value.Errors(TrellisErrorDataSchema, obj);
+            return Result.err(new ValidationError({ errors, cause }));
+          }
+          return Result.err(parseResult.error);
+        }
+        return Result.ok(parseResult.take() as TrellisErrorData);
+      },
+    );
+  }
+
+  /**
+   * Alias for parse() - parses JSON string or object as TrellisErrorData.
+   * @see parse
+   */
+  static parseJSON = RemoteError.parse;
+}

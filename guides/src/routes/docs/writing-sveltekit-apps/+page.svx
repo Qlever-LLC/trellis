@@ -1,0 +1,331 @@
+This tutorial walks through building a SvelteKit app that authenticates with Trellis and calls RPCs from the browser. By the end you will have a working app with login, callback handling, and authenticated data fetching.
+
+Before starting, read [Trellis Concepts](/docs/concepts) for background on contracts, auth, and packages.
+
+## What you need
+
+- a running Trellis environment from [Starting Trellis](/docs/startup)
+- Node installed
+- the `trellis` CLI installed
+
+## 1. Create the project
+
+```sh
+npx sv create my-app
+cd my-app
+```
+
+Install the Trellis packages:
+
+```sh
+npm install @trellis/contracts @trellis/svelte @trellis/trellis @trellis/sdk-auth @trellis/result
+```
+
+Then add the generated SDK packages for any Trellis services your app calls. For example, if your app reads activity data:
+
+```sh
+npm install @trellis/sdk-activity
+```
+
+## 2. Define the app contract
+
+Create `src/contracts/my_app.ts`. For apps, the key difference from services is `kind: "app"`:
+
+```ts
+import { defineContract } from "@trellis/contracts";
+import { auth } from "@trellis/sdk-auth";
+
+export const myApp = defineContract({
+  id: "my-app@v1",
+  displayName: "My App",
+  description: "A browser app that reads auth state.",
+  kind: "app",
+  uses: {
+    auth: auth.use({
+      rpc: { call: ["Auth.Me"] },
+    }),
+  },
+});
+```
+
+The `uses` block is what Trellis analyzes when deriving the subject permissions granted to the signed-in browser session. If you need to call RPCs from other services, add them here.
+
+## 3. Configure browser env
+
+Create `.env`:
+
+```text
+VITE_TRELLIS_AUTH_URL=http://localhost:3000
+VITE_TRELLIS_NATS_SERVERS=ws://localhost:8080
+VITE_TRELLIS_DEFAULT_PROVIDER=github
+```
+
+These are public browser-side values. Do not put secrets here.
+
+Create `src/lib/config.ts`:
+
+```ts
+const DEFAULT_AUTH_URL = "http://localhost:3000";
+const DEFAULT_NATS_SERVER = "ws://localhost:8080";
+
+function parseServers(value: string | undefined): string[] {
+  return (value ?? DEFAULT_NATS_SERVER)
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+export const APP_CONFIG = {
+  authUrl: import.meta.env.VITE_TRELLIS_AUTH_URL ?? DEFAULT_AUTH_URL,
+  natsServers: parseServers(import.meta.env.VITE_TRELLIS_NATS_SERVERS),
+  defaultProvider: import.meta.env.VITE_TRELLIS_DEFAULT_PROVIDER ?? "github",
+};
+
+export function buildCallbackUrl(redirectTo: string): string {
+  const url = new URL("/callback", window.location.origin);
+  url.searchParams.set("redirectTo", redirectTo);
+  return url.toString();
+}
+```
+
+## 4. Build the login page
+
+Create `src/routes/login/+page.svelte`:
+
+```svelte
+<script lang="ts">
+  import { createAuthState } from "@trellis/svelte";
+  import { goto } from "$app/navigation";
+  import { page } from "$app/state";
+  import { onMount } from "svelte";
+  import { myApp } from "../../contracts/my_app";
+  import { APP_CONFIG, buildCallbackUrl } from "$lib/config";
+
+  const auth = createAuthState({
+    authUrl: APP_CONFIG.authUrl,
+    loginPath: "/login",
+    contract: myApp,
+  });
+
+  function targetPath(): string {
+    return page.url.searchParams.get("redirectTo") ?? "/dashboard";
+  }
+
+  onMount(async () => {
+    await auth.init();
+    if (auth.isAuthenticated) {
+      await goto(targetPath());
+    }
+  });
+
+  async function signIn() {
+    await auth.signIn(APP_CONFIG.defaultProvider, buildCallbackUrl(targetPath()));
+  }
+</script>
+
+<h1>Sign in</h1>
+<button onclick={signIn}>Sign in with GitHub</button>
+```
+
+`createAuthState(...)` manages the browser session key, stores the binding token, and includes the app contract in the login flow.
+
+## 5. Handle the callback
+
+Create `src/routes/callback/+page.svelte`:
+
+```svelte
+<script lang="ts">
+  import { createAuthState } from "@trellis/svelte";
+  import { goto } from "$app/navigation";
+  import { page } from "$app/state";
+  import { onMount } from "svelte";
+  import { myApp } from "../../contracts/my_app";
+  import { APP_CONFIG } from "$lib/config";
+
+  const auth = createAuthState({
+    authUrl: APP_CONFIG.authUrl,
+    loginPath: "/login",
+    contract: myApp,
+  });
+
+  function targetPath(): string {
+    return page.url.searchParams.get("redirectTo") ?? "/dashboard";
+  }
+
+  let error = $state("");
+
+  onMount(async () => {
+    await auth.init();
+    const result = await auth.handleCallback(window.location.href);
+    auth.cleanupCallbackUrl();
+
+    if (result?.status === "bound") {
+      await goto(targetPath());
+      return;
+    }
+
+    if (result?.status === "approval_required") {
+      error = "This app requires your approval before it can access Trellis.";
+      return;
+    }
+
+    if (result?.status === "insufficient_capabilities") {
+      error = `Missing capabilities: ${result.missingCapabilities.join(", ")}`;
+      return;
+    }
+
+    if (result?.status === "approval_denied") {
+      error = "Access was denied.";
+      return;
+    }
+
+    error = "Authentication failed.";
+  });
+</script>
+
+{#if error}
+  <p>{error}</p>
+  <a href="/login">Try again</a>
+{:else}
+  <p>Completing sign-in...</p>
+{/if}
+```
+
+The callback handles several states:
+
+- `bound` — session is ready, redirect to the app
+- `approval_required` — Trellis needs user consent for this app contract
+- `approval_denied` — the user declined
+- `insufficient_capabilities` — the user's account lacks the required capabilities
+
+## 6. Wrap authenticated routes with TrellisProvider
+
+Create a layout for the protected part of the app at `src/routes/(app)/+layout.svelte`:
+
+```svelte
+<script lang="ts">
+  import { TrellisProvider } from "@trellis/svelte";
+  import { myApp } from "../../contracts/my_app";
+  import { APP_CONFIG } from "$lib/config";
+
+  let { children } = $props();
+
+  function redirectToLogin(redirectTo: string): void {
+    window.location.href = `/login?redirectTo=${encodeURIComponent(redirectTo)}`;
+  }
+</script>
+
+<TrellisProvider
+  authUrl={APP_CONFIG.authUrl}
+  natsServers={APP_CONFIG.natsServers}
+  serviceName="my-app"
+  loginPath="/login"
+  contract={myApp}
+  onAuthRequired={redirectToLogin}
+>
+  {@render children()}
+</TrellisProvider>
+```
+
+`TrellisProvider` restores the auth session, connects to NATS via websocket, creates the Trellis client, and exposes all three through Svelte context.
+
+Use websocket URLs for `natsServers` (e.g., `ws://localhost:8080`).
+
+## 7. Call RPCs
+
+Create a helper at `src/lib/rpc.ts`:
+
+```ts
+import { isErr } from "@trellis/result";
+import { getTrellis } from "@trellis/svelte";
+import { myApp } from "../contracts/my_app";
+import type { AuthMeOutput } from "@trellis/sdk-auth";
+
+export function createRequester() {
+  const trellisPromise = getTrellis<typeof myApp.API>();
+
+  return async function request<T>(
+    method: string,
+    input: Record<string, unknown>,
+  ): Promise<T> {
+    const client = await trellisPromise;
+    const result = await client.request(method, input);
+    const value = result.take();
+    if (isErr(value)) throw value;
+    return value as T;
+  };
+}
+
+export async function loadMe(): Promise<AuthMeOutput> {
+  const request = createRequester();
+  return request<AuthMeOutput>("Auth.Me", {});
+}
+```
+
+Then use it in a page at `src/routes/(app)/dashboard/+page.svelte`:
+
+```svelte
+<script lang="ts">
+  import { onMount } from "svelte";
+  import { loadMe } from "$lib/rpc";
+  import type { AuthMeOutput } from "@trellis/sdk-auth";
+
+  let me = $state<AuthMeOutput | null>(null);
+
+  onMount(async () => {
+    me = await loadMe();
+  });
+</script>
+
+{#if me}
+  <h1>Welcome, {me.displayName}</h1>
+{:else}
+  <p>Loading...</p>
+{/if}
+```
+
+## 8. Build and verify contract artifacts
+
+Keep the contract source in your app repo and generate artifacts into build output:
+
+```text
+my-app/
+  src/
+    contracts/my_app.ts
+    lib/config.ts
+    lib/rpc.ts
+    routes/login/+page.svelte
+    routes/callback/+page.svelte
+    routes/(app)/+layout.svelte
+    routes/(app)/dashboard/+page.svelte
+  dist/contracts/
+```
+
+Build and verify it:
+
+```sh
+trellis contracts build \
+  --source ./src/contracts/my_app.ts \
+  --out-manifest ./dist/contracts/trellis.my-app@v1.json
+
+trellis contracts verify --source ./src/contracts/my_app.ts
+```
+
+## 9. Understand the approval lifecycle
+
+App approval works differently from service installation:
+
+- Services are installed by an operator for a specific service identity
+- Apps are approved per-user during sign-in for a specific contract digest
+- If the app contract changes (new digest), users may need to re-approve
+- If the user lacks required capabilities, bind fails even though OAuth login succeeded
+
+This means contract changes in browser apps should be treated as access changes, not just UI changes.
+
+## Development loop
+
+1. Update the `defineContract(...)` module
+2. Rebuild or verify with `trellis contracts build` / `trellis contracts verify --source`
+3. Run the SvelteKit app with `npm run dev`
+4. Sign in through the login flow — approve the app if prompted
+5. Confirm RPCs and UI work as expected

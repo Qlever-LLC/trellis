@@ -1,0 +1,8 @@
+{
+  "extends": "../deno.json",
+  "version": "0.1",
+  "tasks": {
+    "dev": "deno run --env --allow-env --allow-sys --allow-read --allow-net --allow-ffi --watch main.ts",
+    "test": "deno test --allow-env --allow-sys --allow-read"
+  }
+}

@@ -1,0 +1,28 @@
+import {
+  type Context,
+  context,
+  type Span,
+  SpanKind,
+  SpanStatusCode,
+  type Tracer,
+  trace,
+} from "@opentelemetry/api";
+
+export function getTracer(scope = "@trellis/telemetry"): Tracer {
+  return trace.getTracer(scope);
+}
+
+export function getActiveSpan(): Span | undefined {
+  return trace.getActiveSpan();
+}
+
+export function withSpan<T>(span: Span, fn: () => T): T {
+  return context.with(trace.setSpan(context.active(), span), fn);
+}
+
+export async function withSpanAsync<T>(span: Span, fn: () => Promise<T>): Promise<T> {
+  return context.with(trace.setSpan(context.active(), span), fn);
+}
+
+export { context, SpanKind, SpanStatusCode, trace };
+export type { Context, Span };

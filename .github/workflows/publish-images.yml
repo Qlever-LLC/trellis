@@ -1,0 +1,76 @@
+name: Publish Images
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Push images to GHCR"
+        required: false
+        default: false
+        type: boolean
+  push:
+    tags:
+      - "v*"
+  pull_request:
+    paths:
+      - ".github/workflows/publish-images.yml"
+      - ".dockerignore"
+      - "js/services/trellis/**"
+      - "js/apps/trellis/**"
+      - "js/packages/**"
+      - "js/deno.json"
+      - "js/deno.lock"
+
+env:
+  REGISTRY: ghcr.io
+  SHOULD_PUSH: ${{ startsWith(github.ref, 'refs/tags/') || inputs.publish == true }}
+
+jobs:
+  trellis-runtime:
+    name: Publish trellis runtime
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Set up Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: 2.7.7
+
+      - name: Build generated contract artifacts
+        run: deno task -c js/deno.json build:contracts
+
+      - name: Log in to GHCR
+        if: env.SHOULD_PUSH == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract runtime image metadata
+        id: runtime_meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/trellis-runtime
+          tags: |
+            type=ref,event=tag
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') }}
+
+      - name: Build runtime image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: js/services/trellis/Containerfile
+          push: ${{ env.SHOULD_PUSH == 'true' }}
+          tags: ${{ steps.runtime_meta.outputs.tags }}
+          labels: ${{ steps.runtime_meta.outputs.labels }}

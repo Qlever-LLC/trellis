@@ -1,0 +1,104 @@
+<script lang="ts">
+  import { createAuthState } from "@trellis/svelte";
+  import { onMount } from "svelte";
+  import { browser } from "$app/environment";
+  import { goto } from "$app/navigation";
+  import { page } from "$app/state";
+  import { trellisApp } from "../../contracts/trellis_app.ts";
+  import {
+    APP_CONFIG,
+    buildAppLoginUrl,
+    getCanonicalLoopbackRedirectUrl
+  } from "../../lib/config";
+  import { errorMessage } from "../../lib/format";
+
+  type CallbackResult =
+    | { status: "bound" }
+    | { status: "approval_required" | "approval_denied"; approval: unknown }
+    | { status: "insufficient_capabilities"; missingCapabilities: string[] };
+
+  const auth = createAuthState({ authUrl: APP_CONFIG.authUrl, loginPath: "/login", contract: trellisApp } as never) as unknown as {
+    init(): Promise<unknown>;
+    handleCallback(url?: string): Promise<CallbackResult | null>;
+    cleanupCallbackUrl(url?: string): void;
+  };
+
+  let status = $state("Completing sign-in…");
+  let authError = $state<string | null>(null);
+
+  function targetPath(): string {
+    return page.url.searchParams.get("redirectTo") ?? "/profile";
+  }
+
+  function loginUrl(): string {
+    return buildAppLoginUrl(targetPath());
+  }
+
+  function authErrorFromFragment(url: string): string | null {
+    const parsed = new URL(url);
+    const fragment = parsed.hash.startsWith("#") ? parsed.hash.slice(1) : parsed.hash;
+    return new URLSearchParams(fragment).get("authError");
+  }
+
+  onMount(async () => {
+    if (!browser) return;
+
+    const canonicalRedirect = getCanonicalLoopbackRedirectUrl();
+    if (canonicalRedirect) {
+      window.location.replace(canonicalRedirect);
+      return;
+    }
+
+    try {
+      await auth.init();
+      const result = await auth.handleCallback(window.location.href);
+      auth.cleanupCallbackUrl();
+
+      if (!result) {
+        const flowError = authErrorFromFragment(window.location.href);
+        if (flowError === "approval_denied") {
+          status = "App access was denied.";
+          return;
+        }
+        throw new Error("Missing auth token");
+      }
+
+      if (result.status === "bound") {
+        await goto(targetPath());
+        return;
+      }
+
+      if (result.status === "insufficient_capabilities") {
+        authError = `Missing capabilities: ${result.missingCapabilities.join(", ")}`;
+        status = "Insufficient access";
+        return;
+      }
+
+      status = "Approval required";
+    } catch (error) {
+      authError = errorMessage(error);
+      status = "Sign-in failed";
+    }
+  });
+</script>
+
+<svelte:head>
+  <title>Authorizing · Trellis</title>
+</svelte:head>
+
+<div class="flex min-h-screen items-center justify-center bg-base-200 px-4">
+  <div class="card w-full max-w-sm bg-base-100 shadow-lg">
+    <div class="card-body items-center text-center gap-4">
+      <h1 class="text-lg font-semibold">{status}</h1>
+
+      {#if authError}
+        <div class="alert alert-error text-sm">
+          <span>{authError}</span>
+        </div>
+        <a class="btn btn-ghost btn-sm" href={loginUrl()}>Back to sign in</a>
+      {:else}
+        <span class="loading loading-spinner loading-md"></span>
+      {/if}
+    </div>
+  </div>
+</div>

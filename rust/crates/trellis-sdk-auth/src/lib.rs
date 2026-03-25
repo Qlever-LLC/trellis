@@ -1,0 +1,24 @@
+//! Generated Rust SDK crate for one Trellis contract.
+
+pub mod client;
+pub mod contract;
+pub mod events;
+pub mod rpc;
+pub mod server;
+pub mod subjects;
+pub mod types;
+
+pub use client::AuthClient;
+pub use contract::{contract_manifest, CONTRACT_DIGEST, CONTRACT_ID, CONTRACT_JSON, CONTRACT_NAME};
+pub use events::*;
+pub use rpc::*;
+pub use types::*;
+
+pub type ApprovalEntryRecord = types::AuthListApprovalsResponseApprovalsItem;
+pub type ApprovalScopeRecord = types::AuthListApprovalsResponseApprovalsItemApproval;
+pub type AuthenticatedUser = types::AuthMeResponseUser;
+pub type ListApprovalsRequest = types::AuthListApprovalsRequest;
+pub type RenewBindingTokenResponse = types::AuthRenewBindingTokenResponse;
+pub type RevokeApprovalRequest = types::AuthRevokeApprovalRequest;
+pub type SentinelCredsRecord = types::AuthRenewBindingTokenResponseSentinel;
+pub type ServiceListEntry = types::AuthListServicesResponseServicesItem;

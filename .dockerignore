@@ -1,0 +1,14 @@
+.git
+.claude
+.local
+.opencode
+.superpowers
+**/.DS_Store
+**/.svelte-kit
+**/build
+**/node_modules
+rust/target
+!js/build
+!js/build/vite-shims
+!js/build/vite-shims/**
+!js/apps/trellis/build
