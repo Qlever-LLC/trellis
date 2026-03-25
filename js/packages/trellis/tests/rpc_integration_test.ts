@@ -5,7 +5,8 @@ import {
   AuthMeSchema,
   AuthValidateRequestResponseSchema,
   AuthValidateRequestSchema,
-} from "@trellis/auth/protocol";
+} from "@trellis/auth";
+
 import { Type } from "typebox";
 import { isErr, ok } from "../../result/mod.ts";
 import { createClient } from "../client.ts";

@@ -139,9 +139,11 @@ fn deno_json(opts: &GenerateTsSdkOpts) -> Result<serde_json::Map<String, Value>,
 
 fn render_contract_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
     let module_export = sdk_module_export_name(&opts.package_name);
+    let source_reference =
+        manifest_source_reference(&opts.manifest_path, opts.runtime_deps.repo_root.as_deref());
     format!(
         "// Generated from {}\nimport type {{ SdkContractModule, TrellisContractV1, UseSpec }} from \"@trellis/contracts\";\nimport {{ API }} from \"./api.ts\";\n\nconst CONTRACT_MODULE_METADATA = Symbol.for(\"@trellis/contracts/contract-module\");\n\nexport const CONTRACT_ID = {} as const;\nexport const CONTRACT_DIGEST = {} as const;\nexport const CONTRACT = {} as TrellisContractV1;\n\nfunction assertSelectedKeysExist(\n  kind: \"rpc\" | \"events\" | \"subjects\",\n  keys: readonly string[] | undefined,\n  api: Record<string, unknown>,\n) {{\n  if (!keys) {{\n    return;\n  }}\n\n  for (const key of keys) {{\n    if (!Object.hasOwn(api, key)) {{\n      throw new Error(`Contract '${{CONTRACT_ID}}' does not expose ${{kind}} key '${{key}}'`);\n    }}\n  }}\n}}\n\nfunction assertValidUseSpec(spec: UseSpec<typeof API.owned>) {{\n  assertSelectedKeysExist(\"rpc\", spec.rpc?.call, API.owned.rpc);\n  assertSelectedKeysExist(\"events\", spec.events?.publish, API.owned.events);\n  assertSelectedKeysExist(\"events\", spec.events?.subscribe, API.owned.events);\n  assertSelectedKeysExist(\"subjects\", spec.subjects?.publish, API.owned.subjects);\n  assertSelectedKeysExist(\"subjects\", spec.subjects?.subscribe, API.owned.subjects);\n}}\n\nexport const {}: SdkContractModule<typeof CONTRACT_ID, typeof API.owned> = {{\n  CONTRACT_ID,\n  CONTRACT_DIGEST,\n  CONTRACT,\n  API,\n  use: ((spec) => {{\n    assertValidUseSpec(spec);\n\n    const dependencyUse = {{\n      contract: CONTRACT_ID,\n      ...(spec.rpc?.call ? {{ rpc: {{ call: [...spec.rpc.call] }} }} : {{}}),\n      ...((spec.events?.publish || spec.events?.subscribe)\n        ? {{\n          events: {{\n            ...(spec.events.publish ? {{ publish: [...spec.events.publish] }} : {{}}),\n            ...(spec.events.subscribe ? {{ subscribe: [...spec.events.subscribe] }} : {{}}),\n          }},\n        }}\n        : {{}}),\n      ...((spec.subjects?.publish || spec.subjects?.subscribe)\n        ? {{\n          subjects: {{\n            ...(spec.subjects.publish ? {{ publish: [...spec.subjects.publish] }} : {{}}),\n            ...(spec.subjects.subscribe ? {{ subscribe: [...spec.subjects.subscribe] }} : {{}}),\n          }},\n        }}\n        : {{}}),\n    }};\n\n    Object.defineProperty(dependencyUse, CONTRACT_MODULE_METADATA, {{\n      value: {},\n      enumerable: false,\n    }});\n\n    return dependencyUse;\n  }}) as SdkContractModule<typeof CONTRACT_ID, typeof API.owned>[\"use\"],\n}};\n\nexport const use = {}.use;\n",
-        escape_js_string(&opts.manifest_path.display().to_string()),
+        escape_js_string(&source_reference),
         js_string(&loaded.manifest.id),
         js_string(&loaded.digest),
         loaded.canonical,
@@ -152,11 +154,10 @@ fn render_contract_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Stri
 }
 
 fn render_types_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
+    let source_reference =
+        manifest_source_reference(&opts.manifest_path, opts.runtime_deps.repo_root.as_deref());
     let mut lines = vec![
-        format!(
-            "// Generated from {}",
-            escape_js_string(&opts.manifest_path.display().to_string())
-        ),
+        format!("// Generated from {}", escape_js_string(&source_reference)),
         format!(
             "export const CONTRACT_ID = {} as const;",
             js_string(&loaded.manifest.id)
@@ -239,11 +240,10 @@ fn render_types_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String 
 }
 
 fn render_schemas_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
+    let source_reference =
+        manifest_source_reference(&opts.manifest_path, opts.runtime_deps.repo_root.as_deref());
     let mut lines = vec![
-        format!(
-            "// Generated from {}",
-            escape_js_string(&opts.manifest_path.display().to_string())
-        ),
+        format!("// Generated from {}", escape_js_string(&source_reference)),
         "export const SCHEMAS = {".to_string(),
         "  rpc: {".to_string(),
     ];
@@ -289,11 +289,10 @@ fn render_schemas_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Strin
 }
 
 fn render_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
+    let source_reference =
+        manifest_source_reference(&opts.manifest_path, opts.runtime_deps.repo_root.as_deref());
     let mut lines = vec![
-        format!(
-            "// Generated from {}",
-            escape_js_string(&opts.manifest_path.display().to_string())
-        ),
+        format!("// Generated from {}", escape_js_string(&source_reference)),
         "import type { TrellisAPI } from \"@trellis/contracts\";".to_string(),
         "import { schema } from \"@trellis/contracts\";".to_string(),
         "import * as Types from \"./types.ts\";".to_string(),
@@ -435,6 +434,8 @@ fn render_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
 }
 
 fn render_build_npm_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
+    let source_reference =
+        manifest_source_reference(&opts.manifest_path, opts.runtime_deps.repo_root.as_deref());
     let contracts_dependency = match opts.runtime_deps.source {
         TsRuntimeSource::Registry => format!("^{}", opts.runtime_deps.version),
         TsRuntimeSource::Local => opts
@@ -455,7 +456,7 @@ fn render_build_npm_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Str
 
     format!(
         "// Generated from {}\nimport {{ build, emptyDir }} from \"jsr:@deno/dnt@^0.41.3\";\n\nawait emptyDir(new URL(\"../npm\", import.meta.url));\n\nawait build({{\n  entryPoints: [\"./mod.ts\"],\n  outDir: \"./npm\",\n  shims: {{\n    deno: true,\n  }},\n  test: false,\n  typeCheck: false,\n  package: {{\n    name: {},\n    version: {},\n    description: \"Generated Trellis SDK for contract {}\",\n    dependencies: {{\n      \"@trellis/contracts\": {},\n    }},\n  }},\n}});\n",
-        escape_js_string(&opts.manifest_path.display().to_string()),
+        escape_js_string(&source_reference),
         js_string(&opts.package_name),
         js_string(&opts.package_version),
         escape_js_string(&loaded.manifest.id),
@@ -513,7 +514,32 @@ fn relative_path_string(from_dir: &Path, to_path: &Path) -> String {
     for component in &to_components[common_len..] {
         relative.push(component.as_os_str());
     }
-    relative.to_string_lossy().replace('\\', "/")
+    normalize_relative_path_string(relative.to_string_lossy().replace('\\', "/"))
+}
+
+fn manifest_source_reference(manifest_path: &Path, repo_root: Option<&Path>) -> String {
+    let manifest_path = manifest_path
+        .canonicalize()
+        .unwrap_or_else(|_| manifest_path.to_path_buf());
+
+    if let Some(repo_root) = repo_root {
+        let repo_root = repo_root
+            .canonicalize()
+            .unwrap_or_else(|_| repo_root.to_path_buf());
+        if let Ok(relative) = manifest_path.strip_prefix(&repo_root) {
+            return normalize_relative_path_string(relative.to_string_lossy().replace('\\', "/"));
+        }
+    }
+
+    normalize_relative_path_string(manifest_path.to_string_lossy().replace('\\', "/"))
+}
+
+fn normalize_relative_path_string(path: String) -> String {
+    if path.is_empty() || path.starts_with("../") || path.starts_with("./") || path.starts_with('/')
+    {
+        return path;
+    }
+    format!("./{path}")
 }
 
 fn render_readme(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
@@ -545,6 +571,34 @@ fn escape_js_string(value: &str) -> String {
         .replace('\\', "\\\\")
         .replace('`', "\\`")
         .replace('$', "\\$")
+}
+
+#[cfg(test)]
+mod path_tests {
+    use super::{manifest_source_reference, relative_path_string};
+    use std::path::Path;
+
+    #[test]
+    fn manifest_source_reference_uses_repo_relative_path() {
+        assert_eq!(
+            manifest_source_reference(
+                Path::new("/repo/generated/contracts/manifests/trellis.core@v1.json"),
+                Some(Path::new("/repo")),
+            ),
+            "./generated/contracts/manifests/trellis.core@v1.json"
+        );
+    }
+
+    #[test]
+    fn relative_path_string_is_normalized_without_dot_segments() {
+        assert_eq!(
+            relative_path_string(
+                Path::new("/repo/generated/js/sdks/trellis-core"),
+                Path::new("/repo/js/packages/contracts/npm"),
+            ),
+            "../../../../js/packages/contracts/npm"
+        );
+    }
 }
 
 fn key_to_pascal(value: &str) -> String {

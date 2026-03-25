@@ -1,4 +1,4 @@
-import type { Paginated } from "@trellis/contracts/protocol";
+import type { Paginated } from "@trellis/contracts";
 import { Pointer } from "typebox/value";
 
 /**

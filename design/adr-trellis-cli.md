@@ -11,14 +11,13 @@ Trellis needs one supported CLI entrypoint for:
 - operational bootstrap and admin commands
 - service install and upgrade flows that use locally generated keys
 - contract verification
-- catalog packing
 - SDK generation
 
 The repository previously split those concerns across:
 
 - an ad hoc Rust CLI for a few operational commands
 - a separate Rust verification binary for live catalog digest checks
-- TypeScript/Deno scripts for contract packing and TS SDK generation
+- TypeScript/Deno scripts for TS SDK generation
 
 That split made the system harder to understand, harder to reuse from other repos,
 and inconsistent with the source-first contract architecture.
@@ -43,7 +42,6 @@ trellis <command> [subcommand] [options]
 ```text
 trellis contracts build --source <file> --out-manifest <file> [--ts-out <dir>] [--rust-out <dir>]
 trellis contracts verify (--source <file> | --manifest <file> | --image <ref>)
-trellis contracts pack [--source <file>]... [--manifest <file>]... [--image <ref>]... --output <catalog-file> [--contracts-out <dir>]
 trellis contracts verify-live --servers <servers> --creds <path> --session-seed <seed> [--limit <n>]
 ```
 
@@ -52,8 +50,6 @@ Responsibilities:
 - resolve contract inputs from source modules, generated manifests, or OCI images
 - validate canonical manifests against `trellis.contract.v1`
 - compute canonical JSON and digests
-- detect duplicate active ids and subject collisions during packing
-- emit derived deployment catalog output and digest-addressed contract copies
 - keep the old live digest verification behavior under the main CLI
 
 ### SDK commands
@@ -120,7 +116,7 @@ The developer-facing CLI boundary is the contract source.
 - operators may install or upgrade from generated manifests or OCI images that embed `/trellis/contract.json`
 - OCI images may override that default path with the `io.trellis.contract.path` label
 
-`generated/` contains derived manifests, SDKs, and packed catalogs only.
+`generated/` contains derived manifests and SDKs only.
 
 ## Implementation
 

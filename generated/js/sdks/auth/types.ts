@@ -1,4 +1,4 @@
-// Generated from ../generated/contracts/manifests/trellis.auth@v1.json
+// Generated from ./generated/contracts/manifests/trellis.auth@v1.json
 export const CONTRACT_ID = "trellis.auth@v1" as const;
 export const CONTRACT_DIGEST = "X5qH3jb1ZKuFzD_atuGkmyHF5VNS3spkNhH5gCmxR8s" as const;
 

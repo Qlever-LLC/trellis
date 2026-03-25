@@ -1,5 +1,5 @@
+import { UserViewSchema as UserSchema } from "@trellis/auth";
 import Type, { type Static } from "typebox";
-import { UserSchema } from "../models/User.ts";
 
 export const MeSchema = Type.Object({});
 export type Me = Static<typeof MeSchema>;

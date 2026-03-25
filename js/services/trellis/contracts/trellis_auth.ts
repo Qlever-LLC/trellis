@@ -21,7 +21,7 @@ import {
   AuthUpgradeServiceContractSchema,
   AuthValidateRequestResponseSchema,
   AuthValidateRequestSchema,
-} from "@trellis/auth/protocol";
+} from "@trellis/auth";
 import { defineContract } from "@trellis/contracts";
 import {
   HealthResponseSchema,

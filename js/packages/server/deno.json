@@ -8,6 +8,7 @@
     "./node": "./node.ts"
   },
   "tasks": {
+    "build:npm": "deno run -A ./scripts/build_npm.ts",
     "test": "PINO_LEVEL=fatal deno test -A"
   },
   "compilerOptions": {

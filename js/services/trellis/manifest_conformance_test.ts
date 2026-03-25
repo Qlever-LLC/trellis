@@ -17,7 +17,7 @@ for (const [filename, contract] of manifests) {
     assertEquals(
       onDisk,
       emitted,
-      `${filename} is out of sync with the generated contract output. Run: deno task -c js/deno.json build:contracts`,
+      `${filename} is out of sync with the generated contract output. Run: deno task -c js/deno.json build:sdk`,
     );
   });
 }

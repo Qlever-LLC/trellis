@@ -1,4 +1,4 @@
-// Generated from ../generated/contracts/manifests/trellis.core@v1.json
+// Generated from ./generated/contracts/manifests/trellis.core@v1.json
 import type { TrellisAPI } from "@trellis/contracts";
 import { schema } from "@trellis/contracts";
 import * as Types from "./types.ts";

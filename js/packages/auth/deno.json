@@ -7,6 +7,9 @@
     "./browser": "./browser.ts",
     "./protocol": "./protocol.ts"
   },
+  "tasks": {
+    "build:npm": "deno run -A ./scripts/build_npm.ts"
+  },
   "compilerOptions": {
     "lib": [
       "esnext",

@@ -10,5 +10,8 @@
     "./runtime": "./runtime.ts",
     "./trace": "./trace.ts",
     "./trellis": "./trellis.ts"
+  },
+  "tasks": {
+    "build:npm": "deno run -A ./scripts/build_npm.ts"
   }
 }

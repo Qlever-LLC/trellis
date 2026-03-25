@@ -15,6 +15,7 @@
     "./models/*": "./models/*"
   },
   "tasks": {
+    "build:npm": "deno run -A ./scripts/build_npm.ts",
     "test": "PINO_LEVEL=fatal deno test --allow-env --allow-sys --allow-write --allow-run --allow-read --allow-net",
     "test:nats": "TRELLIS_TEST_NATS=1 PINO_LEVEL=fatal deno test --allow-env --allow-sys --allow-write --allow-run --allow-read --allow-net",
     "dev": "deno run --watch main.ts"

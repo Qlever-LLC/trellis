@@ -1,7 +1,7 @@
 This directory contains generated artifacts that are part of Trellis' public surface.
 
 Tracked in git:
-- contract manifests and packed contract JSON under `generated/contracts/`
+- contract manifests under `generated/contracts/manifests/`
 - generated TypeScript SDK source under `generated/js/sdks/`
 - generated Rust SDK source crates under `generated/rust/sdks/`
 
@@ -13,7 +13,6 @@ Ignored:
 Refresh generated files with:
 
 ```sh
-deno task -c js/deno.json build:contracts
-deno task -c js/deno.json sdk:platform:rust
+deno task -c js/services/trellis/deno.json build:sdk
 deno task -c js/services/activity/deno.json build:sdk
 ```

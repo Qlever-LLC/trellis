@@ -1,6 +1,6 @@
 //! Contract metadata for `trellis.core@v1`.
 
-// Generated from ../generated/contracts/manifests/trellis.core@v1.json
+// Generated from ./generated/contracts/manifests/trellis.core@v1.json
 
 /// Canonical Trellis contract id.
 pub const CONTRACT_ID: &str = "trellis.core@v1";

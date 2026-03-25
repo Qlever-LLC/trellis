@@ -1,4 +1,4 @@
-// Generated from ../../../generated/contracts/manifests/trellis.activity@v1.json
+// Generated from ./generated/contracts/manifests/trellis.activity@v1.json
 import { build, emptyDir } from "jsr:@deno/dnt@^0.41.3";
 
 await emptyDir(new URL("../npm", import.meta.url));

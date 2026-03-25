@@ -2,8 +2,6 @@
 
 Shared OpenTelemetry helpers for Trellis packages.
 
-- `@trellis/telemetry` — runtime-neutral telemetry helpers
-- `@trellis/telemetry/trellis` — Trellis RPC span helpers
-- `@trellis/telemetry/result` — `BaseError` trace-id integration
+- `@trellis/telemetry` — runtime-neutral telemetry helpers, Trellis RPC span helpers, and tracing setup
 
 Shared by `@trellis/trellis`, `@trellis/server`, and other packages that need tracing.

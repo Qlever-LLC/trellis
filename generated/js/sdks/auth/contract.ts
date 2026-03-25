@@ -1,4 +1,4 @@
-// Generated from ../generated/contracts/manifests/trellis.auth@v1.json
+// Generated from ./generated/contracts/manifests/trellis.auth@v1.json
 import type { SdkContractModule, TrellisContractV1, UseSpec } from "@trellis/contracts";
 import { API } from "./api.ts";
 

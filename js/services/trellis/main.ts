@@ -1,5 +1,5 @@
 import { Hono } from "@hono/hono";
-import { initTracing } from "@trellis/telemetry/trellis";
+import { initTracing } from "@trellis/telemetry";
 
 import { getConfig } from "./config.ts";
 import {

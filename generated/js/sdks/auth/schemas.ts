@@ -1,4 +1,4 @@
-// Generated from ../generated/contracts/manifests/trellis.auth@v1.json
+// Generated from ./generated/contracts/manifests/trellis.auth@v1.json
 export const SCHEMAS = {
   rpc: {
     "Auth.GetInstalledContract": {

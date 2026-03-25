@@ -10,10 +10,10 @@
     "./schema_pointers.ts": "./schema_pointers.ts"
   },
   "tasks": {
-    "generate": "deno task -c ../../deno.json build:contracts",
-    "generate:watch": "deno task -c ../../deno.json build:contracts",
-    "build:core": "deno task -c ../../deno.json build:contracts",
-    "pack": "cargo run --manifest-path ../../../rust/Cargo.toml -p trellis-cli --bin trellis -- contracts pack --manifest ../../../generated/contracts/manifests/trellis.core@v1.json --manifest ../../../generated/contracts/manifests/trellis.auth@v1.json --output ../../../generated/contracts/dist/catalog.v1.json --contracts-out ../../../generated/contracts/dist/contracts",
+    "generate": "deno task -c ../../deno.json build:sdk",
+    "generate:watch": "deno task -c ../../deno.json build:sdk",
+    "build:core": "deno task -c ../../deno.json build:sdk",
+    "build:npm": "deno run -A ./scripts/build_npm.ts",
     "test": "deno test -A"
   },
   "compilerOptions": {

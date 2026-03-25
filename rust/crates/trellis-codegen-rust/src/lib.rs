@@ -796,15 +796,42 @@ fn render_contract_rs(
     loaded: &trellis_contracts::LoadedManifest,
 ) -> String {
     let contract_name = manifest_display_name(loaded);
+    let source_reference =
+        manifest_source_reference(&opts.manifest_path, opts.runtime_deps.repo_root.as_deref());
     format!(
         "//! Contract metadata for `{}`.\n\n// Generated from {}\n\n/// Canonical Trellis contract id.\npub const CONTRACT_ID: &str = {};\n\n/// Stable digest for the canonical manifest JSON.\npub const CONTRACT_DIGEST: &str = {};\n\n/// Human-readable contract name.\npub const CONTRACT_NAME: &str = {};\n\n/// Canonical manifest JSON embedded in the SDK crate.\npub const CONTRACT_JSON: &str = r#\"{}\"#;\n\n/// Deserialize the embedded contract manifest.\npub fn contract_manifest() -> trellis_contracts::ContractManifest {{\n    serde_json::from_str(CONTRACT_JSON).expect(\"generated manifest json\")\n}}\n",
         loaded.manifest.id,
-        opts.manifest_path.display(),
+        source_reference,
         string_literal(&loaded.manifest.id),
         string_literal(&loaded.digest),
         string_literal(&contract_name),
         loaded.canonical,
     )
+}
+
+fn manifest_source_reference(manifest_path: &Path, repo_root: Option<&Path>) -> String {
+    let manifest_path = manifest_path
+        .canonicalize()
+        .unwrap_or_else(|_| manifest_path.to_path_buf());
+
+    if let Some(repo_root) = repo_root {
+        let repo_root = repo_root
+            .canonicalize()
+            .unwrap_or_else(|_| repo_root.to_path_buf());
+        if let Ok(relative) = manifest_path.strip_prefix(&repo_root) {
+            return normalize_relative_path_string(relative.to_string_lossy().replace('\\', "/"));
+        }
+    }
+
+    normalize_relative_path_string(manifest_path.to_string_lossy().replace('\\', "/"))
+}
+
+fn normalize_relative_path_string(path: String) -> String {
+    if path.is_empty() || path.starts_with("../") || path.starts_with("./") || path.starts_with('/')
+    {
+        return path;
+    }
+    format!("./{path}")
 }
 
 fn render_types_rs(loaded: &trellis_contracts::LoadedManifest) -> String {

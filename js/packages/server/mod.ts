@@ -8,6 +8,9 @@
  */
 
 export { TrellisServer } from "@trellis/trellis";
+export {
+  connectService as connectDenoService,
+} from "./deno.ts";
 // Re-export health types
 export {
   type HealthCheckFn,
@@ -22,6 +25,9 @@ export {
   HealthResponseSchema,
   HealthRpcSchema,
 } from "./health_schemas.ts";
+export {
+  connectService as connectNodeService,
+} from "./node.ts";
 export type {
   NatsConnectFn,
   NatsConnectOpts,

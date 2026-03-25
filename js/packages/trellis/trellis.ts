@@ -33,11 +33,10 @@ import {
   createNatsHeaderCarrier,
   extractTraceContext,
   injectTraceContext,
-  SpanStatusCode,
+  SpanStatusCode,startClientSpan, startServerSpan, 
   trace,
-  withSpanAsync,
+  withSpanAsync
 } from "@trellis/telemetry";
-import { startClientSpan, startServerSpan } from "@trellis/telemetry/trace";
 import type { Logger } from "pino";
 import { AssertError, Pointer } from "typebox/value";
 import { ulid } from "ulid";

@@ -1,4 +1,4 @@
-import { ContractResourceBindingsSchema, ContractResourcesSchema, IsoDateSchema } from "@trellis/contracts/protocol";
+import { ContractResourceBindingsSchema, ContractResourcesSchema, IsoDateSchema } from "@trellis/contracts";
 import type { StaticDecode } from "typebox";
 import { Type } from "typebox";
 

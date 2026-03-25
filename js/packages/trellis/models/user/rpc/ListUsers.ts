@@ -1,7 +1,7 @@
-import { PaginatedSchema } from "@trellis/contracts/protocol";
+import { UserViewSchema as UserSchema } from "@trellis/auth";
+import { PaginatedSchema } from "@trellis/contracts";
 import Type, { type Static } from "typebox";
 import { PaginateSchema } from "../../trellis/Paginate.ts";
-import { UserSchema } from "../models/User.ts";
 
 export const ListUsersFilterSchema = Type.Object({
   name: Type.Optional(Type.String()),

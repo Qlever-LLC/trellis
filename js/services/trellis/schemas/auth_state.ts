@@ -1,5 +1,5 @@
 import {
-  ApprovalDecisionSchema,
+  ApprovalDecisionSchema,AuthValidateRequestSchema as AuthValidateRequestRequestSchema, 
   type BindRequest,
   BindRequestSchema,
   type BindResponse,
@@ -9,10 +9,9 @@ import {
   type LoginQuery,
   LoginQuerySchema,
   type SentinelCreds,
-  SentinelCredsSchema,
+  SentinelCredsSchema
 } from "@trellis/auth";
-import { AuthValidateRequestSchema as AuthValidateRequestRequestSchema } from "@trellis/auth/protocol";
-import { IsoDateSchema } from "@trellis/contracts/protocol";
+import { IsoDateSchema } from "@trellis/contracts";
 import type { StaticDecode } from "typebox";
 import { Type } from "typebox";
 

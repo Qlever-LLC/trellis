@@ -6,7 +6,8 @@
   "tasks": {
     "dev": "deno run --env --allow-env --allow-sys --allow-read --allow-net --allow-ffi --watch main.ts",
     "build:sdk": "cargo run --manifest-path ../../../rust/Cargo.toml -p trellis-cli --bin trellis -- contracts build --source ../../../js/services/activity/contracts/trellis_activity.ts --out-manifest ../../../generated/contracts/manifests/trellis.activity@v1.json --ts-out ../../../generated/js/sdks/activity --rust-out ../../../generated/rust/sdks/activity --package-name @trellis/sdk-activity --crate-name trellis-sdk-activity --runtime-source local --runtime-version 0.1.0 --runtime-repo-root ../../..",
-    "check": "deno task -c ../../deno.json build:contracts && deno task build:sdk && deno check main.ts bootstrap.ts projectors.ts store.ts contracts/trellis_activity.ts",
+    "verify:contracts": "cargo run --manifest-path ../../../rust/Cargo.toml -p trellis-cli --bin trellis -- contracts verify --source ../../../js/services/activity/contracts/trellis_activity.ts",
+    "check": "deno task -c ../../deno.json build:sdk && deno check main.ts bootstrap.ts projectors.ts store.ts contracts/trellis_activity.ts",
     "test:contracts": "deno task build:sdk && deno test -A source_emission_test.ts"
   }
 }

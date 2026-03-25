@@ -1,4 +1,4 @@
-// Generated from ../generated/contracts/manifests/trellis.core@v1.json
+// Generated from ./generated/contracts/manifests/trellis.core@v1.json
 export const CONTRACT_ID = "trellis.core@v1" as const;
 export const CONTRACT_DIGEST = "u6jM9gtkoGwuqOf6Uzjs4jT_ONa5Tw635F9FgQIHBoQ" as const;
 

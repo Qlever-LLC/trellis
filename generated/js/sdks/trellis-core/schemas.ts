@@ -1,4 +1,4 @@
-// Generated from ../generated/contracts/manifests/trellis.core@v1.json
+// Generated from ./generated/contracts/manifests/trellis.core@v1.json
 export const SCHEMAS = {
   rpc: {
     "Trellis.Bindings.Get": {

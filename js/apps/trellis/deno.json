@@ -2,9 +2,9 @@
   "extends": "../../deno.json",
   "tasks": {
     "dev": "vite dev",
-    "build": "deno task -c ../../deno.json build:contracts && vite build",
+    "build": "deno task -c ../../deno.json build:sdk && vite build",
     "preview": "vite preview",
-    "check": "deno task -c ../../deno.json build:contracts && svelte-kit sync && svelte-check --tsconfig ./tsconfig.check.json"
+    "check": "deno task -c ../../deno.json build:sdk && svelte-kit sync && svelte-check --tsconfig ./tsconfig.check.json"
   },
   "compilerOptions": {
     "types": [

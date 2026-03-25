@@ -1,5 +1,5 @@
+import { UserViewSchema as UserSchema } from "@trellis/auth";
 import Type, { type Static } from "typebox";
-import { UserSchema } from "../models/User.ts";
 import { TrellisIDSchema } from "../../trellis/TrellisID.ts";
 
 export const FindUserSchema = Type.Object({

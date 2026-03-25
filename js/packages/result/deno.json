@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "exports": "./mod.ts",
   "tasks": {
+    "build:npm": "deno run -A ./scripts/build_npm.ts",
     "test": "deno test"
   },
   "compilerOptions": {

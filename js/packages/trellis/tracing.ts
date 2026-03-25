@@ -1,21 +1,19 @@
 // Keep this subpath for Trellis-specific tracing convenience without exposing
 // telemetry from the root `@trellis/trellis` package surface.
 export type { HeaderCarrier, NatsHeadersLike } from "@trellis/telemetry";
-export {
+export {configureErrorTraceId, 
   context,
   createMapCarrier,
   createNatsHeaderCarrier,
   extractTraceContext,
-  getActiveSpan,
+  getActiveSpan,getTrellisTracer as getTracer, 
   injectTraceContext,
   SpanKind,
-  SpanStatusCode,
+  SpanStatusCode,startClientSpan, startServerSpan, 
   trace,
   withSpan,
-  withSpanAsync,
+  withSpanAsync
 } from "@trellis/telemetry";
-export { configureErrorTraceId } from "@trellis/telemetry/result";
-export { getTrellisTracer as getTracer, startClientSpan, startServerSpan } from "@trellis/telemetry/trace";
 export function initTracing(serviceName: string): void {
-  void import("@trellis/telemetry/trellis").then((mod) => mod.initTracing(serviceName));
+  void import("@trellis/telemetry").then((mod) => mod.initTracing(serviceName));
 }

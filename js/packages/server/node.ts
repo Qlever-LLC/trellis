@@ -5,7 +5,7 @@ import {
 } from "@nats-io/transport-node";
 import type { TrellisAPI } from "@trellis/contracts";
 import type { TrellisServiceRuntimeDeps } from "./runtime.ts";
-import type { TrellisServiceConnectOpts } from "./service.ts";
+import type { ServiceContract, TrellisServiceConnectOpts } from "./service.ts";
 import { connectService as connectServiceWithRuntime } from "./service.ts";
 
 const nodeRuntimeDeps: TrellisServiceRuntimeDeps = {
@@ -20,12 +20,7 @@ export function connectService<
   TOwnedApi extends TrellisAPI,
   TTrellisApi extends TrellisAPI = TOwnedApi,
 >(
-  contract: {
-    API: {
-      owned: TOwnedApi;
-      trellis: TTrellisApi;
-    };
-  },
+  contract: ServiceContract<TOwnedApi, TTrellisApi>,
   name: string,
   opts: Omit<TrellisServiceConnectOpts<TOwnedApi, TTrellisApi>, "server"> & {
     server: Omit<TrellisServiceConnectOpts<TOwnedApi, TTrellisApi>["server"], "api" | "trellisApi">;

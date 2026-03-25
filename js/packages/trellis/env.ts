@@ -1,1 +1,1 @@
-export { getEnv } from "@trellis/telemetry/env";
+export { getEnv } from "@trellis/telemetry";
