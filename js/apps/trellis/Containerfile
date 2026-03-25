@@ -2,14 +2,6 @@ FROM docker.io/denoland/deno:2.7.7 AS build
 
 WORKDIR /app
 
-ARG VITE_TRELLIS_AUTH_URL=http://localhost:3000
-ARG VITE_TRELLIS_NATS_SERVERS=ws://localhost:8080
-ARG VITE_TRELLIS_DEFAULT_PROVIDER=github
-
-ENV VITE_TRELLIS_AUTH_URL=${VITE_TRELLIS_AUTH_URL}
-ENV VITE_TRELLIS_NATS_SERVERS=${VITE_TRELLIS_NATS_SERVERS}
-ENV VITE_TRELLIS_DEFAULT_PROVIDER=${VITE_TRELLIS_DEFAULT_PROVIDER}
-
 COPY js /app/js
 COPY generated/js /app/generated/js
 
@@ -20,7 +12,10 @@ RUN deno run -A npm:vite build
 FROM docker.io/library/nginx:1.29-alpine
 
 COPY js/apps/trellis/nginx.conf /etc/nginx/conf.d/default.conf
+COPY js/apps/trellis/docker-entrypoint.d/40-runtime-config.sh /docker-entrypoint.d/40-runtime-config.sh
 COPY --from=build /app/js/apps/trellis/build /usr/share/nginx/html
+
+RUN chmod +x /docker-entrypoint.d/40-runtime-config.sh
 
 EXPOSE 80
 

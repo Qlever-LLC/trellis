@@ -4,6 +4,14 @@ declare global {
       message: string;
     }
   }
+
+  var __TRELLIS_RUNTIME_CONFIG__:
+    | {
+      authUrl?: string;
+      natsServers?: string;
+      defaultProvider?: string;
+    }
+    | undefined;
 }
 
 export {};

@@ -4,15 +4,30 @@ const DEFAULT_NATS_SERVER = "ws://localhost:8080";
 const CANONICAL_LOOPBACK_HOST = "localhost";
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1", "[::1]", CANONICAL_LOOPBACK_HOST]);
 
+type RuntimeAppConfig = {
+  authUrl?: string;
+  natsServers?: string;
+  defaultProvider?: string;
+};
+
 function parseServers(value: string | undefined): string[] {
   const raw = value ?? DEFAULT_NATS_SERVER;
   return raw.split(",").map((server) => server.trim()).filter(Boolean);
 }
 
+function readRuntimeConfig(): RuntimeAppConfig {
+  const config = (globalThis as typeof globalThis & {
+    __TRELLIS_RUNTIME_CONFIG__?: RuntimeAppConfig;
+  }).__TRELLIS_RUNTIME_CONFIG__;
+  return config ?? {};
+}
+
+const runtimeConfig = readRuntimeConfig();
+
 export const APP_CONFIG = {
-  authUrl: import.meta.env.VITE_TRELLIS_AUTH_URL ?? DEFAULT_AUTH_URL,
-  natsServers: parseServers(import.meta.env.VITE_TRELLIS_NATS_SERVERS),
-  defaultProvider: import.meta.env.VITE_TRELLIS_DEFAULT_PROVIDER ?? "github"
+  authUrl: runtimeConfig.authUrl ?? import.meta.env.VITE_TRELLIS_AUTH_URL ?? DEFAULT_AUTH_URL,
+  natsServers: parseServers(runtimeConfig.natsServers ?? import.meta.env.VITE_TRELLIS_NATS_SERVERS),
+  defaultProvider: runtimeConfig.defaultProvider ?? import.meta.env.VITE_TRELLIS_DEFAULT_PROVIDER ?? "github",
 };
 
 function toUrl(location: URL | Location): URL {

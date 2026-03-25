@@ -163,6 +163,9 @@ After=trellis-runtime.service
 ContainerName=trellis-app
 Image=ghcr.io/OWNER/trellis-app:latest
 PublishPort=127.0.0.1:5173:80
+Environment=VITE_TRELLIS_AUTH_URL=http://host.containers.internal:3000
+Environment=VITE_TRELLIS_NATS_SERVERS=ws://host.containers.internal:8080
+Environment=VITE_TRELLIS_DEFAULT_PROVIDER=github
 Network=trellis.network
 UserNS=keep-id
 NoNewPrivileges=true
@@ -181,7 +184,7 @@ WantedBy=default.target
 
 Replace `ghcr.io/OWNER/trellis-runtime:latest` and `ghcr.io/OWNER/trellis-app:latest` with your actual image references.
 
-The runtime binds only to localhost, runs rootless with all capabilities dropped, and mounts creds read-only. The app image is built with its Trellis URL baked in at image build time.
+The runtime binds only to localhost, runs rootless with all capabilities dropped, and mounts creds read-only. The app container reads its public browser config from runtime environment variables, so you can point it at the correct Trellis auth and WebSocket endpoints without rebuilding the image.
 
 ## 8. Start the services
 
