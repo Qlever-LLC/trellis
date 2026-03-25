@@ -40,12 +40,6 @@ jobs:
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache Rust build artifacts
-        if: ${{ !matrix.use-cross }}
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: rust
-
       - name: Run trellis CLI tests
         run: cargo test -p trellis-cli --locked
         working-directory: rust
@@ -61,16 +55,12 @@ jobs:
         include:
           - runner: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            use-cross: false
-          - runner: ubuntu-latest
+          - runner: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
-            use-cross: true
           - runner: macos-14
             target: x86_64-apple-darwin
-            use-cross: false
           - runner: macos-14
             target: aarch64-apple-darwin
-            use-cross: false
 
     steps:
       - name: Check out repository
@@ -81,17 +71,13 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Install cross
-        if: ${{ matrix.use-cross }}
-        run: cargo install cross --git https://github.com/cross-rs/cross
-
       - name: Cache Rust build artifacts
         uses: swatinem/rust-cache@v2
         with:
           workspaces: rust
 
       - name: Build release binary
-        run: ${{ matrix.use-cross && format('cross build -p trellis-cli --release --locked --target {0}', matrix.target) || format('cargo build -p trellis-cli --release --locked --target {0}', matrix.target) }}
+        run: cargo build -p trellis-cli --release --locked --target ${{ matrix.target }}
         working-directory: rust
 
       - name: Package CLI archive
