@@ -41,6 +41,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache Rust build artifacts
+        if: ${{ !matrix.use-cross }}
         uses: swatinem/rust-cache@v2
         with:
           workspaces: rust

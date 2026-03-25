@@ -37,6 +37,9 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -64,6 +67,7 @@ jobs:
         with:
           context: .
           file: js/services/trellis/Containerfile
+          platforms: linux/amd64,linux/arm64
           push: ${{ env.SHOULD_PUSH == 'true' }}
           tags: ${{ steps.runtime_meta.outputs.tags }}
           labels: ${{ steps.runtime_meta.outputs.labels }}
