@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "verbatimModuleSyntax": true
+  },
+  "exports": {
+    ".": "./mod.ts",
+    "./api": "./api.ts",
+    "./contract": "./contract.ts",
+    "./schemas": "./schemas.ts",
+    "./types": "./types.ts"
+  },
+  "extends": "../../../../js/deno.json",
+  "name": "@trellis/sdk-trellis-core",
+  "tasks": {
+    "build:npm": "deno run -A scripts/build_npm.ts"
+  },
+  "version": "0.1.0"
+}

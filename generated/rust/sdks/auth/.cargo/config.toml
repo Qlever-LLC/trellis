@@ -1,0 +1,4 @@
+[patch.crates-io]
+trellis-client = { path = "/home/abalmos/git/qlever/trellis/new/rust/crates/trellis-client" }
+trellis-contracts = { path = "/home/abalmos/git/qlever/trellis/new/rust/crates/trellis-contracts" }
+trellis-server = { path = "/home/abalmos/git/qlever/trellis/new/rust/crates/trellis-server" }

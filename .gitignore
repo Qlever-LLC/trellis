@@ -40,7 +40,8 @@ vite.config.ts.timestamp-*
 utils/arangodb/data/
 
 # Generated build artifacts
-generated/
+generated/rust/sdks/*/target/
+generated/rust/sdks/*/flycheck0/
 **/npm/
 *.tgz
 
