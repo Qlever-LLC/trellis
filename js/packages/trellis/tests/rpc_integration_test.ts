@@ -5,7 +5,7 @@ import {
   AuthMeSchema,
   AuthValidateRequestResponseSchema,
   AuthValidateRequestSchema,
-} from "@trellis/auth";
+} from "@qlever-llc/trellis-auth";
 
 import { Type } from "typebox";
 import { isErr, ok } from "../../result/mod.ts";

@@ -1,7 +1,7 @@
 // @ts-nocheck -- svelte-check hits pathological generic instantiation in this file
 import { type KV, type KvEntry, Kvm } from "@nats-io/kv";
 import type { NatsConnection } from "@nats-io/nats-core/internal";
-import { Result } from "@trellis/result";
+import { Result } from "@qlever-llc/trellis-result";
 import { merge } from "ts-deepmerge";
 import type { StaticDecode, TSchema } from "typebox";
 import Value, { ParseError } from "typebox/value";

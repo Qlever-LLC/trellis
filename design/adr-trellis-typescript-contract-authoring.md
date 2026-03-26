@@ -57,16 +57,16 @@ back to lower-level escape hatches.
 
 ### 2) Package boundary
 
-The contract authoring API lives in `@trellis/contracts` because contracts are an
+The contract authoring API lives in `@qlever-llc/trellis-contracts` because contracts are an
 architectural concept, not a transport-only client helper.
 
-`@trellis/contracts` is the high-level authoring API for contract modules.
+`@qlever-llc/trellis-contracts` is the high-level authoring API for contract modules.
 
 Rules:
 
-- `@trellis/contracts` owns the contract authoring types and helpers
-- `@trellis/trellis` consumes contract objects for runtime client helpers
-- `@trellis/server/node` and `@trellis/server/deno` consume contract objects for service runtime helpers
+- `@qlever-llc/trellis-contracts` owns the contract authoring types and helpers
+- `@qlever-llc/trellis-trellis` consumes contract objects for runtime client helpers
+- `@qlever-llc/trellis-server/node` and `@qlever-llc/trellis-server/deno` consume contract objects for service runtime helpers
 
 ### 3) SDK-driven `uses`
 
@@ -182,7 +182,7 @@ not as a one-time connection option.
 
 ### Public package exports
 
-`@trellis/contracts` is the normative home for the TypeScript contract authoring
+`@qlever-llc/trellis-contracts` is the normative home for the TypeScript contract authoring
 API.
 
 It exports the public contract-first surface:
@@ -190,15 +190,15 @@ It exports the public contract-first surface:
 - `defineContract(...)`
 - the contract module and use-spec types needed by generated SDKs
 
-`@trellis/contracts` exports `defineContract(...)` and related public contract
+`@qlever-llc/trellis-contracts` exports `defineContract(...)` and related public contract
 types for convenience.
 
-Runtime helpers live in the runtime packages, not in `@trellis/contracts` itself.
+Runtime helpers live in the runtime packages, not in `@qlever-llc/trellis-contracts` itself.
 
 Rules:
 
-- new user-facing TypeScript contract authoring APIs are defined in `@trellis/contracts`
-- `@trellis/trellis` must not introduce a second competing contract definition model
+- new user-facing TypeScript contract authoring APIs are defined in `@qlever-llc/trellis-contracts`
+- `@qlever-llc/trellis-trellis` must not introduce a second competing contract definition model
 - documentation should prefer the owning package import path instead of convenience re-exports
 
 ### TypeScript API surface
@@ -298,9 +298,9 @@ declare function defineContract(...args: unknown[]): DefinedContract<any, any, a
 Illustrative usage:
 
 ```ts
-import { defineContract } from "@trellis/contracts";
-import { auth } from "@trellis/sdk-auth";
-import { core } from "@trellis/sdk-core";
+import { defineContract } from "@qlever-llc/trellis-contracts";
+import { auth } from "@qlever-llc/trellis-sdk-auth";
+import { core } from "@qlever-llc/trellis-sdk-trellis-core";
 
 export const activity = defineContract({
   id: "trellis.activity@v1",
@@ -485,8 +485,8 @@ Expected type behavior:
 
 Implementation should proceed in this order:
 
-1. add the new `defineContract(...)` and shared contract module types in `@trellis/contracts`
-2. re-export that surface from `@trellis/trellis`
+1. add the new `defineContract(...)` and shared contract module types in `@qlever-llc/trellis-contracts`
+2. re-export that surface from `@qlever-llc/trellis-trellis`
 3. update TS SDK generation to emit the richer contract module shape with nested API views and typed `use(...)`
 4. update runtime helpers to consume contract objects directly for client and service creation
 5. migrate in-repo contracts and bootstrap code to the new model

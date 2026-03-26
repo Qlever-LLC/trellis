@@ -18,7 +18,7 @@ Trellis services should adhere to the guidelines in [adr-trellis-patterns.md](./
 
 ## Decision
 
-This ADR defines `@trellis/jobs`:
+This ADR defines `@qlever-llc/trellis-jobs`:
 
 - A **server library** for services to manage their own jobs
 - A **client library** for UIs to query, watch, and manage jobs across all services
@@ -411,7 +411,7 @@ const defaultRetryConfig: RetryConfig = {
 
 ### Server Library API
 
-`@trellis/jobs` exports a `JobManager` class for services:
+`@qlever-llc/trellis-jobs` exports a `JobManager` class for services:
 
 ```typescript
 import { z } from "zod";
@@ -470,7 +470,7 @@ type JobFilter = {
 
 ### Client Library API
 
-`@trellis/jobs/client` exports a `JobClient` for UIs:
+`@qlever-llc/trellis-jobs/client` exports a `JobClient` for UIs:
 
 ```typescript
 class JobClient {
@@ -569,7 +569,7 @@ The central jobs service can implement periodic cleanup or archival as configure
 ### Example Usage
 
 ```typescript
-import { JobManager } from "@trellis/jobs";
+import { JobManager } from "@qlever-llc/trellis-jobs";
 import { z } from "zod";
 
 	const DocumentPayload = z.object({

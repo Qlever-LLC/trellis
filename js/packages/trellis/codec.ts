@@ -2,8 +2,8 @@ import {
   type InferSchemaType,
   type SchemaLike,
   unwrapSchema,
-} from "@trellis/contracts";
-import { Result } from "@trellis/result";
+} from "@qlever-llc/trellis-contracts";
+import { Result } from "@qlever-llc/trellis-result";
 import type { StaticDecode, TSchema } from "typebox";
 import { EncodeError, ParseError, Value } from "typebox/value";
 import { UnexpectedError, ValidationError } from "./errors/index.ts";

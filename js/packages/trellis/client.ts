@@ -1,5 +1,5 @@
 import type { NatsConnection } from "@nats-io/nats-core";
-import type { TrellisAPI } from "@trellis/contracts";
+import type { TrellisAPI } from "@qlever-llc/trellis-contracts";
 import type { Logger } from "pino";
 
 import type { TrellisAuth } from "./trellis.ts";

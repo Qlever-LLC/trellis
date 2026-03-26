@@ -1,4 +1,4 @@
-import { AsyncResult } from "@trellis/result";
+import { AsyncResult } from "@qlever-llc/trellis-result";
 
 import { logger, natsAuth } from "./globals.ts";
 

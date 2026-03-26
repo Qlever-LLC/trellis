@@ -1,8 +1,8 @@
 import { decode, encodeAuthorizationResponse, encodeUser, type User } from "@nats-io/jwt";
 import type { Msg } from "@nats-io/nats-core";
 import { fromSeed } from "@nats-io/nkeys";
-import { NatsAuthTokenV1Schema, trellisIdFromOriginId } from "@trellis/auth";
-import { AsyncResult, isErr } from "@trellis/result";
+import { NatsAuthTokenV1Schema, trellisIdFromOriginId } from "@qlever-llc/trellis-auth";
+import { AsyncResult, isErr } from "@qlever-llc/trellis-result";
 import { Value } from "typebox/value";
 
 import { hashKey, verifyDomainSig } from "./auth_utils.ts";

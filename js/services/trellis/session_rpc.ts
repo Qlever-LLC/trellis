@@ -1,6 +1,6 @@
-import { base64urlDecode, trellisIdFromOriginId, verifyProof } from "@trellis/auth";
-import { AsyncResult, isErr, Result } from "@trellis/result";
-import { AuthError } from "@trellis/trellis";
+import { base64urlDecode, trellisIdFromOriginId, verifyProof } from "@qlever-llc/trellis-auth";
+import { AsyncResult, isErr, Result } from "@qlever-llc/trellis-result";
+import { AuthError } from "@qlever-llc/trellis-trellis";
 
 import { getConfig } from "./config.ts";
 import {

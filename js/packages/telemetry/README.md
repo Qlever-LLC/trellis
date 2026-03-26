@@ -1,7 +1,7 @@
-# @trellis/telemetry
+# @qlever-llc/trellis-telemetry
 
 Shared OpenTelemetry helpers for Trellis packages.
 
-- `@trellis/telemetry` — runtime-neutral telemetry helpers, Trellis RPC span helpers, and tracing setup
+- `@qlever-llc/trellis-telemetry` — runtime-neutral telemetry helpers, Trellis RPC span helpers, and tracing setup
 
-Shared by `@trellis/trellis`, `@trellis/server`, and other packages that need tracing.
+Shared by `@qlever-llc/trellis-trellis`, `@qlever-llc/trellis-server`, and other packages that need tracing.

@@ -1,7 +1,7 @@
 import {
   ContractResourceBindingsSchema,
   ContractResourcesSchema,
-} from "@trellis/contracts";
+} from "@qlever-llc/trellis-contracts";
 import { Type } from "typebox";
 
 const IsoDateStringSchema = Type.String({ format: "date-time" });

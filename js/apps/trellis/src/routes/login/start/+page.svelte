@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { buildLoginUrl } from "@trellis/auth";
-  import { createAuthState } from "@trellis/svelte";
+  import { buildLoginUrl } from "@qlever-llc/trellis-auth";
+  import { createAuthState } from "@qlever-llc/trellis-svelte";
   import { onMount } from "svelte";
   import { browser } from "$app/environment";
   import { goto } from "$app/navigation";

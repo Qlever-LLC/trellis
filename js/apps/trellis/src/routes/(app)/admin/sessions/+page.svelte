@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { AuthListConnectionsOutput, AuthListSessionsOutput } from "@trellis/sdk-auth";
+  import type { AuthListConnectionsOutput, AuthListSessionsOutput } from "@qlever-llc/trellis-sdk-auth";
   import { onMount } from "svelte";
   import { createAuthRequester } from "../../../../lib/auth-rpc";
   import { errorMessage, formatDate } from "../../../../lib/format";

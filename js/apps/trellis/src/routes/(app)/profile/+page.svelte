@@ -1,6 +1,6 @@
 <script lang="ts">
-  import type { AuthMeOutput } from "@trellis/sdk-auth";
-  import { getNatsState } from "@trellis/svelte";
+  import type { AuthMeOutput } from "@qlever-llc/trellis-sdk-auth";
+  import { getNatsState } from "@qlever-llc/trellis-svelte";
   import { onMount } from "svelte";
   import { createAuthRequester } from "../../../lib/auth-rpc";
   import { errorMessage, formatDate } from "../../../lib/format";

@@ -1,5 +1,5 @@
-export type { TrellisAPI } from "@trellis/contracts";
-export { err, isErr, isOk, ok, Result } from "@trellis/result";
+export type { TrellisAPI } from "@qlever-llc/trellis-contracts";
+export { err, isErr, isOk, ok, Result } from "@qlever-llc/trellis-result";
 export type { ClientOpts } from "./client.ts";
 export { createClient } from "./client.ts";
 export type { TrellisErrorInstance } from "./errors/index.ts";

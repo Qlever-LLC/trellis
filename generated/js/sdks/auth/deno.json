@@ -11,7 +11,7 @@
     "./types": "./types.ts"
   },
   "extends": "../../../../js/deno.json",
-  "name": "@trellis/sdk-auth",
+  "name": "@qlever-llc/trellis-sdk-auth",
   "tasks": {
     "build:npm": "deno run -A scripts/build_npm.ts"
   },

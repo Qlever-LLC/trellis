@@ -1,6 +1,6 @@
 // Keep this subpath for Trellis-specific tracing convenience without exposing
-// telemetry from the root `@trellis/trellis` package surface.
-export type { HeaderCarrier, NatsHeadersLike } from "@trellis/telemetry";
+// telemetry from the root `@qlever-llc/trellis-trellis` package surface.
+export type { HeaderCarrier, NatsHeadersLike } from "@qlever-llc/trellis-telemetry";
 export {configureErrorTraceId, 
   context,
   createMapCarrier,
@@ -13,7 +13,7 @@ export {configureErrorTraceId,
   trace,
   withSpan,
   withSpanAsync
-} from "@trellis/telemetry";
+} from "@qlever-llc/trellis-telemetry";
 export function initTracing(serviceName: string): void {
-  void import("@trellis/telemetry").then((mod) => mod.initTracing(serviceName));
+  void import("@qlever-llc/trellis-telemetry").then((mod) => mod.initTracing(serviceName));
 }

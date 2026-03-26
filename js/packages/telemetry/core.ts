@@ -8,7 +8,7 @@ import {
   trace,
 } from "@opentelemetry/api";
 
-export function getTracer(scope = "@trellis/telemetry"): Tracer {
+export function getTracer(scope = "@qlever-llc/trellis-telemetry"): Tracer {
   return trace.getTracer(scope);
 }
 

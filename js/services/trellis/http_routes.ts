@@ -2,7 +2,7 @@ import type { Hono } from "@hono/hono";
 import { cors } from "@hono/hono/cors";
 import { HTTPException } from "@hono/hono/http-exception";
 import { rateLimiter } from "@hono-rate-limiter/hono-rate-limiter";
-import { AsyncResult, isErr } from "@trellis/result";
+import { AsyncResult, isErr } from "@qlever-llc/trellis-result";
 import { Value } from "typebox/value";
 
 import { hashKey, randomToken, verifyDomainSig } from "./auth_utils.ts";

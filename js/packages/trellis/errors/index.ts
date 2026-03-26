@@ -1,10 +1,10 @@
-import { UnexpectedError } from "@trellis/result";
+import { UnexpectedError } from "@qlever-llc/trellis-result";
 import { AuthError } from "./AuthError.ts";
 import { ValidationError } from "./ValidationError.ts";
 import { RemoteError } from "./RemoteError.ts";
 import { KVError } from "./KVError.ts";
 
-export { UnexpectedError } from "@trellis/result";
+export { UnexpectedError } from "@qlever-llc/trellis-result";
 export { TrellisError } from "./TrellisError.ts";
 export { AuthError } from "./AuthError.ts";
 export { ValidationError } from "./ValidationError.ts";

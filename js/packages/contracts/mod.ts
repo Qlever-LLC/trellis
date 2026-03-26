@@ -40,7 +40,7 @@ export {
 export const CONTRACT_FORMAT_V1 = "trellis.contract.v1" as const;
 export const CATALOG_FORMAT_V1 = "trellis.catalog.v1" as const;
 
-const CONTRACT_MODULE_METADATA = Symbol.for("@trellis/contracts/contract-module");
+const CONTRACT_MODULE_METADATA = Symbol.for("@qlever-llc/trellis-contracts/contract-module");
 
 type UnionToIntersection<U> =
   (U extends unknown ? (value: U) => void : never) extends (value: infer I) => void ? I
@@ -747,7 +747,7 @@ function getContractModuleFromUse(
   const contractModule = (useValue as ContractModuleMarker)[CONTRACT_MODULE_METADATA];
   if (!contractModule) {
     throw new Error(
-      `Contract use '${alias}' must be created with contractModule.use(...) from @trellis/contracts`,
+      `Contract use '${alias}' must be created with contractModule.use(...) from @qlever-llc/trellis-contracts`,
     );
   }
   return contractModule;

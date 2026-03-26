@@ -93,14 +93,14 @@ jobs:
             ./trellis-server-0.1.0.tgz \
             ./trellis-trellis-0.1.0.tgz >/dev/null
           node --input-type=module <<'EOF'
-          await import("@trellis/telemetry");
-          await import("@trellis/telemetry/env");
-          await import("@trellis/telemetry/trellis");
-          await import("@trellis/auth/protocol");
-          await import("@trellis/trellis");
-          await import("@trellis/trellis/tracing");
-          await import("@trellis/server");
-          await import("@trellis/server/node");
+          await import("@qlever-llc/trellis-telemetry");
+          await import("@qlever-llc/trellis-telemetry/env");
+          await import("@qlever-llc/trellis-telemetry/trellis");
+          await import("@qlever-llc/trellis-auth/protocol");
+          await import("@qlever-llc/trellis-trellis");
+          await import("@qlever-llc/trellis-trellis/tracing");
+          await import("@qlever-llc/trellis-server");
+          await import("@qlever-llc/trellis-server/node");
           EOF
 
   publish:

@@ -21,12 +21,12 @@ import {
   AuthUpgradeServiceContractSchema,
   AuthValidateRequestResponseSchema,
   AuthValidateRequestSchema,
-} from "@trellis/auth";
-import { defineContract } from "@trellis/contracts";
+} from "@qlever-llc/trellis-auth";
+import { defineContract } from "@qlever-llc/trellis-contracts";
 import {
   HealthResponseSchema,
   HealthRpcSchema,
-} from "@trellis/server";
+} from "@qlever-llc/trellis-server";
 import {
   type AuthConnectEvent,
   AuthConnectEventSchema,

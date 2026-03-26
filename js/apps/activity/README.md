@@ -2,7 +2,7 @@
 
 SvelteKit operator view for the Activity service. Displays the audit projection feed.
 
-Uses `@trellis/svelte` for browser auth, NATS connectivity, and RPC wiring to `Auth.*` and `Activity.*`.
+Uses `@qlever-llc/trellis-svelte` for browser auth, NATS connectivity, and RPC wiring to `Auth.*` and `Activity.*`.
 
 ## Local dev
 

@@ -1,6 +1,6 @@
-import type { TrellisCatalogV1, TrellisContractV1 } from "@trellis/contracts";
+import type { TrellisCatalogV1, TrellisContractV1 } from "@qlever-llc/trellis-contracts";
 
-import { digestJson, isJsonValue, type JsonValue } from "@trellis/contracts";
+import { digestJson, isJsonValue, type JsonValue } from "@qlever-llc/trellis-contracts";
 import { compileSchema, draft2019 } from "json-schema-library";
 import { Type } from "typebox";
 import { Value } from "typebox/value";

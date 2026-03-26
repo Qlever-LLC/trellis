@@ -122,7 +122,7 @@ fn deno_json(opts: &GenerateTsSdkOpts) -> Result<serde_json::Map<String, Value>,
         root.insert(
             "imports".to_string(),
             serde_json::json!({
-                "@trellis/contracts": format!("jsr:@trellis/contracts@^{}", opts.runtime_deps.version)
+                "@qlever-llc/trellis-contracts": format!("jsr:@qlever-llc/trellis-contracts@^{}", opts.runtime_deps.version)
             }),
         );
     }
@@ -142,7 +142,7 @@ fn render_contract_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Stri
     let source_reference =
         manifest_source_reference(&opts.manifest_path, opts.runtime_deps.repo_root.as_deref());
     format!(
-        "// Generated from {}\nimport type {{ SdkContractModule, TrellisContractV1, UseSpec }} from \"@trellis/contracts\";\nimport {{ API }} from \"./api.ts\";\n\nconst CONTRACT_MODULE_METADATA = Symbol.for(\"@trellis/contracts/contract-module\");\n\nexport const CONTRACT_ID = {} as const;\nexport const CONTRACT_DIGEST = {} as const;\nexport const CONTRACT = {} as TrellisContractV1;\n\nfunction assertSelectedKeysExist(\n  kind: \"rpc\" | \"events\" | \"subjects\",\n  keys: readonly string[] | undefined,\n  api: Record<string, unknown>,\n) {{\n  if (!keys) {{\n    return;\n  }}\n\n  for (const key of keys) {{\n    if (!Object.hasOwn(api, key)) {{\n      throw new Error(`Contract '${{CONTRACT_ID}}' does not expose ${{kind}} key '${{key}}'`);\n    }}\n  }}\n}}\n\nfunction assertValidUseSpec(spec: UseSpec<typeof API.owned>) {{\n  assertSelectedKeysExist(\"rpc\", spec.rpc?.call, API.owned.rpc);\n  assertSelectedKeysExist(\"events\", spec.events?.publish, API.owned.events);\n  assertSelectedKeysExist(\"events\", spec.events?.subscribe, API.owned.events);\n  assertSelectedKeysExist(\"subjects\", spec.subjects?.publish, API.owned.subjects);\n  assertSelectedKeysExist(\"subjects\", spec.subjects?.subscribe, API.owned.subjects);\n}}\n\nexport const {}: SdkContractModule<typeof CONTRACT_ID, typeof API.owned> = {{\n  CONTRACT_ID,\n  CONTRACT_DIGEST,\n  CONTRACT,\n  API,\n  use: ((spec) => {{\n    assertValidUseSpec(spec);\n\n    const dependencyUse = {{\n      contract: CONTRACT_ID,\n      ...(spec.rpc?.call ? {{ rpc: {{ call: [...spec.rpc.call] }} }} : {{}}),\n      ...((spec.events?.publish || spec.events?.subscribe)\n        ? {{\n          events: {{\n            ...(spec.events.publish ? {{ publish: [...spec.events.publish] }} : {{}}),\n            ...(spec.events.subscribe ? {{ subscribe: [...spec.events.subscribe] }} : {{}}),\n          }},\n        }}\n        : {{}}),\n      ...((spec.subjects?.publish || spec.subjects?.subscribe)\n        ? {{\n          subjects: {{\n            ...(spec.subjects.publish ? {{ publish: [...spec.subjects.publish] }} : {{}}),\n            ...(spec.subjects.subscribe ? {{ subscribe: [...spec.subjects.subscribe] }} : {{}}),\n          }},\n        }}\n        : {{}}),\n    }};\n\n    Object.defineProperty(dependencyUse, CONTRACT_MODULE_METADATA, {{\n      value: {},\n      enumerable: false,\n    }});\n\n    return dependencyUse;\n  }}) as SdkContractModule<typeof CONTRACT_ID, typeof API.owned>[\"use\"],\n}};\n\nexport const use = {}.use;\n",
+        "// Generated from {}\nimport type {{ SdkContractModule, TrellisContractV1, UseSpec }} from \"@qlever-llc/trellis-contracts\";\nimport {{ API }} from \"./api.ts\";\n\nconst CONTRACT_MODULE_METADATA = Symbol.for(\"@qlever-llc/trellis-contracts/contract-module\");\n\nexport const CONTRACT_ID = {} as const;\nexport const CONTRACT_DIGEST = {} as const;\nexport const CONTRACT = {} as TrellisContractV1;\n\nfunction assertSelectedKeysExist(\n  kind: \"rpc\" | \"events\" | \"subjects\",\n  keys: readonly string[] | undefined,\n  api: Record<string, unknown>,\n) {{\n  if (!keys) {{\n    return;\n  }}\n\n  for (const key of keys) {{\n    if (!Object.hasOwn(api, key)) {{\n      throw new Error(`Contract '${{CONTRACT_ID}}' does not expose ${{kind}} key '${{key}}'`);\n    }}\n  }}\n}}\n\nfunction assertValidUseSpec(spec: UseSpec<typeof API.owned>) {{\n  assertSelectedKeysExist(\"rpc\", spec.rpc?.call, API.owned.rpc);\n  assertSelectedKeysExist(\"events\", spec.events?.publish, API.owned.events);\n  assertSelectedKeysExist(\"events\", spec.events?.subscribe, API.owned.events);\n  assertSelectedKeysExist(\"subjects\", spec.subjects?.publish, API.owned.subjects);\n  assertSelectedKeysExist(\"subjects\", spec.subjects?.subscribe, API.owned.subjects);\n}}\n\nexport const {}: SdkContractModule<typeof CONTRACT_ID, typeof API.owned> = {{\n  CONTRACT_ID,\n  CONTRACT_DIGEST,\n  CONTRACT,\n  API,\n  use: ((spec) => {{\n    assertValidUseSpec(spec);\n\n    const dependencyUse = {{\n      contract: CONTRACT_ID,\n      ...(spec.rpc?.call ? {{ rpc: {{ call: [...spec.rpc.call] }} }} : {{}}),\n      ...((spec.events?.publish || spec.events?.subscribe)\n        ? {{\n          events: {{\n            ...(spec.events.publish ? {{ publish: [...spec.events.publish] }} : {{}}),\n            ...(spec.events.subscribe ? {{ subscribe: [...spec.events.subscribe] }} : {{}}),\n          }},\n        }}\n        : {{}}),\n      ...((spec.subjects?.publish || spec.subjects?.subscribe)\n        ? {{\n          subjects: {{\n            ...(spec.subjects.publish ? {{ publish: [...spec.subjects.publish] }} : {{}}),\n            ...(spec.subjects.subscribe ? {{ subscribe: [...spec.subjects.subscribe] }} : {{}}),\n          }},\n        }}\n        : {{}}),\n    }};\n\n    Object.defineProperty(dependencyUse, CONTRACT_MODULE_METADATA, {{\n      value: {},\n      enumerable: false,\n    }});\n\n    return dependencyUse;\n  }}) as SdkContractModule<typeof CONTRACT_ID, typeof API.owned>[\"use\"],\n}};\n\nexport const use = {}.use;\n",
         escape_js_string(&source_reference),
         js_string(&loaded.manifest.id),
         js_string(&loaded.digest),
@@ -293,8 +293,8 @@ fn render_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
         manifest_source_reference(&opts.manifest_path, opts.runtime_deps.repo_root.as_deref());
     let mut lines = vec![
         format!("// Generated from {}", escape_js_string(&source_reference)),
-        "import type { TrellisAPI } from \"@trellis/contracts\";".to_string(),
-        "import { schema } from \"@trellis/contracts\";".to_string(),
+        "import type { TrellisAPI } from \"@qlever-llc/trellis-contracts\";".to_string(),
+        "import { schema } from \"@qlever-llc/trellis-contracts\";".to_string(),
         "import * as Types from \"./types.ts\";".to_string(),
         "import { SCHEMAS } from \"./schemas.ts\";".to_string(),
         String::new(),
@@ -455,7 +455,7 @@ fn render_build_npm_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Str
     };
 
     format!(
-        "// Generated from {}\nimport {{ build, emptyDir }} from \"jsr:@deno/dnt@^0.41.3\";\n\nawait emptyDir(new URL(\"../npm\", import.meta.url));\n\nawait build({{\n  entryPoints: [\"./mod.ts\"],\n  outDir: \"./npm\",\n  shims: {{\n    deno: true,\n  }},\n  test: false,\n  typeCheck: false,\n  package: {{\n    name: {},\n    version: {},\n    description: \"Generated Trellis SDK for contract {}\",\n    dependencies: {{\n      \"@trellis/contracts\": {},\n    }},\n  }},\n}});\n",
+        "// Generated from {}\nimport {{ build, emptyDir }} from \"jsr:@deno/dnt@^0.41.3\";\n\nawait emptyDir(new URL(\"../npm\", import.meta.url));\n\nawait build({{\n  entryPoints: [\"./mod.ts\"],\n  outDir: \"./npm\",\n  shims: {{\n    deno: true,\n  }},\n  test: false,\n  typeCheck: false,\n  package: {{\n    name: {},\n    version: {},\n    description: \"Generated Trellis SDK for contract {}\",\n    dependencies: {{\n      \"@qlever-llc/trellis-contracts\": {},\n    }},\n  }},\n}});\n",
         escape_js_string(&source_reference),
         js_string(&opts.package_name),
         js_string(&opts.package_version),
@@ -546,7 +546,7 @@ fn render_readme(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
     let module_export = sdk_module_export_name(&opts.package_name);
     let use_example = example_use_block(&module_export, loaded);
     format!(
-        "# {}\n\nGenerated Trellis SDK for contract `{}`.\n\n## Usage\n\n```ts\nimport {{ defineContract }} from \"@trellis/trellis\";\nimport {{ {} }} from \"{}\";\n\nconst app = defineContract({{\n  id: \"example.app@v1\",\n  displayName: \"Example App\",\n  description: \"User-facing app for the example deployment.\",\n  kind: \"app\",\n  uses: {{\n{}\n  }},\n}});\n\nconst client = app.createClient(nc, authSession);\n```\n\n## Contents\n\n- `{}`: generated contract module with `CONTRACT_ID`, `CONTRACT_DIGEST`, `CONTRACT`, `API`, and `use(...)`\n- `API`: nested contract API views with `API.owned`, `API.used`, and `API.trellis`\n- `types.ts`: TypeScript types derived from JSON Schemas\n- `schemas.ts`: Raw JSON Schemas (as `as const` objects)\n- `contract.ts`: embedded contract metadata and typed `use(...)` helper\n",
+        "# {}\n\nGenerated Trellis SDK for contract `{}`.\n\n## Usage\n\n```ts\nimport {{ defineContract }} from \"@qlever-llc/trellis-trellis\";\nimport {{ {} }} from \"{}\";\n\nconst app = defineContract({{\n  id: \"example.app@v1\",\n  displayName: \"Example App\",\n  description: \"User-facing app for the example deployment.\",\n  kind: \"app\",\n  uses: {{\n{}\n  }},\n}});\n\nconst client = app.createClient(nc, authSession);\n```\n\n## Contents\n\n- `{}`: generated contract module with `CONTRACT_ID`, `CONTRACT_DIGEST`, `CONTRACT`, `API`, and `use(...)`\n- `API`: nested contract API views with `API.owned`, `API.used`, and `API.trellis`\n- `types.ts`: TypeScript types derived from JSON Schemas\n- `schemas.ts`: Raw JSON Schemas (as `as const` objects)\n- `contract.ts`: embedded contract metadata and typed `use(...)` helper\n",
         opts.package_name, loaded.manifest.id, module_export, opts.package_name, use_example, module_export
     )
 }
@@ -611,7 +611,7 @@ fn key_to_pascal(value: &str) -> String {
 
 fn sdk_module_export_name(package_name: &str) -> String {
     let trimmed = package_name
-        .strip_prefix("@trellis/sdk-")
+        .strip_prefix("@qlever-llc/trellis-sdk-")
         .unwrap_or(package_name);
     kebab_to_camel(trimmed)
 }
@@ -914,7 +914,7 @@ mod tests {
         let deno = deno_json(&GenerateTsSdkOpts {
             manifest_path: PathBuf::from("generated/contracts/manifests/trellis.core@v1.json"),
             out_dir: PathBuf::from("generated/js/sdks/trellis-core"),
-            package_name: "@trellis/sdk-core".to_string(),
+            package_name: "@qlever-llc/trellis-sdk-trellis-core".to_string(),
             package_version: "0.1.0".to_string(),
             runtime_deps: TsRuntimeDeps {
                 source: TsRuntimeSource::Registry,
@@ -926,8 +926,8 @@ mod tests {
 
         let imports = deno.get("imports").and_then(Value::as_object).unwrap();
         assert_eq!(
-            imports.get("@trellis/contracts").unwrap(),
-            "jsr:@trellis/contracts@^0.2.3"
+            imports.get("@qlever-llc/trellis-contracts").unwrap(),
+            "jsr:@qlever-llc/trellis-contracts@^0.2.3"
         );
         assert!(deno.get("extends").is_none());
     }
@@ -943,7 +943,7 @@ mod tests {
         let deno = deno_json(&GenerateTsSdkOpts {
             manifest_path: repo_root.join("generated/contracts/manifests/trellis.auth@v1.json"),
             out_dir: out_dir.clone(),
-            package_name: "@trellis/sdk-auth".to_string(),
+            package_name: "@qlever-llc/trellis-sdk-auth".to_string(),
             package_version: "0.1.0".to_string(),
             runtime_deps: TsRuntimeDeps {
                 source: TsRuntimeSource::Local,
@@ -964,7 +964,8 @@ mod tests {
 
     #[test]
     fn generated_api_uses_contract_api_views_shape() {
-        let (opts, loaded, root) = sample_opts_and_loaded("@trellis/sdk-auth", "trellis.auth@v1");
+        let (opts, loaded, root) =
+            sample_opts_and_loaded("@qlever-llc/trellis-sdk-auth", "trellis.auth@v1");
         let api = render_api_ts(&opts, &loaded);
 
         assert!(api.contains("export const OWNED_API = {"));
@@ -979,20 +980,21 @@ mod tests {
 
     #[test]
     fn generated_contract_emits_named_module_and_typed_use_helper() {
-        let (opts, loaded, root) = sample_opts_and_loaded("@trellis/sdk-core", "trellis.core@v1");
+        let (opts, loaded, root) =
+            sample_opts_and_loaded("@qlever-llc/trellis-sdk-trellis-core", "trellis.core@v1");
         let contract = render_contract_ts(&opts, &loaded);
         let mod_ts = render_mod_ts(&opts);
 
         assert!(contract.contains(
-            "import type { SdkContractModule, TrellisContractV1, UseSpec } from \"@trellis/contracts\";"
+            "import type { SdkContractModule, TrellisContractV1, UseSpec } from \"@qlever-llc/trellis-contracts\";"
         ));
         assert!(contract.contains(
-            "export const core: SdkContractModule<typeof CONTRACT_ID, typeof API.owned> = {"
+            "export const trellisCore: SdkContractModule<typeof CONTRACT_ID, typeof API.owned> = {"
         ));
-        assert!(contract.contains("export const use = core.use;"));
+        assert!(contract.contains("export const use = trellisCore.use;"));
         assert!(contract.contains("does not expose ${kind} key '${key}'"));
         assert!(mod_ts.contains(
-            "export { CONTRACT, CONTRACT_DIGEST, CONTRACT_ID, use, core } from \"./contract.ts\";"
+            "export { CONTRACT, CONTRACT_DIGEST, CONTRACT_ID, use, trellisCore } from \"./contract.ts\";"
         ));
 
         fs::remove_dir_all(root).unwrap();
@@ -1001,11 +1003,11 @@ mod tests {
     #[test]
     fn generated_readme_uses_contract_first_example() {
         let (opts, loaded, root) =
-            sample_opts_and_loaded("@trellis/sdk-activity", "trellis.activity@v1");
+            sample_opts_and_loaded("@qlever-llc/trellis-sdk-activity", "trellis.activity@v1");
         let readme = render_readme(&opts, &loaded);
 
-        assert!(readme.contains("import { defineContract } from \"@trellis/trellis\";"));
-        assert!(readme.contains("import { activity } from \"@trellis/sdk-activity\";"));
+        assert!(readme.contains("import { defineContract } from \"@qlever-llc/trellis-trellis\";"));
+        assert!(readme.contains("import { activity } from \"@qlever-llc/trellis-sdk-activity\";"));
         assert!(readme.contains("displayName: \"Example App\""));
         assert!(readme.contains("description: \"User-facing app for the example deployment.\""));
         assert!(readme.contains("kind: \"app\""));

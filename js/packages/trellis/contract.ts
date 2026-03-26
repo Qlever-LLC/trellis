@@ -1,5 +1,5 @@
 import type { NatsConnection } from "@nats-io/nats-core";
-import type { TrellisAPI } from "@trellis/contracts";
+import type { TrellisAPI } from "@qlever-llc/trellis-contracts";
 import {
   type DefinedContract as BaseDefinedContract,
   type ContractApiViews,
@@ -13,18 +13,18 @@ import {
   type TrellisApiLike,
   type TrellisContractV1,
   type UseSpec,
-} from "@trellis/contracts";
+} from "@qlever-llc/trellis-contracts";
 import type { ClientOpts } from "./client.ts";
 import { createClient } from "./client.ts";
 import type { Trellis, TrellisAuth } from "./trellis.ts";
 
 // Keep this module browser-safe.
 //
-// `js/apps/*` and other callers build contracts from `@trellis/contracts`, and those
+// `js/apps/*` and other callers build contracts from `@qlever-llc/trellis-contracts`, and those
 // apps need to build inside a clean OCI build stage. If this file reaches into
 // `../server/*`, Vite pulls Deno-only NATS transports into browser bundles and the
 // container build stops being reproducible. Server-specific helpers therefore live
-// in `@trellis/server` and are wired explicitly by server code.
+// in `@qlever-llc/trellis-server` and are wired explicitly by server code.
 type RuntimeContractMethods<
   TOwnedApi extends TrellisApiLike,
   TTrellisApi extends TrellisApiLike,

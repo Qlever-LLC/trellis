@@ -1,6 +1,6 @@
 {
   "extends": "../../deno.json",
-  "name": "@trellis/trellis",
+  "name": "@qlever-llc/trellis-trellis",
   "version": "0.1.0",
   "exports": {
     ".": "./index.ts",

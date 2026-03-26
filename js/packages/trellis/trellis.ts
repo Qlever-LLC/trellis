@@ -16,7 +16,7 @@ import type {
   InferSchemaType,
   RPCDesc,
   TrellisAPI,
-} from "@trellis/contracts";
+} from "@qlever-llc/trellis-contracts";
 import {
   AsyncResult,
   type BaseError,
@@ -26,8 +26,8 @@ import {
   type MaybeAsync,
   ok,
   Result,
-} from "@trellis/result";
-import { API as trellisCoreApi } from "@trellis/sdk-trellis-core";
+} from "@qlever-llc/trellis-result";
+import { API as trellisCoreApi } from "@qlever-llc/trellis-sdk-trellis-core";
 import {
   context,
   createNatsHeaderCarrier,
@@ -36,7 +36,7 @@ import {
   SpanStatusCode,startClientSpan, startServerSpan, 
   trace,
   withSpanAsync
-} from "@trellis/telemetry";
+} from "@qlever-llc/trellis-telemetry";
 import type { Logger } from "pino";
 import { AssertError, Pointer } from "typebox/value";
 import { ulid } from "ulid";

@@ -1,5 +1,5 @@
-import { isErr, Result } from "@trellis/result";
-import { UnexpectedError, ValidationError } from "@trellis/trellis";
+import { isErr, Result } from "@qlever-llc/trellis-result";
+import { UnexpectedError, ValidationError } from "@qlever-llc/trellis-trellis";
 
 import { logger, servicesKV, trellis } from "./globals.ts";
 

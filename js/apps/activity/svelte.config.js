@@ -16,23 +16,23 @@ const config = {
   kit: {
     adapter: adapter(),
     alias: {
-      "@trellis/auth": aliasPath("packages/auth/mod.ts"),
-      "@trellis/auth/*": `${aliasPath("packages/auth")}/*`,
-      "@trellis/auth/browser": aliasPath("packages/auth/browser.ts"),
-      "@trellis/contracts": aliasPath("packages/contracts/mod.ts"),
-      "@trellis/contracts/*": `${aliasPath("packages/contracts")}/*`,
-      "@trellis/result": aliasPath("packages/result/mod.ts"),
-      "@trellis/result/*": `${aliasPath("packages/result")}/*`,
-      "@trellis/sdk-activity": aliasPath("../generated/js/sdks/activity/mod.ts"),
-      "@trellis/sdk-activity/*": `${aliasPath("../generated/js/sdks/activity")}/*`,
-      "@trellis/sdk-auth": aliasPath("../generated/js/sdks/auth/mod.ts"),
-      "@trellis/sdk-auth/*": `${aliasPath("../generated/js/sdks/auth")}/*`,
-      "@trellis/server": aliasPath("packages/server/mod.ts"),
-      "@trellis/server/*": `${aliasPath("packages/server")}/*`,
-      "@trellis/svelte": aliasPath("packages/trellis-svelte/src/index.ts"),
-      "@trellis/svelte/*": `${aliasPath("packages/trellis-svelte/src")}/*`,
-      "@trellis/trellis": aliasPath("packages/trellis/index.ts"),
-      "@trellis/trellis/*": `${aliasPath("packages/trellis")}/*`
+      "@qlever-llc/trellis-auth": aliasPath("packages/auth/mod.ts"),
+      "@qlever-llc/trellis-auth/*": `${aliasPath("packages/auth")}/*`,
+      "@qlever-llc/trellis-auth/browser": aliasPath("packages/auth/browser.ts"),
+      "@qlever-llc/trellis-contracts": aliasPath("packages/contracts/mod.ts"),
+      "@qlever-llc/trellis-contracts/*": `${aliasPath("packages/contracts")}/*`,
+      "@qlever-llc/trellis-result": aliasPath("packages/result/mod.ts"),
+      "@qlever-llc/trellis-result/*": `${aliasPath("packages/result")}/*`,
+      "@qlever-llc/trellis-sdk-activity": aliasPath("../generated/js/sdks/activity/mod.ts"),
+      "@qlever-llc/trellis-sdk-activity/*": `${aliasPath("../generated/js/sdks/activity")}/*`,
+      "@qlever-llc/trellis-sdk-auth": aliasPath("../generated/js/sdks/auth/mod.ts"),
+      "@qlever-llc/trellis-sdk-auth/*": `${aliasPath("../generated/js/sdks/auth")}/*`,
+      "@qlever-llc/trellis-server": aliasPath("packages/server/mod.ts"),
+      "@qlever-llc/trellis-server/*": `${aliasPath("packages/server")}/*`,
+      "@qlever-llc/trellis-svelte": aliasPath("packages/trellis-svelte/src/index.ts"),
+      "@qlever-llc/trellis-svelte/*": `${aliasPath("packages/trellis-svelte/src")}/*`,
+      "@qlever-llc/trellis-trellis": aliasPath("packages/trellis/index.ts"),
+      "@qlever-llc/trellis-trellis/*": `${aliasPath("packages/trellis")}/*`
     }
   }
 };

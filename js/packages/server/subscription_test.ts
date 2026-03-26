@@ -1,6 +1,6 @@
 import { assertEquals, assertExists } from "@std/assert";
 import type { JsMsg } from "@nats-io/jetstream";
-import type { TrellisAPI } from "@trellis/contracts";
+import type { TrellisAPI } from "@qlever-llc/trellis-contracts";
 import type {
   EventContext,
   GroupedSubscription,

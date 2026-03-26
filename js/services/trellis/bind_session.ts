@@ -1,4 +1,4 @@
-import { BaseError, type BaseErrorOptions, isErr, Result } from "@trellis/result";
+import { BaseError, type BaseErrorOptions, isErr, Result } from "@qlever-llc/trellis-result";
 import Type, { type Static } from "typebox";
 import type { Connection, Session, UserSession } from "./schemas.ts";
 

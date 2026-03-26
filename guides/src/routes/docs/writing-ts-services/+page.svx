@@ -22,13 +22,13 @@ Add the Trellis packages your service needs to your import map in `deno.json`:
 ```json
 {
   "imports": {
-    "@trellis/contracts": "npm:@trellis/contracts",
-    "@trellis/server": "npm:@trellis/server",
-    "@trellis/server/deno": "npm:@trellis/server/deno",
-    "@trellis/sdk-auth": "npm:@trellis/sdk-auth",
-    "@trellis/sdk-core": "npm:@trellis/sdk-core",
-    "@trellis/result": "npm:@trellis/result",
-    "@trellis/telemetry": "npm:@trellis/telemetry",
+    "@qlever-llc/trellis-contracts": "npm:@qlever-llc/trellis-contracts",
+    "@qlever-llc/trellis-server": "npm:@qlever-llc/trellis-server",
+    "@qlever-llc/trellis-server/deno": "npm:@qlever-llc/trellis-server/deno",
+    "@qlever-llc/trellis-sdk-auth": "npm:@qlever-llc/trellis-sdk-auth",
+    "@qlever-llc/trellis-sdk-trellis-core": "npm:@qlever-llc/trellis-sdk-trellis-core",
+    "@qlever-llc/trellis-result": "npm:@qlever-llc/trellis-result",
+    "@qlever-llc/trellis-telemetry": "npm:@qlever-llc/trellis-telemetry",
     "@sinclair/typebox": "npm:@sinclair/typebox"
   }
 }
@@ -70,10 +70,10 @@ export type MyItemCreatedEvent = Static<typeof MyItemCreatedEventSchema>;
 Create `contract.ts`. The contract declares every RPC, event, dependency, and resource your service uses:
 
 ```ts
-import { defineContract } from "@trellis/contracts";
-import { HealthResponseSchema, HealthRpcSchema } from "@trellis/server";
-import { auth } from "@trellis/sdk-auth";
-import { core } from "@trellis/sdk-core";
+import { defineContract } from "@qlever-llc/trellis-contracts";
+import { HealthResponseSchema, HealthRpcSchema } from "@qlever-llc/trellis-server";
+import { auth } from "@qlever-llc/trellis-sdk-auth";
+import { core } from "@qlever-llc/trellis-sdk-trellis-core";
 import {
   MyItemCreatedEventSchema,
   MyListRequestSchema,
@@ -144,7 +144,7 @@ Key things to note:
 Create `main.ts`:
 
 ```ts
-import { connectService } from "@trellis/server/deno";
+import { connectService } from "@qlever-llc/trellis-server/deno";
 import { myService } from "./contract.ts";
 
 const service = await connectService(myService, "my-service", {
@@ -159,14 +159,14 @@ const service = await connectService(myService, "my-service", {
 
 `connectService` automatically verifies that the contract is active in the Trellis catalog and resolves all resource bindings declared in the contract. If the contract is not installed, it throws with a clear error message.
 
-For Node, change the import to `@trellis/server/node` and replace `Deno.env.get(...)` with `process.env`.
+For Node, change the import to `@qlever-llc/trellis-server/node` and replace `Deno.env.get(...)` with `process.env`.
 
 ## 5. Open KV stores
 
 Resource bindings are resolved during `connectService` and exposed as handles on the service object. Open a typed KV store directly from the handle:
 
 ```ts
-import { isErr } from "@trellis/result";
+import { isErr } from "@qlever-llc/trellis-result";
 import { MyItemSchema } from "./schemas.ts";
 
 const result = await service.kv.items.open(MyItemSchema);
@@ -271,7 +271,7 @@ const app = defineContract({
 });
 ```
 
-Regenerate the SDK whenever the contract changes. This is the same pattern that `@trellis/sdk-auth` and `@trellis/sdk-core` follow.
+Regenerate the SDK whenever the contract changes. This is the same pattern that `@qlever-llc/trellis-sdk-auth` and `@qlever-llc/trellis-sdk-trellis-core` follow.
 
 ## 11. Install and run
 

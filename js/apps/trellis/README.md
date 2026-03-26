@@ -2,7 +2,7 @@
 
 SvelteKit control panel for a Trellis deployment.
 
-Built with SvelteKit, Tailwind CSS v4 + DaisyUI, and `@trellis/svelte` for auth and NATS wiring.
+Built with SvelteKit, Tailwind CSS v4 + DaisyUI, and `@qlever-llc/trellis-svelte` for auth and NATS wiring.
 
 ## Local dev
 

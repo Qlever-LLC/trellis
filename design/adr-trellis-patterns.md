@@ -37,7 +37,7 @@ Trellis platform code and cloud/domain code are intentionally separate.
 
 - The Trellis platform repo owns protocol/runtime libraries, the `trellis` runtime service, jobs, Trellis-owned contracts such as `trellis.core@v1` and `trellis.auth@v1`, and contract tooling.
 - Cloud repos own domain services, domain contracts, apps, and domain models unless a model is required by a Trellis-owned contract or shared Trellis runtime library.
-- `@trellis/trellis` is a runtime library, not a central registry for every service API.
+- `@qlever-llc/trellis-trellis` is a runtime library, not a central registry for every service API.
 - Service APIs are defined with the service that owns them and consumed through contract packages.
 
 #### Category Responsibilities
@@ -111,20 +111,20 @@ Callers use method names (e.g. `trellis.request("User.Find", args)`), not subjec
 
 | Library                 | Purpose                                          | Use when                       |
 | ----------------------- | ------------------------------------------------ | ------------------------------ |
-| `@trellis/trellis`      | Client runtime for RPC/events                    | Frontend apps, CLI tools       |
-| `@trellis/server`       | Runtime-neutral server core                      | Backend services               |
-| `@trellis/server/node`  | Node server runtime adapter                      | External Node services         |
-| `@trellis/server/deno`  | Deno server runtime adapter                      | In-repo Deno services          |
-| `@trellis/result`       | Result type for explicit error handling          | Any function that can fail     |
-| `@trellis/auth`         | Session key management and browser/session auth  | Services, apps, CLI tools      |
-| `@trellis/auth/protocol`| Public auth/admin wire DTOs                      | Apps, services, docs, tests    |
-| `@trellis/contracts`    | Contract authoring and shared protocol primitives| Services, SDK/docs generation  |
-| `@trellis/telemetry`    | Shared tracing helpers                           | Runtime libraries and services |
-| `@trellis/jobs`         | Job creation and processing                      | Long-running or retryable work |
+| `@qlever-llc/trellis-trellis`      | Client runtime for RPC/events                    | Frontend apps, CLI tools       |
+| `@qlever-llc/trellis-server`       | Runtime-neutral server core                      | Backend services               |
+| `@qlever-llc/trellis-server/node`  | Node server runtime adapter                      | External Node services         |
+| `@qlever-llc/trellis-server/deno`  | Deno server runtime adapter                      | In-repo Deno services          |
+| `@qlever-llc/trellis-result`       | Result type for explicit error handling          | Any function that can fail     |
+| `@qlever-llc/trellis-auth`         | Session key management and browser/session auth  | Services, apps, CLI tools      |
+| `@qlever-llc/trellis-auth/protocol`| Public auth/admin wire DTOs                      | Apps, services, docs, tests    |
+| `@qlever-llc/trellis-contracts`    | Contract authoring and shared protocol primitives| Services, SDK/docs generation  |
+| `@qlever-llc/trellis-telemetry`    | Shared tracing helpers                           | Runtime libraries and services |
+| `@qlever-llc/trellis-jobs`         | Job creation and processing                      | Long-running or retryable work |
 
-### @trellis/trellis
+### @qlever-llc/trellis-trellis
 
-Client runtime for RPC/event communication over NATS. Auth is injected from `@trellis/auth-*` packages.
+Client runtime for RPC/event communication over NATS. Auth is injected from `@qlever-llc/trellis-auth-*` packages.
 
 #### Client (Browser)
 
@@ -132,7 +132,7 @@ Client runtime for RPC/event communication over NATS. Auth is injected from `@tr
 // Browser auth uses a session key stored in IndexedDB (WebCrypto) plus an OAuth bind flow.
 // After bind, connect to NATS with sentinel creds + auth callout token (see adr-trellis-auth.md).
 //
-// For SvelteKit apps, prefer the higher-level helpers in `@trellis/svelte` which handle:
+// For SvelteKit apps, prefer the higher-level helpers in `@qlever-llc/trellis-svelte` which handle:
 // - bind callback processing
 // - wsconnect
 // - immediate + periodic binding token renewal
@@ -141,8 +141,8 @@ Client runtime for RPC/event communication over NATS. Auth is injected from `@tr
 #### Client (Deno/Node)
 
 ```typescript
-import { defineContract } from "@trellis/contracts";
-import { auth } from "@trellis/sdk-auth";
+import { defineContract } from "@qlever-llc/trellis-contracts";
+import { auth } from "@qlever-llc/trellis-sdk-auth";
 import { graph } from "@acme/graph-contract";
 
 const cli = defineContract({
@@ -165,7 +165,7 @@ const client = createClient(cli, nc, authSession, {
 
 ```typescript
 import { connect } from "@nats-io/transport-deno";
-import { TrellisServer } from "@trellis/server";
+import { TrellisServer } from "@qlever-llc/trellis-server";
 
 const nc = await connect({ servers: config.nats.servers });
 const server = TrellisServer.create("graph", nc, auth, { log });
@@ -185,23 +185,23 @@ server.mount("User.Find", async (input, ctx) => {
 - Both sides use `Result<T, E>` — errors are values, not exceptions
 - RPC/event schemas validate inputs and outputs at runtime
 
-### @trellis/result
+### @qlever-llc/trellis-result
 
 Explicit error handling via `Result<T, E>`. See [Result Type](#result-type).
 
-### @trellis/auth
+### @qlever-llc/trellis-auth
 
-Session key loading, signing, browser bind flow helpers, and shared auth support code. Public auth/admin wire DTOs live under `@trellis/auth/protocol`. See [adr-trellis-auth.md](./adr-trellis-auth.md).
+Session key loading, signing, browser bind flow helpers, and shared auth support code. Public auth/admin wire DTOs live under `@qlever-llc/trellis-auth/protocol`. See [adr-trellis-auth.md](./adr-trellis-auth.md).
 
-### @trellis/telemetry
+### @qlever-llc/trellis-telemetry
 
-Shared tracing helpers used by `@trellis/trellis`, `@trellis/server`, and future packages like `@trellis/jobs`.
+Shared tracing helpers used by `@qlever-llc/trellis-trellis`, `@qlever-llc/trellis-server`, and future packages like `@qlever-llc/trellis-jobs`.
 
-### @trellis/jobs
+### @qlever-llc/trellis-jobs
 
 Job queue with retry, progress tracking, and DLQ. See [adr-trellis-jobs.md](./adr-trellis-jobs.md).
 
-### @trellis/contracts
+### @qlever-llc/trellis-contracts
 
 Contract tooling for manifest validation, canonicalization, SDK generation, and documentation export. It may also provide language-specific authoring helpers that emit the same canonical manifest. See [adr-trellis-contracts-catalog.md](./adr-trellis-contracts-catalog.md).
 
@@ -273,8 +273,8 @@ Projections: consume stream with durable consumer, write derived state to KV. Th
 Each service owns a local contract definition that emits the canonical `trellis.contract.v1` release artifact. The local authoring experience may differ by language; the example below shows one TypeScript shape.
 
 ```typescript
-import { defineContract } from "@trellis/contracts";
-import { core } from "@trellis/sdk-core";
+import { defineContract } from "@qlever-llc/trellis-contracts";
+import { core } from "@qlever-llc/trellis-sdk-trellis-core";
 
 export const contract = defineContract({
   id: "graph@v1",
@@ -355,7 +355,7 @@ const config = configSchema.parse({
 
 ### Result Type
 
-All RPC handlers return `Result<T, E>` from `@trellis/result`. Benefits:
+All RPC handlers return `Result<T, E>` from `@qlever-llc/trellis-result`. Benefits:
 
 - **Explicit errors** — Errors are values, not exceptions
 - **Chaining** — Transform with `map`, `mapErr`, `andThen`
@@ -363,7 +363,7 @@ All RPC handlers return `Result<T, E>` from `@trellis/result`. Benefits:
 
 ### Error Handling
 
-Trellis-shared errors come from `@trellis/trellis`. Service-specific errors may extend the same base locally and are declared in the owning service contract:
+Trellis-shared errors come from `@qlever-llc/trellis-trellis`. Service-specific errors may extend the same base locally and are declared in the owning service contract:
 
 ```typescript
 export class AuthError extends TrellisError<AuthErrorData> {
@@ -412,7 +412,7 @@ services/<name>/
 ### Lifecycle
 
 ```typescript
-import { connectService } from "@trellis/server/deno";
+import { connectService } from "@qlever-llc/trellis-server/deno";
 import { myService } from "./contract.ts";
 
 // 1. Connect, verify contract, and resolve bindings
@@ -575,8 +575,8 @@ export function parse<T extends TSchema>(
 Libraries performing I/O must accept trace context via `HeaderCarrier`, create child spans, and propagate context:
 
 ```typescript
-import { getTrellisTracer } from "@trellis/telemetry/trellis";
-import { withSpanAsync } from "@trellis/telemetry";
+import { getTrellisTracer } from "@qlever-llc/trellis-telemetry/trellis";
+import { withSpanAsync } from "@qlever-llc/trellis-telemetry";
 
 export async function fetchDocument(id: string): Promise<Document> {
   const span = getTrellisTracer().startSpan("document.fetch");

@@ -1,8 +1,8 @@
 // Generated from ./generated/contracts/manifests/trellis.core@v1.json
-import type { SdkContractModule, TrellisContractV1, UseSpec } from "@trellis/contracts";
+import type { SdkContractModule, TrellisContractV1, UseSpec } from "@qlever-llc/trellis-contracts";
 import { API } from "./api.ts";
 
-const CONTRACT_MODULE_METADATA = Symbol.for("@trellis/contracts/contract-module");
+const CONTRACT_MODULE_METADATA = Symbol.for("@qlever-llc/trellis-contracts/contract-module");
 
 export const CONTRACT_ID = "trellis.core@v1" as const;
 export const CONTRACT_DIGEST = "u6jM9gtkoGwuqOf6Uzjs4jT_ONa5Tw635F9FgQIHBoQ" as const;

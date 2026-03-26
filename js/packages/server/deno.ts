@@ -1,5 +1,5 @@
 import { connect, credsAuthenticator } from "@nats-io/transport-deno";
-import type { TrellisAPI } from "@trellis/contracts";
+import type { TrellisAPI } from "@qlever-llc/trellis-contracts";
 import type { TrellisServiceRuntimeDeps } from "./runtime.ts";
 import type { ServiceContract, TrellisServiceConnectOpts } from "./service.ts";
 import { connectService as connectServiceWithRuntime } from "./service.ts";
@@ -12,7 +12,7 @@ const denoRuntimeDeps: TrellisServiceRuntimeDeps = {
 };
 
 // This Deno entrypoint keeps the default Deno runtime wiring out of the shared
-// `@trellis/server` module so the root package can also be published for Node.
+// `@qlever-llc/trellis-server` module so the root package can also be published for Node.
 export function connectService<
   TOwnedApi extends TrellisAPI,
   TTrellisApi extends TrellisAPI = TOwnedApi,

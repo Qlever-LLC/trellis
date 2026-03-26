@@ -9,7 +9,7 @@
 
 import { connect } from "@nats-io/transport-deno";
 import { assertEquals, assertExists } from "@std/assert";
-import { trellisCore } from "@trellis/sdk-trellis-core";
+import { trellisCore } from "@qlever-llc/trellis-sdk-trellis-core";
 import { NatsTest } from "../testing/nats.ts";
 import { type TrellisAuth, TrellisServer } from "../trellis.ts";
 

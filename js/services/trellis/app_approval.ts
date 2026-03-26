@@ -1,4 +1,4 @@
-import type { ContractEvent, ContractSubject, TrellisContractV1 } from "@trellis/contracts";
+import type { ContractEvent, ContractSubject, TrellisContractV1 } from "@qlever-llc/trellis-contracts";
 import {
   resolveContractUsesFromStore,
   sortUniqueStrings,

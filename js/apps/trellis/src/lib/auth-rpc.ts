@@ -1,6 +1,6 @@
-import { isErr } from "@trellis/result";
-import type { Api as AuthApi, RpcMap as AuthRpcMap } from "@trellis/sdk-auth";
-import { getTrellis } from "@trellis/svelte";
+import { isErr } from "@qlever-llc/trellis-result";
+import type { Api as AuthApi, RpcMap as AuthRpcMap } from "@qlever-llc/trellis-sdk-auth";
+import { getTrellis } from "@qlever-llc/trellis-svelte";
 
 type AuthMethod = (keyof AuthApi["rpc"] & keyof AuthRpcMap) & string;
 type AuthRequestInput<M extends AuthMethod> = AuthRpcMap[M]["input"];

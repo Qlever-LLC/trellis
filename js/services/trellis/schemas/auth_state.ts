@@ -10,8 +10,8 @@ import {
   LoginQuerySchema,
   type SentinelCreds,
   SentinelCredsSchema
-} from "@trellis/auth";
-import { IsoDateSchema } from "@trellis/contracts";
+} from "@qlever-llc/trellis-auth";
+import { IsoDateSchema } from "@qlever-llc/trellis-contracts";
 import type { StaticDecode } from "typebox";
 import { Type } from "typebox";
 

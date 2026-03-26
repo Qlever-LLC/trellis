@@ -1,9 +1,9 @@
-import { isErr } from "@trellis/result";
+import { isErr } from "@qlever-llc/trellis-result";
 import type {
   ActivityListOutput,
-} from "@trellis/sdk-activity";
-import type { AuthMeOutput } from "@trellis/sdk-auth";
-import { getTrellis } from "@trellis/svelte";
+} from "@qlever-llc/trellis-sdk-activity";
+import type { AuthMeOutput } from "@qlever-llc/trellis-sdk-auth";
+import { getTrellis } from "@qlever-llc/trellis-svelte";
 
 export type UserProfile = AuthMeOutput["user"];
 export type AuthMeResponse = AuthMeOutput;

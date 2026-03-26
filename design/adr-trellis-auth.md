@@ -1207,10 +1207,10 @@ All auth errors use `AuthError` with a `reason` code:
 
 ## Client Integration
 
-Auth is injected via `@trellis/auth-*` packages (tree-shakeable):
+Auth is injected via `@qlever-llc/trellis-auth-*` packages (tree-shakeable):
 
-- `@trellis/auth` — Browser (WebCrypto, IndexedDB, OAuth)
-- `@trellis/auth` — Deno/Node (environment seed)
+- `@qlever-llc/trellis-auth` — Browser (WebCrypto, IndexedDB, OAuth)
+- `@qlever-llc/trellis-auth` — Deno/Node (environment seed)
 
 ### Browser Client
 
@@ -1218,7 +1218,7 @@ Browser clients use sentinel credentials from the bind response with `jwtAuthent
 
 ```typescript
 import { jwtAuthenticator, wsconnect } from "@nats-io/nats-core";
-import { bindSession, getOrCreateSessionKey } from "@trellis/auth";
+import { bindSession, getOrCreateSessionKey } from "@qlever-llc/trellis-auth";
 
 // After OAuth callback with authToken
 const handle = await getOrCreateSessionKey();
@@ -1249,11 +1249,11 @@ const nc = await wsconnect({
 
 ### Service
 
-Services use `@trellis/auth` which provides `natsConnectOptions()` for convenience:
+Services use `@qlever-llc/trellis-auth` which provides `natsConnectOptions()` for convenience:
 
 ```typescript
 import { connect, credsAuthenticator } from "@nats-io/transport-deno";
-import { createAuth } from "@trellis/auth";
+import { createAuth } from "@qlever-llc/trellis-auth";
 
 const auth = await createAuth({ sessionKeySeed: config.sessionKeySeed });
 const sentinelCreds = Deno.readFileSync(config.nats.sentinelCredsPath);

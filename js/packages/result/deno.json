@@ -1,6 +1,6 @@
 {
   "extends": "../../deno.json",
-  "name": "@trellis/result",
+  "name": "@qlever-llc/trellis-result",
   "version": "0.1.0",
   "exports": "./mod.ts",
   "tasks": {

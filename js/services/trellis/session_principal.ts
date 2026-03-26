@@ -1,4 +1,4 @@
-import { isErr } from "@trellis/result";
+import { isErr } from "@qlever-llc/trellis-result";
 
 import type {
   ServiceRegistryEntry,

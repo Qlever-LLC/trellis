@@ -1,7 +1,7 @@
-import type { ContractResources, TrellisContractV1 } from "@trellis/contracts";
-import { isJsonValue } from "@trellis/contracts";
-import { isErr, Result } from "@trellis/result";
-import { UnexpectedError, ValidationError } from "@trellis/trellis";
+import type { ContractResources, TrellisContractV1 } from "@qlever-llc/trellis-contracts";
+import { isJsonValue } from "@qlever-llc/trellis-contracts";
+import { isErr, Result } from "@qlever-llc/trellis-result";
+import { UnexpectedError, ValidationError } from "@qlever-llc/trellis-trellis";
 import { Value } from "typebox/value";
 import type { TrellisCatalog } from "../../packages/trellis/models/trellis/rpc/TrellisCatalog.ts";
 import { TrellisCatalogSchema } from "../../packages/trellis/models/trellis/rpc/TrellisCatalog.ts";

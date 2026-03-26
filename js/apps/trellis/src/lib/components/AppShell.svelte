@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { isErr } from "@trellis/result";
-  import type { AuthMeOutput } from "@trellis/sdk-auth";
-  import { getAuth, getNatsState, getTrellis } from "@trellis/svelte";
+  import { isErr } from "@qlever-llc/trellis-result";
+  import type { AuthMeOutput } from "@qlever-llc/trellis-sdk-auth";
+  import { getAuth, getNatsState, getTrellis } from "@qlever-llc/trellis-svelte";
   import { onMount } from "svelte";
   import { afterNavigate, goto } from "$app/navigation";
   import { page } from "$app/state";

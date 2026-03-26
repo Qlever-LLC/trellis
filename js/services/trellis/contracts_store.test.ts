@@ -1,6 +1,6 @@
 import { assertEquals, assertRejects } from "@std/assert";
-import type { JsonValue, TrellisContractV1 } from "@trellis/contracts";
-import { digestJson } from "@trellis/contracts";
+import type { JsonValue, TrellisContractV1 } from "@qlever-llc/trellis-contracts";
+import { digestJson } from "@qlever-llc/trellis-contracts";
 
 import { ContractStore } from "./contracts_store.ts";
 

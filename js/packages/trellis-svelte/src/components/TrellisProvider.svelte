@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { NatsConnection } from "@nats-io/nats-core";
-  import { AsyncResult } from "@trellis/result";
+  import { AsyncResult } from "@qlever-llc/trellis-result";
   import type { Snippet } from "svelte";
   import { onDestroy } from "svelte";
   import {

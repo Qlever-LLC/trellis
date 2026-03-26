@@ -9,8 +9,8 @@ import {
   getPublicSessionKey,
   type SentinelCreds,
   type SessionKeyHandle,
-} from "@trellis/auth";
-import { Result } from "@trellis/result";
+} from "@qlever-llc/trellis-auth";
+import { Result } from "@qlever-llc/trellis-result";
 import { SvelteDate } from "svelte/reactivity";
 import { Type } from "typebox";
 import { Value } from "typebox/value";

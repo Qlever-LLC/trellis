@@ -1,6 +1,6 @@
-import { trellisIdFromOriginId } from "@trellis/auth";
-import type { Result } from "@trellis/result";
-import type { KVError, TypedKV } from "@trellis/trellis";
+import { trellisIdFromOriginId } from "@qlever-llc/trellis-auth";
+import type { Result } from "@qlever-llc/trellis-result";
+import type { KVError, TypedKV } from "@qlever-llc/trellis-trellis";
 import type { UserProjectionEntry, UserProjectionSchema } from "./schemas.ts";
 
 export type UserProjectionKV = TypedKV<typeof UserProjectionSchema>;

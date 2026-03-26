@@ -9,14 +9,14 @@ import {
   type SentinelCreds,
   type SessionKeyHandle,
   signBytes,
-} from "@trellis/auth";
-import { AsyncResult, isErr, UnexpectedError } from "@trellis/result";
+} from "@qlever-llc/trellis-auth";
+import { AsyncResult, isErr, UnexpectedError } from "@qlever-llc/trellis-result";
 import {
   API as AUTH_API,
   type AuthRenewBindingTokenInput,
   type AuthRenewBindingTokenOutput,
-} from "@trellis/sdk-auth";
-import { createClient } from "@trellis/trellis";
+} from "@qlever-llc/trellis-sdk-auth";
+import { createClient } from "@qlever-llc/trellis-trellis";
 import type { AuthState } from "./auth.svelte.ts";
 
 const AUTH_RENEW_API = {

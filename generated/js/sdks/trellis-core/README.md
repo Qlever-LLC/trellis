@@ -1,12 +1,12 @@
-# @trellis/sdk-trellis-core
+# @qlever-llc/trellis-sdk-trellis-core
 
 Generated Trellis SDK for contract `trellis.core@v1`.
 
 ## Usage
 
 ```ts
-import { defineContract } from "@trellis/trellis";
-import { trellisCore } from "@trellis/sdk-trellis-core";
+import { defineContract } from "@qlever-llc/trellis-trellis";
+import { trellisCore } from "@qlever-llc/trellis-sdk-trellis-core";
 
 const app = defineContract({
   id: "example.app@v1",

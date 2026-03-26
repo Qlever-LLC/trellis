@@ -1,12 +1,12 @@
-# @trellis/sdk-auth
+# @qlever-llc/trellis-sdk-auth
 
 Generated Trellis SDK for contract `trellis.auth@v1`.
 
 ## Usage
 
 ```ts
-import { defineContract } from "@trellis/trellis";
-import { auth } from "@trellis/sdk-auth";
+import { defineContract } from "@qlever-llc/trellis-trellis";
+import { auth } from "@qlever-llc/trellis-sdk-auth";
 
 const app = defineContract({
   id: "example.app@v1",

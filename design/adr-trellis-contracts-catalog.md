@@ -75,7 +75,7 @@ The human-authored source may vary by language or team as long as it determinist
 
 Examples:
 
-- a TypeScript service may author a contract with `@trellis/contracts`
+- a TypeScript service may author a contract with `@qlever-llc/trellis-contracts`
 - a Rust service may author a contract with Rust-side types/macros/build tooling
 - a Python service may author a contract with Python-native tooling
 - a service may author the manifest directly if desired, but that is not the default workflow

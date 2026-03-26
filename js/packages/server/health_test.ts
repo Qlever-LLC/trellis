@@ -12,8 +12,8 @@
  */
 
 import { assert, assertEquals } from "@std/assert";
-import { Result } from "@trellis/result";
-import { TrellisError } from "@trellis/trellis";
+import { Result } from "@qlever-llc/trellis-result";
+import { TrellisError } from "@qlever-llc/trellis-trellis";
 import {
   type HealthCheckFn,
   type HealthCheckResult,

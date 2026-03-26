@@ -18,13 +18,13 @@ cd my-app
 Install the Trellis packages:
 
 ```sh
-npm install @trellis/contracts @trellis/svelte @trellis/trellis @trellis/sdk-auth @trellis/result
+npm install @qlever-llc/trellis-contracts @qlever-llc/trellis-svelte @qlever-llc/trellis-trellis @qlever-llc/trellis-sdk-auth @qlever-llc/trellis-result
 ```
 
 Then add the generated SDK packages for any Trellis services your app calls. For example, if your app reads activity data:
 
 ```sh
-npm install @trellis/sdk-activity
+npm install @qlever-llc/trellis-sdk-activity
 ```
 
 ## 2. Define the app contract
@@ -32,8 +32,8 @@ npm install @trellis/sdk-activity
 Create `src/contracts/my_app.ts`. For apps, the key difference from services is `kind: "app"`:
 
 ```ts
-import { defineContract } from "@trellis/contracts";
-import { auth } from "@trellis/sdk-auth";
+import { defineContract } from "@qlever-llc/trellis-contracts";
+import { auth } from "@qlever-llc/trellis-sdk-auth";
 
 export const myApp = defineContract({
   id: "my-app@v1",
@@ -106,7 +106,7 @@ Create `src/routes/login/+page.svelte`:
 
 ```svelte
 <script lang="ts">
-  import { createAuthState } from "@trellis/svelte";
+  import { createAuthState } from "@qlever-llc/trellis-svelte";
   import { goto } from "$app/navigation";
   import { page } from "$app/state";
   import { onMount } from "svelte";
@@ -147,7 +147,7 @@ Create `src/routes/callback/+page.svelte`:
 
 ```svelte
 <script lang="ts">
-  import { createAuthState } from "@trellis/svelte";
+  import { createAuthState } from "@qlever-llc/trellis-svelte";
   import { goto } from "$app/navigation";
   import { page } from "$app/state";
   import { onMount } from "svelte";
@@ -216,7 +216,7 @@ Create a layout for the protected part of the app at `src/routes/(app)/+layout.s
 
 ```svelte
 <script lang="ts">
-  import { TrellisProvider } from "@trellis/svelte";
+  import { TrellisProvider } from "@qlever-llc/trellis-svelte";
   import { myApp } from "../../contracts/my_app";
   import { APP_CONFIG } from "$lib/config";
 
@@ -248,10 +248,10 @@ Use websocket URLs for `natsServers` (e.g., `ws://localhost:8080`).
 Create a helper at `src/lib/rpc.ts`:
 
 ```ts
-import { isErr } from "@trellis/result";
-import { getTrellis } from "@trellis/svelte";
+import { isErr } from "@qlever-llc/trellis-result";
+import { getTrellis } from "@qlever-llc/trellis-svelte";
 import { myApp } from "../contracts/my_app";
-import type { AuthMeOutput } from "@trellis/sdk-auth";
+import type { AuthMeOutput } from "@qlever-llc/trellis-sdk-auth";
 
 export function createRequester() {
   const trellisPromise = getTrellis<typeof myApp.API>();
@@ -280,7 +280,7 @@ Then use it in a page at `src/routes/(app)/dashboard/+page.svelte`:
 <script lang="ts">
   import { onMount } from "svelte";
   import { loadMe } from "$lib/rpc";
-  import type { AuthMeOutput } from "@trellis/sdk-auth";
+  import type { AuthMeOutput } from "@qlever-llc/trellis-sdk-auth";
 
   let me = $state<AuthMeOutput | null>(null);
 

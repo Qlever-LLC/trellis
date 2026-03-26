@@ -1,7 +1,7 @@
 import type { NatsConnection } from "@nats-io/nats-core";
-import { getPublicSessionKey, signBytes } from "@trellis/auth";
-import { defineContract, type TrellisAPI } from "@trellis/contracts";
-import { type ClientOpts, createClient, type Trellis, type TrellisAuth } from "@trellis/trellis";
+import { getPublicSessionKey, signBytes } from "@qlever-llc/trellis-auth";
+import { defineContract, type TrellisAPI } from "@qlever-llc/trellis-contracts";
+import { type ClientOpts, createClient, type Trellis, type TrellisAuth } from "@qlever-llc/trellis-trellis";
 import type { AuthState } from "./auth.svelte.ts";
 import type { NatsState } from "./nats.svelte.ts";
 

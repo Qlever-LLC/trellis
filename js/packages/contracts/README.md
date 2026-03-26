@@ -1,4 +1,4 @@
-# @trellis/contracts
+# @qlever-llc/trellis-contracts
 
 TypeScript contract authoring helpers and runtime metadata types for Trellis contracts.
 

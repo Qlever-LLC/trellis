@@ -30,7 +30,7 @@ Deno.test("Health types are re-exported", () => {
   // Verify type exports by creating typed variables
   // If these compile, the types are properly exported
   const healthCheck: HealthCheckFn = async () => {
-    const { Result } = await import("@trellis/result");
+    const { Result } = await import("@qlever-llc/trellis-result");
     return Result.ok(true);
   };
   assertExists(healthCheck);

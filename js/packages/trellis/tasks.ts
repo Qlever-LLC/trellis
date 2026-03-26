@@ -1,4 +1,4 @@
-import { AsyncResult, type BaseError, Result } from "@trellis/result";
+import { AsyncResult, type BaseError, Result } from "@qlever-llc/trellis-result";
 import type { Logger } from "pino";
 import { logger } from "./globals.ts";
 

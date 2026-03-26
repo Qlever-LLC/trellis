@@ -1,6 +1,6 @@
-import type { TrellisAPI } from "@trellis/contracts";
+import type { TrellisAPI } from "@qlever-llc/trellis-contracts";
 
-import { Result } from "@trellis/result";
+import { Result } from "@qlever-llc/trellis-result";
 import { type HealthCheckFn, runAllHealthChecks } from "./health.ts";
 
 type HealthRpcServer = {

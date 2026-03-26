@@ -1,5 +1,5 @@
-import { trellisIdFromOriginId } from "@trellis/auth";
-import { isErr } from "@trellis/result";
+import { trellisIdFromOriginId } from "@qlever-llc/trellis-auth";
+import { isErr } from "@qlever-llc/trellis-result";
 
 import { planUserContractApproval } from "./app_approval.ts";
 import type { Config } from "./config.ts";

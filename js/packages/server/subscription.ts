@@ -1,5 +1,5 @@
 import type { JsMsg } from "@nats-io/jetstream";
-import type { InferSchemaType, TrellisAPI } from "@trellis/contracts";
+import type { InferSchemaType, TrellisAPI } from "@qlever-llc/trellis-contracts";
 
 /**
  * Context provided to event handlers with message metadata and acknowledgment controls.

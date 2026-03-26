@@ -3,7 +3,7 @@ import type {
   ContractRpcMethod,
   ContractSubject,
   TrellisContractV1,
-} from "@trellis/contracts";
+} from "@qlever-llc/trellis-contracts";
 
 import type { ContractStore } from "./contracts_store.ts";
 

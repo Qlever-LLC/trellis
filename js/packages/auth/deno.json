@@ -1,6 +1,6 @@
 {
   "extends": "../../deno.json",
-  "name": "@trellis/auth",
+  "name": "@qlever-llc/trellis-auth",
   "version": "0.1.0",
   "exports": {
     ".": "./mod.ts",

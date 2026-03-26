@@ -1,5 +1,5 @@
 import { assertEquals, assertRejects } from "@std/assert";
-import type { TrellisContractV1 } from "@trellis/contracts";
+import type { TrellisContractV1 } from "@qlever-llc/trellis-contracts";
 import { planUserContractApproval } from "./app_approval.ts";
 import { ContractStore } from "./contracts_store.ts";
 

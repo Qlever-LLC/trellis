@@ -1,8 +1,8 @@
 import type { NatsConnection } from "@nats-io/nats-core";
-import { createAuth, type TrellisAuth as SessionAuth } from "@trellis/auth";
-import type { TrellisAPI } from "@trellis/contracts";
-import { isErr, type Result } from "@trellis/result";
-import { type KVError, Trellis, TrellisServer, TypedKV } from "@trellis/trellis";
+import { createAuth, type TrellisAuth as SessionAuth } from "@qlever-llc/trellis-auth";
+import type { TrellisAPI } from "@qlever-llc/trellis-contracts";
+import { isErr, type Result } from "@qlever-llc/trellis-result";
+import { type KVError, Trellis, TrellisServer, TypedKV } from "@qlever-llc/trellis-trellis";
 import type { Logger } from "pino";
 import type { TSchema } from "typebox";
 import type { HealthCheckFn } from "./health.ts";
@@ -104,7 +104,7 @@ export type TrellisServiceConnectOpts<
   sessionKeySeed?: string;
 
   /**
-   * Pre-created session-key auth (typically from `@trellis/auth.createAuth`).
+   * Pre-created session-key auth (typically from `@qlever-llc/trellis-auth.createAuth`).
    * If omitted, `sessionKeySeed` is required.
    */
   auth?: SessionAuth;

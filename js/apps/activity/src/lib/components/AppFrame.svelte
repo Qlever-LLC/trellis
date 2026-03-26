@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getAuth, getNatsState } from "@trellis/svelte";
+  import { getAuth, getNatsState } from "@qlever-llc/trellis-svelte";
   import { onMount } from "svelte";
   import { goto } from "$app/navigation";
   import { page } from "$app/state";

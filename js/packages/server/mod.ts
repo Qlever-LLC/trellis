@@ -7,7 +7,7 @@
  * @module
  */
 
-export { TrellisServer } from "@trellis/trellis";
+export { TrellisServer } from "@qlever-llc/trellis-trellis";
 export {
   connectService as connectDenoService,
 } from "./deno.ts";

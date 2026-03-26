@@ -1,4 +1,4 @@
-import { UserViewSchema as UserSchema } from "@trellis/auth";
+import { UserViewSchema as UserSchema } from "@qlever-llc/trellis-auth";
 import Type, { type Static } from "typebox";
 import { TrellisIDSchema } from "../../trellis/TrellisID.ts";
 

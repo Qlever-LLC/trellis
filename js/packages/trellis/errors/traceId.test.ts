@@ -14,7 +14,7 @@ import { AuthError } from "./AuthError.ts";
 import { ValidationError } from "./ValidationError.ts";
 import { KVError } from "./KVError.ts";
 import { RemoteError } from "./RemoteError.ts";
-import { UnexpectedError } from "@trellis/result";
+import { UnexpectedError } from "@qlever-llc/trellis-result";
 import {
   configureErrorTraceId,
   getActiveSpan,

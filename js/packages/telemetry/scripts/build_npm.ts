@@ -10,7 +10,7 @@ await buildDntPackage({
     "@opentelemetry/sdk-trace-base": "^1.30.1",
     "@opentelemetry/sdk-trace-node": "^1.30.1",
     "@opentelemetry/semantic-conventions": "^1.28.0",
-    "@trellis/result": "^0.1.0"
+    "@qlever-llc/trellis-result": "^0.1.0"
   },
   npmInstallDeps: {
     "@opentelemetry/api": "^1.9.0",

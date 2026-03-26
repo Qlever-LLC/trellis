@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { TrellisProvider } from "@trellis/svelte";
+  import { TrellisProvider } from "@qlever-llc/trellis-svelte";
   import type { Snippet } from "svelte";
   import { activityApp } from "../../contracts/activity_app.ts";
   import AppFrame from "../../lib/components/AppFrame.svelte";

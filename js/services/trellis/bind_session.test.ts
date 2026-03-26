@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { isErr, Result, UnexpectedError } from "@trellis/result";
+import { isErr, Result, UnexpectedError } from "@qlever-llc/trellis-result";
 import { ensureBoundUserSession } from "./bind_session.ts";
 import type { Connection, Session } from "./schemas.ts";
 

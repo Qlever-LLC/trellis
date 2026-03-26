@@ -1,4 +1,4 @@
-import { digestJson, type TrellisContractV1 } from "@trellis/contracts";
+import { digestJson, type TrellisContractV1 } from "@qlever-llc/trellis-contracts";
 
 import { registerApprovalRpcHandlers } from "./approval_rpc.ts";
 import { startAuthCallout, startDisconnectCleanup } from "./auth_callout.ts";

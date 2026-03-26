@@ -1,4 +1,4 @@
-import { Result } from "@trellis/result";
+import { Result } from "@qlever-llc/trellis-result";
 
 export type RedirectToValidation =
   | { ok: true; value: string }

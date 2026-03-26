@@ -126,7 +126,7 @@ JetStream streams for event-driven architectures, work queues, and audit trails.
 
 ## Jobs
 
-`@trellis/jobs` provides a job queue with retry, progress tracking, and dead-letter handling. Jobs use a stream-first architecture — JetStream is the source of truth, and KV provides a read-optimized projection for queries.
+`@qlever-llc/trellis-jobs` provides a job queue with retry, progress tracking, and dead-letter handling. Jobs use a stream-first architecture — JetStream is the source of truth, and KV provides a read-optimized projection for queries.
 
 Job states: `pending` → `active` → `completed` / `failed` / `retry` / `cancelled` / `expired` / `dead`
 
@@ -136,18 +136,18 @@ Services process their own jobs via their own JetStream consumer. A central jobs
 
 | Package | Use for |
 | --- | --- |
-| `@trellis/contracts` | `defineContract(...)`, shared protocol schemas |
-| `@trellis/server` | `TrellisServer`, health schemas, server types |
-| `@trellis/server/deno` | Deno service runtime adapter |
-| `@trellis/server/node` | Node service runtime adapter |
-| `@trellis/trellis` | `createClient(...)`, runtime client for RPC/events |
-| `@trellis/svelte` | Browser auth, NATS, and Trellis integration for Svelte apps |
-| `@trellis/auth` | Session key management, signing, bind flow helpers |
-| `@trellis/result` | `Result<T, E>` for explicit error handling |
-| `@trellis/telemetry` | Shared tracing helpers |
-| `@trellis/jobs` | Job creation, processing, retry, progress tracking |
-| `@trellis/sdk-*` | Generated SDK packages with typed DTOs for Trellis-owned contracts |
+| `@qlever-llc/trellis-contracts` | `defineContract(...)`, shared protocol schemas |
+| `@qlever-llc/trellis-server` | `TrellisServer`, health schemas, server types |
+| `@qlever-llc/trellis-server/deno` | Deno service runtime adapter |
+| `@qlever-llc/trellis-server/node` | Node service runtime adapter |
+| `@qlever-llc/trellis-trellis` | `createClient(...)`, runtime client for RPC/events |
+| `@qlever-llc/trellis-svelte` | Browser auth, NATS, and Trellis integration for Svelte apps |
+| `@qlever-llc/trellis-auth` | Session key management, signing, bind flow helpers |
+| `@qlever-llc/trellis-result` | `Result<T, E>` for explicit error handling |
+| `@qlever-llc/trellis-telemetry` | Shared tracing helpers |
+| `@qlever-llc/trellis-jobs` | Job creation, processing, retry, progress tracking |
+| `@qlever-llc/trellis-sdk-*` | Generated SDK packages with typed DTOs for Trellis-owned contracts |
 
-`@trellis/sdk-*` packages (e.g., `@trellis/sdk-auth`, `@trellis/sdk-core`) are generated from contract definitions as part of the contract build pipeline. Import them for typed request/response types and `use(...)` declarations.
+`@qlever-llc/trellis-sdk-*` packages (e.g., `@qlever-llc/trellis-sdk-auth`, `@qlever-llc/trellis-sdk-trellis-core`) are generated from contract definitions as part of the contract build pipeline. Import them for typed request/response types and `use(...)` declarations.
 
 On the Rust side, the equivalent building blocks are generated Rust SDK crates plus a local participant facade crate for the app, service, or CLI you are building. The participant facade is the preferred ergonomic entrypoint because it exposes only the owned surface and `uses` aliases declared by the local contract.

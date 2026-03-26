@@ -1,4 +1,4 @@
-import type { TrellisContractV1 } from "@trellis/contracts";
+import type { TrellisContractV1 } from "@qlever-llc/trellis-contracts";
 
 import { getContractResourceAnalysis, getContractResourceSummary } from "./contract_resources.ts";
 

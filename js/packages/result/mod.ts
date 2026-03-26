@@ -1,5 +1,5 @@
 /**
- * @trellis/result - Class-based Result type for TypeScript/Deno
+ * @qlever-llc/trellis-result - Class-based Result type for TypeScript/Deno
  *
  * A class-based Result<T, E> system inspired by Rust's Result type,
  * providing elegant error handling with method chaining and the `take()`
@@ -11,7 +11,7 @@
  *
  * @example Basic usage with static methods
  * ```typescript
- * import { Result } from "@trellis/result";
+ * import { Result } from "@qlever-llc/trellis-result";
  *
  * function divide(a: number, b: number): Result<number, ValidationError> {
  *   if (b === 0) {
@@ -31,7 +31,7 @@
  *
  * @example Async operations
  * ```typescript
- * import { AsyncResult, Result } from "@trellis/result";
+ * import { AsyncResult, Result } from "@qlever-llc/trellis-result";
  *
  * const user = AsyncResult.try(async () => {
  *   const response = await fetch(`/api/users/123`);

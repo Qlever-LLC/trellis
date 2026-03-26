@@ -3,7 +3,7 @@
   import type {
     ActivityGetOutput,
     ActivityListOutput,
-  } from "@trellis/sdk-activity";
+  } from "@qlever-llc/trellis-sdk-activity";
 import { onMount } from "svelte";
   import {
     type ActivityEntry,

@@ -1,5 +1,5 @@
 import { assertEquals, assertInstanceOf } from "@std/assert";
-import { BaseError } from "@trellis/result";
+import { BaseError } from "@qlever-llc/trellis-result";
 import { Result, AsyncResult, type Infer, type InferErr, type MaybeAsync } from "../result.ts";
 
 /**
