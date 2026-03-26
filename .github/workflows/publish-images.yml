@@ -79,6 +79,8 @@ jobs:
           tags: ${{ steps.trellis_meta.outputs.tags }}
           labels: |
             ${{ steps.trellis_meta.outputs.labels }}
+            org.opencontainers.image.title=trellis
+            org.opencontainers.image.description=Trellis service runtime
             io.trellis.contract.path=/trellis/contract.json
 
   console:
@@ -139,7 +141,10 @@ jobs:
           file: js/apps/trellis/Containerfile
           platforms: ${{ matrix.platform }}
           push: false
-          labels: ${{ steps.console_meta.outputs.labels }}
+          labels: |
+            ${{ steps.console_meta.outputs.labels }}
+            org.opencontainers.image.title=console
+            org.opencontainers.image.description=Trellis administrative web console
 
       - name: Build and push console image by digest
         id: console_build
@@ -149,7 +154,10 @@ jobs:
           context: .
           file: js/apps/trellis/Containerfile
           platforms: ${{ matrix.platform }}
-          labels: ${{ steps.console_meta.outputs.labels }}
+          labels: |
+            ${{ steps.console_meta.outputs.labels }}
+            org.opencontainers.image.title=console
+            org.opencontainers.image.description=Trellis administrative web console
           outputs: type=image,name=${{ env.REGISTRY }}/${{ steps.owner.outputs.value }}/console,push-by-digest=true,name-canonical=true,push=true
 
       - name: Export console image digest
