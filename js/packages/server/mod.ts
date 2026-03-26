@@ -8,9 +8,6 @@
  */
 
 export { TrellisServer } from "@qlever-llc/trellis-trellis";
-export {
-  connectService as connectDenoService,
-} from "./deno.ts";
 // Re-export health types
 export {
   type HealthCheckFn,

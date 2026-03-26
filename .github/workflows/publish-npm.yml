@@ -79,19 +79,23 @@ jobs:
           mkdir -p /tmp/trellis-npm-smoke
           cd /tmp/trellis-npm-smoke
           npm init -y >/dev/null
-          npm pack "$GITHUB_WORKSPACE/js/packages/result/npm" --pack-destination . >/dev/null
-          npm pack "$GITHUB_WORKSPACE/js/packages/contracts/npm" --pack-destination . >/dev/null
-          npm pack "$GITHUB_WORKSPACE/js/packages/telemetry/npm" --pack-destination . >/dev/null
-          npm pack "$GITHUB_WORKSPACE/js/packages/auth/npm" --pack-destination . >/dev/null
-          npm pack "$GITHUB_WORKSPACE/js/packages/server/npm" --pack-destination . >/dev/null
-          npm pack "$GITHUB_WORKSPACE/js/packages/trellis/npm" --pack-destination . >/dev/null
+          result_tgz=$(npm pack "$GITHUB_WORKSPACE/js/packages/result/npm" --pack-destination . | tail -n 1)
+          contracts_tgz=$(npm pack "$GITHUB_WORKSPACE/js/packages/contracts/npm" --pack-destination . | tail -n 1)
+          telemetry_tgz=$(npm pack "$GITHUB_WORKSPACE/js/packages/telemetry/npm" --pack-destination . | tail -n 1)
+          auth_tgz=$(npm pack "$GITHUB_WORKSPACE/js/packages/auth/npm" --pack-destination . | tail -n 1)
+          server_tgz=$(npm pack "$GITHUB_WORKSPACE/js/packages/server/npm" --pack-destination . | tail -n 1)
+          trellis_tgz=$(npm pack "$GITHUB_WORKSPACE/js/packages/trellis/npm" --pack-destination . | tail -n 1)
+          sdk_auth_tgz=$(npm pack "$GITHUB_WORKSPACE/generated/js/sdks/auth/npm" --pack-destination . | tail -n 1)
+          sdk_trellis_core_tgz=$(npm pack "$GITHUB_WORKSPACE/generated/js/sdks/trellis-core/npm" --pack-destination . | tail -n 1)
           npm install \
-            ./trellis-result-0.4.0.tgz \
-            ./trellis-contracts-0.4.0.tgz \
-            ./trellis-telemetry-0.4.0.tgz \
-            ./trellis-auth-0.4.0.tgz \
-            ./trellis-server-0.4.0.tgz \
-            ./trellis-trellis-0.4.0.tgz >/dev/null
+            "./$result_tgz" \
+            "./$contracts_tgz" \
+            "./$telemetry_tgz" \
+            "./$auth_tgz" \
+            "./$server_tgz" \
+            "./$trellis_tgz" \
+            "./$sdk_auth_tgz" \
+            "./$sdk_trellis_core_tgz" >/dev/null
           node --input-type=module <<'EOF'
           await import("@qlever-llc/trellis-telemetry");
           await import("@qlever-llc/trellis-telemetry/env");
