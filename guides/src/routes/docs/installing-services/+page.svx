@@ -1,21 +1,13 @@
-In Trellis, service installation is an operator action. The running process does not self-register and it does not upload its private seed.
+This guide covers installing and running a service from its source tree during development. You need the contract source file checked out locally.
 
-The CLI generates or resolves the service identity locally, sends only the public session key together with the contract, and Trellis stores the installed contract for that key.
+If you are deploying a published service from an OCI image, see [Install a service from an image](/docs/installing-services-image) instead.
 
-## Before you install
+## What you need
 
-Before you begin, make sure that:
-
-- the Trellis runtime is running
-- you can log in as an admin with `trellis auth login`
-- you have either the service source tree or a published OCI image
-- you know how the service process will be started after install
-
-For source-based workflows, verify the contract directly from source:
-
-```sh
-trellis contracts verify --source ./contracts/my_service.ts
-```
+- a running Trellis environment
+- the `trellis` CLI installed (see [Install the Trellis CLI](/docs/install-cli))
+- admin access to the Trellis instance
+- the service source tree checked out locally
 
 ## 1. Log in as an admin
 
@@ -33,19 +25,21 @@ Confirm the session is active:
 trellis auth status
 ```
 
-## 2. Install the service contract
+## 2. Verify the contract
 
-From source during development:
+Before installing, verify the contract source compiles and is well-formed:
+
+```sh
+trellis contracts verify --source ./contracts/my_service.ts
+```
+
+## 3. Install from source
 
 ```sh
 trellis service install --source ./contracts/my_service.ts
 ```
 
-or from a published OCI image:
-
-```sh
-trellis service install --image ghcr.io/my-org/my-service:1.2.3
-```
+The CLI reads the contract definition directly from source, generates a session key, and installs the contract.
 
 The CLI will:
 
@@ -54,9 +48,9 @@ The CLI will:
 - infer defaults such as display name, description, and namespaces from the contract
 - show an installation review before sending the request
 
-## 3. Store the seed immediately
+## 4. Store the seed immediately
 
-After a successful install, the CLI prints something like this:
+After a successful install, the CLI prints:
 
 ```text
 installed service contract
@@ -67,11 +61,11 @@ seed=<private-seed>
 store the seed securely; it will not be shown again
 ```
 
-Save the seed to your secret manager, env file, or deployment system immediately. The CLI will not print it again.
+Save the seed to your env file or secret store immediately. The CLI will not print it again.
 
-## 4. Start the service process with that seed
+## 5. Start the service process
 
-The exact startup command depends on your service repository, but the required runtime inputs follow the same pattern:
+Pass the seed and NATS details as environment variables and start the service with your normal command:
 
 ```sh
 export MY_SERVICE_SESSION_KEY_SEED="<seed printed by trellis service install>"
@@ -79,19 +73,33 @@ export NATS_SERVERS=localhost
 export NATS_SENTINEL_CREDS=/path/to/sentinel.creds
 ```
 
-Then start the service with your normal command, for example:
-
 ```sh
-npm run dev
+deno task dev
 ```
 
 or:
 
 ```sh
-node ./dist/main.js
+npm run dev
 ```
 
-## 5. What install actually grants
+## 6. Upgrade when the contract changes
+
+When you change the contract, upgrade the installed service identity:
+
+```sh
+trellis service upgrade --source ./contracts/my_service.ts
+```
+
+If you need to target a specific installed service:
+
+```sh
+trellis service upgrade --source ./contracts/my_service.ts --seed <private-seed>
+```
+
+Upgrade keeps the service key the same and updates the installed contract digest. Restart the service process after upgrading.
+
+## What install actually grants
 
 Installation is not only metadata storage. It is the control-plane step that determines what the service is allowed to do.
 
@@ -101,31 +109,7 @@ Trellis derives service access from:
 - explicit dependencies declared under `uses`
 - runtime-managed resource bindings created during install or upgrade
 
-## 6. Upgrade when the contract changes
-
-When you change the contract, upgrade the installed service identity from source or from a new image:
-
-```sh
-trellis service upgrade --source ./contracts/my_service.ts
-```
-
-If multiple installed services use that contract id, target the correct one explicitly:
-
-```sh
-trellis service upgrade --image ghcr.io/my-org/my-service:1.2.4 --service-key <public-key>
-```
-
-or:
-
-```sh
-trellis service upgrade --source ./contracts/my_service.ts --seed <private-seed>
-```
-
-Upgrade keeps the service key the same and updates the installed contract digest.
-
-## 7. Useful flags
-
-The current CLI supports a few operator-focused overrides:
+## Useful flags
 
 | Flag | Command | What it does |
 | --- | --- | --- |
@@ -137,17 +121,10 @@ The current CLI supports a few operator-focused overrides:
 | `--service-key` | `service upgrade` | Targets a specific installed service |
 | `--seed` | `service upgrade` | Resolves the service key from a local seed |
 
-## 8. Practical deploy loop
+## Development loop
 
-For most service repositories, the operator workflow looks like this:
-
-1. verify the contract source or image
-2. `trellis auth login`
-3. `trellis service install` or `trellis service upgrade`
-4. store the seed if this is a fresh install
-5. start or restart the service process with the right env
-6. confirm the expected RPCs, events, and bindings work
-
-Install or upgrade should always happen before the process starts serving traffic. If you are shipping OCI images, include the generated contract artifact at `/trellis/contract.json` so operators can install directly from the image.
-
-If the image uses a different path, add an OCI label such as `io.trellis.contract.path=/path/to/contract.json` so the CLI can discover it automatically.
+1. update schemas and the `defineContract(...)` module
+2. `trellis contracts verify --source`
+3. `trellis service upgrade --source`
+4. restart the service
+5. confirm the expected RPCs, events, and bindings work

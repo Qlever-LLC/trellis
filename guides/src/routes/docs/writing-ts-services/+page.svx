@@ -6,7 +6,7 @@ Before starting, read [Trellis Concepts](/docs/concepts) for background on contr
 
 - a running Trellis environment from [Starting Trellis](/docs/startup)
 - Deno (or Node) installed
-- the `trellis` CLI installed
+- the `trellis` CLI installed (see [Install the Trellis CLI](/docs/install-cli))
 
 ## 1. Create the project
 

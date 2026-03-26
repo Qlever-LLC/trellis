@@ -1,6 +1,8 @@
 <script lang="ts">
   import { resolve } from "$app/paths";
-  import { docs } from "$lib/docs";
+  import { docsBySection } from "$lib/docs";
+
+  const groups = docsBySection();
 </script>
 
 <svelte:head>
@@ -17,28 +19,28 @@
     <h1 class="text-3xl font-semibold sm:text-4xl">Trellis Guides</h1>
   </section>
 
-  <section class="space-y-3">
-    <div class="overflow-hidden rounded-box border border-base-300 bg-base-100">
-      <ul class="divide-y divide-base-300">
-        {#each docs as doc (doc.href)}
-          <li>
-            <a
-              class="block px-4 py-4 hover:bg-base-200/40 sm:px-5"
-              href={resolve(doc.href)}
-            >
-              <p
-                class="text-xs font-medium uppercase tracking-[0.14em] text-base-content/50"
+  {#each groups as group (group.section)}
+    <section class="space-y-3">
+      <h2 class="text-sm font-semibold uppercase tracking-[0.12em] text-base-content/50">
+        {group.section}
+      </h2>
+      <div class="overflow-hidden rounded-box border border-base-300 bg-base-100">
+        <ul class="divide-y divide-base-300">
+          {#each group.docs as doc (doc.href)}
+            <li>
+              <a
+                class="block px-4 py-4 hover:bg-base-200/40 sm:px-5"
+                href={resolve(doc.href)}
               >
-                {doc.eyebrow}
-              </p>
-              <h3 class="mt-1 text-base font-semibold">{doc.title}</h3>
-              <p class="mt-1 text-sm leading-6 text-base-content/70">
-                {doc.description}
-              </p>
-            </a>
-          </li>
-        {/each}
-      </ul>
-    </div>
-  </section>
+                <h3 class="text-base font-semibold">{doc.title}</h3>
+                <p class="mt-1 text-sm leading-6 text-base-content/70">
+                  {doc.description}
+                </p>
+              </a>
+            </li>
+          {/each}
+        </ul>
+      </div>
+    </section>
+  {/each}
 </div>

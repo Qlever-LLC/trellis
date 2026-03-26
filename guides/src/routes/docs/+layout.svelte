@@ -1,17 +1,18 @@
 <script lang="ts">
-  
+
   import type { Snippet } from "svelte";
 import { resolve } from "$app/paths";
   import { page } from "$app/state";
-  import { docs, getDoc, getPrevNext } from "$lib/docs";
+  import { docsBySection, getDoc, getPrevNext } from "$lib/docs";
 
   let { children }: { children: Snippet } = $props();
 
+  const groups = docsBySection();
   const pathname = $derived(normalizePath(page.route.id ?? page.url.pathname));
   const currentDoc = $derived(getDoc(pathname));
   const neighbors = $derived(getPrevNext(pathname));
   const title = $derived(
-    `${currentDoc.title || "Guides"} | Trellis documentation`,
+    `${currentDoc?.title || "Guides"} | Trellis documentation`,
   );
 
   function normalizePath(path: string) {
@@ -21,7 +22,7 @@ import { resolve } from "$app/paths";
 
 <svelte:head>
   <title>{title}</title>
-  <meta name="description" content={currentDoc.description} />
+  <meta name="description" content={currentDoc?.description} />
 </svelte:head>
 
 <div class="grid gap-8 lg:grid-cols-[16rem_minmax(0,1fr)] lg:items-start">
@@ -32,21 +33,23 @@ import { resolve } from "$app/paths";
       </div>
 
       <nav class="p-2" aria-label="Documentation">
-        {#each docs as doc (doc.href)}
-          <a
-            class={[
-              "block rounded-btn px-3 py-2 text-sm hover:bg-base-200/50",
-              pathname === doc.href
-                ? "bg-base-200 font-medium text-base-content"
-                : "text-base-content/75",
-            ]}
-            href={resolve(doc.href)}
-          >
-            <span class="block">{doc.title}</span>
-            <span class="mt-1 block text-xs leading-5 text-base-content/55"
-              >{doc.eyebrow}</span
+        {#each groups as group (group.section)}
+          <p class="mt-3 first:mt-1 px-3 pb-1 text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-base-content/40">
+            {group.section}
+          </p>
+          {#each group.docs as doc (doc.href)}
+            <a
+              class={[
+                "block rounded-btn px-3 py-2 text-sm hover:bg-base-200/50",
+                pathname === doc.href
+                  ? "bg-base-200 font-medium text-base-content"
+                  : "text-base-content/75",
+              ]}
+              href={resolve(doc.href)}
             >
-          </a>
+              <span class="block">{doc.title}</span>
+            </a>
+          {/each}
         {/each}
       </nav>
     </div>
@@ -58,7 +61,7 @@ import { resolve } from "$app/paths";
         <p
           class="text-xs font-medium uppercase tracking-[0.16em] text-base-content/50"
         >
-          {currentDoc.eyebrow}
+          {currentDoc.section}
         </p>
         <div>
           <h1 class="text-3xl font-semibold">{currentDoc.title}</h1>
@@ -91,7 +94,7 @@ import { resolve } from "$app/paths";
                 >{neighbors.prev.title}</span
               >
               <span class="mt-1 block text-xs text-base-content/50"
-                >{neighbors.prev.eyebrow}</span
+                >{neighbors.prev.section}</span
               >
             </a>
           {:else}
@@ -111,7 +114,7 @@ import { resolve } from "$app/paths";
                 >{neighbors.next.title}</span
               >
               <span class="mt-1 block text-xs text-base-content/50"
-                >{neighbors.next.eyebrow}</span
+                >{neighbors.next.section}</span
               >
             </a>
           {/if}

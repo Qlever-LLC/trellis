@@ -6,7 +6,7 @@ If you have do not have a running NATS server configured for Trellis, please fol
 
 - `podman`
 - `systemctl --user` with Quadlet support
-- the `trellis` CLI installed
+- the `trellis` CLI installed (see [Install the Trellis CLI](/docs/install-cli))
 - an OAuth application (GitHub) for your environment
 
 ## 1. Setup the workspace
@@ -24,7 +24,7 @@ cd trellis
 and please be aware you will need to adapt the below commands to the location of the NATS, NSC, etc. resources for your installation.
 
 
-Copy `js/services/trellis/.env.example` from the Trellis repo into `./config/trellis.env`.
+Download [`trellis.env`](https://github.com/qlever-llc/trellis/blob/main/deploy/quadlet/trellis.env) and save it as `./config/trellis.env`.
 
 ## 2. Generate the Trellis session key
 
@@ -116,6 +116,8 @@ trellis bootstrap nats \
 
 ## 7. Deploy the runtime with Quadlet
 
+The Trellis repo provides Quadlet templates at [`deploy/quadlet/`](https://github.com/qlever-llc/trellis/tree/main/deploy/quadlet). Use those as a starting point.
+
 Write `~/.config/containers/systemd/trellis.container`:
 
 ```ini
@@ -126,7 +128,7 @@ Requires=trellis-nats.service
 
 [Container]
 ContainerName=trellis
-Image=ghcr.io/OWNER/trellis:latest
+Image=ghcr.io/qlever-llc/trellis:latest
 PublishPort=127.0.0.1:3000:3000
 EnvironmentFile=%h/trellis/config/trellis.env
 Volume=%h/trellis/nkeys/creds/Trellis/AUTH/trellis.creds:/run/trellis/creds/auth-trellis.creds:ro,Z
@@ -161,7 +163,7 @@ After=trellis.service
 
 [Container]
 ContainerName=console
-Image=ghcr.io/OWNER/console:latest
+Image=ghcr.io/qlever-llc/console:latest
 PublishPort=127.0.0.1:5173:80
 Environment=VITE_TRELLIS_AUTH_URL=http://host.containers.internal:3000
 Environment=VITE_TRELLIS_NATS_SERVERS=ws://host.containers.internal:8080
@@ -181,8 +183,6 @@ RestartSec=5
 [Install]
 WantedBy=default.target
 ```
-
-Replace `ghcr.io/OWNER/trellis:latest` and `ghcr.io/OWNER/console:latest` with your actual image references.
 
 The runtime binds only to localhost, runs rootless with all capabilities dropped, and mounts creds read-only. The app container reads its public browser config from runtime environment variables, so you can point it at the correct Trellis auth and WebSocket endpoints without rebuilding the image.
 

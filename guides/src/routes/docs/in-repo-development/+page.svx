@@ -1,0 +1,206 @@
+This guide walks through running the Trellis server, console, and supporting services directly from the source tree. By the end you will have a local development environment equivalent to the [Server Setup](/docs/nats) guides, but running processes natively instead of in containers.
+
+## What you need
+
+- Git
+- [Deno](https://deno.com) (v2+)
+- a Rust toolchain (`rustup`)
+- `podman` (for the NATS container only)
+- `systemctl --user` with Quadlet support
+- an OAuth application (GitHub) for local development
+
+## 1. Clone the repository
+
+```sh
+git clone https://github.com/qlever-llc/trellis.git
+cd trellis
+```
+
+## 2. Install dependencies
+
+Install the Deno workspace dependencies:
+
+```sh
+cd js
+deno install
+cd ..
+```
+
+Build the Trellis CLI from source:
+
+```sh
+cd rust
+cargo build -p trellis-cli
+cd ..
+```
+
+The CLI binary is at `rust/target/debug/trellis`. The Deno workspace provides a task alias so you can run it from the `js/` directory:
+
+```sh
+deno task -c js/deno.json trellis --version
+```
+
+## 3. Set up NATS
+
+NATS still runs in a container even for in-repo development. Follow the [Prepare NATS](/docs/nats) guide to get a running NATS server.
+
+Create a workspace directory for NATS state outside the repo:
+
+```sh
+mkdir -p ~/trellis/{config,keys,nsc,nkeys}
+chmod 700 ~/trellis/keys ~/trellis/nsc ~/trellis/nkeys
+```
+
+Complete all of the steps in the [Prepare NATS](/docs/nats) guide using `~/trellis` as your workspace root. When you are done you should have NATS running on `127.0.0.1:4222`.
+
+## 4. Generate the Trellis session key
+
+```sh
+deno task -c js/deno.json trellis keygen \
+  --out ~/trellis/keys/trellis.seed \
+  --pubout ~/trellis/keys/trellis.pub
+```
+
+## 5. Build SDKs from contracts
+
+The service and generated SDK packages depend on contract build artifacts. Generate them before running anything:
+
+```sh
+deno task -c js/deno.json build:sdk
+```
+
+## 6. Collect the NATS values
+
+If you still have the shell variables from the NATS guide, skip this step.
+
+```sh
+cd ~/trellis
+
+NATS_AUTH_ISSUER_NKEY=$(./nsc.sh describe account -n AUTH --field sub | tr -d '"')
+NATS_AUTH_TARGET_NKEY=$(./nsc.sh describe account -n TRELLIS --field sub | tr -d '"')
+XKEY_PUB=$(./nsc.sh describe account -n AUTH -J | grep '"xkey"' | tr -d ' ",' | cut -d: -f2)
+```
+
+Read the signing seeds:
+
+```sh
+NATS_AUTH_ISSUER_SIGNING_SEED=$(cat ~/trellis/keys/auth-issuer-signing.nk)
+NATS_AUTH_TARGET_SIGNING_SEED=$(cat ~/trellis/keys/trellis-target-signing.nk)
+NATS_AUTH_SXKEY_SEED=$(cat ~/trellis/nkeys/keys/X/${XKEY_PUB:1:2}/${XKEY_PUB}.nk)
+```
+
+## 7. Configure the runtime env
+
+Copy the example env file in the source tree:
+
+```sh
+cd /path/to/trellis
+cp js/services/trellis/.env.example js/services/trellis/.env
+```
+
+Edit `js/services/trellis/.env` and fill in the values. When running from source, creds paths are relative to `js/services/trellis/`:
+
+```text
+TRELLIS_SESSION_KEY_SEED=<contents of ~/trellis/keys/trellis.seed>
+
+AUTH_REDIRECT=http://localhost:3000/auth/callback/github
+AUTH_WEB_ORIGINS=http://localhost:5173
+AUTH_PUBLIC_ORIGIN=http://localhost:3000
+
+NATS_SERVERS=localhost
+NATS_TRELLIS_CREDS_FILE=../../../home/<you>/trellis/nkeys/creds/Trellis/TRELLIS/trellis.creds
+NATS_AUTH_CREDS_FILE=../../../home/<you>/trellis/nkeys/creds/Trellis/AUTH/trellis.creds
+NATS_SENTINEL_CREDS=../../../home/<you>/trellis/nkeys/creds/Trellis/AUTH/sentinel.creds
+NATS_AUTH_TARGET_NKEY=<value from step 6>
+NATS_AUTH_TARGET_SIGNING_SEED=<value from step 6>
+NATS_AUTH_ISSUER_NKEY=<value from step 6>
+NATS_AUTH_ISSUER_SIGNING_SEED=<value from step 6>
+NATS_AUTH_SXKEY_SEED=<value from step 6>
+
+GITHUB_CLIENT_ID=<your GitHub OAuth app client ID>
+GITHUB_CLIENT_SECRET=<your GitHub OAuth app secret>
+```
+
+Using absolute paths for creds files is recommended to avoid confusion:
+
+```text
+NATS_TRELLIS_CREDS_FILE=/home/<you>/trellis/nkeys/creds/Trellis/TRELLIS/trellis.creds
+NATS_AUTH_CREDS_FILE=/home/<you>/trellis/nkeys/creds/Trellis/AUTH/trellis.creds
+NATS_SENTINEL_CREDS=/home/<you>/trellis/nkeys/creds/Trellis/AUTH/sentinel.creds
+```
+
+## 8. Bootstrap NATS buckets
+
+```sh
+deno task -c js/deno.json trellis bootstrap nats \
+  --servers 127.0.0.1 \
+  --trellis-creds ~/trellis/nkeys/creds/Trellis/TRELLIS/trellis.creds \
+  --auth-creds ~/trellis/nkeys/creds/Trellis/AUTH/trellis.creds
+```
+
+## 9. Start the Trellis runtime
+
+```sh
+cd js/services/trellis
+deno task dev
+```
+
+The runtime starts on `http://localhost:3000` with file watching enabled. Code changes under `js/` will trigger an automatic restart.
+
+Test it:
+
+```sh
+curl -i http://localhost:3000/auth/login/github
+```
+
+An HTTP 400 is expected — it confirms the runtime is serving.
+
+## 10. Start the console app
+
+In a second terminal:
+
+```sh
+cd js/apps/trellis
+cp .env.example .env
+deno task dev
+```
+
+The console starts on `http://localhost:5173` with Vite HMR.
+
+## 11. Create the first admin
+
+```sh
+deno task -c js/deno.json trellis user bootstrap-admin \
+  --servers 127.0.0.1 \
+  --creds ~/trellis/nkeys/creds/Trellis/AUTH/trellis.creds \
+  --origin github \
+  --id github:YOUR_GITHUB_USER_ID
+```
+
+## 12. Log in with the CLI
+
+```sh
+deno task -c js/deno.json trellis --nats-servers 127.0.0.1 auth login \
+  --auth-url http://localhost:3000 \
+  --provider github
+```
+
+## 13. Verify
+
+```sh
+curl http://127.0.0.1:8222/healthz
+curl -i http://localhost:3000/auth/login/github
+curl -I http://localhost:5173/
+deno task -c js/deno.json trellis auth status
+```
+
+Open `http://localhost:5173` in your browser and complete the OAuth login.
+
+## Development workflow
+
+- **Runtime changes** — edit files under `js/services/trellis/` or `js/packages/`. The `deno task dev` watcher restarts the process automatically.
+- **Console changes** — edit files under `js/apps/trellis/`. Vite HMR applies changes in-place.
+- **Contract changes** — run `deno task -c js/deno.json build:sdk` to regenerate SDKs, then restart the affected service.
+- **CLI changes** — run `cargo build -p trellis-cli` in the `rust/` directory.
+- **Type checking** — run `deno task -c js/deno.json check` to type-check the full JS workspace.
+- **Tests** — run `deno task -c js/deno.json test:contracts` or `deno task -c js/deno.json test:auth`.

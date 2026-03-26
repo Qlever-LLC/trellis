@@ -18,7 +18,7 @@ chmod 700 ./keys ./nsc ./nkeys
 chmod 750 ./config
 ```
 
-Copy `docs/examples/nats/nats.conf.template` from the Trellis repo into `./config/nats.conf`.
+Download [`nats.conf.template`](https://github.com/qlever-llc/trellis/blob/main/deploy/nats/nats.conf.template) and save it as `./config/nats.conf`.
 
 Private material lives under `./keys`, `./nsc`, and `./nkeys`. Keep those directories readable only by your local user. If you copy files into them later, re-apply restrictive permissions.
 
@@ -142,7 +142,7 @@ chmod 600 ./keys/*.nk
 
 ## 5. Prepare the NATS config
 
-The config template from the Trellis repo is already set up to:
+The config template is already set up to:
 
 - include `./jwt.conf` for the generated resolver config
 - store JetStream data under `/data`
