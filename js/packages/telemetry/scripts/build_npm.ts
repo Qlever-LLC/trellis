@@ -1,4 +1,4 @@
-import { buildDntPackage } from "../../../tools/npm/build_dnt_package.ts";
+import { buildDntPackage } from "../../../tools/package_build/build_dnt_package.ts";
 
 await buildDntPackage({
   entryPoints: ["./mod.ts", "./core.ts", "./env.ts", "./nats.ts", "./result.ts", "./trellis.ts"],

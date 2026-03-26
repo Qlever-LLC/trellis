@@ -1,4 +1,4 @@
-import { buildSourcePackage } from "../../../tools/npm/build_source_package.ts";
+import { buildSourcePackage } from "../../../tools/package_build/build_source_package.ts";
 
 await buildSourcePackage({
   description: "Svelte components and state helpers for Trellis browser applications.",

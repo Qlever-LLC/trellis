@@ -15,7 +15,7 @@ on:
     paths:
       - ".github/workflows/publish-npm.yml"
       - "js/deno.json"
-      - "js/tools/npm/**"
+      - "js/tools/package_build/**"
       - "js/packages/auth/**"
       - "js/packages/contracts/**"
       - "js/packages/telemetry/**"
