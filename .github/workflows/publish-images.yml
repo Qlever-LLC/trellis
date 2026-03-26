@@ -37,6 +37,13 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Normalize image owner
+        id: owner
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "value=$(printf '%s' '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -55,7 +62,7 @@ jobs:
         id: trellis_meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/trellis
+          images: ${{ env.REGISTRY }}/${{ steps.owner.outputs.value }}/trellis
           tags: |
             type=ref,event=tag
             type=sha,prefix=sha-
@@ -93,6 +100,13 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Normalize image owner
+        id: owner
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "value=$(printf '%s' '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -108,7 +122,7 @@ jobs:
         id: console_meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/trellis-console
+          images: ${{ env.REGISTRY }}/${{ steps.owner.outputs.value }}/trellis-console
           tags: |
             type=ref,event=tag
             type=sha,prefix=sha-
@@ -134,7 +148,7 @@ jobs:
           file: js/apps/trellis/Containerfile
           platforms: ${{ matrix.platform }}
           labels: ${{ steps.console_meta.outputs.labels }}
-          outputs: type=image,name=${{ env.REGISTRY }}/${{ github.repository_owner }}/trellis-console,push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ steps.owner.outputs.value }}/trellis-console,push-by-digest=true,name-canonical=true,push=true
 
       - name: Export console image digest
         if: env.SHOULD_PUSH == 'true'
@@ -164,6 +178,13 @@ jobs:
       packages: write
 
     steps:
+      - name: Normalize image owner
+        id: owner
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "value=$(printf '%s' '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
       - name: Download console image digests
         uses: actions/download-artifact@v4
         with:
@@ -185,7 +206,7 @@ jobs:
         id: console_meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/trellis-console
+          images: ${{ env.REGISTRY }}/${{ steps.owner.outputs.value }}/trellis-console
           tags: |
             type=ref,event=tag
             type=sha,prefix=sha-
@@ -204,7 +225,7 @@ jobs:
 
           refs=()
           for digest_file in *; do
-            refs+=("${{ env.REGISTRY }}/${{ github.repository_owner }}/trellis-console@sha256:${digest_file}")
+            refs+=("${{ env.REGISTRY }}/${{ steps.owner.outputs.value }}/trellis-console@sha256:${digest_file}")
           done
 
           docker buildx imagetools create "${tags[@]}" "${refs[@]}"
