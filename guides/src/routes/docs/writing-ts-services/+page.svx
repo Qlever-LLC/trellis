@@ -243,11 +243,10 @@ trellis contracts build \
   --source ./contracts/my_service.ts \
   --out-manifest ./dist/contracts/trellis.my-service@v1.json \
   --ts-out ./generated/sdk/ts \
-  --package-name "@my-org/sdk-my-service" \
-  --package-version "0.1.0"
+  --package-name "@my-org/sdk-my-service"
 ```
 
-This produces a Deno package under `./generated/sdk/ts/` with:
+This produces a Deno package under `./generated/sdk/ts/`. The generated SDK version matches the version declared by the workspace that owns the contract source. It includes:
 
 - `mod.ts` — the contract module and `use(...)` export
 - `types.ts` — typed request, response, and event definitions

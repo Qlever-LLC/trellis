@@ -32,6 +32,9 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use tracing_subscriber::EnvFilter;
 use trellis_auth as authlib;
+use trellis_cli_participant::{
+    connect_admin as connect_cli_admin, connect_service as connect_cli_service,
+};
 use trellis_client::{ServiceConnectOptions, SessionAuth};
 use trellis_codegen_rust::{
     generate_rust_participant_facade, generate_rust_sdk, GenerateRustParticipantFacadeOpts,
@@ -42,7 +45,6 @@ use trellis_codegen_ts::{
     generate_ts_sdk, GenerateTsSdkOpts, TsRuntimeDeps, TsRuntimeSource as CodegenTsRuntimeSource,
 };
 use trellis_contracts::{pack_loaded_manifests, write_catalog_pack, CatalogPack, ContractManifest};
-use trellis_cli_participant::{connect_admin as connect_cli_admin, connect_service as connect_cli_service};
 
 #[tokio::main]
 async fn main() -> miette::Result<()> {
@@ -367,11 +369,17 @@ fn build_contract_command(args: &BuildContractArgs) -> miette::Result<()> {
         &args.source_export,
         default_image_contract_path(),
     )?;
+    let owner_version = required_owner_version(&resolved, "build SDKs from contract source")?;
+    let runtime_version = owner_version.clone();
 
     if let Some(parent) = args.out_manifest.parent() {
         fs::create_dir_all(parent).into_diagnostic()?;
     }
-    fs::write(&args.out_manifest, format!("{}\n", resolved.loaded.canonical)).into_diagnostic()?;
+    fs::write(
+        &args.out_manifest,
+        format!("{}\n", resolved.loaded.canonical),
+    )
+    .into_diagnostic()?;
 
     if let Some(ts_out) = &args.ts_out {
         generate_ts_sdk(&GenerateTsSdkOpts {
@@ -381,10 +389,10 @@ fn build_contract_command(args: &BuildContractArgs) -> miette::Result<()> {
                 .package_name
                 .clone()
                 .unwrap_or_else(|| default_ts_package_name_from_id(&resolved.loaded.manifest.id)),
-            package_version: args.package_version.clone(),
+            package_version: owner_version.clone(),
             runtime_deps: ts_runtime_deps(
                 args.runtime_source,
-                args.runtime_version.clone(),
+                runtime_version.clone(),
                 args.runtime_repo_root.clone(),
             ),
         })
@@ -399,10 +407,10 @@ fn build_contract_command(args: &BuildContractArgs) -> miette::Result<()> {
                 .crate_name
                 .clone()
                 .unwrap_or_else(|| default_rust_crate_name_from_id(&resolved.loaded.manifest.id)),
-            crate_version: args.crate_version.clone(),
+            crate_version: owner_version.clone(),
             runtime_deps: rust_runtime_deps(
                 args.runtime_source,
-                args.runtime_version.clone(),
+                runtime_version,
                 args.runtime_repo_root.clone(),
             ),
         })
@@ -502,23 +510,28 @@ async fn verify_live_command(format: OutputFormat, args: &VerifyLiveArgs) -> mie
 
     let participant = connected.facade();
     let core_client = participant.core();
-    let catalog = core_client.trellis_catalog().await.into_diagnostic()?.catalog;
+    let catalog = core_client
+        .trellis_catalog()
+        .await
+        .into_diagnostic()?
+        .catalog;
     let mut verified = Vec::new();
     for (index, entry) in catalog.contracts.iter().enumerate() {
         if args.limit.is_some_and(|limit| index >= limit) {
             break;
         }
         let contract = core_client
-            .trellis_contract_get(&trellis_cli_participant::uses::core::TrellisContractGetRequest {
-                digest: entry.digest.clone(),
-            })
+            .trellis_contract_get(
+                &trellis_cli_participant::uses::core::TrellisContractGetRequest {
+                    digest: entry.digest.clone(),
+                },
+            )
             .await
             .into_diagnostic()?
             .contract;
-        let computed = trellis_contracts::digest_json(
-            &serde_json::to_value(&contract).into_diagnostic()?,
-        )
-        .into_diagnostic()?;
+        let computed =
+            trellis_contracts::digest_json(&serde_json::to_value(&contract).into_diagnostic()?)
+                .into_diagnostic()?;
         miette::ensure!(computed == entry.digest, "digest mismatch for {}", entry.id);
         verified.push(json!({ "id": entry.id, "digest": entry.digest }));
     }
@@ -562,14 +575,16 @@ fn generate_ts_sdk_command(args: &GenerateTsSdkArgs) -> miette::Result<()> {
         .package_name
         .clone()
         .unwrap_or_else(|| default_ts_package_name_from_id(&resolved.loaded.manifest.id));
+    let owner_version = required_owner_version(&resolved, "generate a TypeScript SDK")?;
+    let runtime_version = owner_version.clone();
     generate_ts_sdk(&GenerateTsSdkOpts {
         manifest_path: resolved.manifest_path.clone(),
         out_dir: args.out.clone(),
         package_name,
-        package_version: args.package_version.clone(),
+        package_version: owner_version,
         runtime_deps: ts_runtime_deps(
             args.runtime_source,
-            args.runtime_version.clone(),
+            runtime_version,
             args.runtime_repo_root.clone(),
         ),
     })
@@ -593,14 +608,16 @@ fn generate_rust_sdk_command(args: &GenerateRustSdkArgs) -> miette::Result<()> {
         .crate_name
         .clone()
         .unwrap_or_else(|| default_rust_crate_name_from_id(&resolved.loaded.manifest.id));
+    let owner_version = required_owner_version(&resolved, "generate a Rust SDK")?;
+    let runtime_version = owner_version.clone();
     generate_rust_sdk(&GenerateRustSdkOpts {
         manifest_path: resolved.manifest_path.clone(),
         out_dir: args.out.clone(),
         crate_name,
-        crate_version: args.crate_version.clone(),
+        crate_version: owner_version,
         runtime_deps: rust_runtime_deps(
             args.runtime_source,
-            args.runtime_version.clone(),
+            runtime_version,
             args.runtime_repo_root.clone(),
         ),
     })
@@ -619,32 +636,33 @@ fn generate_rust_participant_facade_command(
         &args.contract.source_export,
         &args.contract.image_contract_path,
     )?;
-    let crate_name = args
-        .crate_name
-        .clone()
-        .unwrap_or_else(|| format!("{}-participant", default_rust_crate_name_from_id(&resolved.loaded.manifest.id)));
-    let owned_sdk_crate_name = args
-        .owned_sdk_crate_name
-        .clone()
-        .or_else(|| {
-            args.owned_sdk_path
-                .as_ref()
-                .map(|_| default_rust_crate_name_from_id(&resolved.loaded.manifest.id))
-        });
+    let crate_name = args.crate_name.clone().unwrap_or_else(|| {
+        format!(
+            "{}-participant",
+            default_rust_crate_name_from_id(&resolved.loaded.manifest.id)
+        )
+    });
+    let owned_sdk_crate_name = args.owned_sdk_crate_name.clone().or_else(|| {
+        args.owned_sdk_path
+            .as_ref()
+            .map(|_| default_rust_crate_name_from_id(&resolved.loaded.manifest.id))
+    });
     let alias_mappings = args
         .use_sdks
         .iter()
         .map(|value| parse_participant_alias_mapping(value))
         .collect::<miette::Result<Vec<_>>>()?;
+    let owner_version = required_owner_version(&resolved, "generate a Rust participant facade")?;
+    let runtime_version = owner_version.clone();
 
     generate_rust_participant_facade(&GenerateRustParticipantFacadeOpts {
         manifest_path: resolved.manifest_path.clone(),
         out_dir: args.out.clone(),
         crate_name,
-        crate_version: args.crate_version.clone(),
+        crate_version: owner_version,
         runtime_deps: rust_runtime_deps(
             args.runtime_source,
-            args.runtime_version.clone(),
+            runtime_version,
             args.runtime_repo_root.clone(),
         ),
         owned_sdk_crate_name,
@@ -667,6 +685,8 @@ fn generate_all_sdk_command(args: &GenerateAllSdkArgs) -> miette::Result<()> {
         &args.contract.source_export,
         &args.contract.image_contract_path,
     )?;
+    let owner_version = required_owner_version(&resolved, "generate SDKs")?;
+    let runtime_version = owner_version.clone();
     generate_ts_sdk(&GenerateTsSdkOpts {
         manifest_path: resolved.manifest_path.clone(),
         out_dir: args.ts_out.clone(),
@@ -674,10 +694,10 @@ fn generate_all_sdk_command(args: &GenerateAllSdkArgs) -> miette::Result<()> {
             .package_name
             .clone()
             .unwrap_or_else(|| default_ts_package_name_from_id(&resolved.loaded.manifest.id)),
-        package_version: args.package_version.clone(),
+        package_version: owner_version.clone(),
         runtime_deps: ts_runtime_deps(
             args.runtime_source,
-            args.runtime_version.clone(),
+            runtime_version.clone(),
             args.runtime_repo_root.clone(),
         ),
     })
@@ -689,16 +709,27 @@ fn generate_all_sdk_command(args: &GenerateAllSdkArgs) -> miette::Result<()> {
             .crate_name
             .clone()
             .unwrap_or_else(|| default_rust_crate_name_from_id(&resolved.loaded.manifest.id)),
-        crate_version: args.crate_version.clone(),
+        crate_version: owner_version,
         runtime_deps: rust_runtime_deps(
             args.runtime_source,
-            args.runtime_version.clone(),
+            runtime_version,
             args.runtime_repo_root.clone(),
         ),
     })
     .into_diagnostic()?;
     output::print_success("generated TypeScript and Rust SDKs");
     Ok(())
+}
+
+fn required_owner_version(
+    resolved: &contract_input::ResolvedContractInput,
+    action: &str,
+) -> miette::Result<String> {
+    resolved.owner_version.clone().ok_or_else(|| {
+        miette::miette!(
+            "cannot {action}: no owning workspace version could be inferred from the contract input; use a source file or a manifest located under a versioned workspace"
+        )
+    })
 }
 
 fn generate_session_keypair() -> (String, String) {
@@ -891,12 +922,10 @@ async fn auth_logout_command(format: OutputFormat) -> miette::Result<()> {
     let mut revoke_error = None;
     if let Ok(state) = authlib::load_admin_session() {
         match connect_cli_admin(&state).await {
-            Ok(connected) => {
-                match connected.facade().auth().auth_logout().await {
-                    Ok(response) => revoked = response.success,
-                    Err(error) => revoke_error = Some(error.to_string()),
-                }
-            }
+            Ok(connected) => match connected.facade().auth().auth_logout().await {
+                Ok(response) => revoked = response.success,
+                Err(error) => revoke_error = Some(error.to_string()),
+            },
             Err(error) => revoke_error = Some(error.to_string()),
         }
     }
@@ -926,9 +955,7 @@ async fn auth_logout_command(format: OutputFormat) -> miette::Result<()> {
 
 async fn auth_status_command(format: OutputFormat) -> miette::Result<()> {
     let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let connected = connect_cli_admin(&state)
-        .await
-        .into_diagnostic()?;
+    let connected = connect_cli_admin(&state).await.into_diagnostic()?;
     let participant = connected.facade();
     let me = participant.auth().auth_me().await.into_diagnostic()?.user;
     connected
@@ -959,9 +986,7 @@ async fn auth_status_command(format: OutputFormat) -> miette::Result<()> {
 
 async fn service_list_command(format: OutputFormat) -> miette::Result<()> {
     let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let connected = connect_cli_admin(&state)
-        .await
-        .into_diagnostic()?;
+    let connected = connect_cli_admin(&state).await.into_diagnostic()?;
     let services = connected
         .facade()
         .auth()
@@ -1023,16 +1048,16 @@ async fn auth_approvals_list_command(
     args: &AuthApprovalsListArgs,
 ) -> miette::Result<()> {
     let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let connected = connect_cli_admin(&state)
-        .await
-        .into_diagnostic()?;
+    let connected = connect_cli_admin(&state).await.into_diagnostic()?;
     let participant = connected.facade();
     let approvals = participant
         .auth()
-        .auth_list_approvals(&trellis_cli_participant::uses::auth::AuthListApprovalsRequest {
-            user: args.user.clone(),
-            digest: args.digest.clone(),
-        })
+        .auth_list_approvals(
+            &trellis_cli_participant::uses::auth::AuthListApprovalsRequest {
+                user: args.user.clone(),
+                digest: args.digest.clone(),
+            },
+        )
         .await
         .into_diagnostic()?
         .approvals;
@@ -1087,16 +1112,16 @@ async fn auth_approvals_revoke_command(
     args: &AuthApprovalsRevokeArgs,
 ) -> miette::Result<()> {
     let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let connected = connect_cli_admin(&state)
-        .await
-        .into_diagnostic()?;
+    let connected = connect_cli_admin(&state).await.into_diagnostic()?;
     let participant = connected.facade();
     let success = participant
         .auth()
-        .auth_revoke_approval(&trellis_cli_participant::uses::auth::AuthRevokeApprovalRequest {
-            contract_digest: args.digest.clone(),
-            user: args.user.clone(),
-        })
+        .auth_revoke_approval(
+            &trellis_cli_participant::uses::auth::AuthRevokeApprovalRequest {
+                contract_digest: args.digest.clone(),
+                user: args.user.clone(),
+            },
+        )
         .await
         .into_diagnostic()?
         .success;
@@ -1192,9 +1217,7 @@ async fn service_install_command(
     let (seed, session_key) = generate_session_keypair();
 
     let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let connected = connect_cli_admin(&state)
-        .await
-        .into_diagnostic()?;
+    let connected = connect_cli_admin(&state).await.into_diagnostic()?;
     let participant = connected.facade();
     let contract = loaded
         .value
@@ -1204,14 +1227,16 @@ async fn service_install_command(
         .ok_or_else(|| miette::miette!("service contract payload must be a JSON object"))?;
     let rpc_result = participant
         .auth()
-        .auth_install_service(&trellis_cli_participant::uses::auth::AuthInstallServiceRequest {
-            session_key: session_key.clone(),
-            display_name: display_name.clone(),
-            active: Some(!args.inactive),
-            namespaces: namespaces.clone(),
-            description: description.clone(),
-            contract,
-        })
+        .auth_install_service(
+            &trellis_cli_participant::uses::auth::AuthInstallServiceRequest {
+                session_key: session_key.clone(),
+                display_name: display_name.clone(),
+                active: Some(!args.inactive),
+                namespaces: namespaces.clone(),
+                description: description.clone(),
+                contract,
+            },
+        )
         .await;
     let renew_result = connected.renew_admin_session(&mut state).await;
     let response = rpc_result.into_diagnostic()?;
@@ -1234,14 +1259,8 @@ async fn service_install_command(
     } else {
         output::print_success("installed service contract");
         output::print_info(&format!("sessionKey={session_key}"));
-        output::print_info(&format!(
-            "contractId={}",
-            response.contract_id
-        ));
-        output::print_info(&format!(
-            "contractDigest={}",
-            response.contract_digest
-        ));
+        output::print_info(&format!("contractId={}", response.contract_id));
+        output::print_info(&format!("contractDigest={}", response.contract_digest));
         output::print_info(&format!("seed={seed}"));
         output::print_info("store the seed securely; it will not be shown again");
     }
@@ -1268,9 +1287,7 @@ async fn service_upgrade_command(
         "use -f with --format json to skip the interactive upgrade review"
     );
     let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let connected = connect_cli_admin(&state)
-        .await
-        .into_diagnostic()?;
+    let connected = connect_cli_admin(&state).await.into_diagnostic()?;
     let participant = connected.facade();
     let services = participant
         .auth()
@@ -1322,10 +1339,12 @@ async fn service_upgrade_command(
         .ok_or_else(|| miette::miette!("service contract payload must be a JSON object"))?;
     let rpc_result = participant
         .auth()
-        .auth_upgrade_service_contract(&trellis_cli_participant::uses::auth::AuthUpgradeServiceContractRequest {
-            session_key: service_key.clone(),
-            contract,
-        })
+        .auth_upgrade_service_contract(
+            &trellis_cli_participant::uses::auth::AuthUpgradeServiceContractRequest {
+                session_key: service_key.clone(),
+                contract,
+            },
+        )
         .await;
     let renew_result = connected.renew_admin_session(&mut state).await;
     let response = rpc_result.into_diagnostic()?;
@@ -1346,14 +1365,8 @@ async fn service_upgrade_command(
     } else {
         output::print_success("upgraded service contract");
         output::print_info(&format!("sessionKey={}", service_key));
-        output::print_info(&format!(
-            "contractId={}",
-            response.contract_id
-        ));
-        output::print_info(&format!(
-            "contractDigest={}",
-            response.contract_digest
-        ));
+        output::print_info(&format!("contractId={}", response.contract_id));
+        output::print_info(&format!("contractDigest={}", response.contract_digest));
     }
 
     Ok(())

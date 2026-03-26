@@ -73,8 +73,6 @@ fn sdk_generate_facade_emits_buildable_participant_crate() {
             "core=trellis-sdk-core=../trellis-sdk-trellis-core/trellis.core@v1.json",
             "--runtime-source",
             "local",
-            "--runtime-version",
-            env!("CARGO_PKG_VERSION"),
             "--runtime-repo-root",
             "../../..",
         ])

@@ -257,20 +257,11 @@ pub struct BuildContractArgs {
     #[arg(long)]
     pub package_name: Option<String>,
 
-    #[arg(long, default_value = "0.1.0")]
-    pub package_version: String,
-
     #[arg(long)]
     pub crate_name: Option<String>,
 
-    #[arg(long, default_value = "0.1.0")]
-    pub crate_version: String,
-
     #[arg(long, value_enum, default_value = "registry")]
     pub runtime_source: RustRuntimeSource,
-
-    #[arg(long, default_value = "0.1.0")]
-    pub runtime_version: String,
 
     #[arg(long)]
     pub runtime_repo_root: Option<PathBuf>,
@@ -357,14 +348,8 @@ pub struct GenerateTsSdkArgs {
     #[arg(long)]
     pub package_name: Option<String>,
 
-    #[arg(long, default_value = "0.1.0")]
-    pub package_version: String,
-
     #[arg(long, value_enum, default_value = "registry")]
     pub runtime_source: RustRuntimeSource,
-
-    #[arg(long, default_value = "0.1.0")]
-    pub runtime_version: String,
 
     #[arg(long)]
     pub runtime_repo_root: Option<PathBuf>,
@@ -381,14 +366,8 @@ pub struct GenerateRustSdkArgs {
     #[arg(long)]
     pub crate_name: Option<String>,
 
-    #[arg(long, default_value = "0.1.0")]
-    pub crate_version: String,
-
     #[arg(long, value_enum, default_value = "registry")]
     pub runtime_source: RustRuntimeSource,
-
-    #[arg(long, default_value = "0.1.0")]
-    pub runtime_version: String,
 
     #[arg(long)]
     pub runtime_repo_root: Option<PathBuf>,
@@ -405,9 +384,6 @@ pub struct GenerateRustParticipantFacadeArgs {
     #[arg(long)]
     pub crate_name: Option<String>,
 
-    #[arg(long, default_value = "0.1.0")]
-    pub crate_version: String,
-
     #[arg(long)]
     pub owned_sdk_path: Option<PathBuf>,
 
@@ -419,9 +395,6 @@ pub struct GenerateRustParticipantFacadeArgs {
 
     #[arg(long, value_enum, default_value = "registry")]
     pub runtime_source: RustRuntimeSource,
-
-    #[arg(long, default_value = "0.1.0")]
-    pub runtime_version: String,
 
     #[arg(long)]
     pub runtime_repo_root: Option<PathBuf>,
@@ -441,21 +414,12 @@ pub struct GenerateAllSdkArgs {
     #[arg(long)]
     pub package_name: Option<String>,
 
-    #[arg(long, default_value = "0.1.0")]
-    pub package_version: String,
-
     #[arg(long, value_enum, default_value = "registry")]
     pub runtime_source: RustRuntimeSource,
-
-    #[arg(long, default_value = "0.1.0")]
-    pub runtime_version: String,
 
     #[arg(long)]
     pub runtime_repo_root: Option<PathBuf>,
 
     #[arg(long)]
     pub crate_name: Option<String>,
-
-    #[arg(long, default_value = "0.1.0")]
-    pub crate_version: String,
 }

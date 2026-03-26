@@ -898,10 +898,10 @@ mod tests {
             manifest_path: manifest_path.clone(),
             out_dir: root.join("out"),
             package_name: package_name.to_string(),
-            package_version: "0.1.0".to_string(),
+            package_version: "0.4.0".to_string(),
             runtime_deps: TsRuntimeDeps {
                 source: TsRuntimeSource::Registry,
-                version: "0.1.0".to_string(),
+                version: "0.4.0".to_string(),
                 repo_root: None,
             },
         };
@@ -915,7 +915,7 @@ mod tests {
             manifest_path: PathBuf::from("generated/contracts/manifests/trellis.core@v1.json"),
             out_dir: PathBuf::from("generated/js/sdks/trellis-core"),
             package_name: "@qlever-llc/trellis-sdk-trellis-core".to_string(),
-            package_version: "0.1.0".to_string(),
+            package_version: "0.4.0".to_string(),
             runtime_deps: TsRuntimeDeps {
                 source: TsRuntimeSource::Registry,
                 version: "0.2.3".to_string(),
@@ -944,10 +944,10 @@ mod tests {
             manifest_path: repo_root.join("generated/contracts/manifests/trellis.auth@v1.json"),
             out_dir: out_dir.clone(),
             package_name: "@qlever-llc/trellis-sdk-auth".to_string(),
-            package_version: "0.1.0".to_string(),
+            package_version: "0.4.0".to_string(),
             runtime_deps: TsRuntimeDeps {
                 source: TsRuntimeSource::Local,
-                version: "0.1.0".to_string(),
+                version: "0.4.0".to_string(),
                 repo_root: Some(repo_root.clone()),
             },
         })

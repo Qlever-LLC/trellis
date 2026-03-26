@@ -45,7 +45,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
 
       - name: Build publishable npm packages
         run: deno task build:npm
@@ -86,12 +86,12 @@ jobs:
           npm pack "$GITHUB_WORKSPACE/js/packages/server/npm" --pack-destination . >/dev/null
           npm pack "$GITHUB_WORKSPACE/js/packages/trellis/npm" --pack-destination . >/dev/null
           npm install \
-            ./trellis-result-0.1.0.tgz \
-            ./trellis-contracts-0.1.0.tgz \
-            ./trellis-telemetry-0.1.0.tgz \
-            ./trellis-auth-0.1.0.tgz \
-            ./trellis-server-0.1.0.tgz \
-            ./trellis-trellis-0.1.0.tgz >/dev/null
+            ./trellis-result-0.4.0.tgz \
+            ./trellis-contracts-0.4.0.tgz \
+            ./trellis-telemetry-0.4.0.tgz \
+            ./trellis-auth-0.4.0.tgz \
+            ./trellis-server-0.4.0.tgz \
+            ./trellis-trellis-0.4.0.tgz >/dev/null
           node --input-type=module <<'EOF'
           await import("@qlever-llc/trellis-telemetry");
           await import("@qlever-llc/trellis-telemetry/env");
@@ -110,6 +110,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      id-token: write
 
     steps:
       - name: Check out repository
@@ -123,7 +124,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           registry-url: https://registry.npmjs.org
 
       - name: Build publishable npm packages
@@ -154,5 +155,3 @@ jobs:
           for pkg in "${packages[@]}"; do
             npm publish --access public --tag "$npm_tag" "$pkg"
           done
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

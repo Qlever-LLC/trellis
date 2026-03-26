@@ -1,11 +1,11 @@
 {
   "extends": "../../deno.json",
   "name": "@qlever-llc/trellis-service-trellis",
-  "version": "0.1.0",
+  "version": "0.4.0",
   "exports": "./main.ts",
   "tasks": {
     "dev": "deno run --env --allow-env --allow-sys --allow-read --allow-net --allow-ffi --watch main.ts",
-    "build:sdk": "cargo run --manifest-path ../../../rust/Cargo.toml -p trellis-cli --bin trellis -- contracts build --source ../../../js/services/trellis/contracts/trellis_core.ts --out-manifest ../../../generated/contracts/manifests/trellis.core@v1.json --ts-out ../../../generated/js/sdks/trellis-core --rust-out ../../../generated/rust/sdks/trellis-core --package-name @qlever-llc/trellis-sdk-trellis-core --crate-name trellis-sdk-trellis-core --runtime-source local --runtime-version 0.1.0 --runtime-repo-root ../../.. && cargo run --manifest-path ../../../rust/Cargo.toml -p trellis-cli --bin trellis -- contracts build --source ../../../js/services/trellis/contracts/trellis_auth.ts --out-manifest ../../../generated/contracts/manifests/trellis.auth@v1.json --ts-out ../../../generated/js/sdks/auth --rust-out ../../../generated/rust/sdks/auth --package-name @qlever-llc/trellis-sdk-auth --crate-name trellis-sdk-auth --runtime-source local --runtime-version 0.1.0 --runtime-repo-root ../../..",
+    "build:sdk": "cargo run --manifest-path ../../../rust/Cargo.toml -p trellis-cli --bin trellis -- contracts build --source ../../../js/services/trellis/contracts/trellis_core.ts --out-manifest ../../../generated/contracts/manifests/trellis.core@v1.json --ts-out ../../../generated/js/sdks/trellis-core --rust-out ../../../generated/rust/sdks/trellis-core --package-name @qlever-llc/trellis-sdk-trellis-core --crate-name trellis-sdk-trellis-core --runtime-source local --runtime-repo-root ../../.. && cargo run --manifest-path ../../../rust/Cargo.toml -p trellis-cli --bin trellis -- contracts build --source ../../../js/services/trellis/contracts/trellis_auth.ts --out-manifest ../../../generated/contracts/manifests/trellis.auth@v1.json --ts-out ../../../generated/js/sdks/auth --rust-out ../../../generated/rust/sdks/auth --package-name @qlever-llc/trellis-sdk-auth --crate-name trellis-sdk-auth --runtime-source local --runtime-repo-root ../../..",
     "verify:contracts": "cargo run --manifest-path ../../../rust/Cargo.toml -p trellis-cli --bin trellis -- contracts verify --source ../../../js/services/trellis/contracts/trellis_core.ts && cargo run --manifest-path ../../../rust/Cargo.toml -p trellis-cli --bin trellis -- contracts verify --source ../../../js/services/trellis/contracts/trellis_auth.ts",
     "test": "deno test --allow-env --allow-sys --allow-read"
   }

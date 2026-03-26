@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use miette::IntoDiagnostic;
+use serde_json::Value;
 use tempfile::TempDir;
 use trellis_contracts::{load_manifest, LoadedManifest};
 
@@ -12,6 +13,7 @@ const OCI_CONTRACT_PATH_LABELS: &[&str] = &["io.trellis.contract.path"];
 pub struct ResolvedContractInput {
     pub loaded: LoadedManifest,
     pub manifest_path: PathBuf,
+    pub owner_version: Option<String>,
     _temp_dir: Option<TempDir>,
 }
 
@@ -37,6 +39,7 @@ pub fn resolve_contract_input(
         return Ok(ResolvedContractInput {
             manifest_path: path.to_path_buf(),
             loaded,
+            owner_version: infer_owner_version(path),
             _temp_dir: None,
         });
     }
@@ -136,6 +139,7 @@ await Deno.stdout.write(new TextEncoder().encode(JSON.stringify(contract)));
     Ok(ResolvedContractInput {
         loaded,
         manifest_path,
+        owner_version: infer_owner_version(&source_path),
         _temp_dir: Some(temp_dir),
     })
 }
@@ -184,8 +188,118 @@ fn resolve_image_contract(
     Ok(ResolvedContractInput {
         loaded,
         manifest_path,
+        owner_version: None,
         _temp_dir: Some(temp_dir),
     })
+}
+
+fn infer_owner_version(path: &Path) -> Option<String> {
+    let path = path
+        .canonicalize()
+        .ok()
+        .unwrap_or_else(|| path.to_path_buf());
+    for manifest in find_version_manifests(&path) {
+        if let Some(version) = read_version_from_manifest(&manifest) {
+            return Some(version);
+        }
+    }
+    None
+}
+
+fn find_version_manifests(path: &Path) -> Vec<PathBuf> {
+    let mut manifests = Vec::new();
+    let mut current = path.parent();
+    while let Some(dir) = current {
+        for candidate in ["deno.json", "deno.jsonc", "package.json", "Cargo.toml"] {
+            let manifest = dir.join(candidate);
+            if manifest.exists() {
+                manifests.push(manifest);
+            }
+        }
+        current = dir.parent();
+    }
+    manifests
+}
+
+fn read_version_from_manifest(path: &Path) -> Option<String> {
+    match path.file_name()?.to_str()? {
+        "deno.json" | "deno.jsonc" | "package.json" => read_json_version(path),
+        "Cargo.toml" => read_cargo_version(path),
+        _ => None,
+    }
+}
+
+fn read_json_version(path: &Path) -> Option<String> {
+    let contents = fs::read_to_string(path).ok()?;
+    let manifest: Value = serde_json::from_str(&contents).ok()?;
+    manifest
+        .get("version")
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
+}
+
+fn read_cargo_version(path: &Path) -> Option<String> {
+    let contents = fs::read_to_string(path).ok()?;
+    let mut in_package = false;
+    let mut uses_workspace_version = false;
+    for line in contents.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') {
+            in_package = trimmed == "[package]";
+            continue;
+        }
+        if !in_package {
+            continue;
+        }
+        if trimmed.starts_with("version.workspace") {
+            let value = trimmed.split_once('=')?.1.trim();
+            if value == "true" {
+                uses_workspace_version = true;
+            }
+            continue;
+        }
+        if !trimmed.starts_with("version =") {
+            continue;
+        }
+        let value = trimmed.split_once('=')?.1.trim().trim_matches('"');
+        if !value.is_empty() {
+            return Some(value.to_string());
+        }
+    }
+    if uses_workspace_version {
+        return read_workspace_cargo_version(path);
+    }
+    None
+}
+
+fn read_workspace_cargo_version(path: &Path) -> Option<String> {
+    let mut current = path.parent()?.parent();
+    while let Some(dir) = current {
+        let manifest = dir.join("Cargo.toml");
+        if manifest.exists() {
+            let Ok(contents) = fs::read_to_string(&manifest) else {
+                current = dir.parent();
+                continue;
+            };
+            let mut in_workspace_package = false;
+            for line in contents.lines() {
+                let trimmed = line.trim();
+                if trimmed.starts_with('[') {
+                    in_workspace_package = trimmed == "[workspace.package]";
+                    continue;
+                }
+                if !in_workspace_package || !trimmed.starts_with("version =") {
+                    continue;
+                }
+                let value = trimmed.split_once('=')?.1.trim().trim_matches('"');
+                if !value.is_empty() {
+                    return Some(value.to_string());
+                }
+            }
+        }
+        current = dir.parent();
+    }
+    None
 }
 
 fn inspect_image_contract_path(oci_tool: &str, image_ref: &str) -> Option<String> {
@@ -258,6 +372,54 @@ mod tests {
 
         let found = find_deno_config(&nested.join("service.ts")).unwrap();
         assert_eq!(found, root.join("deno.json"));
+    }
+
+    #[test]
+    fn infers_owner_version_from_nearest_deno_manifest() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path().join("repo");
+        let nested = root.join("services/activity/contracts");
+        fs::create_dir_all(&nested).unwrap();
+        fs::write(root.join("deno.json"), "{\n  \"version\": \"0.4.0\"\n}\n").unwrap();
+
+        let found = infer_owner_version(&nested.join("contract.ts")).unwrap();
+        assert_eq!(found, "0.4.0");
+    }
+
+    #[test]
+    fn infers_owner_version_from_manifest_path() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path().join("repo/generated/sdk");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(
+            root.join("package.json"),
+            "{\n  \"version\": \"1.2.3\"\n}\n",
+        )
+        .unwrap();
+
+        let found = infer_owner_version(&root.join("contract.json")).unwrap();
+        assert_eq!(found, "1.2.3");
+    }
+
+    #[test]
+    fn infers_workspace_cargo_version_when_package_uses_workspace_version() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path().join("repo");
+        let crate_dir = root.join("crates/sdk");
+        fs::create_dir_all(&crate_dir).unwrap();
+        fs::write(
+            root.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"crates/sdk\"]\n\n[workspace.package]\nversion = \"0.5.0\"\n",
+        )
+        .unwrap();
+        fs::write(
+            crate_dir.join("Cargo.toml"),
+            "[package]\nname = \"sdk\"\nversion.workspace = true\n",
+        )
+        .unwrap();
+
+        let found = infer_owner_version(&crate_dir.join("contract.json")).unwrap();
+        assert_eq!(found, "0.5.0");
     }
 
     #[test]
