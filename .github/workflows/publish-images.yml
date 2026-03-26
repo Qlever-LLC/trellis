@@ -77,10 +77,12 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: ${{ env.SHOULD_PUSH == 'true' }}
           tags: ${{ steps.trellis_meta.outputs.tags }}
-          labels: ${{ steps.trellis_meta.outputs.labels }}
+          labels: |
+            ${{ steps.trellis_meta.outputs.labels }}
+            io.trellis.contract.path=/trellis/contract.json
 
-  trellis-console:
-    name: Build trellis console (${{ matrix.platform }})
+  console:
+    name: Build console (${{ matrix.platform }})
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
@@ -122,7 +124,7 @@ jobs:
         id: console_meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ steps.owner.outputs.value }}/trellis-console
+          images: ${{ env.REGISTRY }}/${{ steps.owner.outputs.value }}/console
           tags: |
             type=ref,event=tag
             type=sha,prefix=sha-
@@ -148,7 +150,7 @@ jobs:
           file: js/apps/trellis/Containerfile
           platforms: ${{ matrix.platform }}
           labels: ${{ steps.console_meta.outputs.labels }}
-          outputs: type=image,name=${{ env.REGISTRY }}/${{ steps.owner.outputs.value }}/trellis-console,push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ steps.owner.outputs.value }}/console,push-by-digest=true,name-canonical=true,push=true
 
       - name: Export console image digest
         if: env.SHOULD_PUSH == 'true'
@@ -163,15 +165,15 @@ jobs:
         if: env.SHOULD_PUSH == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: trellis-console-digests-${{ matrix.platform_tag }}
+          name: console-digests-${{ matrix.platform_tag }}
           path: /tmp/digests/*
           if-no-files-found: error
           retention-days: 1
 
-  trellis-console-merge:
-    name: Publish trellis console manifest
+  console-merge:
+    name: Publish console manifest
     if: ${{ startsWith(github.ref, 'refs/tags/') || inputs.publish == true }}
-    needs: trellis-console
+    needs: console
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -189,7 +191,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: /tmp/digests
-          pattern: trellis-console-digests-*
+          pattern: console-digests-*
           merge-multiple: true
 
       - name: Set up Docker Buildx
@@ -206,7 +208,7 @@ jobs:
         id: console_meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ steps.owner.outputs.value }}/trellis-console
+          images: ${{ env.REGISTRY }}/${{ steps.owner.outputs.value }}/console
           tags: |
             type=ref,event=tag
             type=sha,prefix=sha-
@@ -225,7 +227,7 @@ jobs:
 
           refs=()
           for digest_file in *; do
-            refs+=("${{ env.REGISTRY }}/${{ steps.owner.outputs.value }}/trellis-console@sha256:${digest_file}")
+            refs+=("${{ env.REGISTRY }}/${{ steps.owner.outputs.value }}/console@sha256:${digest_file}")
           done
 
           docker buildx imagetools create "${tags[@]}" "${refs[@]}"

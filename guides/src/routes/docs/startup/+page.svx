@@ -152,16 +152,16 @@ RestartSec=5
 WantedBy=default.target
 ```
 
-Write `~/.config/containers/systemd/trellis-console.container`:
+Write `~/.config/containers/systemd/console.container`:
 
 ```ini
 [Unit]
-Description=Trellis web app
+Description=Trellis console
 After=trellis.service
 
 [Container]
-ContainerName=trellis-console
-Image=ghcr.io/OWNER/trellis-console:latest
+ContainerName=console
+Image=ghcr.io/OWNER/console:latest
 PublishPort=127.0.0.1:5173:80
 Environment=VITE_TRELLIS_AUTH_URL=http://host.containers.internal:3000
 Environment=VITE_TRELLIS_NATS_SERVERS=ws://host.containers.internal:8080
@@ -182,7 +182,7 @@ RestartSec=5
 WantedBy=default.target
 ```
 
-Replace `ghcr.io/OWNER/trellis:latest` and `ghcr.io/OWNER/trellis-console:latest` with your actual image references.
+Replace `ghcr.io/OWNER/trellis:latest` and `ghcr.io/OWNER/console:latest` with your actual image references.
 
 The runtime binds only to localhost, runs rootless with all capabilities dropped, and mounts creds read-only. The app container reads its public browser config from runtime environment variables, so you can point it at the correct Trellis auth and WebSocket endpoints without rebuilding the image.
 
@@ -191,7 +191,7 @@ The runtime binds only to localhost, runs rootless with all capabilities dropped
 ```sh
 systemctl --user daemon-reload
 systemctl --user start trellis.service
-systemctl --user start trellis-console.service
+systemctl --user start console.service
 ```
 
 Test the auth endpoint:

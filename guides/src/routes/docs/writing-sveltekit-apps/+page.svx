@@ -60,7 +60,7 @@ VITE_TRELLIS_NATS_SERVERS=ws://localhost:8080
 VITE_TRELLIS_DEFAULT_PROVIDER=github
 ```
 
-These are public browser-side values. Do not put secrets here. During local Vite development they come from `.env`; in the published `trellis-console` container they can also be overridden at container startup with environment variables of the same names.
+These are public browser-side values. Do not put secrets here. During local Vite development they come from `.env`; in the published `console` container they can also be overridden at container startup with environment variables of the same names.
 
 Create `src/lib/config.ts`:
 
