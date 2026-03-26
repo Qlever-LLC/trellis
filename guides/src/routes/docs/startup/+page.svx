@@ -116,7 +116,7 @@ trellis bootstrap nats \
 
 ## 7. Deploy the runtime with Quadlet
 
-Write `~/.config/containers/systemd/trellis-runtime.container`:
+Write `~/.config/containers/systemd/trellis.container`:
 
 ```ini
 [Unit]
@@ -125,8 +125,8 @@ After=trellis-nats.service
 Requires=trellis-nats.service
 
 [Container]
-ContainerName=trellis-runtime
-Image=ghcr.io/OWNER/trellis-runtime:latest
+ContainerName=trellis
+Image=ghcr.io/OWNER/trellis:latest
 PublishPort=127.0.0.1:3000:3000
 EnvironmentFile=%h/trellis/config/trellis.env
 Volume=%h/trellis/nkeys/creds/Trellis/AUTH/trellis.creds:/run/trellis/creds/auth-trellis.creds:ro,Z
@@ -152,16 +152,16 @@ RestartSec=5
 WantedBy=default.target
 ```
 
-Write `~/.config/containers/systemd/trellis-app.container`:
+Write `~/.config/containers/systemd/trellis-console.container`:
 
 ```ini
 [Unit]
 Description=Trellis web app
-After=trellis-runtime.service
+After=trellis.service
 
 [Container]
-ContainerName=trellis-app
-Image=ghcr.io/OWNER/trellis-app:latest
+ContainerName=trellis-console
+Image=ghcr.io/OWNER/trellis-console:latest
 PublishPort=127.0.0.1:5173:80
 Environment=VITE_TRELLIS_AUTH_URL=http://host.containers.internal:3000
 Environment=VITE_TRELLIS_NATS_SERVERS=ws://host.containers.internal:8080
@@ -182,7 +182,7 @@ RestartSec=5
 WantedBy=default.target
 ```
 
-Replace `ghcr.io/OWNER/trellis-runtime:latest` and `ghcr.io/OWNER/trellis-app:latest` with your actual image references.
+Replace `ghcr.io/OWNER/trellis:latest` and `ghcr.io/OWNER/trellis-console:latest` with your actual image references.
 
 The runtime binds only to localhost, runs rootless with all capabilities dropped, and mounts creds read-only. The app container reads its public browser config from runtime environment variables, so you can point it at the correct Trellis auth and WebSocket endpoints without rebuilding the image.
 
@@ -190,8 +190,8 @@ The runtime binds only to localhost, runs rootless with all capabilities dropped
 
 ```sh
 systemctl --user daemon-reload
-systemctl --user start trellis-runtime.service
-systemctl --user start trellis-app.service
+systemctl --user start trellis.service
+systemctl --user start trellis-console.service
 ```
 
 Test the auth endpoint:
