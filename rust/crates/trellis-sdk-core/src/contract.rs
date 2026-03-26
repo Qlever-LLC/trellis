@@ -1,6 +1,6 @@
 //! Contract metadata for `trellis.core@v1`.
 
-// Generated from /home/abalmos/git/qlever/trellis/new/rust/crates/trellis-sdk-trellis-core/trellis.core@v1.json
+// Generated from the trellis.core@v1 manifest.
 
 /// Canonical Trellis contract id.
 pub const CONTRACT_ID: &str = "trellis.core@v1";

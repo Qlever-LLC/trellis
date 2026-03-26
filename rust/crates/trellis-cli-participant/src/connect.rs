@@ -3,7 +3,9 @@
 use trellis_auth::{
     connect_admin_client_async, persist_renewed_admin_session, AdminSessionState, TrellisAuthError,
 };
-use trellis_client::{ServiceConnectOptions, TrellisClient, TrellisClientError, UserConnectOptions};
+use trellis_client::{
+    ServiceConnectOptions, TrellisClient, TrellisClientError, UserConnectOptions,
+};
 
 use crate::Client;
 
@@ -39,22 +41,26 @@ impl ConnectedClient {
 }
 
 /// Connect the CLI participant using stored admin session credentials.
-pub async fn connect_admin(
-    state: &AdminSessionState,
-) -> Result<ConnectedClient, TrellisAuthError> {
-    Ok(ConnectedClient::new(connect_admin_client_async(state).await?))
+pub async fn connect_admin(state: &AdminSessionState) -> Result<ConnectedClient, TrellisAuthError> {
+    Ok(ConnectedClient::new(
+        connect_admin_client_async(state).await?,
+    ))
 }
 
 /// Connect the CLI participant as a service principal.
 pub async fn connect_service(
     opts: ServiceConnectOptions<'_>,
 ) -> Result<ConnectedClient, TrellisClientError> {
-    Ok(ConnectedClient::new(TrellisClient::connect_service(opts).await?))
+    Ok(ConnectedClient::new(
+        TrellisClient::connect_service(opts).await?,
+    ))
 }
 
 /// Connect the CLI participant as a user principal.
 pub async fn connect_user(
     opts: UserConnectOptions<'_>,
 ) -> Result<ConnectedClient, TrellisClientError> {
-    Ok(ConnectedClient::new(TrellisClient::connect_user(opts).await?))
+    Ok(ConnectedClient::new(
+        TrellisClient::connect_user(opts).await?,
+    ))
 }

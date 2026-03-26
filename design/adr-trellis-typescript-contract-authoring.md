@@ -300,7 +300,7 @@ Illustrative usage:
 ```ts
 import { defineContract } from "@qlever-llc/trellis-contracts";
 import { auth } from "@qlever-llc/trellis-sdk-auth";
-import { core } from "@qlever-llc/trellis-sdk-trellis-core";
+import { core } from "@qlever-llc/trellis-sdk-core";
 
 export const activity = defineContract({
   id: "trellis.activity@v1",

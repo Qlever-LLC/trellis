@@ -1397,7 +1397,7 @@ fn default_ts_package_name_from_id(contract_id: &str) -> String {
     match stem.as_str() {
         "trellis-auth" => "@qlever-llc/trellis-sdk-auth".to_string(),
         "trellis-activity" => "@qlever-llc/trellis-sdk-activity".to_string(),
-        "trellis-core" => "@qlever-llc/trellis-sdk-trellis-core".to_string(),
+        "trellis-core" => "@qlever-llc/trellis-sdk-core".to_string(),
         other => format!("@qlever-llc/trellis-sdk-{other}"),
     }
 }
@@ -1407,19 +1407,23 @@ fn default_rust_crate_name_from_id(contract_id: &str) -> String {
 }
 
 fn parse_participant_alias_mapping(value: &str) -> miette::Result<ParticipantAliasMapping> {
-    let mut parts = value.splitn(3, '=');
+    let mut parts = value.splitn(4, '=');
     let alias = parts.next().unwrap_or_default();
     let crate_name = parts.next().unwrap_or_default();
     let manifest_path = parts.next().unwrap_or_default();
+    let crate_path = parts.next();
     if alias.is_empty() || crate_name.is_empty() || manifest_path.is_empty() {
         return Err(miette::miette!(
-            "invalid --use-sdk mapping '{value}'; expected ALIAS=CRATE=MANIFEST"
+            "invalid --use-sdk mapping '{value}'; expected ALIAS=CRATE=MANIFEST[=CRATE_PATH]"
         ));
     }
     Ok(ParticipantAliasMapping {
         alias: alias.to_string(),
         crate_name: crate_name.to_string(),
         manifest_path: PathBuf::from(manifest_path),
+        crate_path: crate_path
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from),
     })
 }
 

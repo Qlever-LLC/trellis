@@ -3,7 +3,7 @@ members = [
   "crates/trellis-auth",
   "crates/trellis-cli-participant",
   "crates/trellis-sdk-auth",
-  "crates/trellis-sdk-trellis-core",
+  "crates/trellis-sdk-core",
   "crates/trellis-server",
   "crates/trellis-contracts",
   "crates/trellis-codegen-ts",

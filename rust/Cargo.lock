@@ -2398,6 +2398,8 @@ dependencies = [
  "trellis-codegen-rust",
  "trellis-codegen-ts",
  "trellis-contracts",
+ "trellis-sdk-auth",
+ "trellis-sdk-core",
 ]
 
 [[package]]

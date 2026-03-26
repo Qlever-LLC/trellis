@@ -1,4 +1,4 @@
-# @qlever-llc/trellis-sdk-trellis-core
+# @qlever-llc/trellis-sdk-core
 
 Generated Trellis SDK for contract `trellis.core@v1`.
 
@@ -6,7 +6,7 @@ Generated Trellis SDK for contract `trellis.core@v1`.
 
 ```ts
 import { defineContract } from "@qlever-llc/trellis-trellis";
-import { trellisCore } from "@qlever-llc/trellis-sdk-trellis-core";
+import { core } from "@qlever-llc/trellis-sdk-core";
 
 const app = defineContract({
   id: "example.app@v1",
@@ -14,7 +14,7 @@ const app = defineContract({
   description: "User-facing app for the example deployment.",
   kind: "app",
   uses: {
-    dependency: trellisCore.use({
+    dependency: core.use({
       rpc: { call: ["Trellis.Bindings.Get"] },
     }),
   },
@@ -25,7 +25,7 @@ const client = app.createClient(nc, authSession);
 
 ## Contents
 
-- `trellisCore`: generated contract module with `CONTRACT_ID`, `CONTRACT_DIGEST`, `CONTRACT`, `API`, and `use(...)`
+- `core`: generated contract module with `CONTRACT_ID`, `CONTRACT_DIGEST`, `CONTRACT`, `API`, and `use(...)`
 - `API`: nested contract API views with `API.owned`, `API.used`, and `API.trellis`
 - `types.ts`: TypeScript types derived from JSON Schemas
 - `schemas.ts`: Raw JSON Schemas (as `as const` objects)

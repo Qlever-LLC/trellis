@@ -1,5 +1,5 @@
 import { assertRejects } from "@std/assert";
-import { trellisCore } from "@qlever-llc/trellis-sdk-trellis-core";
+import { trellisCore } from "@qlever-llc/trellis-sdk-core";
 import { connectService } from "./service.ts";
 
 const fakeRuntime = {

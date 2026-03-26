@@ -274,7 +274,7 @@ Each service owns a local contract definition that emits the canonical `trellis.
 
 ```typescript
 import { defineContract } from "@qlever-llc/trellis-contracts";
-import { core } from "@qlever-llc/trellis-sdk-trellis-core";
+import { core } from "@qlever-llc/trellis-sdk-core";
 
 export const contract = defineContract({
   id: "graph@v1",

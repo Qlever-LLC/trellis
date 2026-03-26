@@ -12,7 +12,7 @@ await build({
   test: false,
   typeCheck: false,
   package: {
-    name: "@qlever-llc/trellis-sdk-trellis-core",
+    name: "@qlever-llc/trellis-sdk-core",
     version: "0.4.0",
     description: "Generated Trellis SDK for contract trellis.core@v1",
     dependencies: {

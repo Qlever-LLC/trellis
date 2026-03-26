@@ -390,7 +390,7 @@ pub struct GenerateRustParticipantFacadeArgs {
     #[arg(long)]
     pub owned_sdk_crate_name: Option<String>,
 
-    #[arg(long = "use-sdk", value_name = "ALIAS=CRATE=MANIFEST")]
+    #[arg(long = "use-sdk", value_name = "ALIAS=CRATE=MANIFEST[=CRATE_PATH]")]
     pub use_sdks: Vec<String>,
 
     #[arg(long, value_enum, default_value = "registry")]

@@ -62,4 +62,3 @@ impl ServerEventDescriptor for AuthSessionRevokedEventDescriptor {
     const KEY: &'static str = "Auth.SessionRevoked";
     const SUBJECT: &'static str = "events.v1.Auth.SessionRevoked";
 }
-

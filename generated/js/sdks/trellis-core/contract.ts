@@ -32,7 +32,7 @@ function assertValidUseSpec(spec: UseSpec<typeof API.owned>) {
   assertSelectedKeysExist("subjects", spec.subjects?.subscribe, API.owned.subjects);
 }
 
-export const trellisCore: SdkContractModule<typeof CONTRACT_ID, typeof API.owned> = {
+export const core: SdkContractModule<typeof CONTRACT_ID, typeof API.owned> = {
   CONTRACT_ID,
   CONTRACT_DIGEST,
   CONTRACT,
@@ -62,7 +62,7 @@ export const trellisCore: SdkContractModule<typeof CONTRACT_ID, typeof API.owned
     };
 
     Object.defineProperty(dependencyUse, CONTRACT_MODULE_METADATA, {
-      value: trellisCore,
+      value: core,
       enumerable: false,
     });
 
@@ -70,4 +70,4 @@ export const trellisCore: SdkContractModule<typeof CONTRACT_ID, typeof API.owned
   }) as SdkContractModule<typeof CONTRACT_ID, typeof API.owned>["use"],
 };
 
-export const use = trellisCore.use;
+export const use = core.use;

@@ -1,6 +1,6 @@
 import { assertEquals } from "@std/assert";
 import { canonicalizeJson, type JsonValue } from "@qlever-llc/trellis-contracts";
-import { CONTRACT as CORE_CONTRACT } from "@qlever-llc/trellis-sdk-trellis-core";
+import { CONTRACT as CORE_CONTRACT } from "@qlever-llc/trellis-sdk-core";
 import { CONTRACT as AUTH_CONTRACT } from "./contracts/trellis_auth.ts";
 
 const manifests: [string, unknown][] = [

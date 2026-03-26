@@ -2,6 +2,7 @@
 
 pub mod connect;
 pub mod contract;
+mod manifest_json;
 pub mod owned {
     include!(concat!(env!("OUT_DIR"), "/generated/src/owned.rs"));
 }

@@ -148,6 +148,6 @@ Services process their own jobs via their own JetStream consumer. A central jobs
 | `@qlever-llc/trellis-jobs` | Job creation, processing, retry, progress tracking |
 | `@qlever-llc/trellis-sdk-*` | Generated SDK packages with typed DTOs for Trellis-owned contracts |
 
-`@qlever-llc/trellis-sdk-*` packages (e.g., `@qlever-llc/trellis-sdk-auth`, `@qlever-llc/trellis-sdk-trellis-core`) are generated from contract definitions as part of the contract build pipeline. Import them for typed request/response types and `use(...)` declarations.
+`@qlever-llc/trellis-sdk-*` packages (e.g., `@qlever-llc/trellis-sdk-auth`, `@qlever-llc/trellis-sdk-core`) are generated from contract definitions as part of the contract build pipeline. Import them for typed request/response types and `use(...)` declarations.
 
 On the Rust side, the equivalent building blocks are generated Rust SDK crates plus a local participant facade crate for the app, service, or CLI you are building. The participant facade is the preferred ergonomic entrypoint because it exposes only the owned surface and `uses` aliases declared by the local contract.

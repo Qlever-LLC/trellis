@@ -34,3 +34,7 @@ tempfile = "3"
 [[bin]]
 name = "trellis"
 path = "src/main.rs"
+
+[dev-dependencies]
+trellis-sdk-auth = { path = "../trellis-sdk-auth", version = "0.4.0" }
+trellis-sdk-core = { path = "../trellis-sdk-core", version = "0.4.0", package = "trellis-sdk-core" }

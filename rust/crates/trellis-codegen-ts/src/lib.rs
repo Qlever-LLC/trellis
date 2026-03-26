@@ -914,7 +914,7 @@ mod tests {
         let deno = deno_json(&GenerateTsSdkOpts {
             manifest_path: PathBuf::from("generated/contracts/manifests/trellis.core@v1.json"),
             out_dir: PathBuf::from("generated/js/sdks/trellis-core"),
-            package_name: "@qlever-llc/trellis-sdk-trellis-core".to_string(),
+            package_name: "@qlever-llc/trellis-sdk-core".to_string(),
             package_version: "0.4.0".to_string(),
             runtime_deps: TsRuntimeDeps {
                 source: TsRuntimeSource::Registry,
@@ -981,7 +981,7 @@ mod tests {
     #[test]
     fn generated_contract_emits_named_module_and_typed_use_helper() {
         let (opts, loaded, root) =
-            sample_opts_and_loaded("@qlever-llc/trellis-sdk-trellis-core", "trellis.core@v1");
+            sample_opts_and_loaded("@qlever-llc/trellis-sdk-core", "trellis.core@v1");
         let contract = render_contract_ts(&opts, &loaded);
         let mod_ts = render_mod_ts(&opts);
 

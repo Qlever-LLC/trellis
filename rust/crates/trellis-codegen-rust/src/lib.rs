@@ -53,6 +53,7 @@ pub struct ParticipantAliasMapping {
     pub alias: String,
     pub crate_name: String,
     pub manifest_path: PathBuf,
+    pub crate_path: Option<PathBuf>,
 }
 
 /// Options for generating one local Rust participant facade crate.
@@ -241,6 +242,7 @@ struct ValidatedParticipantAlias {
     alias_ident: String,
     crate_name: String,
     crate_ident: String,
+    crate_path: PathBuf,
     contract_id: String,
     manifest: trellis_contracts::LoadedManifest,
     use_ref: ContractUseRef,
@@ -320,6 +322,13 @@ fn validate_participant_mappings(
             alias_ident: rust_ident(&key_to_snake(alias)),
             crate_name: mapping.crate_name.clone(),
             crate_ident: crate_ident(&mapping.crate_name),
+            crate_path: mapping.crate_path.clone().unwrap_or_else(|| {
+                mapping
+                    .manifest_path
+                    .parent()
+                    .unwrap_or(Path::new("."))
+                    .to_path_buf()
+            }),
             contract_id: manifest.manifest.id.clone(),
             manifest,
             use_ref: use_ref.clone(),
@@ -348,13 +357,8 @@ fn render_participant_cargo_toml(
         ));
     }
     for mapping in mappings {
-        let path = mapping
-            .manifest
-            .path
-            .parent()
-            .unwrap_or(Path::new("."))
-            .to_path_buf();
-        let path = fs::canonicalize(&path).unwrap_or(path);
+        let path =
+            fs::canonicalize(&mapping.crate_path).unwrap_or_else(|_| mapping.crate_path.clone());
         dependency_lines.push(format!(
             "{} = {{ path = {} }}",
             mapping.crate_name,
@@ -403,10 +407,11 @@ fn render_participant_build_rs(
     let mut mapping_entries = Vec::new();
     for mapping in mappings {
         mapping_entries.push(format!(
-            "trellis_codegen_rust::ParticipantAliasMapping {{ alias: {}.to_string(), crate_name: {}.to_string(), manifest_path: manifest_dir.join(\"contracts/{}.json\") }}",
+            "trellis_codegen_rust::ParticipantAliasMapping {{ alias: {}.to_string(), crate_name: {}.to_string(), manifest_path: manifest_dir.join(\"contracts/{}.json\"), crate_path: Some(manifest_dir.join({})) }}",
             string_literal(&mapping.alias),
             string_literal(&mapping.crate_name),
             mapping.alias_ident,
+            string_literal(&mapping.crate_path.display().to_string()),
         ));
     }
 
@@ -1778,11 +1783,13 @@ mod tests {
                     alias: "core".to_string(),
                     crate_name: "trellis-sdk-core".to_string(),
                     manifest_path: core_manifest,
+                    crate_path: None,
                 },
                 ParticipantAliasMapping {
                     alias: "auth".to_string(),
                     crate_name: "trellis-sdk-auth".to_string(),
                     manifest_path: auth_manifest,
+                    crate_path: None,
                 },
             ],
         })

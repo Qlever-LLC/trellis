@@ -27,7 +27,7 @@ import {
   ok,
   Result,
 } from "@qlever-llc/trellis-result";
-import { API as trellisCoreApi } from "@qlever-llc/trellis-sdk-trellis-core";
+import { API as trellisCoreApi } from "@qlever-llc/trellis-sdk-core";
 import {
   context,
   createNatsHeaderCarrier,

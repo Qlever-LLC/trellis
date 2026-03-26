@@ -2,11 +2,23 @@
 fn generated_facade_still_matches_cli_alias_shape() {
     let temp_dir = tempfile::tempdir().expect("temp dir");
     let manifest_path = temp_dir.path().join("trellis.cli@v1.json");
+    let auth_manifest = temp_dir.path().join("trellis.auth@v1.json");
+    let core_manifest = temp_dir.path().join("trellis.core@v1.json");
     std::fs::write(
         &manifest_path,
         format!("{}\n", trellis_cli_participant::contract::contract_json()),
     )
     .expect("write manifest");
+    std::fs::write(
+        &auth_manifest,
+        format!("{}\n", trellis_sdk_auth::contract::CONTRACT_JSON),
+    )
+    .expect("write auth manifest");
+    std::fs::write(
+        &core_manifest,
+        format!("{}\n", trellis_sdk_core::contract::CONTRACT_JSON),
+    )
+    .expect("write core manifest");
 
     trellis_codegen_rust::generate_rust_participant_facade(
         &trellis_codegen_rust::GenerateRustParticipantFacadeOpts {
@@ -27,14 +39,20 @@ fn generated_facade_still_matches_cli_alias_shape() {
                 trellis_codegen_rust::ParticipantAliasMapping {
                     alias: "auth".to_string(),
                     crate_name: "trellis-sdk-auth".to_string(),
-                    manifest_path: std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                        .join("../trellis-sdk-auth/trellis.auth@v1.json"),
+                    manifest_path: auth_manifest,
+                    crate_path: Some(
+                        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                            .join("../trellis-sdk-auth"),
+                    ),
                 },
                 trellis_codegen_rust::ParticipantAliasMapping {
                     alias: "core".to_string(),
                     crate_name: "trellis-sdk-core".to_string(),
-                    manifest_path: std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                        .join("../trellis-sdk-trellis-core/trellis.core@v1.json"),
+                    manifest_path: core_manifest,
+                    crate_path: Some(
+                        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                            .join("../trellis-sdk-core"),
+                    ),
                 },
             ],
         },

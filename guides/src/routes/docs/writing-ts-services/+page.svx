@@ -26,7 +26,7 @@ Add the Trellis packages your service needs to your import map in `deno.json`:
     "@qlever-llc/trellis-server": "npm:@qlever-llc/trellis-server",
     "@qlever-llc/trellis-server/deno": "npm:@qlever-llc/trellis-server/deno",
     "@qlever-llc/trellis-sdk-auth": "npm:@qlever-llc/trellis-sdk-auth",
-    "@qlever-llc/trellis-sdk-trellis-core": "npm:@qlever-llc/trellis-sdk-trellis-core",
+    "@qlever-llc/trellis-sdk-core": "npm:@qlever-llc/trellis-sdk-core",
     "@qlever-llc/trellis-result": "npm:@qlever-llc/trellis-result",
     "@qlever-llc/trellis-telemetry": "npm:@qlever-llc/trellis-telemetry",
     "@sinclair/typebox": "npm:@sinclair/typebox"
@@ -73,7 +73,7 @@ Create `contract.ts`. The contract declares every RPC, event, dependency, and re
 import { defineContract } from "@qlever-llc/trellis-contracts";
 import { HealthResponseSchema, HealthRpcSchema } from "@qlever-llc/trellis-server";
 import { auth } from "@qlever-llc/trellis-sdk-auth";
-import { core } from "@qlever-llc/trellis-sdk-trellis-core";
+import { core } from "@qlever-llc/trellis-sdk-core";
 import {
   MyItemCreatedEventSchema,
   MyListRequestSchema,
@@ -270,7 +270,7 @@ const app = defineContract({
 });
 ```
 
-Regenerate the SDK whenever the contract changes. This is the same pattern that `@qlever-llc/trellis-sdk-auth` and `@qlever-llc/trellis-sdk-trellis-core` follow.
+Regenerate the SDK whenever the contract changes. This is the same pattern that `@qlever-llc/trellis-sdk-auth` and `@qlever-llc/trellis-sdk-core` follow.
 
 ## 11. Install and run
 

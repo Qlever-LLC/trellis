@@ -53,7 +53,7 @@
     "@qlever-llc/trellis-sdk-activity": "../generated/js/sdks/activity/mod.ts",
     "@qlever-llc/trellis-svelte": "./packages/trellis-svelte/src/index.ts",
     "@qlever-llc/trellis-sdk-auth": "../generated/js/sdks/auth/mod.ts",
-    "@qlever-llc/trellis-sdk-trellis-core": "../generated/js/sdks/trellis-core/mod.ts",
+    "@qlever-llc/trellis-sdk-core": "../generated/js/sdks/trellis-core/mod.ts",
     "@qlever-llc/trellis-trellis": "./packages/trellis/index.ts",
     "@qlever-llc/trellis-trellis/tracing": "./packages/trellis/tracing.ts",
     "json-schema-library": "npm:json-schema-library@^10.5.2",

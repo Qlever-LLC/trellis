@@ -57,24 +57,63 @@ fn contracts_build_emits_generated_manifest_from_source() {
 fn sdk_generate_facade_emits_buildable_participant_crate() {
     let temp_dir = tempfile::tempdir().expect("temp dir");
     let out_dir = temp_dir.path().join("participant");
+    let cli_manifest = temp_dir.path().join("trellis.cli@v1.json");
+    let auth_manifest = temp_dir.path().join("trellis.auth@v1.json");
+    let core_manifest = temp_dir.path().join("trellis.core@v1.json");
+    let repo_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..");
 
+    std::fs::write(
+        temp_dir.path().join("deno.json"),
+        "{\n  \"version\": \"0.4.0\"\n}\n",
+    )
+    .expect("write fixture deno manifest");
+
+    std::fs::write(
+        &cli_manifest,
+        format!("{}\n", trellis_cli::cli_contract::cli_contract_json()),
+    )
+    .expect("write cli manifest");
+    std::fs::write(
+        &auth_manifest,
+        format!("{}\n", trellis_sdk_auth::contract::CONTRACT_JSON),
+    )
+    .expect("write auth manifest");
+    std::fs::write(
+        &core_manifest,
+        format!("{}\n", trellis_sdk_core::contract::CONTRACT_JSON),
+    )
+    .expect("write core manifest");
     let output = Command::new(env!("CARGO_BIN_EXE_trellis"))
         .args([
             "sdk",
             "generate",
             "facade",
             "--manifest",
-            "../trellis-cli-participant/trellis.cli@v1.json",
+            cli_manifest.to_str().expect("cli manifest path"),
             "--out",
             out_dir.to_str().expect("out dir"),
             "--use-sdk",
-            "auth=trellis-sdk-auth=../trellis-sdk-auth/trellis.auth@v1.json",
+            &format!(
+                "auth=trellis-sdk-auth={}={}",
+                auth_manifest.to_str().expect("auth manifest path"),
+                repo_root
+                    .join("rust/crates/trellis-sdk-auth")
+                    .to_str()
+                    .expect("auth crate path")
+            ),
             "--use-sdk",
-            "core=trellis-sdk-core=../trellis-sdk-trellis-core/trellis.core@v1.json",
+            &format!(
+                "core=trellis-sdk-core={}={}",
+                core_manifest.to_str().expect("core manifest path"),
+                repo_root
+                    .join("rust/crates/trellis-sdk-core")
+                    .to_str()
+                    .expect("core crate path")
+            ),
             "--runtime-source",
             "local",
             "--runtime-repo-root",
-            "../../..",
+            repo_root.to_str().expect("repo root path"),
         ])
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .output()
