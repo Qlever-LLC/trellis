@@ -3,6 +3,8 @@ name = "trellis-server"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+description = "Server-side transport and handler primitives for Trellis services."
 
 [dependencies]
 async-nats.workspace = true

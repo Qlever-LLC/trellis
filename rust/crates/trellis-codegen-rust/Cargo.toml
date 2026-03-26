@@ -3,8 +3,10 @@ name = "trellis-codegen-rust"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+description = "Rust code generation for Trellis contract manifests."
 
 [dependencies]
 serde_json.workspace = true
 thiserror.workspace = true
-trellis-contracts = { path = "../trellis-contracts" }
+trellis-contracts = { path = "../trellis-contracts", version = "0.4.0" }

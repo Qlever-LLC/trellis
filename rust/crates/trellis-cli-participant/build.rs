@@ -6,8 +6,8 @@ fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("out dir")).join("generated");
 
     println!("cargo:rerun-if-changed=trellis.cli@v1.json");
-    println!("cargo:rerun-if-changed=../trellis-sdk-auth/trellis.auth@v1.json");
-    println!("cargo:rerun-if-changed=../trellis-sdk-trellis-core/trellis.core@v1.json");
+    println!("cargo:rerun-if-changed=trellis.auth@v1.json");
+    println!("cargo:rerun-if-changed=trellis.core@v1.json");
 
     trellis_codegen_rust::generate_rust_participant_generated_sources(
         &trellis_codegen_rust::GenerateRustParticipantFacadeOpts {
@@ -26,13 +26,12 @@ fn main() {
                 trellis_codegen_rust::ParticipantAliasMapping {
                     alias: "auth".to_string(),
                     crate_name: "trellis-sdk-auth".to_string(),
-                    manifest_path: manifest_dir.join("../trellis-sdk-auth/trellis.auth@v1.json"),
+                    manifest_path: manifest_dir.join("trellis.auth@v1.json"),
                 },
                 trellis_codegen_rust::ParticipantAliasMapping {
                     alias: "core".to_string(),
                     crate_name: "trellis-sdk-core".to_string(),
-                    manifest_path: manifest_dir
-                        .join("../trellis-sdk-trellis-core/trellis.core@v1.json"),
+                    manifest_path: manifest_dir.join("trellis.core@v1.json"),
                 },
             ],
         },

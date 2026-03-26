@@ -3,6 +3,8 @@ name = "trellis-contracts"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+description = "Contract manifest types, validation, and digest utilities for Trellis."
 build = "build.rs"
 
 [dependencies]

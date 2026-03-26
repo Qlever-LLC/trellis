@@ -2356,7 +2356,7 @@ dependencies = [
 
 [[package]]
 name = "trellis-auth"
-version = "0.5.0"
+version = "0.4.0"
 dependencies = [
  "base64",
  "ed25519-dalek",
@@ -2373,7 +2373,7 @@ dependencies = [
 
 [[package]]
 name = "trellis-cli"
-version = "0.5.0"
+version = "0.4.0"
 dependencies = [
  "async-nats",
  "base64",
@@ -2402,7 +2402,7 @@ dependencies = [
 
 [[package]]
 name = "trellis-cli-participant"
-version = "0.5.0"
+version = "0.4.0"
 dependencies = [
  "serde_json",
  "tempfile",
@@ -2417,7 +2417,7 @@ dependencies = [
 
 [[package]]
 name = "trellis-client"
-version = "0.5.0"
+version = "0.4.0"
 dependencies = [
  "async-nats",
  "base64",
@@ -2433,7 +2433,7 @@ dependencies = [
 
 [[package]]
 name = "trellis-codegen-rust"
-version = "0.5.0"
+version = "0.4.0"
 dependencies = [
  "serde_json",
  "thiserror 1.0.69",
@@ -2442,7 +2442,7 @@ dependencies = [
 
 [[package]]
 name = "trellis-codegen-ts"
-version = "0.5.0"
+version = "0.4.0"
 dependencies = [
  "serde_json",
  "thiserror 1.0.69",
@@ -2451,7 +2451,7 @@ dependencies = [
 
 [[package]]
 name = "trellis-contracts"
-version = "0.5.0"
+version = "0.4.0"
 dependencies = [
  "base64",
  "jsonschema",
@@ -2463,7 +2463,7 @@ dependencies = [
 
 [[package]]
 name = "trellis-sdk-auth"
-version = "0.5.0"
+version = "0.4.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -2474,7 +2474,7 @@ dependencies = [
 
 [[package]]
 name = "trellis-sdk-core"
-version = "0.5.0"
+version = "0.4.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -2485,7 +2485,7 @@ dependencies = [
 
 [[package]]
 name = "trellis-server"
-version = "0.5.0"
+version = "0.4.0"
 dependencies = [
  "async-nats",
  "bytes",
