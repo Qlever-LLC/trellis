@@ -6,9 +6,10 @@
   import { page } from "$app/state";
   import { trellisApp } from "../../contracts/trellis_app.ts";
   import {
-    APP_CONFIG,
     buildAppLoginUrl,
-    getCanonicalLoopbackRedirectUrl
+    getCanonicalLoopbackRedirectUrl,
+    getSelectedAuthUrl,
+    persistSelectedAuthUrl
   } from "../../lib/config";
   import { errorMessage } from "../../lib/format";
 
@@ -17,21 +18,16 @@
     | { status: "approval_required" | "approval_denied"; approval: unknown }
     | { status: "insufficient_capabilities"; missingCapabilities: string[] };
 
-  const auth = createAuthState({ authUrl: APP_CONFIG.authUrl, loginPath: "/login", contract: trellisApp } as never) as unknown as {
-    init(): Promise<unknown>;
-    handleCallback(url?: string): Promise<CallbackResult | null>;
-    cleanupCallbackUrl(url?: string): void;
-  };
-
   let status = $state("Completing sign-in…");
   let authError = $state<string | null>(null);
+  let selectedAuthUrl = $state("");
 
   function targetPath(): string {
     return page.url.searchParams.get("redirectTo") ?? "/profile";
   }
 
   function loginUrl(): string {
-    return buildAppLoginUrl(targetPath());
+    return buildAppLoginUrl(targetPath(), page.url, undefined, selectedAuthUrl);
   }
 
   function authErrorFromFragment(url: string): string | null {
@@ -50,6 +46,12 @@
     }
 
     try {
+      selectedAuthUrl = persistSelectedAuthUrl(getSelectedAuthUrl(page.url));
+      const auth = createAuthState({ authUrl: selectedAuthUrl, loginPath: "/login", contract: trellisApp } as never) as unknown as {
+        init(): Promise<unknown>;
+        handleCallback(url?: string): Promise<CallbackResult | null>;
+        cleanupCallbackUrl(url?: string): void;
+      };
       await auth.init();
       const result = await auth.handleCallback(window.location.href);
       auth.cleanupCallbackUrl();

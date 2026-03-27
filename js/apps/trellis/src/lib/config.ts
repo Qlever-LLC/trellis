@@ -1,5 +1,7 @@
 const DEFAULT_AUTH_URL = "http://localhost:3000";
 const DEFAULT_NATS_SERVER = "ws://localhost:8080";
+const AUTH_URL_STORAGE_KEY = "trellis.console.authUrl";
+const AUTH_URL_QUERY_PARAM = "authUrl";
 
 const CANONICAL_LOOPBACK_HOST = "localhost";
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1", "[::1]", CANONICAL_LOOPBACK_HOST]);
@@ -7,7 +9,6 @@ const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1", "[::1]", CANONICAL_LOOPBACK_
 type RuntimeAppConfig = {
   authUrl?: string;
   natsServers?: string;
-  defaultProvider?: string;
 };
 
 function parseServers(value: string | undefined): string[] {
@@ -23,12 +24,77 @@ function readRuntimeConfig(): RuntimeAppConfig {
 }
 
 const runtimeConfig = readRuntimeConfig();
+const viteEnv = (import.meta as ImportMeta & {
+  env?: Record<string, string | undefined>;
+}).env ?? {};
 
 export const APP_CONFIG = {
-  authUrl: runtimeConfig.authUrl ?? import.meta.env.VITE_TRELLIS_AUTH_URL ?? DEFAULT_AUTH_URL,
-  natsServers: parseServers(runtimeConfig.natsServers ?? import.meta.env.VITE_TRELLIS_NATS_SERVERS),
-  defaultProvider: runtimeConfig.defaultProvider ?? import.meta.env.VITE_TRELLIS_DEFAULT_PROVIDER ?? "github",
+  authUrl: runtimeConfig.authUrl ?? viteEnv["VITE_TRELLIS_AUTH_URL"] ?? DEFAULT_AUTH_URL,
+  natsServers: parseServers(runtimeConfig.natsServers ?? viteEnv["VITE_TRELLIS_NATS_SERVERS"]),
 };
+
+function normalizeConfiguredUrl(value: string): string {
+  const url = new URL(value);
+  url.hash = "";
+  if (isLoopbackHost(url.hostname)) {
+    url.hostname = CANONICAL_LOOPBACK_HOST;
+  }
+  return url.toString().replace(/\/$/, "");
+}
+
+function tryNormalizeConfiguredUrl(value: string | null | undefined): string | null {
+  if (!value) return null;
+  try {
+    return normalizeConfiguredUrl(value.trim());
+  } catch {
+    return null;
+  }
+}
+
+function getStorage(storage?: Pick<Storage, "getItem" | "setItem"> | null): Pick<Storage, "getItem" | "setItem"> | null {
+  if (storage !== undefined) return storage;
+  if (typeof window === "undefined") return null;
+  return window.localStorage;
+}
+
+function applySelectedAuthUrl(url: URL, authUrl: string): void {
+  const normalized = tryNormalizeConfiguredUrl(authUrl);
+  if (!normalized) return;
+  if (normalized === APP_CONFIG.authUrl) {
+    url.searchParams.delete(AUTH_URL_QUERY_PARAM);
+    return;
+  }
+  url.searchParams.set(AUTH_URL_QUERY_PARAM, normalized);
+}
+
+export function getSelectedAuthUrl(
+  location: URL | Location = window.location,
+  storage?: Pick<Storage, "getItem" | "setItem"> | null,
+): string {
+  const current = toUrl(location);
+  const store = getStorage(storage);
+  const fromQuery = tryNormalizeConfiguredUrl(current.searchParams.get(AUTH_URL_QUERY_PARAM));
+  if (fromQuery) {
+    store?.setItem(AUTH_URL_STORAGE_KEY, fromQuery);
+    return fromQuery;
+  }
+
+  const fromStorage = tryNormalizeConfiguredUrl(store?.getItem(AUTH_URL_STORAGE_KEY));
+  if (fromStorage) {
+    return fromStorage;
+  }
+
+  return APP_CONFIG.authUrl;
+}
+
+export function persistSelectedAuthUrl(
+  authUrl: string,
+  storage?: Pick<Storage, "getItem" | "setItem"> | null,
+): string {
+  const normalized = tryNormalizeConfiguredUrl(authUrl) ?? APP_CONFIG.authUrl;
+  getStorage(storage)?.setItem(AUTH_URL_STORAGE_KEY, normalized);
+  return normalized;
+}
 
 function toUrl(location: URL | Location): URL {
   return location instanceof URL ? new URL(location.toString()) : new URL(location.href);
@@ -59,17 +125,24 @@ export function buildAppLoginUrl(
   redirectTo: string,
   location: URL | Location = window.location,
   authError?: string,
+  authUrl?: string,
 ): string {
   const url = new URL("/login", getCanonicalLoopbackUrl(location).origin);
   url.searchParams.set("redirectTo", redirectTo);
   if (authError) {
     url.searchParams.set("authError", authError);
   }
+  applySelectedAuthUrl(url, authUrl ?? getSelectedAuthUrl(location));
   return url.toString();
 }
 
-export function buildAppCallbackUrl(redirectTo: string, location: URL | Location = window.location): string {
+export function buildAppCallbackUrl(
+  redirectTo: string,
+  location: URL | Location = window.location,
+  authUrl?: string,
+): string {
   const url = new URL("/callback", getCanonicalLoopbackUrl(location).origin);
   url.searchParams.set("redirectTo", redirectTo);
+  applySelectedAuthUrl(url, authUrl ?? getSelectedAuthUrl(location));
   return url.toString();
 }

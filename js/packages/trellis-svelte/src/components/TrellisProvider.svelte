@@ -95,8 +95,9 @@
         throw new AuthRequiredError();
       }
 
+      const effectiveNatsServers = authState.natsServers ?? natsServers;
       const natsState = await createNatsState(authState, {
-        servers: natsServers,
+        servers: effectiveNatsServers,
         onConnecting: onNatsConnecting,
         onConnected: onNatsConnected,
         onDisconnect: onNatsDisconnect,

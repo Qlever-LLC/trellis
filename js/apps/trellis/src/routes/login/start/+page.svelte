@@ -7,24 +7,24 @@
   import { page } from "$app/state";
   import { trellisApp } from "../../../contracts/trellis_app.ts";
   import {
-    APP_CONFIG,
     buildAppCallbackUrl,
     buildAppLoginUrl,
-    getCanonicalLoopbackRedirectUrl
+    getCanonicalLoopbackRedirectUrl,
+    getSelectedAuthUrl,
+    persistSelectedAuthUrl
   } from "../../../lib/config";
   import { errorMessage } from "../../../lib/format";
 
-  const auth = createAuthState({ authUrl: APP_CONFIG.authUrl, loginPath: "/login", contract: trellisApp });
-
   let status = $state("Redirecting…");
   let authError = $state<string | null>(null);
+  let selectedAuthUrl = $state("");
 
   function targetPath(): string {
     return page.url.searchParams.get("redirectTo") ?? "/profile";
   }
 
   function backToLogin(): string {
-    return buildAppLoginUrl(targetPath());
+    return buildAppLoginUrl(targetPath(), page.url, undefined, selectedAuthUrl);
   }
 
   onMount(() => {
@@ -38,6 +38,8 @@
 
     void (async () => {
       try {
+        selectedAuthUrl = persistSelectedAuthUrl(getSelectedAuthUrl(page.url));
+        const auth = createAuthState({ authUrl: selectedAuthUrl, loginPath: "/login", contract: trellisApp });
         const handle = await auth.init();
         if (auth.isAuthenticated) {
           await goto(targetPath());
@@ -45,9 +47,9 @@
         }
 
         const loginHref = await buildLoginUrl(
-          { authUrl: APP_CONFIG.authUrl },
-          APP_CONFIG.defaultProvider,
-          buildAppCallbackUrl(targetPath()),
+          { authUrl: selectedAuthUrl },
+          undefined,
+          buildAppCallbackUrl(targetPath(), page.url, selectedAuthUrl),
           handle,
           trellisApp.CONTRACT,
         );

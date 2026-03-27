@@ -9,7 +9,6 @@ function parseServers(value: string | undefined): string[] {
 export const APP_CONFIG = {
   authUrl: import.meta.env.VITE_TRELLIS_AUTH_URL ?? DEFAULT_AUTH_URL,
   natsServers: parseServers(import.meta.env.VITE_TRELLIS_NATS_SERVERS),
-  defaultProvider: import.meta.env.VITE_TRELLIS_DEFAULT_PROVIDER ?? "github",
 };
 
 export function buildAppCallbackUrl(redirectTo: string): string {

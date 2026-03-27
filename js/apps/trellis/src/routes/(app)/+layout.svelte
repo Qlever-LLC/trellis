@@ -1,9 +1,10 @@
 <script lang="ts">
   import { TrellisProvider } from "@qlever-llc/trellis-svelte";
   import type { Snippet } from "svelte";
+  import { onMount } from "svelte";
   import { trellisApp } from "../../contracts/trellis_app.ts";
   import AppShell from "../../lib/components/AppShell.svelte";
-  import { APP_CONFIG, buildAppLoginUrl } from "../../lib/config";
+  import { APP_CONFIG, buildAppLoginUrl, getSelectedAuthUrl, persistSelectedAuthUrl } from "../../lib/config";
   import { errorMessage } from "../../lib/format";
 
   type Props = {
@@ -11,9 +12,14 @@
   };
 
   let { children }: Props = $props();
+  let authUrl = $state(APP_CONFIG.authUrl);
+
+  onMount(() => {
+    authUrl = persistSelectedAuthUrl(getSelectedAuthUrl(window.location));
+  });
 
   function redirectToLogin(redirectTo: string): void {
-    window.location.href = buildAppLoginUrl(redirectTo);
+    window.location.href = buildAppLoginUrl(redirectTo, window.location, undefined, authUrl);
   }
 
   function handleAuthFailed(error: unknown): void {
@@ -21,12 +27,13 @@
       window.location.pathname + window.location.search,
       window.location,
       errorMessage(error),
+      authUrl,
     );
   }
 </script>
 
 <TrellisProvider
-  authUrl={APP_CONFIG.authUrl}
+  authUrl={authUrl}
   natsServers={APP_CONFIG.natsServers}
   serviceName="trellis-app"
   loginPath="/login"

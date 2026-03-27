@@ -34,12 +34,12 @@
     }
   });
 
-  async function signIn(provider: string) {
+  async function signIn() {
     pending = true;
     authError = null;
 
     try {
-      await auth.signIn(provider, buildAppCallbackUrl(targetPath()));
+      await auth.signIn(undefined, buildAppCallbackUrl(targetPath()));
     } catch (nextError) {
       const message = errorMessage(nextError);
       if (!message.startsWith("Redirecting to")) {
@@ -84,8 +84,8 @@
             <p class="mt-2 text-sm text-base-content/75">Watch kicked connections and revoked sessions without opening the main admin app.</p>
           </div>
           <div class="rounded-box border border-base-300/60 bg-base-100/55 p-4">
-            <p class="text-xs font-semibold uppercase tracking-[0.24em] text-base-content/45">Provider</p>
-            <p class="mt-2 text-sm text-base-content/75">{APP_CONFIG.defaultProvider}</p>
+            <p class="text-xs font-semibold uppercase tracking-[0.24em] text-base-content/45">Access</p>
+            <p class="mt-2 text-sm text-base-content/75">Choose a sign-in provider in Trellis auth before returning to the activity feed.</p>
           </div>
         </div>
       </div>
@@ -96,13 +96,13 @@
         <div class="space-y-2">
           <div class="badge badge-outline badge-primary">Operator sign-in</div>
           <h2 class="display text-3xl text-base-content">Enter the feed</h2>
-          <p class="text-sm leading-6 text-base-content/70">Use the configured identity provider to bind a browser session key and attach to the realtime audit stream.</p>
+          <p class="text-sm leading-6 text-base-content/70">Use Trellis auth to choose a provider, bind a browser session key, and attach to the realtime audit stream.</p>
         </div>
 
         <div class="stats stats-vertical border border-base-300/60 bg-base-200/35 shadow-sm">
           <div class="stat py-4">
-            <div class="stat-title">Provider</div>
-            <div class="stat-value text-lg text-primary">{APP_CONFIG.defaultProvider}</div>
+            <div class="stat-title">Sign-in</div>
+            <div class="stat-value text-lg text-primary">Provider chosen in Trellis auth</div>
           </div>
           <div class="stat py-4">
             <div class="stat-title">Auth service</div>
@@ -111,12 +111,12 @@
         </div>
 
         <div class="space-y-3">
-          <button class="btn btn-primary btn-block" disabled={!ready || pending} onclick={() => signIn(APP_CONFIG.defaultProvider)}>
+          <button class="btn btn-primary btn-block" disabled={!ready || pending} onclick={signIn}>
             {#if pending}
               <span class="loading loading-spinner loading-sm"></span>
               Redirecting
             {:else}
-              Continue with {APP_CONFIG.defaultProvider}
+              Continue to sign in
             {/if}
           </button>
           <a class="btn btn-ghost btn-block" href={APP_CONFIG.authUrl} target="_blank" rel="noreferrer">

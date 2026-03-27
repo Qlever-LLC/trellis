@@ -9,7 +9,6 @@ declare global {
     | {
       authUrl?: string;
       natsServers?: string;
-      defaultProvider?: string;
     }
     | undefined;
 }

@@ -57,10 +57,9 @@ Create `.env`:
 ```text
 VITE_TRELLIS_AUTH_URL=http://localhost:3000
 VITE_TRELLIS_NATS_SERVERS=ws://localhost:8080
-VITE_TRELLIS_DEFAULT_PROVIDER=github
 ```
 
-These are public browser-side values. Do not put secrets here. During local Vite development they come from `.env`; in the published `console` container they can also be overridden at container startup with environment variables of the same names.
+These are public browser-side values. Do not put secrets here. During local Vite development they come from `.env`; in the published `console` container they can also be overridden at container startup with environment variables of the same names. `natsServers` is only a bootstrap default now - authenticated browser apps should prefer the `natsServers` list returned by Trellis auth during `/auth/bind`.
 
 Create `src/lib/config.ts`:
 
@@ -80,7 +79,6 @@ function readRuntimeConfig() {
     __TRELLIS_RUNTIME_CONFIG__?: {
       authUrl?: string;
       natsServers?: string;
-      defaultProvider?: string;
     };
   }).__TRELLIS_RUNTIME_CONFIG__ ?? {};
 }
@@ -90,7 +88,6 @@ const runtimeConfig = readRuntimeConfig();
 export const APP_CONFIG = {
   authUrl: runtimeConfig.authUrl ?? import.meta.env.VITE_TRELLIS_AUTH_URL ?? DEFAULT_AUTH_URL,
   natsServers: parseServers(runtimeConfig.natsServers ?? import.meta.env.VITE_TRELLIS_NATS_SERVERS),
-  defaultProvider: runtimeConfig.defaultProvider ?? import.meta.env.VITE_TRELLIS_DEFAULT_PROVIDER ?? "github",
 };
 
 export function buildCallbackUrl(redirectTo: string): string {
@@ -131,12 +128,12 @@ Create `src/routes/login/+page.svelte`:
   });
 
   async function signIn() {
-    await auth.signIn(APP_CONFIG.defaultProvider, buildCallbackUrl(targetPath()));
+    await auth.signIn(undefined, buildCallbackUrl(targetPath()));
   }
 </script>
 
 <h1>Sign in</h1>
-<button onclick={signIn}>Sign in with GitHub</button>
+<button onclick={signIn}>Continue to sign in</button>
 ```
 
 `createAuthState(...)` manages the browser session key, stores the binding token, and includes the app contract in the login flow.
@@ -241,7 +238,7 @@ Create a layout for the protected part of the app at `src/routes/(app)/+layout.s
 
 `TrellisProvider` restores the auth session, connects to NATS via websocket, creates the Trellis client, and exposes all three through Svelte context.
 
-Use websocket URLs for `natsServers` (e.g., `ws://localhost:8080`).
+Use websocket URLs for the bootstrap `natsServers` (e.g., `ws://localhost:8080`). Once the user is authenticated, Trellis auth can override that list with instance-specific `client.natsServers` returned in the bind response.
 
 ## 7. Call RPCs
 

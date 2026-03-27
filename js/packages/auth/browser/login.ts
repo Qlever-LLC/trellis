@@ -29,7 +29,7 @@ function encodeContractForQuery(contract: Record<string, unknown>): string {
 
 export async function buildLoginUrl(
   config: AuthConfig,
-  provider: string,
+  provider: string | undefined,
   redirectTo: string,
   handle: SessionKeyHandle,
   contract: Record<string, unknown>,
@@ -37,7 +37,8 @@ export async function buildLoginUrl(
   const sessionKey = getPublicSessionKey(handle);
   const sig = await oauthInitSig(handle, redirectTo);
 
-  const url = new URL(`${config.authUrl}/auth/login/${provider}`);
+  const path = provider ? `/auth/login/${provider}` : "/auth/login";
+  const url = new URL(`${config.authUrl}${path}`);
   url.searchParams.set("redirectTo", redirectTo);
   url.searchParams.set("sessionKey", sessionKey);
   url.searchParams.set("sig", sig);
