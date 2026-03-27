@@ -105,9 +105,8 @@ fn resolve_source_contract(
     let deno_config = find_deno_config(&source_path);
 
     let script = r#"
-import { resolve, toFileUrl } from "@std/path";
 const [sourcePath, exportName] = Deno.args;
-const mod = await import(toFileUrl(resolve(sourcePath)).href);
+const mod = await import(new URL(sourcePath, "file:///").href);
 const exported = mod[exportName];
 const contract = exported?.CONTRACT ?? exported;
 if (!contract || contract.format !== "trellis.contract.v1") {

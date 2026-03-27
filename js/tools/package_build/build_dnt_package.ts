@@ -11,13 +11,13 @@ type BuildDntPackageOptions = {
   externalizePackageDirs?: Record<string, string>;
 };
 
-const repositoryUrl = "git+https://github.com/qlever-llc/trellis.git";
+const repositoryUrl = "https://github.com/Qlever-LLC/trellis";
 
 function commonPackageMetadata() {
   return {
-    homepage: "https://github.com/qlever-llc/trellis#readme",
+    homepage: "https://github.com/Qlever-LLC/trellis#readme",
     bugs: {
-      url: "https://github.com/qlever-llc/trellis/issues",
+      url: "https://github.com/Qlever-LLC/trellis/issues",
     },
     repository: {
       type: "git",
