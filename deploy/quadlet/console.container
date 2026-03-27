@@ -1,0 +1,24 @@
+[Unit]
+Description=Trellis console
+After=trellis.service
+
+[Container]
+ContainerName=console
+Image=ghcr.io/qlever-llc/console:latest
+PublishPort=127.0.0.1:5173:80
+Environment=VITE_TRELLIS_AUTH_URL=http://host.containers.internal:3000
+Environment=VITE_TRELLIS_NATS_SERVERS=ws://host.containers.internal:8080
+Network=trellis.network
+UserNS=keep-id
+NoNewPrivileges=true
+DropCapability=all
+ReadOnly=true
+Tmpfs=/var/cache/nginx
+Tmpfs=/var/run
+
+[Service]
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

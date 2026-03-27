@@ -11,20 +11,27 @@ If you have do not have a running NATS server configured for Trellis, please fol
 
 ## 1. Setup the workspace
 
-If you are continuing from the [Prepare NATS](/docs/nats) guide, then use the same `trellis` workspace as before
+If you are continuing from the [Prepare NATS](/docs/nats) guide, then use the same `trellis` workspace as before:
+
 ```sh
 cd trellis
 ```
 
-Otherwiise, create a working directory
+Otherwise, create a working directory:
+
 ```sh
 mkdir trellis
 cd trellis
 ```
-and please be aware you will need to adapt the below commands to the location of the NATS, NSC, etc. resources for your installation.
 
+Create the directory structure for config and secrets:
 
-Download [`trellis.env`](https://github.com/qlever-llc/trellis/blob/main/deploy/quadlet/trellis.env) and save it as `./config/trellis.env`.
+```sh
+mkdir -p config/secrets
+chmod 700 config/secrets
+```
+
+Download [`config.example.jsonc`](https://github.com/qlever-llc/trellis/blob/main/deploy/quadlet/config.example.jsonc) and save it as `./config/config.jsonc`.
 
 ## 2. Generate the Trellis session key
 
@@ -56,23 +63,24 @@ Get the auth callout XKey public key. The seed is in the nkeys directory:
 XKEY_PUB=$(./nsc.sh describe account -n AUTH -J | grep '"xkey"' | tr -d ' ",' | cut -d: -f2)
 ```
 
-## 4. Create podman secrets
+## 4. Write secrets to disk
 
-Private key material should not sit in a plaintext env file. Store seeds and secrets with podman:
+The runtime reads all private key material from files. Write them into `./config/secrets/`:
 
 ```sh
-cat ./keys/trellis.seed | podman secret create trellis-session-key-seed -
-cat ./keys/auth-issuer-signing.nk | podman secret create trellis-auth-issuer-signing-seed -
-cat ./keys/trellis-target-signing.nk | podman secret create trellis-auth-target-signing-seed -
-cat ./nkeys/keys/X/${XKEY_PUB:1:2}/${XKEY_PUB}.nk | podman secret create trellis-auth-sxkey-seed -
-echo -n "$GITHUB_CLIENT_SECRET" | podman secret create trellis-github-client-secret -
+cp ./keys/trellis.seed ./config/secrets/session-key.seed
+cp ./keys/auth-issuer-signing.nk ./config/secrets/auth-issuer-signing.seed
+cp ./keys/trellis-target-signing.nk ./config/secrets/auth-target-signing.seed
+cat ./nkeys/keys/X/${XKEY_PUB:1:2}/${XKEY_PUB}.nk > ./config/secrets/auth-sx.seed
+echo -n "$GITHUB_CLIENT_SECRET" > ./config/secrets/github-client-secret
+chmod 600 ./config/secrets/*
 ```
 
-Secrets are injected into the container as files under `/run/secrets/`. The env file references them by path.
+The entire `./config/` directory is mounted read-only into the container as `/etc/trellis/`. All `*File` paths in the config are container paths under that mount point.
 
 ## 5. Configure the auth runtime
 
-Copy `deploy/quadlet/config.example.jsonc` to `/etc/trellis/config.jsonc` and fill in your deployment values:
+Edit `./config/config.jsonc` and fill in your deployment values:
 
 ```json
 {
@@ -115,15 +123,13 @@ Copy `deploy/quadlet/config.example.jsonc` to `/etc/trellis/config.jsonc` and fi
 }
 ```
 
-`client.natsServers` is the browser-facing websocket endpoint list returned by the auth service during bind and binding-token renewal. This lets the console discover the correct Trellis realtime endpoint from the instance URL it signed into.
+`client.natsServers` is the browser-facing websocket endpoint list returned by the auth service during bind. This lets the console discover the correct Trellis realtime endpoint from the instance URL it signed into.
 
-Set `/etc/trellis/trellis.env` to point the runtime at that config file:
+Create `./config/trellis.env` with a single line pointing the runtime at the config file:
 
 ```text
 TRELLIS_CONFIG=/etc/trellis/config.jsonc
 ```
-
-The creds paths are container paths that map to the volume mounts in the Quadlet unit. The config file and its referenced secret files are mounted into the runtime container from `/etc/trellis`.
 
 Use `localhost` consistently across the runtime, browser app, and OAuth app config.
 
@@ -155,14 +161,10 @@ ContainerName=trellis
 Image=ghcr.io/qlever-llc/trellis:latest
 PublishPort=127.0.0.1:3000:3000
 EnvironmentFile=%h/trellis/config/trellis.env
+Volume=%h/trellis/config:/etc/trellis:ro,Z
 Volume=%h/trellis/nkeys/creds/Trellis/AUTH/trellis.creds:/run/trellis/creds/auth-trellis.creds:ro,Z
 Volume=%h/trellis/nkeys/creds/Trellis/AUTH/sentinel.creds:/run/trellis/creds/sentinel.creds:ro,Z
 Volume=%h/trellis/nkeys/creds/Trellis/TRELLIS/trellis.creds:/run/trellis/creds/trellis-trellis.creds:ro,Z
-Secret=trellis-session-key-seed
-Secret=trellis-auth-issuer-signing-seed
-Secret=trellis-auth-target-signing-seed
-Secret=trellis-auth-sxkey-seed
-Secret=trellis-github-client-secret
 Network=trellis.network
 UserNS=keep-id
 NoNewPrivileges=true
@@ -207,7 +209,13 @@ RestartSec=5
 WantedBy=default.target
 ```
 
-The runtime binds only to localhost, runs rootless with all capabilities dropped, and mounts creds read-only. The app container reads its public browser config from runtime environment variables, so you can point it at the correct Trellis auth and WebSocket endpoints without rebuilding the image.
+The runtime mounts `./config/` as `/etc/trellis/` read-only, providing both the config file and secrets. NATS creds are mounted individually from `./nkeys/creds/` to the container paths referenced by the config. The app container reads its public browser config from runtime environment variables.
+
+If you want the user service to keep running after logout, enable linger once:
+
+```sh
+loginctl enable-linger "$USER"
+```
 
 ## 8. Start the services
 

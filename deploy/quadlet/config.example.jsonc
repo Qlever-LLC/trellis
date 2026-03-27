@@ -3,8 +3,8 @@
   "port": 3000,
   "instanceName": "Trellis Auth",
   "web": {
-    "origins": ["http://localhost:5173"],
-    "publicOrigin": "http://localhost:3000"
+    "origins": ["https://app.example.com"],
+    "publicOrigin": "https://auth.example.com"
   },
   "httpRateLimit": {
     "windowMs": 60000,
@@ -25,10 +25,10 @@
   "nats": {
     "servers": "nats",
     "trellis": {
-      "credsPath": "/run/trellis/creds/trellis-auth.creds"
+      "credsPath": "/run/trellis/creds/trellis-trellis.creds"
     },
     "auth": {
-      "credsPath": "/run/trellis/creds/auth-auth.creds"
+      "credsPath": "/run/trellis/creds/auth-trellis.creds"
     },
     "sentinelCredsPath": "/run/trellis/creds/sentinel.creds",
     "authCallout": {
@@ -45,7 +45,7 @@
   },
   "sessionKeySeedFile": "/etc/trellis/secrets/session-key.seed",
   "client": {
-    "natsServers": ["wss://nats.example.com"]
+    "natsServers": ["wss://nats.example.com:443"]
   },
   "oauth": {
     "redirectBase": "https://auth.example.com/auth/callback",
