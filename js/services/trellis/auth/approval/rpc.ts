@@ -33,7 +33,10 @@ function isAdmin(user: RpcUser): boolean {
   return user.capabilities?.includes("admin") ?? false;
 }
 
-async function resolveTargetUser(reqUser: string | undefined, caller: RpcUser): Promise<{
+async function resolveTargetUser(
+  reqUser: string | undefined,
+  caller: RpcUser,
+): Promise<{
   trellisId: string;
 }> {
   if (!reqUser) {
@@ -74,7 +77,8 @@ async function revokeApprovalSessions(
     const sessionKey = key.split(".")[0];
     if (!sessionKey) continue;
 
-    const connIter = (await connectionsKV.keys(`${sessionKey}.${userTrellisId}.>`)).take();
+    const connIter =
+      (await connectionsKV.keys(`${sessionKey}.${userTrellisId}.>`)).take();
     if (!isErr(connIter)) {
       for await (const connKey of connIter) {
         const connection = (await connectionsKV.get(connKey)).take();
@@ -89,110 +93,124 @@ async function revokeApprovalSessions(
   }
 }
 
-export async function registerApprovalRpcHandlers(opts: {
-  kick: (serverId: string, clientId: number) => Promise<void>;
-}): Promise<void> {
-  await trellis.mount(
-    "Auth.ListApprovals",
-    async (req: ListApprovalsRequest, { user }: { user: RpcUser }) => {
-      logger.trace(
-        {
-          rpc: "Auth.ListApprovals",
-          user: req.user,
-          digest: req.digest,
-          caller: formatOriginId(user.origin, user.id),
-        },
-        "RPC request",
+export const authListApprovalsHandler = async (
+  req: ListApprovalsRequest,
+  { user }: { user: RpcUser },
+) => {
+  logger.trace(
+    {
+      rpc: "Auth.ListApprovals",
+      user: req.user,
+      digest: req.digest,
+      caller: formatOriginId(user.origin, user.id),
+    },
+    "RPC request",
+  );
+
+  try {
+    const callerTrellisId = isAdmin(user)
+      ? null
+      : await trellisIdFromOriginId(user.origin, user.id);
+    const approvals = [] as Array<{
+      user: string;
+      answer: "approved" | "denied";
+      answeredAt: string;
+      updatedAt: string;
+      approval: {
+        contractDigest: string;
+        contractId: string;
+        displayName: string;
+        description: string;
+        kind: string;
+        capabilities: string[];
+      };
+    }>;
+
+    const target = req.user ? await resolveTargetUser(req.user, user) : null;
+    const iter = target
+      ? (await contractApprovalsKV.keys(`${target.trellisId}.>`)).take()
+      : (await contractApprovalsKV.keys(">")).take();
+
+    if (isErr(iter)) {
+      return Result.ok({ approvals: [] });
+    }
+
+    for await (const key of iter) {
+      const entry = (await contractApprovalsKV.get(key)).take();
+      if (isErr(entry)) continue;
+
+      if (
+        !target && callerTrellisId &&
+        entry.value.userTrellisId !== callerTrellisId
+      ) {
+        continue;
+      }
+      if (req.digest && entry.value.approval.contractDigest !== req.digest) {
+        continue;
+      }
+
+      approvals.push({
+        user: formatOriginId(entry.value.origin, entry.value.id),
+        answer: entry.value.answer,
+        answeredAt: entry.value.answeredAt.toISOString(),
+        updatedAt: entry.value.updatedAt.toISOString(),
+        approval: entry.value.approval,
+      });
+    }
+
+    approvals.sort((left, right) => {
+      const byUser = left.user.localeCompare(right.user);
+      if (byUser !== 0) return byUser;
+      return left.approval.displayName.localeCompare(
+        right.approval.displayName,
       );
+    });
 
-      try {
-        const callerTrellisId = isAdmin(user) ? null : await trellisIdFromOriginId(user.origin, user.id);
-        const approvals = [] as Array<{
-          user: string;
-          answer: "approved" | "denied";
-          answeredAt: string;
-          updatedAt: string;
-          approval: {
-            contractDigest: string;
-            contractId: string;
-            displayName: string;
-            description: string;
-            kind: string;
-            capabilities: string[];
-          };
-        }>;
+    return Result.ok({ approvals });
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return Result.err(error);
+    }
+    throw error;
+  }
+};
 
-        const target = req.user ? await resolveTargetUser(req.user, user) : null;
-        const iter = target
-          ? (await contractApprovalsKV.keys(`${target.trellisId}.>`)).take()
-          : (await contractApprovalsKV.keys(">" )).take();
+export function createAuthRevokeApprovalHandler(opts: {
+  kick: (serverId: string, clientId: number) => Promise<void>;
+}) {
+  return async (req: RevokeApprovalRequest, { user }: { user: RpcUser }) => {
+    logger.trace({
+      rpc: "Auth.RevokeApproval",
+      user: req.user,
+      contractDigest: req.contractDigest,
+    }, "RPC request");
 
-        if (isErr(iter)) {
-          return Result.ok({ approvals: [] });
-        }
+    if (
+      typeof req.contractDigest !== "string" || req.contractDigest.length === 0
+    ) {
+      return Result.err(new AuthError({ reason: "invalid_request" }));
+    }
 
-        for await (const key of iter) {
-          const entry = (await contractApprovalsKV.get(key)).take();
-          if (isErr(entry)) continue;
-
-          if (!target && callerTrellisId && entry.value.userTrellisId !== callerTrellisId) {
-            continue;
-          }
-          if (req.digest && entry.value.approval.contractDigest !== req.digest) {
-            continue;
-          }
-
-          approvals.push({
-            user: formatOriginId(entry.value.origin, entry.value.id),
-            answer: entry.value.answer,
-            answeredAt: entry.value.answeredAt.toISOString(),
-            updatedAt: entry.value.updatedAt.toISOString(),
-            approval: entry.value.approval,
-          });
-        }
-
-        approvals.sort((left, right) => {
-          const byUser = left.user.localeCompare(right.user);
-          if (byUser !== 0) return byUser;
-          return left.approval.displayName.localeCompare(right.approval.displayName);
-        });
-
-        return Result.ok({ approvals });
-      } catch (error) {
-        if (error instanceof AuthError) {
-          return Result.err(error);
-        }
-        throw error;
-      }
-    },
-  );
-
-  await trellis.mount(
-    "Auth.RevokeApproval",
-    async (req: RevokeApprovalRequest, { user }: { user: RpcUser }) => {
-      logger.trace({ rpc: "Auth.RevokeApproval", user: req.user, contractDigest: req.contractDigest }, "RPC request");
-
-      if (typeof req.contractDigest !== "string" || req.contractDigest.length === 0) {
-        return Result.err(new AuthError({ reason: "invalid_request" }));
+    try {
+      const target = await resolveTargetUser(req.user, user);
+      const approvalKey = `${target.trellisId}.${req.contractDigest}`;
+      const existing = (await contractApprovalsKV.get(approvalKey)).take();
+      if (isErr(existing)) {
+        return Result.ok({ success: false });
       }
 
-      try {
-        const target = await resolveTargetUser(req.user, user);
-        const approvalKey = `${target.trellisId}.${req.contractDigest}`;
-        const existing = (await contractApprovalsKV.get(approvalKey)).take();
-        if (isErr(existing)) {
-          return Result.ok({ success: false });
-        }
-
-        await contractApprovalsKV.delete(approvalKey);
-        await revokeApprovalSessions(target.trellisId, req.contractDigest, opts.kick);
-        return Result.ok({ success: true });
-      } catch (error) {
-        if (error instanceof AuthError) {
-          return Result.err(error);
-        }
-        throw error;
+      await contractApprovalsKV.delete(approvalKey);
+      await revokeApprovalSessions(
+        target.trellisId,
+        req.contractDigest,
+        opts.kick,
+      );
+      return Result.ok({ success: true });
+    } catch (error) {
+      if (error instanceof AuthError) {
+        return Result.err(error);
       }
-    },
-  );
+      throw error;
+    }
+  };
 }
