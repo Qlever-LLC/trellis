@@ -13,11 +13,6 @@
   } from "../../lib/config";
   import { errorMessage } from "../../lib/format";
 
-  type CallbackResult =
-    | { status: "bound" }
-    | { status: "approval_required" | "approval_denied"; approval: unknown }
-    | { status: "insufficient_capabilities"; missingCapabilities: string[] };
-
   let status = $state("Completing sign-in…");
   let authError = $state<string | null>(null);
   let selectedAuthUrl = $state("");
@@ -28,12 +23,6 @@
 
   function loginUrl(): string {
     return buildAppLoginUrl(targetPath(), page.url, undefined, selectedAuthUrl);
-  }
-
-  function authErrorFromFragment(url: string): string | null {
-    const parsed = new URL(url);
-    const fragment = parsed.hash.startsWith("#") ? parsed.hash.slice(1) : parsed.hash;
-    return new URLSearchParams(fragment).get("authError");
   }
 
   onMount(async () => {
@@ -47,26 +36,27 @@
 
     try {
       selectedAuthUrl = persistSelectedAuthUrl(getSelectedAuthUrl(page.url));
-      const auth = createAuthState({ authUrl: selectedAuthUrl, loginPath: "/login", contract: trellisApp } as never) as unknown as {
-        init(): Promise<unknown>;
-        handleCallback(url?: string): Promise<CallbackResult | null>;
-        cleanupCallbackUrl(url?: string): void;
-      };
+      const auth = createAuthState({ authUrl: selectedAuthUrl, loginPath: "/login", contract: trellisApp });
       await auth.init();
       const result = await auth.handleCallback(window.location.href);
       auth.cleanupCallbackUrl();
 
       if (!result) {
-        const flowError = authErrorFromFragment(window.location.href);
-        if (flowError === "approval_denied") {
-          status = "App access was denied.";
-          return;
-        }
         throw new Error("Missing auth token");
       }
 
       if (result.status === "bound") {
         await goto(targetPath());
+        return;
+      }
+
+      if (result.status === "approval_denied") {
+        status = "App access was denied.";
+        return;
+      }
+
+      if (result.status === "approval_required") {
+        status = "Approval required";
         return;
       }
 
@@ -76,7 +66,8 @@
         return;
       }
 
-      status = "Approval required";
+      status = "Sign-in failed";
+      authError = result.status === "error" ? result.message : "Unknown error";
     } catch (error) {
       authError = errorMessage(error);
       status = "Sign-in failed";

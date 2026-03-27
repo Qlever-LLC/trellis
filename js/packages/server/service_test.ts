@@ -1,5 +1,5 @@
+import { core } from "@qlever-llc/trellis-sdk-core";
 import { assertRejects } from "@std/assert";
-import { trellisCore } from "@qlever-llc/trellis-sdk-core";
 import { connectService } from "./service.ts";
 
 const fakeRuntime = {
@@ -11,7 +11,7 @@ const fakeRuntime = {
 Deno.test("connectService rejects missing auth or session key seed", async () => {
   await assertRejects(
     () =>
-      connectService(trellisCore, "svc", {
+      connectService(core, "svc", {
         nats: { servers: "nats://localhost" },
         server: {},
       }, fakeRuntime),
@@ -30,7 +30,7 @@ Deno.test("connectService requires some NATS authenticator source", async () => 
   await assertRejects(
     () =>
       connectService(
-        trellisCore,
+        core,
         "svc",
         {
           auth: fakeAuth,
@@ -54,7 +54,7 @@ Deno.test("connectService requires some NATS authenticator source", async () => 
 Deno.test("connectService requires auth or sessionKeySeed", async () => {
   await assertRejects(
     () =>
-      connectService(trellisCore, "svc", {
+      connectService(core, "svc", {
         nats: { servers: "nats://localhost" },
         server: {},
       }, fakeRuntime),

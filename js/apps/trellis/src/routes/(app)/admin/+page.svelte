@@ -1,13 +1,15 @@
 <script lang="ts">
+  import type { AuthListServicesOutput } from "@qlever-llc/trellis-sdk-auth";
+  import { getTrellisFor } from "@qlever-llc/trellis-svelte";
   import { onMount } from "svelte";
-  import { createAuthRequester } from "../../../lib/auth-rpc";
+  import { trellisApp } from "../../../contracts/trellis_app.ts";
   import { errorMessage } from "../../../lib/format";
 
-  const authRequest = createAuthRequester();
+  const trellisPromise = getTrellisFor(trellisApp);
 
   let loading = $state(true);
   let error = $state<string | null>(null);
-  let services = $state<any[]>([]);
+  let services = $state<AuthListServicesOutput["services"]>([]);
   let sessionCount = $state(0);
   let connectionCount = $state(0);
 
@@ -18,10 +20,11 @@
     loading = true;
     error = null;
     try {
+      const trellis = await trellisPromise;
       const [sessionsRes, connectionsRes, servicesRes] = await Promise.all([
-        authRequest("Auth.ListSessions", {}),
-        authRequest("Auth.ListConnections", {}),
-        authRequest("Auth.ListServices", {})
+        trellis.requestOrThrow("Auth.ListSessions", {}),
+        trellis.requestOrThrow("Auth.ListConnections", {}),
+        trellis.requestOrThrow("Auth.ListServices", {}),
       ]);
       sessionCount = sessionsRes.sessions?.length ?? 0;
       connectionCount = connectionsRes.connections?.length ?? 0;

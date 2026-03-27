@@ -4,6 +4,7 @@ import {
   bindSession,
   buildLoginUrl,
   clearSessionKey,
+  extractAuthErrorFromFragment,
   extractAuthTokenFromFragment,
   getOrCreateSessionKey,
   getPublicSessionKey,
@@ -14,6 +15,14 @@ import { Result } from "@qlever-llc/trellis-result";
 import { SvelteDate } from "svelte/reactivity";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
+
+export type BindErrorResult =
+  | { status: "insufficient_capabilities"; missingCapabilities: string[] }
+  | { status: "approval_required" }
+  | { status: "approval_denied" }
+  | { status: "error"; message: string };
+
+export type BindResult = { status: "bound" } | BindErrorResult;
 
 const buildLoginHref = buildLoginUrl as unknown as (
   config: { authUrl: string },
@@ -97,7 +106,7 @@ function clearPersistedAuth(): void {
 export type AuthStateConfig = {
   authUrl: string; // https://auth.example.com
   loginPath?: string;
-  contract: { CONTRACT: Record<string, unknown> };
+  contract?: { CONTRACT: Record<string, unknown> };
 };
 
 /**
@@ -120,7 +129,7 @@ export class AuthState {
   });
 
   #config: AuthStateConfig;
-  #bindingInProgress: Promise<BindResponse> | null = null;
+  #bindingInProgress: Promise<BindResult> | null = null;
 
   constructor(config: AuthStateConfig) {
     this.#config = config;
@@ -186,31 +195,41 @@ export class AuthState {
       provider,
       redirectTo,
       handle,
-      this.#config.contract.CONTRACT,
+      this.#config.contract?.CONTRACT ?? {},
     );
     window.location.href = url;
     throw new Error(provider ? `Redirecting to ${provider} for authentication` : "Redirecting to auth for provider selection");
   }
 
-  /**
-   * Handle OAuth callback by extracting the authToken from the URL fragment
-   * and binding it to the session key.
-   *
-   * Returns the bind response if a fragment exists, null otherwise.
-   * Includes a guard to prevent double binding when multiple components call this.
-   */
-  async handleCallback(url: string = window.location.href): Promise<BindResponse | null> {
-    // Guard to prevent race conditions when multiple components call handleCallback
+  async handleCallback(url: string = window.location.href): Promise<BindResult | null> {
     if (this.#bindingInProgress) return this.#bindingInProgress;
+
+    const authError = extractAuthErrorFromFragment(url);
+    if (authError === "approval_denied") return { status: "approval_denied" };
+    if (authError) return { status: "error", message: authError };
 
     const authToken = extractAuthTokenFromFragment(url);
     if (!authToken) return null;
 
-    this.#bindingInProgress = this.bind(authToken);
+    this.#bindingInProgress = this.#resolveCallback(authToken);
     try {
       return await this.#bindingInProgress;
     } finally {
       this.#bindingInProgress = null;
+    }
+  }
+
+  async #resolveCallback(authToken: string): Promise<BindResult> {
+    try {
+      const response = await this.bind(authToken);
+      return response.status === "bound"
+        ? { status: "bound" }
+        : { status: "insufficient_capabilities", missingCapabilities: response.missingCapabilities };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes("approval_denied")) return { status: "approval_denied" };
+      if (message.includes("approval_required")) return { status: "approval_required" };
+      return { status: "error", message };
     }
   }
 

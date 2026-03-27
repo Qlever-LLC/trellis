@@ -1,10 +1,12 @@
 <script lang="ts">
+  import type { AuthInstallServiceInput } from "@qlever-llc/trellis-sdk-auth";
+  import { getTrellisFor } from "@qlever-llc/trellis-svelte";
   import { goto } from "$app/navigation";
-  import { createAuthRequester } from "../../../../../lib/auth-rpc";
+  import { trellisApp } from "../../../../../contracts/trellis_app.ts";
   import { errorMessage } from "../../../../../lib/format";
   import { getNotifications } from "../../../../../lib/notifications.svelte";
 
-  const authRequest = createAuthRequester() as (method: string, input: unknown) => Promise<any>;
+  const trellisPromise = getTrellisFor(trellisApp);
   const notifications = getNotifications();
 
   let sessionKey = $state("");
@@ -22,11 +24,7 @@
     keygenPending = true;
     error = null;
     try {
-      const keyPair = await crypto.subtle.generateKey(
-        { name: "Ed25519" } as any,
-        true,
-        ["sign", "verify"]
-      );
+      const keyPair = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"]);
       const pubRaw = await crypto.subtle.exportKey("raw", keyPair.publicKey);
       const privPkcs8 = await crypto.subtle.exportKey("pkcs8", keyPair.privateKey);
       const pubBytes = new Uint8Array(pubRaw);
@@ -62,21 +60,21 @@
 
     createPending = true;
     try {
-      let contract: Record<string, unknown> | undefined;
+      let contract: AuthInstallServiceInput["contract"] | undefined;
       if (contractJson.trim()) {
-        contract = JSON.parse(contractJson);
+        contract = JSON.parse(contractJson) as AuthInstallServiceInput["contract"];
       }
 
-      const input: Record<string, unknown> = {
+      const input: AuthInstallServiceInput = {
         sessionKey: sessionKey.trim(),
         displayName: displayName.trim(),
         active,
         namespaces: namespaces.split(",").map((n) => n.trim()).filter(Boolean),
+        contract: contract ?? {},
         description: description.trim() || undefined
       };
-      if (contract) input.contract = contract;
 
-      await authRequest("Auth.InstallService", input);
+      await (await trellisPromise).requestOrThrow("Auth.InstallService", input);
       notifications.success(`Service "${displayName.trim()}" installed.`, "Installed");
       await goto("/admin/services");
     } catch (e) {

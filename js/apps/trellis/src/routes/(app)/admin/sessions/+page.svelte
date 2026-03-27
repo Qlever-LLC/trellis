@@ -1,12 +1,13 @@
 <script lang="ts">
   import type { AuthListConnectionsOutput, AuthListSessionsOutput } from "@qlever-llc/trellis-sdk-auth";
+  import { getTrellisFor } from "@qlever-llc/trellis-svelte";
   import { onMount } from "svelte";
-  import { createAuthRequester } from "../../../../lib/auth-rpc";
+  import { trellisApp } from "../../../../contracts/trellis_app.ts";
   import { errorMessage, formatDate } from "../../../../lib/format";
-  import { type ConnectionRow, type SessionRow, formatOriginId, parseConnectionRowKey, parseSessionRowKey } from "../../../../lib/keys";
+  import { type ConnectionRow, formatOriginId, parseConnectionRowKey, parseSessionRowKey, type SessionRow } from "../../../../lib/keys";
   import { getNotifications } from "../../../../lib/notifications.svelte";
 
-  const authRequest = createAuthRequester();
+  const trellisPromise = getTrellisFor(trellisApp);
   const notifications = getNotifications();
 
   type SessionView = AuthListSessionsOutput["sessions"][number] & { parsed: SessionRow | null };
@@ -29,10 +30,10 @@
     loading = true;
     error = null;
     try {
-      const response = await authRequest("Auth.ListSessions", {
+      const response = await (await trellisPromise).requestOrThrow("Auth.ListSessions", {
         user: sessionFilterUser.trim() || undefined
       });
-      sessions = (response.sessions ?? []).map((s: any) => ({
+      sessions = (response.sessions ?? []).map((s) => ({
         ...s,
         parsed: parseSessionRowKey(s.key)
       }));
@@ -47,11 +48,11 @@
     loading = true;
     error = null;
     try {
-      const response = await authRequest("Auth.ListConnections", {
+      const response = await (await trellisPromise).requestOrThrow("Auth.ListConnections", {
         user: connFilterUser.trim() || undefined,
         sessionKey: connFilterSessionKey.trim() || undefined
       });
-      connections = (response.connections ?? []).map((c: any) => ({
+      connections = (response.connections ?? []).map((c) => ({
         ...c,
         parsed: parseConnectionRowKey(c.key)
       }));
@@ -71,7 +72,7 @@
     if (!window.confirm(`Revoke this session? ${principal} will be disconnected.`)) return;
     revokeTarget = sessionKey;
     try {
-      await authRequest("Auth.RevokeSession", { sessionKey });
+      await (await trellisPromise).requestOrThrow("Auth.RevokeSession", { sessionKey });
       notifications.success(`Session revoked for ${principal}.`, "Revoked");
       await loadSessions();
     } catch (e) { error = errorMessage(e); }
@@ -82,7 +83,7 @@
     if (!window.confirm(`Disconnect ${principal}?`)) return;
     kickTarget = userNkey;
     try {
-      await authRequest("Auth.KickConnection", { userNkey });
+      await (await trellisPromise).requestOrThrow("Auth.KickConnection", { userNkey });
       notifications.success(`Disconnected ${principal}.`, "Kicked");
       await loadConnections();
     } catch (e) { error = errorMessage(e); }

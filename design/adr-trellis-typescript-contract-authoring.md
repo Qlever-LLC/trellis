@@ -335,7 +335,7 @@ export const activity = defineContract({
 });
 
 const service = await activity.connectService("activity", opts);
-await service.trellis.request("Trellis.Catalog", {});
+await service.requestOrThrow("Trellis.Catalog", {});
 await service.trellis.mount("Activity.List", async (req) => Result.ok({ items: [] }));
 ```
 
@@ -407,7 +407,10 @@ Rules:
 
 - `contract.createClient(...)` returns a client typed from `contract.API.trellis`
 - `contract.connectService(...)` returns a service whose outbound `trellis` surface is typed from `contract.API.trellis`
+- `contract.connectService(...)` MAY additionally expose outbound request conveniences directly on the service object as long as they preserve `contract.API.trellis`
 - service-side handler registration methods such as `mount(...)` are typed from `contract.API.owned`
+- higher-level integrations MAY expose contract-aware accessors such as `getTrellisFor(contract)` as long as they preserve the same `contract.API.trellis` surface
+- runtimes MAY expose convenience helpers such as `requestOrThrow(...)` on top of `request(...)`, but those helpers MUST preserve the same method/input/output typing and MUST NOT widen the callable API surface
 - callers do not pass manual API arrays into those helpers for normal usage
 - runtime helpers do not implicitly inject extra API modules outside the contract-derived surface
 
@@ -476,8 +479,8 @@ Rules:
 
 Expected type behavior:
 
-- `service.trellis.request("Trellis.Catalog", {})` is valid because it is declared in `uses`
-- `service.trellis.request("Auth.Me", {})` is a type error unless it is also declared in `uses`
+- `service.requestOrThrow("Trellis.Catalog", {})` is valid because it is declared in `uses`
+- `service.requestOrThrow("Auth.Me", {})` is a type error unless it is also declared in `uses`
 - `service.trellis.mount("Trellis.Catalog", ...)` is a type error because that RPC is used, not owned
 - `auth.use({ rpc: { call: ["Trellis.Catalog"] } })` is a type error because that RPC is not part of `trellis.auth@v1`
 

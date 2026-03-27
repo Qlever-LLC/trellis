@@ -1,23 +1,25 @@
 <script lang="ts">
+  import type { AuthListApprovalsOutput } from "@qlever-llc/trellis-sdk-auth";
+  import { getTrellisFor } from "@qlever-llc/trellis-svelte";
   import { onMount } from "svelte";
-  import { createAuthRequester } from "../../../../lib/auth-rpc";
+  import { trellisApp } from "../../../../contracts/trellis_app.ts";
   import { errorMessage, formatDate } from "../../../../lib/format";
   import { getNotifications } from "../../../../lib/notifications.svelte";
 
-  const authRequest = createAuthRequester();
+  const trellisPromise = getTrellisFor(trellisApp);
   const notifications = getNotifications();
 
   let loading = $state(true);
   let error = $state<string | null>(null);
   let filterUser = $state("");
-  let approvals = $state<any[]>([]);
+  let approvals = $state<AuthListApprovalsOutput["approvals"]>([]);
   let revokeTarget = $state<string | null>(null);
 
   async function load() {
     loading = true;
     error = null;
     try {
-      const res = await authRequest("Auth.ListApprovals", {
+      const res = await (await trellisPromise).requestOrThrow("Auth.ListApprovals", {
         user: filterUser.trim() || undefined
       });
       approvals = res.approvals ?? [];
@@ -30,7 +32,7 @@
     const key = `${user}:${contractDigest}`;
     revokeTarget = key;
     try {
-      await authRequest("Auth.RevokeApproval", { contractDigest, user });
+      await (await trellisPromise).requestOrThrow("Auth.RevokeApproval", { contractDigest, user });
       notifications.success(`Approval revoked for ${user}.`, "Revoked");
       await load();
     } catch (e) { error = errorMessage(e); }

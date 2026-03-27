@@ -1,10 +1,11 @@
 <script lang="ts">
+  import { getTrellisFor } from "@qlever-llc/trellis-svelte";
   import { onMount } from "svelte";
-  import { createAuthRequester } from "../../../../lib/auth-rpc";
+  import { trellisApp } from "../../../../contracts/trellis_app.ts";
   import { errorMessage } from "../../../../lib/format";
   import { getNotifications } from "../../../../lib/notifications.svelte";
 
-  const authRequest = createAuthRequester() as (method: string, input: unknown) => Promise<any>;
+  const trellisPromise = getTrellisFor(trellisApp);
   const notifications = getNotifications();
 
   type UserView = {
@@ -27,7 +28,7 @@
     loading = true;
     error = null;
     try {
-      const res = await authRequest("Auth.ListUsers", {});
+      const res = await (await trellisPromise).requestOrThrow("Auth.ListUsers", {});
       users = res.users ?? [];
     } catch (e) { error = errorMessage(e); }
     finally { loading = false; }
@@ -45,7 +46,7 @@
 
   async function toggleActive(user: UserView) {
     try {
-      await authRequest("Auth.UpdateUser", {
+      await (await trellisPromise).requestOrThrow("Auth.UpdateUser", {
         origin: user.origin,
         id: user.id,
         active: !user.active,
@@ -60,7 +61,7 @@
     savePending = true;
     try {
       const capabilities = editCaps.split(",").map((c) => c.trim()).filter(Boolean);
-      await authRequest("Auth.UpdateUser", {
+      await (await trellisPromise).requestOrThrow("Auth.UpdateUser", {
         origin: editTarget.origin,
         id: editTarget.id,
         capabilities,

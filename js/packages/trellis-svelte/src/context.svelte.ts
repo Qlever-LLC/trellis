@@ -1,7 +1,7 @@
-import { getContext, setContext } from "svelte";
-import type { TrellisAPI } from "@qlever-llc/trellis-contracts";
-import type { Trellis } from "@qlever-llc/trellis-trellis";
 import type { NatsConnection } from "@nats-io/nats-core";
+import type { InferSchemaType, TrellisAPI } from "@qlever-llc/trellis-contracts";
+import type { Trellis } from "@qlever-llc/trellis-trellis";
+import { getContext, setContext } from "svelte";
 import type { AuthState } from "./state/auth.svelte.ts";
 import type { NatsState } from "./state/nats.svelte.ts";
 
@@ -14,6 +14,35 @@ type TrellisContext = {
   trellis: Promise<unknown>;
   nats: Promise<NatsConnection>;
 };
+
+type TrellisContractLike<TA extends TrellisAPI = TrellisAPI> = {
+  API: {
+    trellis: TA;
+  };
+};
+
+type RequestOpts = {
+  timeout?: number;
+};
+
+type RpcMapFor<TA extends TrellisAPI> = {
+  [M in keyof TA["rpc"] & string]: {
+    input: InferSchemaType<TA["rpc"][M]["input"]>;
+    output: InferSchemaType<TA["rpc"][M]["output"]>;
+  };
+};
+
+type TypedRequestSurface<TA extends TrellisAPI> = {
+  requestOrThrow<M extends keyof RpcMapFor<TA> & string>(
+    method: M,
+    input: RpcMapFor<TA>[M]["input"],
+    opts?: RequestOpts,
+  ): Promise<RpcMapFor<TA>[M]["output"]>;
+};
+
+type TypedTrellis<TA extends TrellisAPI> =
+  & Omit<Trellis<TA>, "requestOrThrow">
+  & TypedRequestSurface<TA>;
 
 export function setTrellisContext<TA extends TrellisAPI>(
   ctx: { trellis: Promise<Trellis<TA>>; nats: Promise<NatsConnection> },
@@ -32,6 +61,14 @@ export function setAuthContext(auth: AuthState): void {
 
 export function getTrellis<TA extends TrellisAPI = TrellisAPI>(): Promise<Trellis<TA>> {
   return getContext<Promise<unknown>>(TRELLIS_KEY) as Promise<Trellis<TA>>;
+}
+
+export function getTrellisFor<TContract extends TrellisContractLike>(
+  _contract: TContract,
+): Promise<TypedTrellis<TContract["API"]["trellis"]>> {
+  return getTrellis<TContract["API"]["trellis"]>() as unknown as Promise<
+    TypedTrellis<TContract["API"]["trellis"]>
+  >;
 }
 
 export function getNats(): Promise<NatsConnection> {

@@ -445,6 +445,20 @@ export class Trellis<TA extends AnyTrellisAPI = typeof trellisCoreApi> {
     });
   }
 
+  async requestOrThrow<M extends MethodsOf<TA>>(
+    method: M,
+    input: MethodInputOf<TA, M>,
+    opts?: RequestOpts,
+  ): Promise<MethodOutputOf<TA, M>> {
+    const result = await this.request(method, input, opts);
+    const value = result.take();
+    if (isErr(value)) {
+      throw value.error;
+    }
+
+    return value;
+  }
+
   /*
    * Mount a handler to process requests made to a specific Trellis API
    */

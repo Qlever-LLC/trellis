@@ -1,24 +1,21 @@
 <script lang="ts">
-  import { getAuth, getNatsState } from "@qlever-llc/trellis-svelte";
+  import type { AuthMeOutput } from "@qlever-llc/trellis-sdk-auth";
+  import { getAuth, getNatsState, getTrellisFor } from "@qlever-llc/trellis-svelte";
   import { onMount } from "svelte";
   import { goto } from "$app/navigation";
   import { page } from "$app/state";
-  import {
-    type AuthMeResponse,
-    createAppRequester,
-    type UserProfile,
-  } from "../activity-rpc";
+  import { activityApp } from "../../contracts/activity_app.ts";
   import { errorMessage } from "../format";
 
   let { children } = $props();
 
   const auth = getAuth();
   const natsStatePromise = getNatsState();
-  const request = createAppRequester();
+  const trellisPromise = getTrellisFor(activityApp);
 
   let authFailure = $state<string | null>(null);
   let connectionStatus = $state("connecting");
-  let profile = $state<UserProfile | null>(null);
+  let profile = $state<AuthMeOutput["user"] | null>(null);
 
   function currentPath(): string {
     return page.url.pathname + page.url.search;
@@ -30,7 +27,7 @@
     return "badge-error";
   }
 
-  function initials(user: UserProfile | null): string {
+  function initials(user: AuthMeOutput["user"] | null): string {
     const name = user?.name?.trim();
     if (!name) return "AC";
     const parts = name.split(/\s+/).filter(Boolean);
@@ -39,10 +36,10 @@
 
   onMount(async () => {
     try {
-      const [{ user }, natsState] = await Promise.all([
-        request<AuthMeResponse>("Auth.Me", {}),
-        natsStatePromise,
-      ]);
+      const trellis = await trellisPromise;
+      const me: AuthMeOutput = await trellis.requestOrThrow("Auth.Me", {});
+      const natsState = await natsStatePromise;
+      const { user } = me;
       profile = user;
       connectionStatus = natsState.status;
     } catch (nextError) {

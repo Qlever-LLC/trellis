@@ -1,11 +1,10 @@
 <script lang="ts">
-  import { isErr } from "@qlever-llc/trellis-result";
   import type { AuthMeOutput } from "@qlever-llc/trellis-sdk-auth";
-  import { getAuth, getNatsState, getTrellis } from "@qlever-llc/trellis-svelte";
+  import { getAuth, getNatsState, getTrellisFor } from "@qlever-llc/trellis-svelte";
   import { onMount } from "svelte";
   import { afterNavigate, goto } from "$app/navigation";
   import { page } from "$app/state";
-  import { createAuthRequester } from "../auth-rpc";
+  import { trellisApp } from "../../contracts/trellis_app.ts";
   import { buildAppLoginUrl } from "../config";
   import {
     getInitials,
@@ -23,8 +22,7 @@
 
   const auth = getAuth();
   const natsStatePromise = getNatsState();
-  const trellisPromise = getTrellis();
-  const authRequest = createAuthRequester();
+  const trellisPromise = getTrellisFor(trellisApp);
   const notifications = setNotifications(new NotificationsController());
 
   let darkMode = $state(
@@ -79,7 +77,7 @@
           connectionStatus = natsState.status;
         }, 1000);
 
-        const me = await authRequest("Auth.Me", {});
+        const me = await (await trellisPromise).requestOrThrow("Auth.Me", {});
         if (!active) return;
 
         if (me.user) {
@@ -113,12 +111,7 @@
   });
 
   async function logoutRequest(): Promise<void> {
-    const trellis = await trellisPromise as any;
-    const logout = await trellis.request("Auth.Logout", {});
-    const value = logout.take();
-    if (isErr(value)) {
-      throw value;
-    }
+    await (await trellisPromise).requestOrThrow("Auth.Logout", {});
   }
 
   async function signOut() {

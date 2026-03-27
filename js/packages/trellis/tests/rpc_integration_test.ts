@@ -1,11 +1,11 @@
 import { connect } from "@nats-io/transport-deno";
-import { assertEquals, assertExists } from "@std/assert";
 import {
   AuthMeResponseSchema,
   AuthMeSchema,
   AuthValidateRequestResponseSchema,
   AuthValidateRequestSchema,
 } from "@qlever-llc/trellis-auth";
+import { assertEquals, assertExists } from "@std/assert";
 
 import { Type } from "typebox";
 import { isErr, ok } from "../../result/mod.ts";
@@ -331,6 +331,46 @@ Deno.test({
 
     assertExists(response.user);
     assertEquals(response.user.id, TEST_USER.id);
+    await nc.close();
+  });
+
+  await t.step("requestOrThrow unwraps successful RPC responses", async () => {
+    const meService = createClient(
+      authContract,
+      nats.nc,
+      { sessionKey: "service-throw", sign: () => new Uint8Array(64) },
+      { name: "me-service-throw" },
+    );
+    const authService = createClient(
+      authContract,
+      nats.nc,
+      { sessionKey: "auth-throw", sign: () => new Uint8Array(64) },
+      { name: "auth-service-throw" },
+    );
+
+    await authService.mount("Auth.ValidateRequest", async (input, _ctx) => {
+      return ok({
+        allowed: true,
+        inboxPrefix: `_INBOX.${input.sessionKey.slice(0, 16)}`,
+        user: TEST_USER,
+      });
+    });
+
+    await meService.mount("Auth.Me", async (_input, ctx) => {
+      return ok({ user: ctx.user });
+    });
+
+    const { auth, inboxPrefix } = await createTestAuth();
+    const info = nats.nc.info!;
+    const nc = await connect({ servers: `localhost:${info.port}`, inboxPrefix });
+    const client = createClient(authContract, nc, auth, { name: "client-throw" });
+    const response = await waitFor(
+      () => client.requestOrThrow("Auth.Me", {}, { timeout: 500 }).catch(() => null),
+      { description: "Me responder ready for requestOrThrow" },
+    );
+
+    assertExists(response?.user);
+    assertEquals(response?.user.id, TEST_USER.id);
     await nc.close();
   });
   },

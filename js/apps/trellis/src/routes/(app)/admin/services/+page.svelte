@@ -1,16 +1,18 @@
 <script lang="ts">
+  import type { AuthListServicesOutput } from "@qlever-llc/trellis-sdk-auth";
+  import { getTrellisFor } from "@qlever-llc/trellis-svelte";
   import { onMount } from "svelte";
-  import { createAuthRequester } from "../../../../lib/auth-rpc";
+  import { trellisApp } from "../../../../contracts/trellis_app.ts";
   import { errorMessage, formatDate } from "../../../../lib/format";
   import { getNotifications } from "../../../../lib/notifications.svelte";
 
-  const authRequest = createAuthRequester() as (method: string, input: unknown) => Promise<any>;
+  const trellisPromise = getTrellisFor(trellisApp);
   const notifications = getNotifications();
 
   let loading = $state(true);
   let error = $state<string | null>(null);
   let search = $state("");
-  let services = $state<any[]>([]);
+  let services = $state<AuthListServicesOutput["services"]>([]);
   let expandedKey = $state<string | null>(null);
   let upgradeJson = $state("");
   let upgradePending = $state(false);
@@ -31,7 +33,7 @@
     loading = true;
     error = null;
     try {
-      const res = await authRequest("Auth.ListServices", {});
+      const res = await (await trellisPromise).requestOrThrow("Auth.ListServices", {});
       services = res.services ?? [];
     } catch (e) { error = errorMessage(e); }
     finally { loading = false; }
@@ -45,7 +47,7 @@
   async function loadCurrentContract(digest: string) {
     upgradeLoadPending = true;
     try {
-      const res = await authRequest("Auth.GetInstalledContract", { digest });
+      const res = await (await trellisPromise).requestOrThrow("Auth.GetInstalledContract", { digest });
       upgradeJson = JSON.stringify(res.contract?.contract ?? res.contract, null, 2);
     } catch (e) { error = `Could not load contract (digest: ${digest.slice(0, 12)}…). It may have been removed from storage.`; }
     finally { upgradeLoadPending = false; }
@@ -56,7 +58,7 @@
     upgradePending = true;
     try {
       const contract = JSON.parse(upgradeJson);
-      await authRequest("Auth.UpgradeServiceContract", { sessionKey, contract });
+      await (await trellisPromise).requestOrThrow("Auth.UpgradeServiceContract", { sessionKey, contract });
       notifications.success("Contract upgraded.", "Upgraded");
       upgradeJson = "";
       await load();
@@ -132,10 +134,10 @@
                       <div>
                         <h4 class="text-xs font-semibold uppercase text-base-content/50 mb-2">KV Bindings</h4>
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          {#each Object.entries(service.resourceBindings.kv) as [alias, binding]}
+                          {#each Object.entries(service.resourceBindings.kv as Record<string, { bucket: string }>) as [alias, binding]}
                             <div class="card bg-base-100 border border-base-300 p-3">
                               <p class="font-medium text-sm">{alias}</p>
-                              <p class="text-xs text-base-content/60 font-mono">{(binding as any).bucket}</p>
+                              <p class="text-xs text-base-content/60 font-mono">{binding.bucket}</p>
                             </div>
                           {/each}
                         </div>

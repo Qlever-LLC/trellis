@@ -1,13 +1,13 @@
 <script lang="ts">
   import type { AuthMeOutput } from "@qlever-llc/trellis-sdk-auth";
-  import { getNatsState } from "@qlever-llc/trellis-svelte";
+  import { getNatsState, getTrellisFor } from "@qlever-llc/trellis-svelte";
   import { onMount } from "svelte";
-  import { createAuthRequester } from "../../../lib/auth-rpc";
-  import { errorMessage, formatDate } from "../../../lib/format";
+  import { trellisApp } from "../../../contracts/trellis_app.ts";
   import { getInitials, getRoleLabel } from "../../../lib/control-panel.ts";
+  import { errorMessage, formatDate } from "../../../lib/format";
   import { getNotifications } from "../../../lib/notifications.svelte";
 
-  const authRequest = createAuthRequester();
+  const trellisPromise = getTrellisFor(trellisApp);
   const natsStatePromise = getNatsState();
   const notifications = getNotifications();
 
@@ -22,9 +22,9 @@
     loading = true;
     error = null;
     try {
-      const me = await authRequest("Auth.Me", {});
+      const me = await (await trellisPromise).requestOrThrow("Auth.Me", {});
       user = me.user ?? null;
-      const appResponse = await authRequest("Auth.ListApprovals", {});
+      const appResponse = await (await trellisPromise).requestOrThrow("Auth.ListApprovals", {});
       approvals = appResponse.approvals ?? [];
     } catch (e) {
       error = errorMessage(e);
@@ -37,7 +37,7 @@
     if (!window.confirm("Revoke this app approval? The app will lose access to act on your behalf.")) return;
     revokeTarget = contractDigest;
     try {
-      await authRequest("Auth.RevokeApproval", { contractDigest });
+      await (await trellisPromise).requestOrThrow("Auth.RevokeApproval", { contractDigest });
       notifications.success("App approval revoked.", "Revoked");
       await loadProfile();
     } catch (e) {

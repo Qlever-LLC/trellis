@@ -1,15 +1,11 @@
 <script lang="ts">
-  
   import type {
     ActivityGetOutput,
     ActivityListOutput,
   } from "@qlever-llc/trellis-sdk-activity";
-import { onMount } from "svelte";
-  import {
-    type ActivityEntry,
-    type ActivityKind,
-    createAppRequester,
-  } from "../../../lib/activity-rpc";
+  import { getTrellisFor } from "@qlever-llc/trellis-svelte";
+  import { onMount } from "svelte";
+  import { activityApp } from "../../../contracts/activity_app.ts";
   import {
     errorMessage,
     formatDate,
@@ -18,7 +14,9 @@ import { onMount } from "svelte";
     toneForKind,
   } from "../../../lib/format";
 
-  const request = createAppRequester();
+  const trellisPromise = getTrellisFor(activityApp);
+  type ActivityEntry = ActivityListOutput["entries"][number];
+  type ActivityKind = ActivityEntry["kind"];
 
   const kindOptions: Array<{ value: "" | ActivityKind; label: string }> = [
     { value: "", label: "All activity" },
@@ -52,7 +50,7 @@ import { onMount } from "svelte";
     error = null;
 
     try {
-      const response = await request<ActivityGetOutput>("Activity.Get", { id });
+      const response: ActivityGetOutput = await (await trellisPromise).requestOrThrow("Activity.Get", { id });
       selectedEntry = response.entry;
     } catch (nextError) {
       error = errorMessage(nextError);
@@ -66,7 +64,7 @@ import { onMount } from "svelte";
     error = null;
 
     try {
-      const response = await request<ActivityListOutput>("Activity.List", {
+      const response: ActivityListOutput = await (await trellisPromise).requestOrThrow("Activity.List", {
         limit,
         kind: kind || undefined,
       });

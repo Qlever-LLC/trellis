@@ -432,6 +432,9 @@ const itemsKV = (await service.kv.items.open(ItemSchema)).take();
 await service.trellis.mount("SomeMethod", handler);
 await service.trellis.event("SomeEvent", {}, eventHandler);
 
+// 3b. Make outbound RPC calls with strong typing
+const catalog = await service.requestOrThrow("Trellis.Catalog", {});
+
 // 4. Graceful shutdown
 Deno.addSignalListener("SIGTERM", async () => {
   await service.stop();

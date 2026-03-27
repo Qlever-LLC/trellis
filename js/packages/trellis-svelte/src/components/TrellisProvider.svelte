@@ -8,7 +8,7 @@
     setNatsStateContext,
     setTrellisContext,
   } from "../context.svelte.ts";
-  import { type AuthState, createAuthState } from "../state/auth.svelte.ts";
+  import { type AuthState, type AuthStateConfig, type BindErrorResult, createAuthState } from "../state/auth.svelte.ts";
   import { createNatsState, type NatsState } from "../state/nats.svelte.ts";
   import {
     createTrellisState,
@@ -27,6 +27,7 @@
     onAuthExpired?: () => void;
     onAuthFailed?: (error: unknown) => void;
     onAuthRequired?: (redirectTo: string) => void;
+    onBindError?: (result: BindErrorResult) => void;
     onNatsConnecting?: () => void;
     onNatsConnected?: () => void;
     onNatsDisconnect?: () => void;
@@ -46,6 +47,7 @@
     onAuthExpired,
     onAuthFailed,
     onAuthRequired,
+    onBindError,
     onNatsConnecting,
     onNatsConnected,
     onNatsDisconnect,
@@ -66,12 +68,20 @@
     }
   }
 
+  class BindFailedError extends Error {
+    constructor() {
+      super("Bind failed");
+    }
+  }
+
   function createProviderAuthState(): AuthState {
-    return createAuthState({
+    const config: AuthStateConfig = {
       authUrl,
       loginPath,
       contract,
-    });
+    };
+
+    return createAuthState(config);
   }
 
   const authState = createProviderAuthState();
@@ -87,8 +97,13 @@
   async function initialize(): Promise<InitContext> {
     const result = await AsyncResult.try(async () => {
       await authState.init();
-      await authState.handleCallback();
+      const bindResult = await authState.handleCallback();
       authState.cleanupCallbackUrl();
+
+      if (bindResult !== null && bindResult.status !== "bound") {
+        onBindError?.(bindResult);
+        throw new BindFailedError();
+      }
 
       if (!authState.isAuthenticated) {
         onAuthRequired?.(getRedirectTo());
@@ -122,11 +137,12 @@
     });
 
     if (result.isErr()) {
-      authState.clearAuth();
       const error = result.error;
-      if (!(error instanceof AuthRequiredError)) {
-        onAuthFailed?.(error);
+      if (error instanceof AuthRequiredError || error instanceof BindFailedError) {
+        throw error;
       }
+      authState.clearAuth();
+      onAuthFailed?.(error);
       throw error;
     }
 

@@ -1,9 +1,10 @@
 <script lang="ts">
+  import { getTrellisFor } from "@qlever-llc/trellis-svelte";
   import { onMount } from "svelte";
-  import { createAuthRequester } from "../../../../lib/auth-rpc";
+  import { trellisApp } from "../../../../contracts/trellis_app.ts";
   import { errorMessage, formatDate } from "../../../../lib/format";
 
-  const authRequest = createAuthRequester() as (method: string, input: unknown) => Promise<any>;
+  const trellisPromise = getTrellisFor(trellisApp);
 
   type ContractSummary = {
     digest: string;
@@ -67,7 +68,7 @@
     loading = true;
     error = null;
     try {
-      const res = await authRequest("Auth.ListInstalledContracts", {});
+      const res = await (await trellisPromise).requestOrThrow("Auth.ListInstalledContracts", {});
       contracts = res.contracts ?? [];
     } catch (e) { error = errorMessage(e); }
     finally { loading = false; }
@@ -78,7 +79,7 @@
     selectedDigest = digest;
     detailLoading = true;
     try {
-      const res = await authRequest("Auth.GetInstalledContract", { digest });
+      const res = await (await trellisPromise).requestOrThrow("Auth.GetInstalledContract", { digest });
       detail = res.contract;
     } catch (e) { error = errorMessage(e); detail = null; }
     finally { detailLoading = false; }

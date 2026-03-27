@@ -1,6 +1,6 @@
 import type { NatsConnection } from "@nats-io/nats-core";
 import { createAuth, type TrellisAuth as SessionAuth } from "@qlever-llc/trellis-auth";
-import type { TrellisAPI } from "@qlever-llc/trellis-contracts";
+import type { InferSchemaType, TrellisAPI } from "@qlever-llc/trellis-contracts";
 import { isErr, type Result } from "@qlever-llc/trellis-result";
 import { type KVError, Trellis, TrellisServer, TypedKV } from "@qlever-llc/trellis-trellis";
 import type { Logger } from "pino";
@@ -17,6 +17,10 @@ type ExtraNatsConnectOpts = Omit<
   NatsConnectOpts,
   "servers" | "token" | "inboxPrefix" | "authenticator"
 >;
+
+type RpcMethodName<TA extends TrellisAPI> = keyof TA["rpc"] & string;
+type RpcMethodInput<TA extends TrellisAPI, M extends RpcMethodName<TA>> = InferSchemaType<TA["rpc"][M]["input"]>;
+type RpcMethodOutput<TA extends TrellisAPI, M extends RpcMethodName<TA>> = InferSchemaType<TA["rpc"][M]["output"]>;
 type TrellisServerCreateOpts<
   TOwnedApi extends TrellisAPI,
   TTrellisApi extends TrellisAPI = TOwnedApi,
@@ -145,6 +149,10 @@ export type ServiceTrellis<
 > =
   & Omit<Trellis<TTrellisApi>, "mount">
   & Pick<TrellisServer<TOwnedApi>, "mount">;
+
+type RequestOpts = {
+  timeout?: number;
+};
 
 export type ServiceContract<
   TOwnedApi extends TrellisAPI,
@@ -373,6 +381,24 @@ export class TrellisService<
 
   async stop(): Promise<void> {
     await this.server.stop();
+  }
+
+  request<M extends RpcMethodName<TTrellisApi>>(
+    method: M,
+    input: RpcMethodInput<TTrellisApi, M>,
+    opts?: RequestOpts,
+  ): ReturnType<Trellis<TTrellisApi>["request"]> {
+    return this.trellis.request(method, input, opts) as ReturnType<Trellis<TTrellisApi>["request"]>;
+  }
+
+  requestOrThrow<M extends RpcMethodName<TTrellisApi>>(
+    method: M,
+    input: RpcMethodInput<TTrellisApi, M>,
+    opts?: RequestOpts,
+  ): Promise<RpcMethodOutput<TTrellisApi, M>> {
+    return (this.trellis as unknown as {
+      requestOrThrow(method: string, input: unknown, opts?: RequestOpts): Promise<unknown>;
+    }).requestOrThrow(method, input, opts) as Promise<RpcMethodOutput<TTrellisApi, M>>;
   }
 }
 
