@@ -50,48 +50,14 @@ export const myApp = defineContract({
 
 The `uses` block is what Trellis analyzes when deriving the subject permissions granted to the signed-in browser session. If you need to call RPCs from other services, add them here.
 
-## 3. Configure browser env
+## 3. Build the login page
 
-Create `.env`:
+Create `.env` for local development:
 
 ```text
 VITE_TRELLIS_AUTH_URL=http://localhost:3000
 VITE_TRELLIS_NATS_SERVERS=ws://localhost:8080
 ```
-
-These are public browser-side values. Do not put secrets here. During local Vite development they come from `.env`; in the published `console` container they can also be overridden at container startup with environment variables of the same names. `natsServers` is only a bootstrap default — authenticated browser apps should prefer the `natsServers` list returned by Trellis auth during `/auth/bind`.
-
-Create `src/lib/config.ts`:
-
-```ts
-const DEFAULT_AUTH_URL = "http://localhost:3000";
-const DEFAULT_NATS_SERVER = "ws://localhost:8080";
-
-function parseServers(value: string | undefined): string[] {
-  return (value ?? DEFAULT_NATS_SERVER)
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
-
-function readRuntimeConfig() {
-  return (globalThis as typeof globalThis & {
-    __TRELLIS_RUNTIME_CONFIG__?: {
-      authUrl?: string;
-      natsServers?: string;
-    };
-  }).__TRELLIS_RUNTIME_CONFIG__ ?? {};
-}
-
-const runtimeConfig = readRuntimeConfig();
-
-export const APP_CONFIG = {
-  authUrl: runtimeConfig.authUrl ?? import.meta.env.VITE_TRELLIS_AUTH_URL ?? DEFAULT_AUTH_URL,
-  natsServers: parseServers(runtimeConfig.natsServers ?? import.meta.env.VITE_TRELLIS_NATS_SERVERS),
-};
-```
-
-## 4. Build the login page
 
 Create `src/routes/login/+page.svelte`:
 
@@ -100,10 +66,9 @@ Create `src/routes/login/+page.svelte`:
   import { createAuthState } from "@qlever-llc/trellis-svelte";
   import { page } from "$app/state";
   import { myApp } from "$lib/contracts/my_app";
-  import { APP_CONFIG } from "$lib/config";
 
   const auth = createAuthState({
-    authUrl: APP_CONFIG.authUrl,
+    authUrl: import.meta.env.VITE_TRELLIS_AUTH_URL,
     loginPath: "/login",
     contract: myApp,
   });
@@ -124,7 +89,7 @@ Create `src/routes/login/+page.svelte`:
 
 `createAuthState(...)` manages the browser session key and includes the app contract in the login flow. The callback URL is the destination page directly — `TrellisProvider` handles the auth token fragment wherever it lands.
 
-## 5. Wrap authenticated routes with TrellisProvider
+## 4. Wrap authenticated routes with TrellisProvider
 
 Create a layout for the protected part of the app at `src/routes/(app)/+layout.svelte`:
 
@@ -132,7 +97,6 @@ Create a layout for the protected part of the app at `src/routes/(app)/+layout.s
 <script lang="ts">
   import { TrellisProvider, type BindErrorResult } from "@qlever-llc/trellis-svelte";
   import { myApp } from "$lib/contracts/my_app";
-  import { APP_CONFIG } from "$lib/config";
 
   let { children } = $props();
 
@@ -158,8 +122,8 @@ Create a layout for the protected part of the app at `src/routes/(app)/+layout.s
   <a href="/login">Try again</a>
 {:else}
   <TrellisProvider
-    authUrl={APP_CONFIG.authUrl}
-    natsServers={APP_CONFIG.natsServers}
+    authUrl={import.meta.env.VITE_TRELLIS_AUTH_URL}
+    natsServers={[import.meta.env.VITE_TRELLIS_NATS_SERVERS ?? "ws://localhost:8080"]}
     serviceName="my-app"
     loginPath="/login"
     contract={myApp}
@@ -177,9 +141,9 @@ Create a layout for the protected part of the app at `src/routes/(app)/+layout.s
 
 `TrellisProvider` restores the auth session, handles the OAuth callback fragment on any protected page, connects to NATS, creates the Trellis client, and exposes all three through Svelte context. The `loading` snippet renders while the connection is being established. `onBindError` is called when the callback completes but authentication cannot proceed.
 
-Use websocket URLs for the bootstrap `natsServers` (e.g., `ws://localhost:8080`). Once the user is authenticated, Trellis auth can override that list with instance-specific `client.natsServers` returned in the bind response.
+The `natsServers` prop is a bootstrap default only — once authenticated, Trellis auth returns an instance-specific list that `TrellisProvider` uses instead.
 
-## 6. Call RPCs
+## 5. Call RPCs
 
 Call RPCs directly from a page at `src/routes/(app)/dashboard/+page.svelte`:
 
@@ -197,7 +161,7 @@ Call RPCs directly from a page at `src/routes/(app)/dashboard/+page.svelte`:
 
 Top-level `await` in Svelte 5 makes the component async — it suspends until all awaits resolve before rendering, so no loading state is needed. `getTrellisFor(myApp)` keeps the Trellis client typed from your app contract, and `requestOrThrow(...)` unwraps the `Result<T, E>` boundary for component code.
 
-## 7. Build and verify contract artifacts
+## 6. Build and verify contract artifacts
 
 Keep the contract source in your app repo and generate artifacts into build output:
 
@@ -205,7 +169,6 @@ Keep the contract source in your app repo and generate artifacts into build outp
 my-app/
   src/
     lib/
-      config.ts
       contracts/my_app.ts
     routes/
       login/+page.svelte
@@ -224,7 +187,7 @@ trellis contracts build \
 trellis contracts verify --source ./src/lib/contracts/my_app.ts
 ```
 
-## 8. Understand the approval lifecycle
+## 7. Understand the approval lifecycle
 
 App approval works differently from service installation:
 
