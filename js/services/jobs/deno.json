@@ -1,0 +1,13 @@
+{
+  "extends": "../../deno.json",
+  "name": "@qlever-llc/trellis-service-jobs",
+  "version": "0.5.1",
+  "exports": "./main.ts",
+  "tasks": {
+    "dev": "deno run --env --allow-env --allow-sys --allow-read --allow-net --allow-ffi --watch main.ts",
+    "build:sdk": "cargo run --manifest-path ../../../rust/Cargo.toml -p trellis-cli --bin trellis -- contracts build --source ../../../js/services/jobs/contracts/trellis_jobs.ts --out-manifest ../../../generated/contracts/manifests/trellis.jobs@v1.json --ts-out ../../../generated/js/sdks/jobs --rust-out ../../../generated/rust/sdks/jobs --package-name @qlever-llc/trellis-sdk-jobs --crate-name trellis-sdk-jobs --runtime-source local --runtime-repo-root ../../..",
+    "verify:contracts": "cargo run --manifest-path ../../../rust/Cargo.toml -p trellis-cli --bin trellis -- contracts verify --source ../../../js/services/jobs/contracts/trellis_jobs.ts",
+    "check": "deno task -c ../../deno.json build:sdk && deno check main.ts bootstrap.ts rpcs.ts contracts/trellis_jobs.ts",
+    "test": "deno test -A"
+  }
+}

@@ -996,7 +996,7 @@ function mergeDerivedApis(ownedApi: TrellisApiLike, usedApi: TrellisApiLike): Tr
 }
 
 export function defineContract<
-  const T extends DefineContractInput<any, any, any, any>,
+  const T extends DefineContractInput<any, any, any, any, any>,
 >(
   source: T,
 ): DefinedContract<OwnedApiFromSource<T>, UsedApiFromUses<T["uses"]>, MergeApis<OwnedApiFromSource<T>, UsedApiFromUses<T["uses"]>>, T["id"]> {
