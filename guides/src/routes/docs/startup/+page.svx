@@ -204,15 +204,17 @@ An HTTP 400 is expected before signed login parameters are sent — it confirms 
 
 ## 9. Create the first admin
 
-After you know the GitHub user ID for the first administrator:
+Before logging into the console, bootstrap the GitHub account that will become the first administrator:
 
 ```sh
-trellis user bootstrap-admin \
+trellis bootstrap admin \
   --servers 127.0.0.1 \
   --creds ./nkeys/creds/Trellis/AUTH/trellis.creds \
   --origin github \
   --id github:YOUR_GITHUB_USER_ID
 ```
+
+This seeds the user projection with the default console access set: `admin`, `trellis.catalog.read`, and `trellis.contract.read`.
 
 ## 10. Log in with the CLI
 
@@ -239,4 +241,4 @@ curl -I http://localhost:5173/
 trellis auth status
 ```
 
-Then open `http://localhost:5173` in your browser and complete the OAuth login flow with your admin GitHub account. You should land on a logged-in session.
+Then open `http://localhost:5173` in your browser and complete the OAuth login flow with that same GitHub account. You should land on a logged-in console session.

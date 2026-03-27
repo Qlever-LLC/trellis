@@ -92,7 +92,7 @@ Rules for service admin commands:
 - `trellis auth approvals list` shows stored app approval decisions from the `trellis` service, with server-side filtering by exact contract digest and optionally by user when the caller is an admin
 - `trellis auth approvals revoke` removes a stored `user <-> contractDigest` decision and causes matching active delegated sessions to be revoked by the `trellis` service
 - `trellis bootstrap nats` creates the shared stream and Auth-owned KV buckets needed before the runtime starts; this is an explicit super-user path that talks directly to NATS with creds
-- `trellis bootstrap admin` bootstraps the initial admin user in Auth's local user projection; this is also an explicit super-user path outside the normal Trellis auth flow
+- `trellis bootstrap admin` bootstraps the initial admin user in Auth's local user projection; by default it seeds `admin`, `trellis.catalog.read`, and `trellis.contract.read` so the first console user can load discovery data, and it remains an explicit super-user path outside the normal Trellis auth flow
 - `trellis service install` resolves a contract from source, a generated manifest, or an OCI image, generates the Ed25519 seed locally by default, shows an operator review, and sends only the public key and canonical contract to the `trellis` service's `trellis.auth@v1` admin surface
 - `trellis service upgrade` resolves the new contract revision from source, a generated manifest, or an OCI image and updates the contract bound to an existing service public key; `--seed` or `--service-key` may be used when the target service is ambiguous
 - `trellis keygen` remains available as an explicit offline utility for operators who want to separate key generation from install

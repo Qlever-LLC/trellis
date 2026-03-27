@@ -12,7 +12,10 @@ mod model;
 mod schema;
 
 pub use canonical::{canonicalize_json, digest_json, sha256_base64url};
-pub use catalog::{catalog_canonical_json, pack_loaded_manifests, pack_manifest_dir, pack_manifest_paths, write_catalog_pack};
+pub use catalog::{
+    catalog_canonical_json, pack_loaded_manifests, pack_manifest_dir, pack_manifest_paths,
+    write_catalog_pack,
+};
 pub use error::ContractsError;
 pub use manifest::{load_json_value, load_manifest, manifest_paths_in_dir, parse_manifest};
 pub use model::{

@@ -321,7 +321,11 @@ async fn bootstrap_admin_command(
         .or_else(|| env::var("NATS_CREDS").ok().map(PathBuf::from))
         .ok_or_else(|| miette::miette!("missing creds path"))?;
     let capabilities = if args.capabilities.is_empty() {
-        vec!["admin".to_string()]
+        vec![
+            "admin".to_string(),
+            "trellis.catalog.read".to_string(),
+            "trellis.contract.read".to_string(),
+        ]
     } else {
         args.capabilities.clone()
     };

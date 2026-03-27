@@ -34,10 +34,10 @@ cargo build -p trellis-cli
 cd ..
 ```
 
-The CLI binary is at `rust/target/debug/trellis`. The Deno workspace provides a task alias so you can run it from the `js/` directory:
+The commands below use the installed `trellis` CLI directly.
 
 ```sh
-deno task -c js/deno.json trellis --version
+trellis --version
 ```
 
 ## 3. Set up NATS
@@ -56,7 +56,7 @@ Complete all of the steps in the [Prepare NATS](/docs/nats) guide using `~/trell
 ## 4. Generate the Trellis session key
 
 ```sh
-deno task -c js/deno.json trellis keygen \
+trellis keygen \
   --out ~/trellis/keys/trellis.seed \
   --pubout ~/trellis/keys/trellis.pub
 ```
@@ -132,7 +132,7 @@ NATS_SENTINEL_CREDS=/home/<you>/trellis/nkeys/creds/Trellis/AUTH/sentinel.creds
 ## 8. Bootstrap NATS buckets
 
 ```sh
-deno task -c js/deno.json trellis bootstrap nats \
+trellis bootstrap nats \
   --servers 127.0.0.1 \
   --trellis-creds ~/trellis/nkeys/creds/Trellis/TRELLIS/trellis.creds \
   --auth-creds ~/trellis/nkeys/creds/Trellis/AUTH/trellis.creds
@@ -169,18 +169,22 @@ The console starts on `http://localhost:5173` with Vite HMR.
 
 ## 11. Create the first admin
 
+Before logging into the console, bootstrap the GitHub account that will become the first administrator:
+
 ```sh
-deno task -c js/deno.json trellis user bootstrap-admin \
+trellis bootstrap admin \
   --servers 127.0.0.1 \
   --creds ~/trellis/nkeys/creds/Trellis/AUTH/trellis.creds \
   --origin github \
   --id github:YOUR_GITHUB_USER_ID
 ```
 
+This seeds the user projection with the default console access set: `admin`, `trellis.catalog.read`, and `trellis.contract.read`.
+
 ## 12. Log in with the CLI
 
 ```sh
-deno task -c js/deno.json trellis --nats-servers 127.0.0.1 auth login \
+trellis --nats-servers 127.0.0.1 auth login \
   --auth-url http://localhost:3000 \
   --provider github
 ```
@@ -191,16 +195,16 @@ deno task -c js/deno.json trellis --nats-servers 127.0.0.1 auth login \
 curl http://127.0.0.1:8222/healthz
 curl -i http://localhost:3000/auth/login/github
 curl -I http://localhost:5173/
-deno task -c js/deno.json trellis auth status
+trellis auth status
 ```
 
-Open `http://localhost:5173` in your browser and complete the OAuth login.
+Open `http://localhost:5173` in your browser and complete the OAuth login with that same GitHub account.
 
 ## Development workflow
 
 - **Runtime changes** — edit files under `js/services/trellis/` or `js/packages/`. The `deno task dev` watcher restarts the process automatically.
 - **Console changes** — edit files under `js/apps/trellis/`. Vite HMR applies changes in-place.
 - **Contract changes** — run `deno task -c js/deno.json build:sdk` to regenerate SDKs, then restart the affected service.
-- **CLI changes** — run `cargo build -p trellis-cli` in the `rust/` directory.
+- **CLI changes** — run `cargo build -p trellis-cli` in the `rust/` directory, then re-run `trellis ...` commands from the repo root.
 - **Type checking** — run `deno task -c js/deno.json check` to type-check the full JS workspace.
 - **Tests** — run `deno task -c js/deno.json test:contracts` or `deno task -c js/deno.json test:auth`.

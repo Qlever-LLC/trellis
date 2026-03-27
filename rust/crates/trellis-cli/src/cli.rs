@@ -213,7 +213,11 @@ pub struct BootstrapAdminArgs {
     #[arg(long)]
     pub id: String,
 
-    #[arg(long, value_delimiter = ',')]
+    #[arg(
+        long,
+        value_delimiter = ',',
+        help = "Capabilities to seed (defaults to admin, trellis.catalog.read, trellis.contract.read)"
+    )]
     pub capabilities: Vec<String>,
 
     #[arg(long)]
