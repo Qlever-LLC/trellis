@@ -15,8 +15,29 @@ await build({
     name: "@qlever-llc/trellis-sdk-core",
     version: "0.5.1",
     description: "Generated Trellis SDK for contract trellis.core@v1",
+    license: "Apache-2.0",
+    homepage: "https://github.com/qlever-llc/trellis#readme",
+    bugs: {
+      url: "https://github.com/qlever-llc/trellis/issues",
+    },
+    repository: {
+      type: "git",
+      url: "git+https://github.com/qlever-llc/trellis.git",
+    },
+    publishConfig: {
+      access: "public",
+    },
     dependencies: {
       "@qlever-llc/trellis-contracts": "file:../../../../js/packages/contracts/npm",
     },
   },
 });
+
+const packageJsonPath = new URL("../npm/package.json", import.meta.url);
+const packageJson = JSON.parse(await Deno.readTextFile(packageJsonPath));
+packageJson.dependencies = {
+  ...(packageJson.dependencies ?? {}),
+  "@qlever-llc/trellis-contracts": "^0.5.1",
+};
+await Deno.writeTextFile(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}
+`);

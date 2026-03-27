@@ -10,6 +10,21 @@ type BuildSourcePackageOptions = {
   extraPackageJson?: Record<string, unknown>;
 };
 
+const repositoryUrl = "git+https://github.com/qlever-llc/trellis.git";
+
+function commonPackageMetadata() {
+  return {
+    homepage: "https://github.com/qlever-llc/trellis#readme",
+    bugs: {
+      url: "https://github.com/qlever-llc/trellis/issues",
+    },
+    repository: {
+      type: "git",
+      url: repositoryUrl,
+    },
+  };
+}
+
 export async function buildSourcePackage(options: BuildSourcePackageOptions) {
   const denoConfig = JSON.parse(await Deno.readTextFile("./deno.json"));
   const name = denoConfig.name as string;
@@ -35,17 +50,18 @@ export async function buildSourcePackage(options: BuildSourcePackageOptions) {
   await Deno.writeTextFile(
     join(outDir, "package.json"),
     JSON.stringify(
-      {
-        name,
-        version,
-        type: "module",
-        description: options.description,
-        license: "Apache-2.0",
-        publishConfig: {
-          access: "restricted",
-        },
-        files: ["src", "README.md"],
-        exports: options.exports,
+        {
+          name,
+          version,
+          type: "module",
+          description: options.description,
+          license: "Apache-2.0",
+          ...commonPackageMetadata(),
+          publishConfig: {
+            access: "public",
+          },
+          files: ["src", "README.md"],
+          exports: options.exports,
         dependencies: options.dependencies,
         peerDependencies: options.peerDependencies,
         ...options.extraPackageJson,

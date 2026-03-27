@@ -11,6 +11,21 @@ type BuildDntPackageOptions = {
   externalizePackageDirs?: Record<string, string>;
 };
 
+const repositoryUrl = "git+https://github.com/qlever-llc/trellis.git";
+
+function commonPackageMetadata() {
+  return {
+    homepage: "https://github.com/qlever-llc/trellis#readme",
+    bugs: {
+      url: "https://github.com/qlever-llc/trellis/issues",
+    },
+    repository: {
+      type: "git",
+      url: repositoryUrl,
+    },
+  };
+}
+
 async function* walkFiles(dir: string): AsyncGenerator<string> {
   for await (const entry of Deno.readDir(dir)) {
     const entryPath = join(dir, entry.name);
@@ -76,8 +91,9 @@ export async function buildDntPackage(options: BuildDntPackageOptions) {
       version,
       description: options.description,
       license: "Apache-2.0",
+      ...commonPackageMetadata(),
       publishConfig: {
-        access: "restricted",
+        access: "public",
       },
       dependencies: {
         ...(options.npmInstallDeps ?? {}),
