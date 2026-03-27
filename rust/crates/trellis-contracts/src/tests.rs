@@ -54,12 +54,16 @@ fn pack_trellis_owned_contracts_matches_shared_fixture() {
             "displayName": "Trellis Core",
             "description": "Trellis runtime RPCs available to all connected participants.",
             "kind": "service",
+            "schemas": {
+                "CatalogInput": {"type": "object", "properties": {}, "additionalProperties": false},
+                "CatalogOutput": {"type": "object", "properties": {}, "additionalProperties": false}
+            },
             "rpc": {
                 "Trellis.Catalog": {
                     "version": "v1",
                     "subject": "rpc.v1.Trellis.Catalog",
-                    "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false},
-                    "outputSchema": {"type": "object", "properties": {}, "additionalProperties": false}
+                    "input": {"schema": "CatalogInput"},
+                    "output": {"schema": "CatalogOutput"}
                 }
             }
         }))
@@ -74,11 +78,14 @@ fn pack_trellis_owned_contracts_matches_shared_fixture() {
             "displayName": "Trellis Auth",
             "description": "Provide Trellis authentication, session, service install, and admin RPCs.",
             "kind": "service",
+            "schemas": {
+                "AuthConnectEvent": {"type": "object", "properties": {}, "additionalProperties": false}
+            },
             "events": {
                 "Auth.Connect": {
                     "version": "v1",
                     "subject": "events.v1.Auth.Connect",
-                    "eventSchema": {"type": "object", "properties": {}, "additionalProperties": false}
+                    "event": {"schema": "AuthConnectEvent"}
                 }
             }
         }))

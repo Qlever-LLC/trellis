@@ -17,7 +17,9 @@ pub fn load_json_value(path: impl AsRef<Path>) -> Result<Value, ContractsError> 
 /// Parse and validate one contract manifest JSON value.
 pub fn parse_manifest(value: Value) -> Result<ContractManifest, ContractsError> {
     validate_manifest(&value)?;
-    Ok(serde_json::from_value(value)?)
+    let manifest: ContractManifest = serde_json::from_value(value)?;
+    validate_schema_refs(&manifest)?;
+    Ok(manifest)
 }
 
 /// Load, validate, canonicalize, and digest one manifest file.
@@ -66,4 +68,65 @@ fn is_manifest_candidate_path(path: &Path) -> bool {
             .file_stem()
             .and_then(|stem| stem.to_str())
             .is_some_and(|stem| stem.contains('@'))
+}
+
+fn validate_schema_refs(manifest: &ContractManifest) -> Result<(), ContractsError> {
+    for (name, rpc) in &manifest.rpc {
+        assert_schema_ref_exists(manifest, &rpc.input.schema, &format!("rpc '{name}' input"))?;
+        assert_schema_ref_exists(
+            manifest,
+            &rpc.output.schema,
+            &format!("rpc '{name}' output"),
+        )?;
+    }
+
+    for (name, event) in &manifest.events {
+        assert_schema_ref_exists(manifest, &event.event.schema, &format!("event '{name}'"))?;
+    }
+
+    for (name, subject) in &manifest.subjects {
+        if let Some(message) = &subject.message {
+            assert_schema_ref_exists(manifest, &message.schema, &format!("subject '{name}'"))?;
+        }
+    }
+
+    for (name, error) in &manifest.errors {
+        if let Some(schema) = &error.schema {
+            assert_schema_ref_exists(manifest, &schema.schema, &format!("error '{name}'"))?;
+        }
+    }
+
+    if let Some(jobs) = &manifest.resources.jobs {
+        for (queue_type, queue) in &jobs.queues {
+            assert_schema_ref_exists(
+                manifest,
+                &queue.payload.schema,
+                &format!("jobs queue '{queue_type}' payload"),
+            )?;
+            if let Some(result) = &queue.result {
+                assert_schema_ref_exists(
+                    manifest,
+                    &result.schema,
+                    &format!("jobs queue '{queue_type}' result"),
+                )?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn assert_schema_ref_exists(
+    manifest: &ContractManifest,
+    schema_name: &str,
+    context: &str,
+) -> Result<(), ContractsError> {
+    if manifest.schemas.contains_key(schema_name) {
+        Ok(())
+    } else {
+        Err(ContractsError::SchemaValidation {
+            kind: "contract",
+            details: format!("{context}: unknown schema '{schema_name}'"),
+        })
+    }
 }

@@ -650,8 +650,14 @@ fn render_participant_owned_rs(
     for key in loaded.manifest.rpc.keys() {
         let method = key_to_snake(key);
         let base = key_to_pascal(key);
-        let input_empty = is_empty_object_schema(&loaded.manifest.rpc[key].input_schema);
-        let output_type = if is_empty_object_schema(&loaded.manifest.rpc[key].output_schema) {
+        let input_empty = is_empty_object_schema(resolve_schema_ref(
+            loaded,
+            &loaded.manifest.rpc[key].input.schema,
+        ));
+        let output_type = if is_empty_object_schema(resolve_schema_ref(
+            loaded,
+            &loaded.manifest.rpc[key].output.schema,
+        )) {
             "sdk::rpc::Empty".to_string()
         } else {
             format!("sdk::{base}Response")
@@ -679,12 +685,18 @@ fn render_participant_owned_rs(
     for key in loaded.manifest.rpc.keys() {
         let method = format!("register_{}", key_to_snake(key));
         let base = key_to_pascal(key);
-        let input_type = if is_empty_object_schema(&loaded.manifest.rpc[key].input_schema) {
+        let input_type = if is_empty_object_schema(resolve_schema_ref(
+            loaded,
+            &loaded.manifest.rpc[key].input.schema,
+        )) {
             "sdk::rpc::Empty".to_string()
         } else {
             format!("sdk::{base}Request")
         };
-        let output_type = if is_empty_object_schema(&loaded.manifest.rpc[key].output_schema) {
+        let output_type = if is_empty_object_schema(resolve_schema_ref(
+            loaded,
+            &loaded.manifest.rpc[key].output.schema,
+        )) {
             "sdk::rpc::Empty".to_string()
         } else {
             format!("sdk::{base}Response")
@@ -738,14 +750,18 @@ fn render_participant_use_alias_rs(mapping: &ValidatedParticipantAlias) -> Strin
         for key in rpc.call.as_deref().unwrap_or(&[]) {
             let method = key_to_snake(key);
             let base = key_to_pascal(key);
-            let input_empty =
-                is_empty_object_schema(&mapping.manifest.manifest.rpc[key].input_schema);
-            let output_type =
-                if is_empty_object_schema(&mapping.manifest.manifest.rpc[key].output_schema) {
-                    "sdk::Empty".to_string()
-                } else {
-                    format!("sdk::{base}Response")
-                };
+            let input_empty = is_empty_object_schema(resolve_schema_ref(
+                &mapping.manifest,
+                &mapping.manifest.manifest.rpc[key].input.schema,
+            ));
+            let output_type = if is_empty_object_schema(resolve_schema_ref(
+                &mapping.manifest,
+                &mapping.manifest.manifest.rpc[key].output.schema,
+            )) {
+                "sdk::Empty".to_string()
+            } else {
+                format!("sdk::{base}Response")
+            };
             if input_empty {
                 lines.push(format!("    pub async fn {method}(&self) -> Result<{output_type}, trellis_client::TrellisClientError> {{ self.inner.{method}().await }}"));
             } else {
@@ -877,11 +893,17 @@ fn render_types_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
 
     for (key, rpc) in &loaded.manifest.rpc {
         let base = key_to_pascal(key);
-        if !is_empty_object_schema(&rpc.input_schema) {
-            renderer.render_named_type(&format!("{base}Request"), &rpc.input_schema);
+        if !is_empty_object_schema(resolve_schema_ref(loaded, &rpc.input.schema)) {
+            renderer.render_named_type(
+                &format!("{base}Request"),
+                resolve_schema_ref(loaded, &rpc.input.schema),
+            );
         }
-        if !is_empty_object_schema(&rpc.output_schema) {
-            renderer.render_named_type(&format!("{base}Response"), &rpc.output_schema);
+        if !is_empty_object_schema(resolve_schema_ref(loaded, &rpc.output.schema)) {
+            renderer.render_named_type(
+                &format!("{base}Response"),
+                resolve_schema_ref(loaded, &rpc.output.schema),
+            );
         }
     }
 
@@ -889,14 +911,17 @@ fn render_types_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
         let base = key_to_pascal(key);
         renderer.render_named_type(
             &format!("{base}Event"),
-            &loaded.manifest.events[key].event_schema,
+            resolve_schema_ref(loaded, &loaded.manifest.events[key].event.schema),
         );
     }
 
     for key in loaded.manifest.subjects.keys() {
         let base = key_to_pascal(key);
-        if let Some(schema) = &loaded.manifest.subjects[key].schema {
-            renderer.render_named_type(&format!("{base}Message"), schema);
+        if let Some(message) = &loaded.manifest.subjects[key].message {
+            renderer.render_named_type(
+                &format!("{base}Message"),
+                resolve_schema_ref(loaded, &message.schema),
+            );
         }
     }
 
@@ -921,12 +946,13 @@ fn render_rpc_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
 
     for (key, rpc) in &loaded.manifest.rpc {
         let base = key_to_pascal(key);
-        let input_type = if is_empty_object_schema(&rpc.input_schema) {
+        let input_type = if is_empty_object_schema(resolve_schema_ref(loaded, &rpc.input.schema)) {
             "Empty".to_string()
         } else {
             format!("crate::types::{base}Request")
         };
-        let output_type = if is_empty_object_schema(&rpc.output_schema) {
+        let output_type = if is_empty_object_schema(resolve_schema_ref(loaded, &rpc.output.schema))
+        {
             "Empty".to_string()
         } else {
             format!("crate::types::{base}Response")
@@ -1093,12 +1119,13 @@ fn render_client_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
     for (key, rpc) in &loaded.manifest.rpc {
         let base = key_to_pascal(key);
         let method_name = key_to_snake(key);
-        let input_type = if is_empty_object_schema(&rpc.input_schema) {
+        let input_type = if is_empty_object_schema(resolve_schema_ref(loaded, &rpc.input.schema)) {
             None
         } else {
             Some(format!("crate::types::{base}Request"))
         };
-        let output_type = if is_empty_object_schema(&rpc.output_schema) {
+        let output_type = if is_empty_object_schema(resolve_schema_ref(loaded, &rpc.output.schema))
+        {
             "crate::rpc::Empty".to_string()
         } else {
             format!("crate::types::{base}Response")
@@ -1161,12 +1188,13 @@ fn render_server_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
     for (key, rpc) in &loaded.manifest.rpc {
         let base = key_to_pascal(key);
         let fn_name = format!("register_{}", key_to_snake(key));
-        let input_type = if is_empty_object_schema(&rpc.input_schema) {
+        let input_type = if is_empty_object_schema(resolve_schema_ref(loaded, &rpc.input.schema)) {
             "crate::rpc::Empty".to_string()
         } else {
             format!("crate::types::{base}Request")
         };
-        let output_type = if is_empty_object_schema(&rpc.output_schema) {
+        let output_type = if is_empty_object_schema(resolve_schema_ref(loaded, &rpc.output.schema))
+        {
             "crate::rpc::Empty".to_string()
         } else {
             format!("crate::types::{base}Response")
@@ -1458,6 +1486,17 @@ fn crate_ident(crate_name: &str) -> String {
     crate_name.replace('-', "_")
 }
 
+fn resolve_schema_ref<'a>(
+    loaded: &'a trellis_contracts::LoadedManifest,
+    schema_name: &str,
+) -> &'a serde_json::Value {
+    loaded
+        .manifest
+        .schemas
+        .get(schema_name)
+        .unwrap_or_else(|| panic!("missing schema '{schema_name}' in manifest"))
+}
+
 fn is_empty_object_schema(schema: &serde_json::Value) -> bool {
     let Some(kind) = schema.get("type").and_then(serde_json::Value::as_str) else {
         return false;
@@ -1521,51 +1560,57 @@ mod tests {
             "displayName": "Trellis Core",
             "description": "Trellis core runtime surface.",
             "kind": "service",
+            "schemas": {
+                "CatalogInput": {
+                    "type": "object",
+                    "properties": {},
+                    "required": [],
+                    "additionalProperties": false
+                },
+                "CatalogOutput": {
+                    "type": "object",
+                    "properties": {
+                        "catalog": { "type": "object" }
+                    },
+                    "required": ["catalog"],
+                    "additionalProperties": false
+                },
+                "AuthChangedEvent": {
+                    "type": "object",
+                    "properties": {
+                        "status": { "type": "string" }
+                    },
+                    "required": ["status"],
+                    "additionalProperties": false
+                },
+                "AuditRawMessage": {
+                    "type": "object",
+                    "properties": {
+                        "value": { "type": "string" }
+                    },
+                    "required": ["value"],
+                    "additionalProperties": false
+                }
+            },
             "rpc": {
                 "Trellis.Catalog": {
                     "version": "v1",
                     "subject": "rpc.v1.Trellis.Catalog",
-                    "inputSchema": {
-                        "type": "object",
-                        "properties": {},
-                        "required": [],
-                        "additionalProperties": false
-                    },
-                    "outputSchema": {
-                        "type": "object",
-                        "properties": {
-                            "catalog": { "type": "object" }
-                        },
-                        "required": ["catalog"],
-                        "additionalProperties": false
-                    }
+                    "input": { "schema": "CatalogInput" },
+                    "output": { "schema": "CatalogOutput" }
                 }
             },
             "events": {
                 "Auth.Changed": {
                     "version": "v1",
                     "subject": "events.v1.Auth.Changed",
-                    "eventSchema": {
-                        "type": "object",
-                        "properties": {
-                            "status": { "type": "string" }
-                        },
-                        "required": ["status"],
-                        "additionalProperties": false
-                    }
+                    "event": { "schema": "AuthChangedEvent" }
                 }
             },
             "subjects": {
                 "Audit.Raw": {
                     "subject": "subjects.v1.Audit.Raw",
-                    "schema": {
-                        "type": "object",
-                        "properties": {
-                            "value": { "type": "string" }
-                        },
-                        "required": ["value"],
-                        "additionalProperties": false
-                    }
+                    "message": { "schema": "AuditRawMessage" }
                 }
             }
         });
@@ -1712,6 +1757,10 @@ mod tests {
                 "displayName": "Activity",
                 "description": "Activity service.",
                 "kind": "service",
+                "schemas": {
+                    "ActivityListInput": {"type":"object","properties":{},"required":[],"additionalProperties":false},
+                    "ActivityListOutput": {"type":"object","properties":{"items":{"type":"array","items":{"type":"string"}}},"required":["items"],"additionalProperties":false}
+                },
                 "uses": {
                     "core": {
                         "contract": "trellis.core@v1",
@@ -1727,8 +1776,8 @@ mod tests {
                     "Activity.List": {
                         "version": "v1",
                         "subject": "rpc.v1.Activity.List",
-                        "inputSchema": {"type":"object","properties":{},"required":[],"additionalProperties":false},
-                        "outputSchema": {"type":"object","properties":{"items":{"type":"array","items":{"type":"string"}}},"required":["items"],"additionalProperties":false}
+                        "input": {"schema":"ActivityListInput"},
+                        "output": {"schema":"ActivityListOutput"}
                     }
                 }
             }),
@@ -1742,18 +1791,24 @@ mod tests {
                 "displayName": "Trellis Core",
                 "description": "Core.",
                 "kind": "service",
+                "schemas": {
+                    "CatalogInput": {"type":"object","properties":{},"required":[],"additionalProperties":false},
+                    "CatalogOutput": {"type":"object","properties":{},"required":[],"additionalProperties":false},
+                    "ContractGetInput": {"type":"object","properties":{"digest":{"type":"string"}},"required":["digest"],"additionalProperties":false},
+                    "ContractGetOutput": {"type":"object","properties":{},"required":[],"additionalProperties":false}
+                },
                 "rpc": {
                     "Trellis.Catalog": {
                         "version":"v1",
                         "subject":"rpc.v1.Trellis.Catalog",
-                        "inputSchema":{"type":"object","properties":{},"required":[],"additionalProperties":false},
-                        "outputSchema":{"type":"object","properties":{},"required":[],"additionalProperties":false}
+                        "input":{"schema":"CatalogInput"},
+                        "output":{"schema":"CatalogOutput"}
                     },
                     "Trellis.Contract.Get": {
                         "version":"v1",
                         "subject":"rpc.v1.Trellis.Contract.Get",
-                        "inputSchema":{"type":"object","properties":{"digest":{"type":"string"}},"required":["digest"],"additionalProperties":false},
-                        "outputSchema":{"type":"object","properties":{},"required":[],"additionalProperties":false}
+                        "input":{"schema":"ContractGetInput"},
+                        "output":{"schema":"ContractGetOutput"}
                     }
                 }
             }),
@@ -1767,19 +1822,24 @@ mod tests {
                 "displayName": "Trellis Auth",
                 "description": "Auth.",
                 "kind": "service",
+                "schemas": {
+                    "AuthMeInput": {"type":"object","properties":{},"required":[],"additionalProperties":false},
+                    "AuthMeOutput": {"type":"object","properties":{},"required":[],"additionalProperties":false},
+                    "AuthConnectEvent": {"type":"object","properties":{"user":{"type":"string"}},"required":["user"],"additionalProperties":false}
+                },
                 "rpc": {
                     "Auth.Me": {
                         "version":"v1",
                         "subject":"rpc.v1.Auth.Me",
-                        "inputSchema":{"type":"object","properties":{},"required":[],"additionalProperties":false},
-                        "outputSchema":{"type":"object","properties":{},"required":[],"additionalProperties":false}
+                        "input":{"schema":"AuthMeInput"},
+                        "output":{"schema":"AuthMeOutput"}
                     }
                 },
                 "events": {
                     "Auth.Connect": {
                         "version":"v1",
                         "subject":"events.v1.Auth.Connect",
-                        "eventSchema":{"type":"object","properties":{"user":{"type":"string"}},"required":["user"],"additionalProperties":false}
+                        "event":{"schema":"AuthConnectEvent"}
                     }
                 }
             }),

@@ -14,11 +14,26 @@ import {
   ActivityRecordedEventSchema,
 } from "../schemas.ts";
 
+const schemas = {
+  ActivityGetRequest: ActivityGetRequestSchema,
+  ActivityGetResponse: ActivityGetResponseSchema,
+  ActivityListRequest: ActivityListRequestSchema,
+  ActivityListResponse: ActivityListResponseSchema,
+  ActivityRecordedEvent: ActivityRecordedEventSchema,
+  HealthRequest: HealthRpcSchema,
+  HealthResponse: HealthResponseSchema,
+} as const;
+
+function schemaRef<const TName extends keyof typeof schemas & string>(schema: TName) {
+  return { schema } as const;
+}
+
 export const activity = defineContract({
   id: "trellis.activity@v1",
   displayName: "Trellis Activity",
   description: "Project authentication activity into queryable audit records.",
   kind: "service",
+  schemas,
   uses: {
     auth: trellisAuth.use({
       events: {
@@ -48,22 +63,22 @@ export const activity = defineContract({
   rpc: {
     "Activity.Health": {
       version: "v1",
-      inputSchema: HealthRpcSchema,
-      outputSchema: HealthResponseSchema,
+      input: schemaRef("HealthRequest"),
+      output: schemaRef("HealthResponse"),
       capabilities: { call: [] },
       errors: ["UnexpectedError"],
     },
     "Activity.List": {
       version: "v1",
-      inputSchema: ActivityListRequestSchema,
-      outputSchema: ActivityListResponseSchema,
+      input: schemaRef("ActivityListRequest"),
+      output: schemaRef("ActivityListResponse"),
       capabilities: { call: ["admin"] },
       errors: ["ValidationError", "UnexpectedError"],
     },
     "Activity.Get": {
       version: "v1",
-      inputSchema: ActivityGetRequestSchema,
-      outputSchema: ActivityGetResponseSchema,
+      input: schemaRef("ActivityGetRequest"),
+      output: schemaRef("ActivityGetResponse"),
       capabilities: { call: ["admin"] },
       errors: ["ValidationError", "UnexpectedError"],
     },
@@ -71,7 +86,7 @@ export const activity = defineContract({
   events: {
     "Activity.Recorded": {
       version: "v1",
-      eventSchema: ActivityRecordedEventSchema,
+      event: schemaRef("ActivityRecordedEvent"),
       capabilities: {
         publish: ["service:events:activity"],
         subscribe: ["service:events:activity"],

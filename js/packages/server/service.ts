@@ -1,8 +1,8 @@
 import type { NatsConnection } from "@nats-io/nats-core";
+import { type KVError, Trellis, TrellisServer, TypedKV } from "@qlever-llc/trellis";
 import { createAuth, type TrellisAuth as SessionAuth } from "@qlever-llc/trellis-auth";
 import type { InferSchemaType, TrellisAPI } from "@qlever-llc/trellis-contracts";
 import { isErr, type Result } from "@qlever-llc/trellis-result";
-import { type KVError, Trellis, TrellisServer, TypedKV } from "@qlever-llc/trellis";
 import type { Logger } from "pino";
 import type { TSchema } from "typebox";
 import type { HealthCheckFn } from "./health.ts";
@@ -47,9 +47,33 @@ export type ResourceBindingStream = {
   [key: string]: unknown;
 };
 
+export type ResourceBindingJobsQueue = {
+  queueType: string;
+  publishPrefix: string;
+  workSubject: string;
+  consumerName: string;
+  payload: { schema: string };
+  result?: { schema: string };
+  maxDeliver: number;
+  backoffMs: number[];
+  ackWaitMs: number;
+  defaultDeadlineMs?: number;
+  progress: boolean;
+  logs: boolean;
+  dlq: boolean;
+  concurrency: number;
+};
+
+export type ResourceBindingJobs = {
+  namespace: string;
+  queues: Record<string, ResourceBindingJobsQueue>;
+  registry?: { bucket: string };
+};
+
 export type ResourceBindings = {
   kv: Record<string, ResourceBindingKV>;
   streams: Record<string, ResourceBindingStream>;
+  jobs?: ResourceBindingJobs;
 };
 
 function getErrorCauseMessage(error: unknown): string {
@@ -177,6 +201,7 @@ export class TrellisService<
   readonly trellis: ServiceTrellis<TOwnedApi, TTrellisApi>;
   readonly kv: Record<string, KVHandle>;
   readonly streams: Record<string, ResourceBindingStream>;
+  readonly jobs?: ResourceBindingJobs;
 
   private constructor(
     name: string,
@@ -195,6 +220,7 @@ export class TrellisService<
       Object.entries(bindings.kv).map(([alias, binding]) => [alias, new KVHandle(nc, binding)]),
     );
     this.streams = bindings.streams;
+    this.jobs = bindings.jobs;
   }
 
   static async connect<
@@ -338,11 +364,12 @@ export class TrellisService<
         binding?: {
           contractId?: string;
           digest?: string;
-          resources?: {
-            kv?: Record<string, ResourceBindingKV>;
-            streams?: Record<string, ResourceBindingStream>;
+            resources?: {
+              kv?: Record<string, ResourceBindingKV>;
+              streams?: Record<string, ResourceBindingStream>;
+              jobs?: ResourceBindingJobs;
+            };
           };
-        };
       };
       if (!resolved.binding) {
         throw bootstrapContractStateError({
@@ -366,6 +393,7 @@ export class TrellisService<
       bindings = {
         kv: resolved.binding?.resources?.kv ?? {},
         streams: resolved.binding?.resources?.streams ?? {},
+        ...(resolved.binding?.resources?.jobs ? { jobs: resolved.binding.resources.jobs } : {}),
       };
     }
 

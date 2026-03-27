@@ -24,6 +24,9 @@
       "type": "string",
       "minLength": 1
     },
+    "schemas": {
+      "$ref": "#/$defs/schemas"
+    },
     "uses": {
       "$ref": "#/$defs/uses"
     },
@@ -72,6 +75,30 @@
     }
   },
   "$defs": {
+    "schemaValue": {
+      "type": ["object", "boolean"]
+    },
+    "schemaRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema"],
+      "properties": {
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "schemas": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/schemaValue"
+      }
+    },
     "resources": {
       "type": "object",
       "properties": {
@@ -84,6 +111,9 @@
           "additionalProperties": {
             "$ref": "#/$defs/kvResource"
           }
+        },
+        "jobs": {
+          "$ref": "#/$defs/jobsResource"
         }
       }
     },
@@ -167,6 +197,68 @@
         }
       }
     },
+    "jobsResource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["queues"],
+      "properties": {
+        "queues": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "minLength": 1
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/jobQueue"
+          }
+        }
+      }
+    },
+    "jobQueue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["payload"],
+      "properties": {
+        "payload": {
+          "$ref": "#/$defs/schemaRef"
+        },
+        "result": {
+          "$ref": "#/$defs/schemaRef"
+        },
+        "maxDeliver": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "backoffMs": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "ackWaitMs": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "defaultDeadlineMs": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "progress": {
+          "type": "boolean"
+        },
+        "logs": {
+          "type": "boolean"
+        },
+        "dlq": {
+          "type": "boolean"
+        },
+        "concurrency": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
     "capabilities": {
       "type": "array",
       "items": {
@@ -188,7 +280,7 @@
     "rpcMethod": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["version", "subject", "inputSchema", "outputSchema"],
+      "required": ["version", "subject", "input", "output"],
       "properties": {
         "version": {
           "type": "string",
@@ -198,11 +290,11 @@
           "type": "string",
           "minLength": 1
         },
-        "inputSchema": {
-          "type": ["object", "boolean"]
+        "input": {
+          "$ref": "#/$defs/schemaRef"
         },
-        "outputSchema": {
-          "type": ["object", "boolean"]
+        "output": {
+          "$ref": "#/$defs/schemaRef"
         },
         "capabilities": {
           "type": "object",
@@ -224,7 +316,7 @@
     "event": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["version", "subject", "eventSchema"],
+      "required": ["version", "subject", "event"],
       "properties": {
         "version": {
           "type": "string",
@@ -241,8 +333,8 @@
             "pattern": "^/.*"
           }
         },
-        "eventSchema": {
-          "type": ["object", "boolean"]
+        "event": {
+          "$ref": "#/$defs/schemaRef"
         },
         "capabilities": {
           "type": "object",
@@ -267,8 +359,8 @@
           "type": "string",
           "minLength": 1
         },
-        "schema": {
-          "type": ["object", "boolean"]
+        "message": {
+          "$ref": "#/$defs/schemaRef"
         },
         "capabilities": {
           "type": "object",
@@ -294,7 +386,7 @@
           "minLength": 1
         },
         "schema": {
-          "type": ["object", "boolean"]
+          "$ref": "#/$defs/schemaRef"
         }
       }
     }

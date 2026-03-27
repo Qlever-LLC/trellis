@@ -29,6 +29,7 @@ function normalizeContract(contract: TrellisContractV1): TrellisContractV1 {
     displayName: contract.displayName,
     description: contract.description,
     kind: contract.kind,
+    ...(contract.schemas ? { schemas: contract.schemas } : {}),
     ...(contract.uses ? { uses: contract.uses } : {}),
     ...(contract.rpc ? { rpc: contract.rpc } : {}),
     ...(contract.events ? { events: contract.events } : {}),
@@ -36,6 +37,47 @@ function normalizeContract(contract: TrellisContractV1): TrellisContractV1 {
     ...(contract.resources ? { resources: contract.resources } : {}),
     ...(contract.errors ? { errors: contract.errors } : {}),
   };
+}
+
+function assertSchemaRefExists(
+  contract: TrellisContractV1,
+  schemaName: string,
+  context: string,
+) {
+  if (!contract.schemas || !Object.hasOwn(contract.schemas, schemaName)) {
+    throw new Error(`${context}: unknown schema '${schemaName}'`);
+  }
+}
+
+function validateSchemaRefs(contract: TrellisContractV1) {
+  for (const [name, rpc] of Object.entries(contract.rpc ?? {}) as Array<[string, NonNullable<TrellisContractV1["rpc"]>[string]]>) {
+    assertSchemaRefExists(contract, rpc.input.schema, `rpc '${name}' input`);
+    assertSchemaRefExists(contract, rpc.output.schema, `rpc '${name}' output`);
+  }
+
+  for (const [name, event] of Object.entries(contract.events ?? {}) as Array<[string, NonNullable<TrellisContractV1["events"]>[string]]>) {
+    assertSchemaRefExists(contract, event.event.schema, `event '${name}'`);
+  }
+
+  for (const [name, subject] of Object.entries(contract.subjects ?? {}) as Array<[string, NonNullable<TrellisContractV1["subjects"]>[string]]>) {
+    if (subject.message) {
+      assertSchemaRefExists(contract, subject.message.schema, `subject '${name}'`);
+    }
+  }
+
+  for (const [name, error] of Object.entries(contract.errors ?? {}) as Array<[string, NonNullable<TrellisContractV1["errors"]>[string]]>) {
+    if (error.schema) {
+      assertSchemaRefExists(contract, error.schema.schema, `error '${name}'`);
+    }
+  }
+
+  const jobsQueues = contract.resources?.jobs?.queues ?? {};
+  for (const [queueType, queue] of Object.entries(jobsQueues) as Array<[string, NonNullable<NonNullable<NonNullable<TrellisContractV1["resources"]>["jobs"]>["queues"]>[string]]>) {
+    assertSchemaRefExists(contract, queue.payload.schema, `jobs queue '${queueType}' payload`);
+    if (queue.result) {
+      assertSchemaRefExists(contract, queue.result.schema, `jobs queue '${queueType}' result`);
+    }
+  }
 }
 
 export class ContractStore {
@@ -109,13 +151,13 @@ export class ContractStore {
 
       this.#indexActiveId(digest, contract);
 
-      for (const m of Object.values(contract.rpc ?? {})) {
+      for (const m of Object.values(contract.rpc ?? {}) as Array<NonNullable<TrellisContractV1["rpc"]>[string]>) {
         this.#indexActiveSubject(digest, contract, m.subject);
       }
-      for (const e of Object.values(contract.events ?? {})) {
+      for (const e of Object.values(contract.events ?? {}) as Array<NonNullable<TrellisContractV1["events"]>[string]>) {
         this.#indexActiveSubject(digest, contract, e.subject);
       }
-      for (const s of Object.values(contract.subjects ?? {})) {
+      for (const s of Object.values(contract.subjects ?? {}) as Array<NonNullable<TrellisContractV1["subjects"]>[string]>) {
         this.#indexActiveSubject(digest, contract, s.subject);
       }
     }
@@ -202,6 +244,7 @@ export class ContractStore {
     }
 
     const contract = normalizeContract(raw as unknown as TrellisContractV1);
+    validateSchemaRefs(contract);
     const { digest, canonical } = await digestJson(raw as JsonValue);
 
     return { digest, canonical, contract };

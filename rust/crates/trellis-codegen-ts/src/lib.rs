@@ -173,11 +173,11 @@ fn render_types_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String 
         let base = key_to_pascal(key);
         lines.push(format!(
             "export type {base}Input = {};",
-            schema_to_ts(&rpc.input_schema)
+            schema_to_ts(resolve_schema_ref(loaded, &rpc.input.schema))
         ));
         lines.push(format!(
             "export type {base}Output = {};",
-            schema_to_ts(&rpc.output_schema)
+            schema_to_ts(resolve_schema_ref(loaded, &rpc.output.schema))
         ));
         lines.push(String::new());
     }
@@ -186,17 +186,17 @@ fn render_types_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String 
         let base = key_to_pascal(key);
         lines.push(format!(
             "export type {base}Event = {};",
-            schema_to_ts(&event.event_schema)
+            schema_to_ts(resolve_schema_ref(loaded, &event.event.schema))
         ));
         lines.push(String::new());
     }
 
     for (key, subject) in &loaded.manifest.subjects {
-        if let Some(schema) = &subject.schema {
+        if let Some(message) = &subject.message {
             let base = key_to_pascal(key);
             lines.push(format!(
                 "export type {base}Message = {};",
-                schema_to_ts(schema)
+                schema_to_ts(resolve_schema_ref(loaded, &message.schema))
             ));
             lines.push(String::new());
         }
@@ -223,7 +223,7 @@ fn render_types_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String 
 
     lines.push("export interface SubjectMap {".to_string());
     for (key, subject) in &loaded.manifest.subjects {
-        let message_type = if subject.schema.is_some() {
+        let message_type = if subject.message.is_some() {
             format!("{}Message", key_to_pascal(key))
         } else {
             "unknown".to_string()
@@ -245,17 +245,25 @@ fn render_schemas_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Strin
     let mut lines = vec![
         format!("// Generated from {}", escape_js_string(&source_reference)),
         "export const SCHEMAS = {".to_string(),
-        "  rpc: {".to_string(),
+        "  schemas: {".to_string(),
     ];
+    for (key, schema) in &loaded.manifest.schemas {
+        lines.push(format!(
+            "    {}: {} as const,",
+            js_string(key),
+            serde_json::to_string(schema).unwrap()
+        ));
+    }
+    lines.extend(["  },".to_string(), "  rpc: {".to_string()]);
     for (key, rpc) in &loaded.manifest.rpc {
         lines.push(format!("    {}: {{", js_string(key)));
         lines.push(format!(
             "      input: {} as const,",
-            serde_json::to_string(&rpc.input_schema).unwrap()
+            serde_json::to_string(resolve_schema_ref(loaded, &rpc.input.schema)).unwrap()
         ));
         lines.push(format!(
             "      output: {} as const,",
-            serde_json::to_string(&rpc.output_schema).unwrap()
+            serde_json::to_string(resolve_schema_ref(loaded, &rpc.output.schema)).unwrap()
         ));
         lines.push("    },".to_string());
     }
@@ -265,7 +273,7 @@ fn render_schemas_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Strin
         lines.push(format!("    {}: {{", js_string(key)));
         lines.push(format!(
             "      event: {} as const,",
-            serde_json::to_string(&event.event_schema).unwrap()
+            serde_json::to_string(resolve_schema_ref(loaded, &event.event.schema)).unwrap()
         ));
         lines.push("    },".to_string());
     }
@@ -273,10 +281,10 @@ fn render_schemas_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Strin
     lines.push("  subjects: {".to_string());
     for (key, subject) in &loaded.manifest.subjects {
         lines.push(format!("    {}: {{", js_string(key)));
-        if let Some(schema) = &subject.schema {
+        if let Some(message) = &subject.message {
             lines.push(format!(
                 "      schema: {} as const,",
-                serde_json::to_string(schema).unwrap()
+                serde_json::to_string(resolve_schema_ref(loaded, &message.schema)).unwrap()
             ));
         }
         lines.push("    },".to_string());
@@ -385,7 +393,7 @@ fn render_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
         let base = key_to_pascal(key);
         lines.push(format!("    {}: {{", js_string(key)));
         lines.push(format!("      subject: {},", js_string(&subject.subject)));
-        if subject.schema.is_some() {
+        if subject.message.is_some() {
             lines.push(format!(
                 "      schema: schema<Types.{base}Message>(SCHEMAS.subjects[{}].schema),",
                 js_string(key)
@@ -573,6 +581,14 @@ fn escape_js_string(value: &str) -> String {
         .replace('\\', "\\\\")
         .replace('`', "\\`")
         .replace('$', "\\$")
+}
+
+fn resolve_schema_ref<'a>(loaded: &'a LoadedManifest, schema_name: &str) -> &'a Value {
+    loaded
+        .manifest
+        .schemas
+        .get(schema_name)
+        .unwrap_or_else(|| panic!("missing schema '{schema_name}' in manifest"))
 }
 
 #[cfg(test)]
@@ -870,23 +886,27 @@ mod tests {
                 "displayName": "Example Contract",
                 "description": "Example contract for SDK generation tests.",
                 "kind": "service",
+                "schemas": {
+                    "PingInput": {
+                        "type": "object",
+                        "properties": {},
+                        "additionalProperties": false
+                    },
+                    "PingOutput": {
+                        "type": "object",
+                        "properties": {
+                            "ok": { "type": "boolean" }
+                        },
+                        "required": ["ok"],
+                        "additionalProperties": false
+                    }
+                },
                 "rpc": {
                     "Example.Ping": {
                         "version": "v1",
                         "subject": "rpc.v1.Example.Ping",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {},
-                            "additionalProperties": false,
-                        },
-                        "outputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "ok": { "type": "boolean" }
-                            },
-                            "required": ["ok"],
-                            "additionalProperties": false,
-                        }
+                        "input": { "schema": "PingInput" },
+                        "output": { "schema": "PingOutput" }
                     }
                 },
                 "events": {},

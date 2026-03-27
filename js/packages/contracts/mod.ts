@@ -23,14 +23,23 @@ import {
 } from "./schema_pointers.ts";
 
 export {
+  ContractJobQueueResourceSchema,
+  ContractJobsResourceSchema,
   ContractKvResourceSchema,
   ContractResourceBindingsSchema,
   ContractResourcesSchema,
+  ContractSchemaRefSchema,
   type EventHeader,
   EventHeaderSchema,
   type InstalledServiceContract,
   InstalledServiceContractSchema,
   IsoDateSchema,
+  type JobsQueueBinding,
+  JobsQueueBindingSchema,
+  type JobsRegistryBinding,
+  JobsRegistryBindingSchema,
+  type JobsResourceBinding,
+  JobsResourceBindingSchema,
   type KvResourceBinding,
   KvResourceBindingSchema,
   type Paginated,
@@ -61,9 +70,15 @@ export type ContractManifestMetadata = {
 export type Capability = string;
 export type JsonSchema = JsonValue | boolean;
 
+export type ContractSchemaRef<TSchemaName extends string = string> = {
+  schema: TSchemaName;
+};
+
+export type ContractSchemas = Record<string, JsonSchema>;
+
 export type ContractErrorDecl = {
   type: string;
-  schema?: JsonSchema;
+  schema?: ContractSchemaRef;
 };
 
 export type ContractErrorRef = {
@@ -73,8 +88,8 @@ export type ContractErrorRef = {
 export type ContractRpcMethod = {
   version: `v${number}`;
   subject: string;
-  inputSchema: JsonSchema;
-  outputSchema: JsonSchema;
+  input: ContractSchemaRef;
+  output: ContractSchemaRef;
   capabilities?: { call?: Capability[] };
   errors?: ContractErrorRef[];
 };
@@ -83,14 +98,31 @@ export type ContractEvent = {
   version: `v${number}`;
   subject: string;
   params?: string[];
-  eventSchema: JsonSchema;
+  event: ContractSchemaRef;
   capabilities?: { publish?: Capability[]; subscribe?: Capability[] };
 };
 
 export type ContractSubject = {
   subject: string;
-  schema?: JsonSchema;
+  message?: ContractSchemaRef;
   capabilities?: { publish?: Capability[]; subscribe?: Capability[] };
+};
+
+export type ContractJobQueueResource = {
+  payload: ContractSchemaRef;
+  result?: ContractSchemaRef;
+  maxDeliver?: number;
+  backoffMs?: number[];
+  ackWaitMs?: number;
+  defaultDeadlineMs?: number;
+  progress?: boolean;
+  logs?: boolean;
+  dlq?: boolean;
+  concurrency?: number;
+};
+
+export type ContractJobsResource = {
+  queues: Record<string, ContractJobQueueResource>;
 };
 
 export type ContractKvResource = {
@@ -103,6 +135,7 @@ export type ContractKvResource = {
 
 export type ContractResources = {
   kv?: Record<string, ContractKvResource>;
+  jobs?: ContractJobsResource;
 };
 
 export type ContractUsesRpc = {
@@ -129,6 +162,7 @@ export type TrellisContractV1 = {
   displayName: string;
   description: string;
   kind: ContractKind;
+  schemas?: ContractSchemas;
   uses?: ContractUses;
   rpc?: Record<string, ContractRpcMethod>;
   events?: Record<string, ContractEvent>;
@@ -152,31 +186,50 @@ export type TrellisCatalogV1 = {
 
 export type ContractSourceErrorDecl = {
   type: string;
-  schema?: TSchema;
+  schema?: ContractSchemaRef;
 };
 
-export type ContractSourceRpcMethod = {
+export type ContractSourceSchemas = Record<string, TSchema>;
+
+export type ContractSourceRpcMethod<TSchemaName extends string = string> = {
   version: `v${number}`;
-  inputSchema: TSchema;
-  outputSchema: TSchema;
+  input: ContractSchemaRef<TSchemaName>;
+  output: ContractSchemaRef<TSchemaName>;
   capabilities?: { call?: readonly Capability[] };
   errors?: readonly string[];
   authRequired?: boolean;
   subject?: string;
 };
 
-export type ContractSourceEvent = {
+export type ContractSourceEvent<TSchemaName extends string = string> = {
   version: `v${number}`;
-  eventSchema: TSchema;
+  event: ContractSchemaRef<TSchemaName>;
   params?: readonly SubjectParam[];
   capabilities?: { publish?: readonly Capability[]; subscribe?: readonly Capability[] };
   subject?: string;
 };
 
-export type ContractSourceSubject = {
+export type ContractSourceSubject<TSchemaName extends string = string> = {
   subject: string;
-  schema?: TSchema;
+  message?: ContractSchemaRef<TSchemaName>;
   capabilities?: { publish?: readonly Capability[]; subscribe?: readonly Capability[] };
+};
+
+export type ContractSourceJobQueueResource<TSchemaName extends string = string> = {
+  payload: ContractSchemaRef<TSchemaName>;
+  result?: ContractSchemaRef<TSchemaName>;
+  maxDeliver?: number;
+  backoffMs?: readonly number[];
+  ackWaitMs?: number;
+  defaultDeadlineMs?: number;
+  progress?: boolean;
+  logs?: boolean;
+  dlq?: boolean;
+  concurrency?: number;
+};
+
+export type ContractSourceJobsResource<TSchemaName extends string = string> = {
+  queues: Record<string, ContractSourceJobQueueResource<TSchemaName>>;
 };
 
 export type ContractSourceKvResource = {
@@ -187,8 +240,9 @@ export type ContractSourceKvResource = {
   maxValueBytes?: number;
 };
 
-export type ContractSourceResources = {
+export type ContractSourceResources<TSchemaName extends string = string> = {
   kv?: Record<string, ContractSourceKvResource>;
+  jobs?: ContractSourceJobsResource<TSchemaName>;
 };
 
 export type ContractSourceUse = {
@@ -203,6 +257,7 @@ export type TrellisContractSource = {
   displayName: string;
   description: string;
   kind: ContractKind;
+  schemas?: ContractSourceSchemas;
   uses?: Record<string, ContractSourceUse>;
   rpc?: Record<string, ContractSourceRpcMethod>;
   events?: Record<string, ContractSourceEvent>;
@@ -314,43 +369,60 @@ export type ContractUseFn<TContractId extends string, TApi extends ApiShape> = <
 
 type MergeRecordUnion<U> = [U] extends [never] ? {} : Simplify<UnionToIntersection<U>>;
 
-type ProjectedRpc<T extends Readonly<Record<string, ContractSourceRpcMethod>> | undefined> = T extends
-  Readonly<Record<string, ContractSourceRpcMethod>> ? {
+type SchemaNameOf<TSchemas> = Extract<keyof NonNullable<TSchemas>, string>;
+
+type ResolveSchemaFromMap<
+  TSchemas,
+  TRef,
+> = TRef extends { schema: infer TName }
+  ? TName extends SchemaNameOf<TSchemas>
+    ? NonNullable<TSchemas>[TName] extends TSchema
+      ? Schema<import("./runtime.ts").InferSchemaType<NonNullable<TSchemas>[TName]>>
+      : Schema<unknown>
+    : Schema<unknown>
+  : Schema<unknown>;
+
+type ProjectedRpc<
+  T extends Readonly<Record<string, ContractSourceRpcMethod>> | undefined,
+  TSchemas,
+> = T extends Readonly<Record<string, ContractSourceRpcMethod>> ? {
     [K in keyof T]: RPCDesc<
-      Schema<T[K]["inputSchema"] extends TSchema ? import("./runtime.ts").InferSchemaType<T[K]["inputSchema"]>
-        : unknown>,
-      Schema<T[K]["outputSchema"] extends TSchema ? import("./runtime.ts").InferSchemaType<T[K]["outputSchema"]>
-        : unknown>,
+      ResolveSchemaFromMap<TSchemas, T[K]["input"]>,
+      ResolveSchemaFromMap<TSchemas, T[K]["output"]>,
       T[K]["errors"]
     > & { authRequired?: boolean };
   }
   : {};
 
-type ProjectedEvents<T extends Readonly<Record<string, ContractSourceEvent>> | undefined> = T extends
-  Readonly<Record<string, ContractSourceEvent>> ? {
+type ProjectedEvents<
+  T extends Readonly<Record<string, ContractSourceEvent>> | undefined,
+  TSchemas,
+> = T extends Readonly<Record<string, ContractSourceEvent>> ? {
     [K in keyof T]: EventDesc<
-      Schema<T[K]["eventSchema"] extends TSchema ? import("./runtime.ts").InferSchemaType<T[K]["eventSchema"]>
-        : unknown>
+      ResolveSchemaFromMap<TSchemas, T[K]["event"]>
     >;
   }
   : {};
 
-type ProjectedSubjects<T extends Readonly<Record<string, ContractSourceSubject>> | undefined> = T extends
-  Readonly<Record<string, ContractSourceSubject>> ? {
+type ProjectedSubjects<
+  T extends Readonly<Record<string, ContractSourceSubject>> | undefined,
+  TSchemas,
+> = T extends Readonly<Record<string, ContractSourceSubject>> ? {
     [K in keyof T]: SubjectDesc<
-      T[K]["schema"] extends TSchema ? Schema<import("./runtime.ts").InferSchemaType<T[K]["schema"]>> : never
+      ResolveSchemaFromMap<TSchemas, T[K]["message"]>
     >;
   }
   : {};
 
 type OwnedApiFromSource<T extends {
+  schemas?: Readonly<Record<string, TSchema>>;
   rpc?: Readonly<Record<string, ContractSourceRpcMethod>>;
   events?: Readonly<Record<string, ContractSourceEvent>>;
   subjects?: Readonly<Record<string, ContractSourceSubject>>;
 }> = {
-  rpc: ProjectedRpc<T["rpc"]>;
-  events: ProjectedEvents<T["events"]>;
-  subjects: ProjectedSubjects<T["subjects"]>;
+  rpc: ProjectedRpc<T["rpc"], T["schemas"]>;
+  events: ProjectedEvents<T["events"], T["schemas"]>;
+  subjects: ProjectedSubjects<T["subjects"], T["schemas"]>;
 };
 
 type RpcKeysFromSpec<TSpec> = TSpec extends { rpc?: { call?: infer TCall } } ? KeysFromList<TCall>
@@ -408,21 +480,23 @@ export type DefinedContract<
 > = ContractModule<TContractId, TOwnedApi, TUsedApi, TTrellisApi>;
 
 export type DefineContractInput<
+  TSchemas extends Readonly<Record<string, TSchema>> | undefined = undefined,
   TUses extends Readonly<Record<string, AnyContractDependencyUse>> | undefined = undefined,
-  TRpc extends Readonly<Record<string, ContractSourceRpcMethod>> | undefined = undefined,
-  TEvents extends Readonly<Record<string, ContractSourceEvent>> | undefined = undefined,
-  TSubjects extends Readonly<Record<string, ContractSourceSubject>> | undefined = undefined,
+  TRpc extends Readonly<Record<string, ContractSourceRpcMethod<SchemaNameOf<TSchemas>>>> | undefined = undefined,
+  TEvents extends Readonly<Record<string, ContractSourceEvent<SchemaNameOf<TSchemas>>>> | undefined = undefined,
+  TSubjects extends Readonly<Record<string, ContractSourceSubject<SchemaNameOf<TSchemas>>>> | undefined = undefined,
 > = {
   id: string;
   displayName: string;
   description: string;
   kind: ContractKind;
+  schemas?: TSchemas;
   uses?: TUses;
   rpc?: TRpc;
   events?: TEvents;
   subjects?: TSubjects;
   errors?: Record<string, ContractSourceErrorDecl>;
-  resources?: ContractSourceResources;
+  resources?: ContractSourceResources<SchemaNameOf<TSchemas>>;
 };
 
 function cloneSchema(schemaValue: TSchema): JsonSchema {
@@ -431,6 +505,35 @@ function cloneSchema(schemaValue: TSchema): JsonSchema {
     throw new Error("Contract schema is not JSON-serializable");
   }
   return cloned as JsonSchema;
+}
+
+function cloneSchemas(schemas: ContractSourceSchemas | undefined): ContractSchemas | undefined {
+  if (!schemas) {
+    return undefined;
+  }
+
+  return Object.fromEntries(
+    Object.entries(schemas).map(([name, schemaValue]) => [name, cloneSchema(schemaValue)]),
+  );
+}
+
+function assertSchemaRefExists(
+  schemas: ContractSourceSchemas | undefined,
+  ref: ContractSchemaRef,
+  context: string,
+): void {
+  if (!schemas || !Object.hasOwn(schemas, ref.schema)) {
+    throw new Error(`${context} references unknown schema '${ref.schema}'`);
+  }
+}
+
+function resolveSchemaRef(
+  schemas: ContractSourceSchemas | undefined,
+  ref: ContractSchemaRef,
+  context: string,
+): JsonSchema {
+  assertSchemaRefExists(schemas, ref, context);
+  return cloneSchema(schemas![ref.schema]);
 }
 
 function digestCanonicalJson(value: JsonValue): string {
@@ -453,23 +556,52 @@ function eventSubject(
 }
 
 function emitResources(resources: ContractSourceResources | undefined): ContractResources | undefined {
-  if (!resources?.kv) {
+  if (!resources?.kv && !resources?.jobs) {
     return undefined;
   }
 
   return {
-    kv: Object.fromEntries(
-      Object.entries(resources.kv).map(([alias, resource]) => [
-        alias,
-        {
-          purpose: resource.purpose,
-          required: resource.required ?? true,
-          history: resource.history ?? 1,
-          ttlMs: resource.ttlMs ?? 0,
-          ...(resource.maxValueBytes ? { maxValueBytes: resource.maxValueBytes } : {}),
-        } satisfies ContractKvResource,
-      ]),
-    ),
+    ...(resources.kv
+      ? {
+        kv: Object.fromEntries(
+          Object.entries(resources.kv).map(([alias, resource]) => [
+            alias,
+            {
+              purpose: resource.purpose,
+              required: resource.required ?? true,
+              history: resource.history ?? 1,
+              ttlMs: resource.ttlMs ?? 0,
+              ...(resource.maxValueBytes ? { maxValueBytes: resource.maxValueBytes } : {}),
+            } satisfies ContractKvResource,
+          ]),
+        ),
+      }
+      : {}),
+    ...(resources.jobs
+      ? {
+        jobs: {
+          queues: Object.fromEntries(
+            Object.entries(resources.jobs.queues).map(([queueType, queue]) => [
+              queueType,
+              {
+                payload: { ...queue.payload },
+                ...(queue.result ? { result: { ...queue.result } } : {}),
+                ...(queue.maxDeliver !== undefined ? { maxDeliver: queue.maxDeliver } : {}),
+                ...(queue.backoffMs ? { backoffMs: [...queue.backoffMs] } : {}),
+                ...(queue.ackWaitMs !== undefined ? { ackWaitMs: queue.ackWaitMs } : {}),
+                ...(queue.defaultDeadlineMs !== undefined
+                  ? { defaultDeadlineMs: queue.defaultDeadlineMs }
+                  : {}),
+                ...(queue.progress !== undefined ? { progress: queue.progress } : {}),
+                ...(queue.logs !== undefined ? { logs: queue.logs } : {}),
+                ...(queue.dlq !== undefined ? { dlq: queue.dlq } : {}),
+                ...(queue.concurrency !== undefined ? { concurrency: queue.concurrency } : {}),
+              } satisfies ContractJobQueueResource,
+            ]),
+          ),
+        } satisfies ContractJobsResource,
+      }
+      : {}),
   };
 }
 
@@ -512,8 +644,8 @@ function emitContract(source: TrellisContractSource): TrellisContractV1 {
         const emitted: ContractRpcMethod = {
           version: method.version,
           subject: method.subject ?? rpcSubject(name, method.version),
-          inputSchema: cloneSchema(method.inputSchema),
-          outputSchema: cloneSchema(method.outputSchema),
+          input: { ...method.input },
+          output: { ...method.output },
         };
         if (method.capabilities?.call) {
           emitted.capabilities = { call: [...method.capabilities.call] };
@@ -530,13 +662,17 @@ function emitContract(source: TrellisContractSource): TrellisContractV1 {
     ? Object.fromEntries(
       Object.entries(source.events).map(([name, event]) => {
         if (event.params && event.params.length > 0) {
-          assertDataPointersExistAndAreTokenable(name, event.eventSchema, event.params);
+          assertDataPointersExistAndAreTokenable(
+            name,
+            resolveSchemaRef(source.schemas, event.event, `event '${name}'`),
+            event.params,
+          );
         }
 
         const emitted: ContractEvent = {
           version: event.version,
           subject: event.subject ?? eventSubject(name, event.version, event.params),
-          eventSchema: cloneSchema(event.eventSchema),
+          event: { ...event.event },
         };
         if (event.params && event.params.length > 0) {
           emitted.params = [...event.params];
@@ -559,8 +695,8 @@ function emitContract(source: TrellisContractSource): TrellisContractV1 {
         const emitted: ContractSubject = {
           subject: subject.subject,
         };
-        if (subject.schema) {
-          emitted.schema = cloneSchema(subject.schema);
+        if (subject.message) {
+          emitted.message = { ...subject.message };
         }
         if (subject.capabilities?.publish || subject.capabilities?.subscribe) {
           emitted.capabilities = {
@@ -578,7 +714,7 @@ function emitContract(source: TrellisContractSource): TrellisContractV1 {
       Object.entries(source.errors).map(([name, error]) => {
         const emitted: ContractErrorDecl = { type: error.type };
         if (error.schema) {
-          emitted.schema = cloneSchema(error.schema);
+          emitted.schema = { ...error.schema };
         }
         return [name, emitted];
       }),
@@ -594,6 +730,7 @@ function emitContract(source: TrellisContractSource): TrellisContractV1 {
     displayName: source.displayName,
     description: source.description,
     kind: source.kind,
+    ...(source.schemas ? { schemas: cloneSchemas(source.schemas) } : {}),
     ...(uses ? { uses } : {}),
     ...(rpc ? { rpc } : {}),
     ...(events ? { events } : {}),
@@ -609,8 +746,8 @@ function buildOwnedApi(source: TrellisContractSource): TrellisApiLike {
       name,
       {
         subject: method.subject ?? rpcSubject(name, method.version),
-        input: schema(cloneSchema(method.inputSchema)),
-        output: schema(cloneSchema(method.outputSchema)),
+        input: schema(resolveSchemaRef(source.schemas, method.input, `rpc '${name}' input`)),
+        output: schema(resolveSchemaRef(source.schemas, method.output, `rpc '${name}' output`)),
         callerCapabilities: method.capabilities?.call ?? [],
         authRequired: method.authRequired ?? true,
         errors: method.errors,
@@ -621,7 +758,11 @@ function buildOwnedApi(source: TrellisContractSource): TrellisApiLike {
   const events = Object.fromEntries(
     Object.entries(source.events ?? {}).map(([name, event]) => {
       if (event.params && event.params.length > 0) {
-        assertDataPointersExistAndAreTokenable(name, event.eventSchema, event.params);
+        assertDataPointersExistAndAreTokenable(
+          name,
+          resolveSchemaRef(source.schemas, event.event, `event '${name}'`),
+          event.params,
+        );
       }
 
       return [
@@ -629,7 +770,7 @@ function buildOwnedApi(source: TrellisContractSource): TrellisApiLike {
         {
           subject: event.subject ?? eventSubject(name, event.version, event.params),
           params: event.params,
-          event: schema(cloneSchema(event.eventSchema)),
+          event: schema(resolveSchemaRef(source.schemas, event.event, `event '${name}'`)),
           publishCapabilities: event.capabilities?.publish ?? [],
           subscribeCapabilities: event.capabilities?.subscribe ?? [],
         },
@@ -642,7 +783,9 @@ function buildOwnedApi(source: TrellisContractSource): TrellisApiLike {
       name,
       {
         subject: subject.subject,
-        schema: subject.schema ? schema(cloneSchema(subject.schema)) : undefined,
+        schema: subject.message
+          ? schema(resolveSchemaRef(source.schemas, subject.message, `subject '${name}'`))
+          : undefined,
         publishCapabilities: subject.capabilities?.publish ?? [],
         subscribeCapabilities: subject.capabilities?.subscribe ?? [],
       },
@@ -898,13 +1041,6 @@ export function defineContract<
   return contract;
 }
 
-export {
-  canonicalizeJson,
-  digestJson,
-  isJsonValue,
-  schema,
-  unwrapSchema,
-};
 
 export type {
   EventDesc,
@@ -915,4 +1051,11 @@ export type {
   SchemaLike,
   SubjectDesc,
   TrellisAPI,
+};
+export {
+  canonicalizeJson,
+  digestJson,
+  isJsonValue,
+  schema,
+  unwrapSchema,
 };
