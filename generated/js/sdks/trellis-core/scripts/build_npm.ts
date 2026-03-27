@@ -16,13 +16,13 @@ await build({
     version: "0.5.1",
     description: "Generated Trellis SDK for contract trellis.core@v1",
     license: "Apache-2.0",
-    homepage: "https://github.com/qlever-llc/trellis#readme",
+    homepage: "https://github.com/Qlever-LLC/trellis#readme",
     bugs: {
-      url: "https://github.com/qlever-llc/trellis/issues",
+      url: "https://github.com/Qlever-LLC/trellis/issues",
     },
     repository: {
       type: "git",
-      url: "git+https://github.com/qlever-llc/trellis.git",
+      url: "https://github.com/Qlever-LLC/trellis",
     },
     publishConfig: {
       access: "public",
