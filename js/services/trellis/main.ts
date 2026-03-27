@@ -1,13 +1,13 @@
 import { Hono } from "@hono/hono";
 import { initTracing } from "@qlever-llc/trellis-telemetry";
-
-import { getConfig } from "./config.ts";
+import { registerHttpRoutes } from "./auth/http/index.ts";
 import {
+  logger,
   registerControlPlane,
+  shutdownGlobals,
   startControlPlaneBackgroundTasks,
-} from "./control_plane.ts";
-import { logger, shutdownGlobals } from "./globals.ts";
-import { registerHttpRoutes } from "./http_routes.ts";
+} from "./bootstrap/index.ts";
+import { getConfig } from "./config.ts";
 
 initTracing("trellis");
 
