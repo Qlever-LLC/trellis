@@ -459,7 +459,7 @@ Every service exposes:
 ```typescript
 const server = await TrellisServer.connect("graph", {
   auth,
-  natsServers: config.nats.servers,
+  natsServers: config.client.natsServers,
   log,
   healthChecks: {
     db: () => db.ping(),

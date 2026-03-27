@@ -57,6 +57,7 @@
     "@qlever-llc/trellis-trellis": "./packages/trellis/index.ts",
     "@qlever-llc/trellis-trellis/tracing": "./packages/trellis/tracing.ts",
     "json-schema-library": "npm:json-schema-library@^10.5.2",
+    "jsonc-parser": "npm:jsonc-parser@^3.3.1",
     "oauth4webapi": "npm:oauth4webapi@^3.8.1",
     "openid-client": "npm:openid-client@^6.8.0",
     "pino": "npm:pino@^9.11.0",

@@ -89,44 +89,68 @@ NATS_AUTH_TARGET_SIGNING_SEED=$(cat ~/trellis/keys/trellis-target-signing.nk)
 NATS_AUTH_SXKEY_SEED=$(cat ~/trellis/nkeys/keys/X/${XKEY_PUB:1:2}/${XKEY_PUB}.nk)
 ```
 
-## 7. Configure the runtime env
+## 7. Configure the auth runtime
 
-Copy the example env file in the source tree:
+Copy the example Trellis config in the source tree:
 
 ```sh
 cd /path/to/trellis
-cp js/services/trellis/.env.example js/services/trellis/.env
+cp js/services/trellis/config.example.jsonc js/services/trellis/config.jsonc
 ```
 
-Edit `js/services/trellis/.env` and fill in the values. When running from source, creds paths are relative to `js/services/trellis/`:
+Edit `js/services/trellis/config.jsonc` and fill in the values. When running from source, relative paths are resolved from `js/services/trellis/`.
 
-```text
-TRELLIS_SESSION_KEY_SEED=<contents of ~/trellis/keys/trellis.seed>
-
-AUTH_REDIRECT=http://localhost:3000/auth/callback/github
-AUTH_WEB_ORIGINS=http://localhost:5173
-AUTH_PUBLIC_ORIGIN=http://localhost:3000
-
-NATS_SERVERS=localhost
-NATS_TRELLIS_CREDS_FILE=../../../home/<you>/trellis/nkeys/creds/Trellis/TRELLIS/trellis.creds
-NATS_AUTH_CREDS_FILE=../../../home/<you>/trellis/nkeys/creds/Trellis/AUTH/trellis.creds
-NATS_SENTINEL_CREDS=../../../home/<you>/trellis/nkeys/creds/Trellis/AUTH/sentinel.creds
-NATS_AUTH_TARGET_NKEY=<value from step 6>
-NATS_AUTH_TARGET_SIGNING_SEED=<value from step 6>
-NATS_AUTH_ISSUER_NKEY=<value from step 6>
-NATS_AUTH_ISSUER_SIGNING_SEED=<value from step 6>
-NATS_AUTH_SXKEY_SEED=<value from step 6>
-
-GITHUB_CLIENT_ID=<your GitHub OAuth app client ID>
-GITHUB_CLIENT_SECRET=<your GitHub OAuth app secret>
+```json
+{
+  "web": {
+    "origins": ["http://localhost:5173"],
+    "publicOrigin": "http://localhost:3000"
+  },
+  "nats": {
+    "servers": "localhost",
+    "trellis": {
+      "credsPath": "/home/<you>/trellis/nkeys/creds/Trellis/TRELLIS/trellis.creds"
+    },
+    "auth": {
+      "credsPath": "/home/<you>/trellis/nkeys/creds/Trellis/AUTH/trellis.creds"
+    },
+    "sentinelCredsPath": "/home/<you>/trellis/nkeys/creds/Trellis/AUTH/sentinel.creds",
+    "authCallout": {
+      "issuer": {
+        "nkey": "<value from step 6>",
+        "signingSeedFile": ".local/secrets/auth-issuer-signing.seed"
+      },
+      "target": {
+        "nkey": "<value from step 6>",
+        "signingSeedFile": ".local/secrets/auth-target-signing.seed"
+      },
+      "sxSeedFile": ".local/secrets/auth-sx.seed"
+    }
+  },
+  "sessionKeySeedFile": ".local/secrets/session-key.seed",
+  "client": {
+    "natsServers": ["ws://localhost:8080"]
+  },
+  "oauth": {
+    "redirectBase": "http://localhost:3000/auth/callback",
+    "alwaysShowProviderChooser": true,
+    "providers": {
+      "github": {
+        "type": "github",
+        "clientId": "<your GitHub OAuth app client ID>",
+        "clientSecretFile": ".local/secrets/github-client-secret"
+      }
+    }
+  }
+}
 ```
 
-Using absolute paths for creds files is recommended to avoid confusion:
+`client.natsServers` is the websocket endpoint list the auth service returns to browser clients after `/auth/bind`, so apps can discover the correct realtime connection settings from the instance they signed into.
 
-```text
-NATS_TRELLIS_CREDS_FILE=/home/<you>/trellis/nkeys/creds/Trellis/TRELLIS/trellis.creds
-NATS_AUTH_CREDS_FILE=/home/<you>/trellis/nkeys/creds/Trellis/AUTH/trellis.creds
-NATS_SENTINEL_CREDS=/home/<you>/trellis/nkeys/creds/Trellis/AUTH/sentinel.creds
+Then start the runtime with the config path override:
+
+```sh
+TRELLIS_CONFIG=./config.jsonc deno task -c js/services/trellis/deno.json dev
 ```
 
 ## 8. Bootstrap NATS buckets

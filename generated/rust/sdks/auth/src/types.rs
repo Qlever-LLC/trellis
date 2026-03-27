@@ -504,6 +504,8 @@ pub struct AuthRenewBindingTokenResponse {
     pub expires: String,
     #[serde(rename = "inboxPrefix")]
     pub inbox_prefix: String,
+    #[serde(rename = "natsServers")]
+    pub nats_servers: Vec<String>,
     pub sentinel: AuthRenewBindingTokenResponseSentinel,
     pub status: String,
 }

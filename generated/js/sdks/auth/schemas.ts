@@ -51,7 +51,7 @@ export const SCHEMAS = {
     },
     "Auth.RenewBindingToken": {
       input: {"additionalProperties":false,"properties":{},"type":"object"} as const,
-      output: {"additionalProperties":false,"properties":{"bindingToken":{"type":"string"},"expires":{"type":"string"},"inboxPrefix":{"type":"string"},"sentinel":{"additionalProperties":false,"properties":{"jwt":{"type":"string"},"seed":{"type":"string"}},"required":["jwt","seed"],"type":"object"},"status":{"const":"bound","type":"string"}},"required":["status","bindingToken","inboxPrefix","expires","sentinel"],"type":"object"} as const,
+      output: {"additionalProperties":false,"properties":{"bindingToken":{"type":"string"},"expires":{"type":"string"},"inboxPrefix":{"type":"string"},"natsServers":{"items":{"type":"string"},"type":"array"},"sentinel":{"additionalProperties":false,"properties":{"jwt":{"type":"string"},"seed":{"type":"string"}},"required":["jwt","seed"],"type":"object"},"status":{"const":"bound","type":"string"}},"required":["status","bindingToken","inboxPrefix","expires","sentinel","natsServers"],"type":"object"} as const,
     },
     "Auth.RevokeApproval": {
       input: {"additionalProperties":false,"properties":{"contractDigest":{"pattern":"^[A-Za-z0-9_-]+$","type":"string"},"user":{"minLength":1,"type":"string"}},"required":["contractDigest"],"type":"object"} as const,

@@ -70,36 +70,60 @@ echo -n "$GITHUB_CLIENT_SECRET" | podman secret create trellis-github-client-sec
 
 Secrets are injected into the container as files under `/run/secrets/`. The env file references them by path.
 
-## 5. Configure the runtime env
+## 5. Configure the auth runtime
 
-Edit `./config/trellis.env`. Non-secret config goes here:
+Copy `deploy/quadlet/config.example.jsonc` to `/etc/trellis/config.jsonc` and fill in your deployment values:
 
-```text
-NATS_SERVERS=trellis-nats
-NATS_TRELLIS_CREDS_FILE=/run/trellis/creds/trellis-trellis.creds
-NATS_AUTH_CREDS_FILE=/run/trellis/creds/auth-trellis.creds
-NATS_SENTINEL_CREDS=/run/trellis/creds/sentinel.creds
-NATS_AUTH_TARGET_NKEY=<value from step 3>
-NATS_AUTH_ISSUER_NKEY=<value from step 3>
-AUTH_REDIRECT=http://localhost:3000/auth/callback/github
-AUTH_WEB_ORIGINS=http://localhost:5173
-AUTH_PUBLIC_ORIGIN=http://localhost:5173
-GITHUB_CLIENT_ID=<your GitHub OAuth app client ID>
-AUTH_PORT=3000
-LOG_LEVEL=info
+```json
+{
+  "nats": {
+    "servers": "trellis-nats",
+    "trellis": {
+      "credsPath": "/run/trellis/creds/trellis-trellis.creds"
+    },
+    "auth": {
+      "credsPath": "/run/trellis/creds/auth-trellis.creds"
+    },
+    "sentinelCredsPath": "/run/trellis/creds/sentinel.creds",
+    "authCallout": {
+      "issuer": {
+        "nkey": "<value from step 3>",
+        "signingSeedFile": "/etc/trellis/secrets/auth-issuer-signing.seed"
+      },
+      "target": {
+        "nkey": "<value from step 3>",
+        "signingSeedFile": "/etc/trellis/secrets/auth-target-signing.seed"
+      },
+      "sxSeedFile": "/etc/trellis/secrets/auth-sx.seed"
+    }
+  },
+  "sessionKeySeedFile": "/etc/trellis/secrets/session-key.seed",
+  "client": {
+    "natsServers": ["ws://host.containers.internal:8080"]
+  },
+  "oauth": {
+    "redirectBase": "http://localhost:3000/auth/callback",
+    "alwaysShowProviderChooser": true,
+    "providers": {
+      "github": {
+        "type": "github",
+        "clientId": "<your GitHub OAuth app client ID>",
+        "clientSecretFile": "/etc/trellis/secrets/github-client-secret"
+      }
+    }
+  }
+}
 ```
 
-Secrets are referenced as file paths:
+`client.natsServers` is the browser-facing websocket endpoint list returned by the auth service during bind and binding-token renewal. This lets the console discover the correct Trellis realtime endpoint from the instance URL it signed into.
+
+Set `/etc/trellis/trellis.env` to point the runtime at that config file:
 
 ```text
-TRELLIS_SESSION_KEY_SEED_FILE=/run/secrets/trellis-session-key-seed
-NATS_AUTH_ISSUER_SIGNING_SEED_FILE=/run/secrets/trellis-auth-issuer-signing-seed
-NATS_AUTH_TARGET_SIGNING_SEED_FILE=/run/secrets/trellis-auth-target-signing-seed
-NATS_AUTH_SXKEY_SEED_FILE=/run/secrets/trellis-auth-sxkey-seed
-GITHUB_CLIENT_SECRET_FILE=/run/secrets/trellis-github-client-secret
+TRELLIS_CONFIG=/etc/trellis/config.jsonc
 ```
 
-The creds paths are container paths that map to the volume mounts in the Quadlet unit.
+The creds paths are container paths that map to the volume mounts in the Quadlet unit. The config file and its referenced secret files are mounted into the runtime container from `/etc/trellis`.
 
 Use `localhost` consistently across the runtime, browser app, and OAuth app config.
 
@@ -167,7 +191,6 @@ Image=ghcr.io/qlever-llc/console:latest
 PublishPort=127.0.0.1:5173:80
 Environment=VITE_TRELLIS_AUTH_URL=http://host.containers.internal:3000
 Environment=VITE_TRELLIS_NATS_SERVERS=ws://host.containers.internal:8080
-Environment=VITE_TRELLIS_DEFAULT_PROVIDER=github
 Network=trellis.network
 UserNS=keep-id
 NoNewPrivileges=true

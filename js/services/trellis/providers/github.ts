@@ -22,12 +22,18 @@ export const __testing__ = {
 
 export class GitHub extends OAuth2Provider {
   override name = "github";
+  override displayName: string;
   override issuer = "https://github.com";
   override authorizationEndpoint = "https://github.com/login/oauth/authorize";
   override tokenEndpoint = "https://github.com/login/oauth/access_token";
   override scope = "read:user";
   override supportsDiscovery = false;
   override supportsPKCE = true;
+
+  constructor(clientId: string, clientSecret: string, displayName = "GitHub") {
+    super(clientId, clientSecret);
+    this.displayName = displayName;
+  }
 
   override async getUserInfo(token: string): Promise<OAuth2User> {
     const user = await fetch("https://api.github.com/user", {

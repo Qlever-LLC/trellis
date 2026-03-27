@@ -88,7 +88,7 @@ trellis service upgrade (--source <file> | --manifest <file> | --image <ref>) [-
 
 Rules for service admin commands:
 
-- `trellis auth login` is a normal contract-bearing client login, not a bootstrap bypass; it uses the auth-owned approval flow for the CLI contract before storing local session material for later admin RPC calls
+- `trellis auth login` is a normal contract-bearing client login, not a bootstrap bypass; it uses the auth-owned approval flow for the CLI contract before storing local session material for later admin RPC calls, and Trellis returns the browser/client websocket endpoints that belong to the instance being used
 - `trellis auth approvals list` shows stored app approval decisions from the `trellis` service, with server-side filtering by exact contract digest and optionally by user when the caller is an admin
 - `trellis auth approvals revoke` removes a stored `user <-> contractDigest` decision and causes matching active delegated sessions to be revoked by the `trellis` service
 - `trellis bootstrap nats` creates the shared stream and Auth-owned KV buckets needed before the runtime starts; this is an explicit super-user path that talks directly to NATS with creds

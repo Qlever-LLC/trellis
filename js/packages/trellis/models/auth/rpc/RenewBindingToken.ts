@@ -21,6 +21,7 @@ export const AuthRenewBindingTokenResponseSchema = Type.Object(
       },
       { additionalProperties: false },
     ),
+    natsServers: Type.Array(Type.String()),
   },
   { additionalProperties: false },
 );

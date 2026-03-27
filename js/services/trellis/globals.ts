@@ -46,7 +46,7 @@ export const sentinelCreds = parseSentinelCreds(
 
 export const logger = pino({
   level: config.logLevel,
-  base: { service: config.serviceName },
+  base: { service: "trellis" },
 });
 
 const auth = await createAuth({ sessionKeySeed: config.sessionKeySeed });

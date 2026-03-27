@@ -47,9 +47,8 @@ async function shutdown(signal: string): Promise<void> {
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   Deno.addSignalListener(signal, () => {
-    void shutdown(signal).then(() => Deno.exit(0)).catch((error) => {
+    void shutdown(signal).catch((error) => {
       logger.error({ error, signal }, "Failed during Trellis shutdown");
-      Deno.exit(1);
     });
   });
 }

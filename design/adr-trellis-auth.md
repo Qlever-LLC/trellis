@@ -264,9 +264,13 @@ The server deletes it immediately after OAuth callback. It never contains sessio
 
 ### HTTP Endpoints
 
+#### GET /auth/login
+
+Shows a Trellis-hosted identity provider chooser. If only one provider is configured and `oauth.alwaysShowProviderChooser` is false, Trellis MAY immediately redirect to `GET /auth/login/:provider` instead.
+
 #### GET /auth/login/:provider
 
-Initiates identity provider authentication. This section documents OAuth 2.0 code flow. Future versions may support OIDC, SAML, etc.
+Initiates identity provider authentication for a specific configured provider. Providers are loaded from structured auth runtime config and may include GitHub or generic OIDC entries.
 
 **Query parameters:**
 
@@ -284,7 +288,7 @@ Initiates identity provider authentication. This section documents OAuth 2.0 cod
 2. Verify `sig` by `sessionKey`
 3. Generate state: `base64url(randomBytes(32))`
 4. Generate PKCE code verifier and challenge
-5. Store: `stateMapping[state] = { redirectTo, codeVerifier, sessionKey, createdAt }`
+5. Store: `stateMapping[state] = { provider, redirectTo, codeVerifier, sessionKey, createdAt }`
 6. Set cookie: `trellis_oauth=state`
 7. Redirect to IdP
 
@@ -299,14 +303,15 @@ Handles IdP callback.
 1. Verify cookie matches state parameter (CSRF)
 2. Lookup `pending = stateMapping[state]` with revision
 3. Reject if not found or expired
-4. CAS-delete state mapping (single-use, prevents double-processing)
+4. Verify the callback provider matches the provider stored in the state mapping
+5. CAS-delete state mapping (single-use, prevents double-processing)
    - If CAS fails: another instance already claimed it, reject
-5. Exchange code for tokens using `pending.codeVerifier`
-6. Fetch user info
-7. Generate authToken: `base64url(randomBytes(32))`
-8. Store: `pendingAuth[authToken] = { user, sessionKey, redirectTo }`
-9. Delete cookie
-10. Redirect to `pending.redirectTo#authToken=<authToken>` with `Referrer-Policy: no-referrer`
+6. Exchange code for tokens using `pending.codeVerifier`
+7. Fetch user info
+8. Generate authToken: `base64url(randomBytes(32))`
+9. Store: `pendingAuth[authToken] = { user, sessionKey, redirectTo }`
+10. Delete cookie
+11. Redirect to `pending.redirectTo#authToken=<authToken>` with `Referrer-Policy: no-referrer`
 
 **Security:** The URL fragment (`#`) prevents authToken leakage via Referer headers.
 
@@ -335,11 +340,12 @@ type BindResponse =
     bindingToken: string; // For NATS connect
     inboxPrefix: string; // Client configures NATS with this prefix
     expires: string; // ISO timestamp (5 minutes)
-    sentinel: {
-      jwt: string; // Sentinel user JWT
-      seed: string; // Sentinel nkey seed
-    };
-  }
+     sentinel: {
+       jwt: string; // Sentinel user JWT
+       seed: string; // Sentinel nkey seed
+     };
+     natsServers: string[]; // Browser websocket endpoints for this Trellis instance
+   }
   | {
     status: "insufficient_capabilities";
     approval: {
@@ -381,7 +387,7 @@ type BindResponse =
 10. Generate bindingToken, store with sessionKey
 11. Compute inboxPrefix = `_INBOX.${sessionKey.slice(0, 16)}`
 12. Create or refresh the Trellis-local auth projection entry
-13. Return `{ status:"bound", bindingToken, inboxPrefix, expires, sentinel }`
+13. Return `{ status:"bound", bindingToken, inboxPrefix, expires, sentinel, natsServers }`
 
 **Errors:** 400 for invalid authToken, sessionKey mismatch, invalid signature, session already bound; 403 for `approval_required` or `approval_denied`
 
@@ -579,7 +585,7 @@ The `trellis` service validates (priority order):
 1. `bindingToken`: verify signature, verify bindingToken exists (user connect/reconnect)
 2. `iat`: verify signature, verify within ±30 seconds, verify service in registry (service connect/reconnect)
 
-**Note:** User clients should prefer `bindingToken` (no clock requirement). Services typically use `iat` (NTP required), but services MAY also use `bindingToken` if they obtained one via an identity binding flow (e.g., OAuth/OIDC for service principals). Clients should refresh bindingTokens via `rpc.Auth.RenewBindingToken` so reconnects have a valid single-use token available.
+**Note:** User clients should prefer `bindingToken` (no clock requirement). Services typically use `iat` (NTP required), but services MAY also use `bindingToken` if they obtained one via an identity binding flow (e.g., OAuth/OIDC for service principals). Clients should refresh bindingTokens via `rpc.Auth.RenewBindingToken` so reconnects have a valid single-use token available. Browser clients may also refresh their instance websocket endpoints from that same response.
 
 ### rpc.Auth.Logout
 
@@ -620,6 +626,7 @@ Mints a fresh `bindingToken` for upcoming NATS reconnects. Authenticated RPC —
     jwt: string;
     seed: string;
   };
+  natsServers: string[];
 }
 ```
 

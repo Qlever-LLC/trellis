@@ -15,6 +15,7 @@ import { IsoDateSchema } from "@qlever-llc/trellis-contracts";
 import type { StaticDecode } from "typebox";
 import { Type } from "typebox";
 
+export type { BindRequest, BindResponse, LoginQuery, SentinelCreds };
 export {
   ApprovalDecisionSchema,
   BindRequestSchema,
@@ -24,7 +25,6 @@ export {
   LoginQuerySchema,
   SentinelCredsSchema,
 };
-export type { BindRequest, BindResponse, LoginQuery, SentinelCreds };
 
 export const SessionKeySchema = Type.String({
   pattern: "^[A-Za-z0-9_-]{43}$",
@@ -37,6 +37,7 @@ export const SignatureSchema = Type.String({
 export type SessionKey = StaticDecode<typeof SessionKeySchema>;
 
 export const OAuthStateSchema = Type.Object({
+  provider: Type.String(),
   redirectTo: Type.String(),
   codeVerifier: Type.String(),
   sessionKey: SessionKeySchema,

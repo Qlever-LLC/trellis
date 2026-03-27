@@ -1,52 +1,218 @@
 import { assertEquals } from "@std/assert";
 
-import { parseAuthConfigFromEnv } from "./config.ts";
+import { loadAuthConfigFromFile } from "./config.ts";
 
-Deno.test("auth config applies TTL overrides", () => {
-  const cfg = parseAuthConfigFromEnv({
-    SERVICE_NAME: "trellis",
-    LOG_LEVEL: "info",
-    AUTH_PORT: "3000",
-    TRELLIS_SESSION_KEY_SEED:
-      "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-    AUTH_TTL_SESSIONS: "123",
-    AUTH_TTL_OAUTH: "456",
-    AUTH_TTL_PENDING_AUTH: "789",
-    AUTH_TTL_BINDING_TOKENS_BUCKET: "321",
-    AUTH_TTL_BINDING_TOKENS_INITIAL: "111",
-    AUTH_TTL_BINDING_TOKENS_RENEW: "222",
-    AUTH_TTL_CONNECTIONS: "654",
-    AUTH_TTL_NATS_JWT: "987",
-    AUTH_WEB_ORIGINS: "http://localhost:5173, https://app.example.com ,,",
-	    NATS_SERVERS: "localhost",
-	    NATS_AUTH_CREDS_FILE: "/tmp/auth.creds",
-	    NATS_TRELLIS_CREDS_FILE: "/tmp/trellis.creds",
-	    NATS_SENTINEL_CREDS: "/tmp/sentinel.creds",
-	    NATS_AUTH_ISSUER_NKEY:
-	      "AAAUZNB6EFNV5BTZEE3FUNQIZ2OFAD7NALJZ3RQY3TCOSFREMANAGSER",
-    NATS_AUTH_ISSUER_SIGNING_SEED:
-      "SAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-    NATS_AUTH_TARGET_NKEY:
-      "ADQCP2XPU3CAS2PLQKLSHQXWR64JEMOXLV53ABO7ERDTDV5QHJ4RUCSY",
-    NATS_AUTH_TARGET_SIGNING_SEED:
-      "SAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-    NATS_AUTH_SXKEY_SEED:
-      "SXAOLCT3V3T5EDXAY7KNSJJLN2JM4UVRXKOQPSZTGV27NE3PMHXFENGE4M",
-    AUTH_REDIRECT: "https://auth.example.com/auth/callback",
-    GITHUB_CLIENT_ID: "x",
-    GITHUB_CLIENT_SECRET: "y",
-  });
+async function withTempConfig(
+  configText: string,
+  run: (configPath: string) => Promise<void>,
+): Promise<void> {
+  const dir = await Deno.makeTempDir();
+  try {
+    const configPath = `${dir}/config.jsonc`;
+    await Deno.writeTextFile(`${dir}/session.seed`, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n");
+    await Deno.writeTextFile(`${dir}/issuer.seed`, "SAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n");
+    await Deno.writeTextFile(`${dir}/target.seed`, "SBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n");
+    await Deno.writeTextFile(`${dir}/sx.seed`, "SXAOLCT3V3T5EDXAY7KNSJJLN2JM4UVRXKOQPSZTGV27NE3PMHXFENGE4M\n");
+    await Deno.writeTextFile(`${dir}/github.secret`, "github-secret\n");
+    await Deno.writeTextFile(`${dir}/auth0.secret`, "auth0-secret\n");
+    await Deno.writeTextFile(configPath, configText);
+    await run(configPath);
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+}
 
-  assertEquals(cfg.ttlMs.sessions, 123);
-  assertEquals(cfg.ttlMs.oauth, 456);
-  assertEquals(cfg.ttlMs.pendingAuth, 789);
-  assertEquals(cfg.ttlMs.bindingTokens.bucket, 321);
-  assertEquals(cfg.ttlMs.bindingTokens.initial, 111);
-  assertEquals(cfg.ttlMs.bindingTokens.renew, 222);
-  assertEquals(cfg.ttlMs.connections, 654);
-  assertEquals(cfg.ttlMs.natsJwt, 987);
-  assertEquals(cfg.web.origins, [
-    "http://localhost:5173",
-    "https://app.example.com",
-  ]);
+Deno.test("auth config loads structured provider map from file", async () => {
+  await withTempConfig(
+    `{
+      // local browser origins
+      "web": {
+        "origins": ["http://127.0.0.1:5173", "https://app.example.com"],
+        "publicOrigin": "http://127.0.0.1:3000"
+      },
+      "httpRateLimit": {
+        "windowMs": 1234,
+        "max": 55
+      },
+      "ttlMs": {
+        "sessions": 123,
+        "oauth": 456,
+        "pendingAuth": 789,
+        "bindingTokens": {
+          "bucket": 321,
+          "initial": 111,
+          "renew": 222
+        },
+        "connections": 654,
+        "natsJwt": 987
+      },
+      "nats": {
+        "servers": "localhost",
+        "auth": { "credsPath": "/tmp/auth.creds" },
+        "trellis": { "credsPath": "/tmp/trellis.creds" },
+        "sentinelCredsPath": "/tmp/sentinel.creds",
+        "authCallout": {
+          "issuer": {
+            "nkey": "AAAUZNB6EFNV5BTZEE3FUNQIZ2OFAD7NALJZ3RQY3TCOSFREMANAGSER",
+            "signingSeedFile": "./issuer.seed"
+          },
+          "target": {
+            "nkey": "ADQCP2XPU3CAS2PLQKLSHQXWR64JEMOXLV53ABO7ERDTDV5QHJ4RUCSY",
+            "signingSeedFile": "./target.seed"
+          },
+          "sxSeedFile": "./sx.seed"
+        }
+      },
+      "sessionKeySeedFile": "./session.seed",
+      "client": {
+        "natsServers": ["ws://localhost:8080", "wss://nats.example.com"]
+      },
+      "oauth": {
+        "redirectBase": "http://127.0.0.1:3000/auth/callback",
+        "alwaysShowProviderChooser": true,
+        "providers": {
+          "github": {
+            "type": "github",
+            "clientId": "github-client",
+            "clientSecretFile": "./github.secret"
+          },
+          "auth0": {
+            "type": "oidc",
+            "issuer": "https://tenant.example.auth0.com/",
+            "clientId": "auth0-client",
+            "clientSecretFile": "./auth0.secret",
+            "displayName": "Company SSO",
+            "scopes": ["openid", "profile", "email",]
+          },
+        },
+      },
+    }`,
+    async (configPath) => {
+      const cfg = await loadAuthConfigFromFile(configPath);
+
+      assertEquals(cfg.port, 3000);
+      assertEquals(cfg.web.origins, [
+        "http://localhost:5173",
+        "https://app.example.com",
+      ]);
+      assertEquals(cfg.web.publicOrigin, "http://localhost:3000");
+      assertEquals(cfg.httpRateLimit.windowMs, 1234);
+      assertEquals(cfg.httpRateLimit.max, 55);
+      assertEquals(cfg.ttlMs.bindingTokens.renew, 222);
+      assertEquals(cfg.sessionKeySeed, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=");
+      assertEquals(cfg.client.natsServers, ["ws://localhost:8080", "wss://nats.example.com"]);
+      assertEquals(cfg.nats.authCallout.issuer.signing, "SAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+      assertEquals(cfg.oauth.redirectBase, "http://localhost:3000/auth/callback");
+      assertEquals(cfg.oauth.alwaysShowProviderChooser, true);
+      assertEquals(cfg.oauth.providers.github.type, "github");
+      assertEquals(cfg.oauth.providers.github.clientSecret, "github-secret");
+      assertEquals(cfg.oauth.providers.github.displayName, "GitHub");
+      assertEquals(cfg.oauth.providers.auth0.type, "oidc");
+      assertEquals(cfg.oauth.providers.auth0.clientSecret, "auth0-secret");
+      assertEquals(cfg.oauth.providers.auth0.displayName, "Company SSO");
+      if (cfg.oauth.providers.auth0.type !== "oidc") {
+        throw new Error("expected auth0 to be configured as oidc");
+      }
+      assertEquals(cfg.oauth.providers.auth0.scopes, ["openid", "profile", "email"]);
+    },
+  );
+});
+
+Deno.test("auth config rejects binding token bucket TTL smaller than renew TTL", async () => {
+  await withTempConfig(
+    `{
+      "web": { "origins": ["http://localhost:5173"] },
+      "nats": {
+        "servers": "localhost",
+        "auth": { "credsPath": "/tmp/auth.creds" },
+        "trellis": { "credsPath": "/tmp/trellis.creds" },
+        "sentinelCredsPath": "/tmp/sentinel.creds",
+        "authCallout": {
+          "issuer": {
+            "nkey": "AAAUZNB6EFNV5BTZEE3FUNQIZ2OFAD7NALJZ3RQY3TCOSFREMANAGSER",
+            "signingSeedFile": "./issuer.seed"
+          },
+          "target": {
+            "nkey": "ADQCP2XPU3CAS2PLQKLSHQXWR64JEMOXLV53ABO7ERDTDV5QHJ4RUCSY",
+            "signingSeedFile": "./target.seed"
+          },
+          "sxSeedFile": "./sx.seed"
+        }
+      },
+      "sessionKeySeedFile": "./session.seed",
+      "client": {
+        "natsServers": ["ws://localhost:8080"]
+      },
+      "ttlMs": {
+        "bindingTokens": {
+          "bucket": 10,
+          "initial": 11,
+          "renew": 12
+        }
+      },
+      "oauth": {
+        "redirectBase": "http://localhost:3000/auth/callback",
+        "providers": {
+          "github": {
+            "type": "github",
+            "clientId": "github-client",
+            "clientSecretFile": "./github.secret"
+          }
+        }
+      }
+    }`,
+    async (configPath) => {
+      let message = "";
+      try {
+        await loadAuthConfigFromFile(configPath);
+      } catch (error) {
+        message = error instanceof Error ? error.message : String(error);
+      }
+
+      assertEquals(message.includes("AUTH_TTL_BINDING_TOKENS_BUCKET"), true);
+    },
+  );
+});
+
+Deno.test("auth config defaults provider chooser preference to false", async () => {
+  await withTempConfig(
+    `{
+      "web": { "origins": ["http://localhost:5173"] },
+      "nats": {
+        "servers": "localhost",
+        "auth": { "credsPath": "/tmp/auth.creds" },
+        "trellis": { "credsPath": "/tmp/trellis.creds" },
+        "sentinelCredsPath": "/tmp/sentinel.creds",
+        "authCallout": {
+          "issuer": {
+            "nkey": "AAAUZNB6EFNV5BTZEE3FUNQIZ2OFAD7NALJZ3RQY3TCOSFREMANAGSER",
+            "signingSeedFile": "./issuer.seed"
+          },
+          "target": {
+            "nkey": "ADQCP2XPU3CAS2PLQKLSHQXWR64JEMOXLV53ABO7ERDTDV5QHJ4RUCSY",
+            "signingSeedFile": "./target.seed"
+          },
+          "sxSeedFile": "./sx.seed"
+        }
+      },
+      "sessionKeySeedFile": "./session.seed",
+      "client": {
+        "natsServers": ["ws://localhost:8080"]
+      },
+      "oauth": {
+        "redirectBase": "http://localhost:3000/auth/callback",
+        "providers": {
+          "github": {
+            "type": "github",
+            "clientId": "github-client",
+            "clientSecretFile": "./github.secret"
+          }
+        }
+      }
+    }`,
+    async (configPath) => {
+      const cfg = await loadAuthConfigFromFile(configPath);
+      assertEquals(cfg.oauth.alwaysShowProviderChooser, false);
+    },
+  );
 });

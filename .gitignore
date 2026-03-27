@@ -28,6 +28,9 @@ Thumbs.db
 .env.*
 !.env.example
 !.env.test
+config.jsonc
+**/config.jsonc
+!**/config.example.jsonc
 
 # Vite
 vite.config.js.timestamp-*

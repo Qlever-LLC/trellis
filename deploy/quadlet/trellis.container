@@ -8,6 +8,7 @@ ContainerName=trellis
 Image=ghcr.io/REPLACE_ME/trellis-runtime:REPLACE_ME
 PublishPort=3000:3000
 EnvironmentFile=/etc/trellis/trellis.env
+Volume=/etc/trellis:/etc/trellis:ro,z
 Volume=/var/lib/trellis/creds:/run/trellis/creds:ro,z
 ReadOnly=true
 Tmpfs=/tmp

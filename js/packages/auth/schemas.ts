@@ -57,6 +57,7 @@ export const BindSuccessResponseSchema = Type.Object({
   inboxPrefix: Type.String(),
   expires: Type.String({ format: "date-time" }),
   sentinel: SentinelCredsSchema,
+  natsServers: Type.Array(Type.String()),
 }, { additionalProperties: false });
 
 export const BindInsufficientCapabilitiesResponseSchema = Type.Object({

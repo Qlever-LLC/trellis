@@ -203,6 +203,7 @@ export async function registerSessionRpcHandlers(opts: {
       inboxPrefix: `_INBOX.${sessionKey.slice(0, 16)}`,
       expires: expires.toISOString(),
       sentinel: sentinelCreds,
+      natsServers: config.client.natsServers,
     });
   });
 

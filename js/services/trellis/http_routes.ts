@@ -7,7 +7,7 @@ import { Value } from "typebox/value";
 
 import { hashKey, randomToken, verifyDomainSig } from "./auth_utils.ts";
 import { ensureBoundUserSession } from "./bind_session.ts";
-import { type Config, getConfig } from "./config.ts";
+import { getConfig } from "./config.ts";
 import type { ContractStore } from "./contracts_store.ts";
 import {
   bindingTokenKV,
@@ -20,6 +20,7 @@ import {
   sessionKV,
   usersKV,
 } from "./globals.ts";
+import { renderApprovalPage, renderLoginPage } from "./http_auth_pages.ts";
 import {
   buildFragmentRedirect,
   type CookieContext,
@@ -30,14 +31,14 @@ import {
   getCookie,
   type OAuthStateEntry,
   type PendingAuthEntry,
-  renderApprovalPage,
   setCookie,
   shouldUseSecureOauthCookie,
 } from "./http_auth_support.ts";
+import { shouldRenderProviderChooser } from "./http_login.ts";
 import { kick } from "./kick.ts";
 import { OAuth2CodeRequest, OAuth2CodeResponse } from "./oauth.ts";
-import { GitHub } from "./providers/github.ts";
-import type { OAuth2Provider } from "./providers/index.ts";
+import type { Provider } from "./providers/index.ts";
+import { createProviders } from "./providers/registry.ts";
 import { validateRedirectTo } from "./redirect_to.ts";
 import {
   BindRequestSchema,
@@ -47,24 +48,14 @@ import {
 } from "./schemas.ts";
 import { upsertUserProjection } from "./user_projection.ts";
 
-const config = getConfig();
-
-function createProviders(currentConfig: Config): Record<string, OAuth2Provider> {
-  return {
-    github: new GitHub(
-      currentConfig.oauth.providers.github.clientId,
-      currentConfig.oauth.providers.github.clientSecret,
-    ),
-  };
-}
-
 export function registerHttpRoutes(
   app: Hono,
   opts: {
     contractStore: ContractStore;
-    providers?: Record<string, OAuth2Provider>;
+    providers?: Record<string, Provider>;
   },
 ): void {
+  const config = getConfig();
   const providers = opts.providers ?? createProviders(config);
   if (config.web.origins.length > 0) {
     app.use(
@@ -94,6 +85,71 @@ export function registerHttpRoutes(
       },
     }),
   );
+
+  app.get("/auth/login", async (c) => {
+    const query = {
+      redirectTo: c.req.query("redirectTo"),
+      sessionKey: c.req.query("sessionKey"),
+      sig: c.req.query("sig"),
+      contract: c.req.query("contract"),
+    };
+    if (!Value.Check(LoginQuerySchema, query)) {
+      const errors = [...Value.Errors(LoginQuerySchema, query)];
+      throw new HTTPException(400, {
+        message: `Invalid request: ${errors[0]?.message ?? "validation failed"}`,
+      });
+    }
+
+    const { redirectTo: rawRedirectTo, sessionKey, sig, contract: rawContract } = query;
+    const redirectToResult = validateRedirectTo(rawRedirectTo, config.web.origins);
+    if (!redirectToResult.ok) {
+      throw new HTTPException(400, { message: redirectToResult.error });
+    }
+    const redirectTo = redirectToResult.value;
+    if (!redirectTo || !sessionKey || !sig || !rawContract) {
+      throw new HTTPException(400, { message: "Invalid request" });
+    }
+    const decodedContract = decodeContractQuery(rawContract);
+    if (!(await verifyDomainSig(sessionKey, "oauth-init", redirectTo, sig))) {
+      throw new HTTPException(400, { message: "Invalid signature" });
+    }
+
+    const entries = Object.entries(providers).map(([key, provider]) => ({
+      key,
+      displayName: provider.displayName,
+    }));
+    if (!shouldRenderProviderChooser(entries.length, config.oauth.alwaysShowProviderChooser)) {
+      const provider = entries[0];
+      if (!provider) {
+        throw new HTTPException(500, { message: "No auth providers configured" });
+      }
+      const url = new URL(`/auth/login/${provider.key}`, c.req.url);
+      url.search = new URLSearchParams({
+        redirectTo,
+        sessionKey,
+        sig,
+        contract: rawContract,
+      }).toString();
+      return c.redirect(url.toString());
+    }
+
+    const appName = typeof decodedContract.displayName === "string" ? decodedContract.displayName : undefined;
+
+    return new Response(
+      renderLoginPage({
+        instanceName: config.instanceName,
+        appName,
+        providers: entries,
+        params: {
+          redirectTo,
+          sessionKey,
+          sig,
+          contract: rawContract,
+        },
+      }),
+      { headers: { "content-type": "text/html; charset=utf-8", "Referrer-Policy": "no-referrer" } },
+    );
+  });
 
   app.get("/auth/login/:provider", async (c) => {
     logger.trace({}, "Initiating login with external provider.");
@@ -139,6 +195,7 @@ export function registerHttpRoutes(
     const [redirectUrl, idpParams] = await OAuth2CodeRequest(provider);
     const stateHash = await hashKey(idpParams.state);
     const createResult = await oauthStateKV.create(stateHash, {
+      provider: c.req.param("provider"),
       redirectTo,
       codeVerifier: idpParams.codeVerifier,
       sessionKey,
@@ -185,6 +242,9 @@ export function registerHttpRoutes(
       throw new HTTPException(400, { message: "Invalid or expired state" });
     }
     const oauthEntry = oauthStateEntry as OAuthStateEntry;
+    if (oauthEntry.value.provider !== c.req.param("provider")) {
+      throw new HTTPException(400, { message: "OAuth provider mismatch" });
+    }
 
     const oauthDeleted = await oauthEntry.delete(true);
     if (isErr(oauthDeleted)) {
@@ -234,10 +294,12 @@ export function registerHttpRoutes(
     if (resolution.missingCapabilities.length > 0) {
       return new Response(
         renderApprovalPage({
+          instanceName: config.instanceName,
           authToken,
           redirectTo: pending.redirectTo,
           status: "insufficient_capabilities",
           approval: resolution.plan.approval,
+          user: { origin: pending.user.origin, id: pending.user.id },
           missingCapabilities: resolution.missingCapabilities,
           userCapabilities: resolution.existingCapabilities,
         }),
@@ -274,10 +336,12 @@ export function registerHttpRoutes(
 
     return new Response(
       renderApprovalPage({
+        instanceName: config.instanceName,
         authToken,
         redirectTo: pending.redirectTo,
         status,
         approval: resolution.plan.approval,
+        user: { origin: pending.user.origin, id: pending.user.id },
         missingCapabilities: resolution.missingCapabilities,
         userCapabilities: resolution.existingCapabilities,
       }),
@@ -304,10 +368,12 @@ export function registerHttpRoutes(
     if (resolution.missingCapabilities.length > 0) {
       return new Response(
         renderApprovalPage({
+          instanceName: config.instanceName,
           authToken,
           redirectTo: pending.value.redirectTo,
           status: "insufficient_capabilities",
           approval: resolution.plan.approval,
+          user: { origin: pending.value.user.origin, id: pending.value.user.id },
           missingCapabilities: resolution.missingCapabilities,
           userCapabilities: resolution.existingCapabilities,
         }),
@@ -455,6 +521,7 @@ export function registerHttpRoutes(
       inboxPrefix: `_INBOX.${sessionKey.slice(0, 16)}`,
       expires: bindingExpiresAt.toISOString(),
       sentinel: sentinelCreds,
+      natsServers: config.client.natsServers,
     };
     return c.json(response);
   });

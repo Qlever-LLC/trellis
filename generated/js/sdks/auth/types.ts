@@ -1,6 +1,6 @@
 // Generated from ./generated/contracts/manifests/trellis.auth@v1.json
 export const CONTRACT_ID = "trellis.auth@v1" as const;
-export const CONTRACT_DIGEST = "X5qH3jb1ZKuFzD_atuGkmyHF5VNS3spkNhH5gCmxR8s" as const;
+export const CONTRACT_DIGEST = "kvbbx076xrzMY1F2PCYXJtStwPeWsqVDdIUbDHyE3YU" as const;
 
 export type AuthGetInstalledContractInput = { digest: string; };
 export type AuthGetInstalledContractOutput = { contract: { analysis?: { events: { events: Array<{ key: string; publishCapabilities: Array<string>; subject: string; subscribeCapabilities: Array<string>; wildcardSubject: string; }>; }; namespaces: Array<string>; nats: { publish: Array<{ kind: string; requiredCapabilities: Array<string>; subject: string; wildcardSubject: string; }>; subscribe: Array<{ kind: string; requiredCapabilities: Array<string>; subject: string; wildcardSubject: string; }>; }; resources: { kv: Array<{ alias: string; history: number; maxValueBytes?: number; purpose: string; required: boolean; ttlMs: number; }>; }; rpc: { methods: Array<{ callerCapabilities: Array<string>; key: string; subject: string; wildcardSubject: string; }>; }; subjects?: { subjects: Array<{ key: string; publishCapabilities: Array<string>; subject: string; subscribeCapabilities: Array<string>; }>; }; }; analysisSummary?: { events: number; kvResources: number; namespaces: Array<string>; natsPublish: number; natsSubscribe: number; rpcMethods: number; }; contract: {  }; description: string; digest: string; displayName: string; id: string; installedAt: string; kind: string; resourceBindings?: { kv?: {  }; }; resources?: { kv?: {  }; }; sessionKey?: string; }; };
@@ -39,7 +39,7 @@ export type AuthMeInput = {  };
 export type AuthMeOutput = { user: { active: boolean; capabilities: Array<string>; email: string; id: string; image?: string; lastLogin?: string; name: string; origin: string; }; };
 
 export type AuthRenewBindingTokenInput = {  };
-export type AuthRenewBindingTokenOutput = { bindingToken: string; expires: string; inboxPrefix: string; sentinel: { jwt: string; seed: string; }; status: "bound"; };
+export type AuthRenewBindingTokenOutput = { bindingToken: string; expires: string; inboxPrefix: string; natsServers: Array<string>; sentinel: { jwt: string; seed: string; }; status: "bound"; };
 
 export type AuthRevokeApprovalInput = { contractDigest: string; user?: string; };
 export type AuthRevokeApprovalOutput = { success: boolean; };

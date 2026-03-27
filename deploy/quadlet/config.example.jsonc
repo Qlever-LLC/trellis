@@ -1,0 +1,69 @@
+{
+  "logLevel": "info",
+  "port": 3000,
+  "instanceName": "Trellis Auth",
+  "web": {
+    "origins": ["http://localhost:5173"],
+    "publicOrigin": "http://localhost:3000"
+  },
+  "httpRateLimit": {
+    "windowMs": 60000,
+    "max": 60
+  },
+  "ttlMs": {
+    "sessions": 86400000,
+    "oauth": 300000,
+    "pendingAuth": 300000,
+    "bindingTokens": {
+      "bucket": 7200000,
+      "initial": 300000,
+      "renew": 3600000
+    },
+    "connections": 7200000,
+    "natsJwt": 3600000
+  },
+  "nats": {
+    "servers": "nats",
+    "trellis": {
+      "credsPath": "/run/trellis/creds/trellis-auth.creds"
+    },
+    "auth": {
+      "credsPath": "/run/trellis/creds/auth-auth.creds"
+    },
+    "sentinelCredsPath": "/run/trellis/creds/sentinel.creds",
+    "authCallout": {
+      "issuer": {
+        "nkey": "REPLACE_ME",
+        "signingSeedFile": "/etc/trellis/secrets/auth-issuer-signing.seed"
+      },
+      "target": {
+        "nkey": "REPLACE_ME",
+        "signingSeedFile": "/etc/trellis/secrets/auth-target-signing.seed"
+      },
+      "sxSeedFile": "/etc/trellis/secrets/auth-sx.seed"
+    }
+  },
+  "sessionKeySeedFile": "/etc/trellis/secrets/session-key.seed",
+  "client": {
+    "natsServers": ["wss://nats.example.com"]
+  },
+  "oauth": {
+    "redirectBase": "https://auth.example.com/auth/callback",
+    "alwaysShowProviderChooser": false,
+    "providers": {
+      "github": {
+        "type": "github",
+        "clientId": "REPLACE_ME",
+        "clientSecretFile": "/etc/trellis/secrets/github-client-secret"
+      },
+      "auth0": {
+        "type": "oidc",
+        "displayName": "Company SSO",
+        "issuer": "https://YOUR_TENANT.us.auth0.com/",
+        "clientId": "REPLACE_ME",
+        "clientSecretFile": "/etc/trellis/secrets/auth0-client-secret",
+        "scopes": ["openid", "profile", "email"]
+      }
+    }
+  }
+}

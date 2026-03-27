@@ -106,73 +106,6 @@ export async function getApprovalResolution(
   };
 }
 
-export function renderApprovalPage(args: {
-  authToken: string;
-  redirectTo: string;
-  status: "approval_required" | "approval_denied" | "insufficient_capabilities";
-  approval: ApprovalResolution["plan"]["approval"];
-  missingCapabilities?: string[];
-  userCapabilities?: string[];
-}): string {
-  const capabilities = args.approval.capabilities.map((capability: string) => `<li>${escapeHtml(capability)}</li>`).join("");
-  const missing = (args.missingCapabilities ?? []).map((capability) => `<li>${escapeHtml(capability)}</li>`).join("");
-  const current = (args.userCapabilities ?? []).map((capability) => `<li>${escapeHtml(capability)}</li>`).join("");
-  const title = args.status === "approval_denied"
-    ? "App access was previously denied"
-    : args.status === "insufficient_capabilities"
-    ? "Your account is missing required capabilities"
-    : "Approve app access";
-  const copy = args.status === "approval_denied"
-    ? "You previously denied this app's delegation request. You can keep it denied or approve it now."
-    : args.status === "insufficient_capabilities"
-    ? "This app cannot act on your behalf until your account has all of the requested capabilities."
-    : "Review the app contract and approve the exact capabilities it wants to exercise on your behalf.";
-
-  return `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>${escapeHtml(title)} · Trellis Auth</title>
-    <style>
-      :root { color-scheme: light; --bg:#f3efe5; --panel:#fffdf8; --ink:#1d1d1b; --muted:#655f55; --line:#d9d0c1; --accent:#0f766e; --danger:#b42318; }
-      * { box-sizing:border-box; } body { margin:0; font-family: ui-sans-serif, system-ui, sans-serif; background: radial-gradient(circle at top, #fff7e8, var(--bg)); color:var(--ink); }
-      main { max-width: 760px; margin: 48px auto; padding: 0 20px; }
-      .card { background:var(--panel); border:1px solid var(--line); border-radius:24px; box-shadow:0 18px 60px rgba(0,0,0,0.08); overflow:hidden; }
-      .content { padding:32px; display:grid; gap:24px; } .eyebrow { font-size:12px; text-transform:uppercase; letter-spacing:.22em; color:var(--accent); }
-      h1,h2,p,ul { margin:0; } p { line-height:1.6; color:var(--muted); } .grid { display:grid; gap:16px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
-      .panel { border:1px solid var(--line); border-radius:18px; padding:18px; background:#fff; } code { font-family: ui-monospace, monospace; font-size:12px; word-break:break-all; }
-      ul { padding-left: 20px; display:grid; gap:6px; } .actions { display:flex; gap:12px; flex-wrap:wrap; } button, a { border-radius:999px; padding:12px 18px; font:inherit; text-decoration:none; border:1px solid transparent; cursor:pointer; }
-      button.approve { background:var(--accent); color:white; } button.deny { background:white; color:var(--ink); border-color:var(--line); } a.back { color:var(--muted); border-color:var(--line); }
-      .danger { color:var(--danger); } @media (max-width: 640px) { .content { padding:24px; } .actions { flex-direction:column; } button, a { width:100%; text-align:center; } }
-    </style>
-  </head>
-  <body>
-    <main>
-      <section class="card">
-        <div class="content">
-          <div>
-            <div class="eyebrow">Trellis Auth</div>
-            <h1>${escapeHtml(title)}</h1>
-            <p>${escapeHtml(copy)}</p>
-          </div>
-          <div class="grid">
-            <div class="panel"><strong>${escapeHtml(args.approval.displayName)}</strong><p>${escapeHtml(args.approval.description)}</p></div>
-            <div class="panel"><strong>Kind</strong><p>${escapeHtml(args.approval.kind)}</p><strong>Contract digest</strong><p><code>${escapeHtml(args.approval.contractDigest)}</code></p></div>
-          </div>
-          <div class="panel"><strong>Requested capabilities</strong><ul>${capabilities || "<li>None</li>"}</ul></div>
-          ${args.status === "insufficient_capabilities" ? `<div class="grid"><div class="panel"><strong class="danger">Missing capabilities</strong><ul>${missing}</ul></div><div class="panel"><strong>Your current capabilities</strong><ul>${current || "<li>None</li>"}</ul></div></div>` : ""}
-          <div class="actions">
-            ${args.status === "insufficient_capabilities" ? "" : `<form method="post" action="/auth/approve"><input type="hidden" name="authToken" value="${escapeHtml(args.authToken)}" /><input type="hidden" name="decision" value="approved" /><button class="approve" type="submit">Approve and continue</button></form><form method="post" action="/auth/approve"><input type="hidden" name="authToken" value="${escapeHtml(args.authToken)}" /><input type="hidden" name="decision" value="denied" /><button class="deny" type="submit">Deny access</button></form>`}
-            <a class="back" href="${escapeHtml(args.redirectTo)}">Return to app</a>
-          </div>
-        </div>
-      </section>
-    </main>
-  </body>
-</html>`;
-}
-
 export function getCookie(c: CookieContext, name: string): string | null {
   const header = c.req.header("Cookie");
   if (!header) return null;
@@ -211,7 +144,7 @@ export function setCookie(
 }
 
 export function shouldUseSecureOauthCookie(currentConfig: Config): boolean {
-  const origin = currentConfig.web.publicOrigin ?? currentConfig.oauth.redirect;
+  const origin = currentConfig.web.publicOrigin ?? currentConfig.oauth.redirectBase;
   try {
     const url = new URL(origin);
     if (url.protocol === "https:") return true;

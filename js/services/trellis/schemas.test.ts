@@ -115,6 +115,22 @@ Deno.test("BindResponseSchema validates insufficient-capabilities responses", ()
   );
 });
 
+Deno.test("BindResponseSchema validates bound responses with nats servers", () => {
+  assert(
+    Value.Check(BindResponseSchema, {
+      status: "bound",
+      bindingToken: "token",
+      inboxPrefix: "_INBOX.abc",
+      expires: new Date().toISOString(),
+      sentinel: {
+        jwt: "jwt",
+        seed: "seed",
+      },
+      natsServers: ["ws://localhost:8080"],
+    }),
+  );
+});
+
 Deno.test("ServiceRegistrySchema validates createdAt field", () => {
   const service = {
     displayName: "test-service",
@@ -159,6 +175,7 @@ Deno.test("AuthRenewBindingToken schemas validate", () => {
       inboxPrefix: "_INBOX.aaaaaaaaaaaaaaaa",
       expires: new Date().toISOString(),
       sentinel: { jwt: "jwt", seed: "seed" },
+      natsServers: ["ws://localhost:8080"],
     }),
   );
 });
