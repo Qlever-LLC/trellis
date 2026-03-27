@@ -226,14 +226,40 @@ pub fn generate_rust_participant_facade(
 }
 
 fn render_cargo_toml(opts: &GenerateRustSdkOpts) -> String {
+    let dependency_lines = runtime_dependency_lines(&opts.runtime_deps);
     format!(
-        "[package]\nname = \"{}\"\nversion = \"{}\"\nedition = \"2021\"\nlicense = \"Apache-2.0\"\n\n[dependencies]\nserde = {{ version = \"1.0\", features = [\"derive\"] }}\nserde_json = \"1.0\"\ntrellis-client = \"{}\"\ntrellis-contracts = \"{}\"\ntrellis-server = \"{}\"\n",
+        "[package]\nname = \"{}\"\nversion = \"{}\"\nedition = \"2021\"\nlicense = \"Apache-2.0\"\n\n[dependencies]\nserde = {{ version = \"1.0\", features = [\"derive\"] }}\nserde_json = \"1.0\"\n{}\n",
         opts.crate_name,
         opts.crate_version,
-        opts.runtime_deps.version,
-        opts.runtime_deps.version,
-        opts.runtime_deps.version,
+        dependency_lines.join("\n"),
     )
+}
+
+fn runtime_dependency_lines(runtime_deps: &RustRuntimeDeps) -> Vec<String> {
+    match runtime_deps.source {
+        RustRuntimeSource::Registry => vec![
+            format!("trellis-client = \"{}\"", runtime_deps.version),
+            format!("trellis-contracts = \"{}\"", runtime_deps.version),
+            format!("trellis-server = \"{}\"", runtime_deps.version),
+        ],
+        RustRuntimeSource::Local => {
+            let repo_root = runtime_deps
+                .repo_root
+                .as_ref()
+                .expect("local runtime source requires repo root");
+            let repo_root = fs::canonicalize(repo_root).unwrap_or_else(|_| repo_root.clone());
+            ["trellis-client", "trellis-contracts", "trellis-server"]
+                .into_iter()
+                .map(|crate_name| {
+                    let crate_path = repo_root.join("rust/crates").join(crate_name);
+                    format!(
+                        "{crate_name} = {{ path = {} }}",
+                        string_literal(&crate_path.display().to_string())
+                    )
+                })
+                .collect()
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -343,11 +369,7 @@ fn render_participant_cargo_toml(
     opts: &GenerateRustParticipantFacadeOpts,
     mappings: &[ValidatedParticipantAlias],
 ) -> String {
-    let mut dependency_lines = vec![
-        "trellis-client = { version = \"".to_string() + &opts.runtime_deps.version + "\" }",
-        "trellis-contracts = { version = \"".to_string() + &opts.runtime_deps.version + "\" }",
-        "trellis-server = { version = \"".to_string() + &opts.runtime_deps.version + "\" }",
-    ];
+    let mut dependency_lines = runtime_dependency_lines(&opts.runtime_deps);
     if let (Some(crate_name), Some(path)) = (&opts.owned_sdk_crate_name, &opts.owned_sdk_path) {
         let path = fs::canonicalize(path).unwrap_or_else(|_| path.clone());
         dependency_lines.push(format!(
@@ -1802,6 +1824,9 @@ mod tests {
         let contract_rs = fs::read_to_string(out_dir.join("facade/src/contract.rs")).unwrap();
 
         assert!(cargo_toml.contains("build = \"build.rs\""));
+        assert!(cargo_toml.contains("trellis-client = { path = "));
+        assert!(cargo_toml.contains("trellis-contracts = { path = "));
+        assert!(cargo_toml.contains("trellis-server = { path = "));
         assert!(build_rs.contains("generate_rust_participant_generated_sources"));
         assert!(
             lib_rs.contains("include!(concat!(env!(\"OUT_DIR\"), \"/generated/src/facade.rs\"));")

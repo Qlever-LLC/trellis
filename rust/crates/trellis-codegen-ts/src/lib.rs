@@ -989,12 +989,12 @@ mod tests {
             "import type { SdkContractModule, TrellisContractV1, UseSpec } from \"@qlever-llc/trellis-contracts\";"
         ));
         assert!(contract.contains(
-            "export const trellisCore: SdkContractModule<typeof CONTRACT_ID, typeof API.owned> = {"
+            "export const core: SdkContractModule<typeof CONTRACT_ID, typeof API.owned> = {"
         ));
-        assert!(contract.contains("export const use = trellisCore.use;"));
+        assert!(contract.contains("export const use = core.use;"));
         assert!(contract.contains("does not expose ${kind} key '${key}'"));
         assert!(mod_ts.contains(
-            "export { CONTRACT, CONTRACT_DIGEST, CONTRACT_ID, use, trellisCore } from \"./contract.ts\";"
+            "export { CONTRACT, CONTRACT_DIGEST, CONTRACT_ID, use, core } from \"./contract.ts\";"
         ));
 
         fs::remove_dir_all(root).unwrap();

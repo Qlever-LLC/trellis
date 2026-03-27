@@ -13,7 +13,7 @@ await build({
   typeCheck: false,
   package: {
     name: "@qlever-llc/trellis-sdk-core",
-    version: "0.5.0",
+    version: "0.5.1",
     description: "Generated Trellis SDK for contract trellis.core@v1",
     dependencies: {
       "@qlever-llc/trellis-contracts": "file:../../../../js/packages/contracts/npm",

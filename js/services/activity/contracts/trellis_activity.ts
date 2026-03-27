@@ -3,8 +3,8 @@ import {
   HealthResponseSchema,
   HealthRpcSchema,
 } from "@qlever-llc/trellis-server";
-import { trellisAuth } from "../../trellis/contracts/trellis_auth.ts";
-import { trellisCore } from "../../trellis/contracts/trellis_core.ts";
+import { trellisAuth } from "../../trellis/catalog/contracts/trellis_auth.ts";
+import { trellisCore } from "../../trellis/catalog/contracts/trellis_core.ts";
 
 import {
   ActivityGetRequestSchema,

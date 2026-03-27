@@ -409,7 +409,7 @@ mod tests {
         fs::create_dir_all(&crate_dir).unwrap();
         fs::write(
             root.join("Cargo.toml"),
-            "[workspace]\nmembers = [\"crates/sdk\"]\n\n[workspace.package]\nversion = \"0.5.0\"\n",
+            "[workspace]\nmembers = [\"crates/sdk\"]\n\n[workspace.package]\nversion = \"0.5.1\"\n",
         )
         .unwrap();
         fs::write(
@@ -419,7 +419,7 @@ mod tests {
         .unwrap();
 
         let found = infer_owner_version(&crate_dir.join("contract.json")).unwrap();
-        assert_eq!(found, "0.5.0");
+        assert_eq!(found, "0.5.1");
     }
 
     #[test]
