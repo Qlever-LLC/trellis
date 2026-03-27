@@ -140,6 +140,8 @@ jobs:
         run: |
           set -euo pipefail
           npm_tag=latest
+          published=()
+          skipped=()
           if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" == *-* ]]; then
             npm_tag=rc
           fi
@@ -157,5 +159,26 @@ jobs:
             generated/js/sdks/activity/npm
           )
           for pkg in "${packages[@]}"; do
+            package_json="$pkg/package.json"
+            name=$(node -p "require('./${package_json}').name")
+            version=$(node -p "require('./${package_json}').version")
+
+            if npm view "$name@$version" version >/dev/null 2>&1; then
+              echo "Skipping $name@$version (already published)"
+              skipped+=("$name@$version")
+              continue
+            fi
+
             npm publish --access public --tag "$npm_tag" "$pkg"
+            published+=("$name@$version")
+          done
+
+          echo "Published ${#published[@]} package(s)"
+          for item in "${published[@]}"; do
+            echo "  published: $item"
+          done
+
+          echo "Skipped ${#skipped[@]} package(s)"
+          for item in "${skipped[@]}"; do
+            echo "  skipped: $item"
           done
