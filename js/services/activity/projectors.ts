@@ -1,6 +1,6 @@
 import { type BaseError, isErr, Result } from "@qlever-llc/trellis-result";
 import type { TrellisService } from "@qlever-llc/trellis-server";
-import { ValidationError } from "@qlever-llc/trellis-trellis";
+import { ValidationError } from "@qlever-llc/trellis";
 import { ulid } from "ulid";
 
 import type { ActivityOwnedApi, ActivityTrellisApi } from "./contracts/trellis_activity.ts";

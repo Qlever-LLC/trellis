@@ -5,7 +5,7 @@ Generated Trellis SDK for contract `trellis.activity@v1`.
 ## Usage
 
 ```ts
-import { defineContract } from "@qlever-llc/trellis-trellis";
+import { defineContract } from "@qlever-llc/trellis";
 import { activity } from "@qlever-llc/trellis-sdk-activity";
 
 const app = defineContract({

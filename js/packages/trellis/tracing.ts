@@ -1,5 +1,5 @@
 // Keep this subpath for Trellis-specific tracing convenience without exposing
-// telemetry from the root `@qlever-llc/trellis-trellis` package surface.
+// telemetry from the root `@qlever-llc/trellis` package surface.
 export type { HeaderCarrier, NatsHeadersLike } from "@qlever-llc/trellis-telemetry";
 export {configureErrorTraceId, 
   context,

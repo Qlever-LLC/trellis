@@ -33,8 +33,8 @@ const config = {
       "@qlever-llc/trellis-server/*": `${aliasPath("packages/server")}/*`,
       "@qlever-llc/trellis-svelte": aliasPath("packages/trellis-svelte/src/index.ts"),
       "@qlever-llc/trellis-svelte/*": `${aliasPath("packages/trellis-svelte/src")}/*`,
-      "@qlever-llc/trellis-trellis": aliasPath("packages/trellis/index.ts"),
-      "@qlever-llc/trellis-trellis/*": `${aliasPath("packages/trellis")}/*`
+      "@qlever-llc/trellis": aliasPath("packages/trellis/index.ts"),
+      "@qlever-llc/trellis/*": `${aliasPath("packages/trellis")}/*`
     }
   }
 };

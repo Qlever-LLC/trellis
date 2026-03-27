@@ -3,6 +3,7 @@ import {
   type NatsConnection,
   wsconnect,
 } from "@nats-io/nats-core";
+import { createClient } from "@qlever-llc/trellis";
 import {
   getPublicSessionKey,
   natsConnectSigForBindingToken,
@@ -16,7 +17,6 @@ import {
   type AuthRenewBindingTokenInput,
   type AuthRenewBindingTokenOutput,
 } from "@qlever-llc/trellis-sdk-auth";
-import { createClient } from "@qlever-llc/trellis-trellis";
 import type { AuthState } from "./auth.svelte.ts";
 
 const AUTH_RENEW_API = {

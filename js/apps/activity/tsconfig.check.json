@@ -12,7 +12,7 @@
       "@qlever-llc/trellis-svelte": ["../../packages/trellis-svelte/src/index.ts"],
       "@qlever-llc/trellis-telemetry": ["../../packages/telemetry/mod.ts"],
       "@qlever-llc/trellis-telemetry/*": ["../../packages/telemetry/*"],
-      "@qlever-llc/trellis-trellis": ["../../packages/trellis/index.ts"]
+      "@qlever-llc/trellis": ["../../packages/trellis/index.ts"]
     }
   }
 }

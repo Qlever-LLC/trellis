@@ -52,8 +52,8 @@ const config = {
       { find: "@qlever-llc/trellis-server/", replacement: `${aliasPath("packages/server")}/` },
       { find: "@qlever-llc/trellis-svelte", replacement: aliasPath("packages/trellis-svelte/src/index.ts") },
       { find: "@qlever-llc/trellis-svelte/", replacement: `${aliasPath("packages/trellis-svelte/src")}/` },
-      { find: "@qlever-llc/trellis-trellis", replacement: aliasPath("packages/trellis/index.ts") },
-      { find: "@qlever-llc/trellis-trellis/", replacement: `${aliasPath("packages/trellis")}/` },
+      { find: "@qlever-llc/trellis", replacement: aliasPath("packages/trellis/index.ts") },
+      { find: "@qlever-llc/trellis/", replacement: `${aliasPath("packages/trellis")}/` },
     ],
   },
   server: {

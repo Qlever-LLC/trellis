@@ -1,4 +1,4 @@
-# @qlever-llc/trellis-trellis
+# @qlever-llc/trellis
 
 JavaScript Trellis client runtime. Provides contract-driven client helpers and runtime error types.
 

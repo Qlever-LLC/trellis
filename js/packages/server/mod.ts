@@ -7,7 +7,7 @@
  * @module
  */
 
-export { TrellisServer } from "@qlever-llc/trellis-trellis";
+export { TrellisServer } from "@qlever-llc/trellis";
 // Re-export health types
 export {
   type HealthCheckFn,

@@ -4,7 +4,7 @@ import {
   verifyProof,
 } from "@qlever-llc/trellis-auth";
 import { AsyncResult, isErr, Result } from "@qlever-llc/trellis-result";
-import { AuthError } from "@qlever-llc/trellis-trellis";
+import { AuthError } from "@qlever-llc/trellis";
 import {
   bindingTokenKV,
   connectionsKV,

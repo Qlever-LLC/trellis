@@ -6,5 +6,5 @@ const level = getEnv("PINO_LEVEL") || "info";
 
 export const logger = pino({
   level,
-  base: { library: "@qlever-llc/trellis-trellis" },
+  base: { library: "@qlever-llc/trellis" },
 });

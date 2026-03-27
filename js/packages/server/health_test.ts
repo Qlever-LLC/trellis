@@ -13,7 +13,7 @@
 
 import { assert, assertEquals } from "@std/assert";
 import { Result } from "@qlever-llc/trellis-result";
-import { TrellisError } from "@qlever-llc/trellis-trellis";
+import { TrellisError } from "@qlever-llc/trellis";
 import {
   type HealthCheckFn,
   type HealthCheckResult,

@@ -2,7 +2,7 @@ import type { NatsConnection } from "@nats-io/nats-core";
 import { createAuth, type TrellisAuth as SessionAuth } from "@qlever-llc/trellis-auth";
 import type { InferSchemaType, TrellisAPI } from "@qlever-llc/trellis-contracts";
 import { isErr, type Result } from "@qlever-llc/trellis-result";
-import { type KVError, Trellis, TrellisServer, TypedKV } from "@qlever-llc/trellis-trellis";
+import { type KVError, Trellis, TrellisServer, TypedKV } from "@qlever-llc/trellis";
 import type { Logger } from "pino";
 import type { TSchema } from "typebox";
 import type { HealthCheckFn } from "./health.ts";

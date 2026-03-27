@@ -23,7 +23,7 @@ await buildSourcePackage({
     "@qlever-llc/trellis-contracts": "^0.5.1",
     "@qlever-llc/trellis-result": "^0.5.1",
     "@qlever-llc/trellis-sdk-auth": "^0.5.1",
-    "@qlever-llc/trellis-trellis": "^0.5.1",
+    "@qlever-llc/trellis": "^0.5.1",
     typebox: "^1.0.15"
   },
   peerDependencies: {

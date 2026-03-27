@@ -1,6 +1,6 @@
 import { trellisIdFromOriginId } from "@qlever-llc/trellis-auth";
 import { isErr, Result } from "@qlever-llc/trellis-result";
-import { AuthError } from "@qlever-llc/trellis-trellis";
+import { AuthError } from "@qlever-llc/trellis";
 
 import { logger, usersKV } from "../../bootstrap/globals.ts";
 

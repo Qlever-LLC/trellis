@@ -37,7 +37,7 @@ Trellis platform code and cloud/domain code are intentionally separate.
 
 - The Trellis platform repo owns protocol/runtime libraries, the `trellis` runtime service, jobs, Trellis-owned contracts such as `trellis.core@v1` and `trellis.auth@v1`, and contract tooling.
 - Cloud repos own domain services, domain contracts, apps, and domain models unless a model is required by a Trellis-owned contract or shared Trellis runtime library.
-- `@qlever-llc/trellis-trellis` is a runtime library, not a central registry for every service API.
+- `@qlever-llc/trellis` is a runtime library, not a central registry for every service API.
 - Service APIs are defined with the service that owns them and consumed through contract packages.
 
 #### Category Responsibilities
@@ -111,7 +111,7 @@ Callers use method names (e.g. `trellis.request("User.Find", args)`), not subjec
 
 | Library                 | Purpose                                          | Use when                       |
 | ----------------------- | ------------------------------------------------ | ------------------------------ |
-| `@qlever-llc/trellis-trellis`      | Client runtime for RPC/events                    | Frontend apps, CLI tools       |
+| `@qlever-llc/trellis`      | Client runtime for RPC/events                    | Frontend apps, CLI tools       |
 | `@qlever-llc/trellis-server`       | Runtime-neutral server core                      | Backend services               |
 | `@qlever-llc/trellis-server/node`  | Node server runtime adapter                      | External Node services         |
 | `@qlever-llc/trellis-server/deno`  | Deno server runtime adapter                      | In-repo Deno services          |
@@ -122,7 +122,7 @@ Callers use method names (e.g. `trellis.request("User.Find", args)`), not subjec
 | `@qlever-llc/trellis-telemetry`    | Shared tracing helpers                           | Runtime libraries and services |
 | `@qlever-llc/trellis-jobs`         | Job creation and processing                      | Long-running or retryable work |
 
-### @qlever-llc/trellis-trellis
+### @qlever-llc/trellis
 
 Client runtime for RPC/event communication over NATS. Auth is injected from `@qlever-llc/trellis-auth-*` packages.
 
@@ -195,7 +195,7 @@ Session key loading, signing, browser bind flow helpers, and shared auth support
 
 ### @qlever-llc/trellis-telemetry
 
-Shared tracing helpers used by `@qlever-llc/trellis-trellis`, `@qlever-llc/trellis-server`, and future packages like `@qlever-llc/trellis-jobs`.
+Shared tracing helpers used by `@qlever-llc/trellis`, `@qlever-llc/trellis-server`, and future packages like `@qlever-llc/trellis-jobs`.
 
 ### @qlever-llc/trellis-jobs
 
@@ -363,7 +363,7 @@ All RPC handlers return `Result<T, E>` from `@qlever-llc/trellis-result`. Benefi
 
 ### Error Handling
 
-Trellis-shared errors come from `@qlever-llc/trellis-trellis`. Service-specific errors may extend the same base locally and are declared in the owning service contract:
+Trellis-shared errors come from `@qlever-llc/trellis`. Service-specific errors may extend the same base locally and are declared in the owning service contract:
 
 ```typescript
 export class AuthError extends TrellisError<AuthErrorData> {

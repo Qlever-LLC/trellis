@@ -140,7 +140,7 @@ Services process their own jobs via their own JetStream consumer. A central jobs
 | `@qlever-llc/trellis-server` | `TrellisServer`, health schemas, server types |
 | `@qlever-llc/trellis-server/deno` | Deno service runtime adapter |
 | `@qlever-llc/trellis-server/node` | Node service runtime adapter |
-| `@qlever-llc/trellis-trellis` | `createClient(...)`, runtime client for RPC/events |
+| `@qlever-llc/trellis` | `createClient(...)`, runtime client for RPC/events |
 | `@qlever-llc/trellis-svelte` | Browser auth, NATS, and Trellis integration for Svelte apps |
 | `@qlever-llc/trellis-auth` | Session key management, signing, bind flow helpers |
 | `@qlever-llc/trellis-result` | `Result<T, E>` for explicit error handling |

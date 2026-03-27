@@ -18,7 +18,7 @@ cd my-app
 Install the Trellis packages:
 
 ```sh
-npm install @qlever-llc/trellis-contracts @qlever-llc/trellis-svelte @qlever-llc/trellis-trellis @qlever-llc/trellis-sdk-auth
+npm install @qlever-llc/trellis-contracts @qlever-llc/trellis-svelte @qlever-llc/trellis @qlever-llc/trellis-sdk-auth
 ```
 
 Then add the generated SDK packages for any Trellis services your app calls. For example, if your app reads activity data:

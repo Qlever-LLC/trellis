@@ -65,7 +65,7 @@ architectural concept, not a transport-only client helper.
 Rules:
 
 - `@qlever-llc/trellis-contracts` owns the contract authoring types and helpers
-- `@qlever-llc/trellis-trellis` consumes contract objects for runtime client helpers
+- `@qlever-llc/trellis` consumes contract objects for runtime client helpers
 - `@qlever-llc/trellis-server/node` and `@qlever-llc/trellis-server/deno` consume contract objects for service runtime helpers
 
 ### 3) SDK-driven `uses`
@@ -198,7 +198,7 @@ Runtime helpers live in the runtime packages, not in `@qlever-llc/trellis-contra
 Rules:
 
 - new user-facing TypeScript contract authoring APIs are defined in `@qlever-llc/trellis-contracts`
-- `@qlever-llc/trellis-trellis` must not introduce a second competing contract definition model
+- `@qlever-llc/trellis` must not introduce a second competing contract definition model
 - documentation should prefer the owning package import path instead of convenience re-exports
 
 ### TypeScript API surface
@@ -489,7 +489,7 @@ Expected type behavior:
 Implementation should proceed in this order:
 
 1. add the new `defineContract(...)` and shared contract module types in `@qlever-llc/trellis-contracts`
-2. re-export that surface from `@qlever-llc/trellis-trellis`
+2. re-export that surface from `@qlever-llc/trellis`
 3. update TS SDK generation to emit the richer contract module shape with nested API views and typed `use(...)`
 4. update runtime helpers to consume contract objects directly for client and service creation
 5. migrate in-repo contracts and bootstrap code to the new model

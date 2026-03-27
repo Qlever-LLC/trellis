@@ -1,6 +1,6 @@
 import type { NatsConnection } from "@nats-io/nats-core";
+import type { Trellis } from "@qlever-llc/trellis";
 import type { InferSchemaType, TrellisAPI } from "@qlever-llc/trellis-contracts";
-import type { Trellis } from "@qlever-llc/trellis-trellis";
 import { getContext, setContext } from "svelte";
 import type { AuthState } from "./state/auth.svelte.ts";
 import type { NatsState } from "./state/nats.svelte.ts";

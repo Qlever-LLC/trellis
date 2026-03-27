@@ -1,5 +1,5 @@
 /**
- * Browser-safe exports for @qlever-llc/trellis-trellis
+ * Browser-safe exports for @qlever-llc/trellis
  */
 
 // Core Trellis client class (browser-safe)

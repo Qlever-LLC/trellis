@@ -9,7 +9,7 @@
  */
 
 import { type Result } from "@qlever-llc/trellis-result";
-import { type TrellisError } from "@qlever-llc/trellis-trellis";
+import { type TrellisError } from "@qlever-llc/trellis";
 
 /**
  * A health check function that returns a Result indicating health status.
