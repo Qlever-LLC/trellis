@@ -101,8 +101,8 @@ jobs:
           await import("@qlever-llc/trellis-telemetry/env");
           await import("@qlever-llc/trellis-telemetry/trellis");
           await import("@qlever-llc/trellis-auth/protocol");
-          await import("@qlever-llc/trellis-trellis");
-          await import("@qlever-llc/trellis-trellis/tracing");
+          await import("@qlever-llc/trellis");
+          await import("@qlever-llc/trellis/tracing");
           await import("@qlever-llc/trellis-server");
           await import("@qlever-llc/trellis-server/node");
           EOF
