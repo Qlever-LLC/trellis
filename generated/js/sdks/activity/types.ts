@@ -1,6 +1,6 @@
 // Generated from ./generated/contracts/manifests/trellis.activity@v1.json
 export const CONTRACT_ID = "trellis.activity@v1" as const;
-export const CONTRACT_DIGEST = "8YG5wtZZEL9foGeGYDKDvQ-GB6IHVLL-M96oQJAEM2M" as const;
+export const CONTRACT_DIGEST = "k7f18oAwN5FiVEWQ5nRAgzvpIRisj-DgfOBAukDcgdQ" as const;
 
 export type ActivityGetInput = { id: string; };
 export type ActivityGetOutput = { entry: { actor?: string; id: string; kind: ("auth.connect" | "auth.disconnect" | "auth.session_revoked" | "auth.connection_kicked"); metadata?: {  }; occurredAt: string; principalId: string; principalLabel: string; principalOrigin: string; sessionKey?: string; summary: string; userNkey?: string; }; };

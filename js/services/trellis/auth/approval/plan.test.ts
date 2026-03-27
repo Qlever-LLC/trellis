@@ -1,7 +1,7 @@
-import { assertEquals, assertRejects } from "@std/assert";
 import type { TrellisContractV1 } from "@qlever-llc/trellis-contracts";
-import { planUserContractApproval } from "./plan.ts";
+import { assertEquals, assertRejects } from "@std/assert";
 import { ContractStore } from "../../catalog/store.ts";
+import { planUserContractApproval } from "./plan.ts";
 
 Deno.test("planUserContractApproval derives exact app capabilities and subjects", async () => {
   const dependency: TrellisContractV1 = {
@@ -10,12 +10,18 @@ Deno.test("planUserContractApproval derives exact app capabilities and subjects"
     displayName: "Example Auth",
     description: "Auth API",
     kind: "service",
+    schemas: {
+      EmptyInput: { type: "object" },
+      EmptyOutput: { type: "object" },
+      AuthConnectEvent: { type: "object" },
+      AuthAuditMessage: { type: "object" },
+    },
     rpc: {
       "Auth.Me": {
         version: "v1",
         subject: "rpc.v1.example.Auth.Me",
-        inputSchema: { type: "object" },
-        outputSchema: { type: "object" },
+        input: { schema: "EmptyInput" },
+        output: { schema: "EmptyOutput" },
         capabilities: { call: ["users:read"] },
       },
     },
@@ -23,14 +29,14 @@ Deno.test("planUserContractApproval derives exact app capabilities and subjects"
       "Auth.Connect": {
         version: "v1",
         subject: "events.v1.example.Auth.Connect",
-        eventSchema: { type: "object" },
+        event: { schema: "AuthConnectEvent" },
         capabilities: { publish: ["audit:write"], subscribe: ["audit:read"] },
       },
     },
     subjects: {
       AuthAudit: {
         subject: "nats.example.audit",
-        schema: { type: "object" },
+        message: { schema: "AuthAuditMessage" },
         capabilities: { publish: ["audit:write"], subscribe: ["audit:read"] },
       },
     },

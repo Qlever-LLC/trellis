@@ -7,6 +7,6 @@ license = "Apache-2.0"
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-trellis-client = { path = "/home/abalmos/git/qlever/trellis/rust/crates/trellis-client" }
-trellis-contracts = { path = "/home/abalmos/git/qlever/trellis/rust/crates/trellis-contracts" }
-trellis-server = { path = "/home/abalmos/git/qlever/trellis/rust/crates/trellis-server" }
+trellis-client = { path = "/home/abalmos/git/qlever/wt-trellis-jobs/rust/crates/trellis-client" }
+trellis-contracts = { path = "/home/abalmos/git/qlever/wt-trellis-jobs/rust/crates/trellis-contracts" }
+trellis-server = { path = "/home/abalmos/git/qlever/wt-trellis-jobs/rust/crates/trellis-server" }

@@ -1006,6 +1006,7 @@ export function defineContract<
     displayName: source.displayName,
     description: source.description,
     kind: source.kind,
+    ...(source.schemas ? { schemas: source.schemas } : {}),
     ...(manifestUses ? { uses: manifestUses } : {}),
     ...(source.rpc ? { rpc: source.rpc } : {}),
     ...(source.events ? { events: source.events } : {}),

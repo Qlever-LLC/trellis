@@ -65,3 +65,4 @@ impl ServerRpcDescriptor for TrellisContractGetRpc {
     const KEY: &'static str = "Trellis.Contract.Get";
     const SUBJECT: &'static str = "rpc.v1.Trellis.Contract.Get";
 }
+

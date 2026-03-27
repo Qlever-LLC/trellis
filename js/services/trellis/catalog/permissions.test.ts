@@ -1,6 +1,5 @@
-import { assertEquals } from "@std/assert";
-
 import type { TrellisContractV1 } from "@qlever-llc/trellis-contracts";
+import { assertEquals } from "@std/assert";
 
 import {
   getContracts,
@@ -20,19 +19,23 @@ const TEST_CONTRACTS: Array<{ digest: string; contract: TrellisContractV1 }> = [
       displayName: "Trellis Core",
       description: "Provide core Trellis APIs.",
       kind: "service",
+      schemas: {
+        EmptyInput: { type: "object" },
+        EmptyOutput: { type: "object" },
+      },
       rpc: {
         "Trellis.Catalog": {
           version: "v1",
           subject: "rpc.v1.Trellis.Catalog",
-          inputSchema: { type: "object" },
-          outputSchema: { type: "object" },
+          input: { schema: "EmptyInput" },
+          output: { schema: "EmptyOutput" },
           capabilities: { call: ["trellis.catalog.read"] },
         },
         "Trellis.Contract.Get": {
           version: "v1",
           subject: "rpc.v1.Trellis.Contract.Get",
-          inputSchema: { type: "object" },
-          outputSchema: { type: "object" },
+          input: { schema: "EmptyInput" },
+          output: { schema: "EmptyOutput" },
           capabilities: { call: ["trellis.contract.read"] },
         },
       },
@@ -46,11 +49,14 @@ const TEST_CONTRACTS: Array<{ digest: string; contract: TrellisContractV1 }> = [
       displayName: "Trellis Auth",
       description: "Provide Trellis auth APIs.",
       kind: "service",
+      schemas: {
+        AuthConnectEvent: { type: "object" },
+      },
       events: {
         "Auth.Connect": {
           version: "v1",
           subject: "events.v1.Auth.Connect",
-          eventSchema: { type: "object" },
+          event: { schema: "AuthConnectEvent" },
           capabilities: {
             publish: ["service:events:auth"],
             subscribe: ["service:events:auth"],
@@ -67,6 +73,11 @@ const TEST_CONTRACTS: Array<{ digest: string; contract: TrellisContractV1 }> = [
       displayName: "Graph",
       description: "Expose graph RPC and event subjects.",
       kind: "service",
+      schemas: {
+        EmptyInput: { type: "object" },
+        EmptyOutput: { type: "object" },
+        PartnerChangedEvent: { type: "object" },
+      },
       uses: {
         core: {
           contract: "trellis.core@v1",
@@ -81,8 +92,8 @@ const TEST_CONTRACTS: Array<{ digest: string; contract: TrellisContractV1 }> = [
         "Partner.List": {
           version: "v1",
           subject: "rpc.v1.Partner.List",
-          inputSchema: { type: "object" },
-          outputSchema: { type: "object" },
+          input: { schema: "EmptyInput" },
+          output: { schema: "EmptyOutput" },
           capabilities: { call: ["partners:read"] },
         },
       },
@@ -91,7 +102,7 @@ const TEST_CONTRACTS: Array<{ digest: string; contract: TrellisContractV1 }> = [
           version: "v1",
           subject: "events.v1.Partner.Changed.{/partner/id/origin}.{/partner/id/id}",
           params: ["/partner/id/origin", "/partner/id/id"],
-          eventSchema: { type: "object" },
+          event: { schema: "PartnerChangedEvent" },
           capabilities: {
             publish: ["partners:write"],
             subscribe: ["partners:read"],

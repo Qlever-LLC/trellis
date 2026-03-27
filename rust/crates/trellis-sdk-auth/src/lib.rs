@@ -14,11 +14,13 @@ pub use events::*;
 pub use rpc::*;
 pub use types::*;
 
-pub type ApprovalEntryRecord = types::AuthListApprovalsResponseApprovalsItem;
-pub type ApprovalScopeRecord = types::AuthListApprovalsResponseApprovalsItemApproval;
-pub type AuthenticatedUser = types::AuthMeResponseUser;
-pub type ListApprovalsRequest = types::AuthListApprovalsRequest;
-pub type RenewBindingTokenResponse = types::AuthRenewBindingTokenResponse;
-pub type RevokeApprovalRequest = types::AuthRevokeApprovalRequest;
-pub type SentinelCredsRecord = types::AuthRenewBindingTokenResponseSentinel;
-pub type ServiceListEntry = types::AuthListServicesResponseServicesItem;
+pub use types::{
+    AuthListApprovalsRequest as ListApprovalsRequest,
+    AuthListApprovalsResponseApprovalsItem as ApprovalEntryRecord,
+    AuthListApprovalsResponseApprovalsItemApproval as ApprovalScopeRecord,
+    AuthListServicesResponseServicesItem as ServiceListEntry,
+    AuthMeResponseUser as AuthenticatedUser,
+    AuthRenewBindingTokenResponse as RenewBindingTokenResponse,
+    AuthRenewBindingTokenResponseSentinel as SentinelCredsRecord,
+    AuthRevokeApprovalRequest as RevokeApprovalRequest,
+};

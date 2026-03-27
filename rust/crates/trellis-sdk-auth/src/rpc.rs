@@ -350,3 +350,4 @@ impl ServerRpcDescriptor for AuthValidateRequestRpc {
     const KEY: &'static str = "Auth.ValidateRequest";
     const SUBJECT: &'static str = "rpc.v1.Auth.ValidateRequest";
 }
+

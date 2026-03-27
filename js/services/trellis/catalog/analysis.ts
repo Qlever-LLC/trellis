@@ -64,6 +64,19 @@ export type ContractAnalysis = {
       ttlMs: number;
       maxValueBytes?: number;
     }>;
+    jobs: Array<{
+      queueType: string;
+      payload: { schema: string };
+      result?: { schema: string };
+      maxDeliver: number;
+      backoffMs: number[];
+      ackWaitMs: number;
+      defaultDeadlineMs?: number;
+      progress: boolean;
+      logs: boolean;
+      dlq: boolean;
+      concurrency: number;
+    }>;
   };
 };
 
@@ -74,6 +87,7 @@ export type ContractAnalysisSummary = {
   natsPublish: number;
   natsSubscribe: number;
   kvResources: number;
+  jobsQueues: number;
 };
 
 export function analyzeContract(contract: TrellisContractV1): {
@@ -194,6 +208,7 @@ export function analyzeContract(contract: TrellisContractV1): {
     natsPublish: publish.length,
     natsSubscribe: subscribe.length,
     kvResources: resourceSummary.kvResources,
+    jobsQueues: resourceSummary.jobsQueues,
   };
 
   return { analysis, summary };

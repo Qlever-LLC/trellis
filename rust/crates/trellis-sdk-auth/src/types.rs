@@ -62,6 +62,41 @@ pub struct AuthGetInstalledContractResponseContractAnalysisNats {
 }
 
 /// Generated schema type `AuthGetInstalledContractResponseContractAnalysisResources`.
+/// Generated schema type `AuthGetInstalledContractResponseContractAnalysisResourcesJobsItem`.
+/// Generated schema type `AuthGetInstalledContractResponseContractAnalysisResourcesJobsItemPayload`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthGetInstalledContractResponseContractAnalysisResourcesJobsItemPayload {
+    pub schema: String,
+}
+
+/// Generated schema type `AuthGetInstalledContractResponseContractAnalysisResourcesJobsItemResult`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthGetInstalledContractResponseContractAnalysisResourcesJobsItemResult {
+    pub schema: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthGetInstalledContractResponseContractAnalysisResourcesJobsItem {
+    #[serde(rename = "ackWaitMs")]
+    pub ack_wait_ms: f64,
+    #[serde(rename = "backoffMs")]
+    pub backoff_ms: Vec<f64>,
+    pub concurrency: f64,
+    #[serde(rename = "defaultDeadlineMs")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_deadline_ms: Option<f64>,
+    pub dlq: bool,
+    pub logs: bool,
+    #[serde(rename = "maxDeliver")]
+    pub max_deliver: f64,
+    pub payload: AuthGetInstalledContractResponseContractAnalysisResourcesJobsItemPayload,
+    pub progress: bool,
+    #[serde(rename = "queueType")]
+    pub queue_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<AuthGetInstalledContractResponseContractAnalysisResourcesJobsItemResult>,
+}
+
 /// Generated schema type `AuthGetInstalledContractResponseContractAnalysisResourcesKvItem`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthGetInstalledContractResponseContractAnalysisResourcesKvItem {
@@ -78,6 +113,7 @@ pub struct AuthGetInstalledContractResponseContractAnalysisResourcesKvItem {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthGetInstalledContractResponseContractAnalysisResources {
+    pub jobs: Vec<AuthGetInstalledContractResponseContractAnalysisResourcesJobsItem>,
     pub kv: Vec<AuthGetInstalledContractResponseContractAnalysisResourcesKvItem>,
 }
 
@@ -130,6 +166,8 @@ pub struct AuthGetInstalledContractResponseContractAnalysis {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthGetInstalledContractResponseContractAnalysisSummary {
     pub events: f64,
+    #[serde(rename = "jobsQueues")]
+    pub jobs_queues: f64,
     #[serde(rename = "kvResources")]
     pub kv_resources: f64,
     pub namespaces: Vec<String>,
@@ -142,15 +180,40 @@ pub struct AuthGetInstalledContractResponseContractAnalysisSummary {
 }
 
 /// Generated schema type `AuthGetInstalledContractResponseContractResourceBindings`.
+/// Generated schema type `AuthGetInstalledContractResponseContractResourceBindingsJobs`.
+/// Generated schema type `AuthGetInstalledContractResponseContractResourceBindingsJobsRegistry`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthGetInstalledContractResponseContractResourceBindingsJobsRegistry {
+    pub bucket: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthGetInstalledContractResponseContractResourceBindingsJobs {
+    pub namespace: String,
+    pub queues: BTreeMap<String, Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub registry: Option<AuthGetInstalledContractResponseContractResourceBindingsJobsRegistry>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthGetInstalledContractResponseContractResourceBindings {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub jobs: Option<AuthGetInstalledContractResponseContractResourceBindingsJobs>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub kv: Option<BTreeMap<String, Value>>,
 }
 
 /// Generated schema type `AuthGetInstalledContractResponseContractResources`.
+/// Generated schema type `AuthGetInstalledContractResponseContractResourcesJobs`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthGetInstalledContractResponseContractResourcesJobs {
+    pub queues: BTreeMap<String, Value>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthGetInstalledContractResponseContractResources {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub jobs: Option<AuthGetInstalledContractResponseContractResourcesJobs>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub kv: Option<BTreeMap<String, Value>>,
 }
@@ -222,8 +285,25 @@ pub struct AuthInstallServiceRequest {
 
 /// Generated schema type `AuthInstallServiceResponse`.
 /// Generated schema type `AuthInstallServiceResponseResourceBindings`.
+/// Generated schema type `AuthInstallServiceResponseResourceBindingsJobs`.
+/// Generated schema type `AuthInstallServiceResponseResourceBindingsJobsRegistry`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthInstallServiceResponseResourceBindingsJobsRegistry {
+    pub bucket: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthInstallServiceResponseResourceBindingsJobs {
+    pub namespace: String,
+    pub queues: BTreeMap<String, Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub registry: Option<AuthInstallServiceResponseResourceBindingsJobsRegistry>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthInstallServiceResponseResourceBindings {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub jobs: Option<AuthInstallServiceResponseResourceBindingsJobs>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub kv: Option<BTreeMap<String, Value>>,
 }
@@ -337,6 +417,8 @@ pub struct AuthListInstalledContractsRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthListInstalledContractsResponseContractsItemAnalysisSummary {
     pub events: f64,
+    #[serde(rename = "jobsQueues")]
+    pub jobs_queues: f64,
     #[serde(rename = "kvResources")]
     pub kv_resources: f64,
     pub namespaces: Vec<String>,
@@ -349,8 +431,25 @@ pub struct AuthListInstalledContractsResponseContractsItemAnalysisSummary {
 }
 
 /// Generated schema type `AuthListInstalledContractsResponseContractsItemResourceBindings`.
+/// Generated schema type `AuthListInstalledContractsResponseContractsItemResourceBindingsJobs`.
+/// Generated schema type `AuthListInstalledContractsResponseContractsItemResourceBindingsJobsRegistry`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthListInstalledContractsResponseContractsItemResourceBindingsJobsRegistry {
+    pub bucket: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthListInstalledContractsResponseContractsItemResourceBindingsJobs {
+    pub namespace: String,
+    pub queues: BTreeMap<String, Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub registry: Option<AuthListInstalledContractsResponseContractsItemResourceBindingsJobsRegistry>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthListInstalledContractsResponseContractsItemResourceBindings {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub jobs: Option<AuthListInstalledContractsResponseContractsItemResourceBindingsJobs>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub kv: Option<BTreeMap<String, Value>>,
 }
@@ -384,8 +483,25 @@ pub struct AuthListInstalledContractsResponse {
 /// Generated schema type `AuthListServicesResponse`.
 /// Generated schema type `AuthListServicesResponseServicesItem`.
 /// Generated schema type `AuthListServicesResponseServicesItemResourceBindings`.
+/// Generated schema type `AuthListServicesResponseServicesItemResourceBindingsJobs`.
+/// Generated schema type `AuthListServicesResponseServicesItemResourceBindingsJobsRegistry`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthListServicesResponseServicesItemResourceBindingsJobsRegistry {
+    pub bucket: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthListServicesResponseServicesItemResourceBindingsJobs {
+    pub namespace: String,
+    pub queues: BTreeMap<String, Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub registry: Option<AuthListServicesResponseServicesItemResourceBindingsJobsRegistry>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthListServicesResponseServicesItemResourceBindings {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub jobs: Option<AuthListServicesResponseServicesItemResourceBindingsJobs>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub kv: Option<BTreeMap<String, Value>>,
 }
@@ -504,6 +620,8 @@ pub struct AuthRenewBindingTokenResponse {
     pub expires: String,
     #[serde(rename = "inboxPrefix")]
     pub inbox_prefix: String,
+    #[serde(rename = "natsServers")]
+    pub nats_servers: Vec<String>,
     pub sentinel: AuthRenewBindingTokenResponseSentinel,
     pub status: String,
 }
@@ -563,8 +681,25 @@ pub struct AuthUpgradeServiceContractRequest {
 
 /// Generated schema type `AuthUpgradeServiceContractResponse`.
 /// Generated schema type `AuthUpgradeServiceContractResponseResourceBindings`.
+/// Generated schema type `AuthUpgradeServiceContractResponseResourceBindingsJobs`.
+/// Generated schema type `AuthUpgradeServiceContractResponseResourceBindingsJobsRegistry`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthUpgradeServiceContractResponseResourceBindingsJobsRegistry {
+    pub bucket: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthUpgradeServiceContractResponseResourceBindingsJobs {
+    pub namespace: String,
+    pub queues: BTreeMap<String, Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub registry: Option<AuthUpgradeServiceContractResponseResourceBindingsJobsRegistry>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthUpgradeServiceContractResponseResourceBindings {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub jobs: Option<AuthUpgradeServiceContractResponseResourceBindingsJobs>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub kv: Option<BTreeMap<String, Value>>,
 }
@@ -635,3 +770,4 @@ pub struct AuthDisconnectEvent(pub Value);
 /// Generated schema type `AuthSessionRevokedEvent`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthSessionRevokedEvent(pub Value);
+

@@ -1,6 +1,6 @@
-import { assertEquals, assertRejects } from "@std/assert";
 import type { JsonValue, TrellisContractV1 } from "@qlever-llc/trellis-contracts";
 import { digestJson } from "@qlever-llc/trellis-contracts";
+import { assertEquals, assertRejects } from "@std/assert";
 
 import { ContractStore } from "./store.ts";
 
@@ -15,12 +15,16 @@ function makeContract(
     displayName,
     description: `${displayName} test contract`,
     kind: "service",
+    schemas: {
+      PingInput: { type: "object" },
+      PingOutput: { type: "object" },
+    },
     rpc: {
       Ping: {
         version: "v1",
         subject,
-        inputSchema: { type: "object" },
-        outputSchema: { type: "object" },
+        input: { schema: "PingInput" },
+        output: { schema: "PingOutput" },
       },
     },
   };

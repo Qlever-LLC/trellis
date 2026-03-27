@@ -14,31 +14,19 @@ impl<'a> CoreClient<'a> {
     }
 
     /// Call `Trellis.Bindings.Get`.
-    pub async fn trellis_bindings_get(
-        &self,
-        input: &crate::types::TrellisBindingsGetRequest,
-    ) -> Result<crate::types::TrellisBindingsGetResponse, TrellisClientError> {
-        self.inner
-            .call::<crate::rpc::TrellisBindingsGetRpc>(input)
-            .await
+    pub async fn trellis_bindings_get(&self, input: &crate::types::TrellisBindingsGetRequest) -> Result<crate::types::TrellisBindingsGetResponse, TrellisClientError> {
+        self.inner.call::<crate::rpc::TrellisBindingsGetRpc>(input).await
     }
 
     /// Call `Trellis.Catalog`.
-    pub async fn trellis_catalog(
-        &self,
-    ) -> Result<crate::types::TrellisCatalogResponse, TrellisClientError> {
-        self.inner
-            .call::<crate::rpc::TrellisCatalogRpc>(&crate::rpc::Empty {})
-            .await
+    pub async fn trellis_catalog(&self) -> Result<crate::types::TrellisCatalogResponse, TrellisClientError> {
+        self.inner.call::<crate::rpc::TrellisCatalogRpc>(&crate::rpc::Empty {}).await
     }
 
     /// Call `Trellis.Contract.Get`.
-    pub async fn trellis_contract_get(
-        &self,
-        input: &crate::types::TrellisContractGetRequest,
-    ) -> Result<crate::types::TrellisContractGetResponse, TrellisClientError> {
-        self.inner
-            .call::<crate::rpc::TrellisContractGetRpc>(input)
-            .await
+    pub async fn trellis_contract_get(&self, input: &crate::types::TrellisContractGetRequest) -> Result<crate::types::TrellisContractGetResponse, TrellisClientError> {
+        self.inner.call::<crate::rpc::TrellisContractGetRpc>(input).await
     }
+
 }
+

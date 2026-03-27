@@ -3,6 +3,9 @@ import Type, { type Static } from "typebox";
 import { ContractResourcesSchema } from "../ContractResources.ts";
 
 const OpenValueSchema = Type.Unsafe<Record<string, unknown>>({ type: "object" });
+const OpenSchemaValueSchema = Type.Unsafe<Record<string, unknown> | boolean>({
+  anyOf: [{ type: "object" }, { type: "boolean" }],
+});
 
 export const TrellisContractSchema = Type.Object({
   format: Type.Literal("trellis.contract.v1"),
@@ -10,6 +13,7 @@ export const TrellisContractSchema = Type.Object({
   displayName: Type.String({ minLength: 1 }),
   description: Type.String({ minLength: 1 }),
   kind: Type.String({ minLength: 1 }),
+  schemas: Type.Optional(Type.Record(Type.String({ minLength: 1 }), OpenSchemaValueSchema)),
   uses: Type.Optional(Type.Record(Type.String({ minLength: 1 }), OpenValueSchema)),
   rpc: Type.Optional(Type.Record(Type.String({ minLength: 1 }), OpenValueSchema)),
   events: Type.Optional(Type.Record(Type.String({ minLength: 1 }), OpenValueSchema)),

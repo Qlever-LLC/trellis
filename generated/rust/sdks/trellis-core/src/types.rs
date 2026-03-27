@@ -17,8 +17,25 @@ pub struct TrellisBindingsGetRequest {
 /// Generated schema type `TrellisBindingsGetResponse`.
 /// Generated schema type `TrellisBindingsGetResponseBinding`.
 /// Generated schema type `TrellisBindingsGetResponseBindingResources`.
+/// Generated schema type `TrellisBindingsGetResponseBindingResourcesJobs`.
+/// Generated schema type `TrellisBindingsGetResponseBindingResourcesJobsRegistry`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TrellisBindingsGetResponseBindingResourcesJobsRegistry {
+    pub bucket: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TrellisBindingsGetResponseBindingResourcesJobs {
+    pub namespace: String,
+    pub queues: BTreeMap<String, Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub registry: Option<TrellisBindingsGetResponseBindingResourcesJobsRegistry>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TrellisBindingsGetResponseBindingResources {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub jobs: Option<TrellisBindingsGetResponseBindingResourcesJobs>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub kv: Option<BTreeMap<String, Value>>,
 }
@@ -70,8 +87,16 @@ pub struct TrellisContractGetRequest {
 /// Generated schema type `TrellisContractGetResponse`.
 /// Generated schema type `TrellisContractGetResponseContract`.
 /// Generated schema type `TrellisContractGetResponseContractResources`.
+/// Generated schema type `TrellisContractGetResponseContractResourcesJobs`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TrellisContractGetResponseContractResourcesJobs {
+    pub queues: BTreeMap<String, Value>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TrellisContractGetResponseContractResources {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub jobs: Option<TrellisContractGetResponseContractResourcesJobs>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub kv: Option<BTreeMap<String, Value>>,
 }
@@ -92,6 +117,8 @@ pub struct TrellisContractGetResponseContract {
     pub resources: Option<TrellisContractGetResponseContractResources>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rpc: Option<BTreeMap<String, Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub schemas: Option<BTreeMap<String, Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subjects: Option<BTreeMap<String, Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]

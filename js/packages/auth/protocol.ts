@@ -87,6 +87,7 @@ export const ContractAnalysisSummarySchema = Type.Object({
   natsPublish: Type.Number(),
   natsSubscribe: Type.Number(),
   kvResources: Type.Number(),
+  jobsQueues: Type.Number(),
 }, { additionalProperties: false });
 
 export const ContractAnalysisKvResourceSchema = Type.Object({
@@ -96,6 +97,20 @@ export const ContractAnalysisKvResourceSchema = Type.Object({
   history: Type.Number(),
   ttlMs: Type.Number(),
   maxValueBytes: Type.Optional(Type.Number()),
+}, { additionalProperties: false });
+
+export const ContractAnalysisJobsQueueSchema = Type.Object({
+  queueType: Type.String({ minLength: 1 }),
+  payload: Type.Object({ schema: Type.String({ minLength: 1 }) }, { additionalProperties: false }),
+  result: Type.Optional(Type.Object({ schema: Type.String({ minLength: 1 }) }, { additionalProperties: false })),
+  maxDeliver: Type.Number(),
+  backoffMs: Type.Array(Type.Number()),
+  ackWaitMs: Type.Number(),
+  defaultDeadlineMs: Type.Optional(Type.Number()),
+  progress: Type.Boolean(),
+  logs: Type.Boolean(),
+  dlq: Type.Boolean(),
+  concurrency: Type.Number(),
 }, { additionalProperties: false });
 
 export const ContractAnalysisRpcMethodSchema = Type.Object({
@@ -136,7 +151,10 @@ export const ContractAnalysisSchema = Type.Object({
     publish: Type.Array(ContractAnalysisNatsRuleSchema),
     subscribe: Type.Array(ContractAnalysisNatsRuleSchema),
   }, { additionalProperties: false }),
-  resources: Type.Object({ kv: Type.Array(ContractAnalysisKvResourceSchema) }, { additionalProperties: false }),
+  resources: Type.Object({
+    kv: Type.Array(ContractAnalysisKvResourceSchema),
+    jobs: Type.Array(ContractAnalysisJobsQueueSchema),
+  }, { additionalProperties: false }),
 }, { additionalProperties: false });
 
 export const InstalledContractSchema = Type.Object({

@@ -4,111 +4,129 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
-/// Request payload for `Trellis.Bindings.Get`.
+/// Generated schema type `TrellisBindingsGetRequest`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TrellisBindingsGetRequest {
-    #[serde(rename = "contractId", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "contractId")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub contract_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub digest: Option<String>,
 }
 
-/// Response payload for `Trellis.Bindings.Get`.
+/// Generated schema type `TrellisBindingsGetResponse`.
+/// Generated schema type `TrellisBindingsGetResponseBinding`.
+/// Generated schema type `TrellisBindingsGetResponseBindingResources`.
+/// Generated schema type `TrellisBindingsGetResponseBindingResourcesJobs`.
+/// Generated schema type `TrellisBindingsGetResponseBindingResourcesJobsRegistry`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct TrellisBindingsGetResponse {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub binding: Option<TrellisBindingsGetBinding>,
+pub struct TrellisBindingsGetResponseBindingResourcesJobsRegistry {
+    pub bucket: String,
 }
 
-/// One resolved service contract binding.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct TrellisBindingsGetBinding {
+pub struct TrellisBindingsGetResponseBindingResourcesJobs {
+    pub namespace: String,
+    pub queues: BTreeMap<String, Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub registry: Option<TrellisBindingsGetResponseBindingResourcesJobsRegistry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TrellisBindingsGetResponseBindingResources {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub jobs: Option<TrellisBindingsGetResponseBindingResourcesJobs>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kv: Option<BTreeMap<String, Value>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TrellisBindingsGetResponseBinding {
     #[serde(rename = "contractId")]
     pub contract_id: String,
     pub digest: String,
-    pub resources: TrellisBindingResources,
+    pub resources: TrellisBindingsGetResponseBindingResources,
 }
 
-/// Logical resource bindings resolved for an installed contract.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct TrellisBindingResources {
+pub struct TrellisBindingsGetResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub kv: Option<BTreeMap<String, TrellisKvBinding>>,
+    pub binding: Option<TrellisBindingsGetResponseBinding>,
 }
 
-/// One KV binding resolved for a logical resource alias.
+/// Generated schema type `TrellisCatalogResponse`.
+/// Generated schema type `TrellisCatalogResponseCatalog`.
+/// Generated schema type `TrellisCatalogResponseCatalogContractsItem`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct TrellisKvBinding {
-    pub bucket: String,
-    pub history: i64,
-    #[serde(rename = "ttlMs")]
-    pub ttl_ms: i64,
-    #[serde(rename = "maxValueBytes", skip_serializing_if = "Option::is_none")]
-    pub max_value_bytes: Option<i64>,
-}
-
-/// Response payload for `Trellis.Catalog`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct TrellisCatalogResponse {
-    pub catalog: TrellisCatalog,
-}
-
-/// Deployment contract catalog.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct TrellisCatalog {
-    pub format: String,
-    pub contracts: Vec<TrellisCatalogEntry>,
-}
-
-/// One catalog entry.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct TrellisCatalogEntry {
-    pub id: String,
+pub struct TrellisCatalogResponseCatalogContractsItem {
+    pub description: String,
     pub digest: String,
     #[serde(rename = "displayName")]
     pub display_name: String,
-    pub description: String,
+    pub id: String,
     pub kind: String,
 }
 
-/// Request payload for `Trellis.Contract.Get`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TrellisCatalogResponseCatalog {
+    pub contracts: Vec<TrellisCatalogResponseCatalogContractsItem>,
+    pub format: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TrellisCatalogResponse {
+    pub catalog: TrellisCatalogResponseCatalog,
+}
+
+/// Generated schema type `TrellisContractGetRequest`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TrellisContractGetRequest {
     pub digest: String,
 }
 
-/// Response payload for `Trellis.Contract.Get`.
+/// Generated schema type `TrellisContractGetResponse`.
+/// Generated schema type `TrellisContractGetResponseContract`.
+/// Generated schema type `TrellisContractGetResponseContractResources`.
+/// Generated schema type `TrellisContractGetResponseContractResourcesJobs`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct TrellisContractGetResponse {
-    pub contract: TrellisContract,
+pub struct TrellisContractGetResponseContractResourcesJobs {
+    pub queues: BTreeMap<String, Value>,
 }
 
-/// Canonical contract manifest returned by `Trellis.Contract.Get`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct TrellisContract {
-    pub format: String,
-    pub id: String,
-    #[serde(rename = "displayName")]
-    pub display_name: String,
-    pub description: String,
-    pub kind: String,
+pub struct TrellisContractGetResponseContractResources {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub uses: Option<BTreeMap<String, Value>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub rpc: Option<BTreeMap<String, Value>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub events: Option<BTreeMap<String, Value>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub subjects: Option<BTreeMap<String, Value>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub errors: Option<BTreeMap<String, Value>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub resources: Option<TrellisContractResources>,
-}
-
-/// Resource block embedded in a contract manifest.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct TrellisContractResources {
+    pub jobs: Option<TrellisContractGetResponseContractResourcesJobs>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub kv: Option<BTreeMap<String, Value>>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TrellisContractGetResponseContract {
+    pub description: String,
+    #[serde(rename = "displayName")]
+    pub display_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub errors: Option<BTreeMap<String, Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub events: Option<BTreeMap<String, Value>>,
+    pub format: String,
+    pub id: String,
+    pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resources: Option<TrellisContractGetResponseContractResources>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rpc: Option<BTreeMap<String, Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub schemas: Option<BTreeMap<String, Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subjects: Option<BTreeMap<String, Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub uses: Option<BTreeMap<String, Value>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TrellisContractGetResponse {
+    pub contract: TrellisContractGetResponseContract,
+}
+
