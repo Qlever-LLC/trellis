@@ -86,7 +86,8 @@ jobs:
           set -euo pipefail
           version="${{ inputs.tag || github.ref_name || 'dev' }}"
           target="${{ matrix.target }}"
-          archive="trellis-${version}-${target}.tar.gz"
+          archive_version="${version//\//-}"
+          archive="trellis-${archive_version}-${target}.tar.gz"
           staging="dist/${target}"
           mkdir -p "$staging"
           cp "rust/target/${target}/release/trellis" "$staging/trellis"
