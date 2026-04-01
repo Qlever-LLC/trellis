@@ -80,6 +80,19 @@ export const AuthUpgradeServiceContractResponseSchema = Type.Object({
   resourceBindings: ContractResourceBindingsSchema,
 }, { additionalProperties: false });
 
+export const AuthRemoveServiceSchema = Type.Object({
+  sessionKey: Type.String(),
+  purge: Type.Optional(Type.Boolean()),
+}, { additionalProperties: false });
+export const AuthRemoveServiceResponseSchema = Type.Object({
+  success: Type.Boolean(),
+  sessionKey: Type.String(),
+  purged: Type.Boolean(),
+  wasActive: Type.Boolean(),
+  contractId: Type.Optional(Type.String({ minLength: 1 })),
+  contractDigest: Type.Optional(DigestSchema),
+}, { additionalProperties: false });
+
 export const ContractAnalysisSummarySchema = Type.Object({
   namespaces: Type.Array(Type.String()),
   rpcMethods: Type.Number(),

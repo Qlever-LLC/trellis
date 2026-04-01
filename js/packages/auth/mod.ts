@@ -49,6 +49,8 @@ export {
   AuthListUsersSchema,
   AuthMeResponseSchema,
   AuthMeSchema,
+  AuthRemoveServiceResponseSchema,
+  AuthRemoveServiceSchema,
   AuthRevokeApprovalResponseSchema,
   AuthRevokeApprovalSchema,
   AuthUpdateUserResponseSchema,

@@ -450,7 +450,7 @@ export function connectService<
     contractDigest: contract.CONTRACT_DIGEST,
     server: {
       ...opts.server,
-      api: contract.API.owned,
+      api: contract.API.trellis as unknown as TOwnedApi,
       trellisApi: contract.API.trellis,
     },
   };

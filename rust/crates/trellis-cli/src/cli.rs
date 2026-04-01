@@ -163,6 +163,7 @@ pub enum ServiceSubcommand {
     List,
     Install(ServiceInstallArgs),
     Upgrade(ServiceUpgradeArgs),
+    Remove(ServiceRemoveArgs),
 }
 
 #[derive(Debug, Args, Clone)]
@@ -254,6 +255,18 @@ pub struct ServiceUpgradeArgs {
 
     #[arg(long)]
     pub seed: Option<String>,
+
+    #[arg(short = 'f', long)]
+    pub force: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct ServiceRemoveArgs {
+    #[arg(long)]
+    pub service_key: String,
+
+    #[arg(long)]
+    pub purge: bool,
 
     #[arg(short = 'f', long)]
     pub force: bool,
