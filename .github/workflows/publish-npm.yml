@@ -15,6 +15,7 @@ on:
     paths:
       - ".github/workflows/publish-npm.yml"
       - "js/deno.json"
+      - "js/services/**/deno.json"
       - "js/tools/package_build/**"
       - "js/packages/auth/**"
       - "js/packages/contracts/**"
@@ -25,11 +26,42 @@ on:
       - "js/packages/trellis-svelte/**"
       - "js/services/trellis/contracts/**"
       - "js/services/activity/contracts/**"
+      - "rust/**"
+      - "scripts/**"
 
 jobs:
+  cli:
+    name: Build trellis CLI once
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      - name: Build trellis CLI
+        run: cargo build -p trellis-cli --locked
+        working-directory: rust
+
+      - name: Upload CLI binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: trellis-cli
+          path: rust/target/debug/trellis
+
   build:
     name: Build npm packages
     runs-on: ubuntu-latest
+    needs: cli
     permissions:
       contents: read
 
@@ -46,6 +78,19 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24
+
+      - name: Download trellis CLI
+        uses: actions/download-artifact@v4
+        with:
+          name: trellis-cli
+          path: /tmp/trellis-cli
+
+      - name: Use downloaded CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x /tmp/trellis-cli/trellis
+          echo "TRELLIS_CLI_BIN=/tmp/trellis-cli/trellis" >> "$GITHUB_ENV"
 
       - name: Build publishable npm packages
         run: deno task build:npm
@@ -130,6 +175,19 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
+
+      - name: Download trellis CLI
+        uses: actions/download-artifact@v4
+        with:
+          name: trellis-cli
+          path: /tmp/trellis-cli
+
+      - name: Use downloaded CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x /tmp/trellis-cli/trellis
+          echo "TRELLIS_CLI_BIN=/tmp/trellis-cli/trellis" >> "$GITHUB_ENV"
 
       - name: Build publishable npm packages
         run: deno task build:npm
