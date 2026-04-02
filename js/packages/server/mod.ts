@@ -34,8 +34,6 @@ export type {
 export {
   connectService,
   KVHandle,
-  type ResourceBindingJobs,
-  type ResourceBindingJobsQueue,
   type ResourceBindingKV,
   type ResourceBindingStream,
   type ResourceBindings,

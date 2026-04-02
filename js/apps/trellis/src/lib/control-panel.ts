@@ -26,7 +26,6 @@ const navSections: NavSection[] = [
     adminOnly: true,
     items: [
       { href: "/admin", label: "Overview" },
-      { href: "/admin/jobs", label: "Jobs" },
       { href: "/admin/users", label: "Users" },
       { href: "/admin/sessions", label: "Sessions" },
       { href: "/admin/services", label: "Services" },
@@ -39,7 +38,6 @@ const navSections: NavSection[] = [
 const routeTitles: Record<string, string> = {
   "/profile": "Profile",
   "/admin": "Overview",
-  "/admin/jobs": "Jobs",
   "/admin/users": "Users",
   "/admin/sessions": "Sessions",
   "/admin/services": "Services",

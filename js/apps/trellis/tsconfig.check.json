@@ -1,17 +1,12 @@
 {
   "extends": "./tsconfig.json",
-  "exclude": [
-    "src/**/*.test.ts"
-  ],
   "compilerOptions": {
     "paths": {
       "@qlever-llc/trellis-auth": ["../../packages/auth/mod.ts"],
       "@qlever-llc/trellis-contracts": ["../../packages/contracts/mod.ts"],
       "@qlever-llc/trellis-contracts/*": ["../../packages/contracts/*"],
-      "@qlever-llc/trellis-jobs": ["../../packages/jobs/mod.ts"],
       "@qlever-llc/trellis-result": ["../../packages/result/mod.ts"],
       "@qlever-llc/trellis-sdk-auth": ["../../../generated/js/sdks/auth/mod.ts"],
-      "@qlever-llc/trellis-sdk-jobs": ["../../../generated/js/sdks/jobs/mod.ts"],
       "@qlever-llc/trellis-server": ["../../packages/server/mod.ts"],
       "@qlever-llc/trellis-svelte": ["../../packages/trellis-svelte/src/index.ts"],
       "@qlever-llc/trellis-telemetry": ["../../packages/telemetry/mod.ts"],
