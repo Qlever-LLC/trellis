@@ -103,6 +103,12 @@ async fn main() -> miette::Result<()> {
                 .await?
             }
         },
+        TopLevelCommand::Generate(command) => match command.command {
+            GenerateSubcommand::Manifest(args) => generate_manifest_command(&args)?,
+            GenerateSubcommand::Ts(args) => generate_ts_sdk_command(&args)?,
+            GenerateSubcommand::Rust(args) => generate_rust_sdk_command(&args)?,
+            GenerateSubcommand::All(args) => generate_all_command(&args)?,
+        },
         TopLevelCommand::Contracts(command) => match command.command {
             ContractsSubcommand::Build(args) => build_contract_command(&args)?,
             ContractsSubcommand::Verify(args) => verify_manifest_command(format, &args)?,
@@ -374,58 +380,134 @@ fn build_contract_command(args: &BuildContractArgs) -> miette::Result<()> {
         default_image_contract_path(),
     )?;
     let owner_version = required_owner_version(&resolved, "build SDKs from contract source")?;
-    let runtime_version = owner_version.clone();
+    write_contract_outputs(
+        &resolved,
+        Some(owner_version),
+        &args.out_manifest,
+        args.ts_out.as_deref(),
+        args.rust_out.as_deref(),
+        args.package_name.as_ref(),
+        args.crate_name.as_ref(),
+        args.runtime_source,
+        args.runtime_repo_root.clone(),
+        "generated contract artifacts",
+    )
+}
 
-    if let Some(parent) = args.out_manifest.parent() {
+fn generate_all_command(args: &GenerateAllArgs) -> miette::Result<()> {
+    let resolved = resolve_contract_input(
+        args.contract.manifest.as_deref(),
+        args.contract.source.as_deref(),
+        args.contract.image.as_deref(),
+        &args.contract.source_export,
+        &args.contract.image_contract_path,
+    )?;
+    let artifact_version = args
+        .artifact_version
+        .clone()
+        .or(resolved.owner_version.clone())
+        .ok_or_else(|| {
+            miette::miette!(
+                "cannot generate all artifacts: no version could be inferred; pass --artifact-version when using --manifest or --image"
+            )
+        })?;
+    write_contract_outputs(
+        &resolved,
+        Some(artifact_version),
+        &args.out_manifest,
+        args.ts_out.as_deref(),
+        args.rust_out.as_deref(),
+        args.package_name.as_ref(),
+        args.crate_name.as_ref(),
+        args.runtime_source,
+        args.runtime_repo_root.clone(),
+        "generated contract artifacts",
+    )
+}
+
+fn generate_manifest_command(args: &GenerateManifestArgs) -> miette::Result<()> {
+    let resolved = resolve_contract_input(
+        args.contract.manifest.as_deref(),
+        args.contract.source.as_deref(),
+        args.contract.image.as_deref(),
+        &args.contract.source_export,
+        &args.contract.image_contract_path,
+    )?;
+
+    if let Some(parent) = args.out.parent() {
         fs::create_dir_all(parent).into_diagnostic()?;
     }
-    fs::write(
-        &args.out_manifest,
-        format!("{}\n", resolved.loaded.canonical),
-    )
-    .into_diagnostic()?;
+    fs::write(&args.out, format!("{}\n", resolved.loaded.canonical)).into_diagnostic()?;
 
-    if let Some(ts_out) = &args.ts_out {
+    output::print_success(&format!(
+        "generated canonical manifest for {}",
+        resolved.loaded.manifest.id
+    ));
+    output::print_info(&format!("manifest={}", args.out.display()));
+    output::print_info(&format!("digest={}", resolved.loaded.digest));
+    Ok(())
+}
+
+fn write_contract_outputs(
+    resolved: &contract_input::ResolvedContractInput,
+    artifact_version: Option<String>,
+    out_manifest: &Path,
+    ts_out: Option<&Path>,
+    rust_out: Option<&Path>,
+    package_name: Option<&String>,
+    crate_name: Option<&String>,
+    runtime_source: RustRuntimeSource,
+    runtime_repo_root: Option<PathBuf>,
+    success_message: &str,
+) -> miette::Result<()> {
+    let runtime_version = artifact_version
+        .or_else(|| resolved.owner_version.clone())
+        .ok_or_else(|| {
+            miette::miette!(
+                "cannot generate contract artifacts: no version could be inferred; pass --artifact-version when using --manifest or --image"
+            )
+        })?;
+
+    if let Some(parent) = out_manifest.parent() {
+        fs::create_dir_all(parent).into_diagnostic()?;
+    }
+    fs::write(out_manifest, format!("{}\n", resolved.loaded.canonical)).into_diagnostic()?;
+
+    if let Some(ts_out) = ts_out {
         generate_ts_sdk(&GenerateTsSdkOpts {
-            manifest_path: args.out_manifest.clone(),
-            out_dir: ts_out.clone(),
-            package_name: args
-                .package_name
-                .clone()
+            manifest_path: out_manifest.to_path_buf(),
+            out_dir: ts_out.to_path_buf(),
+            package_name: package_name
+                .cloned()
                 .unwrap_or_else(|| default_ts_package_name_from_id(&resolved.loaded.manifest.id)),
-            package_version: owner_version.clone(),
+            package_version: runtime_version.clone(),
             runtime_deps: ts_runtime_deps(
-                args.runtime_source,
+                runtime_source,
                 runtime_version.clone(),
-                args.runtime_repo_root.clone(),
+                runtime_repo_root.clone(),
             ),
         })
         .into_diagnostic()?;
     }
 
-    if let Some(rust_out) = &args.rust_out {
+    if let Some(rust_out) = rust_out {
         generate_rust_sdk(&GenerateRustSdkOpts {
-            manifest_path: args.out_manifest.clone(),
-            out_dir: rust_out.clone(),
-            crate_name: args
-                .crate_name
-                .clone()
+            manifest_path: out_manifest.to_path_buf(),
+            out_dir: rust_out.to_path_buf(),
+            crate_name: crate_name
+                .cloned()
                 .unwrap_or_else(|| default_rust_crate_name_from_id(&resolved.loaded.manifest.id)),
-            crate_version: owner_version.clone(),
-            runtime_deps: rust_runtime_deps(
-                args.runtime_source,
-                runtime_version,
-                args.runtime_repo_root.clone(),
-            ),
+            crate_version: runtime_version.clone(),
+            runtime_deps: rust_runtime_deps(runtime_source, runtime_version, runtime_repo_root),
         })
         .into_diagnostic()?;
     }
 
     output::print_success(&format!(
-        "generated contract artifacts for {}",
-        resolved.loaded.manifest.id
+        "{} for {}",
+        success_message, resolved.loaded.manifest.id
     ));
-    output::print_info(&format!("manifest={}", args.out_manifest.display()));
+    output::print_info(&format!("manifest={}", out_manifest.display()));
     output::print_info(&format!("digest={}", resolved.loaded.digest));
     Ok(())
 }
@@ -579,13 +661,21 @@ fn generate_ts_sdk_command(args: &GenerateTsSdkArgs) -> miette::Result<()> {
         .package_name
         .clone()
         .unwrap_or_else(|| default_ts_package_name_from_id(&resolved.loaded.manifest.id));
-    let owner_version = required_owner_version(&resolved, "generate a TypeScript SDK")?;
-    let runtime_version = owner_version.clone();
+    let artifact_version = args
+        .artifact_version
+        .clone()
+        .or(resolved.owner_version.clone())
+        .ok_or_else(|| {
+            miette::miette!(
+                "cannot generate a TypeScript SDK: no version could be inferred; pass --artifact-version when using --manifest or --image"
+            )
+        })?;
+    let runtime_version = artifact_version.clone();
     generate_ts_sdk(&GenerateTsSdkOpts {
         manifest_path: resolved.manifest_path.clone(),
         out_dir: args.out.clone(),
         package_name,
-        package_version: owner_version,
+        package_version: artifact_version,
         runtime_deps: ts_runtime_deps(
             args.runtime_source,
             runtime_version,
@@ -612,13 +702,21 @@ fn generate_rust_sdk_command(args: &GenerateRustSdkArgs) -> miette::Result<()> {
         .crate_name
         .clone()
         .unwrap_or_else(|| default_rust_crate_name_from_id(&resolved.loaded.manifest.id));
-    let owner_version = required_owner_version(&resolved, "generate a Rust SDK")?;
-    let runtime_version = owner_version.clone();
+    let artifact_version = args
+        .artifact_version
+        .clone()
+        .or(resolved.owner_version.clone())
+        .ok_or_else(|| {
+            miette::miette!(
+                "cannot generate a Rust SDK: no version could be inferred; pass --artifact-version when using --manifest or --image"
+            )
+        })?;
+    let runtime_version = artifact_version.clone();
     generate_rust_sdk(&GenerateRustSdkOpts {
         manifest_path: resolved.manifest_path.clone(),
         out_dir: args.out.clone(),
         crate_name,
-        crate_version: owner_version,
+        crate_version: artifact_version,
         runtime_deps: rust_runtime_deps(
             args.runtime_source,
             runtime_version,

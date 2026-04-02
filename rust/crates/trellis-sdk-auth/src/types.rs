@@ -443,7 +443,8 @@ pub struct AuthListInstalledContractsResponseContractsItemResourceBindingsJobs {
     pub namespace: String,
     pub queues: BTreeMap<String, Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub registry: Option<AuthListInstalledContractsResponseContractsItemResourceBindingsJobsRegistry>,
+    pub registry:
+        Option<AuthListInstalledContractsResponseContractsItemResourceBindingsJobsRegistry>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -770,4 +771,3 @@ pub struct AuthDisconnectEvent(pub Value);
 /// Generated schema type `AuthSessionRevokedEvent`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthSessionRevokedEvent(pub Value);
-

@@ -1,13 +1,19 @@
+import { UnexpectedError, ValidationError } from "@qlever-llc/trellis";
+import type {
+  InstalledContractDetailSchema,
+  InstalledContractSchema,
+} from "@qlever-llc/trellis-auth";
 import type {
   ContractResources,
   TrellisContractV1,
 } from "@qlever-llc/trellis-contracts";
 import { isJsonValue } from "@qlever-llc/trellis-contracts";
 import { isErr, Result } from "@qlever-llc/trellis-result";
-import { UnexpectedError, ValidationError } from "@qlever-llc/trellis";
+import type { Static } from "typebox";
 import { Value } from "typebox/value";
 import type { TrellisCatalog } from "../../../packages/trellis/models/trellis/rpc/TrellisCatalog.ts";
 import { TrellisCatalogSchema } from "../../../packages/trellis/models/trellis/rpc/TrellisCatalog.ts";
+import type { TrellisContractGetResponse } from "../../../packages/trellis/models/trellis/rpc/TrellisContractGet.ts";
 import {
   contractsKV,
   logger,
@@ -484,7 +490,9 @@ export function createTrellisCatalogHandler(contractStore: ContractStore) {
 }
 
 export function createTrellisContractGetHandler(contractStore: ContractStore) {
-  return async (req: DigestRequest) => {
+  return async (
+    req: DigestRequest,
+  ): Promise<Result<TrellisContractGetResponse, ValidationError>> => {
     logger.trace(
       { rpc: "Trellis.Contract.Get", digest: req.digest },
       "RPC request",
@@ -498,7 +506,9 @@ export function createTrellisContractGetHandler(contractStore: ContractStore) {
         }),
       );
     }
-    return Result.ok({ contract });
+    return Result.ok({
+      contract: contract as unknown as TrellisContractGetResponse["contract"],
+    });
   };
 }
 
@@ -554,9 +564,12 @@ export const trellisBindingsGetHandler = async (
   });
 };
 
+type InstalledContract = Static<typeof InstalledContractSchema>;
+type InstalledContractDetail = Static<typeof InstalledContractDetailSchema>;
+
 export const authListInstalledContractsHandler = async (
   req: ListInstalledContractsRequest,
-) => {
+): Promise<Result<{ contracts: InstalledContract[] }, UnexpectedError>> => {
   logger.trace({
     rpc: "Auth.ListInstalledContracts",
     sessionKey: req.sessionKey,
@@ -571,17 +584,20 @@ export const authListInstalledContractsHandler = async (
     const entry = (await contractsKV.get(digest)).take();
     if (isErr(entry)) continue;
     if (req.sessionKey && entry.value.sessionKey !== req.sessionKey) continue;
-    contracts.push({
-      digest,
-      id: entry.value.id,
-      displayName: entry.value.displayName,
-      description: entry.value.description,
-      kind: entry.value.kind,
-      sessionKey: entry.value.sessionKey,
-      installedAt: entry.value.installedAt.toISOString(),
-      analysisSummary: entry.value.analysisSummary,
-      resourceBindings: entry.value.resourceBindings,
-    });
+    contracts.push(
+      {
+        digest,
+        id: entry.value.id,
+        displayName: entry.value.displayName,
+        description: entry.value.description,
+        kind: entry.value.kind,
+        sessionKey: entry.value.sessionKey,
+        installedAt: entry.value.installedAt.toISOString(),
+        analysisSummary: entry.value
+          .analysisSummary as InstalledContract["analysisSummary"],
+        resourceBindings: entry.value.resourceBindings,
+      } satisfies InstalledContract,
+    );
   }
 
   contracts.sort((left, right) =>
@@ -590,7 +606,9 @@ export const authListInstalledContractsHandler = async (
   return Result.ok({ contracts });
 };
 
-export const authGetInstalledContractHandler = async (req: DigestRequest) => {
+export const authGetInstalledContractHandler = async (
+  req: DigestRequest,
+): Promise<Result<{ contract: InstalledContractDetail }, ValidationError>> => {
   logger.trace(
     { rpc: "Auth.GetInstalledContract", digest: req.digest },
     "RPC request",
@@ -628,11 +646,12 @@ export const authGetInstalledContractHandler = async (req: DigestRequest) => {
       kind: entry.value.kind,
       sessionKey: entry.value.sessionKey,
       installedAt: entry.value.installedAt.toISOString(),
-      analysisSummary: entry.value.analysisSummary,
-      analysis: entry.value.analysis,
-      resources: entry.value.resources,
+      analysisSummary: entry.value
+        .analysisSummary as InstalledContractDetail["analysisSummary"],
+      analysis: entry.value.analysis as InstalledContractDetail["analysis"],
+      resources: entry.value.resources as InstalledContractDetail["resources"],
       resourceBindings: entry.value.resourceBindings,
-      contract: contractUnknown as Record<string, unknown>,
+      contract: contractUnknown as InstalledContractDetail["contract"],
     },
   });
 };

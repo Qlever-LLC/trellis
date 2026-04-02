@@ -9,11 +9,13 @@ conformance/    Shared JS/Rust test vectors (canonical JSON, auth proofs)
 guides/         Trellis documentation site (SvelteKit static site, published to GitHub Pages)
 js/             TypeScript packages, services, and apps (Deno workspace)
 rust/           Rust crates (CLI, codegen, client/server, contract model)
-generated/      Machine-generated manifests and SDKs (do not hand-edit)
+generated/      Derived manifests and SDKs (ignored; regenerate with `trellis generate`)
+docs/           Supporting docs, including generated artifact guidance
 deploy/         Deployment assets, including quadlets and NATS templates
 design/         Architecture decision records and design docs
-docs/           Supporting docs
 ```
+
+See `docs/generated-artifacts.md` for regeneration details.
 
 ## Key concepts
 

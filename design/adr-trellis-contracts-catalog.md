@@ -65,7 +65,8 @@ The canonical source of truth for runtime and tooling is the authored contract d
 
 For repository layout and tooling boundaries, Trellis treats generated
 `trellis.contract.v1` JSON as a release and exchange artifact, not as a committed
-source file.
+source file. CI and release workflows should regenerate it from authored source
+rather than review or ship it from git history.
 
 - services may author contracts in their native language
 - those authoring helpers are first-class workflow inputs, not hidden implementation details

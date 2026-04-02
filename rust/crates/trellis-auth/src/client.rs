@@ -1,11 +1,11 @@
+use crate::{
+    save_admin_session, AdminSessionState, ApprovalEntryRecord, AuthenticatedUser, BoundSession,
+    ServiceListEntry, TrellisAuthError,
+};
 use trellis_client::{TrellisClient, UserConnectOptions};
 use trellis_sdk_auth::{
     AuthClient as AuthApiClient, ListApprovalsRequest, RenewBindingTokenResponse,
     RevokeApprovalRequest,
-};
-use crate::{
-    save_admin_session, AdminSessionState, ApprovalEntryRecord, AuthenticatedUser,
-    BoundSession, ServiceListEntry, TrellisAuthError,
 };
 
 /// Connect an authenticated admin client from the stored session state.

@@ -6,9 +6,7 @@ mod error;
 mod models;
 mod session_store;
 
-pub use browser_login::{
-    build_auth_login_url, generate_session_keypair, start_browser_login,
-};
+pub use browser_login::{build_auth_login_url, generate_session_keypair, start_browser_login};
 pub use client::{connect_admin_client_async, persist_renewed_admin_session, AuthClient};
 pub use error::TrellisAuthError;
 pub use models::{

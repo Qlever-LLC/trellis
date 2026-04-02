@@ -41,8 +41,23 @@ pub enum TopLevelCommand {
     Bootstrap(BootstrapCommand),
     Keygen(KeygenArgs),
     Service(ServiceCommand),
+    Generate(GenerateCommand),
     Contracts(ContractsCommand),
     Sdk(SdkCommand),
+}
+
+#[derive(Debug, Args)]
+pub struct GenerateCommand {
+    #[command(subcommand)]
+    pub command: GenerateSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum GenerateSubcommand {
+    Manifest(GenerateManifestArgs),
+    Ts(GenerateTsSdkArgs),
+    Rust(GenerateRustSdkArgs),
+    All(GenerateAllArgs),
 }
 
 #[derive(Debug, Args)]
@@ -167,6 +182,45 @@ pub struct ContractInputArgs {
 
     #[arg(long, default_value = "/trellis/contract.json")]
     pub image_contract_path: String,
+}
+
+#[derive(Debug, Args)]
+pub struct GenerateManifestArgs {
+    #[command(flatten)]
+    pub contract: ContractInputArgs,
+
+    #[arg(long)]
+    pub out: PathBuf,
+}
+
+#[derive(Debug, Args)]
+pub struct GenerateAllArgs {
+    #[command(flatten)]
+    pub contract: ContractInputArgs,
+
+    #[arg(long)]
+    pub out_manifest: PathBuf,
+
+    #[arg(long)]
+    pub artifact_version: Option<String>,
+
+    #[arg(long)]
+    pub ts_out: Option<PathBuf>,
+
+    #[arg(long)]
+    pub rust_out: Option<PathBuf>,
+
+    #[arg(long)]
+    pub package_name: Option<String>,
+
+    #[arg(long)]
+    pub crate_name: Option<String>,
+
+    #[arg(long, value_enum, default_value = "registry")]
+    pub runtime_source: RustRuntimeSource,
+
+    #[arg(long)]
+    pub runtime_repo_root: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -337,6 +391,7 @@ pub struct GenerateSdkCommand {
 pub enum GenerateSdkTarget {
     Ts(GenerateTsSdkArgs),
     Rust(GenerateRustSdkArgs),
+    #[command(hide = true)]
     Facade(GenerateRustParticipantFacadeArgs),
     All(GenerateAllSdkArgs),
 }
@@ -348,6 +403,9 @@ pub struct GenerateTsSdkArgs {
 
     #[arg(long)]
     pub out: PathBuf,
+
+    #[arg(long)]
+    pub artifact_version: Option<String>,
 
     #[arg(long)]
     pub package_name: Option<String>,
@@ -366,6 +424,9 @@ pub struct GenerateRustSdkArgs {
 
     #[arg(long)]
     pub out: PathBuf,
+
+    #[arg(long)]
+    pub artifact_version: Option<String>,
 
     #[arg(long)]
     pub crate_name: Option<String>,

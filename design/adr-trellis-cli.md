@@ -27,6 +27,9 @@ and inconsistent with the source-first contract architecture.
 Trellis uses a Rust `trellis` CLI as the only supported contract and SDK build
 entrypoint.
 
+The preferred source-to-artifact interface is `trellis generate`; the existing
+`contracts` and `sdk` command trees remain compatibility aliases for now.
+
 The CLI works from contract sources during development and from release artifacts
 during install and upgrade. Canonical `trellis.contract.v1` JSON remains an
 exchange artifact, but it is generated output rather than a committed source file.
@@ -37,12 +40,13 @@ exchange artifact, but it is generated output rather than a committed source fil
 trellis <command> [subcommand] [options]
 ```
 
-### Contract commands
+### Generate commands
 
 ```text
-trellis contracts build --source <file> --out-manifest <file> [--ts-out <dir>] [--rust-out <dir>]
-trellis contracts verify (--source <file> | --manifest <file> | --image <ref>)
-trellis contracts verify-live --servers <servers> --creds <path> --session-seed <seed> [--limit <n>]
+trellis generate manifest (--source <file> | --manifest <file> | --image <ref>) --out <file>
+trellis generate ts (--source <file> | --manifest <file> | --image <ref>) --out <dir>
+trellis generate rust (--source <file> | --manifest <file> | --image <ref>) --out <dir>
+trellis generate all --source <file> --out-manifest <file> [--ts-out <dir>] [--rust-out <dir>]
 ```
 
 Responsibilities:
@@ -50,24 +54,27 @@ Responsibilities:
 - resolve contract inputs from source modules, generated manifests, or OCI images
 - validate canonical manifests against `trellis.contract.v1`
 - compute canonical JSON and digests
-- keep the old live digest verification behavior under the main CLI
-
-### SDK commands
-
-```text
-trellis sdk generate ts (--source <file> | --manifest <file> | --image <ref>) --out <dir>
-trellis sdk generate rust (--source <file> | --manifest <file> | --image <ref>) --out <dir>
-trellis sdk generate all (--source <file> | --manifest <file> | --image <ref>) --ts-out <dir> --rust-out <dir>
-```
-
-The CLI may also accept explicit package/crate naming flags when the default name
-inference is not enough for a repository.
-
-Responsibilities:
 
 - generate language SDKs from resolved contract inputs
 - preserve the current TS generated surface where practical
 - generate initial Rust SDK crates targeting `trellis-client` and `trellis-server`
+- keep the old live digest verification behavior under the main CLI
+- when generating from a manifest or image outside a versioned workspace, accept an explicit `--artifact-version`
+
+Legacy compatibility commands remain available for verification and packaging:
+
+```text
+trellis contracts build --source <file> --out-manifest <file> [--ts-out <dir>] [--rust-out <dir>]
+trellis contracts verify (--source <file> | --manifest <file> | --image <ref>)
+trellis contracts verify-live --servers <servers> --creds <path> --session-seed <seed> [--limit <n>]
+trellis sdk generate facade ...
+```
+
+The legacy `trellis contracts ...` and `trellis sdk ...` commands remain as
+compatibility aliases until downstream repos migrate.
+
+The CLI may also accept explicit package/crate naming flags when the default name
+inference is not enough for a repository.
 
 ### Operational commands
 
@@ -116,7 +123,7 @@ The developer-facing CLI boundary is the contract source.
 - operators may install or upgrade from generated manifests or OCI images that embed `/trellis/contract.json`
 - OCI images may override that default path with the `io.trellis.contract.path` label
 
-`generated/` contains derived manifests and SDKs only.
+`generated/` contains derived manifests and SDKs only, and is ignored by git.
 
 ## Implementation
 
@@ -139,9 +146,11 @@ logic lives in dedicated Rust crates:
 - `trellis-client`
 - `trellis-server`
 - generated SDK crates for Trellis-owned contracts such as `trellis-sdk-core` and `trellis-sdk-auth`
-- a generated local participant facade crate for the CLI (`trellis-cli-participant`), built from the CLI participant manifest plus explicit alias-to-SDK mappings
+- a generated local crate for the CLI (`trellis-cli-participant`), built from the CLI participant manifest plus explicit alias-to-SDK mappings
 
-The CLI's own runtime contract access should primarily flow through that participant facade rather than by wiring multiple SDK clients directly inside the CLI binary.
+The CLI's own runtime contract access should primarily flow through that generated crate rather than by wiring multiple SDK clients directly inside the CLI binary.
+
+CI should build the CLI once when possible and reuse that binary for repeated generation steps inside a workflow.
 
 ## Consequences
 

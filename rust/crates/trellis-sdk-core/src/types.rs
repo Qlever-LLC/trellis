@@ -129,4 +129,3 @@ pub struct TrellisContractGetResponseContract {
 pub struct TrellisContractGetResponse {
     pub contract: TrellisContractGetResponseContract,
 }
-

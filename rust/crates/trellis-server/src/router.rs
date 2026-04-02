@@ -43,8 +43,8 @@ impl Router {
             Box::new(
                 move |ctx, payload| -> BoxFuture<'static, Result<Bytes, ServerError>> {
                     let handler = Arc::clone(&handler);
-                    let input = serde_json::from_slice::<D::Input>(&payload)
-                        .map_err(ServerError::Json);
+                    let input =
+                        serde_json::from_slice::<D::Input>(&payload).map_err(ServerError::Json);
                     Box::pin(async move {
                         let input = input?;
                         let output = handler(ctx, input).await?;

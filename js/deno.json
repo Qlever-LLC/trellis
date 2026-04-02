@@ -22,7 +22,7 @@
     "check": "deno task build:sdk && deno check packages/trellis/index.ts packages/trellis-svelte/src/context.svelte.ts packages/trellis-svelte/src/state/auth.svelte.ts packages/trellis-svelte/src/state/nats.svelte.ts packages/trellis-svelte/src/state/trellis.svelte.ts services/trellis/main.ts",
     "test:contracts": "deno task build:sdk && deno test -A packages/contracts/source_emission_test.ts packages/contracts/conformance_test.ts services/trellis/contracts_store.test.ts services/trellis/permissions.test.ts",
     "test:auth": "deno task build:sdk && deno test -A packages/auth/conformance_test.ts packages/auth/session_auth_test.ts services/trellis",
-    "trellis": "cargo run --manifest-path ../rust/Cargo.toml -p trellis-cli --bin trellis --"
+    "trellis": "bash ../scripts/trellis-cli.sh"
   },
   "imports": {
     "@hono/hono": "jsr:@hono/hono@^4.9.8",

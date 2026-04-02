@@ -77,70 +77,47 @@ fn contracts_build_emits_generated_manifest_from_source() {
 }
 
 #[test]
-fn sdk_generate_facade_emits_buildable_participant_crate() {
+fn generate_all_emits_buildable_sdk_packages() {
     let temp_dir = tempfile::tempdir().expect("temp dir");
-    let out_dir = temp_dir.path().join("participant");
-    let cli_manifest = temp_dir.path().join("trellis.cli@v1.json");
-    let auth_manifest = temp_dir.path().join("trellis.auth@v1.json");
-    let core_manifest = temp_dir.path().join("trellis.core@v1.json");
-    let repo_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..");
+    let source_path = temp_dir.path().join("contract.ts");
+    let manifest_path = temp_dir.path().join("trellis.cli@v1.json");
+    let ts_out = temp_dir.path().join("ts");
+    let rust_out = temp_dir.path().join("rust");
 
     std::fs::write(
         temp_dir.path().join("deno.json"),
         "{\n  \"version\": \"0.4.0\"\n}\n",
     )
     .expect("write fixture deno manifest");
+    std::fs::write(
+        &source_path,
+        format!(
+            "export const CONTRACT = {}\n",
+            trellis_cli::cli_contract::cli_contract_json()
+        ),
+    )
+    .expect("write fixture contract source");
 
-    std::fs::write(
-        &cli_manifest,
-        format!("{}\n", trellis_cli::cli_contract::cli_contract_json()),
-    )
-    .expect("write cli manifest");
-    std::fs::write(
-        &auth_manifest,
-        format!("{}\n", trellis_sdk_auth::contract::CONTRACT_JSON),
-    )
-    .expect("write auth manifest");
-    std::fs::write(
-        &core_manifest,
-        format!("{}\n", trellis_sdk_core::contract::CONTRACT_JSON),
-    )
-    .expect("write core manifest");
     let output = Command::new(env!("CARGO_BIN_EXE_trellis"))
         .args([
-            "sdk",
             "generate",
-            "facade",
-            "--manifest",
-            cli_manifest.to_str().expect("cli manifest path"),
-            "--out",
-            out_dir.to_str().expect("out dir"),
-            "--use-sdk",
-            &format!(
-                "auth=trellis-sdk-auth={}={}",
-                auth_manifest.to_str().expect("auth manifest path"),
-                repo_root
-                    .join("rust/crates/trellis-sdk-auth")
-                    .to_str()
-                    .expect("auth crate path")
-            ),
-            "--use-sdk",
-            &format!(
-                "core=trellis-sdk-core={}={}",
-                core_manifest.to_str().expect("core manifest path"),
-                repo_root
-                    .join("rust/crates/trellis-sdk-core")
-                    .to_str()
-                    .expect("core crate path")
-            ),
-            "--runtime-source",
-            "local",
-            "--runtime-repo-root",
-            repo_root.to_str().expect("repo root path"),
+            "all",
+            "--source",
+            source_path.to_str().expect("source path"),
+            "--out-manifest",
+            manifest_path.to_str().expect("manifest path"),
+            "--ts-out",
+            ts_out.to_str().expect("ts out path"),
+            "--rust-out",
+            rust_out.to_str().expect("rust out path"),
+            "--package-name",
+            "@qlever-llc/trellis-sdk-cli-test",
+            "--crate-name",
+            "trellis-sdk-cli-test",
         ])
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .output()
-        .expect("run trellis sdk generate facade");
+        .expect("run trellis generate all");
 
     assert!(
         output.status.success(),
@@ -148,27 +125,36 @@ fn sdk_generate_facade_emits_buildable_participant_crate() {
         String::from_utf8_lossy(&output.stderr)
     );
 
+    for relative in ["mod.ts", "api.ts", "contract.ts", "schemas.ts", "types.ts"] {
+        assert!(ts_out.join(relative).exists(), "missing {relative}");
+    }
+
     for relative in [
-        "build.rs",
+        "Cargo.toml",
         "src/lib.rs",
-        "src/connect.rs",
         "src/contract.rs",
-        "trellis.cli@v1.json",
-        "contracts/auth.json",
-        "contracts/core.json",
+        "src/client.rs",
+        "src/server.rs",
+        "src/rpc.rs",
+        "src/events.rs",
+        "src/subjects.rs",
+        "src/types.rs",
     ] {
-        assert!(out_dir.join(relative).exists(), "missing {relative}");
+        assert!(rust_out.join(relative).exists(), "missing {relative}");
     }
 
     let cargo = Command::new("cargo")
         .args(["check"])
-        .current_dir(&out_dir)
+        .current_dir(&rust_out)
         .output()
-        .expect("run cargo check for generated facade");
+        .expect("run cargo check for generated sdk crate");
 
     assert!(
         cargo.status.success(),
         "{}",
         String::from_utf8_lossy(&cargo.stderr)
     );
+
+    let emitted = std::fs::read_to_string(&manifest_path).expect("read emitted manifest");
+    assert!(emitted.contains("trellis.cli@v1"));
 }

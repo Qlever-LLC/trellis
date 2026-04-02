@@ -335,7 +335,11 @@ impl BrowserLoginChallenge {
         let client = connect_admin_client_async(&state).await?;
         let auth_client = AuthClient::new(&client);
         let user = auth_client.me().await?;
-        if !user.capabilities.iter().any(|capability| capability == "admin") {
+        if !user
+            .capabilities
+            .iter()
+            .any(|capability| capability == "admin")
+        {
             return Err(TrellisAuthError::NotAdmin);
         }
         auth_client.renew_binding_token(&mut state).await?;
