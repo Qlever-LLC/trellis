@@ -106,6 +106,7 @@ export async function getApprovalResolution(
   };
 }
 
+
 export function getCookie(c: CookieContext, name: string): string | null {
   const header = c.req.header("Cookie");
   if (!header) return null;

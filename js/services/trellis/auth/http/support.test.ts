@@ -1,5 +1,6 @@
 import { assertEquals } from "@std/assert";
 
+import { getApprovalResolutionErrorMessage } from "./approval_errors.ts";
 import { renderLoginPage } from "./pages.ts";
 
 Deno.test("renderLoginPage lists configured providers and preserves signed query params", () => {
@@ -24,4 +25,15 @@ Deno.test("renderLoginPage lists configured providers and preserves signed query
   assertEquals(html.includes("sessionKey=session-key"), true);
   assertEquals(html.includes("sig=sig-value"), true);
   assertEquals(html.includes("contract=encoded-contract"), true);
+});
+
+Deno.test("getApprovalResolutionErrorMessage explains inactive contract dependencies", () => {
+  const message = getApprovalResolutionErrorMessage(
+    new Error("Dependency 'jobs' references inactive contract 'trellis.jobs@v1'"),
+  );
+
+  assertEquals(
+    message,
+    "Requested app depends on inactive contract 'trellis.jobs@v1'. Install or upgrade that service before logging in.",
+  );
 });

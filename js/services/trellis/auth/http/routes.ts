@@ -21,6 +21,7 @@ import {
   usersKV,
 } from "../../bootstrap/globals.ts";
 import { renderApprovalPage, renderLoginPage } from "./pages.ts";
+import { getApprovalResolutionErrorMessage } from "./approval_errors.ts";
 import {
   buildFragmentRedirect,
   type CookieContext,
@@ -57,6 +58,19 @@ export function registerHttpRoutes(
 ): void {
   const config = getConfig();
   const providers = opts.providers ?? createProviders(config);
+
+  async function requireApprovalResolution(pending: PendingAuth) {
+    try {
+      return await getApprovalResolution(opts.contractStore, pending);
+    } catch (error) {
+      const message = getApprovalResolutionErrorMessage(error);
+      if (message) {
+        throw new HTTPException(409, { message });
+      }
+      throw error;
+    }
+  }
+
   if (config.web.origins.length > 0) {
     app.use(
       "/auth/*",
@@ -290,7 +304,7 @@ export function registerHttpRoutes(
       throw new HTTPException(500, { message: "Failed to store auth token" });
     }
 
-    const resolution = await getApprovalResolution(opts.contractStore, pending);
+    const resolution = await requireApprovalResolution(pending);
     if (resolution.missingCapabilities.length > 0) {
       return new Response(
         renderApprovalPage({
@@ -326,7 +340,7 @@ export function registerHttpRoutes(
       throw new HTTPException(400, { message: "Invalid or expired authToken" });
     }
     const pending = (pendingEntry as PendingAuthEntry).value;
-    const resolution = await getApprovalResolution(opts.contractStore, pending);
+    const resolution = await requireApprovalResolution(pending);
 
     const status = resolution.missingCapabilities.length > 0
       ? "insufficient_capabilities"
@@ -363,7 +377,7 @@ export function registerHttpRoutes(
       throw new HTTPException(400, { message: "Invalid or expired authToken" });
     }
     const pending = pendingEntry as PendingAuthEntry;
-    const resolution = await getApprovalResolution(opts.contractStore, pending.value);
+    const resolution = await requireApprovalResolution(pending.value);
 
     if (resolution.missingCapabilities.length > 0) {
       return new Response(
@@ -438,7 +452,7 @@ export function registerHttpRoutes(
 
     const now = new Date();
 
-    const resolution = await getApprovalResolution(opts.contractStore, pending.value);
+    const resolution = await requireApprovalResolution(pending.value);
     const trellisId = resolution.trellisId;
     const userEmail = resolution.userEmail;
     const userName = resolution.userName;

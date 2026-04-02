@@ -1,7 +1,8 @@
-import { isErr, Result } from "@qlever-llc/trellis-result";
 import { UnexpectedError, ValidationError } from "@qlever-llc/trellis";
+import { isErr, Result } from "@qlever-llc/trellis-result";
 
 import { logger, servicesKV } from "../bootstrap/globals.ts";
+import type { ContractResourceBindings } from "./resources.ts";
 
 type ServiceLike = {
   displayName: string;
@@ -11,14 +12,7 @@ type ServiceLike = {
   description: string;
   contractId?: string;
   contractDigest?: string;
-  resourceBindings?: {
-    kv?: Record<string, {
-      bucket: string;
-      history: number;
-      ttlMs: number;
-      maxValueBytes?: number;
-    }>;
-  };
+  resourceBindings?: ContractResourceBindings;
   createdAt: Date;
 };
 

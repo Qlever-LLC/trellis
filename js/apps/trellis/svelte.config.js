@@ -17,26 +17,36 @@ const config = {
     adapter: adapter({
       pages: "build",
       assets: "build",
-      fallback: "index.html"
+      fallback: "index.html",
     }),
     alias: {
       "@qlever-llc/trellis-auth": aliasPath("packages/auth/mod.ts"),
-      "@qlever-llc/trellis-auth/*": `${aliasPath("packages/auth")}/*`,
+      //      "@qlever-llc/trellis-auth/*": `${aliasPath("packages/auth")}/*`,
       "@qlever-llc/trellis-auth/browser": aliasPath("packages/auth/browser.ts"),
       "@qlever-llc/trellis-contracts": aliasPath("packages/contracts/mod.ts"),
-      "@qlever-llc/trellis-contracts/*": `${aliasPath("packages/contracts")}/*`,
+      //    "@qlever-llc/trellis-contracts/*": `${aliasPath("packages/contracts")}/*`,
       "@qlever-llc/trellis-result": aliasPath("packages/result/mod.ts"),
-      "@qlever-llc/trellis-result/*": `${aliasPath("packages/result")}/*`,
-      "@qlever-llc/trellis-sdk-auth": aliasPath("../generated/js/sdks/auth/mod.ts"),
-      "@qlever-llc/trellis-sdk-auth/*": `${aliasPath("../generated/js/sdks/auth")}/*`,
+      //  "@qlever-llc/trellis-result/*": `${aliasPath("packages/result")}/*`,
+      "@qlever-llc/trellis-jobs": aliasPath("packages/jobs/mod.ts"),
+      //  "@qlever-llc/trellis-jobs/*": `${aliasPath("packages/jobs")}/*`,
+      "@qlever-llc/trellis-sdk-auth": aliasPath(
+        "../generated/js/sdks/auth/mod.ts",
+      ),
+      //    "@qlever-llc/trellis-sdk-auth/*": `${aliasPath("../generated/js/sdks/auth")}/*`,
+      "@qlever-llc/trellis-sdk-jobs": aliasPath(
+        "../generated/js/sdks/jobs/mod.ts",
+      ),
+      //    "@qlever-llc/trellis-sdk-jobs/*": `${aliasPath("../generated/js/sdks/jobs")}/*`,
       "@qlever-llc/trellis-server": aliasPath("packages/server/mod.ts"),
-      "@qlever-llc/trellis-server/*": `${aliasPath("packages/server")}/*`,
-      "@qlever-llc/trellis-svelte": aliasPath("packages/trellis-svelte/src/index.ts"),
-      "@qlever-llc/trellis-svelte/*": `${aliasPath("packages/trellis-svelte/src")}/*`,
+      //    "@qlever-llc/trellis-server/*": `${aliasPath("packages/server")}/*`,
+      "@qlever-llc/trellis-svelte": aliasPath(
+        "packages/trellis-svelte/src/index.ts",
+      ),
+      //    "@qlever-llc/trellis-svelte/*": `${aliasPath("packages/trellis-svelte/src")}/*`,
       "@qlever-llc/trellis": aliasPath("packages/trellis/index.ts"),
-      "@qlever-llc/trellis/*": `${aliasPath("packages/trellis")}/*`
-    }
-  }
+      //    "@qlever-llc/trellis/*": `${aliasPath("packages/trellis")}/*`
+    },
+  },
 };
 
 export default config;

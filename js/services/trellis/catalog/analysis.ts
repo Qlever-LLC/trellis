@@ -1,6 +1,9 @@
 import type { TrellisContractV1 } from "@qlever-llc/trellis-contracts";
 
-import { getContractResourceAnalysis, getContractResourceSummary } from "./resources.ts";
+import {
+  getContractResourceAnalysis,
+  getContractResourceSummary,
+} from "./resources.ts";
 
 function templateToWildcard(subject: string): string {
   return subject.replace(/\{[^}]+\}/g, "*");
@@ -64,6 +67,12 @@ export type ContractAnalysis = {
       ttlMs: number;
       maxValueBytes?: number;
     }>;
+    streams: Array<{
+      alias: string;
+      purpose: string;
+      required: boolean;
+      subjects: string[];
+    }>;
     jobs: Array<{
       queueType: string;
       payload: { schema: string };
@@ -87,6 +96,7 @@ export type ContractAnalysisSummary = {
   natsPublish: number;
   natsSubscribe: number;
   kvResources: number;
+  streamsResources: number;
   jobsQueues: number;
 };
 
@@ -208,6 +218,7 @@ export function analyzeContract(contract: TrellisContractV1): {
     natsPublish: publish.length,
     natsSubscribe: subscribe.length,
     kvResources: resourceSummary.kvResources,
+    streamsResources: resourceSummary.streamsResources,
     jobsQueues: resourceSummary.jobsQueues,
   };
 

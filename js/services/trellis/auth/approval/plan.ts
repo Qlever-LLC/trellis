@@ -20,7 +20,9 @@ export async function planUserContractApproval(
   rawContract: unknown,
 ): Promise<UserContractApprovalPlan> {
   const validated = await contractStore.validate(rawContract);
-  const uses = resolveContractUsesFromStore(contractStore, validated.contract);
+  const uses = resolveContractUsesFromStore(contractStore, validated.contract, {
+    ignoreInactiveContracts: true,
+  });
   const publishSubjects = new Set<string>();
   const subscribeSubjects = new Set<string>();
   const capabilities = new Set<string>();

@@ -25,8 +25,16 @@ export type JobsQueueRequest = {
   concurrency: number;
 };
 
+export type StreamResourceRequest = {
+  alias: string;
+  purpose: string;
+  required: boolean;
+  subjects: string[];
+};
+
 export type ContractResourceAnalysis = {
   kv: KvResourceRequest[];
+  streams: StreamResourceRequest[];
   jobs: JobsQueueRequest[];
 };
 
@@ -34,8 +42,12 @@ export type ContractResourceBindings = {
   kv?: Record<string, {
     bucket: string;
     history: number;
-      ttlMs: number;
-      maxValueBytes?: number;
+    ttlMs: number;
+    maxValueBytes?: number;
+  }>;
+  streams?: Record<string, {
+    name: string;
+    subjects: string[];
   }>;
   jobs?: {
     namespace: string;
@@ -55,9 +67,6 @@ export type ContractResourceBindings = {
       dlq: boolean;
       concurrency: number;
     }>;
-    registry?: {
-      bucket: string;
-    };
   };
 };
 
@@ -75,7 +84,9 @@ function sanitizeToken(value: string): string {
   return sanitized.length > 0 ? sanitized : "resource";
 }
 
-export function getKvResourceRequests(contract: TrellisContractV1): KvResourceRequest[] {
+export function getKvResourceRequests(
+  contract: TrellisContractV1,
+): KvResourceRequest[] {
   const resources = (contract as TrellisContractV1 & {
     resources?: {
       kv?: Record<string, {
@@ -93,8 +104,7 @@ export function getKvResourceRequests(contract: TrellisContractV1): KvResourceRe
     history?: number;
     ttlMs?: number;
     maxValueBytes?: number;
-  }]>
-  ;
+  }]>;
   return entries
     .map(([alias, resource]) => ({
       alias,
@@ -102,12 +112,16 @@ export function getKvResourceRequests(contract: TrellisContractV1): KvResourceRe
       required: resource.required ?? true,
       history: resource.history ?? 1,
       ttlMs: resource.ttlMs ?? 0,
-      ...(resource.maxValueBytes ? { maxValueBytes: resource.maxValueBytes } : {}),
+      ...(resource.maxValueBytes
+        ? { maxValueBytes: resource.maxValueBytes }
+        : {}),
     }))
     .sort((left, right) => left.alias.localeCompare(right.alias));
 }
 
-export function getJobsQueueRequests(contract: TrellisContractV1): JobsQueueRequest[] {
+export function getJobsQueueRequests(
+  contract: TrellisContractV1,
+): JobsQueueRequest[] {
   const queues = (contract as TrellisContractV1 & {
     resources?: {
       jobs?: {
@@ -146,7 +160,9 @@ export function getJobsQueueRequests(contract: TrellisContractV1): JobsQueueRequ
       maxDeliver: queue.maxDeliver ?? 5,
       backoffMs: queue.backoffMs ?? [5000, 30000, 120000, 600000, 1800000],
       ackWaitMs: queue.ackWaitMs ?? 300000,
-      ...(queue.defaultDeadlineMs ? { defaultDeadlineMs: queue.defaultDeadlineMs } : {}),
+      ...(queue.defaultDeadlineMs
+        ? { defaultDeadlineMs: queue.defaultDeadlineMs }
+        : {}),
       progress: queue.progress ?? true,
       logs: queue.logs ?? true,
       dlq: queue.dlq ?? true,
@@ -155,21 +171,70 @@ export function getJobsQueueRequests(contract: TrellisContractV1): JobsQueueRequ
     .sort((left, right) => left.queueType.localeCompare(right.queueType));
 }
 
-export function getContractResourceAnalysis(contract: TrellisContractV1): ContractResourceAnalysis {
+export function getStreamResourceRequests(
+  contract: TrellisContractV1,
+): StreamResourceRequest[] {
+  const resources = (contract as TrellisContractV1 & {
+    resources?: {
+      streams?: Record<string, {
+        purpose: string;
+        required?: boolean;
+        subjects: string[];
+      }>;
+    };
+  }).resources;
+  const entries = Object.entries(resources?.streams ?? {}) as Array<[string, {
+    purpose: string;
+    required?: boolean;
+    subjects: string[];
+  }]>;
+
+  return entries
+    .map(([alias, resource]) => ({
+      alias,
+      purpose: resource.purpose,
+      required: resource.required ?? true,
+      subjects: [...resource.subjects],
+    }))
+    .sort((left, right) => left.alias.localeCompare(right.alias));
+}
+
+export function getContractResourceAnalysis(
+  contract: TrellisContractV1,
+): ContractResourceAnalysis {
   return {
     kv: getKvResourceRequests(contract),
+    streams: getStreamResourceRequests(contract),
     jobs: getJobsQueueRequests(contract),
   };
 }
 
-export function getContractResourceSummary(contract: TrellisContractV1): { kvResources: number; jobsQueues: number } {
+export function getContractResourceSummary(
+  contract: TrellisContractV1,
+): { kvResources: number; streamsResources: number; jobsQueues: number } {
   return {
     kvResources: getKvResourceRequests(contract).length,
+    streamsResources: getStreamResourceRequests(contract).length,
     jobsQueues: getJobsQueueRequests(contract).length,
   };
 }
 
-function buildKvBucketName(serviceSessionKey: string, contractId: string, alias: string): string {
+function buildKvBucketName(
+  serviceSessionKey: string,
+  contractId: string,
+  alias: string,
+): string {
+  const service = sanitizeToken(serviceSessionKey).slice(0, 16);
+  const contract = sanitizeToken(contractId).slice(0, 16);
+  const logical = sanitizeToken(alias).slice(0, 24);
+  return `svc_${service}_${contract}_${logical}`;
+}
+
+function buildStreamName(
+  serviceSessionKey: string,
+  contractId: string,
+  alias: string,
+): string {
   const service = sanitizeToken(serviceSessionKey).slice(0, 16);
   const contract = sanitizeToken(contractId).slice(0, 16);
   const logical = sanitizeToken(alias).slice(0, 24);
@@ -182,39 +247,62 @@ export async function provisionContractResourceBindings(
   serviceSessionKey: string,
 ): Promise<ContractResourceBindings> {
   const requests = getKvResourceRequests(contract);
+  const streams = getStreamResourceRequests(contract);
   const jobs = getJobsQueueRequests(contract);
-  if (requests.length === 0 && jobs.length === 0) {
+  if (requests.length === 0 && streams.length === 0 && jobs.length === 0) {
     return {};
   }
 
-  const kvm = new Kvm(nats);
   const kvBindings: NonNullable<ContractResourceBindings["kv"]> = {};
 
-  for (const request of requests) {
-    const bucket = buildKvBucketName(serviceSessionKey, contract.id, request.alias);
-    try {
-      await kvm.create(bucket, {
-        history: request.history,
-        ttl: request.ttlMs,
-        ...(request.maxValueBytes ? { maxValueSize: request.maxValueBytes } : {}),
-      });
-    } catch (error) {
-      if (!(error instanceof Error) || !error.message.includes("bucket already exists")) {
-        throw error;
+  if (requests.length > 0) {
+    const kvm = new Kvm(nats);
+    for (const request of requests) {
+      const bucket = buildKvBucketName(
+        serviceSessionKey,
+        contract.id,
+        request.alias,
+      );
+      try {
+        await kvm.create(bucket, {
+          history: request.history,
+          ttl: request.ttlMs,
+          ...(request.maxValueBytes
+            ? { maxValueSize: request.maxValueBytes }
+            : {}),
+        });
+      } catch (error) {
+        if (
+          !(error instanceof Error) ||
+          !error.message.includes("bucket already exists")
+        ) {
+          throw error;
+        }
+        await kvm.open(bucket);
       }
-      await kvm.open(bucket);
+      kvBindings[request.alias] = {
+        bucket,
+        history: request.history,
+        ttlMs: request.ttlMs,
+        ...(request.maxValueBytes
+          ? { maxValueBytes: request.maxValueBytes }
+          : {}),
+      };
     }
-    kvBindings[request.alias] = {
-      bucket,
-      history: request.history,
-      ttlMs: request.ttlMs,
-      ...(request.maxValueBytes ? { maxValueBytes: request.maxValueBytes } : {}),
-    };
   }
 
   const bindings: ContractResourceBindings = {};
   if (Object.keys(kvBindings).length > 0) {
     bindings.kv = kvBindings;
+  }
+
+  if (streams.length > 0) {
+    bindings.streams = Object.fromEntries(
+      streams.map((stream) => [stream.alias, {
+        name: buildStreamName(serviceSessionKey, contract.id, stream.alias),
+        subjects: [...stream.subjects],
+      }]),
+    );
   }
 
   if (jobs.length > 0) {
@@ -234,7 +322,9 @@ export async function provisionContractResourceBindings(
             maxDeliver: queue.maxDeliver,
             backoffMs: [...queue.backoffMs],
             ackWaitMs: queue.ackWaitMs,
-            ...(queue.defaultDeadlineMs ? { defaultDeadlineMs: queue.defaultDeadlineMs } : {}),
+            ...(queue.defaultDeadlineMs
+              ? { defaultDeadlineMs: queue.defaultDeadlineMs }
+              : {}),
             progress: queue.progress,
             logs: queue.logs,
             dlq: queue.dlq,
@@ -242,16 +332,15 @@ export async function provisionContractResourceBindings(
           }];
         }),
       ),
-      registry: {
-        bucket: "trellis_service_instances",
-      },
     };
   }
 
   return bindings;
 }
 
-export function getResourcePermissionGrants(bindings?: ContractResourceBindings): {
+export function getResourcePermissionGrants(
+  bindings?: ContractResourceBindings,
+): {
   publish: string[];
   subscribe: string[];
 } {
@@ -271,9 +360,21 @@ export function getResourcePermissionGrants(bindings?: ContractResourceBindings)
     publish.add(`$JS.ACK.${stream}.>`);
   }
 
+  for (const streamBinding of Object.values(bindings?.streams ?? {})) {
+    for (const subject of streamBinding.subjects) {
+      publish.add(subject);
+    }
+    publish.add(`$JS.API.CONSUMER.CREATE.${streamBinding.name}.>`);
+    publish.add(`$JS.API.CONSUMER.DURABLE.CREATE.${streamBinding.name}.>`);
+    publish.add(`$JS.API.CONSUMER.INFO.${streamBinding.name}.>`);
+    publish.add(`$JS.API.CONSUMER.MSG.NEXT.${streamBinding.name}.>`);
+    publish.add(`$JS.ACK.${streamBinding.name}.>`);
+  }
+
   if (bindings?.jobs) {
     const namespace = bindings.jobs.namespace;
     publish.add(`trellis.jobs.${namespace}.>`);
+    publish.add(`trellis.jobs.workers.${namespace}.>`);
     publish.add(`trellis.work.${namespace}.>`);
     for (const queue of Object.values(bindings.jobs.queues)) {
       publish.add(queue.publishPrefix + ".>");

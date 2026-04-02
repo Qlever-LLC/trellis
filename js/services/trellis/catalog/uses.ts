@@ -63,7 +63,7 @@ export function sortUniqueStrings(values: Iterable<string>): string[] {
 
 export function resolveContractUses(
   contract: TrellisContractV1,
-  resolveTargetContract: (alias: string, use: ContractUseRef) => TrellisContractV1,
+  resolveTargetContract: (alias: string, use: ContractUseRef) => TrellisContractV1 | null,
 ): ResolvedContractUses {
   const resolved: ResolvedContractUses = {
     rpcCalls: [],
@@ -75,6 +75,9 @@ export function resolveContractUses(
 
   for (const [alias, use] of Object.entries(contractUses(contract))) {
     const target = resolveTargetContract(alias, use);
+    if (!target) {
+      continue;
+    }
 
     for (const key of use.rpc?.call ?? []) {
       const method = target.rpc?.[key];
@@ -133,10 +136,16 @@ export function resolveContractUses(
 export function resolveContractUsesFromStore(
   contractStore: ContractStore,
   contract: TrellisContractV1,
+  options?: {
+    ignoreInactiveContracts?: boolean;
+  },
 ): ResolvedContractUses {
   return resolveContractUses(contract, (alias, use) => {
     const targetDigest = contractStore.findActiveDigestById(use.contract);
     if (!targetDigest) {
+      if (options?.ignoreInactiveContracts) {
+        return null;
+      }
       throw new Error(
         `Dependency '${alias}' references inactive contract '${use.contract}'`,
       );

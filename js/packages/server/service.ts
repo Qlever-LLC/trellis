@@ -67,7 +67,6 @@ export type ResourceBindingJobsQueue = {
 export type ResourceBindingJobs = {
   namespace: string;
   queues: Record<string, ResourceBindingJobsQueue>;
-  registry?: { bucket: string };
 };
 
 export type ResourceBindings = {
@@ -198,6 +197,14 @@ export class TrellisService<
   readonly auth: SessionAuth;
   readonly nc: NatsConnection;
   readonly server: TrellisServer<TOwnedApi>;
+  readonly operations: {
+    get: (operationId: string) => Promise<unknown>;
+    started: (operationId: string) => Promise<unknown>;
+    progress: (operationId: string, progress: unknown) => Promise<unknown>;
+    complete: (operationId: string, output: unknown) => Promise<unknown>;
+    fail: (operationId: string, error: Error) => Promise<unknown>;
+    cancel: (operationId: string) => Promise<unknown>;
+  };
   readonly trellis: ServiceTrellis<TOwnedApi, TTrellisApi>;
   readonly kv: Record<string, KVHandle>;
   readonly streams: Record<string, ResourceBindingStream>;
@@ -215,6 +222,9 @@ export class TrellisService<
     this.auth = auth;
     this.nc = nc;
     this.server = server;
+    this.operations = (server as unknown as {
+      operations: TrellisService<TOwnedApi, TTrellisApi>["operations"];
+    }).operations;
     this.trellis = trellis;
     this.kv = Object.fromEntries(
       Object.entries(bindings.kv).map(([alias, binding]) => [alias, new KVHandle(nc, binding)]),
@@ -281,7 +291,9 @@ export class TrellisService<
       ...(opts.nats.options ?? {}),
     } as NatsConnectOpts);
 
-    const server = TrellisServer.create<TOwnedApi>(
+    const runtimeApi = (opts.server.trellisApi ?? opts.server.api) as TOwnedApi & TTrellisApi;
+
+    const server = TrellisServer.create<TOwnedApi & TTrellisApi>(
       name,
       nc,
       { sessionKey: auth.sessionKey, sign: auth.sign },
@@ -290,7 +302,7 @@ export class TrellisService<
         timeout: opts.server.timeout,
         stream: opts.server.stream,
         noResponderRetry: opts.server.noResponderRetry,
-        api: opts.server.api,
+        api: runtimeApi,
         version: opts.server.version,
       },
     );
@@ -304,16 +316,17 @@ export class TrellisService<
         timeout: opts.server.timeout,
         stream: opts.server.stream,
         noResponderRetry: opts.server.noResponderRetry,
-        api: opts.server.trellisApi ??
-          opts.server.api as unknown as TTrellisApi,
+        api: runtimeApi,
       },
     );
 
     const trellis = Object.assign(outbound, {
-      mount: server.mount.bind(server),
+      mount: server.mount.bind(server) as TrellisServer<TOwnedApi>[
+        "mount"
+      ],
     }) as unknown as ServiceTrellis<TOwnedApi, TTrellisApi>;
 
-    await mountStandardHealthRpc(server as any, {
+    await mountStandardHealthRpc(server, {
       checks: opts.server.healthChecks,
     });
 
@@ -401,7 +414,7 @@ export class TrellisService<
       name,
       auth,
       nc,
-      server,
+      server as unknown as TrellisServer<TOwnedApi>,
       trellis,
       bindings,
     );
@@ -427,6 +440,10 @@ export class TrellisService<
     return (this.trellis as unknown as {
       requestOrThrow(method: string, input: unknown, opts?: RequestOpts): Promise<unknown>;
     }).requestOrThrow(method, input, opts) as Promise<RpcMethodOutput<TTrellisApi, M>>;
+  }
+
+  operation(operation: string) {
+    return (this.server as any).operation(operation);
   }
 }
 
