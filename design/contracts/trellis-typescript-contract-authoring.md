@@ -1,14 +1,16 @@
-# ADR: Trellis TypeScript Contract Authoring
+---
+title: Trellis TypeScript Contract Authoring
+description: TypeScript contract authoring architecture centered on defineContract, uses, and derived contract views.
+order: 20
+---
 
-## Status
-
-Proposed
+# Design: Trellis TypeScript Contract Authoring
 
 ## Prerequisites
 
-- [adr-trellis-patterns.md](./adr-trellis-patterns.md) - service and app boundaries
-- [adr-trellis-contracts-catalog.md](./adr-trellis-contracts-catalog.md) - canonical manifest and `uses` semantics
-- [adr-trellis-cli.md](./adr-trellis-cli.md) - source-first CLI boundary
+- [../core/trellis-patterns.md](./../core/trellis-patterns.md) - service and app boundaries
+- [trellis-contracts-catalog.md](./trellis-contracts-catalog.md) - canonical manifest and `uses` semantics
+- [../tooling/trellis-cli.md](./../tooling/trellis-cli.md) - source-first CLI boundary
 
 ## Context
 
@@ -29,7 +31,7 @@ This is especially awkward because Trellis participants are broader than long-ru
 Apps, CLIs, browser clients, and other callers also connect to Trellis and need a
 typed declaration of what they own and what they use.
 
-## Decision
+## Design
 
 Trellis adopts a contract-first TypeScript model.
 
@@ -114,8 +116,8 @@ TypeScript authoring.
 
 The TypeScript type system must enforce both of these rules:
 
-- a referenced remote RPC, event, or subject must exist on the imported SDK module
-- a participant may only call, publish, or subscribe to remote operations that are explicitly declared in its local contract `uses`
+- a referenced remote operation, RPC, event, or subject must exist on the imported SDK module
+- a participant may only invoke, call, publish, or subscribe to remote operations that are explicitly declared in its local contract `uses`
 
 Consequences:
 
@@ -129,13 +131,13 @@ contract object itself defines the allowed TypeScript runtime surface.
 
 The contract definition produces three distinct projected API views:
 
-- `API.owned` - the RPCs, events, and subjects owned by the local participant and therefore mountable or publishable as owner behavior
+- `API.owned` - the operations, RPCs, events, and subjects owned by the local participant and therefore mountable or publishable as owner behavior
 - `API.used` - the subset of remote SDK APIs explicitly permitted by `uses`
-- `API.trellis` - the merged runtime surface used for outbound `request`, `publish`, and `subscribe` operations
+- `API.trellis` - the merged runtime surface used for outbound `operation(...).start(...)`, `request`, `publish`, and `subscribe` operations
 
 Rules:
 
-- `API.owned` derives only from the local contract's `rpc`, `events`, and `subjects`
+- `API.owned` derives only from the local contract's `operations`, `rpc`, `events`, and `subjects`
 - `API.used` derives only from the remote SDK operations explicitly selected through `use(...)`
 - `API.trellis` is the only general outbound runtime API surface
 - server-side handler registration uses `API.owned`, not `API.trellis`
@@ -171,11 +173,11 @@ Contracts matter beyond the initial connect phase.
 In TypeScript they remain the source for:
 
 - emitted manifest generation
-- runtime call and subscribe typing
+- runtime operation, call, and subscribe typing
 - owned handler and publisher typing
 - `CONTRACT_ID` and digest metadata used for discovery and binding lookup
 
-This ADR therefore treats the contract object as the primary participant definition,
+This document therefore treats the contract object as the primary participant definition,
 not as a one-time connection option.
 
 ## Specification
@@ -203,141 +205,15 @@ Rules:
 
 ### TypeScript API surface
 
-The ADR should define the intended public TypeScript shape closely enough that
-implementation work does not have to rediscover the architecture.
-
 The expected public surface is:
 
 - `defineContract(...)` as the primary authoring entrypoint
 - generated SDK contract modules that export `CONTRACT`, `CONTRACT_ID`, `CONTRACT_DIGEST`, `API`, and `use(...)`
-- contract-driven runtime helpers such as `createClient(contract, ...)` and `connectService(contract, ...)`
+- contract-driven runtime helpers such as `createClient(contract, ...)` and `connectService(contract, ...)`, whose returned runtimes expose typed `operation(...)` helpers
 
-Canonical public shape:
+The full normative TypeScript surface and examples are defined in:
 
-```ts
-type TrellisApiLike = {
-  rpc: Record<string, unknown>;
-  events: Record<string, unknown>;
-  subjects: Record<string, unknown>;
-};
-
-type EmptyApi = {
-  rpc: {};
-  events: {};
-  subjects: {};
-};
-
-type ContractApiViews<
-  TOwnedApi extends TrellisApiLike,
-  TUsedApi extends TrellisApiLike,
-  TTrellisApi extends TrellisApiLike,
-> = {
-  owned: TOwnedApi;
-  used: TUsedApi;
-  trellis: TTrellisApi;
-};
-
-type UseSpec<TApi extends TrellisApiLike> = {
-  rpc?: {
-    call?: readonly (keyof TApi["rpc"] & string)[];
-  };
-  events?: {
-    publish?: readonly (keyof TApi["events"] & string)[];
-    subscribe?: readonly (keyof TApi["events"] & string)[];
-  };
-  subjects?: {
-    publish?: readonly (keyof TApi["subjects"] & string)[];
-    subscribe?: readonly (keyof TApi["subjects"] & string)[];
-  };
-};
-
-type ContractDependencyUse<
-  TContractId extends string,
-  TApi extends TrellisApiLike,
-> = {
-  contract: TContractId;
-  rpc?: { call?: readonly (keyof TApi["rpc"] & string)[] };
-  events?: {
-    publish?: readonly (keyof TApi["events"] & string)[];
-    subscribe?: readonly (keyof TApi["events"] & string)[];
-  };
-  subjects?: {
-    publish?: readonly (keyof TApi["subjects"] & string)[];
-    subscribe?: readonly (keyof TApi["subjects"] & string)[];
-  };
-};
-
-type SdkContractModule<
-  TContractId extends string,
-  TOwnedApi extends TrellisApiLike,
-> = {
-  CONTRACT_ID: TContractId;
-  CONTRACT: unknown;
-  CONTRACT_DIGEST: string;
-  API: ContractApiViews<TOwnedApi, EmptyApi, TOwnedApi>;
-  use(spec: UseSpec<TOwnedApi>): ContractDependencyUse<TContractId, TOwnedApi>;
-};
-
-type DefinedContract<
-  TOwnedApi extends TrellisApiLike,
-  TUsedApi extends TrellisApiLike,
-  TTrellisApi extends TrellisApiLike,
-> = {
-  CONTRACT_ID: string;
-  CONTRACT: unknown;
-  CONTRACT_DIGEST: string;
-  API: ContractApiViews<TOwnedApi, TUsedApi, TTrellisApi>;
-  use(spec: UseSpec<TOwnedApi>): ContractDependencyUse<string, TOwnedApi>;
-  createClient(...args: unknown[]): unknown;
-  connectService(...args: unknown[]): Promise<unknown>;
-};
-
-declare function defineContract(...args: unknown[]): DefinedContract<any, any, any>;
-```
-
-Illustrative usage:
-
-```ts
-import { defineContract } from "@qlever-llc/trellis-contracts";
-import { auth } from "@qlever-llc/trellis-sdk-auth";
-import { core } from "@qlever-llc/trellis-sdk-core";
-
-export const activity = defineContract({
-  id: "trellis.activity@v1",
-  displayName: "Activity Service",
-  description: "Serve activity RPCs and publish activity change events.",
-  kind: "service",
-  uses: {
-    core: core.use({
-      rpc: {
-        call: ["Trellis.Catalog", "Trellis.Bindings.Get"],
-      },
-    }),
-    auth: auth.use({
-      events: {
-        subscribe: ["Auth.Connect", "Auth.Disconnect"],
-      },
-    }),
-  },
-  rpc: {
-    "Activity.List": {
-      version: "v1",
-      inputSchema: ActivityListRequestSchema,
-      outputSchema: ActivityListResponseSchema,
-    },
-  },
-  events: {
-    "Activity.Changed": {
-      version: "v1",
-      eventSchema: ActivityChangedSchema,
-    },
-  },
-});
-
-const service = await activity.connectService("activity", opts);
-await service.requestOrThrow("Trellis.Catalog", {});
-await service.trellis.mount("Activity.List", async (req) => Result.ok({ items: [] }));
-```
+- [contracts-typescript-api.md](./contracts-typescript-api.md)
 
 ### `defineContract(...)` input model
 
@@ -348,9 +224,9 @@ Rules:
 
 - `id` remains the stable machine identity for the contract lineage
 - `displayName`, `description`, and `kind` are required and are part of the canonical manifest
-- local `rpc`, `events`, `subjects`, `errors`, and `resources` remain the source for emitted owned contract content
+- local `operations`, `rpc`, `events`, `subjects`, `errors`, and `resources` remain the source for emitted owned contract content
 - `uses` entries are expressed through SDK `use(...)` helpers rather than hand-written dependency objects in normal TypeScript code
-- a participant MAY have no owned `rpc`, `events`, or `subjects`
+- a participant MAY have no owned `operations`, `rpc`, `events`, or `subjects`
 - a participant MAY have no `uses`
 - the defined contract computes and exposes `CONTRACT_DIGEST` from the emitted canonical manifest
 
@@ -414,6 +290,10 @@ Rules:
 - callers do not pass manual API arrays into those helpers for normal usage
 - runtime helpers do not implicitly inject extra API modules outside the contract-derived surface
 
+The exact public helper shapes live in:
+
+- [contracts-typescript-api.md](./contracts-typescript-api.md)
+
 ### Runtime and compile-time validation
 
 Compile-time typing is required but is not sufficient on its own.
@@ -433,8 +313,8 @@ when JavaScript consumers use the same APIs.
 
 Rules:
 
-- the emitted manifest shape is unchanged by this ADR
-- `uses` entries emitted into the manifest preserve the canonical JSON shape described in `adr-trellis-contracts-catalog.md`
+- the emitted manifest shape is unchanged by this document
+- `uses` entries emitted into the manifest preserve the canonical JSON shape described in `trellis-contracts-catalog.md`
 - SDK-backed `use(...)` helpers are an authoring convenience, not a new manifest format
 
 ### Generated TS SDK requirements
@@ -452,7 +332,7 @@ Generated SDK outputs must include:
 - typed `use(...)`
 
 Generated SDK outputs may continue to expose request, response, event, and schema
-types as they do today.
+types alongside the richer contract module surface.
 
 ### Replacement rule
 
@@ -501,9 +381,7 @@ Rules:
 - migration should preserve the emitted manifest format and CLI contract workflow
 - after migration, documentation and examples should use only the new contract-first surface
 
-## Consequences
-
-### Benefits
+## Benefits
 
 - one TypeScript authoring surface for manifests and runtime APIs
 - imported SDKs become the typed dependency vocabulary for `uses`
@@ -512,7 +390,7 @@ Rules:
 - fewer runtime failures caused by forgetting to manually merge the right API modules
 - clearer distinction between owned surfaces and used surfaces
 
-### Trade-offs
+## Trade-Offs
 
 - the TypeScript generic surface becomes more sophisticated
 - TS SDK generation must emit richer helper objects than the current `API` and constants only surface
@@ -520,5 +398,5 @@ Rules:
 
 ## References
 
-- `design/adr-trellis-contracts-catalog.md`
-- `design/adr-trellis-cli.md`
+- `design/contracts/trellis-contracts-catalog.md`
+- `design/tooling/../tooling/trellis-cli.md`

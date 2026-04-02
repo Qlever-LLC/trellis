@@ -1,18 +1,21 @@
 <script lang="ts">
-
   import type { Snippet } from "svelte";
   import { base } from "$app/paths";
   import { page } from "$app/state";
-  import { getGuideDoc, getGuidePrevNext, guideDocsBySection } from "$lib/docs";
+  import {
+    designDocsBySection,
+    getDesignDoc,
+    getDesignPrevNext,
+  } from "$lib/docs";
 
   let { children }: { children: Snippet } = $props();
 
-  const groups = guideDocsBySection();
+  const groups = designDocsBySection();
   const pathname = $derived(normalizePath(stripBasePath(page.url.pathname)));
-  const currentDoc = $derived(getGuideDoc(pathname));
-  const neighbors = $derived(getGuidePrevNext(pathname));
+  const currentDoc = $derived(getDesignDoc(pathname));
+  const neighbors = $derived(getDesignPrevNext(pathname));
   const title = $derived(
-    `${currentDoc?.title || "Guides"} | Trellis documentation`,
+    `${currentDoc?.title || "Design"} | Trellis documentation`,
   );
 
   function normalizePath(path: string) {
@@ -49,10 +52,10 @@
   <aside class="lg:sticky lg:top-6">
     <div class="rounded-box border border-base-300 bg-base-100">
       <div class="border-b border-base-300 px-4 py-3">
-        <h2 class="text-sm font-semibold">Guides</h2>
+        <h2 class="text-sm font-semibold">Design</h2>
       </div>
 
-      <nav class="p-2" aria-label="Documentation">
+      <nav class="p-2" aria-label="Design documentation">
         {#each groups as group (group.section)}
           <p class="mt-3 first:mt-1 px-3 pb-1 text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-base-content/40">
             {group.section}
@@ -102,7 +105,7 @@
       </article>
 
       {#if neighbors.prev || neighbors.next}
-        <nav class="grid gap-4 md:grid-cols-2" aria-label="Guide pagination">
+        <nav class="grid gap-4 md:grid-cols-2" aria-label="Design pagination">
           {#if neighbors.prev}
             <a
               class="rounded-box border border-base-300 bg-base-100 p-4 hover:bg-base-200/40"

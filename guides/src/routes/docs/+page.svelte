@@ -1,8 +1,8 @@
 <script lang="ts">
   import { base } from "$app/paths";
-  import { overviewDocsBySection } from "$lib/docs";
+  import { guideDocsBySection } from "$lib/docs";
 
-  const groups = overviewDocsBySection();
+  const groups = guideDocsBySection();
 
   function resolveDocHref(href: string) {
     if (!base) {
@@ -13,18 +13,13 @@
   }
 </script>
 
-<svelte:head>
-  <title>Trellis documentation</title>
-  <meta
-    name="description"
-    content="Trellis product documentation for customers using the installed CLI, published packages, and release assets."
-  />
-</svelte:head>
-
 <div class="space-y-8">
   <section class="space-y-3">
-    <p class="text-sm text-base-content/60">Documentation</p>
-    <h1 class="text-3xl font-semibold sm:text-4xl">Trellis Documentation</h1>
+    <p class="text-sm text-base-content/60">Guides</p>
+    <h1 class="text-3xl font-semibold sm:text-4xl">Trellis Guides</h1>
+    <p class="max-w-3xl text-sm leading-6 text-base-content/70">
+      Practical setup, development, administration, and contributor guidance for working with Trellis.
+    </p>
   </section>
 
   {#each groups as group (group.section)}

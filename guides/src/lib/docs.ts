@@ -3,23 +3,294 @@ export interface DocEntry {
   description: string;
   href: string;
   section: string;
+  showPageHeader?: boolean;
 }
 
-export const sections = [
-  "Introduction",
-  "Server Setup",
-  "Development",
-  "Administration",
-  "Contributing",
+const designModules = import.meta.glob("$design/**/*.md");
+const designRawModules = import.meta.glob("$design/**/*.md", {
+  eager: true,
+  query: "?raw",
+  import: "default",
+}) as Record<string, string>;
+
+export interface DesignGroup {
+  slug: string;
+  title: string;
+  section: string;
+  description: string;
+  href: string;
+}
+
+const designGroupOrder = [
+  "Design Overview",
+  "Design: Core",
+  "Design: Auth",
+  "Design: Contracts",
+  "Design: Operations",
+  "Design: Jobs",
+  "Design: Tooling",
+  "Design",
 ] as const;
 
-export type Section = (typeof sections)[number];
+const designGroups: DesignGroup[] = [
+  {
+    slug: "core",
+    title: "Core Design",
+    section: "Design: Core",
+    description: "Cross-cutting Trellis architecture, storage, typing, service, and observability patterns.",
+    href: "/design/core",
+  },
+  {
+    slug: "auth",
+    title: "Auth Design",
+    section: "Design: Auth",
+    description: "Identity, approvals, auth protocol, public APIs, and auth operations guidance.",
+    href: "/design/auth",
+  },
+  {
+    slug: "contracts",
+    title: "Contracts Design",
+    section: "Design: Contracts",
+    description: "Canonical contract model plus TypeScript and Rust contract/runtime surfaces.",
+    href: "/design/contracts",
+  },
+  {
+    slug: "operations",
+    title: "Operations Design",
+    section: "Design: Operations",
+    description: "Caller-visible async workflows and their TypeScript and Rust API surfaces.",
+    href: "/design/operations",
+  },
+  {
+    slug: "jobs",
+    title: "Jobs Design",
+    section: "Design: Jobs",
+    description: "Service-private background execution and the TypeScript and Rust jobs APIs.",
+    href: "/design/jobs",
+  },
+  {
+    slug: "tooling",
+    title: "Tooling Design",
+    section: "Design: Tooling",
+    description: "Trellis tooling surfaces, currently centered on the CLI design.",
+    href: "/design/tooling",
+  },
+];
 
-export const docs: DocEntry[] = [
+function designSectionOrderIndex(section: string) {
+  return designGroupOrder.indexOf(section as (typeof designGroupOrder)[number]);
+}
+
+const acronymWords = new Map([
+  ["api", "API"],
+  ["auth", "Auth"],
+  ["cli", "CLI"],
+  ["kv", "KV"],
+  ["nats", "NATS"],
+  ["rust", "Rust"],
+  ["svelte", "Svelte"],
+  ["trellis", "Trellis"],
+  ["typescript", "TypeScript"],
+]);
+
+function normalizeDesignPath(path: string) {
+  return path
+    .replace(/^\$design\//, "")
+    .replace(/^.*\/design\//, "")
+    .replace(/\\/g, "/")
+    .replace(/\.md$/, "");
+}
+
+function designRelativePathFromPath(path: string) {
+  return normalizeDesignPath(path);
+}
+
+function designSlugFromPath(path: string) {
+  return designRelativePathFromPath(path).replace(/(?:^|\/)README$/i, "");
+}
+
+function designFlatSlugFromPath(path: string) {
+  const relativePath = designRelativePathFromPath(path);
+  const basename = relativePath.split("/").filter(Boolean).pop() ?? relativePath;
+  return basename.replace(/(?:^|\/)README$/i, "");
+}
+
+function designSectionFromPath(path: string) {
+  const relativePath = designRelativePathFromPath(path);
+  const [group] = relativePath.split("/");
+
+  if (relativePath === "README") {
+    return "Design Overview";
+  }
+
+  switch (group) {
+    case "core":
+      return "Design: Core";
+    case "auth":
+      return "Design: Auth";
+    case "contracts":
+      return "Design: Contracts";
+    case "jobs":
+      return "Design: Jobs";
+    case "operations":
+      return "Design: Operations";
+    case "tooling":
+      return "Design: Tooling";
+    default:
+      return "Design";
+  }
+}
+
+function parseFrontmatter(raw: string) {
+  const match = raw.match(/^---\n([\s\S]*?)\n---\n*/);
+  if (!match) {
+    return { body: raw, fields: new Map<string, string>() };
+  }
+
+  const fields = new Map<string, string>();
+  for (const line of match[1].split("\n")) {
+    const parts = line.match(/^([A-Za-z0-9_-]+):\s*(.+)$/);
+    if (!parts) {
+      continue;
+    }
+    fields.set(parts[1].toLowerCase(), parts[2].trim().replace(/^"|"$/g, ""));
+  }
+
+  return {
+    body: raw.slice(match[0].length),
+    fields,
+  };
+}
+
+function markdownOrderFromRaw(raw: string) {
+  const { fields } = parseFrontmatter(raw);
+  const value = fields.get("order");
+  if (!value) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  const order = Number(value);
+  return Number.isFinite(order) ? order : Number.POSITIVE_INFINITY;
+}
+
+function markdownTitleFromRaw(raw: string, fallbackSlug: string) {
+  const { body, fields } = parseFrontmatter(raw);
+  const explicitTitle = fields.get("title");
+  if (explicitTitle) {
+    return explicitTitle;
+  }
+
+  const headingMatch = body.match(/^#\s+(.+)$/m);
+  if (!headingMatch) {
+    return designTitleFromSlug(fallbackSlug);
+  }
+
+  return headingMatch[1]
+    .replace(/^Design:\s*/i, "")
+    .replace(/^Trellis\s+/i, (value) => value)
+    .trim();
+}
+
+function markdownDescriptionFromRaw(raw: string, fallbackSlug: string) {
+  const { body, fields } = parseFrontmatter(raw);
+  const explicitDescription = fields.get("description");
+  if (explicitDescription) {
+    return explicitDescription;
+  }
+
+  const bodyWithoutFirstHeading = body.replace(/^#\s+.+$\n*/m, "").trim();
+  const paragraphMatch = bodyWithoutFirstHeading.match(/^([^#\-*`|>\n].*(?:\n(?!\n|#|-|\*|`|\||>).+)*)/m);
+  if (!paragraphMatch) {
+    return designDescriptionFromSlug(fallbackSlug);
+  }
+
+  return paragraphMatch[1].replace(/\s+/g, " ").trim();
+}
+
+function designTitleFromSlug(slug: string) {
+  const titleSource = slug.split("/").filter(Boolean).pop() ?? slug;
+
+  if (!titleSource) {
+    return "Trellis Design Index";
+  }
+
+  return slug
+    .split("/")
+    .filter(Boolean)
+    .pop()
+    ?.split("-")
+    .map((part) => {
+      const lower = part.toLowerCase();
+      if (acronymWords.has(lower)) {
+        return acronymWords.get(lower);
+      }
+      return lower.charAt(0).toUpperCase() + lower.slice(1);
+    })
+    .join(" ") ?? titleSource;
+}
+
+function designDescriptionFromSlug(slug: string) {
+  if (!slug) {
+    return "How the Trellis design docs are organized and which ones to read for a given task.";
+  }
+
+  const title = designTitleFromSlug(slug);
+  if (slug.startsWith("trellis-")) {
+    return `${title} system design.`;
+  }
+
+  return `${title} design reference.`;
+}
+
+const designDocs: DocEntry[] = Object.keys(designModules)
+  .map((path) => ({
+    slug: designSlugFromPath(path),
+    flatSlug: designFlatSlugFromPath(path),
+    section: designSectionFromPath(path),
+    raw: designRawModules[path] ?? "",
+  }))
+  .sort((a, b) => {
+    const sectionDiff = designSectionOrderIndex(a.section) - designSectionOrderIndex(b.section);
+    if (sectionDiff !== 0) return sectionDiff;
+    const orderDiff = markdownOrderFromRaw(a.raw) - markdownOrderFromRaw(b.raw);
+    if (orderDiff !== 0) return orderDiff;
+    if (!a.slug) return -1;
+    if (!b.slug) return 1;
+    if (!a.flatSlug) return -1;
+    if (!b.flatSlug) return 1;
+    if (a.flatSlug.startsWith("trellis-") && !b.flatSlug.startsWith("trellis-")) return -1;
+    if (!a.flatSlug.startsWith("trellis-") && b.flatSlug.startsWith("trellis-")) return 1;
+    return designTitleFromSlug(a.flatSlug).localeCompare(designTitleFromSlug(b.flatSlug));
+  })
+  .map(({ slug, flatSlug, section, raw }) => ({
+    title: !flatSlug ? "Trellis Design Index" : markdownTitleFromRaw(raw, flatSlug),
+    description: markdownDescriptionFromRaw(raw, flatSlug),
+    href: !slug ? "/design" : `/design/${slug}`,
+    section,
+    showPageHeader: false,
+  }));
+
+const designOverviewDoc: DocEntry = {
+  title: "Trellis Design Index",
+  description: "How the Trellis design docs are organized and which ones to read for a given task.",
+  href: "/design",
+  section: "Design Overview",
+  showPageHeader: false,
+};
+
+const designGroupDocs: DocEntry[] = designGroups.map((group) => ({
+  title: group.title,
+  description: group.description,
+  href: group.href,
+  section: group.section,
+  showPageHeader: false,
+}));
+
+export const guideDocs: DocEntry[] = [
   {
     title: "Trellis Concepts",
     description:
-      "The core ideas behind Trellis — contracts, communication, auth, resources, and packages.",
+      "The core ideas behind Trellis — contracts, communication, auth, resources, jobs, operations, and packages.",
     href: "/docs/concepts",
     section: "Introduction",
   },
@@ -52,6 +323,41 @@ export const docs: DocEntry[] = [
     section: "Development",
   },
   {
+    title: "Write a Rust service",
+    description:
+      "A working Rust backend service that connects to Trellis, handles RPCs, and subscribes to events.",
+    href: "/docs/writing-rust-services",
+    section: "Development",
+  },
+  {
+    title: "Use Jobs: TypeScript",
+    description:
+      "Add background job processing to a TypeScript service with retry, progress tracking, and dead-letter handling.",
+    href: "/docs/using-jobs-ts",
+    section: "Development",
+  },
+  {
+    title: "Use Jobs: Rust",
+    description:
+      "Add background job processing to a Rust service with retry, progress tracking, and dead-letter handling.",
+    href: "/docs/using-jobs-rust",
+    section: "Development",
+  },
+  {
+    title: "Use Operations: TypeScript",
+    description:
+      "Expose caller-visible async workflows from a TypeScript service with typed progress and cancellation.",
+    href: "/docs/using-operations-ts",
+    section: "Development",
+  },
+  {
+    title: "Use Operations: Rust",
+    description:
+      "Expose caller-visible async workflows from a Rust service with typed progress and cancellation.",
+    href: "/docs/using-operations-rust",
+    section: "Development",
+  },
+  {
     title: "Write a SvelteKit app",
     description:
       "A working browser app that authenticates with Trellis and calls RPCs.",
@@ -73,6 +379,13 @@ export const docs: DocEntry[] = [
     section: "Administration",
   },
   {
+    title: "Administer Jobs",
+    description:
+      "Query, cancel, replay, and monitor jobs across all services using trellis-service-jobs.",
+    href: "/docs/administering-jobs",
+    section: "Administration",
+  },
+  {
     title: "In-repo development",
     description:
       "Run the Trellis server, console, and NATS from the source tree for local development.",
@@ -81,29 +394,110 @@ export const docs: DocEntry[] = [
   },
 ];
 
-export function getDoc(pathname: string): DocEntry | null {
-  return docs.find((doc) => doc.href === pathname) ?? null;
+export const designNavigationDocs: DocEntry[] = [
+  designOverviewDoc,
+  ...designGroupDocs,
+  ...designDocs,
+];
+
+export function getGuideDoc(pathname: string): DocEntry | null {
+  return guideDocs.find((doc) => doc.href === pathname) ?? null;
 }
 
-export function getPrevNext(pathname: string): {
+export function getGuidePrevNext(pathname: string): {
   prev: DocEntry | null;
   next: DocEntry | null;
 } {
-  const index = docs.findIndex((doc) => doc.href === pathname);
+  const index = guideDocs.findIndex((doc) => doc.href === pathname);
   if (index === -1) {
     return { prev: null, next: null };
   }
   return {
-    prev: docs[index - 1] ?? null,
-    next: docs[index + 1] ?? null,
+    prev: guideDocs[index - 1] ?? null,
+    next: guideDocs[index + 1] ?? null,
   };
 }
 
-export function docsBySection(): { section: Section; docs: DocEntry[] }[] {
-  return sections
+export function guideDocsBySection(): { section: string; docs: DocEntry[] }[] {
+  const orderedSections = Array.from(new Set(guideDocs.map((doc) => doc.section)));
+
+  return orderedSections.map((section) => ({
+    section,
+    docs: guideDocs.filter((doc) => doc.section === section),
+  }));
+}
+
+export function getDesignDoc(pathname: string): DocEntry | null {
+  return designNavigationDocs.find((doc) => doc.href === pathname) ?? null;
+}
+
+export function getDesignPrevNext(pathname: string): {
+  prev: DocEntry | null;
+  next: DocEntry | null;
+} {
+  const index = designNavigationDocs.findIndex((doc) => doc.href === pathname);
+  if (index === -1) {
+    return { prev: null, next: null };
+  }
+
+  return {
+    prev: designNavigationDocs[index - 1] ?? null,
+    next: designNavigationDocs[index + 1] ?? null,
+  };
+}
+
+export function designDocsBySection(): { section: string; docs: DocEntry[] }[] {
+  return designGroupOrder
+    .filter((section) => designNavigationDocs.some((doc) => doc.section === section))
     .map((section) => ({
       section,
-      docs: docs.filter((doc) => doc.section === section),
-    }))
-    .filter((group) => group.docs.length > 0);
+      docs: designNavigationDocs.filter((doc) => doc.section === section),
+    }));
+}
+
+export function overviewDocsBySection(): { section: string; docs: DocEntry[] }[] {
+  return [
+    ...guideDocsBySection(),
+    {
+      section: "Design",
+      docs: designGroupDocs,
+    },
+  ].filter((group) => group.docs.length > 0);
+}
+
+export function allPrimaryNavDocs(): DocEntry[] {
+  return [...guideDocs, designOverviewDoc, ...designGroupDocs];
+}
+
+export function allDocsByHref(pathname: string): DocEntry | null {
+  return [...guideDocs, ...designNavigationDocs].find((doc) => doc.href === pathname) ?? null;
+}
+
+export function docsForSection(section: string): DocEntry[] {
+  return [...guideDocs, ...designNavigationDocs].filter((doc) => doc.section === section);
+}
+
+export function docsBySection(): { section: string; docs: DocEntry[] }[] {
+  const orderedSections = [
+    ...guideDocsBySection(),
+    ...designDocsBySection(),
+  ];
+
+  return orderedSections.map(({ section, docs }) => ({
+    section,
+    docs,
+  }));
+}
+
+export function getDesignGroup(slug: string): DesignGroup | null {
+  return designGroups.find((group) => group.slug === slug) ?? null;
+}
+
+export function getDocsForDesignGroup(slug: string): DocEntry[] {
+  const group = getDesignGroup(slug);
+  if (!group) {
+    return [];
+  }
+
+  return designDocs.filter((doc) => doc.section === group.section);
 }

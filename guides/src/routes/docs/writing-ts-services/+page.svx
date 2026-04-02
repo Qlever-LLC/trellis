@@ -1,4 +1,4 @@
-This tutorial walks through building a TypeScript service from scratch using published Trellis packages. By the end you will have a working service that connects to NATS, mounts an RPC handler, and subscribes to events.
+This tutorial walks through building an `orders-service` in TypeScript using published Trellis packages. By the end you will have a working service that connects to NATS, mounts RPC handlers for creating and retrieving orders, subscribes to auth events, and emits fulfillment events.
 
 Before starting, read [Trellis Concepts](/docs/concepts) for background on contracts, RPCs, events, and packages.
 
@@ -13,7 +13,7 @@ Before starting, read [Trellis Concepts](/docs/concepts) for background on contr
 Your service repository is completely separate from the Trellis source tree:
 
 ```sh
-mkdir my-service && cd my-service
+mkdir orders-service && cd orders-service
 deno init
 ```
 
@@ -38,36 +38,71 @@ If you are using Node instead, install these with `npm install`.
 
 ## 2. Define your schemas
 
-Create `schemas.ts` with the TypeBox schemas for your RPCs and events:
+Create `schemas.ts` with the TypeBox schemas for the order RPCs, fulfillment events, and the stored order record:
 
 ```ts
 import { type Static, Type } from "@sinclair/typebox";
 
-export const MyListRequestSchema = Type.Object({
-  limit: Type.Optional(Type.Number({ default: 50 })),
-});
-export type MyListRequest = Static<typeof MyListRequestSchema>;
-
-export const MyListResponseSchema = Type.Object({
+export const CreateOrderRequestSchema = Type.Object({
+  customerId: Type.String(),
   items: Type.Array(Type.Object({
-    id: Type.String(),
-    name: Type.String(),
+    productId: Type.String(),
+    quantity: Type.Number({ minimum: 1 }),
   })),
-  limit: Type.Number(),
 });
-export type MyListResponse = Static<typeof MyListResponseSchema>;
+export type CreateOrderRequest = Static<typeof CreateOrderRequestSchema>;
 
-export const MyItemCreatedEventSchema = Type.Object({
-  id: Type.String(),
-  name: Type.String(),
+export const CreateOrderResponseSchema = Type.Object({
+  orderId: Type.String(),
+  status: Type.String(),
+});
+export type CreateOrderResponse = Static<typeof CreateOrderResponseSchema>;
+
+export const GetOrderRequestSchema = Type.Object({
+  orderId: Type.String(),
+});
+export type GetOrderRequest = Static<typeof GetOrderRequestSchema>;
+
+export const GetOrderResponseSchema = Type.Object({
+  orderId: Type.String(),
+  customerId: Type.String(),
+  status: Type.String(),
+  items: Type.Array(Type.Object({
+    productId: Type.String(),
+    quantity: Type.Number(),
+  })),
+});
+export type GetOrderResponse = Static<typeof GetOrderResponseSchema>;
+
+export const OrderShippedEventSchema = Type.Object({
+  orderId: Type.String(),
+  customerId: Type.String(),
+  shippedAt: Type.String(),
+});
+export type OrderShippedEvent = Static<typeof OrderShippedEventSchema>;
+
+export const OrderFailedEventSchema = Type.Object({
+  orderId: Type.String(),
+  reason: Type.String(),
+});
+export type OrderFailedEvent = Static<typeof OrderFailedEventSchema>;
+
+export const OrderSchema = Type.Object({
+  orderId: Type.String(),
+  customerId: Type.String(),
+  status: Type.String(),
+  items: Type.Array(Type.Object({
+    productId: Type.String(),
+    quantity: Type.Number(),
+  })),
   createdAt: Type.String(),
 });
-export type MyItemCreatedEvent = Static<typeof MyItemCreatedEventSchema>;
+export type Order = Static<typeof OrderSchema>;
 ```
 
 ## 3. Define the contract
 
-Create `contract.ts`. The contract declares every RPC, event, dependency, and resource your service uses:
+Create `contracts/orders_service.ts`. The contract declares every RPC, event, dependency, and resource your service uses:
 
 ```ts
 import { defineContract } from "@qlever-llc/trellis-contracts";
@@ -75,15 +110,18 @@ import { HealthResponseSchema, HealthRpcSchema } from "@qlever-llc/trellis-serve
 import { auth } from "@qlever-llc/trellis-sdk-auth";
 import { core } from "@qlever-llc/trellis-sdk-core";
 import {
-  MyItemCreatedEventSchema,
-  MyListRequestSchema,
-  MyListResponseSchema,
+  CreateOrderRequestSchema,
+  CreateOrderResponseSchema,
+  GetOrderRequestSchema,
+  GetOrderResponseSchema,
+  OrderFailedEventSchema,
+  OrderShippedEventSchema,
 } from "./schemas.ts";
 
-export const myService = defineContract({
-  id: "my-service@v1",
-  displayName: "My Service",
-  description: "Serve list RPCs and publish item creation events.",
+export const ordersService = defineContract({
+  id: "orders-service@v1",
+  displayName: "Orders Service",
+  description: "Create and track orders, emit fulfillment events.",
   kind: "service",
   uses: {
     core: core.use({
@@ -95,49 +133,58 @@ export const myService = defineContract({
   },
   resources: {
     kv: {
-      items: {
-        purpose: "Store item records",
+      orders: {
+        purpose: "Store order records",
         history: 1,
         ttlMs: 0,
       },
     },
   },
   rpc: {
-    "MyService.Health": {
+    "Orders.Health": {
       version: "v1",
       inputSchema: HealthRpcSchema,
       outputSchema: HealthResponseSchema,
       capabilities: { call: [] },
       errors: ["UnexpectedError"],
     },
-    "MyService.List": {
+    "Orders.Create": {
       version: "v1",
-      inputSchema: MyListRequestSchema,
-      outputSchema: MyListResponseSchema,
-      capabilities: { call: ["admin"] },
+      inputSchema: CreateOrderRequestSchema,
+      outputSchema: CreateOrderResponseSchema,
+      capabilities: { call: ["orders.write"] },
       errors: ["ValidationError", "UnexpectedError"],
+    },
+    "Orders.Get": {
+      version: "v1",
+      inputSchema: GetOrderRequestSchema,
+      outputSchema: GetOrderResponseSchema,
+      capabilities: { call: ["orders.read"] },
+      errors: ["NotFoundError", "UnexpectedError"],
     },
   },
   events: {
-    "MyService.ItemCreated": {
+    "Orders.Shipped": {
       version: "v1",
-      eventSchema: MyItemCreatedEventSchema,
-      capabilities: {
-        publish: ["service"],
-        subscribe: ["service"],
-      },
+      eventSchema: OrderShippedEventSchema,
+      capabilities: { publish: ["service"], subscribe: ["service"] },
+    },
+    "Orders.Failed": {
+      version: "v1",
+      eventSchema: OrderFailedEventSchema,
+      capabilities: { publish: ["service"], subscribe: ["service"] },
     },
   },
 });
 
-export const { CONTRACT_ID, CONTRACT, CONTRACT_DIGEST, API, use } = myService;
+export const { CONTRACT_ID, CONTRACT, CONTRACT_DIGEST, API, use } = ordersService;
 ```
 
 Key things to note:
 
 - `uses` declares cross-contract dependencies — without these, Trellis will not grant access to those RPCs/events
-- `resources.kv.items` requests a KV bucket with the logical alias `items` — Trellis assigns the physical name at install time
-- `capabilities` controls who can call each operation
+- `resources.kv.orders` requests a KV bucket with the logical alias `orders` — Trellis assigns the physical name at install time
+- `capabilities` controls who can call each operation — `orders.read` and `orders.write` gate the `Orders.Get` and `Orders.Create` RPCs respectively
 
 ## 4. Write the service entry point
 
@@ -145,10 +192,10 @@ Create `main.ts`:
 
 ```ts
 import { connectService } from "@qlever-llc/trellis-server/deno";
-import { myService } from "./contract.ts";
+import { ordersService } from "./contracts/orders_service.ts";
 
-const service = await connectService(myService, "my-service", {
-  sessionKeySeed: Deno.env.get("MY_SERVICE_SESSION_KEY_SEED")!,
+const service = await connectService(ordersService, "orders-service", {
+  sessionKeySeed: Deno.env.get("ORDERS_SERVICE_SESSION_KEY_SEED")!,
   nats: {
     servers: Deno.env.get("NATS_SERVERS") ?? "localhost",
     sentinelCredsPath: Deno.env.get("NATS_SENTINEL_CREDS"),
@@ -167,11 +214,11 @@ Resource bindings are resolved during `connectService` and exposed as handles on
 
 ```ts
 import { isErr } from "@qlever-llc/trellis-result";
-import { MyItemSchema } from "./schemas.ts";
+import { OrderSchema } from "./schemas.ts";
 
-const result = await service.kv.items.open(MyItemSchema);
-const itemsKV = result.take();
-if (isErr(itemsKV)) throw itemsKV.error;
+const result = await service.kv.orders.open(OrderSchema);
+const ordersKV = result.take();
+if (isErr(ordersKV)) throw ordersKV.error;
 ```
 
 No need to know bucket names or configure history/TTL — those come from the installed contract binding.
@@ -181,11 +228,27 @@ No need to know bucket names or configure history/TTL — those come from the in
 Mount handlers that match the operations declared in your contract:
 
 ```ts
-await service.trellis.mount("MyService.List", async (req) => {
-  return Result.ok({
-    items: [],
-    limit: req.limit ?? 50,
-  });
+import { isErr, Result } from "@qlever-llc/trellis-result";
+
+await service.trellis.mount("Orders.Create", async (req) => {
+  const orderId = crypto.randomUUID();
+  const order = {
+    orderId,
+    customerId: req.customerId,
+    status: "pending",
+    items: req.items,
+    createdAt: new Date().toISOString(),
+  };
+  await ordersKV.put(orderId, order);
+  return Result.ok({ orderId, status: "pending" });
+});
+
+await service.trellis.mount("Orders.Get", async (req) => {
+  const result = await ordersKV.get(req.orderId);
+  if (isErr(result) || !result.value) {
+    return Result.err({ type: "NotFoundError", message: "Order not found" });
+  }
+  return Result.ok(result.value);
 });
 ```
 
@@ -216,8 +279,8 @@ For Node, use `process.on("SIGTERM", ...)`.
 Keep the contract source with your service and generate artifacts into build output:
 
 ```text
-my-service/
-  contracts/my_service.ts
+orders-service/
+  contracts/orders_service.ts
   schemas.ts
   main.ts
   dist/contracts/
@@ -228,10 +291,10 @@ Build and verify it with the CLI:
 
 ```sh
 trellis contracts build \
-  --source ./contracts/my_service.ts \
-  --out-manifest ./dist/contracts/trellis.my-service@v1.json
+  --source ./contracts/orders_service.ts \
+  --out-manifest ./dist/contracts/trellis.orders-service@v1.json
 
-trellis contracts verify --source ./contracts/my_service.ts
+trellis contracts verify --source ./contracts/orders_service.ts
 ```
 
 ## 10. Generate an SDK for consumers
@@ -240,10 +303,10 @@ Other services and apps that want to call your RPCs or subscribe to your events 
 
 ```sh
 trellis contracts build \
-  --source ./contracts/my_service.ts \
-  --out-manifest ./dist/contracts/trellis.my-service@v1.json \
+  --source ./contracts/orders_service.ts \
+  --out-manifest ./dist/contracts/trellis.orders-service@v1.json \
   --ts-out ./generated/sdk/ts \
-  --package-name "@my-org/sdk-my-service"
+  --package-name "@my-org/sdk-orders-service"
 ```
 
 This produces a Deno package under `./generated/sdk/ts/`. The generated SDK version matches the version declared by the workspace that owns the contract source. It includes:
@@ -257,14 +320,14 @@ This produces a Deno package under `./generated/sdk/ts/`. The generated SDK vers
 Consumers import the SDK like any other Trellis contract package:
 
 ```ts
-import { myService } from "@my-org/sdk-my-service";
+import { ordersService } from "@my-org/sdk-orders-service";
 
 // Declare a dependency on your service
 const app = defineContract({
   // ...
   uses: {
-    myService: myService.use({
-      rpc: { call: ["MyService.List"] },
+    ordersService: ordersService.use({
+      rpc: { call: ["Orders.Create", "Orders.Get"] },
     }),
   },
 });
@@ -277,7 +340,7 @@ Regenerate the SDK whenever the contract changes. This is the same pattern that 
 Install the contract into your Trellis environment directly from source during development:
 
 ```sh
-trellis service install --source ./contracts/my_service.ts
+trellis service install --source ./contracts/orders_service.ts
 ```
 
 If you ship the service as an OCI image, embed the generated contract artifact in the image and label its path so operators can install directly from the image:
@@ -290,7 +353,7 @@ WORKDIR /app
 LABEL io.trellis.contract.path="/trellis/contract.json"
 
 COPY . .
-COPY dist/contracts/trellis.my-service@v1.json /trellis/contract.json
+COPY dist/contracts/trellis.orders-service@v1.json /trellis/contract.json
 
 CMD ["deno", "run", "--allow-net", "--allow-env", "main.ts"]
 ```
@@ -298,8 +361,8 @@ CMD ["deno", "run", "--allow-net", "--allow-env", "main.ts"]
 Then operators can install or upgrade from the image instead of checking out the repo:
 
 ```sh
-trellis service install --image ghcr.io/my-org/my-service:1.2.3
-trellis service upgrade --image ghcr.io/my-org/my-service:1.2.4
+trellis service install --image ghcr.io/my-org/orders-service:1.2.3
+trellis service upgrade --image ghcr.io/my-org/orders-service:1.2.4
 ```
 
 Trellis looks for the contract at the labeled path first and falls back to `/trellis/contract.json` when no label is present.
@@ -307,7 +370,7 @@ Trellis looks for the contract at the labeled path first and falls back to `/tre
 Then run the service:
 
 ```sh
-MY_SERVICE_SESSION_KEY_SEED=<seed> \
+ORDERS_SERVICE_SESSION_KEY_SEED=<seed> \
 NATS_SERVERS=localhost \
 NATS_SENTINEL_CREDS=./path/to/sentinel.creds \
 deno run --allow-net --allow-env main.ts
@@ -319,3 +382,8 @@ deno run --allow-net --allow-env main.ts
 2. Rebuild contract artifacts and SDKs with `trellis contracts build`
 3. Upgrade the contract in Trellis if the contract changed
 4. Restart the service
+
+## Next steps
+
+- [Use Jobs: TypeScript](/docs/using-jobs-ts) — add background fulfillment jobs to this service
+- [Use Operations: TypeScript](/docs/using-operations-ts) — expose a caller-visible `Orders.Process` operation

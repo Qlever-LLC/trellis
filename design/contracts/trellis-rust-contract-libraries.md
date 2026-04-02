@@ -1,15 +1,17 @@
-# ADR: Trellis Rust Contract Libraries
+---
+title: Trellis Rust Contract Libraries
+description: Rust contract and participant-facade architecture for generated SDKs and alias-based runtime access.
+order: 30
+---
 
-## Status
-
-Proposed
+# Design: Trellis Rust Contract Libraries
 
 ## Prerequisites
 
-- [adr-trellis-patterns.md](./adr-trellis-patterns.md) - participant boundaries across services, apps, and tools
-- [adr-trellis-contracts-catalog.md](./adr-trellis-contracts-catalog.md) - canonical manifest and `uses` semantics
-- [adr-trellis-cli.md](./adr-trellis-cli.md) - source-first CLI and SDK generation boundary
-- [adr-trellis-typescript-contract-authoring.md](./adr-trellis-typescript-contract-authoring.md) - same contract-first goal expressed for TypeScript
+- [../core/trellis-patterns.md](./../core/trellis-patterns.md) - participant boundaries across services, apps, and tools
+- [trellis-contracts-catalog.md](./trellis-contracts-catalog.md) - canonical manifest and `uses` semantics
+- [../tooling/trellis-cli.md](./../tooling/trellis-cli.md) - source-first CLI and SDK generation boundary
+- [trellis-typescript-contract-authoring.md](./trellis-typescript-contract-authoring.md) - same contract-first goal expressed for TypeScript
 
 ## Context
 
@@ -36,7 +38,7 @@ Rust should solve the same architectural problem as TypeScript, but with Rust-na
 
 Rust should not mimic the flat string-keyed TypeScript `trellis` object exactly. The idiomatic Rust surface should instead prefer generated modules, types, and alias-based facades.
 
-## Decision
+## Design
 
 Trellis adopts a contract-driven Rust library model.
 
@@ -57,12 +59,12 @@ surface, allowed used surface, and contract-shaped runtime access.
 
 ### 1) Manifest remains canonical
 
-This ADR does not change the architectural contract boundary.
+This document does not change the architectural contract boundary.
 
 Rules:
 
 - the generated `trellis.contract.v1` manifest remains the canonical runtime and tooling artifact
-- required manifest metadata is the same as in the TypeScript contract ADR: `id`, `displayName`, `description`, and `kind` are required top-level fields in the emitted canonical manifest
+- required manifest metadata is the same as in the TypeScript contract design: `id`, `displayName`, `description`, and `kind` are required top-level fields in the emitted canonical manifest
 - generated Rust SDK crates and participant facades derive from manifests
 - native Rust authoring helpers or macros MAY exist later, but they are implementation details around deterministic manifest emission
 
@@ -97,67 +99,21 @@ Rules:
 
 ### Public crate surfaces
 
-#### `trellis-contracts`
+The public Rust contract/runtime surface is split across:
 
-`trellis-contracts` owns:
+- `trellis-contracts` for manifest, digest, and shared metadata types
+- `trellis-client` for authenticated outbound runtime primitives
+- `trellis-server` for authenticated inbound runtime primitives
+- generated SDK crates for one contract's owned surface
+- generated local participant facades for one participant's owned and used surface
 
-- manifest and catalog structs
-- canonicalization and digest helpers
-- manifest loading and validation
-- shared contract metadata traits and types used by generated Rust crates
+The full normative Rust surface is defined in:
 
-It does not own NATS transport connection behavior.
-
-#### `trellis-client`
-
-`trellis-client` owns:
-
-- authenticated outbound Trellis session/client primitives
-- generic RPC request, event publish, event subscribe, and raw subject publish/subscribe primitives
-- descriptor traits required by generated outbound code
-
-It does not own participant-specific alias filtering.
-
-#### `trellis-server`
-
-`trellis-server` owns:
-
-- authenticated service-side runtime primitives
-- handler registration for owned RPCs
-- owned event publish helpers
-- owned raw subject helpers
-- descriptor traits required by generated inbound code
-
-It does not own manifest parsing or contract selection logic.
+- [contracts-rust-api.md](./contracts-rust-api.md)
 
 ### Generated contract SDK crate shape
 
 A generated Rust SDK crate for one manifest is the Rust equivalent of a remote contract module.
-
-Each generated SDK crate must export:
-
-- `CONTRACT_ID`
-- `CONTRACT_DIGEST`
-- `CONTRACT_JSON`
-- `contract_manifest()` or equivalent manifest access
-- owned request, response, event, and message types
-- owned RPC, event, and raw subject descriptor types
-- thin client helper modules for the owned RPC and outbound event/raw subject surface
-- thin server helper modules for the owned RPC registration and owned event/raw subject surface
-
-Illustrative shape:
-
-```rust
-pub mod contract;
-pub mod types;
-pub mod rpc;
-pub mod events;
-pub mod subjects;
-pub mod client;
-pub mod server;
-
-pub use contract::{contract_manifest, CONTRACT_DIGEST, CONTRACT_ID, CONTRACT_JSON};
-```
 
 Rules:
 
@@ -168,17 +124,6 @@ Rules:
 ### Shared contract module trait
 
 Generated contract SDK crates and local participant facades must share enough metadata shape that code generation and runtime helpers can treat them consistently.
-
-Illustrative trait:
-
-```rust
-pub trait ContractModule {
-    const CONTRACT_ID: &'static str;
-    const CONTRACT_DIGEST: &'static str;
-
-    fn contract_manifest() -> trellis_contracts::ContractManifest;
-}
-```
 
 Rules:
 
@@ -203,41 +148,6 @@ The explicit mapping is required because manifest contract ids do not determine 
 
 The preferred generation target is a small checked-in participant crate shim plus build-time generated facade modules. In practice that means the crate may keep stable handwritten entrypoints such as `build.rs`, `src/lib.rs`, `src/connect.rs`, and `src/contract.rs`, while owned/used facade modules are regenerated into `OUT_DIR` and included by the shim.
 
-Each local participant facade must expose:
-
-- contract metadata for the local participant
-- an owned contract-module-compatible view for dependency reuse
-- an owned facade
-- one generated used facade per `uses` alias
-- client and service connection helpers tied to the local participant contract
-
-Illustrative shape:
-
-```rust
-pub mod contract;
-pub mod connect;
-
-include!(concat!(env!("OUT_DIR"), "/generated/src/facade.rs"));
-
-pub struct OwnedContract;
-pub struct Client { ... }
-pub struct Service { ... }
-
-impl ContractModule for OwnedContract { ... }
-
-impl Client {
-    pub fn owned(&self) -> owned::Client<'_>;
-    pub fn core(&self) -> uses::core::Client<'_>;
-    pub fn auth(&self) -> uses::auth::Client<'_>;
-}
-
-impl Service {
-    pub fn owned(&self) -> owned::Service<'_>;
-    pub fn core(&self) -> uses::core::Client<'_>;
-    pub fn auth(&self) -> uses::auth::Client<'_>;
-}
-```
-
 Rules:
 
 - `OwnedContract` or equivalent exposes the participant's owned contract surface as reusable dependency vocabulary
@@ -251,11 +161,9 @@ Rules:
 
 Rust uses alias-based facades rather than a flat merged runtime namespace.
 
-Examples:
+The full alias-based facade shape and examples live in:
 
-- `participant.core().trellis_catalog(...)`
-- `participant.auth().auth_me(...)`
-- `participant.owned().register_activity_list(...)`
+- [contracts-rust-api.md](./contracts-rust-api.md)
 
 Rules:
 
@@ -291,6 +199,7 @@ Rules:
 
 The Rust outbound runtime must support at least:
 
+- typed operation requests
 - typed RPC requests
 - typed event publishing
 - typed event subscriptions
@@ -309,6 +218,7 @@ Rules:
 
 The Rust service runtime must support at least:
 
+- owned operation handler registration
 - owned RPC handler registration
 - owned event publish helpers
 - owned raw subject helpers
@@ -326,17 +236,19 @@ The runtime descriptor traits in `trellis-client` and `trellis-server` must be r
 
 Required descriptor categories:
 
+- `OperationDescriptor`
 - `RpcDescriptor`
 - `EventDescriptor`
 - `SubjectDescriptor`
 
 Required descriptor semantics:
 
+- operation descriptors expose logical key, invoke subject, derived control subject, input type, progress type if any, output type, declared capability requirements, and enough metadata to drive typed `operation(...).start`, `get`, `wait`, `watch`, and `cancel` helpers
 - RPC descriptors expose logical key, concrete subject, request type, response type, declared caller capabilities, and declared known errors
 - event descriptors expose logical key, event type, subject template metadata, wildcard subscribe subject metadata, and enough logic to derive a concrete publish subject from an event value when the subject is templated
 - subject descriptors expose logical key, subject or subject pattern, message type if any, and capability metadata
 
-This ADR does not lock the exact Rust trait signatures, but it does require the runtime traits to be expressive enough for all v1 contract concepts.
+This document does not lock the exact Rust trait signatures, but it does require the runtime traits to be expressive enough for all v1 contract concepts, including first-class operations.
 
 ### Event and raw subject semantics
 
@@ -367,13 +279,6 @@ Rules:
 
 Generated participant facades expose contract-driven connection helpers rather than requiring each application to wire transport details by hand.
 
-Illustrative shape:
-
-```rust
-let client = activity_participant::connect_service(opts).await?;
-let facade = client.facade();
-```
-
 Rules:
 
 - those helpers wrap stable `trellis-client` and `trellis-server` runtime primitives
@@ -383,7 +288,7 @@ Rules:
 
 ### Manifest behavior
 
-This ADR does not change the emitted manifest model.
+This document does not change the emitted manifest model.
 
 Rules:
 
@@ -418,9 +323,7 @@ Rules:
 - manifest and CLI workflows remain unchanged while library ergonomics evolve
 - docs should prefer participant-facade usage once the model exists
 
-## Consequences
-
-### Benefits
+## Benefits
 
 - Rust gets the same contract-first architecture as TypeScript without forcing a non-idiomatic flat API shape
 - local participant code sees only the operations it owns or has explicitly declared in `uses`
@@ -428,7 +331,7 @@ Rules:
 - apps, services, and CLIs share one participant model in Rust
 - runtime crates become cleaner generator targets instead of accumulating special-case helpers
 
-### Trade-offs
+## Trade-Offs
 
 - Rust needs an additional participant-facade generation layer beyond single-manifest SDK generation
 - event and raw subject support require richer runtime trait design than the current placeholders
@@ -437,6 +340,6 @@ Rules:
 
 ## References
 
-- `design/adr-trellis-contracts-catalog.md`
-- `design/adr-trellis-typescript-contract-authoring.md`
+- `design/contracts/trellis-contracts-catalog.md`
+- `design/contracts/trellis-typescript-contract-authoring.md`
 - `docs/plans/2026-03-19-rust-cli-contracts-and-sdks.md`

@@ -1,16 +1,30 @@
 <script lang="ts">
   import "../app.css";
   import type { Snippet } from "svelte";
-  import { resolve } from "$app/paths";
+  import { base, resolve } from "$app/paths";
   import { page } from "$app/state";
 
   let { children }: { children: Snippet } = $props();
 
-  const pathname = $derived(normalizePath(page.route.id ?? page.url.pathname));
-  const homeActive = $derived(pathname === "/");
+  const pathname = $derived(normalizePath(stripBasePath(page.url.pathname)));
+  const overviewActive = $derived(pathname === "/");
+  const guidesActive = $derived(pathname === "/docs" || pathname.startsWith("/docs/"));
+  const designActive = $derived(pathname === "/design" || pathname.startsWith("/design/"));
 
   function normalizePath(path: string) {
     return path.length > 1 && path.endsWith("/") ? path.slice(0, -1) : path;
+  }
+
+  function stripBasePath(pathname: string) {
+    if (!base) {
+      return pathname;
+    }
+
+    if (pathname === base) {
+      return "/";
+    }
+
+    return pathname.startsWith(`${base}/`) ? pathname.slice(base.length) : pathname;
   }
 </script>
 
@@ -25,12 +39,30 @@
         <nav class="flex items-center gap-4" aria-label="Primary">
           <a
             class={[
-              homeActive
+              overviewActive
                 ? "font-medium text-base-content"
                 : "text-base-content/70",
               "hover:text-base-content",
             ]}
             href={resolve("/")}>Overview</a
+          >
+          <a
+            class={[
+              guidesActive
+                ? "font-medium text-base-content"
+                : "text-base-content/70",
+              "hover:text-base-content",
+            ]}
+            href={resolve("/docs")}>Guides</a
+          >
+          <a
+            class={[
+              designActive
+                ? "font-medium text-base-content"
+                : "text-base-content/70",
+              "hover:text-base-content",
+            ]}
+            href={resolve("/design")}>Design</a
           >
         </nav>
       </div>
