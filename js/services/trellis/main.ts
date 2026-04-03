@@ -37,6 +37,7 @@ import {
 import {
   authListServicesHandler,
   createAuthInstallServiceHandler,
+  createAuthRemoveServiceHandler,
   createAuthUpgradeServiceContractHandler,
 } from "./catalog/services.ts";
 import { getConfig } from "./config.ts";
@@ -83,6 +84,12 @@ await trellis.mount(
   createAuthUpgradeServiceContractHandler({
     refreshActiveContracts: contracts.refreshActiveContracts,
     prepareInstalledContract: contracts.prepareInstalledContract,
+  }),
+);
+await trellis.mount(
+  "Auth.RemoveService",
+  createAuthRemoveServiceHandler({
+    refreshActiveContracts: contracts.refreshActiveContracts,
   }),
 );
 

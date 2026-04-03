@@ -29,6 +29,7 @@ use ed25519_dalek::SigningKey;
 use miette::IntoDiagnostic;
 use rand::rngs::OsRng;
 use rand::RngCore;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use tracing_subscriber::EnvFilter;
@@ -100,6 +101,7 @@ async fn main() -> miette::Result<()> {
                 )
                 .await?
             }
+            ServiceSubcommand::Remove(args) => service_remove_command(format, &args).await?,
         },
         TopLevelCommand::Generate(command) => match command.command {
             GenerateSubcommand::Manifest(args) => generate_manifest_command(&args)?,
@@ -1437,6 +1439,132 @@ async fn service_upgrade_command(
     }
 
     Ok(())
+}
+
+async fn service_remove_command(
+    format: OutputFormat,
+    args: &ServiceRemoveArgs,
+) -> miette::Result<()> {
+    miette::ensure!(
+        !output::is_json(format) || args.force,
+        "use -f with --format json to skip the interactive removal review"
+    );
+
+    let mut state = authlib::load_admin_session().into_diagnostic()?;
+    let connected = connect_cli_admin(&state).await.into_diagnostic()?;
+    let participant = connected.facade();
+    let services = participant
+        .auth()
+        .auth_list_services()
+        .await
+        .into_diagnostic()?
+        .services;
+
+    let service = services
+        .iter()
+        .find(|service| service.session_key == args.service_key)
+        .ok_or_else(|| miette::miette!("service not found: {}", args.service_key))?;
+
+    if !output::is_json(format) {
+        output::print_info("Remove review");
+        let rows = vec![
+            vec!["service key".to_string(), service.session_key.clone()],
+            vec!["display name".to_string(), service.display_name.clone()],
+            vec![
+                "contract id".to_string(),
+                service.contract_id.clone().unwrap_or_default(),
+            ],
+            vec![
+                "current digest".to_string(),
+                service.contract_digest.clone().unwrap_or_default(),
+            ],
+            vec!["active".to_string(), service.active.to_string()],
+            vec!["namespaces".to_string(), service.namespaces.join(", ")],
+            vec!["description".to_string(), service.description.clone()],
+            vec![
+                "mode".to_string(),
+                if args.purge {
+                    "purge".to_string()
+                } else {
+                    "deactivate".to_string()
+                },
+            ],
+        ];
+        println!("{}", output::table(&["field", "value"], rows));
+        if !args.force
+            && !prompt_for_confirmation(&format!(
+                "Proceed with service {} for '{}' ?",
+                if args.purge { "purge" } else { "deactivation" },
+                args.service_key
+            ))?
+        {
+            return Err(miette::miette!("service remove cancelled"));
+        }
+    }
+
+    let request = serde_json::to_value(AuthRemoveServiceRequest {
+        session_key: args.service_key.clone(),
+        purge: Some(args.purge),
+    })
+    .into_diagnostic()?;
+    let rpc_result = connected
+        .raw()
+        .request_json_value("rpc.v1.Auth.RemoveService", &request);
+    let renew_result = connected.renew_admin_session(&mut state).await;
+    let response: AuthRemoveServiceResponse =
+        serde_json::from_value(rpc_result.await.into_diagnostic()?).into_diagnostic()?;
+    if let Err(error) = renew_result {
+        if output::is_json(format) {
+            return Err(miette::miette!(error.to_string()));
+        }
+        output::print_info(&format!("warning: admin session was not renewed: {error}"));
+    }
+
+    if output::is_json(format) {
+        output::print_json(&json!({
+            "success": response.success,
+            "sessionKey": response.session_key,
+            "purged": response.purged,
+            "wasActive": response.was_active,
+            "contractId": response.contract_id,
+            "contractDigest": response.contract_digest,
+        }))?;
+    } else {
+        output::print_success("removed service");
+        output::print_info(&format!("sessionKey={}", response.session_key));
+        output::print_info(&format!("purged={}", response.purged));
+        output::print_info(&format!("wasActive={}", response.was_active));
+        if let Some(contract_id) = response.contract_id {
+            output::print_info(&format!("contractId={contract_id}"));
+        }
+        if let Some(contract_digest) = response.contract_digest {
+            output::print_info(&format!("contractDigest={contract_digest}"));
+        }
+    }
+
+    Ok(())
+}
+
+#[derive(Debug, Serialize)]
+struct AuthRemoveServiceRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    purge: Option<bool>,
+    #[serde(rename = "sessionKey")]
+    session_key: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct AuthRemoveServiceResponse {
+    #[serde(rename = "contractDigest")]
+    contract_digest: Option<String>,
+    #[serde(rename = "contractId")]
+    contract_id: Option<String>,
+    purged: bool,
+    #[serde(rename = "sessionKey")]
+    session_key: String,
+    success: bool,
+    #[serde(rename = "wasActive")]
+    was_active: bool,
 }
 
 fn resolve_servers(global: Option<String>, local: Option<String>) -> String {

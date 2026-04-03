@@ -2,6 +2,7 @@ import type { Hono } from "@hono/hono";
 import { cors } from "@hono/hono/cors";
 import { HTTPException } from "@hono/hono/http-exception";
 import { rateLimiter } from "@hono-rate-limiter/hono-rate-limiter";
+import { trellisIdFromOriginId } from "@qlever-llc/trellis-auth";
 import { AsyncResult, isErr } from "@qlever-llc/trellis-result";
 import { Value } from "typebox/value";
 
@@ -267,6 +268,19 @@ export function registerHttpRoutes(
 
     const user = await provider.getUserInfo(accessToken);
     logger.debug({ user: user.id }, "Authentication successful.");
+
+    const userTrellisId = await trellisIdFromOriginId(user.provider, user.id);
+    const existingProjection = (await usersKV.get(userTrellisId)).take();
+    await upsertUserProjection(usersKV, {
+      origin: user.provider,
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      active: !isErr(existingProjection) ? existingProjection.value.active : true,
+      capabilities: !isErr(existingProjection)
+        ? existingProjection.value.capabilities
+        : [],
+    });
 
     const authToken = randomToken(32);
     const authTokenHash = await hashKey(authToken);

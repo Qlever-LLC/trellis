@@ -253,3 +253,59 @@ export function createAuthUpgradeServiceContractHandler(
     });
   };
 }
+
+export function createAuthRemoveServiceHandler(
+  deps: { refreshActiveContracts: () => Promise<void> },
+) {
+  return async (
+    req: { sessionKey: string; purge?: boolean },
+    { user }: { user: { id: string } },
+  ) => {
+    logger.trace({
+      rpc: "Auth.RemoveService",
+      user,
+      sessionKey: req.sessionKey,
+      purge: req.purge ?? false,
+    }, "RPC request");
+
+    const entry = (await servicesKV.get(req.sessionKey)).take();
+    if (isErr(entry)) {
+      return Result.err(
+        new ValidationError({
+          errors: [{ path: "/sessionKey", message: "service not found" }],
+        }),
+      );
+    }
+
+    const existing = entry.value;
+    const wasActive = existing.active;
+    const purged = req.purge ?? false;
+
+    if (purged) {
+      const deleted = (await servicesKV.delete(req.sessionKey)).take();
+      if (isErr(deleted)) {
+        return Result.err(new UnexpectedError({ cause: deleted.error }));
+      }
+    } else if (existing.active) {
+      const put = (
+        await servicesKV.put(req.sessionKey, {
+          ...existing,
+          active: false,
+        })
+      ).take();
+      if (isErr(put)) {
+        return Result.err(new UnexpectedError({ cause: put.error }));
+      }
+    }
+
+    await deps.refreshActiveContracts();
+    return Result.ok({
+      success: true,
+      sessionKey: req.sessionKey,
+      purged,
+      wasActive,
+      contractId: existing.contractId,
+      contractDigest: existing.contractDigest,
+    });
+  };
+}
