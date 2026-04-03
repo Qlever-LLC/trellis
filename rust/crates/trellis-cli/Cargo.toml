@@ -17,7 +17,6 @@ serde_json.workspace = true
 tokio.workspace = true
 trellis-client = { path = "../trellis-client", version = "0.5.1" }
 trellis-auth = { path = "../trellis-auth", version = "0.5.1" }
-trellis-cli-participant = { path = "../trellis-cli-participant", version = "0.5.1" }
 trellis-codegen-rust = { path = "../trellis-codegen-rust", version = "0.5.1" }
 trellis-codegen-ts = { path = "../trellis-codegen-ts", version = "0.5.1" }
 trellis-contracts = { path = "../trellis-contracts", version = "0.5.1" }
@@ -34,7 +33,3 @@ tempfile = "3"
 [[bin]]
 name = "trellis"
 path = "src/main.rs"
-
-[dev-dependencies]
-trellis-sdk-auth = { path = "../trellis-sdk-auth", version = "0.5.1" }
-trellis-sdk-core = { path = "../trellis-sdk-core", version = "0.5.1", package = "trellis-sdk-core" }

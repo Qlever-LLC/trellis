@@ -2,8 +2,8 @@
 //!
 //! This crate provides connection/auth helpers plus descriptor-driven request and
 //! publish operations. It intentionally avoids contract-specific convenience
-//! methods so first-party code can move toward generated SDKs and participant
-//! facades.
+//! methods so first-party code can move toward generated SDKs and small local
+//! wrappers.
 
 mod auth;
 mod client;

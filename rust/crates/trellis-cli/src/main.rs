@@ -1,6 +1,7 @@
 mod cli;
 mod cli_contract;
 mod contract_input;
+mod core_client;
 mod output;
 
 use std::env;
@@ -32,10 +33,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use tracing_subscriber::EnvFilter;
 use trellis_auth as authlib;
-use trellis_cli_participant::{
-    connect_admin as connect_cli_admin, connect_service as connect_cli_service,
-};
-use trellis_client::{ServiceConnectOptions, SessionAuth};
+use trellis_client::{ServiceConnectOptions, SessionAuth, TrellisClient};
 use trellis_codegen_rust::{
     generate_rust_participant_facade, generate_rust_sdk, GenerateRustParticipantFacadeOpts,
     GenerateRustSdkOpts, ParticipantAliasMapping, RustRuntimeDeps,
@@ -585,7 +583,7 @@ fn pack_contracts_command(format: OutputFormat, args: &PackContractsArgs) -> mie
 
 async fn verify_live_command(format: OutputFormat, args: &VerifyLiveArgs) -> miette::Result<()> {
     let creds = args.creds.display().to_string();
-    let connected = connect_cli_service(ServiceConnectOptions {
+    let connected = TrellisClient::connect_service(ServiceConnectOptions {
         servers: &args.servers,
         sentinel_creds_path: &creds,
         session_key_seed_base64url: &args.session_seed,
@@ -594,24 +592,15 @@ async fn verify_live_command(format: OutputFormat, args: &VerifyLiveArgs) -> mie
     .await
     .into_diagnostic()?;
 
-    let participant = connected.facade();
-    let core_client = participant.core();
-    let catalog = core_client
-        .trellis_catalog()
-        .await
-        .into_diagnostic()?
-        .catalog;
+    let core_client = core_client::CoreClient::new(&connected);
+    let catalog = core_client.catalog().await.into_diagnostic()?.catalog;
     let mut verified = Vec::new();
     for (index, entry) in catalog.contracts.iter().enumerate() {
         if args.limit.is_some_and(|limit| index >= limit) {
             break;
         }
         let contract = core_client
-            .trellis_contract_get(
-                &trellis_cli_participant::uses::core::TrellisContractGetRequest {
-                    digest: entry.digest.clone(),
-                },
-            )
+            .contract_get(&entry.digest)
             .await
             .into_diagnostic()?
             .contract;
@@ -1023,9 +1012,9 @@ async fn auth_logout_command(format: OutputFormat) -> miette::Result<()> {
     let mut revoked = false;
     let mut revoke_error = None;
     if let Ok(state) = authlib::load_admin_session() {
-        match connect_cli_admin(&state).await {
-            Ok(connected) => match connected.facade().auth().auth_logout().await {
-                Ok(response) => revoked = response.success,
+        match authlib::connect_admin_client_async(&state).await {
+            Ok(connected) => match authlib::AuthClient::new(&connected).logout().await {
+                Ok(response) => revoked = response,
                 Err(error) => revoke_error = Some(error.to_string()),
             },
             Err(error) => revoke_error = Some(error.to_string()),
@@ -1057,11 +1046,13 @@ async fn auth_logout_command(format: OutputFormat) -> miette::Result<()> {
 
 async fn auth_status_command(format: OutputFormat) -> miette::Result<()> {
     let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let connected = connect_cli_admin(&state).await.into_diagnostic()?;
-    let participant = connected.facade();
-    let me = participant.auth().auth_me().await.into_diagnostic()?.user;
-    connected
-        .renew_admin_session(&mut state)
+    let connected = authlib::connect_admin_client_async(&state)
+        .await
+        .into_diagnostic()?;
+    let auth_client = authlib::AuthClient::new(&connected);
+    let me = auth_client.me().await.into_diagnostic()?;
+    auth_client
+        .renew_binding_token(&mut state)
         .await
         .into_diagnostic()?;
 
@@ -1088,16 +1079,13 @@ async fn auth_status_command(format: OutputFormat) -> miette::Result<()> {
 
 async fn service_list_command(format: OutputFormat) -> miette::Result<()> {
     let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let connected = connect_cli_admin(&state).await.into_diagnostic()?;
-    let services = connected
-        .facade()
-        .auth()
-        .auth_list_services()
+    let connected = authlib::connect_admin_client_async(&state)
         .await
-        .into_diagnostic()?
-        .services;
-    connected
-        .renew_admin_session(&mut state)
+        .into_diagnostic()?;
+    let auth_client = authlib::AuthClient::new(&connected);
+    let services = auth_client.list_services().await.into_diagnostic()?;
+    auth_client
+        .renew_binding_token(&mut state)
         .await
         .into_diagnostic()?;
 
@@ -1150,21 +1138,16 @@ async fn auth_approvals_list_command(
     args: &AuthApprovalsListArgs,
 ) -> miette::Result<()> {
     let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let connected = connect_cli_admin(&state).await.into_diagnostic()?;
-    let participant = connected.facade();
-    let approvals = participant
-        .auth()
-        .auth_list_approvals(
-            &trellis_cli_participant::uses::auth::AuthListApprovalsRequest {
-                user: args.user.clone(),
-                digest: args.digest.clone(),
-            },
-        )
+    let connected = authlib::connect_admin_client_async(&state)
         .await
-        .into_diagnostic()?
-        .approvals;
-    connected
-        .renew_admin_session(&mut state)
+        .into_diagnostic()?;
+    let auth_client = authlib::AuthClient::new(&connected);
+    let approvals = auth_client
+        .list_approvals(args.user.as_deref(), args.digest.as_deref())
+        .await
+        .into_diagnostic()?;
+    auth_client
+        .renew_binding_token(&mut state)
         .await
         .into_diagnostic()?;
 
@@ -1214,21 +1197,16 @@ async fn auth_approvals_revoke_command(
     args: &AuthApprovalsRevokeArgs,
 ) -> miette::Result<()> {
     let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let connected = connect_cli_admin(&state).await.into_diagnostic()?;
-    let participant = connected.facade();
-    let success = participant
-        .auth()
-        .auth_revoke_approval(
-            &trellis_cli_participant::uses::auth::AuthRevokeApprovalRequest {
-                contract_digest: args.digest.clone(),
-                user: args.user.clone(),
-            },
-        )
+    let connected = authlib::connect_admin_client_async(&state)
         .await
-        .into_diagnostic()?
-        .success;
-    connected
-        .renew_admin_session(&mut state)
+        .into_diagnostic()?;
+    let auth_client = authlib::AuthClient::new(&connected);
+    let success = auth_client
+        .revoke_approval(&args.digest, args.user.as_deref())
+        .await
+        .into_diagnostic()?;
+    auth_client
+        .renew_binding_token(&mut state)
         .await
         .into_diagnostic()?;
 
@@ -1319,35 +1297,31 @@ async fn service_install_command(
     let (seed, session_key) = generate_session_keypair();
 
     let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let connected = connect_cli_admin(&state).await.into_diagnostic()?;
-    let participant = connected.facade();
+    let connected = authlib::connect_admin_client_async(&state)
+        .await
+        .into_diagnostic()?;
+    let auth_client = authlib::AuthClient::new(&connected);
     let contract = loaded
         .value
         .as_object()
         .cloned()
         .map(|contract| contract.into_iter().collect())
         .ok_or_else(|| miette::miette!("service contract payload must be a JSON object"))?;
-    let rpc_result = participant
-        .auth()
-        .auth_install_service(
-            &trellis_cli_participant::uses::auth::AuthInstallServiceRequest {
-                session_key: session_key.clone(),
-                display_name: display_name.clone(),
-                active: Some(!args.inactive),
-                namespaces: namespaces.clone(),
-                description: description.clone(),
-                contract,
-            },
-        )
-        .await;
-    let renew_result = connected.renew_admin_session(&mut state).await;
-    let response = rpc_result.into_diagnostic()?;
-    if let Err(error) = renew_result {
-        if output::is_json(format) {
-            return Err(miette::miette!(error.to_string()));
-        }
-        output::print_info(&format!("warning: admin session was not renewed: {error}"));
-    }
+    let response = auth_client
+        .install_service(&authlib::AuthInstallServiceRequest {
+            session_key: session_key.clone(),
+            display_name: display_name.clone(),
+            active: Some(!args.inactive),
+            namespaces: namespaces.clone(),
+            description: description.clone(),
+            contract,
+        })
+        .await
+        .into_diagnostic()?;
+    auth_client
+        .renew_binding_token(&mut state)
+        .await
+        .into_diagnostic()?;
 
     if output::is_json(format) {
         output::print_json(&json!({
@@ -1389,14 +1363,11 @@ async fn service_upgrade_command(
         "use -f with --format json to skip the interactive upgrade review"
     );
     let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let connected = connect_cli_admin(&state).await.into_diagnostic()?;
-    let participant = connected.facade();
-    let services = participant
-        .auth()
-        .auth_list_services()
+    let connected = authlib::connect_admin_client_async(&state)
         .await
-        .into_diagnostic()?
-        .services;
+        .into_diagnostic()?;
+    let auth_client = authlib::AuthClient::new(&connected);
+    let services = auth_client.list_services().await.into_diagnostic()?;
     let service_key = resolve_upgrade_service_key(args, &services, &loaded.manifest.id)?;
 
     if !output::is_json(format) {
@@ -1439,23 +1410,17 @@ async fn service_upgrade_command(
         .cloned()
         .map(|contract| contract.into_iter().collect())
         .ok_or_else(|| miette::miette!("service contract payload must be a JSON object"))?;
-    let rpc_result = participant
-        .auth()
-        .auth_upgrade_service_contract(
-            &trellis_cli_participant::uses::auth::AuthUpgradeServiceContractRequest {
-                session_key: service_key.clone(),
-                contract,
-            },
-        )
-        .await;
-    let renew_result = connected.renew_admin_session(&mut state).await;
-    let response = rpc_result.into_diagnostic()?;
-    if let Err(error) = renew_result {
-        if output::is_json(format) {
-            return Err(miette::miette!(error.to_string()));
-        }
-        output::print_info(&format!("warning: admin session was not renewed: {error}"));
-    }
+    let response = auth_client
+        .upgrade_service_contract(&authlib::AuthUpgradeServiceContractRequest {
+            session_key: service_key.clone(),
+            contract,
+        })
+        .await
+        .into_diagnostic()?;
+    auth_client
+        .renew_binding_token(&mut state)
+        .await
+        .into_diagnostic()?;
 
     if output::is_json(format) {
         output::print_json(&json!({

@@ -1,11 +1,14 @@
 use crate::{
-    save_admin_session, AdminSessionState, ApprovalEntryRecord, AuthenticatedUser, BoundSession,
-    ServiceListEntry, TrellisAuthError,
+    save_admin_session, AdminSessionState, ApprovalEntryRecord, AuthInstallServiceRequest,
+    AuthUpgradeServiceContractRequest, AuthenticatedUser, BoundSession, ListApprovalsRequest,
+    RenewBindingTokenResponse, RevokeApprovalRequest, ServiceListEntry, TrellisAuthError,
 };
+use serde::{de::DeserializeOwned, Serialize};
 use trellis_client::{TrellisClient, UserConnectOptions};
-use trellis_sdk_auth::{
-    AuthClient as AuthApiClient, ListApprovalsRequest, RenewBindingTokenResponse,
-    RevokeApprovalRequest,
+
+use crate::protocol::{
+    AuthInstallServiceResponse, AuthUpgradeServiceContractResponse, ListApprovalsResponse,
+    ListServicesResponse, LogoutResponse, MeResponse, RevokeApprovalResponse,
 };
 
 /// Connect an authenticated admin client from the stored session state.
@@ -44,20 +47,35 @@ pub fn persist_renewed_admin_session(
 
 /// Thin typed client for Trellis auth/admin RPCs used by the CLI.
 pub struct AuthClient<'a> {
-    inner: AuthApiClient<'a>,
+    inner: &'a TrellisClient,
 }
 
 impl<'a> AuthClient<'a> {
     /// Wrap an already-connected low-level Trellis client.
     pub fn new(inner: &'a TrellisClient) -> Self {
-        Self {
-            inner: AuthApiClient::new(inner),
-        }
+        Self { inner }
+    }
+
+    async fn call<Input, Output>(
+        &self,
+        subject: &str,
+        input: &Input,
+    ) -> Result<Output, TrellisAuthError>
+    where
+        Input: Serialize,
+        Output: DeserializeOwned,
+    {
+        let request = serde_json::to_value(input)?;
+        let response = self.inner.request_json_value(subject, &request).await?;
+        Ok(serde_json::from_value(response)?)
     }
 
     /// Return the currently authenticated user.
     pub async fn me(&self) -> Result<AuthenticatedUser, TrellisAuthError> {
-        Ok(self.inner.auth_me().await?.user)
+        Ok(self
+            .call::<_, MeResponse>("rpc.v1.Auth.Me", &Empty {})
+            .await?
+            .user)
     }
 
     /// List stored app approval decisions.
@@ -70,7 +88,10 @@ impl<'a> AuthClient<'a> {
             user: user.map(ToOwned::to_owned),
             digest: digest.map(ToOwned::to_owned),
         };
-        Ok(self.inner.auth_list_approvals(&request).await?.approvals)
+        Ok(self
+            .call::<_, ListApprovalsResponse>("rpc.v1.Auth.ListApprovals", &request)
+            .await?
+            .approvals)
     }
 
     /// Revoke one stored approval decision.
@@ -83,17 +104,42 @@ impl<'a> AuthClient<'a> {
             contract_digest: digest.to_string(),
             user: user.map(ToOwned::to_owned),
         };
-        Ok(self.inner.auth_revoke_approval(&request).await?.success)
+        Ok(self
+            .call::<_, RevokeApprovalResponse>("rpc.v1.Auth.RevokeApproval", &request)
+            .await?
+            .success)
+    }
+
+    /// Install one service contract remotely.
+    pub async fn install_service(
+        &self,
+        input: &AuthInstallServiceRequest,
+    ) -> Result<AuthInstallServiceResponse, TrellisAuthError> {
+        self.call("rpc.v1.Auth.InstallService", input).await
+    }
+
+    /// Upgrade one installed service contract remotely.
+    pub async fn upgrade_service_contract(
+        &self,
+        input: &AuthUpgradeServiceContractRequest,
+    ) -> Result<AuthUpgradeServiceContractResponse, TrellisAuthError> {
+        self.call("rpc.v1.Auth.UpgradeServiceContract", input).await
     }
 
     /// List installed services.
     pub async fn list_services(&self) -> Result<Vec<ServiceListEntry>, TrellisAuthError> {
-        Ok(self.inner.auth_list_services().await?.services)
+        Ok(self
+            .call::<_, ListServicesResponse>("rpc.v1.Auth.ListServices", &Empty {})
+            .await?
+            .services)
     }
 
     /// Log out the current admin session remotely.
     pub async fn logout(&self) -> Result<bool, TrellisAuthError> {
-        Ok(self.inner.auth_logout().await?.success)
+        Ok(self
+            .call::<_, LogoutResponse>("rpc.v1.Auth.Logout", &Empty {})
+            .await?
+            .success)
     }
 
     /// Mint and persist a fresh binding token for the current session.
@@ -101,6 +147,13 @@ impl<'a> AuthClient<'a> {
         &self,
         state: &mut AdminSessionState,
     ) -> Result<(), TrellisAuthError> {
-        persist_renewed_admin_session(state, self.inner.auth_renew_binding_token().await?)
+        persist_renewed_admin_session(
+            state,
+            self.call("rpc.v1.Auth.RenewBindingToken", &Empty {})
+                .await?,
+        )
     }
 }
+
+#[derive(Debug, Serialize)]
+struct Empty {}

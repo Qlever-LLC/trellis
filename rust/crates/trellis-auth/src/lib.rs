@@ -4,6 +4,7 @@ mod browser_login;
 mod client;
 mod error;
 mod models;
+mod protocol;
 mod session_store;
 
 pub use browser_login::{build_auth_login_url, generate_session_keypair, start_browser_login};
@@ -13,11 +14,13 @@ pub use models::{
     AdminLoginOutcome, AdminSessionState, BoundSession, BrowserLoginChallenge,
     StartBrowserLoginOpts,
 };
-pub use session_store::{clear_admin_session, load_admin_session, save_admin_session};
-pub use trellis_sdk_auth::{
-    ApprovalEntryRecord, ApprovalScopeRecord, AuthenticatedUser, SentinelCredsRecord,
-    ServiceListEntry,
+pub use protocol::{
+    ApprovalEntryRecord, ApprovalScopeRecord, AuthInstallServiceRequest,
+    AuthInstallServiceResponse, AuthUpgradeServiceContractRequest,
+    AuthUpgradeServiceContractResponse, AuthenticatedUser, ListApprovalsRequest,
+    RenewBindingTokenResponse, RevokeApprovalRequest, SentinelCredsRecord, ServiceListEntry,
 };
+pub use session_store::{clear_admin_session, load_admin_session, save_admin_session};
 
 #[cfg(test)]
 mod tests;

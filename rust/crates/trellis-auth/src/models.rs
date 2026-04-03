@@ -2,8 +2,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::oneshot;
 
+use crate::{AuthenticatedUser, SentinelCredsRecord};
 use trellis_client::SessionAuth;
-use trellis_sdk_auth::{AuthenticatedUser, SentinelCredsRecord};
 
 /// Persisted admin session details for the CLI.
 #[derive(Debug, Clone, Serialize, Deserialize)]
