@@ -40,6 +40,16 @@
         "$ref": "#/$defs/rpcMethod"
       }
     },
+    "operations": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/operation"
+      }
+    },
     "events": {
       "type": "object",
       "propertyNames": {
@@ -112,6 +122,16 @@
             "$ref": "#/$defs/kvResource"
           }
         },
+        "streams": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "minLength": 1
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/streamResource"
+          }
+        },
         "jobs": {
           "$ref": "#/$defs/jobsResource"
         }
@@ -128,6 +148,15 @@
       }
     },
     "useRpc": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "call": {
+          "$ref": "#/$defs/capabilities"
+        }
+      }
+    },
+    "useOperation": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -159,6 +188,9 @@
         },
         "rpc": {
           "$ref": "#/$defs/useRpc"
+        },
+        "operations": {
+          "$ref": "#/$defs/useOperation"
         },
         "events": {
           "$ref": "#/$defs/usePubSub"
@@ -194,6 +226,83 @@
         "maxValueBytes": {
           "type": "integer",
           "minimum": 1
+        }
+      }
+    },
+    "streamResource": {
+      "type": "object",
+      "required": ["purpose", "subjects"],
+      "additionalProperties": false,
+      "properties": {
+        "purpose": {
+          "type": "string",
+          "minLength": 1
+        },
+        "required": {
+          "type": "boolean",
+          "default": true
+        },
+        "subjects": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "retention": {
+          "type": "string",
+          "minLength": 1
+        },
+        "storage": {
+          "type": "string",
+          "minLength": 1
+        },
+        "numReplicas": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "discard": {
+          "type": "string",
+          "minLength": 1
+        },
+        "maxMsgs": {
+          "type": "integer",
+          "minimum": -1
+        },
+        "maxBytes": {
+          "type": "integer",
+          "minimum": -1
+        },
+        "maxAgeMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/streamSource"
+          }
+        }
+      }
+    },
+    "streamSource": {
+      "type": "object",
+      "required": ["fromAlias"],
+      "additionalProperties": false,
+      "properties": {
+        "fromAlias": {
+          "type": "string",
+          "minLength": 1
+        },
+        "filterSubject": {
+          "type": "string",
+          "minLength": 1
+        },
+        "subjectTransformDest": {
+          "type": "string",
+          "minLength": 1
         }
       }
     },
@@ -310,6 +419,48 @@
           "items": {
             "$ref": "#/$defs/errorRef"
           }
+        }
+      }
+    },
+    "operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "subject", "input"],
+      "properties": {
+        "version": {
+          "type": "string",
+          "pattern": "^v[0-9]+$"
+        },
+        "subject": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input": {
+          "$ref": "#/$defs/schemaRef"
+        },
+        "progress": {
+          "$ref": "#/$defs/schemaRef"
+        },
+        "output": {
+          "$ref": "#/$defs/schemaRef"
+        },
+        "capabilities": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "call": {
+              "$ref": "#/$defs/capabilities"
+            },
+            "read": {
+              "$ref": "#/$defs/capabilities"
+            },
+            "cancel": {
+              "$ref": "#/$defs/capabilities"
+            }
+          }
+        },
+        "cancel": {
+          "type": "boolean"
         }
       }
     },

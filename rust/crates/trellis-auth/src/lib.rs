@@ -15,10 +15,12 @@ pub use models::{
     StartBrowserLoginOpts,
 };
 pub use protocol::{
-    ApprovalEntryRecord, ApprovalScopeRecord, AuthInstallServiceRequest,
-    AuthInstallServiceResponse, AuthUpgradeServiceContractRequest,
-    AuthUpgradeServiceContractResponse, AuthenticatedUser, ListApprovalsRequest,
-    RenewBindingTokenResponse, RevokeApprovalRequest, SentinelCredsRecord, ServiceListEntry,
+    ApprovalEntryRecord, ApprovalScopeRecord, AuthGetInstalledContractRequest,
+    AuthGetInstalledContractResponse, AuthInstallServiceRequest, AuthInstallServiceResponse,
+    AuthUpgradeServiceContractRequest, AuthUpgradeServiceContractResponse,
+    AuthValidateRequestRequest, AuthValidateRequestResponse, AuthenticatedUser,
+    ListApprovalsRequest, RenewBindingTokenResponse, RevokeApprovalRequest, SentinelCredsRecord,
+    ServiceListEntry,
 };
 pub use session_store::{clear_admin_session, load_admin_session, save_admin_session};
 

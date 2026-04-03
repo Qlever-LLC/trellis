@@ -1,0 +1,245 @@
+This tutorial walks through building a Rust service from scratch using published Trellis packages. By the end you will have a working service that connects to NATS, handles RPCs, and subscribes to events.
+
+Before starting, read [Trellis Concepts](/docs/concepts) for background on contracts, RPCs, events, and packages.
+
+## What you need
+
+- a running Trellis environment from [Starting Trellis](/docs/startup)
+- Rust (stable toolchain) installed
+- the `trellis` CLI installed (see [Install the Trellis CLI](/docs/install-cli))
+
+## The Rust service model
+
+Rust services in Trellis use a **generated local participant facade** as the primary authoring surface. The facade is generated from your contract manifest and exposes:
+
+- owned RPC handler registration
+- owned event publisher methods
+- `uses` aliases for calling peer services
+- typed resource binding handles (KV, streams, jobs)
+
+You do not depend on `trellis-client` or `trellis-server` directly in your service crate — those are generator targets. The facade brings them in transitively.
+
+See `design/contracts/trellis-rust-contract-libraries.md` for full crate responsibility details.
+
+## 1. Create the service crate
+
+```sh
+cargo new orders-service
+cd orders-service
+```
+
+## 2. Write the contract manifest
+
+> **Note:** The manifest format shown below is an approximation of the `trellis.contract.v1` canonical format. The exact authoring format for Rust services (including how named schemas are declared and referenced, and whether `subject` fields are authored or derived by the CLI) will be finalized with the participant facade implementation. See `design/contracts/trellis-contracts-catalog.md` for the canonical schema reference.
+
+Create `contracts/orders_service.json`:
+
+```json
+{
+  "id": "orders-service@v1",
+  "displayName": "Orders Service",
+  "description": "Create and track orders, emit fulfillment events.",
+  "kind": "service",
+  "uses": {
+    "core": {
+      "contractId": "trellis.core@v1",
+      "rpc": { "call": ["Trellis.Bindings.Get", "Trellis.Catalog"] }
+    },
+    "auth": {
+      "contractId": "trellis.auth@v1",
+      "events": { "subscribe": ["Auth.Connect"] }
+    }
+  },
+  "resources": {
+    "kv": {
+      "orders": {
+        "purpose": "Store order records",
+        "history": 1,
+        "ttlMs": 0
+      }
+    }
+  },
+  "rpc": {
+    "Orders.Health": {
+      "version": "v1",
+      "input": { "schema": { "type": "object" } },
+      "output": { "schema": { "type": "object" } },
+      "capabilities": { "call": [] }
+    },
+    "Orders.Create": {
+      "version": "v1",
+      "input": { "schema": { "$ref": "CreateOrderRequest" } },
+      "output": { "schema": { "$ref": "CreateOrderResponse" } },
+      "capabilities": { "call": ["orders.write"] },
+      "errors": ["ValidationError", "UnexpectedError"]
+    },
+    "Orders.Get": {
+      "version": "v1",
+      "input": { "schema": { "$ref": "GetOrderRequest" } },
+      "output": { "schema": { "$ref": "GetOrderResponse" } },
+      "capabilities": { "call": ["orders.read"] },
+      "errors": ["NotFoundError", "UnexpectedError"]
+    }
+  },
+  "events": {
+    "Orders.Shipped": {
+      "version": "v1",
+      "event": { "schema": { "$ref": "OrderShippedEvent" } },
+      "capabilities": { "publish": ["service"], "subscribe": ["service"] }
+    },
+    "Orders.Failed": {
+      "version": "v1",
+      "event": { "schema": { "$ref": "OrderFailedEvent" } },
+      "capabilities": { "publish": ["service"], "subscribe": ["service"] }
+    }
+  }
+}
+```
+
+## 3. Generate the SDK crate and participant facade
+
+> **Note:** The exact CLI flags for Rust participant facade generation will be finalized with the participant facade implementation. The command below mirrors the TypeScript guide's build step with the expected Rust flags. See `design/tooling/trellis-cli.md` for the authoritative flag reference once available.
+
+```sh
+trellis contracts build \
+  --source ./contracts/orders_service.json \
+  --out-manifest ./dist/contracts/trellis.orders-service@v1.json \
+  --rust-out ./generated/sdk/rust \
+  --crate-name orders-sdk \
+  --participant-facade-out ./generated/facade/rust \
+  --participant-crate-name orders-participant
+```
+
+This generates two Rust crates:
+
+- `generated/sdk/rust/` — the contract SDK crate (`orders-sdk`). Other services and apps import this to call your RPCs.
+- `generated/facade/rust/` — the local participant facade crate (`orders-participant`). **This is what your service uses.**
+
+## 4. Add the participant facade to `Cargo.toml`
+
+```toml
+[dependencies]
+orders-participant = { path = "./generated/facade/rust" }
+tokio = { version = "1", features = ["full"] }
+```
+
+Do not add `trellis-server` or `trellis-client` directly — the facade brings them in.
+
+## 5. Connect the service
+
+> **Note:** The exact function name and signature for the Rust connection helper will be finalized with the participant facade implementation.
+
+```rust
+use orders_participant::connect_service;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let service = connect_service(orders_participant::contract(), "orders-service", {
+        session_key_seed: std::env::var("ORDERS_SERVICE_SESSION_KEY_SEED")?,
+        nats: orders_participant::NatsConfig {
+            servers: std::env::var("NATS_SERVERS").unwrap_or_else(|_| "localhost".into()),
+            sentinel_creds_path: std::env::var("NATS_SENTINEL_CREDS").ok(),
+        },
+    })
+    .await?;
+    // ...
+    Ok(())
+}
+```
+
+`connect_service` verifies the contract is active in the Trellis catalog and resolves all resource bindings.
+
+## 6. Open KV stores
+
+Resource bindings are resolved during `connect_service` and exposed on the service handle:
+
+```rust
+let orders_kv = service.kv().orders().open::<Order>().await?;
+```
+
+## 7. Mount RPC handlers
+
+Use the facade's `Router` to mount handlers for each owned RPC:
+
+```rust
+service
+    .router()
+    .mount::<orders_participant::rpc::OrdersCreate, _>(|req| async move {
+        let order_id = uuid::Uuid::new_v4().to_string();
+        let order = Order {
+            order_id: order_id.clone(),
+            customer_id: req.customer_id,
+            status: "pending".into(),
+            items: req.items,
+            created_at: chrono::Utc::now().to_rfc3339(),
+        };
+        orders_kv.put(&order_id, &order).await?;
+        Ok(orders_participant::rpc::CreateOrderResponse {
+            order_id,
+            status: "pending".into(),
+        })
+    })
+    .mount::<orders_participant::rpc::OrdersGet, _>(|req| async move {
+        let order = orders_kv.get(&req.order_id).await?
+            .ok_or_else(|| ServerError::not_found("Order not found"))?;
+        Ok(order.into())
+    });
+```
+
+## 8. Subscribe to events
+
+```rust
+service
+    .events()
+    .auth()
+    .connect(|event| async move {
+        tracing::info!(origin = %event.origin, id = %event.id, "user connected");
+        Ok(())
+    })
+    .await?;
+```
+
+## 9. Handle shutdown
+
+```rust
+tokio::signal::ctrl_c().await?;
+service.stop().await?;
+```
+
+For production deployments, listen for `SIGTERM`:
+
+```rust
+use tokio::signal::unix::{signal, SignalKind};
+let mut sigterm = signal(SignalKind::terminate())?;
+tokio::select! {
+    _ = sigterm.recv() => {},
+    _ = tokio::signal::ctrl_c() => {},
+}
+service.stop().await?;
+```
+
+## 10. Build and run
+
+```sh
+cargo build --release
+```
+
+Install the contract into your Trellis environment:
+
+```sh
+trellis service install --source ./contracts/orders_service.json
+```
+
+Then run:
+
+```sh
+ORDERS_SERVICE_SESSION_KEY_SEED=<seed> \
+NATS_SERVERS=localhost \
+NATS_SENTINEL_CREDS=./path/to/sentinel.creds \
+./target/release/orders-service
+```
+
+## Next steps
+
+- [Use Jobs: Rust](/docs/using-jobs-rust) — add background fulfillment jobs to this service
+- [Use Operations: Rust](/docs/using-operations-rust) — expose a caller-visible `Orders.Process` operation

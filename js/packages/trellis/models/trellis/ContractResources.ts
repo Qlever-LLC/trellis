@@ -6,7 +6,6 @@ import {
   ContractResourcesSchema,
   InstalledServiceContractSchema,
   JobsQueueBindingSchema,
-  JobsRegistryBindingSchema,
   JobsResourceBindingSchema,
   KvResourceBindingSchema,
 } from "@qlever-llc/trellis-contracts";
@@ -20,7 +19,6 @@ export {
   ContractResourcesSchema,
   InstalledServiceContractSchema,
   JobsQueueBindingSchema,
-  JobsRegistryBindingSchema,
   JobsResourceBindingSchema,
   KvResourceBindingSchema,
 };
@@ -31,7 +29,6 @@ export type ContractJobsResource = Static<typeof ContractJobsResourceSchema>;
 export type ContractResources = Static<typeof ContractResourcesSchema>;
 export type KvResourceBinding = Static<typeof KvResourceBindingSchema>;
 export type JobsQueueBinding = Static<typeof JobsQueueBindingSchema>;
-export type JobsRegistryBinding = Static<typeof JobsRegistryBindingSchema>;
 export type JobsResourceBinding = Static<typeof JobsResourceBindingSchema>;
 export type ContractResourceBindings = Static<typeof ContractResourceBindingsSchema>;
 export type InstalledServiceContract = Static<typeof InstalledServiceContractSchema>;

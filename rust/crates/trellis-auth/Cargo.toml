@@ -16,4 +16,5 @@ serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 trellis-client = { path = "../trellis-client", version = "0.5.1" }
+trellis-sdk-auth = { path = "../../../generated/rust/sdks/auth", version = "0.5.1" }
 url = "2.5"

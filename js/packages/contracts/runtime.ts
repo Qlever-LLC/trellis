@@ -45,6 +45,21 @@ export type EventDesc<S extends SchemaLike = SchemaLike> = {
   subscribeCapabilities: Array<string>;
 };
 
+export type OperationDesc<
+  I extends SchemaLike = SchemaLike,
+  P extends SchemaLike | undefined = SchemaLike | undefined,
+  O extends SchemaLike | undefined = SchemaLike | undefined,
+> = {
+  subject: string;
+  input: I;
+  progress?: P;
+  output?: O;
+  callerCapabilities: Array<string>;
+  readCapabilities: Array<string>;
+  cancelCapabilities: Array<string>;
+  cancel?: boolean;
+};
+
 export type SubjectDesc<S extends SchemaLike = SchemaLike> = {
   subject: string;
   schema?: S;
@@ -54,6 +69,7 @@ export type SubjectDesc<S extends SchemaLike = SchemaLike> = {
 
 export type TrellisAPI = {
   rpc: Record<string, RPCDesc>;
+  operations: Record<string, OperationDesc>;
   events: Record<string, EventDesc>;
   subjects: Record<string, SubjectDesc>;
 };

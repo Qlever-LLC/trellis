@@ -1,22 +1,42 @@
 <script lang="ts">
 
   import type { Snippet } from "svelte";
-import { resolve } from "$app/paths";
+  import { base } from "$app/paths";
   import { page } from "$app/state";
-  import { docsBySection, getDoc, getPrevNext } from "$lib/docs";
+  import { getGuideDoc, getGuidePrevNext, guideDocsBySection } from "$lib/docs";
 
   let { children }: { children: Snippet } = $props();
 
-  const groups = docsBySection();
-  const pathname = $derived(normalizePath(page.route.id ?? page.url.pathname));
-  const currentDoc = $derived(getDoc(pathname));
-  const neighbors = $derived(getPrevNext(pathname));
+  const groups = guideDocsBySection();
+  const pathname = $derived(normalizePath(stripBasePath(page.url.pathname)));
+  const currentDoc = $derived(getGuideDoc(pathname));
+  const neighbors = $derived(getGuidePrevNext(pathname));
   const title = $derived(
     `${currentDoc?.title || "Guides"} | Trellis documentation`,
   );
 
   function normalizePath(path: string) {
     return path.length > 1 && path.endsWith("/") ? path.slice(0, -1) : path;
+  }
+
+  function stripBasePath(pathname: string) {
+    if (!base) {
+      return pathname;
+    }
+
+    if (pathname === base) {
+      return "/";
+    }
+
+    return pathname.startsWith(`${base}/`) ? pathname.slice(base.length) : pathname;
+  }
+
+  function resolveDocHref(href: string) {
+    if (!base) {
+      return href;
+    }
+
+    return href === "/" ? `${base}/` : `${base}${href}`;
   }
 </script>
 
@@ -45,7 +65,7 @@ import { resolve } from "$app/paths";
                   ? "bg-base-200 font-medium text-base-content"
                   : "text-base-content/75",
               ]}
-              href={resolve(doc.href)}
+              href={resolveDocHref(doc.href)}
             >
               <span class="block">{doc.title}</span>
             </a>
@@ -57,19 +77,21 @@ import { resolve } from "$app/paths";
 
   <div class="min-w-0 space-y-6">
     {#if currentDoc}
-      <section class="space-y-2 border-b border-base-300 pb-5">
-        <p
-          class="text-xs font-medium uppercase tracking-[0.16em] text-base-content/50"
-        >
-          {currentDoc.section}
-        </p>
-        <div>
-          <h1 class="text-3xl font-semibold">{currentDoc.title}</h1>
-          <p class="mt-2 max-w-3xl text-sm leading-6 text-base-content/70">
-            {currentDoc.description}
+      {#if currentDoc.showPageHeader !== false}
+        <section class="space-y-2 border-b border-base-300 pb-5">
+          <p
+            class="text-xs font-medium uppercase tracking-[0.16em] text-base-content/50"
+          >
+            {currentDoc.section}
           </p>
-        </div>
-      </section>
+          <div>
+            <h1 class="text-3xl font-semibold">{currentDoc.title}</h1>
+            <p class="mt-2 max-w-3xl text-sm leading-6 text-base-content/70">
+              {currentDoc.description}
+            </p>
+          </div>
+        </section>
+      {/if}
 
       <article
         class="rounded-box border border-base-300 bg-base-100 p-5 sm:p-6"
@@ -84,7 +106,7 @@ import { resolve } from "$app/paths";
           {#if neighbors.prev}
             <a
               class="rounded-box border border-base-300 bg-base-100 p-4 hover:bg-base-200/40"
-              href={resolve(neighbors.prev.href)}
+              href={resolveDocHref(neighbors.prev.href)}
             >
               <span
                 class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/45"
@@ -104,7 +126,7 @@ import { resolve } from "$app/paths";
           {#if neighbors.next}
             <a
               class="rounded-box border border-base-300 bg-base-100 p-4 hover:bg-base-200/40 md:text-right"
-              href={resolve(neighbors.next.href)}
+              href={resolveDocHref(neighbors.next.href)}
             >
               <span
                 class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/45"

@@ -242,3 +242,280 @@ fn manifest_paths_only_select_contract_manifest_candidates() {
 
     fs::remove_dir_all(root).expect("remove temp dir");
 }
+
+#[test]
+fn manifest_parses_stream_resources() {
+    let manifest = parse_manifest(json!({
+        "format": "trellis.contract.v1",
+        "id": "example.streams@v1",
+        "displayName": "Example Streams",
+        "description": "Expose stream resources",
+        "kind": "service",
+        "resources": {
+            "streams": {
+                "activity": {
+                    "purpose": "Persist activity events",
+                    "required": true,
+                    "subjects": ["events.v1.Activity.Recorded"]
+                }
+            }
+        }
+    }))
+    .expect("manifest with streams should parse");
+
+    let streams = &manifest.resources.streams;
+    assert_eq!(streams.len(), 1);
+    let activity = streams.get("activity").expect("activity stream resource");
+    assert_eq!(activity.purpose, "Persist activity events");
+    assert_eq!(activity.required, Some(true));
+    assert_eq!(
+        activity.subjects,
+        vec!["events.v1.Activity.Recorded".to_string()]
+    );
+    assert!(activity.retention.is_none());
+    assert!(activity.sources.is_none());
+}
+
+#[test]
+fn manifest_parses_owned_and_used_operations() {
+    let manifest = parse_manifest(json!({
+        "format": "trellis.contract.v1",
+        "id": "example.operations@v1",
+        "displayName": "Example Operations",
+        "description": "Expose operations.",
+        "kind": "service",
+        "schemas": {
+            "CaptureRequest": {"type": "object", "properties": {}, "additionalProperties": false},
+            "CaptureProgress": {"type": "object", "properties": {}, "additionalProperties": false},
+            "CaptureResult": {"type": "object", "properties": {}, "additionalProperties": false}
+        },
+        "uses": {
+            "billing": {
+                "contract": "billing@v1",
+                "operations": {
+                    "call": ["Billing.Refund"]
+                }
+            }
+        },
+        "operations": {
+            "Payments.Capture": {
+                "version": "v1",
+                "subject": "operations.v1.Payments.Capture",
+                "input": {"schema": "CaptureRequest"},
+                "progress": {"schema": "CaptureProgress"},
+                "output": {"schema": "CaptureResult"},
+                "cancel": true,
+                "capabilities": {
+                    "call": ["payments.capture"],
+                    "read": ["payments.read"],
+                    "cancel": ["payments.cancel"]
+                }
+            }
+        }
+    }))
+    .expect("manifest with operations should parse");
+
+    let op = manifest
+        .operations
+        .get("Payments.Capture")
+        .expect("owned operation should exist");
+    assert_eq!(op.version, "v1");
+    assert_eq!(op.subject, "operations.v1.Payments.Capture");
+    assert_eq!(op.input.schema, "CaptureRequest");
+    assert_eq!(
+        op.progress.as_ref().map(|value| value.schema.as_str()),
+        Some("CaptureProgress")
+    );
+    assert_eq!(
+        op.output.as_ref().map(|value| value.schema.as_str()),
+        Some("CaptureResult")
+    );
+    assert_eq!(op.cancel, Some(true));
+    let capabilities = op.capabilities.as_ref().expect("operation capabilities");
+    assert_eq!(
+        capabilities.call.as_ref(),
+        Some(&vec!["payments.capture".to_string()])
+    );
+    assert_eq!(
+        capabilities.read.as_ref(),
+        Some(&vec!["payments.read".to_string()])
+    );
+    assert_eq!(
+        capabilities.cancel.as_ref(),
+        Some(&vec!["payments.cancel".to_string()])
+    );
+
+    let use_ref = manifest
+        .uses
+        .get("billing")
+        .expect("billing use should exist");
+    assert_eq!(
+        use_ref
+            .operations
+            .as_ref()
+            .and_then(|value| value.call.as_ref())
+            .cloned(),
+        Some(vec!["Billing.Refund".to_string()])
+    );
+}
+
+#[test]
+fn manifest_validation_rejects_unknown_operation_schema_refs() {
+    let error = parse_manifest(json!({
+        "format": "trellis.contract.v1",
+        "id": "example.operations@v1",
+        "displayName": "Example Operations",
+        "description": "Expose operations.",
+        "kind": "service",
+        "schemas": {
+            "CaptureRequest": {"type": "object", "properties": {}, "additionalProperties": false}
+        },
+        "operations": {
+            "Payments.Capture": {
+                "version": "v1",
+                "subject": "operations.v1.Payments.Capture",
+                "input": {"schema": "CaptureRequest"},
+                "progress": {"schema": "MissingProgress"},
+                "output": {"schema": "MissingResult"}
+            }
+        }
+    }))
+    .expect_err("manifest with missing operation schemas should fail");
+
+    let ContractsError::SchemaValidation { details, .. } = error else {
+        panic!("expected schema validation error");
+    };
+    assert!(details.contains("operation"));
+    assert!(details.contains("unknown schema"));
+}
+
+#[test]
+fn manifest_parses_rich_stream_resources_with_sources() {
+    let manifest = parse_manifest(json!({
+        "format": "trellis.contract.v1",
+        "id": "example.streams@v1",
+        "displayName": "Example Streams",
+        "description": "Expose stream resources",
+        "kind": "service",
+        "resources": {
+            "streams": {
+                "jobs": {
+                    "purpose": "Store append-only job lifecycle events",
+                    "required": true,
+                    "subjects": ["trellis.jobs.>"],
+                    "retention": "limits",
+                    "storage": "file",
+                    "numReplicas": 3,
+                    "discard": "old",
+                    "maxMsgs": -1,
+                    "maxBytes": -1,
+                    "maxAgeMs": 0
+                },
+                "jobsWork": {
+                    "purpose": "Store sourced work-queue messages",
+                    "required": true,
+                    "subjects": ["trellis.work.>"],
+                    "retention": "workqueue",
+                    "storage": "file",
+                    "numReplicas": 3,
+                    "sources": [
+                        {
+                            "fromAlias": "jobs",
+                            "filterSubject": "trellis.jobs.*.*.*.created",
+                            "subjectTransformDest": "trellis.work.$1.$2"
+                        }
+                    ]
+                }
+            }
+        }
+    }))
+    .expect("manifest with rich streams should parse");
+
+    let jobs = manifest
+        .resources
+        .streams
+        .get("jobs")
+        .expect("jobs stream resource");
+    assert_eq!(jobs.retention.as_deref(), Some("limits"));
+    assert_eq!(jobs.storage.as_deref(), Some("file"));
+    assert_eq!(jobs.num_replicas, Some(3));
+    assert_eq!(jobs.discard.as_deref(), Some("old"));
+    assert_eq!(jobs.max_msgs, Some(-1));
+    assert_eq!(jobs.max_bytes, Some(-1));
+    assert_eq!(jobs.max_age_ms, Some(0));
+
+    let jobs_work = manifest
+        .resources
+        .streams
+        .get("jobsWork")
+        .expect("jobsWork stream resource");
+    let sources = jobs_work.sources.as_ref().expect("jobsWork sources");
+    assert_eq!(sources.len(), 1);
+    assert_eq!(sources[0].from_alias, "jobs");
+    assert_eq!(
+        sources[0].filter_subject.as_deref(),
+        Some("trellis.jobs.*.*.*.created")
+    );
+    assert_eq!(
+        sources[0].subject_transform_dest.as_deref(),
+        Some("trellis.work.$1.$2")
+    );
+}
+
+#[test]
+fn manifest_validation_rejects_empty_stream_subjects() {
+    let error = parse_manifest(json!({
+        "format": "trellis.contract.v1",
+        "id": "example.streams@v1",
+        "displayName": "Example Streams",
+        "description": "Expose stream resources",
+        "kind": "service",
+        "resources": {
+            "streams": {
+                "activity": {
+                    "purpose": "Persist activity events",
+                    "subjects": []
+                }
+            }
+        }
+    }))
+    .expect_err("manifest with empty stream subjects should fail");
+
+    let ContractsError::SchemaValidation { details, .. } = error else {
+        panic!("expected schema validation error");
+    };
+    assert!(details.contains("subjects"));
+}
+
+#[test]
+fn manifest_validation_rejects_unknown_stream_source_alias() {
+    let error = parse_manifest(json!({
+        "format": "trellis.contract.v1",
+        "id": "example.streams@v1",
+        "displayName": "Example Streams",
+        "description": "Expose stream resources",
+        "kind": "service",
+        "resources": {
+            "streams": {
+                "jobsWork": {
+                    "purpose": "Store sourced work-queue messages",
+                    "subjects": ["trellis.work.>"],
+                    "sources": [
+                        {
+                            "fromAlias": "jobs",
+                            "filterSubject": "trellis.jobs.*.*.*.created",
+                            "subjectTransformDest": "trellis.work.$1.$2"
+                        }
+                    ]
+                }
+            }
+        }
+    }))
+    .expect_err("manifest with unknown stream source alias should fail");
+
+    let ContractsError::SchemaValidation { details, .. } = error else {
+        panic!("expected schema validation error");
+    };
+    assert!(details.contains("fromAlias"));
+    assert!(details.contains("jobs"));
+}

@@ -7,6 +7,7 @@ import {
   jetstreamManager,
 } from "@nats-io/jetstream";
 import {
+  createInbox,
   type Msg,
   type NatsConnection,
   headers as natsHeaders,
@@ -38,6 +39,7 @@ import {
   withSpanAsync
 } from "@qlever-llc/trellis-telemetry";
 import type { Logger } from "pino";
+import { Type } from "typebox";
 import { AssertError, Pointer } from "typebox/value";
 import { ulid } from "ulid";
 import { encodeSchema, type JsonValue, parse, parseSchema } from "./codec.ts";
@@ -49,7 +51,13 @@ import {
 } from "./errors/index.ts";
 import { RemoteError } from "./errors/RemoteError.ts";
 import { logger } from "./globals.ts";
+import { TypedKV } from "./kv.ts";
 import { TrellisErrorDataSchema } from "./models/trellis/TrellisError.ts";
+import {
+  OperationInvoker,
+  type OperationRefData,
+  type OperationTransport,
+} from "./operations.ts";
 import { TrellisTasks } from "./tasks.ts";
 
 type SessionUser = {
@@ -149,6 +157,7 @@ export type TrellisAuth = {
 
 type AnyTrellisAPI = TrellisAPI;
 type MethodsOf<TA extends AnyTrellisAPI> = keyof TA["rpc"] & string;
+type OperationsOf<TA extends AnyTrellisAPI> = keyof TA["operations"] & string;
 type EventsOf<TA extends AnyTrellisAPI> = keyof TA["events"] & string;
 type MethodInputOf<TA extends AnyTrellisAPI, M extends MethodsOf<TA>> =
   InferSchemaType<TA["rpc"][M]["input"]>;
@@ -160,6 +169,158 @@ type EventPayloadOf<TA extends AnyTrellisAPI, E extends EventsOf<TA>> = Omit<
   EventOf<TA, E>,
   "header"
 >;
+type OperationInputOf<TA extends AnyTrellisAPI, O extends OperationsOf<TA>> =
+  InferSchemaType<TA["operations"][O]["input"]>;
+type RuntimeOperationDesc = {
+  subject: string;
+  input: unknown;
+  progress?: unknown;
+  output?: unknown;
+  cancel?: boolean;
+};
+
+type RuntimeOperationState =
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+type RuntimeOperationSnapshot = {
+  id: string;
+  service: string;
+  operation: string;
+  revision: number;
+  state: RuntimeOperationState;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+  progress?: unknown;
+  output?: unknown;
+  error?: {
+    type: string;
+    message: string;
+  };
+};
+
+type RuntimeOperationRecord = {
+  id: string;
+  service: string;
+  operation: string;
+  ownerSessionKey: string;
+  snapshot: RuntimeOperationSnapshot;
+  sequence: number;
+  terminal: boolean;
+  watchers: Set<string>;
+  waiters: Set<string>;
+};
+
+type DurableOperationRecord = {
+  ownerSessionKey: string;
+  sequence: number;
+  snapshot: RuntimeOperationSnapshot;
+};
+
+const DurableOperationSnapshotSchema = Type.Object({
+  id: Type.String(),
+  service: Type.String(),
+  operation: Type.String(),
+  revision: Type.Number(),
+  state: Type.Union([
+    Type.Literal("pending"),
+    Type.Literal("running"),
+    Type.Literal("completed"),
+    Type.Literal("failed"),
+    Type.Literal("cancelled"),
+  ]),
+  createdAt: Type.String(),
+  updatedAt: Type.String(),
+  completedAt: Type.Optional(Type.String()),
+  progress: Type.Optional(Type.Any()),
+  output: Type.Optional(Type.Any()),
+  error: Type.Optional(Type.Object({
+    type: Type.String(),
+    message: Type.String(),
+  })),
+});
+
+const DurableOperationRecordSchema = Type.Object({
+  ownerSessionKey: Type.String(),
+  sequence: Type.Number(),
+  snapshot: DurableOperationSnapshotSchema,
+});
+
+type RuntimeOperationAcceptedEnvelope = {
+  kind: "accepted";
+  ref: OperationRefData;
+  snapshot: RuntimeOperationSnapshot;
+};
+
+type RuntimeOperationControlRequest = {
+  action: "get" | "wait" | "watch" | "cancel";
+  operationId: string;
+};
+
+type RuntimeOperationController = {
+  get(operationId: string): Promise<Result<RuntimeOperationSnapshot, UnexpectedError>>;
+  started(operationId: string): Promise<Result<RuntimeOperationSnapshot, UnexpectedError>>;
+  progress(
+    operationId: string,
+    progress: unknown,
+  ): Promise<Result<RuntimeOperationSnapshot, UnexpectedError>>;
+  complete(
+    operationId: string,
+    output: unknown,
+  ): Promise<Result<RuntimeOperationSnapshot, UnexpectedError>>;
+  fail(
+    operationId: string,
+    error: BaseError,
+  ): Promise<Result<RuntimeOperationSnapshot, UnexpectedError>>;
+  cancel(operationId: string): Promise<Result<RuntimeOperationSnapshot, UnexpectedError>>;
+};
+
+function buildRuntimeOperationSnapshot(
+  runtime: Pick<RuntimeOperationRecord, "id" | "service" | "operation" | "snapshot">,
+  state: RuntimeOperationState,
+  patch?: Partial<RuntimeOperationSnapshot>,
+): RuntimeOperationSnapshot {
+  const updatedAt = new Date().toISOString();
+  const completedAt = state === "completed" || state === "failed" || state === "cancelled"
+    ? (patch?.completedAt ?? updatedAt)
+    : patch?.completedAt;
+  return {
+    id: runtime.id,
+    service: runtime.service,
+    operation: runtime.operation,
+    revision: patch?.revision ?? runtime.snapshot.revision + 1,
+    state,
+    createdAt: patch?.createdAt ?? runtime.snapshot.createdAt,
+    updatedAt,
+    ...(completedAt ? { completedAt } : {}),
+    ...(patch?.progress !== undefined ? { progress: patch.progress } : runtime.snapshot.progress !== undefined ? { progress: runtime.snapshot.progress } : {}),
+    ...(patch?.output !== undefined ? { output: patch.output } : runtime.snapshot.output !== undefined ? { output: runtime.snapshot.output } : {}),
+    ...(patch?.error ? { error: patch.error } : runtime.snapshot.error ? { error: runtime.snapshot.error } : {}),
+  };
+}
+
+function isRuntimeOperationSnapshot(value: unknown): value is RuntimeOperationSnapshot {
+  return !!value && typeof value === "object" &&
+    typeof (value as RuntimeOperationSnapshot).id === "string" &&
+    typeof (value as RuntimeOperationSnapshot).service === "string" &&
+    typeof (value as RuntimeOperationSnapshot).operation === "string" &&
+    typeof (value as RuntimeOperationSnapshot).revision === "number" &&
+    typeof (value as RuntimeOperationSnapshot).state === "string" &&
+    typeof (value as RuntimeOperationSnapshot).createdAt === "string" &&
+    typeof (value as RuntimeOperationSnapshot).updatedAt === "string";
+}
+
+function isTerminalRuntimeOperationSnapshot(
+  value: unknown,
+): value is RuntimeOperationSnapshot {
+  return isRuntimeOperationSnapshot(value) && (
+    value.state === "completed" || value.state === "failed" || value.state === "cancelled"
+  );
+}
 
 type NoResponderRetryOpts = {
   maxAttempts?: number;
@@ -212,6 +373,7 @@ export class Trellis<TA extends AnyTrellisAPI = typeof trellisCoreApi> {
   #noResponderMaxRetries: number;
   #noResponderRetryMs: number;
   #authBypassMethods: Set<string>;
+  #operationStore?: Promise<TypedKV<typeof DurableOperationRecordSchema>>;
 
   constructor(
     name: string, // Must be unique for a service
@@ -241,6 +403,49 @@ export class Trellis<TA extends AnyTrellisAPI = typeof trellisCoreApi> {
    */
   get natsConnection(): NatsConnection {
     return this.nats;
+  }
+
+  async operationStoreHandle(): Promise<TypedKV<typeof DurableOperationRecordSchema>> {
+    if (!this.#operationStore) {
+      const bucket = `trellis_operations_${this.name.replace(/[^A-Za-z0-9_-]/g, "_")}`;
+      this.#operationStore = (async () => {
+        const result = await TypedKV.open(
+          this.nats,
+          bucket,
+          DurableOperationRecordSchema,
+          {
+            history: 5,
+            ttl: 0,
+          },
+        );
+        const value = result.take();
+        if (isErr(value)) {
+          throw value.error;
+        }
+        return value;
+      })();
+    }
+    return this.#operationStore;
+  }
+
+  async loadOperationRecord(operationId: string): Promise<DurableOperationRecord | null> {
+    const store = await this.operationStoreHandle();
+    const entry = await store.get(operationId);
+    const value = entry.take();
+    if (isErr(value)) {
+      return null;
+    }
+    return value.value as DurableOperationRecord;
+  }
+
+  async saveOperationRecord(runtime: RuntimeOperationRecord): Promise<void> {
+    const store = await this.operationStoreHandle();
+    const record: DurableOperationRecord = {
+      ownerSessionKey: runtime.ownerSessionKey,
+      sequence: runtime.sequence,
+      snapshot: runtime.snapshot,
+    };
+    await store.put(runtime.id, record);
   }
 
   /**
@@ -457,6 +662,27 @@ export class Trellis<TA extends AnyTrellisAPI = typeof trellisCoreApi> {
     }
 
     return value;
+  }
+
+  operation<O extends OperationsOf<TA>>(
+    operation: O,
+  ): OperationInvoker<TA["operations"][O] & RuntimeOperationDesc> {
+    const descriptor = this.api["operations"]?.[operation];
+    if (!descriptor) {
+      throw new Error(
+        `Unknown operation '${operation.toString()}'. Did you forget to include its API module?`,
+      );
+    }
+
+    const transport: OperationTransport = {
+      requestJson: (subject, body) => this.#requestJson(subject, body),
+      watchJson: (subject, body) => this.#watchJson(subject, body),
+    };
+
+    return new OperationInvoker(
+      transport,
+      descriptor as TA["operations"][O] & RuntimeOperationDesc,
+    );
   }
 
   /*
@@ -793,6 +1019,10 @@ export class Trellis<TA extends AnyTrellisAPI = typeof trellisCoreApi> {
     msg.respond(serialized.take() as string, { headers: hdrs });
   }
 
+  respondWithError(msg: Msg, error: Error | TrellisErrorInstance): void {
+    this.#respondWithError(msg, error);
+  }
+
   async publish<E extends EventsOf<TA>>(
     event: E,
     data: EventPayloadOf<TA, E>,
@@ -984,6 +1214,71 @@ export class Trellis<TA extends AnyTrellisAPI = typeof trellisCoreApi> {
     const sigBytes = await this.auth.sign(digest);
     return base64urlEncode(sigBytes);
   }
+
+  async #requestJson(
+    subject: string,
+    body: JsonValue,
+  ): Promise<Result<JsonValue, UnexpectedError>> {
+    const payload = JSON.stringify(body);
+    const proof = await this.#createProof(subject, payload);
+
+    const headers = natsHeaders();
+    headers.set("session-key", this.auth.sessionKey);
+    headers.set("proof", proof);
+
+    const response = await AsyncResult.try(() =>
+      this.nats.request(subject, payload, {
+        timeout: this.timeout,
+        headers,
+      })
+    ).take();
+    if (isErr(response)) {
+      return response;
+    }
+
+    return safeJson(response);
+  }
+
+  async #watchJson(
+    subject: string,
+    body: JsonValue,
+  ): Promise<Result<AsyncIterable<Result<JsonValue, UnexpectedError>>, UnexpectedError>> {
+    const payload = JSON.stringify(body);
+    const proof = await this.#createProof(subject, payload);
+
+    const headers = natsHeaders();
+    headers.set("session-key", this.auth.sessionKey);
+    headers.set("proof", proof);
+
+    const inbox = createInbox(`_INBOX.${this.auth.sessionKey.slice(0, 16)}`);
+    const sub = this.nats.subscribe(inbox);
+
+    try {
+      this.nats.publish(subject, payload, {
+        headers,
+        reply: inbox,
+      });
+      await this.nats.flush();
+    } catch (cause) {
+      sub.unsubscribe();
+      return err(new UnexpectedError({ cause }));
+    }
+
+    return ok((async function* () {
+      try {
+        for await (const msg of sub) {
+          if (msg.headers?.get("status") === "error") {
+            yield err(new UnexpectedError({ cause: new Error(msg.string()) }));
+            continue;
+          }
+
+          yield safeJson(msg);
+        }
+      } finally {
+        sub.unsubscribe();
+      }
+    })());
+  }
 }
 
 type TrellisServerOpts<TA extends AnyTrellisAPI> =
@@ -997,6 +1292,8 @@ export class TrellisServer<TA extends AnyTrellisAPI = AnyTrellisAPI>
   extends Trellis<TA> {
   #version?: string;
   #log: Logger;
+  #operations = new Map<string, RuntimeOperationRecord>();
+  readonly operations: RuntimeOperationController;
 
   private constructor(
     name: string,
@@ -1007,6 +1304,107 @@ export class TrellisServer<TA extends AnyTrellisAPI = AnyTrellisAPI>
     super(name, nats, auth, opts);
     this.#version = opts?.version;
     this.#log = (opts?.log ?? logger).child({ lib: "trellis-server" });
+    this.operations = {
+      get: async (operationId) => {
+        const runtime = await this.#resolveOperation(operationId);
+        if (!runtime) {
+          return err(new UnexpectedError({ cause: new Error(`Unknown operation '${operationId}'`) }));
+        }
+        return ok(runtime.snapshot);
+      },
+      started: async (operationId) => this.#applyOperationUpdate(operationId, "running", {
+        event: { type: "started" },
+      }),
+      progress: async (operationId, progress) => this.#applyOperationUpdate(operationId, "running", {
+        patch: { progress },
+        event: { type: "progress" },
+      }),
+      complete: async (operationId, output) => this.#applyOperationUpdate(operationId, "completed", {
+        patch: { output },
+        event: { type: "completed" },
+      }),
+      fail: async (operationId, error) => this.#applyOperationUpdate(operationId, "failed", {
+        patch: { error: { type: error.name, message: error.message } },
+        event: { type: "failed" },
+      }),
+      cancel: async (operationId) => this.#applyOperationUpdate(operationId, "cancelled", {
+        event: { type: "cancelled" },
+      }),
+    };
+  }
+
+  async #resolveOperation(operationId: string): Promise<RuntimeOperationRecord | null> {
+    const existing = this.#operations.get(operationId);
+    if (existing) {
+      return existing;
+    }
+
+    const durable = await this.loadOperationRecord(operationId);
+    if (!durable) {
+      return null;
+    }
+
+    const runtime: RuntimeOperationRecord = {
+      id: durable.snapshot.id,
+      service: durable.snapshot.service,
+      operation: durable.snapshot.operation,
+      ownerSessionKey: durable.ownerSessionKey,
+      snapshot: durable.snapshot,
+      sequence: durable.sequence,
+      terminal: durable.snapshot.state === "completed" ||
+        durable.snapshot.state === "failed" ||
+        durable.snapshot.state === "cancelled",
+      watchers: new Set(),
+      waiters: new Set(),
+    };
+    this.#operations.set(operationId, runtime);
+    return runtime;
+  }
+
+  async #applyOperationUpdate(
+    operationId: string,
+    state: RuntimeOperationState,
+    opts: {
+      patch?: Partial<RuntimeOperationSnapshot>;
+      event: { type: string };
+    },
+  ): Promise<Result<RuntimeOperationSnapshot, UnexpectedError>> {
+    const runtime = await this.#resolveOperation(operationId);
+    if (!runtime) {
+      return err(new UnexpectedError({ cause: new Error(`Unknown operation '${operationId}'`) }));
+    }
+
+    if (runtime.terminal && state !== "cancelled") {
+      return err(new UnexpectedError({ cause: new Error("operation already terminal") }));
+    }
+
+    runtime.sequence += 1;
+    runtime.snapshot = buildRuntimeOperationSnapshot(runtime, state, opts.patch);
+    runtime.terminal = state === "completed" || state === "failed" || state === "cancelled";
+
+    await this.saveOperationRecord(runtime);
+
+    const frame = {
+      kind: "event",
+      sequence: runtime.sequence,
+      event: {
+        type: opts.event.type,
+        snapshot: runtime.snapshot,
+      },
+    };
+    for (const reply of runtime.watchers) {
+      await this.nats.publish(reply, JSON.stringify(frame));
+    }
+
+    if (runtime.terminal) {
+      const terminalFrame = { kind: "snapshot", snapshot: runtime.snapshot };
+      for (const reply of runtime.waiters) {
+        await this.nats.publish(reply, JSON.stringify(terminalFrame));
+      }
+      runtime.waiters.clear();
+    }
+
+    return ok(runtime.snapshot);
   }
 
   /**
@@ -1030,6 +1428,490 @@ export class TrellisServer<TA extends AnyTrellisAPI = AnyTrellisAPI>
     opts: TrellisServerOpts<TA>,
   ): TrellisServer<TA> {
     return new TrellisServer<TA>(name, nats, auth, opts);
+  }
+
+  operation<O extends OperationsOf<TA>>(operation: O) {
+    const ctx = this.api["operations"]?.[operation];
+    if (!ctx) {
+      throw new Error(
+        `Unknown operation '${operation.toString()}'. Did you forget to include its API module?`,
+      );
+    }
+
+    return {
+      handle: async (handler: (context: unknown) => Promise<unknown>) => {
+        const startSubject = ctx.subject;
+        const controlSubject = `${ctx.subject}.control`;
+        const now = () => new Date().toISOString();
+
+        const publishFrame = async (reply: string, frame: unknown) => {
+          await this.nats.publish(reply, JSON.stringify(frame));
+        };
+
+        const publishSnapshot = async (
+          reply: string,
+          snapshot: RuntimeOperationSnapshot,
+        ) => {
+          await publishFrame(reply, { kind: "snapshot", snapshot });
+        };
+
+        const publishEventToWatchers = async (
+          runtime: RuntimeOperationRecord,
+          event: unknown,
+        ) => {
+          const frame = { kind: "event", sequence: runtime.sequence, event };
+          for (const reply of runtime.watchers) {
+            await publishFrame(reply, frame);
+          }
+        };
+
+        const flushWaiters = async (runtime: RuntimeOperationRecord) => {
+          const frame = { kind: "snapshot", snapshot: runtime.snapshot };
+          for (const reply of runtime.waiters) {
+            await publishFrame(reply, frame);
+          }
+          runtime.waiters.clear();
+        };
+
+        const makeOperation = (runtime: RuntimeOperationRecord) => {
+          const ensureActive = () => {
+            if (runtime.terminal) {
+              return err(new UnexpectedError({ cause: new Error("operation already terminal") }));
+            }
+            return null;
+          };
+
+          const transition = async (
+            state: RuntimeOperationState,
+            patch?: Partial<RuntimeOperationSnapshot>,
+            event?: unknown,
+          ) => {
+            runtime.sequence += 1;
+            runtime.snapshot = buildRuntimeOperationSnapshot(runtime, state, patch);
+            await this.saveOperationRecord(runtime);
+            if (event) {
+              await publishEventToWatchers(runtime, event);
+            }
+            return ok(runtime.snapshot);
+          };
+
+          return {
+            id: runtime.id,
+            started: async () => {
+              const active = ensureActive();
+              if (active) return active;
+              const snapshot = await transition("running", undefined, {
+                type: "started",
+                snapshot: buildRuntimeOperationSnapshot(runtime, "running", {
+                  revision: runtime.snapshot.revision + 1,
+                }),
+              });
+              return snapshot;
+            },
+            progress: async (value: unknown) => {
+              const active = ensureActive();
+              if (active) return active;
+              const snapshot = await transition("running", { progress: value }, {
+                type: "progress",
+                snapshot: buildRuntimeOperationSnapshot(runtime, "running", {
+                  revision: runtime.snapshot.revision + 1,
+                  progress: value,
+                }),
+              });
+              return snapshot;
+            },
+            complete: async (value: unknown) => {
+              const active = ensureActive();
+              if (active) return active;
+              const snapshot = buildRuntimeOperationSnapshot(runtime, "completed", {
+                output: value,
+                completedAt: now(),
+              });
+              runtime.sequence += 1;
+              runtime.snapshot = snapshot;
+              runtime.terminal = true;
+              await this.saveOperationRecord(runtime);
+              await publishEventToWatchers(runtime, {
+                type: "completed",
+                snapshot,
+              });
+              await flushWaiters(runtime);
+              return ok(snapshot);
+            },
+            fail: async (error: BaseError) => {
+              const active = ensureActive();
+              if (active) return active;
+              const snapshot = buildRuntimeOperationSnapshot(runtime, "failed", {
+                error: { type: error.name, message: error.message },
+                completedAt: now(),
+              });
+              runtime.sequence += 1;
+              runtime.snapshot = snapshot;
+              runtime.terminal = true;
+              await this.saveOperationRecord(runtime);
+              await publishEventToWatchers(runtime, {
+                type: "failed",
+                snapshot,
+              });
+              await flushWaiters(runtime);
+              return ok(snapshot);
+            },
+            cancel: async () => {
+              const active = ensureActive();
+              if (active) return active;
+              const snapshot = buildRuntimeOperationSnapshot(runtime, "cancelled", {
+                completedAt: now(),
+              });
+              runtime.sequence += 1;
+              runtime.snapshot = snapshot;
+              runtime.terminal = true;
+              await this.saveOperationRecord(runtime);
+              await publishEventToWatchers(runtime, {
+                type: "cancelled",
+                snapshot,
+              });
+              await flushWaiters(runtime);
+              return ok(snapshot);
+            },
+            attach: async (job: { wait: () => Promise<Result<unknown, BaseError>> }) => {
+              const waited = await job.wait();
+              const waitedValue = waited.take();
+              if (isErr(waitedValue)) {
+                return waitedValue;
+              }
+
+              const finalRuntime = await this.#resolveOperation(runtime.id);
+              if (!finalRuntime || !finalRuntime.terminal) {
+                return err(
+                  new UnexpectedError({
+                    cause: new Error("attached job completed without terminal operation state"),
+                  }),
+                );
+              }
+
+              return ok(finalRuntime.snapshot);
+            },
+          };
+        };
+
+        const authenticate = async (msg: Msg, parseInput = true): Promise<
+          Result<{
+            input?: unknown;
+            user: SessionUser;
+            sessionKey: string;
+            auth: { user: SessionUser; inboxPrefix: string };
+          }, UnexpectedError | AuthError | ValidationError | RemoteError>
+        > => {
+          const jsonData = safeJson(msg).take();
+          if (isErr(jsonData)) return jsonData;
+
+          const parsedInput = parseInput
+            ? parseSchema(ctx.input, jsonData).take()
+            : jsonData;
+          if (parseInput && isErr(parsedInput)) {
+            return parsedInput;
+          }
+
+          const sessionKey = msg.headers?.get("session-key");
+          const proof = msg.headers?.get("proof");
+          if (!sessionKey) {
+            return err(new AuthError({ reason: "missing_session_key" }));
+          }
+          if (!proof) {
+            return err(new AuthError({ reason: "missing_proof" }));
+          }
+
+          const payloadBytes = msg.data ?? new Uint8Array();
+          const payloadHash = await sha256(payloadBytes);
+          const proofInput = buildProofInput(sessionKey, msg.subject, payloadHash);
+          const digest = await sha256(proofInput);
+
+          const verifyResult = await AsyncResult.try(async () => {
+            const publicKeyRaw = base64urlDecode(sessionKey);
+            const pub = await crypto.subtle.importKey(
+              "raw",
+              toArrayBuffer(publicKeyRaw),
+              { name: "Ed25519" },
+              true,
+              ["verify"],
+            );
+            return crypto.subtle.verify(
+              { name: "Ed25519" },
+              pub,
+              toArrayBuffer(base64urlDecode(proof)),
+              toArrayBuffer(digest),
+            );
+          });
+          const signatureOk = verifyResult.isOk() && (await verifyResult).take() === true;
+          if (!signatureOk) {
+            return err(new AuthError({ reason: "invalid_signature", context: { sessionKey } }));
+          }
+
+          const authDescriptor = this.api["rpc"]?.["Auth.ValidateRequest"];
+          let auth;
+          if (authDescriptor) {
+            const authResult = await this.request("Auth.ValidateRequest", {
+              sessionKey,
+              proof,
+              subject: msg.subject,
+              payloadHash: base64urlEncode(payloadHash),
+              capabilities: ctx.callerCapabilities,
+            } as never);
+            auth = authResult.take();
+            if (isErr(auth)) {
+              return auth;
+            }
+          } else {
+            auth = {
+              user: {
+                id: sessionKey,
+                origin: "trellis",
+                active: true,
+                name: "Operation Caller",
+                email: "caller@trellis.internal",
+                capabilities: ["service"],
+              },
+              inboxPrefix: `_INBOX.${sessionKey.slice(0, 16)}`,
+            };
+          }
+
+          if (
+            typeof msg.reply !== "string" ||
+            !msg.reply.startsWith(`${auth.inboxPrefix}.`)
+          ) {
+            return err(
+              new AuthError({
+                reason: "reply_subject_mismatch",
+                context: { expected: auth.inboxPrefix, actual: msg.reply },
+              }),
+            );
+          }
+
+          return ok({
+            input: parsedInput,
+            user: auth.user,
+            sessionKey,
+            auth,
+          });
+        };
+
+        this.#log.info({ operation: String(operation) }, `Mounting ${String(operation)} operation handler`);
+
+        const startSub = this.nats.subscribe(startSubject);
+        const controlSub = this.nats.subscribe(controlSubject);
+        await this.nats.flush();
+
+        void (async () => {
+          for await (const msg of startSub) {
+            const validated = await authenticate(msg, true);
+            const value = validated.take();
+            if (isErr(value)) {
+              this.respondWithError(msg, value.error);
+              continue;
+            }
+
+            const operationId = ulid();
+            const createdAt = now();
+            const runtime: RuntimeOperationRecord = {
+              id: operationId,
+              service: this.name,
+              operation: String(operation),
+              ownerSessionKey: value.sessionKey,
+              snapshot: {
+                id: operationId,
+                service: this.name,
+                operation: String(operation),
+                revision: 1,
+                state: "pending",
+                createdAt,
+                updatedAt: createdAt,
+              },
+              sequence: 0,
+              terminal: false,
+              watchers: new Set(),
+              waiters: new Set(),
+            };
+            this.#operations.set(operationId, runtime);
+            await this.saveOperationRecord(runtime);
+
+            const accepted: RuntimeOperationAcceptedEnvelope = {
+              kind: "accepted",
+              ref: {
+                id: operationId,
+                service: this.name,
+                operation: String(operation),
+              },
+              snapshot: runtime.snapshot,
+            };
+
+            msg.respond(JSON.stringify(accepted));
+
+            void (async () => {
+              const op = makeOperation(runtime);
+              try {
+                const handlerResult = await handler({
+                  input: value.input,
+                  op,
+                  caller: value.user,
+                });
+                const handlerOutcome = handlerResult && typeof handlerResult.take === "function"
+                  ? handlerResult.take()
+                  : handlerResult;
+                if (isErr(handlerOutcome)) {
+                  await op.fail(handlerOutcome.error);
+                  return;
+                }
+
+                if (isTerminalRuntimeOperationSnapshot(handlerOutcome)) {
+                  runtime.sequence = handlerOutcome.revision;
+                  runtime.snapshot = handlerOutcome;
+                  runtime.terminal = true;
+                  await this.saveOperationRecord(runtime);
+                  return;
+                }
+
+                if (!runtime.terminal) {
+                  await op.complete(handlerOutcome);
+                }
+              } catch (cause) {
+                await op.fail(new UnexpectedError({ cause }));
+              }
+            })();
+          }
+        })();
+
+        void (async () => {
+          for await (const msg of controlSub) {
+            const validated = await authenticate(msg, false);
+            const value = validated.take();
+            if (isErr(value)) {
+              this.respondWithError(msg, value.error);
+              continue;
+            }
+
+            const request = safeJson(msg).take();
+            if (isErr(request)) {
+              this.respondWithError(msg, request.error);
+              continue;
+            }
+
+            if (
+              !request ||
+              typeof request !== "object" ||
+              typeof (request as RuntimeOperationControlRequest).action !== "string" ||
+              typeof (request as RuntimeOperationControlRequest).operationId !== "string"
+            ) {
+              this.respondWithError(
+                msg,
+                new UnexpectedError({
+                  cause: new Error("Invalid operation control request"),
+                }),
+              );
+              continue;
+            }
+
+            const control = request as RuntimeOperationControlRequest;
+            const runtime = this.#operations.get(control.operationId);
+            const durableRecord = runtime ? null : await this.loadOperationRecord(control.operationId);
+            if (!runtime && !durableRecord) {
+              this.respondWithError(
+                msg,
+                new UnexpectedError({
+                  cause: new Error(`Unknown operation '${control.operationId}'`),
+                }),
+              );
+              continue;
+            }
+
+            const snapshot = runtime?.snapshot ?? durableRecord!.snapshot;
+            const ownerSessionKey = runtime?.ownerSessionKey ?? durableRecord!.ownerSessionKey;
+
+            if (ownerSessionKey !== value.sessionKey) {
+              this.respondWithError(
+                msg,
+                new AuthError({
+                  reason: "operation_owner_mismatch",
+                  context: { ownerSessionKey },
+                }),
+              );
+              continue;
+            }
+
+            if (control.action === "watch") {
+              if (msg.reply) {
+                await publishSnapshot(msg.reply, snapshot);
+                if (!runtime) {
+                  continue;
+                }
+                runtime.watchers.add(msg.reply);
+              }
+              continue;
+            }
+
+            if (control.action === "wait") {
+              if (snapshot.state === "completed" || snapshot.state === "failed" || snapshot.state === "cancelled") {
+                msg.respond(JSON.stringify({ kind: "snapshot", snapshot }));
+              } else if (runtime && msg.reply) {
+                runtime.waiters.add(msg.reply);
+              } else if (msg.reply) {
+                this.respondWithError(
+                  msg,
+                  new UnexpectedError({
+                    cause: new Error("operation is not running in this process"),
+                  }),
+                );
+              } else {
+                this.respondWithError(
+                  msg,
+                  new UnexpectedError({
+                    cause: new Error("missing reply subject for wait request"),
+                  }),
+                );
+              }
+              continue;
+            }
+
+            if (control.action === "get") {
+              msg.respond(JSON.stringify({ kind: "snapshot", snapshot }));
+              continue;
+            }
+
+            if (control.action === "cancel") {
+              if (!runtime) {
+                msg.respond(JSON.stringify({ kind: "snapshot", snapshot }));
+                continue;
+              }
+              runtime.snapshot = {
+                ...runtime.snapshot,
+                revision: runtime.snapshot.revision + 1,
+                state: "cancelled",
+                updatedAt: now(),
+                completedAt: now(),
+              };
+              runtime.terminal = true;
+              runtime.sequence += 1;
+              await this.saveOperationRecord(runtime);
+              await publishEventToWatchers(runtime, {
+                type: "cancelled",
+                snapshot: runtime.snapshot,
+              });
+              await flushWaiters(runtime);
+              msg.respond(JSON.stringify({ kind: "snapshot", snapshot: runtime.snapshot }));
+              continue;
+            }
+
+            this.respondWithError(
+              msg,
+              new UnexpectedError({
+                cause: new Error(`Unknown operation control action '${control.action}'`),
+              }),
+            );
+          }
+        })();
+
+        return Promise.resolve();
+      },
+    };
   }
 
   /**

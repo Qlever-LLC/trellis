@@ -1,8 +1,16 @@
 <script lang="ts">
-  import { resolve } from "$app/paths";
-  import { docsBySection } from "$lib/docs";
+  import { base } from "$app/paths";
+  import { overviewDocsBySection } from "$lib/docs";
 
-  const groups = docsBySection();
+  const groups = overviewDocsBySection();
+
+  function resolveDocHref(href: string) {
+    if (!base) {
+      return href;
+    }
+
+    return href === "/" ? `${base}/` : `${base}${href}`;
+  }
 </script>
 
 <svelte:head>
@@ -16,7 +24,7 @@
 <div class="space-y-8">
   <section class="space-y-3">
     <p class="text-sm text-base-content/60">Documentation</p>
-    <h1 class="text-3xl font-semibold sm:text-4xl">Trellis Guides</h1>
+    <h1 class="text-3xl font-semibold sm:text-4xl">Trellis Documentation</h1>
   </section>
 
   {#each groups as group (group.section)}
@@ -30,7 +38,7 @@
             <li>
               <a
                 class="block px-4 py-4 hover:bg-base-200/40 sm:px-5"
-                href={resolve(doc.href)}
+                href={resolveDocHref(doc.href)}
               >
                 <h3 class="text-base font-semibold">{doc.title}</h3>
                 <p class="mt-1 text-sm leading-6 text-base-content/70">

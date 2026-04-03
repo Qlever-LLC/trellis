@@ -2,7 +2,7 @@
 
 The `trellis` service is the platform control plane for a deployment. It owns the browser login flow, the NATS auth callout, the control-plane RPC surface, and the builtin `trellis.core@v1` and `trellis.auth@v1` contracts.
 
-This service is the bootstrap exception described in `design/adr-trellis-patterns.md`: it wires the platform together before other services can rely on the catalog, bindings, and auth runtime.
+This service is the bootstrap exception described in `design/core/trellis-patterns.md`: it wires the platform together before other services can rely on the catalog, bindings, and auth runtime.
 
 ## What the service does
 
@@ -64,7 +64,7 @@ js/services/trellis/
 
 ### Browser login and bind flow
 
-This follows `design/adr-trellis-auth.md`.
+This follows `design/auth/trellis-auth.md`.
 
 1. A browser starts at `/auth/login` or `/auth/login/:provider` with a signed `redirectTo`, `sessionKey`, and contract payload.
 2. The provider flow completes in `auth/http/http_routes.ts`, which stores pending auth state and resolves the authenticated Trellis user identity.
@@ -82,7 +82,7 @@ This follows `design/adr-trellis-auth.md`.
 
 ### Contract install and permission flow
 
-This follows `design/adr-trellis-contracts-catalog.md`.
+This follows `design/contracts/trellis-contracts-catalog.md`.
 
 1. Contract manifests are validated and canonicalized by `catalog/contracts_store.ts`.
 2. `catalog/contracts_rpc.ts` resolves `uses`, analyzes the contract, and prepares resource bindings.
@@ -108,6 +108,6 @@ deno task build:sdk
 
 ## Related design docs
 
-- `design/adr-trellis-patterns.md`
-- `design/adr-trellis-auth.md`
-- `design/adr-trellis-contracts-catalog.md`
+- `design/core/trellis-patterns.md`
+- `design/auth/trellis-auth.md`
+- `design/contracts/trellis-contracts-catalog.md`

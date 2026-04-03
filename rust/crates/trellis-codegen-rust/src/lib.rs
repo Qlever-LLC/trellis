@@ -119,6 +119,10 @@ pub fn generate_rust_sdk(opts: &GenerateRustSdkOpts) -> Result<(), CodegenRustEr
         &render_rpc_rs(&loaded),
     )?;
     write_if_changed(
+        &opts.out_dir.join("src").join("operations.rs"),
+        &render_operations_rs(&loaded),
+    )?;
+    write_if_changed(
         &opts.out_dir.join("src").join("events.rs"),
         &render_events_rs(&loaded),
     )?;
@@ -879,17 +883,10 @@ fn normalize_relative_path_string(path: String) -> String {
 
 fn render_types_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
     let mut renderer = TypeRenderer::default();
-    let mut lines = vec![
-        format!(
-            "//! Shared request and response types for `{}`.",
-            loaded.manifest.id
-        ),
-        String::new(),
-        "use serde::{Deserialize, Serialize};".to_string(),
-        "use serde_json::Value;".to_string(),
-        "use std::collections::BTreeMap;".to_string(),
-        String::new(),
-    ];
+    let mut lines = vec![format!(
+        "//! Shared request and response types for `{}`.",
+        loaded.manifest.id
+    )];
 
     for (key, rpc) in &loaded.manifest.rpc {
         let base = key_to_pascal(key);
@@ -904,6 +901,32 @@ fn render_types_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
                 &format!("{base}Response"),
                 resolve_schema_ref(loaded, &rpc.output.schema),
             );
+        }
+    }
+
+    for (key, operation) in &loaded.manifest.operations {
+        let base = key_to_pascal(key);
+        if !is_empty_object_schema(resolve_schema_ref(loaded, &operation.input.schema)) {
+            renderer.render_named_type(
+                &format!("{base}Input"),
+                resolve_schema_ref(loaded, &operation.input.schema),
+            );
+        }
+        if let Some(progress) = &operation.progress {
+            if !is_empty_object_schema(resolve_schema_ref(loaded, &progress.schema)) {
+                renderer.render_named_type(
+                    &format!("{base}Progress"),
+                    resolve_schema_ref(loaded, &progress.schema),
+                );
+            }
+        }
+        if let Some(output) = &operation.output {
+            if !is_empty_object_schema(resolve_schema_ref(loaded, &output.schema)) {
+                renderer.render_named_type(
+                    &format!("{base}Output"),
+                    resolve_schema_ref(loaded, &output.schema),
+                );
+            }
         }
     }
 
@@ -925,7 +948,15 @@ fn render_types_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
         }
     }
 
-    lines.extend(renderer.finish());
+    let rendered = renderer.finish();
+    lines.push(String::new());
+    lines.push("use serde::{Deserialize, Serialize};".to_string());
+    lines.push("use serde_json::Value;".to_string());
+    if rendered.iter().any(|line| line.contains("BTreeMap<")) {
+        lines.push("use std::collections::BTreeMap;".to_string());
+    }
+    lines.push(String::new());
+    lines.extend(rendered);
     format!("{}\n", lines.join("\n"))
 }
 
@@ -1090,6 +1121,117 @@ fn render_subjects_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
     format!("{}\n", lines.join("\n"))
 }
 
+fn render_operations_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
+    let mut lines = vec![
+        format!(
+            "//! Typed operation descriptors for `{}`.",
+            loaded.manifest.id
+        ),
+        String::new(),
+        "use trellis_client::OperationDescriptor;".to_string(),
+        "use trellis_server::OperationDescriptor as ServerOperationDescriptor;".to_string(),
+        String::new(),
+    ];
+
+    for (key, operation) in &loaded.manifest.operations {
+        let base = key_to_pascal(key);
+        let input_type =
+            if is_empty_object_schema(resolve_schema_ref(loaded, &operation.input.schema)) {
+                "crate::rpc::Empty".to_string()
+            } else {
+                format!("crate::types::{base}Input")
+            };
+        let progress_type = match &operation.progress {
+            Some(progress)
+                if !is_empty_object_schema(resolve_schema_ref(loaded, &progress.schema)) =>
+            {
+                format!("crate::types::{base}Progress")
+            }
+            _ => "crate::rpc::Empty".to_string(),
+        };
+        let output_type = match &operation.output {
+            Some(output) if !is_empty_object_schema(resolve_schema_ref(loaded, &output.schema)) => {
+                format!("crate::types::{base}Output")
+            }
+            _ => "crate::rpc::Empty".to_string(),
+        };
+        let caller = operation
+            .capabilities
+            .as_ref()
+            .and_then(|caps| caps.call.as_ref())
+            .cloned()
+            .unwrap_or_default();
+        let read = operation
+            .capabilities
+            .as_ref()
+            .and_then(|caps| caps.read.as_ref())
+            .cloned()
+            .unwrap_or_default();
+        let cancel = operation
+            .capabilities
+            .as_ref()
+            .and_then(|caps| caps.cancel.as_ref())
+            .cloned()
+            .unwrap_or_default();
+
+        lines.push(format!("/// Descriptor for `{key}`."));
+        lines.push(format!("pub struct {base}Operation;"));
+        lines.push(String::new());
+        lines.push(format!("impl OperationDescriptor for {base}Operation {{"));
+        lines.push(format!("    type Input = {input_type};"));
+        lines.push(format!("    type Progress = {progress_type};"));
+        lines.push(format!("    type Output = {output_type};"));
+        lines.push(format!(
+            "    const KEY: &'static str = {};",
+            string_literal(key)
+        ));
+        lines.push(format!(
+            "    const SUBJECT: &'static str = {};",
+            string_literal(&operation.subject)
+        ));
+        lines.push(format!(
+            "    const CALLER_CAPABILITIES: &'static [&'static str] = &[{}];",
+            join_string_literals(&caller)
+        ));
+        lines.push(format!(
+            "    const READ_CAPABILITIES: &'static [&'static str] = &[{}];",
+            join_string_literals(&read)
+        ));
+        lines.push(format!(
+            "    const CANCEL_CAPABILITIES: &'static [&'static str] = &[{}];",
+            join_string_literals(&cancel)
+        ));
+        lines.push(format!(
+            "    const CANCELABLE: bool = {};",
+            operation.cancel.unwrap_or(false)
+        ));
+        lines.push("}".to_string());
+        lines.push(String::new());
+        lines.push(format!(
+            "impl ServerOperationDescriptor for {base}Operation {{"
+        ));
+        lines.push(format!("    type Input = {input_type};"));
+        lines.push(format!("    type Progress = {progress_type};"));
+        lines.push(format!("    type Output = {output_type};"));
+        lines.push(format!(
+            "    const KEY: &'static str = {};",
+            string_literal(key)
+        ));
+        lines.push(format!(
+            "    const SUBJECT: &'static str = {};",
+            string_literal(&operation.subject)
+        ));
+        lines.push(format!(
+            "    const CANCELABLE: bool = {};",
+            operation.cancel.unwrap_or(false)
+        ));
+        lines.push("}".to_string());
+        lines.push(String::new());
+    }
+
+    format!("{}\n", lines.join("\n"))
+}
+
 fn render_client_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
     let client_name = format!("{}Client", sdk_stem_pascal(loaded));
     let mut lines = vec![
@@ -1149,6 +1291,20 @@ fn render_client_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
                 ));
             }
         }
+        lines.push("    }".to_string());
+        lines.push(String::new());
+    }
+
+    for key in loaded.manifest.operations.keys() {
+        let base = key_to_pascal(key);
+        let method_name = key_to_snake(key);
+        lines.push(format!("    /// Start or control `{key}`."));
+        lines.push(format!(
+            "    pub fn {method_name}(&self) -> trellis_client::OperationInvoker<'a, trellis_client::TrellisClient, crate::operations::{base}Operation> {{"
+        ));
+        lines.push(format!(
+            "        self.inner.operation::<crate::operations::{base}Operation>()"
+        ));
         lines.push("    }".to_string());
         lines.push(String::new());
     }
@@ -1218,6 +1374,66 @@ fn render_server_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
         lines.push(String::new());
     }
 
+    for (key, operation) in &loaded.manifest.operations {
+        let base = key_to_pascal(key);
+        let fn_name = format!("register_{}", key_to_snake(key));
+        let input_type =
+            if is_empty_object_schema(resolve_schema_ref(loaded, &operation.input.schema)) {
+                "crate::rpc::Empty".to_string()
+            } else {
+                format!("crate::types::{base}Input")
+            };
+        let progress_type = match &operation.progress {
+            Some(progress)
+                if !is_empty_object_schema(resolve_schema_ref(loaded, &progress.schema)) =>
+            {
+                format!("crate::types::{base}Progress")
+            }
+            _ => "crate::rpc::Empty".to_string(),
+        };
+        let output_type = match &operation.output {
+            Some(output) if !is_empty_object_schema(resolve_schema_ref(loaded, &output.schema)) => {
+                format!("crate::types::{base}Output")
+            }
+            _ => "crate::rpc::Empty".to_string(),
+        };
+        lines.push(format!("/// Register a handler for `{key}`."));
+        lines.push(format!(
+            "pub fn {fn_name}<FStart, FutStart, FGet, FutGet, FWait, FutWait, FCancel, FutCancel>(router: &mut Router, start: FStart, get: FGet, wait: FWait, cancel: FCancel)"
+        ));
+        lines.push("where".to_string());
+        lines.push(format!(
+            "    FStart: Fn(RequestContext, {input_type}) -> FutStart + Send + Sync + 'static,"
+        ));
+        lines.push(format!(
+            "    FutStart: std::future::Future<Output = Result<trellis_server::AcceptedOperation<{progress_type}, {output_type}>, trellis_server::ServerError>> + Send + 'static,"
+        ));
+        lines.push(format!(
+            "    FGet: Fn(RequestContext, String) -> FutGet + Send + Sync + 'static,"
+        ));
+        lines.push(format!(
+            "    FutGet: std::future::Future<Output = Result<trellis_server::OperationSnapshot<{progress_type}, {output_type}>, trellis_server::ServerError>> + Send + 'static,"
+        ));
+        lines.push(format!(
+            "    FWait: Fn(RequestContext, String) -> FutWait + Send + Sync + 'static,"
+        ));
+        lines.push(format!(
+            "    FutWait: std::future::Future<Output = Result<trellis_server::OperationSnapshot<{progress_type}, {output_type}>, trellis_server::ServerError>> + Send + 'static,"
+        ));
+        lines.push(format!(
+            "    FCancel: Fn(RequestContext, String) -> FutCancel + Send + Sync + 'static,"
+        ));
+        lines.push(format!(
+            "    FutCancel: std::future::Future<Output = Result<trellis_server::OperationSnapshot<{progress_type}, {output_type}>, trellis_server::ServerError>> + Send + 'static,"
+        ));
+        lines.push("{".to_string());
+        lines.push(format!(
+            "    router.register_operation::<crate::operations::{base}Operation, _, _, _, _, _, _, _, _>(start, get, wait, cancel);"
+        ));
+        lines.push("}".to_string());
+        lines.push(String::new());
+    }
+
     for key in loaded.manifest.events.keys() {
         let base = key_to_pascal(key);
         let fn_name = format!("publish_{}", key_to_snake(key));
@@ -1261,11 +1477,20 @@ fn key_to_pascal(value: &str) -> String {
 }
 
 fn key_to_snake(value: &str) -> String {
+    let chars = value.chars().collect::<Vec<_>>();
     let mut out = String::new();
     let mut prev_was_sep = false;
-    for ch in value.chars() {
+    for (index, ch) in chars.iter().copied().enumerate() {
         if ch.is_ascii_alphanumeric() {
-            if ch.is_ascii_uppercase() && !out.is_empty() && !prev_was_sep {
+            let prev = index.checked_sub(1).and_then(|i| chars.get(i)).copied();
+            let next = chars.get(index + 1).copied();
+            let starts_new_word = ch.is_ascii_uppercase()
+                && !out.is_empty()
+                && !prev_was_sep
+                && (prev.is_some_and(|value| value.is_ascii_lowercase() || value.is_ascii_digit())
+                    || next.is_some_and(|value| value.is_ascii_lowercase()));
+
+            if starts_new_word {
                 out.push('_');
             }
             out.push(ch.to_ascii_lowercase());
@@ -1389,12 +1614,9 @@ impl TypeRenderer {
                 format!("Vec<{item_type}>")
             }
             Some("object") => {
-                if let Some(additional) = schema.get("additionalProperties") {
-                    if let Some(false) = additional.as_bool() {
-                        return "Value".to_string();
-                    }
+                if let Some(value_schema) = object_map_value_schema(schema) {
                     let value_name = format!("{type_name}Value");
-                    let value_type = self.type_expr(&value_name, additional);
+                    let value_type = self.type_expr(&value_name, value_schema);
                     return format!("BTreeMap<String, {value_type}>");
                 }
                 "BTreeMap<String, Value>".to_string()
@@ -1430,6 +1652,33 @@ fn schema_required(schema: &serde_json::Value, field_name: &str) -> bool {
                 .iter()
                 .any(|value| value.as_str() == Some(field_name))
         })
+}
+
+fn object_map_value_schema(schema: &serde_json::Value) -> Option<&serde_json::Value> {
+    if let Some(additional) = schema.get("additionalProperties") {
+        if additional.as_bool() == Some(false) {
+            return schema
+                .get("patternProperties")
+                .and_then(serde_json::Value::as_object)
+                .and_then(single_map_schema_value);
+        }
+        return Some(additional);
+    }
+
+    schema
+        .get("patternProperties")
+        .and_then(serde_json::Value::as_object)
+        .and_then(single_map_schema_value)
+}
+
+fn single_map_schema_value(
+    schemas: &serde_json::Map<String, serde_json::Value>,
+) -> Option<&serde_json::Value> {
+    if schemas.len() == 1 {
+        schemas.values().next()
+    } else {
+        None
+    }
 }
 
 fn literal_base_type(schema: &serde_json::Value) -> Option<&'static str> {
@@ -1523,6 +1772,11 @@ fn is_empty_object_schema(schema: &serde_json::Value) -> bool {
 
 fn render_lib_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
     let client_name = format!("{}Client", sdk_stem_pascal(loaded));
+    let operations_reexport = if loaded.manifest.operations.is_empty() {
+        String::new()
+    } else {
+        "pub use operations::*;\n".to_string()
+    };
     let events_reexport = if loaded.manifest.events.is_empty() {
         String::new()
     } else {
@@ -1534,7 +1788,7 @@ fn render_lib_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
         "pub use subjects::*;\n".to_string()
     };
     format!(
-        "//! Generated Rust SDK crate for one Trellis contract.\n\npub mod client;\npub mod contract;\npub mod events;\npub mod rpc;\npub mod server;\npub mod subjects;\npub mod types;\n\npub use client::{client_name};\npub use contract::{{contract_manifest, CONTRACT_DIGEST, CONTRACT_ID, CONTRACT_JSON, CONTRACT_NAME}};\n{events_reexport}pub use rpc::*;\n{subjects_reexport}pub use types::*;\n"
+        "//! Generated Rust SDK crate for one Trellis contract.\n\npub mod client;\npub mod contract;\npub mod events;\npub mod operations;\npub mod rpc;\npub mod server;\npub mod subjects;\npub mod types;\n\npub use client::{client_name};\npub use contract::{{contract_manifest, CONTRACT_DIGEST, CONTRACT_ID, CONTRACT_JSON, CONTRACT_NAME}};\n{events_reexport}{operations_reexport}pub use rpc::*;\n{subjects_reexport}pub use types::*;\n"
     )
 }
 
@@ -1560,24 +1814,48 @@ mod tests {
             "displayName": "Trellis Core",
             "description": "Trellis core runtime surface.",
             "kind": "service",
-            "schemas": {
-                "CatalogInput": {
-                    "type": "object",
-                    "properties": {},
-                    "required": [],
-                    "additionalProperties": false
-                },
-                "CatalogOutput": {
-                    "type": "object",
-                    "properties": {
-                        "catalog": { "type": "object" }
+                "schemas": {
+                    "CatalogInput": {
+                        "type": "object",
+                        "properties": {},
+                        "required": [],
+                        "additionalProperties": false
                     },
-                    "required": ["catalog"],
-                    "additionalProperties": false
-                },
-                "AuthChangedEvent": {
-                    "type": "object",
-                    "properties": {
+                    "CatalogOutput": {
+                        "type": "object",
+                        "properties": {
+                            "catalog": { "type": "object" }
+                        },
+                        "required": ["catalog"],
+                        "additionalProperties": false
+                    },
+                    "ProcessInput": {
+                        "type": "object",
+                        "properties": {
+                            "amount": { "type": "number" }
+                        },
+                        "required": ["amount"],
+                        "additionalProperties": false
+                    },
+                    "ProcessProgress": {
+                        "type": "object",
+                        "properties": {
+                            "step": { "type": "string" }
+                        },
+                        "required": ["step"],
+                        "additionalProperties": false
+                    },
+                    "ProcessOutput": {
+                        "type": "object",
+                        "properties": {
+                            "done": { "type": "boolean" }
+                        },
+                        "required": ["done"],
+                        "additionalProperties": false
+                    },
+                    "AuthChangedEvent": {
+                        "type": "object",
+                        "properties": {
                         "status": { "type": "string" }
                     },
                     "required": ["status"],
@@ -1592,19 +1870,34 @@ mod tests {
                     "additionalProperties": false
                 }
             },
-            "rpc": {
-                "Trellis.Catalog": {
-                    "version": "v1",
-                    "subject": "rpc.v1.Trellis.Catalog",
-                    "input": { "schema": "CatalogInput" },
-                    "output": { "schema": "CatalogOutput" }
-                }
-            },
-            "events": {
-                "Auth.Changed": {
-                    "version": "v1",
-                    "subject": "events.v1.Auth.Changed",
-                    "event": { "schema": "AuthChangedEvent" }
+                "rpc": {
+                    "Trellis.Catalog": {
+                        "version": "v1",
+                        "subject": "rpc.v1.Trellis.Catalog",
+                        "input": { "schema": "CatalogInput" },
+                        "output": { "schema": "CatalogOutput" }
+                    }
+                },
+                "operations": {
+                    "Trellis.Process": {
+                        "version": "v1",
+                        "subject": "operations.v1.Trellis.Process",
+                        "input": { "schema": "ProcessInput" },
+                        "progress": { "schema": "ProcessProgress" },
+                        "output": { "schema": "ProcessOutput" },
+                        "capabilities": {
+                            "call": ["service"],
+                            "read": ["service"],
+                            "cancel": ["service"]
+                        },
+                        "cancel": true
+                    }
+                },
+                "events": {
+                    "Auth.Changed": {
+                        "version": "v1",
+                        "subject": "events.v1.Auth.Changed",
+                        "event": { "schema": "AuthChangedEvent" }
                 }
             },
             "subjects": {
@@ -1665,6 +1958,13 @@ mod tests {
     }
 
     #[test]
+    fn key_to_snake_keeps_acronyms_together() {
+        assert_eq!(key_to_snake("Jobs.ListDLQ"), "jobs_list_dlq");
+        assert_eq!(key_to_snake("Jobs.ReplayDLQ"), "jobs_replay_dlq");
+        assert_eq!(key_to_snake("HTTPServer"), "http_server");
+    }
+
+    #[test]
     fn local_runtime_source_writes_patch_config() {
         let out_dir = unique_temp_dir("local-runtime");
         let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -1720,25 +2020,148 @@ mod tests {
         let contract_rs = fs::read_to_string(out_dir.join("generated/src/contract.rs")).unwrap();
         let types_rs = fs::read_to_string(out_dir.join("generated/src/types.rs")).unwrap();
         let rpc_rs = fs::read_to_string(out_dir.join("generated/src/rpc.rs")).unwrap();
+        let operations_rs =
+            fs::read_to_string(out_dir.join("generated/src/operations.rs")).unwrap();
         let events_rs = fs::read_to_string(out_dir.join("generated/src/events.rs")).unwrap();
         let subjects_rs = fs::read_to_string(out_dir.join("generated/src/subjects.rs")).unwrap();
         let client_rs = fs::read_to_string(out_dir.join("generated/src/client.rs")).unwrap();
         let server_rs = fs::read_to_string(out_dir.join("generated/src/server.rs")).unwrap();
 
         assert!(lib_rs.contains("pub mod rpc;"));
+        assert!(lib_rs.contains("pub mod operations;"));
         assert!(lib_rs.contains("pub mod events;"));
         assert!(lib_rs.contains("pub mod subjects;"));
         assert!(contract_rs.contains("pub const CONTRACT_NAME: &str = \"Trellis Core\";"));
         assert!(types_rs.contains("pub struct TrellisCatalogResponse {"));
+        assert!(types_rs.contains("pub struct TrellisProcessInput {"));
+        assert!(types_rs.contains("pub struct TrellisProcessProgress {"));
+        assert!(types_rs.contains("pub struct TrellisProcessOutput {"));
         assert!(types_rs.contains("pub struct AuthChangedEvent {"));
         assert!(types_rs.contains("pub status: String,"));
         assert!(rpc_rs.contains("pub struct TrellisCatalogRpc;"));
         assert!(rpc_rs.contains("type Input = Empty;"));
+        assert!(operations_rs.contains("pub struct TrellisProcessOperation;"));
+        assert!(operations_rs.contains("use trellis_client::OperationDescriptor;"));
+        assert!(operations_rs
+            .contains("use trellis_server::OperationDescriptor as ServerOperationDescriptor;"));
+        assert!(operations_rs.contains("impl OperationDescriptor for TrellisProcessOperation"));
+        assert!(
+            operations_rs.contains("impl ServerOperationDescriptor for TrellisProcessOperation")
+        );
         assert!(events_rs.contains("pub struct AuthChangedEventDescriptor;"));
         assert!(subjects_rs.contains("pub struct AuditRawSubject;"));
         assert!(client_rs.contains("pub struct CoreClient<'a>"));
         assert!(client_rs.contains("pub async fn trellis_catalog(&self)"));
+        assert!(client_rs.contains("pub fn trellis_process(&self) -> trellis_client::OperationInvoker<'a, trellis_client::TrellisClient, crate::operations::TrellisProcessOperation>"));
         assert!(server_rs.contains("register_trellis_catalog"));
+        assert!(server_rs.contains("register_trellis_process"));
+
+        fs::remove_dir_all(out_dir).unwrap();
+    }
+
+    #[test]
+    fn generated_sdk_types_use_typed_pattern_properties() {
+        let out_dir = unique_temp_dir("sdk-pattern-properties");
+        fs::create_dir_all(&out_dir).unwrap();
+        let manifest = serde_json::from_str(
+            r#"{
+                "format": "trellis.contract.v1",
+                "id": "trellis.core@v1",
+                "displayName": "Trellis Core",
+                "description": "Core.",
+                "kind": "service",
+                "schemas": {
+                    "BindingsGetInput": {
+                        "type": "object",
+                        "properties": {},
+                        "required": [],
+                        "additionalProperties": false
+                    },
+                    "BindingsGetOutput": {
+                        "type": "object",
+                        "properties": {
+                            "binding": {
+                                "type": "object",
+                                "required": ["resources"],
+                                "additionalProperties": false,
+                                "properties": {
+                                    "resources": {
+                                        "type": "object",
+                                        "required": ["streams"],
+                                        "additionalProperties": false,
+                                        "properties": {
+                                            "streams": {
+                                                "type": "object",
+                                                "patternProperties": {
+                                                    "^.*$": {
+                                                        "type": "object",
+                                                        "required": ["name", "sources"],
+                                                        "additionalProperties": false,
+                                                        "properties": {
+                                                            "name": { "type": "string" },
+                                                            "sources": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "object",
+                                                                    "required": ["fromAlias", "streamName"],
+                                                                    "additionalProperties": false,
+                                                                    "properties": {
+                                                                        "fromAlias": { "type": "string" },
+                                                                        "streamName": { "type": "string" }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                },
+                                                "additionalProperties": false
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "required": ["binding"],
+                        "additionalProperties": false
+                    }
+                },
+                "rpc": {
+                    "Trellis.Bindings.Get": {
+                        "version": "v1",
+                        "subject": "rpc.v1.Trellis.Bindings.Get",
+                        "input": { "schema": "BindingsGetInput" },
+                        "output": { "schema": "BindingsGetOutput" }
+                    }
+                }
+            }"#,
+        )
+        .unwrap();
+        let manifest_path = write_remote_manifest(&out_dir, "trellis.core@v1.json", manifest);
+
+        generate_rust_sdk(&GenerateRustSdkOpts {
+            manifest_path,
+            out_dir: out_dir.join("generated"),
+            crate_name: "trellis-sdk-core".to_string(),
+            crate_version: "0.1.0".to_string(),
+            runtime_deps: RustRuntimeDeps {
+                source: RustRuntimeSource::Registry,
+                version: "0.1.0".to_string(),
+                repo_root: None,
+            },
+        })
+        .unwrap();
+
+        let types_rs = fs::read_to_string(out_dir.join("generated/src/types.rs")).unwrap();
+
+        assert!(types_rs.contains(
+            "pub streams: BTreeMap<String, TrellisBindingsGetResponseBindingResourcesStreamsValue>"
+        ));
+        assert!(types_rs
+            .contains("pub struct TrellisBindingsGetResponseBindingResourcesStreamsValue {"));
+        assert!(types_rs.contains(
+            "pub struct TrellisBindingsGetResponseBindingResourcesStreamsValueSourcesItem {"
+        ));
+        assert!(!types_rs.contains("pub streams: BTreeMap<String, Value>"));
 
         fs::remove_dir_all(out_dir).unwrap();
     }

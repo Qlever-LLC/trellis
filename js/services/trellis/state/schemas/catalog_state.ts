@@ -1,4 +1,8 @@
-import { ContractResourceBindingsSchema, ContractResourcesSchema, IsoDateSchema } from "@qlever-llc/trellis-contracts";
+import {
+  ContractResourceBindingsSchema,
+  ContractResourcesSchema,
+  IsoDateSchema,
+} from "@qlever-llc/trellis-contracts";
 import type { StaticDecode } from "typebox";
 import { Type } from "typebox";
 
@@ -38,6 +42,7 @@ export const ContractRecordSchema = Type.Object({
     natsPublish: Type.Number(),
     natsSubscribe: Type.Number(),
     kvResources: Type.Number({ default: 0 }),
+    streamsResources: Type.Number({ default: 0 }),
     jobsQueues: Type.Number({ default: 0 }),
   }, { additionalProperties: false })),
   analysis: Type.Optional(Type.Object({
@@ -82,28 +87,52 @@ export const ContractRecordSchema = Type.Object({
       }, { additionalProperties: false })),
     }, { additionalProperties: false }),
     resources: Type.Object({
-      kv: Type.Array(Type.Object({
-        alias: Type.String({ minLength: 1 }),
-        purpose: Type.String({ minLength: 1 }),
-        required: Type.Boolean(),
-        history: Type.Number(),
-        ttlMs: Type.Number(),
-        maxValueBytes: Type.Optional(Type.Number()),
-      }, { additionalProperties: false }), { default: [] }),
-      jobs: Type.Array(Type.Object({
-        queueType: Type.String({ minLength: 1 }),
-        payload: Type.Object({ schema: Type.String({ minLength: 1 }) }, { additionalProperties: false }),
-        result: Type.Optional(Type.Object({ schema: Type.String({ minLength: 1 }) }, { additionalProperties: false })),
-        maxDeliver: Type.Number(),
-        backoffMs: Type.Array(Type.Number()),
-        ackWaitMs: Type.Number(),
-        defaultDeadlineMs: Type.Optional(Type.Number()),
-        progress: Type.Boolean(),
-        logs: Type.Boolean(),
-        dlq: Type.Boolean(),
-        concurrency: Type.Number(),
-      }, { additionalProperties: false }), { default: [] }),
-    }, { additionalProperties: false, default: { kv: [], jobs: [] } }),
+      kv: Type.Array(
+        Type.Object({
+          alias: Type.String({ minLength: 1 }),
+          purpose: Type.String({ minLength: 1 }),
+          required: Type.Boolean(),
+          history: Type.Number(),
+          ttlMs: Type.Number(),
+          maxValueBytes: Type.Optional(Type.Number()),
+        }, { additionalProperties: false }),
+        { default: [] },
+      ),
+      streams: Type.Array(
+        Type.Object({
+          alias: Type.String({ minLength: 1 }),
+          purpose: Type.String({ minLength: 1 }),
+          required: Type.Boolean(),
+          subjects: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
+        }, { additionalProperties: false }),
+        { default: [] },
+      ),
+      jobs: Type.Array(
+        Type.Object({
+          queueType: Type.String({ minLength: 1 }),
+          payload: Type.Object({ schema: Type.String({ minLength: 1 }) }, {
+            additionalProperties: false,
+          }),
+          result: Type.Optional(
+            Type.Object({ schema: Type.String({ minLength: 1 }) }, {
+              additionalProperties: false,
+            }),
+          ),
+          maxDeliver: Type.Number(),
+          backoffMs: Type.Array(Type.Number()),
+          ackWaitMs: Type.Number(),
+          defaultDeadlineMs: Type.Optional(Type.Number()),
+          progress: Type.Boolean(),
+          logs: Type.Boolean(),
+          dlq: Type.Boolean(),
+          concurrency: Type.Number(),
+        }, { additionalProperties: false }),
+        { default: [] },
+      ),
+    }, {
+      additionalProperties: false,
+      default: { kv: [], streams: [], jobs: [] },
+    }),
   }, { additionalProperties: false })),
   resources: Type.Optional(ContractResourcesSchema),
   resourceBindings: Type.Optional(ContractResourceBindingsSchema),

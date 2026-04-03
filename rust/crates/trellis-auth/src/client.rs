@@ -1,7 +1,9 @@
 use crate::{
-    save_admin_session, AdminSessionState, ApprovalEntryRecord, AuthInstallServiceRequest,
-    AuthUpgradeServiceContractRequest, AuthenticatedUser, BoundSession, ListApprovalsRequest,
-    RenewBindingTokenResponse, RevokeApprovalRequest, ServiceListEntry, TrellisAuthError,
+    save_admin_session, AdminSessionState, ApprovalEntryRecord, AuthGetInstalledContractRequest,
+    AuthGetInstalledContractResponse, AuthInstallServiceRequest,
+    AuthUpgradeServiceContractRequest, AuthValidateRequestRequest, AuthValidateRequestResponse,
+    AuthenticatedUser, BoundSession, ListApprovalsRequest, RenewBindingTokenResponse,
+    RevokeApprovalRequest, ServiceListEntry, TrellisAuthError,
 };
 use serde::{de::DeserializeOwned, Serialize};
 use trellis_client::{TrellisClient, UserConnectOptions};
@@ -124,6 +126,22 @@ impl<'a> AuthClient<'a> {
         input: &AuthUpgradeServiceContractRequest,
     ) -> Result<AuthUpgradeServiceContractResponse, TrellisAuthError> {
         self.call("rpc.v1.Auth.UpgradeServiceContract", input).await
+    }
+
+    /// Fetch one installed contract by digest.
+    pub async fn get_installed_contract(
+        &self,
+        input: &AuthGetInstalledContractRequest,
+    ) -> Result<AuthGetInstalledContractResponse, TrellisAuthError> {
+        self.call("rpc.v1.Auth.GetInstalledContract", input).await
+    }
+
+    /// Validate one request payload.
+    pub async fn validate_request(
+        &self,
+        input: &AuthValidateRequestRequest,
+    ) -> Result<AuthValidateRequestResponse, TrellisAuthError> {
+        self.call("rpc.v1.Auth.ValidateRequest", input).await
     }
 
     /// List installed services.

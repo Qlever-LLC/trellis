@@ -19,6 +19,7 @@ pub fn parse_manifest(value: Value) -> Result<ContractManifest, ContractsError> 
     validate_manifest(&value)?;
     let manifest: ContractManifest = serde_json::from_value(value)?;
     validate_schema_refs(&manifest)?;
+    validate_stream_sources(&manifest)?;
     Ok(manifest)
 }
 
@@ -80,6 +81,28 @@ fn validate_schema_refs(manifest: &ContractManifest) -> Result<(), ContractsErro
         )?;
     }
 
+    for (name, operation) in &manifest.operations {
+        assert_schema_ref_exists(
+            manifest,
+            &operation.input.schema,
+            &format!("operation '{name}' input"),
+        )?;
+        if let Some(progress) = &operation.progress {
+            assert_schema_ref_exists(
+                manifest,
+                &progress.schema,
+                &format!("operation '{name}' progress"),
+            )?;
+        }
+        if let Some(output) = &operation.output {
+            assert_schema_ref_exists(
+                manifest,
+                &output.schema,
+                &format!("operation '{name}' output"),
+            )?;
+        }
+    }
+
     for (name, event) in &manifest.events {
         assert_schema_ref_exists(manifest, &event.event.schema, &format!("event '{name}'"))?;
     }
@@ -110,6 +133,28 @@ fn validate_schema_refs(manifest: &ContractManifest) -> Result<(), ContractsErro
                     &format!("jobs queue '{queue_type}' result"),
                 )?;
             }
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_stream_sources(manifest: &ContractManifest) -> Result<(), ContractsError> {
+    for (stream_alias, stream) in &manifest.resources.streams {
+        let Some(sources) = &stream.sources else {
+            continue;
+        };
+        for (index, source) in sources.iter().enumerate() {
+            if manifest.resources.streams.contains_key(&source.from_alias) {
+                continue;
+            }
+            return Err(ContractsError::SchemaValidation {
+                kind: "contract",
+                details: format!(
+                    "resources.streams.{stream_alias}.sources[{index}].fromAlias: unknown stream alias '{}'",
+                    source.from_alias
+                ),
+            });
         }
     }
 

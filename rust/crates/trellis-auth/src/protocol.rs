@@ -168,6 +168,48 @@ pub struct AuthUpgradeServiceContractResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthGetInstalledContractRequest {
+    pub digest: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthGetInstalledContractResponseContract {
+    pub digest: String,
+    pub id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthGetInstalledContractResponse {
+    pub contract: AuthGetInstalledContractResponseContract,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthValidateRequestRequest {
+    pub capabilities: Option<Vec<String>>,
+    #[serde(rename = "payloadHash")]
+    pub payload_hash: String,
+    pub proof: String,
+    #[serde(rename = "sessionKey")]
+    pub session_key: String,
+    pub subject: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthValidateRequestResponseUser {
+    pub active: bool,
+    pub email: String,
+    pub id: String,
+    pub name: String,
+    pub origin: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthValidateRequestResponse {
+    pub allowed: bool,
+    pub user: AuthValidateRequestResponseUser,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub(crate) struct ListApprovalsResponse {
     pub approvals: Vec<ApprovalEntryRecord>,
 }

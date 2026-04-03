@@ -1,0 +1,93 @@
+This guide adds a caller-visible async operation to the Rust `orders-service`. By the end callers can start `Orders.Process`, watch typed progress updates, and receive the terminal result.
+
+Before starting, complete [Use Jobs: Rust](/docs/using-jobs-rust).
+
+## 1. Add `Orders.Process` to the contract manifest
+
+Update `contracts/orders_service.json` to add an `operations` section:
+
+```json
+"operations": {
+  "Orders.Process": {
+    "version": "v1",
+    "input": { "schema": { "$ref": "ProcessOrderRequest" } },
+    "progress": { "schema": { "$ref": "ProcessOrderProgress" } },
+    "output": { "schema": { "$ref": "ProcessOrderResult" } },
+    "capabilities": {
+      "call": ["orders.write"],
+      "read": ["orders.read"],
+      "cancel": ["orders.write"]
+    },
+    "cancel": true
+  }
+}
+```
+
+Regenerate the participant facade after updating the manifest.
+
+## 2. Implement the operation handler
+
+The generated facade exposes `service.operation::<OpType>().handle(...)`. The handler calls `op.started()`, optionally `op.progress()`, creates a job, and returns `op.attach(job).await`:
+
+```rust
+service
+    .operation::<orders_participant::operations::OrdersProcess>()
+    .handle(|ctx| async move {
+        ctx.op.started().await?;
+        ctx.op
+            .progress(ProcessOrderProgress {
+                step: "queued".into(),
+                message: "Fulfillment started".into(),
+            })
+            .await?;
+
+        let job = service
+            .jobs()
+            .reserve_inventory()
+            .create(ReserveInventoryPayload {
+                order_id: ctx.input.order_id.clone(),
+                items: vec![],
+            })
+            .await?;
+
+        ctx.op.attach(job).await
+    })
+    .await?;
+```
+
+`op.attach(job)` blocks until the job chain reaches terminal state and returns that result to the caller.
+
+## 3. The job workers — no changes needed
+
+The workers from [Use Jobs: Rust](/docs/using-jobs-rust) run unchanged. They report progress via `job.progress(...)` and return `Ok(result)`. Cancellation flows from the operation to the job: the worker checks `job.is_cancelled()` cooperatively.
+
+## 4. Caller side
+
+```rust
+let op_ref = orders_client
+    .operation::<OrdersProcessOperation>()
+    .start(ProcessOrderRequest { order_id: "ord_123".into() })
+    .await?;
+
+// Wait for terminal result
+let terminal = op_ref.wait().await?;
+println!("{:?}", terminal.output);
+
+// Or watch live progress
+let mut stream = op_ref.watch();
+while let Some(event) = stream.next().await {
+    match event {
+        OperationEvent::Progress(snapshot) => println!("{:?}", snapshot.progress),
+        OperationEvent::Completed(terminal) => { println!("{:?}", terminal.output); break; }
+        _ => {}
+    }
+}
+```
+
+## 5. Cancellation
+
+```rust
+let snapshot = op_ref.cancel().await?;
+```
+
+The cancellation signal flows to the job worker via `job.is_cancelled()`. The worker checks it and returns `Err(JobsError::cancelled())`. The `op.attach()` resolves with a `cancelled` `TerminalOperation`.
