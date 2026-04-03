@@ -145,10 +145,9 @@ logic lives in dedicated Rust crates:
 - `trellis-codegen-rust`
 - `trellis-client`
 - `trellis-server`
-- generated SDK crates for Trellis-owned contracts such as `trellis-sdk-core` and `trellis-sdk-auth`
-- a generated local crate for the CLI (`trellis-cli-participant`), built from the CLI participant manifest plus explicit alias-to-SDK mappings
+- generated SDK crates for Trellis-owned contracts such as `trellis-sdk-core` and `trellis-sdk-auth`, emitted as build output rather than tracked workspace crates
 
-The CLI's own runtime contract access should primarily flow through that generated crate rather than by wiring multiple SDK clients directly inside the CLI binary.
+The CLI's own runtime contract access should primarily flow through the low-level client runtime plus small local auth/core helpers, rather than by wiring generated SDK crates directly into the CLI binary.
 
 CI should build the CLI once when possible and reuse that binary for repeated generation steps inside a workflow.
 

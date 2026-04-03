@@ -14,6 +14,7 @@ on:
   pull_request:
     paths:
       - ".github/workflows/publish-crates.yml"
+      - "js/services/trellis/catalog/contracts/**"
       - "rust/**"
 
 env:
@@ -77,6 +78,14 @@ jobs:
         id: auth
         uses: rust-lang/crates-io-auth-action@v1
 
+      - name: Generate publishable Rust SDK crates
+        working-directory: rust
+        run: |
+          set -euo pipefail
+
+          cargo run -p trellis-cli --bin trellis -- generate rust --source ../js/services/trellis/catalog/contracts/trellis_auth.ts --out ../generated/rust/sdks/auth --crate-name trellis-sdk-auth --runtime-source registry
+          cargo run -p trellis-cli --bin trellis -- generate rust --source ../js/services/trellis/catalog/contracts/trellis_core.ts --out ../generated/rust/sdks/trellis-core --crate-name trellis-sdk-core --runtime-source registry
+
       - name: Publish crates
         shell: bash
         working-directory: rust
@@ -89,17 +98,25 @@ jobs:
             trellis-client
             trellis-contracts
             trellis-server
-            trellis-sdk-auth
-            trellis-sdk-core
             trellis-codegen-rust
             trellis-codegen-ts
             trellis-auth
-            trellis-cli-participant
             trellis-cli
           )
 
           for pkg in "${packages[@]}"; do
             cargo publish -p "$pkg"
+            echo "Waiting for crates.io index to catch up..."
+            sleep 20
+          done
+
+          generated_crates=(
+            ../generated/rust/sdks/auth/Cargo.toml
+            ../generated/rust/sdks/trellis-core/Cargo.toml
+          )
+
+          for manifest in "${generated_crates[@]}"; do
+            cargo publish --manifest-path "$manifest"
             echo "Waiting for crates.io index to catch up..."
             sleep 20
           done
