@@ -64,6 +64,13 @@ pub struct ContractUsePubSub {
     pub subscribe: Option<Vec<String>>,
 }
 
+/// Operation selections from a `uses` dependency.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct ContractUseOperation {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub call: Option<Vec<String>>,
+}
+
 /// One cross-contract dependency declared by a contract manifest.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ContractUseRef {
@@ -71,9 +78,38 @@ pub struct ContractUseRef {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rpc: Option<ContractUseRpc>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub operations: Option<ContractUseOperation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub events: Option<ContractUsePubSub>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subjects: Option<ContractUsePubSub>,
+}
+
+/// Capability requirements for invoking and observing an operation.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct OperationCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub call: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub read: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cancel: Option<Vec<String>>,
+}
+
+/// One owned operation declaration in a contract manifest.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ContractOperation {
+    pub version: String,
+    pub subject: String,
+    pub input: ContractSchemaRef,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub progress: Option<ContractSchemaRef>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output: Option<ContractSchemaRef>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<OperationCapabilities>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cancel: Option<bool>,
 }
 
 /// One owned RPC declaration in a contract manifest.
@@ -149,6 +185,45 @@ pub struct ContractJobQueueResource {
     pub concurrency: Option<i64>,
 }
 
+/// One logical stream resource declaration in a contract manifest.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ContractStreamSource {
+    #[serde(rename = "fromAlias")]
+    pub from_alias: String,
+    #[serde(rename = "filterSubject", skip_serializing_if = "Option::is_none")]
+    pub filter_subject: Option<String>,
+    #[serde(
+        rename = "subjectTransformDest",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub subject_transform_dest: Option<String>,
+}
+
+/// One logical stream resource declaration in a contract manifest.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ContractStreamResource {
+    pub purpose: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub required: Option<bool>,
+    pub subjects: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retention: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub storage: Option<String>,
+    #[serde(rename = "numReplicas", skip_serializing_if = "Option::is_none")]
+    pub num_replicas: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub discard: Option<String>,
+    #[serde(rename = "maxMsgs", skip_serializing_if = "Option::is_none")]
+    pub max_msgs: Option<i64>,
+    #[serde(rename = "maxBytes", skip_serializing_if = "Option::is_none")]
+    pub max_bytes: Option<i64>,
+    #[serde(rename = "maxAgeMs", skip_serializing_if = "Option::is_none")]
+    pub max_age_ms: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sources: Option<Vec<ContractStreamSource>>,
+}
+
 /// Jobs resource declarations in a contract manifest.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ContractJobsResource {
@@ -160,6 +235,8 @@ pub struct ContractJobsResource {
 pub struct ContractResources {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub kv: BTreeMap<String, ContractKvResource>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub streams: BTreeMap<String, ContractStreamResource>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub jobs: Option<ContractJobsResource>,
 }
@@ -180,6 +257,8 @@ pub struct ContractManifest {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub rpc: BTreeMap<String, ContractRpcMethod>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub operations: BTreeMap<String, ContractOperation>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub events: BTreeMap<String, ContractEvent>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub subjects: BTreeMap<String, ContractSubject>,
@@ -191,7 +270,7 @@ pub struct ContractManifest {
 
 impl ContractResources {
     fn is_empty(&self) -> bool {
-        self.kv.is_empty() && self.jobs.is_none()
+        self.kv.is_empty() && self.streams.is_empty() && self.jobs.is_none()
     }
 }
 

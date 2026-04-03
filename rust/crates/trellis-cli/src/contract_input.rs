@@ -100,6 +100,14 @@ fn resolve_source_contract(
     source_export: &str,
 ) -> miette::Result<ResolvedContractInput> {
     let source_path = source_path.canonicalize().into_diagnostic()?;
+    if source_path
+        .extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("rs"))
+    {
+        return resolve_rust_source_contract(&source_path, source_export);
+    }
+
     let temp_dir = TempDir::new().into_diagnostic()?;
     let manifest_path = temp_dir.path().join("contract.json");
     let deno_config = find_deno_config(&source_path);
@@ -141,6 +149,126 @@ await Deno.stdout.write(new TextEncoder().encode(JSON.stringify(contract)));
         owner_version: infer_owner_version(&source_path),
         _temp_dir: Some(temp_dir),
     })
+}
+
+fn resolve_rust_source_contract(
+    source_path: &Path,
+    source_export: &str,
+) -> miette::Result<ResolvedContractInput> {
+    let temp_dir = TempDir::new().into_diagnostic()?;
+    let manifest_path = temp_dir.path().join("contract.json");
+    let source = fs::read_to_string(source_path).into_diagnostic()?;
+    let contract_json = extract_rust_contract_json(&source, source_export, source_path)?;
+
+    fs::write(&manifest_path, contract_json).into_diagnostic()?;
+    let loaded = load_manifest(&manifest_path).into_diagnostic()?;
+    Ok(ResolvedContractInput {
+        loaded,
+        manifest_path,
+        owner_version: infer_owner_version(source_path),
+        _temp_dir: Some(temp_dir),
+    })
+}
+
+fn extract_rust_contract_json(
+    source: &str,
+    source_export: &str,
+    source_path: &Path,
+) -> miette::Result<String> {
+    let mut names = vec![source_export.to_string()];
+    if !source_export.ends_with("_JSON") {
+        names.push(format!("{source_export}_JSON"));
+    }
+
+    for name in names {
+        if let Some(include_path) = extract_rust_const_include_path(source, &name) {
+            let include_path = source_path
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .join(include_path);
+            let contract_json = fs::read_to_string(&include_path).into_diagnostic()?;
+            return Ok(contract_json);
+        }
+    }
+
+    Err(miette::miette!(
+        "failed to resolve Rust contract source: expected `const {source_export}` or `const {source_export}_JSON` as include_str!(...)"
+    ))
+}
+
+fn extract_rust_const_include_path(source: &str, const_name: &str) -> Option<String> {
+    let rhs = extract_rust_const_rhs(source, const_name)?;
+    parse_rust_include_str(rhs)
+}
+
+fn extract_rust_const_rhs<'a>(source: &'a str, const_name: &str) -> Option<&'a str> {
+    let needle = format!("const {const_name}");
+    let mut offset = 0;
+    while let Some(found) = source[offset..].find(&needle) {
+        let start = offset + found;
+        let after = &source[start + needle.len()..];
+        if after
+            .chars()
+            .next()
+            .is_some_and(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+        {
+            offset = start + needle.len();
+            continue;
+        }
+        let equals = after.find('=')?;
+        return Some(after[equals + 1..].trim_start());
+    }
+    None
+}
+
+fn parse_rust_include_str(value: &str) -> Option<String> {
+    let trimmed = value.trim_start();
+    let after_macro = trimmed.strip_prefix("include_str!")?.trim_start();
+    let inner = after_macro.strip_prefix('(')?;
+    let close = inner.find(')')?;
+    let arg = inner[..close].trim();
+    parse_rust_string_literal(arg)
+}
+
+fn parse_rust_string_literal(value: &str) -> Option<String> {
+    if value.starts_with('r') {
+        return parse_rust_raw_string_literal(value);
+    }
+    if !value.starts_with('"') {
+        return None;
+    }
+
+    let mut escaped = false;
+    let mut content = String::new();
+    for ch in value[1..].chars() {
+        if escaped {
+            content.push(ch);
+            escaped = false;
+            continue;
+        }
+        match ch {
+            '\\' => escaped = true,
+            '"' => return Some(content),
+            _ => content.push(ch),
+        }
+    }
+    None
+}
+
+fn parse_rust_raw_string_literal(value: &str) -> Option<String> {
+    if !value.starts_with('r') {
+        return None;
+    }
+    let after_r = &value[1..];
+    let hashes = after_r.chars().take_while(|ch| *ch == '#').count();
+    let after_hashes = &after_r[hashes..];
+    if !after_hashes.starts_with('"') {
+        return None;
+    }
+    let content = &after_hashes[1..];
+    let closing = format!("\"{}", "#".repeat(hashes));
+    let end = content.find(&closing)?;
+    Some(content[..end].to_string())
 }
 
 fn resolve_image_contract(
@@ -359,6 +487,69 @@ fn find_deno_config(path: &Path) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rejects_rust_source_raw_string_contract_exports() {
+        let source = r##"
+pub const CONTRACT_JSON: &str = r#"{"format":"trellis.contract.v1"}"#;
+"##;
+        let error =
+            extract_rust_contract_json(source, "CONTRACT", Path::new("contract.rs")).unwrap_err();
+        assert!(error.to_string().contains("include_str!"));
+    }
+
+    #[test]
+    fn resolves_contract_json_from_rust_source_include_str() {
+        let temp = TempDir::new().unwrap();
+        let source_path = temp.path().join("contract.rs");
+        let manifest_path = temp.path().join("contract.manifest.json");
+        fs::write(
+            &manifest_path,
+            "{\"format\":\"trellis.contract.v1\",\"id\":\"x\",\"displayName\":\"x\",\"description\":\"x\",\"kind\":\"service\"}",
+        )
+        .unwrap();
+        let source = "pub const CONTRACT_JSON: &str = include_str!(\"contract.manifest.json\");";
+
+        let json = extract_rust_contract_json(source, "CONTRACT", &source_path).unwrap();
+        assert!(json.contains("trellis.contract.v1"));
+    }
+
+    #[test]
+    fn resolves_contract_json_from_exact_rust_export_name_include_str() {
+        let temp = TempDir::new().unwrap();
+        let source_path = temp.path().join("contract.rs");
+        let manifest_path = temp.path().join("contract.manifest.json");
+        fs::write(
+            &manifest_path,
+            "{\"format\":\"trellis.contract.v1\",\"id\":\"x\",\"displayName\":\"x\",\"description\":\"x\",\"kind\":\"service\"}",
+        )
+        .unwrap();
+        let source = "pub const CONTRACT: &str = include_str!(\"contract.manifest.json\");";
+
+        let json = extract_rust_contract_json(source, "CONTRACT", &source_path).unwrap();
+        assert!(json.contains("trellis.contract.v1"));
+    }
+
+    #[test]
+    fn rejects_rust_source_without_supported_contract_const_expression() {
+        let source = r#"
+pub const CONTRACT_JSON: &str = "{\"format\":\"trellis.contract.v1\"}";
+"#;
+        let error =
+            extract_rust_contract_json(source, "CONTRACT", Path::new("contract.rs")).unwrap_err();
+        assert!(error.to_string().contains("include_str!"));
+    }
+
+    #[test]
+    fn resolves_exact_const_name_without_matching_prefixed_constants() {
+        let source = r#"
+pub const CONTRACT_ID: &str = "trellis.jobs@v1";
+pub const CONTRACT: &str = include_str!("contract.manifest.json");
+"#;
+        let include = extract_rust_const_include_path(source, "CONTRACT")
+            .expect("should resolve exact CONTRACT const");
+        assert_eq!(include, "contract.manifest.json");
+    }
 
     #[test]
     fn finds_nearest_deno_config() {

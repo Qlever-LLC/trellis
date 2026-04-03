@@ -9,12 +9,17 @@ mod auth;
 mod client;
 mod descriptor;
 mod error;
+mod operations;
 mod proof;
 
 pub use auth::SessionAuth;
 pub use client::{ServiceConnectOptions, TrellisClient, UserConnectOptions};
 pub use descriptor::{EventDescriptor, RpcDescriptor};
 pub use error::TrellisClientError;
+pub use operations::{
+    control_subject, OperationDescriptor, OperationEvent, OperationInvoker, OperationRef,
+    OperationRefData, OperationSnapshot, OperationState, OperationTransport,
+};
 pub use proof::verify_proof;
 
 #[cfg(test)]

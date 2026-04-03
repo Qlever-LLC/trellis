@@ -1,6 +1,11 @@
 [workspace]
 members = [
   "crates/trellis-auth",
+  "crates/trellis-auth-adapters",
+  "crates/trellis-cli-participant",
+  "crates/trellis-core-bootstrap",
+  "crates/trellis-jobs",
+  "crates/trellis-service-jobs",
   "crates/trellis-server",
   "crates/trellis-contracts",
   "crates/trellis-codegen-ts",
@@ -36,3 +41,4 @@ miette = { version = "7.2", features = ["fancy"] }
 owo-colors = "4.1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+time = { version = "0.3", features = ["formatting"] }

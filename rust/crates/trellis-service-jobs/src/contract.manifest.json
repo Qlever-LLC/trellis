@@ -1,0 +1,1586 @@
+{
+  "description": "Provide global job visibility and management across Trellis services.",
+  "displayName": "Trellis Jobs",
+  "format": "trellis.contract.v1",
+  "id": "trellis.jobs@v1",
+  "kind": "service",
+  "resources": {
+    "kv": {
+      "jobsState": {
+        "history": 1,
+        "purpose": "Store projected job state for Jobs.List and Jobs.Get.",
+        "required": true,
+        "ttlMs": 0
+      }
+    },
+    "streams": {
+      "jobs": {
+        "discard": "old",
+        "maxAgeMs": 0,
+        "maxBytes": -1,
+        "maxMsgs": -1,
+        "numReplicas": 3,
+        "purpose": "Store append-only job lifecycle events for projection and replay.",
+        "required": true,
+        "retention": "limits",
+        "storage": "file",
+        "subjects": [
+          "trellis.jobs.>"
+        ]
+      },
+      "jobsAdvisories": {
+        "maxAgeMs": 604800000,
+        "numReplicas": 1,
+        "purpose": "Store max-deliver advisory events for durable dead-letter mapping.",
+        "required": true,
+        "retention": "limits",
+        "storage": "file",
+        "subjects": [
+          "$JS.EVENT.ADVISORY.CONSUMER.MAX_DELIVERIES.JOBS_WORK.>"
+        ]
+      },
+      "jobsWork": {
+        "numReplicas": 3,
+        "purpose": "Store sourced work-queue messages for per-job-type consumers.",
+        "required": true,
+        "retention": "workqueue",
+        "sources": [
+          {
+            "filterSubject": "trellis.jobs.*.*.*.created",
+            "fromAlias": "jobs",
+            "subjectTransformDest": "trellis.work.$1.$2"
+          },
+          {
+            "filterSubject": "trellis.jobs.*.*.*.retried",
+            "fromAlias": "jobs",
+            "subjectTransformDest": "trellis.work.$1.$2"
+          }
+        ],
+        "storage": "file",
+        "subjects": [
+          "trellis.work.>"
+        ]
+      }
+    }
+  },
+  "rpc": {
+    "Jobs.Cancel": {
+      "capabilities": {
+        "call": [
+          "jobs.admin.mutate"
+        ]
+      },
+      "errors": [
+        {
+          "type": "ValidationError"
+        },
+        {
+          "type": "UnexpectedError"
+        }
+      ],
+      "input": {
+        "schema": "JobsMutateRequest"
+      },
+      "output": {
+        "schema": "JobsMutateResponse"
+      },
+      "subject": "rpc.v1.Jobs.Cancel",
+      "version": "v1"
+    },
+    "Jobs.DismissDLQ": {
+      "capabilities": {
+        "call": [
+          "jobs.admin.mutate"
+        ]
+      },
+      "errors": [
+        {
+          "type": "ValidationError"
+        },
+        {
+          "type": "UnexpectedError"
+        }
+      ],
+      "input": {
+        "schema": "JobsMutateRequest"
+      },
+      "output": {
+        "schema": "JobsMutateResponse"
+      },
+      "subject": "rpc.v1.Jobs.DismissDLQ",
+      "version": "v1"
+    },
+    "Jobs.Get": {
+      "capabilities": {
+        "call": [
+          "jobs.admin.read"
+        ]
+      },
+      "errors": [
+        {
+          "type": "ValidationError"
+        },
+        {
+          "type": "UnexpectedError"
+        }
+      ],
+      "input": {
+        "schema": "JobsGetRequest"
+      },
+      "output": {
+        "schema": "JobsGetResponse"
+      },
+      "subject": "rpc.v1.Jobs.Get",
+      "version": "v1"
+    },
+    "Jobs.Health": {
+      "capabilities": {
+        "call": [
+          "jobs.admin.read"
+        ]
+      },
+      "errors": [
+        {
+          "type": "UnexpectedError"
+        }
+      ],
+      "input": {
+        "schema": "HealthRequest"
+      },
+      "output": {
+        "schema": "HealthResponse"
+      },
+      "subject": "rpc.v1.Jobs.Health",
+      "version": "v1"
+    },
+    "Jobs.List": {
+      "capabilities": {
+        "call": [
+          "jobs.admin.read"
+        ]
+      },
+      "errors": [
+        {
+          "type": "ValidationError"
+        },
+        {
+          "type": "UnexpectedError"
+        }
+      ],
+      "input": {
+        "schema": "JobsListRequest"
+      },
+      "output": {
+        "schema": "JobsListResponse"
+      },
+      "subject": "rpc.v1.Jobs.List",
+      "version": "v1"
+    },
+    "Jobs.ListDLQ": {
+      "capabilities": {
+        "call": [
+          "jobs.admin.read"
+        ]
+      },
+      "errors": [
+        {
+          "type": "ValidationError"
+        },
+        {
+          "type": "UnexpectedError"
+        }
+      ],
+      "input": {
+        "schema": "JobsListRequest"
+      },
+      "output": {
+        "schema": "JobsListResponse"
+      },
+      "subject": "rpc.v1.Jobs.ListDLQ",
+      "version": "v1"
+    },
+    "Jobs.ListServices": {
+      "capabilities": {
+        "call": [
+          "jobs.admin.read"
+        ]
+      },
+      "errors": [
+        {
+          "type": "UnexpectedError"
+        }
+      ],
+      "input": {
+        "schema": "JobsListServicesRequest"
+      },
+      "output": {
+        "schema": "JobsListServicesResponse"
+      },
+      "subject": "rpc.v1.Jobs.ListServices",
+      "version": "v1"
+    },
+    "Jobs.ReplayDLQ": {
+      "capabilities": {
+        "call": [
+          "jobs.admin.mutate"
+        ]
+      },
+      "errors": [
+        {
+          "type": "ValidationError"
+        },
+        {
+          "type": "UnexpectedError"
+        }
+      ],
+      "input": {
+        "schema": "JobsMutateRequest"
+      },
+      "output": {
+        "schema": "JobsMutateResponse"
+      },
+      "subject": "rpc.v1.Jobs.ReplayDLQ",
+      "version": "v1"
+    },
+    "Jobs.Retry": {
+      "capabilities": {
+        "call": [
+          "jobs.admin.mutate"
+        ]
+      },
+      "errors": [
+        {
+          "type": "ValidationError"
+        },
+        {
+          "type": "UnexpectedError"
+        }
+      ],
+      "input": {
+        "schema": "JobsMutateRequest"
+      },
+      "output": {
+        "schema": "JobsMutateResponse"
+      },
+      "subject": "rpc.v1.Jobs.Retry",
+      "version": "v1"
+    }
+  },
+  "schemas": {
+    "HealthRequest": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    },
+    "HealthResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "checks": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "error": {
+                "type": "string"
+              },
+              "latencyMs": {
+                "type": "number"
+              },
+              "name": {
+                "type": "string"
+              },
+              "status": {
+                "anyOf": [
+                  {
+                    "const": "ok",
+                    "type": "string"
+                  },
+                  {
+                    "const": "failed",
+                    "type": "string"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "name",
+              "status",
+              "latencyMs"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "service": {
+          "type": "string"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "const": "healthy",
+              "type": "string"
+            },
+            {
+              "const": "unhealthy",
+              "type": "string"
+            },
+            {
+              "const": "degraded",
+              "type": "string"
+            }
+          ]
+        },
+        "timestamp": {
+          "format": "date-time",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "service",
+        "timestamp",
+        "checks"
+      ],
+      "type": "object"
+    },
+    "Job": {
+      "additionalProperties": false,
+      "properties": {
+        "completedAt": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "createdAt": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "deadline": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "lastError": {
+          "type": "string"
+        },
+        "logs": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "level": {
+                "anyOf": [
+                  {
+                    "const": "info",
+                    "type": "string"
+                  },
+                  {
+                    "const": "warn",
+                    "type": "string"
+                  },
+                  {
+                    "const": "error",
+                    "type": "string"
+                  }
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "timestamp": {
+                "format": "date-time",
+                "type": "string"
+              }
+            },
+            "required": [
+              "timestamp",
+              "level",
+              "message"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "maxTries": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "payload": {},
+        "progress": {
+          "additionalProperties": false,
+          "properties": {
+            "current": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "message": {
+              "type": "string"
+            },
+            "total": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "current",
+            "total"
+          ],
+          "type": "object"
+        },
+        "result": {},
+        "service": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "startedAt": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "state": {
+          "anyOf": [
+            {
+              "const": "pending",
+              "type": "string"
+            },
+            {
+              "const": "active",
+              "type": "string"
+            },
+            {
+              "const": "retry",
+              "type": "string"
+            },
+            {
+              "const": "completed",
+              "type": "string"
+            },
+            {
+              "const": "failed",
+              "type": "string"
+            },
+            {
+              "const": "cancelled",
+              "type": "string"
+            },
+            {
+              "const": "expired",
+              "type": "string"
+            },
+            {
+              "const": "dead",
+              "type": "string"
+            },
+            {
+              "const": "dismissed",
+              "type": "string"
+            }
+          ]
+        },
+        "tries": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "type": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "updatedAt": {
+          "format": "date-time",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "service",
+        "type",
+        "state",
+        "payload",
+        "createdAt",
+        "updatedAt",
+        "tries",
+        "maxTries"
+      ],
+      "type": "object"
+    },
+    "JobEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "deadline": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        },
+        "eventType": {
+          "anyOf": [
+            {
+              "const": "created",
+              "type": "string"
+            },
+            {
+              "const": "started",
+              "type": "string"
+            },
+            {
+              "const": "retry",
+              "type": "string"
+            },
+            {
+              "const": "progress",
+              "type": "string"
+            },
+            {
+              "const": "logged",
+              "type": "string"
+            },
+            {
+              "const": "completed",
+              "type": "string"
+            },
+            {
+              "const": "failed",
+              "type": "string"
+            },
+            {
+              "const": "cancelled",
+              "type": "string"
+            },
+            {
+              "const": "expired",
+              "type": "string"
+            },
+            {
+              "const": "retried",
+              "type": "string"
+            },
+            {
+              "const": "dead",
+              "type": "string"
+            },
+            {
+              "const": "dismissed",
+              "type": "string"
+            }
+          ]
+        },
+        "jobId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "jobType": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "logs": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "level": {
+                "anyOf": [
+                  {
+                    "const": "info",
+                    "type": "string"
+                  },
+                  {
+                    "const": "warn",
+                    "type": "string"
+                  },
+                  {
+                    "const": "error",
+                    "type": "string"
+                  }
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "timestamp": {
+                "format": "date-time",
+                "type": "string"
+              }
+            },
+            "required": [
+              "timestamp",
+              "level",
+              "message"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "maxTries": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "payload": {},
+        "previousState": {
+          "anyOf": [
+            {
+              "const": "pending",
+              "type": "string"
+            },
+            {
+              "const": "active",
+              "type": "string"
+            },
+            {
+              "const": "retry",
+              "type": "string"
+            },
+            {
+              "const": "completed",
+              "type": "string"
+            },
+            {
+              "const": "failed",
+              "type": "string"
+            },
+            {
+              "const": "cancelled",
+              "type": "string"
+            },
+            {
+              "const": "expired",
+              "type": "string"
+            },
+            {
+              "const": "dead",
+              "type": "string"
+            },
+            {
+              "const": "dismissed",
+              "type": "string"
+            }
+          ]
+        },
+        "progress": {
+          "additionalProperties": false,
+          "properties": {
+            "current": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "message": {
+              "type": "string"
+            },
+            "total": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "current",
+            "total"
+          ],
+          "type": "object"
+        },
+        "result": {},
+        "service": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "state": {
+          "anyOf": [
+            {
+              "const": "pending",
+              "type": "string"
+            },
+            {
+              "const": "active",
+              "type": "string"
+            },
+            {
+              "const": "retry",
+              "type": "string"
+            },
+            {
+              "const": "completed",
+              "type": "string"
+            },
+            {
+              "const": "failed",
+              "type": "string"
+            },
+            {
+              "const": "cancelled",
+              "type": "string"
+            },
+            {
+              "const": "expired",
+              "type": "string"
+            },
+            {
+              "const": "dead",
+              "type": "string"
+            },
+            {
+              "const": "dismissed",
+              "type": "string"
+            }
+          ]
+        },
+        "timestamp": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "tries": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "jobId",
+        "service",
+        "jobType",
+        "eventType",
+        "state",
+        "tries",
+        "timestamp"
+      ],
+      "type": "object"
+    },
+    "JobsGetRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "jobType": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "service": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "service",
+        "jobType",
+        "id"
+      ],
+      "type": "object"
+    },
+    "JobsGetResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "job": {
+          "additionalProperties": false,
+          "properties": {
+            "completedAt": {
+              "format": "date-time",
+              "type": "string"
+            },
+            "createdAt": {
+              "format": "date-time",
+              "type": "string"
+            },
+            "deadline": {
+              "format": "date-time",
+              "type": "string"
+            },
+            "id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "lastError": {
+              "type": "string"
+            },
+            "logs": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "level": {
+                    "anyOf": [
+                      {
+                        "const": "info",
+                        "type": "string"
+                      },
+                      {
+                        "const": "warn",
+                        "type": "string"
+                      },
+                      {
+                        "const": "error",
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "timestamp": {
+                    "format": "date-time",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "timestamp",
+                  "level",
+                  "message"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "maxTries": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "payload": {},
+            "progress": {
+              "additionalProperties": false,
+              "properties": {
+                "current": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "total": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "current",
+                "total"
+              ],
+              "type": "object"
+            },
+            "result": {},
+            "service": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "startedAt": {
+              "format": "date-time",
+              "type": "string"
+            },
+            "state": {
+              "anyOf": [
+                {
+                  "const": "pending",
+                  "type": "string"
+                },
+                {
+                  "const": "active",
+                  "type": "string"
+                },
+                {
+                  "const": "retry",
+                  "type": "string"
+                },
+                {
+                  "const": "completed",
+                  "type": "string"
+                },
+                {
+                  "const": "failed",
+                  "type": "string"
+                },
+                {
+                  "const": "cancelled",
+                  "type": "string"
+                },
+                {
+                  "const": "expired",
+                  "type": "string"
+                },
+                {
+                  "const": "dead",
+                  "type": "string"
+                }
+              ]
+            },
+            "tries": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "updatedAt": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "service",
+            "type",
+            "state",
+            "payload",
+            "createdAt",
+            "updatedAt",
+            "tries",
+            "maxTries"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "JobsListRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "maximum": 500,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "service": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "since": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "state": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "const": "pending",
+                  "type": "string"
+                },
+                {
+                  "const": "active",
+                  "type": "string"
+                },
+                {
+                  "const": "retry",
+                  "type": "string"
+                },
+                {
+                  "const": "completed",
+                  "type": "string"
+                },
+                {
+                  "const": "failed",
+                  "type": "string"
+                },
+                {
+                  "const": "cancelled",
+                  "type": "string"
+                },
+                {
+                  "const": "expired",
+                  "type": "string"
+                },
+                {
+                  "const": "dead",
+                  "type": "string"
+                }
+              ]
+            },
+            {
+              "items": {
+                "anyOf": [
+                  {
+                    "const": "pending",
+                    "type": "string"
+                  },
+                  {
+                    "const": "active",
+                    "type": "string"
+                  },
+                  {
+                    "const": "retry",
+                    "type": "string"
+                  },
+                  {
+                    "const": "completed",
+                    "type": "string"
+                  },
+                  {
+                    "const": "failed",
+                    "type": "string"
+                  },
+                  {
+                    "const": "cancelled",
+                    "type": "string"
+                  },
+                  {
+                    "const": "expired",
+                    "type": "string"
+                  },
+                  {
+                    "const": "dead",
+                    "type": "string"
+                  }
+                ]
+              },
+              "type": "array"
+            }
+          ]
+        },
+        "type": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "JobsListResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "jobs": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "completedAt": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "createdAt": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "deadline": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "id": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "lastError": {
+                "type": "string"
+              },
+              "logs": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "level": {
+                      "anyOf": [
+                        {
+                          "const": "info",
+                          "type": "string"
+                        },
+                        {
+                          "const": "warn",
+                          "type": "string"
+                        },
+                        {
+                          "const": "error",
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "timestamp": {
+                      "format": "date-time",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "timestamp",
+                    "level",
+                    "message"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "maxTries": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "payload": {},
+              "progress": {
+                "additionalProperties": false,
+                "properties": {
+                  "current": {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "total": {
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "current",
+                  "total"
+                ],
+                "type": "object"
+              },
+              "result": {},
+              "service": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "startedAt": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "state": {
+                "anyOf": [
+                  {
+                    "const": "pending",
+                    "type": "string"
+                  },
+                  {
+                    "const": "active",
+                    "type": "string"
+                  },
+                  {
+                    "const": "retry",
+                    "type": "string"
+                  },
+                  {
+                    "const": "completed",
+                    "type": "string"
+                  },
+                  {
+                    "const": "failed",
+                    "type": "string"
+                  },
+                  {
+                    "const": "cancelled",
+                    "type": "string"
+                  },
+                  {
+                    "const": "expired",
+                    "type": "string"
+                  },
+                  {
+                    "const": "dead",
+                    "type": "string"
+                  }
+                ]
+              },
+              "tries": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "updatedAt": {
+                "format": "date-time",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "service",
+              "type",
+              "state",
+              "payload",
+              "createdAt",
+              "updatedAt",
+              "tries",
+              "maxTries"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "jobs"
+      ],
+      "type": "object"
+    },
+    "JobsListServicesRequest": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    },
+    "JobsListServicesResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "services": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "workers": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "service": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "jobType": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "instanceId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "concurrency": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "version": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "timestamp": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  },
+                  "required": [
+                    "service",
+                    "jobType",
+                    "instanceId",
+                    "timestamp"
+                  ]
+                }
+              },
+              "healthy": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "name",
+              "workers",
+              "healthy"
+            ]
+          }
+        }
+      },
+      "required": [
+        "services"
+      ]
+    },
+    "JobsMutateRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "jobType": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "service": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "service",
+        "jobType",
+        "id"
+      ],
+      "type": "object"
+    },
+    "JobsMutateResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "job": {
+          "additionalProperties": false,
+          "properties": {
+            "completedAt": {
+              "format": "date-time",
+              "type": "string"
+            },
+            "createdAt": {
+              "format": "date-time",
+              "type": "string"
+            },
+            "deadline": {
+              "format": "date-time",
+              "type": "string"
+            },
+            "id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "lastError": {
+              "type": "string"
+            },
+            "logs": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "level": {
+                    "anyOf": [
+                      {
+                        "const": "info",
+                        "type": "string"
+                      },
+                      {
+                        "const": "warn",
+                        "type": "string"
+                      },
+                      {
+                        "const": "error",
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "timestamp": {
+                    "format": "date-time",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "timestamp",
+                  "level",
+                  "message"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "maxTries": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "payload": {},
+            "progress": {
+              "additionalProperties": false,
+              "properties": {
+                "current": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "total": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "current",
+                "total"
+              ],
+              "type": "object"
+            },
+            "result": {},
+            "service": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "startedAt": {
+              "format": "date-time",
+              "type": "string"
+            },
+            "state": {
+              "anyOf": [
+                {
+                  "const": "pending",
+                  "type": "string"
+                },
+                {
+                  "const": "active",
+                  "type": "string"
+                },
+                {
+                  "const": "retry",
+                  "type": "string"
+                },
+                {
+                  "const": "completed",
+                  "type": "string"
+                },
+                {
+                  "const": "failed",
+                  "type": "string"
+                },
+                {
+                  "const": "cancelled",
+                  "type": "string"
+                },
+                {
+                  "const": "expired",
+                  "type": "string"
+                },
+                {
+                  "const": "dead",
+                  "type": "string"
+                }
+              ]
+            },
+            "tries": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "updatedAt": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "service",
+            "type",
+            "state",
+            "payload",
+            "createdAt",
+            "updatedAt",
+            "tries",
+            "maxTries"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "job"
+      ],
+      "type": "object"
+    },
+    "WorkerHeartbeat": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "service": {
+          "type": "string",
+          "minLength": 1
+        },
+        "jobType": {
+          "type": "string",
+          "minLength": 1
+        },
+        "instanceId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "concurrency": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "service",
+        "jobType",
+        "instanceId",
+        "timestamp"
+      ]
+    },
+    "ServiceInfo": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "workers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "service": {
+                "type": "string",
+                "minLength": 1
+              },
+              "jobType": {
+                "type": "string",
+                "minLength": 1
+              },
+              "instanceId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "concurrency": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "version": {
+                "type": "string",
+                "minLength": 1
+              },
+              "timestamp": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "service",
+              "jobType",
+              "instanceId",
+              "timestamp"
+            ]
+          }
+        },
+        "healthy": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "workers",
+        "healthy"
+      ]
+    }
+  },
+  "subjects": {
+    "Jobs.Stream": {
+      "capabilities": {
+        "publish": [
+          "service:jobs"
+        ],
+        "subscribe": [
+          "jobs.admin.stream"
+        ]
+      },
+      "subject": "trellis.jobs.>"
+    }
+  },
+  "uses": {
+    "auth": {
+      "contract": "trellis.auth@v1",
+      "rpc": {
+        "call": [
+          "Auth.ValidateRequest"
+        ]
+      }
+    },
+    "core": {
+      "contract": "trellis.core@v1",
+      "rpc": {
+        "call": [
+          "Trellis.Bindings.Get",
+          "Trellis.Catalog"
+        ]
+      }
+    }
+  }
+}

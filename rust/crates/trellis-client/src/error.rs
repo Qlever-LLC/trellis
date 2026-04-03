@@ -27,4 +27,7 @@ pub enum TrellisClientError {
 
     #[error("rpc returned error: {0}")]
     RpcError(String),
+
+    #[error("operation protocol error: {0}")]
+    OperationProtocol(String),
 }

@@ -1,0 +1,17 @@
+[package]
+name = "trellis-core-bootstrap"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Bootstrap adapters for the generated Trellis core SDK."
+
+[dependencies]
+futures-util.workspace = true
+trellis-client = { path = "../trellis-client", version = "0.5.1" }
+trellis-sdk-core = { path = "../../../generated/rust/sdks/trellis-core", version = "0.5.1" }
+trellis-server = { path = "../trellis-server", version = "0.5.1" }
+
+[dev-dependencies]
+serde_json.workspace = true
+tokio.workspace = true

@@ -141,15 +141,86 @@ fn render_contract_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Stri
     let module_export = sdk_module_export_name(&opts.package_name);
     let source_reference =
         manifest_source_reference(&opts.manifest_path, opts.runtime_deps.repo_root.as_deref());
+    let lines = vec![
+        format!("// Generated from {}", escape_js_string(&source_reference)),
+        "import type { SdkContractModule, TrellisContractV1, UseSpec } from \"@qlever-llc/trellis-contracts\";".to_string(),
+        "import { API } from \"./api.ts\";".to_string(),
+        String::new(),
+        "const CONTRACT_MODULE_METADATA = Symbol.for(\"@qlever-llc/trellis-contracts/contract-module\");".to_string(),
+        String::new(),
+        format!("export const CONTRACT_ID = {} as const;", js_string(&loaded.manifest.id)),
+        format!("export const CONTRACT_DIGEST = {} as const;", js_string(&loaded.digest)),
+        format!("export const CONTRACT = {} as TrellisContractV1;", loaded.canonical),
+        String::new(),
+        "function assertSelectedKeysExist(".to_string(),
+        "  kind: \"rpc\" | \"operations\" | \"events\" | \"subjects\",".to_string(),
+        "  keys: readonly string[] | undefined,".to_string(),
+        "  api: Record<string, unknown>,".to_string(),
+        ") {".to_string(),
+        "  if (!keys) {".to_string(),
+        "    return;".to_string(),
+        "  }".to_string(),
+        String::new(),
+        "  for (const key of keys) {".to_string(),
+        "    if (!Object.hasOwn(api, key)) {".to_string(),
+        "      throw new Error(`Contract '${CONTRACT_ID}' does not expose ${kind} key '${key}'`);".to_string(),
+        "    }".to_string(),
+        "  }".to_string(),
+        "}".to_string(),
+        String::new(),
+        "function assertValidUseSpec(spec: UseSpec<typeof API.owned>) {".to_string(),
+        "  assertSelectedKeysExist(\"rpc\", spec.rpc?.call, API.owned.rpc);".to_string(),
+        "  assertSelectedKeysExist(\"operations\", spec.operations?.call, API.owned.operations);".to_string(),
+        "  assertSelectedKeysExist(\"events\", spec.events?.publish, API.owned.events);".to_string(),
+        "  assertSelectedKeysExist(\"events\", spec.events?.subscribe, API.owned.events);".to_string(),
+        "  assertSelectedKeysExist(\"subjects\", spec.subjects?.publish, API.owned.subjects);".to_string(),
+        "  assertSelectedKeysExist(\"subjects\", spec.subjects?.subscribe, API.owned.subjects);".to_string(),
+        "}".to_string(),
+        String::new(),
+        format!("export const {}: SdkContractModule<typeof CONTRACT_ID, typeof API.owned> = {{", module_export),
+        "  CONTRACT_ID,".to_string(),
+        "  CONTRACT_DIGEST,".to_string(),
+        "  CONTRACT,".to_string(),
+        "  API,".to_string(),
+        "  use: ((spec) => {".to_string(),
+        "    assertValidUseSpec(spec);".to_string(),
+        String::new(),
+        "    const dependencyUse = {".to_string(),
+        "      contract: CONTRACT_ID,".to_string(),
+        "      ...(spec.rpc?.call ? { rpc: { call: [...spec.rpc.call] } } : {}),".to_string(),
+        "      ...(spec.operations?.call ? { operations: { call: [...spec.operations.call] } } : {}),".to_string(),
+        "      ...((spec.events?.publish || spec.events?.subscribe)".to_string(),
+        "        ? {".to_string(),
+        "          events: {".to_string(),
+        "            ...(spec.events.publish ? { publish: [...spec.events.publish] } : {}),".to_string(),
+        "            ...(spec.events.subscribe ? { subscribe: [...spec.events.subscribe] } : {}),".to_string(),
+        "          },".to_string(),
+        "        }".to_string(),
+        "        : {}),".to_string(),
+        "      ...((spec.subjects?.publish || spec.subjects?.subscribe)".to_string(),
+        "        ? {".to_string(),
+        "          subjects: {".to_string(),
+        "            ...(spec.subjects.publish ? { publish: [...spec.subjects.publish] } : {}),".to_string(),
+        "            ...(spec.subjects.subscribe ? { subscribe: [...spec.subjects.subscribe] } : {}),".to_string(),
+        "          },".to_string(),
+        "        }".to_string(),
+        "        : {}),".to_string(),
+        "    };".to_string(),
+        String::new(),
+        "    return dependencyUse;".to_string(),
+        "  }),".to_string(),
+        "};".to_string(),
+        String::new(),
+        format!("export const use = {}.use;", module_export),
+    ];
+
     format!(
-        "// Generated from {}\nimport type {{ SdkContractModule, TrellisContractV1, UseSpec }} from \"@qlever-llc/trellis-contracts\";\nimport {{ API }} from \"./api.ts\";\n\nconst CONTRACT_MODULE_METADATA = Symbol.for(\"@qlever-llc/trellis-contracts/contract-module\");\n\nexport const CONTRACT_ID = {} as const;\nexport const CONTRACT_DIGEST = {} as const;\nexport const CONTRACT = {} as TrellisContractV1;\n\nfunction assertSelectedKeysExist(\n  kind: \"rpc\" | \"events\" | \"subjects\",\n  keys: readonly string[] | undefined,\n  api: Record<string, unknown>,\n) {{\n  if (!keys) {{\n    return;\n  }}\n\n  for (const key of keys) {{\n    if (!Object.hasOwn(api, key)) {{\n      throw new Error(`Contract '${{CONTRACT_ID}}' does not expose ${{kind}} key '${{key}}'`);\n    }}\n  }}\n}}\n\nfunction assertValidUseSpec(spec: UseSpec<typeof API.owned>) {{\n  assertSelectedKeysExist(\"rpc\", spec.rpc?.call, API.owned.rpc);\n  assertSelectedKeysExist(\"events\", spec.events?.publish, API.owned.events);\n  assertSelectedKeysExist(\"events\", spec.events?.subscribe, API.owned.events);\n  assertSelectedKeysExist(\"subjects\", spec.subjects?.publish, API.owned.subjects);\n  assertSelectedKeysExist(\"subjects\", spec.subjects?.subscribe, API.owned.subjects);\n}}\n\nexport const {}: SdkContractModule<typeof CONTRACT_ID, typeof API.owned> = {{\n  CONTRACT_ID,\n  CONTRACT_DIGEST,\n  CONTRACT,\n  API,\n  use: ((spec) => {{\n    assertValidUseSpec(spec);\n\n    const dependencyUse = {{\n      contract: CONTRACT_ID,\n      ...(spec.rpc?.call ? {{ rpc: {{ call: [...spec.rpc.call] }} }} : {{}}),\n      ...((spec.events?.publish || spec.events?.subscribe)\n        ? {{\n          events: {{\n            ...(spec.events.publish ? {{ publish: [...spec.events.publish] }} : {{}}),\n            ...(spec.events.subscribe ? {{ subscribe: [...spec.events.subscribe] }} : {{}}),\n          }},\n        }}\n        : {{}}),\n      ...((spec.subjects?.publish || spec.subjects?.subscribe)\n        ? {{\n          subjects: {{\n            ...(spec.subjects.publish ? {{ publish: [...spec.subjects.publish] }} : {{}}),\n            ...(spec.subjects.subscribe ? {{ subscribe: [...spec.subjects.subscribe] }} : {{}}),\n          }},\n        }}\n        : {{}}),\n    }};\n\n    Object.defineProperty(dependencyUse, CONTRACT_MODULE_METADATA, {{\n      value: {},\n      enumerable: false,\n    }});\n\n    return dependencyUse;\n  }}) as SdkContractModule<typeof CONTRACT_ID, typeof API.owned>[\"use\"],\n}};\n\nexport const use = {}.use;\n",
-        escape_js_string(&source_reference),
-        js_string(&loaded.manifest.id),
-        js_string(&loaded.digest),
-        loaded.canonical,
-        module_export,
-        module_export,
-        module_export,
+        "{}
+",
+        lines.join(
+            "
+"
+        )
     )
 }
 
@@ -179,6 +250,27 @@ fn render_types_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String 
             "export type {base}Output = {};",
             schema_to_ts(resolve_schema_ref(loaded, &rpc.output.schema))
         ));
+        lines.push(String::new());
+    }
+
+    for (key, operation) in &loaded.manifest.operations {
+        let base = key_to_pascal(key);
+        lines.push(format!(
+            "export type {base}Input = {};",
+            schema_to_ts(resolve_schema_ref(loaded, &operation.input.schema))
+        ));
+        if let Some(progress) = &operation.progress {
+            lines.push(format!(
+                "export type {base}Progress = {};",
+                schema_to_ts(resolve_schema_ref(loaded, &progress.schema))
+            ));
+        }
+        if let Some(output) = &operation.output {
+            lines.push(format!(
+                "export type {base}Output = {};",
+                schema_to_ts(resolve_schema_ref(loaded, &output.schema))
+            ));
+        }
         lines.push(String::new());
     }
 
@@ -236,7 +328,14 @@ fn render_types_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String 
     lines.push("}".to_string());
     lines.push(String::new());
 
-    format!("{}\n", lines.join("\n"))
+    format!(
+        "{}
+",
+        lines.join(
+            "
+"
+        )
+    )
 }
 
 fn render_schemas_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
@@ -268,6 +367,28 @@ fn render_schemas_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Strin
         lines.push("    },".to_string());
     }
     lines.push("  },".to_string());
+    lines.push("  operations: {".to_string());
+    for (key, operation) in &loaded.manifest.operations {
+        lines.push(format!("    {}: {{", js_string(key)));
+        lines.push(format!(
+            "      input: {} as const,",
+            serde_json::to_string(resolve_schema_ref(loaded, &operation.input.schema)).unwrap()
+        ));
+        if let Some(progress) = &operation.progress {
+            lines.push(format!(
+                "      progress: {} as const,",
+                serde_json::to_string(resolve_schema_ref(loaded, &progress.schema)).unwrap()
+            ));
+        }
+        if let Some(output) = &operation.output {
+            lines.push(format!(
+                "      output: {} as const,",
+                serde_json::to_string(resolve_schema_ref(loaded, &output.schema)).unwrap()
+            ));
+        }
+        lines.push("    },".to_string());
+    }
+    lines.push("  },".to_string());
     lines.push("  events: {".to_string());
     for (key, event) in &loaded.manifest.events {
         lines.push(format!("    {}: {{", js_string(key)));
@@ -293,7 +414,14 @@ fn render_schemas_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Strin
     lines.push("} as const;".to_string());
     lines.push(String::new());
 
-    format!("{}\n", lines.join("\n"))
+    format!(
+        "{}
+",
+        lines.join(
+            "
+"
+        )
+    )
 }
 
 fn render_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
@@ -344,6 +472,64 @@ fn render_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
                     .unwrap()
                 ));
             }
+        }
+        lines.push("    },".to_string());
+    }
+
+    lines.push("  },".to_string());
+    lines.push("  operations: {".to_string());
+    for (key, operation) in &loaded.manifest.operations {
+        let base = key_to_pascal(key);
+        lines.push(format!("    {}: {{", js_string(key)));
+        lines.push(format!("      subject: {},", js_string(&operation.subject)));
+        lines.push(format!(
+            "      input: schema<Types.{base}Input>(SCHEMAS.operations[{}].input),",
+            js_string(key)
+        ));
+        if operation.progress.is_some() {
+            lines.push(format!(
+                "      progress: schema<Types.{base}Progress>(SCHEMAS.operations[{}].progress),",
+                js_string(key)
+            ));
+        }
+        if operation.output.is_some() {
+            lines.push(format!(
+                "      output: schema<Types.{base}Output>(SCHEMAS.operations[{}].output),",
+                js_string(key)
+            ));
+        }
+        let caller = operation
+            .capabilities
+            .as_ref()
+            .and_then(|caps| caps.call.clone())
+            .unwrap_or_default();
+        let read = operation
+            .capabilities
+            .as_ref()
+            .and_then(|caps| caps.read.clone())
+            .unwrap_or_default();
+        let cancel = operation
+            .capabilities
+            .as_ref()
+            .and_then(|caps| caps.cancel.clone())
+            .unwrap_or_default();
+        lines.push(format!(
+            "      callerCapabilities: {},",
+            serde_json::to_string(&caller).unwrap()
+        ));
+        lines.push(format!(
+            "      readCapabilities: {},",
+            serde_json::to_string(&read).unwrap()
+        ));
+        lines.push(format!(
+            "      cancelCapabilities: {},",
+            serde_json::to_string(&cancel).unwrap()
+        ));
+        if let Some(cancelable) = operation.cancel {
+            lines.push(format!(
+                "      cancel: {},",
+                if cancelable { "true" } else { "false" }
+            ));
         }
         lines.push("    },".to_string());
     }
@@ -423,7 +609,7 @@ fn render_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
     lines.push("} satisfies TrellisAPI;".to_string());
     lines.push(String::new());
     lines.push(
-        "const EMPTY_API = { rpc: {}, events: {}, subjects: {} } as const satisfies TrellisAPI;"
+        "const EMPTY_API = { rpc: {}, operations: {}, events: {}, subjects: {} } as const satisfies TrellisAPI;"
             .to_string(),
     );
     lines.push(String::new());
@@ -438,7 +624,14 @@ fn render_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
     lines.push("export type ApiViews = typeof API;".to_string());
     lines.push(String::new());
 
-    format!("{}\n", lines.join("\n"))
+    format!(
+        "{}
+",
+        lines.join(
+            "
+"
+        )
+    )
 }
 
 fn render_build_npm_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
@@ -829,6 +1022,16 @@ fn render_object_ts(object: &serde_json::Map<String, Value>) -> String {
         }
     }
 
+    if let Some(Value::Object(pattern_properties)) = object.get("patternProperties") {
+        if pattern_properties.len() == 1 {
+            let value = pattern_properties
+                .values()
+                .next()
+                .expect("single pattern property value");
+            lines.push(format!("[k: string]: {};", schema_to_ts(value)));
+        }
+    }
+
     match object.get("additionalProperties") {
         Some(Value::Bool(true)) => lines.push("[k: string]: unknown;".to_string()),
         Some(value @ Value::Object(_)) => {
@@ -899,6 +1102,30 @@ mod tests {
                         },
                         "required": ["ok"],
                         "additionalProperties": false
+                    },
+                    "ProcessInput": {
+                        "type": "object",
+                        "properties": {
+                            "amount": { "type": "number" }
+                        },
+                        "required": ["amount"],
+                        "additionalProperties": false
+                    },
+                    "ProcessProgress": {
+                        "type": "object",
+                        "properties": {
+                            "step": { "type": "string" }
+                        },
+                        "required": ["step"],
+                        "additionalProperties": false
+                    },
+                    "ProcessOutput": {
+                        "type": "object",
+                        "properties": {
+                            "ok": { "type": "boolean" }
+                        },
+                        "required": ["ok"],
+                        "additionalProperties": false
                     }
                 },
                 "rpc": {
@@ -907,6 +1134,21 @@ mod tests {
                         "subject": "rpc.v1.Example.Ping",
                         "input": { "schema": "PingInput" },
                         "output": { "schema": "PingOutput" }
+                    }
+                },
+                "operations": {
+                    "Example.Process": {
+                        "version": "v1",
+                        "subject": "operations.v1.Example.Process",
+                        "input": { "schema": "ProcessInput" },
+                        "progress": { "schema": "ProcessProgress" },
+                        "output": { "schema": "ProcessOutput" },
+                        "capabilities": {
+                            "call": ["service"],
+                            "read": ["service"],
+                            "cancel": ["service"]
+                        },
+                        "cancel": true
                     }
                 },
                 "events": {},
@@ -995,6 +1237,12 @@ mod tests {
         assert!(api.contains("owned: OWNED_API"));
         assert!(api.contains("used: EMPTY_API"));
         assert!(api.contains("trellis: OWNED_API"));
+        assert!(api.contains("operations: {"));
+        assert!(api.contains("\"Example.Process\": {"));
+        assert!(api.contains("callerCapabilities: [\"service\"]"));
+        assert!(api.contains("readCapabilities: [\"service\"]"));
+        assert!(api.contains("cancelCapabilities: [\"service\"]"));
+        assert!(api.contains("cancel: true"));
         assert!(api.contains("export type Api = typeof API.trellis;"));
 
         fs::remove_dir_all(root).unwrap();
@@ -1014,10 +1262,116 @@ mod tests {
             "export const core: SdkContractModule<typeof CONTRACT_ID, typeof API.owned> = {"
         ));
         assert!(contract.contains("export const use = core.use;"));
+        assert!(contract.contains("spec.operations?.call"));
         assert!(contract.contains("does not expose ${kind} key '${key}'"));
         assert!(mod_ts.contains(
             "export { CONTRACT, CONTRACT_DIGEST, CONTRACT_ID, use, core } from \"./contract.ts\";"
         ));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn generated_types_emit_typed_pattern_properties() {
+        let root = unique_temp_dir("typed-pattern-properties");
+        fs::create_dir_all(&root).unwrap();
+        let manifest_path = root.join("contract.json");
+        let manifest = serde_json::from_str::<Value>(
+            r#"{
+                "format": "trellis.contract.v1",
+                "id": "trellis.core@v1",
+                "displayName": "Trellis Core",
+                "description": "Core contract.",
+                "kind": "service",
+                "schemas": {
+                    "BindingsGetInput": {
+                        "type": "object",
+                        "properties": {},
+                        "required": [],
+                        "additionalProperties": false
+                    },
+                    "BindingsGetOutput": {
+                        "type": "object",
+                        "properties": {
+                            "binding": {
+                                "type": "object",
+                                "required": ["resources"],
+                                "additionalProperties": false,
+                                "properties": {
+                                    "resources": {
+                                        "type": "object",
+                                        "required": ["streams"],
+                                        "additionalProperties": false,
+                                        "properties": {
+                                            "streams": {
+                                                "type": "object",
+                                                "patternProperties": {
+                                                    "^.*$": {
+                                                        "type": "object",
+                                                        "required": ["name", "sources"],
+                                                        "additionalProperties": false,
+                                                        "properties": {
+                                                            "name": { "type": "string" },
+                                                            "sources": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "object",
+                                                                    "required": ["fromAlias", "streamName"],
+                                                                    "additionalProperties": false,
+                                                                    "properties": {
+                                                                        "fromAlias": { "type": "string" },
+                                                                        "streamName": { "type": "string" }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                },
+                                                "additionalProperties": false
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "required": ["binding"],
+                        "additionalProperties": false
+                    }
+                },
+                "rpc": {
+                    "Trellis.Bindings.Get": {
+                        "version": "v1",
+                        "subject": "rpc.v1.Trellis.Bindings.Get",
+                        "input": { "schema": "BindingsGetInput" },
+                        "output": { "schema": "BindingsGetOutput" }
+                    }
+                },
+                "events": {},
+                "subjects": {}
+            }"#,
+        )
+        .unwrap();
+        fs::write(&manifest_path, serde_json::to_string(&manifest).unwrap()).unwrap();
+
+        let opts = GenerateTsSdkOpts {
+            manifest_path: manifest_path.clone(),
+            out_dir: root.join("out"),
+            package_name: "@qlever-llc/trellis-sdk-core".to_string(),
+            package_version: "0.4.0".to_string(),
+            runtime_deps: TsRuntimeDeps {
+                source: TsRuntimeSource::Registry,
+                version: "0.4.0".to_string(),
+                repo_root: None,
+            },
+        };
+        let loaded = load_manifest(&manifest_path).unwrap();
+
+        let rendered = render_types_ts(&opts, &loaded);
+
+        assert!(rendered.contains(
+            "streams: { [k: string]: { name: string; sources: Array<{ fromAlias: string; streamName: string; }>; }; };"
+        ));
+        assert!(!rendered.contains("streams: {  }"));
 
         fs::remove_dir_all(root).unwrap();
     }
@@ -1037,6 +1391,32 @@ mod tests {
         assert!(readme.contains("const client = app.createClient(nc, authSession);"));
         assert!(!readme.contains("mergeApis"));
         assert!(!readme.contains("createClient(nc, auth, [api] as const)"));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn generated_types_emit_operation_types() {
+        let (opts, loaded, root) =
+            sample_opts_and_loaded("@qlever-llc/trellis-sdk-core", "trellis.core@v1");
+        let types = render_types_ts(&opts, &loaded);
+
+        assert!(types.contains("export type ExampleProcessInput = { amount: number; };"));
+        assert!(types.contains("export type ExampleProcessProgress = { step: string; };"));
+        assert!(types.contains("export type ExampleProcessOutput = { ok: boolean; };"));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn generated_schemas_include_operations() {
+        let (opts, loaded, root) =
+            sample_opts_and_loaded("@qlever-llc/trellis-sdk-core", "trellis.core@v1");
+        let schemas = render_schemas_ts(&opts, &loaded);
+
+        assert!(schemas.contains("operations: {"));
+        assert!(schemas.contains("\"Example.Process\": {"));
+        assert!(schemas.contains("progress: {"));
 
         fs::remove_dir_all(root).unwrap();
     }

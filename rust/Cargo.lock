@@ -961,9 +961,9 @@ dependencies = [
 
 [[package]]
 name = "indexmap"
-version = "2.13.0"
+version = "2.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7714e70437a7dc3ac8eb7e6f8df75fd8eb422675fc7678aff7364301092b1017"
+checksum = "45a8a2b9cb3e0b0c1803dbb0758ffac5de2f425b23c28f518faabd9d805342ff"
 dependencies = [
  "equivalent",
  "hashbrown 0.16.1",
@@ -2448,7 +2448,23 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "trellis-client",
+ "trellis-sdk-auth",
  "url",
+]
+
+[[package]]
+name = "trellis-auth-adapters"
+version = "0.5.1"
+dependencies = [
+ "base64",
+ "bytes",
+ "futures-util",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "trellis-auth",
+ "trellis-client",
+ "trellis-server",
 ]
 
 [[package]]
@@ -2473,10 +2489,28 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "trellis-auth",
+ "trellis-cli-participant",
  "trellis-client",
  "trellis-codegen-rust",
  "trellis-codegen-ts",
  "trellis-contracts",
+ "trellis-sdk-auth",
+ "trellis-sdk-core",
+]
+
+[[package]]
+name = "trellis-cli-participant"
+version = "0.5.1"
+dependencies = [
+ "serde_json",
+ "tempfile",
+ "trellis-auth",
+ "trellis-client",
+ "trellis-codegen-rust",
+ "trellis-contracts",
+ "trellis-sdk-auth",
+ "trellis-sdk-core",
+ "trellis-server",
 ]
 
 [[package]]
@@ -2487,6 +2521,7 @@ dependencies = [
  "base64",
  "bytes",
  "ed25519-dalek",
+ "futures-util",
  "nkeys",
  "serde",
  "serde_json",
@@ -2526,6 +2561,65 @@ dependencies = [
 ]
 
 [[package]]
+name = "trellis-core-bootstrap"
+version = "0.5.1"
+dependencies = [
+ "futures-util",
+ "serde_json",
+ "tokio",
+ "trellis-client",
+ "trellis-sdk-core",
+ "trellis-server",
+]
+
+[[package]]
+name = "trellis-jobs"
+version = "0.5.1"
+dependencies = [
+ "async-nats",
+ "futures-util",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "time",
+ "tokio",
+ "trellis-sdk-core",
+]
+
+[[package]]
+name = "trellis-sdk-auth"
+version = "0.5.1"
+dependencies = [
+ "serde",
+ "serde_json",
+ "trellis-client",
+ "trellis-contracts",
+ "trellis-server",
+]
+
+[[package]]
+name = "trellis-sdk-core"
+version = "0.5.1"
+dependencies = [
+ "serde",
+ "serde_json",
+ "trellis-client",
+ "trellis-contracts",
+ "trellis-server",
+]
+
+[[package]]
+name = "trellis-sdk-jobs"
+version = "0.5.1"
+dependencies = [
+ "serde",
+ "serde_json",
+ "trellis-client",
+ "trellis-contracts",
+ "trellis-server",
+]
+
+[[package]]
 name = "trellis-server"
 version = "0.5.1"
 dependencies = [
@@ -2535,6 +2629,30 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 1.0.69",
+ "tokio",
+]
+
+[[package]]
+name = "trellis-service-jobs"
+version = "0.5.1"
+dependencies = [
+ "async-nats",
+ "bytes",
+ "futures-util",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "time",
+ "tokio",
+ "trellis-auth-adapters",
+ "trellis-client",
+ "trellis-contracts",
+ "trellis-core-bootstrap",
+ "trellis-jobs",
+ "trellis-sdk-auth",
+ "trellis-sdk-core",
+ "trellis-sdk-jobs",
+ "trellis-server",
 ]
 
 [[package]]
