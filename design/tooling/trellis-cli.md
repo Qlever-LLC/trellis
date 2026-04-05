@@ -92,6 +92,15 @@ trellis bootstrap admin ...
 trellis keygen ...
 trellis service install (--source <file> | --manifest <file> | --image <ref>) [-f]
 trellis service upgrade (--source <file> | --manifest <file> | --image <ref>) [--service-key <public-key>|--seed <seed>] [-f]
+trellis device profile list [--device-type <type>] [--contract-id <id>] [--disabled]
+trellis device profile get <profileId>
+trellis device profile create --file <profile.json>
+trellis device profile disable <profileId>
+trellis device profile set-preferred-digest <profileId> <digest>
+trellis device profile add-digest <profileId> <digest>
+trellis device profile remove-digest <profileId> <digest>
+trellis device activation list [--device-id <id>] [--state <state>]
+trellis device activation revoke <deviceId>
 ```
 
 Rules for service admin commands:
@@ -104,6 +113,7 @@ Rules for service admin commands:
 - `trellis service install` resolves a contract from source, a generated manifest, or an OCI image, generates the Ed25519 seed locally by default, shows an operator review, and sends only the public key and canonical contract to the `trellis` service's `trellis.auth@v1` admin surface
 - `trellis service upgrade` resolves the new contract revision from source, a generated manifest, or an OCI image and updates the contract bound to an existing service public key; `--seed` or `--service-key` may be used when the target service is ambiguous
 - `trellis keygen` remains available as an explicit offline utility for operators who want to separate key generation from install
+- device profile and device activation commands should call the same authenticated profile-management and activation RPCs defined in `../auth/device-activation.md` rather than introducing a separate device-only auth path
 
 Normal authenticated CLI behavior must be contract-governed in the same architectural sense as browser apps: the CLI has a generated participant contract, approval is stored against the exact contract digest, and Trellis auth should not create normal client sessions without such a contract.
 

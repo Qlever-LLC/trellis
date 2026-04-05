@@ -26,6 +26,8 @@ Trellis services should follow the companion cross-cutting pattern docs referenc
 
 ## Design
 
+Jobs are the service-private execution layer for Trellis. They provide durable work tracking, retries, and operational visibility, while remaining separate from caller-visible operations and from the contract surface that clients use.
+
 This document defines `@qlever-llc/trellis-jobs`:
 
 - A **server library** for services to manage their own jobs
@@ -37,13 +39,17 @@ Caller-visible asynchronous APIs are defined separately in [../operations/trelli
 
 `trellis.jobs@v1` remains a normal Trellis contract. For Jobs we expect to author it in language-specific source alongside its implementation and emit generated release artifacts plus SDKs. It is not a handwritten special case in Trellis runtime behavior.
 
-### Design Principles
+### Core principles
 
-1. **Stream-first architecture** — JetStream stream is the source of truth. KV is a derived projection for queries.
-2. **Jobs service** — Owns janitor, global RPCs, and KV projection. Stateless and horizontally scalable.
-3. **Service-local processing** — Each service processes its own jobs via its own consumer.
-4. **Passive worker heartbeats** — Workers emit per-job-type heartbeat subjects for observability; any admin registry is a derived projection, not part of job correctness.
-5. **Stream-driven observability** — Job state changes and worker heartbeats publish messages to the jobs subsystem stream space (these are not `events.v1.*` domain events).
+**Stream-first architecture** — JetStream stream is the source of truth, and KV is a derived projection for queries.
+
+**Jobs service** — The shared jobs service owns janitor duties, global RPCs, and KV projection. It is stateless and horizontally scalable.
+
+**Service-local processing** — Each service processes its own jobs via its own consumer.
+
+**Passive worker heartbeats** — Workers emit per-job-type heartbeat subjects for observability; any admin registry is a derived projection, not part of job correctness.
+
+**Stream-driven observability** — Job state changes and worker heartbeats publish messages to the jobs subsystem stream space, not to `events.v1.*` domain events.
 
 ### Job States
 

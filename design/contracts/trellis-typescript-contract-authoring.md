@@ -33,6 +33,8 @@ typed declaration of what they own and what they use.
 
 ## Design
 
+The TypeScript authoring surface keeps contract ownership close to the service implementation while still producing the canonical Trellis contract manifest and the derived runtime views that callers use.
+
 Trellis adopts a contract-first TypeScript model.
 
 Every TypeScript participant that connects to Trellis defines one contract through a
@@ -41,7 +43,7 @@ single high-level API. That contract becomes the source of truth for both:
 - the emitted `trellis.contract.v1` release artifact
 - the TypeScript `trellis` runtime API surface available to that participant
 
-### 1) Primary authoring API
+### Primary authoring API
 
 TypeScript authoring uses one primary public helper:
 
@@ -57,7 +59,7 @@ Those older helpers are not retained as supported public APIs. If the new model 
 insufficient, the new model must be extended rather than requiring callers to fall
 back to lower-level escape hatches.
 
-### 2) Package boundary
+### Package boundary
 
 The contract authoring API lives in `@qlever-llc/trellis-contracts` because contracts are an
 architectural concept, not a transport-only client helper.
@@ -70,7 +72,7 @@ Rules:
 - `@qlever-llc/trellis` consumes contract objects for runtime client helpers
 - `@qlever-llc/trellis-server/node` and `@qlever-llc/trellis-server/deno` consume contract objects for service runtime helpers
 
-### 3) SDK-driven `uses`
+### SDK-driven `uses`
 
 TypeScript authors do not hand-write remote dependency contract ids in normal use.
 
@@ -112,7 +114,7 @@ The `use(...)` helper:
 This makes imported SDK modules the source of truth for remote dependency names in
 TypeScript authoring.
 
-### 4) TypeScript enforcement of declared permissions
+### TypeScript enforcement of declared permissions
 
 The TypeScript type system must enforce both of these rules:
 
@@ -127,7 +129,7 @@ Consequences:
 No separate linting or external analysis tool is required for this workflow. The
 contract object itself defines the allowed TypeScript runtime surface.
 
-### 5) Derived runtime API surfaces
+### Derived runtime API surfaces
 
 The contract definition produces three distinct projected API views:
 
@@ -145,7 +147,7 @@ Rules:
 This preserves the distinction between what a participant owns and what it is merely
 allowed to use.
 
-### 6) Runtime connection helpers are contract-driven
+### Runtime connection helpers are contract-driven
 
 TypeScript runtime helpers consume contract objects directly.
 
@@ -166,7 +168,7 @@ Rules:
 - callers do not manually assemble runtime API arrays for normal usage
 - Trellis-specific bootstrap exceptions should stay in Trellis platform code and use lower-level runtime APIs directly rather than becoming general public service helpers
 
-### 7) Scope of contracts beyond connect
+### Scope of contracts beyond connect
 
 Contracts matter beyond the initial connect phase.
 

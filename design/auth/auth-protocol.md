@@ -12,7 +12,7 @@ order: 20
 - [../contracts/trellis-contracts-catalog.md](./../contracts/trellis-contracts-catalog.md) - contract-driven permission derivation
 - [../operations/trellis-operations.md](./../operations/trellis-operations.md) - operation watch and streaming reply semantics
 
-## Scope
+## Design
 
 This document defines the language-neutral Trellis auth protocol.
 
@@ -79,7 +79,7 @@ Service connect or reconnect with timestamp:
 }
 ```
 
-Rules:
+Behavior:
 
 - `v` is mandatory and unknown versions are rejected
 - user clients should prefer `bindingToken`
@@ -145,7 +145,7 @@ The auth callout derives permissions from:
 - declared `operations`, `rpc`, `events`, `subjects`, and `uses`
 - installed resource bindings
 
-Rules:
+Behavior:
 
 - inbox subscribe permission always includes `${inboxPrefix}.>`
 - services receive only the resource-derived publish/subscribe permissions appropriate to their installed bindings
@@ -193,7 +193,7 @@ payloadHash = SHA256(payload);
 proof = ed25519_sign(sessionKeyPrivate, SHA256(buildProofInput(sessionKey, subject, payloadHash)));
 ```
 
-Rules:
+Behavior:
 
 - receivers MUST compute `payloadHash` from the raw request body they actually received
 - receivers MUST NOT trust a caller-supplied payload hash header
@@ -229,7 +229,7 @@ This prevents confused deputy attacks.
 
 Unary RPCs use one reply. Operations may use multiple replies to the same validated caller inbox subject.
 
-Rules:
+Behavior:
 
 - Trellis MUST permit bounded multi-response publishing to a reply subject that was supplied on an authenticated request and passed reply-subject validation
 - this capability applies only to a reply subject derived from a request the service actually received
@@ -301,7 +301,7 @@ Ephemeral tokens (`state`, `authToken`, `bindingToken`) are stored by `hash(toke
 }
 ```
 
-Rules:
+Behavior:
 
 - the key is `<sessionKey>.<trellisId>`
 - user delegated fields are present only for contract-bearing user sessions
@@ -356,7 +356,7 @@ This projection is Trellis-local and is updated by Trellis-managed flows.
 }
 ```
 
-Rules:
+Behavior:
 
 - binding tokens are single-use and are consumed via CAS delete
 - CAS failure is treated as `invalid_binding_token`
@@ -371,7 +371,7 @@ Rules:
 }
 ```
 
-Rules:
+Behavior:
 
 - key is `<sessionKey>.<trellisId>.<user_nkey>`
 - disconnect cleanup is best-effort plus TTL-backed self-healing
@@ -387,7 +387,7 @@ Events:
 - `events.v1.Auth.SessionRevoked`
 - `events.v1.Auth.ConnectionKicked`
 
-Rules:
+Behavior:
 
 - services may subscribe only if their installed contract explicitly declares the events in `uses`
 - extra manual capability flags are not the contract boundary

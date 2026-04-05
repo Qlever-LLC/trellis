@@ -13,11 +13,11 @@ order: 50
 - [../operations/trellis-operations.md](./../operations/trellis-operations.md) - caller-visible async workflows
 - [../jobs/trellis-jobs.md](./../jobs/trellis-jobs.md) - service-private jobs
 
-## Scope
+## Design
 
-This document defines Trellis service-author development patterns.
+Trellis services share a common development shape: a small bootstrap entrypoint, explicit contract ownership, and a clean separation between caller-visible operations and service-private jobs.
 
-## Directory Structure
+### Directory structure
 
 ```text
 services/<name>/
@@ -29,7 +29,7 @@ services/<name>/
 └── <domain>.ts      # Business logic
 ```
 
-## Lifecycle
+### Lifecycle
 
 ```ts
 import { connectService } from "@qlever-llc/trellis-server/deno";
@@ -57,17 +57,17 @@ Deno.addSignalListener("SIGTERM", async () => {
 });
 ```
 
-Rules:
+Behavior:
 
 - `connectService` performs NATS connection, auth handshake, contract verification, and eager binding resolution
 - if the contract is not installed, startup fails immediately
 - the `trellis` control-plane service is the one bootstrap exception and may need lower-level runtime paths
 
-## Jobs And Operations
+### Jobs and operations
 
 Use operations for caller-visible asynchronous workflows and jobs for service-private execution.
 
-Rules:
+Behavior:
 
 - if a user or peer service needs to observe async work, expose an operation from the owning service contract
 - if work is only an internal execution detail, use a job and keep it behind the service boundary

@@ -13,7 +13,7 @@ order: 50
 - [auth-api.md](./auth-api.md) - public HTTP and RPC endpoints
 - [../core/type-system-patterns.md](./../core/type-system-patterns.md) - Result and error-model guidance
 
-## Scope
+## Design
 
 This document defines the normative Rust public API surface for Trellis auth.
 
@@ -23,11 +23,13 @@ It covers:
 - bind and reconnect helpers
 - auth/admin client surfaces
 
-## Design Rules
+The Rust surface follows the same auth model as the browser helpers, but it leans into Rust-native `Result` return types and keeps the token envelope and signature-domain strings inside the helper functions.
 
-- Rust returns `Result` directly rather than exception-oriented helpers
-- service and CLI auth use the same underlying session-key proof protocol as browser clients
-- public Rust APIs hide signature domain strings and token-envelope formatting
+Rust returns `Result` directly rather than exception-oriented helpers.
+
+Service and CLI auth use the same underlying session-key proof protocol as browser clients.
+
+Public Rust APIs hide signature domain strings and token-envelope formatting.
 
 ## Session Key Surface
 
@@ -93,8 +95,20 @@ pub trait AuthAdminClient {
     async fn revoke_session(&self, input: RevokeSessionRequest) -> Result<SuccessResponse, AuthError>;
     async fn list_connections(&self, input: ListConnectionsRequest) -> Result<ListConnectionsResponse, AuthError>;
     async fn kick_connection(&self, input: KickConnectionRequest) -> Result<SuccessResponse, AuthError>;
+    async fn create_device_profile(&self, input: CreateDeviceProfileRequest) -> Result<CreateDeviceProfileResponse, AuthError>;
+    async fn list_device_profiles(&self, input: ListDeviceProfilesRequest) -> Result<ListDeviceProfilesResponse, AuthError>;
+    async fn get_device_profile(&self, input: GetDeviceProfileRequest) -> Result<GetDeviceProfileResponse, AuthError>;
+    async fn disable_device_profile(&self, input: DisableDeviceProfileRequest) -> Result<SuccessResponse, AuthError>;
+    async fn set_device_profile_preferred_digest(&self, input: SetDeviceProfilePreferredDigestRequest) -> Result<UpdateDeviceProfileResponse, AuthError>;
+    async fn add_device_profile_digest(&self, input: AddDeviceProfileDigestRequest) -> Result<UpdateDeviceProfileResponse, AuthError>;
+    async fn remove_device_profile_digest(&self, input: RemoveDeviceProfileDigestRequest) -> Result<UpdateDeviceProfileResponse, AuthError>;
+    async fn activate_device(&self, input: ActivateDeviceRequest) -> Result<SuccessResponse, AuthError>;
+    async fn list_device_activations(&self, input: ListDeviceActivationsRequest) -> Result<ListDeviceActivationsResponse, AuthError>;
+    async fn revoke_device_activation(&self, input: RevokeDeviceActivationRequest) -> Result<SuccessResponse, AuthError>;
 }
 ```
+
+The device profile and device activation request, response, and event shapes are defined in [device-activation.md](./device-activation.md).
 
 ## Service Helper Surface
 

@@ -1,9 +1,5 @@
 # ADR: Trellis Contracts and Catalog
 
-## Status
-
-Proposed
-
 ## Prerequisites
 
 - [adr-trellis-patterns.md](./adr-trellis-patterns.md) - service patterns and platform boundaries
@@ -38,9 +34,11 @@ Those needs apply across multiple repos and multiple implementation languages.
 - Making AsyncAPI the canonical runtime model.
 - Describing migration from earlier in-repo experiments.
 
-## Decision
+## Design
 
-### 1) Canonical artifacts
+Trellis uses one canonical contract model so services can describe their runtime APIs, the runtime can derive permissions from the active deployment, and tooling can generate SDKs and documentation from the same artifact.
+
+### Canonical artifacts
 
 Trellis defines two canonical JSON artifacts:
 
@@ -49,7 +47,7 @@ Trellis defines two canonical JSON artifacts:
 
 Both artifacts are pure JSON values. They are language-neutral and safe to persist, hash, validate, transmit, and use for code generation.
 
-### 2) Contract lineage and implementation model
+### Contract lineage and implementation model
 
 Every contract belongs to one stable contract lineage identified by `id`, and each
 active digest is installed onto the service principal that implements it.
@@ -59,7 +57,7 @@ active digest is installed onto the service principal that implements it.
 - a single service principal may implement multiple logical contracts
 - Trellis runtime libraries do not act as a handwritten central registry for all service APIs
 
-### 3) Authoring model
+### Authoring model
 
 The canonical source of truth for runtime and tooling is the authored contract definition.
 
@@ -83,7 +81,7 @@ Examples:
 
 The architectural requirement is not a specific authoring language. The requirement is deterministic production of the canonical manifest.
 
-### 4) JSON Schema dialect
+### JSON Schema dialect
 
 All embedded schemas in a contract manifest MUST be JSON Schema compatible values using the same dialect Trellis validates at runtime.
 
@@ -95,7 +93,7 @@ For v1:
 
 ## Specification
 
-### 5) Contract manifest: top-level shape
+### Contract manifest: top-level shape
 
 A `trellis.contract.v1` manifest has this top-level structure:
 
@@ -147,7 +145,7 @@ Rules:
 - runtime service identity, install routing, and authorization boundaries MUST NOT be inferred from manifest metadata.
 - top-level object members not defined by the current runtime MAY be present for forward compatibility; runtimes MUST ignore unknown top-level fields they do not understand.
 
-### 6) Contract identity
+### Contract identity
 
 The contract `id` identifies one logical contract lineage.
 
@@ -161,8 +159,34 @@ Rules:
 
 - `id` MUST be stable for semantically compatible revisions within the same major line
 - a breaking contract revision MUST use a new `@vN` suffix
-- within a deployment, at most one active digest may exist for a given `id`
-- the `trellis` runtime service MUST reject activation of multiple different digests for the same active `id`
+- a deployment MAY have multiple active digests for the same `id` during rollout or mixed-firmware operation
+- all concurrently active digests for the same `id` MUST remain semantically compatible within that lineage, so mixed-version callers and service instances can keep working during rollout
+- install records bind one exact digest to one service principal public key, even when multiple digests in the same lineage are active at once
+
+Concurrent-digest compatibility within one lineage is defined by the owned communication surface:
+
+- `rpc`, `operations`, `events`, and owned `subjects` MUST evolve additively while multiple digests in the same lineage are active
+- `uses`, metadata, and other non-owned sections MAY vary by digest as long as the exact digest being installed still validates successfully
+- `resources` are per-digest install data; they do not need to be additive across the lineage, but install or upgrade MUST validate and provision the exact resource set requested by the digest bound to that principal
+
+Additive-only means:
+
+- a new digest MAY add owned RPCs, operations, events, and raw subjects
+- a new digest MAY add optional fields to existing request, response, progress, and event payload schemas
+- a new digest MAY add new declared errors or new capabilities for newly added owned surfaces
+- a new digest MUST NOT remove or rename an existing owned RPC, operation, event, or subject while old and new digests coexist
+- a new digest MUST NOT move an existing owned surface to a different subject while old and new digests coexist
+- a new digest MUST NOT change an existing schema in a breaking way while old and new digests coexist
+
+Breaking schema changes include:
+
+- removing an existing field that callers or subscribers may still send or read
+- changing an optional field to required
+- changing a field type incompatibly, such as `string` to `object` or `number` to `string`
+- narrowing allowed enum values or formats in a way that rejects payloads accepted by the older digest
+- changing payload semantics incompatibly while keeping the same field names and subjects
+
+If a rollout needs one of those breaking changes, it MUST use a new contract `id` / major version rather than a second active digest in the same lineage.
 
 ### Declared dependencies (`uses`)
 
@@ -202,7 +226,7 @@ Rules:
 - higher-level consent scopes for user-facing applications MAY be derived from `uses`, but runtime enforcement remains operation-level
 - any user approval or consent record for a client contract MUST be bound to the exact contract digest, not merely to the contract `id`
 
-### 7) RPC operation descriptor
+### RPC operation descriptor
 
 Each `rpc` entry describes one logical request/reply operation.
 
@@ -242,7 +266,7 @@ Rules:
 - if `capabilities.call` is omitted, the RPC is callable without extra capability grants
 - `errors` enumerates known typed error payloads but does not close the wire format to unknown future error types
 
-### 8) Event descriptor
+### Event descriptor
 
 Each `events` entry describes one domain event published on a NATS subject.
 
@@ -288,7 +312,7 @@ Example wildcard derivation:
 - template: `events.v1.Partner.Changed.{/partner/id/origin}.{/partner/id/id}`
 - wildcard: `events.v1.Partner.Changed.*.*`
 
-### 9) Raw subject descriptor
+### Raw subject descriptor
 
 Each `subjects` entry describes a raw NATS subject space that is part of the contract but is not modeled as a domain event.
 
@@ -321,7 +345,7 @@ Rules:
 - unlike events, a raw subject descriptor may legitimately contain NATS wildcards such as `*` or `>`
 - if a payload schema matters for clients or tooling, it SHOULD be declared in `schema`
 
-### 10) Cloud resource requests
+### Cloud resource requests
 
 The optional top-level `resources` map declares cloud-provided resources that the service expects Trellis to provision or bind during install or upgrade.
 
@@ -404,7 +428,7 @@ Rules:
 - dynamic consumers are not part of the contract resource model in v1 and remain runtime-created
 - install or upgrade approves the requested alias/type/spec, not general infrastructure-management credentials for the service
 
-### 11) Error declarations
+### Error declarations
 
 The optional top-level `errors` map declares named serializable error payloads.
 
@@ -426,7 +450,7 @@ Rules:
 - the wire error envelope is open; runtimes MUST preserve unknown error payloads
 - declared error schemas enable SDK generation and typed client helpers but do not prevent forward-compatible unknown error handling
 
-### 12) Canonicalization and digest
+### Canonicalization and digest
 
 Contracts are content-addressed by canonical JSON digest.
 
@@ -451,7 +475,7 @@ Consequences:
 - semantically different manifests produce different digests
 - catalogs and registration workflows refer to contracts by digest
 
-### 13) Catalog format
+### Catalog format
 
 A deployment exposes its active contract set as `trellis.catalog.v1`.
 
@@ -473,7 +497,8 @@ Catalog rules:
 
 - the catalog contains only active contracts for the current deployment
 - entries are keyed by digest and include `id`
-- a catalog MUST NOT contain duplicate active `id` values
+- a catalog MAY contain multiple digests for the same `id`
+- when multiple digests share one `id`, the catalog still treats each digest as a separate active contract record
 - catalog ordering is not semantically significant, but implementations SHOULD return a stable order for diffability and testing
 
 Repository-layout clarification:
@@ -483,7 +508,7 @@ Repository-layout clarification:
 - colocated service contracts MUST be treated the same way as service contracts committed in another repo
 - a repo MAY carry additional manifests for local development, but they are not implicitly part of the active catalog just because they live nearby
 
-### 14) Trellis discovery RPCs
+### Trellis discovery RPCs
 
 The `trellis.core@v1` contract implemented by the `trellis` runtime service MUST include runtime discovery RPCs.
 
@@ -530,7 +555,7 @@ Binding rules:
 - stream source bindings include both the logical `fromAlias` and the resolved upstream `streamName`
 - services discover concrete resources through bindings rather than through general cloud-management credentials
 
-### 15) Installation and activation rules
+### Installation and activation rules
 
 The `trellis` runtime service is the authority for the active contract set in a deployment.
 
@@ -541,10 +566,10 @@ The `trellis` runtime service MUST:
 - store installed contracts by digest
 - maintain the active contract set for the deployment
 - reject active subject collisions across RPCs, events, and raw subjects
-- reject duplicate active contract ids with different digests
 - provision or bind required cloud resources before install or upgrade succeeds
 - persist resource bindings so installed services can resolve them at runtime
 - bind each installed contract digest to the service principal public key that implements it, including Trellis-owned contracts bootstrapped onto the `trellis` service principal
+- support deployment-owned profile records that resolve a principal class, such as a shipped device profile, to a contract lineage plus an allowed digest set
 - remove the old submission/approval flow rather than preserving a compatibility path
 - ensure any stored user approval or consent decision references the exact contract digest being approved
 
@@ -553,23 +578,28 @@ Install or upgrade validation MUST also:
 - validate intra-contract resource references such as `streams.*.sources[*].fromAlias`
 - reject impossible or unsafe resource combinations before provisioning begins
 - provision stream resources idempotently when requested
+- when install or activation is profile-driven, validate that the digest being bound is allowed by that profile's contract lineage and allowed digest set
+- validate the exact `resources` requested by the digest being installed, even when other digests in the same lineage remain active
 
 Operationally, install or upgrade fails if any of these conditions is true:
 
-- any RPC, event, or raw-subject string is already owned by a different active digest
+- any RPC, event, or raw-subject string is already owned by a different active contract `id`
 - any required resource request cannot be provisioned or bound according to platform policy
 
 Upgrade rule:
 
-- when a service upgrades from one digest to another for the same contract `id`, the `trellis` runtime service MUST switch the active digest atomically so the deployment still has at most one active digest for that `id`
+- when a service upgrades from one digest to another for the same contract `id`, the `trellis` runtime service MAY keep both digests active during rollout
+- each service principal still points to one exact installed digest at any moment
+- deployments MAY later retire the old digest once no principals still depend on it
 
 Subject collision rule:
 
-- if two active contracts declare the same subject string, activation MUST fail unless they are the exact same contract digest
+- if two active contracts declare the same subject string, activation MUST fail unless they belong to the same contract `id` lineage
+- overlapping subjects across different digests in the same lineage are allowed so rolling upgrades do not break mixed-version deployments
 
 This keeps routing, discovery, and permission derivation unambiguous.
 
-### 16) Authorization derivation
+### Authorization derivation
 
 Authorization is derived from the active contract set.
 
@@ -604,7 +634,7 @@ Service-side RPC handling rule:
 
 This install-record-based subscription rule is separate from caller capability checks.
 
-### 17) SDK derivation
+### SDK derivation
 
 SDKs derive from the canonical manifest, not from deployment-specific runtime state.
 
@@ -631,7 +661,7 @@ If a contract declares `resources`, SDKs SHOULD expose the logical aliases and t
 
 - the same known error declarations
 
-### 18) Runtime plugin projection
+### Runtime plugin projection
 
 A contract may be projected into a runtime API module used by Trellis client/server libraries.
 
@@ -644,7 +674,7 @@ Projection requirements:
 - preserve enough metadata for typed request, response, publish, and subscribe helpers
 - fail fast on duplicate merged RPC/event keys
 
-### 19) AsyncAPI export
+### AsyncAPI export
 
 AsyncAPI is a derived documentation format.
 
@@ -656,6 +686,8 @@ AsyncAPI is not the canonical runtime model because Trellis requires native repr
 - capability requirements
 - raw subject spaces
 - activation and catalog semantics
+
+This model requires Trellis to maintain a real contract schema, canonicalization, validation, and generation toolchain; it also keeps authored source distinct from the canonical runtime artifact, requires deployment workflows to register and activate contracts, and assumes Trellis validates explicit `uses` dependencies and bootstraps its own contracts without treating contract metadata alone as the authorization boundary.
 
 ## Consequences
 
@@ -669,16 +701,9 @@ AsyncAPI is not the canonical runtime model because Trellis requires native repr
 - Documentation can be derived without distorting the runtime architecture.
 - Trellis core no longer needs a handwritten global API registry for service APIs.
 
-### Trade-offs
-
-- Trellis must maintain a real contract schema, canonicalization, validation, and generation toolchain.
-- Authoring source and canonical runtime artifact are distinct concepts.
-- Deployment workflows need contract registration and activation.
-- Trellis must validate explicit `uses` dependencies and bootstrap its own contracts without relying on contract metadata as an authorization boundary.
-- Multi-language support requires generators and release pipelines.
-
 ## Notes
 
-- This ADR defines the architecture and the v1 contract/catalog specification.
+- This document defines the architecture and the v1 contract/catalog specification.
 - Language-specific authoring helpers are implementation details around the canonical manifest.
+- Multi-language support still requires generators and release pipelines.
 - A separate ADR may define service-specific authoring ergonomics for a particular language if needed, but this ADR is the normative contract boundary.

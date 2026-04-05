@@ -12,9 +12,9 @@ order: 20
 - [../core/type-system-patterns.md](./../core/type-system-patterns.md) - Result conventions and error-model guidance
 - [../operations/trellis-operations.md](./../operations/trellis-operations.md) - public async workflows that may attach to jobs
 
-## Scope
+## Design
 
-This document defines the normative TypeScript public API surface for Trellis jobs.
+The TypeScript jobs surface is split into two shapes: a service-local API for creating and handling jobs, and an admin API for observing jobs across the system. Both follow the same jobs model defined in `trellis-jobs.md`.
 
 It covers:
 
@@ -24,16 +24,21 @@ It covers:
 
 It does not redefine the jobs stream model, storage model, or admin authorization model; those remain in `trellis-jobs.md`.
 
-## Design Rules
+The API surface stays typed by job type for service-local code, keeps operator/admin access separate from service execution, and returns `Result`/`AsyncResult` for expected failures.
 
-- jobs are service-private execution primitives
-- service-local jobs APIs are typed per job type
-- `create(...)` returns `JobRef`
-- `JobRef.wait()` is valid internally but is not a public caller contract
-- public TypeScript jobs APIs use `Result` / `AsyncResult` for expected failures
-- public service-local jobs APIs do not expose manual binding assembly or conversion helpers
+Jobs are service-private execution primitives.
 
-## Service-Local Surface
+Service-local jobs APIs are typed per job type.
+
+`create(...)` returns `JobRef`.
+
+`JobRef.wait()` is valid internally but is not a public caller contract.
+
+Public TypeScript jobs APIs use `Result` / `AsyncResult` for expected failures.
+
+Public service-local jobs APIs do not expose manual binding assembly or conversion helpers.
+
+### Service-local surface
 
 ```ts
 type JobsFacade = {
@@ -115,7 +120,7 @@ if (host.isOk()) {
 }
 ```
 
-## Shared Service-Local Types
+### Shared service-local types
 
 ```ts
 type JobProgress = {
@@ -150,7 +155,7 @@ type TerminalJob<TPayload, TResult> = JobSnapshot<TPayload, TResult> & {
 
 All job progress fields are optional. Use `step` and `message` for human-readable status, and `current` / `total` only when you have a numeric progress fraction.
 
-## Admin Surface
+### Admin surface
 
 ```ts
 type JobsAdminClient = {
@@ -197,7 +202,7 @@ const retried = await jobs.retry({
 });
 ```
 
-## Generation Rules
+### Generation rules
 
 - generated service runtimes MUST expose one typed property per declared job type such as `service.jobs.refundCharge`
 - any generic string-based queue lookup helper is a low-level escape hatch and MUST NOT be the primary public API
@@ -205,7 +210,7 @@ const retried = await jobs.retry({
 - operator/admin APIs MAY return wire-shaped `unknown` payload and result fields because they are an observability and debugging surface rather than a typed service-author execution surface
 - generated admin wrappers are preferred over handwritten `requestOrThrow(...) as ...` adapters
 
-## Non-Goals
+## Non-goals
 
 - defining Rust jobs APIs
 - defining public caller-visible async workflows; use operations for that

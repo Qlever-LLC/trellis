@@ -15,6 +15,7 @@ Do not load the entire `design/` folder by default. Start with one topic area, t
 | --- | --- | --- |
 | `core/trellis-patterns.md` | You need Trellis-wide architecture rules | Service categories, platform boundaries, communication patterns |
 | `auth/trellis-auth.md` | You are changing auth architecture | Identity model, approval model, service install model, auth subsystem boundaries |
+| `auth/device-activation.md` | You are designing shipped-device activation or offline device onboarding | QR-out / short-code-back activation, browser activation flow, first online auth, device admin lifecycle |
 | `contracts/trellis-contracts-catalog.md` | You are changing manifests, codegen inputs, or permission derivation | Canonical contract format, `uses`, subject ownership, activation rules |
 
 ## Subsystem Design Docs
@@ -48,6 +49,7 @@ These documents define the public language-facing APIs. Read them when you are i
 | `contracts/contracts-rust-api.md` | Rust contract/runtime surface | Implementing or reviewing Rust contract/runtime ergonomics |
 | `auth/auth-protocol.md` | Auth protocol surface | Implementing auth callout, proofs, reply validation, or auth state model |
 | `auth/auth-api.md` | Auth public API | Implementing `/auth/*`, `rpc.Auth.*`, or auth events |
+| `auth/device-activation.md` | Device activation API and lifecycle | Implementing device activation HTTP flow, device admin RPCs, or activation events |
 | `auth/auth-typescript-api.md` | TypeScript auth API | Implementing or reviewing TS browser/service auth helpers |
 | `auth/auth-rust-api.md` | Rust auth API | Implementing or reviewing Rust CLI/service auth helpers |
 | `auth/auth-operations.md` | Auth operations/runbook | Operating auth in production, rotation, rate limits, HA |
@@ -151,6 +153,7 @@ These documents define the public language-facing APIs. Read them when you are i
 1. `auth/trellis-auth.md`
 2. `auth/auth-api.md`
 3. `auth/auth-protocol.md`
+4. `auth/device-activation.md` when the change touches shipped-device activation
 
 ### Implement TypeScript auth surfaces
 

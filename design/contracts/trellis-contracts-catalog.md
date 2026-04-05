@@ -164,8 +164,36 @@ Rules:
 
 - `id` MUST be stable for semantically compatible revisions within the same major line
 - a breaking contract revision MUST use a new `@vN` suffix
-- within a deployment, at most one active digest may exist for a given `id`
-- the `trellis` runtime service MUST reject activation of multiple different digests for the same active `id`
+- a deployment MAY have multiple active digests for the same `id` during rollout or mixed-firmware operation
+- all concurrently active digests for the same `id` MUST remain semantically compatible within that lineage, so mixed-version callers and service instances can keep working during rollout
+- install records bind one exact digest to one service principal public key, even when multiple digests in the same lineage are active at once
+
+This allows rolling upgrades where some service instances still run the old digest while newer instances have already switched to the new digest. The same model also covers shipped devices whose firmware revisions map to different digests within one device-service lineage.
+
+Concurrent-digest compatibility within one lineage is defined by the owned communication surface:
+
+- `rpc`, `operations`, `events`, and owned `subjects` MUST evolve additively while multiple digests in the same lineage are active
+- `uses`, metadata, and other non-owned sections MAY vary by digest as long as the exact digest being installed still validates successfully
+- `resources` are per-digest install data; they do not need to be additive across the lineage, but install or upgrade MUST validate and provision the exact resource set requested by the digest bound to that principal
+
+Additive-only means:
+
+- a new digest MAY add owned RPCs, operations, events, and raw subjects
+- a new digest MAY add optional fields to existing request, response, progress, and event payload schemas
+- a new digest MAY add new declared errors or new capabilities for newly added owned surfaces
+- a new digest MUST NOT remove or rename an existing owned RPC, operation, event, or subject while old and new digests coexist
+- a new digest MUST NOT move an existing owned surface to a different subject while old and new digests coexist
+- a new digest MUST NOT change an existing schema in a breaking way while old and new digests coexist
+
+Breaking schema changes include:
+
+- removing an existing field that callers or subscribers may still send or read
+- changing an optional field to required
+- changing a field type incompatibly, such as `string` to `object` or `number` to `string`
+- narrowing allowed enum values or formats in a way that rejects payloads accepted by the older digest
+- changing payload semantics incompatibly while keeping the same field names and subjects
+
+If a rollout needs one of those breaking changes, it MUST use a new contract `id` / major version rather than a second active digest in the same lineage.
 
 ### Declared dependencies (`uses`)
 
@@ -529,7 +557,8 @@ Catalog rules:
 
 - the catalog contains only active contracts for the current deployment
 - entries are keyed by digest and include `id`
-- a catalog MUST NOT contain duplicate active `id` values
+- a catalog MAY contain multiple digests for the same `id`
+- when multiple digests share one `id`, the catalog still treats each digest as a separate active contract record
 - catalog ordering is not semantically significant, but implementations SHOULD return a stable order for diffability and testing
 
 Repository-layout clarification:
@@ -600,10 +629,10 @@ The `trellis` runtime service MUST:
 - store installed contracts by digest
 - maintain the active contract set for the deployment
 - reject active subject collisions across operations, RPCs, events, and raw subjects
-- reject duplicate active contract ids with different digests
 - provision or bind required cloud resources before install or upgrade succeeds
 - persist resource bindings so installed services can resolve them at runtime
 - bind each installed contract digest to the service principal public key that implements it, including Trellis-owned contracts bootstrapped onto the `trellis` service principal
+- support deployment-owned profile records that resolve a principal class, such as a shipped device profile, to a contract lineage plus an allowed digest set
 - remove the old submission/approval flow rather than preserving a compatibility path
 - ensure any stored user approval or consent decision references the exact contract digest being approved
 
@@ -612,19 +641,24 @@ Install or upgrade validation MUST also:
 - validate intra-contract resource references such as `streams.*.sources[*].fromAlias`
 - reject impossible or unsafe resource combinations before provisioning begins
 - provision stream resources idempotently when requested
+- validate the exact `resources` requested by the digest being installed, even when other digests in the same lineage remain active
+- when install or activation is profile-driven, validate that the digest being bound is allowed by that profile's contract lineage and allowed digest set
 
 Operationally, install or upgrade fails if any of these conditions is true:
 
-- any operation, RPC, event, or raw-subject string is already owned by a different active digest
+- any operation, RPC, event, or raw-subject string is already owned by a different active contract `id`
 - any required resource request cannot be provisioned or bound according to platform policy
 
 Upgrade rule:
 
-- when a service upgrades from one digest to another for the same contract `id`, the `trellis` runtime service MUST switch the active digest atomically so the deployment still has at most one active digest for that `id`
+- when a service upgrades from one digest to another for the same contract `id`, the `trellis` runtime service MAY keep both digests active during rollout
+- each service principal still points to one exact installed digest at any moment
+- deployments MAY later retire the old digest once no principals still depend on it
 
 Subject collision rule:
 
-- if two active contracts declare the same subject string, activation MUST fail unless they are the exact same contract digest
+- if two active contracts declare the same subject string, activation MUST fail unless they belong to the same contract `id` lineage
+- overlapping subjects across different digests in the same lineage are allowed so rolling upgrades do not break mixed-version deployments
 
 This keeps routing, discovery, and permission derivation unambiguous.
 

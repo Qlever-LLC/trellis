@@ -12,9 +12,9 @@ order: 30
 - [../core/type-system-patterns.md](./../core/type-system-patterns.md) - shared type-system and error guidance
 - [../operations/trellis-operations.md](./../operations/trellis-operations.md) - public async workflows that may attach to jobs
 
-## Scope
+## Design
 
-This document defines the normative Rust public API surface for Trellis jobs.
+The Rust jobs surface mirrors the TypeScript jobs model, but it uses Rust-native traits, structs, and `Result`-based ergonomics. Service-local code works against typed job queues and handles, while admin code uses a separate query client surface.
 
 It covers:
 
@@ -24,16 +24,21 @@ It covers:
 
 It does not redefine the jobs stream model, storage model, or admin authorization model; those remain in `trellis-jobs.md`.
 
-## Design Rules
+The Rust API keeps jobs typed by job type, keeps admin access separate from service execution, and avoids exposing manual binding assembly in normal code.
 
-- jobs are service-private execution primitives
-- service-local Rust jobs APIs are typed per job type
-- `create(...)` returns `JobRef`
-- `JobRef.wait()` is valid internally but is not a public caller contract
-- Rust returns `Result` directly and does not model expected failures with exceptions
-- public service-local jobs APIs do not expose manual binding assembly or conversion helpers
+Jobs are service-private execution primitives.
 
-## Service-Local Surface
+Service-local Rust jobs APIs are typed per job type.
+
+`create(...)` returns `JobRef`.
+
+`JobRef.wait()` is valid internally but is not a public caller contract.
+
+Rust returns `Result` directly and does not model expected failures with exceptions.
+
+Public service-local jobs APIs do not expose manual binding assembly or conversion helpers.
+
+### Service-local surface
 
 ```rust
 pub trait JobsService {
@@ -121,7 +126,7 @@ let host = service.jobs().start_workers().await?;
 host.stop().await?;
 ```
 
-## Shared Service-Local Types
+### Shared service-local types
 
 ```rust
 pub struct JobProgress {
@@ -154,7 +159,7 @@ pub type TerminalJob<TPayload, TResult> = JobSnapshot<TPayload, TResult>;
 
 All job progress fields are optional. Use `step` and `message` for human-readable status, and `current` / `total` only when you have a numeric progress fraction.
 
-## Admin Surface
+### Admin surface
 
 ```rust
 pub trait JobsAdminClient {
@@ -228,7 +233,7 @@ let one = jobs.get(JobIdentity {
 - `start_workers()` owns binding resolution and worker-loop startup; application code SHOULD NOT pass runtime bindings manually
 - operator/admin APIs MAY return wire-shaped `serde_json::Value` payload and result fields because they are an observability and debugging surface rather than a typed service-author execution surface
 
-## Non-Goals
+## Non-goals
 
 - defining TypeScript jobs APIs
 - defining public caller-visible async workflows; use operations for that

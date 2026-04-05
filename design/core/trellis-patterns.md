@@ -23,7 +23,9 @@ This document establishes the top-level cross-cutting system patterns for:
 
 Detailed coding, storage, type-system, observability, frontend, and capability guidance is split into companion documents.
 
-## Architecture
+## Design
+
+Trellis keeps a small set of platform-wide patterns so services can stay isolated by ownership while still sharing a consistent communication model. The core boundary is simple: platform code lives in the Trellis repo, cloud/domain code lives with the owning service, and all cross-service communication happens over NATS through contracts.
 
 ### Service Categories
 
@@ -58,7 +60,7 @@ Rules:
 | Processing | Maybe | Yes | Yes | No |
 | Egress | No | No | Yes | Sync state |
 
-### Communication Patterns
+### Communication patterns
 
 #### Events
 
@@ -121,7 +123,7 @@ This document defines the high-level system style. Detailed companion docs are s
 - communication patterns remain consistent across subsystems
 - readers can load only the guidance relevant to the task at hand
 
-## Trade-Offs
+## Operational tradeoffs
 
 - guidance is spread across more documents
 - maintainers must keep companion docs aligned with subsystem design docs and language-surface docs

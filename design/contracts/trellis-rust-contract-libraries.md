@@ -40,6 +40,8 @@ Rust should not mimic the flat string-keyed TypeScript `trellis` object exactly.
 
 ## Design
 
+The Rust library surface follows the same contract-first model as the TypeScript tooling, but it leans into Rust-native modules, generated facades, and explicit crate boundaries instead of a flat merged API.
+
 Trellis adopts a contract-driven Rust library model.
 
 Every Rust participant that connects to Trellis uses a local participant contract as
@@ -57,7 +59,7 @@ As in the TypeScript design, the local participant contract remains meaningful b
 initial connection. It is the primary source for emitted manifest identity, owned
 surface, allowed used surface, and contract-shaped runtime access.
 
-### 1) Manifest remains canonical
+### Manifest remains canonical
 
 This document does not change the architectural contract boundary.
 
@@ -68,7 +70,7 @@ Rules:
 - generated Rust SDK crates and participant facades derive from manifests
 - native Rust authoring helpers or macros MAY exist later, but they are implementation details around deterministic manifest emission
 
-### 2) Primary Rust usage model
+### Primary Rust usage model
 
 The primary Rust model is not a generic transport client plus hand-managed descriptor types.
 
@@ -79,7 +81,7 @@ The primary Rust model is:
 
 Normal application and service code should primarily use the generated local participant facade.
 
-### 3) Crate responsibilities
+### Crate responsibilities
 
 Rust crate boundaries are:
 

@@ -13,7 +13,7 @@ order: 40
 - [auth-api.md](./auth-api.md) - public HTTP and RPC endpoints
 - [../core/type-system-patterns.md](./../core/type-system-patterns.md) - Result and error-model guidance
 
-## Scope
+## Design
 
 This document defines the normative TypeScript public API surface for Trellis auth.
 
@@ -24,12 +24,13 @@ It covers:
 - service auth helpers
 - NATS connect option helpers
 
-## Design Rules
+The TypeScript surface is intentionally thin: it exposes the same underlying auth model as the other client surfaces, keeps the protocol string construction internal to helpers, and returns `Result`/`AsyncResult` for expected failures.
 
-- browser and service helpers expose the same underlying auth model through different ergonomics
-- public TypeScript APIs use `Result` / `AsyncResult` for expected failures
-- session-key seeds remain protected from normal application code where possible
-- helpers hide protocol string construction such as `sign(hash("bind:" + authToken))`
+Browser and service helpers expose the same underlying auth model through different ergonomics.
+
+Session-key seeds remain protected from normal application code where possible.
+
+Helpers hide protocol string construction such as `sign(hash("bind:" + authToken))`.
 
 ## Browser Surface
 
@@ -89,7 +90,7 @@ const authTokenPayload = JSON.stringify({
 });
 ```
 
-Rules:
+Behavior:
 
 - browser session keys SHOULD be stored in IndexedDB via WebCrypto with `extractable=false`
 - after reading `authToken` from a URL fragment, the client MUST immediately clear it from browser history
@@ -156,8 +157,20 @@ type AuthAdminClient = {
   revokeSession(input: RevokeSessionRequest): Promise<Result<{ success: boolean }, AuthError>>;
   listConnections(input: ListConnectionsRequest): Promise<Result<ListConnectionsResponse, AuthError>>;
   kickConnection(input: KickConnectionRequest): Promise<Result<{ success: boolean }, AuthError>>;
+  createDeviceProfile(input: CreateDeviceProfileRequest): Promise<Result<CreateDeviceProfileResponse, AuthError>>;
+  listDeviceProfiles(input: ListDeviceProfilesRequest): Promise<Result<ListDeviceProfilesResponse, AuthError>>;
+  getDeviceProfile(input: GetDeviceProfileRequest): Promise<Result<GetDeviceProfileResponse, AuthError>>;
+  disableDeviceProfile(input: DisableDeviceProfileRequest): Promise<Result<{ success: boolean }, AuthError>>;
+  setDeviceProfilePreferredDigest(input: SetDeviceProfilePreferredDigestRequest): Promise<Result<UpdateDeviceProfileResponse, AuthError>>;
+  addDeviceProfileDigest(input: AddDeviceProfileDigestRequest): Promise<Result<UpdateDeviceProfileResponse, AuthError>>;
+  removeDeviceProfileDigest(input: RemoveDeviceProfileDigestRequest): Promise<Result<UpdateDeviceProfileResponse, AuthError>>;
+  activateDevice(input: ActivateDeviceRequest): Promise<Result<SuccessResponse, AuthError>>;
+  listDeviceActivations(input: ListDeviceActivationsRequest): Promise<Result<ListDeviceActivationsResponse, AuthError>>;
+  revokeDeviceActivation(input: RevokeDeviceActivationRequest): Promise<Result<{ success: boolean }, AuthError>>;
 };
 ```
+
+The device profile and device activation request, response, and event shapes are defined in [device-activation.md](./device-activation.md).
 
 ## Non-Goals
 

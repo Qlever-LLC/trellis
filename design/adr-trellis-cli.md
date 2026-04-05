@@ -1,9 +1,5 @@
 # ADR: Trellis CLI
 
-## Status
-
-Accepted
-
 ## Context
 
 Trellis needs one supported CLI entrypoint for:
@@ -22,7 +18,9 @@ The repository previously split those concerns across:
 That split made the system harder to understand, harder to reuse from other repos,
 and inconsistent with the source-first contract architecture.
 
-## Decision
+## Design
+
+Trellis uses a single Rust CLI as the supported entrypoint for contract work, service installation, and operational admin commands. The same CLI is also the natural place for future device-activation tooling, so the command tree stays explicit and narrow rather than growing a second orchestration path.
 
 Trellis uses a Rust `trellis` CLI as the only supported contract and SDK build
 entrypoint.
@@ -151,6 +149,8 @@ The CLI's own runtime contract access should primarily flow through the low-leve
 
 CI should build the CLI once when possible and reuse that binary for repeated generation steps inside a workflow.
 
+This direction intentionally accepts a few implementation constraints: Trellis will carry more Rust code for packaging and code generation, `--source` resolution still assumes the service repo can be loaded through Deno where that path is used, and the Rust SDK/runtime surface may remain thinner than the mature TypeScript path while it catches up.
+
 ## Consequences
 
 ### Benefits
@@ -161,12 +161,6 @@ CI should build the CLI once when possible and reuse that binary for repeated ge
 - source-first tooling boundary across languages, with generated manifests as the shared exchange artifact
 - easier future distribution and reuse from non-Deno repos
 - fewer duplicated implementations across Rust and Deno scripts
-
-### Trade-offs
-
-- more Rust code must now exist for packaging and code generation
-- source-based resolution currently assumes the service repo can be loaded through Deno when `--source` is used
-- initial Rust SDK/runtime support may be thinner than the mature TS path while it stabilizes
 
 ## References
 

@@ -11,7 +11,7 @@ order: 60
 - [trellis-auth.md](./trellis-auth.md) - auth architecture and trust model
 - [auth-protocol.md](./auth-protocol.md) - internal state and auth-callout protocol
 
-## Scope
+## Design
 
 This document defines the operational and deployment guidance for Trellis auth.
 
@@ -165,7 +165,7 @@ Deployments should not go live without configured limits.
 4. Restart dependent services with updated creds
 5. Remove the old sentinel user
 
-## Accepted Risks
+## Operational risks
 
 ### RPC Message Replay
 
@@ -178,7 +178,7 @@ Mitigations:
 - per-message signatures bound to subject and payload
 - session revocation invalidates future replays
 
-Accepted because:
+Behavioral tradeoff:
 
 - replay requires insider access or prior capture
 - replay can only reproduce the same request, not forge a new one
@@ -194,7 +194,7 @@ Mitigations:
 - non-extractable browser keys prevent key theft
 - CSP and standard XSS mitigations remain primary defenses
 
-Accepted because non-extractable keys still reduce blast radius compared with extractable browser secrets.
+Non-extractable keys still reduce blast radius compared with extractable browser secrets.
 
 ## Non-Goals
 

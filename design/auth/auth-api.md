@@ -11,19 +11,26 @@ order: 30
 - [trellis-auth.md](./trellis-auth.md) - auth architecture and approval model
 - [auth-protocol.md](./auth-protocol.md) - proofs, connect tokens, and internal state rules
 
-## Scope
+## Design
 
 This document defines the public Trellis auth API.
 
 It covers:
 
 - HTTP OAuth and bind endpoints
+- HTTP device activation endpoints
+- device profile management RPCs
 - public and admin `rpc.Auth.*` endpoints
 - emitted auth events
 
 It does not define language-specific client APIs.
 
 ## HTTP Endpoints
+
+Device activation HTTP endpoints are defined in [device-activation.md](./device-activation.md):
+
+- `GET /auth/device/activate`
+- `POST /auth/device/activate`
 
 ### GET /auth/login
 
@@ -123,7 +130,7 @@ Behavior:
 10. Refresh the Trellis-local auth projection entry
 11. Return the bind response
 
-Rules:
+Behavior:
 
 - normal browser and CLI flows reach `/auth/bind` only after Trellis has already recorded an approval decision
 - `/auth/bind` still rechecks approval and capabilities defensively
@@ -233,7 +240,7 @@ Response:
 }
 ```
 
-Rules:
+Behavior:
 
 - binding tokens are single-use
 - clients that want seamless reconnect SHOULD keep a fresh token available by calling this RPC after connecting
@@ -293,6 +300,21 @@ Response:
 ```
 
 This RPC is the capability and session lookup service used by other Trellis services.
+
+### Device activation and profile RPCs
+
+Device activation and device profile RPCs are defined in [device-activation.md](./device-activation.md):
+
+- `rpc.Auth.CreateDeviceProfile`
+- `rpc.Auth.ListDeviceProfiles`
+- `rpc.Auth.GetDeviceProfile`
+- `rpc.Auth.DisableDeviceProfile`
+- `rpc.Auth.SetDeviceProfilePreferredDigest`
+- `rpc.Auth.AddDeviceProfileDigest`
+- `rpc.Auth.RemoveDeviceProfileDigest`
+- `rpc.Auth.ActivateDevice`
+- `rpc.Auth.ListDeviceActivations`
+- `rpc.Auth.RevokeDeviceActivation`
 
 ## Admin RPCs
 
@@ -385,6 +407,9 @@ Trellis publishes these events as part of `trellis.auth@v1`:
 - `events.v1.Auth.Disconnect`
 - `events.v1.Auth.SessionRevoked`
 - `events.v1.Auth.ConnectionKicked`
+- `events.v1.Auth.DeviceActivationApproved`
+- `events.v1.Auth.DeviceActivationOnlineConfirmed`
+- `events.v1.Auth.DeviceActivationRevoked`
 
 Services may subscribe only when their installed contract explicitly declares them in `uses`.
 
