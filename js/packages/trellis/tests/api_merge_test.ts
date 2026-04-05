@@ -11,11 +11,14 @@ Deno.test("API composition", async (t) => {
     displayName: "Core Test",
     description: "Expose a catalog RPC for API composition tests.",
     kind: "service",
+    schemas: {
+      Empty: emptySchema,
+    },
     rpc: {
       "Trellis.Catalog": {
         version: "v1",
-        inputSchema: emptySchema,
-        outputSchema: emptySchema,
+        input: { schema: "Empty" },
+        output: { schema: "Empty" },
       },
     },
   });
@@ -61,7 +64,7 @@ Deno.test("API composition", async (t) => {
 
   await t.step("Encoding a schema error is deterministic (sanity)", () => {
     const schema = Type.Object({ x: Type.Number() }, { additionalProperties: false });
-    const r = encodeSchema(schema, { x: "nope" } as unknown as { x: number });
+    const r = encodeSchema(schema, JSON.parse('{"x":"nope"}'));
     assertEquals(r.isErr(), true);
   });
 });

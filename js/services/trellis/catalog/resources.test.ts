@@ -118,7 +118,7 @@ Deno.test("jobs provisioning returns queue bindings and grants worker heartbeat 
   } as TrellisContractV1;
 
   const bindings = await provisionContractResourceBindings(
-    {} as never,
+    undefined,
     contract,
     "svc_test_documents_v1",
   );
@@ -188,7 +188,7 @@ Deno.test("stream-only contracts produce stream bindings during provisioning", a
   } as TrellisContractV1;
 
   const bindings = await provisionContractResourceBindings(
-    {} as never,
+    undefined,
     contract,
     "svc_test_activity_v1",
   );

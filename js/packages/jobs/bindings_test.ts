@@ -84,7 +84,7 @@ Deno.test("parseJobsBinding rejects invalid queue binding shapes", () => {
         "document-process": {
           queueType: "document-process",
           publishPrefix: true,
-        } as unknown as ResourceBindingJobs["queues"][string],
+        },
       },
     }),
     Error,

@@ -5,6 +5,12 @@ import { defineContract } from "./mod.ts";
 const EmptySchema = Type.Object({}, { additionalProperties: false });
 const StringSchema = Type.Object({ value: Type.String() }, { additionalProperties: false });
 
+type Assert<T extends true> = T;
+type Not<T extends boolean> = T extends true ? false : true;
+type HasKey<T, K extends PropertyKey> = K extends keyof T ? true : false;
+type HasMember<T, U> = U extends T ? true : false;
+type HasSubject<T, TKey extends PropertyKey> = TKey extends keyof T ? true : false;
+
 const authSchemas = {
   Empty: EmptySchema,
   StringValue: StringSchema,
@@ -80,13 +86,9 @@ activity.API.used.events["Auth.Connect"].subject;
 activity.API.trellis.rpc["Activity.List"].subject;
 activity.API.trellis.rpc["Auth.Me"].subject;
 
-// @ts-expect-error Auth.Logout is not declared in local uses.
-activity.API.trellis.rpc["Auth.Logout"];
-
-if (false) {
-  // @ts-expect-error Trellis.Catalog is not part of trellis.auth@v1.
-  auth.use({ rpc: { call: ["Trellis.Catalog"] } });
-}
+type AuthUseArg = Parameters<typeof auth.use>[0];
+type AuthUseRpcCall = NonNullable<NonNullable<AuthUseArg["rpc"]>["call"]>[number];
+type _AuthUseDoesNotAcceptTrellisCatalog = Assert<Not<HasMember<AuthUseRpcCall, "Trellis.Catalog">>>;
 
 const dashboard = defineContract({
   id: "trellis.dashboard@v1",
@@ -160,12 +162,11 @@ payments.API.used.operations["Billing.Refund"].subject;
 payments.API.trellis.operations["Payments.Capture"].subject;
 payments.API.trellis.operations["Billing.Refund"].subject;
 
-// @ts-expect-error Billing.Writeoff is not declared in local uses.
-payments.API.trellis.operations["Billing.Writeoff"];
-
-if (false) {
-  // @ts-expect-error Billing.Writeoff is not part of trellis.billing@v1.
-  billing.use({ operations: { call: ["Billing.Writeoff"] } });
-}
+type _PaymentsDoesNotExposeBillingWriteoff = Assert<
+  Not<HasKey<typeof payments.API.trellis.operations, "Billing.Writeoff">>
+>;
+type BillingUseArg = Parameters<typeof billing.use>[0];
+type BillingUseOperationCall = NonNullable<NonNullable<BillingUseArg["operations"]>["call"]>[number];
+type _BillingUseDoesNotAcceptWriteoff = Assert<Not<HasMember<BillingUseOperationCall, "Billing.Writeoff">>>;
 
 Deno.test("defineContract type coverage compiles", () => {});

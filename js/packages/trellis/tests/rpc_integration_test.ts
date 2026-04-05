@@ -57,6 +57,26 @@ const TEST_USER = {
 
 const EmptySchema = Type.Object({}, { additionalProperties: false });
 
+const authSchemas = {
+  AuthValidateRequestInput: AuthValidateRequestSchema,
+  AuthValidateRequestOutput: AuthValidateRequestResponseSchema,
+  AuthMeInput: AuthMeSchema,
+  AuthMeOutput: AuthMeResponseSchema,
+  EmptySchema,
+  TraceOutput: Type.Object({ traceId: Type.String() }, { additionalProperties: false }),
+  EventPayload: Type.Object({
+    header: Type.Object({
+      id: Type.String(),
+      time: Type.String(),
+    }),
+    foo: Type.String(),
+  }, { additionalProperties: false }),
+} as const;
+
+function schemaRef<const TName extends keyof typeof authSchemas & string>(schema: TName) {
+  return { schema } as const;
+}
+
 const emptyContract = defineContract({
   id: "trellis.empty.rpc-test@v1",
   displayName: "Empty RPC Test",
@@ -69,17 +89,23 @@ const authContract = defineContract({
   displayName: "Auth RPC Test",
   description: "Expose auth RPCs for integration tests.",
   kind: "service",
+  schemas: {
+    AuthValidateRequestInput: authSchemas.AuthValidateRequestInput,
+    AuthValidateRequestOutput: authSchemas.AuthValidateRequestOutput,
+    AuthMeInput: authSchemas.AuthMeInput,
+    AuthMeOutput: authSchemas.AuthMeOutput,
+  },
   rpc: {
     "Auth.ValidateRequest": {
       version: "v1",
-      inputSchema: AuthValidateRequestSchema,
-      outputSchema: AuthValidateRequestResponseSchema,
+      input: schemaRef("AuthValidateRequestInput"),
+      output: schemaRef("AuthValidateRequestOutput"),
       errors: ["AuthError", "ValidationError", "UnexpectedError"],
     },
     "Auth.Me": {
       version: "v1",
-      inputSchema: AuthMeSchema,
-      outputSchema: AuthMeResponseSchema,
+      input: schemaRef("AuthMeInput"),
+      output: schemaRef("AuthMeOutput"),
       errors: ["AuthError", "ValidationError", "UnexpectedError"],
     },
   },
@@ -90,18 +116,28 @@ const traceContract = defineContract({
   displayName: "Trace RPC Test",
   description: "Exercise traced RPC calls against a dependent auth contract.",
   kind: "service",
+  schemas: {
+    EmptySchema,
+    TraceOutput: authSchemas.TraceOutput,
+  },
   uses: {
     auth: authContract.use({ rpc: { call: ["Auth.ValidateRequest"] } }),
   },
   rpc: {
     "Test.Trace": {
       version: "v1",
-      inputSchema: EmptySchema,
-      outputSchema: Type.Object({ traceId: Type.String() }, { additionalProperties: false }),
+      input: schemaRef("EmptySchema"),
+      output: schemaRef("TraceOutput"),
       errors: ["UnexpectedError"],
     },
   },
 });
+
+const traceRuntimeContract = {
+  API: {
+    owned: traceContract.API.trellis,
+  },
+};
 
 async function waitFor<T>(
   fn: () => Promise<T | null>,
@@ -137,22 +173,20 @@ Deno.test({
 
   await t.step("Trellis client validates input schema before sending", async () => {
     const { auth } = await createTestAuth();
-    const client = createClient(authContract, nats.nc, auth, {
+    const client = createClient<typeof authContract.API.owned>(authContract, nats.nc, auth, {
       name: "client",
     });
 
-    const result = await client.request("Auth.ValidateRequest", {
-      sessionKey: {} as unknown as string,
-      proof: "test-proof",
-      subject: "rpc.Test",
-      payloadHash: "not-a-hash",
-    });
+    const result = await client.request(
+      "Auth.ValidateRequest",
+      JSON.parse('{"proof":"test-proof","subject":"rpc.Test","payloadHash":"not-a-hash"}'),
+    );
 
     assertEquals(result.isErr(), true);
   });
 
   await t.step("Trellis template generates correct subjects", () => {
-    const client = createClient(
+    const client = createClient<typeof emptyContract.API.owned>(
       emptyContract,
       nats.nc,
       { sessionKey: "test", sign: () => new Uint8Array(64) },
@@ -165,7 +199,7 @@ Deno.test({
   });
 
   await t.step("Trellis template escapes special characters", () => {
-    const client = createClient(
+    const client = createClient<typeof emptyContract.API.owned>(
       emptyContract,
       nats.nc,
       { sessionKey: "test", sign: () => new Uint8Array(64) },
@@ -186,18 +220,12 @@ Deno.test({
       events: {
         "Test.Event": {
           version: "v1",
-          eventSchema: Type.Object({
-            header: Type.Object({
-              id: Type.String(),
-              time: Type.String(),
-            }),
-            foo: Type.String(),
-          }),
+          event: schemaRef("EventPayload"),
         },
       },
     });
 
-    const client = createClient(
+    const client = createClient<typeof eventContract.API.owned>(
       eventContract,
       nats.nc,
       { sessionKey: "test", sign: () => new Uint8Array(64) },
@@ -208,9 +236,15 @@ Deno.test({
     assertEquals(result.isOk(), true);
   });
 
-  await t.step("trace context propagates across RPC", async () => {
-    const traceService = createClient(
-      traceContract,
+      await t.step("trace context propagates across RPC", async () => {
+    const authService = createClient<typeof authContract.API.owned>(
+      authContract,
+      nats.nc,
+      { sessionKey: "auth-service", sign: () => new Uint8Array(64) },
+      { name: "auth-service" },
+    );
+    const traceService = createClient<typeof traceContract.API.trellis>(
+      traceRuntimeContract,
       nats.nc,
       { sessionKey: "trace-service", sign: () => new Uint8Array(64) },
       { name: "trace-service" },
@@ -218,7 +252,7 @@ Deno.test({
 
     // The server auth path for non-auth RPCs calls Auth.ValidateRequest internally.
     // For this unit integration, mount a permissive Auth.ValidateRequest handler.
-    await traceService.mount("Auth.ValidateRequest", async (input) => {
+    await authService.mount("Auth.ValidateRequest", async (input) => {
       return ok({
         allowed: true,
         inboxPrefix: `_INBOX.${input.sessionKey.slice(0, 16)}`,
@@ -234,7 +268,7 @@ Deno.test({
     const { auth, inboxPrefix } = await createTestAuth();
     const info = nats.nc.info!;
     const nc = await connect({ servers: `localhost:${info.port}`, inboxPrefix });
-    const client = createClient(traceContract, nc, auth, { name: "trace-client" });
+    const client = createClient<typeof traceContract.API.owned>(traceContract, nc, auth, { name: "trace-client" });
 
     const parent = getTracer().startSpan("test.parent");
     const parentTraceId = parent.spanContext().traceId;
@@ -250,17 +284,18 @@ Deno.test({
   });
 
   await t.step("AuthValidateRequest RPC round-trip works", async () => {
-    const authService = createClient(
+    const authService = createClient<typeof authContract.API.owned>(
       authContract,
       nats.nc,
       { sessionKey: "auth", sign: () => new Uint8Array(64) },
       { name: "auth-service" },
     );
 
-    await authService.mount("Auth.ValidateRequest", async (input, _ctx) => {
+    await authService.mount("Auth.ValidateRequest", async (input) => {
+      const authInput = input as { sessionKey: string };
       return ok({
         allowed: true,
-        inboxPrefix: `_INBOX.${input.sessionKey.slice(0, 16)}`,
+        inboxPrefix: `_INBOX.${authInput.sessionKey.slice(0, 16)}`,
         user: TEST_USER,
       });
     });
@@ -268,7 +303,7 @@ Deno.test({
     const { auth, inboxPrefix } = await createTestAuth();
     const info = nats.nc.info!;
     const nc = await connect({ servers: `localhost:${info.port}`, inboxPrefix });
-    const client = createClient(authContract, nc, auth, { name: "client" });
+    const client = createClient<typeof authContract.API.owned>(authContract, nc, auth, { name: "client" });
     const response = await waitFor(async () => {
       const r = await client.request(
         "Auth.ValidateRequest",
@@ -284,7 +319,10 @@ Deno.test({
       const v = r.take();
       if (isErr(v)) return null;
       return v;
-    }, { description: "AuthValidateRequest responder ready" });
+    }, { description: "AuthValidateRequest responder ready" }) as {
+      allowed: boolean;
+      user: { id: string };
+    };
 
     assertEquals(response.allowed, true);
     assertExists(response.user);
@@ -293,23 +331,24 @@ Deno.test({
   });
 
   await t.step("Full RPC with auth validation works", async () => {
-    const meService = createClient(
+    const meService = createClient<typeof authContract.API.owned>(
       authContract,
       nats.nc,
       { sessionKey: "service", sign: () => new Uint8Array(64) },
       { name: "me-service" },
     );
-    const authService = createClient(
+    const authService = createClient<typeof authContract.API.owned>(
       authContract,
       nats.nc,
       { sessionKey: "auth", sign: () => new Uint8Array(64) },
       { name: "auth-service-2" },
     );
 
-    await authService.mount("Auth.ValidateRequest", async (input, _ctx) => {
+    await authService.mount("Auth.ValidateRequest", async (input) => {
+      const authInput = input as { sessionKey: string };
       return ok({
         allowed: true,
-        inboxPrefix: `_INBOX.${input.sessionKey.slice(0, 16)}`,
+        inboxPrefix: `_INBOX.${authInput.sessionKey.slice(0, 16)}`,
         user: TEST_USER,
       });
     });
@@ -321,13 +360,13 @@ Deno.test({
     const { auth, inboxPrefix } = await createTestAuth();
     const info = nats.nc.info!;
     const nc = await connect({ servers: `localhost:${info.port}`, inboxPrefix });
-    const client = createClient(authContract, nc, auth, { name: "client" });
-    const response = await waitFor(async () => {
-      const r = await client.request("Auth.Me", {}, { timeout: 500 });
+    const client = createClient<typeof authContract.API.owned>(authContract, nc, auth, { name: "client" });
+      const response = await waitFor(async () => {
+        const r = await client.request("Auth.Me", {}, { timeout: 500 });
       const v = r.take();
       if (isErr(v)) return null;
       return v;
-    }, { description: "Me responder ready" });
+      }, { description: "Me responder ready" }) as { user: { id: string } };
 
     assertExists(response.user);
     assertEquals(response.user.id, TEST_USER.id);
@@ -335,23 +374,24 @@ Deno.test({
   });
 
   await t.step("requestOrThrow unwraps successful RPC responses", async () => {
-    const meService = createClient(
+    const meService = createClient<typeof authContract.API.owned>(
       authContract,
       nats.nc,
       { sessionKey: "service-throw", sign: () => new Uint8Array(64) },
       { name: "me-service-throw" },
     );
-    const authService = createClient(
+    const authService = createClient<typeof authContract.API.owned>(
       authContract,
       nats.nc,
       { sessionKey: "auth-throw", sign: () => new Uint8Array(64) },
       { name: "auth-service-throw" },
     );
 
-    await authService.mount("Auth.ValidateRequest", async (input, _ctx) => {
+    await authService.mount("Auth.ValidateRequest", async (input) => {
+      const authInput = input as { sessionKey: string };
       return ok({
         allowed: true,
-        inboxPrefix: `_INBOX.${input.sessionKey.slice(0, 16)}`,
+        inboxPrefix: `_INBOX.${authInput.sessionKey.slice(0, 16)}`,
         user: TEST_USER,
       });
     });
@@ -363,11 +403,11 @@ Deno.test({
     const { auth, inboxPrefix } = await createTestAuth();
     const info = nats.nc.info!;
     const nc = await connect({ servers: `localhost:${info.port}`, inboxPrefix });
-    const client = createClient(authContract, nc, auth, { name: "client-throw" });
+    const client = createClient<typeof authContract.API.owned>(authContract, nc, auth, { name: "client-throw" });
     const response = await waitFor(
       () => client.requestOrThrow("Auth.Me", {}, { timeout: 500 }).catch(() => null),
       { description: "Me responder ready for requestOrThrow" },
-    );
+    ) as { user: { id: string } } | null;
 
     assertExists(response?.user);
     assertEquals(response?.user.id, TEST_USER.id);

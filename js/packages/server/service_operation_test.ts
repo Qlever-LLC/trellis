@@ -1,11 +1,12 @@
-// @ts-nocheck
-
 import { connect } from "@nats-io/transport-deno";
+import type { ConnectionOptions } from "@nats-io/transport-deno";
 import { createClient, isErr, ok } from "@qlever-llc/trellis";
+import type { InferSchemaType } from "@qlever-llc/trellis-contracts";
 import { assertEquals, assertExists } from "@std/assert";
 import { Type } from "typebox";
 import { defineContract } from "../trellis/contract.ts";
 import { NatsTest } from "../trellis/testing/nats.ts";
+import type { NatsConnectFn, NatsConnectOpts } from "./runtime.ts";
 import { TrellisService } from "./service.ts";
 
 const RUN_NATS_TESTS = Deno.env.get("TRELLIS_TEST_NATS") === "1";
@@ -41,6 +42,31 @@ const billing = defineContract({
   },
 });
 
+type RefundInput = InferSchemaType<typeof billing.API.owned.operations["Billing.Refund"]["input"]>;
+const natsConnect: NatsConnectFn = async (opts) => {
+  const connectOpts: ConnectionOptions = {
+    servers: opts.servers,
+    ...(typeof opts.token === "string" ? { token: opts.token } : {}),
+    ...(typeof opts.inboxPrefix === "string" ? { inboxPrefix: opts.inboxPrefix } : {}),
+  };
+  return await connect(connectOpts);
+};
+
+type RefundOperationHandle = {
+  started(): Promise<unknown>;
+  progress(value: { message: string }): Promise<unknown>;
+  complete(value: { refundId: string }): Promise<unknown>;
+  fail(error: Error): Promise<unknown>;
+  cancel(): Promise<unknown>;
+  attach(job: { wait(): Promise<unknown> }): Promise<unknown>;
+};
+
+type RefundOperationContext = {
+  input: RefundInput;
+  op: RefundOperationHandle;
+  caller: unknown;
+};
+
 Deno.test({
   name: "TrellisService.operation handles owned workflows",
   ignore: !RUN_NATS_TESTS,
@@ -53,14 +79,14 @@ Deno.test({
       sessionKeySeed: seed,
       nats: {
         servers: `localhost:${info.port}`,
-        authenticator: (() => ({})) as never,
+        authenticator: (_nonce?: string) => undefined,
       },
       server: {
         api: billing.API.owned,
         trellisApi: billing.API.trellis,
       },
     }, {
-      connect,
+      connect: natsConnect,
     });
 
     assertEquals(typeof service.operation, "function");
@@ -75,7 +101,9 @@ Deno.test({
     };
     const client = createClient(billing, clientNc, clientAuth, { name: "billing-client" });
 
-    await service.operation("Billing.Refund").handle(async ({ input, op }) => {
+    await service.operation("Billing.Refund").handle(async (
+      { input, op }: RefundOperationContext,
+    ) => {
       assertEquals(input.chargeId, "ch_123");
       await op.started();
       await op.progress({ message: "working" });

@@ -8,8 +8,8 @@
  */
 
 import { connect } from "@nats-io/transport-deno";
+import { core as trellisCore } from "@qlever-llc/trellis-sdk-core";
 import { assertEquals, assertExists } from "@std/assert";
-import { trellisCore } from "@qlever-llc/trellis-sdk-core";
 import { NatsTest } from "../testing/nats.ts";
 import { type TrellisAuth, TrellisServer } from "../trellis.ts";
 

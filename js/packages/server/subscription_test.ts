@@ -1,6 +1,5 @@
 import { assertEquals, assertExists } from "@std/assert";
 import type { JsMsg } from "@nats-io/jetstream";
-import type { TrellisAPI } from "@qlever-llc/trellis-contracts";
 import type {
   EventContext,
   GroupedSubscription,
@@ -252,8 +251,8 @@ Deno.test("OrderingGroup", async (t) => {
 
 Deno.test("Subscription unions", async (t) => {
   await t.step("SingleSubscription is a MultiEventSubscription", () => {
-    const sub: SingleSubscription<TrellisAPI, never> = {
-      event: "User.Changed" as never,
+    const sub: SingleSubscription = {
+      event: "User.Changed",
       handler: async () => {},
     };
 
@@ -277,8 +276,8 @@ Deno.test("Subscription unions", async (t) => {
       handlers: {},
     };
 
-    const single: SingleSubscription<TrellisAPI, never> = {
-      event: "User.Changed" as never,
+    const single: SingleSubscription = {
+      event: "User.Changed",
       handler: async () => {},
     };
 

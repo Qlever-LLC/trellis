@@ -1,8 +1,7 @@
-// @ts-nocheck
-
 import { assertEquals, assertExists } from "@std/assert";
 import { Type } from "typebox";
 import { ok } from "../../result/mod.ts";
+import type { JsonValue } from "@qlever-llc/trellis-contracts";
 import { defineContract } from "../contract.ts";
 import {
   controlSubject,
@@ -43,26 +42,26 @@ const billing = defineContract({
   },
 });
 
-const refundOperation = (billing.API.owned as { operations: Record<string, unknown> }).operations[
-  "Billing.Refund"
-] as never;
+const refundOperation = billing.API.owned.operations["Billing.Refund"];
 
 class FakeOperationTransport implements OperationTransport {
   readonly seen: Array<{ subject: string; body: unknown }> = [];
-  readonly #responses: unknown[];
+  readonly #responses: JsonValue[];
 
-  constructor(responses: unknown[]) {
+  constructor(responses: JsonValue[]) {
     this.#responses = [...responses];
   }
 
   async requestJson(subject: string, body: unknown) {
     this.seen.push({ subject, body });
-    return ok(this.#responses.shift() as never);
+    const next = this.#responses.shift();
+    if (next === undefined) throw new Error("missing fake response");
+    return ok(next);
   }
 
   async watchJson(subject: string, body: unknown) {
     this.seen.push({ subject, body });
-    const frames = this.#responses.splice(0).map((value) => ok(value as never));
+    const frames = this.#responses.splice(0).map((value) => ok(value));
     return ok((async function* () {
       for (const frame of frames) {
         yield frame;

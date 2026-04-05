@@ -1,5 +1,16 @@
 import { assertEquals, assertExists } from "@std/assert";
+import type { BaseError } from "../result/mod.ts";
+import { Result } from "../result/mod.ts";
 import { Type as T } from "typebox";
+
+function unwrapOk<T, E extends BaseError>(result: Result<T, E>, message: string): T {
+  return result.match({
+    ok: (value) => value,
+    err: () => {
+      throw new Error(message);
+    },
+  });
+}
 import { NatsTest } from "./testing/nats.ts";
 import { type TypedKV, type WatchEvent, type WatchOptions } from "./kv.ts";
 
@@ -15,14 +26,14 @@ const TestSchema = T.Object({
 async function openTestKV(
   nc: import("@nats-io/nats-core/internal").NatsConnection,
   bucketName: string,
-) {
+): Promise<TypedKV<typeof TestSchema>> {
   const { TypedKV } = await import("./kv.ts");
   const result = await TypedKV.open(nc, bucketName, TestSchema, {
     history: 5,
     ttl: 60_000,
   });
   if (result.isErr()) throw new Error("Failed to open KV");
-  return result.unwrapOr(null as never);
+  return unwrapOk(result, "Failed to open KV");
 }
 
 Deno.test("WatchEvent type shape", async (t) => {
@@ -77,7 +88,7 @@ Deno.test({
 
     const entryResult = await kv.get("watch-unsub-test");
     if (entryResult.isErr()) throw new Error("Failed to get entry");
-    const entry = entryResult.unwrapOr(null as never);
+    const entry = unwrapOk(entryResult, "Failed to get entry");
 
     // Watch should return an unsubscribe function
     const unsubscribe = await entry.watch(() => {});
@@ -97,7 +108,7 @@ Deno.test({
 
     const entryResult = await kv.get(key);
     if (entryResult.isErr()) throw new Error("Failed to get entry");
-    const entry = entryResult.unwrapOr(null as never);
+    const entry = unwrapOk(entryResult, "Failed to get entry");
 
     // Set up watch with callback that collects events
     const events: WatchEvent<typeof TestSchema>[] = [];
@@ -139,7 +150,7 @@ Deno.test({
 
     const entryResult = await kv.get(key);
     if (entryResult.isErr()) throw new Error("Failed to get entry");
-    const entry = entryResult.unwrapOr(null as never);
+    const entry = unwrapOk(entryResult, "Failed to get entry");
 
     // Set up watch with includeDeletes option
     const events: WatchEvent<typeof TestSchema>[] = [];
@@ -181,7 +192,7 @@ Deno.test({
 
     const entryResult = await kv.get(key);
     if (entryResult.isErr()) throw new Error("Failed to get entry");
-    const entry = entryResult.unwrapOr(null as never);
+    const entry = unwrapOk(entryResult, "Failed to get entry");
 
     // Set up watch
     const events: WatchEvent<typeof TestSchema>[] = [];
@@ -234,7 +245,7 @@ Deno.test({
 
     const entryResult = await kv.get(key);
     if (entryResult.isErr()) throw new Error("Failed to get entry");
-    const entry = entryResult.unwrapOr(null as never);
+    const entry = unwrapOk(entryResult, "Failed to get entry");
 
     const putResult = await kv.put(key, { name: "updated", count: 2 });
     if (putResult.isErr()) throw new Error("Failed to update entry");
@@ -250,7 +261,7 @@ Deno.test({
 
     const entryResult = await kv.get(key);
     if (entryResult.isErr()) throw new Error("Failed to get entry");
-    const entry = entryResult.unwrapOr(null as never);
+    const entry = unwrapOk(entryResult, "Failed to get entry");
 
     const deleteResult = await entry.delete(true);
     if (deleteResult.isErr()) throw deleteResult.error;

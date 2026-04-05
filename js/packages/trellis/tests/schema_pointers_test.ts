@@ -7,7 +7,7 @@ import {
 } from "../../contracts/schema_pointers.ts";
 
 Deno.test("schema pointers", async (t) => {
-  const schema = Type.Object({
+  const eventSchema = Type.Object({
     header: Type.Object({
       id: Type.String(),
       time: Type.String({ format: "date-time" }),
@@ -21,22 +21,30 @@ Deno.test("schema pointers", async (t) => {
     nullable: Type.Union([Type.String(), Type.Null()]),
   }, { additionalProperties: false });
 
+  const schemas = {
+    EventSchema: eventSchema,
+  } as const;
+
+  function schemaRef<const TName extends keyof typeof schemas & string>(schema: TName) {
+    return { schema } as const;
+  }
+
   await t.step("getSubschemaAtDataPointer returns subschema", () => {
-    const s = getSubschemaAtDataPointer(schema, "/foo") as { type?: unknown };
+    const s = getSubschemaAtDataPointer(eventSchema, "/foo") as { type?: unknown };
     assertEquals(s.type, "string");
   });
 
   await t.step("getSubschemaAtDataPointer returns undefined for missing", () => {
-    assertEquals(getSubschemaAtDataPointer(schema, "/nope"), undefined);
+    assertEquals(getSubschemaAtDataPointer(eventSchema, "/nope"), undefined);
   });
 
   await t.step("assertDataPointersExistAndAreTokenable accepts string/number/integer", () => {
-    assertDataPointersExistAndAreTokenable("Test.Event", schema, ["/foo", "/num", "/int"]);
+    assertDataPointersExistAndAreTokenable("Test.Event", eventSchema, ["/foo", "/num", "/int"]);
   });
 
   await t.step("assertDataPointersExistAndAreTokenable rejects missing pointer", () => {
     assertThrows(
-      () => assertDataPointersExistAndAreTokenable("Test.Event", schema, ["/missing"]),
+      () => assertDataPointersExistAndAreTokenable("Test.Event", eventSchema, ["/missing"]),
       Error,
       "path not found",
     );
@@ -44,7 +52,7 @@ Deno.test("schema pointers", async (t) => {
 
   await t.step("assertDataPointersExistAndAreTokenable rejects object", () => {
     assertThrows(
-      () => assertDataPointersExistAndAreTokenable("Test.Event", schema, ["/nested"]),
+      () => assertDataPointersExistAndAreTokenable("Test.Event", eventSchema, ["/nested"]),
       Error,
       "must resolve to string/number",
     );
@@ -52,7 +60,7 @@ Deno.test("schema pointers", async (t) => {
 
   await t.step("assertDataPointersExistAndAreTokenable rejects array", () => {
     assertThrows(
-      () => assertDataPointersExistAndAreTokenable("Test.Event", schema, ["/arr"]),
+      () => assertDataPointersExistAndAreTokenable("Test.Event", eventSchema, ["/arr"]),
       Error,
       "must resolve to string/number",
     );
@@ -60,7 +68,7 @@ Deno.test("schema pointers", async (t) => {
 
   await t.step("assertDataPointersExistAndAreTokenable rejects boolean", () => {
     assertThrows(
-      () => assertDataPointersExistAndAreTokenable("Test.Event", schema, ["/bool"]),
+      () => assertDataPointersExistAndAreTokenable("Test.Event", eventSchema, ["/bool"]),
       Error,
       "must resolve to string/number",
     );
@@ -68,7 +76,7 @@ Deno.test("schema pointers", async (t) => {
 
   await t.step("assertDataPointersExistAndAreTokenable rejects nullable union", () => {
     assertThrows(
-      () => assertDataPointersExistAndAreTokenable("Test.Event", schema, ["/nullable"]),
+      () => assertDataPointersExistAndAreTokenable("Test.Event", eventSchema, ["/nullable"]),
       Error,
       "must resolve to string/number",
     );
@@ -80,11 +88,12 @@ Deno.test("schema pointers", async (t) => {
       displayName: "Pointer Test",
       description: "Validate schema pointer tokenization during event emission.",
       kind: "service",
+      schemas,
       events: {
         "Test.Subject": {
           version: "v1",
           params: ["/foo"],
-          eventSchema: schema,
+          event: schemaRef("EventSchema"),
           capabilities: { publish: [], subscribe: [] },
         },
       },

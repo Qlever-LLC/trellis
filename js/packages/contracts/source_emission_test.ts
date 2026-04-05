@@ -204,15 +204,12 @@ Deno.test("defineContract validates use(...) provenance and selected keys at run
   });
 
   assertThrows(
-    () => auth.use({ rpc: { call: ["Auth.Nope" as never] } }),
+    () => auth.use({ rpc: { call: JSON.parse('["Auth.Nope"]') } }),
     Error,
     "does not expose rpc key 'Auth.Nope'",
   );
 
-  const forgedUse = {
-    contract: auth.CONTRACT_ID,
-    rpc: { call: ["Auth.Me"] },
-  } as unknown as ReturnType<typeof auth.use>;
+  const forgedUse = structuredClone(auth.use({ rpc: { call: ["Auth.Me"] } }));
 
   assertThrows(
     () =>
@@ -411,7 +408,7 @@ Deno.test("defineContract validates operation use selections at runtime", () => 
   });
 
   assertThrows(
-    () => billing.use({ operations: { call: ["Billing.Writeoff" as never] } }),
+    () => billing.use({ operations: { call: JSON.parse('["Billing.Writeoff"]') } }),
     Error,
     "does not expose operations key 'Billing.Writeoff'",
   );

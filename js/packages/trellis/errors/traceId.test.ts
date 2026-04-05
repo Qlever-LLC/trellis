@@ -4,23 +4,24 @@
  * When a Trellis RPC returns an error, the serialized error should include
  * `traceId` so clients can report it for debugging.
  */
-import { assertEquals, assertExists } from "@std/assert";
-import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
+
 import {
   InMemorySpanExporter,
   SimpleSpanProcessor,
 } from "@opentelemetry/sdk-trace-base";
-import { AuthError } from "./AuthError.ts";
-import { ValidationError } from "./ValidationError.ts";
-import { KVError } from "./KVError.ts";
-import { RemoteError } from "./RemoteError.ts";
+import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
 import { UnexpectedError } from "@qlever-llc/trellis-result";
+import { assertEquals, assertExists } from "@std/assert";
 import {
   configureErrorTraceId,
   getActiveSpan,
   getTracer,
   withSpan,
 } from "../tracing.ts";
+import { AuthError } from "./AuthError.ts";
+import { KVError } from "./KVError.ts";
+import { RemoteError } from "./RemoteError.ts";
+import { ValidationError } from "./ValidationError.ts";
 
 // Set up a real tracer provider for tests (required for spans to have valid trace IDs)
 const testExporter = new InMemorySpanExporter();
@@ -32,7 +33,11 @@ testProvider.register();
 // Configure error traceId getter before running tests
 configureErrorTraceId();
 
-Deno.test("traceId in error serialization", async (t) => {
+Deno.test({
+  name: "traceId in error serialization",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
   await t.step("AuthError includes traceId when span is active", () => {
     const tracer = getTracer();
     const span = tracer.startSpan("test-span");
@@ -206,4 +211,7 @@ Deno.test("traceId in error serialization", async (t) => {
 
     span.end();
   });
+
+  await testProvider.shutdown();
+  },
 });

@@ -1,5 +1,5 @@
-import type { NatsConnection } from "@nats-io/nats-core";
 import { assert, assertEquals, assertRejects } from "@std/assert";
+import type { Msg, NatsConnection, Subscription } from "@nats-io/nats-core";
 
 import type { ActiveJob } from "./active-job.ts";
 import type { JobsRuntimeBinding } from "./bindings.ts";
@@ -188,13 +188,74 @@ class FakeWorkMessage {
   }
 }
 
-class FakeSubscription extends AsyncQueue<{ subject: string; data: Uint8Array }> {
+class FakeSubscription extends AsyncQueue<Msg> implements Subscription {
   unsubscribed = false;
+  closed = Promise.resolve<void | Error>(undefined);
+  callback = (_err: Error | null, _msg: Msg) => {};
+
+  override push(value: { subject: string; data: Uint8Array } | Msg): void {
+    const msg: Msg = "sid" in value
+      ? value
+      : {
+        subject: value.subject,
+        data: value.data,
+        sid: 0,
+        respond: () => false,
+        json: <T>() => JSON.parse(new TextDecoder().decode(value.data)) as T,
+        string: () => new TextDecoder().decode(value.data),
+      };
+    super.push(msg);
+  }
 
   unsubscribe(): void {
     this.unsubscribed = true;
     this.close();
   }
+
+  async drain(): Promise<void> {
+    this.unsubscribe();
+  }
+
+  isDraining(): boolean {
+    return this.unsubscribed;
+  }
+
+  isClosed(): boolean {
+    return this.unsubscribed;
+  }
+
+  getSubject(): string {
+    return "";
+  }
+
+  getReceived(): number {
+    return 0;
+  }
+
+  getProcessed(): number {
+    return 0;
+  }
+
+  getPending(): number {
+    return 0;
+  }
+
+  getID(): number {
+    return 0;
+  }
+
+  getMax(): number | undefined {
+    return undefined;
+  }
+}
+
+function fakeNatsSubscriber(subscription: FakeSubscription, seen?: string[]): Pick<NatsConnection, "subscribe"> {
+  return {
+    subscribe(subject: string) {
+      seen?.push(subject);
+      return subscription;
+    },
+  };
 }
 
 Deno.test("processWorkPayload emits started and completed", async () => {
@@ -654,12 +715,7 @@ Deno.test("startNatsQueueWorker creates durable consumer and subscribes to cance
   const subscribed: string[] = [];
   const message = new FakeWorkMessage(sampleWorkPayload());
 
-  const nc = {
-    subscribe(subject: string) {
-      subscribed.push(subject);
-      return cancels;
-    },
-  } as unknown as NatsConnection;
+  const nc = fakeNatsSubscriber(cancels, subscribed);
 
   const worker = await startNatsQueueWorker({
     nats: nc,
@@ -719,7 +775,7 @@ Deno.test("startNatsQueueWorker falls back to consumer info when add fails", asy
   const infos: Array<{ stream: string; consumer: string }> = [];
 
   const worker = await startNatsQueueWorker({
-    nats: { subscribe() { return cancels; } } as unknown as NatsConnection,
+    nats: fakeNatsSubscriber(cancels),
     manager,
     binding: sampleBindings(),
     queueType: "document-process",
@@ -758,7 +814,7 @@ Deno.test("startNatsQueueWorker passes payload validation into the worker loop",
   let handled = false;
 
   const worker = await startNatsQueueWorker({
-    nats: { subscribe() { return cancels; } } as unknown as NatsConnection,
+    nats: fakeNatsSubscriber(cancels),
     manager,
     binding: sampleBindings(),
     queueType: "document-process",
@@ -824,7 +880,7 @@ Deno.test("startNatsQueueWorker passes result validation into the worker loop", 
   let handled = false;
 
   const worker = await startNatsQueueWorker({
-    nats: { subscribe() { return cancels; } } as unknown as NatsConnection,
+    nats: fakeNatsSubscriber(cancels),
     manager,
     binding: sampleBindings(),
     queueType: "document-process",
@@ -890,7 +946,7 @@ Deno.test("startNatsQueueWorker runs validator then handler on valid payload", a
   const calls: string[] = [];
 
   const worker = await startNatsQueueWorker({
-    nats: { subscribe() { return cancels; } } as unknown as NatsConnection,
+    nats: fakeNatsSubscriber(cancels),
     manager,
     binding: sampleBindings(),
     queueType: "document-process",
@@ -979,7 +1035,7 @@ Deno.test("startNatsWorkerHostFromBinding wires validator into spawned queue wor
   const validations: string[] = [];
 
   const host = await startNatsWorkerHostFromBinding(binding, {
-    nats: { subscribe() { return cancels; } } as unknown as NatsConnection,
+    nats: fakeNatsSubscriber(cancels),
     instanceId: "instance-1",
     manager,
     validatePayload: async ({ schema }: { schema?: { schema: string }; job: Job<unknown, { ok: boolean }> }) => {
@@ -1059,7 +1115,7 @@ Deno.test("startNatsWorkerHostFromBinding propagates host shutdown to in-flight 
         subscriptions.push(sub);
         return sub;
       },
-    } as unknown as NatsConnection,
+    },
     instanceId: "instance-1",
     manager,
     jsm: {
@@ -1122,7 +1178,7 @@ Deno.test("startNatsWorkerHostFromBinding stops consuming new work after shutdow
         subscriptions.push(sub);
         return sub;
       },
-    } as unknown as NatsConnection,
+    },
     instanceId: "instance-1",
     manager,
     jsm: {

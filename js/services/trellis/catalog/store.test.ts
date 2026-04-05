@@ -4,6 +4,11 @@ import { assertEquals, assertRejects } from "@std/assert";
 
 import { ContractStore } from "./store.ts";
 
+async function digestContract(contract: TrellisContractV1): Promise<string> {
+  const json: JsonValue = JSON.parse(JSON.stringify(contract));
+  return (await digestJson(json)).digest;
+}
+
 function makeContract(
   id: string,
   subject: string,
@@ -34,8 +39,8 @@ Deno.test("contract store allows multiple digests for one contract id when only 
   const store = new ContractStore();
   const contract1 = makeContract("graph@v1", "rpc.v1.Graph.Ping", "graph");
   const contract2 = makeContract("graph@v1", "rpc.v1.Graph.Ping2", "graph");
-  const digest1 = (await digestJson(contract1 as unknown as JsonValue)).digest;
-  const digest2 = (await digestJson(contract2 as unknown as JsonValue)).digest;
+  const digest1 = await digestContract(contract1);
+  const digest2 = await digestContract(contract2);
 
   store.activate(digest1, contract1);
   store.add(digest2, contract2);
@@ -49,8 +54,8 @@ Deno.test("contract store rejects two active digests for one contract id", async
   const store = new ContractStore();
   const contract1 = makeContract("graph@v1", "rpc.v1.Graph.Ping", "graph");
   const contract2 = makeContract("graph@v1", "rpc.v1.Graph.Ping2", "graph");
-  const digest1 = (await digestJson(contract1 as unknown as JsonValue)).digest;
-  const digest2 = (await digestJson(contract2 as unknown as JsonValue)).digest;
+  const digest1 = await digestContract(contract1);
+  const digest2 = await digestContract(contract2);
 
   store.activate(digest1, contract1);
   store.add(digest2, contract2);
@@ -68,8 +73,8 @@ Deno.test("contract store rejects activating duplicate subjects", async () => {
   const store = new ContractStore();
   const contract1 = makeContract("graph@v1", "rpc.v1.Shared.Ping", "graph");
   const contract2 = makeContract("other@v1", "rpc.v1.Shared.Ping", "other");
-  const digest1 = (await digestJson(contract1 as unknown as JsonValue)).digest;
-  const digest2 = (await digestJson(contract2 as unknown as JsonValue)).digest;
+  const digest1 = await digestContract(contract1);
+  const digest2 = await digestContract(contract2);
 
   store.activate(digest1, contract1);
 
@@ -86,8 +91,8 @@ Deno.test("contract store catalog includes active contracts in id order", async 
   const store = new ContractStore();
   const graph = makeContract("graph@v1", "rpc.v1.Graph.Ping", "graph");
   const auth = makeContract("auth@v1", "rpc.v1.Auth.Ping", "auth");
-  const graphDigest = (await digestJson(graph as unknown as JsonValue)).digest;
-  const authDigest = (await digestJson(auth as unknown as JsonValue)).digest;
+  const graphDigest = await digestContract(graph);
+  const authDigest = await digestContract(auth);
 
   store.activate(graphDigest, graph);
   store.activate(authDigest, auth);

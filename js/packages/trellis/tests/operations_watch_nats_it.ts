@@ -1,5 +1,3 @@
-// @ts-nocheck
-
 import { connect } from "@nats-io/transport-deno";
 import { assertEquals, assertExists } from "@std/assert";
 import { Type } from "typebox";
