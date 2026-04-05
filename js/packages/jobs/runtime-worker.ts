@@ -1,5 +1,6 @@
 import { jetstream, jetstreamManager } from "@nats-io/jetstream";
-import type { NatsConnection } from "@nats-io/nats-core";
+import type { ConsumerInfo, JsMsg } from "@nats-io/jetstream";
+import type { NatsConnection, Subscription } from "@nats-io/nats-core";
 import type { JobsQueueBinding, JobsRuntimeBinding } from "./bindings.ts";
 import { ActiveJobCancellationRegistry } from "./cancellation-registry.ts";
 import { startWorkerHeartbeatLoop } from "./heartbeat.ts";
@@ -47,7 +48,7 @@ type WorkMessageLike = {
 
 type ConsumerMessagesLike = AsyncIterable<WorkMessageLike> & {
   stop?: () => void;
-  close?: () => Promise<void> | void;
+  close?: () => Promise<void | Error> | void;
 };
 
 type WorkerConsumerLike = {
@@ -65,6 +66,35 @@ type CancelSubscriptionLike = AsyncIterable<CancelMessageLike> & {
 
 type WorkerStopHandle = { stop(): Promise<void> } | void;
 
+type ConsumerInfoLike = unknown;
+
+type StartNatsConsumerDeps = {
+  nats: Pick<NatsConnection, "subscribe">;
+  jsm: {
+    consumers: {
+      add(stream: string, config: Record<string, unknown>): Promise<ConsumerInfoLike>;
+      info(stream: string, consumer: string): Promise<ConsumerInfoLike>;
+    };
+  };
+  js: {
+    consumers: {
+      getConsumerFromInfo(info: ConsumerInfoLike): WorkerConsumerLike;
+    };
+  };
+};
+
+type StartNatsConnectionDeps = {
+  nats: NatsConnection;
+  jsm?: undefined;
+  js?: undefined;
+};
+
+type StartNatsRuntimeDeps = StartNatsConsumerDeps | StartNatsConnectionDeps;
+
+function isCustomNatsRuntimeDeps(args: StartNatsRuntimeDeps): args is StartNatsConsumerDeps {
+  return args.jsm !== undefined && args.js !== undefined;
+}
+
 type StartWorkerArgs = {
   queueType: string;
   workerIndex: number;
@@ -81,24 +111,15 @@ type StartWorkerHostOptions = {
   startWorker: (args: StartWorkerArgs) => Promise<WorkerStopHandle>;
 };
 
-type StartNatsWorkerHostOptions<TResult> = Omit<StartWorkerHostOptions, "startWorker"> & {
-  nats: NatsConnection;
-  manager: JobManager<unknown, TResult>;
-  validatePayload?: (args: PayloadValidationArgs<TResult>) => Promise<void> | void;
-  validateResult?: (args: ResultValidationArgs<TResult>) => Promise<void> | void;
-  handler: (job: ActiveJob<unknown, TResult>) => Promise<TResult>;
-  jsm?: {
-    consumers: {
-      add(stream: string, config: Record<string, unknown>): Promise<unknown>;
-      info(stream: string, consumer: string): Promise<unknown>;
-    };
+type StartNatsWorkerHostOptions<TResult> =
+  & Omit<StartWorkerHostOptions, "startWorker">
+  & StartNatsRuntimeDeps
+  & {
+    manager: JobManager<unknown, TResult>;
+    validatePayload?: (args: PayloadValidationArgs<TResult>) => Promise<void> | void;
+    validateResult?: (args: ResultValidationArgs<TResult>) => Promise<void> | void;
+    handler: (job: ActiveJob<unknown, TResult>) => Promise<TResult>;
   };
-  js?: {
-    consumers: {
-      getConsumerFromInfo(info: unknown): WorkerConsumerLike;
-    };
-  };
-};
 
 type StartQueueWorkerLoopOptions<TResult> = {
   manager: JobManager<unknown, TResult>;
@@ -113,27 +134,41 @@ type StartQueueWorkerLoopOptions<TResult> = {
   handler: (job: ActiveJob<unknown, TResult>) => Promise<TResult>;
 };
 
-type StartNatsQueueWorkerOptions<TResult> = {
-  nats: NatsConnection;
-  manager: JobManager<unknown, TResult>;
-  binding: JobsRuntimeBinding;
-  queueType: string;
-  hostCancellation?: JobCancellationToken;
-  validatePayload?: (args: PayloadValidationArgs<TResult>) => Promise<void> | void;
-  validateResult?: (args: ResultValidationArgs<TResult>) => Promise<void> | void;
-  handler: (job: ActiveJob<unknown, TResult>) => Promise<TResult>;
-  jsm?: {
-    consumers: {
-      add(stream: string, config: Record<string, unknown>): Promise<unknown>;
-      info(stream: string, consumer: string): Promise<unknown>;
-    };
+type StartNatsQueueWorkerOptions<TResult> =
+  & StartNatsRuntimeDeps
+  & {
+    manager: JobManager<unknown, TResult>;
+    binding: JobsRuntimeBinding;
+    queueType: string;
+    hostCancellation?: JobCancellationToken;
+    validatePayload?: (args: PayloadValidationArgs<TResult>) => Promise<void> | void;
+    validateResult?: (args: ResultValidationArgs<TResult>) => Promise<void> | void;
+    handler: (job: ActiveJob<unknown, TResult>) => Promise<TResult>;
   };
-  js?: {
-    consumers: {
-      getConsumerFromInfo(info: unknown): WorkerConsumerLike;
-    };
+
+function toWorkerConsumer(consumer: { consume(): Promise<AsyncIterable<JsMsg> & { stop?: () => void; close?: () => Promise<void | Error> | void }> }): WorkerConsumerLike {
+  return {
+    async consume(): Promise<ConsumerMessagesLike> {
+      const messages = await consumer.consume();
+      return {
+        stop: messages.stop?.bind(messages),
+        close: messages.close?.bind(messages),
+        async *[Symbol.asyncIterator]() {
+          for await (const msg of messages) {
+            yield {
+              data: msg.data,
+              subject: msg.subject,
+              info: { redeliveryCount: msg.info.pending },
+              ack: msg.ack.bind(msg),
+              nak: msg.nak.bind(msg),
+              inProgress: msg.working.bind(msg),
+            };
+          }
+        },
+      };
+    },
   };
-};
+}
 
 export async function processWorkPayload<TResult>(
   manager: JobManager<unknown, TResult>,
@@ -370,17 +405,23 @@ export async function startNatsQueueWorker<TResult>(
   options: StartNatsQueueWorkerOptions<TResult>,
 ): Promise<{ stop(): Promise<void> }> {
   const queue = getQueueBinding(options.binding, options.queueType);
-  const jsm = options.jsm ?? await jetstreamManager(options.nats);
-  const js = options.js ?? {
-    consumers: {
-      getConsumerFromInfo(info: unknown) {
-        return jetstream(options.nats).consumers.getConsumerFromInfo(info as never) as unknown as WorkerConsumerLike;
+  const jsm = isCustomNatsRuntimeDeps(options)
+    ? options.jsm
+    : await jetstreamManager(options.nats);
+  const js = isCustomNatsRuntimeDeps(options)
+    ? options.js
+    : {
+      consumers: {
+        getConsumerFromInfo(info: ConsumerInfoLike) {
+          return toWorkerConsumer(
+            jetstream(options.nats).consumers.getConsumerFromInfo(info as ConsumerInfo),
+          );
+        },
       },
-    },
-  };
+    };
   const info = await ensureConsumerInfo(jsm, options.binding.workStream, queue);
-  const consumer = js.consumers.getConsumerFromInfo(info) as WorkerConsumerLike;
-  const cancelSubscription = options.nats.subscribe(`${queue.publishPrefix}.*.cancelled`) as unknown as CancelSubscriptionLike;
+  const consumer = js.consumers.getConsumerFromInfo(info);
+  const cancelSubscription = options.nats.subscribe(`${queue.publishPrefix}.*.cancelled`) as Subscription as CancelSubscriptionLike;
 
   return await startQueueWorkerLoop({
     manager: options.manager,
@@ -466,31 +507,33 @@ export async function startNatsWorkerHostFromBinding<TResult>(
     heartbeatIntervalMs: options.heartbeatIntervalMs,
     version: options.version,
     nowIso: options.nowIso,
-    startWorker: async ({ queueType, cancellation }) => await startNatsQueueWorker({
-      nats: options.nats,
-      manager: options.manager,
-      binding,
-      queueType,
-      hostCancellation: cancellation,
-      validatePayload: options.validatePayload,
-      validateResult: options.validateResult,
-      handler: options.handler,
-      jsm: options.jsm,
-      js: options.js,
-    }),
+    startWorker: async ({ queueType, cancellation }) => {
+      const common = {
+        manager: options.manager,
+        binding,
+        queueType,
+        hostCancellation: cancellation,
+        validatePayload: options.validatePayload,
+        validateResult: options.validateResult,
+        handler: options.handler,
+      };
+      return await (isCustomNatsRuntimeDeps(options)
+        ? startNatsQueueWorker({ ...common, nats: options.nats, jsm: options.jsm, js: options.js })
+        : startNatsQueueWorker({ ...common, nats: options.nats }));
+    },
   });
 }
 
 async function ensureConsumerInfo(
   jsm: {
     consumers: {
-      add(stream: string, config: Record<string, unknown>): Promise<unknown>;
-      info(stream: string, consumer: string): Promise<unknown>;
+      add(stream: string, config: Record<string, unknown>): Promise<ConsumerInfoLike>;
+      info(stream: string, consumer: string): Promise<ConsumerInfoLike>;
     };
   },
   stream: string,
   queue: JobsQueueBinding,
-): Promise<unknown> {
+): Promise<ConsumerInfoLike> {
   const config = {
     durable_name: queue.consumerName,
     ack_policy: "explicit",

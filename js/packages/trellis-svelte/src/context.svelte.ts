@@ -1,17 +1,14 @@
 import type { NatsConnection } from "@nats-io/nats-core";
 import type { Trellis } from "@qlever-llc/trellis";
 import type { InferSchemaType, TrellisAPI } from "@qlever-llc/trellis-contracts";
-import { getContext, setContext } from "svelte";
+import { createContext } from "svelte";
 import type { AuthState } from "./state/auth.svelte.ts";
 import type { NatsState } from "./state/nats.svelte.ts";
 
-const TRELLIS_KEY = Symbol("trellis");
-const NATS_KEY = Symbol("nats");
-const NATS_STATE_KEY = Symbol("nats-state");
-const AUTH_KEY = Symbol("auth");
+type AnyTrellis = Trellis<TrellisAPI>;
 
 type TrellisContext = {
-  trellis: Promise<unknown>;
+  trellis: Promise<AnyTrellis>;
   nats: Promise<NatsConnection>;
 };
 
@@ -44,41 +41,47 @@ type TypedTrellis<TA extends TrellisAPI> =
   & Omit<Trellis<TA>, "requestOrThrow">
   & TypedRequestSurface<TA>;
 
+const [getTrellisContext, setTrellisContextValue] = createContext<TrellisContext>();
+const [getNatsStateContext, setNatsStateContextValue] = createContext<Promise<NatsState>>();
+const [getAuthContext, setAuthContextValue] = createContext<AuthState>();
+
 export function setTrellisContext<TA extends TrellisAPI>(
   ctx: { trellis: Promise<Trellis<TA>>; nats: Promise<NatsConnection> },
 ): void {
-  setContext(TRELLIS_KEY, ctx.trellis as unknown as Promise<unknown>);
-  setContext(NATS_KEY, ctx.nats);
+  setTrellisContextValue({
+    trellis: ctx.trellis as Promise<AnyTrellis>,
+    nats: ctx.nats,
+  });
 }
 
 export function setNatsStateContext(natsState: Promise<NatsState>): void {
-  setContext(NATS_STATE_KEY, natsState);
+  setNatsStateContextValue(natsState);
 }
 
 export function setAuthContext(auth: AuthState): void {
-  setContext(AUTH_KEY, auth);
+  setAuthContextValue(auth);
 }
 
 export function getTrellis<TA extends TrellisAPI = TrellisAPI>(): Promise<Trellis<TA>> {
-  return getContext<Promise<unknown>>(TRELLIS_KEY) as Promise<Trellis<TA>>;
+  return getTrellisContext().trellis as Promise<Trellis<TA>>;
 }
 
 export function getTrellisFor<TContract extends TrellisContractLike>(
   _contract: TContract,
 ): Promise<TypedTrellis<TContract["API"]["trellis"]>> {
-  return getTrellis<TContract["API"]["trellis"]>() as unknown as Promise<
+  return getTrellis<TContract["API"]["trellis"]>() as Promise<
     TypedTrellis<TContract["API"]["trellis"]>
   >;
 }
 
 export function getNats(): Promise<NatsConnection> {
-  return getContext<Promise<NatsConnection>>(NATS_KEY);
+  return getTrellisContext().nats;
 }
 
 export function getNatsState(): Promise<NatsState> {
-  return getContext<Promise<NatsState>>(NATS_STATE_KEY);
+  return getNatsStateContext();
 }
 
 export function getAuth(): AuthState {
-  return getContext<AuthState>(AUTH_KEY);
+  return getAuthContext();
 }

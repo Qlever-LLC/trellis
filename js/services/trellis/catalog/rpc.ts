@@ -30,6 +30,39 @@ import {
 import { ContractStore } from "./store.ts";
 import { resolveContractUsesFromStore } from "./uses.ts";
 
+function toOpenSchemaValue(value: NonNullable<TrellisContractV1["schemas"]>[string]): boolean | Record<string, unknown> {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Contract schemas must be objects or booleans");
+  }
+  return value;
+}
+
+function toRpcContract(contract: TrellisContractV1): TrellisContractGetResponse["contract"] {
+  return {
+    format: contract.format,
+    id: contract.id,
+    displayName: contract.displayName,
+    description: contract.description,
+    kind: contract.kind,
+    ...(contract.schemas
+      ? {
+        schemas: Object.fromEntries(
+          Object.entries(contract.schemas).map(([name, value]) => [name, toOpenSchemaValue(value)]),
+        ),
+      }
+      : {}),
+    ...(contract.uses ? { uses: contract.uses } : {}),
+    ...(contract.rpc ? { rpc: contract.rpc } : {}),
+    ...(contract.events ? { events: contract.events } : {}),
+    ...(contract.subjects ? { subjects: contract.subjects } : {}),
+    ...(contract.errors ? { errors: contract.errors } : {}),
+    ...(contract.resources ? { resources: contract.resources } : {}),
+  };
+}
+
 type ServiceContext = {
   user: { origin: string; id: string };
   sessionKey: string;
@@ -507,7 +540,7 @@ export function createTrellisContractGetHandler(contractStore: ContractStore) {
       );
     }
     return Result.ok({
-      contract: contract as unknown as TrellisContractGetResponse["contract"],
+      contract: toRpcContract(contract),
     });
   };
 }

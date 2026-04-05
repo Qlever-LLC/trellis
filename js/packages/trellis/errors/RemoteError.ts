@@ -1,10 +1,10 @@
-import { Result, UnexpectedError } from "@qlever-llc/trellis-result";
+import { Result, type UnexpectedError } from "@qlever-llc/trellis-result";
 import Type, { type Static } from "typebox";
 import { ParseError, Value } from "typebox/value";
-import { ValidationError } from "./ValidationError.ts";
-import { TrellisError } from "./TrellisError.ts";
 import type { TrellisErrorData } from "../models/trellis/TrellisError.ts";
 import { TrellisErrorDataSchema } from "../models/trellis/TrellisError.ts";
+import { TrellisError } from "./TrellisError.ts";
+import { ValidationError } from "./ValidationError.ts";
 
 export const RemoteErrorDataSchema = Type.Object({
   id: Type.String(),
@@ -62,7 +62,7 @@ export class RemoteError extends TrellisError<RemoteErrorData> {
     return Result.try(() =>
       typeof data === "string" ? JSON.parse(data) : data,
     ).andThen(
-      (obj): Result<TrellisErrorData, ValidationError | UnexpectedError> => {
+      (obj: unknown): Result<TrellisErrorData, ValidationError | UnexpectedError> => {
         const parseResult = Result.try(() =>
           Value.Parse(TrellisErrorDataSchema, obj),
         );

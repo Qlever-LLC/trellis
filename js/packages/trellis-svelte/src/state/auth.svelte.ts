@@ -13,6 +13,7 @@ import {
 } from "@qlever-llc/trellis-auth";
 import { Result } from "@qlever-llc/trellis-result";
 import { SvelteDate } from "svelte/reactivity";
+import type { TrellisContractV1 } from "@qlever-llc/trellis-contracts";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 
@@ -23,14 +24,6 @@ export type BindErrorResult =
   | { status: "error"; message: string };
 
 export type BindResult = { status: "bound" } | BindErrorResult;
-
-const buildLoginHref = buildLoginUrl as unknown as (
-  config: { authUrl: string },
-  provider: string | undefined,
-  redirectTo: string,
-  handle: SessionKeyHandle,
-  contract: Record<string, unknown>,
-) => Promise<string>;
 
 const STORAGE_KEY = "trellis_auth";
 
@@ -106,7 +99,7 @@ function clearPersistedAuth(): void {
 export type AuthStateConfig = {
   authUrl: string; // https://auth.example.com
   loginPath?: string;
-  contract?: { CONTRACT: Record<string, unknown> };
+  contract?: { CONTRACT: TrellisContractV1 };
 };
 
 /**
@@ -190,7 +183,7 @@ export class AuthState {
    */
   async signIn(provider: string | undefined, redirectTo: string): Promise<never> {
     const handle = await this.init();
-    const url = await buildLoginHref(
+    const url = await buildLoginUrl(
       { authUrl: this.#config.authUrl },
       provider,
       redirectTo,

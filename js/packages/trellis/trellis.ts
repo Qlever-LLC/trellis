@@ -1,5 +1,3 @@
-// @ts-nocheck
-
 import {
   type Consumer,
   type JetStreamClient,
@@ -156,9 +154,11 @@ export type TrellisAuth = {
 };
 
 type AnyTrellisAPI = TrellisAPI;
-type MethodsOf<TA extends AnyTrellisAPI> = keyof TA["rpc"] & string;
-type OperationsOf<TA extends AnyTrellisAPI> = keyof TA["operations"] & string;
-type EventsOf<TA extends AnyTrellisAPI> = keyof TA["events"] & string;
+type TrellisMode = "client" | "server";
+type NonNever<T> = [T] extends [never] ? string : T;
+type MethodsOf<TA extends AnyTrellisAPI> = NonNever<keyof TA["rpc"] & string>;
+type OperationsOf<TA extends AnyTrellisAPI> = NonNever<keyof TA["operations"] & string>;
+type EventsOf<TA extends AnyTrellisAPI> = NonNever<keyof TA["events"] & string>;
 type MethodInputOf<TA extends AnyTrellisAPI, M extends MethodsOf<TA>> =
   InferSchemaType<TA["rpc"][M]["input"]>;
 type MethodOutputOf<TA extends AnyTrellisAPI, M extends MethodsOf<TA>> =
@@ -171,6 +171,34 @@ type EventPayloadOf<TA extends AnyTrellisAPI, E extends EventsOf<TA>> = Omit<
 >;
 type OperationInputOf<TA extends AnyTrellisAPI, O extends OperationsOf<TA>> =
   InferSchemaType<TA["operations"][O]["input"]>;
+export type OperationRuntimeHandle = {
+  id: string;
+  started(): Promise<Result<RuntimeOperationSnapshot, UnexpectedError>>;
+  progress(value: unknown): Promise<Result<RuntimeOperationSnapshot, UnexpectedError>>;
+  complete(value: unknown): Promise<Result<RuntimeOperationSnapshot, UnexpectedError>>;
+  fail(error: BaseError): Promise<Result<RuntimeOperationSnapshot, UnexpectedError>>;
+  cancel(): Promise<Result<RuntimeOperationSnapshot, UnexpectedError>>;
+  attach(job: { wait(): Promise<Result<unknown, BaseError>> }): Promise<Result<RuntimeOperationSnapshot, UnexpectedError>>;
+};
+export type OperationHandlerContext<TInput> = {
+  input: TInput;
+  op: OperationRuntimeHandle;
+  caller: SessionUser;
+};
+export type OperationRegistration<TInput> = {
+  handle(
+    handler: (context: OperationHandlerContext<TInput>) => unknown | Promise<unknown>,
+  ): Promise<void>;
+};
+export type OperationSurface<
+  TA extends AnyTrellisAPI,
+  TMode extends TrellisMode,
+  O extends OperationsOf<TA>,
+> = TMode extends "server" ? OperationRegistration<OperationInputOf<TA, O>> : OperationInvoker<TA["operations"][O] & RuntimeOperationDesc>;
+
+function isResultLike(value: unknown): value is Result<unknown, BaseError> {
+  return value instanceof Result;
+}
 type RuntimeOperationDesc = {
   subject: string;
   input: unknown;
@@ -359,13 +387,13 @@ type AuthCacheEntry = {
   expires: number;
 };
 
-export class Trellis<TA extends AnyTrellisAPI = typeof trellisCoreApi> {
+export class Trellis<TA extends AnyTrellisAPI = TrellisAPI, TMode extends TrellisMode = "client"> {
   readonly name: string;
   readonly timeout: number;
   readonly stream: string;
 
-  private nats: NatsConnection;
-  private js: JetStreamClient;
+  protected nats: NatsConnection;
+  protected js: JetStreamClient;
   protected auth: TrellisAuth;
   readonly api: TA;
   #log: Logger;
@@ -385,7 +413,7 @@ export class Trellis<TA extends AnyTrellisAPI = typeof trellisCoreApi> {
     this.nats = nats;
     this.js = jetstream(this.nats);
     this.auth = auth as TrellisAuth;
-    this.api = (opts?.api ?? (trellisCoreApi as unknown as TA)) as TA;
+    this.api = (opts?.api ?? trellisCoreApi.trellis) as TA;
     this.#log = (opts?.log ?? logger).child({ lib: "trellis" });
     this.timeout = opts?.timeout ?? 3000;
     this.stream = opts?.stream ?? "trellis";
@@ -461,9 +489,6 @@ export class Trellis<TA extends AnyTrellisAPI = typeof trellisCoreApi> {
    *              ok: A validated reponse of method M
    *              err: RemoteError | ValidationError | UnexpectedError
    */
-  // TypeScript hits recursion limits on this generic surface under the app's Svelte check.
-  // The implementation still builds and is exercised by runtime validation below.
-  // @ts-expect-error
   async request<M extends MethodsOf<TA>>(
     method: M,
     input: MethodInputOf<TA, M>,
@@ -661,12 +686,12 @@ export class Trellis<TA extends AnyTrellisAPI = typeof trellisCoreApi> {
       throw value.error;
     }
 
-    return value;
+    return value as MethodOutputOf<TA, M>;
   }
 
   operation<O extends OperationsOf<TA>>(
     operation: O,
-  ): OperationInvoker<TA["operations"][O] & RuntimeOperationDesc> {
+  ): OperationSurface<TA, TMode, O> {
     const descriptor = this.api["operations"]?.[operation];
     if (!descriptor) {
       throw new Error(
@@ -682,7 +707,7 @@ export class Trellis<TA extends AnyTrellisAPI = typeof trellisCoreApi> {
     return new OperationInvoker(
       transport,
       descriptor as TA["operations"][O] & RuntimeOperationDesc,
-    );
+    ) as OperationSurface<TA, TMode, O>;
   }
 
   /*
@@ -739,7 +764,7 @@ export class Trellis<TA extends AnyTrellisAPI = typeof trellisCoreApi> {
     // Extract trace context from incoming NATS headers
     const parentContext = extractTraceContext(
       createNatsHeaderCarrier({
-        get: (k) => msg.headers?.get(k) ?? undefined,
+        get: (k: string) => msg.headers?.get(k) ?? undefined,
         set: () => {}, // Server doesn't need to set headers on incoming messages
       }),
     );
@@ -855,7 +880,7 @@ export class Trellis<TA extends AnyTrellisAPI = typeof trellisCoreApi> {
             subject: msg.subject,
             payloadHash: base64urlEncode(payloadHash),
             capabilities: ctx.callerCapabilities,
-          } as unknown as MethodInputOf<TA, "Auth.ValidateRequest">);
+          } as MethodInputOf<TA, "Auth.ValidateRequest">);
           const auth = authResult.take();
           if (isErr(auth)) {
             this.#log.warn(
@@ -1289,7 +1314,7 @@ type TrellisServerOpts<TA extends AnyTrellisAPI> =
   };
 
 export class TrellisServer<TA extends AnyTrellisAPI = AnyTrellisAPI>
-  extends Trellis<TA> {
+  extends Trellis<TA, "server"> {
   #version?: string;
   #log: Logger;
   #operations = new Map<string, RuntimeOperationRecord>();
@@ -1430,7 +1455,7 @@ export class TrellisServer<TA extends AnyTrellisAPI = AnyTrellisAPI>
     return new TrellisServer<TA>(name, nats, auth, opts);
   }
 
-  operation<O extends OperationsOf<TA>>(operation: O) {
+  override operation<O extends OperationsOf<TA>>(operation: O): OperationRegistration<OperationInputOf<TA, O>> {
     const ctx = this.api["operations"]?.[operation];
     if (!ctx) {
       throw new Error(
@@ -1439,7 +1464,9 @@ export class TrellisServer<TA extends AnyTrellisAPI = AnyTrellisAPI>
     }
 
     return {
-      handle: async (handler: (context: unknown) => Promise<unknown>) => {
+      handle: async (
+        handler: (context: OperationHandlerContext<OperationInputOf<TA, O>>) => unknown | Promise<unknown>,
+      ) => {
         const startSubject = ctx.subject;
         const controlSubject = `${ctx.subject}.control`;
         const now = () => new Date().toISOString();
@@ -1577,7 +1604,7 @@ export class TrellisServer<TA extends AnyTrellisAPI = AnyTrellisAPI>
               const waited = await job.wait();
               const waitedValue = waited.take();
               if (isErr(waitedValue)) {
-                return waitedValue;
+                return err(new UnexpectedError({ cause: waitedValue.error }));
               }
 
               const finalRuntime = await this.#resolveOperation(runtime.id);
@@ -1596,7 +1623,7 @@ export class TrellisServer<TA extends AnyTrellisAPI = AnyTrellisAPI>
 
         const authenticate = async (msg: Msg, parseInput = true): Promise<
           Result<{
-            input?: unknown;
+            input: OperationInputOf<TA, O>;
             user: SessionUser;
             sessionKey: string;
             auth: { user: SessionUser; inboxPrefix: string };
@@ -1605,12 +1632,14 @@ export class TrellisServer<TA extends AnyTrellisAPI = AnyTrellisAPI>
           const jsonData = safeJson(msg).take();
           if (isErr(jsonData)) return jsonData;
 
-          const parsedInput = parseInput
-            ? parseSchema(ctx.input, jsonData).take()
-            : jsonData;
-          if (parseInput && isErr(parsedInput)) {
-            return parsedInput;
+          const parsedInputResult = parseInput
+            ? parseSchema(ctx.input, jsonData)
+            : ok(jsonData);
+          const parsedInputValue = parsedInputResult.take();
+          if (isErr(parsedInputValue)) {
+            return err(parsedInputValue.error as ValidationError | UnexpectedError);
           }
+          const parsedInput = parsedInputValue as OperationInputOf<TA, O>;
 
           const sessionKey = msg.headers?.get("session-key");
           const proof = msg.headers?.get("proof");
@@ -1648,7 +1677,7 @@ export class TrellisServer<TA extends AnyTrellisAPI = AnyTrellisAPI>
           }
 
           const authDescriptor = this.api["rpc"]?.["Auth.ValidateRequest"];
-          let auth;
+          let auth: { user: SessionUser; inboxPrefix: string };
           if (authDescriptor) {
             const authResult = await this.request("Auth.ValidateRequest", {
               sessionKey,
@@ -1656,11 +1685,14 @@ export class TrellisServer<TA extends AnyTrellisAPI = AnyTrellisAPI>
               subject: msg.subject,
               payloadHash: base64urlEncode(payloadHash),
               capabilities: ctx.callerCapabilities,
-            } as never);
-            auth = authResult.take();
-            if (isErr(auth)) {
-              return auth;
+            } as MethodInputOf<TA, "Auth.ValidateRequest">);
+            const authValue = authResult.take();
+            if (isErr(authValue)) {
+              return err(
+                authValue.error as RemoteError | ValidationError | UnexpectedError | AuthError,
+              );
             }
+            auth = authValue as { user: SessionUser; inboxPrefix: string };
           } else {
             auth = {
               user: {
@@ -1749,12 +1781,12 @@ export class TrellisServer<TA extends AnyTrellisAPI = AnyTrellisAPI>
             void (async () => {
               const op = makeOperation(runtime);
               try {
-                const handlerResult = await handler({
+                const handlerResult: unknown = await handler({
                   input: value.input,
                   op,
                   caller: value.user,
                 });
-                const handlerOutcome = handlerResult && typeof handlerResult.take === "function"
+                const handlerOutcome = isResultLike(handlerResult)
                   ? handlerResult.take()
                   : handlerResult;
                 if (isErr(handlerOutcome)) {
@@ -1830,7 +1862,7 @@ export class TrellisServer<TA extends AnyTrellisAPI = AnyTrellisAPI>
               this.respondWithError(
                 msg,
                 new AuthError({
-                  reason: "operation_owner_mismatch",
+                  reason: "forbidden",
                   context: { ownerSessionKey },
                 }),
               );

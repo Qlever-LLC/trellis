@@ -1,5 +1,11 @@
 import type { NatsConnection } from "@nats-io/nats-core";
-import { type KVError, Trellis, TrellisServer, TypedKV } from "@qlever-llc/trellis";
+import {
+  type KVError,
+  type OperationRegistration,
+  Trellis,
+  TrellisServer,
+  TypedKV,
+} from "@qlever-llc/trellis";
 import { createAuth, type TrellisAuth as SessionAuth } from "@qlever-llc/trellis-auth";
 import type { InferSchemaType, TrellisAPI } from "@qlever-llc/trellis-contracts";
 import { isErr, type Result } from "@qlever-llc/trellis-result";
@@ -7,6 +13,17 @@ import type { Logger } from "pino";
 import type { TSchema } from "typebox";
 import type { HealthCheckFn } from "./health.ts";
 import { mountStandardHealthRpc } from "./health_rpc.ts";
+import type { RPCDesc } from "@qlever-llc/trellis-contracts";
+import {
+  TrellisBindingsGetRequestSchema,
+  TrellisBindingsGetResponseSchema,
+  type TrellisBindingsGetResponse,
+} from "../trellis/models/trellis/rpc/TrellisBindingsGet.ts";
+import {
+  TrellisCatalogRequestSchema,
+  TrellisCatalogResponseSchema,
+  type TrellisCatalogResponse,
+} from "../trellis/models/trellis/rpc/TrellisCatalog.ts";
 import type {
   NatsConnectFn,
   NatsConnectOpts,
@@ -21,6 +38,16 @@ type ExtraNatsConnectOpts = Omit<
 type RpcMethodName<TA extends TrellisAPI> = keyof TA["rpc"] & string;
 type RpcMethodInput<TA extends TrellisAPI, M extends RpcMethodName<TA>> = InferSchemaType<TA["rpc"][M]["input"]>;
 type RpcMethodOutput<TA extends TrellisAPI, M extends RpcMethodName<TA>> = InferSchemaType<TA["rpc"][M]["output"]>;
+
+type BootstrapTrellisApi = {
+  rpc: {
+    "Trellis.Catalog": RPCDesc<typeof TrellisCatalogRequestSchema, typeof TrellisCatalogResponseSchema>;
+    "Trellis.Bindings.Get": RPCDesc<typeof TrellisBindingsGetRequestSchema, typeof TrellisBindingsGetResponseSchema>;
+  };
+  operations: {};
+  events: {};
+  subjects: {};
+};
 type TrellisServerCreateOpts<
   TOwnedApi extends TrellisAPI,
   TTrellisApi extends TrellisAPI = TOwnedApi,
@@ -171,7 +198,7 @@ export type ServiceTrellis<
   TTrellisApi extends TrellisAPI,
 > =
   & Omit<Trellis<TTrellisApi>, "mount">
-  & Pick<TrellisServer<TOwnedApi>, "mount">;
+  & Pick<TrellisServer<TOwnedApi & TTrellisApi>, "mount">;
 
 type RequestOpts = {
   timeout?: number;
@@ -196,15 +223,8 @@ export class TrellisService<
   readonly name: string;
   readonly auth: SessionAuth;
   readonly nc: NatsConnection;
-  readonly server: TrellisServer<TOwnedApi>;
-  readonly operations: {
-    get: (operationId: string) => Promise<unknown>;
-    started: (operationId: string) => Promise<unknown>;
-    progress: (operationId: string, progress: unknown) => Promise<unknown>;
-    complete: (operationId: string, output: unknown) => Promise<unknown>;
-    fail: (operationId: string, error: Error) => Promise<unknown>;
-    cancel: (operationId: string) => Promise<unknown>;
-  };
+  readonly server: TrellisServer<TOwnedApi & TTrellisApi>;
+  readonly operations: TrellisServer<TOwnedApi & TTrellisApi>["operations"];
   readonly trellis: ServiceTrellis<TOwnedApi, TTrellisApi>;
   readonly kv: Record<string, KVHandle>;
   readonly streams: Record<string, ResourceBindingStream>;
@@ -214,7 +234,7 @@ export class TrellisService<
     name: string,
     auth: SessionAuth,
     nc: NatsConnection,
-    server: TrellisServer<TOwnedApi>,
+    server: TrellisServer<TOwnedApi & TTrellisApi>,
     trellis: ServiceTrellis<TOwnedApi, TTrellisApi>,
     bindings: ResourceBindings,
   ) {
@@ -222,9 +242,7 @@ export class TrellisService<
     this.auth = auth;
     this.nc = nc;
     this.server = server;
-    this.operations = (server as unknown as {
-      operations: TrellisService<TOwnedApi, TTrellisApi>["operations"];
-    }).operations;
+    this.operations = server.operations;
     this.trellis = trellis;
     this.kv = Object.fromEntries(
       Object.entries(bindings.kv).map(([alias, binding]) => [alias, new KVHandle(nc, binding)]),
@@ -320,11 +338,9 @@ export class TrellisService<
       },
     );
 
-    const trellis = Object.assign(outbound, {
-      mount: server.mount.bind(server) as TrellisServer<TOwnedApi>[
-        "mount"
-      ],
-    }) as unknown as ServiceTrellis<TOwnedApi, TTrellisApi>;
+    const trellis: ServiceTrellis<TOwnedApi, TTrellisApi> = Object.assign(outbound, {
+      mount: server.mount.bind(server),
+    });
 
     await mountStandardHealthRpc(server, {
       checks: opts.server.healthChecks,
@@ -333,10 +349,8 @@ export class TrellisService<
     let bindings: ResourceBindings = { kv: {}, streams: {} };
 
     if (opts.contractId && opts.contractDigest) {
-      const catalogResult = await trellis.request(
-        "Trellis.Catalog" as any,
-        {} as any,
-      );
+      const bootstrapRequest = trellis.request.bind(trellis) as Pick<Trellis<BootstrapTrellisApi>, "request">["request"];
+      const catalogResult = await bootstrapRequest("Trellis.Catalog", {});
       const catalogValue = catalogResult.take();
       if (isErr(catalogValue)) {
         throw bootstrapContractStateError({
@@ -344,14 +358,12 @@ export class TrellisService<
           contractId: opts.contractId,
           contractDigest: opts.contractDigest,
           step: "catalog lookup",
-          cause: (catalogValue as any).error,
+          cause: catalogValue.error,
         });
       }
-      const catalog = catalogValue as {
-        catalog: { contracts: Array<{ digest: string }> };
-      };
+      const catalog: TrellisCatalogResponse = catalogValue;
       const isActive = catalog.catalog.contracts.some(
-        (c) => c.digest === opts.contractDigest,
+        (c: { digest: string }) => c.digest === opts.contractDigest,
       );
       if (!isActive) {
         throw new Error(
@@ -359,9 +371,9 @@ export class TrellisService<
         );
       }
 
-      const bindingsResult = await trellis.request(
-        "Trellis.Bindings.Get" as any,
-        { contractId: opts.contractId } as any,
+      const bindingsResult = await bootstrapRequest(
+        "Trellis.Bindings.Get",
+        { contractId: opts.contractId },
       );
       const bindingsValue = bindingsResult.take();
       if (isErr(bindingsValue)) {
@@ -370,20 +382,10 @@ export class TrellisService<
           contractId: opts.contractId,
           contractDigest: opts.contractDigest,
           step: "bindings lookup",
-          cause: (bindingsValue as any).error,
+          cause: bindingsValue.error,
         });
       }
-      const resolved = bindingsValue as {
-        binding?: {
-          contractId?: string;
-          digest?: string;
-            resources?: {
-              kv?: Record<string, ResourceBindingKV>;
-              streams?: Record<string, ResourceBindingStream>;
-              jobs?: ResourceBindingJobs;
-            };
-          };
-      };
+      const resolved: TrellisBindingsGetResponse = bindingsValue;
       if (!resolved.binding) {
         throw bootstrapContractStateError({
           serviceName: name,
@@ -414,7 +416,7 @@ export class TrellisService<
       name,
       auth,
       nc,
-      server as unknown as TrellisServer<TOwnedApi>,
+      server,
       trellis,
       bindings,
     );
@@ -437,13 +439,13 @@ export class TrellisService<
     input: RpcMethodInput<TTrellisApi, M>,
     opts?: RequestOpts,
   ): Promise<RpcMethodOutput<TTrellisApi, M>> {
-    return (this.trellis as unknown as {
-      requestOrThrow(method: string, input: unknown, opts?: RequestOpts): Promise<unknown>;
-    }).requestOrThrow(method, input, opts) as Promise<RpcMethodOutput<TTrellisApi, M>>;
+    return this.trellis.requestOrThrow(method, input, opts);
   }
 
-  operation(operation: string) {
-    return (this.server as any).operation(operation);
+  operation<O extends keyof (TOwnedApi & TTrellisApi)["operations"] & string>(
+    operation: O,
+  ): OperationRegistration<InferSchemaType<(TOwnedApi & TTrellisApi)["operations"][O]["input"]>> {
+    return this.server.operation(operation);
   }
 }
 

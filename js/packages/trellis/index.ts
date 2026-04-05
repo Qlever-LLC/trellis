@@ -25,5 +25,10 @@ export {
   OperationInvoker,
   OperationRef,
 } from "./operations.ts";
-export type { TrellisAuth, TrellisSigner } from "./trellis.ts";
+export type {
+  OperationHandlerContext,
+  OperationRegistration,
+  TrellisAuth,
+  TrellisSigner,
+} from "./trellis.ts";
 export { Trellis, TrellisServer } from "./trellis.ts";

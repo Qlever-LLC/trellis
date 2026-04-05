@@ -13,11 +13,7 @@
     | { status: "approval_required" | "approval_denied"; approval: unknown }
     | { status: "insufficient_capabilities"; missingCapabilities: string[] };
 
-  const auth = createAuthState({ authUrl: APP_CONFIG.authUrl, loginPath: "/login", contract: activityApp } as never) as unknown as {
-    init(): Promise<unknown>;
-    handleCallback(url?: string): Promise<CallbackResult | null>;
-    cleanupCallbackUrl(url?: string): void;
-  };
+  const auth = createAuthState({ authUrl: APP_CONFIG.authUrl, loginPath: "/login", contract: activityApp });
 
   let status = $state("Finalizing sign-in...");
   let authError = $state<string | null>(null);

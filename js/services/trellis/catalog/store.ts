@@ -22,6 +22,10 @@ function assertObject(
   }
 }
 
+function assertValidContractValue(value: JsonValue): asserts value is TrellisContractV1 {
+  void value;
+}
+
 function normalizeContract(contract: TrellisContractV1): TrellisContractV1 {
   return {
     format: contract.format,
@@ -243,7 +247,8 @@ export class ContractStore {
       throw new Error(`Invalid contract:\n${msg}`);
     }
 
-    const contract = normalizeContract(raw as unknown as TrellisContractV1);
+    assertValidContractValue(raw);
+    const contract = normalizeContract(raw);
     validateSchemaRefs(contract);
     const { digest, canonical } = await digestJson(raw as JsonValue);
 

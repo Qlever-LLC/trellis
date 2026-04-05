@@ -35,7 +35,7 @@ export class JobsBindingError extends Error {
   }
 }
 
-export function parseJobsBinding(binding: ResourceBindingJobs): JobsBinding {
+export function parseJobsBinding(binding: Pick<ResourceBindingJobs, "namespace"> & { queues: Record<string, unknown> }): JobsBinding {
   const queues = Object.fromEntries(
     Object.entries(binding.queues).map(([queueType, queue]) => [
       queueType,

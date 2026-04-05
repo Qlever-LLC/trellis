@@ -24,7 +24,8 @@ export type ClientOpts = {
 
 type ClientContract<TApi> = {
   API: {
-    trellis: TApi;
+    owned?: TApi;
+    trellis?: TApi;
   };
 };
 
@@ -37,6 +38,11 @@ export function createClient<TApi extends TrellisAPI>(
   auth: TrellisAuth,
   opts?: ClientOpts,
 ): Trellis<TApi> {
+  const api = contract.API.owned ?? contract.API.trellis;
+  if (!api) {
+    throw new Error("Contract is missing an owned or trellis API view");
+  }
+
   return new Trellis<TApi>(
     opts?.name ?? "client",
     nats,
@@ -46,7 +52,7 @@ export function createClient<TApi extends TrellisAPI>(
       timeout: opts?.timeout,
       stream: opts?.stream,
       noResponderRetry: opts?.noResponderRetry,
-      api: contract.API.trellis,
+      api,
     },
   );
 }

@@ -242,7 +242,7 @@ function buildStreamName(
 }
 
 export async function provisionContractResourceBindings(
-  nats: NatsConnection,
+  nats: NatsConnection | undefined,
   contract: TrellisContractV1,
   serviceSessionKey: string,
 ): Promise<ContractResourceBindings> {
@@ -256,6 +256,9 @@ export async function provisionContractResourceBindings(
   const kvBindings: NonNullable<ContractResourceBindings["kv"]> = {};
 
   if (requests.length > 0) {
+    if (!nats) {
+      throw new Error("NATS connection is required to provision KV resources");
+    }
     const kvm = new Kvm(nats);
     for (const request of requests) {
       const bucket = buildKvBucketName(

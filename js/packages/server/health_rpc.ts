@@ -7,7 +7,7 @@ type HealthRpcServer = {
   name: string;
   api: TrellisAPI;
   natsConnection: { isClosed(): boolean };
-  mount(method: string, handler: (...args: any[]) => unknown): Promise<unknown>;
+  mount(method: string, handler: (...args: unknown[]) => unknown): Promise<unknown>;
 };
 
 function pascalCase(value: string): string {
@@ -29,14 +29,11 @@ export async function mountStandardHealthRpc(
   const rpc = (server.api.rpc as Record<string, unknown> | undefined)?.[rpcName];
   if (!rpc) return;
 
-  await server.mount(
-    rpcName as never,
-    (async () => {
-      const response = await runAllHealthChecks(server.name, {
-        nats: async () => Result.ok(!server.natsConnection.isClosed()),
-        ...(opts?.checks ?? {}),
-      });
-      return Result.ok(response);
-    }) as never,
-  );
+  await server.mount(rpcName, async () => {
+    const response = await runAllHealthChecks(server.name, {
+      nats: async () => Result.ok(!server.natsConnection.isClosed()),
+      ...(opts?.checks ?? {}),
+    });
+    return Result.ok(response);
+  });
 }

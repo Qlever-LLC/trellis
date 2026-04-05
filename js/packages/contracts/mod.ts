@@ -399,13 +399,11 @@ type UseSubjectsSubscribe<TSpec> = NonNullable<
 > extends { subscribe?: infer TSubscribe } ? TSubscribe
   : never;
 
-type ContractModuleMarker = {
-  readonly [CONTRACT_MODULE_METADATA]: ContractModule<
-    string,
-    TrellisApiLike,
-    TrellisApiLike,
-    TrellisApiLike
-  >;
+type NormalizeUseSelection<T extends readonly string[] | undefined> =
+  T extends readonly string[] ? T[number][] : undefined;
+
+type ContractModuleMarker<TContractModule = ContractModule<string, TrellisApiLike, TrellisApiLike, TrellisApiLike>> = {
+  readonly [CONTRACT_MODULE_METADATA]: TContractModule;
 };
 
 export type ContractDependencyUse<
@@ -424,9 +422,15 @@ export type ContractDependencyUse<
     publish?: UseSubjectsPublish<TSpec>;
     subscribe?: UseSubjectsSubscribe<TSpec>;
   };
-} & ContractModuleMarker;
+};
 
-type AnyContractDependencyUse = ContractDependencyUse<
+type InternalContractDependencyUse<
+  TContractId extends string,
+  TApi extends ApiShape,
+  TSpec extends UseSpec<TApi> = UseSpec<TApi>,
+> = ContractDependencyUse<TContractId, TApi, TSpec> & ContractModuleMarker;
+
+type AnyContractDependencyUse = InternalContractDependencyUse<
   string,
   TrellisApiLike,
   UseSpec<TrellisApiLike>
@@ -455,12 +459,7 @@ export type ContractUseFn<TContractId extends string, TApi extends ApiShape> = <
   operations?: { call?: TOperationsCall };
   events?: { publish?: TEventsPublish; subscribe?: TEventsSubscribe };
   subjects?: { publish?: TSubjectsPublish; subscribe?: TSubjectsSubscribe };
-}) => ContractDependencyUse<TContractId, TApi, {
-  rpc?: { call?: TRpcCall };
-  operations?: { call?: TOperationsCall };
-  events?: { publish?: TEventsPublish; subscribe?: TEventsSubscribe };
-  subjects?: { publish?: TSubjectsPublish; subscribe?: TSubjectsSubscribe };
-}>;
+}) => ContractDependencyUse<TContractId, TApi>;
 
 type MergeRecordUnion<U> = [U] extends [never] ? {}
   : Simplify<UnionToIntersection<U>>;
@@ -1167,20 +1166,18 @@ function assertValidUseSpec<TApi extends TrellisApiLike>(
   );
 }
 
-function attachContractModuleMetadata<TValue extends object>(
+function attachContractModuleMetadata<
+  TValue extends object,
+  TContractModule,
+>(
   value: TValue,
-  contractModule: ContractModule<
-    string,
-    TrellisApiLike,
-    TrellisApiLike,
-    TrellisApiLike
-  >,
-): TValue & ContractModuleMarker {
+  contractModule: TContractModule,
+): TValue & ContractModuleMarker<TContractModule> {
   Object.defineProperty(value, CONTRACT_MODULE_METADATA, {
     value: contractModule,
     enumerable: false,
   });
-  return value as TValue & ContractModuleMarker;
+  return value as TValue & ContractModuleMarker<TContractModule>;
 }
 
 function createUseHelper<
@@ -1236,19 +1233,14 @@ function createUseHelper<
 
     return attachContractModuleMetadata(
       dependencyUse,
-      contractModule as unknown as ContractModule<
-        string,
-        TrellisApiLike,
-        TrellisApiLike,
-        TrellisApiLike
-      >,
+      contractModule,
     );
   }) as ContractUseFn<TContractId, TOwnedApi>;
 }
 
 function getContractModuleFromUse(
   alias: string,
-  useValue: ContractSourceUse | ContractDependencyUse<string, TrellisApiLike>,
+  useValue: ContractSourceUse | AnyContractDependencyUse,
 ): ContractModule<string, TrellisApiLike, TrellisApiLike, TrellisApiLike> {
   const contractModule =
     (useValue as ContractModuleMarker)[CONTRACT_MODULE_METADATA];
@@ -1396,25 +1388,27 @@ function selectedKeys(keys: readonly string[] | undefined): readonly string[] {
   return keys ?? [];
 }
 
-function mergeDerivedApis(
-  ownedApi: TrellisApiLike,
-  usedApi: TrellisApiLike,
-): TrellisApiLike {
-  const trellisApi: TrellisApiLike = {
-    rpc: {},
-    operations: {},
-    events: {},
-    subjects: {},
+function mergeApiSection(
+  kind: keyof TrellisApiLike,
+  usedEntries: Record<string, unknown>,
+  ownedEntries: Record<string, unknown>,
+): Record<string, unknown> {
+  const merged: Record<string, unknown> = {};
+  mergeRecord(kind, merged, usedEntries);
+  mergeRecord(kind, merged, ownedEntries);
+  return merged;
+}
+
+function mergeDerivedApis<TOwnedApi extends TrellisApiLike, TUsedApi extends TrellisApiLike>(
+  ownedApi: TOwnedApi,
+  usedApi: TUsedApi,
+): MergeApis<TOwnedApi, TUsedApi> {
+  return {
+    rpc: mergeApiSection("rpc", usedApi.rpc, ownedApi.rpc) as MergeApis<TOwnedApi, TUsedApi>["rpc"],
+    operations: mergeApiSection("operations", usedApi.operations, ownedApi.operations) as MergeApis<TOwnedApi, TUsedApi>["operations"],
+    events: mergeApiSection("events", usedApi.events, ownedApi.events) as MergeApis<TOwnedApi, TUsedApi>["events"],
+    subjects: mergeApiSection("subjects", usedApi.subjects, ownedApi.subjects) as MergeApis<TOwnedApi, TUsedApi>["subjects"],
   };
-  mergeRecord("rpc", trellisApi.rpc, usedApi.rpc);
-  mergeRecord("operations", trellisApi.operations, usedApi.operations);
-  mergeRecord("events", trellisApi.events, usedApi.events);
-  mergeRecord("subjects", trellisApi.subjects, usedApi.subjects);
-  mergeRecord("rpc", trellisApi.rpc, ownedApi.rpc);
-  mergeRecord("operations", trellisApi.operations, ownedApi.operations);
-  mergeRecord("events", trellisApi.events, ownedApi.events);
-  mergeRecord("subjects", trellisApi.subjects, ownedApi.subjects);
-  return trellisApi;
 }
 
 export function defineContract<
@@ -1444,35 +1438,32 @@ export function defineContract<
   };
 
   const ownedApi = buildOwnedApi(emittedSource);
-  const trellisApi = mergeDerivedApis(ownedApi, usedApi);
+  const trellisApi = mergeDerivedApis(
+    ownedApi as OwnedApiFromSource<T> & TrellisApiLike,
+    usedApi as UsedApiFromUses<T["uses"]> & TrellisApiLike,
+  ) as MergeApis<OwnedApiFromSource<T>, UsedApiFromUses<T["uses"]>>;
   const CONTRACT = emitContract(emittedSource);
   const CONTRACT_DIGEST = digestCanonicalJson(CONTRACT as JsonValue);
 
-  const contract: DefinedContract<
+  type ConcreteDefinedContract = DefinedContract<
     OwnedApiFromSource<T>,
     UsedApiFromUses<T["uses"]>,
     MergeApis<OwnedApiFromSource<T>, UsedApiFromUses<T["uses"]>>,
     T["id"]
-  > = {
+  >;
+
+  let contract!: ConcreteDefinedContract;
+  contract = {
     CONTRACT_ID: source.id,
     CONTRACT,
     CONTRACT_DIGEST,
     API: {
       owned: ownedApi as OwnedApiFromSource<T>,
       used: usedApi as UsedApiFromUses<T["uses"]>,
-      trellis: trellisApi as unknown as MergeApis<
-        OwnedApiFromSource<T>,
-        UsedApiFromUses<T["uses"]>
-      >,
+      trellis: trellisApi,
     },
     use: createUseHelper(
-      () =>
-        contract as unknown as ContractModule<
-          T["id"],
-          OwnedApiFromSource<T>,
-          TrellisApiLike,
-          TrellisApiLike
-        >,
+      () => contract as ContractModule<T["id"], OwnedApiFromSource<T>, ApiShape & TrellisApiLike, ApiShape & TrellisApiLike>,
     ),
   };
 

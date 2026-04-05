@@ -1,5 +1,4 @@
-import type { NatsConnection } from "@nats-io/nats-core";
-import { type ClientOpts, createClient, type Trellis, type TrellisAuth } from "@qlever-llc/trellis";
+import { createClient, type Trellis } from "@qlever-llc/trellis";
 import { getPublicSessionKey, signBytes } from "@qlever-llc/trellis-auth";
 import { defineContract, type TrellisAPI } from "@qlever-llc/trellis-contracts";
 import type { AuthState } from "./auth.svelte.ts";
@@ -23,7 +22,7 @@ const DEFAULT_TRELLIS_CONTRACT = defineContract({
   displayName: "Trellis Svelte Browser Client",
   description: "Represent a browser client that only uses its locally declared Trellis APIs.",
   kind: "browser",
-});
+}) satisfies TrellisClientContract<TrellisAPI>;
 
 /**
  * Svelte 5 wrapper for Trellis client.
@@ -32,10 +31,10 @@ const DEFAULT_TRELLIS_CONTRACT = defineContract({
  * - Trellis client instance
  * - Session-key based request signing
  */
-export class TrellisState {
-  readonly trellis: Trellis<TrellisAPI>;
+export class TrellisState<TApi extends TrellisAPI = TrellisAPI> {
+  readonly trellis: Trellis<TApi>;
 
-  private constructor(trellis: Trellis<TrellisAPI>) {
+  private constructor(trellis: Trellis<TApi>) {
     this.trellis = trellis;
   }
 
@@ -46,7 +45,7 @@ export class TrellisState {
     authState: AuthState,
     natsState: NatsState,
     config: TrellisStateConfig<TApi>,
-  ): Promise<TrellisState> {
+  ): Promise<TrellisState<TApi>> {
     const handle = await authState.init();
     const contract = (config.contract ?? DEFAULT_TRELLIS_CONTRACT) as TrellisClientContract<TApi>;
     const trellis = createClient(
@@ -57,7 +56,7 @@ export class TrellisState {
         sign: (data: Uint8Array) => signBytes(handle, data),
       },
       { name: config.serviceName },
-    ) as unknown as Trellis<TrellisAPI>;
+    );
     return new TrellisState(trellis);
   }
 
@@ -73,6 +72,6 @@ export async function createTrellisState<TApi extends TrellisAPI = TrellisAPI>(
   authState: AuthState,
   natsState: NatsState,
   config: TrellisStateConfig<TApi>,
-): Promise<TrellisState> {
+): Promise<TrellisState<TApi>> {
   return TrellisState.create(authState, natsState, config);
 }

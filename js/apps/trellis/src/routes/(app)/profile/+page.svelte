@@ -6,6 +6,7 @@
   import { getInitials, getRoleLabel } from "../../../lib/control-panel.ts";
   import { errorMessage, formatDate } from "../../../lib/format";
   import { getNotifications } from "../../../lib/notifications.svelte";
+  import type { AuthListApprovalsResponse } from "@qlever-llc/trellis-auth";
 
   const trellisPromise = getTrellisFor(trellisApp);
   const natsStatePromise = getNatsState();
@@ -15,7 +16,7 @@
   let error = $state<string | null>(null);
   let user = $state<AuthMeOutput["user"] | null>(null);
   let connectionStatus = $state("connecting");
-  let approvals = $state<any[]>([]);
+  let approvals = $state<AuthListApprovalsResponse["approvals"]>([]);
   let revokeTarget = $state<string | null>(null);
 
   async function loadProfile() {

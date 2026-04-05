@@ -147,6 +147,19 @@ Rules:
 - expected failures use `Result`, not thrown exceptions
 - language-specific implementations should preserve the same semantics even if the concrete type differs
 
+## TypeScript Typing Policy
+
+TypeScript code in Trellis should use the strongest typing the compiler can support.
+
+Rules:
+
+- do not use `// @ts-nocheck`
+- do not use `as unknown as ...`
+- prefer generic constraints, helper functions, and type guards over casts
+- use `// @ts-expect-error` only for a specific compiler limitation, with a short reason
+- keep runtime validation and compile-time narrowing paired together
+- if a public type must change to stay honest, prefer the stronger type even if it breaks consumers
+
 ## Error Handling
 
 Trellis-shared errors come from Trellis packages. Service-specific errors may extend the same base locally.

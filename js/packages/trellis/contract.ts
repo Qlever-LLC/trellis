@@ -33,7 +33,7 @@ type RuntimeContractMethods<
     nats: NatsConnection,
     auth: TrellisAuth,
     opts?: ClientOpts,
-  ): Trellis<TTrellisApi>;
+  ): Trellis<TOwnedApi>;
 };
 
 type AnyBaseContract = BaseDefinedContract<any, any, any, string>;
@@ -56,13 +56,16 @@ function withRuntimeHelpers<TContract extends AnyBaseContract>(
 ): WithRuntimeHelpers<TContract> {
   const runtimeContract = contract as WithRuntimeHelpers<TContract>;
 
-  runtimeContract.createClient = (nats, auth, opts) =>
-    createClient(runtimeContract as any, nats, auth, opts) as any;
+  runtimeContract.createClient = (
+    nats: NatsConnection,
+    auth: TrellisAuth,
+    opts?: ClientOpts,
+  ) => createClient(runtimeContract, nats, auth, opts);
 
   return runtimeContract;
 }
 
-export function defineContract<const T extends DefineContractInput<any, any, any, any>>(
+export function defineContract<const T extends DefineContractInput<any, any, any, any, any, any>>(
   source: T,
 ) {
   return withRuntimeHelpers(defineContractBase(source));

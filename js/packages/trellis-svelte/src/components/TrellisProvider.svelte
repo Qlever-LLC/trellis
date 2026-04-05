@@ -2,6 +2,7 @@
   import type { NatsConnection } from "@nats-io/nats-core";
   import { AsyncResult } from "@qlever-llc/trellis-result";
   import type { Snippet } from "svelte";
+import type { TrellisAPI } from "@qlever-llc/trellis-contracts";
   import { onDestroy } from "svelte";
   import {
     setAuthContext,
@@ -155,14 +156,14 @@
   }
 
   const initPromise = initialize();
-  const natsStatePromise = initPromise.then((ctx) => ctx.nats) as Promise<NatsState>;
-  const trellisPromise = initPromise.then((ctx) => ctx.trellis.trellis) as Promise<unknown>;
-  const natsPromise = initPromise.then((ctx) => ctx.nats.nc) as Promise<NatsConnection>;
+  const natsStatePromise: Promise<NatsState> = initPromise.then((ctx) => ctx.nats);
+  const trellisPromise: Promise<TrellisState<TrellisAPI>["trellis"]> = initPromise.then((ctx) => ctx.trellis.trellis);
+  const natsPromise: Promise<NatsConnection> = initPromise.then((ctx) => ctx.nats.nc);
 
   setAuthContext(authState);
   setNatsStateContext(natsStatePromise);
   setTrellisContext({
-    trellis: trellisPromise as never,
+    trellis: trellisPromise,
     nats: natsPromise,
   });
 

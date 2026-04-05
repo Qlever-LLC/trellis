@@ -192,12 +192,12 @@ export class OperationRef<TDesc extends OperationShape> {
       },
     );
     if (response.isErr()) {
-      return response as unknown as Result<AsyncIterable<OperationEvent<OperationProgressOf<TDesc>, OperationOutputOf<TDesc>>>, UnexpectedError>;
+      return err(response.error);
     }
 
     const rawIterable = response.take();
     if (isErr(rawIterable)) {
-      return rawIterable as unknown as Result<AsyncIterable<OperationEvent<OperationProgressOf<TDesc>, OperationOutputOf<TDesc>>>, UnexpectedError>;
+      return err(rawIterable.error);
     }
     const iterable = rawIterable as AsyncIterable<Result<JsonValue, UnexpectedError>>;
 

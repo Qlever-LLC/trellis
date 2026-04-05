@@ -1,4 +1,3 @@
-// @ts-nocheck -- svelte-check hits pathological generic instantiation in this file
 import { type KV, type KvEntry, Kvm } from "@nats-io/kv";
 import type { NatsConnection } from "@nats-io/nats-core/internal";
 import { Result } from "@qlever-llc/trellis-result";
@@ -72,6 +71,10 @@ export class TypedKV<S extends TSchema> {
     readonly kv: KV,
   ) {}
 
+  private static fromParts<S extends TSchema>(schema: S, kv: KV): TypedKV<S> {
+    return new TypedKV(schema, kv);
+  }
+
   static async open<S extends TSchema>(
     nats: NatsConnection,
     name: string,
@@ -93,7 +96,7 @@ export class TypedKV<S extends TSchema> {
         ...(options.maxValueBytes ? { maxValueSize: options.maxValueBytes } : {}),
       });
 
-      const typedKv = new TypedKV(schema as TSchema, kv) as unknown as TypedKV<S>;
+      const typedKv = TypedKV.fromParts(schema, kv);
       return Result.ok<TypedKV<S>, KVError>(typedKv);
     } catch (cause) {
       return Result.err(new KVError({ operation: "open", cause }));
@@ -131,7 +134,6 @@ export class TypedKV<S extends TSchema> {
   ): Promise<Result<void, KVError>> {
     const schema = this.schema as TSchema;
     const rawValue: unknown = value;
-    // @ts-expect-error svelte-check hits excessive type instantiation here
     const serialized = serializeExternalValue(schema, rawValue);
     try {
       await this.kv.create(escapeKvKey(key), serialized);
@@ -149,7 +151,6 @@ export class TypedKV<S extends TSchema> {
   ): Promise<Result<void, KVError>> {
     const schema = this.schema as TSchema;
     const rawValue: unknown = value;
-    // @ts-expect-error svelte-check hits excessive type instantiation here
     const serialized = serializeExternalValue(schema, rawValue);
     try {
       await this.kv.put(escapeKvKey(key), serialized);
@@ -203,7 +204,6 @@ export class TypedKVEntry<S extends TSchema> {
     private entry: KvEntry,
     value: StaticDecode<S>,
   ) {
-    // @ts-expect-error svelte-check hits excessive type instantiation on assignment
     this.value = value;
   }
 
@@ -287,11 +287,9 @@ export class TypedKVEntry<S extends TSchema> {
     value: Partial<StaticDecode<S>>,
     vcc?: boolean,
   ): Promise<Result<void, KVError | ValidationError>> {
-    // @ts-expect-error svelte-check hits excessive type instantiation here
     const mergedData = merge(this.value as Record<string, unknown>, value) as StaticDecode<S>;
     const schema = this.schema as TSchema;
     const mergedRawValue: unknown = mergedData;
-    // @ts-expect-error svelte-check hits excessive type instantiation here
     const mergeResult = Result.try(() => serializeExternalValue(schema, mergedRawValue));
     if (mergeResult.isErr()) {
       const cause = mergeResult.error.cause;

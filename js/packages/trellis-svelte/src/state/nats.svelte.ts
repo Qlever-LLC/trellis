@@ -3,7 +3,7 @@ import {
   type NatsConnection,
   wsconnect,
 } from "@nats-io/nats-core";
-import { createClient } from "@qlever-llc/trellis";
+import { createClient, type Trellis } from "@qlever-llc/trellis";
 import {
   getPublicSessionKey,
   natsConnectSigForBindingToken,
@@ -11,11 +11,10 @@ import {
   type SessionKeyHandle,
   signBytes,
 } from "@qlever-llc/trellis-auth";
-import { AsyncResult, isErr, UnexpectedError } from "@qlever-llc/trellis-result";
+import { AsyncResult, UnexpectedError } from "@qlever-llc/trellis-result";
 import {
   API as AUTH_API,
   type AuthRenewBindingTokenInput,
-  type AuthRenewBindingTokenOutput,
 } from "@qlever-llc/trellis-sdk-auth";
 import type { AuthState } from "./auth.svelte.ts";
 
@@ -25,13 +24,28 @@ const AUTH_RENEW_API = {
   },
   events: {},
   subjects: {},
+  operations: {},
 } as const;
 
-type AuthRenewClient = {
-  request(
-    method: "Auth.RenewBindingToken",
-    input: AuthRenewBindingTokenInput,
-  ): Promise<{ take(): AuthRenewBindingTokenOutput | unknown }>;
+const AUTH_RENEW_CONTRACT = {
+  API: {
+    trellis: AUTH_RENEW_API,
+  },
+} as const;
+
+function createAuthRenewClient(
+  nc: NatsConnection,
+  handle: SessionKeyHandle,
+): Trellis<typeof AUTH_RENEW_API> {
+  return createClient(
+    AUTH_RENEW_CONTRACT,
+    nc,
+    {
+      sessionKey: getPublicSessionKey(handle),
+      sign: (data: Uint8Array) => signBytes(handle, data),
+    },
+    { name: "auth-renew" },
+  );
 };
 
 export type Status = "disconnected" | "connecting" | "connected" | "error";
@@ -63,21 +77,6 @@ function requireBrowserAuth(authState: AuthState): {
   return { handle, bindingToken, sentinel };
 }
 
-function createAuthRenewClient(
-  nc: NatsConnection,
-  handle: SessionKeyHandle,
-) : AuthRenewClient {
-  return createClient(
-    { API: { trellis: AUTH_RENEW_API } },
-    nc,
-    {
-      sessionKey: getPublicSessionKey(handle),
-      sign: (data: Uint8Array) => signBytes(handle, data),
-    },
-    { name: "auth-renew" },
-  ) as unknown as AuthRenewClient;
-}
-
 async function buildNatsAuthToken(
   handle: SessionKeyHandle,
   bindingToken: string,
@@ -105,7 +104,7 @@ export class NatsState {
   #handle: SessionKeyHandle;
   #tokenRef: { value: string };
   #sentinel: SentinelCreds;
-  #trellis: AuthRenewClient;
+  #trellis: ReturnType<typeof createAuthRenewClient>;
   #renewTimer: ReturnType<typeof setTimeout> | undefined;
 
   private constructor(
@@ -258,13 +257,10 @@ export class NatsState {
   async #renewBindingToken(): Promise<void> {
     const renew = async () => {
       if (this.status !== "connected") return;
-      const res = await this.#trellis.request(
+      const binding = await this.#trellis.requestOrThrow(
         "Auth.RenewBindingToken",
         {} satisfies AuthRenewBindingTokenInput,
       );
-      const v = res.take();
-      if (isErr(v)) return;
-      const binding = v as AuthRenewBindingTokenOutput;
       this.#authState.setBindingToken(binding);
       this.#tokenRef.value = await buildNatsAuthToken(
         this.#handle,

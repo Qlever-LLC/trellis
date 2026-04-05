@@ -19,8 +19,8 @@ export class TrellisTasks {
       this.#log.error({ name }, "Task already running?");
       throw new Error(`Task ${name} already running`);
     }
-      this.#log.debug({ name }, "Added task");
-      this.#tasks[name] = task.then((r) => {
+    this.#log.debug({ name }, "Added task");
+    this.#tasks[name] = task.then((r: Result<void, E>) => {
         if (Result.isErr(r)) {
           this.#log.error(r, "Task encountered a runtime error");
         }
