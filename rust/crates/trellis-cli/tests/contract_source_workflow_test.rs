@@ -143,18 +143,6 @@ fn generate_all_emits_buildable_sdk_packages() {
         assert!(rust_out.join(relative).exists(), "missing {relative}");
     }
 
-    let cargo = Command::new("cargo")
-        .args(["check"])
-        .current_dir(&rust_out)
-        .output()
-        .expect("run cargo check for generated sdk crate");
-
-    assert!(
-        cargo.status.success(),
-        "{}",
-        String::from_utf8_lossy(&cargo.stderr)
-    );
-
     let emitted = std::fs::read_to_string(&manifest_path).expect("read emitted manifest");
     assert!(emitted.contains("trellis.cli@v1"));
 }

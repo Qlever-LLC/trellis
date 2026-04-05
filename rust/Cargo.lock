@@ -2464,6 +2464,7 @@ dependencies = [
  "tokio",
  "trellis-auth",
  "trellis-client",
+ "trellis-sdk-auth",
  "trellis-server",
 ]
 
@@ -2489,28 +2490,12 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "trellis-auth",
- "trellis-cli-participant",
  "trellis-client",
  "trellis-codegen-rust",
  "trellis-codegen-ts",
  "trellis-contracts",
  "trellis-sdk-auth",
  "trellis-sdk-core",
-]
-
-[[package]]
-name = "trellis-cli-participant"
-version = "0.5.1"
-dependencies = [
- "serde_json",
- "tempfile",
- "trellis-auth",
- "trellis-client",
- "trellis-codegen-rust",
- "trellis-contracts",
- "trellis-sdk-auth",
- "trellis-sdk-core",
- "trellis-server",
 ]
 
 [[package]]
@@ -2644,6 +2629,7 @@ dependencies = [
  "thiserror 1.0.69",
  "time",
  "tokio",
+ "trellis-auth",
  "trellis-auth-adapters",
  "trellis-client",
  "trellis-contracts",
