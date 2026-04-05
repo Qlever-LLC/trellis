@@ -74,7 +74,9 @@ impl OperationTransport for FakeTransport {
                 .lock()
                 .expect("lock responses")
                 .pop()
-                .ok_or_else(|| TrellisClientError::OperationProtocol("missing fake response".into()))
+                .ok_or_else(|| {
+                    TrellisClientError::OperationProtocol("missing fake response".into())
+                })
         }
     }
 
@@ -82,7 +84,10 @@ impl OperationTransport for FakeTransport {
         &'a self,
         subject: String,
         body: Value,
-    ) -> impl Future<Output = Result<BoxStream<'a, Result<Value, TrellisClientError>>, TrellisClientError>> + Send + 'a {
+    ) -> impl Future<
+        Output = Result<BoxStream<'a, Result<Value, TrellisClientError>>, TrellisClientError>,
+    > + Send
+           + 'a {
         async move {
             self.seen
                 .lock()
@@ -386,7 +391,10 @@ async fn operation_ref_wait_sends_control_wait_and_rejects_non_terminal_snapshot
         })
         .await
         .expect("start should succeed");
-    let error = reference.wait().await.expect_err("wait should reject non-terminal snapshots");
+    let error = reference
+        .wait()
+        .await
+        .expect_err("wait should reject non-terminal snapshots");
 
     assert!(matches!(error, TrellisClientError::OperationProtocol(_)));
     assert_eq!(

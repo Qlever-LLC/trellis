@@ -4,7 +4,9 @@ use bytes::Bytes;
 use futures_util::future::BoxFuture;
 use sha2::{Digest, Sha256};
 
-use trellis_auth::{AuthClient, AuthValidateRequestRequest, AuthValidateRequestResponse};
+use trellis_auth::{
+    AuthClient, AuthValidateRequestRequest, AuthValidateRequestResponse, TrellisAuthError,
+};
 use trellis_client::TrellisClientError;
 use trellis_server::{RequestContext, RequestValidator, ServerError};
 
@@ -20,7 +22,14 @@ impl<'a> AuthRequestValidatorClientPort for AuthClient<'a> {
         &'b self,
         input: &'b AuthValidateRequestRequest,
     ) -> BoxFuture<'b, Result<AuthValidateRequestResponse, TrellisClientError>> {
-        Box::pin(async move { self.validate_request(input).await })
+        Box::pin(async move { self.validate_request(input).await.map_err(map_auth_error) })
+    }
+}
+
+fn map_auth_error(error: TrellisAuthError) -> TrellisClientError {
+    match error {
+        TrellisAuthError::TrellisClient(error) => error,
+        other => TrellisClientError::RpcError(other.to_string()),
     }
 }
 

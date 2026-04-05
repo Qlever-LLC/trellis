@@ -16,11 +16,11 @@ pub use models::{
 };
 pub use protocol::{
     ApprovalEntryRecord, ApprovalScopeRecord, AuthGetInstalledContractRequest,
-    AuthGetInstalledContractResponse, AuthInstallServiceRequest, AuthInstallServiceResponse,
-    AuthUpgradeServiceContractRequest, AuthUpgradeServiceContractResponse,
-    AuthValidateRequestRequest, AuthValidateRequestResponse, AuthenticatedUser,
-    ListApprovalsRequest, RenewBindingTokenResponse, RevokeApprovalRequest, SentinelCredsRecord,
-    ServiceListEntry,
+    AuthGetInstalledContractResponse, AuthGetInstalledContractResponseContract,
+    AuthInstallServiceRequest, AuthInstallServiceResponse, AuthUpgradeServiceContractRequest,
+    AuthUpgradeServiceContractResponse, AuthValidateRequestRequest, AuthValidateRequestResponse,
+    AuthValidateRequestResponseUser, AuthenticatedUser, ListApprovalsRequest,
+    RenewBindingTokenResponse, RevokeApprovalRequest, SentinelCredsRecord, ServiceListEntry,
 };
 pub use session_store::{clear_admin_session, load_admin_session, save_admin_session};
 

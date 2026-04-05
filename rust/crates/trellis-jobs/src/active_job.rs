@@ -84,16 +84,16 @@ where
         message: Option<String>,
     ) -> Result<(), JobManagerError<P::Error>> {
         self.manager
-                .emit_progress(
-                    &self.job,
-                    JobProgress {
-                        step: None,
-                        message,
-                        current: Some(current),
-                        total: Some(total),
-                    },
-                )
-                .await
+            .emit_progress(
+                &self.job,
+                JobProgress {
+                    step: None,
+                    message,
+                    current: Some(current),
+                    total: Some(total),
+                },
+            )
+            .await
     }
 
     /// Publish a log entry for this active job.

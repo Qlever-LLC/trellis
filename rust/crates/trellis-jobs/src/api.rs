@@ -10,7 +10,8 @@ use crate::runtime_worker::JobCancellationToken;
 use crate::types::{Job, JobLogEntry, JobProgress, JobState};
 
 type HeartbeatFn = Arc<dyn Fn() -> BoxFuture<'static, Result<(), JobsError>> + Send + Sync>;
-type ProgressFn = Arc<dyn Fn(JobProgress) -> BoxFuture<'static, Result<(), JobsError>> + Send + Sync>;
+type ProgressFn =
+    Arc<dyn Fn(JobProgress) -> BoxFuture<'static, Result<(), JobsError>> + Send + Sync>;
 type LogFn = Arc<dyn Fn(JobLogEntry) -> BoxFuture<'static, Result<(), JobsError>> + Send + Sync>;
 
 /// Errors returned by the typed jobs API.
@@ -58,9 +59,21 @@ pub trait JobQueue<TPayload, TResult> {
 /// Handle for a created job.
 pub struct JobRef<TPayload, TResult> {
     identity: JobIdentity,
-    get: Arc<dyn Fn() -> BoxFuture<'static, Result<JobSnapshot<TPayload, TResult>, JobsError>> + Send + Sync>,
-    wait: Arc<dyn Fn() -> BoxFuture<'static, Result<TerminalJob<TPayload, TResult>, JobsError>> + Send + Sync>,
-    cancel: Arc<dyn Fn() -> BoxFuture<'static, Result<JobSnapshot<TPayload, TResult>, JobsError>> + Send + Sync>,
+    get: Arc<
+        dyn Fn() -> BoxFuture<'static, Result<JobSnapshot<TPayload, TResult>, JobsError>>
+            + Send
+            + Sync,
+    >,
+    wait: Arc<
+        dyn Fn() -> BoxFuture<'static, Result<TerminalJob<TPayload, TResult>, JobsError>>
+            + Send
+            + Sync,
+    >,
+    cancel: Arc<
+        dyn Fn() -> BoxFuture<'static, Result<JobSnapshot<TPayload, TResult>, JobsError>>
+            + Send
+            + Sync,
+    >,
 }
 
 impl<TPayload, TResult> Clone for JobRef<TPayload, TResult> {
@@ -81,9 +94,18 @@ where
 {
     pub fn new(
         identity: JobIdentity,
-        get: impl Fn() -> BoxFuture<'static, Result<JobSnapshot<TPayload, TResult>, JobsError>> + Send + Sync + 'static,
-        wait: impl Fn() -> BoxFuture<'static, Result<TerminalJob<TPayload, TResult>, JobsError>> + Send + Sync + 'static,
-        cancel: impl Fn() -> BoxFuture<'static, Result<JobSnapshot<TPayload, TResult>, JobsError>> + Send + Sync + 'static,
+        get: impl Fn() -> BoxFuture<'static, Result<JobSnapshot<TPayload, TResult>, JobsError>>
+            + Send
+            + Sync
+            + 'static,
+        wait: impl Fn() -> BoxFuture<'static, Result<TerminalJob<TPayload, TResult>, JobsError>>
+            + Send
+            + Sync
+            + 'static,
+        cancel: impl Fn() -> BoxFuture<'static, Result<JobSnapshot<TPayload, TResult>, JobsError>>
+            + Send
+            + Sync
+            + 'static,
     ) -> Self {
         Self {
             identity,
@@ -190,7 +212,10 @@ where
         tries: u64,
         cancellation: JobCancellationToken,
         heartbeat: impl Fn() -> BoxFuture<'static, Result<(), JobsError>> + Send + Sync + 'static,
-        progress: impl Fn(JobProgress) -> BoxFuture<'static, Result<(), JobsError>> + Send + Sync + 'static,
+        progress: impl Fn(JobProgress) -> BoxFuture<'static, Result<(), JobsError>>
+            + Send
+            + Sync
+            + 'static,
         log: impl Fn(JobLogEntry) -> BoxFuture<'static, Result<(), JobsError>> + Send + Sync + 'static,
     ) -> Self {
         Self {

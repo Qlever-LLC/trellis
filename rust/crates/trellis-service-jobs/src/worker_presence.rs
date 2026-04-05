@@ -64,7 +64,9 @@ pub fn reduce_worker_presence(
     next: &WorkerPresenceRecord,
 ) -> Option<WorkerPresenceRecord> {
     match current {
-        Some(current) if parse_timestamp(&current.heartbeat_at) > parse_timestamp(&next.heartbeat_at) => {
+        Some(current)
+            if parse_timestamp(&current.heartbeat_at) > parse_timestamp(&next.heartbeat_at) =>
+        {
             None
         }
         _ => Some(next.clone()),
@@ -148,7 +150,8 @@ pub async fn start_worker_presence_projector(
     let task = tokio::spawn(async move {
         while let Some(message) = messages.next().await {
             let message = message.map_err(|error| ServerError::Nats(error.to_string()))?;
-            let Some((service, job_type, instance_id)) = parse_worker_heartbeat_subject(&message.subject)
+            let Some((service, job_type, instance_id)) =
+                parse_worker_heartbeat_subject(&message.subject)
             else {
                 let _ = message.ack().await;
                 continue;
@@ -157,7 +160,10 @@ pub async fn start_worker_presence_projector(
                 Ok(heartbeat)
                     if heartbeat.service == service
                         && heartbeat.job_type == job_type
-                        && heartbeat.instance_id == instance_id => heartbeat,
+                        && heartbeat.instance_id == instance_id =>
+                {
+                    heartbeat
+                }
                 _ => {
                     let _ = message.ack().await;
                     continue;
@@ -175,8 +181,8 @@ pub async fn start_worker_presence_projector(
                 let _ = message.ack().await;
                 continue;
             };
-            let payload = serde_json::to_vec(&next)
-                .map_err(|error| ServerError::Nats(error.to_string()))?;
+            let payload =
+                serde_json::to_vec(&next).map_err(|error| ServerError::Nats(error.to_string()))?;
             kv.put(&key, payload.into())
                 .await
                 .map_err(|error| ServerError::Nats(error.to_string()))?;
@@ -227,9 +233,11 @@ mod tests {
 
     #[test]
     fn parse_worker_heartbeat_subject_extracts_components() {
-        let parsed = parse_worker_heartbeat_subject(
-            &worker_heartbeat_subject("documents", "document-process", "instance-1"),
-        )
+        let parsed = parse_worker_heartbeat_subject(&worker_heartbeat_subject(
+            "documents",
+            "document-process",
+            "instance-1",
+        ))
         .expect("subject should parse");
 
         assert_eq!(parsed.0, "documents");

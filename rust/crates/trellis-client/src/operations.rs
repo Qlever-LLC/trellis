@@ -107,7 +107,10 @@ pub trait OperationTransport {
         &'a self,
         subject: String,
         body: Value,
-    ) -> impl Future<Output = Result<BoxStream<'a, Result<Value, TrellisClientError>>, TrellisClientError>> + Send + 'a;
+    ) -> impl Future<
+        Output = Result<BoxStream<'a, Result<Value, TrellisClientError>>, TrellisClientError>,
+    > + Send
+           + 'a;
 }
 
 pub struct OperationInvoker<'a, T, D> {
@@ -187,7 +190,9 @@ where
     T: OperationTransport,
     D: OperationDescriptor,
 {
-    pub async fn get(&self) -> Result<OperationSnapshot<D::Progress, D::Output>, TrellisClientError> {
+    pub async fn get(
+        &self,
+    ) -> Result<OperationSnapshot<D::Progress, D::Output>, TrellisClientError> {
         let body = json!({
             "action": "get",
             "operationId": self.id(),
@@ -255,40 +260,45 @@ where
 
     pub async fn watch(
         &self,
-    ) -> Result<BoxStream<'a, Result<OperationEvent<D::Progress, D::Output>, TrellisClientError>>, TrellisClientError> {
+    ) -> Result<
+        BoxStream<'a, Result<OperationEvent<D::Progress, D::Output>, TrellisClientError>>,
+        TrellisClientError,
+    > {
         let control = control_subject(D::SUBJECT);
         let body = json!({
             "action": "watch",
             "operationId": self.id(),
         });
-        let response = self
-            .transport
-            .watch_json_value(control, body)
-            .await?;
-        Ok(Box::pin(stream::try_unfold((response, false), |(mut response, done)| async move {
-            if done {
-                return Ok(None);
-            }
-
-            loop {
-                match response.next().await {
-                    Some(frame) => {
-                        let event = match frame {
-                            Ok(value) => match decode_watch_frame::<D::Progress, D::Output>(value) {
-                                Ok(Some(event)) => event,
-                                Ok(None) => continue,
-                                Err(error) => return Err(error),
-                            },
-                            Err(error) => return Err(error),
-                        };
-
-                        let terminal = is_terminal_event(&event);
-                        return Ok(Some((event, (response, terminal))));
-                    }
-                    None => return Ok(None),
+        let response = self.transport.watch_json_value(control, body).await?;
+        Ok(Box::pin(stream::try_unfold(
+            (response, false),
+            |(mut response, done)| async move {
+                if done {
+                    return Ok(None);
                 }
-            }
-        })))
+
+                loop {
+                    match response.next().await {
+                        Some(frame) => {
+                            let event = match frame {
+                                Ok(value) => {
+                                    match decode_watch_frame::<D::Progress, D::Output>(value) {
+                                        Ok(Some(event)) => event,
+                                        Ok(None) => continue,
+                                        Err(error) => return Err(error),
+                                    }
+                                }
+                                Err(error) => return Err(error),
+                            };
+
+                            let terminal = is_terminal_event(&event);
+                            return Ok(Some((event, (response, terminal))));
+                        }
+                        None => return Ok(None),
+                    }
+                }
+            },
+        )))
     }
 }
 
@@ -299,10 +309,9 @@ fn decode_watch_frame<TProgress: DeserializeOwned, TOutput: DeserializeOwned>(
         return Ok(None);
     }
 
-    let kind = value
-        .get("kind")
-        .and_then(Value::as_str)
-        .ok_or_else(|| TrellisClientError::OperationProtocol("expected watch frame kind".to_string()))?;
+    let kind = value.get("kind").and_then(Value::as_str).ok_or_else(|| {
+        TrellisClientError::OperationProtocol("expected watch frame kind".to_string())
+    })?;
 
     match kind {
         "snapshot" => {

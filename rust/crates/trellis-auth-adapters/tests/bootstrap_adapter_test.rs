@@ -1,18 +1,17 @@
-use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use futures_util::future::{ready, BoxFuture, FutureExt};
 use serde_json::json;
+use trellis_auth::{
+    AuthGetInstalledContractRequest, AuthGetInstalledContractResponse,
+    AuthGetInstalledContractResponseContract,
+};
 use trellis_auth_adapters::bootstrap::{
     is_contract_not_found_validation_error, make_get_installed_contract_request,
     map_get_installed_contract_result, map_installed_contract_response, AuthBootstrapAdapter,
     AuthBootstrapClientPort,
 };
 use trellis_client::TrellisClientError;
-use trellis_sdk_auth::types::{
-    AuthGetInstalledContractRequest, AuthGetInstalledContractResponse,
-    AuthGetInstalledContractResponseContract,
-};
 use trellis_server::{BootstrapContractRef, ServerError};
 
 struct FakeAuthClient {
@@ -49,18 +48,8 @@ fn expected_ref() -> BootstrapContractRef {
 fn installed_contract_response(id: &str, digest: &str) -> AuthGetInstalledContractResponse {
     AuthGetInstalledContractResponse {
         contract: AuthGetInstalledContractResponseContract {
-            analysis: None,
-            analysis_summary: None,
-            contract: BTreeMap::new(),
-            description: "jobs".to_string(),
             digest: digest.to_string(),
-            display_name: "Jobs".to_string(),
             id: id.to_string(),
-            installed_at: "2026-01-01T00:00:00Z".to_string(),
-            kind: "service".to_string(),
-            resource_bindings: None,
-            resources: None,
-            session_key: None,
         },
     }
 }
@@ -152,106 +141,107 @@ async fn adapter_fetch_installed_contract_maps_non_not_found_error() {
 
 #[test]
 fn installed_contract_types_deserialize_stream_bindings_and_summary_counts() {
-    let response: AuthGetInstalledContractResponse = serde_json::from_value(json!({
-        "contract": {
-            "id": "trellis.jobs@v1",
-            "digest": "sha256:expected",
-            "displayName": "Jobs",
-            "description": "jobs",
-            "installedAt": "2026-01-01T00:00:00Z",
-            "kind": "service",
-            "contract": {},
-            "analysisSummary": {
-                "events": 0,
-                "jobsQueues": 1,
-                "kvResources": 2,
-                "streamResources": 3,
-                "namespaces": ["jobs"],
-                "natsPublish": 4,
-                "natsSubscribe": 5,
-                "rpcMethods": 6
-            },
-            "resourceBindings": {
-                "jobs": {
-                    "namespace": "jobs",
-                    "queues": {
-                        "document-process": {
-                            "queueType": "document-process",
-                            "publishPrefix": "trellis.jobs.documents",
-                            "workSubject": "trellis.work.documents.document-process",
-                            "consumerName": "documents-document-process",
-                            "payload": { "schema": "DocumentPayload" },
-                            "maxDeliver": 5,
-                            "backoffMs": [5000, 30000],
-                            "ackWaitMs": 60000,
-                            "progress": true,
-                            "logs": true,
-                            "dlq": true,
-                            "concurrency": 2
+    let response: trellis_sdk_auth::types::AuthGetInstalledContractResponse =
+        serde_json::from_value(json!({
+            "contract": {
+                "id": "trellis.jobs@v1",
+                "digest": "sha256:expected",
+                "displayName": "Jobs",
+                "description": "jobs",
+                "installedAt": "2026-01-01T00:00:00Z",
+                "kind": "service",
+                "contract": {},
+                "analysisSummary": {
+                    "events": 0,
+                    "jobsQueues": 1,
+                    "kvResources": 2,
+                    "streamResources": 3,
+                    "namespaces": ["jobs"],
+                    "natsPublish": 4,
+                    "natsSubscribe": 5,
+                    "rpcMethods": 6
+                },
+                "resourceBindings": {
+                    "jobs": {
+                        "namespace": "jobs",
+                        "queues": {
+                            "document-process": {
+                                "queueType": "document-process",
+                                "publishPrefix": "trellis.jobs.documents",
+                                "workSubject": "trellis.work.documents.document-process",
+                                "consumerName": "documents-document-process",
+                                "payload": { "schema": "DocumentPayload" },
+                                "maxDeliver": 5,
+                                "backoffMs": [5000, 30000],
+                                "ackWaitMs": 60000,
+                                "progress": true,
+                                "logs": true,
+                                "dlq": true,
+                                "concurrency": 2
+                            }
+                        }
+                    },
+                    "kv": {
+                        "jobsState": {
+                            "bucket": "trellis_jobs",
+                            "history": 1,
+                            "ttlMs": 0
+                        }
+                    },
+                    "streams": {
+                        "jobsWork": {
+                            "name": "JOBS_WORK",
+                            "subjects": ["trellis.work.>"],
+                            "retention": "workqueue",
+                            "sources": [
+                                {
+                                    "fromAlias": "jobs",
+                                    "streamName": "JOBS"
+                                }
+                            ]
                         }
                     }
                 },
-                "kv": {
-                    "jobsState": {
-                        "bucket": "trellis_jobs",
-                        "history": 1,
-                        "ttlMs": 0
-                    }
-                },
-                "streams": {
-                    "jobsWork": {
-                        "name": "JOBS_WORK",
-                        "subjects": ["trellis.work.>"],
-                        "retention": "workqueue",
-                        "sources": [
-                            {
-                                "fromAlias": "jobs",
-                                "streamName": "JOBS"
+                "resources": {
+                    "jobs": {
+                        "queues": {
+                            "document-process": {
+                                "payload": { "schema": "DocumentPayload" },
+                                "maxDeliver": 5,
+                                "backoffMs": [5000, 30000],
+                                "ackWaitMs": 60000,
+                                "progress": true,
+                                "logs": true,
+                                "dlq": true,
+                                "concurrency": 2
                             }
-                        ]
-                    }
-                }
-            },
-            "resources": {
-                "jobs": {
-                    "queues": {
-                        "document-process": {
-                            "payload": { "schema": "DocumentPayload" },
-                            "maxDeliver": 5,
-                            "backoffMs": [5000, 30000],
-                            "ackWaitMs": 60000,
-                            "progress": true,
-                            "logs": true,
-                            "dlq": true,
-                            "concurrency": 2
                         }
-                    }
-                },
-                "kv": {
-                    "jobsState": {
-                        "purpose": "Projected job state",
-                        "history": 1,
-                        "ttlMs": 0
-                    }
-                },
-                "streams": {
-                    "jobsWork": {
-                        "purpose": "Store sourced work queue messages",
-                        "subjects": ["trellis.work.>"],
-                        "retention": "workqueue",
-                        "sources": [
-                            {
-                                "fromAlias": "jobs",
-                                "filterSubject": "trellis.jobs.*.*.*.created",
-                                "subjectTransformDest": "trellis.work.$1.$2"
-                            }
-                        ]
+                    },
+                    "kv": {
+                        "jobsState": {
+                            "purpose": "Projected job state",
+                            "history": 1,
+                            "ttlMs": 0
+                        }
+                    },
+                    "streams": {
+                        "jobsWork": {
+                            "purpose": "Store sourced work queue messages",
+                            "subjects": ["trellis.work.>"],
+                            "retention": "workqueue",
+                            "sources": [
+                                {
+                                    "fromAlias": "jobs",
+                                    "filterSubject": "trellis.jobs.*.*.*.created",
+                                    "subjectTransformDest": "trellis.work.$1.$2"
+                                }
+                            ]
+                        }
                     }
                 }
             }
-        }
-    }))
-    .expect("deserialize installed contract response with streams");
+        }))
+        .expect("deserialize installed contract response with streams");
 
     let summary = response
         .contract

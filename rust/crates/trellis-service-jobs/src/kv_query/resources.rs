@@ -3,7 +3,8 @@ use std::collections::BTreeMap;
 use trellis_core_bootstrap::CoreBootstrapClientPort;
 use trellis_sdk_core::types::{
     TrellisBindingsGetRequest, TrellisBindingsGetResponseBinding,
-    TrellisBindingsGetResponseBindingResourcesKvValue, TrellisBindingsGetResponseBindingResourcesStreamsValue,
+    TrellisBindingsGetResponseBindingResourcesKvValue,
+    TrellisBindingsGetResponseBindingResourcesStreamsValue,
 };
 use trellis_server::BootstrapContractRef;
 
@@ -105,7 +106,10 @@ pub fn jobs_admin_resources_from_binding(
 
 fn streams_required(
     binding: &TrellisBindingsGetResponseBinding,
-) -> Result<&std::collections::BTreeMap<String, TrellisBindingsGetResponseBindingResourcesStreamsValue>, JobsQueryError> {
+) -> Result<
+    &std::collections::BTreeMap<String, TrellisBindingsGetResponseBindingResourcesStreamsValue>,
+    JobsQueryError,
+> {
     binding
         .resources
         .streams
@@ -114,7 +118,10 @@ fn streams_required(
 }
 
 fn extract_stream<'a>(
-    streams: &'a std::collections::BTreeMap<String, TrellisBindingsGetResponseBindingResourcesStreamsValue>,
+    streams: &'a std::collections::BTreeMap<
+        String,
+        TrellisBindingsGetResponseBindingResourcesStreamsValue,
+    >,
     alias: &str,
 ) -> Result<&'a TrellisBindingsGetResponseBindingResourcesStreamsValue, JobsQueryError> {
     streams

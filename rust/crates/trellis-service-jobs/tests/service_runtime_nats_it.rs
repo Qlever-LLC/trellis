@@ -34,11 +34,11 @@ use trellis_service_jobs::{
     JobsServiceMode,
 };
 
-use trellis_auth_adapters::AuthRequestValidatorClientPort;
-use trellis_core_bootstrap::CoreBootstrapClientPort;
-use trellis_sdk_auth::types::{
+use trellis_auth::{
     AuthValidateRequestRequest, AuthValidateRequestResponse, AuthValidateRequestResponseUser,
 };
+use trellis_auth_adapters::AuthRequestValidatorClientPort;
+use trellis_core_bootstrap::CoreBootstrapClientPort;
 use trellis_sdk_core::types::{
     TrellisBindingsGetRequest, TrellisBindingsGetResponse, TrellisBindingsGetResponseBinding,
     TrellisBindingsGetResponseBindingResources, TrellisBindingsGetResponseBindingResourcesJobs,
@@ -87,17 +87,15 @@ impl FakeCoreClient {
                         },
                     )]),
                 }),
-                kv: Some(BTreeMap::from([
-                    (
-                        "jobsState".to_string(),
-                        TrellisBindingsGetResponseBindingResourcesKvValue {
-                            bucket: self.jobs_state_bucket.clone(),
-                            history: 1,
-                            max_value_bytes: None,
-                            ttl_ms: 0,
-                        },
-                    ),
-                ])),
+                kv: Some(BTreeMap::from([(
+                    "jobsState".to_string(),
+                    TrellisBindingsGetResponseBindingResourcesKvValue {
+                        bucket: self.jobs_state_bucket.clone(),
+                        history: 1,
+                        max_value_bytes: None,
+                        ttl_ms: 0,
+                    },
+                )])),
                 streams: Some(BTreeMap::from([
                     (
                         "jobs".to_string(),
@@ -192,14 +190,10 @@ impl AuthRequestValidatorClientPort for FakeAuthValidateClient {
     ) -> BoxFuture<'a, Result<AuthValidateRequestResponse, TrellisClientError>> {
         ready(Ok(AuthValidateRequestResponse {
             allowed: true,
-            inbox_prefix: "_INBOX.SVC".to_string(),
             user: AuthValidateRequestResponseUser {
                 active: true,
-                capabilities: vec!["service".to_string()],
                 email: "service@qlever.ai".to_string(),
                 id: "svc-user".to_string(),
-                image: None,
-                last_login: None,
                 name: "Service".to_string(),
                 origin: "service".to_string(),
             },
@@ -580,7 +574,10 @@ async fn await_worker_presence(
             .into_iter()
             .find(|entry| entry.name == service)
             .and_then(|entry| {
-                entry.workers.into_iter().find(|worker| worker.instance_id == instance_id)
+                entry
+                    .workers
+                    .into_iter()
+                    .find(|worker| worker.instance_id == instance_id)
             })
         {
             return worker;
@@ -763,7 +760,9 @@ async fn worker_presence_projection_survives_owner_restart_and_rpc_only_reads_du
             ),
             _ => unreachable!("default test binding starts one worker"),
         },
-        |_job| async { Ok::<serde_json::Value, JobProcessError<String>>(json!({ "processed": true })) },
+        |_job| async {
+            Ok::<serde_json::Value, JobProcessError<String>>(json!({ "processed": true }))
+        },
         WorkerHostOptions::default(),
     )
     .await
@@ -771,8 +770,13 @@ async fn worker_presence_projection_survives_owner_restart_and_rpc_only_reads_du
     let mut headers = HeaderMap::new();
     headers.insert("session-key", "svc_session");
     headers.insert("proof", "proof");
-    let worker = await_worker_presence(&requester_client, headers.clone(), "documents", "documents-1")
-        .await;
+    let worker = await_worker_presence(
+        &requester_client,
+        headers.clone(),
+        "documents",
+        "documents-1",
+    )
+    .await;
     assert_eq!(worker.job_type, "document-process");
     owner_task.abort();
     let _ = owner_task.await;
@@ -1699,8 +1703,13 @@ async fn start_worker_host_from_binding_projects_worker_presence_and_processes_j
     .await
     .expect("start worker host");
 
-    let worker = await_worker_presence(&requester_client, headers.clone(), "documents", "documents-host-1")
-        .await;
+    let worker = await_worker_presence(
+        &requester_client,
+        headers.clone(),
+        "documents",
+        "documents-host-1",
+    )
+    .await;
     assert_eq!(worker.job_type, "document-process");
     assert_eq!(worker.concurrency, Some(1));
 

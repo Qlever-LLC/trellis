@@ -1,7 +1,9 @@
 use std::sync::{Arc, Mutex};
 
 use serde_json::json;
-use trellis_jobs::api::{ActiveJob, JobIdentity, JobRef, JobSnapshot, JobsError, JobsFacade, JobsService, JobWorkerHost};
+use trellis_jobs::api::{
+    ActiveJob, JobIdentity, JobRef, JobSnapshot, JobWorkerHost, JobsError, JobsFacade, JobsService,
+};
 use trellis_jobs::runtime_worker::JobCancellationToken;
 use trellis_jobs::{Job, JobLogEntry, JobLogLevel, JobProgress, JobState};
 
@@ -42,7 +44,8 @@ fn snapshot_round_trips_to_typed_payload_and_result() {
         logs: None,
     };
 
-    let snapshot: JobSnapshot<serde_json::Value, serde_json::Value> = job.try_into().expect("convert job");
+    let snapshot: JobSnapshot<serde_json::Value, serde_json::Value> =
+        job.try_into().expect("convert job");
     assert_eq!(snapshot.id, "job-1");
     assert_eq!(snapshot.result, Some(json!({"pages": 3})));
     assert!(snapshot.logs.is_empty());
@@ -118,7 +121,10 @@ async fn job_ref_uses_callbacks_for_get_wait_and_cancel() {
     assert_eq!(job.get().await.expect("get"), snapshot);
     assert_eq!(job.wait().await.expect("wait"), snapshot);
     assert_eq!(job.cancel().await.expect("cancel"), snapshot);
-    assert_eq!(*calls.lock().expect("lock calls"), vec!["get", "wait", "cancel"]);
+    assert_eq!(
+        *calls.lock().expect("lock calls"),
+        vec!["get", "wait", "cancel"]
+    );
 }
 
 #[tokio::test]
@@ -188,7 +194,10 @@ async fn active_job_exposes_public_handler_api() {
         .await
         .expect("log");
 
-    assert_eq!(*calls.lock().expect("lock calls"), vec!["heartbeat", "progress", "log"]);
+    assert_eq!(
+        *calls.lock().expect("lock calls"),
+        vec!["heartbeat", "progress", "log"]
+    );
 }
 
 #[test]
@@ -210,7 +219,9 @@ fn typed_jobs_traits_compile_for_custom_facades() {
     impl JobsFacade for DemoFacade {
         type WorkerHost = DemoHost;
 
-        fn start_workers(&self) -> impl std::future::Future<Output = Result<Self::WorkerHost, JobsError>> + Send {
+        fn start_workers(
+            &self,
+        ) -> impl std::future::Future<Output = Result<Self::WorkerHost, JobsError>> + Send {
             async { Ok(DemoHost) }
         }
     }

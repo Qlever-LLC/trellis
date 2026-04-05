@@ -17,4 +17,5 @@ trellis-auth = { path = "../trellis-auth", version = "0.5.1" }
 trellis-server = { path = "../trellis-server", version = "0.5.1" }
 
 [dev-dependencies]
+trellis-sdk-auth = { path = "../../../generated/rust/sdks/auth", version = "0.5.1" }
 tokio.workspace = true

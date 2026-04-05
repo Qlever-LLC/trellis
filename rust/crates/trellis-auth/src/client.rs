@@ -1,9 +1,9 @@
 use crate::{
     save_admin_session, AdminSessionState, ApprovalEntryRecord, AuthGetInstalledContractRequest,
-    AuthGetInstalledContractResponse, AuthInstallServiceRequest,
-    AuthUpgradeServiceContractRequest, AuthValidateRequestRequest, AuthValidateRequestResponse,
-    AuthenticatedUser, BoundSession, ListApprovalsRequest, RenewBindingTokenResponse,
-    RevokeApprovalRequest, ServiceListEntry, TrellisAuthError,
+    AuthGetInstalledContractResponse, AuthInstallServiceRequest, AuthUpgradeServiceContractRequest,
+    AuthValidateRequestRequest, AuthValidateRequestResponse, AuthenticatedUser, BoundSession,
+    ListApprovalsRequest, RenewBindingTokenResponse, RevokeApprovalRequest, ServiceListEntry,
+    TrellisAuthError,
 };
 use serde::{de::DeserializeOwned, Serialize};
 use trellis_client::{TrellisClient, UserConnectOptions};

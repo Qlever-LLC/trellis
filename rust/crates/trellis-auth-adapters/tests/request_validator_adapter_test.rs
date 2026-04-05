@@ -2,14 +2,14 @@ use std::sync::{Arc, Mutex};
 
 use bytes::Bytes;
 use futures_util::future::{ready, BoxFuture, FutureExt};
+use trellis_auth::{
+    AuthValidateRequestRequest, AuthValidateRequestResponse, AuthValidateRequestResponseUser,
+};
 use trellis_auth_adapters::request_validator::{
     make_validate_request, payload_hash_base64url, AuthRequestValidatorAdapter,
     AuthRequestValidatorClientPort,
 };
 use trellis_client::TrellisClientError;
-use trellis_sdk_auth::types::{
-    AuthValidateRequestRequest, AuthValidateRequestResponse, AuthValidateRequestResponseUser,
-};
 use trellis_server::{RequestContext, RequestValidator, ServerError};
 
 #[test]
@@ -69,14 +69,10 @@ impl AuthRequestValidatorClientPort for FakeAuthValidateClient {
 fn allowed_response(allowed: bool) -> AuthValidateRequestResponse {
     AuthValidateRequestResponse {
         allowed,
-        inbox_prefix: "_INBOX.SVC".to_string(),
         user: AuthValidateRequestResponseUser {
             active: true,
-            capabilities: vec!["service".to_string()],
             email: "service@qlever.ai".to_string(),
             id: "svc-user".to_string(),
-            image: None,
-            last_login: None,
             name: "Service".to_string(),
             origin: "service".to_string(),
         },
@@ -108,7 +104,6 @@ async fn adapter_validate_calls_auth_and_returns_allowed() {
     assert_eq!(seen[0].subject, "rpc.v1.Ping");
     assert_eq!(seen[0].session_key, "svc_session");
     assert_eq!(seen[0].proof, "proof_b64url");
-    assert_eq!(seen[0].capabilities, None);
 }
 
 #[tokio::test]

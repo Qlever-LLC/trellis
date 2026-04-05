@@ -1,9 +1,9 @@
 //! Service bootstrap helpers for the Jobs admin service.
 
+use trellis_auth::AuthClient;
 use trellis_auth_adapters::{AuthRequestValidatorAdapter, AuthRequestValidatorClientPort};
 use trellis_client::{ServiceConnectOptions, TrellisClient, TrellisClientError};
 use trellis_core_bootstrap::{CoreBootstrapAdapter, CoreBootstrapBinding, CoreBootstrapClientPort};
-use trellis_sdk_auth::AuthClient;
 use trellis_sdk_core::CoreClient;
 use trellis_server::{
     bootstrap_service_host, connect_service as connect_bound_service, resolve_bootstrap_binding,

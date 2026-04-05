@@ -2,9 +2,8 @@ use serde_json::Value;
 use trellis_jobs::types::{Job, JobLogEntry, JobProgress};
 use trellis_sdk_jobs::types::{
     JobsCancelResponseJob, JobsCancelResponseJobLogsItem, JobsCancelResponseJobProgress,
-    JobsDismissDLQResponseJob, JobsDismissDLQResponseJobLogsItem,
-    JobsDismissDLQResponseJobProgress, JobsGetResponseJob, JobsGetResponseJobLogsItem,
-    JobsGetResponseJobProgress, JobsListDLQResponseJobsItem, JobsListDLQResponseJobsItemLogsItem,
+    JobsGetResponseJob, JobsGetResponseJobLogsItem, JobsGetResponseJobProgress,
+    JobsListDLQResponseJobsItem, JobsListDLQResponseJobsItemLogsItem,
     JobsListDLQResponseJobsItemProgress, JobsListResponseJobsItem,
     JobsListResponseJobsItemLogsItem, JobsListResponseJobsItemProgress,
     JobsListServicesResponseServicesItemWorkersItem, JobsReplayDLQResponseJob,
@@ -110,9 +109,9 @@ impl_job_to_wire!(
 );
 impl_job_to_wire!(
     job_to_dismiss_item,
-    JobsDismissDLQResponseJob,
-    JobsDismissDLQResponseJobLogsItem,
-    JobsDismissDLQResponseJobProgress,
+    JobsReplayDLQResponseJob,
+    JobsReplayDLQResponseJobLogsItem,
+    JobsReplayDLQResponseJobProgress,
     "job dismiss dlq response maxTries",
     "job dismiss dlq response state",
     "job dismiss dlq response tries"
@@ -155,19 +154,17 @@ macro_rules! impl_wire_progress_item {
 }
 
 impl_wire_log_item!(JobsCancelResponseJobLogsItem);
-impl_wire_log_item!(JobsDismissDLQResponseJobLogsItem);
+impl_wire_log_item!(JobsReplayDLQResponseJobLogsItem);
 impl_wire_log_item!(JobsGetResponseJobLogsItem);
 impl_wire_log_item!(JobsListDLQResponseJobsItemLogsItem);
 impl_wire_log_item!(JobsListResponseJobsItemLogsItem);
-impl_wire_log_item!(JobsReplayDLQResponseJobLogsItem);
 impl_wire_log_item!(JobsRetryResponseJobLogsItem);
 
 impl_wire_progress_item!(JobsCancelResponseJobProgress);
-impl_wire_progress_item!(JobsDismissDLQResponseJobProgress);
+impl_wire_progress_item!(JobsReplayDLQResponseJobProgress);
 impl_wire_progress_item!(JobsGetResponseJobProgress);
 impl_wire_progress_item!(JobsListDLQResponseJobsItemProgress);
 impl_wire_progress_item!(JobsListResponseJobsItemProgress);
-impl_wire_progress_item!(JobsReplayDLQResponseJobProgress);
 impl_wire_progress_item!(JobsRetryResponseJobProgress);
 
 fn map_logs<T>(logs: &Option<Vec<JobLogEntry>>) -> Result<Option<Vec<T>>, JobsQueryError>

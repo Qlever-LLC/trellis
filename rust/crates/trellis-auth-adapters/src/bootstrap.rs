@@ -1,6 +1,8 @@
 use futures_util::future::BoxFuture;
 
-use trellis_auth::{AuthClient, AuthGetInstalledContractRequest, AuthGetInstalledContractResponse};
+use trellis_auth::{
+    AuthClient, AuthGetInstalledContractRequest, AuthGetInstalledContractResponse, TrellisAuthError,
+};
 use trellis_client::TrellisClientError;
 use trellis_server::{BootstrapContractRef, ServerError};
 
@@ -16,7 +18,18 @@ impl<'a> AuthBootstrapClientPort for AuthClient<'a> {
         &'b self,
         input: &'b AuthGetInstalledContractRequest,
     ) -> BoxFuture<'b, Result<AuthGetInstalledContractResponse, TrellisClientError>> {
-        Box::pin(async move { self.get_installed_contract(input).await })
+        Box::pin(async move {
+            self.get_installed_contract(input)
+                .await
+                .map_err(map_auth_error)
+        })
+    }
+}
+
+fn map_auth_error(error: TrellisAuthError) -> TrellisClientError {
+    match error {
+        TrellisAuthError::TrellisClient(error) => error,
+        other => TrellisClientError::RpcError(other.to_string()),
     }
 }
 

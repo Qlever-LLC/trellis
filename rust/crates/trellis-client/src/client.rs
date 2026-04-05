@@ -190,7 +190,10 @@ impl OperationTransport for TrellisClient {
         &'a self,
         subject: String,
         body: Value,
-    ) -> impl Future<Output = Result<BoxStream<'a, Result<Value, TrellisClientError>>, TrellisClientError>> + Send + 'a {
+    ) -> impl Future<
+        Output = Result<BoxStream<'a, Result<Value, TrellisClientError>>, TrellisClientError>,
+    > + Send
+           + 'a {
         async move {
             let payload = Bytes::from(serde_json::to_vec(&body)?);
             let proof = self.auth.create_proof(&subject, &payload);
@@ -210,32 +213,34 @@ impl OperationTransport for TrellisClient {
 
             timeout(
                 std::time::Duration::from_millis(self.timeout_ms),
-                self.nats.publish_with_reply_and_headers(subject, inbox, headers, payload),
+                self.nats
+                    .publish_with_reply_and_headers(subject, inbox, headers, payload),
             )
             .await
             .map_err(|_| TrellisClientError::Timeout)?
             .map_err(|error| TrellisClientError::NatsRequest(error.to_string()))?;
 
-            let stream = stream::try_unfold((subscriber, false), |(mut subscriber, done)| async move {
-                if done {
-                    return Ok(None);
-                }
-
-                loop {
-                    match subscriber.next().await {
-                        Some(message) => {
-                            let event = match decode_watch_message(message) {
-                                Ok(event) => event,
-                                Err(error) => return Err(error),
-                            };
-
-                            let terminal = is_terminal_event(&event);
-                            return Ok(Some((event, (subscriber, terminal))));
-                        }
-                        None => return Ok(None),
+            let stream =
+                stream::try_unfold((subscriber, false), |(mut subscriber, done)| async move {
+                    if done {
+                        return Ok(None);
                     }
-                }
-            });
+
+                    loop {
+                        match subscriber.next().await {
+                            Some(message) => {
+                                let event = match decode_watch_message(message) {
+                                    Ok(event) => event,
+                                    Err(error) => return Err(error),
+                                };
+
+                                let terminal = is_terminal_event(&event);
+                                return Ok(Some((event, (subscriber, terminal))));
+                            }
+                            None => return Ok(None),
+                        }
+                    }
+                });
 
             Ok(Box::pin(stream) as BoxStream<'a, Result<Value, TrellisClientError>>)
         }
@@ -244,7 +249,10 @@ impl OperationTransport for TrellisClient {
 
 fn decode_json_message(message: async_nats::Message) -> Result<Value, TrellisClientError> {
     if let Some(headers) = &message.headers {
-        if headers.get("status").is_some_and(|status| status.as_str() == "error") {
+        if headers
+            .get("status")
+            .is_some_and(|status| status.as_str() == "error")
+        {
             let value: Value = serde_json::from_slice(&message.payload)?;
             return Err(TrellisClientError::RpcError(value.to_string()));
         }
@@ -452,7 +460,10 @@ mod tests {
                 });
                 let reply = msg.reply.as_ref().expect("start reply subject").clone();
                 service_for_start
-                    .publish(reply, Bytes::from(serde_json::to_vec(&accepted).expect("serialize accepted")))
+                    .publish(
+                        reply,
+                        Bytes::from(serde_json::to_vec(&accepted).expect("serialize accepted")),
+                    )
                     .await
                     .expect("publish accepted reply");
             }
@@ -461,7 +472,8 @@ mod tests {
         let service_for_control = service_client.clone();
         let control_task = tokio::spawn(async move {
             if let Some(msg) = control_sub.next().await {
-                let body: Value = serde_json::from_slice(&msg.payload).expect("control request json");
+                let body: Value =
+                    serde_json::from_slice(&msg.payload).expect("control request json");
                 assert_eq!(body["action"], "watch");
                 assert_eq!(body["operationId"], "op_123");
 
@@ -521,7 +533,10 @@ mod tests {
 
                 for frame in frames {
                     service_for_control
-                        .publish(reply.clone(), Bytes::from(serde_json::to_vec(&frame).expect("serialize frame")))
+                        .publish(
+                            reply.clone(),
+                            Bytes::from(serde_json::to_vec(&frame).expect("serialize frame")),
+                        )
                         .await
                         .expect("publish watch frame");
                 }
