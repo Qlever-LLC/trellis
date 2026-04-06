@@ -26,7 +26,7 @@ This document defines the responsibilities of the core Trellis platform librarie
 | `@qlever-llc/trellis-server/deno` | Deno server runtime adapter | In-repo Deno services |
 | `@qlever-llc/trellis-result` | Result type for explicit failure handling | Any function that can fail |
 | `@qlever-llc/trellis-auth` | Session key management and auth helpers | Services, apps, CLI tools |
-| `@qlever-llc/trellis-auth/protocol` | Public auth/admin wire DTOs | Apps, services, docs, tests |
+| `@qlever-llc/trellis-auth/protocol` | Public auth/admin wire request and response types | Apps, services, docs, tests |
 | `@qlever-llc/trellis-contracts` | Contract authoring and shared protocol primitives | Services, SDK generation, docs |
 | `@qlever-llc/trellis-telemetry` | Shared tracing helpers | Runtime libraries and services |
 | `@qlever-llc/trellis-jobs` | Job creation and processing | Service-private retryable work |

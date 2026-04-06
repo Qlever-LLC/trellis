@@ -15,7 +15,7 @@ order: 10
 
 ## Context
 
-Trellis needs a first-class model for caller-visible asynchronous workflows.
+Trellis needs a clear model for caller-visible asynchronous workflows.
 
 Today, long-running work is often implemented with service-local jobs, but jobs are the wrong public abstraction:
 
@@ -24,13 +24,11 @@ Today, long-running work is often implemented with service-local jobs, but jobs 
 - global jobs visibility is too broad for ordinary callers
 - caller-visible async work needs durable state, typed progress, and private live updates
 
-We therefore need a distinct concept for async work that belongs in the public service contract.
+We therefore need a distinct concept for async work that belongs in the public service contract. Operations are part of the Trellis API model, alongside RPCs, events, and owned subject spaces.
 
 ## Design
 
-Trellis operations are the caller-visible async workflow layer. Jobs remain the service-private execution mechanism, while operations provide durable public state, typed progress, and live watch streams for callers.
-
-### Jobs and operations are different things
+### 1) Jobs and operations are different things
 
 - a `job` is a service-private execution primitive
 - an `operation` is a caller-visible async contract owned by one service
@@ -38,9 +36,9 @@ Trellis operations are the caller-visible async workflow layer. Jobs remain the 
 
 Regular users and peer services MUST NOT depend on `trellis.jobs` for normal product behavior. `trellis.jobs` is an admin and observability surface. Public async workflows belong to the owning service's operations.
 
-### Contracts gain a real top-level `operations` section
+### 2) Operations are part of the contract and API surface
 
-Contracts MAY declare owned operations in a top-level `operations` object.
+Contracts MAY declare owned operations in a top-level `operations` object. These are public API entries, not documentation-only annotations or an implementation hint for jobs.
 
 Example:
 
@@ -75,9 +73,9 @@ Descriptor rules:
 - `cancel: true` means the operation exposes cancellation semantics; omitted or `false` means callers cannot cancel it
 - operations are always authenticated; invoking or observing an operation always requires an authenticated caller plus operation authorization
 
-`uses` MUST support operations the same way it supports RPCs, events, and subjects. A participant may only invoke remote operations that it explicitly declares in `uses`.
+`uses` MUST support operations the same way it supports RPCs, events, and subjects. A participant may only invoke, read, or cancel remote operations that it explicitly declares in `uses` and that its current auth state authorizes.
 
-### Operations are durable by default
+### 3) Operations are durable by default
 
 An operation is not just a live stream. The owning service MUST persist enough operation state to support:
 
@@ -91,7 +89,7 @@ The storage mechanism is service-owned and is not centralized in `trellis.jobs`.
 - an operation may emit live events
 - `watch()` complements durable state; it does not replace it
 
-### Public runtime API
+### 4) Public runtime API
 
 Rules:
 
@@ -100,7 +98,7 @@ Rules:
 - `OperationRef.wait()` resolves from durable state and live events to a terminal snapshot
 - `OperationRef.watch()` returns a live async stream of typed operation events
 - public TypeScript operations APIs MUST use `Result` / `AsyncResult` for expected failures rather than exception-oriented wrappers
-- runtimes MUST expose operation APIs as first-class helpers; callers MUST NOT need to know hidden `*.Start`, `*.Get`, `*.Wait`, or `*.Watch` wire names
+- runtimes MUST expose operation APIs through normal helpers; callers MUST NOT need to know hidden `*.Start`, `*.Get`, `*.Wait`, or `*.Watch` wire names
 
 Caller surface:
 
@@ -117,7 +115,7 @@ Language-specific public API details live in:
 - [operations-typescript-api.md](./operations-typescript-api.md)
 - [operations-rust-api.md](./operations-rust-api.md)
 
-### Operation types
+### 5) Operation types
 
 Canonical logical shapes:
 
@@ -176,7 +174,7 @@ Lifecycle rules:
 - `progress` updates the stored progress payload but does not change terminal state
 - `completed`, `failed`, and `cancelled` are terminal
 
-### Operations use caller `_INBOX` subjects for live watch streams
+### 6) Operations use caller `_INBOX` subjects for live watch streams
 
 Operation watch streams MUST use the caller's inbox space.
 
@@ -190,9 +188,9 @@ Rules:
 
 This keeps operation watches private to the authenticated caller while avoiding general-purpose cross-service subscribe grants.
 
-### Operation wire model
+### 7) Operation wire model
 
-The public API is `operation(...).start(...)` plus `OperationRef.get/wait/watch/cancel`, but the wire model is standardized enough for auth and codegen.
+The public API is `operation(...).start(...)` plus `OperationRef.get/wait/watch/cancel`. Those methods are part of the normal generated Trellis API surface, while the underlying wire model is standardized enough for auth and codegen.
 
 Rules:
 
@@ -331,7 +329,7 @@ Keepalive rules:
 - if emitted, they MUST NOT carry domain data
 - if emitted, the interval MUST be at least 5 seconds and at most 30 seconds
 
-### Auth model for operations
+### 8) Auth model for operations
 
 Operations eliminate the need for a global end-user jobs-read capability.
 
@@ -345,7 +343,7 @@ Authorization rules:
 
 Trellis MUST NOT introduce a broad deployment-wide capability equivalent to "read every operation everywhere" for ordinary clients.
 
-### Auth callout and reply permissions
+### 9) Auth callout and reply permissions
 
 Unary RPC response semantics are insufficient for operation watch streams.
 
@@ -355,9 +353,9 @@ Rules:
 - this permission applies to a reply subject derived from a request the service actually received; it is not a general publish grant to arbitrary inbox subjects
 - unary RPCs remain single-response operations by convention even if the transport permission can support multiple responses
 
-This keeps the security property of reply-subject validation while allowing first-class streaming responses for operations.
+This keeps the security property of reply-subject validation while allowing streamed responses for operations.
 
-### Jobs remain the service-private execution layer
+### 10) Jobs remain the service-private execution layer
 
 Operations and jobs integrate, but they do not collapse into one concept.
 
@@ -369,7 +367,7 @@ Rules:
 - callers never need to know internal job ids or job types
 - changing internal job topology MUST NOT break the public operation contract
 
-### Realistic example
+### 11) Realistic example
 
 Caller-visible API:
 
@@ -438,18 +436,3 @@ In this example:
 - `submitRefund` is an internal billing job
 - `Payments.Refund` is a remote operation exposed by the `payments` service
 - `Notifications.Email.Send` is another remote operation that is not part of refund completion semantics
-
-## Benefits
-
-- public async APIs stop leaking internal jobs
-- authorization is scoped to the owning service and specific operation ids
-- `watch()` is private and low-latency without requiring a second NATS connection
-- `get()` and `wait()` remain durable across reconnects
-- services can change internal execution plans without breaking callers
-
-## Trade-Offs
-
-- Trellis must add a fourth top-level contract surface in addition to RPCs, events, and subjects
-- auth and runtime code must evolve from unary-only reply semantics to bounded streaming replies
-- each service that owns operations must persist durable operation state
-- code generation and runtime APIs become richer in both Rust and TypeScript

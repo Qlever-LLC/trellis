@@ -16,17 +16,15 @@ order: 10
 
 Services need a means of:
 
-- Tracking work in progress for UI visibility
+- Running service-private background work
 - Handling retries of failed work with backoff
-- Reporting progress on long-running operations
-- Enabling observability across the system
+- Projecting execution status for observability and admin tooling
+- Recording internal progress for workflows that may also back caller-visible operations
 - Allowing operators to query jobs across all services
 
 Trellis services should follow the companion cross-cutting pattern docs referenced above.
 
 ## Design
-
-Jobs are the service-private execution layer for Trellis. They provide durable work tracking, retries, and operational visibility, while remaining separate from caller-visible operations and from the contract surface that clients use.
 
 This document defines `@qlever-llc/trellis-jobs`:
 
@@ -39,17 +37,13 @@ Caller-visible asynchronous APIs are defined separately in [../operations/trelli
 
 `trellis.jobs@v1` remains a normal Trellis contract. For Jobs we expect to author it in language-specific source alongside its implementation and emit generated release artifacts plus SDKs. It is not a handwritten special case in Trellis runtime behavior.
 
-### Core principles
+### Design Principles
 
-**Stream-first architecture** — JetStream stream is the source of truth, and KV is a derived projection for queries.
-
-**Jobs service** — The shared jobs service owns janitor duties, global RPCs, and KV projection. It is stateless and horizontally scalable.
-
-**Service-local processing** — Each service processes its own jobs via its own consumer.
-
-**Passive worker heartbeats** — Workers emit per-job-type heartbeat subjects for observability; any admin registry is a derived projection, not part of job correctness.
-
-**Stream-driven observability** — Job state changes and worker heartbeats publish messages to the jobs subsystem stream space, not to `events.v1.*` domain events.
+1. **Stream-first architecture** — JetStream stream is the source of truth. KV is a derived projection for queries.
+2. **Jobs service** — Owns janitor, global RPCs, and KV projection. Stateless and horizontally scalable.
+3. **Service-local processing** — Each service processes its own jobs via its own consumer.
+4. **Passive worker heartbeats** — Workers emit per-job-type heartbeat subjects for observability; any admin registry is a derived projection, not part of job correctness.
+5. **Stream-driven observability** — Job state changes and worker heartbeats publish messages to the jobs subsystem stream space (these are not `events.v1.*` domain events).
 
 ### Job States
 
@@ -612,29 +606,3 @@ rust/crates/trellis-service-jobs/
 **Retry vs redelivery:** The `retry` state indicates "NAK sent, awaiting JetStream redelivery"—the worker is NOT running. When JetStream redelivers the message and the worker starts, a `started` event is emitted transitioning back to `active`.
 
 **Terminal state precedence:** If a race occurs (e.g., janitor marks job `expired` while worker is finishing), terminal states take precedence. The projector should reject state transitions from execution-terminal states except explicit DLQ administration on `dead` jobs such as replay and dismiss.
-
-## Benefits
-
-- **Reliable state** — Stream is source of truth; KV is derived. No atomicity issues.
-- **Atomic job creation** — Stream sourcing ensures single publish creates both audit trail and work item.
-- **Durable failure detection** — Advisory stream captures exhausted deliveries reliably.
-- **Cross-service visibility** — Central service provides global queries without coupling services.
-- **Schema validation** — Runtime libraries can prevent poison-pill messages.
-- **Cooperative cancellation** — Language-specific cancellation primitives allow in-flight work to observe cancellation cleanly.
-- **Passive worker visibility** — Heartbeat projection can show live worker types without coupling correctness to durable worker-presence storage.
-
-## Trade-Offs
-
-- **Central service for visibility** — The `jobs` service adds operational complexity, but is optional for core job processing and stateless.
-- **Consumer-level retry config** — BackOff is per-consumer (per job-type), not per-job.
-- **Single projector for v1** — KV projection uses single consumer for ordering; can scale via `partition()` if needed.
-- **No cross-service dependencies** — v1 doesn't support job chaining.
-- **No scheduling** — Deferred/recurring jobs not in v1.
-
-### Future Work
-
-- Job dependencies (within service)
-- Cross-service job chaining
-- Scheduled/recurring jobs
-- Job priorities
-- Payload encryption at rest

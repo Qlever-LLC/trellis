@@ -23,9 +23,7 @@ This document establishes the top-level cross-cutting system patterns for:
 
 Detailed coding, storage, type-system, observability, frontend, and capability guidance is split into companion documents.
 
-## Design
-
-Trellis keeps a small set of platform-wide patterns so services can stay isolated by ownership while still sharing a consistent communication model. The core boundary is simple: platform code lives in the Trellis repo, cloud/domain code lives with the owning service, and all cross-service communication happens over NATS through contracts.
+## Architecture
 
 ### Service Categories
 
@@ -60,7 +58,7 @@ Rules:
 | Processing | Maybe | Yes | Yes | No |
 | Egress | No | No | Yes | Sync state |
 
-### Communication patterns
+### Communication Patterns
 
 #### Events
 
@@ -104,6 +102,32 @@ Rules:
 - the API schema maps methods to transport subjects
 - implementation details may change without changing caller-visible method names
 
+#### Operations
+
+Operations are caller-visible asynchronous workflows with durable state, explicit progress, and watchable completion.
+
+Subject naming:
+
+```text
+operations.v1.<Domain>.<...tokens>
+```
+
+Rules:
+
+- use operations when the caller must observe progress or wait across reconnects
+- use RPCs for bounded synchronous work and jobs for service-private execution machinery
+- operation control and watch semantics are defined in [../operations/trellis-operations.md](./../operations/trellis-operations.md)
+
+#### Raw subjects
+
+Some subsystem-owned subject spaces are not `events.v1.*`, `rpc.v1.*`, or `operations.v1.*`. They exist for infrastructure coordination, stream projections, and service-private transport contracts.
+
+Rules:
+
+- raw subjects must still be contract-owned when they are part of a public or cross-service boundary
+- subsystem docs should define the semantics and naming rules for any raw subject space they introduce
+- examples include jobs stream subjects and other platform-owned control surfaces described in companion docs
+
 ## Companion Documents
 
 This document defines the high-level system style. Detailed companion docs are split by concern:
@@ -115,15 +139,3 @@ This document defines the high-level system style. Detailed companion docs are s
 - [observability-patterns.md](./observability-patterns.md) - health, stats, docs, tracing, and request correlation
 - [frontend-svelte-patterns.md](./frontend-svelte-patterns.md) - Svelte frontend guidance
 - [capability-patterns.md](./capability-patterns.md) - capability naming and deployment policy patterns
-
-## Benefits
-
-- Trellis keeps architecture guidance separate from language and implementation details
-- service boundaries stay explicit across platform and domain code
-- communication patterns remain consistent across subsystems
-- readers can load only the guidance relevant to the task at hand
-
-## Operational tradeoffs
-
-- guidance is spread across more documents
-- maintainers must keep companion docs aligned with subsystem design docs and language-surface docs

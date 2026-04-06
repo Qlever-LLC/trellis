@@ -33,8 +33,6 @@ typed declaration of what they own and what they use.
 
 ## Design
 
-The TypeScript authoring surface keeps contract ownership close to the service implementation while still producing the canonical Trellis contract manifest and the derived runtime views that callers use.
-
 Trellis adopts a contract-first TypeScript model.
 
 Every TypeScript participant that connects to Trellis defines one contract through a
@@ -43,7 +41,7 @@ single high-level API. That contract becomes the source of truth for both:
 - the emitted `trellis.contract.v1` release artifact
 - the TypeScript `trellis` runtime API surface available to that participant
 
-### Primary authoring API
+### 1) Primary authoring API
 
 TypeScript authoring uses one primary public helper:
 
@@ -59,7 +57,7 @@ Those older helpers are not retained as supported public APIs. If the new model 
 insufficient, the new model must be extended rather than requiring callers to fall
 back to lower-level escape hatches.
 
-### Package boundary
+### 2) Package boundary
 
 The contract authoring API lives in `@qlever-llc/trellis-contracts` because contracts are an
 architectural concept, not a transport-only client helper.
@@ -72,7 +70,7 @@ Rules:
 - `@qlever-llc/trellis` consumes contract objects for runtime client helpers
 - `@qlever-llc/trellis-server/node` and `@qlever-llc/trellis-server/deno` consume contract objects for service runtime helpers
 
-### SDK-driven `uses`
+### 3) SDK-driven `uses`
 
 TypeScript authors do not hand-write remote dependency contract ids in normal use.
 
@@ -114,22 +112,19 @@ The `use(...)` helper:
 This makes imported SDK modules the source of truth for remote dependency names in
 TypeScript authoring.
 
-### TypeScript enforcement of declared permissions
+### 4) TypeScript enforcement of declared permissions
 
 The TypeScript type system must enforce both of these rules:
 
 - a referenced remote operation, RPC, event, or subject must exist on the imported SDK module
 - a participant may only invoke, call, publish, or subscribe to remote operations that are explicitly declared in its local contract `uses`
 
-Consequences:
-
-- if an SDK does not expose `Auth.Nope`, then `auth.use({ events: { subscribe: ["Auth.Nope"] } })` is a type error
-- if `Auth.Me` exists in the imported SDK but the local contract did not declare it in `uses`, then `trellis.request("Auth.Me", ...)` is a type error for that participant
+This makes two important guarantees in normal authoring: if an SDK does not expose `Auth.Nope`, then `auth.use({ events: { subscribe: ["Auth.Nope"] } })` is a type error, and if `Auth.Me` exists in the imported SDK but the local contract did not declare it in `uses`, then `trellis.request("Auth.Me", ...)` is a type error for that participant.
 
 No separate linting or external analysis tool is required for this workflow. The
 contract object itself defines the allowed TypeScript runtime surface.
 
-### Derived runtime API surfaces
+### 5) Derived runtime API surfaces
 
 The contract definition produces three distinct projected API views:
 
@@ -147,7 +142,7 @@ Rules:
 This preserves the distinction between what a participant owns and what it is merely
 allowed to use.
 
-### Runtime connection helpers are contract-driven
+### 6) Runtime connection helpers are contract-driven
 
 TypeScript runtime helpers consume contract objects directly.
 
@@ -168,7 +163,7 @@ Rules:
 - callers do not manually assemble runtime API arrays for normal usage
 - Trellis-specific bootstrap exceptions should stay in Trellis platform code and use lower-level runtime APIs directly rather than becoming general public service helpers
 
-### Scope of contracts beyond connect
+### 7) Scope of contracts beyond connect
 
 Contracts matter beyond the initial connect phase.
 
@@ -182,171 +177,23 @@ In TypeScript they remain the source for:
 This document therefore treats the contract object as the primary participant definition,
 not as a one-time connection option.
 
-## Specification
+## Normative Surface Ownership
 
-### Public package exports
+The exact TypeScript public signatures, contract-module types, and runtime helper examples live in [contracts-typescript-api.md](./contracts-typescript-api.md). That document is the canonical API spec.
 
-`@qlever-llc/trellis-contracts` is the normative home for the TypeScript contract authoring
-API.
+This document only constrains the architectural direction behind that API:
 
-It exports the public contract-first surface:
+- `defineContract(...)` remains the one supported public authoring entrypoint
+- `@qlever-llc/trellis-contracts` owns contract authoring helpers and contract-module types
+- runtime connection helpers live in runtime packages, not in `@qlever-llc/trellis-contracts`
+- locally defined contracts and generated SDK modules share one compatible contract-module shape
+- `uses` declarations remain SDK-backed and contract-driven rather than handwritten dependency objects in normal usage
+- the participant runtime surface remains derived from `API.owned`, `API.used`, and `API.trellis`
+- contract-bound helpers such as `contract.createClient(...)` and `contract.connectService(...)` remain the primary ergonomic surface; equivalent free-function wrappers may exist as conveniences around the same API
+- emitted manifests remain canonical `trellis.contract.v1` artifacts; this design does not create a parallel manifest format
+- generated SDK outputs still need the richer contract module shape with `CONTRACT`, `CONTRACT_ID`, `CONTRACT_DIGEST`, projected API views, and typed `use(...)` helpers
 
-- `defineContract(...)`
-- the contract module and use-spec types needed by generated SDKs
-
-`@qlever-llc/trellis-contracts` exports `defineContract(...)` and related public contract
-types for convenience.
-
-Runtime helpers live in the runtime packages, not in `@qlever-llc/trellis-contracts` itself.
-
-Rules:
-
-- new user-facing TypeScript contract authoring APIs are defined in `@qlever-llc/trellis-contracts`
-- `@qlever-llc/trellis` must not introduce a second competing contract definition model
-- documentation should prefer the owning package import path instead of convenience re-exports
-
-### TypeScript API surface
-
-The expected public surface is:
-
-- `defineContract(...)` as the primary authoring entrypoint
-- generated SDK contract modules that export `CONTRACT`, `CONTRACT_ID`, `CONTRACT_DIGEST`, `API`, and `use(...)`
-- contract-driven runtime helpers such as `createClient(contract, ...)` and `connectService(contract, ...)`, whose returned runtimes expose typed `operation(...)` helpers
-
-The full normative TypeScript surface and examples are defined in:
-
-- [contracts-typescript-api.md](./contracts-typescript-api.md)
-
-### `defineContract(...)` input model
-
-`defineContract(...)` accepts the local participant definition plus SDK-backed
-dependency declarations under `uses`.
-
-Rules:
-
-- `id` remains the stable machine identity for the contract lineage
-- `displayName`, `description`, and `kind` are required and are part of the canonical manifest
-- local `operations`, `rpc`, `events`, `subjects`, `errors`, and `resources` remain the source for emitted owned contract content
-- `uses` entries are expressed through SDK `use(...)` helpers rather than hand-written dependency objects in normal TypeScript code
-- a participant MAY have no owned `operations`, `rpc`, `events`, or `subjects`
-- a participant MAY have no `uses`
-- the defined contract computes and exposes `CONTRACT_DIGEST` from the emitted canonical manifest
-
-This supports services, apps, CLIs, browser clients, and other participants with
-one model.
-
-### Contract module shape
-
-Generated SDK modules and locally defined contracts must share a compatible module
-shape so they can participate in the same ecosystem.
-
-Rules:
-
-- generated SDK modules export an `SdkContractModule` shape
-- a locally defined contract object MUST be usable anywhere an SDK contract module is expected
-- a locally defined contract object therefore also exposes `CONTRACT_DIGEST` and typed `use(...)`
-- local contracts additionally expose runtime connection helpers
-- this shared shape allows one local contract to be used as a dependency of another local contract in the same repo without a special path
-
-### Derived APIs
-
-`defineContract(...)` derives three projected API surfaces:
-
-- `API.owned`
-- `API.used`
-- `API.trellis`
-
-Derivation rules:
-
-- `API.owned` is projected from the local owned contract declarations only
-- `API.used` is projected by selecting only the operations named in SDK-backed `uses`
-- `API.trellis` is the merge of `API.used` and `API.owned`
-- duplicate logical keys across merged used and owned APIs are rejected during contract definition
-- if an operation exists in a dependency SDK but is not selected in `uses`, it is absent from `API.used` and absent from `API.trellis`
-
-### Typing rules
-
-The public TypeScript API must preserve these rules:
-
-- `sdk.use(...)` only accepts operations that exist on that SDK module
-- `defineContract(...)` derives `API.used` only from explicitly declared `uses`
-- outbound `request`, `publish`, and subscription helpers are typed from `API.trellis`
-- inbound handler registration is typed from `API.owned`
-- local owned operations are available in `API.trellis` without repeating them under `uses`
-- remote operations are not available in `API.trellis` unless explicitly declared in `uses`
-- an operation declared under the wrong dependency SDK is a type error
-- a dependency contract id is inferred from the SDK module rather than authored manually in normal TS usage
-
-### Runtime helper behavior
-
-Contract-driven runtime helpers must use the projected API surfaces directly.
-
-Rules:
-
-- `contract.createClient(...)` returns a client typed from `contract.API.trellis`
-- `contract.connectService(...)` returns a service whose outbound `trellis` surface is typed from `contract.API.trellis`
-- `contract.connectService(...)` MAY additionally expose outbound request conveniences directly on the service object as long as they preserve `contract.API.trellis`
-- service-side handler registration methods such as `mount(...)` are typed from `contract.API.owned`
-- higher-level integrations MAY expose contract-aware accessors such as `getTrellisFor(contract)` as long as they preserve the same `contract.API.trellis` surface
-- runtimes MAY expose convenience helpers such as `requestOrThrow(...)` on top of `request(...)`, but those helpers MUST preserve the same method/input/output typing and MUST NOT widen the callable API surface
-- callers do not pass manual API arrays into those helpers for normal usage
-- runtime helpers do not implicitly inject extra API modules outside the contract-derived surface
-
-The exact public helper shapes live in:
-
-- [contracts-typescript-api.md](./contracts-typescript-api.md)
-
-### Runtime and compile-time validation
-
-Compile-time typing is required but is not sufficient on its own.
-
-Implementations must also validate at runtime that:
-
-- every `uses` entry came from a contract module helper compatible with the expected shape
-- every selected operation exists on the referenced SDK module's API metadata
-- duplicate logical RPC, event, or subject keys are rejected when deriving `API.trellis`
-
-Runtime validation exists to preserve correctness when TypeScript types are erased or
-when JavaScript consumers use the same APIs.
-
-### Emitted manifest behavior
-
-`defineContract(...)` still emits a normal `trellis.contract.v1` manifest.
-
-Rules:
-
-- the emitted manifest shape is unchanged by this document
-- `uses` entries emitted into the manifest preserve the canonical JSON shape described in `trellis-contracts-catalog.md`
-- SDK-backed `use(...)` helpers are an authoring convenience, not a new manifest format
-
-### Generated TS SDK requirements
-
-TS SDK generation must emit a richer contract module than the current constants-plus-API surface.
-
-Generated SDK outputs must include:
-
-- `CONTRACT_ID`
-- `CONTRACT_DIGEST`
-- `CONTRACT`
-- `API.owned`
-- `API.used` as an empty API projection
-- `API.trellis` equal to `API.owned`
-- typed `use(...)`
-
-Generated SDK outputs may continue to expose request, response, event, and schema
-types alongside the richer contract module surface.
-
-### Replacement rule
-
-When this model lands, normal TypeScript user code should not need to call any of
-the following directly:
-
-- `defineContractSource(...)`
-- `buildContractArtifacts(...)`
-- `mergeApis(...)`
-
-Those become implementation details to delete or fully hide behind the new public
-API, not parallel authoring paths.
+The replacement rule also remains the same: normal TypeScript user code should not need to use `defineContractSource(...)`, `buildContractArtifacts(...)`, or `mergeApis(...)` directly once this model is complete.
 
 ### User approval semantics
 
@@ -383,22 +230,7 @@ Rules:
 - migration should preserve the emitted manifest format and CLI contract workflow
 - after migration, documentation and examples should use only the new contract-first surface
 
-## Benefits
-
-- one TypeScript authoring surface for manifests and runtime APIs
-- imported SDKs become the typed dependency vocabulary for `uses`
-- permission declarations and runtime callability stay aligned
-- apps, CLIs, browser clients, and services all use the same participant model
-- fewer runtime failures caused by forgetting to manually merge the right API modules
-- clearer distinction between owned surfaces and used surfaces
-
-## Trade-Offs
-
-- the TypeScript generic surface becomes more sophisticated
-- TS SDK generation must emit richer helper objects than the current `API` and constants only surface
-- migrating existing code will require changing bootstrap and contract authoring patterns
-
 ## References
 
 - `design/contracts/trellis-contracts-catalog.md`
-- `design/tooling/../tooling/trellis-cli.md`
+- `design/tooling/trellis-cli.md`

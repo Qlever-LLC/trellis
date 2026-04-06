@@ -136,11 +136,7 @@ Rules:
 
 All Trellis public APIs and RPC handlers use `Result<T, E>`.
 
-Benefits:
-
-- explicit failures as values rather than exceptions
-- composable transforms via `map`, `mapErr`, and `andThen`
-- predictable early-return and narrowing patterns
+This keeps expected failures explicit as values rather than exceptions, preserves composable transforms via `map`, `mapErr`, and `andThen`, and supports predictable early-return and narrowing patterns.
 
 Rules:
 

@@ -15,7 +15,7 @@ Do not load the entire `design/` folder by default. Start with one topic area, t
 | --- | --- | --- |
 | `core/trellis-patterns.md` | You need Trellis-wide architecture rules | Service categories, platform boundaries, communication patterns |
 | `auth/trellis-auth.md` | You are changing auth architecture | Identity model, approval model, service install model, auth subsystem boundaries |
-| `auth/device-activation.md` | You are designing shipped-device activation or offline device onboarding | QR-out / short-code-back activation, browser activation flow, first online auth, device admin lifecycle |
+| `auth/device-activation.md` | You are changing device registration or device activation | Request/review flow, confirmation code, profiles, online activation |
 | `contracts/trellis-contracts-catalog.md` | You are changing manifests, codegen inputs, or permission derivation | Canonical contract format, `uses`, subject ownership, activation rules |
 
 ## Subsystem Design Docs
@@ -26,6 +26,7 @@ Do not load the entire `design/` folder by default. Start with one topic area, t
 | `jobs/trellis-jobs.md` | You are designing service-private background execution | Jobs model, stream/KV projection, retries, worker lifecycle, admin model |
 | `contracts/trellis-typescript-contract-authoring.md` | You are changing TypeScript contract architecture | TS contract-driven model, `defineContract(...)`, `uses`, derived API views |
 | `contracts/trellis-rust-contract-libraries.md` | You are changing Rust contract architecture | Rust participant facades, alias model, generation rules |
+| `tooling/trellis-cli.md` | You are changing Trellis CLI behavior or contract tooling workflows | CLI command architecture, install and upgrade flows, contract generation |
 
 ## Cross-Cutting Pattern Docs
 
@@ -39,17 +40,16 @@ Do not load the entire `design/` folder by default. Start with one topic area, t
 | `core/frontend-svelte-patterns.md` | You are changing Svelte frontend conventions | Trellis frontend state patterns |
 | `core/capability-patterns.md` | You are changing capability naming or deployment-role guidance | Capability taxonomy and assignment guidance |
 
-## Language Surface Docs
+## Protocol, API, And Runtime Surface Docs
 
-These documents define the public language-facing APIs. Read them when you are implementing or reviewing library/runtime/codegen ergonomics.
+These documents define the public protocol, API, and runtime-facing surfaces. Read them when you are implementing or reviewing library/runtime/codegen ergonomics.
 
 | Document | Surface | Read When |
 | --- | --- | --- |
 | `contracts/contracts-typescript-api.md` | TypeScript contract/runtime surface | Implementing or reviewing TS contract authoring or TS contract-driven runtime ergonomics |
 | `contracts/contracts-rust-api.md` | Rust contract/runtime surface | Implementing or reviewing Rust contract/runtime ergonomics |
 | `auth/auth-protocol.md` | Auth protocol surface | Implementing auth callout, proofs, reply validation, or auth state model |
-| `auth/auth-api.md` | Auth public API | Implementing `/auth/*`, `rpc.Auth.*`, or auth events |
-| `auth/device-activation.md` | Device activation API and lifecycle | Implementing device activation HTTP flow, device admin RPCs, or activation events |
+| `auth/auth-api.md` | Auth public API | Implementing `/auth/*`, `operations.v1.Auth.*`, `rpc.v1.Auth.*`, or auth events |
 | `auth/auth-typescript-api.md` | TypeScript auth API | Implementing or reviewing TS browser/service auth helpers |
 | `auth/auth-rust-api.md` | Rust auth API | Implementing or reviewing Rust CLI/service auth helpers |
 | `auth/auth-operations.md` | Auth operations/runbook | Operating auth in production, rotation, rate limits, HA |
@@ -80,6 +80,7 @@ These documents define the public language-facing APIs. Read them when you are i
 2. `jobs/jobs-typescript-api.md`
 3. `core/service-development.md`
 4. `operations/trellis-operations.md` only if the jobs attach to public operations
+5. `contracts/trellis-contracts-catalog.md` when changing job-owned resources, bindings, or provisioning surfaces
 
 ### Implement Trellis jobs in Rust
 
@@ -87,6 +88,7 @@ These documents define the public language-facing APIs. Read them when you are i
 2. `jobs/jobs-rust-api.md`
 3. `core/service-development.md`
 4. `operations/trellis-operations.md` only if the jobs attach to public operations
+5. `contracts/trellis-contracts-catalog.md` when changing job-owned resources, bindings, or provisioning surfaces
 
 ### Work on type systems or errors
 
@@ -153,7 +155,7 @@ These documents define the public language-facing APIs. Read them when you are i
 1. `auth/trellis-auth.md`
 2. `auth/auth-api.md`
 3. `auth/auth-protocol.md`
-4. `auth/device-activation.md` when the change touches shipped-device activation
+4. `auth/device-activation.md` if device activation is involved
 
 ### Implement TypeScript auth surfaces
 
