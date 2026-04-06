@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { base } from "$app/paths";
+  import { base, resolve } from "$app/paths";
   import { page } from "$app/state";
   import {
     designDocsBySection,
@@ -34,18 +34,13 @@
     return pathname.startsWith(`${base}/`) ? pathname.slice(base.length) : pathname;
   }
 
-  function resolveDocHref(href: string) {
-    if (!base) {
-      return href;
-    }
-
-    return href === "/" ? `${base}/` : `${base}${href}`;
-  }
 </script>
 
 <svelte:head>
   <title>{title}</title>
   <meta name="description" content={currentDoc?.description} />
+  <script src={base ? `${base}/mermaid.min.js` : "/mermaid.min.js"} defer></script>
+  <script src={base ? `${base}/mermaid-init.js` : "/mermaid-init.js"} data-base={base} defer></script>
 </svelte:head>
 
 <div class="grid gap-8 lg:grid-cols-[16rem_minmax(0,1fr)] lg:items-start">
@@ -68,7 +63,7 @@
                   ? "bg-base-200 font-medium text-base-content"
                   : "text-base-content/75",
               ]}
-              href={resolveDocHref(doc.href)}
+              href={resolve(doc.href as any)}
             >
               <span class="block">{doc.title}</span>
             </a>
@@ -109,7 +104,7 @@
           {#if neighbors.prev}
             <a
               class="rounded-box border border-base-300 bg-base-100 p-4 hover:bg-base-200/40"
-              href={resolveDocHref(neighbors.prev.href)}
+              href={resolve(neighbors.prev.href as any)}
             >
               <span
                 class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/45"
@@ -129,7 +124,7 @@
           {#if neighbors.next}
             <a
               class="rounded-box border border-base-300 bg-base-100 p-4 hover:bg-base-200/40 md:text-right"
-              href={resolveDocHref(neighbors.next.href)}
+              href={resolve(neighbors.next.href as any)}
             >
               <span
                 class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/45"

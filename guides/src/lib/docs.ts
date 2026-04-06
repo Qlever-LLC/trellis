@@ -262,10 +262,11 @@ const designDocs: DocEntry[] = Object.keys(designModules)
     if (!a.flatSlug.startsWith("trellis-") && b.flatSlug.startsWith("trellis-")) return 1;
     return designTitleFromSlug(a.flatSlug).localeCompare(designTitleFromSlug(b.flatSlug));
   })
+  .filter(({ slug }) => slug.length > 0)
   .map(({ slug, flatSlug, section, raw }) => ({
-    title: !flatSlug ? "Trellis Design Index" : markdownTitleFromRaw(raw, flatSlug),
+    title: markdownTitleFromRaw(raw, flatSlug),
     description: markdownDescriptionFromRaw(raw, flatSlug),
-    href: !slug ? "/design" : `/design/${slug}`,
+    href: `/design/${slug}`,
     section,
     showPageHeader: false,
   }));

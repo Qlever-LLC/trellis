@@ -10,7 +10,7 @@ const designSlugs = Array.from(new Set(Object.keys(designModules)
 export const prerender = true;
 
 export function entries() {
-  return designSlugs.map((slug) => ({ slug }));
+  return designSlugs.flatMap((slug) => [{ slug }, { slug: `${slug}.md` }]);
 }
 
 function normalizeSlug(slug: string) {

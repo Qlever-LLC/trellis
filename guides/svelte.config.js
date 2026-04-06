@@ -51,19 +51,7 @@ function prefixRootLinks(base) {
 }
 
 function rewriteDesignDocLinks() {
-  return function transformer(tree, file) {
-    const sourcePath = typeof file?.path === "string"
-      ? file.path
-      : Array.isArray(file?.history) && typeof file.history[0] === "string"
-      ? file.history[0]
-      : null;
-
-    const absoluteSourcePath = sourcePath
-      ? path.isAbsolute(sourcePath)
-        ? sourcePath
-        : path.resolve(guidesRoot, sourcePath)
-      : null;
-
+  return function transformer(tree) {
     visit(tree, (node) => {
       if (node.type !== "element" || node.tagName !== "a") {
         return;
@@ -74,36 +62,31 @@ function rewriteDesignDocLinks() {
         return;
       }
 
-      if (!absoluteSourcePath || !absoluteSourcePath.startsWith(designRoot)) {
-        return;
-      }
-
-      const match = href.match(/^(.+?\.md)(#.*)?$/);
-      if (!match) {
-        return;
-      }
-
-      const [, markdownPath, hash = ""] = match;
       if (
-        markdownPath.startsWith("/") || markdownPath.startsWith("http://") ||
-        markdownPath.startsWith("https://") || markdownPath.startsWith("mailto:")
+        href.startsWith("http://") ||
+        href.startsWith("https://") ||
+        href.startsWith("mailto:") ||
+        href.startsWith("#") ||
+        href.startsWith("//")
       ) {
         return;
       }
 
-      const resolvedPath = path.resolve(path.dirname(absoluteSourcePath), markdownPath);
-      if (!resolvedPath.startsWith(designRoot)) {
+      const match = href.match(/^((?:\.{1,2}\/|\/design\/|design\/)[^?#]+)\.md((?:[?#].*)?)$/);
+      if (!match) {
         return;
       }
 
-      const relativePath = path.relative(designRoot, resolvedPath).replaceAll("\\", "/");
-      const slug = relativePath.replace(/\.md$/i, "").replace(/(?:^|\/)README$/i, "");
+      const [, markdownPath, suffix = ""] = match;
+      if (markdownPath.startsWith("design/")) {
+        node.properties.href = `/${markdownPath.replace(/\.md$/i, "")}${suffix}`;
+        return;
+      }
 
-      node.properties.href = slug ? `/design/${slug}${hash}` : `/design${hash}`;
+      node.properties.href = `${markdownPath.replace(/\.md$/i, "")}${suffix}`;
     });
   };
 }
-
 function visit(node, callback) {
   callback(node);
   if (!node || typeof node !== "object" || !("children" in node) || !Array.isArray(node.children)) {
@@ -114,8 +97,23 @@ function visit(node, callback) {
   }
 }
 
+function escapeHtml(value) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 async function highlighter(code, lang) {
   const language = lang || "text";
+
+  if (language === "mermaid") {
+    return escapeSvelte(
+      `<pre class="shiki github-dark-default" style="background-color:#0d1117;color:#e6edf3"><code class="language-mermaid">${escapeHtml(code)}</code></pre>`,
+    );
+  }
+
   try {
     const html = await codeToHtml(code, {
       lang: language,
@@ -130,7 +128,6 @@ async function highlighter(code, lang) {
     return escapeSvelte(html.replace(/\s+tabindex="0"/g, ""));
   }
 }
-
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
   extensions: [".svelte", ".svx", ".md"],
