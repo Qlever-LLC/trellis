@@ -1,6 +1,6 @@
 ---
 title: Device Activation
-description: Device activation flow for shipped hardware, including offline confirmation and first online auth.
+description: Device activation request, review, offline confirmation, and first online activation flow.
 order: 15
 ---
 
@@ -8,71 +8,106 @@ order: 15
 
 ## Prerequisites
 
-This design assumes familiarity with:
-
-- [trellis-auth.md](./trellis-auth.md) - session keys, auth callout, and runtime authentication
-- [../core/storage-patterns.md](./../core/storage-patterns.md) - storage and service-boundary patterns
-- [../contracts/trellis-contracts-catalog.md](./../contracts/trellis-contracts-catalog.md) - contract and policy installation boundaries
+- [trellis-auth.md](./trellis-auth.md) - auth architecture and principal model
+- [auth-api.md](./auth-api.md) - auth HTTP, operation, RPC, and event surfaces
+- [auth-protocol.md](./auth-protocol.md) - proofs, internal state, and pre-auth device wait rules
+- [../operations/trellis-operations.md](./../operations/trellis-operations.md) - caller-visible async workflow model
+- [../contracts/trellis-contracts-catalog.md](./../contracts/trellis-contracts-catalog.md) - profile lineage and allowed-digest rules
 
 ## Context
 
-Trellis needs a first-class activation flow for shipped devices that:
+Trellis needs an activation flow for known devices that:
 
 - have their own durable identity
 - may be offline during setup
-- can display a QR code outbound to a phone
-- cannot reliably receive large payloads back; the cloud-to-device return path must be a short typed code
-- may start with no logged-in user on the phone, so account creation or login must happen inside the activation journey without losing device context
-- use normal Trellis runtime auth once they have network access; the typed confirmation code is not the runtime credential
+- may have constrained input
+- can send an outbound QR payload to a phone or other admin client
+- may need a human or automatic approval step before activation is allowed
+- use normal Trellis runtime auth with the device runtime key once they are online
 
-The activation flow must therefore separate:
+The authenticated user in the request flow is usually not authorized to activate the device directly. That user is allowed to request activation. A separate reviewer, either a human admin or an approval service reacting to auth events, decides whether activation should be approved.
 
-- device registration and offline confirmation
-- deployment-specific ownership or linkage recorded by an activation application or service
-- normal runtime authentication performed later with the device's runtime private key
+This means device activation has three separate concerns:
 
-This design defines the Trellis-facing APIs and auth behavior needed for device activation.
-It intentionally anticipates `trellis` CLI support for admin and activation flows. An aftermarket console UI can be written later against the same API surface without changing this spec. A deployment may use:
-
-- a Trellis-hosted web flow
-- a custom activation service
-- future `trellis` CLI admin commands
-- a future console UI
-
-as long as those callers use the same Trellis-facing APIs described here.
+- browser or client continuity while the requester signs in and starts the request
+- a requester-visible asynchronous activation request
+- a privileged review step that creates the actual auth activation record
 
 ## Design
 
-Device activation is a separate lifecycle from normal online authentication. The device carries its own durable identity, the browser or console flow handles human interaction and activation completion, and the runtime key continues to be the only online credential the device uses once it is connected.
+### End-to-end flows
 
-### Device principal boundary
+The main activation flow is request and review driven. The requester starts an auth-owned operation, an authorized reviewer resolves it, and the resulting confirmation code is delivered either to the requester for manual entry or directly to an online device.
+
+```mermaid
+sequenceDiagram
+    participant D as Device
+    participant U as Requester Client
+    participant T as Trellis Auth
+    participant R as Reviewer or Approval Service
+
+    D->>U: Show QR payload
+    U->>T: GET /auth/device/activate?payload=...
+    T-->>U: Create handoff and enter deployment onboarding app
+    U->>T: operations.v1.Auth.RequestDeviceActivation
+    T-->>U: Operation accepted and waiting
+    T-->>R: events.v1.Auth.DeviceActivationRequested
+    R->>T: rpc.v1.Auth.ReviewDeviceActivation
+    T-->>U: Operation completes with profileId and confirmationCode
+    alt Offline device
+        U->>D: Human enters confirmationCode
+        D->>D: Verify with activationKey
+    else Online device
+        D->>T: POST /auth/device/activate/wait with runtimePrivateKey proof
+        T-->>D: profileId and confirmationCode
+        D->>D: Verify with activationKey
+    end
+```
+
+Normal runtime auth still happens later, after local confirmation succeeds.
+
+```mermaid
+sequenceDiagram
+    participant D as Device
+    participant N as NATS Auth Callout
+    participant T as Trellis Auth
+
+    D->>N: Connect with runtimePrivateKey proof
+    N->>T: Validate connect token
+    T->>T: Load activation record and resolve profile
+    alt approved and not revoked
+        T-->>N: Allow connection
+        opt first successful runtime auth
+            T->>T: Record activatedAt if absent
+            T-->>T: Emit events.v1.Auth.DeviceActivated
+        end
+        N-->>D: Connected
+    else not approved or revoked
+        T-->>N: Reject connection
+        N-->>D: Connection denied
+    end
+```
+
+### Device identity and keys
 
 Each device is its own Trellis principal.
 
-- the device authenticates later with its own runtime key, not as the user who activated it
-- a deployment-specific activation application or service may record user/device linkage, ownership, or enrollment metadata, but auth does not own those fields
-- auth only stores the device principal identity, assigned `profileId`, and activation state needed to allow later runtime authentication
+- the device later authenticates with its own runtime key, not as the user who requested activation
+- the requester identity and the device identity are intentionally separate
+- the short confirmation code is only local setup confirmation; it is never the device's online credential
 
-### Device key derivation
+Each manufactured device starts from one root secret:
 
-Each manufactured device starts from a single root secret. That root secret is never the online credential itself; instead, Trellis and the device derive purpose-specific child secrets from it so the runtime key and the activation challenge key stay separate.
+```text
+deviceRootSecret: 32 random bytes
+```
 
-Each manufactured device receives one root secret:
-
-- `deviceRootSecret`: 32 random bytes
-
-The device derives two child secrets with HKDF-SHA256:
+The device derives purpose-specific keys with HKDF-SHA256:
 
 ```text
 runtimeSeed   = HKDF-SHA256(ikm=deviceRootSecret, salt="", info="trellis/device-runtime/v1", L=32)
 activationKey = HKDF-SHA256(ikm=deviceRootSecret, salt="", info="trellis/device-activate/v1", L=32)
 ```
-
-Behavior:
-
-- `runtimeSeed` is used only for runtime authentication
-- `activationKey` is used only for QR authentication and the short confirmation code
-- the cloud side reads `activationKey` from the AUTH account's NATS KV-backed secret store; auth MUST NOT require broad plaintext access to all device root secrets
 
 The runtime keypair is:
 
@@ -81,66 +116,95 @@ runtimePrivateKey = Ed25519Seed(runtimeSeed)
 runtimePublicKey  = Ed25519Public(runtimePrivateKey)
 ```
 
+Rules:
+
+- `runtimePrivateKey` is the real online credential
+- `activationKey` is used only for QR MACs and the offline confirmation code
+- auth reads the activation secret material from its protected device-registry data; other callers do not
+
 ### Device profiles
 
-The device does not need the full server-side profile while it is offline. Instead, the offline flow only needs enough information to mark the device as locally activated. Trellis keeps the actual `profileId` server-side and applies it when the device first authenticates online.
-
-`profileId` is server-side only.
-
-- auth stores `profileId` and uses it for later online policy
-- the short offline confirmation flow does not carry the full profile to the device
-- the device enters a generic `registered_offline` state after successful confirmation
-
-Each device profile is a server-side classification that determines the device's runtime policy and activation behavior.
-
-- `profileId` selects the policy and auth state that belong to that device class
-- activation records keep the server-side `profileId`
-- auth uses `profileId` to decide which device behavior is allowed once the device is online
-
-Profiles are also the natural place to map device firmware to service contracts.
-
-- a profile may allow more than one contract digest in the same contract lineage so firmware rollouts can happen gradually
-- each individual device still authenticates with one exact installed contract digest once it is online
-- old and new firmware digests may therefore coexist under one profile during rollout as long as they remain compatible within the same contract lineage
-- any resources or bindings needed by that firmware remain per-digest install data, even when multiple digests in the same lineage are allowed by one profile
-
-`DeviceProfile` is a first-class server-side record.
+`DeviceProfile` is an auth-owned record used at review time and online auth time.
 
 ```json
 {
   "profileId": "drive.default",
   "deviceType": "drive",
   "contractId": "acme.drive@v1",
-  "allowedDigests": [
-    "<digest-v1>",
-    "<digest-v2>"
-  ],
+  "allowedDigests": ["<digest-v1>", "<digest-v2>"],
   "preferredDigest": "<digest-v2>",
-  "activationMode": "auto",
-  "runtimeClass": "device",
   "disabled": false
 }
 ```
 
-Behavior:
+Rules:
 
-- `profileId` is the stable identifier used by activation and auth records
-- `contractId` identifies the service-contract lineage for that device class
-- `allowedDigests` defines which firmware/service revisions are permitted to connect under that profile
-- `preferredDigest` is the rollout target for newly activated devices or upgraded devices when deployment policy wants the latest allowed digest
-- profile records are deployment data, not contract-manifest fields
-- `activationMode` controls whether activation is automatic or requires an external approval step for that deployment
-- `runtimeClass` is an explicit deployment-owned classification rather than a free-form policy blob
+- `profileId` is the stable server-side identifier attached to the device activation record
+- `contractId` identifies one contract lineage
+- `allowedDigests` may contain multiple active digests in that lineage during rollout
+- `preferredDigest` is the rollout target for newly reviewed devices
+- reviewers choose and attach the profile during `rpc.v1.Auth.ReviewDeviceActivation`
+
+### Activation records
+
+The flow uses three different records.
+
+`DeviceActivationHandoff` preserves QR context across login or account creation.
+
+```json
+{
+  "handoffId": "dah_...",
+  "deviceId": "dev_...",
+  "deviceType": "drive",
+  "runtimePublicKey": "<base64url>",
+  "nonce": "<base64url>",
+  "qrMac": "<base64url>",
+  "createdAt": "2026-04-05T12:00:00Z",
+  "expiresAt": "2026-04-05T12:30:00Z"
+}
+```
+
+`DeviceActivationRequest` is the requester-visible async object.
+
+```json
+{
+  "requestId": "dar_...",
+  "handoffId": "dah_...",
+  "deviceId": "dev_...",
+  "deviceType": "drive",
+  "runtimePublicKey": "<base64url>",
+  "nonce": "<base64url>",
+  "requestedProfileId": "drive.default",
+  "requestedBy": {
+    "origin": "google",
+    "id": "1234"
+  },
+  "state": "pending",
+  "createdAt": "2026-04-05T12:05:00Z",
+  "expiresAt": "2026-04-05T13:05:00Z"
+}
+```
+
+`requestedProfileId` is optional. It is only a requester hint; the reviewer may approve a different profile or select one when the request omitted a hint.
+
+The auth activation record is the actual device auth decision.
+
+```json
+{
+  "requestId": "dar_...",
+  "deviceId": "dev_...",
+  "runtimePublicKey": "<base64url>",
+  "profileId": "drive.default",
+  "state": "approved",
+  "approvedAt": "2026-04-05T12:08:00Z",
+  "activatedAt": null,
+  "revokedAt": null
+}
+```
 
 ### Outbound QR payload
 
-The QR is the outbound handoff from device to phone. It contains the device identity and the activation nonce, plus a MAC that lets the cloud verify the payload came from a known shipped device.
-
-When the device starts activation it generates:
-
-- `nonce`: 10 random bytes
-
-The device then displays a QR payload containing:
+The QR payload is the outbound handoff from device to requester.
 
 ```json
 {
@@ -164,15 +228,7 @@ qrMac = base64url(
 )
 ```
 
-Behavior:
-
-- `runtimePublicKey` in the QR MUST match the public key derived from the same device root secret during manufacturing
-- the caller handling activation start MUST verify `qrMac` before creating any activation attempt
-- the QR payload is outbound only; no large payload is ever sent back through the touchscreen
-
-### Activation start flow
-
-The browser entrypoint starts the activation journey without assuming the phone is already logged in. If the user needs to create an account or sign in, Trellis preserves the activation attempt and resumes it afterward.
+### Handoff HTTP entrypoint
 
 The default browser entrypoint is:
 
@@ -180,168 +236,244 @@ The default browser entrypoint is:
 GET /auth/device/activate?payload=<base64url-json>
 ```
 
-Decoded request DTO:
-
-```json
-{
-  "v": 1,
-  "deviceId": "dev_...",
-  "deviceType": "drive",
-  "runtimePublicKey": "<base64url>",
-  "nonce": "<base64url>",
-  "qrMac": "<base64url>"
-}
-```
-
-Deployments may implement equivalent behavior in another service or UI, but they MUST preserve the same request semantics and resulting `ActivationAttempt` record.
-
-This design defines two Trellis-facing layers:
-
-- a default browser HTTP surface for account creation, login, and approval UX
-- an authenticated activation RPC surface that future CLI or console callers can reuse
+This entrypoint preserves device context across login and hands control to an onboarding handler selected from auth-owned deployment bindings. It does not create the real activation record and it does not define the onboarding UI.
 
 Behavior:
 
-1. Decode the payload
-2. Verify `v`
-3. Verify the device is a known shipped device
-4. Derive `activationKey` and verify `qrMac`
-5. Verify the shipped `runtimePublicKey` matches the QR payload
-6. Create an `ActivationAttempt`
-7. If the user is not authenticated, redirect into the existing auth flow while preserving `attemptId`
-8. If the user is authenticated, redirect to the continue page
+1. Decode the QR payload
+2. Validate structural fields and version
+3. Create `DeviceActivationHandoff`
+4. If the caller is not authenticated, redirect into the normal login flow while preserving `handoffId`
+5. Resolve the onboarding handler binding for `deviceType` and return or redirect with `handoffId`
 
-Response behavior:
+Auth resolves onboarding handlers from deployment-owned records keyed by `deviceType`. Each device type needs an explicit active binding. That binding may route to a custom onboarding app or select the Trellis default onboarding app for that device type. If no active binding exists, auth rejects the handoff instead of guessing a default.
 
-- if the caller is not authenticated, the server responds with an HTTP redirect into the existing auth flow
-- if the caller is authenticated, the server responds with an HTTP redirect to `/auth/device/continue?attempt=<attemptId>`
-- if the payload is invalid, the server responds with an auth/device activation error page or JSON error equivalent
+The selected onboarding handler owns device-specific onboarding tasks and screens. It may branch on the approved profile after review. When a device type is bound to the Trellis default onboarding app, that app is intentionally simple and only needs to support the waiting flow for asynchronous admin approval. `rpc.v1.Auth.ReviewDeviceActivation` performs the known-device check, runtime-key check, and profile attachment.
 
-`ActivationAttempt`:
+### Onboarding handler registration
+
+Auth stores deployment-owned onboarding handler records.
 
 ```json
 {
-  "attemptId": "act_...",
-  "deviceId": "dev_...",
-  "deviceType": "drive",
-  "runtimePublicKey": "<base64url>",
-  "nonce": "<base64url>",
-  "state": "awaiting_user_auth",
-  "createdAt": "2026-04-04T20:15:00Z",
-  "expiresAt": "2026-04-04T20:45:00Z"
+  "handlerId": "drive.onboard",
+  "matchDeviceType": "drive",
+  "mode": "custom",
+  "contractId": "acme.drive-onboarding@v1",
+  "entryUrl": "https://console.example.com/devices/drive/onboard",
+  "disabled": false
 }
 ```
 
-Behavior:
+Rules:
 
-- `ActivationAttempt` expires after 30 minutes on the server side
-- `ActivationAttempt` exists to survive account creation, login, or an already-logged-in browser session
-- the device does not enforce the 30-minute limit locally because it may have no reliable offline clock
+- `matchDeviceType` is required and selects one device type
+- `mode` is either `custom` or `trellis_default`
+- only one active handler binding may exist for a given `matchDeviceType`
+- handler registration is an auth admin action, not runtime self-registration
+- `contractId` and `entryUrl` are required when `mode` is `custom`
+- `contractId` and `entryUrl` are omitted when `mode` is `trellis_default`
+- when `mode` is `custom`, the referenced `contractId` must be active in the deployment catalog
+- when `mode` is `custom`, the referenced contract must declare the auth surfaces the onboarding app uses, at minimum the ability to start `operations.v1.Auth.RequestDeviceActivation`
 
-HTTP error reason codes for activation start:
+Auth resolves handler bindings only for routing. Approval policy may be implemented by a separate service. Deployments manage these records through `rpc.v1.Auth.CreateDeviceOnboardingHandler`, `rpc.v1.Auth.ListDeviceOnboardingHandlers`, and `rpc.v1.Auth.DisableDeviceOnboardingHandler`.
 
-| Scenario | Reason code | Context |
-| --- | --- | --- |
-| `payload` query missing | `missing_activation_payload` | |
-| Payload cannot be decoded | `invalid_activation_payload` | |
-| Unsupported payload version | `invalid_activation_version` | `{ v }` |
-| Device id missing in payload | `missing_device_id` | |
-| Device type missing in payload | `missing_device_type` | |
-| Runtime public key missing in payload | `missing_runtime_public_key` | |
-| Nonce missing in payload | `missing_nonce` | |
-| QR MAC missing in payload | `missing_qr_mac` | |
-| Runtime public key malformed | `invalid_runtime_public_key` | `{ runtimePublicKey }` |
-| Nonce malformed | `invalid_nonce` | |
-| QR MAC malformed | `invalid_qr_mac` | |
-| Device not in shipped registry | `unknown_device` | `{ deviceId }` |
-| QR MAC does not verify | `invalid_qr_mac` | `{ deviceId }` |
-| Device/runtime key mismatch | `device_key_mismatch` | `{ deviceId, runtimePublicKey }` |
-| Device already revoked | `device_revoked` | `{ deviceId }` |
+### Approval services
 
-### Browser completion flow
+The onboarding handler and the approval service may be different deployments or different contracts.
 
-Once the user is authenticated, the browser returns to the activation attempt and exchanges the attempt id for the short confirmation code. That code is the only thing that needs to be typed back onto the device.
+A deployment-specific approval service may subscribe to `events.v1.Auth.DeviceActivationRequested`, run external checks such as subscription or tenant policy validation, and call `rpc.v1.Auth.ReviewDeviceActivation` once its own requirements are satisfied.
 
-If the phone user is not yet authenticated, Trellis reuses the existing browser auth flow.
+Automatic approval is therefore a deployment workflow layered on top of auth events and auth review, not a bypass around auth.
 
-- `GET /auth/device/activate` stores the `attemptId`
-- the browser then enters the normal user auth journey: account creation, login, or provider redirect
-- Trellis sets `redirectTo=/auth/device/continue?attempt=<attemptId>`
-- after successful browser auth, Trellis returns to the continue page with the same `attemptId`
+### Requester-facing operation
 
-The continue page or other activation UI then calls:
+The requester-facing public API is the auth-owned operation subject:
 
 ```text
-POST /auth/device/activate
+operations.v1.Auth.RequestDeviceActivation
 ```
 
-Request body:
+Logical name:
+
+```text
+Auth.RequestDeviceActivation
+```
+
+The operation starts the request and then waits for review.
+
+Request:
 
 ```json
 {
-  "attemptId": "act_..."
+  "handoffId": "dah_...",
+  "requestedProfileId": "drive.default"
 }
 ```
 
-Response DTO:
+`requestedProfileId` is optional. When present it is advisory, not authoritative.
+
+Start-time validation errors use `AuthError` and reject the operation before it is accepted.
+
+Start-time reason codes:
+
+| Scenario | Reason code |
+| --- | --- |
+| `handoffId` missing | `missing_handoff_id` |
+| handoff not found | `device_activation_handoff_not_found` |
+| handoff expired | `device_activation_handoff_expired` |
+| requester session missing | `session_not_found` |
+
+Progress payload:
 
 ```json
 {
+  "stage": "pending_review"
+}
+```
+
+Terminal success payload:
+
+```json
+{
+  "requestId": "dar_...",
+  "profileId": "drive.default",
   "confirmationCode": "7K2M9QXD"
 }
 ```
 
-The user identity is taken from the authenticated browser session, not from the request body.
+Terminal failure errors use the normal operation failed state with an `AuthError` payload.
 
-HTTP error reason codes for browser completion:
+Terminal failure reason codes:
 
-| Scenario | Reason code | Context |
-| --- | --- | --- |
-| Caller has no authenticated browser session | `session_not_found` | |
-| `attemptId` missing | `missing_attempt_id` | |
-| Activation attempt missing | `activation_attempt_not_found` | `{ attemptId }` |
-| Activation attempt expired | `activation_attempt_expired` | `{ attemptId }` |
-| Device not in shipped registry | `unknown_device` | `{ deviceId }` |
-| Device already revoked | `device_revoked` | `{ deviceId }` |
-| Auth RPC rejected approval | propagated `AuthError.reason` | `{ deviceId }` |
+| Scenario | Reason code |
+| --- | --- |
+| request rejected by reviewer | `device_activation_rejected` |
+| request expired before review completed | `device_activation_request_expired` |
 
-### Activation caller behavior
+Behavior:
 
-The browser endpoint is only the default completion path. Deployments may replace it with another Trellis-hosted service, a custom activation service, or future CLI/console flows as long as they call the same activation RPC.
+1. Require a normal authenticated requester session
+2. Load `DeviceActivationHandoff`
+3. Create `DeviceActivationRequest`
+4. Persist enough requester identity to support audit and requester-bound operation authorization
+5. Emit `events.v1.Auth.DeviceActivationRequested`
+6. Move the operation into a waiting state until the request is reviewed
+7. Complete successfully with the approved `profileId` and `confirmationCode` if approved
+8. Complete in failed state with `device_activation_rejected` or `device_activation_request_expired` if review does not approve the request in time
 
-`POST /auth/device/activate` is the default Trellis-hosted browser activation API for finishing an existing activation attempt after the user has authenticated. The caller may also be a deployment-specific activation service or UI. Future CLI and console callers are expected to use the RPC activation API in the next section rather than this browser-only endpoint.
+The operation is the public pause-resume surface for the requester. Internally, auth may complete it via event projection, KV watch, or another implementation detail, but those mechanisms are not part of the public API.
 
-The caller MUST:
+### Review RPC
 
-1. Require an authenticated user context
-2. Load the `ActivationAttempt`
-3. Reject expired or missing attempts
-4. Verify the device is a known shipped device
-5. Resolve `profileId` from `deviceType`
-6. Optionally record any deployment-specific business linkage between the authenticated user and the device outside auth
-7. Call the auth RPC that stores auth-relevant activation state
-8. Return the short confirmation code to the browser
-
-Known shipped devices may be auto-activated by policy, but the workflow still goes through this API boundary so different callers can replace each other later.
-
-### Activation RPC
-
-The reusable Trellis-facing activation API stores the auth-relevant state for the device and returns the short confirmation code to the completion flow.
-
-The stable Trellis-facing activation API is:
+The privileged review API is the auth RPC subject:
 
 ```text
-rpc.Auth.ActivateDevice
+rpc.v1.Auth.ReviewDeviceActivation
 ```
 
-This RPC is intended for any authenticated caller that wants to activate a device, including:
+Logical name:
 
-- the default Trellis-hosted browser flow
-- deployment-specific activation services
-- future `trellis` CLI activation commands
-- future console UI activation flows
+```text
+Auth.ReviewDeviceActivation
+```
 
-The RPC caller is responsible for obtaining and validating the activation attempt or equivalent device activation context before calling auth.
+Approved request:
+
+```json
+{
+  "requestId": "dar_...",
+  "approved": true,
+  "profileId": "drive.default"
+}
+```
+
+Rejected request:
+
+```json
+{
+  "requestId": "dar_...",
+  "approved": false,
+  "reason": "policy_denied"
+}
+```
+
+Approved response:
+
+```json
+{
+  "requestId": "dar_...",
+  "decision": "approved",
+  "profileId": "drive.default",
+  "approvedAt": "2026-04-05T12:08:00Z"
+}
+```
+
+Rejected response:
+
+```json
+{
+  "requestId": "dar_...",
+  "decision": "rejected",
+  "reason": "policy_denied",
+  "rejectedAt": "2026-04-05T12:08:00Z"
+}
+```
+
+Rules:
+
+- callers must already be Trellis-authenticated and authorized for this RPC
+- `profileId` is required when `approved` is `true`
+- `reason` is optional and is primarily useful on rejection
+- the same RPC handles both approval and rejection
+
+Decision reason values are deployment-defined machine-readable strings. `policy_denied` is an illustrative rejection code, not a fixed global enum.
+
+Review reason codes:
+
+| Scenario | Reason code |
+| --- | --- |
+| `requestId` missing | `missing_request_id` |
+| request not found | `device_activation_request_not_found` |
+| request already resolved differently | `device_activation_request_already_resolved` |
+| `approved=true` and `profileId` missing | `missing_profile_id` |
+| profile not found | `device_profile_not_found` |
+| profile disabled | `device_profile_disabled` |
+| device not known | `unknown_device` |
+| QR MAC invalid | `invalid_qr_mac` |
+| runtime key mismatch | `device_key_mismatch` |
+
+On approval, auth:
+
+1. Loads the `DeviceActivationRequest`
+2. Verifies the device is a known device
+3. Verifies the QR MAC using the device activation key
+4. Verifies the known device runtime key matches the request runtime key
+5. Loads and validates `DeviceProfile`
+6. Creates or confirms the auth activation record with the approved `profileId` and state `approved`
+7. Derives the confirmation code
+8. Marks the request approved
+9. Emits `events.v1.Auth.DeviceActivationApproved`
+10. Completes `operations.v1.Auth.RequestDeviceActivation`
+
+If the same request is reviewed again with the same final decision, auth may return the existing final state idempotently. Conflicting re-review attempts fail.
+
+On rejection, auth:
+
+1. Loads the `DeviceActivationRequest`
+2. Marks the request rejected
+3. Emits `events.v1.Auth.DeviceActivationRejected`
+4. Completes `operations.v1.Auth.RequestDeviceActivation` in failed state with `device_activation_rejected`
+
+### Online device wait endpoint
+
+An online device should not require a human to type the confirmation code if it can already reach auth.
+
+The device therefore uses a pre-auth long-poll endpoint:
+
+```text
+POST /auth/device/activate/wait
+```
 
 Request:
 
@@ -349,94 +481,70 @@ Request:
 {
   "deviceId": "dev_...",
   "runtimePublicKey": "<base64url>",
-  "profileId": "drive.basic.v1"
+  "nonce": "<base64url>",
+  "iat": 1743854880,
+  "sig": "<base64url-ed25519-signature>"
 }
-```
-
-Required headers:
-
-```text
-session-key: <callerSessionKey>
-proof: <base64url(ed25519 signature)>
 ```
 
 Response:
 
 ```json
 {
-  "success": true
+  "status": "approved",
+  "requestId": "dar_...",
+  "profileId": "drive.default",
+  "confirmationCode": "7K2M9QXD"
 }
 ```
 
-Auth requirements:
-
-1. The caller MUST already be Trellis-authenticated using the normal `session-key` and `proof` headers
-2. The caller MUST be authorized by its installed or approved contract to invoke `rpc.Auth.ActivateDevice`
-3. Auth does not distinguish whether that caller is a browser, CLI, console, or deployment-specific service; those caller types all use the same RPC surface
-4. If a deployment requires "human user only" approval, that rule is enforced by the caller before invoking auth, not by this RPC itself
-5. Auth MUST reject activation when the `deviceId` and `runtimePublicKey` pair does not match the shipped-device registry entry visible to auth
-6. Auth MUST reject approval when the device is already `revoked`
-7. Auth MUST allow idempotent replay when the existing record already has the same `deviceId`, `runtimePublicKey`, and `profileId`
-8. Auth MUST reject conflicting replay when the same `deviceId` is already approved for a different `runtimePublicKey` or a different `profileId`
-
-Auth persists only auth-relevant state:
+or:
 
 ```json
 {
-  "deviceId": "dev_...",
-  "runtimePublicKey": "<base64url>",
-  "profileId": "drive.basic.v1",
-  "state": "approved_pending_first_auth",
-  "approvedAt": "2026-04-04T20:18:00Z"
+  "status": "rejected",
+  "requestId": "dar_...",
+  "reason": "policy_denied"
 }
 ```
+
+or:
+
+```json
+{
+  "status": "pending"
+}
+```
+
+The device proves possession of `runtimePrivateKey` before it is activated.
 
 Behavior:
 
-- auth does not store `activatedBy`, `linkedUser`, or ownership metadata for this flow
-- auth uses this record only to decide whether later runtime auth is allowed and which `profileId` to attach
-- auth MUST require an authenticated caller for this RPC
-- auth MAY emit the activation event directly from this RPC because the activation decision boundary lives here
+1. Verify `iat` is within the allowed skew window
+2. Verify `sig` using `runtimePublicKey`
+3. Find a matching pending or approved activation request by `deviceId`, `runtimePublicKey`, and `nonce`
+4. If the request is already approved, return the confirmation code immediately
+5. Otherwise wait for a bounded timeout for the request to resolve
+6. Return approved, rejected, or pending-timeout status
 
-Error response shape:
+Reason codes:
 
-```json
-{
-  "error": {
-    "code": "AuthError",
-    "message": "device activation failed",
-    "reason": "<reason-code>",
-    "context": {}
-  }
-}
-```
+| Scenario | Reason code |
+| --- | --- |
+| `deviceId` missing | `missing_device_id` |
+| `runtimePublicKey` missing | `missing_runtime_public_key` |
+| `nonce` missing | `missing_nonce` |
+| `iat` missing | `missing_iat` |
+| `sig` missing | `missing_sig` |
+| `iat` outside allowed skew | `iat_out_of_range` |
+| signature invalid | `invalid_signature` |
+| no matching request | `device_activation_request_not_found` |
 
-Activation RPC reason codes:
+Offline devices still rely on the human-entered confirmation code. Online devices may fetch that same code automatically through this endpoint.
 
-| Scenario | Reason code | Context |
-| --- | --- | --- |
-| Caller omitted `session-key` header | `missing_session_key` | |
-| Caller omitted `proof` header | `missing_proof` | |
-| Caller proof invalid | `invalid_signature` | `{ sessionKey }` |
-| Caller not authenticated | `session_not_found` | `{ sessionKey }` |
-| Caller contract lacks RPC permission | `insufficient_permissions` | `{ required: ["rpc.Auth.ActivateDevice"] }` |
-| Device id missing from request | `missing_device_id` | |
-| Runtime public key missing | `missing_runtime_public_key` | |
-| Profile id missing | `missing_profile_id` | |
-| Runtime public key malformed | `invalid_runtime_public_key` | `{ runtimePublicKey }` |
-| Device not in shipped registry | `unknown_device` | `{ deviceId }` |
-| Device/runtime key mismatch | `device_key_mismatch` | `{ deviceId, runtimePublicKey }` |
-| Device activation record revoked | `device_revoked` | `{ deviceId }` |
-| Device already approved with different profile | `device_profile_conflict` | `{ deviceId, existingProfileId, requestedProfileId }` |
-| Device already approved with different runtime key | `device_identity_conflict` | `{ deviceId }` |
+### Confirmation code
 
-### Short confirmation code
-
-The confirmation code is intentionally short because the device touchscreen is hard to use. It is not the runtime credential; it only tells the offline device that Trellis accepted this activation attempt.
-
-After auth activation succeeds, the caller computes an 8-character Crockford Base32 confirmation code.
-
-Computation:
+The confirmation code is short because the device may have constrained input. It is not an online credential.
 
 ```text
 confirmTag = Trunc40(HMAC-SHA256(
@@ -447,126 +555,109 @@ confirmTag = Trunc40(HMAC-SHA256(
 confirmationCode = CrockfordBase32(confirmTag)
 ```
 
-Behavior:
+Rules:
 
-- the code length is exactly 8 characters
-- the code alphabet is Crockford Base32 uppercase without separators
-- the code does not include `profileId`; profile remains server-side only
-- the code is not a runtime credential; it only confirms that the cloud approved this activation attempt for this physical device
+- the code is exactly 8 Crockford Base32 characters
+- the code does not carry permissions and is not reused for online auth
+- auth may derive the code on demand instead of storing it in plaintext
 
-`POST /auth/device/activate` returns:
+### Device behavior after approval
 
-```json
-{
-  "confirmationCode": "7K2M9QXD"
-}
-```
+Offline device flow:
 
-### Device local confirmation
+1. requester receives the code from `operations.v1.Auth.RequestDeviceActivation`
+2. human types the code into the device
+3. device verifies the code locally with `activationKey`
+4. device enters a local offline-activated state
 
-The device verifies the typed code using the activation key derived from its own root secret. When the code matches, the device marks itself locally activated and can begin constrained offline behavior.
+Online device flow:
 
-The user types the confirmation code into the device.
+1. device waits on `POST /auth/device/activate/wait`
+2. auth returns the same code once the request is approved
+3. device verifies it locally and enters the same local offline-activated state
 
-The device recomputes:
+In both cases the device later performs normal runtime-key auth.
 
-```text
-expectedCode = CrockfordBase32(
-  Trunc40(HMAC-SHA256(
-    activationKey,
-    "trellis-device-confirm/v1" || deviceId || nonce
-  ))
-)
-```
+### First online auth
 
-If the entered code matches, the device transitions to:
+After local confirmation, the device uses normal Trellis auth with `runtimePrivateKey`.
 
-```json
-{
-  "activationState": "registered_offline",
-  "deviceId": "dev_...",
-  "runtimePublicKey": "<base64url>",
-  "nonce": "<base64url>"
-}
-```
+On each runtime auth after approval, auth resolves the device principal from the activation record, including the already-attached `profileId`.
 
-Behavior:
+On the first successful runtime auth after approval, auth also:
 
-- the device MUST rate-limit attempts
-- after 5 failed entries the device MUST discard the nonce and require a new activation start
-- the device stores only `registered_offline`; it does not know `profileId` yet
+1. loads the auth activation record by device identity
+2. verifies the record is approved and not revoked
+3. records `activatedAt` if it is still absent
+4. emits `events.v1.Auth.DeviceActivated`
 
-### Online authentication
+That first online auth records the first successful online use of the already-approved device identity.
 
-Once the device has network access, it does not reuse the short confirmation code. It performs the same runtime-key proof flow as any other Trellis principal, and that first successful online auth is what completes activation on the server.
+If the device is not approved, auth rejects online auth. If the device has been revoked, auth rejects online auth and active connections should be kicked.
 
-Online devices do not use the short code as an online credential.
+### Auth events
 
-Once a device has connectivity and wants to understand whether activation is complete, it uses normal Trellis runtime auth with `runtimePrivateKey`, exactly like a service principal.
+Auth publishes these activation events:
 
-The connect token shape is the existing `iat` flow:
-
-```json
-{
-  "v": 1,
-  "sessionKey": "<runtimePublicKey>",
-  "iat": 1735689600,
-  "sig": "<base64url-ed25519-signature>"
-}
-```
-
-On first successful runtime auth:
-
-1. Auth verifies the runtime signature as usual
-2. Auth loads the device activation record by `runtimePublicKey`
-3. If state is `approved_pending_first_auth`, auth allows the connection
-4. Auth attaches `profileId` to the authenticated device principal
-5. Auth transitions the record to `active_confirmed_online`
-6. Auth emits an event
-
-If no approved activation record exists, auth rejects the connect with `device_not_activated`.
-
-If an activation record exists but is `revoked`, auth rejects the connect with `device_revoked`.
-
-This means:
-
-- offline devices use the typed code only to enter local offline mode
-- online devices should simply attempt normal Trellis auth when they need to know whether activation is complete
-
-### Events
-
-Activation events are emitted from auth so other services can observe approval, first online confirmation, and revocation without carrying user-linkage metadata through auth itself.
-
-Auth emits:
-
+- `events.v1.Auth.DeviceActivationRequested`
 - `events.v1.Auth.DeviceActivationApproved`
-- `events.v1.Auth.DeviceActivationOnlineConfirmed`
+- `events.v1.Auth.DeviceActivationRejected`
+- `events.v1.Auth.DeviceActivated`
 - `events.v1.Auth.DeviceActivationRevoked`
 
-The deployment-specific caller may emit additional domain events for linkage or enrollment workflows, but those are outside auth.
+These events let a human admin client or an automatic approver service react without giving the original requester the capability to call `rpc.v1.Auth.ReviewDeviceActivation`.
 
-Event payloads:
+Suggested payloads:
+
+`events.v1.Auth.DeviceActivationRequested`
+
+```json
+{
+  "requestId": "dar_...",
+  "deviceId": "dev_...",
+  "deviceType": "drive",
+  "runtimePublicKey": "<base64url>",
+  "requestedProfileId": "drive.default",
+  "requestedAt": "2026-04-05T12:05:00Z",
+  "requestedBy": {
+    "origin": "google",
+    "id": "1234"
+  }
+}
+```
 
 `events.v1.Auth.DeviceActivationApproved`
 
 ```json
 {
+  "requestId": "dar_...",
   "deviceId": "dev_...",
   "runtimePublicKey": "<base64url>",
-  "profileId": "drive.basic.v1",
-  "approvedAt": "2026-04-04T20:18:00Z"
+  "profileId": "drive.default",
+  "approvedAt": "2026-04-05T12:08:00Z"
 }
 ```
 
-`events.v1.Auth.DeviceActivationOnlineConfirmed`
+`events.v1.Auth.DeviceActivationRejected`
 
 ```json
 {
+  "requestId": "dar_...",
+  "deviceId": "dev_...",
+  "rejectedAt": "2026-04-05T12:08:00Z",
+  "reason": "policy_denied"
+}
+```
+
+`events.v1.Auth.DeviceActivated`
+
+```json
+{
+  "requestId": "dar_...",
   "deviceId": "dev_...",
   "runtimePublicKey": "<base64url>",
-  "profileId": "drive.basic.v1",
-  "confirmedAt": "2026-04-04T21:03:00Z",
-  "userNkey": "UD3..."
+  "profileId": "drive.default",
+  "activatedAt": "2026-04-05T12:15:00Z"
 }
 ```
 
@@ -576,572 +667,26 @@ Event payloads:
 {
   "deviceId": "dev_...",
   "runtimePublicKey": "<base64url>",
-  "profileId": "drive.basic.v1",
-  "revokedAt": "2026-04-05T09:00:00Z"
-}
-```
-
-Behavior:
-
-- event payloads do not include user-linkage or ownership fields
-- `userNkey` on `DeviceActivationOnlineConfirmed` is the server-generated NATS connection identity for the first successful online auth that confirmed activation
-- `DeviceActivationApproved` is emitted exactly when auth first creates or idempotently confirms the approval record
-- `DeviceActivationOnlineConfirmed` is emitted only on the transition from `approved_pending_first_auth` to `active_confirmed_online`
-- `DeviceActivationRevoked` is emitted when auth changes the activation record to `revoked`
-
-### Device profile RPCs
-
-Device profiles are deployment-owned configuration records. The supported admin surface is:
-
-```text
-rpc.Auth.CreateDeviceProfile
-rpc.Auth.ListDeviceProfiles
-rpc.Auth.GetDeviceProfile
-rpc.Auth.DisableDeviceProfile
-rpc.Auth.SetDeviceProfilePreferredDigest
-rpc.Auth.AddDeviceProfileDigest
-rpc.Auth.RemoveDeviceProfileDigest
-```
-
-These RPCs are intended for authenticated administrative callers such as `trellis` CLI commands and other callers using the same Trellis-facing API surface.
-
-#### rpc.Auth.CreateDeviceProfile
-
-Creates a new device profile. Once created, `profileId`, `deviceType`, and `contractId` are immutable.
-
-Required headers:
-
-```text
-session-key: <callerSessionKey>
-proof: <base64url(ed25519 signature)>
-```
-
-Request:
-
-```json
-{
   "profileId": "drive.default",
-  "deviceType": "drive",
-  "contractId": "acme.drive@v1",
-  "allowedDigests": [
-    "<digest-v1>",
-    "<digest-v2>"
-  ],
-  "preferredDigest": "<digest-v2>",
-  "activationMode": "auto",
-  "runtimeClass": "device"
+  "revokedAt": "2026-04-05T13:00:00Z"
 }
 ```
 
-Response:
-
-```json
-{
-  "profile": {
-    "profileId": "drive.default",
-    "deviceType": "drive",
-    "contractId": "acme.drive@v1",
-    "allowedDigests": ["<digest-v1>", "<digest-v2>"],
-    "preferredDigest": "<digest-v2>",
-    "activationMode": "auto",
-    "runtimeClass": "device",
-    "disabled": false
-  }
-}
-```
-
-Behavior:
-
-- the caller MUST already be Trellis-authenticated
-- the caller MUST be authorized by contract to invoke `rpc.Auth.CreateDeviceProfile`
-- `profileId` MUST be unique within the deployment
-- `contractId` MUST identify one existing contract lineage
-- every digest in `allowedDigests` MUST belong to `contractId`
-- `preferredDigest` MUST appear in `allowedDigests`
-- create is idempotent only when the same full profile definition is replayed; conflicting replays MUST fail
-
-Create reason codes:
-
-| Scenario | Reason code | Context |
-| --- | --- | --- |
-| Caller omitted `session-key` header | `missing_session_key` | |
-| Caller omitted `proof` header | `missing_proof` | |
-| Caller proof invalid | `invalid_signature` | `{ sessionKey }` |
-| Caller not authenticated | `session_not_found` | `{ sessionKey }` |
-| Caller contract lacks RPC permission | `insufficient_permissions` | `{ required: ["rpc.Auth.CreateDeviceProfile"] }` |
-| `profileId` missing | `missing_profile_id` | |
-| `deviceType` missing | `missing_device_type` | |
-| `contractId` missing | `missing_contract_id` | |
-| `allowedDigests` missing or empty | `missing_allowed_digests` | |
-| `preferredDigest` missing | `missing_preferred_digest` | |
-| Profile already exists with different data | `device_profile_conflict` | `{ profileId }` |
-| `contractId` unknown | `unknown_contract_id` | `{ contractId }` |
-| One or more digests are not in the contract lineage | `device_profile_digest_mismatch` | `{ profileId, contractId }` |
-| `preferredDigest` not in `allowedDigests` | `preferred_digest_not_allowed` | `{ profileId, preferredDigest }` |
-
-#### rpc.Auth.ListDeviceProfiles
-
-Lists device profiles.
-
-Required headers:
-
-```text
-session-key: <callerSessionKey>
-proof: <base64url(ed25519 signature)>
-```
-
-Request:
-
-```json
-{
-  "deviceType": "drive",
-  "contractId": "acme.drive@v1",
-  "disabled": false
-}
-```
-
-All request fields are optional exact-match filters.
-
-Response:
-
-```json
-{
-  "profiles": [
-    {
-      "profileId": "drive.default",
-      "deviceType": "drive",
-      "contractId": "acme.drive@v1",
-      "allowedDigests": ["<digest-v1>", "<digest-v2>"],
-      "preferredDigest": "<digest-v2>",
-      "activationMode": "auto",
-      "runtimeClass": "device",
-      "disabled": false
-    }
-  ]
-}
-```
-
-Behavior:
-
-- the caller MUST already be Trellis-authenticated
-- the caller MUST be authorized by contract to invoke `rpc.Auth.ListDeviceProfiles`
-
-List profile reason codes:
-
-| Scenario | Reason code | Context |
-| --- | --- | --- |
-| Caller omitted `session-key` header | `missing_session_key` | |
-| Caller omitted `proof` header | `missing_proof` | |
-| Caller proof invalid | `invalid_signature` | `{ sessionKey }` |
-| Caller not authenticated | `session_not_found` | `{ sessionKey }` |
-| Caller contract lacks RPC permission | `insufficient_permissions` | `{ required: ["rpc.Auth.ListDeviceProfiles"] }` |
-
-#### rpc.Auth.GetDeviceProfile
-
-Returns one device profile by `profileId`.
-
-Required headers:
-
-```text
-session-key: <callerSessionKey>
-proof: <base64url(ed25519 signature)>
-```
-
-Request:
-
-```json
-{
-  "profileId": "drive.default"
-}
-```
-
-Response:
-
-```json
-{
-  "profile": {
-    "profileId": "drive.default",
-    "deviceType": "drive",
-    "contractId": "acme.drive@v1",
-    "allowedDigests": ["<digest-v1>", "<digest-v2>"],
-    "preferredDigest": "<digest-v2>",
-    "activationMode": "auto",
-    "runtimeClass": "device",
-    "disabled": false
-  }
-}
-```
-
-Behavior:
-
-- the caller MUST already be Trellis-authenticated
-- the caller MUST be authorized by contract to invoke `rpc.Auth.GetDeviceProfile`
-
-Get profile reason codes:
-
-| Scenario | Reason code | Context |
-| --- | --- | --- |
-| Caller omitted `session-key` header | `missing_session_key` | |
-| Caller omitted `proof` header | `missing_proof` | |
-| Caller proof invalid | `invalid_signature` | `{ sessionKey }` |
-| Caller not authenticated | `session_not_found` | `{ sessionKey }` |
-| Caller contract lacks RPC permission | `insufficient_permissions` | `{ required: ["rpc.Auth.GetDeviceProfile"] }` |
-| `profileId` missing | `missing_profile_id` | |
-| Profile not found | `device_profile_not_found` | `{ profileId }` |
-
-#### rpc.Auth.DisableDeviceProfile
-
-Disables a profile so it cannot be used for new activation or install.
-
-Required headers:
-
-```text
-session-key: <callerSessionKey>
-proof: <base64url(ed25519 signature)>
-```
-
-Request:
-
-```json
-{
-  "profileId": "drive.default"
-}
-```
-
-Response:
-
-```json
-{
-  "success": true
-}
-```
-
-Behavior:
-
-- the caller MUST already be Trellis-authenticated
-- the caller MUST be authorized by contract to invoke `rpc.Auth.DisableDeviceProfile`
-- disable is idempotent
-- disabled profiles MUST NOT be used for new device activation or new profile-driven install
-- by default, devices authenticating online under a disabled profile MUST fail until reassigned or reactivated under a valid profile
-
-Disable profile reason codes:
-
-| Scenario | Reason code | Context |
-| --- | --- | --- |
-| Caller omitted `session-key` header | `missing_session_key` | |
-| Caller omitted `proof` header | `missing_proof` | |
-| Caller proof invalid | `invalid_signature` | `{ sessionKey }` |
-| Caller not authenticated | `session_not_found` | `{ sessionKey }` |
-| Caller contract lacks RPC permission | `insufficient_permissions` | `{ required: ["rpc.Auth.DisableDeviceProfile"] }` |
-| `profileId` missing | `missing_profile_id` | |
-| Profile not found | `device_profile_not_found` | `{ profileId }` |
-
-#### rpc.Auth.SetDeviceProfilePreferredDigest
-
-Sets the rollout target digest for a profile.
-
-Required headers:
-
-```text
-session-key: <callerSessionKey>
-proof: <base64url(ed25519 signature)>
-```
-
-Request:
-
-```json
-{
-  "profileId": "drive.default",
-  "preferredDigest": "<digest-v2>"
-}
-```
-
-Response:
-
-```json
-{
-  "profile": {
-    "profileId": "drive.default",
-    "preferredDigest": "<digest-v2>"
-  }
-}
-```
-
-Behavior:
-
-- the caller MUST already be Trellis-authenticated
-- the caller MUST be authorized by contract to invoke `rpc.Auth.SetDeviceProfilePreferredDigest`
-- `preferredDigest` MUST already be present in `allowedDigests`
-
-Preferred digest reason codes:
-
-| Scenario | Reason code | Context |
-| --- | --- | --- |
-| Caller omitted `session-key` header | `missing_session_key` | |
-| Caller omitted `proof` header | `missing_proof` | |
-| Caller proof invalid | `invalid_signature` | `{ sessionKey }` |
-| Caller not authenticated | `session_not_found` | `{ sessionKey }` |
-| Caller contract lacks RPC permission | `insufficient_permissions` | `{ required: ["rpc.Auth.SetDeviceProfilePreferredDigest"] }` |
-| `profileId` missing | `missing_profile_id` | |
-| `preferredDigest` missing | `missing_preferred_digest` | |
-| Profile not found | `device_profile_not_found` | `{ profileId }` |
-| `preferredDigest` not in `allowedDigests` | `preferred_digest_not_allowed` | `{ profileId, preferredDigest }` |
-
-#### rpc.Auth.AddDeviceProfileDigest
-
-Adds one allowed digest to a profile.
-
-Required headers:
-
-```text
-session-key: <callerSessionKey>
-proof: <base64url(ed25519 signature)>
-```
-
-Request:
-
-```json
-{
-  "profileId": "drive.default",
-  "digest": "<digest-v2>"
-}
-```
-
-Response:
-
-```json
-{
-  "profile": {
-    "profileId": "drive.default",
-    "allowedDigests": ["<digest-v1>", "<digest-v2>"],
-    "preferredDigest": "<digest-v2>"
-  }
-}
-```
-
-Behavior:
-
-- the caller MUST already be Trellis-authenticated
-- the caller MUST be authorized by contract to invoke `rpc.Auth.AddDeviceProfileDigest`
-- the digest MUST belong to the profile's `contractId` lineage
-- add is idempotent
-
-Add digest reason codes:
-
-| Scenario | Reason code | Context |
-| --- | --- | --- |
-| Caller omitted `session-key` header | `missing_session_key` | |
-| Caller omitted `proof` header | `missing_proof` | |
-| Caller proof invalid | `invalid_signature` | `{ sessionKey }` |
-| Caller not authenticated | `session_not_found` | `{ sessionKey }` |
-| Caller contract lacks RPC permission | `insufficient_permissions` | `{ required: ["rpc.Auth.AddDeviceProfileDigest"] }` |
-| `profileId` missing | `missing_profile_id` | |
-| `digest` missing | `missing_digest` | |
-| Profile not found | `device_profile_not_found` | `{ profileId }` |
-| Digest not in profile lineage | `device_profile_digest_mismatch` | `{ profileId, contractId, digest }` |
-
-#### rpc.Auth.RemoveDeviceProfileDigest
-
-Removes one allowed digest from a profile.
-
-Required headers:
-
-```text
-session-key: <callerSessionKey>
-proof: <base64url(ed25519 signature)>
-```
-
-Request:
-
-```json
-{
-  "profileId": "drive.default",
-  "digest": "<digest-v1>"
-}
-```
-
-Response:
-
-```json
-{
-  "profile": {
-    "profileId": "drive.default",
-    "allowedDigests": ["<digest-v2>"],
-    "preferredDigest": "<digest-v2>"
-  }
-}
-```
-
-Behavior:
-
-- the caller MUST already be Trellis-authenticated
-- the caller MUST be authorized by contract to invoke `rpc.Auth.RemoveDeviceProfileDigest`
-- the preferred digest MUST be changed before it can be removed
-- remove is idempotent when the digest is already absent
-- removing the final allowed digest MUST fail
-
-Remove digest reason codes:
-
-| Scenario | Reason code | Context |
-| --- | --- | --- |
-| Caller omitted `session-key` header | `missing_session_key` | |
-| Caller omitted `proof` header | `missing_proof` | |
-| Caller proof invalid | `invalid_signature` | `{ sessionKey }` |
-| Caller not authenticated | `session_not_found` | `{ sessionKey }` |
-| Caller contract lacks RPC permission | `insufficient_permissions` | `{ required: ["rpc.Auth.RemoveDeviceProfileDigest"] }` |
-| `profileId` missing | `missing_profile_id` | |
-| `digest` missing | `missing_digest` | |
-| Profile not found | `device_profile_not_found` | `{ profileId }` |
-| Attempt to remove preferred digest | `preferred_digest_removal_forbidden` | `{ profileId, digest }` |
-| Attempt to remove final allowed digest | `final_allowed_digest_removal_forbidden` | `{ profileId }` |
-
-### Device admin RPCs
-
-The device lifecycle needs more than the initial activation exchange. Admin-facing callers can list active device activations or revoke them later, and future CLI or console tooling can reuse those RPCs directly.
-
-Admin-oriented callers need lifecycle APIs beyond initial approval. Auth therefore also exposes:
-
-```text
-rpc.Auth.ListDeviceActivations
-rpc.Auth.RevokeDeviceActivation
-```
-
-These RPCs are intended for authenticated administrative callers such as future `trellis` CLI commands, console UI flows, or deployment-specific admin services.
-
-#### rpc.Auth.ListDeviceActivations
-
-Lists auth-visible device activation records.
-
-Required headers:
-
-```text
-session-key: <callerSessionKey>
-proof: <base64url(ed25519 signature)>
-```
-
-Request:
-
-```json
-{
-  "deviceId": "dev_...",
-  "runtimePublicKey": "<base64url>",
-  "state": "approved_pending_first_auth"
-}
-```
-
-All request fields are optional exact-match filters.
-
-Response:
-
-```json
-{
-  "activations": [
-    {
-      "deviceId": "dev_...",
-      "runtimePublicKey": "<base64url>",
-      "profileId": "drive.basic.v1",
-      "state": "approved_pending_first_auth",
-      "approvedAt": "2026-04-04T20:18:00Z",
-      "confirmedAt": null,
-      "revokedAt": null
-    }
-  ]
-}
-```
-
-Behavior:
-
-- the caller MUST already be Trellis-authenticated
-- the caller MUST be authorized by contract to invoke `rpc.Auth.ListDeviceActivations`
-- auth returns only auth-visible activation records and does not include deployment-specific user linkage metadata
-
-List reason codes:
-
-| Scenario | Reason code | Context |
-| --- | --- | --- |
-| Caller omitted `session-key` header | `missing_session_key` | |
-| Caller omitted `proof` header | `missing_proof` | |
-| Caller proof invalid | `invalid_signature` | `{ sessionKey }` |
-| Caller not authenticated | `session_not_found` | `{ sessionKey }` |
-| Caller contract lacks RPC permission | `insufficient_permissions` | `{ required: ["rpc.Auth.ListDeviceActivations"] }` |
-| Runtime public key malformed | `invalid_runtime_public_key` | `{ runtimePublicKey }` |
-| Unknown filter state value | `invalid_activation_state` | `{ state }` |
-
-#### rpc.Auth.RevokeDeviceActivation
-
-Revokes a device activation record and prevents future online auth for that device until re-approved.
-
-Required headers:
-
-```text
-session-key: <callerSessionKey>
-proof: <base64url(ed25519 signature)>
-```
-
-Request:
-
-```json
-{
-  "deviceId": "dev_..."
-}
-```
-
-Response:
-
-```json
-{
-  "success": true
-}
-```
-
-Behavior:
-
-- the caller MUST already be Trellis-authenticated
-- the caller MUST be authorized by contract to invoke `rpc.Auth.RevokeDeviceActivation`
-- auth MUST mark the device activation record `revoked`
-- auth SHOULD kick active NATS connections for the matching `runtimePublicKey` so revocation takes effect immediately
-- auth MUST emit `events.v1.Auth.DeviceActivationRevoked` on successful transition to `revoked`
-- revoke is idempotent; revoking an already revoked device returns `{ success: true }`
-
-Revoke reason codes:
-
-| Scenario | Reason code | Context |
-| --- | --- | --- |
-| Caller omitted `session-key` header | `missing_session_key` | |
-| Caller omitted `proof` header | `missing_proof` | |
-| Caller proof invalid | `invalid_signature` | `{ sessionKey }` |
-| Caller not authenticated | `session_not_found` | `{ sessionKey }` |
-| Caller contract lacks RPC permission | `insufficient_permissions` | `{ required: ["rpc.Auth.RevokeDeviceActivation"] }` |
-| Device id missing | `missing_device_id` | |
-| Device activation record not found | `unknown_device` | `{ deviceId }` |
-
-### State machines
-
-The local device state, the server activation attempt, and the auth-side activation record each move through their own small state machine so the offline and online pieces stay independent.
-
-Device local state:
-
-- `new`
-- `pending_activation`
-- `registered_offline`
-- `online_active`
-- `revoked`
-
-Activation attempt state:
-
-- `awaiting_user_auth`
-- `awaiting_approval`
-- `approved`
-- `expired`
-
-Auth device activation state:
-
-- `approved_pending_first_auth`
-- `active_confirmed_online`
-- `revoked`
-
-### Security and operational notes
-
-The short code is deliberately low-assurance compared with runtime auth. It is enough to unlock offline activation state, but it must never be treated as an online credential. The cloud-side manufacturing material must be tightly protected, and the server-side 30-minute attempt expiry is only enforced while the activation flow is still in the browser or service path.
-
-The runtime key remains the real online credential, and the QR MAC prevents invented activation attempts for devices that were never shipped.
+### Onboarding, profile, and admin RPCs
+
+Device onboarding, profile, and lifecycle admin RPCs remain part of the auth API:
+
+- `rpc.v1.Auth.CreateDeviceOnboardingHandler`
+- `rpc.v1.Auth.ListDeviceOnboardingHandlers`
+- `rpc.v1.Auth.DisableDeviceOnboardingHandler`
+- `rpc.v1.Auth.CreateDeviceProfile`
+- `rpc.v1.Auth.ListDeviceProfiles`
+- `rpc.v1.Auth.GetDeviceProfile`
+- `rpc.v1.Auth.DisableDeviceProfile`
+- `rpc.v1.Auth.SetDeviceProfilePreferredDigest`
+- `rpc.v1.Auth.AddDeviceProfileDigest`
+- `rpc.v1.Auth.RemoveDeviceProfileDigest`
+- `rpc.v1.Auth.ListDeviceActivations`
+- `rpc.v1.Auth.RevokeDeviceActivation`
+
+Those RPCs manage deployment-owned onboarding routes, profile data, and already-activated device records. The request-review flow above is the only path that turns a requester action into a real activation decision.

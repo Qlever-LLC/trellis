@@ -11,7 +11,7 @@ order: 30
 - [trellis-auth.md](./trellis-auth.md) - auth architecture and approval model
 - [auth-protocol.md](./auth-protocol.md) - proofs, connect tokens, and internal state rules
 
-## Design
+## Scope
 
 This document defines the public Trellis auth API.
 
@@ -19,18 +19,22 @@ It covers:
 
 - HTTP OAuth and bind endpoints
 - HTTP device activation endpoints
-- device profile management RPCs
+- auth-owned device activation operations
 - public and admin `rpc.Auth.*` endpoints
 - emitted auth events
 
 It does not define language-specific client APIs.
+
+Headings in this document use logical names like `rpc.Auth.Logout`. The wire subjects remain versioned forms such as `rpc.v1.Auth.Logout` and `operations.v1.Auth.RequestDeviceActivation`.
 
 ## HTTP Endpoints
 
 Device activation HTTP endpoints are defined in [device-activation.md](./device-activation.md):
 
 - `GET /auth/device/activate`
-- `POST /auth/device/activate`
+- `POST /auth/device/activate/wait`
+
+`GET /auth/device/activate` creates the activation handoff, resolves the onboarding handler from auth-owned deployment bindings for the device type, and then returns or redirects into that handler. Each device type needs an explicit handler binding. A binding may target a custom onboarding app or the Trellis default onboarding app.
 
 ### GET /auth/login
 
@@ -130,7 +134,7 @@ Behavior:
 10. Refresh the Trellis-local auth projection entry
 11. Return the bind response
 
-Behavior:
+Rules:
 
 - normal browser and CLI flows reach `/auth/bind` only after Trellis has already recorded an approval decision
 - `/auth/bind` still rechecks approval and capabilities defensively
@@ -240,7 +244,7 @@ Response:
 }
 ```
 
-Behavior:
+Rules:
 
 - binding tokens are single-use
 - clients that want seamless reconnect SHOULD keep a fresh token available by calling this RPC after connecting
@@ -301,20 +305,189 @@ Response:
 
 This RPC is the capability and session lookup service used by other Trellis services.
 
-### Device activation and profile RPCs
+## Device Activation Public Surface
 
-Device activation and device profile RPCs are defined in [device-activation.md](./device-activation.md):
+Detailed activation flow semantics, event ordering, and confirmation-code behavior are defined in [device-activation.md](./device-activation.md). This section defines the canonical public API shapes that other auth docs refer to.
 
-- `rpc.Auth.CreateDeviceProfile`
-- `rpc.Auth.ListDeviceProfiles`
-- `rpc.Auth.GetDeviceProfile`
-- `rpc.Auth.DisableDeviceProfile`
-- `rpc.Auth.SetDeviceProfilePreferredDigest`
-- `rpc.Auth.AddDeviceProfileDigest`
-- `rpc.Auth.RemoveDeviceProfileDigest`
-- `rpc.Auth.ActivateDevice`
-- `rpc.Auth.ListDeviceActivations`
-- `rpc.Auth.RevokeDeviceActivation`
+Public auth-owned surfaces:
+
+- operation subject `operations.v1.Auth.RequestDeviceActivation`
+- HTTP endpoints `GET /auth/device/activate` and `POST /auth/device/activate/wait`
+- RPC subject `rpc.v1.Auth.ReviewDeviceActivation`
+- onboarding handler, device profile, and device lifecycle admin RPCs under `rpc.v1.Auth.*`
+
+Shared request and response types:
+
+```ts
+type DeviceActivationDecisionReason = string; // deployment-defined machine-readable code
+
+type DeviceOnboardingHandler = {
+  handlerId: string;
+  matchDeviceType: string;
+  mode: "custom" | "trellis_default";
+  contractId?: string;
+  entryUrl?: string;
+  disabled: boolean;
+};
+
+type DeviceProfile = {
+  profileId: string;
+  deviceType: string;
+  contractId: string;
+  allowedDigests: string[];
+  preferredDigest: string;
+  disabled: boolean;
+};
+
+type DeviceActivationRecord = {
+  requestId: string;
+  deviceId: string;
+  runtimePublicKey: string;
+  profileId: string;
+  state: "approved" | "revoked";
+  approvedAt: string;
+  activatedAt: string | null;
+  revokedAt: string | null;
+};
+
+type ReviewDeviceActivationRequest = {
+  requestId: string;
+  approved: boolean;
+  profileId?: string;
+  reason?: DeviceActivationDecisionReason;
+};
+
+type ReviewDeviceActivationResponse =
+  | {
+      requestId: string;
+      decision: "approved";
+      profileId: string;
+      approvedAt: string;
+    }
+  | {
+      requestId: string;
+      decision: "rejected";
+      reason?: DeviceActivationDecisionReason;
+      rejectedAt: string;
+    };
+
+type RequestDeviceActivationOutput = {
+  requestId: string;
+  profileId: string;
+  confirmationCode: string;
+};
+
+type WaitForDeviceActivationCodeResponse =
+  | {
+      status: "approved";
+      requestId: string;
+      profileId: string;
+      confirmationCode: string;
+    }
+  | {
+      status: "rejected";
+      requestId: string;
+      reason?: DeviceActivationDecisionReason;
+    }
+  | {
+      status: "pending";
+    };
+
+type CreateDeviceOnboardingHandlerRequest = {
+  handlerId: string;
+  matchDeviceType: string;
+  mode: "custom" | "trellis_default";
+  contractId?: string;
+  entryUrl?: string;
+};
+type CreateDeviceOnboardingHandlerResponse = { handler: DeviceOnboardingHandler };
+
+type ListDeviceOnboardingHandlersRequest = {
+  matchDeviceType?: string;
+  mode?: "custom" | "trellis_default";
+  disabled?: boolean;
+};
+
+type ListDeviceOnboardingHandlersResponse = {
+  handlers: DeviceOnboardingHandler[];
+};
+
+type DisableDeviceOnboardingHandlerRequest = { handlerId: string };
+
+type CreateDeviceProfileRequest = {
+  profileId: string;
+  deviceType: string;
+  contractId: string;
+  allowedDigests: string[];
+  preferredDigest: string;
+};
+type CreateDeviceProfileResponse = { profile: DeviceProfile };
+
+type ListDeviceProfilesRequest = {
+  deviceType?: string;
+  contractId?: string;
+  disabled?: boolean;
+};
+
+type ListDeviceProfilesResponse = { profiles: DeviceProfile[] };
+
+type GetDeviceProfileRequest = { profileId: string };
+type GetDeviceProfileResponse = { profile: DeviceProfile };
+
+type DisableDeviceProfileRequest = { profileId: string };
+
+type SetDeviceProfilePreferredDigestRequest = {
+  profileId: string;
+  preferredDigest: string;
+};
+
+type SetDeviceProfilePreferredDigestResponse = { profile: DeviceProfile };
+
+type AddDeviceProfileDigestRequest = {
+  profileId: string;
+  digest: string;
+};
+
+type AddDeviceProfileDigestResponse = { profile: DeviceProfile };
+
+type RemoveDeviceProfileDigestRequest = {
+  profileId: string;
+  digest: string;
+};
+
+type RemoveDeviceProfileDigestResponse = { profile: DeviceProfile };
+
+type ListDeviceActivationsRequest = {
+  deviceId?: string;
+  runtimePublicKey?: string;
+  profileId?: string;
+  state?: "approved" | "revoked";
+};
+
+type ListDeviceActivationsResponse = {
+  activations: DeviceActivationRecord[];
+};
+
+type RevokeDeviceActivationRequest = {
+  deviceId: string;
+};
+```
+
+Canonical RPC inventory:
+
+- `rpc.v1.Auth.ReviewDeviceActivation`
+- `rpc.v1.Auth.CreateDeviceOnboardingHandler`
+- `rpc.v1.Auth.ListDeviceOnboardingHandlers`
+- `rpc.v1.Auth.DisableDeviceOnboardingHandler`
+- `rpc.v1.Auth.CreateDeviceProfile`
+- `rpc.v1.Auth.ListDeviceProfiles`
+- `rpc.v1.Auth.GetDeviceProfile`
+- `rpc.v1.Auth.DisableDeviceProfile`
+- `rpc.v1.Auth.SetDeviceProfilePreferredDigest`
+- `rpc.v1.Auth.AddDeviceProfileDigest`
+- `rpc.v1.Auth.RemoveDeviceProfileDigest`
+- `rpc.v1.Auth.ListDeviceActivations`
+- `rpc.v1.Auth.RevokeDeviceActivation`
 
 ## Admin RPCs
 
@@ -393,6 +566,9 @@ Request:
 }
 ```
 
+`userNkey` is the final connection-identity token embedded in the `key` returned by `rpc.Auth.ListConnections`.
+
+
 Response:
 
 ```ts
@@ -407,8 +583,10 @@ Trellis publishes these events as part of `trellis.auth@v1`:
 - `events.v1.Auth.Disconnect`
 - `events.v1.Auth.SessionRevoked`
 - `events.v1.Auth.ConnectionKicked`
+- `events.v1.Auth.DeviceActivationRequested`
 - `events.v1.Auth.DeviceActivationApproved`
-- `events.v1.Auth.DeviceActivationOnlineConfirmed`
+- `events.v1.Auth.DeviceActivationRejected`
+- `events.v1.Auth.DeviceActivated`
 - `events.v1.Auth.DeviceActivationRevoked`
 
 Services may subscribe only when their installed contract explicitly declares them in `uses`.

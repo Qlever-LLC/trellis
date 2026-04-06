@@ -13,7 +13,7 @@ order: 40
 - [auth-api.md](./auth-api.md) - public HTTP and RPC endpoints
 - [../core/type-system-patterns.md](./../core/type-system-patterns.md) - Result and error-model guidance
 
-## Design
+## Scope
 
 This document defines the normative TypeScript public API surface for Trellis auth.
 
@@ -22,15 +22,15 @@ It covers:
 - browser session-key helpers
 - bind and reconnect helpers
 - service auth helpers
+- device activation helpers
 - NATS connect option helpers
 
-The TypeScript surface is intentionally thin: it exposes the same underlying auth model as the other client surfaces, keeps the protocol string construction internal to helpers, and returns `Result`/`AsyncResult` for expected failures.
+## Design Rules
 
-Browser and service helpers expose the same underlying auth model through different ergonomics.
-
-Session-key seeds remain protected from normal application code where possible.
-
-Helpers hide protocol string construction such as `sign(hash("bind:" + authToken))`.
+- browser and service helpers expose the same underlying auth model through different ergonomics
+- public TypeScript APIs use `Result` / `AsyncResult` for expected failures
+- session-key seeds remain protected from normal application code where possible
+- helpers hide protocol string construction such as `sign(hash("bind:" + authToken))`
 
 ## Browser Surface
 
@@ -90,7 +90,7 @@ const authTokenPayload = JSON.stringify({
 });
 ```
 
-Behavior:
+Rules:
 
 - browser session keys SHOULD be stored in IndexedDB via WebCrypto with `extractable=false`
 - after reading `authToken` from a URL fragment, the client MUST immediately clear it from browser history
@@ -139,38 +139,96 @@ Returned connect options:
 }
 ```
 
-## Auth RPC Client Surface
+## Auth RPC And Operation Client Surface
 
 Typed auth clients SHOULD expose at least:
 
 ```ts
+type RequestDeviceActivationInput = {
+  handoffId: string;
+  requestedProfileId?: string;
+};
+
+type RequestDeviceActivationProgress = {
+  stage: "pending_review";
+};
+
+type RequestDeviceActivationOutput = {
+  requestId: string;
+  profileId: string;
+  confirmationCode: string;
+};
+
+type WaitForDeviceActivationCodeInput = {
+  deviceId: string;
+  runtimePublicKey: string;
+  nonce: string;
+};
+
+type DeviceRuntimeKeyHandle = {
+  publicKey(): string;
+  sign(input: Uint8Array): Promise<Result<string, AuthError>>;
+};
+
+type WaitForDeviceActivationCodeResponse =
+  | {
+      status: "approved";
+      requestId: string;
+      profileId: string;
+      confirmationCode: string;
+    }
+  | {
+      status: "rejected";
+      requestId: string;
+      reason?: string;
+    }
+  | {
+      status: "pending";
+    };
+
 type AuthClient = {
   me(): Promise<Result<AuthMeResponse, AuthError>>;
   logout(): Promise<Result<{ success: boolean }, AuthError>>;
   renewBindingToken(): Promise<Result<RenewBindingTokenResponse, AuthError>>;
+  requestDeviceActivation(
+    input: RequestDeviceActivationInput,
+  ): Promise<Result<OperationRef<RequestDeviceActivationProgress, RequestDeviceActivationOutput>, AuthError>>;
 };
 
 type AuthAdminClient = {
+  reviewDeviceActivation(input: ReviewDeviceActivationRequest): Promise<Result<ReviewDeviceActivationResponse, AuthError>>;
+  createDeviceOnboardingHandler(input: CreateDeviceOnboardingHandlerRequest): Promise<Result<CreateDeviceOnboardingHandlerResponse, AuthError>>;
+  listDeviceOnboardingHandlers(input: ListDeviceOnboardingHandlersRequest): Promise<Result<ListDeviceOnboardingHandlersResponse, AuthError>>;
+  disableDeviceOnboardingHandler(input: DisableDeviceOnboardingHandlerRequest): Promise<Result<{ success: boolean }, AuthError>>;
+  createDeviceProfile(input: CreateDeviceProfileRequest): Promise<Result<CreateDeviceProfileResponse, AuthError>>;
+  listDeviceProfiles(input: ListDeviceProfilesRequest): Promise<Result<ListDeviceProfilesResponse, AuthError>>;
+  getDeviceProfile(input: GetDeviceProfileRequest): Promise<Result<GetDeviceProfileResponse, AuthError>>;
+  disableDeviceProfile(input: DisableDeviceProfileRequest): Promise<Result<{ success: boolean }, AuthError>>;
+  listDeviceActivations(input: ListDeviceActivationsRequest): Promise<Result<ListDeviceActivationsResponse, AuthError>>;
+  revokeDeviceActivation(input: RevokeDeviceActivationRequest): Promise<Result<{ success: boolean }, AuthError>>;
   listApprovals(input: ListApprovalsRequest): Promise<Result<ListApprovalsResponse, AuthError>>;
   revokeApproval(input: RevokeApprovalRequest): Promise<Result<{ success: boolean }, AuthError>>;
   listSessions(input: ListSessionsRequest): Promise<Result<ListSessionsResponse, AuthError>>;
   revokeSession(input: RevokeSessionRequest): Promise<Result<{ success: boolean }, AuthError>>;
   listConnections(input: ListConnectionsRequest): Promise<Result<ListConnectionsResponse, AuthError>>;
   kickConnection(input: KickConnectionRequest): Promise<Result<{ success: boolean }, AuthError>>;
-  createDeviceProfile(input: CreateDeviceProfileRequest): Promise<Result<CreateDeviceProfileResponse, AuthError>>;
-  listDeviceProfiles(input: ListDeviceProfilesRequest): Promise<Result<ListDeviceProfilesResponse, AuthError>>;
-  getDeviceProfile(input: GetDeviceProfileRequest): Promise<Result<GetDeviceProfileResponse, AuthError>>;
-  disableDeviceProfile(input: DisableDeviceProfileRequest): Promise<Result<{ success: boolean }, AuthError>>;
-  setDeviceProfilePreferredDigest(input: SetDeviceProfilePreferredDigestRequest): Promise<Result<UpdateDeviceProfileResponse, AuthError>>;
-  addDeviceProfileDigest(input: AddDeviceProfileDigestRequest): Promise<Result<UpdateDeviceProfileResponse, AuthError>>;
-  removeDeviceProfileDigest(input: RemoveDeviceProfileDigestRequest): Promise<Result<UpdateDeviceProfileResponse, AuthError>>;
-  activateDevice(input: ActivateDeviceRequest): Promise<Result<SuccessResponse, AuthError>>;
-  listDeviceActivations(input: ListDeviceActivationsRequest): Promise<Result<ListDeviceActivationsResponse, AuthError>>;
-  revokeDeviceActivation(input: RevokeDeviceActivationRequest): Promise<Result<{ success: boolean }, AuthError>>;
+};
+
+type DeviceActivationClient = {
+  waitForDeviceActivationCode(
+    input: WaitForDeviceActivationCodeInput,
+    handle: DeviceRuntimeKeyHandle,
+  ): Promise<Result<WaitForDeviceActivationCodeResponse, AuthError>>;
 };
 ```
 
-The device profile and device activation request, response, and event shapes are defined in [device-activation.md](./device-activation.md).
+Shared request and response type names such as `ReviewDeviceActivationRequest`, `ReviewDeviceActivationResponse`, `RequestDeviceActivationOutput`, `WaitForDeviceActivationCodeResponse`, the onboarding handler request/response types, and the device profile request/response types are defined canonically in [auth-api.md](./auth-api.md).
+
+Rules:
+
+- `requestDeviceActivation(...)` starts `operations.v1.Auth.RequestDeviceActivation` and returns an `OperationRef`
+- `waitForDeviceActivationCode(...)` targets `POST /auth/device/activate/wait` and signs the request with the device runtime key, not a user session key
+- generated client surfaces SHOULD expose request and response types directly rather than untyped maps
 
 ## Non-Goals
 

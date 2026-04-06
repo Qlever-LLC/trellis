@@ -19,6 +19,7 @@ Trellis needs one authentication and authorization model that works for:
 - browser applications
 - CLIs
 - backend services
+- devices
 - NATS transport permissions
 - application-layer request authorization
 
@@ -26,9 +27,7 @@ The model must avoid long-lived bearer tokens, must fit NATS auth callout, and m
 
 ## Design
 
-Trellis uses two separate layers so connection identity and application identity stay independent. NATS handles transport identity, while Trellis session keys handle application identity proofs across connections.
-
-### Trellis uses a two-layer auth model
+### 1) Trellis uses a two-layer auth model
 
 Authentication operates at two separate layers:
 
@@ -39,13 +38,13 @@ Authentication operates at two separate layers:
 
 The NATS connection identity and the Trellis session key are separate.
 
-Behavior:
+Rules:
 
 - NATS handles per-connection transport identity
 - Trellis session keys handle application identity proofs across connections
 - the same session key may back multiple concurrent NATS connections
 
-### Prove session-key ownership before granting access
+### 2) Prove session-key ownership before granting access
 
 Users and services follow the same core model:
 
@@ -53,25 +52,25 @@ Users and services follow the same core model:
 2. connect to NATS with sentinel credentials plus Trellis auth proof
 3. receive a scoped NATS JWT from the Trellis auth callout
 
-Behavior:
+Rules:
 
 - session-key proof alone is not enough for ordinary user clients
 - contract-bearing clients must also present an approved contract digest
 - permissions are always derived from active contracts plus current grants, never from hard-coded static ACLs
 
-### Identity binding differs by principal type
+### 3) Identity binding differs by principal type
 
 | Client Type | Identity Source | Binding Mechanism |
 | --- | --- | --- |
 | Users | External IdP | OAuth/OIDC/SAML flow binds user identity to session key |
 | Services | Trellis service registry | Admin install binds service public key to session key |
-| Devices | Device activation registry | Activation binds shipped device runtime public key to a device principal |
+| Devices | Known-device registry plus activation review | Approved activation binds runtime public key to a device principal |
 
 The identity source is pluggable. The core requirement is that Trellis can bind a stable identity to a session key before allowing authenticated access.
 
-Shipped-device activation is defined in [device-activation.md](./device-activation.md). Devices may use a short offline confirmation code during setup, but online authentication still uses normal runtime key ownership proof.
+For devices, the runtime public key is the durable principal identity, but that identity is not allowed online until an activation request has been reviewed.
 
-### Session keys are the long-lived application identity
+### 4) Session keys are the long-lived application identity
 
 Browser clients:
 
@@ -84,28 +83,28 @@ Server and service clients:
 - use Ed25519 keys
 - load the private seed from configuration such as `TRELLIS_SESSION_KEY_SEED`
 
-Behavior:
+Rules:
 
 - the private session key seed is the real application credential
 - the public session key is an identifier, not a secret credential
 - session keys persist across reconnects and are rotated only deliberately
 
-### Sentinel credentials trigger auth callout; they grant no real access
+### 5) Sentinel credentials trigger auth callout; they grant no real access
 
 Clients connect to NATS using sentinel credentials that exist only to trigger the Trellis auth callout.
 
-Behavior:
+Rules:
 
 - sentinel credentials have zero useful publish/subscribe permissions by themselves
 - real connection permissions are issued only after the Trellis auth callout validates the auth token
 - browser clients receive sentinel credentials only after bind succeeds
 - services load sentinel credentials from deployment configuration
 
-### User auth is approval-gated by exact contract digest
+### 6) User auth is approval-gated by exact contract digest
 
 Trellis treats browser apps and other normal user-facing clients as contract-bearing clients.
 
-Behavior:
+Rules:
 
 - the approval key is `user <-> contractDigest`, not merely `user <-> contractId`
 - contract changes create a new digest and therefore require a fresh user decision
@@ -113,30 +112,31 @@ Behavior:
 - Trellis stores both `approved` and `denied` decisions
 - if the user's capabilities no longer satisfy the delegated contract, the delegated session becomes invalid until re-approval
 
-### Services are installed, not self-registering
+### 7) Services are installed, not self-registering
 
 Service identity is bound by installation through Trellis-admin flows.
 
-Behavior:
+Rules:
 
 - the service public key is the service identity
 - installation records the service policy, contract digest, and resource bindings
 - the private service seed never crosses the network to Trellis auth
 - service key rotation is a separate explicit administrative operation
 
-### Auth remains unified after binding
+### 8) Auth remains unified after binding
 
-After identity binding, users, services, and activated devices share the same auth-callout-based NATS connection model.
+After identity binding, users and services share the same auth-callout-based NATS connection model.
 
-Behavior:
+Devices join that same runtime model after activation is approved. Before that point, device setup uses the dedicated handoff, request, review, and pre-auth wait surfaces defined in [device-activation.md](./device-activation.md), while deployments provide their own onboarding application around those auth-owned primitives.
 
-- users, services, and devices all prove session-key ownership at connect time
-- services and devices may use `iat`-based online auth once activated and installed
-- all principal types receive transport permissions derived from current grants and active contracts
+Rules:
+
+- both users and services prove session-key ownership at connect time
+- both users and services receive transport permissions derived from current grants and active contracts
 - service resource permissions may be augmented from installed bindings
 - higher-level runtimes should resolve bindings eagerly and expose typed resource handles rather than raw bootstrap details
 
-### Auth is contract-driven
+### 9) Auth is contract-driven
 
 Authorization is derived from:
 
@@ -145,23 +145,23 @@ Authorization is derived from:
 - declared `operations`, `rpc`, `events`, `subjects`, and `uses`
 - installed resource bindings
 
-Behavior:
+Rules:
 
 - Trellis MUST derive permissions from contracts rather than from a parallel scope system
 - operation, RPC, event, and subject access are all contract-level authorization concerns
 - services may subscribe to auth events only when their installed contracts explicitly declare them in `uses`
 
-### Reply subjects and operation streams are part of the auth model
+### 10) Reply subjects and operation streams are part of the auth model
 
 The auth model must protect reply subjects and support operation streaming replies.
 
-Behavior:
+Rules:
 
 - services MUST validate reply subjects against the caller's inbox prefix
 - operation `watch()` and streamed `wait()` responses are allowed as bounded multi-response replies to validated caller inbox subjects
 - Trellis MUST NOT grant arbitrary inbox publish rights just to support operation streams
 
-### Trellis maintains auth-local state for fast authorization
+### 11) Trellis maintains auth-local state for fast authorization
 
 The auth subsystem maintains Trellis-local state such as:
 
@@ -169,10 +169,15 @@ The auth subsystem maintains Trellis-local state such as:
 - user projections
 - service registry entries
 - approval records
+- device onboarding handlers
+- device profiles
+- device activation handoffs
+- device activation requests
+- device activation records
 - binding tokens
 - active connection records
 
-Behavior:
+Rules:
 
 - these records are part of Trellis auth's internal state model
 - auth lookup must remain fast enough for connection-time and request-time validation
@@ -183,25 +188,8 @@ Behavior:
 This document defines the auth subsystem architecture. Detailed companion docs are split by concern:
 
 - [auth-protocol.md](./auth-protocol.md) - connect tokens, proofs, auth callout, reply validation, internal state records
-- [auth-api.md](./auth-api.md) - HTTP endpoints, `rpc.Auth.*`, and emitted auth events
-- [device-activation.md](./device-activation.md) - shipped-device activation, offline confirmation code, and device admin lifecycle
+- [auth-api.md](./auth-api.md) - HTTP endpoints, `operations.v1.Auth.*`, `rpc.v1.Auth.*`, and emitted auth events
+- [device-activation.md](./device-activation.md) - device request, review, confirmation, and activation flow
 - [auth-typescript-api.md](./auth-typescript-api.md) - TypeScript browser and service auth helpers
 - [auth-rust-api.md](./auth-rust-api.md) - Rust service and CLI auth helpers
 - [auth-operations.md](./auth-operations.md) - deployment, HA, rate limits, rotation, and accepted operational risks
-
-## Benefits
-
-- one auth model works for users, CLIs, and services
-- transport identity and application identity are cleanly separated
-- normal user clients are approval-gated by exact contract digest
-- permissions remain contract-driven and live-updating
-- operation streaming replies fit the auth model without requiring arbitrary inbox publish rights
-- non-extractable browser keys reduce key-theft risk
-
-## Trade-Offs
-
-- the system depends on Trellis auth-callout availability for all authenticated access
-- services must be pre-installed before first authenticated connect
-- service reconnect using `iat` requires sane clocks
-- replay of exact signed requests remains an accepted risk within the session window
-- active XSS can still abuse an in-browser session even though it cannot extract the key

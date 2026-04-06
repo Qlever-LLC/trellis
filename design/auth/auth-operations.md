@@ -11,7 +11,7 @@ order: 60
 - [trellis-auth.md](./trellis-auth.md) - auth architecture and trust model
 - [auth-protocol.md](./auth-protocol.md) - internal state and auth-callout protocol
 
-## Design
+## Scope
 
 This document defines the operational and deployment guidance for Trellis auth.
 
@@ -61,6 +61,11 @@ Additional `trellis` service config:
 | users | None |
 | oauthStates | 5 min |
 | pendingAuth | 5 min |
+| deviceActivationHandoffs | 30 min |
+| deviceActivationRequests | deployment-defined review window |
+| deviceActivations | None |
+| deviceOnboardingHandlers | None |
+| deviceProfiles | None |
 | bindingTokens | 5 min to issue, bucket cleanup by TTL |
 | services | None |
 | connections | 2h |
@@ -73,6 +78,11 @@ Cluster-wide required state:
 - sessions store
 - OAuth state store
 - pending auth store
+- device activation handoff store
+- device activation request store
+- device activation record store
+- device onboarding handler store
+- device profile store
 - binding token store
 - connection store
 
@@ -135,6 +145,8 @@ Minimum targets:
 - `/auth/login/:provider`
 - `/auth/callback/:provider`
 - `/auth/bind`
+- `/auth/device/activate`
+- `/auth/device/activate/wait`
 
 Deployments should not go live without configured limits.
 
@@ -165,7 +177,7 @@ Deployments should not go live without configured limits.
 4. Restart dependent services with updated creds
 5. Remove the old sentinel user
 
-## Operational risks
+## Accepted Risks
 
 ### RPC Message Replay
 
@@ -178,7 +190,7 @@ Mitigations:
 - per-message signatures bound to subject and payload
 - session revocation invalidates future replays
 
-Behavioral tradeoff:
+Accepted because:
 
 - replay requires insider access or prior capture
 - replay can only reproduce the same request, not forge a new one
@@ -194,7 +206,7 @@ Mitigations:
 - non-extractable browser keys prevent key theft
 - CSP and standard XSS mitigations remain primary defenses
 
-Non-extractable keys still reduce blast radius compared with extractable browser secrets.
+Accepted because non-extractable keys still reduce blast radius compared with extractable browser secrets.
 
 ## Non-Goals
 

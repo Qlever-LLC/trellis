@@ -70,7 +70,7 @@ For repository layout and tooling boundaries, Trellis treats generated
 source file.
 
 - services may author contracts in their native language
-- those authoring helpers are first-class workflow inputs, not hidden implementation details
+- those authoring helpers are normal workflow inputs, not hidden implementation details
 - `trellis` verifies, packs, and uses generated manifests produced from those contract sources
 
 The human-authored source may vary by language or team as long as it deterministically emits a valid manifest.
@@ -168,7 +168,7 @@ Rules:
 - all concurrently active digests for the same `id` MUST remain semantically compatible within that lineage, so mixed-version callers and service instances can keep working during rollout
 - install records bind one exact digest to one service principal public key, even when multiple digests in the same lineage are active at once
 
-This allows rolling upgrades where some service instances still run the old digest while newer instances have already switched to the new digest. The same model also covers shipped devices whose firmware revisions map to different digests within one device-service lineage.
+This allows rolling upgrades where some service instances still run the old digest while newer instances have already switched to the new digest. The same model also covers known devices whose firmware revisions map to different digests within one device-service lineage.
 
 Concurrent-digest compatibility within one lineage is defined by the owned communication surface:
 
@@ -529,11 +529,7 @@ Digest rules for v1:
 
 The digest is the deployment/runtime identity of one concrete contract artifact.
 
-Consequences:
-
-- different formatting does not change the digest
-- semantically different manifests produce different digests
-- catalogs and registration workflows refer to contracts by digest
+This means different formatting does not change the digest, semantically different manifests produce different digests, and catalogs and registration workflows refer to contracts by digest.
 
 ### 13) Catalog format
 
@@ -572,7 +568,7 @@ Repository-layout clarification:
 
 The `trellis.core@v1` contract implemented by the `trellis` runtime service MUST include runtime discovery RPCs.
 
-Required v1 operations:
+Required v1 discovery RPCs:
 
 - `Trellis.Catalog`
 - `Trellis.Contract.Get`
@@ -632,7 +628,8 @@ The `trellis` runtime service MUST:
 - provision or bind required cloud resources before install or upgrade succeeds
 - persist resource bindings so installed services can resolve them at runtime
 - bind each installed contract digest to the service principal public key that implements it, including Trellis-owned contracts bootstrapped onto the `trellis` service principal
-- support deployment-owned profile records that resolve a principal class, such as a shipped device profile, to a contract lineage plus an allowed digest set
+- support deployment-owned profile records that resolve a principal class, such as a known device profile, to a contract lineage plus an allowed digest set
+- support deployment-owned onboarding-handler bindings that route a device type either to a specific onboarding contract and entry URL or to the Trellis default onboarding app for that type
 - remove the old submission/approval flow rather than preserving a compatibility path
 - ensure any stored user approval or consent decision references the exact contract digest being approved
 
@@ -643,6 +640,7 @@ Install or upgrade validation MUST also:
 - provision stream resources idempotently when requested
 - validate the exact `resources` requested by the digest being installed, even when other digests in the same lineage remain active
 - when install or activation is profile-driven, validate that the digest being bound is allowed by that profile's contract lineage and allowed digest set
+- when an onboarding handler binding is created in custom mode, validate that the referenced contract is active and declares the auth surfaces needed by that handler
 
 Operationally, install or upgrade fails if any of these conditions is true:
 
@@ -731,7 +729,7 @@ If a contract declares `resources`, SDKs SHOULD expose the logical aliases and t
 
 A contract may be projected into a runtime API module used by Trellis client/server libraries.
 
-For v1 TypeScript runtimes, that projection is a defined contract module consumed by `contract.createClient(...)`, `createClient(contract, ...)`, and `contract.connectService(...)`.
+For v1 TypeScript runtimes, that projection is a defined contract module consumed primarily by contract-bound helpers such as `contract.createClient(...)` and `contract.connectService(...)`. Runtimes MAY also expose equivalent free functions such as `createClient(contract, ...)` as convenience wrappers around the same projected API.
 
 Projection requirements:
 
@@ -753,24 +751,6 @@ AsyncAPI is not the canonical runtime model because Trellis requires native repr
 - capability requirements
 - raw subject spaces
 - activation and catalog semantics
-
-## Benefits
-
-- API ownership stays with the implementing service.
-- The `trellis` runtime service can implement multiple logical contracts without requiring extra manifest ownership metadata.
-- The `trellis` runtime service derives auth and discovery behavior from the actual deployment contract set.
-- TypeScript, Rust, Python, and other languages can derive SDKs from the same artifact.
-- Jobs and other raw-subject features fit naturally into the same model.
-- Documentation can be derived without distorting the runtime architecture.
-- Trellis core no longer needs a handwritten global API registry for service APIs.
-
-## Trade-Offs
-
-- Trellis must maintain a real contract schema, canonicalization, validation, and generation toolchain.
-- Authoring source and canonical runtime artifact are distinct concepts.
-- Deployment workflows need contract registration and activation.
-- Trellis must validate explicit `uses` dependencies and bootstrap its own contracts without relying on contract metadata as an authorization boundary.
-- Multi-language support requires generators and release pipelines.
 
 ## Notes
 
