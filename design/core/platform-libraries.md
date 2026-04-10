@@ -22,6 +22,7 @@ This document defines the responsibilities of the core Trellis platform librarie
 | --- | --- | --- |
 | `@qlever-llc/trellis` | Canonical core Trellis package: contract authoring, client runtime, Result helpers, and common auth helpers | Frontend apps, services, CLI tools |
 | `@qlever-llc/trellis/server` | Runtime-neutral server core | Backend services |
+| `@qlever-llc/trellis/server/health` | Health schemas and health-check helpers without the service bootstrap surface | Contract modules, docs, lightweight server code |
 | `@qlever-llc/trellis/server/node` | Node server runtime adapter | External Node services |
 | `@qlever-llc/trellis/server/deno` | Deno server runtime adapter | In-repo Deno services |
 | `@qlever-llc/trellis/auth` | Full auth helper and auth protocol surface | Apps, services, docs, tests |
@@ -36,6 +37,7 @@ This document defines the responsibilities of the core Trellis platform librarie
 - `@qlever-llc/trellis` is the canonical app and service package for Trellis TypeScript development
 - service APIs are defined with the service that owns them and are consumed through contract packages
 - server helpers and first-party SDKs live on explicit Trellis subpaths rather than the root entrypoint
+- contract modules that only need health schemas should prefer `@qlever-llc/trellis/server/health` over `@qlever-llc/trellis/server`
 - framework adapters such as `@qlever-llc/trellis-svelte` remain separate packages
 - platform packages should expose stable ergonomic surfaces and hide transport/bootstrap details
 

@@ -71,6 +71,7 @@
     "@qlever-llc/trellis/browser": "./packages/trellis/browser.ts",
     "@qlever-llc/trellis/contracts": "./packages/trellis/contracts.ts",
     "@qlever-llc/trellis/server": "./packages/trellis/server/mod.ts",
+    "@qlever-llc/trellis/server/health": "./packages/trellis/server/health.ts",
     "@qlever-llc/trellis/server/deno": "./packages/trellis/server/deno.ts",
     "@qlever-llc/trellis/server/node": "./packages/trellis/server/node.ts",
     "@qlever-llc/trellis/server/runtime": "./packages/trellis/server/runtime.ts",

@@ -179,6 +179,7 @@ Jobs are not visible to callers. If you need a caller-observable async workflow,
 | --- | --- |
 | `@qlever-llc/trellis` | Core runtime package: `createClient(...)`, `createCoreClient(...)`, `Result`, common auth helpers |
 | `@qlever-llc/trellis/server` | `TrellisServer`, health schemas, server types |
+| `@qlever-llc/trellis/server/health` | Health schemas and health-check helpers without service bootstrap exports |
 | `@qlever-llc/trellis/server/deno` | Deno service runtime adapter |
 | `@qlever-llc/trellis/server/node` | Node service runtime adapter |
 | `@qlever-llc/trellis/auth` | Full auth helper and auth schema surface |

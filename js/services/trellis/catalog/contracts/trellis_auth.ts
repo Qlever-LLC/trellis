@@ -96,7 +96,7 @@ import {
 import {
   HealthResponseSchema,
   HealthRpcSchema,
-} from "@qlever-llc/trellis/server";
+} from "@qlever-llc/trellis/server/health";
 import {
   type AuthConnectEvent,
   AuthConnectEventSchema,

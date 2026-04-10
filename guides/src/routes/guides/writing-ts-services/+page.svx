@@ -100,7 +100,7 @@ Create `contracts/orders_service.ts`. The contract declares every RPC, event, de
 
 ```ts
 import { defineContract } from "@qlever-llc/trellis/contracts";
-import { HealthResponseSchema, HealthRpcSchema } from "@qlever-llc/trellis/server";
+import { HealthResponseSchema, HealthRpcSchema } from "@qlever-llc/trellis/server/health";
 import { auth } from "@qlever-llc/trellis/sdk/auth";
 import { core } from "@qlever-llc/trellis/sdk/core";
 import {

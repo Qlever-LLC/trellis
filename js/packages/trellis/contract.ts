@@ -1,5 +1,5 @@
 import type { NatsConnection } from "@nats-io/nats-core";
-import type { TrellisAPI } from "./contracts.ts";
+import type { TrellisAPI } from "../contracts/mod.ts";
 import {
   type DefinedContract as BaseDefinedContract,
   type ContractApiViews,
@@ -16,7 +16,7 @@ import {
   type TrellisContractV1,
   type UsedApiFromUses,
   type UseSpec,
-} from "./contracts.ts";
+} from "../contracts/mod.ts";
 import type { ClientOpts } from "./client.ts";
 import { createClient } from "./client.ts";
 import type { Trellis, TrellisAuth } from "./trellis.ts";

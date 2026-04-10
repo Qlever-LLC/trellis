@@ -109,6 +109,10 @@ async function normalizePackageJson() {
       import: "./esm/trellis/server/mod.js",
       require: "./script/trellis/server/mod.js",
     },
+    "./server/health": {
+      import: "./esm/trellis/server/health.js",
+      require: "./script/trellis/server/health.js",
+    },
     "./server/deno": {
       import: "./esm/trellis/server/deno.js",
       require: "./script/trellis/server/deno.js",
@@ -223,6 +227,7 @@ await buildDntPackage({
     "./packages/trellis/errors/index.ts",
     "./packages/trellis/helpers.ts",
     "./packages/trellis/server/mod.ts",
+    "./packages/trellis/server/health.ts",
     "./packages/trellis/server/deno.ts",
     "./packages/trellis/server/node.ts",
     "./packages/trellis/server/runtime.ts",

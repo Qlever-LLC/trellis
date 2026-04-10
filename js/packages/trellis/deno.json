@@ -9,6 +9,7 @@
     "./browser": "./browser.ts",
     "./contracts": "./contracts.ts",
     "./server": "./server/mod.ts",
+    "./server/health": "./server/health.ts",
     "./server/deno": "./server/deno.ts",
     "./server/node": "./server/node.ts",
     "./server/runtime": "./server/runtime.ts",
