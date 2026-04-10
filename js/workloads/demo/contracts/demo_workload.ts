@@ -1,4 +1,4 @@
-import { defineContract } from "@qlever-llc/trellis";
+import { defineContract } from "@qlever-llc/trellis/contracts";
 import { auth } from "@qlever-llc/trellis/sdk/auth";
 
 export const CONTRACT = defineContract({

@@ -92,7 +92,7 @@ import {
   type ContractDependencyUse,
   defineContract,
   type UseSpec,
-} from "@qlever-llc/trellis";
+} from "@qlever-llc/trellis/contracts";
 import {
   HealthResponseSchema,
   HealthRpcSchema,

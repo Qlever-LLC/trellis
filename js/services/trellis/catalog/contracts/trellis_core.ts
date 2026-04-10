@@ -1,4 +1,4 @@
-import { defineContract } from "@qlever-llc/trellis";
+import { defineContract } from "@qlever-llc/trellis/contracts";
 import {
   TrellisBindingsGetRequestSchema,
   TrellisBindingsGetResponseSchema,
