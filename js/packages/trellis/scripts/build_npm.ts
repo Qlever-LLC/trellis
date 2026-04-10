@@ -8,6 +8,7 @@ type SdkVendor = {
   name: "activity" | "auth" | "core";
   packageName: string;
   sourceDir: string;
+  buildDir: string;
 };
 
 const sdkVendors: SdkVendor[] = [
@@ -15,18 +16,69 @@ const sdkVendors: SdkVendor[] = [
     name: "activity",
     packageName: "@qlever-llc/trellis-sdk-activity",
     sourceDir: join(packageDir, "../../../generated/js/sdks/activity/npm"),
+    buildDir: join(packageDir, "../../../generated/js/sdks/activity"),
   },
   {
     name: "auth",
     packageName: "@qlever-llc/trellis-sdk-auth",
     sourceDir: join(packageDir, "../../../generated/js/sdks/auth/npm"),
+    buildDir: join(packageDir, "../../../generated/js/sdks/auth"),
   },
   {
     name: "core",
     packageName: "@qlever-llc/trellis-sdk-core",
     sourceDir: join(packageDir, "../../../generated/js/sdks/trellis-core/npm"),
+    buildDir: join(packageDir, "../../../generated/js/sdks/trellis-core"),
   },
 ];
+
+const workspaceConfigPath = join(packageDir, "../../deno.json");
+const contractsNpmDir = join(packageDir, "../contracts/npm");
+const contractsBuildDir = join(packageDir, "../contracts");
+
+async function exists(path: string) {
+  try {
+    await Deno.stat(path);
+    return true;
+  } catch (error) {
+    if (error instanceof Deno.errors.NotFound) {
+      return false;
+    }
+    throw error;
+  }
+}
+
+async function runDenoBuildScript(workDir: string) {
+  const command = new Deno.Command(Deno.execPath(), {
+    args: ["run", "--config", workspaceConfigPath, "-A", "./scripts/build_npm.ts"],
+    cwd: workDir,
+    stdin: "null",
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+  const { code } = await command.spawn().status;
+  if (code !== 0) {
+    throw new Error(`Failed to build npm artifacts in ${workDir}`);
+  }
+}
+
+async function ensureContractsNpmArtifacts() {
+  if (await exists(join(contractsNpmDir, "esm"))) {
+    return;
+  }
+  await runDenoBuildScript(contractsBuildDir);
+}
+
+async function ensureSdkNpmArtifacts() {
+  await ensureContractsNpmArtifacts();
+
+  for (const sdk of sdkVendors) {
+    if (await exists(join(sdk.sourceDir, "esm"))) {
+      continue;
+    }
+    await runDenoBuildScript(sdk.buildDir);
+  }
+}
 
 async function copyDir(sourceDir: string, targetDir: string) {
   await Deno.mkdir(targetDir, { recursive: true });
@@ -164,6 +216,8 @@ async function trimArtifact() {
 }
 
 async function vendorSdkArtifacts() {
+  await ensureSdkNpmArtifacts();
+
   for (const sdk of sdkVendors) {
     for (const format of ["esm", "script"] as const) {
       const sourceDir = join(sdk.sourceDir, format);

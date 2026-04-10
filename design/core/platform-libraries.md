@@ -20,13 +20,13 @@ This document defines the responsibilities of the core Trellis platform librarie
 
 | Library | Purpose | Use when |
 | --- | --- | --- |
-| `@qlever-llc/trellis` | Canonical core Trellis package: contract authoring, client runtime, Result helpers, and common auth helpers | Frontend apps, services, CLI tools |
+| `@qlever-llc/trellis` | Canonical core Trellis runtime package: client helpers, Result helpers, common auth helpers, and curated contract re-exports | Frontend apps, services, CLI tools |
 | `@qlever-llc/trellis/server` | Runtime-neutral server core | Backend services |
 | `@qlever-llc/trellis/server/health` | Health schemas and health-check helpers without the service bootstrap surface | Contract modules, docs, lightweight server code |
 | `@qlever-llc/trellis/server/node` | Node server runtime adapter | External Node services |
 | `@qlever-llc/trellis/server/deno` | Deno server runtime adapter | In-repo Deno services |
 | `@qlever-llc/trellis/auth` | Full auth helper and auth protocol surface | Apps, services, docs, tests |
-| `@qlever-llc/trellis/contracts` | Full contract-model and canonicalization surface | Services, SDK generation, docs |
+| `@qlever-llc/trellis/contracts` | Preferred contract authoring plus full contract-model and canonicalization surface | Services, SDK generation, docs |
 | `@qlever-llc/trellis/sdk/*` | First-party generated SDK modules | Apps and services that consume Trellis-owned contracts |
 | `@qlever-llc/trellis-svelte` | Svelte-specific Trellis integration | Svelte applications |
 | `@qlever-llc/trellis-telemetry` | Shared tracing helpers | Runtime libraries and services |
@@ -140,7 +140,7 @@ Provides service-private job creation and processing. See:
 
 ## `@qlever-llc/trellis/contracts`
 
-Provides the full contract-model, manifest validation, canonicalization, SDK generation, and documentation export surface behind the root package's curated contract re-exports. See:
+Provides the preferred contract authoring surface plus the full contract-model, manifest validation, canonicalization, SDK generation, and documentation export surface behind the root package's curated contract re-exports. The returned contract objects still support `contract.createClient(...)`. See:
 
 - contract source files should prefer importing `defineContract(...)` from `@qlever-llc/trellis/contracts` so codegen and manifest verification do not load the runtime package unnecessarily
 

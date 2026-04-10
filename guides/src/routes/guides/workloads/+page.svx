@@ -47,6 +47,8 @@ export const myWorkload = defineContract({
 
 Activated workloads may not use contract `resources`.
 
+Even when you define the contract from `@qlever-llc/trellis/contracts`, the resulting contract object still carries the runtime metadata and helpers that `TrellisWorkload.connect(...)` expects.
+
 ## 3. Write the workload startup code
 
 The intended public startup surface is a service-style helper: `TrellisWorkload.connect(...)`. Your application is responsible for loading the root secret however it wants before calling into Trellis.

@@ -30,14 +30,14 @@ It does not redefine the canonical manifest model or runtime permission derivati
 
 `@qlever-llc/trellis/contracts` is the preferred package for contract source modules and other contract-only authoring code.
 
-`@qlever-llc/trellis` remains the canonical runtime package for client helpers, auth helpers, `Result`, and explicit core-runtime helpers such as `createCoreClient(...)`.
+`@qlever-llc/trellis` remains the canonical runtime package for free-function client helpers, auth helpers, `Result`, and explicit core-runtime helpers such as `createCoreClient(...)`.
 
 It exports:
 
 - `defineContract(...)`
 - contract-module and use-spec types needed by generated SDKs
 
-Runtime connection helpers live in `@qlever-llc/trellis` and `@qlever-llc/trellis/server*`, not in `@qlever-llc/trellis/contracts` itself.
+The `defineContract(...)` helper exported from `@qlever-llc/trellis/contracts` returns a runtime-augmented contract object that includes `contract.createClient(...)`. Free-function runtime helpers still live in `@qlever-llc/trellis` and `@qlever-llc/trellis/server*`.
 
 Rules:
 
@@ -128,7 +128,6 @@ type DefinedContract<
   API: ContractApiViews<TOwnedApi, TUsedApi, TTrellisApi>;
   use(spec: UseSpec<TOwnedApi>): ContractDependencyUse<string, TOwnedApi>;
   createClient(...args: unknown[]): unknown;
-  connectService(...args: unknown[]): Promise<unknown>;
 };
 
 declare function defineContract(...args: unknown[]): DefinedContract<any, any, any>;
@@ -180,7 +179,7 @@ export const activity = defineContract({
   },
 });
 
-const service = await activity.connectService("activity", opts);
+const client = activity.createClient(nc, authSession, { name: "activity-cli" });
 ```
 
 ## `defineContract(...)` Input Model
@@ -232,7 +231,7 @@ Rules:
 
 ## Runtime Helper Behavior
 
-Contract-driven runtime helpers include `createClient(contract, ...)` and `connectService(contract, ...)`.
+Contract-driven runtime helpers include `contract.createClient(...)`, `createClient(contract, ...)`, and `connectService(contract, ...)`.
 
 For callers that intentionally want only the generated Trellis core API without a local contract, `@qlever-llc/trellis` also exposes `createCoreClient(...)` as an explicit opt-in helper.
 

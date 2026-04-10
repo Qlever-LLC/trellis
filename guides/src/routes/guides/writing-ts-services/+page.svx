@@ -175,7 +175,7 @@ export const { CONTRACT_ID, CONTRACT, CONTRACT_DIGEST, API, use } = ordersServic
 
 Key things to note:
 
-- contract source modules should import `defineContract(...)` from `@qlever-llc/trellis/contracts`; runtime helpers such as `isErr`, `Result`, and `createClient(...)` still come from `@qlever-llc/trellis`
+- contract source modules should import `defineContract(...)` from `@qlever-llc/trellis/contracts`; free-function runtime helpers such as `isErr`, `Result`, and `createClient(...)` still come from `@qlever-llc/trellis`, while the returned contract object remains usable anywhere a runtime contract is expected
 - `uses` declares cross-contract dependencies — without these, Trellis will not grant access to those RPCs/events
 - `auth.useDefaults(...)` adds the baseline auth session RPCs (`Auth.Me`, `Auth.Logout`, and `Auth.RenewBindingToken`) automatically
 - `resources.kv.orders` requests a KV bucket with the logical alias `orders` — Trellis assigns the physical name at install time

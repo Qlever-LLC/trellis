@@ -1,4 +1,5 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
+import { parse } from "jsonc-parser";
 
 const decoder = new TextDecoder();
 
@@ -6,7 +7,7 @@ Deno.test("workspace npm build task only builds the supported published packages
   const source = await Deno.readFile(
     new URL("../../../deno.json", import.meta.url),
   );
-  const config = JSON.parse(decoder.decode(source));
+  const config = parse(decoder.decode(source)) as { tasks: Record<string, string> };
 
   assertEquals(
     config.tasks["packages:build:npm"],
