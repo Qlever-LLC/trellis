@@ -44,6 +44,10 @@ jobs:
         with:
           workspaces: rust
 
+      - name: Generate SDK artifacts
+        run: deno task build:sdk
+        working-directory: js
+
       - name: Run workspace tests
         run: cargo test --workspace --locked
         working-directory: rust
@@ -73,6 +77,10 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: rust
+
+      - name: Generate SDK artifacts
+        run: deno task build:sdk
+        working-directory: js
 
       - name: Authenticate with crates.io
         id: auth

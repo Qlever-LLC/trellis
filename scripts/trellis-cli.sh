@@ -19,4 +19,8 @@ if [[ -x "$repo_root/rust/target/release/trellis" ]]; then
   exec "$repo_root/rust/target/release/trellis" "$@"
 fi
 
+if [[ -f "$repo_root/rust/bootstrap/Cargo.toml" ]]; then
+  exec cargo run --manifest-path "$repo_root/rust/bootstrap/Cargo.toml" -- "$@"
+fi
+
 exec cargo run --manifest-path "$repo_root/rust/Cargo.toml" -p trellis-cli --bin trellis -- "$@"

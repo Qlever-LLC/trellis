@@ -45,6 +45,10 @@ jobs:
         with:
           workspaces: rust
 
+      - name: Generate SDK artifacts
+        run: deno task build:sdk
+        working-directory: js
+
       - name: Run trellis CLI tests
         run: cargo test -p trellis-cli --locked
         working-directory: rust
@@ -71,6 +75,11 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Set up Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: 2.7.7
+
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -80,6 +89,10 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: rust
+
+      - name: Generate SDK artifacts
+        run: deno task build:sdk
+        working-directory: js
 
       - name: Build release binary
         run: cargo build -p trellis-cli --release --locked --target ${{ matrix.target }}

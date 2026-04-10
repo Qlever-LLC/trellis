@@ -7,7 +7,7 @@ COPY generated/js /app/generated/js
 
 WORKDIR /app/js/portals/login
 
-RUN deno task build:static
+RUN deno task build:static:prebuilt
 
 FROM docker.io/denoland/deno:2.7.7 AS runtime
 

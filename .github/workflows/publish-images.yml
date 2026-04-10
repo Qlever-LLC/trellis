@@ -15,11 +15,15 @@ on:
     paths:
       - ".github/workflows/publish-images.yml"
       - ".dockerignore"
+      - "js/portals/login/**"
+      - "js/services/jobs/**"
       - "js/services/trellis/**"
       - "js/apps/trellis/**"
       - "js/packages/**"
       - "js/deno.json"
       - "js/deno.lock"
+      - "rust/**"
+      - "scripts/**"
 
 env:
   REGISTRY: ghcr.io
@@ -36,6 +40,23 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      - name: Set up Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: 2.7.7
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      - name: Generate SDK artifacts
+        run: deno task build:sdk
+        working-directory: js
 
       - name: Normalize image owner
         id: owner
@@ -103,6 +124,23 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      - name: Set up Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: 2.7.7
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      - name: Generate SDK artifacts
+        run: deno task build:sdk
+        working-directory: js
 
       - name: Normalize image owner
         id: owner

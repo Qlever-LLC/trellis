@@ -49,3 +49,4 @@ generated/
 
 # Rust build artifacts
 rust/target/
+rust/**/target/

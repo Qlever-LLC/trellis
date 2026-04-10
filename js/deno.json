@@ -12,6 +12,7 @@
     "./portals/login",
     "./workloads/demo",
     "./services/activity",
+    "./services/jobs",
     "./services/trellis"
   ],
   "tasks": {

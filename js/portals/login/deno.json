@@ -4,6 +4,7 @@
     "verify:contracts": "bash ../../../scripts/trellis-cli.sh contracts verify --source ./src/contracts/portal_app.ts",
     "dev": "deno task -c ../../deno.json build:sdk && deno task verify:contracts && vite dev",
     "build:static": "deno task -c ../../deno.json build:sdk && svelte-kit sync && vite build",
+    "build:static:prebuilt": "svelte-kit sync && vite build",
     "build": "deno task -c ../../deno.json build:sdk && deno task verify:contracts && vite build",
     "preview": "vite preview",
     "check": "deno task -c ../../deno.json build:sdk && deno task verify:contracts && svelte-kit sync && svelte-check --tsconfig ./tsconfig.check.json"
