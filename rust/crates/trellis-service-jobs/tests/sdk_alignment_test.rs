@@ -29,7 +29,7 @@ fn service_contract_manifest_matches_generated_jobs_sdk() {
 }
 
 #[test]
-fn generated_jobs_contract_uses_new_capability_names() {
+fn generated_jobs_contract_uses_scoped_capability_names() {
     let contract = generated_contract::contract_manifest();
 
     let jobs_cancel = contract.rpc.get("Jobs.Cancel").expect("Jobs.Cancel rpc");
@@ -38,7 +38,7 @@ fn generated_jobs_contract_uses_new_capability_names() {
             .capabilities
             .as_ref()
             .and_then(|caps| caps.call.as_ref()),
-        Some(&vec!["jobs.admin".to_string()])
+        Some(&vec!["jobs.admin.mutate".to_string()])
     );
 
     let jobs_get = contract.rpc.get("Jobs.Get").expect("Jobs.Get rpc");
@@ -47,7 +47,7 @@ fn generated_jobs_contract_uses_new_capability_names() {
             .capabilities
             .as_ref()
             .and_then(|caps| caps.call.as_ref()),
-        Some(&vec!["jobs.read".to_string()])
+        Some(&vec!["jobs.admin.read".to_string()])
     );
 
     let jobs_stream = contract
@@ -59,7 +59,7 @@ fn generated_jobs_contract_uses_new_capability_names() {
             .capabilities
             .as_ref()
             .and_then(|caps| caps.subscribe.as_ref()),
-        Some(&vec!["jobs.read".to_string()])
+        Some(&vec!["jobs.admin.stream".to_string()])
     );
 }
 

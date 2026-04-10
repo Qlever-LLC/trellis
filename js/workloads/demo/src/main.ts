@@ -1,4 +1,4 @@
-import { TrellisWorkload } from "@qlever-llc/trellis";
+import { isErr, TrellisWorkload } from "@qlever-llc/trellis";
 import type { WorkloadActivationController } from "@qlever-llc/trellis/workload";
 import contract from "../contracts/demo_workload.ts";
 
@@ -23,6 +23,9 @@ async function main(): Promise<void> {
   });
 
   const me = (await trellis.request("Auth.Me", {})).take();
+  if (isErr(me)) {
+    return console.error("Could not connect", { err: me });
+  }
 
   console.info(`workload authenticated: ${trellis.natsConnection.getServer()}`);
   console.dir({ me }, { depth: null });
@@ -35,11 +38,8 @@ async function onActivationRequired(activation: WorkloadActivationController) {
   if (online) {
     await activation.waitForOnlineApproval();
   } else {
-    const code = globalThis.prompt("Enter workload confirmation code")?.trim();
-    if (!code) {
-      await activation.waitForOnlineApproval();
-      return;
-    }
+    const code =
+      globalThis.prompt("Enter workload confirmation code")?.trim() || "";
 
     await activation.acceptConfirmationCode(code);
   }
