@@ -99,7 +99,7 @@ export type Order = Static<typeof OrderSchema>;
 Create `contracts/orders_service.ts`. The contract declares every RPC, event, dependency, and resource your service uses:
 
 ```ts
-import { defineContract } from "@qlever-llc/trellis";
+import { defineContract } from "@qlever-llc/trellis/contracts";
 import { HealthResponseSchema, HealthRpcSchema } from "@qlever-llc/trellis/server";
 import { auth } from "@qlever-llc/trellis/sdk/auth";
 import { core } from "@qlever-llc/trellis/sdk/core";
@@ -175,6 +175,7 @@ export const { CONTRACT_ID, CONTRACT, CONTRACT_DIGEST, API, use } = ordersServic
 
 Key things to note:
 
+- contract source modules should import `defineContract(...)` from `@qlever-llc/trellis/contracts`; runtime helpers such as `isErr`, `Result`, and `createClient(...)` still come from `@qlever-llc/trellis`
 - `uses` declares cross-contract dependencies — without these, Trellis will not grant access to those RPCs/events
 - `auth.useDefaults(...)` adds the baseline auth session RPCs (`Auth.Me`, `Auth.Logout`, and `Auth.RenewBindingToken`) automatically
 - `resources.kv.orders` requests a KV bucket with the logical alias `orders` — Trellis assigns the physical name at install time
@@ -314,6 +315,7 @@ This produces a Deno package under `./generated/sdk/ts/`. The generated SDK vers
 Consumers import the SDK like any other Trellis contract package:
 
 ```ts
+import { defineContract } from "@qlever-llc/trellis/contracts";
 import { ordersService } from "@my-org/sdk-orders-service";
 
 // Declare a dependency on your service

@@ -32,7 +32,7 @@ deno add npm:@qlever-llc/trellis
 Create `contracts/my_workload.ts`. Workloads declare the Trellis surfaces they need after connecting. `auth.useDefaults(...)` adds the common auth session RPCs automatically.
 
 ```ts
-import { defineContract } from "@qlever-llc/trellis";
+import { defineContract } from "@qlever-llc/trellis/contracts";
 import { auth } from "@qlever-llc/trellis/sdk/auth";
 
 export const myWorkload = defineContract({

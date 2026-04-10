@@ -4,6 +4,7 @@ import { Type } from "typebox";
 import {
   buildLoginUrl,
   createClient,
+  createCoreClient,
   defineContract,
   err,
   fetchPortalFlowState,
@@ -22,6 +23,7 @@ import * as trellis from "../index.ts";
 
 Deno.test("root public API includes core runtime, contracts, result, and common auth helpers", () => {
   assertEquals(typeof createClient, "function");
+  assertEquals(typeof createCoreClient, "function");
   assertEquals(typeof defineContract, "function");
   assertEquals(typeof schema, "function");
   assertEquals(typeof buildLoginUrl, "function");

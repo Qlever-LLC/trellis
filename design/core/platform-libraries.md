@@ -41,7 +41,7 @@ This document defines the responsibilities of the core Trellis platform librarie
 
 ## `@qlever-llc/trellis`
 
-Canonical TypeScript entrypoint for contract-driven RPC, operation, and event communication over NATS. The root package is browser-safe; runtime-specific server helpers live on `@qlever-llc/trellis/server*` subpaths.
+Canonical TypeScript entrypoint for contract-driven RPC, operation, and event communication over NATS. The root package is browser-safe, does not eagerly load generated SDKs, and keeps runtime-specific server helpers on `@qlever-llc/trellis/server*` subpaths.
 
 ### Browser Client
 
@@ -50,9 +50,10 @@ Browser auth uses a session key stored in IndexedDB plus a bind flow. For Svelte
 ### Deno / Node Client
 
 ```ts
-import { defineContract } from "@qlever-llc/trellis";
-import { auth } from "@qlever-llc/trellis/sdk/auth";
+import { createClient } from "@qlever-llc/trellis";
+import { defineContract } from "@qlever-llc/trellis/contracts";
 import { graph } from "@acme/graph-contract";
+import { auth } from "@qlever-llc/trellis/sdk/auth";
 
 const cli = defineContract({
   id: "acme.graph-cli@v1",
@@ -68,6 +69,8 @@ const client = createClient(cli, nc, authSession, {
   name: "cli-tool",
 });
 ```
+
+Use `createClient(contract, ...)` for normal contract-driven clients. If a process intentionally wants only the generated Trellis core surface, use `await createCoreClient(nc, authSession, opts)` from `@qlever-llc/trellis`.
 
 ### Server
 
@@ -136,6 +139,8 @@ Provides service-private job creation and processing. See:
 ## `@qlever-llc/trellis/contracts`
 
 Provides the full contract-model, manifest validation, canonicalization, SDK generation, and documentation export surface behind the root package's curated contract re-exports. See:
+
+- contract source files should prefer importing `defineContract(...)` from `@qlever-llc/trellis/contracts` so codegen and manifest verification do not load the runtime package unnecessarily
 
 - [../contracts/trellis-contracts-catalog.md](./../contracts/trellis-contracts-catalog.md)
 - [../contracts/contracts-typescript-api.md](./../contracts/contracts-typescript-api.md)

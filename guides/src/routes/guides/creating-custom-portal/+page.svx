@@ -40,7 +40,7 @@ Passive portals that only handle sign-in and approval do not need a Trellis app 
 Portals that keep going after login and call Trellis for the user need their own app contract. These are no different from any other Trellis app contract, as shown here in `src/lib/contracts/portal.ts`:
 
 ```ts
-import { defineContract } from "@qlever-llc/trellis";
+import { defineContract } from "@qlever-llc/trellis/contracts";
 import { auth } from "@qlever-llc/trellis/sdk/auth";
 
 export const portalContract = defineContract({

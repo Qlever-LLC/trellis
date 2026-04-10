@@ -27,7 +27,7 @@ All Trellis apps and services define a contract that specifies the API they need
 Start by creating `src/lib/contracts/my_app.ts`. For this example, we only need to use the default Trellis auth features.
 
 ```ts
-import { defineContract } from "@qlever-llc/trellis";
+import { defineContract } from "@qlever-llc/trellis/contracts";
 import { auth } from "@qlever-llc/trellis/sdk/auth";
 
 export const myApp = defineContract({
@@ -41,6 +41,8 @@ export const myApp = defineContract({
 ```
 
 The defaults include at least `Auth.Me`, `Auth.Logout`, and `Auth.RenewBindingToken`, which most browser apps need. `Auth.Me` returns a `{ user, workload, service }` envelope, with the workload branch carrying the workload identity and the activating user when applicable.
+
+Contract source files should prefer `@qlever-llc/trellis/contracts`; keep runtime helpers such as `createTrellisApp(...)` and auth/session utilities on `@qlever-llc/trellis` or `@qlever-llc/trellis-svelte`.
 
 ### Keep contract updates in your normal dev/build flow
 

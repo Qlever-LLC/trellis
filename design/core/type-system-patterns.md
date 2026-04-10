@@ -20,7 +20,7 @@ This document defines Trellis-wide patterns for schemas, validation, `Result`, a
 Each service owns a local contract definition that emits the canonical `trellis.contract.v1` artifact.
 
 ```ts
-import { defineContract } from "@qlever-llc/trellis";
+import { defineContract } from "@qlever-llc/trellis/contracts";
 import { core } from "@qlever-llc/trellis/sdk/core";
 
 export const contract = defineContract({

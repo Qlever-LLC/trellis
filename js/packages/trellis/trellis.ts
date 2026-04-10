@@ -31,7 +31,6 @@ import {
   ok,
   Result,
 } from "@qlever-llc/result";
-import { API as trellisCoreApi } from "@qlever-llc/trellis-sdk-core";
 import {
   context,
   createNatsHeaderCarrier,
@@ -493,6 +492,13 @@ const NATS_SUBJECT_TOKEN_FORBIDDEN = /[\u0000\s.*>~]/gu;
 const DEFAULT_NO_RESPONDER_MAX_RETRIES = 2;
 const DEFAULT_NO_RESPONDER_RETRY_MS = 200;
 
+const EMPTY_TRELLIS_API: TrellisAPI = {
+  rpc: {},
+  operations: {},
+  events: {},
+  subjects: {},
+};
+
 type AuthCacheEntry = {
   caller: SessionCaller;
   expires: number;
@@ -512,6 +518,7 @@ export class Trellis<
   readonly api: TA;
   #log: LoggerLike;
   #tasks: TrellisTasks;
+  #hasExplicitApi: boolean;
   #noResponderMaxRetries: number;
   #noResponderRetryMs: number;
   #authBypassMethods: Set<string>;
@@ -523,14 +530,17 @@ export class Trellis<
     auth: TrellisAuth,
     opts?: TrellisOpts<TA>,
   ) {
+    const api = opts?.api;
+
     this.name = name;
     this.nats = nats;
     this.js = jetstream(this.nats);
     this.auth = auth as TrellisAuth;
-    this.api = (opts?.api ?? trellisCoreApi.trellis) as TA;
+    this.api = (api ?? EMPTY_TRELLIS_API) as TA;
     this.#log = (opts?.log ?? logger).child({ lib: "trellis" });
     this.timeout = opts?.timeout ?? 3000;
     this.stream = opts?.stream ?? "trellis";
+    this.#hasExplicitApi = api !== undefined;
     this.#noResponderMaxRetries = opts?.noResponderRetry?.maxAttempts ??
       DEFAULT_NO_RESPONDER_MAX_RETRIES;
     this.#noResponderRetryMs = opts?.noResponderRetry?.baseDelayMs ??
@@ -545,6 +555,16 @@ export class Trellis<
    */
   get natsConnection(): NatsConnection {
     return this.nats;
+  }
+
+  #unknownApiError(kind: "RPC method" | "operation" | "event", name: string): Error {
+    const base = `Unknown ${kind} '${name}'.`;
+    if (this.#hasExplicitApi) {
+      return new Error(`${base} Did you forget to include its API module?`);
+    }
+    return new Error(
+      `${base} No API surface was provided. Pass opts.api, use createClient(contract, ...), or await createCoreClient(...) instead.`,
+    );
   }
 
   async operationStoreHandle(): Promise<
@@ -627,9 +647,7 @@ export class Trellis<
     if (!ctx) {
       return err(
         new UnexpectedError({
-          cause: new Error(
-            `Unknown RPC method '${method.toString()}'. Did you forget to include its API module?`,
-          ),
+          cause: this.#unknownApiError("RPC method", method.toString()),
           context: { method: method.toString() },
         }),
       );
@@ -817,9 +835,7 @@ export class Trellis<
   ): OperationSurface<TA, TMode, O> {
     const descriptor = this.api["operations"]?.[operation];
     if (!descriptor) {
-      throw new Error(
-        `Unknown operation '${operation.toString()}'. Did you forget to include its API module?`,
-      );
+      throw this.#unknownApiError("operation", operation.toString());
     }
 
     const transport: OperationTransport = {
@@ -847,9 +863,7 @@ export class Trellis<
     const methodName = method as MethodsOf<TA>;
     const ctx = this.api["rpc"][methodName];
     if (!ctx) {
-      throw new Error(
-        `Unknown RPC method '${method.toString()}'. Did you forget to include its API module?`,
-      );
+      throw this.#unknownApiError("RPC method", method.toString());
     }
     const task = this.#handleRPC(
       methodName,
@@ -1217,9 +1231,7 @@ export class Trellis<
     if (!ctx) {
       return err(
         new UnexpectedError({
-          cause: new Error(
-            `Unknown event '${event.toString()}'. Did you forget to include its API module?`,
-          ),
+          cause: this.#unknownApiError("event", event.toString()),
           context: { event: event.toString() },
         }),
       );
@@ -1262,9 +1274,7 @@ export class Trellis<
     if (!ctx) {
       return err(
         new UnexpectedError({
-          cause: new Error(
-            `Unknown event '${event.toString()}'. Did you forget to include its API module?`,
-          ),
+          cause: this.#unknownApiError("event", event.toString()),
           context: { event: event.toString() },
         }),
       );

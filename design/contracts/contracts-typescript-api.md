@@ -28,9 +28,9 @@ It does not redefine the canonical manifest model or runtime permission derivati
 
 ## Public Package Surface
 
-`@qlever-llc/trellis` is the canonical user-facing package for the TypeScript contract authoring API.
+`@qlever-llc/trellis/contracts` is the preferred package for contract source modules and other contract-only authoring code.
 
-`@qlever-llc/trellis/contracts` remains the full contract-model subpath for broader canonicalization and schema primitives.
+`@qlever-llc/trellis` remains the canonical runtime package for client helpers, auth helpers, `Result`, and explicit core-runtime helpers such as `createCoreClient(...)`.
 
 It exports:
 
@@ -41,9 +41,9 @@ Runtime connection helpers live in `@qlever-llc/trellis` and `@qlever-llc/trelli
 
 Rules:
 
-- new user-facing TypeScript contract authoring APIs are exposed from `@qlever-llc/trellis`
+- contract source modules should prefer `@qlever-llc/trellis/contracts`
+- runtime client helpers should prefer `@qlever-llc/trellis`
 - broader contract-model helpers may also be exposed from `@qlever-llc/trellis/contracts`
-- documentation should prefer `@qlever-llc/trellis` for normal app and service code
 
 ## Canonical TypeScript Shape
 
@@ -137,7 +137,7 @@ declare function defineContract(...args: unknown[]): DefinedContract<any, any, a
 ## Illustrative Usage
 
 ```ts
-import { defineContract } from "@qlever-llc/trellis";
+import { defineContract } from "@qlever-llc/trellis/contracts";
 import { auth } from "@qlever-llc/trellis/sdk/auth";
 import { core } from "@qlever-llc/trellis/sdk/core";
 
@@ -233,6 +233,8 @@ Rules:
 ## Runtime Helper Behavior
 
 Contract-driven runtime helpers include `createClient(contract, ...)` and `connectService(contract, ...)`.
+
+For callers that intentionally want only the generated Trellis core API without a local contract, `@qlever-llc/trellis` also exposes `createCoreClient(...)` as an explicit opt-in helper.
 
 Rules:
 

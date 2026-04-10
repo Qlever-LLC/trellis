@@ -59,14 +59,14 @@ back to lower-level escape hatches.
 
 ### 2) Package boundary
 
-The contract authoring API is exposed from `@qlever-llc/trellis` because app and service authors should only need the core Trellis package for normal development.
+The preferred contract authoring API is exposed from `@qlever-llc/trellis/contracts` so contract-source modules can stay independent from runtime bootstrap concerns.
 
-`@qlever-llc/trellis/contracts` remains the broader contract-model subpath for canonicalization and lower-level shared primitives.
+`@qlever-llc/trellis` remains the canonical runtime package for `createClient(...)`, auth helpers, `Result`, and explicit helpers such as `createCoreClient(...)`.
 
 Rules:
 
-- `@qlever-llc/trellis` is the canonical package for contract authoring and runtime client helpers
-- `@qlever-llc/trellis/contracts` remains the full contract-model subpath
+- `@qlever-llc/trellis/contracts` is the preferred package for contract authoring and broader contract-model helpers
+- `@qlever-llc/trellis` is the canonical package for runtime client helpers
 - `@qlever-llc/trellis/server/node` and `@qlever-llc/trellis/server/deno` consume contract objects for service runtime helpers
 
 ### 3) SDK-driven `uses`
@@ -187,8 +187,8 @@ The exact TypeScript public signatures, contract-module types, and runtime helpe
 This document only constrains the architectural direction behind that API:
 
 - `defineContract(...)` remains the one supported public authoring entrypoint
-- `@qlever-llc/trellis` exposes the canonical contract authoring helpers used by apps and services
-- `@qlever-llc/trellis/contracts` remains the broader contract-model surface
+- `@qlever-llc/trellis/contracts` exposes the preferred contract authoring helpers used by apps and services
+- `@qlever-llc/trellis` remains the runtime package for client creation and auth helpers
 - runtime connection helpers live in `@qlever-llc/trellis` and `@qlever-llc/trellis/server*`
 - locally defined contracts and generated SDK modules share one compatible contract-module shape
 - `uses` declarations remain SDK-backed and contract-driven rather than handwritten dependency objects in normal usage
