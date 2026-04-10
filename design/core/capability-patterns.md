@@ -26,6 +26,9 @@ Rules:
 - deployments assign capability bundles to users and services
 - services receive deployment policy at installation and contract upgrade time
 - authorization changes take effect immediately because auth derives subjects from active contracts and current grants
+- auth-owned self-service RPCs may intentionally require zero granted
+  capabilities when ordinary authenticated user context is sufficient, such as
+  `Auth.Me`, `Auth.Logout`, and `Auth.RenewBindingToken`
 
 ## Capability Naming
 
@@ -39,7 +42,7 @@ Rules:
 | `<domain>.<action>` | `jobs.admin.mutate` | Mutate jobs admin state | Users, Services |
 | `<domain>.<action>` | `jobs.admin.stream` | Observe jobs admin streams | Users, Services |
 
-During transitions, some deployments may still carry role-shaped legacy strings such as `users:read`, but the architectural model is capability-oriented.
+Deployments may still encounter role-shaped strings such as `users:read`, but the architectural model is capability-oriented.
 
 ## Service-Only Requirements
 

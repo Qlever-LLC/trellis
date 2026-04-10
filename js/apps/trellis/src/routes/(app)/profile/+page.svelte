@@ -1,14 +1,14 @@
 <script lang="ts">
-  import type { AuthMeOutput } from "@qlever-llc/trellis-sdk-auth";
-  import { getNatsState, getTrellisFor } from "@qlever-llc/trellis-svelte";
-  import { onMount } from "svelte";
-  import { trellisApp } from "../../../contracts/trellis_app.ts";
-  import { getInitials, getRoleLabel } from "../../../lib/control-panel.ts";
+import type { AuthListApprovalsOutput, AuthMeOutput } from "@qlever-llc/trellis/sdk/auth";
+import { getNatsState } from "@qlever-llc/trellis-svelte";
+import { onMount } from "svelte";
+import { getInitials, getRoleLabel } from "../../../lib/control-panel.ts";
+import { authMeRequest } from "../../../lib/auth_rpc";
   import { errorMessage, formatDate } from "../../../lib/format";
   import { getNotifications } from "../../../lib/notifications.svelte";
-  import type { AuthListApprovalsResponse } from "@qlever-llc/trellis-auth";
+  import { getTrellis } from "../../../lib/trellis";
 
-  const trellisPromise = getTrellisFor(trellisApp);
+  const trellisPromise = getTrellis();
   const natsStatePromise = getNatsState();
   const notifications = getNotifications();
 
@@ -16,16 +16,17 @@
   let error = $state<string | null>(null);
   let user = $state<AuthMeOutput["user"] | null>(null);
   let connectionStatus = $state("connecting");
-  let approvals = $state<AuthListApprovalsResponse["approvals"]>([]);
+  let approvals = $state<AuthListApprovalsOutput["approvals"]>([]);
   let revokeTarget = $state<string | null>(null);
 
   async function loadProfile() {
     loading = true;
     error = null;
     try {
-      const me = await (await trellisPromise).requestOrThrow("Auth.Me", {});
+      const me = await authMeRequest(trellisPromise);
       user = me.user ?? null;
-      const appResponse = await (await trellisPromise).requestOrThrow("Auth.ListApprovals", {});
+      const trellis = await trellisPromise;
+      const appResponse = await trellis.requestOrThrow("Auth.ListApprovals", {});
       approvals = appResponse.approvals ?? [];
     } catch (e) {
       error = errorMessage(e);
@@ -38,7 +39,8 @@
     if (!window.confirm("Revoke this app approval? The app will lose access to act on your behalf.")) return;
     revokeTarget = contractDigest;
     try {
-      await (await trellisPromise).requestOrThrow("Auth.RevokeApproval", { contractDigest });
+      const trellis = await trellisPromise;
+      await trellis.requestOrThrow("Auth.RevokeApproval", { contractDigest });
       notifications.success("App approval revoked.", "Revoked");
       await loadProfile();
     } catch (e) {
@@ -123,7 +125,7 @@
       <div>
         <h3 class="text-sm font-semibold mb-2">Capabilities</h3>
         <div class="flex flex-wrap gap-2">
-          {#each user.capabilities as cap}
+          {#each user.capabilities as cap (cap)}
             <span class="badge badge-outline badge-sm">{cap}</span>
           {/each}
         </div>
@@ -151,7 +153,7 @@
               </tr>
             </thead>
             <tbody>
-              {#each approvals as entry}
+              {#each approvals as entry (entry.approval.contractDigest)}
                 <tr>
                   <td class="font-medium">{entry.approval.displayName ?? entry.approval.contractId ?? "—"}</td>
                   <td class="font-mono text-xs text-base-content/60">{entry.approval.contractDigest?.slice(0, 12)}…</td>

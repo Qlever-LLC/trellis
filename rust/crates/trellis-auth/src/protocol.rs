@@ -4,11 +4,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// Registry bucket metadata for a jobs binding.
 pub struct JobsRegistry {
     pub bucket: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// Jobs resource bindings attached to an installed service contract.
 pub struct JobsBindings {
     pub namespace: String,
     pub queues: BTreeMap<String, Value>,
@@ -17,6 +19,7 @@ pub struct JobsBindings {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// Resource bindings granted to an installed service contract.
 pub struct ResourceBindings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub jobs: Option<JobsBindings>,
@@ -25,6 +28,7 @@ pub struct ResourceBindings {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// Canonical approval scope recorded for one contract digest.
 pub struct ApprovalScopeRecord {
     pub capabilities: Vec<String>,
     #[serde(rename = "contractDigest")]
@@ -38,6 +42,7 @@ pub struct ApprovalScopeRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// Stored approval decision for one user and contract digest.
 pub struct ApprovalEntryRecord {
     pub answer: Value,
     #[serde(rename = "answeredAt")]
@@ -49,6 +54,7 @@ pub struct ApprovalEntryRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// Service record returned by `Auth.ListServices`.
 pub struct ServiceListEntry {
     pub active: bool,
     pub capabilities: Vec<String>,
@@ -72,6 +78,7 @@ pub struct ServiceListEntry {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// User record returned by `Auth.Me`.
 pub struct AuthenticatedUser {
     pub active: bool,
     pub capabilities: Vec<String>,
@@ -87,12 +94,14 @@ pub struct AuthenticatedUser {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// Sentinel credentials returned alongside a successful bind.
 pub struct SentinelCredsRecord {
     pub jwt: String,
     pub seed: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// Response payload returned by `Auth.RenewBindingToken`.
 pub struct RenewBindingTokenResponse {
     #[serde(rename = "bindingToken")]
     pub binding_token: String,
@@ -106,6 +115,7 @@ pub struct RenewBindingTokenResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// Filter parameters for `Auth.ListApprovals`.
 pub struct ListApprovalsRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub digest: Option<String>,
@@ -114,6 +124,7 @@ pub struct ListApprovalsRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// Request payload for `Auth.RevokeApproval`.
 pub struct RevokeApprovalRequest {
     #[serde(rename = "contractDigest")]
     pub contract_digest: String,
@@ -122,6 +133,7 @@ pub struct RevokeApprovalRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// Request payload for `Auth.InstallService`.
 pub struct AuthInstallServiceRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub active: Option<bool>,
@@ -135,6 +147,7 @@ pub struct AuthInstallServiceRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// Response payload for `Auth.InstallService`.
 pub struct AuthInstallServiceResponse {
     #[serde(rename = "contractDigest")]
     pub contract_digest: String,
@@ -148,6 +161,7 @@ pub struct AuthInstallServiceResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// Request payload for `Auth.UpgradeServiceContract`.
 pub struct AuthUpgradeServiceContractRequest {
     pub contract: BTreeMap<String, Value>,
     #[serde(rename = "sessionKey")]
@@ -155,6 +169,7 @@ pub struct AuthUpgradeServiceContractRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// Response payload for `Auth.UpgradeServiceContract`.
 pub struct AuthUpgradeServiceContractResponse {
     #[serde(rename = "contractDigest")]
     pub contract_digest: String,
@@ -168,22 +183,26 @@ pub struct AuthUpgradeServiceContractResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// Request payload for `Auth.GetInstalledContract`.
 pub struct AuthGetInstalledContractRequest {
     pub digest: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// Contract summary returned by `Auth.GetInstalledContract`.
 pub struct AuthGetInstalledContractResponseContract {
     pub digest: String,
     pub id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// Response payload for `Auth.GetInstalledContract`.
 pub struct AuthGetInstalledContractResponse {
     pub contract: AuthGetInstalledContractResponseContract,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// Request payload for `Auth.ValidateRequest`.
 pub struct AuthValidateRequestRequest {
     pub capabilities: Option<Vec<String>>,
     #[serde(rename = "payloadHash")]
@@ -195,18 +214,12 @@ pub struct AuthValidateRequestRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthValidateRequestResponseUser {
-    pub active: bool,
-    pub email: String,
-    pub id: String,
-    pub name: String,
-    pub origin: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// Response payload returned by `Auth.ValidateRequest`.
 pub struct AuthValidateRequestResponse {
     pub allowed: bool,
-    pub user: AuthValidateRequestResponseUser,
+    pub caller: Value,
+    #[serde(rename = "inboxPrefix")]
+    pub inbox_prefix: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

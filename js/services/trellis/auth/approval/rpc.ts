@@ -1,5 +1,5 @@
-import { trellisIdFromOriginId } from "@qlever-llc/trellis-auth";
-import { isErr, Result } from "@qlever-llc/trellis-result";
+import { trellisIdFromOriginId } from "@qlever-llc/trellis/auth";
+import { isErr, Result } from "@qlever-llc/result";
 import { AuthError } from "@qlever-llc/trellis";
 
 import {
@@ -9,8 +9,10 @@ import {
   sessionKV,
   trellis,
 } from "../../bootstrap/globals.ts";
+import type { Connection, ContractApprovalRecord, Session } from "../../state/schemas.ts";
 
 type RpcUser = {
+  type: string;
   origin: string;
   id: string;
   capabilities?: string[];
@@ -31,6 +33,23 @@ function formatOriginId(origin: string, id: string): string {
 
 function isAdmin(user: RpcUser): boolean {
   return user.capabilities?.includes("admin") ?? false;
+}
+
+function requireUserCaller(caller: {
+  type: string;
+  origin?: string;
+  id?: string;
+  capabilities?: string[];
+}): RpcUser {
+  if (caller.type !== "user" || !caller.origin || !caller.id) {
+    throw new AuthError({ reason: "insufficient_permissions" });
+  }
+  return {
+    type: "user",
+    origin: caller.origin,
+    id: caller.id,
+    capabilities: caller.capabilities,
+  };
 }
 
 async function resolveTargetUser(
@@ -71,8 +90,9 @@ async function revokeApprovalSessions(
   for await (const key of iter) {
     const entry = (await sessionKV.get(key)).take();
     if (isErr(entry)) continue;
-    if (entry.value.type !== "user") continue;
-    if (entry.value.contractDigest !== contractDigest) continue;
+    const session = entry.value as Session;
+    if (session.type !== "user") continue;
+    if (session.contractDigest !== contractDigest) continue;
 
     const sessionKey = key.split(".")[0];
     if (!sessionKey) continue;
@@ -83,7 +103,8 @@ async function revokeApprovalSessions(
       for await (const connKey of connIter) {
         const connection = (await connectionsKV.get(connKey)).take();
         if (!isErr(connection)) {
-          await kick(connection.value.serverId, connection.value.clientId);
+          const connectionValue = connection.value as Connection;
+          await kick(connectionValue.serverId, connectionValue.clientId);
         }
         await connectionsKV.delete(connKey);
       }
@@ -95,8 +116,9 @@ async function revokeApprovalSessions(
 
 export const authListApprovalsHandler = async (
   req: ListApprovalsRequest,
-  { user }: { user: RpcUser },
+  { caller }: { caller: { type: string; origin?: string; id?: string; capabilities?: string[] } },
 ) => {
+  const user = requireUserCaller(caller);
   logger.trace(
     {
       rpc: "Auth.ListApprovals",
@@ -121,7 +143,6 @@ export const authListApprovalsHandler = async (
         contractId: string;
         displayName: string;
         description: string;
-        kind: string;
         capabilities: string[];
       };
     }>;
@@ -138,23 +159,24 @@ export const authListApprovalsHandler = async (
     for await (const key of iter) {
       const entry = (await contractApprovalsKV.get(key)).take();
       if (isErr(entry)) continue;
+      const approval = entry.value as ContractApprovalRecord;
 
       if (
         !target && callerTrellisId &&
-        entry.value.userTrellisId !== callerTrellisId
+        approval.userTrellisId !== callerTrellisId
       ) {
         continue;
       }
-      if (req.digest && entry.value.approval.contractDigest !== req.digest) {
+      if (req.digest && approval.approval.contractDigest !== req.digest) {
         continue;
       }
 
       approvals.push({
-        user: formatOriginId(entry.value.origin, entry.value.id),
-        answer: entry.value.answer,
-        answeredAt: entry.value.answeredAt.toISOString(),
-        updatedAt: entry.value.updatedAt.toISOString(),
-        approval: entry.value.approval,
+        user: formatOriginId(approval.origin, approval.id),
+        answer: approval.answer,
+        answeredAt: approval.answeredAt.toISOString(),
+        updatedAt: approval.updatedAt.toISOString(),
+        approval: approval.approval,
       });
     }
 
@@ -178,7 +200,11 @@ export const authListApprovalsHandler = async (
 export function createAuthRevokeApprovalHandler(opts: {
   kick: (serverId: string, clientId: number) => Promise<void>;
 }) {
-  return async (req: RevokeApprovalRequest, { user }: { user: RpcUser }) => {
+  return async (
+    req: RevokeApprovalRequest,
+    { caller }: { caller: { type: string; origin?: string; id?: string; capabilities?: string[] } },
+  ) => {
+    const user = requireUserCaller(caller);
     logger.trace({
       rpc: "Auth.RevokeApproval",
       user: req.user,

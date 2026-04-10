@@ -1,7 +1,7 @@
 import {
   canonicalizeJson,
   type JsonValue,
-} from "@qlever-llc/trellis-contracts";
+} from "@qlever-llc/trellis/contracts";
 import { assertEquals, assertFalse } from "@std/assert";
 
 Deno.test("trellis.jobs Rust-authored contract source matches emitted contract", async () => {

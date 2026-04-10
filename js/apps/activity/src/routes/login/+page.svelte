@@ -1,14 +1,11 @@
 <script lang="ts">
-  import { createAuthState } from "@qlever-llc/trellis-svelte";
   import { onMount } from "svelte";
   import { browser } from "$app/environment";
   import { goto } from "$app/navigation";
   import { page } from "$app/state";
-  import { activityApp } from "../../contracts/activity_app.ts";
   import { APP_CONFIG, buildAppCallbackUrl } from "../../lib/config";
   import { errorMessage } from "../../lib/format";
-
-  const auth = createAuthState({ authUrl: APP_CONFIG.authUrl, loginPath: "/login", contract: activityApp });
+  import { app } from "../../lib/trellis";
 
   let pending = $state(false);
   let ready = $state(false);
@@ -22,8 +19,8 @@
     if (!browser) return;
 
     try {
-      await auth.init();
-      if (auth.isAuthenticated) {
+      await app.auth.init();
+      if (app.auth.isAuthenticated) {
         await goto(targetPath());
         return;
       }
@@ -39,7 +36,9 @@
     authError = null;
 
     try {
-      await auth.signIn(undefined, buildAppCallbackUrl(targetPath()));
+      await app.signIn({
+        redirectTo: buildAppCallbackUrl(targetPath()),
+      });
     } catch (nextError) {
       const message = errorMessage(nextError);
       if (!message.startsWith("Redirecting to")) {

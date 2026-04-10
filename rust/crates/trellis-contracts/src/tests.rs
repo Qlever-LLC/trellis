@@ -53,7 +53,6 @@ fn pack_trellis_owned_contracts_matches_shared_fixture() {
             "id": "trellis.core@v1",
             "displayName": "Trellis Core",
             "description": "Trellis runtime RPCs available to all connected participants.",
-            "kind": "service",
             "schemas": {
                 "CatalogInput": {"type": "object", "properties": {}, "additionalProperties": false},
                 "CatalogOutput": {"type": "object", "properties": {}, "additionalProperties": false}
@@ -77,7 +76,6 @@ fn pack_trellis_owned_contracts_matches_shared_fixture() {
             "id": "trellis.auth@v1",
             "displayName": "Trellis Auth",
             "description": "Provide Trellis authentication, session, service install, and admin RPCs.",
-            "kind": "service",
             "schemas": {
                 "AuthConnectEvent": {"type": "object", "properties": {}, "additionalProperties": false}
             },
@@ -101,15 +99,13 @@ fn pack_trellis_owned_contracts_matches_shared_fixture() {
                 "id": "trellis.auth@v1",
                 "digest": pack.contracts[0].digest,
                 "displayName": "Trellis Auth",
-                "description": "Provide Trellis authentication, session, service install, and admin RPCs.",
-                "kind": "service"
+                "description": "Provide Trellis authentication, session, service install, and admin RPCs."
             },
             {
                 "id": "trellis.core@v1",
                 "digest": pack.contracts[1].digest,
                 "displayName": "Trellis Core",
-                "description": "Trellis runtime RPCs available to all connected participants.",
-                "kind": "service"
+                "description": "Trellis runtime RPCs available to all connected participants."
             }
         ]
     });
@@ -125,8 +121,7 @@ fn manifest_validation_requires_display_metadata_fields() {
     let error = parse_manifest(json!({
         "format": "trellis.contract.v1",
         "id": "example.contract@v1",
-        "description": "Example contract",
-        "kind": "service"
+        "description": "Example contract"
     }))
     .expect_err("manifest without displayName should fail");
 
@@ -143,7 +138,6 @@ fn manifest_validation_ignores_unknown_top_level_fields() {
         "id": "example.contract@v1",
         "displayName": "Example Contract",
         "description": "Example contract",
-        "kind": "service",
         "xFutureMetadata": { "hello": "world" }
     }))
     .expect("manifest with unknown top-level field should parse");
@@ -165,7 +159,6 @@ fn packing_catalog_includes_manifest_metadata() {
             "id": "example.contract@v1",
             "displayName": "Example Contract",
             "description": "Example contract used in catalog tests.",
-            "kind": "service",
             "rpc": {},
             "events": {},
             "subjects": {}
@@ -182,7 +175,6 @@ fn packing_catalog_includes_manifest_metadata() {
             digest: pack.contracts[0].digest.clone(),
             display_name: "Example Contract".to_string(),
             description: "Example contract used in catalog tests.".to_string(),
-            kind: "service".to_string(),
         }]
     );
 
@@ -230,8 +222,7 @@ fn manifest_paths_only_select_contract_manifest_candidates() {
             "format": "trellis.contract.v1",
             "id": "example.contract@v1",
             "displayName": "Example Contract",
-            "description": "Example contract used in filter tests.",
-            "kind": "service"
+            "description": "Example contract used in filter tests."
         }))
         .expect("serialize manifest"),
     )
@@ -250,7 +241,6 @@ fn manifest_parses_stream_resources() {
         "id": "example.streams@v1",
         "displayName": "Example Streams",
         "description": "Expose stream resources",
-        "kind": "service",
         "resources": {
             "streams": {
                 "activity": {
@@ -283,7 +273,6 @@ fn manifest_parses_owned_and_used_operations() {
         "id": "example.operations@v1",
         "displayName": "Example Operations",
         "description": "Expose operations.",
-        "kind": "service",
         "schemas": {
             "CaptureRequest": {"type": "object", "properties": {}, "additionalProperties": false},
             "CaptureProgress": {"type": "object", "properties": {}, "additionalProperties": false},
@@ -366,7 +355,6 @@ fn manifest_validation_rejects_unknown_operation_schema_refs() {
         "id": "example.operations@v1",
         "displayName": "Example Operations",
         "description": "Expose operations.",
-        "kind": "service",
         "schemas": {
             "CaptureRequest": {"type": "object", "properties": {}, "additionalProperties": false}
         },

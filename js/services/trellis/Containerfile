@@ -1,3 +1,14 @@
+FROM docker.io/denoland/deno:2.7.7 AS portal-build
+
+WORKDIR /app
+
+COPY js /app/js
+COPY generated/js /app/generated/js
+
+WORKDIR /app/js/portals/login
+
+RUN deno task build:static
+
 FROM docker.io/denoland/deno:2.7.7 AS runtime
 
 WORKDIR /app
@@ -7,6 +18,7 @@ LABEL io.trellis.contract.path="/trellis/contract.json"
 COPY js /app/js
 COPY generated/js /app/generated/js
 COPY generated/contracts/manifests/trellis.auth@v1.json /trellis/contract.json
+COPY --from=portal-build /app/js/portals/login/build /app/js/portals/login/build
 
 WORKDIR /app/js/services/trellis
 

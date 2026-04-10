@@ -13,7 +13,6 @@ fn cli_contract_manifest_validates_and_declares_expected_auth_and_core_surface()
 
     assert_eq!(loaded.manifest.id, "trellis.cli@v1");
     assert_eq!(loaded.manifest.display_name, "Trellis CLI");
-    assert_eq!(loaded.manifest.kind, "cli");
 
     let auth = loaded
         .manifest
@@ -33,6 +32,69 @@ fn cli_contract_manifest_validates_and_declares_expected_auth_and_core_surface()
     assert!(calls.iter().any(|value| value == "Auth.ListApprovals"));
     assert!(calls.iter().any(|value| value == "Auth.RevokeApproval"));
     assert!(calls.iter().any(|value| value == "Auth.InstallService"));
+    assert!(calls.iter().any(|value| value == "Auth.CreatePortal"));
+    assert!(calls.iter().any(|value| value == "Auth.ListPortals"));
+    assert!(calls.iter().any(|value| value == "Auth.DisablePortal"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.GetLoginPortalDefault"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.SetLoginPortalDefault"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.ListLoginPortalSelections"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.SetLoginPortalSelection"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.ClearLoginPortalSelection"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.GetWorkloadPortalDefault"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.SetWorkloadPortalDefault"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.ListWorkloadPortalSelections"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.SetWorkloadPortalSelection"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.ClearWorkloadPortalSelection"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.CreateWorkloadProfile"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.ListWorkloadProfiles"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.DisableWorkloadProfile"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.ProvisionWorkloadInstance"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.ListWorkloadInstances"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.DisableWorkloadInstance"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.ListWorkloadActivations"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.RevokeWorkloadActivation"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.ListWorkloadActivationReviews"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.DecideWorkloadActivationReview"));
     assert!(calls
         .iter()
         .any(|value| value == "Auth.UpgradeServiceContract"));

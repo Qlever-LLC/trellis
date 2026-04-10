@@ -3,7 +3,7 @@
   "$id": "https://trellis.dev/schemas/trellis.contract.v1.schema.json",
   "title": "Trellis Contract Manifest v1",
   "type": "object",
-  "required": ["format", "id", "displayName", "description", "kind"],
+  "required": ["format", "id", "displayName", "description"],
   "properties": {
     "format": {
       "const": "trellis.contract.v1"
@@ -17,10 +17,6 @@
       "minLength": 1
     },
     "description": {
-      "type": "string",
-      "minLength": 1
-    },
-    "kind": {
       "type": "string",
       "minLength": 1
     },

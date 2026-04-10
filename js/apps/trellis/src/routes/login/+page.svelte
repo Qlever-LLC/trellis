@@ -1,40 +1,70 @@
 <script lang="ts">
-  import { createAuthState } from "@qlever-llc/trellis-svelte";
   import { onMount } from "svelte";
   import { browser } from "$app/environment";
   import { goto } from "$app/navigation";
   import { page } from "$app/state";
-  import { trellisApp } from "../../contracts/trellis_app.ts";
   import {
     APP_CONFIG,
+    buildAppCallbackUrl,
     getCanonicalLoopbackRedirectUrl,
     getSelectedAuthUrl,
     persistSelectedAuthUrl
   } from "../../lib/config";
   import { errorMessage } from "../../lib/format";
+  import { app } from "../../lib/trellis";
 
   let authError = $state<string | null>(null);
-  let selectedAuthUrl = $state(APP_CONFIG.authUrl);
+  let selectedAuthUrl = $state(APP_CONFIG.authUrl ?? "");
   let ready = $state(false);
+
+  const requiresAuthUrl = $derived(!APP_CONFIG.authUrl);
 
   function targetPath(): string {
     return page.url.searchParams.get("redirectTo") ?? "/profile";
   }
 
   async function continueToSignIn(): Promise<void> {
-    const authUrl = persistSelectedAuthUrl(selectedAuthUrl);
-    selectedAuthUrl = authUrl;
-    const url = new URL("/login/start", page.url.origin);
-    url.searchParams.set("redirectTo", targetPath());
-    url.searchParams.set("authUrl", authUrl);
-    await goto(url.pathname + url.search);
+    authError = null;
+
+    const trimmedAuthUrl = selectedAuthUrl.trim();
+
+    if (!trimmedAuthUrl) {
+      selectedAuthUrl = "";
+      authError = "Enter the Trellis auth URL to continue.";
+      return;
+    }
+
+    const authUrl = persistSelectedAuthUrl(trimmedAuthUrl);
+    selectedAuthUrl = authUrl ?? "";
+
+    if (!authUrl) {
+      authError = "Enter the Trellis auth URL to continue.";
+      return;
+    }
+
+    try {
+      await app.signIn({
+        authUrl: selectedAuthUrl,
+        redirectTo: buildAppCallbackUrl(targetPath(), page.url, selectedAuthUrl),
+      });
+    } catch (error) {
+      const message = errorMessage(error);
+      if (!message.startsWith("Redirecting to")) {
+        authError = message;
+      }
+    }
   }
 
   onMount(() => {
     if (!browser) return;
 
     authError = page.url.searchParams.get("authError");
-    selectedAuthUrl = persistSelectedAuthUrl(getSelectedAuthUrl(page.url));
+    selectedAuthUrl = getSelectedAuthUrl(page.url) ?? "";
+
+    if (page.url.searchParams.has("flowId")) {
+      void goto(`/callback${page.url.search}`);
+      return;
+    }
 
     const canonicalRedirect = getCanonicalLoopbackRedirectUrl();
     if (canonicalRedirect) {
@@ -44,9 +74,11 @@
 
     void (async () => {
       try {
-        const auth = createAuthState({ authUrl: selectedAuthUrl, loginPath: "/login", contract: trellisApp });
-        await auth.init();
-        if (auth.isAuthenticated) {
+        if (selectedAuthUrl) {
+          app.auth.setAuthUrl(selectedAuthUrl);
+        }
+        await app.auth.init();
+        if (app.auth.isAuthenticated) {
           await goto(targetPath());
           return;
         }
@@ -91,10 +123,8 @@
               bind:value={selectedAuthUrl}
               type="url"
               class="input input-bordered"
-              placeholder="http://localhost:3000"
-              onchange={() => {
-                selectedAuthUrl = persistSelectedAuthUrl(selectedAuthUrl);
-              }}
+              placeholder={APP_CONFIG.authUrl ?? "https://auth.example.com"}
+              required={requiresAuthUrl}
             />
           </div>
           <button type="submit" class="btn btn-block gap-2">

@@ -1,14 +1,13 @@
-import { Result } from "@qlever-llc/trellis-result";
+import { Result } from "@qlever-llc/result";
 import { assert, assertEquals, assertFalse } from "@std/assert";
 import { Value } from "typebox/value";
 
 import {
   ActiveJob,
+  type JobsFacade,
   JobProgressSchema,
   JobQueue,
   JobRef,
-  type JobsFacade,
-  type JobsFacadeOf,
   JobWorkerHostAdapter,
 } from "./api.ts";
 
@@ -33,9 +32,9 @@ Deno.test("JobRef delegates to supplied callbacks and wraps thrown errors", asyn
   const ref = new JobRef(
     { id: "job-1", service: "documents", jobType: "document-process" },
     {
-      get: async () => Result.ok(snapshot),
-      wait: async () => Result.ok({ ...snapshot, state: "completed" as const }),
-      cancel: async () => Result.ok({ ...snapshot, state: "cancelled" as const }),
+      get: () => Promise.resolve(Result.ok(snapshot)),
+      wait: () => Promise.resolve(Result.ok({ ...snapshot, state: "completed" as const })),
+      cancel: () => Promise.resolve(Result.ok({ ...snapshot, state: "cancelled" as const })),
     },
   );
 
@@ -55,11 +54,11 @@ Deno.test("JobRef delegates to supplied callbacks and wraps thrown errors", asyn
   const failingRef = new JobRef(
     { id: "job-2", service: "documents", jobType: "document-process" },
     {
-      get: async () => {
+      get: () => {
         throw new Error("boom");
       },
-      wait: async () => Result.ok({ ...snapshot, id: "job-2", state: "completed" as const }),
-      cancel: async () => Result.ok({ ...snapshot, id: "job-2", state: "cancelled" as const }),
+      wait: () => Promise.resolve(Result.ok({ ...snapshot, id: "job-2", state: "completed" as const })),
+      cancel: () => Promise.resolve(Result.ok({ ...snapshot, id: "job-2", state: "cancelled" as const })),
     },
   );
   const errored = await failingRef.get();
@@ -70,7 +69,7 @@ Deno.test("ActiveJob exposes the public handler surface", async () => {
   const ref = new JobRef(
     { id: "job-1", service: "documents", jobType: "document-process" },
     {
-      get: async () => Result.ok({
+      get: () => Promise.resolve(Result.ok({
         id: "job-1",
         service: "documents",
         type: "document-process",
@@ -80,8 +79,8 @@ Deno.test("ActiveJob exposes the public handler surface", async () => {
         updatedAt: "2026-03-28T12:00:00.000Z",
         tries: 0,
         maxTries: 5,
-      }),
-      wait: async () => Result.ok({
+      })),
+      wait: () => Promise.resolve(Result.ok({
         id: "job-1",
         service: "documents",
         type: "document-process",
@@ -92,8 +91,8 @@ Deno.test("ActiveJob exposes the public handler surface", async () => {
         completedAt: "2026-03-28T12:01:00.000Z",
         tries: 1,
         maxTries: 5,
-      }),
-      cancel: async () => Result.ok({
+      })),
+      cancel: () => Promise.resolve(Result.ok({
         id: "job-1",
         service: "documents",
         type: "document-process",
@@ -104,7 +103,7 @@ Deno.test("ActiveJob exposes the public handler surface", async () => {
         completedAt: "2026-03-28T12:01:00.000Z",
         tries: 1,
         maxTries: 5,
-      }),
+      })),
     },
   );
   const calls: string[] = [];
@@ -113,17 +112,17 @@ Deno.test("ActiveJob exposes the public handler surface", async () => {
     { documentId: "doc-1" },
     true,
     {
-      heartbeat: async () => {
+      heartbeat: () => {
         calls.push("heartbeat");
-        return Result.ok(undefined);
+        return Promise.resolve(Result.ok(undefined));
       },
-      progress: async (value) => {
+      progress: (value) => {
         calls.push(`progress:${value.step}`);
-        return Result.ok(undefined);
+        return Promise.resolve(Result.ok(undefined));
       },
-      log: async (entry) => {
+      log: (entry) => {
         calls.push(`log:${entry.message}`);
-        return Result.ok(undefined);
+        return Promise.resolve(Result.ok(undefined));
       },
       redeliveryCount: 2,
     },
@@ -144,7 +143,7 @@ Deno.test("JobQueue delegates create and handle", async () => {
   const ref = new JobRef(
     { id: "job-1", service: "documents", jobType: "document-process" },
     {
-      get: async () => Result.ok({
+      get: () => Promise.resolve(Result.ok({
         id: "job-1",
         service: "documents",
         type: "document-process",
@@ -154,8 +153,8 @@ Deno.test("JobQueue delegates create and handle", async () => {
         updatedAt: "2026-03-28T12:00:00.000Z",
         tries: 0,
         maxTries: 5,
-      }),
-      wait: async () => Result.ok({
+      })),
+      wait: () => Promise.resolve(Result.ok({
         id: "job-1",
         service: "documents",
         type: "document-process",
@@ -166,8 +165,8 @@ Deno.test("JobQueue delegates create and handle", async () => {
         completedAt: "2026-03-28T12:01:00.000Z",
         tries: 1,
         maxTries: 5,
-      }),
-      cancel: async () => Result.ok({
+      })),
+      cancel: () => Promise.resolve(Result.ok({
         id: "job-1",
         service: "documents",
         type: "document-process",
@@ -178,15 +177,15 @@ Deno.test("JobQueue delegates create and handle", async () => {
         completedAt: "2026-03-28T12:01:00.000Z",
         tries: 1,
         maxTries: 5,
-      }),
+      })),
     },
   );
 
   let handleCalls = 0;
   const queue = new JobQueue({
-    create: async (payload: { documentId: string }) => {
+    create: (payload: { documentId: string }) => {
       assertEquals(payload.documentId, "doc-1");
-      return Result.ok(ref);
+      return Promise.resolve(Result.ok(ref));
     },
     handle: async (handler) => {
       handleCalls += 1;
@@ -196,9 +195,9 @@ Deno.test("JobQueue delegates create and handle", async () => {
           { documentId: "doc-1" },
           false,
           {
-            heartbeat: async () => Result.ok(undefined),
-            progress: async () => Result.ok(undefined),
-            log: async () => Result.ok(undefined),
+            heartbeat: () => Promise.resolve(Result.ok(undefined)),
+            progress: () => Promise.resolve(Result.ok(undefined)),
+            log: () => Promise.resolve(Result.ok(undefined)),
           },
         ),
       );
@@ -209,17 +208,17 @@ Deno.test("JobQueue delegates create and handle", async () => {
   const createdResult = await queue.create({ documentId: "doc-1" });
   assert(createdResult.isOk());
   assertEquals(createdResult.unwrapOr(ref).id, "job-1");
-  await queue.handle(async (job) => {
+  await queue.handle((job) => {
     assertEquals(job.payload, { documentId: "doc-1" });
-    return Result.ok({ pages: 3 });
+    return Promise.resolve(Result.ok({ pages: 3 }));
   });
   assertEquals(handleCalls, 1);
 });
 
 Deno.test("JobWorkerHostAdapter wraps stop and join callbacks", async () => {
   const host = new JobWorkerHostAdapter({
-    stop: async () => Result.ok(undefined),
-    join: async () => Result.ok(undefined),
+    stop: () => Promise.resolve(Result.ok(undefined)),
+    join: () => Promise.resolve(Result.ok(undefined)),
   });
 
   assert((await host.stop()).isOk());
@@ -227,14 +226,14 @@ Deno.test("JobWorkerHostAdapter wraps stop and join callbacks", async () => {
 });
 
 Deno.test("JobsFacade shape can be implemented by service code", async () => {
-  const facade: JobsFacadeOf<{
+  const facade: JobsFacade & {
     refundCharge: JobQueue<{ amount: number }, { refundId: string }>;
-  }> = {
+  } = {
     refundCharge: new JobQueue({
-      create: async (payload) => Result.ok(new JobRef(
+      create: (payload) => Promise.resolve(Result.ok(new JobRef(
         { id: "job-1", service: "documents", jobType: "refund-charge" },
         {
-          get: async () => Result.ok({
+          get: () => Promise.resolve(Result.ok({
             id: "job-1",
             service: "documents",
             type: "refund-charge",
@@ -244,8 +243,8 @@ Deno.test("JobsFacade shape can be implemented by service code", async () => {
             updatedAt: "2026-03-28T12:00:00.000Z",
             tries: 0,
             maxTries: 5,
-          }),
-          wait: async () => Result.ok({
+          })),
+          wait: () => Promise.resolve(Result.ok({
             id: "job-1",
             service: "documents",
             type: "refund-charge",
@@ -257,8 +256,8 @@ Deno.test("JobsFacade shape can be implemented by service code", async () => {
             completedAt: "2026-03-28T12:01:00.000Z",
             tries: 1,
             maxTries: 5,
-          }),
-          cancel: async () => Result.ok({
+          })),
+          cancel: () => Promise.resolve(Result.ok({
             id: "job-1",
             service: "documents",
             type: "refund-charge",
@@ -269,16 +268,16 @@ Deno.test("JobsFacade shape can be implemented by service code", async () => {
             completedAt: "2026-03-28T12:01:00.000Z",
             tries: 1,
             maxTries: 5,
-          }),
+          })),
         },
-      )),
-      handle: async () => {},
+      ))),
+      handle: () => Promise.resolve(),
     }),
-    async startWorkers() {
-      return Result.ok(new JobWorkerHostAdapter({
-        stop: async () => Result.ok(undefined),
-        join: async () => Result.ok(undefined),
-      }));
+    startWorkers() {
+      return Promise.resolve(Result.ok(new JobWorkerHostAdapter({
+        stop: () => Promise.resolve(Result.ok(undefined)),
+        join: () => Promise.resolve(Result.ok(undefined)),
+      })));
     },
   };
 

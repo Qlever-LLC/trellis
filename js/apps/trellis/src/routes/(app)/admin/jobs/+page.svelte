@@ -1,12 +1,11 @@
 <script lang="ts">
-  import { getTrellisFor } from "@qlever-llc/trellis-svelte";
   import { onMount } from "svelte";
-  import { trellisApp } from "../../../../contracts/trellis_app.ts";
   import { errorMessage, formatDate } from "../../../../lib/format";
   import { loadJobsPageData } from "../../../../lib/jobs_page.ts";
-  import type { Job, ServiceInfo } from "../../../../packages/jobs/mod.ts";
+  import type { Job, ServiceInfo } from "@qlever-llc/trellis-jobs";
+  import { getTrellis } from "../../../../lib/trellis";
 
-  const trellisPromise = getTrellisFor(trellisApp);
+  const trellisPromise = getTrellis();
 
   let loading = $state(true);
   let error = $state<string | null>(null);

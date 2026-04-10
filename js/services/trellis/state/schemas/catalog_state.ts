@@ -2,7 +2,7 @@ import {
   ContractResourceBindingsSchema,
   ContractResourcesSchema,
   IsoDateSchema,
-} from "@qlever-llc/trellis-contracts";
+} from "@qlever-llc/trellis/contracts";
 import type { StaticDecode } from "typebox";
 import { Type } from "typebox";
 
@@ -22,7 +22,6 @@ export type ServiceRegistryEntry = StaticDecode<typeof ServiceRegistrySchema>;
 export const ContractMetadataSchema = Type.Object({
   displayName: Type.String({ minLength: 1 }),
   description: Type.String({ minLength: 1 }),
-  kind: Type.String({ minLength: 1 }),
 }, { additionalProperties: false });
 export type ContractMetadata = StaticDecode<typeof ContractMetadataSchema>;
 
@@ -31,7 +30,6 @@ export const ContractRecordSchema = Type.Object({
   id: Type.String({ minLength: 1 }),
   displayName: Type.String({ minLength: 1 }),
   description: Type.String({ minLength: 1 }),
-  kind: Type.String({ minLength: 1 }),
   sessionKey: Type.Optional(Type.String({ pattern: "^[A-Za-z0-9_-]{43}$" })),
   installedAt: IsoDateSchema,
   contract: Type.String({ minLength: 1 }),

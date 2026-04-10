@@ -9,7 +9,6 @@ pub struct TrellisCatalogContract {
     #[serde(rename = "displayName")]
     pub display_name: String,
     pub id: String,
-    pub kind: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

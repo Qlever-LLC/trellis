@@ -2,6 +2,7 @@ import { assert, assertEquals, assertFalse, assertThrows } from "@std/assert";
 import Value from "typebox/value";
 
 import {
+  AuthBrowserFlowSchema,
   AuthRenewBindingTokenRequestSchema,
   AuthRenewBindingTokenResponseSchema,
   AuthValidateRequestRequestSchema,
@@ -9,11 +10,21 @@ import {
   BindRequestSchema,
   BindResponseSchema,
   ContractApprovalRecordSchema,
+  LoginPortalDefaultSchema,
+  LoginPortalSelectionSchema,
   LoginQuerySchema,
+  OAuthStateSchema,
+  PortalSchema,
   ServiceRegistrySchema,
   SessionKeySchema,
   SessionSchema,
   SignatureSchema,
+  WorkloadPortalDefaultSchema,
+  WorkloadPortalSelectionSchema,
+  WorkloadActivationHandoffSchema,
+  WorkloadActivationRecordSchema,
+  WorkloadProfileSchema,
+  WorkloadSchema,
 } from "./schemas.ts";
 
 const sessionKey = "A".repeat(43);
@@ -44,7 +55,6 @@ Deno.test("SessionSchema validates session entries", () => {
       contractId: "trellis.console@v1",
       contractDisplayName: "Trellis Console",
       contractDescription: "Admin app",
-      contractKind: "app",
       delegatedCapabilities: ["admin"],
       delegatedPublishSubjects: ["rpc.v1.Auth.ListServices"],
       delegatedSubscribeSubjects: ["events.v1.Auth.Connect"],
@@ -64,17 +74,121 @@ Deno.test("SessionSchema validates session entries", () => {
       lastAuth: new Date().toISOString(),
     }),
   );
+  assert(
+    Value.Check(SessionSchema, {
+      type: "workload",
+      instanceId: "wrk-1",
+      publicIdentityKey: sessionKey,
+      profileId: "drive.default",
+      contractId: "trellis.device@v1",
+      contractDigest: "digest",
+      delegatedCapabilities: ["device:sync"],
+      delegatedPublishSubjects: ["subject.v1.device.sync"],
+      delegatedSubscribeSubjects: ["events.v1.Device.Status.*"],
+      createdAt: new Date().toISOString(),
+      lastAuth: new Date().toISOString(),
+      activatedAt: null,
+      revokedAt: null,
+    }),
+  );
+});
+
+Deno.test("Portal and browser-flow schemas validate", () => {
+  assert(Value.Check(AuthBrowserFlowSchema, {
+    flowId: "flow_123",
+    kind: "login",
+    sessionKey,
+    redirectTo: "https://app.example.com/dashboard",
+    contract: { id: "trellis.console@v1" },
+    createdAt: new Date().toISOString(),
+    expiresAt: new Date().toISOString(),
+  }));
+});
+
+Deno.test("portal and workload state schemas validate", () => {
+  assert(Value.Check(PortalSchema, {
+    portalId: "main",
+    appContractId: "trellis.portal@v1",
+    entryUrl: "https://portal.example.com/auth",
+    disabled: false,
+  }));
+  assert(Value.Check(LoginPortalDefaultSchema, {
+    portalId: null,
+  }));
+  assert(Value.Check(LoginPortalSelectionSchema, {
+    contractId: "trellis.console@v1",
+    portalId: "main",
+  }));
+  assert(Value.Check(WorkloadPortalDefaultSchema, {
+    portalId: "main",
+  }));
+  assert(Value.Check(WorkloadPortalSelectionSchema, {
+    profileId: "reader.default",
+    portalId: null,
+  }));
+  assert(Value.Check(WorkloadProfileSchema, {
+    profileId: "reader.default",
+    contractId: "acme.reader@v1",
+    allowedDigests: ["digest-a"],
+    reviewMode: "none",
+    disabled: false,
+  }));
+  assert(Value.Check(WorkloadSchema, {
+    instanceId: "wrk_123",
+    publicIdentityKey: sessionKey,
+    profileId: "reader.default",
+    state: "registered",
+    createdAt: new Date().toISOString(),
+    activatedAt: null,
+    revokedAt: null,
+  }));
+  assert(Value.Check(WorkloadActivationRecordSchema, {
+    instanceId: "wrk_123",
+    publicIdentityKey: sessionKey,
+    profileId: "reader.default",
+    activatedBy: {
+      origin: "github",
+      id: "123",
+    },
+    state: "activated",
+    activatedAt: new Date().toISOString(),
+    revokedAt: null,
+  }));
+  assert(Value.Check(WorkloadActivationHandoffSchema, {
+    handoffId: "wah_123",
+    instanceId: "wrk_123",
+    publicIdentityKey: sessionKey,
+    nonce: "nonce",
+    qrMac: "mac",
+    createdAt: new Date().toISOString(),
+    expiresAt: new Date().toISOString(),
+  }));
 });
 
 Deno.test("LoginQuerySchema validates login params", () => {
   assert(
     Value.Check(LoginQuerySchema, {
+      provider: "github",
       redirectTo: "https://app.example.com/dashboard",
       sessionKey,
       sig,
       contract: "eyJpZCI6InRyZWxsaXMuY2xpQHYxIn0",
+      context: "eyJzdWJ0aXRsZSI6IldlbGNvbWUifQ",
     }),
   );
+});
+
+Deno.test("OAuthStateSchema validates browser flow linkage", () => {
+  assert(Value.Check(OAuthStateSchema, {
+    provider: "github",
+    redirectTo: "https://app.example.com/dashboard",
+    codeVerifier: "code-verifier",
+    sessionKey,
+    contract: { id: "trellis.console@v1" },
+    context: { subtitle: "Welcome" },
+    flowId: "flow_123",
+    createdAt: new Date().toISOString(),
+  }));
 });
 
 Deno.test("LoginQuerySchema requires a contract payload", () => {
@@ -231,7 +345,6 @@ Deno.test("ContractApprovalRecordSchema validates stored app approvals", () => {
         contractId: "trellis.console@v1",
         displayName: "Trellis Console",
         description: "Admin app",
-        kind: "app",
         capabilities: ["admin"],
       },
       publishSubjects: ["rpc.v1.Auth.ListServices"],

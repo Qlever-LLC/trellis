@@ -72,7 +72,10 @@ fn auth_proof_matches_shared_conformance_vectors() {
         assert_eq!(
             auth.sign_sha256_domain(
                 "oauth-init",
-                fixture.oauth_init.redirect_to.as_deref().unwrap()
+                &format!(
+                    "{}:null",
+                    fixture.oauth_init.redirect_to.as_deref().unwrap()
+                )
             ),
             fixture.oauth_init.sig
         );

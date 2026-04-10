@@ -2,8 +2,8 @@ import {
   type InferSchemaType,
   type SchemaLike,
   unwrapSchema,
-} from "@qlever-llc/trellis-contracts";
-import { Result } from "@qlever-llc/trellis-result";
+} from "./contracts.ts";
+import { Result } from "@qlever-llc/result";
 import type { StaticDecode, TSchema } from "typebox";
 import { EncodeError, ParseError, Value } from "typebox/value";
 import { UnexpectedError, ValidationError } from "./errors/index.ts";
@@ -57,6 +57,22 @@ export function parseSchema<S extends SchemaLike>(
   }
 }
 
+export function parseUnknownSchema(
+  schema: SchemaLike,
+  data: JsonValue,
+): Result<unknown, ValidationError | UnexpectedError> {
+  const raw = unwrapSchema(schema);
+  try {
+    return Result.ok(parseWithSchema(raw as TSchema, data));
+  } catch (cause) {
+    if (cause instanceof ParseError) {
+      const errors = Value.Errors(raw as TSchema, data);
+      return Result.err(new ValidationError({ errors, cause }));
+    }
+    return Result.err(new UnexpectedError({ cause }));
+  }
+}
+
 export function encode<T extends TSchema>(
   schema: T,
   data: unknown,
@@ -72,8 +88,8 @@ export function encode<T extends TSchema>(
   }
 }
 
-export function encodeSchema<S extends SchemaLike>(
-  schema: S,
+export function encodeSchema(
+  schema: SchemaLike,
   data: unknown,
 ): Result<string, ValidationError | UnexpectedError> {
   const raw = unwrapSchema(schema);

@@ -102,15 +102,8 @@ jobs:
           set -euo pipefail
           packages=(
             js/packages/result/npm
-            js/packages/contracts/npm
-            js/packages/telemetry/npm
-            js/packages/auth/npm
-            js/packages/server/npm
             js/packages/trellis/npm
             js/packages/trellis-svelte/npm
-            generated/js/sdks/auth/npm
-            generated/js/sdks/trellis-core/npm
-            generated/js/sdks/activity/npm
           )
           for pkg in "${packages[@]}"; do
             npm pack "$pkg" >/dev/null
@@ -125,31 +118,22 @@ jobs:
           cd /tmp/trellis-npm-smoke
           npm init -y >/dev/null
           result_tgz=$(npm pack "$GITHUB_WORKSPACE/js/packages/result/npm" --pack-destination . | tail -n 1)
-          contracts_tgz=$(npm pack "$GITHUB_WORKSPACE/js/packages/contracts/npm" --pack-destination . | tail -n 1)
-          telemetry_tgz=$(npm pack "$GITHUB_WORKSPACE/js/packages/telemetry/npm" --pack-destination . | tail -n 1)
-          auth_tgz=$(npm pack "$GITHUB_WORKSPACE/js/packages/auth/npm" --pack-destination . | tail -n 1)
-          server_tgz=$(npm pack "$GITHUB_WORKSPACE/js/packages/server/npm" --pack-destination . | tail -n 1)
           trellis_tgz=$(npm pack "$GITHUB_WORKSPACE/js/packages/trellis/npm" --pack-destination . | tail -n 1)
-          sdk_auth_tgz=$(npm pack "$GITHUB_WORKSPACE/generated/js/sdks/auth/npm" --pack-destination . | tail -n 1)
-          sdk_trellis_core_tgz=$(npm pack "$GITHUB_WORKSPACE/generated/js/sdks/trellis-core/npm" --pack-destination . | tail -n 1)
+          trellis_svelte_tgz=$(npm pack "$GITHUB_WORKSPACE/js/packages/trellis-svelte/npm" --pack-destination . | tail -n 1)
           npm install \
             "./$result_tgz" \
-            "./$contracts_tgz" \
-            "./$telemetry_tgz" \
-            "./$auth_tgz" \
-            "./$server_tgz" \
             "./$trellis_tgz" \
-            "./$sdk_auth_tgz" \
-            "./$sdk_trellis_core_tgz" >/dev/null
+            "./$trellis_svelte_tgz" >/dev/null
           node --input-type=module <<'EOF'
-          await import("@qlever-llc/trellis-telemetry");
-          await import("@qlever-llc/trellis-telemetry/env");
-          await import("@qlever-llc/trellis-telemetry/trellis");
-          await import("@qlever-llc/trellis-auth/protocol");
+          await import("@qlever-llc/result");
           await import("@qlever-llc/trellis");
+          await import("@qlever-llc/trellis/auth");
+          await import("@qlever-llc/trellis/contracts");
+          await import("@qlever-llc/trellis/sdk/auth");
+          await import("@qlever-llc/trellis/sdk/core");
           await import("@qlever-llc/trellis/tracing");
-          await import("@qlever-llc/trellis-server");
-          await import("@qlever-llc/trellis-server/node");
+          await import("@qlever-llc/trellis/server");
+          await import("@qlever-llc/trellis/server/node");
           EOF
 
   publish:
@@ -206,15 +190,8 @@ jobs:
 
           packages=(
             js/packages/result/npm
-            js/packages/contracts/npm
-            js/packages/telemetry/npm
-            js/packages/auth/npm
-            js/packages/server/npm
             js/packages/trellis/npm
             js/packages/trellis-svelte/npm
-            generated/js/sdks/auth/npm
-            generated/js/sdks/trellis-core/npm
-            generated/js/sdks/activity/npm
           )
           for pkg in "${packages[@]}"; do
             package_json="$pkg/package.json"

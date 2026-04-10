@@ -4,7 +4,7 @@
  * This module provides Result and AsyncResult classes for elegant error handling
  * with method chaining and the `take()` pattern for early returns.
  *
- * @module @qlever-llc/trellis-result
+ * @module @qlever-llc/result
  */
 
 import type { BaseError } from "./error.ts";

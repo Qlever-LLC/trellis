@@ -1,17 +1,16 @@
 <script lang="ts">
-  import type { AuthMeOutput } from "@qlever-llc/trellis-sdk-auth";
-  import { getAuth, getNatsState, getTrellisFor } from "@qlever-llc/trellis-svelte";
+  import type { AuthMeOutput } from "@qlever-llc/trellis/sdk/auth";
+  import { getAuth, getNatsState } from "@qlever-llc/trellis-svelte";
   import { onMount } from "svelte";
   import { goto } from "$app/navigation";
   import { page } from "$app/state";
-  import { activityApp } from "../../contracts/activity_app.ts";
   import { errorMessage } from "../format";
+  import { getTrellis } from "../trellis";
 
   let { children } = $props();
 
   const auth = getAuth();
   const natsStatePromise = getNatsState();
-  const trellisPromise = getTrellisFor(activityApp);
 
   let authFailure = $state<string | null>(null);
   let connectionStatus = $state("connecting");
@@ -36,8 +35,8 @@
 
   onMount(async () => {
     try {
-      const trellis = await trellisPromise;
-      const me: AuthMeOutput = await trellis.requestOrThrow("Auth.Me", {});
+      const trellis = await getTrellis();
+      const me = await trellis.requestOrThrow("Auth.Me", {});
       const natsState = await natsStatePromise;
       const { user } = me;
       profile = user;
@@ -49,7 +48,14 @@
   });
 
   async function signOut() {
-    await auth.signOut();
+    try {
+      await auth.signOut(async () => {
+        const trellis = await getTrellis();
+        await trellis.requestOrThrow("Auth.Logout", {});
+      });
+    } catch {
+      // signOut redirects and throws to stop normal control flow
+    }
   }
 </script>
 

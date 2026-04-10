@@ -4,8 +4,8 @@ import {
   sha256,
   toArrayBuffer,
   utf8,
-} from "@qlever-llc/trellis-auth";
-import { AsyncResult } from "@qlever-llc/trellis-result";
+} from "@qlever-llc/trellis/auth";
+import { AsyncResult } from "@qlever-llc/result";
 
 export function randomToken(bytes: number): string {
   return base64urlEncode(crypto.getRandomValues(new Uint8Array(bytes)));

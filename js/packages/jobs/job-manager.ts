@@ -127,14 +127,14 @@ export class JobManager<TPayload = unknown, TResult = unknown> {
     return job;
   }
 
-  async process(
+  process(
     job: Job<TPayload, TResult>,
     cancellation: JobCancellationToken,
     handler: (job: ActiveJob<TPayload, TResult>) => Promise<TResult>,
     metadata: ActiveJobRuntimeMetadata = {},
     validation: JobProcessValidation<TPayload, TResult> = {},
   ): Promise<JobProcessOutcome<TResult>> {
-    return this.processWithHeartbeat(job, cancellation, async () => {
+    return this.processWithHeartbeat(job, cancellation, () => {
       throw new ActiveJobRuntimeError("worker heartbeat unavailable");
     }, handler, metadata, validation);
   }
@@ -284,7 +284,7 @@ export class JobManager<TPayload = unknown, TResult = unknown> {
     });
   }
 
-  async withActiveJob<T>(
+  withActiveJob<T>(
     job: Job<TPayload, TResult>,
     cancellation: JobCancellationToken,
     f: (job: ActiveJob<TPayload, TResult>) => Promise<T>,
@@ -293,7 +293,7 @@ export class JobManager<TPayload = unknown, TResult = unknown> {
     return this.withActiveJobAndHeartbeat(
       job,
       cancellation,
-      async () => {
+      () => {
         throw new ActiveJobRuntimeError("worker heartbeat unavailable");
       },
       f,

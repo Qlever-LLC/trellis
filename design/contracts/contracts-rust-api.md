@@ -242,7 +242,7 @@ Rules:
 ## Manifest And Generation Rules
 
 - generated Rust participant facades and SDK crates are derived from the existing `trellis.contract.v1` manifest format
-- Rust authoring or generation layers MUST preserve canonical manifest requirements such as `displayName`, `description`, and `kind`
+- Rust authoring or generation layers MUST preserve canonical manifest requirements such as `displayName` and `description`
 - local participant-facade generation requires explicit mapping from `uses` aliases to SDK crates or module paths
 - generation fails if an alias mapping is missing or mismatched
 

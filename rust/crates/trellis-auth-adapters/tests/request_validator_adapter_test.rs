@@ -2,9 +2,8 @@ use std::sync::{Arc, Mutex};
 
 use bytes::Bytes;
 use futures_util::future::{ready, BoxFuture, FutureExt};
-use trellis_auth::{
-    AuthValidateRequestRequest, AuthValidateRequestResponse, AuthValidateRequestResponseUser,
-};
+use serde_json::json;
+use trellis_auth::{AuthValidateRequestRequest, AuthValidateRequestResponse};
 use trellis_auth_adapters::request_validator::{
     make_validate_request, payload_hash_base64url, AuthRequestValidatorAdapter,
     AuthRequestValidatorClientPort,
@@ -69,13 +68,14 @@ impl AuthRequestValidatorClientPort for FakeAuthValidateClient {
 fn allowed_response(allowed: bool) -> AuthValidateRequestResponse {
     AuthValidateRequestResponse {
         allowed,
-        user: AuthValidateRequestResponseUser {
-            active: true,
-            email: "service@qlever.ai".to_string(),
-            id: "svc-user".to_string(),
-            name: "Service".to_string(),
-            origin: "service".to_string(),
-        },
+        caller: json!({
+            "type": "service",
+            "id": "svc-user",
+            "name": "Service",
+            "active": true,
+            "capabilities": ["service"],
+        }),
+        inbox_prefix: "_INBOX.test".to_string(),
     }
 }
 

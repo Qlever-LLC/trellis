@@ -5,7 +5,6 @@ export const TrellisCatalogEntrySchema = Type.Object({
   digest: Type.String(),
   displayName: Type.String({ minLength: 1 }),
   description: Type.String({ minLength: 1 }),
-  kind: Type.String({ minLength: 1 }),
 }, { additionalProperties: false });
 
 export const TrellisCatalogSchema = Type.Object({

@@ -1,5 +1,5 @@
 import { trace } from "@opentelemetry/api";
-import { BaseError } from "@qlever-llc/trellis-result";
+import { BaseError } from "@qlever-llc/result";
 
 let traceIdGetterConfigured = false;
 

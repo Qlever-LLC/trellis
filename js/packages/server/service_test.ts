@@ -1,6 +1,6 @@
-import { core } from "@qlever-llc/trellis-sdk-core";
+import { core } from "@qlever-llc/trellis/sdk/core";
 import { assertRejects } from "@std/assert";
-import type { TrellisAuth } from "@qlever-llc/trellis-auth";
+import type { TrellisAuth } from "@qlever-llc/trellis/auth";
 import type { NatsConnectFn, NatsCredsAuthenticatorFn, TrellisServiceRuntimeDeps } from "./runtime.ts";
 import { connectService } from "./service.ts";
 

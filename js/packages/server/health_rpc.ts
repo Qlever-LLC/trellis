@@ -1,13 +1,16 @@
-import type { TrellisAPI } from "@qlever-llc/trellis-contracts";
+import type { TrellisAPI } from "@qlever-llc/trellis/contracts";
 
-import { Result } from "@qlever-llc/trellis-result";
+import { Result } from "@qlever-llc/result";
 import { type HealthCheckFn, runAllHealthChecks } from "./health.ts";
 
 type HealthRpcServer = {
   name: string;
   api: TrellisAPI;
   natsConnection: { isClosed(): boolean };
-  mount(method: string, handler: (...args: unknown[]) => unknown): Promise<unknown>;
+  mount<M extends keyof TrellisAPI["rpc"] & string>(
+    method: M,
+    handler: (...args: unknown[]) => unknown,
+  ): Promise<unknown>;
 };
 
 function pascalCase(value: string): string {
@@ -29,7 +32,8 @@ export async function mountStandardHealthRpc(
   const rpc = (server.api.rpc as Record<string, unknown> | undefined)?.[rpcName];
   if (!rpc) return;
 
-  await server.mount(rpcName, async () => {
+  const method = rpcName as keyof TrellisAPI["rpc"] & string;
+  await server.mount(method, async () => {
     const response = await runAllHealthChecks(server.name, {
       nats: async () => Result.ok(!server.natsConnection.isClosed()),
       ...(opts?.checks ?? {}),

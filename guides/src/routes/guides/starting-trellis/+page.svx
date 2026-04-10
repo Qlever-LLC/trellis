@@ -1,0 +1,277 @@
+### Prerequisites
+
+If you have do not have a running NATS server configured for Trellis, please follow the [Prepare NATS](/guides/prepare-nats) guide first.
+
+## What you need
+
+- `podman`
+- `systemctl --user` with Quadlet support
+- the `trellis` CLI installed (see [Install the Trellis CLI](/guides/install-trellis-cli))
+- an OAuth application (GitHub) for your environment
+
+## 1. Setup the workspace
+
+If you are continuing from the [Prepare NATS](/guides/prepare-nats) guide, then use the same `trellis` workspace as before:
+
+```sh
+cd trellis
+```
+
+Otherwise, create a working directory:
+
+```sh
+mkdir trellis
+cd trellis
+```
+
+Create the directory structure for config and secrets:
+
+```sh
+mkdir -p config/secrets
+chmod 700 config/secrets
+```
+
+Download [`config.example.jsonc`](https://github.com/qlever-llc/trellis/blob/main/deploy/quadlet/config.example.jsonc) and save it as `./config/config.jsonc`.
+
+## 2. Generate the Trellis session key
+
+```sh
+trellis keygen --out ./keys/trellis.seed --pubout ./keys/trellis.pub
+```
+
+Only the public key is shared with Trellis APIs. Keep `./keys/trellis.seed` private.
+
+## 3. Collect the NATS values
+
+The runtime needs several values from the NATS setup. If you still have them in your shell from the NATS guide, you can skip the extraction steps.
+
+Get the AUTH account public key:
+
+```sh
+NATS_AUTH_ISSUER_NKEY=$(./nsc.sh describe account -n AUTH --field sub | tr -d '"')
+```
+
+Get the TRELLIS account public key:
+
+```sh
+NATS_AUTH_TARGET_NKEY=$(./nsc.sh describe account -n TRELLIS --field sub | tr -d '"')
+```
+
+Get the auth callout XKey public key. The seed is in the nkeys directory:
+
+```sh
+XKEY_PUB=$(./nsc.sh describe account -n AUTH -J | grep '"xkey"' | tr -d ' ",' | cut -d: -f2)
+```
+
+## 4. Write secrets to disk
+
+The runtime reads all private key material from files. Write them into `./config/secrets/`:
+
+```sh
+cp ./keys/trellis.seed ./config/secrets/session-key.seed
+cp ./keys/auth-issuer-signing.nk ./config/secrets/auth-issuer-signing.seed
+cp ./keys/trellis-target-signing.nk ./config/secrets/auth-target-signing.seed
+cat ./nkeys/keys/X/${XKEY_PUB:1:2}/${XKEY_PUB}.nk > ./config/secrets/auth-sx.seed
+echo -n "$GITHUB_CLIENT_SECRET" > ./config/secrets/github-client-secret
+chmod 600 ./config/secrets/*
+```
+
+The entire `./config/` directory is mounted read-only into the container as `/etc/trellis/`. All `*File` paths in the config are container paths under that mount point.
+
+## 5. Configure the auth runtime
+
+Edit `./config/config.jsonc` and fill in your deployment values:
+
+```json
+{
+  "nats": {
+    "servers": "trellis-nats",
+    "trellis": {
+      "credsPath": "/run/trellis/creds/trellis-trellis.creds"
+    },
+    "auth": {
+      "credsPath": "/run/trellis/creds/auth-trellis.creds"
+    },
+    "sentinelCredsPath": "/run/trellis/creds/sentinel.creds",
+    "authCallout": {
+      "issuer": {
+        "nkey": "<value from step 3>",
+        "signingSeedFile": "/etc/trellis/secrets/auth-issuer-signing.seed"
+      },
+      "target": {
+        "nkey": "<value from step 3>",
+        "signingSeedFile": "/etc/trellis/secrets/auth-target-signing.seed"
+      },
+      "sxSeedFile": "/etc/trellis/secrets/auth-sx.seed"
+    }
+  },
+  "sessionKeySeedFile": "/etc/trellis/secrets/session-key.seed",
+  "client": {
+    "natsServers": ["ws://localhost:8080"]
+  },
+  "oauth": {
+    "redirectBase": "http://localhost:3000/auth/callback",
+    "alwaysShowProviderChooser": true,
+    "providers": {
+      "github": {
+        "type": "github",
+        "clientId": "<your GitHub OAuth app client ID>",
+        "clientSecretFile": "/etc/trellis/secrets/github-client-secret"
+      }
+    }
+  }
+}
+```
+
+`client.natsServers` is the browser-facing websocket endpoint list returned by the auth service during bind. This lets the console discover the correct Trellis realtime endpoint from the instance URL it signed into.
+
+Create `./config/trellis.env` with a single line pointing the runtime at the config file:
+
+```text
+TRELLIS_CONFIG=/etc/trellis/config.jsonc
+```
+
+Use `localhost` consistently across the runtime, browser app, and OAuth app config.
+
+## 6. Bootstrap NATS buckets
+
+Create the JetStream streams and KV buckets that Trellis requires:
+
+```sh
+trellis bootstrap nats \
+  --servers 127.0.0.1 \
+  --trellis-creds ./nkeys/creds/Trellis/TRELLIS/trellis.creds \
+  --auth-creds ./nkeys/creds/Trellis/AUTH/trellis.creds
+```
+
+The `trellis_binding_tokens` bucket TTL comes from `ttlMs.bindingTokens.bucket` in the auth config. If you increase CLI token lifetimes, rerun `trellis bootstrap nats` after updating the config so the bucket TTL is updated to match.
+
+## 7. Deploy the runtime with Quadlet
+
+The Trellis repo provides Quadlet templates at [`deploy/quadlet/`](https://github.com/qlever-llc/trellis/tree/main/deploy/quadlet). Use those as a starting point.
+
+Write `~/.config/containers/systemd/trellis.container`:
+
+```ini
+[Unit]
+Description=Trellis runtime
+After=trellis-nats.service
+Requires=trellis-nats.service
+
+[Container]
+ContainerName=trellis
+Image=ghcr.io/qlever-llc/trellis:latest
+PublishPort=127.0.0.1:3000:3000
+EnvironmentFile=%h/trellis/config/trellis.env
+Volume=%h/trellis/config:/etc/trellis:ro,Z
+Volume=%h/trellis/nkeys/creds/Trellis/AUTH/trellis.creds:/run/trellis/creds/auth-trellis.creds:ro,Z
+Volume=%h/trellis/nkeys/creds/Trellis/AUTH/sentinel.creds:/run/trellis/creds/sentinel.creds:ro,Z
+Volume=%h/trellis/nkeys/creds/Trellis/TRELLIS/trellis.creds:/run/trellis/creds/trellis-trellis.creds:ro,Z
+Network=trellis.network
+UserNS=keep-id
+NoNewPrivileges=true
+DropCapability=all
+ReadOnly=true
+Tmpfs=/tmp:rw,noexec,nosuid,nodev,size=16m
+
+[Service]
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+```
+
+Write `~/.config/containers/systemd/console.container`:
+
+```ini
+[Unit]
+Description=Trellis console
+After=trellis.service
+
+[Container]
+ContainerName=console
+Image=ghcr.io/qlever-llc/console:latest
+PublishPort=127.0.0.1:5173:80
+Environment=PUBLIC_TRELLIS_AUTH_URL=http://host.containers.internal:3000
+Network=trellis.network
+UserNS=keep-id
+NoNewPrivileges=true
+DropCapability=all
+ReadOnly=true
+Tmpfs=/var/cache/nginx
+Tmpfs=/var/run
+
+[Service]
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+```
+
+The runtime mounts `./config/` as `/etc/trellis/` read-only, providing both the config file and secrets. NATS creds are mounted individually from `./nkeys/creds/` to the container paths referenced by the config. App containers read their public browser config from runtime environment variables. Trellis serves the built-in portal itself from static assets, so the default startup flow does not need a separate portal container.
+
+If you want the user service to keep running after logout, enable linger once:
+
+```sh
+loginctl enable-linger "$USER"
+```
+
+## 8. Start the services
+
+```sh
+systemctl --user daemon-reload
+systemctl --user start trellis.service
+systemctl --user start console.service
+```
+
+Test the auth endpoint:
+
+```sh
+curl -i http://localhost:3000/auth/login/github
+```
+
+An HTTP 400 is expected before signed login parameters are sent — it confirms the runtime is serving.
+
+## 9. Create the first admin
+
+Before logging into the console, bootstrap the GitHub account that will become the first administrator:
+
+```sh
+trellis bootstrap admin \
+  --servers 127.0.0.1 \
+  --creds ./nkeys/creds/Trellis/AUTH/trellis.creds \
+  --origin github \
+  --id github:YOUR_GITHUB_USER_ID
+```
+
+This seeds the user projection with the default console access set: `admin`, `trellis.catalog.read`, and `trellis.contract.read`.
+
+## 10. Log in with the CLI
+
+```sh
+trellis --nats-servers 127.0.0.1 auth login \
+  --auth-url http://localhost:3000
+```
+
+Check the session:
+
+```sh
+trellis auth status
+```
+
+## 11. Verify
+
+Check that all services are responding:
+
+```sh
+curl http://127.0.0.1:8222/healthz
+curl -i http://localhost:3000/auth/login/github
+curl -I http://localhost:5173/
+trellis auth status
+```
+
+Then open `http://localhost:5173` in your browser and complete the OAuth login flow with that same GitHub account. The browser will redirect through the built-in portal served by Trellis for provider selection and approval, then return to the console. You should land on a logged-in console session.
+
+Custom portals are optional. You only need to register one later if you want to override the built-in login UX or workload onboarding UX for selected flows.

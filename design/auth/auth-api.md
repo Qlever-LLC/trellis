@@ -20,8 +20,7 @@ It covers:
 
 - browser-flow broker, OAuth, and bind endpoints
 - browser-flow APIs consumed by portal
-- HTTP device activation endpoints
-- auth-owned device activation operations
+- HTTP workload activation endpoints
 - public and admin `rpc.Auth.*` endpoints
 - emitted auth events
 
@@ -29,7 +28,7 @@ It does not define language-specific client APIs.
 
 Headings in this document use logical names like `rpc.Auth.Logout`. The wire
 subjects remain versioned forms such as `rpc.v1.Auth.Logout` and
-`operations.v1.Auth.RequestDeviceActivation`.
+`rpc.v1.Auth.ActivateWorkload`.
 
 ## HTTP Endpoints
 
@@ -40,26 +39,21 @@ Browser auth endpoints:
 - `GET /auth/callback/:provider`
 - `GET /auth/flow/:flowId`
 - `POST /auth/flow/:flowId/approval`
+- `POST /auth/flow/:flowId/bind`
 - `POST /auth/bind`
 
-Device activation endpoints are defined in
-[device-activation.md](./device-activation.md):
+Activated-workload endpoints are defined in
+[workload-activation.md](./workload-activation.md):
 
-- `GET /auth/device/activate`
-- `POST /auth/device/activate/wait`
+- `GET /auth/workloads/activate`
+- `POST /auth/workloads/activate/wait`
+- `POST /auth/workloads/connect-info`
 
-`GET /auth/device/activate` creates the activation handoff, preserves login
-continuity through the deployment portal, and then routes into the configured
-onboarding handler for the device type. Each device type still needs an explicit
-onboarding handler binding. When a handler uses `trellis_default`, the default
-onboarding UX may be served by the same deployed portal app that owns generic
-login and approval screens.
+`GET /auth/workloads/activate` creates the activation handoff, preserves login continuity through the resolved activation portal, and then routes into that portal. Portal resolution comes from the preregistered workload instance and deployment-owned workload portal policy, with fallback to the deployment workload default custom portal when configured and finally to the built-in Trellis workload portal. Callers do not provide a portal id or profile id in the normal path.
 
 ### GET /auth/login
 
-Validates the caller's login intent, creates a browser flow, resolves the active
-deployment portal binding, and redirects the browser into that portal. The
-portal owns provider chooser and approval UX.
+Validates the caller's login intent, creates a browser flow, resolves the matching login portal selection for the initiating contract when one exists, otherwise falls back to the deployment login default custom portal and finally to the built-in Trellis login portal, and redirects the browser into that portal. The portal owns provider chooser and approval UX.
 
 Query parameters:
 
@@ -67,17 +61,28 @@ Query parameters:
 | ------------ | -------- | -------------------------------------------------------- |
 | `redirectTo` | yes      | Post-login redirect URL                                  |
 | `sessionKey` | yes      | Client public session key                                |
-| `sig`        | yes      | `sign(hash("oauth-init:" + redirectTo))` by `sessionKey` |
-| `contract`   | yes      | Contract manifest JSON for approval planning             |
+| `sig`        | yes      | `sign(hash("oauth-init:" + redirectTo + ":" + canonicalJson(context ?? null)))` by `sessionKey` |
+| `contract`   | yes      | Initiating browser-app contract manifest JSON for portal routing and approval planning |
+| `context`    | no       | Opaque JSON payload for app and portal coordination      |
 
 Behavior:
 
 1. Validate `redirectTo`
 2. Verify `sig` by `sessionKey`
 3. Create an auth-owned browser flow record
-4. Resolve the active deployment portal binding
-5. Redirect to the portal `entryUrl` with `flowId` or an equivalent signed flow
+4. Resolve the matching login portal selection for the initiating contract id when one exists
+5. Otherwise fall back to the deployment login default custom portal when configured
+6. Otherwise use the built-in Trellis login portal served by the Trellis HTTP server
+7. Redirect to the portal `entryUrl` with `flowId` or an equivalent signed flow
    token
+
+Rules:
+
+- browser apps send their contract manifest when they initiate login; they are approved per-user during auth rather than pre-installed like services
+- bind later uses the contract already stored on the auth-owned browser flow rather than requiring the browser app to resubmit it
+- if present, `context` is stored on the browser flow and returned to portals as app-owned opaque data
+- a portal is trusted for this redirect only because deployment configuration registered its `entryUrl`; portal registration does not grant service authority
+- first login does not require pre-registering a portal because the built-in Trellis login portal is always available
 
 ### GET /auth/login/:provider
 
@@ -109,10 +114,11 @@ Behavior:
 2. Lookup and CAS-delete the pending OAuth state
 3. Exchange code for tokens
 4. Fetch user info
-5. Generate `authToken`
-6. Update the browser flow and pending auth state
-7. Delete cookie
-8. Redirect back into portal with `flowId` so portal can reload browser-flow
+5. Provision or refresh the auth-local user projection
+6. Generate `authToken`
+7. Update the browser flow and pending auth state
+8. Delete cookie
+9. Redirect back into portal with `flowId` so portal can reload browser-flow
    state and follow the next server-generated redirect when appropriate
 
 ### GET /auth/flow/:flowId
@@ -130,13 +136,13 @@ type PortalFlowState =
       id: string;
       displayName: string;
     }>;
-    app: {
-      contractId: string;
-      contractDigest: string;
-      displayName: string;
-      description: string;
-      kind: string;
-    };
+      app: {
+        contractId: string;
+        contractDigest: string;
+        displayName: string;
+        description: string;
+        context?: unknown;
+      };
   }
   | {
     status: "approval_required";
@@ -148,38 +154,35 @@ type PortalFlowState =
       email?: string;
       image?: string;
     };
-    approval: {
-      contractId: string;
-      contractDigest: string;
-      displayName: string;
-      description: string;
-      kind: string;
-      capabilities: string[];
-    };
+      approval: {
+        contractId: string;
+        contractDigest: string;
+        displayName: string;
+        description: string;
+        capabilities: string[];
+      };
   }
   | {
     status: "approval_denied";
     flowId: string;
-    approval: {
-      contractId: string;
-      contractDigest: string;
-      displayName: string;
-      description: string;
-      kind: string;
-      capabilities: string[];
-    };
+      approval: {
+        contractId: string;
+        contractDigest: string;
+        displayName: string;
+        description: string;
+        capabilities: string[];
+      };
   }
   | {
     status: "insufficient_capabilities";
     flowId: string;
-    approval: {
-      contractId: string;
-      contractDigest: string;
-      displayName: string;
-      description: string;
-      kind: string;
-      capabilities: string[];
-    };
+      approval: {
+        contractId: string;
+        contractDigest: string;
+        displayName: string;
+        description: string;
+        capabilities: string[];
+      };
     missingCapabilities: string[];
     userCapabilities: string[];
   }
@@ -195,10 +198,10 @@ type PortalFlowState =
 Rules:
 
 - portal renders UX only from this auth-owned flow state
-- portal MUST treat `redirect.location` as an opaque next step
-- `redirect.location` may point back to the originating browser app or into a
-  device-onboarding route that continues a preserved `handoffId`
-- portal does not invent next-step URLs locally
+- portal MUST treat `redirect.location` as an opaque next auth step
+- `redirect.location` may point back to the originating browser app or into an activation route that continues a preserved `handoffId`
+- portal does not invent auth-protocol next-step URLs locally, though it may still use its own local routes and UI state while rendering the flow
+- portal-specific customization data travels through `app.context` rather than ad hoc query parameters between app and portal
 
 ### POST /auth/flow/:flowId/approval
 
@@ -206,11 +209,45 @@ Records an approval decision for the contract attached to the browser flow and
 returns the next `PortalFlowState`. This endpoint replaces server-rendered
 approval forms.
 
+Rules:
+
+- the portal is not trusted as a service when it submits an approval decision
+- auth trusts only the active browser flow identified by `flowId` and the server-owned state attached to that flow
+
+### POST /auth/flow/:flowId/bind
+
+Binds a session key to an authenticated identity and approved contract digest for
+the normal browser flow path.
+
+Request:
+
+```ts
+{
+  sessionKey: string;
+  sig: string; // sign(hash("bind-flow:" + flowId))
+}
+```
+
+Response: `BindResponse`
+
+Behavior:
+
+1. Load the browser flow by `flowId`
+2. Load the pending authenticated state already attached to that flow
+3. Verify `sessionKey` and `sig`
+4. Read the contract already associated with the pending login
+5. Validate the contract, compute digest, derive required capabilities, and
+   check approval
+6. Reject the bind if the user projection is inactive
+7. Consume the pending auth state
+8. Create or recover the session record for `<sessionKey>.<trellisId>`
+9. Mint `bindingToken`
+
 ### POST /auth/bind
 
 Binds a session key to an authenticated identity and approved contract digest.
-Browser flows reach this endpoint through portal after auth-owned login and
-approval steps are complete.
+This is the lower-level auth-token bind path retained for non-portal or legacy
+callers. Normal browser flows SHOULD use `POST /auth/flow/:flowId/bind`.
 
 Request:
 
@@ -239,14 +276,13 @@ type BindResponse =
   }
   | {
     status: "insufficient_capabilities";
-    approval: {
-      contractDigest: string;
-      contractId: string;
-      displayName: string;
-      description: string;
-      kind: string;
-      capabilities: string[];
-    };
+      approval: {
+        contractDigest: string;
+        contractId: string;
+        displayName: string;
+        description: string;
+        capabilities: string[];
+      };
     missingCapabilities: string[];
     userCapabilities: string[];
   };
@@ -259,14 +295,16 @@ Behavior:
 3. Read the contract already associated with the pending login
 4. Validate the contract, compute digest, derive required capabilities, and
    check approval
-5. CAS-delete `pendingAuth[authToken]`
-6. Create or recover the session record for `<sessionKey>.<trellisId>`
-7. Persist delegated contract metadata and delegated publish/subscribe subjects
+5. Reject the bind if the user projection is inactive
+6. CAS-delete `pendingAuth[authToken]`
+7. Create or recover the session record for `<sessionKey>.<trellisId>`
+8. Persist delegated contract metadata and delegated publish/subscribe subjects
    into the session
-8. Mint `bindingToken`
-9. Compute `inboxPrefix = _INBOX.${sessionKey.slice(0, 16)}`
-10. Refresh the Trellis-local auth projection entry
-11. Return the bind response
+9. Mint `bindingToken`
+10. Compute `inboxPrefix = _INBOX.${sessionKey.slice(0, 16)}`
+11. Refresh the Trellis-local auth projection entry without overwriting
+    admin-managed `active` state or granted capabilities
+12. Return the bind response
 
 Rules:
 
@@ -302,7 +340,6 @@ Response:
       contractId: string;
       displayName: string;
       description: string;
-      kind: string;
       capabilities: string[];
     };
   }>;
@@ -335,6 +372,13 @@ Revocation SHOULD also revoke matching active delegated sessions.
 ## Authenticated User RPCs
 
 These RPCs require `session-key` and `proof` headers.
+
+The following self-service auth RPCs intentionally require no granted
+capabilities beyond successful authenticated user context:
+
+- `rpc.Auth.Me`
+- `rpc.Auth.Logout`
+- `rpc.Auth.RenewBindingToken`
 
 ### rpc.Auth.Logout
 
@@ -386,9 +430,10 @@ Response:
 
 Rules:
 
-- binding tokens are single-use
+- binding tokens are reusable until `expiresAt`
 - clients that want seamless reconnect SHOULD keep a fresh token available by
   calling this RPC after connecting
+- this is a zero-capability authenticated self-service RPC
 
 ### rpc.Auth.Me
 
@@ -409,9 +454,31 @@ Response:
     name: string;
     capabilities: string[];
     active: boolean;
-  };
+  } | null;
+  workload: {
+    type: "workload";
+    instanceId: string;
+    publicIdentityKey: string;
+    profileId: string;
+    capabilities: string[];
+    active: boolean;
+  } | null;
+  service: {
+    type: "service";
+    id: string;
+    name: string;
+    capabilities: string[];
+    active: boolean;
+  } | null;
 }
 ```
+
+Rules:
+
+- this is a zero-capability authenticated self-service RPC
+- user sessions receive the user envelope and null workload/service entries
+- workload sessions receive the workload envelope and, when available, the activating user in `user`
+- service sessions receive the service envelope and null user/workload entries
 
 ### rpc.Auth.ValidateRequest
 
@@ -449,10 +516,9 @@ type CallerView =
     active: boolean;
   }
   | {
-    type: "device";
-    deviceId: string;
-    deviceType: string;
-    runtimePublicKey: string;
+    type: "workload";
+    instanceId: string;
+    publicIdentityKey: string;
     profileId: string;
     capabilities: string[];
     active: boolean;
@@ -465,237 +531,307 @@ type CallerView =
 }
 ```
 
-This RPC is the capability and session lookup service used by other Trellis
-services. The caller shape is a union because users, services, and devices all
-share the same post-auth authorization pipeline.
+This RPC is the capability and session lookup service used by other Trellis services. The caller shape is a union because users and workloads all share the same post-auth authorization pipeline.
 
-## Device Activation Public Surface
+## Workload Activation Public Surface
 
 Detailed activation flow semantics, event ordering, and confirmation-code
-behavior are defined in [device-activation.md](./device-activation.md). This
+behavior are defined in [workload-activation.md](./workload-activation.md). This
 section defines the canonical public API shapes that other auth docs refer to.
 
 Public auth-owned surfaces:
 
-- operation subject `operations.v1.Auth.RequestDeviceActivation`
-- HTTP endpoints `GET /auth/device/activate` and
-  `POST /auth/device/activate/wait`
-- RPC subject `rpc.v1.Auth.ReviewDeviceActivation`
-- portal binding, onboarding handler, device profile, and device lifecycle admin
-  RPCs under `rpc.v1.Auth.*`
+- HTTP endpoints `GET /auth/workloads/activate`,
+  `POST /auth/workloads/activate/wait`, and
+  `POST /auth/workloads/connect-info`
+- RPC subject `rpc.v1.Auth.ActivateWorkload`
+- RPC subject `rpc.v1.Auth.GetWorkloadActivationStatus`
+- portal, portal-override, workload-profile, workload-instance, and workload
+  lifecycle admin RPCs under `rpc.v1.Auth.*`
+- event subject `events.v1.Auth.WorkloadActivationReviewRequested`
 
 Shared request and response types:
 
 ```ts
-type DeviceActivationDecisionReason = string; // deployment-defined machine-readable code
+type ActivationDecisionReason = string; // deployment-defined machine-readable code
 
-type PortalBinding = {
-  authAppId: string;
-  mode: "custom" | "trellis_default";
-  contractId?: string;
+type Portal = {
+  portalId: string;
+  appContractId?: string;
   entryUrl: string;
-  defaultOnboardingUrl?: string;
   disabled: boolean;
 };
 
-type DeviceOnboardingHandler = {
-  handlerId: string;
-  matchDeviceType: string;
-  mode: "custom" | "trellis_default";
-  contractId?: string;
-  entryUrl?: string;
-  disabled: boolean;
+type LoginPortalDefault = {
+  portalId: string | null; // null means use the built-in Trellis login portal
 };
 
-type DeviceProfile = {
+type WorkloadPortalDefault = {
+  portalId: string | null; // null means use the built-in Trellis workload portal
+};
+
+type LoginPortalSelection = {
+  contractId: string;
+  portalId: string | null; // null forces the built-in Trellis login portal for this contract
+};
+
+type WorkloadPortalSelection = {
   profileId: string;
-  deviceType: string;
+  portalId: string | null; // null forces the built-in Trellis workload portal for this profile
+};
+
+type WorkloadProfile = {
+  profileId: string;
   contractId: string;
   allowedDigests: string[];
-  preferredDigest: string;
+  reviewMode?: "none" | "required";
   disabled: boolean;
 };
 
-type DeviceActivationRecord = {
-  requestId: string;
-  deviceId: string;
-  runtimePublicKey: string;
+type WorkloadInstance = {
+  instanceId: string;
+  publicIdentityKey: string;
   profileId: string;
-  state: "approved" | "revoked";
-  approvedAt: string;
+  state: "registered" | "activated" | "revoked" | "disabled";
+  createdAt: string;
   activatedAt: string | null;
   revokedAt: string | null;
 };
 
-type ReviewDeviceActivationRequest = {
-  requestId: string;
-  approved: boolean;
-  profileId?: string;
-  reason?: DeviceActivationDecisionReason;
-};
-
-type ReviewDeviceActivationResponse =
-  | {
-    requestId: string;
-    decision: "approved";
-    profileId: string;
-    approvedAt: string;
-  }
-  | {
-    requestId: string;
-    decision: "rejected";
-    reason?: DeviceActivationDecisionReason;
-    rejectedAt: string;
-  };
-
-type RequestDeviceActivationOutput = {
-  requestId: string;
+type WorkloadActivationRecord = {
+  instanceId: string;
+  publicIdentityKey: string;
   profileId: string;
-  confirmationCode: string;
+  activatedBy?: {
+    origin: string;
+    id: string;
+  };
+  state: "activated" | "revoked";
+  activatedAt: string;
+  revokedAt: string | null;
 };
 
-type WaitForDeviceActivationCodeResponse =
-  | {
-    status: "approved";
-    requestId: string;
-    profileId: string;
-    confirmationCode: string;
-  }
-  | {
-    status: "rejected";
-    requestId: string;
-    reason?: DeviceActivationDecisionReason;
-  }
-  | {
-    status: "pending";
-  };
+type WorkloadActivationReview = {
+  reviewId: string;
+  instanceId: string;
+  publicIdentityKey: string;
+  profileId: string;
+  state: "pending" | "approved" | "rejected";
+  requestedAt: string;
+  decidedAt: string | null;
+  reason?: ActivationDecisionReason;
+};
 
-type CreatePortalBindingRequest = {
-  authAppId: string;
-  mode: "custom" | "trellis_default";
-  contractId?: string;
+type WorkloadConnectInfo = {
+  instanceId: string;
+  profileId: string;
+  contractId: string;
+  contractDigest: string;
+  transport: {
+    natsServers: string[];
+    sentinel: {
+      jwt: string;
+      seed: string;
+    };
+  };
+  auth: {
+    mode: "workload_identity";
+    iatSkewSeconds: number;
+  };
+};
+
+type ActivateWorkloadRequest = {
+  handoffId: string;
+};
+
+type ActivateWorkloadResponse =
+  | {
+      status: "activated";
+      instanceId: string;
+      profileId: string;
+      activatedAt: string;
+      confirmationCode?: string;
+    }
+  | {
+      status: "pending_review";
+      reviewId: string;
+      instanceId: string;
+      profileId: string;
+      requestedAt: string;
+    }
+  | {
+      status: "rejected";
+      reason?: ActivationDecisionReason;
+    };
+
+type GetWorkloadActivationStatusRequest = {
+  handoffId: string;
+};
+
+type GetWorkloadActivationStatusResponse = ActivateWorkloadResponse;
+
+type WaitForWorkloadActivationResponse =
+  | { status: "pending" }
+  | {
+      status: "activated";
+      activatedAt: string;
+      confirmationCode?: string;
+      connectInfo: WorkloadConnectInfo;
+    }
+  | {
+      status: "rejected";
+      reason?: ActivationDecisionReason;
+    };
+
+type GetWorkloadConnectInfoRequest = {
+  publicIdentityKey: string;
+  contractDigest: string;
+  iat: number;
+  sig: string;
+};
+
+type GetWorkloadConnectInfoResponse = {
+  status: "ready";
+  connectInfo: WorkloadConnectInfo;
+};
+
+type CreatePortalRequest = {
+  portalId: string;
+  appContractId?: string;
   entryUrl: string;
-  defaultOnboardingUrl?: string;
 };
-type CreatePortalBindingResponse = { binding: PortalBinding };
+type CreatePortalResponse = { portal: Portal };
 
-type GetPortalBindingRequest = {};
-type GetPortalBindingResponse = { binding: PortalBinding | null };
+type ListPortalsResponse = { portals: Portal[] };
+type DisablePortalRequest = { portalId: string };
 
-type ListPortalBindingsRequest = {
-  mode?: "custom" | "trellis_default";
-  disabled?: boolean;
+type GetLoginPortalDefaultResponse = { defaultPortal: LoginPortalDefault };
+type SetLoginPortalDefaultRequest = { portalId: string | null };
+type SetLoginPortalDefaultResponse = { defaultPortal: LoginPortalDefault };
+
+type SetLoginPortalSelectionRequest = {
+  contractId: string;
+  portalId: string | null;
 };
-type ListPortalBindingsResponse = { bindings: PortalBinding[] };
+type SetLoginPortalSelectionResponse = { selection: LoginPortalSelection };
 
-type DisablePortalBindingRequest = { authAppId: string };
+type ListLoginPortalSelectionsResponse = { selections: LoginPortalSelection[] };
+type ClearLoginPortalSelectionRequest = { contractId: string };
 
-type CreateDeviceOnboardingHandlerRequest = {
-  handlerId: string;
-  matchDeviceType: string;
-  mode: "custom" | "trellis_default";
-  contractId?: string;
-  entryUrl?: string;
-};
-type CreateDeviceOnboardingHandlerResponse = {
-  handler: DeviceOnboardingHandler;
-};
+type GetWorkloadPortalDefaultResponse = { defaultPortal: WorkloadPortalDefault };
+type SetWorkloadPortalDefaultRequest = { portalId: string | null };
+type SetWorkloadPortalDefaultResponse = { defaultPortal: WorkloadPortalDefault };
 
-type ListDeviceOnboardingHandlersRequest = {
-  matchDeviceType?: string;
-  mode?: "custom" | "trellis_default";
-  disabled?: boolean;
-};
-
-type ListDeviceOnboardingHandlersResponse = {
-  handlers: DeviceOnboardingHandler[];
-};
-
-type DisableDeviceOnboardingHandlerRequest = { handlerId: string };
-
-type CreateDeviceProfileRequest = {
+type SetWorkloadPortalSelectionRequest = {
   profileId: string;
-  deviceType: string;
+  portalId: string | null;
+};
+type SetWorkloadPortalSelectionResponse = { selection: WorkloadPortalSelection };
+
+type ListWorkloadPortalSelectionsResponse = { selections: WorkloadPortalSelection[] };
+type ClearWorkloadPortalSelectionRequest = { profileId: string };
+
+type CreateWorkloadProfileRequest = {
+  profileId: string;
   contractId: string;
   allowedDigests: string[];
-  preferredDigest: string;
+  reviewMode?: "none" | "required";
 };
-type CreateDeviceProfileResponse = { profile: DeviceProfile };
+type CreateWorkloadProfileResponse = { profile: WorkloadProfile };
 
-type ListDeviceProfilesRequest = {
-  deviceType?: string;
-  contractId?: string;
-  disabled?: boolean;
-};
+type ListWorkloadProfilesResponse = { profiles: WorkloadProfile[] };
+type DisableWorkloadProfileRequest = { profileId: string };
 
-type ListDeviceProfilesResponse = { profiles: DeviceProfile[] };
-
-type GetDeviceProfileRequest = { profileId: string };
-type GetDeviceProfileResponse = { profile: DeviceProfile };
-
-type DisableDeviceProfileRequest = { profileId: string };
-
-type SetDeviceProfilePreferredDigestRequest = {
+type ProvisionWorkloadInstanceRequest = {
   profileId: string;
-  preferredDigest: string;
+  publicIdentityKey: string;
+  activationKey: string;
+};
+type ProvisionWorkloadInstanceResponse = { instance: WorkloadInstance };
+
+type ListWorkloadInstancesResponse = { instances: WorkloadInstance[] };
+type DisableWorkloadInstanceRequest = { instanceId: string };
+
+type ListWorkloadActivationsResponse = { activations: WorkloadActivationRecord[] };
+type RevokeWorkloadActivationRequest = { instanceId: string };
+
+type ListWorkloadActivationReviewsResponse = { reviews: WorkloadActivationReview[] };
+
+type DecideWorkloadActivationReviewRequest = {
+  reviewId: string;
+  decision: "approve" | "reject";
+  reason?: ActivationDecisionReason;
 };
 
-type SetDeviceProfilePreferredDigestResponse = { profile: DeviceProfile };
-
-type AddDeviceProfileDigestRequest = {
-  profileId: string;
-  digest: string;
-};
-
-type AddDeviceProfileDigestResponse = { profile: DeviceProfile };
-
-type RemoveDeviceProfileDigestRequest = {
-  profileId: string;
-  digest: string;
-};
-
-type RemoveDeviceProfileDigestResponse = { profile: DeviceProfile };
-
-type ListDeviceActivationsRequest = {
-  deviceId?: string;
-  runtimePublicKey?: string;
-  profileId?: string;
-  state?: "approved" | "revoked";
-};
-
-type ListDeviceActivationsResponse = {
-  activations: DeviceActivationRecord[];
-};
-
-type RevokeDeviceActivationRequest = {
-  deviceId: string;
+type DecideWorkloadActivationReviewResponse = {
+  review: WorkloadActivationReview;
+  activation?: WorkloadActivationRecord;
+  confirmationCode?: string;
 };
 ```
 
+Portal rules:
+
+- Trellis always provides a built-in portal served by the Trellis HTTP server from static assets; it includes both login and generic workload-activation routes and is not represented as a mutable portal record
+- a portal record registers a custom browser destination and optional user-app identity metadata; it does not install or authenticate a service principal
+- `appContractId`, when present, refers to a normal browser app contract that the portal may use after login while acting as the logged-in user
+- portals MUST NOT use service-authenticated install or upgrade flows as their trust model
+
+Portal selection rules:
+
+- login portal selection checks an explicit `contractId -> portalId` record first, then the deployment login default custom portal, then the built-in Trellis login portal
+- workload activation checks an explicit `profileId -> portalId` record first, then the deployment workload default custom portal, then the built-in Trellis workload portal
+- a selection record with `portalId: null` forces the built-in Trellis portal for that contract or profile, even when a deployment custom default exists
+- clearing a contract or profile selection removes the explicit rule and returns that flow to the default chain
+- most deployments can rely only on the built-in portal or one of the two deployment default custom portals
+
+Library rule:
+
+- public client libraries MAY wrap these HTTP and RPC surfaces with higher-level
+  workload-activation helpers, but those helpers MUST preserve these
+  canonical wire shapes
+
+Capability rule:
+
+- review-decision RPCs MUST allow callers with `admin` or `workload.review`
+
 Canonical RPC inventory:
 
-- `rpc.v1.Auth.ReviewDeviceActivation`
-- `rpc.v1.Auth.CreatePortalBinding`
-- `rpc.v1.Auth.GetPortalBinding`
-- `rpc.v1.Auth.ListPortalBindings`
-- `rpc.v1.Auth.DisablePortalBinding`
-- `rpc.v1.Auth.CreateDeviceOnboardingHandler`
-- `rpc.v1.Auth.ListDeviceOnboardingHandlers`
-- `rpc.v1.Auth.DisableDeviceOnboardingHandler`
-- `rpc.v1.Auth.CreateDeviceProfile`
-- `rpc.v1.Auth.ListDeviceProfiles`
-- `rpc.v1.Auth.GetDeviceProfile`
-- `rpc.v1.Auth.DisableDeviceProfile`
-- `rpc.v1.Auth.SetDeviceProfilePreferredDigest`
-- `rpc.v1.Auth.AddDeviceProfileDigest`
-- `rpc.v1.Auth.RemoveDeviceProfileDigest`
-- `rpc.v1.Auth.ListDeviceActivations`
-- `rpc.v1.Auth.RevokeDeviceActivation`
+- `rpc.v1.Auth.ActivateWorkload`
+- `rpc.v1.Auth.GetWorkloadActivationStatus`
+- `rpc.v1.Auth.CreatePortal`
+- `rpc.v1.Auth.ListPortals`
+- `rpc.v1.Auth.DisablePortal`
+- `rpc.v1.Auth.GetLoginPortalDefault`
+- `rpc.v1.Auth.SetLoginPortalDefault`
+- `rpc.v1.Auth.ListLoginPortalSelections`
+- `rpc.v1.Auth.SetLoginPortalSelection`
+- `rpc.v1.Auth.ClearLoginPortalSelection`
+- `rpc.v1.Auth.GetWorkloadPortalDefault`
+- `rpc.v1.Auth.SetWorkloadPortalDefault`
+- `rpc.v1.Auth.ListWorkloadPortalSelections`
+- `rpc.v1.Auth.SetWorkloadPortalSelection`
+- `rpc.v1.Auth.ClearWorkloadPortalSelection`
+- `rpc.v1.Auth.CreateWorkloadProfile`
+- `rpc.v1.Auth.ListWorkloadProfiles`
+- `rpc.v1.Auth.DisableWorkloadProfile`
+- `rpc.v1.Auth.ProvisionWorkloadInstance`
+- `rpc.v1.Auth.ListWorkloadInstances`
+- `rpc.v1.Auth.DisableWorkloadInstance`
+- `rpc.v1.Auth.ListWorkloadActivations`
+- `rpc.v1.Auth.RevokeWorkloadActivation`
+- `rpc.v1.Auth.ListWorkloadActivationReviews`
+- `rpc.v1.Auth.DecideWorkloadActivationReview`
+
+Canonical event inventory:
+
+- `events.v1.Auth.WorkloadActivationReviewRequested`
 
 ## Admin RPCs
 
-Admin RPCs require the `admin` capability unless a narrower auth contract later
-replaces that global rule.
+Admin RPCs require the `admin` capability unless explicitly documented otherwise.
+Workload review decision RPCs are the current exception and also allow
+`workload.review`.
 
 ### rpc.Auth.ListSessions
 
@@ -713,7 +849,7 @@ Response:
 {
   sessions: Array<{
     key: string;
-    type: "user" | "service" | "device";
+    type: "user" | "service" | "workload";
     createdAt: string;
     lastAuth: string;
   }>;
@@ -791,11 +927,11 @@ Trellis publishes these events as part of `trellis.auth@v1`:
 - `events.v1.Auth.Disconnect`
 - `events.v1.Auth.SessionRevoked`
 - `events.v1.Auth.ConnectionKicked`
-- `events.v1.Auth.DeviceActivationRequested`
-- `events.v1.Auth.DeviceActivationApproved`
-- `events.v1.Auth.DeviceActivationRejected`
-- `events.v1.Auth.DeviceActivated`
-- `events.v1.Auth.DeviceActivationRevoked`
+- `events.v1.Auth.WorkloadActivationRequested`
+- `events.v1.Auth.WorkloadActivationApproved`
+- `events.v1.Auth.WorkloadActivationRejected`
+- `events.v1.Auth.WorkloadActivated`
+- `events.v1.Auth.WorkloadActivationRevoked`
 
 Services may subscribe only when their installed contract explicitly declares
 them in `uses`.

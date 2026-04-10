@@ -1,11 +1,11 @@
-# @qlever-llc/trellis-result
+# @qlever-llc/result
 
 Class-based `Result<T, E>` and `AsyncResult<T, E>` types for TypeScript, inspired by Rust.
 
 Provides explicit error handling with method chaining and the `take()` pattern for early returns, without relying on exceptions.
 
 ```typescript
-import { Result, AsyncResult } from "@qlever-llc/trellis-result";
+import { Result, AsyncResult } from "@qlever-llc/result";
 
 const user = await fetchUser(id).take();
 if (Result.isErr(user)) return user;

@@ -1,0 +1,136 @@
+This guide walks through the intended Trellis workload flow for a TypeScript workload. The workload has its own durable identity, may be activated through the built-in Trellis portal or a custom workload portal, and can support both online approval and offline confirmation-code entry.
+
+Before starting, review [Trellis Concepts](/guides/concepts) and [Write a TypeScript service](/guides/writing-ts-services) for background on contracts, auth, and packages.
+
+## What you need
+
+- a running Trellis environment, with admin access
+- the `trellis` CLI (see [Install the Trellis CLI](/guides/install-trellis-cli))
+
+## How workloads work
+
+Workloads follow a provision-and-activate lifecycle:
+
+1. A Trellis admin provisions a workload secret. Trellis stores the public identity key and activation key, and the root secret is transferred to the workload for storage.
+2. When a workload starts up, the root secret is used to generate an activation URL or QR code.
+3. A Trellis user follows that link to a Trellis portal, completes any product-specific activation flow, and may trigger a privileged review step.
+4. Trellis returns connect info to the workload and the activation completes.
+5. The workload connects as its own principal using its derived workload identity.
+
+The workload root secret and derived identity seed never go over the wire and are not known by Trellis, which limits the risk of a stolen identity.
+
+## 1. Create the project
+
+```sh
+mkdir my-workload && cd my-workload
+deno init
+deno add npm:@qlever-llc/trellis
+```
+
+## 2. Define the workload contract
+
+Create `contracts/my_workload.ts`. Workloads declare the Trellis surfaces they need after connecting. `auth.useDefaults(...)` adds the common auth session RPCs automatically.
+
+```ts
+import { defineContract } from "@qlever-llc/trellis";
+import { auth } from "@qlever-llc/trellis/sdk/auth";
+
+export const myWorkload = defineContract({
+  id: "my-workload@v1",
+  displayName: "My Workload",
+  description: "An activated workload that connects to Trellis after activation.",
+  uses: {
+    auth: auth.useDefaults(),
+  },
+});
+```
+
+Activated workloads may not use contract `resources`.
+
+## 3. Write the workload startup code
+
+The intended public startup surface is a service-style helper: `TrellisWorkload.connect(...)`. Your application is responsible for loading the root secret however it wants before calling into Trellis.
+
+```ts
+import { TrellisWorkload } from "@qlever-llc/trellis";
+import { myWorkload } from "./contracts/my_workload.ts";
+
+const rootSecret = await Deno.readTextFile("./secrets/root.secret");
+
+const trellis = await TrellisWorkload.connect({
+  authUrl: "http://localhost:3000",
+  contract: myWorkload,
+  rootSecret,
+  onActivationRequired: async (activation) => {
+    console.log(`Open this URL to activate the workload: ${activation.url}`);
+
+    const confirmationCode = prompt(
+      "Enter a confirmation code for offline activation, or press Cancel to wait for online approval.",
+    );
+
+    if (confirmationCode && confirmationCode.trim().length > 0) {
+      await activation.acceptConfirmationCode(confirmationCode);
+      return;
+    }
+
+    await activation.waitForOnlineApproval();
+  },
+});
+
+console.log("workload connected", trellis);
+```
+
+That one entrypoint covers the normal workload startup cases:
+
+1. already activated: connect immediately after fetching fresh connect info
+2. first online activation: show QR/URL and wait for approval
+3. first offline activation: accept a confirmation code from local user input
+
+## 4. Create the workload profile
+
+Once the code shape is clear, create the server-side workload profile.
+
+```sh
+trellis workloads profiles create \
+  --profile my-workload.standard \
+  --contract ./contracts/my_workload.ts \
+  --review-mode none
+```
+
+Notes:
+
+- `--profile` is an admin-chosen identifier for this workload line or rollout policy
+- `--contract` may be either a contract source path or a contract id
+- when you pass a source path, the CLI resolves the exact digest from that contract source and registers the contract record for workloads that are not services
+- when you pass a contract id, the CLI resolves the currently active digests for that contract lineage
+- `--review-mode required` enables the workload-review gate instead of immediate activation
+
+If the workload profile uses `--review-mode required`, portal completion does not activate the workload immediately. Instead, a service with `workload.review` capabilities or an admin must first approve the activation. After approval, the activation flow proceeds as normal.
+
+## 5. Provision a workload instance
+
+A specific workload instance can be provisioned with `trellis workloads provision`. This generates a workload root secret, derives the workload keys, registers the instance with Trellis, and prints the provisioning values.
+
+```sh
+trellis workloads provision \
+  --profile my-workload.standard
+```
+
+The workload only needs the printed `rootSecret` before calling `TrellisWorkload.connect(...)`. Store it securely when you provision the instance.
+
+## 6. Roll out a new contract digest
+
+```sh
+trellis workloads profiles create \
+  --profile my-workload.standard \
+  --contract ./contracts/my_workload.ts \
+  --review-mode none
+```
+
+When a deployment needs to allow multiple active digests for one contract lineage during rollout, Trellis stores those in `allowedDigests` behind the profile. The common CLI path should resolve that for you from the contract input rather than forcing digest management into the beginner workflow.
+
+If the workload contract has not been installed yet, use the same contract source path with `trellis workloads profiles create`; Trellis will store the digest in the catalog as part of profile creation.
+
+## 7. Revoke an activated workload
+
+Activated workload revocation is handled through the workload activation admin surface. The next NATS connect attempt by that workload will be rejected.

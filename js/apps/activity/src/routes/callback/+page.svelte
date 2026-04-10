@@ -1,19 +1,10 @@
 <script lang="ts">
-  import { createAuthState } from "@qlever-llc/trellis-svelte";
   import { onMount } from "svelte";
   import { browser } from "$app/environment";
   import { goto } from "$app/navigation";
   import { page } from "$app/state";
-  import { activityApp } from "../../contracts/activity_app.ts";
-  import { APP_CONFIG } from "../../lib/config";
   import { errorMessage } from "../../lib/format";
-
-  type CallbackResult =
-    | { status: "bound" }
-    | { status: "approval_required" | "approval_denied"; approval: unknown }
-    | { status: "insufficient_capabilities"; missingCapabilities: string[] };
-
-  const auth = createAuthState({ authUrl: APP_CONFIG.authUrl, loginPath: "/login", contract: activityApp });
+  import { app } from "../../lib/trellis";
 
   let status = $state("Finalizing sign-in...");
   let authError = $state<string | null>(null);
@@ -22,27 +13,16 @@
     return page.url.searchParams.get("redirectTo") ?? "/activity";
   }
 
-  function authErrorFromFragment(url: string): string | null {
-    const parsed = new URL(url);
-    const fragment = parsed.hash.startsWith("#") ? parsed.hash.slice(1) : parsed.hash;
-    return new URLSearchParams(fragment).get("authError");
-  }
-
   onMount(async () => {
     if (!browser) return;
 
     try {
-      await auth.init();
-      const result = await auth.handleCallback(window.location.href);
-      auth.cleanupCallbackUrl();
+      await app.auth.init();
+      const result = await app.auth.handleCallback(window.location.href);
+      app.auth.cleanupCallbackUrl();
 
       if (!result) {
-        const flowError = authErrorFromFragment(window.location.href);
-        if (flowError === "approval_denied") {
-          status = "Access was not delegated to Activity Console.";
-          return;
-        }
-        throw new Error("Missing auth token");
+        throw new Error("Missing flowId");
       }
 
       if (result.status === "bound") {
@@ -54,6 +34,17 @@
       if (result.status === "insufficient_capabilities") {
         authError = `Missing capabilities: ${result.missingCapabilities.join(", ")}`;
         status = "Your account does not currently have the required activity access.";
+        return;
+      }
+
+      if (result.status === "approval_denied") {
+        status = "Access was not delegated to Activity Console.";
+        return;
+      }
+
+      if (result.status === "error") {
+        authError = result.message;
+        status = "The callback could not be completed.";
         return;
       }
 
@@ -87,7 +78,7 @@
 
         <div class="card border border-base-300/60 bg-base-100/55 shadow-sm">
           <div class="card-body gap-4">
-            <p class="text-sm text-base-content/70">The operator session could not be restored from the returned auth token.</p>
+            <p class="text-sm text-base-content/70">The operator session could not be restored from the returned auth flow.</p>
             <div>
               <a class="btn btn-ghost" href="/login">Return to sign in</a>
             </div>

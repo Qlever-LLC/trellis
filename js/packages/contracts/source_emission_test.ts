@@ -25,7 +25,6 @@ Deno.test("defineContract preserves emitted manifest shape and digest", async ()
     id: "trellis.auth@v1",
     displayName: "Trellis Auth",
     description: "Expose auth RPCs and events for source emission tests.",
-    kind: "service",
     schemas: baseSchemas,
     rpc: {
       "Auth.Me": {
@@ -49,7 +48,6 @@ Deno.test("defineContract preserves emitted manifest shape and digest", async ()
     id: "trellis.activity@v1",
     displayName: "Activity",
     description: "Expose activity APIs while depending on auth in tests.",
-    kind: "service",
     schemas: baseSchemas,
     uses: {
       auth: auth.use({
@@ -83,7 +81,6 @@ Deno.test("defineContract preserves emitted manifest shape and digest", async ()
     id: "trellis.activity@v1",
     displayName: "Activity",
     description: "Expose activity APIs while depending on auth in tests.",
-    kind: "service",
     schemas: {
       Empty: {
         additionalProperties: false,
@@ -152,7 +149,6 @@ Deno.test("defineContract rejects duplicate logical keys across used and owned A
     id: "trellis.auth@v1",
     displayName: "Trellis Auth",
     description: "Expose auth RPCs in duplicate-key tests.",
-    kind: "service",
     schemas: baseSchemas,
     rpc: {
       "Auth.Me": {
@@ -169,7 +165,6 @@ Deno.test("defineContract rejects duplicate logical keys across used and owned A
         id: "duplicate@v1",
         displayName: "Duplicate",
         description: "Trigger duplicate logical RPC key validation.",
-        kind: "service",
         schemas: baseSchemas,
         uses: {
           auth: auth.use({ rpc: { call: ["Auth.Me"] } }),
@@ -192,7 +187,6 @@ Deno.test("defineContract validates use(...) provenance and selected keys at run
     id: "trellis.auth@v1",
     displayName: "Trellis Auth",
     description: "Expose auth RPCs in provenance tests.",
-    kind: "service",
     schemas: baseSchemas,
     rpc: {
       "Auth.Me": {
@@ -217,7 +211,6 @@ Deno.test("defineContract validates use(...) provenance and selected keys at run
         id: "forged@v1",
         displayName: "Forged",
         description: "Trigger forged use provenance validation.",
-        kind: "service",
         uses: { auth: forgedUse },
       }),
     Error,
@@ -230,7 +223,6 @@ Deno.test("defineContract emits stream resources with defaults", () => {
     id: "streams.example@v1",
     displayName: "Streams Example",
     description: "Expose stream resource declarations in emitted manifests.",
-    kind: "service",
     resources: {
       streams: {
         activity: {
@@ -253,7 +245,6 @@ Deno.test("locally defined contracts can be reused as dependencies", () => {
     id: "trellis.activity@v1",
     displayName: "Activity",
     description: "Expose activity events for dependency reuse tests.",
-    kind: "service",
     schemas: baseSchemas,
     events: {
       "Activity.Recorded": {
@@ -267,7 +258,6 @@ Deno.test("locally defined contracts can be reused as dependencies", () => {
     id: "trellis.dashboard@v1",
     displayName: "Dashboard",
     description: "Reuse locally defined contracts as dependencies in tests.",
-    kind: "app",
     uses: {
       activity: activity.use({
         events: { subscribe: ["Activity.Recorded"] },
@@ -294,7 +284,6 @@ Deno.test("defineContract emits owned and used operations", () => {
     id: "trellis.billing@v1",
     displayName: "Billing",
     description: "Expose billing operations for source emission tests.",
-    kind: "service",
     schemas: baseSchemas,
     operations: {
       "Billing.Refund": {
@@ -316,7 +305,6 @@ Deno.test("defineContract emits owned and used operations", () => {
     id: "trellis.payments@v1",
     displayName: "Payments",
     description: "Use billing operations in source emission tests.",
-    kind: "service",
     schemas: baseSchemas,
     uses: {
       billing: billing.use({
@@ -359,7 +347,6 @@ Deno.test("defineContract rejects duplicate logical keys across used and owned o
     id: "trellis.billing@v1",
     displayName: "Billing",
     description: "Expose billing operations in duplicate-key tests.",
-    kind: "service",
     schemas: baseSchemas,
     operations: {
       "Billing.Refund": {
@@ -375,7 +362,6 @@ Deno.test("defineContract rejects duplicate logical keys across used and owned o
         id: "duplicate.operations@v1",
         displayName: "Duplicate Operations",
         description: "Trigger duplicate logical operation key validation.",
-        kind: "service",
         schemas: baseSchemas,
         uses: {
           billing: billing.use({ operations: { call: ["Billing.Refund"] } }),
@@ -397,7 +383,6 @@ Deno.test("defineContract validates operation use selections at runtime", () => 
     id: "trellis.billing@v1",
     displayName: "Billing",
     description: "Expose billing operations in runtime validation tests.",
-    kind: "service",
     schemas: baseSchemas,
     operations: {
       "Billing.Refund": {

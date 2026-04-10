@@ -1,10 +1,9 @@
 <script lang="ts">
-  import { createAuthState } from "@qlever-llc/trellis-svelte";
   import { onMount } from "svelte";
   import { browser } from "$app/environment";
   import { goto } from "$app/navigation";
-  import { trellisApp } from "../contracts/trellis_app.ts";
-  import { APP_CONFIG, getCanonicalLoopbackRedirectUrl } from "../lib/config";
+  import { getCanonicalLoopbackRedirectUrl, getSelectedAuthUrl } from "../lib/config";
+  import { app } from "../lib/trellis";
 
   onMount(async () => {
     if (!browser) return;
@@ -13,9 +12,12 @@
       window.location.replace(canonicalRedirect);
       return;
     }
-    const auth = createAuthState({ authUrl: APP_CONFIG.authUrl, loginPath: "/login", contract: trellisApp });
-    await auth.init();
-    if (auth.isAuthenticated) {
+    const selectedAuthUrl = getSelectedAuthUrl(window.location);
+    if (selectedAuthUrl) {
+      app.auth.setAuthUrl(selectedAuthUrl);
+    }
+    await app.auth.init();
+    if (app.auth.isAuthenticated) {
       await goto("/profile");
       return;
     }

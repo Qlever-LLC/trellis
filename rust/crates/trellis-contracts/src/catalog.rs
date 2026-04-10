@@ -76,7 +76,6 @@ pub fn pack_loaded_manifests(
                 digest: loaded.digest.clone(),
                 display_name: loaded.manifest.display_name.clone(),
                 description: loaded.manifest.description.clone(),
-                kind: loaded.manifest.kind.clone(),
             })
             .collect(),
     };

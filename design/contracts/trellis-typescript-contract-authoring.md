@@ -59,16 +59,15 @@ back to lower-level escape hatches.
 
 ### 2) Package boundary
 
-The contract authoring API lives in `@qlever-llc/trellis-contracts` because contracts are an
-architectural concept, not a transport-only client helper.
+The contract authoring API is exposed from `@qlever-llc/trellis` because app and service authors should only need the core Trellis package for normal development.
 
-`@qlever-llc/trellis-contracts` is the high-level authoring API for contract modules.
+`@qlever-llc/trellis/contracts` remains the broader contract-model subpath for canonicalization and lower-level shared primitives.
 
 Rules:
 
-- `@qlever-llc/trellis-contracts` owns the contract authoring types and helpers
-- `@qlever-llc/trellis` consumes contract objects for runtime client helpers
-- `@qlever-llc/trellis-server/node` and `@qlever-llc/trellis-server/deno` consume contract objects for service runtime helpers
+- `@qlever-llc/trellis` is the canonical package for contract authoring and runtime client helpers
+- `@qlever-llc/trellis/contracts` remains the full contract-model subpath
+- `@qlever-llc/trellis/server/node` and `@qlever-llc/trellis/server/deno` consume contract objects for service runtime helpers
 
 ### 3) SDK-driven `uses`
 
@@ -84,7 +83,6 @@ The required user-facing contract metadata is:
 
 - `displayName`
 - `description`
-- `kind`
 
 Example shape:
 
@@ -112,6 +110,11 @@ The `use(...)` helper:
 This makes imported SDK modules the source of truth for remote dependency names in
 TypeScript authoring.
 
+Some SDKs may also expose convenience wrappers around `use(...)`. For example,
+`@qlever-llc/trellis/sdk/auth` exposes `auth.useDefaults(...)`, which adds the
+baseline user-session RPC declarations `Auth.Me`, `Auth.Logout`, and
+`Auth.RenewBindingToken` before merging any additional requested auth surfaces.
+
 ### 4) TypeScript enforcement of declared permissions
 
 The TypeScript type system must enforce both of these rules:
@@ -119,7 +122,7 @@ The TypeScript type system must enforce both of these rules:
 - a referenced remote operation, RPC, event, or subject must exist on the imported SDK module
 - a participant may only invoke, call, publish, or subscribe to remote operations that are explicitly declared in its local contract `uses`
 
-This makes two important guarantees in normal authoring: if an SDK does not expose `Auth.Nope`, then `auth.use({ events: { subscribe: ["Auth.Nope"] } })` is a type error, and if `Auth.Me` exists in the imported SDK but the local contract did not declare it in `uses`, then `trellis.request("Auth.Me", ...)` is a type error for that participant.
+This makes two important guarantees in normal authoring: if an SDK does not expose `Auth.Nope`, then `auth.use({ events: { subscribe: ["Auth.Nope"] } })` is a type error, and if `Auth.Me` exists in the imported SDK but the local contract did not declare it in `uses` directly or through `auth.useDefaults(...)`, then `trellis.request("Auth.Me", ...)` is a type error for that participant.
 
 No separate linting or external analysis tool is required for this workflow. The
 contract object itself defines the allowed TypeScript runtime surface.
@@ -184,8 +187,9 @@ The exact TypeScript public signatures, contract-module types, and runtime helpe
 This document only constrains the architectural direction behind that API:
 
 - `defineContract(...)` remains the one supported public authoring entrypoint
-- `@qlever-llc/trellis-contracts` owns contract authoring helpers and contract-module types
-- runtime connection helpers live in runtime packages, not in `@qlever-llc/trellis-contracts`
+- `@qlever-llc/trellis` exposes the canonical contract authoring helpers used by apps and services
+- `@qlever-llc/trellis/contracts` remains the broader contract-model surface
+- runtime connection helpers live in `@qlever-llc/trellis` and `@qlever-llc/trellis/server*`
 - locally defined contracts and generated SDK modules share one compatible contract-module shape
 - `uses` declarations remain SDK-backed and contract-driven rather than handwritten dependency objects in normal usage
 - the participant runtime surface remains derived from `API.owned`, `API.used`, and `API.trellis`
@@ -201,15 +205,17 @@ Contracts are also the user-facing identity and approval surface for user-facing
 
 Rules:
 
-- `displayName`, `description`, and `kind` are what approval and session-management UIs show to the user
+- `displayName` and `description` are what approval and session-management UIs show to the user
+- browser apps send their contract manifest during login so auth can plan routing and approval; they are approved per-user and are not installed like services
 - user approval is granted to a specific contract digest, not merely to a contract `id`
 - if a client changes its contract and therefore changes its digest, it must be approved again
 - `id` remains useful for lineage and code generation, but approval is bound to the exact concrete contract artifact identified by `CONTRACT_DIGEST`
+- the canonical manifest and digest still belong to the release boundary, but normal app and service repos should generate or verify them inside `dev`, `build`, or CI tasks rather than teaching users a separate manual manifest step for routine usage
 
 Expected type behavior:
 
 - `service.requestOrThrow("Trellis.Catalog", {})` is valid because it is declared in `uses`
-- `service.requestOrThrow("Auth.Me", {})` is a type error unless it is also declared in `uses`
+- `service.requestOrThrow("Auth.Me", {})` is a type error unless it is also declared in `uses` directly or through `auth.useDefaults(...)`
 - `service.trellis.mount("Trellis.Catalog", ...)` is a type error because that RPC is used, not owned
 - `auth.use({ rpc: { call: ["Trellis.Catalog"] } })` is a type error because that RPC is not part of `trellis.auth@v1`
 
@@ -217,8 +223,8 @@ Expected type behavior:
 
 Implementation should proceed in this order:
 
-1. add the new `defineContract(...)` and shared contract module types in `@qlever-llc/trellis-contracts`
-2. re-export that surface from `@qlever-llc/trellis`
+1. add the new `defineContract(...)` and shared contract module types in the contract-model layer
+2. expose that surface canonically from `@qlever-llc/trellis`
 3. update TS SDK generation to emit the richer contract module shape with nested API views and typed `use(...)`
 4. update runtime helpers to consume contract objects directly for client and service creation
 5. migrate in-repo contracts and bootstrap code to the new model

@@ -1,4 +1,4 @@
-import type { ContractEvent, ContractSubject, TrellisContractV1 } from "@qlever-llc/trellis-contracts";
+import type { ContractEvent, ContractSubject, TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 import {
   resolveContractUsesFromStore,
   sortUniqueStrings,
@@ -88,7 +88,6 @@ export async function planUserContractApproval(
       contractId: validated.contract.id,
       displayName: validated.contract.displayName,
       description: validated.contract.description,
-      kind: validated.contract.kind,
       capabilities: sortUniqueStrings(capabilities),
     },
     publishSubjects: sortUniqueStrings(publishSubjects),

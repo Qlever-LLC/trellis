@@ -4,6 +4,26 @@ export interface DocEntry {
   href: string;
   section: string;
   showPageHeader?: boolean;
+  sidebarGroup?: string;
+  sidebarLabel?: string;
+}
+
+export interface SidebarDocEntry {
+  kind: "doc";
+  doc: DocEntry;
+}
+
+export interface SidebarGroupEntry {
+  kind: "group";
+  label: string;
+  docs: DocEntry[];
+}
+
+export type SidebarItem = SidebarDocEntry | SidebarGroupEntry;
+
+export interface GuideSidebarSection {
+  section: string;
+  items: SidebarItem[];
 }
 
 const designModules = import.meta.glob("$design/**/*.md");
@@ -292,105 +312,127 @@ export const guideDocs: DocEntry[] = [
     title: "Trellis Concepts",
     description:
       "The core ideas behind Trellis — contracts, communication, auth, resources, jobs, operations, and packages.",
-    href: "/docs/concepts",
+    href: "/guides/concepts",
     section: "Introduction",
   },
   {
     title: "Install the Trellis CLI",
     description:
       "Install the trellis command-line tool from a GitHub release or build it with Cargo.",
-    href: "/docs/install-cli",
+    href: "/guides/install-trellis-cli",
     section: "Server Setup",
   },
   {
     title: "Prepare NATS",
     description:
       "A running NATS server with the accounts, credentials, and signing keys that Trellis expects.",
-    href: "/docs/nats",
+    href: "/guides/prepare-nats",
     section: "Server Setup",
   },
   {
     title: "Starting Trellis",
     description:
       "A running Trellis instance with an admin account ready for development.",
-    href: "/docs/startup",
+    href: "/guides/starting-trellis",
     section: "Server Setup",
   },
   {
     title: "Write a TypeScript service",
     description:
       "A working backend service that connects to Trellis, handles RPCs, and subscribes to events.",
-    href: "/docs/writing-ts-services",
-    section: "Development",
+    href: "/guides/writing-ts-services",
+    section: "Getting started",
   },
   {
     title: "Write a Rust service",
     description:
       "A working Rust backend service that connects to Trellis, handles RPCs, and subscribes to events.",
-    href: "/docs/writing-rust-services",
-    section: "Development",
+    href: "/guides/writing-rust-services",
+    section: "Getting started",
   },
   {
-    title: "Use Jobs: TypeScript",
+    title: "Jobs: TypeScript",
     description:
       "Add background job processing to a TypeScript service with retry, progress tracking, and dead-letter handling.",
-    href: "/docs/using-jobs-ts",
-    section: "Development",
+    href: "/guides/using-jobs-ts",
+    section: "Features",
+    sidebarGroup: "Jobs",
+    sidebarLabel: "TS",
   },
   {
-    title: "Use Jobs: Rust",
+    title: "Jobs: Rust",
     description:
       "Add background job processing to a Rust service with retry, progress tracking, and dead-letter handling.",
-    href: "/docs/using-jobs-rust",
-    section: "Development",
+    href: "/guides/using-jobs-rust",
+    section: "Features",
+    sidebarGroup: "Jobs",
+    sidebarLabel: "Rust",
   },
   {
-    title: "Use Operations: TypeScript",
+    title: "Operations: TypeScript",
     description:
       "Expose caller-visible async workflows from a TypeScript service with typed progress and cancellation.",
-    href: "/docs/using-operations-ts",
-    section: "Development",
+    href: "/guides/using-operations-ts",
+    section: "Features",
+    sidebarGroup: "Operations",
+    sidebarLabel: "TS",
   },
   {
-    title: "Use Operations: Rust",
+    title: "Operations: Rust",
     description:
       "Expose caller-visible async workflows from a Rust service with typed progress and cancellation.",
-    href: "/docs/using-operations-rust",
-    section: "Development",
+    href: "/guides/using-operations-rust",
+    section: "Features",
+    sidebarGroup: "Operations",
+    sidebarLabel: "Rust",
   },
   {
     title: "Write a SvelteKit app",
     description:
       "A working browser app that authenticates with Trellis and calls RPCs.",
-    href: "/docs/writing-sveltekit-apps",
-    section: "Development",
+    href: "/guides/writing-sveltekit-apps",
+    section: "Getting started",
+  },
+  {
+    title: "Create a custom portal",
+    description:
+      "Build and register a custom SvelteKit portal app for provider selection and contract approval.",
+    href: "/guides/creating-custom-portal",
+    section: "Advanced",
+  },
+  {
+    title: "Workloads",
+    description:
+      "Build a Trellis workload that displays a QR activation URL and completes the workload activation flow.",
+    href: "/guides/workloads",
+    section: "Advanced",
   },
   {
     title: "Install a service from an image",
     description:
       "Deploy a published service from an OCI image into a running Trellis environment.",
-    href: "/docs/installing-services-image",
+    href: "/guides/install-service-from-image",
     section: "Administration",
   },
   {
     title: "Install a service from source",
     description:
       "Install and run a service from its source tree during development.",
-    href: "/docs/installing-services",
+    href: "/guides/install-service-from-source",
     section: "Administration",
   },
   {
     title: "Administer Jobs",
     description:
       "Query, cancel, replay, and monitor jobs across all services using trellis-service-jobs.",
-    href: "/docs/administering-jobs",
+    href: "/guides/administering-jobs",
     section: "Administration",
   },
   {
     title: "In-repo development",
     description:
       "Run the Trellis server, console, and NATS from the source tree for local development.",
-    href: "/docs/in-repo-development",
+    href: "/guides/in-repo-development",
     section: "Contributing",
   },
 ];
@@ -425,6 +467,43 @@ export function guideDocsBySection(): { section: string; docs: DocEntry[] }[] {
   return orderedSections.map((section) => ({
     section,
     docs: guideDocs.filter((doc) => doc.section === section),
+  }));
+}
+
+function guideSidebarItemsForSection(docs: DocEntry[]): SidebarItem[] {
+  const items: SidebarItem[] = [];
+  const groupIndexes = new Map<string, number>();
+
+  for (const doc of docs) {
+    if (!doc.sidebarGroup) {
+      items.push({ kind: "doc", doc });
+      continue;
+    }
+
+    const existingIndex = groupIndexes.get(doc.sidebarGroup);
+    if (existingIndex === undefined) {
+      groupIndexes.set(doc.sidebarGroup, items.length);
+      items.push({ kind: "group", label: doc.sidebarGroup, docs: [doc] });
+      continue;
+    }
+
+    const entry = items[existingIndex];
+    if (entry.kind === "group") {
+      entry.docs.push(doc);
+    }
+  }
+
+  return items;
+}
+
+export function guideSidebarBySection(): GuideSidebarSection[] {
+  const orderedSections = Array.from(new Set(guideDocs.map((doc) => doc.section)));
+
+  return orderedSections.map((section) => ({
+    section,
+    items: guideSidebarItemsForSection(
+      guideDocs.filter((doc) => doc.section === section),
+    ),
   }));
 }
 

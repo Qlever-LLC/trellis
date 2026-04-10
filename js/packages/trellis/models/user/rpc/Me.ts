@@ -1,4 +1,4 @@
-import { UserViewSchema as UserSchema } from "@qlever-llc/trellis-auth";
+import { UserViewSchema as UserSchema } from "../../../auth.ts";
 import Type, { type Static } from "typebox";
 
 export const MeSchema = Type.Object({});

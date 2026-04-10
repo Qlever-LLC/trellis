@@ -5,6 +5,7 @@ await buildSourcePackage({
   files: [
     "src/index.ts",
     "src/context.svelte.ts",
+    "src/portal_flow.svelte.ts",
     "src/components/TrellisProvider.svelte",
     "src/state/auth.svelte.ts",
     "src/state/nats.svelte.ts",
@@ -19,11 +20,7 @@ await buildSourcePackage({
   },
   dependencies: {
     "@nats-io/nats-core": "^3.3.1",
-    "@qlever-llc/trellis-auth": "^0.5.1",
-    "@qlever-llc/trellis-contracts": "^0.5.1",
-    "@qlever-llc/trellis-result": "^0.5.1",
-    "@qlever-llc/trellis-sdk-auth": "^0.5.1",
-    "@qlever-llc/trellis": "^0.5.1",
+    "@qlever-llc/trellis": "^0.6.0",
     typebox: "^1.0.15"
   },
   peerDependencies: {

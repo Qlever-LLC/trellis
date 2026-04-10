@@ -1,4 +1,4 @@
-import { emptyDir } from "jsr:@deno/dnt@^0.41.3";
+import { emptyDir } from "@deno/dnt";
 import { dirname, join } from "@std/path";
 
 type BuildSourcePackageOptions = {

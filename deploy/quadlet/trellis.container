@@ -5,7 +5,7 @@ Requires=trellis-nats.service
 
 [Container]
 ContainerName=trellis
-Image=ghcr.io/qlever-llc/trellis:latest
+Image=ghcr.io/qlever-llc/trellis:v0.6.0
 PublishPort=127.0.0.1:3000:3000
 EnvironmentFile=%h/trellis/config/trellis.env
 Volume=%h/trellis/config:/etc/trellis:ro,Z

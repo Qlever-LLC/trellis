@@ -1,11 +1,14 @@
 <script lang="ts">
-  import type { AuthListServicesOutput } from "@qlever-llc/trellis-sdk-auth";
-  import { getTrellisFor } from "@qlever-llc/trellis-svelte";
+  import type {
+    AuthListConnectionsOutput,
+    AuthListServicesOutput,
+    AuthListSessionsOutput,
+  } from "@qlever-llc/trellis/sdk/auth";
   import { onMount } from "svelte";
-  import { trellisApp } from "../../../contracts/trellis_app.ts";
   import { errorMessage } from "../../../lib/format";
+  import { getTrellis } from "../../../lib/trellis";
 
-  const trellisPromise = getTrellisFor(trellisApp);
+  const trellisPromise = getTrellis();
 
   let loading = $state(true);
   let error = $state<string | null>(null);
@@ -16,15 +19,29 @@
   const activeServices = $derived(services.filter((s) => s.active).length);
   const needsSetup = $derived(services.filter((s) => !s.contractDigest).length);
 
+  async function listSessions() {
+    const trellis = await trellisPromise;
+    return trellis.requestOrThrow("Auth.ListSessions", {});
+  }
+
+  async function listConnections() {
+    const trellis = await trellisPromise;
+    return trellis.requestOrThrow("Auth.ListConnections", {});
+  }
+
+  async function listServices() {
+    const trellis = await trellisPromise;
+    return trellis.requestOrThrow("Auth.ListServices", {});
+  }
+
   async function load() {
     loading = true;
     error = null;
     try {
-      const trellis = await trellisPromise;
       const [sessionsRes, connectionsRes, servicesRes] = await Promise.all([
-        trellis.requestOrThrow("Auth.ListSessions", {}),
-        trellis.requestOrThrow("Auth.ListConnections", {}),
-        trellis.requestOrThrow("Auth.ListServices", {}),
+        listSessions(),
+        listConnections(),
+        listServices(),
       ]);
       sessionCount = sessionsRes.sessions?.length ?? 0;
       connectionCount = connectionsRes.connections?.length ?? 0;
@@ -90,7 +107,7 @@
               </tr>
             </thead>
             <tbody>
-              {#each services as service}
+              {#each services as service (service.sessionKey ?? service.contractId ?? service.displayName)}
                 <tr>
                   <td class="font-medium">{service.displayName}</td>
                   <td>

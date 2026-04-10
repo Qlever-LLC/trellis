@@ -1,5 +1,5 @@
 import type { NatsConnection } from "@nats-io/nats-core";
-import type { TrellisAPI } from "@qlever-llc/trellis-contracts";
+import type { TrellisAPI } from "./contracts.ts";
 import {
   type DefinedContract as BaseDefinedContract,
   type ContractApiViews,
@@ -9,22 +9,25 @@ import {
   type DefineContractInput,
   defineContract as defineContractBase,
   type EmptyApi,
+  type MergeApis,
+  type OwnedApiFromSource,
   type SdkContractModule,
   type TrellisApiLike,
   type TrellisContractV1,
+  type UsedApiFromUses,
   type UseSpec,
-} from "@qlever-llc/trellis-contracts";
+} from "./contracts.ts";
 import type { ClientOpts } from "./client.ts";
 import { createClient } from "./client.ts";
 import type { Trellis, TrellisAuth } from "./trellis.ts";
 
 // Keep this module browser-safe.
 //
-// `js/apps/*` and other callers build contracts from `@qlever-llc/trellis-contracts`, and those
+// `js/apps/*` and other callers build contracts from `@qlever-llc/trellis/contracts`, and those
 // apps need to build inside a clean OCI build stage. If this file reaches into
 // `../server/*`, Vite pulls Deno-only NATS transports into browser bundles and the
 // container build stops being reproducible. Server-specific helpers therefore live
-// in `@qlever-llc/trellis-server` and are wired explicitly by server code.
+// in `@qlever-llc/trellis/server` and are wired explicitly by server code.
 type RuntimeContractMethods<
   TOwnedApi extends TrellisApiLike,
   TTrellisApi extends TrellisApiLike,
@@ -33,7 +36,7 @@ type RuntimeContractMethods<
     nats: NatsConnection,
     auth: TrellisAuth,
     opts?: ClientOpts,
-  ): Trellis<TOwnedApi>;
+  ): Trellis<TTrellisApi>;
 };
 
 type AnyBaseContract = BaseDefinedContract<any, any, any, string>;
@@ -55,20 +58,42 @@ function withRuntimeHelpers<TContract extends AnyBaseContract>(
   contract: TContract,
 ): WithRuntimeHelpers<TContract> {
   const runtimeContract = contract as WithRuntimeHelpers<TContract>;
+  const createRuntimeClient = createClient as (
+    contract: AnyBaseContract,
+    nats: NatsConnection,
+    auth: TrellisAuth,
+    opts?: ClientOpts,
+  ) => unknown;
 
   runtimeContract.createClient = (
     nats: NatsConnection,
     auth: TrellisAuth,
     opts?: ClientOpts,
-  ) => createClient(runtimeContract, nats, auth, opts);
+  ) => createRuntimeClient(runtimeContract as AnyBaseContract, nats, auth, opts) as ReturnType<
+    RuntimeContractMethods<TContract["API"]["owned"], TContract["API"]["trellis"]>["createClient"]
+  >;
 
   return runtimeContract;
 }
 
 export function defineContract<const T extends DefineContractInput<any, any, any, any, any, any>>(
   source: T,
-) {
-  return withRuntimeHelpers(defineContractBase(source));
+): DefinedContract<
+  OwnedApiFromSource<T> & TrellisApiLike,
+  UsedApiFromUses<T["uses"]> & TrellisApiLike,
+  MergeApis<OwnedApiFromSource<T>, UsedApiFromUses<T["uses"]>> & TrellisApiLike,
+  T["id"]
+> {
+  const contract = defineContractBase(source);
+  // TypeScript's recursion limit trips over this cast in Svelte/tsserver, but
+  // the runtime helper augmentation preserves the underlying contract shape.
+  // @ts-ignore TS2589
+  return withRuntimeHelpers(contract) as DefinedContract<
+    OwnedApiFromSource<T> & TrellisApiLike,
+    UsedApiFromUses<T["uses"]> & TrellisApiLike,
+    MergeApis<OwnedApiFromSource<T>, UsedApiFromUses<T["uses"]>> & TrellisApiLike,
+    T["id"]
+  >;
 }
 
 export type {

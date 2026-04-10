@@ -1,21 +1,22 @@
 import {
   type BindResponse,
   type BindSuccessResponse,
+  bindFlow,
   bindSession,
-  buildLoginUrl,
   clearSessionKey,
-  extractAuthErrorFromFragment,
-  extractAuthTokenFromFragment,
   getOrCreateSessionKey,
   getPublicSessionKey,
   type SentinelCreds,
   type SessionKeyHandle,
-} from "@qlever-llc/trellis-auth";
-import { Result } from "@qlever-llc/trellis-result";
+} from "@qlever-llc/trellis/auth";
+import { canonicalizeJsonValue } from "../../../auth/utils.ts";
+import { oauthInitSig } from "../../../auth/browser/session.ts";
+import { Result } from "@qlever-llc/result";
 import { SvelteDate } from "svelte/reactivity";
-import type { TrellisContractV1 } from "@qlever-llc/trellis-contracts";
+import type { TrellisContractV1 } from "@qlever-llc/trellis";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
+import type { TrellisClientContract } from "./trellis.svelte.ts";
 
 export type BindErrorResult =
   | { status: "insufficient_capabilities"; missingCapabilities: string[] }
@@ -26,6 +27,7 @@ export type BindErrorResult =
 export type BindResult = { status: "bound" } | BindErrorResult;
 
 const STORAGE_KEY = "trellis_auth";
+const AUTH_URL_STORAGE_KEY = "trellis_auth_url";
 
 type AuthStateData = {
   handle: SessionKeyHandle | null;
@@ -97,10 +99,87 @@ function clearPersistedAuth(): void {
 }
 
 export type AuthStateConfig = {
-  authUrl: string; // https://auth.example.com
+  authUrl?: string; // https://auth.example.com
   loginPath?: string;
-  contract?: { CONTRACT: TrellisContractV1 };
+  contract?: TrellisClientContract;
 };
+
+export type SignInOptions = {
+  authUrl?: string;
+  redirectTo?: string;
+  landingPath?: string;
+  context?: unknown;
+};
+
+function normalizeAuthUrl(authUrl: string): string {
+  return new URL(authUrl).toString().replace(/\/$/, "");
+}
+
+function encodeJsonForQuery(value: unknown): string {
+  const json = canonicalizeJsonValue(value);
+  const bytes = new TextEncoder().encode(json);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+async function buildLoginUrl(options: {
+  authUrl: string;
+  redirectTo: string;
+  handle: SessionKeyHandle;
+  contract: Record<string, unknown>;
+  context?: unknown;
+}): Promise<string> {
+  const sessionKey = getPublicSessionKey(options.handle);
+  const sig = await oauthInitSig(options.handle, options.redirectTo, options.context);
+  const url = new URL(`${options.authUrl}/auth/login`);
+
+  url.searchParams.set("redirectTo", options.redirectTo);
+  url.searchParams.set("sessionKey", sessionKey);
+  url.searchParams.set("sig", sig);
+  url.searchParams.set("contract", encodeJsonForQuery(options.contract));
+  if (options.context !== undefined) {
+    url.searchParams.set("context", encodeJsonForQuery(options.context));
+  }
+
+  return url.href;
+}
+
+function loadPersistedAuthUrl(): string | null {
+  if (typeof localStorage === "undefined") return null;
+  const stored = localStorage.getItem(AUTH_URL_STORAGE_KEY);
+  if (!stored) return null;
+
+  return Result.try(() => normalizeAuthUrl(stored)).unwrapOr(null);
+}
+
+function persistAuthUrl(authUrl: string): string {
+  const normalized = normalizeAuthUrl(authUrl);
+  if (typeof localStorage !== "undefined") {
+    localStorage.setItem(AUTH_URL_STORAGE_KEY, normalized);
+  }
+  return normalized;
+}
+
+function resolveRedirectTo(
+  options: SignInOptions,
+  currentUrl: URL,
+): string {
+  if (options.redirectTo) {
+    return new URL(options.redirectTo, currentUrl.origin).toString();
+  }
+
+  const queryRedirect = currentUrl.searchParams.get("redirectTo");
+  if (queryRedirect) {
+    return new URL(queryRedirect, currentUrl.origin).toString();
+  }
+
+  if (options.landingPath) {
+    return new URL(options.landingPath, currentUrl.origin).toString();
+  }
+
+  return currentUrl.toString();
+}
 
 /**
  * Svelte 5 runes-based reactive authentication state.
@@ -125,11 +204,47 @@ export class AuthState {
   #bindingInProgress: Promise<BindResult> | null = null;
 
   constructor(config: AuthStateConfig) {
-    this.#config = config;
+    this.#config = {
+      ...config,
+      authUrl: config.authUrl ? normalizeAuthUrl(config.authUrl) : undefined,
+    };
+  }
+
+  #getConfiguredAuthUrl(): string | null {
+    if (this.#config.authUrl) return this.#config.authUrl;
+
+    const persisted = loadPersistedAuthUrl();
+    if (!persisted) return null;
+
+    this.#config.authUrl = persisted;
+    return persisted;
+  }
+
+  #requireAuthUrl(): string {
+    const authUrl = this.#getConfiguredAuthUrl();
+    if (!authUrl) {
+      throw new Error("Auth URL is not configured");
+    }
+    return authUrl;
+  }
+
+  setAuthUrl(authUrl: string): string {
+    const normalized = persistAuthUrl(authUrl);
+    this.#config.authUrl = normalized;
+    return normalized;
   }
 
   get handle(): SessionKeyHandle | null {
     return this.#state.handle;
+  }
+  get authUrl(): string | null {
+    return this.#getConfiguredAuthUrl();
+  }
+  get loginPath(): string {
+    return this.#config.loginPath ?? "/login";
+  }
+  get contract(): TrellisClientContract | undefined {
+    return this.#config.contract;
   }
   get sessionKey(): string | null {
     return this.#state.handle ? getPublicSessionKey(this.#state.handle) : null;
@@ -162,6 +277,8 @@ export class AuthState {
   async init(): Promise<SessionKeyHandle> {
     if (this.#state.handle) return this.#state.handle;
 
+    this.#getConfiguredAuthUrl();
+
     const handle = await getOrCreateSessionKey();
     this.#state.handle = handle;
 
@@ -181,30 +298,28 @@ export class AuthState {
    * Initiate OAuth sign-in flow by redirecting to the auth provider.
    * This method does not return - it redirects the browser.
    */
-  async signIn(provider: string | undefined, redirectTo: string): Promise<never> {
+  async signIn(options: SignInOptions = {}): Promise<never> {
+    const authUrl = options.authUrl ? this.setAuthUrl(options.authUrl) : this.#requireAuthUrl();
     const handle = await this.init();
-    const url = await buildLoginUrl(
-      { authUrl: this.#config.authUrl },
-      provider,
-      redirectTo,
+    const currentUrl = new URL(window.location.href);
+    const url = await buildLoginUrl({
+      authUrl,
+      redirectTo: resolveRedirectTo(options, currentUrl),
       handle,
-      this.#config.contract?.CONTRACT ?? {},
-    );
+      contract: this.#config.contract?.CONTRACT ?? {},
+      context: options.context,
+    });
     window.location.href = url;
-    throw new Error(provider ? `Redirecting to ${provider} for authentication` : "Redirecting to auth for provider selection");
+    throw new Error("Redirecting to auth for provider selection");
   }
 
   async handleCallback(url: string = window.location.href): Promise<BindResult | null> {
     if (this.#bindingInProgress) return this.#bindingInProgress;
 
-    const authError = extractAuthErrorFromFragment(url);
-    if (authError === "approval_denied") return { status: "approval_denied" };
-    if (authError) return { status: "error", message: authError };
+    const flowId = new URL(url).searchParams.get("flowId");
+    if (!flowId) return null;
 
-    const authToken = extractAuthTokenFromFragment(url);
-    if (!authToken) return null;
-
-    this.#bindingInProgress = this.#resolveCallback(authToken);
+    this.#bindingInProgress = this.#resolveCallback(flowId);
     try {
       return await this.#bindingInProgress;
     } finally {
@@ -212,9 +327,9 @@ export class AuthState {
     }
   }
 
-  async #resolveCallback(authToken: string): Promise<BindResult> {
+  async #resolveCallback(flowId: string): Promise<BindResult> {
     try {
-      const response = await this.bind(authToken);
+      const response = await this.bindFlow(flowId);
       return response.status === "bound"
         ? { status: "bound" }
         : { status: "insufficient_capabilities", missingCapabilities: response.missingCapabilities };
@@ -227,12 +342,13 @@ export class AuthState {
   }
 
   /**
-   * Clean up the callback URL by removing the authToken fragment.
+   * Clean up the callback URL by removing the auth flow query params.
    */
   cleanupCallbackUrl(url: string = window.location.href): void {
     const parsed = new URL(url);
-    if (parsed.hash) {
-      parsed.hash = "";
+    if (parsed.searchParams.has("flowId") || parsed.searchParams.has("authError")) {
+      parsed.searchParams.delete("flowId");
+      parsed.searchParams.delete("authError");
       window.history.replaceState({}, "", parsed.pathname + parsed.search);
     }
   }
@@ -248,9 +364,24 @@ export class AuthState {
   async #bind(authToken: string): Promise<BindResponse> {
     const handle = await this.init();
     const response = await bindSession(
-      { authUrl: this.#config.authUrl },
+      { authUrl: this.#requireAuthUrl() },
       handle,
       authToken,
+    );
+
+    if (response.status === "bound") {
+      this.setBindingToken(response);
+    }
+
+    return response;
+  }
+
+  async bindFlow(flowId: string): Promise<BindResponse> {
+    const handle = await this.init();
+    const response = await bindFlow(
+      { authUrl: this.#requireAuthUrl() },
+      handle,
+      flowId,
     );
 
     if (response.status === "bound") {
@@ -319,8 +450,7 @@ export class AuthState {
     this.clearAuth();
     this.#state.handle = null;
 
-    const loginPath = this.#config.loginPath ?? "/login";
-    window.location.href = loginPath;
+    window.location.href = this.loginPath;
     throw new Error("Signed out, redirecting to login");
   }
 }

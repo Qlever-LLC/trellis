@@ -1,14 +1,12 @@
+import type { BaseError, Result } from "@qlever-llc/result";
 import type { NatsConnection } from "@nats-io/nats-core";
-import type { Trellis } from "@qlever-llc/trellis";
-import type { InferSchemaType, TrellisAPI } from "@qlever-llc/trellis-contracts";
+import type { InferSchemaType, Trellis, TrellisAPI } from "@qlever-llc/trellis";
 import { createContext } from "svelte";
-import type { AuthState } from "./state/auth.svelte.ts";
+import { createAuthState, type AuthState, type AuthStateConfig, type SignInOptions } from "./state/auth.svelte.ts";
 import type { NatsState } from "./state/nats.svelte.ts";
 
-type AnyTrellis = Trellis<TrellisAPI>;
-
 type TrellisContext = {
-  trellis: Promise<AnyTrellis>;
+  trellis: Promise<Trellis<TrellisAPI>>;
   nats: Promise<NatsConnection>;
 };
 
@@ -22,56 +20,73 @@ type RequestOpts = {
   timeout?: number;
 };
 
-type RpcMapFor<TA extends TrellisAPI> = {
-  [M in keyof TA["rpc"] & string]: {
-    input: InferSchemaType<TA["rpc"][M]["input"]>;
-    output: InferSchemaType<TA["rpc"][M]["output"]>;
-  };
-};
-
-type TypedRequestSurface<TA extends TrellisAPI> = {
-  requestOrThrow<M extends keyof RpcMapFor<TA> & string>(
+type TypedTrellis<TA extends TrellisAPI> = Omit<Trellis<TrellisAPI>, "request" | "requestOrThrow"> & {
+  request<M extends keyof TA["rpc"] & string>(
     method: M,
-    input: RpcMapFor<TA>[M]["input"],
+    input: InferSchemaType<TA["rpc"][M]["input"]>,
     opts?: RequestOpts,
-  ): Promise<RpcMapFor<TA>[M]["output"]>;
+  ): Promise<Result<InferSchemaType<TA["rpc"][M]["output"]>, BaseError>>;
+  requestOrThrow<M extends keyof TA["rpc"] & string>(
+    method: M,
+    input: InferSchemaType<TA["rpc"][M]["input"]>,
+    opts?: RequestOpts,
+  ): Promise<InferSchemaType<TA["rpc"][M]["output"]>>;
 };
 
-type TypedTrellis<TA extends TrellisAPI> =
-  & Omit<Trellis<TA>, "requestOrThrow">
-  & TypedRequestSurface<TA>;
+function createTypedTrellis<TA extends TrellisAPI>(trellis: Trellis<TrellisAPI>): TypedTrellis<TA> {
+  return trellis as TypedTrellis<TA>;
+}
+
+export type BoundTrellisApp<TContract extends TrellisContractLike> = {
+  auth: AuthState;
+  signIn: (options?: SignInOptions) => Promise<never>;
+  getTrellis: () => Promise<TypedTrellis<TContract["API"]["trellis"]>>;
+};
 
 const [getTrellisContext, setTrellisContextValue] = createContext<TrellisContext>();
 const [getNatsStateContext, setNatsStateContextValue] = createContext<Promise<NatsState>>();
-const [getAuthContext, setAuthContextValue] = createContext<AuthState>();
+const [getAuthContext, setAuthContextValue] = createContext<() => AuthState>();
+const [getAppContext, setAppContextValue] = createContext<() => unknown>();
 
-export function setTrellisContext<TA extends TrellisAPI>(
-  ctx: { trellis: Promise<Trellis<TA>>; nats: Promise<NatsConnection> },
+export function setTrellisContext(
+  ctx: TrellisContext,
 ): void {
-  setTrellisContextValue({
-    trellis: ctx.trellis as Promise<AnyTrellis>,
-    nats: ctx.nats,
-  });
+  setTrellisContextValue(ctx);
 }
 
 export function setNatsStateContext(natsState: Promise<NatsState>): void {
   setNatsStateContextValue(natsState);
 }
 
-export function setAuthContext(auth: AuthState): void {
-  setAuthContextValue(auth);
+export function setAuthContext(getAuth: () => AuthState): void {
+  setAuthContextValue(getAuth);
 }
 
-export function getTrellis<TA extends TrellisAPI = TrellisAPI>(): Promise<Trellis<TA>> {
-  return getTrellisContext().trellis as Promise<Trellis<TA>>;
+export function setAppContext(getApp: () => unknown): void {
+  setAppContextValue(getApp);
 }
 
-export function getTrellisFor<TContract extends TrellisContractLike>(
-  _contract: TContract,
-): Promise<TypedTrellis<TContract["API"]["trellis"]>> {
-  return getTrellis<TContract["API"]["trellis"]>() as Promise<
-    TypedTrellis<TContract["API"]["trellis"]>
-  >;
+export function createTrellisApp<TContract extends TrellisContractLike>(
+  config: AuthStateConfig & { contract: TContract },
+): BoundTrellisApp<TContract> {
+  const auth = createAuthState(config);
+
+  let app!: BoundTrellisApp<TContract>;
+  app = {
+    auth,
+    signIn: (options) => auth.signIn(options),
+    getTrellis: () => {
+      if (getAppContext()() !== app) {
+        throw new Error("getTrellis() was called outside the matching TrellisProvider");
+      }
+
+      return getTrellisContext().trellis.then((trellis) =>
+        createTypedTrellis<TContract["API"]["trellis"]>(trellis)
+      );
+    },
+  };
+
+  return app;
 }
 
 export function getNats(): Promise<NatsConnection> {
@@ -83,5 +98,5 @@ export function getNatsState(): Promise<NatsState> {
 }
 
 export function getAuth(): AuthState {
-  return getAuthContext();
+  return getAuthContext()();
 }

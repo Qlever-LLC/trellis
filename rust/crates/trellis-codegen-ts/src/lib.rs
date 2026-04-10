@@ -141,9 +141,16 @@ fn render_contract_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Stri
     let module_export = sdk_module_export_name(&opts.package_name);
     let source_reference =
         manifest_source_reference(&opts.manifest_path, opts.runtime_deps.repo_root.as_deref());
-    let lines = vec![
+    let is_trellis_auth = loaded.manifest.id == "trellis.auth@v1";
+    let import_line = if is_trellis_auth {
+        "import type { ContractDependencyUse, SdkContractModule, TrellisContractV1, UseSpec } from \"@qlever-llc/trellis-contracts\";".to_string()
+    } else {
+        "import type { SdkContractModule, TrellisContractV1, UseSpec } from \"@qlever-llc/trellis-contracts\";".to_string()
+    };
+
+    let mut lines = vec![
         format!("// Generated from {}", escape_js_string(&source_reference)),
-        "import type { SdkContractModule, TrellisContractV1, UseSpec } from \"@qlever-llc/trellis-contracts\";".to_string(),
+        import_line,
         "import { API } from \"./api.ts\";".to_string(),
         String::new(),
         "const CONTRACT_MODULE_METADATA = Symbol.for(\"@qlever-llc/trellis-contracts/contract-module\");".to_string(),
@@ -176,13 +183,79 @@ fn render_contract_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Stri
         "  assertSelectedKeysExist(\"subjects\", spec.subjects?.publish, API.owned.subjects);".to_string(),
         "  assertSelectedKeysExist(\"subjects\", spec.subjects?.subscribe, API.owned.subjects);".to_string(),
         "}".to_string(),
-        String::new(),
-        format!("export const {}: SdkContractModule<typeof CONTRACT_ID, typeof API.owned> = {{", module_export),
+    ];
+
+    if is_trellis_auth {
+        lines.extend([
+            String::new(),
+            "const DEFAULT_AUTH_RPC_CALL = [".to_string(),
+            "  \"Auth.Me\",".to_string(),
+            "  \"Auth.Logout\",".to_string(),
+            "  \"Auth.RenewBindingToken\",".to_string(),
+            "] as const;".to_string(),
+            String::new(),
+            "type AuthOwnedApi = typeof API.owned;".to_string(),
+            "type AuthUseSpec = UseSpec<AuthOwnedApi>;".to_string(),
+            "type DefaultAuthRpcCall = typeof DEFAULT_AUTH_RPC_CALL;".to_string(),
+            "type WithDefaultAuthRpcCall<TSpec extends AuthUseSpec | undefined> =".to_string(),
+            "  TSpec extends { rpc?: { call?: infer TCall extends readonly string[] } }"
+                .to_string(),
+            "    ? readonly [...DefaultAuthRpcCall, ...TCall]".to_string(),
+            "    : DefaultAuthRpcCall;".to_string(),
+            "type WithDefaultAuthUseSpec<TSpec extends AuthUseSpec | undefined> =".to_string(),
+            "  (TSpec extends AuthUseSpec ? Omit<TSpec, \"rpc\"> : {}) & {".to_string(),
+            "    rpc: {".to_string(),
+            "      call: WithDefaultAuthRpcCall<TSpec>;".to_string(),
+            "    };".to_string(),
+            "  };".to_string(),
+            "type AuthUseDefaultsFn = <".to_string(),
+            "  const TSpec extends AuthUseSpec | undefined = undefined,".to_string(),
+            ">(spec?: TSpec) => ContractDependencyUse<".to_string(),
+            "  typeof CONTRACT_ID,".to_string(),
+            "  AuthOwnedApi,".to_string(),
+            "  WithDefaultAuthUseSpec<TSpec>".to_string(),
+            ">;".to_string(),
+            format!(
+                "type AuthModule = SdkContractModule<typeof CONTRACT_ID, typeof API.owned> & {{",
+            ),
+            "  useDefaults: AuthUseDefaultsFn;".to_string(),
+            "};".to_string(),
+            String::new(),
+            "function mergeAuthUseDefaults(spec?: AuthUseSpec): AuthUseSpec {".to_string(),
+            "  const rpcCall = [...DEFAULT_AUTH_RPC_CALL];".to_string(),
+            "  for (const key of spec?.rpc?.call ?? []) {".to_string(),
+            "    if (!rpcCall.includes(key as (typeof rpcCall)[number])) {".to_string(),
+            "      rpcCall.push(key as (typeof rpcCall)[number]);".to_string(),
+            "    }".to_string(),
+            "  }".to_string(),
+            String::new(),
+            "  return {".to_string(),
+            "    ...spec,".to_string(),
+            "    rpc: {".to_string(),
+            "      ...spec?.rpc,".to_string(),
+            "      call: rpcCall,".to_string(),
+            "    },".to_string(),
+            "  };".to_string(),
+            "}".to_string(),
+            String::new(),
+            format!("export const {}: AuthModule = {{", module_export),
+        ]);
+    } else {
+        lines.extend([
+            String::new(),
+            format!(
+                "export const {}: SdkContractModule<typeof CONTRACT_ID, typeof API.owned> = {{",
+                module_export
+            ),
+        ]);
+    }
+
+    lines.extend([
         "  CONTRACT_ID,".to_string(),
         "  CONTRACT_DIGEST,".to_string(),
         "  CONTRACT,".to_string(),
         "  API,".to_string(),
-        "  use: ((spec) => {".to_string(),
+        "  use: ((spec: UseSpec<typeof API.owned>) => {".to_string(),
         "    assertValidUseSpec(spec);".to_string(),
         String::new(),
         "    const dependencyUse = {".to_string(),
@@ -207,12 +280,35 @@ fn render_contract_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Stri
         "        : {}),".to_string(),
         "    };".to_string(),
         String::new(),
+        "    Object.defineProperty(dependencyUse, CONTRACT_MODULE_METADATA, {".to_string(),
+        format!("      value: {},", module_export),
+        "      enumerable: false,".to_string(),
+        "    });".to_string(),
+        String::new(),
         "    return dependencyUse;".to_string(),
         "  }),".to_string(),
-        "};".to_string(),
-        String::new(),
-        format!("export const use = {}.use;", module_export),
-    ];
+    ]);
+
+    if is_trellis_auth {
+        lines.extend([
+            "  useDefaults: ((spec?: AuthUseSpec) => {".to_string(),
+            format!(
+                "    return {}.use(mergeAuthUseDefaults(spec));",
+                module_export
+            ),
+            "  }) as AuthUseDefaultsFn,".to_string(),
+            "};".to_string(),
+            String::new(),
+            format!("export const use = {}.use;", module_export),
+            format!("export const useDefaults = {}.useDefaults;", module_export),
+        ]);
+    } else {
+        lines.extend([
+            "};".to_string(),
+            String::new(),
+            format!("export const use = {}.use;", module_export),
+        ]);
+    }
 
     format!(
         "{}
@@ -1054,9 +1150,17 @@ fn is_safe_js_ident(value: &str) -> bool {
 
 fn render_mod_ts(opts: &GenerateTsSdkOpts) -> String {
     let module_export = sdk_module_export_name(&opts.package_name);
+    let use_exports = if module_export == "auth" {
+        "CONTRACT, CONTRACT_DIGEST, CONTRACT_ID, use, useDefaults, auth".to_string()
+    } else {
+        format!(
+            "CONTRACT, CONTRACT_DIGEST, CONTRACT_ID, use, {}",
+            module_export
+        )
+    };
     format!(
-        "export {{ API, OWNED_API }} from \"./api.ts\";\nexport type {{ Api, ApiViews, OwnedApi }} from \"./api.ts\";\nexport * from \"./types.ts\";\nexport {{ SCHEMAS }} from \"./schemas.ts\";\nexport {{ CONTRACT, CONTRACT_DIGEST, CONTRACT_ID, use, {} }} from \"./contract.ts\";\n",
-        module_export,
+        "export {{ API, OWNED_API }} from \"./api.ts\";\nexport type {{ Api, ApiViews, OwnedApi }} from \"./api.ts\";\nexport * from \"./types.ts\";\nexport {{ SCHEMAS }} from \"./schemas.ts\";\nexport {{ {} }} from \"./contract.ts\";\n",
+        use_exports,
     )
 }
 
@@ -1266,6 +1370,29 @@ mod tests {
         assert!(contract.contains("does not expose ${kind} key '${key}'"));
         assert!(mod_ts.contains(
             "export { CONTRACT, CONTRACT_DIGEST, CONTRACT_ID, use, core } from \"./contract.ts\";"
+        ));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn generated_auth_sdk_emits_use_defaults_helper() {
+        let (opts, loaded, root) =
+            sample_opts_and_loaded("@qlever-llc/trellis-sdk-auth", "trellis.auth@v1");
+        let contract = render_contract_ts(&opts, &loaded);
+        let mod_ts = render_mod_ts(&opts);
+
+        assert!(contract.contains(
+            "import type { ContractDependencyUse, SdkContractModule, TrellisContractV1, UseSpec } from \"@qlever-llc/trellis-contracts\";"
+        ));
+        assert!(contract.contains("const DEFAULT_AUTH_RPC_CALL = ["));
+        assert!(contract.contains(
+            "type AuthModule = SdkContractModule<typeof CONTRACT_ID, typeof API.owned> & {"
+        ));
+        assert!(contract.contains("useDefaults: AuthUseDefaultsFn;"));
+        assert!(contract.contains("export const useDefaults = auth.useDefaults;"));
+        assert!(mod_ts.contains(
+            "export { CONTRACT, CONTRACT_DIGEST, CONTRACT_ID, use, useDefaults, auth } from \"./contract.ts\";"
         ));
 
         fs::remove_dir_all(root).unwrap();

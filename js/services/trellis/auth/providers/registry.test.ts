@@ -21,10 +21,11 @@ function createConfig(): Config {
     ttlMs: {
       sessions: 1,
       oauth: 2,
+      workloadHandoff: 3,
       pendingAuth: 3,
-      bindingTokens: { bucket: 4, initial: 5, renew: 6 },
+      bindingTokens: { bucket: 4, initial: 5, renew: 6, cliInitial: 7, cliRenew: 8 },
       connections: 7,
-      natsJwt: 8,
+      natsJwt: 9,
     },
     nats: {
       servers: "localhost",

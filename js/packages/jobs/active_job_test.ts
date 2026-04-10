@@ -117,7 +117,7 @@ Deno.test("ActiveJob exposes cancellation state and signal", async () => {
   const cancellation = new JobCancellationToken();
   cancellation.cancel();
 
-  const state = await manager.withActiveJob(sampleJob(), cancellation, async (job) => ({
+  const state = await manager.withActiveJob(sampleJob(), cancellation, (job) => Promise.resolve({
     cancelled: job.isCancelled(),
     aborted: job.signal.aborted,
   }));
@@ -132,8 +132,9 @@ Deno.test("ActiveJob heartbeat calls runtime heartbeat hook", async () => {
   await manager.withActiveJobAndHeartbeat(
     sampleJob(),
     new JobCancellationToken(),
-    async () => {
+    () => {
       heartbeats += 1;
+      return Promise.resolve();
     },
     async (job) => {
       await job.heartbeat();
@@ -161,8 +162,8 @@ Deno.test("ActiveJob exposes redelivery metadata", async () => {
   const metadata = await manager.withActiveJobAndHeartbeat(
     sampleJob(),
     new JobCancellationToken(),
-    async () => {},
-    async (job) => ({
+    () => Promise.resolve(),
+    (job) => Promise.resolve({
       redeliveryCount: job.redeliveryCount(),
       redelivered: job.isRedelivery(),
     }),

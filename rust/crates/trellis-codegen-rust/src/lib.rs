@@ -40,40 +40,63 @@ pub enum CodegenRustError {
 /// Options for generating one Rust SDK crate.
 #[derive(Debug, Clone)]
 pub struct GenerateRustSdkOpts {
+    /// Canonical contract manifest to load.
     pub manifest_path: PathBuf,
+    /// Directory where the crate will be written.
     pub out_dir: PathBuf,
+    /// Cargo crate name for the generated SDK.
     pub crate_name: String,
+    /// Crate version written into `Cargo.toml`.
     pub crate_version: String,
+    /// How generated code should depend on Trellis runtime crates.
     pub runtime_deps: RustRuntimeDeps,
 }
 
 /// One explicit `uses` alias mapping for participant-facade generation.
 #[derive(Debug, Clone)]
 pub struct ParticipantAliasMapping {
+    /// Local `uses` alias from the participant manifest.
     pub alias: String,
+    /// Crate name that satisfies the alias at compile time.
     pub crate_name: String,
+    /// Manifest for the dependency crate; used to validate exposed RPCs/events.
     pub manifest_path: PathBuf,
+    /// Optional local crate path override.
+    ///
+    /// When omitted, the generator assumes the dependency crate lives next to
+    /// the provided manifest path.
     pub crate_path: Option<PathBuf>,
 }
 
 /// Options for generating one local Rust participant facade crate.
 #[derive(Debug, Clone)]
 pub struct GenerateRustParticipantFacadeOpts {
+    /// Participant manifest that owns the facade.
     pub manifest_path: PathBuf,
+    /// Output directory for the generated crate.
     pub out_dir: PathBuf,
+    /// Cargo crate name for the facade crate.
     pub crate_name: String,
+    /// Crate version written into `Cargo.toml`.
     pub crate_version: String,
+    /// How generated code should depend on Trellis runtime crates.
     pub runtime_deps: RustRuntimeDeps,
+    /// Optional owned SDK crate name to import from generated facade code.
     pub owned_sdk_crate_name: Option<String>,
+    /// Optional path to the owned SDK crate used during local generation.
     pub owned_sdk_path: Option<PathBuf>,
+    /// Explicit mappings for every `uses` alias declared by the participant.
     pub alias_mappings: Vec<ParticipantAliasMapping>,
 }
 
 /// Runtime dependency configuration for generated Rust SDKs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RustRuntimeDeps {
+    /// Whether dependencies come from crates.io or the local repo.
     pub source: RustRuntimeSource,
+    /// Version string used for registry dependencies.
     pub version: String,
+    /// Repo root required when `source` is `Local`.
     pub repo_root: Option<PathBuf>,
 }
 
@@ -146,7 +169,10 @@ pub fn generate_rust_sdk(opts: &GenerateRustSdkOpts) -> Result<(), CodegenRustEr
     Ok(())
 }
 
-/// Generate the build-time sources for a local Rust participant facade.
+/// Generate only the build-time Rust sources for a participant facade.
+///
+/// This is used from generated `build.rs` code after the crate skeleton and
+/// copied manifests already exist on disk.
 pub fn generate_rust_participant_generated_sources(
     opts: &GenerateRustParticipantFacadeOpts,
 ) -> Result<(), CodegenRustError> {
@@ -180,7 +206,10 @@ pub fn generate_rust_participant_generated_sources(
     Ok(())
 }
 
-/// Generate a local Rust participant-facade crate for one participant manifest.
+/// Generate a complete local Rust participant-facade crate.
+///
+/// The facade crate wraps one owned participant contract plus explicit `uses`
+/// alias mappings so local development can type-check the full integration.
 pub fn generate_rust_participant_facade(
     opts: &GenerateRustParticipantFacadeOpts,
 ) -> Result<(), CodegenRustError> {
@@ -1122,16 +1151,20 @@ fn render_subjects_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
 }
 
 fn render_operations_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
-    let mut lines = vec![
-        format!(
-            "//! Typed operation descriptors for `{}`.",
-            loaded.manifest.id
-        ),
-        String::new(),
-        "use trellis_client::OperationDescriptor;".to_string(),
-        "use trellis_server::OperationDescriptor as ServerOperationDescriptor;".to_string(),
-        String::new(),
-    ];
+    let mut lines = vec![format!(
+        "//! Typed operation descriptors for `{}`.",
+        loaded.manifest.id
+    )];
+
+    if loaded.manifest.operations.is_empty() {
+        lines.push(String::new());
+        return format!("{}\n", lines.join("\n"));
+    }
+
+    lines.push(String::new());
+    lines.push("use trellis_client::OperationDescriptor;".to_string());
+    lines.push("use trellis_server::OperationDescriptor as ServerOperationDescriptor;".to_string());
+    lines.push(String::new());
 
     for (key, operation) in &loaded.manifest.operations {
         let base = key_to_pascal(key);
@@ -1408,21 +1441,22 @@ fn render_server_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
         lines.push(format!(
             "    FutStart: std::future::Future<Output = Result<trellis_server::AcceptedOperation<{progress_type}, {output_type}>, trellis_server::ServerError>> + Send + 'static,"
         ));
-        lines.push(format!(
-            "    FGet: Fn(RequestContext, String) -> FutGet + Send + Sync + 'static,"
-        ));
+        lines.push(
+            "    FGet: Fn(RequestContext, String) -> FutGet + Send + Sync + 'static,".to_string(),
+        );
         lines.push(format!(
             "    FutGet: std::future::Future<Output = Result<trellis_server::OperationSnapshot<{progress_type}, {output_type}>, trellis_server::ServerError>> + Send + 'static,"
         ));
-        lines.push(format!(
-            "    FWait: Fn(RequestContext, String) -> FutWait + Send + Sync + 'static,"
-        ));
+        lines.push(
+            "    FWait: Fn(RequestContext, String) -> FutWait + Send + Sync + 'static,".to_string(),
+        );
         lines.push(format!(
             "    FutWait: std::future::Future<Output = Result<trellis_server::OperationSnapshot<{progress_type}, {output_type}>, trellis_server::ServerError>> + Send + 'static,"
         ));
-        lines.push(format!(
+        lines.push(
             "    FCancel: Fn(RequestContext, String) -> FutCancel + Send + Sync + 'static,"
-        ));
+                .to_string(),
+        );
         lines.push(format!(
             "    FutCancel: std::future::Future<Output = Result<trellis_server::OperationSnapshot<{progress_type}, {output_type}>, trellis_server::ServerError>> + Send + 'static,"
         ));

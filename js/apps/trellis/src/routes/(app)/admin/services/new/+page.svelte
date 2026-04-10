@@ -1,12 +1,11 @@
 <script lang="ts">
-  import type { AuthInstallServiceInput } from "@qlever-llc/trellis-sdk-auth";
-  import { getTrellisFor } from "@qlever-llc/trellis-svelte";
+  import type { AuthInstallServiceInput } from "@qlever-llc/trellis/sdk/auth";
   import { goto } from "$app/navigation";
-  import { trellisApp } from "../../../../../contracts/trellis_app.ts";
   import { errorMessage } from "../../../../../lib/format";
   import { getNotifications } from "../../../../../lib/notifications.svelte";
+  import { getTrellis } from "../../../../../lib/trellis";
 
-  const trellisPromise = getTrellisFor(trellisApp);
+  const trellisPromise = getTrellis();
   const notifications = getNotifications();
 
   let sessionKey = $state("");
@@ -74,7 +73,8 @@
         description: description.trim() || undefined
       };
 
-      await (await trellisPromise).requestOrThrow("Auth.InstallService", input);
+      const trellis = await trellisPromise;
+      await trellis.requestOrThrow("Auth.InstallService", input);
       notifications.success(`Service "${displayName.trim()}" installed.`, "Installed");
       await goto("/admin/services");
     } catch (e) {

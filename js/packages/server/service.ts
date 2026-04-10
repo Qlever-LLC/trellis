@@ -3,27 +3,26 @@ import {
   type KVError,
   type OperationRegistration,
   Trellis,
-  TrellisServer,
   TypedKV,
 } from "@qlever-llc/trellis";
-import { createAuth, type TrellisAuth as SessionAuth } from "@qlever-llc/trellis-auth";
-import type { InferSchemaType, TrellisAPI } from "@qlever-llc/trellis-contracts";
-import { isErr, type Result } from "@qlever-llc/trellis-result";
+import {
+  API as TRELLIS_CORE_API,
+  type TrellisBindingsGetOutput,
+  type TrellisCatalogOutput,
+} from "@qlever-llc/trellis/sdk/core";
+import { TrellisServer, type TrellisServerFor } from "@qlever-llc/trellis/server/runtime";
+import { createAuth, type TrellisAuth as SessionAuth } from "@qlever-llc/trellis/auth";
+import type { InferSchemaType, TrellisAPI } from "@qlever-llc/trellis/contracts";
+import { isErr, type Result } from "@qlever-llc/result";
 import type { Logger } from "pino";
 import type { TSchema } from "typebox";
 import type { HealthCheckFn } from "./health.ts";
 import { mountStandardHealthRpc } from "./health_rpc.ts";
-import type { RPCDesc } from "@qlever-llc/trellis-contracts";
+import type { RPCDesc } from "@qlever-llc/trellis/contracts";
 import {
-  TrellisBindingsGetRequestSchema,
-  TrellisBindingsGetResponseSchema,
-  type TrellisBindingsGetResponse,
-} from "../trellis/models/trellis/rpc/TrellisBindingsGet.ts";
-import {
-  TrellisCatalogRequestSchema,
-  TrellisCatalogResponseSchema,
-  type TrellisCatalogResponse,
-} from "../trellis/models/trellis/rpc/TrellisCatalog.ts";
+  type ResourceBindingJobs,
+  type ResourceBindingJobsQueue,
+} from "@qlever-llc/trellis-jobs";
 import type {
   NatsConnectFn,
   NatsConnectOpts,
@@ -40,10 +39,7 @@ type RpcMethodInput<TA extends TrellisAPI, M extends RpcMethodName<TA>> = InferS
 type RpcMethodOutput<TA extends TrellisAPI, M extends RpcMethodName<TA>> = InferSchemaType<TA["rpc"][M]["output"]>;
 
 type BootstrapTrellisApi = {
-  rpc: {
-    "Trellis.Catalog": RPCDesc<typeof TrellisCatalogRequestSchema, typeof TrellisCatalogResponseSchema>;
-    "Trellis.Bindings.Get": RPCDesc<typeof TrellisBindingsGetRequestSchema, typeof TrellisBindingsGetResponseSchema>;
-  };
+  rpc: Pick<typeof TRELLIS_CORE_API.owned.rpc, "Trellis.Catalog" | "Trellis.Bindings.Get">;
   operations: {};
   events: {};
   subjects: {};
@@ -72,28 +68,6 @@ export type ResourceBindingKV = {
 export type ResourceBindingStream = {
   name: string;
   [key: string]: unknown;
-};
-
-export type ResourceBindingJobsQueue = {
-  queueType: string;
-  publishPrefix: string;
-  workSubject: string;
-  consumerName: string;
-  payload: { schema: string };
-  result?: { schema: string };
-  maxDeliver: number;
-  backoffMs: number[];
-  ackWaitMs: number;
-  defaultDeadlineMs?: number;
-  progress: boolean;
-  logs: boolean;
-  dlq: boolean;
-  concurrency: number;
-};
-
-export type ResourceBindingJobs = {
-  namespace: string;
-  queues: Record<string, ResourceBindingJobsQueue>;
 };
 
 export type ResourceBindings = {
@@ -158,7 +132,7 @@ export type TrellisServiceConnectOpts<
   sessionKeySeed?: string;
 
   /**
-   * Pre-created session-key auth (typically from `@qlever-llc/trellis-auth.createAuth`).
+   * Pre-created session-key auth (typically from `@qlever-llc/trellis/auth.createAuth`).
    * If omitted, `sessionKeySeed` is required.
    */
   auth?: SessionAuth;
@@ -198,7 +172,7 @@ export type ServiceTrellis<
   TTrellisApi extends TrellisAPI,
 > =
   & Omit<Trellis<TTrellisApi>, "mount">
-  & Pick<TrellisServer<TOwnedApi & TTrellisApi>, "mount">;
+  & Pick<TrellisServerFor<TOwnedApi & TTrellisApi>, "mount">;
 
 type RequestOpts = {
   timeout?: number;
@@ -223,8 +197,8 @@ export class TrellisService<
   readonly name: string;
   readonly auth: SessionAuth;
   readonly nc: NatsConnection;
-  readonly server: TrellisServer<TOwnedApi & TTrellisApi>;
-  readonly operations: TrellisServer<TOwnedApi & TTrellisApi>["operations"];
+  readonly server: TrellisServerFor<TOwnedApi & TTrellisApi>;
+  readonly operations: TrellisServerFor<TOwnedApi & TTrellisApi>["operations"];
   readonly trellis: ServiceTrellis<TOwnedApi, TTrellisApi>;
   readonly kv: Record<string, KVHandle>;
   readonly streams: Record<string, ResourceBindingStream>;
@@ -234,7 +208,7 @@ export class TrellisService<
     name: string,
     auth: SessionAuth,
     nc: NatsConnection,
-    server: TrellisServer<TOwnedApi & TTrellisApi>,
+    server: TrellisServerFor<TOwnedApi & TTrellisApi>,
     trellis: ServiceTrellis<TOwnedApi, TTrellisApi>,
     bindings: ResourceBindings,
   ) {
@@ -311,7 +285,7 @@ export class TrellisService<
 
     const runtimeApi = (opts.server.trellisApi ?? opts.server.api) as TOwnedApi & TTrellisApi;
 
-    const server = TrellisServer.create<TOwnedApi & TTrellisApi>(
+    const server = TrellisServer.create(
       name,
       nc,
       { sessionKey: auth.sessionKey, sign: auth.sign },
@@ -361,7 +335,7 @@ export class TrellisService<
           cause: catalogValue.error,
         });
       }
-      const catalog: TrellisCatalogResponse = catalogValue;
+      const catalog: TrellisCatalogOutput = catalogValue;
       const isActive = catalog.catalog.contracts.some(
         (c: { digest: string }) => c.digest === opts.contractDigest,
       );
@@ -385,7 +359,7 @@ export class TrellisService<
           cause: bindingsValue.error,
         });
       }
-      const resolved: TrellisBindingsGetResponse = bindingsValue;
+      const resolved: TrellisBindingsGetOutput = bindingsValue;
       if (!resolved.binding) {
         throw bootstrapContractStateError({
           serviceName: name,
@@ -430,8 +404,18 @@ export class TrellisService<
     method: M,
     input: RpcMethodInput<TTrellisApi, M>,
     opts?: RequestOpts,
-  ): ReturnType<Trellis<TTrellisApi>["request"]> {
-    return this.trellis.request(method, input, opts) as ReturnType<Trellis<TTrellisApi>["request"]>;
+  ): Promise<
+    Result<
+      RpcMethodOutput<TTrellisApi, M>,
+      import("@qlever-llc/trellis").RemoteError | import("@qlever-llc/trellis").ValidationError | import("@qlever-llc/trellis").UnexpectedError
+    >
+  > {
+    return this.trellis.request(method as never, input as never, opts) as Promise<
+      Result<
+        RpcMethodOutput<TTrellisApi, M>,
+        import("@qlever-llc/trellis").RemoteError | import("@qlever-llc/trellis").ValidationError | import("@qlever-llc/trellis").UnexpectedError
+      >
+    >;
   }
 
   requestOrThrow<M extends RpcMethodName<TTrellisApi>>(
@@ -439,13 +423,17 @@ export class TrellisService<
     input: RpcMethodInput<TTrellisApi, M>,
     opts?: RequestOpts,
   ): Promise<RpcMethodOutput<TTrellisApi, M>> {
-    return this.trellis.requestOrThrow(method, input, opts);
+    return this.trellis.requestOrThrow(method as never, input as never, opts) as Promise<
+      RpcMethodOutput<TTrellisApi, M>
+    >;
   }
 
   operation<O extends keyof (TOwnedApi & TTrellisApi)["operations"] & string>(
     operation: O,
   ): OperationRegistration<InferSchemaType<(TOwnedApi & TTrellisApi)["operations"][O]["input"]>> {
-    return this.server.operation(operation);
+    return this.server.operation(operation) as OperationRegistration<
+      InferSchemaType<(TOwnedApi & TTrellisApi)["operations"][O]["input"]>
+    >;
   }
 }
 

@@ -1,7 +1,7 @@
 import type {
   InferSchemaType,
-} from "@qlever-llc/trellis-contracts";
-import { err, isErr, ok, type Result } from "@qlever-llc/trellis-result";
+} from "./contracts.ts";
+import { err, isErr, ok, type Result } from "@qlever-llc/result";
 
 import type { JsonValue } from "./codec.ts";
 import { UnexpectedError } from "./errors/index.ts";
@@ -144,7 +144,11 @@ function decodeSnapshotFrame<TProgress, TOutput>(
   }
 }
 
-export class OperationRef<TDesc extends OperationShape> {
+export class OperationRef<
+  TDesc extends OperationShape,
+  TProgress = OperationProgressOf<TDesc>,
+  TOutput = OperationOutputOf<TDesc>,
+> {
   readonly id: string;
   readonly service: string;
   readonly operation: string;
@@ -160,11 +164,11 @@ export class OperationRef<TDesc extends OperationShape> {
     this.operation = ref.operation;
   }
 
-  async get(): Promise<Result<OperationSnapshot<OperationProgressOf<TDesc>, OperationOutputOf<TDesc>>, UnexpectedError>> {
+  async get(): Promise<Result<OperationSnapshot<TProgress, TOutput>, UnexpectedError>> {
     return this.#controlSnapshot("get");
   }
 
-  async wait(): Promise<Result<OperationSnapshot<OperationProgressOf<TDesc>, OperationOutputOf<TDesc>>, UnexpectedError>> {
+  async wait(): Promise<Result<TerminalOperation<TProgress, TOutput>, UnexpectedError>> {
     const snapshot = await this.#controlSnapshot("wait");
     if (snapshot.isErr()) {
       return snapshot;
@@ -176,14 +180,14 @@ export class OperationRef<TDesc extends OperationShape> {
     if (!isTerminalState(snapshotValue.state)) {
       return err(new UnexpectedError({ cause: new Error("wait returned non-terminal snapshot") }));
     }
-    return ok(snapshotValue);
+    return ok(snapshotValue as TerminalOperation<TProgress, TOutput>);
   }
 
-  async cancel(): Promise<Result<OperationSnapshot<OperationProgressOf<TDesc>, OperationOutputOf<TDesc>>, UnexpectedError>> {
+  async cancel(): Promise<Result<OperationSnapshot<TProgress, TOutput>, UnexpectedError>> {
     return this.#controlSnapshot("cancel");
   }
 
-  async watch(): Promise<Result<AsyncIterable<OperationEvent<OperationProgressOf<TDesc>, OperationOutputOf<TDesc>>>, UnexpectedError>> {
+  async watch(): Promise<Result<AsyncIterable<OperationEvent<TProgress, TOutput>>, UnexpectedError>> {
     const response = await this.#transport.watchJson(
       controlSubject(this.#descriptor.subject),
       {
@@ -207,7 +211,7 @@ export class OperationRef<TDesc extends OperationShape> {
         if (isErr(frameValue)) {
           throw frameValue.error;
         }
-        const decoded = decodeWatchFrame<OperationProgressOf<TDesc>, OperationOutputOf<TDesc>>(frameValue);
+        const decoded = decodeWatchFrame<TProgress, TOutput>(frameValue);
         const decodedValue = decoded.take();
         if (isErr(decodedValue)) {
           throw decodedValue.error;
@@ -227,7 +231,7 @@ export class OperationRef<TDesc extends OperationShape> {
 
   async #controlSnapshot(
     action: "get" | "wait" | "cancel" | "watch",
-  ): Promise<Result<OperationSnapshot<OperationProgressOf<TDesc>, OperationOutputOf<TDesc>>, UnexpectedError>> {
+  ): Promise<Result<OperationSnapshot<TProgress, TOutput>, UnexpectedError>> {
     const response = await this.#transport.requestJson(
       controlSubject(this.#descriptor.subject),
       {
@@ -243,7 +247,7 @@ export class OperationRef<TDesc extends OperationShape> {
       return responseValue;
     }
 
-    const frame = decodeSnapshotFrame<OperationProgressOf<TDesc>, OperationOutputOf<TDesc>>(
+    const frame = decodeSnapshotFrame<TProgress, TOutput>(
       responseValue,
     ).take();
     if (isErr(frame)) {
@@ -278,7 +282,12 @@ function decodeWatchFrame<TProgress, TOutput>(
   }
 }
 
-export class OperationInvoker<TDesc extends OperationShape> {
+export class OperationInvoker<
+  TDesc extends OperationShape,
+  TInput = OperationInputOf<TDesc>,
+  TProgress = OperationProgressOf<TDesc>,
+  TOutput = OperationOutputOf<TDesc>,
+> {
   readonly #transport: OperationTransport;
   readonly #descriptor: TDesc;
 
@@ -288,8 +297,8 @@ export class OperationInvoker<TDesc extends OperationShape> {
   }
 
   async start(
-    input: OperationInputOf<TDesc>,
-  ): Promise<Result<OperationRef<TDesc>, UnexpectedError>> {
+    input: TInput,
+  ): Promise<Result<OperationRef<TDesc, TProgress, TOutput>, UnexpectedError>> {
     const response = await this.#transport.requestJson(
       this.#descriptor.subject,
       input as JsonValue,
@@ -302,14 +311,15 @@ export class OperationInvoker<TDesc extends OperationShape> {
       return responseValue;
     }
 
-    const envelope = decodeAcceptedEnvelope<
-      OperationProgressOf<TDesc>,
-      OperationOutputOf<TDesc>
-    >(responseValue).take();
+    const envelope = decodeAcceptedEnvelope<TProgress, TOutput>(responseValue).take();
     if (isErr(envelope)) {
       return envelope;
     }
 
-    return ok(new OperationRef(this.#transport, this.#descriptor, envelope.ref));
+    return ok(new OperationRef<TDesc, TProgress, TOutput>(
+      this.#transport,
+      this.#descriptor,
+      envelope.ref,
+    ));
   }
 }

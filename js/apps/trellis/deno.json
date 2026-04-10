@@ -1,16 +1,17 @@
 {
   "extends": "../../deno.json",
   "tasks": {
-    "dev": "vite dev",
-    "build": "deno task -c ../../deno.json build:sdk && vite build",
+    "verify:contracts": "bash ../../../scripts/trellis-cli.sh contracts verify --source ./src/contracts/trellis_app.ts",
+    "dev": "deno task -c ../../deno.json build:sdk && deno task verify:contracts && vite dev",
+    "build": "deno task -c ../../deno.json build:sdk && deno task verify:contracts && vite build",
     "preview": "vite preview",
-    "check": "deno task -c ../../deno.json build:sdk && svelte-kit sync && svelte-check --tsconfig ./tsconfig.check.json"
+    "check": "deno task -c ../../deno.json build:sdk && deno task verify:contracts && svelte-kit sync && svelte-check --tsconfig ./tsconfig.check.json"
   },
   "compilerOptions": {
     "types": [
       "npm:vite/client"
     ]
-  }
+  },
   "lint": {
     "rules": {
       "exclude": [

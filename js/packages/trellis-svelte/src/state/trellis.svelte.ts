@@ -1,11 +1,16 @@
-import { createClient, type Trellis } from "@qlever-llc/trellis";
-import { getPublicSessionKey, signBytes } from "@qlever-llc/trellis-auth";
-import { defineContract, type TrellisAPI } from "@qlever-llc/trellis-contracts";
+import {
+  createClient,
+  defineContract,
+  type Trellis,
+  type TrellisAPI,
+  type TrellisContractV1,
+} from "@qlever-llc/trellis";
+import { getPublicSessionKey, signBytes } from "@qlever-llc/trellis/auth";
 import type { AuthState } from "./auth.svelte.ts";
 import type { NatsState } from "./nats.svelte.ts";
 
 export type TrellisClientContract<TApi extends TrellisAPI = TrellisAPI> = {
-  CONTRACT: Record<string, unknown>;
+  CONTRACT: TrellisContractV1;
   CONTRACT_DIGEST: string;
   API: {
     trellis: TApi;
@@ -13,7 +18,6 @@ export type TrellisClientContract<TApi extends TrellisAPI = TrellisAPI> = {
 };
 
 export type TrellisStateConfig<TApi extends TrellisAPI = TrellisAPI> = {
-  serviceName: string;
   contract?: TrellisClientContract<TApi>;
 };
 
@@ -41,23 +45,26 @@ export class TrellisState<TApi extends TrellisAPI = TrellisAPI> {
   /**
    * Create a TrellisState instance with proper authentication.
    */
-  static async create<TApi extends TrellisAPI = TrellisAPI>(
+  static async create<TApi extends TrellisAPI>(
     authState: AuthState,
     natsState: NatsState,
     config: TrellisStateConfig<TApi>,
   ): Promise<TrellisState<TApi>> {
     const handle = await authState.init();
     const contract = (config.contract ?? DEFAULT_TRELLIS_CONTRACT) as TrellisClientContract<TApi>;
-    const trellis = createClient(
+    const clientName = typeof contract.CONTRACT.id === "string" && contract.CONTRACT.id.length > 0
+      ? contract.CONTRACT.id
+      : "client";
+    const trellis = createClient<TApi>(
       contract,
       natsState.nc,
       {
         sessionKey: getPublicSessionKey(handle),
         sign: (data: Uint8Array) => signBytes(handle, data),
       },
-      { name: config.serviceName },
+      { name: clientName },
     );
-    return new TrellisState(trellis);
+    return new TrellisState<TApi>(trellis);
   }
 
   stop(): void {
@@ -68,10 +75,10 @@ export class TrellisState<TApi extends TrellisAPI = TrellisAPI> {
 /**
  * Factory function to create a TrellisState instance.
  */
-export async function createTrellisState<TApi extends TrellisAPI = TrellisAPI>(
+export async function createTrellisState<TApi extends TrellisAPI>(
   authState: AuthState,
   natsState: NatsState,
   config: TrellisStateConfig<TApi>,
 ): Promise<TrellisState<TApi>> {
-  return TrellisState.create(authState, natsState, config);
+  return TrellisState.create<TApi>(authState, natsState, config);
 }

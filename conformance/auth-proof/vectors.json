@@ -5,7 +5,7 @@
     "sessionKey": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
     "oauthInit": {
       "redirectTo": "https://example.com/app",
-      "sig": "VwDIApru8bFUnMafwFg7RYUhIgTpzeZT1RawmB-PE6dVdwiivjQvR1ECLE6bZ4pRKgFKpMDyiitUL9zXMFb2CQ"
+      "sig": "jSsWjEry0Ll5RaljT4KXT-DkRdMCedgzgEGsq5qS9GJGRD9610RDK_pz8OT_rQdZ9f6TsA80H_wrTuHfBVHHAg"
     },
     "bind": {
       "authToken": "auth-token-123",
@@ -32,7 +32,7 @@
     "sessionKey": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
     "oauthInit": {
       "redirectTo": "http://localhost:3000/callback?next=%2Fdash",
-      "sig": "QSWaKGNEymubaRjZ4E0YM2HdNoD2l2BevWt-3FpETy7KiGf4SE-iukOFHErlAxGULvMqCRlV2_sCqGx1AOe_CQ"
+      "sig": "4ECM8wrZOqv-ufVDi7S9gorR89YaFvf8TeuzqR3TSnUnb9UMwuVK_fiQ91PJHjBeHrK0G0wvykm-vyJcdKqDDQ"
     },
     "bind": {
       "authToken": "bind-xyz",

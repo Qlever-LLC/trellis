@@ -1,7 +1,11 @@
-import { Result, UnexpectedError } from "@qlever-llc/trellis-result";
-import { assertEquals } from "@std/assert";
+import { Result, UnexpectedError } from "@qlever-llc/result";
+import { deepEqual } from "node:assert/strict";
 
 import { loadJobsPageData } from "./jobs_page.ts";
+
+declare const Deno: {
+  test(name: string, fn: () => void | Promise<void>): void;
+};
 
 Deno.test("loadJobsPageData requests jobs and services with the provided filter", async () => {
   const calls: Array<{ method: string; input: unknown }> = [];
@@ -15,12 +19,12 @@ Deno.test("loadJobsPageData requests jobs and services with the provided filter"
     },
   }, { service: "documents", state: "pending" });
 
-  assertEquals(calls, [
+  deepEqual(calls, [
     { method: "Jobs.ListServices", input: {} },
     { method: "Jobs.List", input: { service: "documents", state: "pending" } },
   ]);
-  assertEquals(data.services[0]?.name, "documents");
-  assertEquals(data.jobs[0]?.id, "job-1");
+  deepEqual(data.services[0]?.name, "documents");
+  deepEqual(data.jobs[0]?.id, "job-1");
 });
 
 Deno.test("loadJobsPageData reports jobs service as unavailable when Jobs RPCs have no responders", async () => {
@@ -30,13 +34,13 @@ Deno.test("loadJobsPageData reports jobs service as unavailable when Jobs RPCs h
     },
   });
 
-  assertEquals(data.available, false);
-  assertEquals(
+  deepEqual(data.available, false);
+  deepEqual(
     data.message,
     "Jobs service is not installed or not currently reachable.",
   );
-  assertEquals(data.jobs, []);
-  assertEquals(data.services, []);
+  deepEqual(data.jobs, []);
+  deepEqual(data.services, []);
 });
 
 Deno.test("loadJobsPageData reports missing Jobs permissions with re-auth guidance", async () => {
@@ -46,11 +50,11 @@ Deno.test("loadJobsPageData reports missing Jobs permissions with re-auth guidan
     },
   });
 
-  assertEquals(data.available, false);
-  assertEquals(
+  deepEqual(data.available, false);
+  deepEqual(
     data.message,
     "Your current session is not approved for Jobs RPCs. Sign out and sign back in to refresh permissions.",
   );
-  assertEquals(data.jobs, []);
-  assertEquals(data.services, []);
+  deepEqual(data.jobs, []);
+  deepEqual(data.services, []);
 });

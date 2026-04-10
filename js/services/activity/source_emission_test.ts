@@ -1,6 +1,6 @@
 import { assertEquals } from "@std/assert";
 
-import { canonicalizeJson, type JsonValue } from "@qlever-llc/trellis-contracts";
+import { canonicalizeJson, type JsonValue } from "@qlever-llc/trellis/contracts";
 
 import { CONTRACT } from "./contracts/trellis_activity.ts";
 

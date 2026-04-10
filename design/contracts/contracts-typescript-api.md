@@ -28,20 +28,22 @@ It does not redefine the canonical manifest model or runtime permission derivati
 
 ## Public Package Surface
 
-`@qlever-llc/trellis-contracts` is the normative home for the TypeScript contract authoring API.
+`@qlever-llc/trellis` is the canonical user-facing package for the TypeScript contract authoring API.
+
+`@qlever-llc/trellis/contracts` remains the full contract-model subpath for broader canonicalization and schema primitives.
 
 It exports:
 
 - `defineContract(...)`
 - contract-module and use-spec types needed by generated SDKs
 
-Runtime connection helpers live in runtime packages, not in `@qlever-llc/trellis-contracts` itself.
+Runtime connection helpers live in `@qlever-llc/trellis` and `@qlever-llc/trellis/server*`, not in `@qlever-llc/trellis/contracts` itself.
 
 Rules:
 
-- new user-facing TypeScript contract authoring APIs are defined in `@qlever-llc/trellis-contracts`
-- `@qlever-llc/trellis` must not introduce a competing contract definition model
-- documentation should prefer the owning package import path instead of convenience re-exports
+- new user-facing TypeScript contract authoring APIs are exposed from `@qlever-llc/trellis`
+- broader contract-model helpers may also be exposed from `@qlever-llc/trellis/contracts`
+- documentation should prefer `@qlever-llc/trellis` for normal app and service code
 
 ## Canonical TypeScript Shape
 
@@ -135,22 +137,21 @@ declare function defineContract(...args: unknown[]): DefinedContract<any, any, a
 ## Illustrative Usage
 
 ```ts
-import { defineContract } from "@qlever-llc/trellis-contracts";
-import { auth } from "@qlever-llc/trellis-sdk-auth";
-import { core } from "@qlever-llc/trellis-sdk-core";
+import { defineContract } from "@qlever-llc/trellis";
+import { auth } from "@qlever-llc/trellis/sdk/auth";
+import { core } from "@qlever-llc/trellis/sdk/core";
 
 export const activity = defineContract({
   id: "trellis.activity@v1",
   displayName: "Activity Service",
   description: "Serve activity RPCs and publish activity change events.",
-  kind: "service",
   uses: {
     core: core.use({
       rpc: {
         call: ["Trellis.Catalog", "Trellis.Bindings.Get"],
       },
     }),
-    auth: auth.use({
+    auth: auth.useDefaults({
       events: {
         subscribe: ["Auth.Connect", "Auth.Disconnect"],
       },
@@ -187,9 +188,10 @@ const service = await activity.connectService("activity", opts);
 Rules:
 
 - `id` remains the stable machine identity for the contract lineage
-- `displayName`, `description`, and `kind` are required and are part of the canonical manifest
+- `displayName` and `description` are required and are part of the canonical manifest
 - local `operations`, `rpc`, `events`, `subjects`, `errors`, and `resources` remain the source for emitted owned contract content
 - `uses` entries are expressed through SDK `use(...)` helpers rather than handwritten dependency objects in normal TypeScript code
+- SDK-specific convenience helpers such as `auth.useDefaults(...)` are allowed when they still produce a normal `uses` declaration
 - a participant MAY have no owned `operations`, `rpc`, `events`, or `subjects`
 - a participant MAY have no `uses`
 - the defined contract computes and exposes `CONTRACT_DIGEST` from the emitted canonical manifest

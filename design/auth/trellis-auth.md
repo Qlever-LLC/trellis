@@ -22,7 +22,7 @@ Trellis needs one authentication and authorization model that works for:
 - browser applications
 - CLIs
 - backend services
-- devices
+- activated workloads
 - NATS transport permissions
 - application-layer request authorization
 
@@ -63,19 +63,17 @@ Rules:
 - permissions are always derived from active contracts plus current grants,
   never from hard-coded static ACLs
 
-### 3) Identity binding differs by principal type
+### 3) Identity binding differs by principal class
 
-| Client Type | Identity Source                              | Binding Mechanism                                                    |
-| ----------- | -------------------------------------------- | -------------------------------------------------------------------- |
-| Users       | External IdP                                 | Portal-mediated browser auth flow binds user identity to session key |
-| Services    | Trellis service registry                     | Admin install binds service public key to session key                |
-| Devices     | Known-device registry plus activation review | Approved activation binds runtime public key to a device principal   |
+| Principal Class | Identity Source                            | Binding Mechanism                                                        |
+| --------------- | ------------------------------------------ | ------------------------------------------------------------------------ |
+| Users           | External IdP                               | Portal-mediated browser auth flow binds user identity to session key     |
+| Installed workloads | Trellis workload install registry      | Admin install binds workload public key to an exact digest and session key |
+| Activated workloads | Preregistered workload instance registry | Activation binds workload public identity key to a workload principal    |
 
-The identity source is pluggable. The core requirement is that Trellis can bind
-a stable identity to a session key before allowing authenticated access.
+The identity source is pluggable. The core requirement is that Trellis can bind a stable identity to a session key before allowing authenticated access.
 
-For devices, the runtime public key is the durable principal identity, but that
-identity is not allowed online until an activation request has been reviewed.
+For activated workloads, the public identity key is the durable principal identity. That identity is not allowed online until the preregistered workload instance has been activated.
 
 ### 4) Session keys are the long-lived application identity
 
@@ -110,7 +108,21 @@ Rules:
 - browser clients receive sentinel credentials only after bind succeeds
 - services load sentinel credentials from deployment configuration
 
-### 6) User auth is approval-gated by exact contract digest
+### 6) User identity is provisioned before contract approval
+
+Successful external authentication provisions or refreshes the auth-local user
+projection before any contract approval or bind step completes.
+
+Rules:
+
+- first successful external authentication MUST create the user projection if it
+  does not already exist
+- reprovisioning MUST preserve admin-managed user state such as `active` and
+  granted capabilities
+- contract approval gates delegated app/session access, not whether the user
+  exists in auth-local state
+
+### 7) User auth is approval-gated by exact contract digest
 
 Trellis treats browser apps and other normal user-facing clients as
 contract-bearing clients.
@@ -119,6 +131,15 @@ Rules:
 
 - portal owns browser UX such as provider chooser and approval screens, but auth
   remains the protocol and state authority
+- Trellis ships a built-in portal served by the Trellis HTTP server from static
+  assets; it handles both login and generic workload activation flows, and
+  deployments may register custom portals to replace that behavior selectively
+- a portal is a browser web app registered by deployment-owned portal records;
+  it is never a service-authenticated principal
+- a portal MAY also act later as a normal user-authenticated browser app, but
+  any such authority is delegated from the logged-in user rather than from a
+  service install record
+- browser apps MAY attach opaque portal context to login initiation so custom portals can coordinate UX without introducing portal-specific app APIs
 - the approval key is `user <-> contractDigest`, not merely
   `user <-> contractId`
 - contract changes create a new digest and therefore require a fresh user
@@ -128,45 +149,37 @@ Rules:
 - Trellis stores both `approved` and `denied` decisions
 - if the user's capabilities no longer satisfy the delegated contract, the
   delegated session becomes invalid until re-approval
+- inactive users MUST NOT complete bind even if they still have a stored
+  approval record
 
-### 7) Services are installed, not self-registering
+### 8) Provider-capable workloads are installed, not self-registering
 
-Service identity is bound by installation through Trellis-admin flows.
+Provider-capable workloads are bound by installation through Trellis-admin flows.
 
 Rules:
 
-- the service public key is the service identity
-- installation records the service policy, contract digest, and resource
-  bindings
-- the private service seed never crosses the network to Trellis auth
-- service key rotation is a separate explicit administrative operation
+- the installed workload public key is the workload identity
+- installation records the exact contract digest and any resource bindings
+- the private workload seed never crosses the network to Trellis auth
+- key rotation is a separate explicit administrative operation
 
-### 8) Auth remains unified after binding
+### 9) Auth remains unified after binding
 
-After identity binding, users and services share the same auth-callout-based
-NATS connection model.
+After identity binding, users and workloads share the same auth-callout-based NATS connection model.
 
-Devices join that same runtime model after activation is approved. Before that
-point, device setup uses the dedicated handoff, request, review, and pre-auth
-wait surfaces defined in [device-activation.md](./device-activation.md). Generic
-browser auth UX runs through the deployment portal binding, while
-device-type-specific onboarding still resolves through explicit onboarding
-handler bindings.
+Activated workloads join that same runtime model after activation is complete. Before that point, workload setup uses the dedicated handoff, activation, and pre-auth wait surfaces defined in [workload-activation.md](./workload-activation.md). Browser auth UX runs through portals selected by explicit login and workload portal-selection state; callers do not choose portals directly in the normal path. A portal may later continue as a user-authenticated browser app for onboarding or activation work, but that remains user-delegated app authority rather than service authority.
 
-The important distinction is that devices differ in auth establishment, not in
-post-auth runtime treatment. After successful online auth, Trellis should treat
-devices as a third session kind alongside users and services.
+The important distinction is that installed and activated workloads differ in auth establishment, not in the basic runtime treatment after auth succeeds.
 
 Conceptually:
 
 ```ts
-type Session = UserSession | ServiceSession | DeviceSession;
+type Session = UserSession | InstalledWorkloadSession | ActivatedWorkloadSession;
 
-type DeviceSession = {
-  type: "device";
-  deviceId: string;
-  deviceType: string;
-  runtimePublicKey: string;
+type ActivatedWorkloadSession = {
+  type: "workload";
+  instanceId: string;
+  publicIdentityKey: string;
   profileId: string;
   contractId: string;
   contractDigest: string;
@@ -180,17 +193,14 @@ type DeviceSession = {
 
 Rules:
 
-- users, services, and devices all prove long-lived key ownership before
-  receiving authenticated runtime access
-- users, services, and devices all receive transport permissions derived from
-  current grants and active contracts
-- devices do not use browser bind or binding tokens; they establish their
-  session from activation state plus runtime-key proof
-- service resource permissions may be augmented from installed bindings
+- users and workloads all prove long-lived key ownership before receiving authenticated runtime access
+- users and workloads all receive transport permissions derived from current grants and active contracts
+- activated workloads do not use browser bind or binding tokens; they establish their session from activation state plus identity-key proof and exact digest presentation
+- installed workload resource permissions may be augmented from installed bindings
 - higher-level runtimes should resolve bindings eagerly and expose typed
-  resource handles rather than raw bootstrap details
+  resource handles rather than raw connect details
 
-### 9) Auth is contract-driven
+### 10) Auth is contract-driven
 
 Authorization is derived from:
 
@@ -205,37 +215,38 @@ Rules:
   scope system
 - operation, RPC, event, and subject access are all contract-level authorization
   concerns
-- services may subscribe to auth events only when their installed contracts
-  explicitly declare them in `uses`
+- workloads may subscribe to auth events only when their contracts explicitly declare them in `uses`
 
-### 10) Reply subjects and operation streams are part of the auth model
+### 11) Reply subjects and operation streams are part of the auth model
 
 The auth model must protect reply subjects and support operation streaming
 replies.
 
 Rules:
 
-- services MUST validate reply subjects against the caller's inbox prefix
+- workloads MUST validate reply subjects against the caller's inbox prefix
 - operation `watch()` and streamed `wait()` responses are allowed as bounded
   multi-response replies to validated caller inbox subjects
 - Trellis MUST NOT grant arbitrary inbox publish rights just to support
   operation streams
 
-### 11) Trellis maintains auth-local state for fast authorization
+### 12) Trellis maintains auth-local state for fast authorization
 
 The auth subsystem maintains Trellis-local state such as:
 
 - sessions
 - user projections
-- service registry entries
+- installed workload registry entries
 - approval records
-- portal bindings
+- portal records
+- login portal selection records
+- workload portal selection records
+- optional login/workload default-portal deployment settings
 - auth browser flow records
-- device onboarding handlers
-- device profiles
-- device activation handoffs
-- device activation requests
-- device activation records
+- workload profiles
+- workload instances
+- workload activation handoffs
+- workload activation records
 - binding tokens
 - active connection records
 
@@ -256,8 +267,8 @@ are split by concern:
   reply validation, internal state records
 - [auth-api.md](./auth-api.md) - HTTP endpoints, `operations.v1.Auth.*`,
   `rpc.v1.Auth.*`, and emitted auth events
-- [device-activation.md](./device-activation.md) - device request, review,
-  confirmation, and activation flow
+- [workload-activation.md](./workload-activation.md) - known-workload activation,
+  connect info, and activation flow
 - [auth-typescript-api.md](./auth-typescript-api.md) - TypeScript browser and
   service auth helpers
 - [auth-rust-api.md](./auth-rust-api.md) - Rust service and CLI auth helpers

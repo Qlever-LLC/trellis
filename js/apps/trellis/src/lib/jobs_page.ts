@@ -1,8 +1,8 @@
-import { BaseError, isErr, type Result } from "@qlever-llc/trellis-result";
-import { type Job, JobClient, type JobFilter, type ServiceInfo } from "../../../../packages/jobs/mod.ts";
+import { BaseError, isErr, type Result } from "@qlever-llc/result";
+import { type Job, JobClient, type JobFilter, type ServiceInfo } from "@qlever-llc/trellis-jobs";
 
 type JobsClientLike = {
-  request(method: string, input: unknown): Promise<Result<any, BaseError>>;
+  request(method: string, input: unknown): Promise<Result<unknown, BaseError>>;
 };
 
 export async function loadJobsPageData(
@@ -15,7 +15,7 @@ export async function loadJobsPageData(
   jobs: Job[];
 }> {
   try {
-    const client = new JobClient(trellis);
+    const client = new JobClient(trellis as ConstructorParameters<typeof JobClient>[0]);
     const [servicesResponse, jobsResponse] = await Promise.all([
       client.listServices(),
       client.list(filter),

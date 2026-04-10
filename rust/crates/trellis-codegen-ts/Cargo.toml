@@ -9,4 +9,4 @@ description = "TypeScript code generation for Trellis contract manifests."
 [dependencies]
 serde_json.workspace = true
 thiserror.workspace = true
-trellis-contracts = { path = "../trellis-contracts", version = "0.5.1" }
+trellis-contracts = { path = "../trellis-contracts", version = "0.6.0" }

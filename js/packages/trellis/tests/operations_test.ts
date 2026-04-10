@@ -1,14 +1,16 @@
 import { assertEquals, assertExists } from "@std/assert";
 import { Type } from "typebox";
-import { ok } from "../../result/mod.ts";
+import { type Result, ok } from "../../result/mod.ts";
 import type { JsonValue } from "@qlever-llc/trellis-contracts";
 import { defineContract } from "../contract.ts";
 import {
   controlSubject,
   type OperationEvent,
   OperationInvoker,
+  type OperationRef,
   type OperationTransport,
 } from "../operations.ts";
+import { UnexpectedError } from "../errors/index.ts";
 
 const schemas = {
   RefundInput: Type.Object({ chargeId: Type.String() }, { additionalProperties: false }),
@@ -107,6 +109,13 @@ Deno.test("OperationInvoker.start() posts input to the operation subject and ret
   assertEquals(reference.service, "billing");
   assertEquals(reference.operation, "Billing.Refund");
   assertExists(reference.get);
+});
+
+Deno.test("OperationInvoker.start type surface stays specific", () => {
+  type Started = ReturnType<OperationInvoker<typeof refundOperation>["start"]>;
+  const typed: Promise<Result<OperationRef<typeof refundOperation>, UnexpectedError>> =
+    null as unknown as Started;
+  assertEquals(true, true);
 });
 
 Deno.test("OperationRef.get() sends action:get to <subject>.control and decodes the snapshot frame", async () => {

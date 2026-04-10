@@ -1,13 +1,12 @@
 <script lang="ts">
-  import type { AuthListConnectionsOutput, AuthListSessionsOutput } from "@qlever-llc/trellis-sdk-auth";
-  import { getTrellisFor } from "@qlever-llc/trellis-svelte";
+  import type { AuthKickConnectionInput, AuthListConnectionsOutput, AuthListSessionsOutput, AuthRevokeSessionInput } from "@qlever-llc/trellis/sdk/auth";
   import { onMount } from "svelte";
-  import { trellisApp } from "../../../../contracts/trellis_app.ts";
   import { errorMessage, formatDate } from "../../../../lib/format";
   import { type ConnectionRow, formatOriginId, parseConnectionRowKey, parseSessionRowKey, type SessionRow } from "../../../../lib/keys";
   import { getNotifications } from "../../../../lib/notifications.svelte";
+  import { getTrellis } from "../../../../lib/trellis";
 
-  const trellisPromise = getTrellisFor(trellisApp);
+  const trellisPromise = getTrellis();
   const notifications = getNotifications();
 
   type SessionView = AuthListSessionsOutput["sessions"][number] & { parsed: SessionRow | null };
@@ -30,7 +29,8 @@
     loading = true;
     error = null;
     try {
-      const response = await (await trellisPromise).requestOrThrow("Auth.ListSessions", {
+      const trellis = await trellisPromise;
+      const response = await trellis.requestOrThrow("Auth.ListSessions", {
         user: sessionFilterUser.trim() || undefined
       });
       sessions = (response.sessions ?? []).map((s) => ({
@@ -48,7 +48,8 @@
     loading = true;
     error = null;
     try {
-      const response = await (await trellisPromise).requestOrThrow("Auth.ListConnections", {
+      const trellis = await trellisPromise;
+      const response = await trellis.requestOrThrow("Auth.ListConnections", {
         user: connFilterUser.trim() || undefined,
         sessionKey: connFilterSessionKey.trim() || undefined
       });
@@ -72,7 +73,8 @@
     if (!window.confirm(`Revoke this session? ${principal} will be disconnected.`)) return;
     revokeTarget = sessionKey;
     try {
-      await (await trellisPromise).requestOrThrow("Auth.RevokeSession", { sessionKey });
+      const trellis = await trellisPromise;
+      await trellis.requestOrThrow("Auth.RevokeSession", { sessionKey } satisfies AuthRevokeSessionInput);
       notifications.success(`Session revoked for ${principal}.`, "Revoked");
       await loadSessions();
     } catch (e) { error = errorMessage(e); }
@@ -83,7 +85,8 @@
     if (!window.confirm(`Disconnect ${principal}?`)) return;
     kickTarget = userNkey;
     try {
-      await (await trellisPromise).requestOrThrow("Auth.KickConnection", { userNkey });
+      const trellis = await trellisPromise;
+      await trellis.requestOrThrow("Auth.KickConnection", { userNkey } satisfies AuthKickConnectionInput);
       notifications.success(`Disconnected ${principal}.`, "Kicked");
       await loadConnections();
     } catch (e) { error = errorMessage(e); }
@@ -142,7 +145,7 @@
             </tr>
           </thead>
           <tbody>
-            {#each sessions as session}
+            {#each sessions as session (session.key)}
               <tr>
                 <td class="font-medium">{session.parsed ? formatOriginId(session.parsed.origin, session.parsed.id) : session.key}</td>
                 <td>
@@ -199,7 +202,7 @@
             </tr>
           </thead>
           <tbody>
-            {#each connections as connection}
+            {#each connections as connection (connection.key)}
               <tr>
                 <td class="font-medium">{connection.parsed ? formatOriginId(connection.parsed.origin, connection.parsed.id) : connection.key}</td>
                 <td class="font-mono text-xs text-base-content/60">{connection.parsed?.sessionKey?.slice(0, 12) ?? "—"}…</td>

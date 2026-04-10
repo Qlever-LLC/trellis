@@ -1,4 +1,4 @@
-import type { TrellisContractV1 } from "@qlever-llc/trellis-contracts";
+import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 import { assertEquals, assertRejects } from "@std/assert";
 import { ContractStore } from "../../catalog/store.ts";
 import { planUserContractApproval } from "./plan.ts";
@@ -9,7 +9,6 @@ Deno.test("planUserContractApproval derives exact app capabilities and subjects"
     id: "example.auth@v1",
     displayName: "Example Auth",
     description: "Auth API",
-    kind: "service",
     schemas: {
       EmptyInput: { type: "object" },
       EmptyOutput: { type: "object" },
@@ -49,7 +48,6 @@ Deno.test("planUserContractApproval derives exact app capabilities and subjects"
     id: "example.console@v1",
     displayName: "Example Console",
     description: "Browser app",
-    kind: "app",
     uses: {
       auth: {
         contract: "example.auth@v1",
@@ -77,7 +75,6 @@ Deno.test("planUserContractApproval skips inactive dependencies for app login", 
     id: "example.console@v1",
     displayName: "Example Console",
     description: "Browser app",
-    kind: "app",
     uses: {
       auth: {
         contract: "missing.auth@v1",
@@ -98,7 +95,6 @@ Deno.test("planUserContractApproval still rejects invalid active dependencies", 
     id: "example.auth@v1",
     displayName: "Example Auth",
     description: "Auth API",
-    kind: "service",
     schemas: {
       EmptyInput: { type: "object" },
       EmptyOutput: { type: "object" },
@@ -122,7 +118,6 @@ Deno.test("planUserContractApproval still rejects invalid active dependencies", 
         id: "example.console@v1",
         displayName: "Example Console",
         description: "Browser app",
-        kind: "app",
         uses: {
           auth: {
             contract: "example.auth@v1",

@@ -15,7 +15,7 @@ Do not load the entire `design/` folder by default. Start with one topic area, t
 | --- | --- | --- |
 | `core/trellis-patterns.md` | You need Trellis-wide architecture rules | Service categories, platform boundaries, communication patterns |
 | `auth/trellis-auth.md` | You are changing auth architecture | Identity model, approval model, service install model, auth subsystem boundaries |
-| `auth/device-activation.md` | You are changing device registration or device activation | Request/review flow, confirmation code, profiles, online activation |
+| `auth/workload-activation.md` | You are changing workload preregistration or workload activation | Known-workload activation flow, connect info, profiles, online activation |
 | `contracts/trellis-contracts-catalog.md` | You are changing manifests, codegen inputs, or permission derivation | Canonical contract format, `uses`, subject ownership, activation rules |
 
 ## Subsystem Design Docs
@@ -155,7 +155,7 @@ These documents define the public protocol, API, and runtime-facing surfaces. Re
 1. `auth/trellis-auth.md`
 2. `auth/auth-api.md`
 3. `auth/auth-protocol.md`
-4. `auth/device-activation.md` if device activation is involved
+4. `auth/workload-activation.md` if workload activation is involved
 
 ### Implement TypeScript auth surfaces
 

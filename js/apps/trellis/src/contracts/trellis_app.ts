@@ -1,5 +1,5 @@
-import { defineContract } from "@qlever-llc/trellis-contracts";
-import { auth as trellisAuth } from "@qlever-llc/trellis-sdk-auth";
+import { defineContract } from "@qlever-llc/trellis";
+import { auth as trellisAuth } from "@qlever-llc/trellis/sdk/auth";
 
 export const trellisApp = defineContract({
   id: "trellis.console@v1",
@@ -7,7 +7,7 @@ export const trellisApp = defineContract({
   description: "Drive the Trellis admin console's authenticated RPC access.",
   kind: "app",
   uses: {
-    auth: trellisAuth.use({
+    auth: trellisAuth.useDefaults({
       rpc: {
         call: [
           "Auth.GetInstalledContract",
@@ -15,12 +15,10 @@ export const trellisApp = defineContract({
           "Auth.KickConnection",
           "Auth.ListApprovals",
           "Auth.ListConnections",
-          "Auth.ListUsers",
           "Auth.ListInstalledContracts",
           "Auth.ListServices",
           "Auth.ListSessions",
-          "Auth.Logout",
-          "Auth.Me",
+          "Auth.ListUsers",
           "Auth.RevokeApproval",
           "Auth.RevokeSession",
           "Auth.UpdateUser",
@@ -30,3 +28,5 @@ export const trellisApp = defineContract({
     }),
   },
 });
+
+export const { CONTRACT_ID, CONTRACT, CONTRACT_DIGEST, API, use } = trellisApp;

@@ -18,7 +18,6 @@ impl ContractManifestBuilder {
         id: impl Into<String>,
         display_name: impl Into<String>,
         description: impl Into<String>,
-        kind: impl Into<String>,
     ) -> Self {
         Self {
             manifest: ContractManifest {
@@ -26,7 +25,6 @@ impl ContractManifestBuilder {
                 id: id.into(),
                 display_name: display_name.into(),
                 description: description.into(),
-                kind: kind.into(),
                 schemas: Default::default(),
                 uses: Default::default(),
                 rpc: Default::default(),

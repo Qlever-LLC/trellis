@@ -1,6 +1,6 @@
-import type { TrellisCatalogV1, TrellisContractV1 } from "@qlever-llc/trellis-contracts";
+import type { TrellisCatalogV1, TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 
-import { digestJson, isJsonValue, type JsonValue } from "@qlever-llc/trellis-contracts";
+import { digestJson, isJsonValue, type JsonValue } from "@qlever-llc/trellis/contracts";
 import { compileSchema, draft2019 } from "json-schema-library";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
@@ -32,7 +32,6 @@ function normalizeContract(contract: TrellisContractV1): TrellisContractV1 {
     id: contract.id,
     displayName: contract.displayName,
     description: contract.description,
-    kind: contract.kind,
     ...(contract.schemas ? { schemas: contract.schemas } : {}),
     ...(contract.uses ? { uses: contract.uses } : {}),
     ...(contract.rpc ? { rpc: contract.rpc } : {}),
@@ -228,7 +227,6 @@ export class ContractStore {
         digest,
         displayName: contract.displayName,
         description: contract.description,
-        kind: contract.kind,
       });
     }
     entries.sort((a, b) => a.id.localeCompare(b.id));

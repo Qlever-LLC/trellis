@@ -3,6 +3,31 @@ import { Type } from "typebox";
 import { encodeSchema } from "../codec.ts";
 import { defineContract } from "../contract.ts";
 import { err, UnexpectedError } from "../index.ts";
+import { auth } from "../sdk/auth.ts";
+
+Deno.test("createClient prefers trellis API for app contracts", () => {
+  const contract = defineContract({
+    id: "trellis.app.test@v1",
+    displayName: "App Test",
+    description: "Exercise runtime API selection for app contracts.",
+    kind: "app",
+    uses: {
+      auth: auth.useDefaults({
+        rpc: {
+          call: ["Auth.ListApprovals"],
+        },
+      }),
+    },
+  });
+
+  const client = contract.createClient(
+    { options: { inboxPrefix: "_INBOX.test" } } as never,
+    { sessionKey: "test", sign: () => new Uint8Array(64) },
+  );
+
+  assertEquals(Object.hasOwn(client.api.rpc, "Auth.Me"), true);
+  assertEquals(Object.hasOwn(client.api.rpc, "Auth.ListApprovals"), true);
+});
 
 Deno.test("API composition", async (t) => {
   const emptySchema = Type.Object({}, { additionalProperties: false });

@@ -1,41 +1,67 @@
 import { decode, encodeAuthorizationResponse, encodeUser, type User } from "@nats-io/jwt";
 import type { Msg } from "@nats-io/nats-core";
 import { fromSeed } from "@nats-io/nkeys";
-import { NatsAuthTokenV1Schema, trellisIdFromOriginId } from "@qlever-llc/trellis-auth";
-import { AsyncResult, isErr } from "@qlever-llc/trellis-result";
+import { NatsAuthTokenV1Schema, trellisIdFromOriginId } from "@qlever-llc/trellis/auth";
+import { AsyncResult, isErr } from "@qlever-llc/result";
+import type { StaticDecode } from "typebox";
 import { Value } from "typebox/value";
 
-import { hashKey, verifyDomainSig } from "../crypto.ts";
+import { hashKey, randomToken, verifyDomainSig } from "../crypto.ts";
 import { CalloutLimiter } from "./limiter.ts";
 import { getConfig } from "../../config.ts";
 import { getResourcePermissionGrants } from "../../catalog/resources.ts";
+import type { ContractStore } from "../../catalog/store.ts";
 import { CONTRACT as trellisAuthContract } from "../../catalog/contracts/trellis_auth.ts";
 import {
   bindingTokenKV,
   connectionsKV,
+  contractsKV,
   logger,
   natsAuth,
   servicesKV,
   sessionKV,
   trellis,
   usersKV,
+  workloadActivationsKV,
+  workloadProfilesKV,
 } from "../../bootstrap/globals.ts";
 import { kick } from "./kick.ts";
 import {
   getServicePublishSubjects,
   getServiceSubscribeSubjects,
 } from "../../catalog/permissions.ts";
+import {
+  deriveWorkloadRuntimeAccess,
+  resolveWorkloadContractDigest,
+} from "../workload_activation/runtime_access.ts";
 import type {
   AuthCalloutClaims,
+  Connection,
+  ContractRecord,
   NatsAuthRequest,
   NatsConnectOpts,
   ServiceRegistryEntry,
+  Session,
+  WorkloadActivationRecordSchema,
+  WorkloadProfileSchema,
 } from "../../state/schemas.ts";
 import {
   AuthCalloutClaimsSchema,
   NatsDisconnectEventSchema,
 } from "../../state/schemas.ts";
 import { resolveSessionPrincipal } from "../session/principal.ts";
+import {
+  workloadActivationRecordKey,
+} from "../workload_activation/keys.ts";
+import { workloadInstanceId } from "../admin/shared.ts";
+
+type WorkloadActivationRecord = StaticDecode<typeof WorkloadActivationRecordSchema> & {
+  activatedBy?: { origin: string; id: string };
+};
+type WorkloadProfile = StaticDecode<typeof WorkloadProfileSchema>;
+type ParsedNatsAuthToken = StaticDecode<typeof NatsAuthTokenV1Schema> & {
+  contractDigest?: string;
+};
 
 const config = getConfig();
 const AUTH_RENEW_SUBJECT = trellisAuthContract.rpc?.["Auth.RenewBindingToken"]?.subject;
@@ -55,6 +81,62 @@ function extractClientIp(natsReq: NatsAuthRequest): string | undefined {
     }
   }
   return undefined;
+}
+
+type WorkloadRuntimeGrant = ReturnType<typeof deriveWorkloadRuntimeAccess> & {
+  activation: {
+    instanceId: string;
+    publicIdentityKey: string;
+    profileId: string;
+    activatedBy?: { origin: string; id: string };
+    state: string;
+    activatedAt: string | null;
+    revokedAt: string | null;
+  };
+  profile: { profileId: string; contractId: string; allowedDigests: string[]; disabled: boolean };
+};
+
+async function findWorkloadActivationByIdentityKey(
+  publicIdentityKey: string,
+): Promise<WorkloadActivationRecord | null> {
+  const activationEntry = (await workloadActivationsKV.get(workloadInstanceId(publicIdentityKey))).take();
+  if (isErr(activationEntry)) return null;
+  const activation = activationEntry.value as WorkloadActivationRecord;
+  return activation.publicIdentityKey === publicIdentityKey ? activation : null;
+}
+
+async function resolveWorkloadRuntimeGrant(
+  publicIdentityKey: string,
+  contractDigest?: string,
+  contractStore?: ContractStore,
+): Promise<WorkloadRuntimeGrant> {
+  const activation = await findWorkloadActivationByIdentityKey(publicIdentityKey);
+  if (!activation) throw new Error("unknown_workload");
+  if (activation.state !== "activated" || activation.revokedAt !== null) {
+    throw new Error("workload_activation_revoked");
+  }
+
+  const profileEntry = (await workloadProfilesKV.get(activation.profileId)).take();
+  if (isErr(profileEntry)) throw new Error("workload_profile_not_found");
+  const profile = profileEntry.value as WorkloadProfile;
+  if (profile.disabled) throw new Error("workload_profile_disabled");
+
+  const effectiveContractDigest = resolveWorkloadContractDigest(profile, contractDigest);
+  const activationActor = (activation as WorkloadActivationRecord).activatedBy;
+
+      const contractEntry = (await contractsKV.get(effectiveContractDigest)).take();
+      if (isErr(contractEntry)) throw new Error("workload_contract_not_found");
+  const contractRecord = contractEntry.value as ContractRecord;
+  const access = deriveWorkloadRuntimeAccess(profile, contractRecord, contractStore);
+  return { ...access, activation: {
+    instanceId: activation.instanceId,
+    publicIdentityKey: activation.publicIdentityKey,
+    profileId: activation.profileId,
+    ...(activationActor ? { activatedBy: activationActor } : {}),
+    state: activation.state,
+    activatedAt: activation.activatedAt,
+    revokedAt: activation.revokedAt,
+  }, profile };
 }
 
 export function startDisconnectCleanup(): BackgroundTaskHandle {
@@ -90,16 +172,19 @@ export function startDisconnectCleanup(): BackgroundTaskHandle {
 
           const session = (await sessionKV.get(`${sessionKey}.${trellisId}`)).take();
           if (!isErr(session)) {
-            (
-              await trellis.publish("Auth.Disconnect", {
-                origin: session.value.origin,
-                id: session.value.id,
-                sessionKey,
-                userNkey,
-              })
-            ).inspectErr((error) =>
-              logger.warn({ error }, "Failed to publish Auth.Disconnect")
-            );
+            const sessionValue = session.value as Session;
+            if (sessionValue.type !== "workload") {
+              (
+                await trellis.publish("Auth.Disconnect", {
+                  origin: sessionValue.origin,
+                  id: sessionValue.id,
+                  sessionKey,
+                  userNkey,
+                })
+              ).inspectErr((error) =>
+                logger.warn({ error }, "Failed to publish Auth.Disconnect")
+              );
+            }
           }
 
           await connectionsKV.delete(key);
@@ -121,7 +206,7 @@ export function startDisconnectCleanup(): BackgroundTaskHandle {
   };
 }
 
-export function startAuthCallout(): BackgroundTaskHandle {
+export function startAuthCallout(opts?: { contractStore?: ContractStore }): BackgroundTaskHandle {
   const xkp = fromSeed(new TextEncoder().encode(config.nats.authCallout.sxSeed));
   const sub = natsAuth.subscribe("$SYS.REQ.USER.AUTH", { queue: "trellis" });
   const calloutLimiter = new CalloutLimiter({
@@ -196,15 +281,9 @@ export function startAuthCallout(): BackgroundTaskHandle {
       const rawAuthToken = connectOpts.auth_token;
       if (!rawAuthToken) throw new Error("auth_token required");
 
-      let authToken: {
-        v: 1;
-        sessionKey: string;
-        sig: string;
-        bindingToken?: string;
-        iat?: number;
-      };
+      let authToken: ParsedNatsAuthToken;
       try {
-        authToken = Value.Parse(NatsAuthTokenV1Schema, JSON.parse(rawAuthToken)) as typeof authToken;
+        authToken = Value.Parse(NatsAuthTokenV1Schema, JSON.parse(rawAuthToken)) as ParsedNatsAuthToken;
       } catch {
         throw new Error("invalid_auth_token");
       }
@@ -232,6 +311,8 @@ export function startAuthCallout(): BackgroundTaskHandle {
         throw new Error("missing_sig");
       }
 
+      let workloadGrant: WorkloadRuntimeGrant | null = null;
+
       if (typeof authToken.bindingToken === "string" && authToken.bindingToken.length > 0) {
         const bindingToken = authToken.bindingToken;
         const bindingTokenHash = await hashKey(bindingToken);
@@ -252,9 +333,6 @@ export function startAuthCallout(): BackgroundTaskHandle {
         if (!(await verifyDomainSig(sessionKey, "nats-connect", bindingToken, sig))) {
           throw new Error("invalid_signature");
         }
-
-        const deleted = await mapped.delete(true);
-        if (isErr(deleted)) throw new Error("invalid_binding_token");
       } else if (typeof authToken.iat === "number") {
         const iat = authToken.iat;
         const nowSec = Math.floor(now.getTime() / 1000);
@@ -264,8 +342,16 @@ export function startAuthCallout(): BackgroundTaskHandle {
         }
 
         const svc = (await servicesKV.get(sessionKey)).take();
-        if (isErr(svc)) throw new Error("unknown_service");
-        if (!svc.value.active) throw new Error("service_disabled");
+        if (!isErr(svc)) {
+          const service = svc.value as ServiceRegistryEntry;
+          if (!service.active) throw new Error("service_disabled");
+        } else {
+          workloadGrant = await resolveWorkloadRuntimeGrant(
+            sessionKey,
+            authToken.contractDigest,
+            opts?.contractStore,
+          );
+        }
       } else {
         throw new Error("invalid_auth_token");
       }
@@ -299,21 +385,44 @@ export function startAuthCallout(): BackgroundTaskHandle {
 
       if (!sessionKeyId) {
         const svc = (await servicesKV.get(sessionKey)).take();
-        if (isErr(svc)) throw new Error("session_not_found");
-
-        const trellisId = await trellisIdFromOriginId("service", sessionKey);
-        const displayName = svc.value.displayName;
-        sessionKeyId = `${sessionKey}.${trellisId}`;
-        const putResult = (await sessionKV.put(sessionKeyId, {
-          type: "service",
-          trellisId,
-          origin: "service",
-          id: sessionKey,
-          email: `${displayName || "service"}@trellis.internal`,
-          name: displayName,
-          createdAt: now,
-          lastAuth: now,
-        })).take();
+        let putResult;
+        if (!isErr(svc)) {
+          const service = svc.value as ServiceRegistryEntry;
+          const trellisId = await trellisIdFromOriginId("service", sessionKey);
+          const displayName = service.displayName;
+          sessionKeyId = `${sessionKey}.${trellisId}`;
+          putResult = (await sessionKV.put(sessionKeyId, {
+            type: "service",
+            trellisId,
+            origin: "service",
+            id: sessionKey,
+            email: `${displayName || "service"}@trellis.internal`,
+            name: displayName,
+            createdAt: now,
+            lastAuth: now,
+          })).take();
+        } else if (workloadGrant) {
+          sessionKeyId = `${sessionKey}.${workloadGrant.activation.instanceId}`;
+          // The first successful runtime auth marks when an approved device was
+          // actually used, which is distinct from the earlier review timestamp.
+          putResult = (await sessionKV.put(sessionKeyId, {
+            type: "workload",
+            instanceId: workloadGrant.activation.instanceId,
+            publicIdentityKey: workloadGrant.activation.publicIdentityKey,
+            profileId: workloadGrant.profile.profileId,
+            contractId: workloadGrant.contractId,
+            contractDigest: workloadGrant.contractDigest,
+            delegatedCapabilities: workloadGrant.capabilities,
+            delegatedPublishSubjects: workloadGrant.publishSubjects,
+            delegatedSubscribeSubjects: workloadGrant.subscribeSubjects,
+            createdAt: now,
+            lastAuth: now,
+            activatedAt: workloadGrant.activation.activatedAt ? new Date(workloadGrant.activation.activatedAt) : null,
+            revokedAt: workloadGrant.activation.revokedAt ? new Date(workloadGrant.activation.revokedAt) : null,
+          })).take();
+        } else {
+          throw new Error("session_not_found");
+        }
         if (isErr(putResult)) {
           logger.error({ error: putResult.error, sessionKeyId }, "Failed to create service session");
           throw new Error("session_create_failed");
@@ -322,13 +431,45 @@ export function startAuthCallout(): BackgroundTaskHandle {
 
       const sessionEntry = (await sessionKV.get(sessionKeyId)).take();
       if (isErr(sessionEntry)) throw new Error("session_not_found");
-      const session = sessionEntry.value;
+      let session = sessionEntry.value as Session;
+
+      if (session.type === "workload") {
+        const currentGrant = workloadGrant ?? await resolveWorkloadRuntimeGrant(
+          sessionKey,
+          session.contractDigest,
+          opts?.contractStore,
+        );
+        let activatedAt = currentGrant.activation.activatedAt ? new Date(currentGrant.activation.activatedAt) : null;
+        if (activatedAt === null) {
+          const activatedAtIso = now.toISOString();
+          activatedAt = now;
+          await workloadActivationsKV.put(currentGrant.activation.instanceId, {
+            ...currentGrant.activation,
+            activatedAt: activatedAtIso,
+          });
+        }
+
+        session = {
+          ...session,
+          profileId: currentGrant.profile.profileId,
+          contractId: currentGrant.contractId,
+          contractDigest: currentGrant.contractDigest,
+          delegatedCapabilities: currentGrant.capabilities,
+          delegatedPublishSubjects: currentGrant.publishSubjects,
+          delegatedSubscribeSubjects: currentGrant.subscribeSubjects,
+          lastAuth: now,
+          activatedAt,
+          revokedAt: currentGrant.activation.revokedAt ? new Date(currentGrant.activation.revokedAt) : null,
+        };
+      }
 
       const inboxPrefix = `_INBOX.${sessionKey.slice(0, 16)}`;
       let resourcePermissions = { publish: [] as string[], subscribe: [] as string[] };
       const principal = await resolveSessionPrincipal(session, sessionKey, {
         servicesKV,
         usersKV,
+        workloadActivationsKV,
+        workloadProfilesKV,
       });
       if (!principal.ok) {
         throw new Error(principal.error.reason);
@@ -344,9 +485,10 @@ export function startAuthCallout(): BackgroundTaskHandle {
 
       const serverId = natsReq.server_id?.id ?? serverName;
       const clientId = natsReq.client_info?.id;
+      const sessionScope = session.type === "workload" ? session.instanceId : session.trellisId;
       if (serverId && typeof clientId === "number") {
         (
-          await connectionsKV.put(`${sessionKey}.${session.trellisId}.${userNkey}`, {
+          await connectionsKV.put(`${sessionKey}.${sessionScope}.${userNkey}`, {
             serverId,
             clientId,
             connectedAt: now,
@@ -354,22 +496,26 @@ export function startAuthCallout(): BackgroundTaskHandle {
         ).inspectErr((error) => logger.warn({ error }, "Failed to track connection"));
       }
 
-      (
-        await trellis.publish("Auth.Connect", {
-          origin: session.origin,
-          id: session.id,
-          sessionKey,
-          userNkey,
-        })
-      ).inspectErr((error) => logger.warn({ error }, "Failed to publish Auth.Connect"));
+      if (session.type !== "workload") {
+        (
+          await trellis.publish("Auth.Connect", {
+            origin: session.origin,
+            id: session.id,
+            sessionKey,
+            userNkey,
+          })
+        ).inspectErr((error) => logger.warn({ error }, "Failed to publish Auth.Connect"));
+      }
 
       const isService = session.type === "service";
-      const delegatedPublish = session.type === "user"
-        ? session.delegatedPublishSubjects!
-        : [];
-      const delegatedSubscribe = session.type === "user"
-        ? session.delegatedSubscribeSubjects!
-        : [];
+      const delegatedPublish = session.type === "service"
+        ? []
+        : session.delegatedPublishSubjects!
+      ;
+      const delegatedSubscribe = session.type === "service"
+        ? []
+        : session.delegatedSubscribeSubjects!
+      ;
       const permissions: Partial<User> = {
         pub: {
           allow: [...new Set([
@@ -380,7 +526,7 @@ export function startAuthCallout(): BackgroundTaskHandle {
                 displayName: principal.value.serviceState?.displayName,
                 })
               : delegatedPublish),
-            ...(!isService && delegatedPublish && AUTH_RENEW_SUBJECT ? [AUTH_RENEW_SUBJECT] : []),
+            ...(session.type === "user" && delegatedPublish.length > 0 && AUTH_RENEW_SUBJECT ? [AUTH_RENEW_SUBJECT] : []),
             ...resourcePermissions.publish,
           ])],
         },

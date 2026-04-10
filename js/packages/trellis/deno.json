@@ -1,18 +1,23 @@
 {
   "extends": "../../deno.json",
   "name": "@qlever-llc/trellis",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "exports": {
     ".": "./index.ts",
+    "./auth": "./auth.ts",
+    "./auth/browser": "./auth/browser.ts",
     "./browser": "./browser.ts",
+    "./contracts": "./contracts.ts",
+    "./server": "./server/mod.ts",
+    "./server/deno": "./server/deno.ts",
+    "./server/node": "./server/node.ts",
+    "./server/runtime": "./server/runtime.ts",
+    "./sdk/activity": "./sdk/activity.ts",
+    "./sdk/auth": "./sdk/auth.ts",
+    "./sdk/core": "./sdk/core.ts",
     "./tracing": "./tracing.ts",
-    "./contracts/*": "./contracts/*",
     "./errors": "./errors/index.ts",
-    "./errors/*": "./errors/*",
-    "./helpers": "./helpers.ts",
-    "./helpers.ts": "./helpers.ts",
-    "./models": "./models/index.ts",
-    "./models/*": "./models/*"
+    "./helpers": "./helpers.ts"
   },
   "tasks": {
     "build:npm": "deno run -A ./scripts/build_npm.ts",

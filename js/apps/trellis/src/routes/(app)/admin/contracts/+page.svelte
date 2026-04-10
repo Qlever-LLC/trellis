@@ -1,17 +1,19 @@
 <script lang="ts">
-  import { getTrellisFor } from "@qlever-llc/trellis-svelte";
+  import type {
+    AuthGetInstalledContractOutput,
+    AuthListInstalledContractsOutput,
+  } from "@qlever-llc/trellis/sdk/auth";
   import { onMount } from "svelte";
-  import { trellisApp } from "../../../../contracts/trellis_app.ts";
   import { errorMessage, formatDate } from "../../../../lib/format";
+  import { getTrellis } from "../../../../lib/trellis";
 
-  const trellisPromise = getTrellisFor(trellisApp);
+  const trellisPromise = getTrellis();
 
   type ContractSummary = {
     digest: string;
     id: string;
     displayName: string;
     description: string;
-    kind: string;
     sessionKey?: string;
     installedAt: string;
     analysisSummary?: {
@@ -59,16 +61,26 @@
     const q = search.trim().toLowerCase();
     if (!q) return contracts;
     return contracts.filter((c) =>
-      [c.id, c.digest, c.displayName, c.description, c.kind]
+      [c.id, c.digest, c.displayName, c.description]
         .filter(Boolean).some((v) => v.toLowerCase().includes(q))
     );
   });
+
+  async function listInstalledContracts(): Promise<AuthListInstalledContractsOutput> {
+    const trellis = await trellisPromise;
+    return trellis.requestOrThrow("Auth.ListInstalledContracts", {});
+  }
+
+  async function getInstalledContract(digest: string): Promise<AuthGetInstalledContractOutput> {
+    const trellis = await trellisPromise;
+    return trellis.requestOrThrow("Auth.GetInstalledContract", { digest });
+  }
 
   async function load() {
     loading = true;
     error = null;
     try {
-      const res = await (await trellisPromise).requestOrThrow("Auth.ListInstalledContracts", {});
+      const res = await listInstalledContracts();
       contracts = res.contracts ?? [];
     } catch (e) { error = errorMessage(e); }
     finally { loading = false; }
@@ -79,7 +91,7 @@
     selectedDigest = digest;
     detailLoading = true;
     try {
-      const res = await (await trellisPromise).requestOrThrow("Auth.GetInstalledContract", { digest });
+      const res = await getInstalledContract(digest);
       detail = res.contract;
     } catch (e) { error = errorMessage(e); detail = null; }
     finally { detailLoading = false; }
@@ -107,7 +119,7 @@
           <p class="text-sm text-base-content/60">No contracts found.</p>
         {:else}
           <ul class="space-y-1">
-            {#each filtered as contract}
+            {#each filtered as contract (contract.digest)}
               <li>
                 <button
                   class="w-full text-left p-3 rounded-lg border transition-colors"
@@ -119,7 +131,6 @@
                 >
                   <p class="font-medium text-sm">{contract.displayName || contract.id}</p>
                   <div class="flex gap-2 mt-1">
-                    <span class="badge badge-sm badge-ghost">{contract.kind}</span>
                     <span class="text-xs text-base-content/50 font-mono">{contract.digest.slice(0, 12)}…</span>
                   </div>
                 </button>
@@ -143,7 +154,6 @@
               </div>
 
               <div class="grid grid-cols-2 gap-2 text-sm">
-                <div><span class="text-base-content/50">Kind:</span> {detail.kind}</div>
                 <div><span class="text-base-content/50">ID:</span> {detail.id}</div>
                 <div class="col-span-2"><span class="text-base-content/50">Digest:</span> <span class="font-mono text-xs">{detail.digest}</span></div>
                 <div><span class="text-base-content/50">Installed:</span> {formatDate(detail.installedAt)}</div>
@@ -167,7 +177,7 @@
                       <table class="table table-xs">
                         <thead><tr><th>Method</th><th>Subject</th><th>Capabilities</th></tr></thead>
                         <tbody>
-                          {#each detail.analysis.rpc.methods as m}
+                          {#each detail.analysis.rpc.methods as m (m.key)}
                             <tr>
                               <td class="font-medium">{m.key}</td>
                               <td class="font-mono text-xs text-base-content/60">{m.subject}</td>
@@ -180,7 +190,7 @@
                       <table class="table table-xs">
                         <thead><tr><th>Event</th><th>Subject</th><th>Pub</th><th>Sub</th></tr></thead>
                         <tbody>
-                          {#each detail.analysis.events.events as e}
+                          {#each detail.analysis.events.events as e (e.key)}
                             <tr>
                               <td class="font-medium">{e.key}</td>
                               <td class="font-mono text-xs text-base-content/60">{e.subject}</td>
@@ -194,7 +204,7 @@
                       <table class="table table-xs">
                         <thead><tr><th>Alias</th><th>Purpose</th><th>History</th><th>TTL</th><th>Required</th></tr></thead>
                         <tbody>
-                          {#each detail.analysis.resources.kv as r}
+                          {#each detail.analysis.resources.kv as r (r.alias)}
                             <tr>
                               <td class="font-medium">{r.alias}</td>
                               <td class="text-base-content/60">{r.purpose}</td>
@@ -209,7 +219,7 @@
                       <table class="table table-xs">
                         <thead><tr><th>Kind</th><th>Subject</th><th>Capabilities</th></tr></thead>
                         <tbody>
-                          {#each detail.analysis.nats.publish as p}
+                          {#each detail.analysis.nats.publish as p (`${p.kind}:${p.subject}`)}
                             <tr>
                               <td class="font-medium">{p.kind}</td>
                               <td class="font-mono text-xs text-base-content/60">{p.subject}</td>
@@ -222,7 +232,7 @@
                       <table class="table table-xs">
                         <thead><tr><th>Kind</th><th>Subject</th><th>Capabilities</th></tr></thead>
                         <tbody>
-                          {#each detail.analysis.nats.subscribe as s}
+                          {#each detail.analysis.nats.subscribe as s (`${s.kind}:${s.subject}`)}
                             <tr>
                               <td class="font-medium">{s.kind}</td>
                               <td class="font-mono text-xs text-base-content/60">{s.subject}</td>
@@ -242,7 +252,7 @@
                 <div>
                   <h4 class="text-xs font-semibold uppercase text-base-content/50 mb-2">KV Bindings</h4>
                   <div class="space-y-1">
-                    {#each Object.entries(detail.resourceBindings.kv) as [alias, binding]}
+                    {#each Object.entries(detail.resourceBindings.kv) as [alias, binding] (alias)}
                       <div class="flex justify-between text-sm p-2 bg-base-200 rounded">
                         <span class="font-medium">{alias}</span>
                         <span class="font-mono text-xs text-base-content/60">{binding.bucket}</span>

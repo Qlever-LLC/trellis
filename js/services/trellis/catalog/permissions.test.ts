@@ -1,4 +1,4 @@
-import type { TrellisContractV1 } from "@qlever-llc/trellis-contracts";
+import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 import { assertEquals } from "@std/assert";
 
 import {
@@ -18,7 +18,6 @@ const TEST_CONTRACTS: Array<{ digest: string; contract: TrellisContractV1 }> = [
       id: "trellis.core@v1",
       displayName: "Trellis Core",
       description: "Provide core Trellis APIs.",
-      kind: "service",
       schemas: {
         EmptyInput: { type: "object" },
         EmptyOutput: { type: "object" },
@@ -48,7 +47,6 @@ const TEST_CONTRACTS: Array<{ digest: string; contract: TrellisContractV1 }> = [
       id: "trellis.auth@v1",
       displayName: "Trellis Auth",
       description: "Provide Trellis auth APIs.",
-      kind: "service",
       schemas: {
         AuthConnectEvent: { type: "object" },
       },
@@ -72,7 +70,6 @@ const TEST_CONTRACTS: Array<{ digest: string; contract: TrellisContractV1 }> = [
       id: "graph@v1",
       displayName: "Graph",
       description: "Expose graph RPC and event subjects.",
-      kind: "service",
       schemas: {
         EmptyInput: { type: "object" },
         EmptyOutput: { type: "object" },

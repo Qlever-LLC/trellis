@@ -1,5 +1,5 @@
-import { UserViewSchema as UserSchema } from "@qlever-llc/trellis-auth";
-import { PaginatedSchema } from "@qlever-llc/trellis-contracts";
+import { UserViewSchema as UserSchema } from "../../../auth.ts";
+import { PaginatedSchema } from "../../../contracts.ts";
 import Type, { type Static } from "typebox";
 import { PaginateSchema } from "../../trellis/Paginate.ts";
 

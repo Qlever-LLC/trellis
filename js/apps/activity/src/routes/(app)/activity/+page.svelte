@@ -1,11 +1,8 @@
 <script lang="ts">
   import type {
-    ActivityGetOutput,
     ActivityListOutput,
-  } from "@qlever-llc/trellis-sdk-activity";
-  import { getTrellisFor } from "@qlever-llc/trellis-svelte";
+  } from "@qlever-llc/trellis/sdk/activity";
   import { onMount } from "svelte";
-  import { activityApp } from "../../../contracts/activity_app.ts";
   import {
     errorMessage,
     formatDate,
@@ -13,8 +10,8 @@
     shortKey,
     toneForKind,
   } from "../../../lib/format";
+  import { getTrellis } from "../../../lib/trellis";
 
-  const trellisPromise = getTrellisFor(activityApp);
   type ActivityEntry = ActivityListOutput["entries"][number];
   type ActivityKind = ActivityEntry["kind"];
 
@@ -50,7 +47,8 @@
     error = null;
 
     try {
-      const response: ActivityGetOutput = await (await trellisPromise).requestOrThrow("Activity.Get", { id });
+      const trellis = await getTrellis();
+      const response = await trellis.requestOrThrow("Activity.Get", { id });
       selectedEntry = response.entry;
     } catch (nextError) {
       error = errorMessage(nextError);
@@ -64,7 +62,8 @@
     error = null;
 
     try {
-      const response: ActivityListOutput = await (await trellisPromise).requestOrThrow("Activity.List", {
+      const trellis = await getTrellis();
+      const response = await trellis.requestOrThrow("Activity.List", {
         limit,
         kind: kind || undefined,
       });
@@ -122,7 +121,7 @@
         <label class="form-control">
           <div class="label pb-2"><span class="label-text">Filter by kind</span></div>
           <select class="select select-bordered bg-base-100/80" bind:value={kind}>
-            {#each kindOptions as option}
+            {#each kindOptions as option (option.value || "all")}
               <option value={option.value}>{option.label}</option>
             {/each}
           </select>
@@ -189,7 +188,7 @@
 
         {#if loading}
           <div class="space-y-3 px-6 pb-6">
-            {#each Array.from({ length: 5 }) as _}
+            {#each Array.from({ length: 5 }) as _, index (index)}
               <div class="rounded-box border border-base-300/60 bg-base-100/55 p-4">
                 <div class="skeleton h-4 w-24"></div>
                 <div class="skeleton mt-3 h-6 w-4/5"></div>
@@ -205,7 +204,7 @@
           </div>
         {:else}
           <div class="space-y-3 px-6 pb-6">
-            {#each entries as entry}
+            {#each entries as entry (entry.id)}
               <button
                 class={`w-full rounded-box border p-4 text-left transition ${selectedId === entry.id ? "border-primary/60 bg-primary/10" : "border-base-300/60 bg-base-100/55 hover:border-primary/40 hover:bg-base-100/80"}`}
                 onclick={() => loadDetail(entry.id)}

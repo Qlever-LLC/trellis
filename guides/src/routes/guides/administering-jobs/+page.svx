@@ -1,0 +1,124 @@
+This guide covers querying, cancelling, replaying, and monitoring jobs across all services using `trellis-service-jobs`. The examples use the `orders-service` fulfillment jobs from [Jobs: TypeScript](/guides/using-jobs-ts).
+
+This guide is for operators. If you are a service author, see [Jobs: TypeScript](/guides/using-jobs-ts) or [Jobs: Rust](/guides/using-jobs-rust).
+
+## What `trellis-service-jobs` owns
+
+`trellis-service-jobs` is a Trellis infrastructure service that provides:
+
+- **KV projection** — a queryable read-optimized view of current job state derived from the JetStream source of truth
+- **Global RPCs** — `Jobs.List`, `Jobs.Get`, `Jobs.Cancel`, `Jobs.Retry`, `Jobs.ReplayDLQ`, `Jobs.DismissDLQ`, `Jobs.ListServices`, `Jobs.Health`
+- **Janitor** — background cleanup of expired jobs and stale projection entries
+
+`trellis-service-jobs` is stateless and horizontally scalable. It does not participate in job correctness — it is a derived observability layer. The JetStream stream remains the source of truth.
+
+## Querying jobs
+
+Use the admin client to query jobs. The client is available from a Trellis CLI tool or any service/app that declares the `trellis.jobs@v1` contract in its `uses`.
+
+**List all pending fulfillment jobs for the orders service:**
+
+```ts
+const jobs = trellis.jobs();
+
+const pending = await jobs.list({
+  service: "orders-service",
+  jobType: "reserve-inventory",
+  state: "pending",
+});
+```
+
+**Get a specific job:**
+
+```ts
+const job = await jobs.get({
+  service: "orders-service",
+  jobType: "charge-payment",
+  id: "job_abc123",
+});
+```
+
+`JobFilter` fields are all optional — omit any to widen the query.
+
+## Cancelling a job
+
+`Jobs.Cancel` is valid for jobs in `pending`, `active`, or `retry` states.
+
+```ts
+await jobs.cancel({
+  service: "orders-service",
+  jobType: "charge-payment",
+  id: "job_abc123",
+});
+```
+
+**Important:** Cancellation is cooperative and eventual for `active` jobs. The service worker continues running until it checks `job.cancelled` and responds. Expect a short delay before the state transitions to `cancelled`. Jobs in `pending` or `retry` state transition immediately.
+
+## Failed vs dead: two different operations
+
+The jobs system distinguishes `failed` from `dead`. They require different admin actions.
+
+### `failed` jobs
+
+A job enters `failed` when it has no more automatic retries remaining. Use `Jobs.Retry` to re-enqueue it:
+
+```ts
+await jobs.retry({
+  service: "orders-service",
+  jobType: "charge-payment",
+  id: "job_abc123",
+});
+```
+
+This transitions the job back to `pending` for re-processing.
+
+### `dead` jobs
+
+A job enters `dead` when it has exhausted its `maxDeliver` retry attempts. Example: a `charge-payment` job failed 5 consecutive times because the payment provider was down.
+
+`dead` is **not terminal** — it can be replayed or dismissed.
+
+**Replay** (when the underlying issue is fixed):
+
+```ts
+await jobs.replayDLQ({
+  service: "orders-service",
+  jobType: "charge-payment",
+  id: "job_abc123",
+});
+```
+
+This re-enqueues the job at `pending`.
+
+**Dismiss** (when the work is no longer needed):
+
+```ts
+await jobs.dismissDLQ({
+  service: "orders-service",
+  jobType: "charge-payment",
+  id: "job_abc123",
+});
+```
+
+This transitions the job to `dismissed`, a terminal state. Dismissed jobs are not re-processed.
+
+## Worker presence
+
+Services emit heartbeat messages per job type while workers are running. Use these to confirm workers are active and see what they are processing.
+
+The heartbeat data includes the service name, job type, instance identifier, and a timestamp. Absence of recent heartbeats for a job type means either the service is not running or the worker is not registered for that job type.
+
+Use the `trellis` CLI or an observability tool subscribed to the heartbeat subjects to monitor worker presence:
+
+```sh
+trellis jobs workers --service orders-service
+```
+
+## Janitor behavior
+
+The janitor is a background loop inside `trellis-service-jobs` that cleans up:
+
+- **Expired jobs** — jobs that exceeded their `defaultDeadlineMs` and have not completed; moved to `expired`
+- **Stale KV projection entries** — projection records whose underlying stream messages have been cleaned up
+
+The janitor interval is operator-configurable via the `trellis-service-jobs` configuration. There is no fixed default — tune it based on your job volume and retention requirements. A shorter interval keeps the projection tighter; a longer interval reduces janitor overhead on high-volume deployments.

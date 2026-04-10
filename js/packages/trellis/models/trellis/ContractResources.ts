@@ -8,7 +8,7 @@ import {
   JobsQueueBindingSchema,
   JobsResourceBindingSchema,
   KvResourceBindingSchema,
-} from "@qlever-llc/trellis-contracts";
+} from "../../contracts.ts";
 import type { Static } from "typebox";
 
 export {

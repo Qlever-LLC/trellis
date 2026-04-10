@@ -2,13 +2,13 @@ import { UnexpectedError, ValidationError } from "@qlever-llc/trellis";
 import type {
   InstalledContractDetailSchema,
   InstalledContractSchema,
-} from "@qlever-llc/trellis-auth";
+} from "@qlever-llc/trellis/auth";
 import type {
   ContractResources,
   TrellisContractV1,
-} from "@qlever-llc/trellis-contracts";
-import { isJsonValue } from "@qlever-llc/trellis-contracts";
-import { isErr, Result } from "@qlever-llc/trellis-result";
+} from "@qlever-llc/trellis/contracts";
+import { isJsonValue } from "@qlever-llc/trellis/contracts";
+import { isErr, Result } from "@qlever-llc/result";
 import type { Static } from "typebox";
 import { Value } from "typebox/value";
 import type { TrellisCatalog } from "../../../packages/trellis/models/trellis/rpc/TrellisCatalog.ts";
@@ -46,7 +46,6 @@ function toRpcContract(contract: TrellisContractV1): TrellisContractGetResponse[
     id: contract.id,
     displayName: contract.displayName,
     description: contract.description,
-    kind: contract.kind,
     ...(contract.schemas
       ? {
         schemas: Object.fromEntries(
@@ -64,7 +63,7 @@ function toRpcContract(contract: TrellisContractV1): TrellisContractGetResponse[
 }
 
 type ServiceContext = {
-  user: { origin: string; id: string };
+  caller: { type: string; origin?: string; id?: string };
   sessionKey: string;
 };
 
@@ -235,17 +234,16 @@ export function createContractsModule(opts: {
 }) {
   const contractStore = new ContractStore(opts.builtinContracts);
 
-  async function prepareInstalledContract(args: {
-    serviceSessionKey: string;
-    namespaces: string[];
+  type ValidatedContract = Awaited<ReturnType<typeof contractStore.validate>>;
+
+  async function validateInstalledContract(args: {
     contract: unknown;
     currentDigest?: string;
     currentContractId?: string;
   }): Promise<{
-    id: string;
-    digest: string;
-    capabilities: string[];
-    resourceBindings: ContractResourceBindings;
+    validated: ValidatedContract;
+    usedNamespaces: Set<string>;
+    analyzed: ReturnType<typeof analyzeContract>;
   }> {
     if (
       !args.contract || typeof args.contract !== "object" ||
@@ -274,7 +272,6 @@ export function createContractsModule(opts: {
       );
     }
 
-    const allowedNamespaces = new Set(args.namespaces);
     const usedNamespaces = new Set<string>();
     const rpc = (validated.contract as Record<string, unknown>).rpc as
       | Record<string, unknown>
@@ -341,8 +338,29 @@ export function createContractsModule(opts: {
       }
     }
 
+    return {
+      validated,
+      usedNamespaces,
+      analyzed: analyzeContract(validated.contract),
+    };
+  }
+
+  async function prepareInstalledContract(args: {
+    serviceSessionKey: string;
+    namespaces: string[];
+    contract: unknown;
+    currentDigest?: string;
+    currentContractId?: string;
+  }): Promise<{
+    id: string;
+    digest: string;
+    capabilities: string[];
+    resourceBindings: ContractResourceBindings;
+  }> {
+    const { validated, usedNamespaces, analyzed } = await validateInstalledContract(args);
+
     const missingNamespaces = [...usedNamespaces].filter((ns) =>
-      !allowedNamespaces.has(ns)
+      !new Set(args.namespaces).has(ns)
     );
     if (missingNamespaces.length > 0) {
       throw new Error(
@@ -362,7 +380,6 @@ export function createContractsModule(opts: {
       validated.contract,
     );
 
-    const analyzed = analyzeContract(validated.contract);
     const now = new Date();
     (
       await contractsKV.put(validated.digest, {
@@ -370,7 +387,6 @@ export function createContractsModule(opts: {
         id: validated.contract.id,
         displayName: validated.contract.displayName,
         description: validated.contract.description,
-        kind: validated.contract.kind,
         sessionKey: args.serviceSessionKey,
         installedAt: now,
         contract: validated.canonical,
@@ -390,6 +406,56 @@ export function createContractsModule(opts: {
       digest: validated.digest,
       capabilities,
       resourceBindings,
+    };
+  }
+
+  async function installWorkloadContract(contract: unknown): Promise<{
+    id: string;
+    digest: string;
+  }> {
+    if (
+      !contract || typeof contract !== "object" ||
+      Array.isArray(contract)
+    ) {
+      throw new Error("contract must be an object");
+    }
+
+    const validated = await contractStore.validate(contract);
+    const analyzed = analyzeContract(validated.contract);
+    if (
+      analyzed.summary.kvResources > 0 ||
+      analyzed.summary.streamsResources > 0 ||
+      analyzed.summary.jobsQueues > 0 ||
+      (validated.contract as TrellisContractV1 & { resources?: unknown }).resources !== undefined
+    ) {
+      throw new Error("workload contracts may not declare resources");
+    }
+
+    const existing = (await contractsKV.get(validated.digest)).take();
+    if (!isErr(existing)) {
+      return {
+        id: validated.contract.id,
+        digest: validated.digest,
+      };
+    }
+
+    const now = new Date();
+    (
+      await contractsKV.put(validated.digest, {
+        digest: validated.digest,
+        id: validated.contract.id,
+        displayName: validated.contract.displayName,
+        description: validated.contract.description,
+        installedAt: now,
+        contract: validated.canonical,
+        analysisSummary: analyzed.summary,
+        analysis: analyzed.analysis,
+      })
+    ).inspectErr((error) => logger.warn({ error }, "Failed to persist workload contract"));
+
+    return {
+      id: validated.contract.id,
+      digest: validated.digest,
     };
   }
 
@@ -504,7 +570,7 @@ export function createContractsModule(opts: {
     setPermissionContracts(contractStore.getActiveEntries());
   }
 
-  return { contractStore, prepareInstalledContract, refreshActiveContracts };
+  return { contractStore, prepareInstalledContract, installWorkloadContract, refreshActiveContracts };
 }
 
 export function createTrellisCatalogHandler(contractStore: ContractStore) {
@@ -547,13 +613,13 @@ export function createTrellisContractGetHandler(contractStore: ContractStore) {
 
 export const trellisBindingsGetHandler = async (
   req: BindingsRequest | undefined,
-  { user, sessionKey }: ServiceContext,
+  { caller, sessionKey }: ServiceContext,
 ) => {
   logger.trace(
-    { rpc: "Trellis.Bindings.Get", user, sessionKey },
+    { rpc: "Trellis.Bindings.Get", caller, sessionKey },
     "RPC request",
   );
-  if (user.origin !== "service") {
+  if (caller.type !== "service") {
     return Result.err(
       new ValidationError({
         errors: [{
@@ -623,7 +689,6 @@ export const authListInstalledContractsHandler = async (
         id: entry.value.id,
         displayName: entry.value.displayName,
         description: entry.value.description,
-        kind: entry.value.kind,
         sessionKey: entry.value.sessionKey,
         installedAt: entry.value.installedAt.toISOString(),
         analysisSummary: entry.value
@@ -676,7 +741,6 @@ export const authGetInstalledContractHandler = async (
       id: entry.value.id,
       displayName: entry.value.displayName,
       description: entry.value.description,
-      kind: entry.value.kind,
       sessionKey: entry.value.sessionKey,
       installedAt: entry.value.installedAt.toISOString(),
       analysisSummary: entry.value

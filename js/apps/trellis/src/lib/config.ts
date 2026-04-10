@@ -1,5 +1,3 @@
-const DEFAULT_AUTH_URL = "http://localhost:3000";
-const DEFAULT_NATS_SERVER = "ws://localhost:8080";
 const AUTH_URL_STORAGE_KEY = "trellis.console.authUrl";
 const AUTH_URL_QUERY_PARAM = "authUrl";
 
@@ -8,13 +6,7 @@ const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1", "[::1]", CANONICAL_LOOPBACK_
 
 type RuntimeAppConfig = {
   authUrl?: string;
-  natsServers?: string;
 };
-
-function parseServers(value: string | undefined): string[] {
-  const raw = value ?? DEFAULT_NATS_SERVER;
-  return raw.split(",").map((server) => server.trim()).filter(Boolean);
-}
 
 function readRuntimeConfig(): RuntimeAppConfig {
   const config = (globalThis as typeof globalThis & {
@@ -29,8 +21,7 @@ const viteEnv = (import.meta as ImportMeta & {
 }).env ?? {};
 
 export const APP_CONFIG = {
-  authUrl: runtimeConfig.authUrl ?? viteEnv["VITE_TRELLIS_AUTH_URL"] ?? DEFAULT_AUTH_URL,
-  natsServers: parseServers(runtimeConfig.natsServers ?? viteEnv["VITE_TRELLIS_NATS_SERVERS"]),
+  authUrl: runtimeConfig.authUrl ?? viteEnv["VITE_TRELLIS_AUTH_URL"],
 };
 
 function normalizeConfiguredUrl(value: string): string {
@@ -51,15 +42,20 @@ function tryNormalizeConfiguredUrl(value: string | null | undefined): string | n
   }
 }
 
-function getStorage(storage?: Pick<Storage, "getItem" | "setItem"> | null): Pick<Storage, "getItem" | "setItem"> | null {
+function getStorage(
+  storage?: Pick<Storage, "getItem" | "setItem" | "removeItem"> | null,
+): Pick<Storage, "getItem" | "setItem" | "removeItem"> | null {
   if (storage !== undefined) return storage;
-  if (typeof window === "undefined") return null;
-  return window.localStorage;
+  if (typeof globalThis.localStorage === "undefined") return null;
+  return globalThis.localStorage;
 }
 
-function applySelectedAuthUrl(url: URL, authUrl: string): void {
+function applySelectedAuthUrl(url: URL, authUrl: string | null | undefined): void {
   const normalized = tryNormalizeConfiguredUrl(authUrl);
-  if (!normalized) return;
+  if (!normalized) {
+    url.searchParams.delete(AUTH_URL_QUERY_PARAM);
+    return;
+  }
   if (normalized === APP_CONFIG.authUrl) {
     url.searchParams.delete(AUTH_URL_QUERY_PARAM);
     return;
@@ -68,9 +64,9 @@ function applySelectedAuthUrl(url: URL, authUrl: string): void {
 }
 
 export function getSelectedAuthUrl(
-  location: URL | Location = window.location,
-  storage?: Pick<Storage, "getItem" | "setItem"> | null,
-): string {
+  location: URL | Location = globalThis.location,
+  storage?: Pick<Storage, "getItem" | "setItem" | "removeItem"> | null,
+): string | undefined {
   const current = toUrl(location);
   const store = getStorage(storage);
   const fromQuery = tryNormalizeConfiguredUrl(current.searchParams.get(AUTH_URL_QUERY_PARAM));
@@ -89,10 +85,17 @@ export function getSelectedAuthUrl(
 
 export function persistSelectedAuthUrl(
   authUrl: string,
-  storage?: Pick<Storage, "getItem" | "setItem"> | null,
-): string {
+  storage?: Pick<Storage, "getItem" | "setItem" | "removeItem"> | null,
+): string | undefined {
   const normalized = tryNormalizeConfiguredUrl(authUrl) ?? APP_CONFIG.authUrl;
-  getStorage(storage)?.setItem(AUTH_URL_STORAGE_KEY, normalized);
+  const store = getStorage(storage);
+
+  if (!normalized) {
+    store?.removeItem(AUTH_URL_STORAGE_KEY);
+    return undefined;
+  }
+
+  store?.setItem(AUTH_URL_STORAGE_KEY, normalized);
   return normalized;
 }
 
@@ -114,7 +117,7 @@ export function getCanonicalLoopbackUrl(location: URL | Location): URL {
   return url;
 }
 
-export function getCanonicalLoopbackRedirectUrl(location: URL | Location = window.location): string | null {
+export function getCanonicalLoopbackRedirectUrl(location: URL | Location = globalThis.location): string | null {
   const current = toUrl(location);
   const canonical = getCanonicalLoopbackUrl(current);
 
@@ -123,7 +126,7 @@ export function getCanonicalLoopbackRedirectUrl(location: URL | Location = windo
 
 export function buildAppLoginUrl(
   redirectTo: string,
-  location: URL | Location = window.location,
+  location: URL | Location = globalThis.location,
   authError?: string,
   authUrl?: string,
 ): string {
@@ -138,7 +141,7 @@ export function buildAppLoginUrl(
 
 export function buildAppCallbackUrl(
   redirectTo: string,
-  location: URL | Location = window.location,
+  location: URL | Location = globalThis.location,
   authUrl?: string,
 ): string {
   const url = new URL("/callback", getCanonicalLoopbackUrl(location).origin);

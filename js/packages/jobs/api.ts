@@ -1,5 +1,5 @@
-import { type BaseError, Result, UnexpectedError } from "@qlever-llc/trellis-result";
-import { type StaticDecode, Type } from "typebox";
+import { type BaseError, Result, UnexpectedError } from "@qlever-llc/result";
+import { type StaticDecode } from "typebox";
 import type { JobLogEntrySchema, JobProgressSchema } from "./types.ts";
 
 export { JobLogEntrySchema, JobProgressSchema } from "./types.ts";
@@ -239,5 +239,5 @@ export interface JobsFacade {
   startWorkers(): Promise<Result<JobWorkerHost, BaseError>>;
 }
 
-export type JobsFacadeOf<TQueues extends Record<string, JobQueue<any, any>>> =
+export type JobsFacadeOf<TQueues extends Record<string, JobQueue<unknown, unknown>>> =
   TQueues & JobsFacade;

@@ -1,4 +1,4 @@
-import { isErr, Result, UnexpectedError } from "@qlever-llc/trellis-result";
+import { isErr, Result, UnexpectedError } from "@qlever-llc/result";
 import { assertEquals } from "@std/assert";
 
 import { JobClient } from "./client.ts";
@@ -7,9 +7,11 @@ function createTrellisStub(responses: Record<string, Result<unknown, UnexpectedE
   const calls: Array<{ method: string; input: unknown }> = [];
   return {
     trellis: {
-      async request<T>(method: string, input: unknown): Promise<Result<T, UnexpectedError>> {
+      request<T>(method: string, input: unknown): Promise<Result<T, UnexpectedError>> {
         calls.push({ method, input });
-        return (responses[method] ?? Result.err(new UnexpectedError({ cause: new Error(`missing ${method}`) }))) as Result<T, UnexpectedError>;
+        return Promise.resolve(
+          (responses[method] ?? Result.err(new UnexpectedError({ cause: new Error(`missing ${method}`) }))) as Result<T, UnexpectedError>,
+        );
       },
     },
     calls,

@@ -1,4 +1,4 @@
-import { Result, type UnexpectedError } from "@qlever-llc/trellis-result";
+import { Result, type UnexpectedError } from "@qlever-llc/result";
 import Type, { type Static } from "typebox";
 import { ParseError, Value } from "typebox/value";
 import type { TrellisErrorData } from "../models/trellis/TrellisError.ts";

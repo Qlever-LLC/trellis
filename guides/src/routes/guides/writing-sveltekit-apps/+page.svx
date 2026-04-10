@@ -1,0 +1,164 @@
+This tutorial walks through building a SvelteKit app that authenticates with Trellis and calls RPCs from the browser.
+
+You should become familiar with the [Trellis Concepts](/guides/concepts) for background on contracts, auth, and packages, if you are not already.
+
+## What you need
+
+- a running Trellis environment from [Starting Trellis](/guides/starting-trellis)
+- the `trellis` CLI (see [Install the Trellis CLI](/guides/install-trellis-cli))
+
+## 1. Create the project
+
+```sh
+npx sv create my-app
+cd my-app
+```
+
+Install the Trellis packages:
+
+```sh
+deno add @qlever-llc/trellis @qlever-llc/trellis-svelte
+```
+
+## 2. Define the app contract
+
+All Trellis apps and services define a contract that specifies the API they need access to. For browser applications, this also drives the approval screens that ask users to let your app sign in as them.
+
+Start by creating `src/lib/contracts/my_app.ts`. For this example, we only need to use the default Trellis auth features.
+
+```ts
+import { defineContract } from "@qlever-llc/trellis";
+import { auth } from "@qlever-llc/trellis/sdk/auth";
+
+export const myApp = defineContract({
+  id: "my-app@v1",
+  displayName: "My App",
+  description: "A browser app that reads auth state.",
+  uses: {
+    auth: auth.useDefaults(),
+  },
+});
+```
+
+The defaults include at least `Auth.Me`, `Auth.Logout`, and `Auth.RenewBindingToken`, which most browser apps need. `Auth.Me` returns a `{ user, workload, service }` envelope, with the workload branch carrying the workload identity and the activating user when applicable.
+
+### Keep contract updates in your normal dev/build flow
+
+Contract edits should be checked as part of your normal app workflow rather than as a separate manual step.
+
+A simple setup that ensures this:
+
+```json
+{
+  "tasks": {
+    "contracts": "trellis contracts verify --source ./src/lib/contracts/my_app.ts",
+    "dev": "deno task contracts && vite dev",
+    "build": "deno task contracts && vite build"
+  }
+}
+```
+
+## 3. Create one app-local Trellis module
+
+To manage the Trellis connection, auth flow, and typing, create one app-local Trellis module. Create `src/lib/trellis.ts` with:
+
+```ts
+import { createTrellisApp } from "@qlever-llc/trellis-svelte";
+import { myApp } from "$lib/contracts/my_app";
+
+export const app = createTrellisApp({
+  authUrl: "http://localhost:3000",
+  contract: myApp,
+  loginPath: "/login",
+});
+
+export const getTrellis = app.getTrellis;
+```
+
+For the common case where your browser app talks to one known Trellis server, put it here as `authUrl`. For apps that let the user choose a Trellis instance, you can leave `authUrl` off here and inject it during sign-in instead.
+
+## 4. Build the login page
+
+To sign in to Trellis, your app needs a screen that kicks off the flow. Create `src/routes/login/+page.svelte`:
+
+```svelte
+<script lang="ts">
+  import { app } from "$lib/trellis";
+
+  async function signIn() {
+    await app.signIn({
+      landingPath: "/dashboard",
+      context: { subtitle: "Welcome back to the spring preview" },
+    });
+  }
+</script>
+
+<h1>Sign in</h1>
+<button onclick={signIn}>Continue to sign in</button>
+```
+
+`landingPath` is the default path to redirect to once sign-in is complete. If the user reached the sign-in page with a `?redirectTo=...` query parameter, `trellis-svelte` automatically sends them back there after sign-in instead of using `landingPath`.
+
+The optional `context` object lets your app provide hints to custom portals for more integrated UX flows.
+
+## 5. Wrap authenticated routes with TrellisProvider
+
+The easiest way to ensure your private side of the app always has an authenticated Trellis connection is to put everything in a route group and wrap a `TrellisProvider` component around it all.
+
+To do this, create a layout group `(app)` and define its layout by creating `src/routes/(app)/+layout.svelte`:
+
+```svelte
+<script lang="ts">
+  import { TrellisProvider } from "@qlever-llc/trellis-svelte";
+  import { app } from "$lib/trellis";
+
+  let { children } = $props();
+</script>
+
+<TrellisProvider {app}>
+  {#snippet loading()}
+    <p>Connecting...</p>
+  {/snippet}
+
+  {#snippet bindError(result)}
+    <p>
+      {#if result.status === "approval_denied"}
+        Access was denied.
+      {:else if result.status === "approval_required"}
+        This app requires approval before it can access Trellis.
+      {:else if result.status === "insufficient_capabilities"}
+        Your account is missing required capabilities: {result.missingCapabilities.join(", ")}
+      {:else}
+        Authentication failed: {result.message}
+      {/if}
+    </p>
+    <a href="/login">Try again</a>
+  {/snippet}
+
+  {@render children()}
+</TrellisProvider>
+```
+
+After that point, pages do not need to recreate auth state. They read the live runtime through context-backed helpers.
+
+There are also optional callbacks:
+
+- `onAuthRequired` fires whenever `trellis-svelte` decides a new authentication flow is needed to continue. If you do not provide `onAuthRequired`, `trellis-svelte` automatically redirects the user to `loginPath` with a `redirectTo` query parameter that sends them back to where they were.
+- `onBindError` fires when the UI tried to bind itself to a Trellis session but could not continue. This is the same condition that selects the `bindError` snippet.
+
+## 6. Call RPCs
+
+Call RPCs directly from a page at `src/routes/(app)/dashboard/+page.svelte`:
+
+```svelte
+<script lang="ts">
+  import { getTrellis } from "$lib/trellis";
+
+  const trellis = await getTrellis();
+  const me = await trellis.requestOrThrow("Auth.Me", {});
+</script>
+
+<h1>Welcome, {me.user.name}</h1>
+```
+
+Svelte 5 allows top-level `await`, which makes the component async and suspends rendering until those awaits resolve. In practice, this means the page renders for the first time only after a valid Trellis client is available.

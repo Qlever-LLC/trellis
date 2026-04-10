@@ -6,12 +6,17 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
 use serde_json::Value;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
 use url::Url;
 
 use crate::browser_login::callback_page_html;
 use crate::{
-    build_auth_login_url, clear_admin_session, generate_session_keypair, load_admin_session,
-    save_admin_session, AdminSessionState,
+    build_auth_login_url, build_workload_activation_payload, build_workload_activation_url,
+    clear_admin_session, derive_workload_confirmation_code, derive_workload_identity,
+    generate_session_keypair, load_admin_session, parse_workload_activation_payload,
+    save_admin_session, sign_workload_wait_request, verify_workload_confirmation_code,
+    wait_for_workload_activation_response, AdminSessionState, WaitForWorkloadActivationResponse,
 };
 use trellis_client::SessionAuth;
 
@@ -31,7 +36,6 @@ fn build_auth_login_url_includes_encoded_contract() {
 
     let url = build_auth_login_url(
         "http://localhost:3000",
-        "github",
         "http://127.0.0.1:1234/callback",
         &auth,
         contract_json,
@@ -39,6 +43,16 @@ fn build_auth_login_url_includes_encoded_contract() {
     .expect("login url");
 
     let parsed = Url::parse(&url).expect("parse login url");
+    assert_eq!(parsed.path(), "/auth/login");
+    let sig = parsed
+        .query_pairs()
+        .find(|(key, _)| key == "sig")
+        .map(|(_, value)| value.into_owned())
+        .expect("sig query present");
+    assert_eq!(
+        sig,
+        auth.sign_sha256_domain("oauth-init", "http://127.0.0.1:1234/callback:null")
+    );
     let contract = parsed
         .query_pairs()
         .find(|(key, _)| key == "contract")
@@ -56,7 +70,7 @@ fn build_auth_login_url_includes_encoded_contract() {
 fn callback_page_html_posts_auth_error_results() {
     let html = callback_page_html();
     assert!(html.contains("authError"));
-    assert!(html.contains("JSON.stringify({ authToken, authError })"));
+    assert!(html.contains("JSON.stringify({ flowId, authError })"));
 }
 
 #[test]
@@ -87,4 +101,95 @@ fn admin_session_round_trips_through_private_file() {
         env::remove_var("XDG_CONFIG_HOME");
     }
     let _ = fs::remove_dir_all(test_dir);
+}
+
+#[test]
+fn workload_activation_payload_round_trips() {
+    let identity = derive_workload_identity(&[7u8; 32]).expect("derive workload identity");
+    let payload = build_workload_activation_payload(
+        &identity.activation_key_base64url,
+        &identity.public_identity_key,
+        "nonce_123",
+    )
+    .expect("build payload");
+    let url = build_workload_activation_url("https://auth.example.com/base", &payload)
+        .expect("build url");
+    let payload_param = Url::parse(&url)
+        .expect("parse activation url")
+        .query_pairs()
+        .find(|(key, _)| key == "payload")
+        .map(|(_, value)| value.into_owned())
+        .expect("payload query param");
+    assert_eq!(
+        parse_workload_activation_payload(&payload_param).expect("parse payload"),
+        payload
+    );
+}
+
+#[tokio::test]
+async fn workload_activation_wait_posts_to_activate_wait_endpoint() {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind listener");
+    let address = listener.local_addr().expect("listener address");
+    let server = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.expect("accept connection");
+        let mut buffer = [0u8; 4096];
+        let read = stream.read(&mut buffer).await.expect("read request");
+        let request = String::from_utf8_lossy(&buffer[..read]);
+        assert!(
+            request.starts_with("POST /auth/workloads/activate/wait HTTP/1.1\r\n"),
+            "unexpected request line: {request}"
+        );
+
+        let body = r#"{"status":"pending"}"#;
+        let response = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        stream
+            .write_all(response.as_bytes())
+            .await
+            .expect("write response");
+    });
+
+    let identity = derive_workload_identity(&[11u8; 32]).expect("derive workload identity");
+    let request = sign_workload_wait_request(
+        &identity.public_identity_key,
+        "nonce_123",
+        &identity.identity_seed_base64url,
+        Some("digest-a"),
+        123,
+    )
+    .expect("sign wait request");
+
+    let response = wait_for_workload_activation_response(
+        &format!("http://{address}"),
+        &request,
+    )
+    .await
+    .expect("wait response");
+    assert!(matches!(response, WaitForWorkloadActivationResponse::Pending));
+
+    server.await.expect("server finished");
+}
+
+#[test]
+fn workload_confirmation_codes_verify_locally() {
+    let identity = derive_workload_identity(&[9u8; 32]).expect("derive workload identity");
+    let confirmation_code = derive_workload_confirmation_code(
+        &identity.activation_key_base64url,
+        &identity.public_identity_key,
+        "nonce_123",
+    )
+    .expect("derive confirmation code");
+    assert_eq!(confirmation_code.len(), 8);
+    assert!(verify_workload_confirmation_code(
+        &identity.activation_key_base64url,
+        &identity.public_identity_key,
+        "nonce_123",
+        &confirmation_code.to_lowercase(),
+    )
+    .expect("verify confirmation code"));
 }

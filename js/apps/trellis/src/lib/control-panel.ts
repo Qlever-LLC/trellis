@@ -1,4 +1,4 @@
-import type { AuthMeOutput } from "@qlever-llc/trellis-sdk-auth";
+import type { AuthMeOutput } from "@qlever-llc/trellis/sdk/auth";
 
 type Profile = AuthMeOutput["user"] | null | undefined;
 
@@ -17,9 +17,7 @@ export type NavSection = {
 const navSections: NavSection[] = [
   {
     title: "Personal",
-    items: [
-      { href: "/profile", label: "Profile" }
-    ]
+    items: [{ href: "/profile", label: "Profile" }]
   },
   {
     title: "Operations",
@@ -30,9 +28,10 @@ const navSections: NavSection[] = [
       { href: "/admin/sessions", label: "Sessions" },
       { href: "/admin/services", label: "Services" },
       { href: "/admin/contracts", label: "Contracts" },
-      { href: "/admin/apps", label: "Approved Apps" }
+      { href: "/admin/apps", label: "Approved Apps" },
+      { href: "/admin/jobs", label: "Jobs" }
     ]
-  }
+  },
 ];
 
 const routeTitles: Record<string, string> = {
@@ -43,7 +42,8 @@ const routeTitles: Record<string, string> = {
   "/admin/services": "Services",
   "/admin/services/new": "Install Service",
   "/admin/contracts": "Contracts",
-  "/admin/apps": "Approved Apps"
+  "/admin/apps": "Approved Apps",
+  "/admin/jobs": "Jobs"
 };
 
 export function requiresAdminRoute(pathname: string): boolean {

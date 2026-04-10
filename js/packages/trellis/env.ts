@@ -1,1 +1,1 @@
-export { getEnv } from "@qlever-llc/trellis-telemetry";
+export { getEnv } from "../telemetry/env.ts";

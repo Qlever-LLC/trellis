@@ -1,4 +1,5 @@
 import { createContext } from "svelte";
+import { SvelteMap } from "svelte/reactivity";
 
 export type ToastTone = "success" | "error" | "info";
 
@@ -12,14 +13,14 @@ export type ToastItem = {
 export class NotificationsController {
   items = $state<ToastItem[]>([]);
   #nextId = 1;
-  #timers = new Map<number, number>();
+  #timers = new SvelteMap<number, ReturnType<typeof globalThis.setTimeout>>();
 
   push(title: string, message: string, tone: ToastTone = "info", duration = 4200): number {
     const id = this.#nextId++;
     this.items = [...this.items, { id, title, message, tone }];
 
-    if (typeof window !== "undefined" && duration > 0) {
-      const timer = window.setTimeout(() => {
+    if (typeof globalThis.setTimeout !== "undefined" && duration > 0) {
+      const timer = globalThis.setTimeout(() => {
         this.dismiss(id);
       }, duration);
       this.#timers.set(id, timer);
@@ -42,8 +43,8 @@ export class NotificationsController {
 
   dismiss(id: number) {
     const timer = this.#timers.get(id);
-    if (timer !== undefined && typeof window !== "undefined") {
-      window.clearTimeout(timer);
+    if (timer !== undefined && typeof globalThis.clearTimeout !== "undefined") {
+      globalThis.clearTimeout(timer);
       this.#timers.delete(id);
     }
 
@@ -51,9 +52,9 @@ export class NotificationsController {
   }
 
   clear() {
-    if (typeof window !== "undefined") {
+    if (typeof globalThis.clearTimeout !== "undefined") {
       for (const timer of this.#timers.values()) {
-        window.clearTimeout(timer);
+        globalThis.clearTimeout(timer);
       }
     }
 

@@ -2,7 +2,7 @@ import type { NatsConnection } from "@nats-io/nats-core";
 
 // Keep the public server package runtime-neutral.
 //
-// Third-party service authors may use Deno or Node, so `@qlever-llc/trellis-server` cannot
+// Third-party service authors may use Deno or Node, so the shared server core cannot
 // hard-code a transport or file system API. Environment-specific modules wire
 // these adapters in from `./deno.ts` or `./node.ts`.
 export type NatsConnectOpts = {

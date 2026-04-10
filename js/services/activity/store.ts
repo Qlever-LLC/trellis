@@ -1,6 +1,5 @@
-import { isErr, Result } from "@qlever-llc/trellis-result";
-import type { TrellisService } from "@qlever-llc/trellis-server";
-import type { TypedKV } from "@qlever-llc/trellis";
+import { isErr, Result, type TypedKV } from "@qlever-llc/trellis";
+import type { TrellisService } from "@qlever-llc/trellis/server";
 import type { ActivityOwnedApi, ActivityTrellisApi } from "./contracts/trellis_activity.ts";
 import type { ActivityEntry } from "./schemas.ts";
 import { ActivityEntrySchema } from "./schemas.ts";

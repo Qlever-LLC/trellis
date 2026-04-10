@@ -1,4 +1,4 @@
-import type { ContractEvent, ContractRpcMethod, ContractSubject } from "@qlever-llc/trellis-contracts";
+import type { ContractEvent, ContractRpcMethod, ContractSubject } from "@qlever-llc/trellis/contracts";
 
 import {
   type ContractEntry,

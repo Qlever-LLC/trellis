@@ -10,12 +10,13 @@ import {
   type SentinelCreds,
   type SessionKeyHandle,
   signBytes,
-} from "@qlever-llc/trellis-auth";
-import { AsyncResult, UnexpectedError } from "@qlever-llc/trellis-result";
+} from "@qlever-llc/trellis/auth";
+import { AsyncResult, UnexpectedError } from "@qlever-llc/result";
 import {
   API as AUTH_API,
   type AuthRenewBindingTokenInput,
-} from "@qlever-llc/trellis-sdk-auth";
+  type AuthRenewBindingTokenOutput,
+} from "@qlever-llc/trellis/sdk/auth";
 import type { AuthState } from "./auth.svelte.ts";
 
 const AUTH_RENEW_API = {
@@ -37,7 +38,7 @@ function createAuthRenewClient(
   nc: NatsConnection,
   handle: SessionKeyHandle,
 ): Trellis<typeof AUTH_RENEW_API> {
-  return createClient(
+  return createClient<typeof AUTH_RENEW_API>(
     AUTH_RENEW_CONTRACT,
     nc,
     {
@@ -51,7 +52,7 @@ function createAuthRenewClient(
 export type Status = "disconnected" | "connecting" | "connected" | "error";
 
 export type NatsStateConfig = {
-  servers: string[];
+  servers?: string[];
   onConnecting?: () => void;
   onConnected?: () => void;
   onDisconnect?: () => void;
@@ -75,6 +76,17 @@ function requireBrowserAuth(authState: AuthState): {
   }
 
   return { handle, bindingToken, sentinel };
+}
+
+function resolveServers(
+  authState: AuthState,
+  config: NatsStateConfig,
+): string[] {
+  const servers = config.servers ?? authState.natsServers;
+  if (!servers || servers.length === 0) {
+    throw new Error("Not authenticated: missing natsServers from auth state");
+  }
+  return servers;
 }
 
 async function buildNatsAuthToken(
@@ -150,6 +162,7 @@ export class NatsState {
     }
 
     const { handle, bindingToken, sentinel } = requireBrowserAuth(authState);
+    const servers = resolveServers(authState, config);
     const inboxPrefix = authState.inboxPrefix ?? undefined;
     const tokenRef = { value: await buildNatsAuthToken(handle, bindingToken) };
 
@@ -160,7 +173,7 @@ export class NatsState {
     );
 
     const nc = await wsconnect({
-      servers: config.servers,
+      servers,
       authenticator,
       token: tokenRef.value, // auth_token for auth callout
       reconnect: true,
@@ -174,7 +187,7 @@ export class NatsState {
     const state = new NatsState(
       nc,
       "connected",
-      config.servers,
+      servers,
       authState,
       config,
       handle,
@@ -257,10 +270,14 @@ export class NatsState {
   async #renewBindingToken(): Promise<void> {
     const renew = async () => {
       if (this.status !== "connected") return;
-      const binding = await this.#trellis.requestOrThrow(
+      const requestOrThrow = this.#trellis.requestOrThrow.bind(this.#trellis) as (
+        method: string,
+        input: unknown,
+      ) => Promise<unknown>;
+      const binding = await requestOrThrow(
         "Auth.RenewBindingToken",
         {} satisfies AuthRenewBindingTokenInput,
-      );
+      ) as AuthRenewBindingTokenOutput;
       this.#authState.setBindingToken(binding);
       this.#tokenRef.value = await buildNatsAuthToken(
         this.#handle,

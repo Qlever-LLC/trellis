@@ -8,7 +8,7 @@
 
   const pathname = $derived(normalizePath(stripBasePath(page.url.pathname)));
   const overviewActive = $derived(pathname === "/");
-  const guidesActive = $derived(pathname === "/docs" || pathname.startsWith("/docs/"));
+  const guidesActive = $derived(pathname === "/guides" || pathname.startsWith("/guides/"));
   const designActive = $derived(pathname === "/design" || pathname.startsWith("/design/"));
 
   function normalizePath(path: string) {
@@ -53,7 +53,7 @@
                 : "text-base-content/70",
               "hover:text-base-content",
             ]}
-            href={resolve("/docs")}>Guides</a
+            href={resolve("/guides")}>Guides</a
           >
           <a
             class={[

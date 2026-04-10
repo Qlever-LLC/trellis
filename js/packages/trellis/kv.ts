@@ -1,7 +1,6 @@
 import { type KV, type KvEntry, Kvm } from "@nats-io/kv";
 import type { NatsConnection } from "@nats-io/nats-core/internal";
-import { Result } from "@qlever-llc/trellis-result";
-import { merge } from "ts-deepmerge";
+import { Result } from "@qlever-llc/result";
 import type { StaticDecode, TSchema } from "typebox";
 import Value, { ParseError } from "typebox/value";
 import { KVError, ValidationError } from "./errors/index.ts";
@@ -26,11 +25,11 @@ function externalizeValue(value: unknown): unknown {
   return value;
 }
 
-function parseExternalValue<S extends TSchema>(schema: S, value: unknown): StaticDecode<S> {
+function parseExternalValue(schema: TSchema, value: unknown): unknown {
   if (Value.HasCodec(schema)) {
-    return Value.Decode(schema, value) as StaticDecode<S>;
+    return Value.Decode(schema, value) as unknown;
   }
-  return Value.Parse(schema, value) as StaticDecode<S>;
+  return Value.Parse(schema, value) as unknown;
 }
 
 function serializeValue(schema: TSchema, value: unknown): string {
@@ -39,6 +38,23 @@ function serializeValue(schema: TSchema, value: unknown): string {
 
 function serializeExternalValue(schema: TSchema, value: unknown): string {
   return serializeValue(schema, value);
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function mergeUnknown(target: unknown, source: unknown): unknown {
+  if (!isPlainObject(target) || !isPlainObject(source)) {
+    return source;
+  }
+
+  const out: Record<string, unknown> = { ...target };
+  for (const [key, entry] of Object.entries(source)) {
+    if (entry === undefined) continue;
+    out[key] = mergeUnknown(target[key], entry);
+  }
+  return out;
 }
 
 /**
@@ -72,7 +88,7 @@ export class TypedKV<S extends TSchema> {
   ) {}
 
   private static fromParts<S extends TSchema>(schema: S, kv: KV): TypedKV<S> {
-    return new TypedKV(schema, kv);
+    return new TypedKV<S>(schema, kv);
   }
 
   static async open<S extends TSchema>(
@@ -122,21 +138,20 @@ export class TypedKV<S extends TSchema> {
         }),
       );
     }
-    return await createTypedKvEntry(this.schema as TSchema, this.kv, s) as Result<
-      TypedKVEntry<S>,
-      ValidationError
-    >;
+    const result = await createTypedKvEntry(this.schema, this.kv, s);
+    return result as Result<TypedKVEntry<S>, ValidationError>;
+  }
+
+  private serialize(value: unknown): string {
+    return serializeExternalValue(this.schema, value);
   }
 
   async create(
     key: string,
-    value: StaticDecode<S>,
+    value: unknown,
   ): Promise<Result<void, KVError>> {
-    const schema = this.schema as TSchema;
-    const rawValue: unknown = value;
-    const serialized = serializeExternalValue(schema, rawValue);
     try {
-      await this.kv.create(escapeKvKey(key), serialized);
+      await this.kv.create(escapeKvKey(key), this.serialize(value));
       return Result.ok(undefined);
     } catch (cause) {
       return Result.err(
@@ -147,13 +162,10 @@ export class TypedKV<S extends TSchema> {
 
   async put(
     key: string,
-    value: StaticDecode<S>,
+    value: unknown,
   ): Promise<Result<void, KVError>> {
-    const schema = this.schema as TSchema;
-    const rawValue: unknown = value;
-    const serialized = serializeExternalValue(schema, rawValue);
     try {
-      await this.kv.put(escapeKvKey(key), serialized);
+      await this.kv.put(escapeKvKey(key), this.serialize(value));
       return Result.ok(undefined);
     } catch (cause) {
       return Result.err(
@@ -196,15 +208,19 @@ export class TypedKV<S extends TSchema> {
 }
 
 export class TypedKVEntry<S extends TSchema> {
-  readonly value: StaticDecode<S>;
+  readonly #value: unknown;
 
   constructor(
     private schema: S,
     private kv: KV,
     private entry: KvEntry,
-    value: StaticDecode<S>,
+    value: unknown,
   ) {
-    this.value = value;
+    this.#value = value;
+  }
+
+  get value(): StaticDecode<S> {
+    return this.#value as StaticDecode<S>;
   }
 
   static async create<S extends TSchema>(
@@ -212,7 +228,8 @@ export class TypedKVEntry<S extends TSchema> {
     kv: KV,
     entry: KvEntry,
   ): Promise<Result<TypedKVEntry<S>, ValidationError>> {
-    return await createTypedKvEntry(schema as TSchema, kv, entry) as Result<TypedKVEntry<S>, ValidationError>;
+    const result = await createTypedKvEntry(schema, kv, entry);
+    return result as Result<TypedKVEntry<S>, ValidationError>;
   }
 
   get key() {
@@ -252,10 +269,10 @@ export class TypedKVEntry<S extends TSchema> {
             });
           }
         } else {
-          let validated: StaticDecode<S>;
+          let validated: unknown;
           try {
             const json = entry.json();
-            validated = parseExternalValue(this.schema as TSchema, json) as StaticDecode<S>;
+            validated = parseExternalValue(this.schema as TSchema, json);
           } catch {
             try {
               await this.kv.delete(entry.key, {
@@ -266,13 +283,13 @@ export class TypedKVEntry<S extends TSchema> {
             }
             continue;
           }
-          callback({
-            type: "update",
-            key: decodeSubject(entry.key),
-            value: validated,
-            revision: entry.revision,
-            timestamp: entry.created,
-          });
+            callback({
+              type: "update",
+              key: decodeSubject(entry.key),
+              value: validated as StaticDecode<S>,
+              revision: entry.revision,
+              timestamp: entry.created,
+            });
         }
       }
     })();
@@ -284,17 +301,15 @@ export class TypedKVEntry<S extends TSchema> {
   }
 
   async merge(
-    value: Partial<StaticDecode<S>>,
+    value: unknown,
     vcc?: boolean,
   ): Promise<Result<void, KVError | ValidationError>> {
-    const mergedData = merge(this.value as Record<string, unknown>, value) as StaticDecode<S>;
-    const schema = this.schema as TSchema;
-    const mergedRawValue: unknown = mergedData;
-    const mergeResult = Result.try(() => serializeExternalValue(schema, mergedRawValue));
+    const mergedData = mergeUnknown(this.#value, value);
+    const mergeResult = Result.try(() => serializeExternalValue(this.schema, mergedData));
     if (mergeResult.isErr()) {
       const cause = mergeResult.error.cause;
       if (cause instanceof ParseError) {
-        const errors = Value.Errors(schema, externalizeValue(mergedData));
+        const errors = Value.Errors(this.schema, externalizeValue(mergedData));
         return Result.err(new ValidationError({ errors, cause }));
       }
       return Result.err(
@@ -305,11 +320,10 @@ export class TypedKVEntry<S extends TSchema> {
   }
 
   async put(
-    value: StaticDecode<S>,
+    value: unknown,
     vcc?: boolean,
   ): Promise<Result<void, KVError>> {
-    const schema = this.schema as TSchema;
-    const serialized = serializeValue(schema, value as unknown);
+    const serialized = serializeValue(this.schema, value);
     try {
       await this.kv.put(this.entry.key, serialized, {
         previousSeq: vcc ? this.entry.revision : undefined,
@@ -336,11 +350,11 @@ export class TypedKVEntry<S extends TSchema> {
   }
 }
 
-async function createTypedKvEntry(
-  schema: TSchema,
+async function createTypedKvEntry<S extends TSchema>(
+  schema: S,
   kv: KV,
   entry: KvEntry,
-): Promise<Result<TypedKVEntry<TSchema>, ValidationError>> {
+): Promise<Result<TypedKVEntry<S>, ValidationError>> {
   async function deleteInvalidEntry(reason: string): Promise<Record<string, unknown>> {
     try {
       await kv.delete(entry.key, {
@@ -376,7 +390,12 @@ async function createTypedKvEntry(
     );
   }
   const json = jsonResult.take() as unknown;
-  const parseResult = Result.try(() => parseExternalValue(schema, json));
+  const parseResult = Result.try(() => {
+    if (Value.HasCodec(schema)) {
+      return Value.Decode(schema, json) as unknown;
+    }
+    return Value.Parse(schema, json) as unknown;
+  });
   if (parseResult.isErr()) {
     const cause = parseResult.error.cause;
     if (cause instanceof ParseError) {
@@ -398,7 +417,7 @@ async function createTypedKvEntry(
     schema,
     kv,
     entry,
-    parseResult.take() as StaticDecode<TSchema>,
+    parseResult.take() as StaticDecode<S>,
   );
-  return Result.ok<TypedKVEntry<TSchema>, ValidationError>(typedEntry);
+  return Result.ok<TypedKVEntry<S>, ValidationError>(typedEntry);
 }

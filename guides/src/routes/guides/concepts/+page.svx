@@ -1,0 +1,193 @@
+Trellis is a distributed system where services and apps communicate over NATS. This page covers the core concepts you need to understand before writing a service or app.
+
+## Contracts
+
+Every service and app in Trellis declares a **contract** — a source definition that describes what it does, what it needs, and what access it requires.
+
+A contract declares:
+
+- **RPCs** the service handles (request/reply operations)
+- **operations** the service exposes as caller-visible async workflows
+- **events** the service publishes or subscribes to
+- **resources** the service needs Trellis to provision (KV buckets, streams)
+- **dependencies** on other contracts via `uses`
+- **capabilities** required to call each operation
+
+Contracts are the source of truth for authorization. Trellis derives NATS subject permissions directly from the active contract set — if an operation is not in the contract, the service cannot access it.
+
+### Contract kinds
+
+| Kind | Purpose |
+| --- | --- |
+| `service` | A backend process connected to NATS with a session key |
+| `app` | A browser client that connects via websocket |
+| `cli` | A command-line tool |
+
+Activated workloads use the same contract format as other Trellis participants. Provisioning mode lives in Trellis workload profiles and instance records rather than in a special contract field.
+
+### Contract identity
+
+Each contract has a stable `id` like `graph@v1` or `trellis.auth@v1`. The `@vN` suffix is a major version — breaking changes require a new version. Within a deployment, only one active version of each contract id can exist.
+
+Contracts are content-addressed by a SHA-256 digest of their canonical JSON form. The digest is what Trellis uses internally to identify a specific contract revision.
+
+### Generated contract artifacts
+
+The canonical exchange artifact is `trellis.contract.v1` JSON, generated from contract source during build and release. In normal authoring workflows you edit the contract module, not a checked-in sidecar manifest file.
+
+## Communication
+
+All communication between services goes through NATS. There are three patterns:
+
+### RPCs (request/reply)
+
+RPCs are synchronous operations. A caller sends a request and waits for a response.
+
+- Subject convention: `rpc.v1.<LogicalName>` (e.g., `rpc.v1.User.Find`)
+- Callers use logical method names (e.g., `"User.Find"`), not raw subjects
+- Timeout-bounded (default 5 seconds)
+- Both sides use `Result<T, E>` — errors are values, not exceptions
+
+### Operations (async workflows)
+
+Operations are caller-visible async workflows. Unlike RPCs, they accept a request, emit typed progress updates, and complete with a terminal result that the caller watches or waits for.
+
+- Subject convention: `operations.v1.<Domain>.<Action>` (e.g., `operations.v1.Billing.Refund`)
+- Callers receive an `OperationRef` and can call `watch()` for a progress stream or `wait()` to block until completion
+- Operation state is durable — a caller reconnecting after a disconnect can resume watching an in-flight operation
+- Callers see only their own operations; subject permissions prevent cross-caller access
+
+Operations are distinct from jobs. An operation is the public async surface that a caller starts and observes. A job is service-private background work, invisible to callers.
+
+### Events (JetStream pub/sub)
+
+Events announce state changes. Publishers fire and forget; consumers receive events through JetStream durable consumers with at-least-once delivery.
+
+- Subject convention: `events.v1.<Domain>.<Action>[.<tokens>]`
+- Handlers must be idempotent
+- Subject tokens enable filtered subscriptions (e.g., subscribe to `events.v1.Document.Uploaded.pdf.*` for only PDF uploads)
+
+### Cross-contract dependencies (`uses`)
+
+A contract declares which other contracts it depends on through `uses`:
+
+```ts
+uses: {
+  core: core.use({
+    rpc: { call: ["Trellis.Catalog"] },
+  }),
+  auth: auth.useDefaults({
+    events: { subscribe: ["Auth.Connect"] },
+  }),
+},
+```
+
+If a dependency is not declared in `uses`, Trellis will not grant that cross-contract access at install time.
+
+## Authentication and authorization
+
+### Principals
+
+Trellis has one user principal class and two workload provisioning paths:
+
+| Type | How it authenticates |
+| --- | --- |
+| User | Browser or CLI session established through the portal login flow |
+| Installed workload | Ed25519 session key installed by an operator |
+| Activated workload | Ed25519 identity key derived from a root secret, activated before first use |
+
+All three share the same post-auth authorization pipeline. Installed and activated workloads connect directly after provisioning. Users always go through the browser login flow.
+
+### Session keys
+
+Every client has a local Ed25519 session key. The private seed never leaves the client. Authentication works by proving ownership of the session key in every RPC and NATS connect request.
+
+- **Installed workloads** receive their identity when an operator installs the workload contract against the workload's public key
+- **Browser apps** store the session key in IndexedDB via WebCrypto (non-extractable)
+- **CLI tools** use a local seed file
+- **Activated workloads** derive their identity key from a root secret using HKDF; the root secret never leaves the workload
+
+### Browser login and the portal
+
+Browser login flows route through a Trellis **portal**. A portal is a browser web app that owns the provider-selection and contract-approval UX for one or more browser contracts. Trellis ships a built-in portal that handles both login and generic workload onboarding, and may also redirect into deployment-registered custom portals when configured.
+
+The flow:
+
+1. An app redirects the browser to `GET /auth/login` with its session key, contract, and optional portal context
+2. Trellis creates a browser flow record, resolves any contract-specific login portal selection, otherwise falls back to the deployment login default custom portal when configured and then to the built-in Trellis login portal, and redirects into that portal
+3. The portal polls `GET /auth/flow/:flowId` and renders UX based on the flow state — provider chooser, approval screen, optional app context, or a terminal redirect
+4. After the user authenticates and approval is satisfied, Trellis provisions the user immediately and the browser bind step exchanges the completed flow for a binding token and NATS credentials
+5. The app connects to NATS with those credentials
+
+Portal trust comes from deployment registration of the portal URL, not from service installation. Some portals stay passive and only render auth flow state. Other portals also continue after login as normal Trellis browser apps acting as the logged-in user. In that case the portal may declare an optional app contract, but it is still never a service-authenticated principal.
+
+The built-in Trellis portal is authored in `js/portals/login` and served directly by the Trellis HTTP server from static assets, so first login and the default workload onboarding flow work without any portal bootstrap step. Deployments can still add custom portals and assign them to specific login or workload flows when they need custom UX. See [Create a custom portal](/guides/creating-custom-portal) for how to build and register one.
+
+### Capabilities
+
+Contracts declare per-operation capability requirements:
+
+```ts
+"MyService.List": {
+  capabilities: { call: ["admin"] },
+},
+```
+
+Capabilities use the pattern `<domain>.<action>` (e.g., `users.read`, `partners.write`). Some operations require the `service` capability, meaning only registered services can call them. The `admin` capability grants administrative access.
+
+Capabilities are assigned to users and workloads at the deployment level. Authorization changes take effect immediately because Trellis derives NATS permissions from the active contracts and current grants.
+
+## Resources
+
+Services can declare cloud-managed resources in their contract. Trellis provisions them during install or upgrade.
+
+### KV buckets
+
+NATS KV buckets for persistent state:
+
+```ts
+resources: {
+  kv: {
+    items: {
+      purpose: "Store item records",
+      history: 1,
+      ttlMs: 0,
+    },
+  },
+},
+```
+
+The key (`items`) is a logical alias. Trellis assigns the physical bucket name at install time. `connectService` resolves bindings automatically and exposes them as `service.kv.items`, which can be opened directly with a schema.
+
+### Streams
+
+JetStream streams for event-driven architectures, work queues, and audit trails. Like KV, stream names in the contract are logical aliases resolved at install time.
+
+## Jobs
+
+`@qlever-llc/trellis-jobs` provides a service-private job queue with retry, progress tracking, and dead-letter handling. Jobs use a stream-first architecture — JetStream is the source of truth, and KV provides a read-optimized projection for queries.
+
+Job states: `pending` → `active` → `completed` / `failed` / `retry` / `cancelled` / `expired` / `dead`
+
+Services process their own jobs via their own JetStream consumer. A central jobs service handles global queries, janitor cleanup, and the KV projection.
+
+Jobs are not visible to callers. If you need a caller-observable async workflow, use an operation instead.
+
+## Packages
+
+| Package | Use for |
+| --- | --- |
+| `@qlever-llc/trellis` | Core package: `defineContract(...)`, `createClient(...)`, `Result`, common auth helpers |
+| `@qlever-llc/trellis/server` | `TrellisServer`, health schemas, server types |
+| `@qlever-llc/trellis/server/deno` | Deno service runtime adapter |
+| `@qlever-llc/trellis/server/node` | Node service runtime adapter |
+| `@qlever-llc/trellis/auth` | Full auth helper and auth schema surface |
+| `@qlever-llc/trellis/contracts` | Full contract-model and canonicalization surface |
+| `@qlever-llc/trellis-svelte` | Browser auth, NATS, and Trellis integration for Svelte apps |
+| `@qlever-llc/trellis-telemetry` | Shared tracing helpers |
+| `@qlever-llc/trellis-jobs` | Job creation, processing, retry, progress tracking |
+| `@qlever-llc/trellis/sdk/*` | First-party generated SDK modules with typed DTOs for Trellis-owned contracts |
+
+`@qlever-llc/trellis/sdk/*` subpaths (for example `@qlever-llc/trellis/sdk/auth` and `@qlever-llc/trellis/sdk/core`) are generated from contract definitions as part of the contract build pipeline. Import them for typed request or response types and `use(...)` declarations.
+
+On the Rust side, the equivalent building blocks are generated Rust SDK crates plus a generated crate for the app, service, or CLI you are building. That generated crate is the preferred ergonomic entrypoint because it exposes only the owned surface and `uses` aliases declared by the local contract.

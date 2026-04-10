@@ -1,4 +1,4 @@
-import { BaseError, type BaseErrorOptions, isErr, Result } from "@qlever-llc/trellis-result";
+import { BaseError, type BaseErrorOptions, isErr, Result } from "@qlever-llc/result";
 import Type, { type Static } from "typebox";
 import type { Connection, Session, UserSession } from "../../state/schemas.ts";
 
@@ -84,7 +84,6 @@ export async function ensureBoundUserSession(args: {
   contractId: string;
   contractDisplayName: string;
   contractDescription: string;
-  contractKind: string;
   delegatedCapabilities: string[];
   delegatedPublishSubjects: string[];
   delegatedSubscribeSubjects: string[];
@@ -138,7 +137,6 @@ export async function ensureBoundUserSession(args: {
     contractId: args.contractId,
     contractDisplayName: args.contractDisplayName,
     contractDescription: args.contractDescription,
-    contractKind: args.contractKind,
     delegatedCapabilities: args.delegatedCapabilities,
     delegatedPublishSubjects: args.delegatedPublishSubjects,
     delegatedSubscribeSubjects: args.delegatedSubscribeSubjects,
@@ -185,7 +183,6 @@ export async function ensureBoundUserSession(args: {
     contractId: args.contractId,
     contractDisplayName: args.contractDisplayName,
     contractDescription: args.contractDescription,
-    contractKind: args.contractKind,
     delegatedCapabilities: args.delegatedCapabilities,
     delegatedPublishSubjects: args.delegatedPublishSubjects,
     delegatedSubscribeSubjects: args.delegatedSubscribeSubjects,

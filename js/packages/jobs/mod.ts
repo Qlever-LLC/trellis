@@ -3,6 +3,8 @@ export {
   type JobsBinding,
   JobsBindingError,
   type JobsQueueBinding,
+  type ResourceBindingJobs,
+  type ResourceBindingJobsQueue,
   type JobsRuntimeBinding,
   jobsRuntimeBindingFromCoreBinding,
   parseJobsBinding,

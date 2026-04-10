@@ -30,42 +30,72 @@ const httpRateLimitSchema = z.object({
   max: z.coerce.number().default(60),
 });
 
+const DEFAULT_CLI_BINDING_TOKEN_TTL_MS = 24 * 60 * 60_000;
+
+function resolveCliBindingTokenTtl(
+  bucket: number,
+  value: number | undefined,
+): number {
+  return value ?? Math.min(DEFAULT_CLI_BINDING_TOKEN_TTL_MS, bucket);
+}
+
 const bindingTokenTtlSchema = z.object({
-  bucket: z.coerce.number().default(2 * 60 * 60_000),
+  bucket: z.coerce.number().default(DEFAULT_CLI_BINDING_TOKEN_TTL_MS),
   initial: z.coerce.number().default(5 * 60_000),
   renew: z.coerce.number().default(60 * 60_000),
+  cliInitial: z.coerce.number().optional(),
+  cliRenew: z.coerce.number().optional(),
 });
 
-const ttlSchema = z.object({
-  sessions: z.coerce.number().default(24 * 60 * 60_000),
-  oauth: z.coerce.number().default(5 * 60_000),
-  pendingAuth: z.coerce.number().default(5 * 60_000),
-  bindingTokens: bindingTokenTtlSchema.default({
-    bucket: 2 * 60 * 60_000,
-    initial: 5 * 60_000,
-    renew: 60 * 60_000,
-  }),
-  connections: z.coerce.number().default(2 * 60 * 60_000),
-  natsJwt: z.coerce.number().default(60 * 60_000),
-}).superRefine((ttl, ctx) => {
-  const requiredMin = Math.max(ttl.bindingTokens.initial, ttl.bindingTokens.renew);
-  if (ttl.bindingTokens.bucket < requiredMin) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "AUTH_TTL_BINDING_TOKENS_BUCKET must be >= initial and renew TTLs",
-      path: ["bindingTokens", "bucket"],
-    });
-  }
-});
+const ttlSchema = z
+  .object({
+    sessions: z.coerce.number().default(24 * 60 * 60_000),
+    oauth: z.coerce.number().default(5 * 60_000),
+    workloadHandoff: z.coerce.number().default(30 * 60_000),
+      pendingAuth: z.coerce.number().default(5 * 60_000),
+      bindingTokens: bindingTokenTtlSchema.default({
+      bucket: DEFAULT_CLI_BINDING_TOKEN_TTL_MS,
+      initial: 5 * 60_000,
+      renew: 60 * 60_000,
+    }),
+    connections: z.coerce.number().default(2 * 60 * 60_000),
+    natsJwt: z.coerce.number().default(60 * 60_000),
+  })
+  .superRefine((ttl, ctx) => {
+    const cliInitial = resolveCliBindingTokenTtl(
+      ttl.bindingTokens.bucket,
+      ttl.bindingTokens.cliInitial,
+    );
+    const cliRenew = resolveCliBindingTokenTtl(
+      ttl.bindingTokens.bucket,
+      ttl.bindingTokens.cliRenew,
+    );
+    const requiredMin = Math.max(
+      ttl.bindingTokens.initial,
+      ttl.bindingTokens.renew,
+      cliInitial,
+      cliRenew,
+    );
+    if (ttl.bindingTokens.bucket < requiredMin) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "AUTH_TTL_BINDING_TOKENS_BUCKET must be >= all binding token TTLs",
+        path: ["bindingTokens", "bucket"],
+      });
+    }
+  });
 
 const rawSchema = z.object({
   logLevel: z.string().default("info"),
   port: z.coerce.number().default(3000),
   instanceName: z.string().default("Trellis Auth"),
-  web: z.object({
-    origins: z.array(z.string()).default([]),
-    publicOrigin: z.string().optional(),
-  }).default({ origins: [] }),
+  web: z
+    .object({
+      origins: z.array(z.string()).default([]),
+      publicOrigin: z.string().optional(),
+    })
+    .default({ origins: [] }),
   httpRateLimit: httpRateLimitSchema.default({
     windowMs: 60_000,
     max: 60,
@@ -73,12 +103,13 @@ const rawSchema = z.object({
   ttlMs: ttlSchema.default({
     sessions: 24 * 60 * 60_000,
     oauth: 5 * 60_000,
+    workloadHandoff: 30 * 60_000,
     pendingAuth: 5 * 60_000,
-    bindingTokens: {
-      bucket: 2 * 60 * 60_000,
-      initial: 5 * 60_000,
-      renew: 60 * 60_000,
-    },
+      bindingTokens: {
+        bucket: 24 * 60 * 60_000,
+        initial: 5 * 60_000,
+        renew: 60 * 60_000,
+      },
     connections: 2 * 60 * 60_000,
     natsJwt: 60 * 60_000,
   }),
@@ -114,8 +145,18 @@ const rawSchema = z.object({
   oauth: z.object({
     redirectBase: z.string(),
     alwaysShowProviderChooser: z.boolean().default(false),
-    providers: z.record(z.string().min(1), z.discriminatedUnion("type", [githubProviderSchema, oidcProviderSchema]))
-      .refine((providers) => Object.keys(providers).length > 0, "At least one auth provider must be configured"),
+    providers: z
+      .record(
+        z.string().min(1),
+        z.discriminatedUnion("type", [
+          githubProviderSchema,
+          oidcProviderSchema,
+        ]),
+      )
+      .refine(
+        (providers) => Object.keys(providers).length > 0,
+        "At least one auth provider must be configured",
+      ),
   }),
 });
 
@@ -152,12 +193,15 @@ export type Config = {
   ttlMs: {
     sessions: number;
     oauth: number;
+    workloadHandoff: number;
     pendingAuth: number;
-    bindingTokens: {
-      bucket: number;
-      initial: number;
-      renew: number;
-    };
+      bindingTokens: {
+        bucket: number;
+        initial: number;
+        renew: number;
+        cliInitial: number;
+        cliRenew: number;
+      };
     connections: number;
     natsJwt: number;
   };
@@ -185,7 +229,9 @@ export type Config = {
 
 type RawConfig = z.infer<typeof rawSchema>;
 
-function canonicalizeLoopbackUrl(value: string | undefined): string | undefined {
+function canonicalizeLoopbackUrl(
+  value: string | undefined,
+): string | undefined {
   if (!value) return value;
   try {
     const url = new URL(value);
@@ -210,10 +256,14 @@ function readConfiguredValue(
   fileValue: string | undefined,
 ): string {
   if (inlineValue && fileValue) {
-    throw new Error(`${label} must specify either an inline value or a file, not both`);
+    throw new Error(
+      `${label} must specify either an inline value or a file, not both`,
+    );
   }
   if (inlineValue) return inlineValue.trim();
-  if (fileValue) return Deno.readTextFileSync(resolvePath(configPath, fileValue)).trim();
+  if (fileValue) {
+    return Deno.readTextFileSync(resolvePath(configPath, fileValue)).trim();
+  }
   throw new Error(`${label} is required`);
 }
 
@@ -249,6 +299,18 @@ function resolveProviderConfig(
 }
 
 function normalizeConfig(configPath: string, raw: RawConfig): Config {
+  const bindingTokens = {
+    ...raw.ttlMs.bindingTokens,
+    cliInitial: resolveCliBindingTokenTtl(
+      raw.ttlMs.bindingTokens.bucket,
+      raw.ttlMs.bindingTokens.cliInitial,
+    ),
+    cliRenew: resolveCliBindingTokenTtl(
+      raw.ttlMs.bindingTokens.bucket,
+      raw.ttlMs.bindingTokens.cliRenew,
+    ),
+  };
+
   const providers = Object.fromEntries(
     Object.entries(raw.oauth.providers).map(([key, provider]) => [
       key,
@@ -261,11 +323,16 @@ function normalizeConfig(configPath: string, raw: RawConfig): Config {
     port: raw.port,
     instanceName: raw.instanceName,
     web: {
-      origins: raw.web.origins.map((origin) => canonicalizeLoopbackUrl(origin) ?? origin),
+      origins: raw.web.origins.map(
+        (origin) => canonicalizeLoopbackUrl(origin) ?? origin,
+      ),
       publicOrigin: canonicalizeLoopbackUrl(raw.web.publicOrigin),
     },
     httpRateLimit: raw.httpRateLimit,
-    ttlMs: raw.ttlMs,
+    ttlMs: {
+      ...raw.ttlMs,
+      bindingTokens,
+    },
     nats: {
       servers: raw.nats.servers,
       trellis: raw.nats.trellis,
@@ -308,7 +375,9 @@ function normalizeConfig(configPath: string, raw: RawConfig): Config {
       natsServers: raw.client.natsServers,
     },
     oauth: {
-      redirectBase: canonicalizeLoopbackUrl(raw.oauth.redirectBase) ?? raw.oauth.redirectBase,
+      redirectBase:
+        canonicalizeLoopbackUrl(raw.oauth.redirectBase) ??
+        raw.oauth.redirectBase,
       alwaysShowProviderChooser: raw.oauth.alwaysShowProviderChooser,
       providers,
     },
@@ -332,7 +401,9 @@ function parseAuthConfig(configPath: string, text: string): Config {
   return normalizeConfig(configPath, raw);
 }
 
-export async function loadAuthConfigFromFile(configPath: string): Promise<Config> {
+export async function loadAuthConfigFromFile(
+  configPath: string,
+): Promise<Config> {
   return loadAuthConfigFromFileSync(configPath);
 }
 
@@ -340,8 +411,14 @@ export function loadAuthConfigFromFileSync(configPath: string): Config {
   return parseAuthConfig(configPath, Deno.readTextFileSync(configPath));
 }
 
-function resolveConfigPath(environment: Record<string, string | undefined>): string {
-  return environment["TRELLIS_CONFIG"] ?? environment["TRELLIS_AUTH_CONFIG"] ?? DEFAULT_TRELLIS_CONFIG_PATH;
+function resolveConfigPath(
+  environment: Record<string, string | undefined>,
+): string {
+  return (
+    environment["TRELLIS_CONFIG"] ??
+    environment["TRELLIS_AUTH_CONFIG"] ??
+    DEFAULT_TRELLIS_CONFIG_PATH
+  );
 }
 
 let cachedConfig: Config | undefined;

@@ -1,10 +1,10 @@
 import type { TrellisBindingsGetOutput } from "@qlever-llc/trellis-sdk-core";
 import { assertEquals, assertThrows } from "@std/assert";
-import type { ResourceBindingJobs } from "../server/service.ts";
 
 import {
   jobsRuntimeBindingFromCoreBinding,
   parseJobsBinding,
+  type ResourceBindingJobs,
 } from "./bindings.ts";
 
 function sampleJobsResource(): ResourceBindingJobs {

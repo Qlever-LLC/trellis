@@ -84,7 +84,7 @@ fn worker_heartbeat_serde_uses_expected_wire_keys() {
         job_type: "document-process".to_string(),
         instance_id: "instance-1".to_string(),
         concurrency: Some(2),
-        version: Some("0.5.1".to_string()),
+        version: Some("0.6.0".to_string()),
         timestamp: "2026-03-30T12:00:00.000Z".to_string(),
     };
 
@@ -92,7 +92,7 @@ fn worker_heartbeat_serde_uses_expected_wire_keys() {
     assert_eq!(value.get("jobType"), Some(&json!("document-process")));
     assert_eq!(value.get("instanceId"), Some(&json!("instance-1")));
     assert_eq!(value.get("concurrency"), Some(&json!(2)));
-    assert_eq!(value.get("version"), Some(&json!("0.5.1")));
+    assert_eq!(value.get("version"), Some(&json!("0.6.0")));
     assert_eq!(
         value.get("timestamp"),
         Some(&json!("2026-03-30T12:00:00.000Z"))

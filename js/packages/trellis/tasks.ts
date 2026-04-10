@@ -1,13 +1,12 @@
-import { AsyncResult, type BaseError, Result } from "@qlever-llc/trellis-result";
-import type { Logger } from "pino";
-import { logger } from "./globals.ts";
+import { AsyncResult, type BaseError, Result } from "@qlever-llc/result";
+import { logger, type LoggerLike } from "./globals.ts";
 
 export class TrellisTasks {
   #tasks: Record<string, Promise<Result<void, BaseError>>> = {};
 
-  #log: Logger;
+  #log: LoggerLike;
 
-  constructor(opts: { log?: Logger }) {
+  constructor(opts: { log?: LoggerLike }) {
     this.#log = opts.log ?? logger;
   }
 
@@ -21,12 +20,12 @@ export class TrellisTasks {
     }
     this.#log.debug({ name }, "Added task");
     this.#tasks[name] = task.then((r: Result<void, E>) => {
-        if (Result.isErr(r)) {
-          this.#log.error(r, "Task encountered a runtime error");
-        }
+      if (Result.isErr(r)) {
+        this.#log.error(r, "Task encountered a runtime error");
+      }
 
-        return r;
-      });
+      return r;
+    });
   }
 
   wait(): AsyncResult<void, BaseError> {

@@ -1,15 +1,32 @@
-import { trellisIdFromOriginId } from "@qlever-llc/trellis-auth";
-import { isErr, Result } from "@qlever-llc/trellis-result";
+import { trellisIdFromOriginId } from "@qlever-llc/trellis/auth";
+import { isErr, Result } from "@qlever-llc/result";
 import { AuthError } from "@qlever-llc/trellis";
 
 import { logger, usersKV } from "../../bootstrap/globals.ts";
 
 type RpcUser = { id: string; origin: string; capabilities?: string[] };
 
+function requireUserCaller(caller: {
+  type: string;
+  id?: string;
+  origin?: string;
+  capabilities?: string[];
+}): RpcUser {
+  if (caller.type !== "user" || !caller.id || !caller.origin) {
+    throw new AuthError({ reason: "insufficient_permissions" });
+  }
+  return {
+    id: caller.id,
+    origin: caller.origin,
+    capabilities: caller.capabilities,
+  };
+}
+
 export const authListUsersHandler = async (
   _req: unknown,
-  { user }: { user: RpcUser },
+  { caller }: { caller: { type: string; id?: string; origin?: string; capabilities?: string[] } },
 ) => {
+  const user = requireUserCaller(caller);
   logger.trace(
     { rpc: "Auth.ListUsers", caller: `${user.origin}.${user.id}` },
     "RPC request",
@@ -45,8 +62,9 @@ export const authUpdateUserHandler = async (
     active?: boolean;
     capabilities?: string[];
   },
-  { user }: { user: RpcUser },
+  { caller }: { caller: { type: string; id?: string; origin?: string; capabilities?: string[] } },
 ) => {
+  const user = requireUserCaller(caller);
   logger.trace({
     rpc: "Auth.UpdateUser",
     target: `${req.origin}.${req.id}`,

@@ -17,6 +17,9 @@ function createMemoryStorage(initial: Record<string, string> = {}) {
     setItem(key: string, value: string): void {
       values.set(key, value);
     },
+    removeItem(key: string): void {
+      values.delete(key);
+    },
   };
 }
 
@@ -31,7 +34,7 @@ Deno.test("selected auth url prefers query param and persists it", () => {
   assertEquals(storage.getItem("trellis.console.authUrl"), "http://localhost:4000");
 });
 
-Deno.test("build app urls preserve selected auth url when it differs from default", () => {
+Deno.test("build app urls preserve selected auth url when it is provided", () => {
   const loginUrl = buildAppLoginUrl("/profile", new URL("http://localhost:5173/"), undefined, "http://localhost:4000");
   const callbackUrl = buildAppCallbackUrl("/profile", new URL("http://localhost:5173/"), "http://localhost:4000");
 
@@ -39,10 +42,27 @@ Deno.test("build app urls preserve selected auth url when it differs from defaul
   assertEquals(callbackUrl, "http://localhost:5173/callback?redirectTo=%2Fprofile&authUrl=http%3A%2F%2Flocalhost%3A4000");
 });
 
-Deno.test("persistSelectedAuthUrl falls back to default auth url when invalid", () => {
+Deno.test("build app urls omit auth url when none is selected", () => {
+  const loginUrl = buildAppLoginUrl("/profile", new URL("http://localhost:5173/"));
+  const callbackUrl = buildAppCallbackUrl("/profile", new URL("http://localhost:5173/"));
+
+  assertEquals(loginUrl, "http://localhost:5173/login?redirectTo=%2Fprofile");
+  assertEquals(callbackUrl, "http://localhost:5173/callback?redirectTo=%2Fprofile");
+});
+
+Deno.test("selected auth url stays undefined when nothing is configured", () => {
+  const storage = createMemoryStorage();
+  const selected = getSelectedAuthUrl(new URL("http://localhost:5173/login"), storage);
+
+  assertEquals(APP_CONFIG.authUrl, undefined);
+  assertEquals(selected, undefined);
+});
+
+Deno.test("persistSelectedAuthUrl returns undefined when invalid and no default exists", () => {
   const storage = createMemoryStorage();
   const selected = persistSelectedAuthUrl("not-a-url", storage);
 
-  assertEquals(selected, APP_CONFIG.authUrl);
-  assertEquals(storage.getItem("trellis.console.authUrl"), APP_CONFIG.authUrl);
+  assertEquals(APP_CONFIG.authUrl, undefined);
+  assertEquals(selected, undefined);
+  assertEquals(storage.getItem("trellis.console.authUrl"), null);
 });

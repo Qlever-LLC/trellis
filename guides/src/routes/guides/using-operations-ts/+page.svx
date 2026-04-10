@@ -1,0 +1,148 @@
+This guide adds a caller-visible async operation to the `orders-service`. By the end callers can start `Orders.Process`, watch typed progress updates, and receive the terminal result — without knowing anything about the service's internal jobs.
+
+Before starting, complete [Jobs: TypeScript](/guides/using-jobs-ts).
+
+## Jobs vs operations
+
+Jobs are service-private. An operation is a **public contract surface** for async work. Callers interact with operations; your internal jobs remain hidden. One operation can be backed by many jobs, or by direct logic — that is an implementation detail.
+
+## 1. Add `Orders.Process` to the contract
+
+Update `contracts/orders_service.ts` to add an `operations` section:
+
+```ts
+import {
+  ProcessOrderRequestSchema,
+  ProcessOrderProgressSchema,
+  ProcessOrderResultSchema,
+} from "./schemas.ts";
+
+// In defineContract — add to schemas map and operations:
+schemas: {
+  // ... existing schemas ...
+  ProcessOrderRequest: ProcessOrderRequestSchema,
+  ProcessOrderProgress: ProcessOrderProgressSchema,
+  ProcessOrderResult: ProcessOrderResultSchema,
+},
+operations: {
+  "Orders.Process": {
+    version: "v1",
+    input: { schema: "ProcessOrderRequest" },
+    progress: { schema: "ProcessOrderProgress" },
+    output: { schema: "ProcessOrderResult" },
+    capabilities: {
+      call: ["orders.write"],
+      read: ["orders.read"],
+      cancel: ["orders.write"],
+    },
+    cancel: true,
+  },
+},
+```
+
+Add the schemas to `schemas.ts`:
+
+```ts
+export const ProcessOrderRequestSchema = Type.Object({
+  orderId: Type.String(),
+});
+export type ProcessOrderRequest = Static<typeof ProcessOrderRequestSchema>;
+
+export const ProcessOrderProgressSchema = Type.Object({
+  step: Type.String(),
+  message: Type.String(),
+});
+export type ProcessOrderProgress = Static<typeof ProcessOrderProgressSchema>;
+
+export const ProcessOrderResultSchema = Type.Object({
+  orderId: Type.String(),
+  status: Type.String(),
+});
+export type ProcessOrderResult = Static<typeof ProcessOrderResultSchema>;
+```
+
+## 2. Implement the operation handler
+
+The operation handler calls `op.started()`, publishes optional initial progress, creates a job, and awaits `op.attach(job.value)`. The framework wires the job's terminal result through to the operation:
+
+```ts
+await service.operation("Orders.Process").handle(async ({ input, op }) => {
+  const started = await op.started();
+  if (started.isErr()) return Result.err(started.error);
+
+  const progress = await op.progress({
+    step: "queued",
+    message: "Fulfillment started",
+  });
+  if (progress.isErr()) return Result.err(progress.error);
+
+  const job = await service.jobs.reserveInventory.create({
+    orderId: input.orderId,
+    items: [],
+  });
+  if (job.isErr()) return Result.err(job.error);
+
+  return await op.attach(job.value);
+});
+```
+
+`op.attach(job.value)` blocks until the job chain completes. Pass `job.value` — the unwrapped `JobRef` from the `Result<JobRef>`. The framework extracts the typed output from the terminal job snapshot to resolve the caller's `OperationRef`.
+
+## 3. The job worker — no changes needed
+
+The job workers from [Jobs: TypeScript](/guides/using-jobs-ts) run unchanged. They report progress via `job.progress(...)` and return `Result.ok(result)`. The `op.attach()` wires their results to the operation automatically.
+
+## 4. Caller side
+
+A caller starts the operation and observes it:
+
+```ts
+// Start
+const ref = await orders.operation("Orders.Process").start({ orderId: "ord_123" });
+if (ref.isErr()) throw ref.error;
+const op = ref.value;
+
+// Wait for final result (most common)
+const result = await op.wait();
+if (result.isErr()) throw result.error;
+console.log(result.value.output); // { orderId, status }
+
+// Or watch live progress events
+for await (const event of op.watch()) {
+  if (event.type === "progress") {
+    console.log(event.snapshot.progress); // { step, message }
+  }
+  if (event.type === "completed") {
+    console.log(event.snapshot.output);
+    break;
+  }
+}
+```
+
+## 5. Cancellation
+
+A caller can cancel in-flight operations:
+
+```ts
+const snapshot = await op.cancel();
+```
+
+The cancellation signal flows to the active job worker via `job.cancelled`. The worker checks it cooperatively:
+
+```ts
+await service.jobs.reserveInventory.handle(async (job) => {
+  if (job.cancelled) {
+    return Result.err({ type: "JobCancelledError", message: "Cancelled" });
+  }
+  // ...
+});
+```
+
+When the job returns a cancelled error, `op.attach()` resolves with a `cancelled` `TerminalOperation`.
+
+## Development loop
+
+1. Update operation schemas and contract `operations` section
+2. Rebuild contract artifacts and SDK
+3. Upgrade the contract in Trellis
+4. Restart the service

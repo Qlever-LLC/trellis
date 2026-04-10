@@ -599,7 +599,7 @@ pub const CONTRACT: &str = include_str!("contract.manifest.json");
         fs::create_dir_all(&crate_dir).unwrap();
         fs::write(
             root.join("Cargo.toml"),
-            "[workspace]\nmembers = [\"crates/sdk\"]\n\n[workspace.package]\nversion = \"0.5.1\"\n",
+            "[workspace]\nmembers = [\"crates/sdk\"]\n\n[workspace.package]\nversion = \"0.6.0\"\n",
         )
         .unwrap();
         fs::write(
@@ -609,7 +609,7 @@ pub const CONTRACT: &str = include_str!("contract.manifest.json");
         .unwrap();
 
         let found = infer_owner_version(&crate_dir.join("contract.json")).unwrap();
-        assert_eq!(found, "0.5.1");
+        assert_eq!(found, "0.6.0");
     }
 
     #[test]

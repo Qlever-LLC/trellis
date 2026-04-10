@@ -2,8 +2,8 @@ import {
   base64urlDecode,
   trellisIdFromOriginId,
   verifyProof,
-} from "@qlever-llc/trellis-auth";
-import { AsyncResult, isErr, Result } from "@qlever-llc/trellis-result";
+} from "@qlever-llc/trellis/auth";
+import { AsyncResult, isErr, Result } from "@qlever-llc/result";
 import { AuthError } from "@qlever-llc/trellis";
 import {
   bindingTokenKV,
@@ -15,9 +15,73 @@ import {
   sessionKV,
   trellis,
   usersKV,
+  workloadActivationsKV,
+  workloadProfilesKV,
 } from "../../bootstrap/globals.ts";
 import { getConfig } from "../../config.ts";
+import type { ServiceRegistryEntry, Session, UserProjectionEntry } from "../../state/schemas.ts";
 import { resolveSessionPrincipal } from "./principal.ts";
+
+type AuthenticatedUser = {
+  id: string;
+  origin: string;
+  active: boolean;
+  name: string;
+  email: string;
+  image?: string;
+  capabilities: string[];
+  lastLogin?: string;
+};
+
+type AuthenticatedService = {
+  type: "service";
+  id: string;
+  name: string;
+  active: boolean;
+  capabilities: string[];
+};
+
+type AuthenticatedWorkload = {
+  type: "workload";
+  instanceId: string;
+  publicIdentityKey: string;
+  profileId: string;
+  active: boolean;
+  capabilities: string[];
+};
+
+type AuthMeResponse = {
+  user: AuthenticatedUser | null;
+  workload: AuthenticatedWorkload | null;
+  service: AuthenticatedService | null;
+};
+
+type KVResult<T> = { take(): T };
+
+type KVLike<V> = {
+  get: (key: string) => Promise<KVResult<{ value: V } | V | unknown>>;
+  keys?: (filter: string) => Promise<KVResult<AsyncIterable<string> | unknown>>;
+};
+
+function unwrapValue<V>(entry: unknown): V {
+  if (entry && typeof entry === "object" && "value" in entry) {
+    return (entry as { value: V }).value;
+  }
+  return entry as V;
+}
+
+type WorkloadActivationRecord = {
+  instanceId: string;
+  publicIdentityKey: string;
+  profileId: string;
+  activatedBy?: {
+    origin: string;
+    id: string;
+  };
+  state: "activated" | "revoked";
+  activatedAt: string | Date;
+  revokedAt: string | Date | null;
+};
 
 const config = getConfig();
 
@@ -33,7 +97,20 @@ type SessionUser = {
 };
 
 type SessionContext = {
-  user: SessionUser;
+  caller: {
+    type: string;
+    id?: string;
+    origin?: string;
+    email?: string;
+    name?: string;
+    active?: boolean;
+    capabilities?: string[];
+    image?: string;
+    lastLogin?: string;
+    instanceId?: string;
+    publicIdentityKey?: string;
+    profileId?: string;
+  };
   sessionKey: string;
 };
 
@@ -45,13 +122,15 @@ type ValidateRequestInput = {
   capabilities?: string[];
 };
 
+const CLI_CONTRACT_ID = "trellis.cli@v1";
+
 type UserRefFilter = { user?: string };
 type SessionFilter = { sessionKey?: string; user?: string };
 type SessionKeyRequest = { sessionKey: string };
 type UserNkeyRequest = { userNkey: string };
 type SessionListRow = {
   key: string;
-  type: "user" | "service";
+  type: "user" | "service" | "workload";
   createdAt: string;
   lastAuth: string;
 };
@@ -72,18 +151,422 @@ function parseOriginId(value: string): { origin: string; id: string } | null {
   return { origin: value.slice(0, idx), id: value.slice(idx + 1) };
 }
 
-export const authMeHandler = async (
-  _req: unknown,
-  { user, sessionKey }: SessionContext,
-) => {
-  logger.trace({ rpc: "Auth.Me", sessionKey, userId: user.id }, "RPC request");
-  const trellisId = await trellisIdFromOriginId(user.origin, user.id);
-  const projection = (await usersKV.get(trellisId)).take();
-  if (!isErr(projection)) {
-    user = { ...user, capabilities: projection.value.capabilities ?? [] };
+function sessionActorKey(session: Session, sessionKey: string, userNkey?: string): string {
+  const actor = session.type === "workload"
+    ? `${session.instanceId}.${session.publicIdentityKey}`
+    : `${session.origin}.${session.id}`;
+  return userNkey ? `${actor}.${sessionKey}.${userNkey}` : `${actor}.${sessionKey}`;
+}
+
+function requireUserCaller(caller: SessionContext["caller"]): SessionUser {
+  if (
+    caller.type !== "user" ||
+    !caller.id ||
+    !caller.origin ||
+    !caller.email ||
+    !caller.name ||
+    caller.active === undefined
+  ) {
+    throw new AuthError({ reason: "insufficient_permissions" });
   }
-  return Result.ok({ user });
-};
+  return {
+    id: caller.id,
+    origin: caller.origin,
+    email: caller.email,
+    name: caller.name,
+    active: caller.active,
+    capabilities: caller.capabilities ?? [],
+    ...(caller.image ? { image: caller.image } : {}),
+    ...(caller.lastLogin ? { lastLogin: caller.lastLogin } : {}),
+  };
+}
+
+function formatCaller(session: Session, principal: { active: boolean; capabilities: string[]; email: string; name: string }) {
+  if (session.type === "workload") {
+    return {
+      type: "workload" as const,
+      instanceId: session.instanceId,
+      publicIdentityKey: session.publicIdentityKey,
+      profileId: session.profileId,
+      active: principal.active,
+      capabilities: principal.capabilities,
+    };
+  }
+
+  if (session.type === "service") {
+    return {
+      type: "service" as const,
+      id: session.id,
+      name: session.name,
+      active: principal.active,
+      capabilities: principal.capabilities,
+    };
+  }
+
+  return {
+    type: "user" as const,
+    id: session.id,
+    origin: session.origin,
+    active: principal.active,
+    name: session.name,
+    email: session.email,
+    image: session.image,
+    capabilities: principal.capabilities,
+  };
+}
+
+function responseFromCaller(caller: SessionContext["caller"]): AuthMeResponse | null {
+  if (
+    caller.type === "user" && caller.id && caller.origin && caller.email &&
+    caller.name && caller.active !== undefined
+  ) {
+    return {
+      user: {
+        id: caller.id,
+        origin: caller.origin,
+        active: caller.active,
+        name: caller.name,
+        email: caller.email,
+        ...(caller.image ? { image: caller.image } : {}),
+        capabilities: caller.capabilities ?? [],
+        ...(caller.lastLogin ? { lastLogin: caller.lastLogin } : {}),
+      },
+      workload: null,
+      service: null,
+    };
+  }
+
+  if (
+    caller.type === "service" && caller.id && caller.name &&
+    caller.active !== undefined
+  ) {
+    return {
+      user: null,
+      workload: null,
+      service: {
+        type: "service",
+        id: caller.id,
+        name: caller.name,
+        active: caller.active,
+        capabilities: caller.capabilities ?? [],
+      },
+    };
+  }
+
+  if (
+    caller.type === "workload" && caller.instanceId &&
+    caller.publicIdentityKey && caller.profileId && caller.active !== undefined
+  ) {
+    return {
+      user: null,
+      workload: {
+        type: "workload",
+        instanceId: caller.instanceId,
+        publicIdentityKey: caller.publicIdentityKey,
+        profileId: caller.profileId,
+        active: caller.active,
+        capabilities: caller.capabilities ?? [],
+      },
+      service: null,
+    };
+  }
+
+  return null;
+}
+
+async function responseFromWorkloadCaller(args: {
+  caller: SessionContext["caller"];
+  usersKV: KVLike<UserProjectionEntry>;
+  workloadActivationsKV: KVLike<WorkloadActivationRecord>;
+  workloadProfilesKV: KVLike<{ profileId: string; disabled: boolean }>;
+}): Promise<AuthMeResponse | null> {
+  if (
+    args.caller.type !== "workload" || !args.caller.instanceId ||
+    !args.caller.publicIdentityKey || !args.caller.profileId ||
+    args.caller.active === undefined
+  ) {
+    return null;
+  }
+
+  const activationEntry = unwrapValue<WorkloadActivationRecord>(
+    (await args.workloadActivationsKV.get(args.caller.instanceId)).take(),
+  );
+  if (isErr(activationEntry)) return null;
+  const activation = activationEntry;
+  if (
+    activation.state !== "activated" ||
+    activation.profileId !== args.caller.profileId ||
+    activation.revokedAt !== null
+  ) {
+    return null;
+  }
+
+  const profileEntry = unwrapValue<{ profileId: string; disabled: boolean }>(
+    (await args.workloadProfilesKV.get(activation.profileId)).take(),
+  );
+  if (isErr(profileEntry) || profileEntry.disabled) return null;
+
+  const user = activation.activatedBy
+    ? await loadAuthenticatedUser({
+      usersKV: args.usersKV,
+      origin: activation.activatedBy.origin,
+      id: activation.activatedBy.id,
+      fallback: {
+        name: activation.activatedBy.id,
+        email: `${activation.activatedBy.origin}:${activation.activatedBy.id}`,
+        capabilities: [],
+        active: true,
+      },
+    })
+    : null;
+
+  return {
+    user,
+    workload: {
+      type: "workload",
+      instanceId: args.caller.instanceId,
+      publicIdentityKey: args.caller.publicIdentityKey,
+      profileId: args.caller.profileId,
+      active: args.caller.active,
+      capabilities: args.caller.capabilities ?? [],
+    },
+    service: null,
+  };
+}
+
+async function loadSessionBySessionKey(sessionKey: string, sessionStore: KVLike<Session>): Promise<Session | null> {
+  const keysFn = sessionStore.keys;
+  if (!keysFn) return null;
+  const keysIterResult = await keysFn(`${sessionKey}.>`);
+  const keysIter = unwrapValue<AsyncIterable<string>>(keysIterResult.take());
+  if (isErr(keysIter)) return null;
+
+  let sessionKeyId: string | undefined;
+  for await (const key of keysIter as AsyncIterable<string>) {
+    if (!sessionKeyId) sessionKeyId = key;
+    else {
+      throw new AuthError({ reason: "session_corrupted", context: { sessionKey } });
+    }
+  }
+
+  if (!sessionKeyId) return null;
+  const sessionValue = unwrapValue<Session>((await sessionStore.get(sessionKeyId)).take());
+  if (isErr(sessionValue)) return null;
+  return sessionValue;
+}
+
+async function loadAuthenticatedUser(args: {
+  usersKV: KVLike<UserProjectionEntry>;
+  origin: string;
+  id: string;
+  fallback: Pick<AuthenticatedUser, "name" | "email" | "capabilities"> & Partial<Pick<AuthenticatedUser, "image" | "lastLogin" | "active">>;
+}): Promise<AuthenticatedUser> {
+  const trellisId = await trellisIdFromOriginId(args.origin, args.id);
+  const projectionEntry = unwrapValue<UserProjectionEntry>((await args.usersKV.get(trellisId)).take());
+  if (!isErr(projectionEntry)) {
+    const projection = projectionEntry;
+    return {
+      id: projection.id,
+      origin: projection.origin,
+      active: projection.active,
+      name: projection.name ?? args.fallback.name,
+      email: projection.email ?? args.fallback.email,
+      ...(args.fallback.image ? { image: args.fallback.image } : {}),
+      capabilities: projection.capabilities ?? args.fallback.capabilities,
+      ...(args.fallback.lastLogin ? { lastLogin: args.fallback.lastLogin } : {}),
+    };
+  }
+
+  return {
+    id: args.id,
+    origin: args.origin,
+    active: args.fallback.active ?? true,
+    name: args.fallback.name,
+    email: args.fallback.email,
+    ...(args.fallback.image ? { image: args.fallback.image } : {}),
+    capabilities: args.fallback.capabilities,
+    ...(args.fallback.lastLogin ? { lastLogin: args.fallback.lastLogin } : {}),
+  };
+}
+
+async function loadAuthenticatedService(args: {
+  servicesKV: KVLike<ServiceRegistryEntry>;
+  sessionKey: string;
+  session: Session & { type: "service" };
+}): Promise<AuthenticatedService> {
+  const serviceEntry = unwrapValue<ServiceRegistryEntry>((await args.servicesKV.get(args.sessionKey)).take());
+  if (!isErr(serviceEntry)) {
+    const service = serviceEntry;
+    return {
+      type: "service",
+      id: args.session.id,
+      name: args.session.name,
+      active: service.active,
+      capabilities: service.capabilities ?? [],
+    };
+  }
+
+  return {
+    type: "service",
+    id: args.session.id,
+    name: args.session.name,
+    active: false,
+    capabilities: [],
+  };
+}
+
+async function loadAuthenticatedWorkload(args: {
+  usersKV: KVLike<UserProjectionEntry>;
+  workloadActivationsKV: KVLike<WorkloadActivationRecord>;
+  workloadProfilesKV: KVLike<{ profileId: string; disabled: boolean }>;
+  session: Session & { type: "workload" };
+}): Promise<{ user: AuthenticatedUser | null; workload: AuthenticatedWorkload }> {
+  const activationEntry = unwrapValue<WorkloadActivationRecord>((await args.workloadActivationsKV.get(args.session.instanceId)).take());
+  if (isErr(activationEntry)) {
+    throw new AuthError({ reason: "unknown_workload", context: { instanceId: args.session.instanceId } });
+  }
+
+  const activation = activationEntry;
+  const revokedAt = activation.revokedAt instanceof Date
+    ? activation.revokedAt
+    : activation.revokedAt
+    ? new Date(activation.revokedAt)
+    : null;
+  if (
+    activation.state !== "activated" ||
+    activation.profileId !== args.session.profileId ||
+    revokedAt !== null ||
+    args.session.revokedAt !== null
+  ) {
+    throw new AuthError({
+      reason: "workload_activation_revoked",
+      context: { instanceId: args.session.instanceId, profileId: activation.profileId },
+    });
+  }
+
+  const profileEntry = unwrapValue<{ profileId: string; disabled: boolean }>((await args.workloadProfilesKV.get(activation.profileId)).take());
+  if (isErr(profileEntry)) {
+    throw new AuthError({
+      reason: "workload_profile_not_found",
+      context: { profileId: activation.profileId },
+    });
+  }
+
+  const profile = profileEntry;
+  if (profile.disabled) {
+    throw new AuthError({
+      reason: "workload_profile_disabled",
+      context: { profileId: profile.profileId },
+    });
+  }
+
+  const user = activation.activatedBy
+    ? await loadAuthenticatedUser({
+      usersKV: args.usersKV,
+      origin: activation.activatedBy.origin,
+      id: activation.activatedBy.id,
+      fallback: {
+        name: activation.activatedBy.id,
+        email: `${activation.activatedBy.origin}:${activation.activatedBy.id}`,
+        capabilities: [],
+        active: true,
+      },
+    })
+    : null;
+
+  return {
+    user,
+    workload: {
+      type: "workload",
+      instanceId: args.session.instanceId,
+      publicIdentityKey: args.session.publicIdentityKey,
+      profileId: args.session.profileId,
+      active: true,
+      capabilities: args.session.delegatedCapabilities,
+    },
+  };
+}
+
+export function createAuthMeHandler(deps: {
+  sessionKV: KVLike<Session>;
+  usersKV: KVLike<UserProjectionEntry>;
+  servicesKV: KVLike<ServiceRegistryEntry>;
+  workloadActivationsKV: KVLike<WorkloadActivationRecord>;
+  workloadProfilesKV: KVLike<{ profileId: string; disabled: boolean }>;
+}) {
+  return async (_req: unknown, { sessionKey, caller }: SessionContext) => {
+    logger.trace({ rpc: "Auth.Me", sessionKey }, "RPC request");
+
+    try {
+      const callerResponse = responseFromCaller(caller);
+      if (callerResponse && (callerResponse.user || callerResponse.service)) {
+        return Result.ok<AuthMeResponse>(callerResponse);
+      }
+
+      const session = await loadSessionBySessionKey(sessionKey, deps.sessionKV);
+      if (!session) {
+        if (callerResponse && (callerResponse.user || callerResponse.service)) {
+          return Result.ok<AuthMeResponse>(callerResponse);
+        }
+        const workloadCallerResponse = await responseFromWorkloadCaller({
+          caller,
+          usersKV: deps.usersKV,
+          workloadActivationsKV: deps.workloadActivationsKV,
+          workloadProfilesKV: deps.workloadProfilesKV,
+        });
+        if (workloadCallerResponse) {
+          return Result.ok<AuthMeResponse>(workloadCallerResponse);
+        }
+        return Result.err(new AuthError({ reason: "session_not_found", context: { sessionKey } }));
+      }
+
+      if (session.type === "user") {
+        const user = await loadAuthenticatedUser({
+          usersKV: deps.usersKV,
+          origin: session.origin,
+          id: session.id,
+          fallback: {
+            name: session.name,
+            email: session.email,
+            capabilities: session.delegatedCapabilities,
+            image: session.image,
+            lastLogin: session.lastAuth.toISOString(),
+            active: true,
+          },
+        });
+        return Result.ok<AuthMeResponse>({ user, workload: null, service: null });
+      }
+
+      if (session.type === "service") {
+        const service = await loadAuthenticatedService({
+          servicesKV: deps.servicesKV,
+          sessionKey,
+          session: session as Session & { type: "service" },
+        });
+        return Result.ok<AuthMeResponse>({ user: null, workload: null, service });
+      }
+
+      const { user, workload } = await loadAuthenticatedWorkload({
+        usersKV: deps.usersKV,
+        workloadActivationsKV: deps.workloadActivationsKV,
+        workloadProfilesKV: deps.workloadProfilesKV,
+        session: session as Session & { type: "workload" },
+      });
+      return Result.ok<AuthMeResponse>({ user, workload, service: null });
+    } catch (error) {
+      if (error instanceof AuthError) return Result.err(error);
+      throw error;
+    }
+  };
+}
+
+export const authMeHandler = createAuthMeHandler({
+  sessionKV,
+  usersKV,
+  servicesKV,
+  workloadActivationsKV,
+  workloadProfilesKV,
+});
 
 export const authValidateRequestHandler = async (req: ValidateRequestInput) => {
   logger.trace({
@@ -137,6 +620,8 @@ export const authValidateRequestHandler = async (req: ValidateRequestInput) => {
   const principal = await resolveSessionPrincipal(session, req.sessionKey, {
     servicesKV,
     usersKV,
+    workloadActivationsKV,
+    workloadProfilesKV,
   });
   if (!principal.ok) {
     return Result.err(new AuthError(principal.error));
@@ -151,22 +636,15 @@ export const authValidateRequestHandler = async (req: ValidateRequestInput) => {
   return Result.ok({
     allowed,
     inboxPrefix,
-    user: {
-      id: session.id,
-      origin: session.origin,
-      email: principal.value.email,
-      name: principal.value.name,
-      capabilities: principal.value.capabilities,
-      active: principal.value.active,
-      ...(session.image ? { image: session.image } : {}),
-    },
+    caller: formatCaller(session, principal.value),
   });
 };
 
 export const authLogoutHandler = async (
   _req: unknown,
-  { user, sessionKey }: SessionContext,
+  { caller, sessionKey }: SessionContext,
 ) => {
+  const user = requireUserCaller(caller);
   logger.trace(
     { rpc: "Auth.Logout", sessionKey, userId: user.id },
     "RPC request",
@@ -200,7 +678,8 @@ export function createAuthRenewBindingTokenHandler(opts: {
   randomToken: (bytes: number) => string;
   hashKey: (value: string) => Promise<string>;
 }) {
-  return async (_req: unknown, { user, sessionKey }: SessionContext) => {
+  return async (_req: unknown, { caller, sessionKey }: SessionContext) => {
+    const user = requireUserCaller(caller);
     logger.trace(
       { rpc: "Auth.RenewBindingToken", sessionKey, userId: user.id },
       "RPC request",
@@ -215,10 +694,16 @@ export function createAuthRenewBindingTokenHandler(opts: {
       );
     }
 
+    const sessionValue = unwrapValue<Session>(session);
+    const bindingTtlMs = sessionValue.type === "user" &&
+        sessionValue.contractId === CLI_CONTRACT_ID
+      ? config.ttlMs.bindingTokens.cliRenew
+      : config.ttlMs.bindingTokens.renew;
+
     const bindingToken = opts.randomToken(32);
     const bindingTokenHash = await opts.hashKey(bindingToken);
     const now = new Date();
-    const expires = new Date(now.getTime() + config.ttlMs.bindingTokens.renew);
+    const expires = new Date(now.getTime() + bindingTtlMs);
     await bindingTokenKV.put(bindingTokenHash, {
       sessionKey,
       kind: "renew",
@@ -263,7 +748,7 @@ export const authListSessionsHandler = async (req: UserRefFilter) => {
 
     const sessionKey = key.split(".")[0] ?? "";
     sessions.push({
-      key: `${entry.value.origin}.${entry.value.id}.${sessionKey}`,
+      key: sessionActorKey(entry.value as Session, sessionKey),
       type: entry.value.type,
       createdAt: iso(entry.value.createdAt),
       lastAuth: iso(entry.value.lastAuth),
@@ -276,7 +761,8 @@ export const authListSessionsHandler = async (req: UserRefFilter) => {
 export function createAuthRevokeSessionHandler(opts: {
   kick: (serverId: string, clientId: number) => Promise<void>;
 }) {
-  return async (req: SessionKeyRequest, { user }: { user: SessionUser }) => {
+  return async (req: SessionKeyRequest, { caller }: { caller: SessionContext["caller"] }) => {
+    const user = requireUserCaller(caller);
     logger.trace({
       rpc: "Auth.RevokeSession",
       targetSessionKey: req.sessionKey,
@@ -310,6 +796,9 @@ export function createAuthRevokeSessionHandler(opts: {
     for (const sessionKeyId of sessionsToDelete) {
       const entry = (await sessionKV.get(sessionKeyId)).take();
       if (!isErr(entry)) {
+        if (entry.value.type === "workload") {
+          continue;
+        }
         (
           await trellis.publish("Auth.SessionRevoked", {
             origin: entry.value.origin,
@@ -370,9 +859,9 @@ export const authListConnectionsHandler = async (req: SessionFilter) => {
     const session = (await sessionKV.get(`${sessionKey}.${trellisId}`)).take();
     if (isErr(session)) continue;
 
+    const sessionValue = session.value as Session;
     connections.push({
-      key:
-        `${session.value.origin}.${session.value.id}.${sessionKey}.${userNkey}`,
+      key: sessionActorKey(sessionValue, sessionKey, userNkey),
       serverId: entry.value.serverId,
       clientId: entry.value.clientId,
       connectedAt: iso(entry.value.connectedAt),
@@ -385,7 +874,8 @@ export const authListConnectionsHandler = async (req: SessionFilter) => {
 export function createAuthKickConnectionHandler(opts: {
   kick: (serverId: string, clientId: number) => Promise<void>;
 }) {
-  return async (req: UserNkeyRequest, { user }: { user: SessionUser }) => {
+  return async (req: UserNkeyRequest, { caller }: { caller: SessionContext["caller"] }) => {
+    const user = requireUserCaller(caller);
     logger.trace({
       rpc: "Auth.KickConnection",
       userNkey: req.userNkey,
@@ -416,6 +906,9 @@ export function createAuthKickConnectionHandler(opts: {
         const session = (await sessionKV.get(`${sessionKey}.${trellisId}`))
           .take();
         if (!isErr(session)) {
+          if (session.value.type === "workload") {
+            continue;
+          }
           (
             await trellis.publish("Auth.ConnectionKicked", {
               origin: session.value.origin,

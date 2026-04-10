@@ -37,11 +37,14 @@ Deno.test("auth config loads structured provider map from file", async () => {
       "ttlMs": {
         "sessions": 123,
         "oauth": 456,
+        "workloadHandoff": 1800000,
         "pendingAuth": 789,
         "bindingTokens": {
-          "bucket": 321,
+          "bucket": 500,
           "initial": 111,
-          "renew": 222
+          "renew": 222,
+          "cliInitial": 333,
+          "cliRenew": 444
         },
         "connections": 654,
         "natsJwt": 987
@@ -99,6 +102,9 @@ Deno.test("auth config loads structured provider map from file", async () => {
       assertEquals(cfg.httpRateLimit.windowMs, 1234);
       assertEquals(cfg.httpRateLimit.max, 55);
       assertEquals(cfg.ttlMs.bindingTokens.renew, 222);
+      assertEquals(cfg.ttlMs.bindingTokens.cliInitial, 333);
+      assertEquals(cfg.ttlMs.bindingTokens.cliRenew, 444);
+      assertEquals(cfg.ttlMs.workloadHandoff, 1800000);
       assertEquals(cfg.sessionKeySeed, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=");
       assertEquals(cfg.client.natsServers, ["ws://localhost:8080", "wss://nats.example.com"]);
       assertEquals(cfg.nats.authCallout.issuer.signing, "SAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
@@ -114,6 +120,52 @@ Deno.test("auth config loads structured provider map from file", async () => {
         throw new Error("expected auth0 to be configured as oidc");
       }
       assertEquals(cfg.oauth.providers.auth0.scopes, ["openid", "profile", "email"]);
+    },
+  );
+});
+
+Deno.test("auth config defaults workload handoff TTL to thirty minutes", async () => {
+  await withTempConfig(
+    `{
+      "web": { "origins": ["http://localhost:5173"] },
+      "nats": {
+        "servers": "localhost",
+        "auth": { "credsPath": "/tmp/auth.creds" },
+        "trellis": { "credsPath": "/tmp/trellis.creds" },
+        "sentinelCredsPath": "/tmp/sentinel.creds",
+        "authCallout": {
+          "issuer": {
+            "nkey": "AAAUZNB6EFNV5BTZEE3FUNQIZ2OFAD7NALJZ3RQY3TCOSFREMANAGSER",
+            "signingSeedFile": "./issuer.seed"
+          },
+          "target": {
+            "nkey": "ADQCP2XPU3CAS2PLQKLSHQXWR64JEMOXLV53ABO7ERDTDV5QHJ4RUCSY",
+            "signingSeedFile": "./target.seed"
+          },
+          "sxSeedFile": "./sx.seed"
+        }
+      },
+      "sessionKeySeedFile": "./session.seed",
+      "client": {
+        "natsServers": ["ws://localhost:8080"]
+      },
+      "oauth": {
+        "redirectBase": "http://localhost:3000/auth/callback",
+        "providers": {
+          "github": {
+            "type": "github",
+            "clientId": "github-client",
+            "clientSecretFile": "./github.secret"
+          }
+        }
+      }
+    }`,
+    async (configPath) => {
+      const cfg = await loadAuthConfigFromFile(configPath);
+      assertEquals(cfg.ttlMs.oauth, 5 * 60_000);
+      assertEquals(cfg.ttlMs.workloadHandoff, 30 * 60_000);
+      assertEquals(cfg.ttlMs.bindingTokens.cliInitial, 24 * 60 * 60_000);
+      assertEquals(cfg.ttlMs.bindingTokens.cliRenew, 24 * 60 * 60_000);
     },
   );
 });
@@ -147,7 +199,9 @@ Deno.test("auth config rejects binding token bucket TTL smaller than renew TTL",
         "bindingTokens": {
           "bucket": 10,
           "initial": 11,
-          "renew": 12
+          "renew": 12,
+          "cliInitial": 13,
+          "cliRenew": 14
         }
       },
       "oauth": {
@@ -170,6 +224,58 @@ Deno.test("auth config rejects binding token bucket TTL smaller than renew TTL",
       }
 
       assertEquals(message.includes("AUTH_TTL_BINDING_TOKENS_BUCKET"), true);
+    },
+  );
+});
+
+Deno.test("auth config derives CLI binding token TTLs from older bucket-only configs", async () => {
+  await withTempConfig(
+    `{
+      "web": { "origins": ["http://localhost:5173"] },
+      "nats": {
+        "servers": "localhost",
+        "auth": { "credsPath": "/tmp/auth.creds" },
+        "trellis": { "credsPath": "/tmp/trellis.creds" },
+        "sentinelCredsPath": "/tmp/sentinel.creds",
+        "authCallout": {
+          "issuer": {
+            "nkey": "AAAUZNB6EFNV5BTZEE3FUNQIZ2OFAD7NALJZ3RQY3TCOSFREMANAGSER",
+            "signingSeedFile": "./issuer.seed"
+          },
+          "target": {
+            "nkey": "ADQCP2XPU3CAS2PLQKLSHQXWR64JEMOXLV53ABO7ERDTDV5QHJ4RUCSY",
+            "signingSeedFile": "./target.seed"
+          },
+          "sxSeedFile": "./sx.seed"
+        }
+      },
+      "sessionKeySeedFile": "./session.seed",
+      "client": {
+        "natsServers": ["ws://localhost:8080"]
+      },
+      "ttlMs": {
+        "bindingTokens": {
+          "bucket": 7200000,
+          "initial": 111,
+          "renew": 222
+        }
+      },
+      "oauth": {
+        "redirectBase": "http://localhost:3000/auth/callback",
+        "providers": {
+          "github": {
+            "type": "github",
+            "clientId": "github-client",
+            "clientSecretFile": "./github.secret"
+          }
+        }
+      }
+    }`,
+    async (configPath) => {
+      const cfg = await loadAuthConfigFromFile(configPath);
+      assertEquals(cfg.ttlMs.bindingTokens.bucket, 7_200_000);
+      assertEquals(cfg.ttlMs.bindingTokens.cliInitial, 7_200_000);
+      assertEquals(cfg.ttlMs.bindingTokens.cliRenew, 7_200_000);
     },
   );
 });

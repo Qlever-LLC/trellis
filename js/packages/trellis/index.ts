@@ -1,7 +1,66 @@
-export type { TrellisAPI } from "@qlever-llc/trellis-contracts";
-export { err, isErr, isOk, ok, Result } from "@qlever-llc/trellis-result";
+export {
+  bindFlow,
+  bindSession,
+  buildLoginUrl,
+  clearSessionKey,
+  createAuth,
+  createRpcProof,
+  fetchPortalFlowState,
+  generateSessionKey,
+  getOrCreateSessionKey,
+  getPublicSessionKey,
+  hasSessionKey,
+  isBindSuccessResponse,
+  loadSessionKey,
+  natsConnectSigForBindingToken,
+  portalFlowIdFromUrl,
+  portalProviderLoginUrl,
+  portalRedirectLocation,
+  signBytes,
+  submitPortalApproval,
+} from "./auth.ts";
+export type {
+  ApprovalDecision,
+  AuthConfig,
+  BindResponse,
+  BindSuccessResponse,
+  PortalFlowState,
+  NatsConnectOptions,
+  SessionKeyHandle,
+} from "./auth.ts";
+export {
+  canonicalizeJson,
+  CATALOG_FORMAT_V1,
+  CONTRACT_FORMAT_V1,
+  digestJson,
+  isJsonValue,
+  schema,
+  unwrapSchema,
+} from "./contracts.ts";
+export type {
+  InferSchemaType,
+  JsonValue,
+  TrellisAPI,
+} from "./contracts.ts";
+export {
+  defineContract,
+} from "./contract.ts";
+export type {
+  ContractApiViews,
+  ContractDependencyUse,
+  ContractModule,
+  ContractUseFn,
+  DefineContractInput,
+  EmptyApi,
+  SdkContractModule,
+  TrellisApiLike,
+  TrellisContractV1,
+  UseSpec,
+} from "./contract.ts";
+export { err, isErr, isOk, ok, Result } from "@qlever-llc/result";
 export type { ClientOpts } from "./client.ts";
 export { createClient } from "./client.ts";
+export { TrellisWorkload } from "./workload.ts";
 export type { TrellisErrorInstance } from "./errors/index.ts";
 export {
   AuthError,
@@ -31,4 +90,4 @@ export type {
   TrellisAuth,
   TrellisSigner,
 } from "./trellis.ts";
-export { Trellis, TrellisServer } from "./trellis.ts";
+export { Trellis } from "./trellis.ts";

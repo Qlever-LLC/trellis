@@ -22,11 +22,11 @@ It covers:
 - NATS connect token shapes
 - auth callout behavior
 - RPC proof verification
-- pre-auth device wait verification
+- pre-auth workload wait verification
 - reply-subject validation and streaming reply rules
 - internal auth state records required for protocol behavior
 
-It does not define public HTTP and RPC endpoint schemas; those live in `auth-api.md` and, for the device activation lifecycle, `device-activation.md`.
+It does not define public HTTP and RPC endpoint schemas; those live in `auth-api.md` and, for the activated-workload lifecycle, `workload-activation.md`.
 
 ## Cryptographic Primitives
 
@@ -99,7 +99,7 @@ When NATS calls `$SYS.REQ.USER.AUTH`:
 6. Load active contracts and derive publish/subscribe permissions
 7. Issue a NATS JWT for the server-generated `user_nkey`
 8. Update session liveness
-9. Emit `events.v1.Auth.Connect`
+9. Emit `events.v1.Auth.Connect` for user and service sessions
 
 Detailed behavior:
 
@@ -108,7 +108,7 @@ CASE: USER INITIAL / RECONNECT (bindingToken)
 - lookup hashed binding token with revision
 - verify token maps to sessionKey
 - verify sig = sign(hash("nats-connect:" + bindingToken))
-- CAS-delete binding token; reject on CAS failure
+- reject if `expiresAt <= now`
 - lookup sessions by sessionKey prefix
 - reject and revoke on multi-match corruption
 - verify user active
@@ -124,6 +124,19 @@ CASE: SERVICE CONNECT / RECONNECT (iat)
 - if no session: create service session from registry policy
 - compute inboxPrefix
 - derive permissions and issue JWT
+
+CASE: ACTIVATED WORKLOAD CONNECT / RECONNECT (iat)
+- reject if abs(now - iat) > 30s
+- verify sig = sign(hash("nats-connect:" + iat))
+- if sessionKey matches an installed workload, follow the installed-workload path instead
+- otherwise resolve the activated workload instance by public identity key
+- require the presented `contractDigest` to match an allowed digest on the workload profile
+- reject if the workload is unknown, revoked, or its profile is missing or disabled
+- create or refresh an activated-workload session keyed by `<sessionKey>.<instanceId>`
+- record `activatedAt` on the first successful runtime auth
+- compute inboxPrefix
+- derive permissions from the active workload profile and issue JWT
+- do not emit `events.v1.Auth.Connect` for activated-workload sessions
 ```
 
 Auth callout payload field names use canonical snake_case names such as:
@@ -214,45 +227,37 @@ Verification steps:
 3. Reconstruct proof input and verify signature using `session-key` as the public key
 4. Call `rpc.Auth.ValidateRequest` for session lookup and capability checking
 
-## Pre-Auth Device Wait Verification
+## Pre-Auth Workload Wait Verification
 
-Before a device is activated it cannot use normal authenticated RPCs, but an online device may still wait for its confirmation code by calling `POST /auth/device/activate/wait`.
+Before an activated workload is activated it cannot use normal authenticated RPCs, but an online workload may still wait for activation completion by calling `POST /auth/workloads/activate/wait`.
 
-That endpoint uses a runtime-key proof rather than a session-key proof.
+That endpoint uses an identity-key proof rather than a session-key proof.
 
 Proof input:
 
 ```ts
-function buildDeviceWaitProofInput(
-  deviceId: string,
-  runtimePublicKey: string,
+function buildWorkloadWaitProofInput(
+  publicIdentityKey: string,
   nonce: string,
   iat: number,
 ): Uint8Array {
   const enc = new TextEncoder();
-  const deviceIdBytes = enc.encode(deviceId);
-  const runtimePublicKeyBytes = enc.encode(runtimePublicKey);
+  const publicIdentityKeyBytes = enc.encode(publicIdentityKey);
   const nonceBytes = enc.encode(nonce);
   const iatBytes = enc.encode(String(iat));
 
   const buf = new Uint8Array(
-    4 + deviceIdBytes.length +
-    4 + runtimePublicKeyBytes.length +
+    4 + publicIdentityKeyBytes.length +
     4 + nonceBytes.length +
     4 + iatBytes.length,
   );
   const view = new DataView(buf.buffer);
 
   let offset = 0;
-  view.setUint32(offset, deviceIdBytes.length);
+  view.setUint32(offset, publicIdentityKeyBytes.length);
   offset += 4;
-  buf.set(deviceIdBytes, offset);
-  offset += deviceIdBytes.length;
-
-  view.setUint32(offset, runtimePublicKeyBytes.length);
-  offset += 4;
-  buf.set(runtimePublicKeyBytes, offset);
-  offset += runtimePublicKeyBytes.length;
+  buf.set(publicIdentityKeyBytes, offset);
+  offset += publicIdentityKeyBytes.length;
 
   view.setUint32(offset, nonceBytes.length);
   offset += 4;
@@ -267,17 +272,17 @@ function buildDeviceWaitProofInput(
 }
 
 sig = ed25519_sign(
-  runtimePrivateKey,
-  SHA256(buildDeviceWaitProofInput(deviceId, runtimePublicKey, nonce, iat)),
+  identityPrivateKey,
+  SHA256(buildWorkloadWaitProofInput(publicIdentityKey, nonce, iat)),
 );
 ```
 
 Rules:
 
 - the endpoint MUST reject if `abs(now - iat) > 30s`
-- the endpoint MUST verify `sig` using the supplied `runtimePublicKey`
-- the endpoint MUST match the request against a pending or approved device activation request using `deviceId`, `runtimePublicKey`, and `nonce`
-- the endpoint MUST NOT create a device session or issue transport credentials
+- the endpoint MUST verify `sig` using the supplied `publicIdentityKey`
+- the endpoint MUST match the request against a pending or activated workload handoff using `publicIdentityKey` and `nonce`
+- the endpoint MUST NOT create a workload session or issue transport credentials directly
 - the endpoint is a bounded long poll for setup only; it is not a general pre-auth RPC mechanism
 
 ## Reply-Subject Validation
@@ -323,6 +328,10 @@ All auth errors use `AuthError` with a `reason` code.
 | User not found | `user_not_found` |
 | Unknown service | `unknown_service` |
 | Service disabled | `service_disabled` |
+| Unknown workload | `unknown_workload` |
+| Workload activation revoked | `workload_activation_revoked` |
+| Workload profile not found | `workload_profile_not_found` |
+| Workload profile disabled | `workload_profile_disabled` |
 | Service-only capability on user | `service_role_on_user` |
 | Reply mismatch | `reply_subject_mismatch` |
 | Missing capabilities | `insufficient_permissions` |
@@ -332,20 +341,44 @@ Detailed errors are acceptable because callers only reach them after passing con
 
 ## Internal State Model
 
+## Browser Flow Protocol
+
+The portal-owned browser UX uses `flowId` as the browser-visible identifier and keeps `authToken` internal to the auth service. Trellis ships a built-in portal served by the Trellis HTTP server from static assets. That built-in portal handles both login and generic workload activation flows. Deployments may register custom portals and assign them to login or workload flows through deployment-owned selection records. Portals are web apps, not service-authenticated principals; if a portal later continues as a Trellis app after login, it does so under a normal user session.
+
+Flow summary:
+
+1. `GET /auth/login` validates the signed login-init request, stores the initiating contract and optional opaque app context on a browser flow record, resolves a login portal selection or default portal, and redirects to that portal entry URL with `flowId`.
+2. `GET /auth/login/:provider` requires `flowId` and stores the provider choice in the same browser flow.
+3. `GET /auth/callback/:provider` provisions or refreshes the auth-local user projection, stores the resulting `authToken` server-side against the browser flow, and redirects back to the portal with the same `flowId`.
+4. `GET /auth/flow/:flowId` returns `PortalFlowState`.
+5. `POST /auth/flow/:flowId/approval` records the approval decision in the auth-owned flow.
+6. `POST /auth/flow/:flowId/bind` completes the browser bind from `{ sessionKey, sig }`.
+
+Bind proof rules:
+
+- login-init uses `sig = sign(hash("oauth-init:" + redirectTo + ":" + canonicalJson(context ?? null)))`
+- browser `flowId` bind uses `sig = sign(hash("bind-flow:" + flowId))`
+- `/auth/bind` remains the lower-level auth-token bind path used by current non-portal callers
+- browser clients SHOULD treat `authToken` as internal auth-service state rather than a fragment-delivered public contract
+
 Required KV buckets and logical contents:
 
 | Bucket | Key Pattern | Value | TTL |
 | --- | --- | --- | --- |
 | `trellis_sessions` | `<sessionKey>.<trellisId>` | Session object | `SESSION_TIMEOUT` |
-| `trellis_users` | `<trellisId>` | User projection | None |
+| `trellis_users` | `<trellisId>` | User projection provisioned on successful external auth | None |
 | `trellis_oauth_states` | `hash(<state>)` | OAuth state mapping | 5 min |
 | `trellis_pending_auth` | `hash(<authToken>)` | Pending authenticated bind | 5 min |
 | `trellis_contract_approvals` | `<trellisId>.<contractDigest>` | Approval object | None |
-| `trellis_device_onboarding_handlers` | `<handlerId>` | Device onboarding handler | None |
-| `trellis_device_profiles` | `<profileId>` | Device profile | None |
-| `trellis_device_activation_handoffs` | `<handoffId>` | Device activation handoff | 30 min |
-| `trellis_device_activation_requests` | `<requestId>` | Device activation request | implementation-defined expiry |
-| `trellis_device_activations` | `<deviceId>` | Device activation record | None |
+| `trellis_browser_flows` | `<flowId>` | Browser flow record | 5 min |
+| `trellis_portals` | `<portalId>` | Portal record | None |
+| `trellis_portal_login_selections` | `contract.<contractId>` | Login portal selection record | None |
+| `trellis_portal_workload_selections` | `profile.<profileId>` | Workload portal selection record | None |
+| `trellis_portal_defaults` | `login.default` / `workload.default` | Optional deployment default custom portals | None |
+| `trellis_workload_profiles` | `<profileId>` | Workload profile | None |
+| `trellis_workload_instances` | `instance.<instanceId>.identity.<publicIdentityKey>` | Preregistered workload instance | None |
+| `trellis_workload_activation_handoffs` | `<handoffId>` | Workload activation handoff | 30 min |
+| `trellis_workload_activations` | `instance.<instanceId>.identity.<publicIdentityKey>` | Workload activation record | None |
 | `trellis_binding_tokens` | `hash(<bindingToken>)` | Binding token record | bucket TTL + enforced `expiresAt` |
 | `trellis_connections` | `<sessionKey>.<trellisId>.<user_nkey>` | Active connection record | 2h |
 | `trellis_services` | `<sessionKey>` | Installed service policy | None |
@@ -353,32 +386,78 @@ Required KV buckets and logical contents:
 
 Ephemeral tokens (`state`, `authToken`, `bindingToken`) are stored by `hash(token)` rather than raw token value.
 
-Device activation handoffs are short-lived setup records. Device activation requests persist long enough to support requester `wait()` / `watch()` behavior and reviewer action. Device onboarding handlers are deployment-owned routing records used by `GET /auth/device/activate`.
+Browser flows are keyed by raw `flowId` because the flow identifier is browser-visible and used to fetch auth-owned portal state.
+
+Workload activation handoffs are short-lived setup records. Workload activation records persist for the lifetime of the activated workload unless revoked. Login portal selections, workload portal selections, and optional default-portal settings are deployment-owned routing records used by browser login and workload activation.
+
+### Browser Flow Record
+
+```ts
+{
+  flowId: string;
+  kind: "login";
+  sessionKey: string;
+  redirectTo?: string;
+  context?: unknown;
+  handoffId?: string;
+  contract: Record<string, unknown>;
+  provider?: string;
+  authToken?: string;
+  createdAt: Date;
+  expiresAt: Date;
+}
+```
 
 ### Session Object
 
 ```ts
-{
+UserSession | ServiceSession | ActivatedWorkloadSession
+
+type UserSession = {
   origin: string;
   id: string;
-  type: "user" | "service";
+  type: "user";
   contractDigest?: string;
   contractId?: string;
   contractDisplayName?: string;
   contractDescription?: string;
-  contractKind?: string;
   delegatedCapabilities?: string[];
   delegatedPublishSubjects?: string[];
   delegatedSubscribeSubjects?: string[];
   createdAt: Date;
   lastAuth: Date;
-}
+};
+
+type ServiceSession = {
+  origin: string;
+  id: string;
+  type: "service";
+  createdAt: Date;
+  lastAuth: Date;
+};
+
+type ActivatedWorkloadSession = {
+  type: "workload";
+  instanceId: string;
+  publicIdentityKey: string;
+  profileId: string;
+  contractId: string;
+  contractDigest: string;
+  delegatedCapabilities: string[];
+  delegatedPublishSubjects: string[];
+  delegatedSubscribeSubjects: string[];
+  createdAt: Date;
+  lastAuth: Date;
+  activatedAt: Date | null;
+  revokedAt: Date | null;
+};
 ```
 
 Rules:
 
 - the key is `<sessionKey>.<trellisId>`
 - user delegated fields are present only for contract-bearing user sessions
+- activated-workload sessions use the key `<sessionKey>.<instanceId>`
 - if multiple sessions match a sessionKey prefix, Trellis MUST revoke them and return `session_corrupted`
 
 ### Contract Approval Object
@@ -396,7 +475,6 @@ Rules:
     contractId: string;
     displayName: string;
     description: string;
-    kind: string;
     capabilities: string[];
   };
   publishSubjects: string[];
@@ -432,8 +510,8 @@ This projection is Trellis-local and is updated by Trellis-managed flows.
 
 Rules:
 
-- binding tokens are single-use and are consumed via CAS delete
-- CAS failure is treated as `invalid_binding_token`
+- binding tokens are reusable until `expiresAt`
+- validation rejects expired tokens and tokens that do not map to the claimed `sessionKey`
 
 ### Active Connections
 
@@ -447,7 +525,7 @@ Rules:
 
 Rules:
 
-- key is `<sessionKey>.<trellisId>.<user_nkey>`
+- key is `<sessionKey>.<scopeId>.<user_nkey>` where `scopeId` is `trellisId` for user and installed-workload sessions and `instanceId` for activated-workload sessions
 - disconnect cleanup is best-effort plus TTL-backed self-healing
 
 ## Event Authorization
@@ -460,11 +538,11 @@ Events:
 - `events.v1.Auth.Disconnect`
 - `events.v1.Auth.SessionRevoked`
 - `events.v1.Auth.ConnectionKicked`
-- `events.v1.Auth.DeviceActivationRequested`
-- `events.v1.Auth.DeviceActivationApproved`
-- `events.v1.Auth.DeviceActivationRejected`
-- `events.v1.Auth.DeviceActivated`
-- `events.v1.Auth.DeviceActivationRevoked`
+- `events.v1.Auth.WorkloadActivationRequested`
+- `events.v1.Auth.WorkloadActivationApproved`
+- `events.v1.Auth.WorkloadActivationRejected`
+- `events.v1.Auth.WorkloadActivated`
+- `events.v1.Auth.WorkloadActivationRevoked`
 
 Rules:
 

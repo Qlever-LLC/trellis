@@ -1,4 +1,4 @@
-import type { BaseError, Result } from "@qlever-llc/trellis-result";
+import type { BaseError, Result } from "@qlever-llc/result";
 import type {
   Job,
   JobFilter,

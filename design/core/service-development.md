@@ -32,7 +32,7 @@ services/<name>/
 ### Lifecycle
 
 ```ts
-import { connectService } from "@qlever-llc/trellis-server/deno";
+import { connectService } from "@qlever-llc/trellis/server/deno";
 import { myService } from "./contract.ts";
 
 const service = await connectService(myService, "<name>", {

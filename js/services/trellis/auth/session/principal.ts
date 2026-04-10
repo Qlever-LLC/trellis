@@ -1,5 +1,4 @@
-import { isErr } from "@qlever-llc/trellis-result";
-
+import { isErr } from "@qlever-llc/result";
 import type {
   ServiceRegistryEntry,
   Session,
@@ -10,6 +9,7 @@ type KVResult<T> = { take(): T };
 
 type KVLike<V> = {
   get: (key: string) => Promise<KVResult<{ value: V } | V | unknown>>;
+  keys?: (filter: string) => Promise<KVResult<AsyncIterable<string> | unknown>>;
 };
 
 export type SessionPrincipal = {
@@ -24,6 +24,10 @@ export type SessionPrincipalError = {
   reason:
     | "unknown_service"
     | "service_disabled"
+    | "unknown_workload"
+    | "workload_activation_revoked"
+    | "workload_profile_not_found"
+    | "workload_profile_disabled"
     | "user_not_found"
     | "user_inactive"
     | "insufficient_permissions"
@@ -55,6 +59,8 @@ export async function resolveSessionPrincipal(
   sessionKey: string,
   deps: {
     servicesKV: KVLike<ServiceRegistryEntry>;
+    workloadActivationsKV?: KVLike<{ instanceId: string; publicIdentityKey: string; profileId: string; state: string; revokedAt: string | Date | null }>;
+    workloadProfilesKV?: KVLike<{ profileId: string; disabled: boolean }>;
     usersKV: KVLike<UserProjectionEntry>;
   },
 ): Promise<SessionPrincipalResult> {
@@ -86,6 +92,69 @@ export async function resolveSessionPrincipal(
         email: session.email,
         name: session.name,
         serviceState: service,
+      },
+    };
+  }
+
+  if (session.type === "workload") {
+    const activationEntry = deps.workloadActivationsKV
+      ? (await deps.workloadActivationsKV.get(session.instanceId)).take()
+      : null;
+    if (!activationEntry || isErr(activationEntry)) {
+      return {
+        ok: false,
+        error: { reason: "unknown_workload", context: { instanceId: session.instanceId } },
+      };
+    }
+
+    const activation = unwrapValue(activationEntry as {
+      value: { instanceId: string; publicIdentityKey: string; profileId: string; state: string; revokedAt: string | Date | null };
+    } | { instanceId: string; publicIdentityKey: string; profileId: string; state: string; revokedAt: string | Date | null });
+    const revokedAt = activation.revokedAt instanceof Date
+      ? activation.revokedAt
+      : activation.revokedAt
+      ? new Date(activation.revokedAt)
+      : null;
+    if (
+      activation.state !== "activated" ||
+      activation.profileId !== session.profileId ||
+      revokedAt !== null ||
+      session.revokedAt !== null
+    ) {
+      return {
+        ok: false,
+        error: {
+          reason: "workload_activation_revoked",
+          context: { instanceId: session.instanceId, profileId: activation.profileId },
+        },
+      };
+    }
+
+    const profileEntry = deps.workloadProfilesKV
+      ? (await deps.workloadProfilesKV.get(activation.profileId)).take()
+      : null;
+    if (!profileEntry || isErr(profileEntry)) {
+      return {
+        ok: false,
+        error: { reason: "workload_profile_not_found", context: { profileId: activation.profileId } },
+      };
+    }
+
+    const profile = unwrapValue(profileEntry as { value: { profileId: string; disabled: boolean } } | { profileId: string; disabled: boolean });
+    if (profile.disabled) {
+      return {
+        ok: false,
+        error: { reason: "workload_profile_disabled", context: { profileId: profile.profileId } },
+      };
+    }
+
+    return {
+      ok: true,
+      value: {
+        active: true,
+        capabilities: session.delegatedCapabilities,
+        email: `workload:${session.instanceId}`,
+        name: session.instanceId,
       },
     };
   }

@@ -1,5 +1,3 @@
-use std::future::Future;
-
 use async_nats::header::HeaderMap;
 use async_nats::ConnectOptions;
 use bytes::Bytes;
@@ -178,72 +176,60 @@ impl TrellisClient {
 }
 
 impl OperationTransport for TrellisClient {
-    fn request_json_value<'a>(
-        &'a self,
+    async fn request_json_value(
+        &self,
         subject: String,
         body: Value,
-    ) -> impl Future<Output = Result<Value, TrellisClientError>> + Send + 'a {
-        async move { TrellisClient::request_json_value(self, &subject, &body).await }
+    ) -> Result<Value, TrellisClientError> {
+        TrellisClient::request_json_value(self, &subject, &body).await
     }
 
-    fn watch_json_value<'a>(
+    async fn watch_json_value<'a>(
         &'a self,
         subject: String,
         body: Value,
-    ) -> impl Future<
-        Output = Result<BoxStream<'a, Result<Value, TrellisClientError>>, TrellisClientError>,
-    > + Send
-           + 'a {
-        async move {
-            let payload = Bytes::from(serde_json::to_vec(&body)?);
-            let proof = self.auth.create_proof(&subject, &payload);
+    ) -> Result<BoxStream<'a, Result<Value, TrellisClientError>>, TrellisClientError> {
+        let payload = Bytes::from(serde_json::to_vec(&body)?);
+        let proof = self.auth.create_proof(&subject, &payload);
 
-            let mut headers = HeaderMap::new();
-            headers.insert("session-key", self.auth.session_key.as_str());
-            headers.insert("proof", proof.as_str());
+        let mut headers = HeaderMap::new();
+        headers.insert("session-key", self.auth.session_key.as_str());
+        headers.insert("proof", proof.as_str());
 
-            let inbox = self.nats.new_inbox();
-            let subscriber = timeout(
-                std::time::Duration::from_millis(self.timeout_ms),
-                self.nats.subscribe(inbox.clone()),
-            )
-            .await
-            .map_err(|_| TrellisClientError::Timeout)?
-            .map_err(|error| TrellisClientError::NatsRequest(error.to_string()))?;
+        let inbox = self.nats.new_inbox();
+        let subscriber = timeout(
+            std::time::Duration::from_millis(self.timeout_ms),
+            self.nats.subscribe(inbox.clone()),
+        )
+        .await
+        .map_err(|_| TrellisClientError::Timeout)?
+        .map_err(|error| TrellisClientError::NatsRequest(error.to_string()))?;
 
-            timeout(
-                std::time::Duration::from_millis(self.timeout_ms),
-                self.nats
-                    .publish_with_reply_and_headers(subject, inbox, headers, payload),
-            )
-            .await
-            .map_err(|_| TrellisClientError::Timeout)?
-            .map_err(|error| TrellisClientError::NatsRequest(error.to_string()))?;
+        timeout(
+            std::time::Duration::from_millis(self.timeout_ms),
+            self.nats
+                .publish_with_reply_and_headers(subject, inbox, headers, payload),
+        )
+        .await
+        .map_err(|_| TrellisClientError::Timeout)?
+        .map_err(|error| TrellisClientError::NatsRequest(error.to_string()))?;
 
-            let stream =
-                stream::try_unfold((subscriber, false), |(mut subscriber, done)| async move {
-                    if done {
-                        return Ok(None);
-                    }
+        let stream = stream::try_unfold((subscriber, false), |(mut subscriber, done)| async move {
+            if done {
+                return Ok(None);
+            }
 
-                    loop {
-                        match subscriber.next().await {
-                            Some(message) => {
-                                let event = match decode_watch_message(message) {
-                                    Ok(event) => event,
-                                    Err(error) => return Err(error),
-                                };
+            match subscriber.next().await {
+                Some(message) => {
+                    let event = decode_watch_message(message)?;
+                    let terminal = is_terminal_event(&event);
+                    Ok(Some((event, (subscriber, terminal))))
+                }
+                None => Ok(None),
+            }
+        });
 
-                                let terminal = is_terminal_event(&event);
-                                return Ok(Some((event, (subscriber, terminal))));
-                            }
-                            None => return Ok(None),
-                        }
-                    }
-                });
-
-            Ok(Box::pin(stream) as BoxStream<'a, Result<Value, TrellisClientError>>)
-        }
+        Ok(Box::pin(stream) as BoxStream<'a, Result<Value, TrellisClientError>>)
     }
 }
 

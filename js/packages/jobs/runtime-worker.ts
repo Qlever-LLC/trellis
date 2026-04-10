@@ -170,7 +170,7 @@ function toWorkerConsumer(consumer: { consume(): Promise<AsyncIterable<JsMsg> & 
   };
 }
 
-export async function processWorkPayload<TResult>(
+export function processWorkPayload<TResult>(
   manager: JobManager<unknown, TResult>,
   payload: Uint8Array,
   handler: (job: ActiveJob<unknown, TResult>) => Promise<TResult>,
@@ -185,7 +185,7 @@ export async function processWorkPayload<TResult>(
   return processWorkPayloadWithContext(manager, payload, new JobCancellationToken(), handler, validation, runtime);
 }
 
-export async function processWorkPayloadWithContext<TResult>(
+export function processWorkPayloadWithContext<TResult>(
   manager: JobManager<unknown, TResult>,
   payload: Uint8Array,
   cancellation: JobCancellationToken,
@@ -202,7 +202,7 @@ export async function processWorkPayloadWithContext<TResult>(
     manager,
     payload,
     cancellation,
-    async () => {
+    () => {
       throw new Error("worker heartbeat unavailable");
     },
     handler,

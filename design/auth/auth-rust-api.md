@@ -1,6 +1,6 @@
 ---
 title: Auth Rust API
-description: Rust service and CLI auth helpers for session keys, bind flows, reconnect, and auth clients.
+description: Rust CLI and client auth helpers for browser login, admin sessions, typed auth/admin RPC access, and workload activation.
 order: 50
 ---
 
@@ -15,185 +15,275 @@ order: 50
 
 ## Scope
 
-This document defines the normative Rust public API surface for Trellis auth.
+This document defines the normative Rust public API surface for the `trellis-auth` crate.
 
 It covers:
 
-- service and CLI session-key helpers
-- bind and reconnect helpers
-- device activation helpers
-- auth/admin client surfaces
+- browser-login helpers used by the CLI
+- persisted admin session helpers
+- typed auth/admin RPC access through `AuthClient`
+- workload activation helpers
+- portal and selection invariants
 
 ## Design Rules
 
 - Rust returns `Result` directly rather than exception-oriented helpers
-- service and CLI auth use the same underlying session-key proof protocol as browser clients
-- public Rust APIs hide signature domain strings and token-envelope formatting
+- public Rust APIs hide proof-string construction and token-envelope formatting
+- browser login helpers may run a local callback listener, but normal callers do not deal with callback HTTP parsing directly
 
-## Session Key Surface
+## Exported Surface
 
 ```rust
-pub trait SessionKeyHandle {
-    fn public_key(&self) -> &str;
+pub fn generate_session_keypair() -> (String, String);
+
+pub fn build_auth_login_url(
+    auth_url: &str,
+    redirect_to: &str,
+    auth: &SessionAuth,
+    contract_json: &str,
+) -> Result<String, TrellisAuthError>;
+
+pub async fn start_browser_login(
+    opts: StartBrowserLoginOpts<'_>,
+) -> Result<BrowserLoginChallenge, TrellisAuthError>;
+
+impl BrowserLoginChallenge {
+    pub fn login_url(&self) -> &str;
+    pub async fn complete(self) -> Result<AdminLoginOutcome, TrellisAuthError>;
 }
 
-pub async fn load_session_key_from_seed(
-    seed: &str,
-) -> Result<impl SessionKeyHandle, AuthError>;
+pub async fn connect_admin_client_async(
+    state: &AdminSessionState,
+) -> Result<TrellisClient, TrellisAuthError>;
+
+pub fn persist_renewed_admin_session(
+    state: &mut AdminSessionState,
+    renewed: RenewBindingTokenResponse,
+) -> Result<(), TrellisAuthError>;
+
+pub fn save_admin_session(state: &AdminSessionState) -> Result<(), TrellisAuthError>;
+pub fn load_admin_session() -> Result<AdminSessionState, TrellisAuthError>;
+pub fn clear_admin_session() -> Result<bool, TrellisAuthError>;
+
+pub struct AuthClient<'a> { /* opaque */ }
 ```
 
-## Bind And Connect Helpers
+The crate also re-exports the typed request and response structs from `protocol.rs` and the public session/login models from `models.rs`.
+
+## Browser Login Flow
+
+The Rust browser-login flow uses the same auth-owned `flowId` continuation model as
+the TypeScript browser helpers.
+
+Flow summary:
+
+1. `start_browser_login(...)` generates a session keypair, signs the login init proof, and starts a local callback listener.
+2. `BrowserLoginChallenge::login_url()` returns the auth login URL to open in a browser.
+3. The callback returns `flowId` or `authError` to the local listener.
+4. `BrowserLoginChallenge::complete()` binds that flow through the auth-owned flow endpoint and returns an `AdminLoginOutcome`.
+
+## Admin RPC Surface
 
 ```rust
-pub struct BindSessionOptions {
-    pub auth_url: String,
-}
+impl<'a> AuthClient<'a> {
+    pub fn new(inner: &'a TrellisClient) -> Self;
 
-pub struct BindSessionResult {
-    pub binding_token: String,
-    pub inbox_prefix: String,
-    pub expires: String,
-    pub sentinel: SentinelCreds,
-    pub nats_servers: Vec<String>,
-}
-
-pub struct NatsConnectOptions {
-    pub token: String,
-    pub inbox_prefix: String,
-}
-
-pub async fn bind_session(
-    options: &BindSessionOptions,
-    handle: &impl SessionKeyHandle,
-    auth_token: &str,
-) -> Result<BindSessionResult, AuthError>;
-
-pub async fn nats_connect_sig_for_binding_token(
-    handle: &impl SessionKeyHandle,
-    binding_token: &str,
-) -> Result<String, AuthError>;
-
-pub async fn nats_connect_options_for_service(
-    handle: &impl SessionKeyHandle,
-) -> Result<NatsConnectOptions, AuthError>;
-```
-
-## Auth Client Surface
-
-```rust
-pub struct RequestDeviceActivationInput {
-    pub handoff_id: String,
-    pub requested_profile_id: Option<String>,
-}
-
-pub struct RequestDeviceActivationProgress {
-    pub stage: String,
-}
-
-pub struct RequestDeviceActivationOutput {
-    pub request_id: String,
-    pub profile_id: String,
-    pub confirmation_code: String,
-}
-
-pub struct WaitForDeviceActivationCodeInput {
-    pub device_id: String,
-    pub runtime_public_key: String,
-    pub nonce: String,
-}
-
-pub trait DeviceRuntimeKeyHandle {
-    fn public_key(&self) -> &str;
-    async fn sign(&self, input: &[u8]) -> Result<String, AuthError>;
-}
-
-pub enum WaitForDeviceActivationCodeResponse {
-    Approved {
-        request_id: String,
-        profile_id: String,
-        confirmation_code: String,
-    },
-    Rejected {
-        request_id: String,
-        reason: Option<String>,
-    },
-    Pending,
-}
-
-pub trait AuthClient {
-    async fn me(&self) -> Result<AuthMeResponse, AuthError>;
-    async fn logout(&self) -> Result<SuccessResponse, AuthError>;
-    async fn renew_binding_token(&self) -> Result<RenewBindingTokenResponse, AuthError>;
-    async fn request_device_activation(
+    pub async fn me(&self) -> Result<AuthenticatedUser, TrellisAuthError>;
+    pub async fn list_approvals(
         &self,
-        input: RequestDeviceActivationInput,
-    ) -> Result<OperationRef<RequestDeviceActivationProgress, RequestDeviceActivationOutput>, AuthError>;
-}
-
-pub trait AuthAdminClient {
-    async fn review_device_activation(&self, input: ReviewDeviceActivationRequest) -> Result<ReviewDeviceActivationResponse, AuthError>;
-    async fn create_device_onboarding_handler(&self, input: CreateDeviceOnboardingHandlerRequest) -> Result<CreateDeviceOnboardingHandlerResponse, AuthError>;
-    async fn list_device_onboarding_handlers(&self, input: ListDeviceOnboardingHandlersRequest) -> Result<ListDeviceOnboardingHandlersResponse, AuthError>;
-    async fn disable_device_onboarding_handler(&self, input: DisableDeviceOnboardingHandlerRequest) -> Result<SuccessResponse, AuthError>;
-    async fn create_device_profile(&self, input: CreateDeviceProfileRequest) -> Result<CreateDeviceProfileResponse, AuthError>;
-    async fn list_device_profiles(&self, input: ListDeviceProfilesRequest) -> Result<ListDeviceProfilesResponse, AuthError>;
-    async fn get_device_profile(&self, input: GetDeviceProfileRequest) -> Result<GetDeviceProfileResponse, AuthError>;
-    async fn disable_device_profile(&self, input: DisableDeviceProfileRequest) -> Result<SuccessResponse, AuthError>;
-    async fn list_device_activations(&self, input: ListDeviceActivationsRequest) -> Result<ListDeviceActivationsResponse, AuthError>;
-    async fn revoke_device_activation(&self, input: RevokeDeviceActivationRequest) -> Result<SuccessResponse, AuthError>;
-    async fn list_approvals(&self, input: ListApprovalsRequest) -> Result<ListApprovalsResponse, AuthError>;
-    async fn revoke_approval(&self, input: RevokeApprovalRequest) -> Result<SuccessResponse, AuthError>;
-    async fn list_sessions(&self, input: ListSessionsRequest) -> Result<ListSessionsResponse, AuthError>;
-    async fn revoke_session(&self, input: RevokeSessionRequest) -> Result<SuccessResponse, AuthError>;
-    async fn list_connections(&self, input: ListConnectionsRequest) -> Result<ListConnectionsResponse, AuthError>;
-    async fn kick_connection(&self, input: KickConnectionRequest) -> Result<SuccessResponse, AuthError>;
-}
-
-pub trait DeviceActivationClient {
-    async fn wait_for_device_activation_code(
+        user: Option<&str>,
+        digest: Option<&str>,
+    ) -> Result<Vec<ApprovalEntryRecord>, TrellisAuthError>;
+    pub async fn revoke_approval(
         &self,
-        input: WaitForDeviceActivationCodeInput,
-        handle: &impl DeviceRuntimeKeyHandle,
-    ) -> Result<WaitForDeviceActivationCodeResponse, AuthError>;
-}
-```
+        digest: &str,
+        user: Option<&str>,
+    ) -> Result<bool, TrellisAuthError>;
 
-Shared request and response type names such as `ReviewDeviceActivationRequest`, `ReviewDeviceActivationResponse`, `RequestDeviceActivationOutput`, `WaitForDeviceActivationCodeResponse`, the onboarding handler request/response types, and the device profile request/response types are defined canonically in [auth-api.md](./auth-api.md).
+    pub async fn list_portals(&self) -> Result<Vec<AuthListPortalsResponsePortalsItem>, TrellisAuthError>;
+    pub async fn create_portal(
+        &self,
+        portal_id: &str,
+        app_contract_id: Option<&str>,
+        entry_url: &str,
+    ) -> Result<AuthCreatePortalResponsePortal, TrellisAuthError>;
+    pub async fn disable_portal(&self, portal_id: &str) -> Result<bool, TrellisAuthError>;
+
+    pub async fn get_login_portal_default(&self) -> Result<AuthGetLoginPortalDefaultResponseDefaultPortal, TrellisAuthError>;
+    pub async fn set_login_portal_default(
+        &self,
+        portal_id: Option<&str>,
+    ) -> Result<AuthSetLoginPortalDefaultResponseDefaultPortal, TrellisAuthError>;
+
+    pub async fn list_login_portal_selections(&self) -> Result<Vec<AuthListLoginPortalSelectionsResponseSelectionsItem>, TrellisAuthError>;
+    pub async fn set_login_portal_selection(
+        &self,
+        contract_id: &str,
+        portal_id: Option<&str>,
+    ) -> Result<AuthSetLoginPortalSelectionResponseSelection, TrellisAuthError>;
+    pub async fn clear_login_portal_selection(&self, contract_id: &str) -> Result<bool, TrellisAuthError>;
+
+    pub async fn get_workload_portal_default(&self) -> Result<AuthGetWorkloadPortalDefaultResponseDefaultPortal, TrellisAuthError>;
+    pub async fn set_workload_portal_default(
+        &self,
+        portal_id: Option<&str>,
+    ) -> Result<AuthSetWorkloadPortalDefaultResponseDefaultPortal, TrellisAuthError>;
+
+    pub async fn list_workload_portal_selections(&self) -> Result<Vec<AuthListWorkloadPortalSelectionsResponseSelectionsItem>, TrellisAuthError>;
+    pub async fn set_workload_portal_selection(
+        &self,
+        profile_id: &str,
+        portal_id: Option<&str>,
+    ) -> Result<AuthSetWorkloadPortalSelectionResponseSelection, TrellisAuthError>;
+    pub async fn clear_workload_portal_selection(&self, profile_id: &str) -> Result<bool, TrellisAuthError>;
+
+    pub async fn list_workload_profiles(
+        &self,
+        contract_id: Option<&str>,
+        disabled: bool,
+    ) -> Result<Vec<AuthListWorkloadProfilesResponseProfilesItem>, TrellisAuthError>;
+    pub async fn create_workload_profile(
+        &self,
+        profile_id: &str,
+        contract_id: &str,
+        allow_digests: &[String],
+        review_mode: Option<&str>,
+    ) -> Result<AuthCreateWorkloadProfileResponseProfile, TrellisAuthError>;
+    pub async fn disable_workload_profile(
+        &self,
+        profile_id: &str,
+    ) -> Result<bool, TrellisAuthError>;
+
+    pub async fn provision_workload_instance(
+        &self,
+        profile_id: &str,
+        public_identity_key: &str,
+        activation_key: &str,
+    ) -> Result<AuthProvisionWorkloadInstanceResponseInstance, TrellisAuthError>;
+    pub async fn list_workload_instances(
+        &self,
+        profile_id: Option<&str>,
+        state: Option<&str>,
+    ) -> Result<Vec<AuthListWorkloadInstancesResponseInstancesItem>, TrellisAuthError>;
+    pub async fn disable_workload_instance(&self, instance_id: &str) -> Result<bool, TrellisAuthError>;
+
+    pub async fn activate_workload(
+        &self,
+        handoff_id: &str,
+    ) -> Result<trellis_sdk_auth::AuthActivateWorkloadResponse, TrellisAuthError>;
+    pub async fn get_workload_activation_status(
+        &self,
+        handoff_id: &str,
+    ) -> Result<trellis_sdk_auth::AuthGetWorkloadActivationStatusResponse, TrellisAuthError>;
+    pub async fn list_workload_activations(
+        &self,
+        instance_id: Option<&str>,
+        profile_id: Option<&str>,
+        state: Option<&str>,
+    ) -> Result<Vec<trellis_sdk_auth::AuthListWorkloadActivationsResponseActivationsItem>, TrellisAuthError>;
+    pub async fn revoke_workload_activation(
+        &self,
+        instance_id: &str,
+    ) -> Result<bool, TrellisAuthError>;
+    pub async fn list_workload_activation_reviews(
+        &self,
+        instance_id: Option<&str>,
+        profile_id: Option<&str>,
+        state: Option<&str>,
+    ) -> Result<Vec<trellis_sdk_auth::AuthListWorkloadActivationReviewsResponseReviewsItem>, TrellisAuthError>;
+    pub async fn decide_workload_activation_review(
+        &self,
+        review_id: &str,
+        decision: &str,
+        reason: Option<&str>,
+    ) -> Result<trellis_sdk_auth::AuthDecideWorkloadActivationReviewResponse, TrellisAuthError>;
+
+    pub async fn list_services(&self) -> Result<Vec<ServiceListEntry>, TrellisAuthError>;
+    pub async fn install_service(
+        &self,
+        request: &AuthInstallServiceRequest,
+    ) -> Result<AuthInstallServiceResponse, TrellisAuthError>;
+    pub async fn upgrade_service_contract(
+        &self,
+        request: &AuthUpgradeServiceContractRequest,
+    ) -> Result<AuthUpgradeServiceContractResponse, TrellisAuthError>;
+    pub async fn get_installed_contract(
+        &self,
+        digest: &str,
+    ) -> Result<AuthGetInstalledContractResponse, TrellisAuthError>;
+
+    pub async fn logout(&self) -> Result<bool, TrellisAuthError>;
+    pub async fn renew_binding_token(
+        &self,
+        state: &mut AdminSessionState,
+    ) -> Result<(), TrellisAuthError>;
+    pub async fn validate_request(
+        &self,
+        request: &AuthValidateRequestRequest,
+    ) -> Result<AuthValidateRequestResponse, TrellisAuthError>;
+}
+
+## Workload Activation Helpers
+
+```rust
+pub fn derive_workload_identity(workload_root_secret: &[u8]) -> Result<WorkloadIdentity, TrellisAuthError>;
+
+pub fn build_workload_activation_payload(
+    activation_key_base64url: &str,
+    public_identity_key: &str,
+    nonce: &str,
+) -> Result<WorkloadActivationPayload, TrellisAuthError>;
+
+pub fn build_workload_activation_url(
+    trellis_url: &str,
+    payload: &WorkloadActivationPayload,
+) -> Result<String, TrellisAuthError>;
+
+pub fn sign_workload_wait_request(
+    public_identity_key: &str,
+    nonce: &str,
+    identity_seed_base64url: &str,
+    iat: u64,
+) -> Result<WorkloadActivationWaitRequest, TrellisAuthError>;
+
+pub async fn wait_for_workload_activation(
+    trellis_url: &str,
+    request: &WorkloadActivationWaitRequest,
+) -> Result<WaitForWorkloadActivationResponse, TrellisAuthError>;
+
+pub async fn get_workload_connect_info(
+    opts: GetWorkloadConnectInfoOpts<'_>,
+) -> Result<GetWorkloadConnectInfoResponse, TrellisAuthError>;
+
+pub fn verify_workload_confirmation_code(
+    activation_key_base64url: &str,
+    public_identity_key: &str,
+    nonce: &str,
+    confirmation_code: &str,
+) -> Result<bool, TrellisAuthError>;
+```
 
 Rules:
 
-- `request_device_activation(...)` starts `operations.v1.Auth.RequestDeviceActivation` and returns an `OperationRef`
-- `wait_for_device_activation_code(...)` targets `POST /auth/device/activate/wait` and signs with the device runtime key rather than a user session key
-- public Rust APIs SHOULD expose typed request and response structs or enums rather than `serde_json::Value` in normal flows
+- Rust activated-workload code SHOULD use these helpers instead of hand-written HKDF, HMAC, wait-proof, and connect-info logic
+- `AuthClient` SHOULD expose small typed workload-activation convenience methods in addition to the lower-level generated SDK surfaces
+- a future Rust workload runtime helper SHOULD follow the same service-style `connect(...)` pattern as the TypeScript workload runtime helper rather than exposing a docs-only activation facade
+- these helpers remain thin wrappers over the same public auth HTTP and RPC
+  surfaces defined elsewhere
 
-## Service Helper Surface
+## Portal And Selection Invariants
 
-```rust
-pub struct AuthHandle {
-    // opaque
-}
+The built-in Trellis portal is implicit and always available. The crate only manages custom portal records plus login/workload portal selection policy.
 
-impl AuthHandle {
-    pub async fn nats_connect_options(&self) -> Result<NatsConnectOptions, AuthError>;
-}
+Rules enforced by the crate:
 
-pub async fn create_auth(session_key_seed: &str) -> Result<AuthHandle, AuthError>;
-```
-
-Example:
-
-```rust
-let auth = create_auth(&config.session_key_seed).await?;
-let connect = auth.nats_connect_options().await?;
-
-let nc = nats::ConnectOptions::with_token(connect.token)
-    .inbox_prefix(connect.inbox_prefix)
-    .connect(&config.nats_servers)
-    .await?;
-```
+- custom portals may include `app_contract_id`, but they do not require one unless they later call Trellis as the logged-in user
+- login portal selections are keyed by `contract_id`
+- workload portal selections are keyed by `profile_id`
+- selection records may use `portal_id = null` to force the built-in Trellis portal for that scope
+- selection records that name a custom portal must reference an existing enabled portal
 
 ## Non-Goals
 
 - redefining HTTP or RPC payload schemas
-- defining TypeScript APIs
 - deployment/runbook guidance

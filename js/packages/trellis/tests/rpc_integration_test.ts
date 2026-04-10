@@ -5,7 +5,7 @@ import {
   AuthValidateRequestResponseSchema,
   AuthValidateRequestSchema,
 } from "@qlever-llc/trellis-auth";
-import { assertEquals, assertExists } from "@std/assert";
+import { assertEquals, assertExists, assertRejects } from "@std/assert";
 
 import { Type } from "typebox";
 import { isErr, ok } from "../../result/mod.ts";
@@ -54,6 +54,10 @@ const TEST_USER = {
   email: "test@example.com",
   capabilities: ["service"],
 };
+const TEST_CALLER = {
+  type: "user" as const,
+  ...TEST_USER,
+};
 
 const EmptySchema = Type.Object({}, { additionalProperties: false });
 
@@ -100,6 +104,7 @@ const authContract = defineContract({
       version: "v1",
       input: schemaRef("AuthValidateRequestInput"),
       output: schemaRef("AuthValidateRequestOutput"),
+      authRequired: false,
       errors: ["AuthError", "ValidationError", "UnexpectedError"],
     },
     "Auth.Me": {
@@ -252,11 +257,12 @@ Deno.test({
 
     // The server auth path for non-auth RPCs calls Auth.ValidateRequest internally.
     // For this unit integration, mount a permissive Auth.ValidateRequest handler.
-    await authService.mount("Auth.ValidateRequest", async (input) => {
+    await authService.mount("Auth.ValidateRequest", async (input: unknown) => {
+      const authInput = input as { sessionKey: string };
       return ok({
         allowed: true,
-        inboxPrefix: `_INBOX.${input.sessionKey.slice(0, 16)}`,
-        user: TEST_USER,
+        inboxPrefix: `_INBOX.${authInput.sessionKey.slice(0, 16)}`,
+        caller: TEST_CALLER,
       });
     });
 
@@ -291,12 +297,12 @@ Deno.test({
       { name: "auth-service" },
     );
 
-    await authService.mount("Auth.ValidateRequest", async (input) => {
+    await authService.mount("Auth.ValidateRequest", async (input: unknown) => {
       const authInput = input as { sessionKey: string };
       return ok({
         allowed: true,
         inboxPrefix: `_INBOX.${authInput.sessionKey.slice(0, 16)}`,
-        user: TEST_USER,
+        caller: TEST_CALLER,
       });
     });
 
@@ -304,7 +310,7 @@ Deno.test({
     const info = nats.nc.info!;
     const nc = await connect({ servers: `localhost:${info.port}`, inboxPrefix });
     const client = createClient<typeof authContract.API.owned>(authContract, nc, auth, { name: "client" });
-    const response = await waitFor(async () => {
+    const response = await waitFor<{ caller: { id?: string; deviceId?: string } }>(async () => {
       const r = await client.request(
         "Auth.ValidateRequest",
         {
@@ -321,12 +327,16 @@ Deno.test({
       return v;
     }, { description: "AuthValidateRequest responder ready" }) as {
       allowed: boolean;
-      user: { id: string };
+      caller: { type: string; id?: string; deviceId?: string; origin?: string; email?: string };
     };
 
     assertEquals(response.allowed, true);
-    assertExists(response.user);
-    assertEquals(response.user.id, TEST_USER.id);
+    assertExists(response.caller);
+    assertEquals(response.caller.type, "user");
+    assertExists(response.caller.id);
+    assertEquals(response.caller.id, TEST_USER.id);
+    assertEquals(response.caller.origin, TEST_USER.origin);
+    assertEquals(response.caller.email, TEST_USER.email);
     await nc.close();
   });
 
@@ -344,29 +354,42 @@ Deno.test({
       { name: "auth-service-2" },
     );
 
-    await authService.mount("Auth.ValidateRequest", async (input) => {
+    await authService.mount("Auth.ValidateRequest", async (input: unknown) => {
       const authInput = input as { sessionKey: string };
       return ok({
         allowed: true,
         inboxPrefix: `_INBOX.${authInput.sessionKey.slice(0, 16)}`,
-        user: TEST_USER,
+        caller: TEST_CALLER,
       });
     });
 
     await meService.mount("Auth.Me", async (_input, ctx) => {
-      return ok({ user: ctx.user });
+      if (ctx.caller.type !== "user") {
+        throw new Error("expected user caller");
+      }
+      return ok({
+        user: {
+          id: ctx.caller.id,
+          origin: ctx.caller.origin ?? "",
+          active: ctx.caller.active ?? true,
+          name: ctx.caller.name ?? "",
+          email: ctx.caller.email ?? "",
+          ...(ctx.caller.image ? { image: ctx.caller.image } : {}),
+          capabilities: ctx.caller.capabilities ?? [],
+        },
+      });
     });
 
     const { auth, inboxPrefix } = await createTestAuth();
     const info = nats.nc.info!;
     const nc = await connect({ servers: `localhost:${info.port}`, inboxPrefix });
     const client = createClient<typeof authContract.API.owned>(authContract, nc, auth, { name: "client" });
-      const response = await waitFor(async () => {
-        const r = await client.request("Auth.Me", {}, { timeout: 500 });
+      const response = await waitFor<{ user: { id: string } }>(async () => {
+      const r = await client.request("Auth.Me", {}, { timeout: 500 });
       const v = r.take();
       if (isErr(v)) return null;
       return v;
-      }, { description: "Me responder ready" }) as { user: { id: string } };
+    }, { description: "Me responder ready" });
 
     assertExists(response.user);
     assertEquals(response.user.id, TEST_USER.id);
@@ -387,31 +410,59 @@ Deno.test({
       { name: "auth-service-throw" },
     );
 
-    await authService.mount("Auth.ValidateRequest", async (input) => {
+    await authService.mount("Auth.ValidateRequest", async (input: unknown) => {
       const authInput = input as { sessionKey: string };
       return ok({
         allowed: true,
         inboxPrefix: `_INBOX.${authInput.sessionKey.slice(0, 16)}`,
-        user: TEST_USER,
+        caller: TEST_CALLER,
       });
     });
 
     await meService.mount("Auth.Me", async (_input, ctx) => {
-      return ok({ user: ctx.user });
+      if (ctx.caller.type !== "user") {
+        throw new Error("expected user caller");
+      }
+      return ok({
+        user: {
+          id: ctx.caller.id,
+          origin: ctx.caller.origin ?? "",
+          active: ctx.caller.active ?? true,
+          name: ctx.caller.name ?? "",
+          email: ctx.caller.email ?? "",
+          ...(ctx.caller.image ? { image: ctx.caller.image } : {}),
+          capabilities: ctx.caller.capabilities ?? [],
+        },
+      });
     });
 
     const { auth, inboxPrefix } = await createTestAuth();
     const info = nats.nc.info!;
     const nc = await connect({ servers: `localhost:${info.port}`, inboxPrefix });
     const client = createClient<typeof authContract.API.owned>(authContract, nc, auth, { name: "client-throw" });
-    const response = await waitFor(
+    const response = await waitFor<{ user: { id: string } }>(
       () => client.requestOrThrow("Auth.Me", {}, { timeout: 500 }).catch(() => null),
       { description: "Me responder ready for requestOrThrow" },
-    ) as { user: { id: string } } | null;
+    );
 
     assertExists(response?.user);
     assertEquals(response?.user.id, TEST_USER.id);
     await nc.close();
   });
   },
+});
+
+Deno.test("mount rejects unknown RPC methods with an explicit error", async () => {
+  const service = createClient<typeof emptyContract.API.owned>(
+    emptyContract,
+    { options: { inboxPrefix: "_INBOX.test" } } as never,
+    { sessionKey: "test", sign: () => new Uint8Array(64) },
+    { name: "unknown-rpc-service" },
+  );
+
+  await assertRejects(
+    () => service.mount("Does.Not.Exist" as never, async () => ok({} as never)),
+    Error,
+    "Unknown RPC method",
+  );
 });

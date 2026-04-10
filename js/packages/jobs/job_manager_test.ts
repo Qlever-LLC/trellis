@@ -119,7 +119,7 @@ Deno.test("JobManager.process success publishes started then completed and retur
   const outcome = await manager.process(
     sampleJob(),
     new JobCancellationToken(),
-    async () => ({ pages: 3 }),
+    () => Promise.resolve({ pages: 3 }),
   );
 
   assertEquals(outcome, {
@@ -168,10 +168,10 @@ Deno.test("JobManager.process result validation failure publishes started then f
   const outcome = await manager.process(
     sampleJob(),
     new JobCancellationToken(),
-    async () => ({ pages: 3 }),
+    () => Promise.resolve({ pages: 3 }),
     {},
     {
-      validateResult: async (result: unknown) => {
+      validateResult: (result: unknown) => {
         if ((result as { pages?: number }).pages !== 4) {
           throw new Error("result does not match DocumentResult");
         }
@@ -203,7 +203,7 @@ Deno.test("JobManager.process failure below max publishes started then retry and
   const outcome = await manager.process(
     sampleJob(),
     new JobCancellationToken(),
-    async () => {
+    () => {
       throw JobProcessError.retryable("transient failure");
     },
   );
@@ -248,7 +248,7 @@ Deno.test("JobManager.process failure publishes started then failed and returns 
   const outcome = await manager.process(
     sampleJob({ tries: 1, maxTries: 2 }),
     new JobCancellationToken(),
-    async () => {
+    () => {
       throw JobProcessError.failed("final failure");
     },
   );
@@ -291,7 +291,7 @@ Deno.test("JobManager.process returns cancelled when token is cancelled before c
   const outcome = await manager.process(
     sampleJob(),
     cancellation,
-    async () => ({ ok: true }),
+    () => Promise.resolve({ ok: true }),
   );
 
   assertEquals(outcome, { outcome: "cancelled", tries: 1 });
@@ -318,7 +318,7 @@ Deno.test("JobManager.process returns interrupted on host shutdown without publi
   const outcome = await manager.process(
     sampleJob(),
     cancellation,
-    async () => ({ ok: true }),
+    () => Promise.resolve({ ok: true }),
   );
 
   assertEquals(outcome, { outcome: "interrupted", tries: 1 });
@@ -335,7 +335,7 @@ Deno.test("JobManager.process errors when queue binding is missing", async () =>
   });
 
   await assertRejects(
-    () => manager.process(sampleJob(), new JobCancellationToken(), async () => ({ ok: true })),
+    () => manager.process(sampleJob(), new JobCancellationToken(), () => Promise.resolve({ ok: true })),
     Error,
     "Missing jobs binding for queue 'document-process'",
   );
@@ -352,7 +352,7 @@ Deno.test("JobManager.process propagates publish errors", async () => {
   });
 
   const error = await assertRejects(
-    () => manager.process(sampleJob(), new JobCancellationToken(), async () => ({ ok: true })),
+    () => manager.process(sampleJob(), new JobCancellationToken(), () => Promise.resolve({ ok: true })),
   );
 
   assertEquals(error instanceof Error, true);

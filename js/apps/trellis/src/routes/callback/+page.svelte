@@ -1,10 +1,8 @@
 <script lang="ts">
-  import { createAuthState } from "@qlever-llc/trellis-svelte";
   import { onMount } from "svelte";
   import { browser } from "$app/environment";
   import { goto } from "$app/navigation";
   import { page } from "$app/state";
-  import { trellisApp } from "../../contracts/trellis_app.ts";
   import {
     buildAppLoginUrl,
     getCanonicalLoopbackRedirectUrl,
@@ -12,6 +10,7 @@
     persistSelectedAuthUrl
   } from "../../lib/config";
   import { errorMessage } from "../../lib/format";
+  import { app } from "../../lib/trellis";
 
   let status = $state("Completing sign-in…");
   let authError = $state<string | null>(null);
@@ -35,14 +34,19 @@
     }
 
     try {
-      selectedAuthUrl = persistSelectedAuthUrl(getSelectedAuthUrl(page.url));
-      const auth = createAuthState({ authUrl: selectedAuthUrl, loginPath: "/login", contract: trellisApp });
-      await auth.init();
-      const result = await auth.handleCallback(window.location.href);
-      auth.cleanupCallbackUrl();
+      const authUrl = getSelectedAuthUrl(page.url);
+      selectedAuthUrl = authUrl ? (persistSelectedAuthUrl(authUrl) ?? "") : "";
+      if (selectedAuthUrl) {
+        app.auth.setAuthUrl(selectedAuthUrl);
+      }
+      await app.auth.init();
+      const result = await app.auth.handleCallback(window.location.href);
+      app.auth.cleanupCallbackUrl();
 
       if (!result) {
-        throw new Error("Missing auth token");
+        status = "Sign-in failed";
+        authError = "Missing flow id.";
+        return;
       }
 
       if (result.status === "bound") {

@@ -67,7 +67,6 @@ fn sample_catalog() -> TrellisCatalogResponse {
                 digest: "sha256:expected".to_string(),
                 display_name: "Jobs".to_string(),
                 id: "trellis.jobs@v1".to_string(),
-                kind: "service".to_string(),
             }],
             format: "trellis.catalog.v1".to_string(),
         },

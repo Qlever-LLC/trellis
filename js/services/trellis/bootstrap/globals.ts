@@ -1,24 +1,33 @@
 import { connect, credsAuthenticator } from "@nats-io/transport-deno";
-import { createAuth } from "@qlever-llc/trellis-auth";
-import { isErr } from "@qlever-llc/trellis-result";
-import { TrellisService } from "@qlever-llc/trellis-server";
-import { TypedKV } from "@qlever-llc/trellis";
+import { createAuth, isErr, TypedKV } from "@qlever-llc/trellis";
+import { TrellisService } from "@qlever-llc/trellis/server";
 import { pino } from "pino";
 import { Value } from "typebox/value";
 import { getConfig } from "../config.ts";
 import { trellisControlPlaneApi } from "./control_plane_api.ts";
 import {
+  AuthBrowserFlowSchema,
   BindingTokenRecordSchema,
   ConnectionSchema,
   ContractApprovalRecordSchema,
   ContractRecordSchema,
+  LoginPortalDefaultSchema,
+  LoginPortalSelectionSchema,
   OAuthStateSchema,
+  PortalSchema,
   PendingAuthSchema,
   type SentinelCreds,
   SentinelCredsSchema,
   ServiceRegistrySchema,
   SessionSchema,
   UserProjectionSchema,
+  WorkloadPortalSelectionSchema,
+  WorkloadActivationHandoffSchema,
+  WorkloadActivationRecordSchema,
+  WorkloadActivationReviewRecordSchema,
+  WorkloadProfileSchema,
+  WorkloadProvisioningSecretSchema,
+  WorkloadSchema,
 } from "../state/schemas.ts";
 
 const config = getConfig();
@@ -131,6 +140,158 @@ if (isErr(bindingTokenKVValue)) {
   );
 }
 export const bindingTokenKV = bindingTokenKVValue;
+
+const portalsKVResult = await TypedKV.open(
+  natsAuth,
+  "trellis_portals",
+  PortalSchema,
+  { history: 1, ttl: 0 },
+);
+const portalsKVValue = portalsKVResult.take();
+if (isErr(portalsKVValue)) {
+  throw new Error(`Failed to open portals KV: ${portalsKVValue.error.message}`);
+}
+export const portalsKV = portalsKVValue;
+
+const portalDefaultsKVResult = await TypedKV.open(
+  natsAuth,
+  "trellis_portal_defaults",
+  LoginPortalDefaultSchema,
+  { history: 1, ttl: 0 },
+);
+const portalDefaultsKVValue = portalDefaultsKVResult.take();
+if (isErr(portalDefaultsKVValue)) {
+  throw new Error(
+    `Failed to open portal defaults KV: ${portalDefaultsKVValue.error.message}`,
+  );
+}
+export const portalDefaultsKV = portalDefaultsKVValue;
+
+const loginPortalSelectionsKVResult = await TypedKV.open(
+  natsAuth,
+  "trellis_portal_login_selections",
+  LoginPortalSelectionSchema,
+  { history: 1, ttl: 0 },
+);
+const loginPortalSelectionsKVValue = loginPortalSelectionsKVResult.take();
+if (isErr(loginPortalSelectionsKVValue)) {
+  throw new Error(
+    `Failed to open login portal selections KV: ${loginPortalSelectionsKVValue.error.message}`,
+  );
+}
+export const loginPortalSelectionsKV = loginPortalSelectionsKVValue;
+
+const workloadPortalSelectionsKVResult = await TypedKV.open(
+  natsAuth,
+  "trellis_portal_workload_selections",
+  WorkloadPortalSelectionSchema,
+  { history: 1, ttl: 0 },
+);
+const workloadPortalSelectionsKVValue = workloadPortalSelectionsKVResult.take();
+if (isErr(workloadPortalSelectionsKVValue)) {
+  throw new Error(
+    `Failed to open workload portal selections KV: ${workloadPortalSelectionsKVValue.error.message}`,
+  );
+}
+export const workloadPortalSelectionsKV = workloadPortalSelectionsKVValue;
+
+const browserFlowsKVResult = await TypedKV.open(
+  natsAuth,
+  "trellis_browser_flows",
+  AuthBrowserFlowSchema,
+  { history: 1, ttl: config.ttlMs.oauth },
+);
+const browserFlowsKVValue = browserFlowsKVResult.take();
+if (isErr(browserFlowsKVValue)) {
+  throw new Error(
+    `Failed to open browser flows KV: ${browserFlowsKVValue.error.message}`,
+  );
+}
+export const browserFlowsKV = browserFlowsKVValue;
+
+const workloadProfilesKVResult = await TypedKV.open(
+  natsAuth,
+  "trellis_workload_profiles",
+  WorkloadProfileSchema,
+  { history: 1, ttl: 0 },
+);
+const workloadProfilesKVValue = workloadProfilesKVResult.take();
+if (isErr(workloadProfilesKVValue)) {
+  throw new Error(
+    `Failed to open workload profiles KV: ${workloadProfilesKVValue.error.message}`,
+  );
+}
+export const workloadProfilesKV = workloadProfilesKVValue;
+
+const workloadInstancesKVResult = await TypedKV.open(
+  natsAuth,
+  "trellis_workload_instances",
+  WorkloadSchema,
+  { history: 1, ttl: 0 },
+);
+const workloadInstancesKVValue = workloadInstancesKVResult.take();
+if (isErr(workloadInstancesKVValue)) {
+  throw new Error(
+    `Failed to open workload instances KV: ${workloadInstancesKVValue.error.message}`,
+  );
+}
+export const workloadInstancesKV = workloadInstancesKVValue;
+
+const workloadActivationHandoffsKVResult = await TypedKV.open(
+  natsAuth,
+  "trellis_workload_activation_handoffs",
+  WorkloadActivationHandoffSchema,
+  { history: 1, ttl: config.ttlMs.workloadHandoff },
+);
+const workloadActivationHandoffsKVValue = workloadActivationHandoffsKVResult.take();
+if (isErr(workloadActivationHandoffsKVValue)) {
+  throw new Error(
+    `Failed to open workload activation handoffs KV: ${workloadActivationHandoffsKVValue.error.message}`,
+  );
+}
+export const workloadActivationHandoffsKV = workloadActivationHandoffsKVValue;
+
+const workloadProvisioningSecretsKVResult = await TypedKV.open(
+  natsAuth,
+  "trellis_workload_provisioning_secrets",
+  WorkloadProvisioningSecretSchema,
+  { history: 1, ttl: 0 },
+);
+const workloadProvisioningSecretsKVValue = workloadProvisioningSecretsKVResult.take();
+if (isErr(workloadProvisioningSecretsKVValue)) {
+  throw new Error(
+    `Failed to open workload provisioning secrets KV: ${workloadProvisioningSecretsKVValue.error.message}`,
+  );
+}
+export const workloadProvisioningSecretsKV = workloadProvisioningSecretsKVValue;
+
+const workloadActivationsKVResult = await TypedKV.open(
+  natsAuth,
+  "trellis_workload_activations",
+  WorkloadActivationRecordSchema,
+  { history: 1, ttl: 0 },
+);
+const workloadActivationsKVValue = workloadActivationsKVResult.take();
+if (isErr(workloadActivationsKVValue)) {
+  throw new Error(
+    `Failed to open workload activations KV: ${workloadActivationsKVValue.error.message}`,
+  );
+}
+export const workloadActivationsKV = workloadActivationsKVValue;
+
+const workloadActivationReviewsKVResult = await TypedKV.open(
+  natsAuth,
+  "trellis_workload_activation_reviews",
+  WorkloadActivationReviewRecordSchema,
+  { history: 1, ttl: 0 },
+);
+const workloadActivationReviewsKVValue = workloadActivationReviewsKVResult.take();
+if (isErr(workloadActivationReviewsKVValue)) {
+  throw new Error(
+    `Failed to open workload activation reviews KV: ${workloadActivationReviewsKVValue.error.message}`,
+  );
+}
+export const workloadActivationReviewsKV = workloadActivationReviewsKVValue;
 
 const connectionsKVResult = await TypedKV.open(
   natsAuth,

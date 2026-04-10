@@ -1,7 +1,7 @@
 import { connect } from "@nats-io/transport-deno";
 import type { ConnectionOptions } from "@nats-io/transport-deno";
 import { createClient, isErr, ok } from "@qlever-llc/trellis";
-import type { InferSchemaType } from "@qlever-llc/trellis-contracts";
+import type { InferSchemaType } from "@qlever-llc/trellis/contracts";
 import { assertEquals, assertExists } from "@std/assert";
 import { Type } from "typebox";
 import { defineContract } from "../trellis/contract.ts";

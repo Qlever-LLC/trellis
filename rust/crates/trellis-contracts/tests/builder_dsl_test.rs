@@ -10,7 +10,6 @@ fn builder_minimal_manifest_defaults_format_and_validates() {
         "example.contract@v1",
         "Example Contract",
         "Example contract description.",
-        "service",
     )
     .build()
     .expect("builder should produce a valid minimal manifest");
@@ -21,66 +20,62 @@ fn builder_minimal_manifest_defaults_format_and_validates() {
 
 #[test]
 fn builder_supports_uses_rpc_subject_kv_stream_and_job_queue_resources() {
-    let manifest = ContractManifestBuilder::new(
-        "example.jobs@v1",
-        "Example Jobs",
-        "Example jobs manifest.",
-        "service",
-    )
-    .schema(
-        "HealthRequest",
-        json!({ "type": "object", "properties": {}, "additionalProperties": false }),
-    )
-    .schema(
-        "HealthResponse",
-        json!({
-            "type": "object",
-            "required": ["ok"],
-            "properties": {"ok": {"type": "boolean"}},
-            "additionalProperties": false
-        }),
-    )
-    .use_ref(
-        "core",
-        use_contract("trellis.core@v1").with_rpc_call(["Trellis.Catalog"]),
-    )
-    .rpc(
-        "Jobs.Health",
-        trellis_contracts::rpc(
-            "v1",
-            "rpc.v1.Jobs.Health",
-            "HealthRequest",
-            "HealthResponse",
-        )
-        .with_call_capabilities(["jobs.admin.read"])
-        .with_error_types(["UnexpectedError"]),
-    )
-    .subject(
-        "Jobs.Stream",
-        subject("trellis.jobs.>")
-            .with_publish_capabilities(["service:jobs"])
-            .with_subscribe_capabilities(["jobs.admin.stream"]),
-    )
-    .kv_resource(
-        "jobsState",
-        trellis_contracts::kv("Store projected job state")
-            .required(true)
-            .history(1)
-            .ttl_ms(0),
-    )
-    .stream_resource(
-        "jobsEvents",
-        stream("Observe job events", ["events.v1.Jobs.>"]),
-    )
-    .job_queue(
-        "document-process",
-        trellis_contracts::job_queue(
-            schema_ref("HealthRequest"),
-            Some(schema_ref("HealthResponse")),
-        ),
-    )
-    .build()
-    .expect("builder should produce a valid manifest");
+    let manifest =
+        ContractManifestBuilder::new("example.jobs@v1", "Example Jobs", "Example jobs manifest.")
+            .schema(
+                "HealthRequest",
+                json!({ "type": "object", "properties": {}, "additionalProperties": false }),
+            )
+            .schema(
+                "HealthResponse",
+                json!({
+                    "type": "object",
+                    "required": ["ok"],
+                    "properties": {"ok": {"type": "boolean"}},
+                    "additionalProperties": false
+                }),
+            )
+            .use_ref(
+                "core",
+                use_contract("trellis.core@v1").with_rpc_call(["Trellis.Catalog"]),
+            )
+            .rpc(
+                "Jobs.Health",
+                trellis_contracts::rpc(
+                    "v1",
+                    "rpc.v1.Jobs.Health",
+                    "HealthRequest",
+                    "HealthResponse",
+                )
+                .with_call_capabilities(["jobs.admin.read"])
+                .with_error_types(["UnexpectedError"]),
+            )
+            .subject(
+                "Jobs.Stream",
+                subject("trellis.jobs.>")
+                    .with_publish_capabilities(["service:jobs"])
+                    .with_subscribe_capabilities(["jobs.admin.stream"]),
+            )
+            .kv_resource(
+                "jobsState",
+                trellis_contracts::kv("Store projected job state")
+                    .required(true)
+                    .history(1)
+                    .ttl_ms(0),
+            )
+            .stream_resource(
+                "jobsEvents",
+                stream("Observe job events", ["events.v1.Jobs.>"]),
+            )
+            .job_queue(
+                "document-process",
+                trellis_contracts::job_queue(
+                    schema_ref("HealthRequest"),
+                    Some(schema_ref("HealthResponse")),
+                ),
+            )
+            .build()
+            .expect("builder should produce a valid manifest");
 
     assert!(manifest.uses.contains_key("core"));
     assert!(manifest.rpc.contains_key("Jobs.Health"));
@@ -102,7 +97,6 @@ fn builder_supports_rich_stream_resources_with_sources() {
         "example.streams@v1",
         "Example Streams",
         "Example stream manifest.",
-        "service",
     )
     .stream_resource(
         "jobs",
@@ -158,7 +152,6 @@ fn builder_build_returns_validation_error_for_unknown_schema_ref() {
         "example.contract@v1",
         "Example Contract",
         "Example contract description.",
-        "service",
     )
     .schema(
         "Present",
@@ -181,7 +174,6 @@ fn builder_supports_owned_and_used_operations() {
         "example.operations@v1",
         "Example Operations",
         "Example operations manifest.",
-        "service",
     )
     .schema(
         "CaptureRequest",
@@ -231,7 +223,6 @@ fn builder_build_returns_validation_error_for_unknown_operation_schema_ref() {
         "example.operations@v1",
         "Example Operations",
         "Example operations manifest.",
-        "service",
     )
     .schema(
         "CaptureRequest",
@@ -261,7 +252,6 @@ fn builder_allows_unvalidated_build_for_staging() {
         "example.contract@v1",
         "Example Contract",
         "Example contract description.",
-        "service",
     )
     .rpc(
         "Example.Call",

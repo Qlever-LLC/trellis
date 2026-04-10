@@ -11,7 +11,7 @@ fn sample_heartbeat(timestamp: &str) -> WorkerHeartbeat {
         job_type: "document-process".to_string(),
         instance_id: "instance-1".to_string(),
         concurrency: Some(2),
-        version: Some("0.5.1".to_string()),
+        version: Some("0.6.0".to_string()),
         timestamp: timestamp.to_string(),
     }
 }
@@ -28,7 +28,7 @@ fn worker_presence_record_maps_from_heartbeat() {
     assert_eq!(record.job_type, "document-process");
     assert_eq!(record.instance_id, "instance-1");
     assert_eq!(record.concurrency, Some(2));
-    assert_eq!(record.version.as_deref(), Some("0.5.1"));
+    assert_eq!(record.version.as_deref(), Some("0.6.0"));
     assert_eq!(record.heartbeat_at, "2026-03-30T12:00:00Z");
 }
 
@@ -56,7 +56,7 @@ fn reduce_worker_presence_ignores_older_heartbeat() {
         job_type: "document-process".to_string(),
         instance_id: "instance-1".to_string(),
         concurrency: Some(2),
-        version: Some("0.5.1".to_string()),
+        version: Some("0.6.0".to_string()),
         heartbeat_at: "2026-03-30T12:00:30Z".to_string(),
     };
     let older = worker_presence_from_heartbeat(&sample_heartbeat("2026-03-30T12:00:00Z"));

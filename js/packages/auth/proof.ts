@@ -6,7 +6,7 @@ import {
   utf8,
 } from "./utils.ts";
 import { importEd25519PublicKeyFromBase64url } from "./keys.ts";
-import { AsyncResult } from "@qlever-llc/trellis-result";
+import { AsyncResult } from "@qlever-llc/result";
 
 export type ProofParams = {
   sessionKey: string;

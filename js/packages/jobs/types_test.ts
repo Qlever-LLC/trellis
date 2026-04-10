@@ -74,13 +74,13 @@ Deno.test("jobs handwritten health schemas validate request and response", () =>
   }));
 });
 
-Deno.test("jobs handwritten worker presence schemas accept workers and reject legacy instances", () => {
+Deno.test("jobs handwritten worker presence schemas accept workers and reject outdated instance shapes", () => {
   const worker = {
     service: "documents",
     jobType: "document-process",
     instanceId: "worker-1",
     concurrency: 2,
-    version: "0.5.1",
+    version: "0.6.0",
     timestamp: "2026-03-30T12:00:00.000Z",
   };
 

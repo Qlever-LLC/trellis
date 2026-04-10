@@ -1,6 +1,6 @@
-import { defineContract } from "@qlever-llc/trellis-contracts";
-import { activity } from "@qlever-llc/trellis-sdk-activity";
-import { auth as trellisAuth } from "@qlever-llc/trellis-sdk-auth";
+import { defineContract } from "@qlever-llc/trellis";
+import { activity } from "@qlever-llc/trellis/sdk/activity";
+import { auth as trellisAuth } from "@qlever-llc/trellis/sdk/auth";
 
 export const activityApp = defineContract({
   id: "trellis.activity-app@v1",
@@ -10,7 +10,7 @@ export const activityApp = defineContract({
   uses: {
     auth: trellisAuth.use({
       rpc: {
-        call: ["Auth.Me"],
+        call: ["Auth.Me", "Auth.Logout"],
       },
     }),
     activity: activity.use({
@@ -20,3 +20,5 @@ export const activityApp = defineContract({
     }),
   },
 });
+
+export const { CONTRACT_ID, CONTRACT, CONTRACT_DIGEST, API, use } = activityApp;

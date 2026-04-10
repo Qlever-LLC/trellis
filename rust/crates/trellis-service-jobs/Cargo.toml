@@ -14,16 +14,16 @@ serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 time.workspace = true
-trellis-client = { path = "../trellis-client", version = "0.5.1" }
-trellis-auth = { path = "../trellis-auth", version = "0.5.1" }
-trellis-auth-adapters = { path = "../trellis-auth-adapters", version = "0.5.1" }
-trellis-core-bootstrap = { path = "../trellis-core-bootstrap", version = "0.5.1" }
-trellis-sdk-auth = { path = "../../../generated/rust/sdks/auth", version = "0.5.1" }
-trellis-sdk-core = { path = "../../../generated/rust/sdks/trellis-core", version = "0.5.1" }
-trellis-sdk-jobs = { path = "../../../generated/rust/sdks/jobs", version = "0.5.1" }
-trellis-server = { path = "../trellis-server", version = "0.5.1" }
-trellis-contracts = { path = "../trellis-contracts", version = "0.5.1" }
-trellis-jobs = { path = "../trellis-jobs", version = "0.5.1" }
+trellis-client = { path = "../trellis-client", version = "0.6.0" }
+trellis-auth = { path = "../trellis-auth", version = "0.6.0" }
+trellis-auth-adapters = { path = "../trellis-auth-adapters", version = "0.6.0" }
+trellis-core-bootstrap = { path = "../trellis-core-bootstrap", version = "0.6.0" }
+trellis-sdk-auth = { path = "../../../generated/rust/sdks/auth", version = "0.6.0" }
+trellis-sdk-core = { path = "../../../generated/rust/sdks/trellis-core", version = "0.6.0" }
+trellis-sdk-jobs = { path = "../../../generated/rust/sdks/jobs", version = "0.6.0" }
+trellis-server = { path = "../trellis-server", version = "0.6.0" }
+trellis-contracts = { path = "../trellis-contracts", version = "0.6.0" }
+trellis-jobs = { path = "../trellis-jobs", version = "0.6.0" }
 
 [dev-dependencies]
 bytes.workspace = true

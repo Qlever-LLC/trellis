@@ -1,12 +1,11 @@
 <script lang="ts">
-  import type { AuthListApprovalsOutput } from "@qlever-llc/trellis-sdk-auth";
-  import { getTrellisFor } from "@qlever-llc/trellis-svelte";
+  import type { AuthListApprovalsOutput } from "@qlever-llc/trellis/sdk/auth";
   import { onMount } from "svelte";
-  import { trellisApp } from "../../../../contracts/trellis_app.ts";
   import { errorMessage, formatDate } from "../../../../lib/format";
   import { getNotifications } from "../../../../lib/notifications.svelte";
+  import { getTrellis } from "../../../../lib/trellis";
 
-  const trellisPromise = getTrellisFor(trellisApp);
+  const trellisPromise = getTrellis();
   const notifications = getNotifications();
 
   let loading = $state(true);
@@ -15,13 +14,21 @@
   let approvals = $state<AuthListApprovalsOutput["approvals"]>([]);
   let revokeTarget = $state<string | null>(null);
 
+  async function listApprovals(user?: string) {
+    const trellis = await trellisPromise;
+    return trellis.requestOrThrow("Auth.ListApprovals", { user });
+  }
+
+  async function revokeApproval(contractDigest: string, user: string) {
+    const trellis = await trellisPromise;
+    return trellis.requestOrThrow("Auth.RevokeApproval", { contractDigest, user });
+  }
+
   async function load() {
     loading = true;
     error = null;
     try {
-      const res = await (await trellisPromise).requestOrThrow("Auth.ListApprovals", {
-        user: filterUser.trim() || undefined
-      });
+      const res = await listApprovals(filterUser.trim() || undefined);
       approvals = res.approvals ?? [];
     } catch (e) { error = errorMessage(e); }
     finally { loading = false; }
@@ -32,7 +39,7 @@
     const key = `${user}:${contractDigest}`;
     revokeTarget = key;
     try {
-      await (await trellisPromise).requestOrThrow("Auth.RevokeApproval", { contractDigest, user });
+      await revokeApproval(contractDigest, user);
       notifications.success(`Approval revoked for ${user}.`, "Revoked");
       await load();
     } catch (e) { error = errorMessage(e); }
@@ -74,7 +81,7 @@
           </tr>
         </thead>
         <tbody>
-          {#each approvals as entry}
+          {#each approvals as entry (`${entry.user}:${entry.approval.contractDigest}:${entry.answeredAt}`)}
             <tr>
               <td class="font-medium">{entry.user ?? "—"}</td>
               <td>{entry.approval.displayName ?? entry.approval.contractId ?? "—"}</td>

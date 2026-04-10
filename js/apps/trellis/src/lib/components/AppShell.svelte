@@ -1,10 +1,10 @@
 <script lang="ts">
-  import type { AuthMeOutput } from "@qlever-llc/trellis-sdk-auth";
-  import { getAuth, getNatsState, getTrellisFor } from "@qlever-llc/trellis-svelte";
+  import type { AuthMeOutput } from "@qlever-llc/trellis/sdk/auth";
+  import { getNatsState } from "@qlever-llc/trellis-svelte";
   import { onMount } from "svelte";
   import { afterNavigate, goto } from "$app/navigation";
   import { page } from "$app/state";
-  import { trellisApp } from "../../contracts/trellis_app.ts";
+  import { authLogoutRequest, authMeRequest } from "../auth_rpc";
   import { buildAppLoginUrl } from "../config";
   import {
     getInitials,
@@ -16,13 +16,14 @@
   } from "../control-panel.ts";
   import { errorMessage } from "../format";
   import { NotificationsController, setNotifications } from "../notifications.svelte";
+  import { app, getTrellis } from "../trellis";
   import ToastViewport from "./ToastViewport.svelte";
 
   let { children } = $props();
 
-  const auth = getAuth();
+  const auth = app.auth;
   const natsStatePromise = getNatsState();
-  const trellisPromise = getTrellisFor(trellisApp);
+  const trellisPromise = getTrellis();
   const notifications = setNotifications(new NotificationsController());
 
   let darkMode = $state(
@@ -63,6 +64,10 @@
     void goto("/profile");
   }
 
+  async function authMe(): Promise<AuthMeOutput> {
+    return authMeRequest(trellisPromise);
+  }
+
   onMount(() => {
     let active = true;
     let statusInterval: number | null = null;
@@ -77,7 +82,7 @@
           connectionStatus = natsState.status;
         }, 1000);
 
-        const me = await (await trellisPromise).requestOrThrow("Auth.Me", {});
+        const me = await authMe();
         if (!active) return;
 
         if (me.user) {
@@ -111,11 +116,15 @@
   });
 
   async function logoutRequest(): Promise<void> {
-    await (await trellisPromise).requestOrThrow("Auth.Logout", {});
+    await authLogoutRequest(trellisPromise);
   }
 
   async function signOut() {
-    await auth.signOut(logoutRequest);
+    try {
+      await auth.signOut(logoutRequest);
+    } catch {
+      // signOut redirects and throws to stop normal control flow
+    }
   }
 </script>
 
@@ -192,11 +201,11 @@
       </div>
 
       <nav class="flex-1 p-4" aria-label="Primary">
-        {#each navSections as section}
+        {#each navSections as section (section.title)}
           <div class="mb-4">
             <p class="text-xs font-semibold uppercase tracking-wider text-base-content/50 mb-2 px-2">{section.title}</p>
             <ul class="menu menu-sm gap-1">
-              {#each section.items as item}
+              {#each section.items as item (item.href)}
                 <li>
                   <a
                     href={item.href}

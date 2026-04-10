@@ -299,7 +299,7 @@ pub trait JobWorkerHost {
     fn join(self) -> impl Future<Output = Result<(), JobsError>> + Send;
 }
 
-/// Convert a typed payload into a JSON value for legacy helpers.
+/// Convert a typed payload into a JSON value for raw wire-model helpers.
 pub fn to_value<T: Serialize>(value: T) -> Result<Value, JobsError> {
     serde_json::to_value(value).map_err(JobsError::EncodePayload)
 }

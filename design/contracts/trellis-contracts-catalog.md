@@ -77,7 +77,7 @@ The human-authored source may vary by language or team as long as it determinist
 
 Examples:
 
-- a TypeScript service may author a contract with `@qlever-llc/trellis-contracts`
+- a TypeScript service may author a contract with `@qlever-llc/trellis`
 - a Rust service may author a contract with Rust-side types/macros/build tooling
 - a Python service may author a contract with Python-native tooling
 - a service may author the manifest directly if desired, but that is not the default workflow
@@ -106,7 +106,6 @@ A `trellis.contract.v1` manifest has this top-level structure:
   "id": "graph@v1",
   "displayName": "Graph Service",
   "description": "Serve graph RPCs and publish graph change events.",
-  "kind": "service",
   "uses": {},
   "operations": {},
   "rpc": {},
@@ -134,7 +133,6 @@ Top-level fields:
 | `id`          | yes      | string | Stable contract identifier such as `trellis.core@v1` or `graph@v1` |
 | `displayName` | yes      | string | Human-facing contract name shown in tooling and approval UIs        |
 | `description` | yes      | string | Human-facing explanation of the contract's purpose                  |
-| `kind`        | yes      | string | Participant kind such as `service`, `app`, `cli`, or `browser`     |
 | `uses`        | no       | object | Explicit cross-contract operation/RPC/event/subject dependencies   |
 | `operations`  | no       | object | Map of logical operation names to operation descriptors            |
 | `rpc`         | no       | object | Map of logical RPC names to RPC operation descriptors              |
@@ -145,8 +143,8 @@ Top-level fields:
 
 Rules:
 
-- `format`, `id`, `displayName`, `description`, and `kind` are required.
-- `displayName`, `description`, and `kind` are part of the canonical manifest and therefore part of the digest.
+- `format`, `id`, `displayName`, and `description` are required.
+- `displayName` and `description` are part of the canonical manifest and therefore part of the digest.
 - runtime service identity, install routing, and authorization boundaries MUST NOT be inferred from manifest metadata.
 - top-level object members not defined by the current runtime MAY be present for forward compatibility; runtimes MUST ignore unknown top-level fields they do not understand.
 
@@ -168,7 +166,7 @@ Rules:
 - all concurrently active digests for the same `id` MUST remain semantically compatible within that lineage, so mixed-version callers and service instances can keep working during rollout
 - install records bind one exact digest to one service principal public key, even when multiple digests in the same lineage are active at once
 
-This allows rolling upgrades where some service instances still run the old digest while newer instances have already switched to the new digest. The same model also covers known devices whose firmware revisions map to different digests within one device-service lineage.
+This allows rolling upgrades where some service instances still run the old digest while newer instances have already switched to the new digest. The same model also covers preregistered activated workloads whose firmware revisions map to different digests within one workload lineage.
 
 Concurrent-digest compatibility within one lineage is defined by the owned communication surface:
 
@@ -628,8 +626,8 @@ The `trellis` runtime service MUST:
 - provision or bind required cloud resources before install or upgrade succeeds
 - persist resource bindings so installed services can resolve them at runtime
 - bind each installed contract digest to the service principal public key that implements it, including Trellis-owned contracts bootstrapped onto the `trellis` service principal
-- support deployment-owned profile records that resolve a principal class, such as a known device profile, to a contract lineage plus an allowed digest set
-- support deployment-owned onboarding-handler bindings that route a device type either to a specific onboarding contract and entry URL or to the Trellis default onboarding app for that type
+- support deployment-owned workload profile records that resolve a workload class to a contract lineage plus an allowed digest set
+- support deployment-owned portal records plus login/workload portal selection records for browser login and workload-activation customization, with built-in Trellis portal paths as the fallback
 - remove the old submission/approval flow rather than preserving a compatibility path
 - ensure any stored user approval or consent decision references the exact contract digest being approved
 
@@ -640,7 +638,7 @@ Install or upgrade validation MUST also:
 - provision stream resources idempotently when requested
 - validate the exact `resources` requested by the digest being installed, even when other digests in the same lineage remain active
 - when install or activation is profile-driven, validate that the digest being bound is allowed by that profile's contract lineage and allowed digest set
-- when an onboarding handler binding is created in custom mode, validate that the referenced contract is active and declares the auth surfaces needed by that handler
+- when a portal record is created with `appContractId`, validate that the referenced contract is active, is a browser app contract, and declares the auth surfaces needed by that portal when acting as a user-authenticated app
 
 Operationally, install or upgrade fails if any of these conditions is true:
 

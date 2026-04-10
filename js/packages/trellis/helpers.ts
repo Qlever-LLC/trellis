@@ -1,4 +1,4 @@
-import type { Paginated } from "@qlever-llc/trellis-contracts";
+import type { Paginated } from "./contracts.ts";
 import { Pointer } from "typebox/value";
 
 /**

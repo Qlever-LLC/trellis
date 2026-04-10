@@ -3,7 +3,7 @@ import {
   publicKeyBase64urlFromPrivateKey,
 } from "./keys.ts";
 import { createProof } from "./proof.ts";
-import { base64urlEncode, sha256, toArrayBuffer, utf8 } from "./utils.ts";
+import { base64urlEncode, canonicalizeJsonValue, sha256, toArrayBuffer, utf8 } from "./utils.ts";
 import type { NatsAuthTokenV1 } from "./types.ts";
 
 export type NatsConnectOptions = {
@@ -15,7 +15,7 @@ export type TrellisAuth = {
   sessionKey: string; // base64url raw public key
   sign: (data: Uint8Array) => Promise<Uint8Array>;
 
-  oauthInitSig: (redirectTo: string) => Promise<string>;
+  oauthInitSig: (redirectTo: string, context?: unknown) => Promise<string>;
   bindSig: (authToken: string) => Promise<string>;
   natsConnectSigForBindingToken: (bindingToken: string) => Promise<string>;
   natsConnectSigForIat: (iat: number) => Promise<string>;
@@ -46,10 +46,15 @@ export async function createAuth(
     return base64urlEncode(sigBytes);
   };
 
+  const signOauthInit = async (redirectTo: string, context?: unknown): Promise<string> => {
+    const canonicalContext = canonicalizeJsonValue(context ?? null);
+    return await signDomainHash("oauth-init", `${redirectTo}:${canonicalContext}`);
+  };
+
   return {
     sessionKey,
     sign,
-    oauthInitSig: (redirectTo) => signDomainHash("oauth-init", redirectTo),
+    oauthInitSig: signOauthInit,
     bindSig: (authToken) => signDomainHash("bind", authToken),
     natsConnectSigForBindingToken: (bindingToken) =>
       signDomainHash("nats-connect", bindingToken),

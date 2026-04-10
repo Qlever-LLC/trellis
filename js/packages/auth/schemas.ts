@@ -10,10 +10,12 @@ const SignatureSchema = Type.String({
 });
 
 export const LoginQuerySchema = Type.Object({
+  provider: Type.Optional(Type.String({ minLength: 1 })),
   redirectTo: Type.String(),
   sessionKey: SessionKeySchema,
   sig: SignatureSchema,
   contract: Type.String({ minLength: 1 }),
+  context: Type.Optional(Type.String({ minLength: 1 })),
 }, { additionalProperties: false });
 
 export type LoginQuery = StaticDecode<typeof LoginQuerySchema>;
@@ -37,7 +39,9 @@ export const ContractApprovalSchema = Type.Object({
   contractId: Type.String(),
   displayName: Type.String(),
   description: Type.String(),
-  kind: Type.String(),
+  // Preserve legacy persisted approval records written before `kind` was removed
+  // from the public flow state shape.
+  kind: Type.Optional(Type.String({ minLength: 1 })),
   capabilities: Type.Array(Type.String()),
 }, { additionalProperties: false });
 
@@ -84,6 +88,7 @@ export const NatsAuthTokenV1Schema = Type.Object({
   sig: SignatureSchema,
   bindingToken: Type.Optional(Type.String()),
   iat: Type.Optional(Type.Integer()),
+  contractDigest: Type.Optional(Type.String()),
 }, { additionalProperties: false });
 
 export type NatsAuthTokenV1 = StaticDecode<typeof NatsAuthTokenV1Schema>;

@@ -1,5 +1,4 @@
 import type { TrellisBindingsGetOutput } from "@qlever-llc/trellis-sdk-core";
-import type { ResourceBindingJobs } from "../server/service.ts";
 
 export type JobsQueueBinding = {
   queueType: string;
@@ -22,6 +21,9 @@ export type JobsBinding = {
   namespace: string;
   queues: Record<string, JobsQueueBinding>;
 };
+
+export type ResourceBindingJobsQueue = JobsQueueBinding;
+export type ResourceBindingJobs = JobsBinding;
 
 export type JobsRuntimeBinding = {
   jobs: JobsBinding;

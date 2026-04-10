@@ -1,9 +1,8 @@
 <script lang="ts">
   import { TrellisProvider } from "@qlever-llc/trellis-svelte";
   import type { Snippet } from "svelte";
-  import { activityApp } from "../../contracts/activity_app.ts";
   import AppFrame from "../../lib/components/AppFrame.svelte";
-  import { APP_CONFIG } from "../../lib/config";
+  import { app } from "../../lib/trellis";
 
   type Props = {
     children: Snippet;
@@ -11,24 +10,12 @@
 
   let { children }: Props = $props();
 
-  function redirectToLogin(redirectTo: string): void {
-    window.location.href = `/login?redirectTo=${encodeURIComponent(redirectTo)}`;
-  }
-
   function handleAuthFailed(): void {
-    redirectToLogin(window.location.pathname + window.location.search);
+    window.location.href = `/login?redirectTo=${encodeURIComponent(window.location.pathname + window.location.search)}`;
   }
 </script>
 
-<TrellisProvider
-  authUrl={APP_CONFIG.authUrl}
-  natsServers={APP_CONFIG.natsServers}
-  serviceName="activity-app"
-  loginPath="/login"
-  contract={activityApp}
-  onAuthRequired={redirectToLogin}
-  onAuthFailed={handleAuthFailed}
->
+<TrellisProvider app={app} onAuthFailed={handleAuthFailed}>
   {#snippet loading()}
     <div class="flex min-h-screen items-center justify-center px-4 py-10" data-theme="activity">
       <div class="card w-full max-w-xl border border-base-300/70 paper-panel shadow-2xl">

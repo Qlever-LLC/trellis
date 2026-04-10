@@ -12,7 +12,6 @@ export const TrellisContractSchema = Type.Object({
   id: Type.String({ minLength: 1 }),
   displayName: Type.String({ minLength: 1 }),
   description: Type.String({ minLength: 1 }),
-  kind: Type.String({ minLength: 1 }),
   schemas: Type.Optional(Type.Record(Type.String({ minLength: 1 }), OpenSchemaValueSchema)),
   uses: Type.Optional(Type.Record(Type.String({ minLength: 1 }), OpenValueSchema)),
   rpc: Type.Optional(Type.Record(Type.String({ minLength: 1 }), OpenValueSchema)),

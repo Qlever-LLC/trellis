@@ -65,12 +65,9 @@ type StringKeyOf<T> = Extract<keyof T, string>;
 type KeysFromList<T> = T extends readonly (infer K)[] ? Extract<K, string>
   : never;
 
-export type ContractKind = string;
-
 export type ContractManifestMetadata = {
   displayName: string;
   description: string;
-  kind: ContractKind;
 };
 
 export type Capability = string;
@@ -189,7 +186,6 @@ export type TrellisContractV1 = {
   id: string;
   displayName: string;
   description: string;
-  kind: ContractKind;
   schemas?: ContractSchemas;
   uses?: ContractUses;
   rpc?: Record<string, ContractRpcMethod>;
@@ -205,7 +201,6 @@ export type TrellisCatalogEntry = {
   digest: string;
   displayName: string;
   description: string;
-  kind: ContractKind;
 };
 
 export type TrellisCatalogV1 = {
@@ -315,7 +310,6 @@ export type TrellisContractSource = {
   id: string;
   displayName: string;
   description: string;
-  kind: ContractKind;
   schemas?: ContractSourceSchemas;
   uses?: Record<string, ContractSourceUse>;
   rpc?: Record<string, ContractSourceRpcMethod>;
@@ -524,7 +518,7 @@ type ProjectedSubjects<
   }
   : {};
 
-type OwnedApiFromSource<
+export type OwnedApiFromSource<
   T extends {
     schemas?: Readonly<Record<string, TSchema>>;
     rpc?: Readonly<Record<string, ContractSourceRpcMethod>>;
@@ -570,7 +564,7 @@ type ApiFromDependencyUse<TUse> = TUse extends
   }
   : EmptyApi;
 
-type UsedApiFromUses<TUses> = [TUses] extends [undefined] ? EmptyApi
+export type UsedApiFromUses<TUses> = [TUses] extends [undefined] ? EmptyApi
   : TUses extends Record<string, unknown> ? {
       rpc: MergeRecordUnion<ApiFromDependencyUse<TUses[keyof TUses]>["rpc"]>;
       operations: MergeRecordUnion<
@@ -585,7 +579,7 @@ type UsedApiFromUses<TUses> = [TUses] extends [undefined] ? EmptyApi
     }
   : EmptyApi;
 
-type MergeApis<TOwnedApi extends ApiShape, TUsedApi extends ApiShape> = {
+export type MergeApis<TOwnedApi extends ApiShape, TUsedApi extends ApiShape> = {
   rpc: Simplify<TUsedApi["rpc"] & TOwnedApi["rpc"]>;
   operations: Simplify<TUsedApi["operations"] & TOwnedApi["operations"]>;
   events: Simplify<TUsedApi["events"] & TOwnedApi["events"]>;
@@ -637,7 +631,6 @@ export type DefineContractInput<
   id: string;
   displayName: string;
   description: string;
-  kind: ContractKind;
   schemas?: TSchemas;
   uses?: TUses;
   rpc?: TRpc;
@@ -972,7 +965,6 @@ function emitContract(source: TrellisContractSource): TrellisContractV1 {
     id: source.id,
     displayName: source.displayName,
     description: source.description,
-    kind: source.kind,
     ...(source.schemas ? { schemas: cloneSchemas(source.schemas) } : {}),
     ...(uses ? { uses } : {}),
     ...(rpc ? { rpc } : {}),
@@ -1183,12 +1175,14 @@ function attachContractModuleMetadata<
 function createUseHelper<
   TContractId extends string,
   TOwnedApi extends TrellisApiLike,
+  TUsedApi extends ApiShape,
+  TTrellisApi extends ApiShape,
 >(
   getContractModule: () => ContractModule<
     TContractId,
     TOwnedApi,
-    TrellisApiLike,
-    TrellisApiLike
+    TUsedApi,
+    TTrellisApi
   >,
 ) {
   return ((spec) => {
@@ -1426,7 +1420,6 @@ export function defineContract<
     id: source.id,
     displayName: source.displayName,
     description: source.description,
-    kind: source.kind,
     ...(source.schemas ? { schemas: source.schemas } : {}),
     ...(manifestUses ? { uses: manifestUses } : {}),
     ...(source.rpc ? { rpc: source.rpc } : {}),
@@ -1463,7 +1456,7 @@ export function defineContract<
       trellis: trellisApi,
     },
     use: createUseHelper(
-      () => contract as ContractModule<T["id"], OwnedApiFromSource<T>, ApiShape & TrellisApiLike, ApiShape & TrellisApiLike>,
+      () => contract,
     ),
   };
 

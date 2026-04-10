@@ -9,14 +9,23 @@ export {
   type AuthConfig,
   type BindResponse,
   type BindSuccessResponse,
+  bindFlow,
   bindSession,
   buildLoginUrl,
-  extractAuthErrorFromFragment,
-  extractAuthTokenFromFragment,
   isBindSuccessResponse,
   type SentinelCreds,
 } from "./browser/login.ts";
 export {
+  fetchPortalFlowState,
+  portalFlowIdFromUrl,
+  portalProviderLoginUrl,
+  portalRedirectLocation,
+  submitPortalApproval,
+  type ApprovalDecision,
+  type PortalFlowState as BrowserPortalFlowState,
+} from "./browser/portal.ts";
+export {
+  bindFlowSig,
   clearSessionKey,
   createRpcProof,
   generateSessionKey,
@@ -38,6 +47,8 @@ export {
   ContractApprovalSchema,
   type NatsAuthTokenV1 as NatsAuthTokenV1Data,
   NatsAuthTokenV1Schema,
+  type ApprovalDecision as ApprovalDecisionData,
+  ApprovalDecisionSchema,
   type SentinelCreds as SentinelCredsData,
   SentinelCredsSchema,
 } from "./schemas.ts";

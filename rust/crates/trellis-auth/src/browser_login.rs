@@ -4,7 +4,6 @@ use std::time::Duration;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
 use ed25519_dalek::SigningKey;
-use rand::{rngs::OsRng, RngCore};
 use reqwest::Client as HttpClient;
 use serde_json::{json, Value};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -40,17 +39,17 @@ pub(crate) fn callback_page_html() -> &'static str {
   <body>
     <p id=\"status\">Completing Trellis CLI login...</p>
     <script>
-      const params = new URLSearchParams(window.location.hash.slice(1));
-      const authToken = params.get("authToken");
+      const params = new URLSearchParams(window.location.search);
+      const flowId = params.get("flowId");
       const authError = params.get("authError");
       const status = document.getElementById("status");
-      if (!authToken && !authError) {
+      if (!flowId && !authError) {
         status.textContent = "Missing auth result in callback URL.";
       } else {
         fetch("/token", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ authToken, authError })
+          body: JSON.stringify({ flowId, authError })
         }).then(async (response) => {
           if (!response.ok) {
             throw new Error(await response.text());
@@ -138,24 +137,23 @@ async fn read_http_request(
 
 /// Generate a new base64url-encoded Ed25519 session seed and public key.
 pub fn generate_session_keypair() -> (String, String) {
-    let mut seed = [0u8; 32];
-    OsRng.fill_bytes(&mut seed);
+    let seed: [u8; 32] = rand::random();
     let signing_key = SigningKey::from_bytes(&seed);
     let public_key = signing_key.verifying_key().to_bytes();
     (base64url_encode(&seed), base64url_encode(&public_key))
 }
 
-/// Build the Trellis `/auth/login/:provider` URL for a contract-bearing client.
+/// Build the Trellis `GET /auth/login` URL that creates a browser flow and
+/// redirects into the deployment portal.
 pub fn build_auth_login_url(
     auth_url: &str,
-    provider: &str,
     redirect_to: &str,
     auth: &SessionAuth,
     contract_json: &str,
 ) -> Result<String, TrellisAuthError> {
-    let sig = auth.sign_sha256_domain("oauth-init", redirect_to);
+    let sig = auth.sign_sha256_domain("oauth-init", &format!("{redirect_to}:null"));
     let mut url = Url::parse(auth_url)?;
-    url.set_path(&format!("/auth/login/{provider}"));
+    url.set_path("/auth/login");
     url.query_pairs_mut()
         .append_pair("redirectTo", redirect_to)
         .append_pair("sessionKey", &auth.session_key)
@@ -197,9 +195,9 @@ async fn start_callback_server(
                     match parsed {
                         Ok(payload) => {
                             let outcome = payload
-                                .auth_token
+                                .flow_id
                                 .filter(|value| !value.is_empty())
-                                .map(CallbackOutcome::AuthToken)
+                                .map(CallbackOutcome::FlowId)
                                 .or_else(|| {
                                     payload
                                         .auth_error
@@ -248,15 +246,18 @@ async fn start_callback_server(
 async fn bind_session(
     auth_url: &str,
     auth: &SessionAuth,
-    auth_token: &str,
+    flow_id: &str,
 ) -> Result<BoundSession, TrellisAuthError> {
     let client = HttpClient::builder().build()?;
-    let bind_url = format!("{}/auth/bind", auth_url.trim_end_matches('/'));
-    let sig = auth.sign_sha256_domain("bind", auth_token);
+    let bind_url = format!(
+        "{}/auth/flow/{}/bind",
+        auth_url.trim_end_matches('/'),
+        flow_id
+    );
+    let sig = auth.sign_sha256_domain("bind-flow", flow_id);
     let response = client
         .post(bind_url)
         .json(&json!({
-            "authToken": auth_token,
             "sessionKey": auth.session_key,
             "sig": sig,
         }))
@@ -313,14 +314,14 @@ impl BrowserLoginChallenge {
             .map_err(|_| TrellisAuthError::LoginInterrupted)?;
         self.server_handle.abort();
 
-        let auth_token = match outcome {
-            CallbackOutcome::AuthToken(value) => value,
+        let flow_id = match outcome {
+            CallbackOutcome::FlowId(value) => value,
             CallbackOutcome::AuthError(value) => {
                 return Err(TrellisAuthError::AuthFlowFailed(value))
             }
         };
 
-        let bound = bind_session(auth_url, &self.auth, &auth_token).await?;
+        let bound = bind_session(auth_url, &self.auth, &flow_id).await?;
         let mut state = AdminSessionState {
             auth_url: auth_url.to_string(),
             nats_servers: nats_servers.to_string(),
@@ -358,7 +359,6 @@ pub async fn start_browser_login(
     let redirect_to = format!("http://{callback_addr}/callback");
     let login_url = build_auth_login_url(
         opts.auth_url,
-        opts.provider,
         &redirect_to,
         &auth,
         opts.contract_json,

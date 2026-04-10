@@ -20,27 +20,28 @@ This document defines the responsibilities of the core Trellis platform librarie
 
 | Library | Purpose | Use when |
 | --- | --- | --- |
-| `@qlever-llc/trellis` | Client runtime for RPC, operations, and events | Frontend apps, CLI tools |
-| `@qlever-llc/trellis-server` | Runtime-neutral server core | Backend services |
-| `@qlever-llc/trellis-server/node` | Node server runtime adapter | External Node services |
-| `@qlever-llc/trellis-server/deno` | Deno server runtime adapter | In-repo Deno services |
-| `@qlever-llc/trellis-result` | Result type for explicit failure handling | Any function that can fail |
-| `@qlever-llc/trellis-auth` | Session key management and auth helpers | Services, apps, CLI tools |
-| `@qlever-llc/trellis-auth/protocol` | Public auth/admin wire request and response types | Apps, services, docs, tests |
-| `@qlever-llc/trellis-contracts` | Contract authoring and shared protocol primitives | Services, SDK generation, docs |
+| `@qlever-llc/trellis` | Canonical core Trellis package: contract authoring, client runtime, Result helpers, and common auth helpers | Frontend apps, services, CLI tools |
+| `@qlever-llc/trellis/server` | Runtime-neutral server core | Backend services |
+| `@qlever-llc/trellis/server/node` | Node server runtime adapter | External Node services |
+| `@qlever-llc/trellis/server/deno` | Deno server runtime adapter | In-repo Deno services |
+| `@qlever-llc/trellis/auth` | Full auth helper and auth protocol surface | Apps, services, docs, tests |
+| `@qlever-llc/trellis/contracts` | Full contract-model and canonicalization surface | Services, SDK generation, docs |
+| `@qlever-llc/trellis/sdk/*` | First-party generated SDK modules | Apps and services that consume Trellis-owned contracts |
+| `@qlever-llc/trellis-svelte` | Svelte-specific Trellis integration | Svelte applications |
 | `@qlever-llc/trellis-telemetry` | Shared tracing helpers | Runtime libraries and services |
 | `@qlever-llc/trellis-jobs` | Job creation and processing | Service-private retryable work |
 
 ## Library Rules
 
-- `@qlever-llc/trellis` is a runtime library, not a central registry for every service API
+- `@qlever-llc/trellis` is the canonical app and service package for Trellis TypeScript development
 - service APIs are defined with the service that owns them and are consumed through contract packages
-- auth, contracts, jobs, and telemetry remain separate packages with explicit responsibilities
+- server helpers and first-party SDKs live on explicit Trellis subpaths rather than the root entrypoint
+- framework adapters such as `@qlever-llc/trellis-svelte` remain separate packages
 - platform packages should expose stable ergonomic surfaces and hide transport/bootstrap details
 
 ## `@qlever-llc/trellis`
 
-Client runtime for contract-driven RPC, operation, and event communication over NATS. Auth is injected from auth packages rather than hard-coded into the runtime.
+Canonical TypeScript entrypoint for contract-driven RPC, operation, and event communication over NATS. The root package is browser-safe; runtime-specific server helpers live on `@qlever-llc/trellis/server*` subpaths.
 
 ### Browser Client
 
@@ -49,17 +50,16 @@ Browser auth uses a session key stored in IndexedDB plus a bind flow. For Svelte
 ### Deno / Node Client
 
 ```ts
-import { defineContract } from "@qlever-llc/trellis-contracts";
-import { auth } from "@qlever-llc/trellis-sdk-auth";
+import { defineContract } from "@qlever-llc/trellis";
+import { auth } from "@qlever-llc/trellis/sdk/auth";
 import { graph } from "@acme/graph-contract";
 
 const cli = defineContract({
   id: "acme.graph-cli@v1",
   displayName: "Graph CLI",
   description: "Query the graph service and inspect auth state.",
-  kind: "cli",
   uses: {
-    auth: auth.use({ rpc: { call: ["Auth.Me"] } }),
+    auth: auth.useDefaults(),
     graph: graph.use({ rpc: { call: ["Graph.Query"] } }),
   },
 });
@@ -73,7 +73,7 @@ const client = createClient(cli, nc, authSession, {
 
 ```ts
 import { connect } from "@nats-io/transport-deno";
-import { TrellisServer } from "@qlever-llc/trellis-server";
+import { TrellisServer } from "@qlever-llc/trellis/server";
 
 const nc = await connect({ servers: config.nats.servers });
 const server = TrellisServer.create("graph", nc, auth, { log });
@@ -91,13 +91,31 @@ Rules:
 - operations and events are contract-driven rather than raw-subject-driven in normal app code
 - both sides use explicit `Result` conventions rather than exception-driven remote error handling
 
-## `@qlever-llc/trellis-result`
+## `@qlever-llc/trellis-svelte`
 
-Provides explicit `Result<T, E>` handling. See [type-system-patterns.md](./type-system-patterns.md).
+Provides the app-level browser adapter for Svelte applications.
 
-## `@qlever-llc/trellis-auth`
+Rules:
 
-Provides session key loading, signing, bind flow helpers, and shared auth support code. See:
+- browser apps should define one small app-local Trellis module and re-export typed helpers for the rest of the app
+- for the common fixed-instance case, `createTrellisApp(...)` should accept `authUrl`, `contract`, and `loginPath`, and own the auth state internally so ordinary app code does not need a second `createAuthState(...)` step
+- app code does not provide NATS bootstrap topology; `TrellisProvider` connects using the `natsServers` returned by Trellis auth during bind or renew
+- `TrellisProvider` restores auth state, handles auth callbacks, creates the Trellis client, and exposes auth, NATS, and Trellis through Svelte context
+- normal pages and components should not recreate auth state; they should read the live runtime from context through app-scoped helpers
+- app-facing auth helpers should not require raw URL plumbing or placeholder positional arguments from app code; they should expose an options-shaped API with sensible redirect defaults
+- app-facing auth helpers should accept opaque portal context so apps and custom portals can coordinate runtime UX without hard-coding portal-specific parameters
+- custom portal apps should have a small Svelte-friendly `createPortalFlow(...)` wrapper layered over framework-neutral portal helpers from `@qlever-llc/trellis`
+- `loginPath` is the default auth-required redirect target; if `onAuthRequired` is omitted, the provider redirects to `loginPath?redirectTo=...`
+- `onAuthRequired` remains available as an override for apps that need custom routing or side effects
+- bind failures should be renderable through a `bindError(result)` snippet; `onBindError` remains available for imperative reactions
+- `createTrellisApp(...)` should provide the ergonomic app-scoped surface for defining app identity once, hiding fixed browser-auth setup when possible, and reading a typed Trellis client from context without passing the contract again at each call site
+- `TrellisProvider` should accept `app={app}` as the primary browser-app integration surface; the live instance still comes from Svelte context and normal page code should continue to use `await getTrellis()` from the app-local helper module
+- dynamic auth-instance selection remains a valid advanced case, but the default public browser-app API should optimize for the fixed-instance path rather than forcing every app through explicit auth-state construction
+- browser-app integrations should not require a `serviceName` prop; if a client label is needed for telemetry, it should derive from contract metadata or internal defaults
+
+## `@qlever-llc/trellis/auth`
+
+Provides the full auth helper, schema, and protocol surface behind the root package's curated auth re-exports. See:
 
 - [../auth/trellis-auth.md](./../auth/trellis-auth.md)
 - [../auth/auth-typescript-api.md](./../auth/auth-typescript-api.md)
@@ -115,9 +133,9 @@ Provides service-private job creation and processing. See:
 - [../jobs/jobs-typescript-api.md](./../jobs/jobs-typescript-api.md)
 - [../jobs/jobs-rust-api.md](./../jobs/jobs-rust-api.md)
 
-## `@qlever-llc/trellis-contracts`
+## `@qlever-llc/trellis/contracts`
 
-Provides contract tooling for manifest validation, canonicalization, SDK generation, and documentation export. See:
+Provides the full contract-model, manifest validation, canonicalization, SDK generation, and documentation export surface behind the root package's curated contract re-exports. See:
 
 - [../contracts/trellis-contracts-catalog.md](./../contracts/trellis-contracts-catalog.md)
 - [../contracts/contracts-typescript-api.md](./../contracts/contracts-typescript-api.md)

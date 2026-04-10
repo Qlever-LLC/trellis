@@ -1,10 +1,13 @@
-import { build, emptyDir } from "jsr:@deno/dnt@^0.41.3";
+import { build, emptyDir } from "@deno/dnt";
 import { basename, join } from "@std/path";
 
 type BuildDntPackageOptions = {
+  buildRoot?: string;
+  denoConfigPath?: string;
   entryPoints: string[];
-  description: string;
+    description: string;
   dependencies?: Record<string, string>;
+  outDir?: string;
   peerDependencies?: Record<string, string>;
   npmInstallDeps?: Record<string, string>;
   typeCheck?: false | "both" | "single";
@@ -71,36 +74,45 @@ async function externalizeCopiedPackageDir(
 }
 
 export async function buildDntPackage(options: BuildDntPackageOptions) {
-  const denoConfig = JSON.parse(await Deno.readTextFile("./deno.json"));
+  const packageDir = Deno.cwd();
+  const buildRoot = options.buildRoot ? join(packageDir, options.buildRoot) : packageDir;
+  const denoConfigPath = options.denoConfigPath ? join(packageDir, options.denoConfigPath) : join(packageDir, "deno.json");
+  const denoConfig = JSON.parse(await Deno.readTextFile(denoConfigPath));
   const name = denoConfig.name as string;
   const version = denoConfig.version as string;
-  const outDir = "./npm";
+  const outDir = options.outDir ? join(packageDir, options.outDir) : join(packageDir, "npm");
 
   await emptyDir(outDir);
 
-  await build({
-    entryPoints: options.entryPoints,
-    outDir,
-    shims: {
-      deno: true,
-    },
-    test: false,
-    typeCheck: options.typeCheck ?? false,
-    package: {
-      name,
-      version,
-      description: options.description,
-      license: "Apache-2.0",
-      ...commonPackageMetadata(),
-      publishConfig: {
-        access: "public",
+  const previousCwd = Deno.cwd();
+  Deno.chdir(buildRoot);
+  try {
+    await build({
+      entryPoints: options.entryPoints,
+      outDir,
+      shims: {
+        deno: true,
       },
-      dependencies: {
-        ...(options.npmInstallDeps ?? {}),
+      test: false,
+      typeCheck: options.typeCheck ?? false,
+      package: {
+        name,
+        version,
+        description: options.description,
+        license: "Apache-2.0",
+        ...commonPackageMetadata(),
+        publishConfig: {
+          access: "public",
+        },
+        dependencies: {
+          ...(options.npmInstallDeps ?? {}),
+        },
+        peerDependencies: options.peerDependencies,
       },
-      peerDependencies: options.peerDependencies,
-    },
-  });
+    });
+  } finally {
+    Deno.chdir(previousCwd);
+  }
 
   const packageJsonPath = join(outDir, "package.json");
   const packageJson = JSON.parse(await Deno.readTextFile(packageJsonPath));
@@ -129,7 +141,7 @@ export async function buildDntPackage(options: BuildDntPackageOptions) {
   }
 
   try {
-    await Deno.copyFile("README.md", join(outDir, "README.md"));
+    await Deno.copyFile(join(packageDir, "README.md"), join(outDir, "README.md"));
   } catch (error) {
     if (!(error instanceof Deno.errors.NotFound)) {
       throw error;

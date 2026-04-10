@@ -1,5 +1,5 @@
 import { UnexpectedError, ValidationError } from "@qlever-llc/trellis";
-import { isErr, Result } from "@qlever-llc/trellis-result";
+import { isErr, Result } from "@qlever-llc/result";
 
 import { logger, servicesKV } from "../bootstrap/globals.ts";
 import type { ContractResourceBindings } from "./resources.ts";
@@ -84,11 +84,11 @@ export function createAuthInstallServiceHandler(
       description: string;
       contract: unknown;
     },
-    { user }: { user: { id: string } },
+    { caller }: { caller: { type: string; id?: string } },
   ) => {
     logger.trace({
       rpc: "Auth.InstallService",
-      user,
+      caller,
       displayName: req.displayName,
     }, "RPC request");
 
@@ -186,11 +186,11 @@ export function createAuthUpgradeServiceContractHandler(
 ) {
   return async (
     req: { sessionKey: string; contract: unknown },
-    { user }: { user: { id: string } },
+    { caller }: { caller: { type: string; id?: string } },
   ) => {
     logger.trace({
       rpc: "Auth.UpgradeServiceContract",
-      user,
+      caller,
       sessionKey: req.sessionKey,
     }, "RPC request");
     const entry = (await servicesKV.get(req.sessionKey)).take();

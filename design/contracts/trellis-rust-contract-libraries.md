@@ -64,7 +64,7 @@ This document does not change the architectural contract boundary.
 Rules:
 
 - the generated `trellis.contract.v1` manifest remains the canonical runtime and tooling artifact
-- required manifest metadata is the same as in the TypeScript contract design: `id`, `displayName`, `description`, and `kind` are required top-level fields in the emitted canonical manifest
+- required manifest metadata is the same as in the TypeScript contract design: `id`, `displayName`, and `description` are required top-level fields in the emitted canonical manifest
 - generated Rust SDK crates and participant facades derive from manifests
 - native Rust authoring helpers or macros MAY exist later, but they are implementation details around deterministic manifest emission
 

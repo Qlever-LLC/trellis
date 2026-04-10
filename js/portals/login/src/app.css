@@ -1,0 +1,64 @@
+@import "tailwindcss";
+
+@plugin "daisyui" {
+  themes: false;
+}
+
+@plugin "daisyui/theme" {
+  name: "portal";
+  default: true;
+  prefersdark: false;
+  color-scheme: light;
+
+  --color-base-100: oklch(99% 0.008 82);
+  --color-base-200: oklch(95.5% 0.018 82);
+  --color-base-300: oklch(88% 0.022 80);
+  --color-base-content: oklch(17% 0.015 45);
+  --color-primary: oklch(59% 0.13 184);
+  --color-primary-content: oklch(99% 0.005 184);
+  --color-secondary: oklch(52% 0.11 184);
+  --color-secondary-content: oklch(99% 0.005 184);
+  --color-accent: oklch(59% 0.13 184);
+  --color-accent-content: oklch(99% 0.005 184);
+  --color-neutral: oklch(17% 0.015 45);
+  --color-neutral-content: oklch(99% 0.008 82);
+  --color-info: oklch(65% 0.10 235);
+  --color-info-content: oklch(99% 0.005 235);
+  --color-success: oklch(59% 0.13 184);
+  --color-success-content: oklch(99% 0.005 184);
+  --color-warning: oklch(78% 0.14 85);
+  --color-warning-content: oklch(25% 0.04 85);
+  --color-error: oklch(55% 0.20 28);
+  --color-error-content: oklch(99% 0.005 80);
+
+  --radius-selector: 0.5rem;
+  --radius-field: 0.5rem;
+  --radius-box: 0.625rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
+}
+
+:root {
+  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+
+html,
+body {
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  min-height: 100vh;
+  background-color: oklch(95.5% 0.018 82);
+}
+
+#svelte,
+[data-theme] {
+  min-height: 100vh;
+}
+
+.mono {
+  font-family: "SFMono-Regular", "Consolas", monospace;
+}

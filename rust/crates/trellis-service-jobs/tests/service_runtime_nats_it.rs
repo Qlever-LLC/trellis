@@ -34,9 +34,7 @@ use trellis_service_jobs::{
     JobsServiceMode,
 };
 
-use trellis_auth::{
-    AuthValidateRequestRequest, AuthValidateRequestResponse, AuthValidateRequestResponseUser,
-};
+use trellis_auth::{AuthValidateRequestRequest, AuthValidateRequestResponse};
 use trellis_auth_adapters::AuthRequestValidatorClientPort;
 use trellis_core_bootstrap::CoreBootstrapClientPort;
 use trellis_sdk_core::types::{
@@ -162,7 +160,6 @@ impl CoreBootstrapClientPort for FakeCoreClient {
                     digest: trellis_service_jobs::CONTRACT_DIGEST.to_string(),
                     display_name: "Jobs".to_string(),
                     id: trellis_service_jobs::CONTRACT_ID.to_string(),
-                    kind: "service".to_string(),
                 }],
                 format: "trellis.catalog.v1".to_string(),
             },
@@ -190,13 +187,14 @@ impl AuthRequestValidatorClientPort for FakeAuthValidateClient {
     ) -> BoxFuture<'a, Result<AuthValidateRequestResponse, TrellisClientError>> {
         ready(Ok(AuthValidateRequestResponse {
             allowed: true,
-            user: AuthValidateRequestResponseUser {
-                active: true,
-                email: "service@qlever.ai".to_string(),
-                id: "svc-user".to_string(),
-                name: "Service".to_string(),
-                origin: "service".to_string(),
-            },
+            caller: json!({
+                "type": "service",
+                "id": "svc-user",
+                "name": "Service",
+                "active": true,
+                "capabilities": ["service"],
+            }),
+            inbox_prefix: "_INBOX.test".to_string(),
         }))
         .boxed()
     }
@@ -424,7 +422,7 @@ async fn publish_fresh_worker_heartbeat(
         job_type: job_type.to_string(),
         instance_id: instance_id.to_string(),
         concurrency: Some(1),
-        version: Some("0.5.1".to_string()),
+        version: Some("0.6.0".to_string()),
         timestamp: OffsetDateTime::now_utc()
             .format(&Rfc3339)
             .expect("format current timestamp"),

@@ -249,7 +249,6 @@ pub struct ContractManifest {
     #[serde(rename = "displayName")]
     pub display_name: String,
     pub description: String,
-    pub kind: String,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub schemas: BTreeMap<String, Value>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -289,7 +288,6 @@ pub struct CatalogEntry {
     #[serde(rename = "displayName")]
     pub display_name: String,
     pub description: String,
-    pub kind: String,
 }
 
 /// A manifest together with its parsed, canonicalized, and digested forms.

@@ -1,7 +1,7 @@
 import {
   digestJson,
   type TrellisContractV1,
-} from "@qlever-llc/trellis-contracts";
+} from "@qlever-llc/trellis/contracts";
 
 import {
   startAuthCallout,
@@ -9,6 +9,7 @@ import {
 } from "../auth/callout/callout.ts";
 import { CONTRACT as trellisAuthContract } from "../catalog/contracts/trellis_auth.ts";
 import { CONTRACT as trellisCoreContract } from "../catalog/contracts/trellis_core.ts";
+import type { ContractStore } from "../catalog/store.ts";
 
 type BuiltinContract = { digest: string; contract: TrellisContractV1 };
 
@@ -24,9 +25,9 @@ export async function resolveBuiltinContracts(): Promise<BuiltinContract[]> {
   ];
 }
 
-export function startControlPlaneBackgroundTasks() {
+export function startControlPlaneBackgroundTasks(opts?: { contractStore?: ContractStore }) {
   const disconnectCleanup = startDisconnectCleanup();
-  const authCallout = startAuthCallout();
+  const authCallout = startAuthCallout({ contractStore: opts?.contractStore });
 
   return {
     async stop() {

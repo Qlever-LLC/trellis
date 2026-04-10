@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { isErr, Result, UnexpectedError } from "@qlever-llc/trellis-result";
+import { isErr, Result, UnexpectedError } from "@qlever-llc/result";
 import { ensureBoundUserSession } from "./bind.ts";
 import type { Connection, Session } from "../../state/schemas.ts";
 
@@ -150,7 +150,7 @@ Deno.test("ensureBoundUserSession recovers when the session already exists for t
 
   assertEquals(v.createdAt.toISOString(), createdAt.toISOString());
   const updated = sessionKV.getValue("sk.tid");
-  if (!updated) throw new Error("expected updated session");
+  if (!updated || updated.type !== "user") throw new Error("expected updated session");
   assertEquals(updated.createdAt.toISOString(), createdAt.toISOString());
   assertEquals(updated.lastAuth.toISOString(), now.toISOString());
   assertEquals(updated.email, "new@example.com");
@@ -243,5 +243,7 @@ Deno.test("ensureBoundUserSession rejects if the sessionKeyId exists with a mism
   assertEquals(isErr(v), true);
   if (!isErr(v)) return;
   assertEquals(v.error.reason, "session_already_bound");
-  assertEquals(sessionKV.getValue("sk.tid")?.id, "999");
+  const rebound = sessionKV.getValue("sk.tid");
+  if (!rebound || rebound.type !== "user") throw new Error("expected rebound session");
+  assertEquals(rebound.id, "999");
 });

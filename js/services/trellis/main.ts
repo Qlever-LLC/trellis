@@ -1,5 +1,5 @@
 import { Hono } from "@hono/hono";
-import { initTracing } from "@qlever-llc/trellis-telemetry";
+import { initTracing } from "@qlever-llc/trellis/tracing";
 import {
   authListApprovalsHandler,
   createAuthRevokeApprovalHandler,
@@ -7,6 +7,7 @@ import {
 import { kick } from "./auth/callout/kick.ts";
 import { hashKey, randomToken } from "./auth/crypto.ts";
 import { registerHttpRoutes } from "./auth/http/routes.ts";
+import { registerBuiltinPortalStaticRoutes } from "./auth/http/builtin_portal.ts";
 import {
   authListConnectionsHandler,
   authListSessionsHandler,
@@ -17,6 +18,36 @@ import {
   createAuthRenewBindingTokenHandler,
   createAuthRevokeSessionHandler,
 } from "./auth/session/rpc.ts";
+import {
+  createActivateWorkloadHandler,
+  createGetWorkloadActivationStatusHandler,
+  createGetWorkloadConnectInfoHandler,
+} from "./auth/workload_activation/operation.ts";
+import {
+  authDisablePortalHandler,
+  authClearLoginPortalSelectionHandler,
+  authClearWorkloadPortalSelectionHandler,
+  authDecideWorkloadActivationReviewHandler,
+  authDisableWorkloadInstanceHandler,
+  authDisableWorkloadProfileHandler,
+  authGetLoginPortalDefaultHandler,
+  authGetWorkloadPortalDefaultHandler,
+  authListLoginPortalSelectionsHandler,
+  authListPortalsHandler,
+  authListWorkloadActivationReviewsHandler,
+  authListWorkloadPortalSelectionsHandler,
+  authListWorkloadActivationsHandler,
+  authListWorkloadInstancesHandler,
+  authListWorkloadProfilesHandler,
+  authRevokeWorkloadActivationHandler,
+  createAuthCreatePortalHandler,
+  createAuthCreateWorkloadProfileHandler,
+  createAuthProvisionWorkloadInstanceHandler,
+  authSetLoginPortalDefaultHandler,
+  authSetLoginPortalSelectionHandler,
+  authSetWorkloadPortalDefaultHandler,
+  authSetWorkloadPortalSelectionHandler,
+} from "./auth/admin/rpc.ts";
 import {
   authListUsersHandler,
   authUpdateUserHandler,
@@ -112,16 +143,87 @@ await trellis.mount(
 
 await trellis.mount("Auth.ListUsers", authListUsersHandler);
 await trellis.mount("Auth.UpdateUser", authUpdateUserHandler);
+await trellis.mount("Auth.CreatePortal", createAuthCreatePortalHandler());
+await trellis.mount("Auth.ListPortals", authListPortalsHandler);
+await trellis.mount("Auth.DisablePortal", authDisablePortalHandler);
+await trellis.mount("Auth.GetLoginPortalDefault", authGetLoginPortalDefaultHandler);
+await trellis.mount("Auth.SetLoginPortalDefault", authSetLoginPortalDefaultHandler);
+await trellis.mount("Auth.ListLoginPortalSelections", authListLoginPortalSelectionsHandler);
+await trellis.mount("Auth.SetLoginPortalSelection", authSetLoginPortalSelectionHandler);
+await trellis.mount("Auth.ClearLoginPortalSelection", authClearLoginPortalSelectionHandler);
+await trellis.mount("Auth.GetWorkloadPortalDefault", authGetWorkloadPortalDefaultHandler);
+await trellis.mount("Auth.SetWorkloadPortalDefault", authSetWorkloadPortalDefaultHandler);
+await trellis.mount("Auth.ListWorkloadPortalSelections", authListWorkloadPortalSelectionsHandler);
+await trellis.mount("Auth.SetWorkloadPortalSelection", authSetWorkloadPortalSelectionHandler);
+await trellis.mount("Auth.ClearWorkloadPortalSelection", authClearWorkloadPortalSelectionHandler);
+await trellis.mount(
+  "Auth.CreateWorkloadProfile",
+  createAuthCreateWorkloadProfileHandler({
+    installWorkloadContract: contracts.installWorkloadContract,
+    refreshActiveContracts: contracts.refreshActiveContracts,
+  }),
+);
+await trellis.mount(
+  "Auth.ListWorkloadProfiles",
+  authListWorkloadProfilesHandler,
+);
+await trellis.mount(
+  "Auth.DisableWorkloadProfile",
+  authDisableWorkloadProfileHandler,
+);
+await trellis.mount(
+  "Auth.ProvisionWorkloadInstance",
+  createAuthProvisionWorkloadInstanceHandler(),
+);
+await trellis.mount(
+  "Auth.ListWorkloadInstances",
+  authListWorkloadInstancesHandler,
+);
+await trellis.mount(
+  "Auth.DisableWorkloadInstance",
+  authDisableWorkloadInstanceHandler,
+);
+await trellis.mount(
+  "Auth.ListWorkloadActivations",
+  authListWorkloadActivationsHandler,
+);
+await trellis.mount(
+  "Auth.RevokeWorkloadActivation",
+  authRevokeWorkloadActivationHandler,
+);
+await trellis.mount("Auth.ActivateWorkload", createActivateWorkloadHandler());
+await trellis.mount(
+  "Auth.GetWorkloadActivationStatus",
+  createGetWorkloadActivationStatusHandler(),
+);
+await trellis.mount(
+  "Auth.GetWorkloadConnectInfo",
+  createGetWorkloadConnectInfoHandler(),
+);
+await trellis.mount(
+  "Auth.ListWorkloadActivationReviews",
+  authListWorkloadActivationReviewsHandler,
+);
+await trellis.mount(
+  "Auth.DecideWorkloadActivationReview",
+  authDecideWorkloadActivationReviewHandler,
+);
 
+registerBuiltinPortalStaticRoutes(app);
 registerHttpRoutes(app, { contractStore: contracts.contractStore });
 
-const backgroundTasks = startControlPlaneBackgroundTasks();
+const backgroundTasks = startControlPlaneBackgroundTasks({
+  contractStore: contracts.contractStore,
+});
 
 const serverAbort = new AbortController();
-const server = Deno.serve({
-  port: config.port,
-  signal: serverAbort.signal,
-}, app.fetch);
+const server = Deno.serve(
+  {
+    port: config.port,
+    signal: serverAbort.signal,
+  },
+  app.fetch,
+);
 
 let shuttingDown: Promise<void> | null = null;
 

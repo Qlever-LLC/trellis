@@ -1,5 +1,5 @@
-import type { JsonValue, TrellisContractV1 } from "@qlever-llc/trellis-contracts";
-import { digestJson } from "@qlever-llc/trellis-contracts";
+import type { JsonValue, TrellisContractV1 } from "@qlever-llc/trellis/contracts";
+import { digestJson } from "@qlever-llc/trellis/contracts";
 import { assertEquals, assertRejects } from "@std/assert";
 
 import { ContractStore } from "./store.ts";
@@ -19,7 +19,6 @@ function makeContract(
     id,
     displayName,
     description: `${displayName} test contract`,
-    kind: "service",
     schemas: {
       PingInput: { type: "object" },
       PingOutput: { type: "object" },
@@ -105,14 +104,12 @@ Deno.test("contract store catalog includes active contracts in id order", async 
         digest: authDigest,
         displayName: auth.displayName,
         description: auth.description,
-        kind: auth.kind,
       },
       {
         id: "graph@v1",
         digest: graphDigest,
         displayName: graph.displayName,
         description: graph.description,
-        kind: graph.kind,
       },
     ],
   });

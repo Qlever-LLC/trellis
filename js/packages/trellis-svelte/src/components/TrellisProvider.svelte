@@ -1,30 +1,27 @@
 <script lang="ts">
   import type { NatsConnection } from "@nats-io/nats-core";
-  import { AsyncResult } from "@qlever-llc/trellis-result";
-  import type { Snippet } from "svelte";
-import type { TrellisAPI } from "@qlever-llc/trellis-contracts";
+  import { AsyncResult } from "@qlever-llc/result";
   import { onDestroy } from "svelte";
+  import type { Snippet } from "svelte";
   import {
+    setAppContext,
     setAuthContext,
     setNatsStateContext,
     setTrellisContext,
   } from "../context.svelte.ts";
-  import { type AuthState, type AuthStateConfig, type BindErrorResult, createAuthState } from "../state/auth.svelte.ts";
+  import type { AuthState, BindErrorResult } from "../state/auth.svelte.ts";
   import { createNatsState, type NatsState } from "../state/nats.svelte.ts";
-  import {
-    createTrellisState,
-    type TrellisClientContract,
-    type TrellisState,
-  } from "../state/trellis.svelte.ts";
+  import { createTrellisState, type TrellisState } from "../state/trellis.svelte.ts";
+
+  type TrellisApp = {
+    auth: AuthState;
+  };
 
   type Props = {
     children: Snippet;
     loading?: Snippet;
-    authUrl: string;
-    natsServers: string[];
-    serviceName?: string;
-    contract?: TrellisClientContract;
-    loginPath?: string;
+    bindError?: Snippet<[BindErrorResult]>;
+    app: TrellisApp;
     onAuthExpired?: () => void;
     onAuthFailed?: (error: unknown) => void;
     onAuthRequired?: (redirectTo: string) => void;
@@ -37,14 +34,11 @@ import type { TrellisAPI } from "@qlever-llc/trellis-contracts";
     onNatsError?: (error: Error) => void;
   };
 
-  const {
+  let {
     children,
     loading,
-    authUrl,
-    natsServers,
-    serviceName = "app",
-    contract,
-    loginPath = "/login",
+    bindError,
+    app,
     onAuthExpired,
     onAuthFailed,
     onAuthRequired,
@@ -57,35 +51,14 @@ import type { TrellisAPI } from "@qlever-llc/trellis-contracts";
     onNatsError,
   }: Props = $props();
 
+  let bindErrorResult = $state<BindErrorResult | null>(null);
+
   type InitContext = {
     auth: AuthState;
     nats: NatsState;
     trellis: TrellisState;
   };
-
-  class AuthRequiredError extends Error {
-    constructor() {
-      super("Authentication required");
-    }
-  }
-
-  class BindFailedError extends Error {
-    constructor() {
-      super("Bind failed");
-    }
-  }
-
-  function createProviderAuthState(): AuthState {
-    const config: AuthStateConfig = {
-      authUrl,
-      loginPath,
-      contract,
-    };
-
-    return createAuthState(config);
-  }
-
-  const authState = createProviderAuthState();
+  const isBrowser = typeof window !== "undefined";
 
   function getRedirectTo(): string {
     if (typeof window === "undefined") {
@@ -95,25 +68,42 @@ import type { TrellisAPI } from "@qlever-llc/trellis-contracts";
     return window.location.pathname + window.location.search;
   }
 
-  async function initialize(): Promise<InitContext> {
+  function redirectToLogin(redirectTo: string): void {
+    if (typeof window === "undefined") return;
+
+    const url = new URL(app.auth.loginPath, window.location.origin);
+    url.searchParams.set("redirectTo", redirectTo);
+    window.location.href = url.toString();
+  }
+
+  function handleAuthRequired(): void {
+    const redirectTo = getRedirectTo();
+    onAuthRequired?.(redirectTo);
+    if (!onAuthRequired) {
+      redirectToLogin(redirectTo);
+    }
+  }
+
+  async function initialize(): Promise<InitContext | null> {
     const result = await AsyncResult.try(async () => {
+      const authState = app.auth;
+
       await authState.init();
       const bindResult = await authState.handleCallback();
       authState.cleanupCallbackUrl();
 
       if (bindResult !== null && bindResult.status !== "bound") {
+        bindErrorResult = bindResult;
         onBindError?.(bindResult);
-        throw new BindFailedError();
+        return null;
       }
 
       if (!authState.isAuthenticated) {
-        onAuthRequired?.(getRedirectTo());
-        throw new AuthRequiredError();
+        handleAuthRequired();
+        return null;
       }
 
-      const effectiveNatsServers = authState.natsServers ?? natsServers;
       const natsState = await createNatsState(authState, {
-        servers: effectiveNatsServers,
         onConnecting: onNatsConnecting,
         onConnected: onNatsConnected,
         onDisconnect: onNatsDisconnect,
@@ -121,13 +111,13 @@ import type { TrellisAPI } from "@qlever-llc/trellis-contracts";
         onReconnect: onNatsReconnect,
         onError: onNatsError,
         onAuthRequired: () => {
-          onAuthRequired?.(getRedirectTo());
+          onAuthExpired?.();
+          handleAuthRequired();
         },
       });
 
       const trellisState = await createTrellisState(authState, natsState, {
-        serviceName,
-        contract,
+        contract: authState.contract,
       });
 
       return {
@@ -139,10 +129,7 @@ import type { TrellisAPI } from "@qlever-llc/trellis-contracts";
 
     if (result.isErr()) {
       const error = result.error;
-      if (error instanceof AuthRequiredError || error instanceof BindFailedError) {
-        throw error;
-      }
-      authState.clearAuth();
+      app.auth.clearAuth();
       onAuthFailed?.(error);
       throw error;
     }
@@ -155,30 +142,54 @@ import type { TrellisAPI } from "@qlever-llc/trellis-contracts";
     });
   }
 
-  const initPromise = initialize();
-  const natsStatePromise: Promise<NatsState> = initPromise.then((ctx) => ctx.nats);
-  const trellisPromise: Promise<TrellisState<TrellisAPI>["trellis"]> = initPromise.then((ctx) => ctx.trellis.trellis);
-  const natsPromise: Promise<NatsConnection> = initPromise.then((ctx) => ctx.nats.nc);
+  const initPromise = isBrowser ? initialize() : null;
+  const readyPromise: Promise<InitContext> | null = initPromise?.then((ctx) => {
+    if (!ctx) {
+      throw new Error("Trellis context is not available");
+    }
+    return ctx;
+  }) ?? null;
+  const natsStatePromise: Promise<NatsState> | null = readyPromise?.then((ctx) => ctx.nats) ?? null;
+  const trellisPromise: Promise<TrellisState["trellis"]> | null = readyPromise?.then((ctx) => ctx.trellis.trellis) ?? null;
+  const natsPromise: Promise<NatsConnection> | null = readyPromise?.then((ctx) => ctx.nats.nc) ?? null;
 
-  setAuthContext(authState);
-  setNatsStateContext(natsStatePromise);
-  setTrellisContext({
-    trellis: trellisPromise,
-    nats: natsPromise,
-  });
+  if (readyPromise && natsStatePromise && trellisPromise && natsPromise) {
+    void readyPromise.catch(() => {});
+    setAppContext(() => app);
+    setAuthContext(() => app.auth);
+    setNatsStateContext(natsStatePromise);
+    setTrellisContext({
+      trellis: trellisPromise,
+      nats: natsPromise,
+    });
+  }
 
   onDestroy(() => {
-    void initPromise.then((ctx) => {
+    if (!readyPromise) return;
+
+    void readyPromise.then((ctx) => {
       ctx.trellis.stop();
       void ctx.nats.disconnect();
     });
   });
 </script>
 
-{#await initPromise}
+{#if !isBrowser}
   {#if loading}
     {@render loading()}
   {/if}
-{:then}
-  {@render children()}
-{/await}
+{:else}
+  {#await initPromise}
+    {#if loading}
+      {@render loading()}
+    {/if}
+  {:then ctx}
+    {#if bindErrorResult}
+      {#if bindError}
+        {@render bindError(bindErrorResult)}
+      {/if}
+    {:else if ctx}
+      {@render children()}
+    {/if}
+  {/await}
+{/if}

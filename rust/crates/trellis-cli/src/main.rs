@@ -7,6 +7,7 @@ mod output;
 use std::env;
 use std::fs;
 use std::io;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
@@ -27,8 +28,6 @@ use contract_input::{
 };
 use ed25519_dalek::SigningKey;
 use miette::IntoDiagnostic;
-use rand::rngs::OsRng;
-use rand::RngCore;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use tracing_subscriber::EnvFilter;
@@ -43,6 +42,121 @@ use trellis_codegen_ts::{
     generate_ts_sdk, GenerateTsSdkOpts, TsRuntimeDeps, TsRuntimeSource as CodegenTsRuntimeSource,
 };
 use trellis_contracts::{pack_loaded_manifests, write_catalog_pack, CatalogPack, ContractManifest};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct KvBucketSpec {
+    name: &'static str,
+    ttl_ms: u64,
+}
+
+const AUTH_BOOTSTRAP_BUCKETS: &[KvBucketSpec] = &[
+    KvBucketSpec {
+        name: "trellis_sessions",
+        ttl_ms: 24 * 60 * 60_000_u64,
+    },
+    KvBucketSpec {
+        name: "trellis_oauth_states",
+        ttl_ms: 5 * 60_000_u64,
+    },
+    KvBucketSpec {
+        name: "trellis_pending_auth",
+        ttl_ms: 5 * 60_000_u64,
+    },
+    KvBucketSpec {
+        name: "trellis_contract_approvals",
+        ttl_ms: 0,
+    },
+    KvBucketSpec {
+        name: "trellis_binding_tokens",
+        ttl_ms: 24 * 60 * 60_000_u64,
+    },
+    KvBucketSpec {
+        name: "trellis_portals",
+        ttl_ms: 0,
+    },
+    KvBucketSpec {
+        name: "trellis_portal_defaults",
+        ttl_ms: 0,
+    },
+    KvBucketSpec {
+        name: "trellis_portal_login_selections",
+        ttl_ms: 0,
+    },
+    KvBucketSpec {
+        name: "trellis_portal_workload_selections",
+        ttl_ms: 0,
+    },
+    KvBucketSpec {
+        name: "trellis_browser_flows",
+        ttl_ms: 5 * 60_000_u64,
+    },
+    KvBucketSpec {
+        name: "trellis_workload_profiles",
+        ttl_ms: 0,
+    },
+    KvBucketSpec {
+        name: "trellis_workload_instances",
+        ttl_ms: 0,
+    },
+    KvBucketSpec {
+        name: "trellis_workload_activation_handoffs",
+        ttl_ms: 30 * 60_000_u64,
+    },
+    KvBucketSpec {
+        name: "trellis_workload_provisioning_secrets",
+        ttl_ms: 0,
+    },
+    KvBucketSpec {
+        name: "trellis_workload_activations",
+        ttl_ms: 0,
+    },
+    KvBucketSpec {
+        name: "trellis_workload_activation_reviews",
+        ttl_ms: 0,
+    },
+    KvBucketSpec {
+        name: "trellis_connections",
+        ttl_ms: 2 * 60 * 60_000_u64,
+    },
+    KvBucketSpec {
+        name: "trellis_services",
+        ttl_ms: 0,
+    },
+    KvBucketSpec {
+        name: "trellis_contracts",
+        ttl_ms: 0,
+    },
+    KvBucketSpec {
+        name: "trellis_users",
+        ttl_ms: 0,
+    },
+];
+
+const DEFAULT_TRELLIS_CONFIG_PATH: &str = "/etc/trellis/config.jsonc";
+
+#[derive(Debug, serde::Deserialize)]
+struct BootstrapConfigFile {
+    #[serde(rename = "ttlMs")]
+    ttl_ms: Option<BootstrapTtlConfig>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct BootstrapTtlConfig {
+    #[serde(rename = "bindingTokens")]
+    binding_tokens: Option<BootstrapBindingTokenConfig>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct BootstrapBindingTokenConfig {
+    bucket: Option<u64>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum BucketEnsureStatus {
+    Created,
+    Updated,
+    Exists,
+}
 
 #[tokio::main]
 async fn main() -> miette::Result<()> {
@@ -72,6 +186,41 @@ async fn main() -> miette::Result<()> {
             },
             AuthSubcommand::Status => auth_status_command(format).await?,
         },
+        TopLevelCommand::Portals(command) => match command.command {
+            PortalsSubcommand::List => portals_list_command(format).await?,
+            PortalsSubcommand::Create(args) => portals_create_command(format, &args).await?,
+            PortalsSubcommand::Disable(args) => portals_disable_command(format, &args).await?,
+            PortalsSubcommand::Logins(logins) => match logins.command {
+                PortalsLoginsSubcommand::Default(defaults) => match defaults.command {
+                    PortalsDefaultSubcommand::Show => portals_logins_default_show_command(format).await?,
+                    PortalsDefaultSubcommand::Set(args) => {
+                        portals_logins_default_set_command(format, &args).await?
+                    }
+                },
+                PortalsLoginsSubcommand::List => portals_logins_list_command(format).await?,
+                PortalsLoginsSubcommand::Set(args) => {
+                    portals_logins_set_command(format, &args).await?
+                }
+                PortalsLoginsSubcommand::Clear(args) => {
+                    portals_logins_clear_command(format, &args).await?
+                }
+            },
+            PortalsSubcommand::Workloads(workloads) => match workloads.command {
+                PortalsWorkloadsSubcommand::Default(defaults) => match defaults.command {
+                    PortalsDefaultSubcommand::Show => portals_workloads_default_show_command(format).await?,
+                    PortalsDefaultSubcommand::Set(args) => {
+                        portals_workloads_default_set_command(format, &args).await?
+                    }
+                },
+                PortalsWorkloadsSubcommand::List => portals_workloads_list_command(format).await?,
+                PortalsWorkloadsSubcommand::Set(args) => {
+                    portals_workloads_set_command(format, &args).await?
+                }
+                PortalsWorkloadsSubcommand::Clear(args) => {
+                    portals_workloads_clear_command(format, &args).await?
+                }
+            },
+        },
         TopLevelCommand::Keygen(args) => keygen_command(format, &args)?,
         TopLevelCommand::Bootstrap(command) => match command.command {
             BootstrapSubcommand::Nats(args) => nats_bootstrap_command(&args).await?,
@@ -100,6 +249,46 @@ async fn main() -> miette::Result<()> {
                 )
                 .await?
             }
+        },
+        TopLevelCommand::Workloads(command) => match command.command {
+            WorkloadsSubcommand::Provision(args) => {
+                workloads_provision_command(format, &args).await?
+            }
+            WorkloadsSubcommand::Profiles(profiles) => match profiles.command {
+                WorkloadsProfilesSubcommand::List(args) => {
+                    workloads_profiles_list_command(format, &args).await?
+                }
+                WorkloadsProfilesSubcommand::Create(args) => {
+                    workloads_profiles_create_command(format, &args).await?
+                }
+                WorkloadsProfilesSubcommand::Disable(args) => {
+                    workloads_profiles_disable_command(format, &args).await?
+                }
+            },
+            WorkloadsSubcommand::Instances(instances) => match instances.command {
+                WorkloadsInstancesSubcommand::List(args) => {
+                    workloads_instances_list_command(format, &args).await?
+                }
+                WorkloadsInstancesSubcommand::Disable(args) => {
+                    workloads_instances_disable_command(format, &args).await?
+                }
+            },
+            WorkloadsSubcommand::Activations(activations) => match activations.command {
+                WorkloadsActivationsSubcommand::List(args) => {
+                    workloads_activations_list_command(format, &args).await?
+                }
+                WorkloadsActivationsSubcommand::Revoke(args) => {
+                    workloads_activations_revoke_command(format, &args).await?
+                }
+            },
+            WorkloadsSubcommand::Reviews(reviews) => match reviews.command {
+                WorkloadsReviewsSubcommand::List(args) => {
+                    workloads_reviews_list_command(format, &args).await?
+                }
+                WorkloadsReviewsSubcommand::Decide(args) => {
+                    workloads_reviews_decide_command(format, &args).await?
+                }
+            },
         },
         TopLevelCommand::Generate(command) => match command.command {
             GenerateSubcommand::Manifest(args) => generate_manifest_command(&args)?,
@@ -170,8 +359,7 @@ fn keygen_command(format: OutputFormat, args: &KeygenArgs) -> miette::Result<()>
             (seed_b64.clone(), base64url_encode(&public_key), true)
         }
         None => {
-            let mut seed = [0u8; 32];
-            OsRng.fill_bytes(&mut seed);
+            let seed: [u8; 32] = rand::random();
             let signing_key = SigningKey::from_bytes(&seed);
             let public_key = signing_key.verifying_key().to_bytes();
             (
@@ -250,12 +438,27 @@ async fn ensure_bucket(
     bucket: &str,
     history: i64,
     ttl_ms: u64,
-) -> miette::Result<bool> {
+) -> miette::Result<BucketEnsureStatus> {
     let client = connect_with_creds(servers, creds).await?;
     let js = jetstream::new(client);
-    if js.get_key_value(bucket).await.is_ok() {
-        return Ok(false);
+    if let Ok(store) = js.get_key_value(bucket).await {
+        let status = store.status().await.into_diagnostic()?;
+        let current_ttl_ms = status.max_age().as_millis() as u64;
+        if status.history() == history && current_ttl_ms == ttl_ms {
+            return Ok(BucketEnsureStatus::Exists);
+        }
+
+        js.update_key_value(kv::Config {
+            bucket: bucket.to_string(),
+            history,
+            max_age: Duration::from_millis(ttl_ms),
+            ..Default::default()
+        })
+        .await
+        .into_diagnostic()?;
+        return Ok(BucketEnsureStatus::Updated);
     }
+
     js.create_key_value(kv::Config {
         bucket: bucket.to_string(),
         history,
@@ -264,7 +467,27 @@ async fn ensure_bucket(
     })
     .await
     .into_diagnostic()?;
-    Ok(true)
+    Ok(BucketEnsureStatus::Created)
+}
+
+fn resolve_auth_config_path() -> PathBuf {
+    env::var("TRELLIS_CONFIG")
+        .or_else(|_| env::var("TRELLIS_AUTH_CONFIG"))
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from(DEFAULT_TRELLIS_CONFIG_PATH))
+}
+
+fn load_binding_token_bucket_ttl_ms(path: &Path) -> miette::Result<Option<u64>> {
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let text = fs::read_to_string(path).into_diagnostic()?;
+    let parsed: BootstrapConfigFile = json5::from_str(&text).into_diagnostic()?;
+    Ok(parsed
+        .ttl_ms
+        .and_then(|ttl| ttl.binding_tokens)
+        .and_then(|binding_tokens| binding_tokens.bucket))
 }
 
 async fn nats_bootstrap_command(args: &NatsBootstrapArgs) -> miette::Result<()> {
@@ -282,33 +505,140 @@ async fn nats_bootstrap_command(args: &NatsBootstrapArgs) -> miette::Result<()> 
         vec!["events.>".to_string()],
     )
     .await?;
-    let buckets = [
-        ("trellis_sessions", 24 * 60 * 60_000_u64),
-        ("trellis_oauth_states", 5 * 60_000_u64),
-        ("trellis_pending_auth", 5 * 60_000_u64),
-        ("trellis_binding_tokens", 2 * 60 * 60_000_u64),
-        ("trellis_connections", 2 * 60 * 60_000_u64),
-        ("trellis_services", 0_u64),
-        ("trellis_contracts", 0_u64),
-        ("trellis_contract_approvals", 0_u64),
-        ("trellis_users", 0_u64),
-    ];
-
+    let auth_config_path = resolve_auth_config_path();
+    let binding_token_bucket_ttl_ms = load_binding_token_bucket_ttl_ms(&auth_config_path)?
+        .unwrap_or_else(|| {
+            AUTH_BOOTSTRAP_BUCKETS
+                .iter()
+                .find(|bucket| bucket.name == "trellis_binding_tokens")
+                .map(|bucket| bucket.ttl_ms)
+                .expect("binding token bootstrap bucket present")
+        });
     let mut rows = vec![vec![
         "stream".to_string(),
         "trellis".to_string(),
         if stream_created { "created" } else { "exists" }.to_string(),
     ]];
-    for (bucket, ttl_ms) in buckets {
-        let created = ensure_bucket(&servers, &args.auth_creds, bucket, 1, ttl_ms).await?;
+    for bucket in AUTH_BOOTSTRAP_BUCKETS {
+        let ttl_ms = if bucket.name == "trellis_binding_tokens" {
+            binding_token_bucket_ttl_ms
+        } else {
+            bucket.ttl_ms
+        };
+        let status = ensure_bucket(&servers, &args.auth_creds, bucket.name, 1, ttl_ms).await?;
         rows.push(vec![
             "bucket".to_string(),
-            bucket.to_string(),
-            if created { "created" } else { "exists" }.to_string(),
+            bucket.name.to_string(),
+            match status {
+                BucketEnsureStatus::Created => "created",
+                BucketEnsureStatus::Updated => "updated",
+                BucketEnsureStatus::Exists => "exists",
+            }
+            .to_string(),
         ]);
     }
     println!("{}", output::table(&["kind", "name", "status"], rows));
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{KvBucketSpec, AUTH_BOOTSTRAP_BUCKETS};
+
+    #[derive(Debug, Eq, PartialEq)]
+    struct RuntimeBucketSpec {
+        name: String,
+        ttl_ms: u64,
+    }
+
+    #[test]
+    fn bootstrap_buckets_match_runtime_globals() {
+        let runtime = parse_runtime_bucket_specs(include_str!(
+            "../../../../js/services/trellis/bootstrap/globals.ts"
+        ));
+        let bootstrap = AUTH_BOOTSTRAP_BUCKETS
+            .iter()
+            .map(|bucket| RuntimeBucketSpec {
+                name: bucket.name.to_string(),
+                ttl_ms: bucket.ttl_ms,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(bootstrap, runtime);
+    }
+
+    fn parse_runtime_bucket_specs(source: &str) -> Vec<RuntimeBucketSpec> {
+        let mut specs = Vec::new();
+        let mut current_name: Option<String> = None;
+
+        for line in source.lines() {
+            if current_name.is_none() {
+                current_name = extract_bucket_name(line);
+                continue;
+            }
+
+            if let Some(ttl_ms) = extract_ttl_ms(line) {
+                specs.push(RuntimeBucketSpec {
+                    name: current_name
+                        .take()
+                        .expect("bucket name should be present when ttl is parsed"),
+                    ttl_ms,
+                });
+            }
+        }
+
+        assert!(
+            current_name.is_none(),
+            "found bucket without ttl in globals.ts"
+        );
+        specs
+    }
+
+    fn extract_bucket_name(line: &str) -> Option<String> {
+        if !line.contains('"') || !line.contains("trellis_") {
+            return None;
+        }
+
+        let start = line.find('"')? + 1;
+        let rest = &line[start..];
+        let end = rest.find('"')?;
+        let name = &rest[..end];
+
+        name.starts_with("trellis_").then(|| name.to_string())
+    }
+
+    fn extract_ttl_ms(line: &str) -> Option<u64> {
+        let ttl = line
+            .split_once("ttl:")?
+            .1
+            .trim()
+            .trim_end_matches(',')
+            .trim_end_matches('}')
+            .trim();
+
+        Some(match ttl {
+            "0" => 0,
+            "config.ttlMs.sessions" => 24 * 60 * 60_000_u64,
+            "config.ttlMs.oauth" => 5 * 60_000_u64,
+            "config.ttlMs.workloadHandoff" => 30 * 60_000_u64,
+            "config.ttlMs.pendingAuth" => 5 * 60_000_u64,
+            "config.ttlMs.bindingTokens.bucket" => 24 * 60 * 60_000_u64,
+            "config.ttlMs.connections" => 2 * 60 * 60_000_u64,
+            other => panic!("unexpected ttl expression in globals.ts: {other}"),
+        })
+    }
+
+    #[test]
+    fn bootstrap_bucket_names_are_unique() {
+        let mut names = AUTH_BOOTSTRAP_BUCKETS
+            .iter()
+            .map(|bucket: &KvBucketSpec| bucket.name)
+            .collect::<Vec<_>>();
+        let original_len = names.len();
+        names.sort_unstable();
+        names.dedup();
+        assert_eq!(names.len(), original_len);
+    }
 }
 
 async fn bootstrap_admin_command(
@@ -824,8 +1154,7 @@ fn required_owner_version(
 }
 
 fn generate_session_keypair() -> (String, String) {
-    let mut seed = [0u8; 32];
-    OsRng.fill_bytes(&mut seed);
+    let seed: [u8; 32] = rand::random();
     let signing_key = SigningKey::from_bytes(&seed);
     let public_key = signing_key.verifying_key().to_bytes();
     (base64url_encode(&seed), base64url_encode(&public_key))
@@ -890,7 +1219,6 @@ fn contract_review_rows(loaded: &trellis_contracts::LoadedManifest) -> Vec<Vec<S
             "description".to_string(),
             loaded.manifest.description.clone(),
         ],
-        vec!["kind".to_string(), loaded.manifest.kind.clone()],
         vec!["digest".to_string(), loaded.digest.clone()],
         vec![
             "rpc methods".to_string(),
@@ -960,6 +1288,688 @@ fn resolve_upgrade_service_key(
     }
 }
 
+fn json_value_label(value: &Value) -> String {
+    value
+        .as_str()
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| value.to_string())
+}
+
+fn portal_target_id(target: &PortalTargetArgs) -> Option<&str> {
+    if target.builtin {
+        None
+    } else {
+        target.portal_id.as_deref()
+    }
+}
+
+fn portal_target_label(portal_id: Option<&str>) -> String {
+    portal_id.unwrap_or("builtin").to_string()
+}
+
+#[derive(Debug, serde::Serialize)]
+struct WorkloadProvisionOutput {
+    #[serde(rename = "profileId")]
+    profile_id: String,
+    #[serde(rename = "instanceId")]
+    instance_id: String,
+    #[serde(rename = "publicIdentityKey")]
+    public_identity_key: String,
+    #[serde(rename = "rootSecret")]
+    root_secret: String,
+}
+
+fn resolve_workload_contract_source(value: &str) -> miette::Result<Option<contract_input::ResolvedContractInput>> {
+    let path = Path::new(value);
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let resolved = if path
+        .extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("json"))
+    {
+        resolve_contract_input(
+            Some(path),
+            None,
+            None,
+            "CONTRACT",
+            default_image_contract_path(),
+        )?
+    } else {
+        resolve_contract_input(
+            None,
+            Some(path),
+            None,
+            "CONTRACT",
+            default_image_contract_path(),
+        )?
+    };
+
+    Ok(Some(resolved))
+}
+
+async fn resolve_workload_profile_contract(
+    connected: &TrellisClient,
+    contract: &str,
+) -> miette::Result<(String, Vec<String>, Option<BTreeMap<String, Value>>)> {
+    if let Some(resolved) = resolve_workload_contract_source(contract)? {
+        let contract = resolved
+            .loaded
+            .value
+            .as_object()
+            .cloned()
+            .map(|contract| contract.into_iter().collect());
+        return Ok((resolved.loaded.manifest.id, vec![resolved.loaded.digest], contract));
+    }
+
+    let core_client = core_client::CoreClient::new(connected);
+    let catalog = core_client.catalog().await.into_diagnostic()?.catalog;
+    let digests = catalog
+        .contracts
+        .into_iter()
+        .filter(|entry| entry.id == contract)
+        .map(|entry| entry.digest)
+        .collect::<Vec<_>>();
+
+    miette::ensure!(
+        !digests.is_empty(),
+        "no active contract found for id '{contract}'"
+    );
+
+    Ok((contract.to_string(), digests, None))
+}
+
+fn review_decision_label(args: &ReviewDecisionArgs) -> &'static str {
+    if args.approve {
+        "approve"
+    } else {
+        "reject"
+    }
+}
+
+async fn portals_list_command(format: OutputFormat) -> miette::Result<()> {
+    let mut state = authlib::load_admin_session().into_diagnostic()?;
+    let connected = authlib::connect_admin_client_async(&state).await.into_diagnostic()?;
+    let auth_client = authlib::AuthClient::new(&connected);
+    let portals = auth_client.list_portals().await.into_diagnostic()?;
+    auth_client.renew_binding_token(&mut state).await.into_diagnostic()?;
+
+    if output::is_json(format) {
+        output::print_json(&json!({ "portals": portals }))?;
+        return Ok(());
+    }
+    if portals.is_empty() {
+        output::print_info("no portals configured");
+        return Ok(());
+    }
+    let rows = portals
+        .into_iter()
+        .map(|portal| {
+            vec![
+                portal.portal_id,
+                portal.app_contract_id.unwrap_or_else(|| "-".to_string()),
+                portal.entry_url,
+                if portal.disabled { "Disabled" } else { "Active" }.to_string(),
+            ]
+        })
+        .collect::<Vec<_>>();
+    println!("{}", output::table(&["portal", "app contract", "entry", "state"], rows));
+    Ok(())
+}
+
+async fn portals_create_command(format: OutputFormat, args: &PortalsCreateArgs) -> miette::Result<()> {
+    let mut state = authlib::load_admin_session().into_diagnostic()?;
+    let connected = authlib::connect_admin_client_async(&state).await.into_diagnostic()?;
+    let auth_client = authlib::AuthClient::new(&connected);
+    let portal = auth_client
+        .create_portal(&args.portal_id, args.app_contract_id.as_deref(), &args.entry_url)
+        .await
+        .into_diagnostic()?;
+    auth_client.renew_binding_token(&mut state).await.into_diagnostic()?;
+
+    if output::is_json(format) {
+        output::print_json(&json!({ "portal": portal }))?;
+        return Ok(());
+    }
+    output::print_success("portal created");
+    output::print_info(&format!("portalId={}", portal.portal_id));
+    output::print_info(&format!("entry={}", portal.entry_url));
+    Ok(())
+}
+
+async fn portals_disable_command(format: OutputFormat, args: &PortalsDisableArgs) -> miette::Result<()> {
+    let mut state = authlib::load_admin_session().into_diagnostic()?;
+    let connected = authlib::connect_admin_client_async(&state).await.into_diagnostic()?;
+    let auth_client = authlib::AuthClient::new(&connected);
+    let success = auth_client.disable_portal(&args.portal_id).await.into_diagnostic()?;
+    auth_client.renew_binding_token(&mut state).await.into_diagnostic()?;
+    if output::is_json(format) {
+        output::print_json(&json!({ "success": success, "portalId": args.portal_id }))?;
+        return Ok(());
+    }
+    if success {
+        output::print_success("portal disabled");
+    } else {
+        output::print_info("no matching portal found");
+    }
+    Ok(())
+}
+
+async fn portals_logins_default_show_command(format: OutputFormat) -> miette::Result<()> {
+    let mut state = authlib::load_admin_session().into_diagnostic()?;
+    let connected = authlib::connect_admin_client_async(&state).await.into_diagnostic()?;
+    let auth_client = authlib::AuthClient::new(&connected);
+    let default_portal = auth_client.get_login_portal_default().await.into_diagnostic()?;
+    auth_client.renew_binding_token(&mut state).await.into_diagnostic()?;
+    if output::is_json(format) {
+        output::print_json(&json!({ "defaultPortal": default_portal }))?;
+        return Ok(());
+    }
+    output::print_info(&format!(
+        "portal={}",
+        portal_target_label(default_portal.portal_id.as_deref())
+    ));
+    Ok(())
+}
+
+async fn portals_logins_default_set_command(
+    format: OutputFormat,
+    args: &PortalsDefaultSetArgs,
+) -> miette::Result<()> {
+    let mut state = authlib::load_admin_session().into_diagnostic()?;
+    let connected = authlib::connect_admin_client_async(&state).await.into_diagnostic()?;
+    let auth_client = authlib::AuthClient::new(&connected);
+    let default_portal = auth_client
+        .set_login_portal_default(portal_target_id(&args.target))
+        .await
+        .into_diagnostic()?;
+    auth_client.renew_binding_token(&mut state).await.into_diagnostic()?;
+    if output::is_json(format) {
+        output::print_json(&json!({ "defaultPortal": default_portal }))?;
+        return Ok(());
+    }
+    output::print_success("login portal default updated");
+    output::print_info(&format!(
+        "portal={}",
+        portal_target_label(default_portal.portal_id.as_deref())
+    ));
+    Ok(())
+}
+
+async fn portals_logins_list_command(format: OutputFormat) -> miette::Result<()> {
+    let mut state = authlib::load_admin_session().into_diagnostic()?;
+    let connected = authlib::connect_admin_client_async(&state).await.into_diagnostic()?;
+    let auth_client = authlib::AuthClient::new(&connected);
+    let selections = auth_client.list_login_portal_selections().await.into_diagnostic()?;
+    auth_client.renew_binding_token(&mut state).await.into_diagnostic()?;
+    if output::is_json(format) {
+        output::print_json(&json!({ "selections": selections }))?;
+        return Ok(());
+    }
+    if selections.is_empty() {
+        output::print_info("no login portal selections configured");
+        return Ok(());
+    }
+    let rows = selections
+        .into_iter()
+        .map(|selection| {
+            vec![
+                selection.contract_id,
+                portal_target_label(selection.portal_id.as_deref()),
+            ]
+        })
+        .collect::<Vec<_>>();
+    println!("{}", output::table(&["contract", "portal"], rows));
+    Ok(())
+}
+
+async fn portals_logins_set_command(
+    format: OutputFormat,
+    args: &PortalsLoginsSetArgs,
+) -> miette::Result<()> {
+    let mut state = authlib::load_admin_session().into_diagnostic()?;
+    let connected = authlib::connect_admin_client_async(&state).await.into_diagnostic()?;
+    let auth_client = authlib::AuthClient::new(&connected);
+    let selection = auth_client
+        .set_login_portal_selection(&args.contract_id, portal_target_id(&args.target))
+        .await
+        .into_diagnostic()?;
+    auth_client.renew_binding_token(&mut state).await.into_diagnostic()?;
+    if output::is_json(format) {
+        output::print_json(&json!({ "selection": selection }))?;
+        return Ok(());
+    }
+    output::print_success("login portal selection updated");
+    output::print_info(&format!("contractId={}", selection.contract_id));
+    output::print_info(&format!(
+        "portal={}",
+        portal_target_label(selection.portal_id.as_deref())
+    ));
+    Ok(())
+}
+
+async fn portals_logins_clear_command(
+    format: OutputFormat,
+    args: &PortalsLoginsClearArgs,
+) -> miette::Result<()> {
+    let mut state = authlib::load_admin_session().into_diagnostic()?;
+    let connected = authlib::connect_admin_client_async(&state).await.into_diagnostic()?;
+    let auth_client = authlib::AuthClient::new(&connected);
+    let success = auth_client
+        .clear_login_portal_selection(&args.contract_id)
+        .await
+        .into_diagnostic()?;
+    auth_client.renew_binding_token(&mut state).await.into_diagnostic()?;
+    if output::is_json(format) {
+        output::print_json(&json!({ "success": success, "contractId": args.contract_id }))?;
+        return Ok(());
+    }
+    if success {
+        output::print_success("login portal selection cleared");
+    } else {
+        output::print_info("no matching login portal selection found");
+    }
+    Ok(())
+}
+
+async fn portals_workloads_default_show_command(format: OutputFormat) -> miette::Result<()> {
+    let mut state = authlib::load_admin_session().into_diagnostic()?;
+    let connected = authlib::connect_admin_client_async(&state).await.into_diagnostic()?;
+    let auth_client = authlib::AuthClient::new(&connected);
+    let default_portal = auth_client.get_workload_portal_default().await.into_diagnostic()?;
+    auth_client.renew_binding_token(&mut state).await.into_diagnostic()?;
+    if output::is_json(format) {
+        output::print_json(&json!({ "defaultPortal": default_portal }))?;
+        return Ok(());
+    }
+    output::print_info(&format!(
+        "portal={}",
+        portal_target_label(default_portal.portal_id.as_deref())
+    ));
+    Ok(())
+}
+
+async fn portals_workloads_default_set_command(
+    format: OutputFormat,
+    args: &PortalsDefaultSetArgs,
+) -> miette::Result<()> {
+    let mut state = authlib::load_admin_session().into_diagnostic()?;
+    let connected = authlib::connect_admin_client_async(&state).await.into_diagnostic()?;
+    let auth_client = authlib::AuthClient::new(&connected);
+    let default_portal = auth_client
+        .set_workload_portal_default(portal_target_id(&args.target))
+        .await
+        .into_diagnostic()?;
+    auth_client.renew_binding_token(&mut state).await.into_diagnostic()?;
+    if output::is_json(format) {
+        output::print_json(&json!({ "defaultPortal": default_portal }))?;
+        return Ok(());
+    }
+    output::print_success("workload portal default updated");
+    output::print_info(&format!(
+        "portal={}",
+        portal_target_label(default_portal.portal_id.as_deref())
+    ));
+    Ok(())
+}
+
+async fn portals_workloads_list_command(format: OutputFormat) -> miette::Result<()> {
+    let mut state = authlib::load_admin_session().into_diagnostic()?;
+    let connected = authlib::connect_admin_client_async(&state).await.into_diagnostic()?;
+    let auth_client = authlib::AuthClient::new(&connected);
+    let selections = auth_client
+        .list_workload_portal_selections()
+        .await
+        .into_diagnostic()?;
+    auth_client.renew_binding_token(&mut state).await.into_diagnostic()?;
+    if output::is_json(format) {
+        output::print_json(&json!({ "selections": selections }))?;
+        return Ok(());
+    }
+    if selections.is_empty() {
+        output::print_info("no workload portal selections configured");
+        return Ok(());
+    }
+    let rows = selections
+        .into_iter()
+        .map(|selection| {
+            vec![
+                selection.profile_id,
+                portal_target_label(selection.portal_id.as_deref()),
+            ]
+        })
+        .collect::<Vec<_>>();
+    println!("{}", output::table(&["profile", "portal"], rows));
+    Ok(())
+}
+
+async fn portals_workloads_set_command(
+    format: OutputFormat,
+    args: &PortalsWorkloadsSetArgs,
+) -> miette::Result<()> {
+    let mut state = authlib::load_admin_session().into_diagnostic()?;
+    let connected = authlib::connect_admin_client_async(&state).await.into_diagnostic()?;
+    let auth_client = authlib::AuthClient::new(&connected);
+    let selection = auth_client
+        .set_workload_portal_selection(&args.profile, portal_target_id(&args.target))
+        .await
+        .into_diagnostic()?;
+    auth_client.renew_binding_token(&mut state).await.into_diagnostic()?;
+    if output::is_json(format) {
+        output::print_json(&json!({ "selection": selection }))?;
+        return Ok(());
+    }
+    output::print_success("workload portal selection updated");
+    output::print_info(&format!("profileId={}", selection.profile_id));
+    output::print_info(&format!(
+        "portal={}",
+        portal_target_label(selection.portal_id.as_deref())
+    ));
+    Ok(())
+}
+
+async fn portals_workloads_clear_command(
+    format: OutputFormat,
+    args: &PortalsWorkloadsClearArgs,
+) -> miette::Result<()> {
+    let mut state = authlib::load_admin_session().into_diagnostic()?;
+    let connected = authlib::connect_admin_client_async(&state).await.into_diagnostic()?;
+    let auth_client = authlib::AuthClient::new(&connected);
+    let success = auth_client
+        .clear_workload_portal_selection(&args.profile)
+        .await
+        .into_diagnostic()?;
+    auth_client.renew_binding_token(&mut state).await.into_diagnostic()?;
+    if output::is_json(format) {
+        output::print_json(&json!({ "success": success, "profileId": args.profile }))?;
+        return Ok(());
+    }
+    if success {
+        output::print_success("workload portal selection cleared");
+    } else {
+        output::print_info("no matching workload portal selection found");
+    }
+    Ok(())
+}
+
+async fn workloads_profiles_list_command(
+    format: OutputFormat,
+    args: &WorkloadsProfilesListArgs,
+) -> miette::Result<()> {
+    let mut state = authlib::load_admin_session().into_diagnostic()?;
+    let connected = authlib::connect_admin_client_async(&state).await.into_diagnostic()?;
+    let auth_client = authlib::AuthClient::new(&connected);
+    let profiles = auth_client
+        .list_workload_profiles(args.contract.as_deref(), args.disabled)
+        .await
+        .into_diagnostic()?;
+    auth_client.renew_binding_token(&mut state).await.into_diagnostic()?;
+    if output::is_json(format) {
+        output::print_json(&json!({ "profiles": profiles }))?;
+        return Ok(());
+    }
+    if profiles.is_empty() {
+        output::print_info("no workload profiles configured");
+        return Ok(());
+    }
+    let rows = profiles
+        .into_iter()
+        .map(|profile| {
+            vec![
+                profile.profile_id,
+                profile.contract_id,
+                profile.allowed_digests.len().to_string(),
+                profile
+                    .review_mode
+                    .as_ref()
+                    .map(json_value_label)
+                    .unwrap_or_else(|| "none".to_string()),
+            ]
+        })
+        .collect::<Vec<_>>();
+    println!("{}", output::table(&["profile", "contract", "digests", "review"], rows));
+    Ok(())
+}
+
+async fn workloads_profiles_create_command(
+    format: OutputFormat,
+    args: &WorkloadsProfilesCreateArgs,
+) -> miette::Result<()> {
+    let mut state = authlib::load_admin_session().into_diagnostic()?;
+    let connected = authlib::connect_admin_client_async(&state).await.into_diagnostic()?;
+    let auth_client = authlib::AuthClient::new(&connected);
+    let (contract_id, allowed_digests, contract) =
+        resolve_workload_profile_contract(&connected, &args.contract).await?;
+    let profile = auth_client
+        .create_workload_profile(
+            &args.profile,
+            &contract_id,
+            &allowed_digests,
+            args.review_mode.as_deref(),
+            contract,
+        )
+        .await
+        .into_diagnostic()?;
+    auth_client.renew_binding_token(&mut state).await.into_diagnostic()?;
+    if output::is_json(format) {
+        output::print_json(&json!({ "profile": profile }))?;
+        return Ok(());
+    }
+    output::print_success("workload profile created");
+    output::print_info(&format!("profileId={}", profile.profile_id));
+    output::print_info(&format!("contractId={}", profile.contract_id));
+    output::print_info(&format!("allowedDigests={}", profile.allowed_digests.len()));
+    Ok(())
+}
+
+async fn workloads_profiles_disable_command(
+    format: OutputFormat,
+    args: &WorkloadsProfilesDisableArgs,
+) -> miette::Result<()> {
+    let mut state = authlib::load_admin_session().into_diagnostic()?;
+    let connected = authlib::connect_admin_client_async(&state).await.into_diagnostic()?;
+    let auth_client = authlib::AuthClient::new(&connected);
+    let success = auth_client.disable_workload_profile(&args.profile).await.into_diagnostic()?;
+    auth_client.renew_binding_token(&mut state).await.into_diagnostic()?;
+    if output::is_json(format) {
+        output::print_json(&json!({ "success": success, "profileId": args.profile }))?;
+        return Ok(());
+    }
+    Ok(())
+}
+
+async fn workloads_provision_command(
+    format: OutputFormat,
+    args: &WorkloadsProvisionArgs,
+) -> miette::Result<()> {
+    let mut state = authlib::load_admin_session().into_diagnostic()?;
+    let connected = authlib::connect_admin_client_async(&state).await.into_diagnostic()?;
+    let auth_client = authlib::AuthClient::new(&connected);
+
+    let seed: [u8; 32] = rand::random();
+    let root_secret = URL_SAFE_NO_PAD.encode(seed);
+    let identity = authlib::derive_workload_identity(&seed).into_diagnostic()?;
+    let instance = auth_client
+        .provision_workload_instance(
+            &args.profile,
+            &identity.public_identity_key,
+            &identity.activation_key_base64url,
+        )
+        .await
+        .into_diagnostic()?;
+    auth_client.renew_binding_token(&mut state).await.into_diagnostic()?;
+    let bundle = WorkloadProvisionOutput {
+        profile_id: args.profile.clone(),
+        instance_id: instance.instance_id.clone(),
+        public_identity_key: identity.public_identity_key,
+        root_secret,
+    };
+
+    if output::is_json(format) {
+        output::print_json(&bundle)?;
+        return Ok(());
+    }
+
+    output::print_success("workload provisioned");
+    output::print_info(&format!("profileId={}", bundle.profile_id));
+    output::print_info(&format!("instanceId={}", bundle.instance_id));
+    output::print_info(&format!("publicIdentityKey={}", bundle.public_identity_key));
+    output::print_info(&format!("rootSecret={}", bundle.root_secret));
+    output::print_info("store the root secret securely; it will not be shown again");
+    Ok(())
+}
+
+async fn workloads_instances_list_command(
+    format: OutputFormat,
+    args: &WorkloadsInstancesListArgs,
+) -> miette::Result<()> {
+    let mut state = authlib::load_admin_session().into_diagnostic()?;
+    let connected = authlib::connect_admin_client_async(&state).await.into_diagnostic()?;
+    let auth_client = authlib::AuthClient::new(&connected);
+    let instances = auth_client
+        .list_workload_instances(args.profile.as_deref(), args.state.as_deref())
+        .await
+        .into_diagnostic()?;
+    auth_client.renew_binding_token(&mut state).await.into_diagnostic()?;
+    if output::is_json(format) {
+        output::print_json(&json!({ "instances": instances }))?;
+        return Ok(());
+    }
+    let rows = instances
+        .into_iter()
+        .map(|instance| vec![instance.instance_id, instance.profile_id, json_value_label(&instance.state)])
+        .collect::<Vec<_>>();
+    println!("{}", output::table(&["instance", "profile", "state"], rows));
+    Ok(())
+}
+
+async fn workloads_instances_disable_command(
+    format: OutputFormat,
+    args: &WorkloadsInstancesDisableArgs,
+) -> miette::Result<()> {
+    let mut state = authlib::load_admin_session().into_diagnostic()?;
+    let connected = authlib::connect_admin_client_async(&state).await.into_diagnostic()?;
+    let auth_client = authlib::AuthClient::new(&connected);
+    let success = auth_client.disable_workload_instance(&args.instance).await.into_diagnostic()?;
+    auth_client.renew_binding_token(&mut state).await.into_diagnostic()?;
+    if output::is_json(format) {
+        output::print_json(&json!({ "success": success, "instanceId": args.instance }))?;
+        return Ok(());
+    }
+    Ok(())
+}
+
+async fn workloads_activations_list_command(
+    format: OutputFormat,
+    args: &WorkloadsActivationsListArgs,
+) -> miette::Result<()> {
+    let mut state = authlib::load_admin_session().into_diagnostic()?;
+    let connected = authlib::connect_admin_client_async(&state).await.into_diagnostic()?;
+    let auth_client = authlib::AuthClient::new(&connected);
+    let activations = auth_client
+        .list_workload_activations(
+            args.instance.as_deref(),
+            args.profile.as_deref(),
+            args.state.as_deref(),
+        )
+        .await
+        .into_diagnostic()?;
+    auth_client.renew_binding_token(&mut state).await.into_diagnostic()?;
+    if output::is_json(format) {
+        output::print_json(&json!({ "activations": activations }))?;
+        return Ok(());
+    }
+    let rows = activations
+        .into_iter()
+        .map(|activation| vec![activation.instance_id, activation.profile_id, json_value_label(&activation.state)])
+        .collect::<Vec<_>>();
+    println!("{}", output::table(&["instance", "profile", "state"], rows));
+    Ok(())
+}
+
+async fn workloads_activations_revoke_command(
+    format: OutputFormat,
+    args: &WorkloadsActivationsRevokeArgs,
+) -> miette::Result<()> {
+    let mut state = authlib::load_admin_session().into_diagnostic()?;
+    let connected = authlib::connect_admin_client_async(&state).await.into_diagnostic()?;
+    let auth_client = authlib::AuthClient::new(&connected);
+    let success = auth_client.revoke_workload_activation(&args.instance).await.into_diagnostic()?;
+    auth_client.renew_binding_token(&mut state).await.into_diagnostic()?;
+    if output::is_json(format) {
+        output::print_json(&json!({ "success": success, "instanceId": args.instance }))?;
+        return Ok(());
+    }
+    Ok(())
+}
+
+async fn workloads_reviews_list_command(
+    format: OutputFormat,
+    args: &WorkloadsReviewsListArgs,
+) -> miette::Result<()> {
+    let mut state = authlib::load_admin_session().into_diagnostic()?;
+    let connected = authlib::connect_admin_client_async(&state).await.into_diagnostic()?;
+    let auth_client = authlib::AuthClient::new(&connected);
+    let reviews = auth_client
+        .list_workload_activation_reviews(
+            args.instance.as_deref(),
+            args.profile.as_deref(),
+            args.state.as_deref(),
+        )
+        .await
+        .into_diagnostic()?;
+    auth_client.renew_binding_token(&mut state).await.into_diagnostic()?;
+    if output::is_json(format) {
+        output::print_json(&json!({ "reviews": reviews }))?;
+        return Ok(());
+    }
+    if reviews.is_empty() {
+        output::print_info("no workload reviews pending");
+        return Ok(());
+    }
+    let rows = reviews
+        .into_iter()
+        .map(|review| {
+            vec![
+                review.review_id,
+                review.instance_id,
+                review.profile_id,
+                json_value_label(&review.state),
+            ]
+        })
+        .collect::<Vec<_>>();
+    println!("{}", output::table(&["review", "instance", "profile", "state"], rows));
+    Ok(())
+}
+
+async fn workloads_reviews_decide_command(
+    format: OutputFormat,
+    args: &WorkloadsReviewsDecideArgs,
+) -> miette::Result<()> {
+    let mut state = authlib::load_admin_session().into_diagnostic()?;
+    let connected = authlib::connect_admin_client_async(&state).await.into_diagnostic()?;
+    let auth_client = authlib::AuthClient::new(&connected);
+    let decision = review_decision_label(&args.decision);
+    let response = auth_client
+        .decide_workload_activation_review(&args.review, decision, args.reason.as_deref())
+        .await
+        .into_diagnostic()?;
+    auth_client.renew_binding_token(&mut state).await.into_diagnostic()?;
+    if output::is_json(format) {
+        output::print_json(&response)?;
+        return Ok(());
+    }
+    output::print_success("workload review updated");
+    output::print_info(&format!("reviewId={}", response.review.review_id));
+    output::print_info(&format!("state={}", json_value_label(&response.review.state)));
+    if let Some(code) = response.confirmation_code.as_deref() {
+        output::print_info(&format!("confirmationCode={code}"));
+    }
+    Ok(())
+}
+
 async fn auth_login_command(
     format: OutputFormat,
     global_nats_servers: Option<String>,
@@ -968,9 +1978,8 @@ async fn auth_login_command(
     let nats_servers = resolve_servers(global_nats_servers, None);
     let challenge = authlib::start_browser_login(&authlib::StartBrowserLoginOpts {
         auth_url: &args.auth_url,
-        provider: &args.provider,
         listen: &args.listen,
-        contract_json: &cli_contract_json(),
+        contract_json: cli_contract_json(),
     })
     .await
     .into_diagnostic()?;

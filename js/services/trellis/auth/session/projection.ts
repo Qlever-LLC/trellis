@@ -1,14 +1,28 @@
-import { trellisIdFromOriginId } from "@qlever-llc/trellis-auth";
-import type { Result } from "@qlever-llc/trellis-result";
-import type { KVError, TypedKV } from "@qlever-llc/trellis";
-import type { UserProjectionEntry, UserProjectionSchema } from "../../state/schemas.ts";
+import { trellisIdFromOriginId } from "@qlever-llc/trellis/auth";
+import { isErr } from "@qlever-llc/result";
+import type { BaseError, Result } from "@qlever-llc/result";
+import type { UserProjectionEntry } from "../../state/schemas.ts";
 
-export type UserProjectionKV = TypedKV<typeof UserProjectionSchema>;
+export type UserProjectionKV<E extends BaseError = BaseError> = {
+  get: (key: string) => Promise<Result<{ value: UserProjectionEntry }, E>>;
+  put: (key: string, value: UserProjectionEntry) => Promise<Result<void, E>>;
+};
 
-export async function upsertUserProjection(
-  usersKV: UserProjectionKV,
+export async function upsertUserProjection<E extends BaseError>(
+  usersKV: UserProjectionKV<E>,
   entry: UserProjectionEntry,
-): Promise<Result<void, KVError>> {
+): Promise<Result<void, E>> {
   const trellisId = await trellisIdFromOriginId(entry.origin, entry.id);
-  return (await usersKV.put(trellisId, entry)).map(() => undefined);
+  const existing = (await usersKV.get(trellisId)).take();
+  const merged = isErr(existing)
+    ? entry
+    : {
+      origin: entry.origin,
+      id: entry.id,
+      name: entry.name ?? existing.value.name,
+      email: entry.email ?? existing.value.email,
+      active: existing.value.active,
+      capabilities: existing.value.capabilities,
+    };
+  return (await usersKV.put(trellisId, merged)).map(() => undefined);
 }

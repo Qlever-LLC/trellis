@@ -1,8 +1,8 @@
-import { defineContract } from "@qlever-llc/trellis-contracts";
+import { defineContract } from "@qlever-llc/trellis";
 import {
   HealthResponseSchema,
   HealthRpcSchema,
-} from "@qlever-llc/trellis-server";
+} from "@qlever-llc/trellis/server";
 import { trellisAuth } from "../../trellis/catalog/contracts/trellis_auth.ts";
 import { trellisCore } from "../../trellis/catalog/contracts/trellis_core.ts";
 
@@ -35,7 +35,7 @@ export const activity = defineContract({
   kind: "service",
   schemas,
   uses: {
-    auth: trellisAuth.use({
+    auth: trellisAuth.useDefaults({
       events: {
         subscribe: [
           "Auth.Connect",

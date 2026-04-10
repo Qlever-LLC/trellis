@@ -14,12 +14,13 @@ comfy-table.workspace = true
 owo-colors.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+json5 = "0.4.1"
 tokio.workspace = true
-trellis-client = { path = "../trellis-client", version = "0.5.1" }
-trellis-auth = { path = "../trellis-auth", version = "0.5.1" }
-trellis-codegen-rust = { path = "../trellis-codegen-rust", version = "0.5.1" }
-trellis-codegen-ts = { path = "../trellis-codegen-ts", version = "0.5.1" }
-trellis-contracts = { path = "../trellis-contracts", version = "0.5.1" }
+trellis-client = { path = "../trellis-client", version = "0.6.0" }
+trellis-auth = { path = "../trellis-auth", version = "0.6.0" }
+trellis-codegen-rust = { path = "../trellis-codegen-rust", version = "0.6.0" }
+trellis-codegen-ts = { path = "../trellis-codegen-ts", version = "0.6.0" }
+trellis-contracts = { path = "../trellis-contracts", version = "0.6.0" }
 tracing.workspace = true
 tracing-subscriber.workspace = true
 miette.workspace = true
@@ -27,13 +28,13 @@ base64.workspace = true
 bytes.workspace = true
 ed25519-dalek.workspace = true
 sha2.workspace = true
-rand = "0.8"
-tempfile = "3"
+rand = "0.10.0"
+tempfile = "3.27.0"
 
 [[bin]]
 name = "trellis"
 path = "src/main.rs"
 
 [dev-dependencies]
-trellis-sdk-auth = { path = "../../../generated/rust/sdks/auth", version = "0.5.1" }
-trellis-sdk-core = { path = "../../../generated/rust/sdks/trellis-core", version = "0.5.1", package = "trellis-sdk-core" }
+trellis-sdk-auth = { path = "../../../generated/rust/sdks/auth", version = "0.6.0" }
+trellis-sdk-core = { path = "../../../generated/rust/sdks/trellis-core", version = "0.6.0", package = "trellis-sdk-core" }

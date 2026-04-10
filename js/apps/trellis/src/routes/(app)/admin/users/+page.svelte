@@ -1,11 +1,11 @@
 <script lang="ts">
-  import { getTrellisFor } from "@qlever-llc/trellis-svelte";
   import { onMount } from "svelte";
-  import { trellisApp } from "../../../../contracts/trellis_app.ts";
+  import type { AuthListUsersOutput, AuthUpdateUserInput } from "@qlever-llc/trellis/sdk/auth";
   import { errorMessage } from "../../../../lib/format";
   import { getNotifications } from "../../../../lib/notifications.svelte";
+  import { getTrellis } from "../../../../lib/trellis";
 
-  const trellisPromise = getTrellisFor(trellisApp);
+  const trellisPromise = getTrellis();
   const notifications = getNotifications();
 
   type UserView = {
@@ -28,7 +28,8 @@
     loading = true;
     error = null;
     try {
-      const res = await (await trellisPromise).requestOrThrow("Auth.ListUsers", {});
+      const trellis = await trellisPromise;
+      const res = await trellis.requestOrThrow("Auth.ListUsers", {});
       users = res.users ?? [];
     } catch (e) { error = errorMessage(e); }
     finally { loading = false; }
@@ -46,11 +47,12 @@
 
   async function toggleActive(user: UserView) {
     try {
-      await (await trellisPromise).requestOrThrow("Auth.UpdateUser", {
+      const trellis = await trellisPromise;
+      await trellis.requestOrThrow("Auth.UpdateUser", {
         origin: user.origin,
         id: user.id,
         active: !user.active,
-      });
+      } satisfies AuthUpdateUserInput);
       notifications.success(`${user.name ?? user.id} ${user.active ? "deactivated" : "activated"}.`, "Updated");
       await load();
     } catch (e) { error = errorMessage(e); }
@@ -61,11 +63,12 @@
     savePending = true;
     try {
       const capabilities = editCaps.split(",").map((c) => c.trim()).filter(Boolean);
-      await (await trellisPromise).requestOrThrow("Auth.UpdateUser", {
+      const trellis = await trellisPromise;
+      await trellis.requestOrThrow("Auth.UpdateUser", {
         origin: editTarget.origin,
         id: editTarget.id,
         capabilities,
-      });
+      } satisfies AuthUpdateUserInput);
       notifications.success(`Capabilities updated for ${editTarget.name ?? editTarget.id}.`, "Updated");
       cancelEdit();
       await load();
@@ -104,7 +107,7 @@
           </tr>
         </thead>
         <tbody>
-          {#each users as user}
+          {#each users as user (`${user.origin}:${user.id}`)}
             <tr>
               <td class="font-medium">{user.name ?? "—"}</td>
               <td class="text-base-content/60">{user.origin}</td>
@@ -119,7 +122,7 @@
                   </form>
                 {:else}
                   <div class="flex flex-wrap gap-1">
-                    {#each user.capabilities as cap}
+                    {#each user.capabilities as cap (cap)}
                       <span class="badge badge-outline badge-xs">{cap}</span>
                     {/each}
                     {#if user.capabilities.length === 0}

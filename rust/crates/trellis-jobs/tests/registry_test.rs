@@ -8,7 +8,7 @@ fn new_worker_heartbeat_sets_expected_fields() {
         "document-process",
         "instance-1",
         Some(2),
-        Some("0.5.1".to_string()),
+        Some("0.6.0".to_string()),
         "2026-03-30T12:00:00.000Z".to_string(),
     );
 
@@ -16,7 +16,7 @@ fn new_worker_heartbeat_sets_expected_fields() {
     assert_eq!(heartbeat.job_type, "document-process");
     assert_eq!(heartbeat.instance_id, "instance-1");
     assert_eq!(heartbeat.concurrency, Some(2));
-    assert_eq!(heartbeat.version.as_deref(), Some("0.5.1"));
+    assert_eq!(heartbeat.version.as_deref(), Some("0.6.0"));
     assert_eq!(heartbeat.timestamp, "2026-03-30T12:00:00.000Z");
 }
 

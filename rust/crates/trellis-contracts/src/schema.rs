@@ -39,7 +39,7 @@ fn validate_value_against_schema(
     let errors = validator
         .iter_errors(value)
         .map(|error| {
-            let instance_path = error.instance_path.to_string();
+            let instance_path = error.instance_path().to_string();
             if instance_path.is_empty() {
                 error.to_string()
             } else {

@@ -1,4 +1,4 @@
-import { base64urlEncode, sha256, toArrayBuffer, utf8 } from "../utils.ts";
+import { base64urlEncode, canonicalizeJsonValue, sha256, toArrayBuffer, utf8 } from "../utils.ts";
 import { createProof } from "../proof.ts";
 import { deleteKeyPair, hasKeyPair, loadKeyPair, storeKeyPair } from "./storage.ts";
 
@@ -54,14 +54,25 @@ export function getPublicSessionKey(handle: SessionKeyHandle): string {
   return handle.sessionKey;
 }
 
-export async function oauthInitSig(handle: SessionKeyHandle, redirectTo: string): Promise<string> {
-  const digest = await sha256(utf8(`oauth-init:${redirectTo}`));
+export async function oauthInitSig(
+  handle: SessionKeyHandle,
+  redirectTo: string,
+  context?: unknown,
+): Promise<string> {
+  const canonicalContext = canonicalizeJsonValue(context ?? null);
+  const digest = await sha256(utf8(`oauth-init:${redirectTo}:${canonicalContext}`));
   const sig = await signBytes(handle, digest);
   return base64urlEncode(sig);
 }
 
 export async function bindSig(handle: SessionKeyHandle, authToken: string): Promise<string> {
   const digest = await sha256(utf8(`bind:${authToken}`));
+  const sig = await signBytes(handle, digest);
+  return base64urlEncode(sig);
+}
+
+export async function bindFlowSig(handle: SessionKeyHandle, flowId: string): Promise<string> {
+  const digest = await sha256(utf8(`bind-flow:${flowId}`));
   const sig = await signBytes(handle, digest);
   return base64urlEncode(sig);
 }

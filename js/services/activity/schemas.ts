@@ -1,4 +1,4 @@
-import { EventHeaderSchema } from "@qlever-llc/trellis-contracts";
+import { EventHeaderSchema } from "@qlever-llc/trellis/contracts";
 import { type StaticDecode, Type } from "typebox";
 
 export const ActivityKindSchema = Type.Union([

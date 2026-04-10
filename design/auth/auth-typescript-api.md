@@ -1,6 +1,6 @@
 ---
 title: Auth TypeScript API
-description: TypeScript browser and service auth helpers for session keys, bind flows, reconnect, and auth clients.
+description: TypeScript browser and service auth helpers for session keys, flow-owned binds, and service-side NATS auth.
 order: 40
 ---
 
@@ -15,85 +15,195 @@ order: 40
 
 ## Scope
 
-This document defines the normative TypeScript public API surface for Trellis auth.
+This document defines the normative TypeScript public API surface across `@qlever-llc/trellis`, `@qlever-llc/trellis/auth`, `@qlever-llc/trellis-svelte`, and the portal/browser clients.
 
 It covers:
 
 - browser session-key helpers
-- bind and reconnect helpers
+- flow-owned browser bind helpers
+- portal-flow helpers for custom portal apps
 - service auth helpers
-- device activation helpers
-- NATS connect option helpers
+- workload activation helpers
+- browser-facing portal flow state
 
 ## Design Rules
 
-- browser and service helpers expose the same underlying auth model through different ergonomics
-- public TypeScript APIs use `Result` / `AsyncResult` for expected failures
-- session-key seeds remain protected from normal application code where possible
-- helpers hide protocol string construction such as `sign(hash("bind:" + authToken))`
+- browser and service helpers expose the same proof model through different ergonomics
+- session-key seeds remain protected from normal browser code where possible
+- browser clients preserve and consume `flowId`; they do not treat fragment-delivered `authToken` as the main UX path
 
 ## Browser Surface
 
 ```ts
 type SessionKeyHandle = {
-  publicKey(): string;
+  // opaque WebCrypto-backed handle
 };
 
-type BindSessionOptions = {
+type AuthConfig = {
   authUrl: string;
 };
 
-type BindSessionResult = {
-  bindingToken: string;
-  inboxPrefix: string;
-  expires: string;
-  sentinel: {
-    jwt: string;
-    seed: string;
-  };
-  natsServers: string[];
-};
+declare function getOrCreateSessionKey(): Promise<SessionKeyHandle>;
+declare function getPublicSessionKey(handle: SessionKeyHandle): string;
 
-declare function getOrCreateSessionKey(): Promise<Result<SessionKeyHandle, AuthError>>;
+declare function buildLoginUrl(args: {
+  authUrl: string;
+  redirectTo: string;
+  contract: Record<string, unknown>;
+  context?: unknown;
+  handle: SessionKeyHandle;
+}): Promise<string>;
+
+declare function bindFlow(
+  config: AuthConfig,
+  handle: SessionKeyHandle,
+  flowId: string,
+): Promise<BindResponse>;
+
 declare function bindSession(
-  options: BindSessionOptions,
+  config: AuthConfig,
   handle: SessionKeyHandle,
   authToken: string,
-): Promise<Result<BindSessionResult, AuthError>>;
+): Promise<BindResponse>;
+
+type BrowserSignInOptions = {
+  redirectTo?: string;
+  landingPath?: string;
+  context?: unknown;
+};
+
+type AuthState = {
+  signIn(options?: BrowserSignInOptions): Promise<never>;
+};
+
 declare function natsConnectSigForBindingToken(
   handle: SessionKeyHandle,
   bindingToken: string,
-): Promise<Result<string, AuthError>>;
-declare function getPublicSessionKey(handle: SessionKeyHandle): string;
-```
-
-Example:
-
-```ts
-const handleResult = await getOrCreateSessionKey();
-if (handleResult.isErr()) throw handleResult.error;
-
-const bindResult = await bindSession({ authUrl }, handleResult.value, authToken);
-if (bindResult.isErr()) throw bindResult.error;
-
-const sigResult = await natsConnectSigForBindingToken(
-  handleResult.value,
-  bindResult.value.bindingToken,
-);
-if (sigResult.isErr()) throw sigResult.error;
-
-const authTokenPayload = JSON.stringify({
-  v: 1,
-  sessionKey: getPublicSessionKey(handleResult.value),
-  bindingToken: bindResult.value.bindingToken,
-  sig: sigResult.value,
-});
+): Promise<string>;
 ```
 
 Rules:
 
 - browser session keys SHOULD be stored in IndexedDB via WebCrypto with `extractable=false`
-- after reading `authToken` from a URL fragment, the client MUST immediately clear it from browser history
+- browser clients MUST preserve `flowId` in redirects and callback URLs
+- portal state comes from `GET /auth/flow/:flowId`
+- the final browser bind proof is `sign(hash("bind-flow:" + flowId))`
+- `bindSession(..., authToken)` still exists as a lower-level path, but `bindFlow(..., flowId)` is the primary browser UX path
+- higher-level browser helpers such as `AuthState.signIn(...)` SHOULD hide low-level provider placeholders and redirect URL assembly from app code
+- `AuthState.signIn()` with no explicit `redirectTo` SHOULD first use a `redirectTo` query parameter from the current page when present
+- if no explicit or query-derived `redirectTo` exists, `AuthState.signIn()` SHOULD fall back to `landingPath` and then to the current browser location
+- `context` is an opaque JSON value for app and portal coordination; auth stores it on the browser flow and portals receive it back in `PortalFlowState`
+- `context` is not an authorization input and portals MUST tolerate unknown shapes
+- login-init proofs SHOULD cover both `redirectTo` and canonicalized `context` so the browser flow cannot be retargeted or recontextualized after signing
+
+## Portal Flow Surface
+
+```ts
+type PortalFlowApp = {
+  contractId: string;
+  contractDigest: string;
+  displayName: string;
+  description: string;
+  context?: unknown;
+};
+
+type PortalFlowState =
+  | {
+      status: "choose_provider";
+      flowId: string;
+      app: PortalFlowApp;
+      providers: Array<{ id: string; displayName: string }>;
+    }
+  | {
+      status: "approval_required";
+      flowId: string;
+      user: { origin: string; id: string; name?: string; email?: string };
+      approval: PortalFlowApproval;
+    }
+  | {
+      status: "approval_denied";
+      flowId: string;
+      approval: PortalFlowApproval;
+    }
+  | {
+      status: "insufficient_capabilities";
+      flowId: string;
+      approval: PortalFlowApproval;
+      missingCapabilities: string[];
+      userCapabilities: string[];
+    }
+  | { status: "redirect"; location: string }
+  | { status: "expired" };
+```
+
+Portal/browser route rules:
+
+- provider continuation URLs are `GET /auth/login/:provider?flowId=...`
+- approval submission is `POST /auth/flow/:flowId/approval`
+- normal browser bind is `POST /auth/flow/:flowId/bind`
+- the portal redirects using the `location` returned by auth-owned flow state
+- portal customization data comes from `flowState.app.context`, not from portal-local query conventions
+- a portal may later continue as a normal user-authenticated browser app route, but that uses a standard browser app contract rather than service auth
+
+## Portal Helper Surface
+
+Portal authors should not need to reassemble auth-owned flow URLs and `fetch(...)`
+calls by hand. The intended public helper split is:
+
+- low-level framework-neutral helpers in `@qlever-llc/trellis`
+- thin Svelte-specific wrappers in `@qlever-llc/trellis-svelte`
+
+```ts
+type PortalClientConfig = {
+  authUrl: string;
+};
+
+declare function portalFlowIdFromUrl(url: URL): string | null;
+
+declare function fetchPortalFlowState(
+  config: PortalClientConfig,
+  flowId: string,
+): Promise<PortalFlowState>;
+
+declare function portalProviderLoginUrl(
+  config: PortalClientConfig,
+  providerId: string,
+  flowId: string,
+): string;
+
+declare function submitPortalApproval(
+  config: PortalClientConfig,
+  flowId: string,
+  decision: "approved" | "denied",
+): Promise<PortalFlowState>;
+
+declare function portalRedirectLocation(
+  state: PortalFlowState | null,
+): string | null;
+
+type PortalFlowController = {
+  flowId: string | null;
+  state: PortalFlowState | null;
+  loading: boolean;
+  error: string | null;
+  load(): Promise<void>;
+  providerUrl(providerId: string): string;
+  approve(): Promise<void>;
+  deny(): Promise<void>;
+};
+
+declare function createPortalFlow(args: {
+  authUrl: string;
+  getUrl(): URL;
+}): PortalFlowController;
+```
+
+Rules:
+
+- portal helper APIs SHOULD treat `flowId` as browser URL state rather than forcing server-side loader glue
+- Svelte portal apps SHOULD be able to remain static SPAs
+- high-level portal helpers SHOULD own the low-level fetch URL construction, approval payload shape, and auth redirect handling
+- framework-neutral helpers MUST remain usable by non-Svelte custom portals
 
 ## Service Surface
 
@@ -102,136 +212,145 @@ type CreateAuthOptions = {
   sessionKeySeed: string;
 };
 
-type NatsConnectOptions = {
-  token: string;
-  inboxPrefix: string;
-};
-
 type AuthHandle = {
-  natsConnectOptions(): Promise<Result<NatsConnectOptions, AuthError>>;
+  sessionKey: string;
+  oauthInitSig(redirectTo: string, context?: unknown): Promise<string>;
+  bindSig(authToken: string): Promise<string>;
+  natsConnectSigForBindingToken(bindingToken: string): Promise<string>;
+  natsConnectSigForIat(iat: string): Promise<string>;
+  createProof(subject: string, payload: Uint8Array | string): Promise<string>;
+  createNatsAuthTokenForService(): Promise<string>;
+  natsConnectOptions(): Promise<{ token: string; inboxPrefix: string }>;
 };
 
-declare function createAuth(options: CreateAuthOptions): Promise<Result<AuthHandle, AuthError>>;
+declare function createAuth(options: CreateAuthOptions): Promise<AuthHandle>;
 ```
-
-Example:
-
-```ts
-const auth = await createAuth({ sessionKeySeed: config.sessionKeySeed });
-if (auth.isErr()) throw auth.error;
-
-const connectOptions = await auth.value.natsConnectOptions();
-if (connectOptions.isErr()) throw connectOptions.error;
-
-const nc = await connect({
-  servers: config.nats.servers,
-  authenticator: credsAuthenticator(sentinelCreds),
-  ...connectOptions.value,
-});
-```
-
-Returned connect options:
-
-```ts
-{
-  token: string;      // JSON auth token with { v, sessionKey, iat, sig }
-  inboxPrefix: string; // _INBOX.${sessionKey.slice(0, 16)}
-}
-```
-
-## Auth RPC And Operation Client Surface
-
-Typed auth clients SHOULD expose at least:
-
-```ts
-type RequestDeviceActivationInput = {
-  handoffId: string;
-  requestedProfileId?: string;
-};
-
-type RequestDeviceActivationProgress = {
-  stage: "pending_review";
-};
-
-type RequestDeviceActivationOutput = {
-  requestId: string;
-  profileId: string;
-  confirmationCode: string;
-};
-
-type WaitForDeviceActivationCodeInput = {
-  deviceId: string;
-  runtimePublicKey: string;
-  nonce: string;
-};
-
-type DeviceRuntimeKeyHandle = {
-  publicKey(): string;
-  sign(input: Uint8Array): Promise<Result<string, AuthError>>;
-};
-
-type WaitForDeviceActivationCodeResponse =
-  | {
-      status: "approved";
-      requestId: string;
-      profileId: string;
-      confirmationCode: string;
-    }
-  | {
-      status: "rejected";
-      requestId: string;
-      reason?: string;
-    }
-  | {
-      status: "pending";
-    };
-
-type AuthClient = {
-  me(): Promise<Result<AuthMeResponse, AuthError>>;
-  logout(): Promise<Result<{ success: boolean }, AuthError>>;
-  renewBindingToken(): Promise<Result<RenewBindingTokenResponse, AuthError>>;
-  requestDeviceActivation(
-    input: RequestDeviceActivationInput,
-  ): Promise<Result<OperationRef<RequestDeviceActivationProgress, RequestDeviceActivationOutput>, AuthError>>;
-};
-
-type AuthAdminClient = {
-  reviewDeviceActivation(input: ReviewDeviceActivationRequest): Promise<Result<ReviewDeviceActivationResponse, AuthError>>;
-  createDeviceOnboardingHandler(input: CreateDeviceOnboardingHandlerRequest): Promise<Result<CreateDeviceOnboardingHandlerResponse, AuthError>>;
-  listDeviceOnboardingHandlers(input: ListDeviceOnboardingHandlersRequest): Promise<Result<ListDeviceOnboardingHandlersResponse, AuthError>>;
-  disableDeviceOnboardingHandler(input: DisableDeviceOnboardingHandlerRequest): Promise<Result<{ success: boolean }, AuthError>>;
-  createDeviceProfile(input: CreateDeviceProfileRequest): Promise<Result<CreateDeviceProfileResponse, AuthError>>;
-  listDeviceProfiles(input: ListDeviceProfilesRequest): Promise<Result<ListDeviceProfilesResponse, AuthError>>;
-  getDeviceProfile(input: GetDeviceProfileRequest): Promise<Result<GetDeviceProfileResponse, AuthError>>;
-  disableDeviceProfile(input: DisableDeviceProfileRequest): Promise<Result<{ success: boolean }, AuthError>>;
-  listDeviceActivations(input: ListDeviceActivationsRequest): Promise<Result<ListDeviceActivationsResponse, AuthError>>;
-  revokeDeviceActivation(input: RevokeDeviceActivationRequest): Promise<Result<{ success: boolean }, AuthError>>;
-  listApprovals(input: ListApprovalsRequest): Promise<Result<ListApprovalsResponse, AuthError>>;
-  revokeApproval(input: RevokeApprovalRequest): Promise<Result<{ success: boolean }, AuthError>>;
-  listSessions(input: ListSessionsRequest): Promise<Result<ListSessionsResponse, AuthError>>;
-  revokeSession(input: RevokeSessionRequest): Promise<Result<{ success: boolean }, AuthError>>;
-  listConnections(input: ListConnectionsRequest): Promise<Result<ListConnectionsResponse, AuthError>>;
-  kickConnection(input: KickConnectionRequest): Promise<Result<{ success: boolean }, AuthError>>;
-};
-
-type DeviceActivationClient = {
-  waitForDeviceActivationCode(
-    input: WaitForDeviceActivationCodeInput,
-    handle: DeviceRuntimeKeyHandle,
-  ): Promise<Result<WaitForDeviceActivationCodeResponse, AuthError>>;
-};
-```
-
-Shared request and response type names such as `ReviewDeviceActivationRequest`, `ReviewDeviceActivationResponse`, `RequestDeviceActivationOutput`, `WaitForDeviceActivationCodeResponse`, the onboarding handler request/response types, and the device profile request/response types are defined canonically in [auth-api.md](./auth-api.md).
 
 Rules:
 
-- `requestDeviceActivation(...)` starts `operations.v1.Auth.RequestDeviceActivation` and returns an `OperationRef`
-- `waitForDeviceActivationCode(...)` targets `POST /auth/device/activate/wait` and signs the request with the device runtime key, not a user session key
-- generated client surfaces SHOULD expose request and response types directly rather than untyped maps
+- service helpers expose the same proof domains as browser helpers, but return direct values rather than fragment/callback-oriented flows
+- service NATS auth tokens use the session-key proof model described in `auth-protocol.md`
+
+## Workload Activation Surface
+
+`@qlever-llc/trellis/auth` also exposes the normal TypeScript integration surface
+for activated workloads.
+
+```ts
+type WorkloadIdentity = {
+  identitySeed: Uint8Array;
+  identitySeedBase64url: string;
+  publicIdentityKey: string;
+  activationKey: Uint8Array;
+  activationKeyBase64url: string;
+};
+
+declare function deriveWorkloadIdentity(workloadRootSecret: Uint8Array): Promise<WorkloadIdentity>;
+
+declare function buildWorkloadActivationPayload(args: {
+  activationKey: Uint8Array | string;
+  publicIdentityKey: string;
+  nonce: string;
+}): Promise<WorkloadActivationPayload>;
+
+declare function encodeWorkloadActivationPayload(
+  payload: WorkloadActivationPayload,
+): string;
+
+declare function parseWorkloadActivationPayload(
+  payload: string,
+): WorkloadActivationPayload;
+
+declare function buildWorkloadActivationUrl(args: {
+  trellisUrl: string;
+  payload: WorkloadActivationPayload | string;
+}): string;
+
+declare function signWorkloadWaitRequest(args: {
+  publicIdentityKey: string;
+  nonce: string;
+  identitySeed: Uint8Array | string;
+  contractDigest?: string;
+  iat?: number;
+}): Promise<WorkloadActivationWaitRequest>;
+
+declare function waitForWorkloadActivation(args: {
+  trellisUrl: string;
+  publicIdentityKey: string;
+  nonce: string;
+  identitySeed: Uint8Array | string;
+  contractDigest: string;
+  signal?: AbortSignal;
+  pollIntervalMs?: number;
+}): Promise<Extract<WaitForWorkloadActivationResponse, { status: "activated" }>>;
+
+declare function deriveWorkloadConfirmationCode(args: {
+  activationKey: Uint8Array | string;
+  publicIdentityKey: string;
+  nonce: string;
+}): Promise<string>;
+
+declare function verifyWorkloadConfirmationCode(args: {
+  activationKey: Uint8Array | string;
+  publicIdentityKey: string;
+  nonce: string;
+  confirmationCode: string;
+}): Promise<boolean>;
+
+declare function getWorkloadConnectInfo(args: {
+  trellisUrl: string;
+  publicIdentityKey: string;
+  identitySeed: Uint8Array | string;
+  contractDigest: string;
+  iat?: number;
+}): Promise<GetWorkloadConnectInfoResponse>;
+
+declare function createWorkloadActivationClient(client: {
+  requestOrThrow(method: string, input: unknown, opts?: unknown): Promise<unknown>;
+}): {
+  activateWorkload(input: { handoffId: string }): Promise<ActivateWorkloadResponse>;
+  getWorkloadActivationStatus(input: GetWorkloadActivationStatusRequest): Promise<GetWorkloadActivationStatusResponse>;
+  listWorkloadActivations(input?: Record<string, unknown>): Promise<{
+    activations: WorkloadActivationRecord[];
+  }>;
+  revokeWorkloadActivation(input: { instanceId: string }): Promise<{ success: boolean }>;
+  getWorkloadConnectInfo(input: GetWorkloadConnectInfoRequest): Promise<GetWorkloadConnectInfoResponse>;
+};
+
+type WorkloadActivationController = {
+  url: string;
+  waitForOnlineApproval(opts?: { signal?: AbortSignal }): Promise<void>;
+  acceptConfirmationCode(code: string): Promise<void>;
+};
+
+declare class TrellisWorkload {
+  static connect<TApi extends TrellisAPI>(args: {
+    authUrl: string;
+    contract: TrellisClientContract<TApi>;
+    rootSecret: Uint8Array | string;
+    onActivationRequired?(activation: WorkloadActivationController): Promise<void>;
+  }): Promise<Trellis<TApi>>;
+}
+```
+
+Rules:
+
+- activated-workload code SHOULD prefer these helpers over hand-written HKDF,
+  HMAC, polling, proof-signing, and connect-info refresh logic
+- `buildWorkloadActivationUrl(...)` targets Trellis auth directly; callers do not choose a portal URL because workload portal resolution is deployment-owned server policy
+- `waitForWorkloadActivation(...)` owns the polling loop for `POST /auth/workloads/activate/wait`
+- if the wait endpoint returns `{ status: "rejected" }`, `waitForWorkloadActivation(...)` SHOULD throw rather than returning a rejected union branch
+- `getWorkloadConnectInfo(...)` owns the connect-info proof/signature step for `POST /auth/workloads/connect-info`
+- portal and admin apps SHOULD prefer `createWorkloadActivationClient(...)` over
+  repeated raw string `requestOrThrow(...)` calls and manual plumbing
+- `TrellisWorkload.connect(...)` is the intended high-level runtime entrypoint; it SHOULD behave more like `TrellisService.connect(...)` than a caller-managed activation state machine
+- `TrellisWorkload.connect(...)` accepts `rootSecret` directly as bytes or a string form; storage/loading policy belongs to the application, not the helper
+- `TrellisWorkload.connect(...)` SHOULD fetch connect info on startup rather than persisting transport details across restarts
+- `onActivationRequired(...)` is the hook for local displays, local setup web UIs, CLIs, and other workload-local activation UX
+- the helper layer MUST remain a thin wrapper over the canonical wire surfaces
+  defined in `auth-api.md` and `workload-activation.md`
 
 ## Non-Goals
 
 - redefining HTTP or RPC payload schemas
-- defining Rust APIs
 - deployment/runbook guidance

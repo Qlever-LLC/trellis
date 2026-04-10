@@ -1,21 +1,26 @@
 import {
   type Consumer,
-  type JetStreamClient,
   jetstream,
+  type JetStreamClient,
   jetstreamManager,
 } from "@nats-io/jetstream";
 import {
   createInbox,
+  headers as natsHeaders,
   type Msg,
   type NatsConnection,
-  headers as natsHeaders,
 } from "@nats-io/nats-core";
 import type {
   EventDesc,
   InferSchemaType,
   RPCDesc,
   TrellisAPI,
-} from "@qlever-llc/trellis-contracts";
+} from "./contracts.ts";
+import type { StaticDecode } from "typebox";
+import {
+  AuthValidateRequestResponseSchema,
+  AuthValidateRequestSchema,
+} from "./auth.ts";
 import {
   AsyncResult,
   type BaseError,
@@ -25,22 +30,29 @@ import {
   type MaybeAsync,
   ok,
   Result,
-} from "@qlever-llc/trellis-result";
+} from "@qlever-llc/result";
 import { API as trellisCoreApi } from "@qlever-llc/trellis-sdk-core";
 import {
   context,
   createNatsHeaderCarrier,
   extractTraceContext,
   injectTraceContext,
-  SpanStatusCode,startClientSpan, startServerSpan, 
+  SpanStatusCode,
+  startClientSpan,
+  startServerSpan,
   trace,
-  withSpanAsync
-} from "@qlever-llc/trellis-telemetry";
-import type { Logger } from "pino";
+  withSpanAsync,
+} from "./tracing.ts";
 import { Type } from "typebox";
 import { AssertError, Pointer } from "typebox/value";
 import { ulid } from "ulid";
-import { encodeSchema, type JsonValue, parse, parseSchema } from "./codec.ts";
+import {
+  encodeSchema,
+  type JsonValue,
+  parse,
+  parseSchema,
+  parseUnknownSchema,
+} from "./codec.ts";
 import {
   AuthError,
   type TrellisErrorInstance,
@@ -48,7 +60,7 @@ import {
   ValidationError,
 } from "./errors/index.ts";
 import { RemoteError } from "./errors/RemoteError.ts";
-import { logger } from "./globals.ts";
+import { logger, type LoggerLike } from "./globals.ts";
 import { TypedKV } from "./kv.ts";
 import { TrellisErrorDataSchema } from "./models/trellis/TrellisError.ts";
 import {
@@ -58,31 +70,46 @@ import {
 } from "./operations.ts";
 import { TrellisTasks } from "./tasks.ts";
 
-type SessionUser = {
-  id: string;
-  origin: string;
-  active: boolean;
-  name: string;
-  email: string;
-  image?: string;
-  capabilities: string[];
-  lastLogin?: string;
-};
+export type AuthValidateRequestResponse = StaticDecode<
+  typeof AuthValidateRequestResponseSchema
+>;
+export type AuthValidateRequestInput = StaticDecode<
+  typeof AuthValidateRequestSchema
+>;
+
+export type SessionCaller = AuthValidateRequestResponse["caller"];
 
 /**
  * Safely extract JSON from a NATS message.
  * The .json() method can throw if the message data is not valid JSON.
  */
-function safeJson(msg: Msg): Result<JsonValue, UnexpectedError> {
+export function safeJson(msg: Msg): Result<JsonValue, UnexpectedError> {
   return Result.try(() => msg.json() as JsonValue);
 }
 
-function base64urlEncode(data: Uint8Array): string {
+function encodeRuntimeSchema(
+  schema: unknown,
+  data: unknown,
+): Result<string, ValidationError | UnexpectedError> {
+  return encodeSchema(schema as never, data);
+}
+
+function parseRuntimeSchema(
+  schema: unknown,
+  data: JsonValue,
+): Result<unknown, ValidationError | UnexpectedError> {
+  return parseUnknownSchema(
+    schema as Parameters<typeof parseUnknownSchema>[0],
+    data,
+  );
+}
+
+export function base64urlEncode(data: Uint8Array): string {
   const b64 = btoa(String.fromCharCode(...data));
   return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
 
-function base64urlDecode(s: string): Uint8Array {
+export function base64urlDecode(s: string): Uint8Array {
   const normalized = s.replace(/-/g, "+").replace(/_/g, "/");
   const padLen = (4 - (normalized.length % 4)) % 4;
   const padded = normalized + "=".repeat(padLen);
@@ -92,7 +119,7 @@ function base64urlDecode(s: string): Uint8Array {
   return out;
 }
 
-function toArrayBuffer(data: Uint8Array): ArrayBuffer {
+export function toArrayBuffer(data: Uint8Array): ArrayBuffer {
   const buf = data.buffer;
   if (buf instanceof ArrayBuffer) {
     return buf.slice(data.byteOffset, data.byteOffset + data.byteLength);
@@ -102,12 +129,12 @@ function toArrayBuffer(data: Uint8Array): ArrayBuffer {
   return copy.buffer;
 }
 
-async function sha256(data: Uint8Array): Promise<Uint8Array> {
+export async function sha256(data: Uint8Array): Promise<Uint8Array> {
   const digest = await crypto.subtle.digest("SHA-256", toArrayBuffer(data));
   return new Uint8Array(digest);
 }
 
-function buildProofInput(
+export function buildProofInput(
   sessionKey: string,
   subject: string,
   payloadHash: Uint8Array,
@@ -153,53 +180,112 @@ export type TrellisAuth = {
   sign: TrellisSigner;
 };
 
-type AnyTrellisAPI = TrellisAPI;
-type TrellisMode = "client" | "server";
+export type AnyTrellisAPI = TrellisAPI;
+export type TrellisMode = "client" | "server";
 type NonNever<T> = [T] extends [never] ? string : T;
-type MethodsOf<TA extends AnyTrellisAPI> = NonNever<keyof TA["rpc"] & string>;
-type OperationsOf<TA extends AnyTrellisAPI> = NonNever<keyof TA["operations"] & string>;
+export type MethodsOf<TA extends AnyTrellisAPI> = NonNever<
+  keyof TA["rpc"] & string
+>;
+export type OperationsOf<TA extends AnyTrellisAPI> = NonNever<
+  keyof TA["operations"] & string
+>;
 type EventsOf<TA extends AnyTrellisAPI> = NonNever<keyof TA["events"] & string>;
 type MethodInputOf<TA extends AnyTrellisAPI, M extends MethodsOf<TA>> =
-  InferSchemaType<TA["rpc"][M]["input"]>;
+  TA["rpc"][M] extends RPCDesc<infer TInput, infer _TOutput, infer _TErrors>
+    ? InferSchemaType<TInput>
+    : never;
 type MethodOutputOf<TA extends AnyTrellisAPI, M extends MethodsOf<TA>> =
-  InferSchemaType<TA["rpc"][M]["output"]>;
+  TA["rpc"][M] extends RPCDesc<infer _TInput, infer TOutput, infer _TErrors>
+    ? InferSchemaType<TOutput>
+    : never;
+type RpcDescriptorOf<TA extends AnyTrellisAPI, M extends MethodsOf<TA>> =
+  TA["rpc"][M] extends RPCDesc<infer TInput, infer TOutput, infer TErrors>
+    ? RPCDesc<TInput, TOutput, TErrors> & TA["rpc"][M]
+    : never;
 type EventOf<TA extends AnyTrellisAPI, E extends EventsOf<TA>> =
-  InferSchemaType<TA["events"][E]["event"]>;
+  TA["events"][E] extends EventDesc<infer TEvent> ? InferSchemaType<TEvent>
+    : never;
+type EventDescriptorOf<TA extends AnyTrellisAPI, E extends EventsOf<TA>> =
+  TA["events"][E] extends EventDesc<infer TEvent>
+    ? EventDesc<TEvent> & TA["events"][E]
+    : never;
 type EventPayloadOf<TA extends AnyTrellisAPI, E extends EventsOf<TA>> = Omit<
   EventOf<TA, E>,
   "header"
 >;
-type OperationInputOf<TA extends AnyTrellisAPI, O extends OperationsOf<TA>> =
-  InferSchemaType<TA["operations"][O]["input"]>;
-export type OperationRuntimeHandle = {
+export type OperationInputOf<
+  TA extends AnyTrellisAPI,
+  O extends OperationsOf<TA>,
+> = TA["operations"][O] extends { input: infer TInput }
+  ? InferSchemaType<TInput>
+  : never;
+export type OperationProgressOf<
+  TA extends AnyTrellisAPI,
+  O extends OperationsOf<TA>,
+> = TA["operations"][O] extends { progress: infer TProgress }
+  ? TProgress extends undefined ? unknown
+  : InferSchemaType<NonNullable<TProgress>>
+  : unknown;
+export type OperationOutputOf<
+  TA extends AnyTrellisAPI,
+  O extends OperationsOf<TA>,
+> = TA["operations"][O] extends { output: infer TOutput }
+  ? TOutput extends undefined ? unknown : InferSchemaType<NonNullable<TOutput>>
+  : unknown;
+export type OperationRuntimeHandle<TProgress = unknown, TOutput = unknown> = {
   id: string;
   started(): Promise<Result<RuntimeOperationSnapshot, UnexpectedError>>;
-  progress(value: unknown): Promise<Result<RuntimeOperationSnapshot, UnexpectedError>>;
-  complete(value: unknown): Promise<Result<RuntimeOperationSnapshot, UnexpectedError>>;
-  fail(error: BaseError): Promise<Result<RuntimeOperationSnapshot, UnexpectedError>>;
+  progress(
+    value: TProgress,
+  ): Promise<Result<RuntimeOperationSnapshot, UnexpectedError>>;
+  complete(
+    value: TOutput,
+  ): Promise<Result<RuntimeOperationSnapshot, UnexpectedError>>;
+  fail(
+    error: BaseError,
+  ): Promise<Result<RuntimeOperationSnapshot, UnexpectedError>>;
   cancel(): Promise<Result<RuntimeOperationSnapshot, UnexpectedError>>;
-  attach(job: { wait(): Promise<Result<unknown, BaseError>> }): Promise<Result<RuntimeOperationSnapshot, UnexpectedError>>;
+  attach(
+    job: { wait(): Promise<Result<unknown, BaseError>> },
+  ): Promise<Result<RuntimeOperationSnapshot, UnexpectedError>>;
 };
-export type OperationHandlerContext<TInput> = {
+export type OperationHandlerContext<
+  TInput,
+  TProgress = unknown,
+  TOutput = unknown,
+> = {
   input: TInput;
-  op: OperationRuntimeHandle;
-  caller: SessionUser;
+  op: OperationRuntimeHandle<TProgress, TOutput>;
+  caller: SessionCaller;
 };
-export type OperationRegistration<TInput> = {
+export type OperationRegistration<
+  TInput,
+  TProgress = unknown,
+  TOutput = unknown,
+> = {
   handle(
-    handler: (context: OperationHandlerContext<TInput>) => unknown | Promise<unknown>,
+    handler: (
+      context: OperationHandlerContext<TInput, TProgress, TOutput>,
+    ) => unknown | Promise<unknown>,
   ): Promise<void>;
 };
 export type OperationSurface<
   TA extends AnyTrellisAPI,
   TMode extends TrellisMode,
   O extends OperationsOf<TA>,
-> = TMode extends "server" ? OperationRegistration<OperationInputOf<TA, O>> : OperationInvoker<TA["operations"][O] & RuntimeOperationDesc>;
+> = TMode extends "server" ? OperationRegistration<
+    OperationInputOf<TA, O>,
+    OperationProgressOf<TA, O>,
+    OperationOutputOf<TA, O>
+  >
+  : OperationInvoker<TA["operations"][O] & RuntimeOperationDesc>;
 
-function isResultLike(value: unknown): value is Result<unknown, BaseError> {
+export function isResultLike(
+  value: unknown,
+): value is Result<unknown, BaseError> {
   return value instanceof Result;
 }
-type RuntimeOperationDesc = {
+export type RuntimeOperationDesc = {
   subject: string;
   input: unknown;
   progress?: unknown;
@@ -207,14 +293,14 @@ type RuntimeOperationDesc = {
   cancel?: boolean;
 };
 
-type RuntimeOperationState =
+export type RuntimeOperationState =
   | "pending"
   | "running"
   | "completed"
   | "failed"
   | "cancelled";
 
-type RuntimeOperationSnapshot = {
+export type RuntimeOperationSnapshot = {
   id: string;
   service: string;
   operation: string;
@@ -231,7 +317,7 @@ type RuntimeOperationSnapshot = {
   };
 };
 
-type RuntimeOperationRecord = {
+export type RuntimeOperationRecord = {
   id: string;
   service: string;
   operation: string;
@@ -243,7 +329,7 @@ type RuntimeOperationRecord = {
   waiters: Set<string>;
 };
 
-type DurableOperationRecord = {
+export type DurableOperationRecord = {
   ownerSessionKey: string;
   sequence: number;
   snapshot: RuntimeOperationSnapshot;
@@ -272,26 +358,30 @@ const DurableOperationSnapshotSchema = Type.Object({
   })),
 });
 
-const DurableOperationRecordSchema = Type.Object({
+export const DurableOperationRecordSchema = Type.Object({
   ownerSessionKey: Type.String(),
   sequence: Type.Number(),
   snapshot: DurableOperationSnapshotSchema,
 });
 
-type RuntimeOperationAcceptedEnvelope = {
+export type RuntimeOperationAcceptedEnvelope = {
   kind: "accepted";
   ref: OperationRefData;
   snapshot: RuntimeOperationSnapshot;
 };
 
-type RuntimeOperationControlRequest = {
+export type RuntimeOperationControlRequest = {
   action: "get" | "wait" | "watch" | "cancel";
   operationId: string;
 };
 
-type RuntimeOperationController = {
-  get(operationId: string): Promise<Result<RuntimeOperationSnapshot, UnexpectedError>>;
-  started(operationId: string): Promise<Result<RuntimeOperationSnapshot, UnexpectedError>>;
+export type RuntimeOperationController = {
+  get(
+    operationId: string,
+  ): Promise<Result<RuntimeOperationSnapshot, UnexpectedError>>;
+  started(
+    operationId: string,
+  ): Promise<Result<RuntimeOperationSnapshot, UnexpectedError>>;
   progress(
     operationId: string,
     progress: unknown,
@@ -304,18 +394,24 @@ type RuntimeOperationController = {
     operationId: string,
     error: BaseError,
   ): Promise<Result<RuntimeOperationSnapshot, UnexpectedError>>;
-  cancel(operationId: string): Promise<Result<RuntimeOperationSnapshot, UnexpectedError>>;
+  cancel(
+    operationId: string,
+  ): Promise<Result<RuntimeOperationSnapshot, UnexpectedError>>;
 };
 
-function buildRuntimeOperationSnapshot(
-  runtime: Pick<RuntimeOperationRecord, "id" | "service" | "operation" | "snapshot">,
+export function buildRuntimeOperationSnapshot(
+  runtime: Pick<
+    RuntimeOperationRecord,
+    "id" | "service" | "operation" | "snapshot"
+  >,
   state: RuntimeOperationState,
   patch?: Partial<RuntimeOperationSnapshot>,
 ): RuntimeOperationSnapshot {
   const updatedAt = new Date().toISOString();
-  const completedAt = state === "completed" || state === "failed" || state === "cancelled"
-    ? (patch?.completedAt ?? updatedAt)
-    : patch?.completedAt;
+  const completedAt =
+    state === "completed" || state === "failed" || state === "cancelled"
+      ? (patch?.completedAt ?? updatedAt)
+      : patch?.completedAt;
   return {
     id: runtime.id,
     service: runtime.service,
@@ -325,13 +421,27 @@ function buildRuntimeOperationSnapshot(
     createdAt: patch?.createdAt ?? runtime.snapshot.createdAt,
     updatedAt,
     ...(completedAt ? { completedAt } : {}),
-    ...(patch?.progress !== undefined ? { progress: patch.progress } : runtime.snapshot.progress !== undefined ? { progress: runtime.snapshot.progress } : {}),
-    ...(patch?.output !== undefined ? { output: patch.output } : runtime.snapshot.output !== undefined ? { output: runtime.snapshot.output } : {}),
-    ...(patch?.error ? { error: patch.error } : runtime.snapshot.error ? { error: runtime.snapshot.error } : {}),
+    ...(patch?.progress !== undefined
+      ? { progress: patch.progress }
+      : runtime.snapshot.progress !== undefined
+      ? { progress: runtime.snapshot.progress }
+      : {}),
+    ...(patch?.output !== undefined
+      ? { output: patch.output }
+      : runtime.snapshot.output !== undefined
+      ? { output: runtime.snapshot.output }
+      : {}),
+    ...(patch?.error
+      ? { error: patch.error }
+      : runtime.snapshot.error
+      ? { error: runtime.snapshot.error }
+      : {}),
   };
 }
 
-function isRuntimeOperationSnapshot(value: unknown): value is RuntimeOperationSnapshot {
+function isRuntimeOperationSnapshot(
+  value: unknown,
+): value is RuntimeOperationSnapshot {
   return !!value && typeof value === "object" &&
     typeof (value as RuntimeOperationSnapshot).id === "string" &&
     typeof (value as RuntimeOperationSnapshot).service === "string" &&
@@ -342,11 +452,12 @@ function isRuntimeOperationSnapshot(value: unknown): value is RuntimeOperationSn
     typeof (value as RuntimeOperationSnapshot).updatedAt === "string";
 }
 
-function isTerminalRuntimeOperationSnapshot(
+export function isTerminalRuntimeOperationSnapshot(
   value: unknown,
 ): value is RuntimeOperationSnapshot {
   return isRuntimeOperationSnapshot(value) && (
-    value.state === "completed" || value.state === "failed" || value.state === "cancelled"
+    value.state === "completed" || value.state === "failed" ||
+    value.state === "cancelled"
   );
 }
 
@@ -355,8 +466,8 @@ type NoResponderRetryOpts = {
   baseDelayMs?: number;
 };
 
-type TrellisOpts<TA extends AnyTrellisAPI> = {
-  log?: Logger;
+export type TrellisOpts<TA extends AnyTrellisAPI> = {
+  log?: LoggerLike;
   timeout?: number;
   stream?: string;
   noResponderRetry?: NoResponderRetryOpts;
@@ -364,13 +475,13 @@ type TrellisOpts<TA extends AnyTrellisAPI> = {
   authBypassMethods?: string[];
 };
 
-type RequestOpts = {
+export type RequestOpts = {
   timeout?: number;
 };
 
-type HandlerFn<TA extends AnyTrellisAPI, M extends MethodsOf<TA>> = (
+export type HandlerFn<TA extends AnyTrellisAPI, M extends MethodsOf<TA>> = (
   m: MethodInputOf<TA, M>,
-  context: { user: SessionUser; sessionKey: string },
+  context: { caller: SessionCaller; sessionKey: string },
 ) => Promise<Result<MethodOutputOf<TA, M>, TrellisErrorInstance>>;
 
 type DeepRecord<T> = {
@@ -383,11 +494,14 @@ const DEFAULT_NO_RESPONDER_MAX_RETRIES = 2;
 const DEFAULT_NO_RESPONDER_RETRY_MS = 200;
 
 type AuthCacheEntry = {
-  user: SessionUser;
+  caller: SessionCaller;
   expires: number;
 };
 
-export class Trellis<TA extends AnyTrellisAPI = TrellisAPI, TMode extends TrellisMode = "client"> {
+export class Trellis<
+  TA extends AnyTrellisAPI = TrellisAPI,
+  TMode extends TrellisMode = "client",
+> {
   readonly name: string;
   readonly timeout: number;
   readonly stream: string;
@@ -396,7 +510,7 @@ export class Trellis<TA extends AnyTrellisAPI = TrellisAPI, TMode extends Trelli
   protected js: JetStreamClient;
   protected auth: TrellisAuth;
   readonly api: TA;
-  #log: Logger;
+  #log: LoggerLike;
   #tasks: TrellisTasks;
   #noResponderMaxRetries: number;
   #noResponderRetryMs: number;
@@ -433,9 +547,13 @@ export class Trellis<TA extends AnyTrellisAPI = TrellisAPI, TMode extends Trelli
     return this.nats;
   }
 
-  async operationStoreHandle(): Promise<TypedKV<typeof DurableOperationRecordSchema>> {
+  async operationStoreHandle(): Promise<
+    TypedKV<typeof DurableOperationRecordSchema>
+  > {
     if (!this.#operationStore) {
-      const bucket = `trellis_operations_${this.name.replace(/[^A-Za-z0-9_-]/g, "_")}`;
+      const bucket = `trellis_operations_${
+        this.name.replace(/[^A-Za-z0-9_-]/g, "_")
+      }`;
       this.#operationStore = (async () => {
         const result = await TypedKV.open(
           this.nats,
@@ -456,7 +574,9 @@ export class Trellis<TA extends AnyTrellisAPI = TrellisAPI, TMode extends Trelli
     return this.#operationStore;
   }
 
-  async loadOperationRecord(operationId: string): Promise<DurableOperationRecord | null> {
+  async loadOperationRecord(
+    operationId: string,
+  ): Promise<DurableOperationRecord | null> {
     const store = await this.operationStoreHandle();
     const entry = await store.get(operationId);
     const value = entry.take();
@@ -489,19 +609,21 @@ export class Trellis<TA extends AnyTrellisAPI = TrellisAPI, TMode extends Trelli
    *              ok: A validated reponse of method M
    *              err: RemoteError | ValidationError | UnexpectedError
    */
-  async request<M extends MethodsOf<TA>>(
-    method: M,
-    input: MethodInputOf<TA, M>,
+  async request(
+    method: string,
+    input: unknown,
     opts?: RequestOpts,
-  ): Promise<
-    Result<
-      MethodOutputOf<TA, M>,
-      RemoteError | ValidationError | UnexpectedError
-    >
-  > {
-    this.#log.trace({ method: String(method), input: input as unknown }, `Calling ${method.toString()}.`);
+  ): Promise<Result<unknown, RemoteError | ValidationError | UnexpectedError>> {
+    this.#log.trace(
+      { method: String(method) },
+      `Calling ${method.toString()}.`,
+    );
 
-    const ctx = this.api["rpc"][method];
+    const methodName = method as MethodsOf<TA>;
+    const ctx = this.api["rpc"][methodName] as RpcDescriptorOf<
+      TA,
+      typeof methodName
+    >;
     if (!ctx) {
       return err(
         new UnexpectedError({
@@ -513,7 +635,7 @@ export class Trellis<TA extends AnyTrellisAPI = TrellisAPI, TMode extends Trelli
       );
     }
 
-    const msg = encodeSchema(ctx.input, input).take();
+    const msg = encodeRuntimeSchema(ctx.input, input).take();
     if (isErr(msg)) {
       return msg;
     }
@@ -527,10 +649,7 @@ export class Trellis<TA extends AnyTrellisAPI = TrellisAPI, TMode extends Trelli
     const span = startClientSpan(method, subject);
 
     const attempt = async (): Promise<
-      Result<
-        MethodOutputOf<TA, M>,
-        RemoteError | ValidationError | UnexpectedError
-      >
+      Result<unknown, RemoteError | ValidationError | UnexpectedError>
     > => {
       const proof = await this.#createProof(subject, msg);
 
@@ -634,16 +753,12 @@ export class Trellis<TA extends AnyTrellisAPI = TrellisAPI, TMode extends Trelli
         return json;
       }
 
-      const outputResult = parseSchema(ctx.output, json);
-      if (outputResult.isErr()) {
-        return outputResult as Result<
-          never,
-          ValidationError | UnexpectedError
-        >;
+      const outputResult = parseRuntimeSchema(ctx.output, json).take();
+      if (isErr(outputResult)) {
+        return err(outputResult.error as ValidationError | UnexpectedError);
       }
 
-      const output = outputResult.take();
-      return ok(output as MethodOutputOf<TA, M>);
+      return ok(outputResult);
     };
 
     return withSpanAsync(span, async () => {
@@ -675,18 +790,26 @@ export class Trellis<TA extends AnyTrellisAPI = TrellisAPI, TMode extends Trelli
     });
   }
 
-  async requestOrThrow<M extends MethodsOf<TA>>(
-    method: M,
-    input: MethodInputOf<TA, M>,
+  async requestOrThrow(
+    method: string,
+    input: unknown,
     opts?: RequestOpts,
-  ): Promise<MethodOutputOf<TA, M>> {
-    const result = await this.request(method, input, opts);
+  ): Promise<unknown> {
+    const result = await (
+      this.request as (
+        method: string,
+        input: unknown,
+        opts?: RequestOpts,
+      ) => Promise<
+        Result<unknown, RemoteError | ValidationError | UnexpectedError>
+      >
+    )(method, input, opts);
     const value = result.take();
     if (isErr(value)) {
       throw value.error;
     }
 
-    return value as MethodOutputOf<TA, M>;
+    return value;
   }
 
   operation<O extends OperationsOf<TA>>(
@@ -700,8 +823,9 @@ export class Trellis<TA extends AnyTrellisAPI = TrellisAPI, TMode extends Trelli
     }
 
     const transport: OperationTransport = {
-      requestJson: (subject, body) => this.#requestJson(subject, body),
-      watchJson: (subject, body) => this.#watchJson(subject, body),
+      requestJson: (subject, body) =>
+        this.#requestJson(subject, body as JsonValue),
+      watchJson: (subject, body) => this.#watchJson(subject, body as JsonValue),
     };
 
     return new OperationInvoker(
@@ -713,24 +837,44 @@ export class Trellis<TA extends AnyTrellisAPI = TrellisAPI, TMode extends Trelli
   /*
    * Mount a handler to process requests made to a specific Trellis API
    */
-  async mount<M extends MethodsOf<TA>>(method: M, fn: HandlerFn<TA, M>) {
-    this.#tasks.add(method, this.#handleRPC(method, fn));
+  async mount(
+    method: string,
+    fn: (
+      input: unknown,
+      context: { caller: SessionCaller; sessionKey: string },
+    ) => Promise<Result<unknown, TrellisErrorInstance>>,
+  ) {
+    const methodName = method as MethodsOf<TA>;
+    const ctx = this.api["rpc"][methodName];
+    if (!ctx) {
+      throw new Error(
+        `Unknown RPC method '${method.toString()}'. Did you forget to include its API module?`,
+      );
+    }
+    const task = this.#handleRPC(
+      methodName,
+      fn as HandlerFn<TA, MethodsOf<TA>>,
+    );
+    this.#tasks.add(methodName, task);
   }
 
-  #handleRPC<M extends MethodsOf<TA>>(
-    method: M,
-    fn: HandlerFn<TA, M>,
-    subjectData: Partial<MethodInputOf<TA, M>> = {},
+  #handleRPC(
+    method: MethodsOf<TA>,
+    fn: HandlerFn<TA, MethodsOf<TA>>,
+    subjectData: Record<string, unknown> = {},
   ): AsyncResult<void, ValidationError | UnexpectedError> {
     // Get API details
-    const ctx = this.api["rpc"][method] as TA["rpc"][M];
+    const ctx = this.api["rpc"][method] as RpcDescriptorOf<TA, MethodsOf<TA>>;
 
     const subject = this.template(ctx.subject, subjectData, true).take();
     if (isErr(subject)) {
       return AsyncResult.lift(subject);
     }
 
-    this.#log.info({ method: String(method) }, `Mounting ${method.toString()} RPC handler`);
+    this.#log.info(
+      { method: String(method) },
+      `Mounting ${method.toString()} RPC handler`,
+    );
     const sub = this.nats.subscribe(subject);
 
     return AsyncResult.try(async () => {
@@ -753,13 +897,16 @@ export class Trellis<TA extends AnyTrellisAPI = TrellisAPI, TMode extends Trelli
     });
   }
 
-  async #processRPCMessage<M extends MethodsOf<TA>>(
-    method: M,
-    ctx: TA["rpc"][M],
+  async #processRPCMessage(
+    method: MethodsOf<TA>,
+    ctx: RpcDescriptorOf<TA, MethodsOf<TA>>,
     msg: Msg,
-    fn: HandlerFn<TA, M>,
+    fn: HandlerFn<TA, MethodsOf<TA>>,
   ): Promise<Result<string, TrellisErrorInstance>> {
-          this.#log.debug({ method: String(method), subject: msg.subject }, "Processing RPC message");
+    this.#log.debug(
+      { method: String(method), subject: msg.subject },
+      "Processing RPC message",
+    );
 
     // Extract trace context from incoming NATS headers
     const parentContext = extractTraceContext(
@@ -790,7 +937,7 @@ export class Trellis<TA extends AnyTrellisAPI = TrellisAPI, TMode extends Trelli
           return jsonData;
         }
 
-        const parsedInput = parseSchema(ctx.input, jsonData).take();
+        const parsedInput = parseRuntimeSchema(ctx.input, jsonData).take();
         if (isErr(parsedInput)) {
           span.setStatus({
             code: SpanStatusCode.ERROR,
@@ -799,17 +946,16 @@ export class Trellis<TA extends AnyTrellisAPI = TrellisAPI, TMode extends Trelli
           return parsedInput as Result<string, TrellisErrorInstance>;
         }
 
-        let user: SessionUser;
+        let caller: SessionCaller;
         const callerSessionKey = msg.headers?.get("session-key") ?? "";
 
         const authRequired = ctx.authRequired ?? true;
         if (!authRequired || this.#authBypassMethods.has(method)) {
-          user = {
+          caller = {
+            type: "service",
             id: "system",
-            origin: "trellis",
             active: true,
             name: "System",
-            email: "system@trellis.internal",
             capabilities: ["service"],
           };
         } else {
@@ -874,13 +1020,13 @@ export class Trellis<TA extends AnyTrellisAPI = TrellisAPI, TMode extends Trelli
             );
           }
 
-          const authResult = await this.request("Auth.ValidateRequest", {
+          const authResult = await this.requestAuthValidate({
             sessionKey,
             proof,
             subject: msg.subject,
             payloadHash: base64urlEncode(payloadHash),
             capabilities: ctx.callerCapabilities,
-          } as MethodInputOf<TA, "Auth.ValidateRequest">);
+          });
           const auth = authResult.take();
           if (isErr(auth)) {
             this.#log.warn(
@@ -898,7 +1044,7 @@ export class Trellis<TA extends AnyTrellisAPI = TrellisAPI, TMode extends Trelli
               code: SpanStatusCode.ERROR,
               message: "Auth.ValidateRequest failed",
             });
-            return auth;
+            return err(auth.error as TrellisErrorInstance);
           }
 
           if (!auth.allowed) {
@@ -910,11 +1056,11 @@ export class Trellis<TA extends AnyTrellisAPI = TrellisAPI, TMode extends Trelli
               new AuthError({
                 reason: "insufficient_permissions",
                 context: {
-                    requiredCapabilities: ctx.callerCapabilities,
-                    userCapabilities: auth.user.capabilities,
-                  },
-                }),
-              );
+                  requiredCapabilities: ctx.callerCapabilities,
+                  userCapabilities: auth.caller.capabilities,
+                },
+              }),
+            );
           }
 
           if (
@@ -933,16 +1079,25 @@ export class Trellis<TA extends AnyTrellisAPI = TrellisAPI, TMode extends Trelli
             );
           }
 
-          user = auth.user;
+          caller = auth.caller;
         }
 
-        // Add user info to span attributes
-        span.setAttribute("user.id", user.id);
-        span.setAttribute("user.origin", user.origin);
+        span.setAttribute("auth.caller.type", caller.type);
+        if (caller.type === "user") {
+          span.setAttribute("user.id", caller.id);
+          span.setAttribute("user.origin", caller.origin);
+        }
+        if (caller.type === "service") {
+          span.setAttribute("service.id", caller.id);
+        }
+        if (caller.type === "workload") {
+          span.setAttribute("workload.instance_id", caller.instanceId);
+          span.setAttribute("workload.profile_id", caller.profileId);
+        }
 
         const handlerResultWrapped = await AsyncResult.try(() =>
-          fn(parsedInput as MethodInputOf<TA, M>, {
-            user,
+          fn(parsedInput as MethodInputOf<TA, MethodsOf<TA>>, {
+            caller,
             sessionKey: callerSessionKey,
           })
         );
@@ -967,10 +1122,9 @@ export class Trellis<TA extends AnyTrellisAPI = TrellisAPI, TMode extends Trelli
           return err(error);
         }
 
-        const handlerResult = (await handlerResultWrapped).take() as Result<
-          MethodOutputOf<TA, M>,
-          TrellisErrorInstance
-        >;
+        const handlerResult = (await handlerResultWrapped).take() as {
+          take: () => unknown;
+        };
         const handlerOutcome = handlerResult.take();
         if (isErr(handlerOutcome)) {
           const handlerError = handlerOutcome.error;
@@ -1034,7 +1188,10 @@ export class Trellis<TA extends AnyTrellisAPI = TrellisAPI, TMode extends Trelli
 
     const serialized = Result.try(() => JSON.stringify(errorData));
     if (serialized.isErr()) {
-      this.#log.error({ error: serialized.error }, "Failed to serialize error response");
+      this.#log.error(
+        { error: serialized.error },
+        "Failed to serialize error response",
+      );
       msg.respond(
         '{"type":"UnexpectedError","message":"Failed to serialize error"}',
         { headers: hdrs },
@@ -1048,11 +1205,15 @@ export class Trellis<TA extends AnyTrellisAPI = TrellisAPI, TMode extends Trelli
     this.#respondWithError(msg, error);
   }
 
-  async publish<E extends EventsOf<TA>>(
-    event: E,
-    data: EventPayloadOf<TA, E>,
+  async publish(
+    event: string,
+    data: Record<string, unknown>,
   ): Promise<Result<void, ValidationError | UnexpectedError>> {
-    const ctx = this.api["events"][event];
+    const eventName = event as EventsOf<TA>;
+    const ctx = this.api["events"][eventName] as EventDescriptorOf<
+      TA,
+      typeof eventName
+    >;
     if (!ctx) {
       return err(
         new UnexpectedError({
@@ -1070,16 +1231,17 @@ export class Trellis<TA extends AnyTrellisAPI = TrellisAPI, TMode extends Trelli
       return subject;
     }
 
-    const msg = encodeSchema(ctx.event, {
+    const payload: Record<string, unknown> = {
       ...data,
       header: {
         id: ulid(),
         time: new Date().toISOString(),
       },
-    }).take();
+    };
+    const msg = encodeSchema(ctx.event, payload).take();
     if (isErr(msg)) {
       logger.error({ err: msg.error }, "Failed to encode event.");
-      return msg;
+      return err(new UnexpectedError({ cause: msg.error }));
     }
 
     logger.trace({ subject }, `Publishing ${event.toString()} event.`);
@@ -1087,12 +1249,16 @@ export class Trellis<TA extends AnyTrellisAPI = TrellisAPI, TMode extends Trelli
     return ok(undefined);
   }
 
-  async event<E extends EventsOf<TA>>(
-    event: E,
-    subjectData: DeepRecord<string | number | boolean>,
-    fn: (m: EventOf<TA, E>) => MaybeAsync<void, BaseError>,
+  async event(
+    event: string,
+    subjectData: Record<string, unknown>,
+    fn: (message: unknown) => MaybeAsync<void, BaseError>,
   ): Promise<Result<void, ValidationError | UnexpectedError>> {
-    const ctx = this.api["events"][event];
+    const eventName = event as EventsOf<TA>;
+    const ctx = this.api["events"][eventName] as EventDescriptorOf<
+      TA,
+      typeof eventName
+    >;
     if (!ctx) {
       return err(
         new UnexpectedError({
@@ -1121,21 +1287,23 @@ export class Trellis<TA extends AnyTrellisAPI = TrellisAPI, TMode extends Trelli
     // If add failed (consumer already exists), try to get existing consumer info
     const consumerInfoResult = addResult.isOk()
       ? addResult
-      : await AsyncResult.try(() => jsm.consumers.info(this.stream, consumerName));
+      : await AsyncResult.try(() =>
+        jsm.consumers.info(this.stream, consumerName)
+      );
 
     const info = consumerInfoResult.take();
     if (isErr(info)) return info;
 
     const consumer = this.js.consumers.getConsumerFromInfo(info);
 
-    this.#tasks.add(event, this.#handleEvent(event, consumer, fn));
+    this.#tasks.add(eventName, this.#handleEvent(eventName, consumer, fn));
     return ok(undefined);
   }
 
-  #handleEvent<E extends EventsOf<TA>>(
-    event: E,
+  #handleEvent(
+    event: EventsOf<TA>,
     consumer: Consumer,
-    fn: (m: EventOf<TA, E>) => MaybeAsync<void, BaseError>,
+    fn: (m: EventOf<TA, EventsOf<TA>>) => MaybeAsync<void, BaseError>,
   ): AsyncResult<void, ValidationError | UnexpectedError> {
     const ctx = this.api["events"][event];
 
@@ -1150,17 +1318,31 @@ export class Trellis<TA extends AnyTrellisAPI = TrellisAPI, TMode extends Trelli
           continue;
         }
 
-        const m = parseSchema(ctx.event, jsonData.take() as JsonValue).take();
+        const json = jsonData.take();
+        if (isErr(json)) {
+          this.#log.error({ error: json.error }, "Event parse failed");
+          msg.term();
+          continue;
+        }
+
+        const parsedEvent = parseRuntimeSchema(ctx.event, json);
+        const m = parsedEvent.take();
         if (isErr(m)) {
           this.#log.error({ error: m.error }, "Event validation failed");
           msg.term();
           continue;
         }
 
-        const handlerResult = await AsyncResult.lift(fn(m as EventOf<TA, E>));
+        const handlerResult = await AsyncResult.lift(
+          fn(m as EventOf<TA, EventsOf<TA>>),
+        );
         if (handlerResult.isErr()) {
           this.#log.error(
-            { error: handlerResult.error.toSerializable(), event, subject: msg.subject },
+            {
+              error: handlerResult.error.toSerializable(),
+              event,
+              subject: msg.subject,
+            },
             "Event handler failed",
           );
           msg.nak();
@@ -1267,7 +1449,9 @@ export class Trellis<TA extends AnyTrellisAPI = TrellisAPI, TMode extends Trelli
   async #watchJson(
     subject: string,
     body: JsonValue,
-  ): Promise<Result<AsyncIterable<Result<JsonValue, UnexpectedError>>, UnexpectedError>> {
+  ): Promise<
+    Result<AsyncIterable<Result<JsonValue, UnexpectedError>>, UnexpectedError>
+  > {
     const payload = JSON.stringify(body);
     const proof = await this.#createProof(subject, payload);
 
@@ -1304,657 +1488,68 @@ export class Trellis<TA extends AnyTrellisAPI = TrellisAPI, TMode extends Trelli
       }
     })());
   }
+
+  protected async requestAuthValidate(
+    input: AuthValidateRequestInput,
+  ): Promise<
+    Result<
+      AuthValidateRequestResponse,
+      RemoteError | ValidationError | UnexpectedError
+    >
+  > {
+    const request = this.request.bind(this) as (
+      method: string,
+      input: unknown,
+      opts?: RequestOpts,
+    ) => Promise<
+      Result<unknown, RemoteError | ValidationError | UnexpectedError>
+    >;
+    const result = await request("Auth.ValidateRequest", input);
+    return result as Result<
+      AuthValidateRequestResponse,
+      RemoteError | ValidationError | UnexpectedError
+    >;
+  }
 }
 
-type TrellisServerOpts<TA extends AnyTrellisAPI> =
-  & Omit<TrellisOpts<TA>, "api">
-  & {
-    api: TA;
-    version?: string;
-  };
+export interface Trellis<
+  TA extends AnyTrellisAPI = TrellisAPI,
+  TMode extends TrellisMode = "client",
+> {
+  request<M extends MethodsOf<TA>>(
+    method: M,
+    input: MethodInputOf<TA, M>,
+    opts?: RequestOpts,
+  ): Promise<
+    Result<
+      MethodOutputOf<TA, M>,
+      RemoteError | ValidationError | UnexpectedError
+    >
+  >;
+  requestOrThrow<M extends MethodsOf<TA>>(
+    method: M,
+    input: MethodInputOf<TA, M>,
+    opts?: RequestOpts,
+  ): Promise<MethodOutputOf<TA, M>>;
+}
 
-export class TrellisServer<TA extends AnyTrellisAPI = AnyTrellisAPI>
-  extends Trellis<TA, "server"> {
-  #version?: string;
-  #log: Logger;
-  #operations = new Map<string, RuntimeOperationRecord>();
-  readonly operations: RuntimeOperationController;
-
-  private constructor(
-    name: string,
-    nats: NatsConnection,
-    auth: TrellisAuth,
-    opts?: TrellisServerOpts<TA>,
-  ) {
-    super(name, nats, auth, opts);
-    this.#version = opts?.version;
-    this.#log = (opts?.log ?? logger).child({ lib: "trellis-server" });
-    this.operations = {
-      get: async (operationId) => {
-        const runtime = await this.#resolveOperation(operationId);
-        if (!runtime) {
-          return err(new UnexpectedError({ cause: new Error(`Unknown operation '${operationId}'`) }));
-        }
-        return ok(runtime.snapshot);
-      },
-      started: async (operationId) => this.#applyOperationUpdate(operationId, "running", {
-        event: { type: "started" },
-      }),
-      progress: async (operationId, progress) => this.#applyOperationUpdate(operationId, "running", {
-        patch: { progress },
-        event: { type: "progress" },
-      }),
-      complete: async (operationId, output) => this.#applyOperationUpdate(operationId, "completed", {
-        patch: { output },
-        event: { type: "completed" },
-      }),
-      fail: async (operationId, error) => this.#applyOperationUpdate(operationId, "failed", {
-        patch: { error: { type: error.name, message: error.message } },
-        event: { type: "failed" },
-      }),
-      cancel: async (operationId) => this.#applyOperationUpdate(operationId, "cancelled", {
-        event: { type: "cancelled" },
-      }),
-    };
-  }
-
-  async #resolveOperation(operationId: string): Promise<RuntimeOperationRecord | null> {
-    const existing = this.#operations.get(operationId);
-    if (existing) {
-      return existing;
-    }
-
-    const durable = await this.loadOperationRecord(operationId);
-    if (!durable) {
-      return null;
-    }
-
-    const runtime: RuntimeOperationRecord = {
-      id: durable.snapshot.id,
-      service: durable.snapshot.service,
-      operation: durable.snapshot.operation,
-      ownerSessionKey: durable.ownerSessionKey,
-      snapshot: durable.snapshot,
-      sequence: durable.sequence,
-      terminal: durable.snapshot.state === "completed" ||
-        durable.snapshot.state === "failed" ||
-        durable.snapshot.state === "cancelled",
-      watchers: new Set(),
-      waiters: new Set(),
-    };
-    this.#operations.set(operationId, runtime);
-    return runtime;
-  }
-
-  async #applyOperationUpdate(
-    operationId: string,
-    state: RuntimeOperationState,
-    opts: {
-      patch?: Partial<RuntimeOperationSnapshot>;
-      event: { type: string };
-    },
-  ): Promise<Result<RuntimeOperationSnapshot, UnexpectedError>> {
-    const runtime = await this.#resolveOperation(operationId);
-    if (!runtime) {
-      return err(new UnexpectedError({ cause: new Error(`Unknown operation '${operationId}'`) }));
-    }
-
-    if (runtime.terminal && state !== "cancelled") {
-      return err(new UnexpectedError({ cause: new Error("operation already terminal") }));
-    }
-
-    runtime.sequence += 1;
-    runtime.snapshot = buildRuntimeOperationSnapshot(runtime, state, opts.patch);
-    runtime.terminal = state === "completed" || state === "failed" || state === "cancelled";
-
-    await this.saveOperationRecord(runtime);
-
-    const frame = {
-      kind: "event",
-      sequence: runtime.sequence,
-      event: {
-        type: opts.event.type,
-        snapshot: runtime.snapshot,
-      },
-    };
-    for (const reply of runtime.watchers) {
-      await this.nats.publish(reply, JSON.stringify(frame));
-    }
-
-    if (runtime.terminal) {
-      const terminalFrame = { kind: "snapshot", snapshot: runtime.snapshot };
-      for (const reply of runtime.waiters) {
-        await this.nats.publish(reply, JSON.stringify(terminalFrame));
-      }
-      runtime.waiters.clear();
-    }
-
-    return ok(runtime.snapshot);
-  }
-
-  /**
-   * Creates an authenticated TrellisServer instance.
-   *
-   * Services connect to NATS using the session-key auth flow (see ADR):
-   * - NATS `auth_token` (aka `token`) is a JSON string `{ v: 1, sessionKey, iat, sig }`
-   * - `sig` signs SHA-256(`nats-connect:${iat}`) with the session key
-   * - `inboxPrefix` MUST be `_INBOX.${sessionKey.slice(0, 16)}`
-   *
-   * @param name Unique name for this service
-   * @param nats Existing NATS connection (already authenticated)
-   * @param auth Service session-key credentials
-   * @param opts Optional server options
-   * @returns An authenticated TrellisServer instance
-   */
-  static create<TA extends AnyTrellisAPI = AnyTrellisAPI>(
-    name: string,
-    nats: NatsConnection,
-    auth: TrellisAuth,
-    opts: TrellisServerOpts<TA>,
-  ): TrellisServer<TA> {
-    return new TrellisServer<TA>(name, nats, auth, opts);
-  }
-
-  override operation<O extends OperationsOf<TA>>(operation: O): OperationRegistration<OperationInputOf<TA, O>> {
-    const ctx = this.api["operations"]?.[operation];
-    if (!ctx) {
-      throw new Error(
-        `Unknown operation '${operation.toString()}'. Did you forget to include its API module?`,
-      );
-    }
-
-    return {
-      handle: async (
-        handler: (context: OperationHandlerContext<OperationInputOf<TA, O>>) => unknown | Promise<unknown>,
-      ) => {
-        const startSubject = ctx.subject;
-        const controlSubject = `${ctx.subject}.control`;
-        const now = () => new Date().toISOString();
-
-        const publishFrame = async (reply: string, frame: unknown) => {
-          await this.nats.publish(reply, JSON.stringify(frame));
-        };
-
-        const publishSnapshot = async (
-          reply: string,
-          snapshot: RuntimeOperationSnapshot,
-        ) => {
-          await publishFrame(reply, { kind: "snapshot", snapshot });
-        };
-
-        const publishEventToWatchers = async (
-          runtime: RuntimeOperationRecord,
-          event: unknown,
-        ) => {
-          const frame = { kind: "event", sequence: runtime.sequence, event };
-          for (const reply of runtime.watchers) {
-            await publishFrame(reply, frame);
-          }
-        };
-
-        const flushWaiters = async (runtime: RuntimeOperationRecord) => {
-          const frame = { kind: "snapshot", snapshot: runtime.snapshot };
-          for (const reply of runtime.waiters) {
-            await publishFrame(reply, frame);
-          }
-          runtime.waiters.clear();
-        };
-
-        const makeOperation = (runtime: RuntimeOperationRecord) => {
-          const ensureActive = () => {
-            if (runtime.terminal) {
-              return err(new UnexpectedError({ cause: new Error("operation already terminal") }));
-            }
-            return null;
-          };
-
-          const transition = async (
-            state: RuntimeOperationState,
-            patch?: Partial<RuntimeOperationSnapshot>,
-            event?: unknown,
-          ) => {
-            runtime.sequence += 1;
-            runtime.snapshot = buildRuntimeOperationSnapshot(runtime, state, patch);
-            await this.saveOperationRecord(runtime);
-            if (event) {
-              await publishEventToWatchers(runtime, event);
-            }
-            return ok(runtime.snapshot);
-          };
-
-          return {
-            id: runtime.id,
-            started: async () => {
-              const active = ensureActive();
-              if (active) return active;
-              const snapshot = await transition("running", undefined, {
-                type: "started",
-                snapshot: buildRuntimeOperationSnapshot(runtime, "running", {
-                  revision: runtime.snapshot.revision + 1,
-                }),
-              });
-              return snapshot;
-            },
-            progress: async (value: unknown) => {
-              const active = ensureActive();
-              if (active) return active;
-              const snapshot = await transition("running", { progress: value }, {
-                type: "progress",
-                snapshot: buildRuntimeOperationSnapshot(runtime, "running", {
-                  revision: runtime.snapshot.revision + 1,
-                  progress: value,
-                }),
-              });
-              return snapshot;
-            },
-            complete: async (value: unknown) => {
-              const active = ensureActive();
-              if (active) return active;
-              const snapshot = buildRuntimeOperationSnapshot(runtime, "completed", {
-                output: value,
-                completedAt: now(),
-              });
-              runtime.sequence += 1;
-              runtime.snapshot = snapshot;
-              runtime.terminal = true;
-              await this.saveOperationRecord(runtime);
-              await publishEventToWatchers(runtime, {
-                type: "completed",
-                snapshot,
-              });
-              await flushWaiters(runtime);
-              return ok(snapshot);
-            },
-            fail: async (error: BaseError) => {
-              const active = ensureActive();
-              if (active) return active;
-              const snapshot = buildRuntimeOperationSnapshot(runtime, "failed", {
-                error: { type: error.name, message: error.message },
-                completedAt: now(),
-              });
-              runtime.sequence += 1;
-              runtime.snapshot = snapshot;
-              runtime.terminal = true;
-              await this.saveOperationRecord(runtime);
-              await publishEventToWatchers(runtime, {
-                type: "failed",
-                snapshot,
-              });
-              await flushWaiters(runtime);
-              return ok(snapshot);
-            },
-            cancel: async () => {
-              const active = ensureActive();
-              if (active) return active;
-              const snapshot = buildRuntimeOperationSnapshot(runtime, "cancelled", {
-                completedAt: now(),
-              });
-              runtime.sequence += 1;
-              runtime.snapshot = snapshot;
-              runtime.terminal = true;
-              await this.saveOperationRecord(runtime);
-              await publishEventToWatchers(runtime, {
-                type: "cancelled",
-                snapshot,
-              });
-              await flushWaiters(runtime);
-              return ok(snapshot);
-            },
-            attach: async (job: { wait: () => Promise<Result<unknown, BaseError>> }) => {
-              const waited = await job.wait();
-              const waitedValue = waited.take();
-              if (isErr(waitedValue)) {
-                return err(new UnexpectedError({ cause: waitedValue.error }));
-              }
-
-              const finalRuntime = await this.#resolveOperation(runtime.id);
-              if (!finalRuntime || !finalRuntime.terminal) {
-                return err(
-                  new UnexpectedError({
-                    cause: new Error("attached job completed without terminal operation state"),
-                  }),
-                );
-              }
-
-              return ok(finalRuntime.snapshot);
-            },
-          };
-        };
-
-        const authenticate = async (msg: Msg, parseInput = true): Promise<
-          Result<{
-            input: OperationInputOf<TA, O>;
-            user: SessionUser;
-            sessionKey: string;
-            auth: { user: SessionUser; inboxPrefix: string };
-          }, UnexpectedError | AuthError | ValidationError | RemoteError>
-        > => {
-          const jsonData = safeJson(msg).take();
-          if (isErr(jsonData)) return jsonData;
-
-          const parsedInputResult = parseInput
-            ? parseSchema(ctx.input, jsonData)
-            : ok(jsonData);
-          const parsedInputValue = parsedInputResult.take();
-          if (isErr(parsedInputValue)) {
-            return err(parsedInputValue.error as ValidationError | UnexpectedError);
-          }
-          const parsedInput = parsedInputValue as OperationInputOf<TA, O>;
-
-          const sessionKey = msg.headers?.get("session-key");
-          const proof = msg.headers?.get("proof");
-          if (!sessionKey) {
-            return err(new AuthError({ reason: "missing_session_key" }));
-          }
-          if (!proof) {
-            return err(new AuthError({ reason: "missing_proof" }));
-          }
-
-          const payloadBytes = msg.data ?? new Uint8Array();
-          const payloadHash = await sha256(payloadBytes);
-          const proofInput = buildProofInput(sessionKey, msg.subject, payloadHash);
-          const digest = await sha256(proofInput);
-
-          const verifyResult = await AsyncResult.try(async () => {
-            const publicKeyRaw = base64urlDecode(sessionKey);
-            const pub = await crypto.subtle.importKey(
-              "raw",
-              toArrayBuffer(publicKeyRaw),
-              { name: "Ed25519" },
-              true,
-              ["verify"],
-            );
-            return crypto.subtle.verify(
-              { name: "Ed25519" },
-              pub,
-              toArrayBuffer(base64urlDecode(proof)),
-              toArrayBuffer(digest),
-            );
-          });
-          const signatureOk = verifyResult.isOk() && (await verifyResult).take() === true;
-          if (!signatureOk) {
-            return err(new AuthError({ reason: "invalid_signature", context: { sessionKey } }));
-          }
-
-          const authDescriptor = this.api["rpc"]?.["Auth.ValidateRequest"];
-          let auth: { user: SessionUser; inboxPrefix: string };
-          if (authDescriptor) {
-            const authResult = await this.request("Auth.ValidateRequest", {
-              sessionKey,
-              proof,
-              subject: msg.subject,
-              payloadHash: base64urlEncode(payloadHash),
-              capabilities: ctx.callerCapabilities,
-            } as MethodInputOf<TA, "Auth.ValidateRequest">);
-            const authValue = authResult.take();
-            if (isErr(authValue)) {
-              return err(
-                authValue.error as RemoteError | ValidationError | UnexpectedError | AuthError,
-              );
-            }
-            auth = authValue as { user: SessionUser; inboxPrefix: string };
-          } else {
-            auth = {
-              user: {
-                id: sessionKey,
-                origin: "trellis",
-                active: true,
-                name: "Operation Caller",
-                email: "caller@trellis.internal",
-                capabilities: ["service"],
-              },
-              inboxPrefix: `_INBOX.${sessionKey.slice(0, 16)}`,
-            };
-          }
-
-          if (
-            typeof msg.reply !== "string" ||
-            !msg.reply.startsWith(`${auth.inboxPrefix}.`)
-          ) {
-            return err(
-              new AuthError({
-                reason: "reply_subject_mismatch",
-                context: { expected: auth.inboxPrefix, actual: msg.reply },
-              }),
-            );
-          }
-
-          return ok({
-            input: parsedInput,
-            user: auth.user,
-            sessionKey,
-            auth,
-          });
-        };
-
-        this.#log.info({ operation: String(operation) }, `Mounting ${String(operation)} operation handler`);
-
-        const startSub = this.nats.subscribe(startSubject);
-        const controlSub = this.nats.subscribe(controlSubject);
-        await this.nats.flush();
-
-        void (async () => {
-          for await (const msg of startSub) {
-            const validated = await authenticate(msg, true);
-            const value = validated.take();
-            if (isErr(value)) {
-              this.respondWithError(msg, value.error);
-              continue;
-            }
-
-            const operationId = ulid();
-            const createdAt = now();
-            const runtime: RuntimeOperationRecord = {
-              id: operationId,
-              service: this.name,
-              operation: String(operation),
-              ownerSessionKey: value.sessionKey,
-              snapshot: {
-                id: operationId,
-                service: this.name,
-                operation: String(operation),
-                revision: 1,
-                state: "pending",
-                createdAt,
-                updatedAt: createdAt,
-              },
-              sequence: 0,
-              terminal: false,
-              watchers: new Set(),
-              waiters: new Set(),
-            };
-            this.#operations.set(operationId, runtime);
-            await this.saveOperationRecord(runtime);
-
-            const accepted: RuntimeOperationAcceptedEnvelope = {
-              kind: "accepted",
-              ref: {
-                id: operationId,
-                service: this.name,
-                operation: String(operation),
-              },
-              snapshot: runtime.snapshot,
-            };
-
-            msg.respond(JSON.stringify(accepted));
-
-            void (async () => {
-              const op = makeOperation(runtime);
-              try {
-                const handlerResult: unknown = await handler({
-                  input: value.input,
-                  op,
-                  caller: value.user,
-                });
-                const handlerOutcome = isResultLike(handlerResult)
-                  ? handlerResult.take()
-                  : handlerResult;
-                if (isErr(handlerOutcome)) {
-                  await op.fail(handlerOutcome.error);
-                  return;
-                }
-
-                if (isTerminalRuntimeOperationSnapshot(handlerOutcome)) {
-                  runtime.sequence = handlerOutcome.revision;
-                  runtime.snapshot = handlerOutcome;
-                  runtime.terminal = true;
-                  await this.saveOperationRecord(runtime);
-                  return;
-                }
-
-                if (!runtime.terminal) {
-                  await op.complete(handlerOutcome);
-                }
-              } catch (cause) {
-                await op.fail(new UnexpectedError({ cause }));
-              }
-            })();
-          }
-        })();
-
-        void (async () => {
-          for await (const msg of controlSub) {
-            const validated = await authenticate(msg, false);
-            const value = validated.take();
-            if (isErr(value)) {
-              this.respondWithError(msg, value.error);
-              continue;
-            }
-
-            const request = safeJson(msg).take();
-            if (isErr(request)) {
-              this.respondWithError(msg, request.error);
-              continue;
-            }
-
-            if (
-              !request ||
-              typeof request !== "object" ||
-              typeof (request as RuntimeOperationControlRequest).action !== "string" ||
-              typeof (request as RuntimeOperationControlRequest).operationId !== "string"
-            ) {
-              this.respondWithError(
-                msg,
-                new UnexpectedError({
-                  cause: new Error("Invalid operation control request"),
-                }),
-              );
-              continue;
-            }
-
-            const control = request as RuntimeOperationControlRequest;
-            const runtime = this.#operations.get(control.operationId);
-            const durableRecord = runtime ? null : await this.loadOperationRecord(control.operationId);
-            if (!runtime && !durableRecord) {
-              this.respondWithError(
-                msg,
-                new UnexpectedError({
-                  cause: new Error(`Unknown operation '${control.operationId}'`),
-                }),
-              );
-              continue;
-            }
-
-            const snapshot = runtime?.snapshot ?? durableRecord!.snapshot;
-            const ownerSessionKey = runtime?.ownerSessionKey ?? durableRecord!.ownerSessionKey;
-
-            if (ownerSessionKey !== value.sessionKey) {
-              this.respondWithError(
-                msg,
-                new AuthError({
-                  reason: "forbidden",
-                  context: { ownerSessionKey },
-                }),
-              );
-              continue;
-            }
-
-            if (control.action === "watch") {
-              if (msg.reply) {
-                await publishSnapshot(msg.reply, snapshot);
-                if (!runtime) {
-                  continue;
-                }
-                runtime.watchers.add(msg.reply);
-              }
-              continue;
-            }
-
-            if (control.action === "wait") {
-              if (snapshot.state === "completed" || snapshot.state === "failed" || snapshot.state === "cancelled") {
-                msg.respond(JSON.stringify({ kind: "snapshot", snapshot }));
-              } else if (runtime && msg.reply) {
-                runtime.waiters.add(msg.reply);
-              } else if (msg.reply) {
-                this.respondWithError(
-                  msg,
-                  new UnexpectedError({
-                    cause: new Error("operation is not running in this process"),
-                  }),
-                );
-              } else {
-                this.respondWithError(
-                  msg,
-                  new UnexpectedError({
-                    cause: new Error("missing reply subject for wait request"),
-                  }),
-                );
-              }
-              continue;
-            }
-
-            if (control.action === "get") {
-              msg.respond(JSON.stringify({ kind: "snapshot", snapshot }));
-              continue;
-            }
-
-            if (control.action === "cancel") {
-              if (!runtime) {
-                msg.respond(JSON.stringify({ kind: "snapshot", snapshot }));
-                continue;
-              }
-              runtime.snapshot = {
-                ...runtime.snapshot,
-                revision: runtime.snapshot.revision + 1,
-                state: "cancelled",
-                updatedAt: now(),
-                completedAt: now(),
-              };
-              runtime.terminal = true;
-              runtime.sequence += 1;
-              await this.saveOperationRecord(runtime);
-              await publishEventToWatchers(runtime, {
-                type: "cancelled",
-                snapshot: runtime.snapshot,
-              });
-              await flushWaiters(runtime);
-              msg.respond(JSON.stringify({ kind: "snapshot", snapshot: runtime.snapshot }));
-              continue;
-            }
-
-            this.respondWithError(
-              msg,
-              new UnexpectedError({
-                cause: new Error(`Unknown operation control action '${control.action}'`),
-              }),
-            );
-          }
-        })();
-
-        return Promise.resolve();
-      },
-    };
-  }
-
-  /**
-   * Stops the server by clearing refresh timers and draining the NATS connection.
-   * Draining allows in-flight messages to complete before closing the connection.
-   * This method is idempotent and can be called multiple times safely.
-   */
-  async stop(): Promise<void> {
-    // Only drain if the connection is not already closed
-    if (!this.natsConnection.isClosed()) {
-      await this.natsConnection.drain();
-    }
-  }
+export interface Trellis<
+  TA extends AnyTrellisAPI = TrellisAPI,
+  TMode extends TrellisMode = "client",
+> {
+  request<M extends MethodsOf<TA>>(
+    method: M,
+    input: MethodInputOf<TA, M>,
+    opts?: RequestOpts,
+  ): Promise<
+    Result<
+      MethodOutputOf<TA, M>,
+      RemoteError | ValidationError | UnexpectedError
+    >
+  >;
+  requestOrThrow<M extends MethodsOf<TA>>(
+    method: M,
+    input: MethodInputOf<TA, M>,
+    opts?: RequestOpts,
+  ): Promise<MethodOutputOf<TA, M>>;
 }

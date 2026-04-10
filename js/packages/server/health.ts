@@ -8,7 +8,7 @@
  * @module
  */
 
-import { type Result } from "@qlever-llc/trellis-result";
+import { type Result } from "@qlever-llc/result";
 import { type TrellisError } from "@qlever-llc/trellis";
 
 /**

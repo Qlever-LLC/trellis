@@ -8,7 +8,6 @@ declare global {
   var __TRELLIS_RUNTIME_CONFIG__:
     | {
       authUrl?: string;
-      natsServers?: string;
     }
     | undefined;
 }

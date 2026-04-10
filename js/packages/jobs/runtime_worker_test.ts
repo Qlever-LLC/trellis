@@ -1,9 +1,8 @@
-import { assert, assertEquals, assertRejects } from "@std/assert";
+import { assertEquals, assertRejects } from "@std/assert";
 import type { Msg, NatsConnection, Subscription } from "@nats-io/nats-core";
 
 import type { ActiveJob } from "./active-job.ts";
 import type { JobsRuntimeBinding } from "./bindings.ts";
-import { ActiveJobCancellationRegistry } from "./cancellation-registry.ts";
 import { JobCancellationToken, JobManager, JobProcessError } from "./job-manager.ts";
 import {
   ackActionForOutcome,
@@ -212,8 +211,9 @@ class FakeSubscription extends AsyncQueue<Msg> implements Subscription {
     this.close();
   }
 
-  async drain(): Promise<void> {
+  drain(): Promise<void> {
     this.unsubscribe();
+    return Promise.resolve();
   }
 
   isDraining(): boolean {
@@ -262,7 +262,7 @@ Deno.test("processWorkPayload emits started and completed", async () => {
   const published: Array<{ subject: string; payload: JobEvent }> = [];
   const manager = sampleManager<{ pages: number }>(published);
 
-  const outcome = await processWorkPayload(manager, sampleWorkPayload(), async () => ({ pages: 3 }));
+  const outcome = await processWorkPayload(manager, sampleWorkPayload(), () => Promise.resolve({ pages: 3 }));
 
   assertEquals(outcome, { outcome: "completed", tries: 1, result: { pages: 3 } });
   assertEquals(published.map((entry) => entry.subject), [
@@ -275,7 +275,7 @@ Deno.test("processWorkPayload emits retry for retryable failure", async () => {
   const published: Array<{ subject: string; payload: JobEvent }> = [];
   const manager = sampleManager<unknown>(published);
 
-  const outcome = await processWorkPayload(manager, sampleWorkPayload(), async () => {
+  const outcome = await processWorkPayload(manager, sampleWorkPayload(), () => {
     throw JobProcessError.retryable("boom");
   });
 
@@ -287,7 +287,7 @@ Deno.test("processWorkPayload accepts retried work events", async () => {
   const published: Array<{ subject: string; payload: JobEvent }> = [];
   const manager = sampleManager<{ ok: boolean }>(published);
 
-  const outcome = await processWorkPayload(manager, sampleWorkPayload("retried"), async () => ({ ok: true }));
+  const outcome = await processWorkPayload(manager, sampleWorkPayload("retried"), () => Promise.resolve({ ok: true }));
 
   assertEquals(outcome, { outcome: "completed", tries: 1, result: { ok: true } });
   assertEquals(published[0]?.payload.eventType, "started");
@@ -297,7 +297,7 @@ Deno.test("processWorkPayload returns undefined for invalid payload", async () =
   const published: Array<{ subject: string; payload: JobEvent }> = [];
   const manager = sampleManager<{ ok: boolean }>(published);
 
-  const outcome = await processWorkPayload(manager, new TextEncoder().encode('{"not":"a-job"}'), async () => ({ ok: true }));
+  const outcome = await processWorkPayload(manager, new TextEncoder().encode('{"not":"a-job"}'), () => Promise.resolve({ ok: true }));
 
   assertEquals(outcome, undefined);
   assertEquals(published.length, 0);
@@ -312,14 +312,14 @@ Deno.test("processWorkPayloadWithContextAndHeartbeat validates payload before ha
     manager,
     sampleWorkPayload(),
     new JobCancellationToken(),
-    async () => {},
-    async () => {
+    () => Promise.resolve(),
+    () => {
       handled = true;
-      return { ok: true };
+      return Promise.resolve({ ok: true });
     },
     {
       payloadSchema: documentPayloadSchemaRef,
-      validatePayload: async ({ schema, job }: { schema?: { schema: string }; job: Job<unknown, { ok: boolean }> }) => {
+      validatePayload: ({ schema, job }: { schema?: { schema: string }; job: Job<unknown, { ok: boolean }> }) => {
         if (schema?.schema !== "DocumentPayload") {
           throw new Error("unexpected payload schema");
         }
@@ -365,8 +365,9 @@ Deno.test("processWorkPayloadWithContextAndHeartbeat uses heartbeat hook without
     manager,
     sampleWorkPayload(),
     new JobCancellationToken(),
-    async () => {
+    () => {
       heartbeats += 1;
+      return Promise.resolve();
     },
     async (job: ActiveJob<unknown, { ok: boolean }>) => {
       await job.heartbeat();
@@ -418,13 +419,13 @@ Deno.test("startWorkerHostFromBinding starts workers and per-job-type heartbeats
     version: "1.2.3",
     heartbeatIntervalMs: 5,
     nowIso: () => "2026-03-28T12:00:00.000Z",
-    startWorker: async ({ queueType, workerIndex, cancellation }: { queueType: string; workerIndex: number; cancellation: JobCancellationToken }) => {
+    startWorker: ({ queueType, workerIndex, cancellation }: { queueType: string; workerIndex: number; cancellation: JobCancellationToken }) => {
       started.push(`${queueType}:${workerIndex}:${cancellation.isCancelled()}`);
-      return {
+      return Promise.resolve({
         async stop() {
           stopped.push(`${queueType}:${workerIndex}`);
         },
-      };
+      });
     },
   });
 
@@ -450,7 +451,7 @@ Deno.test("startWorkerHostFromBinding rejects missing queue or invalid concurren
   await assertRejects(
     () => startWorkerHostFromBinding(sampleBindings(), {
       instanceId: "instance-1",
-      startWorker: async () => ({ async stop() {} }),
+      startWorker: () => Promise.resolve({ stop: async () => {} }),
       queueTypes: ["missing"],
     }),
     Error,
@@ -462,7 +463,7 @@ Deno.test("startWorkerHostFromBinding rejects missing queue or invalid concurren
   await assertRejects(
     () => startWorkerHostFromBinding(binding, {
       instanceId: "instance-1",
-      startWorker: async () => ({ async stop() {} }),
+      startWorker: () => Promise.resolve({ stop: async () => {} }),
     }),
     Error,
     "Worker queue 'document-process' has invalid concurrency 0; expected >= 1",
@@ -479,11 +480,11 @@ Deno.test("startQueueWorkerLoop acks completed work and naks retryable work", as
 
   const loop = await startQueueWorkerLoop({
     manager,
-    consumer: { async consume() { return messages; } },
+    consumer: { consume() { return Promise.resolve(messages); } },
     cancelSubscription: cancels,
-    handler: async (job: ActiveJob<unknown, { ok: boolean }>) => {
+    handler: (job: ActiveJob<unknown, { ok: boolean }>) => {
       if (job.job().id === "job-1" && completed.acked === 0) {
-        return { ok: true };
+        return Promise.resolve({ ok: true });
       }
       throw JobProcessError.retryable("boom");
     },
@@ -510,12 +511,12 @@ Deno.test("startQueueWorkerLoop skips and acks work already terminal in projecti
 
   const loop = await startQueueWorkerLoop({
     manager,
-    consumer: { async consume() { return messages; } },
+    consumer: { consume() { return Promise.resolve(messages); } },
     cancelSubscription: cancels,
-    getProjectedJob: async () => sampleProjectedJob("completed"),
-    handler: async () => {
+    getProjectedJob: () => Promise.resolve(sampleProjectedJob("completed")),
+    handler: () => {
       handled = true;
-      return { ok: true };
+      return Promise.resolve({ ok: true });
     },
   });
 
@@ -539,15 +540,15 @@ Deno.test("startQueueWorkerLoop clears pending cancellation when terminal work i
 
   const loop = await startQueueWorkerLoop({
     manager,
-    consumer: { async consume() { return messages; } },
+    consumer: { consume() { return Promise.resolve(messages); } },
     cancelSubscription: cancels,
-    getProjectedJob: async () => {
+    getProjectedJob: () => {
       projectionCalls += 1;
-      return projectionCalls === 1 ? sampleProjectedJob("completed") : undefined;
+      return Promise.resolve(projectionCalls === 1 ? sampleProjectedJob("completed") : undefined);
     },
-    handler: async (job) => {
+    handler: (job) => {
       cancelled = job.isCancelled();
-      return { ok: true };
+      return Promise.resolve({ ok: true });
     },
   });
 
@@ -582,10 +583,10 @@ Deno.test("startQueueWorkerLoop fails invalid payloads before handler execution"
 
   const loop = await startQueueWorkerLoop({
     manager,
-    consumer: { async consume() { return messages; } },
+    consumer: { consume() { return Promise.resolve(messages); } },
     cancelSubscription: cancels,
     payloadSchema: documentPayloadSchemaRef,
-    validatePayload: async ({ schema, job }: { schema?: { schema: string }; job: Job<unknown, { ok: boolean }> }) => {
+    validatePayload: ({ schema, job }: { schema?: { schema: string }; job: Job<unknown, { ok: boolean }> }) => {
       if (schema?.schema !== "DocumentPayload") {
         throw new Error(`unexpected schema ${schema}`);
       }
@@ -593,9 +594,9 @@ Deno.test("startQueueWorkerLoop fails invalid payloads before handler execution"
         throw new Error("payload does not match DocumentPayload");
       }
     },
-    handler: async () => {
+    handler: () => {
       handled = true;
-      return { ok: true };
+      return Promise.resolve({ ok: true });
     },
   });
 
@@ -623,7 +624,7 @@ Deno.test("startQueueWorkerLoop propagates cancel events through in-flight regis
 
   const loop = await startQueueWorkerLoop({
     manager,
-    consumer: { async consume() { return messages; } },
+    consumer: { consume() { return Promise.resolve(messages); } },
     cancelSubscription: cancels,
     handler: async (job: ActiveJob<unknown, { ok: boolean }>) => {
       await new Promise((resolve) => setTimeout(resolve, 5));
@@ -663,7 +664,7 @@ Deno.test("startQueueWorkerLoop stop triggers shutdown cancellation and unsubscr
 
   const loop = await startQueueWorkerLoop({
     manager,
-    consumer: { async consume() { return messages; } },
+    consumer: { consume() { return Promise.resolve(messages); } },
     cancelSubscription: cancels,
     handler: async (job: ActiveJob<unknown, { ok: boolean }>) => {
       await new Promise((resolve) => setTimeout(resolve, 20));
@@ -689,9 +690,9 @@ Deno.test("startQueueWorkerLoop stop surfaces background worker failures", async
 
   const loop = await startQueueWorkerLoop({
     manager,
-    consumer: { async consume() { return messages; } },
+    consumer: { consume() { return Promise.resolve(messages); } },
     cancelSubscription: cancels,
-    handler: async () => {
+    handler: () => {
       throw new Error("unexpected worker failure");
     },
   });
@@ -724,13 +725,13 @@ Deno.test("startNatsQueueWorker creates durable consumer and subscribes to cance
     queueType: "document-process",
     jsm: {
       consumers: {
-        async add(stream: string, config: Record<string, unknown>) {
+        add(stream: string, config: Record<string, unknown>) {
           added.push({ stream, config });
-          return { name: "documents-document-process" };
+          return Promise.resolve({ name: "documents-document-process" });
         },
-        async info(stream: string, consumer: string) {
+        info(stream: string, consumer: string) {
           infos.push({ stream, consumer });
-          return { name: consumer };
+          return Promise.resolve({ name: consumer });
         },
       },
     },
@@ -738,14 +739,14 @@ Deno.test("startNatsQueueWorker creates durable consumer and subscribes to cance
       consumers: {
         getConsumerFromInfo() {
           return {
-            async consume() {
-              return messages;
+            consume() {
+              return Promise.resolve(messages);
             },
           };
         },
       },
     },
-    handler: async () => ({ ok: true }),
+    handler: () => Promise.resolve({ ok: true }),
   });
 
   messages.push(message);
@@ -781,23 +782,23 @@ Deno.test("startNatsQueueWorker falls back to consumer info when add fails", asy
     queueType: "document-process",
     jsm: {
       consumers: {
-        async add() {
+        add() {
           throw new Error("exists");
         },
-        async info(stream: string, consumer: string) {
+        info(stream: string, consumer: string) {
           infos.push({ stream, consumer });
-          return { name: consumer };
+          return Promise.resolve({ name: consumer });
         },
       },
     },
     js: {
       consumers: {
         getConsumerFromInfo() {
-          return { async consume() { return messages; } };
+          return { consume() { return Promise.resolve(messages); } };
         },
       },
     },
-    handler: async () => ({ ok: true }),
+    handler: () => Promise.resolve({ ok: true }),
   });
 
   await worker.stop();
@@ -818,32 +819,33 @@ Deno.test("startNatsQueueWorker passes payload validation into the worker loop",
     manager,
     binding: sampleBindings(),
     queueType: "document-process",
-    validatePayload: async (args: { schema?: { schema: string }; job: Job<unknown, { ok: boolean }> }) => {
+    validatePayload: (args: { schema?: { schema: string }; job: Job<unknown, { ok: boolean }> }) => {
       validatedSchema = args.schema?.schema ?? "";
       if ((args.job.payload as { documentId?: string }).documentId !== "allowed-doc") {
         throw new Error(`payload does not match ${args.schema?.schema}`);
       }
+      return Promise.resolve();
     },
     jsm: {
       consumers: {
-        async add() {
-          return { name: "documents-document-process" };
+        add() {
+          return Promise.resolve({ name: "documents-document-process" });
         },
-        async info() {
-          return { name: "documents-document-process" };
+        info() {
+          return Promise.resolve({ name: "documents-document-process" });
         },
       },
     },
     js: {
       consumers: {
         getConsumerFromInfo() {
-          return { async consume() { return messages; } };
+          return { consume() { return Promise.resolve(messages); } };
         },
       },
     },
-    handler: async () => {
+    handler: () => {
       handled = true;
-      return { ok: true };
+      return Promise.resolve({ ok: true });
     },
   });
 
@@ -884,8 +886,8 @@ Deno.test("startNatsQueueWorker passes result validation into the worker loop", 
     manager,
     binding: sampleBindings(),
     queueType: "document-process",
-    validatePayload: async () => {},
-    validateResult: async ({ schema, result }) => {
+    validatePayload: () => Promise.resolve(),
+    validateResult: ({ schema, result }) => {
       validatedSchema = schema?.schema ?? "";
       if (result.pages !== 4) {
         throw new Error(`result does not match ${schema?.schema}`);
@@ -893,24 +895,24 @@ Deno.test("startNatsQueueWorker passes result validation into the worker loop", 
     },
     jsm: {
       consumers: {
-        async add() {
-          return { name: "documents-document-process" };
+        add() {
+          return Promise.resolve({ name: "documents-document-process" });
         },
-        async info() {
-          return { name: "documents-document-process" };
+        info() {
+          return Promise.resolve({ name: "documents-document-process" });
         },
       },
     },
     js: {
       consumers: {
         getConsumerFromInfo() {
-          return { async consume() { return messages; } };
+          return { consume() { return Promise.resolve(messages); } };
         },
       },
     },
-    handler: async () => {
+    handler: () => {
       handled = true;
-      return { pages: 3 };
+      return Promise.resolve({ pages: 3 });
     },
   });
 
@@ -950,29 +952,30 @@ Deno.test("startNatsQueueWorker runs validator then handler on valid payload", a
     manager,
     binding: sampleBindings(),
     queueType: "document-process",
-    validatePayload: async ({ schema, job }: { schema?: { schema: string }; job: Job<unknown, { ok: boolean }> }) => {
+    validatePayload: ({ schema, job }: { schema?: { schema: string }; job: Job<unknown, { ok: boolean }> }) => {
       calls.push(`validate:${schema?.schema}:${(job.payload as { documentId?: string }).documentId}`);
+      return Promise.resolve();
     },
     jsm: {
       consumers: {
-        async add() {
-          return { name: "documents-document-process" };
+        add() {
+          return Promise.resolve({ name: "documents-document-process" });
         },
-        async info() {
-          return { name: "documents-document-process" };
+        info() {
+          return Promise.resolve({ name: "documents-document-process" });
         },
       },
     },
     js: {
       consumers: {
         getConsumerFromInfo() {
-          return { async consume() { return messages; } };
+          return { consume() { return Promise.resolve(messages); } };
         },
       },
     },
-    handler: async () => {
+    handler: () => {
       calls.push("handle");
-      return { ok: true };
+      return Promise.resolve({ ok: true });
     },
   });
 
@@ -998,14 +1001,14 @@ Deno.test("startQueueWorkerLoop exposes redelivery metadata to handlers", async 
 
   const loop = await startQueueWorkerLoop({
     manager,
-    consumer: { async consume() { return messages; } },
+    consumer: { consume() { return Promise.resolve(messages); } },
     cancelSubscription: cancels,
-    handler: async (job) => {
+    handler: (job) => {
       seen = {
         redeliveryCount: job.redeliveryCount(),
         redelivered: job.isRedelivery(),
       };
-      return { ok: true };
+      return Promise.resolve({ ok: true });
     },
   });
 
@@ -1038,16 +1041,17 @@ Deno.test("startNatsWorkerHostFromBinding wires validator into spawned queue wor
     nats: fakeNatsSubscriber(cancels),
     instanceId: "instance-1",
     manager,
-    validatePayload: async ({ schema }: { schema?: { schema: string }; job: Job<unknown, { ok: boolean }> }) => {
+    validatePayload: ({ schema }: { schema?: { schema: string }; job: Job<unknown, { ok: boolean }> }) => {
       validations.push(schema?.schema ?? "");
+      return Promise.resolve();
     },
     jsm: {
       consumers: {
-        async add(_stream: string, config: Record<string, unknown>) {
-          return { name: config.durable_name };
+        add(_stream: string, config: Record<string, unknown>) {
+          return Promise.resolve({ name: config.durable_name });
         },
-        async info(_stream: string, consumer: string) {
-          return { name: consumer };
+        info(_stream: string, consumer: string) {
+          return Promise.resolve({ name: consumer });
         },
       },
     },
@@ -1055,11 +1059,11 @@ Deno.test("startNatsWorkerHostFromBinding wires validator into spawned queue wor
       consumers: {
         getConsumerFromInfo(info: { name: string }) {
           const queueType = info.name === "documents-thumbnail" ? "thumbnail" : "document-process";
-          return { async consume() { return messagesByQueue.get(queueType)!; } };
+          return { consume() { return Promise.resolve(messagesByQueue.get(queueType)!); } };
         },
       },
     },
-    handler: async () => ({ ok: true }),
+    handler: () => Promise.resolve({ ok: true }),
   });
 
   messagesByQueue.get("document-process")?.push(new FakeWorkMessage(new TextEncoder().encode(JSON.stringify({
@@ -1120,11 +1124,11 @@ Deno.test("startNatsWorkerHostFromBinding propagates host shutdown to in-flight 
     manager,
     jsm: {
       consumers: {
-        async add(_stream: string, config: Record<string, unknown>) {
-          return { name: config.durable_name };
+        add(_stream: string, config: Record<string, unknown>) {
+          return Promise.resolve({ name: config.durable_name });
         },
-        async info(_stream: string, consumer: string) {
-          return { name: consumer };
+        info(_stream: string, consumer: string) {
+          return Promise.resolve({ name: consumer });
         },
       },
     },
@@ -1132,7 +1136,7 @@ Deno.test("startNatsWorkerHostFromBinding propagates host shutdown to in-flight 
       consumers: {
         getConsumerFromInfo(info: { name: string }) {
           const queueType = info.name === "documents-thumbnail" ? "thumbnail" : "document-process";
-          return { async consume() { return messagesByQueue.get(queueType)!; } };
+          return { consume() { return Promise.resolve(messagesByQueue.get(queueType)!); } };
         },
       },
     },
@@ -1183,18 +1187,18 @@ Deno.test("startNatsWorkerHostFromBinding stops consuming new work after shutdow
     manager,
     jsm: {
       consumers: {
-        async add(_stream: string, config: Record<string, unknown>) {
-          return { name: config.durable_name };
+        add(_stream: string, config: Record<string, unknown>) {
+          return Promise.resolve({ name: config.durable_name });
         },
-        async info(_stream: string, consumer: string) {
-          return { name: consumer };
+        info(_stream: string, consumer: string) {
+          return Promise.resolve({ name: consumer });
         },
       },
     },
     js: {
       consumers: {
         getConsumerFromInfo() {
-          return { async consume() { return messages; } };
+          return { consume() { return Promise.resolve(messages); } };
         },
       },
     },
@@ -1236,12 +1240,12 @@ Deno.test("startQueueWorkerLoop does not start work once host shutdown is active
 
   const loop = await startQueueWorkerLoop({
     manager,
-    consumer: { async consume() { return messages; } },
+    consumer: { consume() { return Promise.resolve(messages); } },
     cancelSubscription: cancels,
     hostCancellation,
-    handler: async () => {
+    handler: () => {
       handled = true;
-      return { ok: true };
+      return Promise.resolve({ ok: true });
     },
   });
 

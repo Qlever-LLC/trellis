@@ -1,0 +1,312 @@
+This guide walks through building a custom Trellis portal for custom login and onboarding experiences. Trellis already ships with a built-in portal for both user login and generic workload onboarding. Custom portals let a Trellis admin replace that built-in experience for all login flows, one browser app, all workload flows, or one workload profile.
+
+Before starting, read [Trellis Concepts](/guides/concepts) and [Write a SvelteKit app](/guides/writing-sveltekit-apps) for background on contracts, auth flows, and packages.
+
+## What you need
+
+- a running Trellis environment
+- the `trellis` CLI (see [Install the Trellis CLI](/guides/install-trellis-cli))
+- admin access to the Trellis instance
+
+## How the portal fits in
+
+When a browser app starts a Trellis login with `GET /auth/login`, Trellis creates a unique `flowId` for that login and redirects the browser into the best matching portal for that flow.
+
+For a normal user login, the portal usually shows the supported identity providers, starts the chosen provider flow, and then shows the approval screen so the user can allow the original app to access their account.
+
+For workload onboarding, the portal may need to do more than show login screens. For example, a user might be activating a new device and the portal may need to collect extra details, confirm payment, or call Trellis APIs to finish setup. In that kind of flow, the portal is not just a login screen anymore. It is also acting like a Trellis web app for that user.
+
+Some flows may also pause for administrative review before the final step is allowed. That review might be done manually by an admin user or by a local Trellis service that checks some outside condition first.
+
+Trellis trusts a portal because a Trellis admin registered its URL. If the portal also talks to Trellis after login, it does so as the logged-in user through a normal browser app contract, not as a service.
+
+## 1. Create the project
+
+```sh
+npx sv create my-portal
+cd my-portal
+```
+
+Install Trellis packages:
+
+```sh
+deno add @qlever-llc/trellis @qlever-llc/trellis-svelte
+```
+
+## 2. Optionally define a portal app contract
+
+Passive portals that only handle sign-in and approval do not need a Trellis app contract, so this step can be skipped.
+
+Portals that keep going after login and call Trellis for the user need their own app contract. These are no different from any other Trellis app contract, as shown here in `src/lib/contracts/portal.ts`:
+
+```ts
+import { defineContract } from "@qlever-llc/trellis";
+import { auth } from "@qlever-llc/trellis/sdk/auth";
+
+export const portalContract = defineContract({
+  id: "my-portal@v1",
+  displayName: "My Portal",
+  description: "Portal-hosted app routes used after login.",
+  uses: {
+    auth: auth.useDefaults(),
+  },
+});
+```
+
+## 3. Implement the portal flow
+
+The portal app needs one page that reads `flowId` from the URL, loads the current flow state, and renders the right user experience.
+
+This flow state can also carry app-defined context from the original app. In this example, the portal accepts an optional subtitle supplied by the initiating app.
+
+### Flow state page
+
+The intended Trellis developer experience is to use portal helpers rather than rebuilding the raw flow protocol by hand. The framework-agnostic helpers belong in `@qlever-llc/trellis`, while Svelte-specific wrappers belong in `@qlever-llc/trellis-svelte`.
+
+For a SvelteKit portal, the target shape is a page like `src/routes/login/+page.svelte`:
+
+```svelte
+<script lang="ts">
+  import { PUBLIC_TRELLIS_AUTH_URL } from "$env/static/public";
+  import { page } from "$app/state";
+  import { onMount } from "svelte";
+  import { createPortalFlow } from "@qlever-llc/trellis-svelte";
+
+  const portal = createPortalFlow({
+    authUrl: PUBLIC_TRELLIS_AUTH_URL,
+    getUrl: () => page.url,
+  });
+
+  function appContext(): { subtitle?: string } | null {
+    if (portal.state?.status !== "choose_provider") return null;
+    const value = portal.state.app.context;
+    if (!value || typeof value !== "object") return null;
+    const record = value as Record<string, unknown>;
+    return {
+      subtitle: typeof record.subtitle === "string" ? record.subtitle : undefined,
+    };
+  }
+
+  onMount(async () => {
+    await portal.load();
+  });
+</script>
+
+{#if portal.loading}
+  <p>Loading...</p>
+{:else if portal.error}
+  <p class="text-error">{portal.error}</p>
+{:else if portal.state?.status === "choose_provider"}
+  <h1>Sign in to {portal.state.app.displayName}</h1>
+  {#if appContext()?.subtitle}
+    <p>{appContext()?.subtitle}</p>
+  {/if}
+  <ul>
+    {#each portal.state.providers as provider}
+      <li>
+        <a href={portal.providerUrl(provider.id)}>{provider.displayName}</a>
+      </li>
+    {/each}
+  </ul>
+{:else if portal.state?.status === "approval_required"}
+  <h1>Approve {portal.state.approval.displayName}</h1>
+  <p>{portal.state.approval.description}</p>
+  <ul>
+    {#each portal.state.approval.capabilities as cap}
+      <li>{cap}</li>
+    {/each}
+  </ul>
+  <button onclick={() => portal.approve()}>Approve</button>
+  <button onclick={() => portal.deny()}>Deny</button>
+{:else if portal.state?.status === "approval_denied"}
+  <h1>Access denied</h1>
+  <p>You denied access to {portal.state.approval.displayName}.</p>
+{:else if portal.state?.status === "insufficient_capabilities"}
+  <h1>Missing capabilities</h1>
+  <p>Your account is missing: {portal.state.missingCapabilities.join(", ")}</p>
+{:else if portal.state?.status === "expired"}
+  <p>This login session has expired. Return to the app and try again.</p>
+{/if}
+```
+
+The helper shown above is the intended public shape. Under the hood it still uses the auth-owned flow endpoints, but app authors should not need to rebuild those request details by hand.
+
+The `portal.state.app.context` payload is optional and app-defined. Portals must validate fields and should only access the fields they define.
+
+This is still a static SPA. The portal can read `flowId` straight from the browser URL, so it does not need a SvelteKit server route or redirect shim.
+
+Set your `entryUrl` to `https://my-portal.example.com/login` when registering the portal in step 5.
+
+## 4. Deploy the portal app
+
+Build and deploy the portal to a stable URL. The URL must be reachable by browsers that are logging into your Trellis deployment.
+
+For a basic static adapter deployment:
+
+```sh
+npm run build
+```
+
+Deploy the `build/` output to your hosting provider and note the base URL, for example `https://my-portal.example.com`.
+
+## 5. Register the portal
+
+With the portal deployed, register it with Trellis.
+
+For a passive portal that only handles sign-in and approval:
+
+```sh
+trellis portals create \
+  --portal-id my-portal \
+  --entry-url https://my-portal.example.com/login
+```
+
+For a portal that also talks to Trellis after login:
+
+```sh
+trellis portals create \
+  --portal-id my-portal \
+  --entry-url https://my-portal.example.com/login \
+  --app-contract-id my-portal@v1
+```
+
+Flag meanings:
+
+- `--portal-id`: stable deployment-owned identifier for this portal
+- `--entry-url`: browser entry point Trellis redirects into for auth or activation flows
+- `--app-contract-id`: optional browser app contract used only when the portal later calls Trellis as the logged-in user
+
+## 6. Choose where Trellis uses this portal
+
+Once a portal is registered, Trellis trusts it to carry out the flows it is selected for. Portal choice is always a deployment-admin decision.
+
+### For all browser logins
+
+```sh
+trellis portals logins default set --portal-id my-portal
+```
+
+To switch back to the built-in Trellis login portal:
+
+```sh
+trellis portals logins default set --builtin
+```
+
+### For one browser app
+
+```sh
+trellis portals logins set \
+  --contract-id my-console@v1 \
+  --portal-id my-portal
+```
+
+To force the built-in Trellis login portal for one app, even when a custom login default exists:
+
+```sh
+trellis portals logins set \
+  --contract-id my-console@v1 \
+  --builtin
+```
+
+To remove the app-specific rule and return to the login default chain:
+
+```sh
+trellis portals logins clear --contract-id my-console@v1
+```
+
+### For all workload onboarding
+
+```sh
+trellis portals workloads default set --portal-id my-portal
+```
+
+To switch back to the built-in Trellis workload portal:
+
+```sh
+trellis portals workloads default set --builtin
+```
+
+### For one workload profile
+
+```sh
+trellis portals workloads set \
+  --profile-id my-workload.default \
+  --portal-id my-portal
+```
+
+To force the built-in Trellis workload portal for one profile, even when a custom workload default exists:
+
+```sh
+trellis portals workloads set \
+  --profile-id my-workload.default \
+  --builtin
+```
+
+To remove the profile-specific rule and return to the workload default chain:
+
+```sh
+trellis portals workloads clear --profile-id my-workload.default
+```
+
+## 7. Test the flow
+
+Open the Trellis-connected browser app or workload flow you want to test. The browser should redirect to your custom portal, let you complete the flow, and then continue into a normal authenticated user session or workload activation.
+
+## Updating the portal record
+
+Re-register the portal if the `entryUrl` or optional `appContractId` changes:
+
+```sh
+trellis portals create \
+  --portal-id my-portal \
+  --entry-url https://my-portal.example.com/login \
+  --app-contract-id my-portal@v2
+```
+
+For a passive portal, leave off `--app-contract-id`.
+
+`create` replaces the existing active portal record.
+
+Updating `appContractId` changes only the user-authenticated browser app contract associated with the portal. It does not install or upgrade a service principal.
+
+## Updating login portal policy
+
+Change the login default:
+
+```sh
+trellis portals logins default set --portal-id my-portal
+```
+
+Change one app-specific rule:
+
+```sh
+trellis portals logins set \
+  --contract-id my-console@v1 \
+  --portal-id my-portal
+```
+
+## Updating workload portal policy
+
+Change the workload default:
+
+```sh
+trellis portals workloads default set --portal-id my-portal
+```
+
+Change one workload-profile rule:
+
+```sh
+trellis portals workloads set \
+  --profile-id my-workload.default \
+  --portal-id my-portal
+```
+
+## Disabling the portal
+
+To disable the custom portal record:
+
+```sh
+trellis portals disable --portal-id my-portal
+```
+
+After disabling it, point any login or workload selection rules back to `--builtin` or another custom portal.

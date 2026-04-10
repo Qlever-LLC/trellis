@@ -13,6 +13,7 @@ struct RecordingHandler {
 }
 
 impl RecordingHandler {
+    #[allow(clippy::result_large_err)]
     fn allow(payload: &str) -> Self {
         Self {
             result: Arc::new({
@@ -23,6 +24,7 @@ impl RecordingHandler {
         }
     }
 
+    #[allow(clippy::result_large_err)]
     fn deny_request(subject: &str, session_key: &str) -> Self {
         Self {
             result: Arc::new({

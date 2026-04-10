@@ -1,3 +1,4 @@
+import { canonicalizeJsonValue } from "../utils.ts";
 import { Value } from "typebox/value";
 import {
   type BindResponse,
@@ -6,7 +7,7 @@ import {
   type SentinelCreds,
 } from "../schemas.ts";
 import type { SessionKeyHandle } from "./session.ts";
-import { bindSig, getPublicSessionKey, oauthInitSig } from "./session.ts";
+import { bindFlowSig, bindSig, getPublicSessionKey, oauthInitSig } from "./session.ts";
 
 export type {
   BindResponse,
@@ -19,8 +20,26 @@ export type AuthConfig = {
   authUrl: string;
 };
 
-function encodeContractForQuery(contract: Record<string, unknown>): string {
-  const json = JSON.stringify(contract);
+type BuildLoginUrlArgs = {
+  config: AuthConfig;
+  provider?: string;
+  redirectTo: string;
+  handle: SessionKeyHandle;
+  contract: Record<string, unknown>;
+  context?: unknown;
+};
+
+type BuildLoginUrlFlatArgs = {
+  authUrl: string;
+  provider?: string;
+  redirectTo: string;
+  handle: SessionKeyHandle;
+  contract: Record<string, unknown>;
+  context?: unknown;
+};
+
+function encodeJsonForQuery(value: unknown): string {
+  const json = canonicalizeJsonValue(value);
   const bytes = new TextEncoder().encode(json);
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
@@ -33,40 +52,126 @@ export async function buildLoginUrl(
   redirectTo: string,
   handle: SessionKeyHandle,
   contract: Record<string, unknown>,
+  context?: unknown,
+): Promise<string>;
+export async function buildLoginUrl(
+  args: {
+    authUrl: string;
+    provider?: string;
+    redirectTo: string;
+    handle: SessionKeyHandle;
+    contract: Record<string, unknown>;
+    context?: unknown;
+  },
+): Promise<string>;
+export async function buildLoginUrl(
+  args: {
+    config: AuthConfig;
+    provider?: string;
+    redirectTo: string;
+    handle: SessionKeyHandle;
+    contract: Record<string, unknown>;
+    context?: unknown;
+  },
+): Promise<string>;
+export async function buildLoginUrl(
+  argsOrConfig: BuildLoginUrlArgs | BuildLoginUrlFlatArgs | AuthConfig,
+  provider?: string,
+  redirectTo?: string,
+  handle?: SessionKeyHandle,
+  contract?: Record<string, unknown>,
+  context?: unknown,
 ): Promise<string> {
-  const sessionKey = getPublicSessionKey(handle);
-  const sig = await oauthInitSig(handle, redirectTo);
+  const resolved = isNestedBuildLoginUrlArgs(argsOrConfig)
+    ? argsOrConfig
+    : isFlatBuildLoginUrlArgs(argsOrConfig)
+    ? {
+      config: { authUrl: argsOrConfig.authUrl },
+      provider: argsOrConfig.provider,
+      redirectTo: argsOrConfig.redirectTo,
+      handle: argsOrConfig.handle,
+      contract: argsOrConfig.contract,
+      context: argsOrConfig.context,
+    }
+    : buildLoginUrlArgsFromPositional(argsOrConfig, provider, redirectTo, handle, contract, context);
+  const sessionKey = getPublicSessionKey(resolved.handle);
+  const sig = await oauthInitSig(resolved.handle, resolved.redirectTo, resolved.context);
 
-  const path = provider ? `/auth/login/${provider}` : "/auth/login";
-  const url = new URL(`${config.authUrl}${path}`);
-  url.searchParams.set("redirectTo", redirectTo);
+  const url = new URL(`${resolved.config.authUrl}/auth/login`);
+  url.searchParams.set("redirectTo", resolved.redirectTo);
   url.searchParams.set("sessionKey", sessionKey);
   url.searchParams.set("sig", sig);
-  url.searchParams.set("contract", encodeContractForQuery(contract));
+  url.searchParams.set("contract", encodeJsonForQuery(resolved.contract));
+  if (resolved.provider) {
+    url.searchParams.set("provider", resolved.provider);
+  }
+  if (resolved.context !== undefined) {
+    url.searchParams.set("context", encodeJsonForQuery(resolved.context));
+  }
 
   return url.href;
 }
 
-export function extractAuthTokenFromFragment(
-  url: string = window.location.href,
-): string | null {
-  const parsed = new URL(url);
-  const fragment = parsed.hash.startsWith("#") ? parsed.hash.slice(1) : parsed.hash;
-  const params = new URLSearchParams(fragment);
-  return params.get("authToken");
+function buildLoginUrlArgsFromPositional(
+  config: AuthConfig,
+  provider: string | undefined,
+  redirectTo: string | undefined,
+  handle: SessionKeyHandle | undefined,
+  contract: Record<string, unknown> | undefined,
+  context: unknown,
+): BuildLoginUrlArgs {
+  if (redirectTo === undefined || handle === undefined || contract === undefined) {
+    throw new TypeError("buildLoginUrl requires redirectTo, handle, and contract");
+  }
+  return {
+    config,
+    provider,
+    redirectTo,
+    handle,
+    contract,
+    context,
+  };
 }
 
-export function extractAuthErrorFromFragment(
-  url: string = window.location.href,
-): string | null {
-  const parsed = new URL(url);
-  const fragment = parsed.hash.startsWith("#") ? parsed.hash.slice(1) : parsed.hash;
-  const params = new URLSearchParams(fragment);
-  return params.get("authError");
+function isNestedBuildLoginUrlArgs(
+  value: BuildLoginUrlArgs | BuildLoginUrlFlatArgs | AuthConfig,
+): value is BuildLoginUrlArgs {
+  return "config" in value;
+}
+
+function isFlatBuildLoginUrlArgs(
+  value: BuildLoginUrlArgs | BuildLoginUrlFlatArgs | AuthConfig,
+): value is BuildLoginUrlFlatArgs {
+  return "authUrl" in value && "redirectTo" in value && "handle" in value && "contract" in value;
 }
 
 export function isBindSuccessResponse(response: BindResponse): response is BindSuccessResponse {
   return response.status === "bound";
+}
+
+export async function bindFlow(
+  config: AuthConfig,
+  handle: SessionKeyHandle,
+  flowId: string,
+): Promise<BindResponse> {
+  const sessionKey = getPublicSessionKey(handle);
+  const sig = await bindFlowSig(handle, flowId);
+
+  const response = await fetch(
+    `${config.authUrl}/auth/flow/${encodeURIComponent(flowId)}/bind`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionKey, sig }),
+    },
+  );
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Bind failed: ${response.status} ${text}`);
+  }
+
+  return Value.Parse(BindResponseSchema, await response.json()) as BindResponse;
 }
 
 export async function bindSession(

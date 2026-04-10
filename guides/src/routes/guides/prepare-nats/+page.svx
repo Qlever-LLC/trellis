@@ -1,0 +1,263 @@
+This guide walks through preparing a NATS server for Trellis using rootless Podman and Quadlet. By the end you will have a running NATS instance with the accounts, credentials, and signing keys that the Trellis runtime expects.
+
+## What you need
+
+- `podman`
+- `systemctl --user` with Quadlet support
+
+All NATS account management is done through [`nsc`](https://github.com/nats-io/nsc) running inside the [`nats-box`](https://github.com/nats-io/nats-box) container, so there is nothing else to install.
+
+## 1. Create the local operator workspace
+
+Create a workspace that will hold configuration, credentials, signing keys, and NATS runtime state:
+
+```sh
+mkdir -p trellis/{config,keys,nsc,nkeys}
+cd trellis
+chmod 700 ./keys ./nsc ./nkeys
+chmod 750 ./config
+```
+
+Download [`nats.conf.template`](https://github.com/qlever-llc/trellis/blob/main/deploy/nats/nats.conf.template) and save it as `./config/nats.conf`.
+
+Private material lives under `./keys`, `./nsc`, and `./nkeys`. Keep those directories readable only by your local user. If you copy files into them later, re-apply restrictive permissions.
+
+## 2. Set up the nsc wrapper
+
+Create a small wrapper script so you can run `nsc` through nats-box without installing it locally. Save this as `./nsc.sh`:
+
+```sh
+#!/bin/sh
+exec podman run --rm --network host \
+  -v "$PWD:/workspace" \
+  -v "$PWD/nsc:/nsc" \
+  -v "$PWD/nkeys:/nkeys" \
+  -w /workspace \
+  -e NKEYS_PATH=/nkeys \
+  docker.io/natsio/nats-box:latest \
+  nsc "$@"
+```
+
+Pull the latest nats-box image and make the script executable:
+
+```sh
+podman pull docker.io/natsio/nats-box:latest
+chmod +x ./nsc.sh
+```
+
+Every `nsc` command in the rest of this guide uses `./nsc.sh`.
+
+## 3. Create the NATS accounts and users
+
+Trellis requires three NATS accounts:
+
+- **SYS** — the built-in system account used by the NATS server itself
+- **AUTH** — hosts the auth callout service and the sentinel watcher
+- **TRELLIS** — the account where all regular Trellis traffic flows
+
+Create the operator and accounts:
+
+```sh
+./nsc.sh add operator -n Trellis
+./nsc.sh add account -n SYS
+./nsc.sh add account -n AUTH
+./nsc.sh add account -n TRELLIS
+./nsc.sh edit operator --system-account SYS
+```
+
+Enable JetStream on the two application accounts so Trellis can use streams and KV buckets:
+
+```sh
+./nsc.sh edit account -n AUTH --js-mem-storage 256M --js-disk-storage 10G --js-streams -1 --js-consumer -1
+./nsc.sh edit account -n TRELLIS --js-mem-storage 256M --js-disk-storage 10G --js-streams -1 --js-consumer -1
+```
+
+Create the users that the current Trellis release expects:
+
+```sh
+./nsc.sh add user -a SYS -n sys
+./nsc.sh add user -a AUTH -n trellis
+./nsc.sh add user -a AUTH -n sentinel --deny-pubsub ">"
+./nsc.sh add user -a TRELLIS -n trellis
+```
+
+The `sys` user provides authenticated access to NATS system operations like pushing account JWTs — without it, anyone who can reach the server could modify accounts.
+
+The `sentinel` user is what clients connect as to trigger the auth callout flow. It has no publish or subscribe permissions because its only purpose is to initiate authentication. Once the callout completes, the client's connection will be upgraded to an authenticated ephemeral user within the TRELLIS account.
+
+## 4. Configure auth callout signing
+
+NATS auth callout lets an external service (in this case, Trellis) issue JWTs on behalf of connecting clients. Each account involved needs a signing key so valid tokens can be minted.
+
+Generate a signing key for the AUTH account, save the seed, and extract the public key. Run this as a single block:
+
+```sh
+AUTH_SIGNING=$(./nsc.sh generate nkey --account) && \
+  echo "$AUTH_SIGNING" | head -1 > ./keys/auth-issuer-signing.nk && \
+  AUTH_ISSUER_SIGNING_PUB=$(echo "$AUTH_SIGNING" | tail -1)
+```
+
+Do the same for the TRELLIS account:
+
+```sh
+TRELLIS_SIGNING=$(./nsc.sh generate nkey --account) && \
+  echo "$TRELLIS_SIGNING" | head -1 > ./keys/trellis-target-signing.nk && \
+  TRELLIS_TARGET_SIGNING_PUB=$(echo "$TRELLIS_SIGNING" | tail -1)
+```
+
+Attach both signing keys to their accounts:
+
+```sh
+./nsc.sh edit account -n AUTH --sk "$AUTH_ISSUER_SIGNING_PUB"
+./nsc.sh edit account -n TRELLIS --sk "$TRELLIS_TARGET_SIGNING_PUB"
+```
+
+Look up the public identities that the auth callout configuration needs:
+
+```sh
+AUTH_SERVICE_USER_NKEY=$(./nsc.sh describe user -a AUTH -n trellis --field sub | tr -d '"')
+TRELLIS_ACCOUNT_NKEY=$(./nsc.sh describe account -n TRELLIS --field sub | tr -d '"')
+```
+
+Wire up the auth callout on the AUTH account. This tells NATS which user is allowed to respond to authentication challenges and which external account it may issue tokens for:
+
+```sh
+./nsc.sh edit authcallout -a AUTH \
+  --auth-user "$AUTH_SERVICE_USER_NKEY" \
+  --allowed-account "$TRELLIS_ACCOUNT_NKEY" \
+  --curve generate
+```
+
+Generate the resolver config that the NATS server will include at startup:
+
+```sh
+./nsc.sh generate config --nats-resolver --sys-account SYS --config-file ./config/jwt.conf
+```
+
+Lock down the signing keys:
+
+```sh
+chmod 600 ./keys/*.nk
+```
+
+## 5. Prepare the NATS config
+
+The config template is already set up to:
+
+- include `./jwt.conf` for the generated resolver config
+- store JetStream data under `/data`
+- listen on the ports Trellis expects
+
+Review `./config/nats.conf` and confirm it includes `./jwt.conf`. No changes are needed for a standard local setup. Both files are mounted read-only into the container in the next step.
+
+## 6. Create a hardened Quadlet service
+
+Create the user Quadlet directory if it does not exist yet:
+
+```sh
+mkdir -p ~/.config/containers/systemd
+```
+
+Write `~/.config/containers/systemd/trellis-nats-data.volume`:
+
+```ini
+[Volume]
+```
+
+Write `~/.config/containers/systemd/trellis-nats-jwt.volume`:
+
+```ini
+[Volume]
+```
+
+These create named Podman volumes for JetStream storage and the JWT resolver store respectively.
+
+Write `~/.config/containers/systemd/trellis.network`:
+
+```ini
+[Network]
+```
+
+This creates a Podman network that all Trellis containers will share, allowing them to reach each other by container name.
+
+Then write `~/.config/containers/systemd/trellis-nats.container`:
+
+```ini
+[Unit]
+Description=Trellis local NATS
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+ContainerName=trellis-nats
+Image=docker.io/library/nats:latest
+Exec=-c /etc/nats/nats.conf
+PublishPort=127.0.0.1:4222:4222
+PublishPort=127.0.0.1:8080:8080
+PublishPort=127.0.0.1:8222:8222
+Volume=%h/trellis/config/nats.conf:/etc/nats/nats.conf:ro,Z
+Volume=%h/trellis/config/jwt.conf:/etc/nats/jwt.conf:ro,Z
+Volume=trellis-nats-data.volume:/data
+Volume=trellis-nats-jwt.volume:/jwt
+Network=trellis.network
+UserNS=keep-id
+NoNewPrivileges=true
+DropCapability=all
+ReadOnly=true
+Tmpfs=/tmp:rw,noexec,nosuid,nodev,size=16m
+
+[Service]
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+```
+
+The container runs rootless, binds its client, websocket, and health ports only to localhost, mounts config read-only, drops all Linux capabilities, and uses a read-only filesystem. Only `/data`, `/jwt`, and `/tmp` are writable.
+
+Private keys and credentials stay outside the container — the Quadlet only mounts config files and the data volume.
+
+If you want the user service to keep running after logout, enable linger once:
+
+```sh
+loginctl enable-linger "$USER"
+```
+
+## 7. Start NATS with systemd
+
+Reload the user manager, start the container, and enable it for future logins:
+
+```sh
+systemctl --user daemon-reload
+systemctl --user start trellis-nats.service
+```
+
+Push the account JWTs into the running resolver:
+
+```sh
+./nsc.sh push -A -u nats://127.0.0.1:4222
+```
+
+## 8. Verify
+
+Check the health endpoint:
+
+```sh
+curl http://127.0.0.1:8222/healthz
+```
+
+Confirm the service is running:
+
+```sh
+systemctl --user status trellis-nats.service
+```
+
+At this point you should have:
+
+- a running NATS server on `127.0.0.1:4222`
+- credentials under `./nkeys/creds/Trellis/`
+- signing keys in `./keys/`
+- resolver config in `./config/jwt.conf`
+
+These are used directly by [Starting Trellis](/guides/starting-trellis).

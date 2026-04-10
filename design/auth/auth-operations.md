@@ -61,12 +61,15 @@ Additional `trellis` service config:
 | users | None |
 | oauthStates | 5 min |
 | pendingAuth | 5 min |
-| deviceActivationHandoffs | 30 min |
-| deviceActivationRequests | deployment-defined review window |
-| deviceActivations | None |
-| deviceOnboardingHandlers | None |
-| deviceProfiles | None |
-| bindingTokens | 5 min to issue, bucket cleanup by TTL |
+| workloadActivationHandoffs | 30 min |
+| workloadActivations | None |
+| workloadInstances | None |
+| workloadProfiles | None |
+| portals | None |
+| portalLoginSelections | None |
+| portalWorkloadSelections | None |
+| portalDefaults | None |
+| bindingTokens | 5 min initial bind, 1h general renew, 24h CLI bind/renew by default; bucket cleanup by TTL |
 | services | None |
 | connections | 2h |
 
@@ -78,11 +81,14 @@ Cluster-wide required state:
 - sessions store
 - OAuth state store
 - pending auth store
-- device activation handoff store
-- device activation request store
-- device activation record store
-- device onboarding handler store
-- device profile store
+- workload activation handoff store
+- workload activation record store
+- workload instance store
+- workload profile store
+- portal store
+- login portal selection store
+- workload portal selection store
+- default portal setting store
 - binding token store
 - connection store
 
@@ -145,8 +151,9 @@ Minimum targets:
 - `/auth/login/:provider`
 - `/auth/callback/:provider`
 - `/auth/bind`
-- `/auth/device/activate`
-- `/auth/device/activate/wait`
+- `/auth/workloads/activate`
+- `/auth/workloads/activate/wait`
+- `/auth/workloads/connect-info`
 
 Deployments should not go live without configured limits.
 

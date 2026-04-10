@@ -1,7 +1,7 @@
 import type { NatsConnection } from "@nats-io/nats-core";
-import type { TrellisAPI } from "@qlever-llc/trellis-contracts";
-import type { Logger } from "pino";
+import type { TrellisAPI } from "./contracts.ts";
 
+import type { LoggerLike } from "./globals.ts";
 import type { TrellisAuth } from "./trellis.ts";
 import { Trellis } from "./trellis.ts";
 
@@ -16,7 +16,7 @@ export type ClientOpts = {
    * Defaults to "client".
    */
   name?: string;
-  log?: Logger;
+  log?: LoggerLike;
   timeout?: number;
   stream?: string;
   noResponderRetry?: NoResponderRetryOpts;
@@ -38,7 +38,7 @@ export function createClient<TApi extends TrellisAPI>(
   auth: TrellisAuth,
   opts?: ClientOpts,
 ): Trellis<TApi> {
-  const api = contract.API.owned ?? contract.API.trellis;
+  const api = contract.API.trellis ?? contract.API.owned;
   if (!api) {
     throw new Error("Contract is missing an owned or trellis API view");
   }
