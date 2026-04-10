@@ -36,6 +36,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+    env:
+      TRELLIS_USE_BOOTSTRAP: "1"
 
     steps:
       - name: Check out repository
@@ -52,7 +54,9 @@ jobs:
       - name: Cache Rust build artifacts
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: rust
+          workspaces: |
+            rust -> target
+            rust/bootstrap -> target
 
       - name: Generate SDK artifacts
         run: deno task build:sdk
@@ -110,6 +114,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+    env:
+      TRELLIS_USE_BOOTSTRAP: "1"
     strategy:
       fail-fast: false
       matrix:
@@ -136,7 +142,9 @@ jobs:
       - name: Cache Rust build artifacts
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: rust
+          workspaces: |
+            rust -> target
+            rust/bootstrap -> target
 
       - name: Generate SDK artifacts
         run: deno task build:sdk

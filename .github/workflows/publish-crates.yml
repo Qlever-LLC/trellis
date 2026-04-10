@@ -42,11 +42,15 @@ jobs:
       - name: Cache Rust build artifacts
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: rust
+          workspaces: |
+            rust -> target
+            rust/bootstrap -> target
 
       - name: Generate SDK artifacts
         run: deno task build:sdk
         working-directory: js
+        env:
+          TRELLIS_USE_BOOTSTRAP: "1"
 
       - name: Run workspace tests
         run: cargo test --workspace --locked
@@ -76,11 +80,15 @@ jobs:
       - name: Cache Rust build artifacts
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: rust
+          workspaces: |
+            rust -> target
+            rust/bootstrap -> target
 
       - name: Generate SDK artifacts
         run: deno task build:sdk
         working-directory: js
+        env:
+          TRELLIS_USE_BOOTSTRAP: "1"
 
       - name: Authenticate with crates.io
         id: auth
@@ -91,8 +99,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          cargo run -p trellis-cli --bin trellis -- generate rust --source ../js/services/trellis/catalog/contracts/trellis_auth.ts --out ../generated/rust/sdks/auth --crate-name trellis-sdk-auth --runtime-source registry
-          cargo run -p trellis-cli --bin trellis -- generate rust --source ../js/services/trellis/catalog/contracts/trellis_core.ts --out ../generated/rust/sdks/trellis-core --crate-name trellis-sdk-core --runtime-source registry
+          cargo run --manifest-path bootstrap/Cargo.toml -- generate rust --source ../js/services/trellis/catalog/contracts/trellis_auth.ts --out ../generated/rust/sdks/auth --crate-name trellis-sdk-auth --runtime-source registry
+          cargo run --manifest-path bootstrap/Cargo.toml -- generate rust --source ../js/services/trellis/catalog/contracts/trellis_core.ts --out ../generated/rust/sdks/trellis-core --crate-name trellis-sdk-core --runtime-source registry
 
       - name: Publish crates
         shell: bash

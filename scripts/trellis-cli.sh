@@ -11,6 +11,10 @@ if [[ -n "${TRELLIS_CLI_BIN:-}" ]]; then
   exec "$TRELLIS_CLI_BIN" "$@"
 fi
 
+if [[ "${TRELLIS_USE_BOOTSTRAP:-}" == "1" ]]; then
+  exec cargo run --manifest-path "$repo_root/rust/bootstrap/Cargo.toml" -- "$@"
+fi
+
 if [[ -x "$repo_root/rust/target/debug/trellis" ]]; then
   exec "$repo_root/rust/target/debug/trellis" "$@"
 fi
