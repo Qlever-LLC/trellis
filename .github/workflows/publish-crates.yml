@@ -94,14 +94,6 @@ jobs:
         id: auth
         uses: rust-lang/crates-io-auth-action@v1
 
-      - name: Generate publishable Rust SDK crates
-        working-directory: rust
-        run: |
-          set -euo pipefail
-
-          cargo run --manifest-path bootstrap/Cargo.toml -- generate rust --source ../js/services/trellis/catalog/contracts/trellis_auth.ts --out ../generated/rust/sdks/auth --crate-name trellis-sdk-auth --runtime-source registry
-          cargo run --manifest-path bootstrap/Cargo.toml -- generate rust --source ../js/services/trellis/catalog/contracts/trellis_core.ts --out ../generated/rust/sdks/trellis-core --crate-name trellis-sdk-core --runtime-source registry
-
       - name: Publish crates
         shell: bash
         working-directory: rust
@@ -129,29 +121,52 @@ jobs:
             done
           }
 
+          wait_for_registry_settle() {
+            echo "Waiting for crates.io index propagation..."
+            sleep 45
+          }
+
           publish_workspace_crate() {
             local crate="$1"
-            cargo publish --no-verify -p "$crate"
+            cargo publish -p "$crate"
             wait_for_registry_version "$crate" "$workspace_version"
           }
 
           publish_generated_crate() {
             local manifest="$1"
             local crate="$2"
-            cargo publish --no-verify --manifest-path "$manifest"
+            cargo publish --manifest-path "$manifest"
             wait_for_registry_version "$crate" "$workspace_version"
           }
 
-          # Publish in dependency order and skip local verification so crates.io
-          # index lag does not break the release chain for freshly published deps.
+          generate_publishable_sdk_crates() {
+            cargo run --manifest-path bootstrap/Cargo.toml -- generate rust --source ../js/services/trellis/catalog/contracts/trellis_auth.ts --out ../generated/rust/sdks/auth --crate-name trellis-sdk-auth --runtime-source registry
+            cargo run --manifest-path bootstrap/Cargo.toml -- generate rust --source ../js/services/trellis/catalog/contracts/trellis_core.ts --out ../generated/rust/sdks/trellis-core --crate-name trellis-sdk-core --runtime-source registry
+          }
+
+          # Publish crates that the generated Rust SDKs depend on before
+          # rewriting those SDK manifests to use registry dependencies.
           publish_workspace_crate trellis-client
           publish_workspace_crate trellis-contracts
           publish_workspace_crate trellis-server
+
           publish_workspace_crate trellis-codegen-rust
           publish_workspace_crate trellis-codegen-ts
 
+          # Switch the generated SDK crates to crates.io runtime dependencies only
+          # after the shared runtime crates are actually available there.
+          generate_publishable_sdk_crates
+
+          # Give crates.io time to propagate the runtime crates before publishing
+          # generated SDK crates that depend on them.
+          wait_for_registry_settle
+
           publish_generated_crate ../generated/rust/sdks/auth/Cargo.toml trellis-sdk-auth
           publish_generated_crate ../generated/rust/sdks/trellis-core/Cargo.toml trellis-sdk-core
+
+          # The first-party crates depend on the generated SDKs, so let the index
+          # settle again before publishing them.
+          wait_for_registry_settle
 
           publish_workspace_crate trellis-auth
           publish_workspace_crate trellis-cli
