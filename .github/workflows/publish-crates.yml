@@ -41,11 +41,25 @@ jobs:
         with:
           deno-version: 2.7.7
 
-      - name: Generate SDK artifacts
-        run: deno task build:sdk
-        working-directory: js
-        env:
-          TRELLIS_USE_BOOTSTRAP: "1"
+      - name: Seed generated SDK manifests for cargo metadata
+        shell: bash
+        working-directory: rust
+        run: |
+          set -euo pipefail
+
+          workspace_version="$(grep -m1 '^version = ' Cargo.toml | cut -d '"' -f 2)"
+
+          write_stub_manifest() {
+            local dir="$1"
+            local crate_name="$2"
+
+            mkdir -p "$dir"
+            printf '[package]\nname = "%s"\nversion = "%s"\nedition = "2021"\nlicense = "Apache-2.0"\n\n[dependencies]\n' "$crate_name" "$workspace_version" > "$dir/Cargo.toml"
+          }
+
+          write_stub_manifest ../generated/rust/sdks/auth trellis-sdk-auth
+          write_stub_manifest ../generated/rust/sdks/trellis-core trellis-sdk-core
+          write_stub_manifest ../generated/rust/sdks/jobs trellis-sdk-jobs
 
       - name: Cache Rust build artifacts
         uses: swatinem/rust-cache@v2
@@ -53,6 +67,12 @@ jobs:
           workspaces: |
             rust -> target
             rust/bootstrap -> target
+
+      - name: Generate SDK artifacts
+        run: deno task build:sdk
+        working-directory: js
+        env:
+          TRELLIS_USE_BOOTSTRAP: "1"
 
       - name: Run workspace tests
         run: cargo test --workspace --locked
@@ -79,29 +99,7 @@ jobs:
           crate_exists() {
             local crate="$1"
             local version="$2"
-            cargo info --registry crates-io "${crate}@${version}" >/dev/null 2>&1
-          }
-
-          wait_for_registry_version() {
-            local crate="$1"
-            local version="$2"
-            local attempts=0
-
-            until crate_exists "$crate" "$version"; do
-              attempts=$((attempts + 1))
-              if [ "$attempts" -ge 30 ]; then
-                echo "Timed out waiting for ${crate} ${version} in crates.io index"
-                return 1
-              fi
-
-              echo "Waiting for ${crate} ${version} to appear in crates.io index..."
-              sleep 10
-            done
-          }
-
-          wait_for_registry_settle() {
-            echo "Waiting for crates.io index propagation..."
-            sleep 45
+            curl --silent --show-error --fail "https://crates.io/api/v1/crates/${crate}/${version}" >/dev/null 2>&1
           }
 
           record_skip() {
@@ -130,7 +128,6 @@ jobs:
 
             if [ "$status" -eq 0 ]; then
               record_publish "$crate"
-              wait_for_registry_version "$crate" "$workspace_version"
               return 0
             fi
 
@@ -183,16 +180,8 @@ jobs:
           # after the shared runtime crates are actually available there.
           generate_publishable_sdk_crates
 
-          # Give crates.io time to propagate the runtime crates before publishing
-          # generated SDK crates that depend on them.
-          wait_for_registry_settle
-
           publish_generated_crate ../generated/rust/sdks/auth/Cargo.toml trellis-sdk-auth
           publish_generated_crate ../generated/rust/sdks/trellis-core/Cargo.toml trellis-sdk-core
-
-          # The first-party crates depend on the generated SDKs, so let the index
-          # settle again before publishing them.
-          wait_for_registry_settle
 
           publish_workspace_crate trellis-auth
           publish_workspace_crate trellis-cli
