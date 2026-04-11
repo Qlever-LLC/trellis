@@ -10,7 +10,7 @@ type BuildSourcePackageOptions = {
   extraPackageJson?: Record<string, unknown>;
 };
 
-const repositoryUrl = "https://github.com/Qlever-LLC/trellis";
+const repositoryUrl = "git+https://github.com/Qlever-LLC/trellis.git";
 
 function commonPackageMetadata() {
   return {

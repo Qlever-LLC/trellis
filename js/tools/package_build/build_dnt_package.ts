@@ -14,7 +14,7 @@ type BuildDntPackageOptions = {
   externalizePackageDirs?: Record<string, string>;
 };
 
-const repositoryUrl = "https://github.com/Qlever-LLC/trellis";
+const repositoryUrl = "git+https://github.com/Qlever-LLC/trellis.git";
 
 function commonPackageMetadata() {
   return {
