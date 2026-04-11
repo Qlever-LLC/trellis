@@ -110,29 +110,48 @@ jobs:
         run: |
           set -euo pipefail
 
-          packages=(
-            trellis-client
-            trellis-contracts
-            trellis-server
-            trellis-codegen-rust
-            trellis-codegen-ts
-            trellis-auth
-            trellis-cli
-          )
+          workspace_version="$(grep -m1 '^version = ' Cargo.toml | cut -d '"' -f 2)"
 
-          for pkg in "${packages[@]}"; do
-            cargo publish -p "$pkg"
-            echo "Waiting for crates.io index to catch up..."
-            sleep 20
-          done
+          wait_for_registry_version() {
+            local crate="$1"
+            local version="$2"
+            local attempts=0
 
-          generated_crates=(
-            ../generated/rust/sdks/auth/Cargo.toml
-            ../generated/rust/sdks/trellis-core/Cargo.toml
-          )
+            until cargo info --registry crates-io "${crate}@${version}" >/dev/null 2>&1; do
+              attempts=$((attempts + 1))
+              if [ "$attempts" -ge 30 ]; then
+                echo "Timed out waiting for ${crate} ${version} in crates.io index"
+                return 1
+              fi
 
-          for manifest in "${generated_crates[@]}"; do
+              echo "Waiting for ${crate} ${version} to appear in crates.io index..."
+              sleep 10
+            done
+          }
+
+          publish_workspace_crate() {
+            local crate="$1"
+            cargo publish -p "$crate"
+            wait_for_registry_version "$crate" "$workspace_version"
+          }
+
+          publish_generated_crate() {
+            local manifest="$1"
+            local crate="$2"
             cargo publish --manifest-path "$manifest"
-            echo "Waiting for crates.io index to catch up..."
-            sleep 20
-          done
+            wait_for_registry_version "$crate" "$workspace_version"
+          }
+
+          # Publish crates in dependency order so cargo publish verification can
+          # resolve registry dependencies for path-based workspace members.
+          publish_workspace_crate trellis-client
+          publish_workspace_crate trellis-contracts
+          publish_workspace_crate trellis-server
+          publish_workspace_crate trellis-codegen-rust
+          publish_workspace_crate trellis-codegen-ts
+
+          publish_generated_crate ../generated/rust/sdks/auth/Cargo.toml trellis-sdk-auth
+          publish_generated_crate ../generated/rust/sdks/trellis-core/Cargo.toml trellis-sdk-core
+
+          publish_workspace_crate trellis-auth
+          publish_workspace_crate trellis-cli
