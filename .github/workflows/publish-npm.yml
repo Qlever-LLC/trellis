@@ -29,12 +29,16 @@ on:
       - "rust/**"
       - "scripts/**"
 
+env:
+  SHOULD_PUBLISH: ${{ startsWith(github.ref, 'refs/tags/') || inputs.publish == true }}
+
 jobs:
-  build:
-    name: Build npm packages
+  publish:
+    name: Verify and publish npm packages
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      id-token: write
     env:
       TRELLIS_USE_BOOTSTRAP: "1"
 
@@ -51,6 +55,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24
+          registry-url: https://registry.npmjs.org
 
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -106,53 +111,55 @@ jobs:
           await import("@qlever-llc/trellis/server/node");
           EOF
 
-  publish:
-    name: Publish to npm
-    if: ${{ startsWith(github.ref, 'refs/tags/') || inputs.publish == true }}
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-    env:
-      TRELLIS_USE_BOOTSTRAP: "1"
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up Deno
-        uses: denoland/setup-deno@v2
-        with:
-          deno-version: 2.7.7
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          registry-url: https://registry.npmjs.org
-
-      - name: Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust build artifacts
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            rust -> target
-            rust/bootstrap -> target
-
-      - name: Build publishable npm packages
-        run: deno task build:npm
-        working-directory: js
-
       - name: Publish packages
+        if: env.SHOULD_PUBLISH == 'true'
         shell: bash
         run: |
           set -euo pipefail
           npm_tag=latest
           published=()
           skipped=()
+
+          package_already_exists() {
+            local package_name="$1"
+            local package_version="$2"
+            npm view "${package_name}@${package_version}" version >/dev/null 2>&1
+          }
+
+          publish_or_skip() {
+            local pkg="$1"
+            local name="$2"
+            local version="$3"
+            local output
+            local status
+
+            if package_already_exists "$name" "$version"; then
+              echo "Skipping $name@$version (already published)"
+              skipped+=("$name@$version")
+              return 0
+            fi
+
+            set +e
+            output=$(npm publish --access public --tag "$npm_tag" "$pkg" 2>&1)
+            status=$?
+            set -e
+
+            printf '%s\n' "$output"
+
+            if [ "$status" -eq 0 ]; then
+              published+=("$name@$version")
+              return 0
+            fi
+
+            if printf '%s\n' "$output" | grep -Eqi 'cannot publish over|previously published version|cannot modify pre-existing version|you cannot publish over'; then
+              echo "Skipping $name@$version (already published)"
+              skipped+=("$name@$version")
+              return 0
+            fi
+
+            return "$status"
+          }
+
           if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" == *-* ]]; then
             npm_tag=rc
           fi
@@ -166,15 +173,7 @@ jobs:
             package_json="$pkg/package.json"
             name=$(node -p "require('./${package_json}').name")
             version=$(node -p "require('./${package_json}').version")
-
-            if npm view "$name@$version" version >/dev/null 2>&1; then
-              echo "Skipping $name@$version (already published)"
-              skipped+=("$name@$version")
-              continue
-            fi
-
-            npm publish --access public --tag "$npm_tag" "$pkg"
-            published+=("$name@$version")
+            publish_or_skip "$pkg" "$name" "$version"
           done
 
           echo "Published ${#published[@]} package(s)"

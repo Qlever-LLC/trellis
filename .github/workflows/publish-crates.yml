@@ -19,47 +19,11 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  SHOULD_PUBLISH: ${{ startsWith(github.ref, 'refs/tags/') || inputs.publish == true }}
 
 jobs:
-  verify:
-    name: Verify Rust crates
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Set up Deno
-        uses: denoland/setup-deno@v2
-        with:
-          deno-version: 2.7.7
-
-      - name: Cache Rust build artifacts
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            rust -> target
-            rust/bootstrap -> target
-
-      - name: Generate SDK artifacts
-        run: deno task build:sdk
-        working-directory: js
-        env:
-          TRELLIS_USE_BOOTSTRAP: "1"
-
-      - name: Run workspace tests
-        run: cargo test --workspace --locked
-        working-directory: rust
-
   publish:
-    name: Publish to crates.io
-    if: ${{ startsWith(github.ref, 'refs/tags/') || inputs.publish == true }}
-    needs: verify
+    name: Verify and publish Rust crates
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -77,6 +41,12 @@ jobs:
         with:
           deno-version: 2.7.7
 
+      - name: Generate SDK artifacts
+        run: deno task build:sdk
+        working-directory: js
+        env:
+          TRELLIS_USE_BOOTSTRAP: "1"
+
       - name: Cache Rust build artifacts
         uses: swatinem/rust-cache@v2
         with:
@@ -84,17 +54,17 @@ jobs:
             rust -> target
             rust/bootstrap -> target
 
-      - name: Generate SDK artifacts
-        run: deno task build:sdk
-        working-directory: js
-        env:
-          TRELLIS_USE_BOOTSTRAP: "1"
+      - name: Run workspace tests
+        run: cargo test --workspace --locked
+        working-directory: rust
 
       - name: Authenticate with crates.io
+        if: env.SHOULD_PUBLISH == 'true'
         id: auth
         uses: rust-lang/crates-io-auth-action@v1
 
       - name: Publish crates
+        if: env.SHOULD_PUBLISH == 'true'
         shell: bash
         working-directory: rust
         env:
@@ -103,13 +73,21 @@ jobs:
           set -euo pipefail
 
           workspace_version="$(grep -m1 '^version = ' Cargo.toml | cut -d '"' -f 2)"
+          published=()
+          skipped=()
+
+          crate_exists() {
+            local crate="$1"
+            local version="$2"
+            cargo info --registry crates-io "${crate}@${version}" >/dev/null 2>&1
+          }
 
           wait_for_registry_version() {
             local crate="$1"
             local version="$2"
             local attempts=0
 
-            until cargo info --registry crates-io "${crate}@${version}" >/dev/null 2>&1; do
+            until crate_exists "$crate" "$version"; do
               attempts=$((attempts + 1))
               if [ "$attempts" -ge 30 ]; then
                 echo "Timed out waiting for ${crate} ${version} in crates.io index"
@@ -126,17 +104,65 @@ jobs:
             sleep 45
           }
 
+          record_skip() {
+            local crate="$1"
+            echo "Skipping ${crate}@${workspace_version} (already published)"
+            skipped+=("${crate}@${workspace_version}")
+          }
+
+          record_publish() {
+            local crate="$1"
+            published+=("${crate}@${workspace_version}")
+          }
+
+          run_publish() {
+            local crate="$1"
+            shift
+            local output
+            local status
+
+            set +e
+            output=$(cargo publish "$@" 2>&1)
+            status=$?
+            set -e
+
+            printf '%s\n' "$output"
+
+            if [ "$status" -eq 0 ]; then
+              record_publish "$crate"
+              wait_for_registry_version "$crate" "$workspace_version"
+              return 0
+            fi
+
+            if printf '%s\n' "$output" | grep -Fq "already exists on crates.io index"; then
+              record_skip "$crate"
+              return 0
+            fi
+
+            return "$status"
+          }
+
           publish_workspace_crate() {
             local crate="$1"
-            cargo publish -p "$crate"
-            wait_for_registry_version "$crate" "$workspace_version"
+
+            if crate_exists "$crate" "$workspace_version"; then
+              record_skip "$crate"
+              return 0
+            fi
+
+            run_publish "$crate" -p "$crate"
           }
 
           publish_generated_crate() {
             local manifest="$1"
             local crate="$2"
-            cargo publish --manifest-path "$manifest"
-            wait_for_registry_version "$crate" "$workspace_version"
+
+            if crate_exists "$crate" "$workspace_version"; then
+              record_skip "$crate"
+              return 0
+            fi
+
+            run_publish "$crate" --manifest-path "$manifest"
           }
 
           generate_publishable_sdk_crates() {
@@ -170,3 +196,13 @@ jobs:
 
           publish_workspace_crate trellis-auth
           publish_workspace_crate trellis-cli
+
+          echo "Published ${#published[@]} crate(s)"
+          for item in "${published[@]}"; do
+            echo "  published: $item"
+          done
+
+          echo "Skipped ${#skipped[@]} crate(s)"
+          for item in "${skipped[@]}"; do
+            echo "  skipped: $item"
+          done
