@@ -260,10 +260,12 @@ pub fn generate_rust_participant_facade(
 
 fn render_cargo_toml(opts: &GenerateRustSdkOpts) -> String {
     let dependency_lines = runtime_dependency_lines(&opts.runtime_deps);
+    let description = format!("Generated Rust SDK crate for {}.", opts.crate_name);
     format!(
-        "[package]\nname = \"{}\"\nversion = \"{}\"\nedition = \"2021\"\nlicense = \"Apache-2.0\"\n\n[dependencies]\nserde = {{ version = \"1.0\", features = [\"derive\"] }}\nserde_json = \"1.0\"\n{}\n",
+        "[package]\nname = \"{}\"\nversion = \"{}\"\nedition = \"2021\"\nlicense = \"Apache-2.0\"\nrepository = \"https://github.com/qlever-llc/trellis\"\ndescription = \"{}\"\n\n[dependencies]\nserde = {{ version = \"1.0\", features = [\"derive\"] }}\nserde_json = \"1.0\"\n{}\n",
         opts.crate_name,
         opts.crate_version,
+        description,
         dependency_lines.join("\n"),
     )
 }
@@ -1974,6 +1976,8 @@ mod tests {
             },
         });
 
+        assert!(cargo.contains("description = \"Generated Rust SDK crate for trellis-sdk-core.\""));
+        assert!(cargo.contains("repository = \"https://github.com/qlever-llc/trellis\""));
         assert!(cargo.contains("trellis-client = \"0.1.0\""));
         assert!(!cargo.contains("path ="));
     }
