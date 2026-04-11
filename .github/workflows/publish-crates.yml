@@ -131,19 +131,19 @@ jobs:
 
           publish_workspace_crate() {
             local crate="$1"
-            cargo publish -p "$crate"
+            cargo publish --no-verify -p "$crate"
             wait_for_registry_version "$crate" "$workspace_version"
           }
 
           publish_generated_crate() {
             local manifest="$1"
             local crate="$2"
-            cargo publish --manifest-path "$manifest"
+            cargo publish --no-verify --manifest-path "$manifest"
             wait_for_registry_version "$crate" "$workspace_version"
           }
 
-          # Publish crates in dependency order so cargo publish verification can
-          # resolve registry dependencies for path-based workspace members.
+          # Publish in dependency order and skip local verification so crates.io
+          # index lag does not break the release chain for freshly published deps.
           publish_workspace_crate trellis-client
           publish_workspace_crate trellis-contracts
           publish_workspace_crate trellis-server
