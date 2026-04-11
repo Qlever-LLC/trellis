@@ -24,7 +24,7 @@ deno add @qlever-llc/trellis @qlever-llc/trellis-svelte
 
 All Trellis apps and services define a contract that specifies the API they need access to. For browser applications, this also drives the approval screens that ask users to let your app sign in as them.
 
-Start by creating `src/lib/contracts/my_app.ts`. For this example, we only need to use the default Trellis auth features.
+Start by creating `contracts/my_app.ts` next to your project `deno.json`. For this example, we only need to use the default Trellis auth features.
 
 ```ts
 import { defineContract } from "@qlever-llc/trellis/contracts";
@@ -34,6 +34,7 @@ export const myApp = defineContract({
   id: "my-app@v1",
   displayName: "My App",
   description: "A browser app that reads auth state.",
+  kind: "app",
   uses: {
     auth: auth.useDefaults(),
   },
@@ -53,7 +54,7 @@ A simple setup that ensures this:
 ```json
 {
   "tasks": {
-    "contracts": "trellis contracts verify --source ./src/lib/contracts/my_app.ts",
+    "contracts": "deno task -c ../../deno.json prepare && deno task verify:contracts",
     "dev": "deno task contracts && vite dev",
     "build": "deno task contracts && vite build"
   }
@@ -66,7 +67,7 @@ To manage the Trellis connection, auth flow, and typing, create one app-local Tr
 
 ```ts
 import { createTrellisApp } from "@qlever-llc/trellis-svelte";
-import { myApp } from "$lib/contracts/my_app";
+import { myApp } from "../../contracts/my_app";
 
 export const app = createTrellisApp({
   authUrl: "http://localhost:3000",
@@ -118,6 +119,7 @@ To do this, create a layout group `(app)` and define its layout by creating `src
 </script>
 
 <TrellisProvider {app}>
+  <!-- Svelte 5 snippet syntax for rendering states -->
   {#snippet loading()}
     <p>Connecting...</p>
   {/snippet}

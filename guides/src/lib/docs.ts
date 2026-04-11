@@ -337,9 +337,16 @@ export const guideDocs: DocEntry[] = [
     section: "Server Setup",
   },
   {
-    title: "Write a TypeScript service",
+    title: "Tutorial: Write a TypeScript service",
     description:
-      "A working backend service that connects to Trellis, handles RPCs, and subscribes to events.",
+      "A step-by-step tutorial building a working backend service that connects to Trellis, handles RPCs, and stores data.",
+    href: "/guides/tutorial-writing-ts-services",
+    section: "Getting started",
+  },
+  {
+    title: "Reference: Write a TypeScript service",
+    description:
+      "A dense, comprehensive reference covering all aspects of writing a TypeScript service.",
     href: "/guides/writing-ts-services",
     section: "Getting started",
   },

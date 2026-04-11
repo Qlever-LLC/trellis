@@ -8,7 +8,7 @@ Rust crates for the Trellis platform.
 | ---------------------- | ----------------------------------------------------------------------- |
 | `trellis-auth`         | Browser login and admin-session helpers for Rust clients                |
 | `trellis-auth-adapters`| Auth integration adapters shared by Trellis services                    |
-| `trellis-cli`          | Contract verification, catalog packing, SDK generation, service install |
+| `trellis-cli`          | Operator CLI for auth, bootstrap, and service install/upgrade |
 | `trellis-client`       | Rust client runtime                                                     |
 | `trellis-codegen-rust` | Rust SDK code generation                                                |
 | `trellis-codegen-ts`   | TypeScript SDK code generation                                          |
@@ -21,3 +21,9 @@ Rust crates for the Trellis platform.
 See `../design/tooling/trellis-cli.md` and `../design/contracts/trellis-rust-contract-libraries.md`.
 
 Rust SDK crates are generated as disposable build output rather than tracked workspace crates.
+
+The bootstrap-safe `trellis-generate` helper lives under `rust/tools/generate/` and
+is used by repo-local generation and clean-checkout workflows.
+
+Run `cargo xtask prepare` from the repository root to execute that repo-local
+prepare workflow through Cargo. For JS-first repo workflows, use `cd js && deno task prepare`.

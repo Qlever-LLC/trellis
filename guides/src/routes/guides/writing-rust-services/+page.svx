@@ -28,17 +28,25 @@ cargo new orders-service
 cd orders-service
 ```
 
-## 2. Write the contract manifest
+## 2. Write the contract source
 
 > **Note:** The manifest format shown below is an approximation of the `trellis.contract.v1` canonical format. The exact authoring format for Rust services (including how named schemas are declared and referenced, and whether `subject` fields are authored or derived by the CLI) will be finalized with the participant facade implementation. See `design/contracts/trellis-contracts-catalog.md` for the canonical schema reference.
 
-Create `contracts/orders_service.json`:
+Keep the canonical manifest in `contracts/orders_service.manifest.json`, then add a Rust wrapper at `contracts/orders_service.rs` that exports it through `include_str!(...)` so discovery and bootstrap-safe generation can find it.
+
+```rust
+pub const CONTRACT_JSON: &str = include_str!("orders_service.manifest.json");
+```
+
+Create `contracts/orders_service.manifest.json`:
 
 ```json
 {
+  "format": "trellis.contract.v1",
   "id": "orders-service@v1",
   "displayName": "Orders Service",
   "description": "Create and track orders, emit fulfillment events.",
+  "kind": "service",
   "uses": {
     "core": {
       "contract": "trellis.core@v1",
@@ -95,24 +103,17 @@ Create `contracts/orders_service.json`:
 }
 ```
 
-## 3. Generate the SDK crate and participant facade
+## 3. Generate the SDK crate
 
-> **Note:** The exact CLI flags for Rust participant facade generation will be finalized with the participant facade implementation. The command below mirrors the TypeScript guide's build step with the expected Rust flags. See `design/tooling/trellis-cli.md` for the authoritative flag reference once available.
+> **Note:** Rust repo workflows should use the repo-local prepare entrypoint. `trellis` is the operator/runtime CLI, while `trellis-generate` stays behind `cargo xtask prepare` for bootstrap-safe manifest and SDK generation. Local participant-facade generation is still an internal/target workflow, so the later sections describe the intended facade shape rather than a fully productized public command.
 
 ```sh
-trellis contracts build \
-  --source ./contracts/orders_service.json \
-  --out-manifest ./dist/contracts/trellis.orders-service@v1.json \
-  --rust-out ./generated/sdk/rust \
-  --crate-name orders-sdk \
-  --participant-facade-out ./generated/facade/rust \
-  --participant-crate-name orders-participant
+cargo xtask prepare
 ```
 
-This generates two Rust crates:
+This generates the contract SDK crate under `generated/sdk/rust/`. Other services and apps import that crate to call your RPCs.
 
-- `generated/sdk/rust/` — the contract SDK crate (`orders-sdk`). Other services and apps import this to call your RPCs.
-- `generated/facade/rust/` — the local participant facade crate (`orders-participant`). **This is what your service uses.**
+The remainder of this guide shows the intended local participant-facade shape once the public Rust generation flow is finalized.
 
 ## 4. Add the participant facade to `Cargo.toml`
 
@@ -133,14 +134,15 @@ use orders_participant::connect_service;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let service = connect_service(orders_participant::contract(), "orders-service", {
+    let service = orders_participant::connect_service(orders_participant::ConnectOptions {
         session_key_seed: std::env::var("ORDERS_SERVICE_SESSION_KEY_SEED")?,
         nats: orders_participant::NatsConfig {
             servers: std::env::var("NATS_SERVERS").unwrap_or_else(|_| "localhost".into()),
             sentinel_creds_path: std::env::var("NATS_SENTINEL_CREDS").ok(),
         },
     })
-    .await?;
+    .await?
+    .facade();
     // ...
     Ok(())
 }
@@ -162,6 +164,7 @@ Use the facade's `Router` to mount handlers for each owned RPC:
 
 ```rust
 service
+    .owned()
     .router()
     .mount::<orders_participant::rpc::OrdersCreate, _>(|req| async move {
         let order_id = uuid::Uuid::new_v4().to_string();
@@ -189,9 +192,9 @@ service
 
 ```rust
 service
-    .events()
     .auth()
-    .connect(|event| async move {
+    .events()
+    .subscribe(|event| async move {
         tracing::info!(origin = %event.origin, id = %event.id, "user connected");
         Ok(())
     })
@@ -226,7 +229,7 @@ cargo build --release
 Install the contract into your Trellis environment:
 
 ```sh
-trellis service install --source ./contracts/orders_service.json
+trellis service install --source ./contracts/orders_service.rs
 ```
 
 Then run:

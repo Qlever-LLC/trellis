@@ -1,21 +1,21 @@
 [workspace]
 members = [
-  "crates/trellis-auth",
-  "crates/trellis-auth-adapters",
-  "crates/trellis-core-bootstrap",
-  "crates/trellis-jobs",
-  "crates/trellis-service-jobs",
-  "crates/trellis-server",
-  "crates/trellis-contracts",
-  "crates/trellis-codegen-ts",
-  "crates/trellis-codegen-rust",
-  "crates/trellis-client",
-  "crates/trellis-cli",
+  "crates/auth",
+  "crates/auth-adapters",
+  "crates/core-bootstrap",
+  "crates/jobs",
+  "crates/service-jobs",
+  "crates/server",
+  "crates/contracts",
+  "crates/codegen-ts",
+  "crates/codegen-rust",
+  "crates/client",
+  "crates/cli",
 ]
 resolver = "2"
 
 [workspace.package]
-version = "0.6.0"
+version = "0.6.1"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/qlever-llc/trellis"

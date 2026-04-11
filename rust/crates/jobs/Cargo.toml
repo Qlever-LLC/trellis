@@ -1,0 +1,19 @@
+[package]
+name = "trellis-jobs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Shared jobs models, reducers, and helpers for Trellis."
+
+[dependencies]
+async-nats.workspace = true
+futures-util.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+time.workspace = true
+tokio.workspace = true
+trellis-sdk-core = { path = "../../../generated/rust/sdks/trellis-core", version = "0.6.1" }
+
+[dev-dependencies]

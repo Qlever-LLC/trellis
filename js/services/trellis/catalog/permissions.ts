@@ -6,8 +6,8 @@ import {
   resolveContractUses,
   templateToWildcard,
 } from "./uses.ts";
-import { CONTRACT as trellisAuthContract } from "./contracts/trellis_auth.ts";
-import { CONTRACT as trellisCoreContract } from "./contracts/trellis_core.ts";
+import { CONTRACT as trellisAuthContract } from "../contracts/trellis_auth.ts";
+import { CONTRACT as trellisCoreContract } from "../contracts/trellis_core.ts";
 
 type PermissionRule = {
   subject: string;

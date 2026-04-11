@@ -7,8 +7,8 @@ import {
   startAuthCallout,
   startDisconnectCleanup,
 } from "../auth/callout/callout.ts";
-import { CONTRACT as trellisAuthContract } from "../catalog/contracts/trellis_auth.ts";
-import { CONTRACT as trellisCoreContract } from "../catalog/contracts/trellis_core.ts";
+import { CONTRACT as trellisAuthContract } from "../contracts/trellis_auth.ts";
+import { CONTRACT as trellisCoreContract } from "../contracts/trellis_core.ts";
 import type { ContractStore } from "../catalog/store.ts";
 
 type BuiltinContract = { digest: string; contract: TrellisContractV1 };

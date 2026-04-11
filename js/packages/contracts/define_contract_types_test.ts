@@ -26,6 +26,7 @@ const auth = defineContract({
   id: "trellis.auth@v1",
   displayName: "Trellis Auth",
   description: "Expose Trellis auth RPCs and events for tests.",
+  kind: "service",
   schemas: authSchemas,
   rpc: {
     "Auth.Me": {
@@ -56,6 +57,7 @@ const activity = defineContract({
   id: "trellis.activity@v1",
   displayName: "Activity",
   description: "Expose activity RPCs and subscribe to auth events for tests.",
+  kind: "service",
   schemas: activitySchemas,
   uses: {
     auth: auth.use({
@@ -92,6 +94,7 @@ const dashboard = defineContract({
   id: "trellis.dashboard@v1",
   displayName: "Dashboard",
   description: "Consume activity events in contract typing tests.",
+  kind: "app",
   uses: {
     activity: activity.use({
       events: { subscribe: ["Activity.Recorded"] },
@@ -111,6 +114,7 @@ const billing = defineContract({
   id: "trellis.billing@v1",
   displayName: "Billing",
   description: "Expose billing operations for contract typing tests.",
+  kind: "service",
   schemas: billingSchemas,
   operations: {
     "Billing.Refund": {
@@ -137,6 +141,7 @@ const payments = defineContract({
   id: "trellis.payments@v1",
   displayName: "Payments",
   description: "Consume billing operations for contract typing tests.",
+  kind: "service",
   schemas: paymentsSchemas,
   uses: {
     billing: billing.use({
@@ -163,5 +168,12 @@ type _PaymentsDoesNotExposeBillingWriteoff = Assert<
 type BillingUseArg = Parameters<typeof billing.use>[0];
 type BillingUseOperationCall = NonNullable<NonNullable<BillingUseArg["operations"]>["call"]>[number];
 type _BillingUseDoesNotAcceptWriteoff = Assert<Not<HasMember<BillingUseOperationCall, "Billing.Writeoff">>>;
+
+// @ts-expect-error kind is required on contract sources
+defineContract({
+  id: "trellis.missing-kind@v1",
+  displayName: "Missing Kind",
+  description: "Should fail type checking.",
+});
 
 Deno.test("defineContract type coverage compiles", () => {});

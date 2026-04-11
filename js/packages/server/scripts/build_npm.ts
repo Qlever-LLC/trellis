@@ -5,9 +5,9 @@ await buildDntPackage({
   description: "Server-side Trellis helpers with runtime-neutral core and Node adapter entrypoints.",
   dependencies: {
     "@nats-io/transport-node": "^3.3.1",
-    "@qlever-llc/trellis-auth": "^0.6.0",
-    "@qlever-llc/result": "^0.6.0",
-    "@qlever-llc/trellis": "^0.6.0",
+    "@qlever-llc/trellis-auth": "^0.6.1",
+    "@qlever-llc/result": "^0.6.1",
+    "@qlever-llc/trellis": "^0.6.1",
     pino: "^9.11.0"
   },
   npmInstallDeps: {

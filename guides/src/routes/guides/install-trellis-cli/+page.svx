@@ -1,4 +1,6 @@
-The `trellis` CLI handles contract verification, SDK generation, service installation, upgrades, and authentication. Install it before following any of the other guides.
+The `trellis` CLI handles runtime and operator tasks such as service installation, upgrades, bootstrap, and authentication. Install it before following the operator guides.
+
+Repository-local contract and SDK generation uses a separate `trellis-generate` helper behind repo tasks such as `deno task prepare` and `cargo xtask prepare`.
 
 ## Option A: Download a prebuilt binary
 

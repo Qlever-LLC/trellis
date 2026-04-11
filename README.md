@@ -23,12 +23,19 @@ See `docs/generated-artifacts.md` for regeneration details.
 - **Auth** - two-layer model: NATS transport auth plus Trellis session-key proofs with contract-gated approval. See `design/auth/trellis-auth.md`.
 - **Jobs** - JetStream-backed job lifecycle with retry, progress tracking, and dead-letter handling. See `design/jobs/trellis-jobs.md`.
 - **Operations** - caller-visible asynchronous workflows with durable state and watch semantics. See `design/operations/trellis-operations.md`.
-- **CLI** - single Rust binary for contract builds, SDK generation, verification, and source or image-based service installation. See `design/tooling/trellis-cli.md`.
+- **CLI** - public `trellis` operator/runtime CLI plus a bootstrap-safe `trellis-generate` companion used by repo-local prepare and generation workflows. See `design/tooling/trellis-cli.md`.
 - **Patterns** - top-level architecture boundaries and communication patterns. See `design/core/trellis-patterns.md`.
 
 ## Getting started
 
 See the [Trellis guides](guides/) to get started.
+
+For repository development workflows, prefer the repo-local prepare entrypoints:
+
+- `cd js && deno task prepare`
+- `cargo xtask prepare`
+
+Normal operators only need `trellis`; repo generation flows stay behind those local tasks and wrappers.
 
 ## Design documents
 

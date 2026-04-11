@@ -48,7 +48,11 @@ generated/
 *.tgz
 
 # Rust build artifacts
+xtask/target/
 rust/target/
 rust/**/target/
+xtask/Cargo.lock
+rust/xtask/Cargo.lock
+rust/tools/generate/Cargo.lock
 
 .trellis

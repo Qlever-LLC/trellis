@@ -20,7 +20,7 @@ await buildSourcePackage({
   },
   dependencies: {
     "@nats-io/nats-core": "^3.3.1",
-    "@qlever-llc/trellis": "^0.6.0",
+    "@qlever-llc/trellis": "^0.6.1",
     typebox: "^1.0.15"
   },
   peerDependencies: {

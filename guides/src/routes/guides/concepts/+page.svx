@@ -2,7 +2,7 @@ Trellis is a distributed system where services and apps communicate over NATS. T
 
 ## Contracts
 
-Every service and app in Trellis declares a **contract** — a source definition that describes what it does, what it needs, and what access it requires.
+Every service and app in Trellis declares a **contract** — a source definition describing what the service does, what resources it needs, and what permissions it requires.
 
 A contract declares:
 
@@ -13,7 +13,7 @@ A contract declares:
 - **dependencies** on other contracts via `uses`
 - **capabilities** required to call each operation
 
-Contracts are the source of truth for authorization. Trellis derives NATS subject permissions directly from the active contract set — if an operation is not in the contract, the service cannot access it.
+Contracts are the source of truth for authorization. Trellis derives NATS subject permissions directly from the active contract set — if an operation is not explicitly declared in a contract, the service cannot access it.
 
 ### Contract kinds
 
@@ -21,19 +21,21 @@ Contracts are the source of truth for authorization. Trellis derives NATS subjec
 | --- | --- |
 | `service` | A backend process connected to NATS with a session key |
 | `app` | A browser client that connects via websocket |
+| `portal` | A browser portal flow participant used during login or workload activation |
+| `workload` | An activated workload participant provisioned through Trellis |
 | `cli` | A command-line tool |
 
 Activated workloads use the same contract format as other Trellis participants. Provisioning mode lives in Trellis workload profiles and instance records rather than in a special contract field.
 
 ### Contract identity
 
-Each contract has a stable `id` like `graph@v1` or `trellis.auth@v1`. The `@vN` suffix is a major version — breaking changes require a new version. Within a deployment, only one active version of each contract id can exist.
+Each contract has a stable `id` like `graph@v1` or `trellis.auth@v1`. The `@vN` suffix is a major version — breaking changes require a new version. Within one lineage, multiple active digests may coexist during rollout as long as they remain semantically compatible.
 
 Contracts are content-addressed by a SHA-256 digest of their canonical JSON form. The digest is what Trellis uses internally to identify a specific contract revision.
 
 ### Generated contract artifacts
 
-The canonical exchange artifact is `trellis.contract.v1` JSON, generated from contract source during build and release. In normal authoring workflows you edit the contract module, not a checked-in sidecar manifest file.
+The canonical exchange artifact is `trellis.contract.v1` JSON, generated from contract source during build and release. TypeScript projects typically edit the contract module directly, while the current Rust workflow keeps a checked-in manifest JSON alongside a `contracts/*.rs` wrapper that exports it through `include_str!(...)`.
 
 ## Communication
 
@@ -115,13 +117,13 @@ The flow:
 
 1. An app redirects the browser to `GET /auth/login` with its session key, contract, and optional portal context
 2. Trellis creates a browser flow record, resolves any contract-specific login portal selection, otherwise falls back to the deployment login default custom portal when configured and then to the built-in Trellis login portal, and redirects into that portal
-3. The portal polls `GET /auth/flow/:flowId` and renders UX based on the flow state — provider chooser, approval screen, optional app context, or a terminal redirect
+3. The portal fetches `GET /auth/flow/:flowId` and renders UX based on the flow state — provider chooser, approval screen, optional app context, or a terminal redirect
 4. After the user authenticates and approval is satisfied, Trellis provisions the user immediately and the browser bind step exchanges the completed flow for a binding token and NATS credentials
 5. The app connects to NATS with those credentials
 
 Portal trust comes from deployment registration of the portal URL, not from service installation. Some portals stay passive and only render auth flow state. Other portals also continue after login as normal Trellis browser apps acting as the logged-in user. In that case the portal may declare an optional app contract, but it is still never a service-authenticated principal.
 
-The built-in Trellis portal is authored in `js/portals/login` and served directly by the Trellis HTTP server from static assets, so first login and the default workload onboarding flow work without any portal bootstrap step. Deployments can still add custom portals and assign them to specific login or workload flows when they need custom UX. See [Create a custom portal](/guides/creating-custom-portal) for how to build and register one.
+The built-in Trellis portal is authored in `js/portals/login` and served directly by the Trellis HTTP server from static assets. This ensures that the initial login and default workload onboarding flows work out-of-the-box without requiring any portal bootstrapping. Deployments can still add custom portals and assign them to specific login or workload flows when they need custom UX. See [Create a custom portal](/guides/creating-custom-portal) for how to build and register one.
 
 ### Capabilities
 

@@ -1,5 +1,5 @@
 import { assert, assertEquals } from "@std/assert";
-import { TRELLIS_AUTH_RPC } from "../../catalog/contracts/trellis_auth.ts";
+import { TRELLIS_AUTH_RPC } from "../../contracts/trellis_auth.ts";
 
 import {
   normalizeDigestList,

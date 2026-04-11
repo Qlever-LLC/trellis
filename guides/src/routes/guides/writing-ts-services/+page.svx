@@ -116,6 +116,7 @@ export const ordersService = defineContract({
   id: "orders-service@v1",
   displayName: "Orders Service",
   description: "Create and track orders, emit fulfillment events.",
+  kind: "service",
   uses: {
     core: core.use({
       rpc: { call: ["Trellis.Bindings.Get", "Trellis.Catalog"] },
@@ -269,7 +270,7 @@ Deno.addSignalListener("SIGTERM", async () => {
 
 For Node, use `process.on("SIGTERM", ...)`.
 
-## 9. Build and verify contract artifacts
+## 9. Prepare contract artifacts
 
 Keep the contract source with your service and generate artifacts into build output:
 
@@ -282,26 +283,18 @@ orders-service/
   generated/sdk/
 ```
 
-Build and verify it with the CLI:
+Refresh generated artifacts from the project root with your repo-local task:
 
 ```sh
-trellis contracts build \
-  --source ./contracts/orders_service.ts \
-  --out-manifest ./dist/contracts/trellis.orders-service@v1.json
-
-trellis contracts verify --source ./contracts/orders_service.ts
+deno task prepare
 ```
 
 ## 10. Generate an SDK for consumers
 
-Other services and apps that want to call your RPCs or subscribe to your events need a typed SDK package. Generate one from the contract source as part of the same build:
+Other services and apps that want to call your RPCs or subscribe to your events need a typed SDK package. Generate one as part of the same repo-local prepare/build flow rather than by teaching consumers standalone generator commands.
 
 ```sh
-trellis contracts build \
-  --source ./contracts/orders_service.ts \
-  --out-manifest ./dist/contracts/trellis.orders-service@v1.json \
-  --ts-out ./generated/sdk/ts \
-  --package-name "@my-org/sdk-orders-service"
+deno task prepare
 ```
 
 This produces a Deno package under `./generated/sdk/ts/`. The generated SDK version matches the version declared by the workspace that owns the contract source. It includes:
@@ -375,7 +368,7 @@ deno run --allow-net --allow-env main.ts
 ## Development loop
 
 1. Update schemas and the `defineContract(...)` module
-2. Rebuild contract artifacts and SDKs with `trellis contracts build`
+2. Re-run `deno task prepare`
 3. Upgrade the contract in Trellis if the contract changed
 4. Restart the service
 

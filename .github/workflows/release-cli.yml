@@ -40,14 +40,35 @@ jobs:
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Seed generated SDK manifests for cargo metadata
+        shell: bash
+        working-directory: rust
+        run: |
+          set -euo pipefail
+
+          workspace_version="$(grep -m1 '^version = ' Cargo.toml | cut -d '"' -f 2)"
+
+          write_stub_manifest() {
+            local dir="$1"
+            local crate_name="$2"
+
+            mkdir -p "$dir"
+            printf '[package]\nname = "%s"\nversion = "%s"\nedition = "2021"\nlicense = "Apache-2.0"\n\n[dependencies]\n' "$crate_name" "$workspace_version" > "$dir/Cargo.toml"
+          }
+
+          write_stub_manifest ../generated/rust/sdks/auth trellis-sdk-auth
+          write_stub_manifest ../generated/rust/sdks/trellis-core trellis-sdk-core
+          write_stub_manifest ../generated/rust/sdks/jobs trellis-sdk-jobs
+
       - name: Cache Rust build artifacts
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: rust
+          workspaces: |
+            rust -> target
+            rust/tools/generate -> target
 
       - name: Generate SDK artifacts
-        run: deno task build:sdk
-        working-directory: js
+        run: cargo xtask prepare
 
       - name: Run trellis CLI tests
         run: cargo test -p trellis-cli --locked
@@ -85,14 +106,35 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      - name: Seed generated SDK manifests for cargo metadata
+        shell: bash
+        working-directory: rust
+        run: |
+          set -euo pipefail
+
+          workspace_version="$(grep -m1 '^version = ' Cargo.toml | cut -d '"' -f 2)"
+
+          write_stub_manifest() {
+            local dir="$1"
+            local crate_name="$2"
+
+            mkdir -p "$dir"
+            printf '[package]\nname = "%s"\nversion = "%s"\nedition = "2021"\nlicense = "Apache-2.0"\n\n[dependencies]\n' "$crate_name" "$workspace_version" > "$dir/Cargo.toml"
+          }
+
+          write_stub_manifest ../generated/rust/sdks/auth trellis-sdk-auth
+          write_stub_manifest ../generated/rust/sdks/trellis-core trellis-sdk-core
+          write_stub_manifest ../generated/rust/sdks/jobs trellis-sdk-jobs
+
       - name: Cache Rust build artifacts
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: rust
+          workspaces: |
+            rust -> target
+            rust/tools/generate -> target
 
       - name: Generate SDK artifacts
-        run: deno task build:sdk
-        working-directory: js
+        run: cargo xtask prepare
 
       - name: Build release binary
         run: cargo build -p trellis-cli --release --locked --target ${{ matrix.target }}

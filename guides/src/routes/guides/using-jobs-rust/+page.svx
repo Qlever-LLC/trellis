@@ -8,7 +8,7 @@ Jobs are **service-private** background work units. For caller-visible async wor
 
 ## 1. Add `resources.jobs` to the contract manifest
 
-Update `contracts/orders_service.json` to add a `jobs` resource with the three fulfillment queue types:
+Update `contracts/orders_service.manifest.json` to add a `jobs` resource with the three fulfillment queue types:
 
 ```json
 "resources": {

@@ -23,7 +23,7 @@ Trellis trusts a portal because a Trellis admin registered its URL. If the porta
 ## 1. Create the project
 
 ```sh
-npx sv create my-portal
+deno run -A npm:sv create my-portal
 cd my-portal
 ```
 
@@ -37,7 +37,7 @@ deno add @qlever-llc/trellis @qlever-llc/trellis-svelte
 
 Passive portals that only handle sign-in and approval do not need a Trellis app contract, so this step can be skipped.
 
-Portals that keep going after login and call Trellis for the user need their own app contract. These are no different from any other Trellis app contract, as shown here in `src/lib/contracts/portal.ts`:
+Portals that keep going after login and call Trellis for the user need their own portal contract. Keep it in `contracts/portal.ts` next to your project manifest:
 
 ```ts
 import { defineContract } from "@qlever-llc/trellis/contracts";
@@ -47,6 +47,7 @@ export const portalContract = defineContract({
   id: "my-portal@v1",
   displayName: "My Portal",
   description: "Portal-hosted app routes used after login.",
+  kind: "portal",
   uses: {
     auth: auth.useDefaults(),
   },
@@ -110,6 +111,7 @@ For a SvelteKit portal, the target shape is a page like `src/routes/login/+page.
   </ul>
 {:else if portal.state?.status === "approval_required"}
   <h1>Approve {portal.state.approval.displayName}</h1>
+  <p>Signed in as {portal.state.user.name ?? portal.state.user.email ?? portal.state.user.id}</p>
   <p>{portal.state.approval.description}</p>
   <ul>
     {#each portal.state.approval.capabilities as cap}
@@ -126,6 +128,10 @@ For a SvelteKit portal, the target shape is a page like `src/routes/login/+page.
   <p>Your account is missing: {portal.state.missingCapabilities.join(", ")}</p>
 {:else if portal.state?.status === "expired"}
   <p>This login session has expired. Return to the app and try again.</p>
+{:else if portal.state?.status === "redirect"}
+  <p>Redirecting...</p>
+{:else}
+  <p>Loading flow state...</p>
 {/if}
 ```
 
@@ -144,7 +150,7 @@ Build and deploy the portal to a stable URL. The URL must be reachable by browse
 For a basic static adapter deployment:
 
 ```sh
-npm run build
+deno task build
 ```
 
 Deploy the `build/` output to your hosting provider and note the base URL, for example `https://my-portal.example.com`.

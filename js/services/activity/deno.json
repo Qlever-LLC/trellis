@@ -1,13 +1,13 @@
 {
   "extends": "../../deno.json",
   "name": "@qlever-llc/trellis-service-activity",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "exports": "./main.ts",
   "tasks": {
-    "dev": "deno task build:sdk && deno run --env --allow-env --allow-sys --allow-read --allow-net --allow-ffi --watch main.ts",
-    "build:sdk": "bash ../../../scripts/trellis-cli.sh generate all --source ../../../js/services/activity/contracts/trellis_activity.ts --out-manifest ../../../generated/contracts/manifests/trellis.activity@v1.json --ts-out ../../../generated/js/sdks/activity --rust-out ../../../generated/rust/sdks/activity --package-name @qlever-llc/trellis-sdk-activity --crate-name trellis-sdk-activity --runtime-source local --runtime-repo-root ../../..",
-    "verify:contracts": "bash ../../../scripts/trellis-cli.sh contracts verify --source ../../../js/services/activity/contracts/trellis_activity.ts",
-    "check": "deno task -c ../../deno.json build:sdk && deno check main.ts bootstrap.ts projectors.ts store.ts contracts/trellis_activity.ts",
-    "test:contracts": "deno task build:sdk && deno test -A source_emission_test.ts"
+    "dev": "deno task prepare && deno run --env --allow-env --allow-sys --allow-read --allow-net --allow-ffi --watch main.ts",
+    "prepare": "bash ../../../scripts/trellis-generate.sh",
+    "verify:contracts": "deno task prepare",
+    "check": "deno task -c ../../deno.json prepare && deno check main.ts bootstrap.ts projectors.ts store.ts contracts/trellis_activity.ts",
+    "test:contracts": "deno task prepare && deno test -A source_emission_test.ts"
   }
 }

@@ -106,6 +106,7 @@ A `trellis.contract.v1` manifest has this top-level structure:
   "id": "graph@v1",
   "displayName": "Graph Service",
   "description": "Serve graph RPCs and publish graph change events.",
+  "kind": "service",
   "uses": {},
   "operations": {},
   "rpc": {},
@@ -133,6 +134,7 @@ Top-level fields:
 | `id`          | yes      | string | Stable contract identifier such as `trellis.core@v1` or `graph@v1` |
 | `displayName` | yes      | string | Human-facing contract name shown in tooling and approval UIs        |
 | `description` | yes      | string | Human-facing explanation of the contract's purpose                  |
+| `kind`        | yes      | string | Contract role such as `service`, `app`, `portal`, `workload`, `cli` |
 | `uses`        | no       | object | Explicit cross-contract operation/RPC/event/subject dependencies   |
 | `operations`  | no       | object | Map of logical operation names to operation descriptors            |
 | `rpc`         | no       | object | Map of logical RPC names to RPC operation descriptors              |
@@ -143,7 +145,8 @@ Top-level fields:
 
 Rules:
 
-- `format`, `id`, `displayName`, and `description` are required.
+- `format`, `id`, `displayName`, `description`, and `kind` are required.
+- `kind` drives discovery behavior in bootstrap-safe generation flows: `service` contracts generate manifests and SDKs, while `app`, `portal`, `workload`, and `cli` contracts are verified.
 - `displayName` and `description` are part of the canonical manifest and therefore part of the digest.
 - runtime service identity, install routing, and authorization boundaries MUST NOT be inferred from manifest metadata.
 - top-level object members not defined by the current runtime MAY be present for forward compatibility; runtimes MUST ignore unknown top-level fields they do not understand.

@@ -1,7 +1,7 @@
 {
   "extends": "../../deno.json",
   "name": "@qlever-llc/trellis-contracts",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "exports": {
     ".": "./mod.ts",
     "./canonical.ts": "./canonical.ts",
@@ -10,9 +10,9 @@
     "./schema_pointers.ts": "./schema_pointers.ts"
   },
   "tasks": {
-    "generate": "deno task -c ../../deno.json build:sdk",
-    "generate:watch": "deno task -c ../../deno.json build:sdk",
-    "build:core": "deno task -c ../../deno.json build:sdk",
+    "generate": "deno task -c ../../deno.json prepare",
+    "generate:watch": "deno task -c ../../deno.json prepare",
+    "build:core": "deno task -c ../../deno.json prepare",
     "build:npm": "deno run -A ./scripts/build_npm.ts",
     "test": "deno test -A"
   },

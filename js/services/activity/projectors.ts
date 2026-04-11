@@ -1,10 +1,27 @@
 import { isErr, Result, ValidationError } from "@qlever-llc/trellis";
 import type { BaseError } from "@qlever-llc/result";
 import type { TrellisService } from "@qlever-llc/trellis/server";
+import { Value } from "typebox/value";
 import { ulid } from "ulid";
+import {
+  AuthConnectEventSchema,
+} from "../../packages/trellis/models/auth/events/AuthConnect.ts";
+import {
+  AuthConnectionKickedEventSchema,
+} from "../../packages/trellis/models/auth/events/AuthConnectionKicked.ts";
+import {
+  AuthDisconnectEventSchema,
+} from "../../packages/trellis/models/auth/events/AuthDisconnect.ts";
+import {
+  AuthSessionRevokedEventSchema,
+} from "../../packages/trellis/models/auth/events/AuthSessionRevoked.ts";
 
 import type { ActivityOwnedApi, ActivityTrellisApi } from "./contracts/trellis_activity.ts";
-import type { ActivityEntry } from "./schemas.ts";
+import {
+  ActivityGetRequestSchema,
+  ActivityListRequestSchema,
+  type ActivityEntry,
+} from "./schemas.ts";
 import {
   type ActivityStore,
   getActivityEntry,
@@ -85,12 +102,13 @@ export async function registerActivityProjection(
     "Auth.Connect",
     {},
     async (event) => {
+      const parsedEvent = Value.Parse(AuthConnectEventSchema, event);
       return await recordEntry(
         service,
         activityKV,
         buildEntry("auth.connect", {
-          ...event,
-          summary: `${label(event.origin, event.id)} connected to Trellis`,
+          ...parsedEvent,
+          summary: `${label(parsedEvent.origin, parsedEvent.id)} connected to Trellis`,
         }),
       );
     },
@@ -102,12 +120,13 @@ export async function registerActivityProjection(
     "Auth.Disconnect",
     {},
     async (event) => {
+      const parsedEvent = Value.Parse(AuthDisconnectEventSchema, event);
       return await recordEntry(
         service,
         activityKV,
         buildEntry("auth.disconnect", {
-          ...event,
-          summary: `${label(event.origin, event.id)} disconnected from Trellis`,
+          ...parsedEvent,
+          summary: `${label(parsedEvent.origin, parsedEvent.id)} disconnected from Trellis`,
         }),
       );
     },
@@ -119,14 +138,15 @@ export async function registerActivityProjection(
     "Auth.SessionRevoked",
     {},
     async (event) => {
+      const parsedEvent = Value.Parse(AuthSessionRevokedEventSchema, event);
       return await recordEntry(
         service,
         activityKV,
         buildEntry("auth.session_revoked", {
-          ...event,
-          actor: event.revokedBy,
-          summary: `${label(event.origin, event.id)} session was revoked`,
-          metadata: { revokedBy: event.revokedBy },
+          ...parsedEvent,
+          actor: parsedEvent.revokedBy,
+          summary: `${label(parsedEvent.origin, parsedEvent.id)} session was revoked`,
+          metadata: { revokedBy: parsedEvent.revokedBy },
         }),
       );
     },
@@ -138,14 +158,15 @@ export async function registerActivityProjection(
     "Auth.ConnectionKicked",
     {},
     async (event) => {
+      const parsedEvent = Value.Parse(AuthConnectionKickedEventSchema, event);
       return await recordEntry(
         service,
         activityKV,
         buildEntry("auth.connection_kicked", {
-          ...event,
-          actor: event.kickedBy,
-          summary: `${label(event.origin, event.id)} connection was kicked`,
-          metadata: { kickedBy: event.kickedBy },
+          ...parsedEvent,
+          actor: parsedEvent.kickedBy,
+          summary: `${label(parsedEvent.origin, parsedEvent.id)} connection was kicked`,
+          metadata: { kickedBy: parsedEvent.kickedBy },
         }),
       );
     },
@@ -159,9 +180,10 @@ export async function registerActivityRpcHandlers(
   activityKV: ActivityStore,
 ) {
   await service.trellis.mount("Activity.List", async (req) => {
+    const parsedReq = Value.Parse(ActivityListRequestSchema, req);
     const entries = await listActivityEntries(activityKV, {
-      limit: req.limit,
-      kind: req.kind,
+      limit: parsedReq.limit,
+      kind: parsedReq.kind,
     });
     const value = entries.take();
     if (isErr(value)) {
@@ -171,7 +193,8 @@ export async function registerActivityRpcHandlers(
   });
 
   await service.trellis.mount("Activity.Get", async (req) => {
-    const entry = await getActivityEntry(activityKV, req.id);
+    const parsedReq = Value.Parse(ActivityGetRequestSchema, req);
+    const entry = await getActivityEntry(activityKV, parsedReq.id);
     const value = entry.take();
     if (isErr(value)) {
       return Result.err(

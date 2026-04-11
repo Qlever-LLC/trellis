@@ -1,0 +1,11 @@
+[package]
+name = "xtask-shim"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[[bin]]
+name = "xtask-shim"
+path = "../rust/xtask/src/main.rs"

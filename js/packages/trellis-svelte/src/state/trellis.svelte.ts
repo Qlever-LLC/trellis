@@ -25,7 +25,7 @@ const DEFAULT_TRELLIS_CONTRACT = defineContract({
   id: "trellis.svelte.browser@v1",
   displayName: "Trellis Svelte Browser Client",
   description: "Represent a browser client that only uses its locally declared Trellis APIs.",
-  kind: "browser",
+  kind: "app",
 }) satisfies TrellisClientContract<TrellisAPI>;
 
 /**

@@ -1,0 +1,21 @@
+[package]
+name = "trellis-auth-adapters"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Bootstrap and request-validation adapters for the generated Trellis auth SDK."
+
+[dependencies]
+base64.workspace = true
+bytes.workspace = true
+futures-util.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+trellis-client = { path = "../client", version = "0.6.1" }
+trellis-auth = { path = "../auth", version = "0.6.1" }
+trellis-server = { path = "../server", version = "0.6.1" }
+
+[dev-dependencies]
+trellis-sdk-auth = { path = "../../../generated/rust/sdks/auth", version = "0.6.1" }
+tokio.workspace = true

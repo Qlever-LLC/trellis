@@ -25,12 +25,20 @@ Confirm the session is active:
 trellis auth status
 ```
 
-## 2. Verify the contract
+## 2. Prepare local generated artifacts
 
-Before installing, verify the contract source compiles and is well-formed:
+Before installing, run the repo-local prepare task for the service source tree so the local `contracts/` directory and generated artifacts are refreshed using `trellis-generate`.
+
+For Deno workspace repos:
 
 ```sh
-trellis contracts verify --source ./contracts/my_service.ts
+deno task prepare
+```
+
+For Rust workspace repos:
+
+```sh
+cargo xtask prepare
 ```
 
 ## 3. Install from source
@@ -124,7 +132,7 @@ Trellis derives service access from:
 ## Development loop
 
 1. update schemas and the `defineContract(...)` module
-2. `trellis contracts verify --source`
+2. run the repo-local prepare task (`deno task prepare` or `cargo xtask prepare`)
 3. `trellis service upgrade --source`
 4. restart the service
 5. confirm the expected RPCs, events, and bindings work

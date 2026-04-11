@@ -103,7 +103,7 @@ This follows `design/contracts/trellis-contracts-catalog.md`.
 deno task dev
 deno task test
 deno task verify:contracts
-deno task build:sdk
+deno task prepare
 ```
 
 ## Related design docs

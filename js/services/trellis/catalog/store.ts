@@ -32,6 +32,7 @@ function normalizeContract(contract: TrellisContractV1): TrellisContractV1 {
     id: contract.id,
     displayName: contract.displayName,
     description: contract.description,
+    kind: contract.kind,
     ...(contract.schemas ? { schemas: contract.schemas } : {}),
     ...(contract.uses ? { uses: contract.uses } : {}),
     ...(contract.rpc ? { rpc: contract.rpc } : {}),

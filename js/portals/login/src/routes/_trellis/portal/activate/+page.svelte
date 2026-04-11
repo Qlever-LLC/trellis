@@ -10,7 +10,7 @@
     createNatsState,
     createTrellisState,
   } from "@qlever-llc/trellis-svelte";
-  import { portalApp } from "../../../../contracts/portal_app.ts";
+  import { portalApp } from "../../../../../contracts/portal_app.ts";
   import { APP_CONFIG } from "../../../../lib/config";
   import { errorMessage } from "../../../../lib/format";
 

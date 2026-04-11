@@ -1,5 +1,5 @@
 import { createTrellisApp } from "@qlever-llc/trellis-svelte";
-import { trellisApp } from "../contracts/trellis_app.ts";
+import { trellisApp } from "../../contracts/trellis_app.ts";
 import { APP_CONFIG } from "./config.ts";
 
 export const app = createTrellisApp({

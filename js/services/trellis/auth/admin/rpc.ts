@@ -421,11 +421,22 @@ export function createAuthCreateWorkloadProfileHandler(deps: {
     if (validation.isErr()) return validation;
     const { profile } = validation.take() as { profile: WorkloadProfile };
     if (req.contract) {
+      if (Array.isArray(req.contract)) {
+        return Result.err(
+          new AuthError({
+            reason: "invalid_request",
+            context: {
+              profileId: profile.profileId,
+              contractId: profile.contractId,
+              message: "contract must be an object",
+            },
+          }),
+        );
+      }
+      const contract = Object.fromEntries(Object.entries(req.contract));
       let installed;
       try {
-        installed = await deps.installWorkloadContract(
-          req.contract as Record<string, unknown>,
-        );
+        installed = await deps.installWorkloadContract(contract);
       } catch (error) {
         return Result.err(
           new AuthError({

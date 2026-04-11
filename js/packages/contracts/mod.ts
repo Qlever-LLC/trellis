@@ -70,6 +70,8 @@ export type ContractManifestMetadata = {
   description: string;
 };
 
+export type ContractKind = "service" | "app" | "portal" | "workload" | "cli";
+
 export type Capability = string;
 export type JsonSchema = JsonValue | boolean;
 
@@ -186,6 +188,7 @@ export type TrellisContractV1 = {
   id: string;
   displayName: string;
   description: string;
+  kind: ContractKind;
   schemas?: ContractSchemas;
   uses?: ContractUses;
   rpc?: Record<string, ContractRpcMethod>;
@@ -310,6 +313,7 @@ export type TrellisContractSource = {
   id: string;
   displayName: string;
   description: string;
+  kind: ContractKind;
   schemas?: ContractSourceSchemas;
   uses?: Record<string, ContractSourceUse>;
   rpc?: Record<string, ContractSourceRpcMethod>;
@@ -631,6 +635,7 @@ export type DefineContractInput<
   id: string;
   displayName: string;
   description: string;
+  kind: ContractKind;
   schemas?: TSchemas;
   uses?: TUses;
   rpc?: TRpc;
@@ -965,6 +970,7 @@ function emitContract(source: TrellisContractSource): TrellisContractV1 {
     id: source.id,
     displayName: source.displayName,
     description: source.description,
+    kind: source.kind,
     ...(source.schemas ? { schemas: cloneSchemas(source.schemas) } : {}),
     ...(uses ? { uses } : {}),
     ...(rpc ? { rpc } : {}),
@@ -1420,6 +1426,7 @@ export function defineContract<
     id: source.id,
     displayName: source.displayName,
     description: source.description,
+    kind: source.kind,
     ...(source.schemas ? { schemas: source.schemas } : {}),
     ...(manifestUses ? { uses: manifestUses } : {}),
     ...(source.rpc ? { rpc: source.rpc } : {}),

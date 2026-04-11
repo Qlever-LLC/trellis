@@ -83,7 +83,7 @@ export type CreateWorkloadProfileRequest = {
   contractId: string;
   allowedDigests: string[];
   reviewMode?: "none" | "required";
-  contract?: Record<string, unknown>;
+  contract?: object;
 };
 
 export type WorkloadActivationActor = {

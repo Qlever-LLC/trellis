@@ -1,6 +1,6 @@
-This guide adds background job processing to the `orders-service` from [Write a TypeScript service](/guides/writing-ts-services). By the end the service will enqueue fulfillment jobs when an order is created and process them with retry, progress tracking, and event emission on completion.
+This guide adds background job processing to the `orders-service` from [Tutorial: Write a TypeScript service](/guides/tutorial-writing-ts-services). By the end the service will enqueue fulfillment jobs when an order is created and process them with retry, progress tracking, and event emission on completion.
 
-Before starting, complete [Write a TypeScript service](/guides/writing-ts-services).
+Before starting, complete [Tutorial: Write a TypeScript service](/guides/tutorial-writing-ts-services).
 
 ## What are jobs?
 
@@ -221,7 +221,7 @@ await service.jobs.chargePayment.handle(async (job) => {
 ## Development loop
 
 1. Update job schemas and contract `resources.jobs.queues`
-2. Rebuild contract artifacts: `trellis contracts build ...`
+2. Rebuild contract artifacts: `deno task prepare`
 3. Upgrade the contract in Trellis if queues changed: `trellis service upgrade ...`
 4. Restart the service
 

@@ -1,0 +1,30 @@
+[package]
+name = "trellis-service-jobs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Rust jobs admin service bootstrap scaffold for Trellis."
+
+[dependencies]
+async-nats.workspace = true
+futures-util.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+time.workspace = true
+trellis-client = { path = "../client", version = "0.6.1" }
+trellis-auth = { path = "../auth", version = "0.6.1" }
+trellis-auth-adapters = { path = "../auth-adapters", version = "0.6.1" }
+trellis-core-bootstrap = { path = "../core-bootstrap", version = "0.6.1" }
+trellis-sdk-auth = { path = "../../../generated/rust/sdks/auth", version = "0.6.1" }
+trellis-sdk-core = { path = "../../../generated/rust/sdks/trellis-core", version = "0.6.1" }
+trellis-sdk-jobs = { path = "../../../generated/rust/sdks/jobs", version = "0.6.1" }
+trellis-server = { path = "../server", version = "0.6.1" }
+trellis-contracts = { path = "../contracts", version = "0.6.1" }
+trellis-jobs = { path = "../jobs", version = "0.6.1" }
+
+[dev-dependencies]
+bytes.workspace = true
+futures-util.workspace = true

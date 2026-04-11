@@ -1,5 +1,5 @@
-import { API as trellisAuthApi } from "../catalog/contracts/trellis_auth.ts";
-import { API as trellisCoreApi } from "../catalog/contracts/trellis_core.ts";
+import { API as trellisAuthApi } from "../contracts/trellis_auth.ts";
+import { API as trellisCoreApi } from "../contracts/trellis_core.ts";
 
 function assertNoOverlap(kind: string, left: Record<string, unknown>, right: Record<string, unknown>) {
   for (const key of Object.keys(left)) {

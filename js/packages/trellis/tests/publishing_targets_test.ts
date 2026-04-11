@@ -15,7 +15,7 @@ Deno.test("workspace npm build task only builds the supported published packages
   );
   assertEquals(
     config.tasks["build:npm"],
-    "deno task build:sdk && deno task packages:build:npm",
+    "deno task prepare && deno task packages:build:npm",
   );
 });
 

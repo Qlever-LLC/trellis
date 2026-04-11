@@ -568,7 +568,7 @@ js/packages/jobs/
 ├── projection.ts        # Reducer / projector logic
 └── types.ts             # Job, JobState, schemas
 
-rust/crates/trellis-jobs/
+rust/crates/jobs/
 └── src/
     ├── lib.rs          # Public exports
     ├── types.rs        # Shared models and serde types
@@ -583,7 +583,7 @@ rust/crates/trellis-jobs/
     ├── bindings.rs     # Binding lookup helpers
     └── registry.rs     # Worker heartbeat / cancellation helpers
 
-rust/crates/trellis-service-jobs/
+rust/crates/service-jobs/
 └── src/
     ├── lib.rs          # Service library entrypoint
     ├── main.rs         # Service entrypoint

@@ -1,10 +1,10 @@
-This guide adds a caller-visible async operation to the `orders-service`. By the end callers can start `Orders.Process`, watch typed progress updates, and receive the terminal result — without knowing anything about the service's internal jobs.
+This guide shows you how to add a caller-visible async operation to the `orders-service`. By the end, callers will be able to start `Orders.Process`, watch typed progress updates, and receive the terminal result — without needing to know anything about the service's internal jobs.
 
 Before starting, complete [Jobs: TypeScript](/guides/using-jobs-ts).
 
 ## Jobs vs operations
 
-Jobs are service-private. An operation is a **public contract surface** for async work. Callers interact with operations; your internal jobs remain hidden. One operation can be backed by many jobs, or by direct logic — that is an implementation detail.
+Jobs are strictly internal to a service. An operation is a **public contract surface** for async work. Callers interact with operations; your internal jobs remain hidden. One operation can be backed by many jobs, or by direct logic — that is an implementation detail.
 
 ## 1. Add `Orders.Process` to the contract
 
@@ -63,7 +63,7 @@ export type ProcessOrderResult = Static<typeof ProcessOrderResultSchema>;
 
 ## 2. Implement the operation handler
 
-The operation handler calls `op.started()`, publishes optional initial progress, creates a job, and awaits `op.attach(job.value)`. The framework wires the job's terminal result through to the operation:
+The operation handler calls `op.started()`, optionally publishes initial progress, creates a job, and awaits `op.attach(job.value)`. The framework then automatically wires the job's terminal result through to the operation:
 
 ```ts
 await service.operation("Orders.Process").handle(async ({ input, op }) => {
@@ -98,6 +98,7 @@ A caller starts the operation and observes it:
 
 ```ts
 // Start
+const orders = client; // The connected Trellis client
 const ref = await orders.operation("Orders.Process").start({ orderId: "ord_123" });
 if (ref.isErr()) throw ref.error;
 const op = ref.value;

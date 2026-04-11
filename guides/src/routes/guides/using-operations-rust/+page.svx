@@ -1,10 +1,10 @@
-This guide adds a caller-visible async operation to the Rust `orders-service`. By the end callers can start `Orders.Process`, watch typed progress updates, and receive the terminal result.
+This guide shows you how to add a caller-visible async operation to the Rust `orders-service`. By the end of this guide, callers will be able to start `Orders.Process`, watch typed progress updates, and receive the terminal result.
 
 Before starting, complete [Jobs: Rust](/guides/using-jobs-rust).
 
 ## 1. Add `Orders.Process` to the contract manifest
 
-Update `contracts/orders_service.json` to add an `operations` section:
+Update `contracts/orders_service.manifest.json` to add an `operations` section:
 
 ```json
 "operations": {
@@ -27,7 +27,7 @@ Regenerate the participant facade after updating the manifest.
 
 ## 2. Implement the operation handler
 
-The generated facade exposes `service.operation::<OpType>().handle(...)`. The handler calls `op.started()`, optionally `op.progress()`, creates a job, and returns `op.attach(job).await`:
+The generated facade exposes `service.operation::<OpType>().handle(...)`. The handler calls `op.started()`, optionally publishes progress with `op.progress()`, creates a job, and then detaches:
 
 ```rust
 service
@@ -47,15 +47,16 @@ service
             .create(ReserveInventoryPayload {
                 order_id: ctx.input.order_id.clone(),
                 items: vec![],
+                // Pass operation ID here so the final job can mark the operation as complete
             })
             .await?;
 
-        ctx.op.attach(job).await
+        ctx.op.detach()
     })
     .await?;
 ```
 
-`op.attach(job)` blocks until the job chain reaches terminal state and returns that result to the caller.
+`ctx.op.detach()` returns immediately, leaving the operation running in the background. The job workers coordinate to fulfill the order, and the final job explicitly uses the Trellis runtime to complete the operation with the `ProcessOrderResult`.
 
 ## 3. The job workers — no changes needed
 
@@ -64,7 +65,8 @@ The workers from [Jobs: Rust](/guides/using-jobs-rust) run unchanged. They repor
 ## 4. Caller side
 
 ```rust
-let op_ref = orders_client
+let client = orders_participant::connect_service(...).await?;
+let op_ref = client.orders()
     .operation::<OrdersProcessOperation>()
     .start(ProcessOrderRequest { order_id: "ord_123".into() })
     .await?;
@@ -90,4 +92,4 @@ while let Some(event) = stream.next().await {
 let snapshot = op_ref.cancel().await?;
 ```
 
-The cancellation signal flows to the job worker via `job.is_cancelled()`. The worker checks it and returns `Err(JobsError::cancelled())`. The `op.attach()` resolves with a `cancelled` `TerminalOperation`.
+The cancellation signal flows to the job worker via `job.is_cancelled()`. The worker checks it and returns `Err(JobsError::cancelled())`. The final job or operation manager resolves the operation with a `cancelled` `TerminalOperation`.

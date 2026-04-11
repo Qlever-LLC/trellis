@@ -1,11 +1,11 @@
 {
   "extends": "../../deno.json",
   "tasks": {
-    "verify:contracts": "bash ../../../scripts/trellis-cli.sh contracts verify --source ./src/contracts/trellis_app.ts",
-    "dev": "deno task -c ../../deno.json build:sdk && deno task verify:contracts && vite dev",
-    "build": "deno task -c ../../deno.json build:sdk && deno task verify:contracts && vite build",
+    "verify:contracts": "deno task -c ../../deno.json prepare",
+    "dev": "deno task -c ../../deno.json prepare && deno task verify:contracts && vite dev",
+    "build": "deno task -c ../../deno.json prepare && deno task verify:contracts && vite build",
     "preview": "vite preview",
-    "check": "deno task -c ../../deno.json build:sdk && deno task verify:contracts && svelte-kit sync && svelte-check --tsconfig ./tsconfig.check.json"
+    "check": "deno task -c ../../deno.json prepare && deno task verify:contracts && svelte-kit sync && svelte-check --tsconfig ./tsconfig.check.json"
   },
   "compilerOptions": {
     "types": [

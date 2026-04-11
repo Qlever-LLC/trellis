@@ -26,13 +26,27 @@ deno install
 cd ..
 ```
 
-Build the Trellis CLI from source:
+Generate contract artifacts from a clean checkout:
+
+```sh
+cd js
+deno task prepare
+cd ..
+```
+
+Then build the Trellis CLI from source:
 
 ```sh
 cd rust
 cargo build -p trellis-cli
 cd ..
 ```
+
+`deno task prepare` is bootstrap-safe because it runs through
+`trellis-generate`; you do not need a preinstalled `trellis` CLI to get the SDKs
+and manifests required for the main Rust workspace.
+
+Rust-first workflows can run the same repo-local generation step with `cargo xtask prepare`.
 
 The commands below use the installed `trellis` CLI directly.
 
@@ -59,14 +73,6 @@ Complete all of the steps in the [Prepare NATS](/guides/prepare-nats) guide usin
 trellis keygen \
   --out ~/trellis/keys/trellis.seed \
   --pubout ~/trellis/keys/trellis.pub
-```
-
-## 5. Build SDKs from contracts
-
-The service and generated SDK packages depend on contract build artifacts. Generate them before running anything:
-
-```sh
-deno task -c js/deno.json build:sdk
 ```
 
 ## 6. Collect the NATS values
@@ -230,7 +236,7 @@ Open `http://localhost:5173` in your browser and complete the OAuth login with t
 
 - **Runtime changes** — edit files under `js/services/trellis/` or `js/packages/`. The `deno task dev` watcher restarts the process automatically.
 - **Console changes** — edit files under `js/apps/trellis/`. Vite HMR applies changes in-place.
-- **Contract changes** — run `deno task -c js/deno.json build:sdk` to regenerate SDKs, then restart the affected service.
+- **Contract changes** — run `cd js && deno task prepare` to regenerate SDKs with `trellis-generate`, then restart the affected service.
 - **CLI changes** — run `cargo build -p trellis-cli` in the `rust/` directory, then re-run `trellis ...` commands from the repo root.
 - **Type checking** — run `deno task -c js/deno.json check` to type-check the full JS workspace.
 - **Tests** — run `deno task -c js/deno.json test:contracts` or `deno task -c js/deno.json test:auth`.

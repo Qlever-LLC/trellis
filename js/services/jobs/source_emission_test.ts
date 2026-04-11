@@ -12,7 +12,7 @@ Deno.test("trellis.jobs Rust-authored contract source matches emitted contract",
     ),
   );
   const contractSourceUrl = new URL(
-    "../../../rust/crates/trellis-service-jobs/src/contract.rs",
+    "../../../rust/crates/service-jobs/contracts/trellis_jobs.rs",
     import.meta.url,
   );
   const contractSource = await Deno.readTextFile(contractSourceUrl);
@@ -21,12 +21,7 @@ Deno.test("trellis.jobs Rust-authored contract source matches emitted contract",
     throw new Error("contract source does not expose include_str! contract payload");
   }
 
-  const rustAuthored = await Deno.readTextFile(
-    new URL(
-      includeMatch[1],
-      contractSourceUrl,
-    ),
-  );
+  const rustAuthored = await Deno.readTextFile(new URL(includeMatch[1], contractSourceUrl));
   assertEquals(
     emitted.trim(),
     canonicalizeJson(JSON.parse(rustAuthored) as JsonValue),

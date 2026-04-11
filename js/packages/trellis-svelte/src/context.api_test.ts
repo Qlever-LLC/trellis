@@ -3,7 +3,7 @@ import type { BaseError, Result } from "@qlever-llc/result";
 import type { ActivityListOutput } from "@qlever-llc/trellis/sdk/activity";
 import type { AuthMeOutput } from "@qlever-llc/trellis/sdk/auth";
 
-type DemoContract = typeof import("../../../apps/activity/src/contracts/activity_app.ts").activityApp;
+type DemoContract = typeof import("../../../apps/activity/contracts/activity_app.ts").activityApp;
 
 declare const app: BoundTrellisApp<DemoContract>;
 

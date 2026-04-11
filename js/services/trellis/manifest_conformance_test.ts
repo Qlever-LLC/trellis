@@ -1,7 +1,7 @@
 import { assertEquals } from "@std/assert";
 import { canonicalizeJson, type JsonValue } from "@qlever-llc/trellis/contracts";
 import { CONTRACT as CORE_CONTRACT } from "@qlever-llc/trellis/sdk/core";
-import { CONTRACT as AUTH_CONTRACT } from "./catalog/contracts/trellis_auth.ts";
+import { CONTRACT as AUTH_CONTRACT } from "./contracts/trellis_auth.ts";
 
 const manifests: [string, unknown][] = [
   ["trellis.auth@v1.json", AUTH_CONTRACT],
@@ -17,7 +17,7 @@ for (const [filename, contract] of manifests) {
     assertEquals(
       onDisk,
       emitted,
-      `${filename} is out of sync with the generated contract output. Run: deno task -c js/deno.json build:sdk`,
+      `${filename} is out of sync with the generated contract output. Run: deno task -c js/deno.json prepare`,
     );
   });
 }

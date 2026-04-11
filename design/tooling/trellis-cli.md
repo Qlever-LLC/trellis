@@ -1,6 +1,6 @@
 ---
 title: Trellis CLI
-description: CLI design for contract builds, SDK generation, verification, and source- or image-based service installation.
+description: CLI design for the operator/runtime `trellis` CLI plus the repo-local `trellis-generate` prepare workflow.
 order: 10
 ---
 
@@ -17,12 +17,11 @@ order: 10
 
 ## Context
 
-Trellis needs one supported CLI entrypoint for:
+Trellis needs clear command boundaries for:
 
 - operational bootstrap and admin commands
 - service install and upgrade flows that use locally generated keys
-- contract verification
-- SDK generation
+- bootstrap-safe contract verification and SDK generation during repo builds
 
 The repository previously split those concerns across:
 
@@ -30,18 +29,20 @@ The repository previously split those concerns across:
 - a separate Rust verification binary for live catalog digest checks
 - TypeScript and Deno scripts for SDK generation
 
-That split made the system harder to understand, harder to reuse from other
-repos, and inconsistent with the source-first contract architecture.
+That split made the system harder to understand, especially when normal users
+were shown machine-global generation commands that should really have stayed in
+repo-local build workflows.
 
 ## Design
 
-Trellis uses a Rust `trellis` CLI as the only supported contract and SDK build
-entrypoint.
+Trellis uses two tools with different audiences:
 
-The CLI works from contract sources during development and from release
-artifacts during install and upgrade. Canonical `trellis.contract.v1` JSON
-remains an exchange artifact, but it is generated output rather than a committed
-source file.
+- `trellis` is the runtime/operator CLI
+- `trellis-generate` is the bootstrap-safe developer/build companion used by
+  repo-local prepare workflows
+
+Canonical `trellis.contract.v1` JSON remains an exchange artifact, but it is
+generated output rather than a committed source file.
 
 ### Command structure
 
@@ -49,14 +50,29 @@ source file.
 trellis <command> [subcommand] [options]
 ```
 
-The preferred source-to-artifact interface is the top-level `generate` command
-family:
+The preferred developer interfaces are repo-local prepare tasks, not direct
+machine-global generator commands:
 
 ```text
-trellis generate manifest (--source <file> | --manifest <file> | --image <ref>) --out <file>
-trellis generate ts (--source <file> | --manifest <file> | --image <ref>) --out <dir>
-trellis generate rust (--source <file> | --manifest <file> | --image <ref>) --out <dir>
-trellis generate all (--source <file> | --manifest <file> | --image <ref>) --out-manifest <file> [--ts-out <dir>] [--rust-out <dir>]
+cd js && deno task prepare
+cargo xtask prepare
+```
+
+Those tasks route to `trellis-generate`, which can run before the main
+`trellis` CLI is buildable from a clean checkout. `cargo xtask prepare` shells
+into the bootstrap generator from the Rust workspace. `deno task prepare` does
+the same for the JS workspace.
+
+`trellis-generate` still owns the explicit source-to-artifact interface for repo
+scripts, wrappers, and CI:
+
+```text
+trellis-generate
+trellis-generate discover <path>
+trellis-generate generate manifest (--source <file> | --manifest <file> | --image <ref>) --out <file>
+trellis-generate generate ts (--source <file> | --manifest <file> | --image <ref>) --out <dir>
+trellis-generate generate rust (--source <file> | --manifest <file> | --image <ref>) --out <dir>
+trellis-generate generate all (--source <file> | --manifest <file> | --image <ref>) --out-manifest <file> [--ts-out <dir>] [--rust-out <dir>]
 ```
 
 These commands:
@@ -68,24 +84,13 @@ These commands:
 - generate language SDKs from the resolved contract inputs
 - preserve the current TypeScript generated surface where practical
 - generate Rust SDK crates that target `trellis-client` and `trellis-server`
+- use required contract `kind` metadata to decide discovery behavior:
+  `service` generates manifest and SDK artifacts, while `app`, `portal`,
+  `workload`, and `cli` contracts are verified only
 
-The CLI also retains compatibility aliases and utility surfaces that map to the
-same underlying workflows:
-
-```text
-trellis contracts build --source <file> --out-manifest <file> [--ts-out <dir>] [--rust-out <dir>]
-trellis contracts verify (--source <file> | --manifest <file> | --image <ref>)
-trellis contracts pack [--manifest <file> ...] [--source <file> ...] [--image <ref> ...] --output <file>
-trellis contracts verify-live --servers <servers> --creds <path> --session-seed <seed> [--limit <n>]
-trellis sdk generate ts (--source <file> | --manifest <file> | --image <ref>) --out <dir>
-trellis sdk generate rust (--source <file> | --manifest <file> | --image <ref>) --out <dir>
-trellis sdk generate all (--source <file> | --manifest <file> | --image <ref>) --ts-out <dir> --rust-out <dir>
-```
-
-`trellis contracts build` and `trellis sdk generate ...` remain compatibility
-aliases for repos and scripts that have not yet moved to `trellis generate ...`.
-`trellis contracts pack` remains an explicit artifact utility rather than the
-primary runtime discovery workflow.
+Normal docs should not teach `trellis generate` or `trellis contracts build/verify`.
+Those workflows belong to `trellis-generate` and are normally reached through
+repo-local wrappers instead of direct end-user invocation.
 
 The CLI may accept explicit package and crate naming flags when the default name
 inference is not enough for a repository.
@@ -123,11 +128,12 @@ trellis workloads activations list [--instance <id>] [--profile <id>] [--state <
 trellis workloads activations revoke --instance <id>
 trellis workloads reviews list [--instance <id>] [--profile <id>] [--state <pending|approved|rejected>]
 trellis workloads reviews decide --review <id> (--approve | --reject) [--reason <code>]
+trellis jobs workers [--service <name>]
 trellis bootstrap nats ...
 trellis bootstrap admin ...
 trellis keygen ...
 trellis service list
-trellis service install (--source <file> | --manifest <file> | --image <ref>) [-f]
+trellis service install (--source <file> | --manifest <file> | --image <ref>) [--display-name <name>] [--description <desc>] [--namespace <ns>] [--inactive] [-f]
 trellis service upgrade (--source <file> | --manifest <file> | --image <ref>) [--service-key <public-key>|--seed <seed>] [-f]
 ```
 
@@ -203,12 +209,20 @@ Do not add commands like `trellis build project` with ambiguous behavior.
 
 The developer-facing CLI boundary is the contract source.
 
-- service repos own their contract modules alongside implementation code
+- project roots keep contract sources in a sibling `contracts/` directory next to
+  `deno.json`, `deno.jsonc`, `package.json`, or `Cargo.toml`
+- TypeScript/Deno projects use `contracts/*.ts`
+- Rust projects use `contracts/*.rs` wrappers that export `CONTRACT` or
+  `CONTRACT_JSON` via `include_str!(...)`, usually backed by a sibling manifest
+  JSON file in the same `contracts/` directory
+- every contract source must declare a required `kind`
 - the `trellis` runtime service may own multiple logical contracts such as
   `trellis.core@v1` and `trellis.auth@v1`
-- the CLI generates canonical manifests into build output when it needs a
-  release artifact
-- app and service repos SHOULD wrap contract build or verify work into their normal `dev`, `build`, and CI tasks rather than making end users run separate manifest commands during routine browser-app development
+- `trellis-generate` emits canonical manifests into build output when a repo
+  needs a release artifact
+- app and service repos SHOULD wrap contract preparation into their normal
+  `dev`, `build`, and CI tasks rather than making end users run separate
+  manifest commands during routine browser-app development
 - operators may install or upgrade from generated manifests or OCI images that
   embed `/trellis/contract.json`
 - OCI images may override that default path with the `io.trellis.contract.path`
@@ -218,18 +232,19 @@ The developer-facing CLI boundary is the contract source.
 
 ## Implementation
 
-The Rust CLI implementation uses:
+The Rust implementation uses:
 
 - `clap` for command parsing and help text
 - `clap_complete` for shell completions
 - `miette` for diagnostics
 - `tracing` and `tracing-subscriber` for logging
 - `comfy-table` for human-readable tabular output
-- Rust crates for contract validation, packing, and code generation
+- Rust crates for operator flows, contract validation, packing, and code generation
 
-The CLI owns explicit contract and SDK command execution. Repo-specific build
-workflows remain wrapper scripts or tasks around those explicit commands. Shared
-logic lives in dedicated Rust crates:
+The CLI owns explicit operational command execution, while `trellis-generate`
+owns bootstrap-safe contract and SDK workflows. Repo-specific build workflows
+remain wrapper scripts or tasks around those explicit commands. Shared logic
+lives in dedicated Rust crates:
 
 - `trellis-contracts`
 - `trellis-codegen-ts`

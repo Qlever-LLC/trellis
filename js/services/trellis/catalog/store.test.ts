@@ -19,6 +19,7 @@ function makeContract(
     id,
     displayName,
     description: `${displayName} test contract`,
+    kind: "service",
     schemas: {
       PingInput: { type: "object" },
       PingOutput: { type: "object" },

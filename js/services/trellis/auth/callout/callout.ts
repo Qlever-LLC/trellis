@@ -11,7 +11,7 @@ import { CalloutLimiter } from "./limiter.ts";
 import { getConfig } from "../../config.ts";
 import { getResourcePermissionGrants } from "../../catalog/resources.ts";
 import type { ContractStore } from "../../catalog/store.ts";
-import { CONTRACT as trellisAuthContract } from "../../catalog/contracts/trellis_auth.ts";
+import { CONTRACT as trellisAuthContract } from "../../contracts/trellis_auth.ts";
 import {
   bindingTokenKV,
   connectionsKV,
