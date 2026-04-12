@@ -394,6 +394,15 @@ export const guideDocs: DocEntry[] = [
     sidebarLabel: "Rust",
   },
   {
+    title: "Store resources: TypeScript",
+    description:
+      "Declare and use service-owned `resources.store` from a TypeScript service for large unstructured blobs.",
+    href: "/guides/using-store-resources-ts",
+    section: "Features",
+    sidebarGroup: "Resources",
+    sidebarLabel: "Store",
+  },
+  {
     title: "Write a SvelteKit app",
     description:
       "A working browser app that authenticates with Trellis and calls RPCs.",

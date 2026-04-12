@@ -42,6 +42,7 @@
     "npm:@nats-io/kv@^3.2.0": "3.3.1",
     "npm:@nats-io/nats-core@^3.3.1": "3.3.1",
     "npm:@nats-io/nkeys@^2.0.3": "2.0.3",
+    "npm:@nats-io/obj@^3.3.1": "3.3.1",
     "npm:@nats-io/transport-node@^3.3.1": "3.3.1",
     "npm:@opentelemetry/api@^1.9.0": "1.9.0",
     "npm:@opentelemetry/exporter-trace-otlp-http@0.56": "0.56.0_@opentelemetry+api@1.9.0",
@@ -348,6 +349,14 @@
     },
     "@nats-io/nuid@2.0.3": {
       "integrity": "sha512-TpA3HEBna/qMVudy+3HZr5M3mo/L1JPofpVT4t0HkFGkz2Cn9wrlrQC8tvR8Md5Oa9//GtGG26eN0qEWF5Vqew=="
+    },
+    "@nats-io/obj@3.3.1": {
+      "integrity": "sha512-sGQbVdCE1TeAWyNT1o5ynPUo618J1d7gVtKnlbH+X/0hucEHTSYjqNB+6ZfGdVfQkoQISzjLsB7xvG7nqunPmg==",
+      "dependencies": [
+        "@nats-io/jetstream",
+        "@nats-io/nats-core",
+        "js-sha256"
+      ]
     },
     "@nats-io/transport-node@3.3.1": {
       "integrity": "sha512-GBvY0VcvyQEILgy5bjpqU1GpDYmSF06bW59I7cewZuNGS9u3AoV/gf+a+3ep45T/Z+UC661atq/b7x+QV12w+Q==",
@@ -1128,6 +1137,9 @@
     "jose@6.2.2": {
       "integrity": "sha512-d7kPDd34KO/YnzaDOlikGpOurfF0ByC2sEV4cANCtdqLlTfBlw2p14O/5d/zv40gJPbIQxfES3nSx1/oYNyuZQ=="
     },
+    "js-sha256@0.11.1": {
+      "integrity": "sha512-o6WSo/LUvY2uC4j7mO50a2ms7E/EAdbP0swigLV+nzHKTTaYnaLIWJ02VdXrsJX0vGedDESQnLsOekr94ryfjg=="
+    },
     "json-schema-library@10.5.4": {
       "integrity": "sha512-1cdf7sA6+P/ZrBuQ2CeoMl9trVT9u+5NQj5Tkf2mo78OFHQswCo0AsIRg9tDarF44Mf7H+8f/NHC910BXbyUwQ==",
       "dependencies": [
@@ -1805,6 +1817,7 @@
       "npm:@nats-io/kv@^3.2.0",
       "npm:@nats-io/nats-core@^3.3.1",
       "npm:@nats-io/nkeys@^2.0.3",
+      "npm:@nats-io/obj@^3.3.1",
       "npm:@nats-io/transport-node@^3.3.1",
       "npm:@opentelemetry/api@^1.9.0",
       "npm:@opentelemetry/exporter-trace-otlp-http@0.56",

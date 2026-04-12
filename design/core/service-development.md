@@ -44,6 +44,7 @@ const service = await TrellisService.connect({
 });
 
 const itemsKV = (await service.kv.items.open(ItemSchema)).take();
+const uploadsStore = (await service.store.uploads.open()).take();
 
 await service.trellis.mount("SomeMethod", handler);
 await service.trellis.event("SomeEvent", {}, eventHandler);
@@ -60,6 +61,7 @@ Behavior:
 
 - `TrellisService.connect(...)` performs bootstrap, NATS connection, auth handshake, contract verification, and eager binding resolution
 - if the contract is not installed, startup fails immediately
+- resource handles such as `service.kv.*` and `service.store.*` resolve during bootstrap and are opened explicitly by service code before use
 - the `trellis` control-plane service is the one bootstrap exception and may need lower-level runtime paths
 
 ### Jobs and operations

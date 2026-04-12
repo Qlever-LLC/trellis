@@ -33,7 +33,8 @@ Do not load the entire `design/` folder by default. Start with one topic area, t
 | Document | Read When | Why |
 | --- | --- | --- |
 | `core/platform-libraries.md` | You are changing library/package boundaries | Package ownership and runtime responsibilities |
-| `core/storage-patterns.md` | You are changing KV keys, TTLs, or projections | Storage naming and projection rules |
+| `core/kv-resource-patterns.md` | You are changing KV buckets, keys, TTLs, or projections | KV naming, TTL, and projection rules |
+| `core/store-resource-patterns.md` | You are changing service-owned blob store resources | Store resource shape, runtime semantics, and auth boundaries |
 | `core/type-system-patterns.md` | You are changing schemas, Result, or error modeling | Shared type-system and validation rules |
 | `core/service-development.md` | You are implementing service code or service runtime ergonomics | Service layout, lifecycle, jobs vs operations |
 | `core/observability-patterns.md` | You are changing tracing, correlation, health, or docs guidance | Observability and request-correlation rules |
@@ -96,10 +97,16 @@ These documents define the public protocol, API, and runtime-facing surfaces. Re
 2. relevant subsystem design doc
 3. relevant language surface doc
 
-### Work on storage, KV, or projections
+### Work on KV resources or projections
 
-1. `core/storage-patterns.md`
+1. `core/kv-resource-patterns.md`
 2. relevant subsystem design doc
+
+### Work on store resources
+
+1. `core/store-resource-patterns.md`
+2. `contracts/trellis-contracts-catalog.md`
+3. relevant language surface doc if the public runtime API changes
 
 ### Work on service layout or runtime ergonomics
 

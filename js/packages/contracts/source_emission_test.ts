@@ -248,6 +248,30 @@ Deno.test("defineContract emits stream resources with defaults", () => {
   });
 });
 
+Deno.test("defineContract emits store resources with defaults", () => {
+  const contract = defineContract({
+    id: "store.example@v1",
+    displayName: "Store Example",
+    description: "Expose store resource declarations in emitted manifests.",
+    kind: "service",
+    resources: {
+      store: {
+        uploads: {
+          purpose: "Temporary uploaded files awaiting processing",
+          maxObjectBytes: 100 * 1024 * 1024,
+        },
+      },
+    },
+  });
+
+  assertEquals(contract.CONTRACT.resources?.store?.uploads, {
+    purpose: "Temporary uploaded files awaiting processing",
+    required: true,
+    ttlMs: 0,
+    maxObjectBytes: 100 * 1024 * 1024,
+  });
+});
+
 Deno.test("locally defined contracts can be reused as dependencies", () => {
   const activity = defineContract({
     id: "trellis.activity@v1",

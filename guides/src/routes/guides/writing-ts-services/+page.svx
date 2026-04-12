@@ -218,6 +218,8 @@ if (isErr(ordersKV)) throw ordersKV.error;
 
 No need to know bucket names or configure history/TTL — those come from the installed contract binding.
 
+For larger unstructured blobs, the separate `resources.store` design follows the same handle-first pattern and is covered in [Store resources: TypeScript](/guides/using-store-resources-ts).
+
 ## 6. Mount RPC handlers
 
 Mount handlers that match the operations declared in your contract:

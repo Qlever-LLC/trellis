@@ -72,11 +72,21 @@ export {
   AuthError,
   KVError,
   RemoteError,
+  StoreError,
   TrellisError,
   UnexpectedError,
   ValidationError,
 } from "./errors/index.ts";
-export { TypedKV } from "./kv.ts";
+export { TypedKV, TypedKVEntry } from "./kv.ts";
+export type { WatchEvent, WatchOptions } from "./kv.ts";
+export { TypedStore, TypedStoreEntry } from "./store.ts";
+export type {
+  StoreBody,
+  StoreInfo,
+  StoreOpenOptions,
+  StorePutOptions,
+  StoreStatus,
+} from "./store.ts";
 export type {
   OperationEvent,
   OperationRefData,

@@ -1,10 +1,10 @@
 ---
-title: Storage Patterns
-description: Trellis naming, TTL, key-shape, and projection patterns for KV and stream-backed storage.
+title: KV Resource Patterns
+description: Trellis KV bucket naming, key-shape, TTL, and projection patterns.
 order: 40
 ---
 
-# Design: Storage Patterns
+# Design: KV Resource Patterns
 
 ## Prerequisites
 
@@ -12,7 +12,7 @@ order: 40
 
 ## Scope
 
-This document defines Trellis storage patterns, especially for NATS KV and stream-derived projections.
+This document defines Trellis KV resource patterns, especially for NATS KV bucket naming, key shape, TTL, and stream-derived projections.
 
 ## NATS KV
 

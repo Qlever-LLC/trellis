@@ -3,6 +3,7 @@ import { AuthError } from "./AuthError.ts";
 import { ValidationError } from "./ValidationError.ts";
 import { RemoteError } from "./RemoteError.ts";
 import { KVError } from "./KVError.ts";
+import { StoreError } from "./StoreError.ts";
 
 export { UnexpectedError } from "@qlever-llc/result";
 export { TrellisError } from "./TrellisError.ts";
@@ -10,6 +11,7 @@ export { AuthError } from "./AuthError.ts";
 export { ValidationError } from "./ValidationError.ts";
 export { RemoteError } from "./RemoteError.ts";
 export { KVError } from "./KVError.ts";
+export { StoreError } from "./StoreError.ts";
 
 export { type AuthErrorData, AuthErrorDataSchema } from "./AuthError.ts";
 export {
@@ -20,6 +22,7 @@ export {
 } from "./ValidationError.ts";
 export { type RemoteErrorData, RemoteErrorDataSchema } from "./RemoteError.ts";
 export { type KVErrorData, KVErrorDataSchema } from "./KVError.ts";
+export { type StoreErrorData, StoreErrorDataSchema } from "./StoreError.ts";
 
 /**
  * Single source of truth for all Trellis errors.
@@ -31,6 +34,7 @@ const TRELLIS_ERRORS = {
   ValidationError,
   RemoteError,
   KVError,
+  StoreError,
 } as const;
 
 /**

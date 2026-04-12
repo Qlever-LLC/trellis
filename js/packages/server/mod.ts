@@ -30,7 +30,9 @@ export type {
 } from "./runtime.ts";
 export {
   KVHandle,
+  StoreHandle,
   type ResourceBindingKV,
+  type ResourceBindingStore,
   type ResourceBindingStream,
   type ResourceBindings,
   type ServiceContract,

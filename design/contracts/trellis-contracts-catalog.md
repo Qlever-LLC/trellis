@@ -407,6 +407,15 @@ Example:
         "maxValueBytes": 262144
       }
     },
+    "store": {
+      "uploads": {
+        "purpose": "Temporary uploaded files awaiting processing",
+        "required": true,
+        "ttlMs": 86400000,
+        "maxObjectBytes": 104857600,
+        "maxTotalBytes": 10737418240
+      }
+    },
     "streams": {
       "jobs": {
         "purpose": "Append-only job lifecycle stream",
@@ -450,13 +459,19 @@ Rules:
 - resource keys such as `activity` are logical aliases chosen by the service author
 - aliases are part of the contract and are stable API surface for the service
 - the contract requests logical resources; Trellis assigns physical names and backing infrastructure at install or upgrade time
-- the v1 resource surface supports `resources.kv`, `resources.streams`, and `resources.jobs`
+- the v1 resource surface supports `resources.kv`, `resources.store`, `resources.streams`, and `resources.jobs`
 - a KV request declares:
   - `purpose`: required human-facing explanation of why the service needs the resource
   - `required`: whether activation depends on successful provisioning; default `true`
   - `history`: desired KV history depth; default `1`
   - `ttlMs`: desired bucket TTL in milliseconds; default `0`
   - `maxValueBytes`: optional desired per-value maximum in bytes
+- a store request declares:
+  - `purpose`: required human-facing explanation of why the service needs the resource
+  - `required`: whether activation depends on successful provisioning; default `true`
+  - `ttlMs`: optional desired retention in milliseconds; `0` or omitted means no automatic expiry requested
+  - `maxObjectBytes`: optional desired per-object maximum in bytes
+  - `maxTotalBytes`: optional desired total-store maximum in bytes
 - a stream request declares:
   - `purpose`: required human-facing explanation of why the service needs the resource
   - `required`: whether activation depends on successful provisioning; default `true`
@@ -608,6 +623,7 @@ Binding rules:
 
 - bindings remain keyed by contract alias so application code stays stable across environments
 - KV bindings expose concrete bucket information plus the granted usage limits needed by the service runtime
+- store bindings expose the resolved physical store `name` plus effective retention and size limits needed by the service runtime
 - stream bindings expose the resolved physical stream `name` plus the installed stream config needed for operations such as consumer creation and inspection
 - stream source bindings include both the logical `fromAlias` and the resolved upstream `streamName`
 - jobs bindings expose a service namespace plus resolved queue bindings (`publishPrefix`, `workSubject`, `consumerName`) and effective per-queue runtime settings
@@ -679,6 +695,7 @@ For each installed resource binding:
 
 - Trellis MAY derive additional runtime permissions needed to use the bound resource
 - those permissions are scoped to the installed physical resource binding, not to general management APIs for the whole cloud
+- store bindings may require both publish and subscribe grants depending on the backing implementation; those grants still remain service-local to the owning binding
 - higher-level runtimes typically call `Trellis.Bindings.Get` during connect or bootstrap and expose the resulting bindings or typed resource handles to service code
 
 Rules:

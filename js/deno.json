@@ -33,6 +33,7 @@
     "@nats-io/jetstream": "npm:@nats-io/jetstream@^3.3.0",
     "@nats-io/jwt": "npm:@nats-io/jwt@^0.0.10-5",
     "@nats-io/kv": "npm:@nats-io/kv@^3.2.0",
+    "@nats-io/obj": "npm:@nats-io/obj@^3.3.1",
     "@nats-io/nkeys": "npm:@nats-io/nkeys@^2.0.3",
     "@nats-io/nats-core": "npm:@nats-io/nats-core@^3.3.1",
     "@nats-io/transport-node": "npm:@nats-io/transport-node@^3.3.1",

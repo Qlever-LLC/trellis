@@ -1,0 +1,176 @@
+This guide documents the intended TypeScript service API for `resources.store`.
+
+It is a design and authoring guide only. The runtime implementation is intentionally separate from this docs change, so treat the code snippets below as the target public shape rather than a released feature.
+
+Read [Trellis Concepts](/guides/concepts) first for background on contracts, resources, and `Result`-based APIs.
+
+## What `resources.store` is for
+
+Use `resources.store` when a service needs to keep larger opaque blobs that do not fit well in typed KV entries or normal RPC bodies.
+
+Good uses:
+
+- uploaded files waiting for processing
+- generated export bundles
+- intermediate binary artifacts between workflow steps
+- service-owned attachments with simple metadata
+
+Do not use `resources.store` for typed records. Keep those in `resources.kv`.
+
+## 1. Declare the store in the contract
+
+Add a `store` section under `resources`:
+
+```ts
+import { defineContract } from "@qlever-llc/trellis/contracts";
+
+export const documentsService = defineContract({
+  id: "documents-service@v1",
+  displayName: "Documents Service",
+  description: "Process uploaded documents and generated exports.",
+  kind: "service",
+  resources: {
+    store: {
+      uploads: {
+        purpose: "Temporary uploaded files awaiting processing",
+        ttlMs: 86_400_000,
+        maxObjectBytes: 100 * 1024 * 1024,
+        maxTotalBytes: 10 * 1024 * 1024 * 1024,
+      },
+    },
+  },
+});
+```
+
+Fields:
+
+- `purpose` explains why the service needs the store
+- `ttlMs` is optional; omit it or set it to `0` when the store should not request automatic expiry
+- `maxObjectBytes` limits one stored object
+- `maxTotalBytes` limits the whole store
+
+Like `resources.kv`, the key under `store` (`uploads`) is only a logical alias. Trellis assigns the physical store identity at install time.
+
+## 2. Connect the service and open the store
+
+The intended runtime shape mirrors the KV handle pattern:
+
+```ts
+import { isErr } from "@qlever-llc/trellis";
+import { TrellisService } from "@qlever-llc/trellis/server/deno";
+import { documentsService } from "./contracts/documents_service.ts";
+
+const service = await TrellisService.connect({
+  trellisUrl: Deno.env.get("TRELLIS_URL")!,
+  contract: documentsService,
+  name: "documents-service",
+  sessionKeySeed: Deno.env.get("DOCUMENTS_SERVICE_SESSION_KEY_SEED")!,
+  server: {},
+});
+
+const opened = await service.store.uploads.open();
+if (isErr(opened)) throw opened.error;
+const uploads = opened.value;
+```
+
+This is intentionally parallel to:
+
+```ts
+const opened = await service.kv.orders.open(OrderSchema);
+```
+
+`open()` is failable and therefore returns `Result`.
+
+## 3. Create and replace objects
+
+Store write semantics should follow KV naming and behavior:
+
+- `create(...)` fails when the key already exists
+- `put(...)` overwrites the current value for that key
+
+```ts
+const created = await uploads.create("incoming/claim-1234.pdf", fileBytes, {
+  contentType: "application/pdf",
+  metadata: {
+    source: "portal",
+    claimId: "claim-1234",
+  },
+});
+if (isErr(created)) throw created.error;
+
+const replaced = await uploads.put("incoming/claim-1234.pdf", updatedBytes, {
+  contentType: "application/pdf",
+  metadata: {
+    source: "portal",
+    claimId: "claim-1234",
+    normalized: "true",
+  },
+});
+if (isErr(replaced)) throw replaced.error;
+```
+
+All failable public methods return `Result`, matching the broader Trellis TypeScript design and the existing KV API style.
+
+## 4. Read metadata and body data
+
+The intended `get(...)` API returns an entry object so metadata stays attached to the object body.
+
+```ts
+const entryResult = await uploads.get("incoming/claim-1234.pdf");
+if (isErr(entryResult)) throw entryResult.error;
+
+const entry = entryResult.value;
+console.info(entry.info.contentType, entry.info.metadata.claimId);
+```
+
+For body access, the primary path is a stream with a byte-array convenience helper:
+
+```ts
+const streamResult = await entry.stream();
+if (isErr(streamResult)) throw streamResult.error;
+const bodyStream = streamResult.value;
+
+const bytesResult = await entry.bytes();
+if (isErr(bytesResult)) throw bytesResult.error;
+const bodyBytes = bytesResult.value;
+```
+
+Use `stream()` for larger values. Use `bytes()` when the object is small enough to materialize in memory conveniently.
+
+## 5. List and delete by prefix
+
+The intended v1 listing model is prefix-based and owner-only.
+
+```ts
+const listed = await uploads.list("incoming/");
+if (isErr(listed)) throw listed.error;
+
+for await (const info of listed.value) {
+  console.info(info.key, info.size, info.updatedAt);
+}
+
+const deleted = await uploads.delete("incoming/claim-1234.pdf");
+if (isErr(deleted)) throw deleted.error;
+```
+
+This guide intentionally does not define pagination or watch semantics yet.
+
+## 6. Metadata model
+
+Store metadata is limited to string pairs in v1:
+
+```ts
+metadata: {
+  source: "portal",
+  claimId: "claim-1234",
+  stage: "normalized",
+}
+```
+
+Keep metadata small and descriptive. If the service needs richer typed state or query patterns, store that state separately in `resources.kv` and treat the store object as the opaque binary payload.
+
+## 7. Relationship to client transfer
+
+`resources.store` is only the service-owned storage layer.
+
+It does not by itself make direct client upload or download available. A future Trellis transfer protocol may use a store resource internally, but that is a separate design and authorization problem.

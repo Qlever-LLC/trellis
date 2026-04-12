@@ -24,6 +24,7 @@ It does not redefine the canonical manifest model or runtime permission derivati
 - generated SDK modules and local contracts share one compatible contract-module shape
 - local `uses` declarations are expressed through SDK-backed `use(...)` helpers
 - public runtime helpers are contract-driven and typed from the local contract
+- service-owned resource helpers should prefer small handle-based APIs whose failable public methods return `Result`
 - TypeScript is the compile-time enforcement layer for declared remote permissions
 
 ## Public Package Surface

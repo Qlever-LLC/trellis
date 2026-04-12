@@ -9,7 +9,7 @@ A contract declares:
 - **RPCs** the service handles (request/reply operations)
 - **operations** the service exposes as caller-visible async workflows
 - **events** the service publishes or subscribes to
-- **resources** the service needs Trellis to provision (KV buckets, streams)
+- **resources** the service needs Trellis to provision (KV buckets, stores, streams)
 - **dependencies** on other contracts via `uses`
 - **capabilities** required to call each operation
 
@@ -160,6 +160,24 @@ resources: {
 ```
 
 The key (`items`) is a logical alias. Trellis assigns the physical bucket name at install time. `TrellisService.connect(...)` resolves bindings automatically and exposes them as `service.kv.items`, which can be opened directly with a schema.
+
+### Store resources
+
+Service-owned stores hold larger opaque blobs such as uploaded files, generated exports, or intermediate workflow artifacts.
+
+```ts
+resources: {
+  store: {
+    uploads: {
+      purpose: "Temporary uploaded files awaiting processing",
+      ttlMs: 86_400_000,
+      maxObjectBytes: 100 * 1024 * 1024,
+    },
+  },
+},
+```
+
+Like KV, the key (`uploads`) is a logical alias and Trellis assigns the physical store identity at install time. The intended service runtime shape mirrors KV closely: `service.store.uploads.open()` resolves a higher-level store object, and its failable methods return `Result` values.
 
 ### Streams
 

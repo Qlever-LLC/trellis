@@ -11,6 +11,7 @@ import {
   AuthError,
   KVError,
   RemoteError,
+  StoreError,
   // Core Trellis class
   Trellis,
   type TrellisAuth,
@@ -18,6 +19,8 @@ import {
   // KV exports
   TypedKV,
   TypedKVEntry,
+  TypedStore,
+  TypedStoreEntry,
   UnexpectedError,
   ValidationError,
   type WatchEvent,
@@ -40,6 +43,20 @@ Deno.test("browser exports - TypedKVEntry class is exported", () => {
     typeof TypedKVEntry,
     "function",
     "TypedKVEntry should be a constructor",
+  );
+});
+
+Deno.test("browser exports - TypedStore class is exported", () => {
+  assertExists(TypedStore, "TypedStore class should be exported");
+  assertEquals(typeof TypedStore, "function", "TypedStore should be a constructor");
+});
+
+Deno.test("browser exports - TypedStoreEntry class is exported", () => {
+  assertExists(TypedStoreEntry, "TypedStoreEntry class should be exported");
+  assertEquals(
+    typeof TypedStoreEntry,
+    "function",
+    "TypedStoreEntry should be a constructor",
   );
 });
 
@@ -82,6 +99,7 @@ Deno.test("browser exports - Error types are exported", () => {
   assertExists(ValidationError, "ValidationError should be exported");
   assertExists(RemoteError, "RemoteError should be exported");
   assertExists(KVError, "KVError should be exported");
+  assertExists(StoreError, "StoreError should be exported");
   assertExists(UnexpectedError, "UnexpectedError should be exported");
 
   assertEquals(
@@ -100,6 +118,7 @@ Deno.test("browser exports - Error types are exported", () => {
     "RemoteError should be a constructor",
   );
   assertEquals(typeof KVError, "function", "KVError should be a constructor");
+  assertEquals(typeof StoreError, "function", "StoreError should be a constructor");
   assertEquals(
     typeof UnexpectedError,
     "function",
@@ -115,11 +134,13 @@ Deno.test("browser exports - Error types can be instantiated", () => {
     errors: [{ path: "field", message: "required" }],
   });
   const kvErr = new KVError({ operation: "get" });
+  const storeErr = new StoreError({ operation: "get" });
   const unexpectedErr = new UnexpectedError({});
 
   assertExists(authErr, "AuthError should be instantiable");
   assertExists(validationErr, "ValidationError should be instantiable");
   assertExists(kvErr, "KVError should be instantiable");
+  assertExists(storeErr, "StoreError should be instantiable");
   assertExists(unexpectedErr, "UnexpectedError should be instantiable");
 });
 

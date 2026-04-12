@@ -10,7 +10,7 @@ order: 10
 
 - [../core/service-development.md](./../core/service-development.md) - service-author patterns and jobs vs operations boundary
 - [../core/type-system-patterns.md](./../core/type-system-patterns.md) - Result, error, and weak-type guidance
-- [../core/storage-patterns.md](./../core/storage-patterns.md) - KV naming and projection patterns
+- [../core/kv-resource-patterns.md](./../core/kv-resource-patterns.md) - KV naming and projection patterns
 
 ## Context
 

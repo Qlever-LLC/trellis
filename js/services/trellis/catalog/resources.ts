@@ -1,5 +1,6 @@
 import { Kvm } from "@nats-io/kv";
 import type { NatsConnection } from "@nats-io/nats-core/internal";
+import { Objm } from "@nats-io/obj";
 import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 
 export type KvResourceRequest = {
@@ -9,6 +10,15 @@ export type KvResourceRequest = {
   history: number;
   ttlMs: number;
   maxValueBytes?: number;
+};
+
+export type StoreResourceRequest = {
+  alias: string;
+  purpose: string;
+  required: boolean;
+  ttlMs: number;
+  maxObjectBytes?: number;
+  maxTotalBytes?: number;
 };
 
 export type JobsQueueRequest = {
@@ -34,6 +44,7 @@ export type StreamResourceRequest = {
 
 export type ContractResourceAnalysis = {
   kv: KvResourceRequest[];
+  store: StoreResourceRequest[];
   streams: StreamResourceRequest[];
   jobs: JobsQueueRequest[];
 };
@@ -44,6 +55,12 @@ export type ContractResourceBindings = {
     history: number;
     ttlMs: number;
     maxValueBytes?: number;
+  }>;
+  store?: Record<string, {
+    name: string;
+    ttlMs: number;
+    maxObjectBytes?: number;
+    maxTotalBytes?: number;
   }>;
   streams?: Record<string, {
     name: string;
@@ -171,6 +188,27 @@ export function getJobsQueueRequests(
     .sort((left, right) => left.queueType.localeCompare(right.queueType));
 }
 
+export function getStoreResourceRequests(
+  contract: TrellisContractV1,
+): StoreResourceRequest[] {
+  const entries = Object.entries(contract.resources?.store ?? {});
+
+  return entries
+    .map(([alias, resource]) => ({
+      alias,
+      purpose: resource.purpose,
+      required: resource.required ?? true,
+      ttlMs: resource.ttlMs ?? 0,
+      ...(resource.maxObjectBytes !== undefined
+        ? { maxObjectBytes: resource.maxObjectBytes }
+        : {}),
+      ...(resource.maxTotalBytes !== undefined
+        ? { maxTotalBytes: resource.maxTotalBytes }
+        : {}),
+    }))
+    .sort((left, right) => left.alias.localeCompare(right.alias));
+}
+
 export function getStreamResourceRequests(
   contract: TrellisContractV1,
 ): StreamResourceRequest[] {
@@ -204,6 +242,7 @@ export function getContractResourceAnalysis(
 ): ContractResourceAnalysis {
   return {
     kv: getKvResourceRequests(contract),
+    store: getStoreResourceRequests(contract),
     streams: getStreamResourceRequests(contract),
     jobs: getJobsQueueRequests(contract),
   };
@@ -211,9 +250,15 @@ export function getContractResourceAnalysis(
 
 export function getContractResourceSummary(
   contract: TrellisContractV1,
-): { kvResources: number; streamsResources: number; jobsQueues: number } {
+): {
+  kvResources: number;
+  storeResources: number;
+  streamsResources: number;
+  jobsQueues: number;
+} {
   return {
     kvResources: getKvResourceRequests(contract).length,
+    storeResources: getStoreResourceRequests(contract).length,
     streamsResources: getStreamResourceRequests(contract).length,
     jobsQueues: getJobsQueueRequests(contract).length,
   };
@@ -241,15 +286,32 @@ function buildStreamName(
   return `svc_${service}_${contract}_${logical}`;
 }
 
+function buildStoreName(
+  serviceSessionKey: string,
+  contractId: string,
+  alias: string,
+): string {
+  const service = sanitizeToken(serviceSessionKey).slice(0, 16);
+  const contract = sanitizeToken(contractId).slice(0, 16);
+  const logical = sanitizeToken(alias).slice(0, 24);
+  return `svc_${service}_${contract}_${logical}`;
+}
+
 export async function provisionContractResourceBindings(
   nats: NatsConnection | undefined,
   contract: TrellisContractV1,
   serviceSessionKey: string,
 ): Promise<ContractResourceBindings> {
   const requests = getKvResourceRequests(contract);
+  const stores = getStoreResourceRequests(contract);
   const streams = getStreamResourceRequests(contract);
   const jobs = getJobsQueueRequests(contract);
-  if (requests.length === 0 && streams.length === 0 && jobs.length === 0) {
+  if (
+    requests.length === 0 &&
+    stores.length === 0 &&
+    streams.length === 0 &&
+    jobs.length === 0
+  ) {
     return {};
   }
 
@@ -297,6 +359,36 @@ export async function provisionContractResourceBindings(
   const bindings: ContractResourceBindings = {};
   if (Object.keys(kvBindings).length > 0) {
     bindings.kv = kvBindings;
+  }
+
+  if (stores.length > 0) {
+    if (!nats) {
+      throw new Error("NATS connection is required to provision store resources");
+    }
+
+    const objm = new Objm(nats);
+    bindings.store = Object.fromEntries(
+      await Promise.all(stores.map(async (store) => {
+        const name = buildStoreName(serviceSessionKey, contract.id, store.alias);
+        await objm.create(name, {
+          ...(store.ttlMs > 0 ? { ttl: store.ttlMs * 1_000_000 } : {}),
+          ...(store.maxTotalBytes !== undefined
+            ? { max_bytes: store.maxTotalBytes }
+            : {}),
+        });
+
+        return [store.alias, {
+          name,
+          ttlMs: store.ttlMs,
+          ...(store.maxObjectBytes !== undefined
+            ? { maxObjectBytes: store.maxObjectBytes }
+            : {}),
+          ...(store.maxTotalBytes !== undefined
+            ? { maxTotalBytes: store.maxTotalBytes }
+            : {}),
+        }];
+      })),
+    );
   }
 
   if (streams.length > 0) {
@@ -361,6 +453,20 @@ export function getResourcePermissionGrants(
     publish.add(`$JS.API.CONSUMER.MSG.NEXT.${stream}.>`);
     publish.add(`$JS.API.$KV.${kvBinding.bucket}.>`);
     publish.add(`$JS.ACK.${stream}.>`);
+  }
+
+  for (const storeBinding of Object.values(bindings?.store ?? {})) {
+    const stream = `OBJ_${storeBinding.name}`;
+    publish.add("$JS.API.INFO");
+    publish.add(`$O.${storeBinding.name}.C.>`);
+    publish.add(`$O.${storeBinding.name}.M.>`);
+    publish.add(`$JS.API.STREAM.INFO.${stream}`);
+    publish.add(`$JS.API.STREAM.CREATE.${stream}`);
+    publish.add(`$JS.API.STREAM.MSG.GET.${stream}`);
+    publish.add(`$JS.API.STREAM.PURGE.${stream}`);
+    publish.add(`$JS.API.CONSUMER.CREATE.${stream}.>`);
+    publish.add(`$JS.API.CONSUMER.DELETE.${stream}.>`);
+    publish.add(`$JS.FC.${stream}.>`);
   }
 
   for (const streamBinding of Object.values(bindings?.streams ?? {})) {

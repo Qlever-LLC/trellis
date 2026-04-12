@@ -133,7 +133,8 @@ Rules:
 This document defines the high-level system style. Detailed companion docs are split by concern:
 
 - [platform-libraries.md](./platform-libraries.md) - package responsibilities and core runtime/library guidance
-- [storage-patterns.md](./storage-patterns.md) - KV naming, keys, TTLs, and projections
+- [kv-resource-patterns.md](./kv-resource-patterns.md) - KV naming, keys, TTLs, and projections
+- [store-resource-patterns.md](./store-resource-patterns.md) - service-owned blob store resource patterns and runtime semantics
 - [type-system-patterns.md](./type-system-patterns.md) - schemas, validation, `Result`, and errors
 - [service-development.md](./service-development.md) - service layout, lifecycle, and jobs vs operations usage
 - [observability-patterns.md](./observability-patterns.md) - health, stats, docs, tracing, and request correlation

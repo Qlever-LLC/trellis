@@ -1,10 +1,13 @@
 import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
-import { assertEquals } from "@std/assert";
+import { TypedStore } from "@qlever-llc/trellis";
+import { assertEquals, assertRejects } from "@std/assert";
+import { NatsTest } from "../../../packages/trellis/testing/nats.ts";
 
 import {
   getJobsQueueRequests,
   getKvResourceRequests,
   getResourcePermissionGrants,
+  getStoreResourceRequests,
   getStreamResourceRequests,
   provisionContractResourceBindings,
 } from "./resources.ts";
@@ -24,6 +27,8 @@ const CONTRACT = {
   },
 } as TrellisContractV1;
 
+const RUN_NATS_TESTS = Deno.env.get("TRELLIS_TEST_NATS") === "1";
+
 Deno.test("resource requests apply KV defaults", () => {
   assertEquals(getKvResourceRequests(CONTRACT), [
     {
@@ -34,6 +39,50 @@ Deno.test("resource requests apply KV defaults", () => {
       ttlMs: 0,
     },
   ]);
+});
+
+Deno.test("resource requests apply store defaults", () => {
+  const contract = {
+    ...CONTRACT,
+    resources: {
+      ...CONTRACT.resources,
+      store: {
+        uploads: {
+          purpose: "Temporary uploaded files awaiting processing",
+          maxObjectBytes: 100 * 1024 * 1024,
+        },
+      },
+    },
+  } as TrellisContractV1;
+
+  assertEquals(getStoreResourceRequests(contract), [
+    {
+      alias: "uploads",
+      purpose: "Temporary uploaded files awaiting processing",
+      required: true,
+      ttlMs: 0,
+      maxObjectBytes: 100 * 1024 * 1024,
+    },
+  ]);
+});
+
+Deno.test("store resources require NATS during provisioning", async () => {
+  const contract = {
+    ...CONTRACT,
+    resources: {
+      store: {
+        uploads: {
+          purpose: "Temporary uploaded files awaiting processing",
+        },
+      },
+    },
+  } as TrellisContractV1;
+
+  await assertRejects(
+    () => provisionContractResourceBindings(undefined, contract, "svc_test_activity_v1"),
+    Error,
+    "NATS connection is required to provision store resources",
+  );
 });
 
 Deno.test("resource permission grants include per-bucket JetStream subjects", () => {
@@ -63,6 +112,42 @@ Deno.test("resource permission grants include per-bucket JetStream subjects", ()
   );
   assertEquals(
     grants.publish.includes("$JS.ACK.KV_svc_test_activity_v1_activity.>"),
+    true,
+  );
+});
+
+Deno.test("resource permission grants include store object subjects and subscribe permissions", () => {
+  const grants = getResourcePermissionGrants({
+    store: {
+      uploads: {
+        name: "svc_test_activity_v1_uploads",
+        ttlMs: 0,
+      },
+    },
+  });
+
+  assertEquals(
+    grants.publish.includes("$O.svc_test_activity_v1_uploads.C.>"),
+    true,
+  );
+  assertEquals(
+    grants.publish.includes("$O.svc_test_activity_v1_uploads.M.>"),
+    true,
+  );
+  assertEquals(
+    grants.publish.includes("$JS.API.STREAM.INFO.OBJ_svc_test_activity_v1_uploads"),
+    true,
+  );
+  assertEquals(
+    grants.publish.includes("$JS.API.STREAM.MSG.GET.OBJ_svc_test_activity_v1_uploads"),
+    true,
+  );
+  assertEquals(
+    grants.publish.includes("$JS.API.CONSUMER.CREATE.OBJ_svc_test_activity_v1_uploads.>"),
+    true,
+  );
+  assertEquals(
+    grants.publish.includes("$JS.FC.OBJ_svc_test_activity_v1_uploads.>"),
     true,
   );
 });
@@ -240,4 +325,70 @@ Deno.test("resource permission grants include stream subjects and JetStream cont
     ),
     true,
   );
+});
+
+Deno.test({
+  name: "store provisioning returns a usable bound store",
+  ignore: !RUN_NATS_TESTS,
+  async fn() {
+    await using nats = await NatsTest.start();
+
+    const contract = {
+      ...CONTRACT,
+      resources: {
+        store: {
+          uploads: {
+            purpose: "Temporary uploaded files awaiting processing",
+            ttlMs: 60_000,
+            maxObjectBytes: 1024,
+            maxTotalBytes: 4096,
+          },
+        },
+      },
+    } as TrellisContractV1;
+
+    const bindings = await provisionContractResourceBindings(
+      nats.nc,
+      contract,
+      "svc_test_activity_v1",
+    );
+
+    assertEquals(bindings.store?.uploads, {
+      name: "svc_svc_test_activit_activity_v1_uploads",
+      ttlMs: 60_000,
+      maxObjectBytes: 1024,
+      maxTotalBytes: 4096,
+    });
+
+    const opened = await TypedStore.open(nats.nc, bindings.store!.uploads.name, {
+      bindOnly: true,
+      ttlMs: bindings.store!.uploads.ttlMs,
+      maxObjectBytes: bindings.store!.uploads.maxObjectBytes,
+      maxTotalBytes: bindings.store!.uploads.maxTotalBytes,
+    });
+    const store = opened.match({
+      ok: (value) => value,
+      err: (error) => {
+        throw error;
+      },
+    });
+
+    const created = await store.create("incoming/test.txt", new TextEncoder().encode("hello"));
+    assertEquals(created.isOk(), true);
+
+    const entry = (await store.get("incoming/test.txt")).match({
+      ok: (value) => value,
+      err: (error) => {
+        throw error;
+      },
+    });
+
+    const bytes = (await entry.bytes()).match({
+      ok: (value) => value,
+      err: (error) => {
+        throw error;
+      },
+    });
+    assertEquals(new TextDecoder().decode(bytes), "hello");
+  },
 });

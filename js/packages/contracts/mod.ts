@@ -30,6 +30,7 @@ export {
   ContractResourceBindingsSchema,
   ContractResourcesSchema,
   ContractSchemaRefSchema,
+  ContractStoreResourceSchema,
   ContractStreamResourceSchema,
   type EventHeader,
   EventHeaderSchema,
@@ -42,6 +43,8 @@ export {
   JobsResourceBindingSchema,
   type KvResourceBinding,
   KvResourceBindingSchema,
+  type StoreResourceBinding,
+  StoreResourceBindingSchema,
   type Paginated,
   PaginatedSchema,
   type StreamResourceBinding,
@@ -152,6 +155,14 @@ export type ContractKvResource = {
   maxValueBytes?: number;
 };
 
+export type ContractStoreResource = {
+  purpose: string;
+  required?: boolean;
+  ttlMs?: number;
+  maxObjectBytes?: number;
+  maxTotalBytes?: number;
+};
+
 export type ContractStreamResource = {
   purpose: string;
   required?: boolean;
@@ -160,6 +171,7 @@ export type ContractStreamResource = {
 
 export type ContractResources = {
   kv?: Record<string, ContractKvResource>;
+  store?: Record<string, ContractStoreResource>;
   streams?: Record<string, ContractStreamResource>;
   jobs?: ContractJobsResource;
 };
@@ -289,6 +301,14 @@ export type ContractSourceKvResource = {
   maxValueBytes?: number;
 };
 
+export type ContractSourceStoreResource = {
+  purpose: string;
+  required?: boolean;
+  ttlMs?: number;
+  maxObjectBytes?: number;
+  maxTotalBytes?: number;
+};
+
 export type ContractSourceStreamResource = {
   purpose: string;
   required?: boolean;
@@ -297,6 +317,7 @@ export type ContractSourceStreamResource = {
 
 export type ContractSourceResources<TSchemaName extends string = string> = {
   kv?: Record<string, ContractSourceKvResource>;
+  store?: Record<string, ContractSourceStoreResource>;
   streams?: Record<string, ContractSourceStreamResource>;
   jobs?: ContractSourceJobsResource<TSchemaName>;
 };
@@ -719,7 +740,7 @@ function eventSubject(
 function emitResources(
   resources: ContractSourceResources | undefined,
 ): ContractResources | undefined {
-  if (!resources?.kv && !resources?.streams && !resources?.jobs) {
+  if (!resources?.kv && !resources?.store && !resources?.streams && !resources?.jobs) {
     return undefined;
   }
 
@@ -738,6 +759,26 @@ function emitResources(
                 ? { maxValueBytes: resource.maxValueBytes }
                 : {}),
             } satisfies ContractKvResource,
+          ]),
+        ),
+      }
+      : {}),
+    ...(resources.store
+      ? {
+        store: Object.fromEntries(
+          Object.entries(resources.store).map(([alias, resource]) => [
+            alias,
+            {
+              purpose: resource.purpose,
+              required: resource.required ?? true,
+              ttlMs: resource.ttlMs ?? 0,
+              ...(resource.maxObjectBytes !== undefined
+                ? { maxObjectBytes: resource.maxObjectBytes }
+                : {}),
+              ...(resource.maxTotalBytes !== undefined
+                ? { maxTotalBytes: resource.maxTotalBytes }
+                : {}),
+            } satisfies ContractStoreResource,
           ]),
         ),
       }

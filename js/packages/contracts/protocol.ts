@@ -27,6 +27,16 @@ export const ContractKvResourceSchema = Type.Object({
 
 export type ContractKvResource = Static<typeof ContractKvResourceSchema>;
 
+export const ContractStoreResourceSchema = Type.Object({
+  purpose: Type.String({ minLength: 1 }),
+  required: Type.Optional(Type.Boolean({ default: true })),
+  ttlMs: Type.Optional(Type.Integer({ minimum: 0, default: 0 })),
+  maxObjectBytes: Type.Optional(Type.Integer({ minimum: 1 })),
+  maxTotalBytes: Type.Optional(Type.Integer({ minimum: 1 })),
+}, { additionalProperties: false });
+
+export type ContractStoreResource = Static<typeof ContractStoreResourceSchema>;
+
 export const ContractStreamResourceSchema = Type.Object({
   purpose: Type.String({ minLength: 1 }),
   required: Type.Optional(Type.Boolean({ default: true })),
@@ -85,6 +95,9 @@ export const ContractResourcesSchema = Type.Object({
   kv: Type.Optional(
     Type.Record(Type.String({ minLength: 1 }), ContractKvResourceSchema),
   ),
+  store: Type.Optional(
+    Type.Record(Type.String({ minLength: 1 }), ContractStoreResourceSchema),
+  ),
   streams: Type.Optional(
     Type.Record(Type.String({ minLength: 1 }), ContractStreamResourceSchema),
   ),
@@ -101,6 +114,15 @@ export const KvResourceBindingSchema = Type.Object({
 }, { additionalProperties: false });
 
 export type KvResourceBinding = Static<typeof KvResourceBindingSchema>;
+
+export const StoreResourceBindingSchema = Type.Object({
+  name: Type.String({ minLength: 1 }),
+  ttlMs: Type.Integer({ minimum: 0 }),
+  maxObjectBytes: Type.Optional(Type.Integer({ minimum: 1 })),
+  maxTotalBytes: Type.Optional(Type.Integer({ minimum: 1 })),
+}, { additionalProperties: false });
+
+export type StoreResourceBinding = Static<typeof StoreResourceBindingSchema>;
 
 export const StreamResourceBindingSchema = Type.Object({
   name: Type.String({ minLength: 1 }),
@@ -151,6 +173,9 @@ export type JobsResourceBinding = Static<typeof JobsResourceBindingSchema>;
 export const ContractResourceBindingsSchema = Type.Object({
   kv: Type.Optional(
     Type.Record(Type.String({ minLength: 1 }), KvResourceBindingSchema),
+  ),
+  store: Type.Optional(
+    Type.Record(Type.String({ minLength: 1 }), StoreResourceBindingSchema),
   ),
   streams: Type.Optional(
     Type.Record(Type.String({ minLength: 1 }), StreamResourceBindingSchema),

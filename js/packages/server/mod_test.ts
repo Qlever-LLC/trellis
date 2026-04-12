@@ -10,7 +10,7 @@ import {
 import { Type } from "typebox";
 import type { BaseError, Result } from "@qlever-llc/result";
 import { defineContract } from "../trellis/contract.ts";
-import type { TypedKV, KVError } from "@qlever-llc/trellis";
+import type { KVError, StoreError, TypedKV, TypedStore } from "@qlever-llc/trellis";
 
 // Import the module under test
 import {
@@ -24,6 +24,7 @@ import {
   TrellisService as TrellisServiceClass,
   TrellisServer,
   KVHandle,
+  StoreHandle,
 } from "./mod.ts";
 
 const typeTestContract = defineContract({
@@ -50,6 +51,7 @@ Deno.test("TrellisServer export exists", () => {
   assertExists(TrellisServer);
   assertEquals(typeof TrellisServer, "function");
   assertEquals(typeof TrellisServiceClass, "function");
+  assertEquals(typeof StoreHandle, "function");
 });
 
 Deno.test("Health types are re-exported", () => {
@@ -109,20 +111,28 @@ Deno.test("Subscription types are re-exported", () => {
 
 Deno.test("service wrapper type surface stays specific", () => {
   const schema = Type.Object({ value: Type.String() }, { additionalProperties: false });
-  let typedRequest: Promise<Result<{ ok: boolean }, BaseError>> | null = null;
-  let typedRequestOrThrow: Promise<{ ok: boolean }> | null = null;
-  let typedOpened: Promise<Result<TypedKV<typeof schema>, KVError>> | null = null;
-
-  if (false) {
-    let service!: TrellisService<
+  function expectTypedSurface(
+    service: TrellisService<
       typeof typeTestContract.API.owned,
       typeof typeTestContract.API.owned
-    >;
-    let kvHandle!: KVHandle;
-    typedRequest = service.request("Test.Ping", {});
-    typedRequestOrThrow = service.requestOrThrow("Test.Ping", {});
-    typedOpened = kvHandle.open(schema);
+    > & { store: Record<string, StoreHandle> },
+    kvHandle: KVHandle,
+    storeHandle: StoreHandle,
+  ): {
+    request: Promise<Result<{ ok: boolean }, BaseError>>;
+    requestOrThrow: Promise<{ ok: boolean }>;
+    kvOpen: Promise<Result<TypedKV<typeof schema>, KVError>>;
+    storeOpen: Promise<Result<TypedStore, StoreError>>;
+  } {
+    return {
+      request: service.request("Test.Ping", {}),
+      requestOrThrow: service.requestOrThrow("Test.Ping", {}),
+      kvOpen: kvHandle.open(schema),
+      storeOpen: storeHandle.open(),
+    };
   }
+
+  assertExists(expectTypedSurface);
 
   assertEquals(true, true);
 });

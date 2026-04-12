@@ -14,9 +14,12 @@ import {
   portalRedirectLocation,
   Result,
   schema,
+  StoreError,
   submitPortalApproval,
   TrellisClient,
   TrellisDevice,
+  TypedStore,
+  TypedStoreEntry,
 } from "../index.ts";
 import * as trellis from "../index.ts";
 
@@ -31,6 +34,9 @@ Deno.test("root public API includes core runtime, contracts, result, and common 
   assertEquals(typeof portalRedirectLocation, "function");
   assertEquals(typeof TrellisClient.connect, "function");
   assertEquals(typeof TrellisDevice.connect, "function");
+  assertEquals(typeof TypedStore, "function");
+  assertEquals(typeof TypedStoreEntry, "function");
+  assertEquals(typeof StoreError, "function");
   assertEquals(typeof ok, "function");
   assertEquals(typeof err, "function");
   assertEquals(typeof isOk, "function");

@@ -5,8 +5,10 @@ import {
 import {
   type KVError,
   type OperationRegistration,
+  type StoreError,
   Trellis,
   TypedKV,
+  TypedStore,
 } from "@qlever-llc/trellis";
 import {
   API as TRELLIS_CORE_API,
@@ -102,6 +104,13 @@ export type ResourceBindingKV = {
   maxValueBytes?: number;
 };
 
+export type ResourceBindingStore = {
+  name: string;
+  ttlMs: number;
+  maxObjectBytes?: number;
+  maxTotalBytes?: number;
+};
+
 export type ResourceBindingStream = {
   name: string;
   [key: string]: unknown;
@@ -109,6 +118,7 @@ export type ResourceBindingStream = {
 
 export type ResourceBindings = {
   kv: Record<string, ResourceBindingKV>;
+  store: Record<string, ResourceBindingStore>;
   streams: Record<string, ResourceBindingStream>;
   jobs?: ResourceBindingJobs;
 };
@@ -230,6 +240,25 @@ export class KVHandle {
       history: this.binding.history,
       ttl: this.binding.ttlMs,
       maxValueBytes: this.binding.maxValueBytes,
+      bindOnly: true,
+    });
+  }
+}
+
+export class StoreHandle {
+  readonly binding: ResourceBindingStore;
+  readonly #nc: NatsConnection;
+
+  constructor(nc: NatsConnection, binding: ResourceBindingStore) {
+    this.#nc = nc;
+    this.binding = binding;
+  }
+
+  open(): Promise<Result<TypedStore, StoreError>> {
+    return TypedStore.open(this.#nc, this.binding.name, {
+      ttlMs: this.binding.ttlMs,
+      maxObjectBytes: this.binding.maxObjectBytes,
+      maxTotalBytes: this.binding.maxTotalBytes,
       bindOnly: true,
     });
   }
@@ -383,6 +412,7 @@ export class TrellisService<
   readonly operations: TrellisServerFor<TOwnedApi & TTrellisApi>["operations"];
   readonly trellis: ServiceTrellis<TOwnedApi, TTrellisApi>;
   readonly kv: Record<string, KVHandle>;
+  readonly store: Record<string, StoreHandle>;
   readonly streams: Record<string, ResourceBindingStream>;
   readonly jobs?: ResourceBindingJobs;
 
@@ -402,6 +432,9 @@ export class TrellisService<
     this.trellis = trellis;
     this.kv = Object.fromEntries(
       Object.entries(bindings.kv).map(([alias, binding]) => [alias, new KVHandle(nc, binding)]),
+    );
+    this.store = Object.fromEntries(
+      Object.entries(bindings.store).map(([alias, binding]) => [alias, new StoreHandle(nc, binding)]),
     );
     this.streams = bindings.streams;
     this.jobs = bindings.jobs;
@@ -507,7 +540,7 @@ export class TrellisService<
       ...(opts.nats.options ?? {}),
     } as NatsConnectOpts);
 
-    let bindings: ResourceBindings = { kv: {}, streams: {} };
+    let bindings: ResourceBindings = { kv: {}, store: {}, streams: {} };
 
     if (opts.contractId && opts.contractDigest) {
       const runtimeApi = (opts.server.trellisApi ?? opts.server.api) as TOwnedApi & TTrellisApi;
@@ -586,6 +619,7 @@ export class TrellisService<
 
       bindings = {
         kv: resolved.binding?.resources?.kv ?? {},
+        store: resolved.binding?.resources?.store ?? {},
         streams: resolved.binding?.resources?.streams ?? {},
         ...(resolved.binding?.resources?.jobs ? { jobs: resolved.binding.resources.jobs } : {}),
       };
