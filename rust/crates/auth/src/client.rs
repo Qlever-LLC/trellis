@@ -162,18 +162,33 @@ pub fn persist_renewed_admin_session(
     state: &mut AdminSessionState,
     renewed: RenewBindingTokenResponse,
 ) -> Result<(), TrellisAuthError> {
+    apply_renewed_admin_session(state, renewed)?;
+    save_admin_session(state)
+}
+
+fn apply_renewed_admin_session(
+    state: &mut AdminSessionState,
+    renewed: RenewBindingTokenResponse,
+) -> Result<(), TrellisAuthError> {
+    if renewed.nats_servers.is_empty() {
+        return Err(TrellisAuthError::UnexpectedBindStatus(
+            "missing_nats_servers".to_string(),
+        ));
+    }
     let renewed = BoundSession {
         binding_token: renewed.binding_token,
         inbox_prefix: renewed.inbox_prefix,
         expires: renewed.expires,
+        nats_servers: renewed.nats_servers.join(","),
         sentinel: renewed.sentinel,
     };
 
     state.binding_token = renewed.binding_token;
     state.expires = renewed.expires;
+    state.nats_servers = renewed.nats_servers;
     state.sentinel_jwt = renewed.sentinel.jwt;
     state.sentinel_seed = renewed.sentinel.seed;
-    save_admin_session(state)
+    Ok(())
 }
 
 /// Thin typed client for Trellis auth/admin RPCs used by the CLI.
@@ -717,11 +732,12 @@ mod tests {
     use serde_json::{json, Value};
 
     use super::{
-        CreatePortalRequest, DevicePortalSelectionRecord, GetPortalDefaultResponse,
-        LoginPortalSelectionRecord, PortalDefaultRecord, PortalRecord,
+        apply_renewed_admin_session, CreatePortalRequest, DevicePortalSelectionRecord,
+        GetPortalDefaultResponse, LoginPortalSelectionRecord, PortalDefaultRecord, PortalRecord,
         SetDevicePortalSelectionRequest, SetDevicePortalSelectionResponse,
         SetLoginPortalSelectionRequest,
     };
+    use crate::{AdminSessionState, RenewBindingTokenResponse, SentinelCredsRecord};
 
     #[test]
     fn portal_create_requests_serialize_with_camel_case_fields() {
@@ -828,5 +844,35 @@ mod tests {
                 "portalId": "main"
             })
         );
+    }
+
+    #[test]
+    fn renewed_admin_session_persists_discovered_transport_servers() {
+        let mut state = AdminSessionState {
+            auth_url: "http://localhost:3000".to_string(),
+            nats_servers: "old-a,old-b".to_string(),
+            session_seed: "seed".to_string(),
+            session_key: "key".to_string(),
+            binding_token: "old-token".to_string(),
+            sentinel_jwt: "old-jwt".to_string(),
+            sentinel_seed: "old-seed".to_string(),
+            expires: "2026-01-01T00:00:00Z".to_string(),
+        };
+        let renewed = RenewBindingTokenResponse {
+            binding_token: "new-token".to_string(),
+            expires: "2026-02-01T00:00:00Z".to_string(),
+            inbox_prefix: "_INBOX.test".to_string(),
+            nats_servers: vec!["nats://a:4222".to_string(), "nats://b:4222".to_string()],
+            sentinel: SentinelCredsRecord {
+                jwt: "new-jwt".to_string(),
+                seed: "new-seed".to_string(),
+            },
+            status: "bound".to_string(),
+        };
+
+        let error = apply_renewed_admin_session(&mut state, renewed);
+        assert!(error.is_ok());
+        assert_eq!(state.nats_servers, "nats://a:4222,nats://b:4222");
+        assert_eq!(state.binding_token, "new-token");
     }
 }

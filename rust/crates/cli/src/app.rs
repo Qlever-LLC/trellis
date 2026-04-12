@@ -20,16 +20,15 @@ use clap::{CommandFactory, Parser};
 use clap_complete::generate;
 use ed25519_dalek::SigningKey;
 use miette::IntoDiagnostic;
-use serde_json::{json, Value};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 use tracing_subscriber::EnvFilter;
 use trellis_auth as authlib;
 use trellis_client::{SessionAuth, TrellisClient};
-use trellis_contracts::{CatalogPack, ContractManifest};
+use trellis_contracts::ContractManifest;
 
 mod auth;
 mod bootstrap;
-mod contracts;
 mod devices;
 mod portals;
 mod runtime;
@@ -162,33 +161,18 @@ pub async fn run() -> miette::Result<()> {
     let cli = Cli::parse();
     init_tracing(cli.verbose)?;
     let format = cli.format;
-    let global_nats_servers = cli.nats_servers.clone();
-    let global_creds = cli.creds.clone();
 
     match cli.command {
         TopLevelCommand::Completion { shell } => {
             let mut command = Cli::command();
             generate(shell, &mut command, "trellis", &mut io::stdout());
         }
-        TopLevelCommand::Auth(command) => {
-            auth::run(format, global_nats_servers.clone(), command).await?
-        }
-        TopLevelCommand::Bootstrap(command) => {
-            bootstrap::run(global_nats_servers.clone(), global_creds.clone(), command).await?
-        }
+        TopLevelCommand::Auth(command) => auth::run(format, command).await?,
+        TopLevelCommand::Bootstrap(command) => bootstrap::run(command).await?,
         TopLevelCommand::Keygen(args) => runtime::keygen_command(format, &args)?,
-        TopLevelCommand::Portals(command) => portals::run(format, command).await?,
-        TopLevelCommand::Service(command) => {
-            service::run(
-                format,
-                global_nats_servers.clone(),
-                global_creds.clone(),
-                command,
-            )
-            .await?
-        }
-        TopLevelCommand::Devices(command) => devices::run(format, command).await?,
-        TopLevelCommand::Contracts(command) => contracts::run(format, command).await?,
+        TopLevelCommand::Portal(command) => portals::run(format, command).await?,
+        TopLevelCommand::Service(command) => service::run(format, command).await?,
+        TopLevelCommand::Device(command) => devices::run(format, command).await?,
         TopLevelCommand::Self_(command) => self_cmd::run(format, command)?,
         TopLevelCommand::Version => runtime::version_command(format)?,
     }
@@ -544,12 +528,4 @@ pub(crate) fn resolve_servers(global: Option<String>, local: Option<String>) -> 
         .or_else(|| env::var("TRELLIS_NATS_SERVERS").ok())
         .or_else(|| env::var("NATS_SERVERS").ok())
         .unwrap_or_else(|| "localhost".to_string())
-}
-
-pub(crate) fn pack_json(pack: &CatalogPack, output: &Path, contracts_out: Option<&Path>) -> Value {
-    json!({
-        "catalogPath": output,
-        "contractsOut": contracts_out,
-        "contracts": pack.catalog.contracts,
-    })
 }

@@ -625,6 +625,7 @@ mod tests {
             resources: TrellisBindingsGetResponseBindingResources {
                 jobs: None,
                 kv,
+                store: None,
                 streams,
             },
         }

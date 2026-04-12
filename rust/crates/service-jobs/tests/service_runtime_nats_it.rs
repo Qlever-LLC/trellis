@@ -94,6 +94,7 @@ impl FakeCoreClient {
                         ttl_ms: 0,
                     },
                 )])),
+                store: None,
                 streams: Some(BTreeMap::from([
                     (
                         "jobs".to_string(),

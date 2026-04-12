@@ -27,3 +27,9 @@ is used by repo-local generation and clean-checkout workflows.
 
 Run `cargo xtask prepare` from the repository root to execute that repo-local
 prepare workflow through Cargo. For JS-first repo workflows, use `cd js && deno task prepare`.
+
+Before `cargo build` or `cargo install --path rust/crates/cli`, run
+`cargo xtask prepare` so the generated Rust SDK crates under
+`generated/rust/sdks/` exist. If you are doing a normal Rust build from the repo,
+prefer `cargo xtask build`, which runs `prepare` first and then invokes
+`cargo build`.

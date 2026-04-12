@@ -40,8 +40,14 @@ For repository development workflows, prefer the repo-local prepare entrypoints:
 
 - `cd js && deno task prepare`
 - `cargo xtask prepare`
+- `cargo xtask build`
 
 Normal operators only need `trellis`; repo generation flows stay behind those local tasks and wrappers.
+
+If you build or install Rust binaries from this repo directly, run `cargo xtask prepare`
+first so the generated Rust SDK crates under `generated/rust/sdks/` exist.
+`cargo xtask build` is the convenient Rust-side wrapper for `prepare` followed by
+`cargo build`.
 
 ## Design documents
 

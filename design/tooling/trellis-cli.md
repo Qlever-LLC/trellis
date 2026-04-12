@@ -56,12 +56,18 @@ machine-global generator commands:
 ```text
 cd js && deno task prepare
 cargo xtask prepare
+cargo xtask build
 ```
 
 Those tasks route to `trellis-generate`, which can run before the main
 `trellis` CLI is buildable from a clean checkout. `cargo xtask prepare` shells
 into the bootstrap generator from the Rust workspace. `deno task prepare` does
 the same for the JS workspace.
+
+Rust contributors should run `cargo xtask prepare` before `cargo build` or
+`cargo install --path rust/crates/cli`, because the Rust workspace depends on
+generated SDK crates under `generated/rust/sdks/`. `cargo xtask build` is a
+convenience wrapper that runs `prepare` first and then invokes `cargo build`.
 
 `trellis-generate` still owns the explicit source-to-artifact interface for repo
 scripts, wrappers, and CI:
@@ -103,38 +109,42 @@ The CLI keeps and cleans up the existing operational commands:
 trellis auth login ...
 trellis auth logout
 trellis auth status
-trellis auth approvals list [--user <origin.id>] [--digest <contractDigest>]
-trellis auth approvals revoke --digest <contractDigest> [--user <origin.id>]
-trellis portals list
-trellis portals create --portal-id <id> --entry-url <url> [--app-contract-id <contractId>]
-trellis portals disable --portal-id <id>
-trellis portals logins default show
-trellis portals logins default set (--builtin | --portal-id <portalId>)
-trellis portals logins list
-trellis portals logins set --contract-id <contractId> (--builtin | --portal-id <portalId>)
-trellis portals logins clear --contract-id <contractId>
-trellis portals devices default show
-trellis portals devices default set (--builtin | --portal-id <portalId>)
-trellis portals devices list
-trellis portals devices set --profile <profileId> (--builtin | --portal <portalId>)
-trellis portals devices clear --profile <profileId>
-trellis devices profiles list [--contract <contractId>] [--disabled]
-trellis devices profiles create --profile <id> --contract <contractId|path> [--review-mode <none|required>]
-trellis devices profiles disable --profile <id>
-trellis devices provision --profile <id>
-trellis devices instances list [--profile <id>] [--state <registered|activated|revoked|disabled>]
-trellis devices instances disable --instance <id>
-trellis devices activations list [--instance <id>] [--profile <id>] [--state <activated|revoked>]
-trellis devices activations revoke --instance <id>
-trellis devices reviews list [--instance <id>] [--profile <id>] [--state <pending|approved|rejected>]
-trellis devices reviews decide --review <id> (--approve | --reject) [--reason <code>]
-trellis jobs workers [--service <name>]
+trellis auth approval list [--user <origin.id>] [--digest <contractDigest>]
+trellis auth approval revoke <contractDigest> [--user <origin.id>]
+trellis portal list
+trellis portal create <portalId> <entryUrl> [--app-contract-id <contractId>]
+trellis portal disable <portalId>
+trellis portal login default
+trellis portal login set-default (--builtin | --portal <portalId>)
+trellis portal login list
+trellis portal login set <contractId> (--builtin | --portal <portalId>)
+trellis portal login clear <contractId>
+trellis portal device default
+trellis portal device set-default (--builtin | --portal <portalId>)
+trellis portal device list
+trellis portal device set <profileId> (--builtin | --portal <portalId>)
+trellis portal device clear <profileId>
+trellis device profile list [--contract <contractId>] [--disabled]
+trellis device profile create <id> <contractId|path> [--review-mode <none|required>]
+trellis device profile disable <id>
+trellis device provision <id>
+trellis device instance list [--profile <id>] [--state <registered|activated|revoked|disabled>]
+trellis device instance disable <id>
+trellis device activation list [--instance <id>] [--profile <id>] [--state <activated|revoked>]
+trellis device activation revoke <id>
+trellis device review list [--instance <id>] [--profile <id>] [--state <pending|approved|rejected>]
+trellis device review approve <id> [--reason <code>]
+trellis device review reject <id> [--reason <code>]
 trellis bootstrap nats ...
 trellis bootstrap admin ...
 trellis keygen ...
 trellis service list
 trellis service install (--source <file> | --manifest <file> | --image <ref>) [--display-name <name>] [--description <desc>] [--namespace <ns>] [--inactive] [-f]
 trellis service upgrade (--source <file> | --manifest <file> | --image <ref>) [--service-key <public-key>|--seed <seed>] [-f]
+trellis self check [--prerelease]
+trellis self update [--prerelease]
+trellis version
+trellis completion <shell>
 ```
 
 Operational command behavior:
@@ -142,33 +152,34 @@ Operational command behavior:
 - `trellis auth login` is a normal contract-bearing client login, not a
   bootstrap bypass; it enters the auth-owned browser flow and continues through
   the resolved portal before storing local session material for later admin
-  RPC calls
-- `trellis portals *` manages registered custom portal web apps used to replace
+  RPC calls; runtime transport details are discovered from the bind flow and
+  persisted internally rather than exposed as normal CLI flags
+- `trellis portal *` manages registered custom portal web apps used to replace
   the built-in Trellis portal for login flows, device flows, or both; an
   optional `app-contract-id` attaches a normal browser app contract for portals
   that later call Trellis as the logged-in user
-- `trellis portals logins *` manages deployment-owned login portal policy,
+- `trellis portal login *` manages deployment-owned login portal policy,
   including the deployment login default and any contract-specific selections
-- `trellis portals devices *` manages deployment-owned device portal policy,
+- `trellis portal device *` manages deployment-owned device portal policy,
   including the deployment device default and any profile-specific selections
-- `trellis auth approvals list` shows stored app approval decisions from the
+- `trellis auth approval list` shows stored app approval decisions from the
   `trellis` service, with server-side filtering by exact contract digest and
   optionally by user when the caller is an admin
-- `trellis auth approvals revoke` removes a stored `user <-> contractDigest`
+- `trellis auth approval revoke` removes a stored `user <-> contractDigest`
   decision and causes matching active delegated sessions to be revoked by the
   `trellis` service
-- `trellis devices profiles *` manages device classes, allowed digests, and
+- `trellis device profile *` manages device classes, allowed digests, and
   review policy for activated devices; when given a local contract source,
   profile creation also registers that contract digest in the catalog so
   device-only contracts do not need a service install step; portal selection
-  for devices is managed under `trellis portals devices *`
-- `trellis devices provision` is the ergonomic provisioning path for device
+  for devices is managed under `trellis portal device *`
+- `trellis device provision` is the ergonomic provisioning path for device
   development and deployment: it generates a root secret locally, derives the
   device keys, registers the instance with auth using activation-only secret
   material, and emits the provisioning bundle for the device or operator
-- `trellis devices instances *` remains the lower-level instance inspection and
+- `trellis device instance *` remains the lower-level instance inspection and
   disable surface
-- `trellis devices reviews *` manages pending device review decisions and is
+- `trellis device review *` manages pending device review decisions and is
   intended for `device.review` automation services or admins
 - deployments may rely on the built-in Trellis portal with no portal setup, or
   register one or more custom portals, optionally choose separate login and
@@ -193,6 +204,8 @@ Operational command behavior:
   target service is ambiguous
 - `trellis keygen` remains an explicit offline utility for operators who want to
   separate key generation from install
+- the runtime/operator CLI no longer exposes direct transport flags like
+  `--servers` or `--creds` outside explicit bootstrap-only flows
 
 Normal authenticated CLI behavior is contract-governed in the same architectural
 sense as browser apps: the CLI has a generated participant contract, approval is
@@ -253,13 +266,10 @@ lives in dedicated Rust crates:
 - `trellis-server`
 - generated SDK crates for Trellis-owned contracts such as `trellis-sdk-core`
   and `trellis-sdk-auth`
-- a generated local participant facade crate for the CLI
-  (`trellis-cli-participant`), built from the CLI participant manifest plus
-  explicit alias-to-SDK mappings
 
-The CLI's own runtime contract access should primarily flow through that
-participant facade rather than by wiring multiple SDK clients directly into the
-CLI binary.
+The current CLI implementation uses generated Trellis-owned SDK crates directly
+plus local helper modules for command parsing, auth session storage, contract
+resolution, and self-update behavior.
 
 ## References
 

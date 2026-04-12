@@ -14,16 +14,10 @@ use bytes::Bytes;
 use miette::IntoDiagnostic;
 use serde_json::json;
 
-pub(super) async fn run(
-    global_nats_servers: Option<String>,
-    global_creds: Option<PathBuf>,
-    command: BootstrapCommand,
-) -> miette::Result<()> {
+pub(super) async fn run(command: BootstrapCommand) -> miette::Result<()> {
     match command.command {
         BootstrapSubcommand::Nats(args) => nats_bootstrap_command(&args).await,
-        BootstrapSubcommand::Admin(args) => {
-            bootstrap_admin_command(global_nats_servers, global_creds, &args).await
-        }
+        BootstrapSubcommand::Admin(args) => bootstrap_admin_command(&args).await,
     }
 }
 
@@ -78,16 +72,11 @@ async fn nats_bootstrap_command(args: &NatsBootstrapArgs) -> miette::Result<()> 
     Ok(())
 }
 
-async fn bootstrap_admin_command(
-    global_nats_servers: Option<String>,
-    global_creds: Option<PathBuf>,
-    args: &BootstrapAdminArgs,
-) -> miette::Result<()> {
-    let servers = resolve_servers(global_nats_servers, args.servers.clone());
+async fn bootstrap_admin_command(args: &BootstrapAdminArgs) -> miette::Result<()> {
+    let servers = resolve_servers(None, args.servers.clone());
     let creds = args
         .creds
         .clone()
-        .or(global_creds)
         .or_else(|| env::var("TRELLIS_NATS_CREDS").ok().map(PathBuf::from))
         .or_else(|| env::var("NATS_CREDS").ok().map(PathBuf::from))
         .ok_or_else(|| miette::miette!("missing creds path"))?;

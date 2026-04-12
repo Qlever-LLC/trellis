@@ -23,12 +23,15 @@ pub enum BootstrapSubcommand {
 /// a fresh install can start without creating missing state on first request.
 pub struct NatsBootstrapArgs {
     #[arg(long)]
+    /// Trellis service credentials file used to create the shared event stream.
     pub trellis_creds: PathBuf,
 
     #[arg(long)]
+    /// Auth service credentials file used to create auth-owned KV buckets.
     pub auth_creds: PathBuf,
 
     #[arg(long)]
+    /// Direct server list used only for bootstrap-time transport setup.
     pub servers: Option<String>,
 }
 
@@ -36,9 +39,11 @@ pub struct NatsBootstrapArgs {
 /// Seed an initial admin identity and bootstrap connection settings.
 pub struct BootstrapAdminArgs {
     #[arg(long)]
+    /// Identity origin namespace for the first admin account.
     pub origin: String,
 
     #[arg(long)]
+    /// Identity identifier within the chosen origin.
     pub id: String,
 
     #[arg(
@@ -49,8 +54,10 @@ pub struct BootstrapAdminArgs {
     pub capabilities: Vec<String>,
 
     #[arg(long)]
+    /// Credentials file used to connect directly during bootstrap.
     pub creds: Option<PathBuf>,
 
     #[arg(long)]
+    /// Direct server list used only for bootstrap-time transport setup.
     pub servers: Option<String>,
 }

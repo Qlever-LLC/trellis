@@ -5,7 +5,6 @@ use clap_complete::Shell;
 
 mod auth;
 mod bootstrap;
-mod contracts;
 mod devices;
 mod portals;
 mod self_cmd;
@@ -13,7 +12,6 @@ mod service;
 
 pub use auth::*;
 pub use bootstrap::*;
-pub use contracts::*;
 pub use devices::*;
 pub use portals::*;
 pub use self_cmd::*;
@@ -23,16 +21,12 @@ pub use service::*;
 #[command(name = "trellis", version, about = "Trellis CLI")]
 /// Top-level Trellis CLI arguments shared by all subcommands.
 pub struct Cli {
-    #[arg(long, global = true)]
-    pub nats_servers: Option<String>,
-
-    #[arg(long, global = true)]
-    pub creds: Option<PathBuf>,
-
     #[arg(long, global = true, default_value = "text")]
+    /// Render command output as human-readable text or machine-readable JSON.
     pub format: OutputFormat,
 
     #[arg(short, long, global = true, action = clap::ArgAction::Count)]
+    /// Increase log verbosity. Repeat for additional detail.
     pub verbose: u8,
 
     #[command(subcommand)]
@@ -49,18 +43,24 @@ pub enum OutputFormat {
 #[derive(Debug, Subcommand)]
 /// Root command tree for Trellis development and auth administration tasks.
 pub enum TopLevelCommand {
-    Completion {
-        shell: Shell,
-    },
+    /// Generate shell completion scripts for Trellis.
+    Completion { shell: Shell },
+    /// Authenticate the Trellis CLI and manage approval records.
     Auth(AuthCommand),
+    /// Run one-time bootstrap workflows for a fresh deployment.
     Bootstrap(BootstrapCommand),
+    /// Generate an Ed25519 seed and public session key offline.
     Keygen(KeygenArgs),
-    Portals(PortalsCommand),
+    /// Manage custom login and device portals.
+    Portal(PortalCommand),
+    /// Manage installed service contracts.
     Service(ServiceCommand),
-    Devices(DevicesCommand),
-    Contracts(ContractsCommand),
+    /// Manage device profiles, instances, activations, and reviews.
+    Device(DeviceCommand),
+    /// Check for or install CLI updates.
     #[command(name = "self")]
     Self_(SelfCommand),
+    /// Print the current CLI version.
     Version,
 }
 
@@ -68,12 +68,15 @@ pub enum TopLevelCommand {
 /// Generate a Trellis keypair, optionally from a fixed seed.
 pub struct KeygenArgs {
     #[arg(long)]
+    /// Reuse an existing base64url-encoded 32-byte Ed25519 seed.
     pub seed: Option<String>,
 
     #[arg(long)]
+    /// Write the generated private seed to this file.
     pub out: Option<PathBuf>,
 
     #[arg(long)]
+    /// Write the derived public session key to this file.
     pub pubout: Option<PathBuf>,
 }
 

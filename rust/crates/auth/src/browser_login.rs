@@ -20,6 +20,15 @@ use crate::models::{
 use crate::TrellisAuthError;
 use trellis_client::SessionAuth;
 
+fn join_nats_servers(servers: &[String]) -> Result<String, TrellisAuthError> {
+    if servers.is_empty() {
+        return Err(TrellisAuthError::UnexpectedBindStatus(
+            "missing_nats_servers".to_string(),
+        ));
+    }
+    Ok(servers.join(","))
+}
+
 fn base64url_encode(bytes: &[u8]) -> String {
     URL_SAFE_NO_PAD.encode(bytes)
 }
@@ -274,11 +283,13 @@ async fn bind_session(
             binding_token,
             inbox_prefix,
             expires,
+            nats_servers,
             sentinel,
         }) => Ok(BoundSession {
             binding_token,
             inbox_prefix,
             expires,
+            nats_servers: join_nats_servers(&nats_servers)?,
             sentinel,
         }),
         BindResponse::ApprovalRequired { approval } => Err(TrellisAuthError::UnexpectedBindStatus(
@@ -303,11 +314,7 @@ impl BrowserLoginChallenge {
     }
 
     /// Wait for the callback, bind the session, and confirm the user is an admin.
-    pub async fn complete(
-        self,
-        auth_url: &str,
-        nats_servers: &str,
-    ) -> Result<AdminLoginOutcome, TrellisAuthError> {
+    pub async fn complete(self, auth_url: &str) -> Result<AdminLoginOutcome, TrellisAuthError> {
         let outcome = timeout(Duration::from_secs(300), self.receiver)
             .await
             .map_err(|_| TrellisAuthError::LoginTimedOut)?
@@ -324,7 +331,7 @@ impl BrowserLoginChallenge {
         let bound = bind_session(auth_url, &self.auth, &flow_id).await?;
         let mut state = AdminSessionState {
             auth_url: auth_url.to_string(),
-            nats_servers: nats_servers.to_string(),
+            nats_servers: bound.nats_servers.clone(),
             session_seed: self.session_seed,
             session_key: self.auth.session_key.clone(),
             binding_token: bound.binding_token,

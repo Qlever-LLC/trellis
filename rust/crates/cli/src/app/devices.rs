@@ -20,36 +20,32 @@ struct DeviceProvisionOutput {
     root_secret: String,
 }
 
-pub(super) async fn run(format: OutputFormat, command: DevicesCommand) -> miette::Result<()> {
+pub(super) async fn run(format: OutputFormat, command: DeviceCommand) -> miette::Result<()> {
     match command.command {
-        DevicesSubcommand::Provision(args) => provision_command(format, &args).await,
-        DevicesSubcommand::Profiles(profiles) => match profiles.command {
-            DevicesProfilesSubcommand::List(args) => profiles_list_command(format, &args).await,
-            DevicesProfilesSubcommand::Create(args) => profiles_create_command(format, &args).await,
-            DevicesProfilesSubcommand::Disable(args) => {
-                profiles_disable_command(format, &args).await
-            }
+        DeviceSubcommand::Provision(args) => provision_command(format, &args).await,
+        DeviceSubcommand::Profile(profile) => match profile.command {
+            DeviceProfileSubcommand::List(args) => profiles_list_command(format, &args).await,
+            DeviceProfileSubcommand::Create(args) => profiles_create_command(format, &args).await,
+            DeviceProfileSubcommand::Disable(args) => profiles_disable_command(format, &args).await,
         },
-        DevicesSubcommand::Instances(instances) => match instances.command {
-            DevicesInstancesSubcommand::List(args) => instances_list_command(format, &args).await,
-            DevicesInstancesSubcommand::Disable(args) => {
+        DeviceSubcommand::Instance(instance) => match instance.command {
+            DeviceInstanceSubcommand::List(args) => instances_list_command(format, &args).await,
+            DeviceInstanceSubcommand::Disable(args) => {
                 instances_disable_command(format, &args).await
             }
         },
-        DevicesSubcommand::Activations(activations) => match activations.command {
-            DevicesActivationsSubcommand::List(args) => {
-                activations_list_command(format, &args).await
-            }
-            DevicesActivationsSubcommand::Revoke(args) => {
+        DeviceSubcommand::Activation(activation) => match activation.command {
+            DeviceActivationSubcommand::List(args) => activations_list_command(format, &args).await,
+            DeviceActivationSubcommand::Revoke(args) => {
                 activations_revoke_command(format, &args).await
             }
         },
-        DevicesSubcommand::Reviews(reviews) => match reviews.command {
-            DevicesReviewsSubcommand::List(args) => reviews_list_command(format, &args).await,
-            DevicesReviewsSubcommand::Approve(args) => {
+        DeviceSubcommand::Review(review) => match review.command {
+            DeviceReviewSubcommand::List(args) => reviews_list_command(format, &args).await,
+            DeviceReviewSubcommand::Approve(args) => {
                 reviews_update_command(format, &args, "approve").await
             }
-            DevicesReviewsSubcommand::Reject(args) => {
+            DeviceReviewSubcommand::Reject(args) => {
                 reviews_update_command(format, &args, "reject").await
             }
         },
@@ -58,7 +54,7 @@ pub(super) async fn run(format: OutputFormat, command: DevicesCommand) -> miette
 
 async fn profiles_list_command(
     format: OutputFormat,
-    args: &DevicesProfilesListArgs,
+    args: &DeviceProfileListArgs,
 ) -> miette::Result<()> {
     let mut state = authlib::load_admin_session().into_diagnostic()?;
     let connected = authlib::connect_admin_client_async(&state)
@@ -105,7 +101,7 @@ async fn profiles_list_command(
 
 async fn profiles_create_command(
     format: OutputFormat,
-    args: &DevicesProfilesCreateArgs,
+    args: &DeviceProfileCreateArgs,
 ) -> miette::Result<()> {
     let mut state = authlib::load_admin_session().into_diagnostic()?;
     let connected = authlib::connect_admin_client_async(&state)
@@ -119,7 +115,7 @@ async fn profiles_create_command(
             &args.profile,
             &contract_id,
             &allowed_digests,
-            args.review_mode.as_deref(),
+            Some(args.review_mode.as_wire_value()),
             contract,
         )
         .await
@@ -141,7 +137,7 @@ async fn profiles_create_command(
 
 async fn profiles_disable_command(
     format: OutputFormat,
-    args: &DevicesProfilesDisableArgs,
+    args: &DeviceProfileDisableArgs,
 ) -> miette::Result<()> {
     let mut state = authlib::load_admin_session().into_diagnostic()?;
     let connected = authlib::connect_admin_client_async(&state)
@@ -163,10 +159,7 @@ async fn profiles_disable_command(
     Ok(())
 }
 
-async fn provision_command(
-    format: OutputFormat,
-    args: &DevicesProvisionArgs,
-) -> miette::Result<()> {
+async fn provision_command(format: OutputFormat, args: &DeviceProvisionArgs) -> miette::Result<()> {
     let mut state = authlib::load_admin_session().into_diagnostic()?;
     let connected = authlib::connect_admin_client_async(&state)
         .await
@@ -211,7 +204,7 @@ async fn provision_command(
 
 async fn instances_list_command(
     format: OutputFormat,
-    args: &DevicesInstancesListArgs,
+    args: &DeviceInstanceListArgs,
 ) -> miette::Result<()> {
     let mut state = authlib::load_admin_session().into_diagnostic()?;
     let connected = authlib::connect_admin_client_async(&state)
@@ -219,7 +212,10 @@ async fn instances_list_command(
         .into_diagnostic()?;
     let auth_client = authlib::AuthClient::new(&connected);
     let instances = auth_client
-        .list_device_instances(args.profile.as_deref(), args.state.as_deref())
+        .list_device_instances(
+            args.profile.as_deref(),
+            args.state.map(DeviceInstanceState::as_wire_value),
+        )
         .await
         .into_diagnostic()?;
     auth_client
@@ -246,7 +242,7 @@ async fn instances_list_command(
 
 async fn instances_disable_command(
     format: OutputFormat,
-    args: &DevicesInstancesDisableArgs,
+    args: &DeviceInstanceDisableArgs,
 ) -> miette::Result<()> {
     let mut state = authlib::load_admin_session().into_diagnostic()?;
     let connected = authlib::connect_admin_client_async(&state)
@@ -270,7 +266,7 @@ async fn instances_disable_command(
 
 async fn activations_list_command(
     format: OutputFormat,
-    args: &DevicesActivationsListArgs,
+    args: &DeviceActivationListArgs,
 ) -> miette::Result<()> {
     let mut state = authlib::load_admin_session().into_diagnostic()?;
     let connected = authlib::connect_admin_client_async(&state)
@@ -281,7 +277,7 @@ async fn activations_list_command(
         .list_device_activations(
             args.instance.as_deref(),
             args.profile.as_deref(),
-            args.state.as_deref(),
+            args.state.map(DeviceActivationState::as_wire_value),
         )
         .await
         .into_diagnostic()?;
@@ -309,7 +305,7 @@ async fn activations_list_command(
 
 async fn activations_revoke_command(
     format: OutputFormat,
-    args: &DevicesActivationsRevokeArgs,
+    args: &DeviceActivationRevokeArgs,
 ) -> miette::Result<()> {
     let mut state = authlib::load_admin_session().into_diagnostic()?;
     let connected = authlib::connect_admin_client_async(&state)
@@ -333,7 +329,7 @@ async fn activations_revoke_command(
 
 async fn reviews_list_command(
     format: OutputFormat,
-    args: &DevicesReviewsListArgs,
+    args: &DeviceReviewListArgs,
 ) -> miette::Result<()> {
     let mut state = authlib::load_admin_session().into_diagnostic()?;
     let connected = authlib::connect_admin_client_async(&state)
@@ -344,7 +340,7 @@ async fn reviews_list_command(
         .list_device_activation_reviews(
             args.instance.as_deref(),
             args.profile.as_deref(),
-            args.state.as_deref(),
+            args.state.map(DeviceReviewState::as_wire_value),
         )
         .await
         .into_diagnostic()?;
@@ -380,7 +376,7 @@ async fn reviews_list_command(
 
 async fn reviews_update_command(
     format: OutputFormat,
-    args: &DevicesReviewDecisionArgs,
+    args: &DeviceReviewDecisionArgs,
     decision: &str,
 ) -> miette::Result<()> {
     let mut state = authlib::load_admin_session().into_diagnostic()?;

@@ -116,6 +116,7 @@ fn sample_core_binding() -> TrellisBindingsGetResponseBinding {
                     ttl_ms: 0,
                 },
             )])),
+            store: None,
             streams: Some(BTreeMap::from([(
                 "jobsWork".to_string(),
                 TrellisBindingsGetResponseBindingResourcesStreamsValue {

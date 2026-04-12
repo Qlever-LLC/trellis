@@ -38,6 +38,8 @@ pub struct BoundSession {
     pub inbox_prefix: String,
     /// RFC3339 expiry timestamp for this binding.
     pub expires: String,
+    /// Comma-separated runtime transport endpoints for the session.
+    pub nats_servers: String,
     /// Sentinel credentials returned alongside the binding.
     pub sentinel: SentinelCredsRecord,
 }
@@ -49,6 +51,8 @@ pub(crate) struct BindResponseBound {
     #[serde(rename = "inboxPrefix")]
     pub inbox_prefix: String,
     pub expires: String,
+    #[serde(rename = "natsServers")]
+    pub nats_servers: Vec<String>,
     pub sentinel: SentinelCredsRecord,
 }
 

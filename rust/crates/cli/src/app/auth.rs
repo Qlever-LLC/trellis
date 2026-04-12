@@ -1,4 +1,4 @@
-use crate::app::{resolve_servers, try_open_browser};
+use crate::app::try_open_browser;
 use crate::cli::*;
 use crate::cli_contract::cli_contract_json;
 use crate::output;
@@ -6,28 +6,19 @@ use miette::IntoDiagnostic;
 use serde_json::{json, Value};
 use trellis_auth as authlib;
 
-pub(super) async fn run(
-    format: OutputFormat,
-    global_nats_servers: Option<String>,
-    command: AuthCommand,
-) -> miette::Result<()> {
+pub(super) async fn run(format: OutputFormat, command: AuthCommand) -> miette::Result<()> {
     match command.command {
-        AuthSubcommand::Login(args) => login_command(format, global_nats_servers, &args).await,
+        AuthSubcommand::Login(args) => login_command(format, &args).await,
         AuthSubcommand::Logout => logout_command(format).await,
-        AuthSubcommand::Approvals(command) => match command.command {
-            AuthApprovalsSubcommand::List(args) => approvals_list_command(format, &args).await,
-            AuthApprovalsSubcommand::Revoke(args) => approvals_revoke_command(format, &args).await,
+        AuthSubcommand::Approval(command) => match command.command {
+            AuthApprovalSubcommand::List(args) => approvals_list_command(format, &args).await,
+            AuthApprovalSubcommand::Revoke(args) => approvals_revoke_command(format, &args).await,
         },
         AuthSubcommand::Status => status_command(format).await,
     }
 }
 
-async fn login_command(
-    format: OutputFormat,
-    global_nats_servers: Option<String>,
-    args: &AuthLoginArgs,
-) -> miette::Result<()> {
-    let nats_servers = resolve_servers(global_nats_servers, None);
+async fn login_command(format: OutputFormat, args: &AuthLoginArgs) -> miette::Result<()> {
     let challenge = authlib::start_browser_login(&authlib::StartBrowserLoginOpts {
         auth_url: &args.auth_url,
         listen: &args.listen,
@@ -42,10 +33,7 @@ async fn login_command(
     }
     try_open_browser(&login_url);
 
-    let outcome = challenge
-        .complete(&args.auth_url, &nats_servers)
-        .await
-        .into_diagnostic()?;
+    let outcome = challenge.complete(&args.auth_url).await.into_diagnostic()?;
     let state = outcome.state;
     let me = outcome.user;
 
@@ -140,7 +128,7 @@ async fn status_command(format: OutputFormat) -> miette::Result<()> {
 
 async fn approvals_list_command(
     format: OutputFormat,
-    args: &AuthApprovalsListArgs,
+    args: &AuthApprovalListArgs,
 ) -> miette::Result<()> {
     let mut state = authlib::load_admin_session().into_diagnostic()?;
     let connected = authlib::connect_admin_client_async(&state)
@@ -199,7 +187,7 @@ async fn approvals_list_command(
 
 async fn approvals_revoke_command(
     format: OutputFormat,
-    args: &AuthApprovalsRevokeArgs,
+    args: &AuthApprovalRevokeArgs,
 ) -> miette::Result<()> {
     let mut state = authlib::load_admin_session().into_diagnostic()?;
     let connected = authlib::connect_admin_client_async(&state)

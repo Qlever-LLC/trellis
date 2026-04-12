@@ -14,5 +14,11 @@ Refresh the outputs with the repo workflow entrypoints:
 
 - `cd js && deno task prepare`
 - `cargo xtask prepare`
+- `cargo xtask build`
 
 `trellis` is the runtime/operator CLI. Normal users should not need machine-global generator setup to refresh these artifacts.
+
+The Rust workspace treats the generated SDK crates under `generated/rust/sdks/` as
+build inputs. Run `cargo xtask prepare` before `cargo build` or `cargo install`
+from this repository. When you just want the normal Rust build workflow, prefer
+`cargo xtask build`, which runs `prepare` first and then invokes `cargo build`.

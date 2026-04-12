@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use crate::app::{
     contract_review_rows, default_display_name, generate_session_keypair, infer_namespaces,
     prompt_for_confirmation, resolve_upgrade_service_key,
@@ -11,20 +9,11 @@ use miette::IntoDiagnostic;
 use serde_json::json;
 use trellis_auth as authlib;
 
-pub(super) async fn run(
-    format: OutputFormat,
-    global_nats_servers: Option<String>,
-    global_creds: Option<PathBuf>,
-    command: ServiceCommand,
-) -> miette::Result<()> {
+pub(super) async fn run(format: OutputFormat, command: ServiceCommand) -> miette::Result<()> {
     match command.command {
         ServiceSubcommand::List => list_command(format).await,
-        ServiceSubcommand::Install(args) => {
-            install_command(format, global_nats_servers, global_creds, &args).await
-        }
-        ServiceSubcommand::Upgrade(args) => {
-            upgrade_command(format, global_nats_servers, global_creds, &args).await
-        }
+        ServiceSubcommand::Install(args) => install_command(format, &args).await,
+        ServiceSubcommand::Upgrade(args) => upgrade_command(format, &args).await,
     }
 }
 
@@ -84,12 +73,7 @@ async fn list_command(format: OutputFormat) -> miette::Result<()> {
     Ok(())
 }
 
-async fn install_command(
-    format: OutputFormat,
-    _global_nats_servers: Option<String>,
-    _global_creds: Option<PathBuf>,
-    args: &ServiceInstallArgs,
-) -> miette::Result<()> {
+async fn install_command(format: OutputFormat, args: &ServiceInstallArgs) -> miette::Result<()> {
     let resolved = resolve_contract_input(
         args.contract.manifest.as_deref(),
         args.contract.source.as_deref(),
@@ -197,12 +181,7 @@ async fn install_command(
     Ok(())
 }
 
-async fn upgrade_command(
-    format: OutputFormat,
-    _global_nats_servers: Option<String>,
-    _global_creds: Option<PathBuf>,
-    args: &ServiceUpgradeArgs,
-) -> miette::Result<()> {
+async fn upgrade_command(format: OutputFormat, args: &ServiceUpgradeArgs) -> miette::Result<()> {
     let resolved = resolve_contract_input(
         args.contract.manifest.as_deref(),
         args.contract.source.as_deref(),

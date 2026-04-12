@@ -105,6 +105,7 @@ fn map_binding_response_handles_some_and_none() {
             resources: TrellisBindingsGetResponseBindingResources {
                 jobs: None,
                 kv: None,
+                store: None,
                 streams: None,
             },
         }),
@@ -123,6 +124,7 @@ fn map_binding_response_handles_some_and_none() {
                 resources: TrellisBindingsGetResponseBindingResources {
                     jobs: None,
                     kv: None,
+                    store: None,
                     streams: None,
                 },
             }
@@ -144,6 +146,7 @@ async fn adapter_fetch_binding_passes_expected_filter_to_client() {
                 resources: TrellisBindingsGetResponseBindingResources {
                     jobs: None,
                     kv: None,
+                    store: None,
                     streams: None,
                 },
             }),

@@ -1,3 +1,6 @@
+use std::fs;
+
+use miette::IntoDiagnostic;
 use trellis_contracts::ContractKind;
 
 use crate::contract_input;
@@ -7,17 +10,62 @@ use super::{DiscoveredContractSource, SourceLanguage};
 pub fn discover_contract_metadata(
     contract: &DiscoveredContractSource,
 ) -> miette::Result<(String, ContractKind)> {
-    let export_name = match contract.language {
-        SourceLanguage::TypeScript | SourceLanguage::Rust => "CONTRACT",
-    };
+    match contract.language {
+        SourceLanguage::TypeScript => discover_typescript_contract_metadata(&contract.source_path),
+        SourceLanguage::Rust => discover_rust_contract_metadata(&contract.source_path),
+    }
+}
+
+fn discover_typescript_contract_metadata(
+    path: &std::path::Path,
+) -> miette::Result<(String, ContractKind)> {
+    match resolve_contract_metadata(path) {
+        Ok(metadata) => Ok(metadata),
+        Err(resolve_error) => {
+            let source = fs::read_to_string(path).into_diagnostic()?;
+            let contract_id = extract_quoted_source_field(&source, "id").ok_or(resolve_error)?;
+            let kind =
+                parse_contract_kind(&extract_quoted_source_field(&source, "kind").ok_or_else(
+                    || miette::miette!("failed to infer contract kind from {}", path.display()),
+                )?)?;
+            Ok((contract_id, kind))
+        }
+    }
+}
+
+fn discover_rust_contract_metadata(
+    path: &std::path::Path,
+) -> miette::Result<(String, ContractKind)> {
+    resolve_contract_metadata(path)
+}
+
+fn resolve_contract_metadata(path: &std::path::Path) -> miette::Result<(String, ContractKind)> {
     let resolved = contract_input::resolve_contract_input(
         None,
-        Some(&contract.source_path),
+        Some(path),
         None,
-        export_name,
+        "CONTRACT",
         contract_input::default_image_contract_path(),
     )?;
     Ok((resolved.loaded.manifest.id, resolved.loaded.manifest.kind))
+}
+
+fn extract_quoted_source_field(source: &str, field: &str) -> Option<String> {
+    let needle = format!("{field}:");
+    let mut offset = 0;
+    while let Some(found) = source[offset..].find(&needle) {
+        let start = offset + found;
+        let before = source[..start].chars().next_back();
+        if before.is_some_and(|ch| ch == '_' || ch.is_ascii_alphanumeric()) {
+            offset = start + needle.len();
+            continue;
+        }
+        let after = source[start + needle.len()..].trim_start();
+        let value = after.strip_prefix('"')?;
+        let end = value.find('"')?;
+        return Some(value[..end].to_string());
+    }
+    None
 }
 
 pub fn parse_contract_kind(value: &str) -> miette::Result<ContractKind> {
@@ -33,8 +81,6 @@ pub fn parse_contract_kind(value: &str) -> miette::Result<ContractKind> {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
-
     use tempfile::TempDir;
 
     use super::*;
@@ -76,5 +122,44 @@ mod tests {
         let (id, kind) = discover_contract_metadata(&discovered).unwrap();
         assert_eq!(id, "trellis.node-orders@v1");
         assert_eq!(kind, ContractKind::Service);
+    }
+
+    #[test]
+    fn falls_back_to_static_typescript_metadata_when_runtime_resolution_fails() {
+        let temp = TempDir::new().unwrap();
+        let project = temp.path().join("activity-app");
+        let contracts = project.join("contracts");
+        fs::create_dir_all(&contracts).unwrap();
+        fs::write(
+            project.join("package.json"),
+            "{\n  \"name\": \"activity-app\",\n  \"version\": \"0.4.0\",\n  \"type\": \"module\"\n}\n",
+        )
+        .unwrap();
+        fs::write(
+            contracts.join("activity_app.ts"),
+            concat!(
+                "import { activity } from '@qlever-llc/trellis/sdk/activity';\n",
+                "export const activityApp = {\n",
+                "  id: \"trellis.activity-app@v1\",\n",
+                "  displayName: \"Activity App\",\n",
+                "  description: \"Activity UI\",\n",
+                "  kind: \"app\",\n",
+                "  uses: { activity },\n",
+                "};\n",
+                "export const CONTRACT = activityApp;\n",
+            ),
+        )
+        .unwrap();
+
+        let discovered = DiscoveredContractSource {
+            project_root: project.clone(),
+            manifest_path: project.join("package.json"),
+            source_path: contracts.join("activity_app.ts"),
+            language: SourceLanguage::TypeScript,
+        };
+
+        let (id, kind) = discover_contract_metadata(&discovered).unwrap();
+        assert_eq!(id, "trellis.activity-app@v1");
+        assert_eq!(kind, ContractKind::App);
     }
 }

@@ -5,32 +5,28 @@ use miette::IntoDiagnostic;
 use serde_json::json;
 use trellis_auth as authlib;
 
-pub(super) async fn run(format: OutputFormat, command: PortalsCommand) -> miette::Result<()> {
+pub(super) async fn run(format: OutputFormat, command: PortalCommand) -> miette::Result<()> {
     match command.command {
-        PortalsSubcommand::List => list_command(format).await,
-        PortalsSubcommand::Create(args) => create_command(format, &args).await,
-        PortalsSubcommand::Disable(args) => disable_command(format, &args).await,
-        PortalsSubcommand::Logins(logins) => match logins.command {
-            PortalsLoginsSubcommand::Default(defaults) => match defaults.command {
-                PortalsDefaultSubcommand::Show => logins_default_show_command(format).await,
-                PortalsDefaultSubcommand::Set(args) => {
-                    logins_default_set_command(format, &args).await
-                }
-            },
-            PortalsLoginsSubcommand::List => logins_list_command(format).await,
-            PortalsLoginsSubcommand::Set(args) => logins_set_command(format, &args).await,
-            PortalsLoginsSubcommand::Clear(args) => logins_clear_command(format, &args).await,
+        PortalSubcommand::List => list_command(format).await,
+        PortalSubcommand::Create(args) => create_command(format, &args).await,
+        PortalSubcommand::Disable(args) => disable_command(format, &args).await,
+        PortalSubcommand::Login(login) => match login.command {
+            PortalLoginSubcommand::Default => logins_default_show_command(format).await,
+            PortalLoginSubcommand::SetDefault(args) => {
+                logins_default_set_command(format, &args).await
+            }
+            PortalLoginSubcommand::List => logins_list_command(format).await,
+            PortalLoginSubcommand::Set(args) => logins_set_command(format, &args).await,
+            PortalLoginSubcommand::Clear(args) => logins_clear_command(format, &args).await,
         },
-        PortalsSubcommand::Devices(devices) => match devices.command {
-            PortalsDevicesSubcommand::Default(defaults) => match defaults.command {
-                PortalsDefaultSubcommand::Show => devices_default_show_command(format).await,
-                PortalsDefaultSubcommand::Set(args) => {
-                    devices_default_set_command(format, &args).await
-                }
-            },
-            PortalsDevicesSubcommand::List => devices_list_command(format).await,
-            PortalsDevicesSubcommand::Set(args) => devices_set_command(format, &args).await,
-            PortalsDevicesSubcommand::Clear(args) => devices_clear_command(format, &args).await,
+        PortalSubcommand::Device(device) => match device.command {
+            PortalDeviceSubcommand::Default => devices_default_show_command(format).await,
+            PortalDeviceSubcommand::SetDefault(args) => {
+                devices_default_set_command(format, &args).await
+            }
+            PortalDeviceSubcommand::List => devices_list_command(format).await,
+            PortalDeviceSubcommand::Set(args) => devices_set_command(format, &args).await,
+            PortalDeviceSubcommand::Clear(args) => devices_clear_command(format, &args).await,
         },
     }
 }
@@ -78,7 +74,7 @@ async fn list_command(format: OutputFormat) -> miette::Result<()> {
     Ok(())
 }
 
-async fn create_command(format: OutputFormat, args: &PortalsCreateArgs) -> miette::Result<()> {
+async fn create_command(format: OutputFormat, args: &PortalCreateArgs) -> miette::Result<()> {
     let mut state = authlib::load_admin_session().into_diagnostic()?;
     let connected = authlib::connect_admin_client_async(&state)
         .await
@@ -107,7 +103,7 @@ async fn create_command(format: OutputFormat, args: &PortalsCreateArgs) -> miett
     Ok(())
 }
 
-async fn disable_command(format: OutputFormat, args: &PortalsDisableArgs) -> miette::Result<()> {
+async fn disable_command(format: OutputFormat, args: &PortalDisableArgs) -> miette::Result<()> {
     let mut state = authlib::load_admin_session().into_diagnostic()?;
     let connected = authlib::connect_admin_client_async(&state)
         .await
@@ -160,7 +156,7 @@ async fn logins_default_show_command(format: OutputFormat) -> miette::Result<()>
 
 async fn logins_default_set_command(
     format: OutputFormat,
-    args: &PortalsDefaultSetArgs,
+    args: &PortalDefaultSetArgs,
 ) -> miette::Result<()> {
     let mut state = authlib::load_admin_session().into_diagnostic()?;
     let connected = authlib::connect_admin_client_async(&state)
@@ -222,10 +218,7 @@ async fn logins_list_command(format: OutputFormat) -> miette::Result<()> {
     Ok(())
 }
 
-async fn logins_set_command(
-    format: OutputFormat,
-    args: &PortalsLoginsSetArgs,
-) -> miette::Result<()> {
+async fn logins_set_command(format: OutputFormat, args: &PortalLoginSetArgs) -> miette::Result<()> {
     let mut state = authlib::load_admin_session().into_diagnostic()?;
     let connected = authlib::connect_admin_client_async(&state)
         .await
@@ -254,7 +247,7 @@ async fn logins_set_command(
 
 async fn logins_clear_command(
     format: OutputFormat,
-    args: &PortalsLoginsClearArgs,
+    args: &PortalLoginClearArgs,
 ) -> miette::Result<()> {
     let mut state = authlib::load_admin_session().into_diagnostic()?;
     let connected = authlib::connect_admin_client_async(&state)
@@ -308,7 +301,7 @@ async fn devices_default_show_command(format: OutputFormat) -> miette::Result<()
 
 async fn devices_default_set_command(
     format: OutputFormat,
-    args: &PortalsDefaultSetArgs,
+    args: &PortalDefaultSetArgs,
 ) -> miette::Result<()> {
     let mut state = authlib::load_admin_session().into_diagnostic()?;
     let connected = authlib::connect_admin_client_async(&state)
@@ -372,7 +365,7 @@ async fn devices_list_command(format: OutputFormat) -> miette::Result<()> {
 
 async fn devices_set_command(
     format: OutputFormat,
-    args: &PortalsDevicesSetArgs,
+    args: &PortalDeviceSetArgs,
 ) -> miette::Result<()> {
     let mut state = authlib::load_admin_session().into_diagnostic()?;
     let connected = authlib::connect_admin_client_async(&state)
@@ -402,7 +395,7 @@ async fn devices_set_command(
 
 async fn devices_clear_command(
     format: OutputFormat,
-    args: &PortalsDevicesClearArgs,
+    args: &PortalDeviceClearArgs,
 ) -> miette::Result<()> {
     let mut state = authlib::load_admin_session().into_diagnostic()?;
     let connected = authlib::connect_admin_client_async(&state)
