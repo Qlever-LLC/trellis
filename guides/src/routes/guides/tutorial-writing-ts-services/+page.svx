@@ -22,13 +22,13 @@ deno init
 Next, add the Trellis SDK and TypeBox (our schema library) as dependencies:
 
 ```sh
-deno add npm:@qlever-llc/trellis npm:@qlever-llc/trellis-server npm:@sinclair/typebox
+deno add npm:@qlever-llc/trellis npm:@sinclair/typebox
 ```
 
 If you are using Node.js instead, use `npm`:
 
 ```sh
-npm install @qlever-llc/trellis @qlever-llc/trellis-server @sinclair/typebox
+npm install @qlever-llc/trellis @sinclair/typebox
 ```
 
 ---

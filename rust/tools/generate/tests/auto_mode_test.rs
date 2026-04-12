@@ -20,6 +20,10 @@ fn write_rust_contract(path: &Path, manifest_name: &str) {
     .unwrap();
 }
 
+fn trellis_generate() -> Command {
+    Command::new(env!("CARGO_BIN_EXE_trellis-generate"))
+}
+
 #[test]
 fn explicit_generate_all_emits_buildable_sdk_packages() {
     let temp = tempfile::tempdir().unwrap();
@@ -112,6 +116,37 @@ fn prepare_bootstraps_repo_without_discover_summary() {
         .path()
         .join("generated/contracts/manifests/trellis.orders@v1.json")
         .exists());
+}
+
+#[test]
+fn local_mode_verifies_non_service_without_detail_block() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = temp.path().join("app");
+    fs::create_dir_all(project.join("contracts")).unwrap();
+    fs::write(
+        project.join("deno.json"),
+        "{\n  \"version\": \"0.4.0\"\n}\n",
+    )
+    .unwrap();
+    write_ts_contract(
+        &project.join("contracts/dashboard.ts"),
+        "trellis.dashboard@v1",
+        "Dashboard",
+        "app",
+    );
+
+    let output = trellis_generate().current_dir(&project).output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("verified trellis.dashboard@v1"));
+    assert!(!stdout.contains("verify trellis.dashboard@v1"));
+    assert!(!stdout.contains("kind: app"));
+    assert!(!stdout.contains("source:"));
 }
 
 #[test]
@@ -250,4 +285,187 @@ fn local_mode_generates_service_artifacts_from_rust_contract_sources() {
     assert!(project
         .join("generated/rust/sdks/rust-service/Cargo.toml")
         .exists());
+}
+
+#[test]
+fn local_mode_skips_when_generated_artifacts_are_up_to_date() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = temp.path().join("service");
+    fs::create_dir_all(project.join("contracts")).unwrap();
+    fs::write(
+        project.join("deno.json"),
+        "{\n  \"version\": \"0.4.0\"\n}\n",
+    )
+    .unwrap();
+    write_ts_contract(
+        &project.join("contracts/orders.ts"),
+        "trellis.orders@v1",
+        "Orders",
+        "service",
+    );
+
+    let first = trellis_generate().current_dir(&project).output().unwrap();
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+
+    let metadata =
+        project.join("generated/contracts/manifests/trellis.orders@v1.trellis-generate.json");
+    assert!(metadata.exists());
+
+    let second = trellis_generate().current_dir(&project).output().unwrap();
+    assert!(
+        second.status.success(),
+        "{}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+
+    let stdout = String::from_utf8(second.stdout).unwrap();
+    assert!(stdout.contains("artifacts already up to date for trellis.orders@v1"));
+    assert!(!stdout.contains("generated contract artifacts for trellis.orders@v1"));
+}
+
+#[test]
+fn local_mode_force_regenerates_when_generated_artifacts_are_up_to_date() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = temp.path().join("service");
+    fs::create_dir_all(project.join("contracts")).unwrap();
+    fs::write(
+        project.join("deno.json"),
+        "{\n  \"version\": \"0.4.0\"\n}\n",
+    )
+    .unwrap();
+    write_ts_contract(
+        &project.join("contracts/orders.ts"),
+        "trellis.orders@v1",
+        "Orders",
+        "service",
+    );
+
+    let first = trellis_generate().current_dir(&project).output().unwrap();
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+
+    let second = trellis_generate()
+        .current_dir(&project)
+        .arg("--force")
+        .output()
+        .unwrap();
+    assert!(
+        second.status.success(),
+        "{}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+
+    let stdout = String::from_utf8(second.stdout).unwrap();
+    assert!(stdout.contains("generated contract artifacts for trellis.orders@v1"));
+    assert!(!stdout.contains("artifacts already up to date for trellis.orders@v1"));
+}
+
+#[test]
+fn local_mode_regenerates_when_a_key_output_is_missing() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = temp.path().join("service");
+    fs::create_dir_all(project.join("contracts")).unwrap();
+    fs::write(
+        project.join("deno.json"),
+        "{\n  \"version\": \"0.4.0\"\n}\n",
+    )
+    .unwrap();
+    write_ts_contract(
+        &project.join("contracts/orders.ts"),
+        "trellis.orders@v1",
+        "Orders",
+        "service",
+    );
+
+    let first = trellis_generate().current_dir(&project).output().unwrap();
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+
+    fs::remove_file(project.join("generated/js/sdks/orders/contract.ts")).unwrap();
+
+    let second = trellis_generate().current_dir(&project).output().unwrap();
+    assert!(
+        second.status.success(),
+        "{}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+
+    let stdout = String::from_utf8(second.stdout).unwrap();
+    assert!(stdout.contains("generated contract artifacts for trellis.orders@v1"));
+}
+
+#[test]
+fn generate_all_skips_when_metadata_matches_outputs() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = temp.path().join("service");
+    let manifest_path = temp.path().join("trellis.orders@v1.json");
+    let ts_out = temp.path().join("ts");
+    let rust_out = temp.path().join("rust");
+    fs::create_dir_all(project.join("contracts")).unwrap();
+    fs::write(
+        project.join("deno.json"),
+        "{\n  \"version\": \"0.4.0\"\n}\n",
+    )
+    .unwrap();
+    write_ts_contract(
+        &project.join("contracts/orders.ts"),
+        "trellis.orders@v1",
+        "Orders",
+        "service",
+    );
+
+    let first = trellis_generate()
+        .args([
+            "generate",
+            "all",
+            "--source",
+            project.join("contracts/orders.ts").to_str().unwrap(),
+            "--out-manifest",
+            manifest_path.to_str().unwrap(),
+            "--ts-out",
+            ts_out.to_str().unwrap(),
+            "--rust-out",
+            rust_out.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+
+    let second = trellis_generate()
+        .args([
+            "generate",
+            "all",
+            "--source",
+            project.join("contracts/orders.ts").to_str().unwrap(),
+            "--out-manifest",
+            manifest_path.to_str().unwrap(),
+            "--ts-out",
+            ts_out.to_str().unwrap(),
+            "--rust-out",
+            rust_out.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        second.status.success(),
+        "{}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+
+    let stdout = String::from_utf8(second.stdout).unwrap();
+    assert!(stdout.contains("artifacts already up to date for trellis.orders@v1"));
 }

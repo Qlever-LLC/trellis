@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use miette::IntoDiagnostic;
+use serde::{Deserialize, Serialize};
 use trellis_codegen_rust::{
     default_sdk_stem, GenerateRustSdkOpts, RustRuntimeDeps,
     RustRuntimeSource as CodegenRustRuntimeSource,
@@ -25,6 +26,9 @@ use discovery::{discover_contracts, discover_local_contracts, DiscoveredContract
     about = "Generate and verify Trellis contract artifacts"
 )]
 struct Cli {
+    #[arg(short = 'f', long, global = true)]
+    force: bool,
+
     #[command(subcommand)]
     command: Option<TopLevelCommand>,
 }
@@ -47,7 +51,8 @@ struct DiscoverArgs {
     root: PathBuf,
 }
 
-#[derive(Debug, Clone, Copy, ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
+#[serde(rename_all = "lowercase")]
 enum RuntimeSource {
     Registry,
     Local,
@@ -190,20 +195,39 @@ struct AutoPlanEntry {
 struct AutoExecutionSummary {
     generated: usize,
     verified: usize,
+    skipped: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct GeneratedArtifactsMetadata {
+    schema_version: u8,
+    contract_id: String,
+    contract_digest: String,
+    artifact_version: String,
+    runtime_source: RuntimeSource,
+    has_ts_sdk: bool,
+    has_rust_sdk: bool,
+    package_name: String,
+    crate_name: String,
+    generator_fingerprint: String,
+}
+
+impl GeneratedArtifactsMetadata {
+    const SCHEMA_VERSION: u8 = 1;
 }
 
 fn main() -> miette::Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Some(TopLevelCommand::Prepare(args)) => prepare_command(&args),
-        Some(TopLevelCommand::Discover(args)) => discover_command(&args),
+        Some(TopLevelCommand::Prepare(args)) => prepare_command(&args, cli.force),
+        Some(TopLevelCommand::Discover(args)) => discover_command(&args, cli.force),
         Some(TopLevelCommand::Generate(command)) => match command.command {
             GenerateSubcommand::Manifest(args) => generate_manifest_command(&args),
             GenerateSubcommand::Ts(args) => generate_ts_sdk_command(&args),
             GenerateSubcommand::Rust(args) => generate_rust_sdk_command(&args),
-            GenerateSubcommand::All(args) => generate_all_command(&args),
+            GenerateSubcommand::All(args) => generate_all_command(&args, cli.force),
         },
-        None => local_generate_command(),
+        None => local_generate_command(cli.force),
     }
 }
 
@@ -279,28 +303,62 @@ fn generate_rust_sdk_command(args: &GenerateRustSdkArgs) -> miette::Result<()> {
     Ok(())
 }
 
-fn generate_all_command(args: &GenerateAllArgs) -> miette::Result<()> {
+fn generate_all_command(args: &GenerateAllArgs, force: bool) -> miette::Result<()> {
     let resolved = resolve_contract(&args.contract)?;
     let artifact_version = infer_artifact_version(
         &resolved,
         args.artifact_version.clone(),
         "generate all artifacts",
     )?;
+    let package_name = args
+        .package_name
+        .clone()
+        .unwrap_or_else(|| default_ts_package_name_from_id(&resolved.loaded.manifest.id));
+    let crate_name = args
+        .crate_name
+        .clone()
+        .unwrap_or_else(|| default_rust_crate_name_from_id(&resolved.loaded.manifest.id));
+    let generator_fingerprint = current_generator_fingerprint();
+    let metadata = generated_artifacts_metadata(
+        &resolved,
+        &artifact_version,
+        args.runtime_source,
+        args.ts_out.is_some(),
+        args.rust_out.is_some(),
+        &package_name,
+        &crate_name,
+        &generator_fingerprint,
+    );
+    if !force
+        && generated_artifacts_are_fresh(
+            &metadata,
+            &args.out_manifest,
+            args.ts_out.as_deref(),
+            args.rust_out.as_deref(),
+        )
+    {
+        output::print_success(&format!(
+            "artifacts already up to date for {}",
+            resolved.loaded.manifest.id
+        ));
+        return Ok(());
+    }
     write_contract_outputs(
         &resolved,
         artifact_version,
         &args.out_manifest,
         args.ts_out.as_deref(),
         args.rust_out.as_deref(),
-        args.package_name.as_ref(),
-        args.crate_name.as_ref(),
+        &package_name,
+        &crate_name,
         args.runtime_source,
         args.runtime_repo_root.clone(),
+        &generator_fingerprint,
         "generated contract artifacts",
     )
 }
 
-fn prepare_command(args: &PrepareArgs) -> miette::Result<()> {
+fn prepare_command(args: &PrepareArgs, force: bool) -> miette::Result<()> {
     let canonical_root = args.root.canonicalize().into_diagnostic()?;
     let shared_output_root = detect_output_root(&canonical_root);
     let plan = build_auto_plan(discover_contracts(&args.root)?, Some(&shared_output_root))?;
@@ -310,17 +368,17 @@ fn prepare_command(args: &PrepareArgs) -> miette::Result<()> {
         output::print_info("No contracts found.");
         return Ok(());
     }
-    execute_auto_plan(&plan, Some("Trellis Prepare"), false).map(|_| ())
+    execute_auto_plan(&plan, Some("Trellis Prepare"), false, force).map(|_| ())
 }
 
-fn local_generate_command() -> miette::Result<()> {
+fn local_generate_command(force: bool) -> miette::Result<()> {
     let cwd = std::env::current_dir().into_diagnostic()?;
     let discovered = discover_local_contracts(&cwd)?;
     let plan = build_auto_plan(discovered, None)?;
-    execute_auto_plan(&plan, Some("Trellis Generate"), false).map(|_| ())
+    execute_auto_plan(&plan, Some("Trellis Generate"), false, force).map(|_| ())
 }
 
-fn discover_command(args: &DiscoverArgs) -> miette::Result<()> {
+fn discover_command(args: &DiscoverArgs, force: bool) -> miette::Result<()> {
     let canonical_root = args.root.canonicalize().into_diagnostic()?;
     let shared_output_root = detect_output_root(&canonical_root);
     let plan = build_auto_plan(discover_contracts(&args.root)?, Some(&shared_output_root))?;
@@ -332,10 +390,11 @@ fn discover_command(args: &DiscoverArgs) -> miette::Result<()> {
     }
     output::print_section("Plan");
     output::print_discover_summary(&discover_summary_lines(&plan));
-    let summary = execute_auto_plan(&plan, None, true)?;
+    let summary = execute_auto_plan(&plan, None, true, force)?;
     output::print_section("Result");
     output::print_info(&output::summary_line("generated", summary.generated));
     output::print_info(&output::summary_line("verified", summary.verified));
+    output::print_info(&output::summary_line("skipped", summary.skipped));
     Ok(())
 }
 
@@ -396,6 +455,7 @@ fn execute_auto_plan(
     plan: &[AutoPlanEntry],
     title: Option<&str>,
     show_title: bool,
+    force: bool,
 ) -> miette::Result<AutoExecutionSummary> {
     if show_title {
         output::print_section("Run");
@@ -403,9 +463,9 @@ fn execute_auto_plan(
         output::print_title(title);
     }
 
+    let generator_fingerprint = current_generator_fingerprint();
     let mut summary = AutoExecutionSummary::default();
     for entry in plan {
-        print_auto_entry(entry);
         let resolved = contract_input::resolve_contract_input(
             None,
             Some(entry.discovered.source_path.as_path()),
@@ -419,24 +479,56 @@ fn execute_auto_plan(
                     &resolved,
                     "generate service artifacts from local discovery",
                 )?;
+                let package_name = default_ts_package_name_from_id(&resolved.loaded.manifest.id);
+                let crate_name = default_rust_crate_name_from_id(&resolved.loaded.manifest.id);
                 let out_manifest = entry.out_manifest.as_ref().ok_or_else(|| {
                     miette::miette!("missing manifest output for generated contract")
                 })?;
+                let metadata = generated_artifacts_metadata(
+                    &resolved,
+                    &artifact_version,
+                    entry.runtime_source,
+                    entry.ts_out.is_some(),
+                    entry.rust_out.is_some(),
+                    &package_name,
+                    &crate_name,
+                    &generator_fingerprint,
+                );
+                if !force
+                    && generated_artifacts_are_fresh(
+                        &metadata,
+                        out_manifest,
+                        entry.ts_out.as_deref(),
+                        entry.rust_out.as_deref(),
+                    )
+                {
+                    output::print_success(&format!(
+                        "artifacts already up to date for {}",
+                        resolved.loaded.manifest.id
+                    ));
+                    summary.skipped += 1;
+                    continue;
+                }
+                print_auto_entry(entry);
                 write_contract_outputs(
                     &resolved,
                     artifact_version,
                     out_manifest,
                     entry.ts_out.as_deref(),
                     entry.rust_out.as_deref(),
-                    None,
-                    None,
+                    &package_name,
+                    &crate_name,
                     entry.runtime_source,
                     entry.runtime_repo_root.clone(),
+                    &generator_fingerprint,
                     "generated contract artifacts",
                 )?;
                 summary.generated += 1;
             }
             AutoAction::Verify => {
+                if show_title {
+                    print_auto_entry(entry);
+                }
                 output::print_success(&format!("verified {}", resolved.loaded.manifest.id));
                 summary.verified += 1;
             }
@@ -623,24 +715,33 @@ fn write_contract_outputs(
     out_manifest: &Path,
     ts_out: Option<&Path>,
     rust_out: Option<&Path>,
-    package_name: Option<&String>,
-    crate_name: Option<&String>,
+    package_name: &str,
+    crate_name: &str,
     runtime_source: RuntimeSource,
     runtime_repo_root: Option<PathBuf>,
+    generator_fingerprint: &str,
     success_message: &str,
 ) -> miette::Result<()> {
+    let metadata = generated_artifacts_metadata(
+        resolved,
+        &artifact_version,
+        runtime_source,
+        ts_out.is_some(),
+        rust_out.is_some(),
+        package_name,
+        crate_name,
+        generator_fingerprint,
+    );
     if let Some(parent) = out_manifest.parent() {
         fs::create_dir_all(parent).into_diagnostic()?;
     }
-    fs::write(out_manifest, format!("{}\n", resolved.loaded.canonical)).into_diagnostic()?;
+    write_if_changed(out_manifest, &format!("{}\n", resolved.loaded.canonical))?;
 
     if let Some(ts_out) = ts_out {
         trellis_codegen_ts::generate_ts_sdk(&GenerateTsSdkOpts {
             manifest_path: out_manifest.to_path_buf(),
             out_dir: ts_out.to_path_buf(),
-            package_name: package_name
-                .cloned()
-                .unwrap_or_else(|| default_ts_package_name_from_id(&resolved.loaded.manifest.id)),
+            package_name: package_name.to_string(),
             package_version: artifact_version.clone(),
             runtime_deps: ts_runtime_deps(
                 runtime_source,
@@ -655,9 +756,7 @@ fn write_contract_outputs(
         trellis_codegen_rust::generate_rust_sdk(&GenerateRustSdkOpts {
             manifest_path: out_manifest.to_path_buf(),
             out_dir: rust_out.to_path_buf(),
-            crate_name: crate_name
-                .cloned()
-                .unwrap_or_else(|| default_rust_crate_name_from_id(&resolved.loaded.manifest.id)),
+            crate_name: crate_name.to_string(),
             crate_version: artifact_version.clone(),
             runtime_deps: rust_runtime_deps(
                 runtime_source,
@@ -668,6 +767,8 @@ fn write_contract_outputs(
         .into_diagnostic()?;
     }
 
+    write_generated_artifacts_metadata(out_manifest, &metadata)?;
+
     output::print_success(&format!(
         "{} for {}",
         success_message, resolved.loaded.manifest.id
@@ -675,6 +776,96 @@ fn write_contract_outputs(
     output::print_detail("manifest", out_manifest.display().to_string());
     output::print_detail("digest", &resolved.loaded.digest);
     Ok(())
+}
+
+fn generated_artifacts_metadata(
+    resolved: &contract_input::ResolvedContractInput,
+    artifact_version: &str,
+    runtime_source: RuntimeSource,
+    has_ts_sdk: bool,
+    has_rust_sdk: bool,
+    package_name: &str,
+    crate_name: &str,
+    generator_fingerprint: &str,
+) -> GeneratedArtifactsMetadata {
+    GeneratedArtifactsMetadata {
+        schema_version: GeneratedArtifactsMetadata::SCHEMA_VERSION,
+        contract_id: resolved.loaded.manifest.id.clone(),
+        contract_digest: resolved.loaded.digest.clone(),
+        artifact_version: artifact_version.to_string(),
+        runtime_source,
+        has_ts_sdk,
+        has_rust_sdk,
+        package_name: package_name.to_string(),
+        crate_name: crate_name.to_string(),
+        generator_fingerprint: generator_fingerprint.to_string(),
+    }
+}
+
+fn generated_artifacts_are_fresh(
+    expected: &GeneratedArtifactsMetadata,
+    out_manifest: &Path,
+    ts_out: Option<&Path>,
+    rust_out: Option<&Path>,
+) -> bool {
+    let Some(existing) = read_generated_artifacts_metadata(out_manifest) else {
+        return false;
+    };
+    existing == *expected
+        && out_manifest.exists()
+        && ts_key_outputs_exist(ts_out)
+        && rust_key_outputs_exist(rust_out)
+}
+
+fn read_generated_artifacts_metadata(out_manifest: &Path) -> Option<GeneratedArtifactsMetadata> {
+    let contents = fs::read_to_string(generated_artifacts_metadata_path(out_manifest)).ok()?;
+    serde_json::from_str(&contents).ok()
+}
+
+fn write_generated_artifacts_metadata(
+    out_manifest: &Path,
+    metadata: &GeneratedArtifactsMetadata,
+) -> miette::Result<()> {
+    write_if_changed(
+        &generated_artifacts_metadata_path(out_manifest),
+        &format!(
+            "{}\n",
+            serde_json::to_string_pretty(metadata).into_diagnostic()?
+        ),
+    )
+}
+
+fn generated_artifacts_metadata_path(out_manifest: &Path) -> PathBuf {
+    out_manifest.with_extension("trellis-generate.json")
+}
+
+fn ts_key_outputs_exist(ts_out: Option<&Path>) -> bool {
+    let Some(ts_out) = ts_out else {
+        return true;
+    };
+    ts_out.join("mod.ts").exists() && ts_out.join("contract.ts").exists()
+}
+
+fn rust_key_outputs_exist(rust_out: Option<&Path>) -> bool {
+    let Some(rust_out) = rust_out else {
+        return true;
+    };
+    rust_out.join("Cargo.toml").exists() && rust_out.join("src/contract.rs").exists()
+}
+
+fn write_if_changed(path: &Path, contents: &str) -> miette::Result<()> {
+    if fs::read_to_string(path).ok().as_deref() == Some(contents) {
+        return Ok(());
+    }
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).into_diagnostic()?;
+    }
+    fs::write(path, contents).into_diagnostic()?;
+    Ok(())
+}
+
+fn current_generator_fingerprint() -> &'static str {
+    env!("TRELLIS_GENERATE_FINGERPRINT")
 }
 
 fn infer_artifact_version(
