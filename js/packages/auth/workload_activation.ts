@@ -190,6 +190,25 @@ async function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
+async function responseErrorDetail(response: Response): Promise<string | null> {
+  const text = await response.text();
+  if (!text) return null;
+
+  try {
+    const parsed = JSON.parse(text) as Record<string, unknown>;
+    if (typeof parsed.reason === "string" && parsed.reason.length > 0) {
+      return parsed.reason;
+    }
+    if (typeof parsed.message === "string" && parsed.message.length > 0) {
+      return parsed.message;
+    }
+  } catch {
+    // Fall through to raw text below.
+  }
+
+  return text;
+}
+
 export async function deriveWorkloadIdentity(workloadRootSecret: Uint8Array): Promise<WorkloadIdentity> {
   if (workloadRootSecret.length !== 32) {
     throw new Error(`Invalid workload root secret length: ${workloadRootSecret.length} (expected 32)`);
@@ -383,7 +402,12 @@ export async function waitForWorkloadActivation(args: {
       signal: args.signal,
     });
     if (!response.ok) {
-      throw new Error(`workload activation wait failed: ${response.status}`);
+      const detail = await responseErrorDetail(response);
+      throw new Error(
+        detail
+          ? `workload activation wait failed: ${response.status} ${detail}`
+          : `workload activation wait failed: ${response.status}`,
+      );
     }
     const body = await response.json();
     if (!Value.Check(WaitForWorkloadActivationResponseSchema, body)) {

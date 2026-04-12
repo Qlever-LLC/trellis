@@ -48,7 +48,7 @@ export const myWorkload = defineContract({
 
 Activated workloads may not use contract `resources`.
 
-Even when you define the contract from `@qlever-llc/trellis/contracts`, the resulting contract object still carries the runtime metadata and helpers that `TrellisWorkload.connect(...)` expects.
+Even when you define the contract from `@qlever-llc/trellis/contracts`, the resulting contract object carries the manifest metadata and API views that `TrellisWorkload.connect(...)` expects.
 
 ## 3. Write the workload startup code
 

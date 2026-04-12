@@ -1864,7 +1864,7 @@
           ]
         }
       },
-      "apps/trellis": {
+      "apps/console": {
         "dependencies": [
           "npm:vite@*"
         ],

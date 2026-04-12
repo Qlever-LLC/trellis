@@ -18,7 +18,7 @@ on:
       - "js/portals/login/**"
       - "js/services/jobs/**"
       - "js/services/trellis/**"
-      - "js/apps/trellis/**"
+      - "js/apps/console/**"
       - "js/packages/**"
       - "js/deno.json"
       - "js/deno.lock"
@@ -219,7 +219,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: js/apps/trellis/Containerfile
+          file: js/apps/console/Containerfile
           platforms: ${{ matrix.platform }}
           push: false
           labels: |
@@ -233,7 +233,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: js/apps/trellis/Containerfile
+          file: js/apps/console/Containerfile
           platforms: ${{ matrix.platform }}
           labels: |
             ${{ steps.console_meta.outputs.labels }}

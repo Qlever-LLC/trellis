@@ -30,7 +30,7 @@ It does not redefine the canonical manifest model or runtime permission derivati
 
 `@qlever-llc/trellis/contracts` is the preferred package for contract source modules and other contract-only authoring code.
 
-`@qlever-llc/trellis` remains the canonical runtime package for client connection helpers, auth helpers, `Result`, and explicit core-runtime helpers such as `createCoreClient(...)`.
+`@qlever-llc/trellis` remains the canonical runtime package for client connection helpers, auth helpers, and `Result`.
 
 It exports:
 
@@ -237,7 +237,7 @@ Rules:
 
 Contract-driven runtime helpers include `TrellisClient.connect(...)`, `TrellisService.connect(...)`, and `TrellisWorkload.connect(...)`.
 
-For callers that intentionally want only the generated Trellis core API without a local contract, `@qlever-llc/trellis` also exposes `createCoreClient(...)` as an explicit opt-in helper.
+Public TypeScript documentation should lead with `TrellisClient.connect(...)`, `TrellisService.connect(...)`, and `TrellisWorkload.connect(...)` rather than lower-level runtime construction helpers.
 
 Rules:
 

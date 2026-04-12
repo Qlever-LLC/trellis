@@ -190,7 +190,7 @@ An HTTP 400 is expected — it confirms the runtime is serving.
 In a second terminal:
 
 ```sh
-cd js/apps/trellis
+cd js/apps/console
 cp .env.example .env
 deno task dev
 ```
@@ -235,7 +235,7 @@ Open `http://localhost:5173` in your browser and complete the OAuth login with t
 ## Development workflow
 
 - **Runtime changes** — edit files under `js/services/trellis/` or `js/packages/`. The `deno task dev` watcher restarts the process automatically.
-- **Console changes** — edit files under `js/apps/trellis/`. Vite HMR applies changes in-place.
+- **Console changes** — edit files under `js/apps/console/`. Vite HMR applies changes in-place.
 - **Contract changes** — run `cd js && deno task prepare` to regenerate SDKs with `trellis-generate`, then restart the affected service.
 - **CLI changes** — run `cargo build -p trellis-cli` in the `rust/` directory, then re-run `trellis ...` commands from the repo root.
 - **Type checking** — run `deno task -c js/deno.json check` to type-check the full JS workspace.

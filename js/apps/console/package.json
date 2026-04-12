@@ -1,5 +1,5 @@
 {
-  "name": "@qlever-llc/trellis-app-trellis",
+  "name": "@qlever-llc/trellis-app-console",
   "private": true,
   "type": "module",
   "scripts": {

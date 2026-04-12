@@ -74,7 +74,7 @@ const client = await TrellisClient.connect({
 });
 ```
 
-Use `TrellisClient.connect(...)` for the normal runtime bootstrap path. If a process intentionally wants only the generated Trellis core surface after it already has transport and auth wired, use `await createCoreClient(nc, authSession, opts)` from `@qlever-llc/trellis`.
+Use `TrellisClient.connect(...)` for the normal runtime bootstrap path.
 
 ### Server
 

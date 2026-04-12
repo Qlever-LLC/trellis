@@ -1,7 +1,6 @@
 import { jwtAuthenticator, type NatsConnection } from "@nats-io/nats-core";
 
 import {
-  base64urlDecode,
   buildWorkloadActivationPayload,
   buildWorkloadActivationUrl,
   createWorkloadNatsAuthToken,
@@ -9,7 +8,9 @@ import {
   signWorkloadWaitRequest,
   verifyWorkloadConfirmationCode,
   waitForWorkloadActivation,
-} from "./auth.ts";
+} from "../auth/workload_activation.ts";
+import { importEd25519PrivateKeyFromSeedBase64url } from "../auth/keys.ts";
+import { base64urlDecode, base64urlEncode, toArrayBuffer } from "../auth/utils.ts";
 import type { TrellisAPI } from "./contracts.ts";
 import { loadDefaultRuntimeTransport } from "./runtime_transport.ts";
 import { Trellis } from "./trellis.ts";
@@ -101,8 +102,6 @@ function normalizeRootSecret(rootSecret: Uint8Array | string): Uint8Array {
 }
 
 async function signIdentityBytes(identitySeed: Uint8Array, data: Uint8Array): Promise<Uint8Array> {
-  const { importEd25519PrivateKeyFromSeedBase64url } = await import("../auth/keys.ts");
-  const { base64urlEncode, toArrayBuffer } = await import("../auth/utils.ts");
   const privateKey = await importEd25519PrivateKeyFromSeedBase64url(base64urlEncode(identitySeed));
   return new Uint8Array(await crypto.subtle.sign("Ed25519", privateKey, toArrayBuffer(data)));
 }
@@ -135,10 +134,16 @@ async function fetchWorkloadBootstrap(args: {
     contractDigest: args.contractDigest,
     iat: args.iat,
   });
+  const bootstrapRequest = {
+    publicIdentityKey: request.publicIdentityKey,
+    contractDigest: request.contractDigest,
+    iat: request.iat,
+    sig: request.sig,
+  };
   const response = await fetch(new URL("/bootstrap/workload", args.trellisUrl), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(request),
+    body: JSON.stringify(bootstrapRequest),
   });
   if (!response.ok) {
     throw new Error(`Workload bootstrap failed: ${response.status} ${await response.text()}`);

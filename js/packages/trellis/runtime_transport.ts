@@ -1,3 +1,4 @@
+import { wsconnect } from "@nats-io/nats-core";
 import type { Authenticator, NatsConnection } from "@nats-io/nats-core";
 
 export type RuntimeTransportConnectOptions = {
@@ -15,6 +16,11 @@ function isBrowserRuntime(): boolean {
   return typeof window !== "undefined" && typeof document !== "undefined";
 }
 
+function usesWebSocketTransport(servers: string | string[]): boolean {
+  const values = Array.isArray(servers) ? servers : [servers];
+  return values.some((server) => server.startsWith("ws://") || server.startsWith("wss://"));
+}
+
 function runtimeImport<TModule>(specifier: string): Promise<TModule> {
   const load = new Function("specifier", "return import(specifier);") as (
     specifier: string,
@@ -24,20 +30,23 @@ function runtimeImport<TModule>(specifier: string): Promise<TModule> {
 
 export async function loadDefaultRuntimeTransport(): Promise<RuntimeTransport> {
   if (isBrowserRuntime()) {
-    const mod = await runtimeImport<{ wsconnect: RuntimeTransport["connect"] }>(
-      "@nats-io/nats-core",
-    );
     return {
-      connect: mod.wsconnect,
+      connect: wsconnect,
     };
   }
 
   if ("Deno" in globalThis) {
-    const mod = await runtimeImport<{ connect: RuntimeTransport["connect"] }>(
-      ["@nats-io", "transport-deno"].join("/"),
-    );
     return {
-      connect: mod.connect,
+      connect: async (options) => {
+        if (usesWebSocketTransport(options.servers)) {
+          return await wsconnect(options);
+        }
+
+        const mod = await runtimeImport<{ connect: RuntimeTransport["connect"] }>(
+          ["@nats-io", "transport-deno"].join("/"),
+        );
+        return await mod.connect(options);
+      },
     };
   }
 

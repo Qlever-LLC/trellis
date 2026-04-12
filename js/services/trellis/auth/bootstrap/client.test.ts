@@ -281,8 +281,8 @@ Deno.test("POST /bootstrap/client returns not_ready when the bound user is inact
   });
 });
 
-Deno.test("POST /bootstrap/client returns not_ready when the contract is no longer active", async () => {
-  const { app, auth } = await createVerifiedApp({ activateContract: false });
+Deno.test("POST /bootstrap/client falls back to session contract metadata when the contract is no longer active", async () => {
+  const { app, auth, contract } = await createVerifiedApp({ activateContract: false });
   const response = await app.request("http://trellis/bootstrap/client", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -295,7 +295,41 @@ Deno.test("POST /bootstrap/client returns not_ready when the contract is no long
 
   assertEquals(response.status, 200);
   assertEquals(await response.json(), {
-    status: "not_ready",
-    reason: "contract_not_active",
+    status: "ready",
+    connectInfo: {
+      sessionKey: auth.sessionKey,
+      contractId: contract.contract.id,
+      contractDigest: contract.digest,
+      transport: {
+        natsServers: ["nats://127.0.0.1:4222"],
+        inboxPrefix: `_INBOX.${auth.sessionKey.slice(0, 16)}`,
+        sentinel: { jwt: "jwt", seed: "seed" },
+      },
+      auth: {
+        mode: "binding_token",
+        bindingToken: "binding-token-1",
+        expiresAt: "2026-01-01T00:03:00.000Z",
+      },
+    },
+    contract: {
+      id: contract.contract.id,
+      digest: contract.digest,
+      displayName: contract.contract.displayName,
+      description: contract.contract.description,
+    },
+    user: {
+      trellisId: "user-1",
+      origin: "github",
+      id: "123",
+      email: "user@example.com",
+      name: "Example User",
+    },
+    binding: {
+      contractId: contract.contract.id,
+      digest: contract.digest,
+      capabilities: ["read:profile"],
+      publishSubjects: ["events.profile.updated"],
+      subscribeSubjects: ["events.profile.*"],
+    },
   });
 });

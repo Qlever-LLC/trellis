@@ -61,11 +61,11 @@ back to lower-level escape hatches.
 
 The preferred contract authoring API is exposed from `@qlever-llc/trellis/contracts` so contract-source modules can stay independent from runtime bootstrap concerns.
 
-`@qlever-llc/trellis` remains the canonical runtime package for connection helpers such as `TrellisClient.connect(...)`, auth helpers, `Result`, and explicit helpers such as `createCoreClient(...)`.
+`@qlever-llc/trellis` remains the canonical runtime package for connection helpers such as `TrellisClient.connect(...)`, auth helpers, and `Result`.
 
 Rules:
 
-- `@qlever-llc/trellis/contracts` is the preferred package for contract authoring and broader contract-model helpers, and its `defineContract(...)` return value remains usable as a runtime contract object
+- `@qlever-llc/trellis/contracts` is the preferred package for contract authoring and broader contract-model helpers, and its `defineContract(...)` return value remains usable anywhere a runtime contract is expected
 - `@qlever-llc/trellis` is the canonical package for runtime client connection helpers
 - `@qlever-llc/trellis/server/node` and `@qlever-llc/trellis/server/deno` consume contract objects for service runtime helpers
 
@@ -200,7 +200,7 @@ This document only constrains the architectural direction behind that API:
 
 - `defineContract(...)` remains the one supported public authoring entrypoint
 - `@qlever-llc/trellis/contracts` exposes the preferred contract authoring helpers used by apps and services while returning contract objects with projected API views and manifest metadata
-- `@qlever-llc/trellis` remains the runtime package for `TrellisClient.connect(...)`, auth helpers, and lower-level client creation helpers
+- `@qlever-llc/trellis` remains the runtime package for `TrellisClient.connect(...)`, auth helpers, and `Result`
 - runtime connection helpers live in `@qlever-llc/trellis` and `@qlever-llc/trellis/server*`
 - locally defined contracts and generated SDK modules share one compatible contract-module shape
 - `uses` declarations remain SDK-backed and contract-driven rather than handwritten dependency objects in normal usage

@@ -45,6 +45,13 @@ type ClientBootstrapContractView = {
   resources?: TrellisContractV1["resources"];
 };
 
+type SessionContractView = {
+  id: string;
+  digest: string;
+  displayName: string;
+  description: string;
+};
+
 type ClientBootstrapUserView = {
   trellisId: string;
   origin: string;
@@ -178,6 +185,15 @@ function buildContractView(
   };
 }
 
+function buildSessionContractView(contract: SessionContractView): ClientBootstrapContractView {
+  return {
+    id: contract.id,
+    digest: contract.digest,
+    displayName: contract.displayName,
+    description: contract.description,
+  };
+}
+
 async function issueBindingToken(
   deps: ClientBootstrapDeps,
   session: UserSession,
@@ -222,14 +238,17 @@ export async function resolveClientBootstrap(
   }
 
   const activeDigest = deps.contractStore.findActiveDigestById(session.contractId);
-  if (activeDigest !== session.contractDigest) {
-    return { status: "not_ready", reason: "contract_not_active" };
-  }
-
-  const contract = deps.contractStore.getContract(session.contractDigest);
-  if (!contract || contract.id !== session.contractId) {
-    return { status: "not_ready", reason: "contract_not_active" };
-  }
+  const activeContract = activeDigest === session.contractDigest
+    ? deps.contractStore.getContract(session.contractDigest)
+    : undefined;
+  const contractView = activeContract && activeContract.id === session.contractId
+    ? buildContractView(activeContract, session.contractDigest)
+    : buildSessionContractView({
+      id: session.contractId,
+      digest: session.contractDigest,
+      displayName: session.contractDisplayName,
+      description: session.contractDescription,
+    });
 
   const now = deps.now?.() ?? new Date();
   const bindingToken = await issueBindingToken(deps, session, request.sessionKey, now);
@@ -251,7 +270,7 @@ export async function resolveClientBootstrap(
         expiresAt: bindingToken.expiresAt.toISOString(),
       },
     },
-    contract: buildContractView(contract, session.contractDigest),
+    contract: contractView,
     user: {
       trellisId: session.trellisId,
       origin: session.origin,

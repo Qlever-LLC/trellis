@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { browser } from "$app/environment";
-  import { goto } from "$app/navigation";
+  import { goto, replaceState } from "$app/navigation";
   import { page } from "$app/state";
   import { errorMessage } from "../../lib/format";
   import { auth } from "../../lib/trellis";
@@ -13,13 +13,22 @@
     return page.url.searchParams.get("redirectTo") ?? "/activity";
   }
 
+  function cleanupCallbackUrl(): void {
+    const nextUrl = new URL(window.location.href);
+    if (nextUrl.searchParams.has("flowId") || nextUrl.searchParams.has("authError")) {
+      nextUrl.searchParams.delete("flowId");
+      nextUrl.searchParams.delete("authError");
+      replaceState(`${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`, page.state);
+    }
+  }
+
   onMount(async () => {
     if (!browser) return;
 
     try {
       await auth.init();
       const result = await auth.handleCallback(window.location.href);
-      auth.cleanupCallbackUrl();
+      cleanupCallbackUrl();
 
       if (!result) {
         throw new Error("Missing flowId");

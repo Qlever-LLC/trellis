@@ -1,5 +1,6 @@
 <script lang="ts">
   import { browser } from "$app/environment";
+  import { replaceState } from "$app/navigation";
   import { page } from "$app/state";
   import { onMount } from "svelte";
   import {
@@ -245,11 +246,20 @@
     return null;
   }
 
+  function cleanupCallbackUrl(): void {
+    const nextUrl = new URL(window.location.href);
+    if (nextUrl.searchParams.has("flowId") || nextUrl.searchParams.has("authError")) {
+      nextUrl.searchParams.delete("flowId");
+      nextUrl.searchParams.delete("authError");
+      replaceState(`${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`, page.state);
+    }
+  }
+
   async function initializeBrowserState(): Promise<void> {
     await authState.init();
     const bindResult = await authState.handleCallback();
     if (bindResult) {
-      authState.cleanupCallbackUrl();
+      cleanupCallbackUrl();
     }
 
     if (bindResult && bindResult.status !== "bound") {

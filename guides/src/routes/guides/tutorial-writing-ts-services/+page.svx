@@ -1,4 +1,4 @@
-This tutorial walks you through building your first Trellis service in TypeScript step by step. By the end, you will have a working `orders-service` that connects to the network, stores data, handles requests, and listens to events.
+This tutorial walks you through building your first Trellis service in TypeScript step by step. By the end, you will have a working `orders-service` that connects to the network, stores data, handles requests, listens to events, and publishes its own events.
 
 Before diving in, we recommend skimming [Trellis Concepts](/guides/concepts) to understand how contracts, RPCs, and NATS work together.
 
@@ -22,22 +22,22 @@ deno init
 Next, add the Trellis SDK and TypeBox (our schema library) as dependencies:
 
 ```sh
-deno add npm:@qlever-llc/trellis npm:@sinclair/typebox
+deno add npm:@qlever-llc/trellis npm:@qlever-llc/trellis-server npm:@sinclair/typebox
 ```
 
 If you are using Node.js instead, use `npm`:
 
 ```sh
-npm install @qlever-llc/trellis @sinclair/typebox
+npm install @qlever-llc/trellis @qlever-llc/trellis-server @sinclair/typebox
 ```
 
 ---
 
-## 2. Your First Contract
+## 2. Your first contract
 
-In Trellis, every service is defined by a **contract**. The contract tells the network exactly what your service does, what databases it needs, and what permissions are required to talk to it.
+In Trellis, every service is defined by a **contract**. The contract is the authoritative description of what your service does — what databases it needs, what RPCs it handles, what events it emits or consumes, and who is allowed to call it. Trellis reads the contract at install time to provision resources and enforce access control automatically.
 
-Let's create a minimal contract. Create a new folder called `contracts/` and add `orders_service.ts`:
+Let's start with the smallest possible contract. Create `contracts/orders_service.ts`:
 
 ```ts
 import { defineContract } from "@qlever-llc/trellis/contracts";
@@ -50,62 +50,69 @@ export const ordersService = defineContract({
   uses: {},
   resources: {},
   rpc: {},
-  events: {}
+  events: {},
 });
+
+export const { CONTRACT_ID, CONTRACT, CONTRACT_DIGEST, API, use } = ordersService;
 ```
+
+This is a valid — if empty — contract. We will fill it in as we add capabilities. The exports at the bottom (`CONTRACT_ID`, `CONTRACT_DIGEST`, `API`, `use`) are used by the runtime and by SDK generation later.
 
 ---
 
-## 3. The Service Entry Point
+## 3. The service entry point
 
 Now let's write the code that actually runs the service. Open `main.ts` (created by `deno init`) and replace it with:
 
 ```ts
 import { TrellisService } from "@qlever-llc/trellis/server/deno";
-import { Result } from "@qlever-llc/trellis";
 import { ordersService } from "./contracts/orders_service.ts";
 
-// 1. Connect to Trellis
 const service = await TrellisService.connect({
   trellisUrl: Deno.env.get("TRELLIS_URL")!,
   contract: ordersService,
   name: "orders-service",
   sessionKeySeed: Deno.env.get("ORDERS_SERVICE_SESSION_KEY_SEED")!,
-  server: {},
 });
 
 console.log("Connected to Trellis!");
-
-// 2. Handle graceful shutdown
-Deno.addSignalListener("SIGTERM", async () => {
-  await service.stop();
-  Deno.exit(0);
-});
 ```
 
-> **Note for Node.js users:** Import from `@qlever-llc/trellis/server/node` and use `process.on("SIGTERM")` instead.
+> **Node.js users:** Import from `@qlever-llc/trellis/server/node` and replace `Deno.env.get(...)` with `process.env`.
 
-`TrellisService.connect(...)` does a lot of heavy lifting for you. It verifies that your contract is active in the Trellis catalog, fetches the current transport details from Trellis, and connects you securely to NATS.
+`TrellisService.connect(...)` does a lot of heavy lifting. It authenticates your service session, validates that your contract is active in the Trellis catalog, fetches transport details, and hands back a `service` object with all your resources already resolved. If the contract has not been installed yet, it will throw with a clear message telling you exactly what to do.
 
-Before we can run this, we have to install the contract so Trellis knows about it:
+Before we can run this, we need to do two things.
+
+**Generate a session key seed.** Every Trellis service authenticates with a unique session key. Generate one with the CLI:
+
+```sh
+trellis keygen
+```
+
+This prints a long base64url string. Treat it like a private key — never commit it to source control.
+
+**Install the contract** so Trellis knows about it:
 
 ```sh
 trellis service install --source ./contracts/orders_service.ts
 ```
 
-Now you can run your service! (You'll need a session key seed, which you can generate using `trellis keygen`).
+Now you can run your service:
 
 ```sh
-ORDERS_SERVICE_SESSION_KEY_SEED=<your_seed_here> \
 TRELLIS_URL=http://localhost:3000 \
+ORDERS_SERVICE_SESSION_KEY_SEED=<your-generated-seed> \
 deno run --allow-net --allow-env main.ts
 ```
 
+You should see `Connected to Trellis!`. Our service doesn't do anything yet, but it is alive on the network. Let's change that.
+
 ---
 
-## 4. Adding a Database (KV Store)
+## 4. Adding a database (KV store)
 
-Connecting is a good start, but let's actually store some orders. In Trellis, you don't need to manually provision databases or juggle connection strings. You just ask for a Key-Value (KV) bucket in your contract.
+Connecting is a good start, but let's actually store some orders. In Trellis, you don't provision databases or juggle connection strings. You just ask for a Key-Value bucket in your contract and Trellis provisions it for you.
 
 First, let's define what an `Order` looks like. Create `schemas.ts`:
 
@@ -115,18 +122,21 @@ import { type Static, Type } from "@sinclair/typebox";
 export const OrderSchema = Type.Object({
   orderId: Type.String(),
   customerId: Type.String(),
-  status: Type.String(),
+  status: Type.Union([
+    Type.Literal("pending"),
+    Type.Literal("shipped"),
+    Type.Literal("failed"),
+  ]),
   items: Type.Array(Type.Object({
     productId: Type.String(),
-    quantity: Type.Number(),
+    quantity: Type.Number({ minimum: 1 }),
   })),
-  createdAt: Type.String(),
+  createdAt: Type.String({ format: "date-time" }),
 });
-
 export type Order = Static<typeof OrderSchema>;
 ```
 
-Next, open `contracts/orders_service.ts` and update the `resources` section to ask for a bucket named `orders`:
+Next, open `contracts/orders_service.ts` and update the `resources` section to request a bucket named `orders`:
 
 ```ts
   resources: {
@@ -134,31 +144,39 @@ Next, open `contracts/orders_service.ts` and update the `resources` section to a
       orders: {
         purpose: "Store order records",
         history: 1,
-        ttlMs: 0, // 0 means keep forever
+        ttlMs: 0,
       },
     },
   },
 ```
 
-Finally, back in `main.ts`, we can open this bucket right after `TrellisService.connect(...)`. Notice how we pass `OrderSchema` into it? This gives us a fully typed database client!
+Finally, back in `main.ts`, open the KV store right after `TrellisService.connect(...)`. The `service.kv.orders` handle was already resolved when we connected — we just need to bind a typed client to it:
 
 ```ts
 import { isErr } from "@qlever-llc/trellis";
 import { OrderSchema } from "./schemas.ts";
 
-// ... TrellisService.connect(...) ...
+// After TrellisService.connect(...)
+const kvResult = await service.kv.orders.open(OrderSchema);
+if (isErr(kvResult)) throw kvResult.error;
+const ordersKV = kvResult.take();
+```
 
-const ordersKV = (await service.kv.orders.open(OrderSchema)).take();
-if (isErr(ordersKV)) throw ordersKV.error;
+`ordersKV` is now a fully typed `TypedKV<OrderSchema>` — every read and write will be validated against the schema automatically.
+
+> The `isErr` / `.take()` pattern shows up throughout Trellis. Rather than throwing exceptions, Trellis returns `Result<T, E>` values. Check `isErr(result)` first; only call `result.take()` once you know it succeeded.
+
+Because we changed the contract, re-install it so Trellis provisions the new bucket:
+
+```sh
+trellis service upgrade --source ./contracts/orders_service.ts
 ```
 
 ---
 
-## 5. Writing Our First Real RPC
+## 5. Writing our first RPC
 
-Let's allow other services to create an order. 
-
-Add the request and response schemas to `schemas.ts`:
+Let's allow other services to create an order. Add the request and response schemas to `schemas.ts`:
 
 ```ts
 export const CreateOrderRequestSchema = Type.Object({
@@ -177,10 +195,13 @@ export const CreateOrderResponseSchema = Type.Object({
 export type CreateOrderResponse = Static<typeof CreateOrderResponseSchema>;
 ```
 
-Register the new RPC in `contracts/orders_service.ts`:
+Register the new RPC in `contracts/orders_service.ts`. Update your imports and fill in the `rpc` section:
 
 ```ts
-import { CreateOrderRequestSchema, CreateOrderResponseSchema } from "../schemas.ts";
+import {
+  CreateOrderRequestSchema,
+  CreateOrderResponseSchema,
+} from "../schemas.ts";
 
 // ...
 
@@ -189,42 +210,116 @@ import { CreateOrderRequestSchema, CreateOrderResponseSchema } from "../schemas.
       version: "v1",
       inputSchema: CreateOrderRequestSchema,
       outputSchema: CreateOrderResponseSchema,
-      capabilities: { call: ["orders.write"] }, // Only callers with this capability can create orders!
+      capabilities: { call: ["orders.write"] },
       errors: ["ValidationError", "UnexpectedError"],
     },
   },
 ```
 
-And implement the logic in `main.ts`:
+The `capabilities` field is key: only callers that have been granted the `orders.write` capability can invoke this RPC. Trellis enforces this on every request before your handler ever runs — there is no auth middleware to write.
+
+Now implement the handler in `main.ts`:
 
 ```ts
+import { Result } from "@qlever-llc/trellis";
+
+// After opening ordersKV...
 await service.trellis.mount("Orders.Create", async (req) => {
   const orderId = crypto.randomUUID();
   const order = {
     orderId,
     customerId: req.customerId,
-    status: "pending",
+    status: "pending" as const,
     items: req.items,
     createdAt: new Date().toISOString(),
   };
-  
-  // Save it to our KV store
-  await ordersKV.put(orderId, order);
-  
-  // Return a typed Ok Result
+
+  const putResult = await ordersKV.put(orderId, order);
+  if (isErr(putResult)) throw putResult.error;
+
   return Result.ok({ orderId, status: "pending" });
 });
 ```
 
-Because we changed the contract, you first need to run `trellis service upgrade --source ./contracts/orders_service.ts` so the network knows about your new endpoint. Then, restart your service to apply the changes.
+Handlers return `Result.ok(value)` on success or `Result.err({type, message})` for typed errors. Input validation has already happened by the time your handler is called — if the caller sends a malformed request, Trellis rejects it before reaching your code.
+
+Upgrade the contract, then restart the service:
+
+```sh
+trellis service upgrade --source ./contracts/orders_service.ts
+```
 
 ---
 
-## 6. Listening to the Outside World (Events)
+## 6. Retrieving an order
 
-Our service shouldn't exist in a vacuum. Let's say we want to know whenever a user logs into Trellis so we can warm up their cache.
+A create endpoint isn't much without a read endpoint. Add the schemas to `schemas.ts`:
 
-To subscribe to events from another service, we have to declare it in the `uses` block of our contract. Update `contracts/orders_service.ts`:
+```ts
+export const GetOrderRequestSchema = Type.Object({
+  orderId: Type.String(),
+});
+export type GetOrderRequest = Static<typeof GetOrderRequestSchema>;
+
+export const GetOrderResponseSchema = Type.Object({
+  orderId: Type.String(),
+  customerId: Type.String(),
+  status: Type.String(),
+  items: Type.Array(Type.Object({
+    productId: Type.String(),
+    quantity: Type.Number(),
+  })),
+});
+export type GetOrderResponse = Static<typeof GetOrderResponseSchema>;
+```
+
+Register `Orders.Get` in the contract's `rpc` section alongside `Orders.Create`:
+
+```ts
+import {
+  CreateOrderRequestSchema,
+  CreateOrderResponseSchema,
+  GetOrderRequestSchema,
+  GetOrderResponseSchema,
+} from "../schemas.ts";
+
+// ...
+
+  rpc: {
+    "Orders.Create": { /* ... */ },
+    "Orders.Get": {
+      version: "v1",
+      inputSchema: GetOrderRequestSchema,
+      outputSchema: GetOrderResponseSchema,
+      capabilities: { call: ["orders.read"] },
+      errors: ["NotFoundError", "UnexpectedError"],
+    },
+  },
+```
+
+Mount the handler in `main.ts`:
+
+```ts
+await service.trellis.mount("Orders.Get", async (req) => {
+  const getResult = await ordersKV.get(req.orderId);
+  if (isErr(getResult)) {
+    return Result.err({ type: "NotFoundError", message: "Order not found" });
+  }
+  return Result.ok(getResult.take().value);
+});
+```
+
+`ordersKV.get(key)` returns a `Result<TypedKVEntry<OrderSchema>, KVError>`. When the key doesn't exist, it returns an `Err` — we translate that into a typed `NotFoundError` for the caller. When it succeeds, `getResult.take().value` gives us the actual `Order` record.
+
+Upgrade and restart as before.
+
+---
+
+## 7. Listening to the outside world
+
+Our service shouldn't exist in a vacuum. Let's say we want to know whenever a user logs into Trellis so we can warm up their cache or log the activity.
+
+Events from other services are gated by your contract's `uses` block. Open `contracts/orders_service.ts` and update the `uses` section:
 
 ```ts
 import { auth } from "@qlever-llc/trellis/sdk/auth";
@@ -239,32 +334,107 @@ export const ordersService = defineContract({
   // ...
 ```
 
-Now we can subscribe to it in `main.ts`:
+`auth.useDefaults(...)` does two things: it grants your service access to the standard auth RPCs (`Auth.Me`, etc.) and, with the `events` option, subscribes you to `Auth.Connect` events from the auth service.
+
+Now subscribe to the event in `main.ts`:
 
 ```ts
+import { ok } from "@qlever-llc/trellis";
+
 await service.trellis.event("Auth.Connect", {}, async (event) => {
-  console.info(`User connected! Origin: ${event.origin}, ID: ${event.id}`);
-  return Result.ok(undefined);
+  const e = event as { id: string; origin: string };
+  console.info("user connected", { id: e.id, origin: e.origin });
+  return ok(undefined);
 });
 ```
 
+Returning `ok(undefined)` acknowledges the message. If your handler returns `err(...)`, Trellis will NAK the delivery and redeliver it — useful for transient failures like a downstream service being temporarily unavailable.
+
+Upgrade the contract and restart.
+
 ---
 
-## 7. Generating an SDK for Consumers
+## 8. Publishing your own events
 
-Now that your service is up and running, how do other teams interact with it? Trellis solves this by generating typed SDKs straight from your contract.
+Now let's close the loop and have our service publish events. We will emit an `Orders.Shipped` event so downstream services — a warehouse system, a notifications service, a billing system — can react without being coupled directly to us.
 
-Run your repo-local prepare task to build the contract outputs and generate a TypeScript SDK into the `generated/` folder:
+Add the event schema to `schemas.ts`:
+
+```ts
+export const OrderShippedEventSchema = Type.Object({
+  orderId: Type.String(),
+  customerId: Type.String(),
+  shippedAt: Type.String({ format: "date-time" }),
+});
+export type OrderShippedEvent = Static<typeof OrderShippedEventSchema>;
+```
+
+Register the event in `contracts/orders_service.ts`:
+
+```ts
+import { OrderShippedEventSchema } from "../schemas.ts";
+
+// ...
+
+  events: {
+    "Orders.Shipped": {
+      version: "v1",
+      eventSchema: OrderShippedEventSchema,
+      capabilities: { publish: ["service"], subscribe: ["service"] },
+    },
+  },
+```
+
+The `capabilities` here mean: only `service`-tier principals may publish or subscribe. Other services that list `Orders.Shipped` in their own `uses` blocks will receive the events automatically.
+
+Now publish the event from `main.ts`. Here we call it after marking an order as fulfilled — you would do this wherever your fulfillment logic lives:
+
+```ts
+await service.trellis.publish("Orders.Shipped", {
+  orderId,
+  customerId,
+  shippedAt: new Date().toISOString(),
+});
+```
+
+`publish` validates the payload against `OrderShippedEventSchema` before sending. If the shape is wrong, it returns a `Result.err(...)` rather than silently dropping the event.
+
+Upgrade the contract and restart.
+
+---
+
+## 9. Handle graceful shutdown
+
+Add a SIGTERM handler so the service drains in-flight messages cleanly before the process exits:
+
+```ts
+Deno.addSignalListener("SIGTERM", async () => {
+  await service.stop();
+  Deno.exit(0);
+});
+```
+
+For Node.js, use `process.on("SIGTERM", ...)`.
+
+---
+
+## 10. Generating an SDK for consumers
+
+Now that your service is live, how do other teams call it? Trellis generates a typed SDK package straight from your contract so consumers get full autocomplete for `Orders.Create`, `Orders.Get`, and event subscriptions without knowing anything about the underlying NATS subjects.
+
+Run your repo-local prepare task:
 
 ```sh
 deno task prepare
 ```
 
-Other teams can now import `@my-org/sdk-orders-service` to get full autocomplete for `Orders.Create`, without ever needing to know what URLs or topics your service uses.
+This generates a package under `./generated/sdk/ts/`. It includes typed request/response definitions, schema constants, and a `use(...)` export that consumers drop into their own contracts' `uses` blocks — the same pattern that `@qlever-llc/trellis/sdk/auth` follows. Regenerate whenever the contract changes.
+
+---
 
 ## Next steps
 
-Congratulations! You've built a fully functional Trellis service from scratch.
+Congratulations — you have a fully functional Trellis service. It connects, stores data, handles RPCs with access control, listens for events from other services, and publishes its own.
 
-- To learn how to move long-running work into the background, check out [Jobs: TypeScript](/guides/using-jobs-ts).
-- To expose caller-visible async workflows, look at [Operations: TypeScript](/guides/using-operations-ts).
+- To move long-running fulfillment work into the background, see [Jobs: TypeScript](/guides/using-jobs-ts).
+- To expose a caller-visible async workflow with progress updates, see [Operations: TypeScript](/guides/using-operations-ts).

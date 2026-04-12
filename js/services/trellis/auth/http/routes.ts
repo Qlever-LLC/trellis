@@ -360,6 +360,14 @@ export function registerHttpRoutes(
         credentials: true,
       }),
     );
+    app.use(
+      "/bootstrap/*",
+      cors({
+        origin: config.web.origins,
+        allowMethods: ["GET", "POST", "OPTIONS"],
+        credentials: true,
+      }),
+    );
   }
 
   app.use(

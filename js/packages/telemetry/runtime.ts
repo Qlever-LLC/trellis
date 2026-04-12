@@ -12,13 +12,30 @@ type TracingRuntimeModules = {
   ATTR_SERVICE_NAME: typeof import("@opentelemetry/semantic-conventions").ATTR_SERVICE_NAME;
 };
 
+function runtimeImport<TModule>(specifier: string): Promise<TModule> {
+  const load = new Function("specifier", "return import(specifier);") as (
+    specifier: string,
+  ) => Promise<TModule>;
+  return load(specifier);
+}
+
 async function loadTracingRuntime(): Promise<TracingRuntimeModules> {
   const [traceNode, otlp, traceBase, resources, semantic] = await Promise.all([
-    import("@opentelemetry/sdk-trace-node"),
-    import("@opentelemetry/exporter-trace-otlp-http"),
-    import("@opentelemetry/sdk-trace-base"),
-    import("@opentelemetry/resources"),
-    import("@opentelemetry/semantic-conventions"),
+    runtimeImport<typeof import("@opentelemetry/sdk-trace-node")>(
+      ["@opentelemetry", "sdk-trace-node"].join("/"),
+    ),
+    runtimeImport<typeof import("@opentelemetry/exporter-trace-otlp-http")>(
+      ["@opentelemetry", "exporter-trace-otlp-http"].join("/"),
+    ),
+    runtimeImport<typeof import("@opentelemetry/sdk-trace-base")>(
+      ["@opentelemetry", "sdk-trace-base"].join("/"),
+    ),
+    runtimeImport<typeof import("@opentelemetry/resources")>(
+      ["@opentelemetry", "resources"].join("/"),
+    ),
+    runtimeImport<typeof import("@opentelemetry/semantic-conventions")>(
+      ["@opentelemetry", "semantic-conventions"].join("/"),
+    ),
   ]);
 
   return {

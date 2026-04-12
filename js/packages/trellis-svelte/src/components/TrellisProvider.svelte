@@ -115,7 +115,6 @@
 
       await auth.init();
       const bindResult = await auth.handleCallback();
-      auth.cleanupCallbackUrl();
 
       if (bindResult !== null && bindResult.status !== "bound") {
         bindErrorResult = bindResult;

@@ -344,13 +344,15 @@ export class AuthState {
   /**
    * Clean up the callback URL by removing the auth flow query params.
    */
-  cleanupCallbackUrl(url: string = window.location.href): void {
+  cleanupCallbackUrl(url: string = window.location.href): string | null {
     const parsed = new URL(url);
     if (parsed.searchParams.has("flowId") || parsed.searchParams.has("authError")) {
       parsed.searchParams.delete("flowId");
       parsed.searchParams.delete("authError");
-      window.history.replaceState({}, "", parsed.pathname + parsed.search);
+      return `${parsed.pathname}${parsed.search}${parsed.hash}`;
     }
+
+    return null;
   }
 
   /**

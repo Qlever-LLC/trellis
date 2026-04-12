@@ -15,5 +15,5 @@ export {configureErrorTraceId,
   withSpanAsync
 } from "../telemetry/mod.ts";
 export function initTracing(serviceName: string): void {
-  void import("../telemetry/mod.ts").then((mod) => mod.initTracing(serviceName));
+  void import("../telemetry/init.ts").then((mod) => mod.initTracing(serviceName));
 }

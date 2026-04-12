@@ -80,7 +80,7 @@
         </div>
         <div class="flex flex-col gap-2">
           {#each flow.state.providers as provider (provider.id)}
-            <a class="btn btn-outline btn-block" href={flow.providerUrl(provider.id)}>
+            <a class="btn btn-outline btn-block" data-sveltekit-reload href={flow.providerUrl(provider.id)}>
               Continue with {provider.displayName}
             </a>
           {/each}

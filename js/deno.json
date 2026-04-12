@@ -1,7 +1,7 @@
 {
   "workspace": [
     "./apps/activity",
-    "./apps/trellis",
+    "./apps/console",
     "./packages/auth",
     "./packages/contracts",
     "./packages/telemetry",

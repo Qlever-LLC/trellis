@@ -222,6 +222,28 @@ Deno.test("workload activation wait and connect-info helpers parse responses", a
       Error,
       "workload activation rejected: policy_denied",
     );
+
+    globalThis.fetch = ((_input: URL | Request | string, _init?: RequestInit) => {
+      return Promise.resolve(new Response(JSON.stringify({
+        reason: "contract_digest_not_allowed",
+      }), {
+        status: 403,
+        headers: { "Content-Type": "application/json" },
+      }));
+    }) as typeof fetch;
+
+    await assertRejects(
+      () => waitForWorkloadActivation({
+        trellisUrl: "https://trellis.example.com",
+        publicIdentityKey: identity.publicIdentityKey,
+        nonce: "nonce_123",
+        identitySeed: identity.identitySeed,
+        contractDigest: "digest-a",
+        pollIntervalMs: 0,
+      }),
+      Error,
+      "workload activation wait failed: 403 contract_digest_not_allowed",
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }
