@@ -31,6 +31,7 @@ It covers:
 - browser and service helpers expose the same proof model through different ergonomics
 - session-key seeds remain protected from normal browser code where possible
 - browser clients preserve and consume `flowId`; they do not treat fragment-delivered `authToken` as the main UX path
+- high-level runtime entrypoints use `trellisUrl`; lower-level auth-only helpers may still use `authUrl`
 
 ## Browser Surface
 
@@ -325,7 +326,7 @@ type WorkloadActivationController = {
 
 declare class TrellisWorkload {
   static connect<TApi extends TrellisAPI>(args: {
-    authUrl: string;
+    trellisUrl: string;
     contract: TrellisClientContract<TApi>;
     rootSecret: Uint8Array | string;
     onActivationRequired?(activation: WorkloadActivationController): Promise<void>;

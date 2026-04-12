@@ -730,7 +730,7 @@ If a contract declares `resources`, SDKs SHOULD expose the logical aliases and t
 
 A contract may be projected into a runtime API module used by Trellis client/server libraries.
 
-For v1 TypeScript runtimes, that projection is a defined contract module consumed by helpers such as `contract.createClient(...)`. Runtimes MAY also expose equivalent free functions such as `createClient(contract, ...)` and `connectService(contract, ...)` as convenience wrappers around the same projected API.
+For v1 TypeScript runtimes, that projection is a defined contract module consumed by public runtime bootstrap helpers such as `TrellisClient.connect(...)`, `TrellisService.connect(...)`, and `TrellisWorkload.connect(...)`.
 
 Projection requirements:
 

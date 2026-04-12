@@ -3,7 +3,7 @@
   import { browser } from "$app/environment";
   import { goto } from "$app/navigation";
   import { getCanonicalLoopbackRedirectUrl, getSelectedAuthUrl } from "../lib/config";
-  import { app } from "../lib/trellis";
+  import { auth } from "../lib/trellis";
 
   onMount(async () => {
     if (!browser) return;
@@ -14,10 +14,10 @@
     }
     const selectedAuthUrl = getSelectedAuthUrl(window.location);
     if (selectedAuthUrl) {
-      app.auth.setAuthUrl(selectedAuthUrl);
+      auth.setAuthUrl(selectedAuthUrl);
     }
-    await app.auth.init();
-    if (app.auth.isAuthenticated) {
+    await auth.init();
+    if (auth.isAuthenticated) {
       await goto("/profile");
       return;
     }

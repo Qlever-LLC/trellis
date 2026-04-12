@@ -4,7 +4,7 @@
   import { goto } from "$app/navigation";
   import { page } from "$app/state";
   import { errorMessage } from "../../lib/format";
-  import { app } from "../../lib/trellis";
+  import { auth } from "../../lib/trellis";
 
   let status = $state("Finalizing sign-in...");
   let authError = $state<string | null>(null);
@@ -17,9 +17,9 @@
     if (!browser) return;
 
     try {
-      await app.auth.init();
-      const result = await app.auth.handleCallback(window.location.href);
-      app.auth.cleanupCallbackUrl();
+      await auth.init();
+      const result = await auth.handleCallback(window.location.href);
+      auth.cleanupCallbackUrl();
 
       if (!result) {
         throw new Error("Missing flowId");

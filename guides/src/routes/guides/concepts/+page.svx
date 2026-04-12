@@ -159,7 +159,7 @@ resources: {
 },
 ```
 
-The key (`items`) is a logical alias. Trellis assigns the physical bucket name at install time. `connectService` resolves bindings automatically and exposes them as `service.kv.items`, which can be opened directly with a schema.
+The key (`items`) is a logical alias. Trellis assigns the physical bucket name at install time. `TrellisService.connect(...)` resolves bindings automatically and exposes them as `service.kv.items`, which can be opened directly with a schema.
 
 ### Streams
 
@@ -179,7 +179,7 @@ Jobs are not visible to callers. If you need a caller-observable async workflow,
 
 | Package | Use for |
 | --- | --- |
-| `@qlever-llc/trellis` | Core runtime package: `createClient(...)`, `createCoreClient(...)`, `Result`, common auth helpers |
+| `@qlever-llc/trellis` | Core runtime package: `TrellisClient.connect(...)`, `TrellisWorkload.connect(...)`, `createCoreClient(...)`, `Result`, common auth helpers |
 | `@qlever-llc/trellis/server` | `TrellisServer` and server runtime types |
 | `@qlever-llc/trellis/server/health` | Health schemas and health-check helpers without service bootstrap exports |
 | `@qlever-llc/trellis/server/deno` | Deno service runtime adapter |

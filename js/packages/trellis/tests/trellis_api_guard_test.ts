@@ -12,11 +12,61 @@ function createMockAuth(token = "test-token"): TrellisAuth {
 }
 
 function createMockNatsConnection(): NatsConnection {
-  return {
+  const closed: NatsConnection["closed"] = async () => undefined;
+  const close: NatsConnection["close"] = async () => {};
+  const publish: NatsConnection["publish"] = () => {};
+  const publishMessage: NatsConnection["publishMessage"] = () => {};
+  const respondMessage: NatsConnection["respondMessage"] = () => false;
+  const subscribe: NatsConnection["subscribe"] = () => {
+    throw new Error("subscribe should not be called in this test");
+  };
+  const request: NatsConnection["request"] = async () => {
+    throw new Error("request should not be called in this test");
+  };
+  const requestMany: NatsConnection["requestMany"] = async () => {
+    throw new Error("requestMany should not be called in this test");
+  };
+  const flush: NatsConnection["flush"] = async () => {};
+  const drain: NatsConnection["drain"] = async () => {};
+  const isClosed: NatsConnection["isClosed"] = () => false;
+  const isDraining: NatsConnection["isDraining"] = () => false;
+  const getServer: NatsConnection["getServer"] = () => "nats://127.0.0.1:4222";
+  const status: NatsConnection["status"] = () => ({
+    async *[Symbol.asyncIterator]() {},
+  });
+  const stats: NatsConnection["stats"] = () => ({
+    inBytes: 0,
+    outBytes: 0,
+    inMsgs: 0,
+    outMsgs: 0,
+  });
+  const rtt: NatsConnection["rtt"] = async () => 0;
+  const reconnect: NatsConnection["reconnect"] = async () => {};
+
+  const connection: NatsConnection & { options: { inboxPrefix: string } } = {
     options: {
       inboxPrefix: "_INBOX",
     },
-  } as unknown as NatsConnection;
+    closed,
+    close,
+    publish,
+    publishMessage,
+    respondMessage,
+    subscribe,
+    request,
+    requestMany,
+    flush,
+    drain,
+    isClosed,
+    isDraining,
+    getServer,
+    status,
+    stats,
+    rtt,
+    reconnect,
+  };
+
+  return connection;
 }
 
 Deno.test("Trellis explains how to provide an API surface when none was configured", async () => {

@@ -52,7 +52,7 @@ Browser auth uses a session key stored in IndexedDB plus a bind flow. For Svelte
 ### Deno / Node Client
 
 ```ts
-import { createClient } from "@qlever-llc/trellis";
+import { TrellisClient } from "@qlever-llc/trellis";
 import { defineContract } from "@qlever-llc/trellis/contracts";
 import { graph } from "@acme/graph-contract";
 import { auth } from "@qlever-llc/trellis/sdk/auth";
@@ -67,12 +67,14 @@ const cli = defineContract({
   },
 });
 
-const client = createClient(cli, nc, authSession, {
+const client = await TrellisClient.connect({
+  trellisUrl: "https://trellis.example.com",
+  contract: cli,
   name: "cli-tool",
 });
 ```
 
-Use `createClient(contract, ...)` for normal contract-driven clients. If a process intentionally wants only the generated Trellis core surface, use `await createCoreClient(nc, authSession, opts)` from `@qlever-llc/trellis`.
+Use `TrellisClient.connect(...)` for the normal runtime bootstrap path. If a process intentionally wants only the generated Trellis core surface after it already has transport and auth wired, use `await createCoreClient(nc, authSession, opts)` from `@qlever-llc/trellis`.
 
 ### Server
 
@@ -103,9 +105,9 @@ Provides the app-level browser adapter for Svelte applications.
 Rules:
 
 - browser apps should define one small app-local Trellis module and re-export typed helpers for the rest of the app
-- for the common fixed-instance case, `createTrellisApp(...)` should accept `authUrl`, `contract`, and `loginPath`, and own the auth state internally so ordinary app code does not need a second `createAuthState(...)` step
+- `TrellisProvider` is the primary browser integration surface; app code should pass `trellisUrl`, `contract`, and `loginPath`
 - app code does not provide NATS bootstrap topology; `TrellisProvider` connects using the `natsServers` returned by Trellis auth during bind or renew
-- `TrellisProvider` restores auth state, handles auth callbacks, creates the Trellis client, and exposes auth, NATS, and Trellis through Svelte context
+- `TrellisProvider` restores auth state, handles auth callbacks, calls `TrellisClient.connect(...)`, and exposes auth, NATS, and Trellis through Svelte context
 - normal pages and components should not recreate auth state; they should read the live runtime from context through app-scoped helpers
 - app-facing auth helpers should not require raw URL plumbing or placeholder positional arguments from app code; they should expose an options-shaped API with sensible redirect defaults
 - app-facing auth helpers should accept opaque portal context so apps and custom portals can coordinate runtime UX without hard-coding portal-specific parameters
@@ -113,8 +115,7 @@ Rules:
 - `loginPath` is the default auth-required redirect target; if `onAuthRequired` is omitted, the provider redirects to `loginPath?redirectTo=...`
 - `onAuthRequired` remains available as an override for apps that need custom routing or side effects
 - bind failures should be renderable through a `bindError(result)` snippet; `onBindError` remains available for imperative reactions
-- `createTrellisApp(...)` should provide the ergonomic app-scoped surface for defining app identity once, hiding fixed browser-auth setup when possible, and reading a typed Trellis client from context without passing the contract again at each call site
-- `TrellisProvider` should accept `app={app}` as the primary browser-app integration surface; the live instance still comes from Svelte context and normal page code should continue to use `await getTrellis()` from the app-local helper module
+- app-local helper modules should usually export the contract, the fixed `trellisUrl` when there is one, and a typed `getTrellis()` wrapper around Svelte context
 - dynamic auth-instance selection remains a valid advanced case, but the default public browser-app API should optimize for the fixed-instance path rather than forcing every app through explicit auth-state construction
 - browser-app integrations should not require a `serviceName` prop; if a client label is needed for telemetry, it should derive from contract metadata or internal defaults
 
@@ -140,7 +141,7 @@ Provides service-private job creation and processing. See:
 
 ## `@qlever-llc/trellis/contracts`
 
-Provides the preferred contract authoring surface plus the full contract-model, manifest validation, canonicalization, SDK generation, and documentation export surface behind the root package's curated contract re-exports. The returned contract objects still support `contract.createClient(...)`. See:
+Provides the preferred contract authoring surface plus the full contract-model, manifest validation, canonicalization, SDK generation, and documentation export surface behind the root package's curated contract re-exports. See:
 
 - contract source files should prefer importing `defineContract(...)` from `@qlever-llc/trellis/contracts` so codegen and manifest verification do not load the runtime package unnecessarily
 

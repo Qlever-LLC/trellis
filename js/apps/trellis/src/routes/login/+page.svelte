@@ -11,7 +11,7 @@
     persistSelectedAuthUrl
   } from "../../lib/config";
   import { errorMessage } from "../../lib/format";
-  import { app } from "../../lib/trellis";
+  import { auth } from "../../lib/trellis";
 
   let authError = $state<string | null>(null);
   let selectedAuthUrl = $state(APP_CONFIG.authUrl ?? "");
@@ -43,7 +43,7 @@
     }
 
     try {
-      await app.signIn({
+      await auth.signIn({
         authUrl: selectedAuthUrl,
         redirectTo: buildAppCallbackUrl(targetPath(), page.url, selectedAuthUrl),
       });
@@ -75,10 +75,10 @@
     void (async () => {
       try {
         if (selectedAuthUrl) {
-          app.auth.setAuthUrl(selectedAuthUrl);
+          auth.setAuthUrl(selectedAuthUrl);
         }
-        await app.auth.init();
-        if (app.auth.isAuthenticated) {
+        await auth.init();
+        if (auth.isAuthenticated) {
           await goto(targetPath());
           return;
         }

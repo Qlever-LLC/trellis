@@ -32,15 +32,14 @@ services/<name>/
 ### Lifecycle
 
 ```ts
-import { connectService } from "@qlever-llc/trellis/server/deno";
+import { TrellisService } from "@qlever-llc/trellis/server/deno";
 import { myService } from "./contract.ts";
 
-const service = await connectService(myService, "<name>", {
+const service = await TrellisService.connect({
+  trellisUrl: config.trellisUrl,
+  contract: myService,
+  name: "<name>",
   sessionKeySeed: config.sessionKeySeed,
-  nats: {
-    servers: config.nats.servers,
-    sentinelCredsPath: config.nats.sentinelCredsPath,
-  },
   server: {},
 });
 
@@ -59,7 +58,7 @@ Deno.addSignalListener("SIGTERM", async () => {
 
 Behavior:
 
-- `connectService` performs NATS connection, auth handshake, contract verification, and eager binding resolution
+- `TrellisService.connect(...)` performs bootstrap, NATS connection, auth handshake, contract verification, and eager binding resolution
 - if the contract is not installed, startup fails immediately
 - the `trellis` control-plane service is the one bootstrap exception and may need lower-level runtime paths
 

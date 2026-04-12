@@ -1,4 +1,4 @@
-import { connectService as connectDenoService } from "@qlever-llc/trellis/server/deno";
+import { TrellisService } from "@qlever-llc/trellis/server/deno";
 
 import { getConfig } from "./config.ts";
 import { activity } from "./contracts/trellis_activity.ts";
@@ -6,12 +6,11 @@ import { activity } from "./contracts/trellis_activity.ts";
 const config = getConfig();
 
 export async function bootstrapAndConnectActivityService() {
-  return await connectDenoService(activity, config.serviceName, {
+  return await TrellisService.connect({
+    trellisUrl: config.trellisUrl,
+    contract: activity,
+    name: config.serviceName,
     sessionKeySeed: config.sessionKeySeed,
-    nats: {
-      servers: config.nats.servers,
-      sentinelCredsPath: config.nats.sentinelCredsPath,
-    },
     server: {},
   });
 }

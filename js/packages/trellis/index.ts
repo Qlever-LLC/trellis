@@ -59,7 +59,13 @@ export type {
 } from "./contract.ts";
 export { err, isErr, isOk, ok, Result } from "@qlever-llc/result";
 export type { ClientOpts } from "./client.ts";
-export { createClient, createCoreClient } from "./client.ts";
+export type {
+  ClientAuthContinuation,
+  ClientAuthOptions,
+  ClientAuthRequiredContext,
+  TrellisClientConnectArgs,
+} from "./client_connect.ts";
+export { TrellisClient } from "./client_connect.ts";
 export { TrellisWorkload } from "./workload.ts";
 export type { TrellisErrorInstance } from "./errors/index.ts";
 export {

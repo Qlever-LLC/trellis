@@ -6,7 +6,7 @@ import {
   deriveWorkloadIdentity,
   parseWorkloadActivationPayload,
 } from "./auth.ts";
-import { connectWorkloadWithDeps, loadDefaultTransport } from "./workload.ts";
+import { connectWorkloadWithDeps } from "./workload.ts";
 import type { TrellisAPI } from "./contracts.ts";
 import type { TrellisAuth } from "./trellis.ts";
 
@@ -41,7 +41,7 @@ Deno.test("connectWorkloadWithDeps requires an activation handler when activatio
 
     await assertRejects(
       () => connectWorkloadWithDeps({
-        authUrl: "https://trellis.example.com",
+        trellisUrl: "https://trellis.example.com",
         contract: testContract,
         rootSecret: "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE",
       }, {
@@ -71,13 +71,13 @@ Deno.test("connectWorkloadWithDeps supports offline confirmation before reconnec
     globalThis.fetch = ((input: URL | Request | string) => {
       const url = String(input);
       fetchCalls += 1;
-      if (url.includes("/auth/workloads/connect-info") && fetchCalls === 1) {
-        return Promise.resolve(new Response(JSON.stringify({ reason: "unknown_workload" }), {
-          status: 404,
+      if (url.includes("/bootstrap/workload") && fetchCalls === 1) {
+        return Promise.resolve(new Response(JSON.stringify({ status: "activation_required" }), {
+          status: 200,
           headers: { "Content-Type": "application/json" },
         }));
       }
-      if (url.includes("/auth/workloads/connect-info")) {
+      if (url.includes("/bootstrap/workload")) {
         return Promise.resolve(new Response(JSON.stringify({
           status: "ready",
           connectInfo: {
@@ -101,7 +101,7 @@ Deno.test("connectWorkloadWithDeps supports offline confirmation before reconnec
 
     await assertRejects(
       () => connectWorkloadWithDeps({
-        authUrl: "https://trellis.example.com",
+        trellisUrl: "https://trellis.example.com",
         contract: testContract,
         rootSecret: new Uint8Array(32).fill(7),
         onActivationRequired: async (activation) => {
@@ -133,33 +133,5 @@ Deno.test("connectWorkloadWithDeps supports offline confirmation before reconnec
     assertEquals(lastToken.includes('"contractDigest":"digest-a"'), true);
   } finally {
     globalThis.fetch = originalFetch;
-  }
-});
-
-Deno.test("loadDefaultTransport uses the Deno websocket transport function", async () => {
-  const globalWithOptionalDeno = globalThis as typeof globalThis & { Deno?: unknown };
-  const originalDeno = globalWithOptionalDeno.Deno;
-  const connectFn = async (): Promise<NatsConnection> => {
-    throw new Error("connect should not be called");
-  };
-  const wsconnectFn = async (): Promise<NatsConnection> => {
-    throw new Error("wsconnect should not be called");
-  };
-
-  try {
-    Reflect.set(globalWithOptionalDeno, "Deno", true);
-    const transport = await loadDefaultTransport(
-      (async <TModule>() => ({
-        connect: connectFn,
-        wsconnect: wsconnectFn,
-      } as TModule)),
-    );
-    assertEquals(transport.connect, wsconnectFn);
-  } finally {
-    if (originalDeno === undefined) {
-      Reflect.deleteProperty(globalWithOptionalDeno, "Deno");
-    } else {
-      Reflect.set(globalWithOptionalDeno, "Deno", originalDeno);
-    }
   }
 });

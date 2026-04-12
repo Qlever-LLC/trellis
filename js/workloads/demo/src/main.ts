@@ -2,21 +2,21 @@ import { isErr, TrellisWorkload } from "@qlever-llc/trellis";
 import type { WorkloadActivationController } from "@qlever-llc/trellis/workload";
 import contract from "../contracts/demo_workload.ts";
 
-const authUrl = Deno.args[0]?.trim();
+const trellisUrl = Deno.args[0]?.trim();
 const rootSecret = Deno.args[1]?.trim();
 const online = Deno.args[2]?.trim() === "online";
 
 async function main(): Promise<void> {
-  if (!authUrl || !rootSecret) {
+  if (!trellisUrl || !rootSecret) {
     throw new Error(
-      "Usage: deno task start -- <authUrl> <rootSecret> [online]",
+      "Usage: deno task start -- <trellisUrl> <rootSecret> [online]",
     );
   }
 
-  console.info(`Connecting to ${authUrl}`);
+  console.info(`Connecting to ${trellisUrl}`);
 
   const trellis = await TrellisWorkload.connect({
-    authUrl,
+    trellisUrl,
     contract,
     rootSecret,
     onActivationRequired,

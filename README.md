@@ -30,6 +30,12 @@ See `docs/generated-artifacts.md` for regeneration details.
 
 See the [Trellis guides](guides/) to get started.
 
+Current TypeScript runtime entrypoints:
+
+- `TrellisClient.connect(...)` for browser and client runtimes
+- `TrellisService.connect(...)` for services
+- `TrellisWorkload.connect(...)` for activated workloads
+
 For repository development workflows, prefer the repo-local prepare entrypoints:
 
 - `cd js && deno task prepare`

@@ -15,15 +15,19 @@ import {
   browserFlowsKV,
   connectionsKV,
   contractApprovalsKV,
-  loginPortalSelectionsKV,
   logger,
+  loginPortalSelectionsKV,
   oauthStateKV,
   pendingAuthKV,
   portalDefaultsKV,
   portalsKV,
   sentinelCreds,
+  servicesKV,
   sessionKV,
   usersKV,
+  workloadActivationsKV,
+  workloadInstancesKV,
+  workloadProfilesKV,
 } from "../../bootstrap/globals.ts";
 import { getApprovalResolutionErrorMessage } from "./approval_errors.ts";
 import { planUserContractApproval } from "../approval/plan.ts";
@@ -35,16 +39,22 @@ import {
   decodeContractQuery,
   decodeOpenObjectQuery,
   encodeBase64Url,
-  getApprovalResolutionBlocker,
   getApprovalResolution,
+  getApprovalResolutionBlocker,
   getCookie,
-  resolveLoginPortal,
   type OAuthStateEntry,
   type PendingAuthEntry,
+  resolveLoginPortal,
   setCookie,
   shouldUseSecureOauthCookie,
 } from "./support.ts";
 import { buildPortalFlowState } from "./portal_flow.ts";
+import { createServiceBootstrapHandler } from "../bootstrap/service.ts";
+import { createClientBootstrapHandler } from "../bootstrap/client.ts";
+import {
+  createWorkloadBootstrapHandler,
+  verifyWorkloadBootstrapIdentityProof,
+} from "../bootstrap/workload.ts";
 import { registerWorkloadActivationHttpRoutes } from "../workload_activation/http.ts";
 import { kick } from "../callout/kick.ts";
 import { OAuth2CodeRequest, OAuth2CodeResponse } from "../oauth.ts";
@@ -101,14 +111,24 @@ export function registerHttpRoutes(
     if (value === null) return "null";
     if (typeof value === "boolean") return value ? "true" : "false";
     if (typeof value === "number") {
-      if (!Number.isFinite(value)) throw new Error("JSON numbers must be finite");
+      if (!Number.isFinite(value)) {
+        throw new Error("JSON numbers must be finite");
+      }
       return JSON.stringify(value);
     }
     if (typeof value === "string") return JSON.stringify(value);
-    if (Array.isArray(value)) return `[${value.map(canonicalizeJsonValue).join(",")}]`;
+    if (Array.isArray(value)) {
+      return `[${value.map(canonicalizeJsonValue).join(",")}]`;
+    }
     if (typeof value === "object") {
       const keys = Object.keys(value).sort();
-      return `{${keys.map((key) => `${JSON.stringify(key)}:${canonicalizeJsonValue((value as Record<string, unknown>)[key])}`).join(",")}}`;
+      return `{${
+        keys.map((key) =>
+          `${JSON.stringify(key)}:${
+            canonicalizeJsonValue((value as Record<string, unknown>)[key])
+          }`
+        ).join(",")
+      }}`;
     }
 
     throw new Error("Value is not JSON-serializable");
@@ -140,40 +160,65 @@ export function registerHttpRoutes(
     await browserFlowsKV.put(flow.flowId, flow);
   }
 
-  function builtinPortalEntryUrl(pathname: "/_trellis/portal/login" | "/_trellis/portal/activate"): string {
+  function builtinPortalEntryUrl(
+    pathname: "/_trellis/portal/login" | "/_trellis/portal/activate",
+  ): string {
     const base = config.web.publicOrigin ?? config.oauth.redirectBase;
     return new URL(pathname, base).toString();
   }
 
-  async function listPortals(): Promise<Array<{ portalId: string; entryUrl: string; disabled?: boolean }>> {
+  async function listPortals(): Promise<
+    Array<{ portalId: string; entryUrl: string; disabled?: boolean }>
+  > {
     const iter = (await portalsKV.keys(">"))?.take();
     if (isErr(iter)) return [];
-    const portals: Array<{ portalId: string; entryUrl: string; disabled?: boolean }> = [];
+    const portals: Array<
+      { portalId: string; entryUrl: string; disabled?: boolean }
+    > = [];
     for await (const key of iter) {
       const entry = (await portalsKV.get(key)).take();
-      if (!isErr(entry)) portals.push(entry.value as { portalId: string; entryUrl: string; disabled?: boolean });
+      if (!isErr(entry)) {
+        portals.push(
+          entry.value as {
+            portalId: string;
+            entryUrl: string;
+            disabled?: boolean;
+          },
+        );
+      }
     }
     return portals;
   }
 
-  async function listLoginPortalSelections(): Promise<Array<{ contractId: string; portalId: string | null }>> {
+  async function listLoginPortalSelections(): Promise<
+    Array<{ contractId: string; portalId: string | null }>
+  > {
     const iter = (await loginPortalSelectionsKV.keys(">"))?.take();
     if (isErr(iter)) return [];
-    const selections: Array<{ contractId: string; portalId: string | null }> = [];
+    const selections: Array<{ contractId: string; portalId: string | null }> =
+      [];
     for await (const key of iter) {
       const entry = (await loginPortalSelectionsKV.get(key)).take();
-      if (!isErr(entry)) selections.push(entry.value as { contractId: string; portalId: string | null });
+      if (!isErr(entry)) {
+        selections.push(
+          entry.value as { contractId: string; portalId: string | null },
+        );
+      }
     }
     return selections;
   }
 
-  async function loadLoginPortalDefaultId(): Promise<string | null | undefined> {
+  async function loadLoginPortalDefaultId(): Promise<
+    string | null | undefined
+  > {
     const entry = (await portalDefaultsKV.get("login.default")).take();
     if (isErr(entry)) return undefined;
     return (entry.value as { portalId: string | null }).portalId;
   }
 
-  async function resolvePortalEntryUrlForContract(contract: Record<string, unknown>): Promise<string | null> {
+  async function resolvePortalEntryUrlForContract(
+    contract: Record<string, unknown>,
+  ): Promise<string | null> {
     const contractId = typeof contract.id === "string" ? contract.id : null;
     const resolved = resolveLoginPortal({
       contractId: contractId ?? "",
@@ -181,7 +226,9 @@ export function registerHttpRoutes(
       defaultPortalId: await loadLoginPortalDefaultId(),
       selections: await listLoginPortalSelections(),
     });
-    return resolved.kind === "custom" ? resolved.portal.entryUrl : builtinPortalEntryUrl("/_trellis/portal/login");
+    return resolved.kind === "custom"
+      ? resolved.portal.entryUrl
+      : builtinPortalEntryUrl("/_trellis/portal/login");
   }
 
   const FlowBindRequestSchema = Type.Object({
@@ -333,6 +380,63 @@ export function registerHttpRoutes(
     }),
   );
 
+  app.post(
+    "/bootstrap/client",
+    createClientBootstrapHandler({
+      contractStore: opts.contractStore,
+      natsServers: config.client.natsServers,
+      sentinel: sentinelCreds,
+      sessionKV,
+      usersKV,
+      servicesKV,
+      bindingTokenKV,
+      hashKey,
+      randomToken,
+      verifyIdentityProof: ({ sessionKey, iat, sig }) =>
+        verifyDomainSig(sessionKey, "bootstrap-client", String(iat), sig),
+      bindingTokenTtlMs: (session) =>
+        session.contractId === CLI_CONTRACT_ID
+          ? config.ttlMs.bindingTokens.cliRenew
+          : config.ttlMs.bindingTokens.renew,
+    }),
+  );
+
+  app.post(
+    "/bootstrap/service",
+    createServiceBootstrapHandler({
+      contractStore: opts.contractStore,
+      natsServers: config.client.natsServers,
+      sentinel: sentinelCreds,
+      loadService: async (sessionKey) => {
+        const entry = (await servicesKV.get(sessionKey)).take();
+        return isErr(entry) ? null : entry.value;
+      },
+      verifyIdentityProof: ({ sessionKey, iat, sig }) =>
+        verifyDomainSig(sessionKey, "nats-connect", String(iat), sig),
+    }),
+  );
+
+  app.post(
+    "/bootstrap/workload",
+    createWorkloadBootstrapHandler({
+      natsServers: config.client.natsServers,
+      sentinel: sentinelCreds,
+      loadWorkloadInstance: async (instanceId) => {
+        const entry = (await workloadInstancesKV.get(instanceId)).take();
+        return isErr(entry) ? null : entry.value;
+      },
+      loadWorkloadActivation: async (instanceId) => {
+        const entry = (await workloadActivationsKV.get(instanceId)).take();
+        return isErr(entry) ? null : entry.value;
+      },
+      loadWorkloadProfile: async (profileId) => {
+        const entry = (await workloadProfilesKV.get(profileId)).take();
+        return isErr(entry) ? null : entry.value;
+      },
+      verifyIdentityProof: verifyWorkloadBootstrapIdentityProof,
+    }),
+  );
+
   app.get("/auth/login", async (c) => {
     const query = {
       provider: c.req.query("provider") ?? undefined,
@@ -352,7 +456,9 @@ export function registerHttpRoutes(
     }
 
     const requestedProviderValue = query["provider"];
-    const requestedProvider = typeof requestedProviderValue === "string" ? requestedProviderValue : undefined;
+    const requestedProvider = typeof requestedProviderValue === "string"
+      ? requestedProviderValue
+      : undefined;
     const {
       redirectTo: rawRedirectTo,
       sessionKey,
@@ -378,16 +484,24 @@ export function registerHttpRoutes(
     let decodedContext: Record<string, unknown> | undefined;
     try {
       decodedContract = decodeContractQuery(rawContract);
-      decodedContext = rawContext ? decodeOpenObjectQuery(rawContext) : undefined;
+      decodedContext = rawContext
+        ? decodeOpenObjectQuery(rawContext)
+        : undefined;
     } catch {
       throw new HTTPException(400, { message: "Invalid request" });
     }
-    const signedRedirect = `${redirectTo}:${canonicalizeJsonValue(decodedContext ?? null)}`;
-    if (!(await verifyDomainSig(sessionKey, "oauth-init", signedRedirect, sig))) {
+    const signedRedirect = `${redirectTo}:${
+      canonicalizeJsonValue(decodedContext ?? null)
+    }`;
+    if (
+      !(await verifyDomainSig(sessionKey, "oauth-init", signedRedirect, sig))
+    ) {
       throw new HTTPException(400, { message: "Invalid signature" });
     }
 
-    const portalEntryUrl = await resolvePortalEntryUrlForContract(decodedContract);
+    const portalEntryUrl = await resolvePortalEntryUrlForContract(
+      decodedContract,
+    );
     if (!portalEntryUrl) {
       throw new HTTPException(503, {
         message: "Auth portal is not configured",
@@ -420,7 +534,9 @@ export function registerHttpRoutes(
     });
     if (requestedProvider) {
       const providerUrl = new URL(c.req.url);
-      providerUrl.pathname = `/auth/login/${encodeURIComponent(requestedProvider)}`;
+      providerUrl.pathname = `/auth/login/${
+        encodeURIComponent(requestedProvider)
+      }`;
       providerUrl.search = "";
       providerUrl.searchParams.set("flowId", flowId);
       return c.redirect(providerUrl.toString());
@@ -544,7 +660,11 @@ export function registerHttpRoutes(
     const projectionUpsertValue = projectionUpsert.take();
     if (isErr(projectionUpsertValue)) {
       logger.error(
-        { error: projectionUpsertValue.error, origin: user.provider, id: user.id },
+        {
+          error: projectionUpsertValue.error,
+          origin: user.provider,
+          id: user.id,
+        },
         "Failed to provision user after OAuth callback",
       );
       throw new HTTPException(500, { message: "Failed to provision user" });
@@ -587,7 +707,9 @@ export function registerHttpRoutes(
       authToken,
     });
 
-    const portalEntryUrl = await resolvePortalEntryUrlForContract(flow.contract);
+    const portalEntryUrl = await resolvePortalEntryUrlForContract(
+      flow.contract,
+    );
     if (!portalEntryUrl) {
       throw new HTTPException(503, {
         message: "Auth portal is not configured",
@@ -645,7 +767,9 @@ export function registerHttpRoutes(
           resolution.missingCapabilities.length === 0 &&
           !getApprovalResolutionBlocker(resolution)
         ) {
-          redirectLocation = buildRedirectLocation(pending.redirectTo, { flowId });
+          redirectLocation = buildRedirectLocation(pending.redirectTo, {
+            flowId,
+          });
         }
       }
     }
@@ -720,7 +844,9 @@ export function registerHttpRoutes(
         : config.instanceName,
       ...(flow.context ? { context: flow.context } : {}),
     };
-    const returnLocation = buildRedirectLocation(pending.redirectTo, { flowId });
+    const returnLocation = buildRedirectLocation(pending.redirectTo, {
+      flowId,
+    });
 
     if (resolution.missingCapabilities.length > 0) {
       return c.json(
@@ -803,7 +929,8 @@ export function registerHttpRoutes(
       sessionKey: string;
       sig: string;
     };
-    const pendingEntry = (await pendingAuthKV.get(await hashKey(flow.authToken))).take();
+    const pendingEntry =
+      (await pendingAuthKV.get(await hashKey(flow.authToken))).take();
     if (isErr(pendingEntry)) {
       return c.json({ status: "expired" });
     }
@@ -817,7 +944,9 @@ export function registerHttpRoutes(
       throw new HTTPException(400, { message: "Invalid signature" });
     }
 
-    return c.json(await completePendingBind({ pending, pendingValue, sessionKey }));
+    return c.json(
+      await completePendingBind({ pending, pendingValue, sessionKey }),
+    );
   });
 
   app.post("/auth/bind", async (c) => {
@@ -851,6 +980,8 @@ export function registerHttpRoutes(
     if (!(await verifyDomainSig(sessionKey, "bind", authToken, sig))) {
       throw new HTTPException(400, { message: "Invalid signature" });
     }
-    return c.json(await completePendingBind({ pending, pendingValue, sessionKey }));
+    return c.json(
+      await completePendingBind({ pending, pendingValue, sessionKey }),
+    );
   });
 }

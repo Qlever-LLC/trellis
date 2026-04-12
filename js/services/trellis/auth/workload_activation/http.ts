@@ -1,6 +1,7 @@
 import type { Context, Hono } from "@hono/hono";
 import { HTTPException } from "@hono/hono/http-exception";
 import { AsyncResult, isErr } from "@qlever-llc/result";
+import { Value } from "typebox/value";
 
 import {
   deriveWorkloadConfirmationCode,
@@ -8,16 +9,21 @@ import {
   parseWorkloadActivationPayload,
   verifyWorkloadWaitSignature,
 } from "../../../../packages/auth/workload_activation.ts";
+import {
+  resolveWorkloadBootstrap,
+  verifyWorkloadBootstrapIdentityProof,
+  WorkloadBootstrapRequestSchema,
+} from "../bootstrap/workload.ts";
 import { getConfig } from "../../config.ts";
 import {
   portalDefaultsKV,
   portalsKV,
-  workloadPortalSelectionsKV,
   sentinelCreds,
   workloadActivationHandoffsKV,
   workloadActivationReviewsKV,
   workloadActivationsKV,
   workloadInstancesKV,
+  workloadPortalSelectionsKV,
   workloadProfilesKV,
   workloadProvisioningSecretsKV,
 } from "../../bootstrap/globals.ts";
@@ -80,13 +86,17 @@ type Portal = {
   disabled?: boolean;
 };
 
-async function loadWorkloadInstance(instanceId: string): Promise<WorkloadInstance | null> {
+async function loadWorkloadInstance(
+  instanceId: string,
+): Promise<WorkloadInstance | null> {
   const entry = (await workloadInstancesKV.get(instanceId)).take();
   if (isErr(entry)) return null;
   return entry.value as WorkloadInstance;
 }
 
-async function loadWorkloadProfile(profileId: string): Promise<WorkloadProfile | null> {
+async function loadWorkloadProfile(
+  profileId: string,
+): Promise<WorkloadProfile | null> {
   const entry = (await workloadProfilesKV.get(profileId)).take();
   if (isErr(entry)) return null;
   return entry.value as WorkloadProfile;
@@ -105,13 +115,17 @@ async function loadWorkloadActivation(instanceId: string) {
   };
 }
 
-async function loadWorkloadProvisioningSecret(instanceId: string): Promise<WorkloadProvisioningSecret | null> {
+async function loadWorkloadProvisioningSecret(
+  instanceId: string,
+): Promise<WorkloadProvisioningSecret | null> {
   const entry = (await workloadProvisioningSecretsKV.get(instanceId)).take();
   if (isErr(entry)) return null;
   return entry.value as WorkloadProvisioningSecret;
 }
 
-async function findWorkloadActivationReviewByHandoffId(handoffId: string): Promise<WorkloadActivationReview | null> {
+async function findWorkloadActivationReviewByHandoffId(
+  handoffId: string,
+): Promise<WorkloadActivationReview | null> {
   const iter = (await workloadActivationReviewsKV.keys(">")).take();
   if (isErr(iter)) return null;
   for await (const key of iter) {
@@ -155,45 +169,38 @@ async function listPortals(): Promise<Portal[]> {
   return portals;
 }
 
-async function listWorkloadPortalSelections(): Promise<Array<{ profileId: string; portalId: string | null }>> {
+async function listWorkloadPortalSelections(): Promise<
+  Array<{ profileId: string; portalId: string | null }>
+> {
   const iter = (await workloadPortalSelectionsKV.keys(">")).take();
   if (isErr(iter)) return [];
   const selections: Array<{ profileId: string; portalId: string | null }> = [];
   for await (const key of iter) {
     const entry = (await workloadPortalSelectionsKV.get(key)).take();
     if (isErr(entry)) continue;
-    selections.push(entry.value as { profileId: string; portalId: string | null });
+    selections.push(
+      entry.value as { profileId: string; portalId: string | null },
+    );
   }
   return selections;
 }
 
-async function loadWorkloadPortalDefaultId(): Promise<string | null | undefined> {
+async function loadWorkloadPortalDefaultId(): Promise<
+  string | null | undefined
+> {
   const entry = (await portalDefaultsKV.get("workload.default")).take();
   if (isErr(entry)) return undefined;
   return (entry.value as { portalId: string | null }).portalId;
 }
 
-async function buildWorkloadConnectInfo(args: {
-  instance: WorkloadInstance;
-  profile: WorkloadProfile;
-  contractDigest: string;
-}) {
-  if (!args.profile.allowedDigests.includes(args.contractDigest)) {
-    throw new HTTPException(403, { message: "contract_digest_not_allowed" });
-  }
+function workloadBootstrapDeps() {
   return {
-    instanceId: args.instance.instanceId,
-    profileId: args.profile.profileId,
-    contractId: args.profile.contractId,
-    contractDigest: args.contractDigest,
-    transport: {
-      natsServers: config.client.natsServers,
-      sentinel: sentinelCreds,
-    },
-    auth: {
-      mode: "workload_identity",
-      iatSkewSeconds: 30,
-    },
+    natsServers: config.client.natsServers,
+    sentinel: sentinelCreds,
+    loadWorkloadInstance,
+    loadWorkloadActivation,
+    loadWorkloadProfile,
+    verifyIdentityProof: verifyWorkloadBootstrapIdentityProof,
   };
 }
 
@@ -202,7 +209,9 @@ async function confirmationCodeForActivation(args: {
   publicIdentityKey: string;
   nonce: string;
 }): Promise<string | undefined> {
-  const provisioningSecret = await loadWorkloadProvisioningSecret(args.instanceId);
+  const provisioningSecret = await loadWorkloadProvisioningSecret(
+    args.instanceId,
+  );
   if (!provisioningSecret) return undefined;
   return await deriveWorkloadConfirmationCode({
     activationKey: provisioningSecret.activationKey,
@@ -216,7 +225,9 @@ function builtinPortalEntryUrl(): string {
   return new URL("/_trellis/portal/activate", base).toString();
 }
 
-export function registerWorkloadActivationHttpRoutes(app: Pick<Hono, "get" | "post">): void {
+export function registerWorkloadActivationHttpRoutes(
+  app: Pick<Hono, "get" | "post">,
+): void {
   app.get("/auth/workloads/activate", async (c: Context) => {
     const rawPayload = c.req.query("payload");
     if (!rawPayload) {
@@ -226,7 +237,9 @@ export function registerWorkloadActivationHttpRoutes(app: Pick<Hono, "get" | "po
     try {
       payload = parseWorkloadActivationPayload(rawPayload);
     } catch {
-      throw new HTTPException(400, { message: "Invalid workload activation payload" });
+      throw new HTTPException(400, {
+        message: "Invalid workload activation payload",
+      });
     }
 
     const instanceId = workloadInstanceId(payload.publicIdentityKey);
@@ -244,7 +257,9 @@ export function registerWorkloadActivationHttpRoutes(app: Pick<Hono, "get" | "po
       nonce: payload.nonce,
     });
     if (expectedQrMac !== payload.qrMac) {
-      throw new HTTPException(400, { message: "Invalid workload activation payload" });
+      throw new HTTPException(400, {
+        message: "Invalid workload activation payload",
+      });
     }
     const profile = await loadWorkloadProfile(instance.profileId);
     if (!profile || profile.disabled) {
@@ -285,12 +300,18 @@ export function registerWorkloadActivationHttpRoutes(app: Pick<Hono, "get" | "po
       return c.json({ error: "Invalid JSON body" }, 400);
     }
     const body = bodyResult.take() as Partial<Record<string, unknown>>;
-    const publicIdentityKey = typeof body.publicIdentityKey === "string" ? body.publicIdentityKey : null;
+    const publicIdentityKey = typeof body.publicIdentityKey === "string"
+      ? body.publicIdentityKey
+      : null;
     const nonce = typeof body.nonce === "string" ? body.nonce : null;
-    const contractDigest = typeof body.contractDigest === "string" ? body.contractDigest : null;
+    const contractDigest = typeof body.contractDigest === "string"
+      ? body.contractDigest
+      : null;
     const iat = typeof body.iat === "number" ? body.iat : null;
     const sig = typeof body.sig === "string" ? body.sig : null;
-    if (!publicIdentityKey || !nonce || !contractDigest || iat === null || !sig) {
+    if (
+      !publicIdentityKey || !nonce || !contractDigest || iat === null || !sig
+    ) {
       return c.json({ reason: "invalid_request" }, 400);
     }
     if (!isWorkloadProofIatFresh(iat)) {
@@ -318,19 +339,37 @@ export function registerWorkloadActivationHttpRoutes(app: Pick<Hono, "get" | "po
       return c.json({ reason: "unknown_workload" }, 404);
     }
     const activation = await loadWorkloadActivation(handoff.instanceId);
-    const review = await findWorkloadActivationReviewByHandoffId(handoff.handoffId);
+    const review = await findWorkloadActivationReviewByHandoffId(
+      handoff.handoffId,
+    );
     if (!activation) {
       if (review?.state === "rejected") {
-        return c.json({ status: "rejected", reason: review.reason ?? "workload_activation_rejected" });
+        return c.json({
+          status: "rejected",
+          reason: review.reason ?? "workload_activation_rejected",
+        });
       }
       return c.json({ status: "pending" });
     }
     if (activation.state === "revoked") {
-      return c.json({ status: "rejected", reason: "workload_activation_revoked" });
+      return c.json({
+        status: "rejected",
+        reason: "workload_activation_revoked",
+      });
     }
     const profile = await loadWorkloadProfile(activation.profileId);
     if (!profile || profile.disabled) {
-      return c.json({ status: "rejected", reason: "workload_profile_not_found" });
+      return c.json({
+        status: "rejected",
+        reason: "workload_profile_not_found",
+      });
+    }
+    const bootstrap = await resolveWorkloadBootstrap(workloadBootstrapDeps(), {
+      publicIdentityKey,
+      contractDigest,
+    });
+    if (bootstrap.status !== "ready") {
+      throw new HTTPException(403, { message: "contract_digest_not_allowed" });
     }
     return c.json({
       status: "activated",
@@ -340,7 +379,7 @@ export function registerWorkloadActivationHttpRoutes(app: Pick<Hono, "get" | "po
         publicIdentityKey: activation.publicIdentityKey,
         nonce: handoff.nonce,
       }),
-      connectInfo: await buildWorkloadConnectInfo({ instance, profile, contractDigest }),
+      connectInfo: bootstrap.connectInfo,
     });
   });
 
@@ -349,41 +388,37 @@ export function registerWorkloadActivationHttpRoutes(app: Pick<Hono, "get" | "po
     if (bodyResult.isErr()) {
       return c.json({ error: "Invalid JSON body" }, 400);
     }
-    const body = bodyResult.take() as Partial<Record<string, unknown>>;
-    const publicIdentityKey = typeof body.publicIdentityKey === "string" ? body.publicIdentityKey : null;
-    const contractDigest = typeof body.contractDigest === "string" ? body.contractDigest : null;
-    const iat = typeof body.iat === "number" ? body.iat : null;
-    const sig = typeof body.sig === "string" ? body.sig : null;
-    if (!publicIdentityKey || !contractDigest || iat === null || !sig) {
+    const body = bodyResult.take();
+    if (!Value.Check(WorkloadBootstrapRequestSchema, body)) {
       return c.json({ reason: "invalid_request" }, 400);
     }
-    if (!isWorkloadProofIatFresh(iat)) {
+    const request = body;
+    if (!isWorkloadProofIatFresh(request.iat)) {
       return c.json({ reason: "iat_out_of_range" }, 400);
     }
-    const proofOk = await verifyWorkloadWaitSignature({
-      publicIdentityKey,
-      nonce: "connect-info",
-      contractDigest,
-      iat,
-      sig,
-    });
+    const proofOk = await verifyWorkloadBootstrapIdentityProof(request);
     if (!proofOk) {
       return c.json({ reason: "invalid_signature" }, 400);
     }
 
-    const instanceId = workloadInstanceId(publicIdentityKey);
-    const instance = await loadWorkloadInstance(instanceId);
-    const activation = await loadWorkloadActivation(instanceId);
-    if (!instance || !activation || activation.state !== "activated") {
+    const result = await resolveWorkloadBootstrap(
+      workloadBootstrapDeps(),
+      request,
+    );
+
+    if (result.status === "activation_required") {
       return c.json({ reason: "unknown_workload" }, 404);
     }
-    const profile = await loadWorkloadProfile(activation.profileId);
-    if (!profile || profile.disabled) {
-      return c.json({ reason: "workload_profile_not_found" }, 404);
+    if (result.status === "not_ready") {
+      if (result.reason === "contract_digest_not_allowed") {
+        return c.json({ reason: result.reason }, 403);
+      }
+      if (result.reason === "workload_profile_not_found") {
+        return c.json({ reason: result.reason }, 404);
+      }
+      return c.json({ reason: "unknown_workload" }, 404);
     }
-    return c.json({
-      status: "ready",
-      connectInfo: await buildWorkloadConnectInfo({ instance, profile, contractDigest }),
-    });
+
+    return c.json(result);
   });
 }

@@ -61,17 +61,16 @@ export const ordersService = defineContract({
 Now let's write the code that actually runs the service. Open `main.ts` (created by `deno init`) and replace it with:
 
 ```ts
-import { connectService } from "@qlever-llc/trellis/server/deno";
+import { TrellisService } from "@qlever-llc/trellis/server/deno";
 import { Result } from "@qlever-llc/trellis";
 import { ordersService } from "./contracts/orders_service.ts";
 
 // 1. Connect to Trellis
-const service = await connectService(ordersService, "orders-service", {
+const service = await TrellisService.connect({
+  trellisUrl: Deno.env.get("TRELLIS_URL")!,
+  contract: ordersService,
+  name: "orders-service",
   sessionKeySeed: Deno.env.get("ORDERS_SERVICE_SESSION_KEY_SEED")!,
-  nats: {
-    servers: Deno.env.get("NATS_SERVERS") ?? "localhost",
-    sentinelCredsPath: Deno.env.get("NATS_SENTINEL_CREDS"),
-  },
   server: {},
 });
 
@@ -86,7 +85,7 @@ Deno.addSignalListener("SIGTERM", async () => {
 
 > **Note for Node.js users:** Import from `@qlever-llc/trellis/server/node` and use `process.on("SIGTERM")` instead.
 
-`connectService` does a lot of heavy lifting for you. It verifies that your contract is active in the Trellis catalog and connects you securely to the NATS network. 
+`TrellisService.connect(...)` does a lot of heavy lifting for you. It verifies that your contract is active in the Trellis catalog, fetches the current transport details from Trellis, and connects you securely to NATS.
 
 Before we can run this, we have to install the contract so Trellis knows about it:
 
@@ -98,7 +97,7 @@ Now you can run your service! (You'll need a session key seed, which you can gen
 
 ```sh
 ORDERS_SERVICE_SESSION_KEY_SEED=<your_seed_here> \
-NATS_SERVERS=localhost \
+TRELLIS_URL=http://localhost:3000 \
 deno run --allow-net --allow-env main.ts
 ```
 
@@ -141,13 +140,13 @@ Next, open `contracts/orders_service.ts` and update the `resources` section to a
   },
 ```
 
-Finally, back in `main.ts`, we can open this bucket right after `connectService`. Notice how we pass `OrderSchema` into it? This gives us a fully typed database client!
+Finally, back in `main.ts`, we can open this bucket right after `TrellisService.connect(...)`. Notice how we pass `OrderSchema` into it? This gives us a fully typed database client!
 
 ```ts
 import { isErr } from "@qlever-llc/trellis";
 import { OrderSchema } from "./schemas.ts";
 
-// ... connectService ...
+// ... TrellisService.connect(...) ...
 
 const ordersKV = (await service.kv.orders.open(OrderSchema)).take();
 if (isErr(ordersKV)) throw ordersKV.error;

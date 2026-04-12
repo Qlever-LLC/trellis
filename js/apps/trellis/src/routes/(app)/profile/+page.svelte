@@ -3,7 +3,6 @@ import type { AuthListApprovalsOutput, AuthMeOutput } from "@qlever-llc/trellis/
 import { getNatsState } from "@qlever-llc/trellis-svelte";
 import { onMount } from "svelte";
 import { getInitials, getRoleLabel } from "../../../lib/control-panel.ts";
-import { authMeRequest } from "../../../lib/auth_rpc";
   import { errorMessage, formatDate } from "../../../lib/format";
   import { getNotifications } from "../../../lib/notifications.svelte";
   import { getTrellis } from "../../../lib/trellis";
@@ -23,9 +22,9 @@ import { authMeRequest } from "../../../lib/auth_rpc";
     loading = true;
     error = null;
     try {
-      const me = await authMeRequest(trellisPromise);
-      user = me.user ?? null;
       const trellis = await trellisPromise;
+      const me = await trellis.requestOrThrow("Auth.Me", {});
+      user = me.user ?? null;
       const appResponse = await trellis.requestOrThrow("Auth.ListApprovals", {});
       approvals = appResponse.approvals ?? [];
     } catch (e) {

@@ -3,7 +3,7 @@ import {
   type NatsConnection,
   wsconnect,
 } from "@nats-io/nats-core";
-import { createClient, type Trellis } from "@qlever-llc/trellis";
+import type { Trellis } from "@qlever-llc/trellis";
 import {
   getPublicSessionKey,
   natsConnectSigForBindingToken,
@@ -18,6 +18,7 @@ import {
   type AuthRenewBindingTokenOutput,
 } from "@qlever-llc/trellis/sdk/auth";
 import type { AuthState } from "./auth.svelte.ts";
+import { createClient } from "../../../trellis/client.ts";
 
 const AUTH_RENEW_API = {
   rpc: {
@@ -202,6 +203,44 @@ export class NatsState {
     return state;
   }
 
+  static async fromConnection(
+    nc: NatsConnection,
+    authState: AuthState,
+    config: NatsStateConfig,
+  ): Promise<NatsState> {
+    config.onConnecting?.();
+
+    await authState.init();
+
+    if (!authState.isAuthenticated) {
+      config.onAuthRequired?.();
+      throw new Error("Not authenticated: missing binding token or sentinel");
+    }
+
+    const { handle, sentinel } = requireBrowserAuth(authState);
+    const servers = resolveServers(authState, config);
+    const bindingToken = authState.bindingToken;
+    if (!bindingToken) {
+      throw new Error("Not authenticated: missing binding token or sentinel");
+    }
+
+    const state = new NatsState(
+      nc,
+      "connected",
+      servers,
+      authState,
+      config,
+      handle,
+      { value: await buildNatsAuthToken(handle, bindingToken) },
+      sentinel,
+    );
+
+    config.onConnected?.();
+    await state.#renewBindingToken();
+
+    return state;
+  }
+
   /**
    * Reconnect to NATS with the existing binding token (if still valid).
    * Uses stored sentinel credentials with jwtAuthenticator per ADR.
@@ -360,4 +399,12 @@ export async function createNatsState(
   config: NatsStateConfig,
 ): Promise<NatsState> {
   return NatsState.connect(authState, config);
+}
+
+export async function createConnectedNatsState(
+  nc: NatsConnection,
+  authState: AuthState,
+  config: NatsStateConfig,
+): Promise<NatsState> {
+  return NatsState.fromConnection(nc, authState, config);
 }

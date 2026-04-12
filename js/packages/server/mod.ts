@@ -22,9 +22,6 @@ export {
   HealthResponseSchema,
   HealthRpcSchema,
 } from "./health_schemas.ts";
-export {
-  connectService as connectNodeService,
-} from "./node.ts";
 export type {
   NatsConnectFn,
   NatsConnectOpts,
@@ -32,7 +29,6 @@ export type {
   TrellisServiceRuntimeDeps,
 } from "./runtime.ts";
 export {
-  connectService,
   KVHandle,
   type ResourceBindingKV,
   type ResourceBindingStream,

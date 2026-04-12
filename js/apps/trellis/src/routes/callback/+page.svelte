@@ -10,7 +10,7 @@
     persistSelectedAuthUrl
   } from "../../lib/config";
   import { errorMessage } from "../../lib/format";
-  import { app } from "../../lib/trellis";
+  import { auth } from "../../lib/trellis";
 
   let status = $state("Completing sign-in…");
   let authError = $state<string | null>(null);
@@ -37,11 +37,11 @@
       const authUrl = getSelectedAuthUrl(page.url);
       selectedAuthUrl = authUrl ? (persistSelectedAuthUrl(authUrl) ?? "") : "";
       if (selectedAuthUrl) {
-        app.auth.setAuthUrl(selectedAuthUrl);
+        auth.setAuthUrl(selectedAuthUrl);
       }
-      await app.auth.init();
-      const result = await app.auth.handleCallback(window.location.href);
-      app.auth.cleanupCallbackUrl();
+      await auth.init();
+      const result = await auth.handleCallback(window.location.href);
+      auth.cleanupCallbackUrl();
 
       if (!result) {
         status = "Sign-in failed";

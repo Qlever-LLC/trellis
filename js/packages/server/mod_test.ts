@@ -14,7 +14,6 @@ import type { TypedKV, KVError } from "@qlever-llc/trellis";
 
 // Import the module under test
 import {
-  connectService,
   type EventContext,
   type HealthCheckFn,
   type HealthCheckResult,
@@ -22,6 +21,7 @@ import {
   type OrderingGroup,
   type SubscribeOpts,
   type TrellisService,
+  TrellisService as TrellisServiceClass,
   TrellisServer,
   KVHandle,
 } from "./mod.ts";
@@ -49,7 +49,7 @@ const typeTestContract = defineContract({
 Deno.test("TrellisServer export exists", () => {
   assertExists(TrellisServer);
   assertEquals(typeof TrellisServer, "function");
-  assertEquals(typeof connectService, "function");
+  assertEquals(typeof TrellisServiceClass, "function");
 });
 
 Deno.test("Health types are re-exported", () => {
@@ -114,11 +114,11 @@ Deno.test("service wrapper type surface stays specific", () => {
   let typedOpened: Promise<Result<TypedKV<typeof schema>, KVError>> | null = null;
 
   if (false) {
-    const service = null as unknown as TrellisService<
+    let service!: TrellisService<
       typeof typeTestContract.API.owned,
       typeof typeTestContract.API.owned
     >;
-    const kvHandle = null as unknown as KVHandle;
+    let kvHandle!: KVHandle;
     typedRequest = service.request("Test.Ping", {});
     typedRequestOrThrow = service.requestOrThrow("Test.Ping", {});
     typedOpened = kvHandle.open(schema);

@@ -61,7 +61,7 @@ import { myWorkload } from "./contracts/my_workload.ts";
 const rootSecret = await Deno.readTextFile("./secrets/root.secret");
 
 const trellis = await TrellisWorkload.connect({
-  authUrl: "http://localhost:3000",
+  trellisUrl: "http://localhost:3000",
   contract: myWorkload,
   rootSecret,
   onActivationRequired: async (activation) => {

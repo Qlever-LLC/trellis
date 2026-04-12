@@ -1,6 +1,6 @@
 import { connect, credsAuthenticator } from "@nats-io/transport-deno";
 import { createAuth, isErr, TypedKV } from "@qlever-llc/trellis";
-import { TrellisService } from "@qlever-llc/trellis/server";
+import { TrellisService } from "../../../packages/server/service.ts";
 import { pino } from "pino";
 import { Value } from "typebox/value";
 import { getConfig } from "../config.ts";
@@ -353,11 +353,11 @@ if (isErr(usersKVValue)) {
 }
 export const usersKV = usersKVValue;
 
-// Bootstrap the Trellis control-plane directly instead of using connectService().
-// connectService() eagerly calls Trellis.Catalog and Trellis.Bindings.Get to
-// validate an already-installed contract, but this service is the component that
-// mounts those RPCs during startup.
-export const trellisService = await TrellisService.connect(
+// Bootstrap the Trellis control-plane directly instead of using the normal
+// TrellisService.connect(...) bootstrap flow. The control-plane is the component
+// that serves bootstrap state and mounts the RPCs that normal services depend on
+// during startup.
+export const trellisService = await TrellisService.connectInternal(
   "trellis",
   {
     auth,

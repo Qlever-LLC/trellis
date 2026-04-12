@@ -502,12 +502,11 @@ type WorkloadActivationController = {
 
 declare class TrellisWorkload {
   static connect<TApi extends TrellisAPI>(args: {
-    authUrl: string;
+    trellisUrl: string;
     contract: {
       CONTRACT_ID: string;
       CONTRACT_DIGEST: string;
       API: { trellis: TApi };
-      createClient(...args: unknown[]): unknown;
     };
     rootSecret: Uint8Array | string;
     onActivationRequired?(activation: WorkloadActivationController): Promise<void>;

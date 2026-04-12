@@ -1,6 +1,7 @@
 import { assertEquals } from "@std/assert";
 import { Type } from "typebox";
 import { encodeSchema } from "../codec.ts";
+import { createClient } from "../client.ts";
 import { defineContract } from "../contract.ts";
 import { err, UnexpectedError } from "../index.ts";
 import { auth } from "../sdk/auth.ts";
@@ -20,7 +21,8 @@ Deno.test("createClient prefers trellis API for app contracts", () => {
     },
   });
 
-  const client = contract.createClient(
+  const client = createClient(
+    contract,
     { options: { inboxPrefix: "_INBOX.test" } } as never,
     { sessionKey: "test", sign: () => new Uint8Array(64) },
   );

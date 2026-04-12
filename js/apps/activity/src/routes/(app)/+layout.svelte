@@ -2,7 +2,8 @@
   import { TrellisProvider } from "@qlever-llc/trellis-svelte";
   import type { Snippet } from "svelte";
   import AppFrame from "../../lib/components/AppFrame.svelte";
-  import { app } from "../../lib/trellis";
+  import { APP_CONFIG } from "../../lib/config.ts";
+  import { activityApp } from "../../../contracts/activity_app.ts";
 
   type Props = {
     children: Snippet;
@@ -15,7 +16,12 @@
   }
 </script>
 
-<TrellisProvider app={app} onAuthFailed={handleAuthFailed}>
+<TrellisProvider
+  trellisUrl={APP_CONFIG.authUrl}
+  contract={activityApp}
+  loginPath="/login"
+  onAuthFailed={handleAuthFailed}
+>
   {#snippet loading()}
     <div class="flex min-h-screen items-center justify-center px-4 py-10" data-theme="activity">
       <div class="card w-full max-w-xl border border-base-300/70 paper-panel shadow-2xl">

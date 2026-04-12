@@ -80,7 +80,7 @@ Deno.test("jobs handwritten worker presence schemas accept workers and reject ou
     jobType: "document-process",
     instanceId: "worker-1",
     concurrency: 2,
-    version: "0.6.1",
+    version: "0.7.0",
     timestamp: "2026-03-30T12:00:00.000Z",
   };
 

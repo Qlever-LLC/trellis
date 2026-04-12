@@ -5,7 +5,7 @@
   import AppShell from "../../lib/components/AppShell.svelte";
   import { buildAppLoginUrl, getSelectedAuthUrl, persistSelectedAuthUrl } from "../../lib/config";
   import { errorMessage } from "../../lib/format";
-  import { app } from "../../lib/trellis";
+  import { trellisApp } from "../../../contracts/trellis_app.ts";
 
   type Props = {
     children: Snippet;
@@ -13,20 +13,21 @@
 
   let { children }: Props = $props();
   let initialized = $state(false);
+  let authUrl = $state<string | undefined>(undefined);
 
   onMount(() => {
     const selectedAuthUrl = getSelectedAuthUrl(window.location);
     if (selectedAuthUrl) {
-      const authUrl = persistSelectedAuthUrl(selectedAuthUrl);
-      if (authUrl) {
-        app.auth.setAuthUrl(authUrl);
+      const persistedAuthUrl = persistSelectedAuthUrl(selectedAuthUrl);
+      if (persistedAuthUrl) {
+        authUrl = persistedAuthUrl;
       }
     }
     initialized = true;
   });
 
   function redirectToLogin(redirectTo: string): void {
-    window.location.href = buildAppLoginUrl(redirectTo, window.location, undefined, app.auth.authUrl ?? undefined);
+    window.location.href = buildAppLoginUrl(redirectTo, window.location, undefined, authUrl);
   }
 
   function handleAuthFailed(error: unknown): void {
@@ -34,14 +35,16 @@
       window.location.pathname + window.location.search,
       window.location,
       errorMessage(error),
-      app.auth.authUrl ?? undefined,
+      authUrl,
     );
   }
 </script>
 
 {#if initialized}
   <TrellisProvider
-    app={app}
+    trellisUrl={authUrl}
+    contract={trellisApp}
+    loginPath="/login"
     onAuthRequired={redirectToLogin}
     onAuthFailed={handleAuthFailed}
   >

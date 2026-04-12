@@ -303,7 +303,7 @@ await buildDntPackage({
     "@nats-io/kv": "^3.2.0",
     "@nats-io/nats-core": "^3.3.1",
     "@nats-io/transport-node": "^3.3.1",
-    "@qlever-llc/result": "^0.6.1",
+    "@qlever-llc/result": "^0.7.0",
     "json-schema-library": "^10.5.2",
     pino: "^9.11.0",
     "ts-deepmerge": "^7.0.3",

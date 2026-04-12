@@ -30,14 +30,14 @@ It does not redefine the canonical manifest model or runtime permission derivati
 
 `@qlever-llc/trellis/contracts` is the preferred package for contract source modules and other contract-only authoring code.
 
-`@qlever-llc/trellis` remains the canonical runtime package for free-function client helpers, auth helpers, `Result`, and explicit core-runtime helpers such as `createCoreClient(...)`.
+`@qlever-llc/trellis` remains the canonical runtime package for client connection helpers, auth helpers, `Result`, and explicit core-runtime helpers such as `createCoreClient(...)`.
 
 It exports:
 
 - `defineContract(...)`
 - contract-module and use-spec types needed by generated SDKs
 
-The `defineContract(...)` helper exported from `@qlever-llc/trellis/contracts` returns a runtime-augmented contract object that includes `contract.createClient(...)`. Free-function runtime helpers still live in `@qlever-llc/trellis` and `@qlever-llc/trellis/server*`.
+The `defineContract(...)` helper exported from `@qlever-llc/trellis/contracts` returns a contract object with projected API views and manifest metadata. The canonical public bootstrap helpers live in `@qlever-llc/trellis` and `@qlever-llc/trellis/server*`.
 
 Rules:
 
@@ -127,7 +127,6 @@ type DefinedContract<
   CONTRACT_DIGEST: string;
   API: ContractApiViews<TOwnedApi, TUsedApi, TTrellisApi>;
   use(spec: UseSpec<TOwnedApi>): ContractDependencyUse<string, TOwnedApi>;
-  createClient(...args: unknown[]): unknown;
 };
 
 declare function defineContract(...args: unknown[]): DefinedContract<any, any, any>;
@@ -136,6 +135,7 @@ declare function defineContract(...args: unknown[]): DefinedContract<any, any, a
 ## Illustrative Usage
 
 ```ts
+import { TrellisClient } from "@qlever-llc/trellis";
 import { defineContract } from "@qlever-llc/trellis/contracts";
 import { auth } from "@qlever-llc/trellis/sdk/auth";
 import { core } from "@qlever-llc/trellis/sdk/core";
@@ -179,7 +179,11 @@ export const activity = defineContract({
   },
 });
 
-const client = activity.createClient(nc, authSession, { name: "activity-cli" });
+const client = await TrellisClient.connect({
+  trellisUrl: "https://trellis.example.com",
+  contract: activity,
+  name: "activity-cli",
+});
 ```
 
 ## `defineContract(...)` Input Model
@@ -231,7 +235,7 @@ Rules:
 
 ## Runtime Helper Behavior
 
-Contract-driven runtime helpers include `contract.createClient(...)`, `createClient(contract, ...)`, and `connectService(contract, ...)`.
+Contract-driven runtime helpers include `TrellisClient.connect(...)`, `TrellisService.connect(...)`, and `TrellisWorkload.connect(...)`.
 
 For callers that intentionally want only the generated Trellis core API without a local contract, `@qlever-llc/trellis` also exposes `createCoreClient(...)` as an explicit opt-in helper.
 

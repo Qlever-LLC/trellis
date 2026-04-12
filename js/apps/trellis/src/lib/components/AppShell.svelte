@@ -1,10 +1,9 @@
 <script lang="ts">
   import type { AuthMeOutput } from "@qlever-llc/trellis/sdk/auth";
-  import { getNatsState } from "@qlever-llc/trellis-svelte";
+  import { getAuth, getNatsState } from "@qlever-llc/trellis-svelte";
   import { onMount } from "svelte";
   import { afterNavigate, goto } from "$app/navigation";
   import { page } from "$app/state";
-  import { authLogoutRequest, authMeRequest } from "../auth_rpc";
   import { buildAppLoginUrl } from "../config";
   import {
     getInitials,
@@ -16,12 +15,12 @@
   } from "../control-panel.ts";
   import { errorMessage } from "../format";
   import { NotificationsController, setNotifications } from "../notifications.svelte";
-  import { app, getTrellis } from "../trellis";
+  import { getTrellis } from "../trellis";
   import ToastViewport from "./ToastViewport.svelte";
 
   let { children } = $props();
 
-  const auth = app.auth;
+  const auth = getAuth();
   const natsStatePromise = getNatsState();
   const trellisPromise = getTrellis();
   const notifications = setNotifications(new NotificationsController());
@@ -65,7 +64,8 @@
   }
 
   async function authMe(): Promise<AuthMeOutput> {
-    return authMeRequest(trellisPromise);
+    const trellis = await trellisPromise;
+    return await trellis.requestOrThrow("Auth.Me", {});
   }
 
   onMount(() => {
@@ -116,7 +116,8 @@
   });
 
   async function logoutRequest(): Promise<void> {
-    await authLogoutRequest(trellisPromise);
+    const trellis = await trellisPromise;
+    await trellis.requestOrThrow("Auth.Logout", {});
   }
 
   async function signOut() {

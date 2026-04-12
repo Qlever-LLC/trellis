@@ -720,7 +720,7 @@ export const authGetInstalledContractHandler = async (
     );
   }
 
-  const contractUnknown = JSON.parse(entry.value.contract) as unknown;
+  const contractUnknown: unknown = JSON.parse(entry.value.contract);
   if (
     !contractUnknown || typeof contractUnknown !== "object" ||
     Array.isArray(contractUnknown)

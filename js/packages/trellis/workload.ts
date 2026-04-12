@@ -6,13 +6,15 @@ import {
   buildWorkloadActivationUrl,
   createWorkloadNatsAuthToken,
   deriveWorkloadIdentity,
-  getWorkloadConnectInfo,
+  signWorkloadWaitRequest,
   verifyWorkloadConfirmationCode,
   waitForWorkloadActivation,
 } from "./auth.ts";
-import type { ClientOpts } from "./client.ts";
 import type { TrellisAPI } from "./contracts.ts";
-import type { TrellisAuth, Trellis } from "./trellis.ts";
+import { loadDefaultRuntimeTransport } from "./runtime_transport.ts";
+import { Trellis } from "./trellis.ts";
+import { Type, type StaticDecode } from "typebox";
+import { Value } from "typebox/value";
 
 type WorkloadContract<TApi extends TrellisAPI = TrellisAPI> = {
   CONTRACT_ID: string;
@@ -20,7 +22,6 @@ type WorkloadContract<TApi extends TrellisAPI = TrellisAPI> = {
   API: {
     trellis: TApi;
   };
-  createClient(nats: NatsConnection, auth: TrellisAuth, opts?: ClientOpts): Trellis<TApi>;
 };
 
 type WorkloadConnectTransport = {
@@ -44,13 +45,50 @@ export type WorkloadActivationController = {
 };
 
 export type TrellisWorkloadConnectArgs<TApi extends TrellisAPI = TrellisAPI> = {
-  authUrl: string;
+  trellisUrl: string;
   contract: WorkloadContract<TApi>;
   rootSecret: Uint8Array | string;
   onActivationRequired?(activation: WorkloadActivationController): Promise<void>;
 };
 
-type ResolvedWorkloadConnectInfo = Awaited<ReturnType<typeof getWorkloadConnectInfo>>["connectInfo"];
+const WorkloadBootstrapReadySchema = Type.Object({
+  status: Type.Literal("ready"),
+  connectInfo: Type.Object({
+    instanceId: Type.String({ minLength: 1 }),
+    profileId: Type.String({ minLength: 1 }),
+    contractId: Type.String({ minLength: 1 }),
+    contractDigest: Type.String({ minLength: 1 }),
+    transport: Type.Object({
+      natsServers: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
+      sentinel: Type.Object({
+        jwt: Type.String({ minLength: 1 }),
+        seed: Type.String({ minLength: 1 }),
+      }, { additionalProperties: false }),
+    }, { additionalProperties: false }),
+    auth: Type.Object({
+      mode: Type.Literal("workload_identity"),
+      iatSkewSeconds: Type.Integer({ minimum: 1 }),
+    }, { additionalProperties: false }),
+  }, { additionalProperties: false }),
+}, { additionalProperties: false });
+
+const WorkloadBootstrapActivationRequiredSchema = Type.Object({
+  status: Type.Literal("activation_required"),
+}, { additionalProperties: false });
+
+const WorkloadBootstrapNotReadySchema = Type.Object({
+  status: Type.Literal("not_ready"),
+  reason: Type.String({ minLength: 1 }),
+}, { additionalProperties: false });
+
+type WorkloadBootstrapReady = StaticDecode<typeof WorkloadBootstrapReadySchema>;
+type WorkloadBootstrapActivationRequired = StaticDecode<typeof WorkloadBootstrapActivationRequiredSchema>;
+type WorkloadBootstrapNotReady = StaticDecode<typeof WorkloadBootstrapNotReadySchema>;
+type WorkloadBootstrapResponse =
+  | WorkloadBootstrapReady
+  | WorkloadBootstrapActivationRequired
+  | WorkloadBootstrapNotReady;
+type ResolvedWorkloadConnectInfo = WorkloadBootstrapReady["connectInfo"];
 
 function normalizeRootSecret(rootSecret: Uint8Array | string): Uint8Array {
   if (typeof rootSecret === "string") {
@@ -69,34 +107,8 @@ async function signIdentityBytes(identitySeed: Uint8Array, data: Uint8Array): Pr
   return new Uint8Array(await crypto.subtle.sign("Ed25519", privateKey, toArrayBuffer(data)));
 }
 
-async function runtimeImport<TModule>(specifier: string): Promise<TModule> {
-  const load = new Function("specifier", "return import(specifier);") as (
-    specifier: string,
-  ) => Promise<TModule>;
-  return await load(specifier);
-}
-
-export async function loadDefaultTransport(
-  importModule: typeof runtimeImport = runtimeImport,
-): Promise<WorkloadConnectTransport> {
-  if ("Deno" in globalThis) {
-    const mod = await importModule<{ wsconnect: WorkloadConnectTransport["connect"] }>(
-      "@nats-io/nats-core",
-    );
-    return {
-      connect: mod.wsconnect,
-    };
-  }
-  const mod = await runtimeImport<{ connect: WorkloadConnectTransport["connect"] }>(
-    "@nats-io/transport-node",
-  );
-  return {
-    connect: mod.connect,
-  };
-}
-
 const defaultDeps: WorkloadConnectDeps = {
-  loadTransport: loadDefaultTransport,
+  loadTransport: loadDefaultRuntimeTransport,
   now: () => Date.now(),
 };
 
@@ -106,7 +118,37 @@ function activationRequiredError(): Error {
 
 function isConnectInfoUnavailable(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
-  return message.includes("404") || message.includes("unknown_workload");
+  return message.includes("404") || message.includes("unknown_workload") || message.includes("activation_required");
+}
+
+async function fetchWorkloadBootstrap(args: {
+  trellisUrl: string;
+  publicIdentityKey: string;
+  identitySeed: Uint8Array | string;
+  contractDigest: string;
+  iat?: number;
+}): Promise<WorkloadBootstrapResponse> {
+  const request = await signWorkloadWaitRequest({
+    publicIdentityKey: args.publicIdentityKey,
+    nonce: "connect-info",
+    identitySeed: args.identitySeed,
+    contractDigest: args.contractDigest,
+    iat: args.iat,
+  });
+  const response = await fetch(new URL("/bootstrap/workload", args.trellisUrl), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  });
+  if (!response.ok) {
+    throw new Error(`Workload bootstrap failed: ${response.status} ${await response.text()}`);
+  }
+
+  const payload = await response.json();
+  if (Value.Check(WorkloadBootstrapReadySchema, payload)) return payload;
+  if (Value.Check(WorkloadBootstrapActivationRequiredSchema, payload)) return payload;
+  if (Value.Check(WorkloadBootstrapNotReadySchema, payload)) return payload;
+  throw new Error("Workload bootstrap returned an invalid response");
 }
 
 export async function connectWorkloadWithDeps<TApi extends TrellisAPI>(
@@ -120,12 +162,17 @@ export async function connectWorkloadWithDeps<TApi extends TrellisAPI>(
   let connectInfo: ResolvedWorkloadConnectInfo | null = null;
 
   try {
-    connectInfo = (await getWorkloadConnectInfo({
-      trellisUrl: args.authUrl,
+    const bootstrap = await fetchWorkloadBootstrap({
+      trellisUrl: args.trellisUrl,
       publicIdentityKey: identity.publicIdentityKey,
       identitySeed: identity.identitySeed,
       contractDigest,
-    })).connectInfo;
+    });
+    if (bootstrap.status === "ready") {
+      connectInfo = bootstrap.connectInfo;
+    } else if (bootstrap.status === "not_ready") {
+      throw new Error(bootstrap.reason);
+    }
   } catch (error) {
     if (!isConnectInfoUnavailable(error)) throw error;
   }
@@ -140,7 +187,7 @@ export async function connectWorkloadWithDeps<TApi extends TrellisAPI>(
       nonce,
     });
     const activationUrl = buildWorkloadActivationUrl({
-      trellisUrl: args.authUrl,
+      trellisUrl: args.trellisUrl,
       payload,
     });
 
@@ -152,7 +199,7 @@ export async function connectWorkloadWithDeps<TApi extends TrellisAPI>(
       waitForOnlineApproval: async (opts?: { signal?: AbortSignal }) => {
         if (activationCompleted) return;
         const activation = await waitForWorkloadActivation({
-          trellisUrl: args.authUrl,
+          trellisUrl: args.trellisUrl,
           publicIdentityKey: identity.publicIdentityKey,
           nonce,
           identitySeed: identity.identitySeed,
@@ -181,12 +228,24 @@ export async function connectWorkloadWithDeps<TApi extends TrellisAPI>(
       throw new Error("Workload activation did not complete");
     }
 
-    connectInfo = onlineConnectInfo ?? (await getWorkloadConnectInfo({
-      trellisUrl: args.authUrl,
-      publicIdentityKey: identity.publicIdentityKey,
-      identitySeed: identity.identitySeed,
-      contractDigest,
-    })).connectInfo;
+    if (onlineConnectInfo) {
+      connectInfo = onlineConnectInfo;
+    } else {
+      const bootstrap = await fetchWorkloadBootstrap({
+        trellisUrl: args.trellisUrl,
+        publicIdentityKey: identity.publicIdentityKey,
+        identitySeed: identity.identitySeed,
+        contractDigest,
+      });
+      if (bootstrap.status !== "ready") {
+        throw new Error(`Workload bootstrap is not ready: ${bootstrap.status}`);
+      }
+      connectInfo = bootstrap.connectInfo;
+    }
+  }
+
+  if (!connectInfo) {
+    throw new Error("Workload bootstrap did not return runtime connect info");
   }
 
   const transport = await deps.loadTransport();
@@ -207,16 +266,23 @@ export async function connectWorkloadWithDeps<TApi extends TrellisAPI>(
     ),
   });
 
-  return args.contract.createClient(nc, {
-    sessionKey: identity.publicIdentityKey,
-    sign: (data: Uint8Array) => signIdentityBytes(identity.identitySeed, data),
-  });
+  return new Trellis<TApi>(
+    args.contract.CONTRACT_ID,
+    nc,
+    {
+      sessionKey: identity.publicIdentityKey,
+      sign: (data: Uint8Array) => signIdentityBytes(identity.identitySeed, data),
+    },
+    {
+      api: args.contract.API.trellis,
+    },
+  );
 }
 
-export class TrellisWorkload {
-  static connect<TApi extends TrellisAPI>(
+export const TrellisWorkload = {
+  connect<TApi extends TrellisAPI>(
     args: TrellisWorkloadConnectArgs<TApi>,
   ): Promise<Trellis<TApi>> {
-    return connectWorkloadWithDeps(args, defaultDeps);
-  }
-}
+    return connectWorkloadWithDeps<TApi>(args, defaultDeps);
+  },
+};

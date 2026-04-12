@@ -1,7 +1,7 @@
 {
   "extends": "../../deno.json",
   "name": "@qlever-llc/trellis-auth",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "exports": {
     ".": "./mod.ts",
     "./browser": "./browser.ts",

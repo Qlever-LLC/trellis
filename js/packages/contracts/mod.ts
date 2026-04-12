@@ -647,11 +647,11 @@ export type DefineContractInput<
 };
 
 function cloneSchema(schemaValue: TSchema): JsonSchema {
-  const cloned = JSON.parse(JSON.stringify(schemaValue)) as unknown;
+  const cloned = JSON.parse(JSON.stringify(schemaValue));
   if (!isJsonValue(cloned)) {
     throw new Error("Contract schema is not JSON-serializable");
   }
-  return cloned as JsonSchema;
+  return cloned;
 }
 
 function cloneSchemas(

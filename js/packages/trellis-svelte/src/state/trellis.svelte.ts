@@ -1,10 +1,11 @@
 import {
-  createClient,
   defineContract,
   type Trellis,
   type TrellisAPI,
   type TrellisContractV1,
 } from "@qlever-llc/trellis";
+import { TrellisClient } from "../../../trellis/client_connect.ts";
+import { createClient } from "../../../trellis/client.ts";
 import { getPublicSessionKey, signBytes } from "@qlever-llc/trellis/auth";
 import type { AuthState } from "./auth.svelte.ts";
 import type { NatsState } from "./nats.svelte.ts";
@@ -64,6 +65,10 @@ export class TrellisState<TApi extends TrellisAPI = TrellisAPI> {
       },
       { name: clientName },
     );
+    return new TrellisState<TApi>(trellis);
+  }
+
+  static fromTrellis<TApi extends TrellisAPI>(trellis: Trellis<TApi>): TrellisState<TApi> {
     return new TrellisState<TApi>(trellis);
   }
 

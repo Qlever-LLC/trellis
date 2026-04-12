@@ -3,7 +3,8 @@
 JavaScript Trellis client runtime. Provides contract-driven client helpers and runtime error types.
 
 ```typescript
-import { defineContract } from "@qlever-llc/trellis";
+import { TrellisClient } from "@qlever-llc/trellis";
+import { defineContract } from "@qlever-llc/trellis/contracts";
 import { auth } from "@qlever-llc/trellis/sdk/auth";
 
 const app = defineContract({
@@ -16,7 +17,10 @@ const app = defineContract({
   },
 });
 
-const client = app.createClient(nc, authSession, opts);
+const client = await TrellisClient.connect({
+  trellisUrl: "https://trellis.example.com",
+  contract: app,
+});
 const me = await client.requestOrThrow("Auth.Me", {});
 ```
 

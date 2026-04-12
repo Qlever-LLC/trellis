@@ -5,7 +5,7 @@
   import { page } from "$app/state";
   import { APP_CONFIG, buildAppCallbackUrl } from "../../lib/config";
   import { errorMessage } from "../../lib/format";
-  import { app } from "../../lib/trellis";
+  import { auth } from "../../lib/trellis";
 
   let pending = $state(false);
   let ready = $state(false);
@@ -19,8 +19,8 @@
     if (!browser) return;
 
     try {
-      await app.auth.init();
-      if (app.auth.isAuthenticated) {
+      await auth.init();
+      if (auth.isAuthenticated) {
         await goto(targetPath());
         return;
       }
@@ -36,7 +36,7 @@
     authError = null;
 
     try {
-      await app.signIn({
+      await auth.signIn({
         redirectTo: buildAppCallbackUrl(targetPath()),
       });
     } catch (nextError) {

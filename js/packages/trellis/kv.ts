@@ -27,9 +27,9 @@ function externalizeValue(value: unknown): unknown {
 
 function parseExternalValue(schema: TSchema, value: unknown): unknown {
   if (Value.HasCodec(schema)) {
-    return Value.Decode(schema, value) as unknown;
+    return Value.Decode(schema, value);
   }
-  return Value.Parse(schema, value) as unknown;
+  return Value.Parse(schema, value);
 }
 
 function serializeValue(schema: TSchema, value: unknown): string {
@@ -389,12 +389,12 @@ async function createTypedKvEntry<S extends TSchema>(
       }),
     );
   }
-  const json = jsonResult.take() as unknown;
-  const parseResult = Result.try(() => {
+  const json = jsonResult.take();
+  const parseResult = Result.try<unknown>(() => {
     if (Value.HasCodec(schema)) {
-      return Value.Decode(schema, json) as unknown;
+      return Value.Decode(schema, json);
     }
-    return Value.Parse(schema, json) as unknown;
+    return Value.Parse(schema, json);
   });
   if (parseResult.isErr()) {
     const cause = parseResult.error.cause;

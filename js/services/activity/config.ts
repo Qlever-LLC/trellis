@@ -3,11 +3,8 @@ import { Value } from "typebox/value";
 
 export type ActivityConfig = Readonly<{
   serviceName: string;
+  trellisUrl: string;
   sessionKeySeed: string;
-  nats: {
-    servers: string | string[];
-    sentinelCredsPath: string;
-  };
   bootstrap: {
     pollMs: number;
     timeoutMs: number;
@@ -16,14 +13,8 @@ export type ActivityConfig = Readonly<{
 
 const ActivityConfigSchema = Type.Object({
   serviceName: Type.String({ minLength: 1 }),
+  trellisUrl: Type.String({ minLength: 1 }),
   sessionKeySeed: Type.String({ minLength: 1 }),
-  nats: Type.Object({
-    servers: Type.Union([
-      Type.String({ minLength: 1 }),
-      Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
-    ]),
-    sentinelCredsPath: Type.String({ minLength: 1 }),
-  }),
   bootstrap: Type.Object({
     pollMs: Type.Integer({ minimum: 1 }),
     timeoutMs: Type.Integer({ minimum: 1 }),
@@ -36,11 +27,6 @@ function requireEnv(name: string): string {
     throw new Error(`Missing required environment variable: ${name}`);
   }
   return value;
-}
-
-function parseServers(value: string): string | string[] {
-  const items = value.split(",").map((item) => item.trim()).filter(Boolean);
-  return items.length <= 1 ? (items[0] ?? "localhost") : items;
 }
 
 function parseNumberEnv(name: string, fallback: number): number {
@@ -56,11 +42,8 @@ function parseNumberEnv(name: string, fallback: number): number {
 export function getConfig(): ActivityConfig {
   return Value.Parse(ActivityConfigSchema, {
     serviceName: Deno.env.get("ACTIVITY_SERVICE_NAME")?.trim() || "activity",
+    trellisUrl: requireEnv("TRELLIS_URL"),
     sessionKeySeed: requireEnv("ACTIVITY_SESSION_KEY_SEED"),
-    nats: {
-      servers: parseServers(Deno.env.get("NATS_SERVERS")?.trim() || "localhost"),
-      sentinelCredsPath: Deno.env.get("NATS_SENTINEL_CREDS")?.trim() || ".local/nats/sentinel.creds",
-    },
     bootstrap: {
       pollMs: parseNumberEnv("ACTIVITY_BOOTSTRAP_POLL_MS", 4000),
       timeoutMs: parseNumberEnv("ACTIVITY_BOOTSTRAP_TIMEOUT_MS", 15 * 60 * 1000),

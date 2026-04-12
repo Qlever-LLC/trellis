@@ -56,7 +56,7 @@ Deno.test("buildPortalFlowState maps browser flow records to typed states", asyn
       flowId: "flow-1",
       kind: "login" as const,
       sessionKey: "A".repeat(43),
-      contract: { id: "trellis.console@v1", displayName: "Console", description: "Admin", format: "trellis.contract.v1" },
+      contract: { id: "trellis.console@v1", displayName: "Console", description: "Admin", format: "trellis.contract.v1", kind: "app" },
       createdAt: now,
       expiresAt: new Date(now.getTime() + 1_000),
     },
@@ -75,7 +75,7 @@ Deno.test("buildPortalFlowState maps browser flow records to typed states", asyn
       kind: "login" as const,
       sessionKey: "A".repeat(43),
       authToken: "token",
-      contract: { id: "trellis.console@v1", displayName: "Console", description: "Admin", format: "trellis.contract.v1" },
+      contract: { id: "trellis.console@v1", displayName: "Console", description: "Admin", format: "trellis.contract.v1", kind: "app" },
       createdAt: now,
       expiresAt: new Date(now.getTime() + 1_000),
     },
@@ -84,7 +84,7 @@ Deno.test("buildPortalFlowState maps browser flow records to typed states", asyn
     resolution: {
       plan: {
         digest: "digest",
-        contract: { id: "trellis.console@v1", displayName: "Console", description: "Admin", format: "trellis.contract.v1" },
+        contract: { id: "trellis.console@v1", displayName: "Console", description: "Admin", format: "trellis.contract.v1", kind: "app" },
         approval: {
           contractId: "trellis.console@v1",
           contractDigest: "digest",
@@ -115,7 +115,7 @@ Deno.test("buildPortalFlowState maps browser flow records to typed states", asyn
       kind: "login" as const,
       sessionKey: "A".repeat(43),
       authToken: "token",
-      contract: { id: "trellis.console@v1", displayName: "Console", description: "Admin", format: "trellis.contract.v1" },
+      contract: { id: "trellis.console@v1", displayName: "Console", description: "Admin", format: "trellis.contract.v1", kind: "app" },
       createdAt: now,
       expiresAt: new Date(now.getTime() + 1_000),
     },
@@ -125,7 +125,7 @@ Deno.test("buildPortalFlowState maps browser flow records to typed states", asyn
     resolution: {
       plan: {
         digest: "digest",
-        contract: { id: "trellis.console@v1", displayName: "Console", description: "Admin", format: "trellis.contract.v1" },
+        contract: { id: "trellis.console@v1", displayName: "Console", description: "Admin", format: "trellis.contract.v1", kind: "app" },
         approval: {
           contractId: "trellis.console@v1",
           contractDigest: "digest",
@@ -175,7 +175,7 @@ Deno.test("buildPortalFlowState maps browser flow records to typed states", asyn
       kind: "login" as const,
       sessionKey: "A".repeat(43),
       authToken: "token",
-      contract: { id: "trellis.console@v1", displayName: "Console", description: "Admin", format: "trellis.contract.v1" },
+      contract: { id: "trellis.console@v1", displayName: "Console", description: "Admin", format: "trellis.contract.v1", kind: "app" },
       createdAt: now,
       expiresAt: new Date(now.getTime() + 1_000),
     },
@@ -185,7 +185,7 @@ Deno.test("buildPortalFlowState maps browser flow records to typed states", asyn
     resolution: {
       plan: {
         digest: "digest",
-        contract: { id: "trellis.console@v1", displayName: "Console", description: "Admin", format: "trellis.contract.v1" },
+        contract: { id: "trellis.console@v1", displayName: "Console", description: "Admin", format: "trellis.contract.v1", kind: "app" },
         approval: {
           contractId: "trellis.console@v1",
           contractDigest: "digest",
@@ -219,7 +219,7 @@ Deno.test("buildPortalFlowState maps browser flow records to typed states", asyn
       kind: "login" as const,
       sessionKey: "A".repeat(43),
       authToken: "token",
-      contract: { id: "trellis.console@v1", displayName: "Console", description: "Admin", format: "trellis.contract.v1" },
+      contract: { id: "trellis.console@v1", displayName: "Console", description: "Admin", format: "trellis.contract.v1", kind: "app" },
       createdAt: now,
       expiresAt: new Date(now.getTime() + 1_000),
     },
@@ -228,7 +228,7 @@ Deno.test("buildPortalFlowState maps browser flow records to typed states", asyn
     resolution: {
       plan: {
         digest: "digest",
-        contract: { id: "trellis.console@v1", displayName: "Console", description: "Admin", format: "trellis.contract.v1" },
+        contract: { id: "trellis.console@v1", displayName: "Console", description: "Admin", format: "trellis.contract.v1", kind: "app" },
         approval: {
           contractId: "trellis.console@v1",
           contractDigest: "digest",
@@ -275,7 +275,7 @@ Deno.test("buildPortalFlowState maps browser flow records to typed states", asyn
       flowId: "flow-6",
       kind: "login" as const,
       sessionKey: "A".repeat(43),
-      contract: { id: "trellis.console@v1", displayName: "Console", description: "Admin", format: "trellis.contract.v1" },
+      contract: { id: "trellis.console@v1", displayName: "Console", description: "Admin", format: "trellis.contract.v1", kind: "app" },
       createdAt: new Date(now.getTime() - 2_000),
       expiresAt: new Date(now.getTime() - 1_000),
     },
@@ -292,7 +292,7 @@ Deno.test("applyApprovalDecision returns a denied portal state immediately", asy
     resolution: {
       plan: {
         digest: "digest",
-        contract: { id: "trellis.console@v1", displayName: "Console", description: "Admin", format: "trellis.contract.v1" },
+        contract: { id: "trellis.console@v1", displayName: "Console", description: "Admin", format: "trellis.contract.v1", kind: "app" },
         approval: {
           contractId: "trellis.console@v1",
           contractDigest: "digest",
@@ -324,7 +324,7 @@ Deno.test("applyApprovalDecision returns a denied portal state immediately", asy
       kind: "login",
       sessionKey: "A".repeat(43),
       authToken: "token",
-      contract: { id: "trellis.console@v1", displayName: "Console", description: "Admin", format: "trellis.contract.v1" },
+      contract: { id: "trellis.console@v1", displayName: "Console", description: "Admin", format: "trellis.contract.v1", kind: "app" },
       createdAt: now,
       expiresAt: new Date(now.getTime() + 1_000),
     },
@@ -357,7 +357,8 @@ Deno.test("getApprovalResolution uses injected loaders", async () => {
       id: "trellis.console@v1",
       displayName: "Console",
       description: "Admin",
-        subjects: {
+      kind: "app",
+      subjects: {
         audit: {
           subject: "trellis.console.audit",
           capabilities: {

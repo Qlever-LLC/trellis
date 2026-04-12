@@ -1,24 +1,33 @@
-import type { BoundTrellisApp } from "./context.svelte.ts";
-import type { BaseError, Result } from "@qlever-llc/result";
-import type { ActivityListOutput } from "@qlever-llc/trellis/sdk/activity";
-import type { AuthMeOutput } from "@qlever-llc/trellis/sdk/auth";
+import type { TrellisAPI } from "@qlever-llc/trellis";
+import { createAuthState, getTrellis } from "./index.ts";
 
-type DemoContract = typeof import("../../../apps/activity/contracts/activity_app.ts").activityApp;
+const auth = createAuthState({
+  authUrl: "http://localhost:4000",
+  contract: {
+    CONTRACT: {
+      format: "trellis.contract.v1",
+      id: "trellis.svelte.test@v1",
+      displayName: "Trellis Svelte Test",
+      description: "Type test contract",
+      kind: "app",
+    },
+    CONTRACT_DIGEST: "digest",
+    API: {
+      trellis: {
+        rpc: {},
+        operations: {},
+        events: {},
+        subjects: {},
+      } satisfies TrellisAPI,
+    },
+  },
+  loginPath: "/login",
+});
 
-declare const app: BoundTrellisApp<DemoContract>;
-
-const authUrl: string | null = app.auth.authUrl;
-const signInResult: Promise<never> = app.signIn({ authUrl: "http://localhost:4000", landingPath: "/dashboard" });
-const typedTrellis = app.getTrellis();
-const typedRequest: Promise<Result<ActivityListOutput, BaseError>> = typedTrellis.then((trellis) =>
-  trellis.request("Activity.List", {})
-);
-const typedRequestOrThrow: Promise<AuthMeOutput> = typedTrellis.then((trellis) =>
-  trellis.requestOrThrow("Auth.Me", {})
-);
+const authUrl: string | null = auth.authUrl;
+const signInResult: Promise<never> = auth.signIn({ authUrl: "http://localhost:4000", landingPath: "/dashboard" });
+const typedTrellis: Promise<unknown> = getTrellis();
 
 void authUrl;
 void signInResult;
 void typedTrellis;
-void typedRequest;
-void typedRequestOrThrow;

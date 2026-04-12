@@ -16,7 +16,7 @@
 
   async function listApprovals(user?: string) {
     const trellis = await trellisPromise;
-    return trellis.requestOrThrow("Auth.ListApprovals", { user });
+    return await trellis.requestOrThrow("Auth.ListApprovals", { user });
   }
 
   async function revokeApproval(contractDigest: string, user: string) {

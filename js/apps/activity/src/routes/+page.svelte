@@ -2,12 +2,12 @@
   import { onMount } from "svelte";
   import { browser } from "$app/environment";
   import { goto } from "$app/navigation";
-  import { app } from "../lib/trellis";
+  import { auth } from "../lib/trellis";
 
   onMount(async () => {
     if (!browser) return;
-    await app.auth.init();
-    if (app.auth.isAuthenticated) {
+    await auth.init();
+    if (auth.isAuthenticated) {
       await goto("/activity");
       return;
     }

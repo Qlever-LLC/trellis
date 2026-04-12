@@ -1,4 +1,7 @@
-import type { NatsConnection } from "@nats-io/nats-core";
+import {
+  jwtAuthenticator,
+  type NatsConnection,
+} from "@nats-io/nats-core";
 import {
   type KVError,
   type OperationRegistration,
@@ -11,11 +14,21 @@ import {
   type TrellisCatalogOutput,
 } from "@qlever-llc/trellis/sdk/core";
 import { TrellisServer, type TrellisServerFor } from "@qlever-llc/trellis/server/runtime";
-import { createAuth, type TrellisAuth as SessionAuth } from "@qlever-llc/trellis/auth";
-import type { InferSchemaType, TrellisAPI } from "@qlever-llc/trellis/contracts";
+import {
+  createAuth,
+  type SentinelCreds,
+  SentinelCredsSchema,
+  type TrellisAuth as SessionAuth,
+} from "@qlever-llc/trellis/auth";
+import {
+  ContractResourceBindingsSchema,
+  type InferSchemaType,
+} from "@qlever-llc/trellis/contracts";
+import type { TrellisAPI } from "@qlever-llc/trellis/contracts";
 import { isErr, type Result } from "@qlever-llc/result";
 import type { Logger } from "pino";
-import type { TSchema } from "typebox";
+import { Type, type TSchema } from "typebox";
+import { Value } from "typebox/value";
 import type { HealthCheckFn } from "./health.ts";
 import { mountStandardHealthRpc } from "./health_rpc.ts";
 import type { RPCDesc } from "@qlever-llc/trellis/contracts";
@@ -33,6 +46,30 @@ type ExtraNatsConnectOpts = Omit<
   NatsConnectOpts,
   "servers" | "token" | "inboxPrefix" | "authenticator"
 >;
+
+type ServiceBootstrapConnectInfo = {
+  sessionKey: string;
+  contractId: string;
+  contractDigest: string;
+  transport: {
+    natsServers: string[];
+    sentinel: SentinelCreds;
+  };
+  auth: {
+    mode: "service_identity";
+    iatSkewSeconds: number;
+  };
+};
+
+type ServiceBootstrapResponse = {
+  status: "ready";
+  connectInfo: ServiceBootstrapConnectInfo;
+  binding: {
+    contractId: string;
+    digest: string;
+    resources: ResourceBindings;
+  };
+};
 
 type RpcMethodName<TA extends TrellisAPI> = keyof TA["rpc"] & string;
 type RpcMethodInput<TA extends TrellisAPI, M extends RpcMethodName<TA>> = InferSchemaType<TA["rpc"][M]["input"]>;
@@ -102,6 +139,83 @@ function bootstrapContractStateError(args: {
   return new Error(base + cause);
 }
 
+function runtimeImport<TModule>(specifier: string): Promise<TModule> {
+  const load = new Function("specifier", "return import(specifier);") as (
+    specifier: string,
+  ) => Promise<TModule>;
+  return load(specifier);
+}
+
+async function loadDefaultServiceRuntimeDeps(): Promise<TrellisServiceRuntimeDeps> {
+  if ("Deno" in globalThis) {
+    const mod = await runtimeImport<{ connect: TrellisServiceRuntimeDeps["connect"] }>(
+      "@nats-io/transport-deno",
+    );
+    return { connect: mod.connect };
+  }
+
+  const mod = await runtimeImport<{ connect: TrellisServiceRuntimeDeps["connect"] }>(
+    "@nats-io/transport-node",
+  );
+  return { connect: mod.connect };
+}
+
+const ServiceBootstrapReadySchema = Type.Object({
+  status: Type.Literal("ready"),
+  connectInfo: Type.Object({
+    sessionKey: Type.String({ minLength: 1 }),
+    contractId: Type.String({ minLength: 1 }),
+    contractDigest: Type.String({ minLength: 1 }),
+    transport: Type.Object({
+      natsServers: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
+      sentinel: SentinelCredsSchema,
+    }, { additionalProperties: false }),
+    auth: Type.Object({
+      mode: Type.Literal("service_identity"),
+      iatSkewSeconds: Type.Integer({ minimum: 1 }),
+    }, { additionalProperties: false }),
+  }, { additionalProperties: false }),
+  binding: Type.Object({
+    contractId: Type.String({ minLength: 1 }),
+    digest: Type.String({ minLength: 1 }),
+    resources: ContractResourceBindingsSchema,
+  }, { additionalProperties: false }),
+}, { additionalProperties: true });
+
+const ServiceBootstrapFailureSchema = Type.Object({
+  reason: Type.String({ minLength: 1 }),
+}, { additionalProperties: true });
+
+async function fetchServiceBootstrapInfo(args: {
+  trellisUrl: string;
+  contractId: string;
+  contractDigest: string;
+  auth: SessionAuth;
+}): Promise<ServiceBootstrapResponse> {
+  const iat = Math.floor(Date.now() / 1_000);
+  const response = await fetch(new URL("/bootstrap/service", args.trellisUrl), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sessionKey: args.auth.sessionKey,
+      contractId: args.contractId,
+      contractDigest: args.contractDigest,
+      iat,
+      sig: await args.auth.natsConnectSigForIat(iat),
+    }),
+  });
+
+  const payload = await response.json();
+  if (!response.ok) {
+    if (Value.Check(ServiceBootstrapFailureSchema, payload)) {
+      throw new Error(`Service bootstrap failed: ${payload.reason}`);
+    }
+    throw new Error(`Service bootstrap failed with HTTP ${response.status}`);
+  }
+
+  return Value.Parse(ServiceBootstrapReadySchema, payload) as ServiceBootstrapResponse;
+}
+
 export class KVHandle {
   readonly binding: ResourceBindingKV;
   readonly #nc: NatsConnection;
@@ -121,7 +235,7 @@ export class KVHandle {
   }
 }
 
-export type TrellisServiceConnectOpts<
+type TrellisServiceRuntimeConnectOpts<
   TOwnedApi extends TrellisAPI = TrellisAPI,
   TTrellisApi extends TrellisAPI = TOwnedApi,
 > = {
@@ -167,6 +281,17 @@ export type TrellisServiceConnectOpts<
   server: TrellisServerCreateOpts<TOwnedApi, TTrellisApi>;
 };
 
+export type TrellisServiceConnectOpts<
+  TOwnedApi extends TrellisAPI = TrellisAPI,
+  TTrellisApi extends TrellisAPI = TOwnedApi,
+> = {
+  trellisUrl: string;
+  contract: ServiceContract<TOwnedApi, TTrellisApi>;
+  name: string;
+  sessionKeySeed: string;
+  server?: Omit<TrellisServerCreateOpts<TOwnedApi, TTrellisApi>, "api" | "trellisApi">;
+};
+
 export type ServiceTrellis<
   TOwnedApi extends TrellisAPI,
   TTrellisApi extends TrellisAPI,
@@ -190,6 +315,63 @@ export type ServiceContract<
   };
 };
 
+async function createConnectedService<
+  TOwnedApi extends TrellisAPI,
+  TTrellisApi extends TrellisAPI,
+>(args: {
+  name: string;
+  auth: SessionAuth;
+  nc: NatsConnection;
+  server: TrellisServerCreateOpts<TOwnedApi, TTrellisApi>;
+  bindings: ResourceBindings;
+}): Promise<TrellisService<TOwnedApi, TTrellisApi>> {
+  const runtimeApi = (args.server.trellisApi ?? args.server.api) as TOwnedApi & TTrellisApi;
+
+  const server = TrellisServer.create(
+    args.name,
+    args.nc,
+    { sessionKey: args.auth.sessionKey, sign: args.auth.sign },
+    {
+      log: args.server.log,
+      timeout: args.server.timeout,
+      stream: args.server.stream,
+      noResponderRetry: args.server.noResponderRetry,
+      api: runtimeApi,
+      version: args.server.version,
+    },
+  );
+
+  const outbound = new Trellis<TTrellisApi>(
+    args.name,
+    args.nc,
+    { sessionKey: args.auth.sessionKey, sign: args.auth.sign },
+    {
+      log: args.server.log,
+      timeout: args.server.timeout,
+      stream: args.server.stream,
+      noResponderRetry: args.server.noResponderRetry,
+      api: runtimeApi,
+    },
+  );
+
+  const trellis: ServiceTrellis<TOwnedApi, TTrellisApi> = Object.assign(outbound, {
+    mount: server.mount.bind(server),
+  });
+
+  await mountStandardHealthRpc(server, {
+    checks: args.server.healthChecks,
+  });
+
+  return new TrellisService<TOwnedApi, TTrellisApi>(
+    args.name,
+    args.auth,
+    args.nc,
+    server,
+    trellis,
+    args.bindings,
+  );
+}
+
 export class TrellisService<
   TOwnedApi extends TrellisAPI = TrellisAPI,
   TTrellisApi extends TrellisAPI = TOwnedApi,
@@ -204,7 +386,7 @@ export class TrellisService<
   readonly streams: Record<string, ResourceBindingStream>;
   readonly jobs?: ResourceBindingJobs;
 
-  private constructor(
+  constructor(
     name: string,
     auth: SessionAuth,
     nc: NatsConnection,
@@ -229,8 +411,50 @@ export class TrellisService<
     TOwnedApi extends TrellisAPI = TrellisAPI,
     TTrellisApi extends TrellisAPI = TOwnedApi,
   >(
+    args: TrellisServiceConnectOpts<TOwnedApi, TTrellisApi>,
+    deps?: Partial<TrellisServiceRuntimeDeps>,
+  ): Promise<TrellisService<TOwnedApi, TTrellisApi>> {
+    const runtimeDeps = {
+      ...(await loadDefaultServiceRuntimeDeps()),
+      ...deps,
+    } satisfies TrellisServiceRuntimeDeps;
+    const auth = await createAuth({ sessionKeySeed: args.sessionKeySeed });
+    const bootstrap = await fetchServiceBootstrapInfo({
+      trellisUrl: args.trellisUrl,
+      contractId: args.contract.CONTRACT_ID,
+      contractDigest: args.contract.CONTRACT_DIGEST,
+      auth,
+    });
+    const { token, inboxPrefix } = await auth.natsConnectOptions();
+    const nc = await runtimeDeps.connect({
+      servers: bootstrap.connectInfo.transport.natsServers,
+      token,
+      inboxPrefix,
+      authenticator: jwtAuthenticator(
+        bootstrap.connectInfo.transport.sentinel.jwt,
+        new TextEncoder().encode(bootstrap.connectInfo.transport.sentinel.seed),
+      ),
+    });
+
+    return await createConnectedService<TOwnedApi, TTrellisApi>({
+      name: args.name,
+      auth,
+      nc,
+      server: {
+        ...(args.server ?? {}),
+        api: args.contract.API.owned,
+        trellisApi: args.contract.API.trellis,
+      },
+      bindings: bootstrap.binding.resources,
+    });
+  }
+
+  static async connectInternal<
+    TOwnedApi extends TrellisAPI = TrellisAPI,
+    TTrellisApi extends TrellisAPI = TOwnedApi,
+  >(
     name: string,
-    opts: TrellisServiceConnectOpts<TOwnedApi, TTrellisApi> & {
+    opts: TrellisServiceRuntimeConnectOpts<TOwnedApi, TTrellisApi> & {
       contractId?: string;
       contractDigest?: string;
     },
@@ -283,46 +507,27 @@ export class TrellisService<
       ...(opts.nats.options ?? {}),
     } as NatsConnectOpts);
 
-    const runtimeApi = (opts.server.trellisApi ?? opts.server.api) as TOwnedApi & TTrellisApi;
-
-    const server = TrellisServer.create(
-      name,
-      nc,
-      { sessionKey: auth.sessionKey, sign: auth.sign },
-      {
-        log: opts.server.log,
-        timeout: opts.server.timeout,
-        stream: opts.server.stream,
-        noResponderRetry: opts.server.noResponderRetry,
-        api: runtimeApi,
-        version: opts.server.version,
-      },
-    );
-
-    const outbound = new Trellis<TTrellisApi>(
-      name,
-      nc,
-      { sessionKey: auth.sessionKey, sign: auth.sign },
-      {
-        log: opts.server.log,
-        timeout: opts.server.timeout,
-        stream: opts.server.stream,
-        noResponderRetry: opts.server.noResponderRetry,
-        api: runtimeApi,
-      },
-    );
-
-    const trellis: ServiceTrellis<TOwnedApi, TTrellisApi> = Object.assign(outbound, {
-      mount: server.mount.bind(server),
-    });
-
-    await mountStandardHealthRpc(server, {
-      checks: opts.server.healthChecks,
-    });
-
     let bindings: ResourceBindings = { kv: {}, streams: {} };
 
     if (opts.contractId && opts.contractDigest) {
+      const runtimeApi = (opts.server.trellisApi ?? opts.server.api) as TOwnedApi & TTrellisApi;
+      const outbound = new Trellis<TTrellisApi>(
+        name,
+        nc,
+        { sessionKey: auth.sessionKey, sign: auth.sign },
+        {
+          log: opts.server.log,
+          timeout: opts.server.timeout,
+          stream: opts.server.stream,
+          noResponderRetry: opts.server.noResponderRetry,
+          api: runtimeApi,
+        },
+      );
+      const trellis: ServiceTrellis<TOwnedApi, TTrellisApi> = Object.assign(outbound, {
+        mount: () => {
+          throw new Error("mount is unavailable during internal bootstrap probing");
+        },
+      });
       const bootstrapRequest = trellis.request.bind(trellis) as Pick<Trellis<BootstrapTrellisApi>, "request">["request"];
       const catalogResult = await bootstrapRequest("Trellis.Catalog", {});
       const catalogValue = catalogResult.take();
@@ -386,14 +591,13 @@ export class TrellisService<
       };
     }
 
-    return new TrellisService<TOwnedApi, TTrellisApi>(
+    return await createConnectedService<TOwnedApi, TTrellisApi>({
       name,
       auth,
       nc,
-      server,
-      trellis,
+      server: opts.server,
       bindings,
-    );
+    });
   }
 
   async stop(): Promise<void> {
@@ -435,36 +639,4 @@ export class TrellisService<
       InferSchemaType<(TOwnedApi & TTrellisApi)["operations"][O]["input"]>
     >;
   }
-}
-
-export function connectService<
-  TOwnedApi extends TrellisAPI,
-  TTrellisApi extends TrellisAPI,
->(
-  contract: ServiceContract<TOwnedApi, TTrellisApi>,
-  name: string,
-  opts: Omit<TrellisServiceConnectOpts<TOwnedApi, TTrellisApi>, "server"> & {
-    server: Omit<
-      TrellisServiceConnectOpts<TOwnedApi, TTrellisApi>["server"],
-      "api" | "trellisApi"
-    >;
-  },
-  deps: TrellisServiceRuntimeDeps,
-): Promise<TrellisService<TOwnedApi, TTrellisApi>> {
-  const connectOpts = {
-    ...opts,
-    contractId: contract.CONTRACT_ID,
-    contractDigest: contract.CONTRACT_DIGEST,
-    server: {
-      ...opts.server,
-      api: contract.API.owned,
-      trellisApi: contract.API.trellis,
-    },
-  };
-
-  return TrellisService.connect<TOwnedApi, TTrellisApi>(
-    name,
-    connectOpts,
-    deps,
-  );
 }

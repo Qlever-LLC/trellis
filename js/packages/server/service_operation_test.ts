@@ -1,9 +1,10 @@
 import { connect } from "@nats-io/transport-deno";
 import type { ConnectionOptions } from "@nats-io/transport-deno";
-import { createClient, isErr, ok } from "@qlever-llc/trellis";
+import { isErr, ok } from "@qlever-llc/trellis";
 import type { InferSchemaType } from "@qlever-llc/trellis/contracts";
 import { assertEquals, assertExists } from "@std/assert";
 import { Type } from "typebox";
+import { createClient } from "../trellis/client.ts";
 import { defineContract } from "../trellis/contract.ts";
 import { NatsTest } from "../trellis/testing/nats.ts";
 import type { NatsConnectFn, NatsConnectOpts } from "./runtime.ts";
@@ -74,59 +75,88 @@ Deno.test({
     await using nats = await NatsTest.start();
     const info = nats.nc.info!;
     const seed = base64urlEncode(crypto.getRandomValues(new Uint8Array(32)));
+    const originalFetch = globalThis.fetch;
 
-    const service = await TrellisService.connect("billing-service", {
-      sessionKeySeed: seed,
-      nats: {
+    try {
+      globalThis.fetch = (() => {
+        return Promise.resolve(new Response(JSON.stringify({
+          status: "ready",
+          connectInfo: {
+            sessionKey: "session-key",
+            contractId: billing.CONTRACT_ID,
+            contractDigest: billing.CONTRACT_DIGEST,
+            transport: {
+              natsServers: [`localhost:${info.port}`],
+              sentinel: { jwt: "jwt", seed: "seed" },
+            },
+            auth: {
+              mode: "service_identity",
+              iatSkewSeconds: 30,
+            },
+          },
+          binding: {
+            contractId: billing.CONTRACT_ID,
+            digest: billing.CONTRACT_DIGEST,
+            resources: {
+              kv: {},
+              streams: {},
+            },
+          },
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }));
+      }) as typeof fetch;
+
+      const service = await TrellisService.connect({
+        trellisUrl: "https://trellis.example.com",
+        contract: billing,
+        name: "billing-service",
+        sessionKeySeed: seed,
+        server: {},
+      }, { connect: natsConnect });
+
+      assertEquals(typeof service.operation, "function");
+
+      const clientNc = await connect({
         servers: `localhost:${info.port}`,
-        authenticator: (_nonce?: string) => undefined,
-      },
-      server: {
-        api: billing.API.owned,
-        trellisApi: billing.API.trellis,
-      },
-    }, {
-      connect: natsConnect,
-    });
+        inboxPrefix: `_INBOX.${service.auth.sessionKey.slice(0, 16)}`,
+      });
+      const clientAuth = {
+        sessionKey: service.auth.sessionKey,
+        sign: service.auth.sign,
+      };
+      const client = createClient(billing, clientNc, clientAuth, { name: "billing-client" });
 
-    assertEquals(typeof service.operation, "function");
+      await service.operation("Billing.Refund").handle(async (
+        { input, op }: RefundOperationContext,
+      ) => {
+        assertEquals(input.chargeId, "ch_123");
+        await op.started();
+        await op.progress({ message: "working" });
+        return ok({ refundId: "rf_123" });
+      });
 
-    const clientNc = await connect({
-      servers: `localhost:${info.port}`,
-      inboxPrefix: `_INBOX.${service.auth.sessionKey.slice(0, 16)}`,
-    });
-    const clientAuth = {
-      sessionKey: service.auth.sessionKey,
-      sign: service.auth.sign,
-    };
-    const client = createClient(billing, clientNc, clientAuth, { name: "billing-client" });
+      const started = await client.operation("Billing.Refund").start({
+        chargeId: "ch_123",
+      });
+      const startedValue = started.take();
+      if (isErr(startedValue)) {
+        throw startedValue.error;
+      }
+      const ref = startedValue as {
+        wait: () => Promise<{ take: () => { state: string; output?: { refundId: string } } }>;
+      };
+      assertExists(ref);
 
-    await service.operation("Billing.Refund").handle(async (
-      { input, op }: RefundOperationContext,
-    ) => {
-      assertEquals(input.chargeId, "ch_123");
-      await op.started();
-      await op.progress({ message: "working" });
-      return ok({ refundId: "rf_123" });
-    });
+      const terminal = (await ref.wait()).take();
+      assertEquals(terminal.state, "completed");
+      assertEquals(terminal.output?.refundId, "rf_123");
 
-    const started = await client.operation("Billing.Refund").start({
-      chargeId: "ch_123",
-    });
-    const startedValue = started.take();
-    if (isErr(startedValue)) {
-      throw startedValue.error;
+      await clientNc.drain();
+      await service.stop();
+    } finally {
+      globalThis.fetch = originalFetch;
     }
-    const ref = startedValue as {
-      wait: () => Promise<{ take: () => { state: string; output?: { refundId: string } } }>;
-    };
-    assertExists(ref);
-
-    const terminal = (await ref.wait()).take();
-    assertEquals(terminal.state, "completed");
-    assertEquals(terminal.output?.refundId, "rf_123");
-
-    await clientNc.drain();
-    await service.stop();
   },
 });

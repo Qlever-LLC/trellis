@@ -61,12 +61,12 @@ back to lower-level escape hatches.
 
 The preferred contract authoring API is exposed from `@qlever-llc/trellis/contracts` so contract-source modules can stay independent from runtime bootstrap concerns.
 
-`@qlever-llc/trellis` remains the canonical runtime package for free-function `createClient(...)`, auth helpers, `Result`, and explicit helpers such as `createCoreClient(...)`.
+`@qlever-llc/trellis` remains the canonical runtime package for connection helpers such as `TrellisClient.connect(...)`, auth helpers, `Result`, and explicit helpers such as `createCoreClient(...)`.
 
 Rules:
 
 - `@qlever-llc/trellis/contracts` is the preferred package for contract authoring and broader contract-model helpers, and its `defineContract(...)` return value remains usable as a runtime contract object
-- `@qlever-llc/trellis` is the canonical package for free-function runtime client helpers
+- `@qlever-llc/trellis` is the canonical package for runtime client connection helpers
 - `@qlever-llc/trellis/server/node` and `@qlever-llc/trellis/server/deno` consume contract objects for service runtime helpers
 
 ### 3) SDK-driven `uses`
@@ -152,11 +152,23 @@ TypeScript runtime helpers consume contract objects directly.
 Examples:
 
 ```ts
+import { TrellisClient } from "@qlever-llc/trellis";
+import { TrellisService } from "@qlever-llc/trellis/server/deno";
+
 const app = defineContract({ ... });
-const client = createClient(app, nc, auth);
+const client = await TrellisClient.connect({
+  trellisUrl: "https://trellis.example.com",
+  contract: app,
+});
 
 const serviceContract = defineContract({ ... });
-const service = await connectService(serviceContract, "activity", opts);
+const service = await TrellisService.connect({
+  trellisUrl: "https://trellis.example.com",
+  contract: serviceContract,
+  name: "activity",
+  sessionKeySeed,
+  server: {},
+});
 ```
 
 Rules:
@@ -187,13 +199,13 @@ The exact TypeScript public signatures, contract-module types, and runtime helpe
 This document only constrains the architectural direction behind that API:
 
 - `defineContract(...)` remains the one supported public authoring entrypoint
-- `@qlever-llc/trellis/contracts` exposes the preferred contract authoring helpers used by apps and services, while still returning contract objects that support `contract.createClient(...)`
-- `@qlever-llc/trellis` remains the runtime package for free-function client creation and auth helpers
+- `@qlever-llc/trellis/contracts` exposes the preferred contract authoring helpers used by apps and services while returning contract objects with projected API views and manifest metadata
+- `@qlever-llc/trellis` remains the runtime package for `TrellisClient.connect(...)`, auth helpers, and lower-level client creation helpers
 - runtime connection helpers live in `@qlever-llc/trellis` and `@qlever-llc/trellis/server*`
 - locally defined contracts and generated SDK modules share one compatible contract-module shape
 - `uses` declarations remain SDK-backed and contract-driven rather than handwritten dependency objects in normal usage
 - the participant runtime surface remains derived from `API.owned`, `API.used`, and `API.trellis`
-- contract-bound helpers such as `contract.createClient(...)` remain part of the ergonomic surface; free-function wrappers such as `createClient(contract, ...)` and `connectService(contract, ...)` may exist as conveniences around the same API
+- public documentation should lead with `TrellisClient.connect(...)`, `TrellisService.connect(...)`, and `TrellisWorkload.connect(...)`
 - emitted manifests remain canonical `trellis.contract.v1` artifacts; this design does not create a parallel manifest format
 - generated SDK outputs still need the richer contract module shape with `CONTRACT`, `CONTRACT_ID`, `CONTRACT_DIGEST`, projected API views, and typed `use(...)` helpers
 

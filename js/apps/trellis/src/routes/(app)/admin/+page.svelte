@@ -21,17 +21,17 @@
 
   async function listSessions() {
     const trellis = await trellisPromise;
-    return trellis.requestOrThrow("Auth.ListSessions", {});
+    return await trellis.requestOrThrow("Auth.ListSessions", {});
   }
 
   async function listConnections() {
     const trellis = await trellisPromise;
-    return trellis.requestOrThrow("Auth.ListConnections", {});
+    return await trellis.requestOrThrow("Auth.ListConnections", {});
   }
 
   async function listServices() {
     const trellis = await trellisPromise;
-    return trellis.requestOrThrow("Auth.ListServices", {});
+    return await trellis.requestOrThrow("Auth.ListServices", {});
   }
 
   async function load() {

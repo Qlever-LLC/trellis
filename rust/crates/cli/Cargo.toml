@@ -16,11 +16,11 @@ serde.workspace = true
 serde_json.workspace = true
 json5 = "0.4.1"
 tokio.workspace = true
-trellis-client = { path = "../client", version = "0.6.1" }
-trellis-auth = { path = "../auth", version = "0.6.1" }
-trellis-codegen-rust = { path = "../codegen-rust", version = "0.6.1" }
-trellis-codegen-ts = { path = "../codegen-ts", version = "0.6.1" }
-trellis-contracts = { path = "../contracts", version = "0.6.1" }
+trellis-client = { path = "../client", version = "0.7.0" }
+trellis-auth = { path = "../auth", version = "0.7.0" }
+trellis-codegen-rust = { path = "../codegen-rust", version = "0.7.0" }
+trellis-codegen-ts = { path = "../codegen-ts", version = "0.7.0" }
+trellis-contracts = { path = "../contracts", version = "0.7.0" }
 tracing.workspace = true
 tracing-subscriber.workspace = true
 miette.workspace = true
@@ -36,5 +36,5 @@ name = "trellis"
 path = "src/main.rs"
 
 [dev-dependencies]
-trellis-sdk-auth = { path = "../../../generated/rust/sdks/auth", version = "0.6.1" }
-trellis-sdk-core = { path = "../../../generated/rust/sdks/trellis-core", version = "0.6.1", package = "trellis-sdk-core" }
+trellis-sdk-auth = { path = "../../../generated/rust/sdks/auth", version = "0.7.0" }
+trellis-sdk-core = { path = "../../../generated/rust/sdks/trellis-core", version = "0.7.0", package = "trellis-sdk-core" }

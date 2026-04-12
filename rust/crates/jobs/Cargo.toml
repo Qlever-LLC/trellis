@@ -14,6 +14,6 @@ serde_json.workspace = true
 thiserror.workspace = true
 time.workspace = true
 tokio.workspace = true
-trellis-sdk-core = { path = "../../../generated/rust/sdks/trellis-core", version = "0.6.1" }
+trellis-sdk-core = { path = "../../../generated/rust/sdks/trellis-core", version = "0.7.0" }
 
 [dev-dependencies]

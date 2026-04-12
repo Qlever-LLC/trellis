@@ -113,8 +113,9 @@ Deno.test("OperationInvoker.start() posts input to the operation subject and ret
 
 Deno.test("OperationInvoker.start type surface stays specific", () => {
   type Started = ReturnType<OperationInvoker<typeof refundOperation>["start"]>;
+  let started!: Started;
   const typed: Promise<Result<OperationRef<typeof refundOperation>, UnexpectedError>> =
-    null as unknown as Started;
+    started;
   assertEquals(true, true);
 });
 

@@ -1,7 +1,7 @@
 {
   "extends": "../../deno.json",
   "name": "@qlever-llc/trellis-service-trellis",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "exports": "./main.ts",
   "tasks": {
     "dev": "deno task prepare && deno task -c ../../portals/login/deno.json build:static && deno run --env --allow-env --allow-sys --allow-read --allow-net --allow-ffi --watch main.ts",

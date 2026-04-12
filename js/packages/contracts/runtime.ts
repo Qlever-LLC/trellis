@@ -21,7 +21,7 @@ export function unwrapSchema(raw: SchemaLike): unknown {
   if (raw && typeof raw === "object" && "schema" in raw) {
     return (raw as Schema<unknown>).schema;
   }
-  return raw as unknown;
+  return raw;
 }
 
 export type RPCDesc<

@@ -3,8 +3,6 @@ import { Type } from "typebox";
 
 import {
   buildLoginUrl,
-  createClient,
-  createCoreClient,
   defineContract,
   err,
   fetchPortalFlowState,
@@ -17,13 +15,12 @@ import {
   Result,
   schema,
   submitPortalApproval,
+  TrellisClient,
   TrellisWorkload,
 } from "../index.ts";
 import * as trellis from "../index.ts";
 
 Deno.test("root public API includes core runtime, contracts, result, and common auth helpers", () => {
-  assertEquals(typeof createClient, "function");
-  assertEquals(typeof createCoreClient, "function");
   assertEquals(typeof defineContract, "function");
   assertEquals(typeof schema, "function");
   assertEquals(typeof buildLoginUrl, "function");
@@ -32,6 +29,7 @@ Deno.test("root public API includes core runtime, contracts, result, and common 
   assertEquals(typeof portalProviderLoginUrl, "function");
   assertEquals(typeof submitPortalApproval, "function");
   assertEquals(typeof portalRedirectLocation, "function");
+  assertEquals(typeof TrellisClient.connect, "function");
   assertEquals(typeof TrellisWorkload.connect, "function");
   assertEquals(typeof ok, "function");
   assertEquals(typeof err, "function");
