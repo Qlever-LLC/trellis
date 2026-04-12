@@ -29,7 +29,7 @@ Today Trellis already has service-owned resources such as `kv`, `streams`, and `
 
 This document defines the `resources.store` resource shape, its service-owned runtime semantics, and the TypeScript-facing API expectations.
 
-It does not define caller-visible file transfer between Trellis clients. That is a separate protocol and authorization problem.
+Caller-visible file transfer is defined separately in [files-transfer-patterns.md](./files-transfer-patterns.md).
 
 ## Design
 
@@ -202,12 +202,13 @@ This document does not define:
 - backend-specific features such as links, sealing, or chunk-size tuning
 - a typed JSON value model; use `resources.kv` for that
 
-### Relationship To Future Transfer Design
+### Relationship To Files Transfer
 
-A future Trellis file-transfer protocol may use a `store` resource as its backing storage.
+Trellis file transfer uses `store` as the canonical v1 backing storage.
 
 That does not change the rules in this document:
 
 - `resources.store` remains service-owned
 - non-owner clients do not resolve store bindings
-- client transfer authorization is a separate contract and protocol design problem
+- file transfer authorization still begins with contract-owned `Files.*` APIs from the owning service
+- the public abstraction is `Files`; `store` remains the service-owned backing capability

@@ -7,11 +7,14 @@ import { AsyncResult, isErr, isOk, Result } from "@qlever-llc/result";
 
 // Import everything from browser.ts to verify exports exist
 import {
+  DownloadTransferGrantSchema,
   // Error types
   AuthError,
   KVError,
   RemoteError,
   StoreError,
+  TransferError,
+  TransferGrantSchema,
   // Core Trellis class
   Trellis,
   type TrellisAuth,
@@ -21,6 +24,7 @@ import {
   TypedKVEntry,
   TypedStore,
   TypedStoreEntry,
+  UploadTransferGrantSchema,
   UnexpectedError,
   ValidationError,
   type WatchEvent,
@@ -100,6 +104,7 @@ Deno.test("browser exports - Error types are exported", () => {
   assertExists(RemoteError, "RemoteError should be exported");
   assertExists(KVError, "KVError should be exported");
   assertExists(StoreError, "StoreError should be exported");
+  assertExists(TransferError, "TransferError should be exported");
   assertExists(UnexpectedError, "UnexpectedError should be exported");
 
   assertEquals(
@@ -119,6 +124,7 @@ Deno.test("browser exports - Error types are exported", () => {
   );
   assertEquals(typeof KVError, "function", "KVError should be a constructor");
   assertEquals(typeof StoreError, "function", "StoreError should be a constructor");
+  assertEquals(typeof TransferError, "function", "TransferError should be a constructor");
   assertEquals(
     typeof UnexpectedError,
     "function",
@@ -135,13 +141,21 @@ Deno.test("browser exports - Error types can be instantiated", () => {
   });
   const kvErr = new KVError({ operation: "get" });
   const storeErr = new StoreError({ operation: "get" });
+  const transferErr = new TransferError({ operation: "put" });
   const unexpectedErr = new UnexpectedError({});
 
   assertExists(authErr, "AuthError should be instantiable");
   assertExists(validationErr, "ValidationError should be instantiable");
   assertExists(kvErr, "KVError should be instantiable");
   assertExists(storeErr, "StoreError should be instantiable");
+  assertExists(transferErr, "TransferError should be instantiable");
   assertExists(unexpectedErr, "UnexpectedError should be instantiable");
+});
+
+Deno.test("browser exports - transfer schemas are exported", () => {
+  assertExists(TransferGrantSchema, "TransferGrantSchema should be exported");
+  assertExists(UploadTransferGrantSchema, "UploadTransferGrantSchema should be exported");
+  assertExists(DownloadTransferGrantSchema, "DownloadTransferGrantSchema should be exported");
 });
 
 // Type-level tests (these compile if types are correctly exported)

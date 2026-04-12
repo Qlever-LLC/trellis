@@ -40,6 +40,12 @@ export {
   TrellisService,
   type TrellisServiceConnectOpts,
 } from "./service.ts";
+export { ServiceTransfer } from "./transfer.ts";
+export type {
+  InitiateDownloadArgs,
+  InitiateUploadArgs,
+  TransferStoreHandle,
+} from "./transfer.ts";
 
 // Re-export subscription types
 export {

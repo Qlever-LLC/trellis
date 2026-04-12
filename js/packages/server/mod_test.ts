@@ -19,6 +19,7 @@ import {
   type HealthCheckResult,
   type HealthResponse,
   type OrderingGroup,
+  ServiceTransfer,
   type SubscribeOpts,
   type TrellisService,
   TrellisService as TrellisServiceClass,
@@ -51,6 +52,7 @@ Deno.test("TrellisServer export exists", () => {
   assertExists(TrellisServer);
   assertEquals(typeof TrellisServer, "function");
   assertEquals(typeof TrellisServiceClass, "function");
+  assertEquals(typeof ServiceTransfer, "function");
   assertEquals(typeof StoreHandle, "function");
 });
 

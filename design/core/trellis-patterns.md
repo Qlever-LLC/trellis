@@ -125,6 +125,7 @@ Some subsystem-owned subject spaces are not `events.v1.*`, `rpc.v1.*`, or `opera
 Rules:
 
 - raw subjects must still be contract-owned when they are part of a public or cross-service boundary
+- Trellis-owned runtime protocols may still use raw subjects behind a contract-owned public API; file transfer chunk subjects are an example of this pattern
 - subsystem docs should define the semantics and naming rules for any raw subject space they introduce
 - examples include jobs stream subjects and other platform-owned control surfaces described in companion docs
 
@@ -133,6 +134,7 @@ Rules:
 This document defines the high-level system style. Detailed companion docs are split by concern:
 
 - [platform-libraries.md](./platform-libraries.md) - package responsibilities and core runtime/library guidance
+- [files-transfer-patterns.md](./files-transfer-patterns.md) - public files API and transfer-grant patterns over NATS
 - [kv-resource-patterns.md](./kv-resource-patterns.md) - KV naming, keys, TTLs, and projections
 - [store-resource-patterns.md](./store-resource-patterns.md) - service-owned blob store resource patterns and runtime semantics
 - [type-system-patterns.md](./type-system-patterns.md) - schemas, validation, `Result`, and errors

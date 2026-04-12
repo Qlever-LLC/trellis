@@ -17,6 +17,7 @@
 - Use TypeBox for RPC, event, and operation wire schemas. Use Zod for environment and config parsing.
 - Expected public or RPC failures should use `Result`-style modeling rather than thrown exceptions.
 - Exported public functions, classes, and methods need JSDoc. See `design/core/observability-patterns.md`.
+- When changes affect contracts, generated SDKs, or runtime surfaces that depend on generated artifacts, run `cd js && deno task prepare` and `cd rust && cargo xtask prepare` as part of verification.
 - If changes make design/** or guides/** out of date with the implementation, then please propose changes to those documents and ask before applying them. This way we can catch accidental design drift.
 
 ## Frontend Rules

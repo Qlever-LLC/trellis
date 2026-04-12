@@ -73,6 +73,7 @@ export {
   KVError,
   RemoteError,
   StoreError,
+  TransferError,
   TrellisError,
   UnexpectedError,
   ValidationError,
@@ -87,6 +88,20 @@ export type {
   StorePutOptions,
   StoreStatus,
 } from "./store.ts";
+export {
+  DownloadTransferGrantSchema,
+  FileInfoSchema,
+  TransferGrantSchema,
+  UploadTransferGrantSchema,
+} from "./transfer.ts";
+export type {
+  DownloadTransferGrant,
+  FileInfo,
+  TransferBody,
+  TransferGrant,
+  TransferHandle,
+  UploadTransferGrant,
+} from "./transfer.ts";
 export type {
   OperationEvent,
   OperationRefData,

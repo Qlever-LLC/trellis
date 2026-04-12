@@ -3,6 +3,7 @@ import { Type } from "typebox";
 
 import {
   buildLoginUrl,
+  DownloadTransferGrantSchema,
   defineContract,
   err,
   fetchPortalFlowState,
@@ -16,10 +17,13 @@ import {
   schema,
   StoreError,
   submitPortalApproval,
+  TransferError,
+  TransferGrantSchema,
   TrellisClient,
   TrellisDevice,
   TypedStore,
   TypedStoreEntry,
+  UploadTransferGrantSchema,
 } from "../index.ts";
 import * as trellis from "../index.ts";
 
@@ -37,6 +41,10 @@ Deno.test("root public API includes core runtime, contracts, result, and common 
   assertEquals(typeof TypedStore, "function");
   assertEquals(typeof TypedStoreEntry, "function");
   assertEquals(typeof StoreError, "function");
+  assertEquals(typeof TransferError, "function");
+  assertEquals(typeof TransferGrantSchema, "object");
+  assertEquals(typeof UploadTransferGrantSchema, "object");
+  assertEquals(typeof DownloadTransferGrantSchema, "object");
   assertEquals(typeof ok, "function");
   assertEquals(typeof err, "function");
   assertEquals(typeof isOk, "function");

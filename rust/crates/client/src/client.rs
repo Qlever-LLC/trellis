@@ -37,8 +37,8 @@ pub struct TrellisClient {
 }
 
 impl TrellisClient {
-    #[cfg(test)]
-    fn new(nats: async_nats::Client, auth: SessionAuth, timeout_ms: u64) -> Self {
+    /// Construct a client from an existing NATS connection and session auth.
+    pub fn from_native(nats: async_nats::Client, auth: SessionAuth, timeout_ms: u64) -> Self {
         Self {
             nats,
             auth,
@@ -54,6 +54,11 @@ impl TrellisClient {
     /// Return the session auth helper used by this client.
     pub fn auth(&self) -> &SessionAuth {
         &self.auth
+    }
+
+    /// Return the request timeout configured for this client.
+    pub fn timeout_ms(&self) -> u64 {
+        self.timeout_ms
     }
 
     /// Connect using sentinel credentials plus an `iat`-based service token.
@@ -416,7 +421,7 @@ mod tests {
         let service_client = connect_with_retry(&server).await;
         let requester_client = connect_with_retry(&server).await;
         let auth = test_auth();
-        let client = TrellisClient::new(requester_client, auth, 2_000);
+        let client = TrellisClient::from_native(requester_client, auth, 2_000);
 
         let mut start_sub = service_client
             .subscribe(RefundOperation::SUBJECT.to_string())

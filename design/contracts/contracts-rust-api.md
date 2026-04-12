@@ -44,6 +44,7 @@ Owns:
 
 - authenticated outbound Trellis session/client primitives
 - generic operation, RPC, event, and raw subject client primitives
+- transfer-grant execution helpers for file upload/download runtime behavior
 - descriptor traits required by generated outbound code
 
 Does not own participant-specific alias filtering.
@@ -238,6 +239,7 @@ Rules:
 - those helpers wrap stable `trellis-client` and `trellis-server` runtime primitives
 - they produce contract-shaped facades, not unfiltered transport clients
 - they do not implicitly inject extra contract SDKs beyond those declared by the local participant
+- transfer-grant execution remains a lower-level `trellis-client` helper such as `client.transfer(grant)` rather than a generated alias facade method
 
 ## Manifest And Generation Rules
 

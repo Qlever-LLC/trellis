@@ -62,6 +62,7 @@ Behavior:
 - `TrellisService.connect(...)` performs bootstrap, NATS connection, auth handshake, contract verification, and eager binding resolution
 - if the contract is not installed, startup fails immediately
 - resource handles such as `service.kv.*` and `service.store.*` resolve during bootstrap and are opened explicitly by service code before use
+- transfer-session helpers are available through `service.transfer` when the service exposes file upload/download initiation RPCs
 - the `trellis` control-plane service is the one bootstrap exception and may need lower-level runtime paths
 
 ### Jobs and operations
@@ -76,6 +77,17 @@ Behavior:
 - service-local jobs APIs should expose per-job-type handles with `create()` returning `JobRef`
 - public APIs must not expose weak raw wire types except in explicit raw/debug/admin surfaces
 - public service APIs should hang off connected runtime objects such as `service.jobs` and `service.operation(...)`
+
+### Files and transfer
+
+Services should treat `Files` as the public interface to service-owned `store` resources.
+
+Behavior:
+
+- metadata and control actions such as list/head/delete remain ordinary contract-owned RPCs
+- upload/download initiation remains contract-owned and returns transfer grants
+- raw byte movement is executed through Trellis runtime helpers rather than hand-written service-specific chunk protocols
+- service code uses `service.transfer` plus `service.store.<alias>` to back those public file APIs
 
 Example:
 

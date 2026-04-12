@@ -43,6 +43,7 @@ import type {
   NatsConnectOpts,
   TrellisServiceRuntimeDeps,
 } from "./runtime.ts";
+import { ServiceTransfer } from "./transfer.ts";
 
 type ExtraNatsConnectOpts = Omit<
   NatsConnectOpts,
@@ -411,6 +412,7 @@ export class TrellisService<
   readonly server: TrellisServerFor<TOwnedApi & TTrellisApi>;
   readonly operations: TrellisServerFor<TOwnedApi & TTrellisApi>["operations"];
   readonly trellis: ServiceTrellis<TOwnedApi, TTrellisApi>;
+  readonly transfer: ServiceTransfer;
   readonly kv: Record<string, KVHandle>;
   readonly store: Record<string, StoreHandle>;
   readonly streams: Record<string, ResourceBindingStream>;
@@ -436,6 +438,12 @@ export class TrellisService<
     this.store = Object.fromEntries(
       Object.entries(bindings.store).map(([alias, binding]) => [alias, new StoreHandle(nc, binding)]),
     );
+    this.transfer = new ServiceTransfer({
+      name,
+      nc,
+      auth,
+      stores: this.store,
+    });
     this.streams = bindings.streams;
     this.jobs = bindings.jobs;
   }
@@ -635,6 +643,7 @@ export class TrellisService<
   }
 
   async stop(): Promise<void> {
+    await this.transfer.stop();
     await this.server.stop();
   }
 

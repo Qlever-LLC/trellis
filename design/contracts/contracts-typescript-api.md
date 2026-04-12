@@ -244,6 +244,7 @@ Rules:
 
 - returned runtimes are typed from the local contract's `API.trellis` and `API.owned`
 - returned runtimes expose typed operation, request, publish, and subscribe helpers derived from the contract
+- returned runtimes may also expose transfer-grant helpers such as `trellis.transfer(grant)` when the contract returns Trellis-owned transfer grant types from normal RPCs
 - runtime helpers must not widen the callable surface beyond what the contract allows
 - service-side helpers must not expose used remote APIs as mountable local handlers
 

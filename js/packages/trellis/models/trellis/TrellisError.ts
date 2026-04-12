@@ -4,6 +4,7 @@ import { ValidationErrorDataSchema } from "../../errors/ValidationError.ts";
 import { AuthErrorDataSchema } from "../../errors/AuthError.ts";
 import { KVErrorDataSchema } from "../../errors/KVError.ts";
 import { StoreErrorDataSchema } from "../../errors/StoreError.ts";
+import { TransferErrorDataSchema } from "../../errors/TransferError.ts";
 
 /**
  * Discriminated union schema for all possible Trellis error types.
@@ -16,6 +17,7 @@ export const TrellisErrorDataSchema = Type.Union([
   AuthErrorDataSchema,
   KVErrorDataSchema,
   StoreErrorDataSchema,
+  TransferErrorDataSchema,
 ]);
 
 /**

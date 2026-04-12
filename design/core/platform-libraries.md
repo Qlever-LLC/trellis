@@ -40,10 +40,11 @@ This document defines the responsibilities of the core Trellis platform librarie
 - contract modules that only need health schemas should prefer `@qlever-llc/trellis/server/health` over `@qlever-llc/trellis/server`
 - framework adapters such as `@qlever-llc/trellis-svelte` remain separate packages
 - platform packages should expose stable ergonomic surfaces and hide transport/bootstrap details
+- browser-safe public runtime APIs belong on `@qlever-llc/trellis`; service-only resource handles and bootstrap helpers belong on `@qlever-llc/trellis/server*`
 
 ## `@qlever-llc/trellis`
 
-Canonical TypeScript entrypoint for contract-driven RPC, operation, and event communication over NATS. The root package is browser-safe, does not eagerly load generated SDKs, and keeps runtime-specific server helpers on `@qlever-llc/trellis/server*` subpaths.
+Canonical TypeScript entrypoint for contract-driven RPC, operation, event, and transfer-grant-driven file communication over NATS. The root package is browser-safe, does not eagerly load generated SDKs, and keeps runtime-specific server helpers on `@qlever-llc/trellis/server*` subpaths.
 
 ### Browser Client
 
@@ -96,7 +97,18 @@ Rules:
 
 - RPCs are timeout-bounded
 - operations and events are contract-driven rather than raw-subject-driven in normal app code
+- upload/download transfer execution is initiated by contract-owned RPCs and completed through `trellis.transfer(grant)`
 - both sides use explicit `Result` conventions rather than exception-driven remote error handling
+
+### Server-Owned Runtime Helpers
+
+`@qlever-llc/trellis/server` owns the service-only runtime surface.
+
+Rules:
+
+- service code should use `service.kv`, `service.store`, and `service.jobs` rather than a nested `service.resources.*` runtime shape
+- file-transfer session helpers belong on the server runtime surface as `service.transfer`
+- public apps and peer services should not resolve those service-owned handles directly
 
 ## `@qlever-llc/trellis-svelte`
 

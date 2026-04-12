@@ -11,6 +11,7 @@ mod descriptor;
 mod error;
 mod operations;
 mod proof;
+mod transfer;
 
 pub use auth::SessionAuth;
 pub use client::{ServiceConnectOptions, TrellisClient, UserConnectOptions};
@@ -21,6 +22,10 @@ pub use operations::{
     OperationRefData, OperationSnapshot, OperationState, OperationTransport,
 };
 pub use proof::verify_proof;
+pub use transfer::{
+    DownloadTransfer, DownloadTransferGrant, FileInfo, TransferGrant, TransferGrantBinding,
+    UploadTransfer, UploadTransferGrant,
+};
 
 #[cfg(test)]
 mod tests;

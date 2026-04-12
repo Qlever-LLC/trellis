@@ -67,6 +67,14 @@ import {
   type OperationRefData,
   type OperationTransport,
 } from "./operations.ts";
+import {
+  createTransferHandle,
+  type DownloadTransferGrant,
+  type DownloadTransferHandle,
+  type TransferGrant,
+  type UploadTransferGrant,
+  type UploadTransferHandle,
+} from "./transfer.ts";
 import { TrellisTasks } from "./tasks.ts";
 
 export type AuthValidateRequestResponse = StaticDecode<
@@ -567,6 +575,12 @@ export class Trellis<
    */
   get natsConnection(): NatsConnection {
     return this.nats;
+  }
+
+  transfer(grant: UploadTransferGrant): UploadTransferHandle;
+  transfer(grant: DownloadTransferGrant): DownloadTransferHandle;
+  transfer(grant: TransferGrant): UploadTransferHandle | DownloadTransferHandle {
+    return createTransferHandle(this.nats, this.auth, this.timeout, grant);
   }
 
   #unknownApiError(kind: "RPC method" | "operation" | "event", name: string): Error {

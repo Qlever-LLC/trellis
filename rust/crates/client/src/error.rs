@@ -30,4 +30,7 @@ pub enum TrellisClientError {
 
     #[error("operation protocol error: {0}")]
     OperationProtocol(String),
+
+    #[error("transfer protocol error: {0}")]
+    TransferProtocol(String),
 }

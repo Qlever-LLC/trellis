@@ -33,6 +33,7 @@ Do not load the entire `design/` folder by default. Start with one topic area, t
 | Document | Read When | Why |
 | --- | --- | --- |
 | `core/platform-libraries.md` | You are changing library/package boundaries | Package ownership and runtime responsibilities |
+| `core/files-transfer-patterns.md` | You are changing the public files API or transfer grants | Contract-owned file metadata APIs, transfer grants, and runtime helper boundaries |
 | `core/kv-resource-patterns.md` | You are changing KV buckets, keys, TTLs, or projections | KV naming, TTL, and projection rules |
 | `core/store-resource-patterns.md` | You are changing service-owned blob store resources | Store resource shape, runtime semantics, and auth boundaries |
 | `core/type-system-patterns.md` | You are changing schemas, Result, or error modeling | Shared type-system and validation rules |
@@ -58,6 +59,7 @@ These documents define the public protocol, API, and runtime-facing surfaces. Re
 | `operations/operations-rust-api.md` | Rust operations API | Implementing or reviewing Rust operation clients/services |
 | `jobs/jobs-typescript-api.md` | TypeScript jobs API | Implementing or reviewing TS jobs service/admin APIs |
 | `jobs/jobs-rust-api.md` | Rust jobs API | Implementing or reviewing Rust jobs service/admin APIs |
+| `core/files-transfer-patterns.md` | Files and transfer API | Implementing or reviewing service-owned files APIs and transfer-grant runtime behavior |
 
 ## Suggested Read Paths
 
@@ -107,6 +109,12 @@ These documents define the public protocol, API, and runtime-facing surfaces. Re
 1. `core/store-resource-patterns.md`
 2. `contracts/trellis-contracts-catalog.md`
 3. relevant language surface doc if the public runtime API changes
+
+### Work on files or transfer grants
+
+1. `core/files-transfer-patterns.md`
+2. `core/store-resource-patterns.md`
+3. relevant language surface doc
 
 ### Work on service layout or runtime ergonomics
 
