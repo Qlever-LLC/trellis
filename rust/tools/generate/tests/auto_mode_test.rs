@@ -24,6 +24,18 @@ fn trellis_generate() -> Command {
     Command::new(env!("CARGO_BIN_EXE_trellis-generate"))
 }
 
+fn write_executable(path: &Path, script: &str) {
+    fs::write(path, script).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        let mut permissions = fs::metadata(path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(path, permissions).unwrap();
+    }
+}
+
 #[test]
 fn explicit_generate_all_emits_buildable_sdk_packages() {
     let temp = tempfile::tempdir().unwrap();
@@ -187,6 +199,73 @@ fn local_mode_generates_service_artifacts_from_nearest_project_root() {
     assert!(String::from_utf8(output.stdout)
         .unwrap()
         .contains("Trellis Generate"));
+}
+
+#[test]
+fn local_mode_generates_service_artifacts_from_node_project_contracts() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = temp.path().join("node-service");
+    let tsx_path = temp.path().join("fake-tsx.sh");
+    let support = project.join("node_modules/contract-support");
+    fs::create_dir_all(project.join("contracts")).unwrap();
+    fs::create_dir_all(&support).unwrap();
+    fs::write(
+        project.join("package.json"),
+        "{\n  \"name\": \"node-service\",\n  \"version\": \"0.4.0\",\n  \"type\": \"module\"\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        support.join("package.json"),
+        "{\n  \"name\": \"contract-support\",\n  \"type\": \"module\",\n  \"exports\": \"./index.js\"\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        support.join("index.js"),
+        "export const CONTRACT_ID = 'trellis.node-orders@v1';\nexport const CONTRACT_KIND = 'service';\n",
+    )
+    .unwrap();
+    fs::write(
+        project.join("contracts/orders.ts"),
+        concat!(
+            "import { CONTRACT_ID, CONTRACT_KIND } from 'contract-support';\n",
+            "export const CONTRACT = {\n",
+            "  format: 'trellis.contract.v1',\n",
+            "  id: CONTRACT_ID,\n",
+            "  displayName: 'Node Orders',\n",
+            "  description: 'Orders from node project',\n",
+            "  kind: CONTRACT_KIND,\n",
+            "};\n",
+        ),
+    )
+    .unwrap();
+
+    write_executable(
+        &tsx_path,
+        "#!/bin/sh
+printf '{\"format\":\"trellis.contract.v1\",\"id\":\"trellis.node-orders@v1\",\"displayName\":\"Node Orders\",\"description\":\"Orders from node project\",\"kind\":\"service\"}'
+",
+    );
+
+    let output = trellis_generate()
+        .current_dir(&project)
+        .env("TRELLIS_TSX_BIN", &tsx_path)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    assert!(project
+        .join("generated/contracts/manifests/trellis.node-orders@v1.json")
+        .exists());
+    assert!(project
+        .join("generated/js/sdks/node-orders/mod.ts")
+        .exists());
+    assert!(project
+        .join("generated/rust/sdks/node-orders/Cargo.toml")
+        .exists());
 }
 
 #[test]

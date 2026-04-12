@@ -357,12 +357,7 @@ pub async fn start_browser_login(
     let auth = SessionAuth::from_seed_base64url(&session_seed)?;
     let (callback_addr, receiver, server_handle) = start_callback_server(opts.listen).await?;
     let redirect_to = format!("http://{callback_addr}/callback");
-    let login_url = build_auth_login_url(
-        opts.auth_url,
-        &redirect_to,
-        &auth,
-        opts.contract_json,
-    )?;
+    let login_url = build_auth_login_url(opts.auth_url, &redirect_to, &auth, opts.contract_json)?;
 
     Ok(BrowserLoginChallenge {
         login_url,

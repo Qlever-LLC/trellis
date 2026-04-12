@@ -283,9 +283,7 @@ impl<'a> AuthClient<'a> {
     }
 
     /// Get the deployment-wide login portal default.
-    pub async fn get_login_portal_default(
-        &self,
-    ) -> Result<PortalDefaultRecord, TrellisAuthError> {
+    pub async fn get_login_portal_default(&self) -> Result<PortalDefaultRecord, TrellisAuthError> {
         Ok(self
             .call::<_, GetPortalDefaultResponse>(
                 "rpc.v1.Auth.GetLoginPortalDefault",
@@ -359,9 +357,7 @@ impl<'a> AuthClient<'a> {
     }
 
     /// Get the deployment-wide device portal default.
-    pub async fn get_device_portal_default(
-        &self,
-    ) -> Result<PortalDefaultRecord, TrellisAuthError> {
+    pub async fn get_device_portal_default(&self) -> Result<PortalDefaultRecord, TrellisAuthError> {
         Ok(self
             .call::<_, GetPortalDefaultResponse>(
                 "rpc.v1.Auth.GetDevicePortalDefault",
@@ -439,7 +435,8 @@ impl<'a> AuthClient<'a> {
         &self,
         contract_id: Option<&str>,
         disabled: bool,
-    ) -> Result<Vec<trellis_sdk_auth::AuthListDeviceProfilesResponseProfilesItem>, TrellisAuthError> {
+    ) -> Result<Vec<trellis_sdk_auth::AuthListDeviceProfilesResponseProfilesItem>, TrellisAuthError>
+    {
         Ok(self
             .call::<_, trellis_sdk_auth::AuthListDeviceProfilesResponse>(
                 "rpc.v1.Auth.ListDeviceProfiles",
@@ -489,10 +486,7 @@ impl<'a> AuthClient<'a> {
     }
 
     /// Disable a device profile.
-    pub async fn disable_device_profile(
-        &self,
-        profile_id: &str,
-    ) -> Result<bool, TrellisAuthError> {
+    pub async fn disable_device_profile(&self, profile_id: &str) -> Result<bool, TrellisAuthError> {
         Ok(self
             .call::<_, trellis_sdk_auth::AuthDisableDeviceProfileResponse>(
                 "rpc.v1.Auth.DisableDeviceProfile",
@@ -510,7 +504,8 @@ impl<'a> AuthClient<'a> {
         profile_id: &str,
         public_identity_key: &str,
         activation_key: &str,
-    ) -> Result<trellis_sdk_auth::AuthProvisionDeviceInstanceResponseInstance, TrellisAuthError> {
+    ) -> Result<trellis_sdk_auth::AuthProvisionDeviceInstanceResponseInstance, TrellisAuthError>
+    {
         Ok(self
             .call::<_, trellis_sdk_auth::AuthProvisionDeviceInstanceResponse>(
                 "rpc.v1.Auth.ProvisionDeviceInstance",
@@ -543,7 +538,8 @@ impl<'a> AuthClient<'a> {
         &self,
         profile_id: Option<&str>,
         state: Option<&str>,
-    ) -> Result<Vec<trellis_sdk_auth::AuthListDeviceInstancesResponseInstancesItem>, TrellisAuthError> {
+    ) -> Result<Vec<trellis_sdk_auth::AuthListDeviceInstancesResponseInstancesItem>, TrellisAuthError>
+    {
         Ok(self
             .call::<_, trellis_sdk_auth::AuthListDeviceInstancesResponse>(
                 "rpc.v1.Auth.ListDeviceInstances",
@@ -578,7 +574,10 @@ impl<'a> AuthClient<'a> {
         instance_id: Option<&str>,
         profile_id: Option<&str>,
         state: Option<&str>,
-    ) -> Result<Vec<trellis_sdk_auth::AuthListDeviceActivationsResponseActivationsItem>, TrellisAuthError> {
+    ) -> Result<
+        Vec<trellis_sdk_auth::AuthListDeviceActivationsResponseActivationsItem>,
+        TrellisAuthError,
+    > {
         Ok(self
             .call::<_, trellis_sdk_auth::AuthListDeviceActivationsResponse>(
                 "rpc.v1.Auth.ListDeviceActivations",
@@ -614,7 +613,10 @@ impl<'a> AuthClient<'a> {
         instance_id: Option<&str>,
         profile_id: Option<&str>,
         state: Option<&str>,
-    ) -> Result<Vec<trellis_sdk_auth::AuthListDeviceActivationReviewsResponseReviewsItem>, TrellisAuthError> {
+    ) -> Result<
+        Vec<trellis_sdk_auth::AuthListDeviceActivationReviewsResponseReviewsItem>,
+        TrellisAuthError,
+    > {
         Ok(self
             .call::<_, trellis_sdk_auth::AuthListDeviceActivationReviewsResponse>(
                 "rpc.v1.Auth.ListDeviceActivationReviews",
@@ -715,9 +717,10 @@ mod tests {
     use serde_json::{json, Value};
 
     use super::{
-        CreatePortalRequest, GetPortalDefaultResponse, LoginPortalSelectionRecord, PortalDefaultRecord,
-        PortalRecord, SetLoginPortalSelectionRequest, SetDevicePortalSelectionRequest,
-        SetDevicePortalSelectionResponse, DevicePortalSelectionRecord,
+        CreatePortalRequest, DevicePortalSelectionRecord, GetPortalDefaultResponse,
+        LoginPortalSelectionRecord, PortalDefaultRecord, PortalRecord,
+        SetDevicePortalSelectionRequest, SetDevicePortalSelectionResponse,
+        SetLoginPortalSelectionRequest,
     };
 
     #[test]

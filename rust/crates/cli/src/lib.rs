@@ -1,4 +1,9 @@
-//! Shared CLI support code used by integration tests.
+//! Trellis CLI library entrypoints and shared support code.
 
-/// The Trellis CLI contract helpers.
+pub mod app;
+pub mod cli;
 pub mod cli_contract;
+pub mod contract_input;
+pub mod core_client;
+pub mod output;
+pub mod self_update;

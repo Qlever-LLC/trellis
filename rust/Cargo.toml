@@ -7,6 +7,7 @@ members = [
   "crates/service-jobs",
   "crates/server",
   "crates/contracts",
+  "crates/tooling-support",
   "crates/codegen-ts",
   "crates/codegen-rust",
   "crates/client",
@@ -41,3 +42,4 @@ owo-colors = "4.3.0"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
 time = { version = "0.3.47", features = ["formatting"] }
+self_update = { version = "0.44.0", default-features = false, features = ["archive-tar", "archive-zip", "compression-flate2", "compression-zip-deflate", "rustls", "ureq"] }

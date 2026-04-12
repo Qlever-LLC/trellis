@@ -56,6 +56,46 @@ fn portals_devices_help_remains_available() {
 }
 
 #[test]
+fn self_help_remains_available() {
+    let output = run_cli(&["self", "--help"]);
+    assert!(output.status.success(), "self help should succeed");
+}
+
+#[test]
+fn completion_help_remains_available() {
+    let output = run_cli(&["completion", "--help"]);
+    assert!(output.status.success(), "completion help should succeed");
+}
+
+#[test]
+fn version_command_remains_available() {
+    let output = run_cli(&["version"]);
+    assert!(output.status.success(), "version should succeed");
+}
+
+#[test]
+fn legacy_completions_command_is_rejected() {
+    let output = run_cli(&["completions", "bash"]);
+    assert!(
+        !output.status.success(),
+        "legacy completions command should fail"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
+    assert!(stderr.contains("unrecognized subcommand 'completions'"));
+}
+
+#[test]
+fn legacy_devices_reviews_decide_command_is_rejected() {
+    let output = run_cli(&["devices", "reviews", "decide", "dar_123", "--approve"]);
+    assert!(
+        !output.status.success(),
+        "legacy devices reviews decide command should fail"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
+    assert!(stderr.contains("unrecognized subcommand 'decide'"));
+}
+
+#[test]
 fn contracts_pack_remains_available() {
     let output = run_cli(&["contracts", "pack", "--help"]);
     assert!(

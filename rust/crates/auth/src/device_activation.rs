@@ -10,8 +10,8 @@ use sha2::{Digest, Sha256};
 use url::Url;
 
 use crate::models::{
-    WaitForDeviceActivationOpts, WaitForDeviceActivationResponse, DeviceActivationPayload,
-    DeviceActivationWaitRequest, DeviceIdentity,
+    DeviceActivationPayload, DeviceActivationWaitRequest, DeviceIdentity,
+    WaitForDeviceActivationOpts, WaitForDeviceActivationResponse,
 };
 use crate::TrellisAuthError;
 
@@ -91,10 +91,16 @@ pub fn derive_device_identity(
     let hkdf = Hkdf::<Sha256>::new(Some(&[]), device_root_secret);
     let mut identity_seed = [0u8; 32];
     hkdf.expand(DEVICE_IDENTITY_HKDF_INFO.as_bytes(), &mut identity_seed)
-        .map_err(|error| TrellisAuthError::InvalidArgument(format!("failed to derive device identity seed: {error}")))?;
+        .map_err(|error| {
+            TrellisAuthError::InvalidArgument(format!(
+                "failed to derive device identity seed: {error}"
+            ))
+        })?;
     let mut activation_key = [0u8; 32];
     hkdf.expand(DEVICE_ACTIVATION_HKDF_INFO.as_bytes(), &mut activation_key)
-        .map_err(|error| TrellisAuthError::InvalidArgument(format!("failed to derive activation key: {error}")))?;
+        .map_err(|error| {
+            TrellisAuthError::InvalidArgument(format!("failed to derive activation key: {error}"))
+        })?;
 
     let signing_key = SigningKey::from_bytes(&identity_seed);
     let public_identity_key = base64url_encode(&signing_key.verifying_key().to_bytes());
@@ -132,11 +138,7 @@ pub fn build_device_activation_payload(
         v: 1,
         public_identity_key: public_identity_key.to_string(),
         nonce: nonce.to_string(),
-        qr_mac: derive_device_qr_mac(
-            activation_key_base64url,
-            public_identity_key,
-            nonce,
-        )?,
+        qr_mac: derive_device_qr_mac(activation_key_base64url, public_identity_key, nonce)?,
     })
 }
 
@@ -145,15 +147,18 @@ pub fn encode_device_activation_payload(
 ) -> Result<String, TrellisAuthError> {
     serde_json::to_vec(payload)
         .map(|bytes| base64url_encode(&bytes))
-        .map_err(|error| TrellisAuthError::InvalidArgument(format!("invalid device activation payload: {error}")))
+        .map_err(|error| {
+            TrellisAuthError::InvalidArgument(format!("invalid device activation payload: {error}"))
+        })
 }
 
 pub fn parse_device_activation_payload(
     payload_base64url: &str,
 ) -> Result<DeviceActivationPayload, TrellisAuthError> {
     let bytes = base64url_decode(payload_base64url)?;
-    serde_json::from_slice(&bytes)
-        .map_err(|error| TrellisAuthError::InvalidArgument(format!("invalid device activation payload: {error}")))
+    serde_json::from_slice(&bytes).map_err(|error| {
+        TrellisAuthError::InvalidArgument(format!("invalid device activation payload: {error}"))
+    })
 }
 
 pub fn build_device_activation_url(
@@ -162,23 +167,21 @@ pub fn build_device_activation_url(
 ) -> Result<String, TrellisAuthError> {
     let mut url = Url::parse(auth_url)?;
     url.set_path("/auth/devices/activate");
-    url.set_query(Some(&format!("payload={}", encode_device_activation_payload(payload)?)));
+    url.set_query(Some(&format!(
+        "payload={}",
+        encode_device_activation_payload(payload)?
+    )));
     Ok(url.to_string())
 }
 
-pub fn build_device_wait_proof_input(
-    public_identity_key: &str,
-    nonce: &str,
-    iat: u64,
-) -> Vec<u8> {
+pub fn build_device_wait_proof_input(public_identity_key: &str, nonce: &str, iat: u64) -> Vec<u8> {
     let public_identity_key = public_identity_key.as_bytes();
     let nonce = nonce.as_bytes();
     let iat = iat.to_string();
     let iat = iat.as_bytes();
 
-    let mut out = Vec::with_capacity(
-        4 + public_identity_key.len() + 4 + nonce.len() + 4 + iat.len(),
-    );
+    let mut out =
+        Vec::with_capacity(4 + public_identity_key.len() + 4 + nonce.len() + 4 + iat.len());
     out.extend_from_slice(&(public_identity_key.len() as u32).to_be_bytes());
     out.extend_from_slice(public_identity_key);
     out.extend_from_slice(&(nonce.len() as u32).to_be_bytes());
@@ -205,7 +208,11 @@ pub fn sign_device_wait_request(
     let mut seed = [0u8; 32];
     seed.copy_from_slice(&identity_seed);
     let signing_key = SigningKey::from_bytes(&seed);
-    let digest = Sha256::digest(build_device_wait_proof_input(public_identity_key, nonce, iat));
+    let digest = Sha256::digest(build_device_wait_proof_input(
+        public_identity_key,
+        nonce,
+        iat,
+    ));
     let signature = signing_key.sign(&digest);
 
     Ok(DeviceActivationWaitRequest {
@@ -256,11 +263,13 @@ pub async fn wait_for_device_activation(
                     None => String::new(),
                 }))
             }
-            WaitForDeviceActivationResponse::Pending => tokio::time::sleep(match opts.poll_interval {
-                duration if duration.is_zero() => Duration::from_millis(1),
-                duration => duration,
-            })
-            .await,
+            WaitForDeviceActivationResponse::Pending => {
+                tokio::time::sleep(match opts.poll_interval {
+                    duration if duration.is_zero() => Duration::from_millis(1),
+                    duration => duration,
+                })
+                .await
+            }
         }
     }
 }

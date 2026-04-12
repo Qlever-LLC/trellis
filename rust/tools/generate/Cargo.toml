@@ -16,3 +16,4 @@ tempfile = "3.27.0"
 trellis-codegen-rust = { path = "../../crates/codegen-rust" }
 trellis-codegen-ts = { path = "../../crates/codegen-ts" }
 trellis-contracts = { path = "../../crates/contracts" }
+trellis-tooling-support = { path = "../../crates/tooling-support" }

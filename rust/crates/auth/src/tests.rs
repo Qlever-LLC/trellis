@@ -112,8 +112,8 @@ fn device_activation_payload_round_trips() {
         "nonce_123",
     )
     .expect("build payload");
-    let url = build_device_activation_url("https://auth.example.com/base", &payload)
-        .expect("build url");
+    let url =
+        build_device_activation_url("https://auth.example.com/base", &payload).expect("build url");
     let payload_param = Url::parse(&url)
         .expect("parse activation url")
         .query_pairs()
@@ -164,12 +164,9 @@ async fn device_activation_wait_posts_to_activate_wait_endpoint() {
     )
     .expect("sign wait request");
 
-    let response = wait_for_device_activation_response(
-        &format!("http://{address}"),
-        &request,
-    )
-    .await
-    .expect("wait response");
+    let response = wait_for_device_activation_response(&format!("http://{address}"), &request)
+        .await
+        .expect("wait response");
     assert!(matches!(response, WaitForDeviceActivationResponse::Pending));
 
     server.await.expect("server finished");

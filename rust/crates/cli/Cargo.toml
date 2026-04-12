@@ -21,6 +21,7 @@ trellis-auth = { path = "../auth", version = "0.7.0" }
 trellis-codegen-rust = { path = "../codegen-rust", version = "0.7.0" }
 trellis-codegen-ts = { path = "../codegen-ts", version = "0.7.0" }
 trellis-contracts = { path = "../contracts", version = "0.7.0" }
+trellis-tooling-support = { path = "../tooling-support", version = "0.7.0" }
 tracing.workspace = true
 tracing-subscriber.workspace = true
 miette.workspace = true
@@ -30,6 +31,7 @@ ed25519-dalek.workspace = true
 sha2.workspace = true
 rand = "0.10.0"
 tempfile = "3.27.0"
+self_update.workspace = true
 
 [[bin]]
 name = "trellis"
