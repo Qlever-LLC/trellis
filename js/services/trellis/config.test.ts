@@ -37,7 +37,7 @@ Deno.test("auth config loads structured provider map from file", async () => {
       "ttlMs": {
         "sessions": 123,
         "oauth": 456,
-        "workloadHandoff": 1800000,
+        "deviceHandoff": 1800000,
         "pendingAuth": 789,
         "bindingTokens": {
           "bucket": 500,
@@ -104,7 +104,7 @@ Deno.test("auth config loads structured provider map from file", async () => {
       assertEquals(cfg.ttlMs.bindingTokens.renew, 222);
       assertEquals(cfg.ttlMs.bindingTokens.cliInitial, 333);
       assertEquals(cfg.ttlMs.bindingTokens.cliRenew, 444);
-      assertEquals(cfg.ttlMs.workloadHandoff, 1800000);
+      assertEquals(cfg.ttlMs.deviceHandoff, 1800000);
       assertEquals(cfg.sessionKeySeed, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=");
       assertEquals(cfg.client.natsServers, ["ws://localhost:8080", "wss://nats.example.com"]);
       assertEquals(cfg.nats.authCallout.issuer.signing, "SAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
@@ -124,7 +124,7 @@ Deno.test("auth config loads structured provider map from file", async () => {
   );
 });
 
-Deno.test("auth config defaults workload handoff TTL to thirty minutes", async () => {
+Deno.test("auth config defaults device handoff TTL to thirty minutes", async () => {
   await withTempConfig(
     `{
       "web": { "origins": ["http://localhost:5173"] },
@@ -163,7 +163,7 @@ Deno.test("auth config defaults workload handoff TTL to thirty minutes", async (
     async (configPath) => {
       const cfg = await loadAuthConfigFromFile(configPath);
       assertEquals(cfg.ttlMs.oauth, 5 * 60_000);
-      assertEquals(cfg.ttlMs.workloadHandoff, 30 * 60_000);
+      assertEquals(cfg.ttlMs.deviceHandoff, 30 * 60_000);
       assertEquals(cfg.ttlMs.bindingTokens.cliInitial, 24 * 60 * 60_000);
       assertEquals(cfg.ttlMs.bindingTokens.cliRenew, 24 * 60 * 60_000);
     },

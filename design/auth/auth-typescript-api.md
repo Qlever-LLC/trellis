@@ -23,7 +23,7 @@ It covers:
 - flow-owned browser bind helpers
 - portal-flow helpers for custom portal apps
 - service auth helpers
-- workload activation helpers
+- device activation helpers
 - browser-facing portal flow state
 
 ## Design Rules
@@ -232,13 +232,13 @@ Rules:
 - service helpers expose the same proof domains as browser helpers, but return direct values rather than fragment/callback-oriented flows
 - service NATS auth tokens use the session-key proof model described in `auth-protocol.md`
 
-## Workload Activation Surface
+## Device Activation Surface
 
 `@qlever-llc/trellis/auth` also exposes the normal TypeScript integration surface
-for activated workloads.
+for activated devices.
 
 ```ts
-type WorkloadIdentity = {
+type DeviceIdentity = {
   identitySeed: Uint8Array;
   identitySeedBase64url: string;
   publicIdentityKey: string;
@@ -246,36 +246,36 @@ type WorkloadIdentity = {
   activationKeyBase64url: string;
 };
 
-declare function deriveWorkloadIdentity(workloadRootSecret: Uint8Array): Promise<WorkloadIdentity>;
+declare function deriveDeviceIdentity(deviceRootSecret: Uint8Array): Promise<DeviceIdentity>;
 
-declare function buildWorkloadActivationPayload(args: {
+declare function buildDeviceActivationPayload(args: {
   activationKey: Uint8Array | string;
   publicIdentityKey: string;
   nonce: string;
-}): Promise<WorkloadActivationPayload>;
+}): Promise<DeviceActivationPayload>;
 
-declare function encodeWorkloadActivationPayload(
-  payload: WorkloadActivationPayload,
+declare function encodeDeviceActivationPayload(
+  payload: DeviceActivationPayload,
 ): string;
 
-declare function parseWorkloadActivationPayload(
+declare function parseDeviceActivationPayload(
   payload: string,
-): WorkloadActivationPayload;
+): DeviceActivationPayload;
 
-declare function buildWorkloadActivationUrl(args: {
+declare function buildDeviceActivationUrl(args: {
   trellisUrl: string;
-  payload: WorkloadActivationPayload | string;
+  payload: DeviceActivationPayload | string;
 }): string;
 
-declare function signWorkloadWaitRequest(args: {
+declare function signDeviceWaitRequest(args: {
   publicIdentityKey: string;
   nonce: string;
   identitySeed: Uint8Array | string;
   contractDigest?: string;
   iat?: number;
-}): Promise<WorkloadActivationWaitRequest>;
+}): Promise<DeviceActivationWaitRequest>;
 
-declare function waitForWorkloadActivation(args: {
+declare function waitForDeviceActivation(args: {
   trellisUrl: string;
   publicIdentityKey: string;
   nonce: string;
@@ -283,73 +283,73 @@ declare function waitForWorkloadActivation(args: {
   contractDigest: string;
   signal?: AbortSignal;
   pollIntervalMs?: number;
-}): Promise<Extract<WaitForWorkloadActivationResponse, { status: "activated" }>>;
+}): Promise<Extract<WaitForDeviceActivationResponse, { status: "activated" }>>;
 
-declare function deriveWorkloadConfirmationCode(args: {
+declare function deriveDeviceConfirmationCode(args: {
   activationKey: Uint8Array | string;
   publicIdentityKey: string;
   nonce: string;
 }): Promise<string>;
 
-declare function verifyWorkloadConfirmationCode(args: {
+declare function verifyDeviceConfirmationCode(args: {
   activationKey: Uint8Array | string;
   publicIdentityKey: string;
   nonce: string;
   confirmationCode: string;
 }): Promise<boolean>;
 
-declare function getWorkloadConnectInfo(args: {
+declare function getDeviceConnectInfo(args: {
   trellisUrl: string;
   publicIdentityKey: string;
   identitySeed: Uint8Array | string;
   contractDigest: string;
   iat?: number;
-}): Promise<GetWorkloadConnectInfoResponse>;
+}): Promise<GetDeviceConnectInfoResponse>;
 
-declare function createWorkloadActivationClient(client: {
+declare function createDeviceActivationClient(client: {
   requestOrThrow(method: string, input: unknown, opts?: unknown): Promise<unknown>;
 }): {
-  activateWorkload(input: { handoffId: string }): Promise<ActivateWorkloadResponse>;
-  getWorkloadActivationStatus(input: GetWorkloadActivationStatusRequest): Promise<GetWorkloadActivationStatusResponse>;
-  listWorkloadActivations(input?: Record<string, unknown>): Promise<{
-    activations: WorkloadActivationRecord[];
+  activateDevice(input: { handoffId: string }): Promise<ActivateDeviceResponse>;
+  getDeviceActivationStatus(input: GetDeviceActivationStatusRequest): Promise<GetDeviceActivationStatusResponse>;
+  listDeviceActivations(input?: Record<string, unknown>): Promise<{
+    activations: DeviceActivationRecord[];
   }>;
-  revokeWorkloadActivation(input: { instanceId: string }): Promise<{ success: boolean }>;
-  getWorkloadConnectInfo(input: GetWorkloadConnectInfoRequest): Promise<GetWorkloadConnectInfoResponse>;
+  revokeDeviceActivation(input: { instanceId: string }): Promise<{ success: boolean }>;
+  getDeviceConnectInfo(input: GetDeviceConnectInfoRequest): Promise<GetDeviceConnectInfoResponse>;
 };
 
-type WorkloadActivationController = {
+type DeviceActivationController = {
   url: string;
   waitForOnlineApproval(opts?: { signal?: AbortSignal }): Promise<void>;
   acceptConfirmationCode(code: string): Promise<void>;
 };
 
-declare class TrellisWorkload {
+declare class TrellisDevice {
   static connect<TApi extends TrellisAPI>(args: {
     trellisUrl: string;
     contract: TrellisClientContract<TApi>;
     rootSecret: Uint8Array | string;
-    onActivationRequired?(activation: WorkloadActivationController): Promise<void>;
+    onActivationRequired?(activation: DeviceActivationController): Promise<void>;
   }): Promise<Trellis<TApi>>;
 }
 ```
 
 Rules:
 
-- activated-workload code SHOULD prefer these helpers over hand-written HKDF,
+- activated-device code SHOULD prefer these helpers over hand-written HKDF,
   HMAC, polling, proof-signing, and connect-info refresh logic
-- `buildWorkloadActivationUrl(...)` targets Trellis auth directly; callers do not choose a portal URL because workload portal resolution is deployment-owned server policy
-- `waitForWorkloadActivation(...)` owns the polling loop for `POST /auth/workloads/activate/wait`
-- if the wait endpoint returns `{ status: "rejected" }`, `waitForWorkloadActivation(...)` SHOULD throw rather than returning a rejected union branch
-- `getWorkloadConnectInfo(...)` owns the connect-info proof/signature step for `POST /auth/workloads/connect-info`
-- portal and admin apps SHOULD prefer `createWorkloadActivationClient(...)` over
+- `buildDeviceActivationUrl(...)` targets Trellis auth directly; callers do not choose a portal URL because device portal resolution is deployment-owned server policy
+- `waitForDeviceActivation(...)` owns the polling loop for `POST /auth/devices/activate/wait`
+- if the wait endpoint returns `{ status: "rejected" }`, `waitForDeviceActivation(...)` SHOULD throw rather than returning a rejected union branch
+- `getDeviceConnectInfo(...)` owns the connect-info proof/signature step for `POST /auth/devices/connect-info`
+- portal and admin apps SHOULD prefer `createDeviceActivationClient(...)` over
   repeated raw string `requestOrThrow(...)` calls and manual plumbing
-- `TrellisWorkload.connect(...)` is the intended high-level runtime entrypoint; it SHOULD behave more like `TrellisService.connect(...)` than a caller-managed activation state machine
-- `TrellisWorkload.connect(...)` accepts `rootSecret` directly as bytes or a string form; storage/loading policy belongs to the application, not the helper
-- `TrellisWorkload.connect(...)` SHOULD fetch connect info on startup rather than persisting transport details across restarts
-- `onActivationRequired(...)` is the hook for local displays, local setup web UIs, CLIs, and other workload-local activation UX
+- `TrellisDevice.connect(...)` is the intended high-level runtime entrypoint; it SHOULD behave more like `TrellisService.connect(...)` than a caller-managed activation state machine
+- `TrellisDevice.connect(...)` accepts `rootSecret` directly as bytes or a string form; storage/loading policy belongs to the application, not the helper
+- `TrellisDevice.connect(...)` SHOULD fetch connect info on startup rather than persisting transport details across restarts
+- `onActivationRequired(...)` is the hook for local displays, local setup web UIs, CLIs, and other device-local activation UX
 - the helper layer MUST remain a thin wrapper over the canonical wire surfaces
-  defined in `auth-api.md` and `workload-activation.md`
+  defined in `auth-api.md` and `device-activation.md`
 
 ## Non-Goals
 

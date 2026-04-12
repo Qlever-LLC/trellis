@@ -110,9 +110,9 @@ pub struct AdminLoginOutcome {
     pub user: AuthenticatedUser,
 }
 
-/// Derived workload identity material used by the workload activation helpers.
+/// Derived device identity material used by the device activation helpers.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct WorkloadIdentity {
+pub struct DeviceIdentity {
     #[serde(rename = "identitySeedBase64url")]
     pub identity_seed_base64url: String,
     #[serde(rename = "publicIdentityKey")]
@@ -121,9 +121,9 @@ pub struct WorkloadIdentity {
     pub activation_key_base64url: String,
 }
 
-/// Encoded workload activation payload carried in the activation QR.
+/// Encoded device activation payload carried in the activation QR.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct WorkloadActivationPayload {
+pub struct DeviceActivationPayload {
     pub v: u8,
     #[serde(rename = "publicIdentityKey")]
     pub public_identity_key: String,
@@ -132,9 +132,9 @@ pub struct WorkloadActivationPayload {
     pub qr_mac: String,
 }
 
-/// Signed pre-auth request sent to `/auth/workloads/activate/wait`.
+/// Signed pre-auth request sent to `/auth/devices/activate/wait`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct WorkloadActivationWaitRequest {
+pub struct DeviceActivationWaitRequest {
     #[serde(rename = "publicIdentityKey")]
     pub public_identity_key: String,
     #[serde(rename = "contractDigest", skip_serializing_if = "Option::is_none")]
@@ -146,7 +146,7 @@ pub struct WorkloadActivationWaitRequest {
 
 /// Activated wait response returned by auth.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct WorkloadActivationActivatedResponse {
+pub struct DeviceActivationActivatedResponse {
     pub status: String,
     #[serde(rename = "activatedAt")]
     pub activated_at: String,
@@ -158,7 +158,7 @@ pub struct WorkloadActivationActivatedResponse {
 
 /// Rejected wait response returned by auth.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct WorkloadActivationRejectedResponse {
+pub struct DeviceActivationRejectedResponse {
     pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
@@ -166,14 +166,14 @@ pub struct WorkloadActivationRejectedResponse {
 
 /// Pending wait response returned by auth.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct WorkloadActivationPendingResponse {
+pub struct DeviceActivationPendingResponse {
     pub status: String,
 }
 
 /// Union of possible wait responses returned by auth.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "status", rename_all = "lowercase")]
-pub enum WaitForWorkloadActivationResponse {
+pub enum WaitForDeviceActivationResponse {
     Activated {
         #[serde(rename = "activatedAt")]
         activated_at: String,
@@ -189,8 +189,8 @@ pub enum WaitForWorkloadActivationResponse {
     Pending,
 }
 
-/// Polling options for waiting on an activated workload.
-pub struct WaitForWorkloadActivationOpts<'a> {
+/// Polling options for waiting on an activated device.
+pub struct WaitForDeviceActivationOpts<'a> {
     pub auth_url: &'a str,
     pub public_identity_key: &'a str,
     pub nonce: &'a str,

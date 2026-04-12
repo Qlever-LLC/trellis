@@ -46,7 +46,7 @@ pub enum TopLevelCommand {
     Keygen(KeygenArgs),
     Portals(PortalsCommand),
     Service(ServiceCommand),
-    Workloads(WorkloadsCommand),
+    Devices(DevicesCommand),
     Contracts(ContractsCommand),
 }
 
@@ -69,7 +69,7 @@ pub enum PortalsSubcommand {
     Create(PortalsCreateArgs),
     Disable(PortalsDisableArgs),
     Logins(PortalsLoginsCommand),
-    Workloads(PortalsWorkloadsCommand),
+    Devices(PortalsDevicesCommand),
 }
 
 #[derive(Debug, Args)]
@@ -87,17 +87,17 @@ pub enum PortalsLoginsSubcommand {
 }
 
 #[derive(Debug, Args)]
-pub struct PortalsWorkloadsCommand {
+pub struct PortalsDevicesCommand {
     #[command(subcommand)]
-    pub command: PortalsWorkloadsSubcommand,
+    pub command: PortalsDevicesSubcommand,
 }
 
 #[derive(Debug, Subcommand)]
-pub enum PortalsWorkloadsSubcommand {
+pub enum PortalsDevicesSubcommand {
     Default(PortalsDefaultCommand),
     List,
-    Set(PortalsWorkloadsSetArgs),
-    Clear(PortalsWorkloadsClearArgs),
+    Set(PortalsDevicesSetArgs),
+    Clear(PortalsDevicesClearArgs),
 }
 
 #[derive(Debug, Args)]
@@ -123,67 +123,67 @@ pub struct PortalTargetArgs {
 }
 
 #[derive(Debug, Args)]
-pub struct WorkloadsCommand {
+pub struct DevicesCommand {
     #[command(subcommand)]
-    pub command: WorkloadsSubcommand,
+    pub command: DevicesSubcommand,
 }
 
 #[derive(Debug, Subcommand)]
-pub enum WorkloadsSubcommand {
-    Provision(WorkloadsProvisionArgs),
-    Profiles(WorkloadsProfilesCommand),
-    Instances(WorkloadsInstancesCommand),
-    Activations(WorkloadsActivationsCommand),
-    Reviews(WorkloadsReviewsCommand),
+pub enum DevicesSubcommand {
+    Provision(DevicesProvisionArgs),
+    Profiles(DevicesProfilesCommand),
+    Instances(DevicesInstancesCommand),
+    Activations(DevicesActivationsCommand),
+    Reviews(DevicesReviewsCommand),
 }
 
 #[derive(Debug, Args)]
-pub struct WorkloadsProfilesCommand {
+pub struct DevicesProfilesCommand {
     #[command(subcommand)]
-    pub command: WorkloadsProfilesSubcommand,
+    pub command: DevicesProfilesSubcommand,
 }
 
 #[derive(Debug, Subcommand)]
-pub enum WorkloadsProfilesSubcommand {
-    List(WorkloadsProfilesListArgs),
-    Create(WorkloadsProfilesCreateArgs),
-    Disable(WorkloadsProfilesDisableArgs),
+pub enum DevicesProfilesSubcommand {
+    List(DevicesProfilesListArgs),
+    Create(DevicesProfilesCreateArgs),
+    Disable(DevicesProfilesDisableArgs),
 }
 
 #[derive(Debug, Args)]
-pub struct WorkloadsInstancesCommand {
+pub struct DevicesInstancesCommand {
     #[command(subcommand)]
-    pub command: WorkloadsInstancesSubcommand,
+    pub command: DevicesInstancesSubcommand,
 }
 
 #[derive(Debug, Subcommand)]
-pub enum WorkloadsInstancesSubcommand {
-    List(WorkloadsInstancesListArgs),
-    Disable(WorkloadsInstancesDisableArgs),
+pub enum DevicesInstancesSubcommand {
+    List(DevicesInstancesListArgs),
+    Disable(DevicesInstancesDisableArgs),
 }
 
 #[derive(Debug, Args)]
-pub struct WorkloadsActivationsCommand {
+pub struct DevicesActivationsCommand {
     #[command(subcommand)]
-    pub command: WorkloadsActivationsSubcommand,
+    pub command: DevicesActivationsSubcommand,
 }
 
 #[derive(Debug, Subcommand)]
-pub enum WorkloadsActivationsSubcommand {
-    List(WorkloadsActivationsListArgs),
-    Revoke(WorkloadsActivationsRevokeArgs),
+pub enum DevicesActivationsSubcommand {
+    List(DevicesActivationsListArgs),
+    Revoke(DevicesActivationsRevokeArgs),
 }
 
 #[derive(Debug, Args)]
-pub struct WorkloadsReviewsCommand {
+pub struct DevicesReviewsCommand {
     #[command(subcommand)]
-    pub command: WorkloadsReviewsSubcommand,
+    pub command: DevicesReviewsSubcommand,
 }
 
 #[derive(Debug, Subcommand)]
-pub enum WorkloadsReviewsSubcommand {
-    List(WorkloadsReviewsListArgs),
-    Decide(WorkloadsReviewsDecideArgs),
+pub enum DevicesReviewsSubcommand {
+    List(DevicesReviewsListArgs),
+    Decide(DevicesReviewsDecideArgs),
 }
 
 #[derive(Debug, Subcommand)]
@@ -242,7 +242,7 @@ pub struct PortalsLoginsClearArgs {
 }
 
 #[derive(Debug, Args)]
-pub struct PortalsWorkloadsSetArgs {
+pub struct PortalsDevicesSetArgs {
     #[arg(long = "profile")]
     pub profile: String,
 
@@ -251,13 +251,13 @@ pub struct PortalsWorkloadsSetArgs {
 }
 
 #[derive(Debug, Args)]
-pub struct PortalsWorkloadsClearArgs {
+pub struct PortalsDevicesClearArgs {
     #[arg(long = "profile")]
     pub profile: String,
 }
 
 #[derive(Debug, Args)]
-pub struct WorkloadsProfilesListArgs {
+pub struct DevicesProfilesListArgs {
     #[arg(long = "contract")]
     pub contract: Option<String>,
 
@@ -266,7 +266,7 @@ pub struct WorkloadsProfilesListArgs {
 }
 
 #[derive(Debug, Args)]
-pub struct WorkloadsProfilesCreateArgs {
+pub struct DevicesProfilesCreateArgs {
     #[arg(long = "profile")]
     pub profile: String,
 
@@ -278,19 +278,19 @@ pub struct WorkloadsProfilesCreateArgs {
 }
 
 #[derive(Debug, Args)]
-pub struct WorkloadsProfilesDisableArgs {
+pub struct DevicesProfilesDisableArgs {
     #[arg(long = "profile")]
     pub profile: String,
 }
 
 #[derive(Debug, Args)]
-pub struct WorkloadsProvisionArgs {
+pub struct DevicesProvisionArgs {
     #[arg(long = "profile")]
     pub profile: String,
 }
 
 #[derive(Debug, Args)]
-pub struct WorkloadsInstancesListArgs {
+pub struct DevicesInstancesListArgs {
     #[arg(long = "profile")]
     pub profile: Option<String>,
 
@@ -299,13 +299,13 @@ pub struct WorkloadsInstancesListArgs {
 }
 
 #[derive(Debug, Args)]
-pub struct WorkloadsInstancesDisableArgs {
+pub struct DevicesInstancesDisableArgs {
     #[arg(long = "instance")]
     pub instance: String,
 }
 
 #[derive(Debug, Args)]
-pub struct WorkloadsActivationsListArgs {
+pub struct DevicesActivationsListArgs {
     #[arg(long = "instance")]
     pub instance: Option<String>,
 
@@ -317,13 +317,13 @@ pub struct WorkloadsActivationsListArgs {
 }
 
 #[derive(Debug, Args)]
-pub struct WorkloadsActivationsRevokeArgs {
+pub struct DevicesActivationsRevokeArgs {
     #[arg(long = "instance")]
     pub instance: String,
 }
 
 #[derive(Debug, Args)]
-pub struct WorkloadsReviewsListArgs {
+pub struct DevicesReviewsListArgs {
     #[arg(long = "instance")]
     pub instance: Option<String>,
 
@@ -345,7 +345,7 @@ pub struct ReviewDecisionArgs {
 }
 
 #[derive(Debug, Args)]
-pub struct WorkloadsReviewsDecideArgs {
+pub struct DevicesReviewsDecideArgs {
     #[arg(long = "review")]
     pub review: String,
 
@@ -690,26 +690,26 @@ mod tests {
     }
 
     #[test]
-    fn parses_portals_workloads_default_set_builtin_command() {
+    fn parses_portals_devices_default_set_builtin_command() {
         let cli = Cli::parse_from([
             "trellis",
             "portals",
-            "workloads",
+            "devices",
             "default",
             "set",
             "--builtin",
         ]);
         match cli.command {
             TopLevelCommand::Portals(command) => match command.command {
-                PortalsSubcommand::Workloads(workloads) => match workloads.command {
-                    PortalsWorkloadsSubcommand::Default(defaults) => match defaults.command {
+                PortalsSubcommand::Devices(devices) => match devices.command {
+                    PortalsDevicesSubcommand::Default(defaults) => match defaults.command {
                         PortalsDefaultSubcommand::Set(args) => {
                             assert!(args.target.builtin);
                             assert!(args.target.portal_id.is_none());
                         }
-                        other => panic!("unexpected workloads default command: {other:?}"),
+                        other => panic!("unexpected devices default command: {other:?}"),
                     },
-                    other => panic!("unexpected portal workloads command: {other:?}"),
+                    other => panic!("unexpected portal devices command: {other:?}"),
                 },
                 other => panic!("unexpected portals command: {other:?}"),
             },
@@ -718,10 +718,10 @@ mod tests {
     }
 
     #[test]
-    fn parses_workloads_profiles_create_command() {
+    fn parses_devices_profiles_create_command() {
         let cli = Cli::parse_from([
             "trellis",
-            "workloads",
+            "devices",
             "profiles",
             "create",
             "--profile",
@@ -732,66 +732,66 @@ mod tests {
             "required",
         ]);
         match cli.command {
-            TopLevelCommand::Workloads(command) => match command.command {
-                WorkloadsSubcommand::Profiles(profiles) => match profiles.command {
-                    WorkloadsProfilesSubcommand::Create(args) => {
+            TopLevelCommand::Devices(command) => match command.command {
+                DevicesSubcommand::Profiles(profiles) => match profiles.command {
+                    DevicesProfilesSubcommand::Create(args) => {
                         assert_eq!(args.profile, "reader.standard");
                         assert_eq!(args.contract, "acme.reader@v1");
                         assert_eq!(args.review_mode.as_deref(), Some("required"));
                     }
-                    other => panic!("unexpected workloads profiles command: {other:?}"),
+                    other => panic!("unexpected devices profiles command: {other:?}"),
                 },
-                other => panic!("unexpected workloads command: {other:?}"),
+                other => panic!("unexpected devices command: {other:?}"),
             },
             other => panic!("unexpected top-level command: {other:?}"),
         }
     }
 
     #[test]
-    fn parses_workloads_provision_command() {
+    fn parses_devices_provision_command() {
         let cli = Cli::parse_from([
             "trellis",
-            "workloads",
+            "devices",
             "provision",
             "--profile",
             "reader.standard",
         ]);
         match cli.command {
-            TopLevelCommand::Workloads(command) => match command.command {
-                WorkloadsSubcommand::Provision(args) => {
+            TopLevelCommand::Devices(command) => match command.command {
+                DevicesSubcommand::Provision(args) => {
                     assert_eq!(args.profile, "reader.standard");
                 }
-                other => panic!("unexpected workloads command: {other:?}"),
+                other => panic!("unexpected devices command: {other:?}"),
             },
             other => panic!("unexpected top-level command: {other:?}"),
         }
     }
 
     #[test]
-    fn parses_workloads_reviews_decide_command() {
+    fn parses_devices_reviews_decide_command() {
         let cli = Cli::parse_from([
             "trellis",
-            "workloads",
+            "devices",
             "reviews",
             "decide",
             "--review",
-            "war_123",
+            "dar_123",
             "--approve",
             "--reason",
             "approved_by_policy",
         ]);
         match cli.command {
-            TopLevelCommand::Workloads(command) => match command.command {
-                WorkloadsSubcommand::Reviews(reviews) => match reviews.command {
-                    WorkloadsReviewsSubcommand::Decide(args) => {
-                        assert_eq!(args.review, "war_123");
+            TopLevelCommand::Devices(command) => match command.command {
+                DevicesSubcommand::Reviews(reviews) => match reviews.command {
+                    DevicesReviewsSubcommand::Decide(args) => {
+                        assert_eq!(args.review, "dar_123");
                         assert!(args.decision.approve);
                         assert!(!args.decision.reject);
                         assert_eq!(args.reason.as_deref(), Some("approved_by_policy"));
                     }
-                    other => panic!("unexpected workloads reviews command: {other:?}"),
+                    other => panic!("unexpected devices reviews command: {other:?}"),
                 },
-                other => panic!("unexpected workloads command: {other:?}"),
+                other => panic!("unexpected devices command: {other:?}"),
             },
             other => panic!("unexpected top-level command: {other:?}"),
         }

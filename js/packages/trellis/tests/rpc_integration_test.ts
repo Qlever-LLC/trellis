@@ -8,9 +8,10 @@ import {
 import { assertEquals, assertExists, assertRejects } from "@std/assert";
 
 import { Type } from "typebox";
-import { isErr, ok } from "../../result/mod.ts";
+import { err, isErr, ok } from "../../result/mod.ts";
 import { createClient } from "../client.ts";
 import { defineContract } from "../contract.ts";
+import { AuthError } from "../errors/index.ts";
 import { NatsTest } from "../testing/nats.ts";
 import { getActiveSpan, getTracer, initTracing, withSpanAsync } from "../tracing.ts";
 import type { TrellisAuth } from "../trellis.ts";
@@ -384,7 +385,7 @@ Deno.test({
     const info = nats.nc.info!;
     const nc = await connect({ servers: `localhost:${info.port}`, inboxPrefix });
     const client = createClient<typeof authContract.API.owned>(authContract, nc, auth, { name: "client" });
-      const response = await waitFor<{ user: { id: string } }>(async () => {
+    const response = await waitFor<{ user: { id: string } | null }>(async () => {
       const r = await client.request("Auth.Me", {}, { timeout: 500 });
       const v = r.take();
       if (isErr(v)) return null;
@@ -392,7 +393,74 @@ Deno.test({
     }, { description: "Me responder ready" });
 
     assertExists(response.user);
-    assertEquals(response.user.id, TEST_USER.id);
+    assertEquals(response.user?.id, TEST_USER.id);
+    await nc.close();
+  });
+
+  await t.step("Full RPC retries transient session_not_found during auth validation", async () => {
+    const meService = createClient<typeof authContract.API.owned>(
+      authContract,
+      nats.nc,
+      { sessionKey: "service-retry", sign: () => new Uint8Array(64) },
+      { name: "me-service-retry" },
+    );
+    const authService = createClient<typeof authContract.API.owned>(
+      authContract,
+      nats.nc,
+      { sessionKey: "auth-retry", sign: () => new Uint8Array(64) },
+      { name: "auth-service-retry" },
+    );
+
+    let validateCalls = 0;
+    await authService.mount("Auth.ValidateRequest", async (input: unknown) => {
+      const authInput = input as { sessionKey: string };
+      validateCalls += 1;
+      if (validateCalls === 1) {
+        return err(new AuthError({ reason: "session_not_found" }));
+      }
+      return ok({
+        allowed: true,
+        inboxPrefix: `_INBOX.${authInput.sessionKey.slice(0, 16)}`,
+        caller: TEST_CALLER,
+      });
+    });
+
+    await meService.mount("Auth.Me", async (_input, ctx) => {
+      if (ctx.caller.type !== "user") {
+        throw new Error("expected user caller");
+      }
+      return ok({
+        user: {
+          id: ctx.caller.id,
+          origin: ctx.caller.origin ?? "",
+          active: ctx.caller.active ?? true,
+          name: ctx.caller.name ?? "",
+          email: ctx.caller.email ?? "",
+          ...(ctx.caller.image ? { image: ctx.caller.image } : {}),
+          capabilities: ctx.caller.capabilities ?? [],
+        },
+      });
+    });
+
+    const { auth, inboxPrefix } = await createTestAuth();
+    const info = nats.nc.info!;
+    const nc = await connect({ servers: `localhost:${info.port}`, inboxPrefix });
+    const client = createClient<typeof authContract.API.owned>(
+      authContract,
+      nc,
+      auth,
+      { name: "client-retry" },
+    );
+
+    const response = await waitFor<{ user: { id: string } | null }>(async () => {
+      const r = await client.request("Auth.Me", {}, { timeout: 500 });
+      const v = r.take();
+      if (isErr(v)) return null;
+      return v;
+    }, { description: "Me responder ready after transient auth validation miss" });
+
+    assertEquals(response.user?.id, TEST_USER.id);
+    assertEquals(validateCalls, 2);
     await nc.close();
   });
 
@@ -440,13 +508,13 @@ Deno.test({
     const info = nats.nc.info!;
     const nc = await connect({ servers: `localhost:${info.port}`, inboxPrefix });
     const client = createClient<typeof authContract.API.owned>(authContract, nc, auth, { name: "client-throw" });
-    const response = await waitFor<{ user: { id: string } }>(
+    const response = await waitFor<{ user: { id: string } | null }>(
       () => client.requestOrThrow("Auth.Me", {}, { timeout: 500 }).catch(() => null),
       { description: "Me responder ready for requestOrThrow" },
     );
 
     assertExists(response?.user);
-    assertEquals(response?.user.id, TEST_USER.id);
+    assertEquals(response?.user?.id, TEST_USER.id);
     await nc.close();
   });
   },

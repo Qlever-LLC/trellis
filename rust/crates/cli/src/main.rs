@@ -75,7 +75,7 @@ const AUTH_BOOTSTRAP_BUCKETS: &[KvBucketSpec] = &[
         ttl_ms: 0,
     },
     KvBucketSpec {
-        name: "trellis_portal_workload_selections",
+        name: "trellis_portal_device_selections",
         ttl_ms: 0,
     },
     KvBucketSpec {
@@ -83,27 +83,27 @@ const AUTH_BOOTSTRAP_BUCKETS: &[KvBucketSpec] = &[
         ttl_ms: 5 * 60_000_u64,
     },
     KvBucketSpec {
-        name: "trellis_workload_profiles",
+        name: "trellis_device_profiles",
         ttl_ms: 0,
     },
     KvBucketSpec {
-        name: "trellis_workload_instances",
+        name: "trellis_device_instances",
         ttl_ms: 0,
     },
     KvBucketSpec {
-        name: "trellis_workload_activation_handoffs",
+        name: "trellis_device_activation_handoffs",
         ttl_ms: 30 * 60_000_u64,
     },
     KvBucketSpec {
-        name: "trellis_workload_provisioning_secrets",
+        name: "trellis_device_provisioning_secrets",
         ttl_ms: 0,
     },
     KvBucketSpec {
-        name: "trellis_workload_activations",
+        name: "trellis_device_activations",
         ttl_ms: 0,
     },
     KvBucketSpec {
-        name: "trellis_workload_activation_reviews",
+        name: "trellis_device_activation_reviews",
         ttl_ms: 0,
     },
     KvBucketSpec {
@@ -197,19 +197,19 @@ async fn main() -> miette::Result<()> {
                     portals_logins_clear_command(format, &args).await?
                 }
             },
-            PortalsSubcommand::Workloads(workloads) => match workloads.command {
-                PortalsWorkloadsSubcommand::Default(defaults) => match defaults.command {
-                    PortalsDefaultSubcommand::Show => portals_workloads_default_show_command(format).await?,
+            PortalsSubcommand::Devices(devices) => match devices.command {
+                PortalsDevicesSubcommand::Default(defaults) => match defaults.command {
+                    PortalsDefaultSubcommand::Show => portals_devices_default_show_command(format).await?,
                     PortalsDefaultSubcommand::Set(args) => {
-                        portals_workloads_default_set_command(format, &args).await?
+                        portals_devices_default_set_command(format, &args).await?
                     }
                 },
-                PortalsWorkloadsSubcommand::List => portals_workloads_list_command(format).await?,
-                PortalsWorkloadsSubcommand::Set(args) => {
-                    portals_workloads_set_command(format, &args).await?
+                PortalsDevicesSubcommand::List => portals_devices_list_command(format).await?,
+                PortalsDevicesSubcommand::Set(args) => {
+                    portals_devices_set_command(format, &args).await?
                 }
-                PortalsWorkloadsSubcommand::Clear(args) => {
-                    portals_workloads_clear_command(format, &args).await?
+                PortalsDevicesSubcommand::Clear(args) => {
+                    portals_devices_clear_command(format, &args).await?
                 }
             },
         },
@@ -242,43 +242,43 @@ async fn main() -> miette::Result<()> {
                 .await?
             }
         },
-        TopLevelCommand::Workloads(command) => match command.command {
-            WorkloadsSubcommand::Provision(args) => {
-                workloads_provision_command(format, &args).await?
+        TopLevelCommand::Devices(command) => match command.command {
+            DevicesSubcommand::Provision(args) => {
+                devices_provision_command(format, &args).await?
             }
-            WorkloadsSubcommand::Profiles(profiles) => match profiles.command {
-                WorkloadsProfilesSubcommand::List(args) => {
-                    workloads_profiles_list_command(format, &args).await?
+            DevicesSubcommand::Profiles(profiles) => match profiles.command {
+                DevicesProfilesSubcommand::List(args) => {
+                    devices_profiles_list_command(format, &args).await?
                 }
-                WorkloadsProfilesSubcommand::Create(args) => {
-                    workloads_profiles_create_command(format, &args).await?
+                DevicesProfilesSubcommand::Create(args) => {
+                    devices_profiles_create_command(format, &args).await?
                 }
-                WorkloadsProfilesSubcommand::Disable(args) => {
-                    workloads_profiles_disable_command(format, &args).await?
-                }
-            },
-            WorkloadsSubcommand::Instances(instances) => match instances.command {
-                WorkloadsInstancesSubcommand::List(args) => {
-                    workloads_instances_list_command(format, &args).await?
-                }
-                WorkloadsInstancesSubcommand::Disable(args) => {
-                    workloads_instances_disable_command(format, &args).await?
+                DevicesProfilesSubcommand::Disable(args) => {
+                    devices_profiles_disable_command(format, &args).await?
                 }
             },
-            WorkloadsSubcommand::Activations(activations) => match activations.command {
-                WorkloadsActivationsSubcommand::List(args) => {
-                    workloads_activations_list_command(format, &args).await?
+            DevicesSubcommand::Instances(instances) => match instances.command {
+                DevicesInstancesSubcommand::List(args) => {
+                    devices_instances_list_command(format, &args).await?
                 }
-                WorkloadsActivationsSubcommand::Revoke(args) => {
-                    workloads_activations_revoke_command(format, &args).await?
+                DevicesInstancesSubcommand::Disable(args) => {
+                    devices_instances_disable_command(format, &args).await?
                 }
             },
-            WorkloadsSubcommand::Reviews(reviews) => match reviews.command {
-                WorkloadsReviewsSubcommand::List(args) => {
-                    workloads_reviews_list_command(format, &args).await?
+            DevicesSubcommand::Activations(activations) => match activations.command {
+                DevicesActivationsSubcommand::List(args) => {
+                    devices_activations_list_command(format, &args).await?
                 }
-                WorkloadsReviewsSubcommand::Decide(args) => {
-                    workloads_reviews_decide_command(format, &args).await?
+                DevicesActivationsSubcommand::Revoke(args) => {
+                    devices_activations_revoke_command(format, &args).await?
+                }
+            },
+            DevicesSubcommand::Reviews(reviews) => match reviews.command {
+                DevicesReviewsSubcommand::List(args) => {
+                    devices_reviews_list_command(format, &args).await?
+                }
+                DevicesReviewsSubcommand::Decide(args) => {
+                    devices_reviews_decide_command(format, &args).await?
                 }
             },
         },
@@ -596,7 +596,7 @@ mod tests {
             "0" => 0,
             "config.ttlMs.sessions" => 24 * 60 * 60_000_u64,
             "config.ttlMs.oauth" => 5 * 60_000_u64,
-            "config.ttlMs.workloadHandoff" => 30 * 60_000_u64,
+            "config.ttlMs.deviceHandoff" => 30 * 60_000_u64,
             "config.ttlMs.pendingAuth" => 5 * 60_000_u64,
             "config.ttlMs.bindingTokens.bucket" => 24 * 60 * 60_000_u64,
             "config.ttlMs.connections" => 2 * 60 * 60_000_u64,
@@ -928,7 +928,7 @@ fn portal_target_label(portal_id: Option<&str>) -> String {
 }
 
 #[derive(Debug, serde::Serialize)]
-struct WorkloadProvisionOutput {
+struct DeviceProvisionOutput {
     #[serde(rename = "profileId")]
     profile_id: String,
     #[serde(rename = "instanceId")]
@@ -939,7 +939,7 @@ struct WorkloadProvisionOutput {
     root_secret: String,
 }
 
-fn resolve_workload_contract_source(value: &str) -> miette::Result<Option<contract_input::ResolvedContractInput>> {
+fn resolve_device_contract_source(value: &str) -> miette::Result<Option<contract_input::ResolvedContractInput>> {
     let path = Path::new(value);
     if !path.exists() {
         return Ok(None);
@@ -970,11 +970,11 @@ fn resolve_workload_contract_source(value: &str) -> miette::Result<Option<contra
     Ok(Some(resolved))
 }
 
-async fn resolve_workload_profile_contract(
+async fn resolve_device_profile_contract(
     connected: &TrellisClient,
     contract: &str,
 ) -> miette::Result<(String, Vec<String>, Option<BTreeMap<String, Value>>)> {
-    if let Some(resolved) = resolve_workload_contract_source(contract)? {
+    if let Some(resolved) = resolve_device_contract_source(contract)? {
         let contract = resolved
             .loaded
             .value
@@ -1194,11 +1194,11 @@ async fn portals_logins_clear_command(
     Ok(())
 }
 
-async fn portals_workloads_default_show_command(format: OutputFormat) -> miette::Result<()> {
+async fn portals_devices_default_show_command(format: OutputFormat) -> miette::Result<()> {
     let mut state = authlib::load_admin_session().into_diagnostic()?;
     let connected = authlib::connect_admin_client_async(&state).await.into_diagnostic()?;
     let auth_client = authlib::AuthClient::new(&connected);
-    let default_portal = auth_client.get_workload_portal_default().await.into_diagnostic()?;
+    let default_portal = auth_client.get_device_portal_default().await.into_diagnostic()?;
     auth_client.renew_binding_token(&mut state).await.into_diagnostic()?;
     if output::is_json(format) {
         output::print_json(&json!({ "defaultPortal": default_portal }))?;
@@ -1211,7 +1211,7 @@ async fn portals_workloads_default_show_command(format: OutputFormat) -> miette:
     Ok(())
 }
 
-async fn portals_workloads_default_set_command(
+async fn portals_devices_default_set_command(
     format: OutputFormat,
     args: &PortalsDefaultSetArgs,
 ) -> miette::Result<()> {
@@ -1219,7 +1219,7 @@ async fn portals_workloads_default_set_command(
     let connected = authlib::connect_admin_client_async(&state).await.into_diagnostic()?;
     let auth_client = authlib::AuthClient::new(&connected);
     let default_portal = auth_client
-        .set_workload_portal_default(portal_target_id(&args.target))
+        .set_device_portal_default(portal_target_id(&args.target))
         .await
         .into_diagnostic()?;
     auth_client.renew_binding_token(&mut state).await.into_diagnostic()?;
@@ -1227,7 +1227,7 @@ async fn portals_workloads_default_set_command(
         output::print_json(&json!({ "defaultPortal": default_portal }))?;
         return Ok(());
     }
-    output::print_success("workload portal default updated");
+    output::print_success("device portal default updated");
     output::print_info(&format!(
         "portal={}",
         portal_target_label(default_portal.portal_id.as_deref())
@@ -1235,12 +1235,12 @@ async fn portals_workloads_default_set_command(
     Ok(())
 }
 
-async fn portals_workloads_list_command(format: OutputFormat) -> miette::Result<()> {
+async fn portals_devices_list_command(format: OutputFormat) -> miette::Result<()> {
     let mut state = authlib::load_admin_session().into_diagnostic()?;
     let connected = authlib::connect_admin_client_async(&state).await.into_diagnostic()?;
     let auth_client = authlib::AuthClient::new(&connected);
     let selections = auth_client
-        .list_workload_portal_selections()
+        .list_device_portal_selections()
         .await
         .into_diagnostic()?;
     auth_client.renew_binding_token(&mut state).await.into_diagnostic()?;
@@ -1249,7 +1249,7 @@ async fn portals_workloads_list_command(format: OutputFormat) -> miette::Result<
         return Ok(());
     }
     if selections.is_empty() {
-        output::print_info("no workload portal selections configured");
+        output::print_info("no device portal selections configured");
         return Ok(());
     }
     let rows = selections
@@ -1265,15 +1265,15 @@ async fn portals_workloads_list_command(format: OutputFormat) -> miette::Result<
     Ok(())
 }
 
-async fn portals_workloads_set_command(
+async fn portals_devices_set_command(
     format: OutputFormat,
-    args: &PortalsWorkloadsSetArgs,
+    args: &PortalsDevicesSetArgs,
 ) -> miette::Result<()> {
     let mut state = authlib::load_admin_session().into_diagnostic()?;
     let connected = authlib::connect_admin_client_async(&state).await.into_diagnostic()?;
     let auth_client = authlib::AuthClient::new(&connected);
     let selection = auth_client
-        .set_workload_portal_selection(&args.profile, portal_target_id(&args.target))
+        .set_device_portal_selection(&args.profile, portal_target_id(&args.target))
         .await
         .into_diagnostic()?;
     auth_client.renew_binding_token(&mut state).await.into_diagnostic()?;
@@ -1281,7 +1281,7 @@ async fn portals_workloads_set_command(
         output::print_json(&json!({ "selection": selection }))?;
         return Ok(());
     }
-    output::print_success("workload portal selection updated");
+    output::print_success("device portal selection updated");
     output::print_info(&format!("profileId={}", selection.profile_id));
     output::print_info(&format!(
         "portal={}",
@@ -1290,15 +1290,15 @@ async fn portals_workloads_set_command(
     Ok(())
 }
 
-async fn portals_workloads_clear_command(
+async fn portals_devices_clear_command(
     format: OutputFormat,
-    args: &PortalsWorkloadsClearArgs,
+    args: &PortalsDevicesClearArgs,
 ) -> miette::Result<()> {
     let mut state = authlib::load_admin_session().into_diagnostic()?;
     let connected = authlib::connect_admin_client_async(&state).await.into_diagnostic()?;
     let auth_client = authlib::AuthClient::new(&connected);
     let success = auth_client
-        .clear_workload_portal_selection(&args.profile)
+        .clear_device_portal_selection(&args.profile)
         .await
         .into_diagnostic()?;
     auth_client.renew_binding_token(&mut state).await.into_diagnostic()?;
@@ -1307,22 +1307,22 @@ async fn portals_workloads_clear_command(
         return Ok(());
     }
     if success {
-        output::print_success("workload portal selection cleared");
+        output::print_success("device portal selection cleared");
     } else {
-        output::print_info("no matching workload portal selection found");
+        output::print_info("no matching device portal selection found");
     }
     Ok(())
 }
 
-async fn workloads_profiles_list_command(
+async fn devices_profiles_list_command(
     format: OutputFormat,
-    args: &WorkloadsProfilesListArgs,
+    args: &DevicesProfilesListArgs,
 ) -> miette::Result<()> {
     let mut state = authlib::load_admin_session().into_diagnostic()?;
     let connected = authlib::connect_admin_client_async(&state).await.into_diagnostic()?;
     let auth_client = authlib::AuthClient::new(&connected);
     let profiles = auth_client
-        .list_workload_profiles(args.contract.as_deref(), args.disabled)
+        .list_device_profiles(args.contract.as_deref(), args.disabled)
         .await
         .into_diagnostic()?;
     auth_client.renew_binding_token(&mut state).await.into_diagnostic()?;
@@ -1331,7 +1331,7 @@ async fn workloads_profiles_list_command(
         return Ok(());
     }
     if profiles.is_empty() {
-        output::print_info("no workload profiles configured");
+        output::print_info("no device profiles configured");
         return Ok(());
     }
     let rows = profiles
@@ -1353,17 +1353,17 @@ async fn workloads_profiles_list_command(
     Ok(())
 }
 
-async fn workloads_profiles_create_command(
+async fn devices_profiles_create_command(
     format: OutputFormat,
-    args: &WorkloadsProfilesCreateArgs,
+    args: &DevicesProfilesCreateArgs,
 ) -> miette::Result<()> {
     let mut state = authlib::load_admin_session().into_diagnostic()?;
     let connected = authlib::connect_admin_client_async(&state).await.into_diagnostic()?;
     let auth_client = authlib::AuthClient::new(&connected);
     let (contract_id, allowed_digests, contract) =
-        resolve_workload_profile_contract(&connected, &args.contract).await?;
+        resolve_device_profile_contract(&connected, &args.contract).await?;
     let profile = auth_client
-        .create_workload_profile(
+        .create_device_profile(
             &args.profile,
             &contract_id,
             &allowed_digests,
@@ -1377,21 +1377,21 @@ async fn workloads_profiles_create_command(
         output::print_json(&json!({ "profile": profile }))?;
         return Ok(());
     }
-    output::print_success("workload profile created");
+    output::print_success("device profile created");
     output::print_info(&format!("profileId={}", profile.profile_id));
     output::print_info(&format!("contractId={}", profile.contract_id));
     output::print_info(&format!("allowedDigests={}", profile.allowed_digests.len()));
     Ok(())
 }
 
-async fn workloads_profiles_disable_command(
+async fn devices_profiles_disable_command(
     format: OutputFormat,
-    args: &WorkloadsProfilesDisableArgs,
+    args: &DevicesProfilesDisableArgs,
 ) -> miette::Result<()> {
     let mut state = authlib::load_admin_session().into_diagnostic()?;
     let connected = authlib::connect_admin_client_async(&state).await.into_diagnostic()?;
     let auth_client = authlib::AuthClient::new(&connected);
-    let success = auth_client.disable_workload_profile(&args.profile).await.into_diagnostic()?;
+    let success = auth_client.disable_device_profile(&args.profile).await.into_diagnostic()?;
     auth_client.renew_binding_token(&mut state).await.into_diagnostic()?;
     if output::is_json(format) {
         output::print_json(&json!({ "success": success, "profileId": args.profile }))?;
@@ -1400,9 +1400,9 @@ async fn workloads_profiles_disable_command(
     Ok(())
 }
 
-async fn workloads_provision_command(
+async fn devices_provision_command(
     format: OutputFormat,
-    args: &WorkloadsProvisionArgs,
+    args: &DevicesProvisionArgs,
 ) -> miette::Result<()> {
     let mut state = authlib::load_admin_session().into_diagnostic()?;
     let connected = authlib::connect_admin_client_async(&state).await.into_diagnostic()?;
@@ -1410,9 +1410,9 @@ async fn workloads_provision_command(
 
     let seed: [u8; 32] = rand::random();
     let root_secret = URL_SAFE_NO_PAD.encode(seed);
-    let identity = authlib::derive_workload_identity(&seed).into_diagnostic()?;
+    let identity = authlib::derive_device_identity(&seed).into_diagnostic()?;
     let instance = auth_client
-        .provision_workload_instance(
+        .provision_device_instance(
             &args.profile,
             &identity.public_identity_key,
             &identity.activation_key_base64url,
@@ -1420,7 +1420,7 @@ async fn workloads_provision_command(
         .await
         .into_diagnostic()?;
     auth_client.renew_binding_token(&mut state).await.into_diagnostic()?;
-    let bundle = WorkloadProvisionOutput {
+    let bundle = DeviceProvisionOutput {
         profile_id: args.profile.clone(),
         instance_id: instance.instance_id.clone(),
         public_identity_key: identity.public_identity_key,
@@ -1432,7 +1432,7 @@ async fn workloads_provision_command(
         return Ok(());
     }
 
-    output::print_success("workload provisioned");
+    output::print_success("device provisioned");
     output::print_info(&format!("profileId={}", bundle.profile_id));
     output::print_info(&format!("instanceId={}", bundle.instance_id));
     output::print_info(&format!("publicIdentityKey={}", bundle.public_identity_key));
@@ -1441,15 +1441,15 @@ async fn workloads_provision_command(
     Ok(())
 }
 
-async fn workloads_instances_list_command(
+async fn devices_instances_list_command(
     format: OutputFormat,
-    args: &WorkloadsInstancesListArgs,
+    args: &DevicesInstancesListArgs,
 ) -> miette::Result<()> {
     let mut state = authlib::load_admin_session().into_diagnostic()?;
     let connected = authlib::connect_admin_client_async(&state).await.into_diagnostic()?;
     let auth_client = authlib::AuthClient::new(&connected);
     let instances = auth_client
-        .list_workload_instances(args.profile.as_deref(), args.state.as_deref())
+        .list_device_instances(args.profile.as_deref(), args.state.as_deref())
         .await
         .into_diagnostic()?;
     auth_client.renew_binding_token(&mut state).await.into_diagnostic()?;
@@ -1465,14 +1465,14 @@ async fn workloads_instances_list_command(
     Ok(())
 }
 
-async fn workloads_instances_disable_command(
+async fn devices_instances_disable_command(
     format: OutputFormat,
-    args: &WorkloadsInstancesDisableArgs,
+    args: &DevicesInstancesDisableArgs,
 ) -> miette::Result<()> {
     let mut state = authlib::load_admin_session().into_diagnostic()?;
     let connected = authlib::connect_admin_client_async(&state).await.into_diagnostic()?;
     let auth_client = authlib::AuthClient::new(&connected);
-    let success = auth_client.disable_workload_instance(&args.instance).await.into_diagnostic()?;
+    let success = auth_client.disable_device_instance(&args.instance).await.into_diagnostic()?;
     auth_client.renew_binding_token(&mut state).await.into_diagnostic()?;
     if output::is_json(format) {
         output::print_json(&json!({ "success": success, "instanceId": args.instance }))?;
@@ -1481,15 +1481,15 @@ async fn workloads_instances_disable_command(
     Ok(())
 }
 
-async fn workloads_activations_list_command(
+async fn devices_activations_list_command(
     format: OutputFormat,
-    args: &WorkloadsActivationsListArgs,
+    args: &DevicesActivationsListArgs,
 ) -> miette::Result<()> {
     let mut state = authlib::load_admin_session().into_diagnostic()?;
     let connected = authlib::connect_admin_client_async(&state).await.into_diagnostic()?;
     let auth_client = authlib::AuthClient::new(&connected);
     let activations = auth_client
-        .list_workload_activations(
+        .list_device_activations(
             args.instance.as_deref(),
             args.profile.as_deref(),
             args.state.as_deref(),
@@ -1509,14 +1509,14 @@ async fn workloads_activations_list_command(
     Ok(())
 }
 
-async fn workloads_activations_revoke_command(
+async fn devices_activations_revoke_command(
     format: OutputFormat,
-    args: &WorkloadsActivationsRevokeArgs,
+    args: &DevicesActivationsRevokeArgs,
 ) -> miette::Result<()> {
     let mut state = authlib::load_admin_session().into_diagnostic()?;
     let connected = authlib::connect_admin_client_async(&state).await.into_diagnostic()?;
     let auth_client = authlib::AuthClient::new(&connected);
-    let success = auth_client.revoke_workload_activation(&args.instance).await.into_diagnostic()?;
+    let success = auth_client.revoke_device_activation(&args.instance).await.into_diagnostic()?;
     auth_client.renew_binding_token(&mut state).await.into_diagnostic()?;
     if output::is_json(format) {
         output::print_json(&json!({ "success": success, "instanceId": args.instance }))?;
@@ -1525,15 +1525,15 @@ async fn workloads_activations_revoke_command(
     Ok(())
 }
 
-async fn workloads_reviews_list_command(
+async fn devices_reviews_list_command(
     format: OutputFormat,
-    args: &WorkloadsReviewsListArgs,
+    args: &DevicesReviewsListArgs,
 ) -> miette::Result<()> {
     let mut state = authlib::load_admin_session().into_diagnostic()?;
     let connected = authlib::connect_admin_client_async(&state).await.into_diagnostic()?;
     let auth_client = authlib::AuthClient::new(&connected);
     let reviews = auth_client
-        .list_workload_activation_reviews(
+        .list_device_activation_reviews(
             args.instance.as_deref(),
             args.profile.as_deref(),
             args.state.as_deref(),
@@ -1546,7 +1546,7 @@ async fn workloads_reviews_list_command(
         return Ok(());
     }
     if reviews.is_empty() {
-        output::print_info("no workload reviews pending");
+        output::print_info("no device reviews pending");
         return Ok(());
     }
     let rows = reviews
@@ -1564,16 +1564,16 @@ async fn workloads_reviews_list_command(
     Ok(())
 }
 
-async fn workloads_reviews_decide_command(
+async fn devices_reviews_decide_command(
     format: OutputFormat,
-    args: &WorkloadsReviewsDecideArgs,
+    args: &DevicesReviewsDecideArgs,
 ) -> miette::Result<()> {
     let mut state = authlib::load_admin_session().into_diagnostic()?;
     let connected = authlib::connect_admin_client_async(&state).await.into_diagnostic()?;
     let auth_client = authlib::AuthClient::new(&connected);
     let decision = review_decision_label(&args.decision);
     let response = auth_client
-        .decide_workload_activation_review(&args.review, decision, args.reason.as_deref())
+        .decide_device_activation_review(&args.review, decision, args.reason.as_deref())
         .await
         .into_diagnostic()?;
     auth_client.renew_binding_token(&mut state).await.into_diagnostic()?;
@@ -1581,7 +1581,7 @@ async fn workloads_reviews_decide_command(
         output::print_json(&response)?;
         return Ok(());
     }
-    output::print_success("workload review updated");
+    output::print_success("device review updated");
     output::print_info(&format!("reviewId={}", response.review.review_id));
     output::print_info(&format!("state={}", json_value_label(&response.review.state)));
     if let Some(code) = response.confirmation_code.as_deref() {

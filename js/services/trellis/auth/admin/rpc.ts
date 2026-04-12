@@ -2,43 +2,44 @@ import { AuthError } from "@qlever-llc/trellis";
 import { isErr, Result } from "@qlever-llc/result";
 
 import {
+  deviceActivationHandoffsKV,
+  deviceActivationReviewsKV,
+  deviceActivationsKV,
+  deviceInstancesKV,
+  devicePortalSelectionsKV,
+  deviceProvisioningSecretsKV,
+  deviceProfilesKV,
   logger,
   loginPortalSelectionsKV,
   portalDefaultsKV,
   portalsKV,
-  workloadActivationHandoffsKV,
-  workloadActivationReviewsKV,
-  workloadActivationsKV,
-  workloadInstancesKV,
-  workloadPortalSelectionsKV,
-  workloadProvisioningSecretsKV,
-  workloadProfilesKV,
 } from "../../bootstrap/globals.ts";
 import {
   type CreatePortalRequest,
+  type CreateDeviceProfileRequest,
+  type DeviceActivationReview,
+  type DeviceInstance,
+  type DevicePortalSelection,
+  type DevicePortalSelectionRequest,
+  type DeviceProvisioningSecret,
+  type DeviceProfile,
+  type ProvisionDeviceInstanceRequest,
   type LoginPortalSelection,
   type LoginPortalSelectionRequest,
   type Portal,
   type PortalDefault,
   type PortalDefaultRequest,
-  type ProvisionWorkloadInstanceRequest,
-  type WorkloadActivationReview,
-  type WorkloadInstance,
-  type WorkloadPortalSelection,
-  type WorkloadPortalSelectionRequest,
-  type WorkloadProvisioningSecret,
-  type WorkloadProfile,
   validateLoginPortalSelectionRequest,
+  validateDevicePortalSelectionRequest,
+  validateDeviceProfileRequest,
+  validateDeviceProvisionRequest,
   validatePortalDefaultRequest,
   validatePortalRequest,
-  validateWorkloadProvisionRequest,
-  validateWorkloadPortalSelectionRequest,
-  validateWorkloadProfileRequest,
 } from "./shared.ts";
-import { deriveWorkloadConfirmationCode } from "../../../../packages/auth/workload_activation.ts";
+import { deriveDeviceConfirmationCode } from "../../../../packages/auth/device_activation.ts";
 
 type RpcUser = { capabilities?: string[] };
-type WorkloadActivation = {
+type DeviceActivation = {
   instanceId: string;
   publicIdentityKey: string;
   profileId: string;
@@ -51,7 +52,7 @@ type WorkloadActivation = {
   revokedAt: string | null;
 };
 
-type WorkloadActivationHandoff = {
+type DeviceActivationHandoff = {
   handoffId: string;
   instanceId: string;
   publicIdentityKey: string;
@@ -61,7 +62,7 @@ type WorkloadActivationHandoff = {
   expiresAt: Date | string;
 };
 
-type WorkloadActivationReviewRecord = {
+type DeviceActivationReviewRecord = {
   reviewId: string;
   instanceId: string;
   publicIdentityKey: string;
@@ -78,14 +79,14 @@ type WorkloadActivationReviewRecord = {
 };
 
 const LOGIN_DEFAULT_KEY = "login.default";
-const WORKLOAD_DEFAULT_KEY = "workload.default";
+const DEVICE_DEFAULT_KEY = "device.default";
 
 function isAdmin(user: RpcUser): boolean {
   return user.capabilities?.includes("admin") ?? false;
 }
 
 function canReview(user: RpcUser): boolean {
-  return isAdmin(user) || (user.capabilities?.includes("workload.review") ?? false);
+  return isAdmin(user) || (user.capabilities?.includes("device.review") ?? false);
 }
 
 function insufficientPermissions() {
@@ -100,7 +101,7 @@ function loginSelectionKey(contractId: string): string {
   return `contract.${contractId}`;
 }
 
-function workloadSelectionKey(profileId: string): string {
+function deviceSelectionKey(profileId: string): string {
   return `profile.${profileId}`;
 }
 
@@ -110,40 +111,40 @@ async function loadPortal(portalId: string): Promise<Portal | null> {
   return entry.value as Portal;
 }
 
-async function loadWorkloadProfile(profileId: string): Promise<WorkloadProfile | null> {
-  const entry = (await workloadProfilesKV.get(profileId)).take();
+async function loadDeviceProfile(profileId: string): Promise<DeviceProfile | null> {
+  const entry = (await deviceProfilesKV.get(profileId)).take();
   if (isErr(entry)) return null;
-  return entry.value as WorkloadProfile;
+  return entry.value as DeviceProfile;
 }
 
-async function loadWorkloadInstance(instanceId: string): Promise<WorkloadInstance | null> {
-  const entry = (await workloadInstancesKV.get(instanceId)).take();
+async function loadDeviceInstance(instanceId: string): Promise<DeviceInstance | null> {
+  const entry = (await deviceInstancesKV.get(instanceId)).take();
   if (isErr(entry)) return null;
-  return entry.value as WorkloadInstance;
+  return entry.value as DeviceInstance;
 }
 
-async function loadWorkloadProvisioningSecret(instanceId: string): Promise<WorkloadProvisioningSecret | null> {
-  const entry = (await workloadProvisioningSecretsKV.get(instanceId)).take();
+async function loadDeviceProvisioningSecret(instanceId: string): Promise<DeviceProvisioningSecret | null> {
+  const entry = (await deviceProvisioningSecretsKV.get(instanceId)).take();
   if (isErr(entry)) return null;
-  return entry.value as WorkloadProvisioningSecret;
+  return entry.value as DeviceProvisioningSecret;
 }
 
-async function loadWorkloadActivationReview(reviewId: string): Promise<WorkloadActivationReviewRecord | null> {
-  const entry = (await workloadActivationReviewsKV.get(reviewId)).take();
+async function loadDeviceActivationReview(reviewId: string): Promise<DeviceActivationReviewRecord | null> {
+  const entry = (await deviceActivationReviewsKV.get(reviewId)).take();
   if (isErr(entry)) return null;
-  return entry.value as WorkloadActivationReviewRecord;
+  return entry.value as DeviceActivationReviewRecord;
 }
 
-async function loadWorkloadActivationHandoff(handoffId: string): Promise<WorkloadActivationHandoff | null> {
-  const entry = (await workloadActivationHandoffsKV.get(handoffId)).take();
+async function loadDeviceActivationHandoff(handoffId: string): Promise<DeviceActivationHandoff | null> {
+  const entry = (await deviceActivationHandoffsKV.get(handoffId)).take();
   if (isErr(entry)) return null;
-  return entry.value as WorkloadActivationHandoff;
+  return entry.value as DeviceActivationHandoff;
 }
 
-async function loadWorkloadActivation(instanceId: string): Promise<WorkloadActivation | null> {
-  const entry = (await workloadActivationsKV.get(instanceId)).take();
+async function loadDeviceActivation(instanceId: string): Promise<DeviceActivation | null> {
+  const entry = (await deviceActivationsKV.get(instanceId)).take();
   if (isErr(entry)) return null;
-  return entry.value as WorkloadActivation;
+  return entry.value as DeviceActivation;
 }
 
 async function loadPortalDefault(key: string): Promise<PortalDefault | null> {
@@ -158,10 +159,10 @@ async function loadLoginPortalSelection(contractId: string): Promise<LoginPortal
   return entry.value as LoginPortalSelection;
 }
 
-async function loadWorkloadPortalSelection(profileId: string): Promise<WorkloadPortalSelection | null> {
-  const entry = (await workloadPortalSelectionsKV.get(workloadSelectionKey(profileId))).take();
+async function loadDevicePortalSelection(profileId: string): Promise<DevicePortalSelection | null> {
+  const entry = (await devicePortalSelectionsKV.get(deviceSelectionKey(profileId))).take();
   if (isErr(entry)) return null;
-  return entry.value as WorkloadPortalSelection;
+  return entry.value as DevicePortalSelection;
 }
 
 async function listPortals(): Promise<Portal[]> {
@@ -188,67 +189,67 @@ async function listLoginPortalSelections(): Promise<LoginPortalSelection[]> {
   return values;
 }
 
-async function listWorkloadPortalSelections(): Promise<WorkloadPortalSelection[]> {
-  const iter = (await workloadPortalSelectionsKV.keys(">"))?.take();
+async function listDevicePortalSelections(): Promise<DevicePortalSelection[]> {
+  const iter = (await devicePortalSelectionsKV.keys(">"))?.take();
   if (isErr(iter)) return [];
-  const values: WorkloadPortalSelection[] = [];
+  const values: DevicePortalSelection[] = [];
   for await (const key of iter) {
-    const entry = (await workloadPortalSelectionsKV.get(key)).take();
-    if (!isErr(entry)) values.push(entry.value as WorkloadPortalSelection);
+    const entry = (await devicePortalSelectionsKV.get(key)).take();
+    if (!isErr(entry)) values.push(entry.value as DevicePortalSelection);
   }
   values.sort((left, right) => left.profileId.localeCompare(right.profileId));
   return values;
 }
 
-async function listWorkloadProfiles(): Promise<WorkloadProfile[]> {
-  const iter = (await workloadProfilesKV.keys(">"))?.take();
+async function listDeviceProfiles(): Promise<DeviceProfile[]> {
+  const iter = (await deviceProfilesKV.keys(">"))?.take();
   if (isErr(iter)) return [];
-  const values: WorkloadProfile[] = [];
+  const values: DeviceProfile[] = [];
   for await (const key of iter) {
-    const entry = (await workloadProfilesKV.get(key)).take();
-    if (!isErr(entry)) values.push(entry.value as WorkloadProfile);
+    const entry = (await deviceProfilesKV.get(key)).take();
+    if (!isErr(entry)) values.push(entry.value as DeviceProfile);
   }
   values.sort((left, right) => left.profileId.localeCompare(right.profileId));
   return values;
 }
 
-async function listWorkloadInstances(): Promise<WorkloadInstance[]> {
-  const iter = (await workloadInstancesKV.keys(">"))?.take();
+async function listDeviceInstances(): Promise<DeviceInstance[]> {
+  const iter = (await deviceInstancesKV.keys(">"))?.take();
   if (isErr(iter)) return [];
-  const values: WorkloadInstance[] = [];
+  const values: DeviceInstance[] = [];
   for await (const key of iter) {
-    const entry = (await workloadInstancesKV.get(key)).take();
-    if (!isErr(entry)) values.push(entry.value as WorkloadInstance);
+    const entry = (await deviceInstancesKV.get(key)).take();
+    if (!isErr(entry)) values.push(entry.value as DeviceInstance);
   }
   values.sort((left, right) => left.instanceId.localeCompare(right.instanceId));
   return values;
 }
 
-async function listWorkloadActivations(): Promise<WorkloadActivation[]> {
-  const iter = (await workloadActivationsKV.keys(">"))?.take();
+async function listDeviceActivations(): Promise<DeviceActivation[]> {
+  const iter = (await deviceActivationsKV.keys(">"))?.take();
   if (isErr(iter)) return [];
-  const values: WorkloadActivation[] = [];
+  const values: DeviceActivation[] = [];
   for await (const key of iter) {
-    const entry = (await workloadActivationsKV.get(key)).take();
-    if (!isErr(entry)) values.push(entry.value as WorkloadActivation);
+    const entry = (await deviceActivationsKV.get(key)).take();
+    if (!isErr(entry)) values.push(entry.value as DeviceActivation);
   }
   values.sort((left, right) => left.instanceId.localeCompare(right.instanceId));
   return values;
 }
 
-async function listWorkloadActivationReviews(): Promise<WorkloadActivationReviewRecord[]> {
-  const iter = (await workloadActivationReviewsKV.keys(">"))?.take();
+async function listDeviceActivationReviews(): Promise<DeviceActivationReviewRecord[]> {
+  const iter = (await deviceActivationReviewsKV.keys(">"))?.take();
   if (isErr(iter)) return [];
-  const values: WorkloadActivationReviewRecord[] = [];
+  const values: DeviceActivationReviewRecord[] = [];
   for await (const key of iter) {
-    const entry = (await workloadActivationReviewsKV.get(key)).take();
-    if (!isErr(entry)) values.push(entry.value as WorkloadActivationReviewRecord);
+    const entry = (await deviceActivationReviewsKV.get(key)).take();
+    if (!isErr(entry)) values.push(entry.value as DeviceActivationReviewRecord);
   }
   values.sort((left, right) => left.reviewId.localeCompare(right.reviewId));
   return values;
 }
 
-function toPublicReview(review: WorkloadActivationReviewRecord): WorkloadActivationReview {
+function toPublicReview(review: DeviceActivationReviewRecord): DeviceActivationReview {
   return {
     reviewId: review.reviewId,
     instanceId: review.instanceId,
@@ -261,11 +262,11 @@ function toPublicReview(review: WorkloadActivationReviewRecord): WorkloadActivat
   };
 }
 
-async function confirmationCodeForReview(review: WorkloadActivationReviewRecord): Promise<string | null> {
-  const handoff = await loadWorkloadActivationHandoff(review.handoffId);
-  const provisioningSecret = await loadWorkloadProvisioningSecret(review.instanceId);
+async function confirmationCodeForReview(review: DeviceActivationReviewRecord): Promise<string | null> {
+  const handoff = await loadDeviceActivationHandoff(review.handoffId);
+  const provisioningSecret = await loadDeviceProvisioningSecret(review.instanceId);
   if (!handoff || !provisioningSecret) return null;
-  return await deriveWorkloadConfirmationCode({
+  return await deriveDeviceConfirmationCode({
     activationKey: provisioningSecret.activationKey,
     publicIdentityKey: review.publicIdentityKey,
     nonce: handoff.nonce,
@@ -358,12 +359,12 @@ export const authClearLoginPortalSelectionHandler = async (
   return Result.ok({ success: true });
 };
 
-export const authGetWorkloadPortalDefaultHandler = async (_req: unknown, { caller }: { caller: RpcUser }) => {
+export const authGetDevicePortalDefaultHandler = async (_req: unknown, { caller }: { caller: RpcUser }) => {
   if (!isAdmin(caller)) return insufficientPermissions();
-  return Result.ok({ defaultPortal: (await loadPortalDefault(WORKLOAD_DEFAULT_KEY)) ?? { portalId: null } });
+  return Result.ok({ defaultPortal: (await loadPortalDefault(DEVICE_DEFAULT_KEY)) ?? { portalId: null } });
 };
 
-export const authSetWorkloadPortalDefaultHandler = async (
+export const authSetDevicePortalDefaultHandler = async (
   req: PortalDefaultRequest,
   { caller }: { caller: RpcUser },
 ) => {
@@ -373,53 +374,53 @@ export const authSetWorkloadPortalDefaultHandler = async (
   const { defaultPortal } = validation.take() as { defaultPortal: PortalDefault };
   const referenceCheck = await ensurePortalReference(defaultPortal.portalId);
   if (referenceCheck.isErr()) return referenceCheck;
-  await portalDefaultsKV.put(WORKLOAD_DEFAULT_KEY, defaultPortal);
+  await portalDefaultsKV.put(DEVICE_DEFAULT_KEY, defaultPortal);
   return Result.ok({ defaultPortal });
 };
 
-export const authListWorkloadPortalSelectionsHandler = async (_req: unknown, { caller }: { caller: RpcUser }) => {
+export const authListDevicePortalSelectionsHandler = async (_req: unknown, { caller }: { caller: RpcUser }) => {
   if (!isAdmin(caller)) return insufficientPermissions();
-  return Result.ok({ selections: await listWorkloadPortalSelections() });
+  return Result.ok({ selections: await listDevicePortalSelections() });
 };
 
-export const authSetWorkloadPortalSelectionHandler = async (
-  req: WorkloadPortalSelectionRequest,
+export const authSetDevicePortalSelectionHandler = async (
+  req: DevicePortalSelectionRequest,
   { caller }: { caller: RpcUser },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
-  const validation = validateWorkloadPortalSelectionRequest(req);
+  const validation = validateDevicePortalSelectionRequest(req);
   if (validation.isErr()) return validation;
-  const { selection } = validation.take() as { selection: WorkloadPortalSelection };
-  const profile = await loadWorkloadProfile(selection.profileId);
+  const { selection } = validation.take() as { selection: DevicePortalSelection };
+  const profile = await loadDeviceProfile(selection.profileId);
   if (!profile || profile.disabled) {
-    return invalidRequest({ profileId: selection.profileId, reason: "workload_profile_not_found" });
+    return invalidRequest({ profileId: selection.profileId, reason: "device_profile_not_found" });
   }
   const referenceCheck = await ensurePortalReference(selection.portalId);
   if (referenceCheck.isErr()) return referenceCheck;
-  await workloadPortalSelectionsKV.put(workloadSelectionKey(selection.profileId), selection);
+  await devicePortalSelectionsKV.put(deviceSelectionKey(selection.profileId), selection);
   return Result.ok({ selection });
 };
 
-export const authClearWorkloadPortalSelectionHandler = async (
+export const authClearDevicePortalSelectionHandler = async (
   req: { profileId: string },
   { caller }: { caller: RpcUser },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
-  const selection = await loadWorkloadPortalSelection(req.profileId);
+  const selection = await loadDevicePortalSelection(req.profileId);
   if (!selection) return Result.ok({ success: false });
-  await workloadPortalSelectionsKV.delete(workloadSelectionKey(req.profileId));
+  await devicePortalSelectionsKV.delete(deviceSelectionKey(req.profileId));
   return Result.ok({ success: true });
 };
 
-export function createAuthCreateWorkloadProfileHandler(deps: {
-  installWorkloadContract: (contract: unknown) => Promise<{ id: string; digest: string }>;
+export function createAuthCreateDeviceProfileHandler(deps: {
+  installDeviceContract: (contract: unknown) => Promise<{ id: string; digest: string }>;
   refreshActiveContracts: () => Promise<void>;
 }) {
-  return async (req: Parameters<typeof validateWorkloadProfileRequest>[0], { caller }: { caller: RpcUser }) => {
+  return async (req: Parameters<typeof validateDeviceProfileRequest>[0], { caller }: { caller: RpcUser }) => {
     if (!isAdmin(caller)) return insufficientPermissions();
-    const validation = validateWorkloadProfileRequest(req);
+    const validation = validateDeviceProfileRequest(req);
     if (validation.isErr()) return validation;
-    const { profile } = validation.take() as { profile: WorkloadProfile };
+    const { profile } = validation.take() as { profile: DeviceProfile };
     if (req.contract) {
       if (Array.isArray(req.contract)) {
         return Result.err(
@@ -436,7 +437,7 @@ export function createAuthCreateWorkloadProfileHandler(deps: {
       const contract = Object.fromEntries(Object.entries(req.contract));
       let installed;
       try {
-        installed = await deps.installWorkloadContract(contract);
+        installed = await deps.installDeviceContract(contract);
       } catch (error) {
         return Result.err(
           new AuthError({
@@ -458,7 +459,7 @@ export function createAuthCreateWorkloadProfileHandler(deps: {
               profileId: profile.profileId,
               contractId: profile.contractId,
               installedContractId: installed.id,
-              message: "workload contract id mismatch",
+              message: "device contract id mismatch",
             },
           }),
         );
@@ -466,125 +467,125 @@ export function createAuthCreateWorkloadProfileHandler(deps: {
 
       await deps.refreshActiveContracts();
     }
-    await workloadProfilesKV.put(profile.profileId, profile);
+    await deviceProfilesKV.put(profile.profileId, profile);
     return Result.ok({ profile });
   };
 }
 
-export const authListWorkloadProfilesHandler = async (
+export const authListDeviceProfilesHandler = async (
   req: { contractId?: string; disabled?: boolean },
   { caller }: { caller: RpcUser },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
-  let profiles = await listWorkloadProfiles();
+  let profiles = await listDeviceProfiles();
   if (req.contractId) profiles = profiles.filter((profile) => profile.contractId === req.contractId);
   if (req.disabled !== undefined) profiles = profiles.filter((profile) => profile.disabled === req.disabled);
   return Result.ok({ profiles });
 };
 
-export const authDisableWorkloadProfileHandler = async (
+export const authDisableDeviceProfileHandler = async (
   req: { profileId: string },
   { caller }: { caller: RpcUser },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
-  const profile = await loadWorkloadProfile(req.profileId);
+  const profile = await loadDeviceProfile(req.profileId);
   if (!profile) return Result.ok({ success: false });
-  await workloadProfilesKV.put(req.profileId, { ...profile, disabled: true });
+  await deviceProfilesKV.put(req.profileId, { ...profile, disabled: true });
   return Result.ok({ success: true });
 };
 
-export function createAuthProvisionWorkloadInstanceHandler() {
-  return async (req: ProvisionWorkloadInstanceRequest, { caller }: { caller: RpcUser }) => {
+export function createAuthProvisionDeviceInstanceHandler() {
+  return async (req: ProvisionDeviceInstanceRequest, { caller }: { caller: RpcUser }) => {
     if (!isAdmin(caller)) return insufficientPermissions();
-    const validation = validateWorkloadProvisionRequest(req);
+    const validation = validateDeviceProvisionRequest(req);
     if (validation.isErr()) return validation;
     const { instance, provisioningSecret } = validation.take() as {
-      instance: WorkloadInstance;
-      provisioningSecret: WorkloadProvisioningSecret;
+      instance: DeviceInstance;
+      provisioningSecret: DeviceProvisioningSecret;
     };
-    const profile = await loadWorkloadProfile(instance.profileId);
+    const profile = await loadDeviceProfile(instance.profileId);
     if (!profile || profile.disabled) {
-      return invalidRequest({ profileId: instance.profileId, reason: "workload_profile_not_found" });
+      return invalidRequest({ profileId: instance.profileId, reason: "device_profile_not_found" });
     }
-    await workloadInstancesKV.put(instance.instanceId, instance);
-    await workloadProvisioningSecretsKV.put(instance.instanceId, provisioningSecret);
+    await deviceInstancesKV.put(instance.instanceId, instance);
+    await deviceProvisioningSecretsKV.put(instance.instanceId, provisioningSecret);
     return Result.ok({ instance });
   };
 }
 
-export const authListWorkloadInstancesHandler = async (
+export const authListDeviceInstancesHandler = async (
   req: { profileId?: string; state?: string },
   { caller }: { caller: RpcUser },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
-  let instances = await listWorkloadInstances();
+  let instances = await listDeviceInstances();
   if (req.profileId) instances = instances.filter((instance) => instance.profileId === req.profileId);
   if (req.state) instances = instances.filter((instance) => instance.state === req.state);
   return Result.ok({ instances });
 };
 
-export const authDisableWorkloadInstanceHandler = async (
+export const authDisableDeviceInstanceHandler = async (
   req: { instanceId: string },
   { caller }: { caller: RpcUser },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
-  const instance = await loadWorkloadInstance(req.instanceId);
+  const instance = await loadDeviceInstance(req.instanceId);
   if (!instance) return Result.ok({ success: false });
-  await workloadInstancesKV.put(req.instanceId, { ...instance, state: "disabled" });
+  await deviceInstancesKV.put(req.instanceId, { ...instance, state: "disabled" });
   return Result.ok({ success: true });
 };
 
-export const authListWorkloadActivationsHandler = async (
+export const authListDeviceActivationsHandler = async (
   req: { instanceId?: string; profileId?: string; state?: string },
   { caller }: { caller: RpcUser },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
-  let activations = await listWorkloadActivations();
+  let activations = await listDeviceActivations();
   if (req.instanceId) activations = activations.filter((activation) => activation.instanceId === req.instanceId);
   if (req.profileId) activations = activations.filter((activation) => activation.profileId === req.profileId);
   if (req.state) activations = activations.filter((activation) => activation.state === req.state);
   return Result.ok({ activations });
 };
 
-export const authRevokeWorkloadActivationHandler = async (
+export const authRevokeDeviceActivationHandler = async (
   req: { instanceId: string },
   { caller }: { caller: RpcUser },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
-  const activation = (await workloadActivationsKV.get(req.instanceId)).take();
+  const activation = (await deviceActivationsKV.get(req.instanceId)).take();
   if (isErr(activation)) return Result.ok({ success: false });
-  await workloadActivationsKV.put(req.instanceId, {
-    ...(activation.value as WorkloadActivation),
+  await deviceActivationsKV.put(req.instanceId, {
+    ...(activation.value as DeviceActivation),
     state: "revoked",
     revokedAt: new Date().toISOString(),
   });
   return Result.ok({ success: true });
 };
 
-export const authListWorkloadActivationReviewsHandler = async (
+export const authListDeviceActivationReviewsHandler = async (
   req: { instanceId?: string; profileId?: string; state?: string },
   { caller }: { caller: RpcUser },
 ) => {
   if (!canReview(caller)) return insufficientPermissions();
-  let reviews = await listWorkloadActivationReviews();
+  let reviews = await listDeviceActivationReviews();
   if (req.instanceId) reviews = reviews.filter((review) => review.instanceId === req.instanceId);
   if (req.profileId) reviews = reviews.filter((review) => review.profileId === req.profileId);
   if (req.state) reviews = reviews.filter((review) => review.state === req.state);
   return Result.ok({ reviews: reviews.map(toPublicReview) });
 };
 
-export const authDecideWorkloadActivationReviewHandler = async (
+export const authDecideDeviceActivationReviewHandler = async (
   req: { reviewId: string; decision: "approve" | "reject"; reason?: string },
   { caller }: { caller: RpcUser },
 ) => {
   if (!canReview(caller)) return insufficientPermissions();
-  const review = await loadWorkloadActivationReview(req.reviewId);
+  const review = await loadDeviceActivationReview(req.reviewId);
   if (!review) {
-    return invalidRequest({ reviewId: req.reviewId, reason: "workload_review_not_found" });
+    return invalidRequest({ reviewId: req.reviewId, reason: "device_review_not_found" });
   }
 
   if (review.state !== "pending") {
-    const activation = review.state === "approved" ? await loadWorkloadActivation(review.instanceId) : null;
+    const activation = review.state === "approved" ? await loadDeviceActivation(review.instanceId) : null;
     const confirmationCode = review.state === "approved" ? await confirmationCodeForReview(review) : null;
     return Result.ok({
       review: toPublicReview(review),
@@ -595,29 +596,29 @@ export const authDecideWorkloadActivationReviewHandler = async (
 
   const decidedAt = new Date().toISOString();
   const nextState = req.decision === "approve" ? "approved" : "rejected";
-  const updatedReview: WorkloadActivationReviewRecord = {
+  const updatedReview: DeviceActivationReviewRecord = {
     ...review,
     state: nextState,
     decidedAt,
     ...(req.reason ? { reason: req.reason } : {}),
   };
-  await workloadActivationReviewsKV.put(updatedReview.reviewId, updatedReview);
+  await deviceActivationReviewsKV.put(updatedReview.reviewId, updatedReview);
 
   if (req.decision === "reject") {
     return Result.ok({ review: toPublicReview(updatedReview) });
   }
 
-  const instance = await loadWorkloadInstance(review.instanceId);
-  const profile = await loadWorkloadProfile(review.profileId);
+  const instance = await loadDeviceInstance(review.instanceId);
+  const profile = await loadDeviceProfile(review.profileId);
   if (!instance || instance.state === "disabled") {
-    return invalidRequest({ instanceId: review.instanceId, reason: "unknown_workload" });
+    return invalidRequest({ instanceId: review.instanceId, reason: "unknown_device" });
   }
   if (!profile || profile.disabled) {
-    return invalidRequest({ profileId: review.profileId, reason: "workload_profile_not_found" });
+    return invalidRequest({ profileId: review.profileId, reason: "device_profile_not_found" });
   }
 
   const activatedAt = new Date().toISOString();
-  const activation: WorkloadActivation = {
+  const activation: DeviceActivation = {
     instanceId: instance.instanceId,
     publicIdentityKey: instance.publicIdentityKey,
     profileId: profile.profileId,
@@ -626,8 +627,8 @@ export const authDecideWorkloadActivationReviewHandler = async (
     activatedAt,
     revokedAt: null,
   };
-  await workloadActivationsKV.put(activation.instanceId, activation);
-  await workloadInstancesKV.put(instance.instanceId, {
+  await deviceActivationsKV.put(activation.instanceId, activation);
+  await deviceInstancesKV.put(instance.instanceId, {
     ...instance,
     state: "activated",
     activatedAt,

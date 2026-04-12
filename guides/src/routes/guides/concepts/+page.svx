@@ -21,11 +21,11 @@ Contracts are the source of truth for authorization. Trellis derives NATS subjec
 | --- | --- |
 | `service` | A backend process connected to NATS with a session key |
 | `app` | A browser client that connects via websocket |
-| `portal` | A browser portal flow participant used during login or workload activation |
-| `workload` | An activated workload participant provisioned through Trellis |
+| `portal` | A browser portal flow participant used during login or device activation |
+| `device` | An activated device participant provisioned through Trellis |
 | `cli` | A command-line tool |
 
-Activated workloads use the same contract format as other Trellis participants. Provisioning mode lives in Trellis workload profiles and instance records rather than in a special contract field.
+Activated devices use the same contract format as other Trellis participants. Provisioning mode lives in Trellis device profiles and instance records rather than in a special contract field.
 
 ### Contract identity
 
@@ -90,28 +90,28 @@ If a dependency is not declared in `uses`, Trellis will not grant that cross-con
 
 ### Principals
 
-Trellis has one user principal class and two workload provisioning paths:
+Trellis has one user principal class and two device provisioning paths:
 
 | Type | How it authenticates |
 | --- | --- |
 | User | Browser or CLI session established through the portal login flow |
-| Installed workload | Ed25519 session key installed by an operator |
-| Activated workload | Ed25519 identity key derived from a root secret, activated before first use |
+| Installed device | Ed25519 session key installed by an operator |
+| Activated device | Ed25519 identity key derived from a root secret, activated before first use |
 
-All three share the same post-auth authorization pipeline. Installed and activated workloads connect directly after provisioning. Users always go through the browser login flow.
+All three share the same post-auth authorization pipeline. Installed and activated devices connect directly after provisioning. Users always go through the browser login flow.
 
 ### Session keys
 
 Every client has a local Ed25519 session key. The private seed never leaves the client. Authentication works by proving ownership of the session key in every RPC and NATS connect request.
 
-- **Installed workloads** receive their identity when an operator installs the workload contract against the workload's public key
+- **Installed devices** receive their identity when an operator installs the device contract against the device's public key
 - **Browser apps** store the session key in IndexedDB via WebCrypto (non-extractable)
 - **CLI tools** use a local seed file
-- **Activated workloads** derive their identity key from a root secret using HKDF; the root secret never leaves the workload
+- **Activated devices** derive their identity key from a root secret using HKDF; the root secret never leaves the device
 
 ### Browser login and the portal
 
-Browser login flows route through a Trellis **portal**. A portal is a browser web app that owns the provider-selection and contract-approval UX for one or more browser contracts. Trellis ships a built-in portal that handles both login and generic workload onboarding, and may also redirect into deployment-registered custom portals when configured.
+Browser login flows route through a Trellis **portal**. A portal is a browser web app that owns the provider-selection and contract-approval UX for one or more browser contracts. Trellis ships a built-in portal that handles both login and generic device onboarding, and may also redirect into deployment-registered custom portals when configured.
 
 The flow:
 
@@ -123,7 +123,7 @@ The flow:
 
 Portal trust comes from deployment registration of the portal URL, not from service installation. Some portals stay passive and only render auth flow state. Other portals also continue after login as normal Trellis browser apps acting as the logged-in user. In that case the portal may declare an optional app contract, but it is still never a service-authenticated principal.
 
-The built-in Trellis portal is authored in `js/portals/login` and served directly by the Trellis HTTP server from static assets. This ensures that the initial login and default workload onboarding flows work out-of-the-box without requiring any portal bootstrapping. Deployments can still add custom portals and assign them to specific login or workload flows when they need custom UX. See [Create a custom portal](/guides/creating-custom-portal) for how to build and register one.
+The built-in Trellis portal is authored in `js/portals/login` and served directly by the Trellis HTTP server from static assets. This ensures that the initial login and default device onboarding flows work out-of-the-box without requiring any portal bootstrapping. Deployments can still add custom portals and assign them to specific login or device flows when they need custom UX. See [Create a custom portal](/guides/creating-custom-portal) for how to build and register one.
 
 ### Capabilities
 
@@ -137,7 +137,7 @@ Contracts declare per-operation capability requirements:
 
 Capabilities use the pattern `<domain>.<action>` (e.g., `users.read`, `partners.write`). Some operations require the `service` capability, meaning only registered services can call them. The `admin` capability grants administrative access.
 
-Capabilities are assigned to users and workloads at the deployment level. Authorization changes take effect immediately because Trellis derives NATS permissions from the active contracts and current grants.
+Capabilities are assigned to users and devices at the deployment level. Authorization changes take effect immediately because Trellis derives NATS permissions from the active contracts and current grants.
 
 ## Resources
 
@@ -179,7 +179,7 @@ Jobs are not visible to callers. If you need a caller-observable async workflow,
 
 | Package | Use for |
 | --- | --- |
-| `@qlever-llc/trellis` | Core runtime package: `TrellisClient.connect(...)`, `TrellisWorkload.connect(...)`, `Result`, common auth helpers |
+| `@qlever-llc/trellis` | Core runtime package: `TrellisClient.connect(...)`, `TrellisDevice.connect(...)`, `Result`, common auth helpers |
 | `@qlever-llc/trellis/server` | `TrellisServer` and server runtime types |
 | `@qlever-llc/trellis/server/health` | Health schemas and health-check helpers without service bootstrap exports |
 | `@qlever-llc/trellis/server/deno` | Deno service runtime adapter |

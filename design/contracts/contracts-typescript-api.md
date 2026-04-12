@@ -235,9 +235,9 @@ Rules:
 
 ## Runtime Helper Behavior
 
-Contract-driven runtime helpers include `TrellisClient.connect(...)`, `TrellisService.connect(...)`, and `TrellisWorkload.connect(...)`.
+Contract-driven runtime helpers include `TrellisClient.connect(...)`, `TrellisService.connect(...)`, and `TrellisDevice.connect(...)`.
 
-Public TypeScript documentation should lead with `TrellisClient.connect(...)`, `TrellisService.connect(...)`, and `TrellisWorkload.connect(...)` rather than lower-level runtime construction helpers.
+Public TypeScript documentation should lead with `TrellisClient.connect(...)`, `TrellisService.connect(...)`, and `TrellisDevice.connect(...)` rather than lower-level runtime construction helpers.
 
 Rules:
 

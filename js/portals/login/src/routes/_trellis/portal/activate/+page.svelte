@@ -34,7 +34,7 @@
     };
   }
 
-  type ActivatedWorkloadResult = {
+  type ActivatedDeviceResult = {
     status: "activated";
     instanceId: string;
     profileId: string;
@@ -42,7 +42,7 @@
     confirmationCode?: string;
   };
 
-  type PendingReviewWorkloadResult = {
+  type PendingReviewDeviceResult = {
     status: "pending_review";
     reviewId: string;
     instanceId: string;
@@ -50,18 +50,18 @@
     requestedAt: string;
   };
 
-  type RejectedWorkloadResult = {
+  type RejectedDeviceResult = {
     status: "rejected";
     reason?: string;
   };
 
-  type WorkloadActivationResult =
-    | ActivatedWorkloadResult
-    | PendingReviewWorkloadResult
-    | RejectedWorkloadResult;
+  type DeviceActivationResult =
+    | ActivatedDeviceResult
+    | PendingReviewDeviceResult
+    | RejectedDeviceResult;
 
-  type StartPortalActivation = (handoffId: string) => Promise<WorkloadActivationResult>;
-  type GetPortalActivationStatus = (handoffId: string) => Promise<WorkloadActivationResult>;
+  type StartPortalActivation = (handoffId: string) => Promise<DeviceActivationResult>;
+  type GetPortalActivationStatus = (handoffId: string) => Promise<DeviceActivationResult>;
 
   type ActivationView =
     | { mode: "sign_in_required"; handoffId: string; profileId?: string }
@@ -129,7 +129,7 @@
     return isRecord(context) ? context : null;
   }
 
-  function isActivatedWorkloadResult(value: unknown): value is ActivatedWorkloadResult {
+  function isActivatedDeviceResult(value: unknown): value is ActivatedDeviceResult {
     if (!isRecord(value) || value.status !== "activated") return false;
     return hasStringField(value, "instanceId")
       && hasStringField(value, "profileId")
@@ -137,7 +137,7 @@
       && hasOptionalStringField(value, "confirmationCode");
   }
 
-  function isPendingReviewWorkloadResult(value: unknown): value is PendingReviewWorkloadResult {
+  function isPendingReviewDeviceResult(value: unknown): value is PendingReviewDeviceResult {
     if (!isRecord(value) || value.status !== "pending_review") return false;
     return hasStringField(value, "reviewId")
       && hasStringField(value, "instanceId")
@@ -145,19 +145,19 @@
       && hasStringField(value, "requestedAt");
   }
 
-  function isRejectedWorkloadResult(value: unknown): value is RejectedWorkloadResult {
+  function isRejectedDeviceResult(value: unknown): value is RejectedDeviceResult {
     if (!isRecord(value) || value.status !== "rejected") return false;
     return hasOptionalStringField(value, "reason");
   }
 
-  function isWorkloadActivationResult(value: unknown): value is WorkloadActivationResult {
-    return isActivatedWorkloadResult(value)
-      || isPendingReviewWorkloadResult(value)
-      || isRejectedWorkloadResult(value);
+  function isDeviceActivationResult(value: unknown): value is DeviceActivationResult {
+    return isActivatedDeviceResult(value)
+      || isPendingReviewDeviceResult(value)
+      || isRejectedDeviceResult(value);
   }
 
   function mapRejectedActivation(nextHandoffId: string, reason?: string): ActivationView {
-    if (reason === "workload_handoff_expired") {
+    if (reason === "device_handoff_expired") {
       return {
         mode: "expired",
         handoffId: nextHandoffId,
@@ -169,7 +169,7 @@
       return createReadyView(nextHandoffId);
     }
 
-    if (reason === "workload_activation_revoked") {
+    if (reason === "device_activation_revoked") {
       return {
         mode: "rejected",
         handoffId: nextHandoffId,
@@ -184,7 +184,7 @@
     };
   }
 
-  function mapActivationResult(nextHandoffId: string, result: WorkloadActivationResult): ActivationView {
+  function mapActivationResult(nextHandoffId: string, result: DeviceActivationResult): ActivationView {
     if (result.status === "activated") {
       return {
         mode: "activated",
@@ -231,15 +231,15 @@
     const context = getErrorContext(error);
     const reason = typeof context?.reason === "string" ? context.reason : undefined;
 
-    if (message.includes("workload_handoff_not_found")) {
+    if (message.includes("device_handoff_not_found")) {
       return { mode: "invalid_handoff", handoffId: nextHandoffId, reason: "This activation link is no longer valid." };
     }
 
-    if (message.includes("workload_handoff_expired")) {
+    if (message.includes("device_handoff_expired")) {
       return { mode: "expired", handoffId: nextHandoffId, reason: "The activation request expired. Start again from the auth service." };
     }
 
-    if (message.includes("workload_activation_revoked")) {
+    if (message.includes("device_activation_revoked")) {
       return { mode: "rejected", handoffId: nextHandoffId, reason };
     }
 
@@ -299,11 +299,11 @@
 
     startPortalActivation = async (nextHandoffId: string) => {
       const result = await requestOrThrow(
-        "Auth.ActivateWorkload",
+        "Auth.ActivateDevice",
         { handoffId: nextHandoffId },
       );
-      if (!isWorkloadActivationResult(result)) {
-        throw new Error("Invalid workload activation response.");
+      if (!isDeviceActivationResult(result)) {
+        throw new Error("Invalid device activation response.");
       }
       return result;
     };
@@ -314,11 +314,11 @@
         input: unknown,
       ) => Promise<unknown> = trellisState.trellis.requestOrThrow.bind(trellisState.trellis);
       const result = await requestOrThrow(
-        "Auth.GetWorkloadActivationStatus",
+        "Auth.GetDeviceActivationStatus",
         { handoffId: nextHandoffId },
       );
-      if (!isWorkloadActivationResult(result)) {
-        throw new Error("Invalid workload activation status response.");
+      if (!isDeviceActivationResult(result)) {
+        throw new Error("Invalid device activation status response.");
       }
       return result;
     };

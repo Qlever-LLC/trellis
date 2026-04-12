@@ -52,49 +52,47 @@ fn cli_contract_manifest_validates_and_declares_expected_auth_and_core_surface()
         .any(|value| value == "Auth.ClearLoginPortalSelection"));
     assert!(calls
         .iter()
-        .any(|value| value == "Auth.GetWorkloadPortalDefault"));
+        .any(|value| value == "Auth.GetDevicePortalDefault"));
     assert!(calls
         .iter()
-        .any(|value| value == "Auth.SetWorkloadPortalDefault"));
+        .any(|value| value == "Auth.SetDevicePortalDefault"));
     assert!(calls
         .iter()
-        .any(|value| value == "Auth.ListWorkloadPortalSelections"));
+        .any(|value| value == "Auth.ListDevicePortalSelections"));
     assert!(calls
         .iter()
-        .any(|value| value == "Auth.SetWorkloadPortalSelection"));
+        .any(|value| value == "Auth.SetDevicePortalSelection"));
     assert!(calls
         .iter()
-        .any(|value| value == "Auth.ClearWorkloadPortalSelection"));
+        .any(|value| value == "Auth.ClearDevicePortalSelection"));
     assert!(calls
         .iter()
-        .any(|value| value == "Auth.CreateWorkloadProfile"));
+        .any(|value| value == "Auth.CreateDeviceProfile"));
+    assert!(calls.iter().any(|value| value == "Auth.ListDeviceProfiles"));
     assert!(calls
         .iter()
-        .any(|value| value == "Auth.ListWorkloadProfiles"));
+        .any(|value| value == "Auth.DisableDeviceProfile"));
     assert!(calls
         .iter()
-        .any(|value| value == "Auth.DisableWorkloadProfile"));
+        .any(|value| value == "Auth.ProvisionDeviceInstance"));
     assert!(calls
         .iter()
-        .any(|value| value == "Auth.ProvisionWorkloadInstance"));
+        .any(|value| value == "Auth.ListDeviceInstances"));
     assert!(calls
         .iter()
-        .any(|value| value == "Auth.ListWorkloadInstances"));
+        .any(|value| value == "Auth.DisableDeviceInstance"));
     assert!(calls
         .iter()
-        .any(|value| value == "Auth.DisableWorkloadInstance"));
+        .any(|value| value == "Auth.ListDeviceActivations"));
     assert!(calls
         .iter()
-        .any(|value| value == "Auth.ListWorkloadActivations"));
+        .any(|value| value == "Auth.RevokeDeviceActivation"));
     assert!(calls
         .iter()
-        .any(|value| value == "Auth.RevokeWorkloadActivation"));
+        .any(|value| value == "Auth.ListDeviceActivationReviews"));
     assert!(calls
         .iter()
-        .any(|value| value == "Auth.ListWorkloadActivationReviews"));
-    assert!(calls
-        .iter()
-        .any(|value| value == "Auth.DecideWorkloadActivationReview"));
+        .any(|value| value == "Auth.DecideDeviceActivationReview"));
     assert!(calls
         .iter()
         .any(|value| value == "Auth.UpgradeServiceContract"));

@@ -5,19 +5,21 @@ import {
   logger,
   sentinelCreds,
   trellis,
-  workloadActivationHandoffsKV,
-  workloadActivationReviewsKV,
-  workloadActivationsKV,
-  workloadInstancesKV,
-  workloadProfilesKV,
-  workloadProvisioningSecretsKV,
+  deviceActivationHandoffsKV,
+  deviceActivationReviewsKV,
+  deviceActivationsKV,
+  deviceInstancesKV,
+  deviceProfilesKV,
+  deviceProvisioningSecretsKV,
 } from "../../bootstrap/globals.ts";
 import { randomToken } from "../crypto.ts";
-import { deriveWorkloadConfirmationCode } from "../../../../packages/auth/workload_activation.ts";
-import { verifyWorkloadWaitSignature } from "../../../../packages/auth/workload_activation.ts";
+import {
+  deriveDeviceConfirmationCode,
+  verifyDeviceWaitSignature,
+} from "../../../../packages/auth/device_activation.ts";
 import { getConfig } from "../../config.ts";
-import { workloadInstanceId } from "../admin/shared.ts";
-import { isWorkloadProofIatFresh } from "./shared.ts";
+import { deviceInstanceId } from "../admin/shared.ts";
+import { isDeviceProofIatFresh } from "./shared.ts";
 
 type Caller = {
   type: string;
@@ -25,12 +27,12 @@ type Caller = {
   id?: string;
 };
 
-type WorkloadActivationActor = {
+type DeviceActivationActor = {
   origin: string;
   id: string;
 };
 
-type WorkloadActivationHandoff = {
+type DeviceActivationHandoff = {
   handoffId: string;
   instanceId: string;
   publicIdentityKey: string;
@@ -40,7 +42,7 @@ type WorkloadActivationHandoff = {
   expiresAt: Date | string;
 };
 
-type WorkloadInstance = {
+type DeviceInstance = {
   instanceId: string;
   publicIdentityKey: string;
   profileId: string;
@@ -50,7 +52,7 @@ type WorkloadInstance = {
   revokedAt: string | Date | null;
 };
 
-type WorkloadProfile = {
+type DeviceProfile = {
   profileId: string;
   contractId: string;
   allowedDigests: string[];
@@ -58,23 +60,23 @@ type WorkloadProfile = {
   disabled: boolean;
 };
 
-type WorkloadProvisioningSecret = {
+type DeviceProvisioningSecret = {
   instanceId: string;
   activationKey: string;
   createdAt: string | Date;
 };
 
-type WorkloadActivationRecord = {
+type DeviceActivationRecord = {
   instanceId: string;
   publicIdentityKey: string;
   profileId: string;
-  activatedBy?: WorkloadActivationActor;
+  activatedBy?: DeviceActivationActor;
   state: "activated" | "revoked";
   activatedAt: string;
   revokedAt: string | null;
 };
 
-type WorkloadActivationReviewRecord = {
+type DeviceActivationReviewRecord = {
   reviewId: string;
   handoffId: string;
   instanceId: string;
@@ -100,63 +102,63 @@ function isoString(value: string | Date): string {
   return value instanceof Date ? value.toISOString() : value;
 }
 
-async function loadWorkloadHandoff(handoffId: string): Promise<WorkloadActivationHandoff | null> {
-  const entry = (await workloadActivationHandoffsKV.get(handoffId)).take();
+async function loadDeviceHandoff(handoffId: string): Promise<DeviceActivationHandoff | null> {
+  const entry = (await deviceActivationHandoffsKV.get(handoffId)).take();
   if (isErr(entry)) return null;
-  return entry.value as WorkloadActivationHandoff;
+  return entry.value as DeviceActivationHandoff;
 }
 
-async function loadWorkloadInstance(instanceId: string): Promise<WorkloadInstance | null> {
-  const entry = (await workloadInstancesKV.get(instanceId)).take();
+async function loadDeviceInstance(instanceId: string): Promise<DeviceInstance | null> {
+  const entry = (await deviceInstancesKV.get(instanceId)).take();
   if (isErr(entry)) return null;
-  return entry.value as WorkloadInstance;
+  return entry.value as DeviceInstance;
 }
 
-async function loadWorkloadProfile(profileId: string): Promise<WorkloadProfile | null> {
-  const entry = (await workloadProfilesKV.get(profileId)).take();
+async function loadDeviceProfile(profileId: string): Promise<DeviceProfile | null> {
+  const entry = (await deviceProfilesKV.get(profileId)).take();
   if (isErr(entry)) return null;
-  return entry.value as WorkloadProfile;
+  return entry.value as DeviceProfile;
 }
 
-async function loadWorkloadProvisioningSecret(instanceId: string): Promise<WorkloadProvisioningSecret | null> {
-  const entry = (await workloadProvisioningSecretsKV.get(instanceId)).take();
+async function loadDeviceProvisioningSecret(instanceId: string): Promise<DeviceProvisioningSecret | null> {
+  const entry = (await deviceProvisioningSecretsKV.get(instanceId)).take();
   if (isErr(entry)) return null;
-  return entry.value as WorkloadProvisioningSecret;
+  return entry.value as DeviceProvisioningSecret;
 }
 
-async function loadWorkloadActivation(instanceId: string): Promise<WorkloadActivationRecord | null> {
-  const entry = (await workloadActivationsKV.get(instanceId)).take();
+async function loadDeviceActivation(instanceId: string): Promise<DeviceActivationRecord | null> {
+  const entry = (await deviceActivationsKV.get(instanceId)).take();
   if (isErr(entry)) return null;
-  return entry.value as WorkloadActivationRecord;
+  return entry.value as DeviceActivationRecord;
 }
 
-async function findReviewByHandoffId(handoffId: string): Promise<WorkloadActivationReviewRecord | null> {
-  const iter = (await workloadActivationReviewsKV.keys(">")).take();
+async function findReviewByHandoffId(handoffId: string): Promise<DeviceActivationReviewRecord | null> {
+  const iter = (await deviceActivationReviewsKV.keys(">")).take();
   if (isErr(iter)) return null;
   for await (const key of iter) {
-    const entry = (await workloadActivationReviewsKV.get(key)).take();
+    const entry = (await deviceActivationReviewsKV.get(key)).take();
     if (isErr(entry)) continue;
-    const review = entry.value as WorkloadActivationReviewRecord;
+    const review = entry.value as DeviceActivationReviewRecord;
     if (review.handoffId === handoffId) return review;
   }
   return null;
 }
 
 async function confirmationCodeFor(
-  handoff: WorkloadActivationHandoff,
-  provisioningSecret: WorkloadProvisioningSecret | null,
+  handoff: DeviceActivationHandoff,
+  provisioningSecret: DeviceProvisioningSecret | null,
 ): Promise<string | undefined> {
   if (!provisioningSecret) return undefined;
-  return await deriveWorkloadConfirmationCode({
+  return await deriveDeviceConfirmationCode({
     activationKey: provisioningSecret.activationKey,
     publicIdentityKey: handoff.publicIdentityKey,
     nonce: handoff.nonce,
   });
 }
 
-async function buildWorkloadConnectInfo(args: {
-  instance: WorkloadInstance;
-  profile: WorkloadProfile;
+async function buildDeviceConnectInfo(args: {
+  instance: DeviceInstance;
+  profile: DeviceProfile;
   contractDigest: string;
 }) {
   if (!args.profile.allowedDigests.includes(args.contractDigest)) {
@@ -175,17 +177,17 @@ async function buildWorkloadConnectInfo(args: {
       sentinel: sentinelCreds,
     },
     auth: {
-      mode: "workload_identity" as const,
+      mode: "device_identity" as const,
       iatSkewSeconds: 30,
     },
   };
 }
 
 async function activateInstance(args: {
-  handoff: WorkloadActivationHandoff;
-  instance: WorkloadInstance;
-  profile: WorkloadProfile;
-  activatedBy: WorkloadActivationActor;
+  handoff: DeviceActivationHandoff;
+  instance: DeviceInstance;
+  profile: DeviceProfile;
+  activatedBy: DeviceActivationActor;
 }): Promise<{
   instanceId: string;
   profileId: string;
@@ -193,7 +195,7 @@ async function activateInstance(args: {
   confirmationCode?: string;
 }> {
   const activatedAt = new Date().toISOString();
-  await workloadActivationsKV.put(args.instance.instanceId, {
+  await deviceActivationsKV.put(args.instance.instanceId, {
     instanceId: args.instance.instanceId,
     publicIdentityKey: args.instance.publicIdentityKey,
     profileId: args.profile.profileId,
@@ -202,7 +204,7 @@ async function activateInstance(args: {
     activatedAt,
     revokedAt: null,
   });
-  await workloadInstancesKV.put(args.instance.instanceId, {
+  await deviceInstancesKV.put(args.instance.instanceId, {
     ...args.instance,
     state: "activated",
     activatedAt,
@@ -210,7 +212,7 @@ async function activateInstance(args: {
   });
   const confirmationCode = await confirmationCodeFor(
     args.handoff,
-    await loadWorkloadProvisioningSecret(args.instance.instanceId),
+    await loadDeviceProvisioningSecret(args.instance.instanceId),
   );
   return {
     instanceId: args.instance.instanceId,
@@ -220,15 +222,15 @@ async function activateInstance(args: {
   };
 }
 
-async function currentActivationStatus(handoff: WorkloadActivationHandoff) {
-  const activation = await loadWorkloadActivation(handoff.instanceId);
+async function currentActivationStatus(handoff: DeviceActivationHandoff) {
+  const activation = await loadDeviceActivation(handoff.instanceId);
   if (activation) {
     if (activation.state === "revoked") {
-      return { status: "rejected" as const, reason: "workload_activation_revoked" };
+      return { status: "rejected" as const, reason: "device_activation_revoked" };
     }
     const confirmationCode = await confirmationCodeFor(
       handoff,
-      await loadWorkloadProvisioningSecret(handoff.instanceId),
+      await loadDeviceProvisioningSecret(handoff.instanceId),
     );
     return {
       status: "activated" as const,
@@ -259,29 +261,29 @@ async function currentActivationStatus(handoff: WorkloadActivationHandoff) {
   return null;
 }
 
-export function createActivateWorkloadHandler() {
+export function createActivateDeviceHandler() {
   return async (
     req: { handoffId: string },
     { caller }: { caller: Caller },
   ) => {
-    logger.trace({ rpc: "Auth.ActivateWorkload", handoffId: req.handoffId }, "RPC request");
+    logger.trace({ rpc: "Auth.ActivateDevice", handoffId: req.handoffId }, "RPC request");
     if (caller.type !== "user" || !caller.origin || !caller.id) {
       return activationFailure("insufficient_permissions");
     }
-    const handoff = await loadWorkloadHandoff(req.handoffId);
+    const handoff = await loadDeviceHandoff(req.handoffId);
     if (!handoff) {
-      return activationFailure("invalid_request", { reason: "workload_handoff_not_found" });
+      return activationFailure("invalid_request", { reason: "device_handoff_not_found" });
     }
     if (new Date(isoString(handoff.expiresAt)).getTime() <= Date.now()) {
-      return activationFailure("invalid_request", { reason: "workload_handoff_expired" });
+      return activationFailure("invalid_request", { reason: "device_handoff_expired" });
     }
-    const instance = await loadWorkloadInstance(handoff.instanceId);
+    const instance = await loadDeviceInstance(handoff.instanceId);
     if (!instance || instance.state === "disabled") {
-      return activationFailure("invalid_request", { reason: "unknown_workload" });
+      return activationFailure("invalid_request", { reason: "unknown_device" });
     }
-    const profile = await loadWorkloadProfile(instance.profileId);
+    const profile = await loadDeviceProfile(instance.profileId);
     if (!profile || profile.disabled) {
-      return activationFailure("invalid_request", { reason: "workload_profile_not_found" });
+      return activationFailure("invalid_request", { reason: "device_profile_not_found" });
     }
 
     const existingStatus = await currentActivationStatus(handoff);
@@ -289,8 +291,8 @@ export function createActivateWorkloadHandler() {
 
     if (profile.reviewMode === "required") {
       const requestedAt = new Date().toISOString();
-      const review: WorkloadActivationReviewRecord = {
-        reviewId: `war_${randomToken(12)}`,
+      const review: DeviceActivationReviewRecord = {
+        reviewId: `dar_${randomToken(12)}`,
         handoffId: handoff.handoffId,
         instanceId: instance.instanceId,
         publicIdentityKey: instance.publicIdentityKey,
@@ -303,8 +305,8 @@ export function createActivateWorkloadHandler() {
         requestedAt,
         decidedAt: null,
       };
-      await workloadActivationReviewsKV.put(review.reviewId, review);
-      await trellis.publish("Auth.WorkloadActivationReviewRequested", {
+      await deviceActivationReviewsKV.put(review.reviewId, review);
+      await trellis.publish("Auth.DeviceActivationReviewRequested", {
         reviewId: review.reviewId,
         handoffId: handoff.handoffId,
         instanceId: instance.instanceId,
@@ -337,15 +339,15 @@ export function createActivateWorkloadHandler() {
   };
 }
 
-export function createGetWorkloadActivationStatusHandler() {
+export function createGetDeviceActivationStatusHandler() {
   return async (req: { handoffId: string }) => {
-    logger.trace({ rpc: "Auth.GetWorkloadActivationStatus", handoffId: req.handoffId }, "RPC request");
-    const handoff = await loadWorkloadHandoff(req.handoffId);
+    logger.trace({ rpc: "Auth.GetDeviceActivationStatus", handoffId: req.handoffId }, "RPC request");
+    const handoff = await loadDeviceHandoff(req.handoffId);
     if (!handoff) {
-      return activationFailure("invalid_request", { reason: "workload_handoff_not_found" });
+      return activationFailure("invalid_request", { reason: "device_handoff_not_found" });
     }
     if (new Date(isoString(handoff.expiresAt)).getTime() <= Date.now()) {
-      return Result.ok({ status: "rejected" as const, reason: "workload_handoff_expired" });
+      return Result.ok({ status: "rejected" as const, reason: "device_handoff_expired" });
     }
     const status = await currentActivationStatus(handoff);
     if (status) return Result.ok(status);
@@ -353,7 +355,7 @@ export function createGetWorkloadActivationStatusHandler() {
   };
 }
 
-export function createGetWorkloadConnectInfoHandler() {
+export function createGetDeviceConnectInfoHandler() {
   return async (req: {
     publicIdentityKey: string;
     contractDigest: string;
@@ -361,15 +363,15 @@ export function createGetWorkloadConnectInfoHandler() {
     sig: string;
   }) => {
     logger.trace({
-      rpc: "Auth.GetWorkloadConnectInfo",
+      rpc: "Auth.GetDeviceConnectInfo",
       publicIdentityKey: req.publicIdentityKey,
     }, "RPC request");
 
-    if (!isWorkloadProofIatFresh(req.iat)) {
+    if (!isDeviceProofIatFresh(req.iat)) {
       return activationFailure("invalid_request", { reason: "iat_out_of_range" });
     }
 
-    const proofOk = await verifyWorkloadWaitSignature({
+    const proofOk = await verifyDeviceWaitSignature({
       publicIdentityKey: req.publicIdentityKey,
       nonce: "connect-info",
       contractDigest: req.contractDigest,
@@ -380,20 +382,20 @@ export function createGetWorkloadConnectInfoHandler() {
       return activationFailure("invalid_signature");
     }
 
-    const instanceId = workloadInstanceId(req.publicIdentityKey);
-    const instance = await loadWorkloadInstance(instanceId);
-    const activation = await loadWorkloadActivation(instanceId);
+    const instanceId = deviceInstanceId(req.publicIdentityKey);
+    const instance = await loadDeviceInstance(instanceId);
+    const activation = await loadDeviceActivation(instanceId);
     if (!instance || !activation || activation.state !== "activated") {
-      return activationFailure("invalid_request", { reason: "unknown_workload" });
+      return activationFailure("invalid_request", { reason: "unknown_device" });
     }
-    const profile = await loadWorkloadProfile(activation.profileId);
+    const profile = await loadDeviceProfile(activation.profileId);
     if (!profile || profile.disabled) {
-      return activationFailure("invalid_request", { reason: "workload_profile_not_found" });
+      return activationFailure("invalid_request", { reason: "device_profile_not_found" });
     }
 
     return Result.ok({
       status: "ready" as const,
-      connectInfo: await buildWorkloadConnectInfo({
+      connectInfo: await buildDeviceConnectInfo({
         instance,
         profile,
         contractDigest: req.contractDigest,

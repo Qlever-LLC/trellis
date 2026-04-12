@@ -13,16 +13,16 @@ import {
   SentinelCredsSchema,
 } from "@qlever-llc/trellis/auth";
 import {
+  DeviceActivationActorSchema,
+  DeviceActivationRecordSchema,
+  DeviceActivationReviewSchema,
+  DevicePortalDefaultSchema,
+  DevicePortalSelectionSchema,
+  DeviceProfileSchema,
+  DeviceSchema,
   LoginPortalDefaultSchema,
   LoginPortalSelectionSchema,
   PortalSchema,
-  WorkloadPortalDefaultSchema,
-  WorkloadPortalSelectionSchema,
-  WorkloadActivationActorSchema,
-  WorkloadActivationRecordSchema,
-  WorkloadActivationReviewSchema,
-  WorkloadProfileSchema,
-  WorkloadSchema,
 } from "../../../../packages/auth/protocol.ts";
 import { IsoDateSchema } from "@qlever-llc/trellis/contracts";
 import type { StaticDecode } from "typebox";
@@ -40,13 +40,13 @@ export {
   LoginQuerySchema,
   PortalSchema,
   SentinelCredsSchema,
-  WorkloadPortalDefaultSchema,
-  WorkloadPortalSelectionSchema,
-  WorkloadActivationActorSchema,
-  WorkloadActivationRecordSchema,
-  WorkloadActivationReviewSchema,
-  WorkloadProfileSchema,
-  WorkloadSchema,
+  DevicePortalDefaultSchema,
+  DevicePortalSelectionSchema,
+  DeviceActivationActorSchema,
+  DeviceActivationRecordSchema,
+  DeviceActivationReviewSchema,
+  DeviceProfileSchema,
+  DeviceSchema,
 };
 
 export const SessionKeySchema = Type.String({
@@ -118,7 +118,7 @@ export const AuthBrowserFlowSchema = Type.Object({
 }, { additionalProperties: false });
 export type AuthBrowserFlow = StaticDecode<typeof AuthBrowserFlowSchema>;
 
-export const WorkloadActivationHandoffSchema = Type.Object({
+export const DeviceActivationHandoffSchema = Type.Object({
   handoffId: Type.String({ minLength: 1 }),
   instanceId: Type.String({ minLength: 1 }),
   publicIdentityKey: Type.String({ minLength: 1 }),
@@ -127,16 +127,16 @@ export const WorkloadActivationHandoffSchema = Type.Object({
   createdAt: IsoDateSchema,
   expiresAt: IsoDateSchema,
 }, { additionalProperties: false });
-export type WorkloadActivationHandoff = StaticDecode<typeof WorkloadActivationHandoffSchema>;
+export type DeviceActivationHandoff = StaticDecode<typeof DeviceActivationHandoffSchema>;
 
-export const WorkloadProvisioningSecretSchema = Type.Object({
+export const DeviceProvisioningSecretSchema = Type.Object({
   instanceId: Type.String({ minLength: 1 }),
   activationKey: Type.String({ minLength: 1 }),
   createdAt: IsoDateSchema,
 }, { additionalProperties: false });
-export type WorkloadProvisioningSecret = StaticDecode<typeof WorkloadProvisioningSecretSchema>;
+export type DeviceProvisioningSecret = StaticDecode<typeof DeviceProvisioningSecretSchema>;
 
-export const WorkloadActivationReviewRecordSchema = Type.Object({
+export const DeviceActivationReviewRecordSchema = Type.Object({
   reviewId: Type.String({ minLength: 1 }),
   handoffId: Type.String({ minLength: 1 }),
   instanceId: Type.String({ minLength: 1 }),
@@ -155,7 +155,7 @@ export const WorkloadActivationReviewRecordSchema = Type.Object({
   decidedAt: Type.Union([IsoDateSchema, Type.Null()]),
   reason: Type.Optional(Type.String({ minLength: 1 })),
 }, { additionalProperties: false });
-export type WorkloadActivationReviewRecord = StaticDecode<typeof WorkloadActivationReviewRecordSchema>;
+export type DeviceActivationReviewRecord = StaticDecode<typeof DeviceActivationReviewRecordSchema>;
 
 export type ApprovalDecision = StaticDecode<typeof ApprovalDecisionSchema>;
 export type ContractApproval = StaticDecode<typeof ContractApprovalSchema>;
@@ -217,8 +217,8 @@ export const ServiceSessionSchema = Type.Object({
 }, { additionalProperties: false });
 export type ServiceSession = StaticDecode<typeof ServiceSessionSchema>;
 
-export const WorkloadSessionSchema = Type.Object({
-  type: Type.Literal("workload"),
+export const DeviceSessionSchema = Type.Object({
+  type: Type.Literal("device"),
   instanceId: Type.String({ minLength: 1 }),
   publicIdentityKey: Type.String({ minLength: 1 }),
   profileId: Type.String({ minLength: 1 }),
@@ -232,12 +232,12 @@ export const WorkloadSessionSchema = Type.Object({
   activatedAt: Type.Union([IsoDateSchema, Type.Null()]),
   revokedAt: Type.Union([IsoDateSchema, Type.Null()]),
 }, { additionalProperties: false });
-export type WorkloadSession = StaticDecode<typeof WorkloadSessionSchema>;
+export type DeviceSession = StaticDecode<typeof DeviceSessionSchema>;
 
 export const SessionSchema = Type.Union([
   UserSessionSchema,
   ServiceSessionSchema,
-  WorkloadSessionSchema,
+  DeviceSessionSchema,
 ]);
 export type Session = StaticDecode<typeof SessionSchema>;
 

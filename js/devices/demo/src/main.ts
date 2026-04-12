@@ -1,6 +1,6 @@
-import { isErr, TrellisWorkload } from "@qlever-llc/trellis";
-import type { WorkloadActivationController } from "@qlever-llc/trellis/workload";
-import contract from "../contracts/demo_workload.ts";
+import { isErr, TrellisDevice } from "@qlever-llc/trellis";
+import type { DeviceActivationController } from "@qlever-llc/trellis/device";
+import contract from "../contracts/demo_device.ts";
 
 const trellisUrl = Deno.args[0]?.trim();
 const rootSecret = Deno.args[1]?.trim();
@@ -15,7 +15,7 @@ async function main(): Promise<void> {
 
   console.info(`Connecting to ${trellisUrl}`);
 
-  const trellis = await TrellisWorkload.connect({
+  const trellis = await TrellisDevice.connect({
     trellisUrl,
     contract,
     rootSecret,
@@ -27,19 +27,19 @@ async function main(): Promise<void> {
     return console.error("Could not connect", { err: me });
   }
 
-  console.info(`workload authenticated: ${trellis.natsConnection.getServer()}`);
+  console.info(`device authenticated: ${trellis.natsConnection.getServer()}`);
   console.dir({ me }, { depth: null });
 }
 
-async function onActivationRequired(activation: WorkloadActivationController) {
-  console.info("workload activation required");
+async function onActivationRequired(activation: DeviceActivationController) {
+  console.info("device activation required");
   console.info(activation.url);
 
   if (online) {
     await activation.waitForOnlineApproval();
   } else {
     const code =
-      globalThis.prompt("Enter workload confirmation code")?.trim() || "";
+      globalThis.prompt("Enter device confirmation code")?.trim() || "";
 
     await activation.acceptConfirmationCode(code);
   }

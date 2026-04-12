@@ -10,7 +10,7 @@
     "./packages/trellis-svelte",
     "./packages/trellis",
     "./portals/login",
-    "./workloads/demo",
+    "./devices/demo",
     "./services/activity",
     "./services/jobs",
     "./services/trellis"
@@ -70,6 +70,7 @@
     "@qlever-llc/trellis/auth/browser": "./packages/trellis/auth/browser.ts",
     "@qlever-llc/trellis/browser": "./packages/trellis/browser.ts",
     "@qlever-llc/trellis/contracts": "./packages/trellis/contracts.ts",
+    "@qlever-llc/trellis/device": "./packages/trellis/device.ts",
     "@qlever-llc/trellis/server": "./packages/trellis/server/mod.ts",
     "@qlever-llc/trellis/server/health": "./packages/trellis/server/health.ts",
     "@qlever-llc/trellis/server/deno": "./packages/trellis/server/deno.ts",

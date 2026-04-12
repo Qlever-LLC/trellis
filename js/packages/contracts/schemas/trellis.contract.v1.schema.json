@@ -22,7 +22,7 @@
     },
     "kind": {
       "type": "string",
-      "enum": ["service", "app", "portal", "workload", "cli"]
+      "enum": ["service", "app", "portal", "device", "cli"]
     },
     "schemas": {
       "$ref": "#/$defs/schemas"

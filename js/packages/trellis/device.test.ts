@@ -2,11 +2,11 @@ import { assertEquals, assertRejects } from "@std/assert";
 import type { NatsConnection } from "@nats-io/nats-core";
 
 import {
-  deriveWorkloadConfirmationCode,
-  deriveWorkloadIdentity,
-  parseWorkloadActivationPayload,
+  deriveDeviceConfirmationCode,
+  deriveDeviceIdentity,
+  parseDeviceActivationPayload,
 } from "./auth.ts";
-import { connectWorkloadWithDeps } from "./workload.ts";
+import { connectDeviceWithDeps } from "./device.ts";
 import type { TrellisAPI } from "./contracts.ts";
 import type { TrellisAuth } from "./trellis.ts";
 
@@ -18,7 +18,7 @@ const emptyApi = {
 } satisfies TrellisAPI;
 
 const testContract = {
-  CONTRACT_ID: "example.workload@v1",
+  CONTRACT_ID: "example.device@v1",
   CONTRACT_DIGEST: "digest-a",
   API: {
     trellis: emptyApi,
@@ -28,19 +28,19 @@ const testContract = {
   },
 };
 
-Deno.test("connectWorkloadWithDeps requires an activation handler when activation is needed", async () => {
+Deno.test("connectDeviceWithDeps requires an activation handler when activation is needed", async () => {
   const originalFetch = globalThis.fetch;
 
   try {
     globalThis.fetch = (() => {
-      return Promise.resolve(new Response(JSON.stringify({ reason: "unknown_workload" }), {
+      return Promise.resolve(new Response(JSON.stringify({ reason: "unknown_device" }), {
         status: 404,
         headers: { "Content-Type": "application/json" },
       }));
     }) as typeof fetch;
 
     await assertRejects(
-      () => connectWorkloadWithDeps({
+      () => connectDeviceWithDeps({
         trellisUrl: "https://trellis.example.com",
         contract: testContract,
         rootSecret: "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE",
@@ -53,16 +53,16 @@ Deno.test("connectWorkloadWithDeps requires an activation handler when activatio
         now: () => Date.UTC(2026, 0, 1),
       }),
       Error,
-      "Workload activation required but no activation handler was provided",
+      "Device activation required but no activation handler was provided",
     );
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
 
-Deno.test("connectWorkloadWithDeps supports offline confirmation before reconnect", async () => {
+Deno.test("connectDeviceWithDeps supports offline confirmation before reconnect", async () => {
   const originalFetch = globalThis.fetch;
-  const identity = await deriveWorkloadIdentity(new Uint8Array(32).fill(7));
+  const identity = await deriveDeviceIdentity(new Uint8Array(32).fill(7));
   let fetchCalls = 0;
   let activationUrl = "";
   let lastToken = "";
@@ -71,25 +71,25 @@ Deno.test("connectWorkloadWithDeps supports offline confirmation before reconnec
     globalThis.fetch = ((input: URL | Request | string) => {
       const url = String(input);
       fetchCalls += 1;
-      if (url.includes("/bootstrap/workload") && fetchCalls === 1) {
+      if (url.includes("/bootstrap/device") && fetchCalls === 1) {
         return Promise.resolve(new Response(JSON.stringify({ status: "activation_required" }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         }));
       }
-      if (url.includes("/bootstrap/workload")) {
+      if (url.includes("/bootstrap/device")) {
         return Promise.resolve(new Response(JSON.stringify({
           status: "ready",
           connectInfo: {
-            instanceId: "wrk_123",
+            instanceId: "dev_123",
             profileId: "reader.default",
-            contractId: "example.workload@v1",
+            contractId: "example.device@v1",
             contractDigest: "digest-a",
             transport: {
               natsServers: ["nats://127.0.0.1:4222"],
               sentinel: { jwt: "jwt", seed: "seed" },
             },
-            auth: { mode: "workload_identity", iatSkewSeconds: 30 },
+            auth: { mode: "device_identity", iatSkewSeconds: 30 },
           },
         }), {
           status: 200,
@@ -100,16 +100,16 @@ Deno.test("connectWorkloadWithDeps supports offline confirmation before reconnec
     }) as typeof fetch;
 
     await assertRejects(
-      () => connectWorkloadWithDeps({
+      () => connectDeviceWithDeps({
         trellisUrl: "https://trellis.example.com",
         contract: testContract,
         rootSecret: new Uint8Array(32).fill(7),
         onActivationRequired: async (activation) => {
           activationUrl = activation.url;
-          const payload = parseWorkloadActivationPayload(
+          const payload = parseDeviceActivationPayload(
             new URL(activation.url).searchParams.get("payload") ?? "",
           );
-          const confirmationCode = await deriveWorkloadConfirmationCode({
+          const confirmationCode = await deriveDeviceConfirmationCode({
             activationKey: identity.activationKey,
             publicIdentityKey: identity.publicIdentityKey,
             nonce: payload.nonce,
@@ -129,7 +129,7 @@ Deno.test("connectWorkloadWithDeps supports offline confirmation before reconnec
       "stop-after-token",
     );
 
-    assertEquals(activationUrl.includes("/auth/workloads/activate?payload="), true);
+    assertEquals(activationUrl.includes("/auth/devices/activate?payload="), true);
     assertEquals(lastToken.includes('"contractDigest":"digest-a"'), true);
   } finally {
     globalThis.fetch = originalFetch;

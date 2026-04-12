@@ -15,6 +15,9 @@ import {
   browserFlowsKV,
   connectionsKV,
   contractApprovalsKV,
+  deviceActivationsKV,
+  deviceInstancesKV,
+  deviceProfilesKV,
   logger,
   loginPortalSelectionsKV,
   oauthStateKV,
@@ -25,9 +28,6 @@ import {
   servicesKV,
   sessionKV,
   usersKV,
-  workloadActivationsKV,
-  workloadInstancesKV,
-  workloadProfilesKV,
 } from "../../bootstrap/globals.ts";
 import { getApprovalResolutionErrorMessage } from "./approval_errors.ts";
 import { planUserContractApproval } from "../approval/plan.ts";
@@ -52,10 +52,10 @@ import { buildPortalFlowState } from "./portal_flow.ts";
 import { createServiceBootstrapHandler } from "../bootstrap/service.ts";
 import { createClientBootstrapHandler } from "../bootstrap/client.ts";
 import {
-  createWorkloadBootstrapHandler,
-  verifyWorkloadBootstrapIdentityProof,
-} from "../bootstrap/workload.ts";
-import { registerWorkloadActivationHttpRoutes } from "../workload_activation/http.ts";
+  createDeviceBootstrapHandler,
+  verifyDeviceBootstrapIdentityProof,
+} from "../bootstrap/device.ts";
+import { registerDeviceActivationHttpRoutes } from "../device_activation/http.ts";
 import { kick } from "../callout/kick.ts";
 import { OAuth2CodeRequest, OAuth2CodeResponse } from "../oauth.ts";
 import type { Provider } from "../providers/index.ts";
@@ -425,23 +425,23 @@ export function registerHttpRoutes(
   );
 
   app.post(
-    "/bootstrap/workload",
-    createWorkloadBootstrapHandler({
+    "/bootstrap/device",
+    createDeviceBootstrapHandler({
       natsServers: config.client.natsServers,
       sentinel: sentinelCreds,
-      loadWorkloadInstance: async (instanceId) => {
-        const entry = (await workloadInstancesKV.get(instanceId)).take();
+      loadDeviceInstance: async (instanceId) => {
+        const entry = (await deviceInstancesKV.get(instanceId)).take();
         return isErr(entry) ? null : entry.value;
       },
-      loadWorkloadActivation: async (instanceId) => {
-        const entry = (await workloadActivationsKV.get(instanceId)).take();
+      loadDeviceActivation: async (instanceId) => {
+        const entry = (await deviceActivationsKV.get(instanceId)).take();
         return isErr(entry) ? null : entry.value;
       },
-      loadWorkloadProfile: async (profileId) => {
-        const entry = (await workloadProfilesKV.get(profileId)).take();
+      loadDeviceProfile: async (profileId) => {
+        const entry = (await deviceProfilesKV.get(profileId)).take();
         return isErr(entry) ? null : entry.value;
       },
-      verifyIdentityProof: verifyWorkloadBootstrapIdentityProof,
+      verifyIdentityProof: verifyDeviceBootstrapIdentityProof,
     }),
   );
 
@@ -915,7 +915,7 @@ export function registerHttpRoutes(
     );
   });
 
-  registerWorkloadActivationHttpRoutes(app);
+  registerDeviceActivationHttpRoutes(app);
 
   app.post("/auth/flow/:flowId/bind", async (c) => {
     const flowId = c.req.param("flowId");

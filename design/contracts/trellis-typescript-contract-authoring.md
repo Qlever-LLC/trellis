@@ -205,7 +205,7 @@ This document only constrains the architectural direction behind that API:
 - locally defined contracts and generated SDK modules share one compatible contract-module shape
 - `uses` declarations remain SDK-backed and contract-driven rather than handwritten dependency objects in normal usage
 - the participant runtime surface remains derived from `API.owned`, `API.used`, and `API.trellis`
-- public documentation should lead with `TrellisClient.connect(...)`, `TrellisService.connect(...)`, and `TrellisWorkload.connect(...)`
+- public documentation should lead with `TrellisClient.connect(...)`, `TrellisService.connect(...)`, and `TrellisDevice.connect(...)`
 - emitted manifests remain canonical `trellis.contract.v1` artifacts; this design does not create a parallel manifest format
 - generated SDK outputs still need the richer contract module shape with `CONTRACT`, `CONTRACT_ID`, `CONTRACT_DIGEST`, projected API views, and typed `use(...)` helpers
 

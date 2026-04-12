@@ -4,37 +4,37 @@ import { AsyncResult, isErr } from "@qlever-llc/result";
 import { Value } from "typebox/value";
 
 import {
-  deriveWorkloadConfirmationCode,
-  deriveWorkloadQrMac,
-  parseWorkloadActivationPayload,
-  verifyWorkloadWaitSignature,
-} from "../../../../packages/auth/workload_activation.ts";
+  deriveDeviceConfirmationCode,
+  deriveDeviceQrMac,
+  parseDeviceActivationPayload,
+  verifyDeviceWaitSignature,
+} from "../../../../packages/auth/device_activation.ts";
 import {
-  resolveWorkloadBootstrap,
-  verifyWorkloadBootstrapIdentityProof,
-  WorkloadBootstrapRequestSchema,
-} from "../bootstrap/workload.ts";
+  resolveDeviceBootstrap,
+  verifyDeviceBootstrapIdentityProof,
+  DeviceBootstrapRequestSchema,
+} from "../bootstrap/device.ts";
 import { getConfig } from "../../config.ts";
 import {
+  deviceActivationHandoffsKV,
+  deviceActivationReviewsKV,
+  deviceActivationsKV,
+  deviceInstancesKV,
+  devicePortalSelectionsKV,
+  deviceProfilesKV,
+  deviceProvisioningSecretsKV,
   portalDefaultsKV,
   portalsKV,
   sentinelCreds,
-  workloadActivationHandoffsKV,
-  workloadActivationReviewsKV,
-  workloadActivationsKV,
-  workloadInstancesKV,
-  workloadPortalSelectionsKV,
-  workloadProfilesKV,
-  workloadProvisioningSecretsKV,
 } from "../../bootstrap/globals.ts";
 import { randomToken } from "../crypto.ts";
-import { workloadInstanceId } from "../admin/shared.ts";
-import { resolveWorkloadPortal } from "../http/support.ts";
-import { isWorkloadProofIatFresh } from "./shared.ts";
+import { deviceInstanceId } from "../admin/shared.ts";
+import { resolveDevicePortal } from "../http/support.ts";
+import { isDeviceProofIatFresh } from "./shared.ts";
 
 const config = getConfig();
 
-type WorkloadHandoff = {
+type DeviceHandoff = {
   handoffId: string;
   instanceId: string;
   publicIdentityKey: string;
@@ -44,7 +44,7 @@ type WorkloadHandoff = {
   expiresAt: Date;
 };
 
-type WorkloadInstance = {
+type DeviceInstance = {
   instanceId: string;
   publicIdentityKey: string;
   profileId: string;
@@ -54,7 +54,7 @@ type WorkloadInstance = {
   revokedAt: string | Date | null;
 };
 
-type WorkloadProfile = {
+type DeviceProfile = {
   profileId: string;
   contractId: string;
   allowedDigests: string[];
@@ -62,13 +62,13 @@ type WorkloadProfile = {
   disabled: boolean;
 };
 
-type WorkloadProvisioningSecret = {
+type DeviceProvisioningSecret = {
   instanceId: string;
   activationKey: string;
   createdAt: string | Date;
 };
 
-type WorkloadActivationReview = {
+type DeviceActivationReview = {
   reviewId: string;
   handoffId: string;
   instanceId: string;
@@ -86,24 +86,24 @@ type Portal = {
   disabled?: boolean;
 };
 
-async function loadWorkloadInstance(
+async function loadDeviceInstance(
   instanceId: string,
-): Promise<WorkloadInstance | null> {
-  const entry = (await workloadInstancesKV.get(instanceId)).take();
+): Promise<DeviceInstance | null> {
+  const entry = (await deviceInstancesKV.get(instanceId)).take();
   if (isErr(entry)) return null;
-  return entry.value as WorkloadInstance;
+  return entry.value as DeviceInstance;
 }
 
-async function loadWorkloadProfile(
+async function loadDeviceProfile(
   profileId: string,
-): Promise<WorkloadProfile | null> {
-  const entry = (await workloadProfilesKV.get(profileId)).take();
+): Promise<DeviceProfile | null> {
+  const entry = (await deviceProfilesKV.get(profileId)).take();
   if (isErr(entry)) return null;
-  return entry.value as WorkloadProfile;
+  return entry.value as DeviceProfile;
 }
 
-async function loadWorkloadActivation(instanceId: string) {
-  const entry = (await workloadActivationsKV.get(instanceId)).take();
+async function loadDeviceActivation(instanceId: string) {
+  const entry = (await deviceActivationsKV.get(instanceId)).take();
   if (isErr(entry)) return null;
   return entry.value as {
     instanceId: string;
@@ -115,38 +115,38 @@ async function loadWorkloadActivation(instanceId: string) {
   };
 }
 
-async function loadWorkloadProvisioningSecret(
+async function loadDeviceProvisioningSecret(
   instanceId: string,
-): Promise<WorkloadProvisioningSecret | null> {
-  const entry = (await workloadProvisioningSecretsKV.get(instanceId)).take();
+): Promise<DeviceProvisioningSecret | null> {
+  const entry = (await deviceProvisioningSecretsKV.get(instanceId)).take();
   if (isErr(entry)) return null;
-  return entry.value as WorkloadProvisioningSecret;
+  return entry.value as DeviceProvisioningSecret;
 }
 
-async function findWorkloadActivationReviewByHandoffId(
+async function findDeviceActivationReviewByHandoffId(
   handoffId: string,
-): Promise<WorkloadActivationReview | null> {
-  const iter = (await workloadActivationReviewsKV.keys(">")).take();
+): Promise<DeviceActivationReview | null> {
+  const iter = (await deviceActivationReviewsKV.keys(">")).take();
   if (isErr(iter)) return null;
   for await (const key of iter) {
-    const entry = (await workloadActivationReviewsKV.get(key)).take();
+    const entry = (await deviceActivationReviewsKV.get(key)).take();
     if (isErr(entry)) continue;
-    const review = entry.value as WorkloadActivationReview;
+    const review = entry.value as DeviceActivationReview;
     if (review.handoffId === handoffId) return review;
   }
   return null;
 }
 
-async function findWorkloadHandoff(input: {
+async function findDeviceHandoff(input: {
   publicIdentityKey: string;
   nonce: string;
-}): Promise<WorkloadHandoff | null> {
-  const iter = (await workloadActivationHandoffsKV.keys(">")).take();
+}): Promise<DeviceHandoff | null> {
+  const iter = (await deviceActivationHandoffsKV.keys(">")).take();
   if (isErr(iter)) return null;
   for await (const key of iter) {
-    const entry = (await workloadActivationHandoffsKV.get(key)).take();
+    const entry = (await deviceActivationHandoffsKV.get(key)).take();
     if (isErr(entry)) continue;
-    const handoff = entry.value as WorkloadHandoff;
+    const handoff = entry.value as DeviceHandoff;
     if (
       handoff.publicIdentityKey === input.publicIdentityKey &&
       handoff.nonce === input.nonce
@@ -169,14 +169,14 @@ async function listPortals(): Promise<Portal[]> {
   return portals;
 }
 
-async function listWorkloadPortalSelections(): Promise<
+async function listDevicePortalSelections(): Promise<
   Array<{ profileId: string; portalId: string | null }>
 > {
-  const iter = (await workloadPortalSelectionsKV.keys(">")).take();
+  const iter = (await devicePortalSelectionsKV.keys(">")).take();
   if (isErr(iter)) return [];
   const selections: Array<{ profileId: string; portalId: string | null }> = [];
   for await (const key of iter) {
-    const entry = (await workloadPortalSelectionsKV.get(key)).take();
+    const entry = (await devicePortalSelectionsKV.get(key)).take();
     if (isErr(entry)) continue;
     selections.push(
       entry.value as { profileId: string; portalId: string | null },
@@ -185,22 +185,22 @@ async function listWorkloadPortalSelections(): Promise<
   return selections;
 }
 
-async function loadWorkloadPortalDefaultId(): Promise<
+async function loadDevicePortalDefaultId(): Promise<
   string | null | undefined
 > {
-  const entry = (await portalDefaultsKV.get("workload.default")).take();
+  const entry = (await portalDefaultsKV.get("device.default")).take();
   if (isErr(entry)) return undefined;
   return (entry.value as { portalId: string | null }).portalId;
 }
 
-function workloadBootstrapDeps() {
+function deviceBootstrapDeps() {
   return {
     natsServers: config.client.natsServers,
     sentinel: sentinelCreds,
-    loadWorkloadInstance,
-    loadWorkloadActivation,
-    loadWorkloadProfile,
-    verifyIdentityProof: verifyWorkloadBootstrapIdentityProof,
+    loadDeviceInstance,
+    loadDeviceActivation,
+    loadDeviceProfile,
+    verifyIdentityProof: verifyDeviceBootstrapIdentityProof,
   };
 }
 
@@ -209,11 +209,11 @@ async function confirmationCodeForActivation(args: {
   publicIdentityKey: string;
   nonce: string;
 }): Promise<string | undefined> {
-  const provisioningSecret = await loadWorkloadProvisioningSecret(
+  const provisioningSecret = await loadDeviceProvisioningSecret(
     args.instanceId,
   );
   if (!provisioningSecret) return undefined;
-  return await deriveWorkloadConfirmationCode({
+  return await deriveDeviceConfirmationCode({
     activationKey: provisioningSecret.activationKey,
     publicIdentityKey: args.publicIdentityKey,
     nonce: args.nonce,
@@ -225,64 +225,64 @@ function builtinPortalEntryUrl(): string {
   return new URL("/_trellis/portal/activate", base).toString();
 }
 
-export function registerWorkloadActivationHttpRoutes(
+export function registerDeviceActivationHttpRoutes(
   app: Pick<Hono, "get" | "post">,
 ): void {
-  app.get("/auth/workloads/activate", async (c: Context) => {
+  app.get("/auth/devices/activate", async (c: Context) => {
     const rawPayload = c.req.query("payload");
     if (!rawPayload) {
       throw new HTTPException(400, { message: "Missing payload" });
     }
     let payload;
     try {
-      payload = parseWorkloadActivationPayload(rawPayload);
+      payload = parseDeviceActivationPayload(rawPayload);
     } catch {
       throw new HTTPException(400, {
-        message: "Invalid workload activation payload",
+        message: "Invalid device activation payload",
       });
     }
 
-    const instanceId = workloadInstanceId(payload.publicIdentityKey);
-    const instance = await loadWorkloadInstance(instanceId);
+    const instanceId = deviceInstanceId(payload.publicIdentityKey);
+    const instance = await loadDeviceInstance(instanceId);
     if (!instance) {
-      throw new HTTPException(404, { message: "Unknown workload" });
+      throw new HTTPException(404, { message: "Unknown device" });
     }
-    const provisioningSecret = await loadWorkloadProvisioningSecret(instanceId);
+    const provisioningSecret = await loadDeviceProvisioningSecret(instanceId);
     if (!provisioningSecret) {
-      throw new HTTPException(404, { message: "Unknown workload" });
+      throw new HTTPException(404, { message: "Unknown device" });
     }
-    const expectedQrMac = await deriveWorkloadQrMac({
+    const expectedQrMac = await deriveDeviceQrMac({
       activationKey: provisioningSecret.activationKey,
       publicIdentityKey: payload.publicIdentityKey,
       nonce: payload.nonce,
     });
     if (expectedQrMac !== payload.qrMac) {
       throw new HTTPException(400, {
-        message: "Invalid workload activation payload",
+        message: "Invalid device activation payload",
       });
     }
-    const profile = await loadWorkloadProfile(instance.profileId);
+    const profile = await loadDeviceProfile(instance.profileId);
     if (!profile || profile.disabled) {
-      throw new HTTPException(404, { message: "Workload profile not found" });
+      throw new HTTPException(404, { message: "Device profile not found" });
     }
 
     const now = new Date();
-    const handoffId = `wah_${randomToken(12)}`;
-    await workloadActivationHandoffsKV.put(handoffId, {
+    const handoffId = `dah_${randomToken(12)}`;
+    await deviceActivationHandoffsKV.put(handoffId, {
       handoffId,
       instanceId,
       publicIdentityKey: payload.publicIdentityKey,
       nonce: payload.nonce,
       qrMac: payload.qrMac,
       createdAt: now,
-      expiresAt: new Date(now.getTime() + config.ttlMs.workloadHandoff),
+      expiresAt: new Date(now.getTime() + config.ttlMs.deviceHandoff),
     });
 
-    const portalResolution = resolveWorkloadPortal({
+    const portalResolution = resolveDevicePortal({
       profileId: profile.profileId,
       portals: await listPortals(),
-      defaultPortalId: await loadWorkloadPortalDefaultId(),
-      selections: await listWorkloadPortalSelections(),
+      defaultPortalId: await loadDevicePortalDefaultId(),
+      selections: await listDevicePortalSelections(),
     });
     const portalEntryUrl = portalResolution.kind === "custom"
       ? portalResolution.portal.entryUrl
@@ -294,7 +294,7 @@ export function registerWorkloadActivationHttpRoutes(
     return c.redirect(portalUrl.toString());
   });
 
-  app.post("/auth/workloads/activate/wait", async (c: Context) => {
+  app.post("/auth/devices/activate/wait", async (c: Context) => {
     const bodyResult = await AsyncResult.try(() => c.req.json());
     if (bodyResult.isErr()) {
       return c.json({ error: "Invalid JSON body" }, 400);
@@ -314,10 +314,10 @@ export function registerWorkloadActivationHttpRoutes(
     ) {
       return c.json({ reason: "invalid_request" }, 400);
     }
-    if (!isWorkloadProofIatFresh(iat)) {
+    if (!isDeviceProofIatFresh(iat)) {
       return c.json({ reason: "iat_out_of_range" }, 400);
     }
-    const proofOk = await verifyWorkloadWaitSignature({
+    const proofOk = await verifyDeviceWaitSignature({
       publicIdentityKey,
       nonce,
       contractDigest,
@@ -327,26 +327,26 @@ export function registerWorkloadActivationHttpRoutes(
     if (!proofOk) {
       return c.json({ reason: "invalid_signature" }, 400);
     }
-    const handoff = await findWorkloadHandoff({ publicIdentityKey, nonce });
+    const handoff = await findDeviceHandoff({ publicIdentityKey, nonce });
     if (!handoff) {
       return c.json({ status: "pending" });
     }
     if (new Date(handoff.expiresAt).getTime() <= Date.now()) {
-      return c.json({ status: "rejected", reason: "workload_handoff_expired" });
+      return c.json({ status: "rejected", reason: "device_handoff_expired" });
     }
-    const instance = await loadWorkloadInstance(handoff.instanceId);
+    const instance = await loadDeviceInstance(handoff.instanceId);
     if (!instance || instance.state === "disabled") {
-      return c.json({ reason: "unknown_workload" }, 404);
+      return c.json({ reason: "unknown_device" }, 404);
     }
-    const activation = await loadWorkloadActivation(handoff.instanceId);
-    const review = await findWorkloadActivationReviewByHandoffId(
+    const activation = await loadDeviceActivation(handoff.instanceId);
+    const review = await findDeviceActivationReviewByHandoffId(
       handoff.handoffId,
     );
     if (!activation) {
       if (review?.state === "rejected") {
         return c.json({
           status: "rejected",
-          reason: review.reason ?? "workload_activation_rejected",
+          reason: review.reason ?? "device_activation_rejected",
         });
       }
       return c.json({ status: "pending" });
@@ -354,17 +354,17 @@ export function registerWorkloadActivationHttpRoutes(
     if (activation.state === "revoked") {
       return c.json({
         status: "rejected",
-        reason: "workload_activation_revoked",
+        reason: "device_activation_revoked",
       });
     }
-    const profile = await loadWorkloadProfile(activation.profileId);
+    const profile = await loadDeviceProfile(activation.profileId);
     if (!profile || profile.disabled) {
       return c.json({
         status: "rejected",
-        reason: "workload_profile_not_found",
+        reason: "device_profile_not_found",
       });
     }
-    const bootstrap = await resolveWorkloadBootstrap(workloadBootstrapDeps(), {
+    const bootstrap = await resolveDeviceBootstrap(deviceBootstrapDeps(), {
       publicIdentityKey,
       contractDigest,
     });
@@ -383,40 +383,40 @@ export function registerWorkloadActivationHttpRoutes(
     });
   });
 
-  app.post("/auth/workloads/connect-info", async (c: Context) => {
+  app.post("/auth/devices/connect-info", async (c: Context) => {
     const bodyResult = await AsyncResult.try(() => c.req.json());
     if (bodyResult.isErr()) {
       return c.json({ error: "Invalid JSON body" }, 400);
     }
     const body = bodyResult.take();
-    if (!Value.Check(WorkloadBootstrapRequestSchema, body)) {
+    if (!Value.Check(DeviceBootstrapRequestSchema, body)) {
       return c.json({ reason: "invalid_request" }, 400);
     }
     const request = body;
-    if (!isWorkloadProofIatFresh(request.iat)) {
+    if (!isDeviceProofIatFresh(request.iat)) {
       return c.json({ reason: "iat_out_of_range" }, 400);
     }
-    const proofOk = await verifyWorkloadBootstrapIdentityProof(request);
+    const proofOk = await verifyDeviceBootstrapIdentityProof(request);
     if (!proofOk) {
       return c.json({ reason: "invalid_signature" }, 400);
     }
 
-    const result = await resolveWorkloadBootstrap(
-      workloadBootstrapDeps(),
+    const result = await resolveDeviceBootstrap(
+      deviceBootstrapDeps(),
       request,
     );
 
     if (result.status === "activation_required") {
-      return c.json({ reason: "unknown_workload" }, 404);
+      return c.json({ reason: "unknown_device" }, 404);
     }
     if (result.status === "not_ready") {
       if (result.reason === "contract_digest_not_allowed") {
         return c.json({ reason: result.reason }, 403);
       }
-      if (result.reason === "workload_profile_not_found") {
+      if (result.reason === "device_profile_not_found") {
         return c.json({ reason: result.reason }, 404);
       }
-      return c.json({ reason: "unknown_workload" }, 404);
+      return c.json({ reason: "unknown_device" }, 404);
     }
 
     return c.json(result);

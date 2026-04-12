@@ -17,7 +17,7 @@ pub enum ContractKind {
     Service,
     App,
     Portal,
-    Workload,
+    Device,
     Cli,
 }
 

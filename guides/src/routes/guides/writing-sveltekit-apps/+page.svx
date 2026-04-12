@@ -41,7 +41,7 @@ export const myApp = defineContract({
 });
 ```
 
-The defaults include at least `Auth.Me`, `Auth.Logout`, and `Auth.RenewBindingToken`, which most browser apps need. `Auth.Me` returns a `{ user, workload, service }` envelope, with the workload branch carrying the workload identity and the activating user when applicable.
+The defaults include at least `Auth.Me`, `Auth.Logout`, and `Auth.RenewBindingToken`, which most browser apps need. `Auth.Me` returns a `{ user, device, service }` envelope, with the device branch carrying the device identity and the activating user when applicable.
 
 Contract source files should prefer `@qlever-llc/trellis/contracts`; keep runtime and auth helpers on `@qlever-llc/trellis` or `@qlever-llc/trellis-svelte`.
 

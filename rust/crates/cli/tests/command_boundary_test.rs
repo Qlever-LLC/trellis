@@ -41,6 +41,21 @@ fn sdk_generate_is_rejected() {
 }
 
 #[test]
+fn devices_help_remains_available() {
+    let output = run_cli(&["devices", "--help"]);
+    assert!(output.status.success(), "devices help should succeed");
+}
+
+#[test]
+fn portals_devices_help_remains_available() {
+    let output = run_cli(&["portals", "devices", "--help"]);
+    assert!(
+        output.status.success(),
+        "portals devices help should succeed"
+    );
+}
+
+#[test]
 fn contracts_pack_remains_available() {
     let output = run_cli(&["contracts", "pack", "--help"]);
     assert!(

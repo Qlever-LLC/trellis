@@ -21,13 +21,13 @@ import {
   ServiceRegistrySchema,
   SessionSchema,
   UserProjectionSchema,
-  WorkloadPortalSelectionSchema,
-  WorkloadActivationHandoffSchema,
-  WorkloadActivationRecordSchema,
-  WorkloadActivationReviewRecordSchema,
-  WorkloadProfileSchema,
-  WorkloadProvisioningSecretSchema,
-  WorkloadSchema,
+  DevicePortalSelectionSchema,
+  DeviceActivationHandoffSchema,
+  DeviceActivationRecordSchema,
+  DeviceActivationReviewRecordSchema,
+  DeviceProfileSchema,
+  DeviceProvisioningSecretSchema,
+  DeviceSchema,
 } from "../state/schemas.ts";
 
 const config = getConfig();
@@ -181,19 +181,19 @@ if (isErr(loginPortalSelectionsKVValue)) {
 }
 export const loginPortalSelectionsKV = loginPortalSelectionsKVValue;
 
-const workloadPortalSelectionsKVResult = await TypedKV.open(
+const devicePortalSelectionsKVResult = await TypedKV.open(
   natsAuth,
-  "trellis_portal_workload_selections",
-  WorkloadPortalSelectionSchema,
+  "trellis_portal_device_selections",
+  DevicePortalSelectionSchema,
   { history: 1, ttl: 0 },
 );
-const workloadPortalSelectionsKVValue = workloadPortalSelectionsKVResult.take();
-if (isErr(workloadPortalSelectionsKVValue)) {
+const devicePortalSelectionsKVValue = devicePortalSelectionsKVResult.take();
+if (isErr(devicePortalSelectionsKVValue)) {
   throw new Error(
-    `Failed to open workload portal selections KV: ${workloadPortalSelectionsKVValue.error.message}`,
+    `Failed to open device portal selections KV: ${devicePortalSelectionsKVValue.error.message}`,
   );
 }
-export const workloadPortalSelectionsKV = workloadPortalSelectionsKVValue;
+export const devicePortalSelectionsKV = devicePortalSelectionsKVValue;
 
 const browserFlowsKVResult = await TypedKV.open(
   natsAuth,
@@ -209,89 +209,89 @@ if (isErr(browserFlowsKVValue)) {
 }
 export const browserFlowsKV = browserFlowsKVValue;
 
-const workloadProfilesKVResult = await TypedKV.open(
+const deviceProfilesKVResult = await TypedKV.open(
   natsAuth,
-  "trellis_workload_profiles",
-  WorkloadProfileSchema,
+  "trellis_device_profiles",
+  DeviceProfileSchema,
   { history: 1, ttl: 0 },
 );
-const workloadProfilesKVValue = workloadProfilesKVResult.take();
-if (isErr(workloadProfilesKVValue)) {
+const deviceProfilesKVValue = deviceProfilesKVResult.take();
+if (isErr(deviceProfilesKVValue)) {
   throw new Error(
-    `Failed to open workload profiles KV: ${workloadProfilesKVValue.error.message}`,
+    `Failed to open device profiles KV: ${deviceProfilesKVValue.error.message}`,
   );
 }
-export const workloadProfilesKV = workloadProfilesKVValue;
+export const deviceProfilesKV = deviceProfilesKVValue;
 
-const workloadInstancesKVResult = await TypedKV.open(
+const deviceInstancesKVResult = await TypedKV.open(
   natsAuth,
-  "trellis_workload_instances",
-  WorkloadSchema,
+  "trellis_device_instances",
+  DeviceSchema,
   { history: 1, ttl: 0 },
 );
-const workloadInstancesKVValue = workloadInstancesKVResult.take();
-if (isErr(workloadInstancesKVValue)) {
+const deviceInstancesKVValue = deviceInstancesKVResult.take();
+if (isErr(deviceInstancesKVValue)) {
   throw new Error(
-    `Failed to open workload instances KV: ${workloadInstancesKVValue.error.message}`,
+    `Failed to open device instances KV: ${deviceInstancesKVValue.error.message}`,
   );
 }
-export const workloadInstancesKV = workloadInstancesKVValue;
+export const deviceInstancesKV = deviceInstancesKVValue;
 
-const workloadActivationHandoffsKVResult = await TypedKV.open(
+const deviceActivationHandoffsKVResult = await TypedKV.open(
   natsAuth,
-  "trellis_workload_activation_handoffs",
-  WorkloadActivationHandoffSchema,
-  { history: 1, ttl: config.ttlMs.workloadHandoff },
+  "trellis_device_activation_handoffs",
+  DeviceActivationHandoffSchema,
+  { history: 1, ttl: config.ttlMs.deviceHandoff },
 );
-const workloadActivationHandoffsKVValue = workloadActivationHandoffsKVResult.take();
-if (isErr(workloadActivationHandoffsKVValue)) {
+const deviceActivationHandoffsKVValue = deviceActivationHandoffsKVResult.take();
+if (isErr(deviceActivationHandoffsKVValue)) {
   throw new Error(
-    `Failed to open workload activation handoffs KV: ${workloadActivationHandoffsKVValue.error.message}`,
+    `Failed to open device activation handoffs KV: ${deviceActivationHandoffsKVValue.error.message}`,
   );
 }
-export const workloadActivationHandoffsKV = workloadActivationHandoffsKVValue;
+export const deviceActivationHandoffsKV = deviceActivationHandoffsKVValue;
 
-const workloadProvisioningSecretsKVResult = await TypedKV.open(
+const deviceProvisioningSecretsKVResult = await TypedKV.open(
   natsAuth,
-  "trellis_workload_provisioning_secrets",
-  WorkloadProvisioningSecretSchema,
+  "trellis_device_provisioning_secrets",
+  DeviceProvisioningSecretSchema,
   { history: 1, ttl: 0 },
 );
-const workloadProvisioningSecretsKVValue = workloadProvisioningSecretsKVResult.take();
-if (isErr(workloadProvisioningSecretsKVValue)) {
+const deviceProvisioningSecretsKVValue = deviceProvisioningSecretsKVResult.take();
+if (isErr(deviceProvisioningSecretsKVValue)) {
   throw new Error(
-    `Failed to open workload provisioning secrets KV: ${workloadProvisioningSecretsKVValue.error.message}`,
+    `Failed to open device provisioning secrets KV: ${deviceProvisioningSecretsKVValue.error.message}`,
   );
 }
-export const workloadProvisioningSecretsKV = workloadProvisioningSecretsKVValue;
+export const deviceProvisioningSecretsKV = deviceProvisioningSecretsKVValue;
 
-const workloadActivationsKVResult = await TypedKV.open(
+const deviceActivationsKVResult = await TypedKV.open(
   natsAuth,
-  "trellis_workload_activations",
-  WorkloadActivationRecordSchema,
+  "trellis_device_activations",
+  DeviceActivationRecordSchema,
   { history: 1, ttl: 0 },
 );
-const workloadActivationsKVValue = workloadActivationsKVResult.take();
-if (isErr(workloadActivationsKVValue)) {
+const deviceActivationsKVValue = deviceActivationsKVResult.take();
+if (isErr(deviceActivationsKVValue)) {
   throw new Error(
-    `Failed to open workload activations KV: ${workloadActivationsKVValue.error.message}`,
+    `Failed to open device activations KV: ${deviceActivationsKVValue.error.message}`,
   );
 }
-export const workloadActivationsKV = workloadActivationsKVValue;
+export const deviceActivationsKV = deviceActivationsKVValue;
 
-const workloadActivationReviewsKVResult = await TypedKV.open(
+const deviceActivationReviewsKVResult = await TypedKV.open(
   natsAuth,
-  "trellis_workload_activation_reviews",
-  WorkloadActivationReviewRecordSchema,
+  "trellis_device_activation_reviews",
+  DeviceActivationReviewRecordSchema,
   { history: 1, ttl: 0 },
 );
-const workloadActivationReviewsKVValue = workloadActivationReviewsKVResult.take();
-if (isErr(workloadActivationReviewsKVValue)) {
+const deviceActivationReviewsKVValue = deviceActivationReviewsKVResult.take();
+if (isErr(deviceActivationReviewsKVValue)) {
   throw new Error(
-    `Failed to open workload activation reviews KV: ${workloadActivationReviewsKVValue.error.message}`,
+    `Failed to open device activation reviews KV: ${deviceActivationReviewsKVValue.error.message}`,
   );
 }
-export const workloadActivationReviewsKV = workloadActivationReviewsKVValue;
+export const deviceActivationReviewsKV = deviceActivationReviewsKVValue;
 
 const connectionsKVResult = await TypedKV.open(
   natsAuth,

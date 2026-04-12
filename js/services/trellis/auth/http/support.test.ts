@@ -11,7 +11,7 @@ import {
   getApprovalResolutionBlocker,
   getApprovalResolution,
   resolveLoginPortal,
-  resolveWorkloadPortal,
+  resolveDevicePortal,
   shouldUseSecureOauthCookie,
 } from "./support.ts";
 
@@ -469,7 +469,7 @@ Deno.test("shouldUseSecureOauthCookie logs through injected logger", () => {
     ttlMs: {
       sessions: 1,
       oauth: 1,
-      workloadHandoff: 1,
+      deviceHandoff: 1,
       pendingAuth: 1,
       bindingTokens: { bucket: 1, initial: 1, renew: 1, cliInitial: 1, cliRenew: 1 },
       connections: 1,
@@ -553,8 +553,8 @@ Deno.test("resolveLoginPortal prefers contract selection over default and builti
   assertEquals(builtinFallback, { kind: "builtin" });
 });
 
-Deno.test("resolveWorkloadPortal prefers profile selection over default and builtin", () => {
-  const selectedPortal = resolveWorkloadPortal({
+Deno.test("resolveDevicePortal prefers profile selection over default and builtin", () => {
+  const selectedPortal = resolveDevicePortal({
     profileId: "reader.default",
     portals: [
       { portalId: "default", entryUrl: "https://default.example.com" },
@@ -568,7 +568,7 @@ Deno.test("resolveWorkloadPortal prefers profile selection over default and buil
     portal: { portalId: "profile", entryUrl: "https://profile.example.com" },
   });
 
-  const forcedBuiltin = resolveWorkloadPortal({
+  const forcedBuiltin = resolveDevicePortal({
     profileId: "reader.default",
     portals: [{ portalId: "default", entryUrl: "https://default.example.com" }],
     defaultPortalId: "default",
@@ -576,7 +576,7 @@ Deno.test("resolveWorkloadPortal prefers profile selection over default and buil
   });
   assertEquals(forcedBuiltin, { kind: "builtin" });
 
-  const defaultPortal = resolveWorkloadPortal({
+  const defaultPortal = resolveDevicePortal({
     profileId: "reader.default",
     portals: [{ portalId: "default", entryUrl: "https://default.example.com" }],
     defaultPortalId: "default",
@@ -587,7 +587,7 @@ Deno.test("resolveWorkloadPortal prefers profile selection over default and buil
     portal: { portalId: "default", entryUrl: "https://default.example.com" },
   });
 
-  const builtinFallback = resolveWorkloadPortal({
+  const builtinFallback = resolveDevicePortal({
     profileId: "reader.default",
     portals: [],
     defaultPortalId: undefined,

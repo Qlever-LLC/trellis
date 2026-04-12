@@ -15,6 +15,16 @@ fn unique_temp_dir(label: &str) -> PathBuf {
 }
 
 #[test]
+fn contract_kind_serializes_and_deserializes_device() {
+    let serialized = serde_json::to_value(ContractKind::Device).expect("serialize contract kind");
+    assert_eq!(serialized, Value::String("device".to_string()));
+
+    let deserialized: ContractKind = serde_json::from_value(Value::String("device".to_string()))
+        .expect("deserialize contract kind");
+    assert_eq!(deserialized, ContractKind::Device);
+}
+
+#[test]
 fn canonicalize_sorts_keys_and_matches_digest_vector() {
     let value = json!({"b": 1, "a": "x"});
     let canonical = canonicalize_json(&value).unwrap();

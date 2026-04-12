@@ -491,6 +491,8 @@ const NATS_SUBJECT_TOKEN_FORBIDDEN = /[\u0000\s.*>~]/gu;
 
 const DEFAULT_NO_RESPONDER_MAX_RETRIES = 2;
 const DEFAULT_NO_RESPONDER_RETRY_MS = 200;
+const DEFAULT_AUTH_VALIDATE_SESSION_RETRY_ATTEMPTS = 3;
+const DEFAULT_AUTH_VALIDATE_SESSION_RETRY_MS = 25;
 
 const EMPTY_TRELLIS_API: TrellisAPI = {
   rpc: {},
@@ -503,6 +505,16 @@ type AuthCacheEntry = {
   caller: SessionCaller;
   expires: number;
 };
+
+function isTransientAuthValidateSessionError(error: unknown): boolean {
+  return error instanceof RemoteError &&
+    error.remoteError.type === "AuthError" &&
+    error.remoteError.reason === "session_not_found";
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 export class Trellis<
   TA extends AnyTrellisAPI = TrellisAPI,
@@ -1034,22 +1046,57 @@ export class Trellis<
             );
           }
 
-          const authResult = await this.requestAuthValidate({
-            sessionKey,
-            proof,
-            subject: msg.subject,
-            payloadHash: base64urlEncode(payloadHash),
-            capabilities: ctx.callerCapabilities,
-          });
-          const auth = authResult.take();
-          if (isErr(auth)) {
+          let auth:
+            | AuthValidateRequestResponse
+            | RemoteError
+            | ValidationError
+            | UnexpectedError
+            | undefined;
+          for (
+            let attempt = 0;
+            attempt < DEFAULT_AUTH_VALIDATE_SESSION_RETRY_ATTEMPTS;
+            attempt++
+          ) {
+            const authResult = await this.requestAuthValidate({
+              sessionKey,
+              proof,
+              subject: msg.subject,
+              payloadHash: base64urlEncode(payloadHash),
+              capabilities: ctx.callerCapabilities,
+            });
+            const authValue = authResult.take();
+            if (!isErr(authValue)) {
+              auth = authValue;
+              break;
+            }
+
+            const authError = authValue.error;
+
+            if (
+              !isTransientAuthValidateSessionError(authError) ||
+              attempt === DEFAULT_AUTH_VALIDATE_SESSION_RETRY_ATTEMPTS - 1
+            ) {
+              auth = authError;
+              break;
+            }
+
+            await sleep(
+              DEFAULT_AUTH_VALIDATE_SESSION_RETRY_MS * (attempt + 1),
+            );
+          }
+
+          if (!auth) {
+            return err(new UnexpectedError({ context: { reason: "missing_auth_validate_result" } }));
+          }
+
+          if (auth instanceof Error) {
             this.#log.warn(
               {
                 method,
-                error: auth.error.message,
-                errorType: auth.error.name,
-                remoteError: auth.error instanceof RemoteError
-                  ? auth.error.toSerializable()
+                error: auth.message,
+                errorType: auth.name,
+                remoteError: auth instanceof RemoteError
+                  ? auth.toSerializable()
                   : undefined,
               },
               "Auth.ValidateRequest failed",
@@ -1058,7 +1105,7 @@ export class Trellis<
               code: SpanStatusCode.ERROR,
               message: "Auth.ValidateRequest failed",
             });
-            return err(auth.error as TrellisErrorInstance);
+            return err(auth as TrellisErrorInstance);
           }
 
           if (!auth.allowed) {
@@ -1104,9 +1151,9 @@ export class Trellis<
         if (caller.type === "service") {
           span.setAttribute("service.id", caller.id);
         }
-        if (caller.type === "workload") {
-          span.setAttribute("workload.instance_id", caller.instanceId);
-          span.setAttribute("workload.profile_id", caller.profileId);
+        if (caller.type === "device") {
+          span.setAttribute("device.id", caller.deviceId);
+          span.setAttribute("device.profile_id", caller.profileId);
         }
 
         const handlerResultWrapped = await AsyncResult.try(() =>

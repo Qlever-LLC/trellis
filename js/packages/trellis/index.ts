@@ -66,7 +66,7 @@ export type {
   TrellisClientConnectArgs,
 } from "./client_connect.ts";
 export { TrellisClient } from "./client_connect.ts";
-export { TrellisWorkload } from "./workload.ts";
+export { TrellisDevice } from "./device.ts";
 export type { TrellisErrorInstance } from "./errors/index.ts";
 export {
   AuthError,

@@ -12,9 +12,9 @@ import {
   type OperationDesc,
   type RPCDesc,
   type Schema,
+  schema,
   type SchemaLike,
   type SubjectDesc,
-  schema,
   type TrellisAPI,
   unwrapSchema,
 } from "./runtime.ts";
@@ -70,7 +70,7 @@ export type ContractManifestMetadata = {
   description: string;
 };
 
-export type ContractKind = "service" | "app" | "portal" | "workload" | "cli";
+export type ContractKind = "service" | "app" | "portal" | "device" | "cli";
 
 export type Capability = string;
 export type JsonSchema = JsonValue | boolean;
@@ -397,10 +397,17 @@ type UseSubjectsSubscribe<TSpec> = NonNullable<
 > extends { subscribe?: infer TSubscribe } ? TSubscribe
   : never;
 
-type NormalizeUseSelection<T extends readonly string[] | undefined> =
-  T extends readonly string[] ? T[number][] : undefined;
+type NormalizeUseSelection<T extends readonly string[] | undefined> = T extends
+  readonly string[] ? T[number][] : undefined;
 
-type ContractModuleMarker<TContractModule = ContractModule<string, TrellisApiLike, TrellisApiLike, TrellisApiLike>> = {
+type ContractModuleMarker<
+  TContractModule = ContractModule<
+    string,
+    TrellisApiLike,
+    TrellisApiLike,
+    TrellisApiLike
+  >,
+> = {
   readonly [CONTRACT_MODULE_METADATA]: TContractModule;
 };
 
@@ -547,10 +554,9 @@ type EventKeysFromSpec<TSpec> =
   | (TSpec extends { events?: { subscribe?: infer TSubscribe } }
     ? KeysFromList<TSubscribe>
     : never);
-type OperationKeysFromSpec<TSpec> =
-  TSpec extends { operations?: { call?: infer TCall } }
-    ? KeysFromList<TCall>
-    : never;
+type OperationKeysFromSpec<TSpec> = TSpec extends
+  { operations?: { call?: infer TCall } } ? KeysFromList<TCall>
+  : never;
 type SubjectKeysFromSpec<TSpec> =
   | (TSpec extends { subjects?: { publish?: infer TPublish } }
     ? KeysFromList<TPublish>
@@ -857,7 +863,8 @@ function emitContract(source: TrellisContractSource): TrellisContractV1 {
       Object.entries(source.operations).map(([name, operation]) => {
         const emitted: ContractOperation = {
           version: operation.version,
-          subject: operation.subject ?? operationSubject(name, operation.version),
+          subject: operation.subject ??
+            operationSubject(name, operation.version),
           input: { ...operation.input },
         };
         if (operation.progress) {
@@ -1266,7 +1273,12 @@ function normalizeUses(
   }
 
   const manifestUses: Record<string, ContractSourceUse> = {};
-  const usedApi: TrellisApiLike = { rpc: {}, operations: {}, events: {}, subjects: {} };
+  const usedApi: TrellisApiLike = {
+    rpc: {},
+    operations: {},
+    events: {},
+    subjects: {},
+  };
 
   for (const [alias, useValue] of Object.entries(uses)) {
     const contractModule = getContractModuleFromUse(alias, useValue);
@@ -1335,7 +1347,9 @@ function normalizeUses(
         "operations",
         usedApi.operations,
         Object.fromEntries(
-          operationKeys.map((key) => [key, contractModule.API.owned.operations[key]]),
+          operationKeys.map((
+            key,
+          ) => [key, contractModule.API.owned.operations[key]]),
         ),
       );
     }
@@ -1399,15 +1413,33 @@ function mergeApiSection(
   return merged;
 }
 
-function mergeDerivedApis<TOwnedApi extends TrellisApiLike, TUsedApi extends TrellisApiLike>(
+function mergeDerivedApis<
+  TOwnedApi extends TrellisApiLike,
+  TUsedApi extends TrellisApiLike,
+>(
   ownedApi: TOwnedApi,
   usedApi: TUsedApi,
 ): MergeApis<TOwnedApi, TUsedApi> {
   return {
-    rpc: mergeApiSection("rpc", usedApi.rpc, ownedApi.rpc) as MergeApis<TOwnedApi, TUsedApi>["rpc"],
-    operations: mergeApiSection("operations", usedApi.operations, ownedApi.operations) as MergeApis<TOwnedApi, TUsedApi>["operations"],
-    events: mergeApiSection("events", usedApi.events, ownedApi.events) as MergeApis<TOwnedApi, TUsedApi>["events"],
-    subjects: mergeApiSection("subjects", usedApi.subjects, ownedApi.subjects) as MergeApis<TOwnedApi, TUsedApi>["subjects"],
+    rpc: mergeApiSection("rpc", usedApi.rpc, ownedApi.rpc) as MergeApis<
+      TOwnedApi,
+      TUsedApi
+    >["rpc"],
+    operations: mergeApiSection(
+      "operations",
+      usedApi.operations,
+      ownedApi.operations,
+    ) as MergeApis<TOwnedApi, TUsedApi>["operations"],
+    events: mergeApiSection(
+      "events",
+      usedApi.events,
+      ownedApi.events,
+    ) as MergeApis<TOwnedApi, TUsedApi>["events"],
+    subjects: mergeApiSection(
+      "subjects",
+      usedApi.subjects,
+      ownedApi.subjects,
+    ) as MergeApis<TOwnedApi, TUsedApi>["subjects"],
   };
 }
 

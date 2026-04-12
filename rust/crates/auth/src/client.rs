@@ -39,7 +39,7 @@ pub struct LoginPortalSelectionRecord {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct WorkloadPortalSelectionRecord {
+pub struct DevicePortalSelectionRecord {
     pub profile_id: String,
     pub portal_id: Option<String>,
 }
@@ -107,30 +107,30 @@ struct ClearLoginPortalSelectionResponse {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-struct ListWorkloadPortalSelectionsResponse {
-    selections: Vec<WorkloadPortalSelectionRecord>,
+struct ListDevicePortalSelectionsResponse {
+    selections: Vec<DevicePortalSelectionRecord>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct SetWorkloadPortalSelectionRequest {
+struct SetDevicePortalSelectionRequest {
     profile_id: String,
     portal_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-struct SetWorkloadPortalSelectionResponse {
-    selection: WorkloadPortalSelectionRecord,
+struct SetDevicePortalSelectionResponse {
+    selection: DevicePortalSelectionRecord,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ClearWorkloadPortalSelectionRequest {
+struct ClearDevicePortalSelectionRequest {
     profile_id: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-struct ClearWorkloadPortalSelectionResponse {
+struct ClearDevicePortalSelectionResponse {
     success: bool,
 }
 
@@ -358,27 +358,27 @@ impl<'a> AuthClient<'a> {
             .success)
     }
 
-    /// Get the deployment-wide workload portal default.
-    pub async fn get_workload_portal_default(
+    /// Get the deployment-wide device portal default.
+    pub async fn get_device_portal_default(
         &self,
     ) -> Result<PortalDefaultRecord, TrellisAuthError> {
         Ok(self
             .call::<_, GetPortalDefaultResponse>(
-                "rpc.v1.Auth.GetWorkloadPortalDefault",
+                "rpc.v1.Auth.GetDevicePortalDefault",
                 &trellis_sdk_auth::Empty {},
             )
             .await?
             .default_portal)
     }
 
-    /// Set the deployment-wide workload portal default.
-    pub async fn set_workload_portal_default(
+    /// Set the deployment-wide device portal default.
+    pub async fn set_device_portal_default(
         &self,
         portal_id: Option<&str>,
     ) -> Result<PortalDefaultRecord, TrellisAuthError> {
         Ok(self
             .call::<_, SetPortalDefaultResponse>(
-                "rpc.v1.Auth.SetWorkloadPortalDefault",
+                "rpc.v1.Auth.SetDevicePortalDefault",
                 &SetPortalDefaultRequest {
                     portal_id: portal_id.map(ToOwned::to_owned),
                 },
@@ -387,29 +387,29 @@ impl<'a> AuthClient<'a> {
             .default_portal)
     }
 
-    /// List profile-specific workload portal selections.
-    pub async fn list_workload_portal_selections(
+    /// List profile-specific device portal selections.
+    pub async fn list_device_portal_selections(
         &self,
-    ) -> Result<Vec<WorkloadPortalSelectionRecord>, TrellisAuthError> {
+    ) -> Result<Vec<DevicePortalSelectionRecord>, TrellisAuthError> {
         Ok(self
-            .call::<_, ListWorkloadPortalSelectionsResponse>(
-                "rpc.v1.Auth.ListWorkloadPortalSelections",
+            .call::<_, ListDevicePortalSelectionsResponse>(
+                "rpc.v1.Auth.ListDevicePortalSelections",
                 &trellis_sdk_auth::Empty {},
             )
             .await?
             .selections)
     }
 
-    /// Create or replace a profile-specific workload portal selection.
-    pub async fn set_workload_portal_selection(
+    /// Create or replace a profile-specific device portal selection.
+    pub async fn set_device_portal_selection(
         &self,
         profile_id: &str,
         portal_id: Option<&str>,
-    ) -> Result<WorkloadPortalSelectionRecord, TrellisAuthError> {
+    ) -> Result<DevicePortalSelectionRecord, TrellisAuthError> {
         Ok(self
-            .call::<_, SetWorkloadPortalSelectionResponse>(
-                "rpc.v1.Auth.SetWorkloadPortalSelection",
-                &SetWorkloadPortalSelectionRequest {
+            .call::<_, SetDevicePortalSelectionResponse>(
+                "rpc.v1.Auth.SetDevicePortalSelection",
+                &SetDevicePortalSelectionRequest {
                     profile_id: profile_id.to_string(),
                     portal_id: portal_id.map(ToOwned::to_owned),
                 },
@@ -418,15 +418,15 @@ impl<'a> AuthClient<'a> {
             .selection)
     }
 
-    /// Clear a profile-specific workload portal selection.
-    pub async fn clear_workload_portal_selection(
+    /// Clear a profile-specific device portal selection.
+    pub async fn clear_device_portal_selection(
         &self,
         profile_id: &str,
     ) -> Result<bool, TrellisAuthError> {
         Ok(self
-            .call::<_, ClearWorkloadPortalSelectionResponse>(
-                "rpc.v1.Auth.ClearWorkloadPortalSelection",
-                &ClearWorkloadPortalSelectionRequest {
+            .call::<_, ClearDevicePortalSelectionResponse>(
+                "rpc.v1.Auth.ClearDevicePortalSelection",
+                &ClearDevicePortalSelectionRequest {
                     profile_id: profile_id.to_string(),
                 },
             )
@@ -434,16 +434,16 @@ impl<'a> AuthClient<'a> {
             .success)
     }
 
-    /// List workload profiles.
-    pub async fn list_workload_profiles(
+    /// List device profiles.
+    pub async fn list_device_profiles(
         &self,
         contract_id: Option<&str>,
         disabled: bool,
-    ) -> Result<Vec<trellis_sdk_auth::AuthListWorkloadProfilesResponseProfilesItem>, TrellisAuthError> {
+    ) -> Result<Vec<trellis_sdk_auth::AuthListDeviceProfilesResponseProfilesItem>, TrellisAuthError> {
         Ok(self
-            .call::<_, trellis_sdk_auth::AuthListWorkloadProfilesResponse>(
-                "rpc.v1.Auth.ListWorkloadProfiles",
-                &trellis_sdk_auth::AuthListWorkloadProfilesRequest {
+            .call::<_, trellis_sdk_auth::AuthListDeviceProfilesResponse>(
+                "rpc.v1.Auth.ListDeviceProfiles",
+                &trellis_sdk_auth::AuthListDeviceProfilesRequest {
                     contract_id: contract_id.map(ToOwned::to_owned),
                     disabled: if disabled { Some(true) } else { None },
                 },
@@ -452,18 +452,18 @@ impl<'a> AuthClient<'a> {
             .profiles)
     }
 
-    /// Create a workload profile.
-    pub async fn create_workload_profile(
+    /// Create a device profile.
+    pub async fn create_device_profile(
         &self,
         profile_id: &str,
         contract_id: &str,
         allow_digests: &[String],
         review_mode: Option<&str>,
         contract: Option<BTreeMap<String, Value>>,
-    ) -> Result<trellis_sdk_auth::AuthCreateWorkloadProfileResponseProfile, TrellisAuthError> {
+    ) -> Result<trellis_sdk_auth::AuthCreateDeviceProfileResponseProfile, TrellisAuthError> {
         #[derive(Debug, Clone, Deserialize, Serialize)]
         #[serde(rename_all = "camelCase")]
-        struct CreateWorkloadProfileRequest {
+        struct CreateDeviceProfileRequest {
             allowed_digests: Vec<String>,
             contract_id: String,
             #[serde(skip_serializing_if = "Option::is_none")]
@@ -474,9 +474,9 @@ impl<'a> AuthClient<'a> {
         }
 
         Ok(self
-            .call::<_, trellis_sdk_auth::AuthCreateWorkloadProfileResponse>(
-                "rpc.v1.Auth.CreateWorkloadProfile",
-                &CreateWorkloadProfileRequest {
+            .call::<_, trellis_sdk_auth::AuthCreateDeviceProfileResponse>(
+                "rpc.v1.Auth.CreateDeviceProfile",
+                &CreateDeviceProfileRequest {
                     profile_id: profile_id.to_string(),
                     contract_id: contract_id.to_string(),
                     allowed_digests: allow_digests.to_vec(),
@@ -488,15 +488,15 @@ impl<'a> AuthClient<'a> {
             .profile)
     }
 
-    /// Disable a workload profile.
-    pub async fn disable_workload_profile(
+    /// Disable a device profile.
+    pub async fn disable_device_profile(
         &self,
         profile_id: &str,
     ) -> Result<bool, TrellisAuthError> {
         Ok(self
-            .call::<_, trellis_sdk_auth::AuthDisableWorkloadProfileResponse>(
-                "rpc.v1.Auth.DisableWorkloadProfile",
-                &trellis_sdk_auth::AuthDisableWorkloadProfileRequest {
+            .call::<_, trellis_sdk_auth::AuthDisableDeviceProfileResponse>(
+                "rpc.v1.Auth.DisableDeviceProfile",
+                &trellis_sdk_auth::AuthDisableDeviceProfileRequest {
                     profile_id: profile_id.to_string(),
                 },
             )
@@ -504,17 +504,17 @@ impl<'a> AuthClient<'a> {
             .success)
     }
 
-    /// Provision a workload instance.
-    pub async fn provision_workload_instance(
+    /// Provision a device instance.
+    pub async fn provision_device_instance(
         &self,
         profile_id: &str,
         public_identity_key: &str,
         activation_key: &str,
-    ) -> Result<trellis_sdk_auth::AuthProvisionWorkloadInstanceResponseInstance, TrellisAuthError> {
+    ) -> Result<trellis_sdk_auth::AuthProvisionDeviceInstanceResponseInstance, TrellisAuthError> {
         Ok(self
-            .call::<_, trellis_sdk_auth::AuthProvisionWorkloadInstanceResponse>(
-                "rpc.v1.Auth.ProvisionWorkloadInstance",
-                &trellis_sdk_auth::AuthProvisionWorkloadInstanceRequest {
+            .call::<_, trellis_sdk_auth::AuthProvisionDeviceInstanceResponse>(
+                "rpc.v1.Auth.ProvisionDeviceInstance",
+                &trellis_sdk_auth::AuthProvisionDeviceInstanceRequest {
                     profile_id: profile_id.to_string(),
                     public_identity_key: public_identity_key.to_string(),
                     activation_key: activation_key.to_string(),
@@ -524,30 +524,30 @@ impl<'a> AuthClient<'a> {
             .instance)
     }
 
-    /// Get workload activation status for one handoff.
-    pub async fn get_workload_activation_status(
+    /// Get device activation status for one handoff.
+    pub async fn get_device_activation_status(
         &self,
         handoff_id: &str,
-    ) -> Result<trellis_sdk_auth::AuthGetWorkloadActivationStatusResponse, TrellisAuthError> {
+    ) -> Result<trellis_sdk_auth::AuthGetDeviceActivationStatusResponse, TrellisAuthError> {
         self.call(
-            "rpc.v1.Auth.GetWorkloadActivationStatus",
-            &trellis_sdk_auth::AuthGetWorkloadActivationStatusRequest {
+            "rpc.v1.Auth.GetDeviceActivationStatus",
+            &trellis_sdk_auth::AuthGetDeviceActivationStatusRequest {
                 handoff_id: handoff_id.to_string(),
             },
         )
         .await
     }
 
-    /// List workload instances.
-    pub async fn list_workload_instances(
+    /// List device instances.
+    pub async fn list_device_instances(
         &self,
         profile_id: Option<&str>,
         state: Option<&str>,
-    ) -> Result<Vec<trellis_sdk_auth::AuthListWorkloadInstancesResponseInstancesItem>, TrellisAuthError> {
+    ) -> Result<Vec<trellis_sdk_auth::AuthListDeviceInstancesResponseInstancesItem>, TrellisAuthError> {
         Ok(self
-            .call::<_, trellis_sdk_auth::AuthListWorkloadInstancesResponse>(
-                "rpc.v1.Auth.ListWorkloadInstances",
-                &trellis_sdk_auth::AuthListWorkloadInstancesRequest {
+            .call::<_, trellis_sdk_auth::AuthListDeviceInstancesResponse>(
+                "rpc.v1.Auth.ListDeviceInstances",
+                &trellis_sdk_auth::AuthListDeviceInstancesRequest {
                     profile_id: profile_id.map(ToOwned::to_owned),
                     state: state.map(|value| serde_json::json!(value)),
                 },
@@ -556,15 +556,15 @@ impl<'a> AuthClient<'a> {
             .instances)
     }
 
-    /// Disable a workload instance.
-    pub async fn disable_workload_instance(
+    /// Disable a device instance.
+    pub async fn disable_device_instance(
         &self,
         instance_id: &str,
     ) -> Result<bool, TrellisAuthError> {
         Ok(self
-            .call::<_, trellis_sdk_auth::AuthDisableWorkloadInstanceResponse>(
-                "rpc.v1.Auth.DisableWorkloadInstance",
-                &trellis_sdk_auth::AuthDisableWorkloadInstanceRequest {
+            .call::<_, trellis_sdk_auth::AuthDisableDeviceInstanceResponse>(
+                "rpc.v1.Auth.DisableDeviceInstance",
+                &trellis_sdk_auth::AuthDisableDeviceInstanceRequest {
                     instance_id: instance_id.to_string(),
                 },
             )
@@ -572,17 +572,17 @@ impl<'a> AuthClient<'a> {
             .success)
     }
 
-    /// List workload activations.
-    pub async fn list_workload_activations(
+    /// List device activations.
+    pub async fn list_device_activations(
         &self,
         instance_id: Option<&str>,
         profile_id: Option<&str>,
         state: Option<&str>,
-    ) -> Result<Vec<trellis_sdk_auth::AuthListWorkloadActivationsResponseActivationsItem>, TrellisAuthError> {
+    ) -> Result<Vec<trellis_sdk_auth::AuthListDeviceActivationsResponseActivationsItem>, TrellisAuthError> {
         Ok(self
-            .call::<_, trellis_sdk_auth::AuthListWorkloadActivationsResponse>(
-                "rpc.v1.Auth.ListWorkloadActivations",
-                &trellis_sdk_auth::AuthListWorkloadActivationsRequest {
+            .call::<_, trellis_sdk_auth::AuthListDeviceActivationsResponse>(
+                "rpc.v1.Auth.ListDeviceActivations",
+                &trellis_sdk_auth::AuthListDeviceActivationsRequest {
                     instance_id: instance_id.map(ToOwned::to_owned),
                     profile_id: profile_id.map(ToOwned::to_owned),
                     state: state.map(|value| serde_json::json!(value)),
@@ -592,15 +592,15 @@ impl<'a> AuthClient<'a> {
             .activations)
     }
 
-    /// Revoke a workload activation.
-    pub async fn revoke_workload_activation(
+    /// Revoke a device activation.
+    pub async fn revoke_device_activation(
         &self,
         instance_id: &str,
     ) -> Result<bool, TrellisAuthError> {
         Ok(self
-            .call::<_, trellis_sdk_auth::AuthRevokeWorkloadActivationResponse>(
-                "rpc.v1.Auth.RevokeWorkloadActivation",
-                &trellis_sdk_auth::AuthRevokeWorkloadActivationRequest {
+            .call::<_, trellis_sdk_auth::AuthRevokeDeviceActivationResponse>(
+                "rpc.v1.Auth.RevokeDeviceActivation",
+                &trellis_sdk_auth::AuthRevokeDeviceActivationRequest {
                     instance_id: instance_id.to_string(),
                 },
             )
@@ -608,17 +608,17 @@ impl<'a> AuthClient<'a> {
             .success)
     }
 
-    /// List workload activation reviews.
-    pub async fn list_workload_activation_reviews(
+    /// List device activation reviews.
+    pub async fn list_device_activation_reviews(
         &self,
         instance_id: Option<&str>,
         profile_id: Option<&str>,
         state: Option<&str>,
-    ) -> Result<Vec<trellis_sdk_auth::AuthListWorkloadActivationReviewsResponseReviewsItem>, TrellisAuthError> {
+    ) -> Result<Vec<trellis_sdk_auth::AuthListDeviceActivationReviewsResponseReviewsItem>, TrellisAuthError> {
         Ok(self
-            .call::<_, trellis_sdk_auth::AuthListWorkloadActivationReviewsResponse>(
-                "rpc.v1.Auth.ListWorkloadActivationReviews",
-                &trellis_sdk_auth::AuthListWorkloadActivationReviewsRequest {
+            .call::<_, trellis_sdk_auth::AuthListDeviceActivationReviewsResponse>(
+                "rpc.v1.Auth.ListDeviceActivationReviews",
+                &trellis_sdk_auth::AuthListDeviceActivationReviewsRequest {
                     instance_id: instance_id.map(ToOwned::to_owned),
                     profile_id: profile_id.map(ToOwned::to_owned),
                     state: state.map(|value| serde_json::json!(value)),
@@ -628,16 +628,16 @@ impl<'a> AuthClient<'a> {
             .reviews)
     }
 
-    /// Decide one workload activation review.
-    pub async fn decide_workload_activation_review(
+    /// Decide one device activation review.
+    pub async fn decide_device_activation_review(
         &self,
         review_id: &str,
         decision: &str,
         reason: Option<&str>,
-    ) -> Result<trellis_sdk_auth::AuthDecideWorkloadActivationReviewResponse, TrellisAuthError> {
+    ) -> Result<trellis_sdk_auth::AuthDecideDeviceActivationReviewResponse, TrellisAuthError> {
         self.call(
-            "rpc.v1.Auth.DecideWorkloadActivationReview",
-            &trellis_sdk_auth::AuthDecideWorkloadActivationReviewRequest {
+            "rpc.v1.Auth.DecideDeviceActivationReview",
+            &trellis_sdk_auth::AuthDecideDeviceActivationReviewRequest {
                 review_id: review_id.to_string(),
                 decision: serde_json::json!(decision),
                 reason: reason.map(ToOwned::to_owned),
@@ -716,8 +716,8 @@ mod tests {
 
     use super::{
         CreatePortalRequest, GetPortalDefaultResponse, LoginPortalSelectionRecord, PortalDefaultRecord,
-        PortalRecord, SetLoginPortalSelectionRequest, SetWorkloadPortalSelectionRequest,
-        SetWorkloadPortalSelectionResponse, WorkloadPortalSelectionRecord,
+        PortalRecord, SetLoginPortalSelectionRequest, SetDevicePortalSelectionRequest,
+        SetDevicePortalSelectionResponse, DevicePortalSelectionRecord,
     };
 
     #[test]
@@ -790,36 +790,36 @@ mod tests {
         assert_eq!(login_record.contract_id, "trellis.console@v1");
         assert_eq!(login_record.portal_id.as_deref(), Some("main"));
 
-        let workload_request = serde_json::to_value(SetWorkloadPortalSelectionRequest {
+        let device_request = serde_json::to_value(SetDevicePortalSelectionRequest {
             profile_id: "reader.default".to_string(),
             portal_id: None,
         })
-        .expect("serialize workload portal selection request");
+        .expect("serialize device portal selection request");
         assert_eq!(
-            workload_request,
+            device_request,
             json!({
                 "profileId": "reader.default",
                 "portalId": Value::Null
             })
         );
 
-        let workload_response: SetWorkloadPortalSelectionResponse = serde_json::from_value(json!({
+        let device_response: SetDevicePortalSelectionResponse = serde_json::from_value(json!({
             "selection": {
                 "profileId": "reader.default",
                 "portalId": "main"
             }
         }))
-        .expect("deserialize workload portal selection response");
-        assert_eq!(workload_response.selection.profile_id, "reader.default");
-        assert_eq!(workload_response.selection.portal_id.as_deref(), Some("main"));
+        .expect("deserialize device portal selection response");
+        assert_eq!(device_response.selection.profile_id, "reader.default");
+        assert_eq!(device_response.selection.portal_id.as_deref(), Some("main"));
 
-        let workload_record_value = serde_json::to_value(WorkloadPortalSelectionRecord {
+        let device_record_value = serde_json::to_value(DevicePortalSelectionRecord {
             profile_id: "reader.default".to_string(),
             portal_id: Some("main".to_string()),
         })
-        .expect("serialize workload portal selection record");
+        .expect("serialize device portal selection record");
         assert_eq!(
-            workload_record_value,
+            device_record_value,
             json!({
                 "profileId": "reader.default",
                 "portalId": "main"

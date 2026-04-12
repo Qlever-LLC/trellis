@@ -7,7 +7,7 @@ import {
 } from "../../catalog/uses.ts";
 import type { ContractRecord } from "../../state/schemas.ts";
 
-type WorkloadProfile = {
+type DeviceProfile = {
   profileId: string;
   contractId: string;
   allowedDigests: string[];
@@ -19,7 +19,7 @@ function uniqueSorted(values: Iterable<string>): string[] {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right));
 }
 
-export type WorkloadRuntimeAccess = {
+export type DeviceRuntimeAccess = {
   contractId: string;
   contractDigest: string;
   capabilities: string[];
@@ -33,34 +33,34 @@ type EventEntry = ContractAnalysis["events"]["events"][number];
 type SubjectEntry = NonNullable<ContractAnalysis["subjects"]>["subjects"][number];
 type NatsRule = ContractAnalysis["nats"]["publish"][number];
 
-export function resolveWorkloadContractDigest(
-  profile: WorkloadProfile,
+export function resolveDeviceContractDigest(
+  profile: DeviceProfile,
   contractDigest: string | undefined,
 ): string {
   if (typeof contractDigest !== "string" || contractDigest.length === 0) {
     throw new Error("invalid_auth_token");
   }
   if (!profile.allowedDigests.includes(contractDigest)) {
-    throw new Error("workload_digest_not_allowed");
+    throw new Error("device_digest_not_allowed");
   }
   return contractDigest;
 }
 
-export function deriveWorkloadRuntimeAccess(
-  profile: WorkloadProfile,
+export function deriveDeviceRuntimeAccess(
+  profile: DeviceProfile,
   contractRecord: ContractRecord,
   contractStore?: ContractStore,
-): WorkloadRuntimeAccess {
+): DeviceRuntimeAccess {
   if (contractRecord.id !== profile.contractId) {
-    throw new Error("workload_profile_contract_mismatch");
+    throw new Error("device_profile_contract_mismatch");
   }
   if (!profile.allowedDigests.includes(contractRecord.digest)) {
-    throw new Error("workload_digest_not_allowed");
+    throw new Error("device_digest_not_allowed");
   }
 
   const analysis = contractRecord.analysis;
   if (!analysis) {
-    throw new Error("workload_contract_analysis_missing");
+    throw new Error("device_contract_analysis_missing");
   }
   if (
     analysis.resources.kv.length > 0 ||
@@ -68,7 +68,7 @@ export function deriveWorkloadRuntimeAccess(
     analysis.resources.jobs.length > 0 ||
     contractRecord.resources !== undefined
   ) {
-    throw new Error("workload_resources_not_supported");
+    throw new Error("device_resources_not_supported");
   }
 
   const capabilities = uniqueSorted([

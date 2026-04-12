@@ -19,34 +19,34 @@ import {
   createAuthRevokeSessionHandler,
 } from "./auth/session/rpc.ts";
 import {
-  createActivateWorkloadHandler,
-  createGetWorkloadActivationStatusHandler,
-  createGetWorkloadConnectInfoHandler,
-} from "./auth/workload_activation/operation.ts";
+  createActivateDeviceHandler,
+  createGetDeviceActivationStatusHandler,
+  createGetDeviceConnectInfoHandler,
+} from "./auth/device_activation/operation.ts";
 import {
   authDisablePortalHandler,
   authClearLoginPortalSelectionHandler,
-  authClearWorkloadPortalSelectionHandler,
-  authDecideWorkloadActivationReviewHandler,
-  authDisableWorkloadInstanceHandler,
-  authDisableWorkloadProfileHandler,
+  authClearDevicePortalSelectionHandler,
+  authDecideDeviceActivationReviewHandler,
+  authDisableDeviceInstanceHandler,
+  authDisableDeviceProfileHandler,
   authGetLoginPortalDefaultHandler,
-  authGetWorkloadPortalDefaultHandler,
+  authGetDevicePortalDefaultHandler,
   authListLoginPortalSelectionsHandler,
   authListPortalsHandler,
-  authListWorkloadActivationReviewsHandler,
-  authListWorkloadPortalSelectionsHandler,
-  authListWorkloadActivationsHandler,
-  authListWorkloadInstancesHandler,
-  authListWorkloadProfilesHandler,
-  authRevokeWorkloadActivationHandler,
+  authListDeviceActivationReviewsHandler,
+  authListDevicePortalSelectionsHandler,
+  authListDeviceActivationsHandler,
+  authListDeviceInstancesHandler,
+  authListDeviceProfilesHandler,
+  authRevokeDeviceActivationHandler,
   createAuthCreatePortalHandler,
-  createAuthCreateWorkloadProfileHandler,
-  createAuthProvisionWorkloadInstanceHandler,
+  createAuthCreateDeviceProfileHandler,
+  createAuthProvisionDeviceInstanceHandler,
   authSetLoginPortalDefaultHandler,
   authSetLoginPortalSelectionHandler,
-  authSetWorkloadPortalDefaultHandler,
-  authSetWorkloadPortalSelectionHandler,
+  authSetDevicePortalDefaultHandler,
+  authSetDevicePortalSelectionHandler,
 } from "./auth/admin/rpc.ts";
 import {
   authListUsersHandler,
@@ -151,62 +151,62 @@ await trellis.mount("Auth.SetLoginPortalDefault", authSetLoginPortalDefaultHandl
 await trellis.mount("Auth.ListLoginPortalSelections", authListLoginPortalSelectionsHandler);
 await trellis.mount("Auth.SetLoginPortalSelection", authSetLoginPortalSelectionHandler);
 await trellis.mount("Auth.ClearLoginPortalSelection", authClearLoginPortalSelectionHandler);
-await trellis.mount("Auth.GetWorkloadPortalDefault", authGetWorkloadPortalDefaultHandler);
-await trellis.mount("Auth.SetWorkloadPortalDefault", authSetWorkloadPortalDefaultHandler);
-await trellis.mount("Auth.ListWorkloadPortalSelections", authListWorkloadPortalSelectionsHandler);
-await trellis.mount("Auth.SetWorkloadPortalSelection", authSetWorkloadPortalSelectionHandler);
-await trellis.mount("Auth.ClearWorkloadPortalSelection", authClearWorkloadPortalSelectionHandler);
+await trellis.mount("Auth.GetDevicePortalDefault", authGetDevicePortalDefaultHandler);
+await trellis.mount("Auth.SetDevicePortalDefault", authSetDevicePortalDefaultHandler);
+await trellis.mount("Auth.ListDevicePortalSelections", authListDevicePortalSelectionsHandler);
+await trellis.mount("Auth.SetDevicePortalSelection", authSetDevicePortalSelectionHandler);
+await trellis.mount("Auth.ClearDevicePortalSelection", authClearDevicePortalSelectionHandler);
 await trellis.mount(
-  "Auth.CreateWorkloadProfile",
-  createAuthCreateWorkloadProfileHandler({
-    installWorkloadContract: contracts.installWorkloadContract,
+  "Auth.CreateDeviceProfile",
+  createAuthCreateDeviceProfileHandler({
+    installDeviceContract: contracts.installDeviceContract,
     refreshActiveContracts: contracts.refreshActiveContracts,
   }),
 );
 await trellis.mount(
-  "Auth.ListWorkloadProfiles",
-  authListWorkloadProfilesHandler,
+  "Auth.ListDeviceProfiles",
+  authListDeviceProfilesHandler,
 );
 await trellis.mount(
-  "Auth.DisableWorkloadProfile",
-  authDisableWorkloadProfileHandler,
+  "Auth.DisableDeviceProfile",
+  authDisableDeviceProfileHandler,
 );
 await trellis.mount(
-  "Auth.ProvisionWorkloadInstance",
-  createAuthProvisionWorkloadInstanceHandler(),
+  "Auth.ProvisionDeviceInstance",
+  createAuthProvisionDeviceInstanceHandler(),
 );
 await trellis.mount(
-  "Auth.ListWorkloadInstances",
-  authListWorkloadInstancesHandler,
+  "Auth.ListDeviceInstances",
+  authListDeviceInstancesHandler,
 );
 await trellis.mount(
-  "Auth.DisableWorkloadInstance",
-  authDisableWorkloadInstanceHandler,
+  "Auth.DisableDeviceInstance",
+  authDisableDeviceInstanceHandler,
 );
 await trellis.mount(
-  "Auth.ListWorkloadActivations",
-  authListWorkloadActivationsHandler,
+  "Auth.ListDeviceActivations",
+  authListDeviceActivationsHandler,
 );
 await trellis.mount(
-  "Auth.RevokeWorkloadActivation",
-  authRevokeWorkloadActivationHandler,
+  "Auth.RevokeDeviceActivation",
+  authRevokeDeviceActivationHandler,
 );
-await trellis.mount("Auth.ActivateWorkload", createActivateWorkloadHandler());
+await trellis.mount("Auth.ActivateDevice", createActivateDeviceHandler());
 await trellis.mount(
-  "Auth.GetWorkloadActivationStatus",
-  createGetWorkloadActivationStatusHandler(),
-);
-await trellis.mount(
-  "Auth.GetWorkloadConnectInfo",
-  createGetWorkloadConnectInfoHandler(),
+  "Auth.GetDeviceActivationStatus",
+  createGetDeviceActivationStatusHandler(),
 );
 await trellis.mount(
-  "Auth.ListWorkloadActivationReviews",
-  authListWorkloadActivationReviewsHandler,
+  "Auth.GetDeviceConnectInfo",
+  createGetDeviceConnectInfoHandler(),
 );
 await trellis.mount(
-  "Auth.DecideWorkloadActivationReview",
-  authDecideWorkloadActivationReviewHandler,
+  "Auth.ListDeviceActivationReviews",
+  authListDeviceActivationReviewsHandler,
+);
+await trellis.mount(
+  "Auth.DecideDeviceActivationReview",
+  authDecideDeviceActivationReviewHandler,
 );
 
 registerBuiltinPortalStaticRoutes(app);

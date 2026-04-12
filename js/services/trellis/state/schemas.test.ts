@@ -19,12 +19,12 @@ import {
   SessionKeySchema,
   SessionSchema,
   SignatureSchema,
-  WorkloadPortalDefaultSchema,
-  WorkloadPortalSelectionSchema,
-  WorkloadActivationHandoffSchema,
-  WorkloadActivationRecordSchema,
-  WorkloadProfileSchema,
-  WorkloadSchema,
+  DevicePortalDefaultSchema,
+  DevicePortalSelectionSchema,
+  DeviceActivationHandoffSchema,
+  DeviceActivationRecordSchema,
+  DeviceProfileSchema,
+  DeviceSchema,
 } from "./schemas.ts";
 
 const sessionKey = "A".repeat(43);
@@ -76,13 +76,13 @@ Deno.test("SessionSchema validates session entries", () => {
   );
   assert(
     Value.Check(SessionSchema, {
-      type: "workload",
-      instanceId: "wrk-1",
+      type: "device",
+      instanceId: "dev-1",
       publicIdentityKey: sessionKey,
       profileId: "drive.default",
       contractId: "trellis.device@v1",
       contractDigest: "digest",
-      delegatedCapabilities: ["device:sync"],
+      delegatedCapabilities: ["device.sync"],
       delegatedPublishSubjects: ["subject.v1.device.sync"],
       delegatedSubscribeSubjects: ["events.v1.Device.Status.*"],
       createdAt: new Date().toISOString(),
@@ -105,7 +105,7 @@ Deno.test("Portal and browser-flow schemas validate", () => {
   }));
 });
 
-Deno.test("portal and workload state schemas validate", () => {
+Deno.test("portal and device state schemas validate", () => {
   assert(Value.Check(PortalSchema, {
     portalId: "main",
     appContractId: "trellis.portal@v1",
@@ -119,22 +119,22 @@ Deno.test("portal and workload state schemas validate", () => {
     contractId: "trellis.console@v1",
     portalId: "main",
   }));
-  assert(Value.Check(WorkloadPortalDefaultSchema, {
+  assert(Value.Check(DevicePortalDefaultSchema, {
     portalId: "main",
   }));
-  assert(Value.Check(WorkloadPortalSelectionSchema, {
+  assert(Value.Check(DevicePortalSelectionSchema, {
     profileId: "reader.default",
     portalId: null,
   }));
-  assert(Value.Check(WorkloadProfileSchema, {
+  assert(Value.Check(DeviceProfileSchema, {
     profileId: "reader.default",
     contractId: "acme.reader@v1",
     allowedDigests: ["digest-a"],
     reviewMode: "none",
     disabled: false,
   }));
-  assert(Value.Check(WorkloadSchema, {
-    instanceId: "wrk_123",
+  assert(Value.Check(DeviceSchema, {
+    instanceId: "dev_123",
     publicIdentityKey: sessionKey,
     profileId: "reader.default",
     state: "registered",
@@ -142,8 +142,8 @@ Deno.test("portal and workload state schemas validate", () => {
     activatedAt: null,
     revokedAt: null,
   }));
-  assert(Value.Check(WorkloadActivationRecordSchema, {
-    instanceId: "wrk_123",
+  assert(Value.Check(DeviceActivationRecordSchema, {
+    instanceId: "dev_123",
     publicIdentityKey: sessionKey,
     profileId: "reader.default",
     activatedBy: {
@@ -154,9 +154,9 @@ Deno.test("portal and workload state schemas validate", () => {
     activatedAt: new Date().toISOString(),
     revokedAt: null,
   }));
-  assert(Value.Check(WorkloadActivationHandoffSchema, {
-    handoffId: "wah_123",
-    instanceId: "wrk_123",
+  assert(Value.Check(DeviceActivationHandoffSchema, {
+    handoffId: "dah_123",
+    instanceId: "dev_123",
     publicIdentityKey: sessionKey,
     nonce: "nonce",
     qrMac: "mac",

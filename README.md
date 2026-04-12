@@ -34,7 +34,7 @@ Current TypeScript runtime entrypoints:
 
 - `TrellisClient.connect(...)` for browser and client runtimes
 - `TrellisService.connect(...)` for services
-- `TrellisWorkload.connect(...)` for activated workloads
+- `TrellisDevice.connect(...)` for activated devices
 
 For repository development workflows, prefer the repo-local prepare entrypoints:
 

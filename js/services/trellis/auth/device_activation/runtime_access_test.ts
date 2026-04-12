@@ -3,8 +3,8 @@ import { assertEquals, assertThrows } from "@std/assert";
 import type { ContractRecord } from "../../state/schemas.ts";
 
 import {
-  deriveWorkloadRuntimeAccess,
-  resolveWorkloadContractDigest,
+  deriveDeviceRuntimeAccess,
+  resolveDeviceContractDigest,
 } from "./runtime_access.ts";
 
 const PROFILE = {
@@ -19,7 +19,7 @@ function makeContractRecord(digest: string): ContractRecord {
     digest,
     id: "acme.reader@v1",
     displayName: "Reader",
-    description: "Reader workload contract",
+    description: "Reader device contract",
     installedAt: new Date(),
     contract: JSON.stringify({ id: "acme.reader@v1" }),
     analysis: {
@@ -65,8 +65,8 @@ function makeUsesContractRecord(): ContractRecord {
     contract: JSON.stringify({
       id: "acme.reader@v1",
       displayName: "Reader",
-      description: "Reader workload contract",
-      kind: "workload",
+      description: "Reader device contract",
+      kind: "device",
       uses: {
         auth: {
           contract: "trellis.auth@v1",
@@ -77,35 +77,35 @@ function makeUsesContractRecord(): ContractRecord {
   };
 }
 
-Deno.test("resolveWorkloadContractDigest rejects missing workload contract digests", () => {
+Deno.test("resolveDeviceContractDigest rejects missing device contract digests", () => {
   assertThrows(
-    () => resolveWorkloadContractDigest(PROFILE, undefined),
+    () => resolveDeviceContractDigest(PROFILE, undefined),
     Error,
     "invalid_auth_token",
   );
 });
 
-Deno.test("resolveWorkloadContractDigest keeps explicit allowed workload digests", () => {
-  assertEquals(resolveWorkloadContractDigest(PROFILE, "digest-b"), "digest-b");
+Deno.test("resolveDeviceContractDigest keeps explicit allowed device digests", () => {
+  assertEquals(resolveDeviceContractDigest(PROFILE, "digest-b"), "digest-b");
 });
 
-Deno.test("resolveWorkloadContractDigest rejects digests outside the allowed active set", () => {
+Deno.test("resolveDeviceContractDigest rejects digests outside the allowed active set", () => {
   assertThrows(
-    () => resolveWorkloadContractDigest(PROFILE, "digest-c"),
+    () => resolveDeviceContractDigest(PROFILE, "digest-c"),
     Error,
-    "workload_digest_not_allowed",
+    "device_digest_not_allowed",
   );
 });
 
-Deno.test("deriveWorkloadRuntimeAccess preserves the caller-selected digest", () => {
-  const access = deriveWorkloadRuntimeAccess(PROFILE, makeContractRecord("digest-b"));
+Deno.test("deriveDeviceRuntimeAccess preserves the caller-selected digest", () => {
+  const access = deriveDeviceRuntimeAccess(PROFILE, makeContractRecord("digest-b"));
 
   assertEquals(access.contractDigest, "digest-b");
   assertEquals(access.contractId, PROFILE.contractId);
   assertEquals(access.capabilities, ["reader.call"]);
 });
 
-Deno.test("deriveWorkloadRuntimeAccess includes publish subjects from contract uses", () => {
+Deno.test("deriveDeviceRuntimeAccess includes publish subjects from contract uses", () => {
   const fakeContractStore = {
     findActiveDigestById(contractId: string) {
       return contractId === "trellis.auth@v1" ? "auth-digest" : null;
@@ -129,7 +129,7 @@ Deno.test("deriveWorkloadRuntimeAccess includes publish subjects from contract u
     },
   };
 
-  const access = deriveWorkloadRuntimeAccess(
+  const access = deriveDeviceRuntimeAccess(
     PROFILE,
     makeUsesContractRecord(),
     fakeContractStore as never,

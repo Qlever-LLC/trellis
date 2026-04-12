@@ -409,7 +409,7 @@ export function createContractsModule(opts: {
     };
   }
 
-  async function installWorkloadContract(contract: unknown): Promise<{
+  async function installDeviceContract(contract: unknown): Promise<{
     id: string;
     digest: string;
   }> {
@@ -428,7 +428,7 @@ export function createContractsModule(opts: {
       analyzed.summary.jobsQueues > 0 ||
       (validated.contract as TrellisContractV1 & { resources?: unknown }).resources !== undefined
     ) {
-      throw new Error("workload contracts may not declare resources");
+      throw new Error("device contracts may not declare resources");
     }
 
     const existing = (await contractsKV.get(validated.digest)).take();
@@ -451,7 +451,7 @@ export function createContractsModule(opts: {
         analysisSummary: analyzed.summary,
         analysis: analyzed.analysis,
       })
-    ).inspectErr((error) => logger.warn({ error }, "Failed to persist workload contract"));
+    ).inspectErr((error) => logger.warn({ error }, "Failed to persist device contract"));
 
     return {
       id: validated.contract.id,
@@ -570,7 +570,7 @@ export function createContractsModule(opts: {
     setPermissionContracts(contractStore.getActiveEntries());
   }
 
-  return { contractStore, prepareInstalledContract, installWorkloadContract, refreshActiveContracts };
+  return { contractStore, prepareInstalledContract, installDeviceContract, refreshActiveContracts };
 }
 
 export function createTrellisCatalogHandler(contractStore: ContractStore) {

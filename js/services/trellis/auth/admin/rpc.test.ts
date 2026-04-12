@@ -6,16 +6,16 @@ import {
   validateLoginPortalSelectionRequest,
   validatePortalRequest,
   validatePortalDefaultRequest,
-  validateWorkloadProvisionRequest,
-  validateWorkloadPortalSelectionRequest,
-  validateWorkloadProfileRequest,
+  validateDeviceProvisionRequest,
+  validateDevicePortalSelectionRequest,
+  validateDeviceProfileRequest,
 } from "./shared.ts";
 
 Deno.test("normalizeDigestList preserves order and removes duplicates", () => {
   assertEquals(normalizeDigestList(["b", "a", "b", "c", "a"]), ["b", "a", "c"]);
 });
 
-Deno.test("auth contract exposes only portal selection and workload admin RPCs", () => {
+Deno.test("auth contract exposes only portal selection and device admin RPCs", () => {
   const methods = Object.keys(TRELLIS_AUTH_RPC);
   assert(methods.includes("Auth.CreatePortal"));
   assert(methods.includes("Auth.ListPortals"));
@@ -25,23 +25,23 @@ Deno.test("auth contract exposes only portal selection and workload admin RPCs",
   assert(methods.includes("Auth.ListLoginPortalSelections"));
   assert(methods.includes("Auth.SetLoginPortalSelection"));
   assert(methods.includes("Auth.ClearLoginPortalSelection"));
-  assert(methods.includes("Auth.GetWorkloadPortalDefault"));
-  assert(methods.includes("Auth.SetWorkloadPortalDefault"));
-  assert(methods.includes("Auth.ListWorkloadPortalSelections"));
-  assert(methods.includes("Auth.SetWorkloadPortalSelection"));
-  assert(methods.includes("Auth.ClearWorkloadPortalSelection"));
-  assert(methods.includes("Auth.CreateWorkloadProfile"));
-  assert(methods.includes("Auth.ListWorkloadProfiles"));
-  assert(methods.includes("Auth.DisableWorkloadProfile"));
-  assert(methods.includes("Auth.ProvisionWorkloadInstance"));
-  assert(methods.includes("Auth.ListWorkloadInstances"));
-  assert(methods.includes("Auth.DisableWorkloadInstance"));
-  assert(methods.includes("Auth.ActivateWorkload"));
-  assert(methods.includes("Auth.GetWorkloadActivationStatus"));
-  assert(methods.includes("Auth.ListWorkloadActivations"));
-  assert(methods.includes("Auth.RevokeWorkloadActivation"));
-  assert(methods.includes("Auth.ListWorkloadActivationReviews"));
-  assert(methods.includes("Auth.DecideWorkloadActivationReview"));
+  assert(methods.includes("Auth.GetDevicePortalDefault"));
+  assert(methods.includes("Auth.SetDevicePortalDefault"));
+  assert(methods.includes("Auth.ListDevicePortalSelections"));
+  assert(methods.includes("Auth.SetDevicePortalSelection"));
+  assert(methods.includes("Auth.ClearDevicePortalSelection"));
+  assert(methods.includes("Auth.CreateDeviceProfile"));
+  assert(methods.includes("Auth.ListDeviceProfiles"));
+  assert(methods.includes("Auth.DisableDeviceProfile"));
+  assert(methods.includes("Auth.ProvisionDeviceInstance"));
+  assert(methods.includes("Auth.ListDeviceInstances"));
+  assert(methods.includes("Auth.DisableDeviceInstance"));
+  assert(methods.includes("Auth.ActivateDevice"));
+  assert(methods.includes("Auth.GetDeviceActivationStatus"));
+  assert(methods.includes("Auth.ListDeviceActivations"));
+  assert(methods.includes("Auth.RevokeDeviceActivation"));
+  assert(methods.includes("Auth.ListDeviceActivationReviews"));
+  assert(methods.includes("Auth.DecideDeviceActivationReview"));
   assert(!methods.includes("Auth.CreatePortalRoute"));
   assert(!methods.includes("Auth.ListPortalRoutes"));
   assert(!methods.includes("Auth.DisablePortalRoute"));
@@ -90,8 +90,8 @@ Deno.test("validateLoginPortalSelectionRequest requires contract identity", () =
   assert(validateLoginPortalSelectionRequest({ contractId: "", portalId: null }).isErr());
 });
 
-Deno.test("validateWorkloadPortalSelectionRequest requires profile identity", () => {
-  const valid = validateWorkloadPortalSelectionRequest({
+Deno.test("validateDevicePortalSelectionRequest requires profile identity", () => {
+  const valid = validateDevicePortalSelectionRequest({
     profileId: "reader.default",
     portalId: "main",
   });
@@ -101,23 +101,23 @@ Deno.test("validateWorkloadPortalSelectionRequest requires profile identity", ()
     portalId: "main",
   });
 
-  assert(validateWorkloadPortalSelectionRequest({ profileId: "", portalId: null }).isErr());
+  assert(validateDevicePortalSelectionRequest({ profileId: "", portalId: null }).isErr());
 });
 
-Deno.test("validateWorkloadProfileRequest dedupes digests and omits preferred digest", () => {
-  const valid = validateWorkloadProfileRequest({
+Deno.test("validateDeviceProfileRequest dedupes digests and omits preferred digest", () => {
+  const valid = validateDeviceProfileRequest({
     profileId: "reader.default",
     contractId: "acme.reader@v1",
     allowedDigests: ["abc", "abc", "def"],
     reviewMode: "none",
   });
-  if (valid.isErr()) throw new Error("expected valid workload profile request");
+  if (valid.isErr()) throw new Error("expected valid device profile request");
   const { profile } = valid.take() as { profile: { allowedDigests: string[] } };
   assertEquals(profile.allowedDigests, ["abc", "def"]);
 });
 
-Deno.test("validateWorkloadProvisionRequest builds a preregistered instance", () => {
-  const valid = validateWorkloadProvisionRequest({
+Deno.test("validateDeviceProvisionRequest builds a preregistered instance", () => {
+  const valid = validateDeviceProvisionRequest({
     profileId: "reader.default",
     publicIdentityKey: "A".repeat(43),
     activationKey: "B".repeat(43),

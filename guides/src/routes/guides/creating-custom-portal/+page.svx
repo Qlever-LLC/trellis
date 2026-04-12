@@ -1,4 +1,4 @@
-This guide walks through building a custom Trellis portal for custom login and onboarding experiences. Trellis already ships with a built-in portal for both user login and generic workload onboarding. Custom portals let a Trellis admin replace that built-in experience for all login flows, one browser app, all workload flows, or one workload profile.
+This guide walks through building a custom Trellis portal for custom login and onboarding experiences. Trellis already ships with a built-in portal for both user login and generic device onboarding. Custom portals let a Trellis admin replace that built-in experience for all login flows, one browser app, all device flows, or one device profile.
 
 Before starting, read [Trellis Concepts](/guides/concepts) and [Write a SvelteKit app](/guides/writing-sveltekit-apps) for background on contracts, auth flows, and packages.
 
@@ -14,7 +14,7 @@ When a browser app starts a Trellis login with `GET /auth/login`, Trellis create
 
 For a normal user login, the portal usually shows the supported identity providers, starts the chosen provider flow, and then shows the approval screen so the user can allow the original app to access their account.
 
-For workload onboarding, the portal may need to do more than show login screens. For example, a user might be activating a new device and the portal may need to collect extra details, confirm payment, or call Trellis APIs to finish setup. In that kind of flow, the portal is not just a login screen anymore. It is also acting like a Trellis web app for that user.
+For device onboarding, the portal may need to do more than show login screens. For example, a user might be activating a new device and the portal may need to collect extra details, confirm payment, or call Trellis APIs to finish setup. In that kind of flow, the portal is not just a login screen anymore. It is also acting like a Trellis web app for that user.
 
 Some flows may also pause for administrative review before the final step is allowed. That review might be done manually by an admin user or by a local Trellis service that checks some outside condition first.
 
@@ -222,43 +222,43 @@ To remove the app-specific rule and return to the login default chain:
 trellis portals logins clear --contract-id my-console@v1
 ```
 
-### For all workload onboarding
+### For all device onboarding
 
 ```sh
-trellis portals workloads default set --portal-id my-portal
+trellis portals devices default set --portal-id my-portal
 ```
 
-To switch back to the built-in Trellis workload portal:
+To switch back to the built-in Trellis device portal:
 
 ```sh
-trellis portals workloads default set --builtin
+trellis portals devices default set --builtin
 ```
 
-### For one workload profile
+### For one device profile
 
 ```sh
-trellis portals workloads set \
-  --profile-id my-workload.default \
+trellis portals devices set \
+  --profile-id my-device.default \
   --portal-id my-portal
 ```
 
-To force the built-in Trellis workload portal for one profile, even when a custom workload default exists:
+To force the built-in Trellis device portal for one profile, even when a custom device default exists:
 
 ```sh
-trellis portals workloads set \
-  --profile-id my-workload.default \
+trellis portals devices set \
+  --profile-id my-device.default \
   --builtin
 ```
 
-To remove the profile-specific rule and return to the workload default chain:
+To remove the profile-specific rule and return to the device default chain:
 
 ```sh
-trellis portals workloads clear --profile-id my-workload.default
+trellis portals devices clear --profile-id my-device.default
 ```
 
 ## 7. Test the flow
 
-Open the Trellis-connected browser app or workload flow you want to test. The browser should redirect to your custom portal, let you complete the flow, and then continue into a normal authenticated user session or workload activation.
+Open the Trellis-connected browser app or device flow you want to test. The browser should redirect to your custom portal, let you complete the flow, and then continue into a normal authenticated user session or device activation.
 
 ## Updating the portal record
 
@@ -293,19 +293,19 @@ trellis portals logins set \
   --portal-id my-portal
 ```
 
-## Updating workload portal policy
+## Updating device portal policy
 
-Change the workload default:
+Change the device default:
 
 ```sh
-trellis portals workloads default set --portal-id my-portal
+trellis portals devices default set --portal-id my-portal
 ```
 
-Change one workload-profile rule:
+Change one device-profile rule:
 
 ```sh
-trellis portals workloads set \
-  --profile-id my-workload.default \
+trellis portals devices set \
+  --profile-id my-device.default \
   --portal-id my-portal
 ```
 
@@ -317,4 +317,4 @@ To disable the custom portal record:
 trellis portals disable --portal-id my-portal
 ```
 
-After disabling it, point any login or workload selection rules back to `--builtin` or another custom portal.
+After disabling it, point any login or device selection rules back to `--builtin` or another custom portal.

@@ -3,21 +3,21 @@ import { AsyncResult } from "@qlever-llc/result";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 
-import { verifyWorkloadWaitSignature } from "../../../../packages/auth/workload_activation.ts";
-import { workloadInstanceId } from "../admin/shared.ts";
+import { verifyDeviceWaitSignature } from "../../../../packages/auth/device_activation.ts";
+import { deviceInstanceId } from "../admin/shared.ts";
 import { SignatureSchema } from "../../state/schemas/auth_state.ts";
-import { isWorkloadProofIatFresh } from "../workload_activation/shared.ts";
+import { isDeviceProofIatFresh } from "../device_activation/shared.ts";
 
 const DigestSchema = Type.String({ pattern: "^[A-Za-z0-9_-]+$" });
 
-export const WorkloadBootstrapRequestSchema = Type.Object({
+export const DeviceBootstrapRequestSchema = Type.Object({
   publicIdentityKey: Type.String({ minLength: 1 }),
   contractDigest: DigestSchema,
   iat: Type.Number(),
   sig: SignatureSchema,
 }, { additionalProperties: false });
 
-type WorkloadInstance = {
+type DeviceInstance = {
   instanceId: string;
   publicIdentityKey: string;
   profileId: string;
@@ -27,7 +27,7 @@ type WorkloadInstance = {
   revokedAt: string | Date | null;
 };
 
-type WorkloadProfile = {
+type DeviceProfile = {
   profileId: string;
   contractId: string;
   allowedDigests: string[];
@@ -35,7 +35,7 @@ type WorkloadProfile = {
   disabled: boolean;
 };
 
-type WorkloadActivation = {
+type DeviceActivation = {
   instanceId: string;
   publicIdentityKey: string;
   profileId: string;
@@ -44,7 +44,7 @@ type WorkloadActivation = {
   revokedAt: string | null;
 };
 
-type WorkloadConnectInfo = {
+type DeviceConnectInfo = {
   instanceId: string;
   profileId: string;
   contractId: string;
@@ -57,27 +57,27 @@ type WorkloadConnectInfo = {
     };
   };
   auth: {
-    mode: "workload_identity";
+    mode: "device_identity";
     iatSkewSeconds: number;
   };
 };
 
-export type WorkloadBootstrapResult =
-  | { status: "ready"; connectInfo: WorkloadConnectInfo }
+export type DeviceBootstrapResult =
+  | { status: "ready"; connectInfo: DeviceConnectInfo }
   | { status: "activation_required" }
   | { status: "not_ready"; reason: string };
 
-export type WorkloadBootstrapDeps = {
+export type DeviceBootstrapDeps = {
   natsServers: string[];
   sentinel: {
     jwt: string;
     seed: string;
   };
-  loadWorkloadInstance(instanceId: string): Promise<WorkloadInstance | null>;
-  loadWorkloadActivation(
+  loadDeviceInstance(instanceId: string): Promise<DeviceInstance | null>;
+  loadDeviceActivation(
     instanceId: string,
-  ): Promise<WorkloadActivation | null>;
-  loadWorkloadProfile(profileId: string): Promise<WorkloadProfile | null>;
+  ): Promise<DeviceActivation | null>;
+  loadDeviceProfile(profileId: string): Promise<DeviceProfile | null>;
   verifyIdentityProof(input: {
     publicIdentityKey: string;
     contractDigest: string;
@@ -87,16 +87,16 @@ export type WorkloadBootstrapDeps = {
   nowSeconds?(): number;
 };
 
-function buildWorkloadConnectInfo(args: {
-  instance: WorkloadInstance;
-  profile: WorkloadProfile;
+function buildDeviceConnectInfo(args: {
+  instance: DeviceInstance;
+  profile: DeviceProfile;
   contractDigest: string;
   natsServers: string[];
   sentinel: {
     jwt: string;
     seed: string;
   };
-}): WorkloadConnectInfo | null {
+}): DeviceConnectInfo | null {
   if (!args.profile.allowedDigests.includes(args.contractDigest)) {
     return null;
   }
@@ -111,39 +111,39 @@ function buildWorkloadConnectInfo(args: {
       sentinel: args.sentinel,
     },
     auth: {
-      mode: "workload_identity",
+      mode: "device_identity",
       iatSkewSeconds: 30,
     },
   };
 }
 
-export async function resolveWorkloadBootstrap(
-  deps: WorkloadBootstrapDeps,
+export async function resolveDeviceBootstrap(
+  deps: DeviceBootstrapDeps,
   input: { publicIdentityKey: string; contractDigest: string },
-): Promise<WorkloadBootstrapResult> {
-  const instanceId = workloadInstanceId(input.publicIdentityKey);
-  const instance = await deps.loadWorkloadInstance(instanceId);
+): Promise<DeviceBootstrapResult> {
+  const instanceId = deviceInstanceId(input.publicIdentityKey);
+  const instance = await deps.loadDeviceInstance(instanceId);
   if (!instance) {
     return { status: "activation_required" };
   }
   if (instance.state === "disabled") {
-    return { status: "not_ready", reason: "workload_disabled" };
+    return { status: "not_ready", reason: "device_disabled" };
   }
 
-  const activation = await deps.loadWorkloadActivation(instanceId);
+  const activation = await deps.loadDeviceActivation(instanceId);
   if (!activation) {
     return { status: "activation_required" };
   }
   if (activation.state === "revoked") {
-    return { status: "not_ready", reason: "workload_activation_revoked" };
+    return { status: "not_ready", reason: "device_activation_revoked" };
   }
 
-  const profile = await deps.loadWorkloadProfile(activation.profileId);
+  const profile = await deps.loadDeviceProfile(activation.profileId);
   if (!profile || profile.disabled) {
-    return { status: "not_ready", reason: "workload_profile_not_found" };
+    return { status: "not_ready", reason: "device_profile_not_found" };
   }
 
-  const connectInfo = buildWorkloadConnectInfo({
+  const connectInfo = buildDeviceConnectInfo({
     instance,
     profile,
     contractDigest: input.contractDigest,
@@ -160,7 +160,7 @@ export async function resolveWorkloadBootstrap(
   };
 }
 
-export function createWorkloadBootstrapHandler(deps: WorkloadBootstrapDeps) {
+export function createDeviceBootstrapHandler(deps: DeviceBootstrapDeps) {
   return async (c: Context) => {
     const bodyResult = await AsyncResult.try(() => c.req.json());
     if (bodyResult.isErr()) {
@@ -168,13 +168,13 @@ export function createWorkloadBootstrapHandler(deps: WorkloadBootstrapDeps) {
     }
 
     const body = bodyResult.take();
-    if (!Value.Check(WorkloadBootstrapRequestSchema, body)) {
+    if (!Value.Check(DeviceBootstrapRequestSchema, body)) {
       return c.json({ reason: "invalid_request" }, 400);
     }
 
     const request = body;
     const nowSeconds = deps.nowSeconds?.() ?? Math.floor(Date.now() / 1_000);
-    if (!isWorkloadProofIatFresh(request.iat, nowSeconds)) {
+    if (!isDeviceProofIatFresh(request.iat, nowSeconds)) {
       return c.json({ reason: "iat_out_of_range" }, 400);
     }
 
@@ -188,17 +188,17 @@ export function createWorkloadBootstrapHandler(deps: WorkloadBootstrapDeps) {
       return c.json({ reason: "invalid_signature" }, 400);
     }
 
-    return c.json(await resolveWorkloadBootstrap(deps, request));
+    return c.json(await resolveDeviceBootstrap(deps, request));
   };
 }
 
-export async function verifyWorkloadBootstrapIdentityProof(input: {
+export async function verifyDeviceBootstrapIdentityProof(input: {
   publicIdentityKey: string;
   contractDigest: string;
   iat: number;
   sig: string;
 }): Promise<boolean> {
-  return await verifyWorkloadWaitSignature({
+  return await verifyDeviceWaitSignature({
     publicIdentityKey: input.publicIdentityKey,
     nonce: "connect-info",
     contractDigest: input.contractDigest,

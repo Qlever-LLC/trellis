@@ -4,12 +4,12 @@ import { auth as trellisAuth } from "@qlever-llc/trellis/sdk/auth";
 export const portalApp = defineContract({
   id: "trellis.portal-app@v1",
   displayName: "Portal App",
-  description: "User-facing Trellis auth and workload activation portal.",
+  description: "User-facing Trellis auth and device activation portal.",
   kind: "portal",
   uses: {
     auth: trellisAuth.use({
       rpc: {
-        call: ["Auth.ActivateWorkload", "Auth.GetWorkloadActivationStatus"],
+        call: ["Auth.ActivateDevice", "Auth.GetDeviceActivationStatus"],
       },
     }),
   },

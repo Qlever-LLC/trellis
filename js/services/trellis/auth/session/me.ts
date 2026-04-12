@@ -27,10 +27,11 @@ type AuthenticatedService = {
   capabilities: string[];
 };
 
-type AuthenticatedWorkload = {
-  type: "workload";
-  instanceId: string;
-  publicIdentityKey: string;
+type AuthenticatedDevice = {
+  type: "device";
+  deviceId: string;
+  deviceType: string;
+  runtimePublicKey: string;
   profileId: string;
   active: boolean;
   capabilities: string[];
@@ -38,7 +39,7 @@ type AuthenticatedWorkload = {
 
 type AuthMeResponse = {
   user: AuthenticatedUser | null;
-  workload: AuthenticatedWorkload | null;
+  device: AuthenticatedDevice | null;
   service: AuthenticatedService | null;
 };
 
@@ -52,12 +53,12 @@ type SessionCaller = {
   capabilities?: string[];
   image?: string;
   lastLogin?: string;
-  instanceId?: string;
-  publicIdentityKey?: string;
+  deviceId?: string;
+  runtimePublicKey?: string;
   profileId?: string;
 };
 
-type WorkloadActivationRecord = {
+type DeviceActivationRecord = {
   instanceId: string;
   publicIdentityKey: string;
   profileId: string;
@@ -66,6 +67,34 @@ type WorkloadActivationRecord = {
   activatedAt: string | Date;
   revokedAt: string | Date | null;
 };
+
+function deviceTypeFromProfileId(profileId: string): string {
+  const [deviceType] = profileId.split(".", 1);
+  return deviceType && deviceType.length > 0 ? deviceType : profileId;
+}
+
+function deviceCallerFields(caller?: SessionCaller): {
+  deviceId: string;
+  profileId: string;
+  runtimePublicKey: string;
+  active: boolean;
+  capabilities: string[];
+} | null {
+  if (
+    caller?.type !== "device" || !caller.deviceId || !caller.runtimePublicKey ||
+    !caller.profileId || caller.active === undefined
+  ) {
+    return null;
+  }
+
+  return {
+    deviceId: caller.deviceId,
+    profileId: caller.profileId,
+    runtimePublicKey: caller.runtimePublicKey,
+    active: caller.active,
+    capabilities: caller.capabilities ?? [],
+  };
+}
 
 type KVResult<T> = { take(): T };
 
@@ -162,15 +191,15 @@ async function loadAuthenticatedService(args: {
   };
 }
 
-async function loadAuthenticatedWorkload(args: {
+async function loadAuthenticatedDevice(args: {
   usersKV: KVLike<UserProjectionEntry>;
-  workloadActivationsKV: KVLike<WorkloadActivationRecord>;
-  workloadProfilesKV: KVLike<{ profileId: string; disabled: boolean }>;
-  session: Session & { type: "workload" };
-}): Promise<{ user: AuthenticatedUser | null; workload: AuthenticatedWorkload }> {
-  const activationEntry = unwrapValue<WorkloadActivationRecord>((await args.workloadActivationsKV.get(args.session.instanceId)).take());
+  deviceActivationsKV: KVLike<DeviceActivationRecord>;
+  deviceProfilesKV: KVLike<{ profileId: string; disabled: boolean }>;
+  session: Session & { type: "device" };
+}): Promise<{ user: AuthenticatedUser | null; device: AuthenticatedDevice }> {
+  const activationEntry = unwrapValue<DeviceActivationRecord>((await args.deviceActivationsKV.get(args.session.instanceId)).take());
   if (isErr(activationEntry)) {
-    throw new AuthError({ reason: "unknown_workload", context: { instanceId: args.session.instanceId } });
+    throw new AuthError({ reason: "unknown_device", context: { instanceId: args.session.instanceId } });
   }
 
   const activation = activationEntry;
@@ -186,15 +215,15 @@ async function loadAuthenticatedWorkload(args: {
     args.session.revokedAt !== null
   ) {
     throw new AuthError({
-      reason: "workload_activation_revoked",
+      reason: "device_activation_revoked",
       context: { instanceId: args.session.instanceId, profileId: activation.profileId },
     });
   }
 
-  const profileEntry = unwrapValue<{ profileId: string; disabled: boolean }>((await args.workloadProfilesKV.get(activation.profileId)).take());
+  const profileEntry = unwrapValue<{ profileId: string; disabled: boolean }>((await args.deviceProfilesKV.get(activation.profileId)).take());
   if (isErr(profileEntry)) {
     throw new AuthError({
-      reason: "workload_profile_not_found",
+      reason: "device_profile_not_found",
       context: { profileId: activation.profileId },
     });
   }
@@ -202,7 +231,7 @@ async function loadAuthenticatedWorkload(args: {
   const profile = profileEntry;
   if (profile.disabled) {
     throw new AuthError({
-      reason: "workload_profile_disabled",
+      reason: "device_profile_disabled",
       context: { profileId: profile.profileId },
     });
   }
@@ -223,10 +252,11 @@ async function loadAuthenticatedWorkload(args: {
 
   return {
     user,
-    workload: {
-      type: "workload",
-      instanceId: args.session.instanceId,
-      publicIdentityKey: args.session.publicIdentityKey,
+    device: {
+      type: "device",
+      deviceId: args.session.instanceId,
+      deviceType: deviceTypeFromProfileId(args.session.profileId),
+      runtimePublicKey: args.session.publicIdentityKey,
       profileId: args.session.profileId,
       active: true,
       capabilities: args.session.delegatedCapabilities,
@@ -250,7 +280,7 @@ function responseFromCaller(caller?: SessionCaller): AuthMeResponse | null {
         capabilities: caller.capabilities ?? [],
         ...(caller.lastLogin ? { lastLogin: caller.lastLogin } : {}),
       },
-      workload: null,
+      device: null,
       service: null,
     };
   }
@@ -261,7 +291,7 @@ function responseFromCaller(caller?: SessionCaller): AuthMeResponse | null {
   ) {
     return {
       user: null,
-      workload: null,
+      device: null,
       service: {
         type: "service",
         id: caller.id,
@@ -272,19 +302,18 @@ function responseFromCaller(caller?: SessionCaller): AuthMeResponse | null {
     };
   }
 
-  if (
-    caller?.type === "workload" && caller.instanceId &&
-    caller.publicIdentityKey && caller.profileId && caller.active !== undefined
-  ) {
+  const deviceCaller = deviceCallerFields(caller);
+  if (deviceCaller) {
     return {
       user: null,
-      workload: {
-        type: "workload",
-        instanceId: caller.instanceId,
-        publicIdentityKey: caller.publicIdentityKey,
-        profileId: caller.profileId,
-        active: caller.active,
-        capabilities: caller.capabilities ?? [],
+      device: {
+        type: "device",
+        deviceId: deviceCaller.deviceId,
+        deviceType: deviceTypeFromProfileId(deviceCaller.profileId),
+        runtimePublicKey: deviceCaller.runtimePublicKey,
+        profileId: deviceCaller.profileId,
+        active: deviceCaller.active,
+        capabilities: deviceCaller.capabilities,
       },
       service: null,
     };
@@ -293,35 +322,32 @@ function responseFromCaller(caller?: SessionCaller): AuthMeResponse | null {
   return null;
 }
 
-async function responseFromWorkloadCaller(args: {
+async function responseFromDeviceCaller(args: {
   caller?: SessionCaller;
   usersKV: KVLike<UserProjectionEntry>;
-  workloadActivationsKV: KVLike<WorkloadActivationRecord>;
-  workloadProfilesKV: KVLike<{ profileId: string; disabled: boolean }>;
+  deviceActivationsKV: KVLike<DeviceActivationRecord>;
+  deviceProfilesKV: KVLike<{ profileId: string; disabled: boolean }>;
 }): Promise<AuthMeResponse | null> {
-  if (
-    args.caller?.type !== "workload" || !args.caller.instanceId ||
-    !args.caller.publicIdentityKey || !args.caller.profileId ||
-    args.caller.active === undefined
-  ) {
+  const deviceCaller = deviceCallerFields(args.caller);
+  if (!deviceCaller) {
     return null;
   }
 
-  const activationEntry = unwrapValue<WorkloadActivationRecord>(
-    (await args.workloadActivationsKV.get(args.caller.instanceId)).take(),
+  const activationEntry = unwrapValue<DeviceActivationRecord>(
+    (await args.deviceActivationsKV.get(deviceCaller.deviceId)).take(),
   );
   if (isErr(activationEntry)) return null;
   const activation = activationEntry;
   if (
     activation.state !== "activated" ||
-    activation.profileId !== args.caller.profileId ||
+    activation.profileId !== deviceCaller.profileId ||
     activation.revokedAt !== null
   ) {
     return null;
   }
 
   const profileEntry = unwrapValue<{ profileId: string; disabled: boolean }>(
-    (await args.workloadProfilesKV.get(activation.profileId)).take(),
+    (await args.deviceProfilesKV.get(activation.profileId)).take(),
   );
   if (isErr(profileEntry) || profileEntry.disabled) return null;
 
@@ -341,13 +367,14 @@ async function responseFromWorkloadCaller(args: {
 
   return {
     user,
-    workload: {
-      type: "workload",
-      instanceId: args.caller.instanceId,
-      publicIdentityKey: args.caller.publicIdentityKey,
-      profileId: args.caller.profileId,
-      active: args.caller.active,
-      capabilities: args.caller.capabilities ?? [],
+    device: {
+      type: "device",
+      deviceId: deviceCaller.deviceId,
+      deviceType: deviceTypeFromProfileId(deviceCaller.profileId),
+      runtimePublicKey: deviceCaller.runtimePublicKey,
+      profileId: deviceCaller.profileId,
+      active: deviceCaller.active,
+      capabilities: deviceCaller.capabilities,
     },
     service: null,
   };
@@ -357,8 +384,8 @@ export function createAuthMeHandler(deps: {
   sessionKV: KVLike<Session>;
   usersKV: KVLike<UserProjectionEntry>;
   servicesKV: KVLike<ServiceRegistryEntry>;
-  workloadActivationsKV: KVLike<WorkloadActivationRecord>;
-  workloadProfilesKV: KVLike<{ profileId: string; disabled: boolean }>;
+  deviceActivationsKV: KVLike<DeviceActivationRecord>;
+  deviceProfilesKV: KVLike<{ profileId: string; disabled: boolean }>;
 }) {
   return async (
     _req: unknown,
@@ -375,14 +402,14 @@ export function createAuthMeHandler(deps: {
         if (callerResponse && (callerResponse.user || callerResponse.service)) {
           return Result.ok<AuthMeResponse>(callerResponse);
         }
-        const workloadCallerResponse = await responseFromWorkloadCaller({
+        const deviceCallerResponse = await responseFromDeviceCaller({
           caller,
           usersKV: deps.usersKV,
-          workloadActivationsKV: deps.workloadActivationsKV,
-          workloadProfilesKV: deps.workloadProfilesKV,
+          deviceActivationsKV: deps.deviceActivationsKV,
+          deviceProfilesKV: deps.deviceProfilesKV,
         });
-        if (workloadCallerResponse) {
-          return Result.ok<AuthMeResponse>(workloadCallerResponse);
+        if (deviceCallerResponse) {
+          return Result.ok<AuthMeResponse>(deviceCallerResponse);
         }
         return Result.err(new AuthError({ reason: "session_not_found", context: { sessionKey } }));
       }
@@ -401,7 +428,7 @@ export function createAuthMeHandler(deps: {
             active: true,
           },
         });
-        return Result.ok<AuthMeResponse>({ user, workload: null, service: null });
+        return Result.ok<AuthMeResponse>({ user, device: null, service: null });
       }
 
       if (session.type === "service") {
@@ -410,16 +437,16 @@ export function createAuthMeHandler(deps: {
           sessionKey,
           session: session as Session & { type: "service" },
         });
-        return Result.ok<AuthMeResponse>({ user: null, workload: null, service });
+        return Result.ok<AuthMeResponse>({ user: null, device: null, service });
       }
 
-      const { user, workload } = await loadAuthenticatedWorkload({
+      const { user, device } = await loadAuthenticatedDevice({
         usersKV: deps.usersKV,
-        workloadActivationsKV: deps.workloadActivationsKV,
-        workloadProfilesKV: deps.workloadProfilesKV,
-        session: session as Session & { type: "workload" },
+        deviceActivationsKV: deps.deviceActivationsKV,
+        deviceProfilesKV: deps.deviceProfilesKV,
+        session: session as Session & { type: "device" },
       });
-      return Result.ok<AuthMeResponse>({ user, workload, service: null });
+      return Result.ok<AuthMeResponse>({ user, device, service: null });
     } catch (error) {
       if (error instanceof AuthError) return Result.err(error);
       throw error;

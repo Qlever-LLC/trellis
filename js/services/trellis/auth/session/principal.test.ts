@@ -33,16 +33,16 @@ function kvFromMap<T>(values: Record<string, T>) {
   };
 }
 
-Deno.test("resolveSessionPrincipal accepts activated workload sessions", async () => {
+Deno.test("resolveSessionPrincipal accepts activated device sessions", async () => {
   const result = await resolveSessionPrincipal(
     {
-      type: "workload",
-      instanceId: "wrk-1",
+      type: "device",
+      instanceId: "dev-1",
       publicIdentityKey: "A".repeat(43),
       profileId: "drive.default",
       contractId: "trellis.device@v1",
       contractDigest: "digest-a",
-      delegatedCapabilities: ["device:sync"],
+      delegatedCapabilities: ["device.sync"],
       delegatedPublishSubjects: ["subject.v1.device.sync"],
       delegatedSubscribeSubjects: ["events.v1.Device.Status.*"],
       createdAt: new Date(),
@@ -53,9 +53,9 @@ Deno.test("resolveSessionPrincipal accepts activated workload sessions", async (
     "A".repeat(43),
     {
       servicesKV: kvFromMap({}),
-      workloadActivationsKV: kvFromMap({
-        "wrk-1": {
-          instanceId: "wrk-1",
+      deviceActivationsKV: kvFromMap({
+        "dev-1": {
+          instanceId: "dev-1",
           publicIdentityKey: "A".repeat(43),
           profileId: "drive.default",
           state: "activated",
@@ -63,7 +63,7 @@ Deno.test("resolveSessionPrincipal accepts activated workload sessions", async (
           revokedAt: null,
         },
       }),
-      workloadProfilesKV: kvFromMap({
+      deviceProfilesKV: kvFromMap({
         "drive.default": {
           profileId: "drive.default",
           disabled: false,
@@ -76,21 +76,21 @@ Deno.test("resolveSessionPrincipal accepts activated workload sessions", async (
   assertEquals(result.ok, true);
   if (result.ok) {
     assertEquals(result.value.active, true);
-    assertEquals(result.value.capabilities, ["device:sync"]);
-    assertEquals(result.value.email, "workload:wrk-1");
+    assertEquals(result.value.capabilities, ["device.sync"]);
+    assertEquals(result.value.email, "device:dev-1");
   }
 });
 
-Deno.test("resolveSessionPrincipal rejects revoked workload sessions", async () => {
+Deno.test("resolveSessionPrincipal rejects revoked device sessions", async () => {
   const result = await resolveSessionPrincipal(
     {
-      type: "workload",
-      instanceId: "wrk-1",
+      type: "device",
+      instanceId: "dev-1",
       publicIdentityKey: "A".repeat(43),
       profileId: "drive.default",
       contractId: "trellis.device@v1",
       contractDigest: "digest-a",
-      delegatedCapabilities: ["device:sync"],
+      delegatedCapabilities: ["device.sync"],
       delegatedPublishSubjects: ["subject.v1.device.sync"],
       delegatedSubscribeSubjects: ["events.v1.Device.Status.*"],
       createdAt: new Date(),
@@ -101,9 +101,9 @@ Deno.test("resolveSessionPrincipal rejects revoked workload sessions", async () 
     "A".repeat(43),
     {
       servicesKV: kvFromMap({}),
-      workloadActivationsKV: kvFromMap({
-        "wrk-1": {
-          instanceId: "wrk-1",
+      deviceActivationsKV: kvFromMap({
+        "dev-1": {
+          instanceId: "dev-1",
           publicIdentityKey: "A".repeat(43),
           profileId: "drive.default",
           state: "revoked",
@@ -111,7 +111,7 @@ Deno.test("resolveSessionPrincipal rejects revoked workload sessions", async () 
           revokedAt: new Date().toISOString(),
         },
       }),
-      workloadProfilesKV: kvFromMap({
+      deviceProfilesKV: kvFromMap({
         "drive.default": {
           profileId: "drive.default",
           disabled: false,
@@ -123,20 +123,20 @@ Deno.test("resolveSessionPrincipal rejects revoked workload sessions", async () 
 
   assertEquals(result.ok, false);
   if (!result.ok) {
-    assertEquals(result.error.reason, "workload_activation_revoked");
+    assertEquals(result.error.reason, "device_activation_revoked");
   }
 });
 
 Deno.test("resolveSessionPrincipal uses the activation matching session.publicIdentityKey", async () => {
   const result = await resolveSessionPrincipal(
     {
-      type: "workload",
-      instanceId: "wrk-1",
+      type: "device",
+      instanceId: "dev-1",
       publicIdentityKey: "B".repeat(43),
       profileId: "drive.default",
       contractId: "trellis.device@v1",
       contractDigest: "digest-a",
-      delegatedCapabilities: ["device:sync"],
+      delegatedCapabilities: ["device.sync"],
       delegatedPublishSubjects: ["subject.v1.device.sync"],
       delegatedSubscribeSubjects: ["events.v1.Device.Status.*"],
       createdAt: new Date(),
@@ -147,17 +147,17 @@ Deno.test("resolveSessionPrincipal uses the activation matching session.publicId
     "B".repeat(43),
     {
       servicesKV: kvFromMap({}),
-      workloadActivationsKV: kvFromMap({
-        "wrk-old": {
-          instanceId: "wrk-old",
+      deviceActivationsKV: kvFromMap({
+        "dev-old": {
+          instanceId: "dev-old",
           publicIdentityKey: "A".repeat(43),
           profileId: "drive.default",
           state: "revoked",
           activatedAt: new Date().toISOString(),
           revokedAt: new Date().toISOString(),
         },
-        "wrk-1": {
-          instanceId: "wrk-1",
+        "dev-1": {
+          instanceId: "dev-1",
           publicIdentityKey: "B".repeat(43),
           profileId: "drive.default",
           state: "activated",
@@ -165,7 +165,7 @@ Deno.test("resolveSessionPrincipal uses the activation matching session.publicId
           revokedAt: null,
         },
       }),
-      workloadProfilesKV: kvFromMap({
+      deviceProfilesKV: kvFromMap({
         "drive.default": {
           profileId: "drive.default",
           disabled: false,
@@ -178,16 +178,16 @@ Deno.test("resolveSessionPrincipal uses the activation matching session.publicId
   assertEquals(result.ok, true);
 });
 
-Deno.test("resolveSessionPrincipal does not borrow another activation for the same workload", async () => {
+Deno.test("resolveSessionPrincipal does not borrow another activation for the same device", async () => {
   const result = await resolveSessionPrincipal(
     {
-      type: "workload",
-      instanceId: "wrk-1",
+      type: "device",
+      instanceId: "dev-1",
       publicIdentityKey: "B".repeat(43),
       profileId: "drive.default",
       contractId: "trellis.device@v1",
       contractDigest: "digest-a",
-      delegatedCapabilities: ["device:sync"],
+      delegatedCapabilities: ["device.sync"],
       delegatedPublishSubjects: ["subject.v1.device.sync"],
       delegatedSubscribeSubjects: ["events.v1.Device.Status.*"],
       createdAt: new Date(),
@@ -198,9 +198,9 @@ Deno.test("resolveSessionPrincipal does not borrow another activation for the sa
     "B".repeat(43),
     {
       servicesKV: kvFromMap({}),
-      workloadActivationsKV: kvFromMap({
-        "wrk-other": {
-          instanceId: "wrk-other",
+      deviceActivationsKV: kvFromMap({
+        "dev-other": {
+          instanceId: "dev-other",
           publicIdentityKey: "A".repeat(43),
           profileId: "drive.default",
           state: "activated",
@@ -208,7 +208,7 @@ Deno.test("resolveSessionPrincipal does not borrow another activation for the sa
           revokedAt: null,
         },
       }),
-      workloadProfilesKV: kvFromMap({
+      deviceProfilesKV: kvFromMap({
         "drive.default": {
           profileId: "drive.default",
           disabled: false,
@@ -220,20 +220,20 @@ Deno.test("resolveSessionPrincipal does not borrow another activation for the sa
 
   assertEquals(result.ok, false);
   if (!result.ok) {
-    assertEquals(result.error.reason, "unknown_workload");
+    assertEquals(result.error.reason, "unknown_device");
   }
 });
 
-Deno.test("resolveSessionPrincipal rejects workload sessions when the activation profile changes", async () => {
+Deno.test("resolveSessionPrincipal rejects device sessions when the activation profile changes", async () => {
   const result = await resolveSessionPrincipal(
     {
-      type: "workload",
-      instanceId: "wrk-1",
+      type: "device",
+      instanceId: "dev-1",
       publicIdentityKey: "A".repeat(43),
       profileId: "drive.default",
       contractId: "trellis.device@v1",
       contractDigest: "digest-a",
-      delegatedCapabilities: ["device:sync"],
+      delegatedCapabilities: ["device.sync"],
       delegatedPublishSubjects: ["subject.v1.device.sync"],
       delegatedSubscribeSubjects: ["events.v1.Device.Status.*"],
       createdAt: new Date(),
@@ -244,9 +244,9 @@ Deno.test("resolveSessionPrincipal rejects workload sessions when the activation
     "A".repeat(43),
     {
       servicesKV: kvFromMap({}),
-      workloadActivationsKV: kvFromMap({
-        "wrk-1": {
-          instanceId: "wrk-1",
+      deviceActivationsKV: kvFromMap({
+        "dev-1": {
+          instanceId: "dev-1",
           publicIdentityKey: "A".repeat(43),
           profileId: "drive.next",
           state: "activated",
@@ -254,7 +254,7 @@ Deno.test("resolveSessionPrincipal rejects workload sessions when the activation
           revokedAt: null,
         },
       }),
-      workloadProfilesKV: kvFromMap({
+      deviceProfilesKV: kvFromMap({
         "drive.next": {
           profileId: "drive.next",
           disabled: false,
@@ -266,20 +266,20 @@ Deno.test("resolveSessionPrincipal rejects workload sessions when the activation
 
   assertEquals(result.ok, false);
   if (!result.ok) {
-    assertEquals(result.error.reason, "workload_activation_revoked");
+    assertEquals(result.error.reason, "device_activation_revoked");
   }
 });
 
-Deno.test("resolveSessionPrincipal rejects disabled workload profiles", async () => {
+Deno.test("resolveSessionPrincipal rejects disabled device profiles", async () => {
   const result = await resolveSessionPrincipal(
     {
-      type: "workload",
-      instanceId: "wrk-1",
+      type: "device",
+      instanceId: "dev-1",
       publicIdentityKey: "A".repeat(43),
       profileId: "drive.default",
       contractId: "trellis.device@v1",
       contractDigest: "digest-a",
-      delegatedCapabilities: ["device:sync"],
+      delegatedCapabilities: ["device.sync"],
       delegatedPublishSubjects: ["subject.v1.device.sync"],
       delegatedSubscribeSubjects: ["events.v1.Device.Status.*"],
       createdAt: new Date(),
@@ -290,9 +290,9 @@ Deno.test("resolveSessionPrincipal rejects disabled workload profiles", async ()
     "A".repeat(43),
     {
       servicesKV: kvFromMap({}),
-      workloadActivationsKV: kvFromMap({
-        "wrk-1": {
-          instanceId: "wrk-1",
+      deviceActivationsKV: kvFromMap({
+        "dev-1": {
+          instanceId: "dev-1",
           publicIdentityKey: "A".repeat(43),
           profileId: "drive.default",
           state: "activated",
@@ -300,7 +300,7 @@ Deno.test("resolveSessionPrincipal rejects disabled workload profiles", async ()
           revokedAt: null,
         },
       }),
-      workloadProfilesKV: kvFromMap({
+      deviceProfilesKV: kvFromMap({
         "drive.default": {
           profileId: "drive.default",
           disabled: true,
@@ -312,7 +312,7 @@ Deno.test("resolveSessionPrincipal rejects disabled workload profiles", async ()
 
   assertEquals(result.ok, false);
   if (!result.ok) {
-    assertEquals(result.error.reason, "workload_profile_disabled");
+    assertEquals(result.error.reason, "device_profile_disabled");
   }
 });
 

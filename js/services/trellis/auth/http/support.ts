@@ -48,7 +48,7 @@ export type LoginPortalSelectionRecord = {
   portalId: string | null;
 };
 
-export type WorkloadPortalSelectionRecord = {
+export type DevicePortalSelectionRecord = {
   profileId: string;
   portalId: string | null;
 };
@@ -170,11 +170,11 @@ export function resolveLoginPortal(args: {
   return defaultPortal ? { kind: "custom", portal: defaultPortal } : { kind: "builtin" };
 }
 
-export function resolveWorkloadPortal(args: {
+export function resolveDevicePortal(args: {
   profileId: string;
   portals: PortalRecord[];
   defaultPortalId?: string | null;
-  selections: WorkloadPortalSelectionRecord[];
+  selections: DevicePortalSelectionRecord[];
 }): ResolvedPortal {
   const portalById = enabledPortalById(args.portals);
   const selection = args.selections.find((entry) => entry.profileId === args.profileId);

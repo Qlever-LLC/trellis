@@ -12,11 +12,11 @@ use url::Url;
 
 use crate::browser_login::callback_page_html;
 use crate::{
-    build_auth_login_url, build_workload_activation_payload, build_workload_activation_url,
-    clear_admin_session, derive_workload_confirmation_code, derive_workload_identity,
-    generate_session_keypair, load_admin_session, parse_workload_activation_payload,
-    save_admin_session, sign_workload_wait_request, verify_workload_confirmation_code,
-    wait_for_workload_activation_response, AdminSessionState, WaitForWorkloadActivationResponse,
+    build_auth_login_url, build_device_activation_payload, build_device_activation_url,
+    clear_admin_session, derive_device_confirmation_code, derive_device_identity,
+    generate_session_keypair, load_admin_session, parse_device_activation_payload,
+    save_admin_session, sign_device_wait_request, verify_device_confirmation_code,
+    wait_for_device_activation_response, AdminSessionState, WaitForDeviceActivationResponse,
 };
 use trellis_client::SessionAuth;
 
@@ -104,15 +104,15 @@ fn admin_session_round_trips_through_private_file() {
 }
 
 #[test]
-fn workload_activation_payload_round_trips() {
-    let identity = derive_workload_identity(&[7u8; 32]).expect("derive workload identity");
-    let payload = build_workload_activation_payload(
+fn device_activation_payload_round_trips() {
+    let identity = derive_device_identity(&[7u8; 32]).expect("derive device identity");
+    let payload = build_device_activation_payload(
         &identity.activation_key_base64url,
         &identity.public_identity_key,
         "nonce_123",
     )
     .expect("build payload");
-    let url = build_workload_activation_url("https://auth.example.com/base", &payload)
+    let url = build_device_activation_url("https://auth.example.com/base", &payload)
         .expect("build url");
     let payload_param = Url::parse(&url)
         .expect("parse activation url")
@@ -121,13 +121,13 @@ fn workload_activation_payload_round_trips() {
         .map(|(_, value)| value.into_owned())
         .expect("payload query param");
     assert_eq!(
-        parse_workload_activation_payload(&payload_param).expect("parse payload"),
+        parse_device_activation_payload(&payload_param).expect("parse payload"),
         payload
     );
 }
 
 #[tokio::test]
-async fn workload_activation_wait_posts_to_activate_wait_endpoint() {
+async fn device_activation_wait_posts_to_activate_wait_endpoint() {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind listener");
@@ -138,7 +138,7 @@ async fn workload_activation_wait_posts_to_activate_wait_endpoint() {
         let read = stream.read(&mut buffer).await.expect("read request");
         let request = String::from_utf8_lossy(&buffer[..read]);
         assert!(
-            request.starts_with("POST /auth/workloads/activate/wait HTTP/1.1\r\n"),
+            request.starts_with("POST /auth/devices/activate/wait HTTP/1.1\r\n"),
             "unexpected request line: {request}"
         );
 
@@ -154,8 +154,8 @@ async fn workload_activation_wait_posts_to_activate_wait_endpoint() {
             .expect("write response");
     });
 
-    let identity = derive_workload_identity(&[11u8; 32]).expect("derive workload identity");
-    let request = sign_workload_wait_request(
+    let identity = derive_device_identity(&[11u8; 32]).expect("derive device identity");
+    let request = sign_device_wait_request(
         &identity.public_identity_key,
         "nonce_123",
         &identity.identity_seed_base64url,
@@ -164,28 +164,28 @@ async fn workload_activation_wait_posts_to_activate_wait_endpoint() {
     )
     .expect("sign wait request");
 
-    let response = wait_for_workload_activation_response(
+    let response = wait_for_device_activation_response(
         &format!("http://{address}"),
         &request,
     )
     .await
     .expect("wait response");
-    assert!(matches!(response, WaitForWorkloadActivationResponse::Pending));
+    assert!(matches!(response, WaitForDeviceActivationResponse::Pending));
 
     server.await.expect("server finished");
 }
 
 #[test]
-fn workload_confirmation_codes_verify_locally() {
-    let identity = derive_workload_identity(&[9u8; 32]).expect("derive workload identity");
-    let confirmation_code = derive_workload_confirmation_code(
+fn device_confirmation_codes_verify_locally() {
+    let identity = derive_device_identity(&[9u8; 32]).expect("derive device identity");
+    let confirmation_code = derive_device_confirmation_code(
         &identity.activation_key_base64url,
         &identity.public_identity_key,
         "nonce_123",
     )
     .expect("derive confirmation code");
     assert_eq!(confirmation_code.len(), 8);
-    assert!(verify_workload_confirmation_code(
+    assert!(verify_device_confirmation_code(
         &identity.activation_key_base64url,
         &identity.public_identity_key,
         "nonce_123",

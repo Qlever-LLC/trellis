@@ -408,10 +408,10 @@ export const guideDocs: DocEntry[] = [
     section: "Advanced",
   },
   {
-    title: "Workloads",
+    title: "Devices",
     description:
-      "Build a Trellis workload that displays a QR activation URL and completes the workload activation flow.",
-    href: "/guides/workloads",
+      "Build a Trellis device that displays a QR activation URL and completes the device activation flow.",
+    href: "/guides/devices",
     section: "Advanced",
   },
   {

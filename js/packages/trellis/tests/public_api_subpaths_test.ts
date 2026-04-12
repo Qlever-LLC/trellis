@@ -25,10 +25,10 @@ Deno.test("server and sdk subpaths expose the canonical wrapper API", () => {
 
 Deno.test("contracts subpath defineContract retains contract API projections", () => {
   const contract = defineContract({
-    id: "example.workload@v1",
-    displayName: "Example Workload",
-    description: "Example workload contract.",
-    kind: "workload",
+    id: "example.device@v1",
+    displayName: "Example Device",
+    description: "Example device contract.",
+    kind: "device",
     schemas: {
       Ping: Type.Object({ ok: Type.Literal(true) }),
     },

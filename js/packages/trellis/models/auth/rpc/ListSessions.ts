@@ -17,7 +17,7 @@ export const AuthListSessionsResponseSchema = Type.Object(
           type: Type.Union([
             Type.Literal("user"),
             Type.Literal("service"),
-            Type.Literal("workload"),
+            Type.Literal("device"),
           ]),
           createdAt: Type.String(),
           lastAuth: Type.String(),

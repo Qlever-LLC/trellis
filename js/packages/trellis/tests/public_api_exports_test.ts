@@ -16,7 +16,7 @@ import {
   schema,
   submitPortalApproval,
   TrellisClient,
-  TrellisWorkload,
+  TrellisDevice,
 } from "../index.ts";
 import * as trellis from "../index.ts";
 
@@ -30,7 +30,7 @@ Deno.test("root public API includes core runtime, contracts, result, and common 
   assertEquals(typeof submitPortalApproval, "function");
   assertEquals(typeof portalRedirectLocation, "function");
   assertEquals(typeof TrellisClient.connect, "function");
-  assertEquals(typeof TrellisWorkload.connect, "function");
+  assertEquals(typeof TrellisDevice.connect, "function");
   assertEquals(typeof ok, "function");
   assertEquals(typeof err, "function");
   assertEquals(typeof isOk, "function");

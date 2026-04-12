@@ -10,17 +10,17 @@ use sha2::{Digest, Sha256};
 use url::Url;
 
 use crate::models::{
-    WaitForWorkloadActivationOpts, WaitForWorkloadActivationResponse, WorkloadActivationPayload,
-    WorkloadActivationWaitRequest, WorkloadIdentity,
+    WaitForDeviceActivationOpts, WaitForDeviceActivationResponse, DeviceActivationPayload,
+    DeviceActivationWaitRequest, DeviceIdentity,
 };
 use crate::TrellisAuthError;
 
 type HmacSha256 = Hmac<Sha256>;
 
-const WORKLOAD_IDENTITY_HKDF_INFO: &str = "trellis/workload-identity/v1";
-const WORKLOAD_ACTIVATION_HKDF_INFO: &str = "trellis/workload-activate/v1";
-const WORKLOAD_QR_MAC_DOMAIN: &str = "trellis-workload-qr/v1";
-const WORKLOAD_CONFIRMATION_DOMAIN: &str = "trellis-workload-confirm/v1";
+const DEVICE_IDENTITY_HKDF_INFO: &str = "trellis/device-identity/v1";
+const DEVICE_ACTIVATION_HKDF_INFO: &str = "trellis/device-activate/v1";
+const DEVICE_QR_MAC_DOMAIN: &str = "trellis-device-qr/v1";
+const DEVICE_CONFIRMATION_DOMAIN: &str = "trellis-device-confirm/v1";
 const CROCKFORD_ALPHABET: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
 fn base64url_encode(bytes: &[u8]) -> String {
@@ -78,35 +78,35 @@ fn normalize_crockford(value: &str) -> String {
         .replace(['I', 'L'], "1")
 }
 
-pub fn derive_workload_identity(
-    workload_root_secret: &[u8],
-) -> Result<WorkloadIdentity, TrellisAuthError> {
-    if workload_root_secret.len() != 32 {
+pub fn derive_device_identity(
+    device_root_secret: &[u8],
+) -> Result<DeviceIdentity, TrellisAuthError> {
+    if device_root_secret.len() != 32 {
         return Err(TrellisAuthError::InvalidArgument(format!(
-            "invalid workload root secret length: {} (expected 32)",
-            workload_root_secret.len()
+            "invalid device root secret length: {} (expected 32)",
+            device_root_secret.len()
         )));
     }
 
-    let hkdf = Hkdf::<Sha256>::new(Some(&[]), workload_root_secret);
+    let hkdf = Hkdf::<Sha256>::new(Some(&[]), device_root_secret);
     let mut identity_seed = [0u8; 32];
-    hkdf.expand(WORKLOAD_IDENTITY_HKDF_INFO.as_bytes(), &mut identity_seed)
-        .map_err(|error| TrellisAuthError::InvalidArgument(format!("failed to derive workload identity seed: {error}")))?;
+    hkdf.expand(DEVICE_IDENTITY_HKDF_INFO.as_bytes(), &mut identity_seed)
+        .map_err(|error| TrellisAuthError::InvalidArgument(format!("failed to derive device identity seed: {error}")))?;
     let mut activation_key = [0u8; 32];
-    hkdf.expand(WORKLOAD_ACTIVATION_HKDF_INFO.as_bytes(), &mut activation_key)
+    hkdf.expand(DEVICE_ACTIVATION_HKDF_INFO.as_bytes(), &mut activation_key)
         .map_err(|error| TrellisAuthError::InvalidArgument(format!("failed to derive activation key: {error}")))?;
 
     let signing_key = SigningKey::from_bytes(&identity_seed);
     let public_identity_key = base64url_encode(&signing_key.verifying_key().to_bytes());
 
-    Ok(WorkloadIdentity {
+    Ok(DeviceIdentity {
         identity_seed_base64url: base64url_encode(&identity_seed),
         public_identity_key,
         activation_key_base64url: base64url_encode(&activation_key),
     })
 }
 
-pub fn derive_workload_qr_mac(
+pub fn derive_device_qr_mac(
     activation_key_base64url: &str,
     public_identity_key: &str,
     nonce: &str,
@@ -115,7 +115,7 @@ pub fn derive_workload_qr_mac(
     let mac = hmac_sha256(
         &activation_key,
         &concat_bytes(&[
-            WORKLOAD_QR_MAC_DOMAIN.as_bytes(),
+            DEVICE_QR_MAC_DOMAIN.as_bytes(),
             public_identity_key.as_bytes(),
             nonce.as_bytes(),
         ]),
@@ -123,16 +123,16 @@ pub fn derive_workload_qr_mac(
     Ok(base64url_encode(&mac[..8]))
 }
 
-pub fn build_workload_activation_payload(
+pub fn build_device_activation_payload(
     activation_key_base64url: &str,
     public_identity_key: &str,
     nonce: &str,
-) -> Result<WorkloadActivationPayload, TrellisAuthError> {
-    Ok(WorkloadActivationPayload {
+) -> Result<DeviceActivationPayload, TrellisAuthError> {
+    Ok(DeviceActivationPayload {
         v: 1,
         public_identity_key: public_identity_key.to_string(),
         nonce: nonce.to_string(),
-        qr_mac: derive_workload_qr_mac(
+        qr_mac: derive_device_qr_mac(
             activation_key_base64url,
             public_identity_key,
             nonce,
@@ -140,33 +140,33 @@ pub fn build_workload_activation_payload(
     })
 }
 
-pub fn encode_workload_activation_payload(
-    payload: &WorkloadActivationPayload,
+pub fn encode_device_activation_payload(
+    payload: &DeviceActivationPayload,
 ) -> Result<String, TrellisAuthError> {
     serde_json::to_vec(payload)
         .map(|bytes| base64url_encode(&bytes))
-        .map_err(|error| TrellisAuthError::InvalidArgument(format!("invalid workload activation payload: {error}")))
+        .map_err(|error| TrellisAuthError::InvalidArgument(format!("invalid device activation payload: {error}")))
 }
 
-pub fn parse_workload_activation_payload(
+pub fn parse_device_activation_payload(
     payload_base64url: &str,
-) -> Result<WorkloadActivationPayload, TrellisAuthError> {
+) -> Result<DeviceActivationPayload, TrellisAuthError> {
     let bytes = base64url_decode(payload_base64url)?;
     serde_json::from_slice(&bytes)
-        .map_err(|error| TrellisAuthError::InvalidArgument(format!("invalid workload activation payload: {error}")))
+        .map_err(|error| TrellisAuthError::InvalidArgument(format!("invalid device activation payload: {error}")))
 }
 
-pub fn build_workload_activation_url(
+pub fn build_device_activation_url(
     auth_url: &str,
-    payload: &WorkloadActivationPayload,
+    payload: &DeviceActivationPayload,
 ) -> Result<String, TrellisAuthError> {
     let mut url = Url::parse(auth_url)?;
-    url.set_path("/auth/workloads/activate");
-    url.set_query(Some(&format!("payload={}", encode_workload_activation_payload(payload)?)));
+    url.set_path("/auth/devices/activate");
+    url.set_query(Some(&format!("payload={}", encode_device_activation_payload(payload)?)));
     Ok(url.to_string())
 }
 
-pub fn build_workload_wait_proof_input(
+pub fn build_device_wait_proof_input(
     public_identity_key: &str,
     nonce: &str,
     iat: u64,
@@ -188,13 +188,13 @@ pub fn build_workload_wait_proof_input(
     out
 }
 
-pub fn sign_workload_wait_request(
+pub fn sign_device_wait_request(
     public_identity_key: &str,
     nonce: &str,
     identity_seed_base64url: &str,
     contract_digest: Option<&str>,
     iat: u64,
-) -> Result<WorkloadActivationWaitRequest, TrellisAuthError> {
+) -> Result<DeviceActivationWaitRequest, TrellisAuthError> {
     let identity_seed = base64url_decode(identity_seed_base64url)?;
     if identity_seed.len() != 32 {
         return Err(TrellisAuthError::InvalidArgument(format!(
@@ -205,10 +205,10 @@ pub fn sign_workload_wait_request(
     let mut seed = [0u8; 32];
     seed.copy_from_slice(&identity_seed);
     let signing_key = SigningKey::from_bytes(&seed);
-    let digest = Sha256::digest(build_workload_wait_proof_input(public_identity_key, nonce, iat));
+    let digest = Sha256::digest(build_device_wait_proof_input(public_identity_key, nonce, iat));
     let signature = signing_key.sign(&digest);
 
-    Ok(WorkloadActivationWaitRequest {
+    Ok(DeviceActivationWaitRequest {
         public_identity_key: public_identity_key.to_string(),
         contract_digest: contract_digest.map(ToOwned::to_owned),
         nonce: nonce.to_string(),
@@ -217,26 +217,26 @@ pub fn sign_workload_wait_request(
     })
 }
 
-pub async fn wait_for_workload_activation_response(
+pub async fn wait_for_device_activation_response(
     auth_url: &str,
-    request: &WorkloadActivationWaitRequest,
-) -> Result<WaitForWorkloadActivationResponse, TrellisAuthError> {
-    let url = Url::parse(auth_url)?.join("/auth/workloads/activate/wait")?;
+    request: &DeviceActivationWaitRequest,
+) -> Result<WaitForDeviceActivationResponse, TrellisAuthError> {
+    let url = Url::parse(auth_url)?.join("/auth/devices/activate/wait")?;
     let response = Client::new().post(url).json(request).send().await?;
     if !response.status().is_success() {
         let status = response.status().as_u16();
         let body = response.text().await.unwrap_or_default();
-        return Err(TrellisAuthError::WorkloadActivationWaitFailure(status, body));
+        return Err(TrellisAuthError::DeviceActivationWaitFailure(status, body));
     }
 
     response.json().await.map_err(TrellisAuthError::from)
 }
 
-pub async fn wait_for_workload_activation(
-    opts: WaitForWorkloadActivationOpts<'_>,
+pub async fn wait_for_device_activation(
+    opts: WaitForDeviceActivationOpts<'_>,
 ) -> Result<serde_json::Value, TrellisAuthError> {
     loop {
-        let request = sign_workload_wait_request(
+        let request = sign_device_wait_request(
             opts.public_identity_key,
             opts.nonce,
             opts.identity_seed_base64url,
@@ -246,17 +246,17 @@ pub async fn wait_for_workload_activation(
                 .unwrap_or_default()
                 .as_secs(),
         )?;
-        match wait_for_workload_activation_response(opts.auth_url, &request).await? {
-            WaitForWorkloadActivationResponse::Activated { connect_info, .. } => {
+        match wait_for_device_activation_response(opts.auth_url, &request).await? {
+            WaitForDeviceActivationResponse::Activated { connect_info, .. } => {
                 return Ok(connect_info)
             }
-            WaitForWorkloadActivationResponse::Rejected { reason } => {
-                return Err(TrellisAuthError::WorkloadActivationRejected(match reason {
+            WaitForDeviceActivationResponse::Rejected { reason } => {
+                return Err(TrellisAuthError::DeviceActivationRejected(match reason {
                     Some(reason) => format!(": {reason}"),
                     None => String::new(),
                 }))
             }
-            WaitForWorkloadActivationResponse::Pending => tokio::time::sleep(match opts.poll_interval {
+            WaitForDeviceActivationResponse::Pending => tokio::time::sleep(match opts.poll_interval {
                 duration if duration.is_zero() => Duration::from_millis(1),
                 duration => duration,
             })
@@ -265,7 +265,7 @@ pub async fn wait_for_workload_activation(
     }
 }
 
-pub fn derive_workload_confirmation_code(
+pub fn derive_device_confirmation_code(
     activation_key_base64url: &str,
     public_identity_key: &str,
     nonce: &str,
@@ -274,7 +274,7 @@ pub fn derive_workload_confirmation_code(
     let mac = hmac_sha256(
         &activation_key,
         &concat_bytes(&[
-            WORKLOAD_CONFIRMATION_DOMAIN.as_bytes(),
+            DEVICE_CONFIRMATION_DOMAIN.as_bytes(),
             public_identity_key.as_bytes(),
             nonce.as_bytes(),
         ]),
@@ -282,13 +282,13 @@ pub fn derive_workload_confirmation_code(
     Ok(crockford_encode(&mac[..5]))
 }
 
-pub fn verify_workload_confirmation_code(
+pub fn verify_device_confirmation_code(
     activation_key_base64url: &str,
     public_identity_key: &str,
     nonce: &str,
     confirmation_code: &str,
 ) -> Result<bool, TrellisAuthError> {
-    Ok(normalize_crockford(&derive_workload_confirmation_code(
+    Ok(normalize_crockford(&derive_device_confirmation_code(
         activation_key_base64url,
         public_identity_key,
         nonce,

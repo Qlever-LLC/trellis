@@ -1,31 +1,31 @@
 import { assert, assertEquals, assertFalse, assertRejects } from "@std/assert";
 
 import {
-  buildWorkloadWaitProofInput,
-  buildWorkloadActivationPayload,
-  buildWorkloadActivationUrl,
-  createWorkloadNatsAuthToken,
-  createWorkloadActivationClient,
-  deriveWorkloadConfirmationCode,
-  deriveWorkloadIdentity,
-  encodeWorkloadActivationPayload,
-  getWorkloadConnectInfo,
-  parseWorkloadActivationPayload,
-  signWorkloadWaitRequest,
-  verifyWorkloadWaitSignature,
-  verifyWorkloadConfirmationCode,
-  waitForWorkloadActivation,
-  type AuthActivateWorkloadInput,
-  type AuthActivateWorkloadOutput,
-  type AuthGetWorkloadActivationStatusInput,
-  type AuthGetWorkloadActivationStatusOutput,
-  type AuthListWorkloadActivationsInput,
-  type AuthListWorkloadActivationsOutput,
-  type AuthRevokeWorkloadActivationInput,
-  type AuthRevokeWorkloadActivationResponse,
-  type GetWorkloadConnectInfoOutput,
-  type WorkloadActivationTransport,
-} from "./workload_activation.ts";
+  buildDeviceActivationPayload,
+  buildDeviceActivationUrl,
+  buildDeviceWaitProofInput,
+  createDeviceActivationClient,
+  createDeviceNatsAuthToken,
+  deriveDeviceConfirmationCode,
+  deriveDeviceIdentity,
+  encodeDeviceActivationPayload,
+  getDeviceConnectInfo,
+  parseDeviceActivationPayload,
+  signDeviceWaitRequest,
+  verifyDeviceConfirmationCode,
+  verifyDeviceWaitSignature,
+  waitForDeviceActivation,
+  type AuthActivateDeviceInput,
+  type AuthActivateDeviceOutput,
+  type AuthGetDeviceActivationStatusInput,
+  type AuthGetDeviceActivationStatusOutput,
+  type AuthListDeviceActivationsInput,
+  type AuthListDeviceActivationsOutput,
+  type AuthRevokeDeviceActivationInput,
+  type AuthRevokeDeviceActivationResponse,
+  type DeviceActivationTransport,
+  type GetDeviceConnectInfoOutput,
+} from "./device_activation.ts";
 import { importEd25519PublicKeyFromBase64url } from "./keys.ts";
 import { base64urlDecode, sha256, toArrayBuffer } from "./utils.ts";
 
@@ -35,30 +35,30 @@ function okResult<T>(value: T) {
   };
 }
 
-Deno.test("workload activation payload helpers round-trip encoded payloads", async () => {
-  const identity = await deriveWorkloadIdentity(new Uint8Array(32).fill(7));
-  const payload = await buildWorkloadActivationPayload({
+Deno.test("device activation payload helpers round-trip encoded payloads", async () => {
+  const identity = await deriveDeviceIdentity(new Uint8Array(32).fill(7));
+  const payload = await buildDeviceActivationPayload({
     activationKey: identity.activationKey,
     publicIdentityKey: identity.publicIdentityKey,
     nonce: "nonce_123",
   });
 
-  const encoded = encodeWorkloadActivationPayload(payload);
-  assertEquals(parseWorkloadActivationPayload(encoded), payload);
+  const encoded = encodeDeviceActivationPayload(payload);
+  assertEquals(parseDeviceActivationPayload(encoded), payload);
 
-  const url = buildWorkloadActivationUrl({
+  const url = buildDeviceActivationUrl({
     trellisUrl: "https://trellis.example.com/base",
     payload,
   });
   assertEquals(
     url,
-    `https://trellis.example.com/auth/workloads/activate?payload=${encodeURIComponent(encoded)}`,
+    `https://trellis.example.com/auth/devices/activate?payload=${encodeURIComponent(encoded)}`,
   );
 });
 
-Deno.test("workload wait helpers sign requests and verify confirmation codes", async () => {
-  const identity = await deriveWorkloadIdentity(new Uint8Array(32).fill(9));
-  const waitRequest = await signWorkloadWaitRequest({
+Deno.test("device wait helpers sign requests and verify confirmation codes", async () => {
+  const identity = await deriveDeviceIdentity(new Uint8Array(32).fill(9));
+  const waitRequest = await signDeviceWaitRequest({
     publicIdentityKey: identity.publicIdentityKey,
     nonce: "nonce_123",
     identitySeed: identity.identitySeed,
@@ -70,20 +70,20 @@ Deno.test("workload wait helpers sign requests and verify confirmation codes", a
   assertEquals(waitRequest.iat, 123);
   assert(waitRequest.sig.length > 0);
 
-  const confirmationCode = await deriveWorkloadConfirmationCode({
+  const confirmationCode = await deriveDeviceConfirmationCode({
     activationKey: identity.activationKey,
     publicIdentityKey: identity.publicIdentityKey,
     nonce: "nonce_123",
   });
   assertEquals(confirmationCode.length, 8);
-  assert(await verifyWorkloadConfirmationCode({
+  assert(await verifyDeviceConfirmationCode({
     activationKey: identity.activationKey,
     publicIdentityKey: identity.publicIdentityKey,
     nonce: "nonce_123",
     confirmationCode: confirmationCode.toLowerCase(),
   }));
 
-  const natsAuthToken = await createWorkloadNatsAuthToken({
+  const natsAuthToken = await createDeviceNatsAuthToken({
     publicIdentityKey: identity.publicIdentityKey,
     identitySeed: identity.identitySeed,
     contractDigest: "digest-a",
@@ -95,19 +95,19 @@ Deno.test("workload wait helpers sign requests and verify confirmation codes", a
   assert(natsAuthToken.sig.length > 0);
 });
 
-Deno.test("workload wait signatures are computed over the hashed proof input", async () => {
-  const identity = await deriveWorkloadIdentity(new Uint8Array(32).fill(11));
-  const waitRequest = await signWorkloadWaitRequest({
+Deno.test("device wait signatures are computed over the hashed proof input", async () => {
+  const identity = await deriveDeviceIdentity(new Uint8Array(32).fill(11));
+  const waitRequest = await signDeviceWaitRequest({
     publicIdentityKey: identity.publicIdentityKey,
     nonce: "nonce_456",
     identitySeed: identity.identitySeed,
     iat: 456,
   });
 
-  assert(await verifyWorkloadWaitSignature(waitRequest));
+  assert(await verifyDeviceWaitSignature(waitRequest));
 
   const publicKey = await importEd25519PublicKeyFromBase64url(identity.publicIdentityKey);
-  const proofInput = buildWorkloadWaitProofInput(
+  const proofInput = buildDeviceWaitProofInput(
     identity.publicIdentityKey,
     waitRequest.nonce,
     waitRequest.iat,
@@ -133,9 +133,9 @@ Deno.test("workload wait signatures are computed over the hashed proof input", a
   );
 });
 
-Deno.test("workload activation wait and connect-info helpers parse responses", async () => {
+Deno.test("device activation wait and connect-info helpers parse responses", async () => {
   const originalFetch = globalThis.fetch;
-  const identity = await deriveWorkloadIdentity(new Uint8Array(32).fill(5));
+  const identity = await deriveDeviceIdentity(new Uint8Array(32).fill(5));
 
   try {
     globalThis.fetch = ((_input: URL | Request | string, _init?: RequestInit) => {
@@ -143,7 +143,7 @@ Deno.test("workload activation wait and connect-info helpers parse responses", a
         status: "activated",
         activatedAt: "2026-04-08T12:00:00Z",
         connectInfo: {
-          instanceId: "wrk_123",
+          instanceId: "dev_123",
           profileId: "reader.default",
           contractId: "acme.reader@v1",
           contractDigest: "digest-a",
@@ -151,7 +151,7 @@ Deno.test("workload activation wait and connect-info helpers parse responses", a
             natsServers: ["nats://127.0.0.1:4222"],
             sentinel: { jwt: "jwt", seed: "seed" },
           },
-          auth: { mode: "workload_identity", iatSkewSeconds: 30 },
+          auth: { mode: "device_identity", iatSkewSeconds: 30 },
         },
       }), {
         status: 200,
@@ -159,7 +159,7 @@ Deno.test("workload activation wait and connect-info helpers parse responses", a
       }));
     }) as typeof fetch;
 
-    const activated = await waitForWorkloadActivation({
+    const activated = await waitForDeviceActivation({
       trellisUrl: "https://trellis.example.com",
       publicIdentityKey: identity.publicIdentityKey,
       nonce: "nonce_123",
@@ -172,7 +172,7 @@ Deno.test("workload activation wait and connect-info helpers parse responses", a
       return Promise.resolve(new Response(JSON.stringify({
         status: "ready",
         connectInfo: {
-          instanceId: "wrk_123",
+          instanceId: "dev_123",
           profileId: "reader.default",
           contractId: "acme.reader@v1",
           contractDigest: "digest-a",
@@ -180,7 +180,7 @@ Deno.test("workload activation wait and connect-info helpers parse responses", a
             natsServers: ["nats://127.0.0.1:4222"],
             sentinel: { jwt: "jwt", seed: "seed" },
           },
-          auth: { mode: "workload_identity", iatSkewSeconds: 30 },
+          auth: { mode: "device_identity", iatSkewSeconds: 30 },
         },
       }), {
         status: 200,
@@ -188,7 +188,7 @@ Deno.test("workload activation wait and connect-info helpers parse responses", a
       }));
     }) as typeof fetch;
 
-    const connectInfo = await getWorkloadConnectInfo({
+    const connectInfo = await getDeviceConnectInfo({
       trellisUrl: "https://trellis.example.com",
       publicIdentityKey: identity.publicIdentityKey,
       identitySeed: identity.identitySeed,
@@ -211,7 +211,7 @@ Deno.test("workload activation wait and connect-info helpers parse responses", a
     }) as typeof fetch;
 
     await assertRejects(
-      () => waitForWorkloadActivation({
+      () => waitForDeviceActivation({
         trellisUrl: "https://trellis.example.com",
         publicIdentityKey: identity.publicIdentityKey,
         nonce: "nonce_123",
@@ -220,7 +220,7 @@ Deno.test("workload activation wait and connect-info helpers parse responses", a
         pollIntervalMs: 0,
       }),
       Error,
-      "workload activation rejected: policy_denied",
+      "device activation rejected: policy_denied",
     );
 
     globalThis.fetch = ((_input: URL | Request | string, _init?: RequestInit) => {
@@ -233,7 +233,7 @@ Deno.test("workload activation wait and connect-info helpers parse responses", a
     }) as typeof fetch;
 
     await assertRejects(
-      () => waitForWorkloadActivation({
+      () => waitForDeviceActivation({
         trellisUrl: "https://trellis.example.com",
         publicIdentityKey: identity.publicIdentityKey,
         nonce: "nonce_123",
@@ -242,67 +242,67 @@ Deno.test("workload activation wait and connect-info helpers parse responses", a
         pollIntervalMs: 0,
       }),
       Error,
-      "workload activation wait failed: 403 contract_digest_not_allowed",
+      "device activation wait failed: 403 contract_digest_not_allowed",
     );
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
 
-Deno.test("workload activation client wrappers hide method strings", async () => {
+Deno.test("device activation client wrappers hide method strings", async () => {
   const requests: Array<{ method: string; input: unknown }> = [];
   function requestOrThrow(
-    method: "Auth.ActivateWorkload",
-    input: AuthActivateWorkloadInput,
+    method: "Auth.ActivateDevice",
+    input: AuthActivateDeviceInput,
     _opts?: unknown,
-  ): Promise<AuthActivateWorkloadOutput>;
+  ): Promise<AuthActivateDeviceOutput>;
   function requestOrThrow(
-    method: "Auth.GetWorkloadActivationStatus",
-    input: AuthGetWorkloadActivationStatusInput,
+    method: "Auth.GetDeviceActivationStatus",
+    input: AuthGetDeviceActivationStatusInput,
     _opts?: unknown,
-  ): Promise<AuthGetWorkloadActivationStatusOutput>;
+  ): Promise<AuthGetDeviceActivationStatusOutput>;
   function requestOrThrow(
-    method: "Auth.ListWorkloadActivations",
-    input: AuthListWorkloadActivationsInput,
+    method: "Auth.ListDeviceActivations",
+    input: AuthListDeviceActivationsInput,
     _opts?: unknown,
-  ): Promise<AuthListWorkloadActivationsOutput>;
+  ): Promise<AuthListDeviceActivationsOutput>;
   function requestOrThrow(
-    method: "Auth.RevokeWorkloadActivation",
-    input: AuthRevokeWorkloadActivationInput,
+    method: "Auth.RevokeDeviceActivation",
+    input: AuthRevokeDeviceActivationInput,
     _opts?: unknown,
-  ): Promise<AuthRevokeWorkloadActivationResponse>;
+  ): Promise<AuthRevokeDeviceActivationResponse>;
   function requestOrThrow(
-    method: "Auth.GetWorkloadConnectInfo",
+    method: "Auth.GetDeviceConnectInfo",
     input: Record<string, unknown>,
     _opts?: unknown,
-  ): Promise<GetWorkloadConnectInfoOutput>;
+  ): Promise<GetDeviceConnectInfoOutput>;
   async function requestOrThrow(method: string, input: unknown): Promise<unknown> {
     requests.push({ method, input });
     switch (method) {
-      case "Auth.ActivateWorkload":
+      case "Auth.ActivateDevice":
         return {
           status: "activated",
-          instanceId: "wrk_123",
+          instanceId: "dev_123",
           profileId: "reader.default",
           activatedAt: "2026-04-08T12:00:00Z",
         };
-      case "Auth.GetWorkloadActivationStatus":
+      case "Auth.GetDeviceActivationStatus":
         return {
           status: "pending_review",
-          reviewId: "war_123",
-          instanceId: "wrk_123",
+          reviewId: "dar_123",
+          instanceId: "dev_123",
           profileId: "reader.default",
           requestedAt: "2026-04-08T11:55:00Z",
         };
-      case "Auth.ListWorkloadActivations":
+      case "Auth.ListDeviceActivations":
         return { activations: [] };
-      case "Auth.RevokeWorkloadActivation":
+      case "Auth.RevokeDeviceActivation":
         return { success: true };
-      case "Auth.GetWorkloadConnectInfo":
+      case "Auth.GetDeviceConnectInfo":
         return {
           status: "ready",
           connectInfo: {
-            instanceId: "wrk_123",
+            instanceId: "dev_123",
             profileId: "reader.default",
             contractId: "acme.reader@v1",
             contractDigest: "digest-a",
@@ -310,7 +310,7 @@ Deno.test("workload activation client wrappers hide method strings", async () =>
               natsServers: ["nats://127.0.0.1:4222"],
               sentinel: { jwt: "jwt", seed: "seed" },
             },
-            auth: { mode: "workload_identity", iatSkewSeconds: 30 },
+            auth: { mode: "device_identity", iatSkewSeconds: 30 },
           },
         };
       default:
@@ -318,37 +318,37 @@ Deno.test("workload activation client wrappers hide method strings", async () =>
     }
   }
 
-  const transport: WorkloadActivationTransport = {
+  const transport: DeviceActivationTransport = {
     requestOrThrow,
   };
-  const client = createWorkloadActivationClient(transport);
+  const client = createDeviceActivationClient(transport);
 
   assertEquals(
-    await client.activateWorkload({ handoffId: "wah_123" }),
+    await client.activateDevice({ handoffId: "dah_123" }),
     {
       status: "activated",
-      instanceId: "wrk_123",
+      instanceId: "dev_123",
       profileId: "reader.default",
       activatedAt: "2026-04-08T12:00:00Z",
     },
   );
   assertEquals(
-    await client.getWorkloadActivationStatus({ handoffId: "wah_123" }),
+    await client.getDeviceActivationStatus({ handoffId: "dah_123" }),
     {
       status: "pending_review",
-      reviewId: "war_123",
-      instanceId: "wrk_123",
+      reviewId: "dar_123",
+      instanceId: "dev_123",
       profileId: "reader.default",
       requestedAt: "2026-04-08T11:55:00Z",
     },
   );
-  assertEquals((await client.listWorkloadActivations()).activations, []);
+  assertEquals((await client.listDeviceActivations()).activations, []);
   assertEquals(
-    await client.revokeWorkloadActivation({ instanceId: "wrk_123" }),
+    await client.revokeDeviceActivation({ instanceId: "dev_123" }),
     { success: true },
   );
   assertEquals(
-    await client.getWorkloadConnectInfo({
+    await client.getDeviceConnectInfo({
       publicIdentityKey: "A".repeat(43),
       contractDigest: "digest-a",
       iat: 123,
@@ -357,7 +357,7 @@ Deno.test("workload activation client wrappers hide method strings", async () =>
     {
       status: "ready",
       connectInfo: {
-        instanceId: "wrk_123",
+        instanceId: "dev_123",
         profileId: "reader.default",
         contractId: "acme.reader@v1",
         contractDigest: "digest-a",
@@ -365,16 +365,16 @@ Deno.test("workload activation client wrappers hide method strings", async () =>
           natsServers: ["nats://127.0.0.1:4222"],
           sentinel: { jwt: "jwt", seed: "seed" },
         },
-        auth: { mode: "workload_identity", iatSkewSeconds: 30 },
+        auth: { mode: "device_identity", iatSkewSeconds: 30 },
       },
     },
   );
 
   assertEquals(requests.map((entry) => entry.method), [
-    "Auth.ActivateWorkload",
-    "Auth.GetWorkloadActivationStatus",
-    "Auth.ListWorkloadActivations",
-    "Auth.RevokeWorkloadActivation",
-    "Auth.GetWorkloadConnectInfo",
+    "Auth.ActivateDevice",
+    "Auth.GetDeviceActivationStatus",
+    "Auth.ListDeviceActivations",
+    "Auth.RevokeDeviceActivation",
+    "Auth.GetDeviceConnectInfo",
   ]);
 });

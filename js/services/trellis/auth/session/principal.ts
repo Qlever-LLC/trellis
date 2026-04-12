@@ -24,10 +24,10 @@ export type SessionPrincipalError = {
   reason:
     | "unknown_service"
     | "service_disabled"
-    | "unknown_workload"
-    | "workload_activation_revoked"
-    | "workload_profile_not_found"
-    | "workload_profile_disabled"
+    | "unknown_device"
+    | "device_activation_revoked"
+    | "device_profile_not_found"
+    | "device_profile_disabled"
     | "user_not_found"
     | "user_inactive"
     | "insufficient_permissions"
@@ -59,8 +59,8 @@ export async function resolveSessionPrincipal(
   sessionKey: string,
   deps: {
     servicesKV: KVLike<ServiceRegistryEntry>;
-    workloadActivationsKV?: KVLike<{ instanceId: string; publicIdentityKey: string; profileId: string; state: string; revokedAt: string | Date | null }>;
-    workloadProfilesKV?: KVLike<{ profileId: string; disabled: boolean }>;
+    deviceActivationsKV?: KVLike<{ instanceId: string; publicIdentityKey: string; profileId: string; state: string; revokedAt: string | Date | null }>;
+    deviceProfilesKV?: KVLike<{ profileId: string; disabled: boolean }>;
     usersKV: KVLike<UserProjectionEntry>;
   },
 ): Promise<SessionPrincipalResult> {
@@ -96,14 +96,14 @@ export async function resolveSessionPrincipal(
     };
   }
 
-  if (session.type === "workload") {
-    const activationEntry = deps.workloadActivationsKV
-      ? (await deps.workloadActivationsKV.get(session.instanceId)).take()
+  if (session.type === "device") {
+    const activationEntry = deps.deviceActivationsKV
+      ? (await deps.deviceActivationsKV.get(session.instanceId)).take()
       : null;
     if (!activationEntry || isErr(activationEntry)) {
       return {
         ok: false,
-        error: { reason: "unknown_workload", context: { instanceId: session.instanceId } },
+          error: { reason: "unknown_device", context: { instanceId: session.instanceId } },
       };
     }
 
@@ -124,19 +124,19 @@ export async function resolveSessionPrincipal(
       return {
         ok: false,
         error: {
-          reason: "workload_activation_revoked",
+          reason: "device_activation_revoked",
           context: { instanceId: session.instanceId, profileId: activation.profileId },
         },
       };
     }
 
-    const profileEntry = deps.workloadProfilesKV
-      ? (await deps.workloadProfilesKV.get(activation.profileId)).take()
+    const profileEntry = deps.deviceProfilesKV
+      ? (await deps.deviceProfilesKV.get(activation.profileId)).take()
       : null;
     if (!profileEntry || isErr(profileEntry)) {
       return {
         ok: false,
-        error: { reason: "workload_profile_not_found", context: { profileId: activation.profileId } },
+          error: { reason: "device_profile_not_found", context: { profileId: activation.profileId } },
       };
     }
 
@@ -144,7 +144,7 @@ export async function resolveSessionPrincipal(
     if (profile.disabled) {
       return {
         ok: false,
-        error: { reason: "workload_profile_disabled", context: { profileId: profile.profileId } },
+          error: { reason: "device_profile_disabled", context: { profileId: profile.profileId } },
       };
     }
 
@@ -153,7 +153,7 @@ export async function resolveSessionPrincipal(
       value: {
         active: true,
         capabilities: session.delegatedCapabilities,
-        email: `workload:${session.instanceId}`,
+        email: `device:${session.instanceId}`,
         name: session.instanceId,
       },
     };

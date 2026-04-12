@@ -2,63 +2,63 @@ import { assert, assertFalse } from "@std/assert";
 import Value from "typebox/value";
 
 import {
-  AuthActivateWorkloadResponseSchema,
-  AuthActivateWorkloadSchema,
+  AuthActivateDeviceResponseSchema,
+  AuthActivateDeviceSchema,
+  AuthClearDevicePortalSelectionResponseSchema,
+  AuthClearDevicePortalSelectionSchema,
   AuthClearLoginPortalSelectionResponseSchema,
   AuthClearLoginPortalSelectionSchema,
-  AuthClearWorkloadPortalSelectionResponseSchema,
-  AuthClearWorkloadPortalSelectionSchema,
+  AuthCreateDeviceProfileResponseSchema,
+  AuthCreateDeviceProfileSchema,
   AuthCreatePortalResponseSchema,
   AuthCreatePortalSchema,
-  AuthCreateWorkloadProfileResponseSchema,
-  AuthCreateWorkloadProfileSchema,
-  AuthMeResponseSchema,
+  AuthDecideDeviceActivationReviewResponseSchema,
+  AuthDecideDeviceActivationReviewSchema,
+  AuthDisableDeviceInstanceResponseSchema,
+  AuthDisableDeviceInstanceSchema,
+  AuthDisableDeviceProfileResponseSchema,
+  AuthDisableDeviceProfileSchema,
   AuthDisablePortalResponseSchema,
   AuthDisablePortalSchema,
-  AuthDisableWorkloadInstanceResponseSchema,
-  AuthDisableWorkloadInstanceSchema,
-  AuthDisableWorkloadProfileResponseSchema,
-  AuthDisableWorkloadProfileSchema,
-   AuthGetLoginPortalDefaultResponseSchema,
-   AuthGetLoginPortalDefaultSchema,
-   AuthGetWorkloadActivationStatusResponseSchema,
-   AuthGetWorkloadActivationStatusSchema,
-   AuthGetWorkloadConnectInfoResponseSchema,
-   AuthGetWorkloadConnectInfoSchema,
-   AuthGetWorkloadPortalDefaultResponseSchema,
-   AuthGetWorkloadPortalDefaultSchema,
-   AuthListLoginPortalSelectionsResponseSchema,
-   AuthListLoginPortalSelectionsSchema,
-   AuthListPortalsResponseSchema,
-   AuthListPortalsSchema,
-   AuthListWorkloadActivationReviewsResponseSchema,
-   AuthListWorkloadActivationReviewsSchema,
-   AuthListWorkloadPortalSelectionsResponseSchema,
-   AuthListWorkloadPortalSelectionsSchema,
-   AuthListWorkloadActivationsResponseSchema,
-   AuthListWorkloadActivationsSchema,
-   AuthListWorkloadInstancesResponseSchema,
-   AuthListWorkloadInstancesSchema,
-   AuthListWorkloadProfilesResponseSchema,
-   AuthListWorkloadProfilesSchema,
-   AuthProvisionWorkloadInstanceResponseSchema,
-   AuthProvisionWorkloadInstanceSchema,
-   AuthDecideWorkloadActivationReviewResponseSchema,
-   AuthDecideWorkloadActivationReviewSchema,
-   AuthRevokeWorkloadActivationResponseSchema,
-   AuthRevokeWorkloadActivationSchema,
+  AuthGetDeviceActivationStatusResponseSchema,
+  AuthGetDeviceActivationStatusSchema,
+  AuthGetDeviceConnectInfoResponseSchema,
+  AuthGetDeviceConnectInfoSchema,
+  AuthGetDevicePortalDefaultResponseSchema,
+  AuthGetDevicePortalDefaultSchema,
+  AuthGetLoginPortalDefaultResponseSchema,
+  AuthGetLoginPortalDefaultSchema,
+  AuthListDeviceActivationReviewsResponseSchema,
+  AuthListDeviceActivationReviewsSchema,
+  AuthListDeviceActivationsResponseSchema,
+  AuthListDeviceActivationsSchema,
+  AuthListDeviceInstancesResponseSchema,
+  AuthListDeviceInstancesSchema,
+  AuthListDevicePortalSelectionsResponseSchema,
+  AuthListDevicePortalSelectionsSchema,
+  AuthListDeviceProfilesResponseSchema,
+  AuthListDeviceProfilesSchema,
+  AuthListLoginPortalSelectionsResponseSchema,
+  AuthListLoginPortalSelectionsSchema,
+  AuthListPortalsResponseSchema,
+  AuthListPortalsSchema,
+  AuthMeResponseSchema,
+  AuthProvisionDeviceInstanceResponseSchema,
+  AuthProvisionDeviceInstanceSchema,
+  AuthRevokeDeviceActivationResponseSchema,
+  AuthRevokeDeviceActivationSchema,
+  AuthSetDevicePortalDefaultResponseSchema,
+  AuthSetDevicePortalDefaultSchema,
+  AuthSetDevicePortalSelectionResponseSchema,
+  AuthSetDevicePortalSelectionSchema,
   AuthSetLoginPortalDefaultResponseSchema,
   AuthSetLoginPortalDefaultSchema,
   AuthSetLoginPortalSelectionResponseSchema,
   AuthSetLoginPortalSelectionSchema,
-  AuthSetWorkloadPortalDefaultResponseSchema,
-  AuthSetWorkloadPortalDefaultSchema,
-  AuthSetWorkloadPortalSelectionResponseSchema,
-  AuthSetWorkloadPortalSelectionSchema,
   AuthValidateRequestResponseSchema,
+  DeviceConnectInfoSchema,
+  DeviceSchema,
   PortalFlowStateSchema,
-  WorkloadConnectInfoSchema,
-  WorkloadSchema,
 } from "./mod.ts";
 
 const now = new Date().toISOString();
@@ -123,7 +123,7 @@ Deno.test("PortalFlowStateSchema accepts returnLocation for restartable portal s
   }));
 });
 
-Deno.test("AuthValidateRequestResponseSchema validates workload caller variants", () => {
+Deno.test("AuthValidateRequestResponseSchema validates device caller variants", () => {
   assert(Value.Check(AuthValidateRequestResponseSchema, {
     allowed: true,
     inboxPrefix: "_INBOX.session",
@@ -152,12 +152,13 @@ Deno.test("AuthValidateRequestResponseSchema validates workload caller variants"
     allowed: true,
     inboxPrefix: "_INBOX.session",
     caller: {
-      type: "workload",
-      instanceId: "wrk_1",
-      publicIdentityKey: "A".repeat(43),
+      type: "device",
+      deviceId: "dev_1",
+      deviceType: "reader",
+      runtimePublicKey: "A".repeat(43),
       profileId: "reader.default",
       active: true,
-      capabilities: ["workload.sync"],
+      capabilities: ["device.sync"],
     },
   }));
   assertFalse(Value.Check(AuthValidateRequestResponseSchema, {
@@ -166,16 +167,16 @@ Deno.test("AuthValidateRequestResponseSchema validates workload caller variants"
     caller: {
       type: "device",
       deviceId: "dev_1",
-      deviceType: "drive",
+      deviceType: "reader",
       runtimePublicKey: "A".repeat(43),
       profileId: "drive.default",
       active: true,
-      capabilities: ["device:sync"],
+      capabilities: ["device.sync"],
     },
   }));
 });
 
-Deno.test("portal, portal selection, and workload admin schemas validate", () => {
+Deno.test("portal, portal selection, and device admin schemas validate", () => {
   assert(Value.Check(AuthListPortalsSchema, {}));
   assert(Value.Check(AuthCreatePortalSchema, {
     portalId: "portal-1",
@@ -198,12 +199,18 @@ Deno.test("portal, portal selection, and workload admin schemas validate", () =>
   assert(Value.Check(AuthGetLoginPortalDefaultResponseSchema, {
     defaultPortal: { portalId: null },
   }));
-  assert(Value.Check(AuthSetLoginPortalDefaultSchema, { portalId: "portal-1" }));
+  assert(
+    Value.Check(AuthSetLoginPortalDefaultSchema, { portalId: "portal-1" }),
+  );
   assert(Value.Check(AuthSetLoginPortalDefaultResponseSchema, {
     defaultPortal: { portalId: "portal-1" },
   }));
   assert(Value.Check(AuthListLoginPortalSelectionsSchema, {}));
-  assert(Value.Check(AuthListLoginPortalSelectionsResponseSchema, { selections: [] }));
+  assert(
+    Value.Check(AuthListLoginPortalSelectionsResponseSchema, {
+      selections: [],
+    }),
+  );
   assert(Value.Check(AuthSetLoginPortalSelectionSchema, {
     contractId: "trellis.console@v1",
     portalId: "portal-1",
@@ -214,40 +221,60 @@ Deno.test("portal, portal selection, and workload admin schemas validate", () =>
       portalId: "portal-1",
     },
   }));
-  assert(Value.Check(AuthClearLoginPortalSelectionSchema, { contractId: "trellis.console@v1" }));
-  assert(Value.Check(AuthClearLoginPortalSelectionResponseSchema, { success: true }));
+  assert(
+    Value.Check(AuthClearLoginPortalSelectionSchema, {
+      contractId: "trellis.console@v1",
+    }),
+  );
+  assert(
+    Value.Check(AuthClearLoginPortalSelectionResponseSchema, { success: true }),
+  );
 
-  assert(Value.Check(AuthGetWorkloadPortalDefaultSchema, {}));
-  assert(Value.Check(AuthGetWorkloadPortalDefaultResponseSchema, {
+  assert(Value.Check(AuthGetDevicePortalDefaultSchema, {}));
+  assert(Value.Check(AuthGetDevicePortalDefaultResponseSchema, {
     defaultPortal: { portalId: null },
   }));
-  assert(Value.Check(AuthSetWorkloadPortalDefaultSchema, { portalId: "portal-1" }));
-  assert(Value.Check(AuthSetWorkloadPortalDefaultResponseSchema, {
+  assert(
+    Value.Check(AuthSetDevicePortalDefaultSchema, { portalId: "portal-1" }),
+  );
+  assert(Value.Check(AuthSetDevicePortalDefaultResponseSchema, {
     defaultPortal: { portalId: "portal-1" },
   }));
-  assert(Value.Check(AuthListWorkloadPortalSelectionsSchema, {}));
-  assert(Value.Check(AuthListWorkloadPortalSelectionsResponseSchema, { selections: [] }));
-  assert(Value.Check(AuthSetWorkloadPortalSelectionSchema, {
+  assert(Value.Check(AuthListDevicePortalSelectionsSchema, {}));
+  assert(
+    Value.Check(AuthListDevicePortalSelectionsResponseSchema, {
+      selections: [],
+    }),
+  );
+  assert(Value.Check(AuthSetDevicePortalSelectionSchema, {
     profileId: "reader.default",
     portalId: null,
   }));
-  assert(Value.Check(AuthSetWorkloadPortalSelectionResponseSchema, {
+  assert(Value.Check(AuthSetDevicePortalSelectionResponseSchema, {
     selection: {
       profileId: "reader.default",
       portalId: null,
     },
   }));
-  assert(Value.Check(AuthClearWorkloadPortalSelectionSchema, { profileId: "reader.default" }));
-  assert(Value.Check(AuthClearWorkloadPortalSelectionResponseSchema, { success: true }));
+  assert(
+    Value.Check(AuthClearDevicePortalSelectionSchema, {
+      profileId: "reader.default",
+    }),
+  );
+  assert(
+    Value.Check(AuthClearDevicePortalSelectionResponseSchema, {
+      success: true,
+    }),
+  );
 
-  assert(Value.Check(AuthCreateWorkloadProfileSchema, {
+  assert(Value.Check(AuthCreateDeviceProfileSchema, {
     profileId: "reader.default",
     contractId: "acme.reader@v1",
     allowedDigests: ["digest-a", "digest-b"],
     reviewMode: "none",
     contract: { id: "acme.reader@v1" },
   }));
-  assert(Value.Check(AuthCreateWorkloadProfileResponseSchema, {
+  assert(Value.Check(AuthCreateDeviceProfileResponseSchema, {
     profile: {
       profileId: "reader.default",
       contractId: "acme.reader@v1",
@@ -256,19 +283,25 @@ Deno.test("portal, portal selection, and workload admin schemas validate", () =>
       disabled: false,
     },
   }));
-  assert(Value.Check(AuthListWorkloadProfilesSchema, {}));
-  assert(Value.Check(AuthListWorkloadProfilesResponseSchema, { profiles: [] }));
-  assert(Value.Check(AuthDisableWorkloadProfileSchema, { profileId: "reader.default" }));
-  assert(Value.Check(AuthDisableWorkloadProfileResponseSchema, { success: true }));
+  assert(Value.Check(AuthListDeviceProfilesSchema, {}));
+  assert(Value.Check(AuthListDeviceProfilesResponseSchema, { profiles: [] }));
+  assert(
+    Value.Check(AuthDisableDeviceProfileSchema, {
+      profileId: "reader.default",
+    }),
+  );
+  assert(
+    Value.Check(AuthDisableDeviceProfileResponseSchema, { success: true }),
+  );
 
-  assert(Value.Check(AuthProvisionWorkloadInstanceSchema, {
+  assert(Value.Check(AuthProvisionDeviceInstanceSchema, {
     profileId: "reader.default",
     publicIdentityKey: "A".repeat(43),
     activationKey: "B".repeat(43),
   }));
-  assert(Value.Check(AuthProvisionWorkloadInstanceResponseSchema, {
+  assert(Value.Check(AuthProvisionDeviceInstanceResponseSchema, {
     instance: {
-      instanceId: "wrk_1",
+      instanceId: "dev_1",
       publicIdentityKey: "A".repeat(43),
       profileId: "reader.default",
       state: "registered",
@@ -277,13 +310,15 @@ Deno.test("portal, portal selection, and workload admin schemas validate", () =>
       revokedAt: null,
     },
   }));
-  assert(Value.Check(AuthListWorkloadInstancesSchema, {}));
-  assert(Value.Check(AuthListWorkloadInstancesResponseSchema, { instances: [] }));
-  assert(Value.Check(AuthDisableWorkloadInstanceSchema, { instanceId: "wrk_1" }));
-  assert(Value.Check(AuthDisableWorkloadInstanceResponseSchema, { success: true }));
+  assert(Value.Check(AuthListDeviceInstancesSchema, {}));
+  assert(Value.Check(AuthListDeviceInstancesResponseSchema, { instances: [] }));
+  assert(Value.Check(AuthDisableDeviceInstanceSchema, { instanceId: "dev_1" }));
+  assert(
+    Value.Check(AuthDisableDeviceInstanceResponseSchema, { success: true }),
+  );
 });
 
-Deno.test("AuthMeResponseSchema validates user, workload, and service envelopes", () => {
+Deno.test("AuthMeResponseSchema validates user, device, and service envelopes", () => {
   assert(Value.Check(AuthMeResponseSchema, {
     user: {
       id: "123",
@@ -293,24 +328,25 @@ Deno.test("AuthMeResponseSchema validates user, workload, and service envelopes"
       email: "ada@example.com",
       capabilities: ["admin"],
     },
-    workload: null,
+    device: null,
     service: null,
   }));
   assert(Value.Check(AuthMeResponseSchema, {
     user: null,
-    workload: {
-      type: "workload",
-      instanceId: "wrk_1",
-      publicIdentityKey: "A".repeat(43),
+    device: {
+      type: "device",
+      deviceId: "dev_1",
+      deviceType: "reader",
+      runtimePublicKey: "A".repeat(43),
       profileId: "reader.default",
       active: true,
-      capabilities: ["workload.sync"],
+      capabilities: ["device.sync"],
     },
     service: null,
   }));
   assert(Value.Check(AuthMeResponseSchema, {
     user: null,
-    workload: null,
+    device: null,
     service: {
       type: "service",
       id: "billing",
@@ -321,9 +357,9 @@ Deno.test("AuthMeResponseSchema validates user, workload, and service envelopes"
   }));
 });
 
-Deno.test("workload activation and connect-info schemas validate", () => {
-  assert(Value.Check(WorkloadConnectInfoSchema, {
-    instanceId: "wrk_1",
+Deno.test("device activation and connect-info schemas validate", () => {
+  assert(Value.Check(DeviceConnectInfoSchema, {
+    instanceId: "dev_1",
     profileId: "reader.default",
     contractId: "acme.reader@v1",
     contractDigest: "digest-a",
@@ -335,50 +371,50 @@ Deno.test("workload activation and connect-info schemas validate", () => {
       },
     },
     auth: {
-      mode: "workload_identity",
+      mode: "device_identity",
       iatSkewSeconds: 30,
     },
   }));
 
-  assert(Value.Check(AuthActivateWorkloadSchema, { handoffId: "wah_1" }));
-  assert(Value.Check(AuthActivateWorkloadResponseSchema, {
+  assert(Value.Check(AuthActivateDeviceSchema, { handoffId: "dah_1" }));
+  assert(Value.Check(AuthActivateDeviceResponseSchema, {
     status: "activated",
-    instanceId: "wrk_1",
+    instanceId: "dev_1",
     profileId: "reader.default",
     activatedAt: now,
     confirmationCode: "ABCD1234",
   }));
-  assert(Value.Check(AuthActivateWorkloadResponseSchema, {
+  assert(Value.Check(AuthActivateDeviceResponseSchema, {
     status: "pending_review",
-    reviewId: "war_1",
-    instanceId: "wrk_1",
+    reviewId: "dar_1",
+    instanceId: "dev_1",
     profileId: "reader.default",
     requestedAt: now,
   }));
-  assert(Value.Check(AuthActivateWorkloadResponseSchema, {
+  assert(Value.Check(AuthActivateDeviceResponseSchema, {
     status: "rejected",
     reason: "policy_denied",
   }));
-  assert(Value.Check(AuthGetWorkloadActivationStatusSchema, {
-    handoffId: "wah_1",
+  assert(Value.Check(AuthGetDeviceActivationStatusSchema, {
+    handoffId: "dah_1",
   }));
-  assert(Value.Check(AuthGetWorkloadActivationStatusResponseSchema, {
+  assert(Value.Check(AuthGetDeviceActivationStatusResponseSchema, {
     status: "pending_review",
-    reviewId: "war_1",
-    instanceId: "wrk_1",
+    reviewId: "dar_1",
+    instanceId: "dev_1",
     profileId: "reader.default",
     requestedAt: now,
   }));
-  assert(Value.Check(AuthGetWorkloadConnectInfoSchema, {
+  assert(Value.Check(AuthGetDeviceConnectInfoSchema, {
     publicIdentityKey: "A".repeat(43),
     contractDigest: "digest-a",
     iat: 123,
     sig: "proof",
   }));
-  assert(Value.Check(AuthGetWorkloadConnectInfoResponseSchema, {
+  assert(Value.Check(AuthGetDeviceConnectInfoResponseSchema, {
     status: "ready",
     connectInfo: {
-      instanceId: "wrk_1",
+      instanceId: "dev_1",
       profileId: "reader.default",
       contractId: "acme.reader@v1",
       contractDigest: "digest-a",
@@ -387,34 +423,40 @@ Deno.test("workload activation and connect-info schemas validate", () => {
         sentinel: { jwt: "jwt", seed: "seed" },
       },
       auth: {
-        mode: "workload_identity",
+        mode: "device_identity",
         iatSkewSeconds: 30,
       },
     },
   }));
-  assert(Value.Check(AuthListWorkloadActivationsSchema, {
-    instanceId: "wrk_1",
+  assert(Value.Check(AuthListDeviceActivationsSchema, {
+    instanceId: "dev_1",
     state: "activated",
   }));
-  assert(Value.Check(AuthListWorkloadActivationsResponseSchema, { activations: [] }));
-  assert(Value.Check(AuthRevokeWorkloadActivationSchema, { instanceId: "wrk_1" }));
-  assert(Value.Check(AuthRevokeWorkloadActivationResponseSchema, { success: true }));
-  assert(Value.Check(AuthListWorkloadActivationReviewsSchema, {
+  assert(
+    Value.Check(AuthListDeviceActivationsResponseSchema, { activations: [] }),
+  );
+  assert(
+    Value.Check(AuthRevokeDeviceActivationSchema, { instanceId: "dev_1" }),
+  );
+  assert(
+    Value.Check(AuthRevokeDeviceActivationResponseSchema, { success: true }),
+  );
+  assert(Value.Check(AuthListDeviceActivationReviewsSchema, {
     profileId: "reader.default",
     state: "pending",
   }));
-  assert(Value.Check(AuthListWorkloadActivationReviewsResponseSchema, {
+  assert(Value.Check(AuthListDeviceActivationReviewsResponseSchema, {
     reviews: [],
   }));
-  assert(Value.Check(AuthDecideWorkloadActivationReviewSchema, {
-    reviewId: "war_1",
+  assert(Value.Check(AuthDecideDeviceActivationReviewSchema, {
+    reviewId: "dar_1",
     decision: "approve",
     reason: "approved_by_policy",
   }));
-  assert(Value.Check(AuthDecideWorkloadActivationReviewResponseSchema, {
+  assert(Value.Check(AuthDecideDeviceActivationReviewResponseSchema, {
     review: {
-      reviewId: "war_1",
-      instanceId: "wrk_1",
+      reviewId: "dar_1",
+      instanceId: "dev_1",
       publicIdentityKey: "A".repeat(43),
       profileId: "reader.default",
       state: "approved",
@@ -423,7 +465,7 @@ Deno.test("workload activation and connect-info schemas validate", () => {
       reason: "approved_by_policy",
     },
     activation: {
-      instanceId: "wrk_1",
+      instanceId: "dev_1",
       publicIdentityKey: "A".repeat(43),
       profileId: "reader.default",
       state: "activated",
@@ -434,9 +476,9 @@ Deno.test("workload activation and connect-info schemas validate", () => {
   }));
 });
 
-Deno.test("WorkloadSchema validates profile-attached workloads", () => {
-  assert(Value.Check(WorkloadSchema, {
-    instanceId: "wrk_1",
+Deno.test("DeviceSchema validates profile-attached devices", () => {
+  assert(Value.Check(DeviceSchema, {
+    instanceId: "dev_1",
     publicIdentityKey: "A".repeat(43),
     profileId: "reader.default",
     state: "registered",

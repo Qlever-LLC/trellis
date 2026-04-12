@@ -22,8 +22,8 @@ import {
   sessionKV,
   trellis,
   usersKV,
-  workloadActivationsKV,
-  workloadProfilesKV,
+  deviceActivationsKV,
+  deviceProfilesKV,
 } from "../../bootstrap/globals.ts";
 import { kick } from "./kick.ts";
 import {
@@ -31,9 +31,9 @@ import {
   getServiceSubscribeSubjects,
 } from "../../catalog/permissions.ts";
 import {
-  deriveWorkloadRuntimeAccess,
-  resolveWorkloadContractDigest,
-} from "../workload_activation/runtime_access.ts";
+  deriveDeviceRuntimeAccess,
+  resolveDeviceContractDigest,
+} from "../device_activation/runtime_access.ts";
 import type {
   AuthCalloutClaims,
   Connection,
@@ -42,23 +42,20 @@ import type {
   NatsConnectOpts,
   ServiceRegistryEntry,
   Session,
-  WorkloadActivationRecordSchema,
-  WorkloadProfileSchema,
+  DeviceActivationRecordSchema,
+  DeviceProfileSchema,
 } from "../../state/schemas.ts";
 import {
   AuthCalloutClaimsSchema,
   NatsDisconnectEventSchema,
 } from "../../state/schemas.ts";
 import { resolveSessionPrincipal } from "../session/principal.ts";
-import {
-  workloadActivationRecordKey,
-} from "../workload_activation/keys.ts";
-import { workloadInstanceId } from "../admin/shared.ts";
+import { deviceInstanceId } from "../admin/shared.ts";
 
-type WorkloadActivationRecord = StaticDecode<typeof WorkloadActivationRecordSchema> & {
+type DeviceActivationRecord = StaticDecode<typeof DeviceActivationRecordSchema> & {
   activatedBy?: { origin: string; id: string };
 };
-type WorkloadProfile = StaticDecode<typeof WorkloadProfileSchema>;
+type DeviceProfile = StaticDecode<typeof DeviceProfileSchema>;
 type ParsedNatsAuthToken = StaticDecode<typeof NatsAuthTokenV1Schema> & {
   contractDigest?: string;
 };
@@ -83,7 +80,7 @@ function extractClientIp(natsReq: NatsAuthRequest): string | undefined {
   return undefined;
 }
 
-type WorkloadRuntimeGrant = ReturnType<typeof deriveWorkloadRuntimeAccess> & {
+type DeviceRuntimeGrant = ReturnType<typeof deriveDeviceRuntimeAccess> & {
   activation: {
     instanceId: string;
     publicIdentityKey: string;
@@ -96,38 +93,38 @@ type WorkloadRuntimeGrant = ReturnType<typeof deriveWorkloadRuntimeAccess> & {
   profile: { profileId: string; contractId: string; allowedDigests: string[]; disabled: boolean };
 };
 
-async function findWorkloadActivationByIdentityKey(
+async function findDeviceActivationByIdentityKey(
   publicIdentityKey: string,
-): Promise<WorkloadActivationRecord | null> {
-  const activationEntry = (await workloadActivationsKV.get(workloadInstanceId(publicIdentityKey))).take();
+): Promise<DeviceActivationRecord | null> {
+  const activationEntry = (await deviceActivationsKV.get(deviceInstanceId(publicIdentityKey))).take();
   if (isErr(activationEntry)) return null;
-  const activation = activationEntry.value as WorkloadActivationRecord;
+  const activation = activationEntry.value as DeviceActivationRecord;
   return activation.publicIdentityKey === publicIdentityKey ? activation : null;
 }
 
-async function resolveWorkloadRuntimeGrant(
+async function resolveDeviceRuntimeGrant(
   publicIdentityKey: string,
   contractDigest?: string,
   contractStore?: ContractStore,
-): Promise<WorkloadRuntimeGrant> {
-  const activation = await findWorkloadActivationByIdentityKey(publicIdentityKey);
-  if (!activation) throw new Error("unknown_workload");
+): Promise<DeviceRuntimeGrant> {
+  const activation = await findDeviceActivationByIdentityKey(publicIdentityKey);
+  if (!activation) throw new Error("unknown_device");
   if (activation.state !== "activated" || activation.revokedAt !== null) {
-    throw new Error("workload_activation_revoked");
+    throw new Error("device_activation_revoked");
   }
 
-  const profileEntry = (await workloadProfilesKV.get(activation.profileId)).take();
-  if (isErr(profileEntry)) throw new Error("workload_profile_not_found");
-  const profile = profileEntry.value as WorkloadProfile;
-  if (profile.disabled) throw new Error("workload_profile_disabled");
+  const profileEntry = (await deviceProfilesKV.get(activation.profileId)).take();
+  if (isErr(profileEntry)) throw new Error("device_profile_not_found");
+  const profile = profileEntry.value as DeviceProfile;
+  if (profile.disabled) throw new Error("device_profile_disabled");
 
-  const effectiveContractDigest = resolveWorkloadContractDigest(profile, contractDigest);
-  const activationActor = (activation as WorkloadActivationRecord).activatedBy;
+  const effectiveContractDigest = resolveDeviceContractDigest(profile, contractDigest);
+  const activationActor = (activation as DeviceActivationRecord).activatedBy;
 
-      const contractEntry = (await contractsKV.get(effectiveContractDigest)).take();
-      if (isErr(contractEntry)) throw new Error("workload_contract_not_found");
+  const contractEntry = (await contractsKV.get(effectiveContractDigest)).take();
+  if (isErr(contractEntry)) throw new Error("device_contract_not_found");
   const contractRecord = contractEntry.value as ContractRecord;
-  const access = deriveWorkloadRuntimeAccess(profile, contractRecord, contractStore);
+  const access = deriveDeviceRuntimeAccess(profile, contractRecord, contractStore);
   return { ...access, activation: {
     instanceId: activation.instanceId,
     publicIdentityKey: activation.publicIdentityKey,
@@ -173,7 +170,7 @@ export function startDisconnectCleanup(): BackgroundTaskHandle {
           const session = (await sessionKV.get(`${sessionKey}.${trellisId}`)).take();
           if (!isErr(session)) {
             const sessionValue = session.value as Session;
-            if (sessionValue.type !== "workload") {
+            if (sessionValue.type !== "device") {
               (
                 await trellis.publish("Auth.Disconnect", {
                   origin: sessionValue.origin,
@@ -311,7 +308,7 @@ export function startAuthCallout(opts?: { contractStore?: ContractStore }): Back
         throw new Error("missing_sig");
       }
 
-      let workloadGrant: WorkloadRuntimeGrant | null = null;
+      let deviceGrant: DeviceRuntimeGrant | null = null;
 
       if (typeof authToken.bindingToken === "string" && authToken.bindingToken.length > 0) {
         const bindingToken = authToken.bindingToken;
@@ -346,7 +343,7 @@ export function startAuthCallout(opts?: { contractStore?: ContractStore }): Back
           const service = svc.value as ServiceRegistryEntry;
           if (!service.active) throw new Error("service_disabled");
         } else {
-          workloadGrant = await resolveWorkloadRuntimeGrant(
+          deviceGrant = await resolveDeviceRuntimeGrant(
             sessionKey,
             authToken.contractDigest,
             opts?.contractStore,
@@ -401,24 +398,24 @@ export function startAuthCallout(opts?: { contractStore?: ContractStore }): Back
             createdAt: now,
             lastAuth: now,
           })).take();
-        } else if (workloadGrant) {
-          sessionKeyId = `${sessionKey}.${workloadGrant.activation.instanceId}`;
+        } else if (deviceGrant) {
+          sessionKeyId = `${sessionKey}.${deviceGrant.activation.instanceId}`;
           // The first successful runtime auth marks when an approved device was
           // actually used, which is distinct from the earlier review timestamp.
           putResult = (await sessionKV.put(sessionKeyId, {
-            type: "workload",
-            instanceId: workloadGrant.activation.instanceId,
-            publicIdentityKey: workloadGrant.activation.publicIdentityKey,
-            profileId: workloadGrant.profile.profileId,
-            contractId: workloadGrant.contractId,
-            contractDigest: workloadGrant.contractDigest,
-            delegatedCapabilities: workloadGrant.capabilities,
-            delegatedPublishSubjects: workloadGrant.publishSubjects,
-            delegatedSubscribeSubjects: workloadGrant.subscribeSubjects,
+            type: "device",
+            instanceId: deviceGrant.activation.instanceId,
+            publicIdentityKey: deviceGrant.activation.publicIdentityKey,
+            profileId: deviceGrant.profile.profileId,
+            contractId: deviceGrant.contractId,
+            contractDigest: deviceGrant.contractDigest,
+            delegatedCapabilities: deviceGrant.capabilities,
+            delegatedPublishSubjects: deviceGrant.publishSubjects,
+            delegatedSubscribeSubjects: deviceGrant.subscribeSubjects,
             createdAt: now,
             lastAuth: now,
-            activatedAt: workloadGrant.activation.activatedAt ? new Date(workloadGrant.activation.activatedAt) : null,
-            revokedAt: workloadGrant.activation.revokedAt ? new Date(workloadGrant.activation.revokedAt) : null,
+            activatedAt: deviceGrant.activation.activatedAt ? new Date(deviceGrant.activation.activatedAt) : null,
+            revokedAt: deviceGrant.activation.revokedAt ? new Date(deviceGrant.activation.revokedAt) : null,
           })).take();
         } else {
           throw new Error("session_not_found");
@@ -433,8 +430,8 @@ export function startAuthCallout(opts?: { contractStore?: ContractStore }): Back
       if (isErr(sessionEntry)) throw new Error("session_not_found");
       let session = sessionEntry.value as Session;
 
-      if (session.type === "workload") {
-        const currentGrant = workloadGrant ?? await resolveWorkloadRuntimeGrant(
+      if (session.type === "device") {
+        const currentGrant = deviceGrant ?? await resolveDeviceRuntimeGrant(
           sessionKey,
           session.contractDigest,
           opts?.contractStore,
@@ -443,7 +440,7 @@ export function startAuthCallout(opts?: { contractStore?: ContractStore }): Back
         if (activatedAt === null) {
           const activatedAtIso = now.toISOString();
           activatedAt = now;
-          await workloadActivationsKV.put(currentGrant.activation.instanceId, {
+          await deviceActivationsKV.put(currentGrant.activation.instanceId, {
             ...currentGrant.activation,
             activatedAt: activatedAtIso,
           });
@@ -468,8 +465,8 @@ export function startAuthCallout(opts?: { contractStore?: ContractStore }): Back
       const principal = await resolveSessionPrincipal(session, sessionKey, {
         servicesKV,
         usersKV,
-        workloadActivationsKV,
-        workloadProfilesKV,
+        deviceActivationsKV,
+        deviceProfilesKV,
       });
       if (!principal.ok) {
         throw new Error(principal.error.reason);
@@ -485,7 +482,7 @@ export function startAuthCallout(opts?: { contractStore?: ContractStore }): Back
 
       const serverId = natsReq.server_id?.id ?? serverName;
       const clientId = natsReq.client_info?.id;
-      const sessionScope = session.type === "workload" ? session.instanceId : session.trellisId;
+      const sessionScope = session.type === "device" ? session.instanceId : session.trellisId;
       if (serverId && typeof clientId === "number") {
         (
           await connectionsKV.put(`${sessionKey}.${sessionScope}.${userNkey}`, {
@@ -496,7 +493,7 @@ export function startAuthCallout(opts?: { contractStore?: ContractStore }): Back
         ).inspectErr((error) => logger.warn({ error }, "Failed to track connection"));
       }
 
-      if (session.type !== "workload") {
+      if (session.type !== "device") {
         (
           await trellis.publish("Auth.Connect", {
             origin: session.origin,

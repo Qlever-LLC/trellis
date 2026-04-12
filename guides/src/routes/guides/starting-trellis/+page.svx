@@ -274,4 +274,4 @@ trellis auth status
 
 Then open `http://localhost:5173` in your browser and complete the OAuth login flow with that same GitHub account. The browser will redirect through the built-in portal served by Trellis for provider selection and approval, then return to the console. You should land on a logged-in console session.
 
-Custom portals are optional. You only need to register one later if you want to override the built-in login UX or workload onboarding UX for selected flows.
+Custom portals are optional. You only need to register one later if you want to override the built-in login UX or device onboarding UX for selected flows.

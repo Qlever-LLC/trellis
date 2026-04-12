@@ -15,7 +15,7 @@ function encodeKeyPart(value: string): string {
   return encoded;
 }
 
-export function workloadActivationRecordKey(input: { instanceId: string; publicIdentityKey: string }): string {
+export function deviceActivationRecordKey(input: { instanceId: string; publicIdentityKey: string }): string {
   return [
     "instance",
     encodeKeyPart(input.instanceId),
@@ -24,6 +24,6 @@ export function workloadActivationRecordKey(input: { instanceId: string; publicI
   ].join(".");
 }
 
-export function workloadActivationByIdentityPattern(publicIdentityKey: string): string {
+export function deviceActivationByIdentityPattern(publicIdentityKey: string): string {
   return `instance.*.identity.${encodeKeyPart(publicIdentityKey)}`;
 }

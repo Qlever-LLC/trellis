@@ -59,13 +59,13 @@ pub enum TrellisAuthError {
     #[error("operation failed: {0}")]
     OperationFailed(String),
 
-    /// A workload activation wait request returned a non-success HTTP response.
-    #[error("workload activation wait failed: {0} {1}")]
-    WorkloadActivationWaitFailure(u16, String),
+    /// A device activation wait request returned a non-success HTTP response.
+    #[error("device activation wait failed: {0} {1}")]
+    DeviceActivationWaitFailure(u16, String),
 
-    /// Workload activation was explicitly rejected.
-    #[error("workload activation rejected{0}")]
-    WorkloadActivationRejected(String),
+    /// Device activation was explicitly rejected.
+    #[error("device activation rejected{0}")]
+    DeviceActivationRejected(String),
 
     /// The authenticated user completed login successfully but lacks admin capability.
     #[error("logged in user is not an admin")]

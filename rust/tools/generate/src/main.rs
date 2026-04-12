@@ -578,7 +578,7 @@ fn print_auto_entry(entry: &AutoPlanEntry) {
 fn action_for_kind(kind: &ContractKind) -> AutoAction {
     match kind {
         ContractKind::Service => AutoAction::Generate,
-        ContractKind::App | ContractKind::Portal | ContractKind::Workload | ContractKind::Cli => {
+        ContractKind::App | ContractKind::Portal | ContractKind::Device | ContractKind::Cli => {
             AutoAction::Verify
         }
     }
@@ -589,7 +589,7 @@ fn contract_kind_label(kind: &ContractKind) -> &'static str {
         ContractKind::Service => "service",
         ContractKind::App => "app",
         ContractKind::Portal => "portal",
-        ContractKind::Workload => "workload",
+        ContractKind::Device => "device",
         ContractKind::Cli => "cli",
     }
 }
@@ -663,7 +663,7 @@ fn parse_contract_kind(value: &str) -> miette::Result<ContractKind> {
         "service" => Ok(ContractKind::Service),
         "app" => Ok(ContractKind::App),
         "portal" => Ok(ContractKind::Portal),
-        "workload" => Ok(ContractKind::Workload),
+        "device" => Ok(ContractKind::Device),
         "cli" => Ok(ContractKind::Cli),
         _ => Err(miette::miette!("unsupported contract kind '{value}'")),
     }
@@ -936,5 +936,17 @@ fn ts_runtime_deps(
         },
         version,
         repo_root,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn device_kind_uses_device_string_and_verifies() {
+        assert_eq!(parse_contract_kind("device").unwrap(), ContractKind::Device);
+        assert_eq!(contract_kind_label(&ContractKind::Device), "device");
+        assert_eq!(action_for_kind(&ContractKind::Device), AutoAction::Verify);
     }
 }

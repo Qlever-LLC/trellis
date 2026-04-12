@@ -18,12 +18,12 @@ export type LoginPortalSelection = {
   portalId: string | null;
 };
 
-export type WorkloadPortalSelection = {
+export type DevicePortalSelection = {
   profileId: string;
   portalId: string | null;
 };
 
-export type WorkloadProfile = {
+export type DeviceProfile = {
   profileId: string;
   contractId: string;
   allowedDigests: string[];
@@ -31,13 +31,13 @@ export type WorkloadProfile = {
   disabled: boolean;
 };
 
-export type WorkloadProvisioningSecret = {
+export type DeviceProvisioningSecret = {
   instanceId: string;
   activationKey: string;
   createdAt: string | Date;
 };
 
-export type WorkloadActivationReview = {
+export type DeviceActivationReview = {
   reviewId: string;
   instanceId: string;
   publicIdentityKey: string;
@@ -48,7 +48,7 @@ export type WorkloadActivationReview = {
   reason?: string;
 };
 
-export type WorkloadInstance = {
+export type DeviceInstance = {
   instanceId: string;
   publicIdentityKey: string;
   profileId: string;
@@ -73,12 +73,12 @@ export type LoginPortalSelectionRequest = {
   portalId: string | null;
 };
 
-export type WorkloadPortalSelectionRequest = {
+export type DevicePortalSelectionRequest = {
   profileId: string;
   portalId: string | null;
 };
 
-export type CreateWorkloadProfileRequest = {
+export type CreateDeviceProfileRequest = {
   profileId: string;
   contractId: string;
   allowedDigests: string[];
@@ -86,22 +86,22 @@ export type CreateWorkloadProfileRequest = {
   contract?: object;
 };
 
-export type WorkloadActivationActor = {
+export type DeviceActivationActor = {
   origin: string;
   id: string;
 };
 
-export type WorkloadActivationRecord = {
+export type DeviceActivationRecord = {
   instanceId: string;
   publicIdentityKey: string;
   profileId: string;
-  activatedBy?: WorkloadActivationActor;
+  activatedBy?: DeviceActivationActor;
   state: "activated" | "revoked";
   activatedAt: string;
   revokedAt: string | null;
 };
 
-export type ProvisionWorkloadInstanceRequest = {
+export type ProvisionDeviceInstanceRequest = {
   profileId: string;
   publicIdentityKey: string;
   activationKey: string;
@@ -120,8 +120,8 @@ function parseUrl(value: string | undefined): string | null {
   }
 }
 
-export function workloadInstanceId(publicIdentityKey: string): string {
-  return `wrk_${sha256Base64urlSync(publicIdentityKey).slice(0, 22)}`;
+export function deviceInstanceId(publicIdentityKey: string): string {
+  return `dev_${sha256Base64urlSync(publicIdentityKey).slice(0, 22)}`;
 }
 
 export function normalizeDigestList(values: string[]): string[] {
@@ -176,7 +176,7 @@ export function validateLoginPortalSelectionRequest(req: LoginPortalSelectionReq
   });
 }
 
-export function validateWorkloadPortalSelectionRequest(req: WorkloadPortalSelectionRequest) {
+export function validateDevicePortalSelectionRequest(req: DevicePortalSelectionRequest) {
   if (!req.profileId || (req.portalId !== null && (!req.portalId || req.portalId.length === 0))) {
     return invalidRequest({ profileId: req.profileId, portalId: req.portalId });
   }
@@ -184,11 +184,11 @@ export function validateWorkloadPortalSelectionRequest(req: WorkloadPortalSelect
     selection: {
       profileId: req.profileId,
       portalId: req.portalId,
-    } as WorkloadPortalSelection,
+    } as DevicePortalSelection,
   });
 }
 
-export function validateWorkloadProfileRequest(req: CreateWorkloadProfileRequest) {
+export function validateDeviceProfileRequest(req: CreateDeviceProfileRequest) {
   const allowedDigests = normalizeDigestList(req.allowedDigests);
   if (allowedDigests.length === 0) {
     return invalidRequest({ profileId: req.profileId, reason: "no_allowed_digests" });
@@ -200,11 +200,11 @@ export function validateWorkloadProfileRequest(req: CreateWorkloadProfileRequest
       allowedDigests,
       reviewMode: req.reviewMode,
       disabled: false,
-    } as WorkloadProfile,
+    } as DeviceProfile,
   });
 }
 
-export function validateWorkloadProvisionRequest(req: ProvisionWorkloadInstanceRequest) {
+export function validateDeviceProvisionRequest(req: ProvisionDeviceInstanceRequest) {
   if (!req.profileId || !req.publicIdentityKey || !req.activationKey) {
     return invalidRequest({
       profileId: req.profileId,
@@ -215,18 +215,18 @@ export function validateWorkloadProvisionRequest(req: ProvisionWorkloadInstanceR
   const now = new Date().toISOString();
   return Result.ok({
     instance: {
-      instanceId: workloadInstanceId(req.publicIdentityKey),
+      instanceId: deviceInstanceId(req.publicIdentityKey),
       publicIdentityKey: req.publicIdentityKey,
       profileId: req.profileId,
       state: "registered",
       createdAt: now,
       activatedAt: null,
       revokedAt: null,
-    } as WorkloadInstance,
+    } as DeviceInstance,
     provisioningSecret: {
-      instanceId: workloadInstanceId(req.publicIdentityKey),
+      instanceId: deviceInstanceId(req.publicIdentityKey),
       activationKey: req.activationKey,
       createdAt: now,
-    } as WorkloadProvisioningSecret,
+    } as DeviceProvisioningSecret,
   });
 }

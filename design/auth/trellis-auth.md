@@ -22,7 +22,7 @@ Trellis needs one authentication and authorization model that works for:
 - browser applications
 - CLIs
 - backend services
-- activated workloads
+- activated devices
 - NATS transport permissions
 - application-layer request authorization
 
@@ -68,12 +68,12 @@ Rules:
 | Principal Class | Identity Source                            | Binding Mechanism                                                        |
 | --------------- | ------------------------------------------ | ------------------------------------------------------------------------ |
 | Users           | External IdP                               | Portal-mediated browser auth flow binds user identity to session key     |
-| Installed workloads | Trellis workload install registry      | Admin install binds workload public key to an exact digest and session key |
-| Activated workloads | Preregistered workload instance registry | Activation binds workload public identity key to a workload principal    |
+| Installed devices | Trellis device install registry      | Admin install binds device public key to an exact digest and session key |
+| Activated devices | Preregistered device instance registry | Activation binds device public identity key to a device principal    |
 
 The identity source is pluggable. The core requirement is that Trellis can bind a stable identity to a session key before allowing authenticated access.
 
-For activated workloads, the public identity key is the durable principal identity. That identity is not allowed online until the preregistered workload instance has been activated.
+For activated devices, the public identity key is the durable principal identity. That identity is not allowed online until the preregistered device instance has been activated.
 
 ### 4) Session keys are the long-lived application identity
 
@@ -132,7 +132,7 @@ Rules:
 - portal owns browser UX such as provider chooser and approval screens, but auth
   remains the protocol and state authority
 - Trellis ships a built-in portal served by the Trellis HTTP server from static
-  assets; it handles both login and generic workload activation flows, and
+  assets; it handles both login and generic device activation flows, and
   deployments may register custom portals to replace that behavior selectively
 - a portal is a browser web app registered by deployment-owned portal records;
   it is never a service-authenticated principal
@@ -152,32 +152,32 @@ Rules:
 - inactive users MUST NOT complete bind even if they still have a stored
   approval record
 
-### 8) Provider-capable workloads are installed, not self-registering
+### 8) Provider-capable devices are installed, not self-registering
 
-Provider-capable workloads are bound by installation through Trellis-admin flows.
+Provider-capable devices are bound by installation through Trellis-admin flows.
 
 Rules:
 
-- the installed workload public key is the workload identity
+- the installed device public key is the device identity
 - installation records the exact contract digest and any resource bindings
-- the private workload seed never crosses the network to Trellis auth
+- the private device seed never crosses the network to Trellis auth
 - key rotation is a separate explicit administrative operation
 
 ### 9) Auth remains unified after binding
 
-After identity binding, users and workloads share the same auth-callout-based NATS connection model.
+After identity binding, users and devices share the same auth-callout-based NATS connection model.
 
-Activated workloads join that same runtime model after activation is complete. Before that point, workload setup uses the dedicated handoff, activation, and pre-auth wait surfaces defined in [workload-activation.md](./workload-activation.md). Browser auth UX runs through portals selected by explicit login and workload portal-selection state; callers do not choose portals directly in the normal path. A portal may later continue as a user-authenticated browser app for onboarding or activation work, but that remains user-delegated app authority rather than service authority.
+Activated devices join that same runtime model after activation is complete. Before that point, device setup uses the dedicated handoff, activation, and pre-auth wait surfaces defined in [device-activation.md](./device-activation.md). Browser auth UX runs through portals selected by explicit login and device portal-selection state; callers do not choose portals directly in the normal path. A portal may later continue as a user-authenticated browser app for onboarding or activation work, but that remains user-delegated app authority rather than service authority.
 
-The important distinction is that installed and activated workloads differ in auth establishment, not in the basic runtime treatment after auth succeeds.
+The important distinction is that installed and activated devices differ in auth establishment, not in the basic runtime treatment after auth succeeds.
 
 Conceptually:
 
 ```ts
-type Session = UserSession | InstalledWorkloadSession | ActivatedWorkloadSession;
+type Session = UserSession | InstalledDeviceSession | ActivatedDeviceSession;
 
-type ActivatedWorkloadSession = {
-  type: "workload";
+type ActivatedDeviceSession = {
+  type: "device";
   instanceId: string;
   publicIdentityKey: string;
   profileId: string;
@@ -193,10 +193,10 @@ type ActivatedWorkloadSession = {
 
 Rules:
 
-- users and workloads all prove long-lived key ownership before receiving authenticated runtime access
-- users and workloads all receive transport permissions derived from current grants and active contracts
-- activated workloads do not use browser bind or binding tokens; they establish their session from activation state plus identity-key proof and exact digest presentation
-- installed workload resource permissions may be augmented from installed bindings
+- users and devices all prove long-lived key ownership before receiving authenticated runtime access
+- users and devices all receive transport permissions derived from current grants and active contracts
+- activated devices do not use browser bind or binding tokens; they establish their session from activation state plus identity-key proof and exact digest presentation
+- installed device resource permissions may be augmented from installed bindings
 - higher-level runtimes should resolve bindings eagerly and expose typed
   resource handles rather than raw connect details
 
@@ -215,7 +215,7 @@ Rules:
   scope system
 - operation, RPC, event, and subject access are all contract-level authorization
   concerns
-- workloads may subscribe to auth events only when their contracts explicitly declare them in `uses`
+- devices may subscribe to auth events only when their contracts explicitly declare them in `uses`
 
 ### 11) Reply subjects and operation streams are part of the auth model
 
@@ -224,7 +224,7 @@ replies.
 
 Rules:
 
-- workloads MUST validate reply subjects against the caller's inbox prefix
+- devices MUST validate reply subjects against the caller's inbox prefix
 - operation `watch()` and streamed `wait()` responses are allowed as bounded
   multi-response replies to validated caller inbox subjects
 - Trellis MUST NOT grant arbitrary inbox publish rights just to support
@@ -236,17 +236,17 @@ The auth subsystem maintains Trellis-local state such as:
 
 - sessions
 - user projections
-- installed workload registry entries
+- installed device registry entries
 - approval records
 - portal records
 - login portal selection records
-- workload portal selection records
-- optional login/workload default-portal deployment settings
+- device portal selection records
+- optional login/device default-portal deployment settings
 - auth browser flow records
-- workload profiles
-- workload instances
-- workload activation handoffs
-- workload activation records
+- device profiles
+- device instances
+- device activation handoffs
+- device activation records
 - binding tokens
 - active connection records
 
@@ -267,7 +267,7 @@ are split by concern:
   reply validation, internal state records
 - [auth-api.md](./auth-api.md) - HTTP endpoints, `operations.v1.Auth.*`,
   `rpc.v1.Auth.*`, and emitted auth events
-- [workload-activation.md](./workload-activation.md) - known-workload activation,
+- [device-activation.md](./device-activation.md) - known-device activation,
   connect info, and activation flow
 - [auth-typescript-api.md](./auth-typescript-api.md) - TypeScript browser and
   service auth helpers

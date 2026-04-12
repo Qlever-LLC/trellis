@@ -86,7 +86,7 @@ These commands:
 - generate Rust SDK crates that target `trellis-client` and `trellis-server`
 - use required contract `kind` metadata to decide discovery behavior:
   `service` generates manifest and SDK artifacts, while `app`, `portal`,
-  `workload`, and `cli` contracts are verified only
+  `device`, and `cli` contracts are verified only
 
 Normal docs should not teach `trellis generate` or `trellis contracts build/verify`.
 Those workflows belong to `trellis-generate` and are normally reached through
@@ -113,21 +113,21 @@ trellis portals logins default set (--builtin | --portal-id <portalId>)
 trellis portals logins list
 trellis portals logins set --contract-id <contractId> (--builtin | --portal-id <portalId>)
 trellis portals logins clear --contract-id <contractId>
-trellis portals workloads default show
-trellis portals workloads default set (--builtin | --portal-id <portalId>)
-trellis portals workloads list
-trellis portals workloads set --profile <profileId> (--builtin | --portal <portalId>)
-trellis portals workloads clear --profile <profileId>
-trellis workloads profiles list [--contract <contractId>] [--disabled]
-trellis workloads profiles create --profile <id> --contract <contractId|path> [--review-mode <none|required>]
-trellis workloads profiles disable --profile <id>
-trellis workloads provision --profile <id>
-trellis workloads instances list [--profile <id>] [--state <registered|activated|revoked|disabled>]
-trellis workloads instances disable --instance <id>
-trellis workloads activations list [--instance <id>] [--profile <id>] [--state <activated|revoked>]
-trellis workloads activations revoke --instance <id>
-trellis workloads reviews list [--instance <id>] [--profile <id>] [--state <pending|approved|rejected>]
-trellis workloads reviews decide --review <id> (--approve | --reject) [--reason <code>]
+trellis portals devices default show
+trellis portals devices default set (--builtin | --portal-id <portalId>)
+trellis portals devices list
+trellis portals devices set --profile <profileId> (--builtin | --portal <portalId>)
+trellis portals devices clear --profile <profileId>
+trellis devices profiles list [--contract <contractId>] [--disabled]
+trellis devices profiles create --profile <id> --contract <contractId|path> [--review-mode <none|required>]
+trellis devices profiles disable --profile <id>
+trellis devices provision --profile <id>
+trellis devices instances list [--profile <id>] [--state <registered|activated|revoked|disabled>]
+trellis devices instances disable --instance <id>
+trellis devices activations list [--instance <id>] [--profile <id>] [--state <activated|revoked>]
+trellis devices activations revoke --instance <id>
+trellis devices reviews list [--instance <id>] [--profile <id>] [--state <pending|approved|rejected>]
+trellis devices reviews decide --review <id> (--approve | --reject) [--reason <code>]
 trellis jobs workers [--service <name>]
 trellis bootstrap nats ...
 trellis bootstrap admin ...
@@ -144,37 +144,37 @@ Operational command behavior:
   the resolved portal before storing local session material for later admin
   RPC calls
 - `trellis portals *` manages registered custom portal web apps used to replace
-  the built-in Trellis portal for login flows, workload flows, or both; an
+  the built-in Trellis portal for login flows, device flows, or both; an
   optional `app-contract-id` attaches a normal browser app contract for portals
   that later call Trellis as the logged-in user
 - `trellis portals logins *` manages deployment-owned login portal policy,
   including the deployment login default and any contract-specific selections
-- `trellis portals workloads *` manages deployment-owned workload portal policy,
-  including the deployment workload default and any profile-specific selections
+- `trellis portals devices *` manages deployment-owned device portal policy,
+  including the deployment device default and any profile-specific selections
 - `trellis auth approvals list` shows stored app approval decisions from the
   `trellis` service, with server-side filtering by exact contract digest and
   optionally by user when the caller is an admin
 - `trellis auth approvals revoke` removes a stored `user <-> contractDigest`
   decision and causes matching active delegated sessions to be revoked by the
   `trellis` service
-- `trellis workloads profiles *` manages workload classes, allowed digests, and
-  review policy for activated workloads; when given a local contract source,
+- `trellis devices profiles *` manages device classes, allowed digests, and
+  review policy for activated devices; when given a local contract source,
   profile creation also registers that contract digest in the catalog so
-  workload-only contracts do not need a service install step; portal selection
-  for workloads is managed under `trellis portals workloads *`
-- `trellis workloads provision` is the ergonomic provisioning path for workload
+  device-only contracts do not need a service install step; portal selection
+  for devices is managed under `trellis portals devices *`
+- `trellis devices provision` is the ergonomic provisioning path for device
   development and deployment: it generates a root secret locally, derives the
-  workload keys, registers the instance with auth using activation-only secret
+  device keys, registers the instance with auth using activation-only secret
   material, and emits the provisioning bundle for the device or operator
-- `trellis workloads instances *` remains the lower-level instance inspection and
+- `trellis devices instances *` remains the lower-level instance inspection and
   disable surface
-- `trellis workloads reviews *` manages pending workload review decisions and is
-  intended for `workload.review` automation services or admins
+- `trellis devices reviews *` manages pending device review decisions and is
+  intended for `device.review` automation services or admins
 - deployments may rely on the built-in Trellis portal with no portal setup, or
   register one or more custom portals, optionally choose separate login and
-  workload default custom portals, assign portals to specific browser contracts
-  or workload profiles, then create workload profiles and provision workload
-  instances for activated-workload flows; install automation may offer
+  device default custom portals, assign portals to specific browser contracts
+  or device profiles, then create device profiles and provision device
+  instances for activated-device flows; install automation may offer
   convenience wrappers, but the underlying actions remain explicit admin calls
 - `trellis bootstrap nats` creates the shared stream and auth-owned KV buckets
   needed before the runtime starts; it also updates existing bucket TTLs to

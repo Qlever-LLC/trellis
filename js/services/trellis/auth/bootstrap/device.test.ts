@@ -1,14 +1,14 @@
 import { Hono } from "@hono/hono";
 import { assertEquals } from "@std/assert";
 import {
-  deriveWorkloadIdentity,
-  signWorkloadWaitRequest,
+  deriveDeviceIdentity,
+  signDeviceWaitRequest,
 } from "@qlever-llc/trellis/auth";
 
 import {
-  createWorkloadBootstrapHandler,
-  verifyWorkloadBootstrapIdentityProof,
-} from "./workload.ts";
+  createDeviceBootstrapHandler,
+  verifyDeviceBootstrapIdentityProof,
+} from "./device.ts";
 
 const TEST_IAT = 1_700_000_000;
 const TEST_ROOT_SECRET = new Uint8Array(32).fill(7);
@@ -42,14 +42,14 @@ function createApp(args: {
 }) {
   const app = new Hono();
   app.post(
-    "/bootstrap/workload",
-    createWorkloadBootstrapHandler({
+    "/bootstrap/device",
+    createDeviceBootstrapHandler({
       natsServers: ["nats://127.0.0.1:4222"],
       sentinel: { jwt: "jwt", seed: "seed" },
-      loadWorkloadInstance: async () => args.instance ?? null,
-      loadWorkloadActivation: async () => args.activation ?? null,
-      loadWorkloadProfile: async () => args.profile ?? null,
-      verifyIdentityProof: verifyWorkloadBootstrapIdentityProof,
+      loadDeviceInstance: async () => args.instance ?? null,
+      loadDeviceActivation: async () => args.activation ?? null,
+      loadDeviceProfile: async () => args.profile ?? null,
+      verifyIdentityProof: verifyDeviceBootstrapIdentityProof,
       nowSeconds: () => args.nowSeconds ?? TEST_IAT,
     }),
   );
@@ -57,8 +57,8 @@ function createApp(args: {
 }
 
 async function createSignedRequest(contractDigest: string) {
-  const identity = await deriveWorkloadIdentity(TEST_ROOT_SECRET);
-  const signed = await signWorkloadWaitRequest({
+  const identity = await deriveDeviceIdentity(TEST_ROOT_SECRET);
+  const signed = await signDeviceWaitRequest({
     publicIdentityKey: identity.publicIdentityKey,
     nonce: "connect-info",
     identitySeed: identity.identitySeed,
@@ -73,11 +73,11 @@ async function createSignedRequest(contractDigest: string) {
   };
 }
 
-Deno.test("POST /bootstrap/workload returns runtime connect info when workload is activated", async () => {
+Deno.test("POST /bootstrap/device returns runtime connect info when device is activated", async () => {
   const request = await createSignedRequest("digest-a");
   const app = createApp({
     instance: {
-      instanceId: "wrk_1",
+      instanceId: "dev_1",
       publicIdentityKey: request.publicIdentityKey,
       profileId: "reader.default",
       state: "activated",
@@ -86,7 +86,7 @@ Deno.test("POST /bootstrap/workload returns runtime connect info when workload i
       revokedAt: null,
     },
     activation: {
-      instanceId: "wrk_1",
+      instanceId: "dev_1",
       publicIdentityKey: request.publicIdentityKey,
       profileId: "reader.default",
       state: "activated",
@@ -95,13 +95,13 @@ Deno.test("POST /bootstrap/workload returns runtime connect info when workload i
     },
     profile: {
       profileId: "reader.default",
-      contractId: "example.workload@v1",
+      contractId: "example.device@v1",
       allowedDigests: ["digest-a"],
       disabled: false,
     },
   });
 
-  const response = await app.request("http://trellis/bootstrap/workload", {
+  const response = await app.request("http://trellis/bootstrap/device", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(request),
@@ -111,27 +111,27 @@ Deno.test("POST /bootstrap/workload returns runtime connect info when workload i
   assertEquals(await response.json(), {
     status: "ready",
     connectInfo: {
-      instanceId: "wrk_1",
+      instanceId: "dev_1",
       profileId: "reader.default",
-      contractId: "example.workload@v1",
+      contractId: "example.device@v1",
       contractDigest: "digest-a",
       transport: {
         natsServers: ["nats://127.0.0.1:4222"],
         sentinel: { jwt: "jwt", seed: "seed" },
       },
       auth: {
-        mode: "workload_identity",
+        mode: "device_identity",
         iatSkewSeconds: 30,
       },
     },
   });
 });
 
-Deno.test("POST /bootstrap/workload returns activation_required when activation is missing", async () => {
+Deno.test("POST /bootstrap/device returns activation_required when activation is missing", async () => {
   const request = await createSignedRequest("digest-a");
   const app = createApp({
     instance: {
-      instanceId: "wrk_1",
+      instanceId: "dev_1",
       publicIdentityKey: request.publicIdentityKey,
       profileId: "reader.default",
       state: "registered",
@@ -142,13 +142,13 @@ Deno.test("POST /bootstrap/workload returns activation_required when activation 
     activation: null,
     profile: {
       profileId: "reader.default",
-      contractId: "example.workload@v1",
+      contractId: "example.device@v1",
       allowedDigests: ["digest-a"],
       disabled: false,
     },
   });
 
-  const response = await app.request("http://trellis/bootstrap/workload", {
+  const response = await app.request("http://trellis/bootstrap/device", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(request),
@@ -158,11 +158,11 @@ Deno.test("POST /bootstrap/workload returns activation_required when activation 
   assertEquals(await response.json(), { status: "activation_required" });
 });
 
-Deno.test("POST /bootstrap/workload returns not_ready for revoked activations", async () => {
+Deno.test("POST /bootstrap/device returns not_ready for revoked activations", async () => {
   const request = await createSignedRequest("digest-a");
   const app = createApp({
     instance: {
-      instanceId: "wrk_1",
+      instanceId: "dev_1",
       publicIdentityKey: request.publicIdentityKey,
       profileId: "reader.default",
       state: "revoked",
@@ -171,7 +171,7 @@ Deno.test("POST /bootstrap/workload returns not_ready for revoked activations", 
       revokedAt: new Date("2026-01-01T00:02:00.000Z"),
     },
     activation: {
-      instanceId: "wrk_1",
+      instanceId: "dev_1",
       publicIdentityKey: request.publicIdentityKey,
       profileId: "reader.default",
       state: "revoked",
@@ -180,13 +180,13 @@ Deno.test("POST /bootstrap/workload returns not_ready for revoked activations", 
     },
     profile: {
       profileId: "reader.default",
-      contractId: "example.workload@v1",
+      contractId: "example.device@v1",
       allowedDigests: ["digest-a"],
       disabled: false,
     },
   });
 
-  const response = await app.request("http://trellis/bootstrap/workload", {
+  const response = await app.request("http://trellis/bootstrap/device", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(request),
@@ -195,18 +195,18 @@ Deno.test("POST /bootstrap/workload returns not_ready for revoked activations", 
   assertEquals(response.status, 200);
   assertEquals(await response.json(), {
     status: "not_ready",
-    reason: "workload_activation_revoked",
+    reason: "device_activation_revoked",
   });
 });
 
-Deno.test("POST /bootstrap/workload rejects invalid signatures", async () => {
+Deno.test("POST /bootstrap/device rejects invalid signatures", async () => {
   const app = createApp({
     instance: null,
     activation: null,
     profile: null,
   });
 
-  const response = await app.request("http://trellis/bootstrap/workload", {
+  const response = await app.request("http://trellis/bootstrap/device", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({

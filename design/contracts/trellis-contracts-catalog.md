@@ -134,7 +134,7 @@ Top-level fields:
 | `id`          | yes      | string | Stable contract identifier such as `trellis.core@v1` or `graph@v1` |
 | `displayName` | yes      | string | Human-facing contract name shown in tooling and approval UIs        |
 | `description` | yes      | string | Human-facing explanation of the contract's purpose                  |
-| `kind`        | yes      | string | Contract role such as `service`, `app`, `portal`, `workload`, `cli` |
+| `kind`        | yes      | string | Contract role such as `service`, `app`, `portal`, `device`, `cli` |
 | `uses`        | no       | object | Explicit cross-contract operation/RPC/event/subject dependencies   |
 | `operations`  | no       | object | Map of logical operation names to operation descriptors            |
 | `rpc`         | no       | object | Map of logical RPC names to RPC operation descriptors              |
@@ -146,7 +146,7 @@ Top-level fields:
 Rules:
 
 - `format`, `id`, `displayName`, `description`, and `kind` are required.
-- `kind` drives discovery behavior in bootstrap-safe generation flows: `service` contracts generate manifests and SDKs, while `app`, `portal`, `workload`, and `cli` contracts are verified.
+- `kind` drives discovery behavior in bootstrap-safe generation flows: `service` contracts generate manifests and SDKs, while `app`, `portal`, `device`, and `cli` contracts are verified.
 - `displayName` and `description` are part of the canonical manifest and therefore part of the digest.
 - runtime service identity, install routing, and authorization boundaries MUST NOT be inferred from manifest metadata.
 - top-level object members not defined by the current runtime MAY be present for forward compatibility; runtimes MUST ignore unknown top-level fields they do not understand.
@@ -169,7 +169,7 @@ Rules:
 - all concurrently active digests for the same `id` MUST remain semantically compatible within that lineage, so mixed-version callers and service instances can keep working during rollout
 - install records bind one exact digest to one service principal public key, even when multiple digests in the same lineage are active at once
 
-This allows rolling upgrades where some service instances still run the old digest while newer instances have already switched to the new digest. The same model also covers preregistered activated workloads whose firmware revisions map to different digests within one workload lineage.
+This allows rolling upgrades where some service instances still run the old digest while newer instances have already switched to the new digest. The same model also covers preregistered activated devices whose firmware revisions map to different digests within one device lineage.
 
 Concurrent-digest compatibility within one lineage is defined by the owned communication surface:
 
@@ -629,8 +629,8 @@ The `trellis` runtime service MUST:
 - provision or bind required cloud resources before install or upgrade succeeds
 - persist resource bindings so installed services can resolve them at runtime
 - bind each installed contract digest to the service principal public key that implements it, including Trellis-owned contracts bootstrapped onto the `trellis` service principal
-- support deployment-owned workload profile records that resolve a workload class to a contract lineage plus an allowed digest set
-- support deployment-owned portal records plus login/workload portal selection records for browser login and workload-activation customization, with built-in Trellis portal paths as the fallback
+- support deployment-owned device profile records that resolve a device class to a contract lineage plus an allowed digest set
+- support deployment-owned portal records plus login/device portal selection records for browser login and device-activation customization, with built-in Trellis portal paths as the fallback
 - remove the old submission/approval flow rather than preserving a compatibility path
 - ensure any stored user approval or consent decision references the exact contract digest being approved
 
@@ -730,7 +730,7 @@ If a contract declares `resources`, SDKs SHOULD expose the logical aliases and t
 
 A contract may be projected into a runtime API module used by Trellis client/server libraries.
 
-For v1 TypeScript runtimes, that projection is a defined contract module consumed by public runtime bootstrap helpers such as `TrellisClient.connect(...)`, `TrellisService.connect(...)`, and `TrellisWorkload.connect(...)`.
+For v1 TypeScript runtimes, that projection is a defined contract module consumed by public runtime bootstrap helpers such as `TrellisClient.connect(...)`, `TrellisService.connect(...)`, and `TrellisDevice.connect(...)`.
 
 Projection requirements:
 
