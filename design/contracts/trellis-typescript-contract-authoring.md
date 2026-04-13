@@ -176,6 +176,7 @@ Rules:
 - the client or service `trellis` object is typed from `contract.API.trellis`
 - server handler registration is typed from `contract.API.owned`
 - callers do not manually assemble runtime API arrays for normal usage
+- locally authored contracts should normally export the `defineContract(...)` return value directly; do not wrap it in a handwritten default-export object that reassembles `CONTRACT_ID`, `CONTRACT`, `CONTRACT_DIGEST`, and `API`
 - Trellis-specific bootstrap exceptions should stay in Trellis platform code and use lower-level runtime APIs directly rather than becoming general public service helpers
 
 ### 7) Scope of contracts beyond connect

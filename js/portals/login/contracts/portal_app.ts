@@ -15,4 +15,8 @@ export const portalApp = defineContract({
   },
 });
 
-export const { CONTRACT_ID, CONTRACT, CONTRACT_DIGEST, API, use } = portalApp;
+export const CONTRACT_ID = portalApp.CONTRACT_ID;
+export const CONTRACT = portalApp.CONTRACT;
+export const CONTRACT_DIGEST = portalApp.CONTRACT_DIGEST;
+export const API: typeof portalApp.API = portalApp.API;
+export const use: typeof portalApp.use = portalApp.use;

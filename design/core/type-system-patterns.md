@@ -57,6 +57,7 @@ Rules:
 
 - the local contract source defines input/output types, allowed errors, capabilities, and cross-contract dependencies
 - the emitted manifest is the canonical cross-language artifact
+- for local TypeScript code, prefer exporting the defined contract object itself (`export default contract` or a named contract export) instead of manually rebuilding a parallel module-shaped object
 
 ## Schema Organization
 

@@ -95,7 +95,11 @@ export const activity = defineContract({
   },
 });
 
-export const { CONTRACT_ID, CONTRACT, CONTRACT_DIGEST, API, use } = activity;
+export const CONTRACT_ID = activity.CONTRACT_ID;
+export const CONTRACT = activity.CONTRACT;
+export const CONTRACT_DIGEST = activity.CONTRACT_DIGEST;
+export const API: typeof activity.API = activity.API;
+export const use: typeof activity.use = activity.use;
 export type ActivityApi = typeof API;
 export type ActivityOwnedApi = typeof API.owned;
 export type ActivityTrellisApi = typeof API.trellis;

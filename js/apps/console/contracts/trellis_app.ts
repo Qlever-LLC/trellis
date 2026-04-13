@@ -55,4 +55,8 @@ export const trellisApp = defineContract({
   },
 });
 
-export const { CONTRACT_ID, CONTRACT, CONTRACT_DIGEST, API, use } = trellisApp;
+export const CONTRACT_ID = trellisApp.CONTRACT_ID;
+export const CONTRACT = trellisApp.CONTRACT;
+export const CONTRACT_DIGEST = trellisApp.CONTRACT_DIGEST;
+export const API: typeof trellisApp.API = trellisApp.API;
+export const use: typeof trellisApp.use = trellisApp.use;
