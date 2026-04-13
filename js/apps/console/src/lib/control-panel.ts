@@ -25,11 +25,31 @@ const navSections: NavSection[] = [
     items: [
       { href: "/admin", label: "Overview" },
       { href: "/admin/users", label: "Users" },
+      { href: "/admin/app-grants", label: "App Grants" },
       { href: "/admin/sessions", label: "Sessions" },
       { href: "/admin/services", label: "Services" },
       { href: "/admin/contracts", label: "Contracts" },
       { href: "/admin/apps", label: "Approved Apps" },
       { href: "/admin/jobs", label: "Jobs" }
+    ]
+  },
+  {
+    title: "Portals",
+    adminOnly: true,
+    items: [
+      { href: "/admin/portals", label: "Registry" },
+      { href: "/admin/portals/login", label: "Login Policy" },
+      { href: "/admin/portals/devices", label: "Device Policy" }
+    ]
+  },
+  {
+    title: "Devices",
+    adminOnly: true,
+    items: [
+      { href: "/admin/devices/profiles", label: "Profiles" },
+      { href: "/admin/devices/instances", label: "Instances" },
+      { href: "/admin/devices/activations", label: "Activations" },
+      { href: "/admin/devices/reviews", label: "Reviews" }
     ]
   },
 ];
@@ -38,12 +58,20 @@ const routeTitles: Record<string, string> = {
   "/profile": "Profile",
   "/admin": "Overview",
   "/admin/users": "Users",
+  "/admin/app-grants": "App Grants",
   "/admin/sessions": "Sessions",
   "/admin/services": "Services",
   "/admin/services/new": "Install Service",
   "/admin/contracts": "Contracts",
   "/admin/apps": "Approved Apps",
-  "/admin/jobs": "Jobs"
+  "/admin/jobs": "Jobs",
+  "/admin/portals": "Portal Registry",
+  "/admin/portals/login": "Login Portal Policy",
+  "/admin/portals/devices": "Device Portal Policy",
+  "/admin/devices/profiles": "Device Profiles",
+  "/admin/devices/instances": "Device Instances",
+  "/admin/devices/activations": "Device Activations",
+  "/admin/devices/reviews": "Device Reviews"
 };
 
 export function requiresAdminRoute(pathname: string): boolean {
