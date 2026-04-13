@@ -188,12 +188,24 @@ The flow uses four durable record families plus one auth-owned secret record.
   "instanceId": "dev_...",
   "publicIdentityKey": "<base64url>",
   "profileId": "reader.default",
+  "metadata": {
+    "name": "Front Desk Reader",
+    "serialNumber": "SN-123",
+    "modelNumber": "MX-10",
+    "assetTag": "asset-42"
+  },
   "state": "registered",
   "createdAt": "2026-04-05T11:00:00Z",
   "activatedAt": null,
   "revokedAt": null
 }
 ```
+
+Rules:
+
+- `metadata` is optional operator-provided string metadata for CLI and console experiences
+- Trellis understands `name`, `serialNumber`, and `modelNumber` for default admin display, but the map may also include deployment-specific opaque keys
+- auth, activation, and connect-info decisions do not depend on this metadata
 
 `DeviceProvisioningSecret` is the auth-owned activation secret material keyed by `instanceId`.
 

@@ -127,8 +127,8 @@ trellis portal device clear <profileId>
 trellis device profile list [--contract <contractId>] [--disabled]
 trellis device profile create <id> <contractId|path> [--review-mode <none|required>]
 trellis device profile disable <id>
-trellis device provision <id>
-trellis device instance list [--profile <id>] [--state <registered|activated|revoked|disabled>]
+trellis device provision <id> [--name <name>] [--serial-number <serial>] [--model-number <model>] [--metadata <key=value>...]
+trellis device instance list [--profile <id>] [--state <registered|activated|revoked|disabled>] [--show-metadata]
 trellis device instance disable <id>
 trellis device activation list [--instance <id>] [--profile <id>] [--state <activated|revoked>]
 trellis device activation revoke <id>
@@ -176,9 +176,13 @@ Operational command behavior:
 - `trellis device provision` is the ergonomic provisioning path for device
   development and deployment: it generates a root secret locally, derives the
   device keys, registers the instance with auth using activation-only secret
-  material, and emits the provisioning bundle for the device or operator
+  material, optionally captures device metadata such as `name`,
+  `serialNumber`, `modelNumber`, and deployment-specific opaque keys, and emits
+  the provisioning bundle for the device or operator
 - `trellis device instance *` remains the lower-level instance inspection and
-  disable surface
+  disable surface; the default table promotes `name`, `serial`, and `model`
+  columns when present, while `--show-metadata` reveals the remaining opaque
+  metadata entries
 - `trellis device review *` manages pending device review decisions and is
   intended for `device.review` automation services or admins
 - deployments may rely on the built-in Trellis portal with no portal setup, or

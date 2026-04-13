@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
 use miette::IntoDiagnostic;
@@ -18,7 +20,18 @@ struct DeviceProvisionOutput {
     public_identity_key: String,
     #[serde(rename = "rootSecret")]
     root_secret: String,
+    #[serde(rename = "metadata", skip_serializing_if = "Option::is_none")]
+    metadata: Option<BTreeMap<String, String>>,
 }
+
+const DEVICE_NAME_METADATA_KEY: &str = "name";
+const DEVICE_SERIAL_METADATA_KEY: &str = "serialNumber";
+const DEVICE_MODEL_METADATA_KEY: &str = "modelNumber";
+const KNOWN_DEVICE_METADATA_KEYS: [&str; 3] = [
+    DEVICE_NAME_METADATA_KEY,
+    DEVICE_SERIAL_METADATA_KEY,
+    DEVICE_MODEL_METADATA_KEY,
+];
 
 pub(super) async fn run(format: OutputFormat, command: DeviceCommand) -> miette::Result<()> {
     match command.command {
@@ -169,11 +182,13 @@ async fn provision_command(format: OutputFormat, args: &DeviceProvisionArgs) -> 
     let seed: [u8; 32] = rand::random();
     let root_secret = URL_SAFE_NO_PAD.encode(seed);
     let identity = authlib::derive_device_identity(&seed).into_diagnostic()?;
+    let metadata = build_device_metadata(args)?;
     let instance = auth_client
         .provision_device_instance(
             &args.profile,
             &identity.public_identity_key,
             &identity.activation_key_base64url,
+            metadata.clone(),
         )
         .await
         .into_diagnostic()?;
@@ -186,6 +201,7 @@ async fn provision_command(format: OutputFormat, args: &DeviceProvisionArgs) -> 
         instance_id: instance.instance_id.clone(),
         public_identity_key: identity.public_identity_key,
         root_secret,
+        metadata,
     };
 
     if output::is_json(format) {
@@ -197,6 +213,15 @@ async fn provision_command(format: OutputFormat, args: &DeviceProvisionArgs) -> 
     output::print_info(&format!("profileId={}", bundle.profile_id));
     output::print_info(&format!("instanceId={}", bundle.instance_id));
     output::print_info(&format!("publicIdentityKey={}", bundle.public_identity_key));
+    if let Some(name) = metadata_value(bundle.metadata.as_ref(), DEVICE_NAME_METADATA_KEY) {
+        output::print_info(&format!("name={name}"));
+    }
+    if let Some(serial_number) = metadata_value(bundle.metadata.as_ref(), DEVICE_SERIAL_METADATA_KEY) {
+        output::print_info(&format!("serialNumber={serial_number}"));
+    }
+    if let Some(model_number) = metadata_value(bundle.metadata.as_ref(), DEVICE_MODEL_METADATA_KEY) {
+        output::print_info(&format!("modelNumber={model_number}"));
+    }
     output::print_info(&format!("rootSecret={}", bundle.root_secret));
     output::print_info("store the root secret securely; it will not be shown again");
     Ok(())
@@ -229,15 +254,178 @@ async fn instances_list_command(
     let rows = instances
         .into_iter()
         .map(|instance| {
-            vec![
+            let mut row = vec![
                 instance.instance_id,
                 instance.profile_id,
+                metadata_value_or_dash(instance.metadata.as_ref(), DEVICE_NAME_METADATA_KEY),
+                metadata_value_or_dash(instance.metadata.as_ref(), DEVICE_SERIAL_METADATA_KEY),
+                metadata_value_or_dash(instance.metadata.as_ref(), DEVICE_MODEL_METADATA_KEY),
                 json_value_label(&instance.state),
-            ]
+            ];
+            if args.show_metadata {
+                row.push(opaque_metadata_or_dash(instance.metadata.as_ref()));
+            }
+            row
         })
         .collect::<Vec<_>>();
-    println!("{}", output::table(&["instance", "profile", "state"], rows));
+    let mut headers = vec!["instance", "profile", "name", "serial", "model", "state"];
+    if args.show_metadata {
+        headers.push("metadata");
+    }
+    println!("{}", output::table(&headers, rows));
     Ok(())
+}
+
+fn build_device_metadata(args: &DeviceProvisionArgs) -> miette::Result<Option<BTreeMap<String, String>>> {
+    let mut metadata = BTreeMap::new();
+    insert_metadata_value(&mut metadata, DEVICE_NAME_METADATA_KEY, args.name.as_deref())?;
+    insert_metadata_value(
+        &mut metadata,
+        DEVICE_SERIAL_METADATA_KEY,
+        args.serial_number.as_deref(),
+    )?;
+    insert_metadata_value(
+        &mut metadata,
+        DEVICE_MODEL_METADATA_KEY,
+        args.model_number.as_deref(),
+    )?;
+
+    for entry in &args.metadata {
+        let (key, value) = parse_metadata_entry(entry)?;
+        if metadata.insert(key.clone(), value).is_some() {
+            return Err(miette::miette!(format!(
+                "duplicate device metadata key: {key}"
+            )));
+        }
+    }
+
+    Ok((!metadata.is_empty()).then_some(metadata))
+}
+
+fn insert_metadata_value(
+    metadata: &mut BTreeMap<String, String>,
+    key: &str,
+    value: Option<&str>,
+) -> miette::Result<()> {
+    let Some(value) = value else {
+        return Ok(());
+    };
+    if value.is_empty() {
+        return Err(miette::miette!(format!(
+            "device metadata value for {key} cannot be empty"
+        )));
+    }
+    if metadata.insert(key.to_string(), value.to_string()).is_some() {
+        return Err(miette::miette!(format!(
+            "duplicate device metadata key: {key}"
+        )));
+    }
+    Ok(())
+}
+
+fn parse_metadata_entry(entry: &str) -> miette::Result<(String, String)> {
+    let Some((key, value)) = entry.split_once('=') else {
+        return Err(miette::miette!(format!(
+            "invalid metadata entry '{entry}'; expected KEY=VALUE"
+        )));
+    };
+    if key.is_empty() || value.is_empty() {
+        return Err(miette::miette!(format!(
+            "invalid metadata entry '{entry}'; key and value must be non-empty"
+        )));
+    }
+    Ok((key.to_string(), value.to_string()))
+}
+
+fn metadata_value(metadata: Option<&BTreeMap<String, String>>, key: &str) -> Option<String> {
+    metadata.and_then(|metadata| metadata.get(key).cloned())
+}
+
+fn metadata_value_or_dash(metadata: Option<&BTreeMap<String, String>>, key: &str) -> String {
+    metadata_value(metadata, key).unwrap_or_else(|| "-".to_string())
+}
+
+fn opaque_metadata_or_dash(metadata: Option<&BTreeMap<String, String>>) -> String {
+    let Some(metadata) = metadata else {
+        return "-".to_string();
+    };
+    let opaque = metadata
+        .iter()
+        .filter(|(key, _)| !KNOWN_DEVICE_METADATA_KEYS.contains(&key.as_str()))
+        .map(|(key, value)| format!("{key}={value}"))
+        .collect::<Vec<_>>();
+    if opaque.is_empty() {
+        "-".to_string()
+    } else {
+        opaque.join(", ")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        build_device_metadata, opaque_metadata_or_dash, parse_metadata_entry,
+        DEVICE_MODEL_METADATA_KEY, DEVICE_NAME_METADATA_KEY, DEVICE_SERIAL_METADATA_KEY,
+    };
+    use crate::cli::DeviceProvisionArgs;
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn build_device_metadata_merges_known_and_opaque_entries() {
+        let metadata = build_device_metadata(&DeviceProvisionArgs {
+            profile: "reader.standard".to_string(),
+            name: Some("Front Desk Reader".to_string()),
+            serial_number: Some("SN-123".to_string()),
+            model_number: Some("MX-10".to_string()),
+            metadata: vec!["assetTag=42".to_string(), "site=lab-a".to_string()],
+        })
+        .expect("metadata should build")
+        .expect("metadata should be present");
+
+        let expected = BTreeMap::from([
+            ("assetTag".to_string(), "42".to_string()),
+            (DEVICE_MODEL_METADATA_KEY.to_string(), "MX-10".to_string()),
+            (DEVICE_NAME_METADATA_KEY.to_string(), "Front Desk Reader".to_string()),
+            (DEVICE_SERIAL_METADATA_KEY.to_string(), "SN-123".to_string()),
+            ("site".to_string(), "lab-a".to_string()),
+        ]);
+        assert_eq!(metadata, expected);
+    }
+
+    #[test]
+    fn build_device_metadata_rejects_duplicate_keys() {
+        let error = build_device_metadata(&DeviceProvisionArgs {
+            profile: "reader.standard".to_string(),
+            name: Some("Front Desk Reader".to_string()),
+            serial_number: None,
+            model_number: None,
+            metadata: vec!["name=Replacement".to_string()],
+        })
+        .expect_err("duplicate metadata key should fail");
+
+        assert!(error.to_string().contains("duplicate device metadata key: name"));
+    }
+
+    #[test]
+    fn parse_metadata_entry_requires_key_value_syntax() {
+        let error = parse_metadata_entry("assetTag").expect_err("missing separator should fail");
+        assert!(error
+            .to_string()
+            .contains("invalid metadata entry 'assetTag'; expected KEY=VALUE"));
+    }
+
+    #[test]
+    fn opaque_metadata_output_hides_known_keys() {
+        let metadata = BTreeMap::from([
+            ("assetTag".to_string(), "42".to_string()),
+            (DEVICE_MODEL_METADATA_KEY.to_string(), "MX-10".to_string()),
+            (DEVICE_NAME_METADATA_KEY.to_string(), "Front Desk Reader".to_string()),
+            (DEVICE_SERIAL_METADATA_KEY.to_string(), "SN-123".to_string()),
+            ("site".to_string(), "lab-a".to_string()),
+        ]);
+
+        assert_eq!(opaque_metadata_or_dash(Some(&metadata)), "assetTag=42, site=lab-a");
+    }
 }
 
 async fn instances_disable_command(

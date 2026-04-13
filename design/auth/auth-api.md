@@ -613,6 +613,7 @@ type DeviceActivationRecord = {
 
 type DeviceActivationReview = {
   reviewId: string;
+  metadata?: Record<string, string>;
   instanceId: string;
   publicIdentityKey: string;
   profileId: string;
@@ -776,6 +777,7 @@ Portal rules:
 - a portal record registers a custom browser destination and optional user-app identity metadata; it does not install or authenticate a service principal
 - `appContractId`, when present, refers to a normal browser app contract that the portal may use after login while acting as the logged-in user
 - portals MUST NOT use service-authenticated install or upgrade flows as their trust model
+  metadata?: Record<string, string>;
 
 Portal selection rules:
 

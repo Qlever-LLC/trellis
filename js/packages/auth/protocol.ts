@@ -47,6 +47,49 @@ export const ApprovalRecordViewSchema = Type.Object({
   approval: ContractApprovalViewSchema,
 }, { additionalProperties: false });
 
+export const InstanceGrantPolicyActorSchema = Type.Object({
+  origin: Type.String({ minLength: 1 }),
+  id: Type.String({ minLength: 1 }),
+}, { additionalProperties: false });
+
+export const InstanceGrantPolicySchema = Type.Object({
+  contractId: Type.String({ minLength: 1 }),
+  allowedOrigins: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+  impliedCapabilities: Type.Array(Type.String()),
+  disabled: Type.Boolean(),
+  createdAt: IsoDateStringSchema,
+  updatedAt: IsoDateStringSchema,
+  source: Type.Object({
+    kind: Type.Literal("admin_policy"),
+    createdBy: Type.Optional(InstanceGrantPolicyActorSchema),
+    updatedBy: Type.Optional(InstanceGrantPolicyActorSchema),
+  }, { additionalProperties: false }),
+}, { additionalProperties: false });
+export type InstanceGrantPolicy = StaticDecode<typeof InstanceGrantPolicySchema>;
+
+export const AuthListInstanceGrantPoliciesSchema = Type.Object({}, {
+  additionalProperties: false,
+});
+export const AuthListInstanceGrantPoliciesResponseSchema = Type.Object({
+  policies: Type.Array(InstanceGrantPolicySchema),
+}, { additionalProperties: false });
+
+export const AuthUpsertInstanceGrantPolicySchema = Type.Object({
+  contractId: Type.String({ minLength: 1 }),
+  allowedOrigins: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+  impliedCapabilities: Type.Array(Type.String()),
+}, { additionalProperties: false });
+export const AuthUpsertInstanceGrantPolicyResponseSchema = Type.Object({
+  policy: InstanceGrantPolicySchema,
+}, { additionalProperties: false });
+
+export const AuthDisableInstanceGrantPolicySchema = Type.Object({
+  contractId: Type.String({ minLength: 1 }),
+}, { additionalProperties: false });
+export const AuthDisableInstanceGrantPolicyResponseSchema = Type.Object({
+  policy: InstanceGrantPolicySchema,
+}, { additionalProperties: false });
+
 export const AuthListServicesSchema = Type.Object({}, {
   additionalProperties: false,
 });
@@ -474,10 +517,16 @@ export const DeviceProfileSchema = Type.Object({
   disabled: Type.Boolean(),
 }, { additionalProperties: false });
 
+export const DeviceMetadataSchema = Type.Record(
+  Type.String({ minLength: 1 }),
+  Type.String({ minLength: 1 }),
+);
+
 export const DeviceSchema = Type.Object({
   instanceId: Type.String({ minLength: 1 }),
   publicIdentityKey: Type.String({ minLength: 1 }),
   profileId: Type.String({ minLength: 1 }),
+  metadata: Type.Optional(DeviceMetadataSchema),
   state: Type.Union([
     Type.Literal("registered"),
     Type.Literal("activated"),
@@ -512,6 +561,7 @@ export type DeviceActivationRecord = StaticDecode<
 
 export const DeviceActivationReviewSchema = Type.Object({
   reviewId: Type.String({ minLength: 1 }),
+  linkRequestId: Type.String({ minLength: 1 }),
   instanceId: Type.String({ minLength: 1 }),
   publicIdentityKey: Type.String({ minLength: 1 }),
   profileId: Type.String({ minLength: 1 }),
@@ -527,6 +577,7 @@ export const DeviceActivationReviewSchema = Type.Object({
 
 export const AuthDeviceActivationReviewRequestedEventSchema = Type.Object({
   reviewId: Type.String({ minLength: 1 }),
+  linkRequestId: Type.String({ minLength: 1 }),
   handoffId: Type.String({ minLength: 1 }),
   instanceId: Type.String({ minLength: 1 }),
   publicIdentityKey: Type.String({ minLength: 1 }),
@@ -671,6 +722,7 @@ export const AuthProvisionDeviceInstanceSchema = Type.Object({
   profileId: Type.String({ minLength: 1 }),
   publicIdentityKey: Type.String({ minLength: 1 }),
   activationKey: Type.String({ minLength: 1 }),
+  metadata: Type.Optional(DeviceMetadataSchema),
 }, { additionalProperties: false });
 export const AuthProvisionDeviceInstanceResponseSchema = Type.Object({
   instance: DeviceSchema,
@@ -696,6 +748,7 @@ export const AuthDisableDeviceInstanceResponseSchema = Type.Object({
 
 export const AuthActivateDeviceSchema = Type.Object({
   handoffId: Type.String({ minLength: 1 }),
+  linkRequestId: Type.String({ minLength: 1 }),
 }, { additionalProperties: false });
 export const AuthActivateDeviceResponseSchema = Type.Union([
   Type.Object({
@@ -708,6 +761,7 @@ export const AuthActivateDeviceResponseSchema = Type.Union([
   Type.Object({
     status: Type.Literal("pending_review"),
     reviewId: Type.String({ minLength: 1 }),
+    linkRequestId: Type.String({ minLength: 1 }),
     instanceId: Type.String({ minLength: 1 }),
     profileId: Type.String({ minLength: 1 }),
     requestedAt: IsoDateStringSchema,

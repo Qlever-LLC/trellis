@@ -2,8 +2,9 @@ use crate::{
     save_admin_session, AdminSessionState, ApprovalEntryRecord, AuthGetInstalledContractRequest,
     AuthGetInstalledContractResponse, AuthInstallServiceRequest, AuthUpgradeServiceContractRequest,
     AuthValidateRequestRequest, AuthValidateRequestResponse, AuthenticatedUser, BoundSession,
-    ListApprovalsRequest, RenewBindingTokenResponse, RevokeApprovalRequest, ServiceListEntry,
-    TrellisAuthError,
+    DisableInstanceGrantPolicyRequest, InstanceGrantPolicyRecord, ListApprovalsRequest,
+    RenewBindingTokenResponse, RevokeApprovalRequest, ServiceListEntry, TrellisAuthError,
+    UpsertInstanceGrantPolicyRequest,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
@@ -11,8 +12,10 @@ use std::collections::BTreeMap;
 use trellis_client::{TrellisClient, UserConnectOptions};
 
 use crate::protocol::{
-    AuthInstallServiceResponse, AuthUpgradeServiceContractResponse, ListApprovalsResponse,
-    ListServicesResponse, LogoutResponse, MeResponse, RevokeApprovalResponse,
+    AuthInstallServiceResponse, AuthUpgradeServiceContractResponse,
+    DisableInstanceGrantPolicyResponse, ListApprovalsResponse,
+    ListInstanceGrantPoliciesResponse, ListServicesResponse, LogoutResponse, MeResponse,
+    RevokeApprovalResponse, UpsertInstanceGrantPolicyResponse,
 };
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -324,6 +327,55 @@ impl<'a> AuthClient<'a> {
             .default_portal)
     }
 
+    /// List deployment-wide instance grant policies.
+    pub async fn list_instance_grant_policies(
+        &self,
+    ) -> Result<Vec<InstanceGrantPolicyRecord>, TrellisAuthError> {
+        Ok(self
+            .call::<_, ListInstanceGrantPoliciesResponse>(
+                "rpc.v1.Auth.ListInstanceGrantPolicies",
+                &trellis_sdk_auth::Empty {},
+            )
+            .await?
+            .policies)
+    }
+
+    /// Create or replace one deployment-wide instance grant policy.
+    pub async fn upsert_instance_grant_policy(
+        &self,
+        contract_id: &str,
+        implied_capabilities: &[String],
+        allowed_origins: Option<&[String]>,
+    ) -> Result<InstanceGrantPolicyRecord, TrellisAuthError> {
+        Ok(self
+            .call::<_, UpsertInstanceGrantPolicyResponse>(
+                "rpc.v1.Auth.UpsertInstanceGrantPolicy",
+                &UpsertInstanceGrantPolicyRequest {
+                    allowed_origins: allowed_origins.map(|values| values.to_vec()),
+                    contract_id: contract_id.to_string(),
+                    implied_capabilities: implied_capabilities.to_vec(),
+                },
+            )
+            .await?
+            .policy)
+    }
+
+    /// Disable one deployment-wide instance grant policy.
+    pub async fn disable_instance_grant_policy(
+        &self,
+        contract_id: &str,
+    ) -> Result<InstanceGrantPolicyRecord, TrellisAuthError> {
+        Ok(self
+            .call::<_, DisableInstanceGrantPolicyResponse>(
+                "rpc.v1.Auth.DisableInstanceGrantPolicy",
+                &DisableInstanceGrantPolicyRequest {
+                    contract_id: contract_id.to_string(),
+                },
+            )
+            .await?
+            .policy)
+    }
+
     /// List contract-specific login portal selections.
     pub async fn list_login_portal_selections(
         &self,
@@ -519,6 +571,7 @@ impl<'a> AuthClient<'a> {
         profile_id: &str,
         public_identity_key: &str,
         activation_key: &str,
+        metadata: Option<BTreeMap<String, String>>,
     ) -> Result<trellis_sdk_auth::AuthProvisionDeviceInstanceResponseInstance, TrellisAuthError>
     {
         Ok(self
@@ -528,6 +581,7 @@ impl<'a> AuthClient<'a> {
                     profile_id: profile_id.to_string(),
                     public_identity_key: public_identity_key.to_string(),
                     activation_key: activation_key.to_string(),
+                    metadata,
                 },
             )
             .await?
@@ -737,7 +791,10 @@ mod tests {
         SetDevicePortalSelectionRequest, SetDevicePortalSelectionResponse,
         SetLoginPortalSelectionRequest,
     };
-    use crate::{AdminSessionState, RenewBindingTokenResponse, SentinelCredsRecord};
+    use crate::{
+        AdminSessionState, InstanceGrantPolicyRecord, InstanceGrantPolicySourceRecord,
+        RenewBindingTokenResponse, SentinelCredsRecord, UpsertInstanceGrantPolicyRequest,
+    };
 
     #[test]
     fn portal_create_requests_serialize_with_camel_case_fields() {
@@ -842,6 +899,65 @@ mod tests {
             json!({
                 "profileId": "reader.default",
                 "portalId": "main"
+            })
+        );
+    }
+
+    #[test]
+    fn instance_grant_policy_types_use_camel_case_json() {
+        let request = serde_json::to_value(UpsertInstanceGrantPolicyRequest {
+            allowed_origins: Some(vec!["https://console.example.com".to_string()]),
+            contract_id: "trellis.console@v1".to_string(),
+            implied_capabilities: vec!["admin".to_string()],
+        })
+        .expect("serialize instance grant policy request");
+        assert_eq!(
+            request,
+            json!({
+                "allowedOrigins": ["https://console.example.com"],
+                "contractId": "trellis.console@v1",
+                "impliedCapabilities": ["admin"]
+            })
+        );
+
+        let record: InstanceGrantPolicyRecord = serde_json::from_value(json!({
+            "contractId": "trellis.console@v1",
+            "allowedOrigins": ["https://console.example.com"],
+            "impliedCapabilities": ["admin"],
+            "disabled": false,
+            "createdAt": "2026-01-01T00:00:00Z",
+            "updatedAt": "2026-01-02T00:00:00Z",
+            "source": {
+                "kind": "admin_policy"
+            }
+        }))
+        .expect("deserialize instance grant policy record");
+        assert_eq!(record.contract_id, "trellis.console@v1");
+        assert_eq!(record.allowed_origins, Some(vec!["https://console.example.com".to_string()]));
+
+        let value = serde_json::to_value(InstanceGrantPolicyRecord {
+            allowed_origins: None,
+            contract_id: "trellis.console@v1".to_string(),
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            disabled: true,
+            implied_capabilities: vec![],
+            source: InstanceGrantPolicySourceRecord {
+                created_by: None,
+                kind: "admin_policy".to_string(),
+                updated_by: None,
+            },
+            updated_at: "2026-01-02T00:00:00Z".to_string(),
+        })
+        .expect("serialize instance grant policy record");
+        assert_eq!(
+            value,
+            json!({
+                "contractId": "trellis.console@v1",
+                "createdAt": "2026-01-01T00:00:00Z",
+                "disabled": true,
+                "impliedCapabilities": [],
+                "source": { "kind": "admin_policy" },
+                "updatedAt": "2026-01-02T00:00:00Z"
             })
         );
     }

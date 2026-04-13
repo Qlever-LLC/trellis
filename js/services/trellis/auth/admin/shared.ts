@@ -9,6 +9,25 @@ export type Portal = {
   disabled: boolean;
 };
 
+export type InstanceGrantPolicyActor = {
+  origin: string;
+  id: string;
+};
+
+export type InstanceGrantPolicy = {
+  contractId: string;
+  allowedOrigins?: string[];
+  impliedCapabilities: string[];
+  disabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+  source: {
+    kind: "admin_policy";
+    createdBy?: InstanceGrantPolicyActor;
+    updatedBy?: InstanceGrantPolicyActor;
+  };
+};
+
 export type PortalDefault = {
   portalId: string | null;
 };
@@ -37,8 +56,11 @@ export type DeviceProvisioningSecret = {
   createdAt: string | Date;
 };
 
+export type DeviceMetadata = Record<string, string>;
+
 export type DeviceActivationReview = {
   reviewId: string;
+  linkRequestId: string;
   instanceId: string;
   publicIdentityKey: string;
   profileId: string;
@@ -52,6 +74,7 @@ export type DeviceInstance = {
   instanceId: string;
   publicIdentityKey: string;
   profileId: string;
+  metadata?: DeviceMetadata;
   state: "registered" | "activated" | "revoked" | "disabled";
   createdAt: string;
   activatedAt: string | null;
@@ -71,6 +94,12 @@ export type PortalDefaultRequest = {
 export type LoginPortalSelectionRequest = {
   contractId: string;
   portalId: string | null;
+};
+
+export type UpsertInstanceGrantPolicyRequest = {
+  contractId: string;
+  allowedOrigins?: string[];
+  impliedCapabilities: string[];
 };
 
 export type DevicePortalSelectionRequest = {
@@ -105,6 +134,7 @@ export type ProvisionDeviceInstanceRequest = {
   profileId: string;
   publicIdentityKey: string;
   activationKey: string;
+  metadata?: DeviceMetadata;
 };
 
 function invalidRequest(context?: Record<string, unknown>) {
@@ -125,6 +155,10 @@ export function deviceInstanceId(publicIdentityKey: string): string {
 }
 
 export function normalizeDigestList(values: string[]): string[] {
+  return normalizeStringList(values);
+}
+
+export function normalizeStringList(values: string[]): string[] {
   const digests: string[] = [];
   const seen = new Set<string>();
   for (const value of values) {
@@ -133,6 +167,47 @@ export function normalizeDigestList(values: string[]): string[] {
     digests.push(value);
   }
   return digests;
+}
+
+function parseOrigin(value: string | undefined): string | null {
+  if (!value) return null;
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+}
+
+export function validateInstanceGrantPolicyRequest(
+  req: UpsertInstanceGrantPolicyRequest,
+) {
+  if (!req.contractId) {
+    return invalidRequest({ contractId: req.contractId });
+  }
+  const impliedCapabilities = normalizeStringList(req.impliedCapabilities ?? []);
+  const allowedOrigins = req.allowedOrigins === undefined
+    ? undefined
+    : (() => {
+      const normalized = [] as string[];
+      for (const value of req.allowedOrigins) {
+        const origin = parseOrigin(value);
+        if (!origin) return null;
+        normalized.push(origin);
+      }
+      const uniqueOrigins = normalizeStringList(normalized);
+      return uniqueOrigins.length > 0 ? uniqueOrigins : undefined;
+    })();
+  if (allowedOrigins === null) {
+    return invalidRequest({ allowedOrigins: req.allowedOrigins });
+  }
+
+  return Result.ok({
+    policy: {
+      contractId: req.contractId,
+      ...(allowedOrigins ? { allowedOrigins } : {}),
+      impliedCapabilities,
+    },
+  });
 }
 
 export function validatePortalRequest(req: CreatePortalRequest) {
@@ -212,12 +287,20 @@ export function validateDeviceProvisionRequest(req: ProvisionDeviceInstanceReque
       activationKey: req.activationKey,
     });
   }
+  if (req.metadata) {
+    for (const [key, value] of Object.entries(req.metadata)) {
+      if (key.length === 0 || value.length === 0) {
+        return invalidRequest({ metadata: req.metadata, reason: "invalid_device_metadata" });
+      }
+    }
+  }
   const now = new Date().toISOString();
   return Result.ok({
     instance: {
       instanceId: deviceInstanceId(req.publicIdentityKey),
       publicIdentityKey: req.publicIdentityKey,
       profileId: req.profileId,
+      ...(req.metadata ? { metadata: { ...req.metadata } } : {}),
       state: "registered",
       createdAt: now,
       activatedAt: null,

@@ -23,6 +23,8 @@ import {
   DevicePortalSelectionSchema,
   DeviceActivationHandoffSchema,
   DeviceActivationRecordSchema,
+  DeviceActivationReviewRecordSchema,
+  InstanceGrantPolicySchema,
   DeviceProfileSchema,
   DeviceSchema,
 } from "./schemas.ts";
@@ -55,6 +57,8 @@ Deno.test("SessionSchema validates session entries", () => {
       contractId: "trellis.console@v1",
       contractDisplayName: "Trellis Console",
       contractDescription: "Admin app",
+      appOrigin: "https://app.example.com",
+      approvalSource: "admin_policy",
       delegatedCapabilities: ["admin"],
       delegatedPublishSubjects: ["rpc.v1.Auth.ListServices"],
       delegatedSubscribeSubjects: ["events.v1.Auth.Connect"],
@@ -137,6 +141,12 @@ Deno.test("portal and device state schemas validate", () => {
     instanceId: "dev_123",
     publicIdentityKey: sessionKey,
     profileId: "reader.default",
+    metadata: {
+      name: "Front Desk Reader",
+      serialNumber: "SN-123",
+      modelNumber: "MODEL-9",
+      assetTag: "asset-42",
+    },
     state: "registered",
     createdAt: new Date().toISOString(),
     activatedAt: null,
@@ -162,6 +172,30 @@ Deno.test("portal and device state schemas validate", () => {
     qrMac: "mac",
     createdAt: new Date().toISOString(),
     expiresAt: new Date().toISOString(),
+  }));
+  assert(Value.Check(DeviceActivationReviewRecordSchema, {
+    reviewId: "dar_123",
+    linkRequestId: "dlr_123",
+    handoffId: "dah_123",
+    instanceId: "dev_123",
+    publicIdentityKey: sessionKey,
+    profileId: "reader.default",
+    requestedBy: {
+      origin: "github",
+      id: "123",
+    },
+    state: "pending",
+    requestedAt: new Date().toISOString(),
+    decidedAt: null,
+  }));
+  assert(Value.Check(InstanceGrantPolicySchema, {
+    contractId: "trellis.console@v1",
+    allowedOrigins: ["https://app.example.com"],
+    impliedCapabilities: ["admin"],
+    disabled: false,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    source: { kind: "admin_policy" },
   }));
 });
 

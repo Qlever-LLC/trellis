@@ -159,6 +159,7 @@ impl<'a> AuthClient<'a> {
         profile_id: &str,
         public_identity_key: &str,
         activation_key: &str,
+        metadata: Option<BTreeMap<String, String>>,
     ) -> Result<AuthProvisionDeviceInstanceResponseInstance, TrellisAuthError>;
     pub async fn list_device_instances(
         &self,

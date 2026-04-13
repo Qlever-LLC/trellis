@@ -1,8 +1,9 @@
 import { assert, assertEquals } from "@std/assert";
-import { TRELLIS_AUTH_RPC } from "../../contracts/trellis_auth.ts";
+import { TRELLIS_AUTH_EVENTS, TRELLIS_AUTH_RPC } from "../../contracts/trellis_auth.ts";
 
 import {
   normalizeDigestList,
+  validateInstanceGrantPolicyRequest,
   validateLoginPortalSelectionRequest,
   validatePortalRequest,
   validatePortalDefaultRequest,
@@ -22,6 +23,9 @@ Deno.test("auth contract exposes only portal selection and device admin RPCs", (
   assert(methods.includes("Auth.DisablePortal"));
   assert(methods.includes("Auth.GetLoginPortalDefault"));
   assert(methods.includes("Auth.SetLoginPortalDefault"));
+  assert(methods.includes("Auth.ListInstanceGrantPolicies"));
+  assert(methods.includes("Auth.UpsertInstanceGrantPolicy"));
+  assert(methods.includes("Auth.DisableInstanceGrantPolicy"));
   assert(methods.includes("Auth.ListLoginPortalSelections"));
   assert(methods.includes("Auth.SetLoginPortalSelection"));
   assert(methods.includes("Auth.ClearLoginPortalSelection"));
@@ -45,6 +49,13 @@ Deno.test("auth contract exposes only portal selection and device admin RPCs", (
   assert(!methods.includes("Auth.CreatePortalRoute"));
   assert(!methods.includes("Auth.ListPortalRoutes"));
   assert(!methods.includes("Auth.DisablePortalRoute"));
+});
+
+Deno.test("auth review event is templated by profile", () => {
+  assertEquals(
+    TRELLIS_AUTH_EVENTS["Auth.DeviceActivationReviewRequested"].params,
+    ["/profileId"],
+  );
 });
 
 Deno.test("validatePortalRequest requires portal identity and URL", () => {
@@ -74,6 +85,32 @@ Deno.test("validatePortalDefaultRequest accepts builtin and custom selections", 
   assertEquals((custom.take() as { defaultPortal: Record<string, unknown> }).defaultPortal, {
     portalId: "main",
   });
+});
+
+Deno.test("validateInstanceGrantPolicyRequest normalizes origins and dedupes capabilities", () => {
+  const valid = validateInstanceGrantPolicyRequest({
+    contractId: "trellis.console@v1",
+    allowedOrigins: [
+      "https://app.example.com/callback",
+      "https://app.example.com",
+      "https://admin.example.com/path",
+    ],
+    impliedCapabilities: ["audit", "audit", "admin"],
+  });
+  assert(!valid.isErr());
+  assertEquals((valid.take() as { policy: Record<string, unknown> }).policy, {
+    contractId: "trellis.console@v1",
+    allowedOrigins: ["https://app.example.com", "https://admin.example.com"],
+    impliedCapabilities: ["audit", "admin"],
+  });
+
+  assert(
+    validateInstanceGrantPolicyRequest({
+      contractId: "trellis.console@v1",
+      allowedOrigins: ["not a url"],
+      impliedCapabilities: [],
+    }).isErr(),
+  );
 });
 
 Deno.test("validateLoginPortalSelectionRequest requires contract identity", () => {
@@ -121,10 +158,31 @@ Deno.test("validateDeviceProvisionRequest builds a preregistered instance", () =
     profileId: "reader.default",
     publicIdentityKey: "A".repeat(43),
     activationKey: "B".repeat(43),
+    metadata: {
+      name: "Front Desk Reader",
+      serialNumber: "SN-123",
+      modelNumber: "MODEL-9",
+      assetTag: "asset-42",
+    },
   });
   assert(!valid.isErr());
   const value = valid.take() as { instance: Record<string, unknown> };
   assertEquals(value.instance.profileId, "reader.default");
   assertEquals(value.instance.publicIdentityKey, "A".repeat(43));
+  assertEquals(value.instance.metadata, {
+    name: "Front Desk Reader",
+    serialNumber: "SN-123",
+    modelNumber: "MODEL-9",
+    assetTag: "asset-42",
+  });
   assertEquals(value.instance.state, "registered");
+});
+
+Deno.test("validateDeviceProvisionRequest rejects empty metadata entries", () => {
+  assert(validateDeviceProvisionRequest({
+    profileId: "reader.default",
+    publicIdentityKey: "A".repeat(43),
+    activationKey: "B".repeat(43),
+    metadata: { assetTag: "" },
+  }).isErr());
 });

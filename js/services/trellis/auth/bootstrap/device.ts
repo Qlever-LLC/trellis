@@ -21,6 +21,7 @@ type DeviceInstance = {
   instanceId: string;
   publicIdentityKey: string;
   profileId: string;
+  metadata?: Record<string, string>;
   state: "registered" | "activated" | "revoked" | "disabled";
   createdAt: string | Date;
   activatedAt: string | Date | null;

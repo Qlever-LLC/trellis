@@ -2,6 +2,7 @@ import { assert, assertFalse } from "@std/assert";
 import Value from "typebox/value";
 
 import {
+  AuthDeviceActivationReviewRequestedEventSchema,
   AuthActivateDeviceResponseSchema,
   AuthActivateDeviceSchema,
   AuthClearDevicePortalSelectionResponseSchema,
@@ -28,6 +29,10 @@ import {
   AuthGetDevicePortalDefaultSchema,
   AuthGetLoginPortalDefaultResponseSchema,
   AuthGetLoginPortalDefaultSchema,
+  AuthDisableInstanceGrantPolicyResponseSchema,
+  AuthDisableInstanceGrantPolicySchema,
+  AuthListInstanceGrantPoliciesResponseSchema,
+  AuthListInstanceGrantPoliciesSchema,
   AuthListDeviceActivationReviewsResponseSchema,
   AuthListDeviceActivationReviewsSchema,
   AuthListDeviceActivationsResponseSchema,
@@ -51,6 +56,8 @@ import {
   AuthSetDevicePortalDefaultSchema,
   AuthSetDevicePortalSelectionResponseSchema,
   AuthSetDevicePortalSelectionSchema,
+  AuthUpsertInstanceGrantPolicyResponseSchema,
+  AuthUpsertInstanceGrantPolicySchema,
   AuthSetLoginPortalDefaultResponseSchema,
   AuthSetLoginPortalDefaultSchema,
   AuthSetLoginPortalSelectionResponseSchema,
@@ -58,6 +65,7 @@ import {
   AuthValidateRequestResponseSchema,
   DeviceConnectInfoSchema,
   DeviceSchema,
+  InstanceGrantPolicySchema,
   PortalFlowStateSchema,
 } from "./mod.ts";
 
@@ -169,7 +177,7 @@ Deno.test("AuthValidateRequestResponseSchema validates device caller variants", 
       deviceId: "dev_1",
       deviceType: "reader",
       runtimePublicKey: "A".repeat(43),
-      profileId: "drive.default",
+      profileId: "",
       active: true,
       capabilities: ["device.sync"],
     },
@@ -198,6 +206,47 @@ Deno.test("portal, portal selection, and device admin schemas validate", () => {
   assert(Value.Check(AuthGetLoginPortalDefaultSchema, {}));
   assert(Value.Check(AuthGetLoginPortalDefaultResponseSchema, {
     defaultPortal: { portalId: null },
+  }));
+  assert(Value.Check(AuthListInstanceGrantPoliciesSchema, {}));
+  assert(Value.Check(AuthListInstanceGrantPoliciesResponseSchema, {
+    policies: [],
+  }));
+  assert(Value.Check(AuthUpsertInstanceGrantPolicySchema, {
+    contractId: "trellis.console@v1",
+    allowedOrigins: ["https://app.example.com"],
+    impliedCapabilities: ["admin"],
+  }));
+  assert(Value.Check(InstanceGrantPolicySchema, {
+    contractId: "trellis.console@v1",
+    allowedOrigins: ["https://app.example.com"],
+    impliedCapabilities: ["admin"],
+    disabled: false,
+    createdAt: now,
+    updatedAt: now,
+    source: { kind: "admin_policy" },
+  }));
+  assert(Value.Check(AuthUpsertInstanceGrantPolicyResponseSchema, {
+    policy: {
+      contractId: "trellis.console@v1",
+      impliedCapabilities: [],
+      disabled: false,
+      createdAt: now,
+      updatedAt: now,
+      source: { kind: "admin_policy" },
+    },
+  }));
+  assert(Value.Check(AuthDisableInstanceGrantPolicySchema, {
+    contractId: "trellis.console@v1",
+  }));
+  assert(Value.Check(AuthDisableInstanceGrantPolicyResponseSchema, {
+    policy: {
+      contractId: "trellis.console@v1",
+      impliedCapabilities: [],
+      disabled: true,
+      createdAt: now,
+      updatedAt: now,
+      source: { kind: "admin_policy" },
+    },
   }));
   assert(
     Value.Check(AuthSetLoginPortalDefaultSchema, { portalId: "portal-1" }),
@@ -298,12 +347,24 @@ Deno.test("portal, portal selection, and device admin schemas validate", () => {
     profileId: "reader.default",
     publicIdentityKey: "A".repeat(43),
     activationKey: "B".repeat(43),
+    metadata: {
+      name: "Front Desk Reader",
+      serialNumber: "SN-123",
+      modelNumber: "MODEL-9",
+      assetTag: "asset-42",
+    },
   }));
   assert(Value.Check(AuthProvisionDeviceInstanceResponseSchema, {
     instance: {
       instanceId: "dev_1",
       publicIdentityKey: "A".repeat(43),
       profileId: "reader.default",
+      metadata: {
+        name: "Front Desk Reader",
+        serialNumber: "SN-123",
+        modelNumber: "MODEL-9",
+        assetTag: "asset-42",
+      },
       state: "registered",
       createdAt: now,
       activatedAt: null,
@@ -376,7 +437,7 @@ Deno.test("device activation and connect-info schemas validate", () => {
     },
   }));
 
-  assert(Value.Check(AuthActivateDeviceSchema, { handoffId: "dah_1" }));
+  assert(Value.Check(AuthActivateDeviceSchema, { handoffId: "dah_1", linkRequestId: "link_1" }));
   assert(Value.Check(AuthActivateDeviceResponseSchema, {
     status: "activated",
     instanceId: "dev_1",
@@ -387,6 +448,7 @@ Deno.test("device activation and connect-info schemas validate", () => {
   assert(Value.Check(AuthActivateDeviceResponseSchema, {
     status: "pending_review",
     reviewId: "dar_1",
+    linkRequestId: "link_1",
     instanceId: "dev_1",
     profileId: "reader.default",
     requestedAt: now,
@@ -401,9 +463,23 @@ Deno.test("device activation and connect-info schemas validate", () => {
   assert(Value.Check(AuthGetDeviceActivationStatusResponseSchema, {
     status: "pending_review",
     reviewId: "dar_1",
+    linkRequestId: "link_1",
     instanceId: "dev_1",
     profileId: "reader.default",
     requestedAt: now,
+  }));
+  assert(Value.Check(AuthDeviceActivationReviewRequestedEventSchema, {
+    reviewId: "dar_1",
+    linkRequestId: "link_1",
+    handoffId: "dah_1",
+    instanceId: "dev_1",
+    publicIdentityKey: "A".repeat(43),
+    profileId: "sherpa",
+    requestedAt: now,
+    requestedBy: {
+      origin: "github",
+      id: "123",
+    },
   }));
   assert(Value.Check(AuthGetDeviceConnectInfoSchema, {
     publicIdentityKey: "A".repeat(43),
@@ -456,6 +532,7 @@ Deno.test("device activation and connect-info schemas validate", () => {
   assert(Value.Check(AuthDecideDeviceActivationReviewResponseSchema, {
     review: {
       reviewId: "dar_1",
+      linkRequestId: "link_1",
       instanceId: "dev_1",
       publicIdentityKey: "A".repeat(43),
       profileId: "reader.default",

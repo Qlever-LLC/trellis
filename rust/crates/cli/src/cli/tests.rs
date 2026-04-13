@@ -97,6 +97,35 @@ fn parses_portal_device_set_default_builtin_command() {
 }
 
 #[test]
+fn parses_auth_grant_set_command() {
+    let cli = Cli::parse_from([
+        "trellis",
+        "auth",
+        "grant",
+        "set",
+        "trellis.console@v1",
+        "--capability",
+        "admin",
+        "--allow-origin",
+        "https://console.example.com",
+    ]);
+    match cli.command {
+        TopLevelCommand::Auth(command) => match command.command {
+            AuthSubcommand::Grant(grant) => match grant.command {
+                AuthGrantSubcommand::Set(args) => {
+                    assert_eq!(args.contract, "trellis.console@v1");
+                    assert_eq!(args.capabilities, vec!["admin"]);
+                    assert_eq!(args.allowed_origins, vec!["https://console.example.com"]);
+                }
+                other => panic!("unexpected auth grant command: {other:?}"),
+            },
+            other => panic!("unexpected auth command: {other:?}"),
+        },
+        other => panic!("unexpected top-level command: {other:?}"),
+    }
+}
+
+#[test]
 fn parses_device_profile_create_command() {
     let cli = Cli::parse_from([
         "trellis",
@@ -150,11 +179,30 @@ fn device_profile_create_defaults_review_mode_to_none() {
 
 #[test]
 fn parses_device_provision_command() {
-    let cli = Cli::parse_from(["trellis", "device", "provision", "reader.standard"]);
+    let cli = Cli::parse_from([
+        "trellis",
+        "device",
+        "provision",
+        "reader.standard",
+        "--name",
+        "Front Desk Reader",
+        "--serial-number",
+        "SN-123",
+        "--model-number",
+        "MX-10",
+        "--metadata",
+        "site=lab-a",
+        "--metadata",
+        "assetTag=42",
+    ]);
     match cli.command {
         TopLevelCommand::Device(command) => match command.command {
             DeviceSubcommand::Provision(args) => {
                 assert_eq!(args.profile, "reader.standard");
+                assert_eq!(args.name.as_deref(), Some("Front Desk Reader"));
+                assert_eq!(args.serial_number.as_deref(), Some("SN-123"));
+                assert_eq!(args.model_number.as_deref(), Some("MX-10"));
+                assert_eq!(args.metadata, vec!["site=lab-a", "assetTag=42"]);
             }
             other => panic!("unexpected device command: {other:?}"),
         },
@@ -177,6 +225,24 @@ fn parses_device_instance_list_with_enum_state() {
             DeviceSubcommand::Instance(instance) => match instance.command {
                 DeviceInstanceSubcommand::List(args) => {
                     assert_eq!(args.state, Some(DeviceInstanceState::Activated));
+                    assert!(!args.show_metadata);
+                }
+                other => panic!("unexpected device instance command: {other:?}"),
+            },
+            other => panic!("unexpected device command: {other:?}"),
+        },
+        other => panic!("unexpected top-level command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_device_instance_list_show_metadata_flag() {
+    let cli = Cli::parse_from(["trellis", "device", "instance", "list", "--show-metadata"]);
+    match cli.command {
+        TopLevelCommand::Device(command) => match command.command {
+            DeviceSubcommand::Instance(instance) => match instance.command {
+                DeviceInstanceSubcommand::List(args) => {
+                    assert!(args.show_metadata);
                 }
                 other => panic!("unexpected device instance command: {other:?}"),
             },

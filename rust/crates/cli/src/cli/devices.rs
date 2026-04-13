@@ -200,11 +200,30 @@ pub struct DeviceProfileDisableArgs {
 }
 
 #[derive(Debug, Args)]
+#[command(
+    after_help = "Examples:\n  trellis device provision reader.standard --name \"Front Desk Reader\" --serial-number SN-123 --model-number MX-10\n  trellis device provision reader.standard --metadata site=lab-a --metadata assetTag=42"
+)]
 /// Provision one new device instance from a profile.
 pub struct DeviceProvisionArgs {
     #[arg(value_name = "PROFILE")]
     /// Device profile identifier to provision against.
     pub profile: String,
+
+    #[arg(long)]
+    /// Human-friendly device name stored in device metadata.
+    pub name: Option<String>,
+
+    #[arg(long = "serial-number")]
+    /// Serial number stored in device metadata.
+    pub serial_number: Option<String>,
+
+    #[arg(long = "model-number")]
+    /// Model number stored in device metadata.
+    pub model_number: Option<String>,
+
+    #[arg(long = "metadata", value_name = "KEY=VALUE")]
+    /// Additional opaque metadata entry. Repeat to set multiple values.
+    pub metadata: Vec<String>,
 }
 
 #[derive(Debug, Args)]
@@ -217,6 +236,10 @@ pub struct DeviceInstanceListArgs {
     #[arg(long)]
     /// Restrict the list to one device instance state.
     pub state: Option<DeviceInstanceState>,
+
+    #[arg(long = "show-metadata")]
+    /// Include opaque metadata entries beyond the default name, serial, and model columns.
+    pub show_metadata: bool,
 }
 
 #[derive(Debug, Args)]

@@ -46,6 +46,7 @@ type DeviceInstance = {
   instanceId: string;
   publicIdentityKey: string;
   profileId: string;
+  metadata?: Record<string, string>;
   state: "registered" | "activated" | "revoked" | "disabled";
   createdAt: string | Date;
   activatedAt: string | Date | null;
@@ -78,6 +79,7 @@ type DeviceActivationRecord = {
 
 type DeviceActivationReviewRecord = {
   reviewId: string;
+  linkRequestId: string;
   handoffId: string;
   instanceId: string;
   publicIdentityKey: string;
@@ -244,10 +246,11 @@ async function currentActivationStatus(handoff: DeviceActivationHandoff) {
   const review = await findReviewByHandoffId(handoff.handoffId);
   if (!review) return null;
   if (review.state === "pending") {
-    return {
-      status: "pending_review" as const,
-      reviewId: review.reviewId,
-      instanceId: review.instanceId,
+      return {
+        status: "pending_review" as const,
+        reviewId: review.reviewId,
+        linkRequestId: review.linkRequestId,
+        instanceId: review.instanceId,
       profileId: review.profileId,
       requestedAt: isoString(review.requestedAt),
     };
@@ -263,7 +266,7 @@ async function currentActivationStatus(handoff: DeviceActivationHandoff) {
 
 export function createActivateDeviceHandler() {
   return async (
-    req: { handoffId: string },
+    req: { handoffId: string; linkRequestId: string },
     { caller }: { caller: Caller },
   ) => {
     logger.trace({ rpc: "Auth.ActivateDevice", handoffId: req.handoffId }, "RPC request");
@@ -293,6 +296,7 @@ export function createActivateDeviceHandler() {
       const requestedAt = new Date().toISOString();
       const review: DeviceActivationReviewRecord = {
         reviewId: `dar_${randomToken(12)}`,
+        linkRequestId: req.linkRequestId,
         handoffId: handoff.handoffId,
         instanceId: instance.instanceId,
         publicIdentityKey: instance.publicIdentityKey,
@@ -308,6 +312,7 @@ export function createActivateDeviceHandler() {
       await deviceActivationReviewsKV.put(review.reviewId, review);
       await trellis.publish("Auth.DeviceActivationReviewRequested", {
         reviewId: review.reviewId,
+        linkRequestId: review.linkRequestId,
         handoffId: handoff.handoffId,
         instanceId: instance.instanceId,
         publicIdentityKey: instance.publicIdentityKey,
@@ -318,6 +323,7 @@ export function createActivateDeviceHandler() {
       return Result.ok({
         status: "pending_review" as const,
         reviewId: review.reviewId,
+        linkRequestId: review.linkRequestId,
         instanceId: instance.instanceId,
         profileId: profile.profileId,
         requestedAt,

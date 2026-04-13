@@ -48,6 +48,7 @@ type DeviceInstance = {
   instanceId: string;
   publicIdentityKey: string;
   profileId: string;
+  metadata?: Record<string, string>;
   state: "registered" | "activated" | "revoked" | "disabled";
   createdAt: string | Date;
   activatedAt: string | Date | null;
@@ -290,6 +291,7 @@ export function registerDeviceActivationHttpRoutes(
 
     const portalUrl = new URL(portalEntryUrl);
     portalUrl.searchParams.set("handoffId", handoffId);
+    portalUrl.searchParams.set("instanceId", instanceId);
     portalUrl.searchParams.set("profileId", profile.profileId);
     return c.redirect(portalUrl.toString());
   });
