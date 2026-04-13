@@ -263,6 +263,7 @@ pub fn default_ts_package_name_from_id(contract_id: &str) -> String {
         "trellis-auth" => "@qlever-llc/trellis-sdk-auth".to_string(),
         "trellis-activity" => "@qlever-llc/trellis-sdk-activity".to_string(),
         "trellis-core" => "@qlever-llc/trellis-sdk-core".to_string(),
+        "trellis-state" => "@qlever-llc/trellis-sdk-state".to_string(),
         other => format!("@qlever-llc/trellis-sdk-{other}"),
     }
 }

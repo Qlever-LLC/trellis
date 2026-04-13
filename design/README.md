@@ -34,6 +34,7 @@ Do not load the entire `design/` folder by default. Start with one topic area, t
 | --- | --- | --- |
 | `core/platform-libraries.md` | You are changing library/package boundaries | Package ownership and runtime responsibilities |
 | `core/files-transfer-patterns.md` | You are changing the public files API or transfer grants | Contract-owned file metadata APIs, transfer grants, and runtime helper boundaries |
+| `core/state-patterns.md` | You are changing the public shared state API | Trellis-managed app state scopes, auth rules, revision semantics, and TTL behavior |
 | `core/kv-resource-patterns.md` | You are changing KV buckets, keys, TTLs, or projections | KV naming, TTL, and projection rules |
 | `core/store-resource-patterns.md` | You are changing service-owned blob store resources | Store resource shape, runtime semantics, and auth boundaries |
 | `core/type-system-patterns.md` | You are changing schemas, Result, or error modeling | Shared type-system and validation rules |

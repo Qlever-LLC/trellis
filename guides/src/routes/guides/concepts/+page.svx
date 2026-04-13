@@ -187,6 +187,17 @@ resources: {
 
 Like KV, the key (`uploads`) is a logical alias and Trellis assigns the physical store identity at install time. The intended service runtime shape mirrors KV closely: `service.store.uploads.open()` resolves a higher-level store object, and its failable methods return `Result` values.
 
+### Public app state
+
+Not all state belongs in service-owned resources. Trellis also ships a public `trellis.state@v1` contract for semi-durable app memory that should be available across app instances, CLIs, and devices.
+
+- apps and devices call `State.*` over authenticated RPCs
+- scopes are currently `userApp` and `deviceApp`
+- values are JSON and keys are opaque strings
+- services should still use `resources.kv` directly for private service state or projections
+
+Use `State` for things like saved filters, drafts, UI preferences, and app memory that should follow the same user or device across machines. Use `resources.kv` when the state is owned by a service implementation instead of by an app or device participant.
+
 ### Streams
 
 JetStream streams for event-driven architectures, work queues, and audit trails. Like KV, stream names in the contract are logical aliases resolved at install time.
@@ -217,6 +228,6 @@ Jobs are not visible to callers. If you need a caller-observable async workflow,
 | `@qlever-llc/trellis-jobs` | Job creation, processing, retry, progress tracking |
 | `@qlever-llc/trellis/sdk/*` | First-party generated SDK modules with typed DTOs for Trellis-owned contracts |
 
-`@qlever-llc/trellis/sdk/*` subpaths (for example `@qlever-llc/trellis/sdk/auth` and `@qlever-llc/trellis/sdk/core`) are generated from contract definitions as part of the contract build pipeline. Import them for typed request or response types and `use(...)` declarations.
+`@qlever-llc/trellis/sdk/*` subpaths (for example `@qlever-llc/trellis/sdk/auth`, `@qlever-llc/trellis/sdk/core`, and `@qlever-llc/trellis/sdk/state`) are generated from contract definitions as part of the contract build pipeline. Import them for typed request or response types and `use(...)` declarations.
 
 On the Rust side, the equivalent building blocks are generated Rust SDK crates plus a generated crate for the app, service, or CLI you are building. That generated crate is the preferred ergonomic entrypoint because it exposes only the owned surface and `uses` aliases declared by the local contract.

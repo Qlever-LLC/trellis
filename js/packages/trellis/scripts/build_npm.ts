@@ -5,7 +5,7 @@ const packageDir = Deno.cwd();
 const npmDir = join(packageDir, "npm");
 
 type SdkVendor = {
-  name: "activity" | "auth" | "core";
+  name: "activity" | "auth" | "core" | "state";
   packageName: string;
   sourceDir: string;
   buildDir: string;
@@ -29,6 +29,12 @@ const sdkVendors: SdkVendor[] = [
     packageName: "@qlever-llc/trellis-sdk-core",
     sourceDir: join(packageDir, "../../../generated/js/sdks/trellis-core/npm"),
     buildDir: join(packageDir, "../../../generated/js/sdks/trellis-core"),
+  },
+  {
+    name: "state",
+    packageName: "@qlever-llc/trellis-sdk-state",
+    sourceDir: join(packageDir, "../../../generated/js/sdks/state/npm"),
+    buildDir: join(packageDir, "../../../generated/js/sdks/state"),
   },
 ];
 
@@ -189,6 +195,10 @@ async function normalizePackageJson() {
       import: "./esm/trellis/sdk/core.js",
       require: "./script/trellis/sdk/core.js",
     },
+    "./sdk/state": {
+      import: "./esm/trellis/sdk/state.js",
+      require: "./script/trellis/sdk/state.js",
+    },
     "./tracing": {
       import: "./esm/trellis/tracing.js",
       require: "./script/trellis/tracing.js",
@@ -248,6 +258,10 @@ async function vendorSdkArtifacts() {
         .replaceAll(
           "@qlever-llc/trellis-sdk-activity",
           `${sdkPathPrefix}/activity/mod.js`,
+        )
+        .replaceAll(
+          "@qlever-llc/trellis-sdk-state",
+          `${sdkPathPrefix}/state/mod.js`,
         );
     });
 
@@ -288,6 +302,7 @@ await buildDntPackage({
     "./packages/trellis/sdk/activity.ts",
     "./packages/trellis/sdk/auth.ts",
     "./packages/trellis/sdk/core.ts",
+    "./packages/trellis/sdk/state.ts",
     "./packages/trellis/tracing.ts",
   ],
   description:

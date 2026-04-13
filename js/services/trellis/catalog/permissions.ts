@@ -8,6 +8,7 @@ import {
 } from "./uses.ts";
 import { CONTRACT as trellisAuthContract } from "../contracts/trellis_auth.ts";
 import { CONTRACT as trellisCoreContract } from "../contracts/trellis_core.ts";
+import { CONTRACT as trellisStateContract } from "../contracts/trellis_state.ts";
 
 type PermissionRule = {
   subject: string;
@@ -54,6 +55,7 @@ const JETSTREAM_EVENT_CONTROL_SUBJECTS = [
 const BOOTSTRAP_CONTRACT_IMPLEMENTERS = new Map<string, string>([
   [trellisCoreContract.id, "trellis"],
   [trellisAuthContract.id, "trellis"],
+  [trellisStateContract.id, "trellis"],
 ]);
 
 function createPermissionState(contracts: ContractEntry[]): PermissionState {
@@ -66,6 +68,7 @@ function createPermissionState(contracts: ContractEntry[]): PermissionState {
 let state = createPermissionState([
   { digest: trellisCoreContract.id, contract: trellisCoreContract },
   { digest: trellisAuthContract.id, contract: trellisAuthContract },
+  { digest: trellisStateContract.id, contract: trellisStateContract },
 ]);
 
 function hasRequiredCapabilities(

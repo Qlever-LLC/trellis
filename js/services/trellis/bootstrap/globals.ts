@@ -30,6 +30,7 @@ import {
   DeviceSchema,
   InstanceGrantPolicySchema,
 } from "../state/schemas.ts";
+import { StoredStateEntrySchema } from "../state/model.ts";
 
 const config = getConfig();
 
@@ -367,6 +368,18 @@ if (isErr(usersKVValue)) {
   throw new Error(`Failed to open users KV: ${usersKVValue.error.message}`);
 }
 export const usersKV = usersKVValue;
+
+const stateKVResult = await TypedKV.open(
+  natsAuth,
+  "trellis_state",
+  StoredStateEntrySchema,
+  { history: 1, ttl: 0 },
+);
+const stateKVValue = stateKVResult.take();
+if (isErr(stateKVValue)) {
+  throw new Error(`Failed to open state KV: ${stateKVValue.error.message}`);
+}
+export const stateKV = stateKVValue;
 
 // Bootstrap the Trellis control-plane directly instead of using the normal
 // TrellisService.connect(...) bootstrap flow. The control-plane is the component

@@ -60,6 +60,7 @@ import {
   startControlPlaneBackgroundTasks,
 } from "./bootstrap/control_plane.ts";
 import { logger, shutdownGlobals, trellis } from "./bootstrap/globals.ts";
+import { sessionKV, stateKV } from "./bootstrap/globals.ts";
 import {
   authGetInstalledContractHandler,
   authListInstalledContractsHandler,
@@ -74,6 +75,8 @@ import {
   createAuthUpgradeServiceContractHandler,
 } from "./catalog/services.ts";
 import { getConfig } from "./config.ts";
+import { createStateHandlers } from "./state/rpc.ts";
+import { createStateKvAdapter, StateStore } from "./state/storage.ts";
 
 initTracing("trellis");
 
@@ -82,6 +85,11 @@ const app = new Hono();
 
 const contracts = createContractsModule({
   builtinContracts: await resolveBuiltinContracts(),
+});
+
+const stateHandlers = createStateHandlers({
+  sessionKV,
+  state: new StateStore({ kv: createStateKvAdapter(stateKV) }),
 });
 
 await contracts.refreshActiveContracts();
@@ -95,6 +103,14 @@ await trellis.mount(
   createTrellisContractGetHandler(contracts.contractStore),
 );
 await trellis.mount("Trellis.Bindings.Get", trellisBindingsGetHandler);
+await trellis.mount("State.Get", stateHandlers.get);
+await trellis.mount("State.Put", stateHandlers.put);
+await trellis.mount("State.Delete", stateHandlers.delete);
+await trellis.mount("State.CompareAndSet", stateHandlers.compareAndSet);
+await trellis.mount("State.List", stateHandlers.list);
+await trellis.mount("State.Admin.Get", stateHandlers.adminGet);
+await trellis.mount("State.Admin.List", stateHandlers.adminList);
+await trellis.mount("State.Admin.Delete", stateHandlers.adminDelete);
 await trellis.mount(
   "Auth.ListInstalledContracts",
   authListInstalledContractsHandler,

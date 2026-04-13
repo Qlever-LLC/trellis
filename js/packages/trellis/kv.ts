@@ -236,6 +236,14 @@ export class TypedKVEntry<S extends TSchema> {
     return decodeSubject(this.entry.key);
   }
 
+  get revision() {
+    return this.entry.revision;
+  }
+
+  get createdAt() {
+    return this.entry.created;
+  }
+
   /**
    * Watch this KV entry for changes.
    *

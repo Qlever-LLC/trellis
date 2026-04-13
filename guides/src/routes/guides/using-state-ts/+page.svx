@@ -1,0 +1,163 @@
+This guide shows how a TypeScript app or device uses Trellis-managed `State.*` RPCs for semi-durable cloud-backed app memory.
+
+Read [Trellis Concepts](/guides/concepts) first for background on contracts, `uses`, and the difference between public state and service-owned resources.
+
+## What `State` is for
+
+Use `State` when the caller itself needs memory that should survive restarts, browser refreshes, or moving between machines.
+
+Good uses:
+
+- saved filters and UI preferences
+- in-progress drafts
+- recent selections or last-opened items
+- device-local preferences for an authenticated device contract
+
+Do not use `State` for:
+
+- service-private projections or internal service state
+- large binary payloads
+- cross-app shared namespaces
+
+For service-private state, keep using `resources.kv`.
+
+## 1. Add `trellis.state@v1` to the contract
+
+Apps and devices access `State` through `uses`, just like any other Trellis-owned contract.
+
+```ts
+import { defineContract } from "@qlever-llc/trellis/contracts";
+import { auth } from "@qlever-llc/trellis/sdk/auth";
+import { state } from "@qlever-llc/trellis/sdk/state";
+
+export const notesApp = defineContract({
+  id: "notes-app@v1",
+  displayName: "Notes App",
+  description: "A browser app with cloud-backed drafts and preferences.",
+  kind: "app",
+  uses: {
+    auth: auth.useDefaults(),
+    state: state.use({
+      rpc: {
+        call: [
+          "State.Get",
+          "State.Put",
+          "State.Delete",
+          "State.CompareAndSet",
+          "State.List",
+        ],
+      },
+    }),
+  },
+});
+```
+
+The same pattern works for device contracts. A device that needs `deviceApp` state still declares `State.*` through `uses`.
+
+## 2. Read and write state from the client
+
+After your app has an authenticated Trellis client, call `State.*` with the scope you need.
+
+```ts
+const trellis = await getTrellis();
+
+const prefs = await trellis.requestOrThrow("State.Get", {
+  scope: "userApp",
+  key: "prefs/theme",
+});
+
+if (!prefs.found) {
+  await trellis.requestOrThrow("State.Put", {
+    scope: "userApp",
+    key: "prefs/theme",
+    value: { theme: "dark" },
+  });
+}
+```
+
+`userApp` means one authenticated user inside one app contract namespace. The same user signing into a different app contract does not see these keys.
+
+## 3. Choose the right scope
+
+v1 supports two scopes:
+
+- `userApp` for per-user app state
+- `deviceApp` for per-device app state when the caller is an authenticated device participant
+
+Use `userApp` for settings and drafts that should follow the same user across browsers or CLIs of the same app lineage.
+
+Use `deviceApp` for state that belongs to one authenticated device instance, such as on-device calibration choices or local workflow checkpoints that should still sync through Trellis.
+
+## 4. Use `CompareAndSet` for revision-sensitive writes
+
+Every state entry includes a `revision`. Use that revision when you want optimistic concurrency.
+
+```ts
+const current = await trellis.requestOrThrow("State.Get", {
+  scope: "userApp",
+  key: "drafts/current",
+});
+
+if (current.found) {
+  const updated = await trellis.requestOrThrow("State.CompareAndSet", {
+    scope: "userApp",
+    key: "drafts/current",
+    expectedRevision: current.entry.revision,
+    value: { body: "updated text" },
+  });
+
+  if (!updated.applied) {
+    // Another instance wrote a newer revision first.
+  }
+}
+```
+
+To create only if absent, pass `expectedRevision: null`.
+
+## 5. List and delete keys
+
+`State.List` returns keys in lexicographic order and supports `offset` and `limit` pagination.
+
+```ts
+const page = await trellis.requestOrThrow("State.List", {
+  scope: "userApp",
+  prefix: "drafts/",
+  offset: 0,
+  limit: 20,
+});
+
+await trellis.requestOrThrow("State.Delete", {
+  scope: "userApp",
+  key: "drafts/old",
+});
+```
+
+`State.Delete` may also include `expectedRevision` when you want a conditional delete.
+
+## 6. Optional TTL
+
+If a key is cache-like rather than durable, attach `ttlMs` on `State.Put` or `State.CompareAndSet`.
+
+```ts
+await trellis.requestOrThrow("State.Put", {
+  scope: "userApp",
+  key: "search/last-results",
+  value: { ids: ["a", "b", "c"] },
+  ttlMs: 5 * 60_000,
+});
+```
+
+Expired entries behave like missing keys.
+
+## 7. Practical guidelines
+
+- keep values small
+- keep keys stable and path-like, such as `prefs/theme` or `drafts/report-123`
+- treat `State` as app memory, not as a substitute for large files or service databases
+- store only JSON values; encode unusual payloads yourself when needed
+- use `CompareAndSet` when multiple app instances may write the same key
+
+## 8. Next steps
+
+- If you need browser auth setup, read [Write a SvelteKit app](/guides/writing-sveltekit-apps)
+- If you need service-private storage instead, read [Store resources: TypeScript](/guides/using-store-resources-ts)

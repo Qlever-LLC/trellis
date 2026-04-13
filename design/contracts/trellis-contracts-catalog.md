@@ -56,7 +56,7 @@ Both artifacts are pure JSON values. They are language-neutral and safe to persi
 Every contract belongs to one stable contract lineage identified by `id`, and each
 active digest is installed onto the service principal that implements it.
 
-- Trellis-managed contracts such as `trellis.core@v1` and `trellis.auth@v1` are implemented by the `trellis` runtime service even when they are committed in the Trellis repo
+- Trellis-managed contracts such as `trellis.core@v1`, `trellis.auth@v1`, and `trellis.state@v1` are implemented by the `trellis` runtime service even when they are committed in the Trellis repo
 - cloud/domain contracts live in the repo that implements the corresponding service behavior
 - a single service principal may implement multiple logical contracts
 - Trellis runtime libraries do not act as a handwritten central registry for all service APIs
@@ -576,7 +576,7 @@ Catalog rules:
 Repository-layout clarification:
 
 - `in-tree` versus `out-of-tree` is not an architectural distinction for service contracts
-- Trellis-managed contracts such as `trellis.core@v1` and `trellis.auth@v1` are ordinary service contracts implemented by the `trellis` runtime service
+- Trellis-managed contracts such as `trellis.core@v1`, `trellis.auth@v1`, and `trellis.state@v1` are ordinary service contracts implemented by the `trellis` runtime service
 - colocated service contracts MUST be treated the same way as service contracts committed in another repo
 - a repo MAY carry additional manifests for local development, but they are not implicitly part of the active catalog just because they live nearby
 
@@ -712,7 +712,7 @@ Service-side RPC handling rule:
 - a service may subscribe to RPC subjects for contracts installed on its authenticated service principal public key
 - a service may subscribe to operation subjects and derived operation control subjects for contracts installed on its authenticated service principal public key
 - runtime ownership is determined by the install record for that public key, not by contract metadata
-- the bootstrapped `trellis` runtime service follows the same rule; it simply starts with Trellis-owned contracts such as `trellis.core@v1` and `trellis.auth@v1`
+- the bootstrapped `trellis` runtime service follows the same rule; it simply starts with Trellis-owned contracts such as `trellis.core@v1`, `trellis.auth@v1`, and `trellis.state@v1`
 
 This install-record-based subscription rule is separate from caller capability checks.
 

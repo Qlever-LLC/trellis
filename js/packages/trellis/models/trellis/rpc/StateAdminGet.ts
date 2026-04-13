@@ -1,0 +1,33 @@
+import Type, { type Static } from "typebox";
+
+import {
+  StateEntrySchema,
+  StateUserTargetSchema,
+} from "../State.ts";
+
+export const StateAdminGetSchema = Type.Union([
+  Type.Object({
+    scope: Type.Literal("userApp"),
+    contractId: Type.String({ minLength: 1 }),
+    user: StateUserTargetSchema,
+    key: Type.String({ minLength: 1 }),
+  }, { additionalProperties: false }),
+  Type.Object({
+    scope: Type.Literal("deviceApp"),
+    contractId: Type.String({ minLength: 1 }),
+    deviceId: Type.String({ minLength: 1 }),
+    key: Type.String({ minLength: 1 }),
+  }, { additionalProperties: false }),
+]);
+export type StateAdminGetInput = Static<typeof StateAdminGetSchema>;
+
+export const StateAdminGetResponseSchema = Type.Union([
+  Type.Object({
+    found: Type.Literal(false),
+  }, { additionalProperties: false }),
+  Type.Object({
+    found: Type.Literal(true),
+    entry: StateEntrySchema,
+  }, { additionalProperties: false }),
+]);
+export type StateAdminGetResponse = Static<typeof StateAdminGetResponseSchema>;

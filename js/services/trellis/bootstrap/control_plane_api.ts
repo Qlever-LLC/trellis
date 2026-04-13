@@ -1,5 +1,6 @@
 import { API as trellisAuthApi } from "../contracts/trellis_auth.ts";
 import { API as trellisCoreApi } from "../contracts/trellis_core.ts";
+import { API as trellisStateApi } from "../contracts/trellis_state.ts";
 
 function assertNoOverlap(kind: string, left: Record<string, unknown>, right: Record<string, unknown>) {
   for (const key of Object.keys(left)) {
@@ -11,28 +12,44 @@ function assertNoOverlap(kind: string, left: Record<string, unknown>, right: Rec
 
 function assertComposableApi() {
   assertNoOverlap("rpc", trellisCoreApi.owned.rpc, trellisAuthApi.owned.rpc);
+  assertNoOverlap("rpc", trellisCoreApi.owned.rpc, trellisStateApi.owned.rpc);
+  assertNoOverlap("rpc", trellisAuthApi.owned.rpc, trellisStateApi.owned.rpc);
   assertNoOverlap("operation", trellisCoreApi.owned.operations, trellisAuthApi.owned.operations);
+  assertNoOverlap("operation", trellisCoreApi.owned.operations, trellisStateApi.owned.operations);
+  assertNoOverlap("operation", trellisAuthApi.owned.operations, trellisStateApi.owned.operations);
   assertNoOverlap("event", trellisCoreApi.owned.events, trellisAuthApi.owned.events);
+  assertNoOverlap("event", trellisCoreApi.owned.events, trellisStateApi.owned.events);
+  assertNoOverlap("event", trellisAuthApi.owned.events, trellisStateApi.owned.events);
   assertNoOverlap("subject", trellisCoreApi.owned.subjects, trellisAuthApi.owned.subjects);
+  assertNoOverlap("subject", trellisCoreApi.owned.subjects, trellisStateApi.owned.subjects);
+  assertNoOverlap("subject", trellisAuthApi.owned.subjects, trellisStateApi.owned.subjects);
   assertNoOverlap("rpc", trellisCoreApi.trellis.rpc, trellisAuthApi.trellis.rpc);
+  assertNoOverlap("rpc", trellisCoreApi.trellis.rpc, trellisStateApi.trellis.rpc);
+  assertNoOverlap("rpc", trellisAuthApi.trellis.rpc, trellisStateApi.trellis.rpc);
   assertNoOverlap("operation", trellisCoreApi.trellis.operations, trellisAuthApi.trellis.operations);
+  assertNoOverlap("operation", trellisCoreApi.trellis.operations, trellisStateApi.trellis.operations);
+  assertNoOverlap("operation", trellisAuthApi.trellis.operations, trellisStateApi.trellis.operations);
   assertNoOverlap("event", trellisCoreApi.trellis.events, trellisAuthApi.trellis.events);
+  assertNoOverlap("event", trellisCoreApi.trellis.events, trellisStateApi.trellis.events);
+  assertNoOverlap("event", trellisAuthApi.trellis.events, trellisStateApi.trellis.events);
   assertNoOverlap("subject", trellisCoreApi.trellis.subjects, trellisAuthApi.trellis.subjects);
+  assertNoOverlap("subject", trellisCoreApi.trellis.subjects, trellisStateApi.trellis.subjects);
+  assertNoOverlap("subject", trellisAuthApi.trellis.subjects, trellisStateApi.trellis.subjects);
 }
 
 assertComposableApi();
 
 export const trellisControlPlaneApi = {
   owned: {
-    rpc: { ...trellisCoreApi.owned.rpc, ...trellisAuthApi.owned.rpc },
-    operations: { ...trellisCoreApi.owned.operations, ...trellisAuthApi.owned.operations },
-    events: { ...trellisCoreApi.owned.events, ...trellisAuthApi.owned.events },
-    subjects: { ...trellisCoreApi.owned.subjects, ...trellisAuthApi.owned.subjects },
+    rpc: { ...trellisCoreApi.owned.rpc, ...trellisAuthApi.owned.rpc, ...trellisStateApi.owned.rpc },
+    operations: { ...trellisCoreApi.owned.operations, ...trellisAuthApi.owned.operations, ...trellisStateApi.owned.operations },
+    events: { ...trellisCoreApi.owned.events, ...trellisAuthApi.owned.events, ...trellisStateApi.owned.events },
+    subjects: { ...trellisCoreApi.owned.subjects, ...trellisAuthApi.owned.subjects, ...trellisStateApi.owned.subjects },
   },
   trellis: {
-    rpc: { ...trellisCoreApi.trellis.rpc, ...trellisAuthApi.trellis.rpc },
-    operations: { ...trellisCoreApi.trellis.operations, ...trellisAuthApi.trellis.operations },
-    events: { ...trellisCoreApi.trellis.events, ...trellisAuthApi.trellis.events },
-    subjects: { ...trellisCoreApi.trellis.subjects, ...trellisAuthApi.trellis.subjects },
+    rpc: { ...trellisCoreApi.trellis.rpc, ...trellisAuthApi.trellis.rpc, ...trellisStateApi.trellis.rpc },
+    operations: { ...trellisCoreApi.trellis.operations, ...trellisAuthApi.trellis.operations, ...trellisStateApi.trellis.operations },
+    events: { ...trellisCoreApi.trellis.events, ...trellisAuthApi.trellis.events, ...trellisStateApi.trellis.events },
+    subjects: { ...trellisCoreApi.trellis.subjects, ...trellisAuthApi.trellis.subjects, ...trellisStateApi.trellis.subjects },
   },
 } as const;

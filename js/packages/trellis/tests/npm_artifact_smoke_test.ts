@@ -1,7 +1,7 @@
 import { assertEquals } from "@std/assert";
 import { join } from "@std/path";
 
-const forbiddenImportPattern = /(?:from|require\()\s*["']@qlever-llc\/(?:trellis-auth|trellis-contracts|trellis-server|trellis-sdk-auth|trellis-sdk-core|trellis-sdk-activity|trellis-telemetry)["']/;
+const forbiddenImportPattern = /(?:from|require\()\s*["']@qlever-llc\/(?:trellis-auth|trellis-contracts|trellis-server|trellis-sdk-auth|trellis-sdk-core|trellis-sdk-activity|trellis-sdk-state|trellis-telemetry)["']/;
 
 async function* walkFiles(dir: string): AsyncGenerator<string> {
   for await (const entry of Deno.readDir(dir)) {

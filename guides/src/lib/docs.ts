@@ -403,6 +403,15 @@ export const guideDocs: DocEntry[] = [
     sidebarLabel: "Store",
   },
   {
+    title: "State: TypeScript",
+    description:
+      "Use Trellis-managed `State.*` RPCs from TypeScript apps and devices for semi-durable cloud-backed app memory.",
+    href: "/guides/using-state-ts",
+    section: "Features",
+    sidebarGroup: "Resources",
+    sidebarLabel: "State",
+  },
+  {
     title: "Write a SvelteKit app",
     description:
       "A working browser app that authenticates with Trellis and calls RPCs.",

@@ -242,7 +242,7 @@ The developer-facing CLI boundary is the contract source.
   JSON file in the same `contracts/` directory
 - every contract source must declare a required `kind`
 - the `trellis` runtime service may own multiple logical contracts such as
-  `trellis.core@v1` and `trellis.auth@v1`
+  `trellis.core@v1`, `trellis.auth@v1`, and `trellis.state@v1`
 - `trellis-generate` emits canonical manifests into build output when a repo
   needs a release artifact
 - app and service repos SHOULD wrap contract preparation into their normal

@@ -323,7 +323,7 @@ const app = defineContract({
 });
 ```
 
-Regenerate the SDK whenever the contract changes. This is the same pattern that the first-party `@qlever-llc/trellis/sdk/auth` and `@qlever-llc/trellis/sdk/core` subpaths follow.
+Regenerate the SDK whenever the contract changes. This is the same pattern that the first-party `@qlever-llc/trellis/sdk/auth`, `@qlever-llc/trellis/sdk/core`, and `@qlever-llc/trellis/sdk/state` subpaths follow.
 
 ## 11. Install and run
 
