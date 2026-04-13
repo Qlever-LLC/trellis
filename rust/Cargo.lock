@@ -3067,7 +3067,6 @@ dependencies = [
  "trellis-contracts",
  "trellis-sdk-auth",
  "trellis-sdk-core",
- "trellis-tooling-support",
 ]
 
 [[package]]
@@ -3213,16 +3212,6 @@ dependencies = [
  "trellis-sdk-core",
  "trellis-sdk-jobs",
  "trellis-server",
-]
-
-[[package]]
-name = "trellis-tooling-support"
-version = "0.7.0"
-dependencies = [
- "miette",
- "serde_json",
- "tempfile",
- "trellis-contracts",
 ]
 
 [[package]]

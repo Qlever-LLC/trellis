@@ -1,4 +1,4 @@
-FROM docker.io/denoland/deno:2.7.7 AS portal-build
+FROM --platform=$BUILDPLATFORM docker.io/denoland/deno:2.7.7 AS portal-build
 
 WORKDIR /app
 
