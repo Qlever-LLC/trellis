@@ -82,7 +82,14 @@ jobs:
         run: cargo xtask prepare
 
       - name: Run workspace tests
-        run: cargo test --workspace --locked
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${RELEASE_TAG}" ]; then
+            cargo test --workspace
+          else
+            cargo test --workspace --locked
+          fi
         working-directory: rust
 
       - name: Authenticate with crates.io

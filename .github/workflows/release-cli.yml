@@ -22,6 +22,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || inputs.tag || '' }}
 
 jobs:
   verify:
@@ -40,7 +41,7 @@ jobs:
       - name: Prepare release version
         run: deno run --config js/deno.json -A js/tools/release/prepare_release.ts
         env:
-          TRELLIS_RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || inputs.tag || '' }}
+          TRELLIS_RELEASE_TAG: ${{ env.RELEASE_TAG }}
 
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -76,7 +77,14 @@ jobs:
         run: cargo xtask prepare
 
       - name: Run trellis CLI tests
-        run: cargo test -p trellis-cli --locked
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${RELEASE_TAG}" ]; then
+            cargo test -p trellis-cli
+          else
+            cargo test -p trellis-cli --locked
+          fi
         working-directory: rust
 
   build:
@@ -109,7 +117,7 @@ jobs:
       - name: Prepare release version
         run: deno run --config js/deno.json -A js/tools/release/prepare_release.ts
         env:
-          TRELLIS_RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || inputs.tag || '' }}
+          TRELLIS_RELEASE_TAG: ${{ env.RELEASE_TAG }}
 
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -147,7 +155,14 @@ jobs:
         run: cargo xtask prepare
 
       - name: Build release binary
-        run: cargo build -p trellis-cli --release --locked --target ${{ matrix.target }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${RELEASE_TAG}" ]; then
+            cargo build -p trellis-cli --release --target ${{ matrix.target }}
+          else
+            cargo build -p trellis-cli --release --locked --target ${{ matrix.target }}
+          fi
         working-directory: rust
 
       - name: Package CLI archive

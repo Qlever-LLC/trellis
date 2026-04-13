@@ -135,6 +135,10 @@ pub(crate) const AUTH_BOOTSTRAP_BUCKETS: &[KvBucketSpec] = &[
         name: "trellis_users",
         ttl_ms: 0,
     },
+    KvBucketSpec {
+        name: "trellis_state",
+        ttl_ms: 0,
+    },
 ];
 
 #[derive(Debug, serde::Deserialize)]
