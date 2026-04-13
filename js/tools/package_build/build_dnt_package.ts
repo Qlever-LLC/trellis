@@ -1,5 +1,9 @@
 import { build, emptyDir } from "@deno/dnt";
 import { basename, join } from "@std/path";
+import {
+  resolveInternalNpmDependenciesForBuild,
+  resolvePackageBuildVersion,
+} from "../release/release_version.ts";
 
 type BuildDntPackageOptions = {
   buildRoot?: string;
@@ -79,8 +83,11 @@ export async function buildDntPackage(options: BuildDntPackageOptions) {
   const denoConfigPath = options.denoConfigPath ? join(packageDir, options.denoConfigPath) : join(packageDir, "deno.json");
   const denoConfig = JSON.parse(await Deno.readTextFile(denoConfigPath));
   const name = denoConfig.name as string;
-  const version = denoConfig.version as string;
+  const version = resolvePackageBuildVersion(denoConfig.version as string);
   const outDir = options.outDir ? join(packageDir, options.outDir) : join(packageDir, "npm");
+  const npmInstallDeps = resolveInternalNpmDependenciesForBuild(options.npmInstallDeps);
+  const dependencies = resolveInternalNpmDependenciesForBuild(options.dependencies);
+  const peerDependencies = resolveInternalNpmDependenciesForBuild(options.peerDependencies);
 
   await emptyDir(outDir);
 
@@ -105,9 +112,9 @@ export async function buildDntPackage(options: BuildDntPackageOptions) {
           access: "public",
         },
         dependencies: {
-          ...(options.npmInstallDeps ?? {}),
+          ...(npmInstallDeps ?? {}),
         },
-        peerDependencies: options.peerDependencies,
+        peerDependencies,
       },
     });
   } finally {
@@ -126,13 +133,13 @@ export async function buildDntPackage(options: BuildDntPackageOptions) {
   }
   packageJson.dependencies = {
     ...(packageJson.dependencies ?? {}),
-    ...(options.dependencies ?? {}),
+    ...(dependencies ?? {}),
   };
   if (!Object.keys(packageJson.dependencies).length) {
     delete packageJson.dependencies;
   }
-  if (options.peerDependencies && Object.keys(options.peerDependencies).length) {
-    packageJson.peerDependencies = options.peerDependencies;
+  if (peerDependencies && Object.keys(peerDependencies).length) {
+    packageJson.peerDependencies = peerDependencies;
   }
   await Deno.writeTextFile(packageJsonPath, JSON.stringify(packageJson, null, 2) + "\n");
 

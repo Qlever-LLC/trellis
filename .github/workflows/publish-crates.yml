@@ -41,6 +41,11 @@ jobs:
         with:
           deno-version: 2.7.7
 
+      - name: Prepare release version
+        run: deno run --config js/deno.json -A js/tools/release/prepare_release.ts
+        env:
+          TRELLIS_RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+
       - name: Seed generated SDK manifests for cargo metadata
         shell: bash
         working-directory: rust
