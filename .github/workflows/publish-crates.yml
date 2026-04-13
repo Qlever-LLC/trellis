@@ -134,7 +134,7 @@ jobs:
             local status
 
             set +e
-            output=$(cargo publish "$@" 2>&1)
+            output=$(cargo publish --allow-dirty "$@" 2>&1)
             status=$?
             set -e
 
