@@ -11,4 +11,4 @@ rust/target
 !js/build
 !js/build/vite-shims
 !js/build/vite-shims/**
-!js/apps/trellis/build
+!js/apps/console/build

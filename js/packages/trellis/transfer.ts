@@ -1,5 +1,5 @@
 import { AsyncResult, isErr, Result, type Result as ResultType } from "@qlever-llc/result";
-import { createInbox, headers as natsHeaders, type Msg, type NatsConnection } from "@nats-io/nats-core";
+import { createInbox, headers as natsHeaders, type Msg, type MsgHdrs, type NatsConnection } from "@nats-io/nats-core";
 import Type, { type Static } from "typebox";
 import { verifyProof } from "../auth/proof.ts";
 import { base64urlEncode, sha256 } from "../auth/utils.ts";
@@ -295,7 +295,7 @@ class BaseTransferHandle {
     return Result.ok(undefined);
   }
 
-  protected async buildHeaders(subject: string, payload: Uint8Array, seq?: number, eof?: boolean) {
+  protected async buildHeaders(subject: string, payload: Uint8Array, seq?: number, eof?: boolean): Promise<MsgHdrs> {
     const headers = natsHeaders();
     headers.set("session-key", this.#auth.sessionKey);
     headers.set("proof", await createTransferProof(this.#auth, subject, payload));
