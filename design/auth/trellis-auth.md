@@ -118,7 +118,9 @@ Rules:
 - first successful external authentication MUST create the user projection if it
   does not already exist
 - reprovisioning MUST preserve admin-managed user state such as `active` and
-  granted capabilities
+  explicitly granted capabilities
+- deployment-wide instance grant policies MUST NOT be copied onto the user
+  projection; they remain auth-owned dynamic policy
 - contract approval gates delegated app/session access, not whether the user
   exists in auth-local state
 
@@ -144,11 +146,18 @@ Rules:
   `user <-> contractId`
 - contract changes create a new digest and therefore require a fresh user
   decision
+- deployments MAY also configure instance grant policies keyed by contract
+  lineage, with optional origin restrictions, that imply approval and effective
+  capabilities dynamically
+- when a matching instance grant policy is enabled, it overrides explicit user
+  denial for that app lineage while the policy remains enabled
 - approval scopes are derived from declared contract APIs; there is no separate
   scope DSL
 - Trellis stores both `approved` and `denied` decisions
 - if the user's capabilities no longer satisfy the delegated contract, the
   delegated session becomes invalid until re-approval
+- if a policy change removes implied approval or implied capabilities, Trellis
+  MUST revoke affected delegated sessions and require reconnect or re-auth
 - inactive users MUST NOT complete bind even if they still have a stored
   approval record
 

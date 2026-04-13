@@ -25,6 +25,7 @@ import {
 } from "./auth/device_activation/operation.ts";
 import {
   authDisablePortalHandler,
+  authDisableInstanceGrantPolicyHandler,
   authClearLoginPortalSelectionHandler,
   authClearDevicePortalSelectionHandler,
   authDecideDeviceActivationReviewHandler,
@@ -32,6 +33,7 @@ import {
   authDisableDeviceProfileHandler,
   authGetLoginPortalDefaultHandler,
   authGetDevicePortalDefaultHandler,
+  authListInstanceGrantPoliciesHandler,
   authListLoginPortalSelectionsHandler,
   authListPortalsHandler,
   authListDeviceActivationReviewsHandler,
@@ -44,6 +46,7 @@ import {
   createAuthCreateDeviceProfileHandler,
   createAuthProvisionDeviceInstanceHandler,
   authSetLoginPortalDefaultHandler,
+  authUpsertInstanceGrantPolicyHandler,
   authSetLoginPortalSelectionHandler,
   authSetDevicePortalDefaultHandler,
   authSetDevicePortalSelectionHandler,
@@ -147,6 +150,18 @@ await trellis.mount("Auth.CreatePortal", createAuthCreatePortalHandler());
 await trellis.mount("Auth.ListPortals", authListPortalsHandler);
 await trellis.mount("Auth.DisablePortal", authDisablePortalHandler);
 await trellis.mount("Auth.GetLoginPortalDefault", authGetLoginPortalDefaultHandler);
+await trellis.mount(
+  "Auth.ListInstanceGrantPolicies",
+  authListInstanceGrantPoliciesHandler,
+);
+await trellis.mount(
+  "Auth.UpsertInstanceGrantPolicy",
+  authUpsertInstanceGrantPolicyHandler,
+);
+await trellis.mount(
+  "Auth.DisableInstanceGrantPolicy",
+  authDisableInstanceGrantPolicyHandler,
+);
 await trellis.mount("Auth.SetLoginPortalDefault", authSetLoginPortalDefaultHandler);
 await trellis.mount("Auth.ListLoginPortalSelections", authListLoginPortalSelectionsHandler);
 await trellis.mount("Auth.SetLoginPortalSelection", authSetLoginPortalSelectionHandler);

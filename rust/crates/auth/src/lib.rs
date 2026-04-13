@@ -29,8 +29,10 @@ pub use protocol::{
     AuthGetInstalledContractResponse, AuthGetInstalledContractResponseContract,
     AuthInstallServiceRequest, AuthInstallServiceResponse, AuthUpgradeServiceContractRequest,
     AuthUpgradeServiceContractResponse, AuthValidateRequestRequest, AuthValidateRequestResponse,
-    AuthenticatedUser, ListApprovalsRequest, RenewBindingTokenResponse, RevokeApprovalRequest,
-    SentinelCredsRecord, ServiceListEntry,
+    AuthenticatedUser, DisableInstanceGrantPolicyRequest, InstanceGrantPolicyActorRecord,
+    InstanceGrantPolicyRecord, InstanceGrantPolicySourceRecord, ListApprovalsRequest,
+    RenewBindingTokenResponse, RevokeApprovalRequest, SentinelCredsRecord, ServiceListEntry,
+    UpsertInstanceGrantPolicyRequest,
 };
 pub use session_store::{clear_admin_session, load_admin_session, save_admin_session};
 

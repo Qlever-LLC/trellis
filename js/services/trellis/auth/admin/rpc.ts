@@ -2,6 +2,8 @@ import { AuthError } from "@qlever-llc/trellis";
 import { isErr, Result } from "@qlever-llc/result";
 
 import {
+  connectionsKV,
+  contractApprovalsKV,
   deviceActivationHandoffsKV,
   deviceActivationReviewsKV,
   deviceActivationsKV,
@@ -9,10 +11,14 @@ import {
   devicePortalSelectionsKV,
   deviceProvisioningSecretsKV,
   deviceProfilesKV,
+  instanceGrantPoliciesKV,
   logger,
   loginPortalSelectionsKV,
   portalDefaultsKV,
   portalsKV,
+  sessionKV,
+  trellis,
+  usersKV,
 } from "../../bootstrap/globals.ts";
 import {
   type CreatePortalRequest,
@@ -26,10 +32,14 @@ import {
   type ProvisionDeviceInstanceRequest,
   type LoginPortalSelection,
   type LoginPortalSelectionRequest,
+  type InstanceGrantPolicy,
+  type InstanceGrantPolicyActor,
   type Portal,
   type PortalDefault,
   type PortalDefaultRequest,
+  type UpsertInstanceGrantPolicyRequest,
   validateLoginPortalSelectionRequest,
+  validateInstanceGrantPolicyRequest,
   validateDevicePortalSelectionRequest,
   validateDeviceProfileRequest,
   validateDeviceProvisionRequest,
@@ -37,8 +47,14 @@ import {
   validatePortalRequest,
 } from "./shared.ts";
 import { deriveDeviceConfirmationCode } from "../../../../packages/auth/device_activation.ts";
+import { kick } from "../callout/kick.ts";
+import {
+  matchingInstanceGrantPolicies,
+  userDelegationAllowed,
+} from "../grants/policy.ts";
+import type { Session, UserProjectionEntry } from "../../state/schemas.ts";
 
-type RpcUser = { capabilities?: string[] };
+type RpcUser = { capabilities?: string[]; origin?: string; id?: string };
 type DeviceActivation = {
   instanceId: string;
   publicIdentityKey: string;
@@ -64,6 +80,7 @@ type DeviceActivationHandoff = {
 
 type DeviceActivationReviewRecord = {
   reviewId: string;
+  linkRequestId: string;
   instanceId: string;
   publicIdentityKey: string;
   profileId: string;
@@ -85,8 +102,31 @@ function isAdmin(user: RpcUser): boolean {
   return user.capabilities?.includes("admin") ?? false;
 }
 
+function reviewableProfiles(user: RpcUser): Set<string> | null {
+  if (isAdmin(user)) return null;
+  const capabilities = user.capabilities ?? [];
+  if (capabilities.includes("device.review")) return null;
+
+  const profiles = new Set<string>();
+  for (const capability of capabilities) {
+    if (!capability.startsWith("device.review.")) continue;
+    const profileId = capability.slice("device.review.".length).trim();
+    if (profileId) profiles.add(profileId);
+  }
+
+  return profiles.size > 0 ? profiles : new Set<string>();
+}
+
 function canReview(user: RpcUser): boolean {
-  return isAdmin(user) || (user.capabilities?.includes("device.review") ?? false);
+  const profiles = reviewableProfiles(user);
+  return profiles === null || profiles.size > 0;
+}
+
+function canReviewProfile(user: RpcUser, profileId: string): boolean {
+  if (isAdmin(user)) return true;
+  const profiles = reviewableProfiles(user);
+  if (profiles === null) return true;
+  return profiles.has(profileId);
 }
 
 function insufficientPermissions() {
@@ -109,6 +149,12 @@ async function loadPortal(portalId: string): Promise<Portal | null> {
   const entry = (await portalsKV.get(portalId)).take();
   if (isErr(entry)) return null;
   return entry.value as Portal;
+}
+
+async function loadInstanceGrantPolicy(contractId: string): Promise<InstanceGrantPolicy | null> {
+  const entry = (await instanceGrantPoliciesKV.get(contractId)).take();
+  if (isErr(entry)) return null;
+  return entry.value as InstanceGrantPolicy;
 }
 
 async function loadDeviceProfile(profileId: string): Promise<DeviceProfile | null> {
@@ -174,6 +220,18 @@ async function listPortals(): Promise<Portal[]> {
     if (!isErr(entry)) values.push(entry.value as Portal);
   }
   values.sort((left, right) => left.portalId.localeCompare(right.portalId));
+  return values;
+}
+
+async function listInstanceGrantPolicies(): Promise<InstanceGrantPolicy[]> {
+  const iter = (await instanceGrantPoliciesKV.keys(">"))?.take();
+  if (isErr(iter)) return [];
+  const values: InstanceGrantPolicy[] = [];
+  for await (const key of iter) {
+    const entry = (await instanceGrantPoliciesKV.get(key)).take();
+    if (!isErr(entry)) values.push(entry.value as InstanceGrantPolicy);
+  }
+  values.sort((left, right) => left.contractId.localeCompare(right.contractId));
   return values;
 }
 
@@ -252,6 +310,7 @@ async function listDeviceActivationReviews(): Promise<DeviceActivationReviewReco
 function toPublicReview(review: DeviceActivationReviewRecord): DeviceActivationReview {
   return {
     reviewId: review.reviewId,
+    linkRequestId: review.linkRequestId,
     instanceId: review.instanceId,
     publicIdentityKey: review.publicIdentityKey,
     profileId: review.profileId,
@@ -260,6 +319,92 @@ function toPublicReview(review: DeviceActivationReviewRecord): DeviceActivationR
     decidedAt: review.decidedAt instanceof Date ? review.decidedAt.toISOString() : review.decidedAt,
     ...(review.reason ? { reason: review.reason } : {}),
   };
+}
+
+function policyActor(caller: RpcUser): InstanceGrantPolicyActor | undefined {
+  if (!caller.origin || !caller.id) return undefined;
+  return { origin: caller.origin, id: caller.id };
+}
+
+async function loadUserProjection(trellisId: string): Promise<UserProjectionEntry | null> {
+  const entry = (await usersKV.get(trellisId)).take();
+  if (isErr(entry)) return null;
+  return entry.value as UserProjectionEntry;
+}
+
+async function revokeUserSessionByKey(
+  sessionKeyId: string,
+  session: Extract<Session, { type: "user" }>,
+  revokedBy?: string,
+): Promise<void> {
+  const sessionKey = sessionKeyId.split(".")[0];
+  if (!sessionKey) return;
+
+  const connIter = (await connectionsKV.keys(`${sessionKey}.${session.trellisId}.>`)).take();
+  if (!isErr(connIter)) {
+    for await (const connKey of connIter) {
+      const entry = (await connectionsKV.get(connKey)).take();
+      if (!isErr(entry)) {
+        await kick(entry.value.serverId, entry.value.clientId);
+      }
+      await connectionsKV.delete(connKey);
+    }
+  }
+
+  if (revokedBy) {
+    (
+      await trellis.publish("Auth.SessionRevoked", {
+        origin: session.origin,
+        id: session.id,
+        sessionKey,
+        revokedBy,
+      })
+    ).inspectErr((error) =>
+      logger.warn({ error }, "Failed to publish Auth.SessionRevoked")
+    );
+  }
+  await sessionKV.delete(sessionKeyId);
+}
+
+async function revokeInvalidatedInstanceGrantSessions(args: {
+  contractId: string;
+  policies: InstanceGrantPolicy[];
+  revokedBy?: string;
+}): Promise<void> {
+  const iter = (await sessionKV.keys(">")).take();
+  if (isErr(iter)) return;
+
+  for await (const key of iter) {
+    const entry = (await sessionKV.get(key)).take();
+    if (isErr(entry)) continue;
+    const session = entry.value as Session;
+    if (session.type !== "user") continue;
+    if (session.contractId !== args.contractId) continue;
+
+    const projection = await loadUserProjection(session.trellisId);
+    const storedApprovalEntry = (await contractApprovalsKV.get(
+      `${session.trellisId}.${session.contractDigest}`,
+    )).take();
+    const storedApproval = isErr(storedApprovalEntry)
+      ? null
+      : storedApprovalEntry.value;
+    const matchedPolicies = matchingInstanceGrantPolicies({
+      policies: args.policies,
+      contractId: session.contractId,
+      appOrigin: session.appOrigin,
+    });
+    const sessionAllowed = projection !== null &&
+      userDelegationAllowed({
+        active: projection.active,
+        explicitCapabilities: projection.capabilities ?? [],
+        delegatedCapabilities: session.delegatedCapabilities,
+        storedApproval,
+        matchedPolicies,
+      });
+    if (sessionAllowed) continue;
+
+    await revokeUserSessionByKey(key, session, args.revokedBy);
+  }
 }
 
 async function confirmationCodeForReview(review: DeviceActivationReviewRecord): Promise<string | null> {
@@ -313,6 +458,86 @@ export const authDisablePortalHandler = async (
 export const authGetLoginPortalDefaultHandler = async (_req: unknown, { caller }: { caller: RpcUser }) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   return Result.ok({ defaultPortal: (await loadPortalDefault(LOGIN_DEFAULT_KEY)) ?? { portalId: null } });
+};
+
+export const authListInstanceGrantPoliciesHandler = async (
+  _req: unknown,
+  { caller }: { caller: RpcUser },
+) => {
+  if (!isAdmin(caller)) return insufficientPermissions();
+  return Result.ok({ policies: await listInstanceGrantPolicies() });
+};
+
+export const authUpsertInstanceGrantPolicyHandler = async (
+  req: UpsertInstanceGrantPolicyRequest,
+  { caller }: { caller: RpcUser },
+) => {
+  if (!isAdmin(caller)) return insufficientPermissions();
+  const validation = validateInstanceGrantPolicyRequest(req);
+  if (validation.isErr()) return validation;
+  const { policy: normalizedPolicy } = validation.take() as {
+    policy: Pick<InstanceGrantPolicy, "contractId" | "allowedOrigins" | "impliedCapabilities">;
+  };
+  const existing = await loadInstanceGrantPolicy(normalizedPolicy.contractId);
+  const now = new Date().toISOString();
+  const actor = policyActor(caller);
+  const policy: InstanceGrantPolicy = {
+    contractId: normalizedPolicy.contractId,
+    ...(normalizedPolicy.allowedOrigins
+      ? { allowedOrigins: normalizedPolicy.allowedOrigins }
+      : {}),
+    impliedCapabilities: normalizedPolicy.impliedCapabilities,
+    disabled: false,
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+    source: {
+      kind: "admin_policy",
+      ...(existing?.source.createdBy || actor
+        ? { createdBy: existing?.source.createdBy ?? actor }
+        : {}),
+      ...(actor
+        ? { updatedBy: actor }
+        : existing?.source.updatedBy
+        ? { updatedBy: existing.source.updatedBy }
+        : {}),
+    },
+  };
+  await instanceGrantPoliciesKV.put(policy.contractId, policy);
+  await revokeInvalidatedInstanceGrantSessions({
+    contractId: policy.contractId,
+    policies: await listInstanceGrantPolicies(),
+    revokedBy: actor ? `${actor.origin}.${actor.id}` : undefined,
+  });
+  return Result.ok({ policy });
+};
+
+export const authDisableInstanceGrantPolicyHandler = async (
+  req: { contractId: string },
+  { caller }: { caller: RpcUser },
+) => {
+  if (!isAdmin(caller)) return insufficientPermissions();
+  if (!req.contractId) return invalidRequest({ contractId: req.contractId });
+  const existing = await loadInstanceGrantPolicy(req.contractId);
+  if (!existing) {
+    return invalidRequest({ contractId: req.contractId, reason: "instance_grant_policy_not_found" });
+  }
+  const actor = policyActor(caller);
+  const policy: InstanceGrantPolicy = {
+    ...existing,
+    disabled: true,
+    updatedAt: new Date().toISOString(),
+    source: {
+      ...existing.source,
+      ...(actor ? { updatedBy: actor } : {}),
+    },
+  };
+  await instanceGrantPoliciesKV.put(policy.contractId, policy);
+  await revokeInvalidatedInstanceGrantSessions({
+    contractId: policy.contractId,
+    policies: await listInstanceGrantPolicies(),
+    revokedBy: actor ? `${actor.origin}.${actor.id}` : undefined,
+  });
+  return Result.ok({ policy });
 };
 
 export const authSetLoginPortalDefaultHandler = async (
@@ -567,10 +792,17 @@ export const authListDeviceActivationReviewsHandler = async (
   { caller }: { caller: RpcUser },
 ) => {
   if (!canReview(caller)) return insufficientPermissions();
+  const allowedProfiles = reviewableProfiles(caller);
+  if (allowedProfiles !== null && req.profileId && !allowedProfiles.has(req.profileId)) {
+    return insufficientPermissions();
+  }
   let reviews = await listDeviceActivationReviews();
   if (req.instanceId) reviews = reviews.filter((review) => review.instanceId === req.instanceId);
   if (req.profileId) reviews = reviews.filter((review) => review.profileId === req.profileId);
   if (req.state) reviews = reviews.filter((review) => review.state === req.state);
+  if (allowedProfiles !== null) {
+    reviews = reviews.filter((review) => allowedProfiles.has(review.profileId));
+  }
   return Result.ok({ reviews: reviews.map(toPublicReview) });
 };
 
@@ -578,11 +810,11 @@ export const authDecideDeviceActivationReviewHandler = async (
   req: { reviewId: string; decision: "approve" | "reject"; reason?: string },
   { caller }: { caller: RpcUser },
 ) => {
-  if (!canReview(caller)) return insufficientPermissions();
   const review = await loadDeviceActivationReview(req.reviewId);
   if (!review) {
     return invalidRequest({ reviewId: req.reviewId, reason: "device_review_not_found" });
   }
+  if (!canReviewProfile(caller, review.profileId)) return insufficientPermissions();
 
   if (review.state !== "pending") {
     const activation = review.state === "approved" ? await loadDeviceActivation(review.instanceId) : null;

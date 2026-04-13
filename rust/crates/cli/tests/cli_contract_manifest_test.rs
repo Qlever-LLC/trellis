@@ -40,6 +40,15 @@ fn cli_contract_manifest_validates_and_declares_expected_auth_and_core_surface()
         .any(|value| value == "Auth.GetLoginPortalDefault"));
     assert!(calls
         .iter()
+        .any(|value| value == "Auth.ListInstanceGrantPolicies"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.UpsertInstanceGrantPolicy"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.DisableInstanceGrantPolicy"));
+    assert!(calls
+        .iter()
         .any(|value| value == "Auth.SetLoginPortalDefault"));
     assert!(calls
         .iter()

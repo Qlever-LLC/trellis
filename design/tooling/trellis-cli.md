@@ -111,6 +111,9 @@ trellis auth logout
 trellis auth status
 trellis auth approval list [--user <origin.id>] [--digest <contractDigest>]
 trellis auth approval revoke <contractDigest> [--user <origin.id>]
+trellis auth grant list
+trellis auth grant set <contractId|path> [--capability <capability>...] [--allow-origin <origin>...]
+trellis auth grant disable <contractId>
 trellis portal list
 trellis portal create <portalId> <entryUrl> [--app-contract-id <contractId>]
 trellis portal disable <portalId>
@@ -168,6 +171,11 @@ Operational command behavior:
 - `trellis auth approval revoke` removes a stored `user <-> contractDigest`
   decision and causes matching active delegated sessions to be revoked by the
   `trellis` service
+- `trellis auth grant *` manages deployment-wide instance grant policies keyed
+  by browser-app contract lineage; `set` may resolve the lineage from either a
+  contract id or a local contract source path, may optionally restrict matching
+  browser origins, and causes affected delegated sessions to reconnect so auth
+  re-evaluates current policy
 - `trellis device profile *` manages device classes, allowed digests, and
   review policy for activated devices; when given a local contract source,
   profile creation also registers that contract digest in the catalog so

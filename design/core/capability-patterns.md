@@ -24,11 +24,18 @@ Rules:
 
 - contracts declare required capabilities
 - deployments assign capability bundles to users and services
+- deployments MAY also assign auth-owned dynamic capability overlays through
+  instance grant policies keyed by browser-app contract lineage and optional app
+  origin
 - services receive deployment policy at installation and contract upgrade time
 - authorization changes take effect immediately because auth derives subjects from active contracts and current grants
 - auth-owned self-service RPCs may intentionally require zero granted
   capabilities when ordinary authenticated user context is sufficient, such as
   `Auth.Me`, `Auth.Logout`, and `Auth.RenewBindingToken`
+
+Instance grant policies are deployment policy, not user-owned grants. They must
+not be copied onto the user projection, and they may be revoked dynamically so
+affected delegated sessions must reconnect and re-evaluate current policy.
 
 ## Capability Naming
 

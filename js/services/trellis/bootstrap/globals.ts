@@ -28,6 +28,7 @@ import {
   DeviceProfileSchema,
   DeviceProvisioningSecretSchema,
   DeviceSchema,
+  InstanceGrantPolicySchema,
 } from "../state/schemas.ts";
 
 const config = getConfig();
@@ -180,6 +181,20 @@ if (isErr(loginPortalSelectionsKVValue)) {
   );
 }
 export const loginPortalSelectionsKV = loginPortalSelectionsKVValue;
+
+const instanceGrantPoliciesKVResult = await TypedKV.open(
+  natsAuth,
+  "trellis_instance_grant_policies",
+  InstanceGrantPolicySchema,
+  { history: 1, ttl: 0 },
+);
+const instanceGrantPoliciesKVValue = instanceGrantPoliciesKVResult.take();
+if (isErr(instanceGrantPoliciesKVValue)) {
+  throw new Error(
+    `Failed to open instance grant policies KV: ${instanceGrantPoliciesKVValue.error.message}`,
+  );
+}
+export const instanceGrantPoliciesKV = instanceGrantPoliciesKVValue;
 
 const devicePortalSelectionsKVResult = await TypedKV.open(
   natsAuth,

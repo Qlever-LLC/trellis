@@ -102,7 +102,10 @@ Deno.test("buildPortalFlowState maps browser flow records to typed states", asyn
       userName: "User",
       existingProjection: null,
       existingCapabilities: ["admin"],
+      effectiveCapabilities: ["admin"],
       missingCapabilities: [],
+      matchedPolicies: [],
+      effectiveApproval: { kind: "none", answer: "none" },
       storedApproval: null,
     },
   } satisfies Parameters<typeof buildPortalFlowState>[0]);
@@ -143,7 +146,10 @@ Deno.test("buildPortalFlowState maps browser flow records to typed states", asyn
       userName: "User",
       existingProjection: null,
       existingCapabilities: [],
+      effectiveCapabilities: [],
       missingCapabilities: [],
+      matchedPolicies: [],
+      effectiveApproval: { kind: "stored_approval", answer: "denied" },
       storedApproval: {
         userTrellisId: "trellis-123",
         origin: "github",
@@ -203,7 +209,10 @@ Deno.test("buildPortalFlowState maps browser flow records to typed states", asyn
       userName: "User",
       existingProjection: null,
       existingCapabilities: ["admin"],
+      effectiveCapabilities: ["admin"],
       missingCapabilities: ["audit"],
+      matchedPolicies: [],
+      effectiveApproval: { kind: "none", answer: "none" },
       storedApproval: null,
     },
   } satisfies Parameters<typeof buildPortalFlowState>[0]);
@@ -246,7 +255,10 @@ Deno.test("buildPortalFlowState maps browser flow records to typed states", asyn
       userName: "User",
       existingProjection: null,
       existingCapabilities: ["admin"],
+      effectiveCapabilities: ["admin"],
       missingCapabilities: [],
+      matchedPolicies: [],
+      effectiveApproval: { kind: "stored_approval", answer: "approved" },
       storedApproval: {
         userTrellisId: "trellis-123",
         origin: "github",
@@ -310,7 +322,10 @@ Deno.test("applyApprovalDecision returns a denied portal state immediately", asy
       userName: "User",
       existingProjection: null,
       existingCapabilities: ["admin"],
+      effectiveCapabilities: ["admin"],
       missingCapabilities: [],
+      matchedPolicies: [],
+      effectiveApproval: { kind: "none", answer: "none" },
       storedApproval: null,
     },
     approved: false,
@@ -419,6 +434,89 @@ Deno.test("getApprovalResolution uses injected loaders", async () => {
     capabilities: [],
   });
   assertEquals(resolution.storedApproval?.answer, "approved");
+});
+
+Deno.test("getApprovalResolution prefers matching instance grant policy over stored denial", async () => {
+  const contractStore = new ContractStore();
+  const pending: PendingAuth = {
+    user: {
+      origin: "github",
+      id: "123",
+      email: "user@example.com",
+      name: "User",
+    },
+    sessionKey: "A".repeat(43),
+    redirectTo: "https://app.example.com/callback",
+    contract: {
+      format: "trellis.contract.v1",
+      id: "trellis.console@v1",
+      displayName: "Console",
+      description: "Admin",
+      kind: "app",
+      subjects: {
+        audit: {
+          subject: "trellis.console.audit",
+          capabilities: {
+            publish: ["audit"],
+          },
+        },
+      },
+    },
+    createdAt: new Date(),
+  };
+
+  const resolution = await getApprovalResolution(contractStore, pending, {
+    loadStoredApproval: async () => ({
+      userTrellisId: "trellis-123",
+      origin: "github",
+      id: "123",
+      answer: "denied",
+      answeredAt: new Date(),
+      updatedAt: new Date(),
+      approval: {
+        contractId: "trellis.console@v1",
+        contractDigest: "digest",
+        displayName: "Console",
+        description: "Admin",
+        kind: "app",
+        capabilities: ["audit"],
+      },
+      publishSubjects: [],
+      subscribeSubjects: [],
+    }),
+    loadUserProjection: async () => ({
+      origin: "github",
+      id: "123",
+      name: "User",
+      email: "user@example.com",
+      active: true,
+      capabilities: [],
+    }),
+    loadInstanceGrantPolicies: async () => [{
+      contractId: "trellis.console@v1",
+      impliedCapabilities: ["audit"],
+      allowedOrigins: ["https://app.example.com"],
+      disabled: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      source: {
+        kind: "admin_policy",
+      },
+    }],
+  });
+
+  assertEquals(resolution.appOrigin, "https://app.example.com");
+  assertEquals(resolution.existingCapabilities, []);
+  assertEquals(resolution.effectiveCapabilities, ["audit"]);
+  assertEquals(resolution.missingCapabilities, []);
+  assertEquals(resolution.matchedPolicies.map((policy) => policy.contractId), [
+    "trellis.console@v1",
+  ]);
+  assertEquals(resolution.effectiveApproval, {
+    answer: "approved",
+    kind: "admin_policy",
+  });
+  assertEquals(resolution.storedApproval?.answer, "denied");
 });
 
 Deno.test("getApprovalResolutionBlocker rejects inactive users from completing bind", async () => {

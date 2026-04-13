@@ -20,6 +20,7 @@ import {
   DevicePortalSelectionSchema,
   DeviceProfileSchema,
   DeviceSchema,
+  InstanceGrantPolicySchema,
   LoginPortalDefaultSchema,
   LoginPortalSelectionSchema,
   PortalSchema,
@@ -47,6 +48,7 @@ export {
   DeviceActivationReviewSchema,
   DeviceProfileSchema,
   DeviceSchema,
+  InstanceGrantPolicySchema,
 };
 
 export const SessionKeySchema = Type.String({
@@ -138,6 +140,7 @@ export type DeviceProvisioningSecret = StaticDecode<typeof DeviceProvisioningSec
 
 export const DeviceActivationReviewRecordSchema = Type.Object({
   reviewId: Type.String({ minLength: 1 }),
+  linkRequestId: Type.String({ minLength: 1 }),
   handoffId: Type.String({ minLength: 1 }),
   instanceId: Type.String({ minLength: 1 }),
   publicIdentityKey: Type.String({ minLength: 1 }),
@@ -159,6 +162,13 @@ export type DeviceActivationReviewRecord = StaticDecode<typeof DeviceActivationR
 
 export type ApprovalDecision = StaticDecode<typeof ApprovalDecisionSchema>;
 export type ContractApproval = StaticDecode<typeof ContractApprovalSchema>;
+export type InstanceGrantPolicy = StaticDecode<typeof InstanceGrantPolicySchema>;
+
+export const SessionApprovalSourceSchema = Type.Union([
+  Type.Literal("stored_approval"),
+  Type.Literal("admin_policy"),
+]);
+export type SessionApprovalSource = StaticDecode<typeof SessionApprovalSourceSchema>;
 
 export const ContractApprovalRecordSchema = Type.Object({
   userTrellisId: Type.String({ minLength: 1 }),
@@ -205,6 +215,8 @@ export const UserSessionSchema = Type.Object({
   contractId: Type.String({ minLength: 1 }),
   contractDisplayName: Type.String({ minLength: 1 }),
   contractDescription: Type.String({ minLength: 1 }),
+  appOrigin: Type.Optional(Type.String({ minLength: 1 })),
+  approvalSource: Type.Optional(SessionApprovalSourceSchema),
   delegatedCapabilities: Type.Array(Type.String()),
   delegatedPublishSubjects: Type.Array(Type.String()),
   delegatedSubscribeSubjects: Type.Array(Type.String()),

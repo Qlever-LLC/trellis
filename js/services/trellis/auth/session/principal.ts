@@ -1,9 +1,17 @@
 import { isErr } from "@qlever-llc/result";
 import type {
+  ContractApprovalRecord,
+  InstanceGrantPolicy,
   ServiceRegistryEntry,
   Session,
   UserProjectionEntry,
 } from "../../state/schemas.ts";
+import {
+  effectiveApproval,
+  effectiveCapabilities,
+  matchingInstanceGrantPolicies,
+  userDelegationAllowed,
+} from "../grants/policy.ts";
 
 type KVResult<T> = { take(): T };
 
@@ -62,6 +70,8 @@ export async function resolveSessionPrincipal(
     deviceActivationsKV?: KVLike<{ instanceId: string; publicIdentityKey: string; profileId: string; state: string; revokedAt: string | Date | null }>;
     deviceProfilesKV?: KVLike<{ profileId: string; disabled: boolean }>;
     usersKV: KVLike<UserProjectionEntry>;
+    loadStoredApproval?: (key: string) => Promise<ContractApprovalRecord | null>;
+    loadInstanceGrantPolicies?: (contractId: string) => Promise<InstanceGrantPolicy[]>;
   },
 ): Promise<SessionPrincipalResult> {
   if (session.type === "service") {
@@ -184,7 +194,29 @@ export async function resolveSessionPrincipal(
   }
 
   const currentCapabilities = projection.capabilities ?? [];
-  if (!hasAllCapabilities(currentCapabilities, session.delegatedCapabilities)) {
+  const matchedPolicies = matchingInstanceGrantPolicies({
+    policies: await (deps.loadInstanceGrantPolicies?.(session.contractId) ?? Promise.resolve([])),
+    contractId: session.contractId,
+    appOrigin: session.appOrigin,
+  });
+  const storedApproval = deps.loadStoredApproval
+    ? await deps.loadStoredApproval(`${session.trellisId}.${session.contractDigest}`)
+    : null;
+  const resolvedCapabilities = effectiveCapabilities({
+    explicitCapabilities: currentCapabilities,
+    matchedPolicies,
+  });
+  const resolvedApproval = effectiveApproval({
+    storedApproval,
+    matchedPolicies,
+  });
+  if (!userDelegationAllowed({
+    active: projection.active,
+    explicitCapabilities: currentCapabilities,
+    delegatedCapabilities: session.delegatedCapabilities,
+    storedApproval,
+    matchedPolicies,
+  })) {
     return {
       ok: false,
       error: { reason: "insufficient_permissions" },

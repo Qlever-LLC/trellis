@@ -8,6 +8,8 @@ import { AuthError } from "../../../../packages/trellis/errors/AuthError.ts";
 import {
   bindingTokenKV,
   connectionsKV,
+  contractApprovalsKV,
+  instanceGrantPoliciesKV,
   logger,
   natsAuth,
   sentinelCreds,
@@ -650,6 +652,14 @@ export const authValidateRequestHandler = async (req: ValidateRequestInput) => {
     usersKV,
     deviceActivationsKV: deviceActivationsKV,
     deviceProfilesKV: deviceProfilesKV,
+    loadStoredApproval: async (key) => {
+      const entry = (await contractApprovalsKV.get(key)).take();
+      return isErr(entry) ? null : entry.value;
+    },
+    loadInstanceGrantPolicies: async (contractId: string) => {
+      const entry = (await instanceGrantPoliciesKV.get(contractId)).take();
+      return isErr(entry) ? [] : [entry.value];
+    },
   });
   if (!principal.ok) {
     return Result.err(new AuthError(principal.error));

@@ -9,6 +9,8 @@ import type { ContractResourceBindings } from "../../../../packages/contracts/pr
 import { resolveSessionPrincipal } from "../session/principal.ts";
 import type {
   BindingTokenRecord,
+  ContractApprovalRecord,
+  InstanceGrantPolicy,
   SentinelCreds,
   Session,
   SessionKey,
@@ -129,6 +131,8 @@ export type ClientBootstrapDeps = {
   sessionKV: SessionStore;
   usersKV: UserStore;
   servicesKV: ServiceStore;
+  loadStoredApproval(key: string): Promise<ContractApprovalRecord | null>;
+  loadInstanceGrantPolicies(contractId: string): Promise<InstanceGrantPolicy[]>;
   bindingTokenKV: BindingTokenStore;
   hashKey(value: string): Promise<string>;
   randomToken(bytes: number): string;
@@ -224,6 +228,8 @@ export async function resolveClientBootstrap(
   const principal = await resolveSessionPrincipal(session, request.sessionKey, {
     servicesKV: deps.servicesKV,
     usersKV: deps.usersKV,
+    loadStoredApproval: deps.loadStoredApproval,
+    loadInstanceGrantPolicies: deps.loadInstanceGrantPolicies,
   });
   if (!principal.ok) {
     switch (principal.error.reason) {

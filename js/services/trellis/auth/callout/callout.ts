@@ -15,7 +15,9 @@ import { CONTRACT as trellisAuthContract } from "../../contracts/trellis_auth.ts
 import {
   bindingTokenKV,
   connectionsKV,
+  contractApprovalsKV,
   contractsKV,
+  instanceGrantPoliciesKV,
   logger,
   natsAuth,
   servicesKV,
@@ -467,6 +469,14 @@ export function startAuthCallout(opts?: { contractStore?: ContractStore }): Back
         usersKV,
         deviceActivationsKV,
         deviceProfilesKV,
+        loadStoredApproval: async (key) => {
+          const entry = (await contractApprovalsKV.get(key)).take();
+          return isErr(entry) ? null : entry.value;
+        },
+        loadInstanceGrantPolicies: async (contractId: string) => {
+          const entry = (await instanceGrantPoliciesKV.get(contractId)).take();
+          return isErr(entry) ? [] : [entry.value];
+        },
       });
       if (!principal.ok) {
         throw new Error(principal.error.reason);

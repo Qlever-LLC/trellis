@@ -19,6 +19,7 @@ import {
   deviceInstancesKV,
   deviceProfilesKV,
   logger,
+  instanceGrantPoliciesKV,
   loginPortalSelectionsKV,
   oauthStateKV,
   pendingAuthKV,
@@ -88,6 +89,10 @@ export function registerHttpRoutes(
     loadUserProjection: async (trellisId: string) => {
       const entry = (await usersKV.get(trellisId)).take();
       return isErr(entry) ? null : entry.value;
+    },
+    loadInstanceGrantPolicies: async (contractId: string) => {
+      const entry = (await instanceGrantPoliciesKV.get(contractId)).take();
+      return isErr(entry) ? [] : [entry.value];
     },
   };
 
@@ -259,9 +264,9 @@ export function registerHttpRoutes(
       };
     }
 
-    if (resolution.storedApproval?.answer !== "approved") {
+    if (resolution.effectiveApproval.answer !== "approved") {
       throw new HTTPException(403, {
-        message: resolution.storedApproval?.answer === "denied"
+        message: resolution.effectiveApproval.answer === "denied"
           ? "approval_denied"
           : "approval_required",
       });
@@ -310,6 +315,8 @@ export function registerHttpRoutes(
       contractId: resolution.plan.contract.id,
       contractDisplayName: resolution.plan.contract.displayName,
       contractDescription: resolution.plan.contract.description,
+      ...(resolution.appOrigin ? { appOrigin: resolution.appOrigin } : {}),
+      approvalSource: resolution.effectiveApproval.kind,
       delegatedCapabilities: resolution.plan.approval.capabilities,
       delegatedPublishSubjects: resolution.plan.publishSubjects,
       delegatedSubscribeSubjects: resolution.plan.subscribeSubjects,
@@ -397,6 +404,14 @@ export function registerHttpRoutes(
       sessionKV,
       usersKV,
       servicesKV,
+      loadStoredApproval: async (key) => {
+        const entry = (await contractApprovalsKV.get(key)).take();
+        return isErr(entry) ? null : entry.value;
+      },
+      loadInstanceGrantPolicies: async (contractId: string) => {
+        const entry = (await instanceGrantPoliciesKV.get(contractId)).take();
+        return isErr(entry) ? [] : [entry.value];
+      },
       bindingTokenKV,
       hashKey,
       randomToken,
@@ -771,7 +786,7 @@ export function registerHttpRoutes(
         resolution = await requireApprovalResolution(pending);
         returnLocation = buildRedirectLocation(pending.redirectTo, { flowId });
         if (
-          resolution.storedApproval?.answer === "approved" &&
+          resolution.effectiveApproval.answer === "approved" &&
           resolution.missingCapabilities.length === 0 &&
           !getApprovalResolutionBlocker(resolution)
         ) {
@@ -855,6 +870,26 @@ export function registerHttpRoutes(
     const returnLocation = buildRedirectLocation(pending.redirectTo, {
       flowId,
     });
+
+    if (resolution.effectiveApproval.kind === "admin_policy") {
+      return c.json(
+        await buildPortalFlowState({
+          flowId,
+          flow,
+          app: appMeta,
+          providers: providersList,
+          resolution,
+          ...(resolution.missingCapabilities.length === 0 &&
+              !getApprovalResolutionBlocker(resolution)
+            ? {
+              redirectLocation: buildRedirectLocation(pending.redirectTo, {
+                flowId,
+              }),
+            }
+            : { returnLocation }),
+        }),
+      );
+    }
 
     if (resolution.missingCapabilities.length > 0) {
       return c.json(

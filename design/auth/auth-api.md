@@ -83,6 +83,7 @@ Rules:
 - if present, `context` is stored on the browser flow and returned to portals as app-owned opaque data
 - a portal is trusted for this redirect only because deployment configuration registered its `entryUrl`; portal registration does not grant service authority
 - first login does not require pre-registering a portal because the built-in Trellis login portal is always available
+- auth MAY also apply a matching deployment-wide instance grant policy for the app's contract lineage and optional app origin; when it matches, portal skips approval UX and continues with the server-generated redirect
 
 ### GET /auth/login/:provider
 
@@ -580,6 +581,26 @@ type DevicePortalSelection = {
   portalId: string | null; // null forces the built-in Trellis device portal for this profile
 };
 
+type InstanceGrantPolicy = {
+  contractId: string;
+  allowedOrigins?: string[];
+  impliedCapabilities: string[];
+  disabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+  source: {
+    kind: "admin_policy";
+    createdBy?: {
+      origin: string;
+      id: string;
+    };
+    updatedBy?: {
+      origin: string;
+      id: string;
+    };
+  };
+};
+
 type DeviceProfile = {
   profileId: string;
   contractId: string;
@@ -592,6 +613,7 @@ type DeviceInstance = {
   instanceId: string;
   publicIdentityKey: string;
   profileId: string;
+  metadata?: Record<string, string>;
   state: "registered" | "activated" | "revoked" | "disabled";
   createdAt: string;
   activatedAt: string | null;
@@ -613,7 +635,6 @@ type DeviceActivationRecord = {
 
 type DeviceActivationReview = {
   reviewId: string;
-  metadata?: Record<string, string>;
   instanceId: string;
   publicIdentityKey: string;
   profileId: string;
@@ -707,6 +728,15 @@ type ListPortalsResponse = { portals: Portal[] };
 type DisablePortalRequest = { portalId: string };
 
 type GetLoginPortalDefaultResponse = { defaultPortal: LoginPortalDefault };
+type ListInstanceGrantPoliciesResponse = { policies: InstanceGrantPolicy[] };
+type UpsertInstanceGrantPolicyRequest = {
+  contractId: string;
+  allowedOrigins?: string[];
+  impliedCapabilities: string[];
+};
+type UpsertInstanceGrantPolicyResponse = { policy: InstanceGrantPolicy };
+type DisableInstanceGrantPolicyRequest = { contractId: string };
+type DisableInstanceGrantPolicyResponse = { policy: InstanceGrantPolicy };
 type SetLoginPortalDefaultRequest = { portalId: string | null };
 type SetLoginPortalDefaultResponse = { defaultPortal: LoginPortalDefault };
 
@@ -747,6 +777,7 @@ type ProvisionDeviceInstanceRequest = {
   profileId: string;
   publicIdentityKey: string;
   activationKey: string;
+  metadata?: Record<string, string>;
 };
 type ProvisionDeviceInstanceResponse = { instance: DeviceInstance };
 
@@ -777,7 +808,6 @@ Portal rules:
 - a portal record registers a custom browser destination and optional user-app identity metadata; it does not install or authenticate a service principal
 - `appContractId`, when present, refers to a normal browser app contract that the portal may use after login while acting as the logged-in user
 - portals MUST NOT use service-authenticated install or upgrade flows as their trust model
-  metadata?: Record<string, string>;
 
 Portal selection rules:
 
@@ -796,6 +826,7 @@ Library rule:
 Capability rule:
 
 - review-decision RPCs MUST allow callers with `admin` or `device.review`
+- instance grant policies are deployment policy, not user-owned grants; user-facing callers still see only explicit user capabilities in insufficient-capability responses
 
 Canonical RPC inventory:
 
@@ -805,6 +836,9 @@ Canonical RPC inventory:
 - `rpc.v1.Auth.ListPortals`
 - `rpc.v1.Auth.DisablePortal`
 - `rpc.v1.Auth.GetLoginPortalDefault`
+- `rpc.v1.Auth.ListInstanceGrantPolicies`
+- `rpc.v1.Auth.UpsertInstanceGrantPolicy`
+- `rpc.v1.Auth.DisableInstanceGrantPolicy`
 - `rpc.v1.Auth.SetLoginPortalDefault`
 - `rpc.v1.Auth.ListLoginPortalSelections`
 - `rpc.v1.Auth.SetLoginPortalSelection`
@@ -855,6 +889,67 @@ Response:
     createdAt: string;
     lastAuth: string;
   }>;
+}
+```
+
+### rpc.Auth.ListInstanceGrantPolicies
+
+Request:
+
+```ts
+{}
+```
+
+Response:
+
+```ts
+{
+  policies: InstanceGrantPolicy[];
+}
+```
+
+### rpc.Auth.UpsertInstanceGrantPolicy
+
+Request:
+
+```ts
+{
+  contractId: string;
+  allowedOrigins?: string[];
+  impliedCapabilities: string[];
+}
+```
+
+Response:
+
+```ts
+{
+  policy: InstanceGrantPolicy;
+}
+```
+
+Rules:
+
+- `contractId` targets a contract lineage, not one exact digest
+- `allowedOrigins`, when present, further restrict the policy to matching browser-app origins and are independent of the deployment `redirectTo` allowlist
+- matching enabled policies imply app approval and implied capabilities dynamically; they do not copy those capabilities onto the user projection
+- policy updates SHOULD revoke affected delegated user sessions so reconnect re-evaluates current policy
+
+### rpc.Auth.DisableInstanceGrantPolicy
+
+Request:
+
+```ts
+{
+  contractId: string;
+}
+```
+
+Response:
+
+```ts
+{
+  policy: InstanceGrantPolicy;
 }
 ```
 

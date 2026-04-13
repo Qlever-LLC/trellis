@@ -1,10 +1,19 @@
 import { trellisIdFromOriginId } from "@qlever-llc/trellis/auth";
 
 import { planUserContractApproval } from "../approval/plan.ts";
+import {
+  effectiveApproval,
+  effectiveCapabilities,
+  getAppOrigin,
+  matchingInstanceGrantPolicies,
+  missingCapabilities,
+  type EffectiveApproval,
+} from "../grants/policy.ts";
 import type { Config } from "../../config.ts";
 import type { ContractStore } from "../../catalog/store.ts";
 import type {
   ContractApprovalRecord,
+  InstanceGrantPolicy,
   OAuthState,
   PendingAuth,
   UserProjectionEntry,
@@ -27,9 +36,13 @@ export type ApprovalResolution = {
   userId: string;
   userEmail: string;
   userName: string;
+  appOrigin?: string;
   existingProjection: UserProjectionEntry | null;
   existingCapabilities: string[];
+  effectiveCapabilities: string[];
   missingCapabilities: string[];
+  matchedPolicies: InstanceGrantPolicy[];
+  effectiveApproval: EffectiveApproval;
   storedApproval: ContractApprovalRecord | null;
 };
 
@@ -70,6 +83,7 @@ export function getApprovalResolutionBlocker(
 export type ApprovalResolutionDeps = {
   loadStoredApproval: (key: string) => Promise<ContractApprovalRecord | null>;
   loadUserProjection: (trellisId: string) => Promise<UserProjectionEntry | null>;
+  loadInstanceGrantPolicies?: (contractId: string) => Promise<InstanceGrantPolicy[]>;
 };
 
 export type WarnLogger = {
@@ -94,19 +108,23 @@ export function applyApprovalDecision(args: {
   approved: boolean;
   answeredAt: Date;
 }): ApprovalResolutionWithStoredApproval {
+  const storedApproval: ContractApprovalRecord = {
+    userTrellisId: args.resolution.trellisId,
+    origin: args.resolution.userOrigin,
+    id: args.resolution.userId,
+    answer: args.approved ? "approved" : "denied",
+    answeredAt: args.answeredAt,
+    updatedAt: args.answeredAt,
+    approval: args.resolution.plan.approval,
+    publishSubjects: args.resolution.plan.publishSubjects,
+    subscribeSubjects: args.resolution.plan.subscribeSubjects,
+  };
   return {
     ...args.resolution,
-    storedApproval: {
-      userTrellisId: args.resolution.trellisId,
-      origin: args.resolution.userOrigin,
-      id: args.resolution.userId,
-      answer: args.approved ? "approved" : "denied",
-      answeredAt: args.answeredAt,
-      updatedAt: args.answeredAt,
-      approval: args.resolution.plan.approval,
-      publishSubjects: args.resolution.plan.publishSubjects,
-      subscribeSubjects: args.resolution.plan.subscribeSubjects,
-    },
+    effectiveApproval: args.resolution.matchedPolicies.length > 0
+      ? { kind: "admin_policy", answer: "approved" }
+      : { kind: "stored_approval", answer: storedApproval.answer },
+    storedApproval,
   };
 }
 
@@ -210,12 +228,29 @@ export async function getApprovalResolution(
   const trellisId = await trellisIdFromOriginId(pending.user.origin, pending.user.id);
   const userEmail = pending.user.email ?? `${pending.user.origin}:${pending.user.id}`;
   const userName = pending.user.name ?? pending.user.id;
+  const appOrigin = getAppOrigin(pending.redirectTo);
   const existingProjection = await deps.loadUserProjection(trellisId);
   const existingCapabilities = existingProjection?.capabilities ?? [];
-  const missingCapabilities = plan.approval.capabilities.filter((capability: string) => !existingCapabilities.includes(capability));
   const storedApproval = await deps.loadStoredApproval(
     contractApprovalKey(trellisId, plan.digest),
   );
+  const matchedPolicies = matchingInstanceGrantPolicies({
+    policies: await (deps.loadInstanceGrantPolicies?.(plan.contract.id) ?? Promise.resolve([])),
+    contractId: plan.contract.id,
+    appOrigin,
+  });
+  const resolvedCapabilities = effectiveCapabilities({
+    explicitCapabilities: existingCapabilities,
+    matchedPolicies,
+  });
+  const resolvedApproval = effectiveApproval({
+    storedApproval,
+    matchedPolicies,
+  });
+  const unresolvedCapabilities = missingCapabilities({
+    requiredCapabilities: plan.approval.capabilities,
+    effectiveCapabilities: resolvedCapabilities,
+  });
 
   return {
     plan,
@@ -224,9 +259,13 @@ export async function getApprovalResolution(
     userId: pending.user.id,
     userEmail,
     userName,
+    ...(appOrigin ? { appOrigin } : {}),
     existingProjection,
     existingCapabilities,
-    missingCapabilities,
+    effectiveCapabilities: resolvedCapabilities,
+    missingCapabilities: unresolvedCapabilities,
+    matchedPolicies,
+    effectiveApproval: resolvedApproval,
     storedApproval,
   };
 }

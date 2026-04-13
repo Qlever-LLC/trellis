@@ -373,6 +373,7 @@ Required KV buckets and logical contents:
 | `trellis_browser_flows` | `<flowId>` | Browser flow record | 5 min |
 | `trellis_portals` | `<portalId>` | Portal record | None |
 | `trellis_portal_login_selections` | `contract.<contractId>` | Login portal selection record | None |
+| `trellis_instance_grant_policies` | `<contractId>` | Deployment-wide instance grant policy | None |
 | `trellis_portal_device_selections` | `profile.<profileId>` | Device portal selection record | None |
 | `trellis_portal_defaults` | `login.default` / `device.default` | Optional deployment default custom portals | None |
 | `trellis_device_profiles` | `<profileId>` | Device profile | None |
@@ -421,6 +422,8 @@ type UserSession = {
   contractId?: string;
   contractDisplayName?: string;
   contractDescription?: string;
+  appOrigin?: string;
+  approvalSource?: "stored_approval" | "admin_policy";
   delegatedCapabilities?: string[];
   delegatedPublishSubjects?: string[];
   delegatedSubscribeSubjects?: string[];
@@ -457,6 +460,8 @@ Rules:
 
 - the key is `<sessionKey>.<trellisId>`
 - user delegated fields are present only for contract-bearing user sessions
+- user delegated sessions MAY also record the browser app origin and approval
+  source used at bind time so reconnect can re-evaluate dynamic policy
 - activated-device sessions use the key `<sessionKey>.<instanceId>`
 - if multiple sessions match a sessionKey prefix, Trellis MUST revoke them and return `session_corrupted`
 
@@ -484,6 +489,40 @@ Rules:
 
 Trellis stores one approval record per `user <-> contractDigest` pair.
 
+### Instance Grant Policy Object
+
+```ts
+{
+  contractId: string;
+  allowedOrigins?: string[];
+  impliedCapabilities: string[];
+  disabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+  source: {
+    kind: "admin_policy";
+    createdBy?: {
+      origin: string;
+      id: string;
+    };
+    updatedBy?: {
+      origin: string;
+      id: string;
+    };
+  };
+}
+```
+
+Rules:
+
+- the key is the target `contractId` lineage
+- matching enabled policies imply approval and additional effective
+  capabilities dynamically; they do not mutate the user projection
+- matching policy takes precedence over stored user denial while the policy is
+  enabled
+- optional `allowedOrigins` further restrict the policy to browser sessions that
+  present that app origin; they are separate from the deployment redirect allowlist
+
 ### Users Projection
 
 ```ts
@@ -496,6 +535,9 @@ Trellis stores one approval record per `user <-> contractDigest` pair.
 ```
 
 This projection is Trellis-local and is updated by Trellis-managed flows.
+
+It stores explicit user state only. Deployment-wide implied app grants remain in
+the separate instance grant policy bucket.
 
 ### Binding Tokens
 

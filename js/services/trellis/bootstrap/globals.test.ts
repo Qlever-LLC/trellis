@@ -53,6 +53,7 @@ export const browserFlowsKV = testKv();
 export const portalsKV = testKv();
 export const portalDefaultsKV = testKv();
 export const loginPortalSelectionsKV = testKv();
+export const instanceGrantPoliciesKV = testKv();
 export const devicePortalSelectionsKV = testKv();
 export const deviceProfilesKV = testKv();
 export const deviceInstancesKV = testKv();

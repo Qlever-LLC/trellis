@@ -54,6 +54,43 @@ pub struct ApprovalEntryRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// Actor metadata recorded on an instance grant policy.
+pub struct InstanceGrantPolicyActorRecord {
+    pub origin: String,
+    pub id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// Provenance metadata recorded on an instance grant policy.
+pub struct InstanceGrantPolicySourceRecord {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "createdBy")]
+    pub created_by: Option<InstanceGrantPolicyActorRecord>,
+    pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "updatedBy")]
+    pub updated_by: Option<InstanceGrantPolicyActorRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// Deployment-wide app grant policy keyed by contract lineage.
+pub struct InstanceGrantPolicyRecord {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "allowedOrigins")]
+    pub allowed_origins: Option<Vec<String>>,
+    #[serde(rename = "contractId")]
+    pub contract_id: String,
+    #[serde(rename = "createdAt")]
+    pub created_at: String,
+    pub disabled: bool,
+    #[serde(rename = "impliedCapabilities")]
+    pub implied_capabilities: Vec<String>,
+    pub source: InstanceGrantPolicySourceRecord,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 /// Service record returned by `Auth.ListServices`.
 pub struct ServiceListEntry {
     pub active: bool,
@@ -130,6 +167,25 @@ pub struct RevokeApprovalRequest {
     pub contract_digest: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// Request payload for `Auth.UpsertInstanceGrantPolicy`.
+pub struct UpsertInstanceGrantPolicyRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "allowedOrigins")]
+    pub allowed_origins: Option<Vec<String>>,
+    #[serde(rename = "contractId")]
+    pub contract_id: String,
+    #[serde(rename = "impliedCapabilities")]
+    pub implied_capabilities: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// Request payload for `Auth.DisableInstanceGrantPolicy`.
+pub struct DisableInstanceGrantPolicyRequest {
+    #[serde(rename = "contractId")]
+    pub contract_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -245,4 +301,19 @@ pub(crate) struct MeResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub(crate) struct RevokeApprovalResponse {
     pub success: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub(crate) struct ListInstanceGrantPoliciesResponse {
+    pub policies: Vec<InstanceGrantPolicyRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub(crate) struct UpsertInstanceGrantPolicyResponse {
+    pub policy: InstanceGrantPolicyRecord,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub(crate) struct DisableInstanceGrantPolicyResponse {
+    pub policy: InstanceGrantPolicyRecord,
 }

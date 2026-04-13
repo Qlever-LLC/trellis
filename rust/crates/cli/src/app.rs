@@ -84,6 +84,10 @@ pub(crate) const AUTH_BOOTSTRAP_BUCKETS: &[KvBucketSpec] = &[
         ttl_ms: 0,
     },
     KvBucketSpec {
+        name: "trellis_instance_grant_policies",
+        ttl_ms: 0,
+    },
+    KvBucketSpec {
         name: "trellis_portal_device_selections",
         ttl_ms: 0,
     },
@@ -481,6 +485,22 @@ pub(crate) fn resolve_device_contract_source(
     };
 
     Ok(Some(resolved))
+}
+
+pub(crate) async fn resolve_contract_lineage_id(
+    connected: &TrellisClient,
+    contract: &str,
+) -> miette::Result<String> {
+    if let Some(resolved) = resolve_device_contract_source(contract)? {
+        return Ok(resolved.loaded.manifest.id);
+    }
+
+    let core_client = core_client::CoreClient::new(connected);
+    let catalog = core_client.catalog().await.into_diagnostic()?.catalog;
+    let exists = catalog.contracts.into_iter().any(|entry| entry.id == contract);
+
+    miette::ensure!(exists, "no active contract found for id '{contract}'");
+    Ok(contract.to_string())
 }
 
 pub(crate) async fn resolve_device_profile_contract(

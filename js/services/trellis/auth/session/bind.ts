@@ -84,6 +84,8 @@ export async function ensureBoundUserSession(args: {
   contractId: string;
   contractDisplayName: string;
   contractDescription: string;
+  appOrigin?: string;
+  approvalSource?: UserSession["approvalSource"];
   delegatedCapabilities: string[];
   delegatedPublishSubjects: string[];
   delegatedSubscribeSubjects: string[];
@@ -137,6 +139,8 @@ export async function ensureBoundUserSession(args: {
     contractId: args.contractId,
     contractDisplayName: args.contractDisplayName,
     contractDescription: args.contractDescription,
+    ...(args.appOrigin ? { appOrigin: args.appOrigin } : {}),
+    ...(args.approvalSource ? { approvalSource: args.approvalSource } : {}),
     delegatedCapabilities: args.delegatedCapabilities,
     delegatedPublishSubjects: args.delegatedPublishSubjects,
     delegatedSubscribeSubjects: args.delegatedSubscribeSubjects,
@@ -183,6 +187,8 @@ export async function ensureBoundUserSession(args: {
     contractId: args.contractId,
     contractDisplayName: args.contractDisplayName,
     contractDescription: args.contractDescription,
+    ...(args.appOrigin ? { appOrigin: args.appOrigin } : {}),
+    ...(args.approvalSource ? { approvalSource: args.approvalSource } : {}),
     delegatedCapabilities: args.delegatedCapabilities,
     delegatedPublishSubjects: args.delegatedPublishSubjects,
     delegatedSubscribeSubjects: args.delegatedSubscribeSubjects,
