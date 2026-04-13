@@ -226,6 +226,16 @@
     };
   }
 
+  function createActivateDeviceInput(nextHandoffId: string): {
+    handoffId: string;
+    linkRequestId: string;
+  } {
+    return {
+      handoffId: nextHandoffId,
+      linkRequestId: nextHandoffId,
+    };
+  }
+
   function mapActivationFailure(nextHandoffId: string, error: unknown): ActivationView | null {
     const message = errorMessage(error);
     const context = getErrorContext(error);
@@ -300,7 +310,7 @@
     startPortalActivation = async (nextHandoffId: string) => {
       const result = await requestOrThrow(
         "Auth.ActivateDevice",
-        { handoffId: nextHandoffId },
+        createActivateDeviceInput(nextHandoffId),
       );
       if (!isDeviceActivationResult(result)) {
         throw new Error("Invalid device activation response.");

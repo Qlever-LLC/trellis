@@ -290,6 +290,7 @@ Deno.test("device activation client wrappers hide method strings", async () => {
         return {
           status: "pending_review",
           reviewId: "dar_123",
+          linkRequestId: "link_123",
           instanceId: "dev_123",
           profileId: "reader.default",
           requestedAt: "2026-04-08T11:55:00Z",
@@ -324,7 +325,7 @@ Deno.test("device activation client wrappers hide method strings", async () => {
   const client = createDeviceActivationClient(transport);
 
   assertEquals(
-    await client.activateDevice({ handoffId: "dah_123" }),
+    await client.activateDevice({ handoffId: "dah_123", linkRequestId: "link_123" }),
     {
       status: "activated",
       instanceId: "dev_123",
@@ -332,16 +333,19 @@ Deno.test("device activation client wrappers hide method strings", async () => {
       activatedAt: "2026-04-08T12:00:00Z",
     },
   );
-  assertEquals(
-    await client.getDeviceActivationStatus({ handoffId: "dah_123" }),
-    {
-      status: "pending_review",
-      reviewId: "dar_123",
-      instanceId: "dev_123",
-      profileId: "reader.default",
-      requestedAt: "2026-04-08T11:55:00Z",
-    },
-  );
+  const pendingStatus = await client.getDeviceActivationStatus({ handoffId: "dah_123" });
+  if (pendingStatus.status !== "pending_review") {
+    throw new Error(`Expected pending_review status, received ${pendingStatus.status}`);
+  }
+  assertEquals(pendingStatus.linkRequestId, "link_123");
+  assertEquals(pendingStatus, {
+    status: "pending_review",
+    reviewId: "dar_123",
+    linkRequestId: "link_123",
+    instanceId: "dev_123",
+    profileId: "reader.default",
+    requestedAt: "2026-04-08T11:55:00Z",
+  });
   assertEquals((await client.listDeviceActivations()).activations, []);
   assertEquals(
     await client.revokeDeviceActivation({ instanceId: "dev_123" }),
