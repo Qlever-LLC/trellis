@@ -23,6 +23,7 @@ import type {
   RpcOutput,
   RpcOutputOf,
   StoreError,
+  TrellisFor,
   TypedKV,
   TypedStore,
 } from "@qlever-llc/trellis";
@@ -168,15 +169,19 @@ Deno.test("service wrapper mount handlers stay method-typed", () => {
       typeof typeTestContract.API.trellis
     >,
   ) {
-    void service.trellis.mount("Test.Ping", async (payload, context) => {
+    void service.trellis.mount("Test.Ping", async (payload, context, trellis) => {
       const value: string = payload.value;
       const sessionKey: string = context.sessionKey;
+      const ping = trellis.request("Test.Ping", { value });
+      assertExists(ping);
       return Result.ok({ ok: value.length > 0 && sessionKey.length >= 0 });
     });
 
-    void service.trellis.mount("Test.Ping", (payload, context) => {
+    void service.trellis.mount("Test.Ping", (payload, context, trellis) => {
       const value: string = payload.value;
       const sessionKey: string = context.sessionKey;
+      const ping = trellis.request("Test.Ping", { value });
+      assertExists(ping);
       return Result.ok({ ok: value.length > 0 && sessionKey.length >= 0 });
     });
   }
@@ -210,10 +215,13 @@ Deno.test("contract-oriented helper types support local Rpc<T> and Event<T> alia
     EventHandler<typeof typeTestContract, T>;
   type TypeTestEventPayload<T extends EventName<typeof typeTestContract>> =
     EventPayload<typeof typeTestContract, T>;
+  type TypeTestTrellis = TrellisFor<typeof typeTestContract>;
 
-  const ping: TypeTestRpc<"Test.Ping"> = (payload, context) => {
+  const ping: TypeTestRpc<"Test.Ping"> = (payload, context, trellis) => {
     const value: TypeTestRpcIn<"Test.Ping">["value"] = payload.value;
     const sessionKey: string = context.sessionKey;
+    const outbound: TypeTestTrellis = trellis;
+    assertExists(outbound.request("Test.Ping", { value }));
     const output: TypeTestRpcOut<"Test.Ping"> = {
       ok: value.length > 0 && sessionKey.length >= 0,
     };

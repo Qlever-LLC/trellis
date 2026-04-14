@@ -227,7 +227,7 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
       nats,
       auth,
       opts as TrellisServerOpts<TrellisAPI>,
-    ) as TrellisServerFor<TA>;
+    ) as unknown as TrellisServerFor<TA>;
   }
 
   override operation(

@@ -91,6 +91,7 @@ import { Result } from "@qlever-llc/trellis";
 import type {
   RpcHandler,
   RpcName,
+  TrellisFor,
 } from "@qlever-llc/trellis";
 import { defineContract } from "@qlever-llc/trellis/contracts";
 import { TrellisService } from "@qlever-llc/trellis/server/deno";
@@ -129,6 +130,7 @@ export default serviceContract;
 
 export type Rpc<T extends RpcName<typeof serviceContract>> =
   RpcHandler<typeof serviceContract, T>;
+export type OutboundTrellis = TrellisFor<typeof serviceContract>;
 
 const service = await TrellisService.connect({
   trellisUrl,
@@ -138,7 +140,7 @@ const service = await TrellisService.connect({
   server: {},
 });
 
-export const health: Rpc<"Echo.Health"> = () => {
+export const health: Rpc<"Echo.Health"> = (_input, _context, trellis) => {
   return Result.ok({
     status: "healthy",
     service: "echo",

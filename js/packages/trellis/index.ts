@@ -120,6 +120,7 @@ export type {
   EventName,
   EventPayload,
   EventType,
+  HandlerTrellis,
   OperationHandlerContext,
   OperationRegistration,
   RpcHandler,
@@ -131,6 +132,7 @@ export type {
   RpcMethodNameOf,
   RpcOutput,
   RpcOutputOf,
+  TrellisFor,
   TrellisAuth,
   TrellisSigner,
 } from "./trellis.ts";

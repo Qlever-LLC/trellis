@@ -31,9 +31,14 @@ import { isErr, type Result } from "@qlever-llc/result";
 import type { Logger } from "pino";
 import { Type, type TSchema } from "typebox";
 import { Value } from "typebox/value";
+import type { TrellisErrorInstance } from "../trellis/errors/index.ts";
 import type { HealthCheckFn } from "./health.ts";
 import { mountStandardHealthRpc } from "./health_rpc.ts";
 import type { RPCDesc } from "@qlever-llc/trellis/contracts";
+import type {
+  HandlerTrellis,
+  RpcHandlerContext,
+} from "../trellis/trellis.ts";
 import {
   type ResourceBindingJobs,
   type ResourceBindingJobsQueue,
@@ -327,7 +332,17 @@ export type ServiceTrellis<
   TTrellisApi extends TrellisAPI,
 > =
   & Omit<Trellis<TTrellisApi>, "mount">
-  & Pick<TrellisServerFor<TOwnedApi & TTrellisApi>, "mount">;
+  & {
+    mount<M extends RpcMethodName<TOwnedApi>>(
+      method: M,
+      fn: (
+        input: RpcMethodInput<TOwnedApi, M>,
+        context: RpcHandlerContext,
+        trellis: HandlerTrellis<TTrellisApi>,
+      ) => Promise<Result<RpcMethodOutput<TOwnedApi, M>, TrellisErrorInstance>> |
+        Result<RpcMethodOutput<TOwnedApi, M>, TrellisErrorInstance>,
+    ): Promise<void>;
+  };
 
 type RequestOpts = {
   timeout?: number;
@@ -414,8 +429,33 @@ async function createConnectedService<
     },
   );
 
+  const handlerTrellis: HandlerTrellis<TTrellisApi> = {
+    request: (method, input, opts) => outbound.request(method, input, opts),
+    requestOrThrow: (method, input, opts) => outbound.requestOrThrow(method, input, opts),
+    publish: (event, data) => outbound.publish(event, data),
+    event: (event, subjectData, fn) => outbound.event(
+      event,
+      subjectData,
+      fn as (message: unknown) => ReturnType<typeof fn>,
+    ),
+    operation: (operation) => outbound.operation(operation),
+  };
+
   const trellis: ServiceTrellis<TOwnedApi, TTrellisApi> = Object.assign(outbound, {
-    mount: server.mount.bind(server),
+    mount: <M extends RpcMethodName<TOwnedApi>>(
+      method: M,
+      fn: (
+        input: RpcMethodInput<TOwnedApi, M>,
+        context: RpcHandlerContext,
+        trellis: HandlerTrellis<TTrellisApi>,
+      ) => Promise<Result<RpcMethodOutput<TOwnedApi, M>, TrellisErrorInstance>> |
+        Result<RpcMethodOutput<TOwnedApi, M>, TrellisErrorInstance>,
+    ) => (server as unknown as TrellisServer).mount(
+      method as string,
+      async (input, context) => await Promise.resolve(
+        fn(input as RpcMethodInput<TOwnedApi, M>, context, handlerTrellis),
+      ) as Result<unknown, TrellisErrorInstance>,
+    ),
   });
 
   await mountStandardHealthRpc(server, {

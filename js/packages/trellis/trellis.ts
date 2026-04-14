@@ -194,6 +194,10 @@ type OwnedApiFor<TContract> = TContract extends { API: { owned: infer TOwnedApi 
   ? TOwnedApi extends AnyTrellisAPI ? TOwnedApi
   : never
   : never;
+type TrellisApiFor<TContract> = TContract extends { API: { trellis: infer TTrellisApi } }
+  ? TTrellisApi extends AnyTrellisAPI ? TTrellisApi
+  : OwnedApiFor<TContract>
+  : OwnedApiFor<TContract>;
 export type MethodsOf<TA extends AnyTrellisAPI> = NonNever<
   keyof TA["rpc"] & string
 >;
@@ -506,14 +510,45 @@ export type RpcHandlerContext = {
   sessionKey: string;
 };
 
-export type HandlerFn<TA extends AnyTrellisAPI, M extends MethodsOf<TA>> = (
-  m: MethodInputOf<TA, M>,
+export type HandlerTrellis<TA extends AnyTrellisAPI> = {
+  request<M extends MethodsOf<TA>>(
+    method: M,
+    input: MethodInputOf<TA, M>,
+    opts?: RequestOpts,
+  ): Promise<Result<MethodOutputOf<TA, M>, TrellisErrorInstance>>;
+  requestOrThrow<M extends MethodsOf<TA>>(
+    method: M,
+    input: MethodInputOf<TA, M>,
+    opts?: RequestOpts,
+  ): Promise<MethodOutputOf<TA, M>>;
+  publish<E extends EventsOf<TA>>(
+    event: E,
+    data: EventPayloadOf<TA, E>,
+  ): Promise<Result<void, ValidationError | UnexpectedError>>;
+  event<E extends EventsOf<TA>>(
+    event: E,
+    subjectData: Record<string, unknown>,
+    fn: (message: EventOf<TA, E>) => MaybeAsync<void, BaseError>,
+  ): Promise<Result<void, ValidationError | UnexpectedError>>;
+  operation<O extends OperationsOf<TA>>(
+    operation: O,
+  ): OperationSurface<TA, TrellisMode, O>;
+};
+
+export type HandlerFn<
+  TMountApi extends AnyTrellisAPI,
+  M extends MethodsOf<TMountApi>,
+  TOutboundApi extends AnyTrellisAPI = TMountApi,
+> = (
+  m: MethodInputOf<TMountApi, M>,
   context: RpcHandlerContext,
-) => MaybePromise<Result<MethodOutputOf<TA, M>, TrellisErrorInstance>>;
+  trellis: HandlerTrellis<TOutboundApi>,
+) => MaybePromise<Result<MethodOutputOf<TMountApi, M>, TrellisErrorInstance>>;
 export type RpcHandlerFn<
   TA extends AnyTrellisAPI,
   M extends RpcMethodNameOf<TA>,
-> = HandlerFn<TA, M>;
+> = HandlerFn<TA, M, TA>;
+export type TrellisFor<TContract> = HandlerTrellis<TrellisApiFor<TContract>>;
 export type RpcName<TContract> = RpcMethodNameOf<OwnedApiFor<TContract>>;
 export type RpcInput<
   TContract,
@@ -526,7 +561,7 @@ export type RpcOutput<
 export type RpcHandler<
   TContract,
   M extends RpcName<TContract>,
-> = RpcHandlerFn<OwnedApiFor<TContract>, M>;
+> = HandlerFn<OwnedApiFor<TContract>, M, TrellisApiFor<TContract>>;
 export type EventName<TContract> = EventsOf<OwnedApiFor<TContract>>;
 export type EventType<
   TContract,
@@ -934,6 +969,7 @@ export class Trellis<
     fn: (
       input: unknown,
       context: RpcHandlerContext,
+      trellis: HandlerTrellis<TA>,
     ) => MaybePromise<Result<unknown, TrellisErrorInstance>>,
   ) {
     const methodName = method as MethodsOf<TA>;
@@ -961,6 +997,18 @@ export class Trellis<
       return AsyncResult.lift(subject);
     }
 
+    const handlerTrellis: HandlerTrellis<TA> = {
+      request: (method, input, opts) => this.request(method, input, opts),
+      requestOrThrow: (method, input, opts) => this.requestOrThrow(method, input, opts),
+      publish: (event, data) => this.publish(event, data),
+      event: (event, subjectData, fn) => this.event(
+        event,
+        subjectData,
+        fn as (message: unknown) => MaybeAsync<void, BaseError>,
+      ),
+      operation: (operation) => this.operation(operation),
+    };
+
     this.#log.info(
       { method: String(method) },
       `Mounting ${method.toString()} RPC handler`,
@@ -974,6 +1022,7 @@ export class Trellis<
           ctx,
           msg,
           fn,
+          handlerTrellis,
         );
         const result = resultPromise.take();
 
@@ -992,6 +1041,7 @@ export class Trellis<
     ctx: RpcDescriptorOf<TA, MethodsOf<TA>>,
     msg: Msg,
     fn: HandlerFn<TA, MethodsOf<TA>>,
+    handlerTrellis: HandlerTrellis<TA>,
   ): Promise<Result<string, TrellisErrorInstance>> {
     this.#log.debug(
       { method: String(method), subject: msg.subject },
@@ -1227,7 +1277,7 @@ export class Trellis<
             fn(parsedInput as MethodInputOf<TA, MethodsOf<TA>>, {
               caller,
               sessionKey: callerSessionKey,
-            }),
+            }, handlerTrellis),
           )
         );
 
