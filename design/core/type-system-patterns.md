@@ -23,18 +23,26 @@ Each service owns a local contract definition that emits the canonical `trellis.
 import { defineContract } from "@qlever-llc/trellis/contracts";
 import { core } from "@qlever-llc/trellis/sdk/core";
 
+const schemas = {
+  FindUser: FindUserSchema,
+  User: UserSchema,
+  PartnerChanged: PartnerEventSchema,
+} as const;
+
 export const contract = defineContract({
   id: "graph@v1",
   displayName: "Graph Service",
   description: "Serve graph RPCs and publish partner change events.",
+  kind: "service",
+  schemas,
   uses: {
     trellis: core.use({ rpc: { call: ["Trellis.Catalog"] } }),
   },
   rpc: {
     "User.Find": {
       version: "v1",
-      inputSchema: FindUserSchema,
-      outputSchema: UserSchema,
+      input: { schema: "FindUser" },
+      output: { schema: "User" },
       errors: ["NotFound"],
       capabilities: { call: ["users.read"] },
     },
@@ -43,7 +51,7 @@ export const contract = defineContract({
     "Partner.Changed": {
       version: "v1",
       params: ["/partner/id/origin", "/partner/id/id"],
-      eventSchema: PartnerEventSchema,
+      event: { schema: "PartnerChanged" },
       capabilities: {
         publish: ["partners.write"],
         subscribe: ["partners.read"],
@@ -56,6 +64,7 @@ export const contract = defineContract({
 Rules:
 
 - the local contract source defines input/output types, allowed errors, capabilities, and cross-contract dependencies
+- local contract source files should export the `defineContract(...)` result directly and reference schemas through the top-level `schemas` map
 - the emitted manifest is the canonical cross-language artifact
 - for local TypeScript code, prefer exporting the defined contract object itself (`export default contract` or a named contract export) instead of manually rebuilding a parallel module-shaped object
 

@@ -242,11 +242,15 @@ Example:
 
 ```json
 {
+  "schemas": {
+    "FindUserRequest": { "type": "object" },
+    "FindUserResponse": { "type": "object" }
+  },
   "User.Find": {
     "version": "v1",
     "subject": "rpc.v1.User.Find",
-    "inputSchema": { "type": "object" },
-    "outputSchema": { "type": "object" },
+    "input": { "schema": "FindUserRequest" },
+    "output": { "schema": "FindUserResponse" },
     "capabilities": {
       "call": ["users.read"]
     },
@@ -261,8 +265,8 @@ Fields:
 | ------------------- | -------- | --------------------------------------- |
 | `version`           | yes      | Version tag for the operation, `vN`     |
 | `subject`           | yes      | Concrete NATS subject used for the RPC  |
-| `inputSchema`       | yes      | JSON Schema for the request payload     |
-| `outputSchema`      | yes      | JSON Schema for the success payload     |
+| `input`             | yes      | Schema reference for the request payload |
+| `output`            | yes      | Schema reference for the success payload |
 | `capabilities.call` | no       | Capabilities required to invoke the RPC |
 | `errors`            | no       | Declared serializable error types       |
 
@@ -270,6 +274,7 @@ Rules:
 
 - the map key is the logical RPC name, for example `User.Find`
 - `subject` SHOULD follow the convention `rpc.<version>.<LogicalName>`
+- `input` and `output` are required schema refs into the contract-level `schemas` map
 - `capabilities.call` is an all-of requirement; the caller must hold every listed capability
 - if `capabilities.call` is omitted, the RPC is callable without extra capability grants
 - `errors` enumerates known typed error payloads but does not close the wire format to unknown future error types
@@ -318,11 +323,14 @@ Example:
 
 ```json
 {
+  "schemas": {
+    "PartnerChanged": { "type": "object" }
+  },
   "Partner.Changed": {
     "version": "v1",
     "subject": "events.v1.Partner.Changed.{/partner/id/origin}.{/partner/id/id}",
     "params": ["/partner/id/origin", "/partner/id/id"],
-    "eventSchema": { "type": "object" },
+    "event": { "schema": "PartnerChanged" },
     "capabilities": {
       "publish": ["partners.write"],
       "subscribe": ["partners.read"]
@@ -338,7 +346,7 @@ Fields:
 | `version`                | yes      | Version tag for the event, `vN`                        |
 | `subject`                | yes      | Concrete or templated NATS subject                     |
 | `params`                 | no       | Ordered JSON Pointer list used by the subject template |
-| `eventSchema`            | yes      | JSON Schema for the event payload                      |
+| `event`                  | yes      | Schema reference for the event payload                 |
 | `capabilities.publish`   | no       | Capabilities required to publish the event             |
 | `capabilities.subscribe` | no       | Capabilities required to subscribe to the event        |
 
@@ -348,6 +356,7 @@ Rules:
 - `subject` SHOULD follow the convention `events.<version>.<LogicalName>[.<tokens...>]`
 - template tokens use the form `{<json-pointer>}` and MUST reference values in the event payload
 - if `params` is present, it MUST list the template pointers in subject order
+- `event` is a required schema ref into the contract-level `schemas` map
 - `capabilities.publish` and `capabilities.subscribe` are independent all-of requirements
 - a wildcard authorization subject for an event is produced by replacing every template token with `*`
 

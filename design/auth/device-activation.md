@@ -540,6 +540,45 @@ Rules:
 - `TrellisDevice.connect(...)` SHOULD fetch current connect info on startup rather than persisting transport details across restarts
 - `onActivationRequired(...)` is the integration hook for local displays, local web UIs, CLIs, and other device-local activation UX
 
+### Minimal activated device example
+
+```ts
+import { isErr, TrellisDevice } from "@qlever-llc/trellis";
+import { defineContract } from "@qlever-llc/trellis/contracts";
+import { auth } from "@qlever-llc/trellis/sdk/auth";
+
+export const device = defineContract({
+  id: "acme.demo-device@v1",
+  displayName: "Demo Device",
+  description: "A small activated device used for local Trellis demos.",
+  kind: "device",
+  uses: {
+    auth: auth.useDefaults(),
+  },
+});
+
+export default device;
+
+const trellis = await TrellisDevice.connect({
+  trellisUrl,
+  contract: device,
+  rootSecret,
+  onActivationRequired: async (activation) => {
+    console.info(activation.url);
+    await activation.waitForOnlineApproval();
+  },
+});
+
+const me = (await trellis.request("Auth.Me", {})).take();
+if (isErr(me)) throw me.error;
+```
+
+Rules:
+
+- a normal activated-device participant may own no RPCs, operations, events, or resources at all; a small `uses`-only contract is valid
+- requesting `Auth.Me` from a device runtime is only valid because the local contract declared auth access through `auth.useDefaults()`
+- device-local UI and review handoff belong in `onActivationRequired(...)`; application code should not reimplement the activation protocol primitives described above
+
 Those helpers SHOULD own:
 
 - deriving the identity seed, public identity key, and activation key from the device root secret

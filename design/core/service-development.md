@@ -17,19 +17,46 @@ order: 50
 
 Trellis services share a common development shape: a small bootstrap entrypoint, explicit contract ownership, and a clean separation between caller-visible operations and service-private jobs.
 
+Before choosing a file layout, choose the participant kind and runtime helper.
+
+### Participant kind and runtime helper
+
+Repo folder names are local organization only. They do not determine Trellis contract
+`kind`, install behavior, or which connect helper is correct.
+
+| Contract kind | Normal helper | Use when |
+| --- | --- | --- |
+| `service` | `TrellisService.connect(...)` | The participant owns installable RPCs, operations, events, or service-owned resources and runs as a deployment service principal |
+| `device` | `TrellisDevice.connect(...)` | The participant authenticates through device activation using a preregistered device root secret |
+| `app`, `portal`, `cli` | `TrellisClient.connect(...)` | The participant is a user-facing app, portal, or tool rather than an installed service |
+
+Rules:
+
+- choose `kind` from the participant's identity and auth flow, not from the repo folder that contains the code
+- code under `services/` may still correctly be `kind: "device"` when it is a repo-local demo, simulator, or utility that authenticates as a device principal
+- a participant with no owned RPCs, operations, events, or resources is normal; do not invent owned APIs just to fit a service template
+- only `kind: "service"` participants should use `TrellisService.connect(...)`, service install flows, and service-owned runtime handles such as `service.kv`, `service.store`, and `service.jobs`
+
 ### Directory structure
 
 ```text
 services/<name>/
 ├── main.ts          # Bootstrap, handlers, shutdown
-├── contract.ts      # Service-owned contract definition
+├── contract.ts      # Local contract definition
+├── contracts/       # Optional contract module directory
 ├── config.ts        # Environment configuration
 ├── globals.ts       # Shared runtime state
 ├── deno.json        # Tasks, imports
 └── <domain>.ts      # Business logic
 ```
 
+The full template above is common for installable services. Smaller repo-local
+participants such as demos or utilities may only need `main.ts`, `deno.json`, and one
+contract module.
+
 ### Lifecycle
+
+For `kind: "service"` participants:
 
 ```ts
 import { TrellisService } from "@qlever-llc/trellis/server/deno";
@@ -56,6 +83,71 @@ Deno.addSignalListener("SIGTERM", async () => {
   Deno.exit(0);
 });
 ```
+
+### Minimal installable service example
+
+```ts
+import { Result } from "@qlever-llc/trellis";
+import { defineContract } from "@qlever-llc/trellis/contracts";
+import { TrellisService } from "@qlever-llc/trellis/server/deno";
+import {
+  HealthResponseSchema,
+  HealthRpcSchema,
+} from "@qlever-llc/trellis/server/health";
+
+const schemas = {
+  HealthRequest: HealthRpcSchema,
+  HealthResponse: HealthResponseSchema,
+} as const;
+
+function schemaRef<const TName extends keyof typeof schemas & string>(schema: TName) {
+  return { schema } as const;
+}
+
+export const serviceContract = defineContract({
+  id: "acme.echo@v1",
+  displayName: "Echo Service",
+  description: "A minimal installable Trellis service example.",
+  kind: "service",
+  schemas,
+  rpc: {
+    "Echo.Health": {
+      version: "v1",
+      input: schemaRef("HealthRequest"),
+      output: schemaRef("HealthResponse"),
+      capabilities: { call: [] },
+      errors: ["UnexpectedError"],
+    },
+  },
+});
+
+export default serviceContract;
+
+const service = await TrellisService.connect({
+  trellisUrl,
+  contract: serviceContract,
+  name: "echo",
+  sessionKeySeed,
+  server: {},
+});
+
+await service.trellis.mount("Echo.Health", () => {
+  return Result.ok({
+    status: "healthy",
+    service: "echo",
+    timestamp: new Date().toISOString(),
+    checks: [],
+  });
+});
+```
+
+Rules:
+
+- a minimal installable service should own at least one public surface such as an RPC, operation, or event rather than existing only to call other services
+- installable service code uses `TrellisService.connect(...)` and mounts only names from its owned contract surface
+- mounted RPC handlers should rely on Trellis-provided payload typing and validation rather than re-parsing the mounted payload just to recover types
+- mounted RPC handlers may be synchronous when they do not need `await`
+- if the service later needs remote APIs, add them under `uses` through SDK `use(...)` helpers rather than by hand-writing remote contract ids or raw method strings
 
 Behavior:
 

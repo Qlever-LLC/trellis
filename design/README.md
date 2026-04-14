@@ -9,6 +9,14 @@ Use this index to find the smallest set of design docs needed for a task.
 
 Do not load the entire `design/` folder by default. Start with one topic area, then follow only the linked prerequisites that matter for the task at hand.
 
+## Quick Participant Examples
+
+These headings are intentionally named for fast human and AI lookup.
+
+- Minimal installable service example: `core/service-development.md#minimal-installable-service-example`
+- Minimal activated device example: `auth/device-activation.md#minimal-activated-device-example`
+- When choosing between them, read `core/service-development.md#participant-kind-and-runtime-helper` first
+
 ## Core Platform Docs
 
 | Document | Read When | Why |
@@ -123,6 +131,21 @@ These documents define the public protocol, API, and runtime-facing surfaces. Re
 2. relevant subsystem design doc
 3. relevant language surface doc
 
+### Implement an installable service in TypeScript
+
+1. `core/service-development.md`
+2. `contracts/trellis-typescript-contract-authoring.md`
+3. `contracts/contracts-typescript-api.md`
+4. `core/platform-libraries.md`
+
+### Implement an activated device in TypeScript
+
+1. `auth/device-activation.md`
+2. `auth/auth-typescript-api.md`
+3. `contracts/trellis-typescript-contract-authoring.md`
+4. `contracts/contracts-typescript-api.md`
+5. `core/platform-libraries.md`
+
 ### Work on tracing, docs, or request correlation
 
 1. `core/observability-patterns.md`
@@ -199,3 +222,5 @@ These documents define the public protocol, API, and runtime-facing surfaces. Re
 - load language surface docs for public API details
 - load auth/contracts docs only when the task crosses those boundaries
 - prefer task-specific reading paths over broad context dumps
+- choose docs by participant kind (`service`, `device`, `app`, `portal`, `cli`) rather than by repo folder name
+- search for the exact headings `Minimal installable service example` and `Minimal activated device example` before inventing a new participant shape

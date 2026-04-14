@@ -44,6 +44,8 @@ export const myDevice = defineContract({
     auth: auth.useDefaults(),
   },
 });
+
+export default myDevice;
 ```
 
 Activated devices may not use contract `resources`.

@@ -25,24 +25,39 @@ import {
 // container build stops being reproducible. Server-specific helpers therefore live
 // in `@qlever-llc/trellis/server` and are wired explicitly by server code.
 export type DefinedContract<
-  TOwnedApi extends TrellisApiLike,
-  TUsedApi extends TrellisApiLike,
-  TTrellisApi extends TrellisApiLike,
+  TOwnedApi extends {
+    rpc: Record<string, unknown>;
+    operations: Record<string, unknown>;
+    events: Record<string, unknown>;
+    subjects: Record<string, unknown>;
+  },
+  TUsedApi extends {
+    rpc: Record<string, unknown>;
+    operations: Record<string, unknown>;
+    events: Record<string, unknown>;
+    subjects: Record<string, unknown>;
+  },
+  TTrellisApi extends {
+    rpc: Record<string, unknown>;
+    operations: Record<string, unknown>;
+    events: Record<string, unknown>;
+    subjects: Record<string, unknown>;
+  },
   TContractId extends string = string,
 > = BaseDefinedContract<TOwnedApi, TUsedApi, TTrellisApi, TContractId>;
 
 export function defineContract<const T extends DefineContractInput<any, any, any, any, any, any>>(
   source: T,
 ): DefinedContract<
-  OwnedApiFromSource<T> & TrellisApiLike,
-  UsedApiFromUses<T["uses"]> & TrellisApiLike,
-  MergeApis<OwnedApiFromSource<T>, UsedApiFromUses<T["uses"]>> & TrellisApiLike,
+  OwnedApiFromSource<T>,
+  UsedApiFromUses<T["uses"]>,
+  MergeApis<OwnedApiFromSource<T>, UsedApiFromUses<T["uses"]>>,
   T["id"]
 > {
   return defineContractBase(source) as DefinedContract<
-    OwnedApiFromSource<T> & TrellisApiLike,
-    UsedApiFromUses<T["uses"]> & TrellisApiLike,
-    MergeApis<OwnedApiFromSource<T>, UsedApiFromUses<T["uses"]>> & TrellisApiLike,
+    OwnedApiFromSource<T>,
+    UsedApiFromUses<T["uses"]>,
+    MergeApis<OwnedApiFromSource<T>, UsedApiFromUses<T["uses"]>>,
     T["id"]
   >;
 }

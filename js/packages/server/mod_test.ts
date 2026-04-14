@@ -8,7 +8,7 @@ import {
   assertExists,
 } from "jsr:@std/assert";
 import { Type } from "typebox";
-import type { BaseError, Result } from "@qlever-llc/result";
+import { Result, type BaseError } from "@qlever-llc/result";
 import { defineContract } from "../trellis/contract.ts";
 import type { KVError, StoreError, TypedKV, TypedStore } from "@qlever-llc/trellis";
 
@@ -34,7 +34,7 @@ const typeTestContract = defineContract({
   description: "Verify typed service surface.",
   kind: "service",
   schemas: {
-    PingInput: Type.Object({}, { additionalProperties: false }),
+    PingInput: Type.Object({ value: Type.String() }, { additionalProperties: false }),
     PingOutput: Type.Object({ ok: Type.Boolean() }, { additionalProperties: false }),
     KVValue: Type.Object({ value: Type.String() }, { additionalProperties: false }),
   },
@@ -127,8 +127,8 @@ Deno.test("service wrapper type surface stays specific", () => {
     storeOpen: Promise<Result<TypedStore, StoreError>>;
   } {
     return {
-      request: service.request("Test.Ping", {}),
-      requestOrThrow: service.requestOrThrow("Test.Ping", {}),
+      request: service.request("Test.Ping", { value: "ping" }),
+      requestOrThrow: service.requestOrThrow("Test.Ping", { value: "ping" }),
       kvOpen: kvHandle.open(schema),
       storeOpen: storeHandle.open(),
     };
@@ -137,4 +137,27 @@ Deno.test("service wrapper type surface stays specific", () => {
   assertExists(expectTypedSurface);
 
   assertEquals(true, true);
+});
+
+Deno.test("service wrapper mount handlers stay method-typed", () => {
+  function expectTypedMount(
+    service: TrellisService<
+      typeof typeTestContract.API.owned,
+      typeof typeTestContract.API.trellis
+    >,
+  ) {
+    void service.trellis.mount("Test.Ping", async (payload, context) => {
+      const value: string = payload.value;
+      const sessionKey: string = context.sessionKey;
+      return Result.ok({ ok: value.length > 0 && sessionKey.length >= 0 });
+    });
+
+    void service.trellis.mount("Test.Ping", (payload, context) => {
+      const value: string = payload.value;
+      const sessionKey: string = context.sessionKey;
+      return Result.ok({ ok: value.length > 0 && sessionKey.length >= 0 });
+    });
+  }
+
+  assertExists(expectTypedMount);
 });

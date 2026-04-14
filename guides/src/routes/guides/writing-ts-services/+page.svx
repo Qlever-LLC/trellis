@@ -112,11 +112,27 @@ import {
   OrderShippedEventSchema,
 } from "./schemas.ts";
 
+const schemas = {
+  HealthRequest: HealthRpcSchema,
+  HealthResponse: HealthResponseSchema,
+  CreateOrderRequest: CreateOrderRequestSchema,
+  CreateOrderResponse: CreateOrderResponseSchema,
+  GetOrderRequest: GetOrderRequestSchema,
+  GetOrderResponse: GetOrderResponseSchema,
+  OrderShippedEvent: OrderShippedEventSchema,
+  OrderFailedEvent: OrderFailedEventSchema,
+} as const;
+
+function schemaRef<const TName extends keyof typeof schemas & string>(schema: TName) {
+  return { schema } as const;
+}
+
 export const ordersService = defineContract({
   id: "orders-service@v1",
   displayName: "Orders Service",
   description: "Create and track orders, emit fulfillment events.",
   kind: "service",
+  schemas,
   uses: {
     core: core.use({
       rpc: { call: ["Trellis.Bindings.Get", "Trellis.Catalog"] },
@@ -137,22 +153,22 @@ export const ordersService = defineContract({
   rpc: {
     "Orders.Health": {
       version: "v1",
-      inputSchema: HealthRpcSchema,
-      outputSchema: HealthResponseSchema,
+      input: schemaRef("HealthRequest"),
+      output: schemaRef("HealthResponse"),
       capabilities: { call: [] },
       errors: ["UnexpectedError"],
     },
     "Orders.Create": {
       version: "v1",
-      inputSchema: CreateOrderRequestSchema,
-      outputSchema: CreateOrderResponseSchema,
+      input: schemaRef("CreateOrderRequest"),
+      output: schemaRef("CreateOrderResponse"),
       capabilities: { call: ["orders.write"] },
       errors: ["ValidationError", "UnexpectedError"],
     },
     "Orders.Get": {
       version: "v1",
-      inputSchema: GetOrderRequestSchema,
-      outputSchema: GetOrderResponseSchema,
+      input: schemaRef("GetOrderRequest"),
+      output: schemaRef("GetOrderResponse"),
       capabilities: { call: ["orders.read"] },
       errors: ["NotFoundError", "UnexpectedError"],
     },
@@ -160,23 +176,24 @@ export const ordersService = defineContract({
   events: {
     "Orders.Shipped": {
       version: "v1",
-      eventSchema: OrderShippedEventSchema,
+      event: schemaRef("OrderShippedEvent"),
       capabilities: { publish: ["service"], subscribe: ["service"] },
     },
     "Orders.Failed": {
       version: "v1",
-      eventSchema: OrderFailedEventSchema,
+      event: schemaRef("OrderFailedEvent"),
       capabilities: { publish: ["service"], subscribe: ["service"] },
     },
   },
 });
 
-export const { CONTRACT_ID, CONTRACT, CONTRACT_DIGEST, API, use } = ordersService;
+export default ordersService;
 ```
 
 Key things to note:
 
 - contract source modules should import `defineContract(...)` from `@qlever-llc/trellis/contracts`; runtime helpers such as `isErr`, `Result`, and `TrellisClient.connect(...)` come from `@qlever-llc/trellis`, while the returned contract object remains usable anywhere a runtime contract is expected
+- contract source modules should export the `defineContract(...)` result directly instead of manually re-exporting `CONTRACT_ID`, `CONTRACT_DIGEST`, `API`, or `use`
 - `uses` declares cross-contract dependencies — without these, Trellis will not grant access to those RPCs/events
 - `auth.useDefaults(...)` adds the baseline auth session RPCs (`Auth.Me`, `Auth.Logout`, and `Auth.RenewBindingToken`) automatically
 - `resources.kv.orders` requests a KV bucket with the logical alias `orders` — Trellis assigns the physical name at install time
@@ -248,6 +265,8 @@ await service.trellis.mount("Orders.Get", async (req) => {
   return Result.ok(result.value);
 });
 ```
+
+Mounted RPC handlers already receive a typed, validated payload derived from the contract. Use that payload directly rather than re-parsing it just to recover types.
 
 ## 7. Subscribe to events
 

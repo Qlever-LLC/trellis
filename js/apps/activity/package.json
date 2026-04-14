@@ -1,5 +1,6 @@
 {
   "name": "@qlever-llc/trellis-app-activity",
+  "version": "0.0.0",
   "private": true,
   "type": "module",
   "scripts": {

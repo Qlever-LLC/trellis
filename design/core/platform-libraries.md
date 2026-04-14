@@ -58,7 +58,7 @@ import { defineContract } from "@qlever-llc/trellis/contracts";
 import { graph } from "@acme/graph-contract";
 import { auth } from "@qlever-llc/trellis/sdk/auth";
 
-const cli = defineContract({
+export const cli = defineContract({
   id: "acme.graph-cli@v1",
   displayName: "Graph CLI",
   description: "Query the graph service and inspect auth state.",
@@ -67,6 +67,8 @@ const cli = defineContract({
     graph: graph.use({ rpc: { call: ["Graph.Query"] } }),
   },
 });
+
+export default cli;
 
 const client = await TrellisClient.connect({
   trellisUrl: "https://trellis.example.com",
@@ -91,12 +93,17 @@ server.mount("User.Find", async (input, ctx) => {
   if (!user) return Result.err(new NotFoundError("User"));
   return Result.ok({ user });
 });
+
+server.mount("Graph.Health", () => {
+  return Result.ok({ status: "healthy" as const });
+});
 ```
 
 Rules:
 
 - RPCs are timeout-bounded
 - operations and events are contract-driven rather than raw-subject-driven in normal app code
+- service handlers mounted from contract-owned RPCs receive typed payloads from Trellis and may return either `Result` or `Promise<Result>`
 - upload/download transfer execution is initiated by contract-owned RPCs and completed through `trellis.transfer(grant)`
 - both sides use explicit `Result` conventions rather than exception-driven remote error handling
 

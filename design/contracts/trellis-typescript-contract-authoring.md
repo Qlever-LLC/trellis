@@ -87,17 +87,23 @@ The required user-facing contract metadata is:
 Example shape:
 
 ```ts
-export const core = {
-  CONTRACT_ID,
-  CONTRACT,
-  CONTRACT_DIGEST,
-  API: {
-    owned: API,
-    used: { rpc: {}, events: {}, subjects: {} },
-    trellis: API,
+export const core = defineContract({
+  id: "trellis.core@v1",
+  displayName: "Trellis Core",
+  description: "Expose Trellis-owned RPCs for platform SDK consumers.",
+  kind: "service",
+  schemas: {
+    CatalogRequest: CatalogRequestSchema,
+    CatalogResponse: CatalogResponseSchema,
   },
-  use(spec) { ... },
-} as const;
+  rpc: {
+    "Trellis.Catalog": {
+      version: "v1",
+      input: { schema: "CatalogRequest" },
+      output: { schema: "CatalogResponse" },
+    },
+  },
+});
 ```
 
 The `use(...)` helper:
@@ -155,13 +161,17 @@ Examples:
 import { TrellisClient } from "@qlever-llc/trellis";
 import { TrellisService } from "@qlever-llc/trellis/server/deno";
 
-const app = defineContract({ ... });
+export const app = defineContract({ ... });
+export default app;
+
 const client = await TrellisClient.connect({
   trellisUrl: "https://trellis.example.com",
   contract: app,
 });
 
-const serviceContract = defineContract({ ... });
+export const serviceContract = defineContract({ ... });
+export default serviceContract;
+
 const service = await TrellisService.connect({
   trellisUrl: "https://trellis.example.com",
   contract: serviceContract,
@@ -175,6 +185,8 @@ Rules:
 
 - the client or service `trellis` object is typed from `contract.API.trellis`
 - server handler registration is typed from `contract.API.owned`
+- `service.trellis.mount(...)` handlers should use the payload type that Trellis derives from the contract; docs and examples should not re-parse mounted RPC payloads just to recover types
+- mounted RPC handlers may return either `Result` or `Promise<Result>`
 - callers do not manually assemble runtime API arrays for normal usage
 - locally authored contracts should normally export the `defineContract(...)` return value directly; do not wrap it in a handwritten default-export object that reassembles `CONTRACT_ID`, `CONTRACT`, `CONTRACT_DIGEST`, and `API`
 - Trellis-specific bootstrap exceptions should stay in Trellis platform code and use lower-level runtime APIs directly rather than becoming general public service helpers

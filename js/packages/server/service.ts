@@ -345,6 +345,36 @@ export type ServiceContract<
   };
 };
 
+type ContractOwnedApi<TContract extends ServiceContract<TrellisAPI, TrellisAPI>> =
+  TContract["API"]["owned"];
+
+type ContractTrellisApi<TContract extends ServiceContract<TrellisAPI, TrellisAPI>> =
+  TContract["API"]["trellis"];
+
+export type TrellisServiceConnectArgs<
+  TContract extends ServiceContract<TrellisAPI, TrellisAPI>,
+> = {
+  trellisUrl: string;
+  contract: TContract;
+  name: string;
+  sessionKeySeed: string;
+  server?: Omit<
+    TrellisServerCreateOpts<
+      ContractOwnedApi<TContract>,
+      ContractTrellisApi<TContract>
+    >,
+    "api" | "trellisApi"
+  >;
+};
+
+export type TrellisServiceInternalConnectArgs<
+  TOwnedApi extends TrellisAPI = TrellisAPI,
+  TTrellisApi extends TrellisAPI = TOwnedApi,
+> = TrellisServiceRuntimeConnectOpts<TOwnedApi, TTrellisApi> & {
+  contractId?: string;
+  contractDigest?: string;
+};
+
 async function createConnectedService<
   TOwnedApi extends TrellisAPI,
   TTrellisApi extends TrellisAPI,
@@ -449,12 +479,19 @@ export class TrellisService<
   }
 
   static async connect<
-    TOwnedApi extends TrellisAPI = TrellisAPI,
-    TTrellisApi extends TrellisAPI = TOwnedApi,
+    TContract extends ServiceContract<TrellisAPI, TrellisAPI>,
   >(
-    args: TrellisServiceConnectOpts<TOwnedApi, TTrellisApi>,
+    args: TrellisServiceConnectArgs<TContract>,
     deps?: Partial<TrellisServiceRuntimeDeps>,
-  ): Promise<TrellisService<TOwnedApi, TTrellisApi>> {
+  ): Promise<
+    TrellisService<
+      ContractOwnedApi<TContract>,
+      ContractTrellisApi<TContract>
+    >
+  > {
+    type TOwnedApi = ContractOwnedApi<TContract>;
+    type TTrellisApi = ContractTrellisApi<TContract>;
+
     const runtimeDeps = {
       ...(await loadDefaultServiceRuntimeDeps()),
       ...deps,
@@ -495,10 +532,7 @@ export class TrellisService<
     TTrellisApi extends TrellisAPI = TOwnedApi,
   >(
     name: string,
-    opts: TrellisServiceRuntimeConnectOpts<TOwnedApi, TTrellisApi> & {
-      contractId?: string;
-      contractDigest?: string;
-    },
+    opts: TrellisServiceInternalConnectArgs<TOwnedApi, TTrellisApi>,
     deps: TrellisServiceRuntimeDeps,
   ): Promise<TrellisService<TOwnedApi, TTrellisApi>> {
     const connectFn = deps.connect;

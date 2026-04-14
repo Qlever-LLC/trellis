@@ -53,10 +53,10 @@ export const ordersService = defineContract({
   events: {},
 });
 
-export const { CONTRACT_ID, CONTRACT, CONTRACT_DIGEST, API, use } = ordersService;
+export default ordersService;
 ```
 
-This is a valid — if empty — contract. We will fill it in as we add capabilities. The exports at the bottom (`CONTRACT_ID`, `CONTRACT_DIGEST`, `API`, `use`) are used by the runtime and by SDK generation later.
+This is a valid — if empty — contract. We will fill it in as we add capabilities. Export the contract object itself and let Trellis use that object for runtime bootstrap, API typing, and SDK generation.
 
 ---
 
@@ -205,11 +205,16 @@ import {
 
 // ...
 
+  schemas: {
+    CreateOrderRequest: CreateOrderRequestSchema,
+    CreateOrderResponse: CreateOrderResponseSchema,
+  },
+
   rpc: {
     "Orders.Create": {
       version: "v1",
-      inputSchema: CreateOrderRequestSchema,
-      outputSchema: CreateOrderResponseSchema,
+      input: { schema: "CreateOrderRequest" },
+      output: { schema: "CreateOrderResponse" },
       capabilities: { call: ["orders.write"] },
       errors: ["ValidationError", "UnexpectedError"],
     },
@@ -285,12 +290,19 @@ import {
 
 // ...
 
+  schemas: {
+    CreateOrderRequest: CreateOrderRequestSchema,
+    CreateOrderResponse: CreateOrderResponseSchema,
+    GetOrderRequest: GetOrderRequestSchema,
+    GetOrderResponse: GetOrderResponseSchema,
+  },
+
   rpc: {
     "Orders.Create": { /* ... */ },
     "Orders.Get": {
       version: "v1",
-      inputSchema: GetOrderRequestSchema,
-      outputSchema: GetOrderResponseSchema,
+      input: { schema: "GetOrderRequest" },
+      output: { schema: "GetOrderResponse" },
       capabilities: { call: ["orders.read"] },
       errors: ["NotFoundError", "UnexpectedError"],
     },
@@ -376,10 +388,14 @@ import { OrderShippedEventSchema } from "../schemas.ts";
 
 // ...
 
+  schemas: {
+    OrderShippedEvent: OrderShippedEventSchema,
+  },
+
   events: {
     "Orders.Shipped": {
       version: "v1",
-      eventSchema: OrderShippedEventSchema,
+      event: { schema: "OrderShippedEvent" },
       capabilities: { publish: ["service"], subscribe: ["service"] },
     },
   },

@@ -486,10 +486,12 @@ export type RequestOpts = {
   timeout?: number;
 };
 
+type MaybePromise<T> = T | Promise<T>;
+
 export type HandlerFn<TA extends AnyTrellisAPI, M extends MethodsOf<TA>> = (
   m: MethodInputOf<TA, M>,
   context: { caller: SessionCaller; sessionKey: string },
-) => Promise<Result<MethodOutputOf<TA, M>, TrellisErrorInstance>>;
+) => MaybePromise<Result<MethodOutputOf<TA, M>, TrellisErrorInstance>>;
 
 type DeepRecord<T> = {
   [k: string]: T | DeepRecord<T>;
@@ -884,7 +886,7 @@ export class Trellis<
     fn: (
       input: unknown,
       context: { caller: SessionCaller; sessionKey: string },
-    ) => Promise<Result<unknown, TrellisErrorInstance>>,
+    ) => MaybePromise<Result<unknown, TrellisErrorInstance>>,
   ) {
     const methodName = method as MethodsOf<TA>;
     const ctx = this.api["rpc"][methodName];
@@ -1170,11 +1172,13 @@ export class Trellis<
           span.setAttribute("device.profile_id", caller.profileId);
         }
 
-        const handlerResultWrapped = await AsyncResult.try(() =>
-          fn(parsedInput as MethodInputOf<TA, MethodsOf<TA>>, {
-            caller,
-            sessionKey: callerSessionKey,
-          })
+        const handlerResultWrapped = await AsyncResult.try(async () =>
+          await Promise.resolve(
+            fn(parsedInput as MethodInputOf<TA, MethodsOf<TA>>, {
+              caller,
+              sessionKey: callerSessionKey,
+            }),
+          )
         );
 
         if (handlerResultWrapped.isErr()) {

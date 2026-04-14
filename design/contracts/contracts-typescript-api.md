@@ -141,10 +141,25 @@ import { defineContract } from "@qlever-llc/trellis/contracts";
 import { auth } from "@qlever-llc/trellis/sdk/auth";
 import { core } from "@qlever-llc/trellis/sdk/core";
 
+const schemas = {
+  ActivityImportRequest: ActivityImportRequestSchema,
+  ActivityImportProgress: ActivityImportProgressSchema,
+  ActivityImportResult: ActivityImportResultSchema,
+  ActivityListRequest: ActivityListRequestSchema,
+  ActivityListResponse: ActivityListResponseSchema,
+  ActivityChanged: ActivityChangedSchema,
+} as const;
+
+function schemaRef<const TName extends keyof typeof schemas & string>(schema: TName) {
+  return { schema } as const;
+}
+
 export const activity = defineContract({
   id: "trellis.activity@v1",
   displayName: "Activity Service",
   description: "Serve activity RPCs and publish activity change events.",
+  kind: "service",
+  schemas,
   uses: {
     core: core.use({
       rpc: {
@@ -160,25 +175,27 @@ export const activity = defineContract({
   operations: {
     "Activity.Import": {
       version: "v1",
-      inputSchema: ActivityImportRequestSchema,
-      progressSchema: ActivityImportProgressSchema,
-      outputSchema: ActivityImportResultSchema,
+      input: schemaRef("ActivityImportRequest"),
+      progress: schemaRef("ActivityImportProgress"),
+      output: schemaRef("ActivityImportResult"),
     },
   },
   rpc: {
     "Activity.List": {
       version: "v1",
-      inputSchema: ActivityListRequestSchema,
-      outputSchema: ActivityListResponseSchema,
+      input: schemaRef("ActivityListRequest"),
+      output: schemaRef("ActivityListResponse"),
     },
   },
   events: {
     "Activity.Changed": {
       version: "v1",
-      eventSchema: ActivityChangedSchema,
+      event: schemaRef("ActivityChanged"),
     },
   },
 });
+
+export default activity;
 
 const client = await TrellisClient.connect({
   trellisUrl: "https://trellis.example.com",
@@ -193,7 +210,9 @@ Rules:
 
 - `id` remains the stable machine identity for the contract lineage
 - `displayName` and `description` are required and are part of the canonical manifest
+- contract source examples should export the `defineContract(...)` result directly and use that object for `contract.API`, `contract.use(...)`, and runtime bootstrap
 - local `operations`, `rpc`, `events`, `subjects`, `errors`, and `resources` remain the source for emitted owned contract content
+- contract source modules declare reusable schemas in a top-level `schemas` map and reference them from `input`, `output`, `progress`, `event`, and `message`
 - `uses` entries are expressed through SDK `use(...)` helpers rather than handwritten dependency objects in normal TypeScript code
 - SDK-specific convenience helpers such as `auth.useDefaults(...)` are allowed when they still produce a normal `uses` declaration
 - a participant MAY have no owned `operations`, `rpc`, `events`, or `subjects`
@@ -244,6 +263,7 @@ Rules:
 
 - returned runtimes are typed from the local contract's `API.trellis` and `API.owned`
 - returned runtimes expose typed operation, request, publish, and subscribe helpers derived from the contract
+- `service.trellis.mount(...)` handlers receive already-validated typed payloads and may return either `Result` or `Promise<Result>`
 - returned runtimes may also expose transfer-grant helpers such as `trellis.transfer(grant)` when the contract returns Trellis-owned transfer grant types from normal RPCs
 - runtime helpers must not widen the callable surface beyond what the contract allows
 - service-side helpers must not expose used remote APIs as mountable local handlers

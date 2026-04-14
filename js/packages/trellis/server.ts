@@ -61,7 +61,7 @@ type TrellisServerOpts<TA extends AnyTrellisAPI> =
   };
 
 export type TrellisServerFor<TA extends AnyTrellisAPI = TrellisAPI> =
-  & TrellisServer
+  & Omit<TrellisServer, "mount" | "operation">
   & {
     mount<M extends MethodsOf<TA>>(
       method: M,
