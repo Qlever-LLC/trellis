@@ -1,9 +1,12 @@
 export {
   KVHandle,
   type ResourceBindingKV,
-  type ResourceBindingStream,
   type ResourceBindings,
+  type ResourceBindingStream,
   type ServiceContract,
+  type ServiceHandlerTransfer,
+  type ServiceHandlerTrellis,
+  type ServiceRpcHandler,
   type ServiceTrellis,
   TrellisService,
   type TrellisServiceConnectOpts,

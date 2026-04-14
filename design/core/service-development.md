@@ -99,7 +99,8 @@ Deno.addSignalListener("SIGTERM", async () => {
 
 ```ts
 import { Result } from "@qlever-llc/trellis";
-import type { RpcHandler, RpcName, TrellisFor } from "@qlever-llc/trellis";
+import type { RpcName } from "@qlever-llc/trellis";
+import type { ServiceRpcHandler } from "@qlever-llc/trellis/server";
 import { defineContract } from "@qlever-llc/trellis/contracts";
 import { TrellisService } from "@qlever-llc/trellis/server/deno";
 import {
@@ -137,11 +138,10 @@ export const serviceContract = defineContract({
 
 export default serviceContract;
 
-export type Rpc<T extends RpcName<typeof serviceContract>> = RpcHandler<
+export type Rpc<T extends RpcName<typeof serviceContract>> = ServiceRpcHandler<
   typeof serviceContract,
   T
 >;
-export type OutboundTrellis = TrellisFor<typeof serviceContract>;
 
 const service = await TrellisService.connect({
   trellisUrl,
@@ -174,6 +174,9 @@ Rules:
 - mounted RPC handlers may be synchronous when they do not need `await`
 - mounted RPC handlers may return declared local `TrellisError` subclasses
   directly when those errors are listed in the contract RPC `errors: [...]`
+- extracted service RPC handler aliases should come from
+  `@qlever-llc/trellis/server` so the third parameter includes service-only
+  helpers such as `transfer`
 - service-local transportable RPC errors should be declared in the contract's
   top-level `errors` map through `defineError(MyErrorClass)` rather than by
   overloading shared built-in errors for domain-specific failures

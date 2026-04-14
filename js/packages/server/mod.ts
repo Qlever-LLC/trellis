@@ -30,13 +30,16 @@ export type {
 } from "./runtime.ts";
 export {
   KVHandle,
-  StoreHandle,
   type ResourceBindingKV,
+  type ResourceBindings,
   type ResourceBindingStore,
   type ResourceBindingStream,
-  type ResourceBindings,
   type ServiceContract,
+  type ServiceHandlerTransfer,
+  type ServiceHandlerTrellis,
+  type ServiceRpcHandler,
   type ServiceTrellis,
+  StoreHandle,
   TrellisService,
   type TrellisServiceConnectOpts,
 } from "./service.ts";

@@ -1,7 +1,4 @@
-import {
-  jwtAuthenticator,
-  type NatsConnection,
-} from "@nats-io/nats-core";
+import { jwtAuthenticator, type NatsConnection } from "@nats-io/nats-core";
 import {
   type KVError,
   type OperationRegistration,
@@ -16,7 +13,10 @@ import {
   type TrellisCatalogOutput,
 } from "@qlever-llc/trellis/sdk/core";
 import { auth as trellisAuth } from "@qlever-llc/trellis/sdk/auth";
-import { TrellisServer, type TrellisServerFor } from "@qlever-llc/trellis/server/runtime";
+import {
+  TrellisServer,
+  type TrellisServerFor,
+} from "@qlever-llc/trellis/server/runtime";
 import {
   createAuth,
   type SentinelCreds,
@@ -28,17 +28,17 @@ import {
   type InferSchemaType,
 } from "@qlever-llc/trellis/contracts";
 import type { TrellisAPI } from "@qlever-llc/trellis/contracts";
-import { isErr, type BaseError, type Result } from "@qlever-llc/result";
+import { type BaseError, isErr, type Result } from "@qlever-llc/result";
 import type { Logger } from "pino";
-import { Type, type TSchema } from "typebox";
+import { type TSchema, Type } from "typebox";
 import { Value } from "typebox/value";
 import type { HealthCheckFn } from "./health.ts";
 import { mountStandardHealthRpc } from "./health_rpc.ts";
 import type { RPCDesc } from "@qlever-llc/trellis/contracts";
 import type {
   HandlerTrellis,
-  RpcHandlerErrorOf,
   RpcHandlerContext,
+  RpcHandlerErrorOf,
   RpcRequestErrorOf,
 } from "../trellis/trellis.ts";
 import {
@@ -96,11 +96,16 @@ type ServiceBootstrapResponse = {
 };
 
 type RpcMethodName<TA extends TrellisAPI> = keyof TA["rpc"] & string;
-type RpcMethodInput<TA extends TrellisAPI, M extends RpcMethodName<TA>> = InferSchemaType<TA["rpc"][M]["input"]>;
-type RpcMethodOutput<TA extends TrellisAPI, M extends RpcMethodName<TA>> = InferSchemaType<TA["rpc"][M]["output"]>;
+type RpcMethodInput<TA extends TrellisAPI, M extends RpcMethodName<TA>> =
+  InferSchemaType<TA["rpc"][M]["input"]>;
+type RpcMethodOutput<TA extends TrellisAPI, M extends RpcMethodName<TA>> =
+  InferSchemaType<TA["rpc"][M]["output"]>;
 
 type BootstrapTrellisApi = {
-  rpc: Pick<typeof TRELLIS_CORE_API.owned.rpc, "Trellis.Catalog" | "Trellis.Bindings.Get">;
+  rpc: Pick<
+    typeof TRELLIS_CORE_API.owned.rpc,
+    "Trellis.Catalog" | "Trellis.Bindings.Get"
+  >;
   operations: {};
   events: {};
   subjects: {};
@@ -148,7 +153,10 @@ export type ResourceBindings = {
 function getErrorCauseMessage(error: unknown): string {
   if (error && typeof error === "object") {
     const context = (error as { context?: Record<string, unknown> }).context;
-    if (typeof context?.causeMessage === "string" && context.causeMessage.length > 0) {
+    if (
+      typeof context?.causeMessage === "string" &&
+      context.causeMessage.length > 0
+    ) {
       return context.causeMessage;
     }
   }
@@ -167,7 +175,9 @@ function bootstrapContractStateError(args: {
     `Service '${args.serviceName}' could not bootstrap contract '${args.contractId}' (${args.contractDigest}) during ${args.step}. ` +
     "This usually means Trellis has stale or incomplete state for this service session. " +
     "Re-run the service install or upgrade flow so Trellis records the active contract digest, permissions, and resource bindings for this session key.";
-  const cause = args.cause ? ` Underlying error: ${getErrorCauseMessage(args.cause)}` : "";
+  const cause = args.cause
+    ? ` Underlying error: ${getErrorCauseMessage(args.cause)}`
+    : "";
   return new Error(base + cause);
 }
 
@@ -178,15 +188,20 @@ function runtimeImport<TModule>(specifier: string): Promise<TModule> {
   return load(specifier);
 }
 
-async function loadDefaultServiceRuntimeDeps(): Promise<TrellisServiceRuntimeDeps> {
+async function loadDefaultServiceRuntimeDeps(): Promise<
+  TrellisServiceRuntimeDeps
+> {
   const transport = await loadDefaultRuntimeTransport();
   return {
-    connect: (opts) => transport.connect({
-      servers: opts.servers,
-      ...(opts.token ? { token: opts.token } : {}),
-      ...(opts.authenticator ? { authenticator: opts.authenticator as never } : {}),
-      ...(opts.inboxPrefix ? { inboxPrefix: opts.inboxPrefix } : {}),
-    }),
+    connect: (opts) =>
+      transport.connect({
+        servers: opts.servers,
+        ...(opts.token ? { token: opts.token } : {}),
+        ...(opts.authenticator
+          ? { authenticator: opts.authenticator as never }
+          : {}),
+        ...(opts.inboxPrefix ? { inboxPrefix: opts.inboxPrefix } : {}),
+      }),
   };
 }
 
@@ -243,7 +258,10 @@ async function fetchServiceBootstrapInfo(args: {
     throw new Error(`Service bootstrap failed with HTTP ${response.status}`);
   }
 
-  return Value.Parse(ServiceBootstrapReadySchema, payload) as ServiceBootstrapResponse;
+  return Value.Parse(
+    ServiceBootstrapReadySchema,
+    payload,
+  ) as ServiceBootstrapResponse;
 }
 
 export class KVHandle {
@@ -338,7 +356,10 @@ export type TrellisServiceConnectOpts<
   contract: ServiceContract<TOwnedApi, TTrellisApi>;
   name: string;
   sessionKeySeed: string;
-  server?: Omit<TrellisServerCreateOpts<TOwnedApi, TTrellisApi>, "api" | "trellisApi">;
+  server?: Omit<
+    TrellisServerCreateOpts<TOwnedApi, TTrellisApi>,
+    "api" | "trellisApi"
+  >;
 };
 
 export type ServiceTrellis<
@@ -352,10 +373,27 @@ export type ServiceTrellis<
       fn: (
         input: RpcMethodInput<TOwnedApi, M>,
         context: RpcHandlerContext,
-        trellis: HandlerTrellis<TTrellisApi>,
-      ) => Promise<Result<RpcMethodOutput<TOwnedApi, M>, RpcHandlerErrorOf<TOwnedApi, M>>> |
-        Result<RpcMethodOutput<TOwnedApi, M>, RpcHandlerErrorOf<TOwnedApi, M>>,
+        trellis: ServiceHandlerTrellis<TTrellisApi>,
+      ) =>
+        | Promise<
+          Result<RpcMethodOutput<TOwnedApi, M>, RpcHandlerErrorOf<TOwnedApi, M>>
+        >
+        | Result<
+          RpcMethodOutput<TOwnedApi, M>,
+          RpcHandlerErrorOf<TOwnedApi, M>
+        >,
     ): Promise<void>;
+  };
+
+export type ServiceHandlerTransfer = Pick<
+  ServiceTransfer,
+  "initiateUpload" | "initiateDownload"
+>;
+
+export type ServiceHandlerTrellis<TTrellisApi extends TrellisAPI> =
+  & HandlerTrellis<TTrellisApi>
+  & {
+    transfer: ServiceHandlerTransfer;
   };
 
 type RequestOpts = {
@@ -374,11 +412,32 @@ export type ServiceContract<
   };
 };
 
-type ContractOwnedApi<TContract extends ServiceContract<TrellisAPI, TrellisAPI>> =
-  TContract["API"]["owned"];
+type ContractOwnedApi<
+  TContract extends ServiceContract<TrellisAPI, TrellisAPI>,
+> = TContract["API"]["owned"];
 
-type ContractTrellisApi<TContract extends ServiceContract<TrellisAPI, TrellisAPI>> =
-  TContract["API"]["trellis"];
+type ContractTrellisApi<
+  TContract extends ServiceContract<TrellisAPI, TrellisAPI>,
+> = TContract["API"]["trellis"];
+
+export type ServiceRpcHandler<
+  TContract extends ServiceContract<TrellisAPI, TrellisAPI>,
+  M extends RpcMethodName<ContractOwnedApi<TContract>>,
+> = (
+  input: RpcMethodInput<ContractOwnedApi<TContract>, M>,
+  context: RpcHandlerContext,
+  service: ServiceHandlerTrellis<ContractTrellisApi<TContract>>,
+) =>
+  | Promise<
+    Result<
+      RpcMethodOutput<ContractOwnedApi<TContract>, M>,
+      RpcHandlerErrorOf<ContractOwnedApi<TContract>, M>
+    >
+  >
+  | Result<
+    RpcMethodOutput<ContractOwnedApi<TContract>, M>,
+    RpcHandlerErrorOf<ContractOwnedApi<TContract>, M>
+  >;
 
 export type TrellisServiceConnectArgs<
   TContract extends ServiceContract<TrellisAPI, TrellisAPI>,
@@ -449,40 +508,74 @@ async function createConnectedService<
     },
   );
 
-  const handlerTrellis: HandlerTrellis<TTrellisApi> = {
-    request: (method, input, opts) => outbound.request(method, input, opts),
-    requestOrThrow: (method, input, opts) => outbound.requestOrThrow(method, input, opts),
-    publish: (event, data) => outbound.publish(event, data),
-    event: (event, subjectData, fn) => outbound.event(
-      event,
-      subjectData,
-      fn as (message: unknown) => ReturnType<typeof fn>,
-    ),
-    operation: (operation) => outbound.operation(operation),
+  let transfer: ServiceTransfer | undefined;
+  const getTransfer = (): ServiceTransfer => {
+    if (!transfer) {
+      throw new Error("service transfer helper accessed before initialization");
+    }
+    return transfer;
   };
 
-  const trellis: ServiceTrellis<TOwnedApi, TTrellisApi> = Object.assign(outbound, {
-    mount: <M extends RpcMethodName<TOwnedApi>>(
-      method: M,
-      fn: (
-        input: RpcMethodInput<TOwnedApi, M>,
-        context: RpcHandlerContext,
-        trellis: HandlerTrellis<TTrellisApi>,
-      ) => Promise<Result<RpcMethodOutput<TOwnedApi, M>, RpcHandlerErrorOf<TOwnedApi, M>>> |
-        Result<RpcMethodOutput<TOwnedApi, M>, RpcHandlerErrorOf<TOwnedApi, M>>,
-    ) => (server as unknown as TrellisServer).mount(
-      method as string,
-      async (input, context) => await Promise.resolve(
-        fn(input as RpcMethodInput<TOwnedApi, M>, context, handlerTrellis),
-      ) as Result<unknown, BaseError>,
-    ),
-  });
+  const handlerTransfer: ServiceHandlerTransfer = {
+    initiateUpload: (args) => getTransfer().initiateUpload(args),
+    initiateDownload: (args) => getTransfer().initiateDownload(args),
+  };
+
+  const handlerTrellis: ServiceHandlerTrellis<TTrellisApi> = {
+    request: (method, input, opts) => outbound.request(method, input, opts),
+    requestOrThrow: (method, input, opts) =>
+      outbound.requestOrThrow(method, input, opts),
+    publish: (event, data) => outbound.publish(event, data),
+    event: (event, subjectData, fn) =>
+      outbound.event(
+        event,
+        subjectData,
+        fn as (message: unknown) => ReturnType<typeof fn>,
+      ),
+    operation: (operation) => outbound.operation(operation),
+    transfer: handlerTransfer,
+  };
+
+  const trellis: ServiceTrellis<TOwnedApi, TTrellisApi> = Object.assign(
+    outbound,
+    {
+      mount: <M extends RpcMethodName<TOwnedApi>>(
+        method: M,
+        fn: (
+          input: RpcMethodInput<TOwnedApi, M>,
+          context: RpcHandlerContext,
+          trellis: ServiceHandlerTrellis<TTrellisApi>,
+        ) =>
+          | Promise<
+            Result<
+              RpcMethodOutput<TOwnedApi, M>,
+              RpcHandlerErrorOf<TOwnedApi, M>
+            >
+          >
+          | Result<
+            RpcMethodOutput<TOwnedApi, M>,
+            RpcHandlerErrorOf<TOwnedApi, M>
+          >,
+      ) =>
+        (server as unknown as TrellisServer).mount(
+          method as string,
+          async (input, context) =>
+            await Promise.resolve(
+              fn(
+                input as RpcMethodInput<TOwnedApi, M>,
+                context,
+                handlerTrellis,
+              ),
+            ) as Result<unknown, BaseError>,
+        ),
+    },
+  );
 
   await mountStandardHealthRpc(server, {
     checks: args.server.healthChecks,
   });
 
-  return new TrellisService<TOwnedApi, TTrellisApi>(
+  const service = new TrellisService<TOwnedApi, TTrellisApi>(
     args.name,
     args.auth,
     args.nc,
@@ -490,6 +583,8 @@ async function createConnectedService<
     trellis,
     args.bindings,
   );
+  transfer = service.transfer;
+  return service;
 }
 
 export class TrellisService<
@@ -527,10 +622,14 @@ export class TrellisService<
     this.operations = server.operations;
     this.trellis = trellis;
     this.kv = Object.fromEntries(
-      Object.entries(kvBindings).map(([alias, binding]) => [alias, new KVHandle(nc, binding)]),
+      Object.entries(kvBindings).map((
+        [alias, binding],
+      ) => [alias, new KVHandle(nc, binding)]),
     );
     this.store = Object.fromEntries(
-      Object.entries(storeBindings).map(([alias, binding]) => [alias, new StoreHandle(nc, binding)]),
+      Object.entries(storeBindings).map((
+        [alias, binding],
+      ) => [alias, new StoreHandle(nc, binding)]),
     );
     this.transfer = new ServiceTransfer({
       name,
@@ -649,7 +748,9 @@ export class TrellisService<
     let bindings: ResourceBindings = { kv: {}, store: {}, streams: {} };
 
     if (opts.contractId && opts.contractDigest) {
-      const runtimeApi = (opts.server.trellisApi ?? opts.server.api) as TOwnedApi & TTrellisApi;
+      const runtimeApi = (opts.server.trellisApi ?? opts.server.api) as
+        & TOwnedApi
+        & TTrellisApi;
       const outbound = new Trellis<TTrellisApi>(
         name,
         nc,
@@ -662,12 +763,20 @@ export class TrellisService<
           api: runtimeApi,
         },
       );
-      const trellis: ServiceTrellis<TOwnedApi, TTrellisApi> = Object.assign(outbound, {
-        mount: () => {
-          throw new Error("mount is unavailable during internal bootstrap probing");
+      const trellis: ServiceTrellis<TOwnedApi, TTrellisApi> = Object.assign(
+        outbound,
+        {
+          mount: () => {
+            throw new Error(
+              "mount is unavailable during internal bootstrap probing",
+            );
+          },
         },
-      });
-      const bootstrapRequest = trellis.request.bind(trellis) as Pick<Trellis<BootstrapTrellisApi>, "request">["request"];
+      );
+      const bootstrapRequest = trellis.request.bind(trellis) as Pick<
+        Trellis<BootstrapTrellisApi>,
+        "request"
+      >["request"];
       const catalogResult = await bootstrapRequest("Trellis.Catalog", {});
       const catalogValue = catalogResult.take();
       if (isErr(catalogValue)) {
@@ -718,7 +827,9 @@ export class TrellisService<
         resolved.binding.digest !== opts.contractDigest
       ) {
         throw new Error(
-          `Service '${name}' received bindings for '${resolved.binding.contractId ?? "unknown"}' (${resolved.binding.digest ?? "unknown"}) ` +
+          `Service '${name}' received bindings for '${
+            resolved.binding.contractId ?? "unknown"
+          }' (${resolved.binding.digest ?? "unknown"}) ` +
             `while bootstrapping '${opts.contractId}' (${opts.contractDigest}). Re-run the service install or upgrade flow so Trellis records the correct active contract for this session key.`,
         );
       }
@@ -727,7 +838,9 @@ export class TrellisService<
         kv: resolved.binding?.resources?.kv ?? {},
         store: resolved.binding?.resources?.store ?? {},
         streams: resolved.binding?.resources?.streams ?? {},
-        ...(resolved.binding?.resources?.jobs ? { jobs: resolved.binding.resources.jobs } : {}),
+        ...(resolved.binding?.resources?.jobs
+          ? { jobs: resolved.binding.resources.jobs }
+          : {}),
       };
     }
 
@@ -755,7 +868,11 @@ export class TrellisService<
       RpcRequestErrorOf<TTrellisApi, M>
     >
   > {
-    return this.trellis.request(method as never, input as never, opts) as Promise<
+    return this.trellis.request(
+      method as never,
+      input as never,
+      opts,
+    ) as Promise<
       Result<
         RpcMethodOutput<TTrellisApi, M>,
         RpcRequestErrorOf<TTrellisApi, M>
@@ -768,14 +885,20 @@ export class TrellisService<
     input: RpcMethodInput<TTrellisApi, M>,
     opts?: RequestOpts,
   ): Promise<RpcMethodOutput<TTrellisApi, M>> {
-    return this.trellis.requestOrThrow(method as never, input as never, opts) as Promise<
+    return this.trellis.requestOrThrow(
+      method as never,
+      input as never,
+      opts,
+    ) as Promise<
       RpcMethodOutput<TTrellisApi, M>
     >;
   }
 
   operation<O extends keyof (TOwnedApi & TTrellisApi)["operations"] & string>(
     operation: O,
-  ): OperationRegistration<InferSchemaType<(TOwnedApi & TTrellisApi)["operations"][O]["input"]>> {
+  ): OperationRegistration<
+    InferSchemaType<(TOwnedApi & TTrellisApi)["operations"][O]["input"]>
+  > {
     return this.server.operation(operation) as OperationRegistration<
       InferSchemaType<(TOwnedApi & TTrellisApi)["operations"][O]["input"]>
     >;

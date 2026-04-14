@@ -292,10 +292,13 @@ Rules:
 - mounted RPC handlers may return either `Result` or `Promise<Result>`
 - for locally owned contracts, author-facing code should normally define short
   aliases in the contract module such as
-  `type Rpc<T extends RpcName<typeof myContract>> = RpcHandler<typeof myContract, T>`
+  `type Rpc<T extends RpcName<typeof myContract>> = ServiceRpcHandler<typeof myContract, T>`
   and
   `type Event<T extends EventName<typeof myContract>> = EventHandler<typeof myContract, T>`
-  rather than repeating `typeof contract.API.owned...` in every handler
+  for service-owned RPC handlers, `ServiceRpcHandler` should come from
+  `@qlever-llc/trellis/server` so the third parameter includes service-only
+  helpers like `transfer` rather than repeating `typeof contract.API.owned...`
+  in every handler
 - callers do not manually assemble runtime API arrays for normal usage
 - locally authored contracts should normally export the `defineContract(...)`
   return value directly; do not wrap it in a handwritten default-export object

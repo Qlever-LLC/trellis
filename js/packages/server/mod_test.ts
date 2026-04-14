@@ -3,12 +3,9 @@
  * @module
  */
 
-import {
-  assertEquals,
-  assertExists,
-} from "jsr:@std/assert";
+import { assertEquals, assertExists } from "jsr:@std/assert";
 import { Type } from "typebox";
-import { Result, type BaseError } from "@qlever-llc/result";
+import { type BaseError, Result } from "@qlever-llc/result";
 import { defineContract } from "../trellis/contract.ts";
 import type {
   EventHandler,
@@ -34,14 +31,15 @@ import {
   type HealthCheckFn,
   type HealthCheckResult,
   type HealthResponse,
+  KVHandle,
   type OrderingGroup,
+  type ServiceRpcHandler,
   ServiceTransfer,
+  StoreHandle,
   type SubscribeOpts,
+  TrellisServer,
   type TrellisService,
   TrellisService as TrellisServiceClass,
-  TrellisServer,
-  KVHandle,
-  StoreHandle,
 } from "./mod.ts";
 
 const typeTestContract = defineContract({
@@ -137,10 +135,12 @@ Deno.test("Subscription types are re-exported", () => {
 Deno.test("service wrapper type surface stays specific", () => {
   const schema = Type.Object({ value: Type.String() });
   function expectTypedSurface(
-    service: TrellisService<
-      typeof typeTestContract.API.owned,
-      typeof typeTestContract.API.owned
-    > & { store: Record<string, StoreHandle> },
+    service:
+      & TrellisService<
+        typeof typeTestContract.API.owned,
+        typeof typeTestContract.API.owned
+      >
+      & { store: Record<string, StoreHandle> },
     kvHandle: KVHandle,
     storeHandle: StoreHandle,
   ): {
@@ -169,19 +169,36 @@ Deno.test("service wrapper mount handlers stay method-typed", () => {
       typeof typeTestContract.API.trellis
     >,
   ) {
-    void service.trellis.mount("Test.Ping", async (payload, context, trellis) => {
-      const value: string = payload.value;
-      const sessionKey: string = context.sessionKey;
-      const ping = trellis.request("Test.Ping", { value });
-      assertExists(ping);
-      return Result.ok({ ok: value.length > 0 && sessionKey.length >= 0 });
-    });
+    void service.trellis.mount(
+      "Test.Ping",
+      async (payload, context, trellis) => {
+        const value: string = payload.value;
+        const sessionKey: string = context.sessionKey;
+        const ping = trellis.request("Test.Ping", { value });
+        const upload = trellis.transfer.initiateUpload({
+          sessionKey,
+          store: "uploads",
+          key: value,
+          expiresInMs: 60_000,
+        });
+        assertExists(ping);
+        assertExists(upload);
+        return Result.ok({ ok: value.length > 0 && sessionKey.length >= 0 });
+      },
+    );
 
     void service.trellis.mount("Test.Ping", (payload, context, trellis) => {
       const value: string = payload.value;
       const sessionKey: string = context.sessionKey;
       const ping = trellis.request("Test.Ping", { value });
+      const download = trellis.transfer.initiateDownload({
+        sessionKey,
+        store: "uploads",
+        key: value,
+        expiresInMs: 60_000,
+      });
       assertExists(ping);
+      assertExists(download);
       return Result.ok({ ok: value.length > 0 && sessionKey.length >= 0 });
     });
   }
@@ -189,15 +206,41 @@ Deno.test("service wrapper mount handlers stay method-typed", () => {
   assertExists(expectTypedMount);
 });
 
+Deno.test("server RPC helper types support extracted handlers with transfer", () => {
+  type PingHandler = ServiceRpcHandler<typeof typeTestContract, "Test.Ping">;
+
+  const pingHandler: PingHandler = (payload, context, service) => {
+    const value: string = payload.value;
+    const sessionKey: string = context.sessionKey;
+    const ping = service.request("Test.Ping", { value });
+    const upload = service.transfer.initiateUpload({
+      sessionKey,
+      store: "uploads",
+      key: value,
+      expiresInMs: 60_000,
+    });
+    assertExists(ping);
+    assertExists(upload);
+    return Result.ok({ ok: value.length > 0 && sessionKey.length >= 0 });
+  };
+
+  assertExists(pingHandler);
+});
+
 Deno.test("public RPC helper types support extracted handlers", () => {
   type OwnedApi = typeof typeTestContract.API.owned;
   type PingInput = RpcInputOf<OwnedApi, "Test.Ping">;
   type PingOutput = RpcOutputOf<OwnedApi, "Test.Ping">;
 
-  const pingHandler: RpcHandlerFn<OwnedApi, "Test.Ping"> = (payload, context) => {
+  const pingHandler: RpcHandlerFn<OwnedApi, "Test.Ping"> = (
+    payload,
+    context,
+  ) => {
     const value: PingInput["value"] = payload.value;
     const sessionKey: string = context.sessionKey;
-    const output: PingOutput = { ok: value.length > 0 && sessionKey.length >= 0 };
+    const output: PingOutput = {
+      ok: value.length > 0 && sessionKey.length >= 0,
+    };
     return Result.ok(output);
   };
 
@@ -205,12 +248,18 @@ Deno.test("public RPC helper types support extracted handlers", () => {
 });
 
 Deno.test("contract-oriented helper types support local Rpc<T> and Event<T> aliases", () => {
-  type TypeTestRpc<T extends RpcName<typeof typeTestContract>> =
-    RpcHandler<typeof typeTestContract, T>;
-  type TypeTestRpcIn<T extends RpcName<typeof typeTestContract>> =
-    RpcInput<typeof typeTestContract, T>;
-  type TypeTestRpcOut<T extends RpcName<typeof typeTestContract>> =
-    RpcOutput<typeof typeTestContract, T>;
+  type TypeTestRpc<T extends RpcName<typeof typeTestContract>> = RpcHandler<
+    typeof typeTestContract,
+    T
+  >;
+  type TypeTestRpcIn<T extends RpcName<typeof typeTestContract>> = RpcInput<
+    typeof typeTestContract,
+    T
+  >;
+  type TypeTestRpcOut<T extends RpcName<typeof typeTestContract>> = RpcOutput<
+    typeof typeTestContract,
+    T
+  >;
   type TypeTestEvent<T extends EventName<typeof typeTestContract>> =
     EventHandler<typeof typeTestContract, T>;
   type TypeTestEventPayload<T extends EventName<typeof typeTestContract>> =
