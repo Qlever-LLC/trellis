@@ -2,9 +2,9 @@ use crate::{
     save_admin_session, AdminSessionState, ApprovalEntryRecord, AuthGetInstalledContractRequest,
     AuthGetInstalledContractResponse, AuthInstallServiceRequest, AuthUpgradeServiceContractRequest,
     AuthValidateRequestRequest, AuthValidateRequestResponse, AuthenticatedUser, BoundSession,
-    DisableInstanceGrantPolicyRequest, InstanceGrantPolicyRecord, ListApprovalsRequest,
-    RenewBindingTokenResponse, RevokeApprovalRequest, ServiceListEntry, TrellisAuthError,
-    UpsertInstanceGrantPolicyRequest,
+    ClientTransportsRecord, DisableInstanceGrantPolicyRequest, InstanceGrantPolicyRecord,
+    ListApprovalsRequest, RenewBindingTokenResponse, RevokeApprovalRequest, ServiceListEntry,
+    TrellisAuthError, UpsertInstanceGrantPolicyRequest,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
@@ -13,10 +13,26 @@ use trellis_client::{TrellisClient, UserConnectOptions};
 
 use crate::protocol::{
     AuthInstallServiceResponse, AuthUpgradeServiceContractResponse,
-    DisableInstanceGrantPolicyResponse, ListApprovalsResponse,
-    ListInstanceGrantPoliciesResponse, ListServicesResponse, LogoutResponse, MeResponse,
-    RevokeApprovalResponse, UpsertInstanceGrantPolicyResponse,
+    DisableInstanceGrantPolicyResponse, ListApprovalsResponse, ListInstanceGrantPoliciesResponse,
+    ListServicesResponse, LogoutResponse, MeResponse, RevokeApprovalResponse,
+    UpsertInstanceGrantPolicyResponse,
 };
+
+fn join_native_nats_servers(
+    transports: &ClientTransportsRecord,
+) -> Result<String, TrellisAuthError> {
+    let Some(native) = &transports.native else {
+        return Err(TrellisAuthError::UnexpectedBindStatus(
+            "missing_native_transport".to_string(),
+        ));
+    };
+    if native.nats_servers.is_empty() {
+        return Err(TrellisAuthError::UnexpectedBindStatus(
+            "missing_native_transport".to_string(),
+        ));
+    }
+    Ok(native.nats_servers.join(","))
+}
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -173,16 +189,11 @@ fn apply_renewed_admin_session(
     state: &mut AdminSessionState,
     renewed: RenewBindingTokenResponse,
 ) -> Result<(), TrellisAuthError> {
-    if renewed.nats_servers.is_empty() {
-        return Err(TrellisAuthError::UnexpectedBindStatus(
-            "missing_nats_servers".to_string(),
-        ));
-    }
     let renewed = BoundSession {
         binding_token: renewed.binding_token,
         inbox_prefix: renewed.inbox_prefix,
         expires: renewed.expires,
-        nats_servers: renewed.nats_servers.join(","),
+        nats_servers: join_native_nats_servers(&renewed.transports)?,
         sentinel: renewed.sentinel,
     };
 
@@ -792,8 +803,9 @@ mod tests {
         SetLoginPortalSelectionRequest,
     };
     use crate::{
-        AdminSessionState, InstanceGrantPolicyRecord, InstanceGrantPolicySourceRecord,
-        RenewBindingTokenResponse, SentinelCredsRecord, UpsertInstanceGrantPolicyRequest,
+        AdminSessionState, ClientTransportRecord, ClientTransportsRecord,
+        InstanceGrantPolicyRecord, InstanceGrantPolicySourceRecord, RenewBindingTokenResponse,
+        SentinelCredsRecord, TrellisAuthError, UpsertInstanceGrantPolicyRequest,
     };
 
     #[test]
@@ -933,7 +945,10 @@ mod tests {
         }))
         .expect("deserialize instance grant policy record");
         assert_eq!(record.contract_id, "trellis.console@v1");
-        assert_eq!(record.allowed_origins, Some(vec!["https://console.example.com".to_string()]));
+        assert_eq!(
+            record.allowed_origins,
+            Some(vec!["https://console.example.com".to_string()])
+        );
 
         let value = serde_json::to_value(InstanceGrantPolicyRecord {
             allowed_origins: None,
@@ -978,10 +993,17 @@ mod tests {
             binding_token: "new-token".to_string(),
             expires: "2026-02-01T00:00:00Z".to_string(),
             inbox_prefix: "_INBOX.test".to_string(),
-            nats_servers: vec!["nats://a:4222".to_string(), "nats://b:4222".to_string()],
             sentinel: SentinelCredsRecord {
                 jwt: "new-jwt".to_string(),
                 seed: "new-seed".to_string(),
+            },
+            transports: ClientTransportsRecord {
+                native: Some(ClientTransportRecord {
+                    nats_servers: vec!["nats://a:4222".to_string(), "nats://b:4222".to_string()],
+                }),
+                websocket: Some(ClientTransportRecord {
+                    nats_servers: vec!["ws://localhost:8080".to_string()],
+                }),
             },
             status: "bound".to_string(),
         };
@@ -990,5 +1012,41 @@ mod tests {
         assert!(error.is_ok());
         assert_eq!(state.nats_servers, "nats://a:4222,nats://b:4222");
         assert_eq!(state.binding_token, "new-token");
+    }
+
+    #[test]
+    fn renewed_admin_session_requires_native_transport() {
+        let mut state = AdminSessionState {
+            auth_url: "http://localhost:3000".to_string(),
+            nats_servers: "old-a,old-b".to_string(),
+            session_seed: "seed".to_string(),
+            session_key: "key".to_string(),
+            binding_token: "old-token".to_string(),
+            sentinel_jwt: "old-jwt".to_string(),
+            sentinel_seed: "old-seed".to_string(),
+            expires: "2026-01-01T00:00:00Z".to_string(),
+        };
+        let renewed = RenewBindingTokenResponse {
+            binding_token: "new-token".to_string(),
+            expires: "2026-02-01T00:00:00Z".to_string(),
+            inbox_prefix: "_INBOX.test".to_string(),
+            sentinel: SentinelCredsRecord {
+                jwt: "new-jwt".to_string(),
+                seed: "new-seed".to_string(),
+            },
+            transports: ClientTransportsRecord {
+                native: None,
+                websocket: Some(ClientTransportRecord {
+                    nats_servers: vec!["ws://localhost:8080".to_string()],
+                }),
+            },
+            status: "bound".to_string(),
+        };
+
+        let error =
+            apply_renewed_admin_session(&mut state, renewed).expect_err("missing native transport");
+        assert!(
+            matches!(error, TrellisAuthError::UnexpectedBindStatus(message) if message == "missing_native_transport")
+        );
     }
 }

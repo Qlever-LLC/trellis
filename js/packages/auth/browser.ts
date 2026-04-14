@@ -4,25 +4,24 @@
  * Uses WebCrypto API and IndexedDB for secure key storage.
  */
 
-
 export {
   type AuthConfig,
-  type BindResponse,
-  type BindSuccessResponse,
   bindFlow,
+  type BindResponse,
   bindSession,
+  type BindSuccessResponse,
   buildLoginUrl,
   isBindSuccessResponse,
   type SentinelCreds,
 } from "./browser/login.ts";
 export {
+  type ApprovalDecision,
   fetchPortalFlowState,
   portalFlowIdFromUrl,
+  type PortalFlowState as BrowserPortalFlowState,
   portalProviderLoginUrl,
   portalRedirectLocation,
   submitPortalApproval,
-  type ApprovalDecision,
-  type PortalFlowState as BrowserPortalFlowState,
 } from "./browser/portal.ts";
 export {
   bindFlowSig,
@@ -39,16 +38,20 @@ export {
 } from "./browser/session.ts";
 export { deleteKeyPair, hasKeyPair } from "./browser/storage.ts";
 export {
+  type ApprovalDecision as ApprovalDecisionData,
+  ApprovalDecisionSchema,
   type BindResponse as BindResponseData,
   BindResponseSchema,
   type BindSuccessResponse as BindSuccessResponseData,
   BindSuccessResponseSchema,
+  type ClientTransportEndpoints as ClientTransportEndpointsData,
+  ClientTransportEndpointsSchema,
+  type ClientTransports as ClientTransportsData,
+  ClientTransportsSchema,
   type ContractApproval as ContractApprovalData,
   ContractApprovalSchema,
   type NatsAuthTokenV1 as NatsAuthTokenV1Data,
   NatsAuthTokenV1Schema,
-  type ApprovalDecision as ApprovalDecisionData,
-  ApprovalDecisionSchema,
   type SentinelCreds as SentinelCredsData,
   SentinelCredsSchema,
 } from "./schemas.ts";

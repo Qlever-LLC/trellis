@@ -1,8 +1,8 @@
 import {
-  type BindResponse,
-  type BindSuccessResponse,
   bindFlow,
+  type BindResponse,
   bindSession,
+  type BindSuccessResponse,
   clearSessionKey,
   getOrCreateSessionKey,
   getPublicSessionKey,
@@ -62,7 +62,10 @@ function loadPersistedAuth(): PersistedAuth | null {
   const result = Result.try(() => {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (!stored) return null;
-    const parsed = Value.Parse(PersistedAuthSchema, JSON.parse(stored)) as PersistedAuth;
+    const parsed = Value.Parse(
+      PersistedAuthSchema,
+      JSON.parse(stored),
+    ) as PersistedAuth;
     if (new Date(parsed.expires) < new Date()) {
       localStorage.removeItem(STORAGE_KEY);
       return null;
@@ -84,12 +87,12 @@ function persistAuth(state: {
   localStorage.setItem(
     STORAGE_KEY,
     JSON.stringify({
-        bindingToken: state.bindingToken,
-        inboxPrefix: state.inboxPrefix,
-        expires: state.expires.toISOString(),
-        sentinel: state.sentinel,
-        natsServers: state.natsServers,
-      }),
+      bindingToken: state.bindingToken,
+      inboxPrefix: state.inboxPrefix,
+      expires: state.expires.toISOString(),
+      sentinel: state.sentinel,
+      natsServers: state.natsServers,
+    }),
   );
 }
 
@@ -115,12 +118,21 @@ function normalizeAuthUrl(authUrl: string): string {
   return new URL(authUrl).toString().replace(/\/$/, "");
 }
 
+function websocketTransportServers(response: {
+  transports?: { websocket?: { natsServers: string[] } };
+}): string[] | undefined {
+  return response.transports?.websocket?.natsServers;
+}
+
 function encodeJsonForQuery(value: unknown): string {
   const json = canonicalizeJsonValue(value);
   const bytes = new TextEncoder().encode(json);
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(
+    /=+$/g,
+    "",
+  );
 }
 
 async function buildLoginUrl(options: {
@@ -131,7 +143,11 @@ async function buildLoginUrl(options: {
   context?: unknown;
 }): Promise<string> {
   const sessionKey = getPublicSessionKey(options.handle);
-  const sig = await oauthInitSig(options.handle, options.redirectTo, options.context);
+  const sig = await oauthInitSig(
+    options.handle,
+    options.redirectTo,
+    options.context,
+  );
   const url = new URL(`${options.authUrl}/auth/login`);
 
   url.searchParams.set("redirectTo", options.redirectTo);
@@ -256,7 +272,9 @@ export class AuthState {
     return this.#state.inboxPrefix;
   }
   get expires(): Date | null {
-    return this.#state.expiresMs === null ? null : new SvelteDate(this.#state.expiresMs);
+    return this.#state.expiresMs === null
+      ? null
+      : new SvelteDate(this.#state.expiresMs);
   }
   get sentinel(): SentinelCreds | null {
     return this.#state.sentinel;
@@ -299,7 +317,9 @@ export class AuthState {
    * This method does not return - it redirects the browser.
    */
   async signIn(options: SignInOptions = {}): Promise<never> {
-    const authUrl = options.authUrl ? this.setAuthUrl(options.authUrl) : this.#requireAuthUrl();
+    const authUrl = options.authUrl
+      ? this.setAuthUrl(options.authUrl)
+      : this.#requireAuthUrl();
     const handle = await this.init();
     const currentUrl = new URL(window.location.href);
     const url = await buildLoginUrl({
@@ -313,7 +333,9 @@ export class AuthState {
     throw new Error("Redirecting to auth for provider selection");
   }
 
-  async handleCallback(url: string = window.location.href): Promise<BindResult | null> {
+  async handleCallback(
+    url: string = window.location.href,
+  ): Promise<BindResult | null> {
     if (this.#bindingInProgress) return this.#bindingInProgress;
 
     const flowId = new URL(url).searchParams.get("flowId");
@@ -330,13 +352,18 @@ export class AuthState {
   async #resolveCallback(flowId: string): Promise<BindResult> {
     try {
       const response = await this.bindFlow(flowId);
-      return response.status === "bound"
-        ? { status: "bound" }
-        : { status: "insufficient_capabilities", missingCapabilities: response.missingCapabilities };
+      return response.status === "bound" ? { status: "bound" } : {
+        status: "insufficient_capabilities",
+        missingCapabilities: response.missingCapabilities,
+      };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (message.includes("approval_denied")) return { status: "approval_denied" };
-      if (message.includes("approval_required")) return { status: "approval_required" };
+      if (message.includes("approval_denied")) {
+        return { status: "approval_denied" };
+      }
+      if (message.includes("approval_required")) {
+        return { status: "approval_required" };
+      }
       return { status: "error", message };
     }
   }
@@ -346,7 +373,9 @@ export class AuthState {
    */
   cleanupCallbackUrl(url: string = window.location.href): string | null {
     const parsed = new URL(url);
-    if (parsed.searchParams.has("flowId") || parsed.searchParams.has("authError")) {
+    if (
+      parsed.searchParams.has("flowId") || parsed.searchParams.has("authError")
+    ) {
       parsed.searchParams.delete("flowId");
       parsed.searchParams.delete("authError");
       return `${parsed.pathname}${parsed.search}${parsed.hash}`;
@@ -394,10 +423,14 @@ export class AuthState {
   }
 
   setBindingToken(
-    response: Pick<BindSuccessResponse, "bindingToken" | "inboxPrefix" | "expires"> & {
-      sentinel?: SentinelCreds;
-      natsServers?: string[];
-    },
+    response:
+      & Pick<BindSuccessResponse, "bindingToken" | "inboxPrefix" | "expires">
+      & {
+        sentinel?: SentinelCreds;
+        transports?: {
+          websocket?: { natsServers: string[] };
+        };
+      },
   ): void {
     this.#state.bindingToken = response.bindingToken;
     this.#state.inboxPrefix = response.inboxPrefix;
@@ -406,8 +439,9 @@ export class AuthState {
     if (response.sentinel) {
       this.#state.sentinel = response.sentinel;
     }
-    if (response.natsServers) {
-      this.#state.natsServers = response.natsServers;
+    const websocketServers = websocketTransportServers(response);
+    if (websocketServers) {
+      this.#state.natsServers = websocketServers;
     }
 
     // Only persist if we have sentinel credentials
@@ -439,7 +473,9 @@ export class AuthState {
    * Sign out by clearing all credentials and redirecting to login.
    * This method does not return - it redirects the browser.
    */
-  async signOut(remoteLogout?: () => Promise<unknown> | unknown): Promise<never> {
+  async signOut(
+    remoteLogout?: () => Promise<unknown> | unknown,
+  ): Promise<never> {
     if (remoteLogout) {
       try {
         await remoteLogout();

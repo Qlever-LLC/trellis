@@ -17,13 +17,22 @@ use crate::models::{
     AdminLoginOutcome, AdminSessionState, BindResponse, BindResponseBound, BoundSession,
     BrowserLoginChallenge, CallbackOutcome, CallbackTokenRequest, StartBrowserLoginOpts,
 };
+use crate::ClientTransportsRecord;
 use crate::TrellisAuthError;
 use trellis_client::SessionAuth;
 
-fn join_nats_servers(servers: &[String]) -> Result<String, TrellisAuthError> {
+fn join_native_nats_servers(
+    transports: &ClientTransportsRecord,
+) -> Result<String, TrellisAuthError> {
+    let Some(native) = &transports.native else {
+        return Err(TrellisAuthError::UnexpectedBindStatus(
+            "missing_native_transport".to_string(),
+        ));
+    };
+    let servers = &native.nats_servers;
     if servers.is_empty() {
         return Err(TrellisAuthError::UnexpectedBindStatus(
-            "missing_nats_servers".to_string(),
+            "missing_native_transport".to_string(),
         ));
     }
     Ok(servers.join(","))
@@ -283,13 +292,13 @@ async fn bind_session(
             binding_token,
             inbox_prefix,
             expires,
-            nats_servers,
             sentinel,
+            transports,
         }) => Ok(BoundSession {
             binding_token,
             inbox_prefix,
             expires,
-            nats_servers: join_nats_servers(&nats_servers)?,
+            nats_servers: join_native_nats_servers(&transports)?,
             sentinel,
         }),
         BindResponse::ApprovalRequired { approval } => Err(TrellisAuthError::UnexpectedBindStatus(

@@ -10,6 +10,14 @@ import {
   BindRequestSchema,
   BindResponseSchema,
   ContractApprovalRecordSchema,
+  DeviceActivationHandoffSchema,
+  DeviceActivationRecordSchema,
+  DeviceActivationReviewRecordSchema,
+  DevicePortalDefaultSchema,
+  DevicePortalSelectionSchema,
+  DeviceProfileSchema,
+  DeviceSchema,
+  InstanceGrantPolicySchema,
   LoginPortalDefaultSchema,
   LoginPortalSelectionSchema,
   LoginQuerySchema,
@@ -19,14 +27,6 @@ import {
   SessionKeySchema,
   SessionSchema,
   SignatureSchema,
-  DevicePortalDefaultSchema,
-  DevicePortalSelectionSchema,
-  DeviceActivationHandoffSchema,
-  DeviceActivationRecordSchema,
-  DeviceActivationReviewRecordSchema,
-  InstanceGrantPolicySchema,
-  DeviceProfileSchema,
-  DeviceSchema,
 } from "./schemas.ts";
 
 const sessionKey = "A".repeat(43);
@@ -263,7 +263,7 @@ Deno.test("BindResponseSchema validates insufficient-capabilities responses", ()
   );
 });
 
-Deno.test("BindResponseSchema validates bound responses with nats servers", () => {
+Deno.test("BindResponseSchema validates bound responses with explicit transports", () => {
   assert(
     Value.Check(BindResponseSchema, {
       status: "bound",
@@ -274,7 +274,10 @@ Deno.test("BindResponseSchema validates bound responses with nats servers", () =
         jwt: "jwt",
         seed: "seed",
       },
-      natsServers: ["ws://localhost:8080"],
+      transports: {
+        native: { natsServers: ["nats://127.0.0.1:4222"] },
+        websocket: { natsServers: ["ws://localhost:8080"] },
+      },
     }),
   );
 });
@@ -323,7 +326,10 @@ Deno.test("AuthRenewBindingToken schemas validate", () => {
       inboxPrefix: "_INBOX.aaaaaaaaaaaaaaaa",
       expires: new Date().toISOString(),
       sentinel: { jwt: "jwt", seed: "seed" },
-      natsServers: ["ws://localhost:8080"],
+      transports: {
+        native: { natsServers: ["nats://127.0.0.1:4222"] },
+        websocket: { natsServers: ["ws://localhost:8080"] },
+      },
     }),
   );
 });

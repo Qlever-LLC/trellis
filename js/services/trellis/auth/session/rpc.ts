@@ -9,6 +9,8 @@ import {
   bindingTokenKV,
   connectionsKV,
   contractApprovalsKV,
+  deviceActivationsKV,
+  deviceProfilesKV,
   instanceGrantPoliciesKV,
   logger,
   natsAuth,
@@ -17,11 +19,14 @@ import {
   sessionKV,
   trellis,
   usersKV,
-  deviceActivationsKV,
-  deviceProfilesKV,
 } from "../../bootstrap/globals.ts";
 import { getConfig } from "../../config.ts";
-import type { ServiceRegistryEntry, Session, UserProjectionEntry } from "../../state/schemas.ts";
+import type {
+  ServiceRegistryEntry,
+  Session,
+  UserProjectionEntry,
+} from "../../state/schemas.ts";
+import { buildClientTransports } from "../transports.ts";
 import { resolveSessionPrincipal } from "./principal.ts";
 
 type AuthenticatedUser = {
@@ -159,11 +164,17 @@ function parseOriginId(value: string): { origin: string; id: string } | null {
   return { origin: value.slice(0, idx), id: value.slice(idx + 1) };
 }
 
-function sessionActorKey(session: Session, sessionKey: string, userNkey?: string): string {
+function sessionActorKey(
+  session: Session,
+  sessionKey: string,
+  userNkey?: string,
+): string {
   const actor = session.type === "device"
     ? `${session.instanceId}.${session.publicIdentityKey}`
     : `${session.origin}.${session.id}`;
-  return userNkey ? `${actor}.${sessionKey}.${userNkey}` : `${actor}.${sessionKey}`;
+  return userNkey
+    ? `${actor}.${sessionKey}.${userNkey}`
+    : `${actor}.${sessionKey}`;
 }
 
 function requireUserCaller(caller: SessionContext["caller"]): SessionUser {
@@ -189,7 +200,15 @@ function requireUserCaller(caller: SessionContext["caller"]): SessionUser {
   };
 }
 
-function formatCaller(session: Session, principal: { active: boolean; capabilities: string[]; email: string; name: string }) {
+function formatCaller(
+  session: Session,
+  principal: {
+    active: boolean;
+    capabilities: string[];
+    email: string;
+    name: string;
+  },
+) {
   if (session.type === "device") {
     return {
       type: "device" as const,
@@ -247,7 +266,9 @@ function deviceCallerFields(caller: SessionContext["caller"]): {
   };
 }
 
-function responseFromCaller(caller: SessionContext["caller"]): AuthMeResponse | null {
+function responseFromCaller(
+  caller: SessionContext["caller"],
+): AuthMeResponse | null {
   if (
     caller.type === "user" && caller.id && caller.origin && caller.email &&
     caller.name && caller.active !== undefined
@@ -363,7 +384,10 @@ async function responseFromDeviceCaller(args: {
   };
 }
 
-async function loadSessionBySessionKey(sessionKey: string, sessionStore: KVLike<Session>): Promise<Session | null> {
+async function loadSessionBySessionKey(
+  sessionKey: string,
+  sessionStore: KVLike<Session>,
+): Promise<Session | null> {
   const keysFn = sessionStore.keys;
   if (!keysFn) return null;
   const keysIterResult = await keysFn(`${sessionKey}.>`);
@@ -374,12 +398,17 @@ async function loadSessionBySessionKey(sessionKey: string, sessionStore: KVLike<
   for await (const key of keysIter as AsyncIterable<string>) {
     if (!sessionKeyId) sessionKeyId = key;
     else {
-      throw new AuthError({ reason: "session_corrupted", context: { sessionKey } });
+      throw new AuthError({
+        reason: "session_corrupted",
+        context: { sessionKey },
+      });
     }
   }
 
   if (!sessionKeyId) return null;
-  const sessionValue = unwrapValue<Session>((await sessionStore.get(sessionKeyId)).take());
+  const sessionValue = unwrapValue<Session>(
+    (await sessionStore.get(sessionKeyId)).take(),
+  );
   if (isErr(sessionValue)) return null;
   return sessionValue;
 }
@@ -388,10 +417,14 @@ async function loadAuthenticatedUser(args: {
   usersKV: KVLike<UserProjectionEntry>;
   origin: string;
   id: string;
-  fallback: Pick<AuthenticatedUser, "name" | "email" | "capabilities"> & Partial<Pick<AuthenticatedUser, "image" | "lastLogin" | "active">>;
+  fallback:
+    & Pick<AuthenticatedUser, "name" | "email" | "capabilities">
+    & Partial<Pick<AuthenticatedUser, "image" | "lastLogin" | "active">>;
 }): Promise<AuthenticatedUser> {
   const trellisId = await trellisIdFromOriginId(args.origin, args.id);
-  const projectionEntry = unwrapValue<UserProjectionEntry>((await args.usersKV.get(trellisId)).take());
+  const projectionEntry = unwrapValue<UserProjectionEntry>(
+    (await args.usersKV.get(trellisId)).take(),
+  );
   if (!isErr(projectionEntry)) {
     const projection = projectionEntry;
     return {
@@ -402,7 +435,9 @@ async function loadAuthenticatedUser(args: {
       email: projection.email ?? args.fallback.email,
       ...(args.fallback.image ? { image: args.fallback.image } : {}),
       capabilities: projection.capabilities ?? args.fallback.capabilities,
-      ...(args.fallback.lastLogin ? { lastLogin: args.fallback.lastLogin } : {}),
+      ...(args.fallback.lastLogin
+        ? { lastLogin: args.fallback.lastLogin }
+        : {}),
     };
   }
 
@@ -423,7 +458,9 @@ async function loadAuthenticatedService(args: {
   sessionKey: string;
   session: Session & { type: "service" };
 }): Promise<AuthenticatedService> {
-  const serviceEntry = unwrapValue<ServiceRegistryEntry>((await args.servicesKV.get(args.sessionKey)).take());
+  const serviceEntry = unwrapValue<ServiceRegistryEntry>(
+    (await args.servicesKV.get(args.sessionKey)).take(),
+  );
   if (!isErr(serviceEntry)) {
     const service = serviceEntry;
     return {
@@ -450,9 +487,14 @@ async function loadAuthenticatedDevice(args: {
   deviceProfilesKV: KVLike<{ profileId: string; disabled: boolean }>;
   session: Session & { type: "device" };
 }): Promise<{ user: AuthenticatedUser | null; device: AuthenticatedDevice }> {
-  const activationEntry = unwrapValue<DeviceActivationRecord>((await args.deviceActivationsKV.get(args.session.instanceId)).take());
+  const activationEntry = unwrapValue<DeviceActivationRecord>(
+    (await args.deviceActivationsKV.get(args.session.instanceId)).take(),
+  );
   if (isErr(activationEntry)) {
-    throw new AuthError({ reason: "unknown_device", context: { instanceId: args.session.instanceId } });
+    throw new AuthError({
+      reason: "unknown_device",
+      context: { instanceId: args.session.instanceId },
+    });
   }
 
   const activation = activationEntry;
@@ -469,11 +511,16 @@ async function loadAuthenticatedDevice(args: {
   ) {
     throw new AuthError({
       reason: "device_activation_revoked",
-      context: { instanceId: args.session.instanceId, profileId: activation.profileId },
+      context: {
+        instanceId: args.session.instanceId,
+        profileId: activation.profileId,
+      },
     });
   }
 
-  const profileEntry = unwrapValue<{ profileId: string; disabled: boolean }>((await args.deviceProfilesKV.get(activation.profileId)).take());
+  const profileEntry = unwrapValue<{ profileId: string; disabled: boolean }>(
+    (await args.deviceProfilesKV.get(activation.profileId)).take(),
+  );
   if (isErr(profileEntry)) {
     throw new AuthError({
       reason: "device_profile_not_found",
@@ -547,7 +594,12 @@ export function createAuthMeHandler(deps: {
         if (deviceCallerResponse) {
           return Result.ok<AuthMeResponse>(deviceCallerResponse);
         }
-        return Result.err(new AuthError({ reason: "session_not_found", context: { sessionKey } }));
+        return Result.err(
+          new AuthError({
+            reason: "session_not_found",
+            context: { sessionKey },
+          }),
+        );
       }
 
       if (session.type === "user") {
@@ -755,7 +807,7 @@ export function createAuthRenewBindingTokenHandler(opts: {
       inboxPrefix: `_INBOX.${sessionKey.slice(0, 16)}`,
       expires: expires.toISOString(),
       sentinel: sentinelCreds,
-      natsServers: config.client.natsServers,
+      transports: buildClientTransports(config),
     };
     return Result.ok(response);
   };
@@ -799,7 +851,10 @@ export const authListSessionsHandler = async (req: UserRefFilter) => {
 export function createAuthRevokeSessionHandler(opts: {
   kick: (serverId: string, clientId: number) => Promise<void>;
 }) {
-  return async (req: SessionKeyRequest, { caller }: { caller: SessionContext["caller"] }) => {
+  return async (
+    req: SessionKeyRequest,
+    { caller }: { caller: SessionContext["caller"] },
+  ) => {
     const user = requireUserCaller(caller);
     logger.trace({
       rpc: "Auth.RevokeSession",
@@ -912,7 +967,10 @@ export const authListConnectionsHandler = async (req: SessionFilter) => {
 export function createAuthKickConnectionHandler(opts: {
   kick: (serverId: string, clientId: number) => Promise<void>;
 }) {
-  return async (req: UserNkeyRequest, { caller }: { caller: SessionContext["caller"] }) => {
+  return async (
+    req: UserNkeyRequest,
+    { caller }: { caller: SessionContext["caller"] },
+  ) => {
     const user = requireUserCaller(caller);
     logger.trace({
       rpc: "Auth.KickConnection",

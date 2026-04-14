@@ -3,7 +3,7 @@ use serde_json::Value;
 use std::time::Duration;
 use tokio::sync::oneshot;
 
-use crate::{AuthenticatedUser, SentinelCredsRecord};
+use crate::{AuthenticatedUser, ClientTransportsRecord, SentinelCredsRecord};
 use trellis_client::SessionAuth;
 
 /// Persisted admin session details for the CLI.
@@ -38,7 +38,7 @@ pub struct BoundSession {
     pub inbox_prefix: String,
     /// RFC3339 expiry timestamp for this binding.
     pub expires: String,
-    /// Comma-separated runtime transport endpoints for the session.
+    /// Comma-separated native NATS transport endpoints for the session.
     pub nats_servers: String,
     /// Sentinel credentials returned alongside the binding.
     pub sentinel: SentinelCredsRecord,
@@ -51,9 +51,8 @@ pub(crate) struct BindResponseBound {
     #[serde(rename = "inboxPrefix")]
     pub inbox_prefix: String,
     pub expires: String,
-    #[serde(rename = "natsServers")]
-    pub nats_servers: Vec<String>,
     pub sentinel: SentinelCredsRecord,
+    pub transports: ClientTransportsRecord,
 }
 
 #[derive(Debug, Clone, Deserialize)]

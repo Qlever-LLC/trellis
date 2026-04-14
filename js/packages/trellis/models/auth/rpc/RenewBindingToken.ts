@@ -21,7 +21,17 @@ export const AuthRenewBindingTokenResponseSchema = Type.Object(
       },
       { additionalProperties: false },
     ),
-    natsServers: Type.Array(Type.String()),
+    transports: Type.Object(
+      {
+        native: Type.Optional(Type.Object({
+          natsServers: Type.Array(Type.String()),
+        }, { additionalProperties: false })),
+        websocket: Type.Optional(Type.Object({
+          natsServers: Type.Array(Type.String()),
+        }, { additionalProperties: false })),
+      },
+      { additionalProperties: false },
+    ),
   },
   { additionalProperties: false },
 );

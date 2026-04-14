@@ -18,8 +18,8 @@ import {
   deviceActivationsKV,
   deviceInstancesKV,
   deviceProfilesKV,
-  logger,
   instanceGrantPoliciesKV,
+  logger,
   loginPortalSelectionsKV,
   oauthStateKV,
   pendingAuthKV,
@@ -58,13 +58,13 @@ import {
 } from "../bootstrap/device.ts";
 import { registerDeviceActivationHttpRoutes } from "../device_activation/http.ts";
 import { kick } from "../callout/kick.ts";
+import { buildClientTransports } from "../transports.ts";
 import { OAuth2CodeRequest, OAuth2CodeResponse } from "../oauth.ts";
 import type { Provider } from "../providers/index.ts";
 import { createProviders } from "../providers/registry.ts";
 import { validateRedirectTo } from "../redirect.ts";
 import {
   BindRequestSchema,
-  type BindResponse,
   LoginQuerySchema,
   type PendingAuth,
 } from "../../state/schemas.ts";
@@ -245,7 +245,7 @@ export function registerHttpRoutes(
     pending: PendingAuthEntry;
     pendingValue: PendingAuth;
     sessionKey: string;
-  }): Promise<BindResponse> {
+  }) {
     const now = new Date();
     const resolution = await requireApprovalResolution(args.pendingValue);
     const trellisId = resolution.trellisId;
@@ -354,7 +354,7 @@ export function registerHttpRoutes(
       inboxPrefix: `_INBOX.${args.sessionKey.slice(0, 16)}`,
       expires: bindingExpiresAt.toISOString(),
       sentinel: sentinelCreds,
-      natsServers: config.client.natsServers,
+      transports: buildClientTransports(config),
     };
   }
 

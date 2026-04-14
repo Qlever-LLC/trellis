@@ -27,6 +27,21 @@ export const SentinelCredsSchema = Type.Object({
 
 export type SentinelCreds = StaticDecode<typeof SentinelCredsSchema>;
 
+export const ClientTransportEndpointsSchema = Type.Object({
+  natsServers: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
+}, { additionalProperties: false });
+
+export type ClientTransportEndpoints = StaticDecode<
+  typeof ClientTransportEndpointsSchema
+>;
+
+export const ClientTransportsSchema = Type.Object({
+  native: Type.Optional(ClientTransportEndpointsSchema),
+  websocket: Type.Optional(ClientTransportEndpointsSchema),
+}, { additionalProperties: false });
+
+export type ClientTransports = StaticDecode<typeof ClientTransportsSchema>;
+
 export const ApprovalDecisionSchema = Type.Union([
   Type.Literal("approved"),
   Type.Literal("denied"),
@@ -61,7 +76,7 @@ export const BindSuccessResponseSchema = Type.Object({
   inboxPrefix: Type.String(),
   expires: Type.String({ format: "date-time" }),
   sentinel: SentinelCredsSchema,
-  natsServers: Type.Array(Type.String()),
+  transports: ClientTransportsSchema,
 }, { additionalProperties: false });
 
 export const BindInsufficientCapabilitiesResponseSchema = Type.Object({
@@ -77,7 +92,9 @@ export const BindResponseSchema = Type.Union([
 ]);
 
 export type BindResponse = StaticDecode<typeof BindResponseSchema>;
-export type BindSuccessResponse = StaticDecode<typeof BindSuccessResponseSchema>;
+export type BindSuccessResponse = StaticDecode<
+  typeof BindSuccessResponseSchema
+>;
 export type BindInsufficientCapabilitiesResponse = StaticDecode<
   typeof BindInsufficientCapabilitiesResponseSchema
 >;

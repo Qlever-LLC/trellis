@@ -138,6 +138,22 @@ pub struct SentinelCredsRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+/// One named transport endpoint family returned alongside a successful bind.
+pub struct ClientTransportRecord {
+    pub nats_servers: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// Transport variants returned alongside a successful bind.
+pub struct ClientTransportsRecord {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub native: Option<ClientTransportRecord>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub websocket: Option<ClientTransportRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 /// Response payload returned by `Auth.RenewBindingToken`.
 pub struct RenewBindingTokenResponse {
     #[serde(rename = "bindingToken")]
@@ -145,9 +161,8 @@ pub struct RenewBindingTokenResponse {
     pub expires: String,
     #[serde(rename = "inboxPrefix")]
     pub inbox_prefix: String,
-    #[serde(rename = "natsServers")]
-    pub nats_servers: Vec<String>,
     pub sentinel: SentinelCredsRecord,
+    pub transports: ClientTransportsRecord,
     pub status: String,
 }
 
