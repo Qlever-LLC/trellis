@@ -62,7 +62,7 @@ const TEST_CALLER = {
   ...TEST_USER,
 };
 
-const EmptySchema = Type.Object({}, { additionalProperties: false });
+const EmptySchema = Type.Object({});
 const NotFoundErrorDataSchema = Type.Object({
   id: Type.String(),
   type: Type.Literal("NotFoundError"),
@@ -70,7 +70,7 @@ const NotFoundErrorDataSchema = Type.Object({
   resource: Type.String(),
   context: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
   traceId: Type.Optional(Type.String()),
-}, { additionalProperties: false });
+});
 
 type NotFoundErrorData = Static<typeof NotFoundErrorDataSchema>;
 
@@ -112,14 +112,14 @@ const authSchemas = {
   AuthMeInput: AuthMeSchema,
   AuthMeOutput: AuthMeResponseSchema,
   EmptySchema,
-  TraceOutput: Type.Object({ traceId: Type.String() }, { additionalProperties: false }),
+  TraceOutput: Type.Object({ traceId: Type.String() }),
   EventPayload: Type.Object({
     header: Type.Object({
       id: Type.String(),
       time: Type.String(),
     }),
     foo: Type.String(),
-  }, { additionalProperties: false }),
+  }),
 } as const;
 
 function schemaRef<const TName extends keyof typeof authSchemas & string>(schema: TName) {

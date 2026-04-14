@@ -32,7 +32,7 @@ Deno.test("createClient prefers trellis API for app contracts", () => {
 });
 
 Deno.test("API composition", async (t) => {
-  const emptySchema = Type.Object({}, { additionalProperties: false });
+  const emptySchema = Type.Object({});
   const catalogContract = defineContract({
     id: "trellis.core.test@v1",
     displayName: "Core Test",
@@ -90,7 +90,7 @@ Deno.test("API composition", async (t) => {
   });
 
   await t.step("Encoding a schema error is deterministic (sanity)", () => {
-    const schema = Type.Object({ x: Type.Number() }, { additionalProperties: false });
+    const schema = Type.Object({ x: Type.Number() });
     const r = encodeSchema(schema, JSON.parse('{"x":"nope"}'));
     assertEquals(r.isErr(), true);
   });

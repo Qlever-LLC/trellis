@@ -46,7 +46,7 @@ export const NotFoundErrorDataSchema = Type.Object({
   resourceId: Type.String(),
   context: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
   traceId: Type.Optional(Type.String()),
-}, { additionalProperties: false });
+});
 
 export type NotFoundErrorData = Static<typeof NotFoundErrorDataSchema>;
 
@@ -149,6 +149,8 @@ if (isErr(value)) {
 - the class `static schema` must also appear in the contract `schemas` map
 - the `errors` map key is the local declaration name used by RPC `errors: [...]`
 - the local declaration key does not need to match the wire `type`
+- Trellis RPC error transport stays open on the wire, so do not default local
+  error payload object schemas to `{ additionalProperties: false }`
 
 Example:
 

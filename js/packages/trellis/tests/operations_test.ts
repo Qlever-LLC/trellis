@@ -13,9 +13,9 @@ import {
 import { UnexpectedError } from "../errors/index.ts";
 
 const schemas = {
-  RefundInput: Type.Object({ chargeId: Type.String() }, { additionalProperties: false }),
-  RefundProgress: Type.Object({ message: Type.String() }, { additionalProperties: false }),
-  RefundOutput: Type.Object({ refundId: Type.String() }, { additionalProperties: false }),
+  RefundInput: Type.Object({ chargeId: Type.String() }),
+  RefundProgress: Type.Object({ message: Type.String() }),
+  RefundOutput: Type.Object({ refundId: Type.String() }),
 } as const;
 
 function schemaRef<const TName extends keyof typeof schemas & string>(schema: TName) {

@@ -50,10 +50,10 @@ const typeTestContract = defineContract({
   description: "Verify typed service surface.",
   kind: "service",
   schemas: {
-    PingInput: Type.Object({ value: Type.String() }, { additionalProperties: false }),
-    PingOutput: Type.Object({ ok: Type.Boolean() }, { additionalProperties: false }),
-    PingedEvent: Type.Object({ value: Type.String() }, { additionalProperties: false }),
-    KVValue: Type.Object({ value: Type.String() }, { additionalProperties: false }),
+    PingInput: Type.Object({ value: Type.String() }),
+    PingOutput: Type.Object({ ok: Type.Boolean() }),
+    PingedEvent: Type.Object({ value: Type.String() }),
+    KVValue: Type.Object({ value: Type.String() }),
   },
   rpc: {
     "Test.Ping": {
@@ -135,7 +135,7 @@ Deno.test("Subscription types are re-exported", () => {
 });
 
 Deno.test("service wrapper type surface stays specific", () => {
-  const schema = Type.Object({ value: Type.String() }, { additionalProperties: false });
+  const schema = Type.Object({ value: Type.String() });
   function expectTypedSurface(
     service: TrellisService<
       typeof typeTestContract.API.owned,

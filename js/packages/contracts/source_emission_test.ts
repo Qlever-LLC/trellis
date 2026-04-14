@@ -5,10 +5,8 @@ import { digestJson } from "./canonical.ts";
 import { defineContract, defineError } from "./mod.ts";
 import { TrellisError } from "../trellis/errors/TrellisError.ts";
 
-const EmptySchema = Type.Object({}, { additionalProperties: false });
-const StringSchema = Type.Object({ value: Type.String() }, {
-  additionalProperties: false,
-});
+const EmptySchema = Type.Object({});
+const StringSchema = Type.Object({ value: Type.String() });
 
 const baseSchemas = {
   Empty: EmptySchema,
@@ -87,12 +85,10 @@ Deno.test("defineContract preserves emitted manifest shape and digest", async ()
     kind: "service",
     schemas: {
       Empty: {
-        additionalProperties: false,
         properties: {},
         type: "object",
       },
       StringValue: {
-        additionalProperties: false,
         properties: { value: { type: "string" } },
         required: ["value"],
         type: "object",
@@ -153,7 +149,7 @@ Deno.test("defineContract emits RPC error refs using declared wire types", () =>
     id: Type.String(),
     type: Type.Literal("NotFoundError"),
     message: Type.String(),
-  }, { additionalProperties: false });
+  });
   type NotFoundErrorData = Static<typeof NotFoundErrorData>;
 
   class NotFoundError extends TrellisError<NotFoundErrorData> {

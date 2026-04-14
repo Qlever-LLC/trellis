@@ -11,15 +11,15 @@ Deno.test("schema pointers", async (t) => {
     header: Type.Object({
       id: Type.String(),
       time: Type.String({ format: "date-time" }),
-    }, { additionalProperties: false }),
+    }),
     foo: Type.String(),
     num: Type.Number(),
     int: Type.Integer(),
-    nested: Type.Object({ id: Type.String() }, { additionalProperties: false }),
+    nested: Type.Object({ id: Type.String() }),
     arr: Type.Array(Type.String()),
     bool: Type.Boolean(),
     nullable: Type.Union([Type.String(), Type.Null()]),
-  }, { additionalProperties: false });
+  });
 
   const schemas = {
     EventSchema: eventSchema,

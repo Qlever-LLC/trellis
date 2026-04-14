@@ -2,8 +2,8 @@ import { Type } from "typebox";
 
 import { defineContract } from "./mod.ts";
 
-const EmptySchema = Type.Object({}, { additionalProperties: false });
-const StringSchema = Type.Object({ value: Type.String() }, { additionalProperties: false });
+const EmptySchema = Type.Object({});
+const StringSchema = Type.Object({ value: Type.String() });
 
 type Assert<T extends true> = T;
 type Not<T extends boolean> = T extends true ? false : true;

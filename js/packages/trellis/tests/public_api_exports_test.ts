@@ -89,7 +89,7 @@ Deno.test("root public API includes core runtime, contracts, result, and common 
       resource: Type.String(),
       context: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
       traceId: Type.Optional(Type.String()),
-    }, { additionalProperties: false });
+    });
     override readonly name = "ExampleNotFoundError" as const;
 
     static fromSerializable(data: Static<typeof ExampleNotFoundError.schema>) {

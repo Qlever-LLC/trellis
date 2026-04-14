@@ -39,9 +39,9 @@ Deno.test({
       header: Type.Object({
         id: Type.String(),
         time: Type.String(),
-      }, { additionalProperties: false }),
+      }),
       foo: Type.String(),
-    }, { additionalProperties: false });
+    });
 
     const contract = defineContract({
       id: "trellis.events.test@v1",

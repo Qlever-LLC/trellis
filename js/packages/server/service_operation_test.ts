@@ -23,9 +23,9 @@ const billing = defineContract({
   description: "Exercise service.operation ergonomics.",
   kind: "service",
   schemas: {
-    RefundInput: Type.Object({ chargeId: Type.String() }, { additionalProperties: false }),
-    RefundProgress: Type.Object({ message: Type.String() }, { additionalProperties: false }),
-    RefundOutput: Type.Object({ refundId: Type.String() }, { additionalProperties: false }),
+    RefundInput: Type.Object({ chargeId: Type.String() }),
+    RefundProgress: Type.Object({ message: Type.String() }),
+    RefundOutput: Type.Object({ refundId: Type.String() }),
   },
   operations: {
     "Billing.Refund": {

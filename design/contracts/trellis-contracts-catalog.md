@@ -232,6 +232,15 @@ Additive-only means:
 - a new digest MUST NOT change an existing schema in a breaking way while old
   and new digests coexist
 
+Authoring note:
+
+- additive rollout only works when older runtimes can still validate newer
+  payloads that include unknown optional fields
+- for TypeBox-authored request, response, progress, and event payload objects,
+  do not treat `{ additionalProperties: false }` as the default
+- close a payload object only when rejecting unknown fields is an intentional
+  contract rule and mixed-version additive rollout does not need those fields
+
 Breaking schema changes include:
 
 - removing an existing field that callers or subscribers may still send or read
