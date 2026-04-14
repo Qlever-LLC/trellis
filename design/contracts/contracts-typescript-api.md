@@ -8,43 +8,58 @@ order: 40
 
 ## Prerequisites
 
-- [trellis-contracts-catalog.md](./trellis-contracts-catalog.md) - canonical manifest and permission model
-- [trellis-typescript-contract-authoring.md](./trellis-typescript-contract-authoring.md) - TypeScript contract architecture and rationale
-- [../core/type-system-patterns.md](./../core/type-system-patterns.md) - Result and error-model guidance
+- [trellis-contracts-catalog.md](./trellis-contracts-catalog.md) - canonical
+  manifest and permission model
+- [trellis-typescript-contract-authoring.md](./trellis-typescript-contract-authoring.md) -
+  TypeScript contract architecture and rationale
+- [../core/type-system-patterns.md](./../core/type-system-patterns.md) - Result
+  and error-model guidance
 
 ## Scope
 
-This document defines the normative TypeScript public API surface for contract authoring, generated SDK modules, and contract-driven runtime helpers.
+This document defines the normative TypeScript public API surface for contract
+authoring, generated SDK modules, and contract-driven runtime helpers.
 
-It does not redefine the canonical manifest model or runtime permission derivation.
+It does not redefine the canonical manifest model or runtime permission
+derivation.
 
 ## Design Rules
 
 - `defineContract(...)` is the primary TypeScript authoring entrypoint
-- generated SDK modules and local contracts share one compatible contract-module shape
+- generated SDK modules and local contracts share one compatible contract-module
+  shape
 - local `uses` declarations are expressed through SDK-backed `use(...)` helpers
 - public runtime helpers are contract-driven and typed from the local contract
-- service-owned resource helpers should prefer small handle-based APIs whose failable public methods return `Result`
-- TypeScript is the compile-time enforcement layer for declared remote permissions
+- service-owned resource helpers should prefer small handle-based APIs whose
+  failable public methods return `Result`
+- TypeScript is the compile-time enforcement layer for declared remote
+  permissions
 
 ## Public Package Surface
 
-`@qlever-llc/trellis/contracts` is the preferred package for contract source modules and other contract-only authoring code.
+`@qlever-llc/trellis/contracts` is the preferred package for contract source
+modules and other contract-only authoring code.
 
-`@qlever-llc/trellis` remains the canonical runtime package for client connection helpers, auth helpers, and `Result`.
+`@qlever-llc/trellis` remains the canonical runtime package for client
+connection helpers, auth helpers, and `Result`.
 
 It exports:
 
 - `defineContract(...)`
+- `defineError(...)`
 - contract-module and use-spec types needed by generated SDKs
 
-The `defineContract(...)` helper exported from `@qlever-llc/trellis/contracts` returns a contract object with projected API views and manifest metadata. The canonical public bootstrap helpers live in `@qlever-llc/trellis` and `@qlever-llc/trellis/server*`.
+The `defineContract(...)` helper exported from `@qlever-llc/trellis/contracts`
+returns a contract object with projected API views and manifest metadata. The
+canonical public bootstrap helpers live in `@qlever-llc/trellis` and
+`@qlever-llc/trellis/server*`.
 
 Rules:
 
 - contract source modules should prefer `@qlever-llc/trellis/contracts`
 - runtime client helpers should prefer `@qlever-llc/trellis`
-- broader contract-model helpers may also be exposed from `@qlever-llc/trellis/contracts`
+- broader contract-model helpers may also be exposed from
+  `@qlever-llc/trellis/contracts`
 
 ## Canonical TypeScript Shape
 
@@ -130,7 +145,9 @@ type DefinedContract<
   use(spec: UseSpec<TOwnedApi>): ContractDependencyUse<string, TOwnedApi>;
 };
 
-declare function defineContract(...args: unknown[]): DefinedContract<any, any, any>;
+declare function defineContract(
+  ...args: unknown[]
+): DefinedContract<any, any, any>;
 ```
 
 ## Illustrative Usage
@@ -150,7 +167,9 @@ const schemas = {
   ActivityChanged: ActivityChangedSchema,
 } as const;
 
-function schemaRef<const TName extends keyof typeof schemas & string>(schema: TName) {
+function schemaRef<const TName extends keyof typeof schemas & string>(
+  schema: TName,
+) {
   return { schema } as const;
 }
 
@@ -209,25 +228,144 @@ const client = await TrellisClient.connect({
 Rules:
 
 - `id` remains the stable machine identity for the contract lineage
-- `displayName` and `description` are required and are part of the canonical manifest
-- contract source examples should export the `defineContract(...)` result directly and use that object for `contract.API`, `contract.use(...)`, and runtime bootstrap
-- local `operations`, `rpc`, `events`, `subjects`, `errors`, and `resources` remain the source for emitted owned contract content
-- contract source modules declare reusable schemas in a top-level `schemas` map and reference them from `input`, `output`, `progress`, `event`, and `message`
-- `uses` entries are expressed through SDK `use(...)` helpers rather than handwritten dependency objects in normal TypeScript code
-- SDK-specific convenience helpers such as `auth.useDefaults(...)` are allowed when they still produce a normal `uses` declaration
+- `displayName` and `description` are required and are part of the canonical
+  manifest
+- contract source examples should export the `defineContract(...)` result
+  directly and use that object for `contract.API`, `contract.use(...)`, and
+  runtime bootstrap
+- local `operations`, `rpc`, `events`, `subjects`, `errors`, and `resources`
+  remain the source for emitted owned contract content
+- contract source modules declare reusable schemas in a top-level `schemas` map
+  and reference them from `input`, `output`, `progress`, `event`, and `message`
+- `uses` entries are expressed through SDK `use(...)` helpers rather than
+  handwritten dependency objects in normal TypeScript code
+- SDK-specific convenience helpers such as `auth.useDefaults(...)` are allowed
+  when they still produce a normal `uses` declaration
+- local transportable RPC errors are declared through top-level `errors` entries
+  created with `defineError(...)`
 - a participant MAY have no owned `operations`, `rpc`, `events`, or `subjects`
 - a participant MAY have no `uses`
-- the defined contract computes and exposes `CONTRACT_DIGEST` from the emitted canonical manifest
+- the defined contract computes and exposes `CONTRACT_DIGEST` from the emitted
+  canonical manifest
+
+## Local RPC Errors
+
+Transportable service-local RPC errors are authored as real `TrellisError`
+subclasses.
+
+TypeScript authoring shape:
+
+```ts
+import {
+  defineContract,
+  defineError,
+  TrellisError,
+} from "@qlever-llc/trellis/contracts";
+
+export const NotFoundErrorDataSchema = Type.Object({
+  id: Type.String(),
+  type: Type.Literal("NotFoundError"),
+  message: Type.String(),
+  resource: Type.String(),
+  resourceId: Type.String(),
+  context: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+  traceId: Type.Optional(Type.String()),
+});
+
+export type NotFoundErrorData = Static<typeof NotFoundErrorDataSchema>;
+
+export class NotFoundError extends TrellisError<NotFoundErrorData> {
+  static readonly schema = NotFoundErrorDataSchema;
+  override readonly name = "NotFoundError" as const;
+
+  readonly resource: string;
+  readonly resourceId: string;
+
+  constructor(
+    options: ErrorOptions & {
+      resource: string;
+      resourceId: string;
+      context?: Record<string, unknown>;
+      id?: string;
+    },
+  ) {
+    const { resource, resourceId, ...base } = options;
+    super(`${resource} not found`, base);
+    this.resource = resource;
+    this.resourceId = resourceId;
+  }
+
+  static fromSerializable(data: NotFoundErrorData): NotFoundError {
+    return new NotFoundError({
+      resource: data.resource,
+      resourceId: data.resourceId,
+      id: data.id,
+      context: data.context,
+    });
+  }
+
+  override toSerializable(): NotFoundErrorData {
+    return {
+      ...this.baseSerializable(),
+      type: this.name,
+      resource: this.resource,
+      resourceId: this.resourceId,
+    };
+  }
+}
+
+export const krishi = defineContract({
+  id: "dna-cloud.krishi@v1",
+  displayName: "Krishi",
+  description: "Krishi service",
+  kind: "service",
+  schemas: {
+    NotFoundErrorData: NotFoundErrorDataSchema,
+    GetWorkspaceInput: GetWorkspaceInputSchema,
+    Workspace: WorkspaceSchema,
+  },
+  errors: {
+    WorkspaceMissing: defineError(NotFoundError),
+  },
+  rpc: {
+    "Workspace.Get": {
+      version: "v1",
+      input: { schema: "GetWorkspaceInput" },
+      output: { schema: "Workspace" },
+      errors: ["WorkspaceMissing", "ValidationError", "UnexpectedError"],
+    },
+  },
+});
+```
+
+Rules:
+
+- `defineError(...)` takes the error class, not duplicated `type` or `schema`
+  arguments
+- the error class MUST extend `TrellisError`
+- the error class MUST define `static schema`
+- the error class MUST define `static fromSerializable(...)`
+- the error class `name` is the on-wire error `type`
+- the class `static schema` MUST also be present in the contract's top-level
+  `schemas` map so the emitted manifest stays portable and codegen-safe
+- the `errors` map key is the local declaration name used by RPC
+  `errors: [...]`; it does not need to match the wire `type`
+- callers receive declared remote errors as reconstructed runtime instances of
+  the declared class
+- undeclared or unknown remote error payloads still fall back to `RemoteError`
 
 ## Module Compatibility Rules
 
-Generated SDK modules and locally defined contracts must share a compatible module shape.
+Generated SDK modules and locally defined contracts must share a compatible
+module shape.
 
 Rules:
 
 - generated SDK modules export an `SdkContractModule` shape
-- a locally defined contract object MUST be usable anywhere an SDK contract module is expected
-- a locally defined contract object therefore also exposes `CONTRACT_DIGEST` and typed `use(...)`
+- a locally defined contract object MUST be usable anywhere an SDK contract
+  module is expected
+- a locally defined contract object therefore also exposes `CONTRACT_DIGEST` and
+  typed `use(...)`
 - local contracts additionally expose runtime connection helpers
 
 ## Derived API Views
@@ -241,41 +379,57 @@ Rules:
 Rules:
 
 - `API.owned` is projected from the local owned contract declarations only
-- `API.used` is projected by selecting only the operations named in SDK-backed `uses`
+- `API.used` is projected by selecting only the operations named in SDK-backed
+  `uses`
 - `API.trellis` is the merge of `API.used` and `API.owned`
 - the merged surface is the only general outbound runtime namespace
 - owned registration surfaces are derived from `API.owned`, not `API.trellis`
 
 ## Typing Rules
 
-- a referenced remote operation, RPC, event, or subject must exist on the imported SDK module
-- a participant may only invoke, call, publish, or subscribe to remote APIs explicitly declared in local `uses`
+- a referenced remote operation, RPC, event, or subject must exist on the
+  imported SDK module
+- a participant may only invoke, call, publish, or subscribe to remote APIs
+  explicitly declared in local `uses`
 - omitted `uses` entries remove the corresponding generated runtime methods
-- SDK-backed `use(...)` declarations are the source of compile-time allowed-API filtering
+- SDK-backed `use(...)` declarations are the source of compile-time allowed-API
+  filtering
 
 ## Runtime Helper Behavior
 
-Contract-driven runtime helpers include `TrellisClient.connect(...)`, `TrellisService.connect(...)`, and `TrellisDevice.connect(...)`.
+Contract-driven runtime helpers include `TrellisClient.connect(...)`,
+`TrellisService.connect(...)`, and `TrellisDevice.connect(...)`.
 
-Public TypeScript documentation should lead with `TrellisClient.connect(...)`, `TrellisService.connect(...)`, and `TrellisDevice.connect(...)` rather than lower-level runtime construction helpers.
+Public TypeScript documentation should lead with `TrellisClient.connect(...)`,
+`TrellisService.connect(...)`, and `TrellisDevice.connect(...)` rather than
+lower-level runtime construction helpers.
 
 Rules:
 
-- returned runtimes are typed from the local contract's `API.trellis` and `API.owned`
-- returned runtimes expose typed operation, request, publish, and subscribe helpers derived from the contract
-- `service.trellis.mount(...)` handlers receive already-validated typed payloads and may return either `Result` or `Promise<Result>`
-- returned runtimes may also expose transfer-grant helpers such as `trellis.transfer(grant)` when the contract returns Trellis-owned transfer grant types from normal RPCs
-- runtime helpers must not widen the callable surface beyond what the contract allows
-- service-side helpers must not expose used remote APIs as mountable local handlers
+- returned runtimes are typed from the local contract's `API.trellis` and
+  `API.owned`
+- returned runtimes expose typed operation, request, publish, and subscribe
+  helpers derived from the contract
+- `service.trellis.mount(...)` handlers receive already-validated typed payloads
+  and may return either `Result` or `Promise<Result>`
+- returned runtimes may also expose transfer-grant helpers such as
+  `trellis.transfer(grant)` when the contract returns Trellis-owned transfer
+  grant types from normal RPCs
+- runtime helpers must not widen the callable surface beyond what the contract
+  allows
+- service-side helpers must not expose used remote APIs as mountable local
+  handlers
 
 ## Validation And Manifest Behavior
 
 Rules:
 
 - TypeScript compile-time typing enforces declared remote usage shape
-- runtime validation still enforces canonical manifest, auth, and subject ownership rules
+- runtime validation still enforces canonical manifest, auth, and subject
+  ownership rules
 - emitted manifests remain `trellis.contract.v1`
-- TypeScript authoring is an implementation of the canonical contract architecture, not a parallel manifest format
+- TypeScript authoring is an implementation of the canonical contract
+  architecture, not a parallel manifest format
 
 ## Generated SDK Requirements
 
@@ -289,7 +443,8 @@ Generated SDK outputs must include:
 - `API.trellis` equal to `API.owned`
 - typed `use(...)`
 
-Generated SDK outputs may continue to expose request, response, event, and schema types alongside the richer contract module surface.
+Generated SDK outputs may continue to expose request, response, event, and
+schema types alongside the richer contract module surface.
 
 ## Non-Goals
 

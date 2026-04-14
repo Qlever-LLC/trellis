@@ -30,9 +30,7 @@ Deno.test("Verify errors serialize and validate", async (t) => {
 
     assertEquals(value.type, "AuthError");
     assertEquals(value.message, "Auth failed: invalid_request");
-    if (value.type === "AuthError") {
-      assertEquals(value.reason, "invalid_request");
-    }
+    assertEquals(Reflect.get(value, "reason"), "invalid_request");
   });
 
   await t.step("ValidationError", () => {
@@ -49,11 +47,11 @@ Deno.test("Verify errors serialize and validate", async (t) => {
     assert(!Result.isErr(value), "Expected successful parse");
 
     assertEquals(value.type, "ValidationError");
-    if (value.type === "ValidationError") {
-      assertEquals(value.issues.length, 2);
-      assertEquals(value.issues[0].path, "/email");
-      assertEquals(value.issues[0].message, "Invalid email format");
-    }
+    const issues = Reflect.get(value, "issues");
+    assert(Array.isArray(issues));
+    assertEquals(issues.length, 2);
+    assertEquals(Reflect.get(issues[0], "path"), "/email");
+    assertEquals(Reflect.get(issues[0], "message"), "Invalid email format");
   });
 
   await t.step("returns error on invalid JSON", () => {
@@ -64,7 +62,7 @@ Deno.test("Verify errors serialize and validate", async (t) => {
     assertEquals(value.error.name, "UnexpectedError");
   });
 
-  await t.step("returns error on data that doesn't match schema", () => {
+  await t.step("accepts unknown remote error types with base fields", () => {
     const invalidData = JSON.stringify({
       id: "123",
       type: "UnknownErrorType",
@@ -72,10 +70,10 @@ Deno.test("Verify errors serialize and validate", async (t) => {
     });
 
     const result = RemoteError.parseJSON(invalidData);
-    assert(result.isErr(), "Expected parse to fail");
+    assert(result.isOk(), "Expected parse to succeed");
     const value = result.take();
-    assert(Result.isErr(value));
-    assertEquals(value.error.name, "ValidationError");
+    assert(!Result.isErr(value), "Expected successful parse");
+    assertEquals(value.type, "UnknownErrorType");
   });
 
   await t.step("returns error on missing required fields", () => {
@@ -100,15 +98,14 @@ Deno.test("Type narrowing", async (t) => {
 
     assert(!Result.isErr(value), "Expected successful parse");
 
-    if (value.type === "AuthError") {
-      assertEquals(value.reason, "forbidden");
-    } else if (value.type === "ValidationError") {
+    if (value.type === "ValidationError") {
       assert(false, "Should not reach this branch");
     } else if (value.type === "UnexpectedError") {
       assert(false, "Should not reach this branch");
     } else if (value.type === "KVError") {
       assert(false, "Should not reach this branch");
     }
+    assertEquals(Reflect.get(value, "reason"), "forbidden");
   });
 });
 
@@ -133,9 +130,10 @@ Deno.test("RemoteError - Wrapper pattern", async (t) => {
     );
     assertEquals(wrappedError.remoteError.type, "AuthError");
 
-    if (wrappedError.remoteError.type === "AuthError") {
-      assertEquals(wrappedError.remoteError.reason, "invalid_request");
-    }
+    assertEquals(
+      Reflect.get(wrappedError.remoteError, "reason"),
+      "invalid_request",
+    );
   });
 
   await t.step("wraps remote ValidationError", () => {
@@ -152,10 +150,10 @@ Deno.test("RemoteError - Wrapper pattern", async (t) => {
 
     const wrappedError = new RemoteError({ error: value });
 
-    if (wrappedError.remoteError.type === "ValidationError") {
-      assertEquals(wrappedError.remoteError.issues.length, 1);
-      assertEquals(wrappedError.remoteError.issues[0].path, "/phoneNumber");
-    }
+    const issues = Reflect.get(wrappedError.remoteError, "issues");
+    assert(Array.isArray(issues));
+    assertEquals(issues.length, 1);
+    assertEquals(Reflect.get(issues[0], "path"), "/phoneNumber");
   });
 
   await t.step("can add local context to wrapper", () => {
@@ -213,9 +211,9 @@ Deno.test("RemoteError - Wrapper pattern", async (t) => {
     } catch (e) {
       assert(e instanceof RemoteError);
 
-      if (e.remoteError.type === "ValidationError") {
-        assertEquals(e.remoteError.issues[0].message, "Required field");
-      }
+      const issues = Reflect.get(e.remoteError, "issues");
+      assert(Array.isArray(issues));
+      assertEquals(Reflect.get(issues[0], "message"), "Required field");
 
       const logData = e.toSerializable();
       assertEquals(logData.type, "RemoteError");

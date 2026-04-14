@@ -27,17 +27,18 @@ import {
   type InferSchemaType,
 } from "@qlever-llc/trellis/contracts";
 import type { TrellisAPI } from "@qlever-llc/trellis/contracts";
-import { isErr, type Result } from "@qlever-llc/result";
+import { isErr, type BaseError, type Result } from "@qlever-llc/result";
 import type { Logger } from "pino";
 import { Type, type TSchema } from "typebox";
 import { Value } from "typebox/value";
-import type { TrellisErrorInstance } from "../trellis/errors/index.ts";
 import type { HealthCheckFn } from "./health.ts";
 import { mountStandardHealthRpc } from "./health_rpc.ts";
 import type { RPCDesc } from "@qlever-llc/trellis/contracts";
 import type {
   HandlerTrellis,
+  RpcHandlerErrorOf,
   RpcHandlerContext,
+  RpcRequestErrorOf,
 } from "../trellis/trellis.ts";
 import {
   type ResourceBindingJobs,
@@ -339,8 +340,8 @@ export type ServiceTrellis<
         input: RpcMethodInput<TOwnedApi, M>,
         context: RpcHandlerContext,
         trellis: HandlerTrellis<TTrellisApi>,
-      ) => Promise<Result<RpcMethodOutput<TOwnedApi, M>, TrellisErrorInstance>> |
-        Result<RpcMethodOutput<TOwnedApi, M>, TrellisErrorInstance>,
+      ) => Promise<Result<RpcMethodOutput<TOwnedApi, M>, RpcHandlerErrorOf<TOwnedApi, M>>> |
+        Result<RpcMethodOutput<TOwnedApi, M>, RpcHandlerErrorOf<TOwnedApi, M>>,
     ): Promise<void>;
   };
 
@@ -448,13 +449,13 @@ async function createConnectedService<
         input: RpcMethodInput<TOwnedApi, M>,
         context: RpcHandlerContext,
         trellis: HandlerTrellis<TTrellisApi>,
-      ) => Promise<Result<RpcMethodOutput<TOwnedApi, M>, TrellisErrorInstance>> |
-        Result<RpcMethodOutput<TOwnedApi, M>, TrellisErrorInstance>,
+      ) => Promise<Result<RpcMethodOutput<TOwnedApi, M>, RpcHandlerErrorOf<TOwnedApi, M>>> |
+        Result<RpcMethodOutput<TOwnedApi, M>, RpcHandlerErrorOf<TOwnedApi, M>>,
     ) => (server as unknown as TrellisServer).mount(
       method as string,
       async (input, context) => await Promise.resolve(
         fn(input as RpcMethodInput<TOwnedApi, M>, context, handlerTrellis),
-      ) as Result<unknown, TrellisErrorInstance>,
+      ) as Result<unknown, BaseError>,
     ),
   });
 
@@ -728,13 +729,13 @@ export class TrellisService<
   ): Promise<
     Result<
       RpcMethodOutput<TTrellisApi, M>,
-      import("@qlever-llc/trellis").RemoteError | import("@qlever-llc/trellis").ValidationError | import("@qlever-llc/trellis").UnexpectedError
+      RpcRequestErrorOf<TTrellisApi, M>
     >
   > {
     return this.trellis.request(method as never, input as never, opts) as Promise<
       Result<
         RpcMethodOutput<TTrellisApi, M>,
-        import("@qlever-llc/trellis").RemoteError | import("@qlever-llc/trellis").ValidationError | import("@qlever-llc/trellis").UnexpectedError
+        RpcRequestErrorOf<TTrellisApi, M>
       >
     >;
   }

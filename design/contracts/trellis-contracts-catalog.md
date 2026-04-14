@@ -8,18 +8,25 @@ order: 10
 
 ## Prerequisites
 
-- [../core/trellis-patterns.md](./../core/trellis-patterns.md) - service patterns and platform boundaries
-- [../auth/trellis-auth.md](./../auth/trellis-auth.md) - session keys, auth callout, and dynamic authorization
+- [../core/trellis-patterns.md](./../core/trellis-patterns.md) - service
+  patterns and platform boundaries
+- [../auth/trellis-auth.md](./../auth/trellis-auth.md) - session keys, auth
+  callout, and dynamic authorization
 
 ## Context
 
-Trellis needs one contract model that works for five different concerns at the same time:
+Trellis needs one contract model that works for five different concerns at the
+same time:
 
-- service authors need a local way to define operations, RPCs, events, raw pub/sub subjects, schemas, authorization requirements, and cloud resource requests
-- the `trellis` runtime must derive runtime NATS permissions from the APIs that are actually active in a deployment
+- service authors need a local way to define operations, RPCs, events, raw
+  pub/sub subjects, schemas, authorization requirements, and cloud resource
+  requests
+- the `trellis` runtime must derive runtime NATS permissions from the APIs that
+  are actually active in a deployment
 - clients and peer services need typed SDKs
 - documentation and tooling need a language-neutral artifact
-- operators need a reviewable description of which cloud resources a service expects Trellis to provide before install or upgrade
+- operators need a reviewable description of which cloud resources a service
+  expects Trellis to provide before install or upgrade
 
 Those needs apply across multiple repos and multiple implementation languages.
 
@@ -28,11 +35,13 @@ Those needs apply across multiple repos and multiple implementation languages.
 - Keep API ownership with the service that implements the API.
 - Define one canonical contract artifact for runtime and tooling.
 - Make the active deployment contract set discoverable at runtime.
-- Make cloud-provided service resources explicit and reviewable at contract install or upgrade time.
+- Make cloud-provided service resources explicit and reviewable at contract
+  install or upgrade time.
 - Support generated SDKs and docs from the same source of truth.
 - Support operations, RPC, domain events, and raw subject spaces.
 - Support declarative resource requests with cloud-assigned physical bindings.
-- Support Trellis-owned contracts and cloud/domain service contracts with the same mechanism.
+- Support Trellis-owned contracts and cloud/domain service contracts with the
+  same mechanism.
 
 ## Non-Goals
 
@@ -49,50 +58,63 @@ Trellis defines two canonical JSON artifacts:
 - `trellis.contract.v1` - one service contract manifest
 - `trellis.catalog.v1` - the active set of contracts for a deployment
 
-Both artifacts are pure JSON values. They are language-neutral and safe to persist, hash, validate, transmit, and use for code generation.
+Both artifacts are pure JSON values. They are language-neutral and safe to
+persist, hash, validate, transmit, and use for code generation.
 
 ### 2) Contract lineage and implementation model
 
-Every contract belongs to one stable contract lineage identified by `id`, and each
-active digest is installed onto the service principal that implements it.
+Every contract belongs to one stable contract lineage identified by `id`, and
+each active digest is installed onto the service principal that implements it.
 
-- Trellis-managed contracts such as `trellis.core@v1`, `trellis.auth@v1`, and `trellis.state@v1` are implemented by the `trellis` runtime service even when they are committed in the Trellis repo
-- cloud/domain contracts live in the repo that implements the corresponding service behavior
+- Trellis-managed contracts such as `trellis.core@v1`, `trellis.auth@v1`, and
+  `trellis.state@v1` are implemented by the `trellis` runtime service even when
+  they are committed in the Trellis repo
+- cloud/domain contracts live in the repo that implements the corresponding
+  service behavior
 - a single service principal may implement multiple logical contracts
-- Trellis runtime libraries do not act as a handwritten central registry for all service APIs
+- Trellis runtime libraries do not act as a handwritten central registry for all
+  service APIs
 
 ### 3) Authoring model
 
-The canonical source of truth for runtime and tooling is the authored contract definition.
+The canonical source of truth for runtime and tooling is the authored contract
+definition.
 
 For repository layout and tooling boundaries, Trellis treats generated
-`trellis.contract.v1` JSON as a release and exchange artifact, not as a committed
-source file.
+`trellis.contract.v1` JSON as a release and exchange artifact, not as a
+committed source file.
 
 - services may author contracts in their native language
-- those authoring helpers are normal workflow inputs, not hidden implementation details
-- `trellis` verifies, packs, and uses generated manifests produced from those contract sources
+- those authoring helpers are normal workflow inputs, not hidden implementation
+  details
+- `trellis` verifies, packs, and uses generated manifests produced from those
+  contract sources
 
-The human-authored source may vary by language or team as long as it deterministically emits a valid manifest.
+The human-authored source may vary by language or team as long as it
+deterministically emits a valid manifest.
 
 Examples:
 
 - a TypeScript service may author a contract with `@qlever-llc/trellis`
 - a Rust service may author a contract with Rust-side types/macros/build tooling
 - a Python service may author a contract with Python-native tooling
-- a service may author the manifest directly if desired, but that is not the default workflow
+- a service may author the manifest directly if desired, but that is not the
+  default workflow
 
-The architectural requirement is not a specific authoring language. The requirement is deterministic production of the canonical manifest.
+The architectural requirement is not a specific authoring language. The
+requirement is deterministic production of the canonical manifest.
 
 ### 4) JSON Schema dialect
 
-All embedded schemas in a contract manifest MUST be JSON Schema compatible values using the same dialect Trellis validates at runtime.
+All embedded schemas in a contract manifest MUST be JSON Schema compatible
+values using the same dialect Trellis validates at runtime.
 
 For v1:
 
 - dialect: JSON Schema Draft 2019-09
 - schema fields MAY be either a JSON object schema or a boolean schema
-- manifests MUST be self-contained; runtime processing MUST NOT require fetching remote `$ref` targets
+- manifests MUST be self-contained; runtime processing MUST NOT require fetching
+  remote `$ref` targets
 
 ## Specification
 
@@ -132,9 +154,9 @@ Top-level fields:
 | ------------- | -------- | ------ | ------------------------------------------------------------------ |
 | `format`      | yes      | string | MUST equal `trellis.contract.v1`                                   |
 | `id`          | yes      | string | Stable contract identifier such as `trellis.core@v1` or `graph@v1` |
-| `displayName` | yes      | string | Human-facing contract name shown in tooling and approval UIs        |
-| `description` | yes      | string | Human-facing explanation of the contract's purpose                  |
-| `kind`        | yes      | string | Contract role such as `service`, `app`, `portal`, `device`, `cli` |
+| `displayName` | yes      | string | Human-facing contract name shown in tooling and approval UIs       |
+| `description` | yes      | string | Human-facing explanation of the contract's purpose                 |
+| `kind`        | yes      | string | Contract role such as `service`, `app`, `portal`, `device`, `cli`  |
 | `uses`        | no       | object | Explicit cross-contract operation/RPC/event/subject dependencies   |
 | `operations`  | no       | object | Map of logical operation names to operation descriptors            |
 | `rpc`         | no       | object | Map of logical RPC names to RPC operation descriptors              |
@@ -146,10 +168,16 @@ Top-level fields:
 Rules:
 
 - `format`, `id`, `displayName`, `description`, and `kind` are required.
-- `kind` drives discovery behavior in bootstrap-safe generation flows: `service` contracts generate manifests and SDKs, while `app`, `portal`, `device`, and `cli` contracts are verified.
-- `displayName` and `description` are part of the canonical manifest and therefore part of the digest.
-- runtime service identity, install routing, and authorization boundaries MUST NOT be inferred from manifest metadata.
-- top-level object members not defined by the current runtime MAY be present for forward compatibility; runtimes MUST ignore unknown top-level fields they do not understand.
+- `kind` drives discovery behavior in bootstrap-safe generation flows: `service`
+  contracts generate manifests and SDKs, while `app`, `portal`, `device`, and
+  `cli` contracts are verified.
+- `displayName` and `description` are part of the canonical manifest and
+  therefore part of the digest.
+- runtime service identity, install routing, and authorization boundaries MUST
+  NOT be inferred from manifest metadata.
+- top-level object members not defined by the current runtime MAY be present for
+  forward compatibility; runtimes MUST ignore unknown top-level fields they do
+  not understand.
 
 ### 6) Contract identity
 
@@ -163,42 +191,65 @@ Examples:
 
 Rules:
 
-- `id` MUST be stable for semantically compatible revisions within the same major line
+- `id` MUST be stable for semantically compatible revisions within the same
+  major line
 - a breaking contract revision MUST use a new `@vN` suffix
-- a deployment MAY have multiple active digests for the same `id` during rollout or mixed-firmware operation
-- all concurrently active digests for the same `id` MUST remain semantically compatible within that lineage, so mixed-version callers and service instances can keep working during rollout
-- install records bind one exact digest to one service principal public key, even when multiple digests in the same lineage are active at once
+- a deployment MAY have multiple active digests for the same `id` during rollout
+  or mixed-firmware operation
+- all concurrently active digests for the same `id` MUST remain semantically
+  compatible within that lineage, so mixed-version callers and service instances
+  can keep working during rollout
+- install records bind one exact digest to one service principal public key,
+  even when multiple digests in the same lineage are active at once
 
-This allows rolling upgrades where some service instances still run the old digest while newer instances have already switched to the new digest. The same model also covers preregistered activated devices whose firmware revisions map to different digests within one device lineage.
+This allows rolling upgrades where some service instances still run the old
+digest while newer instances have already switched to the new digest. The same
+model also covers preregistered activated devices whose firmware revisions map
+to different digests within one device lineage.
 
-Concurrent-digest compatibility within one lineage is defined by the owned communication surface:
+Concurrent-digest compatibility within one lineage is defined by the owned
+communication surface:
 
-- `rpc`, `operations`, `events`, and owned `subjects` MUST evolve additively while multiple digests in the same lineage are active
-- `uses`, metadata, and other non-owned sections MAY vary by digest as long as the exact digest being installed still validates successfully
-- `resources` are per-digest install data; they do not need to be additive across the lineage, but install or upgrade MUST validate and provision the exact resource set requested by the digest bound to that principal
+- `rpc`, `operations`, `events`, and owned `subjects` MUST evolve additively
+  while multiple digests in the same lineage are active
+- `uses`, metadata, and other non-owned sections MAY vary by digest as long as
+  the exact digest being installed still validates successfully
+- `resources` are per-digest install data; they do not need to be additive
+  across the lineage, but install or upgrade MUST validate and provision the
+  exact resource set requested by the digest bound to that principal
 
 Additive-only means:
 
 - a new digest MAY add owned RPCs, operations, events, and raw subjects
-- a new digest MAY add optional fields to existing request, response, progress, and event payload schemas
-- a new digest MAY add new declared errors or new capabilities for newly added owned surfaces
-- a new digest MUST NOT remove or rename an existing owned RPC, operation, event, or subject while old and new digests coexist
-- a new digest MUST NOT move an existing owned surface to a different subject while old and new digests coexist
-- a new digest MUST NOT change an existing schema in a breaking way while old and new digests coexist
+- a new digest MAY add optional fields to existing request, response, progress,
+  and event payload schemas
+- a new digest MAY add new declared errors or new capabilities for newly added
+  owned surfaces
+- a new digest MUST NOT remove or rename an existing owned RPC, operation,
+  event, or subject while old and new digests coexist
+- a new digest MUST NOT move an existing owned surface to a different subject
+  while old and new digests coexist
+- a new digest MUST NOT change an existing schema in a breaking way while old
+  and new digests coexist
 
 Breaking schema changes include:
 
 - removing an existing field that callers or subscribers may still send or read
 - changing an optional field to required
-- changing a field type incompatibly, such as `string` to `object` or `number` to `string`
-- narrowing allowed enum values or formats in a way that rejects payloads accepted by the older digest
-- changing payload semantics incompatibly while keeping the same field names and subjects
+- changing a field type incompatibly, such as `string` to `object` or `number`
+  to `string`
+- narrowing allowed enum values or formats in a way that rejects payloads
+  accepted by the older digest
+- changing payload semantics incompatibly while keeping the same field names and
+  subjects
 
-If a rollout needs one of those breaking changes, it MUST use a new contract `id` / major version rather than a second active digest in the same lineage.
+If a rollout needs one of those breaking changes, it MUST use a new contract
+`id` / major version rather than a second active digest in the same lineage.
 
 ### Declared dependencies (`uses`)
 
-Contracts MAY declare explicit dependencies on other contracts through a top-level `uses` object.
+Contracts MAY declare explicit dependencies on other contracts through a
+top-level `uses` object.
 
 Example:
 
@@ -228,11 +279,17 @@ Example:
 
 Rules:
 
-- dependencies are declared by logical contract `id` plus logical operation/RPC/event/subject names, not by raw capability strings
-- a service contract MUST NOT receive cross-contract runtime permissions unless that access is declared in `uses`
-- install or upgrade MUST fail if a referenced contract is unavailable or if any referenced operation, RPC, event, or subject name does not exist on that contract
-- higher-level consent scopes for user-facing applications MAY be derived from `uses`, but runtime enforcement remains operation-level
-- any user approval or consent record for a client contract MUST be bound to the exact contract digest, not merely to the contract `id`
+- dependencies are declared by logical contract `id` plus logical
+  operation/RPC/event/subject names, not by raw capability strings
+- a service contract MUST NOT receive cross-contract runtime permissions unless
+  that access is declared in `uses`
+- install or upgrade MUST fail if a referenced contract is unavailable or if any
+  referenced operation, RPC, event, or subject name does not exist on that
+  contract
+- higher-level consent scopes for user-facing applications MAY be derived from
+  `uses`, but runtime enforcement remains operation-level
+- any user approval or consent record for a client contract MUST be bound to the
+  exact contract digest, not merely to the contract `id`
 
 ### 7) RPC operation descriptor
 
@@ -261,27 +318,32 @@ Example:
 
 Fields:
 
-| Field               | Required | Meaning                                 |
-| ------------------- | -------- | --------------------------------------- |
-| `version`           | yes      | Version tag for the operation, `vN`     |
-| `subject`           | yes      | Concrete NATS subject used for the RPC  |
+| Field               | Required | Meaning                                  |
+| ------------------- | -------- | ---------------------------------------- |
+| `version`           | yes      | Version tag for the operation, `vN`      |
+| `subject`           | yes      | Concrete NATS subject used for the RPC   |
 | `input`             | yes      | Schema reference for the request payload |
 | `output`            | yes      | Schema reference for the success payload |
-| `capabilities.call` | no       | Capabilities required to invoke the RPC |
-| `errors`            | no       | Declared serializable error types       |
+| `capabilities.call` | no       | Capabilities required to invoke the RPC  |
+| `errors`            | no       | Declared serializable error types        |
 
 Rules:
 
 - the map key is the logical RPC name, for example `User.Find`
 - `subject` SHOULD follow the convention `rpc.<version>.<LogicalName>`
-- `input` and `output` are required schema refs into the contract-level `schemas` map
-- `capabilities.call` is an all-of requirement; the caller must hold every listed capability
-- if `capabilities.call` is omitted, the RPC is callable without extra capability grants
-- `errors` enumerates known typed error payloads but does not close the wire format to unknown future error types
+- `input` and `output` are required schema refs into the contract-level
+  `schemas` map
+- `capabilities.call` is an all-of requirement; the caller must hold every
+  listed capability
+- if `capabilities.call` is omitted, the RPC is callable without extra
+  capability grants
+- `errors` enumerates known typed error payloads but does not close the wire
+  format to unknown future error types
 
 ### 7a) Operation descriptor
 
-Each `operations` entry describes one logical caller-visible asynchronous workflow.
+Each `operations` entry describes one logical caller-visible asynchronous
+workflow.
 
 Example:
 
@@ -309,11 +371,15 @@ Rules:
 - each operation also owns a derived control subject `<subject>.control`
 - `input` and `output` are required schema refs; `progress` is optional
 - `capabilities.call` gates invocation
-- `capabilities.read` gates `get`, `wait`, and `watch`; if omitted, it defaults to `capabilities.call`
-- `capabilities.cancel` gates `cancel`; if omitted, callers do not receive cancel rights by default
-- operations are always authenticated; omitting a capability list removes only additional capability grants, not the authentication requirement itself
+- `capabilities.read` gates `get`, `wait`, and `watch`; if omitted, it defaults
+  to `capabilities.call`
+- `capabilities.cancel` gates `cancel`; if omitted, callers do not receive
+  cancel rights by default
+- operations are always authenticated; omitting a capability list removes only
+  additional capability grants, not the authentication requirement itself
 - operations are durable async contracts, not raw jobs and not unary RPCs
-- services own operation-level authorization for specific operation ids; the contract only declares the coarse capability gates
+- services own operation-level authorization for specific operation ids; the
+  contract only declares the coarse capability gates
 
 ### 8) Event descriptor
 
@@ -353,12 +419,16 @@ Fields:
 Rules:
 
 - the map key is the logical event name, for example `Partner.Changed`
-- `subject` SHOULD follow the convention `events.<version>.<LogicalName>[.<tokens...>]`
-- template tokens use the form `{<json-pointer>}` and MUST reference values in the event payload
+- `subject` SHOULD follow the convention
+  `events.<version>.<LogicalName>[.<tokens...>]`
+- template tokens use the form `{<json-pointer>}` and MUST reference values in
+  the event payload
 - if `params` is present, it MUST list the template pointers in subject order
 - `event` is a required schema ref into the contract-level `schemas` map
-- `capabilities.publish` and `capabilities.subscribe` are independent all-of requirements
-- a wildcard authorization subject for an event is produced by replacing every template token with `*`
+- `capabilities.publish` and `capabilities.subscribe` are independent all-of
+  requirements
+- a wildcard authorization subject for an event is produced by replacing every
+  template token with `*`
 
 Example wildcard derivation:
 
@@ -367,7 +437,8 @@ Example wildcard derivation:
 
 ### 9) Raw subject descriptor
 
-Each `subjects` entry describes a raw NATS subject space that is part of the contract but is not modeled as a domain event.
+Each `subjects` entry describes a raw NATS subject space that is part of the
+contract but is not modeled as a domain event.
 
 Example:
 
@@ -393,14 +464,20 @@ Fields:
 
 Rules:
 
-- raw subjects are used for transport surfaces such as Jobs streams, work queues, advisories, or other Trellis-native subject spaces
-- unlike events, a raw subject descriptor may legitimately contain NATS wildcards such as `*` or `>`
-- if a payload schema matters for clients or tooling, it SHOULD be declared in `schema`
-- some raw subject permissions may be derived from installed resource bindings and service identity rather than from caller-claimable generic capabilities; Jobs service-local publish/consume subjects are the motivating example
+- raw subjects are used for transport surfaces such as Jobs streams, work
+  queues, advisories, or other Trellis-native subject spaces
+- unlike events, a raw subject descriptor may legitimately contain NATS
+  wildcards such as `*` or `>`
+- if a payload schema matters for clients or tooling, it SHOULD be declared in
+  `schema`
+- some raw subject permissions may be derived from installed resource bindings
+  and service identity rather than from caller-claimable generic capabilities;
+  Jobs service-local publish/consume subjects are the motivating example
 
 ### 10) Cloud resource requests
 
-The optional top-level `resources` map declares cloud-provided resources that the service expects Trellis to provision or bind during install or upgrade.
+The optional top-level `resources` map declares cloud-provided resources that
+the service expects Trellis to provision or bind during install or upgrade.
 
 Example:
 
@@ -465,25 +542,35 @@ Example:
 
 Rules:
 
-- resource keys such as `activity` are logical aliases chosen by the service author
+- resource keys such as `activity` are logical aliases chosen by the service
+  author
 - aliases are part of the contract and are stable API surface for the service
-- the contract requests logical resources; Trellis assigns physical names and backing infrastructure at install or upgrade time
-- the v1 resource surface supports `resources.kv`, `resources.store`, `resources.streams`, and `resources.jobs`
+- the contract requests logical resources; Trellis assigns physical names and
+  backing infrastructure at install or upgrade time
+- the v1 resource surface supports `resources.kv`, `resources.store`,
+  `resources.streams`, and `resources.jobs`
 - a KV request declares:
-  - `purpose`: required human-facing explanation of why the service needs the resource
-  - `required`: whether activation depends on successful provisioning; default `true`
+  - `purpose`: required human-facing explanation of why the service needs the
+    resource
+  - `required`: whether activation depends on successful provisioning; default
+    `true`
   - `history`: desired KV history depth; default `1`
   - `ttlMs`: desired bucket TTL in milliseconds; default `0`
   - `maxValueBytes`: optional desired per-value maximum in bytes
 - a store request declares:
-  - `purpose`: required human-facing explanation of why the service needs the resource
-  - `required`: whether activation depends on successful provisioning; default `true`
-  - `ttlMs`: optional desired retention in milliseconds; `0` or omitted means no automatic expiry requested
+  - `purpose`: required human-facing explanation of why the service needs the
+    resource
+  - `required`: whether activation depends on successful provisioning; default
+    `true`
+  - `ttlMs`: optional desired retention in milliseconds; `0` or omitted means no
+    automatic expiry requested
   - `maxObjectBytes`: optional desired per-object maximum in bytes
   - `maxTotalBytes`: optional desired total-store maximum in bytes
 - a stream request declares:
-  - `purpose`: required human-facing explanation of why the service needs the resource
-  - `required`: whether activation depends on successful provisioning; default `true`
+  - `purpose`: required human-facing explanation of why the service needs the
+    resource
+  - `required`: whether activation depends on successful provisioning; default
+    `true`
   - `subjects`: one or more subjects bound to the stream
   - `retention`: one of `limits`, `interest`, or `workqueue`
   - `storage`: `file` or `memory`; default `file`
@@ -498,7 +585,8 @@ Rules:
   - each queue entry requires `payload.schema`
   - each queue entry may include `result.schema`
   - each queue entry may include `maxDeliver`; default `5`
-  - each queue entry may include `backoffMs`; default `[5000, 30000, 120000, 600000, 1800000]`
+  - each queue entry may include `backoffMs`; default
+    `[5000, 30000, 120000, 600000, 1800000]`
   - each queue entry may include `ackWaitMs`; default `300000`
   - each queue entry may include `defaultDeadlineMs`
   - each queue entry may include `progress`; default `true`
@@ -509,9 +597,12 @@ Rules:
   - `fromAlias`: another stream alias in the same contract
   - `filterSubject`: optional source filter subject
   - `subjectTransformDest`: optional transformed destination subject
-- stream aliases are logical names, just like KV aliases; contracts do not hard-code physical stream names
-- dynamic consumers are not part of the contract resource model in v1 and remain runtime-created
-- install or upgrade approves the requested alias/type/spec, not general infrastructure-management credentials for the service
+- stream aliases are logical names, just like KV aliases; contracts do not
+  hard-code physical stream names
+- dynamic consumers are not part of the contract resource model in v1 and remain
+  runtime-created
+- install or upgrade approves the requested alias/type/spec, not general
+  infrastructure-management credentials for the service
 
 ### 11) Error declarations
 
@@ -530,10 +621,17 @@ Example:
 
 Rules:
 
-- the map key SHOULD match `type`
+- the map key is a local declaration name; matching `type` is preferred but not
+  required
 - operation-level `errors` entries reference error types by `type`
 - the wire error envelope is open; runtimes MUST preserve unknown error payloads
-- declared error schemas enable SDK generation and typed client helpers but do not prevent forward-compatible unknown error handling
+- declared error schemas enable SDK generation and typed client helpers but do
+  not prevent forward-compatible unknown error handling
+- manifest-level error declarations stay pure JSON and do not carry
+  language-specific runtime metadata such as class constructors
+- language runtimes MAY attach out-of-band metadata to local contract objects so
+  declared errors can be reconstructed as real runtime error instances without
+  changing the canonical manifest format
 
 ### 12) Canonicalization and digest
 
@@ -554,7 +652,9 @@ Digest rules for v1:
 
 The digest is the deployment/runtime identity of one concrete contract artifact.
 
-This means different formatting does not change the digest, semantically different manifests produce different digests, and catalogs and registration workflows refer to contracts by digest.
+This means different formatting does not change the digest, semantically
+different manifests produce different digests, and catalogs and registration
+workflows refer to contracts by digest.
 
 ### 13) Catalog format
 
@@ -579,19 +679,27 @@ Catalog rules:
 - the catalog contains only active contracts for the current deployment
 - entries are keyed by digest and include `id`
 - a catalog MAY contain multiple digests for the same `id`
-- when multiple digests share one `id`, the catalog still treats each digest as a separate active contract record
-- catalog ordering is not semantically significant, but implementations SHOULD return a stable order for diffability and testing
+- when multiple digests share one `id`, the catalog still treats each digest as
+  a separate active contract record
+- catalog ordering is not semantically significant, but implementations SHOULD
+  return a stable order for diffability and testing
 
 Repository-layout clarification:
 
-- `in-tree` versus `out-of-tree` is not an architectural distinction for service contracts
-- Trellis-managed contracts such as `trellis.core@v1`, `trellis.auth@v1`, and `trellis.state@v1` are ordinary service contracts implemented by the `trellis` runtime service
-- colocated service contracts MUST be treated the same way as service contracts committed in another repo
-- a repo MAY carry additional manifests for local development, but they are not implicitly part of the active catalog just because they live nearby
+- `in-tree` versus `out-of-tree` is not an architectural distinction for service
+  contracts
+- Trellis-managed contracts such as `trellis.core@v1`, `trellis.auth@v1`, and
+  `trellis.state@v1` are ordinary service contracts implemented by the `trellis`
+  runtime service
+- colocated service contracts MUST be treated the same way as service contracts
+  committed in another repo
+- a repo MAY carry additional manifests for local development, but they are not
+  implicitly part of the active catalog just because they live nearby
 
 ### 14) Trellis discovery RPCs
 
-The `trellis.core@v1` contract implemented by the `trellis` runtime service MUST include runtime discovery RPCs.
+The `trellis.core@v1` contract implemented by the `trellis` runtime service MUST
+include runtime discovery RPCs.
 
 Required v1 discovery RPCs:
 
@@ -613,11 +721,17 @@ Semantics:
 - capability: `trellis.contract.read`
 - for v1, callers only retrieve active contracts through this RPC
 
-Service install and upgrade are intentionally not part of the runtime discovery RPC set.
+Service install and upgrade are intentionally not part of the runtime discovery
+RPC set.
 
-- initial service installation is a `trellis.auth@v1` admin operation exposed by the `trellis` runtime service that takes a service public key and a candidate contract
-- service contract upgrade is a `trellis.auth@v1` admin operation exposed by the `trellis` runtime service that takes an existing service public key and a replacement contract
-- UI and CLI implementations MAY present a human review screen before calling those admin RPCs
+- initial service installation is a `trellis.auth@v1` admin operation exposed by
+  the `trellis` runtime service that takes a service public key and a candidate
+  contract
+- service contract upgrade is a `trellis.auth@v1` admin operation exposed by the
+  `trellis` runtime service that takes an existing service public key and a
+  replacement contract
+- UI and CLI implementations MAY present a human review screen before calling
+  those admin RPCs
 - services do not self-register contracts at runtime
 
 #### `Trellis.Bindings.Get`
@@ -630,19 +744,31 @@ Service install and upgrade are intentionally not part of the runtime discovery 
 
 Binding rules:
 
-- bindings remain keyed by contract alias so application code stays stable across environments
-- KV bindings expose concrete bucket information plus the granted usage limits needed by the service runtime
-- store bindings expose the resolved physical store `name` plus effective retention and size limits needed by the service runtime
-- stream bindings expose the resolved physical stream `name` plus the installed stream config needed for operations such as consumer creation and inspection
-- stream source bindings include both the logical `fromAlias` and the resolved upstream `streamName`
-- jobs bindings expose a service namespace plus resolved queue bindings (`publishPrefix`, `workSubject`, `consumerName`) and effective per-queue runtime settings
-- jobs bindings do not expose admin projection storage such as durable worker-presence buckets; services discover queue/runtime settings only
-- services discover concrete resources through bindings rather than through general cloud-management credentials
-- higher-level runtimes typically call `Trellis.Bindings.Get` during connect or bootstrap, then expose the resolved bindings or typed resource handles directly to service code
+- bindings remain keyed by contract alias so application code stays stable
+  across environments
+- KV bindings expose concrete bucket information plus the granted usage limits
+  needed by the service runtime
+- store bindings expose the resolved physical store `name` plus effective
+  retention and size limits needed by the service runtime
+- stream bindings expose the resolved physical stream `name` plus the installed
+  stream config needed for operations such as consumer creation and inspection
+- stream source bindings include both the logical `fromAlias` and the resolved
+  upstream `streamName`
+- jobs bindings expose a service namespace plus resolved queue bindings
+  (`publishPrefix`, `workSubject`, `consumerName`) and effective per-queue
+  runtime settings
+- jobs bindings do not expose admin projection storage such as durable
+  worker-presence buckets; services discover queue/runtime settings only
+- services discover concrete resources through bindings rather than through
+  general cloud-management credentials
+- higher-level runtimes typically call `Trellis.Bindings.Get` during connect or
+  bootstrap, then expose the resolved bindings or typed resource handles
+  directly to service code
 
 ### 15) Installation and activation rules
 
-The `trellis` runtime service is the authority for the active contract set in a deployment.
+The `trellis` runtime service is the authority for the active contract set in a
+deployment.
 
 The `trellis` runtime service MUST:
 
@@ -650,39 +776,59 @@ The `trellis` runtime service MUST:
 - compute canonical digests
 - store installed contracts by digest
 - maintain the active contract set for the deployment
-- reject active subject collisions across operations, RPCs, events, and raw subjects
+- reject active subject collisions across operations, RPCs, events, and raw
+  subjects
 - provision or bind required cloud resources before install or upgrade succeeds
 - persist resource bindings so installed services can resolve them at runtime
-- bind each installed contract digest to the service principal public key that implements it, including Trellis-owned contracts bootstrapped onto the `trellis` service principal
-- support deployment-owned device profile records that resolve a device class to a contract lineage plus an allowed digest set
-- support deployment-owned portal records plus login/device portal selection records for browser login and device-activation customization, with built-in Trellis portal paths as the fallback
-- remove the old submission/approval flow rather than preserving a compatibility path
-- ensure any stored user approval or consent decision references the exact contract digest being approved
+- bind each installed contract digest to the service principal public key that
+  implements it, including Trellis-owned contracts bootstrapped onto the
+  `trellis` service principal
+- support deployment-owned device profile records that resolve a device class to
+  a contract lineage plus an allowed digest set
+- support deployment-owned portal records plus login/device portal selection
+  records for browser login and device-activation customization, with built-in
+  Trellis portal paths as the fallback
+- remove the old submission/approval flow rather than preserving a compatibility
+  path
+- ensure any stored user approval or consent decision references the exact
+  contract digest being approved
 
 Install or upgrade validation MUST also:
 
-- validate intra-contract resource references such as `streams.*.sources[*].fromAlias`
+- validate intra-contract resource references such as
+  `streams.*.sources[*].fromAlias`
 - reject impossible or unsafe resource combinations before provisioning begins
 - provision stream resources idempotently when requested
-- validate the exact `resources` requested by the digest being installed, even when other digests in the same lineage remain active
-- when install or activation is profile-driven, validate that the digest being bound is allowed by that profile's contract lineage and allowed digest set
-- when a portal record is created with `appContractId`, validate that the referenced contract is active, is a browser app contract, and declares the auth surfaces needed by that portal when acting as a user-authenticated app
+- validate the exact `resources` requested by the digest being installed, even
+  when other digests in the same lineage remain active
+- when install or activation is profile-driven, validate that the digest being
+  bound is allowed by that profile's contract lineage and allowed digest set
+- when a portal record is created with `appContractId`, validate that the
+  referenced contract is active, is a browser app contract, and declares the
+  auth surfaces needed by that portal when acting as a user-authenticated app
 
 Operationally, install or upgrade fails if any of these conditions is true:
 
-- any operation, RPC, event, or raw-subject string is already owned by a different active contract `id`
-- any required resource request cannot be provisioned or bound according to platform policy
+- any operation, RPC, event, or raw-subject string is already owned by a
+  different active contract `id`
+- any required resource request cannot be provisioned or bound according to
+  platform policy
 
 Upgrade rule:
 
-- when a service upgrades from one digest to another for the same contract `id`, the `trellis` runtime service MAY keep both digests active during rollout
-- each service principal still points to one exact installed digest at any moment
-- deployments MAY later retire the old digest once no principals still depend on it
+- when a service upgrades from one digest to another for the same contract `id`,
+  the `trellis` runtime service MAY keep both digests active during rollout
+- each service principal still points to one exact installed digest at any
+  moment
+- deployments MAY later retire the old digest once no principals still depend on
+  it
 
 Subject collision rule:
 
-- if two active contracts declare the same subject string, activation MUST fail unless they belong to the same contract `id` lineage
-- overlapping subjects across different digests in the same lineage are allowed so rolling upgrades do not break mixed-version deployments
+- if two active contracts declare the same subject string, activation MUST fail
+  unless they belong to the same contract `id` lineage
+- overlapping subjects across different digests in the same lineage are allowed
+  so rolling upgrades do not break mixed-version deployments
 
 This keeps routing, discovery, and permission derivation unambiguous.
 
@@ -692,42 +838,65 @@ Authorization is derived from the active contract set.
 
 For each active contract:
 
-- operations contribute publish permissions for callers via `capabilities.call` on the declared operation subject, plus `capabilities.read` / `capabilities.cancel` on the derived control subject as applicable
+- operations contribute publish permissions for callers via `capabilities.call`
+  on the declared operation subject, plus `capabilities.read` /
+  `capabilities.cancel` on the derived control subject as applicable
 - RPCs contribute publish permissions for callers via `capabilities.call`
 - events contribute publish permissions via `capabilities.publish`
 - events contribute subscribe permissions via `capabilities.subscribe`
 - raw subjects contribute publish permissions via `capabilities.publish`
 - raw subjects contribute subscribe permissions via `capabilities.subscribe`
-- `uses` contributes the exact cross-contract operation/RPC/event/subject permissions the owning service may exercise at runtime
+- `uses` contributes the exact cross-contract operation/RPC/event/subject
+  permissions the owning service may exercise at runtime
 
 For each installed resource binding:
 
-- Trellis MAY derive additional runtime permissions needed to use the bound resource
-- those permissions are scoped to the installed physical resource binding, not to general management APIs for the whole cloud
-- store bindings may require both publish and subscribe grants depending on the backing implementation; those grants still remain service-local to the owning binding
-- higher-level runtimes typically call `Trellis.Bindings.Get` during connect or bootstrap and expose the resulting bindings or typed resource handles to service code
+- Trellis MAY derive additional runtime permissions needed to use the bound
+  resource
+- those permissions are scoped to the installed physical resource binding, not
+  to general management APIs for the whole cloud
+- store bindings may require both publish and subscribe grants depending on the
+  backing implementation; those grants still remain service-local to the owning
+  binding
+- higher-level runtimes typically call `Trellis.Bindings.Get` during connect or
+  bootstrap and expose the resulting bindings or typed resource handles to
+  service code
 
 Rules:
 
 - each capability list is an all-of requirement
-- operation control subjects MUST be derived deterministically from the declared operation subject so auth and SDK generation remain contract-driven
-- if a capability list is empty or omitted, that specific action does not require additional capability grants
-- templated event subjects are authorized using wildcard subjects derived by replacing each template token with `*`
-- raw subject entries are authorized using their declared subject or subject pattern directly
-- service sessions receive cross-contract permissions only from explicit `uses` plus installed resource bindings; raw capability grants alone are not sufficient
+- operation control subjects MUST be derived deterministically from the declared
+  operation subject so auth and SDK generation remain contract-driven
+- if a capability list is empty or omitted, that specific action does not
+  require additional capability grants
+- templated event subjects are authorized using wildcard subjects derived by
+  replacing each template token with `*`
+- raw subject entries are authorized using their declared subject or subject
+  pattern directly
+- service sessions receive cross-contract permissions only from explicit `uses`
+  plus installed resource bindings; raw capability grants alone are not
+  sufficient
 
 Service-side RPC handling rule:
 
-- a service may subscribe to RPC subjects for contracts installed on its authenticated service principal public key
-- a service may subscribe to operation subjects and derived operation control subjects for contracts installed on its authenticated service principal public key
-- runtime ownership is determined by the install record for that public key, not by contract metadata
-- the bootstrapped `trellis` runtime service follows the same rule; it simply starts with Trellis-owned contracts such as `trellis.core@v1`, `trellis.auth@v1`, and `trellis.state@v1`
+- a service may subscribe to RPC subjects for contracts installed on its
+  authenticated service principal public key
+- a service may subscribe to operation subjects and derived operation control
+  subjects for contracts installed on its authenticated service principal public
+  key
+- runtime ownership is determined by the install record for that public key, not
+  by contract metadata
+- the bootstrapped `trellis` runtime service follows the same rule; it simply
+  starts with Trellis-owned contracts such as `trellis.core@v1`,
+  `trellis.auth@v1`, and `trellis.state@v1`
 
-This install-record-based subscription rule is separate from caller capability checks.
+This install-record-based subscription rule is separate from caller capability
+checks.
 
 ### 17) SDK derivation
 
-SDKs derive from the canonical manifest, not from deployment-specific runtime state.
+SDKs derive from the canonical manifest, not from deployment-specific runtime
+state.
 
 For TypeScript, a normal contract package SHOULD export:
 
@@ -739,7 +908,8 @@ For TypeScript, a normal contract package SHOULD export:
 - `CONTRACT_ID`
 - `CONTRACT_DIGEST`
 
-For Rust, Python, and other languages, the same manifest is the input to language-specific generators or native runtime helpers.
+For Rust, Python, and other languages, the same manifest is the input to
+language-specific generators or native runtime helpers.
 
 The minimum required property is consistent semantics across languages:
 
@@ -748,30 +918,40 @@ The minimum required property is consistent semantics across languages:
 - the same schemas
 - the same declared capability requirements
 
-If a contract declares `resources`, SDKs SHOULD expose the logical aliases and typed binding payloads needed to resolve them from `Trellis.Bindings.Get`, typically as part of connect or bootstrap rather than through ad hoc application calls.
+If a contract declares `resources`, SDKs SHOULD expose the logical aliases and
+typed binding payloads needed to resolve them from `Trellis.Bindings.Get`,
+typically as part of connect or bootstrap rather than through ad hoc application
+calls.
 
 - the same known error declarations
 
 ### 18) Runtime plugin projection
 
-A contract may be projected into a runtime API module used by Trellis client/server libraries.
+A contract may be projected into a runtime API module used by Trellis
+client/server libraries.
 
-For v1 TypeScript runtimes, that projection is a defined contract module consumed by public runtime bootstrap helpers such as `TrellisClient.connect(...)`, `TrellisService.connect(...)`, and `TrellisDevice.connect(...)`.
+For v1 TypeScript runtimes, that projection is a defined contract module
+consumed by public runtime bootstrap helpers such as
+`TrellisClient.connect(...)`, `TrellisService.connect(...)`, and
+`TrellisDevice.connect(...)`.
 
 Projection requirements:
 
 - preserve logical operation/RPC/event names
 - preserve schemas needed for runtime validation
-- preserve enough metadata for typed operation, request, response, publish, and subscribe helpers
+- preserve enough metadata for typed operation, request, response, publish, and
+  subscribe helpers
 - fail fast on duplicate merged RPC/event keys
 
 ### 19) AsyncAPI export
 
 AsyncAPI is a derived documentation format.
 
-Trellis tooling SHOULD support exporting a contract or catalog to AsyncAPI-compatible documentation artifacts.
+Trellis tooling SHOULD support exporting a contract or catalog to
+AsyncAPI-compatible documentation artifacts.
 
-AsyncAPI is not the canonical runtime model because Trellis requires native representation of:
+AsyncAPI is not the canonical runtime model because Trellis requires native
+representation of:
 
 - operation workflows
 - RPC operations
@@ -781,6 +961,10 @@ AsyncAPI is not the canonical runtime model because Trellis requires native repr
 
 ## Notes
 
-- This document defines the architecture and the v1 contract/catalog specification.
-- Language-specific authoring helpers are implementation details around the canonical manifest.
-- A separate companion document may define service-specific authoring ergonomics for a particular language if needed, but this document is the normative contract boundary.
+- This document defines the architecture and the v1 contract/catalog
+  specification.
+- Language-specific authoring helpers are implementation details around the
+  canonical manifest.
+- A separate companion document may define service-specific authoring ergonomics
+  for a particular language if needed, but this document is the normative
+  contract boundary.

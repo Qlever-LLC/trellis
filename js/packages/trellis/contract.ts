@@ -46,7 +46,9 @@ export type DefinedContract<
   TContractId extends string = string,
 > = BaseDefinedContract<TOwnedApi, TUsedApi, TTrellisApi, TContractId>;
 
-export function defineContract<const T extends DefineContractInput<any, any, any, any, any, any>>(
+export function defineContract<
+  const T extends DefineContractInput<any, any, any, any, any, any, any>,
+>(
   source: T,
 ): DefinedContract<
   OwnedApiFromSource<T>,

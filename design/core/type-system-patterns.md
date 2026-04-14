@@ -8,26 +8,57 @@ order: 30
 
 ## Prerequisites
 
-- [trellis-patterns.md](./trellis-patterns.md) - Trellis architecture and communication model
-- [../contracts/trellis-contracts-catalog.md](./../contracts/trellis-contracts-catalog.md) - canonical contract model
+- [trellis-patterns.md](./trellis-patterns.md) - Trellis architecture and
+  communication model
+- [../contracts/trellis-contracts-catalog.md](./../contracts/trellis-contracts-catalog.md) -
+  canonical contract model
 
 ## Scope
 
-This document defines Trellis-wide patterns for schemas, validation, `Result`, and error modeling.
+This document defines Trellis-wide patterns for schemas, validation, `Result`,
+and error modeling.
 
 ## API Schema
 
-Each service owns a local contract definition that emits the canonical `trellis.contract.v1` artifact.
+Each service owns a local contract definition that emits the canonical
+`trellis.contract.v1` artifact.
 
 ```ts
-import { defineContract } from "@qlever-llc/trellis/contracts";
+import {
+  defineContract,
+  defineError,
+  TrellisError,
+} from "@qlever-llc/trellis/contracts";
 import { core } from "@qlever-llc/trellis/sdk/core";
 
 const schemas = {
   FindUser: FindUserSchema,
   User: UserSchema,
+  NotFoundErrorData: NotFoundErrorDataSchema,
   PartnerChanged: PartnerEventSchema,
 } as const;
+
+class NotFoundError extends TrellisError<NotFoundErrorData> {
+  static readonly schema = NotFoundErrorDataSchema;
+  override readonly name = "NotFoundError" as const;
+
+  static fromSerializable(data: NotFoundErrorData): NotFoundError {
+    return new NotFoundError({ id: data.id, context: data.context });
+  }
+
+  constructor(
+    options?: ErrorOptions & { id?: string; context?: Record<string, unknown> },
+  ) {
+    super("Not found", options);
+  }
+
+  override toSerializable(): NotFoundErrorData {
+    return {
+      ...this.baseSerializable(),
+      type: this.name,
+    };
+  }
+}
 
 export const contract = defineContract({
   id: "graph@v1",
@@ -38,12 +69,15 @@ export const contract = defineContract({
   uses: {
     trellis: core.use({ rpc: { call: ["Trellis.Catalog"] } }),
   },
+  errors: {
+    UserMissing: defineError(NotFoundError),
+  },
   rpc: {
     "User.Find": {
       version: "v1",
       input: { schema: "FindUser" },
       output: { schema: "User" },
-      errors: ["NotFound"],
+      errors: ["UserMissing"],
       capabilities: { call: ["users.read"] },
     },
   },
@@ -63,14 +97,21 @@ export const contract = defineContract({
 
 Rules:
 
-- the local contract source defines input/output types, allowed errors, capabilities, and cross-contract dependencies
-- local contract source files should export the `defineContract(...)` result directly and reference schemas through the top-level `schemas` map
+- the local contract source defines input/output types, allowed errors,
+  capabilities, and cross-contract dependencies
+- local contract source files should export the `defineContract(...)` result
+  directly and reference schemas through the top-level `schemas` map
 - the emitted manifest is the canonical cross-language artifact
-- for local TypeScript code, prefer exporting the defined contract object itself (`export default contract` or a named contract export) instead of manually rebuilding a parallel module-shaped object
+- for local TypeScript code, prefer exporting the defined contract object itself
+  (`export default contract` or a named contract export) instead of manually
+  rebuilding a parallel module-shaped object
 
 ## Schema Organization
 
-Platform-wide schemas live in the Trellis platform repo only when they are reused by Trellis-owned contracts or shared Trellis runtime libraries. Service-specific and domain-specific schemas live with the owning service or cloud package.
+Platform-wide schemas live in the Trellis platform repo only when they are
+reused by Trellis-owned contracts or shared Trellis runtime libraries.
+Service-specific and domain-specific schemas live with the owning service or
+cloud package.
 
 Typical platform layout:
 
@@ -108,10 +149,10 @@ Rules:
 
 Use TypeBox and Zod for different strengths:
 
-| Library | Use case | Rationale |
-| --- | --- | --- |
+| Library | Use case                                       | Rationale                                    |
+| ------- | ---------------------------------------------- | -------------------------------------------- |
 | TypeBox | RPC schemas, event payloads, operation schemas | type inference and JSON Schema compatibility |
-| Zod | service config and ENV parsing | coercion, transforms, defaults |
+| Zod     | service config and ENV parsing                 | coercion, transforms, defaults               |
 
 TypeBox example:
 
@@ -139,35 +180,43 @@ Rules:
 
 - TypeBox for RPC, event, and operation wire schemas
 - Zod for environment parsing and config loading
-- use one validation library per use case instead of stacking multiple libraries on the same boundary
+- use one validation library per use case instead of stacking multiple libraries
+  on the same boundary
 
 ## Result Type
 
 All Trellis public APIs and RPC handlers use `Result<T, E>`.
 
-This keeps expected failures explicit as values rather than exceptions, preserves composable transforms via `map`, `mapErr`, and `andThen`, and supports predictable early-return and narrowing patterns.
+This keeps expected failures explicit as values rather than exceptions,
+preserves composable transforms via `map`, `mapErr`, and `andThen`, and supports
+predictable early-return and narrowing patterns.
 
 Rules:
 
 - expected failures use `Result`, not thrown exceptions
-- language-specific implementations should preserve the same semantics even if the concrete type differs
+- language-specific implementations should preserve the same semantics even if
+  the concrete type differs
 
 ## TypeScript Typing Policy
 
-TypeScript code in Trellis should use the strongest typing the compiler can support.
+TypeScript code in Trellis should use the strongest typing the compiler can
+support.
 
 Rules:
 
 - do not use `// @ts-nocheck`
 - do not use `as unknown as ...`
 - prefer generic constraints, helper functions, and type guards over casts
-- use `// @ts-expect-error` only for a specific compiler limitation, with a short reason
+- use `// @ts-expect-error` only for a specific compiler limitation, with a
+  short reason
 - keep runtime validation and compile-time narrowing paired together
-- if a public type must change to stay honest, prefer the stronger type even if it breaks consumers
+- if a public type must change to stay honest, prefer the stronger type even if
+  it breaks consumers
 
 ## Error Handling
 
-Trellis-shared errors come from Trellis packages. Service-specific errors may extend the same base locally.
+Trellis-shared errors come from Trellis packages. Service-specific errors may
+extend the same base locally.
 
 ```ts
 export class AuthError extends TrellisError<AuthErrorData> {
@@ -188,8 +237,20 @@ export class AuthError extends TrellisError<AuthErrorData> {
 Each error defines:
 
 - a unique discriminating `name`
-- a serializable data schema
+- a serializable data schema through `static schema`
+- `static fromSerializable(...)` for runtime reconstruction
 - `toSerializable()` or equivalent wire conversion
+
+RPC rule:
+
+- declared RPC errors may be service-local `TrellisError` subclasses owned by
+  the service contract
+- callers receive declared remote errors as reconstructed runtime instances of
+  those classes
+- `RemoteError` is a fallback for undeclared or unknown remote error payloads,
+  not the preferred shape for declared contract errors
+- the error class `static schema` must also be declared in the contract
+  `schemas` map so the canonical manifest can emit a normal schema ref
 
 Wire rule:
 

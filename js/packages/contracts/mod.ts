@@ -1,4 +1,5 @@
 import type { TSchema } from "typebox";
+import type { BaseError } from "../result/mod.ts";
 import {
   canonicalizeJson,
   digestJson,
@@ -9,12 +10,16 @@ import {
 import {
   type EventDesc,
   type InferSchemaType,
+  type InferRuntimeRpcError,
   type OperationDesc,
   type RPCDesc,
+  type RpcErrorClass,
+  type RuntimeRpcErrorDesc,
   type Schema,
   schema,
   type SchemaLike,
   type SubjectDesc,
+  type TransportErrorData,
   type TrellisAPI,
   unwrapSchema,
 } from "./runtime.ts";
@@ -56,6 +61,9 @@ export const CATALOG_FORMAT_V1 = "trellis.catalog.v1" as const;
 
 const CONTRACT_MODULE_METADATA = Symbol.for(
   "@qlever-llc/trellis-contracts/contract-module",
+);
+const CONTRACT_ERROR_RUNTIME_METADATA = Symbol.for(
+  "@qlever-llc/trellis-contracts/error-runtime",
 );
 
 type UnionToIntersection<U> =
@@ -223,10 +231,39 @@ export type TrellisCatalogV1 = {
   contracts: TrellisCatalogEntry[];
 };
 
-export type ContractSourceErrorDecl = {
+export type ContractSourceErrorDecl<TSchemaName extends string = string> = {
   type: string;
-  schema?: ContractSchemaRef;
+  schema?: ContractSchemaRef<TSchemaName>;
 };
+
+type ContractErrorRuntimeMarker<
+  TClass extends RpcErrorClass = RpcErrorClass,
+> = {
+  readonly [CONTRACT_ERROR_RUNTIME_METADATA]: TClass;
+};
+
+export type ErrorClass<
+  TData extends TransportErrorData = TransportErrorData,
+  TError extends BaseError = BaseError,
+  TRuntimeSchema extends TSchema = TSchema,
+> = RpcErrorClass<TData, TError> & {
+  readonly name: string;
+  readonly schema: TRuntimeSchema;
+};
+
+function isTransportErrorData(value: unknown): value is TransportErrorData {
+  return !!value && typeof value === "object" &&
+    typeof (value as { id?: unknown }).id === "string" &&
+    typeof (value as { type?: unknown }).type === "string" &&
+    typeof (value as { message?: unknown }).message === "string";
+}
+
+function isErrorClass(value: unknown): value is ErrorClass {
+  return typeof value === "function" &&
+    typeof Reflect.get(value, "name") === "string" &&
+    typeof Reflect.get(value, "fromSerializable") === "function" &&
+    typeof Reflect.get(value, "schema") === "object";
+}
 
 export type ContractSourceSchemas = Record<string, TSchema>;
 
@@ -504,15 +541,39 @@ type ResolveSchemaFromMap<
   : Schema<unknown>
   : Schema<unknown>;
 
+type RuntimeErrorFromSourceDecl<TDecl, TSchemas> = TDecl extends {
+  type: infer TType extends string;
+  schema?: infer TSchemaRef;
+}
+  ? TDecl extends ContractErrorRuntimeMarker<infer TClass>
+    ? TClass extends RpcErrorClass<TransportErrorData, infer TError>
+      ? RuntimeRpcErrorDesc<
+          TType,
+          ResolveSchemaFromMap<TSchemas, TSchemaRef>,
+          TError
+        >
+      : never
+    : never
+  : never;
+
+type RuntimeErrorsForNames<TNames, TErrors, TSchemas> = TNames extends
+  readonly string[] ? readonly RuntimeErrorFromSourceDecl<
+      NonNullable<TErrors>[Extract<TNames[number], keyof NonNullable<TErrors>>],
+      TSchemas
+    >[]
+  : undefined;
+
 type ProjectedRpc<
   T extends Readonly<Record<string, ContractSourceRpcMethod>> | undefined,
   TSchemas,
+  TErrors,
 > = T extends Readonly<Record<string, ContractSourceRpcMethod>> ? {
     [K in keyof T]:
       & RPCDesc<
         ResolveSchemaFromMap<TSchemas, T[K]["input"]>,
         ResolveSchemaFromMap<TSchemas, T[K]["output"]>,
-        T[K]["errors"]
+        T[K]["errors"],
+        RuntimeErrorsForNames<T[K]["errors"], TErrors, TSchemas>
       >
       & { authRequired?: boolean };
   }
@@ -553,13 +614,14 @@ type ProjectedSubjects<
 export type OwnedApiFromSource<
   T extends {
     schemas?: Readonly<Record<string, TSchema>>;
+    errors?: Readonly<Record<string, ContractSourceErrorDecl>>;
     rpc?: Readonly<Record<string, ContractSourceRpcMethod>>;
     operations?: Readonly<Record<string, ContractSourceOperation>>;
     events?: Readonly<Record<string, ContractSourceEvent>>;
     subjects?: Readonly<Record<string, ContractSourceSubject>>;
   },
 > = {
-  rpc: ProjectedRpc<T["rpc"], T["schemas"]>;
+  rpc: ProjectedRpc<T["rpc"], T["schemas"], T["errors"]>;
   operations: ProjectedOperations<T["operations"], T["schemas"]>;
   events: ProjectedEvents<T["events"], T["schemas"]>;
   subjects: ProjectedSubjects<T["subjects"], T["schemas"]>;
@@ -646,6 +708,9 @@ export type DefineContractInput<
   TSchemas extends Readonly<Record<string, TSchema>> | undefined = undefined,
   TUses extends Readonly<Record<string, AnyContractDependencyUse>> | undefined =
     undefined,
+  TErrors extends
+    | Readonly<Record<string, ContractSourceErrorDecl<SchemaNameOf<TSchemas>>>>
+    | undefined = undefined,
   TRpc extends
     | Readonly<Record<string, ContractSourceRpcMethod<SchemaNameOf<TSchemas>>>>
     | undefined = undefined,
@@ -665,11 +730,11 @@ export type DefineContractInput<
   kind: ContractKind;
   schemas?: TSchemas;
   uses?: TUses;
+  errors?: TErrors;
   rpc?: TRpc;
   operations?: TOperations;
   events?: TEvents;
   subjects?: TSubjects;
-  errors?: Record<string, ContractSourceErrorDecl>;
   resources?: ContractSourceResources<SchemaNameOf<TSchemas>>;
 };
 
@@ -892,7 +957,9 @@ function emitContract(source: TrellisContractSource): TrellisContractV1 {
           emitted.capabilities = { call: [...method.capabilities.call] };
         }
         if (method.errors && method.errors.length > 0) {
-          emitted.errors = method.errors.map((type) => ({ type }));
+          emitted.errors = method.errors.map((errorName) => ({
+            type: source.errors?.[errorName]?.type ?? errorName,
+          }));
         }
         return [name, emitted];
       }),
@@ -1002,8 +1069,9 @@ function emitContract(source: TrellisContractSource): TrellisContractV1 {
     ? Object.fromEntries(
       Object.entries(source.errors).map(([name, error]) => {
         const emitted: ContractErrorDecl = { type: error.type };
-        if (error.schema) {
-          emitted.schema = { ...error.schema };
+        const schemaRef = resolveErrorSchemaRef(source.schemas, name, error);
+        if (schemaRef) {
+          emitted.schema = { ...schemaRef };
         }
         return [name, emitted];
       }),
@@ -1031,6 +1099,40 @@ function emitContract(source: TrellisContractSource): TrellisContractV1 {
 }
 
 function buildOwnedApi(source: TrellisContractSource): TrellisApiLike {
+  const localRuntimeErrors = Object.fromEntries(
+    Object.entries(source.errors ?? {}).flatMap(([name, errorDecl]) => {
+      const errorClass = getContractErrorRuntimeClass(errorDecl);
+      if (!errorClass) {
+        return [];
+      }
+
+      const runtimeError: RuntimeRpcErrorDesc = {
+        type: errorDecl.type,
+        ...(resolveErrorSchemaRef(source.schemas, name, errorDecl)
+          ? {
+            schema: schema(
+              resolveSchemaRef(
+                source.schemas,
+                resolveErrorSchemaRef(source.schemas, name, errorDecl)!,
+                `error '${name}' schema`,
+              ),
+            ),
+          }
+          : {}),
+        fromSerializable(data) {
+          if (!isTransportErrorData(data)) {
+            throw new Error(
+              `Transport error '${errorDecl.type}' is missing base error fields`,
+            );
+          }
+          return errorClass.fromSerializable(data);
+        },
+      };
+
+      return [[name, runtimeError] as const];
+    }),
+  ) as Record<string, RuntimeRpcErrorDesc>;
+
   const rpc = Object.fromEntries(
     Object.entries(source.rpc ?? {}).map(([name, method]) => [
       name,
@@ -1049,6 +1151,14 @@ function buildOwnedApi(source: TrellisContractSource): TrellisApiLike {
         callerCapabilities: method.capabilities?.call ?? [],
         authRequired: method.authRequired ?? true,
         errors: method.errors,
+        declaredErrorTypes: method.errors?.map((errorName) =>
+          source.errors?.[errorName]?.type ?? errorName
+        ),
+        runtimeErrors: method.errors
+          ?.flatMap((errorName) => {
+            const runtimeError = localRuntimeErrors[errorName];
+            return runtimeError ? [runtimeError] : [];
+          }),
       },
     ]),
   ) as Record<string, RPCDesc>;
@@ -1224,6 +1334,90 @@ function attachContractModuleMetadata<
     enumerable: false,
   });
   return value as TValue & ContractModuleMarker<TContractModule>;
+}
+
+function attachContractErrorRuntimeMetadata<
+  TValue extends object,
+  TClass extends RpcErrorClass,
+>(
+  value: TValue,
+  errorClass: TClass,
+): TValue & ContractErrorRuntimeMarker<TClass> {
+  Object.defineProperty(value, CONTRACT_ERROR_RUNTIME_METADATA, {
+    value: errorClass,
+    enumerable: false,
+  });
+  return value as TValue & ContractErrorRuntimeMarker<TClass>;
+}
+
+function getContractErrorRuntimeClass(
+  errorDecl: ContractSourceErrorDecl,
+): ErrorClass | undefined {
+  const value = Object.getOwnPropertyDescriptor(
+    errorDecl,
+    CONTRACT_ERROR_RUNTIME_METADATA,
+  )?.value;
+  if (isErrorClass(value)) {
+    return value;
+  }
+  return undefined;
+}
+
+function resolveErrorSchemaRef(
+  schemas: ContractSourceSchemas | undefined,
+  errorName: string,
+  errorDecl: ContractSourceErrorDecl,
+): ContractSchemaRef | undefined {
+  if (errorDecl.schema) {
+    return errorDecl.schema;
+  }
+
+  const errorClass = getContractErrorRuntimeClass(errorDecl);
+  const runtimeSchema = errorClass ? Reflect.get(errorClass, "schema") : undefined;
+  if (!runtimeSchema) {
+    return undefined;
+  }
+
+  if (!schemas) {
+    throw new Error(
+      `error '${errorName}' defines a runtime schema but the contract has no schemas`,
+    );
+  }
+
+  const runtimeSchemaDigest = digestCanonicalJson(cloneSchema(runtimeSchema as TSchema));
+  for (const [schemaName, schemaValue] of Object.entries(schemas)) {
+    if (schemaValue === runtimeSchema) {
+      return { schema: schemaName };
+    }
+
+    if (digestCanonicalJson(cloneSchema(schemaValue)) === runtimeSchemaDigest) {
+      return { schema: schemaName };
+    }
+  }
+
+  throw new Error(
+    `error '${errorName}' schema must be declared in contract.schemas`,
+  );
+}
+
+/**
+ * Define a transportable contract error with JS runtime reconstruction metadata.
+ *
+ * The returned object stays JSON-serializable for manifest emission while carrying
+ * hidden runtime metadata used by Trellis to reconstruct concrete `Error` instances.
+ */
+export function defineError<
+  TData extends TransportErrorData = TransportErrorData,
+  TError extends BaseError = BaseError,
+  TRuntimeSchema extends TSchema = TSchema,
+>(
+  errorClass: ErrorClass<TData, TError, TRuntimeSchema>,
+): ContractSourceErrorDecl<string> &
+  ContractErrorRuntimeMarker<ErrorClass<TData, TError, TRuntimeSchema>> {
+  const errorDecl: ContractSourceErrorDecl<string> = {
+    type: errorClass.name,
+  };
+  return attachContractErrorRuntimeMetadata(errorDecl, errorClass);
 }
 
 function createUseHelper<
@@ -1485,7 +1679,7 @@ function mergeDerivedApis<
 }
 
 export function defineContract<
-  const T extends DefineContractInput<any, any, any, any, any, any>,
+  const T extends DefineContractInput<any, any, any, any, any, any, any>,
 >(
   source: T,
 ): DefinedContract<
@@ -1546,11 +1740,15 @@ export function defineContract<
 export type {
   EventDesc,
   InferSchemaType,
+  InferRuntimeRpcError,
   JsonValue,
   RPCDesc,
+  RpcErrorClass,
+  RuntimeRpcErrorDesc,
   Schema,
   SchemaLike,
   SubjectDesc,
+  TransportErrorData,
   TrellisAPI,
 };
 export { canonicalizeJson, digestJson, isJsonValue, schema, unwrapSchema };

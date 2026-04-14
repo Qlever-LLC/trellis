@@ -337,6 +337,15 @@ fn render_types_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String 
         ]);
     }
 
+    if !loaded.manifest.errors.is_empty() {
+        lines.extend([
+            "import { TrellisError, type TransportErrorData } from \"@qlever-llc/trellis\";"
+                .to_string(),
+            "import { SCHEMAS } from \"./schemas.ts\";".to_string(),
+            String::new(),
+        ]);
+    }
+
     lines.extend([
         format!(
             "export const CONTRACT_ID = {} as const;",
@@ -401,6 +410,53 @@ fn render_types_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String 
             ));
             lines.push(String::new());
         }
+    }
+
+    for (key, error) in &loaded.manifest.errors {
+        let base = key_to_pascal(&error.error_type);
+        let data_type = format!("{base}Data");
+        let ts_type = error
+            .schema
+            .as_ref()
+            .map(|schema| schema_to_ts(resolve_schema_ref(loaded, &schema.schema)))
+            .unwrap_or_else(|| "TransportErrorData".to_string());
+        lines.push(format!("export type {data_type} = {ts_type};"));
+        lines.push(format!(
+            "export class {base} extends TrellisError<{data_type}> {{"
+        ));
+        if let Some(_schema) = &error.schema {
+            lines.push(format!(
+                "  static readonly schema = SCHEMAS.errors[{}].schema;",
+                js_string(key)
+            ));
+        }
+        lines.push(format!(
+            "  override readonly name = {} as const;",
+            js_string(&error.error_type)
+        ));
+        lines.push(format!("  readonly data: {data_type};"));
+        lines.push(String::new());
+        lines.push(format!("  constructor(data: {data_type}) {{"));
+        lines.push("    super(data.message, {".to_string());
+        lines.push("      id: data.id,".to_string());
+        lines.push(
+            "      ...(data.context !== undefined ? { context: data.context } : {}),".to_string(),
+        );
+        lines.push("    });".to_string());
+        lines.push("    this.data = data;".to_string());
+        lines.push("  }".to_string());
+        lines.push(String::new());
+        lines.push(format!(
+            "  static fromSerializable(data: {data_type}): {base} {{"
+        ));
+        lines.push(format!("    return new {base}(data);"));
+        lines.push("  }".to_string());
+        lines.push(String::new());
+        lines.push(format!("  override toSerializable(): {data_type} {{"));
+        lines.push("    return this.data;".to_string());
+        lines.push("  }".to_string());
+        lines.push("}".to_string());
+        lines.push(String::new());
     }
 
     lines.push("export interface RpcMap {".to_string());
@@ -472,6 +528,17 @@ fn render_schemas_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Strin
             js_string(key),
             serde_json::to_string(schema).unwrap()
         ));
+    }
+    lines.extend(["  },".to_string(), "  errors: {".to_string()]);
+    for (key, error) in &loaded.manifest.errors {
+        lines.push(format!("    {}: {{", js_string(key)));
+        if let Some(schema) = &error.schema {
+            lines.push(format!(
+                "      schema: {} as const,",
+                serde_json::to_string(resolve_schema_ref(loaded, &schema.schema)).unwrap()
+            ));
+        }
+        lines.push("    },".to_string());
     }
     lines.extend(["  },".to_string(), "  rpc: {".to_string()]);
     for (key, rpc) in &loaded.manifest.rpc {
@@ -581,17 +648,58 @@ fn render_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
         ));
         if let Some(errors) = &rpc.errors {
             if !errors.is_empty() {
+                let error_types = errors
+                    .iter()
+                    .map(|error| error.error_type.clone())
+                    .collect::<Vec<_>>();
                 lines.push(format!(
                     "      errors: {} as const,",
-                    serde_json::to_string(
-                        &errors
-                            .iter()
-                            .map(|error| error.error_type.clone())
-                            .collect::<Vec<_>>()
-                    )
-                    .unwrap()
+                    serde_json::to_string(&error_types).unwrap()
+                ));
+                lines.push(format!(
+                    "      declaredErrorTypes: {} as const,",
+                    serde_json::to_string(&error_types).unwrap()
                 ));
             }
+        }
+        let local_runtime_errors = rpc
+            .errors
+            .as_ref()
+            .map(|values| {
+                values
+                    .iter()
+                    .filter_map(|value| {
+                        loaded
+                            .manifest
+                            .errors
+                            .iter()
+                            .find(|(_, decl)| decl.error_type == value.error_type)
+                            .map(|(name, decl)| (name, decl))
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        if !local_runtime_errors.is_empty() {
+            lines.push("      runtimeErrors: [".to_string());
+            for (error_name, error_decl) in local_runtime_errors {
+                let base = key_to_pascal(&error_decl.error_type);
+                lines.push("        {".to_string());
+                lines.push(format!(
+                    "          type: {},",
+                    js_string(&error_decl.error_type)
+                ));
+                if error_decl.schema.is_some() {
+                    lines.push(format!(
+                        "          schema: schema<Types.{base}Data>(SCHEMAS.errors[{}].schema),",
+                        js_string(error_name)
+                    ));
+                }
+                lines.push(format!(
+                    "          fromSerializable: Types.{base}.fromSerializable,"
+                ));
+                lines.push("        },".to_string());
+            }
+            lines.push("      ] as const,".to_string());
         }
         lines.push("    },".to_string());
     }
@@ -1570,6 +1678,104 @@ mod tests {
         assert!(readme.contains("const client = app.createClient(nc, authSession);"));
         assert!(!readme.contains("mergeApis"));
         assert!(!readme.contains("createClient(nc, auth, [api] as const)"));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn generated_sdk_emits_local_error_classes_and_runtime_descriptors() {
+        let root = unique_temp_dir("generated-sdk-local-errors");
+        fs::create_dir_all(&root).unwrap();
+        let manifest_path = root.join("contract.json");
+        let manifest = serde_json::from_str::<Value>(
+            r#"{
+                "format": "trellis.contract.v1",
+                "id": "example.local-errors@v1",
+                "displayName": "Local Errors",
+                "description": "Local error sdk test.",
+                "kind": "service",
+                "schemas": {
+                    "Empty": {
+                        "type": "object",
+                        "properties": {},
+                        "required": [],
+                        "additionalProperties": false
+                    },
+                    "NotFoundErrorData": {
+                        "type": "object",
+                        "required": ["id", "type", "message", "resource"],
+                        "additionalProperties": false,
+                        "properties": {
+                            "id": { "type": "string" },
+                            "type": { "const": "NotFoundError" },
+                            "message": { "type": "string" },
+                            "resource": { "type": "string" }
+                        }
+                    }
+                },
+                "errors": {
+                    "WorkspaceMissing": {
+                        "type": "NotFoundError",
+                        "schema": { "schema": "NotFoundErrorData" }
+                    }
+                },
+                "rpc": {
+                    "Example.Get": {
+                        "version": "v1",
+                        "subject": "rpc.v1.Example.Get",
+                        "input": { "schema": "Empty" },
+                        "output": { "schema": "Empty" },
+                        "errors": [
+                            { "type": "NotFoundError" },
+                            { "type": "UnexpectedError" }
+                        ]
+                    }
+                },
+                "events": {},
+                "subjects": {}
+            }"#,
+        )
+        .unwrap();
+        fs::write(&manifest_path, serde_json::to_string(&manifest).unwrap()).unwrap();
+
+        let opts = GenerateTsSdkOpts {
+            manifest_path: manifest_path.clone(),
+            out_dir: root.join("out"),
+            package_name: "@qlever-llc/trellis-sdk-local-errors".to_string(),
+            package_version: "0.4.0".to_string(),
+            runtime_deps: TsRuntimeDeps {
+                source: TsRuntimeSource::Registry,
+                version: "0.4.0".to_string(),
+                repo_root: None,
+            },
+        };
+        let loaded = load_manifest(&manifest_path).unwrap();
+
+        let types = render_types_ts(&opts, &loaded);
+        let schemas = render_schemas_ts(&opts, &loaded);
+        let api = render_api_ts(&opts, &loaded);
+
+        assert!(types.contains(
+            "import { TrellisError, type TransportErrorData } from \"@qlever-llc/trellis\";"
+        ));
+        assert!(types.contains("export type NotFoundErrorData = {"));
+        assert!(types.contains("type: \"NotFoundError\";"));
+        assert!(types.contains("resource: string;"));
+        assert!(
+            types.contains("export class NotFoundError extends TrellisError<NotFoundErrorData>")
+        );
+        assert!(
+            types.contains("static readonly schema = SCHEMAS.errors[\"WorkspaceMissing\"].schema;")
+        );
+        assert!(types.contains("static fromSerializable(data: NotFoundErrorData): NotFoundError"));
+        assert!(schemas.contains("errors: {"));
+        assert!(schemas.contains("\"WorkspaceMissing\": {"));
+        assert!(api.contains("runtimeErrors: ["));
+        assert!(api.contains("type: \"NotFoundError\""));
+        assert!(api.contains(
+            "schema: schema<Types.NotFoundErrorData>(SCHEMAS.errors[\"WorkspaceMissing\"].schema)"
+        ));
+        assert!(api.contains("fromSerializable: Types.NotFoundError.fromSerializable"));
 
         fs::remove_dir_all(root).unwrap();
     }

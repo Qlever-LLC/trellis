@@ -1,27 +1,21 @@
 import Type, { type StaticDecode } from "typebox";
-import { UnexpectedErrorDataSchema } from "../../../result/mod.ts";
-import { ValidationErrorDataSchema } from "../../errors/ValidationError.ts";
-import { AuthErrorDataSchema } from "../../errors/AuthError.ts";
-import { KVErrorDataSchema } from "../../errors/KVError.ts";
-import { StoreErrorDataSchema } from "../../errors/StoreError.ts";
-import { TransferErrorDataSchema } from "../../errors/TransferError.ts";
 
 /**
- * Discriminated union schema for all possible Trellis error types.
- * These errors can be serialized and sent over RPC.
- * Note: RemoteError is not included here as it's a local wrapper, not a serializable error type.
+ * Open transport schema for Trellis RPC error payloads.
+ *
+ * Error payloads must always carry the base error fields, but service-local contract
+ * errors may add arbitrary additional properties. The client validates declared local
+ * errors against their contract schema before reconstructing runtime `Error` instances.
  */
-export const TrellisErrorDataSchema = Type.Union([
-  UnexpectedErrorDataSchema,
-  ValidationErrorDataSchema,
-  AuthErrorDataSchema,
-  KVErrorDataSchema,
-  StoreErrorDataSchema,
-  TransferErrorDataSchema,
-]);
+export const TrellisErrorDataSchema = Type.Object({
+  id: Type.String(),
+  type: Type.String(),
+  message: Type.String(),
+  context: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+  traceId: Type.Optional(Type.String()),
+}, { additionalProperties: true });
 
 /**
- * Type for validated Trellis error data.
- * This is a discriminated union that enables type narrowing based on the `type` field.
+ * Type for validated transport error data.
  */
 export type TrellisErrorData = StaticDecode<typeof TrellisErrorDataSchema>;

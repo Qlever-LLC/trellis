@@ -5,13 +5,15 @@ import {
   AuthValidateRequestResponseSchema,
   AuthValidateRequestSchema,
 } from "@qlever-llc/trellis-auth";
-import { assertEquals, assertExists, assertRejects } from "@std/assert";
+import { assert, assertEquals, assertExists, assertRejects } from "@std/assert";
 
-import { Type } from "typebox";
+import { Type, type Static } from "typebox";
 import { err, isErr, ok } from "../../result/mod.ts";
 import { createClient } from "../client.ts";
 import { defineContract } from "../contract.ts";
+import { defineError } from "../../contracts/mod.ts";
 import { AuthError } from "../errors/index.ts";
+import { TrellisError } from "../errors/TrellisError.ts";
 import { NatsTest } from "../testing/nats.ts";
 import { getActiveSpan, getTracer, initTracing, withSpanAsync } from "../tracing.ts";
 import type { TrellisAuth } from "../trellis.ts";
@@ -61,6 +63,48 @@ const TEST_CALLER = {
 };
 
 const EmptySchema = Type.Object({}, { additionalProperties: false });
+const NotFoundErrorDataSchema = Type.Object({
+  id: Type.String(),
+  type: Type.Literal("NotFoundError"),
+  message: Type.String(),
+  resource: Type.String(),
+  context: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+  traceId: Type.Optional(Type.String()),
+}, { additionalProperties: false });
+
+type NotFoundErrorData = Static<typeof NotFoundErrorDataSchema>;
+
+class NotFoundError extends TrellisError<NotFoundErrorData> {
+  static readonly schema = NotFoundErrorDataSchema;
+  override readonly name = "NotFoundError" as const;
+  readonly resource: string;
+
+  constructor(options: ErrorOptions & {
+    resource: string;
+    context?: Record<string, unknown>;
+    id?: string;
+  }) {
+    const { resource, ...baseOptions } = options;
+    super(`${resource} not found`, baseOptions);
+    this.resource = resource;
+  }
+
+  static fromSerializable(data: NotFoundErrorData): NotFoundError {
+    return new NotFoundError({
+      resource: data.resource,
+      id: data.id,
+      context: data.context,
+    });
+  }
+
+  override toSerializable(): NotFoundErrorData {
+    return {
+      ...this.baseSerializable(),
+      type: this.name,
+      resource: this.resource,
+    };
+  }
+}
 
 const authSchemas = {
   AuthValidateRequestInput: AuthValidateRequestSchema,
@@ -144,6 +188,29 @@ const traceRuntimeContract = {
     owned: traceContract.API.trellis,
   },
 };
+
+const localErrorContract = defineContract({
+  id: "trellis.local-error.rpc-test@v1",
+  displayName: "Local Error RPC Test",
+  description: "Round-trip a contract-local error as a real runtime class.",
+  kind: "service",
+  schemas: {
+    EmptySchema,
+    NotFoundErrorData: NotFoundErrorDataSchema,
+  },
+  errors: {
+    WorkspaceMissing: defineError(NotFoundError),
+  },
+  rpc: {
+    "Test.LocalError": {
+      version: "v1",
+      input: schemaRef("EmptySchema"),
+      output: schemaRef("EmptySchema"),
+      authRequired: false,
+      errors: ["WorkspaceMissing", "UnexpectedError"],
+    },
+  },
+});
 
 async function waitFor<T>(
   fn: () => Promise<T | null>,
@@ -240,6 +307,36 @@ Deno.test({
 
     const result = await client.publish("Test.Event", { foo: "bar" });
     assertEquals(result.isOk(), true);
+  });
+
+  await t.step("declared local RPC errors reconstruct to real runtime classes", async () => {
+    const service = createClient<typeof localErrorContract.API.owned>(
+      localErrorContract,
+      nats.nc,
+      { sessionKey: "local-error-service", sign: () => new Uint8Array(64) },
+      { name: "local-error-service" },
+    );
+
+    await service.mount("Test.LocalError", async () => {
+      return err(new NotFoundError({ resource: "Workspace" }));
+    });
+
+    const client = createClient<typeof localErrorContract.API.owned>(
+      localErrorContract,
+      nats.nc,
+      { sessionKey: "local-error-client", sign: () => new Uint8Array(64) },
+      { name: "local-error-client" },
+    );
+
+    const response = await client.request("Test.LocalError", {});
+    const value = response.take();
+    assert(isErr(value));
+    const error = isErr(value) ? value.error : null;
+    assertEquals(error instanceof NotFoundError, true);
+    if (error instanceof NotFoundError) {
+      assertEquals(error.resource, "Workspace");
+      assertEquals(error.message, "Workspace not found");
+    }
   });
 
       await t.step("trace context propagates across RPC", async () => {

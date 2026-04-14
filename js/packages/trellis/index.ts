@@ -42,6 +42,14 @@ export type {
   JsonValue,
   TrellisAPI,
 } from "./contracts.ts";
+export { defineError } from "../contracts/mod.ts";
+export type {
+  ErrorClass,
+  InferRuntimeRpcError,
+  RpcErrorClass,
+  RuntimeRpcErrorDesc,
+  TransportErrorData,
+} from "../contracts/mod.ts";
 export {
   defineContract,
 } from "./contract.ts";
@@ -124,11 +132,13 @@ export type {
   OperationHandlerContext,
   OperationRegistration,
   RpcHandler,
+  RpcHandlerErrorOf,
   RpcHandlerFn,
   RpcHandlerContext,
   RpcInput,
   RpcInputOf,
   RpcName,
+  RpcRequestErrorOf,
   RpcMethodNameOf,
   RpcOutput,
   RpcOutputOf,

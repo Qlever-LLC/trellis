@@ -23,7 +23,7 @@ import {
 } from "./auth.ts";
 import {
   AsyncResult,
-  type BaseError,
+  BaseError,
   err,
   type InferErr,
   isErr,
@@ -54,7 +54,11 @@ import {
 } from "./codec.ts";
 import {
   AuthError,
+  BUILTIN_RPC_ERRORS,
+  getBuiltinRpcError,
   type TrellisErrorInstance,
+  type TrellisErrorMap,
+  type TrellisErrorName,
   UnexpectedError,
   ValidationError,
 } from "./errors/index.ts";
@@ -76,6 +80,18 @@ import {
   type UploadTransferHandle,
 } from "./transfer.ts";
 import { TrellisTasks } from "./tasks.ts";
+
+type RuntimeRpcErrorDesc = {
+  type: string;
+  schema?: unknown;
+  fromSerializable(data: unknown): Error;
+};
+
+type InferRuntimeRpcError<T> = T extends {
+  fromSerializable(data: unknown): infer TError;
+}
+  ? TError
+  : never;
 
 export type AuthValidateRequestResponse = StaticDecode<
   typeof AuthValidateRequestResponseSchema
@@ -207,7 +223,9 @@ export type OperationsOf<TA extends AnyTrellisAPI> = NonNever<
 >;
 type EventsOf<TA extends AnyTrellisAPI> = NonNever<keyof TA["events"] & string>;
 type MethodInputOf<TA extends AnyTrellisAPI, M extends MethodsOf<TA>> =
-  TA["rpc"][M] extends RPCDesc<infer TInput, infer _TOutput, infer _TErrors>
+  TA["rpc"][M] extends {
+    input: infer TInput;
+  }
     ? InferSchemaType<TInput>
     : never;
 export type RpcInputOf<
@@ -215,7 +233,9 @@ export type RpcInputOf<
   M extends RpcMethodNameOf<TA>,
 > = MethodInputOf<TA, M>;
 type MethodOutputOf<TA extends AnyTrellisAPI, M extends MethodsOf<TA>> =
-  TA["rpc"][M] extends RPCDesc<infer _TInput, infer TOutput, infer _TErrors>
+  TA["rpc"][M] extends {
+    output: infer TOutput;
+  }
     ? InferSchemaType<TOutput>
     : never;
 export type RpcOutputOf<
@@ -223,9 +243,44 @@ export type RpcOutputOf<
   M extends RpcMethodNameOf<TA>,
 > = MethodOutputOf<TA, M>;
 type RpcDescriptorOf<TA extends AnyTrellisAPI, M extends MethodsOf<TA>> =
-  TA["rpc"][M] extends RPCDesc<infer TInput, infer TOutput, infer TErrors>
-    ? RPCDesc<TInput, TOutput, TErrors> & TA["rpc"][M]
+  TA["rpc"][M] extends {
+    input: infer TInput;
+    output: infer TOutput;
+    errors?: infer TErrors;
+    runtimeErrors?: infer TRuntimeErrors;
+    declaredErrorTypes?: infer TDeclaredErrorTypes;
+  }
+    ? {
+        input: TInput;
+        output: TOutput;
+        errors?: TErrors;
+        runtimeErrors?: TRuntimeErrors;
+        declaredErrorTypes?: TDeclaredErrorTypes;
+      } & TA["rpc"][M]
     : never;
+type DeclaredBuiltinErrorOf<TNames> = TNames extends readonly (infer TName)[]
+  ? TName extends TrellisErrorName ? TrellisErrorMap[TName]
+  : never
+  : never;
+type DeclaredRuntimeErrorOf<TRuntimeErrors> = TRuntimeErrors extends readonly (
+  infer TRuntimeError
+)[] ? InferRuntimeRpcError<TRuntimeError>
+  : never;
+type MethodDeclaredErrorOf<TA extends AnyTrellisAPI, M extends MethodsOf<TA>> =
+  RpcDescriptorOf<TA, M> extends {
+    errors?: infer TErrors;
+    runtimeErrors?: infer TRuntimeErrors;
+  }
+    ? DeclaredBuiltinErrorOf<TErrors> | DeclaredRuntimeErrorOf<TRuntimeErrors>
+    : never;
+type RequestErrorOf<TA extends AnyTrellisAPI, M extends MethodsOf<TA>> =
+  | MethodDeclaredErrorOf<TA, M>
+  | RemoteError
+  | ValidationError
+  | UnexpectedError;
+type HandlerErrorOf<TA extends AnyTrellisAPI, M extends MethodsOf<TA>> =
+  | MethodDeclaredErrorOf<TA, M>
+  | TrellisErrorInstance;
 type EventOf<TA extends AnyTrellisAPI, E extends EventsOf<TA>> =
   TA["events"][E] extends EventDesc<infer TEvent> ? InferSchemaType<TEvent>
     : never;
@@ -515,7 +570,7 @@ export type HandlerTrellis<TA extends AnyTrellisAPI> = {
     method: M,
     input: MethodInputOf<TA, M>,
     opts?: RequestOpts,
-  ): Promise<Result<MethodOutputOf<TA, M>, TrellisErrorInstance>>;
+  ): Promise<Result<MethodOutputOf<TA, M>, RequestErrorOf<TA, M>>>;
   requestOrThrow<M extends MethodsOf<TA>>(
     method: M,
     input: MethodInputOf<TA, M>,
@@ -543,7 +598,7 @@ export type HandlerFn<
   m: MethodInputOf<TMountApi, M>,
   context: RpcHandlerContext,
   trellis: HandlerTrellis<TOutboundApi>,
-) => MaybePromise<Result<MethodOutputOf<TMountApi, M>, TrellisErrorInstance>>;
+) => MaybePromise<Result<MethodOutputOf<TMountApi, M>, HandlerErrorOf<TMountApi, M>>>;
 export type RpcHandlerFn<
   TA extends AnyTrellisAPI,
   M extends RpcMethodNameOf<TA>,
@@ -558,6 +613,14 @@ export type RpcOutput<
   TContract,
   M extends RpcName<TContract>,
 > = RpcOutputOf<OwnedApiFor<TContract>, M>;
+export type RpcRequestErrorOf<
+  TA extends AnyTrellisAPI,
+  M extends RpcMethodNameOf<TA>,
+> = RequestErrorOf<TA, M>;
+export type RpcHandlerErrorOf<
+  TA extends AnyTrellisAPI,
+  M extends RpcMethodNameOf<TA>,
+> = HandlerErrorOf<TA, M>;
 export type RpcHandler<
   TContract,
   M extends RpcName<TContract>,
@@ -600,9 +663,84 @@ type AuthCacheEntry = {
 };
 
 function isTransientAuthValidateSessionError(error: unknown): boolean {
-  return error instanceof RemoteError &&
-    error.remoteError.type === "AuthError" &&
-    error.remoteError.reason === "session_not_found";
+  if (error instanceof AuthError) {
+    return error.reason === "session_not_found";
+  }
+
+  if (
+    error instanceof RemoteError &&
+    error.remoteError.type === "AuthError"
+  ) {
+    const reason = Reflect.get(error.remoteError, "reason");
+    return typeof reason === "string" && reason === "session_not_found";
+  }
+
+  return false;
+}
+
+function isDeclaredRpcError(
+  errorNames: readonly string[] | undefined,
+  type: string,
+): boolean {
+  return !!errorNames?.includes(type);
+}
+
+function isRuntimeRpcErrorDesc(value: unknown): value is RuntimeRpcErrorDesc {
+  return !!value && typeof value === "object" &&
+    typeof Reflect.get(value, "type") === "string" &&
+    typeof Reflect.get(value, "fromSerializable") === "function";
+}
+
+function reconstructDeclaredRpcError(
+  errorNames: readonly string[] | undefined,
+  runtimeErrors: readonly RuntimeRpcErrorDesc[] | undefined,
+  data: StaticDecode<typeof TrellisErrorDataSchema>,
+  json: JsonValue,
+): Result<BaseError, ValidationError | UnexpectedError> | null {
+  if (!isDeclaredRpcError(errorNames, data.type)) {
+    return null;
+  }
+
+  const runtimeError = getBuiltinRpcError(data.type) ??
+    runtimeErrors?.find((candidate) => candidate.type === data.type);
+  if (!runtimeError) {
+    return null;
+  }
+
+  const parsed = runtimeError.schema
+    ? parseRuntimeSchema(runtimeError.schema, json).take()
+    : data;
+  if (isErr(parsed)) {
+    if (
+      parsed.error instanceof ValidationError ||
+      parsed.error instanceof UnexpectedError
+    ) {
+      return Result.err<typeof parsed.error, BaseError>(parsed.error);
+    }
+    return Result.err<UnexpectedError, BaseError>(
+      new UnexpectedError({ cause: parsed.error }),
+    );
+  }
+
+  try {
+    const reconstructed = runtimeError.fromSerializable(parsed);
+    if (reconstructed instanceof BaseError) {
+      return Result.ok<BaseError, ValidationError | UnexpectedError>(
+        reconstructed,
+      );
+    }
+    return Result.err<UnexpectedError, BaseError>(
+      new UnexpectedError({
+        cause: new Error(
+          `RPC error '${data.type}' reconstructed to a non-Trellis error instance`,
+        ),
+      }),
+    );
+  } catch (cause) {
+    return Result.err<UnexpectedError, BaseError>(
+      new UnexpectedError({ cause }),
+    );
+  }
 }
 
 async function sleep(ms: number): Promise<void> {
@@ -738,13 +876,13 @@ export class Trellis<
    * output or an error.
    * @returns A `Result` object:
    *              ok: A validated reponse of method M
-   *              err: RemoteError | ValidationError | UnexpectedError
+   *              err: declared RPC errors | RemoteError | ValidationError | UnexpectedError
    */
   async request(
     method: string,
     input: unknown,
     opts?: RequestOpts,
-  ): Promise<Result<unknown, RemoteError | ValidationError | UnexpectedError>> {
+  ): Promise<Result<unknown, BaseError>> {
     this.#log.trace(
       { method: String(method) },
       `Calling ${method.toString()}.`,
@@ -777,9 +915,7 @@ export class Trellis<
     // Start a client span for this RPC request
     const span = startClientSpan(method, subject);
 
-    const attempt = async (): Promise<
-      Result<unknown, RemoteError | ValidationError | UnexpectedError>
-    > => {
+    const attempt = async (): Promise<Result<unknown, BaseError>> => {
       const proof = await this.#createProof(subject, msg);
 
       const headers = natsHeaders();
@@ -869,12 +1005,30 @@ export class Trellis<
           return json;
         }
 
-        const error = parse(TrellisErrorDataSchema, json).take();
-        if (isErr(error)) {
-          return error;
+        const errorData = parse(TrellisErrorDataSchema, json).take();
+        if (isErr(errorData)) {
+          return errorData;
         }
 
-        return err(new RemoteError({ error }));
+        const declaredErrorTypes = Array.isArray(ctx.declaredErrorTypes)
+          ? ctx.declaredErrorTypes.filter((value): value is string =>
+            typeof value === "string"
+          )
+          : ctx.errors;
+        const runtimeErrors = Array.isArray(ctx.runtimeErrors)
+          ? ctx.runtimeErrors.filter(isRuntimeRpcErrorDesc)
+          : undefined;
+        const reconstructed = reconstructDeclaredRpcError(
+          declaredErrorTypes,
+          runtimeErrors,
+          errorData,
+          json,
+        );
+        if (reconstructed) {
+          return reconstructed;
+        }
+
+        return err(new RemoteError({ error: errorData }));
       }
 
       const json = safeJson(m).take();
@@ -929,9 +1083,7 @@ export class Trellis<
         method: string,
         input: unknown,
         opts?: RequestOpts,
-      ) => Promise<
-        Result<unknown, RemoteError | ValidationError | UnexpectedError>
-      >
+      ) => Promise<Result<unknown, BaseError>>
     )(method, input, opts);
     const value = result.take();
     if (isErr(value)) {
@@ -970,7 +1122,7 @@ export class Trellis<
       input: unknown,
       context: RpcHandlerContext,
       trellis: HandlerTrellis<TA>,
-    ) => MaybePromise<Result<unknown, TrellisErrorInstance>>,
+    ) => MaybePromise<Result<unknown, BaseError>>,
   ) {
     const methodName = method as MethodsOf<TA>;
     const ctx = this.api["rpc"][methodName];
@@ -1042,7 +1194,7 @@ export class Trellis<
     msg: Msg,
     fn: HandlerFn<TA, MethodsOf<TA>>,
     handlerTrellis: HandlerTrellis<TA>,
-  ): Promise<Result<string, TrellisErrorInstance>> {
+  ): Promise<Result<string, BaseError>> {
     this.#log.debug(
       { method: String(method), subject: msg.subject },
       "Processing RPC message",
@@ -1061,9 +1213,7 @@ export class Trellis<
 
     // Execute the handler within the span's context
     return withSpanAsync(span, async () => {
-      const execute = async (): Promise<
-        Result<string, TrellisErrorInstance | UnexpectedError>
-      > => {
+      const execute = async (): Promise<Result<string, BaseError>> => {
         const jsonData = safeJson(msg).take();
         if (isErr(jsonData)) {
           this.#log.warn(
@@ -1083,7 +1233,7 @@ export class Trellis<
             code: SpanStatusCode.ERROR,
             message: "Input validation failed",
           });
-          return parsedInput as Result<string, TrellisErrorInstance>;
+          return parsedInput;
         }
 
         let caller: SessionCaller;
@@ -1162,6 +1312,7 @@ export class Trellis<
 
           let auth:
             | AuthValidateRequestResponse
+            | AuthError
             | RemoteError
             | ValidationError
             | UnexpectedError
@@ -1219,7 +1370,10 @@ export class Trellis<
               code: SpanStatusCode.ERROR,
               message: "Auth.ValidateRequest failed",
             });
-            return err(auth as TrellisErrorInstance);
+            if (auth instanceof BaseError) {
+              return err(auth);
+            }
+            return err(new UnexpectedError({ cause: auth }));
           }
 
           if (!auth.allowed) {
@@ -1271,7 +1425,7 @@ export class Trellis<
         }
 
         const handlerResultWrapped = await AsyncResult.try<
-          Result<MethodOutputOf<TA, MethodsOf<TA>>, TrellisErrorInstance>
+          Result<MethodOutputOf<TA, MethodsOf<TA>>, BaseError>
         >(async () =>
           await Promise.resolve(
             fn(parsedInput as MethodInputOf<TA, MethodsOf<TA>>, {
@@ -1308,9 +1462,8 @@ export class Trellis<
         if (isErr(handlerOutcome)) {
           const handlerError = handlerOutcome.error;
 
-          const error = handlerError instanceof UnexpectedError ||
-              handlerError instanceof AuthError ||
-              handlerError instanceof ValidationError
+          const error = handlerError instanceof BaseError &&
+              !(handlerError instanceof RemoteError)
             ? handlerError
             : new UnexpectedError({ cause: handlerError });
 
@@ -1351,11 +1504,9 @@ export class Trellis<
     });
   }
 
-  #respondWithError(msg: Msg, error: Error | TrellisErrorInstance): void {
-    const trellisError = error instanceof UnexpectedError ||
-        error instanceof AuthError ||
-        error instanceof ValidationError ||
-        error instanceof RemoteError
+  #respondWithError(msg: Msg, error: Error | BaseError): void {
+    const trellisError = error instanceof BaseError &&
+        !(error instanceof RemoteError)
       ? error
       : new UnexpectedError({ cause: error });
 
@@ -1380,7 +1531,7 @@ export class Trellis<
     msg.respond(serialized.take() as string, { headers: hdrs });
   }
 
-  respondWithError(msg: Msg, error: Error | TrellisErrorInstance): void {
+  respondWithError(msg: Msg, error: Error | BaseError): void {
     this.#respondWithError(msg, error);
   }
 
@@ -1669,7 +1820,7 @@ export class Trellis<
   ): Promise<
     Result<
       AuthValidateRequestResponse,
-      RemoteError | ValidationError | UnexpectedError
+      AuthError | RemoteError | ValidationError | UnexpectedError
     >
   > {
     const request = this.request.bind(this) as (
@@ -1677,12 +1828,12 @@ export class Trellis<
       input: unknown,
       opts?: RequestOpts,
     ) => Promise<
-      Result<unknown, RemoteError | ValidationError | UnexpectedError>
+      Result<unknown, AuthError | RemoteError | ValidationError | UnexpectedError>
     >;
     const result = await request("Auth.ValidateRequest", input);
     return result as Result<
       AuthValidateRequestResponse,
-      RemoteError | ValidationError | UnexpectedError
+      AuthError | RemoteError | ValidationError | UnexpectedError
     >;
   }
 }
@@ -1698,7 +1849,7 @@ export interface Trellis<
   ): Promise<
     Result<
       MethodOutputOf<TA, M>,
-      RemoteError | ValidationError | UnexpectedError
+      RequestErrorOf<TA, M>
     >
   >;
   requestOrThrow<M extends MethodsOf<TA>>(
@@ -1719,7 +1870,7 @@ export interface Trellis<
   ): Promise<
     Result<
       MethodOutputOf<TA, M>,
-      RemoteError | ValidationError | UnexpectedError
+      RequestErrorOf<TA, M>
     >
   >;
   requestOrThrow<M extends MethodsOf<TA>>(

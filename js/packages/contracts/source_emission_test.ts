@@ -1,8 +1,9 @@
 import { assertEquals, assertThrows } from "@std/assert";
-import { Type } from "typebox";
+import { Type, type Static } from "typebox";
 
 import { digestJson } from "./canonical.ts";
-import { defineContract } from "./mod.ts";
+import { defineContract, defineError } from "./mod.ts";
+import { TrellisError } from "../trellis/errors/TrellisError.ts";
 
 const EmptySchema = Type.Object({}, { additionalProperties: false });
 const StringSchema = Type.Object({ value: Type.String() }, {
@@ -145,6 +146,62 @@ Deno.test("defineContract preserves emitted manifest shape and digest", async ()
     activity.CONTRACT_DIGEST,
     (await digestJson(activity.CONTRACT)).digest,
   );
+});
+
+Deno.test("defineContract emits RPC error refs using declared wire types", () => {
+  const NotFoundErrorData = Type.Object({
+    id: Type.String(),
+    type: Type.Literal("NotFoundError"),
+    message: Type.String(),
+  }, { additionalProperties: false });
+  type NotFoundErrorData = Static<typeof NotFoundErrorData>;
+
+  class NotFoundError extends TrellisError<NotFoundErrorData> {
+    static readonly schema = NotFoundErrorData;
+    override readonly name = "NotFoundError" as const;
+
+    static fromSerializable(data: NotFoundErrorData): NotFoundError {
+      return new NotFoundError({ id: data.id });
+    }
+
+    constructor(options?: ErrorOptions & { id?: string }) {
+      super("Not found", options);
+    }
+
+    override toSerializable(): NotFoundErrorData {
+      return {
+        ...this.baseSerializable(),
+        type: this.name,
+      };
+    }
+  }
+
+  const contract = defineContract({
+    id: "local-errors.example@v1",
+    displayName: "Local Errors Example",
+    description: "Verify RPC error refs emit declared error types.",
+    kind: "service",
+    schemas: {
+      Empty: EmptySchema,
+      NotFoundErrorData,
+    },
+    errors: {
+      WorkspaceMissing: defineError(NotFoundError),
+    },
+    rpc: {
+      "Workspace.Get": {
+        version: "v1",
+        input: schemaRef<typeof baseSchemas, "Empty">("Empty"),
+        output: schemaRef<typeof baseSchemas, "Empty">("Empty"),
+        errors: ["WorkspaceMissing", "UnexpectedError"],
+      },
+    },
+  });
+
+  assertEquals(contract.CONTRACT.rpc?.["Workspace.Get"]?.errors, [
+    { type: "NotFoundError" },
+    { type: "UnexpectedError" },
+  ]);
 });
 
 Deno.test("defineContract rejects duplicate logical keys across used and owned APIs", () => {

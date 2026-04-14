@@ -169,11 +169,13 @@ type BillingUseArg = Parameters<typeof billing.use>[0];
 type BillingUseOperationCall = NonNullable<NonNullable<BillingUseArg["operations"]>["call"]>[number];
 type _BillingUseDoesNotAcceptWriteoff = Assert<Not<HasMember<BillingUseOperationCall, "Billing.Writeoff">>>;
 
-// @ts-expect-error kind is required on contract sources
-defineContract({
-  id: "trellis.missing-kind@v1",
-  displayName: "Missing Kind",
-  description: "Should fail type checking.",
-});
+if (false) {
+  // @ts-expect-error kind is required on contract sources
+  defineContract({
+    id: "trellis.missing-kind@v1",
+    displayName: "Missing Kind",
+    description: "Should fail type checking.",
+  });
+}
 
 Deno.test("defineContract type coverage compiles", () => {});
