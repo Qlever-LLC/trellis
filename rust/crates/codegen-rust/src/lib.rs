@@ -229,6 +229,38 @@ pub fn generate_rust_sdk(opts: &GenerateRustSdkOpts) -> Result<(), CodegenRustEr
     Ok(())
 }
 
+/// Validate the minimal generated Rust SDK manifest invariants used by freshness checks.
+pub fn rust_sdk_cargo_manifest_is_valid(
+    cargo_toml_path: &Path,
+    crate_name: &str,
+    crate_version: &str,
+) -> bool {
+    let Ok(contents) = fs::read_to_string(cargo_toml_path) else {
+        return false;
+    };
+    let Ok(manifest) = contents.parse::<toml::Table>() else {
+        return false;
+    };
+    let Some(package) = manifest.get("package").and_then(toml::Value::as_table) else {
+        return false;
+    };
+    let Some(dependencies) = manifest.get("dependencies").and_then(toml::Value::as_table) else {
+        return false;
+    };
+
+    package.get("name").and_then(toml::Value::as_str) == Some(crate_name)
+        && package.get("version").and_then(toml::Value::as_str) == Some(crate_version)
+        && [
+            "serde",
+            "serde_json",
+            "trellis-client",
+            "trellis-contracts",
+            "trellis-server",
+        ]
+        .into_iter()
+        .all(|dependency| dependencies.contains_key(dependency))
+}
+
 /// Generate only the build-time Rust sources for a participant facade.
 ///
 /// This is used from generated `build.rs` code after the crate skeleton and
@@ -2112,6 +2144,62 @@ mod tests {
                 .to_string()
         ));
         assert!(!cargo.contains("rust/crates/client"));
+    }
+
+    #[test]
+    fn cargo_toml_integrity_check_accepts_generated_sdk_manifest() {
+        let out_dir = unique_temp_dir("sdk-cargo-integrity-valid");
+        fs::create_dir_all(&out_dir).unwrap();
+        let manifest_path = write_sample_manifest(&out_dir);
+        let sdk_out = out_dir.join("generated");
+
+        generate_rust_sdk(&GenerateRustSdkOpts {
+            manifest_path,
+            out_dir: sdk_out.clone(),
+            crate_name: "trellis-sdk-core".to_string(),
+            crate_version: "0.1.0".to_string(),
+            runtime_deps: RustRuntimeDeps {
+                source: RustRuntimeSource::Registry,
+                version: "0.1.0".to_string(),
+                repo_root: None,
+            },
+        })
+        .unwrap();
+
+        assert!(rust_sdk_cargo_manifest_is_valid(
+            &sdk_out.join("Cargo.toml"),
+            "trellis-sdk-core",
+            "0.1.0"
+        ));
+
+        fs::remove_dir_all(out_dir).unwrap();
+    }
+
+    #[test]
+    fn cargo_toml_integrity_check_rejects_missing_required_dependencies() {
+        let out_dir = unique_temp_dir("sdk-cargo-integrity-invalid");
+        fs::create_dir_all(&out_dir).unwrap();
+        let cargo_toml = out_dir.join("Cargo.toml");
+        fs::write(
+            &cargo_toml,
+            concat!(
+                "[package]\n",
+                "name = \"trellis-sdk-core\"\n",
+                "version = \"0.1.0\"\n",
+                "edition = \"2021\"\n\n",
+                "[dependencies]\n",
+                "trellis-client = \"0.1.0\"\n",
+            ),
+        )
+        .unwrap();
+
+        assert!(!rust_sdk_cargo_manifest_is_valid(
+            &cargo_toml,
+            "trellis-sdk-core",
+            "0.1.0"
+        ));
+
+        fs::remove_dir_all(out_dir).unwrap();
     }
 
     #[test]

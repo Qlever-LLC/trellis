@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use miette::IntoDiagnostic;
 use serde::{Deserialize, Serialize};
 use trellis_codegen_rust::{
-    default_sdk_stem, GenerateRustSdkOpts, RustRuntimeDeps,
+    default_sdk_stem, rust_sdk_cargo_manifest_is_valid, GenerateRustSdkOpts, RustRuntimeDeps,
     RustRuntimeSource as CodegenRustRuntimeSource,
 };
 use trellis_codegen_ts::{
@@ -176,7 +176,7 @@ pub fn generated_artifacts_are_fresh(
     existing == *expected
         && out_manifest.exists()
         && ts_key_outputs_exist(ts_out)
-        && rust_key_outputs_exist(rust_out)
+        && rust_key_outputs_exist(rust_out, expected)
 }
 
 fn read_generated_artifacts_metadata(out_manifest: &Path) -> Option<GeneratedArtifactsMetadata> {
@@ -208,11 +208,18 @@ fn ts_key_outputs_exist(ts_out: Option<&Path>) -> bool {
     ts_out.join("mod.ts").exists() && ts_out.join("contract.ts").exists()
 }
 
-fn rust_key_outputs_exist(rust_out: Option<&Path>) -> bool {
+fn rust_key_outputs_exist(rust_out: Option<&Path>, expected: &GeneratedArtifactsMetadata) -> bool {
     let Some(rust_out) = rust_out else {
         return true;
     };
-    rust_out.join("Cargo.toml").exists() && rust_out.join("src/contract.rs").exists()
+    let cargo_toml = rust_out.join("Cargo.toml");
+    cargo_toml.exists()
+        && rust_out.join("src/contract.rs").exists()
+        && rust_sdk_cargo_manifest_is_valid(
+            &cargo_toml,
+            &expected.crate_name,
+            &expected.artifact_version,
+        )
 }
 
 fn write_if_changed(path: &Path, contents: &str) -> miette::Result<()> {

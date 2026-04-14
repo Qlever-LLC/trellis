@@ -484,6 +484,63 @@ fn local_mode_regenerates_when_a_key_output_is_missing() {
 }
 
 #[test]
+fn local_mode_regenerates_when_rust_sdk_cargo_toml_is_invalid() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = temp.path().join("service");
+    fs::create_dir_all(project.join("contracts")).unwrap();
+    fs::write(
+        project.join("deno.json"),
+        "{\n  \"version\": \"0.4.0\"\n}\n",
+    )
+    .unwrap();
+    write_ts_contract(
+        &project.join("contracts/orders.ts"),
+        "trellis.orders@v1",
+        "Orders",
+        "service",
+    );
+
+    let first = trellis_generate().current_dir(&project).output().unwrap();
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+
+    let cargo_toml = project.join("generated/rust/sdks/orders/Cargo.toml");
+    fs::write(
+        &cargo_toml,
+        concat!(
+            "[package]\n",
+            "name = \"trellis-sdk-orders\"\n",
+            "version = \"0.4.0\"\n",
+            "edition = \"2021\"\n\n",
+            "[dependencies]\n",
+            "trellis-client = \"0.4.0\"\n",
+        ),
+    )
+    .unwrap();
+
+    let second = trellis_generate().current_dir(&project).output().unwrap();
+    assert!(
+        second.status.success(),
+        "{}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+
+    let stdout = String::from_utf8(second.stdout).unwrap();
+    assert!(stdout.contains("generated contract artifacts for trellis.orders@v1"));
+    assert!(!stdout.contains("artifacts already up to date for trellis.orders@v1"));
+
+    let repaired = fs::read_to_string(&cargo_toml).unwrap();
+    assert!(repaired.contains("serde = { version = \"1.0\""));
+    assert!(repaired.contains("serde_json = \"1.0\""));
+    assert!(repaired.contains("trellis-client = \"0.4.0\""));
+    assert!(repaired.contains("trellis-contracts = \"0.4.0\""));
+    assert!(repaired.contains("trellis-server = \"0.4.0\""));
+}
+
+#[test]
 fn generate_all_skips_when_metadata_matches_outputs() {
     let temp = tempfile::tempdir().unwrap();
     let project = temp.path().join("service");
