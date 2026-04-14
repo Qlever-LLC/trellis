@@ -2,9 +2,10 @@
   import { onMount } from "svelte";
   import { browser } from "$app/environment";
   import { goto, replaceState } from "$app/navigation";
+  import { base } from "$app/paths";
   import { page } from "$app/state";
   import {
-    buildAppLoginUrl,
+    APP_CONFIG,
     getCanonicalLoopbackRedirectUrl,
     getSelectedAuthUrl,
     persistSelectedAuthUrl
@@ -16,12 +17,36 @@
   let authError = $state<string | null>(null);
   let selectedAuthUrl = $state("");
 
+  function resolveAppPath(path: string): string {
+    const url = new URL(path, page.url);
+    const appBase = base || "";
+
+    if (url.origin !== page.url.origin) {
+      return url.toString();
+    }
+
+    if (appBase && url.pathname === appBase) {
+      return `${appBase}/${url.search}${url.hash}`;
+    }
+
+    if (appBase && url.pathname.startsWith(`${appBase}/`)) {
+      return `${appBase}${url.pathname.slice(appBase.length)}${url.search}${url.hash}`;
+    }
+
+    return `${appBase}${url.pathname}${url.search}${url.hash}`;
+  }
+
   function targetPath(): string {
-    return page.url.searchParams.get("redirectTo") ?? "/profile";
+    return resolveAppPath(page.url.searchParams.get("redirectTo") ?? "/profile");
   }
 
   function loginUrl(): string {
-    return buildAppLoginUrl(targetPath(), page.url, undefined, selectedAuthUrl);
+    const url = new URL(resolveAppPath("/login"), page.url);
+    url.searchParams.set("redirectTo", targetPath());
+    if (selectedAuthUrl && selectedAuthUrl !== APP_CONFIG.authUrl) {
+      url.searchParams.set("authUrl", selectedAuthUrl);
+    }
+    return url.toString();
   }
 
   function cleanupCallbackUrl(): void {

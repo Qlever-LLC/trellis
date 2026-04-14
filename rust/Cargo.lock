@@ -3147,35 +3147,14 @@ dependencies = [
 [[package]]
 name = "trellis-sdk-auth"
 version = "0.7.0"
-dependencies = [
- "serde",
- "serde_json",
- "trellis-client",
- "trellis-contracts",
- "trellis-server",
-]
 
 [[package]]
 name = "trellis-sdk-core"
 version = "0.7.0"
-dependencies = [
- "serde",
- "serde_json",
- "trellis-client",
- "trellis-contracts",
- "trellis-server",
-]
 
 [[package]]
 name = "trellis-sdk-jobs"
 version = "0.7.0"
-dependencies = [
- "serde",
- "serde_json",
- "trellis-client",
- "trellis-contracts",
- "trellis-server",
-]
 
 [[package]]
 name = "trellis-server"

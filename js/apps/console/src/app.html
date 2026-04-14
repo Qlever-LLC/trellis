@@ -4,7 +4,20 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'%3E%3Crect width='120' height='120' rx='28' fill='%230d3b66'/%3E%3Cpath d='M30 35h60v12H66v38H54V47H30z' fill='%23f4f1de'/%3E%3C/svg%3E" />
-    <script src="/runtime-config.js"></script>
+    <script>
+      (() => {
+        const url = new URL(window.location.href);
+        const route = url.searchParams.get("__trellis_route");
+        if (route === null) return;
+
+        url.searchParams.delete("__trellis_route");
+        const basePath = url.pathname.endsWith("/") ? url.pathname : `${url.pathname}/`;
+        const restored = new URL(route || ".", `${url.origin}${basePath}`);
+
+        history.replaceState(history.state, "", `${restored.pathname}${restored.search}${restored.hash}`);
+      })();
+    </script>
+    <script src="%sveltekit.assets%/runtime-config.js"></script>
     %sveltekit.head%
   </head>
   <body data-sveltekit-preload-data="hover">

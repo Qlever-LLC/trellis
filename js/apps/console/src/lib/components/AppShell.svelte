@@ -3,8 +3,9 @@
   import { getAuth, getNatsState } from "@qlever-llc/trellis-svelte";
   import { onMount } from "svelte";
   import { afterNavigate, goto } from "$app/navigation";
+  import { base } from "$app/paths";
   import { page } from "$app/state";
-  import { buildAppLoginUrl } from "../config";
+  import { APP_CONFIG, getSelectedAuthUrl } from "../config";
   import {
     getInitials,
     getPageTitle,
@@ -35,11 +36,40 @@
   let profile = $state<AuthMeOutput["user"] | null>(null);
   let profileLoaded = $state(false);
 
-  const pageTitle = $derived(getPageTitle(page.url.pathname));
+  const routePath = $derived(toRoutePath(page.url.pathname));
+  const pageTitle = $derived(getPageTitle(routePath));
   const statusColor = $derived(
     connectionStatus === "connected" ? "text-success" :
     connectionStatus === "connecting" ? "text-warning" : "text-error"
   );
+
+  function resolveAppPath(path: string): string {
+    return `${base}${path}`;
+  }
+
+  function toRoutePath(pathname: string): string {
+    if (base && pathname === base) {
+      return "/";
+    }
+
+    if (base && pathname.startsWith(`${base}/`)) {
+      return pathname.slice(base.length);
+    }
+
+    return pathname;
+  }
+
+  function buildLoginUrl(redirectTo: string): string {
+    const url = new URL(resolveAppPath("/login"), page.url);
+    url.searchParams.set("redirectTo", redirectTo);
+
+    const authUrl = getSelectedAuthUrl(page.url);
+    if (authUrl && authUrl !== APP_CONFIG.authUrl) {
+      url.searchParams.set("authUrl", authUrl);
+    }
+
+    return url.toString();
+  }
 
   function currentPath(): string {
     return page.url.pathname + page.url.search;
@@ -60,7 +90,7 @@
     }
     authFailure = "Administrator access is required for operations pages.";
     closeDrawer();
-    void goto("/profile");
+    void goto(resolveAppPath("/profile"));
   }
 
   async function authMe(): Promise<AuthMeOutput> {
@@ -92,18 +122,18 @@
       } catch (error) {
         if (!active) return;
         authFailure = errorMessage(error);
-        window.location.href = buildAppLoginUrl(currentPath());
+        window.location.href = buildLoginUrl(currentPath());
       } finally {
         if (active) {
           profileLoaded = true;
-          enforceAdminAccess(page.url.pathname);
+          enforceAdminAccess(routePath);
         }
       }
     })();
 
     afterNavigate(({ to }) => {
       if (!to) return;
-      enforceAdminAccess(to.url.pathname);
+      enforceAdminAccess(toRoutePath(to.url.pathname));
     });
 
     return () => {
@@ -171,7 +201,7 @@
         </div>
       {/if}
 
-      {#if requiresAdminRoute(page.url.pathname) && !profileLoaded}
+      {#if requiresAdminRoute(routePath) && !profileLoaded}
         <div class="flex items-center justify-center min-h-[40vh]">
           <span class="loading loading-spinner loading-md"></span>
         </div>
@@ -209,9 +239,9 @@
               {#each section.items as item (item.href)}
                 <li>
                   <a
-                    href={item.href}
-                    class:active={page.url.pathname === item.href}
-                    aria-current={page.url.pathname === item.href ? "page" : undefined}
+                    href={resolveAppPath(item.href)}
+                    class:active={routePath === item.href}
+                    aria-current={routePath === item.href ? "page" : undefined}
                     onclick={closeDrawer}
                   >
                     {item.label}

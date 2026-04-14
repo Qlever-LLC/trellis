@@ -2,10 +2,10 @@
   import { onMount } from "svelte";
   import { browser } from "$app/environment";
   import { goto } from "$app/navigation";
+  import { base } from "$app/paths";
   import { page } from "$app/state";
   import {
     APP_CONFIG,
-    buildAppCallbackUrl,
     getCanonicalLoopbackRedirectUrl,
     getSelectedAuthUrl,
     persistSelectedAuthUrl
@@ -19,8 +19,36 @@
 
   const requiresAuthUrl = $derived(!APP_CONFIG.authUrl);
 
+  function resolveAppPath(path: string): string {
+    const url = new URL(path, page.url);
+    const appBase = base || "";
+
+    if (url.origin !== page.url.origin) {
+      return url.toString();
+    }
+
+    if (appBase && url.pathname === appBase) {
+      return `${appBase}/${url.search}${url.hash}`;
+    }
+
+    if (appBase && url.pathname.startsWith(`${appBase}/`)) {
+      return `${appBase}${url.pathname.slice(appBase.length)}${url.search}${url.hash}`;
+    }
+
+    return `${appBase}${url.pathname}${url.search}${url.hash}`;
+  }
+
+  function buildCallbackUrl(redirectTo: string, authUrl?: string): string {
+    const url = new URL(resolveAppPath("/callback"), page.url);
+    url.searchParams.set("redirectTo", redirectTo);
+    if (authUrl && authUrl !== APP_CONFIG.authUrl) {
+      url.searchParams.set("authUrl", authUrl);
+    }
+    return url.toString();
+  }
+
   function targetPath(): string {
-    return page.url.searchParams.get("redirectTo") ?? "/profile";
+    return resolveAppPath(page.url.searchParams.get("redirectTo") ?? "/profile");
   }
 
   async function continueToSignIn(): Promise<void> {
@@ -45,7 +73,7 @@
     try {
       await auth.signIn({
         authUrl: selectedAuthUrl,
-        redirectTo: buildAppCallbackUrl(targetPath(), page.url, selectedAuthUrl),
+        redirectTo: buildCallbackUrl(targetPath(), selectedAuthUrl),
       });
     } catch (error) {
       const message = errorMessage(error);
@@ -62,7 +90,7 @@
     selectedAuthUrl = getSelectedAuthUrl(page.url) ?? "";
 
     if (page.url.searchParams.has("flowId")) {
-      void goto(`/callback${page.url.search}`);
+      void goto(resolveAppPath(`/callback${page.url.search}`));
       return;
     }
 

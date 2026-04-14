@@ -11,7 +11,7 @@ import { codeToHtml } from "npm:shiki";
 
 const githubRepository = process.env.GITHUB_REPOSITORY;
 const guidesRoot = fileURLToPath(new URL(".", import.meta.url));
-const basePath = githubRepository ? `/${githubRepository.split("/")[1]}` : "";
+const basePath = process.env.SITE_BASE_PATH ?? (githubRepository ? `/${githubRepository.split("/")[1]}` : "");
 const designRoot = fileURLToPath(new URL("../design", import.meta.url));
 
 function collectMarkdownFiles(dir) {

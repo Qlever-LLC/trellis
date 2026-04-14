@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { browser } from "$app/environment";
   import { goto } from "$app/navigation";
+  import { resolve } from "$app/paths";
   import { getCanonicalLoopbackRedirectUrl, getSelectedAuthUrl } from "../lib/config";
   import { auth } from "../lib/trellis";
 
@@ -18,10 +19,10 @@
     }
     await auth.init();
     if (auth.isAuthenticated) {
-      await goto("/profile");
+      await goto(resolve("/profile"));
       return;
     }
-    await goto("/login");
+    await goto(resolve("/login"));
   });
 </script>
 

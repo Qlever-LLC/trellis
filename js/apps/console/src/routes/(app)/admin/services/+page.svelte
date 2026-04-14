@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { AuthListServicesOutput } from "@qlever-llc/trellis/sdk/auth";
+  import { resolve } from "$app/paths";
   import { onMount } from "svelte";
   import type { AuthUpgradeServiceContractInput } from "@qlever-llc/trellis/sdk/auth";
   import { errorMessage } from "../../../../lib/format";
@@ -85,7 +86,7 @@
     </div>
     <div class="flex gap-2">
       <input class="input input-bordered input-sm w-48" placeholder="Search services…" bind:value={search} />
-      <a href="/admin/services/new" class="btn btn-primary btn-sm">Install Service</a>
+      <a href={resolve("/admin/services/new")} class="btn btn-primary btn-sm">Install Service</a>
       <button class="btn btn-ghost btn-sm" onclick={load} disabled={loading}>Refresh</button>
     </div>
   </div>

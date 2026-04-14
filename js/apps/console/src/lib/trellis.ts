@@ -1,4 +1,5 @@
 import type { BaseError, Result } from "@qlever-llc/result";
+import { resolve } from "$app/paths";
 import type {
   AuthClearDevicePortalSelectionInput,
   AuthClearDevicePortalSelectionOutput,
@@ -136,7 +137,7 @@ type AppTrellis = {
 export const auth = createAuthState({
   authUrl: APP_CONFIG.authUrl,
   contract: trellisApp,
-  loginPath: "/login",
+  loginPath: resolve("/login"),
 });
 
 export function getTrellis() {

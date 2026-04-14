@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { AuthInstallServiceInput } from "@qlever-llc/trellis/sdk/auth";
   import { goto } from "$app/navigation";
+  import { resolve } from "$app/paths";
   import { errorMessage } from "../../../../../lib/format";
   import { getNotifications } from "../../../../../lib/notifications.svelte";
   import { getTrellis } from "../../../../../lib/trellis";
@@ -76,7 +77,7 @@
       const trellis = await trellisPromise;
       await trellis.requestOrThrow("Auth.InstallService", input);
       notifications.success(`Service "${displayName.trim()}" installed.`, "Installed");
-      await goto("/admin/services");
+      await goto(resolve("/admin/services"));
     } catch (e) {
       error = errorMessage(e);
     } finally {
@@ -86,7 +87,7 @@
 </script>
 
 <section class="max-w-2xl mx-auto space-y-4">
-  <a href="/admin/services" class="btn btn-ghost btn-sm">← Back to Services</a>
+  <a href={resolve("/admin/services")} class="btn btn-ghost btn-sm">← Back to Services</a>
 
   {#if error}
     <div class="alert alert-error"><span>{error}</span></div>

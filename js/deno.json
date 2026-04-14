@@ -11,6 +11,7 @@
     "./packages/trellis",
     "./portals/login",
     "./devices/demo",
+    "./services/demo",
     "./services/activity",
     "./services/jobs",
     "./services/trellis"

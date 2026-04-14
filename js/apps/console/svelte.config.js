@@ -5,6 +5,7 @@ import { vitePreprocess } from "@sveltejs/vite-plugin-svelte";
 
 const rootDir = dirname(fileURLToPath(import.meta.url));
 const jsRoot = resolve(rootDir, "../..");
+const basePath = process.env.SITE_BASE_PATH ?? "";
 
 function aliasPath(path) {
   return resolve(jsRoot, path);
@@ -19,6 +20,9 @@ const config = {
       assets: "build",
       fallback: "index.html",
     }),
+    paths: {
+      base: basePath,
+    },
     alias: {
       // Internal workspace-only aliases for local source resolution.
       // Public app code should import the canonical `@qlever-llc/trellis...` paths.

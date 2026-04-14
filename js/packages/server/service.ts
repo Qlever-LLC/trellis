@@ -15,6 +15,7 @@ import {
   type TrellisBindingsGetOutput,
   type TrellisCatalogOutput,
 } from "@qlever-llc/trellis/sdk/core";
+import { auth as trellisAuth } from "@qlever-llc/trellis/sdk/auth";
 import { TrellisServer, type TrellisServerFor } from "@qlever-llc/trellis/server/runtime";
 import {
   createAuth,
@@ -50,6 +51,7 @@ import type {
   TrellisServiceRuntimeDeps,
 } from "./runtime.ts";
 import { ServiceTransfer } from "./transfer.ts";
+import { loadDefaultRuntimeTransport } from "../trellis/runtime_transport.ts";
 
 type ExtraNatsConnectOpts = Omit<
   NatsConnectOpts,
@@ -164,17 +166,15 @@ function runtimeImport<TModule>(specifier: string): Promise<TModule> {
 }
 
 async function loadDefaultServiceRuntimeDeps(): Promise<TrellisServiceRuntimeDeps> {
-  if ("Deno" in globalThis) {
-    const mod = await runtimeImport<{ connect: TrellisServiceRuntimeDeps["connect"] }>(
-      "@nats-io/transport-deno",
-    );
-    return { connect: mod.connect };
-  }
-
-  const mod = await runtimeImport<{ connect: TrellisServiceRuntimeDeps["connect"] }>(
-    "@nats-io/transport-node",
-  );
-  return { connect: mod.connect };
+  const transport = await loadDefaultRuntimeTransport();
+  return {
+    connect: (opts) => transport.connect({
+      servers: opts.servers,
+      ...(opts.token ? { token: opts.token } : {}),
+      ...(opts.authenticator ? { authenticator: opts.authenticator as never } : {}),
+      ...(opts.inboxPrefix ? { inboxPrefix: opts.inboxPrefix } : {}),
+    }),
+  };
 }
 
 const ServiceBootstrapReadySchema = Type.Object({
@@ -401,7 +401,13 @@ async function createConnectedService<
   server: TrellisServerCreateOpts<TOwnedApi, TTrellisApi>;
   bindings: ResourceBindings;
 }): Promise<TrellisService<TOwnedApi, TTrellisApi>> {
-  const runtimeApi = (args.server.trellisApi ?? args.server.api) as TOwnedApi & TTrellisApi;
+  const runtimeApi = {
+    ...(args.server.trellisApi ?? args.server.api),
+    rpc: {
+      ...trellisAuth.API.owned.rpc,
+      ...(args.server.trellisApi ?? args.server.api).rpc,
+    },
+  } as unknown as TOwnedApi & TTrellisApi;
 
   const server = TrellisServer.create(
     args.name,
@@ -497,6 +503,10 @@ export class TrellisService<
     trellis: ServiceTrellis<TOwnedApi, TTrellisApi>,
     bindings: ResourceBindings,
   ) {
+    const kvBindings = bindings.kv ?? {};
+    const storeBindings = bindings.store ?? {};
+    const streamBindings = bindings.streams ?? {};
+
     this.name = name;
     this.auth = auth;
     this.nc = nc;
@@ -504,10 +514,10 @@ export class TrellisService<
     this.operations = server.operations;
     this.trellis = trellis;
     this.kv = Object.fromEntries(
-      Object.entries(bindings.kv).map(([alias, binding]) => [alias, new KVHandle(nc, binding)]),
+      Object.entries(kvBindings).map(([alias, binding]) => [alias, new KVHandle(nc, binding)]),
     );
     this.store = Object.fromEntries(
-      Object.entries(bindings.store).map(([alias, binding]) => [alias, new StoreHandle(nc, binding)]),
+      Object.entries(storeBindings).map(([alias, binding]) => [alias, new StoreHandle(nc, binding)]),
     );
     this.transfer = new ServiceTransfer({
       name,
@@ -515,7 +525,7 @@ export class TrellisService<
       auth,
       stores: this.store,
     });
-    this.streams = bindings.streams;
+    this.streams = streamBindings;
     this.jobs = bindings.jobs;
   }
 

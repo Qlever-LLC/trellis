@@ -1,11 +1,8 @@
-name: Deploy Guides to GitHub Pages
+name: Deploy Site to GitHub Pages
 
 on:
   push:
     branches: [main]
-    paths:
-      - "guides/**"
-      - ".github/workflows/pages.yml"
   workflow_dispatch:
 
 permissions:
@@ -22,18 +19,155 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
 
-      - name: Install dependencies
-        working-directory: guides
-        run: deno install
+      - uses: dtolnay/rust-toolchain@stable
 
-      - name: Build
-        working-directory: guides
-        run: deno task build
+      - name: Build released and current site artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          repo_name="${GITHUB_REPOSITORY#*/}"
+          site_root="/${repo_name}"
+          latest_tag="$(git tag --list 'v*' --sort=-version:refname | head -n 1)"
+
+          if [ -z "${latest_tag}" ]; then
+            echo "No release tag found; using current HEAD for release site"
+            latest_tag="HEAD"
+          fi
+
+          release_root="/tmp/trellis-release-site"
+          current_root="${GITHUB_WORKSPACE}"
+          pages_root="/tmp/trellis-pages-site"
+          release_worktree="/tmp/trellis-release-worktree"
+
+          rm -rf "${release_root}" "${pages_root}" "${release_worktree}"
+          mkdir -p "${release_root}" "${pages_root}"
+
+          if [ "${latest_tag}" = "HEAD" ]; then
+            release_worktree="${current_root}"
+          else
+            git worktree add --detach "${release_worktree}" "${latest_tag}"
+          fi
+
+          cleanup() {
+            if [ "${release_worktree}" != "${current_root}" ]; then
+              git worktree remove --force "${release_worktree}"
+            fi
+          }
+          trap cleanup EXIT
+
+          seed_sdk_manifests() {
+            local repo_root="$1"
+            local rust_root="${repo_root}/rust"
+            local workspace_version
+
+            workspace_version="$(grep -m1 '^version = ' "${rust_root}/Cargo.toml" | cut -d '"' -f 2)"
+
+            write_stub_manifest() {
+              local dir="$1"
+              local crate_name="$2"
+
+              mkdir -p "$dir"
+              printf '[package]\nname = "%s"\nversion = "%s"\nedition = "2021"\nlicense = "Apache-2.0"\n\n[dependencies]\n' "$crate_name" "$workspace_version" > "$dir/Cargo.toml"
+            }
+
+            write_stub_manifest "${repo_root}/generated/rust/sdks/auth" trellis-sdk-auth
+            write_stub_manifest "${repo_root}/generated/rust/sdks/trellis-core" trellis-sdk-core
+            write_stub_manifest "${repo_root}/generated/rust/sdks/jobs" trellis-sdk-jobs
+          }
+
+          build_guides() {
+            local repo_root="$1"
+            local base_path="$2"
+            local out_dir="$3"
+
+            (
+              cd "${repo_root}/guides"
+              deno install --allow-scripts=npm:esbuild,npm:sharp
+              SITE_BASE_PATH="${base_path}" deno task build
+              mkdir -p "${out_dir}"
+              cp -R build/. "${out_dir}/"
+            )
+          }
+
+          build_console() {
+            local repo_root="$1"
+            local base_path="$2"
+            local out_dir="$3"
+
+            seed_sdk_manifests "${repo_root}"
+
+            (
+              cd "${repo_root}/js"
+              deno task prepare
+            )
+
+            (
+              cd "${repo_root}/js/apps/console"
+              SITE_BASE_PATH="${base_path}" deno task build
+              mkdir -p "${out_dir}"
+              cp -R build/. "${out_dir}/"
+            )
+          }
+
+          release_console_root="${release_worktree}"
+          if ! grep -q 'SITE_BASE_PATH' "${release_worktree}/js/apps/console/svelte.config.js"; then
+            echo "Latest release tag predates Pages console base-path support; using current main console until the next release tag"
+            release_console_root="${current_root}"
+          fi
+
+          build_guides "${release_worktree}" "${site_root}" "${release_root}/guides"
+          build_guides "${current_root}" "${site_root}/current" "${pages_root}/current"
+
+          build_console "${release_console_root}" "${site_root}/console" "${release_root}/console"
+          build_console "${current_root}" "${site_root}/current/console" "${pages_root}/current/console"
+
+          cp -R "${release_root}/guides/." "${pages_root}/"
+          mkdir -p "${pages_root}/console"
+          cp -R "${release_root}/console/." "${pages_root}/console/"
+
+          cat > "${pages_root}/404.html" <<EOF
+          <!doctype html>
+          <html lang="en">
+            <head>
+              <meta charset="utf-8" />
+              <meta name="viewport" content="width=device-width, initial-scale=1" />
+              <title>Trellis site redirect</title>
+              <script>
+                (() => {
+                  const siteRoot = ${site_root@Q};
+                  const pathname = window.location.pathname;
+                  const search = window.location.search;
+                  const hash = window.location.hash;
+                  const prefixes = ["/current/console", "/console"];
+
+                  for (const prefix of prefixes) {
+                    const fullPrefix = siteRoot + prefix;
+                    if (pathname === fullPrefix || pathname.startsWith(fullPrefix + "/")) {
+                      const route = pathname.slice(fullPrefix.length).replace(/^\//, "");
+                      const target = new URL(fullPrefix + "/", window.location.origin);
+                      if (route || search || hash) {
+                        target.searchParams.set("__trellis_route", route + search + hash);
+                      }
+                      window.location.replace(target.toString());
+                      return;
+                    }
+                  }
+
+                  window.location.replace(window.location.origin + siteRoot + "/");
+                })();
+              </script>
+            </head>
+            <body></body>
+          </html>
+          EOF
 
       - uses: actions/configure-pages@v5
         with:
@@ -41,7 +175,7 @@ jobs:
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: guides/build
+          path: /tmp/trellis-pages-site
 
   deploy:
     needs: build

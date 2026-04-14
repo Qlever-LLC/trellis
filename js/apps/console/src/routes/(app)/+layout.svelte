@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { resolve } from "$app/paths";
   import { TrellisProvider } from "@qlever-llc/trellis-svelte";
   import type { Snippet } from "svelte";
   import { onMount } from "svelte";
@@ -26,28 +27,35 @@
     initialized = true;
   });
 
-  function redirectToLogin(redirectTo: string): void {
-    window.location.href = buildAppLoginUrl(redirectTo, window.location, undefined, authUrl);
-  }
+	function redirectToLogin(redirectTo: string): void {
+		window.location.href = buildAppLoginUrl(
+			redirectTo,
+			window.location,
+			undefined,
+			authUrl,
+			resolve("/login"),
+		);
+	}
 
-  function handleAuthFailed(error: unknown): void {
-    window.location.href = buildAppLoginUrl(
-      window.location.pathname + window.location.search,
-      window.location,
-      errorMessage(error),
-      authUrl,
-    );
-  }
+	function handleAuthFailed(error: unknown): void {
+		window.location.href = buildAppLoginUrl(
+			window.location.pathname + window.location.search,
+			window.location,
+			errorMessage(error),
+			authUrl,
+			resolve("/login"),
+		);
+	}
 </script>
 
 {#if initialized}
-  <TrellisProvider
-    trellisUrl={authUrl}
-    contract={trellisApp}
-    loginPath="/login"
-    onAuthRequired={redirectToLogin}
-    onAuthFailed={handleAuthFailed}
-  >
+    <TrellisProvider
+      trellisUrl={authUrl}
+      contract={trellisApp}
+      loginPath={resolve("/login")}
+      onAuthRequired={redirectToLogin}
+      onAuthFailed={handleAuthFailed}
+    >
     {#snippet loading()}
       <div class="flex min-h-screen items-center justify-center px-4 py-10">
         <div class="card w-full max-w-sm bg-base-100 shadow-lg">

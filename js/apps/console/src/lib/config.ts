@@ -129,8 +129,9 @@ export function buildAppLoginUrl(
   location: URL | Location = globalThis.location,
   authError?: string,
   authUrl?: string,
+  loginPath = "/login",
 ): string {
-  const url = new URL("/login", getCanonicalLoopbackUrl(location).origin);
+  const url = new URL(loginPath, getCanonicalLoopbackUrl(location).origin);
   url.searchParams.set("redirectTo", redirectTo);
   if (authError) {
     url.searchParams.set("authError", authError);
@@ -143,8 +144,9 @@ export function buildAppCallbackUrl(
   redirectTo: string,
   location: URL | Location = globalThis.location,
   authUrl?: string,
+  callbackPath = "/callback",
 ): string {
-  const url = new URL("/callback", getCanonicalLoopbackUrl(location).origin);
+  const url = new URL(callbackPath, getCanonicalLoopbackUrl(location).origin);
   url.searchParams.set("redirectTo", redirectTo);
   applySelectedAuthUrl(url, authUrl ?? getSelectedAuthUrl(location));
   return url.toString();
