@@ -54,6 +54,17 @@ type SessionContractView = {
   description: string;
 };
 
+const ClientTransportEndpointsSchema = Type.Object({
+  natsServers: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
+}, { additionalProperties: false });
+
+const ClientTransportsSchema = Type.Object({
+  native: Type.Optional(ClientTransportEndpointsSchema),
+  websocket: Type.Optional(ClientTransportEndpointsSchema),
+}, { additionalProperties: false });
+
+type ClientTransports = StaticDecode<typeof ClientTransportsSchema>;
+
 type ClientBootstrapUserView = {
   trellisId: string;
   origin: string;
@@ -76,8 +87,8 @@ type ClientConnectInfo = {
   sessionKey: SessionKey;
   contractId: string;
   contractDigest: string;
+  transports: ClientTransports;
   transport: {
-    natsServers: string[];
     inboxPrefix: string;
     sentinel: SentinelCreds;
   };
@@ -126,7 +137,7 @@ type BindingTokenStore = {
 
 export type ClientBootstrapDeps = {
   contractStore: ContractStore;
-  natsServers: string[];
+  transports: ClientTransports;
   sentinel: SentinelCreds;
   sessionKV: SessionStore;
   usersKV: UserStore;
@@ -265,8 +276,8 @@ export async function resolveClientBootstrap(
       sessionKey: request.sessionKey,
       contractId: session.contractId,
       contractDigest: session.contractDigest,
+      transports: deps.transports,
       transport: {
-        natsServers: deps.natsServers,
         inboxPrefix: `_INBOX.${request.sessionKey.slice(0, 16)}`,
         sentinel: deps.sentinel,
       },

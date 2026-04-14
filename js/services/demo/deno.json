@@ -1,0 +1,12 @@
+{
+  "extends": "../../deno.json",
+  "name": "@qlever-llc/trellis-service-demo",
+  "version": "0.7.0",
+  "exports": "./src/main.ts",
+  "tasks": {
+    "check": "deno task -c ../../deno.json prepare && deno check src/main.ts contracts/demo_service.ts",
+    "prepare": "bash ../../../scripts/trellis-generate.sh",
+    "start": "deno run --allow-env --allow-net --allow-sys src/main.ts"
+  },
+  "imports": {}
+}

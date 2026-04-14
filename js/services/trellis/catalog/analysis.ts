@@ -67,6 +67,14 @@ export type ContractAnalysis = {
       ttlMs: number;
       maxValueBytes?: number;
     }>;
+    store: Array<{
+      alias: string;
+      purpose: string;
+      required: boolean;
+      ttlMs: number;
+      maxObjectBytes?: number;
+      maxTotalBytes?: number;
+    }>;
     streams: Array<{
       alias: string;
       purpose: string;

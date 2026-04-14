@@ -381,7 +381,7 @@ export function createContractsModule(opts: {
     );
 
     const now = new Date();
-    (
+    const persisted = (
       await contractsKV.put(validated.digest, {
         digest: validated.digest,
         id: validated.contract.id,
@@ -397,9 +397,11 @@ export function createContractsModule(opts: {
         analysisSummary: analyzed.summary,
         analysis: analyzed.analysis,
       })
-    ).inspectErr((error) =>
-      logger.warn({ error }, "Failed to persist installed contract")
-    );
+    ).take();
+    if (isErr(persisted)) {
+      logger.warn({ error: persisted.error }, "Failed to persist installed contract");
+      throw persisted.error;
+    }
 
     return {
       id: validated.contract.id,
@@ -440,7 +442,7 @@ export function createContractsModule(opts: {
     }
 
     const now = new Date();
-    (
+    const persisted = (
       await contractsKV.put(validated.digest, {
         digest: validated.digest,
         id: validated.contract.id,
@@ -451,7 +453,11 @@ export function createContractsModule(opts: {
         analysisSummary: analyzed.summary,
         analysis: analyzed.analysis,
       })
-    ).inspectErr((error) => logger.warn({ error }, "Failed to persist device contract"));
+    ).take();
+    if (isErr(persisted)) {
+      logger.warn({ error: persisted.error }, "Failed to persist device contract");
+      throw persisted.error;
+    }
 
     return {
       id: validated.contract.id,

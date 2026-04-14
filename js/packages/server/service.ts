@@ -52,18 +52,31 @@ import type {
 } from "./runtime.ts";
 import { ServiceTransfer } from "./transfer.ts";
 import { loadDefaultRuntimeTransport } from "../trellis/runtime_transport.ts";
+import { selectRuntimeTransportServers } from "../trellis/runtime_transport.ts";
 
 type ExtraNatsConnectOpts = Omit<
   NatsConnectOpts,
   "servers" | "token" | "inboxPrefix" | "authenticator"
 >;
 
+const ClientTransportEndpointsSchema = Type.Object({
+  natsServers: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
+}, { additionalProperties: false });
+
+const ClientTransportsSchema = Type.Object({
+  native: Type.Optional(ClientTransportEndpointsSchema),
+  websocket: Type.Optional(ClientTransportEndpointsSchema),
+}, { additionalProperties: false });
+
 type ServiceBootstrapConnectInfo = {
   sessionKey: string;
   contractId: string;
   contractDigest: string;
+  transports: {
+    native?: { natsServers: string[] };
+    websocket?: { natsServers: string[] };
+  };
   transport: {
-    natsServers: string[];
     sentinel: SentinelCreds;
   };
   auth: {
@@ -183,8 +196,8 @@ const ServiceBootstrapReadySchema = Type.Object({
     sessionKey: Type.String({ minLength: 1 }),
     contractId: Type.String({ minLength: 1 }),
     contractDigest: Type.String({ minLength: 1 }),
+    transports: ClientTransportsSchema,
     transport: Type.Object({
-      natsServers: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
       sentinel: SentinelCredsSchema,
     }, { additionalProperties: false }),
     auth: Type.Object({
@@ -556,7 +569,7 @@ export class TrellisService<
     });
     const { token, inboxPrefix } = await auth.natsConnectOptions();
     const nc = await runtimeDeps.connect({
-      servers: bootstrap.connectInfo.transport.natsServers,
+      servers: selectRuntimeTransportServers(bootstrap.connectInfo.transports),
       token,
       inboxPrefix,
       authenticator: jwtAuthenticator(

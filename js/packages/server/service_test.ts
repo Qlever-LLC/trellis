@@ -26,8 +26,11 @@ Deno.test("TrellisService.connect uses bootstrap response transport details", as
           sessionKey: "session-key",
           contractId: core.CONTRACT_ID,
           contractDigest: core.CONTRACT_DIGEST,
+          transports: {
+            native: { natsServers: ["nats://127.0.0.1:4222"] },
+            websocket: { natsServers: ["ws://localhost:8080"] },
+          },
           transport: {
-            natsServers: ["nats://127.0.0.1:4222"],
             sentinel: { jwt: "jwt", seed: "seed" },
           },
           auth: {

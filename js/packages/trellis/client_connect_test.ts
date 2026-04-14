@@ -38,8 +38,11 @@ Deno.test("connectClientWithDeps connects after bootstrap returns runtime info",
           sessionKey: "session-key",
           contractId: testContract.CONTRACT.id,
           contractDigest: "digest-a",
+          transports: {
+            native: { natsServers: ["nats://127.0.0.1:4222"] },
+            websocket: { natsServers: ["ws://localhost:8080"] },
+          },
           transport: {
-            natsServers: ["nats://127.0.0.1:4222"],
             inboxPrefix: "_INBOX.session-key",
             sentinel: { jwt: "jwt", seed: "seed" },
           },
@@ -108,7 +111,10 @@ Deno.test("connectClientWithDeps uses auth continuation when bootstrap requires 
           inboxPrefix: "_INBOX.session-key",
           expires: "2026-01-01T00:03:00.000Z",
           sentinel: { jwt: "jwt", seed: "seed" },
-          natsServers: ["nats://127.0.0.1:4222"],
+          transports: {
+            native: { natsServers: ["nats://127.0.0.1:4222"] },
+            websocket: { natsServers: ["ws://localhost:8080"] },
+          },
         }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
@@ -122,8 +128,11 @@ Deno.test("connectClientWithDeps uses auth continuation when bootstrap requires 
             sessionKey: "session-key",
             contractId: testContract.CONTRACT.id,
             contractDigest: "digest-a",
+            transports: {
+              native: { natsServers: ["nats://127.0.0.1:4222"] },
+              websocket: { natsServers: ["ws://localhost:8080"] },
+            },
             transport: {
-              natsServers: ["nats://127.0.0.1:4222"],
               inboxPrefix: "_INBOX.session-key",
               sentinel: { jwt: "jwt", seed: "seed" },
             },

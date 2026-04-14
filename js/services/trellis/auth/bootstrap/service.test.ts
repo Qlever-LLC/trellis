@@ -43,7 +43,10 @@ async function createApp(args: {
   const app = new Hono();
   app.post("/bootstrap/service", createServiceBootstrapHandler({
     contractStore: store,
-    natsServers: ["nats://127.0.0.1:4222"],
+    transports: {
+      native: { natsServers: ["nats://127.0.0.1:4222"] },
+      websocket: { natsServers: ["ws://localhost:8080"] },
+    },
     sentinel: { jwt: "jwt", seed: "seed" },
     loadService: async (sessionKey) => {
       if (sessionKey !== auth.sessionKey) return null;
@@ -97,8 +100,11 @@ Deno.test("POST /bootstrap/service returns runtime bootstrap info and bindings",
       sessionKey: auth.sessionKey,
       contractId: contract.contract.id,
       contractDigest: contract.digest,
+      transports: {
+        native: { natsServers: ["nats://127.0.0.1:4222"] },
+        websocket: { natsServers: ["ws://localhost:8080"] },
+      },
       transport: {
-        natsServers: ["nats://127.0.0.1:4222"],
         sentinel: { jwt: "jwt", seed: "seed" },
       },
       auth: {

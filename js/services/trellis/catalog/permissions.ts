@@ -57,6 +57,8 @@ const BOOTSTRAP_CONTRACT_IMPLEMENTERS = new Map<string, string>([
   [trellisAuthContract.id, "trellis"],
   [trellisStateContract.id, "trellis"],
 ]);
+const AUTH_VALIDATE_SUBJECT = trellisAuthContract.rpc?.["Auth.ValidateRequest"]?.subject;
+const TRANSFER_SUBJECT_PREFIXES = ["transfer.v1.upload", "transfer.v1.download"] as const;
 
 function createPermissionState(contracts: ContractEntry[]): PermissionState {
   return {
@@ -216,6 +218,7 @@ export function getContracts(): ContractEntry[] {
 
 export function getUserPublishSubjects(capabilities: string[]): string[] {
   return dedupe([
+    ...TRANSFER_SUBJECT_PREFIXES.map((prefix) => `${prefix}.*.*`),
     ...collectAllRpc()
       .filter((method) => hasRequiredCapabilities(capabilities, method.callCapabilities))
       .map((method) => templateToWildcard(method.subject)),
@@ -250,6 +253,9 @@ export function getServicePublishSubjects(
     ...rules
       .filter((rule) => hasRequiredCapabilities(capabilities, rule.requiredCapabilities))
       .map((rule) => rule.subject),
+    ...(hasRequiredCapabilities(capabilities, ["service"]) && AUTH_VALIDATE_SUBJECT
+      ? [templateToWildcard(AUTH_VALIDATE_SUBJECT)]
+      : []),
     ...(hasDeclaredEventSubscriptions(capabilities, service) ? JETSTREAM_EVENT_CONTROL_SUBJECTS : []),
   ]);
 }
@@ -266,6 +272,9 @@ export function getServiceSubscribeSubjects(
 
   return dedupe([
     ...rpcSubjects,
+    ...(hasRequiredCapabilities(capabilities, ["service"])
+      ? TRANSFER_SUBJECT_PREFIXES.map((prefix) => `${prefix}.${service.sessionKey.slice(0, 16)}.*`)
+      : []),
     ...rules
       .filter((rule) => hasRequiredCapabilities(capabilities, rule.requiredCapabilities))
       .map((rule) => rule.subject),

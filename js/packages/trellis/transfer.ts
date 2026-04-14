@@ -29,23 +29,19 @@ const TransferGrantBaseSchema = Type.Object({
   chunkBytes: Type.Integer({ minimum: 1 }),
 }, { additionalProperties: false });
 
-export const UploadTransferGrantSchema = Type.Intersect([
-  TransferGrantBaseSchema,
-  Type.Object({
-    kind: Type.Literal("upload"),
-    maxBytes: Type.Optional(Type.Integer({ minimum: 1 })),
-    contentType: Type.Optional(Type.String({ minLength: 1 })),
-    metadata: Type.Optional(Type.Record(Type.String({ minLength: 1 }), Type.String())),
-  }, { additionalProperties: false }),
-]);
+export const UploadTransferGrantSchema = Type.Object({
+  ...TransferGrantBaseSchema.properties,
+  kind: Type.Literal("upload"),
+  maxBytes: Type.Optional(Type.Integer({ minimum: 1 })),
+  contentType: Type.Optional(Type.String({ minLength: 1 })),
+  metadata: Type.Optional(Type.Record(Type.String({ minLength: 1 }), Type.String())),
+}, { additionalProperties: false });
 
-export const DownloadTransferGrantSchema = Type.Intersect([
-  TransferGrantBaseSchema,
-  Type.Object({
-    kind: Type.Literal("download"),
-    info: FileInfoSchema,
-  }, { additionalProperties: false }),
-]);
+export const DownloadTransferGrantSchema = Type.Object({
+  ...TransferGrantBaseSchema.properties,
+  kind: Type.Literal("download"),
+  info: FileInfoSchema,
+}, { additionalProperties: false });
 
 export const TransferGrantSchema = Type.Union([
   UploadTransferGrantSchema,

@@ -72,6 +72,10 @@ import { upsertUserProjection } from "../session/projection.ts";
 
 const CLI_CONTRACT_ID = "trellis.cli@v1";
 
+function splitNatsServers(value: string): string[] {
+  return value.split(",").map((entry) => entry.trim()).filter((entry) => entry.length > 0);
+}
+
 export function registerHttpRoutes(
   app: Hono,
   opts: {
@@ -399,7 +403,7 @@ export function registerHttpRoutes(
     "/bootstrap/client",
     createClientBootstrapHandler({
       contractStore: opts.contractStore,
-      natsServers: config.client.natsServers,
+      transports: buildClientTransports(config),
       sentinel: sentinelCreds,
       sessionKV,
       usersKV,
@@ -428,7 +432,7 @@ export function registerHttpRoutes(
     "/bootstrap/service",
     createServiceBootstrapHandler({
       contractStore: opts.contractStore,
-      natsServers: config.client.natsServers,
+      transports: buildClientTransports(config),
       sentinel: sentinelCreds,
       loadService: async (sessionKey) => {
         const entry = (await servicesKV.get(sessionKey)).take();
@@ -442,7 +446,7 @@ export function registerHttpRoutes(
   app.post(
     "/bootstrap/device",
     createDeviceBootstrapHandler({
-      natsServers: config.client.natsServers,
+      transports: buildClientTransports(config),
       sentinel: sentinelCreds,
       loadDeviceInstance: async (instanceId) => {
         const entry = (await deviceInstancesKV.get(instanceId)).take();

@@ -85,8 +85,11 @@ Deno.test("connectDeviceWithDeps supports offline confirmation before reconnect"
             profileId: "reader.default",
             contractId: "example.device@v1",
             contractDigest: "digest-a",
+            transports: {
+              native: { natsServers: ["nats://127.0.0.1:4222"] },
+              websocket: { natsServers: ["ws://localhost:8080"] },
+            },
             transport: {
-              natsServers: ["nats://127.0.0.1:4222"],
               sentinel: { jwt: "jwt", seed: "seed" },
             },
             auth: { mode: "device_identity", iatSkewSeconds: 30 },

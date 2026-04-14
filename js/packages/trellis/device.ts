@@ -13,6 +13,7 @@ import { importEd25519PrivateKeyFromSeedBase64url } from "../auth/keys.ts";
 import { base64urlDecode, base64urlEncode, toArrayBuffer } from "../auth/utils.ts";
 import type { TrellisAPI } from "./contracts.ts";
 import { loadDefaultRuntimeTransport } from "./runtime_transport.ts";
+import { selectRuntimeTransportServers } from "./runtime_transport.ts";
 import { Trellis } from "./trellis.ts";
 import { Type, type StaticDecode } from "typebox";
 import { Value } from "typebox/value";
@@ -39,6 +40,15 @@ type DeviceConnectDeps = {
   now(): number;
 };
 
+const ClientTransportEndpointsSchema = Type.Object({
+  natsServers: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
+}, { additionalProperties: false });
+
+const ClientTransportsSchema = Type.Object({
+  native: Type.Optional(ClientTransportEndpointsSchema),
+  websocket: Type.Optional(ClientTransportEndpointsSchema),
+}, { additionalProperties: false });
+
 export type DeviceActivationController = {
   url: string;
   waitForOnlineApproval(opts?: { signal?: AbortSignal }): Promise<void>;
@@ -59,8 +69,8 @@ const DeviceBootstrapReadySchema = Type.Object({
     profileId: Type.String({ minLength: 1 }),
     contractId: Type.String({ minLength: 1 }),
     contractDigest: Type.String({ minLength: 1 }),
+    transports: ClientTransportsSchema,
     transport: Type.Object({
-      natsServers: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
       sentinel: Type.Object({
         jwt: Type.String({ minLength: 1 }),
         seed: Type.String({ minLength: 1 }),
@@ -262,7 +272,7 @@ export async function connectDeviceWithDeps<TApi extends TrellisAPI>(
     iat,
   });
   const nc = await transport.connect({
-    servers: connectInfo.transport.natsServers,
+    servers: selectRuntimeTransportServers(connectInfo.transports),
     token: JSON.stringify(authToken),
     inboxPrefix: `_INBOX.${identity.publicIdentityKey.slice(0, 16)}`,
     authenticator: jwtAuthenticator(

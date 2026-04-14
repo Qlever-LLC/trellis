@@ -44,7 +44,10 @@ function createApp(args: {
   app.post(
     "/bootstrap/device",
     createDeviceBootstrapHandler({
-      natsServers: ["nats://127.0.0.1:4222"],
+      transports: {
+        native: { natsServers: ["nats://127.0.0.1:4222"] },
+        websocket: { natsServers: ["ws://localhost:8080"] },
+      },
       sentinel: { jwt: "jwt", seed: "seed" },
       loadDeviceInstance: async () => args.instance ?? null,
       loadDeviceActivation: async () => args.activation ?? null,
@@ -115,8 +118,11 @@ Deno.test("POST /bootstrap/device returns runtime connect info when device is ac
       profileId: "reader.default",
       contractId: "example.device@v1",
       contractDigest: "digest-a",
+      transports: {
+        native: { natsServers: ["nats://127.0.0.1:4222"] },
+        websocket: { natsServers: ["ws://localhost:8080"] },
+      },
       transport: {
-        natsServers: ["nats://127.0.0.1:4222"],
         sentinel: { jwt: "jwt", seed: "seed" },
       },
       auth: {

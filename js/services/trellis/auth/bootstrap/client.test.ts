@@ -134,7 +134,10 @@ async function createVerifiedApp(args?: {
   const app = new Hono();
   app.post("/bootstrap/client", createClientBootstrapHandler({
     contractStore,
-    natsServers: ["nats://127.0.0.1:4222"],
+    transports: {
+      native: { natsServers: ["nats://127.0.0.1:4222"] },
+      websocket: { natsServers: ["ws://localhost:8080"] },
+    },
     sentinel,
     sessionKV,
     usersKV,
@@ -191,8 +194,11 @@ Deno.test("POST /bootstrap/client returns runtime bootstrap info for bound brows
       sessionKey: auth.sessionKey,
       contractId: contract.contract.id,
       contractDigest: contract.digest,
+      transports: {
+        native: { natsServers: ["nats://127.0.0.1:4222"] },
+        websocket: { natsServers: ["ws://localhost:8080"] },
+      },
       transport: {
-        natsServers: ["nats://127.0.0.1:4222"],
         inboxPrefix: `_INBOX.${auth.sessionKey.slice(0, 16)}`,
         sentinel: { jwt: "jwt", seed: "seed" },
       },
@@ -241,7 +247,10 @@ Deno.test("POST /bootstrap/client returns auth_required when no bound user sessi
   const app = new Hono();
   app.post("/bootstrap/client", createClientBootstrapHandler({
     contractStore,
-    natsServers: ["nats://127.0.0.1:4222"],
+    transports: {
+      native: { natsServers: ["nats://127.0.0.1:4222"] },
+      websocket: { natsServers: ["ws://localhost:8080"] },
+    },
     sentinel: { jwt: "jwt", seed: "seed" },
     sessionKV: new InMemoryKV<Session>(),
     usersKV: new InMemoryKV<UserProjectionEntry>(),
@@ -321,8 +330,11 @@ Deno.test("POST /bootstrap/client falls back to session contract metadata when t
       sessionKey: auth.sessionKey,
       contractId: contract.contract.id,
       contractDigest: contract.digest,
+      transports: {
+        native: { natsServers: ["nats://127.0.0.1:4222"] },
+        websocket: { natsServers: ["ws://localhost:8080"] },
+      },
       transport: {
-        natsServers: ["nats://127.0.0.1:4222"],
         inboxPrefix: `_INBOX.${auth.sessionKey.slice(0, 16)}`,
         sentinel: { jwt: "jwt", seed: "seed" },
       },

@@ -96,6 +96,17 @@ export const ContractRecordSchema = Type.Object({
         }, { additionalProperties: false }),
         { default: [] },
       ),
+      store: Type.Array(
+        Type.Object({
+          alias: Type.String({ minLength: 1 }),
+          purpose: Type.String({ minLength: 1 }),
+          required: Type.Boolean(),
+          ttlMs: Type.Number(),
+          maxObjectBytes: Type.Optional(Type.Number()),
+          maxTotalBytes: Type.Optional(Type.Number()),
+        }, { additionalProperties: false }),
+        { default: [] },
+      ),
       streams: Type.Array(
         Type.Object({
           alias: Type.String({ minLength: 1 }),
@@ -129,7 +140,7 @@ export const ContractRecordSchema = Type.Object({
       ),
     }, {
       additionalProperties: false,
-      default: { kv: [], streams: [], jobs: [] },
+      default: { kv: [], store: [], streams: [], jobs: [] },
     }),
   }, { additionalProperties: false })),
   resources: Type.Optional(ContractResourcesSchema),

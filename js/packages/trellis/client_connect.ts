@@ -1,15 +1,16 @@
 import { jwtAuthenticator, type NatsConnection } from "@nats-io/nats-core";
 import {
-  BindResponseSchema,
   buildLoginUrl,
   getOrCreateSessionKey,
 } from "./auth.ts";
+import { BindResponseSchema } from "./auth.ts";
 import { createAuth } from "./auth.ts";
 import { canonicalizeJsonValue, sha256, utf8 } from "./auth.ts";
 import type { ClientOpts } from "./client.ts";
 import type { TrellisAPI, TrellisContractV1 } from "./contracts.ts";
 import {
   loadDefaultRuntimeTransport,
+  selectRuntimeTransportServers,
   type RuntimeTransport,
 } from "./runtime_transport.ts";
 import { Trellis } from "./trellis.ts";
@@ -80,6 +81,15 @@ type ClientRuntimeIdentity = {
   bindFlowSig(flowId: string): Promise<string>;
 };
 
+const ClientTransportEndpointsSchema = Type.Object({
+  natsServers: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
+}, { additionalProperties: false });
+
+const ClientTransportsSchema = Type.Object({
+  native: Type.Optional(ClientTransportEndpointsSchema),
+  websocket: Type.Optional(ClientTransportEndpointsSchema),
+}, { additionalProperties: false });
+
 type ClientConnectDeps = {
   loadTransport(): Promise<RuntimeTransport>;
   now(): number;
@@ -91,8 +101,8 @@ const ClientBootstrapReadySchema = Type.Object({
     sessionKey: Type.String({ minLength: 1 }),
     contractId: Type.String({ minLength: 1 }),
     contractDigest: Type.String({ minLength: 1 }),
+    transports: ClientTransportsSchema,
     transport: Type.Object({
-      natsServers: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
       inboxPrefix: Type.String({ minLength: 1 }),
       sentinel: Type.Object({
         jwt: Type.String({ minLength: 1 }),
@@ -346,7 +356,7 @@ export async function connectClientWithDeps<TApi extends TrellisAPI>(
       sig: await identity.bindingTokenSig(bootstrap.connectInfo.auth.bindingToken),
     });
     const nc = await transport.connect({
-      servers: bootstrap.connectInfo.transport.natsServers,
+      servers: selectRuntimeTransportServers(bootstrap.connectInfo.transports),
       token,
       inboxPrefix: bootstrap.connectInfo.transport.inboxPrefix,
       authenticator: jwtAuthenticator(

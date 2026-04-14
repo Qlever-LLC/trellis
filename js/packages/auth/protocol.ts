@@ -4,6 +4,7 @@ import {
 } from "@qlever-llc/trellis/contracts";
 import type { StaticDecode } from "typebox";
 import { Type } from "typebox";
+import { ClientTransportsSchema, SentinelCredsSchema } from "./schemas.ts";
 
 const IsoDateStringSchema = Type.String({ format: "date-time" });
 
@@ -594,12 +595,9 @@ export const DeviceConnectInfoSchema = Type.Object({
   profileId: Type.String({ minLength: 1 }),
   contractId: Type.String({ minLength: 1 }),
   contractDigest: DigestSchema,
+  transports: ClientTransportsSchema,
   transport: Type.Object({
-    natsServers: Type.Array(Type.String({ minLength: 1 })),
-    sentinel: Type.Object({
-      jwt: Type.String({ minLength: 1 }),
-      seed: Type.String({ minLength: 1 }),
-    }, { additionalProperties: false }),
+    sentinel: SentinelCredsSchema,
   }, { additionalProperties: false }),
   auth: Type.Object({
     mode: Type.Literal("device_identity"),

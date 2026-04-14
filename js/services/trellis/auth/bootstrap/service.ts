@@ -34,7 +34,10 @@ export const ServiceBootstrapRequestSchema = Type.Object({
 
 export type ServiceBootstrapDeps = {
   contractStore: ContractStore;
-  natsServers: string[];
+  transports: {
+    native?: { natsServers: string[] };
+    websocket?: { natsServers: string[] };
+  };
   sentinel: SentinelCreds;
   loadService(sessionKey: string): Promise<ServiceRegistryEntry | null>;
   verifyIdentityProof(input: {
@@ -117,8 +120,8 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
         sessionKey: request.sessionKey,
         contractId: request.contractId,
         contractDigest: request.contractDigest,
+        transports: deps.transports,
         transport: {
-          natsServers: deps.natsServers,
           sentinel: deps.sentinel,
         },
         auth: {

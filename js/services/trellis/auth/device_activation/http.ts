@@ -14,6 +14,7 @@ import {
   verifyDeviceBootstrapIdentityProof,
   DeviceBootstrapRequestSchema,
 } from "../bootstrap/device.ts";
+import { buildClientTransports } from "../transports.ts";
 import { getConfig } from "../../config.ts";
 import {
   deviceActivationHandoffsKV,
@@ -196,7 +197,7 @@ async function loadDevicePortalDefaultId(): Promise<
 
 function deviceBootstrapDeps() {
   return {
-    natsServers: config.client.natsServers,
+    transports: buildClientTransports(config),
     sentinel: sentinelCreds,
     loadDeviceInstance,
     loadDeviceActivation,

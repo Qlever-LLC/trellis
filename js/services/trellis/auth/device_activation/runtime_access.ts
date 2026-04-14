@@ -32,6 +32,7 @@ type RpcMethod = ContractAnalysis["rpc"]["methods"][number];
 type EventEntry = ContractAnalysis["events"]["events"][number];
 type SubjectEntry = NonNullable<ContractAnalysis["subjects"]>["subjects"][number];
 type NatsRule = ContractAnalysis["nats"]["publish"][number];
+const TRANSFER_SUBJECT_PREFIXES = ["transfer.v1.upload", "transfer.v1.download"] as const;
 
 export function resolveDeviceContractDigest(
   profile: DeviceProfile,
@@ -90,6 +91,9 @@ export function deriveDeviceRuntimeAccess(
       rule.wildcardSubject || rule.subject
     ),
   );
+  for (const prefix of TRANSFER_SUBJECT_PREFIXES) {
+    publishSubjects.add(`${prefix}.*.*`);
+  }
   const subscribeSubjects = new Set<string>(
     analysis.nats.subscribe.map((rule: NatsRule) =>
       rule.wildcardSubject || rule.subject

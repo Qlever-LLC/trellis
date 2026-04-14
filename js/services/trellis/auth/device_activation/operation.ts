@@ -19,6 +19,7 @@ import {
 } from "../../../../packages/auth/device_activation.ts";
 import { getConfig } from "../../config.ts";
 import { deviceInstanceId } from "../admin/shared.ts";
+import { buildClientTransports } from "../transports.ts";
 import { isDeviceProofIatFresh } from "./shared.ts";
 
 type Caller = {
@@ -174,8 +175,8 @@ async function buildDeviceConnectInfo(args: {
     profileId: args.profile.profileId,
     contractId: args.profile.contractId,
     contractDigest: args.contractDigest,
+    transports: buildClientTransports(config),
     transport: {
-      natsServers: config.client.natsServers,
       sentinel: sentinelCreds,
     },
     auth: {

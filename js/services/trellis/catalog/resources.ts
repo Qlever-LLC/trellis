@@ -370,12 +370,22 @@ export async function provisionContractResourceBindings(
     bindings.store = Object.fromEntries(
       await Promise.all(stores.map(async (store) => {
         const name = buildStoreName(serviceSessionKey, contract.id, store.alias);
-        await objm.create(name, {
-          ...(store.ttlMs > 0 ? { ttl: store.ttlMs * 1_000_000 } : {}),
-          ...(store.maxTotalBytes !== undefined
-            ? { max_bytes: store.maxTotalBytes }
-            : {}),
-        });
+        try {
+          await objm.create(name, {
+            ...(store.ttlMs > 0 ? { ttl: store.ttlMs * 1_000_000 } : {}),
+            ...(store.maxTotalBytes !== undefined
+              ? { max_bytes: store.maxTotalBytes }
+              : {}),
+          });
+        } catch (error) {
+          if (
+            !(error instanceof Error) ||
+            !error.message.includes("bucket already exists")
+          ) {
+            throw error;
+          }
+          await objm.open(name);
+        }
 
         return [store.alias, {
           name,

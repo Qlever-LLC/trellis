@@ -9,6 +9,13 @@ import { SignatureSchema } from "../../state/schemas/auth_state.ts";
 import { isDeviceProofIatFresh } from "../device_activation/shared.ts";
 
 const DigestSchema = Type.String({ pattern: "^[A-Za-z0-9_-]+$" });
+const ClientTransportEndpointsSchema = Type.Object({
+  natsServers: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
+}, { additionalProperties: false });
+const ClientTransportsSchema = Type.Object({
+  native: Type.Optional(ClientTransportEndpointsSchema),
+  websocket: Type.Optional(ClientTransportEndpointsSchema),
+}, { additionalProperties: false });
 
 export const DeviceBootstrapRequestSchema = Type.Object({
   publicIdentityKey: Type.String({ minLength: 1 }),
@@ -50,8 +57,11 @@ type DeviceConnectInfo = {
   profileId: string;
   contractId: string;
   contractDigest: string;
+  transports: {
+    native?: { natsServers: string[] };
+    websocket?: { natsServers: string[] };
+  };
   transport: {
-    natsServers: string[];
     sentinel: {
       jwt: string;
       seed: string;
@@ -69,7 +79,10 @@ export type DeviceBootstrapResult =
   | { status: "not_ready"; reason: string };
 
 export type DeviceBootstrapDeps = {
-  natsServers: string[];
+  transports: {
+    native?: { natsServers: string[] };
+    websocket?: { natsServers: string[] };
+  };
   sentinel: {
     jwt: string;
     seed: string;
@@ -92,7 +105,10 @@ function buildDeviceConnectInfo(args: {
   instance: DeviceInstance;
   profile: DeviceProfile;
   contractDigest: string;
-  natsServers: string[];
+  transports: {
+    native?: { natsServers: string[] };
+    websocket?: { natsServers: string[] };
+  };
   sentinel: {
     jwt: string;
     seed: string;
@@ -107,8 +123,8 @@ function buildDeviceConnectInfo(args: {
     profileId: args.profile.profileId,
     contractId: args.profile.contractId,
     contractDigest: args.contractDigest,
+    transports: args.transports,
     transport: {
-      natsServers: args.natsServers,
       sentinel: args.sentinel,
     },
     auth: {
@@ -148,7 +164,7 @@ export async function resolveDeviceBootstrap(
     instance,
     profile,
     contractDigest: input.contractDigest,
-    natsServers: deps.natsServers,
+    transports: deps.transports,
     sentinel: deps.sentinel,
   });
   if (!connectInfo) {

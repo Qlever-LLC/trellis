@@ -424,8 +424,11 @@ Deno.test("device activation and connect-info schemas validate", () => {
     profileId: "reader.default",
     contractId: "acme.reader@v1",
     contractDigest: "digest-a",
+    transports: {
+      native: { natsServers: ["nats://127.0.0.1:4222"] },
+      websocket: { natsServers: ["ws://localhost:8080"] },
+    },
     transport: {
-      natsServers: ["nats://127.0.0.1:4222"],
       sentinel: {
         jwt: "jwt",
         seed: "seed",
@@ -494,8 +497,11 @@ Deno.test("device activation and connect-info schemas validate", () => {
       profileId: "reader.default",
       contractId: "acme.reader@v1",
       contractDigest: "digest-a",
+      transports: {
+        native: { natsServers: ["nats://127.0.0.1:4222"] },
+        websocket: { natsServers: ["ws://localhost:8080"] },
+      },
       transport: {
-        natsServers: ["nats://127.0.0.1:4222"],
         sentinel: { jwt: "jwt", seed: "seed" },
       },
       auth: {

@@ -161,6 +161,8 @@ Deno.test("user permissions include event and raw subject capabilities", () => {
       true,
     );
     assertEquals(publishSubjects.includes("trellis.jobs.>"), true);
+    assertEquals(publishSubjects.includes("transfer.v1.upload.*.*"), true);
+    assertEquals(publishSubjects.includes("transfer.v1.download.*.*"), true);
     assertEquals(
       subscribeSubjects.includes("events.v1.Partner.Changed.*.*"),
       true,
@@ -185,6 +187,8 @@ Deno.test("service permissions include owned RPCs and declared dependencies", ()
     assertEquals(subscribeSubjects.includes("rpc.v1.Partner.List"), true);
     assertEquals(subscribeSubjects.includes("trellis.jobs.>"), true);
     assertEquals(subscribeSubjects.includes("events.v1.Auth.Connect"), true);
+    assertEquals(subscribeSubjects.includes("transfer.v1.upload.graph-key.*"), true);
+    assertEquals(subscribeSubjects.includes("transfer.v1.download.graph-key.*"), true);
   });
 });
 
