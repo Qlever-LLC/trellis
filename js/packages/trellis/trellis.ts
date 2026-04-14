@@ -190,9 +190,14 @@ export type TrellisAuth = {
 export type AnyTrellisAPI = TrellisAPI;
 export type TrellisMode = "client" | "server";
 type NonNever<T> = [T] extends [never] ? string : T;
+type OwnedApiFor<TContract> = TContract extends { API: { owned: infer TOwnedApi } }
+  ? TOwnedApi extends AnyTrellisAPI ? TOwnedApi
+  : never
+  : never;
 export type MethodsOf<TA extends AnyTrellisAPI> = NonNever<
   keyof TA["rpc"] & string
 >;
+export type RpcMethodNameOf<TA extends AnyTrellisAPI> = MethodsOf<TA>;
 export type OperationsOf<TA extends AnyTrellisAPI> = NonNever<
   keyof TA["operations"] & string
 >;
@@ -201,10 +206,18 @@ type MethodInputOf<TA extends AnyTrellisAPI, M extends MethodsOf<TA>> =
   TA["rpc"][M] extends RPCDesc<infer TInput, infer _TOutput, infer _TErrors>
     ? InferSchemaType<TInput>
     : never;
+export type RpcInputOf<
+  TA extends AnyTrellisAPI,
+  M extends RpcMethodNameOf<TA>,
+> = MethodInputOf<TA, M>;
 type MethodOutputOf<TA extends AnyTrellisAPI, M extends MethodsOf<TA>> =
   TA["rpc"][M] extends RPCDesc<infer _TInput, infer TOutput, infer _TErrors>
     ? InferSchemaType<TOutput>
     : never;
+export type RpcOutputOf<
+  TA extends AnyTrellisAPI,
+  M extends RpcMethodNameOf<TA>,
+> = MethodOutputOf<TA, M>;
 type RpcDescriptorOf<TA extends AnyTrellisAPI, M extends MethodsOf<TA>> =
   TA["rpc"][M] extends RPCDesc<infer TInput, infer TOutput, infer TErrors>
     ? RPCDesc<TInput, TOutput, TErrors> & TA["rpc"][M]
@@ -488,10 +501,45 @@ export type RequestOpts = {
 
 type MaybePromise<T> = T | Promise<T>;
 
+export type RpcHandlerContext = {
+  caller: SessionCaller;
+  sessionKey: string;
+};
+
 export type HandlerFn<TA extends AnyTrellisAPI, M extends MethodsOf<TA>> = (
   m: MethodInputOf<TA, M>,
-  context: { caller: SessionCaller; sessionKey: string },
+  context: RpcHandlerContext,
 ) => MaybePromise<Result<MethodOutputOf<TA, M>, TrellisErrorInstance>>;
+export type RpcHandlerFn<
+  TA extends AnyTrellisAPI,
+  M extends RpcMethodNameOf<TA>,
+> = HandlerFn<TA, M>;
+export type RpcName<TContract> = RpcMethodNameOf<OwnedApiFor<TContract>>;
+export type RpcInput<
+  TContract,
+  M extends RpcName<TContract>,
+> = RpcInputOf<OwnedApiFor<TContract>, M>;
+export type RpcOutput<
+  TContract,
+  M extends RpcName<TContract>,
+> = RpcOutputOf<OwnedApiFor<TContract>, M>;
+export type RpcHandler<
+  TContract,
+  M extends RpcName<TContract>,
+> = RpcHandlerFn<OwnedApiFor<TContract>, M>;
+export type EventName<TContract> = EventsOf<OwnedApiFor<TContract>>;
+export type EventType<
+  TContract,
+  E extends EventName<TContract>,
+> = EventOf<OwnedApiFor<TContract>, E>;
+export type EventPayload<
+  TContract,
+  E extends EventName<TContract>,
+> = EventPayloadOf<OwnedApiFor<TContract>, E>;
+export type EventHandler<
+  TContract,
+  E extends EventName<TContract>,
+> = (event: EventType<TContract, E>) => MaybeAsync<void, BaseError>;
 
 type DeepRecord<T> = {
   [k: string]: T | DeepRecord<T>;
@@ -885,7 +933,7 @@ export class Trellis<
     method: string,
     fn: (
       input: unknown,
-      context: { caller: SessionCaller; sessionKey: string },
+      context: RpcHandlerContext,
     ) => MaybePromise<Result<unknown, TrellisErrorInstance>>,
   ) {
     const methodName = method as MethodsOf<TA>;
@@ -1172,7 +1220,9 @@ export class Trellis<
           span.setAttribute("device.profile_id", caller.profileId);
         }
 
-        const handlerResultWrapped = await AsyncResult.try(async () =>
+        const handlerResultWrapped = await AsyncResult.try<
+          Result<MethodOutputOf<TA, MethodsOf<TA>>, TrellisErrorInstance>
+        >(async () =>
           await Promise.resolve(
             fn(parsedInput as MethodInputOf<TA, MethodsOf<TA>>, {
               caller,

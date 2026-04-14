@@ -1,7 +1,9 @@
 import { assertEquals } from "@std/assert";
+import { Result } from "@qlever-llc/result";
 import { Type } from "typebox";
 
 import * as authSdk from "../sdk/auth.ts";
+import type { TrellisCatalogHandler } from "../sdk/core.ts";
 import { defineContract } from "../contracts.ts";
 import * as coreSdk from "../sdk/core.ts";
 import * as stateSdk from "../sdk/state.ts";
@@ -47,4 +49,20 @@ Deno.test("contracts subpath defineContract retains contract API projections", (
 
   assertEquals(typeof contract.CONTRACT_ID, "string");
   assertEquals(typeof contract.API.trellis.rpc["Example.Ping"].subject, "string");
+});
+
+Deno.test("generated SDK exports handler aliases for extracted handlers", () => {
+  const handler: TrellisCatalogHandler = (payload, context) => {
+    const sessionKey: string = context.sessionKey;
+    assertEquals(Object.keys(payload).length, 0);
+    assertEquals(typeof sessionKey, "string");
+    return Result.ok({
+      catalog: {
+        format: "trellis.catalog.v1",
+        contracts: [],
+      },
+    });
+  };
+
+  assertEquals(typeof handler, "function");
 });

@@ -58,6 +58,20 @@ export default ordersService;
 
 This is a valid — if empty — contract. We will fill it in as we add capabilities. Export the contract object itself and let Trellis use that object for runtime bootstrap, API typing, and SDK generation.
 
+As the contract grows, it is also a good place to export short local type aliases for extracted handlers. For example:
+
+```ts
+import type { EventHandler, EventName, RpcHandler, RpcName } from "@qlever-llc/trellis";
+
+export type Rpc<T extends RpcName<typeof ordersService>> =
+  RpcHandler<typeof ordersService, T>;
+
+export type Event<T extends EventName<typeof ordersService>> =
+  EventHandler<typeof ordersService, T>;
+```
+
+That keeps handler modules ergonomic without making the service consume its own generated SDK.
+
 ---
 
 ## 3. The service entry point

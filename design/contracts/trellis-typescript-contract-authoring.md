@@ -187,6 +187,7 @@ Rules:
 - server handler registration is typed from `contract.API.owned`
 - `service.trellis.mount(...)` handlers should use the payload type that Trellis derives from the contract; docs and examples should not re-parse mounted RPC payloads just to recover types
 - mounted RPC handlers may return either `Result` or `Promise<Result>`
+- for locally owned contracts, author-facing code should normally define short aliases in the contract module such as `type Rpc<T extends RpcName<typeof myContract>> = RpcHandler<typeof myContract, T>` and `type Event<T extends EventName<typeof myContract>> = EventHandler<typeof myContract, T>` rather than repeating `typeof contract.API.owned...` in every handler
 - callers do not manually assemble runtime API arrays for normal usage
 - locally authored contracts should normally export the `defineContract(...)` return value directly; do not wrap it in a handwritten default-export object that reassembles `CONTRACT_ID`, `CONTRACT`, `CONTRACT_DIGEST`, and `API`
 - Trellis-specific bootstrap exceptions should stay in Trellis platform code and use lower-level runtime APIs directly rather than becoming general public service helpers

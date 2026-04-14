@@ -10,7 +10,22 @@ import {
 import { Type } from "typebox";
 import { Result, type BaseError } from "@qlever-llc/result";
 import { defineContract } from "../trellis/contract.ts";
-import type { KVError, StoreError, TypedKV, TypedStore } from "@qlever-llc/trellis";
+import type {
+  EventHandler,
+  EventName,
+  EventPayload,
+  KVError,
+  RpcHandler,
+  RpcHandlerFn,
+  RpcInput,
+  RpcInputOf,
+  RpcName,
+  RpcOutput,
+  RpcOutputOf,
+  StoreError,
+  TypedKV,
+  TypedStore,
+} from "@qlever-llc/trellis";
 
 // Import the module under test
 import {
@@ -36,6 +51,7 @@ const typeTestContract = defineContract({
   schemas: {
     PingInput: Type.Object({ value: Type.String() }, { additionalProperties: false }),
     PingOutput: Type.Object({ ok: Type.Boolean() }, { additionalProperties: false }),
+    PingedEvent: Type.Object({ value: Type.String() }, { additionalProperties: false }),
     KVValue: Type.Object({ value: Type.String() }, { additionalProperties: false }),
   },
   rpc: {
@@ -44,6 +60,12 @@ const typeTestContract = defineContract({
       input: { schema: "PingInput" },
       output: { schema: "PingOutput" },
       errors: ["UnexpectedError"],
+    },
+  },
+  events: {
+    "Test.Pinged": {
+      version: "v1",
+      event: { schema: "PingedEvent" },
     },
   },
 });
@@ -160,4 +182,50 @@ Deno.test("service wrapper mount handlers stay method-typed", () => {
   }
 
   assertExists(expectTypedMount);
+});
+
+Deno.test("public RPC helper types support extracted handlers", () => {
+  type OwnedApi = typeof typeTestContract.API.owned;
+  type PingInput = RpcInputOf<OwnedApi, "Test.Ping">;
+  type PingOutput = RpcOutputOf<OwnedApi, "Test.Ping">;
+
+  const pingHandler: RpcHandlerFn<OwnedApi, "Test.Ping"> = (payload, context) => {
+    const value: PingInput["value"] = payload.value;
+    const sessionKey: string = context.sessionKey;
+    const output: PingOutput = { ok: value.length > 0 && sessionKey.length >= 0 };
+    return Result.ok(output);
+  };
+
+  assertExists(pingHandler);
+});
+
+Deno.test("contract-oriented helper types support local Rpc<T> and Event<T> aliases", () => {
+  type TypeTestRpc<T extends RpcName<typeof typeTestContract>> =
+    RpcHandler<typeof typeTestContract, T>;
+  type TypeTestRpcIn<T extends RpcName<typeof typeTestContract>> =
+    RpcInput<typeof typeTestContract, T>;
+  type TypeTestRpcOut<T extends RpcName<typeof typeTestContract>> =
+    RpcOutput<typeof typeTestContract, T>;
+  type TypeTestEvent<T extends EventName<typeof typeTestContract>> =
+    EventHandler<typeof typeTestContract, T>;
+  type TypeTestEventPayload<T extends EventName<typeof typeTestContract>> =
+    EventPayload<typeof typeTestContract, T>;
+
+  const ping: TypeTestRpc<"Test.Ping"> = (payload, context) => {
+    const value: TypeTestRpcIn<"Test.Ping">["value"] = payload.value;
+    const sessionKey: string = context.sessionKey;
+    const output: TypeTestRpcOut<"Test.Ping"> = {
+      ok: value.length > 0 && sessionKey.length >= 0,
+    };
+    return Result.ok(output);
+  };
+
+  const onPinged: TypeTestEvent<"Test.Pinged"> = async (event) => {
+    const value: TypeTestEventPayload<"Test.Pinged">["value"] = event.value;
+    assertEquals(value, event.value);
+    return Result.ok(undefined);
+  };
+
+  assertExists(ping);
+  assertExists(onPinged);
 });

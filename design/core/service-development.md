@@ -88,6 +88,10 @@ Deno.addSignalListener("SIGTERM", async () => {
 
 ```ts
 import { Result } from "@qlever-llc/trellis";
+import type {
+  RpcHandler,
+  RpcName,
+} from "@qlever-llc/trellis";
 import { defineContract } from "@qlever-llc/trellis/contracts";
 import { TrellisService } from "@qlever-llc/trellis/server/deno";
 import {
@@ -123,6 +127,9 @@ export const serviceContract = defineContract({
 
 export default serviceContract;
 
+export type Rpc<T extends RpcName<typeof serviceContract>> =
+  RpcHandler<typeof serviceContract, T>;
+
 const service = await TrellisService.connect({
   trellisUrl,
   contract: serviceContract,
@@ -131,14 +138,16 @@ const service = await TrellisService.connect({
   server: {},
 });
 
-await service.trellis.mount("Echo.Health", () => {
+export const health: Rpc<"Echo.Health"> = () => {
   return Result.ok({
     status: "healthy",
     service: "echo",
     timestamp: new Date().toISOString(),
     checks: [],
   });
-});
+};
+
+await service.trellis.mount("Echo.Health", health);
 ```
 
 Rules:

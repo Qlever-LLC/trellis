@@ -268,6 +268,32 @@ await service.trellis.mount("Orders.Get", async (req) => {
 
 Mounted RPC handlers already receive a typed, validated payload derived from the contract. Use that payload directly rather than re-parsing it just to recover types.
 
+When you want to extract handlers into named functions, define a short alias once in your service's own `contract.ts`:
+
+```ts
+import type { RpcHandler, RpcName } from "@qlever-llc/trellis";
+
+export type Rpc<T extends RpcName<typeof ordersService>> =
+  RpcHandler<typeof ordersService, T>;
+```
+
+Then use it from `main.ts` or a handler module:
+
+```ts
+import { Result } from "@qlever-llc/trellis";
+import type { Rpc } from "./contracts/orders_service.ts";
+
+export const getOrder: Rpc<"Orders.Get"> = async (req) => {
+  const result = await ordersKV.get(req.orderId);
+  if (isErr(result) || !result.value) {
+    return Result.err({ type: "NotFoundError", message: "Order not found" });
+  }
+  return Result.ok(result.value);
+};
+
+await service.trellis.mount("Orders.Get", getOrder);
+```
+
 ## 7. Subscribe to events
 
 Subscribe to events from other contracts that you declared in `uses`:
@@ -322,7 +348,7 @@ This produces a Deno package under `./generated/sdk/ts/`. The generated SDK vers
 - `mod.ts` — the contract module and `use(...)` export
 - `types.ts` — typed request, response, and event definitions
 - `schemas.ts` — JSON schemas extracted from the manifest
-- `contract.ts` — contract ID and digest constants
+- `contract.ts` — contract metadata and `use(...)` helpers for consumers
 - `scripts/build_npm.ts` — a build script that uses `dnt` to produce an npm package
 
 Consumers import the SDK like any other Trellis contract package:

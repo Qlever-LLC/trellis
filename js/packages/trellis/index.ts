@@ -116,8 +116,21 @@ export {
   OperationRef,
 } from "./operations.ts";
 export type {
+  EventHandler,
+  EventName,
+  EventPayload,
+  EventType,
   OperationHandlerContext,
   OperationRegistration,
+  RpcHandler,
+  RpcHandlerFn,
+  RpcHandlerContext,
+  RpcInput,
+  RpcInputOf,
+  RpcName,
+  RpcMethodNameOf,
+  RpcOutput,
+  RpcOutputOf,
   TrellisAuth,
   TrellisSigner,
 } from "./trellis.ts";
