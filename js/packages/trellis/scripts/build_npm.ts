@@ -159,10 +159,6 @@ async function normalizePackageJson() {
       import: "./esm/trellis/errors/index.js",
       require: "./script/trellis/errors/index.js",
     },
-    "./helpers": {
-      import: "./esm/trellis/helpers.js",
-      require: "./script/trellis/helpers.js",
-    },
     "./server": {
       import: "./esm/trellis/server/mod.js",
       require: "./script/trellis/server/mod.js",
@@ -265,45 +261,29 @@ async function vendorSdkArtifacts() {
         );
     });
 
-    const sdkDir = join(formatDir, "_sdk");
-    await replaceInFiles(sdkDir, (text) =>
-      text
-        .replaceAll(
-          "@qlever-llc/trellis-contracts",
-          "../../../contracts/mod.js",
-        )
-        .replaceAll(
-          "@qlever-llc/trellis/contracts/contract-module",
-          "@qlever-llc/trellis/contracts/contract-module",
-        )
-        .replaceAll(
-          "@qlever-llc/trellis-contracts/contract-module",
-          "@qlever-llc/trellis/contracts/contract-module",
-        ));
   }
 }
 
 await buildDntPackage({
-  buildRoot: "../..",
+  buildRoot: "../../..",
   denoConfigPath: "./deno.json",
   entryPoints: [
-    "./packages/trellis/index.ts",
-    "./packages/trellis/auth.ts",
-    "./packages/trellis/auth/browser.ts",
-    "./packages/trellis/browser.ts",
-    "./packages/trellis/contracts.ts",
-    "./packages/trellis/errors/index.ts",
-    "./packages/trellis/helpers.ts",
-    "./packages/trellis/server/mod.ts",
-    "./packages/trellis/server/health.ts",
-    "./packages/trellis/server/deno.ts",
-    "./packages/trellis/server/node.ts",
-    "./packages/trellis/server/runtime.ts",
-    "./packages/trellis/sdk/activity.ts",
-    "./packages/trellis/sdk/auth.ts",
-    "./packages/trellis/sdk/core.ts",
-    "./packages/trellis/sdk/state.ts",
-    "./packages/trellis/tracing.ts",
+    "./js/packages/trellis/index.ts",
+    "./js/packages/trellis/auth.ts",
+    "./js/packages/trellis/auth/browser.ts",
+    "./js/packages/trellis/browser.ts",
+    "./js/packages/trellis/contracts.ts",
+    "./js/packages/trellis/errors/index.ts",
+    "./js/packages/trellis/server/mod.ts",
+    "./js/packages/trellis/server/health.ts",
+    "./js/packages/trellis/server/deno.ts",
+    "./js/packages/trellis/server/node.ts",
+    "./js/packages/trellis/server/runtime.ts",
+    "./js/packages/trellis/sdk/activity.ts",
+    "./js/packages/trellis/sdk/auth.ts",
+    "./js/packages/trellis/sdk/core.ts",
+    "./js/packages/trellis/sdk/state.ts",
+    "./js/packages/trellis/tracing.ts",
   ],
   description:
     "Client-side Trellis runtime, models, and contract helpers for TypeScript applications.",

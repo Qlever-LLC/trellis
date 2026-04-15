@@ -4,8 +4,6 @@ import {
   UnexpectedError,
   ValidationError,
 } from "@qlever-llc/trellis";
-
-import { makePaginated } from "../../../packages/trellis/helpers.ts";
 import type {
   StateCompareAndSetResponse,
 } from "../../../packages/trellis/models/trellis/rpc/StateCompareAndSet.ts";
@@ -52,6 +50,20 @@ type TypedStateKvLike = {
   get(key: string): Promise<Result<unknown, KVError | ValidationError>>;
   keys(filter?: string | string[]): Promise<Result<AsyncIterable<string>, KVError>>;
 };
+
+function makePaginated(
+  offset: number,
+  limit: number,
+  count: number,
+): Pick<StateListResponse, "count" | "offset" | "limit" | "next" | "prev"> {
+  return {
+    count,
+    offset,
+    limit,
+    next: offset + limit >= count ? undefined : offset + limit,
+    prev: offset - limit <= 0 ? undefined : offset - limit,
+  };
+}
 
 function byteLength(value: string): number {
   return new TextEncoder().encode(value).length;

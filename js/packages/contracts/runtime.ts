@@ -67,7 +67,7 @@ export type RPCDesc<
   subject: string;
   input: I;
   output: O;
-  callerCapabilities: Array<string>;
+  callerCapabilities: readonly string[];
   authRequired?: boolean;
   errors?: E;
   runtimeErrors?: TRuntimeErrors;
@@ -78,8 +78,8 @@ export type EventDesc<S extends SchemaLike = SchemaLike> = {
   subject: string;
   params?: readonly SubjectParam[];
   event: S;
-  publishCapabilities: Array<string>;
-  subscribeCapabilities: Array<string>;
+  publishCapabilities: readonly string[];
+  subscribeCapabilities: readonly string[];
 };
 
 export type OperationDesc<
@@ -91,17 +91,17 @@ export type OperationDesc<
   input: I;
   progress?: P;
   output?: O;
-  callerCapabilities: Array<string>;
-  readCapabilities: Array<string>;
-  cancelCapabilities: Array<string>;
+  callerCapabilities: readonly string[];
+  readCapabilities: readonly string[];
+  cancelCapabilities: readonly string[];
   cancel?: boolean;
 };
 
 export type SubjectDesc<S extends SchemaLike = SchemaLike> = {
   subject: string;
   schema?: S;
-  publishCapabilities: Array<string>;
-  subscribeCapabilities: Array<string>;
+  publishCapabilities: readonly string[];
+  subscribeCapabilities: readonly string[];
 };
 
 export type TrellisAPI = {

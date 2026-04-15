@@ -1,16 +1,13 @@
-import { defineContract } from "@qlever-llc/trellis/contracts";
+import { defineServiceContract, type RpcName } from "@qlever-llc/trellis";
 import { auth } from "@qlever-llc/trellis/sdk/auth";
 import * as schemas from "../schemas/index.ts";
-import type { RpcName } from "@qlever-llc/trellis";
 import type { ServiceRpcHandler } from "@qlever-llc/trellis/server";
 
-export const contract = defineContract({
+export const contract = defineServiceContract({ schemas }, (ref) => ({
   id: "trellis.demo-service@v1",
   displayName: "Demo Service",
   description:
     "Demo installable service with a groups RPC and a file upload endpoint.",
-  kind: "service",
-  schemas,
   uses: {
     auth: auth.useDefaults(),
   },
@@ -27,20 +24,20 @@ export const contract = defineContract({
   rpc: {
     "Demo.Groups.List": {
       version: "v1",
-      input: { schema: "GroupsListRequestdf" },
-      output: { schema: "GroupsListResponse" },
+      input: ref.schema("GroupsListRequest"),
+      output: ref.schema("GroupsListResponse"),
       capabilities: { call: [] },
-      errors: ["UnexpectedError"],
+      errors: [ref.error("UnexpectedError")],
     },
     "Demo.Files.InitiateUpload": {
       version: "v1",
-      input: { schema: "FilesInitiateUploadRequest" },
-      output: { schema: "FilesInitiateUploadResponse" },
+      input: ref.schema("FilesInitiateUploadRequest"),
+      output: ref.schema("FilesInitiateUploadResponse"),
       capabilities: { call: ["uploader"] },
-      errors: ["TransferError", "UnexpectedError"],
+      errors: [ref.error("TransferError"), ref.error("UnexpectedError")],
     },
   },
-});
+}));
 
 export default contract;
 export type Rpc<T extends RpcName<typeof contract>> = ServiceRpcHandler<

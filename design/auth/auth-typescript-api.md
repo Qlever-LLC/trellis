@@ -151,7 +151,8 @@ Portal/browser route rules:
 Portal authors should not need to reassemble auth-owned flow URLs and `fetch(...)`
 calls by hand. The intended public helper split is:
 
-- low-level framework-neutral helpers in `@qlever-llc/trellis`
+- low-level framework-neutral browser helpers in `@qlever-llc/trellis/auth`
+- browser-only facade helpers in `@qlever-llc/trellis/auth/browser`
 - thin Svelte-specific wrappers in `@qlever-llc/trellis-svelte`
 
 ```ts

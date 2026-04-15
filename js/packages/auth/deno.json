@@ -1,14 +1,10 @@
 {
   "extends": "../../deno.json",
-  "name": "@qlever-llc/trellis-auth",
   "version": "0.7.0",
   "exports": {
     ".": "./mod.ts",
     "./browser": "./browser.ts",
     "./protocol": "./protocol.ts"
-  },
-  "tasks": {
-    "build:npm": "deno run -A ./scripts/build_npm.ts"
   },
   "compilerOptions": {
     "lib": [

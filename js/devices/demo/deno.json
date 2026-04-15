@@ -1,9 +1,0 @@
-{
-  "imports": {
-    "@qlever-llc/trellis": "../../packages/trellis/index.ts",
-    "@qlever-llc/trellis/device": "../../packages/trellis/device.ts"
-  },
-  "tasks": {
-    "start": "deno run --allow-env --allow-read --allow-net --allow-sys src/main.ts"
-  }
-}

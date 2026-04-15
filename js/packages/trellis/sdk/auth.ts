@@ -1,2 +1,2 @@
-export * from "@qlever-llc/trellis-sdk-auth";
-export { auth } from "@qlever-llc/trellis-sdk-auth";
+export * from "../../../../generated/js/sdks/auth/mod.ts";
+export { auth } from "../../../../generated/js/sdks/auth/mod.ts";

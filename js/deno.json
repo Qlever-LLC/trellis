@@ -10,15 +10,12 @@
     "./packages/trellis-svelte",
     "./packages/trellis",
     "./portals/login",
-    "./devices/demo",
-    "./services/demo",
     "./services/activity",
-    "./services/jobs",
     "./services/trellis"
   ],
   "tasks": {
-    "contracts:verify": "bash ../scripts/trellis-generate.sh discover ./services/trellis",
-    "prepare": "bash ../scripts/trellis-generate.sh prepare ..",
+    "contracts:verify": "cargo run --manifest-path ../rust/tools/generate/Cargo.toml --bin trellis-generate -- discover ./services/trellis",
+    "prepare": "cargo run --manifest-path ../rust/tools/generate/Cargo.toml --bin trellis-generate -- prepare ..",
     "packages:build:npm": "deno task -c packages/result/deno.json build:npm && deno task -c packages/trellis/deno.json build:npm && deno task -c packages/trellis-svelte/deno.json build:npm",
     "generated:build:npm": "bash -lc 'cd ../generated/js/sdks/auth && deno run --config ../../../../js/deno.json -A ./scripts/build_npm.ts && cd ../trellis-core && deno run --config ../../../../js/deno.json -A ./scripts/build_npm.ts && cd ../activity && deno run --config ../../../../js/deno.json -A ./scripts/build_npm.ts && cd ../state && deno run --config ../../../../js/deno.json -A ./scripts/build_npm.ts'",
     "build:npm": "deno task prepare && deno task packages:build:npm",
@@ -26,7 +23,7 @@
     "test:contracts": "deno task prepare && deno test -A packages/contracts/source_emission_test.ts packages/contracts/conformance_test.ts services/trellis/catalog/store.test.ts services/trellis/catalog/permissions.test.ts",
     "test:auth": "deno task prepare && deno test -A packages/auth/conformance_test.ts packages/auth/session_auth_test.ts services/trellis",
     "trellis": "bash ../scripts/trellis-cli.sh",
-    "trellis-generate": "bash ../scripts/trellis-generate.sh"
+    "trellis-generate": "cargo run --manifest-path ../rust/tools/generate/Cargo.toml --bin trellis-generate --"
   },
   "imports": {
     "@hono/hono": "jsr:@hono/hono@^4.9.8",
@@ -57,16 +54,9 @@
     "@sveltejs/vite-plugin-svelte": "npm:@sveltejs/vite-plugin-svelte@^6.2.1",
     "@tailwindcss/vite": "npm:@tailwindcss/vite@^4.1.17",
     // Internal workspace-only aliases for local source resolution and generated SDK builds.
-    "@qlever-llc/trellis-auth": "./packages/auth/mod.ts",
-    "@qlever-llc/trellis-contracts": "./packages/contracts/mod.ts",
     "@qlever-llc/result": "./packages/result/mod.ts",
     "@qlever-llc/trellis-server": "./packages/server/mod.ts",
-    "@qlever-llc/trellis-telemetry": "./packages/telemetry/mod.ts",
-    "@qlever-llc/trellis-sdk-activity": "../generated/js/sdks/activity/mod.ts",
-    "@qlever-llc/trellis-sdk-state": "../generated/js/sdks/state/mod.ts",
     "@qlever-llc/trellis-svelte": "./packages/trellis-svelte/src/index.ts",
-    "@qlever-llc/trellis-sdk-auth": "../generated/js/sdks/auth/mod.ts",
-    "@qlever-llc/trellis-sdk-core": "../generated/js/sdks/trellis-core/mod.ts",
     "@qlever-llc/trellis-jobs": "./packages/jobs/mod.ts",
     "@qlever-llc/trellis": "./packages/trellis/index.ts",
     "@qlever-llc/trellis/auth": "./packages/trellis/auth.ts",

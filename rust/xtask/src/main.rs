@@ -93,8 +93,8 @@ fn run_build(args: &[String]) -> Result<(), String> {
 fn repo_root() -> Result<PathBuf, String> {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     for ancestor in manifest_dir.ancestors() {
-        if ancestor.join("scripts/trellis-generate.sh").exists()
-            && ancestor.join("rust/tools/generate/Cargo.toml").exists()
+        if ancestor.join("rust/tools/generate/Cargo.toml").exists()
+            && ancestor.join("js/deno.json").exists()
         {
             return Ok(ancestor.to_path_buf());
         }

@@ -74,20 +74,20 @@ introducing alternate authoring entrypoints.
 
 ### 2) Package boundary
 
-The preferred contract authoring API is exposed from
-`@qlever-llc/trellis/contracts` so contract-source modules can stay independent
-from runtime bootstrap concerns.
+The kind-specific contract authoring helpers are available from
+`@qlever-llc/trellis` and are the normal authoring entrypoint for everyday
+contract source modules.
 
-`@qlever-llc/trellis` remains the canonical runtime package for connection
-helpers such as `TrellisClient.connect(...)`, auth helpers, and `Result`.
+`@qlever-llc/trellis/contracts` remains the advanced contract-system surface
+for broader contract-model helpers and codegen-facing types.
 
 Rules:
 
-- `@qlever-llc/trellis/contracts` is the preferred package for contract
-  authoring and broader contract-model helpers, and the specialized helper
-  return values remain usable anywhere a runtime contract is expected
-- `@qlever-llc/trellis` is the canonical package for runtime client connection
-  helpers
+- `@qlever-llc/trellis` is the normal package for kind-specific contract
+  authoring helpers and runtime client connection helpers
+- `@qlever-llc/trellis/contracts` is the advanced package for broader
+  contract-model helpers, and the specialized helper return values remain usable
+  anywhere a runtime contract is expected
 - `@qlever-llc/trellis/server/node` and `@qlever-llc/trellis/server/deno`
   consume contract objects for service runtime helpers
 

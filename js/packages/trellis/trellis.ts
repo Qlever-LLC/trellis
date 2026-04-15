@@ -1149,17 +1149,7 @@ export class Trellis<
       return AsyncResult.lift(subject);
     }
 
-    const handlerTrellis: HandlerTrellis<TA> = {
-      request: (method, input, opts) => this.request(method, input, opts),
-      requestOrThrow: (method, input, opts) => this.requestOrThrow(method, input, opts),
-      publish: (event, data) => this.publish(event, data),
-      event: (event, subjectData, fn) => this.event(
-        event,
-        subjectData,
-        fn as (message: unknown) => MaybeAsync<void, BaseError>,
-      ),
-      operation: (operation) => this.operation(operation),
-    };
+    const handlerTrellis = this as unknown as HandlerTrellis<TA>;
 
     this.#log.info(
       { method: String(method) },
@@ -1327,7 +1317,7 @@ export class Trellis<
               proof,
               subject: msg.subject,
               payloadHash: base64urlEncode(payloadHash),
-              capabilities: ctx.callerCapabilities,
+              capabilities: [...ctx.callerCapabilities],
             });
             const authValue = authResult.take();
             if (!isErr(authValue)) {
@@ -1424,11 +1414,14 @@ export class Trellis<
           span.setAttribute("device.profile_id", caller.profileId);
         }
 
-        const handlerResultWrapped = await AsyncResult.try<
-          Result<MethodOutputOf<TA, MethodsOf<TA>>, BaseError>
-        >(async () =>
+        const invokeHandler = fn as (
+          input: unknown,
+          context: RpcHandlerContext,
+          trellis: HandlerTrellis<TA>,
+        ) => MaybeAsync<unknown, BaseError>;
+        const handlerResultWrapped = await AsyncResult.try(async () =>
           await Promise.resolve(
-            fn(parsedInput as MethodInputOf<TA, MethodsOf<TA>>, {
+            invokeHandler(parsedInput, {
               caller,
               sessionKey: callerSessionKey,
             }, handlerTrellis),

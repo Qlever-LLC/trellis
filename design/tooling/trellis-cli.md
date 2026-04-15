@@ -236,7 +236,8 @@ The developer-facing CLI boundary is the contract source.
 
 - project roots keep contract sources in a sibling `contracts/` directory next to
   `deno.json`, `deno.jsonc`, `package.json`, or `Cargo.toml`
-- TypeScript/Deno projects use `contracts/*.ts`
+- TypeScript/Deno projects use `contracts/*.ts`, and those files default export
+  the contract module that `trellis-generate` should load
 - Rust projects use `contracts/*.rs` wrappers that export `CONTRACT` or
   `CONTRACT_JSON` via `include_str!(...)`, usually backed by a sibling manifest
   JSON file in the same `contracts/` directory

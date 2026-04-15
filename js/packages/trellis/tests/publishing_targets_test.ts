@@ -27,13 +27,11 @@ Deno.test("trellis npm build depends on the standalone result package name", asy
   assertStringIncludes(source, '"@qlever-llc/result"');
 });
 
-Deno.test("trellis npm build publishes helpers and errors subpaths", async () => {
+Deno.test("trellis npm build publishes the errors subpath", async () => {
   const source = await Deno.readTextFile(
     new URL("../scripts/build_npm.ts", import.meta.url),
   );
 
   assertStringIncludes(source, '"./errors"');
-  assertStringIncludes(source, '"./helpers"');
-  assertStringIncludes(source, '"./packages/trellis/errors/index.ts"');
-  assertStringIncludes(source, '"./packages/trellis/helpers.ts"');
+  assertStringIncludes(source, '"./js/packages/trellis/errors/index.ts"');
 });

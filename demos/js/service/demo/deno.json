@@ -4,9 +4,9 @@
   "version": "0.7.0",
   "exports": "./src/main.ts",
   "tasks": {
-    "check": "deno task -c ../../deno.json prepare && deno check src/main.ts contracts/demo_service.ts",
-    "prepare": "bash ../../../scripts/trellis-generate.sh",
+    "prepare": "deno task -c ../../deno.json prepare",
+    "check": "deno task prepare && deno task check:prepared",
+    "check:prepared": "deno check src/main.ts contracts/demo_service.ts",
     "start": "deno run --allow-env --allow-net --allow-sys src/main.ts"
-  },
-  "imports": {}
+  }
 }

@@ -1,1 +1,1 @@
-export * from "@qlever-llc/trellis-sdk-activity";
+export * from "../../../../generated/js/sdks/activity/mod.ts";

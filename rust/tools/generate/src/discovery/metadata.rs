@@ -24,10 +24,13 @@ fn discover_typescript_contract_metadata(
         Err(resolve_error) => {
             let source = fs::read_to_string(path).into_diagnostic()?;
             let contract_id = extract_quoted_source_field(&source, "id").ok_or(resolve_error)?;
-            let kind =
-                parse_contract_kind(&extract_quoted_source_field(&source, "kind").ok_or_else(
-                    || miette::miette!("failed to infer contract kind from {}", path.display()),
-                )?)?;
+            let kind = if let Some(kind) = extract_quoted_source_field(&source, "kind") {
+                parse_contract_kind(&kind)?
+            } else {
+                infer_contract_kind_from_typescript_source(&source).ok_or_else(|| {
+                    miette::miette!("failed to infer contract kind from {}", path.display())
+                })?
+            };
             Ok((contract_id, kind))
         }
     }
@@ -77,6 +80,20 @@ pub fn parse_contract_kind(value: &str) -> miette::Result<ContractKind> {
         "cli" => Ok(ContractKind::Cli),
         _ => Err(miette::miette!("unsupported contract kind '{value}'")),
     }
+}
+
+fn infer_contract_kind_from_typescript_source(source: &str) -> Option<ContractKind> {
+    const HELPER_KINDS: [(&str, ContractKind); 5] = [
+        ("defineServiceContract(", ContractKind::Service),
+        ("defineAppContract(", ContractKind::App),
+        ("definePortalContract(", ContractKind::Portal),
+        ("defineDeviceContract(", ContractKind::Device),
+        ("defineCliContract(", ContractKind::Cli),
+    ];
+
+    HELPER_KINDS
+        .into_iter()
+        .find_map(|(needle, kind)| source.contains(needle).then_some(kind))
 }
 
 #[cfg(test)]
@@ -138,15 +155,15 @@ mod tests {
         fs::write(
             contracts.join("activity_app.ts"),
             concat!(
+                "import { defineAppContract } from '@qlever-llc/trellis/contracts';\n",
                 "import { activity } from '@qlever-llc/trellis/sdk/activity';\n",
-                "export const activityApp = {\n",
+                "export const activityApp = defineAppContract(() => ({\n",
                 "  id: \"trellis.activity-app@v1\",\n",
                 "  displayName: \"Activity App\",\n",
                 "  description: \"Activity UI\",\n",
-                "  kind: \"app\",\n",
                 "  uses: { activity },\n",
-                "};\n",
-                "export const CONTRACT = activityApp;\n",
+                "}));\n",
+                "export default activityApp;\n",
             ),
         )
         .unwrap();

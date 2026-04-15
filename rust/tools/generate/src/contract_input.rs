@@ -149,12 +149,15 @@ fn resolve_source_contract(
     let runtime = typescript_runtime_context(&source_path);
 
     let deno_script = r#"
-const [sourcePath, exportName] = Deno.args;
+const [sourcePath, sourceExport] = Deno.args;
 const mod = await import(new URL(sourcePath, "file:///").href);
-const exported = mod[exportName];
+const exported = mod.default ?? mod[sourceExport];
 const contract = exported?.CONTRACT ?? exported;
-if (!contract || contract.format !== "trellis.contract.v1") {
-  throw new Error(`source module '${sourcePath}' must export ${exportName} as a Trellis contract or contract module`);
+if (!contract) {
+  throw new Error(`source module '${sourcePath}' must export a Trellis contract or contract module via the default export or requested named export`);
+}
+if (contract.format !== "trellis.contract.v1") {
+  throw new Error(`source module '${sourcePath}' export is not a Trellis contract or contract module`);
 }
 await Deno.stdout.write(new TextEncoder().encode(JSON.stringify(contract)));
 "#;
@@ -683,12 +686,15 @@ fn node_resolution_script() -> &'static str {
     r#"
 import { pathToFileURL } from 'node:url';
 
-const [sourcePath, exportName] = process.argv.slice(2);
+const [sourcePath, sourceExport] = process.argv.slice(2);
 const mod = await import(pathToFileURL(sourcePath).href);
-const exported = mod[exportName];
+const exported = mod.default ?? mod[sourceExport];
 const contract = exported?.CONTRACT ?? exported;
-if (!contract || contract.format !== 'trellis.contract.v1') {
-  throw new Error(`source module '${sourcePath}' must export ${exportName} as a Trellis contract or contract module`);
+if (!contract) {
+  throw new Error(`source module '${sourcePath}' must export a Trellis contract or contract module via the default export or requested named export`);
+}
+if (contract.format !== 'trellis.contract.v1') {
+  throw new Error(`source module '${sourcePath}' export is not a Trellis contract or contract module`);
 }
 process.stdout.write(JSON.stringify(contract));
 "#

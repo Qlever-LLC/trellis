@@ -18,17 +18,8 @@ const config = {
     alias: {
       // Internal workspace-only aliases for local source resolution.
       // Public app code should import the canonical `@qlever-llc/trellis...` paths.
-      "@qlever-llc/trellis-auth": aliasPath("packages/auth/mod.ts"),
-      "@qlever-llc/trellis-auth/*": `${aliasPath("packages/auth")}/*`,
-      "@qlever-llc/trellis-auth/browser": aliasPath("packages/auth/browser.ts"),
-      "@qlever-llc/trellis-contracts": aliasPath("packages/contracts/mod.ts"),
-      "@qlever-llc/trellis-contracts/*": `${aliasPath("packages/contracts")}/*`,
       "@qlever-llc/result": aliasPath("packages/result/mod.ts"),
       "@qlever-llc/result/*": `${aliasPath("packages/result")}/*`,
-      "@qlever-llc/trellis-sdk-activity": aliasPath("../generated/js/sdks/activity/mod.ts"),
-      "@qlever-llc/trellis-sdk-activity/*": `${aliasPath("../generated/js/sdks/activity")}/*`,
-      "@qlever-llc/trellis-sdk-auth": aliasPath("../generated/js/sdks/auth/mod.ts"),
-      "@qlever-llc/trellis-sdk-auth/*": `${aliasPath("../generated/js/sdks/auth")}/*`,
       "@qlever-llc/trellis-svelte": aliasPath("packages/trellis-svelte/src/index.ts"),
       "@qlever-llc/trellis-svelte/*": `${aliasPath("packages/trellis-svelte/src")}/*`,
       "@qlever-llc/trellis/auth": aliasPath("packages/trellis/auth.ts"),

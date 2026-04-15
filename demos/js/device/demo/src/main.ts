@@ -1,5 +1,5 @@
-import { isErr, TrellisDevice } from "@qlever-llc/trellis";
-import type { DeviceActivationController } from "@qlever-llc/trellis/device";
+import { isErr } from "@qlever-llc/result";
+import { TrellisDevice } from "@qlever-llc/trellis";
 import contract from "../contracts/demo_device.ts";
 
 const trellisUrl = Deno.args[0]?.trim();
@@ -20,7 +20,19 @@ async function main(): Promise<void> {
     trellisUrl,
     contract,
     rootSecret,
-    onActivationRequired,
+    onActivationRequired: async (activation) => {
+      console.info("device activation required");
+      console.info(activation.url);
+
+      if (online) {
+        await activation.waitForOnlineApproval();
+      } else {
+        const code =
+          globalThis.prompt("Enter device confirmation code")?.trim() || "";
+
+        await activation.acceptConfirmationCode(code);
+      }
+    },
   });
 
   const me = (await trellis.request("Auth.Me", {})).take();
@@ -63,20 +75,6 @@ async function main(): Promise<void> {
   console.info("demo groups", groups.groups);
   console.info("uploaded", uploaded);
   console.dir({ me }, { depth: null });
-}
-
-async function onActivationRequired(activation: DeviceActivationController) {
-  console.info("device activation required");
-  console.info(activation.url);
-
-  if (online) {
-    await activation.waitForOnlineApproval();
-  } else {
-    const code =
-      globalThis.prompt("Enter device confirmation code")?.trim() || "";
-
-    await activation.acceptConfirmationCode(code);
-  }
 }
 
 if (import.meta.main) {

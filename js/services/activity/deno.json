@@ -4,10 +4,10 @@
   "version": "0.7.0",
   "exports": "./main.ts",
   "tasks": {
-    "dev": "deno task prepare && deno run --env --allow-env --allow-sys --allow-read --allow-net --allow-ffi --watch main.ts",
-    "prepare": "bash ../../../scripts/trellis-generate.sh",
+    "dev": "deno task verify:contracts && deno run --env --allow-env --allow-sys --allow-read --allow-net --allow-ffi --watch main.ts",
+    "prepare": "cargo run --manifest-path ../../../rust/tools/generate/Cargo.toml --bin trellis-generate --",
     "verify:contracts": "deno task prepare",
-    "check": "deno task -c ../../deno.json prepare && deno check main.ts bootstrap.ts projectors.ts store.ts contracts/trellis_activity.ts",
-    "test:contracts": "deno task prepare && deno test -A source_emission_test.ts"
+    "check": "deno task verify:contracts && deno check main.ts bootstrap.ts projectors.ts store.ts contracts/trellis_activity.ts",
+    "test:contracts": "deno task verify:contracts && deno test -A source_emission_test.ts"
   }
 }

@@ -1,0 +1,8 @@
+{
+  "tasks": {
+    "prepare": "deno task -c js/deno.json prepare",
+    "check": "deno task -c js/deno.json check",
+    "check:js": "deno task -c js/deno.json check",
+    "prepare:js": "deno task -c js/deno.json prepare"
+  }
+}

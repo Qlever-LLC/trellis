@@ -1,2 +1,2 @@
-export * from "@qlever-llc/trellis-sdk-core";
-export { core } from "@qlever-llc/trellis-sdk-core";
+export * from "../../../../generated/js/sdks/trellis-core/mod.ts";
+export { core } from "../../../../generated/js/sdks/trellis-core/mod.ts";

@@ -61,17 +61,3 @@ export function decodeSubject(token: string): string {
 
   return out;
 }
-
-export function makePaginated(
-  offset: number,
-  limit: number,
-  count: number,
-): Paginated {
-  return {
-    count,
-    offset,
-    limit,
-    next: offset + limit >= count ? undefined : offset + limit,
-    prev: offset - limit <= 0 ? undefined : offset - limit,
-  };
-}

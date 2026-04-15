@@ -18,8 +18,7 @@
     "./sdk/core": "./sdk/core.ts",
     "./sdk/state": "./sdk/state.ts",
     "./tracing": "./tracing.ts",
-    "./errors": "./errors/index.ts",
-    "./helpers": "./helpers.ts"
+    "./errors": "./errors/index.ts"
   },
   "tasks": {
     "build:npm": "deno run -A ./scripts/build_npm.ts",

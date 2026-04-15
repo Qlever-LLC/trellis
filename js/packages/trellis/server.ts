@@ -77,7 +77,7 @@ export type TrellisServerFor<TA extends AnyTrellisAPI = TrellisAPI> =
   };
 
 type RegisteredRuntimeOperationDesc = RuntimeOperationDesc & {
-  callerCapabilities?: string[];
+  callerCapabilities?: readonly string[];
 };
 
 export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
@@ -500,7 +500,9 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
             proof,
             subject: msg.subject,
             payloadHash: base64urlEncode(payloadHash),
-            capabilities: ctx.callerCapabilities,
+            capabilities: ctx.callerCapabilities
+              ? [...ctx.callerCapabilities]
+              : undefined,
           });
           const auth = authResult.take();
           if (isErr(auth)) {

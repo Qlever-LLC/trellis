@@ -40,10 +40,6 @@ import type {
   RpcHandlerErrorOf,
   RpcRequestErrorOf,
 } from "../trellis/trellis.ts";
-import {
-  type ResourceBindingJobs,
-  type ResourceBindingJobsQueue,
-} from "@qlever-llc/trellis-jobs";
 import type {
   NatsConnectFn,
   NatsConnectOpts,
@@ -59,6 +55,28 @@ type ExtraNatsConnectOpts = Omit<
   NatsConnectOpts,
   "servers" | "token" | "inboxPrefix" | "authenticator"
 >;
+
+type ResourceBindingJobsQueue = {
+  queueType: string;
+  publishPrefix: string;
+  workSubject: string;
+  consumerName: string;
+  payload: { schema: string };
+  result?: { schema: string };
+  maxDeliver: number;
+  backoffMs: number[];
+  ackWaitMs: number;
+  defaultDeadlineMs?: number;
+  progress: boolean;
+  logs: boolean;
+  dlq: boolean;
+  concurrency: number;
+};
+
+type ResourceBindingJobs = {
+  namespace: string;
+  queues: Record<string, ResourceBindingJobsQueue>;
+};
 
 const ClientTransportEndpointsSchema = Type.Object({
   natsServers: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),

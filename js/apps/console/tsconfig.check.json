@@ -11,16 +11,9 @@
       "@qlever-llc/trellis/server/*": ["../../packages/trellis/server/*"],
       "@qlever-llc/trellis/sdk/auth": ["../../packages/trellis/sdk/auth.ts"],
       "@qlever-llc/trellis/sdk/core": ["../../packages/trellis/sdk/core.ts"],
-      "@qlever-llc/trellis-auth": ["../../packages/auth/mod.ts"],
-      "@qlever-llc/trellis-contracts": ["../../packages/contracts/mod.ts"],
-      "@qlever-llc/trellis-contracts/*": ["../../packages/contracts/*"],
       "@qlever-llc/result": ["../../packages/result/mod.ts"],
       "@qlever-llc/trellis-jobs": ["../../packages/jobs/mod.ts"],
-      "@qlever-llc/trellis-sdk-auth": ["../../../generated/js/sdks/auth/mod.ts"],
-      "@qlever-llc/trellis-sdk-core": ["../../../generated/js/sdks/trellis-core/mod.ts"],
-      "@qlever-llc/trellis-svelte": ["../../packages/trellis-svelte/src/index.ts"],
-      "@qlever-llc/trellis-telemetry": ["../../packages/telemetry/mod.ts"],
-      "@qlever-llc/trellis-telemetry/*": ["../../packages/telemetry/*"]
+      "@qlever-llc/trellis-svelte": ["../../packages/trellis-svelte/src/index.ts"]
     }
   },
   "exclude": [

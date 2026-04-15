@@ -8,10 +8,11 @@
  */
 
 import { connect } from "@nats-io/transport-deno";
-import { core as trellisCore } from "@qlever-llc/trellis-sdk-core";
+import { core as trellisCore } from "@qlever-llc/trellis/sdk/core";
 import { assertEquals, assertExists } from "@std/assert";
 import { NatsTest } from "../testing/nats.ts";
-import { type TrellisAuth, TrellisServer } from "../trellis.ts";
+import type { TrellisAuth } from "../trellis.ts";
+import { TrellisServer } from "../server.ts";
 
 const RUN_NATS_TESTS = Deno.env.get("TRELLIS_TEST_NATS") === "1";
 

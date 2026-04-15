@@ -1,2 +1,2 @@
-export * from "@qlever-llc/trellis-sdk-state";
-export { state } from "@qlever-llc/trellis-sdk-state";
+export * from "../../../../generated/js/sdks/state/mod.ts";
+export { state } from "../../../../generated/js/sdks/state/mod.ts";

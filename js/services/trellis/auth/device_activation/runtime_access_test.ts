@@ -51,6 +51,7 @@ function makeContractRecord(digest: string): ContractRecord {
       },
       resources: {
         kv: [],
+        store: [],
         streams: [],
         jobs: [],
       },

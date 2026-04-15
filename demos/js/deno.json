@@ -1,0 +1,35 @@
+{
+  "extends": "../../js/deno.json",
+  "links": [
+    "../../js/packages/result",
+    "../../js/packages/trellis",
+    "../../js/packages/jobs"
+  ],
+  "workspace": [
+    "./device/demo",
+    "./service/demo"
+  ],
+  "tasks": {
+    "prepare": "cargo run --manifest-path ../../rust/tools/generate/Cargo.toml --bin trellis-generate -- prepare ..",
+    "check": "deno task prepare && deno task -c service/demo/deno.json check:prepared && deno task -c device/demo/deno.json check:prepared",
+    "check:device:demo": "deno task -c device/demo/deno.json check",
+    "check:service:demo": "deno task -c service/demo/deno.json check",
+    "start:device:demo": "deno task -c device/demo/deno.json start",
+    "start:service:demo": "deno task -c service/demo/deno.json start"
+  },
+  "imports": {
+    "@trellis-demo/demo-service-sdk": "../generated/js/sdks/demo-service/mod.ts",
+    "typebox": "npm:typebox@^1.0.15"
+  },
+  "nodeModulesDir": "auto",
+  "compilerOptions": {
+    "strict": true,
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "dom.asynciterable",
+      "deno.ns"
+    ],
+    "verbatimModuleSyntax": true
+  }
+}

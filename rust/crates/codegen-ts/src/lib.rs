@@ -122,8 +122,7 @@ fn deno_json(opts: &GenerateTsSdkOpts) -> Result<serde_json::Map<String, Value>,
         root.insert(
             "imports".to_string(),
             serde_json::json!({
-                "@qlever-llc/trellis": format!("jsr:@qlever-llc/trellis@^{}", opts.runtime_deps.version),
-                "@qlever-llc/trellis-contracts": format!("jsr:@qlever-llc/trellis-contracts@^{}", opts.runtime_deps.version)
+                "@qlever-llc/trellis": format!("jsr:@qlever-llc/trellis@^{}", opts.runtime_deps.version)
             }),
         );
     }
@@ -144,9 +143,9 @@ fn render_contract_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Stri
         manifest_source_reference(&opts.manifest_path, opts.runtime_deps.repo_root.as_deref());
     let is_trellis_auth = loaded.manifest.id == "trellis.auth@v1";
     let import_line = if is_trellis_auth {
-        "import type { ContractDependencyUse, SdkContractModule, TrellisContractV1, UseSpec } from \"@qlever-llc/trellis-contracts\";".to_string()
+        "import type { ContractDependencyUse, SdkContractModule, TrellisContractV1, UseSpec } from \"@qlever-llc/trellis\";".to_string()
     } else {
-        "import type { SdkContractModule, TrellisContractV1, UseSpec } from \"@qlever-llc/trellis-contracts\";".to_string()
+        "import type { SdkContractModule, TrellisContractV1, UseSpec } from \"@qlever-llc/trellis\";".to_string()
     };
 
     let mut lines = vec![
@@ -154,7 +153,7 @@ fn render_contract_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Stri
         import_line,
         "import { API } from \"./api.ts\";".to_string(),
         String::new(),
-        "const CONTRACT_MODULE_METADATA = Symbol.for(\"@qlever-llc/trellis-contracts/contract-module\");".to_string(),
+        "const CONTRACT_MODULE_METADATA = Symbol.for(\"@qlever-llc/trellis/contracts/contract-module\");".to_string(),
         String::new(),
         format!("export const CONTRACT_ID = {} as const;", js_string(&loaded.manifest.id)),
         format!("export const CONTRACT_DIGEST = {} as const;", js_string(&loaded.digest)),
@@ -616,8 +615,8 @@ fn render_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
         manifest_source_reference(&opts.manifest_path, opts.runtime_deps.repo_root.as_deref());
     let mut lines = vec![
         format!("// Generated from {}", escape_js_string(&source_reference)),
-        "import type { TrellisAPI } from \"@qlever-llc/trellis-contracts\";".to_string(),
-        "import { schema } from \"@qlever-llc/trellis-contracts\";".to_string(),
+        "import type { TrellisAPI } from \"@qlever-llc/trellis\";".to_string(),
+        "import { schema } from \"@qlever-llc/trellis\";".to_string(),
         "import * as Types from \"./types.ts\";".to_string(),
         "import { SCHEMAS } from \"./schemas.ts\";".to_string(),
         String::new(),
@@ -865,23 +864,6 @@ fn render_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
 fn render_build_npm_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
     let source_reference =
         manifest_source_reference(&opts.manifest_path, opts.runtime_deps.repo_root.as_deref());
-    let contracts_dependency = match opts.runtime_deps.source {
-        TsRuntimeSource::Registry => format!("^{}", opts.runtime_deps.version),
-        TsRuntimeSource::Local => opts
-            .runtime_deps
-            .repo_root
-            .as_ref()
-            .map(|repo_root| {
-                format!(
-                    "file:{}",
-                    relative_path_string(
-                        &opts.out_dir,
-                        &repo_root.join("js/packages/contracts/npm")
-                    )
-                )
-            })
-            .unwrap_or_else(|| format!("^{}", opts.runtime_deps.version)),
-    };
     let trellis_dependency = match opts.runtime_deps.source {
         TsRuntimeSource::Registry => format!("^{}", opts.runtime_deps.version),
         TsRuntimeSource::Local => opts
@@ -896,19 +878,16 @@ fn render_build_npm_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Str
             })
             .unwrap_or_else(|| format!("^{}", opts.runtime_deps.version)),
     };
-    let publish_contracts_dependency = format!("^{}", opts.runtime_deps.version);
     let publish_trellis_dependency = format!("^{}", opts.runtime_deps.version);
 
     format!(
-        "// Generated from {}\nimport {{ build, emptyDir }} from \"jsr:@deno/dnt@^0.41.3\";\n\nawait emptyDir(new URL(\"../npm\", import.meta.url));\n\nawait build({{\n  entryPoints: [\"./mod.ts\"],\n  outDir: \"./npm\",\n  shims: {{\n    deno: true,\n  }},\n  test: false,\n  typeCheck: false,\n  package: {{\n    name: {},\n    version: {},\n    description: \"Generated Trellis SDK for contract {}\",\n    license: \"Apache-2.0\",\n    homepage: \"https://github.com/Qlever-LLC/trellis#readme\",\n    bugs: {{\n      url: \"https://github.com/Qlever-LLC/trellis/issues\",\n    }},\n    repository: {{\n      type: \"git\",\n      url: \"https://github.com/Qlever-LLC/trellis\",\n    }},\n    publishConfig: {{\n      access: \"public\",\n    }},\n    dependencies: {{\n      \"@qlever-llc/trellis\": {},\n      \"@qlever-llc/trellis-contracts\": {},\n    }},\n  }},\n}});\n\nconst packageJsonPath = new URL(\"../npm/package.json\", import.meta.url);\nconst packageJson = JSON.parse(await Deno.readTextFile(packageJsonPath));\npackageJson.dependencies = {{\n  ...(packageJson.dependencies ?? {{}}),\n  \"@qlever-llc/trellis\": {},\n  \"@qlever-llc/trellis-contracts\": {},\n}};\nawait Deno.writeTextFile(packageJsonPath, `${{JSON.stringify(packageJson, null, 2)}}\n`);\n",
+        "// Generated from {}\nimport {{ build, emptyDir }} from \"jsr:@deno/dnt@^0.41.3\";\n\nawait emptyDir(new URL(\"../npm\", import.meta.url));\n\nawait build({{\n  entryPoints: [\"./mod.ts\"],\n  outDir: \"./npm\",\n  shims: {{\n    deno: true,\n  }},\n  test: false,\n  typeCheck: false,\n  package: {{\n    name: {},\n    version: {},\n    description: \"Generated Trellis SDK for contract {}\",\n    license: \"Apache-2.0\",\n    homepage: \"https://github.com/Qlever-LLC/trellis#readme\",\n    bugs: {{\n      url: \"https://github.com/Qlever-LLC/trellis/issues\",\n    }},\n    repository: {{\n      type: \"git\",\n      url: \"https://github.com/Qlever-LLC/trellis\",\n    }},\n    publishConfig: {{\n      access: \"public\",\n    }},\n    dependencies: {{\n      \"@qlever-llc/trellis\": {},\n    }},\n  }},\n}});\n\nconst packageJsonPath = new URL(\"../npm/package.json\", import.meta.url);\nconst packageJson = JSON.parse(await Deno.readTextFile(packageJsonPath));\npackageJson.dependencies = {{\n  ...(packageJson.dependencies ?? {{}}),\n  \"@qlever-llc/trellis\": {},\n}};\nawait Deno.writeTextFile(packageJsonPath, `${{JSON.stringify(packageJson, null, 2)}}\n`);\n",
         escape_js_string(&source_reference),
         js_string(&opts.package_name),
         js_string(&opts.package_version),
         escape_js_string(&loaded.manifest.id),
         js_string(&trellis_dependency),
-        js_string(&contracts_dependency),
         js_string(&publish_trellis_dependency),
-        js_string(&publish_contracts_dependency),
     )
 }
 
@@ -1446,10 +1425,7 @@ mod tests {
             imports.get("@qlever-llc/trellis").unwrap(),
             "jsr:@qlever-llc/trellis@^0.2.3"
         );
-        assert_eq!(
-            imports.get("@qlever-llc/trellis-contracts").unwrap(),
-            "jsr:@qlever-llc/trellis-contracts@^0.2.3"
-        );
+        assert_eq!(imports.len(), 1);
         assert!(deno.get("extends").is_none());
     }
 
@@ -1515,7 +1491,7 @@ mod tests {
         let build_npm = render_build_npm_ts(&opts, &loaded);
 
         assert!(contract.contains(
-            "import type { SdkContractModule, TrellisContractV1, UseSpec } from \"@qlever-llc/trellis-contracts\";"
+            "import type { SdkContractModule, TrellisContractV1, UseSpec } from \"@qlever-llc/trellis\";"
         ));
         assert!(contract.contains(
             "export const core: SdkContractModule<typeof CONTRACT_ID, typeof API.owned> = {"
@@ -1531,6 +1507,7 @@ mod tests {
             "export type ExamplePingHandler = RpcHandlerFn<typeof API.owned, \"Example.Ping\">;"
         ));
         assert!(build_npm.contains("\"@qlever-llc/trellis\": \"^0.4.0\""));
+        assert!(!build_npm.contains("@qlever-llc/trellis/contracts/contract-module"));
 
         fs::remove_dir_all(root).unwrap();
     }
@@ -1543,7 +1520,7 @@ mod tests {
         let mod_ts = render_mod_ts(&opts);
 
         assert!(contract.contains(
-            "import type { ContractDependencyUse, SdkContractModule, TrellisContractV1, UseSpec } from \"@qlever-llc/trellis-contracts\";"
+            "import type { ContractDependencyUse, SdkContractModule, TrellisContractV1, UseSpec } from \"@qlever-llc/trellis\";"
         ));
         assert!(contract.contains("const DEFAULT_AUTH_RPC_CALL = ["));
         assert!(contract.contains(

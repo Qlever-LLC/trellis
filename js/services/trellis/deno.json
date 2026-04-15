@@ -5,7 +5,7 @@
   "exports": "./main.ts",
   "tasks": {
     "dev": "deno task prepare && deno task -c ../../portals/login/deno.json build:static:prebuilt && deno run --env --allow-env --allow-sys --allow-read --allow-net --allow-ffi --watch main.ts",
-    "prepare": "bash ../../../scripts/trellis-generate.sh",
+    "prepare": "cargo run --manifest-path ../../../rust/tools/generate/Cargo.toml --bin trellis-generate --",
     "verify:contracts": "deno task prepare",
     "test": "deno task prepare && deno test --allow-env --allow-sys --allow-read --allow-write"
   }

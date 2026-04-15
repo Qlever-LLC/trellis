@@ -10,6 +10,7 @@ const SKIPPED_DISCOVERY_DIRS: &[&str] = &[
     ".git",
     ".svelte-kit",
     "build",
+    "demos",
     "dist",
     "generated",
     "node_modules",
@@ -231,5 +232,34 @@ mod tests {
             value.language == SourceLanguage::Rust
                 && value.source_path.ends_with("contracts/service.rs")
         }));
+    }
+
+    #[test]
+    fn discover_contracts_skips_nested_demos_dir() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo_root = temp.path();
+        let service = repo_root.join("js/service");
+        let demo_service = repo_root.join("demos/js/service/demo");
+        fs::create_dir_all(service.join("contracts")).unwrap();
+        fs::create_dir_all(demo_service.join("contracts")).unwrap();
+        fs::write(service.join("deno.json"), "{}\n").unwrap();
+        fs::write(demo_service.join("deno.json"), "{}\n").unwrap();
+        fs::write(
+            service.join("contracts/service.ts"),
+            "export const CONTRACT = {};\n",
+        )
+        .unwrap();
+        fs::write(
+            demo_service.join("contracts/demo.ts"),
+            "export const CONTRACT = {};\n",
+        )
+        .unwrap();
+
+        let discovered = discover_contracts(repo_root).unwrap();
+
+        assert_eq!(discovered.len(), 1);
+        assert!(discovered[0]
+            .source_path
+            .ends_with("js/service/contracts/service.ts"));
     }
 }

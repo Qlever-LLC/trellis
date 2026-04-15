@@ -20,7 +20,7 @@ Deno.test("AuthError", async (t) => {
     assert(!Result.isErr(value), "Expected successful parse");
 
     assertEquals(value.type, "AuthError");
-    if (value.type === "AuthError") {
+    if (value.type === "AuthError" && "reason" in value) {
       assertEquals(value.id, original.id);
       assertEquals(value.reason, "invalid_request");
       assertEquals(value.context, { userId: "123", endpoint: "/api/users" });
@@ -88,7 +88,7 @@ Deno.test("ValidationError", async (t) => {
     assert(!Result.isErr(value), "Expected successful parse");
 
     assertEquals(value.type, "ValidationError");
-    if (value.type === "ValidationError") {
+    if (value.type === "ValidationError" && "issues" in value) {
       assertEquals(value.id, original.id);
       assertEquals(value.issues.length, 1);
       assertEquals(value.issues[0].path, "/name");
@@ -115,7 +115,10 @@ Deno.test("RemoteError", async (t) => {
     });
 
     assertEquals(original.remoteError.type, "AuthError");
-    if (original.remoteError.type === "AuthError") {
+    if (
+      original.remoteError.type === "AuthError" &&
+      "reason" in original.remoteError
+    ) {
       assertEquals(original.remoteError.reason, "invalid_request");
     }
 

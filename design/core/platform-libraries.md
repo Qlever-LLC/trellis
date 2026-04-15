@@ -23,16 +23,17 @@ libraries.
 
 | Library                             | Purpose                                                                                                                      | Use when                                               |
 | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| `@qlever-llc/trellis`               | Canonical core Trellis runtime package: client helpers, Result helpers, common auth helpers, and curated contract re-exports | Frontend apps, services, CLI tools                     |
+| `@qlever-llc/trellis`               | Canonical core Trellis runtime package: client/device helpers, Result helpers, transfer helpers, and everyday contract builders | Frontend apps, services, CLI tools                     |
 | `@qlever-llc/trellis/server`        | Runtime-neutral server core                                                                                                  | Backend services                                       |
 | `@qlever-llc/trellis/server/health` | Health schemas and health-check helpers without the service bootstrap surface                                                | Contract modules, docs, lightweight server code        |
 | `@qlever-llc/trellis/server/node`   | Node server runtime adapter                                                                                                  | External Node services                                 |
 | `@qlever-llc/trellis/server/deno`   | Deno server runtime adapter                                                                                                  | In-repo Deno services                                  |
-| `@qlever-llc/trellis/auth`          | Full auth helper and auth protocol surface                                                                                   | Apps, services, docs, tests                            |
-| `@qlever-llc/trellis/contracts`     | Preferred contract authoring plus full contract-model and canonicalization surface                                           | Services, SDK generation, docs                         |
+| `@qlever-llc/trellis/auth`          | Full auth helper and auth protocol surface, including browser bind helpers                                                   | Apps, services, docs, tests                            |
+| `@qlever-llc/trellis/auth/browser`  | Browser-only auth and portal-flow helper facade                                                                              | Browser apps, custom portals                           |
+| `@qlever-llc/trellis/contracts`     | Advanced contract-model, canonicalization, and low-level contract authoring surface                                          | SDK generation, docs, advanced tooling                 |
 | `@qlever-llc/trellis/sdk/*`         | First-party generated SDK modules                                                                                            | Apps and services that consume Trellis-owned contracts |
+| `@qlever-llc/trellis/tracing`       | Specialized Trellis tracing facade                                                                                           | Runtime libraries and services                         |
 | `@qlever-llc/trellis-svelte`        | Svelte-specific Trellis integration                                                                                          | Svelte applications                                    |
-| `@qlever-llc/trellis-telemetry`     | Shared tracing helpers                                                                                                       | Runtime libraries and services                         |
 | `@qlever-llc/trellis-jobs`          | Job creation and processing                                                                                                  | Service-private retryable work                         |
 
 ## Library Rules
@@ -49,15 +50,20 @@ libraries.
   packages
 - platform packages should expose stable ergonomic surfaces and hide
   transport/bootstrap details
-- browser-safe public runtime APIs belong on `@qlever-llc/trellis`; service-only
-  resource handles and bootstrap helpers belong on `@qlever-llc/trellis/server*`
+- browser-safe public runtime APIs and the kind-specific contract builders belong
+  on `@qlever-llc/trellis`
+- browser-only login and portal-flow helpers belong on `@qlever-llc/trellis/auth`
+  and the narrower `@qlever-llc/trellis/auth/browser` facade
+- service-only resource handles and bootstrap helpers belong on
+  `@qlever-llc/trellis/server*`
 
 ## `@qlever-llc/trellis`
 
 Canonical TypeScript entrypoint for contract-driven RPC, operation, event, and
 transfer-grant-driven file communication. The root package is browser-safe,
-does not eagerly load generated SDKs, and keeps runtime-specific server
-helpers on `@qlever-llc/trellis/server*` subpaths.
+does not eagerly load generated SDKs, exports the normal kind-specific contract
+builders, and keeps runtime-specific server helpers on
+`@qlever-llc/trellis/server*` subpaths.
 
 ### Browser Client
 
@@ -68,8 +74,7 @@ when available.
 ### Deno / Node Client
 
 ```ts
-import { TrellisClient } from "@qlever-llc/trellis";
-import { defineCliContract } from "@qlever-llc/trellis/contracts";
+import { TrellisClient, defineCliContract } from "@qlever-llc/trellis";
 import { graph } from "@acme/graph-contract";
 import { auth } from "@qlever-llc/trellis/sdk/auth";
 
@@ -173,8 +178,9 @@ Rules:
   portals can coordinate runtime UX without hard-coding portal-specific
   parameters
 - custom portal apps should have a small Svelte-friendly `createPortalFlow(...)`
-  wrapper layered over framework-neutral portal helpers from
-  `@qlever-llc/trellis`
+  wrapper layered over the browser auth/portal helpers from
+  `@qlever-llc/trellis/auth` or the narrower
+  `@qlever-llc/trellis/auth/browser` facade
 - `loginPath` is the default auth-required redirect target; if `onAuthRequired`
   is omitted, the provider redirects to `loginPath?redirectTo=...`
 - `onAuthRequired` remains available as an override for apps that need custom
@@ -193,16 +199,18 @@ Rules:
 
 ## `@qlever-llc/trellis/auth`
 
-Provides the full auth helper, schema, and protocol surface behind the root
-package's curated auth re-exports. See:
+Provides the full auth helper, schema, protocol, and browser bind surface. The
+browser-only portal/login helper facade also lives at
+`@qlever-llc/trellis/auth/browser`. See:
 
 - [../auth/trellis-auth.md](./../auth/trellis-auth.md)
 - [../auth/auth-typescript-api.md](./../auth/auth-typescript-api.md)
 - [../auth/auth-rust-api.md](./../auth/auth-rust-api.md)
 
-## `@qlever-llc/trellis-telemetry`
+## `@qlever-llc/trellis/tracing`
 
-Provides shared tracing helpers used by runtime libraries and services. See
+Provides the specialized Trellis tracing facade used by runtime libraries and
+services without widening the root package. See
 [observability-patterns.md](./observability-patterns.md).
 
 ## `@qlever-llc/trellis-jobs`
@@ -215,13 +223,14 @@ Provides service-private job creation and processing. See:
 
 ## `@qlever-llc/trellis/contracts`
 
-Provides the preferred contract authoring surface plus the full contract-model,
-manifest validation, canonicalization, SDK generation, and documentation export
-surface behind the root package's curated contract re-exports. See:
+Provides the advanced contract-model, manifest validation, canonicalization,
+SDK generation, and documentation export surface behind the root package's
+curated contract re-exports. See:
 
-- contract source files should prefer importing the specialized contract helper
-  they need from `@qlever-llc/trellis/contracts` so codegen and manifest
-  verification do not load the runtime package unnecessarily
+- normal contract source files may import the kind-specific helper they need
+  from `@qlever-llc/trellis`
+- advanced tooling, SDK generation, and low-level contract-model consumers
+  should use `@qlever-llc/trellis/contracts`
 
 - [../contracts/trellis-contracts-catalog.md](./../contracts/trellis-contracts-catalog.md)
 - [../contracts/contracts-typescript-api.md](./../contracts/contracts-typescript-api.md)

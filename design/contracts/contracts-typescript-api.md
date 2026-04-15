@@ -38,11 +38,11 @@ derivation.
 
 ## Public Package Surface
 
-`@qlever-llc/trellis/contracts` is the preferred package for contract source
-modules and other contract-only authoring code.
+`@qlever-llc/trellis` is the canonical everyday package for contract source
+modules that only need the kind-specific helpers plus runtime-facing types.
 
-`@qlever-llc/trellis` remains the canonical runtime package for client
-connection helpers, auth helpers, and `Result`.
+`@qlever-llc/trellis/contracts` remains the advanced contract-system package for
+broader contract-model helpers, canonicalization, and SDK/codegen-facing types.
 
 It exports:
 
@@ -54,16 +54,15 @@ It exports:
 - `defineError(...)`
 - contract-module and use-spec types needed by generated SDKs
 
-The specialized contract helpers exported from `@qlever-llc/trellis/contracts`
-return contract objects with projected API views and manifest metadata. The
-canonical public bootstrap helpers live in `@qlever-llc/trellis` and
-`@qlever-llc/trellis/server*`.
+The kind-specific contract helpers return contract objects with projected API
+views and manifest metadata. The canonical public bootstrap helpers live in
+`@qlever-llc/trellis` and `@qlever-llc/trellis/server*`.
 
 Rules:
 
-- contract source modules should prefer `@qlever-llc/trellis/contracts`
+- normal contract source modules should prefer `@qlever-llc/trellis`
 - runtime client helpers should prefer `@qlever-llc/trellis`
-- broader contract-model helpers may also be exposed from
+- advanced contract-model helpers should live on and be imported from
   `@qlever-llc/trellis/contracts`
 
 ## Canonical TypeScript Shape

@@ -20,11 +20,10 @@ function isContractManifest(value: unknown): value is TrellisContractV1 {
 
 export async function loadContractFromSource(
   sourcePath: string,
-  exportName = "CONTRACT",
 ): Promise<TrellisContractV1> {
   const moduleUrl = toFileUrl(resolve(sourcePath)).href;
   const sourceModule = await import(moduleUrl) as Record<string, unknown>;
-  const exported = sourceModule[exportName];
+  const exported = sourceModule.default;
 
   if (isContractManifest(exported)) {
     return exported;
@@ -38,15 +37,14 @@ export async function loadContractFromSource(
   }
 
   throw new Error(
-    `Source module '${sourcePath}' must export ${exportName} as a Trellis contract or contract module`,
+    `Source module '${sourcePath}' must default export a Trellis contract or contract module`,
   );
 }
 
 export async function emitContractFromSource(
   sourcePath: string,
-  exportName = "CONTRACT",
 ): Promise<{ contract: TrellisContractV1; canonical: string; digest: string }> {
-  const contract = await loadContractFromSource(sourcePath, exportName);
+  const contract = await loadContractFromSource(sourcePath);
   const json = contract as JsonValue;
   const canonical = canonicalizeJson(json);
   const { digest } = await digestJson(json);
@@ -55,7 +53,6 @@ export async function emitContractFromSource(
 
 export function parseSourceCliArgs(args: string[]) {
   return parseArgs(args, {
-    string: ["source", "out", "export"],
-    default: { export: "CONTRACT" },
+    string: ["source", "out"],
   });
 }

@@ -5,7 +5,7 @@ Small TypeScript device that activates against Trellis, connects with its device
 ## Run
 
 ```sh
-deno task start -- http://localhost:3000 "<root-secret>"
+deno task -c demos/js/device/demo/deno.json start -- http://localhost:3000 "<root-secret>"
 ```
 
 After connecting, enter a local file path when prompted. The device uploads the file to the demo service, which logs the file contents.
