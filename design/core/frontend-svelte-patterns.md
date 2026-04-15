@@ -66,7 +66,7 @@ Rules:
 
 - the app-local module owns static app metadata and typed helpers
 - in the common fixed-instance case, the app-local module should export the fixed `trellisUrl` and the contract once
-- `TrellisProvider` should receive `trellisUrl`, `contract`, and `loginPath`, then place the live auth, NATS, and Trellis runtimes into Svelte context
+- `TrellisProvider` should receive `trellisUrl`, `contract`, and `loginPath`, then place the live auth state and Trellis runtime into Svelte context
 - normal pages should import typed helpers such as `getTrellis` from the app-local module; they should not rebuild auth config just to make an RPC call
 - Svelte context is the runtime transport for the live Trellis instance; the app-local module is the static typing boundary that keeps contract knowledge out of arbitrary page files
 - apps that let the user choose an auth instance at runtime may still need a more dynamic sign-in path, but that should remain an explicit advanced pattern rather than the default guide story

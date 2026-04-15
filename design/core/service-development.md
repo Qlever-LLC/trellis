@@ -65,6 +65,10 @@ The full template above is common for installable services. Smaller repo-local
 participants such as demos or utilities may only need `main.ts`, `deno.json`,
 and one contract module.
 
+For TypeScript service contract source files under `contracts/`, the contract
+module should default export the `defineContract(...)` result so prepare and
+generation can resolve it directly.
+
 ### Lifecycle
 
 For `kind: "service"` participants:
@@ -113,28 +117,24 @@ const schemas = {
   HealthResponse: HealthResponseSchema,
 } as const;
 
-function schemaRef<const TName extends keyof typeof schemas & string>(
-  schema: TName,
-) {
-  return { schema } as const;
-}
-
-export const serviceContract = defineContract({
-  id: "acme.echo@v1",
-  displayName: "Echo Service",
-  description: "A minimal installable Trellis service example.",
-  kind: "service",
-  schemas,
-  rpc: {
-    "Echo.Health": {
-      version: "v1",
-      input: schemaRef("HealthRequest"),
-      output: schemaRef("HealthResponse"),
-      capabilities: { call: [] },
-      errors: ["UnexpectedError"],
+export const serviceContract = defineContract(
+  { schemas },
+  (ref) => ({
+    id: "acme.echo@v1",
+    displayName: "Echo Service",
+    description: "A minimal installable Trellis service example.",
+    kind: "service",
+    rpc: {
+      "Echo.Health": {
+        version: "v1",
+        input: ref.schema("HealthRequest"),
+        output: ref.schema("HealthResponse"),
+        capabilities: { call: [] },
+        errors: [ref.error("UnexpectedError")],
+      },
     },
-  },
-});
+  }),
+);
 
 export default serviceContract;
 
@@ -169,14 +169,19 @@ Rules:
   an RPC, operation, or event rather than existing only to call other services
 - installable service code uses `TrellisService.connect(...)` and mounts only
   names from its owned contract surface
+- the optional `server` block configures service-runtime concerns such as
+  logging, default request timeout, event-consumer stream selection,
+  no-responder retry behavior, and extra health checks
+- `server.log` defaults to the package server logger; set it to `false` to
+  disable runtime logging or provide a pino-compatible logger to use your own
 - mounted RPC handlers should rely on Trellis-provided payload typing and
   validation rather than re-parsing the mounted payload just to recover types
-- mounted RPC handlers may be synchronous when they do not need `await`
-- mounted RPC handlers may return declared local `TrellisError` subclasses
-  directly when those errors are listed in the contract RPC `errors: [...]`
 - extracted service RPC handler aliases should come from
   `@qlever-llc/trellis/server` so the third parameter includes service-only
   helpers such as `transfer`
+- mounted RPC handlers may be synchronous when they do not need `await`
+- mounted RPC handlers may return declared local `TrellisError` subclasses
+  directly when those errors are listed in the contract RPC `errors: [...]`
 - service-local transportable RPC errors should be declared in the contract's
   top-level `errors` map through `defineError(MyErrorClass)` rather than by
   overloading shared built-in errors for domain-specific failures
@@ -186,8 +191,8 @@ Rules:
 
 Behavior:
 
-- `TrellisService.connect(...)` performs bootstrap, NATS connection, auth
-  handshake, contract verification, and eager binding resolution
+- `TrellisService.connect(...)` performs bootstrap, auth handshake, contract
+  verification, runtime connection setup, and eager binding resolution
 - if the contract is not installed, startup fails immediately
 - resource handles such as `service.kv.*` and `service.store.*` resolve during
   bootstrap and are opened explicitly by service code before use

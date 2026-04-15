@@ -537,7 +537,7 @@ Rules:
 - device activation helpers own proof construction and payload encoding; app code should not reimplement those byte layouts locally
 - `TrellisDevice.connect(...)` SHOULD mirror the service-style "connect and return a ready runtime" pattern rather than forcing application code to orchestrate the full activation state machine itself
 - `TrellisDevice.connect(...)` accepts `rootSecret` directly as bytes or a string form; it does not generate or persist secrets on behalf of the application
-- `TrellisDevice.connect(...)` SHOULD fetch current connect info on startup rather than persisting transport details across restarts
+- `TrellisDevice.connect(...)` SHOULD fetch current connect info on startup rather than persisting stale connect info across restarts
 - `onActivationRequired(...)` is the integration hook for local displays, local web UIs, CLIs, and other device-local activation UX
 
 ### Minimal activated device example

@@ -29,7 +29,6 @@ import {
 } from "@qlever-llc/trellis/contracts";
 import type { TrellisAPI } from "@qlever-llc/trellis/contracts";
 import { type BaseError, isErr, type Result } from "@qlever-llc/result";
-import type { Logger } from "pino";
 import { type TSchema, Type } from "typebox";
 import { Value } from "typebox/value";
 import type { HealthCheckFn } from "./health.ts";
@@ -51,8 +50,10 @@ import type {
   TrellisServiceRuntimeDeps,
 } from "./runtime.ts";
 import { ServiceTransfer } from "./transfer.ts";
+import { logger as noopLogger, type LoggerLike } from "../trellis/globals.ts";
 import { loadDefaultRuntimeTransport } from "../trellis/runtime_transport.ts";
 import { selectRuntimeTransportServers } from "../trellis/runtime_transport.ts";
+import { serverLogger } from "../trellis/server_logger.ts";
 
 type ExtraNatsConnectOpts = Omit<
   NatsConnectOpts,
@@ -114,7 +115,7 @@ type TrellisServerCreateOpts<
   TOwnedApi extends TrellisAPI,
   TTrellisApi extends TrellisAPI = TOwnedApi,
 > = {
-  log?: Logger;
+  log?: LoggerLike | false;
   timeout?: number;
   stream?: string;
   noResponderRetry?: { maxAttempts?: number; baseDelayMs?: number };
@@ -123,6 +124,22 @@ type TrellisServerCreateOpts<
   version?: string;
   healthChecks?: Record<string, HealthCheckFn>;
 };
+
+export type TrellisServiceServerOpts = {
+  log?: LoggerLike | false;
+  timeout?: number;
+  stream?: string;
+  noResponderRetry?: { maxAttempts?: number; baseDelayMs?: number };
+  healthChecks?: Record<string, HealthCheckFn>;
+};
+
+function resolveServiceLogger(log?: LoggerLike | false): LoggerLike {
+  if (log === false) {
+    return noopLogger;
+  }
+
+  return log ?? serverLogger;
+}
 
 export type ResourceBindingKV = {
   bucket: string;
@@ -356,10 +373,7 @@ export type TrellisServiceConnectOpts<
   contract: ServiceContract<TOwnedApi, TTrellisApi>;
   name: string;
   sessionKeySeed: string;
-  server?: Omit<
-    TrellisServerCreateOpts<TOwnedApi, TTrellisApi>,
-    "api" | "trellisApi"
-  >;
+  server?: TrellisServiceServerOpts;
 };
 
 export type ServiceTrellis<
@@ -446,13 +460,7 @@ export type TrellisServiceConnectArgs<
   contract: TContract;
   name: string;
   sessionKeySeed: string;
-  server?: Omit<
-    TrellisServerCreateOpts<
-      ContractOwnedApi<TContract>,
-      ContractTrellisApi<TContract>
-    >,
-    "api" | "trellisApi"
-  >;
+  server?: TrellisServiceServerOpts;
 };
 
 export type TrellisServiceInternalConnectArgs<
@@ -473,11 +481,15 @@ async function createConnectedService<
   server: TrellisServerCreateOpts<TOwnedApi, TTrellisApi>;
   bindings: ResourceBindings;
 }): Promise<TrellisService<TOwnedApi, TTrellisApi>> {
+  const resolvedLog = resolveServiceLogger(args.server.log);
+  const currentApi = (args.server.trellisApi ?? args.server.api) as
+    & TOwnedApi
+    & TTrellisApi;
   const runtimeApi = {
-    ...(args.server.trellisApi ?? args.server.api),
+    ...currentApi,
     rpc: {
       ...trellisAuth.API.owned.rpc,
-      ...(args.server.trellisApi ?? args.server.api).rpc,
+      ...currentApi.rpc,
     },
   } as unknown as TOwnedApi & TTrellisApi;
 
@@ -486,7 +498,7 @@ async function createConnectedService<
     args.nc,
     { sessionKey: args.auth.sessionKey, sign: args.auth.sign },
     {
-      log: args.server.log,
+      log: resolvedLog,
       timeout: args.server.timeout,
       stream: args.server.stream,
       noResponderRetry: args.server.noResponderRetry,
@@ -500,7 +512,7 @@ async function createConnectedService<
     args.nc,
     { sessionKey: args.auth.sessionKey, sign: args.auth.sign },
     {
-      log: args.server.log,
+      log: resolvedLog,
       timeout: args.server.timeout,
       stream: args.server.stream,
       noResponderRetry: args.server.noResponderRetry,
@@ -559,7 +571,7 @@ async function createConnectedService<
       ) =>
         (server as unknown as TrellisServer).mount(
           method as string,
-          async (input, context) =>
+          async (input: unknown, context: RpcHandlerContext) =>
             await Promise.resolve(
               fn(
                 input as RpcMethodInput<TOwnedApi, M>,
@@ -748,6 +760,7 @@ export class TrellisService<
     let bindings: ResourceBindings = { kv: {}, store: {}, streams: {} };
 
     if (opts.contractId && opts.contractDigest) {
+      const resolvedLog = resolveServiceLogger(opts.server.log);
       const runtimeApi = (opts.server.trellisApi ?? opts.server.api) as
         & TOwnedApi
         & TTrellisApi;
@@ -756,7 +769,7 @@ export class TrellisService<
         nc,
         { sessionKey: auth.sessionKey, sign: auth.sign },
         {
-          log: opts.server.log,
+          log: resolvedLog,
           timeout: opts.server.timeout,
           stream: opts.server.stream,
           noResponderRetry: opts.server.noResponderRetry,

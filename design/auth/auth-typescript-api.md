@@ -346,7 +346,7 @@ Rules:
   repeated raw string `requestOrThrow(...)` calls and manual plumbing
 - `TrellisDevice.connect(...)` is the intended high-level runtime entrypoint; it SHOULD behave more like `TrellisService.connect(...)` than a caller-managed activation state machine
 - `TrellisDevice.connect(...)` accepts `rootSecret` directly as bytes or a string form; storage/loading policy belongs to the application, not the helper
-- `TrellisDevice.connect(...)` SHOULD fetch connect info on startup rather than persisting transport details across restarts
+- `TrellisDevice.connect(...)` SHOULD fetch connect info on startup rather than persisting stale connect info across restarts
 - `onActivationRequired(...)` is the hook for local displays, local setup web UIs, CLIs, and other device-local activation UX
 - the helper layer MUST remain a thin wrapper over the canonical wire surfaces
   defined in `auth-api.md` and `device-activation.md`

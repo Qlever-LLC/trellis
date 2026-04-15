@@ -27,12 +27,16 @@ Every service exposes:
 Health example:
 
 ```ts
-const server = await TrellisServer.connect("graph", {
-  auth,
-  natsServers: config.client.natsServers,
-  log,
-  healthChecks: {
-    db: () => db.ping(),
+const service = await TrellisService.connect({
+  trellisUrl: config.trellisUrl,
+  contract: graph,
+  name: "graph",
+  sessionKeySeed: config.sessionKeySeed,
+  server: {
+    log,
+    healthChecks: {
+      db: () => db.ping(),
+    },
   },
 });
 ```
@@ -40,7 +44,7 @@ const server = await TrellisServer.connect("graph", {
 Stats example:
 
 ```ts
-server.mount("Graph.Stats", async () => {
+await service.trellis.mount("Graph.Stats", async () => {
   return Result.ok({
     users: { count: await db.countUsers() },
     partners: { count: await db.countPartners() },
@@ -64,7 +68,7 @@ Skip JSDoc for private helpers when the code is self-evident and for tests.
 
 ## Tracing
 
-`TrellisServer.connect()` initializes OpenTelemetry automatically using the service name.
+`TrellisService.connect()` initializes OpenTelemetry automatically using the service name.
 
 Span naming:
 
