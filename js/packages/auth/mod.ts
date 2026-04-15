@@ -136,6 +136,8 @@ export {
   AuthMeSchema,
   AuthProvisionDeviceInstanceResponseSchema,
   AuthProvisionDeviceInstanceSchema,
+  AuthRemoveServiceResponseSchema,
+  AuthRemoveServiceSchema,
   AuthRevokeApprovalResponseSchema,
   AuthRevokeApprovalSchema,
   AuthRevokeDeviceActivationResponseSchema,

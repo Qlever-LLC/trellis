@@ -396,6 +396,24 @@ pub(crate) fn prompt_for_confirmation(prompt: &str) -> miette::Result<bool> {
     Ok(trimmed == "y" || trimmed == "yes")
 }
 
+pub(crate) fn resolve_service_key_identity(
+    service_key: Option<&str>,
+    seed: Option<&str>,
+) -> miette::Result<String> {
+    miette::ensure!(
+        !(seed.is_some() && service_key.is_some()),
+        "pass only one of --seed or --service-key"
+    );
+    if let Some(seed) = seed {
+        let auth = SessionAuth::from_seed_base64url(seed).into_diagnostic()?;
+        return Ok(auth.session_key);
+    }
+    if let Some(service_key) = service_key {
+        return Ok(service_key.to_string());
+    }
+    Err(miette::miette!("pass --service-key or --seed"))
+}
+
 pub(crate) fn try_open_browser(url: &str) {
     let _ = if cfg!(target_os = "macos") {
         Command::new("open").arg(url).status()
@@ -411,16 +429,10 @@ pub(crate) fn resolve_upgrade_service_key(
     services: &[authlib::ServiceListEntry],
     contract_id: &str,
 ) -> miette::Result<String> {
-    miette::ensure!(
-        !(args.seed.is_some() && args.service_key.is_some()),
-        "pass only one of --seed or --service-key"
-    );
-    if let Some(seed) = &args.seed {
-        let auth = SessionAuth::from_seed_base64url(seed).into_diagnostic()?;
-        return Ok(auth.session_key);
-    }
-    if let Some(service_key) = &args.service_key {
-        return Ok(service_key.clone());
+    match resolve_service_key_identity(args.service_key.as_deref(), args.seed.as_deref()) {
+        Ok(service_key) => return Ok(service_key),
+        Err(error) if args.service_key.is_some() || args.seed.is_some() => return Err(error),
+        Err(_) => {}
     }
 
     let matches: Vec<&authlib::ServiceListEntry> = services
@@ -501,7 +513,10 @@ pub(crate) async fn resolve_contract_lineage_id(
 
     let core_client = core_client::CoreClient::new(connected);
     let catalog = core_client.catalog().await.into_diagnostic()?.catalog;
-    let exists = catalog.contracts.into_iter().any(|entry| entry.id == contract);
+    let exists = catalog
+        .contracts
+        .into_iter()
+        .any(|entry| entry.id == contract);
 
     miette::ensure!(exists, "no active contract found for id '{contract}'");
     Ok(contract.to_string())

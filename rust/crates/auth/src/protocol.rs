@@ -254,16 +254,40 @@ pub struct AuthUpgradeServiceContractResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// Request payload for `Auth.RemoveService`.
+pub struct AuthRemoveServiceRequest {
+    #[serde(rename = "sessionKey")]
+    pub session_key: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// Response payload for `Auth.RemoveService`.
+pub struct AuthRemoveServiceResponse {
+    pub success: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 /// Request payload for `Auth.GetInstalledContract`.
 pub struct AuthGetInstalledContractRequest {
     pub digest: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-/// Contract summary returned by `Auth.GetInstalledContract`.
+#[serde(rename_all = "camelCase")]
+/// Contract detail returned by `Auth.GetInstalledContract`.
 pub struct AuthGetInstalledContractResponseContract {
     pub digest: String,
     pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub installed_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub contract: Option<BTreeMap<String, Value>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

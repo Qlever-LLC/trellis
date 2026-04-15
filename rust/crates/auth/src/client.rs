@@ -1,10 +1,10 @@
 use crate::{
     save_admin_session, AdminSessionState, ApprovalEntryRecord, AuthGetInstalledContractRequest,
-    AuthGetInstalledContractResponse, AuthInstallServiceRequest, AuthUpgradeServiceContractRequest,
-    AuthValidateRequestRequest, AuthValidateRequestResponse, AuthenticatedUser, BoundSession,
-    ClientTransportsRecord, DisableInstanceGrantPolicyRequest, InstanceGrantPolicyRecord,
-    ListApprovalsRequest, RenewBindingTokenResponse, RevokeApprovalRequest, ServiceListEntry,
-    TrellisAuthError, UpsertInstanceGrantPolicyRequest,
+    AuthGetInstalledContractResponse, AuthInstallServiceRequest, AuthRemoveServiceRequest,
+    AuthUpgradeServiceContractRequest, AuthValidateRequestRequest, AuthValidateRequestResponse,
+    AuthenticatedUser, BoundSession, ClientTransportsRecord, DisableInstanceGrantPolicyRequest,
+    InstanceGrantPolicyRecord, ListApprovalsRequest, RenewBindingTokenResponse,
+    RevokeApprovalRequest, ServiceListEntry, TrellisAuthError, UpsertInstanceGrantPolicyRequest,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 use trellis_client::{TrellisClient, UserConnectOptions};
 
 use crate::protocol::{
-    AuthInstallServiceResponse, AuthUpgradeServiceContractResponse,
+    AuthInstallServiceResponse, AuthRemoveServiceResponse, AuthUpgradeServiceContractResponse,
     DisableInstanceGrantPolicyResponse, ListApprovalsResponse, ListInstanceGrantPoliciesResponse,
     ListServicesResponse, LogoutResponse, MeResponse, RevokeApprovalResponse,
     UpsertInstanceGrantPolicyResponse,
@@ -742,6 +742,17 @@ impl<'a> AuthClient<'a> {
         input: &AuthUpgradeServiceContractRequest,
     ) -> Result<AuthUpgradeServiceContractResponse, TrellisAuthError> {
         self.call("rpc.v1.Auth.UpgradeServiceContract", input).await
+    }
+
+    /// Remove one installed service remotely.
+    pub async fn remove_service(
+        &self,
+        input: &AuthRemoveServiceRequest,
+    ) -> Result<bool, TrellisAuthError> {
+        Ok(self
+            .call::<_, AuthRemoveServiceResponse>("rpc.v1.Auth.RemoveService", input)
+            .await?
+            .success)
     }
 
     /// Fetch one installed contract by digest.

@@ -218,3 +218,33 @@ fn service_install_help_does_not_treat_modifiers_as_primary_inputs() {
     assert!(!stdout.contains("|--source-export <SOURCE_EXPORT>|"));
     assert!(!stdout.contains("|--image-contract-path <IMAGE_CONTRACT_PATH>|"));
 }
+
+#[test]
+fn service_remove_help_shows_identity_flags_only() {
+    let output = run_cli(&["service", "remove", "--help"]);
+    assert!(
+        output.status.success(),
+        "service remove help should succeed"
+    );
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    assert!(stdout.contains("--service-key <SERVICE_KEY>"));
+    assert!(stdout.contains("--seed <SEED>"));
+    assert!(!stdout.contains("--manifest <CONTRACT_JSON>"));
+    assert!(!stdout.contains("--source <CONTRACT_SOURCE>"));
+    assert!(!stdout.contains("--image <OCI_IMAGE>"));
+}
+
+#[test]
+fn service_roll_key_help_shows_identity_flags_only() {
+    let output = run_cli(&["service", "roll-key", "--help"]);
+    assert!(
+        output.status.success(),
+        "service roll-key help should succeed"
+    );
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    assert!(stdout.contains("--service-key <SERVICE_KEY>"));
+    assert!(stdout.contains("--seed <SEED>"));
+    assert!(!stdout.contains("--manifest <CONTRACT_JSON>"));
+    assert!(!stdout.contains("--source <CONTRACT_SOURCE>"));
+    assert!(!stdout.contains("--image <OCI_IMAGE>"));
+}

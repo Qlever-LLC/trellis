@@ -16,7 +16,7 @@ Deno.test("normalizeDigestList preserves order and removes duplicates", () => {
   assertEquals(normalizeDigestList(["b", "a", "b", "c", "a"]), ["b", "a", "c"]);
 });
 
-Deno.test("auth contract exposes only portal selection and device admin RPCs", () => {
+Deno.test("auth contract exposes service, portal, and device admin RPCs", () => {
   const methods = Object.keys(TRELLIS_AUTH_RPC);
   assert(methods.includes("Auth.CreatePortal"));
   assert(methods.includes("Auth.ListPortals"));
@@ -46,6 +46,7 @@ Deno.test("auth contract exposes only portal selection and device admin RPCs", (
   assert(methods.includes("Auth.RevokeDeviceActivation"));
   assert(methods.includes("Auth.ListDeviceActivationReviews"));
   assert(methods.includes("Auth.DecideDeviceActivationReview"));
+  assert(methods.includes("Auth.RemoveService"));
   assert(!methods.includes("Auth.CreatePortalRoute"));
   assert(!methods.includes("Auth.ListPortalRoutes"));
   assert(!methods.includes("Auth.DisablePortalRoute"));

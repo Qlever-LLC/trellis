@@ -14,6 +14,8 @@ pub struct ServiceCommand {
 pub enum ServiceSubcommand {
     List,
     Install(ServiceInstallArgs),
+    Remove(ServiceRemoveArgs),
+    RollKey(ServiceRollKeyArgs),
     Upgrade(ServiceUpgradeArgs),
 }
 
@@ -42,7 +44,7 @@ pub struct ContractInputArgs {
     pub image: Option<String>,
 
     #[arg(long, default_value = "CONTRACT")]
-    /// Export name to read when resolving a contract from source code.
+    /// Rust constant name to read when resolving a contract from Rust source code.
     pub source_export: String,
 
     #[arg(long, default_value = "/trellis/contract.json")]
@@ -99,5 +101,51 @@ pub struct ServiceUpgradeArgs {
 
     #[arg(short = 'f', long)]
     /// Skip the interactive upgrade review prompt.
+    pub force: bool,
+}
+
+#[derive(Debug, Args, Clone)]
+#[command(group(
+    ArgGroup::new("service-identity")
+        .args(["service_key", "seed"])
+        .required(true)
+        .multiple(false)
+))]
+/// One concrete way to identify an installed service principal.
+pub struct ServiceIdentityArgs {
+    #[arg(long)]
+    /// Existing public service key.
+    pub service_key: Option<String>,
+
+    #[arg(long)]
+    /// Existing service seed whose public key identifies the target service.
+    pub seed: Option<String>,
+}
+
+#[derive(Debug, Args)]
+#[command(
+    after_help = "Examples:\n  trellis service remove --service-key <session-key>\n  trellis service remove --seed <seed>"
+)]
+/// Remove one installed service principal.
+pub struct ServiceRemoveArgs {
+    #[command(flatten)]
+    pub target: ServiceIdentityArgs,
+
+    #[arg(short = 'f', long)]
+    /// Skip the interactive removal review prompt.
+    pub force: bool,
+}
+
+#[derive(Debug, Args)]
+#[command(
+    after_help = "Examples:\n  trellis service roll-key --service-key <session-key>\n  trellis service roll-key --seed <seed>"
+)]
+/// Install a replacement service key for one existing service and remove the old key.
+pub struct ServiceRollKeyArgs {
+    #[command(flatten)]
+    pub target: ServiceIdentityArgs,
+
+    #[arg(short = 'f', long)]
+    /// Skip the interactive roll-key review prompt.
     pub force: bool,
 }

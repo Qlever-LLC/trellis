@@ -50,6 +50,11 @@ fn installed_contract_response(id: &str, digest: &str) -> AuthGetInstalledContra
         contract: AuthGetInstalledContractResponseContract {
             digest: digest.to_string(),
             id: id.to_string(),
+            display_name: None,
+            description: None,
+            session_key: None,
+            installed_at: None,
+            contract: None,
         },
     }
 }

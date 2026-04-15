@@ -27,9 +27,10 @@ pub use models::{
 pub use protocol::{
     ApprovalEntryRecord, ApprovalScopeRecord, AuthGetInstalledContractRequest,
     AuthGetInstalledContractResponse, AuthGetInstalledContractResponseContract,
-    AuthInstallServiceRequest, AuthInstallServiceResponse, AuthUpgradeServiceContractRequest,
-    AuthUpgradeServiceContractResponse, AuthValidateRequestRequest, AuthValidateRequestResponse,
-    AuthenticatedUser, ClientTransportRecord, ClientTransportsRecord,
+    AuthInstallServiceRequest, AuthInstallServiceResponse, AuthRemoveServiceRequest,
+    AuthRemoveServiceResponse, AuthUpgradeServiceContractRequest,
+    AuthUpgradeServiceContractResponse, AuthValidateRequestRequest,
+    AuthValidateRequestResponse, AuthenticatedUser, ClientTransportRecord, ClientTransportsRecord,
     DisableInstanceGrantPolicyRequest, InstanceGrantPolicyActorRecord, InstanceGrantPolicyRecord,
     InstanceGrantPolicySourceRecord, ListApprovalsRequest, RenewBindingTokenResponse,
     RevokeApprovalRequest, SentinelCredsRecord, ServiceListEntry, UpsertInstanceGrantPolicyRequest,

@@ -1,8 +1,26 @@
 import { UnexpectedError, ValidationError } from "@qlever-llc/trellis";
-import { isErr, Result } from "@qlever-llc/result";
+import { isErr, Result, type BaseError } from "@qlever-llc/result";
 
-import { logger, servicesKV } from "../bootstrap/globals.ts";
+import {
+  connectionsKV,
+  contractsKV,
+  logger,
+  servicesKV,
+  sessionKV,
+  trellis,
+} from "../bootstrap/globals.ts";
 import type { ContractResourceBindings } from "./resources.ts";
+import type {
+  Connection,
+  ContractRecord,
+  ServiceRegistryEntry,
+  Session,
+} from "../state/schemas.ts";
+import {
+  createAuthRemoveServiceHandler as createInjectedAuthRemoveServiceHandler,
+  type KVLike as RemoveKVLike,
+  type RpcUser,
+} from "./remove_service.ts";
 
 type ServiceLike = {
   displayName: string;
@@ -28,6 +46,35 @@ type ServiceRow = {
   resourceBindings?: ServiceLike["resourceBindings"];
   createdAt: string;
 };
+
+type KVLike<V> = {
+  get: (key: string) => Promise<Result<{ value: V }, BaseError>>;
+  put: (key: string, value: V) => Promise<Result<void, BaseError>>;
+  delete: (key: string) => Promise<Result<void, BaseError>>;
+  keys: (filter: string) => Promise<Result<AsyncIterable<string>, BaseError>>;
+};
+
+type CreateKVLike<V> = KVLike<V> & {
+  create: (key: string, value: V) => Promise<Result<void, BaseError>>;
+};
+
+async function publishSessionRevoked(
+  session: Session,
+  sessionKey: string,
+  revokedBy: string,
+): Promise<void> {
+  if (session.type === "device") {
+    return;
+  }
+  (await trellis.publish("Auth.SessionRevoked", {
+    origin: session.origin,
+    id: session.id,
+    sessionKey,
+    revokedBy,
+  })).inspectErr((error) =>
+    logger.warn({ error }, "Failed to publish Auth.SessionRevoked")
+  );
+}
 
 export const authListServicesHandler = async () => {
   logger.trace({ rpc: "Auth.ListServices" }, "RPC request");
@@ -60,6 +107,7 @@ export const authListServicesHandler = async () => {
 
 export function createAuthInstallServiceHandler(
   deps: {
+    servicesKV?: CreateKVLike<ServiceRegistryEntry>;
     refreshActiveContracts: () => Promise<void>;
     prepareInstalledContract: (opts: {
       serviceSessionKey: string;
@@ -92,7 +140,9 @@ export function createAuthInstallServiceHandler(
       displayName: req.displayName,
     }, "RPC request");
 
-    const existing = (await servicesKV.get(req.sessionKey)).take();
+    const serviceStore = deps.servicesKV ?? servicesKV;
+
+    const existing = (await serviceStore.get(req.sessionKey)).take();
     if (!isErr(existing)) {
       return Result.err(
         new ValidationError({
@@ -127,7 +177,7 @@ export function createAuthInstallServiceHandler(
 
     const now = new Date();
     const created = (
-      await servicesKV.create(
+      await serviceStore.create(
         req.sessionKey,
         {
           displayName: req.displayName,
@@ -169,6 +219,7 @@ export function createAuthInstallServiceHandler(
 
 export function createAuthUpgradeServiceContractHandler(
   deps: {
+    servicesKV?: KVLike<ServiceRegistryEntry>;
     refreshActiveContracts: () => Promise<void>;
     prepareInstalledContract: (opts: {
       serviceSessionKey: string;
@@ -193,7 +244,8 @@ export function createAuthUpgradeServiceContractHandler(
       caller,
       sessionKey: req.sessionKey,
     }, "RPC request");
-    const entry = (await servicesKV.get(req.sessionKey)).take();
+    const serviceStore = deps.servicesKV ?? servicesKV;
+    const entry = (await serviceStore.get(req.sessionKey)).take();
     if (isErr(entry)) {
       return Result.err(
         new ValidationError({
@@ -225,7 +277,7 @@ export function createAuthUpgradeServiceContractHandler(
     }
 
     const put = (
-      await servicesKV.put(req.sessionKey, {
+      await serviceStore.put(req.sessionKey, {
         ...entry.value,
         capabilities: installed.capabilities,
         contractId: installed.id,
@@ -245,5 +297,38 @@ export function createAuthUpgradeServiceContractHandler(
       contractDigest: installed.digest,
       resourceBindings: installed.resourceBindings,
     });
+  };
+}
+
+export function createAuthRemoveServiceHandler(deps: {
+  refreshActiveContracts: () => Promise<void>;
+  kick: (serverId: string, clientId: number) => Promise<void>;
+  servicesKV?: RemoveKVLike<ServiceRegistryEntry>;
+  sessionKV?: RemoveKVLike<Session>;
+  connectionsKV?: RemoveKVLike<Connection>;
+  contractsKV?: RemoveKVLike<ContractRecord>;
+  publishSessionRevoked?: (
+    session: Session,
+    sessionKey: string,
+    revokedBy: string,
+  ) => Promise<void>;
+}) {
+  const handler = createInjectedAuthRemoveServiceHandler({
+    refreshActiveContracts: deps.refreshActiveContracts,
+    kick: deps.kick,
+    servicesKV: deps.servicesKV ?? servicesKV,
+    sessionKV: deps.sessionKV ?? sessionKV,
+    connectionsKV: deps.connectionsKV ?? connectionsKV,
+    contractsKV: deps.contractsKV ?? contractsKV,
+    publishSessionRevoked: deps.publishSessionRevoked ?? publishSessionRevoked,
+  });
+
+  return async (req: { sessionKey: string }, context: { caller: RpcUser }) => {
+    logger.trace({
+      rpc: "Auth.RemoveService",
+      caller: context.caller,
+      sessionKey: req.sessionKey,
+    }, "RPC request");
+    return handler(req, context);
   };
 }
