@@ -240,6 +240,7 @@ Deno.test("Auth.Me falls back to validated caller context for user sessions", as
     sessionKey: "missing",
     caller: {
       type: "user",
+      trellisId: "tid_123",
       id: "123",
       origin: "github",
       active: true,

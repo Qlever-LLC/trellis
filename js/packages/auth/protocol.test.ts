@@ -137,6 +137,7 @@ Deno.test("AuthValidateRequestResponseSchema validates device caller variants", 
     inboxPrefix: "_INBOX.session",
     caller: {
       type: "user",
+      trellisId: "tid_123",
       id: "123",
       origin: "github",
       active: true,

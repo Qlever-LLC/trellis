@@ -45,6 +45,7 @@ type AuthMeResponse = {
 
 type SessionCaller = {
   type: string;
+  trellisId?: string;
   id?: string;
   origin?: string;
   email?: string;

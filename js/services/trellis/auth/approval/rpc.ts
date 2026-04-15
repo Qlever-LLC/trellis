@@ -13,6 +13,7 @@ import type { Connection, ContractApprovalRecord, Session } from "../../state/sc
 
 type RpcUser = {
   type: string;
+  trellisId: string;
   origin: string;
   id: string;
   capabilities?: string[];
@@ -37,15 +38,17 @@ function isAdmin(user: RpcUser): boolean {
 
 function requireUserCaller(caller: {
   type: string;
+  trellisId?: string;
   origin?: string;
   id?: string;
   capabilities?: string[];
 }): RpcUser {
-  if (caller.type !== "user" || !caller.origin || !caller.id) {
+  if (caller.type !== "user" || !caller.trellisId || !caller.origin || !caller.id) {
     throw new AuthError({ reason: "insufficient_permissions" });
   }
   return {
     type: "user",
+    trellisId: caller.trellisId,
     origin: caller.origin,
     id: caller.id,
     capabilities: caller.capabilities,
@@ -60,7 +63,7 @@ async function resolveTargetUser(
 }> {
   if (!reqUser) {
     return {
-      trellisId: await trellisIdFromOriginId(caller.origin, caller.id),
+      trellisId: caller.trellisId,
     };
   }
 
@@ -116,7 +119,7 @@ async function revokeApprovalSessions(
 
 export const authListApprovalsHandler = async (
   req: ListApprovalsRequest,
-  { caller }: { caller: { type: string; origin?: string; id?: string; capabilities?: string[] } },
+  { caller }: { caller: { type: string; trellisId?: string; origin?: string; id?: string; capabilities?: string[] } },
 ) => {
   const user = requireUserCaller(caller);
   logger.trace(
@@ -132,7 +135,7 @@ export const authListApprovalsHandler = async (
   try {
     const callerTrellisId = isAdmin(user)
       ? null
-      : await trellisIdFromOriginId(user.origin, user.id);
+      : user.trellisId;
     const approvals = [] as Array<{
       user: string;
       answer: "approved" | "denied";
@@ -202,7 +205,7 @@ export function createAuthRevokeApprovalHandler(opts: {
 }) {
   return async (
     req: RevokeApprovalRequest,
-    { caller }: { caller: { type: string; origin?: string; id?: string; capabilities?: string[] } },
+    { caller }: { caller: { type: string; trellisId?: string; origin?: string; id?: string; capabilities?: string[] } },
   ) => {
     const user = requireUserCaller(caller);
     logger.trace({

@@ -501,6 +501,7 @@ Response:
 type CallerView =
   | {
     type: "user";
+    trellisId: string;
     id: string;
     origin: string;
     email: string;

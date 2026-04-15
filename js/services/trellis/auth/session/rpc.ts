@@ -99,6 +99,7 @@ function deviceTypeFromProfileId(profileId: string): string {
 }
 
 type SessionUser = {
+  trellisId: string;
   id: string;
   origin: string;
   email: string;
@@ -112,6 +113,7 @@ type SessionUser = {
 type SessionContext = {
   caller: {
     type: string;
+    trellisId?: string;
     id?: string;
     origin?: string;
     email?: string;
@@ -180,6 +182,7 @@ function sessionActorKey(
 function requireUserCaller(caller: SessionContext["caller"]): SessionUser {
   if (
     caller.type !== "user" ||
+    !caller.trellisId ||
     !caller.id ||
     !caller.origin ||
     !caller.email ||
@@ -189,6 +192,7 @@ function requireUserCaller(caller: SessionContext["caller"]): SessionUser {
     throw new AuthError({ reason: "insufficient_permissions" });
   }
   return {
+    trellisId: caller.trellisId,
     id: caller.id,
     origin: caller.origin,
     email: caller.email,
@@ -233,6 +237,7 @@ function formatCaller(
 
   return {
     type: "user" as const,
+    trellisId: session.trellisId,
     id: session.id,
     origin: session.origin,
     active: principal.active,
@@ -739,12 +744,11 @@ export const authLogoutHandler = async (
     { rpc: "Auth.Logout", sessionKey, userId: user.id },
     "RPC request",
   );
-  const trellisId = await trellisIdFromOriginId(user.origin, user.id);
-  const sessionKeyId = `${sessionKey}.${trellisId}`;
+  const sessionKeyId = `${sessionKey}.${user.trellisId}`;
 
   await sessionKV.delete(sessionKeyId);
 
-  const connKeys = (await connectionsKV.keys(`${sessionKey}.${trellisId}.>`))
+  const connKeys = (await connectionsKV.keys(`${sessionKey}.${user.trellisId}.>`))
     .take();
   if (!isErr(connKeys)) {
     for await (const key of connKeys) {
@@ -774,8 +778,7 @@ export function createAuthRenewBindingTokenHandler(opts: {
       { rpc: "Auth.RenewBindingToken", sessionKey, userId: user.id },
       "RPC request",
     );
-    const trellisId = await trellisIdFromOriginId(user.origin, user.id);
-    const sessionKeyId = `${sessionKey}.${trellisId}`;
+    const sessionKeyId = `${sessionKey}.${user.trellisId}`;
 
     const session = (await sessionKV.get(sessionKeyId)).take();
     if (isErr(session)) {

@@ -348,6 +348,7 @@ export type AuthMeResponse = StaticDecode<typeof AuthMeResponseSchema>;
 export const CallerViewSchema = Type.Union([
   Type.Object({
     type: Type.Literal("user"),
+    trellisId: Type.String(),
     id: Type.String(),
     origin: Type.String(),
     active: Type.Boolean(),

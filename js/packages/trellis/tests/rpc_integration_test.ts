@@ -66,6 +66,7 @@ async function createTestAuth(): Promise<
 }
 
 const TEST_USER = {
+  trellisId: "test-trellis-id",
   id: "test-user-123",
   origin: "test",
   active: true,
@@ -482,7 +483,7 @@ Deno.test({
         { name: "client" },
       );
       const response = await waitFor<
-        { caller: { id?: string; deviceId?: string } }
+        { caller: { trellisId?: string; id?: string; deviceId?: string } }
       >(async () => {
         const r = await client.request(
           "Auth.ValidateRequest",
@@ -502,6 +503,7 @@ Deno.test({
         allowed: boolean;
         caller: {
           type: string;
+          trellisId?: string;
           id?: string;
           deviceId?: string;
           origin?: string;
@@ -512,7 +514,9 @@ Deno.test({
       assertEquals(response.allowed, true);
       assertExists(response.caller);
       assertEquals(response.caller.type, "user");
+      assertExists(response.caller.trellisId);
       assertExists(response.caller.id);
+      assertEquals(response.caller.trellisId, TEST_USER.trellisId);
       assertEquals(response.caller.id, TEST_USER.id);
       assertEquals(response.caller.origin, TEST_USER.origin);
       assertEquals(response.caller.email, TEST_USER.email);
