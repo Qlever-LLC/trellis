@@ -69,11 +69,11 @@ when available.
 
 ```ts
 import { TrellisClient } from "@qlever-llc/trellis";
-import { defineContract } from "@qlever-llc/trellis/contracts";
+import { defineCliContract } from "@qlever-llc/trellis/contracts";
 import { graph } from "@acme/graph-contract";
 import { auth } from "@qlever-llc/trellis/sdk/auth";
 
-export const cli = defineContract({
+export const cli = defineCliContract(() => ({
   id: "acme.graph-cli@v1",
   displayName: "Graph CLI",
   description: "Query the graph service and inspect auth state.",
@@ -81,7 +81,7 @@ export const cli = defineContract({
     auth: auth.useDefaults(),
     graph: graph.use({ rpc: { call: ["Graph.Query"] } }),
   },
-});
+}));
 
 export default cli;
 
@@ -219,9 +219,9 @@ Provides the preferred contract authoring surface plus the full contract-model,
 manifest validation, canonicalization, SDK generation, and documentation export
 surface behind the root package's curated contract re-exports. See:
 
-- contract source files should prefer importing `defineContract(...)` from
-  `@qlever-llc/trellis/contracts` so codegen and manifest verification do not
-  load the runtime package unnecessarily
+- contract source files should prefer importing the specialized contract helper
+  they need from `@qlever-llc/trellis/contracts` so codegen and manifest
+  verification do not load the runtime package unnecessarily
 
 - [../contracts/trellis-contracts-catalog.md](./../contracts/trellis-contracts-catalog.md)
 - [../contracts/contracts-typescript-api.md](./../contracts/contracts-typescript-api.md)

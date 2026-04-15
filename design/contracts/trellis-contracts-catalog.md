@@ -907,10 +907,17 @@ checks.
 SDKs derive from the canonical manifest, not from deployment-specific runtime
 state.
 
-For TypeScript, a normal contract package SHOULD export:
+For TypeScript, distinguish between local contract source files and generated
+SDK packages.
+
+Local TypeScript contract source files under `contracts/*.ts` MUST:
+
+- default export the defined contract module itself
+
+Generated TypeScript SDK packages SHOULD export:
 
 - the defined contract module itself (for example `auth`, `core`, or `activity`)
-- `use` - the dependency selector for `defineContract(...).uses`
+- `use` - the dependency selector for local `uses` declarations
 - `API` - the derived `API.owned`, `API.used`, and `API.trellis` projections
 - request/response/event TypeScript types
 - `CONTRACT`

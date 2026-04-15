@@ -4,7 +4,14 @@ import { Type } from "typebox";
 
 import * as authSdk from "../sdk/auth.ts";
 import type { TrellisCatalogHandler } from "../sdk/core.ts";
-import { defineContract } from "../contracts.ts";
+import {
+  defineAppContract,
+  defineCliContract,
+  defineContract,
+  defineDeviceContract,
+  definePortalContract,
+  defineServiceContract,
+} from "../contracts.ts";
 import * as coreSdk from "../sdk/core.ts";
 import * as stateSdk from "../sdk/state.ts";
 import * as serverHealth from "../server/health.ts";
@@ -30,22 +37,32 @@ Deno.test("server and sdk subpaths expose the canonical wrapper API", () => {
 });
 
 Deno.test("contracts subpath defineContract retains contract API projections", () => {
-  const contract = defineContract({
-    id: "example.device@v1",
-    displayName: "Example Device",
-    description: "Example device contract.",
-    kind: "device",
-    schemas: {
-      Ping: Type.Object({ ok: Type.Literal(true) }),
-    },
-    rpc: {
-      "Example.Ping": {
-        version: "v1",
-        input: { schema: "Ping" },
-        output: { schema: "Ping" },
+  assertEquals(typeof defineContract, "function");
+  assertEquals(typeof defineAppContract, "function");
+  assertEquals(typeof definePortalContract, "function");
+  assertEquals(typeof defineCliContract, "function");
+  assertEquals(typeof defineDeviceContract, "function");
+  assertEquals(typeof defineServiceContract, "function");
+
+  const contract = defineServiceContract(
+    {
+      schemas: {
+        Ping: Type.Object({ ok: Type.Literal(true) }),
       },
     },
-  });
+    (ref) => ({
+      id: "example.device@v1",
+      displayName: "Example Device",
+      description: "Example device contract.",
+      rpc: {
+        "Example.Ping": {
+          version: "v1",
+          input: ref.schema("Ping"),
+          output: ref.schema("Ping"),
+        },
+      },
+    }),
+  );
 
   assertEquals(typeof contract.CONTRACT_ID, "string");
   assertEquals(typeof contract.API.trellis.rpc["Example.Ping"].subject, "string");

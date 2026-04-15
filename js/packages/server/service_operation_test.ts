@@ -17,31 +17,35 @@ function base64urlEncode(data: Uint8Array): string {
   return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
 
-const billing = defineContract({
-  id: "trellis.billing.service-operation-test@v1",
-  displayName: "Billing Service Operation Test",
-  description: "Exercise service.operation ergonomics.",
-  kind: "service",
-  schemas: {
-    RefundInput: Type.Object({ chargeId: Type.String() }),
-    RefundProgress: Type.Object({ message: Type.String() }),
-    RefundOutput: Type.Object({ refundId: Type.String() }),
-  },
-  operations: {
-    "Billing.Refund": {
-      version: "v1",
-      input: { schema: "RefundInput" },
-      progress: { schema: "RefundProgress" },
-      output: { schema: "RefundOutput" },
-      capabilities: {
-        call: ["billing.refund"],
-        read: ["billing.read"],
-        cancel: ["billing.cancel"],
-      },
-      cancel: true,
+const billing = defineContract(
+  {
+    schemas: {
+      RefundInput: Type.Object({ chargeId: Type.String() }),
+      RefundProgress: Type.Object({ message: Type.String() }),
+      RefundOutput: Type.Object({ refundId: Type.String() }),
     },
   },
-});
+  (ref) => ({
+    id: "trellis.billing.service-operation-test@v1",
+    displayName: "Billing Service Operation Test",
+    description: "Exercise service.operation ergonomics.",
+    kind: "service",
+    operations: {
+      "Billing.Refund": {
+        version: "v1",
+        input: ref.schema("RefundInput"),
+        progress: ref.schema("RefundProgress"),
+        output: ref.schema("RefundOutput"),
+        capabilities: {
+          call: ["billing.refund"],
+          read: ["billing.read"],
+          cancel: ["billing.cancel"],
+        },
+        cancel: true,
+      },
+    },
+  }),
+);
 
 type RefundInput = InferSchemaType<typeof billing.API.owned.operations["Billing.Refund"]["input"]>;
 const natsConnect: NatsConnectFn = async (opts) => {

@@ -56,9 +56,17 @@ both:
 
 ### 1) Primary authoring API
 
-TypeScript authoring uses one primary public helper:
+TypeScript authoring uses kind-specific public helpers:
 
-- `defineContract(...)`
+- `defineServiceContract(...)`
+- `defineAppContract(...)`
+- `definePortalContract(...)`
+- `defineDeviceContract(...)`
+- `defineCliContract(...)`
+
+`defineContract(...)` remains the lower-level primitive that those helpers build
+on, but docs and normal authored contract modules should use the kind-specific
+helper that matches the participant.
 
 This helper replaces the current public authoring split between:
 
@@ -82,8 +90,8 @@ helpers such as `TrellisClient.connect(...)`, auth helpers, and `Result`.
 Rules:
 
 - `@qlever-llc/trellis/contracts` is the preferred package for contract
-  authoring and broader contract-model helpers, and its `defineContract(...)`
-  return value remains usable anywhere a runtime contract is expected
+  authoring and broader contract-model helpers, and the specialized helper
+  return values remain usable anywhere a runtime contract is expected
 - `@qlever-llc/trellis` is the canonical package for runtime client connection
   helpers
 - `@qlever-llc/trellis/server/node` and `@qlever-llc/trellis/server/deno`
@@ -108,31 +116,62 @@ The required user-facing contract metadata is:
 Example shape:
 
 ```ts
-export const core = defineContract({
-  id: "trellis.core@v1",
-  displayName: "Trellis Core",
-  description: "Expose Trellis-owned RPCs for platform SDK consumers.",
-  kind: "service",
-  schemas: {
-    CatalogRequest: CatalogRequestSchema,
-    CatalogResponse: CatalogResponseSchema,
-  },
-  rpc: {
-    "Trellis.Catalog": {
-      version: "v1",
-      input: { schema: "CatalogRequest" },
-      output: { schema: "CatalogResponse" },
+const schemas = {
+  CatalogRequest: CatalogRequestSchema,
+  CatalogResponse: CatalogResponseSchema,
+} as const;
+
+export const core = defineServiceContract(
+  { schemas },
+  (ref) => ({
+    id: "trellis.core@v1",
+    displayName: "Trellis Core",
+    description: "Expose Trellis-owned RPCs for platform SDK consumers.",
+    rpc: {
+      "Trellis.Catalog": {
+        version: "v1",
+        input: ref.schema("CatalogRequest"),
+        output: ref.schema("CatalogResponse"),
+      },
     },
-  },
-});
+  }),
+);
+
+export default core;
 ```
+
+For locally authored TypeScript contract source files under `contracts/*.ts`:
+
+- the file MUST `default export` the contract helper return value
+- Trellis source loading resolves the default export only for TypeScript
+  contract files
+- services should normally use
+  `defineServiceContract({ schemas, errors }, (ref) => ({ ... }))`
+- apps should normally use `defineAppContract(() => ({ ... }))`
+- portals should normally use `definePortalContract(() => ({ ... }))`
+- devices should normally use `defineDeviceContract(() => ({ ... }))`
+- CLIs should normally use `defineCliContract(() => ({ ... }))`
+- `schemas` and local `errors` act as registries supplied to the contract
+  builder for service contracts, while the callback body defines the owned
+  surfaces, resources, and `uses`
+- app-, portal-, cli-, and device-style contracts do not take schema/error
+  registries today and should normally be `uses`-only participants
+- schema refs should normally use `ref.schema("...")`
+- RPC `errors: [...]` entries should normally use `ref.error("...")` for both
+  local declarations and built-in Trellis RPC errors such as `UnexpectedError`,
+  `ValidationError`, `AuthError`, and `TransferError`
+- authors should not hand-assemble a wrapper object that re-exports
+  `CONTRACT_ID`, `CONTRACT`, `CONTRACT_DIGEST`, and `API` just to satisfy
+  generator tooling
+- one-object `defineContract({ ... })` authoring is removed; do not use or teach
+  that shape
 
 ### 3a) Service-local RPC errors
 
 TypeScript contract authoring also owns service-local transportable RPC errors.
 
 Authors declare them as local `TrellisError` subclasses and register them in the
-top-level `errors` map through `defineError(...)`.
+builder registry `errors` map through `defineError(...)`.
 
 Example shape:
 
@@ -153,28 +192,36 @@ export class NotFoundError extends TrellisError<NotFoundErrorData> {
   // constructor and toSerializable() omitted for brevity
 }
 
-export const krishi = defineContract({
-  id: "dna-cloud.krishi@v1",
-  displayName: "Krishi",
-  description: "Krishi service",
-  kind: "service",
-  schemas: {
-    NotFoundErrorData: NotFoundErrorDataSchema,
-    GetWorkspaceInput: GetWorkspaceInputSchema,
-    Workspace: WorkspaceSchema,
-  },
-  errors: {
-    WorkspaceMissing: defineError(NotFoundError),
-  },
-  rpc: {
-    "Workspace.Get": {
-      version: "v1",
-      input: { schema: "GetWorkspaceInput" },
-      output: { schema: "Workspace" },
-      errors: ["WorkspaceMissing", "ValidationError", "UnexpectedError"],
+const schemas = {
+  NotFoundErrorData: NotFoundErrorDataSchema,
+  GetWorkspaceInput: GetWorkspaceInputSchema,
+  Workspace: WorkspaceSchema,
+} as const;
+
+const errors = {
+  WorkspaceMissing: defineError(NotFoundError),
+} as const;
+
+export const krishi = defineServiceContract(
+  { schemas, errors },
+  (ref) => ({
+    id: "dna-cloud.krishi@v1",
+    displayName: "Krishi",
+    description: "Krishi service",
+    rpc: {
+      "Workspace.Get": {
+        version: "v1",
+        input: ref.schema("GetWorkspaceInput"),
+        output: ref.schema("Workspace"),
+        errors: [
+          ref.error("WorkspaceMissing"),
+          ref.error("ValidationError"),
+          ref.error("UnexpectedError"),
+        ],
+      },
     },
-  },
-});
+  }),
+);
 ```
 
 Rules:
@@ -185,10 +232,10 @@ Rules:
   plain manifest object
 - the class MUST define `static schema` and `static fromSerializable(...)`
 - the class `name` is the wire `type`
-- the top-level `schemas` map remains the source of manifest-emitted schema
-  refs, so the error class schema must also be declared there
-- RPC `errors: [...]` entries still list local declaration keys, which lets one
-  contract choose its own local names even when the wire `type` differs
+- the builder registry `schemas` map remains the source of manifest-emitted
+  schema refs, so the error class schema must also be declared there
+- RPC `errors: [...]` entries should usually be authored through `ref.error(...)`
+  so local declaration keys and built-in Trellis errors share one pattern
 - the emitted manifest remains plain JSON; Trellis attaches JS-only
   reconstruction metadata to the local contract object rather than serializing
   class constructors
@@ -262,7 +309,7 @@ Examples:
 import { TrellisClient } from "@qlever-llc/trellis";
 import { TrellisService } from "@qlever-llc/trellis/server/deno";
 
-export const app = defineContract({ ... });
+export const app = defineAppContract(() => ({ ...appBody }));
 export default app;
 
 const client = await TrellisClient.connect({
@@ -270,7 +317,9 @@ const client = await TrellisClient.connect({
   contract: app,
 });
 
-export const serviceContract = defineContract({ ... });
+export const serviceContract = defineServiceContract(serviceRegistry, (ref) => ({
+  ...serviceBody,
+}));
 export default serviceContract;
 
 const service = await TrellisService.connect({
@@ -300,9 +349,14 @@ Rules:
   helpers like `transfer` rather than repeating `typeof contract.API.owned...`
   in every handler
 - callers do not manually assemble runtime API arrays for normal usage
-- locally authored contracts should normally export the `defineContract(...)`
+- locally authored contracts should normally export the helper result directly
   return value directly; do not wrap it in a handwritten default-export object
   that reassembles `CONTRACT_ID`, `CONTRACT`, `CONTRACT_DIGEST`, and `API`
+- for `contracts/*.ts` source files, that direct export should be the file's
+  default export so prepare/generation can resolve it consistently
+- for contracts that own schemas or local errors, prefer top-level
+  `const schemas = ...`, optional `const errors = ...`, and a
+  `defineServiceContract({ schemas, errors }, (ref) => ({ ... }))` layout
 - Trellis-specific bootstrap exceptions should stay in Trellis platform code and
   use lower-level runtime APIs directly rather than becoming general public
   service helpers
@@ -330,7 +384,8 @@ the canonical API spec.
 
 This document only constrains the architectural direction behind that API:
 
-- `defineContract(...)` remains the one supported public authoring entrypoint
+- kind-specific helpers are the supported public authoring entrypoints for
+  normal local contract modules
 - `@qlever-llc/trellis/contracts` exposes the preferred contract authoring
   helpers used by apps and services while returning contract objects with
   projected API views and manifest metadata
@@ -394,8 +449,8 @@ Expected type behavior:
 
 Implementation should proceed in this order:
 
-1. add the new `defineContract(...)` and shared contract module types in the
-   contract-model layer
+1. add the new specialized contract helpers and shared contract module types in
+   the contract-model layer
 2. expose that surface canonically from `@qlever-llc/trellis`
 3. update TS SDK generation to emit the richer contract module shape with nested
    API views and typed `use(...)`

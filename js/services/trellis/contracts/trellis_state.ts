@@ -1,4 +1,4 @@
-import { defineContract } from "@qlever-llc/trellis/contracts";
+import { defineServiceContract } from "@qlever-llc/trellis/contracts";
 import {
   StateAdminDeleteResponseSchema,
   StateAdminDeleteSchema,
@@ -61,73 +61,71 @@ const schemas = {
   StateAdminDeleteResponse: StateAdminDeleteResponseSchema,
 } as const;
 
-function schemaRef<const TName extends keyof typeof schemas & string>(schema: TName) {
-  return { schema } as const;
-}
-
-export const trellisState = defineContract({
-  id: "trellis.state@v1",
-  displayName: "Trellis State",
-  description: "Trellis-managed app state for authenticated app and device participants.",
-  kind: "service",
-  schemas,
-  rpc: {
-    "State.Get": {
-      version: "v1",
-      input: schemaRef("StateGetRequest"),
-      output: schemaRef("StateGetResponse"),
-      errors: ["AuthError", "ValidationError", "UnexpectedError"],
+export const trellisState = defineServiceContract(
+  { schemas },
+  (ref) => ({
+    id: "trellis.state@v1",
+    displayName: "Trellis State",
+    description: "Trellis-managed app state for authenticated app and device participants.",
+    rpc: {
+      "State.Get": {
+        version: "v1",
+        input: ref.schema("StateGetRequest"),
+        output: ref.schema("StateGetResponse"),
+        errors: [ref.error("AuthError"), ref.error("ValidationError"), ref.error("UnexpectedError")],
+      },
+      "State.Put": {
+        version: "v1",
+        input: ref.schema("StatePutRequest"),
+        output: ref.schema("StatePutResponse"),
+        errors: [ref.error("AuthError"), ref.error("ValidationError"), ref.error("UnexpectedError")],
+      },
+      "State.Delete": {
+        version: "v1",
+        input: ref.schema("StateDeleteRequest"),
+        output: ref.schema("StateDeleteResponse"),
+        errors: [ref.error("AuthError"), ref.error("ValidationError"), ref.error("UnexpectedError")],
+      },
+      "State.CompareAndSet": {
+        version: "v1",
+        input: ref.schema("StateCompareAndSetRequest"),
+        output: ref.schema("StateCompareAndSetResponse"),
+        errors: [ref.error("AuthError"), ref.error("ValidationError"), ref.error("UnexpectedError")],
+      },
+      "State.List": {
+        version: "v1",
+        input: ref.schema("StateListRequest"),
+        output: ref.schema("StateListResponse"),
+        errors: [ref.error("AuthError"), ref.error("ValidationError"), ref.error("UnexpectedError")],
+      },
+      "State.Admin.Get": {
+        version: "v1",
+        input: ref.schema("StateAdminGetRequest"),
+        output: ref.schema("StateAdminGetResponse"),
+        capabilities: { call: ["admin"] },
+        errors: [ref.error("AuthError"), ref.error("ValidationError"), ref.error("UnexpectedError")],
+      },
+      "State.Admin.List": {
+        version: "v1",
+        input: ref.schema("StateAdminListRequest"),
+        output: ref.schema("StateAdminListResponse"),
+        capabilities: { call: ["admin"] },
+        errors: [ref.error("AuthError"), ref.error("ValidationError"), ref.error("UnexpectedError")],
+      },
+      "State.Admin.Delete": {
+        version: "v1",
+        input: ref.schema("StateAdminDeleteRequest"),
+        output: ref.schema("StateAdminDeleteResponse"),
+        capabilities: { call: ["admin"] },
+        errors: [ref.error("AuthError"), ref.error("ValidationError"), ref.error("UnexpectedError")],
+      },
     },
-    "State.Put": {
-      version: "v1",
-      input: schemaRef("StatePutRequest"),
-      output: schemaRef("StatePutResponse"),
-      errors: ["AuthError", "ValidationError", "UnexpectedError"],
-    },
-    "State.Delete": {
-      version: "v1",
-      input: schemaRef("StateDeleteRequest"),
-      output: schemaRef("StateDeleteResponse"),
-      errors: ["AuthError", "ValidationError", "UnexpectedError"],
-    },
-    "State.CompareAndSet": {
-      version: "v1",
-      input: schemaRef("StateCompareAndSetRequest"),
-      output: schemaRef("StateCompareAndSetResponse"),
-      errors: ["AuthError", "ValidationError", "UnexpectedError"],
-    },
-    "State.List": {
-      version: "v1",
-      input: schemaRef("StateListRequest"),
-      output: schemaRef("StateListResponse"),
-      errors: ["AuthError", "ValidationError", "UnexpectedError"],
-    },
-    "State.Admin.Get": {
-      version: "v1",
-      input: schemaRef("StateAdminGetRequest"),
-      output: schemaRef("StateAdminGetResponse"),
-      capabilities: { call: ["admin"] },
-      errors: ["AuthError", "ValidationError", "UnexpectedError"],
-    },
-    "State.Admin.List": {
-      version: "v1",
-      input: schemaRef("StateAdminListRequest"),
-      output: schemaRef("StateAdminListResponse"),
-      capabilities: { call: ["admin"] },
-      errors: ["AuthError", "ValidationError", "UnexpectedError"],
-    },
-    "State.Admin.Delete": {
-      version: "v1",
-      input: schemaRef("StateAdminDeleteRequest"),
-      output: schemaRef("StateAdminDeleteResponse"),
-      capabilities: { call: ["admin"] },
-      errors: ["AuthError", "ValidationError", "UnexpectedError"],
-    },
-  },
-});
+  }),
+);
 
 export const CONTRACT_ID = trellisState.CONTRACT_ID;
 export const CONTRACT = trellisState.CONTRACT;
 export const CONTRACT_DIGEST = trellisState.CONTRACT_DIGEST;
 export const API: typeof trellisState.API = trellisState.API;
 export const use: typeof trellisState.use = trellisState.use;
+export default trellisState;

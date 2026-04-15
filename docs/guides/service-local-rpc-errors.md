@@ -23,7 +23,8 @@ Then:
 1. add the error data schema to the contract `schemas` map
 2. register the class in the contract `errors` map with
    `defineError(MyErrorClass)`
-3. reference the local declaration from RPC `errors: [...]`
+3. reference the local declaration from RPC `errors: [...]`, preferably through
+   `ref.error(...)`
 4. return the error instance from the handler with `err(...)`
 5. handle it on the caller with `instanceof`
 
@@ -32,8 +33,8 @@ Then:
 ```ts
 import Type, { type Static } from "typebox";
 import {
-  defineContract,
   defineError,
+  defineServiceContract,
   err,
   TrellisError,
 } from "@qlever-llc/trellis";
@@ -90,28 +91,38 @@ export class NotFoundError extends TrellisError<NotFoundErrorData> {
   }
 }
 
-export const krishi = defineContract({
-  id: "dna-cloud.krishi@v1",
-  displayName: "Krishi",
-  description: "Krishi service",
-  kind: "service",
-  schemas: {
-    NotFoundErrorData: NotFoundErrorDataSchema,
-    GetWorkspaceInput: GetWorkspaceInputSchema,
-    Workspace: WorkspaceSchema,
-  },
-  errors: {
-    WorkspaceMissing: defineError(NotFoundError),
-  },
-  rpc: {
-    "Workspace.Get": {
-      version: "v1",
-      input: { schema: "GetWorkspaceInput" },
-      output: { schema: "Workspace" },
-      errors: ["WorkspaceMissing", "ValidationError", "UnexpectedError"],
+const schemas = {
+  NotFoundErrorData: NotFoundErrorDataSchema,
+  GetWorkspaceInput: GetWorkspaceInputSchema,
+  Workspace: WorkspaceSchema,
+} as const;
+
+const errors = {
+  WorkspaceMissing: defineError(NotFoundError),
+} as const;
+
+export const krishi = defineServiceContract(
+  { schemas, errors },
+  (ref) => ({
+    id: "dna-cloud.krishi@v1",
+    displayName: "Krishi",
+    description: "Krishi service",
+    rpc: {
+      "Workspace.Get": {
+        version: "v1",
+        input: ref.schema("GetWorkspaceInput"),
+        output: ref.schema("Workspace"),
+        errors: [
+          ref.error("WorkspaceMissing"),
+          ref.error("ValidationError"),
+          ref.error("UnexpectedError"),
+        ],
+      },
     },
-  },
-});
+  }),
+);
+
+export default krishi;
 
 export const getWorkspace = async (input: GetWorkspaceInput) => {
   const workspace = await loadWorkspace(input.workspaceId);
@@ -149,6 +160,12 @@ if (isErr(value)) {
 - the class `static schema` must also appear in the contract `schemas` map
 - the `errors` map key is the local declaration name used by RPC `errors: [...]`
 - the local declaration key does not need to match the wire `type`
+- when this lives in a `contracts/*.ts` source file, the file should default
+  export the defined contract module
+- for new local service contract files, prefer
+  `defineServiceContract({ schemas, errors }, (ref) => ({ ... }))`
+- builtin Trellis RPC errors should also be referenced through `ref.error(...)`
+  in builder-style contracts
 - Trellis RPC error transport stays open on the wire, so do not default local
   error payload object schemas to `{ additionalProperties: false }`
 
@@ -158,12 +175,14 @@ Example:
 errors: {
   WorkspaceMissing: defineError(NotFoundError),
 },
-rpc: {
-  "Workspace.Get": {
-    // ...
-    errors: ["WorkspaceMissing", "UnexpectedError"],
+defineServiceContract({ schemas, errors }, (ref) => ({
+  rpc: {
+    "Workspace.Get": {
+      // ...
+      errors: [ref.error("WorkspaceMissing"), ref.error("UnexpectedError")],
+    },
   },
-}
+}))
 ```
 
 This emits a manifest error ref with wire type `NotFoundError`, while the local

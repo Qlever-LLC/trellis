@@ -2,7 +2,8 @@ import { connect } from "@nats-io/transport-deno";
 import { assertEquals, assertExists } from "@std/assert";
 import { Type } from "typebox";
 import { defineContract } from "../contract.ts";
-import { ok, TrellisServer } from "../index.ts";
+import { ok } from "../index.ts";
+import { TrellisServer } from "../server/mod.ts";
 import { createClient } from "../client.ts";
 import { NatsTest } from "../testing/nats.ts";
 import type { TrellisAuth } from "../trellis.ts";
@@ -38,31 +39,35 @@ async function createTestAuth(): Promise<{ auth: TrellisAuth; inboxPrefix: strin
   return { auth, inboxPrefix: `_INBOX.${sessionKey.slice(0, 16)}` };
 }
 
-const billing = defineContract({
-  id: "trellis.billing.watch-test@v1",
-  displayName: "Billing Watch Test",
-  description: "Exercise operations watch streams over NATS.",
-  kind: "service",
-  schemas: {
-    RefundInput: Type.Object({ chargeId: Type.String() }, { additionalProperties: false }),
-    RefundProgress: Type.Object({ message: Type.String() }, { additionalProperties: false }),
-    RefundOutput: Type.Object({ refundId: Type.String() }, { additionalProperties: false }),
-  },
-  operations: {
-    "Billing.Refund": {
-      version: "v1",
-      input: { schema: "RefundInput" },
-      progress: { schema: "RefundProgress" },
-      output: { schema: "RefundOutput" },
-      capabilities: {
-        call: ["billing.refund"],
-        read: ["billing.read"],
-        cancel: ["billing.cancel"],
-      },
-      cancel: true,
+const billing = defineContract(
+  {
+    schemas: {
+      RefundInput: Type.Object({ chargeId: Type.String() }, { additionalProperties: false }),
+      RefundProgress: Type.Object({ message: Type.String() }, { additionalProperties: false }),
+      RefundOutput: Type.Object({ refundId: Type.String() }, { additionalProperties: false }),
     },
   },
-});
+  (ref) => ({
+    id: "trellis.billing.watch-test@v1",
+    displayName: "Billing Watch Test",
+    description: "Exercise operations watch streams over NATS.",
+    kind: "service",
+    operations: {
+      "Billing.Refund": {
+        version: "v1",
+        input: ref.schema("RefundInput"),
+        progress: ref.schema("RefundProgress"),
+        output: ref.schema("RefundOutput"),
+        capabilities: {
+          call: ["billing.refund"],
+          read: ["billing.read"],
+          cancel: ["billing.cancel"],
+        },
+        cancel: true,
+      },
+    },
+  }),
+);
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
   let resolve!: () => void;

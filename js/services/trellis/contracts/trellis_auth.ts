@@ -97,7 +97,7 @@ import {
 } from "../../../packages/auth/protocol.ts";
 import {
   type ContractDependencyUse,
-  defineContract,
+  defineServiceContract,
   type UseSpec,
 } from "@qlever-llc/trellis/contracts";
 import {
@@ -660,17 +660,18 @@ export const TRELLIS_AUTH_EVENTS = {
   },
 } as const;
 
-const baseTrellisAuth = defineContract({
-  id: "trellis.auth@v1",
-  displayName: "Trellis Auth",
-  description:
-    "Provide Trellis authentication, session, service install, and admin RPCs.",
-  kind: "service",
-  schemas,
-  rpc: TRELLIS_AUTH_RPC,
-  operations: TRELLIS_AUTH_OPERATIONS,
-  events: TRELLIS_AUTH_EVENTS,
-});
+const baseTrellisAuth = defineServiceContract(
+  { schemas },
+  () => ({
+    id: "trellis.auth@v1",
+    displayName: "Trellis Auth",
+    description:
+      "Provide Trellis authentication, session, service install, and admin RPCs.",
+    rpc: TRELLIS_AUTH_RPC,
+    operations: TRELLIS_AUTH_OPERATIONS,
+    events: TRELLIS_AUTH_EVENTS,
+  }),
+);
 
 const DEFAULT_AUTH_RPC_CALL = [
   "Auth.Me",
@@ -737,3 +738,4 @@ export const trellisAuth: TrellisAuthModule = Object.assign(baseTrellisAuth, {
 export const { CONTRACT_ID, CONTRACT, CONTRACT_DIGEST, API, use, useDefaults } =
   trellisAuth;
 export type Api = typeof API;
+export default trellisAuth;

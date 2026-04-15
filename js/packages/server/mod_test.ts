@@ -42,32 +42,36 @@ import {
   TrellisService as TrellisServiceClass,
 } from "./mod.ts";
 
-const typeTestContract = defineContract({
-  id: "trellis.server.type-test@v1",
-  displayName: "Server Type Test",
-  description: "Verify typed service surface.",
-  kind: "service",
-  schemas: {
-    PingInput: Type.Object({ value: Type.String() }),
-    PingOutput: Type.Object({ ok: Type.Boolean() }),
-    PingedEvent: Type.Object({ value: Type.String() }),
-    KVValue: Type.Object({ value: Type.String() }),
-  },
-  rpc: {
-    "Test.Ping": {
-      version: "v1",
-      input: { schema: "PingInput" },
-      output: { schema: "PingOutput" },
-      errors: ["UnexpectedError"],
+const typeTestSchemas = {
+  PingInput: Type.Object({ value: Type.String() }),
+  PingOutput: Type.Object({ ok: Type.Boolean() }),
+  PingedEvent: Type.Object({ value: Type.String() }),
+  KVValue: Type.Object({ value: Type.String() }),
+} as const;
+
+const typeTestContract = defineContract(
+  { schemas: typeTestSchemas },
+  (ref) => ({
+    id: "trellis.server.type-test@v1",
+    displayName: "Server Type Test",
+    description: "Verify typed service surface.",
+    kind: "service",
+    rpc: {
+      "Test.Ping": {
+        version: "v1",
+        input: ref.schema("PingInput"),
+        output: ref.schema("PingOutput"),
+        errors: [ref.error("UnexpectedError")],
+      },
     },
-  },
-  events: {
-    "Test.Pinged": {
-      version: "v1",
-      event: { schema: "PingedEvent" },
+    events: {
+      "Test.Pinged": {
+        version: "v1",
+        event: ref.schema("PingedEvent"),
+      },
     },
-  },
-});
+  }),
+);
 
 Deno.test("TrellisServer export exists", () => {
   assertExists(TrellisServer);

@@ -66,8 +66,8 @@ participants such as demos or utilities may only need `main.ts`, `deno.json`,
 and one contract module.
 
 For TypeScript service contract source files under `contracts/`, the contract
-module should default export the `defineContract(...)` result so prepare and
-generation can resolve it directly.
+module should default export the `defineServiceContract(...)` result so prepare
+and generation can resolve it directly.
 
 ### Lifecycle
 
@@ -105,7 +105,7 @@ Deno.addSignalListener("SIGTERM", async () => {
 import { Result } from "@qlever-llc/trellis";
 import type { RpcName } from "@qlever-llc/trellis";
 import type { ServiceRpcHandler } from "@qlever-llc/trellis/server";
-import { defineContract } from "@qlever-llc/trellis/contracts";
+import { defineServiceContract } from "@qlever-llc/trellis/contracts";
 import { TrellisService } from "@qlever-llc/trellis/server/deno";
 import {
   HealthResponseSchema,
@@ -117,13 +117,12 @@ const schemas = {
   HealthResponse: HealthResponseSchema,
 } as const;
 
-export const serviceContract = defineContract(
+export const serviceContract = defineServiceContract(
   { schemas },
   (ref) => ({
     id: "acme.echo@v1",
     displayName: "Echo Service",
     description: "A minimal installable Trellis service example.",
-    kind: "service",
     rpc: {
       "Echo.Health": {
         version: "v1",

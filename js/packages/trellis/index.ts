@@ -51,7 +51,12 @@ export type {
   TransportErrorData,
 } from "../contracts/mod.ts";
 export {
+  defineAppContract,
+  defineCliContract,
   defineContract,
+  defineDeviceContract,
+  definePortalContract,
+  defineServiceContract,
 } from "./contract.ts";
 export type {
   ContractApiViews,

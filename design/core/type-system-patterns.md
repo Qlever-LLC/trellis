@@ -60,47 +60,51 @@ class NotFoundError extends TrellisError<NotFoundErrorData> {
   }
 }
 
-export const contract = defineContract({
-  id: "graph@v1",
-  displayName: "Graph Service",
-  description: "Serve graph RPCs and publish partner change events.",
-  kind: "service",
-  schemas,
-  uses: {
-    trellis: core.use({ rpc: { call: ["Trellis.Catalog"] } }),
-  },
-  errors: {
-    UserMissing: defineError(NotFoundError),
-  },
-  rpc: {
-    "User.Find": {
-      version: "v1",
-      input: { schema: "FindUser" },
-      output: { schema: "User" },
-      errors: ["UserMissing"],
-      capabilities: { call: ["users.read"] },
+export const contract = defineServiceContract(
+  {
+    schemas,
+    errors: {
+      UserMissing: defineError(NotFoundError),
     },
   },
-  events: {
-    "Partner.Changed": {
-      version: "v1",
-      params: ["/partner/id/origin", "/partner/id/id"],
-      event: { schema: "PartnerChanged" },
-      capabilities: {
-        publish: ["partners.write"],
-        subscribe: ["partners.read"],
+  (ref) => ({
+    id: "graph@v1",
+    displayName: "Graph Service",
+    description: "Serve graph RPCs and publish partner change events.",
+    uses: {
+      trellis: core.use({ rpc: { call: ["Trellis.Catalog"] } }),
+    },
+    rpc: {
+      "User.Find": {
+        version: "v1",
+        input: ref.schema("FindUser"),
+        output: ref.schema("User"),
+        errors: [ref.error("UserMissing")],
+        capabilities: { call: ["users.read"] },
       },
     },
-  },
-});
+    events: {
+      "Partner.Changed": {
+        version: "v1",
+        params: ["/partner/id/origin", "/partner/id/id"],
+        event: ref.schema("PartnerChanged"),
+        capabilities: {
+          publish: ["partners.write"],
+          subscribe: ["partners.read"],
+        },
+      },
+    },
+  }),
+);
 ```
 
 Rules:
 
 - the local contract source defines input/output types, allowed errors,
   capabilities, and cross-contract dependencies
-- local contract source files should export the `defineContract(...)` result
-  directly and reference schemas through the top-level `schemas` map
+- local contract source files should export the specialized helper result
+  directly and should usually use top-level `schemas` and optional `errors`
+  registries plus `ref.schema(...)` and `ref.error(...)` in the builder callback
 - the emitted manifest is the canonical cross-language artifact
 - for local TypeScript code, prefer exporting the defined contract object itself
   (`export default contract` or a named contract export) instead of manually

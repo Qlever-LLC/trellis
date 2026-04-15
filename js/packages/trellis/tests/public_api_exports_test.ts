@@ -3,9 +3,14 @@ import { Type, type Static } from "typebox";
 
 import {
   buildLoginUrl,
+  defineAppContract,
+  defineCliContract,
   defineError,
   DownloadTransferGrantSchema,
   defineContract,
+  defineDeviceContract,
+  definePortalContract,
+  defineServiceContract,
   err,
   fetchPortalFlowState,
   isErr,
@@ -31,6 +36,11 @@ import * as trellis from "../index.ts";
 
 Deno.test("root public API includes core runtime, contracts, result, and common auth helpers", () => {
   assertEquals(typeof defineContract, "function");
+  assertEquals(typeof defineAppContract, "function");
+  assertEquals(typeof definePortalContract, "function");
+  assertEquals(typeof defineCliContract, "function");
+  assertEquals(typeof defineDeviceContract, "function");
+  assertEquals(typeof defineServiceContract, "function");
   assertEquals(typeof defineError, "function");
   assertEquals(typeof schema, "function");
   assertEquals(typeof buildLoginUrl, "function");
@@ -55,22 +65,25 @@ Deno.test("root public API includes core runtime, contracts, result, and common 
   assert(Result);
   assert("schema" in schema<{ ok: true }>(Type.Object({ ok: Type.Literal(true) })));
 
-  const contract = defineContract({
-    id: "example.app@v1",
-    displayName: "Example App",
-    description: "Example app contract.",
-    kind: "app",
-    schemas: {
-      Ping: Type.Object({ ok: Type.Literal(true) }),
-    },
-    rpc: {
-      "Example.Ping": {
-        version: "v1",
-        input: { schema: "Ping" },
-        output: { schema: "Ping" },
+  const contract = defineServiceContract(
+    {
+      schemas: {
+        Ping: Type.Object({ ok: Type.Literal(true) }),
       },
     },
-  });
+    (ref) => ({
+      id: "example.app@v1",
+      displayName: "Example App",
+      description: "Example app contract.",
+      rpc: {
+        "Example.Ping": {
+          version: "v1",
+          input: ref.schema("Ping"),
+          output: ref.schema("Ping"),
+        },
+      },
+    }),
+  );
 
   assertEquals(contract.CONTRACT_ID, "example.app@v1");
 

@@ -20,62 +20,66 @@ function schemaRef<TSchemas extends Record<string, unknown>, const TName extends
 }
 
 Deno.test("defineContract preserves emitted manifest shape and digest", async () => {
-  const auth = defineContract({
-    id: "trellis.auth@v1",
-    displayName: "Trellis Auth",
-    description: "Expose auth RPCs and events for source emission tests.",
-    kind: "service",
-    schemas: baseSchemas,
-    rpc: {
-      "Auth.Me": {
-        version: "v1",
-        input: schemaRef<typeof baseSchemas, "Empty">("Empty"),
-        output: schemaRef<typeof baseSchemas, "StringValue">("StringValue"),
-        capabilities: { call: [] },
-        errors: ["UnexpectedError"],
-      },
-    },
-    events: {
-      "Auth.Connect": {
-        version: "v1",
-        event: schemaRef<typeof baseSchemas, "StringValue">("StringValue"),
-        capabilities: { publish: ["events:auth"], subscribe: ["events:auth"] },
-      },
-    },
-  });
-
-  const activity = defineContract({
-    id: "trellis.activity@v1",
-    displayName: "Activity",
-    description: "Expose activity APIs while depending on auth in tests.",
-    kind: "service",
-    schemas: baseSchemas,
-    uses: {
-      auth: auth.use({
-        rpc: { call: ["Auth.Me"] },
-        events: { subscribe: ["Auth.Connect"] },
-      }),
-    },
-    rpc: {
-      "Activity.List": {
-        version: "v1",
-        input: schemaRef<typeof baseSchemas, "Empty">("Empty"),
-        output: schemaRef<typeof baseSchemas, "StringValue">("StringValue"),
-        capabilities: { call: ["activity.read"] },
-        errors: ["UnexpectedError"],
-      },
-    },
-    events: {
-      "Activity.Recorded": {
-        version: "v1",
-        event: schemaRef<typeof baseSchemas, "StringValue">("StringValue"),
-        capabilities: {
-          publish: ["events:activity"],
-          subscribe: ["events:activity"],
+  const auth = defineContract(
+    { schemas: baseSchemas },
+    () => ({
+      id: "trellis.auth@v1",
+      displayName: "Trellis Auth",
+      description: "Expose auth RPCs and events for source emission tests.",
+      kind: "service",
+      rpc: {
+        "Auth.Me": {
+          version: "v1",
+          input: schemaRef<typeof baseSchemas, "Empty">("Empty"),
+          output: schemaRef<typeof baseSchemas, "StringValue">("StringValue"),
+          capabilities: { call: [] },
+          errors: ["UnexpectedError"],
         },
       },
-    },
-  });
+      events: {
+        "Auth.Connect": {
+          version: "v1",
+          event: schemaRef<typeof baseSchemas, "StringValue">("StringValue"),
+          capabilities: { publish: ["events:auth"], subscribe: ["events:auth"] },
+        },
+      },
+    }),
+  );
+
+  const activity = defineContract(
+    { schemas: baseSchemas },
+    () => ({
+      id: "trellis.activity@v1",
+      displayName: "Activity",
+      description: "Expose activity APIs while depending on auth in tests.",
+      kind: "service",
+      uses: {
+        auth: auth.use({
+          rpc: { call: ["Auth.Me"] },
+          events: { subscribe: ["Auth.Connect"] },
+        }),
+      },
+      rpc: {
+        "Activity.List": {
+          version: "v1",
+          input: schemaRef<typeof baseSchemas, "Empty">("Empty"),
+          output: schemaRef<typeof baseSchemas, "StringValue">("StringValue"),
+          capabilities: { call: ["activity.read"] },
+          errors: ["UnexpectedError"],
+        },
+      },
+      events: {
+        "Activity.Recorded": {
+          version: "v1",
+          event: schemaRef<typeof baseSchemas, "StringValue">("StringValue"),
+          capabilities: {
+            publish: ["events:activity"],
+            subscribe: ["events:activity"],
+          },
+        },
+      },
+    }),
+  );
 
   assertEquals(activity.CONTRACT, {
     format: "trellis.contract.v1",
@@ -172,27 +176,31 @@ Deno.test("defineContract emits RPC error refs using declared wire types", () =>
     }
   }
 
-  const contract = defineContract({
-    id: "local-errors.example@v1",
-    displayName: "Local Errors Example",
-    description: "Verify RPC error refs emit declared error types.",
-    kind: "service",
-    schemas: {
-      Empty: EmptySchema,
-      NotFoundErrorData,
-    },
-    errors: {
-      WorkspaceMissing: defineError(NotFoundError),
-    },
-    rpc: {
-      "Workspace.Get": {
-        version: "v1",
-        input: schemaRef<typeof baseSchemas, "Empty">("Empty"),
-        output: schemaRef<typeof baseSchemas, "Empty">("Empty"),
-        errors: ["WorkspaceMissing", "UnexpectedError"],
+  const contract = defineContract(
+    {
+      schemas: {
+        Empty: EmptySchema,
+        NotFoundErrorData,
+      },
+      errors: {
+        WorkspaceMissing: defineError(NotFoundError),
       },
     },
-  });
+    (ref) => ({
+      id: "local-errors.example@v1",
+      displayName: "Local Errors Example",
+      description: "Verify RPC error refs emit declared error types.",
+      kind: "service",
+      rpc: {
+        "Workspace.Get": {
+          version: "v1",
+          input: ref.schema("Empty"),
+          output: ref.schema("Empty"),
+          errors: [ref.error("WorkspaceMissing"), ref.error("UnexpectedError")],
+        },
+      },
+    }),
+  );
 
   assertEquals(contract.CONTRACT.rpc?.["Workspace.Get"]?.errors, [
     { type: "NotFoundError" },
@@ -201,60 +209,66 @@ Deno.test("defineContract emits RPC error refs using declared wire types", () =>
 });
 
 Deno.test("defineContract rejects duplicate logical keys across used and owned APIs", () => {
-  const auth = defineContract({
-    id: "trellis.auth@v1",
-    displayName: "Trellis Auth",
-    description: "Expose auth RPCs in duplicate-key tests.",
-    kind: "service",
-    schemas: baseSchemas,
-    rpc: {
-      "Auth.Me": {
-        version: "v1",
-        input: schemaRef<typeof baseSchemas, "Empty">("Empty"),
-        output: schemaRef<typeof baseSchemas, "StringValue">("StringValue"),
+  const auth = defineContract(
+    { schemas: baseSchemas },
+    () => ({
+      id: "trellis.auth@v1",
+      displayName: "Trellis Auth",
+      description: "Expose auth RPCs in duplicate-key tests.",
+      kind: "service",
+      rpc: {
+        "Auth.Me": {
+          version: "v1",
+          input: schemaRef<typeof baseSchemas, "Empty">("Empty"),
+          output: schemaRef<typeof baseSchemas, "StringValue">("StringValue"),
+        },
       },
-    },
-  });
+    }),
+  );
 
   assertThrows(
     () =>
-      defineContract({
-        id: "duplicate@v1",
-        displayName: "Duplicate",
-        description: "Trigger duplicate logical RPC key validation.",
-        kind: "service",
-        schemas: baseSchemas,
-        uses: {
-          auth: auth.use({ rpc: { call: ["Auth.Me"] } }),
-        },
-        rpc: {
-          "Auth.Me": {
-            version: "v1",
-            input: schemaRef<typeof baseSchemas, "Empty">("Empty"),
-            output: schemaRef<typeof baseSchemas, "StringValue">("StringValue"),
+      defineContract(
+        { schemas: baseSchemas },
+        () => ({
+          id: "duplicate@v1",
+          displayName: "Duplicate",
+          description: "Trigger duplicate logical RPC key validation.",
+          kind: "service",
+          uses: {
+            auth: auth.use({ rpc: { call: ["Auth.Me"] } }),
           },
-        },
-      }),
+          rpc: {
+            "Auth.Me": {
+              version: "v1",
+              input: schemaRef<typeof baseSchemas, "Empty">("Empty"),
+              output: schemaRef<typeof baseSchemas, "StringValue">("StringValue"),
+            },
+          },
+        }),
+      ),
     Error,
     "Duplicate rpc key 'Auth.Me'",
   );
 });
 
 Deno.test("defineContract validates use(...) provenance and selected keys at runtime", () => {
-  const auth = defineContract({
-    id: "trellis.auth@v1",
-    displayName: "Trellis Auth",
-    description: "Expose auth RPCs in provenance tests.",
-    kind: "service",
-    schemas: baseSchemas,
-    rpc: {
-      "Auth.Me": {
-        version: "v1",
-        input: schemaRef<typeof baseSchemas, "Empty">("Empty"),
-        output: schemaRef<typeof baseSchemas, "StringValue">("StringValue"),
+  const auth = defineContract(
+    { schemas: baseSchemas },
+    () => ({
+      id: "trellis.auth@v1",
+      displayName: "Trellis Auth",
+      description: "Expose auth RPCs in provenance tests.",
+      kind: "service",
+      rpc: {
+        "Auth.Me": {
+          version: "v1",
+          input: schemaRef<typeof baseSchemas, "Empty">("Empty"),
+          output: schemaRef<typeof baseSchemas, "StringValue">("StringValue"),
+        },
       },
-    },
-  });
+    }),
+  );
 
   assertThrows(
     () => auth.use({ rpc: { call: JSON.parse('["Auth.Nope"]') } }),
@@ -266,20 +280,20 @@ Deno.test("defineContract validates use(...) provenance and selected keys at run
 
   assertThrows(
     () =>
-      defineContract({
+      defineContract({}, () => ({
         id: "forged@v1",
         displayName: "Forged",
         description: "Trigger forged use provenance validation.",
         kind: "service",
         uses: { auth: forgedUse },
-      }),
+      })),
     Error,
     "must be created with contractModule.use(...)",
   );
 });
 
 Deno.test("defineContract emits stream resources with defaults", () => {
-  const contract = defineContract({
+  const contract = defineContract({}, () => ({
     id: "streams.example@v1",
     displayName: "Streams Example",
     description: "Expose stream resource declarations in emitted manifests.",
@@ -292,7 +306,7 @@ Deno.test("defineContract emits stream resources with defaults", () => {
         },
       },
     },
-  });
+  }));
 
   assertEquals(contract.CONTRACT.resources?.streams?.activity, {
     purpose: "Persist activity events",
@@ -302,7 +316,7 @@ Deno.test("defineContract emits stream resources with defaults", () => {
 });
 
 Deno.test("defineContract emits store resources with defaults", () => {
-  const contract = defineContract({
+  const contract = defineContract({}, () => ({
     id: "store.example@v1",
     displayName: "Store Example",
     description: "Expose store resource declarations in emitted manifests.",
@@ -315,7 +329,7 @@ Deno.test("defineContract emits store resources with defaults", () => {
         },
       },
     },
-  });
+  }));
 
   assertEquals(contract.CONTRACT.resources?.store?.uploads, {
     purpose: "Temporary uploaded files awaiting processing",
@@ -326,21 +340,23 @@ Deno.test("defineContract emits store resources with defaults", () => {
 });
 
 Deno.test("locally defined contracts can be reused as dependencies", () => {
-  const activity = defineContract({
-    id: "trellis.activity@v1",
-    displayName: "Activity",
-    description: "Expose activity events for dependency reuse tests.",
-    kind: "service",
-    schemas: baseSchemas,
-    events: {
-      "Activity.Recorded": {
-        version: "v1",
-        event: schemaRef<typeof baseSchemas, "StringValue">("StringValue"),
+  const activity = defineContract(
+    { schemas: baseSchemas },
+    () => ({
+      id: "trellis.activity@v1",
+      displayName: "Activity",
+      description: "Expose activity events for dependency reuse tests.",
+      kind: "service",
+      events: {
+        "Activity.Recorded": {
+          version: "v1",
+          event: schemaRef<typeof baseSchemas, "StringValue">("StringValue"),
+        },
       },
-    },
-  });
+    }),
+  );
 
-  const dashboard = defineContract({
+  const dashboard = defineContract({}, () => ({
     id: "trellis.dashboard@v1",
     displayName: "Dashboard",
     description: "Reuse locally defined contracts as dependencies in tests.",
@@ -350,7 +366,7 @@ Deno.test("locally defined contracts can be reused as dependencies", () => {
         events: { subscribe: ["Activity.Recorded"] },
       }),
     },
-  });
+  }));
 
   assertEquals(
     dashboard.CONTRACT.uses?.activity.contract,
@@ -367,47 +383,51 @@ Deno.test("locally defined contracts can be reused as dependencies", () => {
 });
 
 Deno.test("defineContract emits owned and used operations", () => {
-  const billing = defineContract({
-    id: "trellis.billing@v1",
-    displayName: "Billing",
-    description: "Expose billing operations for source emission tests.",
-    kind: "service",
-    schemas: baseSchemas,
-    operations: {
-      "Billing.Refund": {
-        version: "v1",
-        input: schemaRef<typeof baseSchemas, "Empty">("Empty"),
-        progress: schemaRef<typeof baseSchemas, "StringValue">("StringValue"),
-        output: schemaRef<typeof baseSchemas, "StringValue">("StringValue"),
-        capabilities: {
-          call: ["billing.refund"],
-          read: ["billing.read"],
-          cancel: ["billing.cancel"],
+  const billing = defineContract(
+    { schemas: baseSchemas },
+    () => ({
+      id: "trellis.billing@v1",
+      displayName: "Billing",
+      description: "Expose billing operations for source emission tests.",
+      kind: "service",
+      operations: {
+        "Billing.Refund": {
+          version: "v1",
+          input: schemaRef<typeof baseSchemas, "Empty">("Empty"),
+          progress: schemaRef<typeof baseSchemas, "StringValue">("StringValue"),
+          output: schemaRef<typeof baseSchemas, "StringValue">("StringValue"),
+          capabilities: {
+            call: ["billing.refund"],
+            read: ["billing.read"],
+            cancel: ["billing.cancel"],
+          },
+          cancel: true,
         },
-        cancel: true,
       },
-    },
-  });
+    }),
+  );
 
-  const payments = defineContract({
-    id: "trellis.payments@v1",
-    displayName: "Payments",
-    description: "Use billing operations in source emission tests.",
-    kind: "service",
-    schemas: baseSchemas,
-    uses: {
-      billing: billing.use({
-        operations: { call: ["Billing.Refund"] },
-      }),
-    },
-    operations: {
-      "Payments.Capture": {
-        version: "v1",
-        input: schemaRef<typeof baseSchemas, "Empty">("Empty"),
-        output: schemaRef<typeof baseSchemas, "StringValue">("StringValue"),
+  const payments = defineContract(
+    { schemas: baseSchemas },
+    () => ({
+      id: "trellis.payments@v1",
+      displayName: "Payments",
+      description: "Use billing operations in source emission tests.",
+      kind: "service",
+      uses: {
+        billing: billing.use({
+          operations: { call: ["Billing.Refund"] },
+        }),
       },
-    },
-  });
+      operations: {
+        "Payments.Capture": {
+          version: "v1",
+          input: schemaRef<typeof baseSchemas, "Empty">("Empty"),
+          output: schemaRef<typeof baseSchemas, "StringValue">("StringValue"),
+        },
+      },
+    }),
+  );
 
   assertEquals(payments.CONTRACT.operations, {
     "Payments.Capture": {
@@ -432,57 +452,63 @@ Deno.test("defineContract emits owned and used operations", () => {
 });
 
 Deno.test("defineContract rejects duplicate logical keys across used and owned operations", () => {
-  const billing = defineContract({
-    id: "trellis.billing@v1",
-    displayName: "Billing",
-    description: "Expose billing operations in duplicate-key tests.",
-    kind: "service",
-    schemas: baseSchemas,
-    operations: {
-      "Billing.Refund": {
-        version: "v1",
-        input: schemaRef<typeof baseSchemas, "Empty">("Empty"),
+  const billing = defineContract(
+    { schemas: baseSchemas },
+    () => ({
+      id: "trellis.billing@v1",
+      displayName: "Billing",
+      description: "Expose billing operations in duplicate-key tests.",
+      kind: "service",
+      operations: {
+        "Billing.Refund": {
+          version: "v1",
+          input: schemaRef<typeof baseSchemas, "Empty">("Empty"),
+        },
       },
-    },
-  });
+    }),
+  );
 
   assertThrows(
     () =>
-      defineContract({
-        id: "duplicate.operations@v1",
-        displayName: "Duplicate Operations",
-        description: "Trigger duplicate logical operation key validation.",
-        kind: "service",
-        schemas: baseSchemas,
-        uses: {
-          billing: billing.use({ operations: { call: ["Billing.Refund"] } }),
-        },
-        operations: {
-          "Billing.Refund": {
-            version: "v1",
-            input: schemaRef<typeof baseSchemas, "Empty">("Empty"),
+      defineContract(
+        { schemas: baseSchemas },
+        () => ({
+          id: "duplicate.operations@v1",
+          displayName: "Duplicate Operations",
+          description: "Trigger duplicate logical operation key validation.",
+          kind: "service",
+          uses: {
+            billing: billing.use({ operations: { call: ["Billing.Refund"] } }),
           },
-        },
-      }),
+          operations: {
+            "Billing.Refund": {
+              version: "v1",
+              input: schemaRef<typeof baseSchemas, "Empty">("Empty"),
+            },
+          },
+        }),
+      ),
     Error,
     "Duplicate operations key 'Billing.Refund'",
   );
 });
 
 Deno.test("defineContract validates operation use selections at runtime", () => {
-  const billing = defineContract({
-    id: "trellis.billing@v1",
-    displayName: "Billing",
-    description: "Expose billing operations in runtime validation tests.",
-    kind: "service",
-    schemas: baseSchemas,
-    operations: {
-      "Billing.Refund": {
-        version: "v1",
-        input: schemaRef<typeof baseSchemas, "Empty">("Empty"),
+  const billing = defineContract(
+    { schemas: baseSchemas },
+    () => ({
+      id: "trellis.billing@v1",
+      displayName: "Billing",
+      description: "Expose billing operations in runtime validation tests.",
+      kind: "service",
+      operations: {
+        "Billing.Refund": {
+          version: "v1",
+          input: schemaRef<typeof baseSchemas, "Empty">("Empty"),
+        },
       },
-    },
-  });
+    }),
+  );
 
   assertThrows(
     () => billing.use({ operations: { call: JSON.parse('["Billing.Writeoff"]') } }),

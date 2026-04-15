@@ -25,7 +25,8 @@ derivation.
 
 ## Design Rules
 
-- `defineContract(...)` is the primary TypeScript authoring entrypoint
+- specialized helpers such as `defineServiceContract(...)` and
+  `defineAppContract(...)` are the primary TypeScript authoring entrypoints
 - generated SDK modules and local contracts share one compatible contract-module
   shape
 - local `uses` declarations are expressed through SDK-backed `use(...)` helpers
@@ -45,13 +46,19 @@ connection helpers, auth helpers, and `Result`.
 
 It exports:
 
+- `defineServiceContract(...)`
+- `defineAppContract(...)`
+- `definePortalContract(...)`
+- `defineDeviceContract(...)`
+- `defineCliContract(...)`
 - `defineContract(...)`
 - `defineError(...)`
 - contract-module and use-spec types needed by generated SDKs
 
-The `defineContract(...)` helper exported from `@qlever-llc/trellis/contracts`
-returns a contract object with projected API views and manifest metadata. The
-canonical public bootstrap helpers live in `@qlever-llc/trellis` and
+The specialized contract helpers exported from `@qlever-llc/trellis/contracts`
+return contract objects with projected API views and manifest metadata.
+`defineContract(...)` remains the lower-level generic builder. The canonical
+public bootstrap helpers live in `@qlever-llc/trellis` and
 `@qlever-llc/trellis/server*`.
 
 Rules:
@@ -145,8 +152,35 @@ type DefinedContract<
   use(spec: UseSpec<TOwnedApi>): ContractDependencyUse<string, TOwnedApi>;
 };
 
-declare function defineContract(
-  ...args: unknown[]
+type ContractRefBuilder = {
+  schema(name: string): { schema: string };
+  error(name: string): string;
+};
+
+declare function defineServiceContract<TRegistry extends object, TBody extends object>(
+  registry: TRegistry,
+  build: (ref: ContractRefBuilder) => TBody,
+): DefinedContract<any, any, any>;
+
+declare function defineAppContract<TBody extends object>(
+  build: () => TBody,
+): DefinedContract<any, any, any>;
+
+declare function definePortalContract<TBody extends object>(
+  build: () => TBody,
+): DefinedContract<any, any, any>;
+
+declare function defineDeviceContract<TBody extends object>(
+  build: () => TBody,
+): DefinedContract<any, any, any>;
+
+declare function defineCliContract<TBody extends object>(
+  build: () => TBody,
+): DefinedContract<any, any, any>;
+
+declare function defineContract<TRegistry extends object, TBody extends object>(
+  registry: TRegistry,
+  build: (ref: ContractRefBuilder) => TBody,
 ): DefinedContract<any, any, any>;
 ```
 
@@ -154,7 +188,7 @@ declare function defineContract(
 
 ```ts
 import { TrellisClient } from "@qlever-llc/trellis";
-import { defineContract } from "@qlever-llc/trellis/contracts";
+import { defineServiceContract } from "@qlever-llc/trellis/contracts";
 import { auth } from "@qlever-llc/trellis/sdk/auth";
 import { core } from "@qlever-llc/trellis/sdk/core";
 
@@ -167,52 +201,47 @@ const schemas = {
   ActivityChanged: ActivityChangedSchema,
 } as const;
 
-function schemaRef<const TName extends keyof typeof schemas & string>(
-  schema: TName,
-) {
-  return { schema } as const;
-}
-
-export const activity = defineContract({
-  id: "trellis.activity@v1",
-  displayName: "Activity Service",
-  description: "Serve activity RPCs and publish activity change events.",
-  kind: "service",
-  schemas,
-  uses: {
-    core: core.use({
-      rpc: {
-        call: ["Trellis.Catalog", "Trellis.Bindings.Get"],
+export const activity = defineServiceContract(
+  { schemas },
+  (ref) => ({
+    id: "trellis.activity@v1",
+    displayName: "Activity Service",
+    description: "Serve activity RPCs and publish activity change events.",
+    uses: {
+      core: core.use({
+        rpc: {
+          call: ["Trellis.Catalog", "Trellis.Bindings.Get"],
+        },
+      }),
+      auth: auth.useDefaults({
+        events: {
+          subscribe: ["Auth.Connect", "Auth.Disconnect"],
+        },
+      }),
+    },
+    operations: {
+      "Activity.Import": {
+        version: "v1",
+        input: ref.schema("ActivityImportRequest"),
+        progress: ref.schema("ActivityImportProgress"),
+        output: ref.schema("ActivityImportResult"),
       },
-    }),
-    auth: auth.useDefaults({
-      events: {
-        subscribe: ["Auth.Connect", "Auth.Disconnect"],
+    },
+    rpc: {
+      "Activity.List": {
+        version: "v1",
+        input: ref.schema("ActivityListRequest"),
+        output: ref.schema("ActivityListResponse"),
       },
-    }),
-  },
-  operations: {
-    "Activity.Import": {
-      version: "v1",
-      input: schemaRef("ActivityImportRequest"),
-      progress: schemaRef("ActivityImportProgress"),
-      output: schemaRef("ActivityImportResult"),
     },
-  },
-  rpc: {
-    "Activity.List": {
-      version: "v1",
-      input: schemaRef("ActivityListRequest"),
-      output: schemaRef("ActivityListResponse"),
+    events: {
+      "Activity.Changed": {
+        version: "v1",
+        event: ref.schema("ActivityChanged"),
+      },
     },
-  },
-  events: {
-    "Activity.Changed": {
-      version: "v1",
-      event: schemaRef("ActivityChanged"),
-    },
-  },
-});
+  }),
+);
 
 export default activity;
 
@@ -223,26 +252,34 @@ const client = await TrellisClient.connect({
 });
 ```
 
-## `defineContract(...)` Input Model
+## Contract Helper Inputs
 
 Rules:
 
 - `id` remains the stable machine identity for the contract lineage
 - `displayName` and `description` are required and are part of the canonical
   manifest
-- contract source examples should export the `defineContract(...)` result
-  directly and use that object for `contract.API`, `contract.use(...)`, and
-  runtime bootstrap
+- local service contract files should prefer
+  `defineServiceContract({ schemas, errors }, (ref) => ({ ... }))`
+- local app contract files should prefer `defineAppContract(() => ({ ... }))`
+- local portal contract files should prefer `definePortalContract(() => ({ ... }))`
+- local device contract files should prefer `defineDeviceContract(() => ({ ... }))`
+- local CLI contract files should prefer `defineCliContract(() => ({ ... }))`
+- contract source examples should export the specialized helper result directly
+  and use that object for `contract.API`, `contract.use(...)`, and runtime
+  bootstrap
 - local `operations`, `rpc`, `events`, `subjects`, `errors`, and `resources`
   remain the source for emitted owned contract content
-- contract source modules declare reusable schemas in a top-level `schemas` map
-  and reference them from `input`, `output`, `progress`, `event`, and `message`
+- service contract modules declare reusable schemas in a top-level `schemas` map
+  and should usually reference them through `ref.schema(...)`
 - `uses` entries are expressed through SDK `use(...)` helpers rather than
   handwritten dependency objects in normal TypeScript code
 - SDK-specific convenience helpers such as `auth.useDefaults(...)` are allowed
   when they still produce a normal `uses` declaration
-- local transportable RPC errors are declared through top-level `errors` entries
-  created with `defineError(...)`
+- local transportable service RPC errors are declared through top-level `errors`
+  entries created with `defineError(...)`
+- RPC `errors: [...]` entries should usually use `ref.error(...)` for both local
+  declarations and built-in Trellis RPC errors
 - a participant MAY have no owned `operations`, `rpc`, `events`, or `subjects`
 - a participant MAY have no `uses`
 - the defined contract computes and exposes `CONTRACT_DIGEST` from the emitted
@@ -257,7 +294,7 @@ TypeScript authoring shape:
 
 ```ts
 import {
-  defineContract,
+  defineServiceContract,
   defineError,
   TrellisError,
 } from "@qlever-llc/trellis/contracts";
@@ -314,28 +351,35 @@ export class NotFoundError extends TrellisError<NotFoundErrorData> {
   }
 }
 
-export const krishi = defineContract({
-  id: "dna-cloud.krishi@v1",
-  displayName: "Krishi",
-  description: "Krishi service",
-  kind: "service",
-  schemas: {
-    NotFoundErrorData: NotFoundErrorDataSchema,
-    GetWorkspaceInput: GetWorkspaceInputSchema,
-    Workspace: WorkspaceSchema,
-  },
-  errors: {
-    WorkspaceMissing: defineError(NotFoundError),
-  },
-  rpc: {
-    "Workspace.Get": {
-      version: "v1",
-      input: { schema: "GetWorkspaceInput" },
-      output: { schema: "Workspace" },
-      errors: ["WorkspaceMissing", "ValidationError", "UnexpectedError"],
+export const krishi = defineServiceContract(
+  {
+    schemas: {
+      NotFoundErrorData: NotFoundErrorDataSchema,
+      GetWorkspaceInput: GetWorkspaceInputSchema,
+      Workspace: WorkspaceSchema,
+    },
+    errors: {
+      WorkspaceMissing: defineError(NotFoundError),
     },
   },
-});
+  (ref) => ({
+    id: "dna-cloud.krishi@v1",
+    displayName: "Krishi",
+    description: "Krishi service",
+    rpc: {
+      "Workspace.Get": {
+        version: "v1",
+        input: ref.schema("GetWorkspaceInput"),
+        output: ref.schema("Workspace"),
+        errors: [
+          ref.error("WorkspaceMissing"),
+          ref.error("ValidationError"),
+          ref.error("UnexpectedError"),
+        ],
+      },
+    },
+  }),
+);
 ```
 
 Rules:
@@ -350,6 +394,8 @@ Rules:
   `schemas` map so the emitted manifest stays portable and codegen-safe
 - the `errors` map key is the local declaration name used by RPC
   `errors: [...]`; it does not need to match the wire `type`
+- builder-style contract authoring should reference both local and built-in RPC
+  errors through `ref.error(...)`
 - callers receive declared remote errors as reconstructed runtime instances of
   the declared class
 - undeclared or unknown remote error payloads still fall back to `RemoteError`
@@ -370,7 +416,7 @@ Rules:
 
 ## Derived API Views
 
-`defineContract(...)` derives three projected API surfaces:
+Contract helpers derive three projected API surfaces:
 
 - `API.owned`
 - `API.used`

@@ -544,18 +544,17 @@ Rules:
 
 ```ts
 import { isErr, TrellisDevice } from "@qlever-llc/trellis";
-import { defineContract } from "@qlever-llc/trellis/contracts";
+import { defineDeviceContract } from "@qlever-llc/trellis/contracts";
 import { auth } from "@qlever-llc/trellis/sdk/auth";
 
-export const device = defineContract({
+export const device = defineDeviceContract(() => ({
   id: "acme.demo-device@v1",
   displayName: "Demo Device",
   description: "A small activated device used for local Trellis demos.",
-  kind: "device",
   uses: {
     auth: auth.useDefaults(),
   },
-});
+}));
 
 export default device;
 

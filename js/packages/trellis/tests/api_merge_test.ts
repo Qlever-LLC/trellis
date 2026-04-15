@@ -7,19 +7,22 @@ import { err, UnexpectedError } from "../index.ts";
 import { auth } from "../sdk/auth.ts";
 
 Deno.test("createClient prefers trellis API for app contracts", () => {
-  const contract = defineContract({
-    id: "trellis.app.test@v1",
-    displayName: "App Test",
-    description: "Exercise runtime API selection for app contracts.",
-    kind: "app",
-    uses: {
-      auth: auth.useDefaults({
-        rpc: {
-          call: ["Auth.ListApprovals"],
-        },
-      }),
-    },
-  });
+  const contract = defineContract(
+    {},
+    () => ({
+      id: "trellis.app.test@v1",
+      displayName: "App Test",
+      description: "Exercise runtime API selection for app contracts.",
+      kind: "app",
+      uses: {
+        auth: auth.useDefaults({
+          rpc: {
+            call: ["Auth.ListApprovals"],
+          },
+        }),
+      },
+    }),
+  );
 
   const client = createClient(
     contract,
@@ -33,44 +36,51 @@ Deno.test("createClient prefers trellis API for app contracts", () => {
 
 Deno.test("API composition", async (t) => {
   const emptySchema = Type.Object({});
-  const catalogContract = defineContract({
-    id: "trellis.core.test@v1",
-    displayName: "Core Test",
-    description: "Expose a catalog RPC for API composition tests.",
-    kind: "service",
-    schemas: {
-      Empty: emptySchema,
-    },
-    rpc: {
-      "Trellis.Catalog": {
-        version: "v1",
-        input: { schema: "Empty" },
-        output: { schema: "Empty" },
+  const catalogContract = defineContract(
+    {
+      schemas: {
+        Empty: emptySchema,
       },
     },
-  });
+    (ref) => ({
+      id: "trellis.core.test@v1",
+      displayName: "Core Test",
+      description: "Expose a catalog RPC for API composition tests.",
+      kind: "service",
+      rpc: {
+        "Trellis.Catalog": {
+          version: "v1",
+          input: ref.schema("Empty"),
+          output: ref.schema("Empty"),
+        },
+      },
+    }),
+  );
 
   await t.step("createClient uses only contract-derived runtime APIs", () => {
-    const app = defineContract({
+    const app = defineContract({}, () => ({
       id: "trellis.app.test@v1",
       displayName: "App Test",
       description: "Exercise runtime APIs without declared dependencies.",
       kind: "app",
-    });
+    }));
 
     assertEquals(Object.hasOwn(app.API.trellis.rpc, "Trellis.Catalog"), false);
   });
 
   await t.step("contract-derived uses populate the outbound surface", () => {
-    const app = defineContract({
-      id: "trellis.app.used.test@v1",
-      displayName: "App Used Test",
-      description: "Exercise API composition with declared dependency uses.",
-      kind: "app",
-      uses: {
-        core: catalogContract.use({ rpc: { call: ["Trellis.Catalog"] } }),
-      },
-    });
+    const app = defineContract(
+      {},
+      () => ({
+        id: "trellis.app.used.test@v1",
+        displayName: "App Used Test",
+        description: "Exercise API composition with declared dependency uses.",
+        kind: "app",
+        uses: {
+          core: catalogContract.use({ rpc: { call: ["Trellis.Catalog"] } }),
+        },
+      }),
+    );
 
     assertEquals(typeof app.API.trellis.rpc["Trellis.Catalog"].subject, "string");
     assertEquals(Object.hasOwn(app.API.trellis.rpc, "Trellis.Catalog"), true);

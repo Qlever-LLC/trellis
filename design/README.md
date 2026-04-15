@@ -40,7 +40,7 @@ These headings are intentionally named for fast human and AI lookup.
 | ---------------------------------------------------- | ------------------------------------------------------------------- | -------------------------------------------------------------------------- |
 | `operations/trellis-operations.md`                   | You are designing caller-visible async workflows                    | Operations model, auth model, internal control protocol, watch semantics   |
 | `jobs/trellis-jobs.md`                               | You are designing service-private background execution              | Jobs model, stream/KV projection, retries, worker lifecycle, admin model   |
-| `contracts/trellis-typescript-contract-authoring.md` | You are changing TypeScript contract architecture                   | TS contract-driven model, `defineContract(...)`, `uses`, derived API views |
+| `contracts/trellis-typescript-contract-authoring.md` | You are changing TypeScript contract architecture                   | TS contract-driven model, specialized contract helpers, `uses`, derived API views |
 | `contracts/trellis-rust-contract-libraries.md`       | You are changing Rust contract architecture                         | Rust participant facades, alias model, generation rules                    |
 | `tooling/trellis-cli.md`                             | You are changing Trellis CLI behavior or contract tooling workflows | CLI command architecture, install and upgrade flows, contract generation   |
 

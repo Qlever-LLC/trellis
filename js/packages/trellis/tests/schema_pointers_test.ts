@@ -83,21 +83,23 @@ Deno.test("schema pointers", async (t) => {
   });
 
   await t.step("emitted contract constructs subject from params", () => {
-    const contract = defineContract({
-      id: "test@v1",
-      displayName: "Pointer Test",
-      description: "Validate schema pointer tokenization during event emission.",
-      kind: "service",
-      schemas,
-      events: {
-        "Test.Subject": {
-          version: "v1",
-          params: ["/foo"],
-          event: schemaRef("EventSchema"),
-          capabilities: { publish: [], subscribe: [] },
+    const contract = defineContract(
+      { schemas },
+      () => ({
+        id: "test@v1",
+        displayName: "Pointer Test",
+        description: "Validate schema pointer tokenization during event emission.",
+        kind: "service",
+        events: {
+          "Test.Subject": {
+            version: "v1",
+            params: ["/foo"],
+            event: schemaRef("EventSchema"),
+            capabilities: { publish: [], subscribe: [] },
+          },
         },
-      },
-    }).CONTRACT;
+      }),
+    ).CONTRACT;
     assertEquals(contract.events?.["Test.Subject"]?.subject, "events.v1.Test.Subject.{/foo}");
   });
 });

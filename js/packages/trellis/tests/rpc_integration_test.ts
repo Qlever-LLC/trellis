@@ -4,7 +4,7 @@ import {
   AuthMeSchema,
   AuthValidateRequestResponseSchema,
   AuthValidateRequestSchema,
-} from "@qlever-llc/trellis-auth";
+} from "@qlever-llc/trellis/auth";
 import { assert, assertEquals, assertExists, assertRejects } from "@std/assert";
 
 import { Type, type Static } from "typebox";
@@ -126,62 +126,70 @@ function schemaRef<const TName extends keyof typeof authSchemas & string>(schema
   return { schema } as const;
 }
 
-const emptyContract = defineContract({
+const emptyContract = defineContract({}, () => ({
   id: "trellis.empty.rpc-test@v1",
   displayName: "Empty RPC Test",
   description: "Provide an empty contract for RPC integration tests.",
   kind: "service",
-});
+}));
 
-const authContract = defineContract({
-  id: "trellis.auth.rpc-test@v1",
-  displayName: "Auth RPC Test",
-  description: "Expose auth RPCs for integration tests.",
-  kind: "service",
-  schemas: {
-    AuthValidateRequestInput: authSchemas.AuthValidateRequestInput,
-    AuthValidateRequestOutput: authSchemas.AuthValidateRequestOutput,
-    AuthMeInput: authSchemas.AuthMeInput,
-    AuthMeOutput: authSchemas.AuthMeOutput,
-  },
-  rpc: {
-    "Auth.ValidateRequest": {
-      version: "v1",
-      input: schemaRef("AuthValidateRequestInput"),
-      output: schemaRef("AuthValidateRequestOutput"),
-      authRequired: false,
-      errors: ["AuthError", "ValidationError", "UnexpectedError"],
-    },
-    "Auth.Me": {
-      version: "v1",
-      input: schemaRef("AuthMeInput"),
-      output: schemaRef("AuthMeOutput"),
-      errors: ["AuthError", "ValidationError", "UnexpectedError"],
+const authContract = defineContract(
+  {
+    schemas: {
+      AuthValidateRequestInput: authSchemas.AuthValidateRequestInput,
+      AuthValidateRequestOutput: authSchemas.AuthValidateRequestOutput,
+      AuthMeInput: authSchemas.AuthMeInput,
+      AuthMeOutput: authSchemas.AuthMeOutput,
     },
   },
-});
+  () => ({
+    id: "trellis.auth.rpc-test@v1",
+    displayName: "Auth RPC Test",
+    description: "Expose auth RPCs for integration tests.",
+    kind: "service",
+    rpc: {
+      "Auth.ValidateRequest": {
+        version: "v1",
+        input: schemaRef("AuthValidateRequestInput"),
+        output: schemaRef("AuthValidateRequestOutput"),
+        authRequired: false,
+        errors: ["AuthError", "ValidationError", "UnexpectedError"],
+      },
+      "Auth.Me": {
+        version: "v1",
+        input: schemaRef("AuthMeInput"),
+        output: schemaRef("AuthMeOutput"),
+        errors: ["AuthError", "ValidationError", "UnexpectedError"],
+      },
+    },
+  }),
+);
 
-const traceContract = defineContract({
-  id: "trellis.trace.rpc-test@v1",
-  displayName: "Trace RPC Test",
-  description: "Exercise traced RPC calls against a dependent auth contract.",
-  kind: "service",
-  schemas: {
-    EmptySchema,
-    TraceOutput: authSchemas.TraceOutput,
-  },
-  uses: {
-    auth: authContract.use({ rpc: { call: ["Auth.ValidateRequest"] } }),
-  },
-  rpc: {
-    "Test.Trace": {
-      version: "v1",
-      input: schemaRef("EmptySchema"),
-      output: schemaRef("TraceOutput"),
-      errors: ["UnexpectedError"],
+const traceContract = defineContract(
+  {
+    schemas: {
+      EmptySchema,
+      TraceOutput: authSchemas.TraceOutput,
     },
   },
-});
+  () => ({
+    id: "trellis.trace.rpc-test@v1",
+    displayName: "Trace RPC Test",
+    description: "Exercise traced RPC calls against a dependent auth contract.",
+    kind: "service",
+    uses: {
+      auth: authContract.use({ rpc: { call: ["Auth.ValidateRequest"] } }),
+    },
+    rpc: {
+      "Test.Trace": {
+        version: "v1",
+        input: schemaRef("EmptySchema"),
+        output: schemaRef("TraceOutput"),
+        errors: ["UnexpectedError"],
+      },
+    },
+  }),
+);
 
 const traceRuntimeContract = {
   API: {
@@ -189,28 +197,32 @@ const traceRuntimeContract = {
   },
 };
 
-const localErrorContract = defineContract({
-  id: "trellis.local-error.rpc-test@v1",
-  displayName: "Local Error RPC Test",
-  description: "Round-trip a contract-local error as a real runtime class.",
-  kind: "service",
-  schemas: {
-    EmptySchema,
-    NotFoundErrorData: NotFoundErrorDataSchema,
-  },
-  errors: {
-    WorkspaceMissing: defineError(NotFoundError),
-  },
-  rpc: {
-    "Test.LocalError": {
-      version: "v1",
-      input: schemaRef("EmptySchema"),
-      output: schemaRef("EmptySchema"),
-      authRequired: false,
-      errors: ["WorkspaceMissing", "UnexpectedError"],
+const localErrorContract = defineContract(
+  {
+    schemas: {
+      EmptySchema,
+      NotFoundErrorData: NotFoundErrorDataSchema,
+    },
+    errors: {
+      WorkspaceMissing: defineError(NotFoundError),
     },
   },
-});
+  (ref) => ({
+    id: "trellis.local-error.rpc-test@v1",
+    displayName: "Local Error RPC Test",
+    description: "Round-trip a contract-local error as a real runtime class.",
+    kind: "service",
+    rpc: {
+      "Test.LocalError": {
+        version: "v1",
+        input: schemaRef("EmptySchema"),
+        output: schemaRef("EmptySchema"),
+        authRequired: false,
+        errors: [ref.error("WorkspaceMissing"), ref.error("UnexpectedError")],
+      },
+    },
+  }),
+);
 
 async function waitFor<T>(
   fn: () => Promise<T | null>,
@@ -285,18 +297,21 @@ Deno.test({
   });
 
   await t.step("publish() encodes event header time as string", async () => {
-    const eventContract = defineContract({
-      id: "trellis.event.rpc-test@v1",
-      displayName: "Event RPC Test",
-      description: "Publish events for mixed RPC and event integration tests.",
-      kind: "service",
-      events: {
-        "Test.Event": {
-          version: "v1",
-          event: schemaRef("EventPayload"),
+    const eventContract = defineContract(
+      {},
+      () => ({
+        id: "trellis.event.rpc-test@v1",
+        displayName: "Event RPC Test",
+        description: "Publish events for mixed RPC and event integration tests.",
+        kind: "service",
+        events: {
+          "Test.Event": {
+            version: "v1",
+            event: schemaRef("EventPayload"),
+          },
         },
-      },
-    });
+      }),
+    );
 
     const client = createClient<typeof eventContract.API.owned>(
       eventContract,

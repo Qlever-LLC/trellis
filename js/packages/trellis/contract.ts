@@ -1,4 +1,3 @@
-import type { TrellisAPI } from "../contracts/mod.ts";
 import {
   type DefinedContract as BaseDefinedContract,
   type ContractApiViews,
@@ -6,14 +5,10 @@ import {
   type ContractModule,
   type ContractUseFn,
   type DefineContractInput,
-  defineContract as defineContractBase,
   type EmptyApi,
-  type MergeApis,
-  type OwnedApiFromSource,
   type SdkContractModule,
   type TrellisApiLike,
   type TrellisContractV1,
-  type UsedApiFromUses,
   type UseSpec,
 } from "../contracts/mod.ts";
 
@@ -46,23 +41,14 @@ export type DefinedContract<
   TContractId extends string = string,
 > = BaseDefinedContract<TOwnedApi, TUsedApi, TTrellisApi, TContractId>;
 
-export function defineContract<
-  const T extends DefineContractInput<any, any, any, any, any, any, any>,
->(
-  source: T,
-): DefinedContract<
-  OwnedApiFromSource<T>,
-  UsedApiFromUses<T["uses"]>,
-  MergeApis<OwnedApiFromSource<T>, UsedApiFromUses<T["uses"]>>,
-  T["id"]
-> {
-  return defineContractBase(source) as DefinedContract<
-    OwnedApiFromSource<T>,
-    UsedApiFromUses<T["uses"]>,
-    MergeApis<OwnedApiFromSource<T>, UsedApiFromUses<T["uses"]>>,
-    T["id"]
-  >;
-}
+export {
+  defineAppContract,
+  defineCliContract,
+  defineContract,
+  defineDeviceContract,
+  definePortalContract,
+  defineServiceContract,
+} from "../contracts/mod.ts";
 
 export type {
   ContractApiViews,

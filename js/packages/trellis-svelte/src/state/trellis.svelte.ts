@@ -1,9 +1,5 @@
-import {
-  defineContract,
-  type Trellis,
-  type TrellisAPI,
-  type TrellisContractV1,
-} from "@qlever-llc/trellis";
+import { defineAppContract, type Trellis } from "@qlever-llc/trellis";
+import type { TrellisAPI, TrellisContractV1 } from "@qlever-llc/trellis";
 import { TrellisClient } from "../../../trellis/client_connect.ts";
 import { createClient } from "../../../trellis/client.ts";
 import { getPublicSessionKey, signBytes } from "@qlever-llc/trellis/auth";
@@ -22,12 +18,13 @@ export type TrellisStateConfig<TApi extends TrellisAPI = TrellisAPI> = {
   contract?: TrellisClientContract<TApi>;
 };
 
-const DEFAULT_TRELLIS_CONTRACT = defineContract({
-  id: "trellis.svelte.browser@v1",
-  displayName: "Trellis Svelte Browser Client",
-  description: "Represent a browser client that only uses its locally declared Trellis APIs.",
-  kind: "app",
-}) satisfies TrellisClientContract<TrellisAPI>;
+const DEFAULT_TRELLIS_CONTRACT = defineAppContract(
+  () => ({
+    id: "trellis.svelte.browser@v1",
+    displayName: "Trellis Svelte Browser Client",
+    description: "Represent a browser client that only uses its locally declared Trellis APIs.",
+  }),
+) satisfies TrellisClientContract<TrellisAPI>;
 
 /**
  * Svelte 5 wrapper for Trellis client.

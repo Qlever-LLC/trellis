@@ -1,7 +1,7 @@
 import { assertEquals, assertExists } from "@std/assert";
 import { Type } from "typebox";
 import { type Result, ok } from "../../result/mod.ts";
-import type { JsonValue } from "@qlever-llc/trellis-contracts";
+import type { JsonValue } from "@qlever-llc/trellis/contracts";
 import { defineContract } from "../contract.ts";
 import {
   controlSubject,
@@ -22,27 +22,29 @@ function schemaRef<const TName extends keyof typeof schemas & string>(schema: TN
   return { schema } as const;
 }
 
-const billing = defineContract({
-  id: "trellis.billing.test@v1",
-  displayName: "Billing Test",
-  description: "Exercise operations runtime helpers.",
-  kind: "service",
-  schemas,
-  operations: {
-    "Billing.Refund": {
-      version: "v1",
-      input: schemaRef("RefundInput"),
-      progress: schemaRef("RefundProgress"),
-      output: schemaRef("RefundOutput"),
-      capabilities: {
-        call: ["billing.refund"],
-        read: ["billing.read"],
-        cancel: ["billing.cancel"],
+const billing = defineContract(
+  { schemas },
+  () => ({
+    id: "trellis.billing.test@v1",
+    displayName: "Billing Test",
+    description: "Exercise operations runtime helpers.",
+    kind: "service",
+    operations: {
+      "Billing.Refund": {
+        version: "v1",
+        input: schemaRef("RefundInput"),
+        progress: schemaRef("RefundProgress"),
+        output: schemaRef("RefundOutput"),
+        capabilities: {
+          call: ["billing.refund"],
+          read: ["billing.read"],
+          cancel: ["billing.cancel"],
+        },
+        cancel: true,
       },
-      cancel: true,
     },
-  },
-});
+  }),
+);
 
 const refundOperation = billing.API.owned.operations["Billing.Refund"];
 

@@ -15,12 +15,15 @@ Deno.test({
   const nc = await connect({ servers: `localhost:${info.port}` });
 
   try {
-    const contract = defineContract({
-      id: "trellis.template.test@v1",
-      displayName: "Template Test",
-      description: "Exercise template subject parameters in tests.",
-      kind: "service",
-    });
+    const contract = defineContract(
+      {},
+      () => ({
+        id: "trellis.template.test@v1",
+        displayName: "Template Test",
+        description: "Exercise template subject parameters in tests.",
+        kind: "service",
+      }),
+    );
 
     const client = createClient(
       contract,

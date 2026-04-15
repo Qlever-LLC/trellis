@@ -43,28 +43,31 @@ Deno.test({
       foo: Type.String(),
     });
 
-    const contract = defineContract({
-      id: "trellis.events.test@v1",
-      displayName: "Events Integration Test",
-      description: "Exercise event publishing and subscription flows in tests.",
-      kind: "service",
-      events: {
-        "Test.Ack": {
-          version: "v1",
-          params: ["/foo"] as const,
-          eventSchema,
+    const contract = defineContract(
+      {},
+      () => ({
+        id: "trellis.events.test@v1",
+        displayName: "Events Integration Test",
+        description: "Exercise event publishing and subscription flows in tests.",
+        kind: "service",
+        events: {
+          "Test.Ack": {
+            version: "v1",
+            params: ["/foo"] as const,
+            eventSchema,
+          },
+          "Test.Retry": {
+            version: "v1",
+            params: ["/foo"] as const,
+            eventSchema,
+          },
+          "Test.Invalid": {
+            version: "v1",
+            eventSchema,
+          },
         },
-        "Test.Retry": {
-          version: "v1",
-          params: ["/foo"] as const,
-          eventSchema,
-        },
-        "Test.Invalid": {
-          version: "v1",
-          eventSchema,
-        },
-      },
-    });
+      }),
+    );
 
     const publisher = createClient(
       contract,

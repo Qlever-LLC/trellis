@@ -1,21 +1,22 @@
 import { assertEquals } from "@std/assert";
-import { defineContract } from "@qlever-llc/trellis";
+import { definePortalContract } from "@qlever-llc/trellis";
 
 import { trellisAuth } from "./trellis_auth.ts";
 
-const portal = defineContract({
-  id: "test.portal@v1",
-  displayName: "Test Portal",
-  description: "Exercise auth defaults in contract authoring.",
-  kind: "portal",
-  uses: {
-    auth: trellisAuth.useDefaults({
-      rpc: {
-        call: ["Auth.Me", "Auth.ListApprovals"],
-      },
-    }),
-  },
-});
+const portal = definePortalContract(
+  () => ({
+    id: "test.portal@v1",
+    displayName: "Test Portal",
+    description: "Exercise auth defaults in contract authoring.",
+    uses: {
+      auth: trellisAuth.useDefaults({
+        rpc: {
+          call: ["Auth.Me", "Auth.ListApprovals"],
+        },
+      }),
+    },
+  }),
+);
 
 Deno.test("trellisAuth.useDefaults adds baseline auth rpc uses once", () => {
   assertEquals(portal.CONTRACT.uses?.auth, {
