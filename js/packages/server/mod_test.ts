@@ -6,7 +6,7 @@
 import { assertEquals, assertExists } from "jsr:@std/assert";
 import { Type } from "typebox";
 import { type BaseError, Result } from "@qlever-llc/result";
-import { defineContract } from "../trellis/contract.ts";
+import { defineServiceContract } from "../trellis/contract.ts";
 import type {
   EventHandler,
   EventName,
@@ -49,13 +49,12 @@ const typeTestSchemas = {
   KVValue: Type.Object({ value: Type.String() }),
 } as const;
 
-const typeTestContract = defineContract(
+const typeTestContract = defineServiceContract(
   { schemas: typeTestSchemas },
   (ref) => ({
     id: "trellis.server.type-test@v1",
     displayName: "Server Type Test",
     description: "Verify typed service surface.",
-    kind: "service",
     rpc: {
       "Test.Ping": {
         version: "v1",

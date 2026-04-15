@@ -1,6 +1,6 @@
 ---
 title: Trellis TypeScript Contract Authoring
-description: TypeScript contract authoring architecture centered on defineContract, uses, and derived contract views.
+description: TypeScript contract authoring architecture centered on kind-specific helpers, uses, and derived contract views.
 order: 20
 ---
 
@@ -64,19 +64,13 @@ TypeScript authoring uses kind-specific public helpers:
 - `defineDeviceContract(...)`
 - `defineCliContract(...)`
 
-`defineContract(...)` remains the lower-level primitive that those helpers build
-on, but docs and normal authored contract modules should use the kind-specific
-helper that matches the participant.
+These helpers are the public TypeScript authoring surface. Docs and normal
+authored contract modules should use the kind-specific helper that matches the
+participant.
 
-This helper replaces the current public authoring split between:
-
-- `defineContractSource(...)`
-- `buildContractArtifacts(...)`
-- `mergeApis(...)`
-
-Those older helpers are not retained as supported public APIs. If the new model
-is insufficient, the new model must be extended rather than requiring callers to
-fall back to lower-level escape hatches.
+This public surface covers contract authoring, emitted artifacts, and derived
+runtime API views. Supporting internals should extend these helpers rather than
+introducing alternate authoring entrypoints.
 
 ### 2) Package boundary
 
@@ -163,8 +157,6 @@ For locally authored TypeScript contract source files under `contracts/*.ts`:
 - authors should not hand-assemble a wrapper object that re-exports
   `CONTRACT_ID`, `CONTRACT`, `CONTRACT_DIGEST`, and `API` just to satisfy
   generator tooling
-- one-object `defineContract({ ... })` authoring is removed; do not use or teach
-  that shape
 
 ### 3a) Service-local RPC errors
 
@@ -234,8 +226,9 @@ Rules:
 - the class `name` is the wire `type`
 - the builder registry `schemas` map remains the source of manifest-emitted
   schema refs, so the error class schema must also be declared there
-- RPC `errors: [...]` entries should usually be authored through `ref.error(...)`
-  so local declaration keys and built-in Trellis errors share one pattern
+- RPC `errors: [...]` entries should usually be authored through
+  `ref.error(...)` so local declaration keys and built-in Trellis errors share
+  one pattern
 - the emitted manifest remains plain JSON; Trellis attaches JS-only
   reconstruction metadata to the local contract object rather than serializing
   class constructors
@@ -317,9 +310,12 @@ const client = await TrellisClient.connect({
   contract: app,
 });
 
-export const serviceContract = defineServiceContract(serviceRegistry, (ref) => ({
-  ...serviceBody,
-}));
+export const serviceContract = defineServiceContract(
+  serviceRegistry,
+  (ref) => ({
+    ...serviceBody,
+  }),
+);
 export default serviceContract;
 
 const service = await TrellisService.connect({
@@ -445,28 +441,13 @@ Expected type behavior:
 - `auth.use({ rpc: { call: ["Trellis.Catalog"] } })` is a type error because
   that RPC is not part of `trellis.auth@v1`
 
-### Migration and rollout
+### Implementation notes
 
-Implementation should proceed in this order:
-
-1. add the new specialized contract helpers and shared contract module types in
-   the contract-model layer
-2. expose that surface canonically from `@qlever-llc/trellis`
-3. update TS SDK generation to emit the richer contract module shape with nested
-   API views and typed `use(...)`
-4. update runtime helpers to consume contract objects directly for client and
-   service creation
-5. migrate in-repo contracts and bootstrap code to the new model
-6. remove the old public TypeScript authoring and manual API merge entrypoints
-
-Rules:
-
-- the new contract-first API must be fully capable before the old public APIs
-  are removed
-- migration should preserve the emitted manifest format and CLI contract
-  workflow
-- after migration, documentation and examples should use only the new
-  contract-first surface
+- TS SDK generation should emit the contract module shape with nested API views
+  and typed `use(...)`
+- runtime helpers should consume contract objects directly for client and
+  service creation
+- the emitted manifest format and CLI contract workflow stay stable
 
 ## References
 

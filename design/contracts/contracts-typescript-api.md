@@ -51,14 +51,12 @@ It exports:
 - `definePortalContract(...)`
 - `defineDeviceContract(...)`
 - `defineCliContract(...)`
-- `defineContract(...)`
 - `defineError(...)`
 - contract-module and use-spec types needed by generated SDKs
 
 The specialized contract helpers exported from `@qlever-llc/trellis/contracts`
-return contract objects with projected API views and manifest metadata.
-`defineContract(...)` remains the lower-level generic builder. The canonical
-public bootstrap helpers live in `@qlever-llc/trellis` and
+return contract objects with projected API views and manifest metadata. The
+canonical public bootstrap helpers live in `@qlever-llc/trellis` and
 `@qlever-llc/trellis/server*`.
 
 Rules:
@@ -157,7 +155,10 @@ type ContractRefBuilder = {
   error(name: string): string;
 };
 
-declare function defineServiceContract<TRegistry extends object, TBody extends object>(
+declare function defineServiceContract<
+  TRegistry extends object,
+  TBody extends object,
+>(
   registry: TRegistry,
   build: (ref: ContractRefBuilder) => TBody,
 ): DefinedContract<any, any, any>;
@@ -176,11 +177,6 @@ declare function defineDeviceContract<TBody extends object>(
 
 declare function defineCliContract<TBody extends object>(
   build: () => TBody,
-): DefinedContract<any, any, any>;
-
-declare function defineContract<TRegistry extends object, TBody extends object>(
-  registry: TRegistry,
-  build: (ref: ContractRefBuilder) => TBody,
 ): DefinedContract<any, any, any>;
 ```
 
@@ -262,8 +258,10 @@ Rules:
 - local service contract files should prefer
   `defineServiceContract({ schemas, errors }, (ref) => ({ ... }))`
 - local app contract files should prefer `defineAppContract(() => ({ ... }))`
-- local portal contract files should prefer `definePortalContract(() => ({ ... }))`
-- local device contract files should prefer `defineDeviceContract(() => ({ ... }))`
+- local portal contract files should prefer
+  `definePortalContract(() => ({ ... }))`
+- local device contract files should prefer
+  `defineDeviceContract(() => ({ ... }))`
 - local CLI contract files should prefer `defineCliContract(() => ({ ... }))`
 - contract source examples should export the specialized helper result directly
   and use that object for `contract.API`, `contract.use(...)`, and runtime
@@ -294,8 +292,8 @@ TypeScript authoring shape:
 
 ```ts
 import {
-  defineServiceContract,
   defineError,
+  defineServiceContract,
   TrellisError,
 } from "@qlever-llc/trellis/contracts";
 

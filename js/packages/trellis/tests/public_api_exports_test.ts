@@ -1,28 +1,21 @@
 import { assert, assertEquals } from "@std/assert";
-import { Type, type Static } from "typebox";
+import { type Static, Type } from "typebox";
 
 import {
-  buildLoginUrl,
   defineAppContract,
   defineCliContract,
-  defineError,
-  DownloadTransferGrantSchema,
-  defineContract,
   defineDeviceContract,
+  defineError,
   definePortalContract,
   defineServiceContract,
+  DownloadTransferGrantSchema,
   err,
-  fetchPortalFlowState,
   isErr,
   isOk,
   ok,
-  portalFlowIdFromUrl,
-  portalProviderLoginUrl,
-  portalRedirectLocation,
   Result,
   schema,
   StoreError,
-  submitPortalApproval,
   TransferError,
   TransferGrantSchema,
   TrellisClient,
@@ -34,8 +27,8 @@ import {
 } from "../index.ts";
 import * as trellis from "../index.ts";
 
-Deno.test("root public API includes core runtime, contracts, result, and common auth helpers", () => {
-  assertEquals(typeof defineContract, "function");
+Deno.test("root public API includes core runtime, contracts, and result helpers", () => {
+  assertEquals("defineContract" in trellis, false);
   assertEquals(typeof defineAppContract, "function");
   assertEquals(typeof definePortalContract, "function");
   assertEquals(typeof defineCliContract, "function");
@@ -43,12 +36,6 @@ Deno.test("root public API includes core runtime, contracts, result, and common 
   assertEquals(typeof defineServiceContract, "function");
   assertEquals(typeof defineError, "function");
   assertEquals(typeof schema, "function");
-  assertEquals(typeof buildLoginUrl, "function");
-  assertEquals(typeof portalFlowIdFromUrl, "function");
-  assertEquals(typeof fetchPortalFlowState, "function");
-  assertEquals(typeof portalProviderLoginUrl, "function");
-  assertEquals(typeof submitPortalApproval, "function");
-  assertEquals(typeof portalRedirectLocation, "function");
   assertEquals(typeof TrellisClient.connect, "function");
   assertEquals(typeof TrellisDevice.connect, "function");
   assertEquals(typeof TypedStore, "function");
@@ -63,7 +50,9 @@ Deno.test("root public API includes core runtime, contracts, result, and common 
   assertEquals(typeof isOk, "function");
   assertEquals(typeof isErr, "function");
   assert(Result);
-  assert("schema" in schema<{ ok: true }>(Type.Object({ ok: Type.Literal(true) })));
+  assert(
+    "schema" in schema<{ ok: true }>(Type.Object({ ok: Type.Literal(true) })),
+  );
 
   const contract = defineServiceContract(
     {
@@ -141,4 +130,10 @@ Deno.test("root public API includes core runtime, contracts, result, and common 
 
 Deno.test("root public API stays browser-safe and excludes server runtime exports", () => {
   assert(!("TrellisServer" in trellis));
+  assertEquals("buildLoginUrl" in trellis, false);
+  assertEquals("fetchPortalFlowState" in trellis, false);
+  assertEquals("portalFlowIdFromUrl" in trellis, false);
+  assertEquals("portalProviderLoginUrl" in trellis, false);
+  assertEquals("portalRedirectLocation" in trellis, false);
+  assertEquals("submitPortalApproval" in trellis, false);
 });

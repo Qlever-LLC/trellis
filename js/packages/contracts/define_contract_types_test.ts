@@ -1,10 +1,9 @@
 import { Type } from "typebox";
 
 import {
+  type ContractSourceRpcMethod,
   defineAppContract,
   defineDeviceContract,
-  type ContractSourceRpcMethod,
-  defineContract,
   defineServiceContract,
 } from "./mod.ts";
 
@@ -16,26 +15,29 @@ type Assert<T extends true> = T;
 type Not<T extends boolean> = T extends true ? false : true;
 type HasKey<T, K extends PropertyKey> = K extends keyof T ? true : false;
 type HasMember<T, U> = U extends T ? true : false;
-type HasSubject<T, TKey extends PropertyKey> = TKey extends keyof T ? true : false;
+type HasSubject<T, TKey extends PropertyKey> = TKey extends keyof T ? true
+  : false;
 
 const authSchemas = {
   Empty: EmptySchema,
   StringValue: StringSchema,
 } as const;
 
-function schemaRef<TSchemas extends Record<string, unknown>, const TName extends keyof TSchemas & string>(
+function schemaRef<
+  TSchemas extends Record<string, unknown>,
+  const TName extends keyof TSchemas & string,
+>(
   schema: TName,
 ) {
   return { schema } as const;
 }
 
-const auth = defineContract(
+const auth = defineServiceContract(
   { schemas: authSchemas },
   () => ({
     id: "trellis.auth@v1",
     displayName: "Trellis Auth",
     description: "Expose Trellis auth RPCs and events for tests.",
-    kind: "service",
     rpc: {
       "Auth.Me": {
         version: "v1",
@@ -62,13 +64,12 @@ const activitySchemas = {
   StringValue: StringSchema,
 } as const;
 
-const activity = defineContract(
+const activity = defineServiceContract(
   { schemas: activitySchemas },
   () => ({
     id: "trellis.activity@v1",
     displayName: "Activity",
     description: "Expose activity RPCs and subscribe to auth events for tests.",
-    kind: "service",
     uses: {
       auth: auth.use({
         rpc: { call: ["Auth.Me"] },
@@ -98,23 +99,23 @@ activity.API.trellis.rpc["Activity.List"].subject;
 activity.API.trellis.rpc["Auth.Me"].subject;
 
 type AuthUseArg = Parameters<typeof auth.use>[0];
-type AuthUseRpcCall = NonNullable<NonNullable<AuthUseArg["rpc"]>["call"]>[number];
-type _AuthUseDoesNotAcceptTrellisCatalog = Assert<Not<HasMember<AuthUseRpcCall, "Trellis.Catalog">>>;
+type AuthUseRpcCall = NonNullable<
+  NonNullable<AuthUseArg["rpc"]>["call"]
+>[number];
+type _AuthUseDoesNotAcceptTrellisCatalog = Assert<
+  Not<HasMember<AuthUseRpcCall, "Trellis.Catalog">>
+>;
 
-const dashboard = defineContract(
-  {},
-  () => ({
-    id: "trellis.dashboard@v1",
-    displayName: "Dashboard",
-    description: "Consume activity events in contract typing tests.",
-    kind: "app",
-    uses: {
-      activity: activity.use({
-        events: { subscribe: ["Activity.Recorded"] },
-      }),
-    },
-  }),
-);
+const dashboard = defineAppContract(() => ({
+  id: "trellis.dashboard@v1",
+  displayName: "Dashboard",
+  description: "Consume activity events in contract typing tests.",
+  uses: {
+    activity: activity.use({
+      events: { subscribe: ["Activity.Recorded"] },
+    }),
+  },
+}));
 
 dashboard.API.used.events["Activity.Recorded"].subject;
 
@@ -124,13 +125,12 @@ const billingSchemas = {
   Result: StringSchema,
 } as const;
 
-const billing = defineContract(
+const billing = defineServiceContract(
   { schemas: billingSchemas },
   () => ({
     id: "trellis.billing@v1",
     displayName: "Billing",
     description: "Expose billing operations for contract typing tests.",
-    kind: "service",
     operations: {
       "Billing.Refund": {
         version: "v1",
@@ -153,13 +153,12 @@ const paymentsSchemas = {
   Result: StringSchema,
 } as const;
 
-const payments = defineContract(
+const payments = defineServiceContract(
   { schemas: paymentsSchemas },
   () => ({
     id: "trellis.payments@v1",
     displayName: "Payments",
     description: "Consume billing operations for contract typing tests.",
-    kind: "service",
     uses: {
       billing: billing.use({
         operations: { call: ["Billing.Refund"] },
@@ -184,10 +183,14 @@ type _PaymentsDoesNotExposeBillingWriteoff = Assert<
   Not<HasKey<typeof payments.API.trellis.operations, "Billing.Writeoff">>
 >;
 type BillingUseArg = Parameters<typeof billing.use>[0];
-type BillingUseOperationCall = NonNullable<NonNullable<BillingUseArg["operations"]>["call"]>[number];
-type _BillingUseDoesNotAcceptWriteoff = Assert<Not<HasMember<BillingUseOperationCall, "Billing.Writeoff">>>;
+type BillingUseOperationCall = NonNullable<
+  NonNullable<BillingUseArg["operations"]>["call"]
+>[number];
+type _BillingUseDoesNotAcceptWriteoff = Assert<
+  Not<HasMember<BillingUseOperationCall, "Billing.Writeoff">>
+>;
 
-const inlineSchemaContract = defineContract(
+const inlineSchemaContract = defineServiceContract(
   {
     schemas: {
       Empty: EmptySchema,
@@ -199,7 +202,6 @@ const inlineSchemaContract = defineContract(
     id: "trellis.inline-schemas@v1",
     displayName: "Inline Schemas",
     description: "Use inline schema refs without a local helper.",
-    kind: "service",
     rpc: {
       "Inline.Run": {
         version: "v1",
@@ -297,7 +299,7 @@ if (false) {
 
   invalidRpcMethod;
 
-  defineContract(
+  defineServiceContract(
     {
       schemas: {
         Empty: EmptySchema,
@@ -307,7 +309,6 @@ if (false) {
       id: "trellis.invalid-job-schema@v1",
       displayName: "Invalid Job Schema",
       description: "Should fail type checking.",
-      kind: "service",
       resources: {
         jobs: {
           queues: {
@@ -321,7 +322,7 @@ if (false) {
     }),
   );
 
-  defineContract(
+  defineServiceContract(
     {
       schemas: {
         Empty: EmptySchema,
@@ -334,7 +335,6 @@ if (false) {
       id: "trellis.invalid-builder@v1",
       displayName: "Invalid Builder",
       description: "Should fail type checking.",
-      kind: "service",
       rpc: {
         "Builder.Run": {
           version: "v1",
@@ -374,4 +374,4 @@ if (false) {
   }));
 }
 
-Deno.test("defineContract type coverage compiles", () => {});
+Deno.test("kind-specific contract helper type coverage compiles", () => {});

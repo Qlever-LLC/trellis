@@ -1,11 +1,9 @@
 export {
   bindFlow,
   bindSession,
-  buildLoginUrl,
   clearSessionKey,
   createAuth,
   createRpcProof,
-  fetchPortalFlowState,
   generateSessionKey,
   getOrCreateSessionKey,
   getPublicSessionKey,
@@ -13,18 +11,11 @@ export {
   isBindSuccessResponse,
   loadSessionKey,
   natsConnectSigForBindingToken,
-  portalFlowIdFromUrl,
-  portalProviderLoginUrl,
-  portalRedirectLocation,
   signBytes,
-  submitPortalApproval,
 } from "./auth.ts";
 export type {
-  ApprovalDecision,
-  AuthConfig,
   BindResponse,
   BindSuccessResponse,
-  PortalFlowState,
   NatsConnectOptions,
   SessionKeyHandle,
 } from "./auth.ts";
@@ -37,11 +28,7 @@ export {
   schema,
   unwrapSchema,
 } from "./contracts.ts";
-export type {
-  InferSchemaType,
-  JsonValue,
-  TrellisAPI,
-} from "./contracts.ts";
+export type { InferSchemaType, JsonValue, TrellisAPI } from "./contracts.ts";
 export { defineError } from "../contracts/mod.ts";
 export type {
   ErrorClass,
@@ -53,7 +40,6 @@ export type {
 export {
   defineAppContract,
   defineCliContract,
-  defineContract,
   defineDeviceContract,
   definePortalContract,
   defineServiceContract,
@@ -137,18 +123,18 @@ export type {
   OperationHandlerContext,
   OperationRegistration,
   RpcHandler,
+  RpcHandlerContext,
   RpcHandlerErrorOf,
   RpcHandlerFn,
-  RpcHandlerContext,
   RpcInput,
   RpcInputOf,
-  RpcName,
-  RpcRequestErrorOf,
   RpcMethodNameOf,
+  RpcName,
   RpcOutput,
   RpcOutputOf,
-  TrellisFor,
+  RpcRequestErrorOf,
   TrellisAuth,
+  TrellisFor,
   TrellisSigner,
 } from "./trellis.ts";
 export { Trellis } from "./trellis.ts";

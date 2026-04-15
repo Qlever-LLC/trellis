@@ -1,8 +1,8 @@
 import { assertEquals, assertExists } from "@std/assert";
 import { Type } from "typebox";
-import { type Result, ok } from "../../result/mod.ts";
+import { ok, type Result } from "../../result/mod.ts";
 import type { JsonValue } from "@qlever-llc/trellis/contracts";
-import { defineContract } from "../contract.ts";
+import { defineServiceContract } from "../contract.ts";
 import {
   controlSubject,
   type OperationEvent,
@@ -18,17 +18,18 @@ const schemas = {
   RefundOutput: Type.Object({ refundId: Type.String() }),
 } as const;
 
-function schemaRef<const TName extends keyof typeof schemas & string>(schema: TName) {
+function schemaRef<const TName extends keyof typeof schemas & string>(
+  schema: TName,
+) {
   return { schema } as const;
 }
 
-const billing = defineContract(
+const billing = defineServiceContract(
   { schemas },
   () => ({
     id: "trellis.billing.test@v1",
     displayName: "Billing Test",
     description: "Exercise operations runtime helpers.",
-    kind: "service",
     operations: {
       "Billing.Refund": {
         version: "v1",
@@ -116,8 +117,9 @@ Deno.test("OperationInvoker.start() posts input to the operation subject and ret
 Deno.test("OperationInvoker.start type surface stays specific", () => {
   type Started = ReturnType<OperationInvoker<typeof refundOperation>["start"]>;
   let started!: Started;
-  const typed: Promise<Result<OperationRef<typeof refundOperation>, UnexpectedError>> =
-    started;
+  const typed: Promise<
+    Result<OperationRef<typeof refundOperation>, UnexpectedError>
+  > = started;
   assertEquals(true, true);
 });
 
@@ -332,7 +334,9 @@ Deno.test("OperationRef.watch() sends action:watch to <subject>.control and yiel
 
   const operation = new OperationInvoker(transport, refundOperation);
   const reference = (await operation.start({ chargeId: "ch_123" })).take() as {
-    watch: () => Promise<{ take: () => AsyncIterable<OperationEvent<unknown, unknown>> }>;
+    watch: () => Promise<
+      { take: () => AsyncIterable<OperationEvent<unknown, unknown>> }
+    >;
   };
   const watch = (await reference.watch()).take();
   const events: OperationEvent[] = [];

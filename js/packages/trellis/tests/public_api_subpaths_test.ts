@@ -7,11 +7,11 @@ import type { TrellisCatalogHandler } from "../sdk/core.ts";
 import {
   defineAppContract,
   defineCliContract,
-  defineContract,
   defineDeviceContract,
   definePortalContract,
   defineServiceContract,
 } from "../contracts.ts";
+import * as contracts from "../contracts.ts";
 import * as coreSdk from "../sdk/core.ts";
 import * as stateSdk from "../sdk/state.ts";
 import * as serverHealth from "../server/health.ts";
@@ -36,8 +36,8 @@ Deno.test("server and sdk subpaths expose the canonical wrapper API", () => {
   assertEquals(stateSdk.state?.use, stateSdk.use);
 });
 
-Deno.test("contracts subpath defineContract retains contract API projections", () => {
-  assertEquals(typeof defineContract, "function");
+Deno.test("contracts subpath exposes only kind-specific contract helpers", () => {
+  assertEquals("defineContract" in contracts, false);
   assertEquals(typeof defineAppContract, "function");
   assertEquals(typeof definePortalContract, "function");
   assertEquals(typeof defineCliContract, "function");
@@ -65,7 +65,10 @@ Deno.test("contracts subpath defineContract retains contract API projections", (
   );
 
   assertEquals(typeof contract.CONTRACT_ID, "string");
-  assertEquals(typeof contract.API.trellis.rpc["Example.Ping"].subject, "string");
+  assertEquals(
+    typeof contract.API.trellis.rpc["Example.Ping"].subject,
+    "string",
+  );
 });
 
 Deno.test("generated SDK exports handler aliases for extracted handlers", () => {

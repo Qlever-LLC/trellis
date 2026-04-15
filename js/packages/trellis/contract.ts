@@ -1,10 +1,10 @@
 import {
-  type DefinedContract as BaseDefinedContract,
   type ContractApiViews,
   type ContractDependencyUse,
   type ContractModule,
   type ContractUseFn,
   type DefineContractInput,
+  type DefinedContract as BaseDefinedContract,
   type EmptyApi,
   type SdkContractModule,
   type TrellisApiLike,
@@ -44,7 +44,6 @@ export type DefinedContract<
 export {
   defineAppContract,
   defineCliContract,
-  defineContract,
   defineDeviceContract,
   definePortalContract,
   defineServiceContract,

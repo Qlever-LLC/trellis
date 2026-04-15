@@ -1,7 +1,7 @@
 import { connect } from "@nats-io/transport-deno";
 import { assertEquals, assertExists } from "@std/assert";
 import { Type } from "typebox";
-import { defineContract } from "../contract.ts";
+import { defineServiceContract } from "../contract.ts";
 import { ok } from "../index.ts";
 import { TrellisServer } from "../server/mod.ts";
 import { createClient } from "../client.ts";
@@ -25,33 +25,49 @@ function toArrayBuffer(data: Uint8Array): ArrayBuffer {
   return copy.buffer;
 }
 
-async function createTestAuth(): Promise<{ auth: TrellisAuth; inboxPrefix: string }> {
-  const kp = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
-  const raw = new Uint8Array(await crypto.subtle.exportKey("raw", kp.publicKey));
+async function createTestAuth(): Promise<
+  { auth: TrellisAuth; inboxPrefix: string }
+> {
+  const kp = await crypto.subtle.generateKey({ name: "Ed25519" }, true, [
+    "sign",
+    "verify",
+  ]);
+  const raw = new Uint8Array(
+    await crypto.subtle.exportKey("raw", kp.publicKey),
+  );
   const sessionKey = base64urlEncode(raw);
   const auth: TrellisAuth = {
     sessionKey,
     sign: async (data: Uint8Array) => {
-      const sig = await crypto.subtle.sign({ name: "Ed25519" }, kp.privateKey, toArrayBuffer(data));
+      const sig = await crypto.subtle.sign(
+        { name: "Ed25519" },
+        kp.privateKey,
+        toArrayBuffer(data),
+      );
       return new Uint8Array(sig);
     },
   };
   return { auth, inboxPrefix: `_INBOX.${sessionKey.slice(0, 16)}` };
 }
 
-const billing = defineContract(
+const billing = defineServiceContract(
   {
     schemas: {
-      RefundInput: Type.Object({ chargeId: Type.String() }, { additionalProperties: false }),
-      RefundProgress: Type.Object({ message: Type.String() }, { additionalProperties: false }),
-      RefundOutput: Type.Object({ refundId: Type.String() }, { additionalProperties: false }),
+      RefundInput: Type.Object({ chargeId: Type.String() }, {
+        additionalProperties: false,
+      }),
+      RefundProgress: Type.Object({ message: Type.String() }, {
+        additionalProperties: false,
+      }),
+      RefundOutput: Type.Object({ refundId: Type.String() }, {
+        additionalProperties: false,
+      }),
     },
   },
   (ref) => ({
     id: "trellis.billing.durable-test@v1",
     displayName: "Billing Durable Test",
     description: "Exercise durable operations state over restart.",
-    kind: "service",
     operations: {
       "Billing.Refund": {
         version: "v1",
@@ -77,8 +93,14 @@ Deno.test({
     const { auth, inboxPrefix } = await createTestAuth();
     const info = nats.nc.info!;
 
-    const serverNc1 = await connect({ servers: `localhost:${info.port}`, inboxPrefix });
-    const clientNc = await connect({ servers: `localhost:${info.port}`, inboxPrefix });
+    const serverNc1 = await connect({
+      servers: `localhost:${info.port}`,
+      inboxPrefix,
+    });
+    const clientNc = await connect({
+      servers: `localhost:${info.port}`,
+      inboxPrefix,
+    });
 
     const server1 = TrellisServer.create(
       "billing-server",
@@ -94,7 +116,9 @@ Deno.test({
       return ok({ refundId: "rf_123" });
     });
 
-    const client = createClient(billing, clientNc, auth, { name: "durability-client" });
+    const client = createClient(billing, clientNc, auth, {
+      name: "durability-client",
+    });
     const started = await client.operation("Billing.Refund").start({
       chargeId: "ch_123",
     });
@@ -127,14 +151,19 @@ Deno.test({
 
     await server1.stop();
 
-    const serverNc2 = await connect({ servers: `localhost:${info.port}`, inboxPrefix });
+    const serverNc2 = await connect({
+      servers: `localhost:${info.port}`,
+      inboxPrefix,
+    });
     const server2 = TrellisServer.create(
       "billing-server",
       serverNc2,
       auth,
       { api: billing.API.owned },
     );
-    await server2.operation("Billing.Refund").handle(async () => ok({ refundId: "unused" }));
+    await server2.operation("Billing.Refund").handle(async () =>
+      ok({ refundId: "unused" })
+    );
 
     const afterRestart = (await ref.get()).take() as {
       revision: number;

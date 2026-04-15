@@ -1,8 +1,12 @@
 import { assertEquals, assertThrows } from "@std/assert";
-import { Type, type Static } from "typebox";
+import { type Static, Type } from "typebox";
 
 import { digestJson } from "./canonical.ts";
-import { defineContract, defineError } from "./mod.ts";
+import {
+  defineAppContract,
+  defineError,
+  defineServiceContract,
+} from "./mod.ts";
 import { TrellisError } from "../trellis/errors/TrellisError.ts";
 
 const EmptySchema = Type.Object({});
@@ -13,20 +17,22 @@ const baseSchemas = {
   StringValue: StringSchema,
 } as const;
 
-function schemaRef<TSchemas extends Record<string, unknown>, const TName extends keyof TSchemas & string>(
+function schemaRef<
+  TSchemas extends Record<string, unknown>,
+  const TName extends keyof TSchemas & string,
+>(
   schema: TName,
 ) {
   return { schema } as const;
 }
 
-Deno.test("defineContract preserves emitted manifest shape and digest", async () => {
-  const auth = defineContract(
+Deno.test("kind-specific helpers preserve emitted manifest shape and digest", async () => {
+  const auth = defineServiceContract(
     { schemas: baseSchemas },
     () => ({
       id: "trellis.auth@v1",
       displayName: "Trellis Auth",
       description: "Expose auth RPCs and events for source emission tests.",
-      kind: "service",
       rpc: {
         "Auth.Me": {
           version: "v1",
@@ -40,19 +46,21 @@ Deno.test("defineContract preserves emitted manifest shape and digest", async ()
         "Auth.Connect": {
           version: "v1",
           event: schemaRef<typeof baseSchemas, "StringValue">("StringValue"),
-          capabilities: { publish: ["events:auth"], subscribe: ["events:auth"] },
+          capabilities: {
+            publish: ["events:auth"],
+            subscribe: ["events:auth"],
+          },
         },
       },
     }),
   );
 
-  const activity = defineContract(
+  const activity = defineServiceContract(
     { schemas: baseSchemas },
     () => ({
       id: "trellis.activity@v1",
       displayName: "Activity",
       description: "Expose activity APIs while depending on auth in tests.",
-      kind: "service",
       uses: {
         auth: auth.use({
           rpc: { call: ["Auth.Me"] },
@@ -148,7 +156,7 @@ Deno.test("defineContract preserves emitted manifest shape and digest", async ()
   );
 });
 
-Deno.test("defineContract emits RPC error refs using declared wire types", () => {
+Deno.test("defineServiceContract emits RPC error refs using declared wire types", () => {
   const NotFoundErrorData = Type.Object({
     id: Type.String(),
     type: Type.Literal("NotFoundError"),
@@ -176,7 +184,7 @@ Deno.test("defineContract emits RPC error refs using declared wire types", () =>
     }
   }
 
-  const contract = defineContract(
+  const contract = defineServiceContract(
     {
       schemas: {
         Empty: EmptySchema,
@@ -190,7 +198,6 @@ Deno.test("defineContract emits RPC error refs using declared wire types", () =>
       id: "local-errors.example@v1",
       displayName: "Local Errors Example",
       description: "Verify RPC error refs emit declared error types.",
-      kind: "service",
       rpc: {
         "Workspace.Get": {
           version: "v1",
@@ -208,14 +215,13 @@ Deno.test("defineContract emits RPC error refs using declared wire types", () =>
   ]);
 });
 
-Deno.test("defineContract rejects duplicate logical keys across used and owned APIs", () => {
-  const auth = defineContract(
+Deno.test("defineServiceContract rejects duplicate logical keys across used and owned APIs", () => {
+  const auth = defineServiceContract(
     { schemas: baseSchemas },
     () => ({
       id: "trellis.auth@v1",
       displayName: "Trellis Auth",
       description: "Expose auth RPCs in duplicate-key tests.",
-      kind: "service",
       rpc: {
         "Auth.Me": {
           version: "v1",
@@ -228,13 +234,12 @@ Deno.test("defineContract rejects duplicate logical keys across used and owned A
 
   assertThrows(
     () =>
-      defineContract(
+      defineServiceContract(
         { schemas: baseSchemas },
         () => ({
           id: "duplicate@v1",
           displayName: "Duplicate",
           description: "Trigger duplicate logical RPC key validation.",
-          kind: "service",
           uses: {
             auth: auth.use({ rpc: { call: ["Auth.Me"] } }),
           },
@@ -242,7 +247,9 @@ Deno.test("defineContract rejects duplicate logical keys across used and owned A
             "Auth.Me": {
               version: "v1",
               input: schemaRef<typeof baseSchemas, "Empty">("Empty"),
-              output: schemaRef<typeof baseSchemas, "StringValue">("StringValue"),
+              output: schemaRef<typeof baseSchemas, "StringValue">(
+                "StringValue",
+              ),
             },
           },
         }),
@@ -252,14 +259,13 @@ Deno.test("defineContract rejects duplicate logical keys across used and owned A
   );
 });
 
-Deno.test("defineContract validates use(...) provenance and selected keys at runtime", () => {
-  const auth = defineContract(
+Deno.test("defineServiceContract validates use(...) provenance and selected keys at runtime", () => {
+  const auth = defineServiceContract(
     { schemas: baseSchemas },
     () => ({
       id: "trellis.auth@v1",
       displayName: "Trellis Auth",
       description: "Expose auth RPCs in provenance tests.",
-      kind: "service",
       rpc: {
         "Auth.Me": {
           version: "v1",
@@ -280,11 +286,10 @@ Deno.test("defineContract validates use(...) provenance and selected keys at run
 
   assertThrows(
     () =>
-      defineContract({}, () => ({
+      defineServiceContract({}, () => ({
         id: "forged@v1",
         displayName: "Forged",
         description: "Trigger forged use provenance validation.",
-        kind: "service",
         uses: { auth: forgedUse },
       })),
     Error,
@@ -292,12 +297,11 @@ Deno.test("defineContract validates use(...) provenance and selected keys at run
   );
 });
 
-Deno.test("defineContract emits stream resources with defaults", () => {
-  const contract = defineContract({}, () => ({
+Deno.test("defineServiceContract emits stream resources with defaults", () => {
+  const contract = defineServiceContract({}, () => ({
     id: "streams.example@v1",
     displayName: "Streams Example",
     description: "Expose stream resource declarations in emitted manifests.",
-    kind: "service",
     resources: {
       streams: {
         activity: {
@@ -315,12 +319,11 @@ Deno.test("defineContract emits stream resources with defaults", () => {
   });
 });
 
-Deno.test("defineContract emits store resources with defaults", () => {
-  const contract = defineContract({}, () => ({
+Deno.test("defineServiceContract emits store resources with defaults", () => {
+  const contract = defineServiceContract({}, () => ({
     id: "store.example@v1",
     displayName: "Store Example",
     description: "Expose store resource declarations in emitted manifests.",
-    kind: "service",
     resources: {
       store: {
         uploads: {
@@ -340,13 +343,12 @@ Deno.test("defineContract emits store resources with defaults", () => {
 });
 
 Deno.test("locally defined contracts can be reused as dependencies", () => {
-  const activity = defineContract(
+  const activity = defineServiceContract(
     { schemas: baseSchemas },
     () => ({
       id: "trellis.activity@v1",
       displayName: "Activity",
       description: "Expose activity events for dependency reuse tests.",
-      kind: "service",
       events: {
         "Activity.Recorded": {
           version: "v1",
@@ -356,11 +358,10 @@ Deno.test("locally defined contracts can be reused as dependencies", () => {
     }),
   );
 
-  const dashboard = defineContract({}, () => ({
+  const dashboard = defineAppContract(() => ({
     id: "trellis.dashboard@v1",
     displayName: "Dashboard",
     description: "Reuse locally defined contracts as dependencies in tests.",
-    kind: "app",
     uses: {
       activity: activity.use({
         events: { subscribe: ["Activity.Recorded"] },
@@ -382,14 +383,13 @@ Deno.test("locally defined contracts can be reused as dependencies", () => {
   );
 });
 
-Deno.test("defineContract emits owned and used operations", () => {
-  const billing = defineContract(
+Deno.test("defineServiceContract emits owned and used operations", () => {
+  const billing = defineServiceContract(
     { schemas: baseSchemas },
     () => ({
       id: "trellis.billing@v1",
       displayName: "Billing",
       description: "Expose billing operations for source emission tests.",
-      kind: "service",
       operations: {
         "Billing.Refund": {
           version: "v1",
@@ -407,13 +407,12 @@ Deno.test("defineContract emits owned and used operations", () => {
     }),
   );
 
-  const payments = defineContract(
+  const payments = defineServiceContract(
     { schemas: baseSchemas },
     () => ({
       id: "trellis.payments@v1",
       displayName: "Payments",
       description: "Use billing operations in source emission tests.",
-      kind: "service",
       uses: {
         billing: billing.use({
           operations: { call: ["Billing.Refund"] },
@@ -451,14 +450,13 @@ Deno.test("defineContract emits owned and used operations", () => {
   );
 });
 
-Deno.test("defineContract rejects duplicate logical keys across used and owned operations", () => {
-  const billing = defineContract(
+Deno.test("defineServiceContract rejects duplicate logical keys across used and owned operations", () => {
+  const billing = defineServiceContract(
     { schemas: baseSchemas },
     () => ({
       id: "trellis.billing@v1",
       displayName: "Billing",
       description: "Expose billing operations in duplicate-key tests.",
-      kind: "service",
       operations: {
         "Billing.Refund": {
           version: "v1",
@@ -470,13 +468,12 @@ Deno.test("defineContract rejects duplicate logical keys across used and owned o
 
   assertThrows(
     () =>
-      defineContract(
+      defineServiceContract(
         { schemas: baseSchemas },
         () => ({
           id: "duplicate.operations@v1",
           displayName: "Duplicate Operations",
           description: "Trigger duplicate logical operation key validation.",
-          kind: "service",
           uses: {
             billing: billing.use({ operations: { call: ["Billing.Refund"] } }),
           },
@@ -493,14 +490,13 @@ Deno.test("defineContract rejects duplicate logical keys across used and owned o
   );
 });
 
-Deno.test("defineContract validates operation use selections at runtime", () => {
-  const billing = defineContract(
+Deno.test("defineServiceContract validates operation use selections at runtime", () => {
+  const billing = defineServiceContract(
     { schemas: baseSchemas },
     () => ({
       id: "trellis.billing@v1",
       displayName: "Billing",
       description: "Expose billing operations in runtime validation tests.",
-      kind: "service",
       operations: {
         "Billing.Refund": {
           version: "v1",
@@ -511,7 +507,8 @@ Deno.test("defineContract validates operation use selections at runtime", () => 
   );
 
   assertThrows(
-    () => billing.use({ operations: { call: JSON.parse('["Billing.Writeoff"]') } }),
+    () =>
+      billing.use({ operations: { call: JSON.parse('["Billing.Writeoff"]') } }),
     Error,
     "does not expose operations key 'Billing.Writeoff'",
   );

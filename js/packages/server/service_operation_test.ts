@@ -5,7 +5,7 @@ import type { InferSchemaType } from "@qlever-llc/trellis/contracts";
 import { assertEquals, assertExists } from "@std/assert";
 import { Type } from "typebox";
 import { createClient } from "../trellis/client.ts";
-import { defineContract } from "../trellis/contract.ts";
+import { defineServiceContract } from "../trellis/contract.ts";
 import { NatsTest } from "../trellis/testing/nats.ts";
 import type { NatsConnectFn, NatsConnectOpts } from "./runtime.ts";
 import { TrellisService } from "./service.ts";
@@ -17,7 +17,7 @@ function base64urlEncode(data: Uint8Array): string {
   return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
 
-const billing = defineContract(
+const billing = defineServiceContract(
   {
     schemas: {
       RefundInput: Type.Object({ chargeId: Type.String() }),
@@ -29,7 +29,6 @@ const billing = defineContract(
     id: "trellis.billing.service-operation-test@v1",
     displayName: "Billing Service Operation Test",
     description: "Exercise service.operation ergonomics.",
-    kind: "service",
     operations: {
       "Billing.Refund": {
         version: "v1",
@@ -47,12 +46,16 @@ const billing = defineContract(
   }),
 );
 
-type RefundInput = InferSchemaType<typeof billing.API.owned.operations["Billing.Refund"]["input"]>;
+type RefundInput = InferSchemaType<
+  typeof billing.API.owned.operations["Billing.Refund"]["input"]
+>;
 const natsConnect: NatsConnectFn = async (opts) => {
   const connectOpts: ConnectionOptions = {
     servers: opts.servers,
     ...(typeof opts.token === "string" ? { token: opts.token } : {}),
-    ...(typeof opts.inboxPrefix === "string" ? { inboxPrefix: opts.inboxPrefix } : {}),
+    ...(typeof opts.inboxPrefix === "string"
+      ? { inboxPrefix: opts.inboxPrefix }
+      : {}),
   };
   return await connect(connectOpts);
 };
@@ -83,33 +86,38 @@ Deno.test({
 
     try {
       globalThis.fetch = (() => {
-        return Promise.resolve(new Response(JSON.stringify({
-          status: "ready",
-          connectInfo: {
-            sessionKey: "session-key",
-            contractId: billing.CONTRACT_ID,
-            contractDigest: billing.CONTRACT_DIGEST,
-            transport: {
-              natsServers: [`localhost:${info.port}`],
-              sentinel: { jwt: "jwt", seed: "seed" },
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              status: "ready",
+              connectInfo: {
+                sessionKey: "session-key",
+                contractId: billing.CONTRACT_ID,
+                contractDigest: billing.CONTRACT_DIGEST,
+                transport: {
+                  natsServers: [`localhost:${info.port}`],
+                  sentinel: { jwt: "jwt", seed: "seed" },
+                },
+                auth: {
+                  mode: "service_identity",
+                  iatSkewSeconds: 30,
+                },
+              },
+              binding: {
+                contractId: billing.CONTRACT_ID,
+                digest: billing.CONTRACT_DIGEST,
+                resources: {
+                  kv: {},
+                  streams: {},
+                },
+              },
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
             },
-            auth: {
-              mode: "service_identity",
-              iatSkewSeconds: 30,
-            },
-          },
-          binding: {
-            contractId: billing.CONTRACT_ID,
-            digest: billing.CONTRACT_DIGEST,
-            resources: {
-              kv: {},
-              streams: {},
-            },
-          },
-        }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        }));
+          ),
+        );
       }) as typeof fetch;
 
       const service = await TrellisService.connect({
@@ -130,7 +138,9 @@ Deno.test({
         sessionKey: service.auth.sessionKey,
         sign: service.auth.sign,
       };
-      const client = createClient(billing, clientNc, clientAuth, { name: "billing-client" });
+      const client = createClient(billing, clientNc, clientAuth, {
+        name: "billing-client",
+      });
 
       await service.operation("Billing.Refund").handle(async (
         { input, op }: RefundOperationContext,
@@ -149,7 +159,9 @@ Deno.test({
         throw startedValue.error;
       }
       const ref = startedValue as {
-        wait: () => Promise<{ take: () => { state: string; output?: { refundId: string } } }>;
+        wait: () => Promise<
+          { take: () => { state: string; output?: { refundId: string } } }
+        >;
       };
       assertExists(ref);
 
