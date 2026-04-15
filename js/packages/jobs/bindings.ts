@@ -1,4 +1,4 @@
-import type { TrellisBindingsGetOutput } from "@qlever-llc/trellis/sdk/core";
+import type { TrellisBindingsGetOutput } from "@qlever-llc/trellis-sdk/core";
 
 export type JobsQueueBinding = {
   queueType: string;

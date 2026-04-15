@@ -1,5 +1,5 @@
 import { defineDeviceContract } from "@qlever-llc/trellis";
-import { auth } from "@qlever-llc/trellis/sdk/auth";
+import { auth } from "@qlever-llc/trellis-sdk/auth";
 import { trellisDemoService as demoService } from "@trellis-demo/demo-service-sdk";
 
 export const contract = defineDeviceContract(

@@ -1,4 +1,4 @@
-import { TrellisService } from "@qlever-llc/trellis/server/deno";
+import { TrellisService } from "@qlever-llc/trellis/host/deno";
 
 import { getConfig } from "./config.ts";
 import { activity } from "./contracts/trellis_activity.ts";

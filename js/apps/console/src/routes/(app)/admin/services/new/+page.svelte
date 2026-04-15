@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { AuthInstallServiceInput } from "@qlever-llc/trellis/sdk/auth";
+  import type { AuthInstallServiceInput } from "@qlever-llc/trellis-sdk/auth";
   import { goto } from "$app/navigation";
   import { resolve } from "$app/paths";
   import { errorMessage } from "../../../../../lib/format";

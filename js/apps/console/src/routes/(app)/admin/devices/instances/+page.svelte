@@ -5,7 +5,7 @@
     AuthListDeviceInstancesOutput,
     AuthListDeviceProfilesOutput,
     AuthProvisionDeviceInstanceInput,
-  } from "@qlever-llc/trellis/sdk/auth";
+  } from "@qlever-llc/trellis-sdk/auth";
   import { isErr } from "@qlever-llc/result";
   import { onMount } from "svelte";
   import { errorMessage, formatDate } from "../../../../../lib/format";

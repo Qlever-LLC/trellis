@@ -972,9 +972,10 @@ fn normalize_relative_path_string(path: String) -> String {
 fn render_readme(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
     let module_export = sdk_module_export_name(&opts.package_name);
     let use_example = example_use_block(&module_export, loaded);
+    let import_specifier = sdk_readme_import_specifier(&opts.package_name);
     format!(
         "# {}\n\nGenerated Trellis SDK for contract `{}`.\n\n## Usage\n\n```ts\nimport {{ defineContract }} from \"@qlever-llc/trellis\";\nimport {{ {} }} from \"{}\";\n\nconst app = defineContract({{\n  id: \"example.app@v1\",\n  displayName: \"Example App\",\n  description: \"User-facing app for the example deployment.\",\n  kind: \"app\",\n  uses: {{\n{}\n  }},\n}});\n\nconst client = app.createClient(nc, authSession);\n```\n\n## Contents\n\n- `{}`: generated contract module with `CONTRACT_ID`, `CONTRACT_DIGEST`, `CONTRACT`, `API`, and `use(...)`\n- `API`: nested contract API views with `API.owned`, `API.used`, and `API.trellis`\n- `types.ts`: TypeScript types derived from JSON Schemas\n- `schemas.ts`: Raw JSON Schemas (as `as const` objects)\n- `contract.ts`: embedded contract metadata and typed `use(...)` helper\n",
-        opts.package_name, loaded.manifest.id, module_export, opts.package_name, use_example, module_export
+        opts.package_name, loaded.manifest.id, module_export, import_specifier, use_example, module_export
     )
 }
 
@@ -1049,6 +1050,14 @@ fn sdk_module_export_name(package_name: &str) -> String {
         .strip_prefix("@qlever-llc/trellis-sdk-")
         .unwrap_or(package_name);
     kebab_to_camel(trimmed)
+}
+
+fn sdk_readme_import_specifier(package_name: &str) -> String {
+    if let Some(trimmed) = package_name.strip_prefix("@qlever-llc/trellis-sdk-") {
+        format!("@qlever-llc/trellis-sdk/{trimmed}")
+    } else {
+        package_name.to_string()
+    }
 }
 
 fn kebab_to_camel(value: &str) -> String {
@@ -1647,7 +1656,7 @@ mod tests {
         let readme = render_readme(&opts, &loaded);
 
         assert!(readme.contains("import { defineContract } from \"@qlever-llc/trellis\";"));
-        assert!(readme.contains("import { activity } from \"@qlever-llc/trellis-sdk-activity\";"));
+        assert!(readme.contains("import { activity } from \"@qlever-llc/trellis-sdk/activity\";"));
         assert!(readme.contains("displayName: \"Example App\""));
         assert!(readme.contains("description: \"User-facing app for the example deployment.\""));
         assert!(readme.contains("kind: \"app\""));

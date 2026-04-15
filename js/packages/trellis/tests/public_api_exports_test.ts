@@ -10,6 +10,9 @@ import {
   defineServiceContract,
   DownloadTransferGrantSchema,
   err,
+  HealthCheckResultSchema,
+  HealthResponseSchema,
+  HealthRpcSchema,
   isErr,
   isOk,
   ok,
@@ -45,6 +48,9 @@ Deno.test("root public API includes core runtime, contracts, and result helpers"
   assertEquals(typeof TransferGrantSchema, "object");
   assertEquals(typeof UploadTransferGrantSchema, "object");
   assertEquals(typeof DownloadTransferGrantSchema, "object");
+  assertEquals(typeof HealthCheckResultSchema, "object");
+  assertEquals(typeof HealthResponseSchema, "object");
+  assertEquals(typeof HealthRpcSchema, "object");
   assertEquals(typeof ok, "function");
   assertEquals(typeof err, "function");
   assertEquals(typeof isOk, "function");
@@ -130,6 +136,7 @@ Deno.test("root public API includes core runtime, contracts, and result helpers"
 
 Deno.test("root public API stays browser-safe and excludes server runtime exports", () => {
   assert(!("TrellisServer" in trellis));
+  assertEquals("runAllHealthChecks" in trellis, true);
   assertEquals("buildLoginUrl" in trellis, false);
   assertEquals("fetchPortalFlowState" in trellis, false);
   assertEquals("portalFlowIdFromUrl" in trellis, false);

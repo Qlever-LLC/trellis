@@ -1,7 +1,7 @@
 import { defineServiceContract, type RpcName } from "@qlever-llc/trellis";
-import { auth } from "@qlever-llc/trellis/sdk/auth";
+import { auth } from "@qlever-llc/trellis-sdk/auth";
 import * as schemas from "../schemas/index.ts";
-import type { ServiceRpcHandler } from "@qlever-llc/trellis/server";
+import type { ServiceRpcHandler } from "@qlever-llc/trellis/host";
 
 export const contract = defineServiceContract({ schemas }, (ref) => ({
   id: "trellis.demo-service@v1",

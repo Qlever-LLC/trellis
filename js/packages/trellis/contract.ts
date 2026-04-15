@@ -18,7 +18,7 @@ import {
 // apps need to build inside a clean OCI build stage. If this file reaches into
 // `../server/*`, Vite pulls Deno-only NATS transports into browser bundles and the
 // container build stops being reproducible. Server-specific helpers therefore live
-// in `@qlever-llc/trellis/server` and are wired explicitly by server code.
+// in `@qlever-llc/trellis/host` and are wired explicitly by host code.
 export type DefinedContract<
   TOwnedApi extends {
     rpc: Record<string, unknown>;

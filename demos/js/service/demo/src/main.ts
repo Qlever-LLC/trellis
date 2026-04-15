@@ -1,4 +1,4 @@
-import { TrellisService } from "@qlever-llc/trellis/server/deno";
+import { TrellisService } from "@qlever-llc/trellis/host/deno";
 import * as rpc from "./rpc/index.ts";
 import contract from "../contracts/demo_service.ts";
 
@@ -20,7 +20,7 @@ async function main(): Promise<void> {
   await service.trellis.mount("Demo.Groups.List", rpc.listGroupsRpc);
   await service.trellis.mount(
     "Demo.Files.InitiateUpload",
-    rpc.createInitiateUploadRpc(service),
+    rpc.createInitiateUploadRpc,
   );
 
   console.info(`demo service started`);

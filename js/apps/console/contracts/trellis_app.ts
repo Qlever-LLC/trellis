@@ -1,5 +1,5 @@
 import { defineAppContract } from "@qlever-llc/trellis/contracts";
-import { auth as trellisAuth } from "@qlever-llc/trellis/sdk/auth";
+import { auth as trellisAuth } from "@qlever-llc/trellis-sdk/auth";
 
 export const trellisApp = defineAppContract(
   () => ({

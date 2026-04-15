@@ -1,8 +1,8 @@
 <script lang="ts">
-  import type { AuthListServicesOutput } from "@qlever-llc/trellis/sdk/auth";
+  import type { AuthListServicesOutput } from "@qlever-llc/trellis-sdk/auth";
   import { resolve } from "$app/paths";
   import { onMount } from "svelte";
-  import type { AuthUpgradeServiceContractInput } from "@qlever-llc/trellis/sdk/auth";
+  import type { AuthUpgradeServiceContractInput } from "@qlever-llc/trellis-sdk/auth";
   import { errorMessage } from "../../../../lib/format";
   import { getNotifications } from "../../../../lib/notifications.svelte";
   import { getTrellis } from "../../../../lib/trellis";

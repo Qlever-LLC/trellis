@@ -2,7 +2,7 @@
   import type {
     AuthGetInstalledContractOutput,
     AuthListInstalledContractsOutput,
-  } from "@qlever-llc/trellis/sdk/auth";
+  } from "@qlever-llc/trellis-sdk/auth";
   import { onMount } from "svelte";
   import { errorMessage, formatDate } from "../../../../lib/format";
   import { getTrellis } from "../../../../lib/trellis";

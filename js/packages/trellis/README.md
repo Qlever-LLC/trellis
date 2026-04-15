@@ -5,7 +5,7 @@ runtime error types.
 
 ```typescript
 import { TrellisClient, defineAppContract } from "@qlever-llc/trellis";
-import { auth } from "@qlever-llc/trellis/sdk/auth";
+import { auth } from "@qlever-llc/trellis-sdk/auth";
 
 const app = defineAppContract(() => ({
   id: "example.app@v1",
@@ -23,6 +23,6 @@ const client = await TrellisClient.connect({
 const me = await client.requestOrThrow("Auth.Me", {});
 ```
 
-Server connection helpers live in `@qlever-llc/trellis/server*` to keep the root
+Host connection helpers live in `@qlever-llc/trellis/host*` to keep the root
 package browser-safe. Browser login and portal-flow helpers live on
 `@qlever-llc/trellis/auth` and `@qlever-llc/trellis/auth/browser`.

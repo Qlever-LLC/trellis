@@ -1,7 +1,7 @@
 <script lang="ts">
   import type {
     ActivityListOutput,
-  } from "@qlever-llc/trellis/sdk/activity";
+  } from "@qlever-llc/trellis-sdk/activity";
   import { onMount } from "svelte";
   import {
     errorMessage,

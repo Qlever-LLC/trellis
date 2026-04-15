@@ -1,6 +1,6 @@
 import { isErr, Result, ValidationError } from "@qlever-llc/trellis";
 import type { BaseError } from "@qlever-llc/result";
-import type { TrellisService } from "@qlever-llc/trellis/server";
+import type { TrellisService } from "@qlever-llc/trellis/host";
 import { Value } from "typebox/value";
 import { ulid } from "ulid";
 import {

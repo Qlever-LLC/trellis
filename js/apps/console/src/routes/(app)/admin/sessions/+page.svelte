@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { AuthKickConnectionInput, AuthListConnectionsOutput, AuthListSessionsOutput, AuthRevokeSessionInput } from "@qlever-llc/trellis/sdk/auth";
+  import type { AuthKickConnectionInput, AuthListConnectionsOutput, AuthListSessionsOutput, AuthRevokeSessionInput } from "@qlever-llc/trellis-sdk/auth";
   import { onMount } from "svelte";
   import { errorMessage, formatDate } from "../../../../lib/format";
   import { type ConnectionRow, formatOriginId, parseConnectionRowKey, parseSessionRowKey, type SessionRow } from "../../../../lib/keys";

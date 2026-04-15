@@ -88,7 +88,7 @@ Rules:
 - `@qlever-llc/trellis/contracts` is the advanced package for broader
   contract-model helpers, and the specialized helper return values remain usable
   anywhere a runtime contract is expected
-- `@qlever-llc/trellis/server/node` and `@qlever-llc/trellis/server/deno`
+- `@qlever-llc/trellis/host/node` and `@qlever-llc/trellis/host/deno`
   consume contract objects for service runtime helpers
 
 ### 3) SDK-driven `uses`
@@ -248,7 +248,7 @@ This makes imported SDK modules the source of truth for remote dependency names
 in TypeScript authoring.
 
 Some SDKs may also expose convenience wrappers around `use(...)`. For example,
-`@qlever-llc/trellis/sdk/auth` exposes `auth.useDefaults(...)`, which adds the
+`@qlever-llc/trellis-sdk/auth` exposes `auth.useDefaults(...)`, which adds the
 baseline user-session RPC declarations `Auth.Me`, `Auth.Logout`, and
 `Auth.RenewBindingToken` before merging any additional requested auth surfaces.
 
@@ -300,7 +300,7 @@ Examples:
 
 ```ts
 import { TrellisClient } from "@qlever-llc/trellis";
-import { TrellisService } from "@qlever-llc/trellis/server/deno";
+import { TrellisService } from "@qlever-llc/trellis/host/deno";
 
 export const app = defineAppContract(() => ({ ...appBody }));
 export default app;
@@ -341,7 +341,7 @@ Rules:
   and
   `type Event<T extends EventName<typeof myContract>> = EventHandler<typeof myContract, T>`
   for service-owned RPC handlers, `ServiceRpcHandler` should come from
-  `@qlever-llc/trellis/server` so the third parameter includes service-only
+  `@qlever-llc/trellis/host` so the third parameter includes service-only
   helpers like `kv`, `store`, and `transfer` rather than repeating
   `typeof contract.API.owned...` in every handler
 - callers do not manually assemble runtime API arrays for normal usage
@@ -388,7 +388,7 @@ This document only constrains the architectural direction behind that API:
 - `@qlever-llc/trellis` remains the runtime package for
   `TrellisClient.connect(...)`, auth helpers, and `Result`
 - runtime connection helpers live in `@qlever-llc/trellis` and
-  `@qlever-llc/trellis/server*`
+  `@qlever-llc/trellis/host*`
 - locally defined contracts and generated SDK modules share one compatible
   contract-module shape
 - `uses` declarations remain SDK-backed and contract-driven rather than

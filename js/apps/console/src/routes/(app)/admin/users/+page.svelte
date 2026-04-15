@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import type { AuthListUsersOutput, AuthUpdateUserInput } from "@qlever-llc/trellis/sdk/auth";
+  import type { AuthListUsersOutput, AuthUpdateUserInput } from "@qlever-llc/trellis-sdk/auth";
   import { errorMessage } from "../../../../lib/format";
   import { getNotifications } from "../../../../lib/notifications.svelte";
   import { getTrellis } from "../../../../lib/trellis";

@@ -25,11 +25,12 @@ const config = {
       "@qlever-llc/trellis/auth": aliasPath("packages/trellis/auth.ts"),
       "@qlever-llc/trellis/auth/*": `${aliasPath("packages/trellis/auth")}/*`,
       "@qlever-llc/trellis/contracts": aliasPath("packages/trellis/contracts.ts"),
-      "@qlever-llc/trellis/server": aliasPath("packages/trellis/server/mod.ts"),
-      "@qlever-llc/trellis/server/*": `${aliasPath("packages/trellis/server")}/*`,
-      "@qlever-llc/trellis/sdk/activity": aliasPath("packages/trellis/sdk/activity.ts"),
-      "@qlever-llc/trellis/sdk/auth": aliasPath("packages/trellis/sdk/auth.ts"),
-      "@qlever-llc/trellis/sdk/core": aliasPath("packages/trellis/sdk/core.ts"),
+      "@qlever-llc/trellis/health": aliasPath("packages/trellis/health.ts"),
+      "@qlever-llc/trellis/host": aliasPath("packages/trellis/host/mod.ts"),
+      "@qlever-llc/trellis/host/*": `${aliasPath("packages/trellis/host")}/*`,
+      "@qlever-llc/trellis-sdk/activity": aliasPath("packages/trellis-sdk/activity.ts"),
+      "@qlever-llc/trellis-sdk/auth": aliasPath("packages/trellis-sdk/auth.ts"),
+      "@qlever-llc/trellis-sdk/core": aliasPath("packages/trellis-sdk/core.ts"),
       "@qlever-llc/trellis": aliasPath("packages/trellis/index.ts"),
       "@qlever-llc/trellis/*": `${aliasPath("packages/trellis")}/*`
     }

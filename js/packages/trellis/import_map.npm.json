@@ -1,0 +1,8 @@
+{
+  "imports": {
+    "@qlever-llc/trellis-sdk/activity": "npm:@qlever-llc/trellis-sdk@^0.7.0/activity",
+    "@qlever-llc/trellis-sdk/auth": "npm:@qlever-llc/trellis-sdk@^0.7.0/auth",
+    "@qlever-llc/trellis-sdk/core": "npm:@qlever-llc/trellis-sdk@^0.7.0/core",
+    "@qlever-llc/trellis-sdk/state": "npm:@qlever-llc/trellis-sdk@^0.7.0/state"
+  }
+}

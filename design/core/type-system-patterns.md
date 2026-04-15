@@ -29,7 +29,7 @@ import {
   defineServiceContract,
   TrellisError,
 } from "@qlever-llc/trellis/contracts";
-import { core } from "@qlever-llc/trellis/sdk/core";
+import { core } from "@qlever-llc/trellis-sdk/core";
 
 const schemas = {
   FindUser: FindUserSchema,

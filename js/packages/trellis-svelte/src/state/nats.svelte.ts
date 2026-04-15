@@ -16,7 +16,7 @@ import {
   API as AUTH_API,
   type AuthRenewBindingTokenInput,
   type AuthRenewBindingTokenOutput,
-} from "@qlever-llc/trellis/sdk/auth";
+} from "@qlever-llc/trellis-sdk/auth";
 import type { AuthState } from "./auth.svelte.ts";
 import { createClient } from "../../../trellis/client.ts";
 

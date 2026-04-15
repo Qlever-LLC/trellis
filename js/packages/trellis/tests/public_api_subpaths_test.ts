@@ -2,8 +2,8 @@ import { assertEquals } from "@std/assert";
 import { Result } from "@qlever-llc/result";
 import { Type } from "typebox";
 
-import * as authSdk from "../sdk/auth.ts";
-import type { TrellisCatalogHandler } from "../sdk/core.ts";
+import * as authSdk from "../../trellis-sdk/auth.ts";
+import type { TrellisCatalogHandler } from "../../trellis-sdk/core.ts";
 import {
   defineAppContract,
   defineCliContract,
@@ -12,19 +12,19 @@ import {
   defineServiceContract,
 } from "../contracts.ts";
 import * as contracts from "../contracts.ts";
-import * as coreSdk from "../sdk/core.ts";
-import * as stateSdk from "../sdk/state.ts";
-import * as serverHealth from "../server/health.ts";
-import { TrellisService as DenoTrellisService } from "../server/deno.ts";
-import { TrellisService as NodeTrellisService } from "../server/node.ts";
-import { TrellisServer } from "../server/mod.ts";
+import * as coreSdk from "../../trellis-sdk/core.ts";
+import * as stateSdk from "../../trellis-sdk/state.ts";
+import * as healthSurface from "../health.ts";
+import { TrellisService as DenoTrellisService } from "../host/deno.ts";
+import { TrellisService as NodeTrellisService } from "../host/node.ts";
+import { TrellisServer } from "../host/mod.ts";
 
-Deno.test("server and sdk subpaths expose the canonical wrapper API", () => {
+Deno.test("host, health, and trellis-sdk subpaths expose the canonical wrapper API", () => {
   assertEquals(typeof TrellisServer, "function");
   assertEquals(typeof DenoTrellisService, "function");
   assertEquals(typeof NodeTrellisService, "function");
-  assertEquals(typeof serverHealth.HealthRpcSchema, "object");
-  assertEquals(typeof serverHealth.runAllHealthChecks, "function");
+  assertEquals(typeof healthSurface.HealthRpcSchema, "object");
+  assertEquals(typeof healthSurface.runAllHealthChecks, "function");
   assertEquals(typeof authSdk.useDefaults, "function");
   assertEquals(typeof coreSdk.use, "function");
   assertEquals(typeof stateSdk.use, "function");

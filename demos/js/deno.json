@@ -2,6 +2,7 @@
   "extends": "../../js/deno.json",
   "links": [
     "../../js/packages/result",
+    "../../js/packages/trellis-sdk",
     "../../js/packages/trellis",
     "../../js/packages/jobs"
   ],

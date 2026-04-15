@@ -74,7 +74,7 @@ and generation can resolve it directly.
 For `kind: "service"` participants:
 
 ```ts
-import { TrellisService } from "@qlever-llc/trellis/server/deno";
+import { TrellisService } from "@qlever-llc/trellis/host/deno";
 import { myService } from "./contract.ts";
 
 const service = await TrellisService.connect({
@@ -104,13 +104,13 @@ Deno.addSignalListener("SIGTERM", async () => {
 ```ts
 import { Result } from "@qlever-llc/trellis";
 import type { RpcName } from "@qlever-llc/trellis";
-import type { ServiceRpcHandler } from "@qlever-llc/trellis/server";
+import type { ServiceRpcHandler } from "@qlever-llc/trellis/host";
 import { defineServiceContract } from "@qlever-llc/trellis/contracts";
-import { TrellisService } from "@qlever-llc/trellis/server/deno";
+import { TrellisService } from "@qlever-llc/trellis/host/deno";
 import {
   HealthResponseSchema,
   HealthRpcSchema,
-} from "@qlever-llc/trellis/server/health";
+} from "@qlever-llc/trellis/health";
 
 const schemas = {
   HealthRequest: HealthRpcSchema,
@@ -176,7 +176,7 @@ Rules:
 - mounted RPC handlers should rely on Trellis-provided payload typing and
   validation rather than re-parsing the mounted payload just to recover types
 - extracted service RPC handler aliases should come from
-  `@qlever-llc/trellis/server` so the third parameter includes service-only
+  `@qlever-llc/trellis/host` so the third parameter includes service-only
   helpers such as `kv`, `store`, and `transfer`
 - mounted RPC handlers may be synchronous when they do not need `await`
 - mounted RPC handlers may return declared local `TrellisError` subclasses

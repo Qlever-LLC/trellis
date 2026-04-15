@@ -438,8 +438,9 @@
     ],
     "links": {
       "jsr:@qlever-llc/result@0.7.0": {},
+      "jsr:@qlever-llc/trellis-host@0.7.0": {},
       "jsr:@qlever-llc/trellis-jobs@0.7.0": {},
-      "jsr:@qlever-llc/trellis-server@0.7.0": {},
+      "jsr:@qlever-llc/trellis-sdk@0.7.0": {},
       "jsr:@qlever-llc/trellis-service-activity@0.7.0": {},
       "jsr:@qlever-llc/trellis-service-trellis@0.7.0": {},
       "jsr:@qlever-llc/trellis-svelte@0.7.0": {},

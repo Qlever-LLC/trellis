@@ -1,13 +1,13 @@
 /**
- * Trellis Server package entry point.
+ * Trellis host package entry point.
  *
- * This package is server-only glue: it re-exports the RPC/event server runtime
- * plus common server helpers (health checks, subscription types).
+ * This package is host-side glue: it re-exports the RPC/event hosting runtime
+ * plus common service helpers (health checks, subscription types).
  *
  * @module
  */
 
-export { TrellisServer } from "@qlever-llc/trellis/server/runtime";
+export { TrellisServer } from "../trellis/server.ts";
 // Re-export health types
 export {
   type HealthCheckFn,
@@ -22,12 +22,6 @@ export {
   HealthResponseSchema,
   HealthRpcSchema,
 } from "./health_schemas.ts";
-export type {
-  NatsConnectFn,
-  NatsConnectOpts,
-  ReadFileSyncFn,
-  TrellisServiceRuntimeDeps,
-} from "./runtime.ts";
 export {
   KVHandle,
   type ResourceBindingKV,

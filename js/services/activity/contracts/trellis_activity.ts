@@ -2,7 +2,7 @@ import { defineServiceContract } from "@qlever-llc/trellis/contracts";
 import {
   HealthResponseSchema,
   HealthRpcSchema,
-} from "@qlever-llc/trellis/server/health";
+} from "@qlever-llc/trellis/health";
 import { trellisAuth } from "../../trellis/contracts/trellis_auth.ts";
 import { trellisCore } from "../../trellis/contracts/trellis_core.ts";
 

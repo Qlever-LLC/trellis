@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { AuthListApprovalsOutput, AuthMeOutput } from "@qlever-llc/trellis/sdk/auth";
+import type { AuthListApprovalsOutput, AuthMeOutput } from "@qlever-llc/trellis-sdk/auth";
 import { getNatsState } from "@qlever-llc/trellis-svelte";
 import { onMount } from "svelte";
 import { getInitials, getRoleLabel } from "../../../lib/control-panel.ts";

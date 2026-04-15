@@ -156,7 +156,7 @@ mod tests {
             contracts.join("activity_app.ts"),
             concat!(
                 "import { defineAppContract } from '@qlever-llc/trellis/contracts';\n",
-                "import { activity } from '@qlever-llc/trellis/sdk/activity';\n",
+                "import { activity } from '@qlever-llc/trellis-sdk/activity';\n",
                 "export const activityApp = defineAppContract(() => ({\n",
                 "  id: \"trellis.activity-app@v1\",\n",
                 "  displayName: \"Activity App\",\n",

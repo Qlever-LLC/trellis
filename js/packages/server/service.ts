@@ -11,12 +11,12 @@ import {
   API as TRELLIS_CORE_API,
   type TrellisBindingsGetOutput,
   type TrellisCatalogOutput,
-} from "@qlever-llc/trellis/sdk/core";
-import { auth as trellisAuth } from "@qlever-llc/trellis/sdk/auth";
+} from "@qlever-llc/trellis-sdk/core";
+import { auth as trellisAuth } from "@qlever-llc/trellis-sdk/auth";
 import {
   TrellisServer,
   type TrellisServerFor,
-} from "@qlever-llc/trellis/server/runtime";
+} from "../trellis/server.ts";
 import {
   createAuth,
   type SentinelCreds,

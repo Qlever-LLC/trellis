@@ -29,6 +29,18 @@ export {
   unwrapSchema,
 } from "./contracts.ts";
 export type { InferSchemaType, JsonValue, TrellisAPI } from "./contracts.ts";
+export type {
+  HealthCheckFn,
+  HealthCheckResult,
+  HealthResponse,
+} from "./health.ts";
+export {
+  runAllHealthChecks,
+  runHealthCheck,
+  HealthCheckResultSchema,
+  HealthResponseSchema,
+  HealthRpcSchema,
+} from "./health.ts";
 export { defineError } from "../contracts/mod.ts";
 export type {
   ErrorClass,

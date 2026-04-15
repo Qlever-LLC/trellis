@@ -2,7 +2,7 @@ import { assertEquals } from "@std/assert";
 import { join } from "@std/path";
 import { parse } from "jsonc-parser";
 
-Deno.test("root package import does not require the generated core SDK", async () => {
+Deno.test("root package import does not require the trellis-sdk package", async () => {
   const tempDir = await Deno.makeTempDir();
   try {
     const workspaceConfigUrl = new URL("../../../deno.json", import.meta.url);
@@ -21,7 +21,7 @@ Deno.test("root package import does not require the generated core SDK", async (
       JSON.stringify({
         imports: {
           ...imports,
-          "@qlever-llc/trellis-sdk-core": "./missing/generated/trellis-core/mod.ts",
+          "@qlever-llc/trellis-sdk/core": "./missing/generated/trellis-core/mod.ts",
         },
         nodeModulesDir: "auto",
       }),

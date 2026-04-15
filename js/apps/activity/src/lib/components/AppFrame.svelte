@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { AuthMeOutput } from "@qlever-llc/trellis/sdk/auth";
+  import type { AuthMeOutput } from "@qlever-llc/trellis-sdk/auth";
   import { getAuth, getNatsState } from "@qlever-llc/trellis-svelte";
   import { onMount } from "svelte";
   import { goto } from "$app/navigation";

@@ -13,6 +13,8 @@ import {
   AuthListUsersSchema,
   AuthMeResponseSchema,
   AuthMeSchema,
+  AuthRemoveServiceResponseSchema,
+  AuthRemoveServiceSchema,
   AuthRevokeApprovalResponseSchema,
   AuthRevokeApprovalSchema,
   AuthUpdateUserResponseSchema,
@@ -103,7 +105,7 @@ import {
 import {
   HealthResponseSchema,
   HealthRpcSchema,
-} from "@qlever-llc/trellis/server/health";
+} from "@qlever-llc/trellis/health";
 import {
   type AuthConnectEvent,
   AuthConnectEventSchema,
@@ -246,6 +248,8 @@ const schemas = {
   AuthListUsersResponse: AuthListUsersResponseSchema,
   AuthMeRequest: AuthMeSchema,
   AuthMeResponse: AuthMeResponseSchema,
+  AuthRemoveServiceRequest: AuthRemoveServiceSchema,
+  AuthRemoveServiceResponse: AuthRemoveServiceResponseSchema,
   AuthRevokeApprovalRequest: AuthRevokeApprovalSchema,
   AuthRevokeApprovalResponse: AuthRevokeApprovalResponseSchema,
   AuthUpdateUserRequest: AuthUpdateUserSchema,
@@ -363,6 +367,13 @@ export const TRELLIS_AUTH_RPC = {
     version: "v1",
     input: schemaRef("AuthUpgradeServiceContractRequest"),
     output: schemaRef("AuthUpgradeServiceContractResponse"),
+    capabilities: { call: ["admin"] },
+    errors: ["AuthError", "ValidationError", "UnexpectedError"],
+  },
+  "Auth.RemoveService": {
+    version: "v1",
+    input: schemaRef("AuthRemoveServiceRequest"),
+    output: schemaRef("AuthRemoveServiceResponse"),
     capabilities: { call: ["admin"] },
     errors: ["AuthError", "ValidationError", "UnexpectedError"],
   },

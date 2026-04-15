@@ -5,9 +5,20 @@ import {
   resolvePackageBuildVersion,
 } from "../release/release_version.ts";
 
+type DntSpecifierMappings = Record<
+  string,
+  string | {
+    name: string;
+    version?: string;
+    subPath?: string;
+    peerDependency?: boolean;
+  }
+>;
+
 type BuildDntPackageOptions = {
   buildRoot?: string;
   denoConfigPath?: string;
+  importMap?: string;
   entryPoints: string[];
     description: string;
   dependencies?: Record<string, string>;
@@ -15,7 +26,9 @@ type BuildDntPackageOptions = {
   peerDependencies?: Record<string, string>;
   npmInstallDeps?: Record<string, string>;
   typeCheck?: false | "both" | "single";
+  skipNpmInstall?: boolean;
   externalizePackageDirs?: Record<string, string>;
+  mappings?: DntSpecifierMappings;
 };
 
 const repositoryUrl = "git+https://github.com/Qlever-LLC/trellis.git";
@@ -102,6 +115,7 @@ export async function buildDntPackage(options: BuildDntPackageOptions) {
       },
       test: false,
       typeCheck: options.typeCheck ?? false,
+      skipNpmInstall: options.skipNpmInstall ?? false,
       package: {
         name,
         version,
@@ -116,6 +130,8 @@ export async function buildDntPackage(options: BuildDntPackageOptions) {
         },
         peerDependencies,
       },
+      mappings: options.mappings,
+      importMap: options.importMap ? join(packageDir, options.importMap) : undefined,
     });
   } finally {
     Deno.chdir(previousCwd);

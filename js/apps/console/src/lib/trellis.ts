@@ -83,7 +83,7 @@ import type {
   AuthUpdateUserOutput,
   AuthUpgradeServiceContractInput,
   AuthUpgradeServiceContractOutput,
-} from "@qlever-llc/trellis/sdk/auth";
+} from "@qlever-llc/trellis-sdk/auth";
 import { createAuthState, getTrellis as getTrellisContext } from "@qlever-llc/trellis-svelte";
 import { trellisApp } from "../../contracts/trellis_app.ts";
 import { APP_CONFIG } from "./config.ts";

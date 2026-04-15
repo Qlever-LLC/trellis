@@ -3,13 +3,13 @@ import type {
   ActivityGetOutput,
   ActivityListInput,
   ActivityListOutput,
-} from "@qlever-llc/trellis/sdk/activity";
+} from "@qlever-llc/trellis-sdk/activity";
 import type {
   AuthLogoutInput,
   AuthLogoutOutput,
   AuthMeInput,
   AuthMeOutput,
-} from "@qlever-llc/trellis/sdk/auth";
+} from "@qlever-llc/trellis-sdk/auth";
 import { createAuthState, getTrellis as getTrellisContext } from "@qlever-llc/trellis-svelte";
 import { activityApp } from "../../contracts/activity_app.ts";
 import { APP_CONFIG } from "./config.ts";

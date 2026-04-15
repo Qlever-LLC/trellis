@@ -56,7 +56,7 @@ It exports:
 
 The kind-specific contract helpers return contract objects with projected API
 views and manifest metadata. The canonical public bootstrap helpers live in
-`@qlever-llc/trellis` and `@qlever-llc/trellis/server*`.
+`@qlever-llc/trellis` and `@qlever-llc/trellis/host*`.
 
 Rules:
 
@@ -184,8 +184,8 @@ declare function defineCliContract<TBody extends object>(
 ```ts
 import { TrellisClient } from "@qlever-llc/trellis";
 import { defineServiceContract } from "@qlever-llc/trellis/contracts";
-import { auth } from "@qlever-llc/trellis/sdk/auth";
-import { core } from "@qlever-llc/trellis/sdk/core";
+import { auth } from "@qlever-llc/trellis-sdk/auth";
+import { core } from "@qlever-llc/trellis-sdk/core";
 
 const schemas = {
   ActivityImportRequest: ActivityImportRequestSchema,

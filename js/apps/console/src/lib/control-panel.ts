@@ -1,4 +1,4 @@
-import type { AuthMeOutput } from "@qlever-llc/trellis/sdk/auth";
+import type { AuthMeOutput } from "@qlever-llc/trellis-sdk/auth";
 
 type Profile = AuthMeOutput["user"] | null | undefined;
 

@@ -1,7 +1,7 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import type { Msg, NatsConnection, Subscription } from "@nats-io/nats-core";
 import { Result, type BaseError } from "@qlever-llc/result";
-import { core } from "@qlever-llc/trellis/sdk/core";
+import { core } from "@qlever-llc/trellis-sdk/core";
 import { Type } from "typebox";
 
 import type { LoggerLike } from "../trellis/globals.ts";
