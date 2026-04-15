@@ -1,12 +1,37 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import type { Msg, NatsConnection, Subscription } from "@nats-io/nats-core";
+import { Result, type BaseError } from "@qlever-llc/result";
 import { core } from "@qlever-llc/trellis/sdk/core";
+import { Type } from "typebox";
 
 import type { LoggerLike } from "../trellis/globals.ts";
+import { defineServiceContract } from "../trellis/contract.ts";
 import type { NatsConnectFn } from "./runtime.ts";
 import { type TrellisServiceConnectArgs, TrellisService } from "./service.ts";
 
 const TEST_SEED = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
+const handlerSurfaceTestSchemas = {
+  PingInput: Type.Object({ value: Type.String() }),
+  PingOutput: Type.Object({ ok: Type.Boolean() }),
+} as const;
+
+const handlerSurfaceTestContract = defineServiceContract(
+  { schemas: handlerSurfaceTestSchemas },
+  (ref) => ({
+    id: "trellis.server.handler-surface-test@v1",
+    displayName: "Handler Surface Test",
+    description: "Verify mounted handlers receive service-owned resources.",
+    rpc: {
+      "Test.Ping": {
+        version: "v1",
+        input: ref.schema("PingInput"),
+        output: ref.schema("PingOutput"),
+        errors: [ref.error("UnexpectedError")],
+      },
+    },
+  }),
+);
 
 function createTestLogger() {
   const childBindings: Array<Record<string, unknown>> = [];
@@ -256,4 +281,63 @@ Deno.test("TrellisService.connectInternal defaults to the server logger", async 
   });
 
   assertEquals(service.name, "svc");
+});
+
+Deno.test("TrellisService mount passes kv and store to handlers", async () => {
+  const service = await TrellisService.connectInternal("svc", {
+    sessionKeySeed: TEST_SEED,
+    nats: {
+      servers: "nats://127.0.0.1:4222",
+      authenticator: {},
+    },
+    server: {
+      api: handlerSurfaceTestContract.API.owned,
+      trellisApi: handlerSurfaceTestContract.API.trellis,
+      log: false,
+    },
+  }, {
+    connect: async () => createFakeNatsConnection(),
+  });
+
+  let mounted:
+    | ((
+      input: unknown,
+      context: { caller: unknown; sessionKey: string },
+    ) => Promise<Result<unknown, BaseError>>)
+    | undefined;
+
+  Reflect.set(
+    service.server as object,
+    "mount",
+    async (
+      _method: string,
+      fn: (
+        input: unknown,
+        context: { caller: unknown; sessionKey: string },
+      ) => Promise<Result<unknown, BaseError>>,
+    ) => {
+      mounted = fn;
+    },
+  );
+
+  try {
+    await service.trellis.mount("Test.Ping", (_input, _context, runtime) => {
+      assertEquals(runtime.kv, service.kv);
+      assertEquals(runtime.store, service.store);
+      return Result.ok({ ok: true });
+    });
+
+    if (!mounted) {
+      throw new Error("expected wrapped mount handler to be captured");
+    }
+
+    const result = await mounted(
+      { value: "ping" },
+      { caller: { kind: "test" }, sessionKey: "session-key" },
+    );
+
+    assertEquals(result.isErr(), false);
+  } finally {
+    await service.stop();
+  }
 });

@@ -150,7 +150,8 @@ Rules:
 - file-transfer session helpers belong on the server runtime surface as
   `service.transfer`
 - extracted service RPC handler aliases that need service-only helpers belong on
-  `@qlever-llc/trellis/server*`, not the browser-safe root package
+  `@qlever-llc/trellis/server*`, not the browser-safe root package, so handler
+  parameters can expose `service.kv`, `service.store`, and `service.transfer`
 - public apps and peer services should not resolve those service-owned handles
   directly
 

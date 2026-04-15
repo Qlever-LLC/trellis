@@ -342,8 +342,8 @@ Rules:
   `type Event<T extends EventName<typeof myContract>> = EventHandler<typeof myContract, T>`
   for service-owned RPC handlers, `ServiceRpcHandler` should come from
   `@qlever-llc/trellis/server` so the third parameter includes service-only
-  helpers like `transfer` rather than repeating `typeof contract.API.owned...`
-  in every handler
+  helpers like `kv`, `store`, and `transfer` rather than repeating
+  `typeof contract.API.owned...` in every handler
 - callers do not manually assemble runtime API arrays for normal usage
 - locally authored contracts should normally export the helper result directly
   return value directly; do not wrap it in a handwritten default-export object

@@ -166,6 +166,8 @@ Deno.test("service wrapper type surface stays specific", () => {
 });
 
 Deno.test("service wrapper mount handlers stay method-typed", () => {
+  const schema = Type.Object({ value: Type.String() });
+
   function expectTypedMount(
     service: TrellisService<
       typeof typeTestContract.API.owned,
@@ -178,6 +180,8 @@ Deno.test("service wrapper mount handlers stay method-typed", () => {
         const value: string = payload.value;
         const sessionKey: string = context.sessionKey;
         const ping = trellis.request("Test.Ping", { value });
+        const kv = trellis.kv.items.open(schema);
+        const store = trellis.store.uploads.open();
         const upload = trellis.transfer.initiateUpload({
           sessionKey,
           store: "uploads",
@@ -185,6 +189,8 @@ Deno.test("service wrapper mount handlers stay method-typed", () => {
           expiresInMs: 60_000,
         });
         assertExists(ping);
+        assertExists(kv);
+        assertExists(store);
         assertExists(upload);
         return Result.ok({ ok: value.length > 0 && sessionKey.length >= 0 });
       },
@@ -194,6 +200,8 @@ Deno.test("service wrapper mount handlers stay method-typed", () => {
       const value: string = payload.value;
       const sessionKey: string = context.sessionKey;
       const ping = trellis.request("Test.Ping", { value });
+      const kv = trellis.kv.items.open(schema);
+      const store = trellis.store.uploads.open();
       const download = trellis.transfer.initiateDownload({
         sessionKey,
         store: "uploads",
@@ -201,6 +209,8 @@ Deno.test("service wrapper mount handlers stay method-typed", () => {
         expiresInMs: 60_000,
       });
       assertExists(ping);
+      assertExists(kv);
+      assertExists(store);
       assertExists(download);
       return Result.ok({ ok: value.length > 0 && sessionKey.length >= 0 });
     });
@@ -211,11 +221,14 @@ Deno.test("service wrapper mount handlers stay method-typed", () => {
 
 Deno.test("server RPC helper types support extracted handlers with transfer", () => {
   type PingHandler = ServiceRpcHandler<typeof typeTestContract, "Test.Ping">;
+  const schema = Type.Object({ value: Type.String() });
 
   const pingHandler: PingHandler = (payload, context, service) => {
     const value: string = payload.value;
     const sessionKey: string = context.sessionKey;
     const ping = service.request("Test.Ping", { value });
+    const kv = service.kv.items.open(schema);
+    const store = service.store.uploads.open();
     const upload = service.transfer.initiateUpload({
       sessionKey,
       store: "uploads",
@@ -223,6 +236,8 @@ Deno.test("server RPC helper types support extracted handlers with transfer", ()
       expiresInMs: 60_000,
     });
     assertExists(ping);
+    assertExists(kv);
+    assertExists(store);
     assertExists(upload);
     return Result.ok({ ok: value.length > 0 && sessionKey.length >= 0 });
   };

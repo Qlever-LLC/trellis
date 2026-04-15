@@ -422,8 +422,14 @@ export type ServiceHandlerTransfer = Pick<
   "initiateUpload" | "initiateDownload"
 >;
 
+type ServiceHandlerResources = {
+  kv: Record<string, KVHandle>;
+  store: Record<string, StoreHandle>;
+};
+
 export type ServiceHandlerTrellis<TTrellisApi extends TrellisAPI> =
   & HandlerTrellis<TTrellisApi>
+  & ServiceHandlerResources
   & {
     transfer: ServiceHandlerTransfer;
   };
@@ -545,6 +551,15 @@ async function createConnectedService<
     }
     return transfer;
   };
+  let handlerResources: ServiceHandlerResources | undefined;
+  const getHandlerResources = (): ServiceHandlerResources => {
+    if (!handlerResources) {
+      throw new Error(
+        "service resource handles accessed before initialization",
+      );
+    }
+    return handlerResources;
+  };
 
   const handlerTransfer: ServiceHandlerTransfer = {
     initiateUpload: (args) => getTransfer().initiateUpload(args),
@@ -563,6 +578,12 @@ async function createConnectedService<
         fn as (message: unknown) => ReturnType<typeof fn>,
       ),
     operation: (operation) => outbound.operation(operation),
+    get kv() {
+      return getHandlerResources().kv;
+    },
+    get store() {
+      return getHandlerResources().store;
+    },
     transfer: handlerTransfer,
   };
 
@@ -613,6 +634,7 @@ async function createConnectedService<
     trellis,
     args.bindings,
   );
+  handlerResources = { kv: service.kv, store: service.store };
   transfer = service.transfer;
   return service;
 }

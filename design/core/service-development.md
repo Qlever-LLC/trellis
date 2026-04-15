@@ -177,7 +177,7 @@ Rules:
   validation rather than re-parsing the mounted payload just to recover types
 - extracted service RPC handler aliases should come from
   `@qlever-llc/trellis/server` so the third parameter includes service-only
-  helpers such as `transfer`
+  helpers such as `kv`, `store`, and `transfer`
 - mounted RPC handlers may be synchronous when they do not need `await`
 - mounted RPC handlers may return declared local `TrellisError` subclasses
   directly when those errors are listed in the contract RPC `errors: [...]`

@@ -456,8 +456,8 @@ Rules:
 - `service.trellis.mount(...)` handlers receive already-validated typed payloads
   and may return either `Result` or `Promise<Result>`
 - server-side extracted RPC handler aliases should use the server package so the
-  third parameter includes service-only helpers such as `transfer` without
-  widening browser-safe root runtime types
+  third parameter includes service-only helpers such as `kv`, `store`, and
+  `transfer` without widening browser-safe root runtime types
 - returned runtimes may also expose transfer-grant helpers such as
   `trellis.transfer(grant)` when the contract returns Trellis-owned transfer
   grant types from normal RPCs
