@@ -88,7 +88,7 @@ export class ContractStore {
   readonly #contractsByDigest = new Map<string, TrellisContractV1>();
   readonly #activeDigests = new Set<string>();
   readonly #builtinDigests = new Set<string>();
-  readonly #activeDigestById = new Map<string, string>();
+  readonly #activeDigestsById = new Map<string, Set<string>>();
   readonly #activeSubjectIndex = new Map<
     string,
     ActiveSubjectOwner
@@ -119,13 +119,9 @@ export class ContractStore {
   }
 
   #indexActiveId(digest: string, contract: TrellisContractV1): void {
-    const prevDigest = this.#activeDigestById.get(contract.id);
-    if (prevDigest && prevDigest !== digest) {
-      throw new Error(
-        `Contract id '${contract.id}' already active with a different digest`,
-      );
-    }
-    this.#activeDigestById.set(contract.id, digest);
+    const digests = this.#activeDigestsById.get(contract.id) ?? new Set<string>();
+    digests.add(digest);
+    this.#activeDigestsById.set(contract.id, digests);
   }
 
   #indexActiveSubject(
@@ -134,7 +130,7 @@ export class ContractStore {
     subject: string,
   ) {
     const prev = this.#activeSubjectIndex.get(subject);
-    if (prev && prev.digest !== digest) {
+    if (prev && prev.digest !== digest && prev.contractId !== contract.id) {
       throw new Error(
         `Subject '${subject}' already registered by '${prev.displayName}' (${prev.contractId})`,
       );
@@ -147,7 +143,7 @@ export class ContractStore {
   }
 
   #rebuildActiveSubjectIndex(): void {
-    this.#activeDigestById.clear();
+    this.#activeDigestsById.clear();
     this.#activeSubjectIndex.clear();
     for (const digest of this.#activeDigests) {
       const contract = this.#contractsByDigest.get(digest);
@@ -178,7 +174,9 @@ export class ContractStore {
   }
 
   findActiveDigestById(id: string): string | undefined {
-    return this.#activeDigestById.get(id);
+    const digests = this.#activeDigestsById.get(id);
+    if (!digests || digests.size === 0) return undefined;
+    return [...digests].sort((left, right) => left.localeCompare(right))[0];
   }
 
   setActiveDigests(digests: Iterable<string>): void {

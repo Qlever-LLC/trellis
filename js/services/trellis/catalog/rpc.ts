@@ -16,9 +16,10 @@ import { TrellisCatalogSchema } from "../../../packages/trellis/models/trellis/r
 import type { TrellisContractGetResponse } from "../../../packages/trellis/models/trellis/rpc/TrellisContractGet.ts";
 import {
   contractsKV,
+  deviceInstancesKV,
   logger,
   natsTrellis,
-  servicesKV,
+  serviceInstancesKV,
   trellis,
 } from "../bootstrap/globals.ts";
 import { analyzeContract } from "./analysis.ts";
@@ -29,6 +30,7 @@ import {
 } from "./resources.ts";
 import { ContractStore } from "./store.ts";
 import { resolveContractUsesFromStore } from "./uses.ts";
+import { serviceInstanceId } from "../auth/admin/shared.ts";
 
 function toOpenSchemaValue(value: NonNullable<TrellisContractV1["schemas"]>[string]): boolean | Record<string, unknown> {
   if (typeof value === "boolean") {
@@ -67,28 +69,15 @@ type ServiceContext = {
   sessionKey: string;
 };
 
-type ServiceRegistryEntry = {
-  displayName: string;
-  active: boolean;
-  capabilities: string[];
-  namespaces?: string[];
-  description: string;
-  contractId?: string;
-  contractDigest?: string;
-  resourceBindings?: ContractResourceBindings;
-  createdAt: Date;
-};
-
 type InstalledContractRecord = {
   digest: string;
   id: string;
   contract: string;
-  resourceBindings?: ContractResourceBindings;
 };
 
 type DigestRequest = { digest: string };
 type BindingsRequest = { contractId?: string; digest?: string };
-type ListInstalledContractsRequest = { sessionKey?: string };
+type ListInstalledContractsRequest = {};
 
 function describeContract(
   contract: { contractId: string; displayName: string },
@@ -185,23 +174,6 @@ function getRequiredServiceCapabilities(
   return [...capabilities].sort((left, right) => left.localeCompare(right));
 }
 
-function shouldRepairServiceEntry(
-  service: ServiceRegistryEntry,
-  next: {
-    contractId: string;
-    contractDigest: string;
-    capabilities: string[];
-    resourceBindings?: ContractResourceBindings;
-  },
-): boolean {
-  return service.contractId !== next.contractId ||
-    service.contractDigest !== next.contractDigest ||
-    JSON.stringify(service.capabilities ?? []) !==
-      JSON.stringify(next.capabilities) ||
-    JSON.stringify(service.resourceBindings ?? {}) !==
-      JSON.stringify(next.resourceBindings ?? {});
-}
-
 async function collectInstalledContractRecords(): Promise<{
   byDigest: Map<string, InstalledContractRecord>;
 }> {
@@ -221,7 +193,6 @@ async function collectInstalledContractRecords(): Promise<{
       digest,
       id: entry.value.id,
       contract: entry.value.contract,
-      resourceBindings: entry.value.resourceBindings,
     };
     byDigest.set(digest, record);
   }
@@ -236,10 +207,8 @@ export function createContractsModule(opts: {
 
   type ValidatedContract = Awaited<ReturnType<typeof contractStore.validate>>;
 
-  async function validateInstalledContract(args: {
+  async function validateManagedContract(args: {
     contract: unknown;
-    currentDigest?: string;
-    currentContractId?: string;
   }): Promise<{
     validated: ValidatedContract;
     usedNamespaces: Set<string>;
@@ -253,24 +222,6 @@ export function createContractsModule(opts: {
     }
 
     const validated = await contractStore.validate(args.contract);
-    if (
-      args.currentContractId && validated.contract.id !== args.currentContractId
-    ) {
-      throw new Error("contract id must remain stable for service upgrades");
-    }
-
-    const activeDigestForId = contractStore.findActiveDigestById(
-      validated.contract.id,
-    );
-    if (
-      activeDigestForId &&
-      activeDigestForId !== args.currentDigest &&
-      activeDigestForId !== validated.digest
-    ) {
-      throw new Error(
-        `Contract id '${validated.contract.id}' is already active in this deployment`,
-      );
-    }
 
     const usedNamespaces = new Set<string>();
     const rpc = (validated.contract as Record<string, unknown>).rpc as
@@ -292,8 +243,8 @@ export function createContractsModule(opts: {
       usedNamespaces.add(ns);
       const prev = contractStore.findActiveSubject(method.subject);
       if (
-        prev && prev.digest !== args.currentDigest &&
-        prev.digest !== validated.digest
+        prev && prev.digest !== validated.digest &&
+        prev.contractId !== validated.contract.id
       ) {
         throw new Error(
           `RPC subject '${method.subject}' already owned by '${
@@ -312,8 +263,8 @@ export function createContractsModule(opts: {
       usedNamespaces.add(ns);
       const prev = contractStore.findActiveSubject(event.subject);
       if (
-        prev && prev.digest !== args.currentDigest &&
-        prev.digest !== validated.digest
+        prev && prev.digest !== validated.digest &&
+        prev.contractId !== validated.contract.id
       ) {
         throw new Error(
           `Event subject '${event.subject}' already owned by '${
@@ -327,8 +278,8 @@ export function createContractsModule(opts: {
       const subject = value as { subject: string };
       const prev = contractStore.findActiveSubject(subject.subject);
       if (
-        prev && prev.digest !== args.currentDigest &&
-        prev.digest !== validated.digest
+        prev && prev.digest !== validated.digest &&
+        prev.contractId !== validated.contract.id
       ) {
         throw new Error(
           `Subject '${subject.subject}' already owned by '${
@@ -345,90 +296,22 @@ export function createContractsModule(opts: {
     };
   }
 
-  async function prepareInstalledContract(args: {
-    serviceSessionKey: string;
-    namespaces: string[];
-    contract: unknown;
-    currentDigest?: string;
-    currentContractId?: string;
-  }): Promise<{
+  async function persistContract(contract: unknown, opts?: { device?: boolean }): Promise<{
     id: string;
     digest: string;
-    capabilities: string[];
-    resourceBindings: ContractResourceBindings;
+    displayName: string;
+    description: string;
+    usedNamespaces: string[];
   }> {
-    const { validated, usedNamespaces, analyzed } = await validateInstalledContract(args);
-
-    const missingNamespaces = [...usedNamespaces].filter((ns) =>
-      !new Set(args.namespaces).has(ns)
-    );
-    if (missingNamespaces.length > 0) {
-      throw new Error(
-        `Service is not allowed to install namespaces: ${
-          missingNamespaces.join(", ")
-        }`,
-      );
-    }
-
-    const resourceBindings = await provisionContractResourceBindings(
-      natsTrellis,
-      validated.contract,
-      args.serviceSessionKey,
-    );
-    const capabilities = getRequiredServiceCapabilities(
-      contractStore,
-      validated.contract,
-    );
-
-    const now = new Date();
-    const persisted = (
-      await contractsKV.put(validated.digest, {
-        digest: validated.digest,
-        id: validated.contract.id,
-        displayName: validated.contract.displayName,
-        description: validated.contract.description,
-        sessionKey: args.serviceSessionKey,
-        installedAt: now,
-        contract: validated.canonical,
-        resources: (validated.contract as TrellisContractV1 & {
-          resources?: ContractResources;
-        }).resources,
-        resourceBindings,
-        analysisSummary: analyzed.summary,
-        analysis: analyzed.analysis,
-      })
-    ).take();
-    if (isErr(persisted)) {
-      logger.warn({ error: persisted.error }, "Failed to persist installed contract");
-      throw persisted.error;
-    }
-
-    return {
-      id: validated.contract.id,
-      digest: validated.digest,
-      capabilities,
-      resourceBindings,
-    };
-  }
-
-  async function installDeviceContract(contract: unknown): Promise<{
-    id: string;
-    digest: string;
-  }> {
+    const { validated, usedNamespaces, analyzed } = await validateManagedContract({ contract });
     if (
-      !contract || typeof contract !== "object" ||
-      Array.isArray(contract)
-    ) {
-      throw new Error("contract must be an object");
-    }
-
-    const validated = await contractStore.validate(contract);
-    const analyzed = analyzeContract(validated.contract);
-    if (
-      analyzed.summary.kvResources > 0 ||
-      analyzed.summary.streamsResources > 0 ||
-      analyzed.summary.jobsQueues > 0 ||
-      (validated.contract as TrellisContractV1 & { resources?: unknown }).resources !== undefined
+      opts?.device &&
+      (
+        analyzed.summary.kvResources > 0 ||
+        analyzed.summary.streamsResources > 0 ||
+        analyzed.summary.jobsQueues > 0 ||
+        (validated.contract as TrellisContractV1 & { resources?: unknown }).resources !== undefined
+      )
     ) {
       throw new Error("device contracts may not declare resources");
     }
@@ -438,6 +321,9 @@ export function createContractsModule(opts: {
       return {
         id: validated.contract.id,
         digest: validated.digest,
+        displayName: validated.contract.displayName,
+        description: validated.contract.description,
+        usedNamespaces: [...usedNamespaces].sort((left, right) => left.localeCompare(right)),
       };
     }
 
@@ -450,98 +336,87 @@ export function createContractsModule(opts: {
         description: validated.contract.description,
         installedAt: now,
         contract: validated.canonical,
+        resources: (validated.contract as TrellisContractV1 & {
+          resources?: ContractResources;
+        }).resources,
         analysisSummary: analyzed.summary,
         analysis: analyzed.analysis,
       })
     ).take();
     if (isErr(persisted)) {
-      logger.warn({ error: persisted.error }, "Failed to persist device contract");
+      logger.warn({ error: persisted.error }, "Failed to persist managed contract");
       throw persisted.error;
     }
+
+    contractStore.add(validated.digest, validated.contract);
 
     return {
       id: validated.contract.id,
       digest: validated.digest,
+      displayName: validated.contract.displayName,
+      description: validated.contract.description,
+      usedNamespaces: [...usedNamespaces].sort((left, right) => left.localeCompare(right)),
     };
+  }
+
+  async function installServiceContract(contract: unknown) {
+    return await persistContract(contract);
+  }
+
+  async function installDeviceContract(contract: unknown) {
+    return await persistContract(contract, { device: true });
   }
 
   async function refreshActiveContracts(): Promise<void> {
     const active = new Set<string>();
     for (const digest of contractStore.getBuiltinDigests()) active.add(digest);
+
     const installedContracts = await collectInstalledContractRecords();
-
-    const svcKeys = (await servicesKV.keys(">")).take();
-    if (isErr(svcKeys)) {
-      logger.warn(
-        { error: svcKeys.error },
-        "Failed to list services for contracts",
-      );
-    } else {
-      for await (const sessionKey of svcKeys) {
-        const svc = (await servicesKV.get(sessionKey)).take();
-        if (isErr(svc)) continue;
-        if (!svc.value.active) continue;
-
-        const service = svc.value as ServiceRegistryEntry;
-        const installed = service.contractDigest
-          ? installedContracts.byDigest.get(service.contractDigest)
-          : undefined;
-
-        if (installed) {
-          try {
-            const parsed = JSON.parse(installed.contract);
-            if (!isJsonValue(parsed)) {
-              throw new Error("stored contract is not valid JSON value");
-            }
-            const validated = await contractStore.validate(parsed);
-            if (validated.digest !== installed.digest) {
-              throw new Error(
-                "stored contract digest does not match persisted digest",
-              );
-            }
-
-            const capabilities = getRequiredServiceCapabilities(
-              contractStore,
-              validated.contract,
-            );
-            if (
-              shouldRepairServiceEntry(service, {
-                contractId: validated.contract.id,
-                contractDigest: installed.digest,
-                capabilities,
-                resourceBindings: installed.resourceBindings,
-              })
-            ) {
-              const repaired = (
-                await servicesKV.put(sessionKey, {
-                  ...service,
-                  contractId: validated.contract.id,
-                  contractDigest: installed.digest,
-                  capabilities,
-                  resourceBindings: installed.resourceBindings,
-                })
-              ).take();
-              if (isErr(repaired)) {
-                logger.warn(
-                  { error: repaired.error, sessionKey },
-                  "Failed to repair service contract state",
-                );
-              }
-            }
-
-            active.add(installed.digest);
-            continue;
-          } catch (error) {
-            logger.warn({
-              sessionKey,
-              digest: installed.digest,
-              err: error instanceof Error ? error : undefined,
-              errorMessage: getErrorMessage(error),
-            }, "Failed to reconcile installed service contract");
-          }
+    for (const installed of installedContracts.byDigest.values()) {
+      try {
+        const parsed = JSON.parse(installed.contract);
+        if (!isJsonValue(parsed)) {
+          throw new Error("stored contract is not valid JSON value");
         }
+        const validated = await contractStore.validate(parsed);
+        if (validated.digest !== installed.digest) {
+          throw new Error(
+            "stored contract digest does not match persisted digest",
+          );
+        }
+        contractStore.add(validated.digest, validated.contract);
+      } catch (error) {
+        logger.warn({
+          digest: installed.digest,
+          err: error instanceof Error ? error : undefined,
+          errorMessage: getErrorMessage(error),
+        }, "Failed to hydrate persisted contract");
+      }
+    }
 
-        if (service.contractDigest) active.add(service.contractDigest);
+    const serviceKeys = (await serviceInstancesKV.keys(">")).take();
+    if (!isErr(serviceKeys)) {
+      for await (const instanceId of serviceKeys) {
+        const entry = (await serviceInstancesKV.get(instanceId)).take();
+        if (isErr(entry)) continue;
+        if (!entry.value.disabled && entry.value.currentContractDigest) {
+          active.add(entry.value.currentContractDigest);
+        }
+      }
+    }
+
+    const deviceKeys = (await deviceInstancesKV.keys(">")).take();
+    if (!isErr(deviceKeys)) {
+      for await (const instanceId of deviceKeys) {
+        const entry = (await deviceInstancesKV.get(instanceId)).take();
+        if (isErr(entry)) continue;
+        const instance = entry.value as unknown as {
+          state: string;
+          currentContractDigest?: string;
+        };
+        if (instance.state === "activated" && instance.currentContractDigest) {
+          active.add(instance.currentContractDigest);
+        }
       }
     }
 
@@ -576,7 +451,7 @@ export function createContractsModule(opts: {
     setPermissionContracts(contractStore.getActiveEntries());
   }
 
-  return { contractStore, prepareInstalledContract, installDeviceContract, refreshActiveContracts };
+  return { contractStore, installDeviceContract, installServiceContract, refreshActiveContracts };
 }
 
 export function createTrellisCatalogHandler(contractStore: ContractStore) {
@@ -636,7 +511,8 @@ export const trellisBindingsGetHandler = async (
     );
   }
 
-  const svc = (await servicesKV.get(sessionKey)).take();
+  const instanceId = serviceInstanceId(sessionKey);
+  const svc = (await serviceInstancesKV.get(instanceId)).take();
   if (isErr(svc)) {
     return Result.err(
       new ValidationError({
@@ -646,15 +522,15 @@ export const trellisBindingsGetHandler = async (
   }
 
   const input = req ?? {};
-  if (input.contractId && svc.value.contractId !== input.contractId) {
+  if (input.contractId && svc.value.currentContractId !== input.contractId) {
     return Result.ok({ binding: undefined });
   }
-  if (input.digest && svc.value.contractDigest !== input.digest) {
+  if (input.digest && svc.value.currentContractDigest !== input.digest) {
     return Result.ok({ binding: undefined });
   }
 
   if (
-    !svc.value.contractId || !svc.value.contractDigest ||
+    !svc.value.currentContractId || !svc.value.currentContractDigest ||
     !svc.value.resourceBindings
   ) {
     return Result.ok({ binding: undefined });
@@ -662,8 +538,8 @@ export const trellisBindingsGetHandler = async (
 
   return Result.ok({
     binding: {
-      contractId: svc.value.contractId,
-      digest: svc.value.contractDigest,
+      contractId: svc.value.currentContractId,
+      digest: svc.value.currentContractDigest,
       resources: svc.value.resourceBindings,
     },
   });
@@ -673,12 +549,9 @@ type InstalledContract = Static<typeof InstalledContractSchema>;
 type InstalledContractDetail = Static<typeof InstalledContractDetailSchema>;
 
 export const authListInstalledContractsHandler = async (
-  req: ListInstalledContractsRequest,
+  _req: ListInstalledContractsRequest,
 ): Promise<Result<{ contracts: InstalledContract[] }, UnexpectedError>> => {
-  logger.trace({
-    rpc: "Auth.ListInstalledContracts",
-    sessionKey: req.sessionKey,
-  }, "RPC request");
+  logger.trace({ rpc: "Auth.ListInstalledContracts" }, "RPC request");
   const keys = (await contractsKV.keys(">")).take();
   if (isErr(keys)) {
     return Result.err(new UnexpectedError({ cause: keys.error }));
@@ -688,18 +561,15 @@ export const authListInstalledContractsHandler = async (
   for await (const digest of keys) {
     const entry = (await contractsKV.get(digest)).take();
     if (isErr(entry)) continue;
-    if (req.sessionKey && entry.value.sessionKey !== req.sessionKey) continue;
     contracts.push(
       {
         digest,
         id: entry.value.id,
         displayName: entry.value.displayName,
         description: entry.value.description,
-        sessionKey: entry.value.sessionKey,
         installedAt: entry.value.installedAt.toISOString(),
         analysisSummary: entry.value
           .analysisSummary as InstalledContract["analysisSummary"],
-        resourceBindings: entry.value.resourceBindings,
       } satisfies InstalledContract,
     );
   }
@@ -747,13 +617,11 @@ export const authGetInstalledContractHandler = async (
       id: entry.value.id,
       displayName: entry.value.displayName,
       description: entry.value.description,
-      sessionKey: entry.value.sessionKey,
       installedAt: entry.value.installedAt.toISOString(),
       analysisSummary: entry.value
         .analysisSummary as InstalledContractDetail["analysisSummary"],
       analysis: entry.value.analysis as InstalledContractDetail["analysis"],
       resources: entry.value.resources as InstalledContractDetail["resources"],
-      resourceBindings: entry.value.resourceBindings,
       contract: contractUnknown as InstalledContractDetail["contract"],
     },
   });
