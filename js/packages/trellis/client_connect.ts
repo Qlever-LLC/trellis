@@ -83,12 +83,12 @@ type ClientRuntimeIdentity = {
 
 const ClientTransportEndpointsSchema = Type.Object({
   natsServers: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
-}, { additionalProperties: false });
+});
 
 const ClientTransportsSchema = Type.Object({
   native: Type.Optional(ClientTransportEndpointsSchema),
   websocket: Type.Optional(ClientTransportEndpointsSchema),
-}, { additionalProperties: false });
+});
 
 type ClientConnectDeps = {
   loadTransport(): Promise<RuntimeTransport>;
@@ -107,14 +107,14 @@ const ClientBootstrapReadySchema = Type.Object({
       sentinel: Type.Object({
         jwt: Type.String({ minLength: 1 }),
         seed: Type.String({ minLength: 1 }),
-      }, { additionalProperties: false }),
-    }, { additionalProperties: false }),
+      }),
+    }),
     auth: Type.Object({
       mode: Type.Literal("binding_token"),
       bindingToken: Type.String({ minLength: 1 }),
       expiresAt: Type.String({ format: "date-time" }),
-    }, { additionalProperties: false }),
-  }, { additionalProperties: false }),
+    }),
+  }),
 }, { additionalProperties: true });
 
 const ClientBootstrapAuthRequiredSchema = Type.Object({

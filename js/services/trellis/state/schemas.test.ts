@@ -210,6 +210,16 @@ Deno.test("LoginQuerySchema validates login params", () => {
       context: "eyJzdWJ0aXRsZSI6IldlbGNvbWUifQ",
     }),
   );
+  assertFalse(
+    Value.Check(LoginQuerySchema, {
+      provider: "github",
+      redirectTo: "https://app.example.com/dashboard",
+      sessionKey,
+      sig,
+      contract: "eyJpZCI6InRyZWxsaXMuY2xpQHYxIn0",
+      rollout: "canary",
+    }),
+  );
 });
 
 Deno.test("OAuthStateSchema validates browser flow linkage", () => {
@@ -241,6 +251,14 @@ Deno.test("BindRequestSchema validates bind params", () => {
       authToken: "token",
       sessionKey,
       sig,
+    }),
+  );
+  assertFalse(
+    Value.Check(BindRequestSchema, {
+      authToken: "token",
+      sessionKey,
+      sig,
+      rollout: "canary",
     }),
   );
 });

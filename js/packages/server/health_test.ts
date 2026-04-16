@@ -14,12 +14,16 @@
 import { assert, assertEquals } from "@std/assert";
 import { Result } from "@qlever-llc/result";
 import { TrellisError } from "@qlever-llc/trellis";
+import Value from "typebox/value";
 import {
+  createHealthHeartbeat,
   type HealthCheckFn,
   type HealthCheckResult,
   runAllHealthChecks,
+  ServiceHealth,
   runHealthCheck,
 } from "./health.ts";
+import { HealthHeartbeatSchema, HealthResponseSchema } from "./health_schemas.ts";
 
 /**
  * A simple TrellisError subclass for testing.
@@ -243,4 +247,96 @@ Deno.test("runAllHealthChecks", async (t) => {
     assertEquals(cacheCheck.status, "failed");
     assertEquals(cacheCheck.error, "Connection failed");
   });
+});
+
+Deno.test("createHealthHeartbeat includes baseline service metadata", () => {
+  const heartbeat = createHealthHeartbeat({
+    serviceName: "activity",
+    instanceId: "instance-1",
+    contractId: "trellis.activity@v1",
+    contractDigest: "digest",
+    startedAt: "2026-01-01T00:00:00.000Z",
+    publishIntervalMs: 30_000,
+    checks: [{ name: "nats", status: "ok", latencyMs: 1 }],
+    info: {
+      version: "1.2.3",
+      info: { build: "abc123" },
+    },
+  });
+
+  assertEquals(heartbeat.service.name, "activity");
+  assertEquals(heartbeat.service.instanceId, "instance-1");
+  assertEquals(heartbeat.service.version, "1.2.3");
+  assertEquals(heartbeat.status, "healthy");
+});
+
+Deno.test("ServiceHealth aggregates registered checks and info", async () => {
+  const health = new ServiceHealth({
+    serviceName: "activity",
+    contractId: "trellis.activity@v1",
+    contractDigest: "digest",
+    publishIntervalMs: 30_000,
+    checks: {
+      legacy: successCheck(),
+    },
+  });
+
+  health.setInfo({
+    version: "1.2.3",
+    info: { build: "abc123" },
+  });
+  health.add("db", () => ({
+    status: "failed",
+    summary: "connection timeout",
+  }));
+
+  const response = await health.response();
+  const heartbeat = await health.heartbeat();
+
+  assertEquals(response.status, "degraded");
+  assertEquals(response.checks.length, 2);
+  assertEquals(heartbeat.service.contractId, "trellis.activity@v1");
+  assertEquals(heartbeat.service.version, "1.2.3");
+  assertEquals(heartbeat.status, "degraded");
+});
+
+Deno.test("health wire schemas accept additive fields", () => {
+  assert(Value.Check(HealthResponseSchema, {
+    status: "healthy",
+    service: "activity",
+    timestamp: "2026-01-01T00:00:00.000Z",
+    checks: [{
+      name: "nats",
+      status: "ok",
+      latencyMs: 1,
+      region: "primary",
+    }],
+    requestId: "req_123",
+  }));
+  assert(Value.Check(HealthHeartbeatSchema, {
+    header: {
+      id: "evt_123",
+      time: "2026-01-01T00:00:00.000Z",
+      source: "activity",
+    },
+    service: {
+      name: "activity",
+      kind: "service",
+      instanceId: "instance-1",
+      contractId: "trellis.activity@v1",
+      contractDigest: "digest",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      publishIntervalMs: 30_000,
+      runtime: "deno",
+      region: "primary",
+    },
+    status: "healthy",
+    checks: [{
+      name: "nats",
+      status: "ok",
+      latencyMs: 1,
+      region: "primary",
+    }],
+    requestId: "req_123",
+  }));
 });

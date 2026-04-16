@@ -23,13 +23,13 @@ export type LoginQuery = StaticDecode<typeof LoginQuerySchema>;
 export const SentinelCredsSchema = Type.Object({
   jwt: Type.String(),
   seed: Type.String(),
-}, { additionalProperties: false });
+});
 
 export type SentinelCreds = StaticDecode<typeof SentinelCredsSchema>;
 
 export const ClientTransportEndpointsSchema = Type.Object({
   natsServers: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
-}, { additionalProperties: false });
+});
 
 export type ClientTransportEndpoints = StaticDecode<
   typeof ClientTransportEndpointsSchema
@@ -38,7 +38,7 @@ export type ClientTransportEndpoints = StaticDecode<
 export const ClientTransportsSchema = Type.Object({
   native: Type.Optional(ClientTransportEndpointsSchema),
   websocket: Type.Optional(ClientTransportEndpointsSchema),
-}, { additionalProperties: false });
+});
 
 export type ClientTransports = StaticDecode<typeof ClientTransportsSchema>;
 
@@ -58,7 +58,7 @@ export const ContractApprovalSchema = Type.Object({
   // from the public flow state shape.
   kind: Type.Optional(Type.String({ minLength: 1 })),
   capabilities: Type.Array(Type.String()),
-}, { additionalProperties: false });
+});
 
 export type ContractApproval = StaticDecode<typeof ContractApprovalSchema>;
 
@@ -77,14 +77,14 @@ export const BindSuccessResponseSchema = Type.Object({
   expires: Type.String({ format: "date-time" }),
   sentinel: SentinelCredsSchema,
   transports: ClientTransportsSchema,
-}, { additionalProperties: false });
+});
 
 export const BindInsufficientCapabilitiesResponseSchema = Type.Object({
   status: Type.Literal("insufficient_capabilities"),
   approval: ContractApprovalSchema,
   missingCapabilities: Type.Array(Type.String()),
   userCapabilities: Type.Array(Type.String()),
-}, { additionalProperties: false });
+});
 
 export const BindResponseSchema = Type.Union([
   BindSuccessResponseSchema,

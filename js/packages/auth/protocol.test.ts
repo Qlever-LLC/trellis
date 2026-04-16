@@ -71,7 +71,7 @@ import {
 
 const now = new Date().toISOString();
 
-Deno.test("PortalFlowStateSchema validates portal states without contract kind", () => {
+Deno.test("PortalFlowStateSchema tolerates additive portal app fields", () => {
   assert(Value.Check(PortalFlowStateSchema, {
     status: "choose_provider",
     flowId: "flow_1",
@@ -83,7 +83,7 @@ Deno.test("PortalFlowStateSchema validates portal states without contract kind",
       description: "Admin app",
     },
   }));
-  assertFalse(Value.Check(PortalFlowStateSchema, {
+  assert(Value.Check(PortalFlowStateSchema, {
     status: "choose_provider",
     flowId: "flow_1",
     providers: [{ id: "google", displayName: "Google" }],
@@ -417,6 +417,20 @@ Deno.test("AuthMeResponseSchema validates user, device, and service envelopes", 
       capabilities: ["service"],
     },
   }));
+  assert(Value.Check(AuthMeResponseSchema, {
+    user: {
+      id: "123",
+      origin: "github",
+      active: true,
+      name: "Ada",
+      email: "ada@example.com",
+      capabilities: ["admin"],
+      locale: "en-US",
+    },
+    device: null,
+    service: null,
+    requestId: "req_123",
+  }));
 });
 
 Deno.test("device activation and connect-info schemas validate", () => {
@@ -439,6 +453,31 @@ Deno.test("device activation and connect-info schemas validate", () => {
       mode: "device_identity",
       iatSkewSeconds: 30,
     },
+  }));
+  assert(Value.Check(DeviceConnectInfoSchema, {
+    instanceId: "dev_1",
+    profileId: "reader.default",
+    contractId: "acme.reader@v1",
+    contractDigest: "digest-a",
+    transports: {
+      native: {
+        natsServers: ["nats://127.0.0.1:4222"],
+        tlsRequired: true,
+      },
+    },
+    transport: {
+      sentinel: {
+        jwt: "jwt",
+        seed: "seed",
+        issuer: "trellis",
+      },
+    },
+    auth: {
+      mode: "device_identity",
+      iatSkewSeconds: 30,
+      tokenVersion: 2,
+    },
+    rollout: "canary",
   }));
 
   assert(Value.Check(AuthActivateDeviceSchema, { handoffId: "dah_1", linkRequestId: "link_1" }));
@@ -491,6 +530,13 @@ Deno.test("device activation and connect-info schemas validate", () => {
     iat: 123,
     sig: "proof",
   }));
+  assertFalse(Value.Check(AuthGetDeviceConnectInfoSchema, {
+    publicIdentityKey: "A".repeat(43),
+    contractDigest: "digest-a",
+    iat: 123,
+    sig: "proof",
+    rollout: "canary",
+  }));
   assert(Value.Check(AuthGetDeviceConnectInfoResponseSchema, {
     status: "ready",
     connectInfo: {
@@ -503,13 +549,16 @@ Deno.test("device activation and connect-info schemas validate", () => {
         websocket: { natsServers: ["ws://localhost:8080"] },
       },
       transport: {
-        sentinel: { jwt: "jwt", seed: "seed" },
+        sentinel: { jwt: "jwt", seed: "seed", issuer: "trellis" },
       },
       auth: {
         mode: "device_identity",
         iatSkewSeconds: 30,
+        tokenVersion: 2,
       },
+      rollout: "canary",
     },
+    requestId: "req_123",
   }));
   assert(Value.Check(AuthListDeviceActivationsSchema, {
     instanceId: "dev_1",

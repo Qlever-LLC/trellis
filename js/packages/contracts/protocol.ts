@@ -111,7 +111,7 @@ export const KvResourceBindingSchema = Type.Object({
   history: Type.Integer({ minimum: 1 }),
   ttlMs: Type.Integer({ minimum: 0 }),
   maxValueBytes: Type.Optional(Type.Integer({ minimum: 1 })),
-}, { additionalProperties: false });
+});
 
 export type KvResourceBinding = Static<typeof KvResourceBindingSchema>;
 
@@ -120,7 +120,7 @@ export const StoreResourceBindingSchema = Type.Object({
   ttlMs: Type.Integer({ minimum: 0 }),
   maxObjectBytes: Type.Optional(Type.Integer({ minimum: 1 })),
   maxTotalBytes: Type.Optional(Type.Integer({ minimum: 1 })),
-}, { additionalProperties: false });
+});
 
 export type StoreResourceBinding = Static<typeof StoreResourceBindingSchema>;
 
@@ -139,8 +139,8 @@ export const StreamResourceBindingSchema = Type.Object({
     streamName: Type.String({ minLength: 1 }),
     filterSubject: Type.Optional(Type.String({ minLength: 1 })),
     subjectTransformDest: Type.Optional(Type.String({ minLength: 1 })),
-  }, { additionalProperties: false }))),
-}, { additionalProperties: false });
+  }))),
+});
 
 export type StreamResourceBinding = Static<typeof StreamResourceBindingSchema>;
 
@@ -159,14 +159,14 @@ export const JobsQueueBindingSchema = Type.Object({
   logs: Type.Boolean(),
   dlq: Type.Boolean(),
   concurrency: Type.Integer({ minimum: 1 }),
-}, { additionalProperties: false });
+});
 
 export type JobsQueueBinding = Static<typeof JobsQueueBindingSchema>;
 
 export const JobsResourceBindingSchema = Type.Object({
   namespace: Type.String({ minLength: 1 }),
   queues: Type.Record(Type.String({ minLength: 1 }), JobsQueueBindingSchema),
-}, { additionalProperties: false });
+});
 
 export type JobsResourceBinding = Static<typeof JobsResourceBindingSchema>;
 
@@ -191,7 +191,7 @@ export const InstalledServiceContractSchema = Type.Object({
   contractId: Type.String({ minLength: 1 }),
   digest: Type.String({ pattern: "^[A-Za-z0-9_-]+$" }),
   resources: ContractResourceBindingsSchema,
-}, { additionalProperties: false });
+});
 
 export type InstalledServiceContract = Static<
   typeof InstalledServiceContractSchema
@@ -207,7 +207,7 @@ export const EventHeaderSchema = Type.Object({
   header: Type.Object({
     id: Type.String(),
     time: IsoDateSchema,
-  }, { additionalProperties: false }),
+  }),
 });
 
 export type EventHeader = Static<typeof EventHeaderSchema>;

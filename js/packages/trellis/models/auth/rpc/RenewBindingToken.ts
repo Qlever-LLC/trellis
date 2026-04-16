@@ -2,7 +2,6 @@ import Type, { type Static } from "typebox";
 
 export const AuthRenewBindingTokenSchema = Type.Object(
   {},
-  { additionalProperties: false },
 );
 export type AuthRenewBindingTokenInput = Static<
   typeof AuthRenewBindingTokenSchema
@@ -19,21 +18,18 @@ export const AuthRenewBindingTokenResponseSchema = Type.Object(
         jwt: Type.String(),
         seed: Type.String(),
       },
-      { additionalProperties: false },
     ),
     transports: Type.Object(
       {
         native: Type.Optional(Type.Object({
           natsServers: Type.Array(Type.String()),
-        }, { additionalProperties: false })),
+        })),
         websocket: Type.Optional(Type.Object({
           natsServers: Type.Array(Type.String()),
-        }, { additionalProperties: false })),
+        })),
       },
-      { additionalProperties: false },
     ),
   },
-  { additionalProperties: false },
 );
 export type AuthRenewBindingTokenResponse = Static<
   typeof AuthRenewBindingTokenResponseSchema

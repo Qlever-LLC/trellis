@@ -5,6 +5,6 @@ export const EventHeaderSchema = Type.Object({
   header: Type.Object({
     id: Type.String(),
     time: IsoDateSchema,
-  }, { additionalProperties: false }),
+  }),
 });
 export type EventHeader = Static<typeof EventHeaderSchema>;

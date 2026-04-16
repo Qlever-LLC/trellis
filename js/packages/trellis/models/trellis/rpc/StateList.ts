@@ -9,7 +9,7 @@ export const StateListSchema = Type.Intersect([
   Type.Object({
     scope: StateScopeSchema,
     prefix: Type.Optional(Type.String({ minLength: 1 })),
-  }, { additionalProperties: false }),
+  }),
 ]);
 export type StateListInput = Static<typeof StateListSchema>;
 
@@ -17,6 +17,6 @@ export const StateListResponseSchema = Type.Intersect([
   PaginatedSchema,
   Type.Object({
     entries: Type.Array(StateEntrySchema, { default: [] }),
-  }, { additionalProperties: false }),
+  }),
 ]);
 export type StateListResponse = Static<typeof StateListResponseSchema>;

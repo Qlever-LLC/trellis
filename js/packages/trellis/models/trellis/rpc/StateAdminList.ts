@@ -15,13 +15,13 @@ export const StateAdminListSchema = Type.Intersect([
       contractId: Type.String({ minLength: 1 }),
       user: StateUserTargetSchema,
       prefix: Type.Optional(Type.String({ minLength: 1 })),
-    }, { additionalProperties: false }),
+    }),
     Type.Object({
       scope: Type.Literal("deviceApp"),
       contractId: Type.String({ minLength: 1 }),
       deviceId: Type.String({ minLength: 1 }),
       prefix: Type.Optional(Type.String({ minLength: 1 })),
-    }, { additionalProperties: false }),
+    }),
   ]),
 ]);
 export type StateAdminListInput = Static<typeof StateAdminListSchema>;
@@ -30,6 +30,6 @@ export const StateAdminListResponseSchema = Type.Intersect([
   PaginatedSchema,
   Type.Object({
     entries: Type.Array(StateEntrySchema, { default: [] }),
-  }, { additionalProperties: false }),
+  }),
 ]);
 export type StateAdminListResponse = Static<typeof StateAdminListResponseSchema>;

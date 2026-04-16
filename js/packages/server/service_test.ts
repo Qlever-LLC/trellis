@@ -149,16 +149,21 @@ Deno.test("TrellisService.connect uses bootstrap response transport details", as
           contractId: core.CONTRACT_ID,
           contractDigest: core.CONTRACT_DIGEST,
           transports: {
-            native: { natsServers: ["nats://127.0.0.1:4222"] },
+            native: {
+              natsServers: ["nats://127.0.0.1:4222"],
+              tlsRequired: true,
+            },
             websocket: { natsServers: ["ws://localhost:8080"] },
           },
           transport: {
-            sentinel: { jwt: "jwt", seed: "seed" },
+            sentinel: { jwt: "jwt", seed: "seed", issuer: "trellis" },
           },
           auth: {
             mode: "service_identity",
             iatSkewSeconds: 30,
+            tokenVersion: 2,
           },
+          rollout: "canary",
         },
         binding: {
           contractId: core.CONTRACT_ID,
@@ -166,8 +171,15 @@ Deno.test("TrellisService.connect uses bootstrap response transport details", as
           resources: {
             kv: {},
             streams: {},
+            jobs: {
+              namespace: "jobs",
+              queues: {},
+              rollout: "canary",
+            },
           },
+          requestId: "req_123",
         },
+        requestId: "req_123",
       }), {
         status: 200,
         headers: { "Content-Type": "application/json" },

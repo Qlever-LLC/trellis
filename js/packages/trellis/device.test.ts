@@ -86,14 +86,23 @@ Deno.test("connectDeviceWithDeps supports offline confirmation before reconnect"
             contractId: "example.device@v1",
             contractDigest: "digest-a",
             transports: {
-              native: { natsServers: ["nats://127.0.0.1:4222"] },
+              native: {
+                natsServers: ["nats://127.0.0.1:4222"],
+                tlsRequired: true,
+              },
               websocket: { natsServers: ["ws://localhost:8080"] },
             },
             transport: {
-              sentinel: { jwt: "jwt", seed: "seed" },
+              sentinel: { jwt: "jwt", seed: "seed", issuer: "trellis" },
             },
-            auth: { mode: "device_identity", iatSkewSeconds: 30 },
+            auth: {
+              mode: "device_identity",
+              iatSkewSeconds: 30,
+              tokenVersion: 2,
+            },
+            rollout: "canary",
           },
+          requestId: "req_123",
         }), {
           status: 200,
           headers: { "Content-Type": "application/json" },

@@ -14,6 +14,7 @@ import { base64urlDecode, base64urlEncode, toArrayBuffer } from "../auth/utils.t
 import type { TrellisAPI } from "./contracts.ts";
 import { loadDefaultRuntimeTransport } from "./runtime_transport.ts";
 import { selectRuntimeTransportServers } from "./runtime_transport.ts";
+import { ServiceHealth } from "./health.ts";
 import { Trellis } from "./trellis.ts";
 import { Type, type StaticDecode } from "typebox";
 import { Value } from "typebox/value";
@@ -21,9 +22,16 @@ import { Value } from "typebox/value";
 type DeviceContract<TApi extends TrellisAPI = TrellisAPI> = {
   CONTRACT_ID: string;
   CONTRACT_DIGEST: string;
+  CONTRACT?: {
+    displayName?: string;
+  };
   API: {
     trellis: TApi;
   };
+};
+
+export type TrellisDeviceConnection<TApi extends TrellisAPI = TrellisAPI> = Trellis<TApi> & {
+  health: ServiceHealth;
 };
 
 type DeviceConnectTransport = {
@@ -42,12 +50,12 @@ type DeviceConnectDeps = {
 
 const ClientTransportEndpointsSchema = Type.Object({
   natsServers: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
-}, { additionalProperties: false });
+});
 
 const ClientTransportsSchema = Type.Object({
   native: Type.Optional(ClientTransportEndpointsSchema),
   websocket: Type.Optional(ClientTransportEndpointsSchema),
-}, { additionalProperties: false });
+});
 
 export type DeviceActivationController = {
   url: string;
@@ -74,23 +82,23 @@ const DeviceBootstrapReadySchema = Type.Object({
       sentinel: Type.Object({
         jwt: Type.String({ minLength: 1 }),
         seed: Type.String({ minLength: 1 }),
-      }, { additionalProperties: false }),
-    }, { additionalProperties: false }),
+      }),
+    }),
     auth: Type.Object({
       mode: Type.Literal("device_identity"),
       iatSkewSeconds: Type.Integer({ minimum: 1 }),
-    }, { additionalProperties: false }),
-  }, { additionalProperties: false }),
-}, { additionalProperties: false });
+    }),
+  }),
+});
 
 const DeviceBootstrapActivationRequiredSchema = Type.Object({
   status: Type.Literal("activation_required"),
-}, { additionalProperties: false });
+});
 
 const DeviceBootstrapNotReadySchema = Type.Object({
   status: Type.Literal("not_ready"),
   reason: Type.String({ minLength: 1 }),
-}, { additionalProperties: false });
+});
 
 type DeviceBootstrapReady = StaticDecode<typeof DeviceBootstrapReadySchema>;
 type DeviceBootstrapActivationRequired = StaticDecode<typeof DeviceBootstrapActivationRequiredSchema>;
@@ -169,7 +177,7 @@ async function fetchDeviceBootstrap(args: {
 export async function connectDeviceWithDeps<TApi extends TrellisAPI>(
   args: TrellisDeviceConnectArgs<TApi>,
   deps: DeviceConnectDeps,
-): Promise<Trellis<TApi>> {
+): Promise<TrellisDeviceConnection<TApi>> {
   const rootSecret = normalizeRootSecret(args.rootSecret);
   const identity = await deriveDeviceIdentity(rootSecret);
   const contractDigest = args.contract.CONTRACT_DIGEST;
@@ -281,7 +289,7 @@ export async function connectDeviceWithDeps<TApi extends TrellisAPI>(
     ),
   });
 
-  return new Trellis<TApi>(
+  const trellis = new Trellis<TApi>(
     args.contract.CONTRACT_ID,
     nc,
     {
@@ -292,12 +300,68 @@ export async function connectDeviceWithDeps<TApi extends TrellisAPI>(
       api: args.contract.API.trellis,
     },
   );
+
+  const health = new ServiceHealth({
+    serviceName: args.contract.CONTRACT?.displayName ?? args.contract.CONTRACT_ID,
+    kind: "device",
+    instanceId: connectInfo.instanceId,
+    contractId: connectInfo.contractId,
+    contractDigest: connectInfo.contractDigest,
+    publishIntervalMs: 30_000,
+  });
+  health.setInfo({
+    info: {
+      profileId: connectInfo.profileId,
+    },
+  });
+  health.add("nats", () => ({
+    status: nc.isClosed() ? "failed" : "ok",
+    ...(nc.isClosed() ? { summary: "NATS connection closed" } : {}),
+  }));
+
+  const heartbeatEventEnabled = Boolean(
+    (args.contract.API.trellis.events as Record<string, unknown> | undefined)?.["Health.Heartbeat"],
+  );
+  let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
+  let publishingHeartbeat = false;
+  const stopHeartbeat = () => {
+    if (heartbeatTimer !== undefined) {
+      clearInterval(heartbeatTimer);
+      heartbeatTimer = undefined;
+    }
+  };
+  const publishHeartbeat = async (): Promise<void> => {
+    if (!heartbeatEventEnabled || publishingHeartbeat) {
+      return;
+    }
+
+    publishingHeartbeat = true;
+    try {
+      const heartbeat = await health.heartbeat();
+      await trellis.publish(
+        "Health.Heartbeat" as never,
+        heartbeat as never,
+      );
+    } finally {
+      publishingHeartbeat = false;
+    }
+  };
+
+  if (heartbeatEventEnabled) {
+    await publishHeartbeat();
+    heartbeatTimer = setInterval(() => {
+      void publishHeartbeat();
+    }, health.publishIntervalMs);
+    void nc.closed().finally(stopHeartbeat);
+  }
+
+  return Object.assign(trellis, { health });
 }
 
 export const TrellisDevice = {
   connect<TApi extends TrellisAPI>(
     args: TrellisDeviceConnectArgs<TApi>,
-  ): Promise<Trellis<TApi>> {
+  ): Promise<TrellisDeviceConnection<TApi>> {
     return connectDeviceWithDeps<TApi>(args, defaultDeps);
   },
 };

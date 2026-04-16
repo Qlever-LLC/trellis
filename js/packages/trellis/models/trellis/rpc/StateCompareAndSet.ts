@@ -11,18 +11,18 @@ export const StateCompareAndSetSchema = Type.Object({
   ]),
   value: JsonValueSchema,
   ttlMs: Type.Optional(Type.Integer({ minimum: 1 })),
-}, { additionalProperties: false });
+});
 export type StateCompareAndSetInput = Static<typeof StateCompareAndSetSchema>;
 
 export const StateCompareAndSetResponseSchema = Type.Union([
   Type.Object({
     applied: Type.Literal(true),
     entry: StateEntrySchema,
-  }, { additionalProperties: false }),
+  }),
   Type.Object({
     applied: Type.Literal(false),
     found: Type.Boolean(),
     entry: Type.Optional(StateEntrySchema),
-  }, { additionalProperties: false }),
+  }),
 ]);
 export type StateCompareAndSetResponse = Static<typeof StateCompareAndSetResponseSchema>;

@@ -5,7 +5,6 @@ export const AuthListConnectionsSchema = Type.Object(
     user: Type.Optional(Type.String()),
     sessionKey: Type.Optional(Type.String()),
   },
-  { additionalProperties: false },
 );
 export type AuthListConnectionsInput = Static<typeof AuthListConnectionsSchema>;
 
@@ -19,11 +18,9 @@ export const AuthListConnectionsResponseSchema = Type.Object(
           clientId: Type.Number(),
           connectedAt: Type.String(),
         },
-        { additionalProperties: false },
       ),
     ),
   },
-  { additionalProperties: false },
 );
 export type AuthListConnectionsResponse = Static<
   typeof AuthListConnectionsResponseSchema

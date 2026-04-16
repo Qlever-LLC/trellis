@@ -1,6 +1,6 @@
 import Type, { type Static } from "typebox";
 
-export const UserStatsSchema = Type.Object({}, { additionalProperties: false });
+export const UserStatsSchema = Type.Object({});
 export type UserStatsInput = Static<typeof UserStatsSchema>;
 
 export const UserStatsResponseSchema = Type.Object(
@@ -13,6 +13,5 @@ export const UserStatsResponseSchema = Type.Object(
       }),
     ),
   },
-  { additionalProperties: false },
 );
 export type UserStatsResponse = Static<typeof UserStatsResponseSchema>;

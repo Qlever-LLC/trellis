@@ -24,14 +24,14 @@ export type TrellisContract = Static<typeof TrellisContractSchema>;
 
 export const TrellisContractGetRequestSchema = Type.Object({
   digest: Type.String({ pattern: "^[A-Za-z0-9_-]+$" }),
-}, { additionalProperties: false });
+});
 export type TrellisContractGetRequest = Static<
   typeof TrellisContractGetRequestSchema
 >;
 
 export const TrellisContractGetResponseSchema = Type.Object({
   contract: TrellisContractSchema,
-}, { additionalProperties: false });
+});
 export type TrellisContractGetResponse = Static<
   typeof TrellisContractGetResponseSchema
 >;

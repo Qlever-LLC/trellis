@@ -4,7 +4,6 @@ export const AuthListSessionsSchema = Type.Object(
   {
     user: Type.Optional(Type.String()),
   },
-  { additionalProperties: false },
 );
 export type AuthListSessionsInput = Static<typeof AuthListSessionsSchema>;
 
@@ -22,11 +21,9 @@ export const AuthListSessionsResponseSchema = Type.Object(
           createdAt: Type.String(),
           lastAuth: Type.String(),
         },
-        { additionalProperties: false },
       ),
     ),
   },
-  { additionalProperties: false },
 );
 export type AuthListSessionsResponse = Static<
   typeof AuthListSessionsResponseSchema

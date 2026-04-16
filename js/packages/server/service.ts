@@ -31,7 +31,7 @@ import type { TrellisAPI } from "@qlever-llc/trellis/contracts";
 import { type BaseError, isErr, type Result } from "@qlever-llc/result";
 import { type TSchema, Type } from "typebox";
 import { Value } from "typebox/value";
-import type { HealthCheckFn } from "./health.ts";
+import { ServiceHealth, type HealthCheckFn } from "./health.ts";
 import { mountStandardHealthRpc } from "./health_rpc.ts";
 import type { RPCDesc } from "@qlever-llc/trellis/contracts";
 import type {
@@ -80,12 +80,12 @@ type ResourceBindingJobs = {
 
 const ClientTransportEndpointsSchema = Type.Object({
   natsServers: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
-}, { additionalProperties: false });
+});
 
 const ClientTransportsSchema = Type.Object({
   native: Type.Optional(ClientTransportEndpointsSchema),
   websocket: Type.Optional(ClientTransportEndpointsSchema),
-}, { additionalProperties: false });
+});
 
 type ServiceBootstrapConnectInfo = {
   sessionKey: string;
@@ -140,7 +140,12 @@ type TrellisServerCreateOpts<
   api: TOwnedApi;
   trellisApi?: TTrellisApi;
   version?: string;
+  health?: TrellisServiceHealthOpts;
   healthChecks?: Record<string, HealthCheckFn>;
+};
+
+export type TrellisServiceHealthOpts = {
+  publishIntervalMs?: number;
 };
 
 export type TrellisServiceServerOpts = {
@@ -148,6 +153,7 @@ export type TrellisServiceServerOpts = {
   timeout?: number;
   stream?: string;
   noResponderRetry?: { maxAttempts?: number; baseDelayMs?: number };
+  health?: TrellisServiceHealthOpts;
   healthChecks?: Record<string, HealthCheckFn>;
 };
 
@@ -249,17 +255,17 @@ const ServiceBootstrapReadySchema = Type.Object({
     transports: ClientTransportsSchema,
     transport: Type.Object({
       sentinel: SentinelCredsSchema,
-    }, { additionalProperties: false }),
+    }),
     auth: Type.Object({
       mode: Type.Literal("service_identity"),
       iatSkewSeconds: Type.Integer({ minimum: 1 }),
-    }, { additionalProperties: false }),
-  }, { additionalProperties: false }),
+    }),
+  }),
   binding: Type.Object({
     contractId: Type.String({ minLength: 1 }),
     digest: Type.String({ minLength: 1 }),
     resources: ContractResourceBindingsSchema,
-  }, { additionalProperties: false }),
+  }),
 }, { additionalProperties: true });
 
 const ServiceBootstrapFailureSchema = Type.Object({
@@ -502,6 +508,8 @@ async function createConnectedService<
   name: string;
   auth: SessionAuth;
   nc: NatsConnection;
+  contractId?: string;
+  contractDigest?: string;
   server: TrellisServerCreateOpts<TOwnedApi, TTrellisApi>;
   bindings: ResourceBindings;
 }): Promise<TrellisService<TOwnedApi, TTrellisApi>> {
@@ -622,9 +630,64 @@ async function createConnectedService<
     },
   );
 
-  await mountStandardHealthRpc(server, {
+  const health = new ServiceHealth({
+    serviceName: args.name,
+    contractId: args.contractId ?? "unknown",
+    contractDigest: args.contractDigest ?? "unknown",
+    publishIntervalMs: args.server.health?.publishIntervalMs ?? 30_000,
     checks: args.server.healthChecks,
   });
+  health.add("nats", () => ({
+    status: args.nc.isClosed() ? "failed" : "ok",
+    ...(args.nc.isClosed() ? { summary: "NATS connection closed" } : {}),
+  }));
+
+  await mountStandardHealthRpc(server, {
+    response: () => health.response(),
+  });
+
+  const heartbeatEventEnabled = Boolean(
+    (currentApi.events as Record<string, unknown> | undefined)?.["Health.Heartbeat"],
+  );
+  let healthPublishTimer: ReturnType<typeof setInterval> | undefined;
+  let publishingHeartbeat = false;
+  const publishHealthHeartbeat = async (): Promise<void> => {
+    if (!heartbeatEventEnabled || publishingHeartbeat) {
+      return;
+    }
+
+    publishingHeartbeat = true;
+    try {
+      const heartbeat = await health.heartbeat();
+      const published = await (
+        outbound.publish as (
+          event: string,
+          data: Record<string, unknown>,
+        ) => Promise<Result<void, BaseError>>
+      )("Health.Heartbeat", heartbeat as Record<string, unknown>);
+      const value = published.take();
+      if (isErr(value)) {
+        resolvedLog.warn({ error: value.error }, "Failed to publish health heartbeat");
+      }
+    } catch (error) {
+      resolvedLog.warn({ error }, "Failed to build or publish health heartbeat");
+    } finally {
+      publishingHeartbeat = false;
+    }
+  };
+  const stopHealthPublishing = async (): Promise<void> => {
+    if (healthPublishTimer !== undefined) {
+      clearInterval(healthPublishTimer);
+      healthPublishTimer = undefined;
+    }
+  };
+
+  if (heartbeatEventEnabled) {
+    await publishHealthHeartbeat();
+    healthPublishTimer = setInterval(() => {
+      void publishHealthHeartbeat();
+    }, health.publishIntervalMs);
+  }
 
   const service = new TrellisService<TOwnedApi, TTrellisApi>(
     args.name,
@@ -633,6 +696,8 @@ async function createConnectedService<
     server,
     trellis,
     args.bindings,
+    health,
+    stopHealthPublishing,
   );
   handlerResources = { kv: service.kv, store: service.store };
   transfer = service.transfer;
@@ -654,6 +719,8 @@ export class TrellisService<
   readonly store: Record<string, StoreHandle>;
   readonly streams: Record<string, ResourceBindingStream>;
   readonly jobs?: ResourceBindingJobs;
+  readonly health: ServiceHealth;
+  readonly #stopHealthPublishing: () => Promise<void>;
 
   constructor(
     name: string,
@@ -662,6 +729,8 @@ export class TrellisService<
     server: TrellisServerFor<TOwnedApi & TTrellisApi>,
     trellis: ServiceTrellis<TOwnedApi, TTrellisApi>,
     bindings: ResourceBindings,
+    health: ServiceHealth,
+    stopHealthPublishing: () => Promise<void>,
   ) {
     const kvBindings = bindings.kv ?? {};
     const storeBindings = bindings.store ?? {};
@@ -691,6 +760,8 @@ export class TrellisService<
     });
     this.streams = streamBindings;
     this.jobs = bindings.jobs;
+    this.health = health;
+    this.#stopHealthPublishing = stopHealthPublishing;
   }
 
   static async connect<
@@ -733,6 +804,8 @@ export class TrellisService<
       name: args.name,
       auth,
       nc,
+      contractId: args.contract.CONTRACT_ID,
+      contractDigest: args.contract.CONTRACT_DIGEST,
       server: {
         ...(args.server ?? {}),
         api: args.contract.API.owned,
@@ -901,12 +974,15 @@ export class TrellisService<
       name,
       auth,
       nc,
+      contractId: opts.contractId,
+      contractDigest: opts.contractDigest,
       server: opts.server,
       bindings,
     });
   }
 
   async stop(): Promise<void> {
+    await this.#stopHealthPublishing();
     await this.transfer.stop();
     await this.server.stop();
   }

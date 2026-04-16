@@ -56,6 +56,7 @@ Deno.test("job handwritten schemas accept dismissed state and event types", () =
 
 Deno.test("jobs handwritten health schemas validate request and response", () => {
   assert(Value.Check(JobsHealthRequestSchema, {}));
+  assert(Value.Check(JobsHealthRequestSchema, { requestId: "req_123" }));
   assert(Value.Check(JobsHealthResponseSchema, {
     status: "healthy",
     service: "jobs",
@@ -64,7 +65,9 @@ Deno.test("jobs handwritten health schemas validate request and response", () =>
       name: "kv",
       status: "ok",
       latencyMs: 12,
+      region: "primary",
     }],
+    requestId: "req_123",
   }));
   assertFalse(Value.Check(JobsHealthResponseSchema, {
     status: "ok",
@@ -85,6 +88,10 @@ Deno.test("jobs handwritten worker presence schemas accept workers and reject ou
   };
 
   assert(Value.Check(WorkerHeartbeatSchema, worker));
+  assert(Value.Check(WorkerHeartbeatSchema, {
+    ...worker,
+    queueLag: 4,
+  }));
   assert(Value.Check(ServiceInfoSchema, {
     name: "documents",
     healthy: true,
@@ -94,8 +101,10 @@ Deno.test("jobs handwritten worker presence schemas accept workers and reject ou
     services: [{
       name: "documents",
       healthy: true,
-      workers: [worker],
+      workers: [{ ...worker, queueLag: 4 }],
+      region: "east-1",
     }],
+    requestId: "req_123",
   }));
 
   assertFalse(Value.Check(ServiceInfoSchema, {
