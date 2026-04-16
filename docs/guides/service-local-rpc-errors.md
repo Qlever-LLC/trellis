@@ -12,17 +12,20 @@ This is the preferred Trellis pattern when:
 
 ## Summary
 
-Define service-local RPC errors as `TrellisError` subclasses with:
+Prefer `defineTrellisErrorClass(...)` for service-local RPC errors.
 
-- `static schema`
-- `static fromSerializable(...)`
-- `toSerializable()`
+It generates a real `TrellisError` subclass with:
+
+- a typed wire schema
+- runtime reconstruction
+- built-in `id`, `context`, and `traceId` handling
+- a ready-to-use `defineError(...)` declaration on `.decl`
 
 Then:
 
-1. add the error data schema to the contract `schemas` map
-2. register the class in the contract `errors` map with
-   `defineError(MyErrorClass)`
+1. define the error class with `defineTrellisErrorClass(...)`
+2. register the generated declaration from `MyErrorClass.decl` in the contract
+   `errors` map
 3. reference the local declaration from RPC `errors: [...]`, preferably through
    `ref.error(...)`
 4. return the error instance from the handler with `err(...)`
@@ -31,74 +34,29 @@ Then:
 ## Example
 
 ```ts
-import Type, { type Static } from "typebox";
+import Type from "typebox";
 import {
-  defineError,
+  defineTrellisErrorClass,
   defineServiceContract,
   err,
-  TrellisError,
 } from "@qlever-llc/trellis";
 
-export const NotFoundErrorDataSchema = Type.Object({
-  id: Type.String(),
-  type: Type.Literal("NotFoundError"),
-  message: Type.String(),
-  resource: Type.String(),
-  resourceId: Type.String(),
-  context: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
-  traceId: Type.Optional(Type.String()),
+export const NotFoundError = defineTrellisErrorClass({
+  type: "NotFoundError",
+  fields: {
+    resource: Type.String(),
+    resourceId: Type.String(),
+  },
+  message: ({ resource, resourceId }) => `${resource} ${resourceId} not found`,
 });
 
-export type NotFoundErrorData = Static<typeof NotFoundErrorDataSchema>;
-
-export class NotFoundError extends TrellisError<NotFoundErrorData> {
-  static readonly schema = NotFoundErrorDataSchema;
-  override readonly name = "NotFoundError" as const;
-
-  readonly resource: string;
-  readonly resourceId: string;
-
-  constructor(
-    options: ErrorOptions & {
-      resource: string;
-      resourceId: string;
-      context?: Record<string, unknown>;
-      id?: string;
-    },
-  ) {
-    const { resource, resourceId, ...base } = options;
-    super(`${resource} not found`, base);
-    this.resource = resource;
-    this.resourceId = resourceId;
-  }
-
-  static fromSerializable(data: NotFoundErrorData): NotFoundError {
-    return new NotFoundError({
-      resource: data.resource,
-      resourceId: data.resourceId,
-      id: data.id,
-      context: data.context,
-    });
-  }
-
-  override toSerializable(): NotFoundErrorData {
-    return {
-      ...this.baseSerializable(),
-      type: this.name,
-      resource: this.resource,
-      resourceId: this.resourceId,
-    };
-  }
-}
-
 const schemas = {
-  NotFoundErrorData: NotFoundErrorDataSchema,
   GetWorkspaceInput: GetWorkspaceInputSchema,
   Workspace: WorkspaceSchema,
 } as const;
 
 const errors = {
-  WorkspaceMissing: defineError(NotFoundError),
+  WorkspaceMissing: NotFoundError.decl,
 } as const;
 
 export const krishi = defineServiceContract(
@@ -156,8 +114,13 @@ if (isErr(value)) {
 ## Contract Rules
 
 - `defineError(...)` takes the class, not duplicated `type` or `schema` values
-- the class `name` is the wire `type`
-- the class `static schema` must also appear in the contract `schemas` map
+- `defineTrellisErrorClass(...)` is the preferred authoring path for new local
+  service errors
+- the generated class `type` is the wire `type`
+- the generated or manual class `static schema` is the source of the emitted
+  local error schema
+- `defineServiceContract(...)` derives the local error schema entry
+  automatically when it is not already present in the contract `schemas` map
 - the `errors` map key is the local declaration name used by RPC `errors: [...]`
 - the local declaration key does not need to match the wire `type`
 - when this lives in a `contracts/*.ts` source file, the file should default
@@ -173,7 +136,7 @@ Example:
 
 ```ts
 errors: {
-  WorkspaceMissing: defineError(NotFoundError),
+  WorkspaceMissing: NotFoundError.decl,
 },
 defineServiceContract({ schemas, errors }, (ref) => ({
   rpc: {
@@ -187,6 +150,9 @@ defineServiceContract({ schemas, errors }, (ref) => ({
 
 This emits a manifest error ref with wire type `NotFoundError`, while the local
 contract still uses the friendlier declaration key `WorkspaceMissing`.
+
+If the same schema is also needed for `ref.schema(...)` elsewhere in the
+contract, keep exporting it through the local `schemas` map as usual.
 
 ## Generated SDK Behavior
 
@@ -228,11 +194,17 @@ Those should be service-local errors.
 
 - Forgetting `static schema`
 - Forgetting `static fromSerializable(...)`
-- Defining the class schema but not adding it to the contract `schemas` map
+- Using the manual subclass path when the generated factory would be enough
 - Returning a domain-specific error from a handler without listing its local
   declaration in the RPC `errors: [...]`
 - Using `RemoteError` checks for declared contract errors instead of
   `instanceof`
+
+## Advanced Manual Path
+
+Use a handwritten `class extends TrellisError` only when the generated factory is
+too limiting, such as when the error needs custom prototype methods or unusual
+reconstruction logic.
 
 ## Related Design Docs
 

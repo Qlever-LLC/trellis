@@ -1,2 +1,2 @@
 export * from "./groups.ts";
-export { createInitiateUploadRpc } from "./upload.ts";
+export { initiateUploadRpc } from "./upload.ts";

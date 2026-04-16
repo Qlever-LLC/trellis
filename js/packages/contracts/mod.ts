@@ -277,6 +277,13 @@ export type ContractSourceErrorDecl<TSchemaName extends string = string> = {
   schema?: ContractSchemaRef<TSchemaName>;
 };
 
+type ExtractContractErrorDecls<TErrors> =
+  TErrors extends Readonly<Record<string, unknown>> ? {
+      [K in keyof TErrors as TErrors[K] extends ContractSourceErrorDecl ? K
+        : never]: Extract<TErrors[K], ContractSourceErrorDecl>;
+    }
+  : undefined;
+
 type ContractErrorRuntimeMarker<
   TClass extends RpcErrorClass = RpcErrorClass,
 > = {
@@ -290,7 +297,13 @@ export type ErrorClass<
 > = RpcErrorClass<TData, TError> & {
   readonly name: string;
   readonly schema: TRuntimeSchema;
+  readonly type?: string;
 };
+
+function getContractErrorType(errorClass: ErrorClass): string {
+  const explicitType = Reflect.get(errorClass, "type");
+  return typeof explicitType === "string" ? explicitType : errorClass.name;
+}
 
 function isTransportErrorData(value: unknown): value is TransportErrorData {
   return !!value && typeof value === "object" &&
@@ -883,7 +896,7 @@ type ValidateDefineContractInput<T extends DefineContractSource> =
 type DefineContractRegistry<
   TSchemas extends Readonly<Record<string, TSchema>> | undefined = undefined,
   TErrors extends
-    | Readonly<Record<string, ContractSourceErrorDecl>>
+    | Readonly<Record<string, unknown>>
     | undefined = undefined,
 > = {
   schemas?: TSchemas;
@@ -892,7 +905,7 @@ type DefineContractRegistry<
 
 type AnyDefineContractRegistry = {
   schemas?: Readonly<Record<string, TSchema>>;
-  errors?: Readonly<Record<string, ContractSourceErrorDecl>>;
+  errors?: Readonly<Record<string, unknown>>;
 };
 
 type RegistrySchemas<TRegistry extends AnyDefineContractRegistry> =
@@ -904,7 +917,9 @@ type RegistrySchemas<TRegistry extends AnyDefineContractRegistry> =
 type RegistryErrors<TRegistry extends AnyDefineContractRegistry> =
   TRegistry extends { errors?: infer TErrors }
     ? TErrors extends
-      Readonly<Record<string, ContractSourceErrorDecl>> | undefined ? TErrors
+      Readonly<Record<string, unknown>> | undefined ? ExtractContractErrorDecls<
+          TErrors
+        >
     : undefined
     : undefined;
 
@@ -1113,6 +1128,138 @@ function cloneSchemas(
       [name, schemaValue],
     ) => [name, cloneSchema(schemaValue)]),
   );
+}
+
+function getErrorRuntimeSchema(errorDecl: ContractSourceErrorDecl): TSchema | undefined {
+  const errorClass = getContractErrorRuntimeClass(errorDecl);
+  const runtimeSchema = errorClass
+    ? Reflect.get(errorClass, "schema")
+    : undefined;
+  if (!runtimeSchema || typeof runtimeSchema !== "object") {
+    return undefined;
+  }
+
+  return runtimeSchema as TSchema;
+}
+
+function isContractSchemaRefValue(value: unknown): value is ContractSchemaRef {
+  return !!value && typeof value === "object" &&
+    typeof (value as { schema?: unknown }).schema === "string";
+}
+
+function isContractSourceErrorDeclValue(
+  value: unknown,
+): value is ContractSourceErrorDecl {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+
+  const keys = Object.keys(value);
+  if (!keys.every((key) => key === "type" || key === "schema")) {
+    return false;
+  }
+
+  const candidate = value as { type?: unknown; schema?: unknown };
+  return typeof candidate.type === "string" &&
+    (candidate.schema === undefined ||
+      isContractSchemaRefValue(candidate.schema));
+}
+
+function normalizeErrorRegistry(
+  errors: Readonly<Record<string, unknown>> | undefined,
+): Readonly<Record<string, ContractSourceErrorDecl>> | undefined {
+  if (!errors) {
+    return undefined;
+  }
+
+  const normalizedEntries = Object.entries(errors).filter(([, value]) =>
+    isContractSourceErrorDeclValue(value)
+  ) as Array<[string, ContractSourceErrorDecl]>;
+  if (normalizedEntries.length === 0) {
+    return undefined;
+  }
+
+  return Object.fromEntries(normalizedEntries);
+}
+
+function findMatchingSchemaName(
+  schemas: ContractSourceSchemas | undefined,
+  targetSchema: TSchema,
+): string | undefined {
+  if (!schemas) {
+    return undefined;
+  }
+
+  const targetDigest = digestCanonicalJson(cloneSchema(targetSchema));
+  for (const [schemaName, schemaValue] of Object.entries(schemas)) {
+    if (schemaValue === targetSchema) {
+      return schemaName;
+    }
+
+    if (digestCanonicalJson(cloneSchema(schemaValue)) === targetDigest) {
+      return schemaName;
+    }
+  }
+
+  return undefined;
+}
+
+function chooseDerivedErrorSchemaName(
+  schemas: ContractSourceSchemas,
+  errorName: string,
+  errorType: string,
+): string {
+  const baseNames = [`${errorType}Data`, `${errorName}Data`];
+
+  for (const baseName of baseNames) {
+    if (!Object.hasOwn(schemas, baseName)) {
+      return baseName;
+    }
+  }
+
+  let suffix = 2;
+  while (true) {
+    const candidate = `${errorType}Data${suffix}`;
+    if (!Object.hasOwn(schemas, candidate)) {
+      return candidate;
+    }
+    suffix += 1;
+  }
+}
+
+function materializeErrorSchemas(
+  schemas: ContractSourceSchemas | undefined,
+  errors: Record<string, ContractSourceErrorDecl> | undefined,
+): ContractSourceSchemas | undefined {
+  if (!errors) {
+    return schemas;
+  }
+
+  let mergedSchemas = schemas;
+  for (const [errorName, errorDecl] of Object.entries(errors)) {
+    if (errorDecl.schema) {
+      continue;
+    }
+
+    const runtimeSchema = getErrorRuntimeSchema(errorDecl);
+    if (!runtimeSchema) {
+      continue;
+    }
+
+    if (findMatchingSchemaName(mergedSchemas, runtimeSchema)) {
+      continue;
+    }
+
+    mergedSchemas = { ...(mergedSchemas ?? {}) };
+    const derivedSchemaName = chooseDerivedErrorSchemaName(
+      mergedSchemas,
+      errorName,
+      errorDecl.type,
+    );
+    mergedSchemas[derivedSchemaName] = runtimeSchema;
+  }
+
+  return mergedSchemas;
 }
 
 function assertSchemaRefExists(
@@ -1729,31 +1876,14 @@ function resolveErrorSchemaRef(
     return errorDecl.schema;
   }
 
-  const errorClass = getContractErrorRuntimeClass(errorDecl);
-  const runtimeSchema = errorClass
-    ? Reflect.get(errorClass, "schema")
-    : undefined;
+  const runtimeSchema = getErrorRuntimeSchema(errorDecl);
   if (!runtimeSchema) {
     return undefined;
   }
 
-  if (!schemas) {
-    throw new Error(
-      `error '${errorName}' defines a runtime schema but the contract has no schemas`,
-    );
-  }
-
-  const runtimeSchemaDigest = digestCanonicalJson(
-    cloneSchema(runtimeSchema as TSchema),
-  );
-  for (const [schemaName, schemaValue] of Object.entries(schemas)) {
-    if (schemaValue === runtimeSchema) {
-      return { schema: schemaName };
-    }
-
-    if (digestCanonicalJson(cloneSchema(schemaValue)) === runtimeSchemaDigest) {
-      return { schema: schemaName };
-    }
+  const schemaName = findMatchingSchemaName(schemas, runtimeSchema);
+  if (schemaName) {
+    return { schema: schemaName };
   }
 
   throw new Error(
@@ -1777,7 +1907,7 @@ export function defineError<
   & ContractSourceErrorDecl<string>
   & ContractErrorRuntimeMarker<ErrorClass<TData, TError, TRuntimeSchema>> {
   const errorDecl: ContractSourceErrorDecl<string> = {
-    type: errorClass.name,
+    type: getContractErrorType(errorClass),
   };
   return attachContractErrorRuntimeMetadata(errorDecl, errorClass);
 }
@@ -2084,11 +2214,19 @@ function defineContract(
   ApiShape,
   string
 > {
-  const body = build(createContractRefBuilder(registry));
+  const normalizedErrors = normalizeErrorRegistry(registry.errors);
+  const body = build(createContractRefBuilder({
+    ...(registry.schemas ? { schemas: registry.schemas } : {}),
+    ...(normalizedErrors ? { errors: normalizedErrors } : {}),
+  }));
+  const materializedSchemas = materializeErrorSchemas(
+    registry.schemas,
+    normalizedErrors,
+  );
   const source: DefineContractSource = {
     ...body,
-    ...(registry.schemas ? { schemas: registry.schemas } : {}),
-    ...(registry.errors ? { errors: registry.errors } : {}),
+    ...(materializedSchemas ? { schemas: materializedSchemas } : {}),
+    ...(normalizedErrors ? { errors: normalizedErrors } : {}),
   };
 
   const { manifestUses, usedApi } = normalizeUses(source.uses);

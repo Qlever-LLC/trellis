@@ -162,36 +162,28 @@ For locally authored TypeScript contract source files under `contracts/*.ts`:
 
 TypeScript contract authoring also owns service-local transportable RPC errors.
 
-Authors declare them as local `TrellisError` subclasses and register them in the
-builder registry `errors` map through `defineError(...)`.
+Authors should normally create them through `defineTrellisErrorClass(...)` and
+register the generated declaration in the builder registry `errors` map.
 
 Example shape:
 
 ```ts
-export class NotFoundError extends TrellisError<NotFoundErrorData> {
-  static readonly schema = NotFoundErrorDataSchema;
-  override readonly name = "NotFoundError" as const;
-
-  static fromSerializable(data: NotFoundErrorData): NotFoundError {
-    return new NotFoundError({
-      resource: data.resource,
-      resourceId: data.resourceId,
-      id: data.id,
-      context: data.context,
-    });
-  }
-
-  // constructor and toSerializable() omitted for brevity
-}
+export const NotFoundError = defineTrellisErrorClass({
+  type: "NotFoundError",
+  fields: {
+    resource: Type.String(),
+    resourceId: Type.String(),
+  },
+  message: ({ resource, resourceId }) => `${resource} ${resourceId} not found`,
+});
 
 const schemas = {
-  NotFoundErrorData: NotFoundErrorDataSchema,
   GetWorkspaceInput: GetWorkspaceInputSchema,
   Workspace: WorkspaceSchema,
 } as const;
 
 const errors = {
-  WorkspaceMissing: defineError(NotFoundError),
+  WorkspaceMissing: NotFoundError.decl,
 } as const;
 
 export const krishi = defineServiceContract(
@@ -220,12 +212,18 @@ Rules:
 
 - the `errors` map stays local to the contract rather than using a central
   global registry
-- each local transportable error is authored as a real runtime class, not as a
+- new local transportable errors should normally use
+  `defineTrellisErrorClass(...)`
+- each local transportable error still becomes a real runtime class, not a
   plain manifest object
-- the class MUST define `static schema` and `static fromSerializable(...)`
-- the class `name` is the wire `type`
-- the builder registry `schemas` map remains the source of manifest-emitted
-  schema refs, so the error class schema must also be declared there
+- manual subclasses remain supported for advanced cases and MUST define
+  `static schema` and `static fromSerializable(...)`
+- the generated class `type` or manual class `name` is the wire `type`
+- `defineServiceContract(...)` derives manifest-emitted local error schema refs
+  from `defineError(...)` runtime metadata when the schema is not already
+  present in the local `schemas` map
+- authors may still include the error schema explicitly in `schemas` when they
+  want a stable local schema key or to reference that schema elsewhere
 - RPC `errors: [...]` entries should usually be authored through
   `ref.error(...)` so local declaration keys and built-in Trellis errors share
   one pattern

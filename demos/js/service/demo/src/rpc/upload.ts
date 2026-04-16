@@ -1,16 +1,16 @@
-import { isErr, Result } from "@qlever-llc/trellis";
+import { err, isErr, ok } from "@qlever-llc/trellis";
 import { ReservedUploadKeyError } from "../../errors/upload.ts";
 import type { Rpc } from "../../contracts/demo_service.ts";
 
 const RESERVED_UPLOAD_KEY_PREFIX = "system/";
 
-export const createInitiateUploadRpc: Rpc<"Demo.Files.InitiateUpload"> = async (
+export const initiateUploadRpc: Rpc<"Demo.Files.InitiateUpload"> = async (
   input,
   context,
   service,
 ) => {
   if (input.key.startsWith(RESERVED_UPLOAD_KEY_PREFIX)) {
-    return Result.err(
+    return err(
       new ReservedUploadKeyError({
         key: input.key,
         reservedPrefix: RESERVED_UPLOAD_KEY_PREFIX,
@@ -27,7 +27,7 @@ export const createInitiateUploadRpc: Rpc<"Demo.Files.InitiateUpload"> = async (
   });
 
   if (grant.isErr()) {
-    return Result.err(grant.error);
+    return err(grant.error);
   }
 
   queueMicrotask(async () => {
@@ -70,7 +70,7 @@ export const createInitiateUploadRpc: Rpc<"Demo.Files.InitiateUpload"> = async (
     console.error(`demo upload did not appear before timeout: ${input.key}`);
   });
 
-  return Result.ok(
+  return ok(
     grant.unwrapOrElse(() => {
       throw new Error("upload grant unexpectedly missing");
     }),

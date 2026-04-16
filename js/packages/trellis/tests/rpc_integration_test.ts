@@ -7,13 +7,11 @@ import {
 } from "@qlever-llc/trellis/auth";
 import { assert, assertEquals, assertExists, assertRejects } from "@std/assert";
 
-import { type Static, Type } from "typebox";
+import { Type } from "typebox";
 import { err, isErr, ok } from "../../result/mod.ts";
 import { createClient } from "../client.ts";
-import { defineError } from "../../contracts/mod.ts";
 import { defineServiceContract } from "../contract.ts";
-import { AuthError } from "../errors/index.ts";
-import { TrellisError } from "../errors/TrellisError.ts";
+import { AuthError, defineTrellisErrorClass } from "../errors/index.ts";
 import { NatsTest } from "../testing/nats.ts";
 import {
   getActiveSpan,
@@ -80,50 +78,13 @@ const TEST_CALLER = {
 };
 
 const EmptySchema = Type.Object({});
-const NotFoundErrorDataSchema = Type.Object({
-  id: Type.String(),
-  type: Type.Literal("NotFoundError"),
-  message: Type.String(),
-  resource: Type.String(),
-  context: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
-  traceId: Type.Optional(Type.String()),
+const NotFoundError = defineTrellisErrorClass({
+  type: "NotFoundError",
+  fields: {
+    resource: Type.String(),
+  },
+  message: ({ resource }) => `${resource} not found`,
 });
-
-type NotFoundErrorData = Static<typeof NotFoundErrorDataSchema>;
-
-class NotFoundError extends TrellisError<NotFoundErrorData> {
-  static readonly schema = NotFoundErrorDataSchema;
-  override readonly name = "NotFoundError" as const;
-  readonly resource: string;
-
-  constructor(
-    options: ErrorOptions & {
-      resource: string;
-      context?: Record<string, unknown>;
-      id?: string;
-    },
-  ) {
-    const { resource, ...baseOptions } = options;
-    super(`${resource} not found`, baseOptions);
-    this.resource = resource;
-  }
-
-  static fromSerializable(data: NotFoundErrorData): NotFoundError {
-    return new NotFoundError({
-      resource: data.resource,
-      id: data.id,
-      context: data.context,
-    });
-  }
-
-  override toSerializable(): NotFoundErrorData {
-    return {
-      ...this.baseSerializable(),
-      type: this.name,
-      resource: this.resource,
-    };
-  }
-}
 
 const authSchemas = {
   AuthValidateRequestInput: AuthValidateRequestSchema,
@@ -219,10 +180,9 @@ const localErrorContract = defineServiceContract(
   {
     schemas: {
       EmptySchema,
-      NotFoundErrorData: NotFoundErrorDataSchema,
     },
     errors: {
-      WorkspaceMissing: defineError(NotFoundError),
+      WorkspaceMissing: NotFoundError.decl,
     },
   },
   (ref) => ({

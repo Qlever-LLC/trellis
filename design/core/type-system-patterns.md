@@ -25,46 +25,28 @@ Each service owns a local contract definition that emits the canonical
 
 ```ts
 import {
-  defineError,
+  defineTrellisErrorClass,
   defineServiceContract,
-  TrellisError,
-} from "@qlever-llc/trellis/contracts";
+} from "@qlever-llc/trellis";
 import { core } from "@qlever-llc/trellis-sdk/core";
 
 const schemas = {
   FindUser: FindUserSchema,
   User: UserSchema,
-  NotFoundErrorData: NotFoundErrorDataSchema,
   PartnerChanged: PartnerEventSchema,
 } as const;
 
-class NotFoundError extends TrellisError<NotFoundErrorData> {
-  static readonly schema = NotFoundErrorDataSchema;
-  override readonly name = "NotFoundError" as const;
-
-  static fromSerializable(data: NotFoundErrorData): NotFoundError {
-    return new NotFoundError({ id: data.id, context: data.context });
-  }
-
-  constructor(
-    options?: ErrorOptions & { id?: string; context?: Record<string, unknown> },
-  ) {
-    super("Not found", options);
-  }
-
-  override toSerializable(): NotFoundErrorData {
-    return {
-      ...this.baseSerializable(),
-      type: this.name,
-    };
-  }
-}
+const NotFoundError = defineTrellisErrorClass({
+  type: "NotFoundError",
+  fields: {},
+  message: "Not found",
+});
 
 export const contract = defineServiceContract(
   {
     schemas,
     errors: {
-      UserMissing: defineError(NotFoundError),
+      UserMissing: NotFoundError.decl,
     },
   },
   (ref) => ({
@@ -244,23 +226,25 @@ export class AuthError extends TrellisError<AuthErrorData> {
 }
 ```
 
-Each error defines:
+Each error defines or derives:
 
-- a unique discriminating `name`
+- a unique discriminating wire `type`
 - a serializable data schema through `static schema`
-- `static fromSerializable(...)` for runtime reconstruction
-- `toSerializable()` or equivalent wire conversion
+- runtime reconstruction logic
+- wire conversion
 
 RPC rule:
 
 - declared RPC errors may be service-local `TrellisError` subclasses owned by
   the service contract
+- new TypeScript service-local RPC errors should normally use
+  `defineTrellisErrorClass(...)`
+- for TypeScript service contracts, local error `static schema` values may be
+  derived into emitted contract schemas automatically from `defineError(...)`
 - callers receive declared remote errors as reconstructed runtime instances of
   those classes
 - `RemoteError` is a fallback for undeclared or unknown remote error payloads,
   not the preferred shape for declared contract errors
-- the error class `static schema` must also be declared in the contract
-  `schemas` map so the canonical manifest can emit a normal schema ref
 
 Wire rule:
 

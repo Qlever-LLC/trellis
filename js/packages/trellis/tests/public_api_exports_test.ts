@@ -6,6 +6,7 @@ import {
   defineCliContract,
   defineDeviceContract,
   defineError,
+  defineTrellisErrorClass,
   definePortalContract,
   defineServiceContract,
   DownloadTransferGrantSchema,
@@ -38,6 +39,7 @@ Deno.test("root public API includes core runtime, contracts, and result helpers"
   assertEquals(typeof defineDeviceContract, "function");
   assertEquals(typeof defineServiceContract, "function");
   assertEquals(typeof defineError, "function");
+  assertEquals(typeof defineTrellisErrorClass, "function");
   assertEquals(typeof schema, "function");
   assertEquals(typeof TrellisClient.connect, "function");
   assertEquals(typeof TrellisDevice.connect, "function");
@@ -132,6 +134,35 @@ Deno.test("root public API includes core runtime, contracts, and result helpers"
   const localError = defineError(ExampleNotFoundError);
 
   assertEquals(localError.type, "ExampleNotFoundError");
+});
+
+Deno.test("generated Trellis error factory creates a typed runtime class with a declaration", () => {
+  const ExampleWorkspaceMissingError = defineTrellisErrorClass({
+    type: "ExampleWorkspaceMissingError",
+    fields: {
+      resource: Type.String(),
+      resourceId: Type.String(),
+    },
+    message: ({ resource, resourceId }) => `${resource} ${resourceId} not found`,
+  });
+
+  const error = new ExampleWorkspaceMissingError({
+    resource: "Workspace",
+    resourceId: "ws_123",
+    context: { source: "test" },
+  });
+  const serialized = error.toSerializable();
+  const revived = ExampleWorkspaceMissingError.fromSerializable(serialized);
+
+  assert(error instanceof TrellisError);
+  assert(revived instanceof ExampleWorkspaceMissingError);
+  assertEquals(ExampleWorkspaceMissingError.decl.type, "ExampleWorkspaceMissingError");
+  assertEquals(serialized.type, "ExampleWorkspaceMissingError");
+  assertEquals(serialized.resource, "Workspace");
+  assertEquals(serialized.resourceId, "ws_123");
+  assertEquals(revived.resource, "Workspace");
+  assertEquals(revived.resourceId, "ws_123");
+  assertEquals(revived.message, "Workspace ws_123 not found");
 });
 
 Deno.test("root public API stays browser-safe and excludes server runtime exports", () => {

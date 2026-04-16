@@ -3,7 +3,7 @@ use futures_util::future::BoxFuture;
 use trellis_client::TrellisClientError;
 use trellis_sdk_core::types::{
     TrellisBindingsGetRequest, TrellisBindingsGetResponse, TrellisBindingsGetResponseBinding,
-    TrellisCatalogResponse,
+    TrellisCatalogRequest, TrellisCatalogResponse,
 };
 use trellis_sdk_core::CoreClient;
 use trellis_server::{
@@ -25,7 +25,10 @@ impl<'a> CoreBootstrapClientPort for CoreClient<'a> {
     fn trellis_catalog<'b>(
         &'b self,
     ) -> BoxFuture<'b, Result<TrellisCatalogResponse, TrellisClientError>> {
-        Box::pin(async move { self.trellis_catalog().await })
+        Box::pin(async move {
+            CoreClient::trellis_catalog(self, &TrellisCatalogRequest(Default::default()))
+                .await
+        })
     }
 
     fn trellis_bindings_get<'b>(

@@ -52,6 +52,7 @@ It exports:
 - `defineDeviceContract(...)`
 - `defineCliContract(...)`
 - `defineError(...)`
+- `defineTrellisErrorClass(...)`
 - contract-module and use-spec types needed by generated SDKs
 
 The kind-specific contract helpers return contract objects with projected API
@@ -284,79 +285,34 @@ Rules:
 
 ## Local RPC Errors
 
-Transportable service-local RPC errors are authored as real `TrellisError`
-subclasses.
+Transportable service-local RPC errors should normally be authored through the
+generated class factory.
 
 TypeScript authoring shape:
 
 ```ts
 import {
-  defineError,
+  defineTrellisErrorClass,
   defineServiceContract,
-  TrellisError,
-} from "@qlever-llc/trellis/contracts";
+} from "@qlever-llc/trellis";
 
-export const NotFoundErrorDataSchema = Type.Object({
-  id: Type.String(),
-  type: Type.Literal("NotFoundError"),
-  message: Type.String(),
-  resource: Type.String(),
-  resourceId: Type.String(),
-  context: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
-  traceId: Type.Optional(Type.String()),
+export const NotFoundError = defineTrellisErrorClass({
+  type: "NotFoundError",
+  fields: {
+    resource: Type.String(),
+    resourceId: Type.String(),
+  },
+  message: ({ resource, resourceId }) => `${resource} ${resourceId} not found`,
 });
-
-export type NotFoundErrorData = Static<typeof NotFoundErrorDataSchema>;
-
-export class NotFoundError extends TrellisError<NotFoundErrorData> {
-  static readonly schema = NotFoundErrorDataSchema;
-  override readonly name = "NotFoundError" as const;
-
-  readonly resource: string;
-  readonly resourceId: string;
-
-  constructor(
-    options: ErrorOptions & {
-      resource: string;
-      resourceId: string;
-      context?: Record<string, unknown>;
-      id?: string;
-    },
-  ) {
-    const { resource, resourceId, ...base } = options;
-    super(`${resource} not found`, base);
-    this.resource = resource;
-    this.resourceId = resourceId;
-  }
-
-  static fromSerializable(data: NotFoundErrorData): NotFoundError {
-    return new NotFoundError({
-      resource: data.resource,
-      resourceId: data.resourceId,
-      id: data.id,
-      context: data.context,
-    });
-  }
-
-  override toSerializable(): NotFoundErrorData {
-    return {
-      ...this.baseSerializable(),
-      type: this.name,
-      resource: this.resource,
-      resourceId: this.resourceId,
-    };
-  }
-}
 
 export const krishi = defineServiceContract(
   {
     schemas: {
-      NotFoundErrorData: NotFoundErrorDataSchema,
       GetWorkspaceInput: GetWorkspaceInputSchema,
       Workspace: WorkspaceSchema,
     },
     errors: {
-      WorkspaceMissing: defineError(NotFoundError),
+      WorkspaceMissing: NotFoundError.decl,
     },
   },
   (ref) => ({
@@ -383,12 +339,18 @@ Rules:
 
 - `defineError(...)` takes the error class, not duplicated `type` or `schema`
   arguments
-- the error class MUST extend `TrellisError`
-- the error class MUST define `static schema`
-- the error class MUST define `static fromSerializable(...)`
-- the error class `name` is the on-wire error `type`
-- the class `static schema` MUST also be present in the contract's top-level
-  `schemas` map so the emitted manifest stays portable and codegen-safe
+- `defineTrellisErrorClass(...)` is the preferred ergonomic path for new local
+  service errors
+- manual error classes must still extend `TrellisError`
+- manual error classes must still define `static schema`
+- manual error classes must still define `static fromSerializable(...)`
+- the generated class `type` or manual class `name` is the on-wire error `type`
+- `defineServiceContract(...)` may derive the emitted local error schema entry
+  automatically from `defineError(...)` metadata when the schema is not already
+  present in the local `schemas` map
+- authors may still include the error schema explicitly in the top-level
+  `schemas` map when they want a stable local schema key or need to reference it
+  elsewhere in the contract
 - the `errors` map key is the local declaration name used by RPC
   `errors: [...]`; it does not need to match the wire `type`
 - builder-style contract authoring should reference both local and built-in RPC

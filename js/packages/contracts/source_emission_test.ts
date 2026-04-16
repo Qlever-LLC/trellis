@@ -7,6 +7,8 @@ import {
   defineError,
   defineServiceContract,
 } from "./mod.ts";
+import { unwrapSchema } from "./runtime.ts";
+import { defineTrellisErrorClass } from "../trellis/errors/index.ts";
 import { TrellisError } from "../trellis/errors/TrellisError.ts";
 
 const EmptySchema = Type.Object({});
@@ -213,6 +215,185 @@ Deno.test("defineServiceContract emits RPC error refs using declared wire types"
     { type: "NotFoundError" },
     { type: "UnexpectedError" },
   ]);
+});
+
+Deno.test("defineServiceContract derives local error schemas from defineError runtime metadata", () => {
+  const NotFoundErrorData = Type.Object({
+    id: Type.String(),
+    type: Type.Literal("NotFoundError"),
+    message: Type.String(),
+  });
+  type NotFoundErrorData = Static<typeof NotFoundErrorData>;
+
+  class NotFoundError extends TrellisError<NotFoundErrorData> {
+    static readonly schema = NotFoundErrorData;
+    override readonly name = "NotFoundError" as const;
+
+    static fromSerializable(data: NotFoundErrorData): NotFoundError {
+      return new NotFoundError({ id: data.id });
+    }
+
+    constructor(options?: ErrorOptions & { id?: string }) {
+      super("Not found", options);
+    }
+
+    override toSerializable(): NotFoundErrorData {
+      return {
+        ...this.baseSerializable(),
+        type: this.name,
+      };
+    }
+  }
+
+  const contract = defineServiceContract(
+    {
+      schemas: {
+        Empty: EmptySchema,
+      },
+      errors: {
+        WorkspaceMissing: defineError(NotFoundError),
+      },
+    },
+    (ref) => ({
+      id: "derived-local-errors.example@v1",
+      displayName: "Derived Local Errors Example",
+      description: "Verify local error schemas can be derived from defineError metadata.",
+      rpc: {
+        "Workspace.Get": {
+          version: "v1",
+          input: ref.schema("Empty"),
+          output: ref.schema("Empty"),
+          errors: [ref.error("WorkspaceMissing"), ref.error("UnexpectedError")],
+        },
+      },
+    }),
+  );
+
+  assertEquals(contract.CONTRACT.errors?.WorkspaceMissing?.schema, {
+    schema: "NotFoundErrorData",
+  });
+  assertEquals(
+    contract.CONTRACT.schemas?.NotFoundErrorData,
+    JSON.parse(JSON.stringify(NotFoundErrorData)),
+  );
+  assertEquals(
+    unwrapSchema(
+      contract.API.owned.rpc["Workspace.Get"].runtimeErrors?.[0]?.schema ?? {},
+    ),
+    NotFoundErrorData,
+  );
+});
+
+Deno.test("defineServiceContract ignores non-error exports in a mixed errors barrel", () => {
+  const NotFoundErrorData = Type.Object({
+    id: Type.String(),
+    type: Type.Literal("NotFoundError"),
+    message: Type.String(),
+  });
+  type NotFoundErrorData = Static<typeof NotFoundErrorData>;
+
+  class NotFoundError extends TrellisError<NotFoundErrorData> {
+    static readonly schema = NotFoundErrorData;
+    override readonly name = "NotFoundError" as const;
+
+    static fromSerializable(data: NotFoundErrorData): NotFoundError {
+      return new NotFoundError({ id: data.id });
+    }
+
+    constructor(options?: ErrorOptions & { id?: string }) {
+      super("Not found", options);
+    }
+
+    override toSerializable(): NotFoundErrorData {
+      return {
+        ...this.baseSerializable(),
+        type: this.name,
+      };
+    }
+  }
+
+  const errors = {
+    WorkspaceMissing: defineError(NotFoundError),
+    NotFoundError,
+    NotFoundErrorData,
+  } as const;
+
+  const contract = defineServiceContract(
+    {
+      schemas: {
+        Empty: EmptySchema,
+      },
+      errors,
+    },
+    (ref) => ({
+      id: "mixed-local-errors.example@v1",
+      displayName: "Mixed Local Errors Example",
+      description: "Verify mixed error barrels can be passed directly to defineServiceContract.",
+      rpc: {
+        "Workspace.Get": {
+          version: "v1",
+          input: ref.schema("Empty"),
+          output: ref.schema("Empty"),
+          errors: [ref.error("WorkspaceMissing"), ref.error("UnexpectedError")],
+        },
+      },
+    }),
+  );
+
+  assertEquals(Object.keys(contract.CONTRACT.errors ?? {}), ["WorkspaceMissing"]);
+  assertEquals(contract.CONTRACT.errors?.WorkspaceMissing?.type, "NotFoundError");
+  assertEquals(contract.CONTRACT.errors?.WorkspaceMissing?.schema, {
+    schema: "NotFoundErrorData",
+  });
+});
+
+Deno.test("defineServiceContract emits generated Trellis error factory declarations", () => {
+  const WorkspaceMissingError = defineTrellisErrorClass({
+    type: "WorkspaceMissingError",
+    fields: {
+      resourceId: Type.String(),
+    },
+    message: ({ resourceId }) => `Workspace ${resourceId} not found`,
+  });
+
+  const errors = {
+    WorkspaceMissing: WorkspaceMissingError.decl,
+    WorkspaceMissingError,
+    WorkspaceMissingErrorDataSchema: WorkspaceMissingError.schema,
+  } as const;
+
+  const contract = defineServiceContract(
+    {
+      schemas: {
+        Empty: EmptySchema,
+      },
+      errors,
+    },
+    (ref) => ({
+      id: "generated-local-errors.example@v1",
+      displayName: "Generated Local Errors Example",
+      description: "Verify generated Trellis errors can be passed directly to defineServiceContract.",
+      rpc: {
+        "Workspace.Get": {
+          version: "v1",
+          input: ref.schema("Empty"),
+          output: ref.schema("Empty"),
+          errors: [ref.error("WorkspaceMissing"), ref.error("UnexpectedError")],
+        },
+      },
+    }),
+  );
+
+  assertEquals(contract.CONTRACT.errors?.WorkspaceMissing?.type, "WorkspaceMissingError");
+  assertEquals(contract.CONTRACT.errors?.WorkspaceMissing?.schema, {
+    schema: "WorkspaceMissingErrorData",
+  });
+  assertEquals(
+    unwrapSchema(
+      contract.API.owned.rpc["Workspace.Get"].runtimeErrors?.[0]?.schema ?? {},
+    ),
+    JSON.parse(JSON.stringify(WorkspaceMissingError.schema)),
+  );
 });
 
 Deno.test("defineServiceContract rejects duplicate logical keys across used and owned APIs", () => {
