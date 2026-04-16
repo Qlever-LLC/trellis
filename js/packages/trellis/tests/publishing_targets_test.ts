@@ -27,6 +27,7 @@ Deno.test("trellis-sdk package exports the first-party SDK subpaths", async () =
   assertStringIncludes(source, '"./activity": "./activity.ts"');
   assertStringIncludes(source, '"./auth": "./auth.ts"');
   assertStringIncludes(source, '"./core": "./core.ts"');
+  assertStringIncludes(source, '"./health": "./health.ts"');
   assertStringIncludes(source, '"./state": "./state.ts"');
 });
 

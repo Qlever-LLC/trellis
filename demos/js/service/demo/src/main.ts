@@ -1,6 +1,7 @@
 import { TrellisService } from "@qlever-llc/trellis/host/deno";
 import * as rpc from "./rpc/index.ts";
 import contract from "../contracts/demo_service.ts";
+import config from "../deno.json" with { type: "json" };
 
 const trellisUrl = Deno.args[0]?.trim();
 const sessionKeySeed = Deno.args[1]?.trim();
@@ -16,11 +17,19 @@ async function main(): Promise<void> {
     name: "Demo service",
     sessionKeySeed,
   });
+  service.health.setInfo({
+    info: {
+      name: config.name,
+      version: config.version,
+      location: "us-east-1",
+      demo: true,
+    },
+  });
 
   await service.trellis.mount("Demo.Groups.List", rpc.listGroupsRpc);
   await service.trellis.mount(
     "Demo.Files.InitiateUpload",
-    rpc.createInitiateUploadRpc,
+    rpc.initiateUploadRpc,
   );
 
   console.info(`demo service started`);

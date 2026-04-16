@@ -1,5 +1,5 @@
 import {
-  type Consumer,
+  type ConsumerMessages,
   jetstream,
   type JetStreamClient,
   jetstreamManager,
@@ -558,6 +558,13 @@ export type RequestOpts = {
   timeout?: number;
 };
 
+export type EventOpts = {
+  mode?: "durable" | "ephemeral";
+  replay?: "all" | "new";
+  durableName?: string;
+  signal?: AbortSignal;
+};
+
 type MaybePromise<T> = T | Promise<T>;
 
 export type RpcHandlerContext = {
@@ -584,6 +591,7 @@ export type HandlerTrellis<TA extends AnyTrellisAPI> = {
     event: E,
     subjectData: Record<string, unknown>,
     fn: (message: EventOf<TA, E>) => MaybeAsync<void, BaseError>,
+    opts?: EventOpts,
   ): Promise<Result<void, ValidationError | UnexpectedError>>;
   operation<O extends OperationsOf<TA>>(
     operation: O,
@@ -1574,6 +1582,7 @@ export class Trellis<
     event: string,
     subjectData: Record<string, unknown>,
     fn: (message: unknown) => MaybeAsync<void, BaseError>,
+    opts?: EventOpts,
   ): Promise<Result<void, ValidationError | UnexpectedError>> {
     const eventName = event as EventsOf<TA>;
     const ctx = this.api["events"][eventName] as EventDescriptorOf<
@@ -1593,12 +1602,16 @@ export class Trellis<
     const subject = this.template(ctx.subject, subjectData, true).take();
     if (isErr(subject)) return subject;
 
-    const consumerName = `${this.name}-${event.replaceAll(".", "_")}`;
+    if (opts?.mode === "ephemeral") {
+      return this.#startEphemeralEvent(eventName, ctx, subject, fn, opts.signal);
+    }
+
+    const consumerName = opts?.durableName ?? `${this.name}-${event.replaceAll(".", "_")}`;
     const addResult = await AsyncResult.try(() =>
       jsm.consumers.add(this.stream, {
         durable_name: consumerName,
         ack_policy: "explicit",
-        deliver_policy: "all",
+        deliver_policy: opts?.replay === "new" ? "new" : "all",
         filter_subjects: [subject],
       })
     );
@@ -1614,37 +1627,76 @@ export class Trellis<
     if (isErr(info)) return info;
 
     const consumer = this.js.consumers.getConsumerFromInfo(info);
+    const messages = await consumer.consume();
+    if (opts?.signal) {
+      if (opts.signal.aborted) {
+        messages.stop();
+      } else {
+        opts.signal.addEventListener("abort", () => messages.stop(), { once: true });
+      }
+    }
 
-    this.#tasks.add(eventName, this.#handleEvent(eventName, consumer, fn));
+    this.#tasks.add(
+      `event:${eventName}:${ulid()}`,
+      this.#handleDurableEvent(eventName, ctx, messages, fn),
+    );
     return ok(undefined);
   }
 
-  #handleEvent(
+  #startEphemeralEvent(
     event: EventsOf<TA>,
-    consumer: Consumer,
+    ctx: EventDescriptorOf<TA, EventsOf<TA>>,
+    subject: string,
+    fn: (m: EventOf<TA, EventsOf<TA>>) => MaybeAsync<void, BaseError>,
+    signal?: AbortSignal,
+  ): Result<void, ValidationError | UnexpectedError> {
+    const sub = this.nats.subscribe(subject);
+    if (signal) {
+      if (signal.aborted) {
+        sub.unsubscribe();
+        return ok(undefined);
+      }
+      signal.addEventListener("abort", () => sub.unsubscribe(), { once: true });
+    }
+
+    const task = AsyncResult.try(async () => {
+      for await (const msg of sub) {
+        const parsedEvent = this.#parseEventMessage(event, ctx, msg);
+        const m = parsedEvent.take();
+        if (isErr(m)) {
+          this.#log.error({ error: m.error }, "Event validation failed");
+          continue;
+        }
+
+        const handlerResult = await AsyncResult.lift(
+          fn(m as EventOf<TA, EventsOf<TA>>),
+        );
+        if (handlerResult.isErr()) {
+          this.#log.error(
+            {
+              error: handlerResult.error.toSerializable(),
+              event,
+              subject: msg.subject,
+            },
+            "Event handler failed",
+          );
+        }
+      }
+    });
+
+    this.#tasks.add(`event:${event}:${ulid()}`, task);
+    return ok(undefined);
+  }
+
+  #handleDurableEvent(
+    event: EventsOf<TA>,
+    ctx: EventDescriptorOf<TA, EventsOf<TA>>,
+    messages: ConsumerMessages,
     fn: (m: EventOf<TA, EventsOf<TA>>) => MaybeAsync<void, BaseError>,
   ): AsyncResult<void, ValidationError | UnexpectedError> {
-    const ctx = this.api["events"][event];
-
     return AsyncResult.try(async () => {
-      const msgs = await consumer.consume();
-
-      for await (const msg of msgs) {
-        const jsonData = Result.try<JsonValue>(() => msg.json());
-        if (jsonData.isErr()) {
-          this.#log.error({ error: jsonData.error }, "Event parse failed");
-          msg.term();
-          continue;
-        }
-
-        const json = jsonData.take();
-        if (isErr(json)) {
-          this.#log.error({ error: json.error }, "Event parse failed");
-          msg.term();
-          continue;
-        }
-
-        const parsedEvent = parseRuntimeSchema(ctx.event, json);
+      for await (const msg of messages) {
+        const parsedEvent = this.#parseEventMessage(event, ctx, msg);
         const m = parsedEvent.take();
         if (isErr(m)) {
           this.#log.error({ error: m.error }, "Event validation failed");
@@ -1671,6 +1723,21 @@ export class Trellis<
         msg.ack();
       }
     });
+  }
+
+  #parseEventMessage(
+    event: EventsOf<TA>,
+    ctx: EventDescriptorOf<TA, EventsOf<TA>>,
+    msg: Pick<Msg, "json" | "subject">,
+  ): Result<unknown, ValidationError | UnexpectedError> {
+    const jsonData = Result.try<JsonValue>(() => msg.json());
+    const json = jsonData.take();
+    if (isErr(json)) {
+      this.#log.error({ error: json.error, event, subject: msg.subject }, "Event parse failed");
+      return json;
+    }
+
+    return parseRuntimeSchema(ctx.event, json);
   }
 
   wait(): AsyncResult<void, BaseError> {

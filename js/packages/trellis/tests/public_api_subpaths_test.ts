@@ -4,6 +4,7 @@ import { Type } from "typebox";
 
 import * as authSdk from "../../trellis-sdk/auth.ts";
 import type { TrellisCatalogHandler } from "../../trellis-sdk/core.ts";
+import * as healthSdk from "../../trellis-sdk/health.ts";
 import {
   defineAppContract,
   defineCliContract,
@@ -27,12 +28,18 @@ Deno.test("host, health, and trellis-sdk subpaths expose the canonical wrapper A
   assertEquals(typeof healthSurface.runAllHealthChecks, "function");
   assertEquals(typeof authSdk.useDefaults, "function");
   assertEquals(typeof coreSdk.use, "function");
+  assertEquals(typeof healthSdk.use, "function");
+  assertEquals(typeof healthSdk.useDefaults, "function");
   assertEquals(typeof stateSdk.use, "function");
   assertEquals(typeof authSdk.auth?.useDefaults, "function");
   assertEquals(typeof coreSdk.core?.use, "function");
+  assertEquals(typeof healthSdk.health?.use, "function");
+  assertEquals(typeof healthSdk.health?.useDefaults, "function");
   assertEquals(typeof stateSdk.state?.use, "function");
   assertEquals(authSdk.auth?.useDefaults, authSdk.useDefaults);
   assertEquals(coreSdk.core?.use, coreSdk.use);
+  assertEquals(healthSdk.health?.use, healthSdk.use);
+  assertEquals(healthSdk.health?.useDefaults, healthSdk.useDefaults);
   assertEquals(stateSdk.state?.use, stateSdk.use);
 });
 

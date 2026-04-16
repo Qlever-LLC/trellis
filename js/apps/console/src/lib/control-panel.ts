@@ -28,6 +28,7 @@ const navSections: NavSection[] = [
       { href: "/admin/app-grants", label: "App Grants" },
       { href: "/admin/sessions", label: "Sessions" },
       { href: "/admin/services", label: "Services" },
+      { href: "/admin/health-events", label: "Health" },
       { href: "/admin/contracts", label: "Contracts" },
       { href: "/admin/apps", label: "Approved Apps" },
       { href: "/admin/jobs", label: "Jobs" }
@@ -61,6 +62,7 @@ const routeTitles: Record<string, string> = {
   "/admin/app-grants": "App Grants",
   "/admin/sessions": "Sessions",
   "/admin/services": "Services",
+  "/admin/health-events": "Health",
   "/admin/services/new": "Install Service",
   "/admin/contracts": "Contracts",
   "/admin/apps": "Approved Apps",
@@ -107,6 +109,6 @@ export function getInitials(profile: Profile): string {
   if (!name) return "TR";
 
   const parts = name.split(/\s+/).filter(Boolean);
-  const initials = parts.slice(0, 2).map((part) => part[0]?.toUpperCase() ?? "").join("");
+  const initials = parts.slice(0, 2).map((part: string) => part[0]?.toUpperCase() ?? "").join("");
   return initials || name.slice(0, 2).toUpperCase();
 }

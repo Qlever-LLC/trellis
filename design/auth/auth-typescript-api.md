@@ -348,6 +348,9 @@ Rules:
 - `TrellisDevice.connect(...)` is the intended high-level runtime entrypoint; it SHOULD behave more like `TrellisService.connect(...)` than a caller-managed activation state machine
 - `TrellisDevice.connect(...)` accepts `rootSecret` directly as bytes or a string form; storage/loading policy belongs to the application, not the helper
 - `TrellisDevice.connect(...)` SHOULD fetch connect info on startup rather than persisting stale connect info across restarts
+- when the connected device contract uses the shared `Health.Heartbeat` event,
+  `TrellisDevice.connect(...)` publishes baseline heartbeats automatically and
+  exposes a `health` helper for adding callback-based heartbeat metadata
 - `onActivationRequired(...)` is the hook for local displays, local setup web UIs, CLIs, and other device-local activation UX
 - the helper layer MUST remain a thin wrapper over the canonical wire surfaces
   defined in `auth-api.md` and `device-activation.md`

@@ -11,6 +11,7 @@ async function normalizePackageJsonExports() {
       .replace(/^\.\/generated\/js\/sdks\/activity\/mod$/, "./activity")
       .replace(/^\.\/generated\/js\/sdks\/auth\/mod$/, "./auth")
       .replace(/^\.\/generated\/js\/sdks\/trellis-core\/mod$/, "./core")
+      .replace(/^\.\/generated\/js\/sdks\/health\/mod$/, "./health")
       .replace(/^\.\/generated\/js\/sdks\/state\/mod$/, "./state");
 
     return [normalizedKey, value];
@@ -34,6 +35,7 @@ await buildDntPackage({
     "./generated/js/sdks/activity/mod.ts",
     "./generated/js/sdks/auth/mod.ts",
     "./generated/js/sdks/trellis-core/mod.ts",
+    "./generated/js/sdks/health/mod.ts",
     "./generated/js/sdks/state/mod.ts",
   ],
   description:

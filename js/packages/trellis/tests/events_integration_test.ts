@@ -103,7 +103,7 @@ Deno.test({
         await subNc2.drain();
       });
 
-      await t.step("publish() -> event() receives and acks", async () => {
+    await t.step("publish() -> event() receives and acks", async () => {
         const subNc = await connect({ servers: `localhost:${info.port}` });
         const subscriber = createClient(
           contract,
@@ -132,8 +132,46 @@ Deno.test({
         assertEquals(typeof received[0].header.id, "string");
         assertEquals(typeof received[0].header.time, "string");
 
-        await subNc.drain();
-      });
+      await subNc.drain();
+    });
+
+    await t.step("ephemeral event subscription receives new events and stops on abort", async () => {
+      const subNc = await connect({ servers: `localhost:${info.port}` });
+      const subscriber = createClient(
+        contract,
+        subNc,
+        { sessionKey: "subscriber", sign: () => new Uint8Array(64) },
+        { name: "sub-ephemeral" },
+      );
+
+      const controller = new AbortController();
+      const received: string[] = [];
+
+      const subResult = await subscriber.event(
+        "Test.Ack",
+        {},
+        (m) => {
+          received.push((m as { foo: string }).foo);
+          return ok(undefined);
+        },
+        { mode: "ephemeral", replay: "new", signal: controller.signal },
+      );
+      assertEquals(subResult.isOk(), true);
+
+      const firstPublish = await publisher.publish("Test.Ack", { foo: "first" });
+      assertEquals(firstPublish.isOk(), true);
+      await waitFor(() => received.length === 1, { description: "ephemeral event delivery" });
+
+      controller.abort();
+      await new Promise((r) => setTimeout(r, 100));
+
+      const secondPublish = await publisher.publish("Test.Ack", { foo: "second" });
+      assertEquals(secondPublish.isOk(), true);
+      await new Promise((r) => setTimeout(r, 250));
+      assertEquals(received, ["first"]);
+
+      await subNc.drain();
+    });
 
       await t.step("handler error naks and redelivers", async () => {
         const subNc = await connect({ servers: `localhost:${info.port}` });

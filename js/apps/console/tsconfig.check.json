@@ -12,6 +12,7 @@
       "@qlever-llc/trellis/host/*": ["../../packages/trellis/host/*"],
       "@qlever-llc/trellis-sdk/auth": ["../../packages/trellis-sdk/auth.ts"],
       "@qlever-llc/trellis-sdk/core": ["../../packages/trellis-sdk/core.ts"],
+      "@qlever-llc/trellis-sdk/health": ["../../packages/trellis-sdk/health.ts"],
       "@qlever-llc/result": ["../../packages/result/mod.ts"],
       "@qlever-llc/trellis-jobs": ["../../packages/jobs/mod.ts"],
       "@qlever-llc/trellis-svelte": ["../../packages/trellis-svelte/src/index.ts"]
@@ -19,6 +20,7 @@
   },
   "exclude": [
     "../../packages/server/**/*.ts",
-    "../../services/**/*.ts"
+    "../../services/**/*.ts",
+    "./tests/**/*.ts"
   ]
 }

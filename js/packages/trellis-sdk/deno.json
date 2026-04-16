@@ -7,6 +7,7 @@
     "./activity": "./activity.ts",
     "./auth": "./auth.ts",
     "./core": "./core.ts",
+    "./health": "./health.ts",
     "./state": "./state.ts"
   },
   "tasks": {

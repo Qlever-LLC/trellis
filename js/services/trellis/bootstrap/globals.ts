@@ -405,6 +405,11 @@ export const trellisService = await TrellisService.connectInternal(
     connect: async () => natsTrellis,
   },
 );
+trellisService.health.setInfo({
+  info: {
+    role: "control-plane",
+  },
+});
 
 export const trellis = trellisService.server;
 

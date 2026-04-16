@@ -84,6 +84,7 @@ import type {
   AuthUpgradeServiceContractInput,
   AuthUpgradeServiceContractOutput,
 } from "@qlever-llc/trellis-sdk/auth";
+import type { EventOpts, HealthHeartbeat } from "@qlever-llc/trellis";
 import { createAuthState, getTrellis as getTrellisContext } from "@qlever-llc/trellis-svelte";
 import { trellisApp } from "../../contracts/trellis_app.ts";
 import { APP_CONFIG } from "./config.ts";
@@ -132,6 +133,12 @@ type AppTrellis = {
   requestOrThrow(method: "Auth.SetLoginPortalSelection", input: AuthSetLoginPortalSelectionInput, opts?: RequestOpts): Promise<AuthSetLoginPortalSelectionOutput>;
   requestOrThrow(method: "Auth.UpgradeServiceContract", input: AuthUpgradeServiceContractInput, opts?: RequestOpts): Promise<AuthUpgradeServiceContractOutput>;
   requestOrThrow(method: "Auth.InstallService", input: AuthInstallServiceInput, opts?: RequestOpts): Promise<AuthInstallServiceOutput>;
+  event(
+    method: "Health.Heartbeat",
+    subjectData: Record<string, unknown>,
+    fn: (heartbeat: HealthHeartbeat) => void | Promise<void>,
+    opts?: EventOpts,
+  ): Promise<Result<void, BaseError>>;
 };
 
 export const auth = createAuthState({

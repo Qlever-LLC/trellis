@@ -20,9 +20,14 @@ This document defines Trellis observability, documentation, tracing, and request
 Every service exposes:
 
 - `<Service>.Health` RPC
+- optional `Health.Heartbeat` event publishing through the shared Trellis health contract
 - optional `<Service>.Stats` RPC
 - OpenTelemetry tracing
 - structured logging
+
+Activated devices may also publish `Health.Heartbeat` through the same shared
+contract when their device contract declares the appropriate `uses.health`
+permission.
 
 Health example:
 
@@ -39,7 +44,32 @@ const service = await TrellisService.connect({
     },
   },
 });
+
+service.health.setInfo({
+  version: build.version,
+  info: { region: config.region },
+});
+
+service.health.add("db", async () => ({
+  status: (await db.ping()) ? "ok" : "failed",
+  info: { engine: "postgres" },
+}));
 ```
+
+Heartbeat behavior:
+
+- if the connected service contract uses the shared `Health.Heartbeat` event,
+  `TrellisService.connect(...)` publishes baseline heartbeats automatically
+- if the connected device contract uses the shared `Health.Heartbeat` event,
+  `TrellisDevice.connect(...)` publishes baseline heartbeats automatically
+- baseline heartbeats include runtime metadata, instance identity, publish
+  interval, and a built-in NATS connectivity check
+- `service.health.setInfo(...)` and `service.health.add(...)` extend service
+  heartbeat payloads at publish time using callback-based state snapshots; the
+  same helper surface is also available on device connections
+- the Trellis console can subscribe to these heartbeats directly and show both a
+  live feed and an in-browser current-participant view without a separate
+  aggregator
 
 Stats example:
 

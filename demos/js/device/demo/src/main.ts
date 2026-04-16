@@ -2,6 +2,8 @@ import { isErr } from "@qlever-llc/result";
 import { TrellisDevice } from "@qlever-llc/trellis";
 import contract from "../contracts/demo_device.ts";
 
+import config from "../deno.json" with { type: "json" };
+
 const trellisUrl = Deno.args[0]?.trim();
 const rootSecret = Deno.args[1]?.trim();
 const filePath = Deno.args[2]?.trim();
@@ -23,6 +25,20 @@ async function main(): Promise<void> {
       await activation.waitForOnlineApproval();
     },
   });
+  // Set static health/service info
+  trellis.health.setInfo({
+    info: {
+      name: config.name,
+      version: config.version,
+      serial: "asd1234",
+      demo: true,
+    },
+  });
+
+  // Add a health check
+  trellis.health.add("Johnny_5", () => ({
+    status: Math.random() > 0.2 ? "ok" : "failed",
+  }));
 
   // Print who you are
   const me = (await trellis.request("Auth.Me", {})).take();

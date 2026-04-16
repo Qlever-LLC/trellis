@@ -30,14 +30,27 @@ export {
 } from "./contracts.ts";
 export type { InferSchemaType, JsonValue, TrellisAPI } from "./contracts.ts";
 export type {
+  HealthHeartbeat,
   HealthCheckFn,
   HealthCheckResult,
   HealthResponse,
+  ServiceHealthCheck,
+  ServiceHealthCheckFn,
+  ServiceHealthInfoFn,
+  ServiceHealthInfo,
 } from "./health.ts";
 export {
+  createHealthHeartbeat,
   runAllHealthChecks,
+  runAllServiceHealthChecks,
   runHealthCheck,
+  runServiceHealthCheck,
+  ServiceHealth,
+  HealthHeartbeatHeaderSchema,
+  HealthHeartbeatSchema,
+  HealthHeartbeatServiceSchema,
   HealthCheckResultSchema,
+  HealthInfoSchema,
   HealthResponseSchema,
   HealthRpcSchema,
 } from "./health.ts";
@@ -81,6 +94,7 @@ export { TrellisDevice } from "./device.ts";
 export type { TrellisErrorInstance } from "./errors/index.ts";
 export {
   AuthError,
+  defineTrellisErrorClass,
   KVError,
   RemoteError,
   StoreError,
@@ -88,6 +102,12 @@ export {
   TrellisError,
   UnexpectedError,
   ValidationError,
+} from "./errors/index.ts";
+export type {
+  DefineTrellisErrorClassOptions,
+  GeneratedTrellisErrorClass,
+  GeneratedTrellisErrorInstance,
+  GeneratedTrellisErrorOptions,
 } from "./errors/index.ts";
 export { TypedKV, TypedKVEntry } from "./kv.ts";
 export type { WatchEvent, WatchOptions } from "./kv.ts";
@@ -127,6 +147,7 @@ export {
   OperationRef,
 } from "./operations.ts";
 export type {
+  EventOpts,
   EventHandler,
   EventName,
   EventPayload,

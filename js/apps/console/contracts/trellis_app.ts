@@ -1,5 +1,6 @@
 import { defineAppContract } from "@qlever-llc/trellis/contracts";
 import { auth as trellisAuth } from "@qlever-llc/trellis-sdk/auth";
+import { health as trellisHealth } from "../../../services/trellis/contracts/trellis_health.ts";
 
 export const trellisApp = defineAppContract(
   () => ({
@@ -50,6 +51,11 @@ export const trellisApp = defineAppContract(
             "Auth.UpdateUser",
             "Auth.UpgradeServiceContract",
           ],
+        },
+      }),
+      health: trellisHealth.use({
+        events: {
+          subscribe: ["Health.Heartbeat"],
         },
       }),
     },

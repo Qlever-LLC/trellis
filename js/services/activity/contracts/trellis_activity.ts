@@ -5,6 +5,7 @@ import {
 } from "@qlever-llc/trellis/health";
 import { trellisAuth } from "../../trellis/contracts/trellis_auth.ts";
 import { trellisCore } from "../../trellis/contracts/trellis_core.ts";
+import { health as trellisHealth } from "../../trellis/contracts/trellis_health.ts";
 
 import {
   ActivityGetRequestSchema,
@@ -46,6 +47,7 @@ export const activity = defineServiceContract(
           call: ["Trellis.Bindings.Get", "Trellis.Catalog"],
         },
       }),
+      health: trellisHealth.useDefaults(),
     },
     resources: {
       kv: {
