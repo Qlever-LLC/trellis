@@ -6,7 +6,9 @@ use miette::IntoDiagnostic;
 use serde_json::json;
 use trellis_auth as authlib;
 
-use crate::app::{json_value_label, resolve_device_profile_contract};
+use crate::app::{
+    connect_authenticated_cli_client, json_value_label, resolve_device_profile_contract,
+};
 use crate::cli::*;
 use crate::output;
 
@@ -69,17 +71,10 @@ async fn profiles_list_command(
     format: OutputFormat,
     args: &DeviceProfileListArgs,
 ) -> miette::Result<()> {
-    let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let connected = authlib::connect_admin_client_async(&state)
-        .await
-        .into_diagnostic()?;
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
     let profiles = auth_client
         .list_device_profiles(args.contract.as_deref(), args.disabled)
-        .await
-        .into_diagnostic()?;
-    auth_client
-        .renew_binding_token(&mut state)
         .await
         .into_diagnostic()?;
     if output::is_json(format) {
@@ -116,10 +111,7 @@ async fn profiles_create_command(
     format: OutputFormat,
     args: &DeviceProfileCreateArgs,
 ) -> miette::Result<()> {
-    let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let connected = authlib::connect_admin_client_async(&state)
-        .await
-        .into_diagnostic()?;
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
     let (contract_id, allowed_digests, contract) =
         resolve_device_profile_contract(&connected, &args.contract).await?;
@@ -131,10 +123,6 @@ async fn profiles_create_command(
             Some(args.review_mode.as_wire_value()),
             contract,
         )
-        .await
-        .into_diagnostic()?;
-    auth_client
-        .renew_binding_token(&mut state)
         .await
         .into_diagnostic()?;
     if output::is_json(format) {
@@ -152,17 +140,10 @@ async fn profiles_disable_command(
     format: OutputFormat,
     args: &DeviceProfileDisableArgs,
 ) -> miette::Result<()> {
-    let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let connected = authlib::connect_admin_client_async(&state)
-        .await
-        .into_diagnostic()?;
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
     let success = auth_client
         .disable_device_profile(&args.profile)
-        .await
-        .into_diagnostic()?;
-    auth_client
-        .renew_binding_token(&mut state)
         .await
         .into_diagnostic()?;
     if output::is_json(format) {
@@ -173,10 +154,7 @@ async fn profiles_disable_command(
 }
 
 async fn provision_command(format: OutputFormat, args: &DeviceProvisionArgs) -> miette::Result<()> {
-    let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let connected = authlib::connect_admin_client_async(&state)
-        .await
-        .into_diagnostic()?;
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
 
     let seed: [u8; 32] = rand::random();
@@ -190,10 +168,6 @@ async fn provision_command(format: OutputFormat, args: &DeviceProvisionArgs) -> 
             &identity.activation_key_base64url,
             metadata.clone(),
         )
-        .await
-        .into_diagnostic()?;
-    auth_client
-        .renew_binding_token(&mut state)
         .await
         .into_diagnostic()?;
     let bundle = DeviceProvisionOutput {
@@ -216,10 +190,13 @@ async fn provision_command(format: OutputFormat, args: &DeviceProvisionArgs) -> 
     if let Some(name) = metadata_value(bundle.metadata.as_ref(), DEVICE_NAME_METADATA_KEY) {
         output::print_info(&format!("name={name}"));
     }
-    if let Some(serial_number) = metadata_value(bundle.metadata.as_ref(), DEVICE_SERIAL_METADATA_KEY) {
+    if let Some(serial_number) =
+        metadata_value(bundle.metadata.as_ref(), DEVICE_SERIAL_METADATA_KEY)
+    {
         output::print_info(&format!("serialNumber={serial_number}"));
     }
-    if let Some(model_number) = metadata_value(bundle.metadata.as_ref(), DEVICE_MODEL_METADATA_KEY) {
+    if let Some(model_number) = metadata_value(bundle.metadata.as_ref(), DEVICE_MODEL_METADATA_KEY)
+    {
         output::print_info(&format!("modelNumber={model_number}"));
     }
     output::print_info(&format!("rootSecret={}", bundle.root_secret));
@@ -231,20 +208,13 @@ async fn instances_list_command(
     format: OutputFormat,
     args: &DeviceInstanceListArgs,
 ) -> miette::Result<()> {
-    let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let connected = authlib::connect_admin_client_async(&state)
-        .await
-        .into_diagnostic()?;
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
     let instances = auth_client
         .list_device_instances(
             args.profile.as_deref(),
             args.state.map(DeviceInstanceState::as_wire_value),
         )
-        .await
-        .into_diagnostic()?;
-    auth_client
-        .renew_binding_token(&mut state)
         .await
         .into_diagnostic()?;
     if output::is_json(format) {
@@ -276,9 +246,15 @@ async fn instances_list_command(
     Ok(())
 }
 
-fn build_device_metadata(args: &DeviceProvisionArgs) -> miette::Result<Option<BTreeMap<String, String>>> {
+fn build_device_metadata(
+    args: &DeviceProvisionArgs,
+) -> miette::Result<Option<BTreeMap<String, String>>> {
     let mut metadata = BTreeMap::new();
-    insert_metadata_value(&mut metadata, DEVICE_NAME_METADATA_KEY, args.name.as_deref())?;
+    insert_metadata_value(
+        &mut metadata,
+        DEVICE_NAME_METADATA_KEY,
+        args.name.as_deref(),
+    )?;
     insert_metadata_value(
         &mut metadata,
         DEVICE_SERIAL_METADATA_KEY,
@@ -315,7 +291,10 @@ fn insert_metadata_value(
             "device metadata value for {key} cannot be empty"
         )));
     }
-    if metadata.insert(key.to_string(), value.to_string()).is_some() {
+    if metadata
+        .insert(key.to_string(), value.to_string())
+        .is_some()
+    {
         return Err(miette::miette!(format!(
             "duplicate device metadata key: {key}"
         )));
@@ -385,7 +364,10 @@ mod tests {
         let expected = BTreeMap::from([
             ("assetTag".to_string(), "42".to_string()),
             (DEVICE_MODEL_METADATA_KEY.to_string(), "MX-10".to_string()),
-            (DEVICE_NAME_METADATA_KEY.to_string(), "Front Desk Reader".to_string()),
+            (
+                DEVICE_NAME_METADATA_KEY.to_string(),
+                "Front Desk Reader".to_string(),
+            ),
             (DEVICE_SERIAL_METADATA_KEY.to_string(), "SN-123".to_string()),
             ("site".to_string(), "lab-a".to_string()),
         ]);
@@ -403,7 +385,9 @@ mod tests {
         })
         .expect_err("duplicate metadata key should fail");
 
-        assert!(error.to_string().contains("duplicate device metadata key: name"));
+        assert!(error
+            .to_string()
+            .contains("duplicate device metadata key: name"));
     }
 
     #[test]
@@ -419,12 +403,18 @@ mod tests {
         let metadata = BTreeMap::from([
             ("assetTag".to_string(), "42".to_string()),
             (DEVICE_MODEL_METADATA_KEY.to_string(), "MX-10".to_string()),
-            (DEVICE_NAME_METADATA_KEY.to_string(), "Front Desk Reader".to_string()),
+            (
+                DEVICE_NAME_METADATA_KEY.to_string(),
+                "Front Desk Reader".to_string(),
+            ),
             (DEVICE_SERIAL_METADATA_KEY.to_string(), "SN-123".to_string()),
             ("site".to_string(), "lab-a".to_string()),
         ]);
 
-        assert_eq!(opaque_metadata_or_dash(Some(&metadata)), "assetTag=42, site=lab-a");
+        assert_eq!(
+            opaque_metadata_or_dash(Some(&metadata)),
+            "assetTag=42, site=lab-a"
+        );
     }
 }
 
@@ -432,17 +422,10 @@ async fn instances_disable_command(
     format: OutputFormat,
     args: &DeviceInstanceDisableArgs,
 ) -> miette::Result<()> {
-    let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let connected = authlib::connect_admin_client_async(&state)
-        .await
-        .into_diagnostic()?;
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
     let success = auth_client
         .disable_device_instance(&args.instance)
-        .await
-        .into_diagnostic()?;
-    auth_client
-        .renew_binding_token(&mut state)
         .await
         .into_diagnostic()?;
     if output::is_json(format) {
@@ -456,10 +439,7 @@ async fn activations_list_command(
     format: OutputFormat,
     args: &DeviceActivationListArgs,
 ) -> miette::Result<()> {
-    let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let connected = authlib::connect_admin_client_async(&state)
-        .await
-        .into_diagnostic()?;
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
     let activations = auth_client
         .list_device_activations(
@@ -467,10 +447,6 @@ async fn activations_list_command(
             args.profile.as_deref(),
             args.state.map(DeviceActivationState::as_wire_value),
         )
-        .await
-        .into_diagnostic()?;
-    auth_client
-        .renew_binding_token(&mut state)
         .await
         .into_diagnostic()?;
     if output::is_json(format) {
@@ -495,17 +471,10 @@ async fn activations_revoke_command(
     format: OutputFormat,
     args: &DeviceActivationRevokeArgs,
 ) -> miette::Result<()> {
-    let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let connected = authlib::connect_admin_client_async(&state)
-        .await
-        .into_diagnostic()?;
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
     let success = auth_client
         .revoke_device_activation(&args.instance)
-        .await
-        .into_diagnostic()?;
-    auth_client
-        .renew_binding_token(&mut state)
         .await
         .into_diagnostic()?;
     if output::is_json(format) {
@@ -519,10 +488,7 @@ async fn reviews_list_command(
     format: OutputFormat,
     args: &DeviceReviewListArgs,
 ) -> miette::Result<()> {
-    let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let connected = authlib::connect_admin_client_async(&state)
-        .await
-        .into_diagnostic()?;
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
     let reviews = auth_client
         .list_device_activation_reviews(
@@ -530,10 +496,6 @@ async fn reviews_list_command(
             args.profile.as_deref(),
             args.state.map(DeviceReviewState::as_wire_value),
         )
-        .await
-        .into_diagnostic()?;
-    auth_client
-        .renew_binding_token(&mut state)
         .await
         .into_diagnostic()?;
     if output::is_json(format) {
@@ -567,17 +529,10 @@ async fn reviews_update_command(
     args: &DeviceReviewDecisionArgs,
     decision: &str,
 ) -> miette::Result<()> {
-    let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let connected = authlib::connect_admin_client_async(&state)
-        .await
-        .into_diagnostic()?;
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
     let response = auth_client
         .decide_device_activation_review(&args.review, decision, args.reason.as_deref())
-        .await
-        .into_diagnostic()?;
-    auth_client
-        .renew_binding_token(&mut state)
         .await
         .into_diagnostic()?;
     if output::is_json(format) {

@@ -258,13 +258,17 @@ export class NatsState {
           context: { message: "Not authenticated: binding token expired" },
         });
       }
-      const { handle, bindingToken } = requireBrowserAuth(this.#authState);
+      const { handle, bindingToken, sentinel } = requireBrowserAuth(
+        this.#authState,
+      );
+      this.#servers = resolveServers(this.#authState, this.#config);
+      this.#sentinel = sentinel;
       const inboxPrefix = this.#authState.inboxPrefix ?? undefined;
       this.#tokenRef.value = await buildNatsAuthToken(handle, bindingToken);
 
       const authenticator = jwtAuthenticator(
-        this.#sentinel.jwt,
-        new TextEncoder().encode(this.#sentinel.seed),
+        sentinel.jwt,
+        new TextEncoder().encode(sentinel.seed),
       );
 
       this.nc = await wsconnect({
@@ -315,13 +319,34 @@ export class NatsState {
       ) => Promise<unknown>;
       const binding = await requestOrThrow(
         "Auth.RenewBindingToken",
-        {} satisfies AuthRenewBindingTokenInput,
+        {
+          contractDigest: this.#authState.contractDigest,
+        } satisfies AuthRenewBindingTokenInput,
       ) as AuthRenewBindingTokenOutput;
-      this.#authState.setBindingToken(binding);
-      this.#tokenRef.value = await buildNatsAuthToken(
-        this.#handle,
-        binding.bindingToken,
-      );
+      if (binding.status === "bound") {
+        this.#authState.setBindingToken(binding);
+        this.#sentinel = this.#authState.sentinel ?? this.#sentinel;
+        this.#tokenRef.value = await buildNatsAuthToken(
+          this.#handle,
+          binding.bindingToken,
+        );
+        return;
+      }
+
+      if (binding.status !== "contract_changed") {
+        return;
+      }
+
+      const authStart = await this.#authState.startAuthRequest({
+        redirectTo: window.location.href,
+      });
+      if (authStart.status === "bound") {
+        this.#authState.setBindingToken(authStart);
+        await this.reconnect();
+        return;
+      }
+
+      window.location.href = authStart.loginUrl;
     };
 
     await AsyncResult.try(renew);

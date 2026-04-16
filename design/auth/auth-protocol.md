@@ -347,12 +347,19 @@ The portal-owned browser UX uses `flowId` as the browser-visible identifier and 
 
 Flow summary:
 
-1. `GET /auth/login` validates the signed login-init request, stores the initiating contract and optional opaque app context on a browser flow record, resolves a login portal selection or default portal, and redirects to that portal entry URL with `flowId`.
+1. `POST /auth/requests` validates the signed login-init request, validates the initiating contract, and either returns `bound` immediately or creates an auth-owned browser flow plus a short `flowId`-based `loginUrl`.
 2. `GET /auth/login/:provider` requires `flowId` and stores the provider choice in the same browser flow.
 3. `GET /auth/callback/:provider` provisions or refreshes the auth-local user projection, stores the resulting `authToken` server-side against the browser flow, and redirects back to the portal with the same `flowId`.
 4. `GET /auth/flow/:flowId` returns `PortalFlowState`.
 5. `POST /auth/flow/:flowId/approval` records the approval decision in the auth-owned flow.
 6. `POST /auth/flow/:flowId/bind` completes the browser bind from `{ sessionKey, sig }`.
+
+For contract-changed reauth, callers first use `rpc.Auth.RenewBindingToken` with
+their current digest. If auth returns `contract_changed`, they call
+`POST /auth/requests` with the full current contract. Auth may then bind
+immediately when the requested subjects and capabilities are a strict subset of
+the current delegated session for the same contract lineage; otherwise it
+returns a normal browser flow.
 
 Bind proof rules:
 
@@ -554,6 +561,9 @@ Rules:
 
 - binding tokens are reusable until `expiresAt`
 - validation rejects expired tokens and tokens that do not map to the claimed `sessionKey`
+- a fresh binding token or delegated session update does not mutate permissions
+  on an already-open NATS connection; callers must reconnect to receive a JWT
+  that reflects the new grants
 
 ### Active Connections
 

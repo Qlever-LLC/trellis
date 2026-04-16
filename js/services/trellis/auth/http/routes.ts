@@ -66,9 +66,17 @@ import { validateRedirectTo } from "../redirect.ts";
 import {
   BindRequestSchema,
   LoginQuerySchema,
+  type Session,
+  type SessionApprovalSource,
   type PendingAuth,
+  type UserSession,
 } from "../../state/schemas.ts";
 import { upsertUserProjection } from "../session/projection.ts";
+import {
+  createAuthStartRequestHandler,
+  type AuthStartBoundResponse,
+  type CurrentUserSession,
+} from "./start_request.ts";
 
 const CLI_CONTRACT_ID = "trellis.cli@v1";
 
@@ -240,9 +248,198 @@ export function registerHttpRoutes(
       : builtinPortalEntryUrl("/_trellis/portal/login");
   }
 
+  async function loadCurrentUserSession(
+    sessionKey: string,
+  ): Promise<CurrentUserSession | null> {
+    const iter = (await sessionKV.keys(`${sessionKey}.>`)).take();
+    if (isErr(iter)) return null;
+
+    let sessionKeyId: string | undefined;
+    for await (const key of iter) {
+      if (sessionKeyId) return null;
+      sessionKeyId = key;
+    }
+    if (!sessionKeyId) return null;
+
+    const entry = (await sessionKV.get(sessionKeyId)).take();
+    if (isErr(entry)) return null;
+    const session = entry.value as Session;
+    if (session.type !== "user") return null;
+    return {
+      origin: session.origin,
+      id: session.id,
+      email: session.email,
+      name: session.name,
+      ...(session.image ? { image: session.image } : {}),
+      contractId: session.contractId,
+      delegatedCapabilities: session.delegatedCapabilities,
+      delegatedPublishSubjects: session.delegatedPublishSubjects,
+      delegatedSubscribeSubjects: session.delegatedSubscribeSubjects,
+      ...(session.approvalSource
+        ? { approvalSource: session.approvalSource }
+        : {}),
+    };
+  }
+
+  async function bindResolvedUserSession(args: {
+    pendingValue: PendingAuth;
+    resolution: Awaited<ReturnType<typeof requireApprovalResolution>>;
+    tokenKind: "initial" | "renew";
+    approvalSource?: SessionApprovalSource;
+    consumePending?: () => Promise<boolean>;
+  }): Promise<AuthStartBoundResponse> {
+    const now = new Date();
+    const trellisId = args.resolution.trellisId;
+    const projectionUpsert = await upsertUserProjection(usersKV, {
+      origin: args.pendingValue.user.origin,
+      id: args.pendingValue.user.id,
+      name: args.resolution.userName,
+      email: args.resolution.userEmail,
+      active: true,
+      capabilities: args.resolution.existingCapabilities,
+    });
+    const projectionUpsertValue = projectionUpsert.take();
+    if (isErr(projectionUpsertValue)) {
+      logger.error(
+        { error: projectionUpsertValue.error, trellisId },
+        "Failed to refresh user projection during bind",
+      );
+      throw new HTTPException(500, { message: "Failed to update user" });
+    }
+
+    if (args.consumePending) {
+      const consumed = await args.consumePending();
+      if (!consumed) {
+        throw new HTTPException(400, { message: "authtoken_already_used" });
+      }
+    }
+
+    const sessionEnsured = await ensureBoundUserSession({
+      sessionKV,
+      connectionsKV,
+      kick,
+      now,
+      sessionKey: args.pendingValue.sessionKey,
+      trellisId,
+      origin: args.pendingValue.user.origin,
+      id: args.pendingValue.user.id,
+      email: args.resolution.userEmail,
+      name: args.resolution.userName,
+      image: args.pendingValue.user.image,
+      contractDigest: args.resolution.plan.digest,
+      contractId: args.resolution.plan.contract.id,
+      contractDisplayName: args.resolution.plan.contract.displayName,
+      contractDescription: args.resolution.plan.contract.description,
+      ...(args.resolution.appOrigin ? { appOrigin: args.resolution.appOrigin } : {}),
+      ...(args.approvalSource
+        ? { approvalSource: args.approvalSource }
+        : args.resolution.effectiveApproval.kind !== "none"
+        ? { approvalSource: args.resolution.effectiveApproval.kind }
+        : {}),
+      delegatedCapabilities: args.resolution.plan.approval.capabilities,
+      delegatedPublishSubjects: args.resolution.plan.publishSubjects,
+      delegatedSubscribeSubjects: args.resolution.plan.subscribeSubjects,
+    });
+    const sessionEnsuredValue = sessionEnsured.take();
+    if (isErr(sessionEnsuredValue)) {
+      if (sessionEnsuredValue.error.reason === "session_already_bound") {
+        throw new HTTPException(400, { message: "session_already_bound" });
+      }
+      logger.error(
+        { error: sessionEnsuredValue.error },
+        "Failed to ensure user session during bind",
+      );
+      throw new HTTPException(500, { message: "Failed to create session" });
+    }
+
+    const bindingToken = randomToken(32);
+    const bindingTokenHash = await hashKey(bindingToken);
+    const bindingTtlMs = args.resolution.plan.contract.id === CLI_CONTRACT_ID
+      ? args.tokenKind === "initial"
+        ? config.ttlMs.bindingTokens.cliInitial
+        : config.ttlMs.bindingTokens.cliRenew
+      : args.tokenKind === "initial"
+      ? config.ttlMs.bindingTokens.initial
+      : config.ttlMs.bindingTokens.renew;
+    const bindingExpiresAt = new Date(now.getTime() + bindingTtlMs);
+    await bindingTokenKV.put(bindingTokenHash, {
+      sessionKey: args.pendingValue.sessionKey,
+      kind: args.tokenKind,
+      createdAt: now,
+      expiresAt: bindingExpiresAt,
+    });
+
+    return {
+      status: "bound",
+      bindingToken,
+      inboxPrefix: `_INBOX.${args.pendingValue.sessionKey.slice(0, 16)}`,
+      expires: bindingExpiresAt.toISOString(),
+      sentinel: sentinelCreds,
+      transports: buildClientTransports(config),
+    };
+  }
+
+  async function createFlowStartResponse(args: {
+    authUrl: string;
+    provider?: string;
+    sessionKey: string;
+    redirectTo: string;
+    contract: Record<string, unknown>;
+    context?: Record<string, unknown>;
+    plan: Awaited<ReturnType<typeof planUserContractApproval>>;
+  }) {
+    const portalEntryUrl = await resolvePortalEntryUrlForContract(args.contract);
+    if (!portalEntryUrl) {
+      throw new HTTPException(503, {
+        message: "Auth portal is not configured",
+      });
+    }
+
+    const flowId = randomToken(16);
+    await saveBrowserFlow({
+      flowId,
+      kind: "login",
+      sessionKey: args.sessionKey,
+      redirectTo: args.redirectTo,
+      ...(args.context ? { context: args.context } : {}),
+      contract: { ...args.plan.contract, digest: args.plan.digest },
+      createdAt: new Date(),
+      expiresAt: new Date(Date.now() + config.ttlMs.oauth),
+    });
+
+    if (args.provider) {
+      const providerUrl = new URL(args.authUrl);
+      providerUrl.pathname = `/auth/login/${encodeURIComponent(args.provider)}`;
+      providerUrl.search = "";
+      providerUrl.searchParams.set("flowId", flowId);
+      return {
+        status: "flow_started" as const,
+        flowId,
+        loginUrl: providerUrl.toString(),
+      };
+    }
+
+    const portalUrl = new URL(portalEntryUrl);
+    portalUrl.searchParams.set("flowId", flowId);
+    return {
+      status: "flow_started" as const,
+      flowId,
+      loginUrl: portalUrl.toString(),
+    };
+  }
+
   const FlowBindRequestSchema = Type.Object({
     sessionKey: Type.String({ minLength: 1 }),
     sig: Type.String({ minLength: 1 }),
+  }, { additionalProperties: false });
+
+  const AuthStartRequestSchema = Type.Object({
+    provider: Type.Optional(Type.String({ minLength: 1 })),
+    redirectTo: Type.String(),
+    sessionKey: Type.String({ minLength: 1 }),
+    sig: Type.String({ minLength: 1 }),
+    contract: Type.Object({}, { additionalProperties: true }),
+    context: Type.Optional(Type.Object({}, { additionalProperties: true })),
   }, { additionalProperties: false });
 
   async function completePendingBind(args: {
@@ -250,11 +447,7 @@ export function registerHttpRoutes(
     pendingValue: PendingAuth;
     sessionKey: string;
   }) {
-    const now = new Date();
     const resolution = await requireApprovalResolution(args.pendingValue);
-    const trellisId = resolution.trellisId;
-    const userEmail = resolution.userEmail;
-    const userName = resolution.userName;
 
     if (resolution.missingCapabilities.length > 0) {
       return {
@@ -281,85 +474,15 @@ export function registerHttpRoutes(
       throw new HTTPException(403, { message: resolutionBlocker });
     }
 
-    const projectionUpsert = await upsertUserProjection(usersKV, {
-      origin: args.pendingValue.user.origin,
-      id: args.pendingValue.user.id,
-      name: userName,
-      email: userEmail,
-      active: true,
-      capabilities: resolution.existingCapabilities,
+    return bindResolvedUserSession({
+      pendingValue: args.pendingValue,
+      resolution,
+      tokenKind: "initial",
+      consumePending: async () => {
+        const pendingDeleted = await args.pending.delete(true);
+        return !isErr(pendingDeleted);
+      },
     });
-    const projectionUpsertValue = projectionUpsert.take();
-    if (isErr(projectionUpsertValue)) {
-      logger.error(
-        { error: projectionUpsertValue.error, trellisId },
-        "Failed to refresh user projection during bind",
-      );
-      throw new HTTPException(500, { message: "Failed to update user" });
-    }
-
-    const pendingDeleted = await args.pending.delete(true);
-    if (isErr(pendingDeleted)) {
-      throw new HTTPException(400, { message: "authtoken_already_used" });
-    }
-
-    const sessionEnsured = await ensureBoundUserSession({
-      sessionKV,
-      connectionsKV,
-      kick,
-      now,
-      sessionKey: args.sessionKey,
-      trellisId,
-      origin: args.pendingValue.user.origin,
-      id: args.pendingValue.user.id,
-      email: userEmail,
-      name: userName,
-      image: args.pending.value.user.image,
-      contractDigest: resolution.plan.digest,
-      contractId: resolution.plan.contract.id,
-      contractDisplayName: resolution.plan.contract.displayName,
-      contractDescription: resolution.plan.contract.description,
-      ...(resolution.appOrigin ? { appOrigin: resolution.appOrigin } : {}),
-      approvalSource: resolution.effectiveApproval.kind,
-      delegatedCapabilities: resolution.plan.approval.capabilities,
-      delegatedPublishSubjects: resolution.plan.publishSubjects,
-      delegatedSubscribeSubjects: resolution.plan.subscribeSubjects,
-    });
-    const sessionEnsuredValue = sessionEnsured.take();
-    if (isErr(sessionEnsuredValue)) {
-      if (sessionEnsuredValue.error.reason === "session_already_bound") {
-        throw new HTTPException(400, { message: "session_already_bound" });
-      }
-      logger.error(
-        { error: sessionEnsuredValue.error },
-        "Failed to ensure user session during bind",
-      );
-      throw new HTTPException(500, { message: "Failed to create session" });
-    }
-
-    const bindingToken = randomToken(32);
-    const bindingTokenHash = await hashKey(bindingToken);
-    const bindingTtlMs = resolution.plan.contract.id === CLI_CONTRACT_ID
-      ? config.ttlMs.bindingTokens.cliInitial
-      : config.ttlMs.bindingTokens.initial;
-    const bindingExpiresAt = new Date(
-      now.getTime() + bindingTtlMs,
-    );
-    await bindingTokenKV.put(bindingTokenHash, {
-      sessionKey: args.sessionKey,
-      kind: "initial",
-      createdAt: now,
-      expiresAt: bindingExpiresAt,
-    });
-
-    return {
-      status: "bound",
-      bindingToken,
-      inboxPrefix: `_INBOX.${args.sessionKey.slice(0, 16)}`,
-      expires: bindingExpiresAt.toISOString(),
-      sentinel: sentinelCreds,
-      transports: buildClientTransports(config),
-    };
   }
 
   if (config.web.origins.length > 0) {
@@ -463,6 +586,74 @@ export function registerHttpRoutes(
       verifyIdentityProof: verifyDeviceBootstrapIdentityProof,
     }),
   );
+
+  const authStartRequestHandler = createAuthStartRequestHandler({
+    verifyInitRequest: async (req) => {
+      const signedRedirect = `${req.redirectTo}:${
+        canonicalizeJsonValue(req.context ?? null)
+      }`;
+      return verifyDomainSig(req.sessionKey, "oauth-init", signedRedirect, req.sig);
+    },
+    loadCurrentUserSession,
+    getApprovalResolution: requireApprovalResolution,
+    planContract: async (contract) => {
+      try {
+        return await planUserContractApproval(opts.contractStore, contract);
+      } catch (error) {
+        const message = getApprovalResolutionErrorMessage(error);
+        if (message) {
+          throw new HTTPException(409, { message });
+        }
+        throw error;
+      }
+    },
+    bindApprovedSession: (args) => bindResolvedUserSession(args),
+    createFlow: createFlowStartResponse,
+  });
+
+  app.post("/auth/requests", async (c) => {
+    const bodyResult = await AsyncResult.try(() => c.req.json());
+    if (bodyResult.isErr()) {
+      return c.json({ error: "Invalid JSON body" }, 400);
+    }
+    const body = bodyResult.take();
+    if (!Value.Check(AuthStartRequestSchema, body)) {
+      const errors = [...Value.Errors(AuthStartRequestSchema, body)];
+      throw new HTTPException(400, {
+        message: `Invalid request: ${errors[0]?.message ?? "validation failed"}`,
+      });
+    }
+
+    const redirectToResult = validateRedirectTo(
+      body.redirectTo,
+      config.web.origins,
+    );
+    if (!redirectToResult.ok) {
+      throw new HTTPException(400, { message: redirectToResult.error });
+    }
+    if (body.provider && !providers[body.provider]) {
+      throw new HTTPException(400, { message: "Unknown OAuth Provider" });
+    }
+    const request = Value.Parse(AuthStartRequestSchema, body) as {
+      provider?: string;
+      redirectTo: string;
+      sessionKey: string;
+      sig: string;
+      contract: Record<string, unknown>;
+      context?: Record<string, unknown>;
+    };
+
+    return c.json(await authStartRequestHandler({
+      provider: request.provider,
+      redirectTo: redirectToResult.value,
+      sessionKey: request.sessionKey,
+      sig: request.sig,
+      contract: request.contract,
+      ...(request.context ? { context: request.context } : {}),
+    }, {
+      authUrl: new URL(c.req.url).origin,
+    }));
+  });
 
   app.get("/auth/login", async (c) => {
     const query = {

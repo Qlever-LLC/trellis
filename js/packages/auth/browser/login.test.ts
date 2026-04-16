@@ -1,6 +1,6 @@
 import { assertEquals } from "@std/assert";
 
-import { bindFlow, buildLoginUrl } from "./login.ts";
+import { bindFlow, buildLoginUrl, startAuthRequest } from "./login.ts";
 import type { SessionKeyHandle } from "./session.ts";
 
 async function createHandle(): Promise<SessionKeyHandle> {
@@ -25,42 +25,88 @@ async function createHandle(): Promise<SessionKeyHandle> {
 }
 
 Deno.test("buildLoginUrl targets auth chooser when provider is omitted", async () => {
-  const url = await buildLoginUrl({
-    authUrl: "http://localhost:3000",
-    redirectTo: "http://localhost:5173/profile",
-    handle: await createHandle(),
-    contract: { id: "demo.app@v1" },
-    context: { subtitle: "Welcome back" },
-  });
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = (async (input, init) => {
+      assertEquals(String(input), "http://localhost:3000/auth/requests");
+      assertEquals(init?.method, "POST");
+      const body = JSON.parse(String(init?.body));
+      assertEquals(body.redirectTo, "http://localhost:5173/profile");
+      assertEquals(body.contract, { id: "demo.app@v1" });
+      assertEquals(body.context, { subtitle: "Welcome back" });
+      return new Response(JSON.stringify({
+        status: "flow_started",
+        flowId: "flow-1",
+        loginUrl: "http://localhost:3000/_trellis/portal/login?flowId=flow-1",
+      }));
+    }) as typeof fetch;
 
-  const parsed = new URL(url);
-  assertEquals(parsed.pathname, "/auth/login");
-  assertEquals(
-    parsed.searchParams.get("redirectTo"),
-    "http://localhost:5173/profile",
-  );
-  assertEquals(
-    parsed.searchParams.get("contract"),
-    "eyJpZCI6ImRlbW8uYXBwQHYxIn0",
-  );
-  assertEquals(
-    parsed.searchParams.get("context"),
-    "eyJzdWJ0aXRsZSI6IldlbGNvbWUgYmFjayJ9",
-  );
+    const url = await buildLoginUrl({
+      authUrl: "http://localhost:3000",
+      redirectTo: "http://localhost:5173/profile",
+      handle: await createHandle(),
+      contract: { id: "demo.app@v1" },
+      context: { subtitle: "Welcome back" },
+    });
+
+    assertEquals(url, "http://localhost:3000/_trellis/portal/login?flowId=flow-1");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 Deno.test("buildLoginUrl preserves explicit provider selection through flow creation", async () => {
-  const url = await buildLoginUrl({
-    authUrl: "http://localhost:3000",
-    provider: "github",
-    redirectTo: "http://localhost:5173/profile",
-    handle: await createHandle(),
-    contract: { id: "demo.app@v1" },
-  });
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = (async (_input, init) => {
+      const body = JSON.parse(String(init?.body));
+      assertEquals(body.provider, "github");
+      return new Response(JSON.stringify({
+        status: "flow_started",
+        flowId: "flow-1",
+        loginUrl: "http://localhost:3000/auth/login/github?flowId=flow-1",
+      }));
+    }) as typeof fetch;
 
-  const parsed = new URL(url);
-  assertEquals(parsed.pathname, "/auth/login");
-  assertEquals(parsed.searchParams.get("provider"), "github");
+    const url = await buildLoginUrl({
+      authUrl: "http://localhost:3000",
+      provider: "github",
+      redirectTo: "http://localhost:5173/profile",
+      handle: await createHandle(),
+      contract: { id: "demo.app@v1" },
+    });
+
+    assertEquals(url, "http://localhost:3000/auth/login/github?flowId=flow-1");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("startAuthRequest returns bound immediately when auth auto-approves", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      status: "bound",
+      bindingToken: "binding-token",
+      inboxPrefix: "_INBOX.abc123",
+      expires: "2026-01-01T00:00:00.000Z",
+      sentinel: { jwt: "jwt", seed: "seed" },
+      transports: {
+        native: { natsServers: ["nats://localhost:4222"] },
+      },
+    }))) as typeof fetch;
+
+    const response = await startAuthRequest({
+      authUrl: "http://localhost:3000",
+      redirectTo: "http://localhost:5173/profile",
+      handle: await createHandle(),
+      contract: { id: "demo.app@v1" },
+    });
+
+    assertEquals(response.status, "bound");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 Deno.test("bindFlow posts a flow-scoped bind request", async () => {

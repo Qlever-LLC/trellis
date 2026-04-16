@@ -3,22 +3,18 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use base64::Engine as _;
-use serde_json::Value;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use url::Url;
 
 use crate::browser_login::callback_page_html;
 use crate::{
-    build_auth_login_url, build_device_activation_payload, build_device_activation_url,
-    clear_admin_session, derive_device_confirmation_code, derive_device_identity,
-    generate_session_keypair, load_admin_session, parse_device_activation_payload,
-    save_admin_session, sign_device_wait_request, verify_device_confirmation_code,
-    wait_for_device_activation_response, AdminSessionState, WaitForDeviceActivationResponse,
+    build_device_activation_payload, build_device_activation_url, clear_admin_session,
+    derive_device_confirmation_code, derive_device_identity, load_admin_session,
+    parse_device_activation_payload, save_admin_session, sign_device_wait_request,
+    verify_device_confirmation_code, wait_for_device_activation_response, AdminSessionState,
+    WaitForDeviceActivationResponse,
 };
-use trellis_client::SessionAuth;
 
 fn unique_test_dir(label: &str) -> PathBuf {
     let nanos = SystemTime::now()
@@ -26,44 +22,6 @@ fn unique_test_dir(label: &str) -> PathBuf {
         .unwrap()
         .as_nanos();
     std::env::temp_dir().join(format!("trellis-auth-{label}-{nanos}"))
-}
-
-#[test]
-fn build_auth_login_url_includes_encoded_contract() {
-    let (seed, _) = generate_session_keypair();
-    let auth = SessionAuth::from_seed_base64url(&seed).expect("session auth");
-    let contract_json = r#"{"format":"trellis.contract.v1","id":"trellis.cli@v1","displayName":"Trellis CLI","description":"CLI","kind":"cli"}"#;
-
-    let url = build_auth_login_url(
-        "http://localhost:3000",
-        "http://127.0.0.1:1234/callback",
-        &auth,
-        contract_json,
-    )
-    .expect("login url");
-
-    let parsed = Url::parse(&url).expect("parse login url");
-    assert_eq!(parsed.path(), "/auth/login");
-    let sig = parsed
-        .query_pairs()
-        .find(|(key, _)| key == "sig")
-        .map(|(_, value)| value.into_owned())
-        .expect("sig query present");
-    assert_eq!(
-        sig,
-        auth.sign_sha256_domain("oauth-init", "http://127.0.0.1:1234/callback:null")
-    );
-    let contract = parsed
-        .query_pairs()
-        .find(|(key, _)| key == "contract")
-        .map(|(_, value)| value.into_owned())
-        .expect("contract query present");
-    let decoded = URL_SAFE_NO_PAD.decode(contract).expect("decode contract");
-    let json: Value = serde_json::from_slice(&decoded).expect("parse encoded contract json");
-    assert_eq!(
-        json.get("id"),
-        Some(&Value::String("trellis.cli@v1".to_string()))
-    );
 }
 
 #[test]

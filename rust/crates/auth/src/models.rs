@@ -113,6 +113,14 @@ pub struct AdminLoginOutcome {
     pub user: AuthenticatedUser,
 }
 
+/// Result of starting admin reauthentication for a changed contract.
+pub enum AdminReauthOutcome {
+    /// Contract change was auto-approved and the session was rebound immediately.
+    Bound(AdminLoginOutcome),
+    /// Browser interaction is still required to finish the auth flow.
+    Flow(BrowserLoginChallenge),
+}
+
 /// Derived device identity material used by the device activation helpers.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DeviceIdentity {

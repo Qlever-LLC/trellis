@@ -1,8 +1,9 @@
 use std::collections::BTreeMap;
 
 use crate::app::{
-    contract_review_rows, default_display_name, generate_session_keypair, infer_namespaces,
-    prompt_for_confirmation, resolve_service_key_identity, resolve_upgrade_service_key,
+    connect_authenticated_cli_client, contract_review_rows, default_display_name,
+    generate_session_keypair, infer_namespaces, prompt_for_confirmation,
+    resolve_service_key_identity, resolve_upgrade_service_key,
 };
 use crate::cli::*;
 use crate::contract_input::resolve_contract_input;
@@ -56,16 +57,9 @@ fn roll_key_partial_failure_message(old_service_key: &str, new_service_key: &str
 }
 
 async fn list_command(format: OutputFormat) -> miette::Result<()> {
-    let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let connected = authlib::connect_admin_client_async(&state)
-        .await
-        .into_diagnostic()?;
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
     let services = auth_client.list_services().await.into_diagnostic()?;
-    auth_client
-        .renew_binding_token(&mut state)
-        .await
-        .into_diagnostic()?;
 
     if output::is_json(format) {
         output::print_json(&json!({ "services": services }))?;
@@ -171,10 +165,7 @@ async fn install_command(format: OutputFormat, args: &ServiceInstallArgs) -> mie
 
     let (seed, session_key) = generate_session_keypair();
 
-    let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let connected = authlib::connect_admin_client_async(&state)
-        .await
-        .into_diagnostic()?;
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
     let contract = loaded
         .value
@@ -193,11 +184,6 @@ async fn install_command(format: OutputFormat, args: &ServiceInstallArgs) -> mie
         })
         .await
         .into_diagnostic()?;
-    auth_client
-        .renew_binding_token(&mut state)
-        .await
-        .into_diagnostic()?;
-
     if output::is_json(format) {
         output::print_json(&json!({
             "sessionKey": session_key,
@@ -227,10 +213,7 @@ async fn remove_command(format: OutputFormat, args: &ServiceRemoveArgs) -> miett
     let service_key =
         resolve_service_key_identity(args.target.service_key.as_deref(), args.target.seed.as_deref())?;
 
-    let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let connected = authlib::connect_admin_client_async(&state)
-        .await
-        .into_diagnostic()?;
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
     let services = auth_client.list_services().await.into_diagnostic()?;
     let current = services.iter().find(|service| service.session_key == service_key);
@@ -256,11 +239,6 @@ async fn remove_command(format: OutputFormat, args: &ServiceRemoveArgs) -> miett
         })
         .await
         .into_diagnostic()?;
-    auth_client
-        .renew_binding_token(&mut state)
-        .await
-        .into_diagnostic()?;
-
     if output::is_json(format) {
         output::print_json(&json!({
             "sessionKey": service_key,
@@ -284,10 +262,7 @@ async fn roll_key_command(format: OutputFormat, args: &ServiceRollKeyArgs) -> mi
     let old_service_key =
         resolve_service_key_identity(args.target.service_key.as_deref(), args.target.seed.as_deref())?;
 
-    let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let connected = authlib::connect_admin_client_async(&state)
-        .await
-        .into_diagnostic()?;
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
     let services = auth_client.list_services().await.into_diagnostic()?;
     let current = services
@@ -346,11 +321,6 @@ async fn roll_key_command(format: OutputFormat, args: &ServiceRollKeyArgs) -> mi
         .await
         .map_err(|error| miette::miette!("{partial_failure}: {error}"))?;
     miette::ensure!(removed, "{partial_failure}: old service was not removed");
-    auth_client
-        .renew_binding_token(&mut state)
-        .await
-        .into_diagnostic()?;
-
     if output::is_json(format) {
         output::print_json(&json!({
             "oldSessionKey": old_service_key,
@@ -387,10 +357,7 @@ async fn upgrade_command(format: OutputFormat, args: &ServiceUpgradeArgs) -> mie
         !output::is_json(format) || args.force,
         "use -f with --format json to skip the interactive upgrade review"
     );
-    let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let connected = authlib::connect_admin_client_async(&state)
-        .await
-        .into_diagnostic()?;
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
     let services = auth_client.list_services().await.into_diagnostic()?;
     let service_key = resolve_upgrade_service_key(args, &services, &loaded.manifest.id)?;
@@ -429,11 +396,6 @@ async fn upgrade_command(format: OutputFormat, args: &ServiceUpgradeArgs) -> mie
         })
         .await
         .into_diagnostic()?;
-    auth_client
-        .renew_binding_token(&mut state)
-        .await
-        .into_diagnostic()?;
-
     if output::is_json(format) {
         output::print_json(&json!({
             "sessionKey": service_key,

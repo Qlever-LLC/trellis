@@ -1,4 +1,4 @@
-use crate::app::{resolve_contract_lineage_id, try_open_browser};
+use crate::app::{connect_authenticated_cli_client, resolve_contract_lineage_id, try_open_browser};
 use crate::cli::*;
 use crate::cli_contract::cli_contract_json;
 use crate::output;
@@ -99,16 +99,9 @@ async fn logout_command(format: OutputFormat) -> miette::Result<()> {
 }
 
 async fn status_command(format: OutputFormat) -> miette::Result<()> {
-    let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let connected = authlib::connect_admin_client_async(&state)
-        .await
-        .into_diagnostic()?;
+    let (state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
     let me = auth_client.me().await.into_diagnostic()?;
-    auth_client
-        .renew_binding_token(&mut state)
-        .await
-        .into_diagnostic()?;
 
     if output::is_json(format) {
         output::print_json(&json!({
@@ -135,17 +128,10 @@ async fn approvals_list_command(
     format: OutputFormat,
     args: &AuthApprovalListArgs,
 ) -> miette::Result<()> {
-    let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let connected = authlib::connect_admin_client_async(&state)
-        .await
-        .into_diagnostic()?;
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
     let approvals = auth_client
         .list_approvals(args.user.as_deref(), args.digest.as_deref())
-        .await
-        .into_diagnostic()?;
-    auth_client
-        .renew_binding_token(&mut state)
         .await
         .into_diagnostic()?;
 
@@ -194,17 +180,10 @@ async fn approvals_revoke_command(
     format: OutputFormat,
     args: &AuthApprovalRevokeArgs,
 ) -> miette::Result<()> {
-    let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let connected = authlib::connect_admin_client_async(&state)
-        .await
-        .into_diagnostic()?;
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
     let success = auth_client
         .revoke_approval(&args.digest, args.user.as_deref())
-        .await
-        .into_diagnostic()?;
-    auth_client
-        .renew_binding_token(&mut state)
         .await
         .into_diagnostic()?;
 
@@ -230,17 +209,10 @@ async fn approvals_revoke_command(
 }
 
 async fn grants_list_command(format: OutputFormat) -> miette::Result<()> {
-    let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let connected = authlib::connect_admin_client_async(&state)
-        .await
-        .into_diagnostic()?;
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
     let policies = auth_client
         .list_instance_grant_policies()
-        .await
-        .into_diagnostic()?;
-    auth_client
-        .renew_binding_token(&mut state)
         .await
         .into_diagnostic()?;
 
@@ -259,14 +231,14 @@ async fn grants_list_command(format: OutputFormat) -> miette::Result<()> {
         .map(|policy| {
             vec![
                 policy.contract_id,
-                policy
-                    .implied_capabilities
-                    .join(", "),
-                policy
-                    .allowed_origins
-                    .unwrap_or_default()
-                    .join(", "),
-                if policy.disabled { "Disabled" } else { "Active" }.to_string(),
+                policy.implied_capabilities.join(", "),
+                policy.allowed_origins.unwrap_or_default().join(", "),
+                if policy.disabled {
+                    "Disabled"
+                } else {
+                    "Active"
+                }
+                .to_string(),
                 policy.updated_at,
             ]
         })
@@ -281,14 +253,8 @@ async fn grants_list_command(format: OutputFormat) -> miette::Result<()> {
     Ok(())
 }
 
-async fn grants_set_command(
-    format: OutputFormat,
-    args: &AuthGrantSetArgs,
-) -> miette::Result<()> {
-    let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let connected = authlib::connect_admin_client_async(&state)
-        .await
-        .into_diagnostic()?;
+async fn grants_set_command(format: OutputFormat, args: &AuthGrantSetArgs) -> miette::Result<()> {
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
     let contract_id = resolve_contract_lineage_id(&connected, &args.contract).await?;
     let policy = auth_client
@@ -303,11 +269,6 @@ async fn grants_set_command(
         )
         .await
         .into_diagnostic()?;
-    auth_client
-        .renew_binding_token(&mut state)
-        .await
-        .into_diagnostic()?;
-
     if output::is_json(format) {
         output::print_json(&json!({ "policy": policy }))?;
         return Ok(());
@@ -325,10 +286,7 @@ async fn grants_set_command(
     ));
     output::print_info(&format!(
         "allowedOrigins={}",
-        policy
-            .allowed_origins
-            .unwrap_or_default()
-            .join(", ")
+        policy.allowed_origins.unwrap_or_default().join(", ")
     ));
     Ok(())
 }
@@ -337,20 +295,12 @@ async fn grants_disable_command(
     format: OutputFormat,
     args: &AuthGrantDisableArgs,
 ) -> miette::Result<()> {
-    let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let connected = authlib::connect_admin_client_async(&state)
-        .await
-        .into_diagnostic()?;
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
     let policy = auth_client
         .disable_instance_grant_policy(&args.contract_id)
         .await
         .into_diagnostic()?;
-    auth_client
-        .renew_binding_token(&mut state)
-        .await
-        .into_diagnostic()?;
-
     if output::is_json(format) {
         output::print_json(&json!({ "policy": policy }))?;
         return Ok(());

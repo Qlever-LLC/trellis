@@ -1,6 +1,9 @@
-import { canonicalizeJsonValue } from "../utils.ts";
 import { Value } from "typebox/value";
 import {
+  type AuthStartRequest,
+  type AuthStartResponse,
+  AuthStartRequestSchema,
+  AuthStartResponseSchema,
   type BindResponse,
   BindResponseSchema,
   type BindSuccessResponse,
@@ -10,6 +13,9 @@ import type { SessionKeyHandle } from "./session.ts";
 import { bindFlowSig, bindSig, getPublicSessionKey, oauthInitSig } from "./session.ts";
 
 export type {
+  AuthStartFlowResponse,
+  AuthStartRequest,
+  AuthStartResponse,
   BindResponse,
   BindSuccessResponse,
   ContractApproval,
@@ -38,12 +44,11 @@ type BuildLoginUrlFlatArgs = {
   context?: unknown;
 };
 
-function encodeJsonForQuery(value: unknown): string {
-  const json = canonicalizeJsonValue(value);
-  const bytes = new TextEncoder().encode(json);
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+function contextRecord(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  return value as Record<string, unknown>;
 }
 
 export async function buildLoginUrl(
@@ -94,22 +99,49 @@ export async function buildLoginUrl(
       context: argsOrConfig.context,
     }
     : buildLoginUrlArgsFromPositional(argsOrConfig, provider, redirectTo, handle, contract, context);
-  const sessionKey = getPublicSessionKey(resolved.handle);
-  const sig = await oauthInitSig(resolved.handle, resolved.redirectTo, resolved.context);
-
-  const url = new URL(`${resolved.config.authUrl}/auth/login`);
-  url.searchParams.set("redirectTo", resolved.redirectTo);
-  url.searchParams.set("sessionKey", sessionKey);
-  url.searchParams.set("sig", sig);
-  url.searchParams.set("contract", encodeJsonForQuery(resolved.contract));
-  if (resolved.provider) {
-    url.searchParams.set("provider", resolved.provider);
+  const response = await startAuthRequest({
+    authUrl: resolved.config.authUrl,
+    provider: resolved.provider,
+    redirectTo: resolved.redirectTo,
+    handle: resolved.handle,
+    contract: resolved.contract,
+    context: resolved.context,
+  });
+  if (response.status !== "flow_started") {
+    throw new Error("Auth request completed without starting a browser flow");
   }
-  if (resolved.context !== undefined) {
-    url.searchParams.set("context", encodeJsonForQuery(resolved.context));
+  return response.loginUrl;
+}
+
+export async function startAuthRequest(args: {
+  authUrl: string;
+  provider?: string;
+  redirectTo: string;
+  handle: SessionKeyHandle;
+  contract: Record<string, unknown>;
+  context?: unknown;
+}): Promise<AuthStartResponse> {
+  const sig = await oauthInitSig(args.handle, args.redirectTo, args.context);
+  const request = Value.Parse(AuthStartRequestSchema, {
+    redirectTo: args.redirectTo,
+    sessionKey: getPublicSessionKey(args.handle),
+    sig,
+    contract: args.contract,
+    ...(args.provider ? { provider: args.provider } : {}),
+    ...(contextRecord(args.context) ? { context: contextRecord(args.context) } : {}),
+  }) as AuthStartRequest;
+
+  const response = await fetch(`${args.authUrl}/auth/requests`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Auth request failed: ${response.status} ${text}`);
   }
 
-  return url.href;
+  return Value.Parse(AuthStartResponseSchema, await response.json()) as AuthStartResponse;
 }
 
 function buildLoginUrlArgsFromPositional(

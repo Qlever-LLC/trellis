@@ -8,7 +8,7 @@ mod models;
 mod protocol;
 mod session_store;
 
-pub use browser_login::{build_auth_login_url, generate_session_keypair, start_browser_login};
+pub use browser_login::{generate_session_keypair, start_admin_reauth, start_browser_login};
 pub use client::{connect_admin_client_async, persist_renewed_admin_session, AuthClient};
 pub use device_activation::{
     build_device_activation_payload, build_device_activation_url, build_device_wait_proof_input,
@@ -19,7 +19,7 @@ pub use device_activation::{
 };
 pub use error::TrellisAuthError;
 pub use models::{
-    AdminLoginOutcome, AdminSessionState, BoundSession, BrowserLoginChallenge,
+    AdminLoginOutcome, AdminReauthOutcome, AdminSessionState, BoundSession, BrowserLoginChallenge,
     DeviceActivationActivatedResponse, DeviceActivationPayload, DeviceActivationPendingResponse,
     DeviceActivationRejectedResponse, DeviceActivationWaitRequest, DeviceIdentity,
     StartBrowserLoginOpts, WaitForDeviceActivationOpts, WaitForDeviceActivationResponse,
@@ -29,10 +29,12 @@ pub use protocol::{
     AuthGetInstalledContractResponse, AuthGetInstalledContractResponseContract,
     AuthInstallServiceRequest, AuthInstallServiceResponse, AuthRemoveServiceRequest,
     AuthRemoveServiceResponse, AuthUpgradeServiceContractRequest,
-    AuthUpgradeServiceContractResponse, AuthValidateRequestRequest,
-    AuthValidateRequestResponse, AuthenticatedUser, ClientTransportRecord, ClientTransportsRecord,
-    DisableInstanceGrantPolicyRequest, InstanceGrantPolicyActorRecord, InstanceGrantPolicyRecord,
-    InstanceGrantPolicySourceRecord, ListApprovalsRequest, RenewBindingTokenResponse,
+    AuthUpgradeServiceContractResponse, AuthStartRequest, AuthStartResponse,
+    AuthValidateRequestRequest, AuthValidateRequestResponse, AuthenticatedUser,
+    ClientTransportRecord, ClientTransportsRecord, DisableInstanceGrantPolicyRequest,
+    InstanceGrantPolicyActorRecord, InstanceGrantPolicyRecord, InstanceGrantPolicySourceRecord,
+    ListApprovalsRequest, RenewBindingTokenBoundResponse, RenewBindingTokenRequest,
+    RenewBindingTokenResponse,
     RevokeApprovalRequest, SentinelCredsRecord, ServiceListEntry, UpsertInstanceGrantPolicyRequest,
 };
 pub use session_store::{clear_admin_session, load_admin_session, save_admin_session};

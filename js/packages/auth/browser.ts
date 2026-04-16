@@ -5,7 +5,11 @@
  */
 
 export {
+  type AuthStartFlowResponse,
+  type AuthStartRequest,
+  type AuthStartResponse,
   type AuthConfig,
+  startAuthRequest,
   bindFlow,
   type BindResponse,
   bindSession,
@@ -39,6 +43,12 @@ export {
 export { deleteKeyPair, hasKeyPair } from "./browser/storage.ts";
 export {
   type ApprovalDecision as ApprovalDecisionData,
+  type AuthStartFlowResponse as AuthStartFlowResponseData,
+  AuthStartFlowResponseSchema,
+  type AuthStartRequest as AuthStartRequestData,
+  AuthStartRequestSchema,
+  type AuthStartResponse as AuthStartResponseData,
+  AuthStartResponseSchema,
   ApprovalDecisionSchema,
   type BindResponse as BindResponseData,
   BindResponseSchema,

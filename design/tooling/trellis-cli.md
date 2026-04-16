@@ -157,6 +157,12 @@ Operational command behavior:
   the resolved portal before storing local session material for later admin
   RPC calls; runtime transport details are discovered from the bind flow and
   persisted internally rather than exposed as normal CLI flags
+- normal authenticated CLI commands first call `rpc.Auth.RenewBindingToken`
+  with the current CLI contract digest; when auth returns `contract_changed`,
+  the CLI starts the normal auth request flow with the full CLI contract, may
+  complete immediately when the existing delegated envelope already covers the
+  new contract, otherwise opens the browser and waits for the standard portal
+  flow, then reconnects NATS before issuing admin RPCs
 - `trellis portal *` manages registered custom portal web apps used to replace
   the built-in Trellis portal for login flows, device flows, or both; an
   optional `app-contract-id` attaches a normal browser app contract for portals

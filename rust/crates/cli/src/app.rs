@@ -7,7 +7,9 @@ use std::process::Command;
 use std::time::Duration;
 
 use crate::cli::*;
+use crate::cli_contract::cli_contract_json;
 use crate::contract_input::{default_image_contract_path, resolve_contract_input};
+use crate::output;
 use crate::self_update::{ReleaseChannel, SelfUpdateTarget};
 use crate::{contract_input, core_client};
 use async_nats::jetstream;
@@ -43,6 +45,7 @@ const SELF_UPDATE_TARGET: SelfUpdateTarget = SelfUpdateTarget::new(
 );
 
 const DEFAULT_TRELLIS_CONFIG_PATH: &str = "/etc/trellis/config.jsonc";
+const DEFAULT_AUTH_REAUTH_LISTEN: &str = "127.0.0.1:0";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct KvBucketSpec {
@@ -210,6 +213,58 @@ pub(crate) fn base64url_encode(bytes: &[u8]) -> String {
 pub(crate) fn trellis_id_from_origin_id(origin: &str, id: &str) -> String {
     let digest = Sha256::digest(format!("{origin}:{id}").as_bytes());
     base64url_encode(&digest)[..22].to_string()
+}
+
+pub(crate) fn contract_digest(contract_json: &str) -> String {
+    base64url_encode(&Sha256::digest(contract_json.as_bytes()))
+}
+
+pub(crate) async fn connect_authenticated_cli_client(
+    format: OutputFormat,
+) -> miette::Result<(authlib::AdminSessionState, TrellisClient)> {
+    let mut state = authlib::load_admin_session().into_diagnostic()?;
+    let cli_contract_json = cli_contract_json();
+    let cli_contract_digest = contract_digest(cli_contract_json);
+    let connected = authlib::connect_admin_client_async(&state)
+        .await
+        .into_diagnostic()?;
+    let auth_client = authlib::AuthClient::new(&connected);
+
+    match auth_client
+        .renew_binding_token(&mut state, &cli_contract_digest)
+        .await
+        .into_diagnostic()?
+    {
+        authlib::RenewBindingTokenResponse::Bound { .. } => {}
+        authlib::RenewBindingTokenResponse::ContractChanged => {
+            match authlib::start_admin_reauth(&state, DEFAULT_AUTH_REAUTH_LISTEN, cli_contract_json)
+                .await
+                .into_diagnostic()?
+            {
+                authlib::AdminReauthOutcome::Bound(outcome) => {
+                    state = outcome.state;
+                }
+                authlib::AdminReauthOutcome::Flow(challenge) => {
+                    let login_url = challenge.login_url().to_string();
+                    if !output::is_json(format) {
+                        output::print_info(&format!("Open this URL to continue auth: {login_url}"));
+                    }
+                    try_open_browser(&login_url);
+                    state = challenge
+                        .complete(&state.auth_url)
+                        .await
+                        .into_diagnostic()?
+                        .state;
+                }
+            }
+            authlib::save_admin_session(&state).into_diagnostic()?;
+        }
+    }
+
+    let refreshed = authlib::connect_admin_client_async(&state)
+        .await
+        .into_diagnostic()?;
+    Ok((state, refreshed))
 }
 
 pub(crate) async fn connect_with_creds(

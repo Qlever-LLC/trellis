@@ -146,6 +146,14 @@ Rules:
   `user <-> contractId`
 - contract changes create a new digest and therefore require a fresh user
   decision
+- normal reconnect keeps using the currently approved digest; when a caller's
+  local digest changes, `rpc.Auth.RenewBindingToken` returns
+  `contract_changed` and the caller must start the normal auth flow again with
+  the full contract body
+- auth MAY skip browser UX for a changed digest when the caller already has an
+  active delegated session for the same contract lineage and the new contract's
+  concrete publish subjects, subscribe subjects, and capabilities are each a
+  strict subset of that current delegated envelope
 - deployments MAY also configure instance grant policies keyed by contract
   lineage, with optional origin restrictions, that imply approval and effective
   capabilities dynamically
@@ -160,6 +168,9 @@ Rules:
   MUST revoke affected delegated sessions and require reconnect or re-auth
 - inactive users MUST NOT complete bind even if they still have a stored
   approval record
+- after any successful rebind or auto-approved contract change, callers MUST
+  reconnect NATS before using the new rights because transport JWTs are issued
+  per connection
 
 ### 8) Provider-capable devices are installed, not self-registering
 

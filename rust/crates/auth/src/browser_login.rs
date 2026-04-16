@@ -10,14 +10,14 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 use tokio::time::timeout;
-use url::Url;
 
 use crate::client::{connect_admin_client_async, AuthClient};
 use crate::models::{
-    AdminLoginOutcome, AdminSessionState, BindResponse, BindResponseBound, BoundSession,
-    BrowserLoginChallenge, CallbackOutcome, CallbackTokenRequest, StartBrowserLoginOpts,
+    AdminLoginOutcome, AdminReauthOutcome, AdminSessionState, BindResponse, BindResponseBound,
+    BoundSession, BrowserLoginChallenge, CallbackOutcome, CallbackTokenRequest,
+    StartBrowserLoginOpts,
 };
-use crate::ClientTransportsRecord;
+use crate::{AuthStartRequest, AuthStartResponse, ClientTransportsRecord};
 use crate::TrellisAuthError;
 use trellis_client::SessionAuth;
 
@@ -40,11 +40,6 @@ fn join_native_nats_servers(
 
 fn base64url_encode(bytes: &[u8]) -> String {
     URL_SAFE_NO_PAD.encode(bytes)
-}
-
-fn encode_contract_query(contract_json: &str) -> Result<String, TrellisAuthError> {
-    let parsed: Value = serde_json::from_str(contract_json)?;
-    Ok(base64url_encode(serde_json::to_string(&parsed)?.as_bytes()))
 }
 
 pub(crate) fn callback_page_html() -> &'static str {
@@ -161,23 +156,39 @@ pub fn generate_session_keypair() -> (String, String) {
     (base64url_encode(&seed), base64url_encode(&public_key))
 }
 
-/// Build the Trellis `GET /auth/login` URL that creates a browser flow and
-/// redirects into the deployment portal.
-pub fn build_auth_login_url(
+async fn start_auth_request(
     auth_url: &str,
     redirect_to: &str,
     auth: &SessionAuth,
     contract_json: &str,
-) -> Result<String, TrellisAuthError> {
+) -> Result<AuthStartResponse, TrellisAuthError> {
     let sig = auth.sign_sha256_domain("oauth-init", &format!("{redirect_to}:null"));
-    let mut url = Url::parse(auth_url)?;
-    url.set_path("/auth/login");
-    url.query_pairs_mut()
-        .append_pair("redirectTo", redirect_to)
-        .append_pair("sessionKey", &auth.session_key)
-        .append_pair("sig", &sig)
-        .append_pair("contract", &encode_contract_query(contract_json)?);
-    Ok(url.to_string())
+    let contract: Value = serde_json::from_str(contract_json)?;
+    let contract = contract
+        .as_object()
+        .cloned()
+        .ok_or_else(|| TrellisAuthError::InvalidArgument("contract json must be an object".to_string()))?
+        .into_iter()
+        .collect();
+    let client = HttpClient::builder().build()?;
+    let response = client
+        .post(format!("{}/auth/requests", auth_url.trim_end_matches('/')))
+        .json(&AuthStartRequest {
+            provider: None,
+            redirect_to: redirect_to.to_string(),
+            session_key: auth.session_key.clone(),
+            sig,
+            contract,
+            context: None,
+        })
+        .send()
+        .await?;
+    let status = response.status();
+    let text = response.text().await?;
+    if !status.is_success() {
+        return Err(TrellisAuthError::AuthRequestHttpFailure(status.as_u16(), text));
+    }
+    Ok(serde_json::from_str::<AuthStartResponse>(&text)?)
 }
 
 async fn start_callback_server(
@@ -338,7 +349,7 @@ impl BrowserLoginChallenge {
         };
 
         let bound = bind_session(auth_url, &self.auth, &flow_id).await?;
-        let mut state = AdminSessionState {
+        let state = AdminSessionState {
             auth_url: auth_url.to_string(),
             nats_servers: bound.nats_servers.clone(),
             session_seed: self.session_seed,
@@ -359,7 +370,6 @@ impl BrowserLoginChallenge {
         {
             return Err(TrellisAuthError::NotAdmin);
         }
-        auth_client.renew_binding_token(&mut state).await?;
 
         Ok(AdminLoginOutcome { state, user })
     }
@@ -373,7 +383,16 @@ pub async fn start_browser_login(
     let auth = SessionAuth::from_seed_base64url(&session_seed)?;
     let (callback_addr, receiver, server_handle) = start_callback_server(opts.listen).await?;
     let redirect_to = format!("http://{callback_addr}/callback");
-    let login_url = build_auth_login_url(opts.auth_url, &redirect_to, &auth, opts.contract_json)?;
+    let login_url = match start_auth_request(opts.auth_url, &redirect_to, &auth, opts.contract_json)
+        .await?
+    {
+        AuthStartResponse::FlowStarted { login_url, .. } => login_url,
+        AuthStartResponse::Bound { .. } => {
+            return Err(TrellisAuthError::UnexpectedAuthRequestStatus(
+                "bound_without_existing_session".to_string(),
+            ))
+        }
+    };
 
     Ok(BrowserLoginChallenge {
         login_url,
@@ -382,4 +401,55 @@ pub async fn start_browser_login(
         receiver,
         server_handle,
     })
+}
+
+/// Start admin reauthentication for a changed contract using the stored session key.
+pub async fn start_admin_reauth(
+    state: &AdminSessionState,
+    listen: &str,
+    contract_json: &str,
+) -> Result<AdminReauthOutcome, TrellisAuthError> {
+    let auth = SessionAuth::from_seed_base64url(&state.session_seed)?;
+    let (callback_addr, receiver, server_handle) = start_callback_server(listen).await?;
+    let redirect_to = format!("http://{callback_addr}/callback");
+    match start_auth_request(&state.auth_url, &redirect_to, &auth, contract_json).await? {
+        AuthStartResponse::Bound {
+            binding_token,
+            inbox_prefix: _,
+            expires,
+            sentinel,
+            transports,
+        } => {
+            server_handle.abort();
+            let next_state = AdminSessionState {
+                auth_url: state.auth_url.clone(),
+                nats_servers: join_native_nats_servers(&transports)?,
+                session_seed: state.session_seed.clone(),
+                session_key: auth.session_key.clone(),
+                binding_token,
+                sentinel_jwt: sentinel.jwt,
+                sentinel_seed: sentinel.seed,
+                expires,
+            };
+            let client = connect_admin_client_async(&next_state).await?;
+            let auth_client = AuthClient::new(&client);
+            let user = auth_client.me().await?;
+            if !user.capabilities.iter().any(|capability| capability == "admin") {
+                return Err(TrellisAuthError::NotAdmin);
+            }
+            Ok(AdminReauthOutcome::Bound(AdminLoginOutcome {
+                state: next_state,
+                user,
+            }))
+        }
+        AuthStartResponse::FlowStarted { login_url, .. } => Ok(AdminReauthOutcome::Flow(
+            BrowserLoginChallenge {
+                login_url,
+                session_seed: state.session_seed.clone(),
+                auth,
+                receiver,
+                server_handle,
+            },
+        )),
+    }
 }

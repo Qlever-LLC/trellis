@@ -5,7 +5,7 @@ import {
 } from "./auth.ts";
 import { BindResponseSchema } from "./auth.ts";
 import { createAuth } from "./auth.ts";
-import { canonicalizeJsonValue, sha256, utf8 } from "./auth.ts";
+import { sha256, utf8 } from "./auth.ts";
 import type { ClientOpts } from "./client.ts";
 import type { TrellisAPI, TrellisContractV1 } from "./contracts.ts";
 import {
@@ -171,14 +171,6 @@ function resolveRedirectTo(auth: BrowserClientAuthOptions, currentUrl: URL): str
   return currentUrl.toString();
 }
 
-function encodeJsonForQuery(value: unknown): string {
-  const json = canonicalizeJsonValue(value);
-  const bytes = new TextEncoder().encode(json);
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-}
-
 async function signDomainValue(sign: (data: Uint8Array) => Promise<Uint8Array>, prefix: string, value: string): Promise<string> {
   const digest = await sha256(utf8(`${prefix}:${value}`));
   const signature = await sign(digest);
@@ -294,18 +286,37 @@ async function buildSessionKeyLoginUrl(args: {
   context?: unknown;
   oauthInitSig: string;
 }): Promise<string> {
-  const url = new URL(`${args.trellisUrl}/auth/login`);
-  url.searchParams.set("redirectTo", args.redirectTo);
-  url.searchParams.set("sessionKey", args.sessionKey);
-  url.searchParams.set("sig", args.oauthInitSig);
-  url.searchParams.set("contract", encodeJsonForQuery(args.contract));
-  if (args.provider) {
-    url.searchParams.set("provider", args.provider);
+  const response = await fetch(`${args.trellisUrl}/auth/requests`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      redirectTo: args.redirectTo,
+      sessionKey: args.sessionKey,
+      sig: args.oauthInitSig,
+      contract: args.contract,
+      ...(args.provider ? { provider: args.provider } : {}),
+      ...(args.context && typeof args.context === "object" && !Array.isArray(args.context)
+        ? { context: args.context }
+        : {}),
+    }),
+  });
+  if (!response.ok) {
+    const reason = await response.text();
+    throw new Error(`Login flow creation failed: ${response.status} ${reason}`);
   }
-  if (args.context !== undefined) {
-    url.searchParams.set("context", encodeJsonForQuery(args.context));
+
+  const payload = await response.json();
+  if (
+    payload && typeof payload === "object" &&
+    (payload as { status?: unknown }).status === "flow_started" &&
+    typeof (payload as { loginUrl?: unknown }).loginUrl === "string"
+  ) {
+    return (payload as { loginUrl: string }).loginUrl;
   }
-  return url.toString();
+  if (payload && typeof payload === "object" && (payload as { status?: unknown }).status === "bound") {
+    throw new Error("Auth request completed immediately without starting a browser flow");
+  }
+  throw new Error("Login flow creation returned an invalid response");
 }
 
 export async function connectClientWithDeps<TApi extends TrellisAPI>(

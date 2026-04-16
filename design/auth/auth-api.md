@@ -34,7 +34,7 @@ subjects remain versioned forms such as `rpc.v1.Auth.Logout` and
 
 Browser auth endpoints:
 
-- `GET /auth/login`
+- `POST /auth/requests`
 - `GET /auth/login/:provider`
 - `GET /auth/callback/:provider`
 - `GET /auth/flow/:flowId`
@@ -51,14 +51,18 @@ Activated-device endpoints are defined in
 
 `GET /auth/devices/activate` creates the activation handoff, preserves login continuity through the resolved activation portal, and then routes into that portal. Portal resolution comes from the preregistered device instance and deployment-owned device portal policy, with fallback to the deployment device default custom portal when configured and finally to the built-in Trellis device portal. Callers do not provide a portal id or profile id in the normal path.
 
-### GET /auth/login
+### POST /auth/requests
 
-Validates the caller's login intent, creates a browser flow, resolves the matching login portal selection for the initiating contract when one exists, otherwise falls back to the deployment login default custom portal and finally to the built-in Trellis login portal, and redirects the browser into that portal. The portal owns provider chooser and approval UX.
+Starts the normal auth flow for a browser app or other contract-bearing user
+client. The caller sends the initiating contract in the request body so auth can
+either auto-complete reauth immediately or create an auth-owned browser flow and
+return a short `flowId`-based login URL.
 
-Query parameters:
+Request body:
 
 | Name         | Required | Description                                              |
 | ------------ | -------- | -------------------------------------------------------- |
+| `provider`   | no       | Preferred provider id for direct provider continuation   |
 | `redirectTo` | yes      | Post-login redirect URL                                  |
 | `sessionKey` | yes      | Client public session key                                |
 | `sig`        | yes      | `sign(hash("oauth-init:" + redirectTo + ":" + canonicalJson(context ?? null)))` by `sessionKey` |
@@ -69,12 +73,15 @@ Behavior:
 
 1. Validate `redirectTo`
 2. Verify `sig` by `sessionKey`
-3. Create an auth-owned browser flow record
-4. Resolve the matching login portal selection for the initiating contract id when one exists
-5. Otherwise fall back to the deployment login default custom portal when configured
-6. Otherwise use the built-in Trellis login portal served by the Trellis HTTP server
-7. Redirect to the portal `entryUrl` with `flowId` or an equivalent signed flow
-   token
+3. Validate the initiating contract and compute its digest
+4. If an existing delegated user session for that `sessionKey` already covers the
+   requested contract envelope, rebind immediately and return `status: "bound"`
+5. Otherwise create an auth-owned browser flow record
+6. Resolve the matching login portal selection for the initiating contract id
+   when one exists
+7. Otherwise fall back to the deployment login default custom portal when configured
+8. Otherwise use the built-in Trellis login portal served by the Trellis HTTP server
+9. Return `status: "flow_started"` with `{ flowId, loginUrl }`
 
 Rules:
 
@@ -83,7 +90,7 @@ Rules:
 - if present, `context` is stored on the browser flow and returned to portals as app-owned opaque data
 - a portal is trusted for this redirect only because deployment configuration registered its `entryUrl`; portal registration does not grant service authority
 - first login does not require pre-registering a portal because the built-in Trellis login portal is always available
-- auth MAY also apply a matching deployment-wide instance grant policy for the app's contract lineage and optional app origin; when it matches, portal skips approval UX and continues with the server-generated redirect
+- auth MAY also apply a matching deployment-wide instance grant policy for the app's contract lineage and optional app origin; when it matches, or when an existing delegated session already grants a strict superset of the requested subjects and capabilities for the same contract lineage, auth may skip browser UX and return `bound` directly
 
 ### GET /auth/login/:provider
 
@@ -94,7 +101,7 @@ Query parameters:
 
 | Name     | Required | Description                                  |
 | -------- | -------- | -------------------------------------------- |
-| `flowId` | yes      | Browser flow id created by `GET /auth/login` |
+| `flowId` | yes      | Browser flow id created by `POST /auth/requests` |
 
 Behavior:
 
@@ -411,29 +418,41 @@ Behavior:
 Request:
 
 ```ts
-{}
+{
+  contractDigest: string;
+}
 ```
 
 Response:
 
 ```ts
-{
-  bindingToken: string;
-  inboxPrefix: string;
-  expires: string;
-  sentinel: {
-    jwt: string;
-    seed: string;
-  };
-  natsServers: string[];
-}
+type RenewBindingTokenResponse =
+  | {
+      status: "bound";
+      bindingToken: string;
+      inboxPrefix: string;
+      expires: string;
+      sentinel: {
+        jwt: string;
+        seed: string;
+      };
+      transports: ClientTransports;
+    }
+  | {
+      status: "contract_changed";
+    };
 ```
 
 Rules:
 
 - binding tokens are reusable until `expiresAt`
-- clients that want seamless reconnect SHOULD keep a fresh token available by
-  calling this RPC after connecting
+- this RPC is digest-only; it does not accept a replacement contract body or
+  perform approval evaluation
+- if `contractDigest` differs from the currently delegated session digest, auth
+  returns `contract_changed` and the caller must start the normal HTTP auth flow
+- if a later HTTP auth request returns `bound`, the caller MUST reconnect NATS
+  before using newly granted subjects because the current connection JWT still
+  carries the old permissions
 - this is a zero-capability authenticated self-service RPC
 
 ### rpc.Auth.Me

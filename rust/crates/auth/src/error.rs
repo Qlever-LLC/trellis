@@ -47,9 +47,17 @@ pub enum TrellisAuthError {
     #[error("bind failed: {0} {1}")]
     BindHttpFailure(u16, String),
 
+    /// The auth-start endpoint returned a non-success HTTP response.
+    #[error("auth request failed: {0} {1}")]
+    AuthRequestHttpFailure(u16, String),
+
     /// The bind endpoint returned a response shape this crate does not understand.
     #[error("unexpected bind status: {0}")]
     UnexpectedBindStatus(String),
+
+    /// The auth-start endpoint returned a response shape this crate does not understand.
+    #[error("unexpected auth request status: {0}")]
+    UnexpectedAuthRequestStatus(String),
 
     /// The caller supplied arguments that violate the Trellis auth invariants.
     #[error("invalid argument: {0}")]

@@ -28,6 +28,7 @@ import type {
 } from "../../state/schemas.ts";
 import { buildClientTransports } from "../transports.ts";
 import { resolveSessionPrincipal } from "./principal.ts";
+import { createAuthRenewBindingTokenHandler as createInjectedAuthRenewBindingTokenHandler } from "./renew.ts";
 
 type AuthenticatedUser = {
   id: string;
@@ -772,47 +773,62 @@ export function createAuthRenewBindingTokenHandler(opts: {
   randomToken: (bytes: number) => string;
   hashKey: (value: string) => Promise<string>;
 }) {
-  return async (_req: unknown, { caller, sessionKey }: SessionContext) => {
-    const user = requireUserCaller(caller);
+  const handler = createInjectedAuthRenewBindingTokenHandler({
+    loadUserSession: async (sessionKey, trellisId) => {
+      const sessionKeyId = `${sessionKey}.${trellisId}`;
+      const session = (await sessionKV.get(sessionKeyId)).take();
+      if (isErr(session)) {
+        return null;
+      }
+      const sessionValue = unwrapValue<Session>(session);
+      return sessionValue.type === "user" ? sessionValue : null;
+    },
+    issueBindingToken: async (sessionKey) => {
+      const sessionIter = (await sessionKV.keys(`${sessionKey}.>`)).take();
+      let sessionValue: Session | null = null;
+      if (!isErr(sessionIter)) {
+        for await (const key of sessionIter) {
+          const entry = (await sessionKV.get(key)).take();
+          if (!isErr(entry)) {
+            sessionValue = unwrapValue<Session>(entry);
+            break;
+          }
+        }
+      }
+
+      const bindingTtlMs = sessionValue?.type === "user" &&
+          sessionValue.contractId === CLI_CONTRACT_ID
+        ? config.ttlMs.bindingTokens.cliRenew
+        : config.ttlMs.bindingTokens.renew;
+      const bindingToken = opts.randomToken(32);
+      const bindingTokenHash = await opts.hashKey(bindingToken);
+      const now = new Date();
+      const expires = new Date(now.getTime() + bindingTtlMs);
+      await bindingTokenKV.put(bindingTokenHash, {
+        sessionKey,
+        kind: "renew",
+        createdAt: now,
+        expiresAt: expires,
+      });
+
+      return {
+        status: "bound" as const,
+        bindingToken,
+        inboxPrefix: `_INBOX.${sessionKey.slice(0, 16)}`,
+        expires: expires.toISOString(),
+        sentinel: sentinelCreds,
+        transports: buildClientTransports(config),
+      };
+    },
+  });
+
+  return async (req: { contractDigest: string }, context: SessionContext) => {
+    const user = requireUserCaller(context.caller);
     logger.trace(
-      { rpc: "Auth.RenewBindingToken", sessionKey, userId: user.id },
+      { rpc: "Auth.RenewBindingToken", sessionKey: context.sessionKey, userId: user.id },
       "RPC request",
     );
-    const sessionKeyId = `${sessionKey}.${user.trellisId}`;
-
-    const session = (await sessionKV.get(sessionKeyId)).take();
-    if (isErr(session)) {
-      return Result.err(
-        new AuthError({ reason: "session_not_found", context: { sessionKey } }),
-      );
-    }
-
-    const sessionValue = unwrapValue<Session>(session);
-    const bindingTtlMs = sessionValue.type === "user" &&
-        sessionValue.contractId === CLI_CONTRACT_ID
-      ? config.ttlMs.bindingTokens.cliRenew
-      : config.ttlMs.bindingTokens.renew;
-
-    const bindingToken = opts.randomToken(32);
-    const bindingTokenHash = await opts.hashKey(bindingToken);
-    const now = new Date();
-    const expires = new Date(now.getTime() + bindingTtlMs);
-    await bindingTokenKV.put(bindingTokenHash, {
-      sessionKey,
-      kind: "renew",
-      createdAt: now,
-      expiresAt: expires,
-    });
-
-    const response = {
-      status: "bound" as const,
-      bindingToken,
-      inboxPrefix: `_INBOX.${sessionKey.slice(0, 16)}`,
-      expires: expires.toISOString(),
-      sentinel: sentinelCreds,
-      transports: buildClientTransports(config),
-    };
-    return Result.ok(response);
+    return handler(req, { caller: context.caller, sessionKey: context.sessionKey });
   };
 }
 

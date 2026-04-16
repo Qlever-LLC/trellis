@@ -3,8 +3,9 @@ use crate::{
     AuthGetInstalledContractResponse, AuthInstallServiceRequest, AuthRemoveServiceRequest,
     AuthUpgradeServiceContractRequest, AuthValidateRequestRequest, AuthValidateRequestResponse,
     AuthenticatedUser, BoundSession, ClientTransportsRecord, DisableInstanceGrantPolicyRequest,
-    InstanceGrantPolicyRecord, ListApprovalsRequest, RenewBindingTokenResponse,
-    RevokeApprovalRequest, ServiceListEntry, TrellisAuthError, UpsertInstanceGrantPolicyRequest,
+    InstanceGrantPolicyRecord, ListApprovalsRequest, RenewBindingTokenBoundResponse,
+    RenewBindingTokenRequest, RenewBindingTokenResponse, RevokeApprovalRequest,
+    ServiceListEntry, TrellisAuthError, UpsertInstanceGrantPolicyRequest,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
@@ -179,7 +180,7 @@ pub async fn connect_admin_client_async(
 /// Persist a renewed binding token and sentinel credentials into the admin session state.
 pub fn persist_renewed_admin_session(
     state: &mut AdminSessionState,
-    renewed: RenewBindingTokenResponse,
+    renewed: RenewBindingTokenBoundResponse,
 ) -> Result<(), TrellisAuthError> {
     apply_renewed_admin_session(state, renewed)?;
     save_admin_session(state)
@@ -187,7 +188,7 @@ pub fn persist_renewed_admin_session(
 
 fn apply_renewed_admin_session(
     state: &mut AdminSessionState,
-    renewed: RenewBindingTokenResponse,
+    renewed: RenewBindingTokenBoundResponse,
 ) -> Result<(), TrellisAuthError> {
     let renewed = BoundSession {
         binding_token: renewed.binding_token,
@@ -787,16 +788,40 @@ impl<'a> AuthClient<'a> {
             .success)
     }
 
-    /// Mint and persist a fresh binding token for the current session.
+    /// Mint and persist a fresh binding token for the current session when the contract digest still matches.
     pub async fn renew_binding_token(
         &self,
         state: &mut AdminSessionState,
-    ) -> Result<(), TrellisAuthError> {
-        persist_renewed_admin_session(
-            state,
-            self.call("rpc.v1.Auth.RenewBindingToken", &Empty {})
-                .await?,
-        )
+        contract_digest: &str,
+    ) -> Result<RenewBindingTokenResponse, TrellisAuthError> {
+        let response = self
+            .call(
+                "rpc.v1.Auth.RenewBindingToken",
+                &RenewBindingTokenRequest {
+                    contract_digest: contract_digest.to_string(),
+                },
+            )
+            .await?;
+        if let RenewBindingTokenResponse::Bound {
+            binding_token,
+            expires,
+            inbox_prefix,
+            sentinel,
+            transports,
+        } = &response
+        {
+            persist_renewed_admin_session(
+                state,
+                RenewBindingTokenBoundResponse {
+                    binding_token: binding_token.clone(),
+                    expires: expires.clone(),
+                    inbox_prefix: inbox_prefix.clone(),
+                    sentinel: sentinel.clone(),
+                    transports: transports.clone(),
+                },
+            )?;
+        }
+        Ok(response)
     }
 }
 
@@ -815,7 +840,8 @@ mod tests {
     };
     use crate::{
         AdminSessionState, ClientTransportRecord, ClientTransportsRecord,
-        InstanceGrantPolicyRecord, InstanceGrantPolicySourceRecord, RenewBindingTokenResponse,
+        InstanceGrantPolicyRecord, InstanceGrantPolicySourceRecord,
+        RenewBindingTokenBoundResponse,
         SentinelCredsRecord, TrellisAuthError, UpsertInstanceGrantPolicyRequest,
     };
 
@@ -1000,7 +1026,7 @@ mod tests {
             sentinel_seed: "old-seed".to_string(),
             expires: "2026-01-01T00:00:00Z".to_string(),
         };
-        let renewed = RenewBindingTokenResponse {
+        let renewed = RenewBindingTokenBoundResponse {
             binding_token: "new-token".to_string(),
             expires: "2026-02-01T00:00:00Z".to_string(),
             inbox_prefix: "_INBOX.test".to_string(),
@@ -1016,7 +1042,6 @@ mod tests {
                     nats_servers: vec!["ws://localhost:8080".to_string()],
                 }),
             },
-            status: "bound".to_string(),
         };
 
         let error = apply_renewed_admin_session(&mut state, renewed);
@@ -1037,7 +1062,7 @@ mod tests {
             sentinel_seed: "old-seed".to_string(),
             expires: "2026-01-01T00:00:00Z".to_string(),
         };
-        let renewed = RenewBindingTokenResponse {
+        let renewed = RenewBindingTokenBoundResponse {
             binding_token: "new-token".to_string(),
             expires: "2026-02-01T00:00:00Z".to_string(),
             inbox_prefix: "_INBOX.test".to_string(),
@@ -1051,7 +1076,6 @@ mod tests {
                     nats_servers: vec!["ws://localhost:8080".to_string()],
                 }),
             },
-            status: "bound".to_string(),
         };
 
         let error =

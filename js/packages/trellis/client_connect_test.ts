@@ -120,6 +120,16 @@ Deno.test("connectClientWithDeps uses auth continuation when bootstrap requires 
           headers: { "Content-Type": "application/json" },
         }));
       }
+      if (url.endsWith("/auth/requests")) {
+        return Promise.resolve(new Response(JSON.stringify({
+          status: "flow_started",
+          flowId: "flow-1",
+          loginUrl: "https://trellis.example.com/_trellis/portal/login?flowId=flow-1",
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }));
+      }
       if (url.endsWith("/bootstrap/client") && bootstrapCalls === 1) {
         bootstrapCalls += 1;
         return Promise.resolve(new Response(JSON.stringify({
@@ -161,7 +171,7 @@ Deno.test("connectClientWithDeps uses auth continuation when bootstrap requires 
           redirectTo: "https://cli.example.com/callback",
         },
         onAuthRequired: async ({ loginUrl }) => {
-          assertEquals(loginUrl.startsWith("https://trellis.example.com/auth/login?"), true);
+          assertEquals(loginUrl, "https://trellis.example.com/_trellis/portal/login?flowId=flow-1");
           return { flowId: "flow-1" };
         },
       }, {

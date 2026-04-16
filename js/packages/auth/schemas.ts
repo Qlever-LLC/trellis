@@ -20,6 +20,8 @@ export const LoginQuerySchema = Type.Object({
 
 export type LoginQuery = StaticDecode<typeof LoginQuerySchema>;
 
+const OpenObjectSchema = Type.Object({}, { additionalProperties: true });
+
 export const SentinelCredsSchema = Type.Object({
   jwt: Type.String(),
   seed: Type.String(),
@@ -98,6 +100,32 @@ export type BindSuccessResponse = StaticDecode<
 export type BindInsufficientCapabilitiesResponse = StaticDecode<
   typeof BindInsufficientCapabilitiesResponseSchema
 >;
+
+export const AuthStartRequestSchema = Type.Object({
+  provider: Type.Optional(Type.String({ minLength: 1 })),
+  redirectTo: Type.String(),
+  sessionKey: SessionKeySchema,
+  sig: SignatureSchema,
+  contract: OpenObjectSchema,
+  context: Type.Optional(OpenObjectSchema),
+}, { additionalProperties: false });
+
+export const AuthStartFlowResponseSchema = Type.Object({
+  status: Type.Literal("flow_started"),
+  flowId: Type.String({ minLength: 1 }),
+  loginUrl: Type.String({ minLength: 1 }),
+});
+
+export const AuthStartResponseSchema = Type.Union([
+  BindSuccessResponseSchema,
+  AuthStartFlowResponseSchema,
+]);
+
+export type AuthStartRequest = StaticDecode<typeof AuthStartRequestSchema>;
+export type AuthStartFlowResponse = StaticDecode<
+  typeof AuthStartFlowResponseSchema
+>;
+export type AuthStartResponse = StaticDecode<typeof AuthStartResponseSchema>;
 
 export const NatsAuthTokenV1Schema = Type.Object({
   v: Type.Literal(1),

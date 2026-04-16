@@ -47,6 +47,22 @@ type AuthConfig = {
 declare function getOrCreateSessionKey(): Promise<SessionKeyHandle>;
 declare function getPublicSessionKey(handle: SessionKeyHandle): string;
 
+type AuthStartResponse =
+  | BindSuccessResponse
+  | {
+      status: "flow_started";
+      flowId: string;
+      loginUrl: string;
+    };
+
+declare function startAuthRequest(args: {
+  authUrl: string;
+  redirectTo: string;
+  contract: Record<string, unknown>;
+  context?: unknown;
+  handle: SessionKeyHandle;
+}): Promise<AuthStartResponse>;
+
 declare function buildLoginUrl(args: {
   authUrl: string;
   redirectTo: string;
@@ -86,6 +102,11 @@ declare function natsConnectSigForBindingToken(
 Rules:
 
 - browser session keys SHOULD be stored in IndexedDB via WebCrypto with `extractable=false`
+- `startAuthRequest(...)` is the normal login and reauth entry point; it sends
+  the contract in a `POST /auth/requests` body and may return `bound`
+  immediately when auth can auto-approve the current contract change
+- `buildLoginUrl(...)` is a convenience wrapper over `startAuthRequest(...)`
+  that expects `flow_started` and returns only the resulting `loginUrl`
 - browser clients MUST preserve `flowId` in redirects and callback URLs
 - portal state comes from `GET /auth/flow/:flowId`
 - the final browser bind proof is `sign(hash("bind-flow:" + flowId))`
@@ -96,6 +117,9 @@ Rules:
 - `context` is an opaque JSON value for app and portal coordination; auth stores it on the browser flow and portals receive it back in `PortalFlowState`
 - `context` is not an authorization input and portals MUST tolerate unknown shapes
 - login-init proofs SHOULD cover both `redirectTo` and canonicalized `context` so the browser flow cannot be retargeted or recontextualized after signing
+- browser renew flows SHOULD send only the current `contractDigest` over
+  `rpc.Auth.RenewBindingToken`; on `contract_changed` they SHOULD call
+  `startAuthRequest(...)`, then reconnect NATS after any resulting `bound`
 
 ## Portal Flow Surface
 

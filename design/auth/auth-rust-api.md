@@ -36,12 +36,11 @@ It covers:
 ```rust
 pub fn generate_session_keypair() -> (String, String);
 
-pub fn build_auth_login_url(
-    auth_url: &str,
-    redirect_to: &str,
-    auth: &SessionAuth,
+pub async fn start_admin_reauth(
+    state: &AdminSessionState,
+    listen: &str,
     contract_json: &str,
-) -> Result<String, TrellisAuthError>;
+) -> Result<AdminReauthOutcome, TrellisAuthError>;
 
 pub async fn start_browser_login(
     opts: StartBrowserLoginOpts<'_>,
@@ -58,7 +57,7 @@ pub async fn connect_admin_client_async(
 
 pub fn persist_renewed_admin_session(
     state: &mut AdminSessionState,
-    renewed: RenewBindingTokenResponse,
+    renewed: RenewBindingTokenBoundResponse,
 ) -> Result<(), TrellisAuthError>;
 
 pub fn save_admin_session(state: &AdminSessionState) -> Result<(), TrellisAuthError>;
@@ -78,9 +77,15 @@ the TypeScript browser helpers.
 Flow summary:
 
 1. `start_browser_login(...)` generates a session keypair, signs the login init proof, and starts a local callback listener.
-2. `BrowserLoginChallenge::login_url()` returns the auth login URL to open in a browser.
-3. The callback returns `flowId` or `authError` to the local listener.
-4. `BrowserLoginChallenge::complete()` binds that flow through the auth-owned flow endpoint and returns an `AdminLoginOutcome`.
+2. `start_browser_login(...)` starts the auth request through `POST /auth/requests` and returns a `BrowserLoginChallenge` when browser interaction is required.
+3. `BrowserLoginChallenge::login_url()` returns the auth login URL to open in a browser.
+4. The callback returns `flowId` or `authError` to the local listener.
+5. `BrowserLoginChallenge::complete()` binds that flow through the auth-owned flow endpoint and returns an `AdminLoginOutcome`.
+
+`start_admin_reauth(...)` reuses the stored session key for contract-changed
+reauth. It returns `AdminReauthOutcome::Bound(...)` when auth can auto-approve
+the new contract immediately, or `AdminReauthOutcome::Flow(...)` when the CLI
+must continue through the normal browser flow.
 
 ## Admin RPC Surface
 
@@ -217,7 +222,8 @@ impl<'a> AuthClient<'a> {
     pub async fn renew_binding_token(
         &self,
         state: &mut AdminSessionState,
-    ) -> Result<(), TrellisAuthError>;
+        contract_digest: &str,
+    ) -> Result<RenewBindingTokenResponse, TrellisAuthError>;
     pub async fn validate_request(
         &self,
         request: &AuthValidateRequestRequest,

@@ -1,4 +1,6 @@
-use crate::app::{portal_target_id, portal_target_label};
+use crate::app::{
+    connect_authenticated_cli_client, portal_target_id, portal_target_label,
+};
 use crate::cli::*;
 use crate::output;
 use miette::IntoDiagnostic;
@@ -32,16 +34,9 @@ pub(super) async fn run(format: OutputFormat, command: PortalCommand) -> miette:
 }
 
 async fn list_command(format: OutputFormat) -> miette::Result<()> {
-    let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let connected = authlib::connect_admin_client_async(&state)
-        .await
-        .into_diagnostic()?;
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
     let portals = auth_client.list_portals().await.into_diagnostic()?;
-    auth_client
-        .renew_binding_token(&mut state)
-        .await
-        .into_diagnostic()?;
 
     if output::is_json(format) {
         output::print_json(&json!({ "portals": portals }))?;
@@ -75,10 +70,7 @@ async fn list_command(format: OutputFormat) -> miette::Result<()> {
 }
 
 async fn create_command(format: OutputFormat, args: &PortalCreateArgs) -> miette::Result<()> {
-    let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let connected = authlib::connect_admin_client_async(&state)
-        .await
-        .into_diagnostic()?;
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
     let portal = auth_client
         .create_portal(
@@ -86,10 +78,6 @@ async fn create_command(format: OutputFormat, args: &PortalCreateArgs) -> miette
             args.app_contract_id.as_deref(),
             &args.entry_url,
         )
-        .await
-        .into_diagnostic()?;
-    auth_client
-        .renew_binding_token(&mut state)
         .await
         .into_diagnostic()?;
 
@@ -104,17 +92,10 @@ async fn create_command(format: OutputFormat, args: &PortalCreateArgs) -> miette
 }
 
 async fn disable_command(format: OutputFormat, args: &PortalDisableArgs) -> miette::Result<()> {
-    let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let connected = authlib::connect_admin_client_async(&state)
-        .await
-        .into_diagnostic()?;
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
     let success = auth_client
         .disable_portal(&args.portal_id)
-        .await
-        .into_diagnostic()?;
-    auth_client
-        .renew_binding_token(&mut state)
         .await
         .into_diagnostic()?;
     if output::is_json(format) {
@@ -130,17 +111,10 @@ async fn disable_command(format: OutputFormat, args: &PortalDisableArgs) -> miet
 }
 
 async fn logins_default_show_command(format: OutputFormat) -> miette::Result<()> {
-    let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let connected = authlib::connect_admin_client_async(&state)
-        .await
-        .into_diagnostic()?;
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
     let default_portal = auth_client
         .get_login_portal_default()
-        .await
-        .into_diagnostic()?;
-    auth_client
-        .renew_binding_token(&mut state)
         .await
         .into_diagnostic()?;
     if output::is_json(format) {
@@ -158,17 +132,10 @@ async fn logins_default_set_command(
     format: OutputFormat,
     args: &PortalDefaultSetArgs,
 ) -> miette::Result<()> {
-    let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let connected = authlib::connect_admin_client_async(&state)
-        .await
-        .into_diagnostic()?;
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
     let default_portal = auth_client
         .set_login_portal_default(portal_target_id(&args.target))
-        .await
-        .into_diagnostic()?;
-    auth_client
-        .renew_binding_token(&mut state)
         .await
         .into_diagnostic()?;
     if output::is_json(format) {
@@ -184,17 +151,10 @@ async fn logins_default_set_command(
 }
 
 async fn logins_list_command(format: OutputFormat) -> miette::Result<()> {
-    let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let connected = authlib::connect_admin_client_async(&state)
-        .await
-        .into_diagnostic()?;
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
     let selections = auth_client
         .list_login_portal_selections()
-        .await
-        .into_diagnostic()?;
-    auth_client
-        .renew_binding_token(&mut state)
         .await
         .into_diagnostic()?;
     if output::is_json(format) {
@@ -219,17 +179,10 @@ async fn logins_list_command(format: OutputFormat) -> miette::Result<()> {
 }
 
 async fn logins_set_command(format: OutputFormat, args: &PortalLoginSetArgs) -> miette::Result<()> {
-    let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let connected = authlib::connect_admin_client_async(&state)
-        .await
-        .into_diagnostic()?;
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
     let selection = auth_client
         .set_login_portal_selection(&args.contract_id, portal_target_id(&args.target))
-        .await
-        .into_diagnostic()?;
-    auth_client
-        .renew_binding_token(&mut state)
         .await
         .into_diagnostic()?;
     if output::is_json(format) {
@@ -249,17 +202,10 @@ async fn logins_clear_command(
     format: OutputFormat,
     args: &PortalLoginClearArgs,
 ) -> miette::Result<()> {
-    let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let connected = authlib::connect_admin_client_async(&state)
-        .await
-        .into_diagnostic()?;
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
     let success = auth_client
         .clear_login_portal_selection(&args.contract_id)
-        .await
-        .into_diagnostic()?;
-    auth_client
-        .renew_binding_token(&mut state)
         .await
         .into_diagnostic()?;
     if output::is_json(format) {
@@ -275,17 +221,10 @@ async fn logins_clear_command(
 }
 
 async fn devices_default_show_command(format: OutputFormat) -> miette::Result<()> {
-    let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let connected = authlib::connect_admin_client_async(&state)
-        .await
-        .into_diagnostic()?;
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
     let default_portal = auth_client
         .get_device_portal_default()
-        .await
-        .into_diagnostic()?;
-    auth_client
-        .renew_binding_token(&mut state)
         .await
         .into_diagnostic()?;
     if output::is_json(format) {
@@ -303,17 +242,10 @@ async fn devices_default_set_command(
     format: OutputFormat,
     args: &PortalDefaultSetArgs,
 ) -> miette::Result<()> {
-    let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let connected = authlib::connect_admin_client_async(&state)
-        .await
-        .into_diagnostic()?;
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
     let default_portal = auth_client
         .set_device_portal_default(portal_target_id(&args.target))
-        .await
-        .into_diagnostic()?;
-    auth_client
-        .renew_binding_token(&mut state)
         .await
         .into_diagnostic()?;
     if output::is_json(format) {
@@ -329,17 +261,10 @@ async fn devices_default_set_command(
 }
 
 async fn devices_list_command(format: OutputFormat) -> miette::Result<()> {
-    let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let connected = authlib::connect_admin_client_async(&state)
-        .await
-        .into_diagnostic()?;
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
     let selections = auth_client
         .list_device_portal_selections()
-        .await
-        .into_diagnostic()?;
-    auth_client
-        .renew_binding_token(&mut state)
         .await
         .into_diagnostic()?;
     if output::is_json(format) {
@@ -367,17 +292,10 @@ async fn devices_set_command(
     format: OutputFormat,
     args: &PortalDeviceSetArgs,
 ) -> miette::Result<()> {
-    let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let connected = authlib::connect_admin_client_async(&state)
-        .await
-        .into_diagnostic()?;
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
     let selection = auth_client
         .set_device_portal_selection(&args.profile, portal_target_id(&args.target))
-        .await
-        .into_diagnostic()?;
-    auth_client
-        .renew_binding_token(&mut state)
         .await
         .into_diagnostic()?;
     if output::is_json(format) {
@@ -397,17 +315,10 @@ async fn devices_clear_command(
     format: OutputFormat,
     args: &PortalDeviceClearArgs,
 ) -> miette::Result<()> {
-    let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let connected = authlib::connect_admin_client_async(&state)
-        .await
-        .into_diagnostic()?;
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
     let success = auth_client
         .clear_device_portal_selection(&args.profile)
-        .await
-        .into_diagnostic()?;
-    auth_client
-        .renew_binding_token(&mut state)
         .await
         .into_diagnostic()?;
     if output::is_json(format) {

@@ -154,8 +154,8 @@ pub struct ClientTransportsRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-/// Response payload returned by `Auth.RenewBindingToken`.
-pub struct RenewBindingTokenResponse {
+/// Bound response payload returned by `Auth.RenewBindingToken`.
+pub struct RenewBindingTokenBoundResponse {
     #[serde(rename = "bindingToken")]
     pub binding_token: String,
     pub expires: String,
@@ -163,7 +163,64 @@ pub struct RenewBindingTokenResponse {
     pub inbox_prefix: String,
     pub sentinel: SentinelCredsRecord,
     pub transports: ClientTransportsRecord,
-    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "status", rename_all = "snake_case")]
+/// Response payload returned by `Auth.RenewBindingToken`.
+pub enum RenewBindingTokenResponse {
+    Bound {
+        #[serde(rename = "bindingToken")]
+        binding_token: String,
+        expires: String,
+        #[serde(rename = "inboxPrefix")]
+        inbox_prefix: String,
+        sentinel: SentinelCredsRecord,
+        transports: ClientTransportsRecord,
+    },
+    ContractChanged,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+/// Request payload for `Auth.RenewBindingToken`.
+pub struct RenewBindingTokenRequest {
+    pub contract_digest: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+/// Request payload for `POST /auth/requests`.
+pub struct AuthStartRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    pub redirect_to: String,
+    pub session_key: String,
+    pub sig: String,
+    pub contract: BTreeMap<String, Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context: Option<BTreeMap<String, Value>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "status", rename_all = "snake_case")]
+/// Response payload for `POST /auth/requests`.
+pub enum AuthStartResponse {
+    Bound {
+        #[serde(rename = "bindingToken")]
+        binding_token: String,
+        expires: String,
+        #[serde(rename = "inboxPrefix")]
+        inbox_prefix: String,
+        sentinel: SentinelCredsRecord,
+        transports: ClientTransportsRecord,
+    },
+    FlowStarted {
+        #[serde(rename = "flowId")]
+        flow_id: String,
+        #[serde(rename = "loginUrl")]
+        login_url: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

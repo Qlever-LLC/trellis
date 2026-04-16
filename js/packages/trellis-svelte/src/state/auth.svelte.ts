@@ -1,4 +1,5 @@
 import {
+  type AuthStartResponse,
   bindFlow,
   type BindResponse,
   bindSession,
@@ -6,14 +7,12 @@ import {
   clearSessionKey,
   getOrCreateSessionKey,
   getPublicSessionKey,
+  startAuthRequest as browserStartAuthRequest,
   type SentinelCreds,
   type SessionKeyHandle,
 } from "@qlever-llc/trellis/auth";
-import { canonicalizeJsonValue } from "../../../auth/utils.ts";
-import { oauthInitSig } from "../../../auth/browser/session.ts";
 import { Result } from "@qlever-llc/result";
 import { SvelteDate } from "svelte/reactivity";
-import type { TrellisContractV1 } from "@qlever-llc/trellis";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 import type { TrellisClientContract } from "./trellis.svelte.ts";
@@ -124,43 +123,6 @@ function websocketTransportServers(response: {
   return response.transports?.websocket?.natsServers;
 }
 
-function encodeJsonForQuery(value: unknown): string {
-  const json = canonicalizeJsonValue(value);
-  const bytes = new TextEncoder().encode(json);
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(
-    /=+$/g,
-    "",
-  );
-}
-
-async function buildLoginUrl(options: {
-  authUrl: string;
-  redirectTo: string;
-  handle: SessionKeyHandle;
-  contract: Record<string, unknown>;
-  context?: unknown;
-}): Promise<string> {
-  const sessionKey = getPublicSessionKey(options.handle);
-  const sig = await oauthInitSig(
-    options.handle,
-    options.redirectTo,
-    options.context,
-  );
-  const url = new URL(`${options.authUrl}/auth/login`);
-
-  url.searchParams.set("redirectTo", options.redirectTo);
-  url.searchParams.set("sessionKey", sessionKey);
-  url.searchParams.set("sig", sig);
-  url.searchParams.set("contract", encodeJsonForQuery(options.contract));
-  if (options.context !== undefined) {
-    url.searchParams.set("context", encodeJsonForQuery(options.context));
-  }
-
-  return url.href;
-}
-
 function loadPersistedAuthUrl(): string | null {
   if (typeof localStorage === "undefined") return null;
   const stored = localStorage.getItem(AUTH_URL_STORAGE_KEY);
@@ -244,6 +206,14 @@ export class AuthState {
     return authUrl;
   }
 
+  #requireContract(): TrellisClientContract {
+    const contract = this.#config.contract;
+    if (!contract) {
+      throw new Error("Auth contract is not configured");
+    }
+    return contract;
+  }
+
   setAuthUrl(authUrl: string): string {
     const normalized = persistAuthUrl(authUrl);
     this.#config.authUrl = normalized;
@@ -261,6 +231,9 @@ export class AuthState {
   }
   get contract(): TrellisClientContract | undefined {
     return this.#config.contract;
+  }
+  get contractDigest(): string {
+    return this.#requireContract().CONTRACT_DIGEST;
   }
   get sessionKey(): string | null {
     return this.#state.handle ? getPublicSessionKey(this.#state.handle) : null;
@@ -317,20 +290,37 @@ export class AuthState {
    * This method does not return - it redirects the browser.
    */
   async signIn(options: SignInOptions = {}): Promise<never> {
+    const currentUrl = new URL(window.location.href);
+    const redirectTo = resolveRedirectTo(options, currentUrl);
+    const response = await this.startAuthRequest({
+      ...options,
+      redirectTo,
+    });
+    window.location.href = response.status === "bound"
+      ? redirectTo
+      : response.loginUrl;
+    throw new Error("Redirecting to auth for provider selection");
+  }
+
+  async startAuthRequest(options: SignInOptions = {}): Promise<AuthStartResponse> {
     const authUrl = options.authUrl
       ? this.setAuthUrl(options.authUrl)
       : this.#requireAuthUrl();
     const handle = await this.init();
     const currentUrl = new URL(window.location.href);
-    const url = await buildLoginUrl({
+    const response = await browserStartAuthRequest({
       authUrl,
       redirectTo: resolveRedirectTo(options, currentUrl),
       handle,
-      contract: this.#config.contract?.CONTRACT ?? {},
+      contract: this.#requireContract().CONTRACT,
       context: options.context,
     });
-    window.location.href = url;
-    throw new Error("Redirecting to auth for provider selection");
+
+    if (response.status === "bound") {
+      this.setBindingToken(response);
+    }
+
+    return response;
   }
 
   async handleCallback(
