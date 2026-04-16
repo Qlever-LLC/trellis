@@ -1,9 +1,16 @@
-import { defineServiceContract, type RpcName } from "@qlever-llc/trellis";
+import {
+  defineServiceContract,
+  type RpcName,
+} from "@qlever-llc/trellis";
 import { auth } from "@qlever-llc/trellis-sdk/auth";
+import * as errors from "../errors/index.ts";
 import * as schemas from "../schemas/index.ts";
 import type { ServiceRpcHandler } from "@qlever-llc/trellis/host";
 
-export const contract = defineServiceContract({ schemas }, (ref) => ({
+export const contract = defineServiceContract({
+  schemas,
+  errors,
+}, (ref) => ({
   id: "trellis.demo-service@v1",
   displayName: "Demo Service",
   description:
@@ -34,7 +41,11 @@ export const contract = defineServiceContract({ schemas }, (ref) => ({
       input: ref.schema("FilesInitiateUploadRequest"),
       output: ref.schema("FilesInitiateUploadResponse"),
       capabilities: { call: ["uploader"] },
-      errors: [ref.error("TransferError"), ref.error("UnexpectedError")],
+      errors: [
+        ref.error("ReservedUploadKey"),
+        ref.error("TransferError"),
+        ref.error("UnexpectedError"),
+      ],
     },
   },
 }));

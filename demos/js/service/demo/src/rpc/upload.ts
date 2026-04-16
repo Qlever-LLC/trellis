@@ -1,11 +1,23 @@
 import { isErr, Result } from "@qlever-llc/trellis";
+import { ReservedUploadKeyError } from "../../errors/upload.ts";
 import type { Rpc } from "../../contracts/demo_service.ts";
+
+const RESERVED_UPLOAD_KEY_PREFIX = "system/";
 
 export const createInitiateUploadRpc: Rpc<"Demo.Files.InitiateUpload"> = async (
   input,
   context,
   service,
 ) => {
+  if (input.key.startsWith(RESERVED_UPLOAD_KEY_PREFIX)) {
+    return Result.err(
+      new ReservedUploadKeyError({
+        key: input.key,
+        reservedPrefix: RESERVED_UPLOAD_KEY_PREFIX,
+      }),
+    );
+  }
+
   const grant = await service.transfer.initiateUpload({
     sessionKey: context.sessionKey,
     store: "uploads",
