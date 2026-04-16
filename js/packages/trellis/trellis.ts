@@ -89,8 +89,7 @@ type RuntimeRpcErrorDesc = {
 
 type InferRuntimeRpcError<T> = T extends {
   fromSerializable(data: unknown): infer TError;
-}
-  ? TError
+} ? TError
   : never;
 
 export type AuthValidateRequestResponse = StaticDecode<
@@ -206,11 +205,13 @@ export type TrellisAuth = {
 export type AnyTrellisAPI = TrellisAPI;
 export type TrellisMode = "client" | "server";
 type NonNever<T> = [T] extends [never] ? string : T;
-type OwnedApiFor<TContract> = TContract extends { API: { owned: infer TOwnedApi } }
+type OwnedApiFor<TContract> = TContract extends
+  { API: { owned: infer TOwnedApi } }
   ? TOwnedApi extends AnyTrellisAPI ? TOwnedApi
   : never
   : never;
-type TrellisApiFor<TContract> = TContract extends { API: { trellis: infer TTrellisApi } }
+type TrellisApiFor<TContract> = TContract extends
+  { API: { trellis: infer TTrellisApi } }
   ? TTrellisApi extends AnyTrellisAPI ? TTrellisApi
   : OwnedApiFor<TContract>
   : OwnedApiFor<TContract>;
@@ -225,8 +226,7 @@ type EventsOf<TA extends AnyTrellisAPI> = NonNever<keyof TA["events"] & string>;
 type MethodInputOf<TA extends AnyTrellisAPI, M extends MethodsOf<TA>> =
   TA["rpc"][M] extends {
     input: infer TInput;
-  }
-    ? InferSchemaType<TInput>
+  } ? InferSchemaType<TInput>
     : never;
 export type RpcInputOf<
   TA extends AnyTrellisAPI,
@@ -235,8 +235,7 @@ export type RpcInputOf<
 type MethodOutputOf<TA extends AnyTrellisAPI, M extends MethodsOf<TA>> =
   TA["rpc"][M] extends {
     output: infer TOutput;
-  }
-    ? InferSchemaType<TOutput>
+  } ? InferSchemaType<TOutput>
     : never;
 export type RpcOutputOf<
   TA extends AnyTrellisAPI,
@@ -249,14 +248,13 @@ type RpcDescriptorOf<TA extends AnyTrellisAPI, M extends MethodsOf<TA>> =
     errors?: infer TErrors;
     runtimeErrors?: infer TRuntimeErrors;
     declaredErrorTypes?: infer TDeclaredErrorTypes;
-  }
-    ? {
-        input: TInput;
-        output: TOutput;
-        errors?: TErrors;
-        runtimeErrors?: TRuntimeErrors;
-        declaredErrorTypes?: TDeclaredErrorTypes;
-      } & TA["rpc"][M]
+  } ? {
+      input: TInput;
+      output: TOutput;
+      errors?: TErrors;
+      runtimeErrors?: TRuntimeErrors;
+      declaredErrorTypes?: TDeclaredErrorTypes;
+    } & TA["rpc"][M]
     : never;
 type DeclaredBuiltinErrorOf<TNames> = TNames extends readonly (infer TName)[]
   ? TName extends TrellisErrorName ? TrellisErrorMap[TName]
@@ -270,8 +268,7 @@ type MethodDeclaredErrorOf<TA extends AnyTrellisAPI, M extends MethodsOf<TA>> =
   RpcDescriptorOf<TA, M> extends {
     errors?: infer TErrors;
     runtimeErrors?: infer TRuntimeErrors;
-  }
-    ? DeclaredBuiltinErrorOf<TErrors> | DeclaredRuntimeErrorOf<TRuntimeErrors>
+  } ? DeclaredBuiltinErrorOf<TErrors> | DeclaredRuntimeErrorOf<TRuntimeErrors>
     : never;
 type RequestErrorOf<TA extends AnyTrellisAPI, M extends MethodsOf<TA>> =
   | MethodDeclaredErrorOf<TA, M>
@@ -606,7 +603,9 @@ export type HandlerFn<
   m: MethodInputOf<TMountApi, M>,
   context: RpcHandlerContext,
   trellis: HandlerTrellis<TOutboundApi>,
-) => MaybePromise<Result<MethodOutputOf<TMountApi, M>, HandlerErrorOf<TMountApi, M>>>;
+) => MaybePromise<
+  Result<MethodOutputOf<TMountApi, M>, HandlerErrorOf<TMountApi, M>>
+>;
 export type RpcHandlerFn<
   TA extends AnyTrellisAPI,
   M extends RpcMethodNameOf<TA>,
@@ -810,11 +809,16 @@ export class Trellis<
 
   transfer(grant: UploadTransferGrant): UploadTransferHandle;
   transfer(grant: DownloadTransferGrant): DownloadTransferHandle;
-  transfer(grant: TransferGrant): UploadTransferHandle | DownloadTransferHandle {
+  transfer(
+    grant: TransferGrant,
+  ): UploadTransferHandle | DownloadTransferHandle {
     return createTransferHandle(this.nats, this.auth, this.timeout, grant);
   }
 
-  #unknownApiError(kind: "RPC method" | "operation" | "event", name: string): Error {
+  #unknownApiError(
+    kind: "RPC method" | "operation" | "event",
+    name: string,
+  ): Error {
     const base = `Unknown ${kind} '${name}'.`;
     if (this.#hasExplicitApi) {
       return new Error(`${base} Did you forget to include its API module?`);
@@ -1349,7 +1353,11 @@ export class Trellis<
           }
 
           if (!auth) {
-            return err(new UnexpectedError({ context: { reason: "missing_auth_validate_result" } }));
+            return err(
+              new UnexpectedError({
+                context: { reason: "missing_auth_validate_result" },
+              }),
+            );
           }
 
           if (auth instanceof Error) {
@@ -1597,16 +1605,23 @@ export class Trellis<
         }),
       );
     }
-    const jsm = await jetstreamManager(this.nats);
-
     const subject = this.template(ctx.subject, subjectData, true).take();
     if (isErr(subject)) return subject;
 
     if (opts?.mode === "ephemeral") {
-      return this.#startEphemeralEvent(eventName, ctx, subject, fn, opts.signal);
+      return this.#startEphemeralEvent(
+        eventName,
+        ctx,
+        subject,
+        fn,
+        opts.signal,
+      );
     }
 
-    const consumerName = opts?.durableName ?? `${this.name}-${event.replaceAll(".", "_")}`;
+    const jsm = await jetstreamManager(this.nats);
+
+    const consumerName = opts?.durableName ??
+      `${this.name}-${event.replaceAll(".", "_")}`;
     const addResult = await AsyncResult.try(() =>
       jsm.consumers.add(this.stream, {
         durable_name: consumerName,
@@ -1632,7 +1647,9 @@ export class Trellis<
       if (opts.signal.aborted) {
         messages.stop();
       } else {
-        opts.signal.addEventListener("abort", () => messages.stop(), { once: true });
+        opts.signal.addEventListener("abort", () => messages.stop(), {
+          once: true,
+        });
       }
     }
 
@@ -1733,7 +1750,10 @@ export class Trellis<
     const jsonData = Result.try<JsonValue>(() => msg.json());
     const json = jsonData.take();
     if (isErr(json)) {
-      this.#log.error({ error: json.error, event, subject: msg.subject }, "Event parse failed");
+      this.#log.error(
+        { error: json.error, event, subject: msg.subject },
+        "Event parse failed",
+      );
       return json;
     }
 
@@ -1888,7 +1908,10 @@ export class Trellis<
       input: unknown,
       opts?: RequestOpts,
     ) => Promise<
-      Result<unknown, AuthError | RemoteError | ValidationError | UnexpectedError>
+      Result<
+        unknown,
+        AuthError | RemoteError | ValidationError | UnexpectedError
+      >
     >;
     const result = await request("Auth.ValidateRequest", input);
     return result as Result<
