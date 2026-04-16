@@ -3,8 +3,7 @@
 First-party generated SDKs for Trellis-owned contracts.
 
 ```typescript
-import { auth } from "@qlever-llc/trellis-sdk/auth";
-import { core } from "@qlever-llc/trellis-sdk/core";
+import { auth, core } from "@qlever-llc/trellis-sdk";
 
 export const uses = {
   auth: auth.useDefaults(),

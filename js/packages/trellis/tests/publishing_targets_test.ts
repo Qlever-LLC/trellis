@@ -24,11 +24,30 @@ Deno.test("trellis-sdk package exports the first-party SDK subpaths", async () =
     new URL("../../trellis-sdk/deno.json", import.meta.url),
   );
 
+  assertStringIncludes(source, '".": "./mod.ts"');
   assertStringIncludes(source, '"./activity": "./activity.ts"');
   assertStringIncludes(source, '"./auth": "./auth.ts"');
   assertStringIncludes(source, '"./core": "./core.ts"');
   assertStringIncludes(source, '"./health": "./health.ts"');
   assertStringIncludes(source, '"./state": "./state.ts"');
+});
+
+Deno.test("workspace config exposes the trellis-sdk root alias", async () => {
+  const source = await Deno.readTextFile(
+    new URL("../../../deno.json", import.meta.url),
+  );
+
+  assertStringIncludes(source, '"@qlever-llc/trellis-sdk": "./packages/trellis-sdk/mod.ts"');
+});
+
+Deno.test("trellis-sdk npm build writes a root barrel artifact", async () => {
+  const source = await Deno.readTextFile(
+    new URL("../../trellis-sdk/scripts/build_npm.ts", import.meta.url),
+  );
+
+  assertStringIncludes(source, 'import: "./esm/mod.js"');
+  assertStringIncludes(source, 'require: "./script/mod.js"');
+  assertStringIncludes(source, 'key === "." ? "./activity" : key');
 });
 
 Deno.test("trellis npm build depends on the standalone result package name", async () => {

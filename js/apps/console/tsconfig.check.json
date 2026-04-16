@@ -10,6 +10,7 @@
       "@qlever-llc/trellis/health": ["../../packages/trellis/health.ts"],
       "@qlever-llc/trellis/host": ["../../packages/trellis/host/mod.ts"],
       "@qlever-llc/trellis/host/*": ["../../packages/trellis/host/*"],
+      "@qlever-llc/trellis-sdk": ["../../packages/trellis-sdk/mod.ts"],
       "@qlever-llc/trellis-sdk/auth": ["../../packages/trellis-sdk/auth.ts"],
       "@qlever-llc/trellis-sdk/core": ["../../packages/trellis-sdk/core.ts"],
       "@qlever-llc/trellis-sdk/health": ["../../packages/trellis-sdk/health.ts"],

@@ -1,6 +1,5 @@
 import { defineServiceContract, type RpcName } from "@qlever-llc/trellis";
-import { auth } from "@qlever-llc/trellis-sdk/auth";
-import { health } from "@qlever-llc/trellis-sdk/health";
+import { auth, health } from "@qlever-llc/trellis-sdk";
 import * as errors from "../errors/index.ts";
 import * as schemas from "../schemas/index.ts";
 import type { ServiceRpcHandler } from "@qlever-llc/trellis/host";

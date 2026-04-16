@@ -68,6 +68,7 @@
     "@qlever-llc/trellis/host": "./packages/trellis/host/mod.ts",
     "@qlever-llc/trellis/host/deno": "./packages/trellis/host/deno.ts",
     "@qlever-llc/trellis/host/node": "./packages/trellis/host/node.ts",
+    "@qlever-llc/trellis-sdk": "./packages/trellis-sdk/mod.ts",
     "@qlever-llc/trellis-sdk/activity": "./packages/trellis-sdk/activity.ts",
     "@qlever-llc/trellis-sdk/auth": "./packages/trellis-sdk/auth.ts",
     "@qlever-llc/trellis-sdk/core": "./packages/trellis-sdk/core.ts",

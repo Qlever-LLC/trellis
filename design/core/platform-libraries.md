@@ -31,7 +31,7 @@ libraries.
 | `@qlever-llc/trellis/auth`          | Full auth helper and auth protocol surface, including browser bind helpers                                                   | Apps, services, docs, tests                            |
 | `@qlever-llc/trellis/auth/browser`  | Browser-only auth and portal-flow helper facade                                                                              | Browser apps, custom portals                           |
 | `@qlever-llc/trellis/contracts`     | Advanced contract-model, canonicalization, and low-level contract authoring surface                                          | SDK generation, docs, advanced tooling                 |
-| `@qlever-llc/trellis-sdk/*`         | First-party generated SDK modules                                                                                            | Apps and services that consume Trellis-owned contracts |
+| `@qlever-llc/trellis-sdk` and `@qlever-llc/trellis-sdk/*` | First-party generated SDK modules                                                                                            | Apps and services that consume Trellis-owned contracts |
 | `@qlever-llc/trellis/tracing`       | Specialized Trellis tracing facade                                                                                           | Runtime libraries and services                         |
 | `@qlever-llc/trellis-svelte`        | Svelte-specific Trellis integration                                                                                          | Svelte applications                                    |
 | `@qlever-llc/trellis-jobs`          | Job creation and processing                                                                                                  | Service-private retryable work                         |
@@ -42,8 +42,10 @@ libraries.
   TypeScript development
 - service APIs are defined with the service that owns them and are consumed
   through contract packages
-- server helpers and first-party SDKs live on explicit Trellis subpaths rather
-  than the root entrypoint
+- server helpers live on explicit Trellis subpaths
+- first-party SDKs should prefer the `@qlever-llc/trellis-sdk` root entrypoint
+  for normal imports; explicit SDK subpaths remain stable when a narrower import
+  is useful
 - contract modules that only need health schemas should prefer root health
   re-exports or `@qlever-llc/trellis/health`
 - framework adapters such as `@qlever-llc/trellis-svelte` remain separate
@@ -76,7 +78,7 @@ when available.
 ```ts
 import { TrellisClient, defineCliContract } from "@qlever-llc/trellis";
 import { graph } from "@acme/graph-contract";
-import { auth } from "@qlever-llc/trellis-sdk/auth";
+import { auth } from "@qlever-llc/trellis-sdk";
 
 export const cli = defineCliContract(() => ({
   id: "acme.graph-cli@v1",
@@ -153,10 +155,11 @@ Rules:
   `@qlever-llc/trellis/host*`, not the browser-safe root package, so handler
   parameters can expose `service.kv`, `service.store`, and `service.transfer`
 
-## `@qlever-llc/trellis-sdk/*`
+## `@qlever-llc/trellis-sdk` and `@qlever-llc/trellis-sdk/*`
 
 Provides the first-party generated SDKs for Trellis-owned contracts such as
-auth, core, activity, and state.
+auth, core, activity, and state. Prefer the root package for normal imports,
+for example `import { auth, core } from "@qlever-llc/trellis-sdk"`.
 - public apps and peer services should not resolve those service-owned handles
   directly
 

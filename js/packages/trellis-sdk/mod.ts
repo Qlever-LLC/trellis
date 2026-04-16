@@ -1,5 +1,5 @@
-export * from "./activity.ts";
-export * from "./auth.ts";
-export * from "./core.ts";
-export * from "./health.ts";
-export * from "./state.ts";
+export { activity } from "./activity.ts";
+export { auth } from "./auth.ts";
+export { core } from "./core.ts";
+export { health } from "./health.ts";
+export { state } from "./state.ts";

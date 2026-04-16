@@ -549,7 +549,7 @@ Rules:
 ```ts
 import { isErr, TrellisDevice } from "@qlever-llc/trellis";
 import { defineDeviceContract } from "@qlever-llc/trellis/contracts";
-import { auth } from "@qlever-llc/trellis-sdk/auth";
+import { auth } from "@qlever-llc/trellis-sdk";
 
 export const device = defineDeviceContract(() => ({
   id: "acme.demo-device@v1",

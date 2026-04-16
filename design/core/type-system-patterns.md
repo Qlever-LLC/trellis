@@ -28,7 +28,7 @@ import {
   defineTrellisErrorClass,
   defineServiceContract,
 } from "@qlever-llc/trellis";
-import { core } from "@qlever-llc/trellis-sdk/core";
+import { core } from "@qlever-llc/trellis-sdk";
 
 const schemas = {
   FindUser: FindUserSchema,
