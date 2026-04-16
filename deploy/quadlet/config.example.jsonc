@@ -3,6 +3,7 @@
   "port": 3000,
   "instanceName": "Trellis Auth",
   "web": {
+    // Set ["*"] to allow any browser origin.
     "origins": ["https://app.example.com"],
     "publicOrigin": "https://auth.example.com"
   },

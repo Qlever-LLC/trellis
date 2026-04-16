@@ -92,10 +92,10 @@ const rawSchema = z.object({
   instanceName: z.string().default("Trellis Auth"),
   web: z
     .object({
-      origins: z.array(z.string()).default([]),
+      origins: z.array(z.string()).default(["*"]),
       publicOrigin: z.string().optional(),
     })
-    .default({ origins: [] }),
+    .default({ origins: ["*"] }),
   httpRateLimit: httpRateLimitSchema.default({
     windowMs: 60_000,
     max: 60,
@@ -244,6 +244,18 @@ function canonicalizeLoopbackUrl(
   }
 }
 
+function normalizeWebOrigins(origins: string[]): string[] {
+  const normalized: string[] = [];
+  for (const origin of origins) {
+    if (origin === "*") return ["*"];
+    const canonicalOrigin = canonicalizeLoopbackUrl(origin) ?? origin;
+    if (!normalized.includes(canonicalOrigin)) {
+      normalized.push(canonicalOrigin);
+    }
+  }
+  return normalized;
+}
+
 function resolvePath(configPath: string, targetPath: string): string {
   if (isAbsolute(targetPath)) return normalize(targetPath);
   return normalize(join(dirname(configPath), targetPath));
@@ -323,9 +335,7 @@ function normalizeConfig(configPath: string, raw: RawConfig): Config {
     port: raw.port,
     instanceName: raw.instanceName,
     web: {
-      origins: raw.web.origins.map(
-        (origin) => canonicalizeLoopbackUrl(origin) ?? origin,
-      ),
+      origins: normalizeWebOrigins(raw.web.origins),
       publicOrigin: canonicalizeLoopbackUrl(raw.web.publicOrigin),
     },
     httpRateLimit: raw.httpRateLimit,

@@ -4,8 +4,17 @@ export type RedirectToValidation =
   | { ok: true; value: string }
   | { ok: false; error: string };
 
+const WILDCARD_ORIGIN = "*";
 const RELATIVE_REDIRECT_ERROR =
-  "redirectTo must be a relative path or an allowlisted origin";
+  "redirectTo must be a relative path or an allowed origin";
+
+function originIsAllowed(
+  origin: string,
+  allowedOrigins: readonly string[],
+): boolean {
+  return allowedOrigins.includes(WILDCARD_ORIGIN) ||
+    allowedOrigins.includes(origin);
+}
 
 function isLoopbackHostname(hostname: string): boolean {
   return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
@@ -41,9 +50,19 @@ export function validateRedirectTo(
   if (isLoopbackHostname(url.hostname)) {
     return { ok: true, value: url.toString() };
   }
-  if (!allowedOrigins.includes(url.origin)) {
+  if (!originIsAllowed(url.origin, allowedOrigins)) {
     return { ok: false, error: RELATIVE_REDIRECT_ERROR };
   }
 
   return { ok: true, value: url.toString() };
+}
+
+export function resolveCorsOrigin(
+  requestOrigin: string | undefined,
+  allowedOrigins: readonly string[],
+): string | undefined {
+  if (!requestOrigin) return undefined;
+  return originIsAllowed(requestOrigin, allowedOrigins)
+    ? requestOrigin
+    : undefined;
 }

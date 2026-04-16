@@ -62,7 +62,7 @@ import { buildClientTransports } from "../transports.ts";
 import { OAuth2CodeRequest, OAuth2CodeResponse } from "../oauth.ts";
 import type { Provider } from "../providers/index.ts";
 import { createProviders } from "../providers/registry.ts";
-import { validateRedirectTo } from "../redirect.ts";
+import { resolveCorsOrigin, validateRedirectTo } from "../redirect.ts";
 import {
   BindRequestSchema,
   LoginQuerySchema,
@@ -489,7 +489,7 @@ export function registerHttpRoutes(
     app.use(
       "/auth/*",
       cors({
-        origin: config.web.origins,
+        origin: (origin) => resolveCorsOrigin(origin, config.web.origins),
         allowMethods: ["GET", "POST", "OPTIONS"],
         credentials: true,
       }),
@@ -497,7 +497,7 @@ export function registerHttpRoutes(
     app.use(
       "/bootstrap/*",
       cors({
-        origin: config.web.origins,
+        origin: (origin) => resolveCorsOrigin(origin, config.web.origins),
         allowMethods: ["GET", "POST", "OPTIONS"],
         credentials: true,
       }),

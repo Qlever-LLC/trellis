@@ -4,7 +4,8 @@
   "port": 3000,
   "instanceName": "Trellis Auth",
 
-  // Allowed web origins for the auth endpoints
+  // Browser origins allowed to call the auth endpoints.
+  // Omit this block to allow any origin by default, or set ["*"] explicitly.
   "web": {
     "origins": [
       "http://localhost:5173",

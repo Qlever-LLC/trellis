@@ -1,6 +1,6 @@
 import { assertEquals } from "@std/assert";
 
-import { validateRedirectTo } from "./redirect.ts";
+import { resolveCorsOrigin, validateRedirectTo } from "./redirect.ts";
 
 Deno.test("validateRedirectTo accepts relative path redirects", () => {
   assertEquals(validateRedirectTo("/", []), { ok: true, value: "/" });
@@ -13,25 +13,25 @@ Deno.test("validateRedirectTo accepts relative path redirects", () => {
 Deno.test("validateRedirectTo rejects scheme-relative redirects", () => {
   assertEquals(validateRedirectTo("//evil.example/", []), {
     ok: false,
-    error: "redirectTo must be a relative path or an allowlisted origin",
+    error: "redirectTo must be a relative path or an allowed origin",
   });
   assertEquals(validateRedirectTo("///evil.example/", []), {
     ok: false,
-    error: "redirectTo must be a relative path or an allowlisted origin",
+    error: "redirectTo must be a relative path or an allowed origin",
   });
 });
 
-Deno.test("validateRedirectTo rejects non-allowlisted absolute redirects", () => {
+Deno.test("validateRedirectTo rejects non-allowed absolute redirects", () => {
   assertEquals(
     validateRedirectTo("https://evil.example/", ["http://localhost:5173"]),
     {
       ok: false,
-      error: "redirectTo must be a relative path or an allowlisted origin",
+      error: "redirectTo must be a relative path or an allowed origin",
     },
   );
 });
 
-Deno.test("validateRedirectTo accepts allowlisted absolute redirects", () => {
+Deno.test("validateRedirectTo accepts explicitly allowed absolute redirects", () => {
   assertEquals(
     validateRedirectTo("http://localhost:5173/", ["http://localhost:5173"]),
     {
@@ -39,6 +39,13 @@ Deno.test("validateRedirectTo accepts allowlisted absolute redirects", () => {
       value: "http://localhost:5173/",
     },
   );
+});
+
+Deno.test("validateRedirectTo accepts absolute redirects when wildcard origin is configured", () => {
+  assertEquals(validateRedirectTo("https://app.example.com/callback", ["*"]), {
+    ok: true,
+    value: "https://app.example.com/callback",
+  });
 });
 
 Deno.test("validateRedirectTo accepts loopback absolute redirects for CLI login", () => {
@@ -65,4 +72,16 @@ Deno.test("validateRedirectTo rejects non-string values", () => {
     ok: false,
     error: "Invalid redirectTo",
   });
+});
+
+Deno.test("resolveCorsOrigin echoes request origin for wildcard and explicit matches", () => {
+  assertEquals(resolveCorsOrigin("https://app.example.com", ["*"]), "https://app.example.com");
+  assertEquals(
+    resolveCorsOrigin("https://app.example.com", ["https://app.example.com"]),
+    "https://app.example.com",
+  );
+  assertEquals(
+    resolveCorsOrigin("https://app.example.com", ["https://admin.example.com"]),
+    undefined,
+  );
 });
