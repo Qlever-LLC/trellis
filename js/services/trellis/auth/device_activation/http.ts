@@ -8,7 +8,7 @@ import {
   deriveDeviceQrMac,
   parseDeviceActivationPayload,
   verifyDeviceWaitSignature,
-} from "../../../../packages/auth/device_activation.ts";
+} from "@qlever-llc/trellis/auth";
 import {
   resolveDeviceBootstrap,
   verifyDeviceBootstrapIdentityProof,
@@ -58,8 +58,7 @@ type DeviceInstance = {
 
 type DeviceProfile = {
   profileId: string;
-  contractId: string;
-  allowedDigests: string[];
+  appliedContracts: Array<{ contractId: string; allowedDigests: string[] }>;
   reviewMode?: "none" | "required";
   disabled: boolean;
 };
@@ -101,7 +100,7 @@ async function loadDeviceProfile(
 ): Promise<DeviceProfile | null> {
   const entry = (await deviceProfilesKV.get(profileId)).take();
   if (isErr(entry)) return null;
-  return entry.value as DeviceProfile;
+  return entry.value as unknown as DeviceProfile;
 }
 
 async function loadDeviceActivation(instanceId: string) {
@@ -202,6 +201,10 @@ function deviceBootstrapDeps() {
     loadDeviceInstance,
     loadDeviceActivation,
     loadDeviceProfile,
+    saveDeviceInstance: async (instance: DeviceInstance) => {
+      await deviceInstancesKV.put(instance.instanceId, instance);
+    },
+    refreshActiveContracts: async () => {},
     verifyIdentityProof: verifyDeviceBootstrapIdentityProof,
   };
 }

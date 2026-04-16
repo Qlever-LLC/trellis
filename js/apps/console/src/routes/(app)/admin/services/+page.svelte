@@ -1,93 +1,211 @@
 <script lang="ts">
-  import type { AuthListServicesOutput } from "@qlever-llc/trellis-sdk/auth";
-  import { resolve } from "$app/paths";
+  import type { AuthListServiceProfilesOutput } from "@qlever-llc/trellis-sdk/auth";
   import { onMount } from "svelte";
-  import type { AuthUpgradeServiceContractInput } from "@qlever-llc/trellis-sdk/auth";
   import { errorMessage } from "../../../../lib/format";
   import { getNotifications } from "../../../../lib/notifications.svelte";
   import { getTrellis } from "../../../../lib/trellis";
+
+  type Profile = AuthListServiceProfilesOutput["profiles"][number];
 
   const trellisPromise = getTrellis();
   const notifications = getNotifications();
 
   let loading = $state(true);
   let error = $state<string | null>(null);
-  let search = $state("");
-  let services = $state<AuthListServicesOutput["services"]>([]);
-  let expandedKey = $state<string | null>(null);
-  let upgradeJson = $state("");
-  let upgradePending = $state(false);
-  let upgradeLoadPending = $state(false);
+  let createPending = $state(false);
+  let applyPending = $state(false);
+  let actionTarget = $state<string | null>(null);
 
-  const filtered = $derived.by(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return services;
-    return services.filter((s) =>
-      [s.displayName, s.description, s.contractId, s.contractDigest, s.sessionKey, ...(s.capabilities ?? []), ...(s.namespaces ?? [])]
-        .filter(Boolean).some((v: string) => v.toLowerCase().includes(q))
-    );
-  });
+  let profiles = $state<Profile[]>([]);
+  let selectedProfileId = $state("");
 
-  const activeCount = $derived(services.filter((s) => s.active).length);
+  let profileId = $state("");
+  let displayName = $state("");
+  let description = $state("");
+  let namespaces = $state("");
+  let contractJson = $state("");
+
+  const selectedProfile = $derived(profiles.find((profile) => profile.profileId === selectedProfileId) ?? null);
+
+  function parseNamespaces(value: string): string[] {
+    return value
+      .split(/[,\n]/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+  }
+
+  function syncSelectedProfile(nextProfiles: Profile[]) {
+    if (nextProfiles.some((profile) => profile.profileId === selectedProfileId)) return;
+    selectedProfileId = nextProfiles[0]?.profileId ?? "";
+    contractJson = "";
+  }
 
   async function load() {
     loading = true;
     error = null;
     try {
       const trellis = await trellisPromise;
-      const res = await trellis.requestOrThrow("Auth.ListServices", {});
-      services = res.services ?? [];
-    } catch (e) { error = errorMessage(e); }
-    finally { loading = false; }
+      const res = await trellis.requestOrThrow<AuthListServiceProfilesOutput>("Auth.ListServiceProfiles" as string, {});
+      const nextProfiles = res.profiles ?? [];
+      profiles = nextProfiles;
+      syncSelectedProfile(nextProfiles);
+    } catch (e) {
+      error = errorMessage(e);
+    } finally {
+      loading = false;
+    }
   }
 
-  function toggleExpand(key: string) {
-    expandedKey = expandedKey === key ? null : key;
-    upgradeJson = "";
-  }
-
-  async function loadCurrentContract(digest: string) {
-    upgradeLoadPending = true;
+  async function createProfile() {
+    createPending = true;
+    error = null;
     try {
+      const nextProfileId = profileId.trim();
       const trellis = await trellisPromise;
-      const res = await trellis.requestOrThrow("Auth.GetInstalledContract", { digest });
-      upgradeJson = JSON.stringify(res.contract?.contract ?? res.contract, null, 2);
-    } catch (e) { error = `Could not load contract (digest: ${digest.slice(0, 12)}…). It may have been removed from storage.`; }
-    finally { upgradeLoadPending = false; }
-  }
-
-  async function upgradeContract(sessionKey: string) {
-    if (!upgradeJson.trim()) return;
-    upgradePending = true;
-    try {
-      const contract = JSON.parse(upgradeJson);
-      const trellis = await trellisPromise;
-      await trellis.requestOrThrow(
-        "Auth.UpgradeServiceContract",
-        { sessionKey, contract } satisfies AuthUpgradeServiceContractInput,
-      );
-      notifications.success("Contract upgraded.", "Upgraded");
-      upgradeJson = "";
+      await trellis.requestOrThrow<void>("Auth.CreateServiceProfile" as string, {
+        profileId: nextProfileId,
+        displayName: displayName.trim(),
+        description: description.trim() || undefined,
+        namespaces: parseNamespaces(namespaces),
+      });
+      notifications.success(`Service profile ${nextProfileId} created.`, "Created");
+      profileId = "";
+      displayName = "";
+      description = "";
+      namespaces = "";
+      selectedProfileId = nextProfileId;
       await load();
-    } catch (e) { error = errorMessage(e); }
-    finally { upgradePending = false; }
+    } catch (e) {
+      error = errorMessage(e);
+    } finally {
+      createPending = false;
+    }
   }
 
-  onMount(() => { void load(); });
+  async function applyContract() {
+    if (!selectedProfile || !contractJson.trim()) return;
+    applyPending = true;
+    error = null;
+    try {
+      const contract = JSON.parse(contractJson) as Record<string, unknown>;
+      const trellis = await trellisPromise;
+      await trellis.requestOrThrow<void>("Auth.ApplyServiceProfileContract" as string, {
+        profileId: selectedProfile.profileId,
+        contract,
+      });
+      notifications.success(`Contract applied to ${selectedProfile.profileId}.`, "Applied");
+      contractJson = "";
+      await load();
+    } catch (e) {
+      error = e instanceof SyntaxError ? `Invalid contract JSON: ${e.message}` : errorMessage(e);
+    } finally {
+      applyPending = false;
+    }
+  }
+
+  async function unapplyContract(profile: Profile, contractId: string, digests?: string[]) {
+    const target = digests?.length ? `${contractId}:${digests.join(",")}` : `${contractId}:lineage`;
+    const scope = digests?.length ? `digest ${digests.join(", ")}` : `lineage ${contractId}`;
+    if (!window.confirm(`Unapply ${scope} from ${profile.profileId}?`)) return;
+    actionTarget = `${profile.profileId}:${target}:unapply`;
+    error = null;
+    try {
+      const trellis = await trellisPromise;
+      await trellis.requestOrThrow<void>("Auth.UnapplyServiceProfileContract" as string, {
+        profileId: profile.profileId,
+        contractId,
+        digests,
+      });
+      notifications.success(`Contracts updated for ${profile.profileId}.`, "Updated");
+      await load();
+    } catch (e) {
+      error = errorMessage(e);
+    } finally {
+      actionTarget = null;
+    }
+  }
+
+  async function setProfileDisabled(profile: Profile, disabled: boolean) {
+    const verb = disabled ? "Disable" : "Enable";
+    if (!window.confirm(`${verb} service profile ${profile.profileId}?`)) return;
+    actionTarget = `${profile.profileId}:${verb.toLowerCase()}`;
+    error = null;
+    try {
+      const trellis = await trellisPromise;
+      await trellis.requestOrThrow<void>((disabled ? "Auth.DisableServiceProfile" : "Auth.EnableServiceProfile") as string, {
+        profileId: profile.profileId,
+      });
+      notifications.success(`Service profile ${profile.profileId} ${disabled ? "disabled" : "enabled"}.`, disabled ? "Disabled" : "Enabled");
+      await load();
+    } catch (e) {
+      error = errorMessage(e);
+    } finally {
+      actionTarget = null;
+    }
+  }
+
+  async function removeProfile(profile: Profile) {
+    if (!window.confirm(`Remove service profile ${profile.profileId}?`)) return;
+    actionTarget = `${profile.profileId}:remove`;
+    error = null;
+    try {
+      const trellis = await trellisPromise;
+      await trellis.requestOrThrow<void>("Auth.RemoveServiceProfile" as string, { profileId: profile.profileId });
+      notifications.success(`Service profile ${profile.profileId} removed.`, "Removed");
+      await load();
+    } catch (e) {
+      error = errorMessage(e);
+    } finally {
+      actionTarget = null;
+    }
+  }
+
+  onMount(() => {
+    void load();
+  });
 </script>
 
 <section class="space-y-4">
-  <div class="flex items-center justify-between">
-    <div class="stats shadow border border-base-300">
-      <div class="stat py-2 px-4">
-        <div class="stat-title text-xs">Active</div>
-        <div class="stat-value text-xl">{activeCount}</div>
+  <div class="card border border-base-300 bg-base-100">
+    <div class="card-body gap-4">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 class="card-title text-base">Service profiles</h2>
+          <p class="text-sm text-base-content/60">Create profiles, apply contract JSON, and manage lifecycle state for Trellis services.</p>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <a href="/admin/services/instances" class="btn btn-outline btn-sm">Manage Instances</a>
+          <button class="btn btn-ghost btn-sm" onclick={load} disabled={loading}>Refresh</button>
+        </div>
       </div>
-    </div>
-    <div class="flex gap-2">
-      <input class="input input-bordered input-sm w-48" placeholder="Search services…" bind:value={search} />
-      <a href={resolve("/admin/services/new")} class="btn btn-primary btn-sm">Install Service</a>
-      <button class="btn btn-ghost btn-sm" onclick={load} disabled={loading}>Refresh</button>
+
+      <form class="grid gap-3 lg:grid-cols-2" onsubmit={(event) => { event.preventDefault(); void createProfile(); }}>
+        <label class="form-control gap-1">
+          <span class="label-text text-xs">Profile ID</span>
+          <input class="input input-bordered input-sm font-mono" bind:value={profileId} placeholder="billing.worker" required />
+        </label>
+
+        <label class="form-control gap-1">
+          <span class="label-text text-xs">Display name</span>
+          <input class="input input-bordered input-sm" bind:value={displayName} placeholder="Billing Worker" required />
+        </label>
+
+        <label class="form-control gap-1 lg:col-span-2">
+          <span class="label-text text-xs">Description</span>
+          <textarea class="textarea textarea-bordered textarea-sm" rows="2" bind:value={description} placeholder="Optional description"></textarea>
+        </label>
+
+        <label class="form-control gap-1 lg:col-span-2">
+          <span class="label-text text-xs">Namespaces</span>
+          <textarea class="textarea textarea-bordered textarea-sm font-mono" rows="3" bind:value={namespaces} placeholder="billing, invoices" required></textarea>
+        </label>
+
+        <div class="lg:col-span-2 flex justify-end">
+          <button type="submit" class="btn btn-primary btn-sm" disabled={createPending}>
+            {createPending ? "Creating…" : "Create Profile"}
+          </button>
+        </div>
+      </form>
     </div>
   </div>
 
@@ -97,94 +215,200 @@
 
   {#if loading}
     <div class="flex justify-center py-8"><span class="loading loading-spinner loading-md"></span></div>
-  {:else if filtered.length === 0}
-    <p class="text-sm text-base-content/60">No services found.</p>
   {:else}
-    <div class="overflow-x-auto">
-      <table class="table table-sm">
-        <thead>
-          <tr>
-            <th>Service</th>
-            <th>Contract</th>
-            <th>Digest</th>
-            <th>Bindings</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {#each filtered as service (service.sessionKey)}
-            <tr class="cursor-pointer hover" onclick={() => toggleExpand(service.sessionKey)}>
-              <td class="font-medium">{service.displayName}</td>
-              <td class="text-base-content/60">{service.contractId ?? "—"}</td>
-              <td class="font-mono text-xs text-base-content/60">{service.contractDigest?.slice(0, 12) ?? "—"}{service.contractDigest ? "…" : ""}</td>
-              <td class="text-base-content/60">
-                {#if service.resourceBindings?.kv}
-                  {Object.keys(service.resourceBindings.kv).length} KV
-                {:else}
-                  —
-                {/if}
-              </td>
-              <td>
-                {#if service.active}
-                  <span class="badge badge-success badge-sm">Active</span>
-                {:else}
-                  <span class="badge badge-ghost badge-sm">Inactive</span>
-                {/if}
-              </td>
-            </tr>
+    <div class="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
+      <div class="card border border-base-300 bg-base-100">
+        <div class="card-body gap-3">
+          <div class="flex items-center justify-between gap-2">
+            <h3 class="card-title text-sm">Profiles</h3>
+            <span class="text-xs text-base-content/60">{profiles.length} total</span>
+          </div>
 
-            {#if expandedKey === service.sessionKey}
-              <tr>
-                <td colspan="5" class="bg-base-200 p-4">
-                  <div class="space-y-4">
-                    {#if service.resourceBindings?.kv}
-                      <div>
-                        <h4 class="text-xs font-semibold uppercase text-base-content/50 mb-2">KV Bindings</h4>
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          {#each Object.entries(service.resourceBindings.kv as Record<string, { bucket: string }>) as [alias, binding] (alias)}
-                            <div class="card bg-base-100 border border-base-300 p-3">
-                              <p class="font-medium text-sm">{alias}</p>
-                              <p class="text-xs text-base-content/60 font-mono">{binding.bucket}</p>
+          {#if profiles.length === 0}
+            <p class="text-sm text-base-content/60">No service profiles found.</p>
+          {:else}
+            <div class="space-y-2">
+              {#each profiles as profile (profile.profileId)}
+                <div
+                  class={[
+                    "rounded-box border p-3 transition-colors",
+                    selectedProfileId === profile.profileId
+                      ? "border-primary bg-primary/5"
+                      : "border-base-300 bg-base-100",
+                  ]}
+                >
+                  <button
+                    class="w-full text-left"
+                    onclick={() => {
+                      selectedProfileId = profile.profileId;
+                      contractJson = "";
+                    }}
+                  >
+                  <div class="flex flex-wrap items-start justify-between gap-2">
+                    <div class="min-w-0">
+                      <div class="font-medium">{profile.displayName}</div>
+                      <div class="font-mono text-xs text-base-content/60">{profile.profileId}</div>
+                    </div>
+                    <span class={[
+                      "badge badge-sm",
+                      profile.disabled ? "badge-ghost" : "badge-success",
+                    ]}>
+                      {profile.disabled ? "Disabled" : "Active"}
+                    </span>
+                  </div>
+
+                  {#if profile.description}
+                    <p class="mt-2 text-sm text-base-content/60">{profile.description}</p>
+                  {/if}
+
+                  <div class="mt-3 flex flex-wrap gap-1">
+                    {#each profile.namespaces as namespace (namespace)}
+                      <span class="badge badge-outline badge-xs">{namespace}</span>
+                    {:else}
+                      <span class="text-xs text-base-content/60">No namespaces</span>
+                    {/each}
+                  </div>
+                  </button>
+                  <div class="mt-3 flex flex-wrap justify-end gap-2">
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-xs"
+                      onclick={(event) => {
+                        event.stopPropagation();
+                        void setProfileDisabled(profile, !profile.disabled);
+                      }}
+                      disabled={actionTarget === `${profile.profileId}:${profile.disabled ? "enable" : "disable"}`}
+                    >
+                      {profile.disabled ? "Enable" : "Disable"}
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-xs text-error"
+                      onclick={(event) => {
+                        event.stopPropagation();
+                        void removeProfile(profile);
+                      }}
+                      disabled={actionTarget === `${profile.profileId}:remove`}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              {/each}
+            </div>
+          {/if}
+        </div>
+      </div>
+
+      <div class="space-y-4">
+        <div class="card border border-base-300 bg-base-100">
+          <div class="card-body gap-3">
+            <div class="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 class="card-title text-sm">Apply contract</h3>
+                <p class="text-sm text-base-content/60">Paste raw contract JSON and apply it to the selected profile.</p>
+              </div>
+              <label class="form-control gap-1 min-w-56">
+                <span class="label-text text-xs">Selected profile</span>
+                <select class="select select-bordered select-sm" bind:value={selectedProfileId} disabled={profiles.length === 0}>
+                  <option value="" disabled>Select a profile</option>
+                  {#each profiles as profile (profile.profileId)}
+                    <option value={profile.profileId}>{profile.profileId}</option>
+                  {/each}
+                </select>
+              </label>
+            </div>
+
+            <textarea
+              class="textarea textarea-bordered min-h-64 w-full font-mono text-xs"
+              bind:value={contractJson}
+              placeholder="Paste contract JSON…"
+              disabled={!selectedProfile}
+            ></textarea>
+
+            <div class="flex justify-end">
+              <button class="btn btn-primary btn-sm" onclick={applyContract} disabled={applyPending || !selectedProfile || !contractJson.trim()}>
+                {applyPending ? "Applying…" : "Apply Contract"}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card border border-base-300 bg-base-100">
+          <div class="card-body gap-3">
+            <div>
+              <h3 class="card-title text-sm">Selected profile details</h3>
+              <p class="text-sm text-base-content/60">Unapply an entire contract lineage or remove a specific digest from the selected profile.</p>
+            </div>
+
+            {#if !selectedProfile}
+              <p class="text-sm text-base-content/60">Select a profile to manage contracts.</p>
+            {:else}
+              <div class="space-y-4">
+                <div class="rounded-box border border-base-300 bg-base-100 p-3">
+                  <div class="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <div class="font-medium">{selectedProfile.displayName}</div>
+                      <div class="font-mono text-xs text-base-content/60">{selectedProfile.profileId}</div>
+                    </div>
+                    <span class={[
+                      "badge badge-sm",
+                      selectedProfile.disabled ? "badge-ghost" : "badge-success",
+                    ]}>
+                      {selectedProfile.disabled ? "Disabled" : "Active"}
+                    </span>
+                  </div>
+                  <div class="mt-3 flex flex-wrap gap-1">
+                    {#each selectedProfile.namespaces as namespace (namespace)}
+                      <span class="badge badge-outline badge-xs">{namespace}</span>
+                    {/each}
+                  </div>
+                </div>
+
+                {#if selectedProfile.appliedContracts.length === 0}
+                  <p class="text-sm text-base-content/60">No contracts applied.</p>
+                {:else}
+                  <div class="space-y-3">
+                    {#each selectedProfile.appliedContracts as applied (applied.contractId)}
+                      <div class="rounded-box border border-base-300 bg-base-100 p-3">
+                        <div class="flex flex-wrap items-start justify-between gap-2">
+                          <div>
+                            <div class="font-medium text-sm">{applied.contractId}</div>
+                            <div class="text-xs text-base-content/60">{applied.allowedDigests.length} digest(s)</div>
+                          </div>
+                          <button
+                            class="btn btn-ghost btn-xs text-error"
+                            onclick={() => unapplyContract(selectedProfile, applied.contractId)}
+                            disabled={actionTarget === `${selectedProfile.profileId}:${applied.contractId}:lineage:unapply`}
+                          >
+                            Unapply lineage
+                          </button>
+                        </div>
+
+                        <div class="mt-3 flex flex-wrap gap-2">
+                          {#each applied.allowedDigests as digest (digest)}
+                            <div class="flex items-center gap-1 rounded-full border border-base-300 px-2 py-1">
+                              <span class="font-mono text-xs">{digest}</span>
+                              <button
+                                class="btn btn-ghost btn-xs text-error"
+                                onclick={() => unapplyContract(selectedProfile, applied.contractId, [digest])}
+                                disabled={actionTarget === `${selectedProfile.profileId}:${applied.contractId}:${digest}:unapply`}
+                                aria-label={`Unapply digest ${digest}`}
+                              >
+                                ×
+                              </button>
                             </div>
                           {/each}
                         </div>
                       </div>
-                    {/if}
-
-                    {#if service.contractDigest}
-                      <div>
-                        <h4 class="text-xs font-semibold uppercase text-base-content/50 mb-2">Upgrade Contract</h4>
-                        <div class="flex gap-2 mb-2">
-                          <button
-                            class="btn btn-ghost btn-xs"
-                            onclick={() => loadCurrentContract(service.contractDigest)}
-                            disabled={upgradeLoadPending}
-                          >
-                            {upgradeLoadPending ? "Loading…" : "Load current"}
-                          </button>
-                        </div>
-                        <textarea
-                          class="textarea textarea-bordered w-full font-mono text-xs"
-                          rows="8"
-                          placeholder="Paste contract JSON…"
-                          bind:value={upgradeJson}
-                        ></textarea>
-                        <button
-                          class="btn btn-primary btn-sm mt-2"
-                          onclick={() => upgradeContract(service.sessionKey)}
-                          disabled={upgradePending || !upgradeJson.trim()}
-                        >
-                          {upgradePending ? "Upgrading…" : "Upgrade"}
-                        </button>
-                      </div>
-                    {/if}
+                    {/each}
                   </div>
-                </td>
-              </tr>
+                {/if}
+              </div>
             {/if}
-          {/each}
-        </tbody>
-      </table>
+          </div>
+        </div>
+      </div>
     </div>
   {/if}
 </section>

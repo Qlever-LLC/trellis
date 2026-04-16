@@ -54,14 +54,14 @@ export {
   HealthResponseSchema,
   HealthRpcSchema,
 } from "./health.ts";
-export { defineError } from "../contracts/mod.ts";
+export { defineError } from "./contract_support/mod.ts";
 export type {
   ErrorClass,
   InferRuntimeRpcError,
   RpcErrorClass,
   RuntimeRpcErrorDesc,
   TransportErrorData,
-} from "../contracts/mod.ts";
+} from "./contract_support/mod.ts";
 export {
   defineAppContract,
   defineCliContract,

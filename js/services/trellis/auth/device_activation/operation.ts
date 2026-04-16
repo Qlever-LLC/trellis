@@ -16,7 +16,7 @@ import { randomToken } from "../crypto.ts";
 import {
   deriveDeviceConfirmationCode,
   verifyDeviceWaitSignature,
-} from "../../../../packages/auth/device_activation.ts";
+} from "@qlever-llc/trellis/auth";
 import { getConfig } from "../../config.ts";
 import { deviceInstanceId } from "../admin/shared.ts";
 import { buildClientTransports } from "../transports.ts";
@@ -49,6 +49,8 @@ type DeviceInstance = {
   profileId: string;
   metadata?: Record<string, string>;
   state: "registered" | "activated" | "revoked" | "disabled";
+  currentContractId?: string;
+  currentContractDigest?: string;
   createdAt: string | Date;
   activatedAt: string | Date | null;
   revokedAt: string | Date | null;
@@ -56,8 +58,7 @@ type DeviceInstance = {
 
 type DeviceProfile = {
   profileId: string;
-  contractId: string;
-  allowedDigests: string[];
+  appliedContracts: Array<{ contractId: string; allowedDigests: string[] }>;
   reviewMode?: "none" | "required";
   disabled: boolean;
 };
@@ -120,7 +121,7 @@ async function loadDeviceInstance(instanceId: string): Promise<DeviceInstance | 
 async function loadDeviceProfile(profileId: string): Promise<DeviceProfile | null> {
   const entry = (await deviceProfilesKV.get(profileId)).take();
   if (isErr(entry)) return null;
-  return entry.value as DeviceProfile;
+  return entry.value as unknown as DeviceProfile;
 }
 
 async function loadDeviceProvisioningSecret(instanceId: string): Promise<DeviceProvisioningSecret | null> {
@@ -164,7 +165,10 @@ async function buildDeviceConnectInfo(args: {
   profile: DeviceProfile;
   contractDigest: string;
 }) {
-  if (!args.profile.allowedDigests.includes(args.contractDigest)) {
+  const applied = args.profile.appliedContracts.find((entry) =>
+    entry.allowedDigests.includes(args.contractDigest)
+  );
+  if (!applied) {
     throw new AuthError({
       reason: "invalid_request",
       context: { reason: "contract_digest_not_allowed", contractDigest: args.contractDigest },
@@ -173,7 +177,7 @@ async function buildDeviceConnectInfo(args: {
   return {
     instanceId: args.instance.instanceId,
     profileId: args.profile.profileId,
-    contractId: args.profile.contractId,
+    contractId: applied.contractId,
     contractDigest: args.contractDigest,
     transports: buildClientTransports(config),
     transport: {
@@ -400,13 +404,19 @@ export function createGetDeviceConnectInfoHandler() {
       return activationFailure("invalid_request", { reason: "device_profile_not_found" });
     }
 
+    const connectInfo = await buildDeviceConnectInfo({
+      instance,
+      profile,
+      contractDigest: req.contractDigest,
+    });
+    await deviceInstancesKV.put(instance.instanceId, {
+      ...instance,
+      currentContractId: connectInfo.contractId,
+      currentContractDigest: connectInfo.contractDigest,
+    });
     return Result.ok({
       status: "ready" as const,
-      connectInfo: await buildDeviceConnectInfo({
-        instance,
-        profile,
-        contractDigest: req.contractDigest,
-      }),
+      connectInfo,
     });
   };
 }

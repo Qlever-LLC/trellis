@@ -9,8 +9,7 @@ import type { ContractRecord } from "../../state/schemas.ts";
 
 type DeviceProfile = {
   profileId: string;
-  contractId: string;
-  allowedDigests: string[];
+  appliedContracts: Array<{ contractId: string; allowedDigests: string[] }>;
   reviewMode?: "none" | "required";
   disabled: boolean;
 };
@@ -41,7 +40,7 @@ export function resolveDeviceContractDigest(
   if (typeof contractDigest !== "string" || contractDigest.length === 0) {
     throw new Error("invalid_auth_token");
   }
-  if (!profile.allowedDigests.includes(contractDigest)) {
+  if (!profile.appliedContracts.some((entry) => entry.allowedDigests.includes(contractDigest))) {
     throw new Error("device_digest_not_allowed");
   }
   return contractDigest;
@@ -52,11 +51,11 @@ export function deriveDeviceRuntimeAccess(
   contractRecord: ContractRecord,
   contractStore?: ContractStore,
 ): DeviceRuntimeAccess {
-  if (contractRecord.id !== profile.contractId) {
+  const applied = profile.appliedContracts.find((entry) =>
+    entry.allowedDigests.includes(contractRecord.digest)
+  );
+  if (!applied || contractRecord.id !== applied.contractId) {
     throw new Error("device_profile_contract_mismatch");
-  }
-  if (!profile.allowedDigests.includes(contractRecord.digest)) {
-    throw new Error("device_digest_not_allowed");
   }
 
   const analysis = contractRecord.analysis;

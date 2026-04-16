@@ -205,7 +205,7 @@ fn embedded_schemas_match_shared_source_of_truth() {
     ] {
         let embedded = fs::read_to_string(root.join("schemas").join(schema_name)).unwrap();
         let shared = fs::read_to_string(
-            root.join("../../../js/packages/contracts/schemas")
+            root.join("../../../js/packages/trellis/contract_support/schemas")
                 .join(schema_name),
         )
         .unwrap();

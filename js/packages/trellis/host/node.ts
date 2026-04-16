@@ -1,1 +1,1 @@
-export * from "../../server/node.ts";
+export * from "../server/node.ts";

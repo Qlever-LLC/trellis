@@ -4,7 +4,7 @@ use std::path::PathBuf;
 fn main() {
     let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("manifest dir"));
     let embedded_dir = manifest_dir.join("schemas");
-    let shared_dir = manifest_dir.join("../../../js/packages/contracts/schemas");
+    let shared_dir = manifest_dir.join("../../../js/packages/trellis/contract_support/schemas");
 
     println!("cargo:rerun-if-changed={}", embedded_dir.display());
     println!("cargo:rerun-if-changed={}", shared_dir.display());
@@ -25,7 +25,7 @@ fn main() {
 
         if embedded != shared {
             panic!(
-                "embedded schema {schema_name} is out of sync with js/packages/contracts/schemas; copy the shared schema into rust/crates/contracts/schemas"
+                "embedded schema {schema_name} is out of sync with js/packages/trellis/contract_support/schemas; copy the shared schema into rust/crates/contracts/schemas"
             );
         }
     }

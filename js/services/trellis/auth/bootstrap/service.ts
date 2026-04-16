@@ -5,7 +5,8 @@ import { Type } from "typebox";
 import { Value } from "typebox/value";
 
 import type { ContractStore } from "../../catalog/store.ts";
-import type { ServiceRegistryEntry } from "../../state/schemas/catalog_state.ts";
+import { provisionContractResourceBindings } from "../../catalog/resources.ts";
+import { resolveContractUsesFromStore } from "../../catalog/uses.ts";
 import {
   SessionKeySchema,
   SignatureSchema,
@@ -34,12 +35,40 @@ export const ServiceBootstrapRequestSchema = Type.Object({
 
 export type ServiceBootstrapDeps = {
   contractStore: ContractStore;
+  nats?: Parameters<typeof provisionContractResourceBindings>[0];
   transports: {
     native?: { natsServers: string[] };
     websocket?: { natsServers: string[] };
   };
   sentinel: SentinelCreds;
-  loadService(sessionKey: string): Promise<ServiceRegistryEntry | null>;
+  loadServiceInstance(instanceKey: string): Promise<{
+    instanceId: string;
+    profileId: string;
+    instanceKey: string;
+    disabled: boolean;
+    currentContractId?: string;
+    currentContractDigest?: string;
+    capabilities: string[];
+    resourceBindings?: Record<string, unknown>;
+    createdAt: string | Date;
+  } | null>;
+  saveServiceInstance(instance: {
+    instanceId: string;
+    profileId: string;
+    instanceKey: string;
+    disabled: boolean;
+    currentContractId?: string;
+    currentContractDigest?: string;
+    capabilities: string[];
+    resourceBindings?: Record<string, unknown>;
+    createdAt: string | Date;
+  }): Promise<void>;
+  loadServiceProfile(profileId: string): Promise<{
+    profileId: string;
+    disabled: boolean;
+    appliedContracts: Array<{ contractId: string; allowedDigests: string[] }>;
+  } | null>;
+  refreshActiveContracts(): Promise<void>;
   verifyIdentityProof(input: {
     sessionKey: string;
     iat: number;
@@ -56,6 +85,43 @@ function buildContractView(contract: TrellisContractV1, digest: string) {
     description: contract.description,
     ...(contract.resources ? { resources: contract.resources } : {}),
   };
+}
+
+function getRequiredServiceCapabilities(
+  contractStore: ContractStore,
+  contract: TrellisContractV1,
+): string[] {
+  const capabilities = new Set<string>(["service"]);
+  const uses = resolveContractUsesFromStore(contractStore, contract);
+
+  for (const event of Object.values(contract.events ?? {})) {
+    for (const capability of event.capabilities?.publish ?? []) {
+      capabilities.add(capability);
+    }
+  }
+
+  for (const subject of Object.values(contract.subjects ?? {})) {
+    for (const capability of subject.capabilities?.publish ?? []) capabilities.add(capability);
+    for (const capability of subject.capabilities?.subscribe ?? []) capabilities.add(capability);
+  }
+
+  for (const method of uses.rpcCalls) {
+    for (const capability of method.method.capabilities?.call ?? []) capabilities.add(capability);
+  }
+  for (const event of uses.eventPublishes) {
+    for (const capability of event.event.capabilities?.publish ?? []) capabilities.add(capability);
+  }
+  for (const event of uses.eventSubscribes) {
+    for (const capability of event.event.capabilities?.subscribe ?? []) capabilities.add(capability);
+  }
+  for (const subject of uses.subjectPublishes) {
+    for (const capability of subject.subject.capabilities?.publish ?? []) capabilities.add(capability);
+  }
+  for (const subject of uses.subjectSubscribes) {
+    for (const capability of subject.subject.capabilities?.subscribe ?? []) capabilities.add(capability);
+  }
+
+  return [...capabilities].sort((left, right) => left.localeCompare(right));
 }
 
 export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
@@ -85,33 +151,51 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
       return c.json({ reason: "invalid_signature" }, 400);
     }
 
-    const service = await deps.loadService(request.sessionKey);
+    const service = await deps.loadServiceInstance(request.sessionKey);
     if (!service) {
       return c.json({ reason: "unknown_service" }, 404);
     }
-    if (!service.active) {
+    if (service.disabled) {
       return c.json({ reason: "service_disabled" }, 403);
     }
 
-    if (
-      service.contractId !== request.contractId ||
-      service.contractDigest !== request.contractDigest
-    ) {
+    const profile = await deps.loadServiceProfile(service.profileId);
+    if (!profile || profile.disabled) {
+      return c.json({ reason: "service_profile_disabled" }, 403);
+    }
+
+    const applied = profile.appliedContracts.find((entry) =>
+      entry.allowedDigests.includes(request.contractDigest)
+    );
+    if (!applied || applied.contractId !== request.contractId) {
       return c.json({ reason: "service_contract_mismatch" }, 409);
     }
 
-    const activeDigest = deps.contractStore.findActiveDigestById(request.contractId);
-    if (activeDigest !== request.contractDigest) {
-      return c.json({ reason: "contract_not_active" }, 409);
-    }
-
-    const contract = deps.contractStore.getContract(request.contractDigest);
+    const contract = deps.contractStore.getContract(request.contractDigest, { includeInactive: true });
     if (!contract || contract.id !== request.contractId) {
       return c.json({ reason: "contract_not_active" }, 409);
     }
 
-    if (!service.resourceBindings) {
-      return c.json({ reason: "service_bindings_not_found" }, 409);
+    let nextService = service;
+    if (
+      service.currentContractDigest !== request.contractDigest ||
+      service.currentContractId !== request.contractId ||
+      !service.resourceBindings
+    ) {
+      const resourceBindings = await provisionContractResourceBindings(
+        deps.nats,
+        contract,
+        service.instanceKey,
+      );
+      nextService = {
+        ...service,
+        currentContractId: request.contractId,
+        currentContractDigest: request.contractDigest,
+        capabilities: getRequiredServiceCapabilities(deps.contractStore, contract),
+        resourceBindings,
+      };
+      await deps.saveServiceInstance(nextService);
+      await deps.refreshActiveContracts();
     }
 
     return c.json({
@@ -133,7 +217,7 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
       binding: {
         contractId: request.contractId,
         digest: request.contractDigest,
-        resources: service.resourceBindings,
+        resources: nextService.resourceBindings,
       },
     });
   };

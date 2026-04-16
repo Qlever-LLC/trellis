@@ -6,7 +6,7 @@
 import { assertEquals, assertExists } from "jsr:@std/assert";
 import { Type } from "typebox";
 import { type BaseError, Result } from "@qlever-llc/result";
-import { defineServiceContract } from "../trellis/contract.ts";
+import { defineServiceContract } from "../contract.ts";
 import type {
   EventHandler,
   EventName,

@@ -3,7 +3,6 @@ import { assertEquals } from "@std/assert";
 import { createAuth } from "@qlever-llc/trellis/auth";
 
 import { ContractStore } from "../../catalog/store.ts";
-import type { ServiceRegistryEntry } from "../../state/schemas/catalog_state.ts";
 import { createServiceBootstrapHandler } from "./service.ts";
 
 const TEST_SEED = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
@@ -30,7 +29,16 @@ async function createTestContractStore() {
 }
 
 async function createApp(args: {
-  service?: ServiceRegistryEntry | null;
+  service?: {
+    displayName: string;
+    active: boolean;
+    capabilities: string[];
+    description: string;
+    contractId?: string;
+    contractDigest?: string;
+    resourceBindings?: Record<string, unknown>;
+    createdAt: string | Date;
+  } | null;
   nowSeconds?: number;
   activateContract?: boolean;
 }) {
@@ -48,14 +56,13 @@ async function createApp(args: {
       websocket: { natsServers: ["ws://localhost:8080"] },
     },
     sentinel: { jwt: "jwt", seed: "seed" },
-    loadService: async (sessionKey) => {
-      if (sessionKey !== auth.sessionKey) return null;
-      if (args.service !== undefined) return args.service;
-      return {
+    loadServiceInstance: async (instanceKey) => {
+      if (instanceKey !== auth.sessionKey) return null;
+      if (args.service === null) return null;
+      const service = args.service ?? {
         displayName: "Example Service",
         active: true,
         capabilities: ["service"],
-        namespaces: ["svc"],
         description: "Example service",
         contractId: validated.contract.id,
         contractDigest: validated.digest,
@@ -70,7 +77,29 @@ async function createApp(args: {
         },
         createdAt: new Date("2026-01-01T00:00:00.000Z"),
       };
+
+      return {
+        instanceId: "svc_1",
+        profileId: "profile_1",
+        instanceKey: auth.sessionKey,
+        disabled: !service.active,
+        currentContractId: service.contractId,
+        currentContractDigest: service.contractDigest,
+        capabilities: service.capabilities,
+        resourceBindings: service.resourceBindings,
+        createdAt: service.createdAt,
+      };
     },
+    saveServiceInstance: async () => {},
+    loadServiceProfile: async () => ({
+      profileId: "profile_1",
+      disabled: false,
+      appliedContracts: [{
+        contractId: validated.contract.id,
+        allowedDigests: [validated.digest],
+      }],
+    }),
+    refreshActiveContracts: async () => {},
     verifyIdentityProof: async ({ sessionKey, iat, sig }) =>
       sessionKey === auth.sessionKey &&
       sig === await auth.natsConnectSigForIat(iat),

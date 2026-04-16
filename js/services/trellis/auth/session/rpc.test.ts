@@ -3,7 +3,7 @@ import { isErr, Result, UnexpectedError } from "@qlever-llc/result";
 import { trellisIdFromOriginId } from "@qlever-llc/trellis/auth";
 import Value from "typebox/value";
 
-import { AuthMeResponseSchema } from "../../../../packages/auth/protocol.ts";
+import { AuthMeResponseSchema } from "@qlever-llc/trellis/auth";
 import { createAuthMeHandler } from "./me.ts";
 import type { ServiceRegistryEntry, Session, UserProjectionEntry } from "../../state/schemas.ts";
 
@@ -192,6 +192,11 @@ Deno.test("Auth.Me returns user, device, and service envelopes", async () => {
     id: "billing",
     email: "billing@trellis.internal",
     name: "Billing",
+    instanceId: "svc_1",
+    profileId: "billing.default",
+    instanceKey: serviceSessionKey,
+    currentContractId: null,
+    currentContractDigest: null,
     createdAt: baseSessionFields().createdAt,
     lastAuth: baseSessionFields().lastAuth,
   });

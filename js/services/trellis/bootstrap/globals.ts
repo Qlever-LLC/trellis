@@ -1,6 +1,6 @@
 import { connect, credsAuthenticator } from "@nats-io/transport-deno";
 import { createAuth, isErr, TypedKV } from "@qlever-llc/trellis";
-import { TrellisService } from "../../../packages/server/service.ts";
+import { TrellisService } from "@qlever-llc/trellis/host/deno";
 import { pino } from "pino";
 import { Value } from "typebox/value";
 import { getConfig } from "../config.ts";
@@ -18,7 +18,6 @@ import {
   PendingAuthSchema,
   type SentinelCreds,
   SentinelCredsSchema,
-  ServiceRegistrySchema,
   SessionSchema,
   UserProjectionSchema,
   DevicePortalSelectionSchema,
@@ -29,6 +28,8 @@ import {
   DeviceProvisioningSecretSchema,
   DeviceSchema,
   InstanceGrantPolicySchema,
+  ServiceInstanceSchema,
+  ServiceProfileSchema,
 } from "../state/schemas.ts";
 import { StoredStateEntrySchema } from "../state/model.ts";
 
@@ -227,7 +228,7 @@ export const browserFlowsKV = browserFlowsKVValue;
 
 const deviceProfilesKVResult = await TypedKV.open(
   natsAuth,
-  "trellis_device_profiles",
+  "trellis_device_profiles_v2",
   DeviceProfileSchema,
   { history: 1, ttl: 0 },
 );
@@ -241,7 +242,7 @@ export const deviceProfilesKV = deviceProfilesKVValue;
 
 const deviceInstancesKVResult = await TypedKV.open(
   natsAuth,
-  "trellis_device_instances",
+  "trellis_device_instances_v2",
   DeviceSchema,
   { history: 1, ttl: 0 },
 );
@@ -255,7 +256,7 @@ export const deviceInstancesKV = deviceInstancesKVValue;
 
 const deviceActivationHandoffsKVResult = await TypedKV.open(
   natsAuth,
-  "trellis_device_activation_handoffs",
+  "trellis_device_activation_handoffs_v2",
   DeviceActivationHandoffSchema,
   { history: 1, ttl: config.ttlMs.deviceHandoff },
 );
@@ -269,7 +270,7 @@ export const deviceActivationHandoffsKV = deviceActivationHandoffsKVValue;
 
 const deviceProvisioningSecretsKVResult = await TypedKV.open(
   natsAuth,
-  "trellis_device_provisioning_secrets",
+  "trellis_device_provisioning_secrets_v2",
   DeviceProvisioningSecretSchema,
   { history: 1, ttl: 0 },
 );
@@ -283,7 +284,7 @@ export const deviceProvisioningSecretsKV = deviceProvisioningSecretsKVValue;
 
 const deviceActivationsKVResult = await TypedKV.open(
   natsAuth,
-  "trellis_device_activations",
+  "trellis_device_activations_v2",
   DeviceActivationRecordSchema,
   { history: 1, ttl: 0 },
 );
@@ -297,7 +298,7 @@ export const deviceActivationsKV = deviceActivationsKVValue;
 
 const deviceActivationReviewsKVResult = await TypedKV.open(
   natsAuth,
-  "trellis_device_activation_reviews",
+  "trellis_device_activation_reviews_v2",
   DeviceActivationReviewRecordSchema,
   { history: 1, ttl: 0 },
 );
@@ -323,22 +324,39 @@ if (isErr(connectionsKVValue)) {
 }
 export const connectionsKV = connectionsKVValue;
 
-const servicesKVResult = await TypedKV.open(
+const serviceProfilesKVResult = await TypedKV.open(
   natsAuth,
-  "trellis_services",
-  ServiceRegistrySchema,
+  "trellis_service_profiles",
+  ServiceProfileSchema,
   {
     history: 1,
     ttl: 0,
   },
 );
-const servicesKVValue = servicesKVResult.take();
-if (isErr(servicesKVValue)) {
+const serviceProfilesKVValue = serviceProfilesKVResult.take();
+if (isErr(serviceProfilesKVValue)) {
   throw new Error(
-    `Failed to open services KV: ${servicesKVValue.error.message}`,
+    `Failed to open service profiles KV: ${serviceProfilesKVValue.error.message}`,
   );
 }
-export const servicesKV = servicesKVValue;
+export const serviceProfilesKV = serviceProfilesKVValue;
+
+const serviceInstancesKVResult = await TypedKV.open(
+  natsAuth,
+  "trellis_service_instances",
+  ServiceInstanceSchema,
+  {
+    history: 1,
+    ttl: 0,
+  },
+);
+const serviceInstancesKVValue = serviceInstancesKVResult.take();
+if (isErr(serviceInstancesKVValue)) {
+  throw new Error(
+    `Failed to open service instances KV: ${serviceInstancesKVValue.error.message}`,
+  );
+}
+export const serviceInstancesKV = serviceInstancesKVValue;
 
 const contractsKVResult = await TypedKV.open(
   natsAuth,

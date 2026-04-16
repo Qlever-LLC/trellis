@@ -2,7 +2,6 @@ import { isErr } from "@qlever-llc/result";
 import type {
   ContractApprovalRecord,
   InstanceGrantPolicy,
-  ServiceRegistryEntry,
   Session,
   UserProjectionEntry,
 } from "../../state/schemas.ts";
@@ -25,7 +24,16 @@ export type SessionPrincipal = {
   capabilities: string[];
   email: string;
   name: string;
-  serviceState?: ServiceRegistryEntry;
+  serviceState?: {
+    instanceId: string;
+    profileId: string;
+    instanceKey: string;
+    disabled: boolean;
+    currentContractId?: string;
+    currentContractDigest?: string;
+    capabilities: string[];
+    resourceBindings?: Record<string, unknown>;
+  };
 };
 
 export type SessionPrincipalError = {
@@ -66,7 +74,18 @@ export async function resolveSessionPrincipal(
   session: Session,
   sessionKey: string,
   deps: {
-    servicesKV: KVLike<ServiceRegistryEntry>;
+    loadServiceInstance?: (instanceKey: string) => Promise<{
+      instanceId: string;
+      profileId: string;
+      instanceKey: string;
+      disabled: boolean;
+      currentContractId?: string;
+      currentContractDigest?: string;
+      capabilities: string[];
+      resourceBindings?: Record<string, unknown>;
+    } | null>;
+    loadServiceProfile?: (profileId: string) => Promise<{ profileId: string; disabled: boolean } | null>;
+    servicesKV?: KVLike<unknown>;
     deviceActivationsKV?: KVLike<{ instanceId: string; publicIdentityKey: string; profileId: string; state: string; revokedAt: string | Date | null }>;
     deviceProfilesKV?: KVLike<{ profileId: string; disabled: boolean }>;
     usersKV: KVLike<UserProjectionEntry>;
@@ -75,21 +94,30 @@ export async function resolveSessionPrincipal(
   },
 ): Promise<SessionPrincipalResult> {
   if (session.type === "service") {
-    const serviceEntry = (await deps.servicesKV.get(sessionKey)).take();
-    if (isErr(serviceEntry)) {
+    const service = await deps.loadServiceInstance?.(sessionKey);
+    if (!service) {
       return {
         ok: false,
         error: { reason: "unknown_service", context: { sessionKey } },
       };
     }
-
-    const service = unwrapValue(serviceEntry as { value: ServiceRegistryEntry } | ServiceRegistryEntry);
-    if (!service.active) {
+    if (service.disabled) {
       return {
         ok: false,
         error: {
           reason: "service_disabled",
-          context: { service: service.displayName, sessionKey },
+          context: { instanceId: service.instanceId, sessionKey },
+        },
+      };
+    }
+
+    const profile = await deps.loadServiceProfile?.(service.profileId);
+    if (!profile || profile.disabled) {
+      return {
+        ok: false,
+        error: {
+          reason: "service_disabled",
+          context: { profileId: service.profileId, sessionKey },
         },
       };
     }

@@ -24,7 +24,9 @@ import {
   LoginPortalDefaultSchema,
   LoginPortalSelectionSchema,
   PortalSchema,
-} from "../../../../packages/auth/protocol.ts";
+  ServiceInstanceSchema,
+  ServiceProfileSchema,
+} from "../../../../packages/trellis/auth/protocol.ts";
 import { IsoDateSchema } from "@qlever-llc/trellis/contracts";
 import type { StaticDecode } from "typebox";
 import { Type } from "typebox";
@@ -49,6 +51,8 @@ export {
   DeviceProfileSchema,
   DeviceSchema,
   InstanceGrantPolicySchema,
+  ServiceInstanceSchema,
+  ServiceProfileSchema,
 };
 
 export const SessionKeySchema = Type.String({
@@ -226,6 +230,11 @@ export type UserSession = StaticDecode<typeof UserSessionSchema>;
 export const ServiceSessionSchema = Type.Object({
   type: Type.Literal("service"),
   ...SessionBaseFields,
+  instanceId: Type.String({ minLength: 1 }),
+  profileId: Type.String({ minLength: 1 }),
+  instanceKey: Type.String({ minLength: 1 }),
+  currentContractId: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+  currentContractDigest: Type.Union([Type.String({ pattern: "^[A-Za-z0-9_-]+$" }), Type.Null()]),
 }, { additionalProperties: false });
 export type ServiceSession = StaticDecode<typeof ServiceSessionSchema>;
 

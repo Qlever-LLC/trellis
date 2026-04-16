@@ -21,7 +21,7 @@
   },
   "exclude": [
     "src/**/*.test.ts",
-    "../../packages/server/**/*.ts",
+    "../../packages/trellis/server/**/*.ts",
     "../../services/**/*.ts"
   ]
 }

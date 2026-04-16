@@ -27,7 +27,7 @@
 
   async function requestOrThrow<T>(method: string, input: unknown): Promise<T> {
     const trellis = await trellisPromise;
-    const result = await trellis.request(method, input);
+    const result = await trellis.request<T>(method as string, input);
     const value = result.take();
     if (isErr(value)) throw value.error;
     return value as T;
@@ -75,6 +75,14 @@
     const portalId = explicit?.portalId ?? defaultPortal.portalId;
     const source = explicit ? "selection" : "default";
     return `${portalLabel(portalId)} · ${source}`;
+  }
+
+  function profileContractSummary(profile: ProfileRecord): string {
+    if (profile.appliedContracts.length === 0) {
+      return `No contracts · review ${profile.reviewMode ?? "none"}`;
+    }
+
+    return `${profile.appliedContracts.map((entry) => entry.contractId).join(", ")} · review ${profile.reviewMode ?? "none"}`;
   }
 
   async function load() {
@@ -226,7 +234,7 @@
             <tr>
               <td>
                 <div class="font-medium">{profile.profileId}</div>
-                <div class="text-xs text-base-content/60">{profile.contractId} · review {profile.reviewMode ?? "none"}</div>
+                <div class="text-xs text-base-content/60">{profileContractSummary(profile)}</div>
               </td>
               <td class="text-sm text-base-content/60">{effectivePortalLabel(profile.profileId)}</td>
               <td>

@@ -30,7 +30,7 @@
     error = null;
     try {
       const trellis = await trellisPromise;
-      const response = await trellis.requestOrThrow("Auth.ListSessions", {
+      const response = await trellis.requestOrThrow<AuthListSessionsOutput>("Auth.ListSessions" as string, {
         user: sessionFilterUser.trim() || undefined
       });
       sessions = (response.sessions ?? []).map((s) => ({
@@ -49,7 +49,7 @@
     error = null;
     try {
       const trellis = await trellisPromise;
-      const response = await trellis.requestOrThrow("Auth.ListConnections", {
+      const response = await trellis.requestOrThrow<AuthListConnectionsOutput>("Auth.ListConnections" as string, {
         user: connFilterUser.trim() || undefined,
         sessionKey: connFilterSessionKey.trim() || undefined
       });
@@ -74,7 +74,7 @@
     revokeTarget = sessionKey;
     try {
       const trellis = await trellisPromise;
-      await trellis.requestOrThrow("Auth.RevokeSession", { sessionKey } satisfies AuthRevokeSessionInput);
+      await trellis.requestOrThrow<void>("Auth.RevokeSession" as string, { sessionKey } satisfies AuthRevokeSessionInput);
       notifications.success(`Session revoked for ${principal}.`, "Revoked");
       await loadSessions();
     } catch (e) { error = errorMessage(e); }
@@ -86,7 +86,7 @@
     kickTarget = userNkey;
     try {
       const trellis = await trellisPromise;
-      await trellis.requestOrThrow("Auth.KickConnection", { userNkey } satisfies AuthKickConnectionInput);
+      await trellis.requestOrThrow<void>("Auth.KickConnection" as string, { userNkey } satisfies AuthKickConnectionInput);
       notifications.success(`Disconnected ${principal}.`, "Kicked");
       await loadConnections();
     } catch (e) { error = errorMessage(e); }

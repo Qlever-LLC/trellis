@@ -8,9 +8,9 @@ import {
   signDeviceWaitRequest,
   verifyDeviceConfirmationCode,
   waitForDeviceActivation,
-} from "../auth/device_activation.ts";
-import { importEd25519PrivateKeyFromSeedBase64url } from "../auth/keys.ts";
-import { base64urlDecode, base64urlEncode, toArrayBuffer } from "../auth/utils.ts";
+} from "./auth/device_activation.ts";
+import { importEd25519PrivateKeyFromSeedBase64url } from "./auth/keys.ts";
+import { base64urlDecode, base64urlEncode, toArrayBuffer } from "./auth/utils.ts";
 import type { TrellisAPI } from "./contracts.ts";
 import { loadDefaultRuntimeTransport } from "./runtime_transport.ts";
 import { selectRuntimeTransportServers } from "./runtime_transport.ts";

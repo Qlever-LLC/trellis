@@ -1,51 +1,54 @@
 <script lang="ts">
   import type {
     AuthListConnectionsOutput,
-    AuthListServicesOutput,
+    AuthListServiceInstancesOutput,
     AuthListSessionsOutput,
   } from "@qlever-llc/trellis-sdk/auth";
+  import { resolve } from "$app/paths";
   import { onMount } from "svelte";
   import { errorMessage } from "../../../lib/format";
   import { getTrellis } from "../../../lib/trellis";
+
+  type ServiceInstance = AuthListServiceInstancesOutput["instances"][number];
 
   const trellisPromise = getTrellis();
 
   let loading = $state(true);
   let error = $state<string | null>(null);
-  let services = $state<AuthListServicesOutput["services"]>([]);
+  let instances = $state<ServiceInstance[]>([]);
   let sessionCount = $state(0);
   let connectionCount = $state(0);
 
-  const activeServices = $derived(services.filter((s) => s.active).length);
-  const needsSetup = $derived(services.filter((s) => !s.contractDigest).length);
+  const activeInstances = $derived(instances.filter((instance) => !instance.disabled).length);
+  const disabledInstances = $derived(instances.filter((instance) => instance.disabled).length);
 
   async function listSessions() {
     const trellis = await trellisPromise;
-    return await trellis.requestOrThrow("Auth.ListSessions", {});
+    return await trellis.requestOrThrow<AuthListSessionsOutput>("Auth.ListSessions" as string, {});
   }
 
   async function listConnections() {
     const trellis = await trellisPromise;
-    return await trellis.requestOrThrow("Auth.ListConnections", {});
+    return await trellis.requestOrThrow<AuthListConnectionsOutput>("Auth.ListConnections" as string, {});
   }
 
-  async function listServices() {
+  async function listServiceInstances() {
     const trellis = await trellisPromise;
-    return await trellis.requestOrThrow("Auth.ListServices", {});
+    return await trellis.requestOrThrow<AuthListServiceInstancesOutput>("Auth.ListServiceInstances" as string, {});
   }
 
   async function load() {
     loading = true;
     error = null;
     try {
-      const [sessionsRes, connectionsRes, servicesRes] = await Promise.all([
+      const [sessionsRes, connectionsRes, instancesRes] = await Promise.all([
         listSessions(),
         listConnections(),
-        listServices(),
+        listServiceInstances(),
       ]);
       sessionCount = sessionsRes.sessions?.length ?? 0;
       connectionCount = connectionsRes.connections?.length ?? 0;
-      services = servicesRes.services ?? [];
+      instances = instancesRes.instances ?? [];
     } catch (e) {
       error = errorMessage(e);
     } finally {
@@ -53,7 +56,9 @@
     }
   }
 
-  onMount(() => { void load(); });
+  onMount(() => {
+    void load();
+  });
 </script>
 
 {#if loading}
@@ -68,8 +73,12 @@
 
     <div class="stats stats-vertical sm:stats-horizontal shadow border border-base-300 w-full">
       <div class="stat">
-        <div class="stat-title">Active Services</div>
-        <div class="stat-value text-2xl">{activeServices}</div>
+        <div class="stat-title">Active Service Instances</div>
+        <div class="stat-value text-2xl">{activeInstances}</div>
+      </div>
+      <div class="stat">
+        <div class="stat-title">Disabled Service Instances</div>
+        <div class="stat-value text-2xl">{disabledInstances}</div>
       </div>
       <div class="stat">
         <div class="stat-title">Sessions</div>
@@ -81,50 +90,42 @@
       </div>
     </div>
 
-    {#if needsSetup > 0}
-      <div class="alert alert-warning">
-        <span>{needsSetup} service{needsSetup > 1 ? "s" : ""} need{needsSetup === 1 ? "s" : ""} setup</span>
-      </div>
-    {/if}
+    <div class="flex flex-wrap gap-2">
+      <a href={resolve("/admin/services")} class="btn btn-primary btn-sm">Manage Profiles</a>
+      <a href="/admin/services/instances" class="btn btn-outline btn-sm">Manage Instances</a>
+      <button class="btn btn-ghost btn-sm" onclick={load}>Refresh</button>
+    </div>
 
     <div>
       <div class="flex items-center justify-between mb-3">
-        <h3 class="text-sm font-semibold">Services</h3>
-        <button class="btn btn-ghost btn-sm" onclick={load}>Refresh</button>
+        <h3 class="text-sm font-semibold">Service Instances</h3>
+        <p class="text-xs text-base-content/60">{instances.length} total</p>
       </div>
 
-      {#if services.length === 0}
-        <p class="text-sm text-base-content/60">No services installed.</p>
+      {#if instances.length === 0}
+        <p class="text-sm text-base-content/60">No service instances provisioned.</p>
       {:else}
         <div class="overflow-x-auto">
           <table class="table table-sm">
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Status</th>
+                <th>Instance</th>
+                <th>Profile</th>
                 <th>Contract</th>
-                <th>Bindings</th>
+                <th>Status</th>
               </tr>
             </thead>
             <tbody>
-              {#each services as service (service.sessionKey ?? service.contractId ?? service.displayName)}
+              {#each instances as instance (instance.instanceId)}
                 <tr>
-                  <td class="font-medium">{service.displayName}</td>
+                  <td class="font-medium">{instance.instanceId}</td>
+                  <td class="text-base-content/60">{instance.profileId}</td>
+                  <td class="text-base-content/60">{instance.currentContractDigest ?? instance.currentContractId ?? "—"}</td>
                   <td>
-                    {#if service.active}
+                    {#if instance.disabled}
+                      <span class="badge badge-ghost badge-sm">Disabled</span>
+                    {:else}
                       <span class="badge badge-success badge-sm">Active</span>
-                    {:else if service.contractDigest}
-                      <span class="badge badge-ghost badge-sm">Inactive</span>
-                    {:else}
-                      <span class="badge badge-warning badge-sm">Needs setup</span>
-                    {/if}
-                  </td>
-                  <td class="text-base-content/60">{service.contractId ?? "—"}</td>
-                  <td class="text-base-content/60">
-                    {#if service.resourceBindings?.kv}
-                      {Object.keys(service.resourceBindings.kv).length} KV
-                    {:else}
-                      —
                     {/if}
                   </td>
                 </tr>

@@ -1,6 +1,6 @@
 import { AuthError } from "@qlever-llc/trellis";
 import { Result } from "@qlever-llc/result";
-import { sha256Base64urlSync } from "../../../../packages/contracts/canonical.ts";
+import { sha256Base64urlSync } from "../../../../packages/trellis/contract_support/canonical.ts";
 
 export type Portal = {
   portalId: string;
@@ -42,12 +42,37 @@ export type DevicePortalSelection = {
   portalId: string | null;
 };
 
-export type DeviceProfile = {
-  profileId: string;
+export type AppliedProfileContract = {
   contractId: string;
   allowedDigests: string[];
+};
+
+export type ServiceProfile = {
+  profileId: string;
+  displayName: string;
+  description?: string;
+  namespaces: string[];
+  disabled: boolean;
+  appliedContracts: AppliedProfileContract[];
+};
+
+export type ServiceInstance = {
+  instanceId: string;
+  profileId: string;
+  instanceKey: string;
+  disabled: boolean;
+  currentContractId?: string;
+  currentContractDigest?: string;
+  capabilities: string[];
+  resourceBindings?: Record<string, unknown>;
+  createdAt: string;
+};
+
+export type DeviceProfile = {
+  profileId: string;
   reviewMode?: "none" | "required";
   disabled: boolean;
+  appliedContracts: AppliedProfileContract[];
 };
 
 export type DeviceProvisioningSecret = {
@@ -76,6 +101,8 @@ export type DeviceInstance = {
   profileId: string;
   metadata?: DeviceMetadata;
   state: "registered" | "activated" | "revoked" | "disabled";
+  currentContractId?: string;
+  currentContractDigest?: string;
   createdAt: string;
   activatedAt: string | null;
   revokedAt: string | null;
@@ -109,10 +136,14 @@ export type DevicePortalSelectionRequest = {
 
 export type CreateDeviceProfileRequest = {
   profileId: string;
-  contractId: string;
-  allowedDigests: string[];
   reviewMode?: "none" | "required";
-  contract?: object;
+};
+
+export type CreateServiceProfileRequest = {
+  profileId: string;
+  displayName: string;
+  description?: string;
+  namespaces: string[];
 };
 
 export type DeviceActivationActor = {
@@ -137,6 +168,11 @@ export type ProvisionDeviceInstanceRequest = {
   metadata?: DeviceMetadata;
 };
 
+export type ProvisionServiceInstanceRequest = {
+  profileId: string;
+  instanceKey: string;
+};
+
 function invalidRequest(context?: Record<string, unknown>) {
   return Result.err(new AuthError({ reason: "invalid_request", context }));
 }
@@ -150,12 +186,36 @@ function parseUrl(value: string | undefined): string | null {
   }
 }
 
-export function deviceInstanceId(publicIdentityKey: string): string {
-  return `dev_${sha256Base64urlSync(publicIdentityKey).slice(0, 22)}`;
+export function deviceInstanceId(instanceKey: string): string {
+  return `dev_${sha256Base64urlSync(instanceKey).slice(0, 22)}`;
+}
+
+export function serviceInstanceId(instanceKey: string): string {
+  return `svc_${sha256Base64urlSync(instanceKey).slice(0, 22)}`;
 }
 
 export function normalizeDigestList(values: string[]): string[] {
   return normalizeStringList(values);
+}
+
+export function normalizeAppliedContracts(
+  values: AppliedProfileContract[],
+): AppliedProfileContract[] {
+  const byId = new Map<string, Set<string>>();
+  for (const value of values) {
+    if (!value.contractId) continue;
+    const digests = byId.get(value.contractId) ?? new Set<string>();
+    for (const digest of normalizeDigestList(value.allowedDigests ?? [])) {
+      digests.add(digest);
+    }
+    byId.set(value.contractId, digests);
+  }
+  return [...byId.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([contractId, digests]) => ({
+      contractId,
+      allowedDigests: [...digests].sort((left, right) => left.localeCompare(right)),
+    }));
 }
 
 export function normalizeStringList(values: string[]): string[] {
@@ -264,18 +324,32 @@ export function validateDevicePortalSelectionRequest(req: DevicePortalSelectionR
 }
 
 export function validateDeviceProfileRequest(req: CreateDeviceProfileRequest) {
-  const allowedDigests = normalizeDigestList(req.allowedDigests);
-  if (allowedDigests.length === 0) {
-    return invalidRequest({ profileId: req.profileId, reason: "no_allowed_digests" });
+  if (!req.profileId) {
+    return invalidRequest({ profileId: req.profileId });
   }
   return Result.ok({
     profile: {
       profileId: req.profileId,
-      contractId: req.contractId,
-      allowedDigests,
       reviewMode: req.reviewMode,
       disabled: false,
+      appliedContracts: [],
     } as DeviceProfile,
+  });
+}
+
+export function validateServiceProfileRequest(req: CreateServiceProfileRequest) {
+  if (!req.profileId || !req.displayName) {
+    return invalidRequest({ profileId: req.profileId, displayName: req.displayName });
+  }
+  return Result.ok({
+    profile: {
+      profileId: req.profileId,
+      displayName: req.displayName,
+      ...(req.description ? { description: req.description } : {}),
+      namespaces: normalizeStringList(req.namespaces ?? []),
+      disabled: false,
+      appliedContracts: [],
+    } as ServiceProfile,
   });
 }
 
@@ -302,6 +376,8 @@ export function validateDeviceProvisionRequest(req: ProvisionDeviceInstanceReque
       profileId: req.profileId,
       ...(req.metadata ? { metadata: { ...req.metadata } } : {}),
       state: "registered",
+      currentContractId: undefined,
+      currentContractDigest: undefined,
       createdAt: now,
       activatedAt: null,
       revokedAt: null,
@@ -311,5 +387,22 @@ export function validateDeviceProvisionRequest(req: ProvisionDeviceInstanceReque
       activationKey: req.activationKey,
       createdAt: now,
     } as DeviceProvisioningSecret,
+  });
+}
+
+export function validateServiceProvisionRequest(req: ProvisionServiceInstanceRequest) {
+  if (!req.profileId || !req.instanceKey) {
+    return invalidRequest({ profileId: req.profileId, instanceKey: req.instanceKey });
+  }
+  const now = new Date().toISOString();
+  return Result.ok({
+    instance: {
+      instanceId: serviceInstanceId(req.instanceKey),
+      profileId: req.profileId,
+      instanceKey: req.instanceKey,
+      disabled: false,
+      capabilities: ["service"],
+      createdAt: now,
+    } as ServiceInstance,
   });
 }

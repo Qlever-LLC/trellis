@@ -5,7 +5,7 @@ import { Type, type StaticDecode } from "typebox";
 import { Value } from "typebox/value";
 
 import type { ContractStore } from "../../catalog/store.ts";
-import type { ContractResourceBindings } from "../../../../packages/contracts/protocol.ts";
+import type { ContractResourceBindings } from "../../../../packages/trellis/contract_support/protocol.ts";
 import { resolveSessionPrincipal } from "../session/principal.ts";
 import type {
   BindingTokenRecord,
@@ -127,10 +127,6 @@ type UserStore = {
   get(key: string): Promise<{ take(): unknown }>;
 };
 
-type ServiceStore = {
-  get(key: string): Promise<{ take(): unknown }>;
-};
-
 type BindingTokenStore = {
   put(key: string, value: BindingTokenRecord): Promise<{ take(): unknown }>;
 };
@@ -141,7 +137,7 @@ export type ClientBootstrapDeps = {
   sentinel: SentinelCreds;
   sessionKV: SessionStore;
   usersKV: UserStore;
-  servicesKV: ServiceStore;
+  servicesKV?: unknown;
   loadStoredApproval(key: string): Promise<ContractApprovalRecord | null>;
   loadInstanceGrantPolicies(contractId: string): Promise<InstanceGrantPolicy[]>;
   bindingTokenKV: BindingTokenStore;
@@ -237,7 +233,6 @@ export async function resolveClientBootstrap(
   }
 
   const principal = await resolveSessionPrincipal(session, request.sessionKey, {
-    servicesKV: deps.servicesKV,
     usersKV: deps.usersKV,
     loadStoredApproval: deps.loadStoredApproval,
     loadInstanceGrantPolicies: deps.loadInstanceGrantPolicies,

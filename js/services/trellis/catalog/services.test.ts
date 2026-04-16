@@ -95,6 +95,11 @@ function serviceSession(sessionKey: string): Session {
     id: sessionKey,
     email: `${sessionKey}@trellis.internal`,
     name: `Service ${sessionKey}`,
+    instanceId: `${sessionKey}.instance`,
+    profileId: `${sessionKey}.profile`,
+    instanceKey: sessionKey,
+    currentContractId: null,
+    currentContractDigest: null,
     createdAt: new Date("2026-04-15T00:00:00.000Z"),
     lastAuth: new Date("2026-04-15T00:00:00.000Z"),
   };

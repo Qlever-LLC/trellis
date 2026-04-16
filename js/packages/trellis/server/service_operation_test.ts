@@ -4,9 +4,9 @@ import { isErr, ok } from "@qlever-llc/trellis";
 import type { InferSchemaType } from "@qlever-llc/trellis/contracts";
 import { assertEquals, assertExists } from "@std/assert";
 import { Type } from "typebox";
-import { createClient } from "../trellis/client.ts";
-import { defineServiceContract } from "../trellis/contract.ts";
-import { NatsTest } from "../trellis/testing/nats.ts";
+import { createClient } from "../client.ts";
+import { defineServiceContract } from "../contract.ts";
+import { NatsTest } from "../testing/nats.ts";
 import type { NatsConnectFn, NatsConnectOpts } from "./runtime.ts";
 import { TrellisService } from "./service.ts";
 

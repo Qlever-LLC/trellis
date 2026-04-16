@@ -3,7 +3,7 @@ import type {
   PortalFlowApproval,
   PortalFlowProvider,
   PortalFlowState,
-} from "../../../../packages/auth/protocol.ts";
+} from "@qlever-llc/trellis/auth";
 
 import type { AuthBrowserFlow } from "../../state/schemas.ts";
 import { type ApprovalResolution as PortalFlowResolution } from "./support.ts";

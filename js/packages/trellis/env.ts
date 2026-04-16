@@ -1,1 +1,1 @@
-export { getEnv } from "../telemetry/env.ts";
+export { getEnv } from "./telemetry/env.ts";

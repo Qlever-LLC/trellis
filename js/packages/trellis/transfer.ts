@@ -1,8 +1,8 @@
 import { AsyncResult, isErr, Result, type Result as ResultType } from "@qlever-llc/result";
 import { createInbox, headers as natsHeaders, type Msg, type MsgHdrs, type NatsConnection } from "@nats-io/nats-core";
 import Type, { type Static } from "typebox";
-import { verifyProof } from "../auth/proof.ts";
-import { base64urlEncode, sha256 } from "../auth/utils.ts";
+import { verifyProof } from "./auth/proof.ts";
+import { base64urlEncode, sha256 } from "./auth/utils.ts";
 import { TransferError } from "./errors/TransferError.ts";
 
 const TRANSFER_SEQUENCE_HEADER = "trellis-transfer-seq";

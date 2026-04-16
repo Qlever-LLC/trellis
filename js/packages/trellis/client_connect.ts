@@ -2,6 +2,7 @@ import { jwtAuthenticator, type NatsConnection } from "@nats-io/nats-core";
 import {
   buildLoginUrl,
   getOrCreateSessionKey,
+  startAuthRequest,
 } from "./auth.ts";
 import { BindResponseSchema } from "./auth.ts";
 import { createAuth } from "./auth.ts";
@@ -22,7 +23,7 @@ import {
   getPublicSessionKey,
   oauthInitSig,
   signBytes,
-} from "../auth/browser/session.ts";
+} from "./auth/browser/session.ts";
 
 type ClientContract<TApi extends TrellisAPI = TrellisAPI> = {
   CONTRACT: TrellisContractV1;
@@ -277,6 +278,14 @@ function cleanupBrowserCallbackUrl(currentUrl: URL): void {
   window.history.replaceState({}, "", currentUrl.pathname + currentUrl.search);
 }
 
+function needsReauth(
+  bootstrap: ClientBootstrapResponse,
+): bootstrap is Extract<ClientBootstrapResponse, { status: "auth_required" }> |
+  Extract<ClientBootstrapResponse, { status: "not_ready"; reason: "insufficient_permissions" }> {
+  return bootstrap.status === "auth_required" ||
+    (bootstrap.status === "not_ready" && bootstrap.reason === "insufficient_permissions");
+}
+
 async function buildSessionKeyLoginUrl(args: {
   trellisUrl: string;
   redirectTo: string;
@@ -285,7 +294,7 @@ async function buildSessionKeyLoginUrl(args: {
   provider?: string;
   context?: unknown;
   oauthInitSig: string;
-}): Promise<string> {
+}): Promise<{ status: "bound" } | { status: "flow_started"; loginUrl: string }> {
   const response = await fetch(`${args.trellisUrl}/auth/requests`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -311,10 +320,10 @@ async function buildSessionKeyLoginUrl(args: {
     (payload as { status?: unknown }).status === "flow_started" &&
     typeof (payload as { loginUrl?: unknown }).loginUrl === "string"
   ) {
-    return (payload as { loginUrl: string }).loginUrl;
+    return { status: "flow_started", loginUrl: (payload as { loginUrl: string }).loginUrl };
   }
   if (payload && typeof payload === "object" && (payload as { status?: unknown }).status === "bound") {
-    throw new Error("Auth request completed immediately without starting a browser flow");
+    return { status: "bound" };
   }
   throw new Error("Login flow creation returned an invalid response");
 }
@@ -348,7 +357,7 @@ export async function connectClientWithDeps<TApi extends TrellisAPI>(
       bootstrapSig: await identity.bootstrapSig(bootstrapIat),
     });
 
-    const bootstrap = initialBootstrap.status === "auth_required"
+    const bootstrap = needsReauth(initialBootstrap)
       ? await resolveAuthRequired(args, identity, currentUrl, deps)
       : initialBootstrap;
 
@@ -419,7 +428,7 @@ async function resolveAuthRequired<TApi extends TrellisAPI>(
     throw new Error("Client authentication requires a redirectTo URL");
   }
 
-  const loginUrl = args.auth?.mode === "session_key"
+  const authStart = args.auth?.mode === "session_key"
     ? await buildSessionKeyLoginUrl({
       trellisUrl: normalizeTrellisUrl(args.trellisUrl),
       redirectTo,
@@ -429,7 +438,7 @@ async function resolveAuthRequired<TApi extends TrellisAPI>(
       context: args.auth.context,
       oauthInitSig: await identity.oauthInitSig(redirectTo, args.auth.context),
     })
-    : await buildLoginUrl({
+    : await startAuthRequest({
       authUrl: normalizeTrellisUrl(args.trellisUrl),
       redirectTo,
       handle: browserAuth.handle ?? await getOrCreateSessionKey(),
@@ -437,6 +446,18 @@ async function resolveAuthRequired<TApi extends TrellisAPI>(
       contract: args.contract.CONTRACT,
       context: browserAuth.context,
     });
+
+  if (authStart.status === "bound") {
+    const bootstrapIat = Math.floor(deps.now() / 1_000);
+    return await fetchClientBootstrap({
+      trellisUrl: normalizeTrellisUrl(args.trellisUrl),
+      sessionKey: identity.sessionKey,
+      iat: bootstrapIat,
+      bootstrapSig: await identity.bootstrapSig(bootstrapIat),
+    });
+  }
+
+  const loginUrl = authStart.loginUrl;
 
   const continuation = await args.onAuthRequired?.({
     loginUrl,

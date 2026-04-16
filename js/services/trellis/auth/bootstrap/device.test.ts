@@ -34,8 +34,7 @@ function createApp(args: {
   } | null;
   profile?: {
     profileId: string;
-    contractId: string;
-    allowedDigests: string[];
+    appliedContracts: Array<{ contractId: string; allowedDigests: string[] }>;
     disabled: boolean;
   } | null;
   nowSeconds?: number;
@@ -52,6 +51,8 @@ function createApp(args: {
       loadDeviceInstance: async () => args.instance ?? null,
       loadDeviceActivation: async () => args.activation ?? null,
       loadDeviceProfile: async () => args.profile ?? null,
+      saveDeviceInstance: async () => {},
+      refreshActiveContracts: async () => {},
       verifyIdentityProof: verifyDeviceBootstrapIdentityProof,
       nowSeconds: () => args.nowSeconds ?? TEST_IAT,
     }),
@@ -98,8 +99,10 @@ Deno.test("POST /bootstrap/device returns runtime connect info when device is ac
     },
     profile: {
       profileId: "reader.default",
-      contractId: "example.device@v1",
-      allowedDigests: ["digest-a"],
+      appliedContracts: [{
+        contractId: "example.device@v1",
+        allowedDigests: ["digest-a"],
+      }],
       disabled: false,
     },
   });
@@ -148,8 +151,10 @@ Deno.test("POST /bootstrap/device returns activation_required when activation is
     activation: null,
     profile: {
       profileId: "reader.default",
-      contractId: "example.device@v1",
-      allowedDigests: ["digest-a"],
+      appliedContracts: [{
+        contractId: "example.device@v1",
+        allowedDigests: ["digest-a"],
+      }],
       disabled: false,
     },
   });
@@ -186,8 +191,10 @@ Deno.test("POST /bootstrap/device returns not_ready for revoked activations", as
     },
     profile: {
       profileId: "reader.default",
-      contractId: "example.device@v1",
-      allowedDigests: ["digest-a"],
+      appliedContracts: [{
+        contractId: "example.device@v1",
+        allowedDigests: ["digest-a"],
+      }],
       disabled: false,
     },
   });

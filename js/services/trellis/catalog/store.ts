@@ -97,7 +97,7 @@ export class ContractStore {
 
   constructor(builtins: Array<{ digest: string; contract: TrellisContractV1 }> = []) {
     const schemaPath = new URL(
-      "../../../packages/contracts/schemas/trellis.contract.v1.schema.json",
+      "../../../packages/trellis/contract_support/schemas/trellis.contract.v1.schema.json",
       import.meta.url,
     );
     const contractSchema = Value.Parse(

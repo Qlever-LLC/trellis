@@ -16,12 +16,12 @@
 
   async function listApprovals(user?: string) {
     const trellis = await trellisPromise;
-    return await trellis.requestOrThrow("Auth.ListApprovals", { user });
+    return await trellis.requestOrThrow<AuthListApprovalsOutput>("Auth.ListApprovals" as string, { user });
   }
 
   async function revokeApproval(contractDigest: string, user: string) {
     const trellis = await trellisPromise;
-    return trellis.requestOrThrow("Auth.RevokeApproval", { contractDigest, user });
+    return trellis.requestOrThrow<void>("Auth.RevokeApproval" as string, { contractDigest, user });
   }
 
   async function load() {

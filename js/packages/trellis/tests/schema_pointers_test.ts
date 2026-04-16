@@ -1,10 +1,10 @@
 import { assertEquals, assertThrows } from "@std/assert";
 import { Type } from "typebox";
-import { defineServiceContract } from "../../contracts/mod.ts";
+import { defineServiceContract } from "../contract_support/mod.ts";
 import {
   assertDataPointersExistAndAreTokenable,
   getSubschemaAtDataPointer,
-} from "../../contracts/schema_pointers.ts";
+} from "../contract_support/schema_pointers.ts";
 
 Deno.test("schema pointers", async (t) => {
   const eventSchema = Type.Object({

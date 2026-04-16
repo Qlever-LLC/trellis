@@ -16,7 +16,7 @@ import { auth as trellisAuth } from "@qlever-llc/trellis-sdk/auth";
 import {
   TrellisServer,
   type TrellisServerFor,
-} from "../trellis/server.ts";
+} from "../server.ts";
 import {
   createAuth,
   type SentinelCreds,
@@ -39,17 +39,17 @@ import type {
   RpcHandlerContext,
   RpcHandlerErrorOf,
   RpcRequestErrorOf,
-} from "../trellis/trellis.ts";
+} from "../trellis.ts";
 import type {
   NatsConnectFn,
   NatsConnectOpts,
   TrellisServiceRuntimeDeps,
 } from "./runtime.ts";
 import { ServiceTransfer } from "./transfer.ts";
-import { logger as noopLogger, type LoggerLike } from "../trellis/globals.ts";
-import { loadDefaultRuntimeTransport } from "../trellis/runtime_transport.ts";
-import { selectRuntimeTransportServers } from "../trellis/runtime_transport.ts";
-import { serverLogger } from "../trellis/server_logger.ts";
+import { logger as noopLogger, type LoggerLike } from "../globals.ts";
+import { loadDefaultRuntimeTransport } from "../runtime_transport.ts";
+import { selectRuntimeTransportServers } from "../runtime_transport.ts";
+import { serverLogger } from "../server_logger.ts";
 
 type ExtraNatsConnectOpts = Omit<
   NatsConnectOpts,
@@ -215,7 +215,7 @@ function bootstrapContractStateError(args: {
   const base =
     `Service '${args.serviceName}' could not bootstrap contract '${args.contractId}' (${args.contractDigest}) during ${args.step}. ` +
     "This usually means Trellis has stale or incomplete state for this service session. " +
-    "Re-run the service install or upgrade flow so Trellis records the active contract digest, permissions, and resource bindings for this session key.";
+    "Re-run the service profile apply or instance provisioning flow so Trellis records the allowed digest, permissions, and resource bindings for this instance key.";
   const cause = args.cause
     ? ` Underlying error: ${getErrorCauseMessage(args.cause)}`
     : "";
@@ -956,7 +956,7 @@ export class TrellisService<
           `Service '${name}' received bindings for '${
             resolved.binding.contractId ?? "unknown"
           }' (${resolved.binding.digest ?? "unknown"}) ` +
-            `while bootstrapping '${opts.contractId}' (${opts.contractDigest}). Re-run the service install or upgrade flow so Trellis records the correct active contract for this session key.`,
+            `while bootstrapping '${opts.contractId}' (${opts.contractDigest}). Re-run the service profile apply or instance provisioning flow so Trellis records the correct active contract for this instance key.`,
         );
       }
 

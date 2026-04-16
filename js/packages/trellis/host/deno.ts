@@ -1,1 +1,1 @@
-export * from "../../server/deno.ts";
+export * from "../server/deno.ts";

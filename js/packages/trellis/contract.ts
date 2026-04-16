@@ -10,7 +10,7 @@ import {
   type TrellisApiLike,
   type TrellisContractV1,
   type UseSpec,
-} from "../contracts/mod.ts";
+} from "./contract_support/mod.ts";
 
 // Keep this module browser-safe.
 //
@@ -47,7 +47,7 @@ export {
   defineDeviceContract,
   definePortalContract,
   defineServiceContract,
-} from "../contracts/mod.ts";
+} from "./contract_support/mod.ts";
 
 export type {
   ContractApiViews,

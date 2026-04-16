@@ -23,9 +23,9 @@ import { getInitials, getRoleLabel } from "../../../lib/control-panel.ts";
     error = null;
     try {
       const trellis = await trellisPromise;
-      const me = await trellis.requestOrThrow("Auth.Me", {});
+      const me = await trellis.requestOrThrow<AuthMeOutput>("Auth.Me" as string, {});
       user = me.user ?? null;
-      const appResponse = await trellis.requestOrThrow("Auth.ListApprovals", {});
+      const appResponse = await trellis.requestOrThrow<AuthListApprovalsOutput>("Auth.ListApprovals" as string, {});
       approvals = appResponse.approvals ?? [];
     } catch (e) {
       error = errorMessage(e);
@@ -39,7 +39,7 @@ import { getInitials, getRoleLabel } from "../../../lib/control-panel.ts";
     revokeTarget = contractDigest;
     try {
       const trellis = await trellisPromise;
-      await trellis.requestOrThrow("Auth.RevokeApproval", { contractDigest });
+      await trellis.requestOrThrow<void>("Auth.RevokeApproval" as string, { contractDigest });
       notifications.success("App approval revoked.", "Revoked");
       await loadProfile();
     } catch (e) {

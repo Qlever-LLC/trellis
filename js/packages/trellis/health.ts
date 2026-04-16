@@ -7,7 +7,7 @@ export type {
   ServiceHealthCheckFn,
   ServiceHealthInfoFn,
   ServiceHealthInfo,
-} from "../server/health.ts";
+} from "./server/health.ts";
 export {
   createHealthHeartbeat,
   runAllHealthChecks,
@@ -15,7 +15,7 @@ export {
   runHealthCheck,
   runServiceHealthCheck,
   ServiceHealth,
-} from "../server/health.ts";
+} from "./server/health.ts";
 export {
   HealthHeartbeatHeaderSchema,
   HealthHeartbeatSchema,
@@ -24,4 +24,4 @@ export {
   HealthInfoSchema,
   HealthResponseSchema,
   HealthRpcSchema,
-} from "../server/health_schemas.ts";
+} from "./server/health_schemas.ts";

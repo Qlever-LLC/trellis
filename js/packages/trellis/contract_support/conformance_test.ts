@@ -5,7 +5,7 @@ import { canonicalizeJson, digestJson, type JsonValue } from "./canonical.ts";
 Deno.test("canonical json matches shared vectors", async () => {
   const fixtures = JSON.parse(
     await Deno.readTextFile(
-      new URL("../../../conformance/canonical-json/vectors.json", import.meta.url),
+      new URL("../../../../conformance/canonical-json/vectors.json", import.meta.url),
     ),
   ) as Array<{
     name: string;

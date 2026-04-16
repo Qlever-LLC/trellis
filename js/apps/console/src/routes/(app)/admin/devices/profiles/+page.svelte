@@ -42,10 +42,21 @@
 
   function profileQuery(): AuthListDeviceProfilesInput {
     return {
-      contractId: contractFilter.trim() || undefined,
       disabled: disabledFilter === "all" ? undefined : disabledFilter === "disabled",
     };
   }
+
+  function matchesContractFilter(profile: Profile): boolean {
+    const filter = contractFilter.trim().toLowerCase();
+    if (!filter) return true;
+    return profile.appliedContracts.some((entry) =>
+      entry.contractId.toLowerCase().includes(filter)
+    );
+  }
+
+  const filteredProfiles = $derived.by(() =>
+    profiles.filter((profile) => matchesContractFilter(profile))
+  );
 
   function parseDigestList(value: string): string[] {
     return value
@@ -56,7 +67,7 @@
 
   async function requestOrThrow<T>(method: string, input: unknown): Promise<T> {
     const trellis = await trellisPromise;
-    const result = await trellis.request(method, input);
+    const result = await trellis.request<T>(method as string, input);
     const value = result.take();
     if (isErr(value)) throw value.error;
     return value as T;
@@ -87,14 +98,8 @@
       const digests = parseDigestList(allowedDigests);
       const input: AuthCreateDeviceProfileInput = {
         profileId: profileId.trim(),
-        contractId: contractId.trim(),
-        allowedDigests: digests,
         reviewMode,
       };
-
-      if (contractJson.trim()) {
-        input.contract = JSON.parse(contractJson) as Record<string, unknown>;
-      }
 
       await requestOrThrow("Auth.CreateDeviceProfile", input);
       notifications.success(`Device profile ${input.profileId} created.`, "Created");
@@ -227,7 +232,7 @@
 
   {#if loading}
     <div class="flex justify-center py-8"><span class="loading loading-spinner loading-md"></span></div>
-  {:else if profiles.length === 0}
+  {:else if filteredProfiles.length === 0}
     <p class="text-sm text-base-content/60">No device profiles found.</p>
   {:else}
     <div class="overflow-x-auto">
@@ -243,16 +248,32 @@
           </tr>
         </thead>
         <tbody>
-          {#each profiles as profile (profile.profileId)}
+          {#each filteredProfiles as profile (profile.profileId)}
             <tr>
               <td class="font-medium">{profile.profileId}</td>
-              <td class="text-base-content/60">{profile.contractId}</td>
+              <td class="text-base-content/60">
+                {#if profile.appliedContracts.length === 0}
+                  <span class="text-base-content/40">None</span>
+                {:else}
+                  <div class="flex flex-col gap-1">
+                    {#each profile.appliedContracts as applied (applied.contractId)}
+                      <span>{applied.contractId}</span>
+                    {/each}
+                  </div>
+                {/if}
+              </td>
               <td>
-                <div class="flex flex-wrap gap-1">
-                  {#each profile.allowedDigests as digest (digest)}
-                    <span class="badge badge-outline badge-xs font-mono">{digest}</span>
-                  {/each}
-                </div>
+                {#if profile.appliedContracts.length === 0}
+                  <span class="text-base-content/40">None</span>
+                {:else}
+                  <div class="flex flex-wrap gap-1">
+                    {#each profile.appliedContracts as applied (applied.contractId)}
+                      {#each applied.allowedDigests as digest (digest)}
+                        <span class="badge badge-outline badge-xs font-mono">{digest}</span>
+                      {/each}
+                    {/each}
+                  </div>
+                {/if}
               </td>
               <td class="text-base-content/60">{profile.reviewMode ?? "none"}</td>
               <td>
@@ -276,6 +297,6 @@
         </tbody>
       </table>
     </div>
-    <p class="text-xs text-base-content/50">{profiles.length} profile{profiles.length !== 1 ? "s" : ""}</p>
+    <p class="text-xs text-base-content/50">{filteredProfiles.length} profile{filteredProfiles.length !== 1 ? "s" : ""}</p>
   {/if}
 </section>

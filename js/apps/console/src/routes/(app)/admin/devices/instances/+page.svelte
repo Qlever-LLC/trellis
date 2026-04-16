@@ -54,7 +54,7 @@
 
   async function requestOrThrow<T>(method: string, input: unknown): Promise<T> {
     const trellis = await trellisPromise;
-    const result = await trellis.request(method, input);
+    const result = await trellis.request<T>(method as string, input);
     const value = result.take();
     if (isErr(value)) throw value.error;
     return value as T;

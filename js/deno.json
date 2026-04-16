@@ -2,11 +2,7 @@
   "workspace": [
     "./apps/activity",
     "./apps/console",
-    "./packages/auth",
-    "./packages/contracts",
-    "./packages/telemetry",
     "./packages/result",
-    "./packages/server",
     "./packages/trellis-sdk",
     "./packages/trellis-svelte",
     "./packages/trellis",
@@ -21,8 +17,8 @@
     "generated:build:npm": "bash -lc 'cd ../generated/js/sdks/auth && deno run --config ../../../../js/deno.json -A ./scripts/build_npm.ts && cd ../trellis-core && deno run --config ../../../../js/deno.json -A ./scripts/build_npm.ts && cd ../activity && deno run --config ../../../../js/deno.json -A ./scripts/build_npm.ts && cd ../health && deno run --config ../../../../js/deno.json -A ./scripts/build_npm.ts && cd ../state && deno run --config ../../../../js/deno.json -A ./scripts/build_npm.ts'",
     "build:npm": "deno task prepare && deno task packages:build:npm",
     "check": "deno task prepare && deno check packages/trellis/index.ts packages/trellis-svelte/src/context.svelte.ts packages/trellis-svelte/src/state/auth.svelte.ts packages/trellis-svelte/src/state/nats.svelte.ts packages/trellis-svelte/src/state/trellis.svelte.ts services/trellis/main.ts",
-    "test:contracts": "deno task prepare && deno test -A packages/contracts/source_emission_test.ts packages/contracts/conformance_test.ts services/trellis/catalog/store.test.ts services/trellis/catalog/permissions.test.ts",
-    "test:auth": "deno task prepare && deno test -A packages/auth/conformance_test.ts packages/auth/session_auth_test.ts services/trellis",
+    "test:contracts": "deno task prepare && deno test -A packages/trellis/contract_support/source_emission_test.ts packages/trellis/contract_support/conformance_test.ts services/trellis/catalog/store.test.ts services/trellis/catalog/permissions.test.ts",
+    "test:auth": "deno task prepare && deno test -A packages/trellis/auth/conformance_test.ts packages/trellis/auth/session_auth_test.ts services/trellis",
     "trellis": "bash ../scripts/trellis-cli.sh",
     "trellis-generate": "cargo run --manifest-path ../rust/tools/generate/Cargo.toml --bin trellis-generate --"
   },

@@ -4,8 +4,8 @@ import { Result, type BaseError } from "@qlever-llc/result";
 import { core } from "@qlever-llc/trellis-sdk/core";
 import { Type } from "typebox";
 
-import type { LoggerLike } from "../trellis/globals.ts";
-import { defineServiceContract } from "../trellis/contract.ts";
+import type { LoggerLike } from "../globals.ts";
+import { defineServiceContract } from "../contract.ts";
 import type { NatsConnectFn } from "./runtime.ts";
 import { type TrellisServiceConnectArgs, TrellisService } from "./service.ts";
 

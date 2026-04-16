@@ -1,9 +1,9 @@
 import { assertEquals } from "@std/assert";
 
-import { createAuth } from "../trellis/auth.ts";
-import { NatsTest } from "../trellis/testing/nats.ts";
-import { TypedStore } from "../trellis/store.ts";
-import { Trellis } from "../trellis/trellis.ts";
+import { createAuth } from "../auth.ts";
+import { NatsTest } from "../testing/nats.ts";
+import { TypedStore } from "../store.ts";
+import { Trellis } from "../trellis.ts";
 import { ServiceTransfer } from "./transfer.ts";
 
 const RUN_NATS_TESTS = Deno.env.get("TRELLIS_TEST_NATS") === "1";

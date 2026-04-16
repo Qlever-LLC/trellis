@@ -2,16 +2,16 @@ import { isErr, Result, type Result as ResultType } from "@qlever-llc/result";
 import { headers as natsHeaders, type Msg, type NatsConnection, type Subscription } from "@nats-io/nats-core";
 import { ulid } from "ulid";
 
-import type { TrellisAuth } from "../trellis/trellis.ts";
-import type { StoreError } from "../trellis/errors/StoreError.ts";
-import { TransferError } from "../trellis/errors/TransferError.ts";
-import { type StoreInfo, TypedStore } from "../trellis/store.ts";
+import type { TrellisAuth } from "../trellis.ts";
+import type { StoreError } from "../errors/StoreError.ts";
+import { TransferError } from "../errors/TransferError.ts";
+import { type StoreInfo, TypedStore } from "../store.ts";
 import type {
   DownloadTransferGrant,
   FileInfo,
   UploadTransferGrant,
-} from "../trellis/transfer.ts";
-import { verifyTransferMessage } from "../trellis/transfer.ts";
+} from "../transfer.ts";
+import { verifyTransferMessage } from "../transfer.ts";
 
 const UPLOAD_SUBJECT_PREFIX = "transfer.v1.upload";
 const DOWNLOAD_SUBJECT_PREFIX = "transfer.v1.download";

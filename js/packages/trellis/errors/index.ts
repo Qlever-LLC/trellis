@@ -1,5 +1,5 @@
 import { UnexpectedError } from "@qlever-llc/result";
-import { schema } from "../../contracts/mod.ts";
+import { schema } from "../contract_support/mod.ts";
 import { AuthError } from "./AuthError.ts";
 import type { AuthErrorData } from "./AuthError.ts";
 import { AuthErrorDataSchema } from "./AuthError.ts";

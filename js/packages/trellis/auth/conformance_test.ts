@@ -44,7 +44,7 @@ function toHex(bytes: Uint8Array): string {
 Deno.test("shared auth-proof vectors match JS implementation", async () => {
   const fixtures = JSON.parse(
     await Deno.readTextFile(
-      new URL("../../../conformance/auth-proof/vectors.json", import.meta.url),
+      new URL("../../../../conformance/auth-proof/vectors.json", import.meta.url),
     ),
   ) as Fixture[];
 

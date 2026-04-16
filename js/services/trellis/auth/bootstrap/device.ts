@@ -3,7 +3,7 @@ import { AsyncResult } from "@qlever-llc/result";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 
-import { verifyDeviceWaitSignature } from "../../../../packages/auth/device_activation.ts";
+import { verifyDeviceWaitSignature } from "@qlever-llc/trellis/auth";
 import { deviceInstanceId } from "../admin/shared.ts";
 import { SignatureSchema } from "../../state/schemas/auth_state.ts";
 import { isDeviceProofIatFresh } from "../device_activation/shared.ts";
@@ -30,6 +30,8 @@ type DeviceInstance = {
   profileId: string;
   metadata?: Record<string, string>;
   state: "registered" | "activated" | "revoked" | "disabled";
+  currentContractId?: string;
+  currentContractDigest?: string;
   createdAt: string | Date;
   activatedAt: string | Date | null;
   revokedAt: string | Date | null;
@@ -37,8 +39,7 @@ type DeviceInstance = {
 
 type DeviceProfile = {
   profileId: string;
-  contractId: string;
-  allowedDigests: string[];
+  appliedContracts: Array<{ contractId: string; allowedDigests: string[] }>;
   reviewMode?: "none" | "required";
   disabled: boolean;
 };
@@ -92,6 +93,8 @@ export type DeviceBootstrapDeps = {
     instanceId: string,
   ): Promise<DeviceActivation | null>;
   loadDeviceProfile(profileId: string): Promise<DeviceProfile | null>;
+  saveDeviceInstance(instance: DeviceInstance): Promise<void>;
+  refreshActiveContracts(): Promise<void>;
   verifyIdentityProof(input: {
     publicIdentityKey: string;
     contractDigest: string;
@@ -114,14 +117,17 @@ function buildDeviceConnectInfo(args: {
     seed: string;
   };
 }): DeviceConnectInfo | null {
-  if (!args.profile.allowedDigests.includes(args.contractDigest)) {
+  const applied = args.profile.appliedContracts.find((entry) =>
+    entry.allowedDigests.includes(args.contractDigest)
+  );
+  if (!applied) {
     return null;
   }
 
   return {
     instanceId: args.instance.instanceId,
     profileId: args.profile.profileId,
-    contractId: args.profile.contractId,
+    contractId: applied.contractId,
     contractDigest: args.contractDigest,
     transports: args.transports,
     transport: {
@@ -169,6 +175,18 @@ export async function resolveDeviceBootstrap(
   });
   if (!connectInfo) {
     return { status: "not_ready", reason: "contract_digest_not_allowed" };
+  }
+
+  if (
+    instance.currentContractId !== connectInfo.contractId ||
+    instance.currentContractDigest !== connectInfo.contractDigest
+  ) {
+    await deps.saveDeviceInstance({
+      ...instance,
+      currentContractId: connectInfo.contractId,
+      currentContractDigest: connectInfo.contractDigest,
+    });
+    await deps.refreshActiveContracts();
   }
 
   return {

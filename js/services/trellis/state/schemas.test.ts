@@ -74,6 +74,11 @@ Deno.test("SessionSchema validates session entries", () => {
       id: "graph",
       email: "graph@trellis.internal",
       name: "graph",
+      instanceId: "svc-1",
+      profileId: "graph.default",
+      instanceKey: "graph-instance-key",
+      currentContractId: null,
+      currentContractDigest: null,
       createdAt: new Date().toISOString(),
       lastAuth: new Date().toISOString(),
     }),
@@ -132,8 +137,10 @@ Deno.test("portal and device state schemas validate", () => {
   }));
   assert(Value.Check(DeviceProfileSchema, {
     profileId: "reader.default",
-    contractId: "acme.reader@v1",
-    allowedDigests: ["digest-a"],
+    appliedContracts: [{
+      contractId: "acme.reader@v1",
+      allowedDigests: ["digest-a"],
+    }],
     reviewMode: "none",
     disabled: false,
   }));

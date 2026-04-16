@@ -9,8 +9,10 @@ import {
 
 const PROFILE = {
   profileId: "reader.default",
-  contractId: "acme.reader@v1",
-  allowedDigests: ["digest-a", "digest-b", "digest-uses"],
+  appliedContracts: [{
+    contractId: "acme.reader@v1",
+    allowedDigests: ["digest-a", "digest-b", "digest-uses"],
+  }],
   disabled: false,
 };
 
@@ -102,7 +104,7 @@ Deno.test("deriveDeviceRuntimeAccess preserves the caller-selected digest", () =
   const access = deriveDeviceRuntimeAccess(PROFILE, makeContractRecord("digest-b"));
 
   assertEquals(access.contractDigest, "digest-b");
-  assertEquals(access.contractId, PROFILE.contractId);
+  assertEquals(access.contractId, "acme.reader@v1");
   assertEquals(access.capabilities, ["reader.call"]);
 });
 

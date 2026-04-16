@@ -1,6 +1,6 @@
 import type { StaticDecode, TSchema } from "typebox";
 
-import type { BaseError } from "../result/mod.ts";
+import type { BaseError } from "../../result/mod.ts";
 import type { SubjectParam } from "./schema_pointers.ts";
 
 export type Schema<T> = {

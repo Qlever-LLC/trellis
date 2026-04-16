@@ -4,8 +4,8 @@ import Type, {
   type TProperties,
   type TSchema,
 } from "typebox";
-import type { BaseError } from "../result/mod.ts";
-import { TrellisError } from "../trellis/errors/TrellisError.ts";
+import type { BaseError } from "../../result/mod.ts";
+import { TrellisError } from "../errors/TrellisError.ts";
 import {
   canonicalizeJson,
   digestJson,
@@ -2090,7 +2090,7 @@ export function defineError<
   type TData = DefinedErrorData<TType, TFields>;
   type TInit = DefinedErrorInit<TFields>;
 
-  class DefinedErrorImpl extends TrellisError<TData>
+  class DefinedErrorImpl extends TrellisError<TransportErrorData>
     implements DefinedErrorPayloadCarrier<TPayload> {
     static readonly type = options.type;
     static readonly schema = errorSchema;
@@ -2109,23 +2109,26 @@ export function defineError<
 
     static fromSerializable(data: TData): DefinedErrorInstance<TType, TFields> {
       const customPayload = pickDefinedErrorPayload(fieldNames, data);
-      return attachDefinedErrorPayload(
-        new DefinedErrorImpl({
-          ...customPayload,
-          id: data.id,
-          context: data.context,
-          traceId: data.traceId,
-        } as TInit),
-        customPayload,
-      );
+      const ErrorCtor = DefinedErrorImpl as new (
+        payload: object,
+      ) => TrellisError<TransportErrorData> &
+        DefinedErrorPayloadCarrier<Record<string, unknown>>;
+      const error = new ErrorCtor({
+        ...customPayload,
+        id: data.id,
+        context: data.context,
+        traceId: data.traceId,
+      });
+      error[DEFINED_ERROR_PAYLOAD] = customPayload;
+      return Object.assign(error, customPayload) as DefinedErrorInstance<TType, TFields>;
     }
 
-    override toSerializable(): TData {
+    override toSerializable(): TransportErrorData {
       return {
         ...this.baseSerializable(),
         type: this.name,
         ...this[DEFINED_ERROR_PAYLOAD],
-      } as TData;
+      };
     }
   }
 

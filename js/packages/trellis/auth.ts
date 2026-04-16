@@ -1,1 +1,1 @@
-export * from "../auth/mod.ts";
+export * from "./auth/mod.ts";

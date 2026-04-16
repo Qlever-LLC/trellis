@@ -6,19 +6,6 @@ import {
 import type { StaticDecode } from "typebox";
 import { Type } from "typebox";
 
-export const ServiceRegistrySchema = Type.Object({
-  displayName: Type.String(),
-  active: Type.Boolean(),
-  capabilities: Type.Array(Type.String()),
-  namespaces: Type.Optional(Type.Array(Type.String())),
-  description: Type.String(),
-  contractId: Type.Optional(Type.String({ minLength: 1 })),
-  contractDigest: Type.Optional(Type.String({ pattern: "^[A-Za-z0-9_-]+$" })),
-  resourceBindings: Type.Optional(ContractResourceBindingsSchema),
-  createdAt: IsoDateSchema,
-}, { additionalProperties: false });
-export type ServiceRegistryEntry = StaticDecode<typeof ServiceRegistrySchema>;
-
 export const ContractMetadataSchema = Type.Object({
   displayName: Type.String({ minLength: 1 }),
   description: Type.String({ minLength: 1 }),
@@ -30,7 +17,7 @@ export const ContractRecordSchema = Type.Object({
   id: Type.String({ minLength: 1 }),
   displayName: Type.String({ minLength: 1 }),
   description: Type.String({ minLength: 1 }),
-  sessionKey: Type.Optional(Type.String({ pattern: "^[A-Za-z0-9_-]{43}$" })),
+  sessionKey: Type.Optional(Type.String({ minLength: 1 })),
   installedAt: IsoDateSchema,
   contract: Type.String({ minLength: 1 }),
   analysisSummary: Type.Optional(Type.Object({
@@ -144,7 +131,6 @@ export const ContractRecordSchema = Type.Object({
     }),
   }, { additionalProperties: false })),
   resources: Type.Optional(ContractResourcesSchema),
-  resourceBindings: Type.Optional(ContractResourceBindingsSchema),
 }, { additionalProperties: false });
 export type ContractRecord = StaticDecode<typeof ContractRecordSchema>;
 
@@ -157,3 +143,16 @@ export const UserProjectionSchema = Type.Object({
   capabilities: Type.Array(Type.String()),
 }, { additionalProperties: false });
 export type UserProjectionEntry = StaticDecode<typeof UserProjectionSchema>;
+
+export const ServiceRegistrySchema = Type.Object({
+  displayName: Type.String({ minLength: 1 }),
+  active: Type.Boolean(),
+  capabilities: Type.Array(Type.String()),
+  namespaces: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+  description: Type.String({ minLength: 1 }),
+  contractId: Type.Optional(Type.String({ minLength: 1 })),
+  contractDigest: Type.Optional(Type.String({ pattern: "^[A-Za-z0-9_-]+$" })),
+  resourceBindings: Type.Optional(ContractResourceBindingsSchema),
+  createdAt: IsoDateSchema,
+}, { additionalProperties: false });
+export type ServiceRegistryEntry = StaticDecode<typeof ServiceRegistrySchema>;

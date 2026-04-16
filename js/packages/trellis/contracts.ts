@@ -1,4 +1,4 @@
-export * from "../contracts/mod.ts";
+export * from "./contract_support/mod.ts";
 export {
   defineAppContract,
   defineCliContract,
