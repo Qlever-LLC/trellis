@@ -1,5 +1,11 @@
-import type { TSchema } from "typebox";
+import Type, {
+  type Static,
+  type TObject,
+  type TProperties,
+  type TSchema,
+} from "typebox";
 import type { BaseError } from "../result/mod.ts";
+import { TrellisError } from "../trellis/errors/TrellisError.ts";
 import {
   canonicalizeJson,
   digestJson,
@@ -76,6 +82,29 @@ type StringKeyOf<T> = Extract<keyof T, string>;
 type KeysFromList<T> = T extends readonly (infer K)[] ? Extract<K, string>
   : never;
 
+type ReservedDefinedErrorFieldName =
+  | "id"
+  | "type"
+  | "message"
+  | "context"
+  | "traceId"
+  | "cause";
+
+const RESERVED_DEFINED_ERROR_FIELD_NAMES: ReadonlySet<
+  ReservedDefinedErrorFieldName
+> = new Set([
+  "id",
+  "type",
+  "message",
+  "context",
+  "traceId",
+  "cause",
+]);
+
+const DEFINED_ERROR_PAYLOAD = Symbol.for(
+  "@qlever-llc/trellis/contracts/defined-error-payload",
+);
+
 export type ContractManifestMetadata = {
   displayName: string;
   description: string;
@@ -114,7 +143,7 @@ type ErrorNameOf<TErrors> =
 export type ContractRefBuilder<
   TSchemas extends Readonly<Record<string, TSchema>> | undefined = undefined,
   TErrors extends
-    | Readonly<Record<string, ContractSourceErrorDecl>>
+    | Readonly<Record<string, ErrorClass>>
     | undefined = undefined,
 > = {
   schema<const TName extends SchemaNameOf<TSchemas>>(
@@ -277,10 +306,10 @@ export type ContractSourceErrorDecl<TSchemaName extends string = string> = {
   schema?: ContractSchemaRef<TSchemaName>;
 };
 
-type ExtractContractErrorDecls<TErrors> =
+type ExtractErrorClasses<TErrors> =
   TErrors extends Readonly<Record<string, unknown>> ? {
-      [K in keyof TErrors as TErrors[K] extends ContractSourceErrorDecl ? K
-        : never]: Extract<TErrors[K], ContractSourceErrorDecl>;
+      [K in keyof TErrors as TErrors[K] extends ErrorClass ? K
+        : never]: Extract<TErrors[K], ErrorClass>;
     }
   : undefined;
 
@@ -300,6 +329,65 @@ export type ErrorClass<
   readonly type?: string;
 };
 
+type DefinedErrorPayload<TFields extends TProperties> =
+  & Static<TObject<TFields>>
+  & object;
+
+type DefinedErrorData<TType extends string, TFields extends TProperties> =
+  & TransportErrorData
+  & { type: TType }
+  & DefinedErrorPayload<TFields>;
+
+type DefinedErrorSchema = TObject<TProperties>;
+
+type DefinedErrorPayloadCarrier<TPayload extends object> = {
+  [DEFINED_ERROR_PAYLOAD]: Readonly<TPayload>;
+};
+
+export type DefineErrorOptions<
+  TType extends string,
+  TFields extends TProperties,
+> = {
+  type: TType;
+  fields: TFields;
+  message:
+    | string
+    | ((payload: Readonly<DefinedErrorPayload<TFields>>) => string);
+};
+
+export type DefinedErrorInit<TFields extends TProperties> =
+  & DefinedErrorPayload<TFields>
+  & ErrorOptions
+  & {
+    context?: Record<string, unknown>;
+    id?: string;
+    traceId?: string;
+  };
+
+export type DefinedErrorInstance<
+  TType extends string,
+  TFields extends TProperties,
+> =
+  & TrellisError<DefinedErrorData<TType, TFields>>
+  & DefinedErrorPayloadCarrier<DefinedErrorPayload<TFields>>
+  & Readonly<DefinedErrorPayload<TFields>>;
+
+export type DefinedErrorClass<
+  TType extends string,
+  TFields extends TProperties,
+> = ErrorClass<
+  DefinedErrorData<TType, TFields>,
+  DefinedErrorInstance<TType, TFields>,
+  DefinedErrorSchema
+> & {
+  new (options: DefinedErrorInit<TFields>): DefinedErrorInstance<TType, TFields>;
+  readonly type: TType;
+  readonly schema: DefinedErrorSchema;
+  fromSerializable(
+    data: DefinedErrorData<TType, TFields>,
+  ): DefinedErrorInstance<TType, TFields>;
+};
+
 function getContractErrorType(errorClass: ErrorClass): string {
   const explicitType = Reflect.get(errorClass, "type");
   return typeof explicitType === "string" ? explicitType : errorClass.name;
@@ -317,6 +405,93 @@ function isErrorClass(value: unknown): value is ErrorClass {
     typeof Reflect.get(value, "name") === "string" &&
     typeof Reflect.get(value, "fromSerializable") === "function" &&
     typeof Reflect.get(value, "schema") === "object";
+}
+
+function assertNoReservedDefinedErrorFieldNames(fields: TProperties): void {
+  for (const fieldName of Object.keys(fields)) {
+    if (
+      RESERVED_DEFINED_ERROR_FIELD_NAMES.has(
+        fieldName as ReservedDefinedErrorFieldName,
+      )
+    ) {
+      throw new Error(`Defined error field '${fieldName}' is reserved`);
+    }
+  }
+}
+
+function createDefinedErrorSchema<
+  TType extends string,
+  TFields extends TProperties,
+>(
+  type: TType,
+  fields: TFields,
+): DefinedErrorSchema {
+  return Type.Object({
+    id: Type.String(),
+    type: Type.Literal(type),
+    message: Type.String(),
+    ...fields,
+    context: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+    traceId: Type.Optional(Type.String()),
+  });
+}
+
+function definedErrorPayloadFieldNames<TFields extends TProperties>(
+  fields: TFields,
+): readonly (keyof DefinedErrorPayload<TFields> & string)[] {
+  return Object.keys(fields) as Array<keyof DefinedErrorPayload<TFields> & string>;
+}
+
+function pickDefinedErrorPayload<TPayload extends object>(
+  fieldNames: readonly (keyof TPayload & string)[],
+  source: TPayload,
+): Readonly<TPayload> {
+  return Object.fromEntries(
+    fieldNames.map((fieldName) => [fieldName, source[fieldName]]),
+  ) as TPayload;
+}
+
+function definedErrorBaseOptions<TPayload extends object>(
+  options: TPayload & {
+    context?: Record<string, unknown>;
+    id?: string;
+    traceId?: string;
+    cause?: unknown;
+  },
+): ErrorOptions & {
+  context?: Record<string, unknown>;
+  id?: string;
+  traceId?: string;
+} {
+  const baseOptions: ErrorOptions & {
+    context?: Record<string, unknown>;
+    id?: string;
+    traceId?: string;
+  } = {};
+  if (options.cause !== undefined) {
+    baseOptions.cause = options.cause;
+  }
+  if (options.context !== undefined) {
+    baseOptions.context = options.context;
+  }
+  if (options.id !== undefined) {
+    baseOptions.id = options.id;
+  }
+  if (options.traceId !== undefined) {
+    baseOptions.traceId = options.traceId;
+  }
+  return baseOptions;
+}
+
+function attachDefinedErrorPayload<
+  TError extends TrellisError<TransportErrorData>,
+  TPayload extends object,
+>(
+  error: TError & DefinedErrorPayloadCarrier<TPayload>,
+  payload: Readonly<TPayload>,
+): TError & Readonly<TPayload> & DefinedErrorPayloadCarrier<TPayload> {
+  error[DEFINED_ERROR_PAYLOAD] = payload;
+  return Object.assign(error, payload);
 }
 
 export type ContractSourceSchemas = Record<string, TSchema>;
@@ -702,7 +877,7 @@ type ProjectedSubjects<
 export type OwnedApiFromSource<
   T extends {
     schemas?: Readonly<Record<string, TSchema>>;
-    errors?: Readonly<Record<string, ContractSourceErrorDecl>>;
+    errors?: Readonly<Record<string, ErrorClass>>;
     rpc?: Readonly<Record<string, ContractSourceRpcMethod>>;
     operations?: Readonly<Record<string, ContractSourceOperation>>;
     events?: Readonly<Record<string, ContractSourceEvent>>;
@@ -798,7 +973,7 @@ export type DefineContractInput<
     | Readonly<Record<string, AuthorContractDependencyUse>>
     | undefined = undefined,
   TErrors extends
-    | Readonly<Record<string, ContractSourceErrorDecl>>
+    | Readonly<Record<string, ErrorClass>>
     | undefined = undefined,
   TRpc extends
     | Readonly<
@@ -861,7 +1036,7 @@ type ValidateDefineContractInput<T extends DefineContractSource> =
     >,
     ConstrainSection<
       T["errors"],
-      Readonly<Record<string, ContractSourceErrorDecl>>
+      Readonly<Record<string, ErrorClass>>
     >,
     ConstrainSection<
       T["rpc"],
@@ -917,7 +1092,7 @@ type RegistrySchemas<TRegistry extends AnyDefineContractRegistry> =
 type RegistryErrors<TRegistry extends AnyDefineContractRegistry> =
   TRegistry extends { errors?: infer TErrors }
     ? TErrors extends
-      Readonly<Record<string, unknown>> | undefined ? ExtractContractErrorDecls<
+      Readonly<Record<string, unknown>> | undefined ? ExtractErrorClasses<
           TErrors
         >
     : undefined
@@ -976,7 +1151,7 @@ type DefineContractBodyInput<
     | Readonly<Record<string, AuthorContractDependencyUse>>
     | undefined = undefined,
   TErrors extends
-    | Readonly<Record<string, ContractSourceErrorDecl>>
+    | Readonly<Record<string, ErrorClass>>
     | undefined = undefined,
   TRpc extends
     | Readonly<
@@ -1019,7 +1194,7 @@ type ServiceContractBodyInput<
     | Readonly<Record<string, AuthorContractDependencyUse>>
     | undefined = undefined,
   TErrors extends
-    | Readonly<Record<string, ContractSourceErrorDecl>>
+    | Readonly<Record<string, ErrorClass>>
     | undefined = undefined,
   TRpc extends
     | Readonly<
@@ -1084,7 +1259,7 @@ type WithKind<TBody extends { id: string }, TKind extends ContractKind> =
 
 function createContractRefBuilder<
   TSchemas extends Readonly<Record<string, TSchema>> | undefined,
-  TErrors extends Readonly<Record<string, ContractSourceErrorDecl>> | undefined,
+  TErrors extends Readonly<Record<string, ErrorClass>> | undefined,
 >(
   registry: DefineContractRegistry<TSchemas, TErrors>,
 ): ContractRefBuilder<TSchemas, TErrors> {
@@ -1142,27 +1317,13 @@ function getErrorRuntimeSchema(errorDecl: ContractSourceErrorDecl): TSchema | un
   return runtimeSchema as TSchema;
 }
 
-function isContractSchemaRefValue(value: unknown): value is ContractSchemaRef {
-  return !!value && typeof value === "object" &&
-    typeof (value as { schema?: unknown }).schema === "string";
-}
-
-function isContractSourceErrorDeclValue(
-  value: unknown,
-): value is ContractSourceErrorDecl {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return false;
-  }
-
-  const keys = Object.keys(value);
-  if (!keys.every((key) => key === "type" || key === "schema")) {
-    return false;
-  }
-
-  const candidate = value as { type?: unknown; schema?: unknown };
-  return typeof candidate.type === "string" &&
-    (candidate.schema === undefined ||
-      isContractSchemaRefValue(candidate.schema));
+function createContractErrorDecl<TClass extends ErrorClass>(
+  errorClass: TClass,
+): ContractSourceErrorDecl<string> & ContractErrorRuntimeMarker<TClass> {
+  const errorDecl: ContractSourceErrorDecl<string> = {
+    type: getContractErrorType(errorClass),
+  };
+  return attachContractErrorRuntimeMetadata(errorDecl, errorClass);
 }
 
 function normalizeErrorRegistry(
@@ -1172,14 +1333,31 @@ function normalizeErrorRegistry(
     return undefined;
   }
 
-  const normalizedEntries = Object.entries(errors).filter(([, value]) =>
-    isContractSourceErrorDeclValue(value)
-  ) as Array<[string, ContractSourceErrorDecl]>;
+  const normalizedEntries = Object.entries(errors).flatMap(([key, value]) =>
+    isErrorClass(value) ? [[key, createContractErrorDecl(value)]] : []
+  );
   if (normalizedEntries.length === 0) {
     return undefined;
   }
 
   return Object.fromEntries(normalizedEntries);
+}
+
+function getErrorClassRegistry(
+  errors: Readonly<Record<string, unknown>> | undefined,
+): Readonly<Record<string, ErrorClass>> | undefined {
+  if (!errors) {
+    return undefined;
+  }
+
+  const classEntries = Object.entries(errors).flatMap(([key, value]) =>
+    isErrorClass(value) ? [[key, value]] : []
+  );
+  if (classEntries.length === 0) {
+    return undefined;
+  }
+
+  return Object.fromEntries(classEntries);
 }
 
 function findMatchingSchemaName(
@@ -1892,24 +2070,68 @@ function resolveErrorSchemaRef(
 }
 
 /**
- * Define a transportable contract error with JS runtime reconstruction metadata.
+ * Define a transportable Trellis error class from a payload-object schema.
  *
- * The returned object stays JSON-serializable for manifest emission while carrying
- * hidden runtime metadata used by Trellis to reconstruct concrete `Error` instances.
+ * The returned value is a real runtime error class that carries the wire schema
+ * and reconstruction logic needed by `defineServiceContract(...)`.
  */
 export function defineError<
-  TData extends TransportErrorData = TransportErrorData,
-  TError extends BaseError = BaseError,
-  TRuntimeSchema extends TSchema = TSchema,
+  const TType extends string,
+  const TFields extends TProperties,
 >(
-  errorClass: ErrorClass<TData, TError, TRuntimeSchema>,
-):
-  & ContractSourceErrorDecl<string>
-  & ContractErrorRuntimeMarker<ErrorClass<TData, TError, TRuntimeSchema>> {
-  const errorDecl: ContractSourceErrorDecl<string> = {
-    type: getContractErrorType(errorClass),
-  };
-  return attachContractErrorRuntimeMetadata(errorDecl, errorClass);
+  options: DefineErrorOptions<TType, TFields>,
+): DefinedErrorClass<TType, TFields> {
+  assertNoReservedDefinedErrorFieldNames(options.fields);
+
+  const errorSchema = createDefinedErrorSchema(options.type, options.fields);
+  const fieldNames = definedErrorPayloadFieldNames(options.fields);
+
+  type TPayload = DefinedErrorPayload<TFields>;
+  type TData = DefinedErrorData<TType, TFields>;
+  type TInit = DefinedErrorInit<TFields>;
+
+  class DefinedErrorImpl extends TrellisError<TData>
+    implements DefinedErrorPayloadCarrier<TPayload> {
+    static readonly type = options.type;
+    static readonly schema = errorSchema;
+    override readonly name = options.type;
+    [DEFINED_ERROR_PAYLOAD]: Readonly<TPayload>;
+
+    constructor(payload: TInit) {
+      const customPayload = pickDefinedErrorPayload(fieldNames, payload);
+      const message = typeof options.message === "function"
+        ? options.message(customPayload)
+        : options.message;
+      super(message, definedErrorBaseOptions(payload));
+      this[DEFINED_ERROR_PAYLOAD] = customPayload;
+      Object.assign(this, customPayload);
+    }
+
+    static fromSerializable(data: TData): DefinedErrorInstance<TType, TFields> {
+      const customPayload = pickDefinedErrorPayload(fieldNames, data);
+      return attachDefinedErrorPayload(
+        new DefinedErrorImpl({
+          ...customPayload,
+          id: data.id,
+          context: data.context,
+          traceId: data.traceId,
+        } as TInit),
+        customPayload,
+      );
+    }
+
+    override toSerializable(): TData {
+      return {
+        ...this.baseSerializable(),
+        type: this.name,
+        ...this[DEFINED_ERROR_PAYLOAD],
+      } as TData;
+    }
+  }
+
+  // @ts-expect-error TypeScript cannot model the dynamically assigned payload
+  // fields on the generated class instance constructor return type.
+  return DefinedErrorImpl;
 }
 
 function createUseHelper<
@@ -2214,10 +2436,11 @@ function defineContract(
   ApiShape,
   string
 > {
+  const errorClasses = getErrorClassRegistry(registry.errors);
   const normalizedErrors = normalizeErrorRegistry(registry.errors);
   const body = build(createContractRefBuilder({
     ...(registry.schemas ? { schemas: registry.schemas } : {}),
-    ...(normalizedErrors ? { errors: normalizedErrors } : {}),
+    ...(errorClasses ? { errors: errorClasses } : {}),
   }));
   const materializedSchemas = materializeErrorSchemas(
     registry.schemas,

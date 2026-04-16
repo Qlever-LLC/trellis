@@ -186,10 +186,8 @@ Rules:
 - mounted RPC handlers may return declared local `TrellisError` subclasses
   directly when those errors are listed in the contract RPC `errors: [...]`
 - service-local transportable RPC errors should be declared in the contract's
-  top-level `errors` map through `MyErrorClass.decl` from
-  `defineTrellisErrorClass(...)` or through `defineError(MyErrorClass)` for
-  advanced manual classes rather than by overloading shared built-in errors for
-  domain-specific failures
+  top-level `errors` map through `defineError(...)` generated classes rather
+  than by overloading shared built-in errors for domain-specific failures
 - if the service later needs remote APIs, add them under `uses` through SDK
   `use(...)` helpers rather than by hand-writing remote contract ids or raw
   method strings

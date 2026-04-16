@@ -4,12 +4,18 @@ import {
   type ContractSourceRpcMethod,
   defineAppContract,
   defineDeviceContract,
+  defineError,
   defineServiceContract,
 } from "./mod.ts";
 
 const EmptySchema = Type.Object({});
 const StringSchema = Type.Object({ value: Type.String() });
 const ProgressSchema = Type.Object({ step: Type.String() });
+const BuilderFailed = defineError({
+  type: "BuilderFailed",
+  fields: {},
+  message: "Builder failed",
+});
 
 type Assert<T extends true> = T;
 type Not<T extends boolean> = T extends true ? false : true;
@@ -240,7 +246,7 @@ const builderContract = defineServiceContract(
       Result: StringSchema,
     },
     errors: {
-      BuilderFailed: { type: "BuilderFailed" },
+      BuilderFailed,
     },
   },
   (ref) => ({
@@ -328,7 +334,7 @@ if (false) {
         Empty: EmptySchema,
       },
       errors: {
-        BuilderFailed: { type: "BuilderFailed" },
+        BuilderFailed,
       },
     },
     (ref) => ({

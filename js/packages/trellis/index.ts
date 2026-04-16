@@ -94,7 +94,6 @@ export { TrellisDevice } from "./device.ts";
 export type { TrellisErrorInstance } from "./errors/index.ts";
 export {
   AuthError,
-  defineTrellisErrorClass,
   KVError,
   RemoteError,
   StoreError,
@@ -102,12 +101,6 @@ export {
   TrellisError,
   UnexpectedError,
   ValidationError,
-} from "./errors/index.ts";
-export type {
-  DefineTrellisErrorClassOptions,
-  GeneratedTrellisErrorClass,
-  GeneratedTrellisErrorInstance,
-  GeneratedTrellisErrorOptions,
 } from "./errors/index.ts";
 export { TypedKV, TypedKVEntry } from "./kv.ts";
 export type { WatchEvent, WatchOptions } from "./kv.ts";

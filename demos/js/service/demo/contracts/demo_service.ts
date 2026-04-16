@@ -42,7 +42,7 @@ export const contract = defineServiceContract(
         output: ref.schema("FilesInitiateUploadResponse"),
         capabilities: { call: ["uploader"] },
         errors: [
-          ref.error("ReservedUploadKey"),
+          ref.error("ReservedUploadKeyError"),
           ref.error("TransferError"),
           ref.error("UnexpectedError"),
         ],

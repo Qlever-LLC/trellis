@@ -12,20 +12,19 @@ This is the preferred Trellis pattern when:
 
 ## Summary
 
-Prefer `defineTrellisErrorClass(...)` for service-local RPC errors.
+Prefer `defineError(...)` for service-local RPC errors.
 
 It generates a real `TrellisError` subclass with:
 
 - a typed wire schema
 - runtime reconstruction
 - built-in `id`, `context`, and `traceId` handling
-- a ready-to-use `defineError(...)` declaration on `.decl`
+- direct use in the contract `errors` map
 
 Then:
 
-1. define the error class with `defineTrellisErrorClass(...)`
-2. register the generated declaration from `MyErrorClass.decl` in the contract
-   `errors` map
+1. define the error class with `defineError(...)`
+2. register the generated class directly in the contract `errors` map
 3. reference the local declaration from RPC `errors: [...]`, preferably through
    `ref.error(...)`
 4. return the error instance from the handler with `err(...)`
@@ -36,12 +35,12 @@ Then:
 ```ts
 import Type from "typebox";
 import {
-  defineTrellisErrorClass,
+  defineError,
   defineServiceContract,
   err,
 } from "@qlever-llc/trellis";
 
-export const NotFoundError = defineTrellisErrorClass({
+export const NotFoundError = defineError({
   type: "NotFoundError",
   fields: {
     resource: Type.String(),
@@ -56,7 +55,7 @@ const schemas = {
 } as const;
 
 const errors = {
-  WorkspaceMissing: NotFoundError.decl,
+  NotFoundError,
 } as const;
 
 export const krishi = defineServiceContract(
@@ -71,7 +70,7 @@ export const krishi = defineServiceContract(
         input: ref.schema("GetWorkspaceInput"),
         output: ref.schema("Workspace"),
         errors: [
-          ref.error("WorkspaceMissing"),
+          ref.error("NotFoundError"),
           ref.error("ValidationError"),
           ref.error("UnexpectedError"),
         ],
@@ -113,16 +112,14 @@ if (isErr(value)) {
 
 ## Contract Rules
 
-- `defineError(...)` takes the class, not duplicated `type` or `schema` values
-- `defineTrellisErrorClass(...)` is the preferred authoring path for new local
-  service errors
+- `defineError(...)` is the preferred authoring path for new local service
+  errors
 - the generated class `type` is the wire `type`
 - the generated or manual class `static schema` is the source of the emitted
   local error schema
 - `defineServiceContract(...)` derives the local error schema entry
   automatically when it is not already present in the contract `schemas` map
-- the `errors` map key is the local declaration name used by RPC `errors: [...]`
-- the local declaration key does not need to match the wire `type`
+- the `errors` map key is the error class export name used by RPC `errors: [...]`
 - when this lives in a `contracts/*.ts` source file, the file should default
   export the defined contract module
 - for new local service contract files, prefer
@@ -136,20 +133,20 @@ Example:
 
 ```ts
 errors: {
-  WorkspaceMissing: NotFoundError.decl,
+  NotFoundError,
 },
 defineServiceContract({ schemas, errors }, (ref) => ({
   rpc: {
     "Workspace.Get": {
       // ...
-      errors: [ref.error("WorkspaceMissing"), ref.error("UnexpectedError")],
+      errors: [ref.error("NotFoundError"), ref.error("UnexpectedError")],
     },
   },
 }))
 ```
 
-This emits a manifest error ref with wire type `NotFoundError`, while the local
-contract still uses the friendlier declaration key `WorkspaceMissing`.
+This emits a manifest error ref with wire type `NotFoundError`, and the same
+name is what `ref.error(...)` uses in the local contract.
 
 If the same schema is also needed for `ref.schema(...)` elsewhere in the
 contract, keep exporting it through the local `schemas` map as usual.
@@ -160,7 +157,7 @@ Generated TypeScript SDKs follow the same shape:
 
 - emitted local error classes extend `TrellisError`
 - emitted classes include `static schema` when the manifest declares one
-- emitted classes include `static fromSerializable(...)`
+- emitted classes include runtime reconstruction helpers
 - RPC descriptors include the runtime metadata needed to reconstruct declared
   remote errors as real error instances
 
@@ -192,9 +189,7 @@ Those should be service-local errors.
 
 ## Common Mistakes
 
-- Forgetting `static schema`
-- Forgetting `static fromSerializable(...)`
-- Using the manual subclass path when the generated factory would be enough
+- Reaching for handwritten error subclasses instead of `defineError(...)`
 - Returning a domain-specific error from a handler without listing its local
   declaration in the RPC `errors: [...]`
 - Using `RemoteError` checks for declared contract errors instead of

@@ -11,7 +11,8 @@ import { Type } from "typebox";
 import { err, isErr, ok } from "../../result/mod.ts";
 import { createClient } from "../client.ts";
 import { defineServiceContract } from "../contract.ts";
-import { AuthError, defineTrellisErrorClass } from "../errors/index.ts";
+import { AuthError } from "../errors/index.ts";
+import { defineError } from "../index.ts";
 import { NatsTest } from "../testing/nats.ts";
 import {
   getActiveSpan,
@@ -78,7 +79,7 @@ const TEST_CALLER = {
 };
 
 const EmptySchema = Type.Object({});
-const NotFoundError = defineTrellisErrorClass({
+const NotFoundError = defineError({
   type: "NotFoundError",
   fields: {
     resource: Type.String(),
@@ -182,7 +183,7 @@ const localErrorContract = defineServiceContract(
       EmptySchema,
     },
     errors: {
-      WorkspaceMissing: NotFoundError.decl,
+      NotFoundError,
     },
   },
   (ref) => ({
@@ -195,7 +196,7 @@ const localErrorContract = defineServiceContract(
         input: schemaRef("EmptySchema"),
         output: schemaRef("EmptySchema"),
         authRequired: false,
-        errors: [ref.error("WorkspaceMissing"), ref.error("UnexpectedError")],
+        errors: [ref.error("NotFoundError"), ref.error("UnexpectedError")],
       },
     },
   }),

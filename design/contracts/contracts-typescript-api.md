@@ -52,7 +52,6 @@ It exports:
 - `defineDeviceContract(...)`
 - `defineCliContract(...)`
 - `defineError(...)`
-- `defineTrellisErrorClass(...)`
 - contract-module and use-spec types needed by generated SDKs
 
 The kind-specific contract helpers return contract objects with projected API
@@ -291,11 +290,11 @@ TypeScript authoring shape:
 
 ```ts
 import {
-  defineTrellisErrorClass,
+  defineError,
   defineServiceContract,
 } from "@qlever-llc/trellis";
 
-export const NotFoundError = defineTrellisErrorClass({
+export const NotFoundError = defineError({
   type: "NotFoundError",
   fields: {
     resource: Type.String(),
@@ -311,7 +310,7 @@ export const krishi = defineServiceContract(
       Workspace: WorkspaceSchema,
     },
     errors: {
-      WorkspaceMissing: NotFoundError.decl,
+      NotFoundError,
     },
   },
   (ref) => ({
@@ -324,7 +323,7 @@ export const krishi = defineServiceContract(
         input: ref.schema("GetWorkspaceInput"),
         output: ref.schema("Workspace"),
         errors: [
-          ref.error("WorkspaceMissing"),
+          ref.error("NotFoundError"),
           ref.error("ValidationError"),
           ref.error("UnexpectedError"),
         ],
@@ -336,22 +335,17 @@ export const krishi = defineServiceContract(
 
 Rules:
 
-- `defineError(...)` takes the error class, not duplicated `type` or `schema`
-  arguments
-- `defineTrellisErrorClass(...)` is the preferred ergonomic path for new local
-  service errors
-- manual error classes must still extend `TrellisError`
-- manual error classes must still define `static schema`
-- manual error classes must still define `static fromSerializable(...)`
-- the generated class `type` or manual class `name` is the on-wire error `type`
+- `defineError(...)` is the preferred ergonomic path for new local service
+  errors
+- the generated class `type` is the on-wire error `type`
 - `defineServiceContract(...)` may derive the emitted local error schema entry
-  automatically from `defineError(...)` metadata when the schema is not already
+  automatically from local error runtime metadata when the schema is not already
   present in the local `schemas` map
 - authors may still include the error schema explicitly in the top-level
   `schemas` map when they want a stable local schema key or need to reference it
   elsewhere in the contract
-- the `errors` map key is the local declaration name used by RPC
-  `errors: [...]`; it does not need to match the wire `type`
+- the `errors` map key is the error class export name used by RPC
+  `errors: [...]`, so `ref.error(...)` should usually match the class name
 - builder-style contract authoring should reference both local and built-in RPC
   errors through `ref.error(...)`
 - callers receive declared remote errors as reconstructed runtime instances of

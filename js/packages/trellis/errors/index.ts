@@ -26,13 +26,6 @@ type RuntimeRpcErrorDesc = {
 };
 
 export { UnexpectedError } from "@qlever-llc/result";
-export {
-  defineTrellisErrorClass,
-  type DefineTrellisErrorClassOptions,
-  type GeneratedTrellisErrorClass,
-  type GeneratedTrellisErrorInstance,
-  type GeneratedTrellisErrorOptions,
-} from "./defineTrellisErrorClass.ts";
 export { TrellisError } from "./TrellisError.ts";
 export { AuthError } from "./AuthError.ts";
 export { ValidationError } from "./ValidationError.ts";

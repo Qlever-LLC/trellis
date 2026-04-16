@@ -162,13 +162,13 @@ For locally authored TypeScript contract source files under `contracts/*.ts`:
 
 TypeScript contract authoring also owns service-local transportable RPC errors.
 
-Authors should normally create them through `defineTrellisErrorClass(...)` and
-register the generated declaration in the builder registry `errors` map.
+Authors should normally create them through `defineError(...)` and register the
+generated error classes directly in the builder registry `errors` map.
 
 Example shape:
 
 ```ts
-export const NotFoundError = defineTrellisErrorClass({
+export const NotFoundError = defineError({
   type: "NotFoundError",
   fields: {
     resource: Type.String(),
@@ -183,7 +183,7 @@ const schemas = {
 } as const;
 
 const errors = {
-  WorkspaceMissing: NotFoundError.decl,
+  NotFoundError,
 } as const;
 
 export const krishi = defineServiceContract(
@@ -198,7 +198,7 @@ export const krishi = defineServiceContract(
         input: ref.schema("GetWorkspaceInput"),
         output: ref.schema("Workspace"),
         errors: [
-          ref.error("WorkspaceMissing"),
+          ref.error("NotFoundError"),
           ref.error("ValidationError"),
           ref.error("UnexpectedError"),
         ],
@@ -212,15 +212,12 @@ Rules:
 
 - the `errors` map stays local to the contract rather than using a central
   global registry
-- new local transportable errors should normally use
-  `defineTrellisErrorClass(...)`
+- new local transportable errors should normally use `defineError(...)`
 - each local transportable error still becomes a real runtime class, not a
   plain manifest object
-- manual subclasses remain supported for advanced cases and MUST define
-  `static schema` and `static fromSerializable(...)`
-- the generated class `type` or manual class `name` is the wire `type`
+- the generated class `type` is the wire `type`
 - `defineServiceContract(...)` derives manifest-emitted local error schema refs
-  from `defineError(...)` runtime metadata when the schema is not already
+  from local error runtime metadata when the schema is not already
   present in the local `schemas` map
 - authors may still include the error schema explicitly in `schemas` when they
   want a stable local schema key or to reference that schema elsewhere

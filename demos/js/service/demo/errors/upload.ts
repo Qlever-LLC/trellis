@@ -1,7 +1,7 @@
 import Type from "typebox";
-import { defineTrellisErrorClass } from "@qlever-llc/trellis";
+import { defineError } from "@qlever-llc/trellis";
 
-export const ReservedUploadKeyError = defineTrellisErrorClass({
+export const ReservedUploadKeyError = defineError({
   type: "ReservedUploadKeyError",
   fields: {
     key: Type.String({ minLength: 1 }),
@@ -10,5 +10,3 @@ export const ReservedUploadKeyError = defineTrellisErrorClass({
   message: ({ reservedPrefix }) =>
     `Upload keys starting with "${reservedPrefix}" are reserved`,
 });
-
-export const ReservedUploadKey = ReservedUploadKeyError.decl;

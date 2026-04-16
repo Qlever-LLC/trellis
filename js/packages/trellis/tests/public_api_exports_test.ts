@@ -1,12 +1,11 @@
 import { assert, assertEquals } from "@std/assert";
-import { type Static, Type } from "typebox";
+import { Type } from "typebox";
 
 import {
   defineAppContract,
   defineCliContract,
   defineDeviceContract,
   defineError,
-  defineTrellisErrorClass,
   definePortalContract,
   defineServiceContract,
   DownloadTransferGrantSchema,
@@ -39,7 +38,6 @@ Deno.test("root public API includes core runtime, contracts, and result helpers"
   assertEquals(typeof defineDeviceContract, "function");
   assertEquals(typeof defineServiceContract, "function");
   assertEquals(typeof defineError, "function");
-  assertEquals(typeof defineTrellisErrorClass, "function");
   assertEquals(typeof schema, "function");
   assertEquals(typeof TrellisClient.connect, "function");
   assertEquals(typeof TrellisDevice.connect, "function");
@@ -84,60 +82,19 @@ Deno.test("root public API includes core runtime, contracts, and result helpers"
 
   assertEquals(contract.CONTRACT_ID, "example.app@v1");
 
-  class ExampleNotFoundError extends TrellisError<{
-    id: string;
-    type: "ExampleNotFoundError";
-    message: string;
-    resource: string;
-    context?: Record<string, unknown>;
-    traceId?: string;
-  }> {
-    static readonly schema = Type.Object({
-      id: Type.String(),
-      type: Type.Literal("ExampleNotFoundError"),
-      message: Type.String(),
+  const ExampleNotFoundError = defineError({
+    type: "ExampleNotFoundError",
+    fields: {
       resource: Type.String(),
-      context: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
-      traceId: Type.Optional(Type.String()),
-    });
-    override readonly name = "ExampleNotFoundError" as const;
+    },
+    message: ({ resource }) => `${resource} not found`,
+  });
 
-    static fromSerializable(data: Static<typeof ExampleNotFoundError.schema>) {
-      return new ExampleNotFoundError(data.resource, {
-        id: data.id,
-        context: data.context,
-      });
-    }
-
-    readonly resource: string;
-
-    constructor(
-      resource: string,
-      options?: ErrorOptions & {
-        context?: Record<string, unknown>;
-        id?: string;
-      },
-    ) {
-      super(`${resource} not found`, options);
-      this.resource = resource;
-    }
-
-    override toSerializable() {
-      return {
-        ...this.baseSerializable(),
-        type: this.name,
-        resource: this.resource,
-      } as const;
-    }
-  }
-
-  const localError = defineError(ExampleNotFoundError);
-
-  assertEquals(localError.type, "ExampleNotFoundError");
+  assertEquals(ExampleNotFoundError.type, "ExampleNotFoundError");
 });
 
-Deno.test("generated Trellis error factory creates a typed runtime class with a declaration", () => {
-  const ExampleWorkspaceMissingError = defineTrellisErrorClass({
+Deno.test("defineError creates a typed runtime class", () => {
+  const ExampleWorkspaceMissingError = defineError({
     type: "ExampleWorkspaceMissingError",
     fields: {
       resource: Type.String(),
@@ -156,7 +113,8 @@ Deno.test("generated Trellis error factory creates a typed runtime class with a 
 
   assert(error instanceof TrellisError);
   assert(revived instanceof ExampleWorkspaceMissingError);
-  assertEquals(ExampleWorkspaceMissingError.decl.type, "ExampleWorkspaceMissingError");
+  assertEquals(ExampleWorkspaceMissingError.type, "ExampleWorkspaceMissingError");
+  assertEquals(ExampleWorkspaceMissingError.schema.type, "object");
   assertEquals(serialized.type, "ExampleWorkspaceMissingError");
   assertEquals(serialized.resource, "Workspace");
   assertEquals(serialized.resourceId, "ws_123");

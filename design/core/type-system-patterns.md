@@ -25,7 +25,7 @@ Each service owns a local contract definition that emits the canonical
 
 ```ts
 import {
-  defineTrellisErrorClass,
+  defineError,
   defineServiceContract,
 } from "@qlever-llc/trellis";
 import { core } from "@qlever-llc/trellis-sdk";
@@ -36,7 +36,7 @@ const schemas = {
   PartnerChanged: PartnerEventSchema,
 } as const;
 
-const NotFoundError = defineTrellisErrorClass({
+const NotFoundError = defineError({
   type: "NotFoundError",
   fields: {},
   message: "Not found",
@@ -46,7 +46,7 @@ export const contract = defineServiceContract(
   {
     schemas,
     errors: {
-      UserMissing: NotFoundError.decl,
+      NotFoundError,
     },
   },
   (ref) => ({
@@ -237,10 +237,10 @@ RPC rule:
 
 - declared RPC errors may be service-local `TrellisError` subclasses owned by
   the service contract
-- new TypeScript service-local RPC errors should normally use
-  `defineTrellisErrorClass(...)`
+- new TypeScript service-local RPC errors should normally use `defineError(...)`
 - for TypeScript service contracts, local error `static schema` values may be
-  derived into emitted contract schemas automatically from `defineError(...)`
+  derived into emitted contract schemas automatically from local error runtime
+  metadata
 - callers receive declared remote errors as reconstructed runtime instances of
   those classes
 - `RemoteError` is a fallback for undeclared or unknown remote error payloads,
