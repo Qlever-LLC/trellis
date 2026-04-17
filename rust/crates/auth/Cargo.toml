@@ -9,13 +9,13 @@ description = "Authentication flows and session helpers for Trellis clients."
 [dependencies]
 base64.workspace = true
 ed25519-dalek.workspace = true
-hmac = "0.12.1"
-hkdf = "0.12.4"
+hmac = "0.13.0"
+hkdf = "0.13.0"
 rand = "0.10.0"
 reqwest = { version = "0.13.2", default-features = false, features = ["json", "rustls"] }
 serde.workspace = true
 serde_json.workspace = true
-sha2 = "0.10.9"
+sha2.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 trellis-client = { path = "../client", version = "0.7.0" }

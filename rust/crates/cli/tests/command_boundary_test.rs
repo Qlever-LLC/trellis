@@ -249,6 +249,25 @@ fn service_install_help_does_not_treat_modifiers_as_primary_inputs() {
 }
 
 #[test]
+fn device_install_help_does_not_treat_modifiers_as_primary_inputs() {
+    let output = run_cli(&["device", "profile", "apply", "--help"]);
+    assert!(
+        output.status.success(),
+        "device profile apply help should succeed"
+    );
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    assert!(stdout.contains("--manifest <CONTRACT_JSON>"));
+    assert!(stdout.contains("--source <CONTRACT_SOURCE>"));
+    assert!(stdout.contains("--image <OCI_IMAGE>"));
+    assert!(stdout.contains("--source-export <SOURCE_EXPORT>"));
+    assert!(stdout.contains("--image-contract-path <IMAGE_CONTRACT_PATH>"));
+    assert!(!stdout.contains("--nats-servers"));
+    assert!(!stdout.contains("--creds <CREDS>"));
+    assert!(!stdout.contains("|--source-export <SOURCE_EXPORT>|"));
+    assert!(!stdout.contains("|--image-contract-path <IMAGE_CONTRACT_PATH>|"));
+}
+
+#[test]
 fn service_profile_create_help_hides_removed_display_flags() {
     let output = run_cli(&["service", "profile", "create", "--help"]);
     assert!(

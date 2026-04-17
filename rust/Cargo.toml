@@ -35,7 +35,7 @@ clap = { version = "4.6.0", features = ["derive"] }
 clap_complete = "4.6.0"
 comfy-table = "7.2.2"
 heck = "0.5.0"
-jsonschema = "0.45.1"
+jsonschema = "0.46.0"
 miette = { version = "7.6.0", features = ["fancy"] }
 owo-colors = "4.3.0"
 tracing = "0.1.44"

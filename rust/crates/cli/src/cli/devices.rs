@@ -1,5 +1,7 @@
 use clap::{Args, Subcommand, ValueEnum};
 
+use super::service::ContractInputArgs;
+
 #[derive(Debug, Clone, Copy, Eq, PartialEq, ValueEnum)]
 /// Review mode enforced for newly activated devices in a profile.
 pub enum DeviceReviewMode {
@@ -201,7 +203,7 @@ pub struct DeviceProfileCreateArgs {
 
 #[derive(Debug, Args)]
 #[command(
-    after_help = "Examples:\n  trellis device profile apply reader.standard acme.reader@v1\n  trellis device profile apply reader.standard ./contracts/reader.ts"
+    after_help = "Examples:\n  trellis device profile apply reader.standard --source ./contracts/reader.ts\n  trellis device profile apply reader.standard --manifest ./contracts/reader.json\n  trellis device profile apply reader.standard --image ghcr.io/acme/reader:latest"
 )]
 /// Apply one contract lineage or digest set to a device profile.
 pub struct DeviceProfileApplyArgs {
@@ -209,9 +211,8 @@ pub struct DeviceProfileApplyArgs {
     /// Device profile identifier to update.
     pub profile: String,
 
-    #[arg(value_name = "CONTRACT")]
-    /// Contract identifier, source path, manifest path, or embedded contract reference.
-    pub contract: String,
+    #[command(flatten)]
+    pub contract: ContractInputArgs,
 }
 
 #[derive(Debug, Args)]

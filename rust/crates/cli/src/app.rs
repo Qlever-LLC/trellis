@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::io;
@@ -12,12 +11,12 @@ use crate::contract_input::{default_image_contract_path, resolve_contract_input}
 use crate::output;
 use crate::self_update::{ReleaseChannel, SelfUpdateTarget};
 use crate::{contract_input, core_client};
+use async_nats::ConnectOptions;
 use async_nats::jetstream;
 use async_nats::jetstream::kv;
 use async_nats::jetstream::stream;
-use async_nats::ConnectOptions;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
 use ed25519_dalek::SigningKey;
@@ -523,41 +522,6 @@ pub(crate) async fn resolve_contract_lineage_id(
 
     miette::ensure!(exists, "no active contract found for id '{contract}'");
     Ok(contract.to_string())
-}
-
-pub(crate) async fn resolve_device_profile_contract(
-    connected: &TrellisClient,
-    contract: &str,
-) -> miette::Result<(String, Vec<String>, Option<BTreeMap<String, Value>>)> {
-    if let Some(resolved) = resolve_device_contract_source(contract)? {
-        let contract = resolved
-            .loaded
-            .value
-            .as_object()
-            .cloned()
-            .map(|contract| contract.into_iter().collect());
-        return Ok((
-            resolved.loaded.manifest.id,
-            vec![resolved.loaded.digest],
-            contract,
-        ));
-    }
-
-    let core_client = core_client::CoreClient::new(connected);
-    let catalog = core_client.catalog().await.into_diagnostic()?.catalog;
-    let digests = catalog
-        .contracts
-        .into_iter()
-        .filter(|entry| entry.id == contract)
-        .map(|entry| entry.digest)
-        .collect::<Vec<_>>();
-
-    miette::ensure!(
-        !digests.is_empty(),
-        "no active contract found for id '{contract}'"
-    );
-
-    Ok((contract.to_string(), digests, None))
 }
 
 pub(crate) fn release_channel(prerelease: bool) -> ReleaseChannel {

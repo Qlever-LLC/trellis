@@ -30,9 +30,9 @@ pub use protocol::{
     AuthStartResponse, AuthValidateRequestRequest, AuthValidateRequestResponse, AuthenticatedUser,
     ClientTransportRecord, ClientTransportsRecord, DisableInstanceGrantPolicyRequest,
     InstanceGrantPolicyActorRecord, InstanceGrantPolicyRecord, InstanceGrantPolicySourceRecord,
-    ListApprovalsRequest, RenewBindingTokenBoundResponse, RenewBindingTokenRequest,
-    RenewBindingTokenResponse, RevokeApprovalRequest, SentinelCredsRecord,
-    UpsertInstanceGrantPolicyRequest,
+    JobsBindings, JobsRegistry, ListApprovalsRequest, RenewBindingTokenBoundResponse,
+    RenewBindingTokenRequest, RenewBindingTokenResponse, ResourceBindings, RevokeApprovalRequest,
+    SentinelCredsRecord, UpsertInstanceGrantPolicyRequest,
 };
 pub use session_store::{clear_admin_session, load_admin_session, save_admin_session};
 pub use trellis_sdk_auth::types::{
