@@ -46,7 +46,8 @@
   },
   "sessionKeySeedFile": "/etc/trellis/secrets/session-key.seed",
   "client": {
-    "natsServers": ["wss://nats.example.com:443"]
+    "natsServers": ["wss://nats.example.com:443"],
+    "nativeNatsServers": ["tls://nats.example.com:4222"]
   },
   "oauth": {
     "redirectBase": "https://auth.example.com/auth/callback",

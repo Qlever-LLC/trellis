@@ -64,3 +64,23 @@ Deno.test("buildClientTransports returns explicit native and websocket transport
     },
   });
 });
+
+Deno.test("buildClientTransports prefers configured native client endpoints", () => {
+  const config = makeConfig();
+  config.client.nativeNatsServers = [
+    "tls://nats.example.com:4222",
+    "tls://backup.example.com:4222",
+  ];
+
+  assertEquals(buildClientTransports(config), {
+    native: {
+      natsServers: [
+        "tls://nats.example.com:4222",
+        "tls://backup.example.com:4222",
+      ],
+    },
+    websocket: {
+      natsServers: ["ws://localhost:8080", "wss://nats.example.com"],
+    },
+  });
+});

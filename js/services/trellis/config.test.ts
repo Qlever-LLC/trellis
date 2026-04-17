@@ -68,7 +68,8 @@ Deno.test("auth config loads structured provider map from file", async () => {
       },
       "sessionKeySeedFile": "./session.seed",
       "client": {
-        "natsServers": ["ws://localhost:8080", "wss://nats.example.com"]
+        "natsServers": ["ws://localhost:8080", "wss://nats.example.com"],
+        "nativeNatsServers": ["tls://nats.example.com:4222"]
       },
       "oauth": {
         "redirectBase": "http://127.0.0.1:3000/auth/callback",
@@ -107,6 +108,7 @@ Deno.test("auth config loads structured provider map from file", async () => {
       assertEquals(cfg.ttlMs.deviceFlow, 1800000);
       assertEquals(cfg.sessionKeySeed, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=");
       assertEquals(cfg.client.natsServers, ["ws://localhost:8080", "wss://nats.example.com"]);
+      assertEquals(cfg.client.nativeNatsServers, ["tls://nats.example.com:4222"]);
       assertEquals(cfg.nats.authCallout.issuer.signing, "SAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
       assertEquals(cfg.oauth.redirectBase, "http://localhost:3000/auth/callback");
       assertEquals(cfg.oauth.alwaysShowProviderChooser, true);

@@ -141,6 +141,7 @@ const rawSchema = z.object({
   sessionKeySeedFile: z.string().optional(),
   client: z.object({
     natsServers: z.array(z.string()).min(1),
+    nativeNatsServers: z.array(z.string()).min(1).optional(),
   }),
   oauth: z.object({
     redirectBase: z.string(),
@@ -219,6 +220,7 @@ export type Config = {
   sessionKeySeed: string;
   client: {
     natsServers: string[];
+    nativeNatsServers?: string[];
   };
   oauth: {
     redirectBase: string;
@@ -383,6 +385,7 @@ function normalizeConfig(configPath: string, raw: RawConfig): Config {
     ),
     client: {
       natsServers: raw.client.natsServers,
+      nativeNatsServers: raw.client.nativeNatsServers,
     },
     oauth: {
       redirectBase:
