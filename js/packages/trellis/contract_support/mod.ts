@@ -4,7 +4,7 @@ import Type, {
   type TProperties,
   type TSchema,
 } from "typebox";
-import type { BaseError } from "../../result/mod.ts";
+import type { BaseError } from "@qlever-llc/result";
 import { TrellisError } from "../errors/TrellisError.ts";
 import {
   canonicalizeJson,

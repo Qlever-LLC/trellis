@@ -2,7 +2,7 @@
  * Base class for all Trellis-specific errors.
  * Extends BaseError and relies on the traceId getter being configured via initTracing.
  */
-import { BaseError, type BaseErrorSchema } from "../../result/mod.ts";
+import { BaseError, type BaseErrorSchema } from "@qlever-llc/result";
 
 /**
  * Abstract base class for Trellis errors.

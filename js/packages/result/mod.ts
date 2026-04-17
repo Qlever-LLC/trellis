@@ -65,4 +65,8 @@ export {
   UnexpectedError,
   UnexpectedErrorDataSchema,
 } from "./error.ts";
-export type { BaseErrorSchema, BaseErrorOptions } from "./error.ts";
+export type {
+  BaseErrorSchema,
+  BaseErrorOptions,
+  UnexpectedErrorData,
+} from "./error.ts";

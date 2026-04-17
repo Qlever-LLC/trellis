@@ -1,4 +1,8 @@
-import { UnexpectedError } from "@qlever-llc/result";
+import {
+  UnexpectedError,
+  UnexpectedErrorDataSchema,
+  type UnexpectedErrorData,
+} from "@qlever-llc/result";
 import { schema } from "../contract_support/mod.ts";
 import { AuthError } from "./AuthError.ts";
 import type { AuthErrorData } from "./AuthError.ts";
@@ -16,8 +20,6 @@ import { StoreErrorDataSchema } from "./StoreError.ts";
 import { TransferError } from "./TransferError.ts";
 import type { TransferErrorData } from "./TransferError.ts";
 import { TransferErrorDataSchema } from "./TransferError.ts";
-import type { UnexpectedErrorData } from "../../result/error.ts";
-import { UnexpectedErrorDataSchema } from "../../result/error.ts";
 
 type RuntimeRpcErrorDesc = {
   type: string;

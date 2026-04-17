@@ -146,11 +146,24 @@ jobs:
           await import("@qlever-llc/trellis");
           await import("@qlever-llc/trellis/auth");
           await import("@qlever-llc/trellis/contracts");
+          await import("@qlever-llc/trellis/errors");
           await import("@qlever-llc/trellis-sdk/auth");
           await import("@qlever-llc/trellis-sdk/core");
           await import("@qlever-llc/trellis/tracing");
           await import("@qlever-llc/trellis/host");
           await import("@qlever-llc/trellis/host/node");
+          EOF
+          node <<'EOF'
+          require("@qlever-llc/result");
+          require("@qlever-llc/trellis");
+          require("@qlever-llc/trellis/auth");
+          require("@qlever-llc/trellis/contracts");
+          require("@qlever-llc/trellis/errors");
+          require("@qlever-llc/trellis-sdk/auth");
+          require("@qlever-llc/trellis-sdk/core");
+          require("@qlever-llc/trellis/tracing");
+          require("@qlever-llc/trellis/host");
+          require("@qlever-llc/trellis/host/node");
           EOF
 
       - name: Configure npm registry auth

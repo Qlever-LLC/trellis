@@ -6,13 +6,70 @@ const generatedCoreSdkSpecifier = new URL(
 ).href;
 
 const npmPackageJsonPath = new URL("../npm/package.json", import.meta.url);
+const npmScriptDirUrl = new URL("../npm/script/", import.meta.url);
+
+function rewriteCjsPath(path: string): string {
+  return path.replace(
+    /^\.\/script\//,
+    "./script/js/packages/trellis/npm/src/",
+  );
+}
+
+function normalizeExportValue(value: unknown): unknown {
+  if (typeof value === "string") {
+    return rewriteCjsPath(value);
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return value;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).map(([key, nestedValue]) => [
+      key,
+      key === "require" ? normalizeExportValue(nestedValue) : nestedValue,
+    ]),
+  );
+}
+
+async function* walkFiles(dir: URL): AsyncGenerator<URL> {
+  for await (const entry of Deno.readDir(dir)) {
+    const entryUrl = new URL(entry.name, dir);
+    if (entry.isDirectory) {
+      yield* walkFiles(new URL(`${entry.name}/`, dir));
+      continue;
+    }
+
+    yield entryUrl;
+  }
+}
+
+async function normalizeScriptModuleSpecifiers() {
+  const relativeTsSpecifierPattern = /(["'])(\.{1,2}\/[^"']+)\.ts\1/g;
+
+  for await (const fileUrl of walkFiles(npmScriptDirUrl)) {
+    if (!fileUrl.pathname.endsWith(".js")) {
+      continue;
+    }
+
+    const original = await Deno.readTextFile(fileUrl);
+    const updated = original.replace(
+      relativeTsSpecifierPattern,
+      (_match, quote, specifier) => `${quote}${specifier}.js${quote}`,
+    );
+
+    if (updated !== original) {
+      await Deno.writeTextFile(fileUrl, updated);
+    }
+  }
+}
 
 async function normalizePackageJsonExports() {
   const packageJson = JSON.parse(await Deno.readTextFile(npmPackageJsonPath));
   const exports = packageJson.exports ?? {};
   const normalizedEntries = Object.entries(exports).map(([key, value]) => {
     if (key === ".") {
-      return [key, value];
+      return [key, normalizeExportValue(value)];
     }
 
     const normalizedKey = key
@@ -20,10 +77,13 @@ async function normalizePackageJsonExports() {
       .replace(/\/mod$/, "")
       .replace(/\/index$/, "");
 
-    return [normalizedKey, value];
+    return [normalizedKey, normalizeExportValue(value)];
   });
 
   packageJson.exports = Object.fromEntries(normalizedEntries);
+  if (typeof packageJson.main === "string") {
+    packageJson.main = rewriteCjsPath(packageJson.main);
+  }
   await Deno.writeTextFile(
     npmPackageJsonPath,
     JSON.stringify(packageJson, null, 2) + "\n",
@@ -101,4 +161,5 @@ await buildDntPackage({
   },
 });
 
+await normalizeScriptModuleSpecifiers();
 await normalizePackageJsonExports();

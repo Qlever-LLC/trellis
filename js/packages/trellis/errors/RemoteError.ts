@@ -1,4 +1,8 @@
-import { Result, type UnexpectedError } from "@qlever-llc/result";
+import {
+  Result,
+  type UnexpectedError,
+  type UnexpectedErrorData,
+} from "@qlever-llc/result";
 import Type, { type Static } from "typebox";
 import { ParseError, Value } from "typebox/value";
 import type { AuthErrorData } from "./AuthError.ts";
@@ -10,7 +14,6 @@ import type { TransferErrorData } from "./TransferError.ts";
 import { TrellisError } from "./TrellisError.ts";
 import { ValidationError } from "./ValidationError.ts";
 import type { ValidationErrorData } from "./ValidationError.ts";
-import type { UnexpectedErrorData } from "../../result/error.ts";
 
 export const RemoteErrorDataSchema = Type.Object({
   id: Type.String(),
