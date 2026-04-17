@@ -172,6 +172,24 @@ function resolveServiceLogger(log?: LoggerLike | false): LoggerLike {
   return log ?? serverLogger;
 }
 
+function normalizeNatsError(error: Error): Record<string, unknown> {
+  const record = error as Error & {
+    operation?: unknown;
+    subject?: unknown;
+    queue?: unknown;
+  };
+
+  return {
+    name: error.name,
+    message: error.message,
+    ...(typeof record.operation === "string"
+      ? { operation: record.operation }
+      : {}),
+    ...(typeof record.subject === "string" ? { subject: record.subject } : {}),
+    ...(typeof record.queue === "string" ? { queue: record.queue } : {}),
+  };
+}
+
 function normalizeNatsStatus(status: unknown): Record<string, unknown> {
   if (!status || typeof status !== "object") {
     return { status };
@@ -180,6 +198,9 @@ function normalizeNatsStatus(status: unknown): Record<string, unknown> {
   const record = status as Record<string, unknown>;
   return {
     ...(typeof record.type === "string" ? { type: record.type } : {}),
+    ...(record.error instanceof Error
+      ? { error: normalizeNatsError(record.error) }
+      : {}),
     ...(typeof record.data === "string" ? { data: record.data } : {}),
     ...(record.data && typeof record.data === "object"
       ? { data: record.data }
@@ -933,7 +954,8 @@ export class TrellisService<
       contractDigest: args.contract.CONTRACT_DIGEST,
       auth,
     });
-    const { authenticator: authTokenAuthenticator, inboxPrefix } = await auth.natsConnectOptions();
+    const { authenticator: authTokenAuthenticator, inboxPrefix } = await auth
+      .natsConnectOptions();
     const nc = await runtimeDeps.connect({
       servers: selectRuntimeTransportServers(bootstrap.connectInfo.transports),
       inboxPrefix,
@@ -941,7 +963,9 @@ export class TrellisService<
         authTokenAuthenticator,
         jwtAuthenticator(
           bootstrap.connectInfo.transport.sentinel.jwt,
-          new TextEncoder().encode(bootstrap.connectInfo.transport.sentinel.seed),
+          new TextEncoder().encode(
+            bootstrap.connectInfo.transport.sentinel.seed,
+          ),
         ),
       ],
     });
@@ -1006,7 +1030,8 @@ export class TrellisService<
         );
       })();
 
-    const { authenticator: authTokenAuthenticator, inboxPrefix } = await auth.natsConnectOptions();
+    const { authenticator: authTokenAuthenticator, inboxPrefix } = await auth
+      .natsConnectOptions();
 
     const nc = await connectFn({
       servers: opts.nats.servers,

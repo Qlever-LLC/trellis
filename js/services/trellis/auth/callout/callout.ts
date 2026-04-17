@@ -1,9 +1,4 @@
-import {
-  decode,
-  encodeAuthorizationResponse,
-  encodeUser,
-  type User,
-} from "@nats-io/jwt";
+import { decode, encodeAuthorizationResponse, encodeUser } from "@nats-io/jwt";
 import type { Msg } from "@nats-io/nats-core";
 import { fromSeed } from "@nats-io/nkeys";
 import {
@@ -16,6 +11,7 @@ import { Value } from "typebox/value";
 
 import { hashKey, randomToken, verifyDomainSig } from "../crypto.ts";
 import { CalloutLimiter } from "./limiter.ts";
+import { buildAuthCalloutPermissions } from "./permissions.ts";
 import { getConfig } from "../../config.ts";
 import { getResourcePermissionGrants } from "../../catalog/resources.ts";
 import type { ContractStore } from "../../catalog/store.ts";
@@ -617,54 +613,41 @@ export function startAuthCallout(
       const delegatedSubscribe = session.type === "service"
         ? []
         : session.delegatedSubscribeSubjects!;
-      const permissions: Partial<User> = {
-        pub: {
-          allow: [
-            ...new Set([
-              ...(isService
-                ? getServicePublishSubjects(principal.value.capabilities, {
-                  sessionKey,
-                  contractDigest: principal.value.serviceState
-                    ?.currentContractDigest,
-                  displayName: session.type === "service"
-                    ? session.name
-                    : "service",
-                })
-                : delegatedPublish),
-              ...(session.type === "user" && delegatedPublish.length > 0 &&
-                  AUTH_RENEW_SUBJECT
-                ? [AUTH_RENEW_SUBJECT]
-                : []),
-              ...resourcePermissions.publish,
-            ]),
-          ],
-        },
-        resp: { max: 1 },
-        sub: {
-          allow: [
-            ...new Set(
-              isService
-                ? [
-                  ...getServiceSubscribeSubjects(principal.value.capabilities, {
-                    sessionKey,
-                    contractDigest: principal.value.serviceState
-                      ?.currentContractDigest,
-                    displayName: session.type === "service"
-                      ? session.name
-                      : "service",
-                  }),
-                  ...resourcePermissions.subscribe,
-                  `${inboxPrefix}.>`,
-                ]
-                : [...delegatedSubscribe, `${inboxPrefix}.>`],
-            ),
-          ],
-        },
-        locale: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        data: 100 * 1000000,
-        subs: 1500,
-        issuer_account: config.nats.authCallout.target.nkey,
-      };
+      const permissions = buildAuthCalloutPermissions({
+        publishAllow: [
+          ...(isService
+            ? getServicePublishSubjects(principal.value.capabilities, {
+              sessionKey,
+              contractDigest: principal.value.serviceState
+                ?.currentContractDigest,
+              displayName: session.type === "service"
+                ? session.name
+                : "service",
+            })
+            : delegatedPublish),
+          ...(session.type === "user" && delegatedPublish.length > 0 &&
+              AUTH_RENEW_SUBJECT
+            ? [AUTH_RENEW_SUBJECT]
+            : []),
+          ...resourcePermissions.publish,
+        ],
+        subscribeAllow: isService
+          ? [
+            ...getServiceSubscribeSubjects(principal.value.capabilities, {
+              sessionKey,
+              contractDigest: principal.value.serviceState
+                ?.currentContractDigest,
+              displayName: session.type === "service"
+                ? session.name
+                : "service",
+            }),
+            ...resourcePermissions.subscribe,
+          ]
+          : delegatedSubscribe,
+        inboxPrefix,
+        issuerAccount: config.nats.authCallout.target.nkey,
+        sessionType: session.type,
+      });
       logger.debug({ permissions }, "issuing permissions");
 
       const userJwtExp = Math.floor((Date.now() + config.ttlMs.natsJwt) / 1000);

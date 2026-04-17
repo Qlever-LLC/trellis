@@ -1,5 +1,10 @@
 import { assertEquals, assertNotEquals, assertRejects } from "@std/assert";
-import type { Msg, NatsConnection, Subscription } from "@nats-io/nats-core";
+import {
+  type Msg,
+  type NatsConnection,
+  PermissionViolationError,
+  type Subscription,
+} from "@nats-io/nats-core";
 import { type BaseError, Result } from "@qlever-llc/result";
 import { core } from "@qlever-llc/trellis-sdk/core";
 import { Type } from "typebox";
@@ -153,9 +158,15 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function authenticatorsFromValue(value: unknown): Array<(...args: unknown[]) => unknown> {
-  if (typeof value === "function") return [value as (...args: unknown[]) => unknown];
-  if (Array.isArray(value) && value.every((entry) => typeof entry === "function")) {
+function authenticatorsFromValue(
+  value: unknown,
+): Array<(...args: unknown[]) => unknown> {
+  if (typeof value === "function") {
+    return [value as (...args: unknown[]) => unknown];
+  }
+  if (
+    Array.isArray(value) && value.every((entry) => typeof entry === "function")
+  ) {
     return value as Array<(...args: unknown[]) => unknown>;
   }
   return [];
@@ -163,7 +174,9 @@ function authenticatorsFromValue(value: unknown): Array<(...args: unknown[]) => 
 
 function authTokenFromAuthenticatorResult(value: unknown): string {
   if (!value || typeof value !== "object") {
-    throw new Error("Expected NATS authenticator to return an auth token payload");
+    throw new Error(
+      "Expected NATS authenticator to return an auth token payload",
+    );
   }
 
   const record = value as { auth_token?: unknown };
@@ -318,9 +331,13 @@ Deno.test("TrellisService.connectInternal uses a reconnect-safe auth token authe
             const authenticators = authenticatorsFromValue(opts.authenticator);
             authenticatorCount = authenticators.length;
 
-            firstToken = authTokenFromAuthenticatorResult(authenticators[0]?.());
+            firstToken = authTokenFromAuthenticatorResult(
+              authenticators[0]?.(),
+            );
             nowMs += 31_000;
-            secondToken = authTokenFromAuthenticatorResult(authenticators[0]?.());
+            secondToken = authTokenFromAuthenticatorResult(
+              authenticators[0]?.(),
+            );
 
             throw new Error("stop-after-authenticator");
           },
@@ -329,8 +346,16 @@ Deno.test("TrellisService.connectInternal uses a reconnect-safe auth token authe
       "stop-after-authenticator",
     );
 
-    const first = JSON.parse(firstToken) as { sessionKey: string; iat: number; sig: string };
-    const second = JSON.parse(secondToken) as { sessionKey: string; iat: number; sig: string };
+    const first = JSON.parse(firstToken) as {
+      sessionKey: string;
+      iat: number;
+      sig: string;
+    };
+    const second = JSON.parse(secondToken) as {
+      sessionKey: string;
+      iat: number;
+      sig: string;
+    };
 
     assertEquals(authenticatorCount, 2);
     assertEquals(first.sessionKey, second.sessionKey);
@@ -467,6 +492,59 @@ Deno.test("TrellisService.connectInternal logs routine NATS status at debug and 
   assertEquals(infoStatusCalls[0]?.[0], {
     service: "svc",
     connection: { type: "disconnect", data: "nats://127.0.0.1:4222" },
+  });
+});
+
+Deno.test("TrellisService.connectInternal includes NATS error details in status logs", async () => {
+  const testLogger = createTestLogger();
+
+  const service = await TrellisService.connectInternal("svc", {
+    sessionKeySeed: TEST_SEED,
+    nats: {
+      servers: "nats://127.0.0.1:4222",
+      authenticator: {},
+    },
+    server: {
+      api: core.API.owned,
+      trellisApi: core.API.trellis,
+      log: testLogger.logger,
+    },
+  }, {
+    connect: async () =>
+      createFakeNatsConnection([
+        {
+          type: "error",
+          error: new PermissionViolationError(
+            'Permissions Violation for Publish to "_INBOX.session.123"',
+            "publish",
+            "_INBOX.session.123",
+          ),
+        },
+      ]),
+  });
+
+  try {
+    await delay(20);
+  } finally {
+    await service.stop();
+  }
+
+  const infoStatusCalls = testLogger.infoCalls.filter((args) =>
+    args[1] === "Service NATS connection status"
+  );
+
+  assertEquals(infoStatusCalls.length, 1);
+  assertEquals(infoStatusCalls[0]?.[0], {
+    service: "svc",
+    connection: {
+      type: "error",
+      error: {
+        name: "PermissionViolationError",
+        message: 'Permissions Violation for Publish to "_INBOX.session.123"',
+        operation: "publish",
+        subject: "_INBOX.session.123",
+      },
+    },
   });
 });
 

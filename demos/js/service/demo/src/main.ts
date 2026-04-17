@@ -1,4 +1,6 @@
 import { TrellisService } from "@qlever-llc/trellis/host/deno";
+import type { Result } from "@qlever-llc/trellis";
+import type { BaseError } from "@qlever-llc/result";
 import { err, isErr } from "@qlever-llc/trellis";
 import * as rpc from "./rpc/index.ts";
 import contract from "../contracts/demo_service.ts";
@@ -63,85 +65,94 @@ async function main(): Promise<void> {
       demo: true,
     },
   });
+  const uploads = (await service.store.uploads.open()).take();
+  if (isErr(uploads)) {
+    throw uploads;
+  }
 
   await service.trellis.mount("Demo.Groups.List", rpc.listGroupsRpc);
-  await service.operation("Demo.Files.Upload").handle(async ({ input, op, transfer }) => {
-    const providerUpdates = (async () => {
-      for await (const update of transfer.updates()) {
-        console.info("provider transfer update", update);
+  await service
+    .operation("Demo.Files.Upload")
+    .handle(async ({ input, op, transfer }) => {
+      const drainTransferUpdates = (async () => {
+        for await (const _update of transfer.updates()) {
+          // Drain provider-side transfer updates so caller watch events stay ordered.
+        }
+      })();
+
+      const transferred = (await transfer.completed()).take();
+      if (isErr(transferred)) {
+        await drainTransferUpdates;
+        return err(transferred.error);
       }
-    })();
 
-    const transferred = await transfer.completed();
-    const transferredValue = transferred.take();
-    if (isErr(transferredValue)) {
-      await providerUpdates;
-      return err(transferredValue.error);
-    }
+      await drainTransferUpdates;
 
-    await providerUpdates;
+      const updateStage = async (
+        stage: string,
+        message: string,
+      ): Promise<Result<null, BaseError> | null> => {
+        const updated = (await op.progress({ stage, message })).take();
+        if (isErr(updated)) {
+          return err(updated.error);
+        }
 
-    const stored = await op.progress({
-      stage: "stored",
-      message: `Stored ${transferredValue.size} bytes for ${transferredValue.key}`,
+        return null;
+      };
+
+      const stored = await updateStage(
+        "stored",
+        `Stored ${transferred.size} bytes for ${transferred.key}`,
+      );
+      if (stored) {
+        return stored;
+      }
+
+      const entry = (await uploads.get(input.key)).take();
+      if (isErr(entry)) {
+        return err(entry.error);
+      }
+
+      const body = (await entry.stream()).take();
+      if (isErr(body)) {
+        return err(body.error);
+      }
+
+      const writing = await updateStage(
+        "writing",
+        "Writing the staged file to /tmp",
+      );
+      if (writing) {
+        return writing;
+      }
+
+      const tempFilePath = await Deno.makeTempFile({
+        dir: "/tmp",
+        prefix: "demo-upload-",
+        suffix: `-${toTempFileSuffix(input.key)}`,
+      });
+      await writeStreamToFile(tempFilePath, body);
+
+      const cleanup = await updateStage(
+        "cleanup",
+        "Deleting the staged object from the upload store",
+      );
+      if (cleanup) {
+        return cleanup;
+      }
+
+      const deleted = await uploads.delete(input.key);
+      if (deleted.isErr()) {
+        console.warn("demo upload cleanup failed", deleted.error);
+      }
+
+      console.info(`demo processed file path: ${tempFilePath}`);
+      return {
+        key: input.key,
+        size: entry.info.size,
+        tempFilePath,
+      };
     });
-    if (stored.isErr()) {
-      return err(stored.error);
-    }
-
-    const opened = await service.store.uploads.open();
-    const store = opened.take();
-    if (isErr(store)) {
-      return err(store.error);
-    }
-
-    const entry = await store.get(input.key);
-    const entryValue = entry.take();
-    if (isErr(entryValue)) {
-      return err(entryValue.error);
-    }
-
-    const body = await entryValue.stream();
-    const bodyValue = body.take();
-    if (isErr(bodyValue)) {
-      return err(bodyValue.error);
-    }
-
-    const writing = await op.progress({
-      stage: "writing",
-      message: "Writing the staged file to /tmp from the operation handler",
-    });
-    if (writing.isErr()) {
-      return err(writing.error);
-    }
-
-    const tempFilePath = await Deno.makeTempFile({
-      dir: "/tmp",
-      prefix: "demo-upload-",
-      suffix: `-${toTempFileSuffix(input.key)}`,
-    });
-    await writeStreamToFile(tempFilePath, bodyValue);
-
-    const cleanup = await op.progress({
-      stage: "cleanup",
-      message: "Deleting staged object from the upload store",
-    });
-    if (cleanup.isErr()) {
-      return err(cleanup.error);
-    }
-
-    const deleted = await store.delete(input.key);
-    if (deleted.isErr()) {
-      console.warn("demo upload cleanup failed", deleted.error);
-    }
-
-    console.info(`demo processed file path: ${tempFilePath}`);
-    return {
-      key: input.key,
-      size: entryValue.info.size,
-      tempFilePath,
-    };
-  });
 
   console.info(`demo service started`);
 

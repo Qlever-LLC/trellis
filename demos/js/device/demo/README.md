@@ -1,8 +1,7 @@
 # Demo Device
 
-Small TypeScript device that activates against Trellis, connects with its
-device identity, fetches demo groups, and uploads a local file to the demo
-service.
+Small TypeScript device that activates against Trellis, connects with its device
+identity, fetches demo groups, and uploads a local file to the demo service.
 
 ## Setup
 
@@ -31,8 +30,9 @@ deno task -c demos/js/device/demo/deno.json start -- http://localhost:3000 "<roo
 ```
 
 After connecting, the device starts the `Demo.Files.Upload` operation, transfers
-the file through `op.transfer(...)`, and watches both transfer progress and the
-final operation result while the service writes the staged object to `/tmp`.
+the file through `op.transfer(...)`, prints a transfer progress bar from the
+operation watch stream, and waits for the final result while the service writes
+the staged object to `/tmp`.
 
 Optional offline activation:
 
