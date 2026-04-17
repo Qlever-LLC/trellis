@@ -2,6 +2,7 @@ import type { HealthHeartbeat } from "@qlever-llc/trellis/health";
 
 export const HEALTH_EVENT_WINDOW = 200;
 export const HEALTH_STALE_MULTIPLIER = 2;
+export const HEALTH_EXPIRED_MULTIPLIER = 6;
 
 export type HealthFeedEvent = {
   id: string;
@@ -98,6 +99,34 @@ export function isHealthInstanceStale(
   now = Date.now(),
 ): boolean {
   return now - instance.lastSeenAt > instance.publishIntervalMs * HEALTH_STALE_MULTIPLIER;
+}
+
+export function isHealthInstanceExpired(
+  instance: Pick<HealthInstanceView, "lastSeenAt" | "publishIntervalMs">,
+  now = Date.now(),
+): boolean {
+  return now - instance.lastSeenAt >
+    instance.publishIntervalMs * HEALTH_EXPIRED_MULTIPLIER;
+}
+
+export function pruneExpiredHealthInstances(
+  instances: Record<string, HealthInstanceView>,
+  now = Date.now(),
+): Record<string, HealthInstanceView> {
+  let nextInstances: Record<string, HealthInstanceView> | undefined;
+
+  for (const [key, instance] of Object.entries(instances)) {
+    if (!isHealthInstanceExpired(instance, now)) {
+      continue;
+    }
+
+    if (!nextInstances) {
+      nextInstances = { ...instances };
+    }
+    delete nextInstances[key];
+  }
+
+  return nextInstances ?? instances;
 }
 
 export function summarizeHealthServices(

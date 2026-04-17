@@ -4,6 +4,7 @@
   import { onMount } from "svelte";
   import {
     appendHealthEvent,
+    pruneExpiredHealthInstances,
     summarizeHealthServices,
     upsertHealthInstance,
     type HealthFeedEvent,
@@ -54,8 +55,9 @@
 
   function ingestHeartbeat(heartbeat: HealthHeartbeat) {
     const receivedAt = Date.now();
+    const activeInstances = pruneExpiredHealthInstances(instances, receivedAt);
     recentEvents = appendHealthEvent(recentEvents, heartbeat, receivedAt);
-    instances = upsertHealthInstance(instances, heartbeat, receivedAt);
+    instances = upsertHealthInstance(activeInstances, heartbeat, receivedAt);
     now = receivedAt;
   }
 
@@ -67,7 +69,9 @@
   onMount(() => {
     const controller = new AbortController();
     const timer = window.setInterval(() => {
-      now = Date.now();
+      const currentTime = Date.now();
+      instances = pruneExpiredHealthInstances(instances, currentTime);
+      now = currentTime;
     }, STALE_REFRESH_MS);
 
     void (async () => {
