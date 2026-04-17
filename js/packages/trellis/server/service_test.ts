@@ -292,7 +292,7 @@ Deno.test("TrellisService.connectInternal uses the provided logger", async () =>
   assertEquals(testLogger.childBindings.length >= 3, true);
 });
 
-Deno.test("TrellisService.connectInternal logs routine NATS status at debug and reconnects at info", async () => {
+Deno.test("TrellisService.connectInternal logs routine NATS status at debug and exceptional statuses at info", async () => {
   const testLogger = createTestLogger();
 
   const service = await TrellisService.connectInternal("svc", {
@@ -310,7 +310,7 @@ Deno.test("TrellisService.connectInternal logs routine NATS status at debug and 
     connect: async () =>
       createFakeNatsConnection([
         { type: "update", data: "cluster change" },
-        { type: "reconnect", data: "nats://127.0.0.1:4222" },
+        { type: "disconnect", data: "nats://127.0.0.1:4222" },
       ]),
   });
 
@@ -329,6 +329,14 @@ Deno.test("TrellisService.connectInternal logs routine NATS status at debug and 
 
   assertEquals(debugStatusCalls.length, 1);
   assertEquals(infoStatusCalls.length, 1);
+  assertEquals(debugStatusCalls[0]?.[0], {
+    service: "svc",
+    connection: { type: "update", data: "cluster change" },
+  });
+  assertEquals(infoStatusCalls[0]?.[0], {
+    service: "svc",
+    connection: { type: "disconnect", data: "nats://127.0.0.1:4222" },
+  });
 });
 
 Deno.test("TrellisService.connectInternal defaults to the server logger", async () => {

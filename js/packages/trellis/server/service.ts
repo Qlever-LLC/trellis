@@ -186,9 +186,8 @@ function isImportantNatsStatus(status: unknown): boolean {
   }
 
   const type = (status as { type?: unknown }).type;
-  return type === "disconnect" || type === "reconnecting" ||
-    type === "forceReconnect" || type === "staleConnection" ||
-    type === "reconnect" || type === "error" || type === "close";
+  return type === "disconnect" || type === "forceReconnect" ||
+    type === "staleConnection" || type === "error";
 }
 
 function startNatsConnectionLogging(args: {
