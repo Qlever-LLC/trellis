@@ -49,6 +49,10 @@ import { getInitials, getRoleLabel } from "../../../lib/control-panel.ts";
     }
   }
 
+  function approvalRowKey(entry: AuthListApprovalsOutput["approvals"][number]): string {
+    return `${entry.user}:${entry.approval.contractDigest}:${entry.answeredAt}`;
+  }
+
   onMount(() => {
     let active = true;
     let statusInterval: number | null = null;
@@ -152,7 +156,7 @@ import { getInitials, getRoleLabel } from "../../../lib/control-panel.ts";
               </tr>
             </thead>
             <tbody>
-              {#each approvals as entry (entry.approval.contractDigest)}
+              {#each approvals as entry (approvalRowKey(entry))}
                 <tr>
                   <td class="font-medium">{entry.approval.displayName ?? entry.approval.contractId ?? "—"}</td>
                   <td class="font-mono text-xs text-base-content/60">{entry.approval.contractDigest?.slice(0, 12)}…</td>
