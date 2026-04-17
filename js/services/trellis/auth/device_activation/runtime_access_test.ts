@@ -75,6 +75,10 @@ function makeUsesContractRecord(): ContractRecord {
           contract: "trellis.auth@v1",
           rpc: { call: ["Auth.Me"] },
         },
+        billing: {
+          contract: "billing@v1",
+          operations: { call: ["Billing.Refund"] },
+        },
       },
     }),
   };
@@ -101,7 +105,10 @@ Deno.test("resolveDeviceContractDigest rejects digests outside the allowed activ
 });
 
 Deno.test("deriveDeviceRuntimeAccess preserves the caller-selected digest", () => {
-  const access = deriveDeviceRuntimeAccess(PROFILE, makeContractRecord("digest-b"));
+  const access = deriveDeviceRuntimeAccess(
+    PROFILE,
+    makeContractRecord("digest-b"),
+  );
 
   assertEquals(access.contractDigest, "digest-b");
   assertEquals(access.contractId, "acme.reader@v1");
@@ -111,24 +118,44 @@ Deno.test("deriveDeviceRuntimeAccess preserves the caller-selected digest", () =
 Deno.test("deriveDeviceRuntimeAccess includes publish subjects from contract uses", () => {
   const fakeContractStore = {
     findActiveDigestById(contractId: string) {
-      return contractId === "trellis.auth@v1" ? "auth-digest" : null;
+      if (contractId === "trellis.auth@v1") return "auth-digest";
+      if (contractId === "billing@v1") return "billing-digest";
+      return null;
     },
     getContract(digest: string) {
-      if (digest !== "auth-digest") return null;
-      return {
-        id: "trellis.auth@v1",
-        displayName: "Auth",
-        description: "Auth API",
-        rpc: {
-          "Auth.Me": {
-            subject: "rpc.v1.Auth.Me",
-            version: "v1",
-            capabilities: { call: [] },
-            request: { schema: "object" },
-            response: { schema: "object" },
+      if (digest === "auth-digest") {
+        return {
+          id: "trellis.auth@v1",
+          displayName: "Auth",
+          description: "Auth API",
+          rpc: {
+            "Auth.Me": {
+              subject: "rpc.v1.Auth.Me",
+              version: "v1",
+              capabilities: { call: [] },
+              request: { schema: "object" },
+              response: { schema: "object" },
+            },
           },
-        },
-      };
+        };
+      }
+      if (digest === "billing-digest") {
+        return {
+          id: "billing@v1",
+          displayName: "Billing",
+          description: "Billing API",
+          operations: {
+            "Billing.Refund": {
+              subject: "operations.v1.Billing.Refund",
+              version: "v1",
+              capabilities: { call: ["billing.refund"] },
+              input: { schema: "object" },
+              output: { schema: "object" },
+            },
+          },
+        };
+      }
+      return null;
     },
   };
 
@@ -139,4 +166,13 @@ Deno.test("deriveDeviceRuntimeAccess includes publish subjects from contract use
   );
 
   assertEquals(access.publishSubjects.includes("rpc.v1.Auth.Me"), true);
+  assertEquals(
+    access.publishSubjects.includes("operations.v1.Billing.Refund"),
+    true,
+  );
+  assertEquals(
+    access.publishSubjects.includes("operations.v1.Billing.Refund.control"),
+    true,
+  );
+  assertEquals(access.capabilities.includes("billing.refund"), true);
 });

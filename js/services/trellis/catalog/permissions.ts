@@ -1,4 +1,9 @@
-import type { ContractEvent, ContractRpcMethod, ContractSubject } from "@qlever-llc/trellis/contracts";
+import type {
+  ContractEvent,
+  ContractOperation,
+  ContractRpcMethod,
+  ContractSubject,
+} from "@qlever-llc/trellis/contracts";
 
 import {
   type ContractEntry,
@@ -6,6 +11,7 @@ import {
   resolveContractUses,
   templateToWildcard,
 } from "./uses.ts";
+import { getKvPermissionGrants } from "./resources.ts";
 import { CONTRACT as trellisAuthContract } from "../contracts/trellis_auth.ts";
 import { CONTRACT as trellisCoreContract } from "../contracts/trellis_core.ts";
 import { CONTRACT as trellisStateContract } from "../contracts/trellis_state.ts";
@@ -30,6 +36,11 @@ type EventInfo = {
   subject: string;
   publishCapabilities: string[];
   subscribeCapabilities: string[];
+};
+
+type OperationInfo = {
+  subject: string;
+  callCapabilities: string[];
 };
 
 type SubjectInfo = {
@@ -57,8 +68,16 @@ const BOOTSTRAP_CONTRACT_IMPLEMENTERS = new Map<string, string>([
   [trellisAuthContract.id, "trellis"],
   [trellisStateContract.id, "trellis"],
 ]);
-const AUTH_VALIDATE_SUBJECT = trellisAuthContract.rpc?.["Auth.ValidateRequest"]?.subject;
-const TRANSFER_SUBJECT_PREFIXES = ["transfer.v1.upload", "transfer.v1.download"] as const;
+const AUTH_VALIDATE_SUBJECT = trellisAuthContract.rpc?.["Auth.ValidateRequest"]
+  ?.subject;
+const TRANSFER_SUBJECT_PREFIXES = [
+  "transfer.v1.upload",
+  "transfer.v1.download",
+] as const;
+
+function operationStoreBucket(sessionKey: string): string {
+  return `trellis_operations_${sessionKey.slice(0, 16)}`;
+}
 
 function createPermissionState(contracts: ContractEntry[]): PermissionState {
   return {
@@ -78,7 +97,9 @@ function hasRequiredCapabilities(
   requiredCapabilities: string[],
 ): boolean {
   return requiredCapabilities.length === 0 ||
-    requiredCapabilities.every((capability) => grantedCapabilities.includes(capability));
+    requiredCapabilities.every((capability) =>
+      grantedCapabilities.includes(capability)
+    );
 }
 
 function dedupe(subjects: Iterable<string>): string[] {
@@ -89,7 +110,9 @@ function resolvedUses(entry: ContractEntry) {
   return resolveContractUses(entry.contract, (alias, use) => {
     const target = state.activeById.get(use.contract);
     if (!target) {
-      throw new Error(`Dependency '${alias}' references inactive contract '${use.contract}'`);
+      throw new Error(
+        `Dependency '${alias}' references inactive contract '${use.contract}'`,
+      );
     }
     return target;
   });
@@ -98,13 +121,16 @@ function resolvedUses(entry: ContractEntry) {
 function implementedContracts(service: ServiceDescriptor): ContractEntry[] {
   return state.contracts.filter((entry) =>
     service.contractDigest === entry.digest ||
-    BOOTSTRAP_CONTRACT_IMPLEMENTERS.get(entry.contract.id) === service.displayName
+    BOOTSTRAP_CONTRACT_IMPLEMENTERS.get(entry.contract.id) ===
+      service.displayName
   );
 }
 
 function collectAllRpc(): RpcInfo[] {
   return state.contracts.flatMap((entry) =>
-    Object.values<ContractRpcMethod>(entry.contract.rpc ?? {}).map((method) => ({
+    Object.values<ContractRpcMethod>(entry.contract.rpc ?? {}).map((
+      method,
+    ) => ({
       subject: method.subject,
       callCapabilities: method.capabilities?.call ?? [],
     }))
@@ -121,9 +147,22 @@ function collectAllEvents(): EventInfo[] {
   );
 }
 
+function collectAllOperations(): OperationInfo[] {
+  return state.contracts.flatMap((entry) =>
+    Object.values<ContractOperation>(entry.contract.operations ?? {}).map((
+      operation,
+    ) => ({
+      subject: operation.subject,
+      callCapabilities: operation.capabilities?.call ?? [],
+    }))
+  );
+}
+
 function collectAllSubjects(): SubjectInfo[] {
   return state.contracts.flatMap((entry) =>
-    Object.values<ContractSubject>(entry.contract.subjects ?? {}).map((subject) => ({
+    Object.values<ContractSubject>(entry.contract.subjects ?? {}).map((
+      subject,
+    ) => ({
       subject: subject.subject,
       publishCapabilities: subject.capabilities?.publish ?? [],
       subscribeCapabilities: subject.capabilities?.subscribe ?? [],
@@ -161,6 +200,16 @@ function usedPublishRules(entries: ContractEntry[]): PermissionRule[] {
         subject: templateToWildcard(method.method.subject),
         requiredCapabilities: method.method.capabilities?.call ?? [],
       })),
+      ...uses.operationCalls.flatMap((operation) => [
+        {
+          subject: templateToWildcard(operation.operation.subject),
+          requiredCapabilities: operation.operation.capabilities?.call ?? [],
+        },
+        {
+          subject: templateToWildcard(`${operation.operation.subject}.control`),
+          requiredCapabilities: operation.operation.capabilities?.call ?? [],
+        },
+      ]),
       ...uses.eventPublishes.map((event) => ({
         subject: templateToWildcard(event.event.subject),
         requiredCapabilities: event.event.capabilities?.publish ?? [],
@@ -197,13 +246,27 @@ function handledRpcSubjects(service: ServiceDescriptor): string[] {
   );
 }
 
+function handledOperationSubjects(service: ServiceDescriptor): string[] {
+  return implementedContracts(service).flatMap((entry) =>
+    Object.values<ContractOperation>(entry.contract.operations ?? {}).flatMap((
+      operation,
+    ) => [
+      templateToWildcard(operation.subject),
+      templateToWildcard(`${operation.subject}.control`),
+    ])
+  );
+}
+
 function hasDeclaredEventSubscriptions(
   capabilities: string[],
   service: ServiceDescriptor,
 ): boolean {
   return implementedContracts(service).some((entry) =>
     resolvedUses(entry).eventSubscribes.some((event) =>
-      hasRequiredCapabilities(capabilities, event.event.capabilities?.subscribe ?? [])
+      hasRequiredCapabilities(
+        capabilities,
+        event.event.capabilities?.subscribe ?? [],
+      )
     )
   );
 }
@@ -220,13 +283,27 @@ export function getUserPublishSubjects(capabilities: string[]): string[] {
   return dedupe([
     ...TRANSFER_SUBJECT_PREFIXES.map((prefix) => `${prefix}.*.*`),
     ...collectAllRpc()
-      .filter((method) => hasRequiredCapabilities(capabilities, method.callCapabilities))
+      .filter((method) =>
+        hasRequiredCapabilities(capabilities, method.callCapabilities)
+      )
       .map((method) => templateToWildcard(method.subject)),
+    ...collectAllOperations()
+      .filter((operation) =>
+        hasRequiredCapabilities(capabilities, operation.callCapabilities)
+      )
+      .flatMap((operation) => [
+        templateToWildcard(operation.subject),
+        templateToWildcard(`${operation.subject}.control`),
+      ]),
     ...collectAllEvents()
-      .filter((event) => hasRequiredCapabilities(capabilities, event.publishCapabilities))
+      .filter((event) =>
+        hasRequiredCapabilities(capabilities, event.publishCapabilities)
+      )
       .map((event) => templateToWildcard(event.subject)),
     ...collectAllSubjects()
-      .filter((subject) => hasRequiredCapabilities(capabilities, subject.publishCapabilities))
+      .filter((subject) =>
+        hasRequiredCapabilities(capabilities, subject.publishCapabilities)
+      )
       .map((subject) => subject.subject),
   ]);
 }
@@ -234,10 +311,14 @@ export function getUserPublishSubjects(capabilities: string[]): string[] {
 export function getUserSubscribeSubjects(capabilities: string[]): string[] {
   return dedupe([
     ...collectAllEvents()
-      .filter((event) => hasRequiredCapabilities(capabilities, event.subscribeCapabilities))
+      .filter((event) =>
+        hasRequiredCapabilities(capabilities, event.subscribeCapabilities)
+      )
       .map((event) => templateToWildcard(event.subject)),
     ...collectAllSubjects()
-      .filter((subject) => hasRequiredCapabilities(capabilities, subject.subscribeCapabilities))
+      .filter((subject) =>
+        hasRequiredCapabilities(capabilities, subject.subscribeCapabilities)
+      )
       .map((subject) => subject.subject),
   ]);
 }
@@ -251,12 +332,20 @@ export function getServicePublishSubjects(
 
   return dedupe([
     ...rules
-      .filter((rule) => hasRequiredCapabilities(capabilities, rule.requiredCapabilities))
+      .filter((rule) =>
+        hasRequiredCapabilities(capabilities, rule.requiredCapabilities)
+      )
       .map((rule) => rule.subject),
-    ...(hasRequiredCapabilities(capabilities, ["service"]) && AUTH_VALIDATE_SUBJECT
+    ...(hasRequiredCapabilities(capabilities, ["service"])
+      ? getKvPermissionGrants(operationStoreBucket(service.sessionKey)).publish
+      : []),
+    ...(hasRequiredCapabilities(capabilities, ["service"]) &&
+        AUTH_VALIDATE_SUBJECT
       ? [templateToWildcard(AUTH_VALIDATE_SUBJECT)]
       : []),
-    ...(hasDeclaredEventSubscriptions(capabilities, service) ? JETSTREAM_EVENT_CONTROL_SUBJECTS : []),
+    ...(hasDeclaredEventSubscriptions(capabilities, service)
+      ? JETSTREAM_EVENT_CONTROL_SUBJECTS
+      : []),
   ]);
 }
 
@@ -265,18 +354,29 @@ export function getServiceSubscribeSubjects(
   service: ServiceDescriptor,
 ): string[] {
   const entries = implementedContracts(service);
-  const rules = [...ownedSubscribeRules(entries), ...usedSubscribeRules(entries)];
+  const rules = [
+    ...ownedSubscribeRules(entries),
+    ...usedSubscribeRules(entries),
+  ];
   const rpcSubjects = hasRequiredCapabilities(capabilities, ["service"])
     ? handledRpcSubjects(service)
+    : [];
+  const operationSubjects = hasRequiredCapabilities(capabilities, ["service"])
+    ? handledOperationSubjects(service)
     : [];
 
   return dedupe([
     ...rpcSubjects,
+    ...operationSubjects,
     ...(hasRequiredCapabilities(capabilities, ["service"])
-      ? TRANSFER_SUBJECT_PREFIXES.map((prefix) => `${prefix}.${service.sessionKey.slice(0, 16)}.*`)
+      ? TRANSFER_SUBJECT_PREFIXES.map((prefix) =>
+        `${prefix}.${service.sessionKey.slice(0, 16)}.*`
+      )
       : []),
     ...rules
-      .filter((rule) => hasRequiredCapabilities(capabilities, rule.requiredCapabilities))
+      .filter((rule) =>
+        hasRequiredCapabilities(capabilities, rule.requiredCapabilities)
+      )
       .map((rule) => rule.subject),
   ]);
 }

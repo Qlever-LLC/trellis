@@ -244,7 +244,19 @@ export type ContractStoreResource = {
 export type ContractStreamResource = {
   purpose: string;
   required?: boolean;
+  retention?: "limits" | "interest" | "workqueue";
+  storage?: "file" | "memory";
+  numReplicas?: number;
+  maxAgeMs?: number;
+  maxBytes?: number;
+  maxMsgs?: number;
+  discard?: "old" | "new";
   subjects: string[];
+  sources?: Array<{
+    fromAlias: string;
+    filterSubject?: string;
+    subjectTransformDest?: string;
+  }>;
 };
 
 export type ContractResources = {
@@ -582,6 +594,18 @@ export type ContractSourceStreamResource = {
   purpose: string;
   required?: boolean;
   subjects: readonly string[];
+  retention?: "limits" | "interest" | "workqueue";
+  storage?: "file" | "memory";
+  numReplicas?: number;
+  maxAgeMs?: number;
+  maxBytes?: number;
+  maxMsgs?: number;
+  discard?: "old" | "new";
+  sources?: ReadonlyArray<{
+    fromAlias: string;
+    filterSubject?: string;
+    subjectTransformDest?: string;
+  }>;
 };
 
 export type ContractSourceResources<TSchemaName extends string = string> = {
@@ -1539,7 +1563,35 @@ function emitResources(
             {
               purpose: resource.purpose,
               required: resource.required ?? true,
+              ...(resource.retention ? { retention: resource.retention } : {}),
+              ...(resource.storage ? { storage: resource.storage } : {}),
+              ...(resource.numReplicas !== undefined
+                ? { numReplicas: resource.numReplicas }
+                : {}),
+              ...(resource.maxAgeMs !== undefined
+                ? { maxAgeMs: resource.maxAgeMs }
+                : {}),
+              ...(resource.maxBytes !== undefined
+                ? { maxBytes: resource.maxBytes }
+                : {}),
+              ...(resource.maxMsgs !== undefined
+                ? { maxMsgs: resource.maxMsgs }
+                : {}),
+              ...(resource.discard ? { discard: resource.discard } : {}),
               subjects: [...resource.subjects],
+              ...(resource.sources
+                ? {
+                  sources: resource.sources.map((source) => ({
+                    fromAlias: source.fromAlias,
+                    ...(source.filterSubject
+                      ? { filterSubject: source.filterSubject }
+                      : {}),
+                    ...(source.subjectTransformDest
+                      ? { subjectTransformDest: source.subjectTransformDest }
+                      : {}),
+                  })),
+                }
+                : {}),
             } satisfies ContractStreamResource,
           ]),
         ),

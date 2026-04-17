@@ -29,9 +29,14 @@ export type DeviceRuntimeAccess = {
 type ContractAnalysis = NonNullable<ContractRecord["analysis"]>;
 type RpcMethod = ContractAnalysis["rpc"]["methods"][number];
 type EventEntry = ContractAnalysis["events"]["events"][number];
-type SubjectEntry = NonNullable<ContractAnalysis["subjects"]>["subjects"][number];
+type SubjectEntry = NonNullable<
+  ContractAnalysis["subjects"]
+>["subjects"][number];
 type NatsRule = ContractAnalysis["nats"]["publish"][number];
-const TRANSFER_SUBJECT_PREFIXES = ["transfer.v1.upload", "transfer.v1.download"] as const;
+const TRANSFER_SUBJECT_PREFIXES = [
+  "transfer.v1.upload",
+  "transfer.v1.download",
+] as const;
 
 export function resolveDeviceContractDigest(
   profile: DeviceProfile,
@@ -40,7 +45,11 @@ export function resolveDeviceContractDigest(
   if (typeof contractDigest !== "string" || contractDigest.length === 0) {
     throw new Error("invalid_auth_token");
   }
-  if (!profile.appliedContracts.some((entry) => entry.allowedDigests.includes(contractDigest))) {
+  if (
+    !profile.appliedContracts.some((entry) =>
+      entry.allowedDigests.includes(contractDigest)
+    )
+  ) {
     throw new Error("device_digest_not_allowed");
   }
   return contractDigest;
@@ -72,7 +81,9 @@ export function deriveDeviceRuntimeAccess(
   }
 
   const capabilities = uniqueSorted([
-    ...analysis.rpc.methods.flatMap((method: RpcMethod) => method.callerCapabilities),
+    ...analysis.rpc.methods.flatMap((method: RpcMethod) =>
+      method.callerCapabilities
+    ),
     ...analysis.events.events.flatMap((event: EventEntry) => [
       ...event.publishCapabilities,
       ...event.subscribeCapabilities,
@@ -81,8 +92,12 @@ export function deriveDeviceRuntimeAccess(
       ...subject.publishCapabilities,
       ...subject.subscribeCapabilities,
     ]),
-    ...analysis.nats.publish.flatMap((rule: NatsRule) => rule.requiredCapabilities),
-    ...analysis.nats.subscribe.flatMap((rule: NatsRule) => rule.requiredCapabilities),
+    ...analysis.nats.publish.flatMap((rule: NatsRule) =>
+      rule.requiredCapabilities
+    ),
+    ...analysis.nats.subscribe.flatMap((rule: NatsRule) =>
+      rule.requiredCapabilities
+    ),
   ]);
 
   const publishSubjects = new Set<string>(
@@ -106,6 +121,16 @@ export function deriveDeviceRuntimeAccess(
     for (const method of uses.rpcCalls) {
       publishSubjects.add(templateToWildcard(method.method.subject));
       for (const capability of method.method.capabilities?.call ?? []) {
+        capabilities.push(capability);
+      }
+    }
+
+    for (const operation of uses.operationCalls) {
+      publishSubjects.add(templateToWildcard(operation.operation.subject));
+      publishSubjects.add(
+        templateToWildcard(`${operation.operation.subject}.control`),
+      );
+      for (const capability of operation.operation.capabilities?.call ?? []) {
         capabilities.push(capability);
       }
     }

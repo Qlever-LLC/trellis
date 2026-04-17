@@ -212,7 +212,8 @@ Deno.test("defineServiceContract derives local error schemas from defineError ru
     (ref) => ({
       id: "derived-local-errors.example@v1",
       displayName: "Derived Local Errors Example",
-      description: "Verify local error schemas can be derived from defineError metadata.",
+      description:
+        "Verify local error schemas can be derived from defineError metadata.",
       rpc: {
         "Workspace.Get": {
           version: "v1",
@@ -261,7 +262,8 @@ Deno.test("defineServiceContract ignores non-error exports in a mixed errors bar
     (ref) => ({
       id: "mixed-local-errors.example@v1",
       displayName: "Mixed Local Errors Example",
-      description: "Verify mixed error barrels can be passed directly to defineServiceContract.",
+      description:
+        "Verify mixed error barrels can be passed directly to defineServiceContract.",
       rpc: {
         "Workspace.Get": {
           version: "v1",
@@ -304,19 +306,26 @@ Deno.test("defineServiceContract emits generated defineError classes", () => {
     (ref) => ({
       id: "generated-local-errors.example@v1",
       displayName: "Generated Local Errors Example",
-      description: "Verify generated defineError classes can be passed directly to defineServiceContract.",
+      description:
+        "Verify generated defineError classes can be passed directly to defineServiceContract.",
       rpc: {
         "Workspace.Get": {
           version: "v1",
           input: ref.schema("Empty"),
           output: ref.schema("Empty"),
-          errors: [ref.error("WorkspaceMissingError"), ref.error("UnexpectedError")],
+          errors: [
+            ref.error("WorkspaceMissingError"),
+            ref.error("UnexpectedError"),
+          ],
         },
       },
     }),
   );
 
-  assertEquals(contract.CONTRACT.errors?.WorkspaceMissingError?.type, "WorkspaceMissingError");
+  assertEquals(
+    contract.CONTRACT.errors?.WorkspaceMissingError?.type,
+    "WorkspaceMissingError",
+  );
   assertEquals(contract.CONTRACT.errors?.WorkspaceMissingError?.schema, {
     schema: "WorkspaceMissingErrorData",
   });
@@ -429,6 +438,68 @@ Deno.test("defineServiceContract emits stream resources with defaults", () => {
     purpose: "Persist activity events",
     required: true,
     subjects: ["events.v1.Activity.Recorded"],
+  });
+});
+
+Deno.test("defineServiceContract preserves rich stream resource configuration", () => {
+  const contract = defineServiceContract({}, () => ({
+    id: "streams.rich@v1",
+    displayName: "Rich Streams Example",
+    description:
+      "Expose advanced stream resource declarations in emitted manifests.",
+    resources: {
+      streams: {
+        jobs: {
+          purpose: "Store job events",
+          retention: "limits",
+          storage: "file",
+          numReplicas: 3,
+          maxAgeMs: 0,
+          maxBytes: -1,
+          maxMsgs: -1,
+          discard: "old",
+          subjects: ["trellis.jobs.>"],
+        },
+        jobsWork: {
+          purpose: "Store sourced work messages",
+          retention: "workqueue",
+          storage: "file",
+          numReplicas: 3,
+          subjects: ["trellis.work.>"],
+          sources: [{
+            fromAlias: "jobs",
+            filterSubject: "trellis.jobs.*.*.*.created",
+            subjectTransformDest: "trellis.work.$1.$2",
+          }],
+        },
+      },
+    },
+  }));
+
+  assertEquals(contract.CONTRACT.resources?.streams?.jobs, {
+    purpose: "Store job events",
+    required: true,
+    retention: "limits",
+    storage: "file",
+    numReplicas: 3,
+    maxAgeMs: 0,
+    maxBytes: -1,
+    maxMsgs: -1,
+    discard: "old",
+    subjects: ["trellis.jobs.>"],
+  });
+  assertEquals(contract.CONTRACT.resources?.streams?.jobsWork, {
+    purpose: "Store sourced work messages",
+    required: true,
+    retention: "workqueue",
+    storage: "file",
+    numReplicas: 3,
+    subjects: ["trellis.work.>"],
+    sources: [{
+      fromAlias: "jobs",
+      filterSubject: "trellis.jobs.*.*.*.created",
+      subjectTransformDest: "trellis.work.$1.$2",
+    }],
   });
 });
 

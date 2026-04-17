@@ -715,7 +715,7 @@ function reconstructDeclaredRpcError(
   runtimeErrors: readonly RuntimeRpcErrorDesc[] | undefined,
   data: StaticDecode<typeof TrellisErrorDataSchema>,
   json: JsonValue,
-): Result<BaseError, ValidationError | UnexpectedError> | null {
+): BaseError | ValidationError | UnexpectedError | null {
   if (!isDeclaredRpcError(errorNames, data.type)) {
     return null;
   }
@@ -730,35 +730,24 @@ function reconstructDeclaredRpcError(
     ? parseRuntimeSchema(runtimeError.schema, json).take()
     : data;
   if (isErr(parsed)) {
-    if (
-      parsed.error instanceof ValidationError ||
-      parsed.error instanceof UnexpectedError
-    ) {
-      return Result.err<typeof parsed.error, BaseError>(parsed.error);
-    }
-    return Result.err<UnexpectedError, BaseError>(
-      new UnexpectedError({ cause: parsed.error }),
-    );
+    return parsed.error instanceof ValidationError ||
+        parsed.error instanceof UnexpectedError
+      ? parsed.error
+      : new UnexpectedError({ cause: parsed.error });
   }
 
   try {
     const reconstructed = runtimeError.fromSerializable(parsed);
     if (reconstructed instanceof BaseError) {
-      return Result.ok<BaseError, ValidationError | UnexpectedError>(
-        reconstructed,
-      );
+      return reconstructed;
     }
-    return Result.err<UnexpectedError, BaseError>(
-      new UnexpectedError({
-        cause: new Error(
-          `RPC error '${data.type}' reconstructed to a non-Trellis error instance`,
-        ),
-      }),
-    );
+    return new UnexpectedError({
+      cause: new Error(
+        `RPC error '${data.type}' reconstructed to a non-Trellis error instance`,
+      ),
+    });
   } catch (cause) {
-    return Result.err<UnexpectedError, BaseError>(
-      new UnexpectedError({ cause }),
-    );
+    return new UnexpectedError({ cause });
   }
 }
 
@@ -844,9 +833,7 @@ export class Trellis<
     TypedKV<typeof DurableOperationRecordSchema>
   > {
     if (!this.#operationStore) {
-      const bucket = `trellis_operations_${
-        this.name.replace(/[^A-Za-z0-9_-]/g, "_")
-      }`;
+      const bucket = `trellis_operations_${this.auth.sessionKey.slice(0, 16)}`;
       this.#operationStore = (async () => {
         const result = await TypedKV.open(
           this.nats,
@@ -1049,7 +1036,7 @@ export class Trellis<
           json,
         );
         if (reconstructed) {
-          return reconstructed;
+          return err(reconstructed);
         }
 
         return err(new RemoteError({ error: errorData }));

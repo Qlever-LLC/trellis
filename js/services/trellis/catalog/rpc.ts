@@ -32,7 +32,9 @@ import { ContractStore } from "./store.ts";
 import { resolveContractUsesFromStore } from "./uses.ts";
 import { serviceInstanceId } from "../auth/admin/shared.ts";
 
-function toOpenSchemaValue(value: NonNullable<TrellisContractV1["schemas"]>[string]): boolean | Record<string, unknown> {
+function toOpenSchemaValue(
+  value: NonNullable<TrellisContractV1["schemas"]>[string],
+): boolean | Record<string, unknown> {
   if (typeof value === "boolean") {
     return value;
   }
@@ -42,7 +44,9 @@ function toOpenSchemaValue(value: NonNullable<TrellisContractV1["schemas"]>[stri
   return value;
 }
 
-function toRpcContract(contract: TrellisContractV1): TrellisContractGetResponse["contract"] {
+function toRpcContract(
+  contract: TrellisContractV1,
+): TrellisContractGetResponse["contract"] {
   return {
     format: contract.format,
     id: contract.id,
@@ -51,7 +55,9 @@ function toRpcContract(contract: TrellisContractV1): TrellisContractGetResponse[
     ...(contract.schemas
       ? {
         schemas: Object.fromEntries(
-          Object.entries(contract.schemas).map(([name, value]) => [name, toOpenSchemaValue(value)]),
+          Object.entries(contract.schemas).map((
+            [name, value],
+          ) => [name, toOpenSchemaValue(value)]),
         ),
       }
       : {}),
@@ -143,6 +149,12 @@ function getRequiredServiceCapabilities(
 
   for (const method of uses.rpcCalls) {
     for (const capability of method.method.capabilities?.call ?? []) {
+      capabilities.add(capability);
+    }
+  }
+
+  for (const operation of uses.operationCalls) {
+    for (const capability of operation.operation.capabilities?.call ?? []) {
       capabilities.add(capability);
     }
   }
@@ -296,21 +308,26 @@ export function createContractsModule(opts: {
     };
   }
 
-  async function persistContract(contract: unknown, opts?: { device?: boolean }): Promise<{
+  async function persistContract(
+    contract: unknown,
+    opts?: { device?: boolean },
+  ): Promise<{
     id: string;
     digest: string;
     displayName: string;
     description: string;
     usedNamespaces: string[];
   }> {
-    const { validated, usedNamespaces, analyzed } = await validateManagedContract({ contract });
+    const { validated, usedNamespaces, analyzed } =
+      await validateManagedContract({ contract });
     if (
       opts?.device &&
       (
         analyzed.summary.kvResources > 0 ||
         analyzed.summary.streamsResources > 0 ||
         analyzed.summary.jobsQueues > 0 ||
-        (validated.contract as TrellisContractV1 & { resources?: unknown }).resources !== undefined
+        (validated.contract as TrellisContractV1 & { resources?: unknown })
+            .resources !== undefined
       )
     ) {
       throw new Error("device contracts may not declare resources");
@@ -323,7 +340,9 @@ export function createContractsModule(opts: {
         digest: validated.digest,
         displayName: validated.contract.displayName,
         description: validated.contract.description,
-        usedNamespaces: [...usedNamespaces].sort((left, right) => left.localeCompare(right)),
+        usedNamespaces: [...usedNamespaces].sort((left, right) =>
+          left.localeCompare(right)
+        ),
       };
     }
 
@@ -344,7 +363,10 @@ export function createContractsModule(opts: {
       })
     ).take();
     if (isErr(persisted)) {
-      logger.warn({ error: persisted.error }, "Failed to persist managed contract");
+      logger.warn(
+        { error: persisted.error },
+        "Failed to persist managed contract",
+      );
       throw persisted.error;
     }
 
@@ -355,7 +377,9 @@ export function createContractsModule(opts: {
       digest: validated.digest,
       displayName: validated.contract.displayName,
       description: validated.contract.description,
-      usedNamespaces: [...usedNamespaces].sort((left, right) => left.localeCompare(right)),
+      usedNamespaces: [...usedNamespaces].sort((left, right) =>
+        left.localeCompare(right)
+      ),
     };
   }
 
@@ -451,7 +475,12 @@ export function createContractsModule(opts: {
     setPermissionContracts(contractStore.getActiveEntries());
   }
 
-  return { contractStore, installDeviceContract, installServiceContract, refreshActiveContracts };
+  return {
+    contractStore,
+    installDeviceContract,
+    installServiceContract,
+    refreshActiveContracts,
+  };
 }
 
 export function createTrellisCatalogHandler(contractStore: ContractStore) {

@@ -41,17 +41,19 @@ export type ServiceBootstrapDeps = {
     websocket?: { natsServers: string[] };
   };
   sentinel: SentinelCreds;
-  loadServiceInstance(instanceKey: string): Promise<{
-    instanceId: string;
-    profileId: string;
-    instanceKey: string;
-    disabled: boolean;
-    currentContractId?: string;
-    currentContractDigest?: string;
-    capabilities: string[];
-    resourceBindings?: Record<string, unknown>;
-    createdAt: string | Date;
-  } | null>;
+  loadServiceInstance(instanceKey: string): Promise<
+    {
+      instanceId: string;
+      profileId: string;
+      instanceKey: string;
+      disabled: boolean;
+      currentContractId?: string;
+      currentContractDigest?: string;
+      capabilities: string[];
+      resourceBindings?: Record<string, unknown>;
+      createdAt: string | Date;
+    } | null
+  >;
   saveServiceInstance(instance: {
     instanceId: string;
     profileId: string;
@@ -63,11 +65,13 @@ export type ServiceBootstrapDeps = {
     resourceBindings?: Record<string, unknown>;
     createdAt: string | Date;
   }): Promise<void>;
-  loadServiceProfile(profileId: string): Promise<{
-    profileId: string;
-    disabled: boolean;
-    appliedContracts: Array<{ contractId: string; allowedDigests: string[] }>;
-  } | null>;
+  loadServiceProfile(profileId: string): Promise<
+    {
+      profileId: string;
+      disabled: boolean;
+      appliedContracts: Array<{ contractId: string; allowedDigests: string[] }>;
+    } | null
+  >;
   refreshActiveContracts(): Promise<void>;
   verifyIdentityProof(input: {
     sessionKey: string;
@@ -113,24 +117,43 @@ function getRequiredServiceCapabilities(
   }
 
   for (const subject of Object.values(contract.subjects ?? {})) {
-    for (const capability of subject.capabilities?.publish ?? []) capabilities.add(capability);
-    for (const capability of subject.capabilities?.subscribe ?? []) capabilities.add(capability);
+    for (const capability of subject.capabilities?.publish ?? []) {
+      capabilities.add(capability);
+    }
+    for (const capability of subject.capabilities?.subscribe ?? []) {
+      capabilities.add(capability);
+    }
   }
 
   for (const method of uses.rpcCalls) {
-    for (const capability of method.method.capabilities?.call ?? []) capabilities.add(capability);
+    for (const capability of method.method.capabilities?.call ?? []) {
+      capabilities.add(capability);
+    }
+  }
+  for (const operation of uses.operationCalls) {
+    for (const capability of operation.operation.capabilities?.call ?? []) {
+      capabilities.add(capability);
+    }
   }
   for (const event of uses.eventPublishes) {
-    for (const capability of event.event.capabilities?.publish ?? []) capabilities.add(capability);
+    for (const capability of event.event.capabilities?.publish ?? []) {
+      capabilities.add(capability);
+    }
   }
   for (const event of uses.eventSubscribes) {
-    for (const capability of event.event.capabilities?.subscribe ?? []) capabilities.add(capability);
+    for (const capability of event.event.capabilities?.subscribe ?? []) {
+      capabilities.add(capability);
+    }
   }
   for (const subject of uses.subjectPublishes) {
-    for (const capability of subject.subject.capabilities?.publish ?? []) capabilities.add(capability);
+    for (const capability of subject.subject.capabilities?.publish ?? []) {
+      capabilities.add(capability);
+    }
   }
   for (const subject of uses.subjectSubscribes) {
-    for (const capability of subject.subject.capabilities?.subscribe ?? []) capabilities.add(capability);
+    for (const capability of subject.subject.capabilities?.subscribe ?? []) {
+      capabilities.add(capability);
+    }
   }
 
   return [...capabilities].sort((left, right) => left.localeCompare(right));
@@ -209,7 +232,9 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
       );
       const allowedDigests = matchingLineage?.allowedDigests ?? [];
       const message = allowedDigests.length > 0
-        ? `Service instance '${service.instanceId}' under profile '${profile.profileId}' is not allowed to run digest '${request.contractDigest}' for contract '${request.contractId}'. Allowed digests: ${allowedDigests.join(", ")}. Re-apply the current contract to the profile or restart the matching service revision.`
+        ? `Service instance '${service.instanceId}' under profile '${profile.profileId}' is not allowed to run digest '${request.contractDigest}' for contract '${request.contractId}'. Allowed digests: ${
+          allowedDigests.join(", ")
+        }. Re-apply the current contract to the profile or restart the matching service revision.`
         : `Service instance '${service.instanceId}' under profile '${profile.profileId}' is not allowed to run contract '${request.contractId}' digest '${request.contractDigest}'. Apply that contract to the profile before starting the service.`;
       return c.json(
         bootstrapFailure(
@@ -229,7 +254,9 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
       );
     }
 
-    const contract = deps.contractStore.getContract(request.contractDigest, { includeInactive: true });
+    const contract = deps.contractStore.getContract(request.contractDigest, {
+      includeInactive: true,
+    });
     if (!contract || contract.id !== request.contractId) {
       return c.json(
         bootstrapFailure(
@@ -253,7 +280,10 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
         service.instanceKey,
       )
       : service.resourceBindings;
-    const capabilities = getRequiredServiceCapabilities(deps.contractStore, contract);
+    const capabilities = getRequiredServiceCapabilities(
+      deps.contractStore,
+      contract,
+    );
 
     let nextService = service;
     if (

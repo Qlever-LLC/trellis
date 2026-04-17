@@ -26,10 +26,16 @@ resource bindings.
 deno task -c demos/js/service/demo/deno.json start -- http://localhost:3000 <session-key-seed>
 ```
 
+The demo's file-processing worker uses Trellis jobs. Under the built-in jobs
+model, Trellis provisions the shared jobs infrastructure during service
+bootstrap, so no separate jobs install step is required before starting the demo
+service.
+
 The demo worker expects both:
 
 - `service.jobs`
-- the synthetic `service.streams.jobsWork` binding resolved from `resources.jobs`
+- the synthetic `service.streams.jobsWork` binding resolved from
+  `resources.jobs`
 
 If startup fails with a missing `jobsWork` binding, restart Trellis and retry so
 service bootstrap can refresh the installed resource bindings.

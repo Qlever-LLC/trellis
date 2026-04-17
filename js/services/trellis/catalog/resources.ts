@@ -4,32 +4,9 @@ import type { NatsConnection } from "@nats-io/nats-core/internal";
 import { Objm } from "@nats-io/obj";
 import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 
-async function ensureStoreResource(
-  nats: NatsConnection,
-  name: string,
-  store: StoreResourceRequest,
-): Promise<void> {
-  const objm = new Objm(nats);
-  const objectStore = await objm.create(name, {
-    ...(store.ttlMs > 0 ? { ttl: store.ttlMs * 1_000_000 } : {}),
-    ...(store.maxTotalBytes !== undefined ? { max_bytes: store.maxTotalBytes } : {}),
-  });
-  const status = await objectStore.status();
-  const maxAge = store.ttlMs > 0 ? store.ttlMs * 1_000_000 : 0;
-  if (
-    status.streamInfo.config.max_age === maxAge &&
-    (store.maxTotalBytes === undefined || status.streamInfo.config.max_bytes === store.maxTotalBytes)
-  ) {
-    return;
-  }
-
-  const jsm = await jetstreamManager(nats);
-  await jsm.streams.update(status.streamInfo.config.name, {
-    ...status.streamInfo.config,
-    max_age: maxAge,
-    ...(store.maxTotalBytes !== undefined ? { max_bytes: store.maxTotalBytes } : {}),
-  });
-}
+type StreamRetentionPolicy = "limits" | "interest" | "workqueue";
+type StreamStorageType = "file" | "memory";
+type StreamDiscardPolicy = "old" | "new";
 
 export type KvResourceRequest = {
   alias: string;
@@ -63,11 +40,42 @@ export type JobsQueueRequest = {
   concurrency: number;
 };
 
+export type StreamResourceSourceRequest = {
+  fromAlias: string;
+  filterSubject?: string;
+  subjectTransformDest?: string;
+};
+
 export type StreamResourceRequest = {
   alias: string;
   purpose: string;
   required: boolean;
+  retention?: StreamRetentionPolicy;
+  storage?: StreamStorageType;
+  numReplicas?: number;
+  maxAgeMs?: number;
+  maxBytes?: number;
+  maxMsgs?: number;
+  discard?: StreamDiscardPolicy;
   subjects: string[];
+  sources?: StreamResourceSourceRequest[];
+};
+
+export type StreamResourceSourceBinding = StreamResourceSourceRequest & {
+  streamName: string;
+};
+
+export type StreamResourceBinding = {
+  name: string;
+  retention?: StreamRetentionPolicy;
+  storage?: StreamStorageType;
+  numReplicas?: number;
+  maxAgeMs?: number;
+  maxBytes?: number;
+  maxMsgs?: number;
+  discard?: StreamDiscardPolicy;
+  subjects: string[];
+  sources?: StreamResourceSourceBinding[];
 };
 
 export type ContractResourceAnalysis = {
@@ -90,10 +98,7 @@ export type ContractResourceBindings = {
     maxObjectBytes?: number;
     maxTotalBytes?: number;
   }>;
-  streams?: Record<string, {
-    name: string;
-    subjects: string[];
-  }>;
+  streams?: Record<string, StreamResourceBinding>;
   jobs?: {
     namespace: string;
     queues: Record<string, {
@@ -120,6 +125,283 @@ export type InstalledServiceContractBinding = {
   digest: string;
   resources: ContractResourceBindings;
 };
+
+export function getKvPermissionGrants(bucket: string): {
+  publish: string[];
+  subscribe: string[];
+} {
+  const stream = `KV_${bucket}`;
+  return {
+    publish: [
+      `$KV.${bucket}.>`,
+      `$JS.API.STREAM.INFO.${stream}`,
+      `$JS.API.STREAM.CREATE.${stream}`,
+      `$JS.API.STREAM.MSG.GET.${stream}`,
+      `$JS.API.CONSUMER.CREATE.${stream}.>`,
+      `$JS.API.CONSUMER.DURABLE.CREATE.${stream}.>`,
+      `$JS.API.CONSUMER.INFO.${stream}.>`,
+      `$JS.API.CONSUMER.DELETE.${stream}.>`,
+      `$JS.API.CONSUMER.MSG.NEXT.${stream}.>`,
+      `$JS.API.$KV.${bucket}.>`,
+      `$JS.ACK.${stream}.>`,
+    ],
+    subscribe: [],
+  };
+}
+
+const BUILTIN_JOBS_STATE_BUCKET = "trellis_jobs";
+const BUILTIN_JOBS_STREAMS: Record<string, StreamResourceBinding> = {
+  jobs: {
+    name: "JOBS",
+    retention: "limits",
+    storage: "file",
+    numReplicas: 3,
+    maxAgeMs: 0,
+    maxBytes: -1,
+    maxMsgs: -1,
+    discard: "old",
+    subjects: ["trellis.jobs.>"],
+  },
+  jobsWork: {
+    name: "JOBS_WORK",
+    retention: "workqueue",
+    storage: "file",
+    numReplicas: 3,
+    subjects: ["trellis.work.>"],
+    sources: [
+      {
+        fromAlias: "jobs",
+        streamName: "JOBS",
+        filterSubject: "trellis.jobs.*.*.*.created",
+        subjectTransformDest: "trellis.work.$1.$2",
+      },
+      {
+        fromAlias: "jobs",
+        streamName: "JOBS",
+        filterSubject: "trellis.jobs.*.*.*.retried",
+        subjectTransformDest: "trellis.work.$1.$2",
+      },
+    ],
+  },
+  jobsAdvisories: {
+    name: "JOBS_ADVISORIES",
+    retention: "limits",
+    storage: "file",
+    numReplicas: 1,
+    maxAgeMs: 604_800_000,
+    subjects: ["$JS.EVENT.ADVISORY.CONSUMER.MAX_DELIVERIES.JOBS_WORK.>"],
+  },
+};
+
+async function ensureKvResource(
+  nats: NatsConnection,
+  bucket: string,
+  request: Pick<KvResourceRequest, "history" | "ttlMs" | "maxValueBytes">,
+): Promise<void> {
+  const kvm = new Kvm(nats);
+  try {
+    await kvm.create(bucket, {
+      history: request.history,
+      ttl: request.ttlMs,
+      ...(request.maxValueBytes ? { maxValueSize: request.maxValueBytes } : {}),
+    });
+  } catch (error) {
+    if (
+      !(error instanceof Error) ||
+      !error.message.includes("bucket already exists")
+    ) {
+      throw error;
+    }
+    await kvm.open(bucket);
+  }
+}
+
+async function ensureStoreResource(
+  nats: NatsConnection,
+  name: string,
+  store: StoreResourceRequest,
+): Promise<void> {
+  const objm = new Objm(nats);
+  const objectStore = await objm.create(name, {
+    ...(store.ttlMs > 0 ? { ttl: store.ttlMs * 1_000_000 } : {}),
+    ...(store.maxTotalBytes !== undefined
+      ? { max_bytes: store.maxTotalBytes }
+      : {}),
+  });
+  const status = await objectStore.status();
+  const maxAge = store.ttlMs > 0 ? store.ttlMs * 1_000_000 : 0;
+  if (
+    status.streamInfo.config.max_age === maxAge &&
+    (store.maxTotalBytes === undefined ||
+      status.streamInfo.config.max_bytes === store.maxTotalBytes)
+  ) {
+    return;
+  }
+
+  const jsm = await jetstreamManager(nats);
+  await jsm.streams.update(status.streamInfo.config.name, {
+    ...status.streamInfo.config,
+    max_age: maxAge,
+    ...(store.maxTotalBytes !== undefined
+      ? { max_bytes: store.maxTotalBytes }
+      : {}),
+  });
+}
+
+async function ensureStreamResource(
+  nats: NatsConnection,
+  stream: StreamResourceBinding,
+): Promise<void> {
+  const jsm = await jetstreamManager(nats);
+  const config = toJetStreamStreamConfig(stream);
+  const fallbackConfig = needsSingleReplicaFallback(stream)
+    ? toJetStreamStreamConfig(stream, { numReplicas: 1 })
+    : config;
+
+  try {
+    await jsm.streams.info(stream.name);
+    try {
+      await jsm.streams.update(stream.name, config);
+    } catch (error) {
+      if (fallbackConfig !== config && isReplicaCountUnsupportedError(error)) {
+        await jsm.streams.update(stream.name, fallbackConfig);
+        return;
+      }
+      throw error;
+    }
+  } catch (error) {
+    if (isStreamNotFoundError(error)) {
+      try {
+        await jsm.streams.add(config);
+      } catch (addError) {
+        if (
+          fallbackConfig !== config && isReplicaCountUnsupportedError(addError)
+        ) {
+          await jsm.streams.add(fallbackConfig);
+          return;
+        }
+        throw addError;
+      }
+      return;
+    }
+    throw error;
+  }
+}
+
+function toJetStreamStreamConfig(
+  stream: StreamResourceBinding,
+  overrides?: { numReplicas?: number },
+) {
+  return {
+    name: stream.name,
+    subjects: [...stream.subjects],
+    ...(stream.retention ? { retention: stream.retention } : {}),
+    ...(stream.storage ? { storage: stream.storage } : {}),
+    ...((overrides?.numReplicas ?? stream.numReplicas) !== undefined
+      ? { num_replicas: overrides?.numReplicas ?? stream.numReplicas }
+      : {}),
+    ...(stream.maxAgeMs !== undefined
+      ? { max_age: stream.maxAgeMs * 1_000_000 }
+      : {}),
+    ...(stream.maxBytes !== undefined ? { max_bytes: stream.maxBytes } : {}),
+    ...(stream.maxMsgs !== undefined ? { max_msgs: stream.maxMsgs } : {}),
+    ...(stream.discard ? { discard: stream.discard } : {}),
+    ...(stream.sources
+      ? {
+        sources: stream.sources.map((source) => ({
+          name: source.streamName,
+          ...(source.subjectTransformDest
+            ? {
+              subject_transforms: [{
+                ...(source.filterSubject ? { src: source.filterSubject } : {}),
+                dest: source.subjectTransformDest,
+              }],
+            }
+            : source.filterSubject
+            ? { filter_subject: source.filterSubject }
+            : {}),
+        })),
+      }
+      : {}),
+  };
+}
+
+function needsSingleReplicaFallback(stream: StreamResourceBinding): boolean {
+  return (stream.numReplicas ?? 0) > 1;
+}
+
+function isReplicaCountUnsupportedError(error: unknown): boolean {
+  return error instanceof Error &&
+    error.message.includes("replicas > 1 not supported in non-clustered mode");
+}
+
+function isStreamNotFoundError(error: unknown): boolean {
+  return error instanceof Error && (
+    error.name === "StreamNotFoundError" ||
+    error.message.includes("stream not found")
+  );
+}
+
+function resolveStreamBindings(
+  streams: StreamResourceRequest[],
+  nameForAlias: (alias: string) => string,
+): Record<string, StreamResourceBinding> {
+  const names = Object.fromEntries(
+    streams.map((stream) => [stream.alias, nameForAlias(stream.alias)]),
+  );
+
+  return Object.fromEntries(
+    streams.map((stream) => [stream.alias, {
+      name: names[stream.alias],
+      ...(stream.retention ? { retention: stream.retention } : {}),
+      ...(stream.storage ? { storage: stream.storage } : {}),
+      ...(stream.numReplicas !== undefined
+        ? { numReplicas: stream.numReplicas }
+        : {}),
+      ...(stream.maxAgeMs !== undefined ? { maxAgeMs: stream.maxAgeMs } : {}),
+      ...(stream.maxBytes !== undefined ? { maxBytes: stream.maxBytes } : {}),
+      ...(stream.maxMsgs !== undefined ? { maxMsgs: stream.maxMsgs } : {}),
+      ...(stream.discard ? { discard: stream.discard } : {}),
+      subjects: [...stream.subjects],
+      ...(stream.sources
+        ? {
+          sources: stream.sources.map((source) => {
+            const streamName = names[source.fromAlias];
+            if (!streamName) {
+              throw new Error(
+                `Stream resource '${stream.alias}' references missing source alias '${source.fromAlias}'`,
+              );
+            }
+            return {
+              fromAlias: source.fromAlias,
+              streamName,
+              ...(source.filterSubject
+                ? { filterSubject: source.filterSubject }
+                : {}),
+              ...(source.subjectTransformDest
+                ? { subjectTransformDest: source.subjectTransformDest }
+                : {}),
+            };
+          }),
+        }
+        : {}),
+    }]),
+  );
+}
+
+async function ensureBuiltinJobsInfrastructure(
+  nats: NatsConnection,
+): Promise<void> {
+  await ensureKvResource(nats, BUILTIN_JOBS_STATE_BUCKET, {
+    history: 1,
+    ttlMs: 0,
+  });
+  await Promise.all(
+    Object.values(BUILTIN_JOBS_STREAMS).map((stream) =>
+      ensureStreamResource(nats, stream)
+    ),
+  );
+}
 
 function sanitizeToken(value: string): string {
   const sanitized = value
@@ -245,14 +527,30 @@ export function getStreamResourceRequests(
       streams?: Record<string, {
         purpose: string;
         required?: boolean;
+        retention?: StreamRetentionPolicy;
+        storage?: StreamStorageType;
+        numReplicas?: number;
+        maxAgeMs?: number;
+        maxBytes?: number;
+        maxMsgs?: number;
+        discard?: StreamDiscardPolicy;
         subjects: string[];
+        sources?: StreamResourceSourceRequest[];
       }>;
     };
   }).resources;
   const entries = Object.entries(resources?.streams ?? {}) as Array<[string, {
     purpose: string;
     required?: boolean;
+    retention?: StreamRetentionPolicy;
+    storage?: StreamStorageType;
+    numReplicas?: number;
+    maxAgeMs?: number;
+    maxBytes?: number;
+    maxMsgs?: number;
+    discard?: StreamDiscardPolicy;
     subjects: string[];
+    sources?: StreamResourceSourceRequest[];
   }]>;
 
   return entries
@@ -260,7 +558,33 @@ export function getStreamResourceRequests(
       alias,
       purpose: resource.purpose,
       required: resource.required ?? true,
+      ...(resource.retention ? { retention: resource.retention } : {}),
+      ...(resource.storage ? { storage: resource.storage } : {}),
+      ...(resource.numReplicas !== undefined
+        ? { numReplicas: resource.numReplicas }
+        : {}),
+      ...(resource.maxAgeMs !== undefined
+        ? { maxAgeMs: resource.maxAgeMs }
+        : {}),
+      ...(resource.maxBytes !== undefined
+        ? { maxBytes: resource.maxBytes }
+        : {}),
+      ...(resource.maxMsgs !== undefined ? { maxMsgs: resource.maxMsgs } : {}),
+      ...(resource.discard ? { discard: resource.discard } : {}),
       subjects: [...resource.subjects],
+      ...(resource.sources
+        ? {
+          sources: resource.sources.map((source) => ({
+            fromAlias: source.fromAlias,
+            ...(source.filterSubject
+              ? { filterSubject: source.filterSubject }
+              : {}),
+            ...(source.subjectTransformDest
+              ? { subjectTransformDest: source.subjectTransformDest }
+              : {}),
+          })),
+        }
+        : {}),
     }))
     .sort((left, right) => left.alias.localeCompare(right.alias));
 }
@@ -349,30 +673,13 @@ export async function provisionContractResourceBindings(
     if (!nats) {
       throw new Error("NATS connection is required to provision KV resources");
     }
-    const kvm = new Kvm(nats);
     for (const request of requests) {
       const bucket = buildKvBucketName(
         serviceSessionKey,
         contract.id,
         request.alias,
       );
-      try {
-        await kvm.create(bucket, {
-          history: request.history,
-          ttl: request.ttlMs,
-          ...(request.maxValueBytes
-            ? { maxValueSize: request.maxValueBytes }
-            : {}),
-        });
-      } catch (error) {
-        if (
-          !(error instanceof Error) ||
-          !error.message.includes("bucket already exists")
-        ) {
-          throw error;
-        }
-        await kvm.open(bucket);
-      }
+      await ensureKvResource(nats, bucket, request);
       kvBindings[request.alias] = {
         bucket,
         history: request.history,
@@ -391,12 +698,18 @@ export async function provisionContractResourceBindings(
 
   if (stores.length > 0) {
     if (!nats) {
-      throw new Error("NATS connection is required to provision store resources");
+      throw new Error(
+        "NATS connection is required to provision store resources",
+      );
     }
 
     bindings.store = Object.fromEntries(
       await Promise.all(stores.map(async (store) => {
-        const name = buildStoreName(serviceSessionKey, contract.id, store.alias);
+        const name = buildStoreName(
+          serviceSessionKey,
+          contract.id,
+          store.alias,
+        );
         await ensureStoreResource(nats, name, store);
 
         return [store.alias, {
@@ -414,15 +727,24 @@ export async function provisionContractResourceBindings(
   }
 
   if (streams.length > 0) {
-    bindings.streams = Object.fromEntries(
-      streams.map((stream) => [stream.alias, {
-        name: buildStreamName(serviceSessionKey, contract.id, stream.alias),
-        subjects: [...stream.subjects],
-      }]),
+    const streamBindings = resolveStreamBindings(
+      streams,
+      (alias) => buildStreamName(serviceSessionKey, contract.id, alias),
     );
+    if (nats) {
+      await Promise.all(
+        Object.values(streamBindings).map((stream) =>
+          ensureStreamResource(nats, stream)
+        ),
+      );
+    }
+    bindings.streams = streamBindings;
   }
 
   if (jobs.length > 0) {
+    if (nats) {
+      await ensureBuiltinJobsInfrastructure(nats);
+    }
     const namespace = sanitizeToken(serviceSessionKey).slice(0, 32);
     bindings.jobs = {
       namespace,
@@ -455,6 +777,9 @@ export async function provisionContractResourceBindings(
       ...(bindings.streams ?? {}),
       jobsWork: {
         name: "JOBS_WORK",
+        retention: BUILTIN_JOBS_STREAMS.jobsWork.retention,
+        storage: BUILTIN_JOBS_STREAMS.jobsWork.storage,
+        numReplicas: BUILTIN_JOBS_STREAMS.jobsWork.numReplicas,
         subjects: [`trellis.work.${namespace}.>`],
       },
     };
@@ -473,16 +798,13 @@ export function getResourcePermissionGrants(
   const subscribe = new Set<string>();
 
   for (const kvBinding of Object.values(bindings?.kv ?? {})) {
-    const stream = `KV_${kvBinding.bucket}`;
-    publish.add(`$KV.${kvBinding.bucket}.>`);
-    publish.add(`$JS.API.STREAM.MSG.GET.${stream}`);
-    publish.add(`$JS.API.CONSUMER.CREATE.${stream}.>`);
-    publish.add(`$JS.API.CONSUMER.DURABLE.CREATE.${stream}.>`);
-    publish.add(`$JS.API.CONSUMER.INFO.${stream}.>`);
-    publish.add(`$JS.API.CONSUMER.DELETE.${stream}.>`);
-    publish.add(`$JS.API.CONSUMER.MSG.NEXT.${stream}.>`);
-    publish.add(`$JS.API.$KV.${kvBinding.bucket}.>`);
-    publish.add(`$JS.ACK.${stream}.>`);
+    const grants = getKvPermissionGrants(kvBinding.bucket);
+    for (const subject of grants.publish) {
+      publish.add(subject);
+    }
+    for (const subject of grants.subscribe) {
+      subscribe.add(subject);
+    }
   }
 
   for (const storeBinding of Object.values(bindings?.store ?? {})) {

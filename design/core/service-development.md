@@ -206,7 +206,11 @@ Behavior:
   service exposes file upload/download initiation RPCs
 - when a contract requests `resources.jobs`, `TrellisService.connect(...)`
   resolves both `service.jobs` and the synthetic `service.streams.jobsWork`
-  binding used by generic worker runtimes such as `startNatsWorkerHostFromBinding(...)`
+  binding used by generic worker runtimes such as
+  `startNatsWorkerHostFromBinding(...)`
+- the shared jobs streams and projected-state KV are Trellis-owned
+  infrastructure; service bootstrap should provision them automatically so a
+  jobs-enabled service does not require a separate manual jobs install step
 - when an RPC needs to start caller-visible follow-up work after a transfer,
   prefer `service.operation(...).accept(...)` plus
   `service.transfer.initiateUpload({ onStored(...) })` over ad-hoc background

@@ -1,5 +1,6 @@
 import type {
   ContractEvent,
+  ContractOperation,
   ContractRpcMethod,
   ContractSubject,
   TrellisContractV1,
@@ -12,6 +13,7 @@ export type ContractEntry = { digest: string; contract: TrellisContractV1 };
 export type ContractUseRef = {
   contract: string;
   rpc?: { call?: string[] };
+  operations?: { call?: string[] };
   events?: { publish?: string[]; subscribe?: string[] };
   subjects?: { publish?: string[]; subscribe?: string[] };
 };
@@ -30,6 +32,13 @@ export type ResolvedEventUse = {
   event: ContractEvent;
 };
 
+export type ResolvedOperationUse = {
+  alias: string;
+  contractId: string;
+  key: string;
+  operation: ContractOperation;
+};
+
 export type ResolvedSubjectUse = {
   alias: string;
   contractId: string;
@@ -39,6 +48,7 @@ export type ResolvedSubjectUse = {
 
 export type ResolvedContractUses = {
   rpcCalls: ResolvedRpcUse[];
+  operationCalls: ResolvedOperationUse[];
   eventPublishes: ResolvedEventUse[];
   eventSubscribes: ResolvedEventUse[];
   subjectPublishes: ResolvedSubjectUse[];
@@ -63,10 +73,14 @@ export function sortUniqueStrings(values: Iterable<string>): string[] {
 
 export function resolveContractUses(
   contract: TrellisContractV1,
-  resolveTargetContract: (alias: string, use: ContractUseRef) => TrellisContractV1 | null,
+  resolveTargetContract: (
+    alias: string,
+    use: ContractUseRef,
+  ) => TrellisContractV1 | null,
 ): ResolvedContractUses {
   const resolved: ResolvedContractUses = {
     rpcCalls: [],
+    operationCalls: [],
     eventPublishes: [],
     eventSubscribes: [],
     subjectPublishes: [],
@@ -89,6 +103,21 @@ export function resolveContractUses(
       resolved.rpcCalls.push({ alias, contractId: target.id, key, method });
     }
 
+    for (const key of use.operations?.call ?? []) {
+      const operation = target.operations?.[key];
+      if (!operation) {
+        throw new Error(
+          `Dependency '${alias}' references missing operation '${key}' on '${use.contract}'`,
+        );
+      }
+      resolved.operationCalls.push({
+        alias,
+        contractId: target.id,
+        key,
+        operation,
+      });
+    }
+
     for (const key of use.events?.publish ?? []) {
       const event = target.events?.[key];
       if (!event) {
@@ -96,7 +125,12 @@ export function resolveContractUses(
           `Dependency '${alias}' references missing event '${key}' on '${use.contract}'`,
         );
       }
-      resolved.eventPublishes.push({ alias, contractId: target.id, key, event });
+      resolved.eventPublishes.push({
+        alias,
+        contractId: target.id,
+        key,
+        event,
+      });
     }
 
     for (const key of use.events?.subscribe ?? []) {
@@ -106,7 +140,12 @@ export function resolveContractUses(
           `Dependency '${alias}' references missing event '${key}' on '${use.contract}'`,
         );
       }
-      resolved.eventSubscribes.push({ alias, contractId: target.id, key, event });
+      resolved.eventSubscribes.push({
+        alias,
+        contractId: target.id,
+        key,
+        event,
+      });
     }
 
     for (const key of use.subjects?.publish ?? []) {
@@ -116,7 +155,12 @@ export function resolveContractUses(
           `Dependency '${alias}' references missing subject '${key}' on '${use.contract}'`,
         );
       }
-      resolved.subjectPublishes.push({ alias, contractId: target.id, key, subject });
+      resolved.subjectPublishes.push({
+        alias,
+        contractId: target.id,
+        key,
+        subject,
+      });
     }
 
     for (const key of use.subjects?.subscribe ?? []) {
@@ -126,7 +170,12 @@ export function resolveContractUses(
           `Dependency '${alias}' references missing subject '${key}' on '${use.contract}'`,
         );
       }
-      resolved.subjectSubscribes.push({ alias, contractId: target.id, key, subject });
+      resolved.subjectSubscribes.push({
+        alias,
+        contractId: target.id,
+        key,
+        subject,
+      });
     }
   }
 
@@ -151,7 +200,9 @@ export function resolveContractUsesFromStore(
       );
     }
 
-    const target = contractStore.getContract(targetDigest, { includeInactive: true });
+    const target = contractStore.getContract(targetDigest, {
+      includeInactive: true,
+    });
     if (!target) {
       throw new Error(
         `Dependency '${alias}' references unknown contract '${use.contract}'`,
@@ -162,6 +213,8 @@ export function resolveContractUsesFromStore(
   });
 }
 
-export function createActiveContractLookup(entries: ContractEntry[]): Map<string, TrellisContractV1> {
+export function createActiveContractLookup(
+  entries: ContractEntry[],
+): Map<string, TrellisContractV1> {
   return new Map(entries.map((entry) => [entry.contract.id, entry.contract]));
 }

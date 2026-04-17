@@ -87,6 +87,10 @@ const TEST_CONTRACTS: Array<{ digest: string; contract: TrellisContractV1 }> = [
           contract: "trellis.auth@v1",
           events: { subscribe: ["Auth.Connect"] },
         },
+        billing: {
+          contract: "billing@v1",
+          operations: { call: ["Billing.Refund"] },
+        },
       },
       rpc: {
         "Partner.List": {
@@ -97,10 +101,23 @@ const TEST_CONTRACTS: Array<{ digest: string; contract: TrellisContractV1 }> = [
           capabilities: { call: ["partners:read"] },
         },
       },
+      operations: {
+        "Partner.Sync": {
+          version: "v1",
+          subject: "operations.v1.Partner.Sync",
+          input: { schema: "EmptyInput" },
+          output: { schema: "EmptyOutput" },
+          capabilities: {
+            call: ["partners:write"],
+            read: ["partners:read"],
+          },
+        },
+      },
       events: {
         "Partner.Changed": {
           version: "v1",
-          subject: "events.v1.Partner.Changed.{/partner/id/origin}.{/partner/id/id}",
+          subject:
+            "events.v1.Partner.Changed.{/partner/id/origin}.{/partner/id/id}",
           params: ["/partner/id/origin", "/partner/id/id"],
           event: { schema: "PartnerChangedEvent" },
           capabilities: {
@@ -115,6 +132,33 @@ const TEST_CONTRACTS: Array<{ digest: string; contract: TrellisContractV1 }> = [
           capabilities: {
             publish: ["jobs.publish"],
             subscribe: ["jobs.subscribe"],
+          },
+        },
+      },
+    },
+  },
+  {
+    digest: "billing-digest",
+    contract: {
+      format: "trellis.contract.v1",
+      id: "billing@v1",
+      displayName: "Billing",
+      description: "Expose billing operations.",
+      kind: "service",
+      schemas: {
+        EmptyInput: { type: "object" },
+        EmptyOutput: { type: "object" },
+      },
+      operations: {
+        "Billing.Refund": {
+          version: "v1",
+          subject: "operations.v1.Billing.Refund",
+          input: { schema: "EmptyInput" },
+          output: { schema: "EmptyOutput" },
+          capabilities: {
+            call: ["billing.refund"],
+            read: ["billing.read"],
+            cancel: ["billing.cancel"],
           },
         },
       },
@@ -161,6 +205,11 @@ Deno.test("user permissions include event and raw subject capabilities", () => {
       true,
     );
     assertEquals(publishSubjects.includes("trellis.jobs.>"), true);
+    assertEquals(publishSubjects.includes("operations.v1.Partner.Sync"), true);
+    assertEquals(
+      publishSubjects.includes("operations.v1.Partner.Sync.control"),
+      true,
+    );
     assertEquals(publishSubjects.includes("transfer.v1.upload.*.*"), true);
     assertEquals(publishSubjects.includes("transfer.v1.download.*.*"), true);
     assertEquals(
@@ -174,21 +223,69 @@ Deno.test("user permissions include event and raw subject capabilities", () => {
 Deno.test("service permissions include owned RPCs and declared dependencies", () => {
   withContracts(TEST_CONTRACTS, () => {
     const publishSubjects = getServicePublishSubjects(
-      ["service", "jobs.publish", "trellis.catalog.read", "service:events:auth"],
-      { sessionKey: "graph-key", contractDigest: "graph-digest", displayName: "graph" },
+      [
+        "service",
+        "jobs.publish",
+        "trellis.catalog.read",
+        "service:events:auth",
+        "billing.refund",
+      ],
+      {
+        sessionKey: "graph-key",
+        contractDigest: "graph-digest",
+        displayName: "graph",
+      },
     );
     const subscribeSubjects = getServiceSubscribeSubjects(
       ["service", "jobs.subscribe", "service:events:auth"],
-      { sessionKey: "graph-key", contractDigest: "graph-digest", displayName: "graph" },
+      {
+        sessionKey: "graph-key",
+        contractDigest: "graph-digest",
+        displayName: "graph",
+      },
     );
 
     assertEquals(publishSubjects.includes("trellis.jobs.>"), true);
     assertEquals(publishSubjects.includes("rpc.v1.Trellis.Catalog"), true);
+    assertEquals(
+      publishSubjects.includes("operations.v1.Billing.Refund"),
+      true,
+    );
+    assertEquals(
+      publishSubjects.includes("operations.v1.Billing.Refund.control"),
+      true,
+    );
+    assertEquals(
+      publishSubjects.includes(
+        "$JS.API.STREAM.INFO.KV_trellis_operations_graph-key",
+      ),
+      true,
+    );
+    assertEquals(
+      publishSubjects.includes(
+        "$JS.API.STREAM.CREATE.KV_trellis_operations_graph-key",
+      ),
+      true,
+    );
     assertEquals(subscribeSubjects.includes("rpc.v1.Partner.List"), true);
+    assertEquals(
+      subscribeSubjects.includes("operations.v1.Partner.Sync"),
+      true,
+    );
+    assertEquals(
+      subscribeSubjects.includes("operations.v1.Partner.Sync.control"),
+      true,
+    );
     assertEquals(subscribeSubjects.includes("trellis.jobs.>"), true);
     assertEquals(subscribeSubjects.includes("events.v1.Auth.Connect"), true);
-    assertEquals(subscribeSubjects.includes("transfer.v1.upload.graph-key.*"), true);
-    assertEquals(subscribeSubjects.includes("transfer.v1.download.graph-key.*"), true);
+    assertEquals(
+      subscribeSubjects.includes("transfer.v1.upload.graph-key.*"),
+      true,
+    );
+    assertEquals(
+      subscribeSubjects.includes("transfer.v1.download.graph-key.*"),
+      true,
+    );
   });
 });
 
@@ -196,13 +293,26 @@ Deno.test("service event subscriptions include JetStream control subjects", () =
   withContracts(TEST_CONTRACTS, () => {
     const publishSubjects = getServicePublishSubjects(
       ["service", "service:events:auth"],
-      { sessionKey: "graph-key", contractDigest: "graph-digest", displayName: "graph" },
+      {
+        sessionKey: "graph-key",
+        contractDigest: "graph-digest",
+        displayName: "graph",
+      },
     );
 
     assertEquals(publishSubjects.includes("$JS.API.INFO"), true);
-    assertEquals(publishSubjects.includes("$JS.API.CONSUMER.DURABLE.CREATE.trellis.>"), true);
-    assertEquals(publishSubjects.includes("$JS.API.CONSUMER.INFO.trellis.>"), true);
-    assertEquals(publishSubjects.includes("$JS.API.CONSUMER.MSG.NEXT.trellis.>"), true);
+    assertEquals(
+      publishSubjects.includes("$JS.API.CONSUMER.DURABLE.CREATE.trellis.>"),
+      true,
+    );
+    assertEquals(
+      publishSubjects.includes("$JS.API.CONSUMER.INFO.trellis.>"),
+      true,
+    );
+    assertEquals(
+      publishSubjects.includes("$JS.API.CONSUMER.MSG.NEXT.trellis.>"),
+      true,
+    );
     assertEquals(publishSubjects.includes("$JS.ACK.>"), true);
   });
 });
@@ -211,10 +321,17 @@ Deno.test("service cannot call undeclared cross-contract RPCs by capability alon
   withContracts(TEST_CONTRACTS, () => {
     const publishSubjects = getServicePublishSubjects(
       ["service", "trellis.catalog.read", "trellis.contract.read"],
-      { sessionKey: "graph-key", contractDigest: "graph-digest", displayName: "graph" },
+      {
+        sessionKey: "graph-key",
+        contractDigest: "graph-digest",
+        displayName: "graph",
+      },
     );
 
     assertEquals(publishSubjects.includes("rpc.v1.Trellis.Catalog"), true);
-    assertEquals(publishSubjects.includes("rpc.v1.Trellis.Contract.Get"), false);
+    assertEquals(
+      publishSubjects.includes("rpc.v1.Trellis.Contract.Get"),
+      false,
+    );
   });
 });

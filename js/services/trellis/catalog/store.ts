@@ -1,6 +1,13 @@
-import type { TrellisCatalogV1, TrellisContractV1 } from "@qlever-llc/trellis/contracts";
+import type {
+  TrellisCatalogV1,
+  TrellisContractV1,
+} from "@qlever-llc/trellis/contracts";
 
-import { digestJson, isJsonValue, type JsonValue } from "@qlever-llc/trellis/contracts";
+import {
+  digestJson,
+  isJsonValue,
+  type JsonValue,
+} from "@qlever-llc/trellis/contracts";
 import { compileSchema, draft2019 } from "json-schema-library";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
@@ -22,7 +29,9 @@ function assertObject(
   }
 }
 
-function assertValidContractValue(value: JsonValue): asserts value is TrellisContractV1 {
+function assertValidContractValue(
+  value: JsonValue,
+): asserts value is TrellisContractV1 {
   void value;
 }
 
@@ -36,6 +45,7 @@ function normalizeContract(contract: TrellisContractV1): TrellisContractV1 {
     ...(contract.schemas ? { schemas: contract.schemas } : {}),
     ...(contract.uses ? { uses: contract.uses } : {}),
     ...(contract.rpc ? { rpc: contract.rpc } : {}),
+    ...(contract.operations ? { operations: contract.operations } : {}),
     ...(contract.events ? { events: contract.events } : {}),
     ...(contract.subjects ? { subjects: contract.subjects } : {}),
     ...(contract.resources ? { resources: contract.resources } : {}),
@@ -54,32 +64,100 @@ function assertSchemaRefExists(
 }
 
 function validateSchemaRefs(contract: TrellisContractV1) {
-  for (const [name, rpc] of Object.entries(contract.rpc ?? {}) as Array<[string, NonNullable<TrellisContractV1["rpc"]>[string]]>) {
+  for (
+    const [name, rpc] of Object.entries(contract.rpc ?? {}) as Array<
+      [string, NonNullable<TrellisContractV1["rpc"]>[string]]
+    >
+  ) {
     assertSchemaRefExists(contract, rpc.input.schema, `rpc '${name}' input`);
     assertSchemaRefExists(contract, rpc.output.schema, `rpc '${name}' output`);
   }
 
-  for (const [name, event] of Object.entries(contract.events ?? {}) as Array<[string, NonNullable<TrellisContractV1["events"]>[string]]>) {
-    assertSchemaRefExists(contract, event.event.schema, `event '${name}'`);
-  }
-
-  for (const [name, subject] of Object.entries(contract.subjects ?? {}) as Array<[string, NonNullable<TrellisContractV1["subjects"]>[string]]>) {
-    if (subject.message) {
-      assertSchemaRefExists(contract, subject.message.schema, `subject '${name}'`);
+  for (
+    const [name, operation] of Object.entries(
+      contract.operations ?? {},
+    ) as Array<[
+      string,
+      NonNullable<TrellisContractV1["operations"]>[string],
+    ]>
+  ) {
+    assertSchemaRefExists(
+      contract,
+      operation.input.schema,
+      `operation '${name}' input`,
+    );
+    if (operation.progress) {
+      assertSchemaRefExists(
+        contract,
+        operation.progress.schema,
+        `operation '${name}' progress`,
+      );
+    }
+    if (operation.output) {
+      assertSchemaRefExists(
+        contract,
+        operation.output.schema,
+        `operation '${name}' output`,
+      );
     }
   }
 
-  for (const [name, error] of Object.entries(contract.errors ?? {}) as Array<[string, NonNullable<TrellisContractV1["errors"]>[string]]>) {
+  for (
+    const [name, event] of Object.entries(contract.events ?? {}) as Array<
+      [string, NonNullable<TrellisContractV1["events"]>[string]]
+    >
+  ) {
+    assertSchemaRefExists(contract, event.event.schema, `event '${name}'`);
+  }
+
+  for (
+    const [name, subject] of Object.entries(contract.subjects ?? {}) as Array<
+      [string, NonNullable<TrellisContractV1["subjects"]>[string]]
+    >
+  ) {
+    if (subject.message) {
+      assertSchemaRefExists(
+        contract,
+        subject.message.schema,
+        `subject '${name}'`,
+      );
+    }
+  }
+
+  for (
+    const [name, error] of Object.entries(contract.errors ?? {}) as Array<
+      [string, NonNullable<TrellisContractV1["errors"]>[string]]
+    >
+  ) {
     if (error.schema) {
       assertSchemaRefExists(contract, error.schema.schema, `error '${name}'`);
     }
   }
 
   const jobsQueues = contract.resources?.jobs?.queues ?? {};
-  for (const [queueType, queue] of Object.entries(jobsQueues) as Array<[string, NonNullable<NonNullable<NonNullable<TrellisContractV1["resources"]>["jobs"]>["queues"]>[string]]>) {
-    assertSchemaRefExists(contract, queue.payload.schema, `jobs queue '${queueType}' payload`);
+  for (
+    const [queueType, queue] of Object.entries(jobsQueues) as Array<
+      [
+        string,
+        NonNullable<
+          NonNullable<
+            NonNullable<TrellisContractV1["resources"]>["jobs"]
+          >["queues"]
+        >[string],
+      ]
+    >
+  ) {
+    assertSchemaRefExists(
+      contract,
+      queue.payload.schema,
+      `jobs queue '${queueType}' payload`,
+    );
     if (queue.result) {
-      assertSchemaRefExists(contract, queue.result.schema, `jobs queue '${queueType}' result`);
+      assertSchemaRefExists(
+        contract,
+        queue.result.schema,
+        `jobs queue '${queueType}' result`,
+      );
     }
   }
 }
@@ -95,7 +173,9 @@ export class ContractStore {
   >();
   readonly #validator: ReturnType<typeof compileSchema>;
 
-  constructor(builtins: Array<{ digest: string; contract: TrellisContractV1 }> = []) {
+  constructor(
+    builtins: Array<{ digest: string; contract: TrellisContractV1 }> = [],
+  ) {
     const schemaPath = new URL(
       "../../../packages/trellis/contract_support/schemas/trellis.contract.v1.schema.json",
       import.meta.url,
@@ -119,7 +199,8 @@ export class ContractStore {
   }
 
   #indexActiveId(digest: string, contract: TrellisContractV1): void {
-    const digests = this.#activeDigestsById.get(contract.id) ?? new Set<string>();
+    const digests = this.#activeDigestsById.get(contract.id) ??
+      new Set<string>();
     digests.add(digest);
     this.#activeDigestsById.set(contract.id, digests);
   }
@@ -151,13 +232,32 @@ export class ContractStore {
 
       this.#indexActiveId(digest, contract);
 
-      for (const m of Object.values(contract.rpc ?? {}) as Array<NonNullable<TrellisContractV1["rpc"]>[string]>) {
+      for (
+        const m of Object.values(contract.rpc ?? {}) as Array<
+          NonNullable<TrellisContractV1["rpc"]>[string]
+        >
+      ) {
         this.#indexActiveSubject(digest, contract, m.subject);
       }
-      for (const e of Object.values(contract.events ?? {}) as Array<NonNullable<TrellisContractV1["events"]>[string]>) {
+      for (
+        const o of Object.values(contract.operations ?? {}) as Array<
+          NonNullable<TrellisContractV1["operations"]>[string]
+        >
+      ) {
+        this.#indexActiveSubject(digest, contract, o.subject);
+      }
+      for (
+        const e of Object.values(contract.events ?? {}) as Array<
+          NonNullable<TrellisContractV1["events"]>[string]
+        >
+      ) {
         this.#indexActiveSubject(digest, contract, e.subject);
       }
-      for (const s of Object.values(contract.subjects ?? {}) as Array<NonNullable<TrellisContractV1["subjects"]>[string]>) {
+      for (
+        const s of Object.values(contract.subjects ?? {}) as Array<
+          NonNullable<TrellisContractV1["subjects"]>[string]
+        >
+      ) {
         this.#indexActiveSubject(digest, contract, s.subject);
       }
     }
@@ -193,8 +293,13 @@ export class ContractStore {
     return [...this.#builtinDigests];
   }
 
-  getContract(digest: string, opts?: { includeInactive?: boolean }): TrellisContractV1 | undefined {
-    if (!opts?.includeInactive && !this.isActiveDigest(digest)) return undefined;
+  getContract(
+    digest: string,
+    opts?: { includeInactive?: boolean },
+  ): TrellisContractV1 | undefined {
+    if (!opts?.includeInactive && !this.isActiveDigest(digest)) {
+      return undefined;
+    }
     return this.#contractsByDigest.get(digest);
   }
 
@@ -232,7 +337,11 @@ export class ContractStore {
     return { format: "trellis.catalog.v1", contracts: entries };
   }
 
-  async validate(raw: unknown): Promise<{ digest: string; canonical: string; contract: TrellisContractV1 }> {
+  async validate(
+    raw: unknown,
+  ): Promise<
+    { digest: string; canonical: string; contract: TrellisContractV1 }
+  > {
     assertObject(raw);
     if (!isJsonValue(raw)) {
       throw new Error("Contract must be a pure JSON value");
@@ -240,7 +349,9 @@ export class ContractStore {
 
     const { valid, errors } = this.#validator.validate(raw);
     if (!valid) {
-      const msg = errors.map((e: { data: { pointer: string }; message: string }) => `${e.data.pointer}: ${e.message}`).join("\n");
+      const msg = errors.map((
+        e: { data: { pointer: string }; message: string },
+      ) => `${e.data.pointer}: ${e.message}`).join("\n");
       throw new Error(`Invalid contract:\n${msg}`);
     }
 

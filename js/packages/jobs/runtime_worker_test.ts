@@ -3,7 +3,11 @@ import type { Msg, NatsConnection, Subscription } from "@nats-io/nats-core";
 
 import type { ActiveJob } from "./active-job.ts";
 import type { JobsRuntimeBinding } from "./bindings.ts";
-import { JobCancellationToken, JobManager, JobProcessError } from "./job-manager.ts";
+import {
+  JobCancellationToken,
+  JobManager,
+  JobProcessError,
+} from "./job-manager.ts";
 import {
   ackActionForOutcome,
   JobsInfrastructureMissingError,
@@ -44,7 +48,9 @@ function sampleBindings(): JobsRuntimeBinding {
   };
 }
 
-function sampleManager<TResult>(published: Array<{ subject: string; payload: JobEvent }>) {
+function sampleManager<TResult>(
+  published: Array<{ subject: string; payload: JobEvent }>,
+) {
   return sampleManagerWithBinding<TResult>(published, sampleBindings().jobs);
 }
 
@@ -76,7 +82,9 @@ function sampleManagerWithBinding<TResult>(
   });
 }
 
-function sampleWorkPayload(eventType: "created" | "retried" = "created"): Uint8Array {
+function sampleWorkPayload(
+  eventType: "created" | "retried" = "created",
+): Uint8Array {
   return new TextEncoder().encode(JSON.stringify({
     jobId: "job-1",
     service: "documents",
@@ -194,16 +202,14 @@ class FakeSubscription extends AsyncQueue<Msg> implements Subscription {
   callback = (_err: Error | null, _msg: Msg) => {};
 
   override push(value: { subject: string; data: Uint8Array } | Msg): void {
-    const msg: Msg = "sid" in value
-      ? value
-      : {
-        subject: value.subject,
-        data: value.data,
-        sid: 0,
-        respond: () => false,
-        json: <T>() => JSON.parse(new TextDecoder().decode(value.data)) as T,
-        string: () => new TextDecoder().decode(value.data),
-      };
+    const msg: Msg = "sid" in value ? value : {
+      subject: value.subject,
+      data: value.data,
+      sid: 0,
+      respond: () => false,
+      json: <T>() => JSON.parse(new TextDecoder().decode(value.data)) as T,
+      string: () => new TextDecoder().decode(value.data),
+    };
     super.push(msg);
   }
 
@@ -250,7 +256,10 @@ class FakeSubscription extends AsyncQueue<Msg> implements Subscription {
   }
 }
 
-function fakeNatsSubscriber(subscription: FakeSubscription, seen?: string[]): Pick<NatsConnection, "subscribe"> {
+function fakeNatsSubscriber(
+  subscription: FakeSubscription,
+  seen?: string[],
+): Pick<NatsConnection, "subscribe"> {
   return {
     subscribe(subject: string) {
       seen?.push(subject);
@@ -263,9 +272,17 @@ Deno.test("processWorkPayload emits started and completed", async () => {
   const published: Array<{ subject: string; payload: JobEvent }> = [];
   const manager = sampleManager<{ pages: number }>(published);
 
-  const outcome = await processWorkPayload(manager, sampleWorkPayload(), () => Promise.resolve({ pages: 3 }));
+  const outcome = await processWorkPayload(
+    manager,
+    sampleWorkPayload(),
+    () => Promise.resolve({ pages: 3 }),
+  );
 
-  assertEquals(outcome, { outcome: "completed", tries: 1, result: { pages: 3 } });
+  assertEquals(outcome, {
+    outcome: "completed",
+    tries: 1,
+    result: { pages: 3 },
+  });
   assertEquals(published.map((entry) => entry.subject), [
     "trellis.jobs.documents.document-process.job-1.started",
     "trellis.jobs.documents.document-process.job-1.completed",
@@ -281,16 +298,27 @@ Deno.test("processWorkPayload emits retry for retryable failure", async () => {
   });
 
   assertEquals(outcome, { outcome: "retry", tries: 1, error: "boom" });
-  assertEquals(published[1]?.subject, "trellis.jobs.documents.document-process.job-1.retry");
+  assertEquals(
+    published[1]?.subject,
+    "trellis.jobs.documents.document-process.job-1.retry",
+  );
 });
 
 Deno.test("processWorkPayload accepts retried work events", async () => {
   const published: Array<{ subject: string; payload: JobEvent }> = [];
   const manager = sampleManager<{ ok: boolean }>(published);
 
-  const outcome = await processWorkPayload(manager, sampleWorkPayload("retried"), () => Promise.resolve({ ok: true }));
+  const outcome = await processWorkPayload(
+    manager,
+    sampleWorkPayload("retried"),
+    () => Promise.resolve({ ok: true }),
+  );
 
-  assertEquals(outcome, { outcome: "completed", tries: 1, result: { ok: true } });
+  assertEquals(outcome, {
+    outcome: "completed",
+    tries: 1,
+    result: { ok: true },
+  });
   assertEquals(published[0]?.payload.eventType, "started");
 });
 
@@ -298,7 +326,11 @@ Deno.test("processWorkPayload returns undefined for invalid payload", async () =
   const published: Array<{ subject: string; payload: JobEvent }> = [];
   const manager = sampleManager<{ ok: boolean }>(published);
 
-  const outcome = await processWorkPayload(manager, new TextEncoder().encode('{"not":"a-job"}'), () => Promise.resolve({ ok: true }));
+  const outcome = await processWorkPayload(
+    manager,
+    new TextEncoder().encode('{"not":"a-job"}'),
+    () => Promise.resolve({ ok: true }),
+  );
 
   assertEquals(outcome, undefined);
   assertEquals(published.length, 0);
@@ -320,11 +352,18 @@ Deno.test("processWorkPayloadWithContextAndHeartbeat validates payload before ha
     },
     {
       payloadSchema: documentPayloadSchemaRef,
-      validatePayload: ({ schema, job }: { schema?: { schema: string }; job: Job<unknown, { ok: boolean }> }) => {
+      validatePayload: (
+        { schema, job }: {
+          schema?: { schema: string };
+          job: Job<unknown, { ok: boolean }>;
+        },
+      ) => {
         if (schema?.schema !== "DocumentPayload") {
           throw new Error("unexpected payload schema");
         }
-        if ((job.payload as { documentId?: string }).documentId !== "allowed-doc") {
+        if (
+          (job.payload as { documentId?: string }).documentId !== "allowed-doc"
+        ) {
           throw new Error(`payload does not match ${schema.schema}`);
         }
       },
@@ -332,7 +371,11 @@ Deno.test("processWorkPayloadWithContextAndHeartbeat validates payload before ha
   );
 
   assertEquals(handled, false);
-  assertEquals(outcome, { outcome: "failed", tries: 1, error: "payload does not match DocumentPayload" });
+  assertEquals(outcome, {
+    outcome: "failed",
+    tries: 1,
+    error: "payload does not match DocumentPayload",
+  });
   assertEquals(published.map((entry) => entry.subject), [
     "trellis.jobs.documents.document-process.job-1.started",
     "trellis.jobs.documents.document-process.job-1.failed",
@@ -345,12 +388,17 @@ Deno.test("processWorkPayloadWithContext passes cancellation into handler", asyn
   const cancellation = new JobCancellationToken();
   cancellation.cancel();
 
-  const outcome = await processWorkPayloadWithContext(manager, sampleWorkPayload(), cancellation, async (job: ActiveJob<unknown, { ignored: boolean }>) => {
-    if (job.isCancelled()) {
-      await job.updateProgress({ step: "cancelled", current: 1, total: 2 });
-    }
-    return { ignored: true };
-  });
+  const outcome = await processWorkPayloadWithContext(
+    manager,
+    sampleWorkPayload(),
+    cancellation,
+    async (job: ActiveJob<unknown, { ignored: boolean }>) => {
+      if (job.isCancelled()) {
+        await job.updateProgress({ step: "cancelled", current: 1, total: 2 });
+      }
+      return { ignored: true };
+    },
+  );
 
   assertEquals(outcome, { outcome: "cancelled", tries: 1 });
   assertEquals(published.length, 2);
@@ -376,22 +424,54 @@ Deno.test("processWorkPayloadWithContextAndHeartbeat uses heartbeat hook without
     },
   );
 
-  assertEquals(outcome, { outcome: "completed", tries: 1, result: { ok: true } });
+  assertEquals(outcome, {
+    outcome: "completed",
+    tries: 1,
+    result: { ok: true },
+  });
   assertEquals(heartbeats, 1);
   assertEquals(published.length, 2);
 });
 
 Deno.test("ackActionForOutcome maps retry and interrupted to nak", () => {
-  assertEquals(ackActionForOutcome({ outcome: "retry", tries: 1, error: "boom" }), "nak");
-  assertEquals(ackActionForOutcome({ outcome: "interrupted", tries: 1 }), "nak");
-  assertEquals(ackActionForOutcome({ outcome: "completed", tries: 1, result: { ok: true } }), "ack");
+  assertEquals(
+    ackActionForOutcome({ outcome: "retry", tries: 1, error: "boom" }),
+    "nak",
+  );
+  assertEquals(
+    ackActionForOutcome({ outcome: "interrupted", tries: 1 }),
+    "nak",
+  );
+  assertEquals(
+    ackActionForOutcome({
+      outcome: "completed",
+      tries: 1,
+      result: { ok: true },
+    }),
+    "ack",
+  );
   assertEquals(ackActionForOutcome(undefined), "ack");
 });
 
 Deno.test("projectedWorkDecision skips terminal projected jobs and processes active ones", () => {
-  assertEquals(projectedWorkDecision(sampleProjectedJob("completed"), sampleProjectedJob("pending")), "skip-ack");
-  assertEquals(projectedWorkDecision(sampleProjectedJob("active"), sampleProjectedJob("pending")), "process");
-  assertEquals(projectedWorkDecision(undefined, sampleProjectedJob("pending")), "process");
+  assertEquals(
+    projectedWorkDecision(
+      sampleProjectedJob("completed"),
+      sampleProjectedJob("pending"),
+    ),
+    "skip-ack",
+  );
+  assertEquals(
+    projectedWorkDecision(
+      sampleProjectedJob("active"),
+      sampleProjectedJob("pending"),
+    ),
+    "process",
+  );
+  assertEquals(
+    projectedWorkDecision(undefined, sampleProjectedJob("pending")),
+    "process",
+  );
 });
 
 Deno.test("startWorkerHostFromBinding starts workers and per-job-type heartbeats", async () => {
@@ -414,13 +494,22 @@ Deno.test("startWorkerHostFromBinding starts workers and per-job-type heartbeats
     queueTypes: ["thumbnail"],
     heartbeatPublisher: {
       publish(subject: string, payload: Uint8Array) {
-        heartbeats.push({ subject, payload: JSON.parse(new TextDecoder().decode(payload)) });
+        heartbeats.push({
+          subject,
+          payload: JSON.parse(new TextDecoder().decode(payload)),
+        });
       },
     },
     version: "1.2.3",
     heartbeatIntervalMs: 5,
     nowIso: () => "2026-03-28T12:00:00.000Z",
-    startWorker: ({ queueType, workerIndex, cancellation }: { queueType: string; workerIndex: number; cancellation: JobCancellationToken }) => {
+    startWorker: (
+      { queueType, workerIndex, cancellation }: {
+        queueType: string;
+        workerIndex: number;
+        cancellation: JobCancellationToken;
+      },
+    ) => {
       started.push(`${queueType}:${workerIndex}:${cancellation.isCancelled()}`);
       return Promise.resolve({
         async stop() {
@@ -450,11 +539,12 @@ Deno.test("startWorkerHostFromBinding starts workers and per-job-type heartbeats
 
 Deno.test("startWorkerHostFromBinding rejects missing queue or invalid concurrency", async () => {
   await assertRejects(
-    () => startWorkerHostFromBinding(sampleBindings(), {
-      instanceId: "instance-1",
-      startWorker: () => Promise.resolve({ stop: async () => {} }),
-      queueTypes: ["missing"],
-    }),
+    () =>
+      startWorkerHostFromBinding(sampleBindings(), {
+        instanceId: "instance-1",
+        startWorker: () => Promise.resolve({ stop: async () => {} }),
+        queueTypes: ["missing"],
+      }),
     Error,
     "Requested worker queue binding 'missing' is missing",
   );
@@ -462,10 +552,11 @@ Deno.test("startWorkerHostFromBinding rejects missing queue or invalid concurren
   const binding = sampleBindings();
   binding.jobs.queues["document-process"].concurrency = 0;
   await assertRejects(
-    () => startWorkerHostFromBinding(binding, {
-      instanceId: "instance-1",
-      startWorker: () => Promise.resolve({ stop: async () => {} }),
-    }),
+    () =>
+      startWorkerHostFromBinding(binding, {
+        instanceId: "instance-1",
+        startWorker: () => Promise.resolve({ stop: async () => {} }),
+      }),
     Error,
     "Worker queue 'document-process' has invalid concurrency 0; expected >= 1",
   );
@@ -481,7 +572,11 @@ Deno.test("startQueueWorkerLoop acks completed work and naks retryable work", as
 
   const loop = await startQueueWorkerLoop({
     manager,
-    consumer: { consume() { return Promise.resolve(messages); } },
+    consumer: {
+      consume() {
+        return Promise.resolve(messages);
+      },
+    },
     cancelSubscription: cancels,
     handler: (job: ActiveJob<unknown, { ok: boolean }>) => {
       if (job.job().id === "job-1" && completed.acked === 0) {
@@ -512,7 +607,11 @@ Deno.test("startQueueWorkerLoop skips and acks work already terminal in projecti
 
   const loop = await startQueueWorkerLoop({
     manager,
-    consumer: { consume() { return Promise.resolve(messages); } },
+    consumer: {
+      consume() {
+        return Promise.resolve(messages);
+      },
+    },
     cancelSubscription: cancels,
     getProjectedJob: () => Promise.resolve(sampleProjectedJob("completed")),
     handler: () => {
@@ -541,11 +640,17 @@ Deno.test("startQueueWorkerLoop clears pending cancellation when terminal work i
 
   const loop = await startQueueWorkerLoop({
     manager,
-    consumer: { consume() { return Promise.resolve(messages); } },
+    consumer: {
+      consume() {
+        return Promise.resolve(messages);
+      },
+    },
     cancelSubscription: cancels,
     getProjectedJob: () => {
       projectionCalls += 1;
-      return Promise.resolve(projectionCalls === 1 ? sampleProjectedJob("completed") : undefined);
+      return Promise.resolve(
+        projectionCalls === 1 ? sampleProjectedJob("completed") : undefined,
+      );
     },
     handler: (job) => {
       cancelled = job.isCancelled();
@@ -584,14 +689,25 @@ Deno.test("startQueueWorkerLoop fails invalid payloads before handler execution"
 
   const loop = await startQueueWorkerLoop({
     manager,
-    consumer: { consume() { return Promise.resolve(messages); } },
+    consumer: {
+      consume() {
+        return Promise.resolve(messages);
+      },
+    },
     cancelSubscription: cancels,
     payloadSchema: documentPayloadSchemaRef,
-    validatePayload: ({ schema, job }: { schema?: { schema: string }; job: Job<unknown, { ok: boolean }> }) => {
+    validatePayload: (
+      { schema, job }: {
+        schema?: { schema: string };
+        job: Job<unknown, { ok: boolean }>;
+      },
+    ) => {
       if (schema?.schema !== "DocumentPayload") {
         throw new Error(`unexpected schema ${schema}`);
       }
-      if ((job.payload as { documentId?: string }).documentId !== "allowed-doc") {
+      if (
+        (job.payload as { documentId?: string }).documentId !== "allowed-doc"
+      ) {
         throw new Error("payload does not match DocumentPayload");
       }
     },
@@ -612,7 +728,10 @@ Deno.test("startQueueWorkerLoop fails invalid payloads before handler execution"
     "trellis.jobs.documents.document-process.job-1.started",
     "trellis.jobs.documents.document-process.job-1.failed",
   ]);
-  assertEquals(published[1]?.payload.error, "payload does not match DocumentPayload");
+  assertEquals(
+    published[1]?.payload.error,
+    "payload does not match DocumentPayload",
+  );
 });
 
 Deno.test("startQueueWorkerLoop propagates cancel events through in-flight registry", async () => {
@@ -625,7 +744,11 @@ Deno.test("startQueueWorkerLoop propagates cancel events through in-flight regis
 
   const loop = await startQueueWorkerLoop({
     manager,
-    consumer: { consume() { return Promise.resolve(messages); } },
+    consumer: {
+      consume() {
+        return Promise.resolve(messages);
+      },
+    },
     cancelSubscription: cancels,
     handler: async (job: ActiveJob<unknown, { ok: boolean }>) => {
       await new Promise((resolve) => setTimeout(resolve, 5));
@@ -665,7 +788,11 @@ Deno.test("startQueueWorkerLoop stop triggers shutdown cancellation and unsubscr
 
   const loop = await startQueueWorkerLoop({
     manager,
-    consumer: { consume() { return Promise.resolve(messages); } },
+    consumer: {
+      consume() {
+        return Promise.resolve(messages);
+      },
+    },
     cancelSubscription: cancels,
     handler: async (job: ActiveJob<unknown, { ok: boolean }>) => {
       await new Promise((resolve) => setTimeout(resolve, 20));
@@ -691,7 +818,11 @@ Deno.test("startQueueWorkerLoop stop surfaces background worker failures", async
 
   const loop = await startQueueWorkerLoop({
     manager,
-    consumer: { consume() { return Promise.resolve(messages); } },
+    consumer: {
+      consume() {
+        return Promise.resolve(messages);
+      },
+    },
     cancelSubscription: cancels,
     handler: () => {
       throw new Error("unexpected worker failure");
@@ -766,7 +897,9 @@ Deno.test("startNatsQueueWorker creates durable consumer and subscribes to cance
     },
   }]);
   assertEquals(infos, []);
-  assertEquals(subscribed, ["trellis.jobs.documents.document-process.*.cancelled"]);
+  assertEquals(subscribed, [
+    "trellis.jobs.documents.document-process.*.cancelled",
+  ]);
   assertEquals(message.acked, 1);
 });
 
@@ -795,7 +928,11 @@ Deno.test("startNatsQueueWorker falls back to consumer info when add fails", asy
     js: {
       consumers: {
         getConsumerFromInfo() {
-          return { consume() { return Promise.resolve(messages); } };
+          return {
+            consume() {
+              return Promise.resolve(messages);
+            },
+          };
         },
       },
     },
@@ -803,7 +940,10 @@ Deno.test("startNatsQueueWorker falls back to consumer info when add fails", asy
   });
 
   await worker.stop();
-  assertEquals(infos, [{ stream: "JOBS_WORK", consumer: "documents-document-process" }]);
+  assertEquals(infos, [{
+    stream: "JOBS_WORK",
+    consumer: "documents-document-process",
+  }]);
 });
 
 Deno.test("startNatsQueueWorker reports missing shared jobs stream clearly", async () => {
@@ -811,32 +951,35 @@ Deno.test("startNatsQueueWorker reports missing shared jobs stream clearly", asy
   streamNotFound.name = "StreamNotFoundError";
 
   await assertRejects(
-    () => startNatsQueueWorker({
-      nats: fakeNatsSubscriber(new FakeSubscription()),
-      manager: sampleManager<{ ok: boolean }>([]),
-      binding: sampleBindings(),
-      queueType: "document-process",
-      jsm: {
-        consumers: {
-          add() {
-            throw streamNotFound;
-          },
-          info() {
-            throw streamNotFound;
-          },
-        },
-      },
-      js: {
-        consumers: {
-          getConsumerFromInfo() {
-            throw new Error("should not create consumer when stream is missing");
+    () =>
+      startNatsQueueWorker({
+        nats: fakeNatsSubscriber(new FakeSubscription()),
+        manager: sampleManager<{ ok: boolean }>([]),
+        binding: sampleBindings(),
+        queueType: "document-process",
+        jsm: {
+          consumers: {
+            add() {
+              throw streamNotFound;
+            },
+            info() {
+              throw streamNotFound;
+            },
           },
         },
-      },
-      handler: () => Promise.resolve({ ok: true }),
-    }),
+        js: {
+          consumers: {
+            getConsumerFromInfo() {
+              throw new Error(
+                "should not create consumer when stream is missing",
+              );
+            },
+          },
+        },
+        handler: () => Promise.resolve({ ok: true }),
+      }),
     JobsInfrastructureMissingError,
-    "Jobs work stream 'JOBS_WORK' was not found while starting queue 'document-process'. The shared jobs infrastructure is missing or not provisioned for this Trellis environment. Install or upgrade the 'trellis.jobs@v1' service and ensure 'JOBS_WORK' exists before starting workers.",
+    "Jobs work stream 'JOBS_WORK' was not found while starting queue 'document-process'. The built-in Trellis jobs infrastructure is missing or not provisioned for this environment. Start Trellis and bootstrap the service again so 'JOBS_WORK' exists before workers start.",
   );
 });
 
@@ -854,9 +997,14 @@ Deno.test("startNatsQueueWorker passes payload validation into the worker loop",
     manager,
     binding: sampleBindings(),
     queueType: "document-process",
-    validatePayload: (args: { schema?: { schema: string }; job: Job<unknown, { ok: boolean }> }) => {
+    validatePayload: (
+      args: { schema?: { schema: string }; job: Job<unknown, { ok: boolean }> },
+    ) => {
       validatedSchema = args.schema?.schema ?? "";
-      if ((args.job.payload as { documentId?: string }).documentId !== "allowed-doc") {
+      if (
+        (args.job.payload as { documentId?: string }).documentId !==
+          "allowed-doc"
+      ) {
         throw new Error(`payload does not match ${args.schema?.schema}`);
       }
       return Promise.resolve();
@@ -874,7 +1022,11 @@ Deno.test("startNatsQueueWorker passes payload validation into the worker loop",
     js: {
       consumers: {
         getConsumerFromInfo() {
-          return { consume() { return Promise.resolve(messages); } };
+          return {
+            consume() {
+              return Promise.resolve(messages);
+            },
+          };
         },
       },
     },
@@ -941,7 +1093,11 @@ Deno.test("startNatsQueueWorker passes result validation into the worker loop", 
     js: {
       consumers: {
         getConsumerFromInfo() {
-          return { consume() { return Promise.resolve(messages); } };
+          return {
+            consume() {
+              return Promise.resolve(messages);
+            },
+          };
         },
       },
     },
@@ -987,8 +1143,17 @@ Deno.test("startNatsQueueWorker runs validator then handler on valid payload", a
     manager,
     binding: sampleBindings(),
     queueType: "document-process",
-    validatePayload: ({ schema, job }: { schema?: { schema: string }; job: Job<unknown, { ok: boolean }> }) => {
-      calls.push(`validate:${schema?.schema}:${(job.payload as { documentId?: string }).documentId}`);
+    validatePayload: (
+      { schema, job }: {
+        schema?: { schema: string };
+        job: Job<unknown, { ok: boolean }>;
+      },
+    ) => {
+      calls.push(
+        `validate:${schema?.schema}:${
+          (job.payload as { documentId?: string }).documentId
+        }`,
+      );
       return Promise.resolve();
     },
     jsm: {
@@ -1004,7 +1169,11 @@ Deno.test("startNatsQueueWorker runs validator then handler on valid payload", a
     js: {
       consumers: {
         getConsumerFromInfo() {
-          return { consume() { return Promise.resolve(messages); } };
+          return {
+            consume() {
+              return Promise.resolve(messages);
+            },
+          };
         },
       },
     },
@@ -1031,12 +1200,18 @@ Deno.test("startQueueWorkerLoop exposes redelivery metadata to handlers", async 
   const manager = sampleManager<{ ok: boolean }>(published);
   const messages = new FakeWorkMessages();
   const cancels = new FakeSubscription();
-  const message = new FakeWorkMessage(sampleWorkPayload(), undefined, { redeliveryCount: 2 });
+  const message = new FakeWorkMessage(sampleWorkPayload(), undefined, {
+    redeliveryCount: 2,
+  });
   let seen: { redeliveryCount: number; redelivered: boolean } | undefined;
 
   const loop = await startQueueWorkerLoop({
     manager,
-    consumer: { consume() { return Promise.resolve(messages); } },
+    consumer: {
+      consume() {
+        return Promise.resolve(messages);
+      },
+    },
     cancelSubscription: cancels,
     handler: (job) => {
       seen = {
@@ -1064,7 +1239,10 @@ Deno.test("startNatsWorkerHostFromBinding wires validator into spawned queue wor
     consumerName: "documents-thumbnail",
   };
   const published: Array<{ subject: string; payload: JobEvent }> = [];
-  const manager = sampleManagerWithBinding<{ ok: boolean }>(published, binding.jobs);
+  const manager = sampleManagerWithBinding<{ ok: boolean }>(
+    published,
+    binding.jobs,
+  );
   const messagesByQueue = new Map<string, FakeWorkMessages>([
     ["document-process", new FakeWorkMessages()],
     ["thumbnail", new FakeWorkMessages()],
@@ -1076,7 +1254,12 @@ Deno.test("startNatsWorkerHostFromBinding wires validator into spawned queue wor
     nats: fakeNatsSubscriber(cancels),
     instanceId: "instance-1",
     manager,
-    validatePayload: ({ schema }: { schema?: { schema: string }; job: Job<unknown, { ok: boolean }> }) => {
+    validatePayload: (
+      { schema }: {
+        schema?: { schema: string };
+        job: Job<unknown, { ok: boolean }>;
+      },
+    ) => {
       validations.push(schema?.schema ?? "");
       return Promise.resolve();
     },
@@ -1093,36 +1276,49 @@ Deno.test("startNatsWorkerHostFromBinding wires validator into spawned queue wor
     js: {
       consumers: {
         getConsumerFromInfo(info: { name: string }) {
-          const queueType = info.name === "documents-thumbnail" ? "thumbnail" : "document-process";
-          return { consume() { return Promise.resolve(messagesByQueue.get(queueType)!); } };
+          const queueType = info.name === "documents-thumbnail"
+            ? "thumbnail"
+            : "document-process";
+          return {
+            consume() {
+              return Promise.resolve(messagesByQueue.get(queueType)!);
+            },
+          };
         },
       },
     },
     handler: () => Promise.resolve({ ok: true }),
   });
 
-  messagesByQueue.get("document-process")?.push(new FakeWorkMessage(new TextEncoder().encode(JSON.stringify({
-    jobId: "job-1",
-    service: "documents",
-    jobType: "document-process",
-    eventType: "created",
-    state: "pending",
-    tries: 0,
-    maxTries: 2,
-    payload: { documentId: "allowed-doc" },
-    timestamp: "2026-03-28T11:59:00.000Z",
-  }))));
-  messagesByQueue.get("thumbnail")?.push(new FakeWorkMessage(new TextEncoder().encode(JSON.stringify({
-    jobId: "job-2",
-    service: "documents",
-    jobType: "thumbnail",
-    eventType: "created",
-    state: "pending",
-    tries: 0,
-    maxTries: 2,
-    payload: { documentId: "allowed-doc" },
-    timestamp: "2026-03-28T11:59:00.000Z",
-  })), "trellis.work.documents.thumbnail"));
+  messagesByQueue.get("document-process")?.push(
+    new FakeWorkMessage(new TextEncoder().encode(JSON.stringify({
+      jobId: "job-1",
+      service: "documents",
+      jobType: "document-process",
+      eventType: "created",
+      state: "pending",
+      tries: 0,
+      maxTries: 2,
+      payload: { documentId: "allowed-doc" },
+      timestamp: "2026-03-28T11:59:00.000Z",
+    }))),
+  );
+  messagesByQueue.get("thumbnail")?.push(
+    new FakeWorkMessage(
+      new TextEncoder().encode(JSON.stringify({
+        jobId: "job-2",
+        service: "documents",
+        jobType: "thumbnail",
+        eventType: "created",
+        state: "pending",
+        tries: 0,
+        maxTries: 2,
+        payload: { documentId: "allowed-doc" },
+        timestamp: "2026-03-28T11:59:00.000Z",
+      })),
+      "trellis.work.documents.thumbnail",
+    ),
+  );
   await new Promise((resolve) => setTimeout(resolve, 15));
   await host.stop();
 
@@ -1139,7 +1335,10 @@ Deno.test("startNatsWorkerHostFromBinding propagates host shutdown to in-flight 
     consumerName: "documents-thumbnail",
   };
   const published: Array<{ subject: string; payload: JobEvent }> = [];
-  const manager = sampleManagerWithBinding<{ ok: boolean }>(published, binding.jobs);
+  const manager = sampleManagerWithBinding<{ ok: boolean }>(
+    published,
+    binding.jobs,
+  );
   const messagesByQueue = new Map<string, FakeWorkMessages>([
     ["document-process", new FakeWorkMessages()],
     ["thumbnail", new FakeWorkMessages()],
@@ -1170,8 +1369,14 @@ Deno.test("startNatsWorkerHostFromBinding propagates host shutdown to in-flight 
     js: {
       consumers: {
         getConsumerFromInfo(info: { name: string }) {
-          const queueType = info.name === "documents-thumbnail" ? "thumbnail" : "document-process";
-          return { consume() { return Promise.resolve(messagesByQueue.get(queueType)!); } };
+          const queueType = info.name === "documents-thumbnail"
+            ? "thumbnail"
+            : "document-process";
+          return {
+            consume() {
+              return Promise.resolve(messagesByQueue.get(queueType)!);
+            },
+          };
         },
       },
     },
@@ -1182,18 +1387,25 @@ Deno.test("startNatsWorkerHostFromBinding propagates host shutdown to in-flight 
     },
   });
 
-  messagesByQueue.get("document-process")?.push(new FakeWorkMessage(sampleWorkPayload()));
-  messagesByQueue.get("thumbnail")?.push(new FakeWorkMessage(new TextEncoder().encode(JSON.stringify({
-    jobId: "job-2",
-    service: "documents",
-    jobType: "thumbnail",
-    eventType: "created",
-    state: "pending",
-    tries: 0,
-    maxTries: 2,
-    payload: { documentId: "allowed-doc" },
-    timestamp: "2026-03-28T11:59:00.000Z",
-  })), "trellis.work.documents.thumbnail"));
+  messagesByQueue.get("document-process")?.push(
+    new FakeWorkMessage(sampleWorkPayload()),
+  );
+  messagesByQueue.get("thumbnail")?.push(
+    new FakeWorkMessage(
+      new TextEncoder().encode(JSON.stringify({
+        jobId: "job-2",
+        service: "documents",
+        jobType: "thumbnail",
+        eventType: "created",
+        state: "pending",
+        tries: 0,
+        maxTries: 2,
+        payload: { documentId: "allowed-doc" },
+        timestamp: "2026-03-28T11:59:00.000Z",
+      })),
+      "trellis.work.documents.thumbnail",
+    ),
+  );
   await new Promise((resolve) => setTimeout(resolve, 5));
   await host.stop();
 
@@ -1205,7 +1417,10 @@ Deno.test("startNatsWorkerHostFromBinding propagates host shutdown to in-flight 
 Deno.test("startNatsWorkerHostFromBinding stops consuming new work after shutdown begins", async () => {
   const binding = sampleBindings();
   const published: Array<{ subject: string; payload: JobEvent }> = [];
-  const manager = sampleManagerWithBinding<{ ok: boolean }>(published, binding.jobs);
+  const manager = sampleManagerWithBinding<{ ok: boolean }>(
+    published,
+    binding.jobs,
+  );
   const messages = new FakeWorkMessages();
   const subscriptions: FakeSubscription[] = [];
   const startedJobs: string[] = [];
@@ -1233,7 +1448,11 @@ Deno.test("startNatsWorkerHostFromBinding stops consuming new work after shutdow
     js: {
       consumers: {
         getConsumerFromInfo() {
-          return { consume() { return Promise.resolve(messages); } };
+          return {
+            consume() {
+              return Promise.resolve(messages);
+            },
+          };
         },
       },
     },
@@ -1247,17 +1466,19 @@ Deno.test("startNatsWorkerHostFromBinding stops consuming new work after shutdow
   messages.push(new FakeWorkMessage(sampleWorkPayload()));
   await new Promise((resolve) => setTimeout(resolve, 5));
   const stopping = host.stop();
-  messages.push(new FakeWorkMessage(new TextEncoder().encode(JSON.stringify({
-    jobId: "job-2",
-    service: "documents",
-    jobType: "document-process",
-    eventType: "created",
-    state: "pending",
-    tries: 0,
-    maxTries: 2,
-    payload: { documentId: "allowed-doc" },
-    timestamp: "2026-03-28T11:59:00.000Z",
-  }))));
+  messages.push(
+    new FakeWorkMessage(new TextEncoder().encode(JSON.stringify({
+      jobId: "job-2",
+      service: "documents",
+      jobType: "document-process",
+      eventType: "created",
+      state: "pending",
+      tries: 0,
+      maxTries: 2,
+      payload: { documentId: "allowed-doc" },
+      timestamp: "2026-03-28T11:59:00.000Z",
+    }))),
+  );
   await stopping;
 
   assertEquals(startedJobs, ["job-1"]);
@@ -1275,7 +1496,11 @@ Deno.test("startQueueWorkerLoop does not start work once host shutdown is active
 
   const loop = await startQueueWorkerLoop({
     manager,
-    consumer: { consume() { return Promise.resolve(messages); } },
+    consumer: {
+      consume() {
+        return Promise.resolve(messages);
+      },
+    },
     cancelSubscription: cancels,
     hostCancellation,
     handler: () => {

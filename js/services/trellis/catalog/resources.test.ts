@@ -1,3 +1,5 @@
+import { jetstreamManager } from "@nats-io/jetstream";
+import { Kvm } from "@nats-io/kv";
 import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 import { Objm } from "@nats-io/obj";
 import { TypedStore } from "@qlever-llc/trellis";
@@ -80,7 +82,12 @@ Deno.test("store resources require NATS during provisioning", async () => {
   } as TrellisContractV1;
 
   await assertRejects(
-    () => provisionContractResourceBindings(undefined, contract, "svc_test_activity_v1"),
+    () =>
+      provisionContractResourceBindings(
+        undefined,
+        contract,
+        "svc_test_activity_v1",
+      ),
     Error,
     "NATS connection is required to provision store resources",
   );
@@ -99,6 +106,18 @@ Deno.test("resource permission grants include per-bucket JetStream subjects", ()
 
   assertEquals(
     grants.publish.includes("$KV.svc_test_activity_v1_activity.>"),
+    true,
+  );
+  assertEquals(
+    grants.publish.includes(
+      "$JS.API.STREAM.INFO.KV_svc_test_activity_v1_activity",
+    ),
+    true,
+  );
+  assertEquals(
+    grants.publish.includes(
+      "$JS.API.STREAM.CREATE.KV_svc_test_activity_v1_activity",
+    ),
     true,
   );
   assertEquals(
@@ -136,15 +155,21 @@ Deno.test("resource permission grants include store object subjects and subscrib
     true,
   );
   assertEquals(
-    grants.publish.includes("$JS.API.STREAM.INFO.OBJ_svc_test_activity_v1_uploads"),
+    grants.publish.includes(
+      "$JS.API.STREAM.INFO.OBJ_svc_test_activity_v1_uploads",
+    ),
     true,
   );
   assertEquals(
-    grants.publish.includes("$JS.API.STREAM.MSG.GET.OBJ_svc_test_activity_v1_uploads"),
+    grants.publish.includes(
+      "$JS.API.STREAM.MSG.GET.OBJ_svc_test_activity_v1_uploads",
+    ),
     true,
   );
   assertEquals(
-    grants.publish.includes("$JS.API.CONSUMER.CREATE.OBJ_svc_test_activity_v1_uploads.>"),
+    grants.publish.includes(
+      "$JS.API.CONSUMER.CREATE.OBJ_svc_test_activity_v1_uploads.>",
+    ),
     true,
   );
   assertEquals(
@@ -230,6 +255,9 @@ Deno.test("jobs provisioning returns queue bindings and grants worker heartbeat 
   });
   assertEquals(bindings.streams?.jobsWork, {
     name: "JOBS_WORK",
+    retention: "workqueue",
+    storage: "file",
+    numReplicas: 3,
     subjects: ["trellis.work.svc_test_documents_v1.>"],
   });
 
@@ -268,6 +296,69 @@ Deno.test("stream resource requests apply defaults", () => {
   ]);
 });
 
+Deno.test("stream resource requests preserve advanced stream configuration", () => {
+  const contract = {
+    ...CONTRACT,
+    resources: {
+      streams: {
+        jobs: {
+          purpose: "Store job events",
+          retention: "limits",
+          storage: "file",
+          numReplicas: 3,
+          maxAgeMs: 0,
+          maxBytes: -1,
+          maxMsgs: -1,
+          discard: "old",
+          subjects: ["trellis.jobs.>"],
+        },
+        jobsWork: {
+          purpose: "Store sourced work messages",
+          retention: "workqueue",
+          storage: "file",
+          numReplicas: 3,
+          subjects: ["trellis.work.>"],
+          sources: [{
+            fromAlias: "jobs",
+            filterSubject: "trellis.jobs.*.*.*.created",
+            subjectTransformDest: "trellis.work.$1.$2",
+          }],
+        },
+      },
+    },
+  } as TrellisContractV1;
+
+  assertEquals(getStreamResourceRequests(contract), [
+    {
+      alias: "jobs",
+      purpose: "Store job events",
+      required: true,
+      retention: "limits",
+      storage: "file",
+      numReplicas: 3,
+      maxAgeMs: 0,
+      maxBytes: -1,
+      maxMsgs: -1,
+      discard: "old",
+      subjects: ["trellis.jobs.>"],
+    },
+    {
+      alias: "jobsWork",
+      purpose: "Store sourced work messages",
+      required: true,
+      retention: "workqueue",
+      storage: "file",
+      numReplicas: 3,
+      subjects: ["trellis.work.>"],
+      sources: [{
+        fromAlias: "jobs",
+        filterSubject: "trellis.jobs.*.*.*.created",
+        subjectTransformDest: "trellis.work.$1.$2",
+      }],
+    },
+  ]);
+});
+
 Deno.test("stream-only contracts produce stream bindings during provisioning", async () => {
   const contract = {
     ...CONTRACT,
@@ -290,6 +381,62 @@ Deno.test("stream-only contracts produce stream bindings during provisioning", a
   assertEquals(bindings.streams?.activity, {
     name: "svc_svc_test_activit_activity_v1_activity",
     subjects: ["events.v1.Activity.Recorded"],
+  });
+});
+
+Deno.test("stream provisioning resolves source stream names in bindings", async () => {
+  const contract = {
+    ...CONTRACT,
+    resources: {
+      streams: {
+        jobs: {
+          purpose: "Store job events",
+          retention: "limits",
+          storage: "file",
+          numReplicas: 3,
+          subjects: ["trellis.jobs.>"],
+        },
+        jobsWork: {
+          purpose: "Store sourced work messages",
+          retention: "workqueue",
+          storage: "file",
+          numReplicas: 3,
+          subjects: ["trellis.work.>"],
+          sources: [{
+            fromAlias: "jobs",
+            filterSubject: "trellis.jobs.*.*.*.created",
+            subjectTransformDest: "trellis.work.$1.$2",
+          }],
+        },
+      },
+    },
+  } as TrellisContractV1;
+
+  const bindings = await provisionContractResourceBindings(
+    undefined,
+    contract,
+    "svc_test_jobs_v1",
+  );
+
+  assertEquals(bindings.streams?.jobs, {
+    name: "svc_svc_test_jobs_v1_activity_v1_jobs",
+    retention: "limits",
+    storage: "file",
+    numReplicas: 3,
+    subjects: ["trellis.jobs.>"],
+  });
+  assertEquals(bindings.streams?.jobsWork, {
+    name: "svc_svc_test_jobs_v1_activity_v1_jobswork",
+    retention: "workqueue",
+    storage: "file",
+    numReplicas: 3,
+    subjects: ["trellis.work.>"],
+    sources: [{
+      fromAlias: "jobs",
+      streamName: "svc_svc_test_jobs_v1_activity_v1_jobs",
+      filterSubject: "trellis.jobs.*.*.*.created",
+      subjectTransformDest: "trellis.work.$1.$2",
+    }],
   });
 });
 
@@ -369,12 +516,16 @@ Deno.test({
       maxTotalBytes: 4096,
     });
 
-    const opened = await TypedStore.open(nats.nc, bindings.store!.uploads.name, {
-      bindOnly: true,
-      ttlMs: bindings.store!.uploads.ttlMs,
-      maxObjectBytes: bindings.store!.uploads.maxObjectBytes,
-      maxTotalBytes: bindings.store!.uploads.maxTotalBytes,
-    });
+    const opened = await TypedStore.open(
+      nats.nc,
+      bindings.store!.uploads.name,
+      {
+        bindOnly: true,
+        ttlMs: bindings.store!.uploads.ttlMs,
+        maxObjectBytes: bindings.store!.uploads.maxObjectBytes,
+        maxTotalBytes: bindings.store!.uploads.maxTotalBytes,
+      },
+    );
     const store = opened.match({
       ok: (value) => value,
       err: (error) => {
@@ -382,7 +533,10 @@ Deno.test({
       },
     });
 
-    const created = await store.create("incoming/test.txt", new TextEncoder().encode("hello"));
+    const created = await store.create(
+      "incoming/test.txt",
+      new TextEncoder().encode("hello"),
+    );
     assertEquals(created.isOk(), true);
 
     const entry = (await store.get("incoming/test.txt")).match({
@@ -450,9 +604,58 @@ Deno.test({
     );
     assertEquals(updatedBindings.store?.uploads.maxTotalBytes, 16_384);
 
-    const objectStore = await new Objm(nats.nc).open(updatedBindings.store!.uploads.name);
+    const objectStore = await new Objm(nats.nc).open(
+      updatedBindings.store!.uploads.name,
+    );
     const status = await objectStore.status();
     assertEquals(status.streamInfo.config.max_bytes, 16_384);
     assertEquals(status.streamInfo.config.max_age, 120_000 * 1_000_000);
+  },
+});
+
+Deno.test({
+  name: "jobs provisioning creates shared built-in jobs resources",
+  ignore: !RUN_NATS_TESTS,
+  async fn() {
+    await using nats = await NatsTest.start();
+
+    const contract = {
+      ...CONTRACT,
+      schemas: {
+        Payload: { type: "object" },
+      },
+      resources: {
+        jobs: {
+          queues: {
+            "document-process": {
+              payload: { schema: "Payload" },
+            },
+          },
+        },
+      },
+    } as TrellisContractV1;
+
+    await provisionContractResourceBindings(
+      nats.nc,
+      contract,
+      "svc_test_documents_v1",
+    );
+
+    const jsm = await jetstreamManager(nats.nc);
+    const jobs = await jsm.streams.info("JOBS");
+    const jobsWork = await jsm.streams.info("JOBS_WORK");
+    const jobsAdvisories = await jsm.streams.info("JOBS_ADVISORIES");
+    const jobsState = await new Kvm(nats.nc).open("trellis_jobs");
+    const jobsStateStatus = await jobsState.status();
+
+    assertEquals(jobs.config.subjects, ["trellis.jobs.>"]);
+    assertEquals(jobs.config.retention, "limits");
+    assertEquals(jobsWork.config.subjects, ["trellis.work.>"]);
+    assertEquals(jobsWork.config.retention, "workqueue");
+    assertEquals(Array.isArray(jobsWork.config.sources), true);
+    assertEquals(jobsAdvisories.config.subjects, [
+      "$JS.EVENT.ADVISORY.CONSUMER.MAX_DELIVERIES.JOBS_WORK.>",
+    ]);
+    assertEquals(jobsStateStatus.bucket, "trellis_jobs");
   },
 });

@@ -8,9 +8,12 @@ order: 10
 
 ## Prerequisites
 
-- [../core/service-development.md](./../core/service-development.md) - service-author patterns and jobs vs operations boundary
-- [../core/type-system-patterns.md](./../core/type-system-patterns.md) - Result, error, and weak-type guidance
-- [../core/kv-resource-patterns.md](./../core/kv-resource-patterns.md) - KV naming and projection patterns
+- [../core/service-development.md](./../core/service-development.md) -
+  service-author patterns and jobs vs operations boundary
+- [../core/type-system-patterns.md](./../core/type-system-patterns.md) - Result,
+  error, and weak-type guidance
+- [../core/kv-resource-patterns.md](./../core/kv-resource-patterns.md) - KV
+  naming and projection patterns
 
 ## Context
 
@@ -19,44 +22,62 @@ Services need a means of:
 - Running service-private background work
 - Handling retries of failed work with backoff
 - Projecting execution status for observability and admin tooling
-- Recording internal progress for workflows that may also back caller-visible operations
+- Recording internal progress for workflows that may also back caller-visible
+  operations
 - Allowing operators to query jobs across all services
 
-Trellis services should follow the companion cross-cutting pattern docs referenced above.
+Trellis services should follow the companion cross-cutting pattern docs
+referenced above.
 
 ## Design
 
 This document defines `@qlever-llc/trellis-jobs`:
 
 - A **server library** for services to manage their own jobs
-- An **admin client library** for operators to query and manage jobs across all services
+- An **admin client library** for operators to query and manage jobs across all
+  services
 
-This document also defines an "Infrastructure" service `jobs` for admin queries, janitor, and KV projection
+This document also defines the shared Trellis-owned jobs infrastructure plus a
+separate `jobs` admin runtime for admin queries, janitor, and KV projection.
 
-Caller-visible asynchronous APIs are defined separately in [../operations/trellis-operations.md](./../operations/trellis-operations.md). Jobs remain service-private execution machinery.
+Caller-visible asynchronous APIs are defined separately in
+[../operations/trellis-operations.md](./../operations/trellis-operations.md).
+Jobs remain service-private execution machinery.
 
-`trellis.jobs@v1` remains a normal Trellis contract. For Jobs we expect to author it in language-specific source alongside its implementation and emit generated release artifacts plus SDKs. It is not a handwritten special case in Trellis runtime behavior.
+The shared streams and projected-state KV bucket used by jobs are Trellis-owned
+runtime infrastructure. Trellis provisions those resources automatically when a
+jobs-enabled service boots. The optional jobs admin surface may still be
+authored in language-specific source alongside its implementation and emitted as
+generated artifacts plus SDKs, but ordinary services and demos should not need
+an extra manual `trellis.jobs@v1` install step just to create or process jobs.
 
 ### Design Principles
 
-1. **Stream-first architecture** — JetStream stream is the source of truth. KV is a derived projection for queries.
-2. **Jobs service** — Owns janitor, global RPCs, and KV projection. Stateless and horizontally scalable.
-3. **Service-local processing** — Each service processes its own jobs via its own consumer.
-4. **Passive worker heartbeats** — Workers emit per-job-type heartbeat subjects for observability; any admin registry is a derived projection, not part of job correctness.
-5. **Stream-driven observability** — Job state changes and worker heartbeats publish messages to the jobs subsystem stream space (these are not `events.v1.*` domain events).
+1. **Stream-first architecture** — JetStream stream is the source of truth. KV
+   is a derived projection for queries.
+2. **Jobs service** — Owns janitor, global RPCs, and KV projection. Stateless
+   and horizontally scalable.
+3. **Service-local processing** — Each service processes its own jobs via its
+   own consumer.
+4. **Passive worker heartbeats** — Workers emit per-job-type heartbeat subjects
+   for observability; any admin registry is a derived projection, not part of
+   job correctness.
+5. **Stream-driven observability** — Job state changes and worker heartbeats
+   publish messages to the jobs subsystem stream space (these are not
+   `events.v1.*` domain events).
 
 ### Job States
 
-| State       | Description                                |
-| ----------- | ------------------------------------------ |
-| `pending`   | Job created, waiting to be processed       |
-| `active`    | Currently being processed                  |
-| `retry`     | NAK sent, awaiting JetStream redelivery    |
-| `completed` | Successfully finished                      |
-| `failed`    | Processing failed, can be manually retried  |
-| `cancelled` | Cancelled before completion (terminal)     |
-| `expired`   | Exceeded business deadline (terminal)      |
-| `dead`      | Moved to DLQ, awaiting admin replay or dismissal |
+| State       | Description                                          |
+| ----------- | ---------------------------------------------------- |
+| `pending`   | Job created, waiting to be processed                 |
+| `active`    | Currently being processed                            |
+| `retry`     | NAK sent, awaiting JetStream redelivery              |
+| `completed` | Successfully finished                                |
+| `failed`    | Processing failed, can be manually retried           |
+| `cancelled` | Cancelled before completion (terminal)               |
+| `expired`   | Exceeded business deadline (terminal)                |
+| `dead`      | Moved to DLQ, awaiting admin replay or dismissal     |
 | `dismissed` | Explicitly dismissed from DLQ by an admin (terminal) |
 
 **State transitions:**
@@ -91,10 +112,17 @@ stateDiagram-v2
 
 **Cancellation semantics:**
 
-- `pending`/`retry`: Immediate cancellation (job never processed or won't be retried)
-- `active`: Best-effort and cooperative. Language runtimes may expose different cancellation primitives to handlers, but the worker-facing semantic is the same: cancellation should be observed cooperatively by in-flight work.
-- Worker-host shutdown is distinct from business cancellation. Shutdown should interrupt processing and requeue work rather than publishing a normal `cancelled` outcome.
-- Execution-terminal states (`completed`, `failed`, `cancelled`, `expired`, `dead`, `dismissed`): No-op for worker processing and cancellation. Explicit admin DLQ operations move only `dead` jobs into `pending` or `dismissed`.
+- `pending`/`retry`: Immediate cancellation (job never processed or won't be
+  retried)
+- `active`: Best-effort and cooperative. Language runtimes may expose different
+  cancellation primitives to handlers, but the worker-facing semantic is the
+  same: cancellation should be observed cooperatively by in-flight work.
+- Worker-host shutdown is distinct from business cancellation. Shutdown should
+  interrupt processing and requeue work rather than publishing a normal
+  `cancelled` outcome.
+- Execution-terminal states (`completed`, `failed`, `cancelled`, `expired`,
+  `dead`, `dismissed`): No-op for worker processing and cancellation. Explicit
+  admin DLQ operations move only `dead` jobs into `pending` or `dismissed`.
 
 ### Storage Architecture
 
@@ -103,7 +131,8 @@ stateDiagram-v2
 - Stream: `JOBS`
 - Subject families:
   - Job lifecycle: `trellis.jobs.<service>.<job-type>.<job-id>.<event>`
-  - Worker heartbeats: `trellis.jobs.workers.<service>.<job-type>.<instance-id>.heartbeat`
+  - Worker heartbeats:
+    `trellis.jobs.workers.<service>.<job-type>.<instance-id>.heartbeat`
 - Message subjects:
   - `trellis.jobs.<service>.<job-type>.<job-id>.created` — includes full payload
   - `trellis.jobs.<service>.<job-type>.<job-id>.started`
@@ -117,35 +146,44 @@ stateDiagram-v2
   - `trellis.jobs.<service>.<job-type>.<job-id>.retried`
   - `trellis.jobs.<service>.<job-type>.<job-id>.dead`
   - `trellis.jobs.<service>.<job-type>.<job-id>.dismissed`
-  - `trellis.jobs.workers.<service>.<job-type>.<instance-id>.heartbeat` — passive worker-presence heartbeat
+  - `trellis.jobs.workers.<service>.<job-type>.<instance-id>.heartbeat` —
+    passive worker-presence heartbeat
 - Retention: Limits-based (configurable)
 
-These subjects are namespaced to the jobs subsystem (`trellis.jobs.*`) and are described by the `trellis.jobs@v1` contract as raw pub/sub subjects (rather than `events.v1.*` contract events).
+These subjects are namespaced to the jobs subsystem (`trellis.jobs.*`). They
+remain raw pub/sub subjects rather than `events.v1.*` contract events.
 
 **Subject filtering examples:**
 
-| Pattern | Description |
-| ------- | ----------- |
-| `trellis.jobs.>` | All jobs-subsystem subjects across all services |
-| `trellis.jobs.<service>.>` | All lifecycle events for a specific service |
-| `trellis.jobs.<service>.<job-type>.>` | All lifecycle events for a specific job type |
-| `trellis.jobs.*.*.<job-id>.>` | All events for a specific job (any service/type) |
-| `trellis.jobs.<service>.<job-type>.<job-id>.>` | All events for a specific job (fully qualified) |
-| `trellis.jobs.*.*.*.completed` | All completion events across services |
-| `trellis.jobs.workers.<service>.>` | All worker heartbeats for a specific service |
-| `trellis.jobs.workers.<service>.<job-type>.>` | All worker heartbeats for a specific job type |
+| Pattern                                        | Description                                      |
+| ---------------------------------------------- | ------------------------------------------------ |
+| `trellis.jobs.>`                               | All jobs-subsystem subjects across all services  |
+| `trellis.jobs.<service>.>`                     | All lifecycle events for a specific service      |
+| `trellis.jobs.<service>.<job-type>.>`          | All lifecycle events for a specific job type     |
+| `trellis.jobs.*.*.<job-id>.>`                  | All events for a specific job (any service/type) |
+| `trellis.jobs.<service>.<job-type>.<job-id>.>` | All events for a specific job (fully qualified)  |
+| `trellis.jobs.*.*.*.completed`                 | All completion events across services            |
+| `trellis.jobs.workers.<service>.>`             | All worker heartbeats for a specific service     |
+| `trellis.jobs.workers.<service>.<job-type>.>`  | All worker heartbeats for a specific job type    |
 
-Job state changes and worker heartbeats are published to this stream. The stream is append-only and replayable. The `.created` event contains the full job payload, enabling stream replay to reconstruct job state.
+Job state changes and worker heartbeats are published to this stream. The stream
+is append-only and replayable. The `.created` event contains the full job
+payload, enabling stream replay to reconstruct job state.
 
 **Work Queue: JetStream Stream (`JOBS_WORK`)**
 
 - Stream: `JOBS_WORK`
-- **Sources from `JOBS`** — automatically populated via stream sourcing (see Provisioning Model)
+- **Sources from `JOBS`** — automatically populated via stream sourcing (see
+  Provisioning Model)
 - Subject pattern: `trellis.work.<service>.<job-type>`
-- Consumer: Per job-type durable consumer (allows different BackOff/AckWait per type)
+- Consumer: Per job-type durable consumer (allows different BackOff/AckWait per
+  type)
 - Retention: WorkQueue policy
 
-When a service calls `JobManager.create()`, it publishes a `.created` event to `JOBS`. The `JOBS_WORK` stream is configured to source `.created` and `.retried` events from `JOBS` with a subject transform, automatically populating the work queue. This keeps initial enqueue and manual retry stream-first and replayable.
+When a service calls `JobManager.create()`, it publishes a `.created` event to
+`JOBS`. The `JOBS_WORK` stream is configured to source `.created` and `.retried`
+events from `JOBS` with a subject transform, automatically populating the work
+queue. This keeps initial enqueue and manual retry stream-first and replayable.
 
 **Consumer configuration (per job-type):**
 
@@ -160,42 +198,67 @@ AckWait: 5m (must exceed expected job duration)
 
 - Stream: `JOBS_ADVISORIES`
 - Subject: `$JS.EVENT.ADVISORY.CONSUMER.MAX_DELIVERIES.JOBS_WORK.>`
-- Purpose: Durable capture of max-delivery advisories for reliable failure detection
+- Purpose: Durable capture of max-delivery advisories for reliable failure
+  detection
 
-When a work message exhausts `MaxDeliver`, NATS emits an advisory. By capturing these in a stream, the `jobs` service can reliably detect exhausted jobs even if it was temporarily unavailable.
+When a work message exhausts `MaxDeliver`, NATS emits an advisory. By capturing
+these in a stream, the `jobs` service can reliably detect exhausted jobs even if
+it was temporarily unavailable.
 
 **KV Buckets**
 
 The shared jobs subsystem requires one projected-state bucket:
 
 **`trellis_jobs`** — Projected job state
+
 - Keys: `<service>.<job-type>.<job-id>` → Job JSON
 - No TTL (jobs persist until explicitly cleaned up)
 - Maintained by `jobs` service projector
 
-The jobs projection is a strict view of the event stream. Job state in KV changes only by projecting job events from `JOBS`; neither the `jobs` service nor an admin mutates projected job state directly.
+The jobs projection is a strict view of the event stream. Job state in KV
+changes only by projecting job events from `JOBS`; neither the `jobs` service
+nor an admin mutates projected job state directly.
 
-Worker-presence projection is intentionally an implementation detail of the `jobs` service. Recommended default: the `jobs` service should persist that derived worker-presence view in a service-private durable replicated JetStream KV bucket so admin visibility survives restarts and replica failover. Ordinary services do not bind to or write any registry KV bucket.
+Worker-presence projection is intentionally an implementation detail of the
+`jobs` service. Recommended default: the `jobs` service should persist that
+derived worker-presence view in a service-private durable replicated JetStream
+KV bucket so admin visibility survives restarts and replica failover. Ordinary
+services do not bind to or write any registry KV bucket.
 
 ### Provisioning Model
 
-Shared Jobs infrastructure is declared through contract resource requests and provisioned through the normal contract install or upgrade flow plus bindings for the `jobs` service, not created by the `jobs` service at runtime.
+Shared jobs infrastructure is Trellis-owned runtime state. Trellis provisions it
+automatically during service bootstrap for jobs-enabled environments rather than
+requiring a separate manual jobs install step.
 
-- normal services request `resources.jobs` to participate in jobs processing without owning the shared stream topology directly
-- `trellis.jobs@v1` declares the shared streams and projected-state KV bucket needed by the jobs subsystem
-- the `jobs` service should install and start up like other non-`trellis` services
-- the `trellis` service installs the contract and provisions or binds the requested resources for the `jobs` service
-- the `jobs` service and service-local workers create only dynamic per-job-type consumers at runtime
-- the runtime should consume those bindings, rather than hard-coding an imperative infrastructure setup path
+- normal services request `resources.jobs` to participate in jobs processing
+  without owning the shared stream topology directly
+- Trellis owns the shared streams and projected-state KV bucket needed by the
+  jobs subsystem
+- a separate jobs admin runtime may still run for centralized queries, janitor
+  work, and projections, but ordinary service-local workers do not depend on a
+  manual jobs service install to start
+- the `trellis` service provisions or binds the shared jobs resources before
+  jobs-enabled services start
+- the `jobs` service and service-local workers create only dynamic per-job-type
+  consumers at runtime
+- the runtime should consume those bindings, rather than hard-coding an
+  imperative infrastructure setup path
 - when a contract requests `resources.jobs`, Trellis also synthesizes a
   `resources.streams.jobsWork` binding in the resolved runtime bindings so
   generic worker runtimes can discover the shared work stream name without
   requiring each service contract to declare a separate `resources.streams`
   alias manually
 
-This document depends on the contract resource model in `../contracts/trellis-contracts-catalog.md` supporting JetStream streams, stream source transforms, and binding-driven resource access.
+This document depends on the contract resource model in
+`../contracts/trellis-contracts-catalog.md` supporting JetStream streams, stream
+source transforms, and binding-driven resource access.
 
-The `trellis.jobs@v1` infrastructure contract should request logical `resources.streams` and `resources.kv` aliases that resolve to the shared Jobs infrastructure during service install or upgrade. Normal consuming service contracts should continue to request `resources.jobs`. The JSON examples below show the resolved JetStream or KV configuration the Jobs runtime expects after binding; the contract request itself should use logical aliases as described in `../contracts/trellis-contracts-catalog.md`.
+Normal consuming service contracts should continue to request `resources.jobs`.
+The JSON examples below show the resolved JetStream or KV configuration the Jobs
+runtime expects after binding. Trellis should provision these shared resources
+during bootstrap so service-local workers can rely on the bindings without a
+separate infrastructure install step.
 
 For ordinary services that request only `resources.jobs`, the resolved service
 bindings still include a `resources.streams.jobsWork` entry pointing at the
@@ -203,6 +266,7 @@ shared `JOBS_WORK` stream. Service-local workers should treat that binding as
 runtime-generated infrastructure, not as a contract-authored stream alias.
 
 **Stream: `JOBS`**
+
 ```json
 {
   "name": "JOBS",
@@ -218,6 +282,7 @@ runtime-generated infrastructure, not as a contract-authored stream alias.
 ```
 
 **Stream: `JOBS_WORK`**
+
 ```json
 {
   "name": "JOBS_WORK",
@@ -240,9 +305,13 @@ runtime-generated infrastructure, not as a contract-authored stream alias.
 }
 ```
 
-The `sources` configuration automatically replicates `.created` and `.retried` events from `JOBS` into `JOBS_WORK` with a subject transform: `trellis.jobs.<service>.<job-type>.<job-id>.<event>` → `trellis.work.<service>.<job-type>`.
+The `sources` configuration automatically replicates `.created` and `.retried`
+events from `JOBS` into `JOBS_WORK` with a subject transform:
+`trellis.jobs.<service>.<job-type>.<job-id>.<event>` →
+`trellis.work.<service>.<job-type>`.
 
 **Stream: `JOBS_ADVISORIES`**
+
 ```json
 {
   "name": "JOBS_ADVISORIES",
@@ -255,6 +324,7 @@ The `sources` configuration automatically replicates `.created` and `.retried` e
 ```
 
 **KV Bucket: `trellis_jobs`**
+
 ```json
 {
   "bucket": "trellis_jobs",
@@ -274,23 +344,40 @@ Each service creates a durable consumer for its job types:
   "ack_policy": "explicit",
   "ack_wait": 300000000000,
   "max_deliver": 5,
-  "backoff": [5000000000, 30000000000, 120000000000, 600000000000, 1800000000000]
+  "backoff": [
+    5000000000,
+    30000000000,
+    120000000000,
+    600000000000,
+    1800000000000
+  ]
 }
 ```
 
-**Scaling note:** For v1, the projector uses a single consumer. If horizontal scaling is needed, NATS `partition()` function enables deterministic partitioning by job-id for parallel projection while maintaining per-job ordering.
+**Scaling note:** For v1, the projector uses a single consumer. If horizontal
+scaling is needed, NATS `partition()` function enables deterministic
+partitioning by job-id for parallel projection while maintaining per-job
+ordering.
 
 ### Jobs Service
 
-A dedicated `jobs` service provides observability and management. It is **not required for job processing**—services can create and process jobs independently. The `jobs` service adds:
+A dedicated `jobs` service provides observability and management. It is **not
+required for job processing**—services can create and process jobs
+independently. The `jobs` service adds:
 
-1. **KV Projection** — Consumes `JOBS` stream via single durable consumer, updates `trellis_jobs` KV bucket
-2. **Worker Presence Projection** — Passively consumes worker heartbeat subjects and derives admin-facing live-worker views
-3. **Janitor** — Enforces business `deadline` expiry (not AckWait—JetStream handles redelivery)
-4. **Advisory Consumer** — Consumes `JOBS_ADVISORIES` and maps exhausted deliveries to `.dead`
-5. **Global RPCs** — ListServices, ListJobs, GetJob, Cancel, Retry, DLQ management
+1. **KV Projection** — Consumes `JOBS` stream via single durable consumer,
+   updates `trellis_jobs` KV bucket
+2. **Worker Presence Projection** — Passively consumes worker heartbeat subjects
+   and derives admin-facing live-worker views
+3. **Janitor** — Enforces business `deadline` expiry (not AckWait—JetStream
+   handles redelivery)
+4. **Advisory Consumer** — Consumes `JOBS_ADVISORIES` and maps exhausted
+   deliveries to `.dead`
+5. **Global RPCs** — ListServices, ListJobs, GetJob, Cancel, Retry, DLQ
+   management
 
-The jobs service is stateless. If it's unavailable, job processing continues normally; only UI visibility and deadline enforcement pause until it recovers.
+The jobs service is stateless. If it's unavailable, job processing continues
+normally; only UI visibility and deadline enforcement pause until it recovers.
 
 ### Worker Heartbeats
 
@@ -309,10 +396,15 @@ type WorkerHeartbeat = {
 
 **Subject:** `trellis.jobs.workers.<service>.<job-type>.<instance-id>.heartbeat`
 
-- Heartbeats are a sibling subject family inside the jobs subsystem, distinct from per-job lifecycle subjects.
-- Emitting heartbeats is optional for job correctness. Jobs continue to run even if heartbeats are absent or the `jobs` service is not deployed.
-- The `jobs` service may project heartbeats into a durable, freshness-filtered live-worker view for admin screens and service summaries.
-- `listServices()` and related admin views aggregate that derived worker-presence projection rather than reading direct service-written registry state.
+- Heartbeats are a sibling subject family inside the jobs subsystem, distinct
+  from per-job lifecycle subjects.
+- Emitting heartbeats is optional for job correctness. Jobs continue to run even
+  if heartbeats are absent or the `jobs` service is not deployed.
+- The `jobs` service may project heartbeats into a durable, freshness-filtered
+  live-worker view for admin screens and service summaries.
+- `listServices()` and related admin views aggregate that derived
+  worker-presence projection rather than reading direct service-written registry
+  state.
 
 ### Job Schema
 
@@ -365,7 +457,10 @@ type JobState =
   | "dismissed";
 ```
 
-`unknown` in this schema is a wire-model concern, not the intended public service-author API. Public Rust and TypeScript jobs APIs MUST expose typed per-job-type handles and MUST NOT require callers to work directly with `unknown`, `any`, or `serde_json::Value` for normal job creation or handling.
+`unknown` in this schema is a wire-model concern, not the intended public
+service-author API. Public Rust and TypeScript jobs APIs MUST expose typed
+per-job-type handles and MUST NOT require callers to work directly with
+`unknown`, `any`, or `serde_json::Value` for normal job creation or handling.
 
 ### Lifecycle Events
 
@@ -378,8 +473,10 @@ Job state changes are published to the `JOBS` stream:
 - `created` — Job enqueued (includes full payload for stream reconstruction)
 - `started` — Processing began
 - `retry` — Worker requested redelivery via NAK/backoff
-- `progress` — Progress update (structured: step/message/current/total, all optional)
-- `logged` — Log entry added (contains only new entries; `jobs` service aggregates full history to KV)
+- `progress` — Progress update (structured: step/message/current/total, all
+  optional)
+- `logged` — Log entry added (contains only new entries; `jobs` service
+  aggregates full history to KV)
 - `completed` — Successfully finished (includes result)
 - `failed` — Non-retryable failure
 - `cancelled` — Job was cancelled
@@ -400,7 +497,12 @@ type JobEventWire = {
   previousState?: JobState;
   tries: number;
   error?: string;
-  progress?: { step?: string; message?: string; current?: number; total?: number };
+  progress?: {
+    step?: string;
+    message?: string;
+    current?: number;
+    total?: number;
+  };
   logs?: JobLogEntry[];
   payload?: unknown;
   result?: unknown;
@@ -408,9 +510,14 @@ type JobEventWire = {
 };
 ```
 
-The `payload` field is **required** on `.created` events and enables full job reconstruction from stream replay. It may be omitted on subsequent events to reduce message size.
+The `payload` field is **required** on `.created` events and enables full job
+reconstruction from stream replay. It may be omitted on subsequent events to
+reduce message size.
 
-Worker heartbeat subjects are part of the jobs subsystem subject space but are not job lifecycle events. They use the `trellis.jobs.workers.<service>.<job-type>.<instance-id>.heartbeat` subject shape and carry a `WorkerHeartbeat` payload for passive observability.
+Worker heartbeat subjects are part of the jobs subsystem subject space but are
+not job lifecycle events. They use the
+`trellis.jobs.workers.<service>.<job-type>.<instance-id>.heartbeat` subject
+shape and carry a `WorkerHeartbeat` payload for passive observability.
 
 ### Retry Policy
 
@@ -430,7 +537,9 @@ const defaultRetryConfig: RetryConfig = {
 };
 ```
 
-**Long-running jobs:** If job duration may exceed `ackWait`, the handler must call `job.heartbeat()` to extend the ack deadline (sends `inProgress()` to NATS).
+**Long-running jobs:** If job duration may exceed `ackWait`, the handler must
+call `job.heartbeat()` to extend the ack deadline (sends `inProgress()` to
+NATS).
 
 ### Server Library API
 
@@ -439,25 +548,40 @@ The server-side jobs runtime should provide:
 - create jobs against binding-derived queue configuration
 - process jobs from service-local work subjects
 - publish lifecycle events with the state model defined in this document
-- expose a worker-facing active-job handle for progress, logs, and long-running work hooks such as heartbeat / in-progress acknowledgement
+- expose a worker-facing active-job handle for progress, logs, and long-running
+  work hooks such as heartbeat / in-progress acknowledgement
 - expose a cooperative cancellation primitive to in-flight handlers
 - optionally publish per-job-type worker heartbeat subjects for observability
 
 Public runtime rules:
 
-- service-author APIs SHOULD be per-job-type rather than raw stringly queue dispatch
+- service-author APIs SHOULD be per-job-type rather than raw stringly queue
+  dispatch
 - `create(...)` SHOULD return a typed `JobRef`, not a projected job snapshot
-- `JobRef.wait()` is valid as an internal service primitive, but jobs are still service-private and are not the public async API for ordinary callers
-- public TypeScript jobs APIs MUST use `Result` / `AsyncResult` for expected failures rather than exception-oriented `requestOrThrow` wrappers
-- public jobs APIs MUST NOT expose `unknown`, `any`, or `serde_json::Value` except in explicit raw wire-model types
-- connected service runtimes SHOULD expose jobs through a higher-level facade such as `service.jobs`; normal service code SHOULD NOT manually assemble runtime bindings or call conversion helpers such as `jobsRuntimeBindingFromCoreBinding(...)`
-- raw binding conversion helpers are bootstrap internals and SHOULD NOT be the normal public service-author entrypoint
+- `JobRef.wait()` is valid as an internal service primitive, but jobs are still
+  service-private and are not the public async API for ordinary callers
+- public TypeScript jobs APIs MUST use `Result` / `AsyncResult` for expected
+  failures rather than exception-oriented `requestOrThrow` wrappers
+- public jobs APIs MUST NOT expose `unknown`, `any`, or `serde_json::Value`
+  except in explicit raw wire-model types
+- connected service runtimes SHOULD expose jobs through a higher-level facade
+  such as `service.jobs`; normal service code SHOULD NOT manually assemble
+  runtime bindings or call conversion helpers such as
+  `jobsRuntimeBindingFromCoreBinding(...)`
+- raw binding conversion helpers are bootstrap internals and SHOULD NOT be the
+  normal public service-author entrypoint
 
-Language runtimes may realize this with different concrete APIs as long as they preserve the normative behavior and public API constraints defined in this document.
+Language runtimes may realize this with different concrete APIs as long as they
+preserve the normative behavior and public API constraints defined in this
+document.
 
-**Schema validation:** Payloads should be validated before handler execution. Invalid payloads should fail immediately rather than redelivering poison work indefinitely.
+**Schema validation:** Payloads should be validated before handler execution.
+Invalid payloads should fail immediately rather than redelivering poison work
+indefinitely.
 
-**Idempotency:** Workers should use `msg.info.redeliveryCount` (provided by JetStream) to detect redeliveries and implement idempotent handling where necessary.
+**Idempotency:** Workers should use `msg.info.redeliveryCount` (provided by
+JetStream) to detect redeliveries and implement idempotent handling where
+necessary.
 
 Language-specific public API details live in:
 
@@ -466,13 +590,17 @@ Language-specific public API details live in:
 
 ### Client Library API
 
-The client-side jobs library should provide operator query and admin helpers over the centralized jobs RPC surface.
+The client-side jobs library should provide operator query and admin helpers
+over the centralized jobs RPC surface.
 
 Admin client rules:
 
-- the admin client is an operator surface, not a normal end-user application surface
-- public TypeScript admin helpers MUST follow Trellis `Result` conventions rather than throwing for expected remote or validation failures
-- centralized jobs queries and mutations SHOULD be generated-contract-aligned wrappers over `trellis.jobs@v1` rather than handwritten cast-heavy adapters
+- the admin client is an operator surface, not a normal end-user application
+  surface
+- public TypeScript admin helpers MUST follow Trellis `Result` conventions
+  rather than throwing for expected remote or validation failures
+- centralized jobs queries and mutations SHOULD be generated-contract-aligned
+  wrappers over `trellis.jobs@v1` rather than handwritten cast-heavy adapters
 
 The required v1 surface is:
 
@@ -482,7 +610,8 @@ The required v1 surface is:
 - cancel and retry eligible jobs
 - list DLQ jobs, replay DLQ jobs, and dismiss DLQ jobs
 
-Jobs watch APIs are admin and observability helpers only. Caller-visible async workflows MUST use operations rather than direct jobs watch APIs.
+Jobs watch APIs are admin and observability helpers only. Caller-visible async
+workflows MUST use operations rather than direct jobs watch APIs.
 
 Language-specific public API details live in:
 
@@ -491,70 +620,94 @@ Language-specific public API details live in:
 
 ### RPC Endpoints
 
-All job RPCs are centralized in the `jobs` service. The service reads from derived projections (KV for job state plus implementation-specific worker-presence projection) and publishes administrative events or commands to the appropriate jobs subjects. It does not mutate projected job state directly.
+All job RPCs are centralized in the `jobs` service. The service reads from
+derived projections (KV for job state plus implementation-specific
+worker-presence projection) and publishes administrative events or commands to
+the appropriate jobs subjects. It does not mutate projected job state directly.
 
-| RPC                 | Input                       | Output          | Description                         |
-| ------------------- | --------------------------- | --------------- | ----------------------------------- |
-| `Jobs.Health`       | `{}`                        | health payload  | Check jobs admin service health     |
-| `Jobs.ListServices` | `{}`                        | `ServiceInfo[]` | List services and observed worker presence |
-| `Jobs.List`         | `JobFilter`                 | `Job[]`         | List jobs (filterable)              |
-| `Jobs.Get`          | `{ service, jobType, id }`  | `Job`           | Get single job                      |
-| `Jobs.Retry`        | `{ service, jobType, id }`  | `Job`           | Manually retry an eligible job      |
-| `Jobs.Cancel`       | `{ service, jobType, id }`  | `Job`           | Cancel an eligible job              |
-| `Jobs.ListDLQ`      | `JobFilter`                 | `Job[]`         | List dead letter jobs (`dead` only) |
-| `Jobs.ReplayDLQ`    | `{ service, jobType, id }`  | `Job`           | Replay job from DLQ                 |
-| `Jobs.DismissDLQ`   | `{ service, jobType, id }`  | `Job`           | Dismiss dead-letter job             |
+| RPC                 | Input                      | Output          | Description                                |
+| ------------------- | -------------------------- | --------------- | ------------------------------------------ |
+| `Jobs.Health`       | `{}`                       | health payload  | Check jobs admin service health            |
+| `Jobs.ListServices` | `{}`                       | `ServiceInfo[]` | List services and observed worker presence |
+| `Jobs.List`         | `JobFilter`                | `Job[]`         | List jobs (filterable)                     |
+| `Jobs.Get`          | `{ service, jobType, id }` | `Job`           | Get single job                             |
+| `Jobs.Retry`        | `{ service, jobType, id }` | `Job`           | Manually retry an eligible job             |
+| `Jobs.Cancel`       | `{ service, jobType, id }` | `Job`           | Cancel an eligible job                     |
+| `Jobs.ListDLQ`      | `JobFilter`                | `Job[]`         | List dead letter jobs (`dead` only)        |
+| `Jobs.ReplayDLQ`    | `{ service, jobType, id }` | `Job`           | Replay job from DLQ                        |
+| `Jobs.DismissDLQ`   | `{ service, jobType, id }` | `Job`           | Dismiss dead-letter job                    |
 
-`Jobs.ReplayDLQ` and `Jobs.DismissDLQ` are explicit admin actions valid only for jobs currently in `dead`. `Jobs.ListDLQ` returns jobs still awaiting admin action in `dead`; dismissed jobs remain queryable through normal `Jobs.List` / `Jobs.Get` responses.
+`Jobs.ReplayDLQ` and `Jobs.DismissDLQ` are explicit admin actions valid only for
+jobs currently in `dead`. `Jobs.ListDLQ` returns jobs still awaiting admin
+action in `dead`; dismissed jobs remain queryable through normal `Jobs.List` /
+`Jobs.Get` responses.
 
 ### Failure Detection
 
 **Business deadline expiry (Janitor):**
 
-The janitor enforces the `deadline` field on jobs—a business-level SLA (e.g., "must complete within 24 hours"). It does NOT compete with JetStream's `AckWait`/redelivery mechanism.
+The janitor enforces the `deadline` field on jobs—a business-level SLA (e.g.,
+"must complete within 24 hours"). It does NOT compete with JetStream's
+`AckWait`/redelivery mechanism.
 
-1. Periodically scans `trellis_jobs` KV for jobs where `deadline < now` and state is not terminal
+1. Periodically scans `trellis_jobs` KV for jobs where `deadline < now` and
+   state is not terminal
 2. Emits `.expired` event for matching jobs
-3. Does NOT touch `active` jobs based on worker-heartbeat staleness—JetStream handles processing timeouts via AckWait
+3. Does NOT touch `active` jobs based on worker-heartbeat staleness—JetStream
+   handles processing timeouts via AckWait
 
 **Exhausted deliveries (Advisory Consumer):**
 
-When a work message exceeds `MaxDeliver`, NATS emits an advisory captured in `JOBS_ADVISORIES` stream. The advisory consumer:
+When a work message exceeds `MaxDeliver`, NATS emits an advisory captured in
+`JOBS_ADVISORIES` stream. The advisory consumer:
 
 1. Consumes from `JOBS_ADVISORIES` with a durable consumer
-2. Resolves the referenced `JOBS_WORK` message and parses the job identity from payload
+2. Resolves the referenced `JOBS_WORK` message and parses the job identity from
+   payload
 3. Emits `.dead` event if the job hasn't already reached a terminal state
 
-This approach is durable—if the `jobs` service is temporarily unavailable, advisories accumulate in the stream and are processed on recovery.
+This approach is durable—if the `jobs` service is temporarily unavailable,
+advisories accumulate in the stream and are processed on recovery.
 
 **DLQ administration:**
 
-- `ReplayDLQ` emits a real event that re-enqueues the same job identity from `dead` back into the normal processing lifecycle.
-- `DismissDLQ` emits a real `dismissed` event that moves a `dead` job into terminal `dismissed` state.
-- Neither operation alters KV directly; the projector updates the query view by consuming those events.
+- `ReplayDLQ` emits a real event that re-enqueues the same job identity from
+  `dead` back into the normal processing lifecycle.
+- `DismissDLQ` emits a real `dismissed` event that moves a `dead` job into
+  terminal `dismissed` state.
+- Neither operation alters KV directly; the projector updates the query view by
+  consuming those events.
 
 ### Authorization
 
-Jobs uses normal Trellis capabilities plus service-identity-aware permission derivation. The system does **not** grant broad end-user capabilities for direct jobs access.
+Jobs uses normal Trellis capabilities plus service-identity-aware permission
+derivation. The system does **not** grant broad end-user capabilities for direct
+jobs access.
 
-As in `../auth/trellis-auth.md` and `../contracts/trellis-contracts-catalog.md`, runtime service ownership is derived from the installed service principal and installed contract record, not from contract metadata alone. The `<service>` subject segment used by Jobs must therefore be bound to the installed service identity used for routing and permission derivation.
+As in `../auth/trellis-auth.md` and `../contracts/trellis-contracts-catalog.md`,
+runtime service ownership is derived from the installed service principal and
+installed contract record, not from contract metadata alone. The `<service>`
+subject segment used by Jobs must therefore be bound to the installed service
+identity used for routing and permission derivation.
 
-| Capability / rule        | Permissions                                                      |
-| ------------------------ | ---------------------------------------------------------------- |
-| `jobs.admin.read`        | Call read RPCs such as list, get, and list-services              |
-| `jobs.admin.mutate`      | Call mutating Jobs RPCs such as cancel, retry, replay, dismiss   |
-| `jobs.admin.stream`      | Subscribe `trellis.jobs.>` for operator observability            |
+| Capability / rule                         | Permissions                                                                                                                                        |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `jobs.admin.read`                         | Call read RPCs such as list, get, and list-services                                                                                                |
+| `jobs.admin.mutate`                       | Call mutating Jobs RPCs such as cancel, retry, replay, dismiss                                                                                     |
+| `jobs.admin.stream`                       | Subscribe `trellis.jobs.>` for operator observability                                                                                              |
 | service identity + jobs runtime ownership | Publish `trellis.jobs.<service>.>` and `trellis.jobs.workers.<service>.>` and consume `trellis.work.<service>.>` for the caller's own service only |
 
 **Scope assignments:**
 
-| Actor           | Grants                                              |
-| --------------- | --------------------------------------------------- |
-| Services        | `service` plus derived service-local jobs subjects  |
-| `jobs` service  | `service` + `jobs.admin.read` + `jobs.admin.mutate` + `jobs.admin.stream` |
-| Admin UIs       | `jobs.admin.read` + `jobs.admin.mutate` + `jobs.admin.stream` |
+| Actor          | Grants                                                                    |
+| -------------- | ------------------------------------------------------------------------- |
+| Services       | `service` plus derived service-local jobs subjects                        |
+| `jobs` service | `service` + `jobs.admin.read` + `jobs.admin.mutate` + `jobs.admin.stream` |
+| Admin UIs      | `jobs.admin.read` + `jobs.admin.mutate` + `jobs.admin.stream`             |
 
-Note: Regular users do not interact with jobs directly. End-user progress or completion flows are exposed through service-owned operations, not the jobs system.
+Note: Regular users do not interact with jobs directly. End-user progress or
+completion flows are exposed through service-owned operations, not the jobs
+system.
 
 ### Retention
 
@@ -566,7 +719,8 @@ Retention strategy is implementation-specific, not mandated:
 2. **TTL per state** — completed: 7d, failed: 30d, dead: 90d
 3. **Archive** — Move old jobs to archive bucket/cold storage
 
-The central jobs service can implement periodic cleanup or archival as configured.
+The central jobs service can implement periodic cleanup or archival as
+configured.
 
 ### Library Structure
 
@@ -609,10 +763,19 @@ rust/crates/service-jobs/
 
 ### Implementation Notes
 
-**Payload size:** Job payloads should be kept small. For large data (documents, images), store in Object Store and pass references in the payload.
+**Payload size:** Job payloads should be kept small. For large data (documents,
+images), store in Object Store and pass references in the payload.
 
-**Progress events:** Services should be mindful of progress event frequency. While not enforced, high-frequency updates (e.g., every millisecond) create unnecessary stream volume. KV only stores the latest progress state.
+**Progress events:** Services should be mindful of progress event frequency.
+While not enforced, high-frequency updates (e.g., every millisecond) create
+unnecessary stream volume. KV only stores the latest progress state.
 
-**Retry vs redelivery:** The `retry` state indicates "NAK sent, awaiting JetStream redelivery"—the worker is NOT running. When JetStream redelivers the message and the worker starts, a `started` event is emitted transitioning back to `active`.
+**Retry vs redelivery:** The `retry` state indicates "NAK sent, awaiting
+JetStream redelivery"—the worker is NOT running. When JetStream redelivers the
+message and the worker starts, a `started` event is emitted transitioning back
+to `active`.
 
-**Terminal state precedence:** If a race occurs (e.g., janitor marks job `expired` while worker is finishing), terminal states take precedence. The projector should reject state transitions from execution-terminal states except explicit DLQ administration on `dead` jobs such as replay and dismiss.
+**Terminal state precedence:** If a race occurs (e.g., janitor marks job
+`expired` while worker is finishing), terminal states take precedence. The
+projector should reject state transitions from execution-terminal states except
+explicit DLQ administration on `dead` jobs such as replay and dismiss.

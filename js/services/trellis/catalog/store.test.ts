@@ -1,4 +1,7 @@
-import type { JsonValue, TrellisContractV1 } from "@qlever-llc/trellis/contracts";
+import type {
+  JsonValue,
+  TrellisContractV1,
+} from "@qlever-llc/trellis/contracts";
 import { digestJson } from "@qlever-llc/trellis/contracts";
 import { assertEquals, assertRejects } from "@std/assert";
 
@@ -35,6 +38,34 @@ function makeContract(
   };
 }
 
+function makeOperationContract(
+  id: string,
+  subject: string,
+  displayName = "Billing",
+): TrellisContractV1 {
+  return {
+    format: "trellis.contract.v1",
+    id,
+    displayName,
+    description: `${displayName} test contract`,
+    kind: "service",
+    schemas: {
+      RefundInput: { type: "object" },
+      RefundProgress: { type: "object" },
+      RefundOutput: { type: "object" },
+    },
+    operations: {
+      Refund: {
+        version: "v1",
+        subject,
+        input: { schema: "RefundInput" },
+        progress: { schema: "RefundProgress" },
+        output: { schema: "RefundOutput" },
+      },
+    },
+  };
+}
+
 Deno.test("contract store allows multiple digests for one contract id when only one is active", async () => {
   const store = new ContractStore();
   const contract1 = makeContract("graph@v1", "rpc.v1.Graph.Ping", "graph");
@@ -45,8 +76,14 @@ Deno.test("contract store allows multiple digests for one contract id when only 
   store.activate(digest1, contract1);
   store.add(digest2, contract2);
 
-  assertEquals(store.getContract(digest1, { includeInactive: true }), contract1);
-  assertEquals(store.getContract(digest2, { includeInactive: true }), contract2);
+  assertEquals(
+    store.getContract(digest1, { includeInactive: true }),
+    contract1,
+  );
+  assertEquals(
+    store.getContract(digest2, { includeInactive: true }),
+    contract2,
+  );
   assertEquals(store.findActiveDigestById("graph@v1"), digest1);
 });
 
@@ -64,8 +101,14 @@ Deno.test("contract store allows two active digests for one contract id during r
 
   assertEquals(store.getContract(digest1), contract1);
   assertEquals(store.getContract(digest2), contract2);
-  assertEquals(store.findActiveSubject("rpc.v1.Graph.Ping")?.contractId, "graph@v1");
-  assertEquals(store.findActiveSubject("rpc.v1.Graph.Ping2")?.contractId, "graph@v1");
+  assertEquals(
+    store.findActiveSubject("rpc.v1.Graph.Ping")?.contractId,
+    "graph@v1",
+  );
+  assertEquals(
+    store.findActiveSubject("rpc.v1.Graph.Ping2")?.contractId,
+    "graph@v1",
+  );
 });
 
 Deno.test("contract store rejects activating duplicate subjects", async () => {
@@ -124,5 +167,45 @@ Deno.test("contract store ignores unknown top-level contract fields", async () =
   });
 
   assertEquals(validated.contract.id, "graph@v1");
-  assertEquals((validated.contract as Record<string, unknown>).xFutureMetadata, undefined);
+  assertEquals(
+    (validated.contract as Record<string, unknown>).xFutureMetadata,
+    undefined,
+  );
+});
+
+Deno.test("contract store preserves operations when validating contracts", async () => {
+  const store = new ContractStore();
+
+  const validated = await store.validate(
+    makeOperationContract("billing@v1", "operations.v1.Billing.Refund"),
+  );
+
+  assertEquals(
+    validated.contract.operations?.Refund?.subject,
+    "operations.v1.Billing.Refund",
+  );
+  assertEquals(
+    validated.contract.operations?.Refund?.progress?.schema,
+    "RefundProgress",
+  );
+  assertEquals(
+    validated.contract.operations?.Refund?.output?.schema,
+    "RefundOutput",
+  );
+});
+
+Deno.test("contract store indexes active operation subjects", async () => {
+  const store = new ContractStore();
+  const contract = makeOperationContract(
+    "billing@v1",
+    "operations.v1.Billing.Refund",
+  );
+  const digest = await digestContract(contract);
+
+  store.activate(digest, contract);
+
+  assertEquals(
+    store.findActiveSubject("operations.v1.Billing.Refund")?.contractId,
+    "billing@v1",
+  );
 });

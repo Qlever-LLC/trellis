@@ -1,4 +1,8 @@
-import type { ContractEvent, ContractSubject, TrellisContractV1 } from "@qlever-llc/trellis/contracts";
+import type {
+  ContractEvent,
+  ContractSubject,
+  TrellisContractV1,
+} from "@qlever-llc/trellis/contracts";
 import {
   resolveContractUsesFromStore,
   sortUniqueStrings,
@@ -27,14 +31,20 @@ export async function planUserContractApproval(
   const subscribeSubjects = new Set<string>();
   const capabilities = new Set<string>();
 
-  for (const event of Object.values<ContractEvent>(validated.contract.events ?? {})) {
+  for (
+    const event of Object.values<ContractEvent>(validated.contract.events ?? {})
+  ) {
     publishSubjects.add(templateToWildcard(event.subject));
     for (const capability of event.capabilities?.publish ?? []) {
       capabilities.add(capability);
     }
   }
 
-  for (const subject of Object.values<ContractSubject>(validated.contract.subjects ?? {})) {
+  for (
+    const subject of Object.values<ContractSubject>(
+      validated.contract.subjects ?? {},
+    )
+  ) {
     publishSubjects.add(subject.subject);
     subscribeSubjects.add(subject.subject);
     for (const capability of subject.capabilities?.publish ?? []) {
@@ -48,6 +58,16 @@ export async function planUserContractApproval(
   for (const method of uses.rpcCalls) {
     publishSubjects.add(templateToWildcard(method.method.subject));
     for (const capability of method.method.capabilities?.call ?? []) {
+      capabilities.add(capability);
+    }
+  }
+
+  for (const operation of uses.operationCalls) {
+    publishSubjects.add(templateToWildcard(operation.operation.subject));
+    publishSubjects.add(
+      templateToWildcard(`${operation.operation.subject}.control`),
+    );
+    for (const capability of operation.operation.capabilities?.call ?? []) {
       capabilities.add(capability);
     }
   }
