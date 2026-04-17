@@ -1,5 +1,8 @@
 {
   "extends": "../../deno.json",
+  "name": "@trellis-demo/device",
+  "version": "0.2.3",
+  "exports": "",
   "tasks": {
     "prepare": "deno task -c ../../deno.json prepare",
     "check": "deno task prepare && deno task check:prepared",
