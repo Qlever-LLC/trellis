@@ -4,8 +4,15 @@ import { Result, type Result as ResultType } from "@qlever-llc/result";
 import { StoreError } from "./errors/index.ts";
 
 const INTERNAL_CONTENT_TYPE_METADATA_KEY = "__trellis_content_type";
+const DEFAULT_STORE_WAIT_POLL_INTERVAL_MS = 250;
 
 export type StoreBody = Uint8Array | ReadableStream<Uint8Array> | AsyncIterable<Uint8Array>;
+
+export type StoreWaitOptions = {
+  timeoutMs?: number;
+  pollIntervalMs?: number;
+  signal?: AbortSignal;
+};
 
 export type StoreOpenOptions = {
   ttlMs?: number;
@@ -151,6 +158,39 @@ async function bytesFromStream(stream: ReadableStream<Uint8Array>): Promise<Uint
   return merged;
 }
 
+function isNotFoundStoreError(error: StoreError): boolean {
+  return error.getContext().reason === "not_found";
+}
+
+function abortedStoreError(key: string, cause: unknown): StoreError {
+  return new StoreError({ operation: "waitFor", cause, context: { key, reason: "aborted" } });
+}
+
+async function sleepWithSignal(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) {
+    throw signal.reason ?? new DOMException("The operation was aborted", "AbortError");
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, ms);
+
+    const onAbort = () => {
+      cleanup();
+      reject(signal?.reason ?? new DOMException("The operation was aborted", "AbortError"));
+    };
+
+    const cleanup = () => {
+      clearTimeout(timeoutId);
+      signal?.removeEventListener("abort", onAbort);
+    };
+
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 function streamFromBody(body: Exclude<StoreBody, Uint8Array>): ReadableStream<Uint8Array> {
   return body instanceof ReadableStream ? body : streamFromAsyncIterable(body);
 }
@@ -229,6 +269,47 @@ export class TypedStore {
   async get(key: string): Promise<ResultType<TypedStoreEntry, StoreError>> {
     const info = await unwrapObjectInfo(this.#store, key);
     return info.map((objectInfo) => new TypedStoreEntry(this.#store, storeInfoFromObjectInfo(objectInfo)));
+  }
+
+  /**
+   * Waits for an object key to appear in the store and returns the resulting entry.
+   */
+  async waitFor(key: string, options: StoreWaitOptions = {}): Promise<ResultType<TypedStoreEntry, StoreError>> {
+    const startedAt = Date.now();
+    const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_STORE_WAIT_POLL_INTERVAL_MS;
+
+    while (true) {
+      if (options.signal?.aborted) {
+        return Result.err(abortedStoreError(key, options.signal.reason));
+      }
+
+      const entry = await this.get(key);
+      if (entry.isOk()) {
+        return entry;
+      }
+      if (!isNotFoundStoreError(entry.error)) {
+        return entry;
+      }
+
+      const remainingTimeoutMs = options.timeoutMs === undefined
+        ? undefined
+        : options.timeoutMs - (Date.now() - startedAt);
+      if (remainingTimeoutMs !== undefined && remainingTimeoutMs <= 0) {
+        return Result.err(new StoreError({
+          operation: "waitFor",
+          context: { key, reason: "timeout", timeoutMs: options.timeoutMs },
+        }));
+      }
+
+      try {
+        await sleepWithSignal(
+          remainingTimeoutMs === undefined ? pollIntervalMs : Math.min(pollIntervalMs, remainingTimeoutMs),
+          options.signal,
+        );
+      } catch (cause) {
+        return Result.err(abortedStoreError(key, cause));
+      }
+    }
   }
 
   async delete(key: string): Promise<ResultType<void, StoreError>> {

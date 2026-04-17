@@ -108,6 +108,7 @@ TypeScript expectations:
 ```ts
 class StoreHandle {
   open(): Promise<Result<TypedStore, StoreError>>;
+  waitFor(key: string, opts?: StoreWaitOptions): Promise<Result<TypedStoreEntry, StoreError>>;
 }
 
 class TypedStore {
@@ -124,10 +125,17 @@ class TypedStore {
   ): Promise<Result<void, StoreError>>;
 
   get(key: string): Promise<Result<TypedStoreEntry, StoreError>>;
+  waitFor(key: string, opts?: StoreWaitOptions): Promise<Result<TypedStoreEntry, StoreError>>;
   delete(key: string): Promise<Result<void, StoreError>>;
   list(prefix?: string): Promise<Result<AsyncIterable<StoreInfo>, StoreError>>;
   status(): Promise<Result<StoreStatus, StoreError>>;
 }
+
+type StoreWaitOptions = {
+  timeoutMs?: number;
+  pollIntervalMs?: number;
+  signal?: AbortSignal;
+};
 
 class TypedStoreEntry {
   readonly key: string;
@@ -142,9 +150,12 @@ Rules:
 
 - all failable public store APIs return `Result`, matching the broader Trellis TypeScript style
 - `StoreHandle.open()` mirrors `KVHandle.open(...)` by resolving a higher-level typed runtime object from a binding
+- `StoreHandle.waitFor(...)` is a convenience helper for the common service-runtime pattern of waiting for a staged object without manually opening the store and polling `get(...)`
 - `create(...)` follows KV `create(...)` semantics and fails if the key already exists
 - `put(...)` follows KV `put(...)` semantics and overwrites the current object for that key
 - `get(...)` returns an entry object rather than only raw bytes so metadata is available without a second lookup
+- `waitFor(...)` polls `get(...)` until the object appears, then returns the same `TypedStoreEntry` shape a direct `get(...)` would have returned
+- `waitFor(...)` remains a store primitive rather than a policy helper: it does not read, stream, move, or delete bytes on the caller's behalf
 - `list(prefix?)` is prefix-based in v1 and does not define pagination or watch semantics yet
 - `stream()` is the primary body-access path for large values; `bytes()` is a convenience helper
 

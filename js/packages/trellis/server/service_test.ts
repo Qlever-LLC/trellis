@@ -1,15 +1,22 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import type { Msg, NatsConnection, Subscription } from "@nats-io/nats-core";
-import { Result, type BaseError } from "@qlever-llc/result";
+import { type BaseError, Result } from "@qlever-llc/result";
 import { core } from "@qlever-llc/trellis-sdk/core";
 import { Type } from "typebox";
 
 import type { LoggerLike } from "../globals.ts";
+import { TypedStore } from "../store.ts";
+import { NatsTest } from "../testing/nats.ts";
 import { defineServiceContract } from "../contract.ts";
 import type { NatsConnectFn } from "./runtime.ts";
-import { type TrellisServiceConnectArgs, TrellisService } from "./service.ts";
+import {
+  StoreHandle,
+  TrellisService,
+  type TrellisServiceConnectArgs,
+} from "./service.ts";
 
 const TEST_SEED = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+const RUN_NATS_TESTS = Deno.env.get("TRELLIS_TEST_NATS") === "1";
 
 const handlerSurfaceTestSchemas = {
   PingInput: Type.Object({ value: Type.String() }),
@@ -35,25 +42,42 @@ const handlerSurfaceTestContract = defineServiceContract(
 
 function createTestLogger() {
   const childBindings: Array<Record<string, unknown>> = [];
+  const traceCalls: Array<unknown[]> = [];
   const debugCalls: Array<unknown[]> = [];
   const infoCalls: Array<unknown[]> = [];
+  const warnCalls: Array<unknown[]> = [];
+  const errorCalls: Array<unknown[]> = [];
   const logger: LoggerLike = {
     child(bindings: Record<string, unknown>) {
       childBindings.push(bindings);
       return logger;
     },
-    trace(..._args: unknown[]) {},
+    trace(...args: unknown[]) {
+      traceCalls.push(args);
+    },
     debug(...args: unknown[]) {
       debugCalls.push(args);
     },
     info(...args: unknown[]) {
       infoCalls.push(args);
     },
-    warn(..._args: unknown[]) {},
-    error(..._args: unknown[]) {},
+    warn(...args: unknown[]) {
+      warnCalls.push(args);
+    },
+    error(...args: unknown[]) {
+      errorCalls.push(args);
+    },
   };
 
-  return { childBindings, debugCalls, infoCalls, logger };
+  return {
+    childBindings,
+    traceCalls,
+    debugCalls,
+    infoCalls,
+    warnCalls,
+    errorCalls,
+    logger,
+  };
 }
 
 function createFakeNatsConnection(statuses: unknown[] = []): NatsConnection {
@@ -107,9 +131,10 @@ function createFakeNatsConnection(statuses: unknown[] = []): NatsConnection {
     respondMessage: () => true,
     subscribe: () => subscription,
     request: async () => message,
-    requestMany: async () => (async function* () {
-      return;
-    })(),
+    requestMany: async () =>
+      (async function* () {
+        return;
+      })(),
     flush: async () => {},
     drain: async () => {},
     isClosed: () => false,
@@ -128,17 +153,23 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-const logDisabledOk: NonNullable<TrellisServiceConnectArgs<typeof core>["server"]> = {
+const logDisabledOk: NonNullable<
+  TrellisServiceConnectArgs<typeof core>["server"]
+> = {
   log: false,
 };
 void logDisabledOk;
 
-const customLogOk: NonNullable<TrellisServiceConnectArgs<typeof core>["server"]> = {
+const customLogOk: NonNullable<
+  TrellisServiceConnectArgs<typeof core>["server"]
+> = {
   log: createTestLogger().logger,
 };
 void customLogOk;
 
-const versionRemoved: NonNullable<TrellisServiceConnectArgs<typeof core>["server"]> = {
+const versionRemoved: NonNullable<
+  TrellisServiceConnectArgs<typeof core>["server"]
+> = {
   // @ts-expect-error public TrellisService.connect server opts no longer expose version
   version: "1.2.3",
 };
@@ -150,65 +181,73 @@ Deno.test("TrellisService.connect uses bootstrap response transport details", as
   let connectToken = "";
 
   const fakeConnect: NatsConnectFn = async (opts) => {
-    connectServers = Array.isArray(opts.servers) ? opts.servers.join(",") : opts.servers;
+    connectServers = Array.isArray(opts.servers)
+      ? opts.servers.join(",")
+      : opts.servers;
     connectToken = String(opts.token ?? "");
     throw new Error("stop-after-connect");
   };
 
   try {
     globalThis.fetch = (() => {
-      return Promise.resolve(new Response(JSON.stringify({
-        status: "ready",
-        connectInfo: {
-          sessionKey: "session-key",
-          contractId: core.CONTRACT_ID,
-          contractDigest: core.CONTRACT_DIGEST,
-          transports: {
-            native: {
-              natsServers: ["nats://127.0.0.1:4222"],
-              tlsRequired: true,
-            },
-            websocket: { natsServers: ["ws://localhost:8080"] },
-          },
-          transport: {
-            sentinel: { jwt: "jwt", seed: "seed", issuer: "trellis" },
-          },
-          auth: {
-            mode: "service_identity",
-            iatSkewSeconds: 30,
-            tokenVersion: 2,
-          },
-          rollout: "canary",
-        },
-        binding: {
-          contractId: core.CONTRACT_ID,
-          digest: core.CONTRACT_DIGEST,
-          resources: {
-            kv: {},
-            streams: {},
-            jobs: {
-              namespace: "jobs",
-              queues: {},
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            status: "ready",
+            connectInfo: {
+              sessionKey: "session-key",
+              contractId: core.CONTRACT_ID,
+              contractDigest: core.CONTRACT_DIGEST,
+              transports: {
+                native: {
+                  natsServers: ["nats://127.0.0.1:4222"],
+                  tlsRequired: true,
+                },
+                websocket: { natsServers: ["ws://localhost:8080"] },
+              },
+              transport: {
+                sentinel: { jwt: "jwt", seed: "seed", issuer: "trellis" },
+              },
+              auth: {
+                mode: "service_identity",
+                iatSkewSeconds: 30,
+                tokenVersion: 2,
+              },
               rollout: "canary",
             },
+            binding: {
+              contractId: core.CONTRACT_ID,
+              digest: core.CONTRACT_DIGEST,
+              resources: {
+                kv: {},
+                streams: {},
+                jobs: {
+                  namespace: "jobs",
+                  queues: {},
+                  rollout: "canary",
+                },
+              },
+              requestId: "req_123",
+            },
+            requestId: "req_123",
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
           },
-          requestId: "req_123",
-        },
-        requestId: "req_123",
-      }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }));
+        ),
+      );
     }) as typeof fetch;
 
     await assertRejects(
-      () => TrellisService.connect({
-        trellisUrl: "https://trellis.example.com",
-        contract: core,
-        name: "svc",
-        sessionKeySeed: TEST_SEED,
-        server: {},
-      }, { connect: fakeConnect }),
+      () =>
+        TrellisService.connect({
+          trellisUrl: "https://trellis.example.com",
+          contract: core,
+          name: "svc",
+          sessionKeySeed: TEST_SEED,
+          server: {},
+        }, { connect: fakeConnect }),
       Error,
       "stop-after-connect",
     );
@@ -225,26 +264,36 @@ Deno.test("TrellisService.connect surfaces bootstrap failure reasons", async () 
 
   try {
     globalThis.fetch = (() => {
-      return Promise.resolve(new Response(JSON.stringify({ reason: "contract_not_active" }), {
-        status: 409,
-        headers: { "Content-Type": "application/json" },
-      }));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            reason: "contract_not_active",
+            message:
+              "Contract 'trellis.core@v1' digest 'digest_123' is not active in Trellis.",
+          }),
+          {
+            status: 409,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      );
     }) as typeof fetch;
 
     await assertRejects(
-      () => TrellisService.connect({
-        trellisUrl: "https://trellis.example.com",
-        contract: core,
-        name: "svc",
-        sessionKeySeed: TEST_SEED,
-        server: {},
-      }, {
-        connect: async (): Promise<NatsConnection> => {
-          throw new Error("connect should not be called");
-        },
-      }),
+      () =>
+        TrellisService.connect({
+          trellisUrl: "https://trellis.example.com",
+          contract: core,
+          name: "svc",
+          sessionKeySeed: TEST_SEED,
+          server: {},
+        }, {
+          connect: async (): Promise<NatsConnection> => {
+            throw new Error("connect should not be called");
+          },
+        }),
       Error,
-      "Service bootstrap failed: contract_not_active",
+      "Service bootstrap failed: Contract 'trellis.core@v1' digest 'digest_123' is not active in Trellis.",
     );
   } finally {
     globalThis.fetch = originalFetch;
@@ -414,4 +463,122 @@ Deno.test("TrellisService mount passes kv and store to handlers", async () => {
   } finally {
     await service.stop();
   }
+});
+
+Deno.test({
+  name: "StoreHandle.waitFor resolves once the staged object appears",
+  ignore: !RUN_NATS_TESTS,
+  async fn() {
+    await using nats = await NatsTest.start();
+
+    const opened = await TypedStore.open(
+      nats.nc,
+      "store-handle-wait-for-test",
+      {
+        ttlMs: 60_000,
+        maxObjectBytes: 1024,
+        maxTotalBytes: 4096,
+      },
+    );
+    const store = opened.match({
+      ok: (value) => value,
+      err: (error) => {
+        throw error;
+      },
+    });
+
+    const handle = new StoreHandle(nats.nc, {
+      name: "store-handle-wait-for-test",
+      ttlMs: 60_000,
+      maxObjectBytes: 1024,
+      maxTotalBytes: 4096,
+    });
+
+    const writer = (async () => {
+      await delay(25);
+      const written = await store.put(
+        "incoming/ready.txt",
+        new TextEncoder().encode("hello"),
+      );
+      assertEquals(written.isOk(), true);
+    })();
+
+    const waited = await handle.waitFor("incoming/ready.txt", {
+      timeoutMs: 1_000,
+      pollIntervalMs: 10,
+    });
+    assertEquals(waited.isOk(), true);
+    const entry = waited.match({
+      ok: (value) => value,
+      err: (error) => {
+        throw error;
+      },
+    });
+    const body = await entry.bytes();
+    assertEquals(body.isOk(), true);
+    assertEquals(
+      body.match({
+        ok: (value) => new TextDecoder().decode(value),
+        err: (error) => {
+          throw error;
+        },
+      }),
+      "hello",
+    );
+
+    await writer;
+  },
+});
+
+Deno.test({
+  name:
+    "StoreHandle.waitFor returns an aborted error when the signal is cancelled",
+  ignore: !RUN_NATS_TESTS,
+  async fn() {
+    await using nats = await NatsTest.start();
+
+    const opened = await TypedStore.open(
+      nats.nc,
+      "store-handle-wait-abort-test",
+      {
+        ttlMs: 60_000,
+        maxObjectBytes: 1024,
+        maxTotalBytes: 4096,
+      },
+    );
+    opened.match({
+      ok: () => undefined,
+      err: (error) => {
+        throw error;
+      },
+    });
+
+    const handle = new StoreHandle(nats.nc, {
+      name: "store-handle-wait-abort-test",
+      ttlMs: 60_000,
+      maxObjectBytes: 1024,
+      maxTotalBytes: 4096,
+    });
+    const controller = new AbortController();
+
+    const waiting = handle.waitFor("incoming/missing.txt", {
+      signal: controller.signal,
+      pollIntervalMs: 1_000,
+    });
+
+    await delay(20);
+    controller.abort("cancelled");
+
+    const waited = await waiting;
+    assertEquals(waited.isErr(), true);
+    const error = waited.match({
+      ok: () => {
+        throw new Error("waitFor unexpectedly succeeded");
+      },
+      err: (value) => value,
+    });
+    assertEquals(error.operation, "waitFor");
+    assertEquals(error.getContext().reason, "aborted");
+    assertEquals(error.getContext().key, "incoming/missing.txt");
+  },
 });

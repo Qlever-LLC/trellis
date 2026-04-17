@@ -3,9 +3,11 @@ import {
   type KVError,
   type OperationRegistration,
   type StoreError,
+  type StoreWaitOptions,
   Trellis,
   TypedKV,
   TypedStore,
+  TypedStoreEntry,
 } from "@qlever-llc/trellis";
 import {
   API as TRELLIS_CORE_API,
@@ -13,10 +15,7 @@ import {
   type TrellisCatalogOutput,
 } from "@qlever-llc/trellis-sdk/core";
 import { auth as trellisAuth } from "@qlever-llc/trellis-sdk/auth";
-import {
-  TrellisServer,
-  type TrellisServerFor,
-} from "../server.ts";
+import { TrellisServer, type TrellisServerFor } from "../server.ts";
 import {
   createAuth,
   type SentinelCreds,
@@ -31,11 +30,13 @@ import type { TrellisAPI } from "@qlever-llc/trellis/contracts";
 import { type BaseError, isErr, type Result } from "@qlever-llc/result";
 import { type TSchema, Type } from "typebox";
 import { Value } from "typebox/value";
-import { ServiceHealth, type HealthCheckFn } from "./health.ts";
+import { type HealthCheckFn, ServiceHealth } from "./health.ts";
 import { mountStandardHealthRpc } from "./health_rpc.ts";
 import type { RPCDesc } from "@qlever-llc/trellis/contracts";
 import type {
   HandlerTrellis,
+  OperationOutputOf,
+  OperationProgressOf,
   RpcHandlerContext,
   RpcHandlerErrorOf,
   RpcRequestErrorOf,
@@ -112,6 +113,11 @@ type ServiceBootstrapResponse = {
     digest: string;
     resources: ResourceBindings;
   };
+};
+
+type ServiceBootstrapFailure = {
+  reason: string;
+  message?: string;
 };
 
 type RpcMethodName<TA extends TrellisAPI> = keyof TA["rpc"] & string;
@@ -351,6 +357,7 @@ const ServiceBootstrapReadySchema = Type.Object({
 
 const ServiceBootstrapFailureSchema = Type.Object({
   reason: Type.String({ minLength: 1 }),
+  message: Type.Optional(Type.String({ minLength: 1 })),
 }, { additionalProperties: true });
 
 async function fetchServiceBootstrapInfo(args: {
@@ -372,12 +379,37 @@ async function fetchServiceBootstrapInfo(args: {
     }),
   });
 
-  const payload = await response.json();
+  const responseText = await response.text();
+  let payload: unknown;
+  try {
+    payload = JSON.parse(responseText);
+  } catch {
+    payload = undefined;
+  }
   if (!response.ok) {
-    if (Value.Check(ServiceBootstrapFailureSchema, payload)) {
-      throw new Error(`Service bootstrap failed: ${payload.reason}`);
+    if (
+      payload !== undefined &&
+      Value.Check(ServiceBootstrapFailureSchema, payload)
+    ) {
+      const failure = payload as ServiceBootstrapFailure;
+      throw new Error(
+        `Service bootstrap failed: ${failure.message ?? failure.reason}`,
+      );
     }
-    throw new Error(`Service bootstrap failed with HTTP ${response.status}`);
+    const detail = responseText.trim();
+    throw new Error(
+      detail.length > 0
+        ? `Service bootstrap failed with HTTP ${response.status}: ${detail}`
+        : `Service bootstrap failed with HTTP ${response.status}`,
+    );
+  }
+
+  if (payload === undefined) {
+    throw new Error(
+      `Service bootstrap returned invalid JSON: ${
+        responseText.trim() || "<empty body>"
+      }`,
+    );
   }
 
   return Value.Parse(
@@ -421,6 +453,21 @@ export class StoreHandle {
       maxTotalBytes: this.binding.maxTotalBytes,
       bindOnly: true,
     });
+  }
+
+  /**
+   * Waits for a staged object to appear in the bound store and returns its entry.
+   */
+  async waitFor(
+    key: string,
+    options: StoreWaitOptions = {},
+  ): Promise<Result<TypedStoreEntry, StoreError>> {
+    const opened = await this.open();
+    const store = opened.take();
+    if (isErr(store)) {
+      return store;
+    }
+    return await store.waitFor(key, options);
   }
 }
 
@@ -733,7 +780,8 @@ async function createConnectedService<
   });
 
   const heartbeatEventEnabled = Boolean(
-    (currentApi.events as Record<string, unknown> | undefined)?.["Health.Heartbeat"],
+    (currentApi.events as Record<string, unknown> | undefined)
+      ?.["Health.Heartbeat"],
   );
   let healthPublishTimer: ReturnType<typeof setInterval> | undefined;
   let publishingHeartbeat = false;
@@ -753,10 +801,16 @@ async function createConnectedService<
       )("Health.Heartbeat", heartbeat as Record<string, unknown>);
       const value = published.take();
       if (isErr(value)) {
-        resolvedLog.warn({ error: value.error }, "Failed to publish health heartbeat");
+        resolvedLog.warn(
+          { error: value.error },
+          "Failed to publish health heartbeat",
+        );
       }
     } catch (error) {
-      resolvedLog.warn({ error }, "Failed to build or publish health heartbeat");
+      resolvedLog.warn(
+        { error },
+        "Failed to build or publish health heartbeat",
+      );
     } finally {
       publishingHeartbeat = false;
     }
@@ -1117,10 +1171,14 @@ export class TrellisService<
   operation<O extends keyof (TOwnedApi & TTrellisApi)["operations"] & string>(
     operation: O,
   ): OperationRegistration<
-    InferSchemaType<(TOwnedApi & TTrellisApi)["operations"][O]["input"]>
+    InferSchemaType<(TOwnedApi & TTrellisApi)["operations"][O]["input"]>,
+    OperationProgressOf<TOwnedApi & TTrellisApi, O>,
+    OperationOutputOf<TOwnedApi & TTrellisApi, O>
   > {
     return this.server.operation(operation) as OperationRegistration<
-      InferSchemaType<(TOwnedApi & TTrellisApi)["operations"][O]["input"]>
+      InferSchemaType<(TOwnedApi & TTrellisApi)["operations"][O]["input"]>,
+      OperationProgressOf<TOwnedApi & TTrellisApi, O>,
+      OperationOutputOf<TOwnedApi & TTrellisApi, O>
     >;
   }
 }
