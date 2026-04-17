@@ -165,6 +165,88 @@ function resolveServiceLogger(log?: LoggerLike | false): LoggerLike {
   return log ?? serverLogger;
 }
 
+function normalizeNatsStatus(status: unknown): Record<string, unknown> {
+  if (!status || typeof status !== "object") {
+    return { status };
+  }
+
+  const record = status as Record<string, unknown>;
+  return {
+    ...(typeof record.type === "string" ? { type: record.type } : {}),
+    ...(typeof record.data === "string" ? { data: record.data } : {}),
+    ...(record.data && typeof record.data === "object"
+      ? { data: record.data }
+      : {}),
+  };
+}
+
+function isImportantNatsStatus(status: unknown): boolean {
+  if (!status || typeof status !== "object") {
+    return false;
+  }
+
+  const type = (status as { type?: unknown }).type;
+  return type === "disconnect" || type === "reconnecting" ||
+    type === "forceReconnect" || type === "staleConnection" ||
+    type === "reconnect" || type === "error" || type === "close";
+}
+
+function startNatsConnectionLogging(args: {
+  name: string;
+  nc: NatsConnection;
+  log: LoggerLike;
+}): () => void {
+  let stopped = false;
+  const statusFn = (args.nc as NatsConnection & {
+    status?: () => AsyncIterable<unknown>;
+  }).status;
+
+  if (typeof statusFn === "function") {
+    void (async () => {
+      try {
+        for await (const status of statusFn.call(args.nc)) {
+          if (stopped) return;
+
+          const logConnectionStatus = isImportantNatsStatus(status)
+            ? args.log.info.bind(args.log)
+            : args.log.debug.bind(args.log);
+
+          logConnectionStatus(
+            {
+              service: args.name,
+              connection: normalizeNatsStatus(status),
+            },
+            "Service NATS connection status",
+          );
+        }
+      } catch (error) {
+        if (!stopped) {
+          args.log.warn(
+            { service: args.name, error },
+            "Service NATS status watcher failed",
+          );
+        }
+      }
+    })();
+  }
+
+  void args.nc.closed().then((error: unknown) => {
+    if (stopped) return;
+    if (error) {
+      args.log.error(
+        { service: args.name, error },
+        "Service NATS connection closed with error",
+      );
+      return;
+    }
+    args.log.warn({ service: args.name }, "Service NATS connection closed");
+  });
+
+  return () => {
+    stopped = true;
+  };
+}
+
 export type ResourceBindingKV = {
   bucket: string;
   history: number;
@@ -514,6 +596,11 @@ async function createConnectedService<
   bindings: ResourceBindings;
 }): Promise<TrellisService<TOwnedApi, TTrellisApi>> {
   const resolvedLog = resolveServiceLogger(args.server.log);
+  const stopConnectionLogging = startNatsConnectionLogging({
+    name: args.name,
+    nc: args.nc,
+    log: resolvedLog,
+  });
   const currentApi = (args.server.trellisApi ?? args.server.api) as
     & TOwnedApi
     & TTrellisApi;
@@ -698,6 +785,7 @@ async function createConnectedService<
     args.bindings,
     health,
     stopHealthPublishing,
+    stopConnectionLogging,
   );
   handlerResources = { kv: service.kv, store: service.store };
   transfer = service.transfer;
@@ -721,6 +809,7 @@ export class TrellisService<
   readonly jobs?: ResourceBindingJobs;
   readonly health: ServiceHealth;
   readonly #stopHealthPublishing: () => Promise<void>;
+  readonly #stopConnectionLogging: () => void;
 
   constructor(
     name: string,
@@ -731,6 +820,7 @@ export class TrellisService<
     bindings: ResourceBindings,
     health: ServiceHealth,
     stopHealthPublishing: () => Promise<void>,
+    stopConnectionLogging: () => void,
   ) {
     const kvBindings = bindings.kv ?? {};
     const storeBindings = bindings.store ?? {};
@@ -762,6 +852,7 @@ export class TrellisService<
     this.jobs = bindings.jobs;
     this.health = health;
     this.#stopHealthPublishing = stopHealthPublishing;
+    this.#stopConnectionLogging = stopConnectionLogging;
   }
 
   static async connect<
@@ -982,6 +1073,7 @@ export class TrellisService<
   }
 
   async stop(): Promise<void> {
+    this.#stopConnectionLogging();
     await this.#stopHealthPublishing();
     await this.transfer.stop();
     await this.server.stop();

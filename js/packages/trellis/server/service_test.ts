@@ -35,25 +35,38 @@ const handlerSurfaceTestContract = defineServiceContract(
 
 function createTestLogger() {
   const childBindings: Array<Record<string, unknown>> = [];
+  const debugCalls: Array<unknown[]> = [];
+  const infoCalls: Array<unknown[]> = [];
   const logger: LoggerLike = {
     child(bindings: Record<string, unknown>) {
       childBindings.push(bindings);
       return logger;
     },
     trace(..._args: unknown[]) {},
-    debug(..._args: unknown[]) {},
-    info(..._args: unknown[]) {},
+    debug(...args: unknown[]) {
+      debugCalls.push(args);
+    },
+    info(...args: unknown[]) {
+      infoCalls.push(args);
+    },
     warn(..._args: unknown[]) {},
     error(..._args: unknown[]) {},
   };
 
-  return { childBindings, logger };
+  return { childBindings, debugCalls, infoCalls, logger };
 }
 
-function createFakeNatsConnection(): NatsConnection {
+function createFakeNatsConnection(statuses: unknown[] = []): NatsConnection {
   type TestNatsConnection = NatsConnection & {
     options: { inboxPrefix: string };
   };
+
+  const status = (() =>
+    (async function* () {
+      for (const entry of statuses) {
+        yield entry;
+      }
+    })()) as NatsConnection["status"];
 
   const message: Msg = {
     subject: "test.subject",
@@ -102,15 +115,17 @@ function createFakeNatsConnection(): NatsConnection {
     isClosed: () => false,
     isDraining: () => false,
     getServer: () => "nats://127.0.0.1:4222",
-    status: () => (async function* () {
-      return;
-    })(),
+    status,
     stats: () => ({ inBytes: 0, outBytes: 0, inMsgs: 0, outMsgs: 0 }),
     rtt: async () => 0,
     reconnect: async () => {},
   };
 
   return connection;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 const logDisabledOk: NonNullable<TrellisServiceConnectArgs<typeof core>["server"]> = {
@@ -275,6 +290,45 @@ Deno.test("TrellisService.connectInternal uses the provided logger", async () =>
 
   assertEquals(service.name, "svc");
   assertEquals(testLogger.childBindings.length >= 3, true);
+});
+
+Deno.test("TrellisService.connectInternal logs routine NATS status at debug and reconnects at info", async () => {
+  const testLogger = createTestLogger();
+
+  const service = await TrellisService.connectInternal("svc", {
+    sessionKeySeed: TEST_SEED,
+    nats: {
+      servers: "nats://127.0.0.1:4222",
+      authenticator: {},
+    },
+    server: {
+      api: core.API.owned,
+      trellisApi: core.API.trellis,
+      log: testLogger.logger,
+    },
+  }, {
+    connect: async () =>
+      createFakeNatsConnection([
+        { type: "update", data: "cluster change" },
+        { type: "reconnect", data: "nats://127.0.0.1:4222" },
+      ]),
+  });
+
+  try {
+    await delay(20);
+  } finally {
+    await service.stop();
+  }
+
+  const debugStatusCalls = testLogger.debugCalls.filter((args) =>
+    args[1] === "Service NATS connection status"
+  );
+  const infoStatusCalls = testLogger.infoCalls.filter((args) =>
+    args[1] === "Service NATS connection status"
+  );
+
+  assertEquals(debugStatusCalls.length, 1);
+  assertEquals(infoStatusCalls.length, 1);
 });
 
 Deno.test("TrellisService.connectInternal defaults to the server logger", async () => {
