@@ -26,8 +26,7 @@ impl<'a> CoreBootstrapClientPort for CoreClient<'a> {
         &'b self,
     ) -> BoxFuture<'b, Result<TrellisCatalogResponse, TrellisClientError>> {
         Box::pin(async move {
-            CoreClient::trellis_catalog(self, &TrellisCatalogRequest(Default::default()))
-                .await
+            CoreClient::trellis_catalog(self, &TrellisCatalogRequest(Default::default())).await
         })
     }
 

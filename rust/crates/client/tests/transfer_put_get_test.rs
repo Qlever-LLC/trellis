@@ -6,8 +6,7 @@ use async_nats::header::HeaderMap;
 use bytes::Bytes;
 use futures_util::StreamExt;
 use trellis_client::{
-    verify_proof, DownloadTransferGrant, FileInfo, SessionAuth, TrellisClient,
-    UploadTransferGrant,
+    verify_proof, DownloadTransferGrant, FileInfo, SessionAuth, TrellisClient, UploadTransferGrant,
 };
 
 struct RuntimeContainer {
@@ -166,18 +165,29 @@ async fn transfer_put_and_get_use_raw_chunk_transport() {
         .subscribe(upload_subject.to_string())
         .await
         .expect("subscribe upload subject");
-    service_client.flush().await.expect("flush upload subscription");
+    service_client
+        .flush()
+        .await
+        .expect("flush upload subscription");
     let service_for_upload = service_client.clone();
     let upload_task = tokio::spawn(async move {
         let expected = [b"hello ".as_slice(), b"world".as_slice(), b"".as_slice()];
         for (seq, expected_chunk) in expected.iter().enumerate() {
             let msg = upload_sub.next().await.expect("upload message");
             let headers = msg.headers.as_ref().expect("upload headers");
-            assert_eq!(headers.get("session-key").unwrap().as_str(), upload_session_key);
+            assert_eq!(
+                headers.get("session-key").unwrap().as_str(),
+                upload_session_key
+            );
             let proof = headers.get("proof").unwrap().as_str();
-            assert!(verify_proof(&upload_session_key, upload_subject, &msg.payload, proof)
-                .expect("verify proof"));
-            assert_eq!(headers.get("trellis-transfer-seq").unwrap().as_str(), seq.to_string());
+            assert!(
+                verify_proof(&upload_session_key, upload_subject, &msg.payload, proof)
+                    .expect("verify proof")
+            );
+            assert_eq!(
+                headers.get("trellis-transfer-seq").unwrap().as_str(),
+                seq.to_string()
+            );
             assert_eq!(&msg.payload[..], *expected_chunk);
 
             let reply = msg.reply.clone().expect("upload reply subject");
@@ -218,18 +228,29 @@ async fn transfer_put_and_get_use_raw_chunk_transport() {
         .subscribe(download_subject.to_string())
         .await
         .expect("subscribe download subject");
-    service_client.flush().await.expect("flush download subscription");
+    service_client
+        .flush()
+        .await
+        .expect("flush download subscription");
     let service_for_download = service_client.clone();
     let download_task = tokio::spawn(async move {
         let msg = download_sub.next().await.expect("download request");
         let reply = msg.reply.clone().expect("download reply subject");
         let headers = msg.headers.as_ref().expect("download headers");
-        assert_eq!(headers.get("session-key").unwrap().as_str(), download_session_key);
+        assert_eq!(
+            headers.get("session-key").unwrap().as_str(),
+            download_session_key
+        );
         let proof = headers.get("proof").unwrap().as_str();
-        assert!(verify_proof(&download_session_key, download_subject, &msg.payload, proof)
-            .expect("verify proof"));
+        assert!(
+            verify_proof(&download_session_key, download_subject, &msg.payload, proof)
+                .expect("verify proof")
+        );
 
-        for (seq, chunk) in [b"hello ".as_slice(), b"world".as_slice()].into_iter().enumerate() {
+        for (seq, chunk) in [b"hello ".as_slice(), b"world".as_slice()]
+            .into_iter()
+            .enumerate()
+        {
             let mut headers = HeaderMap::new();
             headers.insert("trellis-transfer-seq", seq.to_string().as_str());
             service_for_download

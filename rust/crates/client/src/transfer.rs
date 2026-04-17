@@ -102,7 +102,10 @@ impl<'a> TransferGrantBinding<'a> for UploadTransferGrant {
     type Handle = UploadTransfer<'a>;
 
     fn bind(self, client: &'a TrellisClient) -> Self::Handle {
-        UploadTransfer { client, grant: self }
+        UploadTransfer {
+            client,
+            grant: self,
+        }
     }
 }
 
@@ -110,7 +113,10 @@ impl<'a> TransferGrantBinding<'a> for DownloadTransferGrant {
     type Handle = DownloadTransfer<'a>;
 
     fn bind(self, client: &'a TrellisClient) -> Self::Handle {
-        DownloadTransfer { client, grant: self }
+        DownloadTransfer {
+            client,
+            grant: self,
+        }
     }
 }
 
@@ -171,7 +177,10 @@ impl<'a> UploadTransfer<'a> {
         headers.insert("session-key", self.client.auth().session_key.as_str());
         headers.insert(
             "proof",
-            self.client.auth().create_proof(&self.grant.subject, payload).as_str(),
+            self.client
+                .auth()
+                .create_proof(&self.grant.subject, payload)
+                .as_str(),
         );
         headers.insert(TRANSFER_SEQUENCE_HEADER, seq.to_string().as_str());
         if eof {
@@ -189,7 +198,10 @@ impl<'a> DownloadTransfer<'a> {
         headers.insert("session-key", self.client.auth().session_key.as_str());
         headers.insert(
             "proof",
-            self.client.auth().create_proof(&self.grant.subject, &[]).as_str(),
+            self.client
+                .auth()
+                .create_proof(&self.grant.subject, &[])
+                .as_str(),
         );
 
         let inbox = self.client.nats().new_inbox();
@@ -251,7 +263,10 @@ impl<'a> DownloadTransfer<'a> {
     }
 }
 
-fn validate_grant(expected_session_key: &str, client: &TrellisClient) -> Result<(), TrellisClientError> {
+fn validate_grant(
+    expected_session_key: &str,
+    client: &TrellisClient,
+) -> Result<(), TrellisClientError> {
     if expected_session_key != client.auth().session_key {
         return Err(TrellisClientError::TransferProtocol(
             "transfer grant session key does not match client session".into(),
