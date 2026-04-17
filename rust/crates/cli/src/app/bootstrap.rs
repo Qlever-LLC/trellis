@@ -2,9 +2,9 @@ use std::env;
 use std::path::PathBuf;
 
 use crate::app::{
-    connect_with_creds, ensure_bucket, ensure_stream, load_binding_token_bucket_ttl_ms,
-    resolve_auth_config_path, resolve_servers, trellis_id_from_origin_id, BucketEnsureStatus,
-    AUTH_BOOTSTRAP_BUCKETS,
+    AUTH_BOOTSTRAP_BUCKETS, BucketEnsureStatus, connect_with_creds, ensure_bucket, ensure_stream,
+    load_binding_token_bucket_ttl_ms, resolve_auth_config_path, resolve_servers,
+    trellis_id_from_origin_id,
 };
 use crate::cli::*;
 use crate::output;
@@ -127,7 +127,7 @@ async fn bootstrap_admin_command(args: &BootstrapAdminArgs) -> miette::Result<()
 
 #[cfg(test)]
 mod tests {
-    use crate::app::{KvBucketSpec, AUTH_BOOTSTRAP_BUCKETS};
+    use crate::app::{AUTH_BOOTSTRAP_BUCKETS, KvBucketSpec};
 
     #[derive(Debug, Eq, PartialEq)]
     struct RuntimeBucketSpec {

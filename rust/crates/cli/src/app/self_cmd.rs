@@ -1,7 +1,7 @@
-use crate::app::{release_channel, SELF_UPDATE_TARGET};
+use crate::app::{SELF_UPDATE_TARGET, release_channel};
 use crate::cli::*;
 use crate::output;
-use crate::self_update::{check_for_update, install_update, UpdateResult};
+use crate::self_update::{UpdateResult, check_for_update, install_update};
 pub(super) fn run(format: OutputFormat, command: SelfCommand) -> miette::Result<()> {
     match command.command {
         SelfSubcommand::Check(args) => check_command(format, &args),

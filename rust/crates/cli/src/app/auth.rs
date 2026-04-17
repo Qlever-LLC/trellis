@@ -3,7 +3,7 @@ use crate::cli::*;
 use crate::cli_contract::cli_contract_json;
 use crate::output;
 use miette::IntoDiagnostic;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use trellis_auth as authlib;
 
 pub(super) async fn run(format: OutputFormat, command: AuthCommand) -> miette::Result<()> {

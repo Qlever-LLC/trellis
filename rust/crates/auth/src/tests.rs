@@ -3,16 +3,16 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpListener;
 use crate::browser_login::callback_page_html;
 use crate::{
     build_device_activation_payload, clear_admin_session, derive_device_confirmation_code,
     derive_device_identity, load_admin_session, parse_device_activation_payload,
-    save_admin_session, sign_device_wait_request,
-    start_device_activation_request, verify_device_confirmation_code,
-    wait_for_device_activation_response, AdminSessionState, WaitForDeviceActivationResponse,
+    save_admin_session, sign_device_wait_request, start_device_activation_request,
+    verify_device_confirmation_code, wait_for_device_activation_response, AdminSessionState,
+    WaitForDeviceActivationResponse,
 };
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
 
 fn unique_test_dir(label: &str) -> PathBuf {
     let nanos = SystemTime::now()
@@ -69,7 +69,10 @@ fn device_activation_payload_round_trips() {
     )
     .expect("build payload");
     let encoded = crate::encode_device_activation_payload(&payload).expect("encode payload");
-    assert_eq!(parse_device_activation_payload(&encoded).expect("parse payload"), payload);
+    assert_eq!(
+        parse_device_activation_payload(&encoded).expect("parse payload"),
+        payload
+    );
 }
 
 #[tokio::test]
