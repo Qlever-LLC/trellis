@@ -148,12 +148,15 @@ fn resolve_source_contract(
     let runtime = typescript_runtime_context(&source_path);
 
     let deno_script = r#"
-const [sourcePath, exportName] = Deno.args;
+const [sourcePath] = Deno.args;
 const mod = await import(new URL(sourcePath, "file:///").href);
-const exported = mod[exportName];
+const exported = mod.default;
 const contract = exported?.CONTRACT ?? exported;
-if (!contract || contract.format !== "trellis.contract.v1") {
-  throw new Error(`source module '${sourcePath}' must export ${exportName} as a Trellis contract or contract module`);
+if (!contract) {
+  throw new Error(`source module '${sourcePath}' must default export a Trellis contract or contract module`);
+}
+if (contract.format !== "trellis.contract.v1") {
+  throw new Error(`source module '${sourcePath}' default export is not a Trellis contract or contract module`);
 }
 await Deno.stdout.write(new TextEncoder().encode(JSON.stringify(contract)));
 "#;
