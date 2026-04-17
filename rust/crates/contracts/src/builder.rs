@@ -2,10 +2,11 @@ use serde_json::Value;
 
 use crate::{
     parse_manifest, ContractErrorRef, ContractJobQueueResource, ContractJobsResource, ContractKind,
-    ContractKvResource, ContractManifest, ContractOperation, ContractResources, ContractRpcMethod,
-    ContractSchemaRef, ContractStreamResource, ContractStreamSource, ContractSubject,
-    ContractUseOperation, ContractUsePubSub, ContractUseRef, ContractUseRpc, ContractsError,
-    OperationCapabilities, PubSubCapabilities, RpcCapabilities, CONTRACT_FORMAT_V1,
+    ContractKvResource, ContractManifest, ContractOperation, ContractOperationTransfer,
+    ContractResources, ContractRpcMethod, ContractSchemaRef, ContractStreamResource,
+    ContractStreamSource, ContractSubject, ContractUseOperation, ContractUsePubSub, ContractUseRef,
+    ContractUseRpc, ContractsError, OperationCapabilities, PubSubCapabilities, RpcCapabilities,
+    CONTRACT_FORMAT_V1,
 };
 
 /// Thin builder over `ContractManifest` for Rust-authored contracts.
@@ -139,6 +140,7 @@ pub fn operation(
         input: schema_ref(input_schema),
         progress: progress_schema.map(schema_ref),
         output: output_schema.map(schema_ref),
+        transfer: None,
         capabilities: None,
         cancel: None,
     }
@@ -245,6 +247,26 @@ impl ContractRpcMethod {
 }
 
 impl ContractOperation {
+    pub fn with_transfer(
+        mut self,
+        store: impl Into<String>,
+        key: impl Into<String>,
+        content_type: Option<impl Into<String>>,
+        metadata: Option<impl Into<String>>,
+        expires_in_ms: Option<i64>,
+        max_bytes: Option<i64>,
+    ) -> Self {
+        self.transfer = Some(ContractOperationTransfer {
+            store: store.into(),
+            key: key.into(),
+            content_type: content_type.map(Into::into),
+            metadata: metadata.map(Into::into),
+            expires_in_ms,
+            max_bytes,
+        });
+        self
+    }
+
     pub fn with_call_capabilities(
         mut self,
         call: impl IntoIterator<Item = impl Into<String>>,

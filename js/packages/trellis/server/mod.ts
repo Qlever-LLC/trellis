@@ -42,7 +42,6 @@ export {
   type ResourceBindingStore,
   type ResourceBindingStream,
   type ServiceContract,
-  type ServiceHandlerTransfer,
   type ServiceHandlerTrellis,
   type ServiceRpcHandler,
   type ServiceTrellis,
@@ -50,13 +49,6 @@ export {
   TrellisService,
   type TrellisServiceConnectOpts,
 } from "./service.ts";
-export { ServiceTransfer } from "./transfer.ts";
-export type {
-  InitiateDownloadArgs,
-  InitiateUploadArgs,
-  StoredTransfer,
-  TransferStoreHandle,
-} from "./transfer.ts";
 
 // Re-export subscription types
 export {

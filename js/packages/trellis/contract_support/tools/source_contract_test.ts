@@ -5,7 +5,7 @@ import { canonicalizeJson, type JsonValue } from "../mod.ts";
 
 Deno.test("emit-contract writes canonical manifest from source contract module", async () => {
   const toolsDir = dirname(fromFileUrl(import.meta.url));
-  const repoRoot = join(toolsDir, "../../../../");
+  const repoRoot = join(toolsDir, "../../../../../");
   const tempDir = await Deno.makeTempDir({ prefix: "trellis-contract-source-" });
   const outPath = join(tempDir, "trellis.activity@v1.json");
 

@@ -7,10 +7,12 @@ import {
   controlSubject,
   type OperationEvent,
   OperationInvoker,
+  type OperationTransferProgress,
   type OperationRef,
   type OperationTransport,
 } from "../operations.ts";
 import { UnexpectedError } from "../errors/index.ts";
+import type { TransferBody, UploadTransferGrant } from "../transfer.ts";
 
 const schemas = {
   RefundInput: Type.Object({ chargeId: Type.String() }),
@@ -48,9 +50,18 @@ const billing = defineServiceContract(
 );
 
 const refundOperation = billing.API.owned.operations["Billing.Refund"];
+const uploadOperation = {
+  ...refundOperation,
+  transfer: {
+    store: "uploads",
+    key: "/chargeId",
+    expiresInMs: 60_000,
+  },
+} as const;
 
 class FakeOperationTransport implements OperationTransport {
   readonly seen: Array<{ subject: string; body: unknown }> = [];
+  readonly transferred: Array<{ grant: UploadTransferGrant; body: TransferBody }> = [];
   readonly #responses: JsonValue[];
 
   constructor(responses: JsonValue[]) {
@@ -72,6 +83,16 @@ class FakeOperationTransport implements OperationTransport {
         yield frame;
       }
     })());
+  }
+
+  async putTransfer(grant: UploadTransferGrant, body: TransferBody) {
+    this.transferred.push({ grant, body });
+    return ok({
+      key: "incoming/test.bin",
+      size: 11,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      metadata: {},
+    });
   }
 }
 
@@ -121,6 +142,54 @@ Deno.test("OperationInvoker.start type surface stays specific", () => {
     Result<OperationRef<typeof refundOperation>, UnexpectedError>
   > = started;
   assertEquals(true, true);
+});
+
+Deno.test("OperationRef.transfer() uses the accepted operation transfer session", async () => {
+  const transport = new FakeOperationTransport([
+    {
+      kind: "accepted",
+      ref: {
+        id: "op_upload_123",
+        service: "billing",
+        operation: "Billing.Refund",
+      },
+      snapshot: {
+        revision: 1,
+        state: "pending",
+      },
+      transfer: {
+        type: "TransferGrant",
+        kind: "upload",
+        service: "billing",
+        sessionKey: "session-key",
+        transferId: "transfer_123",
+        subject: "transfer.v1.upload.session.transfer_123",
+        expiresAt: "2026-01-01T00:00:00.000Z",
+        chunkBytes: 262144,
+      },
+    },
+  ]);
+
+  const operation = new OperationInvoker(transport, uploadOperation);
+  const started = await operation.start({ chargeId: "incoming/test.bin" });
+  const reference = started.match({
+    ok: (value) => value,
+    err: (error) => {
+      throw error;
+    },
+  });
+
+  const transferred = await reference.transfer(new TextEncoder().encode("hello world"));
+  const uploaded = transferred.match({
+    ok: (value) => value,
+    err: (error) => {
+      throw error;
+    },
+  });
+
+  assertEquals(uploaded.key, "incoming/test.bin");
+  assertEquals(transport.transferred.length, 1);
+  assertEquals(transport.transferred[0]?.grant.transferId, "transfer_123");
 });
 
 Deno.test("OperationInvoker.resume() returns an OperationRef bound to the provided ref data", () => {
@@ -373,4 +442,90 @@ Deno.test("OperationRef.watch() sends action:watch to <subject>.control and yiel
   assertEquals(events[0].type, "started");
   assertEquals(events[1].type, "progress");
   assertEquals(events[2].type, "completed");
+});
+
+Deno.test("OperationRef.watch() yields transfer events with per-chunk progress", async () => {
+  const transferProgress: OperationTransferProgress = {
+    chunkIndex: 0,
+    chunkBytes: 5,
+    transferredBytes: 5,
+  };
+  const transport = new FakeOperationTransport([
+    {
+      kind: "accepted",
+      ref: {
+        id: "op_123",
+        service: "billing",
+        operation: "Billing.Refund",
+      },
+      snapshot: {
+        revision: 1,
+        state: "pending",
+      },
+    },
+    {
+      kind: "event",
+      event: {
+        type: "transfer",
+        transfer: transferProgress,
+        snapshot: {
+          id: "op_123",
+          service: "billing",
+          operation: "Billing.Refund",
+          revision: 2,
+          state: "running",
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:01.000Z",
+          transfer: transferProgress,
+        },
+      },
+    },
+    {
+      kind: "event",
+      event: {
+        type: "completed",
+        snapshot: {
+          revision: 3,
+          state: "completed",
+          output: {
+            refundId: "rf_123",
+          },
+        },
+      },
+    },
+  ]);
+
+  const operation = new OperationInvoker(transport, refundOperation);
+  const reference = (await operation.start({ chargeId: "ch_123" })).match({
+    ok: (value) => value,
+    err: (error) => {
+      throw error;
+    },
+  });
+  const watch = (await reference.watch()).match({
+    ok: (value) => value,
+    err: (error) => {
+      throw error;
+    },
+  });
+  const events: OperationEvent[] = [];
+  for await (const event of watch) {
+    events.push(event);
+  }
+
+  assertEquals(events[0], {
+    type: "transfer",
+    transfer: transferProgress,
+    snapshot: {
+      id: "op_123",
+      service: "billing",
+      operation: "Billing.Refund",
+      revision: 2,
+      state: "running",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:01.000Z",
+      transfer: transferProgress,
+    },
+  });
+  assertEquals(events[1]?.type, "completed");
 });

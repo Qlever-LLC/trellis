@@ -134,7 +134,7 @@ Rules:
 This document defines the high-level system style. Detailed companion docs are split by concern:
 
 - [platform-libraries.md](./platform-libraries.md) - package responsibilities and core runtime/library guidance
-- [files-transfer-patterns.md](./files-transfer-patterns.md) - public files API and transfer-grant patterns over NATS
+- [files-transfer-patterns.md](./files-transfer-patterns.md) - public files API and operation-native transfer patterns over NATS
 - [kv-resource-patterns.md](./kv-resource-patterns.md) - KV naming, keys, TTLs, and projections
 - [store-resource-patterns.md](./store-resource-patterns.md) - service-owned blob store resource patterns and runtime semantics
 - [type-system-patterns.md](./type-system-patterns.md) - schemas, validation, `Result`, and errors

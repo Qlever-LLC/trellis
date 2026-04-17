@@ -725,6 +725,24 @@ fn render_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
                 js_string(key)
             ));
         }
+        if let Some(transfer) = &operation.transfer {
+            lines.push("      transfer: {".to_string());
+            lines.push(format!("        store: {},", js_string(&transfer.store)));
+            lines.push(format!("        key: {},", js_string(&transfer.key)));
+            if let Some(content_type) = &transfer.content_type {
+                lines.push(format!("        contentType: {},", js_string(content_type)));
+            }
+            if let Some(metadata) = &transfer.metadata {
+                lines.push(format!("        metadata: {},", js_string(metadata)));
+            }
+            if let Some(expires_in_ms) = transfer.expires_in_ms {
+                lines.push(format!("        expiresInMs: {expires_in_ms},"));
+            }
+            if let Some(max_bytes) = transfer.max_bytes {
+                lines.push(format!("        maxBytes: {max_bytes},"));
+            }
+            lines.push("      },".to_string());
+        }
         let caller = operation
             .capabilities
             .as_ref()

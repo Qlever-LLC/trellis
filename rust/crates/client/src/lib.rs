@@ -20,12 +20,10 @@ pub use error::TrellisClientError;
 pub use operations::{
     control_subject, OperationDescriptor, OperationEvent, OperationInvoker, OperationRef,
     OperationRefData, OperationSnapshot, OperationState, OperationTransport,
+    OperationTransferProgress,
 };
 pub use proof::verify_proof;
-pub use transfer::{
-    DownloadTransfer, DownloadTransferGrant, FileInfo, TransferGrant, TransferGrantBinding,
-    UploadTransfer, UploadTransferGrant,
-};
+pub use transfer::{DownloadTransferGrant, FileInfo, UploadTransferGrant};
 
 #[cfg(test)]
 mod tests;

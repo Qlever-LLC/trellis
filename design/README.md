@@ -51,7 +51,7 @@ These headings are intentionally named for fast human and AI lookup.
 | Document                           | Read When                                                       | Why                                                                                |
 | ---------------------------------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
 | `core/platform-libraries.md`       | You are changing library/package boundaries                     | Package ownership and runtime responsibilities                                     |
-| `core/files-transfer-patterns.md`  | You are changing the public files API or transfer grants        | Contract-owned file metadata APIs, transfer grants, and runtime helper boundaries  |
+| `core/files-transfer-patterns.md`  | You are changing the public files API or operation-native transfer | Contract-owned file metadata APIs, transfer-capable operations, and runtime helper boundaries |
 | `core/state-patterns.md`           | You are changing the public shared state API                    | Trellis-managed app state scopes, auth rules, revision semantics, and TTL behavior |
 | `core/kv-resource-patterns.md`     | You are changing KV buckets, keys, TTLs, or projections         | KV naming, TTL, and projection rules                                               |
 | `core/store-resource-patterns.md`  | You are changing service-owned blob store resources             | Store resource shape, runtime semantics, and auth boundaries                       |
@@ -80,7 +80,7 @@ ergonomics.
 | `operations/operations-rust-api.md`       | Rust operations API                 | Implementing or reviewing Rust operation clients/services                                |
 | `jobs/jobs-typescript-api.md`             | TypeScript jobs API                 | Implementing or reviewing TS jobs service/admin APIs                                     |
 | `jobs/jobs-rust-api.md`                   | Rust jobs API                       | Implementing or reviewing Rust jobs service/admin APIs                                   |
-| `core/files-transfer-patterns.md`         | Files and transfer API              | Implementing or reviewing service-owned files APIs and transfer-grant runtime behavior   |
+| `core/files-transfer-patterns.md`         | Files and transfer API              | Implementing or reviewing service-owned files APIs and operation-native transfer behavior |
 
 ## Suggested Read Paths
 
@@ -135,7 +135,7 @@ ergonomics.
 2. `contracts/trellis-contracts-catalog.md`
 3. relevant language surface doc if the public runtime API changes
 
-### Work on files or transfer grants
+### Work on files or transfer
 
 1. `core/files-transfer-patterns.md`
 2. `core/store-resource-patterns.md`

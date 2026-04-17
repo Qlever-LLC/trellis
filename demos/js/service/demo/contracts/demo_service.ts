@@ -27,14 +27,6 @@ export const contract = defineServiceContract(
           maxTotalBytes: 256 * 1024 * 1024,
         },
       },
-      jobs: {
-        queues: {
-          "file-process": {
-            payload: ref.schema("FilesProcessJobPayload"),
-            result: ref.schema("FilesProcessResult"),
-          },
-        },
-      },
     },
     rpc: {
       "Demo.Groups.List": {
@@ -44,24 +36,19 @@ export const contract = defineServiceContract(
         capabilities: { call: [] },
         errors: [ref.error("UnexpectedError")],
       },
-      "Demo.Files.Process.Start": {
-        version: "v1",
-        input: ref.schema("FilesProcessStartRequest"),
-        output: ref.schema("FilesProcessStartResponse"),
-        capabilities: { call: ["uploader"] },
-        errors: [
-          ref.error("ReservedUploadKeyError"),
-          ref.error("TransferError"),
-          ref.error("UnexpectedError"),
-        ],
-      },
     },
     operations: {
-      "Demo.Files.Process": {
+      "Demo.Files.Upload": {
         version: "v1",
-        input: ref.schema("FilesProcessStartRequest"),
-        progress: ref.schema("FilesProcessProgress"),
-        output: ref.schema("FilesProcessResult"),
+        input: ref.schema("FilesUploadRequest"),
+        progress: ref.schema("FilesUploadProgress"),
+        output: ref.schema("FilesUploadResult"),
+        transfer: {
+          store: "uploads",
+          key: "/key",
+          contentType: "/contentType",
+          expiresInMs: 60_000,
+        },
         capabilities: {
           call: ["uploader"],
           read: ["uploader"],

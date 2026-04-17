@@ -1,5 +1,10 @@
 import { connect } from "@nats-io/transport-deno";
 import {
+  InMemorySpanExporter,
+  SimpleSpanProcessor,
+} from "@opentelemetry/sdk-trace-base";
+import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
+import {
   AuthMeResponseSchema,
   AuthMeSchema,
   AuthValidateRequestResponseSchema,
@@ -77,6 +82,11 @@ const TEST_CALLER = {
   type: "user" as const,
   ...TEST_USER,
 };
+
+const testTraceProvider = new NodeTracerProvider({
+  spanProcessors: [new SimpleSpanProcessor(new InMemorySpanExporter())],
+});
+testTraceProvider.register();
 
 const EmptySchema = Type.Object({});
 const NotFoundError = defineError({
@@ -524,6 +534,8 @@ Deno.test({
             ...(ctx.caller.image ? { image: ctx.caller.image } : {}),
             capabilities: ctx.caller.capabilities ?? [],
           },
+          device: null,
+          service: null,
         });
       });
 
@@ -553,88 +565,6 @@ Deno.test({
       assertEquals(response.user?.id, TEST_USER.id);
       await nc.close();
     });
-
-    await t.step(
-      "Full RPC retries transient session_not_found during auth validation",
-      async () => {
-        const meService = createClient<typeof authContract.API.owned>(
-          authContract,
-          nats.nc,
-          { sessionKey: "service-retry", sign: () => new Uint8Array(64) },
-          { name: "me-service-retry" },
-        );
-        const authService = createClient<typeof authContract.API.owned>(
-          authContract,
-          nats.nc,
-          { sessionKey: "auth-retry", sign: () => new Uint8Array(64) },
-          { name: "auth-service-retry" },
-        );
-
-        let validateCalls = 0;
-        await authService.mount(
-          "Auth.ValidateRequest",
-          async (input: unknown) => {
-            const authInput = input as { sessionKey: string };
-            validateCalls += 1;
-            if (validateCalls === 1) {
-              return err(new AuthError({ reason: "session_not_found" }));
-            }
-            return ok({
-              allowed: true,
-              inboxPrefix: `_INBOX.${authInput.sessionKey.slice(0, 16)}`,
-              caller: TEST_CALLER,
-            });
-          },
-        );
-
-        await meService.mount("Auth.Me", async (_input, ctx) => {
-          if (ctx.caller.type !== "user") {
-            throw new Error("expected user caller");
-          }
-          return ok({
-            user: {
-              id: ctx.caller.id,
-              origin: ctx.caller.origin ?? "",
-              active: ctx.caller.active ?? true,
-              name: ctx.caller.name ?? "",
-              email: ctx.caller.email ?? "",
-              ...(ctx.caller.image ? { image: ctx.caller.image } : {}),
-              capabilities: ctx.caller.capabilities ?? [],
-            },
-          });
-        });
-
-        const { auth, inboxPrefix } = await createTestAuth();
-        const info = nats.nc.info!;
-        const nc = await connect({
-          servers: `localhost:${info.port}`,
-          inboxPrefix,
-        });
-        const client = createClient<typeof authContract.API.owned>(
-          authContract,
-          nc,
-          auth,
-          { name: "client-retry" },
-        );
-
-        const response = await waitFor<{ user: { id: string } | null }>(
-          async () => {
-            const r = await client.request("Auth.Me", {}, { timeout: 500 });
-            const v = r.take();
-            if (isErr(v)) return null;
-            return v;
-          },
-          {
-            description:
-              "Me responder ready after transient auth validation miss",
-          },
-        );
-
-        assertEquals(response.user?.id, TEST_USER.id);
-        assertEquals(validateCalls, 2);
-        await nc.close();
-      },
-    );
 
     await t.step(
       "requestOrThrow unwraps successful RPC responses",
@@ -678,6 +608,8 @@ Deno.test({
               ...(ctx.caller.image ? { image: ctx.caller.image } : {}),
               capabilities: ctx.caller.capabilities ?? [],
             },
+            device: null,
+            service: null,
           });
         });
 
@@ -706,6 +638,93 @@ Deno.test({
         await nc.close();
       },
     );
+  },
+});
+
+Deno.test({
+  name: "Full RPC retries transient session_not_found during auth validation",
+  ignore: !RUN_NATS_TESTS,
+  async fn() {
+    await using nats = await NatsTest.start();
+
+    const meService = createClient<typeof authContract.API.owned>(
+      authContract,
+      nats.nc,
+      { sessionKey: "service-retry", sign: () => new Uint8Array(64) },
+      { name: "me-service-retry" },
+    );
+    const authService = createClient<typeof authContract.API.owned>(
+      authContract,
+      nats.nc,
+      { sessionKey: "auth-retry", sign: () => new Uint8Array(64) },
+      { name: "auth-service-retry" },
+    );
+
+    let validateCalls = 0;
+    await authService.mount(
+      "Auth.ValidateRequest",
+      async (input: unknown) => {
+        const authInput = input as { sessionKey: string };
+        validateCalls += 1;
+        if (validateCalls === 1) {
+          return err(new AuthError({ reason: "session_not_found" }));
+        }
+        return ok({
+          allowed: true,
+          inboxPrefix: `_INBOX.${authInput.sessionKey.slice(0, 16)}`,
+          caller: TEST_CALLER,
+        });
+      },
+    );
+
+    await meService.mount("Auth.Me", async (_input, ctx) => {
+      if (ctx.caller.type !== "user") {
+        throw new Error("expected user caller");
+      }
+      return ok({
+        user: {
+          id: ctx.caller.id,
+          origin: ctx.caller.origin ?? "",
+          active: ctx.caller.active ?? true,
+          name: ctx.caller.name ?? "",
+          email: ctx.caller.email ?? "",
+          ...(ctx.caller.image ? { image: ctx.caller.image } : {}),
+          capabilities: ctx.caller.capabilities ?? [],
+        },
+        device: null,
+        service: null,
+      });
+    });
+
+    const { auth, inboxPrefix } = await createTestAuth();
+    const info = nats.nc.info!;
+    const nc = await connect({
+      servers: `localhost:${info.port}`,
+      inboxPrefix,
+    });
+    const client = createClient<typeof authContract.API.owned>(
+      authContract,
+      nc,
+      auth,
+      { name: "client-retry" },
+    );
+
+    const response = await waitFor<{ user: { id: string } | null }>(
+      async () => {
+        const r = await client.request("Auth.Me", {}, { timeout: 500 });
+        const v = r.take();
+        if (isErr(v)) return null;
+        return v;
+      },
+      {
+        description:
+          "Me responder ready after transient auth validation miss",
+      },
+    );
+
+    assertEquals(response.user?.id, TEST_USER.id);
+    assertEquals(validateCalls, 2);
+    await nc.close();
   },
 });
 

@@ -136,8 +136,8 @@ Rules:
   normal app code
 - service handlers mounted from contract-owned RPCs receive typed payloads from
   Trellis and may return either `Result` or `Promise<Result>`
-- upload/download transfer execution is initiated by contract-owned RPCs and
-  completed through `trellis.transfer(grant)`
+- transfer execution belongs to transfer-capable operations and is initiated by
+  `op.transfer(body | stream)`
 - both sides use explicit `Result` conventions rather than exception-driven
   remote error handling
 
@@ -149,11 +149,12 @@ Rules:
 
 - service code should use `service.kv`, `service.store`, and `service.jobs`
   rather than a nested `service.resources.*` runtime shape
-- file-transfer session helpers belong on the server runtime surface as
-  `service.transfer`
+- transfer-aware operation contexts belong on the server runtime surface for
+  transfer-capable operations
 - extracted service RPC handler aliases that need service-only helpers belong on
   `@qlever-llc/trellis/host*`, not the browser-safe root package, so handler
-  parameters can expose `service.kv`, `service.store`, and `service.transfer`
+  parameters can expose `service.kv`, `service.store`, and transfer-aware
+  operation contexts
 
 ## `@qlever-llc/trellis-sdk` and `@qlever-llc/trellis-sdk/*`
 

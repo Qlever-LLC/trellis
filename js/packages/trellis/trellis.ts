@@ -53,6 +53,7 @@ import {
   parseUnknownSchema,
 } from "./codec.ts";
 import {
+  TransferError,
   AuthError,
   BUILTIN_RPC_ERRORS,
   getBuiltinRpcError,
@@ -73,11 +74,10 @@ import {
 } from "./operations.ts";
 import {
   createTransferHandle,
-  type DownloadTransferGrant,
-  type DownloadTransferHandle,
+  type FileInfo,
+  type TransferBody,
   type TransferGrant,
   type UploadTransferGrant,
-  type UploadTransferHandle,
 } from "./transfer.ts";
 import { TrellisTasks } from "./tasks.ts";
 
@@ -334,29 +334,42 @@ export type AcceptedOperation<TProgress = unknown, TOutput = unknown> =
       output?: TOutput;
     };
   };
+export type OperationTransferHandle = {
+  updates(): AsyncIterable<RuntimeOperationTransferProgress>;
+  completed(): Promise<Result<FileInfo, TransferError>>;
+};
 export type OperationHandlerContext<
   TInput,
   TProgress = unknown,
   TOutput = unknown,
+  TTransfer = undefined,
 > = {
   input: TInput;
   op: OperationRuntimeHandle<TProgress, TOutput>;
   caller: SessionCaller;
-};
+} & (TTransfer extends undefined ? {} : { transfer: TTransfer });
 export type OperationRegistration<
   TInput,
   TProgress = unknown,
   TOutput = unknown,
+  TTransfer = undefined,
 > = {
   accept(args: {
     sessionKey: string;
   }): Promise<Result<AcceptedOperation<TProgress, TOutput>, UnexpectedError>>;
   handle(
     handler: (
-      context: OperationHandlerContext<TInput, TProgress, TOutput>,
+      context: OperationHandlerContext<TInput, TProgress, TOutput, TTransfer>,
     ) => unknown | Promise<unknown>,
   ): Promise<void>;
 };
+export type OperationTransferContextOf<
+  TA extends AnyTrellisAPI,
+  O extends OperationsOf<TA>,
+> = TA["operations"][O] extends { transfer: infer TTransfer }
+  ? TTransfer extends undefined ? undefined
+  : OperationTransferHandle
+  : undefined;
 export type OperationSurface<
   TA extends AnyTrellisAPI,
   TMode extends TrellisMode,
@@ -364,7 +377,8 @@ export type OperationSurface<
 > = TMode extends "server" ? OperationRegistration<
     OperationInputOf<TA, O>,
     OperationProgressOf<TA, O>,
-    OperationOutputOf<TA, O>
+    OperationOutputOf<TA, O>,
+    OperationTransferContextOf<TA, O>
   >
   : OperationInvoker<TA["operations"][O] & RuntimeOperationDesc>;
 
@@ -378,7 +392,21 @@ export type RuntimeOperationDesc = {
   input: unknown;
   progress?: unknown;
   output?: unknown;
+  transfer?: {
+    store: string;
+    key: `/${string}`;
+    contentType?: `/${string}`;
+    metadata?: `/${string}`;
+    expiresInMs?: number;
+    maxBytes?: number;
+  };
   cancel?: boolean;
+};
+
+export type RuntimeOperationTransferProgress = {
+  chunkIndex: number;
+  chunkBytes: number;
+  transferredBytes: number;
 };
 
 export type RuntimeOperationState =
@@ -398,6 +426,7 @@ export type RuntimeOperationSnapshot = {
   updatedAt: string;
   completedAt?: string;
   progress?: unknown;
+  transfer?: RuntimeOperationTransferProgress;
   output?: unknown;
   error?: {
     type: string;
@@ -439,6 +468,11 @@ const DurableOperationSnapshotSchema = Type.Object({
   updatedAt: Type.String(),
   completedAt: Type.Optional(Type.String()),
   progress: Type.Optional(Type.Any()),
+  transfer: Type.Optional(Type.Object({
+    chunkIndex: Type.Number(),
+    chunkBytes: Type.Number(),
+    transferredBytes: Type.Number(),
+  })),
   output: Type.Optional(Type.Any()),
   error: Type.Optional(Type.Object({
     type: Type.String(),
@@ -456,6 +490,7 @@ export type RuntimeOperationAcceptedEnvelope = {
   kind: "accepted";
   ref: OperationRefData;
   snapshot: RuntimeOperationSnapshot;
+  transfer?: UploadTransferGrant;
 };
 
 export type RuntimeOperationControlRequest = {
@@ -513,6 +548,11 @@ export function buildRuntimeOperationSnapshot(
       ? { progress: patch.progress }
       : runtime.snapshot.progress !== undefined
       ? { progress: runtime.snapshot.progress }
+      : {}),
+    ...(patch?.transfer !== undefined
+      ? { transfer: patch.transfer }
+      : runtime.snapshot.transfer !== undefined
+      ? { transfer: runtime.snapshot.transfer }
       : {}),
     ...(patch?.output !== undefined
       ? { output: patch.output }
@@ -806,14 +846,6 @@ export class Trellis<
    */
   get natsConnection(): NatsConnection {
     return this.nats;
-  }
-
-  transfer(grant: UploadTransferGrant): UploadTransferHandle;
-  transfer(grant: DownloadTransferGrant): DownloadTransferHandle;
-  transfer(
-    grant: TransferGrant,
-  ): UploadTransferHandle | DownloadTransferHandle {
-    return createTransferHandle(this.nats, this.auth, this.timeout, grant);
   }
 
   #unknownApiError(
@@ -1116,6 +1148,19 @@ export class Trellis<
       requestJson: (subject, body) =>
         this.#requestJson(subject, body as JsonValue),
       watchJson: (subject, body) => this.#watchJson(subject, body as JsonValue),
+      putTransfer: async (
+        grant: UploadTransferGrant,
+        body: TransferBody,
+      ): Promise<Result<FileInfo, TransferError>> => {
+        const handle = createTransferHandle(this.nats, this.auth, this.timeout, grant);
+        if (!(handle instanceof Object) || !("put" in handle)) {
+          return err(new TransferError({
+            operation: "transfer",
+            context: { reason: "invalid_operation_transfer_grant" },
+          }));
+        }
+        return await handle.put(body);
+      },
     };
 
     return new OperationInvoker(

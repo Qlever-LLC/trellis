@@ -1,13 +1,25 @@
+import { type Authenticator } from "@nats-io/nats-core";
+import { Buffer } from "node:buffer";
+import { createHash, createPrivateKey, sign as signBytesSync } from "node:crypto";
+
 import {
   importEd25519PrivateKeyFromSeedBase64url,
+  pkcs8FromEd25519Seed,
   publicKeyBase64urlFromPrivateKey,
 } from "./keys.ts";
 import { createProof } from "./proof.ts";
-import { base64urlEncode, canonicalizeJsonValue, sha256, toArrayBuffer, utf8 } from "./utils.ts";
+import {
+  base64urlDecode,
+  base64urlEncode,
+  canonicalizeJsonValue,
+  sha256,
+  toArrayBuffer,
+  utf8,
+} from "./utils.ts";
 import type { NatsAuthTokenV1 } from "./types.ts";
 
 export type NatsConnectOptions = {
-  token: string;
+  authenticator: Authenticator;
   inboxPrefix: string;
 };
 
@@ -21,15 +33,20 @@ export type TrellisAuth = {
   natsConnectSigForIat: (iat: number) => Promise<string>;
 
   createProof: (subject: string, payloadHash: Uint8Array) => Promise<string>;
-  createNatsAuthTokenForService: (iat: number) => Promise<NatsAuthTokenV1>;
   natsConnectOptions: () => Promise<NatsConnectOptions>;
 };
 
 export async function createAuth(
   opts: { sessionKeySeed: string },
 ): Promise<TrellisAuth> {
+  const seed = base64urlDecode(opts.sessionKeySeed);
   const privateKey = await importEd25519PrivateKeyFromSeedBase64url(opts.sessionKeySeed);
   const sessionKey = await publicKeyBase64urlFromPrivateKey(privateKey);
+  const reconnectKey = createPrivateKey({
+    key: Buffer.from(pkcs8FromEd25519Seed(seed)),
+    format: "der",
+    type: "pkcs8",
+  });
 
   const sign = async (data: Uint8Array): Promise<Uint8Array> => {
     const sig = await crypto.subtle.sign(
@@ -51,6 +68,17 @@ export async function createAuth(
     return await signDomainHash("oauth-init", `${redirectTo}:${canonicalContext}`);
   };
 
+  const buildServiceNatsAuthToken = (iat: number): NatsAuthTokenV1 => {
+    const digest = createHash("sha256").update(`nats-connect:${iat}`, "utf8").digest();
+    const sig = signBytesSync(null, digest, reconnectKey);
+    return {
+      v: 1,
+      sessionKey,
+      iat,
+      sig: base64urlEncode(new Uint8Array(sig)),
+    };
+  };
+
   return {
     sessionKey,
     sign,
@@ -61,16 +89,12 @@ export async function createAuth(
     natsConnectSigForIat: (iat) => signDomainHash("nats-connect", String(iat)),
     createProof: (subject, payloadHash) =>
       createProof(privateKey, { sessionKey, subject, payloadHash }),
-    createNatsAuthTokenForService: async (iat) => {
-      const sig = await signDomainHash("nats-connect", String(iat));
-      return { v: 1, sessionKey, iat, sig };
-    },
     natsConnectOptions: async () => {
-      const iat = Math.floor(Date.now() / 1000);
-      const sig = await signDomainHash("nats-connect", String(iat));
-      const authToken: NatsAuthTokenV1 = { v: 1, sessionKey, iat, sig };
       return {
-        token: JSON.stringify(authToken),
+        authenticator: () => {
+          const authToken = buildServiceNatsAuthToken(Math.floor(Date.now() / 1000));
+          return { auth_token: JSON.stringify(authToken) };
+        },
         inboxPrefix: `_INBOX.${sessionKey.slice(0, 16)}`,
       };
     },

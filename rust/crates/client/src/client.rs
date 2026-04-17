@@ -9,6 +9,7 @@ use tokio::time::timeout;
 
 use crate::operations::{OperationDescriptor, OperationInvoker, OperationTransport};
 use crate::proof::now_iat_seconds;
+use crate::transfer::{put_upload_grant, FileInfo, UploadTransferGrant};
 use crate::{EventDescriptor, RpcDescriptor, SessionAuth, TrellisClientError};
 
 /// Connection options for a Trellis service/session-key principal.
@@ -235,6 +236,14 @@ impl OperationTransport for TrellisClient {
         });
 
         Ok(Box::pin(stream) as BoxStream<'a, Result<Value, TrellisClientError>>)
+    }
+
+    async fn put_upload_transfer<'a>(
+        &'a self,
+        grant: UploadTransferGrant,
+        body: Vec<u8>,
+    ) -> Result<FileInfo, TrellisClientError> {
+        put_upload_grant(self, &grant, body).await
     }
 }
 

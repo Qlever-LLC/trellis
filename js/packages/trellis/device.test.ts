@@ -28,6 +28,14 @@ const testContract = {
   },
 };
 
+function authenticatorsFromValue(value: unknown): Array<(...args: unknown[]) => unknown> {
+  if (typeof value === "function") return [value as (...args: unknown[]) => unknown];
+  if (Array.isArray(value) && value.every((entry) => typeof entry === "function")) {
+    return value as Array<(...args: unknown[]) => unknown>;
+  }
+  return [];
+}
+
 Deno.test("connectDeviceWithDeps requires an activation handler when activation is needed", async () => {
   const originalFetch = globalThis.fetch;
 
@@ -144,7 +152,13 @@ Deno.test("connectDeviceWithDeps supports offline confirmation before reconnect"
       }, {
         loadTransport: async () => ({
           connect: async (options): Promise<NatsConnection> => {
-            lastToken = String(options.token ?? "");
+            const auth = authenticatorsFromValue(options.authenticator)[0]?.();
+            if (auth && typeof auth === "object") {
+              const record = auth as { auth_token?: unknown };
+              if (typeof record.auth_token === "string") {
+                lastToken = record.auth_token;
+              }
+            }
             throw new Error("stop-after-token");
           },
         }),

@@ -30,9 +30,9 @@ trellis service upgrade --service-key <service-key> --source ../demos/js/service
 deno task -c demos/js/device/demo/deno.json start -- http://localhost:3000 "<root-secret>" /path/to/file.txt
 ```
 
-After connecting, the device uploads the file to the demo service, which starts
-the `Demo.Files.Process` operation and writes the staged object to `/tmp` from a
-jobs worker.
+After connecting, the device starts the `Demo.Files.Upload` operation, transfers
+the file through `op.transfer(...)`, and watches both transfer progress and the
+final operation result while the service writes the staged object to `/tmp`.
 
 Optional offline activation:
 

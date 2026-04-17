@@ -91,6 +91,14 @@ export type OperationDesc<
   input: I;
   progress?: P;
   output?: O;
+  transfer?: {
+    store: string;
+    key: `/${string}`;
+    contentType?: `/${string}`;
+    metadata?: `/${string}`;
+    expiresInMs?: number;
+    maxBytes?: number;
+  };
   callerCapabilities: readonly string[];
   readCapabilities: readonly string[];
   cancelCapabilities: readonly string[];

@@ -1,15 +1,19 @@
-import { jwtAuthenticator, type NatsConnection } from "@nats-io/nats-core";
+import { jwtAuthenticator, type Authenticator, type NatsConnection } from "@nats-io/nats-core";
+import { Buffer } from "node:buffer";
+import { createHash, createPrivateKey, sign as signBytesSync } from "node:crypto";
 
 import {
   buildDeviceActivationPayload,
-  createDeviceNatsAuthToken,
   deriveDeviceIdentity,
   signDeviceWaitRequest,
   startDeviceActivationRequest,
   verifyDeviceConfirmationCode,
   waitForDeviceActivation,
 } from "./auth/device_activation.ts";
-import { importEd25519PrivateKeyFromSeedBase64url } from "./auth/keys.ts";
+import {
+  importEd25519PrivateKeyFromSeedBase64url,
+  pkcs8FromEd25519Seed,
+} from "./auth/keys.ts";
 import { base64urlDecode, base64urlEncode, toArrayBuffer } from "./auth/utils.ts";
 import type { TrellisAPI } from "./contracts.ts";
 import { loadDefaultRuntimeTransport } from "./runtime_transport.ts";
@@ -122,6 +126,34 @@ function normalizeRootSecret(rootSecret: Uint8Array | string): Uint8Array {
 async function signIdentityBytes(identitySeed: Uint8Array, data: Uint8Array): Promise<Uint8Array> {
   const privateKey = await importEd25519PrivateKeyFromSeedBase64url(base64urlEncode(identitySeed));
   return new Uint8Array(await crypto.subtle.sign("Ed25519", privateKey, toArrayBuffer(data)));
+}
+
+function createDeviceNatsAuthTokenAuthenticator(args: {
+  publicIdentityKey: string;
+  identitySeed: Uint8Array;
+  contractDigest: string;
+  now: () => number;
+}): Authenticator {
+  const reconnectKey = createPrivateKey({
+    key: Buffer.from(pkcs8FromEd25519Seed(args.identitySeed)),
+    format: "der",
+    type: "pkcs8",
+  });
+
+  return () => {
+    const iat = Math.floor(args.now() / 1_000);
+    const digest = createHash("sha256").update(`nats-connect:${iat}`, "utf8").digest();
+    const sig = signBytesSync(null, digest, reconnectKey);
+    return {
+      auth_token: JSON.stringify({
+        v: 1,
+        sessionKey: args.publicIdentityKey,
+        iat,
+        sig: base64urlEncode(new Uint8Array(sig)),
+        contractDigest: args.contractDigest,
+      }),
+    };
+  };
 }
 
 const defaultDeps: DeviceConnectDeps = {
@@ -272,21 +304,21 @@ export async function connectDeviceWithDeps<TApi extends TrellisAPI>(
   }
 
   const transport = await deps.loadTransport();
-  const iat = Math.floor(deps.now() / 1_000);
-  const authToken = await createDeviceNatsAuthToken({
-    publicIdentityKey: identity.publicIdentityKey,
-    identitySeed: identity.identitySeed,
-    contractDigest,
-    iat,
-  });
   const nc = await transport.connect({
     servers: selectRuntimeTransportServers(connectInfo.transports),
-    token: JSON.stringify(authToken),
     inboxPrefix: `_INBOX.${identity.publicIdentityKey.slice(0, 16)}`,
-    authenticator: jwtAuthenticator(
-      connectInfo.transport.sentinel.jwt,
-      new TextEncoder().encode(connectInfo.transport.sentinel.seed),
-    ),
+    authenticator: [
+      createDeviceNatsAuthTokenAuthenticator({
+        publicIdentityKey: identity.publicIdentityKey,
+        identitySeed: identity.identitySeed,
+        contractDigest,
+        now: deps.now,
+      }),
+      jwtAuthenticator(
+        connectInfo.transport.sentinel.jwt,
+        new TextEncoder().encode(connectInfo.transport.sentinel.seed),
+      ),
+    ],
   });
 
   const trellis = new Trellis<TApi>(

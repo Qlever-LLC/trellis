@@ -153,6 +153,14 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function authenticatorsFromValue(value: unknown): Array<(...args: unknown[]) => unknown> {
+  if (typeof value === "function") return [value as (...args: unknown[]) => unknown];
+  if (Array.isArray(value) && value.every((entry) => typeof entry === "function")) {
+    return value as Array<(...args: unknown[]) => unknown>;
+  }
+  return [];
+}
+
 const logDisabledOk: NonNullable<
   TrellisServiceConnectArgs<typeof core>["server"]
 > = {
@@ -179,12 +187,21 @@ Deno.test("TrellisService.connect uses bootstrap response transport details", as
   const originalFetch = globalThis.fetch;
   let connectServers = "";
   let connectToken = "";
+  let authenticatorCount = 0;
 
   const fakeConnect: NatsConnectFn = async (opts) => {
     connectServers = Array.isArray(opts.servers)
       ? opts.servers.join(",")
       : opts.servers;
-    connectToken = String(opts.token ?? "");
+    const authenticators = authenticatorsFromValue(opts.authenticator);
+    authenticatorCount = authenticators.length;
+    const auth = authenticators[0]?.();
+    if (auth && typeof auth === "object") {
+      const record = auth as { auth_token?: unknown };
+      if (typeof record.auth_token === "string") {
+        connectToken = record.auth_token;
+      }
+    }
     throw new Error("stop-after-connect");
   };
 
@@ -254,6 +271,7 @@ Deno.test("TrellisService.connect uses bootstrap response transport details", as
 
     assertEquals(connectServers, "nats://127.0.0.1:4222");
     assertEquals(connectToken.includes('"sessionKey":"'), true);
+    assertEquals(authenticatorCount, 2);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -403,7 +421,11 @@ Deno.test("TrellisService.connectInternal defaults to the server logger", async 
     connect: async () => createFakeNatsConnection(),
   });
 
-  assertEquals(service.name, "svc");
+  try {
+    assertEquals(service.name, "svc");
+  } finally {
+    await service.stop();
+  }
 });
 
 Deno.test("TrellisService mount passes kv and store to handlers", async () => {

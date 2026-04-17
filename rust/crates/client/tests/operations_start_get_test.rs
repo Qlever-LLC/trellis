@@ -6,8 +6,8 @@ use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use trellis_client::{
-    control_subject, OperationDescriptor, OperationEvent, OperationState, OperationTransport,
-    TrellisClientError,
+    control_subject, FileInfo, OperationDescriptor, OperationEvent, OperationState,
+    OperationTransport, TrellisClientError, UploadTransferGrant,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -106,6 +106,23 @@ impl OperationTransport for FakeTransport {
             Ok(Box::pin(stream::iter(frames)) as BoxStream<'a, Result<Value, TrellisClientError>>)
         }
     }
+
+    fn put_upload_transfer<'a>(
+        &'a self,
+        _grant: UploadTransferGrant,
+        _body: Vec<u8>,
+    ) -> impl Future<Output = Result<FileInfo, TrellisClientError>> + Send + 'a {
+        async move {
+            Ok(FileInfo {
+                key: "incoming/test.txt".to_string(),
+                size: 11,
+                updated_at: "2026-01-01T00:00:00.000Z".to_string(),
+                digest: None,
+                content_type: None,
+                metadata: Default::default(),
+            })
+        }
+    }
 }
 
 #[tokio::test]
@@ -142,6 +159,47 @@ async fn start_returns_operation_ref_from_accepted_envelope() {
             json!({ "charge_id": "ch_123" }),
         )]
     );
+}
+
+#[tokio::test]
+async fn operation_ref_transfer_uses_the_accepted_transfer_session() {
+    let transport = FakeTransport::new(vec![json!({
+        "kind": "accepted",
+        "ref": {
+            "id": "op_123",
+            "service": "billing",
+            "operation": "Billing.Refund"
+        },
+        "snapshot": {
+            "revision": 1,
+            "state": "pending"
+        },
+        "transfer": {
+            "type": "TransferGrant",
+            "kind": "upload",
+            "service": "billing",
+            "sessionKey": "session-key",
+            "transferId": "tx1",
+            "subject": "transfer.v1.upload.test.tx1",
+            "expiresAt": "2099-01-01T00:00:00.000Z",
+            "chunkBytes": 6
+        }
+    })]);
+
+    let operation = trellis_client::OperationInvoker::<_, RefundOperation>::new(&transport);
+    let reference = operation
+        .start(&RefundInput {
+            charge_id: "ch_123".to_string(),
+        })
+        .await
+        .expect("start should succeed");
+
+    let uploaded = reference
+        .transfer("hello world".as_bytes())
+        .await
+        .expect("transfer succeeds");
+    assert_eq!(uploaded.key, "incoming/test.txt");
+    assert_eq!(uploaded.size, 11);
 }
 
 #[tokio::test]

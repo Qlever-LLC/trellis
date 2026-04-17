@@ -444,6 +444,37 @@
         "output": {
           "$ref": "#/$defs/schemaRef"
         },
+        "transfer": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["store", "key"],
+          "properties": {
+            "store": {
+              "type": "string",
+              "minLength": 1
+            },
+            "key": {
+              "type": "string",
+              "pattern": "^/.*"
+            },
+            "contentType": {
+              "type": "string",
+              "pattern": "^/.*"
+            },
+            "metadata": {
+              "type": "string",
+              "pattern": "^/.*"
+            },
+            "expiresInMs": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "maxBytes": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
         "capabilities": {
           "type": "object",
           "additionalProperties": false,

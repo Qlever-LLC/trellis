@@ -22,6 +22,7 @@ It defines only the language-facing surface. Internal wire envelopes, reply-subj
 
 - callers start operations with `operation(key).start(input)`
 - callers observe work through `OperationRef`
+- transfer-capable operations expose `op.transfer(body | stream)`
 - owning services register handlers with `service.operation(key).handle(...)`
 - public TypeScript APIs use `Result` / `AsyncResult` for expected failures
 - public APIs do not expose hidden control subjects or runtime control envelopes
@@ -66,6 +67,7 @@ type OperationRef<
   get(): Promise<Result<OperationSnapshot<TProgress, TOutput>, BaseError>>;
   wait(): Promise<Result<TerminalOperation<TProgress, TOutput>, BaseError>>;
   watch(): Promise<Result<AsyncIterable<OperationEvent<TProgress, TOutput>>, BaseError>>;
+  transfer?: (body: TransferBody) => Promise<Result<FileInfo, TransferError>>;
 } & (TCancelable extends true
   ? {
       cancel(): Promise<Result<OperationSnapshot<TProgress, TOutput>, BaseError>>;
@@ -87,16 +89,21 @@ if (started.isErr()) {
 
 const op = started.value;
 const snapshot = await op.get();
-const terminal = await op.wait();
 const watch = await op.watch();
 
 if (watch.isOk()) {
   for await (const event of watch.value) {
+    if (event.type === "transfer") {
+      console.log(event.transfer.transferredBytes);
+    }
     if (event.type === "progress") {
       console.log(event.snapshot.progress);
     }
   }
 }
+
+const transferred = await op.transfer?.(fileBytes);
+const terminal = await op.wait();
 ```
 
 ## Service-Owned Surface
@@ -127,6 +134,10 @@ type OperationDefinition<
       input: TInput;
       op: ActiveOperation<TProgress, TOutput, TCancelable>;
       caller: SessionUser;
+      transfer?: {
+        updates(): AsyncIterable<OperationTransferProgress>;
+        completed(): Promise<Result<FileInfo, TransferError>>;
+      };
     }) => Promise<Result<TOutput, BaseError>>,
   ): Promise<void>;
 };
@@ -163,38 +174,25 @@ type AcceptedOperation<
 Example:
 
 ```ts
-await service.operation("Billing.Refund").handle(async ({ input, op }) => {
-  const started = await op.started();
-  if (started.isErr()) {
-    return Result.err(started.error);
+await service.operation("Documents.Files.Upload").handle(async ({ input, op, transfer }) => {
+  const transferred = await transfer.completed();
+  if (transferred.isErr()) {
+    return Result.err(transferred.error);
   }
 
   const progress = await op.progress({
-    step: "processor",
-    message: "Submitting refund",
+    step: "stored",
+    message: `Stored ${transferred.value.size} bytes`,
   });
   if (progress.isErr()) {
     return Result.err(progress.error);
   }
 
-  const created = await service.jobs.refundCharge.create({
-    operationId: op.id,
-    chargeId: input.chargeId,
-    amount: input.amount,
+  return Result.ok({
+    key: input.key,
+    size: transferred.value.size,
   });
-  if (created.isErr()) {
-    return Result.err(created.error);
-  }
-
-  return await op.attach(created.value);
 });
-
-const accepted = await service.operation("Billing.Refund").accept({
-  sessionKey: callerSessionKey,
-});
-if (accepted.isOk()) {
-  await accepted.value.started();
-}
 ```
 
 ## Shared Types
@@ -216,6 +214,11 @@ type OperationSnapshot<TProgress, TOutput> = {
   updatedAt: string;
   completedAt?: string;
   progress?: TProgress;
+  transfer?: {
+    chunkIndex: number;
+    chunkBytes: number;
+    transferredBytes: number;
+  };
   output?: TOutput;
   error?: {
     type: string;
@@ -230,6 +233,15 @@ type TerminalOperation<TProgress, TOutput> = OperationSnapshot<TProgress, TOutpu
 type OperationEvent<TProgress, TOutput> =
   | { type: "accepted"; snapshot: OperationSnapshot<TProgress, TOutput> }
   | { type: "started"; snapshot: OperationSnapshot<TProgress, TOutput> }
+  | {
+      type: "transfer";
+      snapshot: OperationSnapshot<TProgress, TOutput>;
+      transfer: {
+        chunkIndex: number;
+        chunkBytes: number;
+        transferredBytes: number;
+      };
+    }
   | { type: "progress"; snapshot: OperationSnapshot<TProgress, TOutput> }
   | { type: "completed"; snapshot: TerminalOperation<TProgress, TOutput> }
   | { type: "failed"; snapshot: TerminalOperation<TProgress, TOutput> }
@@ -240,9 +252,11 @@ type OperationEvent<TProgress, TOutput> =
 
 - generated runtimes MUST expose one typed `operation(key)` helper per owned or used operation surface
 - generated runtimes MUST expose `resume(ref)` so callers can bind behavior to an operation reference that was returned from another contract-owned API such as an RPC
+- generated runtimes MUST expose `transfer(body | stream)` on operation refs when the contract operation declares transfer support
 - generated runtimes MUST derive `OperationInputOf`, `OperationProgressOf`, `OperationOutputOf`, and `OperationCancelableOf` from the contract
 - generated runtimes MUST hide internal control envelopes and caller reply subjects
-- generated service runtimes MUST expose `accept(...)` so service code can create durable operation refs from other owned entrypoints such as RPCs or transfer callbacks
+- generated service runtimes MUST expose provider-side `transfer.updates()` and `transfer.completed()` when the contract operation declares transfer support
+- generated service runtimes MAY expose `accept(...)` for non-transfer operations started from other owned entrypoints
 - generated runtimes SHOULD omit `cancel()` from non-cancelable operation handles rather than exposing a method that always fails
 - generated runtimes MUST preserve Trellis `Result` conventions for expected remote failures
 

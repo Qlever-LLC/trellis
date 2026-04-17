@@ -2,7 +2,11 @@ import { isErr, Result, type Result as ResultType } from "@qlever-llc/result";
 import { headers as natsHeaders, type Msg, type NatsConnection, type Subscription } from "@nats-io/nats-core";
 import { ulid } from "ulid";
 
-import type { TrellisAuth } from "../trellis.ts";
+import type {
+  OperationTransferHandle,
+  RuntimeOperationTransferProgress,
+  TrellisAuth,
+} from "../trellis.ts";
 import type { StoreError } from "../errors/StoreError.ts";
 import { TransferError } from "../errors/TransferError.ts";
 import { type StoreInfo, TypedStore, TypedStoreEntry } from "../store.ts";
@@ -31,7 +35,17 @@ export type InitiateUploadArgs = {
   maxBytes?: number;
   contentType?: string;
   metadata?: Record<string, string>;
+  onProgress?: (
+    progress: RuntimeOperationTransferProgress,
+  ) => Promise<void> | void;
+  onComplete?: (info: FileInfo) => Promise<void> | void;
+  onError?: (error: TransferError) => Promise<void> | void;
   onStored?: (stored: StoredTransfer) => Promise<void> | void;
+};
+
+export type OperationUploadTransfer = {
+  grant: UploadTransferGrant;
+  transfer: OperationTransferHandle;
 };
 
 export type InitiateDownloadArgs = {
@@ -68,6 +82,11 @@ type UploadSession = {
   maxBytes?: number;
   contentType?: string;
   metadata?: Record<string, string>;
+  onProgress?: (
+    progress: RuntimeOperationTransferProgress,
+  ) => Promise<void> | void;
+  onComplete?: (info: FileInfo) => Promise<void> | void;
+  onError?: (error: TransferError) => Promise<void> | void;
   onStored?: (stored: StoredTransfer) => Promise<void> | void;
   subscription: Subscription;
   timeoutId: ReturnType<typeof setTimeout>;
@@ -98,6 +117,112 @@ function effectiveUploadMaxBytes(argsMaxBytes?: number, storeMaxObjectBytes?: nu
     return argsMaxBytes;
   }
   return Math.min(argsMaxBytes, storeMaxObjectBytes);
+}
+
+function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
+class AsyncValueQueue<T> implements AsyncIterable<T> {
+  #values: T[] = [];
+  #resolvers: Array<(result: IteratorResult<T>) => void> = [];
+  #closed = false;
+
+  push(value: T): void {
+    if (this.#closed) {
+      return;
+    }
+
+    const resolver = this.#resolvers.shift();
+    if (resolver) {
+      resolver({ value, done: false });
+      return;
+    }
+
+    this.#values.push(value);
+  }
+
+  close(): void {
+    if (this.#closed) {
+      return;
+    }
+    this.#closed = true;
+    while (this.#resolvers.length > 0) {
+      const resolver = this.#resolvers.shift();
+      resolver?.({ value: undefined as T, done: true });
+    }
+  }
+
+  [Symbol.asyncIterator](): AsyncIterator<T> {
+    return {
+      next: async (): Promise<IteratorResult<T>> => {
+        const value = this.#values.shift();
+        if (value !== undefined) {
+          return { value, done: false };
+        }
+        if (this.#closed) {
+          return { value: undefined as T, done: true };
+        }
+        return await new Promise<IteratorResult<T>>((resolve) => {
+          this.#resolvers.push(resolve);
+        });
+      },
+    };
+  }
+}
+
+class AsyncValueBroadcaster<T> {
+  #subscribers = new Set<AsyncValueQueue<T>>();
+  #closed = false;
+
+  push(value: T): void {
+    if (this.#closed) {
+      return;
+    }
+
+    for (const subscriber of this.#subscribers) {
+      subscriber.push(value);
+    }
+  }
+
+  close(): void {
+    if (this.#closed) {
+      return;
+    }
+
+    this.#closed = true;
+    for (const subscriber of this.#subscribers) {
+      subscriber.close();
+    }
+    this.#subscribers.clear();
+  }
+
+  subscribe(): AsyncIterable<T> {
+    const subscriber = new AsyncValueQueue<T>();
+    if (this.#closed) {
+      subscriber.close();
+    } else {
+      this.#subscribers.add(subscriber);
+    }
+
+    const subscribers = this.#subscribers;
+
+    return {
+      async *[Symbol.asyncIterator]() {
+        try {
+          for await (const value of subscriber) {
+            yield value;
+          }
+        } finally {
+          subscribers.delete(subscriber);
+        }
+      },
+    };
+  }
 }
 
 class AsyncChunkQueue implements AsyncIterable<Uint8Array> {
@@ -267,6 +392,9 @@ export class ServiceTransfer {
       ...(maxBytes !== undefined ? { maxBytes } : {}),
       ...(args.contentType ? { contentType: args.contentType } : {}),
       ...(args.metadata ? { metadata: args.metadata } : {}),
+      ...(args.onProgress ? { onProgress: args.onProgress } : {}),
+      ...(args.onComplete ? { onComplete: args.onComplete } : {}),
+      ...(args.onError ? { onError: args.onError } : {}),
       ...(args.onStored ? { onStored: args.onStored } : {}),
       subscription,
       timeoutId: setTimeout(() => this.#expireUploadSession(subject), args.expiresInMs),
@@ -291,6 +419,51 @@ export class ServiceTransfer {
       ...(maxBytes !== undefined ? { maxBytes } : {}),
       ...(args.contentType ? { contentType: args.contentType } : {}),
       ...(args.metadata ? { metadata: args.metadata } : {}),
+    });
+  }
+
+  async createOperationUpload(args: InitiateUploadArgs): Promise<ResultType<OperationUploadTransfer, TransferError>> {
+    const updates = new AsyncValueBroadcaster<RuntimeOperationTransferProgress>();
+    const completed = deferred<ResultType<FileInfo, TransferError>>();
+    let settled = false;
+    const settle = (value: ResultType<FileInfo, TransferError>) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      updates.close();
+      completed.resolve(value);
+    };
+
+    const grant = await this.initiateUpload({
+      ...args,
+      onProgress: async (progress) => {
+        updates.push(progress);
+        await args.onProgress?.(progress);
+      },
+      onComplete: async (info) => {
+        await args.onComplete?.(info);
+        settle(Result.ok(info));
+      },
+      onError: async (error) => {
+        await args.onError?.(error);
+        settle(Result.err(error));
+      },
+      onStored: async (stored) => {
+        await args.onStored?.(stored);
+      },
+    });
+    const grantValue = grant.take();
+    if (isErr(grantValue)) {
+      return Result.err(grantValue.error);
+    }
+
+    return Result.ok({
+      grant: grantValue,
+      transfer: {
+        updates: () => updates.subscribe(),
+        completed: async () => await completed.promise,
+      },
     });
   }
 
@@ -378,8 +551,9 @@ export class ServiceTransfer {
 
   async #handleUploadMessage(session: UploadSession, msg: Msg): Promise<void> {
     if (Date.now() >= session.expiresAtMs) {
-      replyError(msg, new TransferError({ operation: "put", context: { reason: "expired" } }));
-      this.#expireUploadSession(session.subject);
+      const error = new TransferError({ operation: "put", context: { reason: "expired" } });
+      replyError(msg, error);
+      this.#expireUploadSession(session.subject, error);
       return;
     }
 
@@ -391,41 +565,50 @@ export class ServiceTransfer {
       sessionKey: msg.headers?.get("session-key"),
     });
     if (!authenticated) {
-      replyError(msg, new TransferError({ operation: "put", context: { reason: "invalid_proof" } }));
-      this.#expireUploadSession(session.subject);
+      const error = new TransferError({ operation: "put", context: { reason: "invalid_proof" } });
+      replyError(msg, error);
+      this.#expireUploadSession(session.subject, error);
       return;
     }
 
     const seq = parseSeq(msg).take();
     if (isErr(seq)) {
       replyError(msg, seq.error);
-      this.#expireUploadSession(session.subject);
+      this.#expireUploadSession(session.subject, seq.error);
       return;
     }
     if (seq !== session.nextSeq) {
-      replyError(msg, new TransferError({
+      const error = new TransferError({
         operation: "put",
         context: { reason: "out_of_order", expected: session.nextSeq, actual: seq },
-      }));
-      this.#expireUploadSession(session.subject);
+      });
+      replyError(msg, error);
+      this.#expireUploadSession(session.subject, error);
       return;
     }
     if (msg.data.length > 0) {
       if (msg.data.length > this.#chunkBytes) {
-        replyError(msg, new TransferError({ operation: "put", context: { reason: "chunk_too_large", maxChunkBytes: this.#chunkBytes } }));
-        this.#expireUploadSession(session.subject);
+        const error = new TransferError({ operation: "put", context: { reason: "chunk_too_large", maxChunkBytes: this.#chunkBytes } });
+        replyError(msg, error);
+        this.#expireUploadSession(session.subject, error);
         return;
       }
       session.receivedBytes += msg.data.length;
       if (session.maxBytes !== undefined && session.receivedBytes > session.maxBytes) {
-        replyError(msg, new TransferError({
+        const error = new TransferError({
           operation: "put",
           context: { reason: "max_bytes_exceeded", maxBytes: session.maxBytes, attemptedBytes: session.receivedBytes },
-        }));
-        this.#expireUploadSession(session.subject);
+        });
+        replyError(msg, error);
+        this.#expireUploadSession(session.subject, error);
         return;
       }
       session.queue.push(msg.data);
+      await session.onProgress?.({
+        chunkIndex: session.nextSeq,
+        chunkBytes: msg.data.length,
+        transferredBytes: session.receivedBytes,
+      });
     }
     session.nextSeq += 1;
 
@@ -434,21 +617,24 @@ export class ServiceTransfer {
       const putResult = await session.putPromise;
       const putValue = putResult.take();
       if (isErr(putValue)) {
-        replyError(msg, new TransferError({ operation: "put", cause: putValue.error }));
-        this.#expireUploadSession(session.subject);
+        const error = new TransferError({ operation: "put", cause: putValue.error });
+        replyError(msg, error);
+        this.#expireUploadSession(session.subject, error);
         return;
       }
 
       const stored = await session.store.get(session.key);
       const storedValue = stored.take();
       if (isErr(storedValue)) {
-        replyError(msg, new TransferError({ operation: "put", cause: storedValue.error }));
-        this.#expireUploadSession(session.subject);
+        const error = new TransferError({ operation: "put", cause: storedValue.error });
+        replyError(msg, error);
+        this.#expireUploadSession(session.subject, error);
         return;
       }
 
       const info = fileInfoFromStoreInfo(storedValue.info);
       msg.respond(JSON.stringify({ status: "complete", info }));
+      await session.onComplete?.(info);
       if (session.onStored) {
         void Promise.resolve(session.onStored({
           transferId: session.transferId,
@@ -533,12 +719,16 @@ export class ServiceTransfer {
     }
   }
 
-  #expireUploadSession(subject: string): void {
+  #expireUploadSession(
+    subject: string,
+    error = new TransferError({ operation: "put", context: { reason: "expired" } }),
+  ): void {
     const session = this.#uploadSessions.get(subject);
     if (!session) {
       return;
     }
-    session.queue.fail(new TransferError({ operation: "put", context: { reason: "expired" } }));
+    session.queue.fail(error);
+    void Promise.resolve(session.onError?.(error));
     this.#cleanupUploadSession(subject);
   }
 

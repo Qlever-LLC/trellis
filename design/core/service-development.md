@@ -202,8 +202,8 @@ Behavior:
 - if the contract is not installed, startup fails immediately
 - resource handles such as `service.kv.*` and `service.store.*` resolve during
   bootstrap and are opened explicitly by service code before use
-- transfer-session helpers are available through `service.transfer` when the
-  service exposes file upload/download initiation RPCs
+- transfer-capable operations receive runtime-owned transfer contexts while
+  service code continues to access staged files through `service.store.*`
 - when a contract requests `resources.jobs`, `TrellisService.connect(...)`
   resolves both `service.jobs` and the synthetic `service.streams.jobsWork`
   binding used by generic worker runtimes such as
@@ -212,9 +212,7 @@ Behavior:
   infrastructure; service bootstrap should provision them automatically so a
   jobs-enabled service does not require a separate manual jobs install step
 - when an RPC needs to start caller-visible follow-up work after a transfer,
-  prefer `service.operation(...).accept(...)` plus
-  `service.transfer.initiateUpload({ onStored(...) })` over ad-hoc background
-  polling inside the RPC body
+  prefer a transfer-capable operation over an RPC-started workflow
 - the `trellis` control-plane service is the one bootstrap exception and may
   need lower-level runtime paths
 
@@ -247,11 +245,12 @@ Behavior:
 
 - metadata and control actions such as list/head/delete remain ordinary
   contract-owned RPCs
-- upload/download initiation remains contract-owned and returns transfer grants
+- byte transfer belongs on transfer-capable operations rather than separate
+  initiation RPCs
 - raw byte movement is executed through Trellis runtime helpers rather than
   hand-written service-specific chunk protocols
-- service code uses `service.transfer` plus `service.store.<alias>` to back
-  those public file APIs
+- service code uses `service.store.<alias>` plus operation transfer contexts to
+  back those public file APIs
 
 Example:
 

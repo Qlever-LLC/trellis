@@ -412,10 +412,11 @@ Rules:
   and may return either `Result` or `Promise<Result>`
 - server-side extracted RPC handler aliases should use the server package so the
   third parameter includes service-only helpers such as `kv`, `store`, and
-  `transfer` without widening browser-safe root runtime types
-- returned runtimes may also expose transfer-grant helpers such as
-  `trellis.transfer(grant)` when the contract returns Trellis-owned transfer
-  grant types from normal RPCs
+  transfer-aware operation contexts without widening browser-safe root runtime
+  types
+- returned runtimes expose transfer through transfer-capable operation refs such
+  as `op.transfer(body | stream)`, not through a standalone
+  `trellis.transfer(...)` entrypoint
 - runtime helpers must not widen the callable surface beyond what the contract
   allows
 - service-side helpers must not expose used remote APIs as mountable local

@@ -98,23 +98,23 @@ pub(crate) const AUTH_BOOTSTRAP_BUCKETS: &[KvBucketSpec] = &[
         ttl_ms: 5 * 60_000_u64,
     },
     KvBucketSpec {
-        name: "trellis_device_profiles",
+        name: "trellis_device_profiles_v2",
         ttl_ms: 0,
     },
     KvBucketSpec {
-        name: "trellis_device_instances",
+        name: "trellis_device_instances_v2",
         ttl_ms: 0,
     },
     KvBucketSpec {
-        name: "trellis_device_provisioning_secrets",
+        name: "trellis_device_provisioning_secrets_v2",
         ttl_ms: 0,
     },
     KvBucketSpec {
-        name: "trellis_device_activations",
+        name: "trellis_device_activations_v2",
         ttl_ms: 0,
     },
     KvBucketSpec {
-        name: "trellis_device_activation_reviews",
+        name: "trellis_device_activation_reviews_v2",
         ttl_ms: 0,
     },
     KvBucketSpec {
@@ -122,7 +122,11 @@ pub(crate) const AUTH_BOOTSTRAP_BUCKETS: &[KvBucketSpec] = &[
         ttl_ms: 2 * 60 * 60_000_u64,
     },
     KvBucketSpec {
-        name: "trellis_services",
+        name: "trellis_service_profiles",
+        ttl_ms: 0,
+    },
+    KvBucketSpec {
+        name: "trellis_service_instances",
         ttl_ms: 0,
     },
     KvBucketSpec {

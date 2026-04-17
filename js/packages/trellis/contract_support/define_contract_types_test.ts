@@ -239,6 +239,45 @@ const inlineSchemaContract = defineServiceContract(
 inlineSchemaContract.API.owned.rpc["Inline.Run"].subject;
 inlineSchemaContract.API.owned.operations["Inline.Import"].subject;
 
+const transferSchemas = {
+  UploadInput: Type.Object({
+    key: Type.String(),
+    contentType: Type.Optional(Type.String()),
+  }),
+} as const;
+
+const transferContract = defineServiceContract(
+  { schemas: transferSchemas },
+  () => ({
+    id: "trellis.transfer@v1",
+    displayName: "Transfer",
+    description: "Exercise transfer-capable operation typing.",
+    resources: {
+      store: {
+        uploads: {
+          purpose: "Temporary uploads",
+          ttlMs: 60_000,
+          maxObjectBytes: 1024,
+        },
+      },
+    },
+    operations: {
+      "Demo.Files.Upload": {
+        version: "v1",
+        input: { schema: "UploadInput" },
+        transfer: {
+          store: "uploads",
+          key: "/key",
+          contentType: "/contentType",
+          expiresInMs: 60_000,
+        },
+      },
+    },
+  }),
+);
+
+transferContract.API.owned.operations["Demo.Files.Upload"].transfer?.store;
+
 const builderContract = defineServiceContract(
   {
     schemas: {

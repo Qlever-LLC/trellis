@@ -311,6 +311,12 @@ fn manifest_parses_owned_and_used_operations() {
                 "input": {"schema": "CaptureRequest"},
                 "progress": {"schema": "CaptureProgress"},
                 "output": {"schema": "CaptureResult"},
+                "transfer": {
+                    "store": "uploads",
+                    "key": "/key",
+                    "contentType": "/contentType",
+                    "expiresInMs": 60000
+                },
                 "cancel": true,
                 "capabilities": {
                     "call": ["payments.capture"],
@@ -337,6 +343,11 @@ fn manifest_parses_owned_and_used_operations() {
         op.output.as_ref().map(|value| value.schema.as_str()),
         Some("CaptureResult")
     );
+    let transfer = op.transfer.as_ref().expect("operation transfer");
+    assert_eq!(transfer.store, "uploads");
+    assert_eq!(transfer.key, "/key");
+    assert_eq!(transfer.content_type.as_deref(), Some("/contentType"));
+    assert_eq!(transfer.expires_in_ms, Some(60_000));
     assert_eq!(op.cancel, Some(true));
     let capabilities = op.capabilities.as_ref().expect("operation capabilities");
     assert_eq!(

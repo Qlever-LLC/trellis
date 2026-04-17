@@ -6,6 +6,7 @@ import { assertEquals, assertExists } from "@std/assert";
 import { Type } from "typebox";
 import { createClient } from "../client.ts";
 import { defineServiceContract } from "../contract.ts";
+import { TypedStore } from "../store.ts";
 import { NatsTest } from "../testing/nats.ts";
 import type { NatsConnectFn, NatsConnectOpts } from "./runtime.ts";
 import { TrellisService } from "./service.ts";
@@ -46,13 +47,67 @@ const billing = defineServiceContract(
   }),
 );
 
+const demoFiles = defineServiceContract(
+  {
+    schemas: {
+      UploadInput: Type.Object({
+        key: Type.String(),
+        contentType: Type.Optional(Type.String()),
+      }),
+      UploadProgress: Type.Object({
+        stage: Type.String(),
+        message: Type.String(),
+      }),
+      UploadOutput: Type.Object({
+        key: Type.String(),
+        size: Type.Integer(),
+      }),
+    },
+  },
+  (ref) => ({
+    id: "trellis.demo.files.service-operation-test@v1",
+    displayName: "Demo Files Service Operation Test",
+    description: "Exercise transfer-capable operations.",
+    resources: {
+      store: {
+        uploads: {
+          purpose: "Temporary uploads",
+          ttlMs: 60_000,
+          maxObjectBytes: 1024 * 1024,
+          maxTotalBytes: 4 * 1024 * 1024,
+        },
+      },
+    },
+    operations: {
+      "Demo.Files.Upload": {
+        version: "v1",
+        input: ref.schema("UploadInput"),
+        progress: ref.schema("UploadProgress"),
+        output: ref.schema("UploadOutput"),
+        transfer: {
+          store: "uploads",
+          key: "/key",
+          contentType: "/contentType",
+          expiresInMs: 60_000,
+        },
+        capabilities: {
+          call: ["uploader"],
+          read: ["uploader"],
+        },
+      },
+    },
+  }),
+);
+
 type RefundInput = InferSchemaType<
   typeof billing.API.owned.operations["Billing.Refund"]["input"]
+>;
+type UploadInput = InferSchemaType<
+  typeof demoFiles.API.owned.operations["Demo.Files.Upload"]["input"]
 >;
 const natsConnect: NatsConnectFn = async (opts) => {
   const connectOpts: ConnectionOptions = {
     servers: opts.servers,
-    ...(typeof opts.token === "string" ? { token: opts.token } : {}),
     ...(typeof opts.inboxPrefix === "string"
       ? { inboxPrefix: opts.inboxPrefix }
       : {}),
@@ -300,6 +355,177 @@ Deno.test({
       });
       assertEquals(terminal.state, "completed");
       assertEquals(terminal.output?.refundId, "rf_456");
+
+      await clientNc.drain();
+      await service.stop();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  },
+});
+
+Deno.test({
+  name: "TrellisService.operation handles transfer-capable workflows with caller and provider updates",
+  ignore: !RUN_NATS_TESTS,
+  async fn() {
+    await using nats = await NatsTest.start();
+    startPermissiveAuthResponder(nats.nc);
+    const info = nats.nc.info!;
+    const seed = base64urlEncode(crypto.getRandomValues(new Uint8Array(32)));
+    const originalFetch = globalThis.fetch;
+
+    try {
+      globalThis.fetch = (() => {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              status: "ready",
+              connectInfo: {
+                sessionKey: "session-key",
+                contractId: demoFiles.CONTRACT_ID,
+                contractDigest: demoFiles.CONTRACT_DIGEST,
+                transports: {
+                  native: {
+                    natsServers: [`localhost:${info.port}`],
+                    tlsRequired: false,
+                  },
+                },
+                transport: {
+                  sentinel: { jwt: "jwt", seed: "seed" },
+                },
+                auth: {
+                  mode: "service_identity",
+                  iatSkewSeconds: 30,
+                },
+              },
+              binding: {
+                contractId: demoFiles.CONTRACT_ID,
+                digest: demoFiles.CONTRACT_DIGEST,
+                resources: {
+                  kv: {},
+                  store: {
+                    uploads: {
+                      name: "demo-files-upload-store",
+                      ttlMs: 60_000,
+                      maxObjectBytes: 1024 * 1024,
+                      maxTotalBytes: 4 * 1024 * 1024,
+                    },
+                  },
+                  streams: {},
+                },
+              },
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        );
+      }) as typeof fetch;
+
+      const createdStore = await TypedStore.open(nats.nc, "demo-files-upload-store", {
+        ttlMs: 60_000,
+        maxObjectBytes: 1024 * 1024,
+        maxTotalBytes: 4 * 1024 * 1024,
+      });
+      if (createdStore.isErr()) {
+        throw createdStore.error;
+      }
+
+      const service = await TrellisService.connect({
+        trellisUrl: "https://trellis.example.com",
+        contract: demoFiles,
+        name: "demo-files-service",
+        sessionKeySeed: seed,
+        server: {},
+      }, { connect: natsConnect });
+
+      const clientNc = await connect({
+        servers: `localhost:${info.port}`,
+        inboxPrefix: `_INBOX.${service.auth.sessionKey.slice(0, 16)}`,
+      });
+      const clientAuth = {
+        sessionKey: service.auth.sessionKey,
+        sign: service.auth.sign,
+      };
+      const client = createClient(demoFiles, clientNc, clientAuth, {
+        name: "demo-files-client",
+      });
+
+      const providerUpdates: Array<number> = [];
+      await service.operation("Demo.Files.Upload").handle(async ({ input, op, transfer }) => {
+        assertEquals(input satisfies UploadInput, input);
+        const watchProviderUpdates = (async () => {
+          for await (const update of transfer.updates()) {
+            providerUpdates.push(update.transferredBytes);
+          }
+        })();
+
+        const transferred = await transfer.completed();
+        const storedInfo = transferred.match({
+          ok: (value) => value,
+          err: (error) => {
+            throw error;
+          },
+        });
+
+        await watchProviderUpdates;
+        const started = await op.started();
+        if (started.isErr()) {
+          throw started.error;
+        }
+        return ok({ key: input.key, size: storedInfo.size });
+      });
+
+      const started = await client.operation("Demo.Files.Upload").start({
+        key: "incoming/test.txt",
+        contentType: "text/plain",
+      });
+      const operation = started.match({
+        ok: (value) => value,
+        err: (error) => {
+          throw error;
+        },
+      });
+
+      const callerUpdates: Array<number> = [];
+      const watch = await operation.watch();
+      const events = watch.match({
+        ok: (value) => value,
+        err: (error) => {
+          throw error;
+        },
+      });
+      const watchTask = (async () => {
+        for await (const event of events) {
+          if (event.type === "transfer") {
+            callerUpdates.push(event.transfer.transferredBytes);
+          }
+        }
+      })();
+
+      const transferred = await operation.transfer(new TextEncoder().encode("hello transfer"));
+      const uploaded = transferred.match({
+        ok: (value) => value,
+        err: (error) => {
+          throw error;
+        },
+      });
+      assertEquals(uploaded.size, 14);
+
+      const terminal = await operation.wait();
+      const terminalValue = terminal.match({
+        ok: (value) => value,
+        err: (error) => {
+          throw error;
+        },
+      });
+
+      await watchTask;
+      assertEquals(terminalValue.state, "completed");
+      assertEquals(terminalValue.output, { key: "incoming/test.txt", size: 14 });
+      assertEquals(callerUpdates.at(-1), 14);
+      assertEquals(providerUpdates.at(-1), 14);
 
       await clientNc.drain();
       await service.stop();

@@ -1,6 +1,6 @@
 ---
 title: Files Transfer Patterns
-description: Public contract-owned files API and transfer-grant-based binary upload/download patterns over NATS.
+description: Public contract-owned files APIs and operation-native transfer patterns over NATS.
 order: 46
 ---
 
@@ -18,7 +18,7 @@ Services often need to expose file-like behavior to apps and peer services witho
 
 Examples:
 
-- upload an attachment into service-owned storage
+- transfer an attachment into service-owned storage
 - download a generated export
 - inspect file metadata before deciding whether to fetch bytes
 - delete a stored object through the owning service's business rules
@@ -32,9 +32,9 @@ Examples:
 This document defines the public Trellis files pattern:
 
 - which actions stay ordinary contract RPCs
-- which actions use transfer grants plus raw NATS chunk transport
-- how `@qlever-llc/trellis` and `trellis-client` expose the transfer helper
+- how byte transfer is modeled as an operation capability rather than a standalone client helper
 - how services back the public files surface with service-owned `store`
+- how callers and providers receive per-chunk transfer progress
 
 It does not define a global admin UI or cross-service shared raw store access.
 
@@ -68,60 +68,63 @@ Rules:
 
 - these methods use normal Trellis RPC auth and capability checks
 - they return JSON payloads and `Result`-modeled failures
-- they do not require a second transfer-grant step
 - `list` is prefix/cursor/limit-oriented in v1 rather than arbitrary metadata query language
 
-#### Binary upload and download
+#### Byte transfer operations
 
-File bytes use a two-step model:
+File bytes use an operation-native model:
 
-1. a contract-owned RPC initiates the transfer and returns a transfer grant
-2. the client executes the raw byte transfer through the Trellis runtime helper
+1. a contract-owned operation accepts JSON input and declares transfer support
+2. the caller starts the operation and receives a typed `OperationRef`
+3. the caller executes the raw byte transfer through `op.transfer(body | stream)`
+4. the provider awaits `transfer.completed()` and continues with service-owned processing
 
-Examples:
+Example:
 
-- `Documents.Files.InitiateUpload`
-- `Documents.Files.InitiateDownload`
+- `Documents.Files.Upload`
 
 Rules:
 
-- upload/download initiation stays contract-owned and permissioned by the service
-- the returned grant is plain data, not a behavior-owning object
-- the actual byte transfer uses raw NATS chunk traffic rather than JSON/base64 RPC payloads
+- transfer is modeled as a capability of an operation, not as a separate public client entrypoint
+- the operation contract declares the backing store alias and the input pointers used to derive transfer metadata such as `key` and `contentType`
+- the actual byte movement still uses raw NATS chunk traffic rather than JSON/base64 RPC payloads
 - the transfer protocol is Trellis-owned runtime machinery, not a service-specific public protocol surface
+- callers observe transport progress through `watch()` transfer events and durable snapshot state
+- providers observe the same transport progress through `transfer.updates()`
 
-### Service-side stored callback
+### Operation Transfer Declaration
 
-Owning services often need to react when uploaded bytes have actually landed in their backing store.
+Transfer-capable operations declare transfer support in the operation descriptor.
+
+Example:
+
+```ts
+operations: {
+  "Documents.Files.Upload": {
+    version: "v1",
+    input: ref.schema("FilesUploadRequest"),
+    progress: ref.schema("FilesUploadProgress"),
+    output: ref.schema("FilesUploadResult"),
+    transfer: {
+      store: "uploads",
+      key: "/key",
+      contentType: "/contentType",
+      expiresInMs: 60_000,
+    },
+    capabilities: {
+      call: ["uploader"],
+      read: ["uploader"],
+    },
+  },
+}
+```
 
 Rules:
 
-- `service.transfer.initiateUpload(...)` SHOULD support a per-session `onStored(...)` callback
-- `onStored(...)` fires after the staged object has been durably written to the service-owned store
-- `onStored(...)` is the bridge from transfer runtime state into service-owned processing logic; it is not a policy helper that consumes or deletes the object automatically
-- the callback receives normal store-facing primitives such as the staged `TypedStoreEntry`, the owning `TypedStore`, and file info
-- transfer success still means `bytes stored`; failures in `onStored(...)` belong to the service's follow-up workflow rather than to the transfer protocol itself
-
-### Transfer Grants
-
-Transfer grants are capability objects returned by service-owned initiation RPCs.
-
-Rules:
-
-- the canonical shared name is `TransferGrant`
-- v1 uses concrete single-action grant variants:
-  - `UploadTransferGrant`
-  - `DownloadTransferGrant`
-- grants carry enough information to execute one transfer session safely:
-  - service name
-  - session key
-  - transfer id
-  - transfer subject
-  - expiry
-  - chunk size
-  - upload constraints or download file info as appropriate
-- grants are session-bound and must not be accepted from a different authenticated session
-- grants are plain serialized data returned by contract APIs; behavior is attached later by runtime helpers
+- `transfer.store` names the owning service store resource alias used for staging
+- `transfer.key` points into the validated operation input and resolves to the staged store key
+- optional pointers such as `contentType` and `metadata` resolve from the same validated input payload
+- contract validation should fail if the configured store alias does not exist or a configured input pointer does not exist in the input schema
 
 ### Runtime Helpers
 
@@ -130,40 +133,39 @@ Rules:
 Public runtime code uses:
 
 ```ts
-const started = await docs.request("Documents.Files.InitiateUpload", {
+const started = await docs.operation("Documents.Files.Upload").start({
   key: "incoming/report.pdf",
+  contentType: "application/pdf",
 });
 
 if (started.isErr()) {
   return started;
 }
 
-const uploaded = await trellis.transfer(started.value).put(bytes);
+const op = started.value;
+const transferred = await op.transfer(fileBytes);
 ```
 
 Rules:
 
-- `@qlever-llc/trellis` exposes `trellis.transfer(grant)`
-- `trellis.transfer(grant)` binds behavior to a transfer grant and returns a typed upload or download handle
-- upload handles expose `put(...)`
-- download handles expose `getBytes()`
+- `@qlever-llc/trellis` exposes transfer through `OperationRef.transfer(...)`, not through `trellis.transfer(grant)`
+- transfer-capable operation refs accept the same body forms as the old runtime helper: `Uint8Array`, `ArrayBuffer`, `ReadableStream<Uint8Array>`, and `AsyncIterable<Uint8Array>`
 - metadata actions such as list/head/delete remain ordinary typed request calls on the contract client
 
 #### Rust
 
-Rust mirrors the same semantics with Rust-native typing:
+Rust should mirror the same operation-native semantics:
 
 ```rust
-let grant = documents.files_initiate_upload(request).await?;
-let uploaded = client.transfer(grant).put(bytes).await?;
+let op = documents.documents_files_upload().start(request).await?;
+let transferred = op.transfer(bytes).await?;
+let terminal = op.wait().await?;
 ```
 
 Rules:
 
-- `trellis-client` exposes `client.transfer(grant)`
-- concrete grant types bind to concrete transfer handles
-- upload/download helpers return normal Rust `Result`
-- Rust may use `Stream`-style progress helpers later, but the core semantics match the TypeScript runtime
+- Rust transfer execution should hang off typed operation refs rather than a standalone `client.transfer(grant)` helper
+- Rust should preserve the same chunk-progress semantics and Result-based failure model as TypeScript
 
 ### Wire Behavior
 
@@ -171,8 +173,8 @@ Rules:
 
 - byte transfer uses raw NATS messages, not JSON/base64 wrappers
 - request signing still uses session-bound proof headers
-- upload sends ordered chunk requests on a transfer subject and receives per-chunk acknowledgements
-- download requests bytes once and receives ordered raw chunk messages on a reply inbox
+- inbound transfer sends ordered chunk requests on a runtime-owned transfer subject and receives per-chunk acknowledgements
+- the runtime emits one transfer update per acknowledged chunk on both caller and provider sides
 - chunk sequence and end-of-stream markers are runtime protocol details owned by Trellis
 
 This mirrors the general style used by NATS object store: raw chunk payloads plus separate metadata/control frames.
@@ -182,26 +184,26 @@ This mirrors the general style used by NATS object store: raw chunk payloads plu
 Rules:
 
 - canonical v1 file persistence lands in the owning service's `resources.store`
-- `service.transfer` may use one or more store aliases as its backing storage
+- services may use one or more store aliases as transfer staging backends
 - services may later mirror or copy files to external systems, but `Files` does not depend on those backends
 - `Files` does not imply shared raw store access across services
-- once an upload completes, service code works with the staged object through normal store APIs such as `onStored(...)`, `waitFor(...)`, `get(...)`, `stream()`, `bytes()`, and `delete(...)`
-- Trellis should make staged uploaded objects easy for the owning service to access, but it does not impose post-upload processing policy on the service author
+- once transfer completes, service code works with the staged object through normal store APIs such as `get(...)`, `stream()`, `bytes()`, `waitFor(...)`, and `delete(...)`
+- Trellis should make staged transferred objects easy for the owning service to access, but it does not impose post-transfer processing policy on the service author
 
-### Transfer plus operations
+### Transfer Plus Operations
 
 For caller-visible file-processing workflows, the recommended pattern is:
 
-1. a contract-owned RPC creates a durable operation and an upload transfer grant
-2. the RPC returns both the transfer grant and the operation ref to the caller
-3. the caller starts watching the operation and uploads the bytes
-4. `onStored(...)` advances the operation and usually enqueues service-private processing work
+1. a contract-owned operation declares transfer support
+2. the caller starts the operation and begins watching it
+3. the caller sends bytes with `op.transfer(body | stream)`
+4. the provider awaits `transfer.completed()` and updates business progress or enqueues follow-up work
+5. the operation completes when the service-owned workflow completes
 
 Rules:
 
-- the start RPC owns business authorization and id allocation for the workflow
-- the client uses `operation(key).resume(ref)` to bind behavior to the returned operation ref
-- `onStored(...)` may update operation progress directly or enqueue a service-private job that does so later
+- transfer success means `bytes stored`, not `workflow finished`
+- use runtime-owned transfer events for progress bars and service-authored `progress(...)` calls for domain milestones
 - use operations for caller-visible progress and final results
 - use jobs for service-private execution, retries, and background processing after the bytes are stored
 

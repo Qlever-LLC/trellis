@@ -634,6 +634,58 @@ Deno.test("defineServiceContract emits owned and used operations", () => {
   );
 });
 
+Deno.test("defineServiceContract emits transfer-capable operations", () => {
+  const fileSchemas = {
+    UploadInput: Type.Object({
+      key: Type.String(),
+    }),
+  } as const;
+  const files = defineServiceContract(
+    { schemas: fileSchemas },
+    () => ({
+      id: "trellis.files@v1",
+      displayName: "Files",
+      description: "Expose transfer-capable operations for source emission tests.",
+      resources: {
+        store: {
+          uploads: {
+            purpose: "Temporary uploads",
+            ttlMs: 60_000,
+            maxObjectBytes: 1024,
+          },
+        },
+      },
+      operations: {
+        "Demo.Files.Upload": {
+          version: "v1",
+          input: schemaRef<typeof fileSchemas, "UploadInput">("UploadInput"),
+          transfer: {
+            store: "uploads",
+            key: "/key",
+            expiresInMs: 60_000,
+          },
+        },
+      },
+    }),
+  );
+
+  assertEquals(files.CONTRACT.operations?.["Demo.Files.Upload"], {
+    version: "v1",
+    subject: "operations.v1.Demo.Files.Upload",
+    input: { schema: "UploadInput" },
+    transfer: {
+      store: "uploads",
+      key: "/key",
+      expiresInMs: 60_000,
+    },
+  });
+  assertEquals(files.API.owned.operations["Demo.Files.Upload"].transfer, {
+    store: "uploads",
+    key: "/key",
+    expiresInMs: 60_000,
+  });
+});
+
 Deno.test("defineServiceContract rejects duplicate logical keys across used and owned operations", () => {
   const billing = defineServiceContract(
     { schemas: baseSchemas },

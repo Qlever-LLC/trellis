@@ -7,14 +7,13 @@ import { AsyncResult, isErr, isOk, Result } from "@qlever-llc/result";
 
 // Import everything from browser.ts to verify exports exist
 import {
-  DownloadTransferGrantSchema,
   // Error types
   AuthError,
+  FileInfoSchema,
   KVError,
   RemoteError,
   StoreError,
   TransferError,
-  TransferGrantSchema,
   // Core Trellis class
   Trellis,
   type TrellisAuth,
@@ -24,7 +23,6 @@ import {
   TypedKVEntry,
   TypedStore,
   TypedStoreEntry,
-  UploadTransferGrantSchema,
   UnexpectedError,
   ValidationError,
   type WatchEvent,
@@ -152,10 +150,8 @@ Deno.test("browser exports - Error types can be instantiated", () => {
   assertExists(unexpectedErr, "UnexpectedError should be instantiable");
 });
 
-Deno.test("browser exports - transfer schemas are exported", () => {
-  assertExists(TransferGrantSchema, "TransferGrantSchema should be exported");
-  assertExists(UploadTransferGrantSchema, "UploadTransferGrantSchema should be exported");
-  assertExists(DownloadTransferGrantSchema, "DownloadTransferGrantSchema should be exported");
+Deno.test("browser exports - file schemas are exported", () => {
+  assertExists(FileInfoSchema, "FileInfoSchema should be exported");
 });
 
 // Type-level tests (these compile if types are correctly exported)

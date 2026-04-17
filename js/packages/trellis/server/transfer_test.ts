@@ -3,7 +3,7 @@ import { assertEquals } from "@std/assert";
 import { createAuth } from "../auth.ts";
 import { NatsTest } from "../testing/nats.ts";
 import { TypedStore } from "../store.ts";
-import { Trellis } from "../trellis.ts";
+import { createTransferHandle } from "../transfer.ts";
 import { ServiceTransfer } from "./transfer.ts";
 
 const RUN_NATS_TESTS = Deno.env.get("TRELLIS_TEST_NATS") === "1";
@@ -42,7 +42,6 @@ Deno.test({
 
     const serviceAuth = await createAuth({ sessionKeySeed: SERVICE_SEED });
     const userAuth = await createAuth({ sessionKeySeed: USER_SEED });
-    const client = new Trellis("files-client", nats.nc, userAuth);
 
     const transfer = new ServiceTransfer({
       name: "files-service",
@@ -77,7 +76,7 @@ Deno.test({
       },
     });
 
-    const uploaded = await client.transfer(uploadGrantValue).put(encode("hello transfer"));
+    const uploaded = await createTransferHandle(nats.nc, userAuth, 3000, uploadGrantValue).put(encode("hello transfer"));
     assertEquals(uploaded.isOk(), true);
 
     const downloadGrant = await transfer.initiateDownload({
@@ -94,7 +93,7 @@ Deno.test({
       },
     });
 
-    const downloaded = await client.transfer(downloadGrantValue).getBytes();
+    const downloaded = await createTransferHandle(nats.nc, userAuth, 3000, downloadGrantValue).getBytes();
     assertEquals(downloaded.isOk(), true);
     const downloadedValue = downloaded.match({
       ok: (value) => value,
@@ -123,7 +122,6 @@ Deno.test({
 
     const serviceAuth = await createAuth({ sessionKeySeed: SERVICE_SEED });
     const userAuth = await createAuth({ sessionKeySeed: USER_SEED });
-    const client = new Trellis("files-client", nats.nc, userAuth);
 
     const transfer = new ServiceTransfer({
       name: "files-service",
@@ -158,7 +156,7 @@ Deno.test({
     assertEquals(uploadGrantValue.maxBytes, 1024);
 
     const oversized = new Uint8Array(2048);
-    const uploaded = await client.transfer(uploadGrantValue).put(oversized);
+    const uploaded = await createTransferHandle(nats.nc, userAuth, 3000, uploadGrantValue).put(oversized);
     assertEquals(uploaded.isErr(), true);
     const uploadError = uploaded.match({
       ok: () => {
@@ -189,7 +187,6 @@ Deno.test({
 
     const serviceAuth = await createAuth({ sessionKeySeed: SERVICE_SEED });
     const userAuth = await createAuth({ sessionKeySeed: USER_SEED });
-    const client = new Trellis("files-client", nats.nc, userAuth);
     const stored = deferred<{ key: string; body: string; size: number }>();
 
     const transfer = new ServiceTransfer({
@@ -235,7 +232,7 @@ Deno.test({
       },
     });
 
-    const uploaded = await client.transfer(uploadGrantValue).put(encode("stored callback"));
+    const uploaded = await createTransferHandle(nats.nc, userAuth, 3000, uploadGrantValue).put(encode("stored callback"));
     assertEquals(uploaded.isOk(), true);
     assertEquals(await stored.promise, {
       key: "incoming/stored.txt",

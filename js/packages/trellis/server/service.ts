@@ -37,6 +37,7 @@ import type {
   HandlerTrellis,
   OperationOutputOf,
   OperationProgressOf,
+  OperationTransferContextOf,
   RpcHandlerContext,
   RpcHandlerErrorOf,
   RpcRequestErrorOf,
@@ -551,11 +552,6 @@ export type ServiceTrellis<
     ): Promise<void>;
   };
 
-export type ServiceHandlerTransfer = Pick<
-  ServiceTransfer,
-  "initiateUpload" | "initiateDownload"
->;
-
 type ServiceHandlerResources = {
   kv: Record<string, KVHandle>;
   store: Record<string, StoreHandle>;
@@ -563,10 +559,7 @@ type ServiceHandlerResources = {
 
 export type ServiceHandlerTrellis<TTrellisApi extends TrellisAPI> =
   & HandlerTrellis<TTrellisApi>
-  & ServiceHandlerResources
-  & {
-    transfer: ServiceHandlerTransfer;
-  };
+  & ServiceHandlerResources;
 
 type RequestOpts = {
   timeout?: number;
@@ -668,6 +661,10 @@ async function createConnectedService<
       stream: args.server.stream,
       noResponderRetry: args.server.noResponderRetry,
       api: runtimeApi,
+      transferSupport: {
+        openOperationTransfer: (transferArgs) =>
+          getTransfer().createOperationUpload(transferArgs),
+      },
       version: args.server.version,
     },
   );
@@ -702,11 +699,6 @@ async function createConnectedService<
     return handlerResources;
   };
 
-  const handlerTransfer: ServiceHandlerTransfer = {
-    initiateUpload: (args) => getTransfer().initiateUpload(args),
-    initiateDownload: (args) => getTransfer().initiateDownload(args),
-  };
-
   const handlerTrellis: ServiceHandlerTrellis<TTrellisApi> = {
     request: (method, input, opts) => outbound.request(method, input, opts),
     requestOrThrow: (method, input, opts) =>
@@ -725,7 +717,6 @@ async function createConnectedService<
     get store() {
       return getHandlerResources().store;
     },
-    transfer: handlerTransfer,
   };
 
   const trellis: ServiceTrellis<TOwnedApi, TTrellisApi> = Object.assign(
@@ -829,6 +820,18 @@ async function createConnectedService<
     }, health.publishIntervalMs);
   }
 
+  const operationTransfer = new ServiceTransfer({
+    name: args.name,
+    nc: args.nc,
+    auth: args.auth,
+    stores: Object.fromEntries(
+      Object.entries(args.bindings.store ?? {}).map(([alias, binding]) => [
+        alias,
+        new StoreHandle(args.nc, binding),
+      ]),
+    ),
+  });
+
   const service = new TrellisService<TOwnedApi, TTrellisApi>(
     args.name,
     args.auth,
@@ -836,12 +839,13 @@ async function createConnectedService<
     server,
     trellis,
     args.bindings,
+    operationTransfer,
     health,
     stopHealthPublishing,
     stopConnectionLogging,
   );
   handlerResources = { kv: service.kv, store: service.store };
-  transfer = service.transfer;
+  transfer = operationTransfer;
   return service;
 }
 
@@ -855,12 +859,12 @@ export class TrellisService<
   readonly server: TrellisServerFor<TOwnedApi & TTrellisApi>;
   readonly operations: TrellisServerFor<TOwnedApi & TTrellisApi>["operations"];
   readonly trellis: ServiceTrellis<TOwnedApi, TTrellisApi>;
-  readonly transfer: ServiceTransfer;
   readonly kv: Record<string, KVHandle>;
   readonly store: Record<string, StoreHandle>;
   readonly streams: Record<string, ResourceBindingStream>;
   readonly jobs?: ResourceBindingJobs;
   readonly health: ServiceHealth;
+  readonly #operationTransfer: ServiceTransfer;
   readonly #stopHealthPublishing: () => Promise<void>;
   readonly #stopConnectionLogging: () => void;
 
@@ -871,6 +875,7 @@ export class TrellisService<
     server: TrellisServerFor<TOwnedApi & TTrellisApi>,
     trellis: ServiceTrellis<TOwnedApi, TTrellisApi>,
     bindings: ResourceBindings,
+    operationTransfer: ServiceTransfer,
     health: ServiceHealth,
     stopHealthPublishing: () => Promise<void>,
     stopConnectionLogging: () => void,
@@ -895,12 +900,7 @@ export class TrellisService<
         [alias, binding],
       ) => [alias, new StoreHandle(nc, binding)]),
     );
-    this.transfer = new ServiceTransfer({
-      name,
-      nc,
-      auth,
-      stores: this.store,
-    });
+    this.#operationTransfer = operationTransfer;
     this.streams = streamBindings;
     this.jobs = bindings.jobs;
     this.health = health;
@@ -933,15 +933,17 @@ export class TrellisService<
       contractDigest: args.contract.CONTRACT_DIGEST,
       auth,
     });
-    const { token, inboxPrefix } = await auth.natsConnectOptions();
+    const { authenticator: authTokenAuthenticator, inboxPrefix } = await auth.natsConnectOptions();
     const nc = await runtimeDeps.connect({
       servers: selectRuntimeTransportServers(bootstrap.connectInfo.transports),
-      token,
       inboxPrefix,
-      authenticator: jwtAuthenticator(
-        bootstrap.connectInfo.transport.sentinel.jwt,
-        new TextEncoder().encode(bootstrap.connectInfo.transport.sentinel.seed),
-      ),
+      authenticator: [
+        authTokenAuthenticator,
+        jwtAuthenticator(
+          bootstrap.connectInfo.transport.sentinel.jwt,
+          new TextEncoder().encode(bootstrap.connectInfo.transport.sentinel.seed),
+        ),
+      ],
     });
 
     return await createConnectedService<TOwnedApi, TTrellisApi>({
@@ -1004,13 +1006,12 @@ export class TrellisService<
         );
       })();
 
-    const { token, inboxPrefix } = await auth.natsConnectOptions();
+    const { authenticator: authTokenAuthenticator, inboxPrefix } = await auth.natsConnectOptions();
 
     const nc = await connectFn({
       servers: opts.nats.servers,
-      token,
       inboxPrefix,
-      authenticator,
+      authenticator: [authTokenAuthenticator, authenticator],
       ...(opts.nats.options ?? {}),
     } as NatsConnectOpts);
 
@@ -1128,7 +1129,7 @@ export class TrellisService<
   async stop(): Promise<void> {
     this.#stopConnectionLogging();
     await this.#stopHealthPublishing();
-    await this.transfer.stop();
+    await this.#operationTransfer.stop();
     await this.server.stop();
   }
 
@@ -1173,12 +1174,14 @@ export class TrellisService<
   ): OperationRegistration<
     InferSchemaType<(TOwnedApi & TTrellisApi)["operations"][O]["input"]>,
     OperationProgressOf<TOwnedApi & TTrellisApi, O>,
-    OperationOutputOf<TOwnedApi & TTrellisApi, O>
+    OperationOutputOf<TOwnedApi & TTrellisApi, O>,
+    OperationTransferContextOf<TOwnedApi & TTrellisApi, O>
   > {
     return this.server.operation(operation) as OperationRegistration<
       InferSchemaType<(TOwnedApi & TTrellisApi)["operations"][O]["input"]>,
       OperationProgressOf<TOwnedApi & TTrellisApi, O>,
-      OperationOutputOf<TOwnedApi & TTrellisApi, O>
+      OperationOutputOf<TOwnedApi & TTrellisApi, O>,
+      OperationTransferContextOf<TOwnedApi & TTrellisApi, O>
     >;
   }
 }

@@ -1,4 +1,4 @@
-import type { OperationInvoker, RpcOutputOf } from "@qlever-llc/trellis";
+import type { RpcOutputOf } from "@qlever-llc/trellis";
 import { TrellisDevice } from "@qlever-llc/trellis";
 import contract from "../contracts/demo_device.ts";
 
@@ -9,13 +9,6 @@ const rootSecret = Deno.args[1]?.trim();
 const filePath = Deno.args[2]?.trim();
 
 type DemoGroupsListOutput = RpcOutputOf<typeof contract.API.trellis, "Demo.Groups.List">;
-type DemoFilesInitiateUploadOutput = RpcOutputOf<
-  typeof contract.API.trellis,
-  "Demo.Files.InitiateUpload"
->;
-type ProcessInvoker = OperationInvoker<
-  typeof contract.API.trellis.operations["Demo.Files.Process"]
->;
 
 async function main(): Promise<void> {
   if (!trellisUrl || !rootSecret || !filePath) {
@@ -79,35 +72,25 @@ async function main(): Promise<void> {
   const fileName = filePath.split(/[\\/]/).at(-1) || "upload.txt";
   const contentType = "text/plain";
 
-  const started = await (await trellis.request("Demo.Files.InitiateUpload", {
+  const started = await trellis.operation("Demo.Files.Upload").start({
     key: fileName,
     contentType,
-  })).match({
-    ok: (value) => value as DemoFilesInitiateUploadOutput,
+  });
+  const operation = started.match({
+    ok: (value) => value,
     err: (error) => {
-      console.error("Could not start file processing", { err: error });
+      console.error("Could not start file upload", { err: error });
       return undefined;
     },
   });
-  if (!started) {
+  if (!operation) {
     return;
   }
 
-  if (started.transfer.kind !== "upload") {
-    return console.error(
-      "Process start RPC returned unexpected transfer grant",
-      {
-        transfer: started.transfer,
-      },
-    );
-  }
-
-  const process = (trellis.operation("Demo.Files.Process") as ProcessInvoker)
-    .resume(started.operation.ref);
-  const watch = await (await process.watch()).match({
+  const watch = await (await operation.watch()).match({
     ok: (value) => value,
     err: (error) => {
-      console.error("Could not watch file processing", { err: error });
+      console.error("Could not watch file upload", { err: error });
       return undefined;
     },
   });
@@ -115,15 +98,15 @@ async function main(): Promise<void> {
     return;
   }
 
-  console.info("process accepted", started.operation.snapshot);
+  console.info("upload accepted", { id: operation.id, operation: operation.operation });
 
   const watchTask = (async () => {
     for await (const event of watch) {
-      console.info("process event", event);
+      console.info("upload event", event);
     }
   })();
 
-  const uploaded = await (await trellis.transfer(started.transfer).put(bytes))
+  const uploaded = await (await operation.transfer(bytes))
     .match({
       ok: (value) => value,
       err: (error) => {
@@ -136,7 +119,19 @@ async function main(): Promise<void> {
   }
 
   console.info("uploaded", uploaded);
+  const terminal = await (await operation.wait()).match({
+    ok: (value) => value,
+    err: (error) => {
+      console.error("Upload operation failed", { err: error });
+      return undefined;
+    },
+  });
   await watchTask;
+  if (!terminal) {
+    return;
+  }
+
+  console.info("upload completed", terminal.output);
 
   Deno.exit();
 }

@@ -1,4 +1,5 @@
 import type { Msg, NatsConnection } from "@nats-io/nats-core";
+import { Pointer } from "typebox/value";
 import type { TrellisAPI } from "./contracts.ts";
 import {
   AsyncResult,
@@ -13,6 +14,7 @@ import { ulid } from "ulid";
 import { parseSchema } from "./codec.ts";
 import {
   AuthError,
+  TransferError,
   type TrellisErrorInstance,
   UnexpectedError,
   ValidationError,
@@ -33,6 +35,8 @@ import {
   isTerminalRuntimeOperationSnapshot,
   type MethodsOf,
   type OperationHandlerContext,
+  type OperationTransferContextOf,
+  type OperationTransferHandle,
   type OperationInputOf,
   type OperationOutputOf,
   type OperationProgressOf,
@@ -53,11 +57,13 @@ import {
   type TrellisMode,
   type TrellisOpts,
 } from "./trellis.ts";
+import type { UploadTransferGrant } from "./transfer.ts";
 
 type TrellisServerOpts<TA extends AnyTrellisAPI> =
   & Omit<TrellisOpts<TA>, "api">
   & {
     api: TA;
+    transferSupport?: RuntimeOperationTransferSupport;
     version?: string;
   };
 
@@ -73,7 +79,8 @@ export type TrellisServerFor<TA extends AnyTrellisAPI = TrellisAPI> =
     ): OperationRegistration<
       OperationInputOf<TA, O>,
       OperationProgressOf<TA, O>,
-      OperationOutputOf<TA, O>
+      OperationOutputOf<TA, O>,
+      OperationTransferContextOf<TA, O>
     >;
   };
 
@@ -81,11 +88,94 @@ type RegisteredRuntimeOperationDesc = RuntimeOperationDesc & {
   callerCapabilities?: readonly string[];
 };
 
+type RuntimeOperationTransferSession = {
+  grant: UploadTransferGrant;
+  transfer: OperationTransferHandle;
+};
+
+type RuntimeOperationTransferSupport = {
+  openOperationTransfer(args: {
+    sessionKey: string;
+    store: string;
+    key: string;
+    expiresInMs: number;
+    maxBytes?: number;
+    contentType?: string;
+    metadata?: Record<string, string>;
+  }): Promise<Result<RuntimeOperationTransferSession, TransferError>>;
+};
+
+function asStringPointerValue(
+  operation: string,
+  input: unknown,
+  pointer: `/${string}`,
+  field: string,
+): Result<string, TransferError> {
+  const value = Pointer.Get(input as Record<string, unknown>, pointer);
+  if (typeof value !== "string" || value.length === 0) {
+    return err(new TransferError({
+      operation: "transfer",
+      context: { reason: "invalid_input", operation, field, pointer },
+    }));
+  }
+  return ok(value);
+}
+
+function asOptionalStringPointerValue(
+  input: unknown,
+  pointer?: `/${string}`,
+): Result<string | undefined, TransferError> {
+  if (!pointer) {
+    return ok(undefined);
+  }
+  const value = Pointer.Get(input as Record<string, unknown>, pointer);
+  if (value === undefined) {
+    return ok(undefined);
+  }
+  if (typeof value !== "string" || value.length === 0) {
+    return err(new TransferError({
+      operation: "transfer",
+      context: { reason: "invalid_input", field: pointer, pointer },
+    }));
+  }
+  return ok(value);
+}
+
+function asOptionalStringRecordPointerValue(
+  input: unknown,
+  pointer?: `/${string}`,
+): Result<Record<string, string> | undefined, TransferError> {
+  if (!pointer) {
+    return ok(undefined);
+  }
+  const value = Pointer.Get(input as Record<string, unknown>, pointer);
+  if (value === undefined) {
+    return ok(undefined);
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return err(new TransferError({
+      operation: "transfer",
+      context: { reason: "invalid_input", field: pointer, pointer },
+    }));
+  }
+
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.some(([key, item]) => key.length === 0 || typeof item !== "string")) {
+    return err(new TransferError({
+      operation: "transfer",
+      context: { reason: "invalid_input", field: pointer, pointer },
+    }));
+  }
+
+  return ok(Object.fromEntries(entries) as Record<string, string>);
+}
+
 export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
   #version?: string;
   #log: LoggerLike;
   #operations = new Map<string, RuntimeOperationRecord>();
   #mountedOperationControls = new Set<string>();
+  #transferSupport?: RuntimeOperationTransferSupport;
   readonly operations: RuntimeOperationController;
 
   private constructor(
@@ -97,6 +187,7 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
     super(name, nats, auth, { ...opts, log: opts?.log ?? serverLogger });
     this.#version = opts?.version;
     this.#log = (opts?.log ?? serverLogger).child({ lib: "trellis-server" });
+    this.#transferSupport = opts?.transferSupport;
     this.operations = {
       get: async (operationId) => {
         const runtime = await this.#resolveOperation(operationId);
@@ -609,11 +700,23 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
     return {
       accept: async ({ sessionKey }) => {
         this.#ensureOperationControlLoop(String(operation), ctx);
+        if (ctx.transfer) {
+          return err(new UnexpectedError({
+            cause: new Error(
+              `Operation '${String(operation)}' uses transfer-capable start semantics and cannot be accepted manually`,
+            ),
+          }));
+        }
         return await this.#acceptOperation(String(operation), sessionKey);
       },
       handle: async (
         handler: (
-          context: OperationHandlerContext<unknown, unknown, unknown>,
+          context: OperationHandlerContext<
+            unknown,
+            unknown,
+            unknown,
+            OperationTransferHandle | undefined
+          >,
         ) => unknown | Promise<unknown>,
       ) => {
         const startSubject = ctx.subject;
@@ -931,6 +1034,68 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
               continue;
             }
 
+            let transferSession: RuntimeOperationTransferSession | undefined;
+            if (ctx.transfer) {
+              if (!this.#transferSupport) {
+                this.respondWithError(
+                  msg,
+                  new UnexpectedError({
+                    cause: new Error(
+                      `Operation '${String(operation)}' declared transfer support but no runtime transfer support is configured`,
+                    ),
+                  }),
+                );
+                continue;
+              }
+
+              const key = asStringPointerValue(
+                String(operation),
+                value.input,
+                ctx.transfer.key,
+                "key",
+              ).take();
+              if (isErr(key)) {
+                this.respondWithError(msg, key.error);
+                continue;
+              }
+
+              const contentType = asOptionalStringPointerValue(
+                value.input,
+                ctx.transfer.contentType,
+              ).take();
+              if (isErr(contentType)) {
+                this.respondWithError(msg, contentType.error);
+                continue;
+              }
+
+              const metadata = asOptionalStringRecordPointerValue(
+                value.input,
+                ctx.transfer.metadata,
+              ).take();
+              if (isErr(metadata)) {
+                this.respondWithError(msg, metadata.error);
+                continue;
+              }
+
+              const openedTransfer = await this.#transferSupport.openOperationTransfer({
+                sessionKey: value.sessionKey,
+                store: ctx.transfer.store,
+                key,
+                expiresInMs: ctx.transfer.expiresInMs ?? 60_000,
+                ...(ctx.transfer.maxBytes !== undefined
+                  ? { maxBytes: ctx.transfer.maxBytes }
+                  : {}),
+                ...(contentType !== undefined ? { contentType } : {}),
+                ...(metadata !== undefined ? { metadata } : {}),
+              });
+              const openedTransferValue = openedTransfer.take();
+              if (isErr(openedTransferValue)) {
+                this.respondWithError(msg, openedTransferValue.error);
+                continue;
+              }
+              transferSession = openedTransferValue;
+            }
+
             const operationId = ulid();
             const createdAt = now();
             const runtime: RuntimeOperationRecord = {
@@ -955,6 +1120,25 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
             this.#operations.set(operationId, runtime);
             await this.saveOperationRecord(runtime);
 
+            if (transferSession) {
+              void (async () => {
+                for await (const progress of transferSession.transfer.updates()) {
+                  runtime.sequence += 1;
+                  runtime.snapshot = buildRuntimeOperationSnapshot(
+                    runtime,
+                    "running",
+                    { transfer: progress },
+                  );
+                  await this.saveOperationRecord(runtime);
+                  await publishEventToWatchers(runtime, {
+                    type: "transfer",
+                    transfer: progress,
+                    snapshot: runtime.snapshot,
+                  });
+                }
+              })();
+            }
+
             const accepted: RuntimeOperationAcceptedEnvelope = {
               kind: "accepted",
               ref: {
@@ -963,17 +1147,27 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
                 operation: String(operation),
               },
               snapshot: runtime.snapshot,
+              ...(transferSession ? { transfer: transferSession.grant } : {}),
             };
             msg.respond(JSON.stringify(accepted));
 
             void (async () => {
               const op = makeOperation(runtime);
               try {
-                const handlerResult: unknown = await handler({
-                  input: value.input,
-                  op,
-                  caller: value.caller,
-                });
+                const handlerResult: unknown = await handler(
+                  transferSession
+                    ? {
+                      input: value.input,
+                      op,
+                      caller: value.caller,
+                      transfer: transferSession.transfer,
+                    }
+                    : {
+                      input: value.input,
+                      op,
+                      caller: value.caller,
+                    },
+                );
                 const handlerOutcome = isResultLike(handlerResult)
                   ? handlerResult.take()
                   : handlerResult;

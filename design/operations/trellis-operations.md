@@ -97,17 +97,19 @@ Rules:
 - `OperationRef.get()` returns the current durable snapshot
 - `OperationRef.wait()` resolves from durable state and live events to a terminal snapshot
 - `OperationRef.watch()` returns a live async stream of typed operation events
+- transfer-capable operations expose `OperationRef.transfer(body | stream)`
 - public TypeScript operations APIs MUST use `Result` / `AsyncResult` for expected failures rather than exception-oriented wrappers
 - runtimes MUST expose operation APIs through normal helpers; callers MUST NOT need to know hidden `*.Start`, `*.Get`, `*.Wait`, or `*.Watch` wire names
 
 Caller surface:
 
 - callers start async workflows with `operation(key).start(input)` and receive an `OperationRef`
-- callers observe the operation through `get()`, `wait()`, `watch()`, and optional `cancel()`
+- callers observe the operation through `get()`, `wait()`, `watch()`, optional `cancel()`, and optional `transfer(body | stream)` when the operation declares transfer support
 
 Owning-service surface:
 
 - owning services register handlers with `service.operation(key).handle(handler)`
+- transfer-capable handlers receive provider-side `transfer.updates()` and `transfer.completed()` helpers
 - handlers may complete operations directly or attach local jobs to them
 
 Language-specific public API details live in:
@@ -134,6 +136,7 @@ type OperationRef<TProgress, TOutput> = {
   get(): Promise<Result<OperationSnapshot<TProgress, TOutput>, BaseError>>;
   wait(): Promise<Result<TerminalOperation<TProgress, TOutput>, BaseError>>;
   watch(): AsyncIterable<OperationEvent<TProgress, TOutput>>;
+  transfer?(body: TransferBody): Promise<Result<FileInfo, BaseError>>;
   cancel?(): Promise<Result<OperationSnapshot<TProgress, TOutput>, BaseError>>;
 };
 
@@ -146,6 +149,11 @@ type OperationSnapshot<TProgress, TOutput> = {
   updatedAt: string;
   completedAt?: string;
   progress?: TProgress;
+  transfer?: {
+    chunkIndex: number;
+    chunkBytes: number;
+    transferredBytes: number;
+  };
   output?: TOutput;
   error?: {
     type: string;
@@ -160,6 +168,15 @@ type TerminalOperation<TProgress, TOutput> = OperationSnapshot<TProgress, TOutpu
 type OperationEvent<TProgress, TOutput> =
   | { type: "accepted"; snapshot: OperationSnapshot<TProgress, TOutput> }
   | { type: "started"; snapshot: OperationSnapshot<TProgress, TOutput> }
+  | {
+      type: "transfer";
+      snapshot: OperationSnapshot<TProgress, TOutput>;
+      transfer: {
+        chunkIndex: number;
+        chunkBytes: number;
+        transferredBytes: number;
+      };
+    }
   | { type: "progress"; snapshot: OperationSnapshot<TProgress, TOutput> }
   | { type: "completed"; snapshot: TerminalOperation<TProgress, TOutput> }
   | { type: "failed"; snapshot: TerminalOperation<TProgress, TOutput> }
@@ -171,6 +188,7 @@ Lifecycle rules:
 - the first externally visible event MUST be `accepted`
 - `accepted` creates a durable operation snapshot in `pending`
 - `started` transitions the snapshot to `running`
+- `transfer` updates the stored transfer progress payload and emits once per acknowledged chunk
 - `progress` updates the stored progress payload but does not change terminal state
 - `completed`, `failed`, and `cancelled` are terminal
 
@@ -219,6 +237,7 @@ type OperationAcceptedEnvelope<TProgress, TOutput> = {
   snapshot: OperationSnapshot<TProgress, TOutput> & {
     revision: number;
   };
+  transfer?: UploadTransferGrant;
 };
 ```
 
@@ -226,6 +245,7 @@ Rules:
 
 - the service MUST allocate the operation id before replying
 - the accepted reply MUST include the initial durable snapshot
+- transfer-capable operations MUST include the runtime-owned upload transfer session data needed to execute `op.transfer(...)`
 - the initial snapshot revision MUST be `1`
 - the accepted reply is the only response sent for `operation(...).start(...)`
 

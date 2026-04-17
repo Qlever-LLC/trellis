@@ -31,6 +31,7 @@ import {
 } from "./runtime.ts";
 import {
   assertDataPointersExistAndAreTokenable,
+  getSubschemaAtDataPointer,
   type SubjectParam,
 } from "./schema_pointers.ts";
 
@@ -186,6 +187,14 @@ export type ContractOperation = {
   input: ContractSchemaRef;
   progress?: ContractSchemaRef;
   output?: ContractSchemaRef;
+  transfer?: {
+    store: string;
+    key: `/${string}`;
+    contentType?: `/${string}`;
+    metadata?: `/${string}`;
+    expiresInMs?: number;
+    maxBytes?: number;
+  };
   capabilities?: {
     call?: Capability[];
     read?: Capability[];
@@ -526,6 +535,14 @@ export type ContractSourceOperation<TSchemaName extends string = string> = {
   input: ContractSchemaRef<TSchemaName>;
   progress?: ContractSchemaRef<TSchemaName>;
   output?: ContractSchemaRef<TSchemaName>;
+  transfer?: {
+    store: string;
+    key: `/${string}`;
+    contentType?: `/${string}`;
+    metadata?: `/${string}`;
+    expiresInMs?: number;
+    maxBytes?: number;
+  };
   capabilities?: {
     call?: readonly Capability[];
     read?: readonly Capability[];
@@ -874,7 +891,7 @@ type ProjectedOperations<
       ResolveSchemaFromMap<TSchemas, T[K]["input"]>,
       ResolveSchemaFromMap<TSchemas, T[K]["progress"]>,
       ResolveSchemaFromMap<TSchemas, T[K]["output"]>
-    >;
+    > & (T[K]["transfer"] extends undefined ? {} : { transfer: T[K]["transfer"] });
   }
   : {};
 
@@ -1704,6 +1721,35 @@ function emitContract(source: TrellisContractSource): TrellisContractV1 {
   const operations = source.operations
     ? Object.fromEntries(
       Object.entries(source.operations).map(([name, operation]) => {
+        if (operation.transfer) {
+          const store = source.resources?.store?.[operation.transfer.store];
+          if (!store) {
+            throw new Error(
+              `Operation '${name}' references unknown store resource '${operation.transfer.store}'`,
+            );
+          }
+
+          const inputSchema = resolveSchemaRef(
+            source.schemas,
+            operation.input,
+            `operation '${name}' input`,
+          );
+          for (const pointer of [
+            operation.transfer.key,
+            operation.transfer.contentType,
+            operation.transfer.metadata,
+          ]) {
+            if (!pointer) {
+              continue;
+            }
+            if (getSubschemaAtDataPointer(inputSchema, pointer) === undefined) {
+              throw new Error(
+                `Invalid transfer pointer '${pointer}' for operation '${name}' (path not found in input schema)`,
+              );
+            }
+          }
+        }
+
         const emitted: ContractOperation = {
           version: operation.version,
           subject: operation.subject ??
@@ -1715,6 +1761,9 @@ function emitContract(source: TrellisContractSource): TrellisContractV1 {
         }
         if (operation.output) {
           emitted.output = { ...operation.output };
+        }
+        if (operation.transfer) {
+          emitted.transfer = { ...operation.transfer };
         }
         if (
           operation.capabilities?.call || operation.capabilities?.read ||
@@ -1920,12 +1969,15 @@ function buildOwnedApi(source: TrellisContractSource): ApiShape {
           : undefined,
         output: operation.output
           ? schema(
-            resolveSchemaRef(
-              source.schemas,
-              operation.output,
-              `operation '${name}' output`,
-            ),
-          )
+              resolveSchemaRef(
+                source.schemas,
+                operation.output,
+                `operation '${name}' output`,
+              ),
+            )
+          : undefined,
+        transfer: operation.transfer
+          ? { ...operation.transfer }
           : undefined,
         callerCapabilities: operation.capabilities?.call ?? [],
         readCapabilities: operation.capabilities?.read ?? [],

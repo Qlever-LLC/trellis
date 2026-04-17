@@ -1,13 +1,11 @@
-use std::collections::BTreeMap;
 use std::process::Command;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use async_nats::header::HeaderMap;
 use bytes::Bytes;
 use futures_util::StreamExt;
-use trellis_client::{
-    verify_proof, DownloadTransferGrant, FileInfo, SessionAuth, TrellisClient, UploadTransferGrant,
-};
+use trellis_client::{verify_proof, OperationDescriptor, SessionAuth, TrellisClient};
+
+use serde::Serialize;
 
 struct RuntimeContainer {
     runtime: String,
@@ -115,6 +113,26 @@ fn test_auth() -> SessionAuth {
         .expect("session auth")
 }
 
+#[derive(Debug, Clone, Serialize)]
+struct UploadInput {
+    key: String,
+}
+
+struct UploadOperation;
+
+impl OperationDescriptor for UploadOperation {
+    type Input = UploadInput;
+    type Progress = serde_json::Value;
+    type Output = serde_json::Value;
+
+    const KEY: &'static str = "Demo.Files.Upload";
+    const SUBJECT: &'static str = "operations.v1.Demo.Files.Upload";
+    const CALLER_CAPABILITIES: &'static [&'static str] = &["uploader"];
+    const READ_CAPABILITIES: &'static [&'static str] = &["uploader"];
+    const CANCEL_CAPABILITIES: &'static [&'static str] = &[];
+    const CANCELABLE: bool = false;
+}
+
 #[tokio::test]
 #[ignore = "needs podman/docker runtime"]
 async fn transfer_put_and_get_use_raw_chunk_transport() {
@@ -126,39 +144,48 @@ async fn transfer_put_and_get_use_raw_chunk_transport() {
     let client = TrellisClient::from_native(requester_client, auth, 2_000);
     let session_key = client.auth().session_key.clone();
 
+    let operation_subject = UploadOperation::SUBJECT;
     let upload_subject = "transfer.v1.upload.test.tx1";
-    let download_subject = "transfer.v1.download.test.tx2";
-    let upload_grant = UploadTransferGrant {
-        type_name: "TransferGrant".into(),
-        kind: "upload".into(),
-        service: "files".into(),
-        session_key: client.auth().session_key.clone(),
-        transfer_id: "tx1".into(),
-        subject: upload_subject.into(),
-        expires_at: "2099-01-01T00:00:00.000Z".into(),
-        chunk_bytes: 6,
-        max_bytes: Some(1024),
-        content_type: None,
-        metadata: None,
-    };
-    let download_grant = DownloadTransferGrant {
-        type_name: "TransferGrant".into(),
-        kind: "download".into(),
-        service: "files".into(),
-        session_key: client.auth().session_key.clone(),
-        transfer_id: "tx2".into(),
-        subject: download_subject.into(),
-        expires_at: "2099-01-01T00:00:00.000Z".into(),
-        chunk_bytes: 6,
-        info: FileInfo {
-            key: "incoming/test.txt".into(),
-            size: 11,
-            updated_at: "2026-04-12T00:00:00.000Z".into(),
-            digest: Some("sha256:test".into()),
-            content_type: Some("text/plain".into()),
-            metadata: BTreeMap::new(),
-        },
-    };
+
+    let mut operation_sub = service_client
+        .subscribe(operation_subject.to_string())
+        .await
+        .expect("subscribe operation subject");
+    service_client.flush().await.expect("flush operation subscription");
+    let service_for_operation = service_client.clone();
+    let accepted_session_key = session_key.clone();
+    tokio::spawn(async move {
+        let msg = operation_sub.next().await.expect("operation start message");
+        let reply = msg.reply.clone().expect("operation reply subject");
+        let payload = serde_json::to_vec(&serde_json::json!({
+            "kind": "accepted",
+            "ref": {
+                "id": "op_123",
+                "service": "files",
+                "operation": "Demo.Files.Upload"
+            },
+            "snapshot": {
+                "revision": 1,
+                "state": "pending"
+            },
+            "transfer": {
+                "type": "TransferGrant",
+                "kind": "upload",
+                "service": "files",
+                "sessionKey": accepted_session_key,
+                "transferId": "tx1",
+                "subject": upload_subject,
+                "expiresAt": "2099-01-01T00:00:00.000Z",
+                "chunkBytes": 6,
+                "maxBytes": 1024
+            }
+        }))
+        .unwrap();
+        service_for_operation
+            .publish(reply, Bytes::from(payload))
+            .await
+            .expect("publish accepted envelope");
+    });
 
     let upload_session_key = session_key.clone();
     let mut upload_sub = service_client
@@ -215,66 +242,20 @@ async fn transfer_put_and_get_use_raw_chunk_transport() {
         }
     });
 
-    let uploaded = client
-        .transfer(upload_grant)
-        .put("hello world".as_bytes())
+    let operation = client
+        .operation::<UploadOperation>()
+        .start(&UploadInput {
+            key: "incoming/test.txt".into(),
+        })
+        .await
+        .expect("operation start succeeds");
+
+    let uploaded = operation
+        .transfer("hello world".as_bytes())
         .await
         .expect("upload succeeds");
     assert_eq!(uploaded.key, "incoming/test.txt");
     assert_eq!(uploaded.size, 11);
 
-    let download_session_key = session_key.clone();
-    let mut download_sub = service_client
-        .subscribe(download_subject.to_string())
-        .await
-        .expect("subscribe download subject");
-    service_client
-        .flush()
-        .await
-        .expect("flush download subscription");
-    let service_for_download = service_client.clone();
-    let download_task = tokio::spawn(async move {
-        let msg = download_sub.next().await.expect("download request");
-        let reply = msg.reply.clone().expect("download reply subject");
-        let headers = msg.headers.as_ref().expect("download headers");
-        assert_eq!(
-            headers.get("session-key").unwrap().as_str(),
-            download_session_key
-        );
-        let proof = headers.get("proof").unwrap().as_str();
-        assert!(
-            verify_proof(&download_session_key, download_subject, &msg.payload, proof)
-                .expect("verify proof")
-        );
-
-        for (seq, chunk) in [b"hello ".as_slice(), b"world".as_slice()]
-            .into_iter()
-            .enumerate()
-        {
-            let mut headers = HeaderMap::new();
-            headers.insert("trellis-transfer-seq", seq.to_string().as_str());
-            service_for_download
-                .publish_with_headers(reply.clone(), headers, Bytes::copy_from_slice(chunk))
-                .await
-                .expect("publish download chunk");
-        }
-
-        let mut final_headers = HeaderMap::new();
-        final_headers.insert("trellis-transfer-seq", "2");
-        final_headers.insert("trellis-transfer-eof", "true");
-        service_for_download
-            .publish_with_headers(reply, final_headers, Bytes::new())
-            .await
-            .expect("publish eof");
-    });
-
-    let downloaded = client
-        .transfer(download_grant)
-        .get_bytes()
-        .await
-        .expect("download succeeds");
-    assert_eq!(downloaded, b"hello world");
-
     upload_task.await.expect("upload task joins");
-    download_task.await.expect("download task joins");
 }

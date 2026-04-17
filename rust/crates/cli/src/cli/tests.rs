@@ -133,7 +133,6 @@ fn parses_device_profile_create_command() {
         "profile",
         "create",
         "reader.standard",
-        "acme.reader@v1",
         "--review-mode",
         "required",
     ]);
@@ -142,7 +141,6 @@ fn parses_device_profile_create_command() {
             DeviceSubcommand::Profile(profile) => match profile.command {
                 DeviceProfileSubcommand::Create(args) => {
                     assert_eq!(args.profile, "reader.standard");
-                    assert_eq!(args.contract, "acme.reader@v1");
                     assert_eq!(args.review_mode, DeviceReviewMode::Required);
                 }
                 other => panic!("unexpected device profile command: {other:?}"),
@@ -155,14 +153,7 @@ fn parses_device_profile_create_command() {
 
 #[test]
 fn device_profile_create_defaults_review_mode_to_none() {
-    let cli = Cli::parse_from([
-        "trellis",
-        "device",
-        "profile",
-        "create",
-        "reader.standard",
-        "acme.reader@v1",
-    ]);
+    let cli = Cli::parse_from(["trellis", "device", "profile", "create", "reader.standard"]);
     match cli.command {
         TopLevelCommand::Device(command) => match command.command {
             DeviceSubcommand::Profile(profile) => match profile.command {
@@ -182,6 +173,7 @@ fn parses_device_provision_command() {
     let cli = Cli::parse_from([
         "trellis",
         "device",
+        "instance",
         "provision",
         "reader.standard",
         "--name",
@@ -197,13 +189,16 @@ fn parses_device_provision_command() {
     ]);
     match cli.command {
         TopLevelCommand::Device(command) => match command.command {
-            DeviceSubcommand::Provision(args) => {
-                assert_eq!(args.profile, "reader.standard");
-                assert_eq!(args.name.as_deref(), Some("Front Desk Reader"));
-                assert_eq!(args.serial_number.as_deref(), Some("SN-123"));
-                assert_eq!(args.model_number.as_deref(), Some("MX-10"));
-                assert_eq!(args.metadata, vec!["site=lab-a", "assetTag=42"]);
-            }
+            DeviceSubcommand::Instance(instance) => match instance.command {
+                DeviceInstanceSubcommand::Provision(args) => {
+                    assert_eq!(args.profile, "reader.standard");
+                    assert_eq!(args.name.as_deref(), Some("Front Desk Reader"));
+                    assert_eq!(args.serial_number.as_deref(), Some("SN-123"));
+                    assert_eq!(args.model_number.as_deref(), Some("MX-10"));
+                    assert_eq!(args.metadata, vec!["site=lab-a", "assetTag=42"]);
+                }
+                other => panic!("unexpected device instance command: {other:?}"),
+            },
             other => panic!("unexpected device command: {other:?}"),
         },
         other => panic!("unexpected top-level command: {other:?}"),
@@ -257,6 +252,7 @@ fn parses_device_review_approve_command() {
     let cli = Cli::parse_from([
         "trellis",
         "device",
+        "activation",
         "review",
         "approve",
         "dar_123",
@@ -265,12 +261,15 @@ fn parses_device_review_approve_command() {
     ]);
     match cli.command {
         TopLevelCommand::Device(command) => match command.command {
-            DeviceSubcommand::Review(review) => match review.command {
-                DeviceReviewSubcommand::Approve(args) => {
-                    assert_eq!(args.review, "dar_123");
-                    assert_eq!(args.reason.as_deref(), Some("approved_by_policy"));
-                }
-                other => panic!("unexpected device review command: {other:?}"),
+            DeviceSubcommand::Activation(activation) => match activation.command {
+                DeviceActivationSubcommand::Review(review) => match review.command {
+                    DeviceReviewSubcommand::Approve(args) => {
+                        assert_eq!(args.review, "dar_123");
+                        assert_eq!(args.reason.as_deref(), Some("approved_by_policy"));
+                    }
+                    other => panic!("unexpected device review command: {other:?}"),
+                },
+                other => panic!("unexpected device activation command: {other:?}"),
             },
             other => panic!("unexpected device command: {other:?}"),
         },
@@ -395,7 +394,6 @@ fn rejects_invalid_device_review_mode() {
         "profile",
         "create",
         "reader.standard",
-        "acme.reader@v1",
         "--review-mode",
         "manual",
     ])

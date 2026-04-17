@@ -1,4 +1,4 @@
-import { assert, assertEquals } from "@std/assert";
+import { assert, assertEquals, assertNotEquals } from "@std/assert";
 import {
   base64urlDecode,
   base64urlEncode,
@@ -9,6 +9,19 @@ import {
   utf8,
   verifyProof,
 } from "./mod.ts";
+
+function authTokenFromAuthenticatorResult(value: unknown): string {
+  if (!value || typeof value !== "object") {
+    throw new Error("Expected NATS authenticator to return an auth token payload");
+  }
+
+  const record = value as { auth_token?: unknown };
+  if (typeof record.auth_token !== "string") {
+    throw new Error("Expected NATS authenticator to return auth_token");
+  }
+
+  return record.auth_token;
+}
 
 Deno.test("createAuth derives sessionKey from 32-byte seed", async () => {
   const seed = base64urlEncode(crypto.getRandomValues(new Uint8Array(32)));
@@ -74,4 +87,40 @@ Deno.test("trellisIdFromOriginId is stable and 22 chars", async () => {
   assertEquals(id1.length, 22);
   assertEquals(id1, id2);
   assert(id1 !== id3);
+});
+
+Deno.test("natsConnectOptions returns a reconnect-safe authenticator with fresh iat values", async () => {
+  const seed = base64urlEncode(crypto.getRandomValues(new Uint8Array(32)));
+  const auth = await createAuth({ sessionKeySeed: seed });
+  const originalNow = Date.now;
+
+  try {
+    let nowMs = 1_700_000_000_000;
+    Date.now = () => nowMs;
+
+    const options = await auth.natsConnectOptions();
+    const firstToken = JSON.parse(authTokenFromAuthenticatorResult(options.authenticator())) as {
+      sessionKey: string;
+      iat: number;
+      sig: string;
+    };
+
+    nowMs += 31_000;
+
+    const secondToken = JSON.parse(authTokenFromAuthenticatorResult(options.authenticator())) as {
+      sessionKey: string;
+      iat: number;
+      sig: string;
+    };
+
+    assertEquals(options.inboxPrefix, `_INBOX.${auth.sessionKey.slice(0, 16)}`);
+    assertEquals(firstToken.sessionKey, auth.sessionKey);
+    assertEquals(secondToken.sessionKey, auth.sessionKey);
+    assertEquals(firstToken.sig, await auth.natsConnectSigForIat(firstToken.iat));
+    assertEquals(secondToken.sig, await auth.natsConnectSigForIat(secondToken.iat));
+    assertEquals(secondToken.iat - firstToken.iat, 31);
+    assertNotEquals(firstToken.sig, secondToken.sig);
+  } finally {
+    Date.now = originalNow;
+  }
 });

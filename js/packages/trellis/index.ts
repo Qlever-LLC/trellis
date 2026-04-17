@@ -114,18 +114,11 @@ export type {
   StoreWaitOptions,
 } from "./store.ts";
 export {
-  DownloadTransferGrantSchema,
   FileInfoSchema,
-  TransferGrantSchema,
-  UploadTransferGrantSchema,
 } from "./transfer.ts";
 export type {
-  DownloadTransferGrant,
   FileInfo,
   TransferBody,
-  TransferGrant,
-  TransferHandle,
-  UploadTransferGrant,
 } from "./transfer.ts";
 export type {
   OperationEvent,
@@ -133,6 +126,7 @@ export type {
   OperationSnapshot,
   OperationState,
   OperationTransport,
+  OperationTransferProgress,
   TerminalOperation,
 } from "./operations.ts";
 export {
@@ -150,6 +144,8 @@ export type {
   HandlerTrellis,
   OperationHandlerContext,
   OperationRegistration,
+  OperationTransferContextOf,
+  OperationTransferHandle,
   RpcHandler,
   RpcHandlerContext,
   RpcHandlerErrorOf,

@@ -254,36 +254,6 @@ fn installed_contract_types_deserialize_stream_bindings_and_summary_counts() {
         .expect("analysis summary");
     assert_eq!(summary.stream_resources, 3.0);
 
-    let resource_bindings = response
-        .contract
-        .resource_bindings
-        .expect("resource bindings");
-    let jobs = resource_bindings.jobs.as_ref().expect("jobs bindings");
-    assert_eq!(
-        jobs.queues
-            .get("document-process")
-            .expect("document-process queue")
-            .consumer_name,
-        "documents-document-process"
-    );
-    assert_eq!(
-        resource_bindings
-            .kv
-            .as_ref()
-            .expect("kv bindings")
-            .get("jobsState")
-            .expect("jobsState")
-            .bucket,
-        "trellis_jobs"
-    );
-    let binding_streams = resource_bindings.streams.expect("stream bindings");
-    let jobs_work = binding_streams.get("jobsWork").expect("jobsWork binding");
-    assert_eq!(jobs_work.name, "JOBS_WORK");
-    assert_eq!(
-        jobs_work.sources.as_ref().expect("sources")[0].stream_name,
-        "JOBS"
-    );
-
     let resources = response.contract.resources.expect("resources");
     assert_eq!(
         resources
@@ -318,51 +288,58 @@ fn installed_contract_types_deserialize_stream_bindings_and_summary_counts() {
 
 #[test]
 fn install_service_response_deserializes_typed_resource_bindings() {
-    let response: trellis_sdk_auth::types::AuthInstallServiceResponse =
+    let response: trellis_sdk_auth::types::AuthProvisionServiceInstanceResponse =
         serde_json::from_value(json!({
-            "success": true,
-            "sessionKey": "svc-key",
-            "contractId": "trellis.jobs@v1",
-            "contractDigest": "sha256:expected",
-            "resourceBindings": {
-                "jobs": {
-                    "namespace": "jobs",
-                    "queues": {
-                        "document-process": {
-                            "queueType": "document-process",
-                            "publishPrefix": "trellis.jobs.documents",
-                            "workSubject": "trellis.work.documents.document-process",
-                            "consumerName": "documents-document-process",
-                            "payload": { "schema": "DocumentPayload" },
-                            "maxDeliver": 5,
-                            "backoffMs": [5000, 30000],
-                            "ackWaitMs": 60000,
-                            "progress": true,
-                            "logs": true,
-                            "dlq": true,
-                            "concurrency": 2
+            "instance": {
+                "instanceId": "svc-inst-1",
+                "instanceKey": "svc-key",
+                "profileId": "jobs.default",
+                "createdAt": "2026-01-01T00:00:00.000Z",
+                "disabled": false,
+                "capabilities": ["jobs.read"],
+                "currentContractId": "trellis.jobs@v1",
+                "currentContractDigest": "sha256:expected",
+                "resourceBindings": {
+                    "jobs": {
+                        "namespace": "jobs",
+                        "queues": {
+                            "document-process": {
+                                "queueType": "document-process",
+                                "publishPrefix": "trellis.jobs.documents",
+                                "workSubject": "trellis.work.documents.document-process",
+                                "consumerName": "documents-document-process",
+                                "payload": { "schema": "DocumentPayload" },
+                                "maxDeliver": 5,
+                                "backoffMs": [5000, 30000],
+                                "ackWaitMs": 60000,
+                                "progress": true,
+                                "logs": true,
+                                "dlq": true,
+                                "concurrency": 2
+                            }
                         }
-                    }
-                },
-                "kv": {
-                    "jobsState": {
-                        "bucket": "trellis_jobs",
-                        "history": 1,
-                        "ttlMs": 0
-                    }
-                },
-                "streams": {
-                    "jobsWork": {
-                        "name": "JOBS_WORK",
-                        "subjects": ["trellis.work.>"],
-                        "retention": "workqueue"
+                    },
+                    "kv": {
+                        "jobsState": {
+                            "bucket": "trellis_jobs",
+                            "history": 1,
+                            "ttlMs": 0
+                        }
+                    },
+                    "streams": {
+                        "jobsWork": {
+                            "name": "JOBS_WORK",
+                            "subjects": ["trellis.work.>"],
+                            "retention": "workqueue"
+                        }
                     }
                 }
             }
         }))
         .expect("deserialize install service response");
 
-    let jobs = response.resource_bindings.jobs.expect("jobs bindings");
+    let resource_bindings = response.instance.resource_bindings.expect("resource bindings");
+    let jobs = resource_bindings.jobs.expect("jobs bindings");
     assert_eq!(
         jobs.queues
             .get("document-process")
@@ -371,10 +348,8 @@ fn install_service_response_deserializes_typed_resource_bindings() {
         "trellis.jobs.documents"
     );
     assert_eq!(
-        response
-            .resource_bindings
+        resource_bindings
             .kv
-            .as_ref()
             .expect("kv bindings")
             .get("jobsState")
             .expect("jobsState")
@@ -382,10 +357,8 @@ fn install_service_response_deserializes_typed_resource_bindings() {
         "trellis_jobs"
     );
     assert_eq!(
-        response
-            .resource_bindings
+        resource_bindings
             .streams
-            .as_ref()
             .expect("stream bindings")
             .get("jobsWork")
             .expect("jobsWork binding")

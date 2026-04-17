@@ -4,7 +4,12 @@ import type {
 import { err, isErr, ok, type Result } from "@qlever-llc/result";
 
 import type { JsonValue } from "./codec.ts";
-import { UnexpectedError } from "./errors/index.ts";
+import { TransferError, UnexpectedError } from "./errors/index.ts";
+import type {
+  FileInfo,
+  TransferBody,
+  UploadTransferGrant,
+} from "./transfer.ts";
 
 export type OperationState =
   | "pending"
@@ -29,11 +34,18 @@ export type OperationSnapshot<TProgress = unknown, TOutput = unknown> = {
   updatedAt: string;
   completedAt?: string;
   progress?: TProgress;
+  transfer?: OperationTransferProgress;
   output?: TOutput;
   error?: {
     type: string;
     message: string;
   };
+};
+
+export type OperationTransferProgress = {
+  chunkIndex: number;
+  chunkBytes: number;
+  transferredBytes: number;
 };
 
 export type TerminalOperation<TProgress = unknown, TOutput = unknown> =
@@ -44,6 +56,11 @@ export type TerminalOperation<TProgress = unknown, TOutput = unknown> =
 export type OperationEvent<TProgress = unknown, TOutput = unknown> =
   | { type: "accepted"; snapshot: OperationSnapshot<TProgress, TOutput> }
   | { type: "started"; snapshot: OperationSnapshot<TProgress, TOutput> }
+  | {
+      type: "transfer";
+      snapshot: OperationSnapshot<TProgress, TOutput>;
+      transfer: OperationTransferProgress;
+    }
   | { type: "progress"; snapshot: OperationSnapshot<TProgress, TOutput> }
   | { type: "completed"; snapshot: TerminalOperation<TProgress, TOutput> }
   | { type: "failed"; snapshot: TerminalOperation<TProgress, TOutput> }
@@ -53,6 +70,7 @@ type OperationAcceptedEnvelope<TProgress = unknown, TOutput = unknown> = {
   kind: "accepted";
   ref: OperationRefData;
   snapshot: OperationSnapshot<TProgress, TOutput>;
+  transfer?: UploadTransferGrant;
 };
 
 type OperationSnapshotFrame<TProgress = unknown, TOutput = unknown> = {
@@ -65,6 +83,14 @@ type OperationShape = {
   input: unknown;
   progress?: unknown;
   output?: unknown;
+  transfer?: {
+    store: string;
+    key: `/${string}`;
+    contentType?: `/${string}`;
+    metadata?: `/${string}`;
+    expiresInMs?: number;
+    maxBytes?: number;
+  };
   cancel?: boolean;
 };
 
@@ -83,6 +109,10 @@ export interface OperationTransport {
     subject: string,
     body: JsonValue,
   ): Promise<Result<AsyncIterable<Result<JsonValue, UnexpectedError>>, UnexpectedError>>;
+  putTransfer(
+    grant: UploadTransferGrant,
+    body: TransferBody,
+  ): Promise<Result<FileInfo, TransferError>>;
 }
 
 export function controlSubject(subject: string): string {
@@ -152,16 +182,37 @@ export class OperationRef<
   readonly id: string;
   readonly service: string;
   readonly operation: string;
+  readonly transfer: TDesc["transfer"] extends undefined ? undefined
+    : (body: TransferBody) => Promise<Result<FileInfo, TransferError>>;
 
   readonly #transport: OperationTransport;
   readonly #descriptor: TDesc;
+  readonly #acceptedTransfer?: UploadTransferGrant;
 
-  constructor(transport: OperationTransport, descriptor: TDesc, ref: OperationRefData) {
+  constructor(
+    transport: OperationTransport,
+    descriptor: TDesc,
+    ref: OperationRefData,
+    acceptedTransfer?: UploadTransferGrant,
+  ) {
     this.#transport = transport;
     this.#descriptor = descriptor;
     this.id = ref.id;
     this.service = ref.service;
     this.operation = ref.operation;
+    this.#acceptedTransfer = acceptedTransfer;
+    this.transfer = (descriptor.transfer
+      ? async (body: TransferBody) => {
+        const grant = this.#acceptedTransfer;
+        if (!grant) {
+          return err(new TransferError({
+            operation: "transfer",
+            context: { reason: "missing_transfer" },
+          }));
+        }
+        return await this.#transport.putTransfer(grant, body);
+      }
+      : undefined) as OperationRef<TDesc, TProgress, TOutput>["transfer"];
   }
 
   async get(): Promise<Result<OperationSnapshot<TProgress, TOutput>, UnexpectedError>> {
@@ -324,6 +375,11 @@ export class OperationInvoker<
       return envelope;
     }
 
-    return ok(this.resume(envelope.ref));
+    return ok(new OperationRef<TDesc, TProgress, TOutput>(
+      this.#transport,
+      this.#descriptor,
+      envelope.ref,
+      envelope.transfer,
+    ));
   }
 }

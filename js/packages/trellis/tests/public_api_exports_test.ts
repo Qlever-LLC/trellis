@@ -8,8 +8,8 @@ import {
   defineError,
   definePortalContract,
   defineServiceContract,
-  DownloadTransferGrantSchema,
   err,
+  FileInfoSchema,
   HealthCheckResultSchema,
   HealthResponseSchema,
   HealthRpcSchema,
@@ -20,13 +20,11 @@ import {
   schema,
   StoreError,
   TransferError,
-  TransferGrantSchema,
   TrellisClient,
   TrellisDevice,
   TrellisError,
   TypedStore,
   TypedStoreEntry,
-  UploadTransferGrantSchema,
 } from "../index.ts";
 import * as trellis from "../index.ts";
 
@@ -45,9 +43,7 @@ Deno.test("root public API includes core runtime, contracts, and result helpers"
   assertEquals(typeof TypedStoreEntry, "function");
   assertEquals(typeof StoreError, "function");
   assertEquals(typeof TransferError, "function");
-  assertEquals(typeof TransferGrantSchema, "object");
-  assertEquals(typeof UploadTransferGrantSchema, "object");
-  assertEquals(typeof DownloadTransferGrantSchema, "object");
+  assertEquals(typeof FileInfoSchema, "object");
   assertEquals(typeof HealthCheckResultSchema, "object");
   assertEquals(typeof HealthResponseSchema, "object");
   assertEquals(typeof HealthRpcSchema, "object");

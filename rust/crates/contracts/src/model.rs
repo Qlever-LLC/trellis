@@ -107,6 +107,20 @@ pub struct OperationCapabilities {
     pub cancel: Option<Vec<String>>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ContractOperationTransfer {
+    pub store: String,
+    pub key: String,
+    #[serde(rename = "contentType", skip_serializing_if = "Option::is_none")]
+    pub content_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<String>,
+    #[serde(rename = "expiresInMs", skip_serializing_if = "Option::is_none")]
+    pub expires_in_ms: Option<i64>,
+    #[serde(rename = "maxBytes", skip_serializing_if = "Option::is_none")]
+    pub max_bytes: Option<i64>,
+}
+
 /// One owned operation declaration in a contract manifest.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ContractOperation {
@@ -117,6 +131,8 @@ pub struct ContractOperation {
     pub progress: Option<ContractSchemaRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output: Option<ContractSchemaRef>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transfer: Option<ContractOperationTransfer>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<OperationCapabilities>,
     #[serde(skip_serializing_if = "Option::is_none")]

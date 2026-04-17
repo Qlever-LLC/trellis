@@ -6,6 +6,7 @@ use futures_util::StreamExt;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, Value};
 
+use crate::transfer::{FileInfo, UploadTransferGrant};
 use crate::TrellisClientError;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -33,7 +34,17 @@ pub struct OperationSnapshot<TProgress = Value, TOutput = Value> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub progress: Option<TProgress>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub transfer: Option<OperationTransferProgress>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub output: Option<TOutput>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct OperationTransferProgress {
+    pub chunk_index: u64,
+    pub chunk_bytes: u64,
+    pub transferred_bytes: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -43,6 +54,7 @@ struct AcceptedEnvelope<TProgress = Value, TOutput = Value> {
     #[serde(rename = "ref")]
     operation_ref: OperationRefData,
     snapshot: OperationSnapshot<TProgress, TOutput>,
+    transfer: Option<UploadTransferGrant>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -63,6 +75,10 @@ pub enum OperationEvent<TProgress = Value, TOutput = Value> {
     },
     Progress {
         snapshot: OperationSnapshot<TProgress, TOutput>,
+    },
+    Transfer {
+        snapshot: OperationSnapshot<TProgress, TOutput>,
+        transfer: OperationTransferProgress,
     },
     Completed {
         snapshot: OperationSnapshot<TProgress, TOutput>,
@@ -109,8 +125,14 @@ pub trait OperationTransport {
         body: Value,
     ) -> impl Future<
         Output = Result<BoxStream<'a, Result<Value, TrellisClientError>>, TrellisClientError>,
-    > + Send
+     > + Send
            + 'a;
+
+    fn put_upload_transfer<'a>(
+        &'a self,
+        grant: UploadTransferGrant,
+        body: Vec<u8>,
+    ) -> impl Future<Output = Result<FileInfo, TrellisClientError>> + Send + 'a;
 }
 
 pub struct OperationInvoker<'a, T, D> {
@@ -121,6 +143,7 @@ pub struct OperationInvoker<'a, T, D> {
 pub struct OperationRef<'a, T, D> {
     transport: &'a T,
     data: OperationRefData,
+    accepted_transfer: Option<UploadTransferGrant>,
     _descriptor: PhantomData<D>,
 }
 
@@ -166,6 +189,7 @@ where
         Ok(OperationRef {
             transport: self.transport,
             data: accepted.operation_ref,
+            accepted_transfer: accepted.transfer,
             _descriptor: PhantomData,
         })
     }
@@ -299,6 +323,20 @@ where
                 }
             },
         )))
+    }
+
+    pub async fn transfer(
+        &self,
+        body: impl AsRef<[u8]>,
+    ) -> Result<FileInfo, TrellisClientError> {
+        let grant = self.accepted_transfer.clone().ok_or_else(|| {
+            TrellisClientError::OperationProtocol(
+                "operation does not have an accepted transfer session".into(),
+            )
+        })?;
+        self.transport
+            .put_upload_transfer(grant, body.as_ref().to_vec())
+            .await
     }
 }
 
