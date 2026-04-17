@@ -11,25 +11,24 @@ import {
   ConnectionSchema,
   ContractApprovalRecordSchema,
   ContractRecordSchema,
-  LoginPortalDefaultSchema,
-  LoginPortalSelectionSchema,
-  OAuthStateSchema,
-  PortalSchema,
-  PendingAuthSchema,
-  type SentinelCreds,
-  SentinelCredsSchema,
-  SessionSchema,
-  UserProjectionSchema,
-  DevicePortalSelectionSchema,
-  DeviceActivationHandoffSchema,
   DeviceActivationRecordSchema,
   DeviceActivationReviewRecordSchema,
+  DevicePortalSelectionSchema,
   DeviceProfileSchema,
   DeviceProvisioningSecretSchema,
   DeviceSchema,
   InstanceGrantPolicySchema,
+  LoginPortalDefaultSchema,
+  LoginPortalSelectionSchema,
+  OAuthStateSchema,
+  PendingAuthSchema,
+  PortalSchema,
+  type SentinelCreds,
+  SentinelCredsSchema,
   ServiceInstanceSchema,
   ServiceProfileSchema,
+  SessionSchema,
+  UserProjectionSchema,
 } from "../state/schemas.ts";
 import { StoredStateEntrySchema } from "../state/model.ts";
 
@@ -78,10 +77,15 @@ export const natsTrellis = await connect({
   inboxPrefix: `_INBOX.${auth.sessionKey.slice(0, 16)}`,
 });
 
-const sessionKVResult = await TypedKV.open(natsAuth, "trellis_sessions", SessionSchema, {
-  history: 1,
-  ttl: config.ttlMs.sessions,
-});
+const sessionKVResult = await TypedKV.open(
+  natsAuth,
+  "trellis_sessions",
+  SessionSchema,
+  {
+    history: 1,
+    ttl: config.ttlMs.sessions,
+  },
+);
 const sessionKVValue = sessionKVResult.take();
 if (isErr(sessionKVValue)) {
   throw new Error(`Failed to open session KV: ${sessionKVValue.error.message}`);
@@ -254,27 +258,14 @@ if (isErr(deviceInstancesKVValue)) {
 }
 export const deviceInstancesKV = deviceInstancesKVValue;
 
-const deviceActivationHandoffsKVResult = await TypedKV.open(
-  natsAuth,
-  "trellis_device_activation_handoffs_v2",
-  DeviceActivationHandoffSchema,
-  { history: 1, ttl: config.ttlMs.deviceHandoff },
-);
-const deviceActivationHandoffsKVValue = deviceActivationHandoffsKVResult.take();
-if (isErr(deviceActivationHandoffsKVValue)) {
-  throw new Error(
-    `Failed to open device activation handoffs KV: ${deviceActivationHandoffsKVValue.error.message}`,
-  );
-}
-export const deviceActivationHandoffsKV = deviceActivationHandoffsKVValue;
-
 const deviceProvisioningSecretsKVResult = await TypedKV.open(
   natsAuth,
   "trellis_device_provisioning_secrets_v2",
   DeviceProvisioningSecretSchema,
   { history: 1, ttl: 0 },
 );
-const deviceProvisioningSecretsKVValue = deviceProvisioningSecretsKVResult.take();
+const deviceProvisioningSecretsKVValue = deviceProvisioningSecretsKVResult
+  .take();
 if (isErr(deviceProvisioningSecretsKVValue)) {
   throw new Error(
     `Failed to open device provisioning secrets KV: ${deviceProvisioningSecretsKVValue.error.message}`,

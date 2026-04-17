@@ -37,6 +37,17 @@ export class WorkerHostStopError extends AggregateError {
   }
 }
 
+export class JobsInfrastructureMissingError extends Error {
+  constructor(stream: string, queueType: string) {
+    super(
+      `Jobs work stream '${stream}' was not found while starting queue '${queueType}'. ` +
+        "The shared jobs infrastructure is missing or not provisioned for this Trellis environment. " +
+        `Install or upgrade the 'trellis.jobs@v1' service and ensure '${stream}' exists before starting workers.`,
+    );
+    this.name = "JobsInfrastructureMissingError";
+  }
+}
+
 type WorkMessageLike = {
   data: Uint8Array;
   subject: string;
@@ -545,9 +556,22 @@ async function ensureConsumerInfo(
 
   try {
     return await jsm.consumers.add(stream, config);
-  } catch {
-    return await jsm.consumers.info(stream, queue.consumerName);
+  } catch (addError) {
+    try {
+      return await jsm.consumers.info(stream, queue.consumerName);
+    } catch (infoError) {
+      if (isStreamNotFoundError(addError) || isStreamNotFoundError(infoError)) {
+        throw new JobsInfrastructureMissingError(stream, queue.queueType);
+      }
+      throw infoError;
+    }
   }
+}
+
+function isStreamNotFoundError(error: unknown): boolean {
+  return error instanceof Error && (
+    error.name === "StreamNotFoundError" || error.message.includes("stream not found")
+  );
 }
 
 function getQueueBinding(binding: JobsRuntimeBinding, queueType: string): JobsQueueBinding {

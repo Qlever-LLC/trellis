@@ -10,7 +10,6 @@ import {
   BindRequestSchema,
   BindResponseSchema,
   ContractApprovalRecordSchema,
-  DeviceActivationHandoffSchema,
   DeviceActivationRecordSchema,
   DeviceActivationReviewRecordSchema,
   DevicePortalDefaultSchema,
@@ -112,6 +111,19 @@ Deno.test("Portal and browser-flow schemas validate", () => {
     createdAt: new Date().toISOString(),
     expiresAt: new Date().toISOString(),
   }));
+  assert(Value.Check(AuthBrowserFlowSchema, {
+    flowId: "flow_456",
+    kind: "device_activation",
+    deviceActivation: {
+      instanceId: "dev_123",
+      profileId: "reader.default",
+      publicIdentityKey: sessionKey,
+      nonce: "nonce",
+      qrMac: "mac",
+    },
+    createdAt: new Date().toISOString(),
+    expiresAt: new Date().toISOString(),
+  }));
 });
 
 Deno.test("portal and device state schemas validate", () => {
@@ -171,19 +183,10 @@ Deno.test("portal and device state schemas validate", () => {
     activatedAt: new Date().toISOString(),
     revokedAt: null,
   }));
-  assert(Value.Check(DeviceActivationHandoffSchema, {
-    handoffId: "dah_123",
-    instanceId: "dev_123",
-    publicIdentityKey: sessionKey,
-    nonce: "nonce",
-    qrMac: "mac",
-    createdAt: new Date().toISOString(),
-    expiresAt: new Date().toISOString(),
-  }));
   assert(Value.Check(DeviceActivationReviewRecordSchema, {
     reviewId: "dar_123",
     linkRequestId: "dlr_123",
-    handoffId: "dah_123",
+    flowId: "flow_123",
     instanceId: "dev_123",
     publicIdentityKey: sessionKey,
     profileId: "reader.default",

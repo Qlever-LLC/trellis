@@ -91,30 +91,6 @@ pub struct InstanceGrantPolicyRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-/// Service record returned by `Auth.ListServices`.
-pub struct ServiceListEntry {
-    pub active: bool,
-    pub capabilities: Vec<String>,
-    #[serde(rename = "contractDigest")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub contract_digest: Option<String>,
-    #[serde(rename = "contractId")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub contract_id: Option<String>,
-    #[serde(rename = "createdAt")]
-    pub created_at: String,
-    pub description: String,
-    #[serde(rename = "displayName")]
-    pub display_name: String,
-    pub namespaces: Vec<String>,
-    #[serde(rename = "resourceBindings")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub resource_bindings: Option<ResourceBindings>,
-    #[serde(rename = "sessionKey")]
-    pub session_key: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 /// User record returned by `Auth.Me`.
 pub struct AuthenticatedUser {
     pub active: bool,
@@ -261,69 +237,6 @@ pub struct DisableInstanceGrantPolicyRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-/// Request payload for `Auth.InstallService`.
-pub struct AuthInstallServiceRequest {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub active: Option<bool>,
-    pub contract: BTreeMap<String, Value>,
-    pub description: String,
-    #[serde(rename = "displayName")]
-    pub display_name: String,
-    pub namespaces: Vec<String>,
-    #[serde(rename = "sessionKey")]
-    pub session_key: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-/// Response payload for `Auth.InstallService`.
-pub struct AuthInstallServiceResponse {
-    #[serde(rename = "contractDigest")]
-    pub contract_digest: String,
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    #[serde(rename = "resourceBindings")]
-    pub resource_bindings: ResourceBindings,
-    #[serde(rename = "sessionKey")]
-    pub session_key: String,
-    pub success: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-/// Request payload for `Auth.UpgradeServiceContract`.
-pub struct AuthUpgradeServiceContractRequest {
-    pub contract: BTreeMap<String, Value>,
-    #[serde(rename = "sessionKey")]
-    pub session_key: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-/// Response payload for `Auth.UpgradeServiceContract`.
-pub struct AuthUpgradeServiceContractResponse {
-    #[serde(rename = "contractDigest")]
-    pub contract_digest: String,
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    #[serde(rename = "resourceBindings")]
-    pub resource_bindings: ResourceBindings,
-    #[serde(rename = "sessionKey")]
-    pub session_key: String,
-    pub success: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-/// Request payload for `Auth.RemoveService`.
-pub struct AuthRemoveServiceRequest {
-    #[serde(rename = "sessionKey")]
-    pub session_key: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-/// Response payload for `Auth.RemoveService`.
-pub struct AuthRemoveServiceResponse {
-    pub success: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 /// Request payload for `Auth.GetInstalledContract`.
 pub struct AuthGetInstalledContractRequest {
     pub digest: String,
@@ -377,11 +290,6 @@ pub struct AuthValidateRequestResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub(crate) struct ListApprovalsResponse {
     pub approvals: Vec<ApprovalEntryRecord>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub(crate) struct ListServicesResponse {
-    pub services: Vec<ServiceListEntry>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

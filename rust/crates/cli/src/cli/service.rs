@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use clap::{ArgGroup, Args, Subcommand};
 
 #[derive(Debug, Args)]
-/// Namespace for service installation and upgrade commands.
+/// Manage service profiles and instances.
 pub struct ServiceCommand {
     #[command(subcommand)]
     pub command: ServiceSubcommand,
@@ -12,11 +12,10 @@ pub struct ServiceCommand {
 #[derive(Debug, Subcommand)]
 /// Service lifecycle operations.
 pub enum ServiceSubcommand {
-    List,
-    Install(ServiceInstallArgs),
-    Remove(ServiceRemoveArgs),
-    RollKey(ServiceRollKeyArgs),
-    Upgrade(ServiceUpgradeArgs),
+    /// Manage service profiles.
+    Profile(ServiceProfileCommand),
+    /// Manage service instances.
+    Instance(ServiceInstanceCommand),
 }
 
 #[derive(Debug, Args, Clone)]
@@ -27,125 +26,138 @@ pub enum ServiceSubcommand {
         .multiple(false)
 ))]
 /// One concrete way to load a contract before generation or verification.
-///
-/// Exactly one input source must be supplied so downstream commands operate on a
-/// single canonical manifest shape.
 pub struct ContractInputArgs {
     #[arg(long, value_name = "CONTRACT_JSON", group = "contract-source")]
-    /// Load the contract from a canonical JSON manifest file.
     pub manifest: Option<PathBuf>,
 
     #[arg(long, value_name = "CONTRACT_SOURCE", group = "contract-source")]
-    /// Load the contract from a TypeScript or Rust source file.
     pub source: Option<PathBuf>,
 
     #[arg(long, value_name = "OCI_IMAGE", group = "contract-source")]
-    /// Load the contract from an OCI image that embeds contract metadata.
     pub image: Option<String>,
 
     #[arg(long, default_value = "CONTRACT")]
-    /// Rust constant name to read when resolving a contract from Rust source code.
     pub source_export: String,
 
     #[arg(long, default_value = "/trellis/contract.json")]
-    /// Path to the contract manifest inside an OCI image.
     pub image_contract_path: String,
 }
 
 #[derive(Debug, Args)]
-#[command(
-    after_help = "Examples:\n  trellis service install --source ./contracts/graph.ts\n  trellis service install --manifest ./generated/contracts/manifests/acme.graph@v1.json --display-name Graph"
-)]
-/// Install a service contract through auth/admin RPCs.
-pub struct ServiceInstallArgs {
-    #[command(flatten)]
-    pub contract: ContractInputArgs,
+pub struct ServiceProfileCommand {
+    #[command(subcommand)]
+    pub command: ServiceProfileSubcommand,
+}
 
-    #[arg(long)]
-    /// Override the display name shown for the installed service.
-    pub display_name: Option<String>,
+#[derive(Debug, Subcommand)]
+pub enum ServiceProfileSubcommand {
+    List(ServiceProfileListArgs),
+    Create(ServiceProfileCreateArgs),
+    Apply(ServiceProfileApplyArgs),
+    Unapply(ServiceProfileUnapplyArgs),
+    Disable(ServiceProfileToggleArgs),
+    Enable(ServiceProfileToggleArgs),
+    Remove(ServiceProfileRemoveArgs),
+}
 
+#[derive(Debug, Args)]
+pub struct ServiceInstanceCommand {
+    #[command(subcommand)]
+    pub command: ServiceInstanceSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ServiceInstanceSubcommand {
+    List(ServiceInstanceListArgs),
+    Provision(ServiceInstanceProvisionArgs),
+    Disable(ServiceInstanceToggleArgs),
+    Enable(ServiceInstanceToggleArgs),
+    Remove(ServiceInstanceRemoveArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct ServiceProfileListArgs {
     #[arg(long)]
-    /// Override the human-readable service description.
-    pub description: Option<String>,
+    pub disabled: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct ServiceProfileCreateArgs {
+    #[arg(value_name = "PROFILE")]
+    pub profile: String,
 
     #[arg(long = "namespace", value_delimiter = ',')]
-    /// Additional namespaces to bind to the installed service.
-    pub extra_namespaces: Vec<String>,
-
-    #[arg(short = 'f', long)]
-    /// Skip the interactive install review prompt.
-    pub force: bool,
-
-    #[arg(long)]
-    /// Install the service in an inactive state.
-    pub inactive: bool,
+    pub namespaces: Vec<String>,
 }
 
 #[derive(Debug, Args)]
-#[command(
-    after_help = "Examples:\n  trellis service upgrade --source ./contracts/graph.ts --service-key <session-key>\n  trellis service upgrade --image ghcr.io/acme/graph:1.2.0 --seed <seed>"
-)]
-/// Upgrade one installed service contract.
-pub struct ServiceUpgradeArgs {
+pub struct ServiceProfileApplyArgs {
+    #[arg(value_name = "PROFILE")]
+    pub profile: String,
+
     #[command(flatten)]
     pub contract: ContractInputArgs,
 
-    #[arg(long)]
-    /// Existing public service key to upgrade.
-    pub service_key: Option<String>,
-
-    #[arg(long)]
-    /// Existing service seed whose public key identifies the target service.
-    pub seed: Option<String>,
-
     #[arg(short = 'f', long)]
-    /// Skip the interactive upgrade review prompt.
-    pub force: bool,
-}
-
-#[derive(Debug, Args, Clone)]
-#[command(group(
-    ArgGroup::new("service-identity")
-        .args(["service_key", "seed"])
-        .required(true)
-        .multiple(false)
-))]
-/// One concrete way to identify an installed service principal.
-pub struct ServiceIdentityArgs {
-    #[arg(long)]
-    /// Existing public service key.
-    pub service_key: Option<String>,
-
-    #[arg(long)]
-    /// Existing service seed whose public key identifies the target service.
-    pub seed: Option<String>,
-}
-
-#[derive(Debug, Args)]
-#[command(
-    after_help = "Examples:\n  trellis service remove --service-key <session-key>\n  trellis service remove --seed <seed>"
-)]
-/// Remove one installed service principal.
-pub struct ServiceRemoveArgs {
-    #[command(flatten)]
-    pub target: ServiceIdentityArgs,
-
-    #[arg(short = 'f', long)]
-    /// Skip the interactive removal review prompt.
     pub force: bool,
 }
 
 #[derive(Debug, Args)]
-#[command(
-    after_help = "Examples:\n  trellis service roll-key --service-key <session-key>\n  trellis service roll-key --seed <seed>"
-)]
-/// Install a replacement service key for one existing service and remove the old key.
-pub struct ServiceRollKeyArgs {
-    #[command(flatten)]
-    pub target: ServiceIdentityArgs,
+pub struct ServiceProfileUnapplyArgs {
+    #[arg(value_name = "PROFILE")]
+    pub profile: String,
+
+    #[arg(value_name = "CONTRACT")]
+    pub contract_id: String,
+
+    #[arg(long = "digest", value_delimiter = ',')]
+    pub digests: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct ServiceProfileToggleArgs {
+    #[arg(value_name = "PROFILE")]
+    pub profile: String,
+}
+
+#[derive(Debug, Args)]
+pub struct ServiceProfileRemoveArgs {
+    #[arg(value_name = "PROFILE")]
+    pub profile: String,
 
     #[arg(short = 'f', long)]
-    /// Skip the interactive roll-key review prompt.
+    pub force: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct ServiceInstanceListArgs {
+    #[arg(long = "profile")]
+    pub profile: Option<String>,
+
+    #[arg(long)]
+    pub disabled: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct ServiceInstanceProvisionArgs {
+    #[arg(value_name = "PROFILE")]
+    pub profile: String,
+
+    #[arg(long = "instance-seed")]
+    pub instance_seed: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct ServiceInstanceToggleArgs {
+    #[arg(value_name = "INSTANCE")]
+    pub instance: String,
+}
+
+#[derive(Debug, Args)]
+pub struct ServiceInstanceRemoveArgs {
+    #[arg(value_name = "INSTANCE")]
+    pub instance: String,
+
+    #[arg(short = 'f', long)]
     pub force: bool,
 }

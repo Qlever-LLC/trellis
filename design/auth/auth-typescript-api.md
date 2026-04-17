@@ -30,7 +30,8 @@ It covers:
 
 - browser and service helpers expose the same proof model through different ergonomics
 - session-key seeds remain protected from normal browser code where possible
-- browser clients preserve and consume `flowId`; they do not treat fragment-delivered `authToken` as the main UX path
+- browser login clients preserve and consume `flowId`; they do not treat fragment-delivered `authToken` as the main UX path
+- device activation portal clients preserve and consume `flowId`
 - high-level runtime entrypoints use `trellisUrl`; lower-level auth-only helpers may still use `authUrl`
 
 ## Browser Surface
@@ -334,7 +335,7 @@ declare function getDeviceConnectInfo(args: {
 declare function createDeviceActivationClient(client: {
   requestOrThrow(method: string, input: unknown, opts?: unknown): Promise<unknown>;
 }): {
-  activateDevice(input: { handoffId: string }): Promise<ActivateDeviceResponse>;
+  activateDevice(input: { flowId: string; linkRequestId: string }): Promise<ActivateDeviceResponse>;
   getDeviceActivationStatus(input: GetDeviceActivationStatusRequest): Promise<GetDeviceActivationStatusResponse>;
   listDeviceActivations(input?: Record<string, unknown>): Promise<{
     activations: DeviceActivationRecord[];

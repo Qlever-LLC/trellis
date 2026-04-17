@@ -187,10 +187,20 @@ Shared Jobs infrastructure is declared through contract resource requests and pr
 - the `trellis` service installs the contract and provisions or binds the requested resources for the `jobs` service
 - the `jobs` service and service-local workers create only dynamic per-job-type consumers at runtime
 - the runtime should consume those bindings, rather than hard-coding an imperative infrastructure setup path
+- when a contract requests `resources.jobs`, Trellis also synthesizes a
+  `resources.streams.jobsWork` binding in the resolved runtime bindings so
+  generic worker runtimes can discover the shared work stream name without
+  requiring each service contract to declare a separate `resources.streams`
+  alias manually
 
 This document depends on the contract resource model in `../contracts/trellis-contracts-catalog.md` supporting JetStream streams, stream source transforms, and binding-driven resource access.
 
 The `trellis.jobs@v1` infrastructure contract should request logical `resources.streams` and `resources.kv` aliases that resolve to the shared Jobs infrastructure during service install or upgrade. Normal consuming service contracts should continue to request `resources.jobs`. The JSON examples below show the resolved JetStream or KV configuration the Jobs runtime expects after binding; the contract request itself should use logical aliases as described in `../contracts/trellis-contracts-catalog.md`.
+
+For ordinary services that request only `resources.jobs`, the resolved service
+bindings still include a `resources.streams.jobsWork` entry pointing at the
+shared `JOBS_WORK` stream. Service-local workers should treat that binding as
+runtime-generated infrastructure, not as a contract-authored stream alias.
 
 **Stream: `JOBS`**
 ```json

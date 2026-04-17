@@ -6,6 +6,7 @@ use ed25519_dalek::{Signer, SigningKey};
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
 use reqwest::Client;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use url::Url;
 
@@ -161,17 +162,40 @@ pub fn parse_device_activation_payload(
     })
 }
 
-pub fn build_device_activation_url(
+#[derive(Debug, Clone, Serialize)]
+struct DeviceActivationStartRequest<'a> {
+    payload: &'a DeviceActivationPayload,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct DeviceActivationStartResponse {
+    #[serde(rename = "flowId")]
+    pub flow_id: String,
+    #[serde(rename = "instanceId")]
+    pub instance_id: String,
+    #[serde(rename = "profileId")]
+    pub profile_id: String,
+    #[serde(rename = "activationUrl")]
+    pub activation_url: String,
+}
+
+pub async fn start_device_activation_request(
     auth_url: &str,
     payload: &DeviceActivationPayload,
-) -> Result<String, TrellisAuthError> {
-    let mut url = Url::parse(auth_url)?;
-    url.set_path("/auth/devices/activate");
-    url.set_query(Some(&format!(
-        "payload={}",
-        encode_device_activation_payload(payload)?
-    )));
-    Ok(url.to_string())
+) -> Result<DeviceActivationStartResponse, TrellisAuthError> {
+    let url = Url::parse(auth_url)?.join("/auth/devices/activate/requests")?;
+    let response = Client::new()
+        .post(url)
+        .json(&DeviceActivationStartRequest { payload })
+        .send()
+        .await?;
+    if !response.status().is_success() {
+        let status = response.status().as_u16();
+        let body = response.text().await.unwrap_or_default();
+        return Err(TrellisAuthError::DeviceActivationStartFailure(status, body));
+    }
+
+    response.json().await.map_err(TrellisAuthError::from)
 }
 
 pub fn build_device_wait_proof_input(public_identity_key: &str, nonce: &str, iat: u64) -> Vec<u8> {

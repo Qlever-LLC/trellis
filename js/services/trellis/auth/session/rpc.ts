@@ -15,20 +15,21 @@ import {
   logger,
   natsAuth,
   sentinelCreds,
-  servicesKV,
+  serviceInstancesKV,
+  serviceProfilesKV,
   sessionKV,
   trellis,
   usersKV,
 } from "../../bootstrap/globals.ts";
 import { getConfig } from "../../config.ts";
 import type {
-  ServiceRegistryEntry,
   Session,
   UserProjectionEntry,
 } from "../../state/schemas.ts";
 import { buildClientTransports } from "../transports.ts";
 import { resolveSessionPrincipal } from "./principal.ts";
 import { createAuthRenewBindingTokenHandler as createInjectedAuthRenewBindingTokenHandler } from "./renew.ts";
+import { loadServiceInstanceByKey, loadServiceProfile } from "../admin/service_rpc.ts";
 
 type AuthenticatedUser = {
   id: string;
@@ -460,20 +461,16 @@ async function loadAuthenticatedUser(args: {
 }
 
 async function loadAuthenticatedService(args: {
-  servicesKV: KVLike<ServiceRegistryEntry>;
   sessionKey: string;
   session: Session & { type: "service" };
 }): Promise<AuthenticatedService> {
-  const serviceEntry = unwrapValue<ServiceRegistryEntry>(
-    (await args.servicesKV.get(args.sessionKey)).take(),
-  );
-  if (!isErr(serviceEntry)) {
-    const service = serviceEntry;
+  const service = await loadServiceInstanceByKey(args.sessionKey);
+  if (service) {
     return {
       type: "service",
       id: args.session.id,
       name: args.session.name,
-      active: service.active,
+      active: !service.disabled,
       capabilities: service.capabilities ?? [],
     };
   }
@@ -558,12 +555,12 @@ async function loadAuthenticatedDevice(args: {
 
   return {
     user,
-    device: {
-      type: "device",
-      deviceId: args.session.instanceId,
-      deviceType: deviceTypeFromProfileId(args.session.profileId),
-      runtimePublicKey: args.session.publicIdentityKey,
-      profileId: args.session.profileId,
+      device: {
+        type: "device",
+        deviceId: args.session.instanceId,
+        deviceType: deviceTypeFromProfileId(args.session.profileId),
+        runtimePublicKey: args.session.publicIdentityKey,
+        profileId: args.session.profileId,
       active: true,
       capabilities: args.session.delegatedCapabilities,
     },
@@ -573,7 +570,6 @@ async function loadAuthenticatedDevice(args: {
 export function createAuthMeHandler(deps: {
   sessionKV: KVLike<Session>;
   usersKV: KVLike<UserProjectionEntry>;
-  servicesKV: KVLike<ServiceRegistryEntry>;
   deviceActivationsKV: KVLike<DeviceActivationRecord>;
   deviceProfilesKV: KVLike<{ profileId: string; disabled: boolean }>;
 }) {
@@ -627,7 +623,6 @@ export function createAuthMeHandler(deps: {
 
       if (session.type === "service") {
         const service = await loadAuthenticatedService({
-          servicesKV: deps.servicesKV,
           sessionKey,
           session: session as Session & { type: "service" },
         });
@@ -651,7 +646,6 @@ export function createAuthMeHandler(deps: {
 export const authMeHandler = createAuthMeHandler({
   sessionKV,
   usersKV,
-  servicesKV,
   deviceActivationsKV: deviceActivationsKV,
   deviceProfilesKV: deviceProfilesKV,
 });
@@ -706,7 +700,8 @@ export const authValidateRequestHandler = async (req: ValidateRequestInput) => {
   const session = sessionEntry.value;
   const inboxPrefix = `_INBOX.${req.sessionKey.slice(0, 16)}`;
   const principal = await resolveSessionPrincipal(session, req.sessionKey, {
-    servicesKV,
+    loadServiceInstance: loadServiceInstanceByKey,
+    loadServiceProfile,
     usersKV,
     deviceActivationsKV: deviceActivationsKV,
     deviceProfilesKV: deviceProfilesKV,

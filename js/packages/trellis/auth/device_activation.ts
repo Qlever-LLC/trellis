@@ -340,19 +340,36 @@ export function parseDeviceActivationPayload(
   return parsed;
 }
 
-export function buildDeviceActivationUrl(args: {
+export async function startDeviceActivationRequest(args: {
   trellisUrl: string;
-  payload: DeviceActivationPayload | string;
-}): string {
-  const baseUrl = new URL(args.trellisUrl);
-  baseUrl.pathname = "/auth/devices/activate";
-  baseUrl.searchParams.set(
-    "payload",
-    typeof args.payload === "string"
-      ? args.payload
-      : encodeDeviceActivationPayload(args.payload),
-  );
-  return baseUrl.toString();
+  payload: DeviceActivationPayload;
+}): Promise<{ flowId: string; instanceId: string; profileId: string; activationUrl: string }> {
+  const response = await fetch(new URL("/auth/devices/activate/requests", args.trellisUrl), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ payload: args.payload }),
+  });
+  if (!response.ok) {
+    const detail = await responseErrorDetail(response);
+    throw new Error(
+      `Device activation request failed: ${response.status}${detail ? ` ${detail}` : ""}`,
+    );
+  }
+
+  const parsed = await response.json() as Record<string, unknown>;
+  if (
+    typeof parsed.flowId !== "string" || typeof parsed.instanceId !== "string" ||
+    typeof parsed.profileId !== "string" || typeof parsed.activationUrl !== "string"
+  ) {
+    throw new Error("Device activation request returned an invalid response");
+  }
+
+  return {
+    flowId: parsed.flowId,
+    instanceId: parsed.instanceId,
+    profileId: parsed.profileId,
+    activationUrl: parsed.activationUrl,
+  };
 }
 
 export async function deriveDeviceConfirmationCode(input: {
@@ -491,15 +508,24 @@ export async function waitForDeviceActivation(args: {
   const pollIntervalMs = args.pollIntervalMs ?? DEFAULT_WAIT_POLL_INTERVAL_MS;
   while (true) {
     const request = await signDeviceWaitRequest(args);
-    const response = await fetch(
-      new URL("/auth/devices/activate/wait", args.trellisUrl),
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(request),
-        signal: args.signal,
-      },
-    );
+    let response: Response;
+    try {
+      response = await fetch(
+        new URL("/auth/devices/activate/wait", args.trellisUrl),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(request),
+          signal: args.signal,
+        },
+      );
+    } catch (error) {
+      if (args.signal?.aborted) {
+        throw error;
+      }
+      await sleep(pollIntervalMs, args.signal);
+      continue;
+    }
     if (!response.ok) {
       const detail = await responseErrorDetail(response);
       throw new Error(

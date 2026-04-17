@@ -38,19 +38,19 @@ export {
   BindResponseSchema,
   BindSuccessResponseSchema,
   ContractApprovalSchema,
+  DeviceActivationActorSchema,
+  DeviceActivationRecordSchema,
+  DeviceActivationReviewSchema,
+  DevicePortalDefaultSchema,
+  DevicePortalSelectionSchema,
+  DeviceProfileSchema,
+  DeviceSchema,
+  InstanceGrantPolicySchema,
   LoginPortalDefaultSchema,
   LoginPortalSelectionSchema,
   LoginQuerySchema,
   PortalSchema,
   SentinelCredsSchema,
-  DevicePortalDefaultSchema,
-  DevicePortalSelectionSchema,
-  DeviceActivationActorSchema,
-  DeviceActivationRecordSchema,
-  DeviceActivationReviewSchema,
-  DeviceProfileSchema,
-  DeviceSchema,
-  InstanceGrantPolicySchema,
   ServiceInstanceSchema,
   ServiceProfileSchema,
 };
@@ -104,48 +104,51 @@ export type PendingAuth = StaticDecode<typeof PendingAuthSchema>;
 
 export const AuthBrowserFlowKindSchema = Type.Union([
   Type.Literal("login"),
+  Type.Literal("device_activation"),
 ]);
 export type AuthBrowserFlowKind = StaticDecode<
   typeof AuthBrowserFlowKindSchema
 >;
 
+export const DeviceActivationFlowStateSchema = Type.Object({
+  instanceId: Type.String({ minLength: 1 }),
+  profileId: Type.String({ minLength: 1 }),
+  publicIdentityKey: Type.String({ minLength: 1 }),
+  nonce: Type.String({ minLength: 1 }),
+  qrMac: Type.String({ minLength: 1 }),
+}, { additionalProperties: false });
+export type DeviceActivationFlowState = StaticDecode<
+  typeof DeviceActivationFlowStateSchema
+>;
+
 export const AuthBrowserFlowSchema = Type.Object({
   flowId: Type.String({ minLength: 1 }),
   kind: AuthBrowserFlowKindSchema,
-  sessionKey: SessionKeySchema,
+  sessionKey: Type.Optional(SessionKeySchema),
   redirectTo: Type.Optional(Type.String({ minLength: 1 })),
   context: Type.Optional(Type.Object({}, { additionalProperties: true })),
-  handoffId: Type.Optional(Type.String({ minLength: 1 })),
-  contract: Type.Object({}, { additionalProperties: true }),
+  contract: Type.Optional(Type.Object({}, { additionalProperties: true })),
   provider: Type.Optional(Type.String({ minLength: 1 })),
   authToken: Type.Optional(Type.String({ minLength: 1 })),
+  deviceActivation: Type.Optional(DeviceActivationFlowStateSchema),
   createdAt: IsoDateSchema,
   expiresAt: IsoDateSchema,
 }, { additionalProperties: false });
 export type AuthBrowserFlow = StaticDecode<typeof AuthBrowserFlowSchema>;
-
-export const DeviceActivationHandoffSchema = Type.Object({
-  handoffId: Type.String({ minLength: 1 }),
-  instanceId: Type.String({ minLength: 1 }),
-  publicIdentityKey: Type.String({ minLength: 1 }),
-  nonce: Type.String({ minLength: 1 }),
-  qrMac: Type.String({ minLength: 1 }),
-  createdAt: IsoDateSchema,
-  expiresAt: IsoDateSchema,
-}, { additionalProperties: false });
-export type DeviceActivationHandoff = StaticDecode<typeof DeviceActivationHandoffSchema>;
 
 export const DeviceProvisioningSecretSchema = Type.Object({
   instanceId: Type.String({ minLength: 1 }),
   activationKey: Type.String({ minLength: 1 }),
   createdAt: IsoDateSchema,
 }, { additionalProperties: false });
-export type DeviceProvisioningSecret = StaticDecode<typeof DeviceProvisioningSecretSchema>;
+export type DeviceProvisioningSecret = StaticDecode<
+  typeof DeviceProvisioningSecretSchema
+>;
 
 export const DeviceActivationReviewRecordSchema = Type.Object({
   reviewId: Type.String({ minLength: 1 }),
   linkRequestId: Type.String({ minLength: 1 }),
-  handoffId: Type.String({ minLength: 1 }),
+  flowId: Type.String({ minLength: 1 }),
   instanceId: Type.String({ minLength: 1 }),
   publicIdentityKey: Type.String({ minLength: 1 }),
   profileId: Type.String({ minLength: 1 }),
@@ -162,17 +165,23 @@ export const DeviceActivationReviewRecordSchema = Type.Object({
   decidedAt: Type.Union([IsoDateSchema, Type.Null()]),
   reason: Type.Optional(Type.String({ minLength: 1 })),
 }, { additionalProperties: false });
-export type DeviceActivationReviewRecord = StaticDecode<typeof DeviceActivationReviewRecordSchema>;
+export type DeviceActivationReviewRecord = StaticDecode<
+  typeof DeviceActivationReviewRecordSchema
+>;
 
 export type ApprovalDecision = StaticDecode<typeof ApprovalDecisionSchema>;
 export type ContractApproval = StaticDecode<typeof ContractApprovalSchema>;
-export type InstanceGrantPolicy = StaticDecode<typeof InstanceGrantPolicySchema>;
+export type InstanceGrantPolicy = StaticDecode<
+  typeof InstanceGrantPolicySchema
+>;
 
 export const SessionApprovalSourceSchema = Type.Union([
   Type.Literal("stored_approval"),
   Type.Literal("admin_policy"),
 ]);
-export type SessionApprovalSource = StaticDecode<typeof SessionApprovalSourceSchema>;
+export type SessionApprovalSource = StaticDecode<
+  typeof SessionApprovalSourceSchema
+>;
 
 export const ContractApprovalRecordSchema = Type.Object({
   userTrellisId: Type.String({ minLength: 1 }),
@@ -234,7 +243,10 @@ export const ServiceSessionSchema = Type.Object({
   profileId: Type.String({ minLength: 1 }),
   instanceKey: Type.String({ minLength: 1 }),
   currentContractId: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
-  currentContractDigest: Type.Union([Type.String({ pattern: "^[A-Za-z0-9_-]+$" }), Type.Null()]),
+  currentContractDigest: Type.Union([
+    Type.String({ pattern: "^[A-Za-z0-9_-]+$" }),
+    Type.Null(),
+  ]),
 }, { additionalProperties: false });
 export type ServiceSession = StaticDecode<typeof ServiceSessionSchema>;
 

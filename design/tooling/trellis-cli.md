@@ -59,10 +59,10 @@ cargo xtask prepare
 cargo xtask build
 ```
 
-Those tasks route to `trellis-generate`, which can run before the main
-`trellis` CLI is buildable from a clean checkout. `cargo xtask prepare` shells
-into the bootstrap generator from the Rust workspace. `deno task prepare` does
-the same for the JS workspace.
+Those tasks route to `trellis-generate`, which can run before the main `trellis`
+CLI is buildable from a clean checkout. `cargo xtask prepare` shells into the
+bootstrap generator from the Rust workspace. `deno task prepare` does the same
+for the JS workspace.
 
 Rust contributors should run `cargo xtask prepare` before `cargo build` or
 `cargo install --path rust/crates/cli`, because the Rust workspace depends on
@@ -90,13 +90,14 @@ These commands:
 - generate language SDKs from the resolved contract inputs
 - preserve the current TypeScript generated surface where practical
 - generate Rust SDK crates that target `trellis-client` and `trellis-server`
-- use required contract `kind` metadata to decide discovery behavior:
-  `service` generates manifest and SDK artifacts, while `app`, `portal`,
-  `device`, and `cli` contracts are verified only
+- use required contract `kind` metadata to decide discovery behavior: `service`
+  generates manifest and SDK artifacts, while `app`, `portal`, `device`, and
+  `cli` contracts are verified only
 
-Normal docs should not teach `trellis generate` or `trellis contracts build/verify`.
-Those workflows belong to `trellis-generate` and are normally reached through
-repo-local wrappers instead of direct end-user invocation.
+Normal docs should not teach `trellis generate` or
+`trellis contracts build/verify`. Those workflows belong to `trellis-generate`
+and are normally reached through repo-local wrappers instead of direct end-user
+invocation.
 
 The CLI may accept explicit package and crate naming flags when the default name
 inference is not enough for a repository.
@@ -128,22 +129,37 @@ trellis portal device list
 trellis portal device set <profileId> (--builtin | --portal <portalId>)
 trellis portal device clear <profileId>
 trellis device profile list [--contract <contractId>] [--disabled]
-trellis device profile create <id> <contractId|path> [--review-mode <none|required>]
+trellis device profile create <id> [--review-mode <none|required>]
+trellis device profile apply <id> <contractId|path>
+trellis device profile unapply <id> <contractId> [--digest <digest>...]
 trellis device profile disable <id>
-trellis device provision <id> [--name <name>] [--serial-number <serial>] [--model-number <model>] [--metadata <key=value>...]
+trellis device profile enable <id>
+trellis device profile remove <id> [-f]
+trellis device instance provision <id> [--name <name>] [--serial-number <serial>] [--model-number <model>] [--metadata <key=value>...]
 trellis device instance list [--profile <id>] [--state <registered|activated|revoked|disabled>] [--show-metadata]
 trellis device instance disable <id>
+trellis device instance enable <id>
+trellis device instance remove <id> [-f]
 trellis device activation list [--instance <id>] [--profile <id>] [--state <activated|revoked>]
 trellis device activation revoke <id>
-trellis device review list [--instance <id>] [--profile <id>] [--state <pending|approved|rejected>]
-trellis device review approve <id> [--reason <code>]
-trellis device review reject <id> [--reason <code>]
+trellis device activation review list [--instance <id>] [--profile <id>] [--state <pending|approved|rejected>]
+trellis device activation review approve <id> [--reason <code>]
+trellis device activation review reject <id> [--reason <code>]
 trellis bootstrap nats ...
 trellis bootstrap admin ...
 trellis keygen ...
-trellis service list
-trellis service install (--source <file> | --manifest <file> | --image <ref>) [--display-name <name>] [--description <desc>] [--namespace <ns>] [--inactive] [-f]
-trellis service upgrade (--source <file> | --manifest <file> | --image <ref>) [--service-key <public-key>|--seed <seed>] [-f]
+trellis service profile list [--disabled]
+trellis service profile create <id> [--namespace <ns>...]
+trellis service profile apply <id> (--source <file> | --manifest <file> | --image <ref>) [-f]
+trellis service profile unapply <id> <contractId> [--digest <digest>...]
+trellis service profile disable <id>
+trellis service profile enable <id>
+trellis service profile remove <id> [-f]
+trellis service instance provision <id> [--instance-seed <seed>]
+trellis service instance list [--profile <id>] [--disabled]
+trellis service instance disable <id>
+trellis service instance enable <id>
+trellis service instance remove <id> [-f]
 trellis self check [--prerelease]
 trellis self update [--prerelease]
 trellis version
@@ -154,15 +170,15 @@ Operational command behavior:
 
 - `trellis auth login` is a normal contract-bearing client login, not a
   bootstrap bypass; it enters the auth-owned browser flow and continues through
-  the resolved portal before storing local session material for later admin
-  RPC calls; runtime transport details are discovered from the bind flow and
+  the resolved portal before storing local session material for later admin RPC
+  calls; runtime transport details are discovered from the bind flow and
   persisted internally rather than exposed as normal CLI flags
-- normal authenticated CLI commands first call `rpc.Auth.RenewBindingToken`
-  with the current CLI contract digest; when auth returns `contract_changed`,
-  the CLI starts the normal auth request flow with the full CLI contract, may
-  complete immediately when the existing delegated envelope already covers the
-  new contract, otherwise opens the browser and waits for the standard portal
-  flow, then reconnects NATS before issuing admin RPCs
+- normal authenticated CLI commands first call `rpc.Auth.RenewBindingToken` with
+  the current CLI contract digest; when auth returns `contract_changed`, the CLI
+  starts the normal auth request flow with the full CLI contract, may complete
+  immediately when the existing delegated envelope already covers the new
+  contract, otherwise opens the browser and waits for the standard portal flow,
+  then reconnects NATS before issuing admin RPCs
 - `trellis portal *` manages registered custom portal web apps used to replace
   the built-in Trellis portal for login flows, device flows, or both; an
   optional `app-contract-id` attaches a normal browser app contract for portals
@@ -182,29 +198,36 @@ Operational command behavior:
   contract id or a local contract source path, may optionally restrict matching
   browser origins, and causes affected delegated sessions to reconnect so auth
   re-evaluates current policy
-- `trellis device profile *` manages device classes, allowed digests, and
-  review policy for activated devices; when given a local contract source,
-  profile creation also registers that contract digest in the catalog so
-  device-only contracts do not need a service install step; portal selection
-  for devices is managed under `trellis portal device *`
-- `trellis device provision` is the ergonomic provisioning path for device
-  development and deployment: it generates a root secret locally, derives the
-  device keys, registers the instance with auth using activation-only secret
-  material, optionally captures device metadata such as `name`,
-  `serialNumber`, `modelNumber`, and deployment-specific opaque keys, and emits
-  the provisioning bundle for the device or operator
-- `trellis device instance *` remains the lower-level instance inspection and
-  disable surface; the default table promotes `name`, `serial`, and `model`
+- `trellis device profile *` manages device classes, allowed digests, and review
+  policy for activated devices; profile creation is separate from contract
+  application, so `apply` and `unapply` manage the allowed digest set after the
+  profile exists; portal selection for devices is managed under
+  `trellis portal device *`
+- `trellis device instance provision` is the ergonomic provisioning path for
+  device development and deployment: it generates a root secret locally, derives
+  the device keys, registers the instance with auth using activation-only secret
+  material, optionally captures device metadata such as `name`, `serialNumber`,
+  `modelNumber`, and deployment-specific opaque keys, and emits the provisioning
+  bundle for the device or operator
+- `trellis device instance *` is the lower-level instance inspection and
+  lifecycle surface; the default table promotes `name`, `serial`, and `model`
   columns when present, while `--show-metadata` reveals the remaining opaque
   metadata entries
-- `trellis device review *` manages pending device review decisions and is
-  intended for `device.review` automation services or admins
+- `trellis device activation review *` manages pending device review decisions
+  and is intended for `device.review` automation services or admins
+- `trellis service profile *` manages deployment-owned service profile policy:
+  contract digest allowance, namespace allowance, and reversible profile state
+- `trellis service instance *` manages concrete service principals under one
+  profile, including provisioning, inspection, and reversible lifecycle changes
+- profile create flows are intentionally metadata-light; human-facing contract
+  names continue to come from the applied contract manifests rather than from a
+  separate profile-local `displayName` or `description`
 - deployments may rely on the built-in Trellis portal with no portal setup, or
   register one or more custom portals, optionally choose separate login and
-  device default custom portals, assign portals to specific browser contracts
-  or device profiles, then create device profiles and provision device
-  instances for activated-device flows; install automation may offer
-  convenience wrappers, but the underlying actions remain explicit admin calls
+  device default custom portals, assign portals to specific browser contracts or
+  device profiles, then create device profiles and provision device instances
+  for activated-device flows; install automation may offer convenience wrappers,
+  but the underlying actions remain explicit admin calls
 - `trellis bootstrap nats` creates the shared stream and auth-owned KV buckets
   needed before the runtime starts; it also updates existing bucket TTLs to
   match auth config values such as `ttlMs.bindingTokens.bucket`; this is an
@@ -212,14 +235,6 @@ Operational command behavior:
 - `trellis bootstrap admin` bootstraps the initial admin user in auth's local
   user projection; by default it seeds `admin`, `trellis.catalog.read`, and
   `trellis.contract.read` so the first console user can load discovery data
-- `trellis service install` resolves a contract from source, a generated
-  manifest, or an OCI image, generates the Ed25519 seed locally by default,
-  shows an operator review, and sends only the public key and canonical contract
-  to the `trellis` service's auth admin surface
-- `trellis service upgrade` resolves the new contract revision from source, a
-  generated manifest, or an OCI image and updates the contract bound to an
-  existing service public key; `--seed` or `--service-key` may be used when the
-  target service is ambiguous
 - `trellis keygen` remains an explicit offline utility for operators who want to
   separate key generation from install
 - the runtime/operator CLI no longer exposes direct transport flags like
@@ -240,8 +255,8 @@ Do not add commands like `trellis build project` with ambiguous behavior.
 
 The developer-facing CLI boundary is the contract source.
 
-- project roots keep contract sources in a sibling `contracts/` directory next to
-  `deno.json`, `deno.jsonc`, `package.json`, or `Cargo.toml`
+- project roots keep contract sources in a sibling `contracts/` directory next
+  to `deno.json`, `deno.jsonc`, `package.json`, or `Cargo.toml`
 - TypeScript/Deno projects use `contracts/*.ts`, and those files default export
   the contract module that `trellis-generate` should load
 - Rust projects use `contracts/*.rs` wrappers that export `CONTRACT` or
@@ -271,7 +286,8 @@ The Rust implementation uses:
 - `miette` for diagnostics
 - `tracing` and `tracing-subscriber` for logging
 - `comfy-table` for human-readable tabular output
-- Rust crates for operator flows, contract validation, packing, and code generation
+- Rust crates for operator flows, contract validation, packing, and code
+  generation
 
 The CLI owns explicit operational command execution, while `trellis-generate`
 owns bootstrap-safe contract and SDK workflows. Repo-specific build workflows

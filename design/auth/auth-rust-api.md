@@ -72,7 +72,9 @@ The crate also re-exports the typed request and response structs from `protocol.
 ## Browser Login Flow
 
 The Rust browser-login flow uses the same auth-owned `flowId` continuation model as
-the TypeScript browser helpers.
+the TypeScript browser helpers. Device activation now uses the same public
+`flowId` concept with `kind: "device_activation"` auth flows and is documented
+in the device-activation surfaces rather than in this browser-login flow.
 
 Flow summary:
 
@@ -175,11 +177,11 @@ impl<'a> AuthClient<'a> {
 
     pub async fn activate_device(
         &self,
-        handoff_id: &str,
+        flow_id: &str,
     ) -> Result<trellis_sdk_auth::AuthActivateDeviceResponse, TrellisAuthError>;
     pub async fn get_device_activation_status(
         &self,
-        handoff_id: &str,
+        flow_id: &str,
     ) -> Result<trellis_sdk_auth::AuthGetDeviceActivationStatusResponse, TrellisAuthError>;
     pub async fn list_device_activations(
         &self,

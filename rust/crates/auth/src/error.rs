@@ -20,7 +20,7 @@ pub enum TrellisAuthError {
     Io(#[from] io::Error),
 
     /// The underlying Trellis RPC client returned an error.
-    #[error("trellis client error: {0}")]
+    #[error("{0}")]
     TrellisClient(#[from] trellis_client::TrellisClientError),
 
     /// The browser login callback never arrived before the timeout.
@@ -70,6 +70,10 @@ pub enum TrellisAuthError {
     /// A device activation wait request returned a non-success HTTP response.
     #[error("device activation wait failed: {0} {1}")]
     DeviceActivationWaitFailure(u16, String),
+
+    /// A device activation start request returned a non-success HTTP response.
+    #[error("device activation start failed: {0} {1}")]
+    DeviceActivationStartFailure(u16, String),
 
     /// Device activation was explicitly rejected.
     #[error("device activation rejected{0}")]

@@ -19,7 +19,7 @@ function makeConfig(): Config {
     ttlMs: {
       sessions: 86_400_000,
       oauth: 300_000,
-      deviceHandoff: 1_800_000,
+      deviceFlow: 1_800_000,
       pendingAuth: 300_000,
       bindingTokens: {
         bucket: 86_400_000,

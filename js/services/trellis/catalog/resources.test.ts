@@ -1,4 +1,5 @@
 import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
+import { Objm } from "@nats-io/obj";
 import { TypedStore } from "@qlever-llc/trellis";
 import { assertEquals, assertRejects } from "@std/assert";
 import { NatsTest } from "../../../packages/trellis/testing/nats.ts";
@@ -227,10 +228,18 @@ Deno.test("jobs provisioning returns queue bindings and grants worker heartbeat 
       },
     },
   });
+  assertEquals(bindings.streams?.jobsWork, {
+    name: "JOBS_WORK",
+    subjects: ["trellis.work.svc_test_documents_v1.>"],
+  });
 
   const grants = getResourcePermissionGrants(bindings);
   assertEquals(
     grants.publish.includes("trellis.jobs.workers.svc_test_documents_v1.>"),
+    true,
+  );
+  assertEquals(
+    grants.publish.includes("$JS.API.CONSUMER.CREATE.JOBS_WORK.>"),
     true,
   );
 });
@@ -390,5 +399,60 @@ Deno.test({
       },
     });
     assertEquals(new TextDecoder().decode(bytes), "hello");
+  },
+});
+
+Deno.test({
+  name: "store provisioning updates existing bucket limits",
+  ignore: !RUN_NATS_TESTS,
+  async fn() {
+    await using nats = await NatsTest.start();
+
+    const initialContract = {
+      ...CONTRACT,
+      resources: {
+        store: {
+          uploads: {
+            purpose: "Temporary uploaded files awaiting processing",
+            ttlMs: 60_000,
+            maxObjectBytes: 1024,
+            maxTotalBytes: 4096,
+          },
+        },
+      },
+    } as TrellisContractV1;
+
+    const updatedContract = {
+      ...CONTRACT,
+      resources: {
+        store: {
+          uploads: {
+            purpose: "Temporary uploaded files awaiting processing",
+            ttlMs: 120_000,
+            maxObjectBytes: 1024,
+            maxTotalBytes: 16_384,
+          },
+        },
+      },
+    } as TrellisContractV1;
+
+    const initialBindings = await provisionContractResourceBindings(
+      nats.nc,
+      initialContract,
+      "svc_test_activity_v1",
+    );
+    assertEquals(initialBindings.store?.uploads.maxTotalBytes, 4096);
+
+    const updatedBindings = await provisionContractResourceBindings(
+      nats.nc,
+      updatedContract,
+      "svc_test_activity_v1",
+    );
+    assertEquals(updatedBindings.store?.uploads.maxTotalBytes, 16_384);
+
+    const objectStore = await new Objm(nats.nc).open(updatedBindings.store!.uploads.name);
+    const status = await objectStore.status();
+    assertEquals(status.streamInfo.config.max_bytes, 16_384);
+    assertEquals(status.streamInfo.config.max_age, 120_000 * 1_000_000);
   },
 });

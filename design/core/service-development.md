@@ -87,6 +87,9 @@ const service = await TrellisService.connect({
 
 const itemsKV = (await service.kv.items.open(ItemSchema)).take();
 const uploadsStore = (await service.store.uploads.open()).take();
+const stagedUpload = (await uploadsStore.waitFor("incoming/report.pdf", {
+  timeoutMs: 10_000,
+})).take();
 
 await service.trellis.mount("SomeMethod", handler);
 await service.trellis.event("SomeEvent", {}, eventHandler);
@@ -201,6 +204,13 @@ Behavior:
   bootstrap and are opened explicitly by service code before use
 - transfer-session helpers are available through `service.transfer` when the
   service exposes file upload/download initiation RPCs
+- when a contract requests `resources.jobs`, `TrellisService.connect(...)`
+  resolves both `service.jobs` and the synthetic `service.streams.jobsWork`
+  binding used by generic worker runtimes such as `startNatsWorkerHostFromBinding(...)`
+- when an RPC needs to start caller-visible follow-up work after a transfer,
+  prefer `service.operation(...).accept(...)` plus
+  `service.transfer.initiateUpload({ onStored(...) })` over ad-hoc background
+  polling inside the RPC body
 - the `trellis` control-plane service is the one bootstrap exception and may
   need lower-level runtime paths
 

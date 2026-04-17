@@ -51,7 +51,7 @@ const ttlSchema = z
   .object({
     sessions: z.coerce.number().default(24 * 60 * 60_000),
     oauth: z.coerce.number().default(5 * 60_000),
-    deviceHandoff: z.coerce.number().default(30 * 60_000),
+    deviceFlow: z.coerce.number().default(30 * 60_000),
       pendingAuth: z.coerce.number().default(5 * 60_000),
       bindingTokens: bindingTokenTtlSchema.default({
       bucket: DEFAULT_CLI_BINDING_TOKEN_TTL_MS,
@@ -103,7 +103,7 @@ const rawSchema = z.object({
   ttlMs: ttlSchema.default({
     sessions: 24 * 60 * 60_000,
     oauth: 5 * 60_000,
-    deviceHandoff: 30 * 60_000,
+    deviceFlow: 30 * 60_000,
     pendingAuth: 5 * 60_000,
       bindingTokens: {
         bucket: 24 * 60 * 60_000,
@@ -193,7 +193,7 @@ export type Config = {
   ttlMs: {
     sessions: number;
     oauth: number;
-    deviceHandoff: number;
+    deviceFlow: number;
     pendingAuth: number;
       bindingTokens: {
         bucket: number;

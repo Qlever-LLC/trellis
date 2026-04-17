@@ -191,3 +191,110 @@ Deno.test("connectClientWithDeps uses auth continuation when bootstrap requires 
     globalThis.fetch = originalFetch;
   }
 });
+
+Deno.test("connectClientWithDeps reauths when bootstrap reports insufficient permissions", async () => {
+  const originalFetch = globalThis.fetch;
+  const fetchUrls: string[] = [];
+
+  try {
+    let bootstrapCalls = 0;
+    globalThis.fetch = ((input: URL | Request | string) => {
+      const url = String(input);
+      fetchUrls.push(url);
+      if (url.endsWith("/bootstrap/client") && bootstrapCalls === 0) {
+        bootstrapCalls += 1;
+        return Promise.resolve(new Response(JSON.stringify({
+          status: "not_ready",
+          reason: "insufficient_permissions",
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }));
+      }
+      if (url.endsWith("/auth/requests")) {
+        return Promise.resolve(new Response(JSON.stringify({
+          status: "flow_started",
+          flowId: "flow-2",
+          loginUrl: "https://trellis.example.com/_trellis/portal/login?flowId=flow-2",
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }));
+      }
+      if (url.includes("/auth/flow/flow-2/bind")) {
+        return Promise.resolve(new Response(JSON.stringify({
+          status: "bound",
+          bindingToken: "binding-token-2",
+          inboxPrefix: "_INBOX.session-key",
+          expires: "2026-01-01T00:03:00.000Z",
+          sentinel: { jwt: "jwt", seed: "seed" },
+          transports: {
+            native: { natsServers: ["nats://127.0.0.1:4222"] },
+            websocket: { natsServers: ["ws://localhost:8080"] },
+          },
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }));
+      }
+      if (url.endsWith("/bootstrap/client") && bootstrapCalls === 1) {
+        bootstrapCalls += 1;
+        return Promise.resolve(new Response(JSON.stringify({
+          status: "ready",
+          connectInfo: {
+            sessionKey: "session-key",
+            contractId: testContract.CONTRACT.id,
+            contractDigest: "digest-a",
+            transports: {
+              native: { natsServers: ["nats://127.0.0.1:4222"] },
+              websocket: { natsServers: ["ws://localhost:8080"] },
+            },
+            transport: {
+              inboxPrefix: "_INBOX.session-key",
+              sentinel: { jwt: "jwt", seed: "seed" },
+            },
+            auth: {
+              mode: "binding_token",
+              bindingToken: "binding-token-2",
+              expiresAt: "2026-01-01T00:03:00.000Z",
+            },
+          },
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }));
+      }
+
+      throw new Error(`Unexpected fetch ${url}`);
+    }) as typeof fetch;
+
+    await assertRejects(
+      () => connectClientWithDeps({
+        trellisUrl: "https://trellis.example.com",
+        contract: testContract,
+        auth: {
+          mode: "session_key",
+          sessionKeySeed: TEST_SEED,
+          redirectTo: "https://cli.example.com/callback",
+        },
+        onAuthRequired: async ({ loginUrl }) => {
+          assertEquals(loginUrl, "https://trellis.example.com/_trellis/portal/login?flowId=flow-2");
+          return { flowId: "flow-2" };
+        },
+      }, {
+        loadTransport: async () => ({
+          connect: async () => {
+            throw new Error("stop-after-connect");
+          },
+        }),
+        now: () => 1_700_000_000_000,
+      }),
+      Error,
+      "stop-after-connect",
+    );
+
+    assertEquals(fetchUrls.some((url) => url.endsWith("/auth/requests")), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

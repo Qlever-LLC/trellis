@@ -2,15 +2,15 @@ import { AuthError } from "@qlever-llc/trellis";
 import { isErr, Result } from "@qlever-llc/result";
 
 import {
+  browserFlowsKV,
   connectionsKV,
   contractApprovalsKV,
-  deviceActivationHandoffsKV,
   deviceActivationReviewsKV,
   deviceActivationsKV,
   deviceInstancesKV,
   devicePortalSelectionsKV,
-  deviceProvisioningSecretsKV,
   deviceProfilesKV,
+  deviceProvisioningSecretsKV,
   instanceGrantPoliciesKV,
   logger,
   loginPortalSelectionsKV,
@@ -21,29 +21,29 @@ import {
   usersKV,
 } from "../../bootstrap/globals.ts";
 import {
-  type CreatePortalRequest,
   type CreateDeviceProfileRequest,
+  type CreatePortalRequest,
   type DeviceActivationReview,
   type DeviceInstance,
   type DevicePortalSelection,
   type DevicePortalSelectionRequest,
-  type DeviceProvisioningSecret,
   type DeviceProfile,
-  type ProvisionDeviceInstanceRequest,
-  type LoginPortalSelection,
-  type LoginPortalSelectionRequest,
+  type DeviceProvisioningSecret,
   type InstanceGrantPolicy,
   type InstanceGrantPolicyActor,
+  type LoginPortalSelection,
+  type LoginPortalSelectionRequest,
   normalizeAppliedContracts,
   type Portal,
   type PortalDefault,
   type PortalDefaultRequest,
+  type ProvisionDeviceInstanceRequest,
   type UpsertInstanceGrantPolicyRequest,
-  validateLoginPortalSelectionRequest,
-  validateInstanceGrantPolicyRequest,
   validateDevicePortalSelectionRequest,
   validateDeviceProfileRequest,
   validateDeviceProvisionRequest,
+  validateInstanceGrantPolicyRequest,
+  validateLoginPortalSelectionRequest,
   validatePortalDefaultRequest,
   validatePortalRequest,
 } from "./shared.ts";
@@ -69,9 +69,10 @@ type DeviceActivation = {
   revokedAt: string | null;
 };
 
-type DeviceActivationHandoff = {
-  handoffId: string;
+type DeviceActivationFlow = {
+  flowId: string;
   instanceId: string;
+  profileId: string;
   publicIdentityKey: string;
   nonce: string;
   qrMac: string;
@@ -82,6 +83,7 @@ type DeviceActivationHandoff = {
 type DeviceActivationReviewRecord = {
   reviewId: string;
   linkRequestId: string;
+  flowId: string;
   instanceId: string;
   publicIdentityKey: string;
   profileId: string;
@@ -89,7 +91,6 @@ type DeviceActivationReviewRecord = {
   requestedAt: string | Date;
   decidedAt: string | Date | null;
   reason?: string;
-  handoffId: string;
   requestedBy: {
     origin: string;
     id: string;
@@ -152,43 +153,82 @@ async function loadPortal(portalId: string): Promise<Portal | null> {
   return entry.value as Portal;
 }
 
-async function loadInstanceGrantPolicy(contractId: string): Promise<InstanceGrantPolicy | null> {
+async function loadInstanceGrantPolicy(
+  contractId: string,
+): Promise<InstanceGrantPolicy | null> {
   const entry = (await instanceGrantPoliciesKV.get(contractId)).take();
   if (isErr(entry)) return null;
   return entry.value as InstanceGrantPolicy;
 }
 
-async function loadDeviceProfile(profileId: string): Promise<DeviceProfile | null> {
+async function loadDeviceProfile(
+  profileId: string,
+): Promise<DeviceProfile | null> {
   const entry = (await deviceProfilesKV.get(profileId)).take();
   if (isErr(entry)) return null;
   return entry.value as unknown as DeviceProfile;
 }
 
-async function loadDeviceInstance(instanceId: string): Promise<DeviceInstance | null> {
+async function loadDeviceInstance(
+  instanceId: string,
+): Promise<DeviceInstance | null> {
   const entry = (await deviceInstancesKV.get(instanceId)).take();
   if (isErr(entry)) return null;
   return entry.value as unknown as DeviceInstance;
 }
 
-async function loadDeviceProvisioningSecret(instanceId: string): Promise<DeviceProvisioningSecret | null> {
+async function loadDeviceProvisioningSecret(
+  instanceId: string,
+): Promise<DeviceProvisioningSecret | null> {
   const entry = (await deviceProvisioningSecretsKV.get(instanceId)).take();
   if (isErr(entry)) return null;
   return entry.value as DeviceProvisioningSecret;
 }
 
-async function loadDeviceActivationReview(reviewId: string): Promise<DeviceActivationReviewRecord | null> {
+async function loadDeviceActivationReview(
+  reviewId: string,
+): Promise<DeviceActivationReviewRecord | null> {
   const entry = (await deviceActivationReviewsKV.get(reviewId)).take();
   if (isErr(entry)) return null;
-  return entry.value as DeviceActivationReviewRecord;
+  return entry.value as unknown as DeviceActivationReviewRecord;
 }
 
-async function loadDeviceActivationHandoff(handoffId: string): Promise<DeviceActivationHandoff | null> {
-  const entry = (await deviceActivationHandoffsKV.get(handoffId)).take();
+async function loadDeviceActivationFlow(
+  flowId: string,
+): Promise<DeviceActivationFlow | null> {
+  const entry = (await browserFlowsKV.get(flowId)).take();
   if (isErr(entry)) return null;
-  return entry.value as DeviceActivationHandoff;
+  const flow = entry.value as {
+    flowId?: string;
+    kind?: string;
+    deviceActivation?: {
+      instanceId: string;
+      profileId: string;
+      publicIdentityKey: string;
+      nonce: string;
+      qrMac: string;
+    };
+    createdAt: Date | string;
+    expiresAt: Date | string;
+  };
+  if (flow.kind !== "device_activation" || !flow.deviceActivation || !flow.flowId) {
+    return null;
+  }
+  return {
+    flowId: flow.flowId,
+    instanceId: flow.deviceActivation.instanceId,
+    profileId: flow.deviceActivation.profileId,
+    publicIdentityKey: flow.deviceActivation.publicIdentityKey,
+    nonce: flow.deviceActivation.nonce,
+    qrMac: flow.deviceActivation.qrMac,
+    createdAt: flow.createdAt,
+    expiresAt: flow.expiresAt,
+  };
 }
 
-async function loadDeviceActivation(instanceId: string): Promise<DeviceActivation | null> {
+async function loadDeviceActivation(
+  instanceId: string,
+): Promise<DeviceActivation | null> {
   const entry = (await deviceActivationsKV.get(instanceId)).take();
   if (isErr(entry)) return null;
   return entry.value as unknown as DeviceActivation;
@@ -200,14 +240,20 @@ async function loadPortalDefault(key: string): Promise<PortalDefault | null> {
   return entry.value as PortalDefault;
 }
 
-async function loadLoginPortalSelection(contractId: string): Promise<LoginPortalSelection | null> {
-  const entry = (await loginPortalSelectionsKV.get(loginSelectionKey(contractId))).take();
+async function loadLoginPortalSelection(
+  contractId: string,
+): Promise<LoginPortalSelection | null> {
+  const entry =
+    (await loginPortalSelectionsKV.get(loginSelectionKey(contractId))).take();
   if (isErr(entry)) return null;
   return entry.value as LoginPortalSelection;
 }
 
-async function loadDevicePortalSelection(profileId: string): Promise<DevicePortalSelection | null> {
-  const entry = (await devicePortalSelectionsKV.get(deviceSelectionKey(profileId))).take();
+async function loadDevicePortalSelection(
+  profileId: string,
+): Promise<DevicePortalSelection | null> {
+  const entry =
+    (await devicePortalSelectionsKV.get(deviceSelectionKey(profileId))).take();
   if (isErr(entry)) return null;
   return entry.value as DevicePortalSelection;
 }
@@ -296,19 +342,25 @@ async function listDeviceActivations(): Promise<DeviceActivation[]> {
   return values;
 }
 
-async function listDeviceActivationReviews(): Promise<DeviceActivationReviewRecord[]> {
+async function listDeviceActivationReviews(): Promise<
+  DeviceActivationReviewRecord[]
+> {
   const iter = (await deviceActivationReviewsKV.keys(">"))?.take();
   if (isErr(iter)) return [];
   const values: DeviceActivationReviewRecord[] = [];
   for await (const key of iter) {
     const entry = (await deviceActivationReviewsKV.get(key)).take();
-    if (!isErr(entry)) values.push(entry.value as DeviceActivationReviewRecord);
+    if (!isErr(entry)) {
+      values.push(entry.value as unknown as DeviceActivationReviewRecord);
+    }
   }
   values.sort((left, right) => left.reviewId.localeCompare(right.reviewId));
   return values;
 }
 
-function toPublicReview(review: DeviceActivationReviewRecord): DeviceActivationReview {
+function toPublicReview(
+  review: DeviceActivationReviewRecord,
+): DeviceActivationReview {
   return {
     reviewId: review.reviewId,
     linkRequestId: review.linkRequestId,
@@ -316,8 +368,12 @@ function toPublicReview(review: DeviceActivationReviewRecord): DeviceActivationR
     publicIdentityKey: review.publicIdentityKey,
     profileId: review.profileId,
     state: review.state,
-    requestedAt: review.requestedAt instanceof Date ? review.requestedAt.toISOString() : review.requestedAt,
-    decidedAt: review.decidedAt instanceof Date ? review.decidedAt.toISOString() : review.decidedAt,
+    requestedAt: review.requestedAt instanceof Date
+      ? review.requestedAt.toISOString()
+      : review.requestedAt,
+    decidedAt: review.decidedAt instanceof Date
+      ? review.decidedAt.toISOString()
+      : review.decidedAt,
     ...(review.reason ? { reason: review.reason } : {}),
   };
 }
@@ -327,7 +383,9 @@ function policyActor(caller: RpcUser): InstanceGrantPolicyActor | undefined {
   return { origin: caller.origin, id: caller.id };
 }
 
-async function loadUserProjection(trellisId: string): Promise<UserProjectionEntry | null> {
+async function loadUserProjection(
+  trellisId: string,
+): Promise<UserProjectionEntry | null> {
   const entry = (await usersKV.get(trellisId)).take();
   if (isErr(entry)) return null;
   return entry.value as UserProjectionEntry;
@@ -341,7 +399,8 @@ async function revokeUserSessionByKey(
   const sessionKey = sessionKeyId.split(".")[0];
   if (!sessionKey) return;
 
-  const connIter = (await connectionsKV.keys(`${sessionKey}.${session.trellisId}.>`)).take();
+  const connIter =
+    (await connectionsKV.keys(`${sessionKey}.${session.trellisId}.>`)).take();
   if (!isErr(connIter)) {
     for await (const connKey of connIter) {
       const entry = (await connectionsKV.get(connKey)).take();
@@ -428,14 +487,18 @@ async function revokeInvalidatedInstanceGrantSessions(args: {
   }
 }
 
-async function confirmationCodeForReview(review: DeviceActivationReviewRecord): Promise<string | null> {
-  const handoff = await loadDeviceActivationHandoff(review.handoffId);
-  const provisioningSecret = await loadDeviceProvisioningSecret(review.instanceId);
-  if (!handoff || !provisioningSecret) return null;
+async function confirmationCodeForReview(
+  review: DeviceActivationReviewRecord,
+): Promise<string | null> {
+  const flow = await loadDeviceActivationFlow(review.flowId);
+  const provisioningSecret = await loadDeviceProvisioningSecret(
+    review.instanceId,
+  );
+  if (!flow || !provisioningSecret) return null;
   return await deriveDeviceConfirmationCode({
     activationKey: provisioningSecret.activationKey,
     publicIdentityKey: review.publicIdentityKey,
-    nonce: handoff.nonce,
+    nonce: flow.nonce,
   });
 }
 
@@ -450,7 +513,10 @@ async function ensurePortalReference(portalId: string | null) {
 
 export function createAuthCreatePortalHandler() {
   return async (req: CreatePortalRequest, { caller }: { caller: RpcUser }) => {
-    logger.trace({ rpc: "Auth.CreatePortal", portalId: req.portalId }, "RPC request");
+    logger.trace(
+      { rpc: "Auth.CreatePortal", portalId: req.portalId },
+      "RPC request",
+    );
     if (!isAdmin(caller)) return insufficientPermissions();
     const validation = validatePortalRequest(req);
     if (validation.isErr()) return validation;
@@ -460,7 +526,10 @@ export function createAuthCreatePortalHandler() {
   };
 }
 
-export const authListPortalsHandler = async (_req: unknown, { caller }: { caller: RpcUser }) => {
+export const authListPortalsHandler = async (
+  _req: unknown,
+  { caller }: { caller: RpcUser },
+) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   return Result.ok({ portals: await listPortals() });
 };
@@ -476,9 +545,15 @@ export const authDisablePortalHandler = async (
   return Result.ok({ success: true });
 };
 
-export const authGetLoginPortalDefaultHandler = async (_req: unknown, { caller }: { caller: RpcUser }) => {
+export const authGetLoginPortalDefaultHandler = async (
+  _req: unknown,
+  { caller }: { caller: RpcUser },
+) => {
   if (!isAdmin(caller)) return insufficientPermissions();
-  return Result.ok({ defaultPortal: (await loadPortalDefault(LOGIN_DEFAULT_KEY)) ?? { portalId: null } });
+  return Result.ok({
+    defaultPortal: (await loadPortalDefault(LOGIN_DEFAULT_KEY)) ??
+      { portalId: null },
+  });
 };
 
 export const authListInstanceGrantPoliciesHandler = async (
@@ -497,7 +572,10 @@ export const authUpsertInstanceGrantPolicyHandler = async (
   const validation = validateInstanceGrantPolicyRequest(req);
   if (validation.isErr()) return validation;
   const { policy: normalizedPolicy } = validation.take() as {
-    policy: Pick<InstanceGrantPolicy, "contractId" | "allowedOrigins" | "impliedCapabilities">;
+    policy: Pick<
+      InstanceGrantPolicy,
+      "contractId" | "allowedOrigins" | "impliedCapabilities"
+    >;
   };
   const existing = await loadInstanceGrantPolicy(normalizedPolicy.contractId);
   const now = new Date().toISOString();
@@ -540,7 +618,10 @@ export const authDisableInstanceGrantPolicyHandler = async (
   if (!req.contractId) return invalidRequest({ contractId: req.contractId });
   const existing = await loadInstanceGrantPolicy(req.contractId);
   if (!existing) {
-    return invalidRequest({ contractId: req.contractId, reason: "instance_grant_policy_not_found" });
+    return invalidRequest({
+      contractId: req.contractId,
+      reason: "instance_grant_policy_not_found",
+    });
   }
   const actor = policyActor(caller);
   const policy: InstanceGrantPolicy = {
@@ -568,14 +649,19 @@ export const authSetLoginPortalDefaultHandler = async (
   if (!isAdmin(caller)) return insufficientPermissions();
   const validation = validatePortalDefaultRequest(req);
   if (validation.isErr()) return validation;
-  const { defaultPortal } = validation.take() as { defaultPortal: PortalDefault };
+  const { defaultPortal } = validation.take() as {
+    defaultPortal: PortalDefault;
+  };
   const referenceCheck = await ensurePortalReference(defaultPortal.portalId);
   if (referenceCheck.isErr()) return referenceCheck;
   await portalDefaultsKV.put(LOGIN_DEFAULT_KEY, defaultPortal);
   return Result.ok({ defaultPortal });
 };
 
-export const authListLoginPortalSelectionsHandler = async (_req: unknown, { caller }: { caller: RpcUser }) => {
+export const authListLoginPortalSelectionsHandler = async (
+  _req: unknown,
+  { caller }: { caller: RpcUser },
+) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   return Result.ok({ selections: await listLoginPortalSelections() });
 };
@@ -587,10 +673,15 @@ export const authSetLoginPortalSelectionHandler = async (
   if (!isAdmin(caller)) return insufficientPermissions();
   const validation = validateLoginPortalSelectionRequest(req);
   if (validation.isErr()) return validation;
-  const { selection } = validation.take() as { selection: LoginPortalSelection };
+  const { selection } = validation.take() as {
+    selection: LoginPortalSelection;
+  };
   const referenceCheck = await ensurePortalReference(selection.portalId);
   if (referenceCheck.isErr()) return referenceCheck;
-  await loginPortalSelectionsKV.put(loginSelectionKey(selection.contractId), selection);
+  await loginPortalSelectionsKV.put(
+    loginSelectionKey(selection.contractId),
+    selection,
+  );
   return Result.ok({ selection });
 };
 
@@ -605,9 +696,15 @@ export const authClearLoginPortalSelectionHandler = async (
   return Result.ok({ success: true });
 };
 
-export const authGetDevicePortalDefaultHandler = async (_req: unknown, { caller }: { caller: RpcUser }) => {
+export const authGetDevicePortalDefaultHandler = async (
+  _req: unknown,
+  { caller }: { caller: RpcUser },
+) => {
   if (!isAdmin(caller)) return insufficientPermissions();
-  return Result.ok({ defaultPortal: (await loadPortalDefault(DEVICE_DEFAULT_KEY)) ?? { portalId: null } });
+  return Result.ok({
+    defaultPortal: (await loadPortalDefault(DEVICE_DEFAULT_KEY)) ??
+      { portalId: null },
+  });
 };
 
 export const authSetDevicePortalDefaultHandler = async (
@@ -617,14 +714,19 @@ export const authSetDevicePortalDefaultHandler = async (
   if (!isAdmin(caller)) return insufficientPermissions();
   const validation = validatePortalDefaultRequest(req);
   if (validation.isErr()) return validation;
-  const { defaultPortal } = validation.take() as { defaultPortal: PortalDefault };
+  const { defaultPortal } = validation.take() as {
+    defaultPortal: PortalDefault;
+  };
   const referenceCheck = await ensurePortalReference(defaultPortal.portalId);
   if (referenceCheck.isErr()) return referenceCheck;
   await portalDefaultsKV.put(DEVICE_DEFAULT_KEY, defaultPortal);
   return Result.ok({ defaultPortal });
 };
 
-export const authListDevicePortalSelectionsHandler = async (_req: unknown, { caller }: { caller: RpcUser }) => {
+export const authListDevicePortalSelectionsHandler = async (
+  _req: unknown,
+  { caller }: { caller: RpcUser },
+) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   return Result.ok({ selections: await listDevicePortalSelections() });
 };
@@ -636,14 +738,22 @@ export const authSetDevicePortalSelectionHandler = async (
   if (!isAdmin(caller)) return insufficientPermissions();
   const validation = validateDevicePortalSelectionRequest(req);
   if (validation.isErr()) return validation;
-  const { selection } = validation.take() as { selection: DevicePortalSelection };
+  const { selection } = validation.take() as {
+    selection: DevicePortalSelection;
+  };
   const profile = await loadDeviceProfile(selection.profileId);
   if (!profile || profile.disabled) {
-    return invalidRequest({ profileId: selection.profileId, reason: "device_profile_not_found" });
+    return invalidRequest({
+      profileId: selection.profileId,
+      reason: "device_profile_not_found",
+    });
   }
   const referenceCheck = await ensurePortalReference(selection.portalId);
   if (referenceCheck.isErr()) return referenceCheck;
-  await devicePortalSelectionsKV.put(deviceSelectionKey(selection.profileId), selection);
+  await devicePortalSelectionsKV.put(
+    deviceSelectionKey(selection.profileId),
+    selection,
+  );
   return Result.ok({ selection });
 };
 
@@ -659,10 +769,17 @@ export const authClearDevicePortalSelectionHandler = async (
 };
 
 export function createAuthCreateDeviceProfileHandler(deps: {
-  installDeviceContract: (contract: unknown) => Promise<{ id: string; digest: string; displayName: string; description: string }>;
+  installDeviceContract: (
+    contract: unknown,
+  ) => Promise<
+    { id: string; digest: string; displayName: string; description: string }
+  >;
   refreshActiveContracts: () => Promise<void>;
 }) {
-  return async (req: Parameters<typeof validateDeviceProfileRequest>[0], { caller }: { caller: RpcUser }) => {
+  return async (
+    req: Parameters<typeof validateDeviceProfileRequest>[0],
+    { caller }: { caller: RpcUser },
+  ) => {
     if (!isAdmin(caller)) return insufficientPermissions();
     const validation = validateDeviceProfileRequest(req);
     if (validation.isErr()) return validation;
@@ -678,22 +795,39 @@ export const authListDeviceProfilesHandler = async (
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   let profiles = await listDeviceProfiles();
-  if (req.disabled !== undefined) profiles = profiles.filter((profile) => profile.disabled === req.disabled);
+  if (req.disabled !== undefined) {
+    profiles = profiles.filter((profile) => profile.disabled === req.disabled);
+  }
   return Result.ok({ profiles });
 };
 
 export function createAuthApplyDeviceProfileContractHandler(deps: {
-  installDeviceContract: (contract: unknown) => Promise<{ id: string; digest: string; displayName: string; description: string }>;
+  installDeviceContract: (
+    contract: unknown,
+  ) => Promise<
+    { id: string; digest: string; displayName: string; description: string }
+  >;
 }) {
-  return async (req: { profileId: string; contract: unknown }, { caller }: { caller: RpcUser }) => {
+  return async (
+    req: { profileId: string; contract: unknown },
+    { caller }: { caller: RpcUser },
+  ) => {
     if (!isAdmin(caller)) return insufficientPermissions();
     const profile = await loadDeviceProfile(req.profileId);
-    if (!profile) return invalidRequest({ profileId: req.profileId, reason: "device_profile_not_found" });
+    if (!profile) {
+      return invalidRequest({
+        profileId: req.profileId,
+        reason: "device_profile_not_found",
+      });
+    }
     let installed;
     try {
       installed = await deps.installDeviceContract(req.contract);
     } catch (error) {
-      return invalidRequest({ profileId: req.profileId, message: error instanceof Error ? error.message : String(error) });
+      return invalidRequest({
+        profileId: req.profileId,
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
     const nextProfile: DeviceProfile = {
       ...profile,
@@ -717,10 +851,18 @@ export function createAuthApplyDeviceProfileContractHandler(deps: {
 }
 
 export function createAuthUnapplyDeviceProfileContractHandler() {
-  return async (req: { profileId: string; contractId: string; digests?: string[] }, { caller }: { caller: RpcUser }) => {
+  return async (
+    req: { profileId: string; contractId: string; digests?: string[] },
+    { caller }: { caller: RpcUser },
+  ) => {
     if (!isAdmin(caller)) return insufficientPermissions();
     const profile = await loadDeviceProfile(req.profileId);
-    if (!profile) return invalidRequest({ profileId: req.profileId, reason: "device_profile_not_found" });
+    if (!profile) {
+      return invalidRequest({
+        profileId: req.profileId,
+        reason: "device_profile_not_found",
+      });
+    }
     const removeDigests = new Set(req.digests ?? []);
     const nextProfile: DeviceProfile = {
       ...profile,
@@ -729,17 +871,28 @@ export function createAuthUnapplyDeviceProfileContractHandler() {
           .map((applied) => {
             if (applied.contractId !== req.contractId) return applied;
             if (removeDigests.size === 0) return null;
-            const remaining = applied.allowedDigests.filter((digest) => !removeDigests.has(digest));
-            return remaining.length > 0 ? { ...applied, allowedDigests: remaining } : null;
+            const remaining = applied.allowedDigests.filter((digest) =>
+              !removeDigests.has(digest)
+            );
+            return remaining.length > 0
+              ? { ...applied, allowedDigests: remaining }
+              : null;
           })
-          .filter((value): value is NonNullable<typeof value> => value !== null),
+          .filter((value): value is NonNullable<typeof value> =>
+            value !== null
+          ),
       ),
     };
     await deviceProfilesKV.put(nextProfile.profileId, nextProfile);
-    const instances = (await listDeviceInstances()).filter((instance) => instance.profileId === profile.profileId);
+    const instances = (await listDeviceInstances()).filter((instance) =>
+      instance.profileId === profile.profileId
+    );
     for (const instance of instances) {
       if (instance.currentContractId !== req.contractId) continue;
-      if (removeDigests.size > 0 && instance.currentContractDigest && !removeDigests.has(instance.currentContractDigest)) continue;
+      if (
+        removeDigests.size > 0 && instance.currentContractDigest &&
+        !removeDigests.has(instance.currentContractDigest)
+      ) continue;
       await kickInstanceRuntimeAccess(instance.publicIdentityKey);
     }
     return Result.ok({ profile: nextProfile });
@@ -752,10 +905,19 @@ export const authDisableDeviceProfileHandler = async (
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   const profile = await loadDeviceProfile(req.profileId);
-  if (!profile) return invalidRequest({ profileId: req.profileId, reason: "device_profile_not_found" });
+  if (!profile) {
+    return invalidRequest({
+      profileId: req.profileId,
+      reason: "device_profile_not_found",
+    });
+  }
   const nextProfile = { ...profile, disabled: true };
   await deviceProfilesKV.put(req.profileId, nextProfile);
-  for (const instance of (await listDeviceInstances()).filter((entry) => entry.profileId === req.profileId)) {
+  for (
+    const instance of (await listDeviceInstances()).filter((entry) =>
+      entry.profileId === req.profileId
+    )
+  ) {
     await kickInstanceRuntimeAccess(instance.publicIdentityKey);
   }
   return Result.ok({ profile: nextProfile });
@@ -767,7 +929,12 @@ export const authEnableDeviceProfileHandler = async (
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   const profile = await loadDeviceProfile(req.profileId);
-  if (!profile) return invalidRequest({ profileId: req.profileId, reason: "device_profile_not_found" });
+  if (!profile) {
+    return invalidRequest({
+      profileId: req.profileId,
+      reason: "device_profile_not_found",
+    });
+  }
   const nextProfile = { ...profile, disabled: false };
   await deviceProfilesKV.put(req.profileId, nextProfile);
   return Result.ok({ profile: nextProfile });
@@ -778,14 +945,24 @@ export const authRemoveDeviceProfileHandler = async (
   { caller }: { caller: RpcUser },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
-  const inUse = (await listDeviceInstances()).some((instance) => instance.profileId === req.profileId);
-  if (inUse) return invalidRequest({ profileId: req.profileId, reason: "device_profile_in_use" });
+  const inUse = (await listDeviceInstances()).some((instance) =>
+    instance.profileId === req.profileId
+  );
+  if (inUse) {
+    return invalidRequest({
+      profileId: req.profileId,
+      reason: "device_profile_in_use",
+    });
+  }
   await deviceProfilesKV.delete(req.profileId);
   return Result.ok({ success: true });
 };
 
 export function createAuthProvisionDeviceInstanceHandler() {
-  return async (req: ProvisionDeviceInstanceRequest, { caller }: { caller: RpcUser }) => {
+  return async (
+    req: ProvisionDeviceInstanceRequest,
+    { caller }: { caller: RpcUser },
+  ) => {
     if (!isAdmin(caller)) return insufficientPermissions();
     const validation = validateDeviceProvisionRequest(req);
     if (validation.isErr()) return validation;
@@ -795,10 +972,16 @@ export function createAuthProvisionDeviceInstanceHandler() {
     };
     const profile = await loadDeviceProfile(instance.profileId);
     if (!profile || profile.disabled) {
-      return invalidRequest({ profileId: instance.profileId, reason: "device_profile_not_found" });
+      return invalidRequest({
+        profileId: instance.profileId,
+        reason: "device_profile_not_found",
+      });
     }
     await deviceInstancesKV.put(instance.instanceId, instance);
-    await deviceProvisioningSecretsKV.put(instance.instanceId, provisioningSecret);
+    await deviceProvisioningSecretsKV.put(
+      instance.instanceId,
+      provisioningSecret,
+    );
     return Result.ok({ instance });
   };
 }
@@ -809,8 +992,14 @@ export const authListDeviceInstancesHandler = async (
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   let instances = await listDeviceInstances();
-  if (req.profileId) instances = instances.filter((instance) => instance.profileId === req.profileId);
-  if (req.state) instances = instances.filter((instance) => instance.state === req.state);
+  if (req.profileId) {
+    instances = instances.filter((instance) =>
+      instance.profileId === req.profileId
+    );
+  }
+  if (req.state) {
+    instances = instances.filter((instance) => instance.state === req.state);
+  }
   return Result.ok({ instances });
 };
 
@@ -820,7 +1009,12 @@ export const authDisableDeviceInstanceHandler = async (
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   const instance = await loadDeviceInstance(req.instanceId);
-  if (!instance) return invalidRequest({ instanceId: req.instanceId, reason: "unknown_device" });
+  if (!instance) {
+    return invalidRequest({
+      instanceId: req.instanceId,
+      reason: "unknown_device",
+    });
+  }
   const nextInstance = { ...instance, state: "disabled" as const };
   await deviceInstancesKV.put(req.instanceId, nextInstance);
   await kickInstanceRuntimeAccess(instance.publicIdentityKey);
@@ -833,11 +1027,18 @@ export const authEnableDeviceInstanceHandler = async (
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   const instance = await loadDeviceInstance(req.instanceId);
-  if (!instance) return invalidRequest({ instanceId: req.instanceId, reason: "unknown_device" });
+  if (!instance) {
+    return invalidRequest({
+      instanceId: req.instanceId,
+      reason: "unknown_device",
+    });
+  }
   const activation = await loadDeviceActivation(req.instanceId);
-  const nextState: DeviceInstance["state"] = activation && activation.state === "activated" && activation.revokedAt === null
-    ? "activated"
-    : "registered";
+  const nextState: DeviceInstance["state"] =
+    activation && activation.state === "activated" &&
+      activation.revokedAt === null
+      ? "activated"
+      : "registered";
   const nextInstance = { ...instance, state: nextState };
   await deviceInstancesKV.put(req.instanceId, nextInstance);
   return Result.ok({ instance: nextInstance });
@@ -849,7 +1050,12 @@ export const authRemoveDeviceInstanceHandler = async (
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   const instance = await loadDeviceInstance(req.instanceId);
-  if (!instance) return invalidRequest({ instanceId: req.instanceId, reason: "unknown_device" });
+  if (!instance) {
+    return invalidRequest({
+      instanceId: req.instanceId,
+      reason: "unknown_device",
+    });
+  }
   await kickInstanceRuntimeAccess(instance.publicIdentityKey);
   await deviceInstancesKV.delete(req.instanceId);
   await deviceProvisioningSecretsKV.delete(req.instanceId);
@@ -863,9 +1069,21 @@ export const authListDeviceActivationsHandler = async (
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   let activations = await listDeviceActivations();
-  if (req.instanceId) activations = activations.filter((activation) => activation.instanceId === req.instanceId);
-  if (req.profileId) activations = activations.filter((activation) => activation.profileId === req.profileId);
-  if (req.state) activations = activations.filter((activation) => activation.state === req.state);
+  if (req.instanceId) {
+    activations = activations.filter((activation) =>
+      activation.instanceId === req.instanceId
+    );
+  }
+  if (req.profileId) {
+    activations = activations.filter((activation) =>
+      activation.profileId === req.profileId
+    );
+  }
+  if (req.state) {
+    activations = activations.filter((activation) =>
+      activation.state === req.state
+    );
+  }
   return Result.ok({ activations });
 };
 
@@ -890,13 +1108,22 @@ export const authListDeviceActivationReviewsHandler = async (
 ) => {
   if (!canReview(caller)) return insufficientPermissions();
   const allowedProfiles = reviewableProfiles(caller);
-  if (allowedProfiles !== null && req.profileId && !allowedProfiles.has(req.profileId)) {
+  if (
+    allowedProfiles !== null && req.profileId &&
+    !allowedProfiles.has(req.profileId)
+  ) {
     return insufficientPermissions();
   }
   let reviews = await listDeviceActivationReviews();
-  if (req.instanceId) reviews = reviews.filter((review) => review.instanceId === req.instanceId);
-  if (req.profileId) reviews = reviews.filter((review) => review.profileId === req.profileId);
-  if (req.state) reviews = reviews.filter((review) => review.state === req.state);
+  if (req.instanceId) {
+    reviews = reviews.filter((review) => review.instanceId === req.instanceId);
+  }
+  if (req.profileId) {
+    reviews = reviews.filter((review) => review.profileId === req.profileId);
+  }
+  if (req.state) {
+    reviews = reviews.filter((review) => review.state === req.state);
+  }
   if (allowedProfiles !== null) {
     reviews = reviews.filter((review) => allowedProfiles.has(review.profileId));
   }
@@ -909,13 +1136,22 @@ export const authDecideDeviceActivationReviewHandler = async (
 ) => {
   const review = await loadDeviceActivationReview(req.reviewId);
   if (!review) {
-    return invalidRequest({ reviewId: req.reviewId, reason: "device_review_not_found" });
+    return invalidRequest({
+      reviewId: req.reviewId,
+      reason: "device_review_not_found",
+    });
   }
-  if (!canReviewProfile(caller, review.profileId)) return insufficientPermissions();
+  if (!canReviewProfile(caller, review.profileId)) {
+    return insufficientPermissions();
+  }
 
   if (review.state !== "pending") {
-    const activation = review.state === "approved" ? await loadDeviceActivation(review.instanceId) : null;
-    const confirmationCode = review.state === "approved" ? await confirmationCodeForReview(review) : null;
+    const activation = review.state === "approved"
+      ? await loadDeviceActivation(review.instanceId)
+      : null;
+    const confirmationCode = review.state === "approved"
+      ? await confirmationCodeForReview(review)
+      : null;
     return Result.ok({
       review: toPublicReview(review),
       ...(activation ? { activation } : {}),
@@ -940,10 +1176,16 @@ export const authDecideDeviceActivationReviewHandler = async (
   const instance = await loadDeviceInstance(review.instanceId);
   const profile = await loadDeviceProfile(review.profileId);
   if (!instance || instance.state === "disabled") {
-    return invalidRequest({ instanceId: review.instanceId, reason: "unknown_device" });
+    return invalidRequest({
+      instanceId: review.instanceId,
+      reason: "unknown_device",
+    });
   }
   if (!profile || profile.disabled) {
-    return invalidRequest({ profileId: review.profileId, reason: "device_profile_not_found" });
+    return invalidRequest({
+      profileId: review.profileId,
+      reason: "device_profile_not_found",
+    });
   }
 
   const activatedAt = new Date().toISOString();

@@ -215,7 +215,11 @@ Deno.test("POST /bootstrap/service rejects unknown services", async () => {
   });
 
   assertEquals(response.status, 404);
-  assertEquals(await response.json(), { reason: "unknown_service" });
+  assertEquals(await response.json(), {
+    reason: "unknown_service",
+    message:
+      `Service instance for session key '${auth.sessionKey}' is not provisioned in Trellis. Provision the instance before starting the service.`,
+  });
 });
 
 Deno.test("POST /bootstrap/service rejects disabled services", async () => {
@@ -246,7 +250,13 @@ Deno.test("POST /bootstrap/service rejects disabled services", async () => {
   });
 
   assertEquals(response.status, 403);
-  assertEquals(await response.json(), { reason: "service_disabled" });
+  assertEquals(await response.json(), {
+    reason: "service_disabled",
+    message:
+      `Service instance 'svc_1' is disabled in Trellis. Enable the instance or provision a new one before reconnecting.`,
+    instanceId: "svc_1",
+    profileId: "profile_1",
+  });
 });
 
 Deno.test("POST /bootstrap/service rejects services with inactive contracts", async () => {
@@ -264,5 +274,42 @@ Deno.test("POST /bootstrap/service rejects services with inactive contracts", as
   });
 
   assertEquals(response.status, 409);
-  assertEquals(await response.json(), { reason: "contract_not_active" });
+  assertEquals(await response.json(), {
+    reason: "contract_not_active",
+    message:
+      `Contract '${contract.contract.id}' digest '${contract.digest}' is allowed for profile 'profile_1' but is not active in Trellis. Re-apply the contract to the profile or restart Trellis if contract state was lost.`,
+    instanceId: "svc_1",
+    profileId: "profile_1",
+    contractId: contract.contract.id,
+    contractDigest: contract.digest,
+  });
+});
+
+Deno.test("POST /bootstrap/service returns actionable mismatch details", async () => {
+  const { app, auth, contract } = await createApp({});
+  const response = await app.request("http://trellis/bootstrap/service", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sessionKey: auth.sessionKey,
+      contractId: contract.contract.id,
+      contractDigest: "other_digest",
+      iat: TEST_IAT,
+      sig: await auth.natsConnectSigForIat(TEST_IAT),
+    }),
+  });
+
+  assertEquals(response.status, 409);
+  assertEquals(await response.json(), {
+    reason: "service_contract_mismatch",
+    message:
+      `Service instance 'svc_1' under profile 'profile_1' is not allowed to run digest 'other_digest' for contract '${contract.contract.id}'. Allowed digests: ${contract.digest}. Re-apply the current contract to the profile or restart the matching service revision.`,
+    instanceId: "svc_1",
+    profileId: "profile_1",
+    expectedContractId: contract.contract.id,
+    expectedContractDigest: "other_digest",
+    allowedDigests: [contract.digest],
+    currentContractId: contract.contract.id,
+    currentContractDigest: contract.digest,
+  });
 });

@@ -78,6 +78,10 @@
       cleanupCallbackUrl();
 
       if (!result) {
+        if (auth.isAuthenticated) {
+          await goto(targetPath());
+          return;
+        }
         status = "Sign-in failed";
         authError = "Missing flow id.";
         return;

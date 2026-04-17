@@ -319,18 +319,14 @@ Deno.test("portal, portal selection, and device admin schemas validate", () => {
 
   assert(Value.Check(AuthCreateDeviceProfileSchema, {
     profileId: "reader.default",
-    contractId: "acme.reader@v1",
-    allowedDigests: ["digest-a", "digest-b"],
     reviewMode: "none",
-    contract: { id: "acme.reader@v1" },
   }));
   assert(Value.Check(AuthCreateDeviceProfileResponseSchema, {
     profile: {
       profileId: "reader.default",
-      contractId: "acme.reader@v1",
-      allowedDigests: ["digest-a", "digest-b"],
       reviewMode: "none",
       disabled: false,
+      appliedContracts: [],
     },
   }));
   assert(Value.Check(AuthListDeviceProfilesSchema, {}));
@@ -341,7 +337,14 @@ Deno.test("portal, portal selection, and device admin schemas validate", () => {
     }),
   );
   assert(
-    Value.Check(AuthDisableDeviceProfileResponseSchema, { success: true }),
+    Value.Check(AuthDisableDeviceProfileResponseSchema, {
+      profile: {
+        profileId: "reader.default",
+        reviewMode: "none",
+        disabled: true,
+        appliedContracts: [],
+      },
+    }),
   );
 
   assert(Value.Check(AuthProvisionDeviceInstanceSchema, {
@@ -376,7 +379,17 @@ Deno.test("portal, portal selection, and device admin schemas validate", () => {
   assert(Value.Check(AuthListDeviceInstancesResponseSchema, { instances: [] }));
   assert(Value.Check(AuthDisableDeviceInstanceSchema, { instanceId: "dev_1" }));
   assert(
-    Value.Check(AuthDisableDeviceInstanceResponseSchema, { success: true }),
+    Value.Check(AuthDisableDeviceInstanceResponseSchema, {
+      instance: {
+        instanceId: "dev_1",
+        publicIdentityKey: "A".repeat(43),
+        profileId: "reader.default",
+        state: "disabled",
+        createdAt: now,
+        activatedAt: null,
+        revokedAt: null,
+      },
+    }),
   );
 });
 
@@ -480,7 +493,7 @@ Deno.test("device activation and connect-info schemas validate", () => {
     rollout: "canary",
   }));
 
-  assert(Value.Check(AuthActivateDeviceSchema, { handoffId: "dah_1", linkRequestId: "link_1" }));
+  assert(Value.Check(AuthActivateDeviceSchema, { flowId: "flow_1", linkRequestId: "link_1" }));
   assert(Value.Check(AuthActivateDeviceResponseSchema, {
     status: "activated",
     instanceId: "dev_1",
@@ -501,7 +514,7 @@ Deno.test("device activation and connect-info schemas validate", () => {
     reason: "policy_denied",
   }));
   assert(Value.Check(AuthGetDeviceActivationStatusSchema, {
-    handoffId: "dah_1",
+    flowId: "flow_1",
   }));
   assert(Value.Check(AuthGetDeviceActivationStatusResponseSchema, {
     status: "pending_review",
@@ -514,7 +527,7 @@ Deno.test("device activation and connect-info schemas validate", () => {
   assert(Value.Check(AuthDeviceActivationReviewRequestedEventSchema, {
     reviewId: "dar_1",
     linkRequestId: "link_1",
-    handoffId: "dah_1",
+    flowId: "flow_1",
     instanceId: "dev_1",
     publicIdentityKey: "A".repeat(43),
     profileId: "sherpa",

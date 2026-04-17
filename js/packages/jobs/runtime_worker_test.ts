@@ -6,6 +6,7 @@ import type { JobsRuntimeBinding } from "./bindings.ts";
 import { JobCancellationToken, JobManager, JobProcessError } from "./job-manager.ts";
 import {
   ackActionForOutcome,
+  JobsInfrastructureMissingError,
   processWorkPayload,
   processWorkPayloadWithContext,
   processWorkPayloadWithContextAndHeartbeat,
@@ -803,6 +804,40 @@ Deno.test("startNatsQueueWorker falls back to consumer info when add fails", asy
 
   await worker.stop();
   assertEquals(infos, [{ stream: "JOBS_WORK", consumer: "documents-document-process" }]);
+});
+
+Deno.test("startNatsQueueWorker reports missing shared jobs stream clearly", async () => {
+  const streamNotFound = new Error("stream not found");
+  streamNotFound.name = "StreamNotFoundError";
+
+  await assertRejects(
+    () => startNatsQueueWorker({
+      nats: fakeNatsSubscriber(new FakeSubscription()),
+      manager: sampleManager<{ ok: boolean }>([]),
+      binding: sampleBindings(),
+      queueType: "document-process",
+      jsm: {
+        consumers: {
+          add() {
+            throw streamNotFound;
+          },
+          info() {
+            throw streamNotFound;
+          },
+        },
+      },
+      js: {
+        consumers: {
+          getConsumerFromInfo() {
+            throw new Error("should not create consumer when stream is missing");
+          },
+        },
+      },
+      handler: () => Promise.resolve({ ok: true }),
+    }),
+    JobsInfrastructureMissingError,
+    "Jobs work stream 'JOBS_WORK' was not found while starting queue 'document-process'. The shared jobs infrastructure is missing or not provisioned for this Trellis environment. Install or upgrade the 'trellis.jobs@v1' service and ensure 'JOBS_WORK' exists before starting workers.",
+  );
 });
 
 Deno.test("startNatsQueueWorker passes payload validation into the worker loop", async () => {

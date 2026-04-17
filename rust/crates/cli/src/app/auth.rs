@@ -42,6 +42,8 @@ async fn login_command(format: OutputFormat, args: &AuthLoginArgs) -> miette::Re
     let state = outcome.state;
     let me = outcome.user;
 
+    authlib::save_admin_session(&state).into_diagnostic()?;
+
     if output::is_json(format) {
         output::print_json(&json!({
             "sessionKey": state.session_key,

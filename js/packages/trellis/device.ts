@@ -2,10 +2,10 @@ import { jwtAuthenticator, type NatsConnection } from "@nats-io/nats-core";
 
 import {
   buildDeviceActivationPayload,
-  buildDeviceActivationUrl,
   createDeviceNatsAuthToken,
   deriveDeviceIdentity,
   signDeviceWaitRequest,
+  startDeviceActivationRequest,
   verifyDeviceConfirmationCode,
   waitForDeviceActivation,
 } from "./auth/device_activation.ts";
@@ -209,10 +209,10 @@ export async function connectDeviceWithDeps<TApi extends TrellisAPI>(
       publicIdentityKey: identity.publicIdentityKey,
       nonce,
     });
-    const activationUrl = buildDeviceActivationUrl({
+    const activationUrl = (await startDeviceActivationRequest({
       trellisUrl: args.trellisUrl,
       payload,
-    });
+    })).activationUrl;
 
     let activationCompleted = false;
     let onlineConnectInfo: ResolvedDeviceConnectInfo | null = null;

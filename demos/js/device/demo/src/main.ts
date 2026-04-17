@@ -21,7 +21,7 @@ async function main(): Promise<void> {
     contract,
     rootSecret,
     onActivationRequired: async (activation) => {
-      console.info(`device activation required: ${activation.url}`);
+      console.info(`device activation flow: ${activation.url}`);
       await activation.waitForOnlineApproval();
     },
   });
@@ -58,28 +58,45 @@ async function main(): Promise<void> {
   const fileName = filePath.split(/[\\/]/).at(-1) || "upload.txt";
   const contentType = "text/plain";
 
-  const grant = (
-    await trellis.request("Demo.Files.InitiateUpload", {
+  const started = (
+    await trellis.request("Demo.Files.Process.Start", {
       key: fileName,
       contentType,
     })
   ).take();
-  if (isErr(grant)) {
-    return console.error("Could not start upload", { err: grant });
+  if (isErr(started)) {
+    return console.error("Could not start file processing", { err: started });
   }
 
-  if (grant.kind !== "upload") {
-    return console.error("Upload RPC returned unexpected transfer grant", {
-      grant,
+  if (started.transfer.kind !== "upload") {
+    return console.error("Process start RPC returned unexpected transfer grant", {
+      transfer: started.transfer,
     });
   }
 
-  const uploaded = (await trellis.transfer(grant).put(bytes)).take();
+  const process = trellis.operation("Demo.Files.Process").resume(started.operation.ref);
+  const watch = (await process.watch()).take();
+  if (isErr(watch)) {
+    return console.error("Could not watch file processing", { err: watch });
+  }
+
+  console.info("process accepted", started.operation.snapshot);
+
+  const watchTask = (async () => {
+    for await (const event of watch) {
+      console.info("process event", event);
+    }
+  })();
+
+  const uploaded = (await trellis.transfer(started.transfer).put(bytes)).take();
   if (isErr(uploaded)) {
     return console.error("Upload failed", { err: uploaded });
   }
 
   console.info("uploaded", uploaded);
+  await watchTask;
+
+  Deno.exit();
 }
 
 if (import.meta.main) {

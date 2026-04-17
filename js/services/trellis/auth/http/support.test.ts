@@ -567,7 +567,7 @@ Deno.test("shouldUseSecureOauthCookie logs through injected logger", () => {
     ttlMs: {
       sessions: 1,
       oauth: 1,
-      deviceHandoff: 1,
+      deviceFlow: 1,
       pendingAuth: 1,
       bindingTokens: { bucket: 1, initial: 1, renew: 1, cliInitial: 1, cliRenew: 1 },
       connections: 1,

@@ -1,11 +1,10 @@
 use crate::{
     save_admin_session, AdminSessionState, ApprovalEntryRecord, AuthGetInstalledContractRequest,
-    AuthGetInstalledContractResponse, AuthInstallServiceRequest, AuthRemoveServiceRequest,
-    AuthUpgradeServiceContractRequest, AuthValidateRequestRequest, AuthValidateRequestResponse,
+    AuthGetInstalledContractResponse, AuthValidateRequestRequest, AuthValidateRequestResponse,
     AuthenticatedUser, BoundSession, ClientTransportsRecord, DisableInstanceGrantPolicyRequest,
     InstanceGrantPolicyRecord, ListApprovalsRequest, RenewBindingTokenBoundResponse,
-    RenewBindingTokenRequest, RenewBindingTokenResponse, RevokeApprovalRequest,
-    ServiceListEntry, TrellisAuthError, UpsertInstanceGrantPolicyRequest,
+    RenewBindingTokenRequest, RenewBindingTokenResponse, RevokeApprovalRequest, TrellisAuthError,
+    UpsertInstanceGrantPolicyRequest,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
@@ -13,11 +12,10 @@ use std::collections::BTreeMap;
 use trellis_client::{TrellisClient, UserConnectOptions};
 
 use crate::protocol::{
-    AuthInstallServiceResponse, AuthRemoveServiceResponse, AuthUpgradeServiceContractResponse,
     DisableInstanceGrantPolicyResponse, ListApprovalsResponse, ListInstanceGrantPoliciesResponse,
-    ListServicesResponse, LogoutResponse, MeResponse, RevokeApprovalResponse,
-    UpsertInstanceGrantPolicyResponse,
+    LogoutResponse, MeResponse, RevokeApprovalResponse, UpsertInstanceGrantPolicyResponse,
 };
+use trellis_sdk_auth::rpc::Empty;
 
 fn join_native_nats_servers(
     transports: &ClientTransportsRecord,
@@ -516,65 +514,129 @@ impl<'a> AuthClient<'a> {
         disabled: bool,
     ) -> Result<Vec<trellis_sdk_auth::AuthListDeviceProfilesResponseProfilesItem>, TrellisAuthError>
     {
-        Ok(self
+        let mut profiles = self
             .call::<_, trellis_sdk_auth::AuthListDeviceProfilesResponse>(
                 "rpc.v1.Auth.ListDeviceProfiles",
                 &trellis_sdk_auth::AuthListDeviceProfilesRequest {
-                    contract_id: contract_id.map(ToOwned::to_owned),
                     disabled: if disabled { Some(true) } else { None },
                 },
             )
             .await?
-            .profiles)
+            .profiles;
+
+        if let Some(contract_id) = contract_id {
+            profiles.retain(|profile| {
+                profile
+                    .applied_contracts
+                    .iter()
+                    .any(|contract| contract.contract_id == contract_id)
+            });
+        }
+
+        Ok(profiles)
     }
 
     /// Create a device profile.
     pub async fn create_device_profile(
         &self,
         profile_id: &str,
-        contract_id: &str,
-        allow_digests: &[String],
         review_mode: Option<&str>,
         contract: Option<BTreeMap<String, Value>>,
     ) -> Result<trellis_sdk_auth::AuthCreateDeviceProfileResponseProfile, TrellisAuthError> {
-        #[derive(Debug, Clone, Deserialize, Serialize)]
-        #[serde(rename_all = "camelCase")]
-        struct CreateDeviceProfileRequest {
-            allowed_digests: Vec<String>,
-            contract_id: String,
-            #[serde(skip_serializing_if = "Option::is_none")]
-            contract: Option<BTreeMap<String, Value>>,
-            #[serde(skip_serializing_if = "Option::is_none")]
-            review_mode: Option<Value>,
-            profile_id: String,
-        }
-
-        Ok(self
+        let response = self
             .call::<_, trellis_sdk_auth::AuthCreateDeviceProfileResponse>(
                 "rpc.v1.Auth.CreateDeviceProfile",
-                &CreateDeviceProfileRequest {
+                &trellis_sdk_auth::AuthCreateDeviceProfileRequest {
                     profile_id: profile_id.to_string(),
-                    contract_id: contract_id.to_string(),
-                    allowed_digests: allow_digests.to_vec(),
                     review_mode: review_mode.map(|value| serde_json::json!(value)),
-                    contract,
                 },
             )
-            .await?
-            .profile)
+            .await?;
+
+        if let Some(contract) = contract {
+            let applied = self
+                .call::<_, trellis_sdk_auth::AuthApplyDeviceProfileContractResponse>(
+                    "rpc.v1.Auth.ApplyDeviceProfileContract",
+                    &trellis_sdk_auth::AuthApplyDeviceProfileContractRequest {
+                        profile_id: profile_id.to_string(),
+                        contract,
+                    },
+                )
+                .await?;
+            return Ok(trellis_sdk_auth::AuthCreateDeviceProfileResponseProfile {
+                applied_contracts: applied
+                    .profile
+                    .applied_contracts
+                    .into_iter()
+                    .map(|item| trellis_sdk_auth::AuthCreateDeviceProfileResponseProfileAppliedContractsItem {
+                        allowed_digests: item.allowed_digests,
+                        contract_id: item.contract_id,
+                    })
+                    .collect(),
+                disabled: applied.profile.disabled,
+                profile_id: applied.profile.profile_id,
+                review_mode: applied.profile.review_mode,
+            });
+        }
+
+        Ok(response.profile)
+    }
+
+    /// Apply one contract lineage or digest set to a device profile.
+    pub async fn apply_device_profile_contract(
+        &self,
+        input: &trellis_sdk_auth::AuthApplyDeviceProfileContractRequest,
+    ) -> Result<trellis_sdk_auth::AuthApplyDeviceProfileContractResponse, TrellisAuthError> {
+        self.call("rpc.v1.Auth.ApplyDeviceProfileContract", input)
+            .await
     }
 
     /// Disable a device profile.
     pub async fn disable_device_profile(&self, profile_id: &str) -> Result<bool, TrellisAuthError> {
-        Ok(self
+        let response = self
             .call::<_, trellis_sdk_auth::AuthDisableDeviceProfileResponse>(
                 "rpc.v1.Auth.DisableDeviceProfile",
                 &trellis_sdk_auth::AuthDisableDeviceProfileRequest {
                     profile_id: profile_id.to_string(),
                 },
             )
-            .await?
-            .success)
+            .await?;
+        Ok(response.profile.disabled)
+    }
+
+    /// Enable a device profile.
+    pub async fn enable_device_profile(&self, profile_id: &str) -> Result<bool, TrellisAuthError> {
+        let response = self
+            .call::<_, trellis_sdk_auth::AuthEnableDeviceProfileResponse>(
+                "rpc.v1.Auth.EnableDeviceProfile",
+                &trellis_sdk_auth::AuthEnableDeviceProfileRequest {
+                    profile_id: profile_id.to_string(),
+                },
+            )
+            .await?;
+        Ok(!response.profile.disabled)
+    }
+
+    /// Unapply one contract lineage or digest set from a device profile.
+    pub async fn unapply_device_profile_contract(
+        &self,
+        input: &trellis_sdk_auth::AuthUnapplyDeviceProfileContractRequest,
+    ) -> Result<trellis_sdk_auth::AuthUnapplyDeviceProfileContractResponse, TrellisAuthError> {
+        self.call("rpc.v1.Auth.UnapplyDeviceProfileContract", input)
+            .await
+    }
+
+    /// Remove a device profile.
+    pub async fn remove_device_profile(&self, profile_id: &str) -> Result<bool, TrellisAuthError> {
+        let response = self
+            .call::<_, trellis_sdk_auth::AuthRemoveDeviceProfileResponse>(
+                "rpc.v1.Auth.RemoveDeviceProfile",
+                &trellis_sdk_auth::AuthRemoveDeviceProfileRequest {
+                    profile_id: profile_id.to_string(),
+                },
+            )
+            .await?;
+        Ok(response.success)
     }
 
     /// Provision a device instance.
@@ -600,15 +662,15 @@ impl<'a> AuthClient<'a> {
             .instance)
     }
 
-    /// Get device activation status for one handoff.
+    /// Get device activation status for one device activation flow.
     pub async fn get_device_activation_status(
         &self,
-        handoff_id: &str,
+        flow_id: &str,
     ) -> Result<trellis_sdk_auth::AuthGetDeviceActivationStatusResponse, TrellisAuthError> {
         self.call(
             "rpc.v1.Auth.GetDeviceActivationStatus",
             &trellis_sdk_auth::AuthGetDeviceActivationStatusRequest {
-                handoff_id: handoff_id.to_string(),
+                flow_id: flow_id.to_string(),
             },
         )
         .await
@@ -638,15 +700,47 @@ impl<'a> AuthClient<'a> {
         &self,
         instance_id: &str,
     ) -> Result<bool, TrellisAuthError> {
-        Ok(self
+        let response = self
             .call::<_, trellis_sdk_auth::AuthDisableDeviceInstanceResponse>(
                 "rpc.v1.Auth.DisableDeviceInstance",
                 &trellis_sdk_auth::AuthDisableDeviceInstanceRequest {
                     instance_id: instance_id.to_string(),
                 },
             )
-            .await?
-            .success)
+            .await?;
+        Ok(response.instance.state == serde_json::json!("disabled"))
+    }
+
+    /// Enable a device instance.
+    pub async fn enable_device_instance(
+        &self,
+        instance_id: &str,
+    ) -> Result<bool, TrellisAuthError> {
+        let response = self
+            .call::<_, trellis_sdk_auth::AuthEnableDeviceInstanceResponse>(
+                "rpc.v1.Auth.EnableDeviceInstance",
+                &trellis_sdk_auth::AuthEnableDeviceInstanceRequest {
+                    instance_id: instance_id.to_string(),
+                },
+            )
+            .await?;
+        Ok(response.instance.state != serde_json::json!("disabled"))
+    }
+
+    /// Remove a device instance.
+    pub async fn remove_device_instance(
+        &self,
+        instance_id: &str,
+    ) -> Result<bool, TrellisAuthError> {
+        let response = self
+            .call::<_, trellis_sdk_auth::AuthRemoveDeviceInstanceResponse>(
+                "rpc.v1.Auth.RemoveDeviceInstance",
+                &trellis_sdk_auth::AuthRemoveDeviceInstanceRequest {
+                    instance_id: instance_id.to_string(),
+                },
+            )
+            .await?;
+        Ok(response.success)
     }
 
     /// List device activations.
@@ -729,29 +823,181 @@ impl<'a> AuthClient<'a> {
         .await
     }
 
-    /// Install one service contract remotely.
-    pub async fn install_service(
+    /// Create one service profile.
+    pub async fn create_service_profile(
         &self,
-        input: &AuthInstallServiceRequest,
-    ) -> Result<AuthInstallServiceResponse, TrellisAuthError> {
-        self.call("rpc.v1.Auth.InstallService", input).await
+        input: &trellis_sdk_auth::AuthCreateServiceProfileRequest,
+    ) -> Result<trellis_sdk_auth::AuthCreateServiceProfileResponseProfile, TrellisAuthError> {
+        Ok(self
+            .call::<_, trellis_sdk_auth::AuthCreateServiceProfileResponse>(
+                "rpc.v1.Auth.CreateServiceProfile",
+                input,
+            )
+            .await?
+            .profile)
     }
 
-    /// Upgrade one installed service contract remotely.
-    pub async fn upgrade_service_contract(
+    /// List service profiles.
+    pub async fn list_service_profiles(
         &self,
-        input: &AuthUpgradeServiceContractRequest,
-    ) -> Result<AuthUpgradeServiceContractResponse, TrellisAuthError> {
-        self.call("rpc.v1.Auth.UpgradeServiceContract", input).await
+        disabled: bool,
+    ) -> Result<Vec<trellis_sdk_auth::AuthListServiceProfilesResponseProfilesItem>, TrellisAuthError>
+    {
+        Ok(self
+            .call::<_, trellis_sdk_auth::AuthListServiceProfilesResponse>(
+                "rpc.v1.Auth.ListServiceProfiles",
+                &trellis_sdk_auth::AuthListServiceProfilesRequest {
+                    disabled: if disabled { Some(true) } else { None },
+                },
+            )
+            .await?
+            .profiles)
     }
 
-    /// Remove one installed service remotely.
-    pub async fn remove_service(
+    /// Apply one contract to a service profile.
+    pub async fn apply_service_profile_contract(
         &self,
-        input: &AuthRemoveServiceRequest,
+        input: &trellis_sdk_auth::AuthApplyServiceProfileContractRequest,
+    ) -> Result<trellis_sdk_auth::AuthApplyServiceProfileContractResponse, TrellisAuthError> {
+        self.call("rpc.v1.Auth.ApplyServiceProfileContract", input)
+            .await
+    }
+
+    /// Unapply one service profile contract or digest set.
+    pub async fn unapply_service_profile_contract(
+        &self,
+        input: &trellis_sdk_auth::AuthUnapplyServiceProfileContractRequest,
+    ) -> Result<trellis_sdk_auth::AuthUnapplyServiceProfileContractResponse, TrellisAuthError> {
+        self.call("rpc.v1.Auth.UnapplyServiceProfileContract", input)
+            .await
+    }
+
+    /// Disable one service profile.
+    pub async fn disable_service_profile(
+        &self,
+        profile_id: &str,
+    ) -> Result<trellis_sdk_auth::AuthDisableServiceProfileResponseProfile, TrellisAuthError> {
+        Ok(self
+            .call::<_, trellis_sdk_auth::AuthDisableServiceProfileResponse>(
+                "rpc.v1.Auth.DisableServiceProfile",
+                &trellis_sdk_auth::AuthDisableServiceProfileRequest {
+                    profile_id: profile_id.to_string(),
+                },
+            )
+            .await?
+            .profile)
+    }
+
+    /// Enable one service profile.
+    pub async fn enable_service_profile(
+        &self,
+        profile_id: &str,
+    ) -> Result<trellis_sdk_auth::AuthEnableServiceProfileResponseProfile, TrellisAuthError> {
+        Ok(self
+            .call::<_, trellis_sdk_auth::AuthEnableServiceProfileResponse>(
+                "rpc.v1.Auth.EnableServiceProfile",
+                &trellis_sdk_auth::AuthEnableServiceProfileRequest {
+                    profile_id: profile_id.to_string(),
+                },
+            )
+            .await?
+            .profile)
+    }
+
+    /// Remove one service profile.
+    pub async fn remove_service_profile(&self, profile_id: &str) -> Result<bool, TrellisAuthError> {
+        Ok(self
+            .call::<_, trellis_sdk_auth::AuthRemoveServiceProfileResponse>(
+                "rpc.v1.Auth.RemoveServiceProfile",
+                &trellis_sdk_auth::AuthRemoveServiceProfileRequest {
+                    profile_id: profile_id.to_string(),
+                },
+            )
+            .await?
+            .success)
+    }
+
+    /// Provision one service instance.
+    pub async fn provision_service_instance(
+        &self,
+        input: &trellis_sdk_auth::AuthProvisionServiceInstanceRequest,
+    ) -> Result<trellis_sdk_auth::AuthProvisionServiceInstanceResponseInstance, TrellisAuthError>
+    {
+        Ok(self
+            .call::<_, trellis_sdk_auth::AuthProvisionServiceInstanceResponse>(
+                "rpc.v1.Auth.ProvisionServiceInstance",
+                input,
+            )
+            .await?
+            .instance)
+    }
+
+    /// List service instances.
+    pub async fn list_service_instances(
+        &self,
+        profile_id: Option<&str>,
+        disabled: Option<bool>,
+    ) -> Result<
+        Vec<trellis_sdk_auth::AuthListServiceInstancesResponseInstancesItem>,
+        TrellisAuthError,
+    > {
+        Ok(self
+            .call::<_, trellis_sdk_auth::AuthListServiceInstancesResponse>(
+                "rpc.v1.Auth.ListServiceInstances",
+                &trellis_sdk_auth::AuthListServiceInstancesRequest {
+                    profile_id: profile_id.map(ToOwned::to_owned),
+                    disabled,
+                },
+            )
+            .await?
+            .instances)
+    }
+
+    /// Disable one service instance.
+    pub async fn disable_service_instance(
+        &self,
+        instance_id: &str,
+    ) -> Result<trellis_sdk_auth::AuthDisableServiceInstanceResponseInstance, TrellisAuthError>
+    {
+        Ok(self
+            .call::<_, trellis_sdk_auth::AuthDisableServiceInstanceResponse>(
+                "rpc.v1.Auth.DisableServiceInstance",
+                &trellis_sdk_auth::AuthDisableServiceInstanceRequest {
+                    instance_id: instance_id.to_string(),
+                },
+            )
+            .await?
+            .instance)
+    }
+
+    /// Enable one service instance.
+    pub async fn enable_service_instance(
+        &self,
+        instance_id: &str,
+    ) -> Result<trellis_sdk_auth::AuthEnableServiceInstanceResponseInstance, TrellisAuthError> {
+        Ok(self
+            .call::<_, trellis_sdk_auth::AuthEnableServiceInstanceResponse>(
+                "rpc.v1.Auth.EnableServiceInstance",
+                &trellis_sdk_auth::AuthEnableServiceInstanceRequest {
+                    instance_id: instance_id.to_string(),
+                },
+            )
+            .await?
+            .instance)
+    }
+
+    /// Remove one service instance.
+    pub async fn remove_service_instance(
+        &self,
+        instance_id: &str,
     ) -> Result<bool, TrellisAuthError> {
         Ok(self
-            .call::<_, AuthRemoveServiceResponse>("rpc.v1.Auth.RemoveService", input)
+            .call::<_, trellis_sdk_auth::AuthRemoveServiceInstanceResponse>(
+                "rpc.v1.Auth.RemoveServiceInstance",
+                &trellis_sdk_auth::AuthRemoveServiceInstanceRequest {
+                    instance_id: instance_id.to_string(),
+                },
+            )
             .await?
             .success)
     }
@@ -772,12 +1018,12 @@ impl<'a> AuthClient<'a> {
         self.call("rpc.v1.Auth.ValidateRequest", input).await
     }
 
-    /// List installed services.
-    pub async fn list_services(&self) -> Result<Vec<ServiceListEntry>, TrellisAuthError> {
-        Ok(self
-            .call::<_, ListServicesResponse>("rpc.v1.Auth.ListServices", &Empty {})
-            .await?
-            .services)
+    /// List service profiles.
+    pub async fn list_services(
+        &self,
+    ) -> Result<Vec<trellis_sdk_auth::AuthListServiceProfilesResponseProfilesItem>, TrellisAuthError>
+    {
+        self.list_service_profiles(false).await
     }
 
     /// Log out the current admin session remotely.
@@ -825,9 +1071,6 @@ impl<'a> AuthClient<'a> {
     }
 }
 
-#[derive(Debug, Serialize)]
-struct Empty {}
-
 #[cfg(test)]
 mod tests {
     use serde_json::{json, Value};
@@ -840,8 +1083,7 @@ mod tests {
     };
     use crate::{
         AdminSessionState, ClientTransportRecord, ClientTransportsRecord,
-        InstanceGrantPolicyRecord, InstanceGrantPolicySourceRecord,
-        RenewBindingTokenBoundResponse,
+        InstanceGrantPolicyRecord, InstanceGrantPolicySourceRecord, RenewBindingTokenBoundResponse,
         SentinelCredsRecord, TrellisAuthError, UpsertInstanceGrantPolicyRequest,
     };
 

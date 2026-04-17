@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::io;
@@ -26,8 +26,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use tracing_subscriber::EnvFilter;
 use trellis_auth as authlib;
-use trellis_client::{SessionAuth, TrellisClient};
-use trellis_contracts::ContractManifest;
+use trellis_client::{TrellisClient, TrellisClientError};
 
 mod auth;
 mod bootstrap;
@@ -105,10 +104,6 @@ pub(crate) const AUTH_BOOTSTRAP_BUCKETS: &[KvBucketSpec] = &[
     KvBucketSpec {
         name: "trellis_device_instances",
         ttl_ms: 0,
-    },
-    KvBucketSpec {
-        name: "trellis_device_activation_handoffs",
-        ttl_ms: 30 * 60_000_u64,
     },
     KvBucketSpec {
         name: "trellis_device_provisioning_secrets",
@@ -225,9 +220,21 @@ pub(crate) async fn connect_authenticated_cli_client(
     let mut state = authlib::load_admin_session().into_diagnostic()?;
     let cli_contract_json = cli_contract_json();
     let cli_contract_digest = contract_digest(cli_contract_json);
-    let connected = authlib::connect_admin_client_async(&state)
-        .await
-        .into_diagnostic()?;
+    let connected = match authlib::connect_admin_client_async(&state).await {
+        Ok(connected) => connected,
+        Err(error) if should_start_admin_reauth(&error) => {
+            if !output::is_json(format) {
+                output::print_info(
+                    "Saved admin session was rejected; starting browser reauthentication",
+                );
+            }
+            state = complete_admin_reauth(format, &state, cli_contract_json).await?;
+            authlib::connect_admin_client_async(&state)
+                .await
+                .into_diagnostic()?
+        }
+        Err(error) => return Err(miette::miette!(error.to_string())),
+    };
     let auth_client = authlib::AuthClient::new(&connected);
 
     match auth_client
@@ -237,27 +244,7 @@ pub(crate) async fn connect_authenticated_cli_client(
     {
         authlib::RenewBindingTokenResponse::Bound { .. } => {}
         authlib::RenewBindingTokenResponse::ContractChanged => {
-            match authlib::start_admin_reauth(&state, DEFAULT_AUTH_REAUTH_LISTEN, cli_contract_json)
-                .await
-                .into_diagnostic()?
-            {
-                authlib::AdminReauthOutcome::Bound(outcome) => {
-                    state = outcome.state;
-                }
-                authlib::AdminReauthOutcome::Flow(challenge) => {
-                    let login_url = challenge.login_url().to_string();
-                    if !output::is_json(format) {
-                        output::print_info(&format!("Open this URL to continue auth: {login_url}"));
-                    }
-                    try_open_browser(&login_url);
-                    state = challenge
-                        .complete(&state.auth_url)
-                        .await
-                        .into_diagnostic()?
-                        .state;
-                }
-            }
-            authlib::save_admin_session(&state).into_diagnostic()?;
+            state = complete_admin_reauth(format, &state, cli_contract_json).await?;
         }
     }
 
@@ -265,6 +252,47 @@ pub(crate) async fn connect_authenticated_cli_client(
         .await
         .into_diagnostic()?;
     Ok((state, refreshed))
+}
+
+fn should_start_admin_reauth(error: &authlib::TrellisAuthError) -> bool {
+    match error {
+        authlib::TrellisAuthError::TrellisClient(TrellisClientError::NatsConnect(message)) => {
+            message.contains("authorization violation")
+        }
+        authlib::TrellisAuthError::TrellisClient(TrellisClientError::NatsRequest(message)) => {
+            message.contains("authorization violation")
+        }
+        _ => false,
+    }
+}
+
+async fn complete_admin_reauth(
+    format: OutputFormat,
+    state: &authlib::AdminSessionState,
+    cli_contract_json: &str,
+) -> miette::Result<authlib::AdminSessionState> {
+    let next_state =
+        match authlib::start_admin_reauth(state, DEFAULT_AUTH_REAUTH_LISTEN, cli_contract_json)
+            .await
+            .into_diagnostic()?
+        {
+            authlib::AdminReauthOutcome::Bound(outcome) => outcome.state,
+            authlib::AdminReauthOutcome::Flow(challenge) => {
+                let login_url = challenge.login_url().to_string();
+                if !output::is_json(format) {
+                    output::print_info(&format!("Open this URL to continue auth: {login_url}"));
+                }
+                try_open_browser(&login_url);
+                challenge
+                    .complete(&state.auth_url)
+                    .await
+                    .into_diagnostic()?
+                    .state
+            }
+        };
+
+    authlib::save_admin_session(&next_state).into_diagnostic()?;
+    Ok(next_state)
 }
 
 pub(crate) async fn connect_with_creds(
@@ -366,45 +394,6 @@ pub(crate) fn generate_session_keypair() -> (String, String) {
     (base64url_encode(&seed), base64url_encode(&public_key))
 }
 
-pub(crate) fn default_display_name(manifest_path: &Path) -> String {
-    manifest_path
-        .file_stem()
-        .and_then(|stem| stem.to_str())
-        .unwrap_or("service")
-        .split('@')
-        .next()
-        .unwrap_or("service")
-        .replace('.', "-")
-}
-
-pub(crate) fn infer_namespaces(manifest: &ContractManifest) -> Vec<String> {
-    let mut namespaces = BTreeSet::new();
-    let namespace_from_subject = |subject: &str| {
-        let mut parts = subject.split('.');
-        let kind = parts.next()?;
-        let version = parts.next()?;
-        let namespace = parts.next()?;
-        if (kind == "rpc" || kind == "events") && version.starts_with('v') {
-            Some(namespace.to_string())
-        } else {
-            None
-        }
-    };
-
-    for method in manifest.rpc.values() {
-        if let Some(namespace) = namespace_from_subject(&method.subject) {
-            namespaces.insert(namespace);
-        }
-    }
-    for event in manifest.events.values() {
-        if let Some(namespace) = namespace_from_subject(&event.subject) {
-            namespaces.insert(namespace);
-        }
-    }
-
-    namespaces.into_iter().collect()
-}
-
 pub(crate) fn contract_review_rows(loaded: &trellis_contracts::LoadedManifest) -> Vec<Vec<String>> {
     let kv_resources = loaded
         .value
@@ -451,24 +440,6 @@ pub(crate) fn prompt_for_confirmation(prompt: &str) -> miette::Result<bool> {
     Ok(trimmed == "y" || trimmed == "yes")
 }
 
-pub(crate) fn resolve_service_key_identity(
-    service_key: Option<&str>,
-    seed: Option<&str>,
-) -> miette::Result<String> {
-    miette::ensure!(
-        !(seed.is_some() && service_key.is_some()),
-        "pass only one of --seed or --service-key"
-    );
-    if let Some(seed) = seed {
-        let auth = SessionAuth::from_seed_base64url(seed).into_diagnostic()?;
-        return Ok(auth.session_key);
-    }
-    if let Some(service_key) = service_key {
-        return Ok(service_key.to_string());
-    }
-    Err(miette::miette!("pass --service-key or --seed"))
-}
-
 pub(crate) fn try_open_browser(url: &str) {
     let _ = if cfg!(target_os = "macos") {
         Command::new("open").arg(url).status()
@@ -477,33 +448,6 @@ pub(crate) fn try_open_browser(url: &str) {
     } else {
         Command::new("xdg-open").arg(url).status()
     };
-}
-
-pub(crate) fn resolve_upgrade_service_key(
-    args: &ServiceUpgradeArgs,
-    services: &[authlib::ServiceListEntry],
-    contract_id: &str,
-) -> miette::Result<String> {
-    match resolve_service_key_identity(args.service_key.as_deref(), args.seed.as_deref()) {
-        Ok(service_key) => return Ok(service_key),
-        Err(error) if args.service_key.is_some() || args.seed.is_some() => return Err(error),
-        Err(_) => {}
-    }
-
-    let matches: Vec<&authlib::ServiceListEntry> = services
-        .iter()
-        .filter(|service| service.contract_id.as_deref() == Some(contract_id))
-        .collect();
-
-    match matches.as_slice() {
-        [service] => Ok(service.session_key.clone()),
-        [] => Err(miette::miette!(
-            "no installed service found for contract '{contract_id}'; pass --service-key or --seed"
-        )),
-        _ => Err(miette::miette!(
-            "multiple installed services use contract '{contract_id}'; pass --service-key or --seed"
-        )),
-    }
 }
 
 pub(crate) fn json_value_label(value: &Value) -> String {

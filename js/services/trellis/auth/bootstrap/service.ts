@@ -87,6 +87,18 @@ function buildContractView(contract: TrellisContractV1, digest: string) {
   };
 }
 
+function bootstrapFailure(
+  reason: string,
+  message?: string,
+  extra?: Record<string, unknown>,
+) {
+  return {
+    reason,
+    ...(message ? { message } : {}),
+    ...(extra ?? {}),
+  };
+}
+
 function getRequiredServiceCapabilities(
   contractStore: ContractStore,
   contract: TrellisContractV1,
@@ -124,6 +136,10 @@ function getRequiredServiceCapabilities(
   return [...capabilities].sort((left, right) => left.localeCompare(right));
 }
 
+function sameJsonRecord(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+}
+
 export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
   return async (c: Context) => {
     const bodyResult = await AsyncResult.try(() => c.req.json());
@@ -153,45 +169,105 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
 
     const service = await deps.loadServiceInstance(request.sessionKey);
     if (!service) {
-      return c.json({ reason: "unknown_service" }, 404);
+      return c.json(
+        bootstrapFailure(
+          "unknown_service",
+          `Service instance for session key '${request.sessionKey}' is not provisioned in Trellis. Provision the instance before starting the service.`,
+        ),
+        404,
+      );
     }
     if (service.disabled) {
-      return c.json({ reason: "service_disabled" }, 403);
+      return c.json(
+        bootstrapFailure(
+          "service_disabled",
+          `Service instance '${service.instanceId}' is disabled in Trellis. Enable the instance or provision a new one before reconnecting.`,
+          { instanceId: service.instanceId, profileId: service.profileId },
+        ),
+        403,
+      );
     }
 
     const profile = await deps.loadServiceProfile(service.profileId);
     if (!profile || profile.disabled) {
-      return c.json({ reason: "service_profile_disabled" }, 403);
+      return c.json(
+        bootstrapFailure(
+          "service_profile_disabled",
+          `Service profile '${service.profileId}' is disabled or missing in Trellis. Enable the profile before reconnecting this instance.`,
+          { instanceId: service.instanceId, profileId: service.profileId },
+        ),
+        403,
+      );
     }
 
     const applied = profile.appliedContracts.find((entry) =>
       entry.allowedDigests.includes(request.contractDigest)
     );
     if (!applied || applied.contractId !== request.contractId) {
-      return c.json({ reason: "service_contract_mismatch" }, 409);
+      const matchingLineage = profile.appliedContracts.find((entry) =>
+        entry.contractId === request.contractId
+      );
+      const allowedDigests = matchingLineage?.allowedDigests ?? [];
+      const message = allowedDigests.length > 0
+        ? `Service instance '${service.instanceId}' under profile '${profile.profileId}' is not allowed to run digest '${request.contractDigest}' for contract '${request.contractId}'. Allowed digests: ${allowedDigests.join(", ")}. Re-apply the current contract to the profile or restart the matching service revision.`
+        : `Service instance '${service.instanceId}' under profile '${profile.profileId}' is not allowed to run contract '${request.contractId}' digest '${request.contractDigest}'. Apply that contract to the profile before starting the service.`;
+      return c.json(
+        bootstrapFailure(
+          "service_contract_mismatch",
+          message,
+          {
+            instanceId: service.instanceId,
+            profileId: profile.profileId,
+            expectedContractId: request.contractId,
+            expectedContractDigest: request.contractDigest,
+            allowedDigests,
+            currentContractId: service.currentContractId ?? null,
+            currentContractDigest: service.currentContractDigest ?? null,
+          },
+        ),
+        409,
+      );
     }
 
     const contract = deps.contractStore.getContract(request.contractDigest, { includeInactive: true });
     if (!contract || contract.id !== request.contractId) {
-      return c.json({ reason: "contract_not_active" }, 409);
+      return c.json(
+        bootstrapFailure(
+          "contract_not_active",
+          `Contract '${request.contractId}' digest '${request.contractDigest}' is allowed for profile '${profile.profileId}' but is not active in Trellis. Re-apply the contract to the profile or restart Trellis if contract state was lost.`,
+          {
+            instanceId: service.instanceId,
+            profileId: profile.profileId,
+            contractId: request.contractId,
+            contractDigest: request.contractDigest,
+          },
+        ),
+        409,
+      );
     }
+
+    const resourceBindings = deps.nats
+      ? await provisionContractResourceBindings(
+        deps.nats,
+        contract,
+        service.instanceKey,
+      )
+      : service.resourceBindings;
+    const capabilities = getRequiredServiceCapabilities(deps.contractStore, contract);
 
     let nextService = service;
     if (
       service.currentContractDigest !== request.contractDigest ||
       service.currentContractId !== request.contractId ||
-      !service.resourceBindings
+      !service.resourceBindings ||
+      !sameJsonRecord(service.resourceBindings, resourceBindings) ||
+      !sameJsonRecord(service.capabilities, capabilities)
     ) {
-      const resourceBindings = await provisionContractResourceBindings(
-        deps.nats,
-        contract,
-        service.instanceKey,
-      );
       nextService = {
         ...service,
         currentContractId: request.contractId,
         currentContractDigest: request.contractDigest,
-        capabilities: getRequiredServiceCapabilities(deps.contractStore, contract),
+        capabilities,
         resourceBindings,
       };
       await deps.saveServiceInstance(nextService);

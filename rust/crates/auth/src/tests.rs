@@ -5,15 +5,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
-use url::Url;
-
 use crate::browser_login::callback_page_html;
 use crate::{
-    build_device_activation_payload, build_device_activation_url, clear_admin_session,
-    derive_device_confirmation_code, derive_device_identity, load_admin_session,
-    parse_device_activation_payload, save_admin_session, sign_device_wait_request,
-    verify_device_confirmation_code, wait_for_device_activation_response, AdminSessionState,
-    WaitForDeviceActivationResponse,
+    build_device_activation_payload, clear_admin_session, derive_device_confirmation_code,
+    derive_device_identity, load_admin_session, parse_device_activation_payload,
+    save_admin_session, sign_device_wait_request,
+    start_device_activation_request, verify_device_confirmation_code,
+    wait_for_device_activation_response, AdminSessionState, WaitForDeviceActivationResponse,
 };
 
 fn unique_test_dir(label: &str) -> PathBuf {
@@ -70,18 +68,55 @@ fn device_activation_payload_round_trips() {
         "nonce_123",
     )
     .expect("build payload");
-    let url =
-        build_device_activation_url("https://auth.example.com/base", &payload).expect("build url");
-    let payload_param = Url::parse(&url)
-        .expect("parse activation url")
-        .query_pairs()
-        .find(|(key, _)| key == "payload")
-        .map(|(_, value)| value.into_owned())
-        .expect("payload query param");
+    let encoded = crate::encode_device_activation_payload(&payload).expect("encode payload");
+    assert_eq!(parse_device_activation_payload(&encoded).expect("parse payload"), payload);
+}
+
+#[tokio::test]
+async fn device_activation_start_posts_to_request_endpoint() {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind listener");
+    let address = listener.local_addr().expect("listener address");
+    let server = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.expect("accept connection");
+        let mut buffer = [0u8; 4096];
+        let read = stream.read(&mut buffer).await.expect("read request");
+        let request = String::from_utf8_lossy(&buffer[..read]);
+        assert!(
+            request.starts_with("POST /auth/devices/activate/requests HTTP/1.1\r\n"),
+            "unexpected request line: {request}"
+        );
+
+        let body = r#"{"flowId":"flow_123","instanceId":"dev_123","profileId":"reader.default","activationUrl":"https://auth.example.com/_trellis/portal/activate?flowId=flow_123"}"#;
+        let response = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        stream
+            .write_all(response.as_bytes())
+            .await
+            .expect("write response");
+    });
+
+    let identity = derive_device_identity(&[9u8; 32]).expect("derive device identity");
+    let payload = build_device_activation_payload(
+        &identity.activation_key_base64url,
+        &identity.public_identity_key,
+        "nonce_123",
+    )
+    .expect("build payload");
+    let response = start_device_activation_request(&format!("http://{}", address), &payload)
+        .await
+        .expect("start activation request");
+    assert_eq!(response.flow_id, "flow_123");
     assert_eq!(
-        parse_device_activation_payload(&payload_param).expect("parse payload"),
-        payload
+        response.activation_url,
+        "https://auth.example.com/_trellis/portal/activate?flowId=flow_123"
     );
+
+    server.await.expect("server task");
 }
 
 #[tokio::test]

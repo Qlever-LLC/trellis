@@ -602,6 +602,11 @@ Rules:
   - each queue entry may include `logs`; default `true`
   - each queue entry may include `dlq`; default `true`
   - each queue entry may include `concurrency`; default `1`
+  - resolved runtime bindings also include a synthetic
+    `resources.streams.jobsWork` binding that points at the shared `JOBS_WORK`
+    stream for the requesting service namespace; service code may use that
+    stream binding for worker consumers even though the contract only declared
+    `resources.jobs`
 - a source-stream descriptor declares:
   - `fromAlias`: another stream alias in the same contract
   - `filterSubject`: optional source filter subject

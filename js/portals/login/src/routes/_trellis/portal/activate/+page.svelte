@@ -38,7 +38,7 @@
     status: "activated";
     instanceId: string;
     profileId: string;
-    activatedAt: string;
+    activatedAt: string | Date;
     confirmationCode?: string;
   };
 
@@ -47,7 +47,7 @@
     reviewId: string;
     instanceId: string;
     profileId: string;
-    requestedAt: string;
+    requestedAt: string | Date;
   };
 
   type RejectedDeviceResult = {
@@ -60,15 +60,15 @@
     | PendingReviewDeviceResult
     | RejectedDeviceResult;
 
-  type StartPortalActivation = (handoffId: string) => Promise<DeviceActivationResult>;
-  type GetPortalActivationStatus = (handoffId: string) => Promise<DeviceActivationResult>;
+  type StartPortalActivation = (flowId: string) => Promise<DeviceActivationResult>;
+  type GetPortalActivationStatus = (flowId: string) => Promise<DeviceActivationResult>;
 
   type ActivationView =
-    | { mode: "sign_in_required"; handoffId: string; profileId?: string }
-    | { mode: "ready"; handoffId: string; profileId?: string }
+    | { mode: "sign_in_required"; flowId: string }
+    | { mode: "ready"; flowId: string }
     | {
       mode: "pending_review";
-      handoffId: string;
+      flowId: string;
       instanceId: string;
       profileId: string;
       reviewId: string;
@@ -76,15 +76,15 @@
     }
     | {
       mode: "activated";
-      handoffId: string;
+      flowId: string;
       instanceId: string;
       profileId: string;
       activatedAt: string;
       confirmationCode?: string;
     }
-    | { mode: "rejected"; handoffId: string; reason?: string }
-    | { mode: "expired"; handoffId: string; reason: string }
-    | { mode: "invalid_handoff"; reason: string; handoffId?: string };
+    | { mode: "rejected"; flowId: string; reason?: string }
+    | { mode: "expired"; flowId: string; reason: string }
+    | { mode: "invalid_flow"; reason: string; flowId?: string };
 
   const authState = createAuthState({
     authUrl: APP_CONFIG.authUrl,
@@ -96,8 +96,7 @@
   let requestPending = $state(false);
   let authError = $state<string | null>(null);
   let view = $state<ActivationView | null>(null);
-  let handoffId = $state<string | null>(null);
-  let profileHint = $state<string | null>(null);
+  let flowId = $state<string | null>(null);
   let startPortalActivation: StartPortalActivation | null = null;
   let getPortalActivationStatus: GetPortalActivationStatus | null = null;
 
@@ -118,8 +117,19 @@
     return !(key in record) || typeof record[key] === "string";
   }
 
-  function currentPath(): string {
-    return `${window.location.pathname}${window.location.search}`;
+  function hasIsoValueField(record: Record<string, unknown>, key: string): boolean {
+    const value = record[key];
+    return typeof value === "string" || value instanceof Date;
+  }
+
+  function isoString(value: string | Date): string {
+    return value instanceof Date ? value.toISOString() : value;
+  }
+
+  const PRESERVED_ACTIVATION_FLOW_ID_STORAGE_KEY = "portal.activate.flowId";
+
+  function currentCallbackPath(): string {
+    return `${window.location.pathname}${window.location.hash}`;
   }
 
   function getErrorContext(error: unknown): Record<string, unknown> | null {
@@ -133,7 +143,7 @@
     if (!isRecord(value) || value.status !== "activated") return false;
     return hasStringField(value, "instanceId")
       && hasStringField(value, "profileId")
-      && hasStringField(value, "activatedAt")
+      && hasIsoValueField(value, "activatedAt")
       && hasOptionalStringField(value, "confirmationCode");
   }
 
@@ -142,7 +152,7 @@
     return hasStringField(value, "reviewId")
       && hasStringField(value, "instanceId")
       && hasStringField(value, "profileId")
-      && hasStringField(value, "requestedAt");
+      && hasIsoValueField(value, "requestedAt");
   }
 
   function isRejectedDeviceResult(value: unknown): value is RejectedDeviceResult {
@@ -156,42 +166,54 @@
       || isRejectedDeviceResult(value);
   }
 
-  function mapRejectedActivation(nextHandoffId: string, reason?: string): ActivationView {
-    if (reason === "device_handoff_expired") {
+  function getPreservedActivationFlowId(): string | null {
+    return sessionStorage.getItem(PRESERVED_ACTIVATION_FLOW_ID_STORAGE_KEY);
+  }
+
+  function setPreservedActivationFlowId(nextFlowId: string): void {
+    sessionStorage.setItem(PRESERVED_ACTIVATION_FLOW_ID_STORAGE_KEY, nextFlowId);
+  }
+
+  function clearPreservedActivationFlowId(): void {
+    sessionStorage.removeItem(PRESERVED_ACTIVATION_FLOW_ID_STORAGE_KEY);
+  }
+
+  function mapRejectedActivation(nextFlowId: string, reason?: string): ActivationView {
+    if (reason === "device_flow_expired") {
       return {
         mode: "expired",
-        handoffId: nextHandoffId,
+        flowId: nextFlowId,
         reason: "The activation request expired. Start again from the auth service.",
       };
     }
 
     if (reason === "activation_not_started") {
-      return createReadyView(nextHandoffId);
+      return createReadyView(nextFlowId);
     }
 
     if (reason === "device_activation_revoked") {
       return {
         mode: "rejected",
-        handoffId: nextHandoffId,
+        flowId: nextFlowId,
         reason: "The activation request was revoked.",
       };
     }
 
     return {
       mode: "rejected",
-      handoffId: nextHandoffId,
+      flowId: nextFlowId,
       ...(reason ? { reason } : {}),
     };
   }
 
-  function mapActivationResult(nextHandoffId: string, result: DeviceActivationResult): ActivationView {
+  function mapActivationResult(nextFlowId: string, result: DeviceActivationResult): ActivationView {
     if (result.status === "activated") {
       return {
         mode: "activated",
-        handoffId: nextHandoffId,
+        flowId: nextFlowId,
         instanceId: result.instanceId,
         profileId: result.profileId,
-        activatedAt: result.activatedAt,
+        activatedAt: isoString(result.activatedAt),
         ...(result.confirmationCode ? { confirmationCode: result.confirmationCode } : {}),
       };
     }
@@ -199,77 +221,85 @@
     if (result.status === "pending_review") {
       return {
         mode: "pending_review",
-        handoffId: nextHandoffId,
+        flowId: nextFlowId,
         instanceId: result.instanceId,
         profileId: result.profileId,
         reviewId: result.reviewId,
-        requestedAt: result.requestedAt,
+        requestedAt: isoString(result.requestedAt),
       };
     }
 
-    return mapRejectedActivation(nextHandoffId, result.reason);
+    return mapRejectedActivation(nextFlowId, result.reason);
   }
 
-  function createReadyView(nextHandoffId: string): ActivationView {
+  function createReadyView(nextFlowId: string): ActivationView {
     return {
       mode: "ready",
-      handoffId: nextHandoffId,
-      ...(profileHint ? { profileId: profileHint } : {}),
+      flowId: nextFlowId,
     };
   }
 
-  function createSignInRequiredView(nextHandoffId: string): ActivationView {
+  function createSignInRequiredView(nextFlowId: string): ActivationView {
     return {
       mode: "sign_in_required",
-      handoffId: nextHandoffId,
-      ...(profileHint ? { profileId: profileHint } : {}),
+      flowId: nextFlowId,
     };
   }
 
-  function createActivateDeviceInput(nextHandoffId: string): {
-    handoffId: string;
+  function createActivateDeviceInput(nextFlowId: string): {
+    flowId: string;
     linkRequestId: string;
   } {
     return {
-      handoffId: nextHandoffId,
-      linkRequestId: nextHandoffId,
+      flowId: nextFlowId,
+      linkRequestId: nextFlowId,
     };
   }
 
-  function mapActivationFailure(nextHandoffId: string, error: unknown): ActivationView | null {
+  function mapActivationFailure(nextFlowId: string, error: unknown): ActivationView | null {
     const message = errorMessage(error);
     const context = getErrorContext(error);
     const reason = typeof context?.reason === "string" ? context.reason : undefined;
 
-    if (message.includes("device_handoff_not_found")) {
-      return { mode: "invalid_handoff", handoffId: nextHandoffId, reason: "This activation link is no longer valid." };
+    if (message.includes("device_flow_not_found")) {
+      return { mode: "invalid_flow", flowId: nextFlowId, reason: "This activation link is no longer valid." };
     }
 
-    if (message.includes("device_handoff_expired")) {
-      return { mode: "expired", handoffId: nextHandoffId, reason: "The activation request expired. Start again from the auth service." };
+    if (message.includes("device_flow_expired")) {
+      return { mode: "expired", flowId: nextFlowId, reason: "The activation request expired. Start again from the auth service." };
     }
 
     if (message.includes("device_activation_revoked")) {
-      return { mode: "rejected", handoffId: nextHandoffId, reason };
+      return { mode: "rejected", flowId: nextFlowId, reason };
     }
 
     return null;
   }
 
-  function cleanupCallbackUrl(): void {
+  function cleanupCallbackUrl(nextFlowId: string | null): void {
     const nextUrl = new URL(window.location.href);
     if (nextUrl.searchParams.has("flowId") || nextUrl.searchParams.has("authError")) {
       nextUrl.searchParams.delete("flowId");
       nextUrl.searchParams.delete("authError");
+      if (nextFlowId) {
+        nextUrl.searchParams.set("flowId", nextFlowId);
+      }
       replaceState(`${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`, page.state);
     }
   }
 
   async function initializeBrowserState(): Promise<void> {
     await authState.init();
-    const bindResult = await authState.handleCallback();
-    if (bindResult) {
-      cleanupCallbackUrl();
+    const callbackFlowId = page.url.searchParams.get("flowId");
+    const callbackAuthError = page.url.searchParams.get("authError");
+    const preservedFlowId = getPreservedActivationFlowId();
+    const shouldHandleCallback = Boolean(
+      preservedFlowId && (callbackAuthError || callbackFlowId),
+    );
+    const bindResult = shouldHandleCallback ? await authState.handleCallback() : null;
+    if (shouldHandleCallback) {
+      cleanupCallbackUrl(preservedFlowId);
+      clearPreservedActivationFlowId();
     }
 
     if (bindResult && bindResult.status !== "bound") {
@@ -292,8 +322,8 @@
     const natsState = await createNatsState(authState, {
       onAuthRequired: () => {
         authError = "Your portal session expired. Please sign in again.";
-        if (handoffId) {
-          view = createSignInRequiredView(handoffId);
+        if (flowId) {
+          view = createSignInRequiredView(flowId);
         }
       },
       onError: (error) => {
@@ -307,10 +337,10 @@
       input: unknown,
     ) => Promise<unknown> = trellisState.trellis.requestOrThrow.bind(trellisState.trellis);
 
-    startPortalActivation = async (nextHandoffId: string) => {
+    startPortalActivation = async (nextFlowId: string) => {
       const result = await requestOrThrow(
         "Auth.ActivateDevice",
-        createActivateDeviceInput(nextHandoffId),
+        createActivateDeviceInput(nextFlowId),
       );
       if (!isDeviceActivationResult(result)) {
         throw new Error("Invalid device activation response.");
@@ -318,14 +348,14 @@
       return result;
     };
 
-    getPortalActivationStatus = async (nextHandoffId: string) => {
+    getPortalActivationStatus = async (nextFlowId: string) => {
       const requestOrThrow: (
         method: string,
         input: unknown,
       ) => Promise<unknown> = trellisState.trellis.requestOrThrow.bind(trellisState.trellis);
       const result = await requestOrThrow(
         "Auth.GetDeviceActivationStatus",
-        { handoffId: nextHandoffId },
+        { flowId: nextFlowId },
       );
       if (!isDeviceActivationResult(result)) {
         throw new Error("Invalid device activation status response.");
@@ -348,7 +378,7 @@
     });
   }
 
-  async function pollActivationStatus(nextHandoffId: string, runId: number): Promise<void> {
+  async function pollActivationStatus(nextFlowId: string, runId: number): Promise<void> {
     if (!getPortalActivationStatus) return;
 
     while (isPollingActive(runId)) {
@@ -356,21 +386,21 @@
       if (!isPollingActive(runId)) return;
 
       try {
-        const result = await getPortalActivationStatus(nextHandoffId);
+        const result = await getPortalActivationStatus(nextFlowId);
         if (!isPollingActive(runId)) return;
 
-        view = mapActivationResult(nextHandoffId, result);
+        view = mapActivationResult(nextFlowId, result);
         if (result.status !== "pending_review") {
           return;
         }
       } catch (nextError) {
         if (!isPollingActive(runId)) return;
 
-        const nextView = mapActivationFailure(nextHandoffId, nextError);
+        const nextView = mapActivationFailure(nextFlowId, nextError);
         if (nextView) {
           view = nextView;
         } else {
-          view = createReadyView(nextHandoffId);
+          view = createReadyView(nextFlowId);
           authError = errorMessage(nextError);
         }
         return;
@@ -379,26 +409,26 @@
   }
 
   async function requestActivation(): Promise<void> {
-    if (!handoffId || !startPortalActivation) return;
+    if (!flowId || !startPortalActivation) return;
 
     cancelPolling();
     requestPending = true;
     authError = null;
 
     try {
-      const output = await startPortalActivation(handoffId);
-      view = mapActivationResult(handoffId, output);
+      const output = await startPortalActivation(flowId);
+      view = mapActivationResult(flowId, output);
 
       if (output.status === "pending_review") {
         const runId = pollingRunId;
-        await pollActivationStatus(handoffId, runId);
+        await pollActivationStatus(flowId, runId);
       }
     } catch (nextError) {
-      const nextView = mapActivationFailure(handoffId, nextError);
+      const nextView = mapActivationFailure(flowId, nextError);
       if (nextView) {
         view = nextView;
       } else {
-        view = createReadyView(handoffId);
+        view = createReadyView(flowId);
         authError = errorMessage(nextError);
       }
     } finally {
@@ -408,8 +438,10 @@
 
   async function signIn(): Promise<void> {
     authError = null;
+    if (!flowId) return;
+    setPreservedActivationFlowId(flowId);
     await authState.signIn({
-      redirectTo: currentPath(),
+      redirectTo: currentCallbackPath(),
     });
   }
 
@@ -422,10 +454,11 @@
       cancelPolling();
     };
 
-    handoffId = page.url.searchParams.get("handoffId");
-    profileHint = page.url.searchParams.get("profileId");
-    if (!handoffId) {
-      view = { mode: "invalid_handoff", reason: "Missing handoff id." };
+    const queryFlowId = page.url.searchParams.get("flowId");
+    const preservedFlowId = getPreservedActivationFlowId();
+    flowId = queryFlowId ?? preservedFlowId;
+    if (!flowId) {
+      view = { mode: "invalid_flow", reason: "Missing flow id." };
       loading = false;
       return cleanup;
     }
@@ -435,12 +468,12 @@
         await initializeBrowserState();
         if (!view) {
           view = authState.isAuthenticated
-            ? createReadyView(handoffId)
-            : createSignInRequiredView(handoffId);
+            ? createReadyView(flowId)
+            : createSignInRequiredView(flowId);
         }
       } catch (nextError) {
         authError = errorMessage(nextError);
-        view = createSignInRequiredView(handoffId);
+        view = createSignInRequiredView(flowId);
       } finally {
         loading = false;
       }
@@ -490,11 +523,7 @@
             {#if view?.mode === "sign_in_required"}
               Sign in to approve this device.
             {:else if view?.mode === "ready"}
-              {#if view.profileId}
-                Approve this device for this profile.
-              {:else}
-                You are signed in and can approve this device now.
-              {/if}
+              You are signed in and can approve this device now.
             {:else if view?.mode === "pending_review"}
               We have sent your approval request. Keep this page open while we check for a decision.
             {:else if view?.mode === "activated"}
@@ -510,22 +539,8 @@
         </div>
 
         {#if view?.mode === "sign_in_required"}
-          {#if view.profileId}
-            <div class="rounded-box border border-base-300 bg-base-200/40 p-4">
-              <p class="text-xs font-bold uppercase tracking-widest text-base-content/45">Profile</p>
-              <p class="mono mt-2 break-all text-sm text-base-content">{view.profileId}</p>
-            </div>
-          {/if}
-
           <button class="btn btn-primary btn-block" onclick={() => void signIn()}>Continue to sign in</button>
         {:else if view?.mode === "ready"}
-          {#if view.profileId}
-            <div class="rounded-box border border-base-300 bg-base-200/40 p-4">
-              <p class="text-xs font-bold uppercase tracking-widest text-base-content/45">Approving for</p>
-              <p class="mono mt-2 break-all text-sm text-base-content">{view.profileId}</p>
-            </div>
-          {/if}
-
           <button class="btn btn-primary btn-block" disabled={requestPending} onclick={() => void requestActivation()}>
             {#if requestPending}
               <span class="loading loading-spinner loading-sm"></span>
@@ -576,7 +591,7 @@
             <span>{view.reason}</span>
           </div>
           <a class="btn btn-outline btn-block" href={APP_CONFIG.authUrl}>Return to app</a>
-        {:else if view?.mode === "invalid_handoff"}
+        {:else if view?.mode === "invalid_flow"}
           <div class="alert alert-error text-sm">
             <span>{view.reason}</span>
           </div>

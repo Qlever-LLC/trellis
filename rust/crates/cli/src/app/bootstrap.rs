@@ -204,7 +204,7 @@ mod tests {
             "0" => 0,
             "config.ttlMs.sessions" => 24 * 60 * 60_000_u64,
             "config.ttlMs.oauth" => 5 * 60_000_u64,
-            "config.ttlMs.deviceHandoff" => 30 * 60_000_u64,
+            "config.ttlMs.deviceFlow" => 30 * 60_000_u64,
             "config.ttlMs.pendingAuth" => 5 * 60_000_u64,
             "config.ttlMs.bindingTokens.bucket" => 24 * 60 * 60_000_u64,
             "config.ttlMs.connections" => 2 * 60 * 60_000_u64,

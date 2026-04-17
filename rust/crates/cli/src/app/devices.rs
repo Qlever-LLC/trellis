@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::io::{self, Write};
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
@@ -37,34 +38,50 @@ const KNOWN_DEVICE_METADATA_KEYS: [&str; 3] = [
 
 pub(super) async fn run(format: OutputFormat, command: DeviceCommand) -> miette::Result<()> {
     match command.command {
-        DeviceSubcommand::Provision(args) => provision_command(format, &args).await,
         DeviceSubcommand::Profile(profile) => match profile.command {
             DeviceProfileSubcommand::List(args) => profiles_list_command(format, &args).await,
             DeviceProfileSubcommand::Create(args) => profiles_create_command(format, &args).await,
+            DeviceProfileSubcommand::Apply(args) => profiles_apply_command(format, &args).await,
+            DeviceProfileSubcommand::Unapply(args) => profiles_unapply_command(format, &args).await,
             DeviceProfileSubcommand::Disable(args) => profiles_disable_command(format, &args).await,
+            DeviceProfileSubcommand::Enable(args) => profiles_enable_command(format, &args).await,
+            DeviceProfileSubcommand::Remove(args) => profiles_remove_command(format, &args).await,
         },
         DeviceSubcommand::Instance(instance) => match instance.command {
+            DeviceInstanceSubcommand::Provision(args) => {
+                instances_provision_command(format, &args).await
+            }
             DeviceInstanceSubcommand::List(args) => instances_list_command(format, &args).await,
             DeviceInstanceSubcommand::Disable(args) => {
                 instances_disable_command(format, &args).await
             }
+            DeviceInstanceSubcommand::Enable(args) => instances_enable_command(format, &args).await,
+            DeviceInstanceSubcommand::Remove(args) => instances_remove_command(format, &args).await,
         },
         DeviceSubcommand::Activation(activation) => match activation.command {
             DeviceActivationSubcommand::List(args) => activations_list_command(format, &args).await,
             DeviceActivationSubcommand::Revoke(args) => {
                 activations_revoke_command(format, &args).await
             }
-        },
-        DeviceSubcommand::Review(review) => match review.command {
-            DeviceReviewSubcommand::List(args) => reviews_list_command(format, &args).await,
-            DeviceReviewSubcommand::Approve(args) => {
-                reviews_update_command(format, &args, "approve").await
-            }
-            DeviceReviewSubcommand::Reject(args) => {
-                reviews_update_command(format, &args, "reject").await
-            }
+            DeviceActivationSubcommand::Review(review) => match review.command {
+                DeviceReviewSubcommand::List(args) => reviews_list_command(format, &args).await,
+                DeviceReviewSubcommand::Approve(args) => {
+                    reviews_update_command(format, &args, "approve").await
+                }
+                DeviceReviewSubcommand::Reject(args) => {
+                    reviews_update_command(format, &args, "reject").await
+                }
+            },
         },
     }
+}
+
+fn prompt_for_typed_identifier(identifier: &str) -> miette::Result<bool> {
+    print!("Type {identifier} to confirm: ");
+    io::stdout().flush().into_diagnostic()?;
+    let mut line = String::new();
+    io::stdin().read_line(&mut line).into_diagnostic()?;
+    Ok(line.trim() == identifier)
 }
 
 async fn profiles_list_command(
@@ -88,10 +105,21 @@ async fn profiles_list_command(
     let rows = profiles
         .into_iter()
         .map(|profile| {
+            let contracts = profile
+                .applied_contracts
+                .iter()
+                .map(|contract| contract.contract_id.clone())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let digest_count = profile
+                .applied_contracts
+                .iter()
+                .map(|contract| contract.allowed_digests.len())
+                .sum::<usize>();
             vec![
                 profile.profile_id,
-                profile.contract_id,
-                profile.allowed_digests.len().to_string(),
+                contracts,
+                digest_count.to_string(),
                 profile
                     .review_mode
                     .as_ref()
@@ -113,16 +141,8 @@ async fn profiles_create_command(
 ) -> miette::Result<()> {
     let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
-    let (contract_id, allowed_digests, contract) =
-        resolve_device_profile_contract(&connected, &args.contract).await?;
     let profile = auth_client
-        .create_device_profile(
-            &args.profile,
-            &contract_id,
-            &allowed_digests,
-            Some(args.review_mode.as_wire_value()),
-            contract,
-        )
+        .create_device_profile(&args.profile, Some(args.review_mode.as_wire_value()), None)
         .await
         .into_diagnostic()?;
     if output::is_json(format) {
@@ -131,14 +151,78 @@ async fn profiles_create_command(
     }
     output::print_success("device profile created");
     output::print_info(&format!("profileId={}", profile.profile_id));
-    output::print_info(&format!("contractId={}", profile.contract_id));
-    output::print_info(&format!("allowedDigests={}", profile.allowed_digests.len()));
+    output::print_info(&format!(
+        "reviewMode={}",
+        profile
+            .review_mode
+            .as_ref()
+            .map(json_value_label)
+            .unwrap_or_else(|| "none".to_string())
+    ));
+    Ok(())
+}
+
+async fn profiles_apply_command(
+    format: OutputFormat,
+    args: &DeviceProfileApplyArgs,
+) -> miette::Result<()> {
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
+    let auth_client = authlib::AuthClient::new(&connected);
+    let (_contract_id, _allowed_digests, contract) =
+        resolve_device_profile_contract(&connected, &args.contract).await?;
+    let contract = contract.ok_or_else(|| {
+        miette::miette!(
+            "device profile apply requires a local source or manifest path; contract ids cannot supply a contract body"
+        )
+    })?;
+    let response = auth_client
+        .apply_device_profile_contract(&authlib::AuthApplyDeviceProfileContractRequest {
+            profile_id: args.profile.clone(),
+            contract,
+        })
+        .await
+        .into_diagnostic()?;
+    if output::is_json(format) {
+        output::print_json(&response)?;
+        return Ok(());
+    }
+    output::print_success("device profile contract applied");
+    output::print_info(&format!("profileId={}", response.profile.profile_id));
+    output::print_info(&format!("contractId={}", response.contract.id));
+    output::print_info(&format!("digest={}", response.contract.digest));
+    Ok(())
+}
+
+async fn profiles_unapply_command(
+    format: OutputFormat,
+    args: &DeviceProfileUnapplyArgs,
+) -> miette::Result<()> {
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
+    let auth_client = authlib::AuthClient::new(&connected);
+    let response = auth_client
+        .unapply_device_profile_contract(&authlib::AuthUnapplyDeviceProfileContractRequest {
+            profile_id: args.profile.clone(),
+            contract_id: args.contract_id.clone(),
+            digests: (!args.digests.is_empty()).then_some(args.digests.clone()),
+        })
+        .await
+        .into_diagnostic()?;
+    if output::is_json(format) {
+        output::print_json(&response)?;
+        return Ok(());
+    }
+    output::print_success("device profile contract unapplied");
+    output::print_info(&format!("profileId={}", response.profile.profile_id));
+    output::print_info(&format!(
+        "remainingContracts={}",
+        response.profile.applied_contracts.len()
+    ));
     Ok(())
 }
 
 async fn profiles_disable_command(
     format: OutputFormat,
-    args: &DeviceProfileDisableArgs,
+    args: &DeviceProfileToggleArgs,
 ) -> miette::Result<()> {
     let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
@@ -150,10 +234,67 @@ async fn profiles_disable_command(
         output::print_json(&json!({ "success": success, "profileId": args.profile }))?;
         return Ok(());
     }
+    if success {
+        output::print_success("device profile disabled");
+        output::print_info(&format!("profileId={}", args.profile));
+    }
     Ok(())
 }
 
-async fn provision_command(format: OutputFormat, args: &DeviceProvisionArgs) -> miette::Result<()> {
+async fn profiles_enable_command(
+    format: OutputFormat,
+    args: &DeviceProfileToggleArgs,
+) -> miette::Result<()> {
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
+    let auth_client = authlib::AuthClient::new(&connected);
+    let success = auth_client
+        .enable_device_profile(&args.profile)
+        .await
+        .into_diagnostic()?;
+    if output::is_json(format) {
+        output::print_json(&json!({ "success": success, "profileId": args.profile }))?;
+        return Ok(());
+    }
+    if success {
+        output::print_success("device profile enabled");
+        output::print_info(&format!("profileId={}", args.profile));
+    }
+    Ok(())
+}
+
+async fn profiles_remove_command(
+    format: OutputFormat,
+    args: &DeviceProfileRemoveArgs,
+) -> miette::Result<()> {
+    miette::ensure!(
+        !output::is_json(format) || args.force,
+        "use -f with --format json to skip the interactive removal review"
+    );
+    if !output::is_json(format) && !args.force && !prompt_for_typed_identifier(&args.profile)? {
+        return Err(miette::miette!("device profile removal cancelled"));
+    }
+
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
+    let auth_client = authlib::AuthClient::new(&connected);
+    let success = auth_client
+        .remove_device_profile(&args.profile)
+        .await
+        .into_diagnostic()?;
+    if output::is_json(format) {
+        output::print_json(&json!({ "success": success, "profileId": args.profile }))?;
+        return Ok(());
+    }
+    if success {
+        output::print_success("device profile removed");
+        output::print_info(&format!("profileId={}", args.profile));
+    }
+    Ok(())
+}
+
+async fn instances_provision_command(
+    format: OutputFormat,
+    args: &DeviceProvisionArgs,
+) -> miette::Result<()> {
     let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
 
@@ -420,7 +561,7 @@ mod tests {
 
 async fn instances_disable_command(
     format: OutputFormat,
-    args: &DeviceInstanceDisableArgs,
+    args: &DeviceInstanceToggleArgs,
 ) -> miette::Result<()> {
     let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
@@ -431,6 +572,60 @@ async fn instances_disable_command(
     if output::is_json(format) {
         output::print_json(&json!({ "success": success, "instanceId": args.instance }))?;
         return Ok(());
+    }
+    if success {
+        output::print_success("device instance disabled");
+        output::print_info(&format!("instanceId={}", args.instance));
+    }
+    Ok(())
+}
+
+async fn instances_enable_command(
+    format: OutputFormat,
+    args: &DeviceInstanceToggleArgs,
+) -> miette::Result<()> {
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
+    let auth_client = authlib::AuthClient::new(&connected);
+    let success = auth_client
+        .enable_device_instance(&args.instance)
+        .await
+        .into_diagnostic()?;
+    if output::is_json(format) {
+        output::print_json(&json!({ "success": success, "instanceId": args.instance }))?;
+        return Ok(());
+    }
+    if success {
+        output::print_success("device instance enabled");
+        output::print_info(&format!("instanceId={}", args.instance));
+    }
+    Ok(())
+}
+
+async fn instances_remove_command(
+    format: OutputFormat,
+    args: &DeviceInstanceRemoveArgs,
+) -> miette::Result<()> {
+    miette::ensure!(
+        !output::is_json(format) || args.force,
+        "use -f with --format json to skip the interactive removal review"
+    );
+    if !output::is_json(format) && !args.force && !prompt_for_typed_identifier(&args.instance)? {
+        return Err(miette::miette!("device instance removal cancelled"));
+    }
+
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
+    let auth_client = authlib::AuthClient::new(&connected);
+    let success = auth_client
+        .remove_device_instance(&args.instance)
+        .await
+        .into_diagnostic()?;
+    if output::is_json(format) {
+        output::print_json(&json!({ "success": success, "instanceId": args.instance }))?;
+        return Ok(());
+    }
+    if success {
+        output::print_success("device instance removed");
+        output::print_info(&format!("instanceId={}", args.instance));
     }
     Ok(())
 }
@@ -503,7 +698,7 @@ async fn reviews_list_command(
         return Ok(());
     }
     if reviews.is_empty() {
-        output::print_info("no device reviews pending");
+        output::print_info("no device activation reviews found");
         return Ok(());
     }
     let rows = reviews

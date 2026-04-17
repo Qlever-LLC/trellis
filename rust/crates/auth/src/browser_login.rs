@@ -17,8 +17,8 @@ use crate::models::{
     BoundSession, BrowserLoginChallenge, CallbackOutcome, CallbackTokenRequest,
     StartBrowserLoginOpts,
 };
-use crate::{AuthStartRequest, AuthStartResponse, ClientTransportsRecord};
 use crate::TrellisAuthError;
+use crate::{AuthStartRequest, AuthStartResponse, ClientTransportsRecord};
 use trellis_client::SessionAuth;
 
 fn join_native_nats_servers(
@@ -167,7 +167,9 @@ async fn start_auth_request(
     let contract = contract
         .as_object()
         .cloned()
-        .ok_or_else(|| TrellisAuthError::InvalidArgument("contract json must be an object".to_string()))?
+        .ok_or_else(|| {
+            TrellisAuthError::InvalidArgument("contract json must be an object".to_string())
+        })?
         .into_iter()
         .collect();
     let client = HttpClient::builder().build()?;
@@ -186,7 +188,10 @@ async fn start_auth_request(
     let status = response.status();
     let text = response.text().await?;
     if !status.is_success() {
-        return Err(TrellisAuthError::AuthRequestHttpFailure(status.as_u16(), text));
+        return Err(TrellisAuthError::AuthRequestHttpFailure(
+            status.as_u16(),
+            text,
+        ));
     }
     Ok(serde_json::from_str::<AuthStartResponse>(&text)?)
 }
@@ -383,16 +388,15 @@ pub async fn start_browser_login(
     let auth = SessionAuth::from_seed_base64url(&session_seed)?;
     let (callback_addr, receiver, server_handle) = start_callback_server(opts.listen).await?;
     let redirect_to = format!("http://{callback_addr}/callback");
-    let login_url = match start_auth_request(opts.auth_url, &redirect_to, &auth, opts.contract_json)
-        .await?
-    {
-        AuthStartResponse::FlowStarted { login_url, .. } => login_url,
-        AuthStartResponse::Bound { .. } => {
-            return Err(TrellisAuthError::UnexpectedAuthRequestStatus(
-                "bound_without_existing_session".to_string(),
-            ))
-        }
-    };
+    let login_url =
+        match start_auth_request(opts.auth_url, &redirect_to, &auth, opts.contract_json).await? {
+            AuthStartResponse::FlowStarted { login_url, .. } => login_url,
+            AuthStartResponse::Bound { .. } => {
+                return Err(TrellisAuthError::UnexpectedAuthRequestStatus(
+                    "bound_without_existing_session".to_string(),
+                ))
+            }
+        };
 
     Ok(BrowserLoginChallenge {
         login_url,
@@ -434,7 +438,11 @@ pub async fn start_admin_reauth(
             let client = connect_admin_client_async(&next_state).await?;
             let auth_client = AuthClient::new(&client);
             let user = auth_client.me().await?;
-            if !user.capabilities.iter().any(|capability| capability == "admin") {
+            if !user
+                .capabilities
+                .iter()
+                .any(|capability| capability == "admin")
+            {
                 return Err(TrellisAuthError::NotAdmin);
             }
             Ok(AdminReauthOutcome::Bound(AdminLoginOutcome {
@@ -442,14 +450,14 @@ pub async fn start_admin_reauth(
                 user,
             }))
         }
-        AuthStartResponse::FlowStarted { login_url, .. } => Ok(AdminReauthOutcome::Flow(
-            BrowserLoginChallenge {
+        AuthStartResponse::FlowStarted { login_url, .. } => {
+            Ok(AdminReauthOutcome::Flow(BrowserLoginChallenge {
                 login_url,
                 session_seed: state.session_seed.clone(),
                 auth,
                 receiver,
                 server_handle,
-            },
-        )),
+            }))
+        }
     }
 }

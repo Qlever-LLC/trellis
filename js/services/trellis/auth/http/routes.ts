@@ -21,12 +21,14 @@ import {
   instanceGrantPoliciesKV,
   logger,
   loginPortalSelectionsKV,
+  natsTrellis,
   oauthStateKV,
   pendingAuthKV,
   portalDefaultsKV,
   portalsKV,
   sentinelCreds,
-  servicesKV,
+  serviceInstancesKV,
+  serviceProfilesKV,
   sessionKV,
   usersKV,
 } from "../../bootstrap/globals.ts";
@@ -56,6 +58,7 @@ import {
   createDeviceBootstrapHandler,
   verifyDeviceBootstrapIdentityProof,
 } from "../bootstrap/device.ts";
+import { serviceInstanceId } from "../admin/shared.ts";
 import { registerDeviceActivationHttpRoutes } from "../device_activation/http.ts";
 import { kick } from "../callout/kick.ts";
 import { buildClientTransports } from "../transports.ts";
@@ -66,28 +69,31 @@ import { resolveCorsOrigin, validateRedirectTo } from "../redirect.ts";
 import {
   BindRequestSchema,
   LoginQuerySchema,
+  type PendingAuth,
   type Session,
   type SessionApprovalSource,
-  type PendingAuth,
   type UserSession,
 } from "../../state/schemas.ts";
 import { upsertUserProjection } from "../session/projection.ts";
 import {
-  createAuthStartRequestHandler,
   type AuthStartBoundResponse,
+  createAuthStartRequestHandler,
   type CurrentUserSession,
 } from "./start_request.ts";
 
 const CLI_CONTRACT_ID = "trellis.cli@v1";
 
 function splitNatsServers(value: string): string[] {
-  return value.split(",").map((entry) => entry.trim()).filter((entry) => entry.length > 0);
+  return value.split(",").map((entry) => entry.trim()).filter((entry) =>
+    entry.length > 0
+  );
 }
 
 export function registerHttpRoutes(
   app: Hono,
   opts: {
     contractStore: ContractStore;
+    refreshActiveContracts?: () => Promise<void>;
     providers?: Record<string, Provider>;
   },
 ): void {
@@ -153,14 +159,20 @@ export function registerHttpRoutes(
 
   type BrowserFlowRecord = {
     flowId: string;
-    kind: "login";
-    sessionKey: string;
+    kind: "login" | "device_activation";
+    sessionKey?: string;
     redirectTo?: string;
     context?: Record<string, unknown>;
-    handoffId?: string;
-    contract: Record<string, unknown>;
+    contract?: Record<string, unknown>;
     provider?: string;
     authToken?: string;
+    deviceActivation?: {
+      instanceId: string;
+      profileId: string;
+      publicIdentityKey: string;
+      nonce: string;
+      qrMac: string;
+    };
     createdAt: Date;
     expiresAt: Date;
   };
@@ -314,6 +326,34 @@ export function registerHttpRoutes(
       }
     }
 
+    if (
+      args.approvalSource === "stored_approval" &&
+      !args.resolution.storedApproval
+    ) {
+      const updatedResolution = applyApprovalDecision({
+        resolution: args.resolution,
+        approved: true,
+        answeredAt: now,
+      });
+      await contractApprovalsKV.put(
+        contractApprovalKey(
+          args.resolution.trellisId,
+          args.resolution.plan.digest,
+        ),
+        {
+          userTrellisId: updatedResolution.storedApproval.userTrellisId,
+          origin: updatedResolution.storedApproval.origin,
+          id: updatedResolution.storedApproval.id,
+          answer: updatedResolution.storedApproval.answer,
+          answeredAt: updatedResolution.storedApproval.answeredAt,
+          updatedAt: updatedResolution.storedApproval.updatedAt,
+          approval: updatedResolution.storedApproval.approval,
+          publishSubjects: updatedResolution.storedApproval.publishSubjects,
+          subscribeSubjects: updatedResolution.storedApproval.subscribeSubjects,
+        },
+      );
+    }
+
     const sessionEnsured = await ensureBoundUserSession({
       sessionKV,
       connectionsKV,
@@ -330,7 +370,9 @@ export function registerHttpRoutes(
       contractId: args.resolution.plan.contract.id,
       contractDisplayName: args.resolution.plan.contract.displayName,
       contractDescription: args.resolution.plan.contract.description,
-      ...(args.resolution.appOrigin ? { appOrigin: args.resolution.appOrigin } : {}),
+      ...(args.resolution.appOrigin
+        ? { appOrigin: args.resolution.appOrigin }
+        : {}),
       ...(args.approvalSource
         ? { approvalSource: args.approvalSource }
         : args.resolution.effectiveApproval.kind !== "none"
@@ -388,7 +430,9 @@ export function registerHttpRoutes(
     context?: Record<string, unknown>;
     plan: Awaited<ReturnType<typeof planUserContractApproval>>;
   }) {
-    const portalEntryUrl = await resolvePortalEntryUrlForContract(args.contract);
+    const portalEntryUrl = await resolvePortalEntryUrlForContract(
+      args.contract,
+    );
     if (!portalEntryUrl) {
       throw new HTTPException(503, {
         message: "Auth portal is not configured",
@@ -530,7 +574,6 @@ export function registerHttpRoutes(
       sentinel: sentinelCreds,
       sessionKV,
       usersKV,
-      servicesKV,
       loadStoredApproval: async (key) => {
         const entry = (await contractApprovalsKV.get(key)).take();
         return isErr(entry) ? null : entry.value;
@@ -555,12 +598,22 @@ export function registerHttpRoutes(
     "/bootstrap/service",
     createServiceBootstrapHandler({
       contractStore: opts.contractStore,
+      nats: natsTrellis,
       transports: buildClientTransports(config),
       sentinel: sentinelCreds,
-      loadService: async (sessionKey) => {
-        const entry = (await servicesKV.get(sessionKey)).take();
+      loadServiceInstance: async (sessionKey) => {
+        const entry =
+          (await serviceInstancesKV.get(serviceInstanceId(sessionKey))).take();
         return isErr(entry) ? null : entry.value;
       },
+      saveServiceInstance: async (instance) => {
+        await serviceInstancesKV.put(instance.instanceId, instance);
+      },
+      loadServiceProfile: async (profileId) => {
+        const entry = (await serviceProfilesKV.get(profileId)).take();
+        return isErr(entry) ? null : entry.value;
+      },
+      refreshActiveContracts: opts.refreshActiveContracts ?? (async () => {}),
       verifyIdentityProof: ({ sessionKey, iat, sig }) =>
         verifyDomainSig(sessionKey, "nats-connect", String(iat), sig),
     }),
@@ -581,8 +634,19 @@ export function registerHttpRoutes(
       },
       loadDeviceProfile: async (profileId) => {
         const entry = (await deviceProfilesKV.get(profileId)).take();
-        return isErr(entry) ? null : entry.value;
+        return isErr(entry) ? null : entry.value as unknown as {
+          profileId: string;
+          disabled: boolean;
+          appliedContracts: Array<
+            { contractId: string; allowedDigests: string[] }
+          >;
+          reviewMode?: "none" | "required";
+        };
       },
+      saveDeviceInstance: async (instance) => {
+        await deviceInstancesKV.put(instance.instanceId, instance);
+      },
+      refreshActiveContracts: opts.refreshActiveContracts ?? (async () => {}),
       verifyIdentityProof: verifyDeviceBootstrapIdentityProof,
     }),
   );
@@ -592,7 +656,12 @@ export function registerHttpRoutes(
       const signedRedirect = `${req.redirectTo}:${
         canonicalizeJsonValue(req.context ?? null)
       }`;
-      return verifyDomainSig(req.sessionKey, "oauth-init", signedRedirect, req.sig);
+      return verifyDomainSig(
+        req.sessionKey,
+        "oauth-init",
+        signedRedirect,
+        req.sig,
+      );
     },
     loadCurrentUserSession,
     getApprovalResolution: requireApprovalResolution,
@@ -603,6 +672,9 @@ export function registerHttpRoutes(
         const message = getApprovalResolutionErrorMessage(error);
         if (message) {
           throw new HTTPException(409, { message });
+        }
+        if (error instanceof Error) {
+          throw new HTTPException(409, { message: error.message });
         }
         throw error;
       }
@@ -620,7 +692,9 @@ export function registerHttpRoutes(
     if (!Value.Check(AuthStartRequestSchema, body)) {
       const errors = [...Value.Errors(AuthStartRequestSchema, body)];
       throw new HTTPException(400, {
-        message: `Invalid request: ${errors[0]?.message ?? "validation failed"}`,
+        message: `Invalid request: ${
+          errors[0]?.message ?? "validation failed"
+        }`,
       });
     }
 
@@ -643,16 +717,18 @@ export function registerHttpRoutes(
       context?: Record<string, unknown>;
     };
 
-    return c.json(await authStartRequestHandler({
-      provider: request.provider,
-      redirectTo: redirectToResult.value,
-      sessionKey: request.sessionKey,
-      sig: request.sig,
-      contract: request.contract,
-      ...(request.context ? { context: request.context } : {}),
-    }, {
-      authUrl: new URL(c.req.url).origin,
-    }));
+    return c.json(
+      await authStartRequestHandler({
+        provider: request.provider,
+        redirectTo: redirectToResult.value,
+        sessionKey: request.sessionKey,
+        sig: request.sig,
+        contract: request.contract,
+        ...(request.context ? { context: request.context } : {}),
+      }, {
+        authUrl: new URL(c.req.url).origin,
+      }),
+    );
   });
 
   app.get("/auth/login", async (c) => {
@@ -925,9 +1001,8 @@ export function registerHttpRoutes(
       authToken,
     });
 
-    const portalEntryUrl = await resolvePortalEntryUrlForContract(
-      flow.contract,
-    );
+    const contract = flow.contract ?? {};
+    const portalEntryUrl = await resolvePortalEntryUrlForContract(contract);
     if (!portalEntryUrl) {
       throw new HTTPException(503, {
         message: "Auth portal is not configured",
@@ -950,22 +1025,23 @@ export function registerHttpRoutes(
       id,
       displayName: provider.displayName,
     }));
+    const contract = flow.contract ?? {};
     const appMeta = {
-      contractId: typeof flow.contract["id"] === "string" &&
-          flow.contract["id"].length > 0
-        ? flow.contract["id"]
+      contractId: typeof contract["id"] === "string" &&
+          contract["id"].length > 0
+        ? contract["id"]
         : "unknown",
-      contractDigest: typeof flow.contract["digest"] === "string" &&
-          flow.contract["digest"].length > 0
-        ? flow.contract["digest"]
+      contractDigest: typeof contract["digest"] === "string" &&
+          contract["digest"].length > 0
+        ? contract["digest"]
         : "unknown",
-      displayName: typeof flow.contract["displayName"] === "string" &&
-          flow.contract["displayName"].length > 0
-        ? flow.contract["displayName"]
+      displayName: typeof contract["displayName"] === "string" &&
+          contract["displayName"].length > 0
+        ? contract["displayName"]
         : config.instanceName,
-      description: typeof flow.contract["description"] === "string" &&
-          flow.contract["description"].length > 0
-        ? flow.contract["description"]
+      description: typeof contract["description"] === "string" &&
+          contract["description"].length > 0
+        ? contract["description"]
         : config.instanceName,
       ...(flow.context ? { context: flow.context } : {}),
     };
@@ -1043,22 +1119,23 @@ export function registerHttpRoutes(
       id,
       displayName: provider.displayName,
     }));
+    const contract = flow.contract ?? {};
     const appMeta = {
-      contractId: typeof flow.contract["id"] === "string" &&
-          flow.contract["id"].length > 0
-        ? flow.contract["id"]
+      contractId: typeof contract["id"] === "string" &&
+          contract["id"].length > 0
+        ? contract["id"]
         : "unknown",
-      contractDigest: typeof flow.contract["digest"] === "string" &&
-          flow.contract["digest"].length > 0
-        ? flow.contract["digest"]
+      contractDigest: typeof contract["digest"] === "string" &&
+          contract["digest"].length > 0
+        ? contract["digest"]
         : "unknown",
-      displayName: typeof flow.contract["displayName"] === "string" &&
-          flow.contract["displayName"].length > 0
-        ? flow.contract["displayName"]
+      displayName: typeof contract["displayName"] === "string" &&
+          contract["displayName"].length > 0
+        ? contract["displayName"]
         : config.instanceName,
-      description: typeof flow.contract["description"] === "string" &&
-          flow.contract["description"].length > 0
-        ? flow.contract["description"]
+      description: typeof contract["description"] === "string" &&
+          contract["description"].length > 0
+        ? contract["description"]
         : config.instanceName,
       ...(flow.context ? { context: flow.context } : {}),
     };

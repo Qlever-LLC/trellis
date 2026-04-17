@@ -281,7 +281,7 @@ Rules:
 
 - the endpoint MUST reject if `abs(now - iat) > 30s`
 - the endpoint MUST verify `sig` using the supplied `publicIdentityKey`
-- the endpoint MUST match the request against a pending or activated device handoff using `publicIdentityKey` and `nonce`
+- the endpoint MUST match the request against a pending or activated device-activation flow using `publicIdentityKey` and `nonce`
 - the endpoint MUST NOT create a device session or issue transport credentials directly
 - the endpoint is a bounded long poll for setup only; it is not a general pre-auth RPC mechanism
 
@@ -343,7 +343,15 @@ Detailed errors are acceptable because callers only reach them after passing con
 
 ## Browser Flow Protocol
 
-The portal-owned browser UX uses `flowId` as the browser-visible identifier and keeps `authToken` internal to the auth service. Trellis ships a built-in portal served by the Trellis HTTP server from static assets. That built-in portal handles both login and generic device activation flows. Deployments may register custom portals and assign them to login or device flows through deployment-owned selection records. Portals are web apps, not service-authenticated principals; if a portal later continues as a Trellis app after login, it does so under a normal user session.
+The portal-owned browser login UX uses `flowId` as the browser-visible
+identifier and keeps `authToken` internal to the auth service. Trellis ships a
+built-in portal served by the Trellis HTTP server from static assets.
+Deployments may register custom portals and assign them to login or device
+flows through deployment-owned selection records. Device activation uses the
+same browser-visible `flowId` concept with `kind: "device_activation"` flow
+records rather than a separate public identifier.
+Portals are web apps, not service-authenticated principals; if a portal later
+continues as a Trellis app after login, it does so under a normal user session.
 
 Flow summary:
 
@@ -377,7 +385,7 @@ Required KV buckets and logical contents:
 | `trellis_oauth_states` | `hash(<state>)` | OAuth state mapping | 5 min |
 | `trellis_pending_auth` | `hash(<authToken>)` | Pending authenticated bind | 5 min |
 | `trellis_contract_approvals` | `<trellisId>.<contractDigest>` | Approval object | None |
-| `trellis_browser_flows` | `<flowId>` | Browser flow record | 5 min |
+| `trellis_browser_flows` | `<flowId>` | Browser flow record, including `kind: "login"` and `kind: "device_activation"` | 5 min |
 | `trellis_portals` | `<portalId>` | Portal record | None |
 | `trellis_portal_login_selections` | `contract.<contractId>` | Login portal selection record | None |
 | `trellis_instance_grant_policies` | `<contractId>` | Deployment-wide instance grant policy | None |
@@ -385,7 +393,6 @@ Required KV buckets and logical contents:
 | `trellis_portal_defaults` | `login.default` / `device.default` | Optional deployment default custom portals | None |
 | `trellis_device_profiles` | `<profileId>` | Device profile | None |
 | `trellis_device_instances` | `instance.<instanceId>.identity.<publicIdentityKey>` | Preregistered device instance | None |
-| `trellis_device_activation_handoffs` | `<handoffId>` | Device activation handoff | 30 min |
 | `trellis_device_activations` | `instance.<instanceId>.identity.<publicIdentityKey>` | Device activation record | None |
 | `trellis_binding_tokens` | `hash(<bindingToken>)` | Binding token record | bucket TTL + enforced `expiresAt` |
 | `trellis_connections` | `<sessionKey>.<trellisId>.<user_nkey>` | Active connection record | 2h |
@@ -394,21 +401,28 @@ Required KV buckets and logical contents:
 
 Ephemeral tokens (`state`, `authToken`, `bindingToken`) are stored by `hash(token)` rather than raw token value.
 
-Browser flows are keyed by raw `flowId` because the flow identifier is browser-visible and used to fetch auth-owned portal state.
-
-Device activation handoffs are short-lived setup records. Device activation records persist for the lifetime of the activated device unless revoked. Login portal selections, device portal selections, and optional default-portal settings are deployment-owned routing records used by browser login and device activation.
+Browser flows are keyed by raw `flowId` because the flow identifier is browser-visible and used to fetch auth-owned portal state. Device activation records persist for the lifetime of the activated device unless revoked. Login
+portal selections, device portal selections, and optional default-portal
+settings are deployment-owned routing records used by browser login and device
+activation.
 
 ### Browser Flow Record
 
 ```ts
 {
   flowId: string;
-  kind: "login";
-  sessionKey: string;
+  kind: "login" | "device_activation";
+  sessionKey?: string;
   redirectTo?: string;
   context?: unknown;
-  handoffId?: string;
-  contract: Record<string, unknown>;
+  contract?: Record<string, unknown>;
+  deviceActivation?: {
+    instanceId: string;
+    profileId: string;
+    publicIdentityKey: string;
+    nonce: string;
+    qrMac: string;
+  };
   provider?: string;
   authToken?: string;
   createdAt: Date;

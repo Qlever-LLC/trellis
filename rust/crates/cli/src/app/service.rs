@@ -1,9 +1,9 @@
 use std::collections::BTreeMap;
+use std::io::{self, Write};
 
 use crate::app::{
-    connect_authenticated_cli_client, contract_review_rows, default_display_name,
-    generate_session_keypair, infer_namespaces, prompt_for_confirmation,
-    resolve_service_key_identity, resolve_upgrade_service_key,
+    connect_authenticated_cli_client, contract_review_rows, generate_session_keypair,
+    prompt_for_confirmation,
 };
 use crate::cli::*;
 use crate::contract_input::resolve_contract_input;
@@ -11,101 +11,123 @@ use crate::output;
 use miette::IntoDiagnostic;
 use serde_json::{json, Value};
 use trellis_auth as authlib;
+use trellis_client::SessionAuth;
 
 pub(super) async fn run(format: OutputFormat, command: ServiceCommand) -> miette::Result<()> {
     match command.command {
-        ServiceSubcommand::List => list_command(format).await,
-        ServiceSubcommand::Install(args) => install_command(format, &args).await,
-        ServiceSubcommand::Remove(args) => remove_command(format, &args).await,
-        ServiceSubcommand::RollKey(args) => roll_key_command(format, &args).await,
-        ServiceSubcommand::Upgrade(args) => upgrade_command(format, &args).await,
+        ServiceSubcommand::Profile(profile) => match profile.command {
+            ServiceProfileSubcommand::List(args) => profile_list_command(format, &args).await,
+            ServiceProfileSubcommand::Create(args) => profile_create_command(format, &args).await,
+            ServiceProfileSubcommand::Apply(args) => profile_apply_command(format, &args).await,
+            ServiceProfileSubcommand::Unapply(args) => profile_unapply_command(format, &args).await,
+            ServiceProfileSubcommand::Disable(args) => profile_disable_command(format, &args).await,
+            ServiceProfileSubcommand::Enable(args) => profile_enable_command(format, &args).await,
+            ServiceProfileSubcommand::Remove(args) => profile_remove_command(format, &args).await,
+        },
+        ServiceSubcommand::Instance(instance) => match instance.command {
+            ServiceInstanceSubcommand::List(args) => instance_list_command(format, &args).await,
+            ServiceInstanceSubcommand::Provision(args) => {
+                instance_provision_command(format, &args).await
+            }
+            ServiceInstanceSubcommand::Disable(args) => {
+                instance_disable_command(format, &args).await
+            }
+            ServiceInstanceSubcommand::Enable(args) => instance_enable_command(format, &args).await,
+            ServiceInstanceSubcommand::Remove(args) => instance_remove_command(format, &args).await,
+        },
     }
 }
 
-fn service_detail_rows(service_key: &str, service: &authlib::ServiceListEntry) -> Vec<Vec<String>> {
+fn prompt_for_typed_identifier(identifier: &str) -> miette::Result<bool> {
+    print!("Type {identifier} to confirm: ");
+    io::stdout().flush().into_diagnostic()?;
+    let mut line = String::new();
+    io::stdin().read_line(&mut line).into_diagnostic()?;
+    Ok(line.trim() == identifier)
+}
+
+fn service_profile_rows(
+    profile_id: &str,
+    disabled: bool,
+    namespaces: &[String],
+    contract_count: usize,
+) -> Vec<Vec<String>> {
     vec![
-        vec!["service key".to_string(), service_key.to_string()],
-        vec!["display name".to_string(), service.display_name.clone()],
-        vec![
-            "contract id".to_string(),
-            service.contract_id.clone().unwrap_or_default(),
-        ],
-        vec![
-            "contract digest".to_string(),
-            service.contract_digest.clone().unwrap_or_default(),
-        ],
-        vec!["active".to_string(), service.active.to_string()],
-        vec!["namespaces".to_string(), service.namespaces.join(", ")],
-        vec!["description".to_string(), service.description.clone()],
+        vec!["profile".to_string(), profile_id.to_string()],
+        vec!["disabled".to_string(), disabled.to_string()],
+        vec!["namespaces".to_string(), namespaces.join(", ")],
+        vec!["contracts".to_string(), contract_count.to_string()],
     ]
 }
 
-fn installed_contract_payload(
-    response: &authlib::AuthGetInstalledContractResponse,
-) -> miette::Result<BTreeMap<String, Value>> {
-    response
-        .contract
-        .contract
-        .clone()
-        .ok_or_else(|| miette::miette!("installed contract payload is missing canonical JSON"))
-}
-
-fn roll_key_partial_failure_message(old_service_key: &str, new_service_key: &str, seed: &str) -> String {
-    format!(
-        "new service installed with sessionKey={new_service_key} seed={seed}; remove the old service manually with `trellis service remove --service-key {old_service_key}`"
-    )
-}
-
-async fn list_command(format: OutputFormat) -> miette::Result<()> {
+async fn profile_list_command(
+    format: OutputFormat,
+    args: &ServiceProfileListArgs,
+) -> miette::Result<()> {
     let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
-    let services = auth_client.list_services().await.into_diagnostic()?;
+    let profiles = auth_client
+        .list_service_profiles(args.disabled)
+        .await
+        .into_diagnostic()?;
 
     if output::is_json(format) {
-        output::print_json(&json!({ "services": services }))?;
+        output::print_json(&json!({ "profiles": profiles }))?;
         return Ok(());
     }
 
-    if services.is_empty() {
-        output::print_info("no installed services found");
+    if profiles.is_empty() {
+        output::print_info("no service profiles found");
         return Ok(());
     }
 
-    let rows = services
+    let rows = profiles
         .into_iter()
-        .map(|service| {
+        .map(|profile| {
             vec![
-                service.session_key,
-                service.display_name,
-                service.contract_id.unwrap_or_default(),
-                service.contract_digest.unwrap_or_default(),
-                service.active.to_string(),
-                service.namespaces.join(", "),
-                service.description,
+                profile.profile_id,
+                profile.disabled.to_string(),
+                profile.applied_contracts.len().to_string(),
+                profile.namespaces.join(", "),
             ]
         })
         .collect::<Vec<_>>();
 
     println!(
         "{}",
-        output::table(
-            &[
-                "service key",
-                "display name",
-                "contract id",
-                "contract digest",
-                "active",
-                "namespaces",
-                "description",
-            ],
-            rows,
-        )
+        output::table(&["profile", "disabled", "contracts", "namespaces"], rows,)
     );
-
     Ok(())
 }
 
-async fn install_command(format: OutputFormat, args: &ServiceInstallArgs) -> miette::Result<()> {
+async fn profile_create_command(
+    format: OutputFormat,
+    args: &ServiceProfileCreateArgs,
+) -> miette::Result<()> {
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
+    let auth_client = authlib::AuthClient::new(&connected);
+    let profile = auth_client
+        .create_service_profile(&authlib::AuthCreateServiceProfileRequest {
+            profile_id: args.profile.clone(),
+            namespaces: args.namespaces.clone(),
+        })
+        .await
+        .into_diagnostic()?;
+
+    if output::is_json(format) {
+        output::print_json(&json!({ "profile": profile }))?;
+        return Ok(());
+    }
+
+    output::print_success("service profile created");
+    output::print_info(&format!("profileId={}", profile.profile_id));
+    Ok(())
+}
+
+async fn profile_apply_command(
+    format: OutputFormat,
+    args: &ServiceProfileApplyArgs,
+) -> miette::Result<()> {
     let resolved = resolve_contract_input(
         args.contract.manifest.as_deref(),
         args.contract.source.as_deref(),
@@ -114,301 +136,318 @@ async fn install_command(format: OutputFormat, args: &ServiceInstallArgs) -> mie
         &args.contract.image_contract_path,
     )?;
     let loaded = &resolved.loaded;
-    let default_name = if loaded.manifest.display_name.is_empty() {
-        default_display_name(&resolved.manifest_path)
-    } else {
-        loaded.manifest.display_name.clone()
-    };
-    let display_name = args.display_name.clone().unwrap_or(default_name);
-    let description = args
-        .description
-        .clone()
-        .unwrap_or_else(|| loaded.manifest.description.clone());
-    let namespaces = {
-        let mut values = std::collections::BTreeSet::new();
-        values.extend(infer_namespaces(&loaded.manifest));
-        values.extend(args.extra_namespaces.iter().cloned());
-        values.into_iter().collect::<Vec<_>>()
-    };
-    miette::ensure!(
-        !output::is_json(format) || args.force,
-        "use -f with --format json to skip the interactive install review"
-    );
-
-    if !output::is_json(format) {
-        output::print_info("Install review");
-        println!(
-            "{}",
-            output::table(
-                &["field", "value"],
-                [
-                    contract_review_rows(loaded),
-                    vec![
-                        vec!["service display name".to_string(), display_name.clone()],
-                        vec!["service description".to_string(), description.clone()],
-                        vec!["active".to_string(), (!args.inactive).to_string()],
-                        vec!["namespaces".to_string(), namespaces.join(", ")],
-                    ],
-                ]
-                .concat(),
-            )
-        );
-        if !args.force
-            && !prompt_for_confirmation(&format!(
-                "Proceed with service install for digest {}?",
-                loaded.digest
-            ))?
-        {
-            return Err(miette::miette!("service install cancelled"));
-        }
-    }
-
-    let (seed, session_key) = generate_session_keypair();
-
-    let (_state, connected) = connect_authenticated_cli_client(format).await?;
-    let auth_client = authlib::AuthClient::new(&connected);
     let contract = loaded
         .value
         .as_object()
         .cloned()
-        .map(|contract| contract.into_iter().collect())
+        .map(|contract| contract.into_iter().collect::<BTreeMap<String, Value>>())
         .ok_or_else(|| miette::miette!("service contract payload must be a JSON object"))?;
+
+    miette::ensure!(
+        !output::is_json(format) || args.force,
+        "use -f with --format json to skip the interactive apply review"
+    );
+    if !output::is_json(format) {
+        output::print_info("Apply review");
+        let mut rows = contract_review_rows(loaded);
+        rows.push(vec!["profile".to_string(), args.profile.clone()]);
+        println!("{}", output::table(&["field", "value"], rows));
+        if !args.force
+            && !prompt_for_confirmation(&format!(
+                "Proceed with applying digest {} to profile {}?",
+                loaded.digest, args.profile
+            ))?
+        {
+            return Err(miette::miette!("service profile apply cancelled"));
+        }
+    }
+
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
+    let auth_client = authlib::AuthClient::new(&connected);
     let response = auth_client
-        .install_service(&authlib::AuthInstallServiceRequest {
-            session_key: session_key.clone(),
-            display_name: display_name.clone(),
-            active: Some(!args.inactive),
-            namespaces: namespaces.clone(),
-            description: description.clone(),
+        .apply_service_profile_contract(&authlib::AuthApplyServiceProfileContractRequest {
+            profile_id: args.profile.clone(),
             contract,
         })
         .await
         .into_diagnostic()?;
+
     if output::is_json(format) {
-        output::print_json(&json!({
-            "sessionKey": session_key,
-            "displayName": display_name,
-            "contractId": response.contract_id,
-            "contractDigest": response.contract_digest,
-            "resourceBindings": response.resource_bindings,
-            "seedOmitted": true,
-        }))?;
-    } else {
-        output::print_success("installed service contract");
-        output::print_info(&format!("sessionKey={session_key}"));
-        output::print_info(&format!("contractId={}", response.contract_id));
-        output::print_info(&format!("contractDigest={}", response.contract_digest));
-        output::print_info(&format!("seed={seed}"));
-        output::print_info("store the seed securely; it will not be shown again");
+        output::print_json(&response)?;
+        return Ok(());
     }
 
+    output::print_success("service profile contract applied");
+    output::print_info(&format!("profileId={}", response.profile.profile_id));
+    output::print_info(&format!("contractId={}", response.contract.id));
+    output::print_info(&format!("digest={}", response.contract.digest));
     Ok(())
 }
 
-async fn remove_command(format: OutputFormat, args: &ServiceRemoveArgs) -> miette::Result<()> {
+async fn profile_unapply_command(
+    format: OutputFormat,
+    args: &ServiceProfileUnapplyArgs,
+) -> miette::Result<()> {
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
+    let auth_client = authlib::AuthClient::new(&connected);
+    let response = auth_client
+        .unapply_service_profile_contract(&authlib::AuthUnapplyServiceProfileContractRequest {
+            profile_id: args.profile.clone(),
+            contract_id: args.contract_id.clone(),
+            digests: (!args.digests.is_empty()).then_some(args.digests.clone()),
+        })
+        .await
+        .into_diagnostic()?;
+
+    if output::is_json(format) {
+        output::print_json(&response)?;
+        return Ok(());
+    }
+
+    output::print_success("service profile contract unapplied");
+    output::print_info(&format!("profileId={}", response.profile.profile_id));
+    Ok(())
+}
+
+async fn profile_disable_command(
+    format: OutputFormat,
+    args: &ServiceProfileToggleArgs,
+) -> miette::Result<()> {
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
+    let auth_client = authlib::AuthClient::new(&connected);
+    let profile = auth_client
+        .disable_service_profile(&args.profile)
+        .await
+        .into_diagnostic()?;
+    if output::is_json(format) {
+        output::print_json(&json!({ "profile": profile }))?;
+        return Ok(());
+    }
+    output::print_success("service profile disabled");
+    output::print_info(&format!("profileId={}", profile.profile_id));
+    Ok(())
+}
+
+async fn profile_enable_command(
+    format: OutputFormat,
+    args: &ServiceProfileToggleArgs,
+) -> miette::Result<()> {
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
+    let auth_client = authlib::AuthClient::new(&connected);
+    let profile = auth_client
+        .enable_service_profile(&args.profile)
+        .await
+        .into_diagnostic()?;
+    if output::is_json(format) {
+        output::print_json(&json!({ "profile": profile }))?;
+        return Ok(());
+    }
+    output::print_success("service profile enabled");
+    output::print_info(&format!("profileId={}", profile.profile_id));
+    Ok(())
+}
+
+async fn profile_remove_command(
+    format: OutputFormat,
+    args: &ServiceProfileRemoveArgs,
+) -> miette::Result<()> {
     miette::ensure!(
         !output::is_json(format) || args.force,
         "use -f with --format json to skip the interactive removal review"
     );
-    let service_key =
-        resolve_service_key_identity(args.target.service_key.as_deref(), args.target.seed.as_deref())?;
-
-    let (_state, connected) = connect_authenticated_cli_client(format).await?;
-    let auth_client = authlib::AuthClient::new(&connected);
-    let services = auth_client.list_services().await.into_diagnostic()?;
-    let current = services.iter().find(|service| service.session_key == service_key);
 
     if !output::is_json(format) {
-        if let Some(service) = current {
+        let (_state, connected) = connect_authenticated_cli_client(format).await?;
+        let auth_client = authlib::AuthClient::new(&connected);
+        let profiles = auth_client
+            .list_service_profiles(false)
+            .await
+            .into_diagnostic()?;
+        if let Some(profile) = profiles
+            .iter()
+            .find(|profile| profile.profile_id == args.profile)
+        {
             output::print_info("Removal review");
             println!(
                 "{}",
-                output::table(&["field", "value"], service_detail_rows(&service_key, service))
+                output::table(
+                    &["field", "value"],
+                    service_profile_rows(
+                        &profile.profile_id,
+                        profile.disabled,
+                        &profile.namespaces,
+                        profile.applied_contracts.len(),
+                    ),
+                )
             );
-            if !args.force
-                && !prompt_for_confirmation(&format!("Proceed with removing service {}?", service_key))?
-            {
-                return Err(miette::miette!("service removal cancelled"));
-            }
+        }
+        if !args.force && !prompt_for_typed_identifier(&args.profile)? {
+            return Err(miette::miette!("service profile removal cancelled"));
         }
     }
-
-    let removed = auth_client
-        .remove_service(&authlib::AuthRemoveServiceRequest {
-            session_key: service_key.clone(),
-        })
-        .await
-        .into_diagnostic()?;
-    if output::is_json(format) {
-        output::print_json(&json!({
-            "sessionKey": service_key,
-            "success": removed,
-        }))?;
-    } else if removed {
-        output::print_success("removed service");
-        output::print_info(&format!("sessionKey={service_key}"));
-    } else {
-        output::print_info(&format!("service not found: {service_key}"));
-    }
-
-    Ok(())
-}
-
-async fn roll_key_command(format: OutputFormat, args: &ServiceRollKeyArgs) -> miette::Result<()> {
-    miette::ensure!(
-        !output::is_json(format) || args.force,
-        "use -f with --format json to skip the interactive roll-key review"
-    );
-    let old_service_key =
-        resolve_service_key_identity(args.target.service_key.as_deref(), args.target.seed.as_deref())?;
 
     let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
-    let services = auth_client.list_services().await.into_diagnostic()?;
-    let current = services
-        .iter()
-        .find(|service| service.session_key == old_service_key)
-        .ok_or_else(|| miette::miette!("service not found: {old_service_key}"))?;
-    let contract_digest = current
-        .contract_digest
-        .clone()
-        .ok_or_else(|| miette::miette!("service '{old_service_key}' has no installed contract digest"))?;
-    let contract_id = current
-        .contract_id
-        .clone()
-        .ok_or_else(|| miette::miette!("service '{old_service_key}' has no installed contract id"))?;
-    let installed = auth_client
-        .get_installed_contract(&authlib::AuthGetInstalledContractRequest {
-            digest: contract_digest.clone(),
-        })
+    let success = auth_client
+        .remove_service_profile(&args.profile)
         .await
         .into_diagnostic()?;
-    let contract = installed_contract_payload(&installed)?;
-    let (seed, new_service_key) = generate_session_keypair();
-
-    if !output::is_json(format) {
-        output::print_info("Roll-key review");
-        let mut rows = service_detail_rows(&old_service_key, current);
-        rows.push(vec!["new service key".to_string(), new_service_key.clone()]);
-        println!("{}", output::table(&["field", "value"], rows));
-        if !args.force
-            && !prompt_for_confirmation(&format!(
-                "Proceed with rolling the service key for {} ({})?",
-                contract_id, contract_digest
-            ))?
-        {
-            return Err(miette::miette!("service key roll cancelled"));
-        }
-    }
-
-    let response = auth_client
-        .install_service(&authlib::AuthInstallServiceRequest {
-            session_key: new_service_key.clone(),
-            display_name: current.display_name.clone(),
-            active: Some(current.active),
-            namespaces: current.namespaces.clone(),
-            description: current.description.clone(),
-            contract,
-        })
-        .await
-        .into_diagnostic()?;
-    let partial_failure =
-        roll_key_partial_failure_message(&old_service_key, &new_service_key, &seed);
-    let removed = auth_client
-        .remove_service(&authlib::AuthRemoveServiceRequest {
-            session_key: old_service_key.clone(),
-        })
-        .await
-        .map_err(|error| miette::miette!("{partial_failure}: {error}"))?;
-    miette::ensure!(removed, "{partial_failure}: old service was not removed");
     if output::is_json(format) {
-        output::print_json(&json!({
-            "oldSessionKey": old_service_key,
-            "newSessionKey": new_service_key,
-            "displayName": current.display_name,
-            "contractId": response.contract_id,
-            "contractDigest": response.contract_digest,
-            "resourceBindings": response.resource_bindings,
-            "seedOmitted": true,
-        }))?;
-    } else {
-        output::print_success("rolled service key");
-        output::print_info(&format!("oldSessionKey={old_service_key}"));
-        output::print_info(&format!("newSessionKey={new_service_key}"));
-        output::print_info(&format!("contractId={}", response.contract_id));
-        output::print_info(&format!("contractDigest={}", response.contract_digest));
-        output::print_info(&format!("seed={seed}"));
-        output::print_info("store the new seed securely; it will not be shown again");
+        output::print_json(&json!({ "success": success, "profileId": args.profile }))?;
+    } else if success {
+        output::print_success("service profile removed");
+        output::print_info(&format!("profileId={}", args.profile));
     }
-
     Ok(())
 }
 
-async fn upgrade_command(format: OutputFormat, args: &ServiceUpgradeArgs) -> miette::Result<()> {
-    let resolved = resolve_contract_input(
-        args.contract.manifest.as_deref(),
-        args.contract.source.as_deref(),
-        args.contract.image.as_deref(),
-        &args.contract.source_export,
-        &args.contract.image_contract_path,
-    )?;
-    let loaded = &resolved.loaded;
-    miette::ensure!(
-        !output::is_json(format) || args.force,
-        "use -f with --format json to skip the interactive upgrade review"
-    );
+async fn instance_list_command(
+    format: OutputFormat,
+    args: &ServiceInstanceListArgs,
+) -> miette::Result<()> {
     let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
-    let services = auth_client.list_services().await.into_diagnostic()?;
-    let service_key = resolve_upgrade_service_key(args, &services, &loaded.manifest.id)?;
+    let instances = auth_client
+        .list_service_instances(args.profile.as_deref(), args.disabled.then_some(true))
+        .await
+        .into_diagnostic()?;
 
-    if !output::is_json(format) {
-        let current = services
-            .iter()
-            .find(|service| service.session_key == service_key);
-        output::print_info("Upgrade review");
-        let mut rows = contract_review_rows(loaded);
-        rows.push(vec!["service key".to_string(), service_key.clone()]);
-        if let Some(service) = current {
-            rows.extend(service_detail_rows(&service_key, service).into_iter().skip(1));
-        }
-        println!("{}", output::table(&["field", "value"], rows));
-        if !args.force
-            && !prompt_for_confirmation(&format!(
-                "Proceed with service upgrade to digest {}?",
-                loaded.digest
-            ))?
-        {
-            return Err(miette::miette!("service upgrade cancelled"));
-        }
+    if output::is_json(format) {
+        output::print_json(&json!({ "instances": instances }))?;
+        return Ok(());
     }
 
-    let contract = loaded
-        .value
-        .as_object()
-        .cloned()
-        .map(|contract| contract.into_iter().collect())
-        .ok_or_else(|| miette::miette!("service contract payload must be a JSON object"))?;
-    let response = auth_client
-        .upgrade_service_contract(&authlib::AuthUpgradeServiceContractRequest {
-            session_key: service_key.clone(),
-            contract,
+    if instances.is_empty() {
+        output::print_info("no service instances found");
+        return Ok(());
+    }
+
+    let rows = instances
+        .into_iter()
+        .map(|instance| {
+            vec![
+                instance.instance_id,
+                instance.profile_id,
+                instance.current_contract_id.unwrap_or_default(),
+                instance.current_contract_digest.unwrap_or_default(),
+                instance.disabled.to_string(),
+            ]
+        })
+        .collect::<Vec<_>>();
+    println!(
+        "{}",
+        output::table(
+            &["instance", "profile", "contract id", "digest", "disabled"],
+            rows,
+        )
+    );
+    Ok(())
+}
+
+async fn instance_provision_command(
+    format: OutputFormat,
+    args: &ServiceInstanceProvisionArgs,
+) -> miette::Result<()> {
+    let (instance_seed, instance_key, generated_seed) = if let Some(seed) = &args.instance_seed {
+        let auth = SessionAuth::from_seed_base64url(seed).into_diagnostic()?;
+        (seed.clone(), auth.session_key, false)
+    } else {
+        let (seed, key) = generate_session_keypair();
+        (seed, key, true)
+    };
+
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
+    let auth_client = authlib::AuthClient::new(&connected);
+    let instance = auth_client
+        .provision_service_instance(&authlib::AuthProvisionServiceInstanceRequest {
+            profile_id: args.profile.clone(),
+            instance_key: instance_key.clone(),
         })
         .await
         .into_diagnostic()?;
+
     if output::is_json(format) {
         output::print_json(&json!({
-            "sessionKey": service_key,
-            "contractId": response.contract_id,
-            "contractDigest": response.contract_digest,
-            "resourceBindings": response.resource_bindings,
+            "instance": instance,
+            "generatedSeed": generated_seed,
+            "instanceSeed": generated_seed.then_some(instance_seed.clone()),
         }))?;
-    } else {
-        output::print_success("upgraded service contract");
-        output::print_info(&format!("sessionKey={}", service_key));
-        output::print_info(&format!("contractId={}", response.contract_id));
-        output::print_info(&format!("contractDigest={}", response.contract_digest));
+        return Ok(());
     }
 
+    output::print_success("service instance provisioned");
+    output::print_info(&format!("instanceId={}", instance.instance_id));
+    output::print_info(&format!("profileId={}", instance.profile_id));
+    output::print_info(&format!("instanceKey={}", instance.instance_key));
+    if generated_seed {
+        output::print_info(&format!("instanceSeed={instance_seed}"));
+        output::print_info("store the instance seed securely; it will not be shown again");
+    }
+    Ok(())
+}
+
+async fn instance_disable_command(
+    format: OutputFormat,
+    args: &ServiceInstanceToggleArgs,
+) -> miette::Result<()> {
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
+    let auth_client = authlib::AuthClient::new(&connected);
+    let instance = auth_client
+        .disable_service_instance(&args.instance)
+        .await
+        .into_diagnostic()?;
+    if output::is_json(format) {
+        output::print_json(&json!({ "instance": instance }))?;
+        return Ok(());
+    }
+    output::print_success("service instance disabled");
+    output::print_info(&format!("instanceId={}", instance.instance_id));
+    Ok(())
+}
+
+async fn instance_enable_command(
+    format: OutputFormat,
+    args: &ServiceInstanceToggleArgs,
+) -> miette::Result<()> {
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
+    let auth_client = authlib::AuthClient::new(&connected);
+    let instance = auth_client
+        .enable_service_instance(&args.instance)
+        .await
+        .into_diagnostic()?;
+    if output::is_json(format) {
+        output::print_json(&json!({ "instance": instance }))?;
+        return Ok(());
+    }
+    output::print_success("service instance enabled");
+    output::print_info(&format!("instanceId={}", instance.instance_id));
+    Ok(())
+}
+
+async fn instance_remove_command(
+    format: OutputFormat,
+    args: &ServiceInstanceRemoveArgs,
+) -> miette::Result<()> {
+    miette::ensure!(
+        !output::is_json(format) || args.force,
+        "use -f with --format json to skip the interactive removal review"
+    );
+
+    if !output::is_json(format) && !args.force && !prompt_for_typed_identifier(&args.instance)? {
+        return Err(miette::miette!("service instance removal cancelled"));
+    }
+
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
+    let auth_client = authlib::AuthClient::new(&connected);
+    let success = auth_client
+        .remove_service_instance(&args.instance)
+        .await
+        .into_diagnostic()?;
+    if output::is_json(format) {
+        output::print_json(&json!({ "success": success, "instanceId": args.instance }))?;
+    } else if success {
+        output::print_success("service instance removed");
+        output::print_info(&format!("instanceId={}", args.instance));
+    }
     Ok(())
 }

@@ -21,8 +21,6 @@ export const AppliedProfileContractSchema = Type.Object({
 
 export const ServiceProfileSchema = Type.Object({
   profileId: Type.String({ minLength: 1 }),
-  displayName: Type.String({ minLength: 1 }),
-  description: Type.Optional(Type.String({ minLength: 1 })),
   namespaces: Type.Array(Type.String({ minLength: 1 })),
   disabled: Type.Boolean(),
   appliedContracts: Type.Array(AppliedProfileContractSchema),
@@ -79,7 +77,9 @@ export const InstanceGrantPolicySchema = Type.Object({
     updatedBy: Type.Optional(InstanceGrantPolicyActorSchema),
   }),
 });
-export type InstanceGrantPolicy = StaticDecode<typeof InstanceGrantPolicySchema>;
+export type InstanceGrantPolicy = StaticDecode<
+  typeof InstanceGrantPolicySchema
+>;
 
 export const AuthListInstanceGrantPoliciesSchema = Type.Object({});
 export const AuthListInstanceGrantPoliciesResponseSchema = Type.Object({
@@ -104,8 +104,6 @@ export const AuthDisableInstanceGrantPolicyResponseSchema = Type.Object({
 
 export const AuthCreateServiceProfileSchema = Type.Object({
   profileId: Type.String({ minLength: 1 }),
-  displayName: Type.String({ minLength: 1 }),
-  description: Type.Optional(Type.String({ minLength: 1 })),
   namespaces: Type.Array(Type.String({ minLength: 1 })),
 });
 export const AuthCreateServiceProfileResponseSchema = Type.Object({
@@ -336,59 +334,6 @@ export const AuthGetInstalledContractSchema = Type.Object({
 export const AuthGetInstalledContractResponseSchema = Type.Object({
   contract: InstalledContractDetailSchema,
 });
-
-export const AuthInstallServiceSchema = Type.Object({
-  sessionKey: Type.String(),
-  displayName: Type.String({ minLength: 1 }),
-  active: Type.Optional(Type.Boolean()),
-  namespaces: Type.Array(Type.String()),
-  description: Type.String({ minLength: 1 }),
-  contract: OpenObjectSchema,
-}, { additionalProperties: false });
-export const AuthInstallServiceResponseSchema = Type.Object({
-  success: Type.Boolean(),
-  sessionKey: Type.String(),
-  contractId: Type.String({ minLength: 1 }),
-  contractDigest: DigestSchema,
-  resourceBindings: ContractResourceBindingsSchema,
-}, { additionalProperties: false });
-
-export const AuthUpgradeServiceContractSchema = Type.Object({
-  sessionKey: Type.String(),
-  contract: OpenObjectSchema,
-}, { additionalProperties: false });
-export const AuthUpgradeServiceContractResponseSchema = Type.Object({
-  success: Type.Boolean(),
-  sessionKey: Type.String(),
-  contractId: Type.String({ minLength: 1 }),
-  contractDigest: DigestSchema,
-  resourceBindings: ContractResourceBindingsSchema,
-}, { additionalProperties: false });
-
-export const AuthRemoveServiceSchema = Type.Object({
-  sessionKey: Type.String(),
-}, { additionalProperties: false });
-export const AuthRemoveServiceResponseSchema = Type.Object({
-  success: Type.Boolean(),
-}, { additionalProperties: false });
-
-export const ServiceListEntrySchema = Type.Object({
-  sessionKey: Type.String(),
-  displayName: Type.String({ minLength: 1 }),
-  active: Type.Boolean(),
-  capabilities: Type.Array(Type.String()),
-  namespaces: Type.Array(Type.String()),
-  description: Type.String({ minLength: 1 }),
-  contractId: Type.Optional(Type.String({ minLength: 1 })),
-  contractDigest: Type.Optional(DigestSchema),
-  resourceBindings: Type.Optional(ContractResourceBindingsSchema),
-  createdAt: IsoDateStringSchema,
-}, { additionalProperties: false });
-
-export const AuthListServicesSchema = Type.Object({}, { additionalProperties: false });
-export const AuthListServicesResponseSchema = Type.Object({
-  services: Type.Array(ServiceListEntrySchema),
-}, { additionalProperties: false });
 
 export const AuthenticatedUserSchema = Type.Object({
   id: Type.String(),
@@ -693,7 +638,7 @@ export const DeviceActivationReviewSchema = Type.Object({
 export const AuthDeviceActivationReviewRequestedEventSchema = Type.Object({
   reviewId: Type.String({ minLength: 1 }),
   linkRequestId: Type.String({ minLength: 1 }),
-  handoffId: Type.String({ minLength: 1 }),
+  flowId: Type.String({ minLength: 1 }),
   instanceId: Type.String({ minLength: 1 }),
   publicIdentityKey: Type.String({ minLength: 1 }),
   profileId: Type.String({ minLength: 1 }),
@@ -891,7 +836,7 @@ export const AuthRemoveDeviceInstanceResponseSchema = Type.Object({
 });
 
 export const AuthActivateDeviceSchema = Type.Object({
-  handoffId: Type.String({ minLength: 1 }),
+  flowId: Type.String({ minLength: 1 }),
   linkRequestId: Type.String({ minLength: 1 }),
 });
 export const AuthActivateDeviceResponseSchema = Type.Union([
@@ -916,7 +861,7 @@ export const AuthActivateDeviceResponseSchema = Type.Union([
   }),
 ]);
 export const AuthGetDeviceActivationStatusSchema = Type.Object({
-  handoffId: Type.String({ minLength: 1 }),
+  flowId: Type.String({ minLength: 1 }),
 });
 export const AuthGetDeviceActivationStatusResponseSchema =
   AuthActivateDeviceResponseSchema;

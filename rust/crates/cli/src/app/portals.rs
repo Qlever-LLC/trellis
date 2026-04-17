@@ -1,6 +1,4 @@
-use crate::app::{
-    connect_authenticated_cli_client, portal_target_id, portal_target_label,
-};
+use crate::app::{connect_authenticated_cli_client, portal_target_id, portal_target_label};
 use crate::cli::*;
 use crate::output;
 use miette::IntoDiagnostic;

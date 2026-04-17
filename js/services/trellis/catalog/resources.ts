@@ -1,7 +1,35 @@
+import { jetstreamManager } from "@nats-io/jetstream";
 import { Kvm } from "@nats-io/kv";
 import type { NatsConnection } from "@nats-io/nats-core/internal";
 import { Objm } from "@nats-io/obj";
 import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
+
+async function ensureStoreResource(
+  nats: NatsConnection,
+  name: string,
+  store: StoreResourceRequest,
+): Promise<void> {
+  const objm = new Objm(nats);
+  const objectStore = await objm.create(name, {
+    ...(store.ttlMs > 0 ? { ttl: store.ttlMs * 1_000_000 } : {}),
+    ...(store.maxTotalBytes !== undefined ? { max_bytes: store.maxTotalBytes } : {}),
+  });
+  const status = await objectStore.status();
+  const maxAge = store.ttlMs > 0 ? store.ttlMs * 1_000_000 : 0;
+  if (
+    status.streamInfo.config.max_age === maxAge &&
+    (store.maxTotalBytes === undefined || status.streamInfo.config.max_bytes === store.maxTotalBytes)
+  ) {
+    return;
+  }
+
+  const jsm = await jetstreamManager(nats);
+  await jsm.streams.update(status.streamInfo.config.name, {
+    ...status.streamInfo.config,
+    max_age: maxAge,
+    ...(store.maxTotalBytes !== undefined ? { max_bytes: store.maxTotalBytes } : {}),
+  });
+}
 
 export type KvResourceRequest = {
   alias: string;
@@ -366,26 +394,10 @@ export async function provisionContractResourceBindings(
       throw new Error("NATS connection is required to provision store resources");
     }
 
-    const objm = new Objm(nats);
     bindings.store = Object.fromEntries(
       await Promise.all(stores.map(async (store) => {
         const name = buildStoreName(serviceSessionKey, contract.id, store.alias);
-        try {
-          await objm.create(name, {
-            ...(store.ttlMs > 0 ? { ttl: store.ttlMs * 1_000_000 } : {}),
-            ...(store.maxTotalBytes !== undefined
-              ? { max_bytes: store.maxTotalBytes }
-              : {}),
-          });
-        } catch (error) {
-          if (
-            !(error instanceof Error) ||
-            !error.message.includes("bucket already exists")
-          ) {
-            throw error;
-          }
-          await objm.open(name);
-        }
+        await ensureStoreResource(nats, name, store);
 
         return [store.alias, {
           name,
@@ -437,6 +449,14 @@ export async function provisionContractResourceBindings(
           }];
         }),
       ),
+    };
+
+    bindings.streams = {
+      ...(bindings.streams ?? {}),
+      jobsWork: {
+        name: "JOBS_WORK",
+        subjects: [`trellis.work.${namespace}.>`],
+      },
     };
   }
 

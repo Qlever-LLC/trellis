@@ -2,15 +2,15 @@ import { AuthError } from "@qlever-llc/trellis";
 import { isErr, Result } from "@qlever-llc/result";
 
 import {
-  logger,
-  sentinelCreds,
-  trellis,
-  deviceActivationHandoffsKV,
+  browserFlowsKV,
   deviceActivationReviewsKV,
   deviceActivationsKV,
   deviceInstancesKV,
   deviceProfilesKV,
   deviceProvisioningSecretsKV,
+  logger,
+  sentinelCreds,
+  trellis,
 } from "../../bootstrap/globals.ts";
 import { randomToken } from "../crypto.ts";
 import {
@@ -33,9 +33,10 @@ type DeviceActivationActor = {
   id: string;
 };
 
-type DeviceActivationHandoff = {
-  handoffId: string;
+type DeviceActivationFlow = {
+  flowId: string;
   instanceId: string;
+  profileId: string;
   publicIdentityKey: string;
   nonce: string;
   qrMac: string;
@@ -82,7 +83,7 @@ type DeviceActivationRecord = {
 type DeviceActivationReviewRecord = {
   reviewId: string;
   linkRequestId: string;
-  handoffId: string;
+  flowId: string;
   instanceId: string;
   publicIdentityKey: string;
   profileId: string;
@@ -99,64 +100,123 @@ type DeviceActivationReviewRecord = {
 const config = getConfig();
 
 function activationFailure(reason: string, context?: Record<string, unknown>) {
-  return Result.err(new AuthError({ reason: reason as AuthError["reason"], context }));
+  return Result.err(
+    new AuthError({ reason: reason as AuthError["reason"], context }),
+  );
 }
 
 function isoString(value: string | Date): string {
   return value instanceof Date ? value.toISOString() : value;
 }
 
-async function loadDeviceHandoff(handoffId: string): Promise<DeviceActivationHandoff | null> {
-  const entry = (await deviceActivationHandoffsKV.get(handoffId)).take();
-  if (isErr(entry)) return null;
-  return entry.value as DeviceActivationHandoff;
+function toDeviceActivationFlow(value: {
+  flowId?: string;
+  kind?: string;
+  deviceActivation?: {
+    instanceId: string;
+    profileId: string;
+    publicIdentityKey: string;
+    nonce: string;
+    qrMac: string;
+  };
+  createdAt?: string | Date;
+  expiresAt?: string | Date;
+}): DeviceActivationFlow | null {
+  if (
+    value.kind !== "device_activation" || !value.flowId || !value.deviceActivation ||
+    !value.createdAt || !value.expiresAt
+  ) {
+    return null;
+  }
+  return {
+    flowId: value.flowId,
+    instanceId: value.deviceActivation.instanceId,
+    profileId: value.deviceActivation.profileId,
+    publicIdentityKey: value.deviceActivation.publicIdentityKey,
+    nonce: value.deviceActivation.nonce,
+    qrMac: value.deviceActivation.qrMac,
+    createdAt: value.createdAt,
+    expiresAt: value.expiresAt,
+  };
 }
 
-async function loadDeviceInstance(instanceId: string): Promise<DeviceInstance | null> {
+async function loadDeviceActivationFlow(
+  flowId: string,
+): Promise<DeviceActivationFlow | null> {
+  const entry = (await browserFlowsKV.get(flowId)).take();
+  if (isErr(entry)) return null;
+  return toDeviceActivationFlow(
+    entry.value as {
+      flowId?: string;
+      kind?: string;
+      deviceActivation?: {
+        instanceId: string;
+        profileId: string;
+        publicIdentityKey: string;
+        nonce: string;
+        qrMac: string;
+      };
+      createdAt?: string | Date;
+      expiresAt?: string | Date;
+    },
+  );
+}
+
+async function loadDeviceInstance(
+  instanceId: string,
+): Promise<DeviceInstance | null> {
   const entry = (await deviceInstancesKV.get(instanceId)).take();
   if (isErr(entry)) return null;
   return entry.value as DeviceInstance;
 }
 
-async function loadDeviceProfile(profileId: string): Promise<DeviceProfile | null> {
+async function loadDeviceProfile(
+  profileId: string,
+): Promise<DeviceProfile | null> {
   const entry = (await deviceProfilesKV.get(profileId)).take();
   if (isErr(entry)) return null;
-  return entry.value as unknown as DeviceProfile;
+  return entry.value as DeviceProfile;
 }
 
-async function loadDeviceProvisioningSecret(instanceId: string): Promise<DeviceProvisioningSecret | null> {
+async function loadDeviceProvisioningSecret(
+  instanceId: string,
+): Promise<DeviceProvisioningSecret | null> {
   const entry = (await deviceProvisioningSecretsKV.get(instanceId)).take();
   if (isErr(entry)) return null;
   return entry.value as DeviceProvisioningSecret;
 }
 
-async function loadDeviceActivation(instanceId: string): Promise<DeviceActivationRecord | null> {
+async function loadDeviceActivation(
+  instanceId: string,
+): Promise<DeviceActivationRecord | null> {
   const entry = (await deviceActivationsKV.get(instanceId)).take();
   if (isErr(entry)) return null;
   return entry.value as DeviceActivationRecord;
 }
 
-async function findReviewByHandoffId(handoffId: string): Promise<DeviceActivationReviewRecord | null> {
+async function findReviewByFlowId(
+  flowId: string,
+): Promise<DeviceActivationReviewRecord | null> {
   const iter = (await deviceActivationReviewsKV.keys(">")).take();
   if (isErr(iter)) return null;
   for await (const key of iter) {
     const entry = (await deviceActivationReviewsKV.get(key)).take();
     if (isErr(entry)) continue;
-    const review = entry.value as DeviceActivationReviewRecord;
-    if (review.handoffId === handoffId) return review;
+    const review = entry.value as unknown as DeviceActivationReviewRecord;
+    if (review.flowId === flowId) return review;
   }
   return null;
 }
 
 async function confirmationCodeFor(
-  handoff: DeviceActivationHandoff,
+  flow: DeviceActivationFlow,
   provisioningSecret: DeviceProvisioningSecret | null,
 ): Promise<string | undefined> {
   if (!provisioningSecret) return undefined;
   return await deriveDeviceConfirmationCode({
     activationKey: provisioningSecret.activationKey,
-    publicIdentityKey: handoff.publicIdentityKey,
-    nonce: handoff.nonce,
+    publicIdentityKey: flow.publicIdentityKey,
+    nonce: flow.nonce,
   });
 }
 
@@ -171,7 +231,10 @@ async function buildDeviceConnectInfo(args: {
   if (!applied) {
     throw new AuthError({
       reason: "invalid_request",
-      context: { reason: "contract_digest_not_allowed", contractDigest: args.contractDigest },
+      context: {
+        reason: "contract_digest_not_allowed",
+        contractDigest: args.contractDigest,
+      },
     });
   }
   return {
@@ -191,7 +254,7 @@ async function buildDeviceConnectInfo(args: {
 }
 
 async function activateInstance(args: {
-  handoff: DeviceActivationHandoff;
+  flow: DeviceActivationFlow;
   instance: DeviceInstance;
   profile: DeviceProfile;
   activatedBy: DeviceActivationActor;
@@ -218,7 +281,7 @@ async function activateInstance(args: {
     revokedAt: null,
   });
   const confirmationCode = await confirmationCodeFor(
-    args.handoff,
+    args.flow,
     await loadDeviceProvisioningSecret(args.instance.instanceId),
   );
   return {
@@ -229,15 +292,18 @@ async function activateInstance(args: {
   };
 }
 
-async function currentActivationStatus(handoff: DeviceActivationHandoff) {
-  const activation = await loadDeviceActivation(handoff.instanceId);
+async function currentActivationStatus(flow: DeviceActivationFlow) {
+  const activation = await loadDeviceActivation(flow.instanceId);
   if (activation) {
     if (activation.state === "revoked") {
-      return { status: "rejected" as const, reason: "device_activation_revoked" };
+      return {
+        status: "rejected" as const,
+        reason: "device_activation_revoked",
+      };
     }
     const confirmationCode = await confirmationCodeFor(
-      handoff,
-      await loadDeviceProvisioningSecret(handoff.instanceId),
+      flow,
+      await loadDeviceProvisioningSecret(flow.instanceId),
     );
     return {
       status: "activated" as const,
@@ -248,14 +314,14 @@ async function currentActivationStatus(handoff: DeviceActivationHandoff) {
     };
   }
 
-  const review = await findReviewByHandoffId(handoff.handoffId);
+  const review = await findReviewByFlowId(flow.flowId);
   if (!review) return null;
   if (review.state === "pending") {
-      return {
-        status: "pending_review" as const,
-        reviewId: review.reviewId,
-        linkRequestId: review.linkRequestId,
-        instanceId: review.instanceId,
+    return {
+      status: "pending_review" as const,
+      reviewId: review.reviewId,
+      linkRequestId: review.linkRequestId,
+      instanceId: review.instanceId,
       profileId: review.profileId,
       requestedAt: isoString(review.requestedAt),
     };
@@ -271,30 +337,39 @@ async function currentActivationStatus(handoff: DeviceActivationHandoff) {
 
 export function createActivateDeviceHandler() {
   return async (
-    req: { handoffId: string; linkRequestId: string },
+    req: { flowId: string; linkRequestId: string },
     { caller }: { caller: Caller },
   ) => {
-    logger.trace({ rpc: "Auth.ActivateDevice", handoffId: req.handoffId }, "RPC request");
+    logger.trace(
+      { rpc: "Auth.ActivateDevice", flowId: req.flowId },
+      "RPC request",
+    );
     if (caller.type !== "user" || !caller.origin || !caller.id) {
       return activationFailure("insufficient_permissions");
     }
-    const handoff = await loadDeviceHandoff(req.handoffId);
-    if (!handoff) {
-      return activationFailure("invalid_request", { reason: "device_handoff_not_found" });
+    const flow = await loadDeviceActivationFlow(req.flowId);
+    if (!flow) {
+      return activationFailure("invalid_request", {
+        reason: "device_flow_not_found",
+      });
     }
-    if (new Date(isoString(handoff.expiresAt)).getTime() <= Date.now()) {
-      return activationFailure("invalid_request", { reason: "device_handoff_expired" });
+    if (new Date(isoString(flow.expiresAt)).getTime() <= Date.now()) {
+      return activationFailure("invalid_request", {
+        reason: "device_flow_expired",
+      });
     }
-    const instance = await loadDeviceInstance(handoff.instanceId);
+    const instance = await loadDeviceInstance(flow.instanceId);
     if (!instance || instance.state === "disabled") {
       return activationFailure("invalid_request", { reason: "unknown_device" });
     }
     const profile = await loadDeviceProfile(instance.profileId);
     if (!profile || profile.disabled) {
-      return activationFailure("invalid_request", { reason: "device_profile_not_found" });
+      return activationFailure("invalid_request", {
+        reason: "device_profile_not_found",
+      });
     }
 
-    const existingStatus = await currentActivationStatus(handoff);
+    const existingStatus = await currentActivationStatus(flow);
     if (existingStatus) return Result.ok(existingStatus);
 
     if (profile.reviewMode === "required") {
@@ -302,7 +377,7 @@ export function createActivateDeviceHandler() {
       const review: DeviceActivationReviewRecord = {
         reviewId: `dar_${randomToken(12)}`,
         linkRequestId: req.linkRequestId,
-        handoffId: handoff.handoffId,
+        flowId: flow.flowId,
         instanceId: instance.instanceId,
         publicIdentityKey: instance.publicIdentityKey,
         profileId: profile.profileId,
@@ -318,7 +393,7 @@ export function createActivateDeviceHandler() {
       await trellis.publish("Auth.DeviceActivationReviewRequested", {
         reviewId: review.reviewId,
         linkRequestId: review.linkRequestId,
-        handoffId: handoff.handoffId,
+        flowId: flow.flowId,
         instanceId: instance.instanceId,
         publicIdentityKey: instance.publicIdentityKey,
         profileId: profile.profileId,
@@ -338,7 +413,7 @@ export function createActivateDeviceHandler() {
     return Result.ok({
       status: "activated" as const,
       ...(await activateInstance({
-        handoff,
+        flow,
         instance,
         profile,
         activatedBy: {
@@ -351,18 +426,29 @@ export function createActivateDeviceHandler() {
 }
 
 export function createGetDeviceActivationStatusHandler() {
-  return async (req: { handoffId: string }) => {
-    logger.trace({ rpc: "Auth.GetDeviceActivationStatus", handoffId: req.handoffId }, "RPC request");
-    const handoff = await loadDeviceHandoff(req.handoffId);
-    if (!handoff) {
-      return activationFailure("invalid_request", { reason: "device_handoff_not_found" });
+  return async (req: { flowId: string }) => {
+    logger.trace({
+      rpc: "Auth.GetDeviceActivationStatus",
+      flowId: req.flowId,
+    }, "RPC request");
+    const flow = await loadDeviceActivationFlow(req.flowId);
+    if (!flow) {
+      return activationFailure("invalid_request", {
+        reason: "device_flow_not_found",
+      });
     }
-    if (new Date(isoString(handoff.expiresAt)).getTime() <= Date.now()) {
-      return Result.ok({ status: "rejected" as const, reason: "device_handoff_expired" });
+    if (new Date(isoString(flow.expiresAt)).getTime() <= Date.now()) {
+      return Result.ok({
+        status: "rejected" as const,
+        reason: "device_flow_expired",
+      });
     }
-    const status = await currentActivationStatus(handoff);
+    const status = await currentActivationStatus(flow);
     if (status) return Result.ok(status);
-    return Result.ok({ status: "rejected" as const, reason: "activation_not_started" });
+    return Result.ok({
+      status: "rejected" as const,
+      reason: "activation_not_started",
+    });
   };
 }
 
@@ -379,7 +465,9 @@ export function createGetDeviceConnectInfoHandler() {
     }, "RPC request");
 
     if (!isDeviceProofIatFresh(req.iat)) {
-      return activationFailure("invalid_request", { reason: "iat_out_of_range" });
+      return activationFailure("invalid_request", {
+        reason: "iat_out_of_range",
+      });
     }
 
     const proofOk = await verifyDeviceWaitSignature({
@@ -401,7 +489,9 @@ export function createGetDeviceConnectInfoHandler() {
     }
     const profile = await loadDeviceProfile(activation.profileId);
     if (!profile || profile.disabled) {
-      return activationFailure("invalid_request", { reason: "device_profile_not_found" });
+      return activationFailure("invalid_request", {
+        reason: "device_profile_not_found",
+      });
     }
 
     const connectInfo = await buildDeviceConnectInfo({

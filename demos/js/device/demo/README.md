@@ -1,19 +1,41 @@
 # Demo Device
 
-Small TypeScript device that activates against Trellis, connects with its device identity, fetches demo groups, prompts for a local file path, and uploads that file to the demo service.
+Small TypeScript device that activates against Trellis, connects with its
+device identity, fetches demo groups, and uploads a local file to the demo
+service.
+
+## Setup
+
+The demo device now uses the auth-owned activation flow model. When activation
+is required, Trellis returns a short portal URL containing only `flowId`.
+
+Before running the device, make sure:
+
+1. the demo device contract has been applied to the device profile used by the
+   preregistered device instance
+2. the demo service contract has been installed or upgraded for the actual
+   running demo service instance
+3. the demo service process is running successfully
+
+Example profile setup:
+
+```sh
+trellis device profile apply demo --source ../demos/js/device/demo/contracts/demo_device.ts
+trellis service upgrade --service-key <service-key> --source ../demos/js/service/demo/contracts/demo_service.ts
+```
 
 ## Run
 
 ```sh
-deno task -c demos/js/device/demo/deno.json start -- http://localhost:3000 "<root-secret>"
+deno task -c demos/js/device/demo/deno.json start -- http://localhost:3000 "<root-secret>" /path/to/file.txt
 ```
 
-After connecting, enter a local file path when prompted. The device uploads the file to the demo service, which logs the file contents.
+After connecting, the device uploads the file to the demo service, which starts
+the `Demo.Files.Process` operation and writes the staged object to `/tmp` from a
+jobs worker.
 
 Optional offline activation:
 
 ```sh
 export TRELLIS_DEVICE_CONFIRMATION_CODE=ABC12345
 ```
-
-The device contract lives in `contracts/demo_device.ts` and can be used with `trellis devices profiles create`.

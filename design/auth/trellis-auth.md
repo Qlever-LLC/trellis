@@ -187,7 +187,7 @@ Rules:
 
 After identity binding, users and devices share the same auth-callout-based NATS connection model.
 
-Activated devices join that same runtime model after activation is complete. Before that point, device setup uses the dedicated handoff, activation, and pre-auth wait surfaces defined in [device-activation.md](./device-activation.md). Browser auth UX runs through portals selected by explicit login and device portal-selection state; callers do not choose portals directly in the normal path. A portal may later continue as a user-authenticated browser app for onboarding or activation work, but that remains user-delegated app authority rather than service authority.
+Activated devices join that same runtime model after activation is complete. Before that point, device setup uses auth-owned browser flows with `kind: "device_activation"`, activation RPCs, and pre-auth wait surfaces defined in [device-activation.md](./device-activation.md). Browser auth UX runs through portals selected by explicit login and device portal-selection state; callers do not choose portals directly in the normal path. A portal may later continue as a user-authenticated browser app for onboarding or activation work, but that remains user-delegated app authority rather than service authority.
 
 The important distinction is that installed and activated devices differ in auth establishment, not in the basic runtime treatment after auth succeeds.
 
@@ -265,7 +265,7 @@ The auth subsystem maintains Trellis-local state such as:
 - auth browser flow records
 - device profiles
 - device instances
-- device activation handoffs
+- device activation flows
 - device activation records
 - binding tokens
 - active connection records

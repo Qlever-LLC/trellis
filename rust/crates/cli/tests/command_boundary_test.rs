@@ -152,13 +152,42 @@ fn legacy_completions_command_is_rejected() {
 
 #[test]
 fn legacy_device_review_decide_command_is_rejected() {
-    let output = run_cli(&["device", "review", "decide", "dar_123", "--approve"]);
+    let output = run_cli(&[
+        "device",
+        "activation",
+        "review",
+        "decide",
+        "dar_123",
+        "--approve",
+    ]);
     assert!(
         !output.status.success(),
         "legacy device review decide command should fail"
     );
     let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
     assert!(stderr.contains("unrecognized subcommand 'decide'"));
+}
+
+#[test]
+fn legacy_device_review_command_is_rejected() {
+    let output = run_cli(&["device", "review", "list"]);
+    assert!(
+        !output.status.success(),
+        "legacy top-level device review command should fail"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
+    assert!(stderr.contains("unrecognized subcommand 'review'"));
+}
+
+#[test]
+fn legacy_device_provision_command_is_rejected() {
+    let output = run_cli(&["device", "provision", "reader.standard"]);
+    assert!(
+        !output.status.success(),
+        "legacy top-level device provision command should fail"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
+    assert!(stderr.contains("unrecognized subcommand 'provision'"));
 }
 
 #[test]
@@ -202,10 +231,10 @@ fn device_instance_list_help_shows_state_enum_values() {
 
 #[test]
 fn service_install_help_does_not_treat_modifiers_as_primary_inputs() {
-    let output = run_cli(&["service", "install", "--help"]);
+    let output = run_cli(&["service", "profile", "apply", "--help"]);
     assert!(
         output.status.success(),
-        "service install help should succeed"
+        "service profile apply help should succeed"
     );
     let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
     assert!(stdout.contains("--manifest <CONTRACT_JSON>"));
@@ -220,31 +249,23 @@ fn service_install_help_does_not_treat_modifiers_as_primary_inputs() {
 }
 
 #[test]
-fn service_remove_help_shows_identity_flags_only() {
-    let output = run_cli(&["service", "remove", "--help"]);
+fn service_profile_create_help_hides_removed_display_flags() {
+    let output = run_cli(&["service", "profile", "create", "--help"]);
     assert!(
         output.status.success(),
-        "service remove help should succeed"
+        "service profile create help should succeed"
     );
     let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
-    assert!(stdout.contains("--service-key <SERVICE_KEY>"));
-    assert!(stdout.contains("--seed <SEED>"));
-    assert!(!stdout.contains("--manifest <CONTRACT_JSON>"));
-    assert!(!stdout.contains("--source <CONTRACT_SOURCE>"));
-    assert!(!stdout.contains("--image <OCI_IMAGE>"));
+    assert!(stdout.contains("--namespace <NAMESPACES>"));
+    assert!(!stdout.contains("--display-name"));
+    assert!(!stdout.contains("--description"));
 }
 
 #[test]
-fn service_roll_key_help_shows_identity_flags_only() {
-    let output = run_cli(&["service", "roll-key", "--help"]);
+fn device_activation_review_help_remains_available() {
+    let output = run_cli(&["device", "activation", "review", "--help"]);
     assert!(
         output.status.success(),
-        "service roll-key help should succeed"
+        "device activation review help should succeed"
     );
-    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
-    assert!(stdout.contains("--service-key <SERVICE_KEY>"));
-    assert!(stdout.contains("--seed <SEED>"));
-    assert!(!stdout.contains("--manifest <CONTRACT_JSON>"));
-    assert!(!stdout.contains("--source <CONTRACT_SOURCE>"));
-    assert!(!stdout.contains("--image <OCI_IMAGE>"));
 }
