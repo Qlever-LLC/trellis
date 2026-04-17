@@ -1,7 +1,15 @@
-import { decode, encodeAuthorizationResponse, encodeUser, type User } from "@nats-io/jwt";
+import {
+  decode,
+  encodeAuthorizationResponse,
+  encodeUser,
+  type User,
+} from "@nats-io/jwt";
 import type { Msg } from "@nats-io/nats-core";
 import { fromSeed } from "@nats-io/nkeys";
-import { NatsAuthTokenV1Schema, trellisIdFromOriginId } from "@qlever-llc/trellis/auth";
+import {
+  NatsAuthTokenV1Schema,
+  trellisIdFromOriginId,
+} from "@qlever-llc/trellis/auth";
 import { AsyncResult, isErr } from "@qlever-llc/result";
 import type { StaticDecode } from "typebox";
 import { Value } from "typebox/value";
@@ -17,15 +25,14 @@ import {
   connectionsKV,
   contractApprovalsKV,
   contractsKV,
+  deviceActivationsKV,
+  deviceProfilesKV,
   instanceGrantPoliciesKV,
   logger,
   natsAuth,
-  servicesKV,
   sessionKV,
   trellis,
   usersKV,
-  deviceActivationsKV,
-  deviceProfilesKV,
 } from "../../bootstrap/globals.ts";
 import { kick } from "./kick.ts";
 import {
@@ -40,12 +47,11 @@ import type {
   AuthCalloutClaims,
   Connection,
   ContractRecord,
-  NatsAuthRequest,
-  NatsConnectOpts,
-  ServiceRegistryEntry,
-  Session,
   DeviceActivationRecordSchema,
   DeviceProfileSchema,
+  NatsAuthRequest,
+  NatsConnectOpts,
+  Session,
 } from "../../state/schemas.ts";
 import {
   AuthCalloutClaimsSchema,
@@ -53,17 +59,24 @@ import {
 } from "../../state/schemas.ts";
 import { resolveSessionPrincipal } from "../session/principal.ts";
 import { deviceInstanceId } from "../admin/shared.ts";
+import {
+  loadServiceInstanceByKey,
+  loadServiceProfile,
+} from "../admin/service_rpc.ts";
 
-type DeviceActivationRecord = StaticDecode<typeof DeviceActivationRecordSchema> & {
-  activatedBy?: { origin: string; id: string };
-};
+type DeviceActivationRecord =
+  & StaticDecode<typeof DeviceActivationRecordSchema>
+  & {
+    activatedBy?: { origin: string; id: string };
+  };
 type DeviceProfile = StaticDecode<typeof DeviceProfileSchema>;
 type ParsedNatsAuthToken = StaticDecode<typeof NatsAuthTokenV1Schema> & {
   contractDigest?: string;
 };
 
 const config = getConfig();
-const AUTH_RENEW_SUBJECT = trellisAuthContract.rpc?.["Auth.RenewBindingToken"]?.subject;
+const AUTH_RENEW_SUBJECT = trellisAuthContract.rpc?.["Auth.RenewBindingToken"]
+  ?.subject;
 
 export type BackgroundTaskHandle = {
   stop: () => Promise<void>;
@@ -92,13 +105,18 @@ type DeviceRuntimeGrant = ReturnType<typeof deriveDeviceRuntimeAccess> & {
     activatedAt: string | null;
     revokedAt: string | null;
   };
-  profile: { profileId: string; contractId: string; allowedDigests: string[]; disabled: boolean };
+  profile: {
+    profileId: string;
+    appliedContracts: Array<{ contractId: string; allowedDigests: string[] }>;
+    disabled: boolean;
+  };
 };
 
 async function findDeviceActivationByIdentityKey(
   publicIdentityKey: string,
 ): Promise<DeviceActivationRecord | null> {
-  const activationEntry = (await deviceActivationsKV.get(deviceInstanceId(publicIdentityKey))).take();
+  const activationEntry =
+    (await deviceActivationsKV.get(deviceInstanceId(publicIdentityKey))).take();
   if (isErr(activationEntry)) return null;
   const activation = activationEntry.value as DeviceActivationRecord;
   return activation.publicIdentityKey === publicIdentityKey ? activation : null;
@@ -115,27 +133,39 @@ async function resolveDeviceRuntimeGrant(
     throw new Error("device_activation_revoked");
   }
 
-  const profileEntry = (await deviceProfilesKV.get(activation.profileId)).take();
+  const profileEntry = (await deviceProfilesKV.get(activation.profileId))
+    .take();
   if (isErr(profileEntry)) throw new Error("device_profile_not_found");
-  const profile = profileEntry.value as DeviceProfile;
+  const profile = profileEntry.value as unknown as DeviceProfile;
   if (profile.disabled) throw new Error("device_profile_disabled");
 
-  const effectiveContractDigest = resolveDeviceContractDigest(profile, contractDigest);
+  const effectiveContractDigest = resolveDeviceContractDigest(
+    profile,
+    contractDigest,
+  );
   const activationActor = (activation as DeviceActivationRecord).activatedBy;
 
   const contractEntry = (await contractsKV.get(effectiveContractDigest)).take();
   if (isErr(contractEntry)) throw new Error("device_contract_not_found");
   const contractRecord = contractEntry.value as ContractRecord;
-  const access = deriveDeviceRuntimeAccess(profile, contractRecord, contractStore);
-  return { ...access, activation: {
-    instanceId: activation.instanceId,
-    publicIdentityKey: activation.publicIdentityKey,
-    profileId: activation.profileId,
-    ...(activationActor ? { activatedBy: activationActor } : {}),
-    state: activation.state,
-    activatedAt: activation.activatedAt,
-    revokedAt: activation.revokedAt,
-  }, profile };
+  const access = deriveDeviceRuntimeAccess(
+    profile,
+    contractRecord,
+    contractStore,
+  );
+  return {
+    ...access,
+    activation: {
+      instanceId: activation.instanceId,
+      publicIdentityKey: activation.publicIdentityKey,
+      profileId: activation.profileId,
+      ...(activationActor ? { activatedBy: activationActor } : {}),
+      state: activation.state,
+      activatedAt: activation.activatedAt,
+      revokedAt: activation.revokedAt,
+    },
+    profile,
+  };
 }
 
 export function startDisconnectCleanup(): BackgroundTaskHandle {
@@ -146,7 +176,10 @@ export function startDisconnectCleanup(): BackgroundTaskHandle {
       for await (const message of disconnectSub) {
         let data: { client?: { user_nkey?: string } };
         try {
-          data = Value.Parse(NatsDisconnectEventSchema, JSON.parse(message.string())) as {
+          data = Value.Parse(
+            NatsDisconnectEventSchema,
+            JSON.parse(message.string()),
+          ) as {
             client?: { user_nkey?: string };
           };
         } catch {
@@ -169,7 +202,8 @@ export function startDisconnectCleanup(): BackgroundTaskHandle {
           const trellisId = parts[1];
           if (!sessionKey || !trellisId) continue;
 
-          const session = (await sessionKV.get(`${sessionKey}.${trellisId}`)).take();
+          const session = (await sessionKV.get(`${sessionKey}.${trellisId}`))
+            .take();
           if (!isErr(session)) {
             const sessionValue = session.value as Session;
             if (sessionValue.type !== "device") {
@@ -205,8 +239,12 @@ export function startDisconnectCleanup(): BackgroundTaskHandle {
   };
 }
 
-export function startAuthCallout(opts?: { contractStore?: ContractStore }): BackgroundTaskHandle {
-  const xkp = fromSeed(new TextEncoder().encode(config.nats.authCallout.sxSeed));
+export function startAuthCallout(
+  opts?: { contractStore?: ContractStore },
+): BackgroundTaskHandle {
+  const xkp = fromSeed(
+    new TextEncoder().encode(config.nats.authCallout.sxSeed),
+  );
   const sub = natsAuth.subscribe("$SYS.REQ.USER.AUTH", { queue: "trellis" });
   const calloutLimiter = new CalloutLimiter({
     maxConcurrent: 32,
@@ -264,7 +302,10 @@ export function startAuthCallout(opts?: { contractStore?: ContractStore }): Back
       const connectOpts: NatsConnectOpts = natsReq.connect_opts ?? {};
       const clientIp = extractClientIp(natsReq);
 
-      limiterRelease = await calloutLimiter.acquire({ ip: clientIp, server: serverName });
+      limiterRelease = await calloutLimiter.acquire({
+        ip: clientIp,
+        server: serverName,
+      });
       if (!limiterRelease) {
         const response = await encodeAuthorizationResponse(
           userNkey,
@@ -273,7 +314,9 @@ export function startAuthCallout(opts?: { contractStore?: ContractStore }): Back
           { error: "rate_limited" },
           { aud: "trellis" },
         );
-        message.respond(xkp.seal(new TextEncoder().encode(response), serverXkey));
+        message.respond(
+          xkp.seal(new TextEncoder().encode(response), serverXkey),
+        );
         return;
       }
 
@@ -282,7 +325,10 @@ export function startAuthCallout(opts?: { contractStore?: ContractStore }): Back
 
       let authToken: ParsedNatsAuthToken;
       try {
-        authToken = Value.Parse(NatsAuthTokenV1Schema, JSON.parse(rawAuthToken)) as ParsedNatsAuthToken;
+        authToken = Value.Parse(
+          NatsAuthTokenV1Schema,
+          JSON.parse(rawAuthToken),
+        ) as ParsedNatsAuthToken;
       } catch {
         throw new Error("invalid_auth_token");
       }
@@ -312,38 +358,61 @@ export function startAuthCallout(opts?: { contractStore?: ContractStore }): Back
 
       let deviceGrant: DeviceRuntimeGrant | null = null;
 
-      if (typeof authToken.bindingToken === "string" && authToken.bindingToken.length > 0) {
+      if (
+        typeof authToken.bindingToken === "string" &&
+        authToken.bindingToken.length > 0
+      ) {
         const bindingToken = authToken.bindingToken;
         const bindingTokenHash = await hashKey(bindingToken);
         const mapped = (await bindingTokenKV.get(bindingTokenHash)).take();
         if (isErr(mapped)) throw new Error("invalid_binding_token");
 
-        const record = mapped.value as { sessionKey?: unknown; expiresAt?: unknown };
-        if (typeof record.sessionKey !== "string" || record.sessionKey !== sessionKey) {
+        const record = mapped.value as {
+          sessionKey?: unknown;
+          expiresAt?: unknown;
+        };
+        if (
+          typeof record.sessionKey !== "string" ||
+          record.sessionKey !== sessionKey
+        ) {
           throw new Error("invalid_binding_token");
         }
 
         const expiresAt = record.expiresAt instanceof Date
           ? record.expiresAt
-          : new Date(typeof record.expiresAt === "string" ? record.expiresAt : "");
-        if (Number.isNaN(expiresAt.getTime()) || expiresAt.getTime() <= Date.now()) {
+          : new Date(
+            typeof record.expiresAt === "string" ? record.expiresAt : "",
+          );
+        if (
+          Number.isNaN(expiresAt.getTime()) || expiresAt.getTime() <= Date.now()
+        ) {
           throw new Error("invalid_binding_token");
         }
-        if (!(await verifyDomainSig(sessionKey, "nats-connect", bindingToken, sig))) {
+        if (
+          !(await verifyDomainSig(
+            sessionKey,
+            "nats-connect",
+            bindingToken,
+            sig,
+          ))
+        ) {
           throw new Error("invalid_signature");
         }
       } else if (typeof authToken.iat === "number") {
         const iat = authToken.iat;
         const nowSec = Math.floor(now.getTime() / 1000);
         if (Math.abs(nowSec - iat) > 30) throw new Error("iat_out_of_range");
-        if (!(await verifyDomainSig(sessionKey, "nats-connect", String(iat), sig))) {
+        if (
+          !(await verifyDomainSig(sessionKey, "nats-connect", String(iat), sig))
+        ) {
           throw new Error("invalid_signature");
         }
 
-        const svc = (await servicesKV.get(sessionKey)).take();
-        if (!isErr(svc)) {
-          const service = svc.value as ServiceRegistryEntry;
-          if (!service.active) throw new Error("service_disabled");
+        const service = await loadServiceInstanceByKey(sessionKey);
+        if (service) {
+          if (service.disabled) throw new Error("service_disabled");
+          const profile = await loadServiceProfile(service.profileId);
+          if (!profile || profile.disabled) throw new Error("service_disabled");
         } else {
           deviceGrant = await resolveDeviceRuntimeGrant(
             sessionKey,
@@ -362,7 +431,8 @@ export function startAuthCallout(opts?: { contractStore?: ContractStore }): Back
         for await (const key of iter) matches.push(key);
 
         if (matches.length > 1) {
-          const connIter = (await connectionsKV.keys(`${sessionKey}.>.>`)).take();
+          const connIter = (await connectionsKV.keys(`${sessionKey}.>.>`))
+            .take();
           if (!isErr(connIter)) {
             for await (const key of connIter) {
               const entry = (await connectionsKV.get(key)).take();
@@ -383,12 +453,12 @@ export function startAuthCallout(opts?: { contractStore?: ContractStore }): Back
       }
 
       if (!sessionKeyId) {
-        const svc = (await servicesKV.get(sessionKey)).take();
+        const service = await loadServiceInstanceByKey(sessionKey);
         let putResult;
-        if (!isErr(svc)) {
-          const service = svc.value as ServiceRegistryEntry;
+        if (service) {
+          const profile = await loadServiceProfile(service.profileId);
           const trellisId = await trellisIdFromOriginId("service", sessionKey);
-          const displayName = service.displayName;
+          const displayName = profile?.profileId ?? service.instanceId;
           sessionKeyId = `${sessionKey}.${trellisId}`;
           putResult = (await sessionKV.put(sessionKeyId, {
             type: "service",
@@ -397,6 +467,11 @@ export function startAuthCallout(opts?: { contractStore?: ContractStore }): Back
             id: sessionKey,
             email: `${displayName || "service"}@trellis.internal`,
             name: displayName,
+            instanceId: service.instanceId,
+            profileId: service.profileId,
+            instanceKey: service.instanceKey,
+            currentContractId: service.currentContractId ?? null,
+            currentContractDigest: service.currentContractDigest ?? null,
             createdAt: now,
             lastAuth: now,
           })).take();
@@ -416,14 +491,21 @@ export function startAuthCallout(opts?: { contractStore?: ContractStore }): Back
             delegatedSubscribeSubjects: deviceGrant.subscribeSubjects,
             createdAt: now,
             lastAuth: now,
-            activatedAt: deviceGrant.activation.activatedAt ? new Date(deviceGrant.activation.activatedAt) : null,
-            revokedAt: deviceGrant.activation.revokedAt ? new Date(deviceGrant.activation.revokedAt) : null,
+            activatedAt: deviceGrant.activation.activatedAt
+              ? new Date(deviceGrant.activation.activatedAt)
+              : null,
+            revokedAt: deviceGrant.activation.revokedAt
+              ? new Date(deviceGrant.activation.revokedAt)
+              : null,
           })).take();
         } else {
           throw new Error("session_not_found");
         }
         if (isErr(putResult)) {
-          logger.error({ error: putResult.error, sessionKeyId }, "Failed to create service session");
+          logger.error(
+            { error: putResult.error, sessionKeyId },
+            "Failed to create service session",
+          );
           throw new Error("session_create_failed");
         }
       }
@@ -438,7 +520,9 @@ export function startAuthCallout(opts?: { contractStore?: ContractStore }): Back
           session.contractDigest,
           opts?.contractStore,
         );
-        let activatedAt = currentGrant.activation.activatedAt ? new Date(currentGrant.activation.activatedAt) : null;
+        let activatedAt = currentGrant.activation.activatedAt
+          ? new Date(currentGrant.activation.activatedAt)
+          : null;
         if (activatedAt === null) {
           const activatedAtIso = now.toISOString();
           activatedAt = now;
@@ -458,14 +542,20 @@ export function startAuthCallout(opts?: { contractStore?: ContractStore }): Back
           delegatedSubscribeSubjects: currentGrant.subscribeSubjects,
           lastAuth: now,
           activatedAt,
-          revokedAt: currentGrant.activation.revokedAt ? new Date(currentGrant.activation.revokedAt) : null,
+          revokedAt: currentGrant.activation.revokedAt
+            ? new Date(currentGrant.activation.revokedAt)
+            : null,
         };
       }
 
       const inboxPrefix = `_INBOX.${sessionKey.slice(0, 16)}`;
-      let resourcePermissions = { publish: [] as string[], subscribe: [] as string[] };
+      let resourcePermissions = {
+        publish: [] as string[],
+        subscribe: [] as string[],
+      };
       const principal = await resolveSessionPrincipal(session, sessionKey, {
-        servicesKV,
+        loadServiceInstance: loadServiceInstanceByKey,
+        loadServiceProfile,
         usersKV,
         deviceActivationsKV,
         deviceProfilesKV,
@@ -492,7 +582,9 @@ export function startAuthCallout(opts?: { contractStore?: ContractStore }): Back
 
       const serverId = natsReq.server_id?.id ?? serverName;
       const clientId = natsReq.client_info?.id;
-      const sessionScope = session.type === "device" ? session.instanceId : session.trellisId;
+      const sessionScope = session.type === "device"
+        ? session.instanceId
+        : session.trellisId;
       if (serverId && typeof clientId === "number") {
         (
           await connectionsKV.put(`${sessionKey}.${sessionScope}.${userNkey}`, {
@@ -500,7 +592,9 @@ export function startAuthCallout(opts?: { contractStore?: ContractStore }): Back
             clientId,
             connectedAt: now,
           })
-        ).inspectErr((error) => logger.warn({ error }, "Failed to track connection"));
+        ).inspectErr((error) =>
+          logger.warn({ error }, "Failed to track connection")
+        );
       }
 
       if (session.type !== "device") {
@@ -511,47 +605,60 @@ export function startAuthCallout(opts?: { contractStore?: ContractStore }): Back
             sessionKey,
             userNkey,
           })
-        ).inspectErr((error) => logger.warn({ error }, "Failed to publish Auth.Connect"));
+        ).inspectErr((error) =>
+          logger.warn({ error }, "Failed to publish Auth.Connect")
+        );
       }
 
       const isService = session.type === "service";
       const delegatedPublish = session.type === "service"
         ? []
-        : session.delegatedPublishSubjects!
-      ;
+        : session.delegatedPublishSubjects!;
       const delegatedSubscribe = session.type === "service"
         ? []
-        : session.delegatedSubscribeSubjects!
-      ;
+        : session.delegatedSubscribeSubjects!;
       const permissions: Partial<User> = {
         pub: {
-          allow: [...new Set([
-            ...(isService
-              ? getServicePublishSubjects(principal.value.capabilities, {
-                sessionKey,
-                contractDigest: principal.value.serviceState?.contractDigest,
-                displayName: principal.value.serviceState?.displayName,
+          allow: [
+            ...new Set([
+              ...(isService
+                ? getServicePublishSubjects(principal.value.capabilities, {
+                  sessionKey,
+                  contractDigest: principal.value.serviceState
+                    ?.currentContractDigest,
+                  displayName: session.type === "service"
+                    ? session.name
+                    : "service",
                 })
-              : delegatedPublish),
-            ...(session.type === "user" && delegatedPublish.length > 0 && AUTH_RENEW_SUBJECT ? [AUTH_RENEW_SUBJECT] : []),
-            ...resourcePermissions.publish,
-          ])],
+                : delegatedPublish),
+              ...(session.type === "user" && delegatedPublish.length > 0 &&
+                  AUTH_RENEW_SUBJECT
+                ? [AUTH_RENEW_SUBJECT]
+                : []),
+              ...resourcePermissions.publish,
+            ]),
+          ],
         },
         resp: { max: 1 },
         sub: {
-          allow: [...new Set(
-            isService
-              ? [
-                ...getServiceSubscribeSubjects(principal.value.capabilities, {
-                  sessionKey,
-                  contractDigest: principal.value.serviceState?.contractDigest,
-                  displayName: principal.value.serviceState?.displayName,
-                 }),
-                 ...resourcePermissions.subscribe,
-                 `${inboxPrefix}.>`,
-              ]
-              : [...delegatedSubscribe, `${inboxPrefix}.>`],
-          )],
+          allow: [
+            ...new Set(
+              isService
+                ? [
+                  ...getServiceSubscribeSubjects(principal.value.capabilities, {
+                    sessionKey,
+                    contractDigest: principal.value.serviceState
+                      ?.currentContractDigest,
+                    displayName: session.type === "service"
+                      ? session.name
+                      : "service",
+                  }),
+                  ...resourcePermissions.subscribe,
+                  `${inboxPrefix}.>`,
+                ]
+                : [...delegatedSubscribe, `${inboxPrefix}.>`],
+            ),
+          ],
         },
         locale: Intl.DateTimeFormat().resolvedOptions().timeZone,
         data: 100 * 1000000,
@@ -582,7 +689,9 @@ export function startAuthCallout(opts?: { contractStore?: ContractStore }): Back
 
       message.respond(xkp.seal(new TextEncoder().encode(response), serverXkey));
     } catch (error) {
-      const messageText = error instanceof Error ? error.message : "Unknown error";
+      const messageText = error instanceof Error
+        ? error.message
+        : "Unknown error";
       logger.error(
         {
           err: error,
@@ -601,13 +710,18 @@ export function startAuthCallout(opts?: { contractStore?: ContractStore }): Back
             { error: messageText },
             { aud: "trellis" },
           );
-          message.respond(xkp.seal(new TextEncoder().encode(response), serverXkey));
+          message.respond(
+            xkp.seal(new TextEncoder().encode(response), serverXkey),
+          );
         } else {
           message.respond("");
         }
       });
       if (respondResult.isErr()) {
-        logger.error({ error: respondResult.error }, "Failed to respond to auth callout error");
+        logger.error(
+          { error: respondResult.error },
+          "Failed to respond to auth callout error",
+        );
       }
     }
 

@@ -49,8 +49,6 @@ export type AppliedProfileContract = {
 
 export type ServiceProfile = {
   profileId: string;
-  displayName: string;
-  description?: string;
   namespaces: string[];
   disabled: boolean;
   appliedContracts: AppliedProfileContract[];
@@ -141,8 +139,6 @@ export type CreateDeviceProfileRequest = {
 
 export type CreateServiceProfileRequest = {
   profileId: string;
-  displayName: string;
-  description?: string;
   namespaces: string[];
 };
 
@@ -214,7 +210,9 @@ export function normalizeAppliedContracts(
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([contractId, digests]) => ({
       contractId,
-      allowedDigests: [...digests].sort((left, right) => left.localeCompare(right)),
+      allowedDigests: [...digests].sort((left, right) =>
+        left.localeCompare(right)
+      ),
     }));
 }
 
@@ -244,19 +242,19 @@ export function validateInstanceGrantPolicyRequest(
   if (!req.contractId) {
     return invalidRequest({ contractId: req.contractId });
   }
-  const impliedCapabilities = normalizeStringList(req.impliedCapabilities ?? []);
-  const allowedOrigins = req.allowedOrigins === undefined
-    ? undefined
-    : (() => {
-      const normalized = [] as string[];
-      for (const value of req.allowedOrigins) {
-        const origin = parseOrigin(value);
-        if (!origin) return null;
-        normalized.push(origin);
-      }
-      const uniqueOrigins = normalizeStringList(normalized);
-      return uniqueOrigins.length > 0 ? uniqueOrigins : undefined;
-    })();
+  const impliedCapabilities = normalizeStringList(
+    req.impliedCapabilities ?? [],
+  );
+  const allowedOrigins = req.allowedOrigins === undefined ? undefined : (() => {
+    const normalized = [] as string[];
+    for (const value of req.allowedOrigins) {
+      const origin = parseOrigin(value);
+      if (!origin) return null;
+      normalized.push(origin);
+    }
+    const uniqueOrigins = normalizeStringList(normalized);
+    return uniqueOrigins.length > 0 ? uniqueOrigins : undefined;
+  })();
   if (allowedOrigins === null) {
     return invalidRequest({ allowedOrigins: req.allowedOrigins });
   }
@@ -299,9 +297,17 @@ export function validatePortalDefaultRequest(req: PortalDefaultRequest) {
   });
 }
 
-export function validateLoginPortalSelectionRequest(req: LoginPortalSelectionRequest) {
-  if (!req.contractId || (req.portalId !== null && (!req.portalId || req.portalId.length === 0))) {
-    return invalidRequest({ contractId: req.contractId, portalId: req.portalId });
+export function validateLoginPortalSelectionRequest(
+  req: LoginPortalSelectionRequest,
+) {
+  if (
+    !req.contractId ||
+    (req.portalId !== null && (!req.portalId || req.portalId.length === 0))
+  ) {
+    return invalidRequest({
+      contractId: req.contractId,
+      portalId: req.portalId,
+    });
   }
   return Result.ok({
     selection: {
@@ -311,8 +317,13 @@ export function validateLoginPortalSelectionRequest(req: LoginPortalSelectionReq
   });
 }
 
-export function validateDevicePortalSelectionRequest(req: DevicePortalSelectionRequest) {
-  if (!req.profileId || (req.portalId !== null && (!req.portalId || req.portalId.length === 0))) {
+export function validateDevicePortalSelectionRequest(
+  req: DevicePortalSelectionRequest,
+) {
+  if (
+    !req.profileId ||
+    (req.portalId !== null && (!req.portalId || req.portalId.length === 0))
+  ) {
     return invalidRequest({ profileId: req.profileId, portalId: req.portalId });
   }
   return Result.ok({
@@ -337,15 +348,15 @@ export function validateDeviceProfileRequest(req: CreateDeviceProfileRequest) {
   });
 }
 
-export function validateServiceProfileRequest(req: CreateServiceProfileRequest) {
-  if (!req.profileId || !req.displayName) {
-    return invalidRequest({ profileId: req.profileId, displayName: req.displayName });
+export function validateServiceProfileRequest(
+  req: CreateServiceProfileRequest,
+) {
+  if (!req.profileId) {
+    return invalidRequest({ profileId: req.profileId });
   }
   return Result.ok({
     profile: {
       profileId: req.profileId,
-      displayName: req.displayName,
-      ...(req.description ? { description: req.description } : {}),
       namespaces: normalizeStringList(req.namespaces ?? []),
       disabled: false,
       appliedContracts: [],
@@ -353,7 +364,9 @@ export function validateServiceProfileRequest(req: CreateServiceProfileRequest) 
   });
 }
 
-export function validateDeviceProvisionRequest(req: ProvisionDeviceInstanceRequest) {
+export function validateDeviceProvisionRequest(
+  req: ProvisionDeviceInstanceRequest,
+) {
   if (!req.profileId || !req.publicIdentityKey || !req.activationKey) {
     return invalidRequest({
       profileId: req.profileId,
@@ -364,7 +377,10 @@ export function validateDeviceProvisionRequest(req: ProvisionDeviceInstanceReque
   if (req.metadata) {
     for (const [key, value] of Object.entries(req.metadata)) {
       if (key.length === 0 || value.length === 0) {
-        return invalidRequest({ metadata: req.metadata, reason: "invalid_device_metadata" });
+        return invalidRequest({
+          metadata: req.metadata,
+          reason: "invalid_device_metadata",
+        });
       }
     }
   }
@@ -390,9 +406,14 @@ export function validateDeviceProvisionRequest(req: ProvisionDeviceInstanceReque
   });
 }
 
-export function validateServiceProvisionRequest(req: ProvisionServiceInstanceRequest) {
+export function validateServiceProvisionRequest(
+  req: ProvisionServiceInstanceRequest,
+) {
   if (!req.profileId || !req.instanceKey) {
-    return invalidRequest({ profileId: req.profileId, instanceKey: req.instanceKey });
+    return invalidRequest({
+      profileId: req.profileId,
+      instanceKey: req.instanceKey,
+    });
   }
   const now = new Date().toISOString();
   return Result.ok({

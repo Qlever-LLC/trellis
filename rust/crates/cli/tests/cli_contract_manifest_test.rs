@@ -31,7 +31,42 @@ fn cli_contract_manifest_validates_and_declares_expected_auth_and_core_surface()
     assert!(calls.iter().any(|value| value == "Auth.RenewBindingToken"));
     assert!(calls.iter().any(|value| value == "Auth.ListApprovals"));
     assert!(calls.iter().any(|value| value == "Auth.RevokeApproval"));
-    assert!(calls.iter().any(|value| value == "Auth.InstallService"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.CreateServiceProfile"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.ApplyServiceProfileContract"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.UnapplyServiceProfileContract"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.ListServiceProfiles"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.DisableServiceProfile"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.EnableServiceProfile"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.RemoveServiceProfile"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.ProvisionServiceInstance"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.ListServiceInstances"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.DisableServiceInstance"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.EnableServiceInstance"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.RemoveServiceInstance"));
     assert!(calls.iter().any(|value| value == "Auth.CreatePortal"));
     assert!(calls.iter().any(|value| value == "Auth.ListPortals"));
     assert!(calls.iter().any(|value| value == "Auth.DisablePortal"));
@@ -77,10 +112,22 @@ fn cli_contract_manifest_validates_and_declares_expected_auth_and_core_surface()
     assert!(calls
         .iter()
         .any(|value| value == "Auth.CreateDeviceProfile"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.ApplyDeviceProfileContract"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.UnapplyDeviceProfileContract"));
     assert!(calls.iter().any(|value| value == "Auth.ListDeviceProfiles"));
     assert!(calls
         .iter()
         .any(|value| value == "Auth.DisableDeviceProfile"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.EnableDeviceProfile"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.RemoveDeviceProfile"));
     assert!(calls
         .iter()
         .any(|value| value == "Auth.ProvisionDeviceInstance"));
@@ -90,6 +137,12 @@ fn cli_contract_manifest_validates_and_declares_expected_auth_and_core_surface()
     assert!(calls
         .iter()
         .any(|value| value == "Auth.DisableDeviceInstance"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.EnableDeviceInstance"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.RemoveDeviceInstance"));
     assert!(calls
         .iter()
         .any(|value| value == "Auth.ListDeviceActivations"));
@@ -102,9 +155,11 @@ fn cli_contract_manifest_validates_and_declares_expected_auth_and_core_surface()
     assert!(calls
         .iter()
         .any(|value| value == "Auth.DecideDeviceActivationReview"));
-    assert!(calls
+    assert!(!calls.iter().any(|value| value == "Auth.InstallService"));
+    assert!(!calls
         .iter()
         .any(|value| value == "Auth.UpgradeServiceContract"));
+    assert!(!calls.iter().any(|value| value == "Auth.RemoveService"));
 
     let core = loaded
         .manifest

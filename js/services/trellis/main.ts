@@ -24,15 +24,20 @@ import {
   createGetDeviceConnectInfoHandler,
 } from "./auth/device_activation/operation.ts";
 import {
+  authEnableDeviceInstanceHandler,
+  authEnableDeviceProfileHandler,
   authDisablePortalHandler,
   authDisableInstanceGrantPolicyHandler,
   authClearLoginPortalSelectionHandler,
   authClearDevicePortalSelectionHandler,
+  createAuthApplyDeviceProfileContractHandler,
   authDecideDeviceActivationReviewHandler,
   authDisableDeviceInstanceHandler,
   authDisableDeviceProfileHandler,
   authGetLoginPortalDefaultHandler,
   authGetDevicePortalDefaultHandler,
+  authRemoveDeviceInstanceHandler,
+  authRemoveDeviceProfileHandler,
   authListInstanceGrantPoliciesHandler,
   authListLoginPortalSelectionsHandler,
   authListPortalsHandler,
@@ -45,12 +50,27 @@ import {
   createAuthCreatePortalHandler,
   createAuthCreateDeviceProfileHandler,
   createAuthProvisionDeviceInstanceHandler,
+  createAuthUnapplyDeviceProfileContractHandler,
   authSetLoginPortalDefaultHandler,
   authUpsertInstanceGrantPolicyHandler,
   authSetLoginPortalSelectionHandler,
   authSetDevicePortalDefaultHandler,
   authSetDevicePortalSelectionHandler,
 } from "./auth/admin/rpc.ts";
+import {
+  authEnableServiceProfileHandler,
+  authListServiceInstancesHandler,
+  authListServiceProfilesHandler,
+  authRemoveServiceProfileHandler,
+  createAuthApplyServiceProfileContractHandler,
+  createAuthCreateServiceProfileHandler,
+  createAuthDisableServiceInstanceHandler,
+  createAuthDisableServiceProfileHandler,
+  createAuthEnableServiceInstanceHandler,
+  createAuthProvisionServiceInstanceHandler,
+  createAuthRemoveServiceInstanceHandler,
+  createAuthUnapplyServiceProfileContractHandler,
+} from "./auth/admin/service_rpc.ts";
 import {
   authListUsersHandler,
   authUpdateUserHandler,
@@ -69,12 +89,6 @@ import {
   createTrellisContractGetHandler,
   trellisBindingsGetHandler,
 } from "./catalog/rpc.ts";
-import {
-  authListServicesHandler,
-  createAuthInstallServiceHandler,
-  createAuthRemoveServiceHandler,
-  createAuthUpgradeServiceContractHandler,
-} from "./catalog/services.ts";
 import { getConfig } from "./config.ts";
 import { createStateHandlers } from "./state/rpc.ts";
 import { createStateKvAdapter, StateStore } from "./state/storage.ts";
@@ -121,26 +135,57 @@ await trellis.mount(
   authGetInstalledContractHandler,
 );
 
-await trellis.mount("Auth.ListServices", authListServicesHandler);
 await trellis.mount(
-  "Auth.InstallService",
-  createAuthInstallServiceHandler({
-    refreshActiveContracts: contracts.refreshActiveContracts,
-    prepareInstalledContract: contracts.prepareInstalledContract,
+  "Auth.CreateServiceProfile",
+  createAuthCreateServiceProfileHandler(),
+);
+await trellis.mount(
+  "Auth.ListServiceProfiles",
+  authListServiceProfilesHandler,
+);
+await trellis.mount(
+  "Auth.ApplyServiceProfileContract",
+  createAuthApplyServiceProfileContractHandler({
+    installServiceContract: contracts.installServiceContract,
   }),
 );
 await trellis.mount(
-  "Auth.UpgradeServiceContract",
-  createAuthUpgradeServiceContractHandler({
-    refreshActiveContracts: contracts.refreshActiveContracts,
-    prepareInstalledContract: contracts.prepareInstalledContract,
-  }),
+  "Auth.UnapplyServiceProfileContract",
+  createAuthUnapplyServiceProfileContractHandler({ kick }),
 );
 await trellis.mount(
-  "Auth.RemoveService",
-  createAuthRemoveServiceHandler({
-    refreshActiveContracts: contracts.refreshActiveContracts,
+  "Auth.DisableServiceProfile",
+  createAuthDisableServiceProfileHandler({ kick }),
+);
+await trellis.mount(
+  "Auth.EnableServiceProfile",
+  authEnableServiceProfileHandler,
+);
+await trellis.mount(
+  "Auth.RemoveServiceProfile",
+  authRemoveServiceProfileHandler,
+);
+await trellis.mount(
+  "Auth.ProvisionServiceInstance",
+  createAuthProvisionServiceInstanceHandler(),
+);
+await trellis.mount(
+  "Auth.ListServiceInstances",
+  authListServiceInstancesHandler,
+);
+await trellis.mount(
+  "Auth.DisableServiceInstance",
+  createAuthDisableServiceInstanceHandler({ kick }),
+);
+await trellis.mount(
+  "Auth.EnableServiceInstance",
+  createAuthEnableServiceInstanceHandler({ kick }),
+);
+await trellis.mount(
+  "Auth.RemoveServiceInstance",
+  createAuthRemoveServiceInstanceHandler({
     kick,
+    refreshActiveContracts: contracts.refreshActiveContracts,
   }),
 );
 
@@ -203,12 +248,30 @@ await trellis.mount(
   }),
 );
 await trellis.mount(
+  "Auth.ApplyDeviceProfileContract",
+  createAuthApplyDeviceProfileContractHandler({
+    installDeviceContract: contracts.installDeviceContract,
+  }),
+);
+await trellis.mount(
+  "Auth.UnapplyDeviceProfileContract",
+  createAuthUnapplyDeviceProfileContractHandler(),
+);
+await trellis.mount(
   "Auth.ListDeviceProfiles",
   authListDeviceProfilesHandler,
 );
 await trellis.mount(
   "Auth.DisableDeviceProfile",
   authDisableDeviceProfileHandler,
+);
+await trellis.mount(
+  "Auth.EnableDeviceProfile",
+  authEnableDeviceProfileHandler,
+);
+await trellis.mount(
+  "Auth.RemoveDeviceProfile",
+  authRemoveDeviceProfileHandler,
 );
 await trellis.mount(
   "Auth.ProvisionDeviceInstance",
@@ -221,6 +284,14 @@ await trellis.mount(
 await trellis.mount(
   "Auth.DisableDeviceInstance",
   authDisableDeviceInstanceHandler,
+);
+await trellis.mount(
+  "Auth.EnableDeviceInstance",
+  authEnableDeviceInstanceHandler,
+);
+await trellis.mount(
+  "Auth.RemoveDeviceInstance",
+  authRemoveDeviceInstanceHandler,
 );
 await trellis.mount(
   "Auth.ListDeviceActivations",
@@ -249,7 +320,10 @@ await trellis.mount(
 );
 
 registerBuiltinPortalStaticRoutes(app);
-registerHttpRoutes(app, { contractStore: contracts.contractStore });
+registerHttpRoutes(app, {
+  contractStore: contracts.contractStore,
+  refreshActiveContracts: contracts.refreshActiveContracts,
+});
 
 const backgroundTasks = startControlPlaneBackgroundTasks({
   contractStore: contracts.contractStore,

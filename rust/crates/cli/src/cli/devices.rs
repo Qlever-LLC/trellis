@@ -71,7 +71,7 @@ impl DeviceReviewState {
 }
 
 #[derive(Debug, Args)]
-/// Manage device profiles, instances, activations, and reviews.
+/// Manage device profiles, instances, and activations.
 pub struct DeviceCommand {
     #[command(subcommand)]
     pub command: DeviceSubcommand,
@@ -80,16 +80,12 @@ pub struct DeviceCommand {
 #[derive(Debug, Subcommand)]
 /// Device lifecycle surfaces exposed through Trellis auth/admin RPCs.
 pub enum DeviceSubcommand {
-    /// Provision one new device instance from a device profile.
-    Provision(DeviceProvisionArgs),
     /// Manage device profiles.
     Profile(DeviceProfileCommand),
-    /// Inspect or disable device instances.
+    /// Manage device instances.
     Instance(DeviceInstanceCommand),
-    /// Inspect or revoke device activations.
+    /// Manage device activations.
     Activation(DeviceActivationCommand),
-    /// List and decide device activation reviews.
-    Review(DeviceReviewCommand),
 }
 
 #[derive(Debug, Args)]
@@ -100,14 +96,22 @@ pub struct DeviceProfileCommand {
 }
 
 #[derive(Debug, Subcommand)]
-/// List, create, and disable device profiles.
+/// Manage device profiles.
 pub enum DeviceProfileSubcommand {
     /// List configured device profiles.
     List(DeviceProfileListArgs),
-    /// Create one device profile and optionally attach its contract.
+    /// Create one device profile.
     Create(DeviceProfileCreateArgs),
+    /// Apply one contract lineage or digest set to a device profile.
+    Apply(DeviceProfileApplyArgs),
+    /// Unapply one contract lineage or digest set from a device profile.
+    Unapply(DeviceProfileUnapplyArgs),
     /// Disable one device profile.
-    Disable(DeviceProfileDisableArgs),
+    Disable(DeviceProfileToggleArgs),
+    /// Enable one device profile.
+    Enable(DeviceProfileToggleArgs),
+    /// Remove one device profile.
+    Remove(DeviceProfileRemoveArgs),
 }
 
 #[derive(Debug, Args)]
@@ -118,12 +122,18 @@ pub struct DeviceInstanceCommand {
 }
 
 #[derive(Debug, Subcommand)]
-/// List and disable device instances.
+/// Manage device instances.
 pub enum DeviceInstanceSubcommand {
+    /// Provision one new device instance from a profile.
+    Provision(DeviceProvisionArgs),
     /// List device instances.
     List(DeviceInstanceListArgs),
     /// Disable one device instance.
-    Disable(DeviceInstanceDisableArgs),
+    Disable(DeviceInstanceToggleArgs),
+    /// Enable one device instance.
+    Enable(DeviceInstanceToggleArgs),
+    /// Remove one device instance.
+    Remove(DeviceInstanceRemoveArgs),
 }
 
 #[derive(Debug, Args)]
@@ -134,12 +144,14 @@ pub struct DeviceActivationCommand {
 }
 
 #[derive(Debug, Subcommand)]
-/// List and revoke device activations.
+/// Manage device activations.
 pub enum DeviceActivationSubcommand {
     /// List device activations.
     List(DeviceActivationListArgs),
     /// Revoke one device activation.
     Revoke(DeviceActivationRevokeArgs),
+    /// Manage device activation reviews.
+    Review(DeviceReviewCommand),
 }
 
 #[derive(Debug, Args)]
@@ -174,17 +186,13 @@ pub struct DeviceProfileListArgs {
 
 #[derive(Debug, Args)]
 #[command(
-    after_help = "Examples:\n  trellis device profile create reader.standard acme.reader@v1\n  trellis device profile create reader.standard ./contracts/reader.ts --review-mode required"
+    after_help = "Examples:\n  trellis device profile create reader.standard\n  trellis device profile create reader.standard --review-mode required"
 )]
-/// Create one device profile and attach its contract digest policy.
+/// Create one device profile.
 pub struct DeviceProfileCreateArgs {
     #[arg(value_name = "PROFILE")]
     /// Device profile identifier to create.
     pub profile: String,
-
-    #[arg(value_name = "CONTRACT")]
-    /// Contract identifier, source path, manifest path, or embedded contract reference.
-    pub contract: String,
 
     #[arg(long = "review-mode", default_value = "none")]
     /// Review policy applied when devices in this profile activate.
@@ -192,16 +200,58 @@ pub struct DeviceProfileCreateArgs {
 }
 
 #[derive(Debug, Args)]
-/// Disable one device profile.
-pub struct DeviceProfileDisableArgs {
+#[command(
+    after_help = "Examples:\n  trellis device profile apply reader.standard acme.reader@v1\n  trellis device profile apply reader.standard ./contracts/reader.ts"
+)]
+/// Apply one contract lineage or digest set to a device profile.
+pub struct DeviceProfileApplyArgs {
     #[arg(value_name = "PROFILE")]
-    /// Device profile identifier to disable.
+    /// Device profile identifier to update.
+    pub profile: String,
+
+    #[arg(value_name = "CONTRACT")]
+    /// Contract identifier, source path, manifest path, or embedded contract reference.
+    pub contract: String,
+}
+
+#[derive(Debug, Args)]
+/// Unapply one contract lineage or digest set from a device profile.
+pub struct DeviceProfileUnapplyArgs {
+    #[arg(value_name = "PROFILE")]
+    /// Device profile identifier to update.
+    pub profile: String,
+
+    #[arg(value_name = "CONTRACT")]
+    /// Contract identifier to remove from the profile.
+    pub contract_id: String,
+
+    #[arg(long = "digest", value_delimiter = ',')]
+    /// Optional digest subset to remove from the contract lineage.
+    pub digests: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+/// Disable or enable one device profile.
+pub struct DeviceProfileToggleArgs {
+    #[arg(value_name = "PROFILE")]
+    /// Device profile identifier to update.
     pub profile: String,
 }
 
 #[derive(Debug, Args)]
+/// Remove one device profile.
+pub struct DeviceProfileRemoveArgs {
+    #[arg(value_name = "PROFILE")]
+    /// Device profile identifier to remove.
+    pub profile: String,
+
+    #[arg(short = 'f', long)]
+    pub force: bool,
+}
+
+#[derive(Debug, Args)]
 #[command(
-    after_help = "Examples:\n  trellis device provision reader.standard --name \"Front Desk Reader\" --serial-number SN-123 --model-number MX-10\n  trellis device provision reader.standard --metadata site=lab-a --metadata assetTag=42"
+    after_help = "Examples:\n  trellis device instance provision reader.standard --name \"Front Desk Reader\" --serial-number SN-123 --model-number MX-10\n  trellis device instance provision reader.standard --metadata site=lab-a --metadata assetTag=42"
 )]
 /// Provision one new device instance from a profile.
 pub struct DeviceProvisionArgs {
@@ -243,11 +293,22 @@ pub struct DeviceInstanceListArgs {
 }
 
 #[derive(Debug, Args)]
-/// Disable one device instance.
-pub struct DeviceInstanceDisableArgs {
+/// Disable or enable one device instance.
+pub struct DeviceInstanceToggleArgs {
     #[arg(value_name = "INSTANCE")]
-    /// Device instance identifier to disable.
+    /// Device instance identifier to update.
     pub instance: String,
+}
+
+#[derive(Debug, Args)]
+/// Remove one device instance.
+pub struct DeviceInstanceRemoveArgs {
+    #[arg(value_name = "INSTANCE")]
+    /// Device instance identifier to remove.
+    pub instance: String,
+
+    #[arg(short = 'f', long)]
+    pub force: bool,
 }
 
 #[derive(Debug, Args)]

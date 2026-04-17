@@ -20,8 +20,6 @@
   let selectedProfileId = $state("");
 
   let profileId = $state("");
-  let displayName = $state("");
-  let description = $state("");
   let namespaces = $state("");
   let contractJson = $state("");
 
@@ -64,14 +62,10 @@
       const trellis = await trellisPromise;
       await trellis.requestOrThrow<void>("Auth.CreateServiceProfile" as string, {
         profileId: nextProfileId,
-        displayName: displayName.trim(),
-        description: description.trim() || undefined,
         namespaces: parseNamespaces(namespaces),
       });
       notifications.success(`Service profile ${nextProfileId} created.`, "Created");
       profileId = "";
-      displayName = "";
-      description = "";
       namespaces = "";
       selectedProfileId = nextProfileId;
       await load();
@@ -185,16 +179,6 @@
           <input class="input input-bordered input-sm font-mono" bind:value={profileId} placeholder="billing.worker" required />
         </label>
 
-        <label class="form-control gap-1">
-          <span class="label-text text-xs">Display name</span>
-          <input class="input input-bordered input-sm" bind:value={displayName} placeholder="Billing Worker" required />
-        </label>
-
-        <label class="form-control gap-1 lg:col-span-2">
-          <span class="label-text text-xs">Description</span>
-          <textarea class="textarea textarea-bordered textarea-sm" rows="2" bind:value={description} placeholder="Optional description"></textarea>
-        </label>
-
         <label class="form-control gap-1 lg:col-span-2">
           <span class="label-text text-xs">Namespaces</span>
           <textarea class="textarea textarea-bordered textarea-sm font-mono" rows="3" bind:value={namespaces} placeholder="billing, invoices" required></textarea>
@@ -246,8 +230,7 @@
                   >
                   <div class="flex flex-wrap items-start justify-between gap-2">
                     <div class="min-w-0">
-                      <div class="font-medium">{profile.displayName}</div>
-                      <div class="font-mono text-xs text-base-content/60">{profile.profileId}</div>
+                      <div class="font-medium font-mono">{profile.profileId}</div>
                     </div>
                     <span class={[
                       "badge badge-sm",
@@ -256,10 +239,6 @@
                       {profile.disabled ? "Disabled" : "Active"}
                     </span>
                   </div>
-
-                  {#if profile.description}
-                    <p class="mt-2 text-sm text-base-content/60">{profile.description}</p>
-                  {/if}
 
                   <div class="mt-3 flex flex-wrap gap-1">
                     {#each profile.namespaces as namespace (namespace)}
@@ -348,8 +327,7 @@
                 <div class="rounded-box border border-base-300 bg-base-100 p-3">
                   <div class="flex flex-wrap items-start justify-between gap-2">
                     <div>
-                      <div class="font-medium">{selectedProfile.displayName}</div>
-                      <div class="font-mono text-xs text-base-content/60">{selectedProfile.profileId}</div>
+                      <div class="font-medium font-mono">{selectedProfile.profileId}</div>
                     </div>
                     <span class={[
                       "badge badge-sm",

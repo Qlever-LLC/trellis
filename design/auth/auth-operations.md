@@ -61,7 +61,7 @@ Additional `trellis` service config:
 | users | None |
 | oauthStates | 5 min |
 | pendingAuth | 5 min |
-| deviceActivationHandoffs | 30 min |
+| deviceActivationFlows | 30 min |
 | deviceActivations | None |
 | deviceInstances | None |
 | deviceProfiles | None |
@@ -81,7 +81,7 @@ Cluster-wide required state:
 - sessions store
 - OAuth state store
 - pending auth store
-- device activation handoff store
+- device activation flow store
 - device activation record store
 - device instance store
 - device profile store

@@ -137,7 +137,7 @@
           <select class="select select-bordered select-sm" bind:value={provisionProfileId} required>
             <option value="" disabled>Select a profile</option>
             {#each provisionProfiles as profile (profile.profileId)}
-              <option value={profile.profileId}>{profile.displayName} ({profile.profileId})</option>
+              <option value={profile.profileId}>{profile.profileId}</option>
             {/each}
           </select>
         </label>

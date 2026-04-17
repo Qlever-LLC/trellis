@@ -53,9 +53,9 @@ pub enum TopLevelCommand {
     Keygen(KeygenArgs),
     /// Manage custom login and device portals.
     Portal(PortalCommand),
-    /// Manage installed service contracts.
+    /// Manage service profiles and instances.
     Service(ServiceCommand),
-    /// Manage device profiles, instances, activations, and reviews.
+    /// Manage device profiles, instances, and activations.
     Device(DeviceCommand),
     /// Check for or install CLI updates.
     #[command(name = "self")]

@@ -206,15 +206,55 @@ impl<'a> AuthClient<'a> {
         reason: Option<&str>,
     ) -> Result<trellis_sdk_auth::AuthDecideDeviceActivationReviewResponse, TrellisAuthError>;
 
-    pub async fn list_services(&self) -> Result<Vec<ServiceListEntry>, TrellisAuthError>;
-    pub async fn install_service(
+    pub async fn list_service_profiles(
         &self,
-        request: &AuthInstallServiceRequest,
-    ) -> Result<AuthInstallServiceResponse, TrellisAuthError>;
-    pub async fn upgrade_service_contract(
+    ) -> Result<Vec<trellis_sdk_auth::AuthListServiceProfilesResponseProfilesItem>, TrellisAuthError>;
+    pub async fn create_service_profile(
         &self,
-        request: &AuthUpgradeServiceContractRequest,
-    ) -> Result<AuthUpgradeServiceContractResponse, TrellisAuthError>;
+        request: &trellis_sdk_auth::AuthCreateServiceProfileRequest,
+    ) -> Result<trellis_sdk_auth::AuthCreateServiceProfileResponse, TrellisAuthError>;
+    pub async fn apply_service_profile_contract(
+        &self,
+        request: &trellis_sdk_auth::AuthApplyServiceProfileContractRequest,
+    ) -> Result<trellis_sdk_auth::AuthApplyServiceProfileContractResponse, TrellisAuthError>;
+    pub async fn unapply_service_profile_contract(
+        &self,
+        request: &trellis_sdk_auth::AuthUnapplyServiceProfileContractRequest,
+    ) -> Result<trellis_sdk_auth::AuthUnapplyServiceProfileContractResponse, TrellisAuthError>;
+    pub async fn disable_service_profile(
+        &self,
+        profile_id: &str,
+    ) -> Result<trellis_sdk_auth::AuthDisableServiceProfileResponse, TrellisAuthError>;
+    pub async fn enable_service_profile(
+        &self,
+        profile_id: &str,
+    ) -> Result<trellis_sdk_auth::AuthEnableServiceProfileResponse, TrellisAuthError>;
+    pub async fn remove_service_profile(
+        &self,
+        profile_id: &str,
+    ) -> Result<bool, TrellisAuthError>;
+    pub async fn list_service_instances(
+        &self,
+        instance_id: Option<&str>,
+        profile_id: Option<&str>,
+        disabled: Option<bool>,
+    ) -> Result<Vec<trellis_sdk_auth::AuthListServiceInstancesResponseInstancesItem>, TrellisAuthError>;
+    pub async fn provision_service_instance(
+        &self,
+        request: &trellis_sdk_auth::AuthProvisionServiceInstanceRequest,
+    ) -> Result<trellis_sdk_auth::AuthProvisionServiceInstanceResponse, TrellisAuthError>;
+    pub async fn disable_service_instance(
+        &self,
+        instance_id: &str,
+    ) -> Result<trellis_sdk_auth::AuthDisableServiceInstanceResponse, TrellisAuthError>;
+    pub async fn enable_service_instance(
+        &self,
+        instance_id: &str,
+    ) -> Result<trellis_sdk_auth::AuthEnableServiceInstanceResponse, TrellisAuthError>;
+    pub async fn remove_service_instance(
+        &self,
+        instance_id: &str,
+    ) -> Result<bool, TrellisAuthError>;
     pub async fn get_installed_contract(
         &self,
         digest: &str,
