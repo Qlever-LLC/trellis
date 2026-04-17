@@ -2,10 +2,10 @@ import {
   fetchPortalFlowState,
   portalFlowIdFromUrl,
   portalProviderLoginUrl,
-  type PortalFlowState,
+  type BrowserPortalFlowState as PortalFlowState,
   submitPortalApproval,
   type AuthConfig,
-} from "@qlever-llc/trellis/auth";
+} from "@qlever-llc/trellis/auth/browser";
 
 export type CreatePortalFlowConfig = AuthConfig & {
   getUrl?: () => URL;

@@ -1,6 +1,7 @@
 import type { BaseError, MaybeAsync, Result } from "@qlever-llc/result";
 import { resolve } from "$app/paths";
-import type { EventOpts, HealthHeartbeat } from "@qlever-llc/trellis";
+import type { EventOpts } from "../../../../packages/trellis/trellis.ts";
+import type { HealthHeartbeat } from "@qlever-llc/trellis/health";
 import type { InferSchemaType } from "@qlever-llc/trellis/contracts";
 import { createAuthState, getTrellis as getTrellisContext } from "@qlever-llc/trellis-svelte";
 import { trellisApp } from "../../contracts/trellis_app.ts";

@@ -615,8 +615,8 @@ fn render_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
         manifest_source_reference(&opts.manifest_path, opts.runtime_deps.repo_root.as_deref());
     let mut lines = vec![
         format!("// Generated from {}", escape_js_string(&source_reference)),
-        "import type { TrellisAPI } from \"@qlever-llc/trellis\";".to_string(),
-        "import { schema } from \"@qlever-llc/trellis\";".to_string(),
+        "import type { TrellisAPI } from \"@qlever-llc/trellis/contracts\";".to_string(),
+        "import { schema } from \"@qlever-llc/trellis/contracts\";".to_string(),
         "import * as Types from \"./types.ts\";".to_string(),
         "import { SCHEMAS } from \"./schemas.ts\";".to_string(),
         String::new(),
@@ -1492,6 +1492,8 @@ mod tests {
             sample_opts_and_loaded("@qlever-llc/trellis-sdk-auth", "trellis.auth@v1");
         let api = render_api_ts(&opts, &loaded);
 
+        assert!(api.contains("import type { TrellisAPI } from \"@qlever-llc/trellis/contracts\";"));
+        assert!(api.contains("import { schema } from \"@qlever-llc/trellis/contracts\";"));
         assert!(api.contains("export const OWNED_API = {"));
         assert!(api.contains("export const API = {"));
         assert!(api.contains("owned: OWNED_API"));

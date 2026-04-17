@@ -34,6 +34,9 @@ const config = {
       "@qlever-llc/trellis-svelte": aliasPath(
         "packages/trellis-svelte/src/index.ts",
       ),
+      "@qlever-llc/trellis/auth/browser": aliasPath(
+        "packages/trellis/auth/browser.ts",
+      ),
       "@qlever-llc/trellis/auth": aliasPath("packages/trellis/auth.ts"),
       "@qlever-llc/trellis/contracts": aliasPath("packages/trellis/contracts.ts"),
       "@qlever-llc/trellis/health": aliasPath("packages/trellis/health.ts"),

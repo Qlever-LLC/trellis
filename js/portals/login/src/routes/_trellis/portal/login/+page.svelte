@@ -1,7 +1,7 @@
 <script lang="ts">
   import { browser } from "$app/environment";
   import { onMount } from "svelte";
-  import { portalRedirectLocation } from "@qlever-llc/trellis/auth";
+  import { portalRedirectLocation } from "@qlever-llc/trellis/auth/browser";
   import { createPortalFlow } from "@qlever-llc/trellis-svelte";
   import { APP_CONFIG } from "../../../../lib/config";
 

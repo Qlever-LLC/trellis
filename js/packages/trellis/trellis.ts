@@ -20,7 +20,7 @@ import type { StaticDecode } from "typebox";
 import {
   AuthValidateRequestResponseSchema,
   AuthValidateRequestSchema,
-} from "./auth.ts";
+} from "./auth/protocol.ts";
 import {
   AsyncResult,
   BaseError,

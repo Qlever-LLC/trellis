@@ -22,6 +22,7 @@ export {
   type ApprovalDecision,
   fetchPortalFlowState,
   portalFlowIdFromUrl,
+  type PortalFlowState,
   type PortalFlowState as BrowserPortalFlowState,
   portalProviderLoginUrl,
   portalRedirectLocation,

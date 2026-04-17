@@ -10,7 +10,7 @@ import {
   startAuthRequest as browserStartAuthRequest,
   type SentinelCreds,
   type SessionKeyHandle,
-} from "@qlever-llc/trellis/auth";
+} from "@qlever-llc/trellis/auth/browser";
 import { Result } from "@qlever-llc/result";
 import { SvelteDate } from "svelte/reactivity";
 import { Type } from "typebox";

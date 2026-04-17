@@ -1,12 +1,24 @@
 import { jwtAuthenticator, type NatsConnection } from "@nats-io/nats-core";
 import {
   buildLoginUrl,
+  bindSession,
+  clearSessionKey,
+  createRpcProof,
+  generateSessionKey,
   getOrCreateSessionKey,
+  getPublicSessionKey,
+  hasSessionKey,
+  isBindSuccessResponse,
+  loadSessionKey,
+  natsConnectSigForBindingToken,
   startAuthRequest,
-} from "./auth.ts";
-import { BindResponseSchema } from "./auth.ts";
-import { createAuth } from "./auth.ts";
-import { sha256, utf8 } from "./auth.ts";
+} from "./auth/browser.ts";
+import { BindResponseSchema, sha256, toArrayBuffer, utf8 } from "./auth/browser.ts";
+import { canonicalizeJsonValue } from "./auth/utils.ts";
+import {
+  importEd25519PrivateKeyFromSeedBase64url,
+  publicKeyBase64urlFromPrivateKey,
+} from "./auth/keys.ts";
 import type { ClientOpts } from "./client.ts";
 import type { TrellisAPI, TrellisContractV1 } from "./contracts.ts";
 import {
@@ -20,7 +32,6 @@ import { Value } from "typebox/value";
 import {
   type SessionKeyHandle,
   bindFlowSig,
-  getPublicSessionKey,
   oauthInitSig,
   signBytes,
 } from "./auth/browser/session.ts";
@@ -179,18 +190,29 @@ async function signDomainValue(sign: (data: Uint8Array) => Promise<Uint8Array>, 
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
 
+async function createSessionKeyRuntimeIdentity(sessionKeySeed: string): Promise<ClientRuntimeIdentity> {
+  const privateKey = await importEd25519PrivateKeyFromSeedBase64url(sessionKeySeed);
+  const sessionKey = await publicKeyBase64urlFromPrivateKey(privateKey);
+  const sign = async (data: Uint8Array): Promise<Uint8Array> => {
+    const signature = await crypto.subtle.sign("Ed25519", privateKey, toArrayBuffer(data));
+    return new Uint8Array(signature);
+  };
+
+  return {
+    mode: "session_key",
+    sessionKey,
+    sign,
+    oauthInitSig: (redirectTo, context) =>
+      signDomainValue(sign, "oauth-init", `${redirectTo}:${canonicalizeJsonValue(context ?? null)}`),
+    bindingTokenSig: (bindingToken) => signDomainValue(sign, "nats-connect", bindingToken),
+    bootstrapSig: (iat) => signDomainValue(sign, "bootstrap-client", String(iat)),
+    bindFlowSig: (flowId) => signDomainValue(sign, "bind-flow", flowId),
+  };
+}
+
 async function resolveClientIdentity(auth: ClientAuthOptions | undefined): Promise<ClientRuntimeIdentity> {
   if (auth?.mode === "session_key") {
-    const sessionAuth = await createAuth({ sessionKeySeed: auth.sessionKeySeed });
-    return {
-      mode: "session_key",
-      sessionKey: sessionAuth.sessionKey,
-      sign: sessionAuth.sign,
-      oauthInitSig: sessionAuth.oauthInitSig,
-      bindingTokenSig: sessionAuth.natsConnectSigForBindingToken,
-      bootstrapSig: (iat) => signDomainValue(sessionAuth.sign, "bootstrap-client", String(iat)),
-      bindFlowSig: (flowId) => signDomainValue(sessionAuth.sign, "bind-flow", flowId),
-    };
+    return await createSessionKeyRuntimeIdentity(auth.sessionKeySeed);
   }
 
   const handle = auth?.handle ?? await getOrCreateSessionKey();

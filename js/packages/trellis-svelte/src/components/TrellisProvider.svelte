@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { NatsConnection } from "@nats-io/nats-core";
   import { AsyncResult } from "@qlever-llc/result";
-  import type { Trellis, TrellisAPI } from "@qlever-llc/trellis";
+  import type { Trellis, TrellisAPI } from "../../../trellis/trellis.ts";
   import { onDestroy } from "svelte";
   import type { Snippet } from "svelte";
   import {
@@ -14,7 +14,7 @@
   import {
     type TrellisClientContract,
   } from "../state/trellis.svelte.ts";
-  import { TrellisClient } from "@qlever-llc/trellis";
+  import { TrellisClient } from "../../../trellis/client_connect.ts";
 
   type Props = {
     children: Snippet;

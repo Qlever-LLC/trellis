@@ -3,14 +3,14 @@ import {
   type NatsConnection,
   wsconnect,
 } from "@nats-io/nats-core";
-import type { Trellis } from "@qlever-llc/trellis";
+import type { Trellis } from "../../../trellis/trellis.ts";
 import {
   getPublicSessionKey,
   natsConnectSigForBindingToken,
   type SentinelCreds,
   type SessionKeyHandle,
   signBytes,
-} from "@qlever-llc/trellis/auth";
+} from "@qlever-llc/trellis/auth/browser";
 import { AsyncResult, UnexpectedError } from "@qlever-llc/result";
 import {
   API as AUTH_API,
