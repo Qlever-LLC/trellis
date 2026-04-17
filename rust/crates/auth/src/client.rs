@@ -156,6 +156,7 @@ struct ClearDevicePortalSelectionResponse {
 #[serde(rename_all = "camelCase")]
 struct CreatePortalRequest {
     portal_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     app_contract_id: Option<String>,
     entry_url: String,
 }
@@ -1101,6 +1102,24 @@ mod tests {
             json!({
                 "portalId": "main",
                 "appContractId": "trellis.portal@v1",
+                "entryUrl": "https://portal.example.com/auth"
+            })
+        );
+    }
+
+    #[test]
+    fn portal_create_requests_omit_app_contract_id_when_unset() {
+        let value = serde_json::to_value(CreatePortalRequest {
+            portal_id: "main".to_string(),
+            app_contract_id: None,
+            entry_url: "https://portal.example.com/auth".to_string(),
+        })
+        .expect("serialize portal create request without app contract");
+
+        assert_eq!(
+            value,
+            json!({
+                "portalId": "main",
                 "entryUrl": "https://portal.example.com/auth"
             })
         );
