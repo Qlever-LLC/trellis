@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { assertEquals, assertNotEquals, assertRejects } from "@std/assert";
 import type { Msg, NatsConnection, Subscription } from "@nats-io/nats-core";
 import { type BaseError, Result } from "@qlever-llc/result";
 import { core } from "@qlever-llc/trellis-sdk/core";
@@ -161,6 +161,19 @@ function authenticatorsFromValue(value: unknown): Array<(...args: unknown[]) => 
   return [];
 }
 
+function authTokenFromAuthenticatorResult(value: unknown): string {
+  if (!value || typeof value !== "object") {
+    throw new Error("Expected NATS authenticator to return an auth token payload");
+  }
+
+  const record = value as { auth_token?: unknown };
+  if (typeof record.auth_token !== "string") {
+    throw new Error("Expected NATS authenticator to return auth_token");
+  }
+
+  return record.auth_token;
+}
+
 const logDisabledOk: NonNullable<
   TrellisServiceConnectArgs<typeof core>["server"]
 > = {
@@ -274,6 +287,57 @@ Deno.test("TrellisService.connect uses bootstrap response transport details", as
     assertEquals(authenticatorCount, 2);
   } finally {
     globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("TrellisService.connectInternal uses a reconnect-safe auth token authenticator", async () => {
+  const originalNow = Date.now;
+  let firstToken = "";
+  let secondToken = "";
+  let authenticatorCount = 0;
+
+  try {
+    let nowMs = 1_700_000_000_000;
+    Date.now = () => nowMs;
+
+    await assertRejects(
+      () =>
+        TrellisService.connectInternal("svc", {
+          sessionKeySeed: TEST_SEED,
+          nats: {
+            servers: "nats://127.0.0.1:4222",
+            authenticator: () => ({ jwt: "sentinel-jwt" }),
+          },
+          server: {
+            api: core.API.owned,
+            trellisApi: core.API.trellis,
+            log: false,
+          },
+        }, {
+          connect: async (opts): Promise<NatsConnection> => {
+            const authenticators = authenticatorsFromValue(opts.authenticator);
+            authenticatorCount = authenticators.length;
+
+            firstToken = authTokenFromAuthenticatorResult(authenticators[0]?.());
+            nowMs += 31_000;
+            secondToken = authTokenFromAuthenticatorResult(authenticators[0]?.());
+
+            throw new Error("stop-after-authenticator");
+          },
+        }),
+      Error,
+      "stop-after-authenticator",
+    );
+
+    const first = JSON.parse(firstToken) as { sessionKey: string; iat: number; sig: string };
+    const second = JSON.parse(secondToken) as { sessionKey: string; iat: number; sig: string };
+
+    assertEquals(authenticatorCount, 2);
+    assertEquals(first.sessionKey, second.sessionKey);
+    assertEquals(second.iat - first.iat, 31);
+    assertNotEquals(first.sig, second.sig);
+  } finally {
+    Date.now = originalNow;
   }
 });
 
