@@ -18,6 +18,7 @@ LABEL io.trellis.contract.path="/trellis/contract.json"
 COPY js /app/js
 COPY generated/js /app/generated/js
 COPY generated/contracts/manifests/trellis.auth@v1.json /trellis/contract.json
+RUN rm -rf /app/js/portals/login/contracts /app/js/portals/login/src /app/js/portals/login/node_modules /app/js/portals/login/.svelte-kit && rm -f /app/js/portals/login/README.md /app/js/portals/login/svelte.config.js /app/js/portals/login/tsconfig.check.json /app/js/portals/login/tsconfig.json /app/js/portals/login/vite.config.js
 COPY --from=portal-build /app/js/portals/login/build /app/js/portals/login/build
 
 WORKDIR /app/js/services/trellis
