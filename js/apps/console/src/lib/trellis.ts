@@ -1,4 +1,4 @@
-import type { BaseError, Result } from "@qlever-llc/result";
+import type { BaseError, MaybeAsync, Result } from "@qlever-llc/result";
 import { resolve } from "$app/paths";
 import type { EventOpts, HealthHeartbeat } from "@qlever-llc/trellis";
 import type { InferSchemaType } from "@qlever-llc/trellis/contracts";
@@ -36,7 +36,7 @@ type AppTrellis = {
   event(
     method: "Health.Heartbeat",
     subjectData: Record<string, unknown>,
-    fn: (heartbeat: HealthHeartbeat) => void | Promise<void>,
+    fn: (heartbeat: HealthHeartbeat) => MaybeAsync<void, BaseError>,
     opts?: EventOpts,
   ): Promise<Result<void, BaseError>>;
 };

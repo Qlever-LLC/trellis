@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { HealthHeartbeat } from "@qlever-llc/trellis/health";
+  import { ok } from "@qlever-llc/result";
   import { onMount } from "svelte";
   import {
     appendHealthEvent,
@@ -58,8 +59,9 @@
     now = receivedAt;
   }
 
-  function handleHeartbeat(heartbeat: HealthHeartbeat): void {
+  function handleHeartbeat(heartbeat: HealthHeartbeat) {
     ingestHeartbeat(heartbeat);
+    return ok(undefined);
   }
 
   onMount(() => {
@@ -74,7 +76,7 @@
         const result = await trellis.event(
           "Health.Heartbeat",
           {},
-          handleHeartbeat as never,
+          handleHeartbeat,
           { mode: "ephemeral", replay: "new", signal: controller.signal },
         );
 
