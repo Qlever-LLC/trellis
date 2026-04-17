@@ -1,5 +1,6 @@
 import { TrellisService } from "@qlever-llc/trellis/host/deno";
 import * as rpc from "./rpc/index.ts";
+import { createDemoJobs } from "./jobs.ts";
 import contract from "../contracts/demo_service.ts";
 import config from "../deno.json" with { type: "json" };
 
@@ -26,15 +27,25 @@ async function main(): Promise<void> {
     },
   });
 
+  const jobs = createDemoJobs(service);
+  const workerHost = await jobs.startWorkers();
+  const processOwner = {
+    operation(name: "Demo.Files.Process") {
+      return {
+        accept: (args: { sessionKey: string }) => service.operation(name).accept(args),
+      };
+    },
+  };
+
   await service.trellis.mount("Demo.Groups.List", rpc.listGroupsRpc);
   await service.trellis.mount(
-    "Demo.Files.InitiateUpload",
-    rpc.initiateUploadRpc,
+    "Demo.Files.Process.Start",
+    rpc.createStartFileProcessingRpc(processOwner, jobs),
   );
 
   console.info(`demo service started`);
 
-  const stop = () => service.stop().finally(() => Deno.exit(0));
+  const stop = () => Promise.all([workerHost.stop(), service.stop()]).finally(() => Deno.exit(0));
   Deno.addSignalListener("SIGINT", stop);
   Deno.addSignalListener("SIGTERM", stop);
 

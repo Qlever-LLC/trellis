@@ -5,7 +5,7 @@ import { ulid } from "ulid";
 import type { TrellisAuth } from "../trellis.ts";
 import type { StoreError } from "../errors/StoreError.ts";
 import { TransferError } from "../errors/TransferError.ts";
-import { type StoreInfo, TypedStore } from "../store.ts";
+import { type StoreInfo, TypedStore, TypedStoreEntry } from "../store.ts";
 import type {
   DownloadTransferGrant,
   FileInfo,
@@ -31,6 +31,7 @@ export type InitiateUploadArgs = {
   maxBytes?: number;
   contentType?: string;
   metadata?: Record<string, string>;
+  onStored?: (stored: StoredTransfer) => Promise<void> | void;
 };
 
 export type InitiateDownloadArgs = {
@@ -48,6 +49,14 @@ type ServiceTransferOpts = {
   chunkBytes?: number;
 };
 
+export type StoredTransfer = {
+  transferId: string;
+  sessionKey: string;
+  store: TypedStore;
+  entry: TypedStoreEntry;
+  info: FileInfo;
+};
+
 type UploadSession = {
   kind: "upload";
   subject: string;
@@ -59,6 +68,7 @@ type UploadSession = {
   maxBytes?: number;
   contentType?: string;
   metadata?: Record<string, string>;
+  onStored?: (stored: StoredTransfer) => Promise<void> | void;
   subscription: Subscription;
   timeoutId: ReturnType<typeof setTimeout>;
   queue: AsyncChunkQueue;
@@ -79,6 +89,16 @@ type DownloadSession = {
   subscription: Subscription;
   timeoutId: ReturnType<typeof setTimeout>;
 };
+
+function effectiveUploadMaxBytes(argsMaxBytes?: number, storeMaxObjectBytes?: number): number | undefined {
+  if (argsMaxBytes === undefined) {
+    return storeMaxObjectBytes;
+  }
+  if (storeMaxObjectBytes === undefined) {
+    return argsMaxBytes;
+  }
+  return Math.min(argsMaxBytes, storeMaxObjectBytes);
+}
 
 class AsyncChunkQueue implements AsyncIterable<Uint8Array> {
   #values: Uint8Array[] = [];
@@ -218,6 +238,14 @@ export class ServiceTransfer {
       return Result.err(storeValue.error);
     }
 
+    const storeStatus = await storeValue.status();
+    const storeStatusValue = storeStatus.take();
+    if (isErr(storeStatusValue)) {
+      return Result.err(new TransferError({ operation: "initiateUpload", cause: storeStatusValue.error }));
+    }
+
+    const maxBytes = effectiveUploadMaxBytes(args.maxBytes, storeStatusValue.maxObjectBytes);
+
     const transferId = ulid();
     const subject = `${UPLOAD_SUBJECT_PREFIX}.${this.#auth.sessionKey.slice(0, 16)}.${transferId}`;
     const expiresAtMs = Date.now() + args.expiresInMs;
@@ -236,9 +264,10 @@ export class ServiceTransfer {
       expiresAtMs,
       store: storeValue,
       key: args.key,
-      ...(args.maxBytes !== undefined ? { maxBytes: args.maxBytes } : {}),
+      ...(maxBytes !== undefined ? { maxBytes } : {}),
       ...(args.contentType ? { contentType: args.contentType } : {}),
       ...(args.metadata ? { metadata: args.metadata } : {}),
+      ...(args.onStored ? { onStored: args.onStored } : {}),
       subscription,
       timeoutId: setTimeout(() => this.#expireUploadSession(subject), args.expiresInMs),
       queue,
@@ -259,7 +288,7 @@ export class ServiceTransfer {
       subject,
       expiresAt: new Date(expiresAtMs).toISOString(),
       chunkBytes: this.#chunkBytes,
-      ...(args.maxBytes !== undefined ? { maxBytes: args.maxBytes } : {}),
+      ...(maxBytes !== undefined ? { maxBytes } : {}),
       ...(args.contentType ? { contentType: args.contentType } : {}),
       ...(args.metadata ? { metadata: args.metadata } : {}),
     });
@@ -418,7 +447,19 @@ export class ServiceTransfer {
         return;
       }
 
-      msg.respond(JSON.stringify({ status: "complete", info: fileInfoFromStoreInfo(storedValue.info) }));
+      const info = fileInfoFromStoreInfo(storedValue.info);
+      msg.respond(JSON.stringify({ status: "complete", info }));
+      if (session.onStored) {
+        void Promise.resolve(session.onStored({
+          transferId: session.transferId,
+          sessionKey: session.sessionKey,
+          store: session.store,
+          entry: storedValue,
+          info,
+        })).catch((error) => {
+          console.error("transfer onStored callback failed", error);
+        });
+      }
       this.#cleanupUploadSession(session.subject);
       return;
     }

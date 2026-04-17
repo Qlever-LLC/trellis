@@ -21,6 +21,7 @@ import { RemoteError } from "./errors/RemoteError.ts";
 import type { LoggerLike } from "./globals.ts";
 import { serverLogger } from "./server_logger.ts";
 import {
+  type AcceptedOperation,
   type AnyTrellisAPI,
   type AuthValidateRequestResponse,
   base64urlDecode,
@@ -84,6 +85,7 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
   #version?: string;
   #log: LoggerLike;
   #operations = new Map<string, RuntimeOperationRecord>();
+  #mountedOperationControls = new Set<string>();
   readonly operations: RuntimeOperationController;
 
   private constructor(
@@ -216,6 +218,367 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
     return ok(runtime.snapshot);
   }
 
+  #makeAcceptedOperation(
+    runtime: RuntimeOperationRecord,
+  ): AcceptedOperation<unknown, unknown> {
+    return {
+      id: runtime.id,
+      ref: {
+        id: runtime.id,
+        service: runtime.service,
+        operation: runtime.operation,
+      },
+      snapshot: runtime.snapshot,
+      started: async () => await this.operations.started(runtime.id),
+      progress: async (value: unknown) => await this.operations.progress(runtime.id, value),
+      complete: async (value: unknown) => await this.operations.complete(runtime.id, value),
+      fail: async (error: BaseError) => await this.operations.fail(runtime.id, error),
+      cancel: async () => await this.operations.cancel(runtime.id),
+      attach: async (job: { wait(): Promise<Result<unknown, BaseError>> }) => {
+        const waited = await job.wait();
+        const waitedValue = waited.take();
+        if (isErr(waitedValue)) {
+          return err(new UnexpectedError({ cause: waitedValue.error }));
+        }
+
+        const finalRuntime = await this.#resolveOperation(runtime.id);
+        if (!finalRuntime || !finalRuntime.terminal) {
+          return err(
+            new UnexpectedError({
+              cause: new Error(
+                "attached job completed without terminal operation state",
+              ),
+            }),
+          );
+        }
+
+        return ok(finalRuntime.snapshot);
+      },
+    };
+  }
+
+  async #acceptOperation(
+    operation: string,
+    sessionKey: string,
+  ): Promise<Result<AcceptedOperation<unknown, unknown>, UnexpectedError>> {
+    const createdAt = new Date().toISOString();
+    const operationId = ulid();
+    const runtime: RuntimeOperationRecord = {
+      id: operationId,
+      service: this.name,
+      operation,
+      ownerSessionKey: sessionKey,
+      snapshot: {
+        id: operationId,
+        service: this.name,
+        operation,
+        revision: 1,
+        state: "pending",
+        createdAt,
+        updatedAt: createdAt,
+      },
+      sequence: 0,
+      terminal: false,
+      watchers: new Set(),
+      waiters: new Set(),
+    };
+    this.#operations.set(operationId, runtime);
+    await this.saveOperationRecord(runtime);
+    return ok(this.#makeAcceptedOperation(runtime));
+  }
+
+  async #authenticateOperationMessage(
+    msg: Msg,
+    ctx: RegisteredRuntimeOperationDesc,
+    parseInput: boolean,
+  ): Promise<
+    Result<{
+      input: unknown;
+      caller: AuthValidateRequestResponse["caller"];
+      sessionKey: string;
+      auth: AuthValidateRequestResponse;
+    }, UnexpectedError | AuthError | ValidationError | RemoteError>
+  > {
+    const jsonData = safeJson(msg).take();
+    if (isErr(jsonData)) return jsonData;
+
+    let parsedInput: unknown;
+    if (parseInput) {
+      const parsedInputResult = parseSchema(
+        ctx.input as Parameters<typeof parseSchema>[0],
+        jsonData,
+      ).take();
+      if (isErr(parsedInputResult)) {
+        return err(
+          parsedInputResult.error as ValidationError | UnexpectedError,
+        );
+      }
+      parsedInput = parsedInputResult;
+    } else {
+      parsedInput = jsonData;
+    }
+
+    const sessionKey = msg.headers?.get("session-key");
+    const proof = msg.headers?.get("proof");
+    if (!sessionKey) {
+      return err(new AuthError({ reason: "missing_session_key" }));
+    }
+    if (!proof) return err(new AuthError({ reason: "missing_proof" }));
+
+    const payloadBytes = msg.data ?? new Uint8Array();
+    const payloadHash = await sha256(payloadBytes);
+    const proofInput = buildProofInput(sessionKey, msg.subject, payloadHash);
+    const digest = await sha256(proofInput);
+
+    const verifyResult = await AsyncResult.try(async () => {
+      const publicKeyRaw = base64urlDecode(sessionKey);
+      const pub = await crypto.subtle.importKey(
+        "raw",
+        toArrayBuffer(publicKeyRaw),
+        { name: "Ed25519" },
+        true,
+        ["verify"],
+      );
+      return crypto.subtle.verify(
+        { name: "Ed25519" },
+        pub,
+        toArrayBuffer(base64urlDecode(proof)),
+        toArrayBuffer(digest),
+      );
+    });
+    const signatureOk = verifyResult.isOk() &&
+      (await verifyResult).take() === true;
+    if (!signatureOk) {
+      return err(
+        new AuthError({
+          reason: "invalid_signature",
+          context: { sessionKey },
+        }),
+      );
+    }
+
+    const authResult = await this.requestAuthValidate({
+      sessionKey,
+      proof,
+      subject: msg.subject,
+      payloadHash: base64urlEncode(payloadHash),
+      capabilities: ctx.callerCapabilities
+        ? [...ctx.callerCapabilities]
+        : undefined,
+    });
+    const auth = authResult.take();
+    if (isErr(auth)) {
+      return err(
+        auth.error as
+          | RemoteError
+          | ValidationError
+          | UnexpectedError
+          | AuthError,
+      );
+    }
+
+    if (!auth.allowed) {
+      return err(
+        new AuthError({
+          reason: "insufficient_permissions",
+          context: {
+            requiredCapabilities: ctx.callerCapabilities,
+            userCapabilities: auth.caller.capabilities,
+          },
+        }),
+      );
+    }
+
+    if (
+      typeof msg.reply !== "string" ||
+      !msg.reply.startsWith(`${auth.inboxPrefix}.`)
+    ) {
+      return err(
+        new AuthError({
+          reason: "reply_subject_mismatch",
+          context: { expected: auth.inboxPrefix, actual: msg.reply },
+        }),
+      );
+    }
+
+    return ok({
+      input: parsedInput,
+      caller: auth.caller,
+      sessionKey,
+      auth,
+    });
+  }
+
+  #ensureOperationControlLoop(
+    operation: string,
+    ctx: RegisteredRuntimeOperationDesc,
+  ): void {
+    const controlSubject = `${ctx.subject}.control`;
+    if (this.#mountedOperationControls.has(controlSubject)) {
+      return;
+    }
+    this.#mountedOperationControls.add(controlSubject);
+
+    const publishFrame = async (reply: string, frame: unknown) => {
+      await this.nats.publish(reply, JSON.stringify(frame));
+    };
+
+    const publishSnapshot = async (
+      reply: string,
+      snapshot: RuntimeOperationSnapshot,
+    ) => {
+      await publishFrame(reply, { kind: "snapshot", snapshot });
+    };
+
+    const controlSub = this.nats.subscribe(controlSubject);
+    void (async () => {
+      for await (const msg of controlSub) {
+        const validated = await this.#authenticateOperationMessage(msg, ctx, false);
+        const value = validated.take();
+        if (isErr(value)) {
+          this.respondWithError(msg, value.error);
+          continue;
+        }
+
+        const request = safeJson(msg).take();
+        if (isErr(request)) {
+          this.respondWithError(msg, request.error);
+          continue;
+        }
+
+        if (
+          !request ||
+          typeof request !== "object" ||
+          typeof (request as RuntimeOperationControlRequest).action !== "string" ||
+          typeof (request as RuntimeOperationControlRequest).operationId !== "string"
+        ) {
+          this.respondWithError(
+            msg,
+            new UnexpectedError({
+              cause: new Error("Invalid operation control request"),
+            }),
+          );
+          continue;
+        }
+
+        const control = request as RuntimeOperationControlRequest;
+        const runtime = this.#operations.get(control.operationId);
+        const durableRecord = runtime
+          ? null
+          : await this.loadOperationRecord(control.operationId);
+        if (!runtime && !durableRecord) {
+          this.respondWithError(
+            msg,
+            new UnexpectedError({
+              cause: new Error(`Unknown operation '${control.operationId}'`),
+            }),
+          );
+          continue;
+        }
+
+        const snapshot = runtime?.snapshot ?? durableRecord!.snapshot;
+        const ownerSessionKey = runtime?.ownerSessionKey ?? durableRecord!.ownerSessionKey;
+
+        if (ownerSessionKey !== value.sessionKey) {
+          this.respondWithError(
+            msg,
+            new AuthError({
+              reason: "forbidden",
+              context: { ownerSessionKey },
+            }),
+          );
+          continue;
+        }
+
+        if (control.action === "watch") {
+          if (msg.reply) {
+            await publishSnapshot(msg.reply, snapshot);
+            if (!runtime) continue;
+            runtime.watchers.add(msg.reply);
+          }
+          continue;
+        }
+
+        if (control.action === "wait") {
+          if (
+            snapshot.state === "completed" || snapshot.state === "failed" ||
+            snapshot.state === "cancelled"
+          ) {
+            msg.respond(JSON.stringify({ kind: "snapshot", snapshot }));
+          } else if (runtime && msg.reply) {
+            runtime.waiters.add(msg.reply);
+          } else if (msg.reply) {
+            this.respondWithError(
+              msg,
+              new UnexpectedError({
+                cause: new Error("operation is not running in this process"),
+              }),
+            );
+          } else {
+            this.respondWithError(
+              msg,
+              new UnexpectedError({
+                cause: new Error("missing reply subject for wait request"),
+              }),
+            );
+          }
+          continue;
+        }
+
+        if (control.action === "get") {
+          msg.respond(JSON.stringify({ kind: "snapshot", snapshot }));
+          continue;
+        }
+
+        if (control.action === "cancel") {
+          if (!runtime) {
+            msg.respond(JSON.stringify({ kind: "snapshot", snapshot }));
+            continue;
+          }
+          runtime.snapshot = {
+            ...runtime.snapshot,
+            revision: runtime.snapshot.revision + 1,
+            state: "cancelled",
+            updatedAt: new Date().toISOString(),
+            completedAt: new Date().toISOString(),
+          };
+          runtime.terminal = true;
+          runtime.sequence += 1;
+          await this.saveOperationRecord(runtime);
+          const frame = {
+            kind: "event",
+            sequence: runtime.sequence,
+            event: {
+              type: "cancelled",
+              snapshot: runtime.snapshot,
+            },
+          };
+          for (const reply of runtime.watchers) {
+            await this.nats.publish(reply, JSON.stringify(frame));
+          }
+          for (const reply of runtime.waiters) {
+            await this.nats.publish(
+              reply,
+              JSON.stringify({ kind: "snapshot", snapshot: runtime.snapshot }),
+            );
+          }
+          runtime.waiters.clear();
+          msg.respond(JSON.stringify({ kind: "snapshot", snapshot: runtime.snapshot }));
+          continue;
+        }
+
+        this.respondWithError(
+          msg,
+          new UnexpectedError({
+            cause: new Error(
+              `Unknown operation control action '${control.action}' for '${operation}'`,
+            ),
+          }),
+        );
+      }
+    })();
+  }
+
   static create<TA extends AnyTrellisAPI>(
     name: string,
     nats: NatsConnection,
@@ -244,13 +607,16 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
     }
 
     return {
+      accept: async ({ sessionKey }) => {
+        this.#ensureOperationControlLoop(String(operation), ctx);
+        return await this.#acceptOperation(String(operation), sessionKey);
+      },
       handle: async (
         handler: (
           context: OperationHandlerContext<unknown, unknown, unknown>,
         ) => unknown | Promise<unknown>,
       ) => {
         const startSubject = ctx.subject;
-        const controlSubject = `${ctx.subject}.control`;
         const now = () => new Date().toISOString();
 
         const publishFrame = async (reply: string, frame: unknown) => {
@@ -552,8 +918,8 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
           `Mounting ${String(operation)} operation handler`,
         );
 
+        this.#ensureOperationControlLoop(String(operation), ctx);
         const startSub = this.nats.subscribe(startSubject);
-        const controlSub = this.nats.subscribe(controlSubject);
         await this.nats.flush();
 
         void (async () => {
@@ -631,152 +997,6 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
                 await op.fail(new UnexpectedError({ cause }));
               }
             })();
-          }
-        })();
-
-        void (async () => {
-          for await (const msg of controlSub) {
-            const validated = await authenticate(msg, false);
-            const value = validated.take();
-            if (isErr(value)) {
-              this.respondWithError(msg, value.error);
-              continue;
-            }
-
-            const request = safeJson(msg).take();
-            if (isErr(request)) {
-              this.respondWithError(msg, request.error);
-              continue;
-            }
-
-            if (
-              !request ||
-              typeof request !== "object" ||
-              typeof (request as RuntimeOperationControlRequest).action !==
-                "string" ||
-              typeof (request as RuntimeOperationControlRequest).operationId !==
-                "string"
-            ) {
-              this.respondWithError(
-                msg,
-                new UnexpectedError({
-                  cause: new Error("Invalid operation control request"),
-                }),
-              );
-              continue;
-            }
-
-            const control = request as RuntimeOperationControlRequest;
-            const runtime = this.#operations.get(control.operationId);
-            const durableRecord = runtime
-              ? null
-              : await this.loadOperationRecord(control.operationId);
-            if (!runtime && !durableRecord) {
-              this.respondWithError(
-                msg,
-                new UnexpectedError({
-                  cause: new Error(
-                    `Unknown operation '${control.operationId}'`,
-                  ),
-                }),
-              );
-              continue;
-            }
-
-            const snapshot = runtime?.snapshot ?? durableRecord!.snapshot;
-            const ownerSessionKey = runtime?.ownerSessionKey ??
-              durableRecord!.ownerSessionKey;
-
-            if (ownerSessionKey !== value.sessionKey) {
-              this.respondWithError(
-                msg,
-                new AuthError({
-                  reason: "forbidden",
-                  context: { ownerSessionKey },
-                }),
-              );
-              continue;
-            }
-
-            if (control.action === "watch") {
-              if (msg.reply) {
-                await publishSnapshot(msg.reply, snapshot);
-                if (!runtime) continue;
-                runtime.watchers.add(msg.reply);
-              }
-              continue;
-            }
-
-            if (control.action === "wait") {
-              if (
-                snapshot.state === "completed" || snapshot.state === "failed" ||
-                snapshot.state === "cancelled"
-              ) {
-                msg.respond(JSON.stringify({ kind: "snapshot", snapshot }));
-              } else if (runtime && msg.reply) {
-                runtime.waiters.add(msg.reply);
-              } else if (msg.reply) {
-                this.respondWithError(
-                  msg,
-                  new UnexpectedError({
-                    cause: new Error(
-                      "operation is not running in this process",
-                    ),
-                  }),
-                );
-              } else {
-                this.respondWithError(
-                  msg,
-                  new UnexpectedError({
-                    cause: new Error("missing reply subject for wait request"),
-                  }),
-                );
-              }
-              continue;
-            }
-
-            if (control.action === "get") {
-              msg.respond(JSON.stringify({ kind: "snapshot", snapshot }));
-              continue;
-            }
-
-            if (control.action === "cancel") {
-              if (!runtime) {
-                msg.respond(JSON.stringify({ kind: "snapshot", snapshot }));
-                continue;
-              }
-              runtime.snapshot = {
-                ...runtime.snapshot,
-                revision: runtime.snapshot.revision + 1,
-                state: "cancelled",
-                updatedAt: now(),
-                completedAt: now(),
-              };
-              runtime.terminal = true;
-              runtime.sequence += 1;
-              await this.saveOperationRecord(runtime);
-              await publishEventToWatchers(runtime, {
-                type: "cancelled",
-                snapshot: runtime.snapshot,
-              });
-              await flushWaiters(runtime);
-              msg.respond(
-                JSON.stringify({
-                  kind: "snapshot",
-                  snapshot: runtime.snapshot,
-                }),
-              );
-              continue;
-            }
-
-            this.respondWithError(
-              msg,
-              new UnexpectedError({
-                cause: new Error(
-                  `Unknown operation control action '${control.action}'`,
-                ),
-              }),
-            );
           }
         })();
 

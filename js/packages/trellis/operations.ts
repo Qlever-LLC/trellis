@@ -296,6 +296,14 @@ export class OperationInvoker<
     this.#descriptor = descriptor;
   }
 
+  resume(ref: OperationRefData): OperationRef<TDesc, TProgress, TOutput> {
+    return new OperationRef<TDesc, TProgress, TOutput>(
+      this.#transport,
+      this.#descriptor,
+      ref,
+    );
+  }
+
   async start(
     input: TInput,
   ): Promise<Result<OperationRef<TDesc, TProgress, TOutput>, UnexpectedError>> {
@@ -316,10 +324,6 @@ export class OperationInvoker<
       return envelope;
     }
 
-    return ok(new OperationRef<TDesc, TProgress, TOutput>(
-      this.#transport,
-      this.#descriptor,
-      envelope.ref,
-    ));
+    return ok(this.resume(envelope.ref));
   }
 }

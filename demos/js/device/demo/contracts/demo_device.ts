@@ -11,7 +11,10 @@ export const contract = defineDeviceContract(() => ({
     health: health.useDefaults(),
     demo: demoService.use({
       rpc: {
-        call: ["Demo.Groups.List", "Demo.Files.InitiateUpload"],
+        call: ["Demo.Groups.List", "Demo.Files.Process.Start"],
+      },
+      operations: {
+        call: ["Demo.Files.Process"],
       },
     }),
   },

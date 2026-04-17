@@ -1,2 +1,2 @@
 export * from "./groups.ts";
-export { initiateUploadRpc } from "./upload.ts";
+export { createStartFileProcessingRpc } from "./upload.ts";

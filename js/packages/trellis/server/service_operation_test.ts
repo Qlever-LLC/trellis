@@ -60,6 +60,29 @@ const natsConnect: NatsConnectFn = async (opts) => {
   return await connect(connectOpts);
 };
 
+function startPermissiveAuthResponder(nc: Awaited<ReturnType<typeof NatsTest.start>>["nc"]): void {
+  const sub = nc.subscribe("rpc.v1.Auth.ValidateRequest");
+  void (async () => {
+    for await (const msg of sub) {
+      const input = msg.json() as { sessionKey: string };
+      msg.respond(JSON.stringify({
+        allowed: true,
+        inboxPrefix: `_INBOX.${input.sessionKey.slice(0, 16)}`,
+        caller: {
+          type: "user",
+          id: "auth0|test-user",
+          trellisId: "tid_test_user",
+          origin: "test",
+          active: true,
+          name: "Test User",
+          email: "test@example.com",
+          capabilities: ["billing.refund", "billing.read", "billing.cancel", "uploader", "service"],
+        },
+      }));
+    }
+  })();
+}
+
 type RefundOperationHandle = {
   started(): Promise<unknown>;
   progress(value: { message: string }): Promise<unknown>;
@@ -80,6 +103,7 @@ Deno.test({
   ignore: !RUN_NATS_TESTS,
   async fn() {
     await using nats = await NatsTest.start();
+    startPermissiveAuthResponder(nats.nc);
     const info = nats.nc.info!;
     const seed = base64urlEncode(crypto.getRandomValues(new Uint8Array(32)));
     const originalFetch = globalThis.fetch;
@@ -94,8 +118,13 @@ Deno.test({
                 sessionKey: "session-key",
                 contractId: billing.CONTRACT_ID,
                 contractDigest: billing.CONTRACT_DIGEST,
+                transports: {
+                  native: {
+                    natsServers: [`localhost:${info.port}`],
+                    tlsRequired: false,
+                  },
+                },
                 transport: {
-                  natsServers: [`localhost:${info.port}`],
                   sentinel: { jwt: "jwt", seed: "seed" },
                 },
                 auth: {
@@ -168,6 +197,109 @@ Deno.test({
       const terminal = (await ref.wait()).take();
       assertEquals(terminal.state, "completed");
       assertEquals(terminal.output?.refundId, "rf_123");
+
+      await clientNc.drain();
+      await service.stop();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  },
+});
+
+Deno.test({
+  name: "TrellisService.operation.accept creates a durable operation that a client can resume",
+  ignore: !RUN_NATS_TESTS,
+  async fn() {
+    await using nats = await NatsTest.start();
+    startPermissiveAuthResponder(nats.nc);
+    const info = nats.nc.info!;
+    const seed = base64urlEncode(crypto.getRandomValues(new Uint8Array(32)));
+    const originalFetch = globalThis.fetch;
+
+    try {
+      globalThis.fetch = (() => {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              status: "ready",
+              connectInfo: {
+                sessionKey: "session-key",
+                contractId: billing.CONTRACT_ID,
+                contractDigest: billing.CONTRACT_DIGEST,
+                transports: {
+                  native: {
+                    natsServers: [`localhost:${info.port}`],
+                    tlsRequired: false,
+                  },
+                },
+                transport: {
+                  sentinel: { jwt: "jwt", seed: "seed" },
+                },
+                auth: {
+                  mode: "service_identity",
+                  iatSkewSeconds: 30,
+                },
+              },
+              binding: {
+                contractId: billing.CONTRACT_ID,
+                digest: billing.CONTRACT_DIGEST,
+                resources: {
+                  kv: {},
+                  streams: {},
+                },
+              },
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        );
+      }) as typeof fetch;
+
+      const service = await TrellisService.connect({
+        trellisUrl: "https://trellis.example.com",
+        contract: billing,
+        name: "billing-service",
+        sessionKeySeed: seed,
+        server: {},
+      }, { connect: natsConnect });
+
+      const clientNc = await connect({
+        servers: `localhost:${info.port}`,
+        inboxPrefix: `_INBOX.${service.auth.sessionKey.slice(0, 16)}`,
+      });
+      const clientAuth = {
+        sessionKey: service.auth.sessionKey,
+        sign: service.auth.sign,
+      };
+      const client = createClient(billing, clientNc, clientAuth, {
+        name: "billing-client",
+      });
+
+      const accepted = await service.operation("Billing.Refund").accept({
+        sessionKey: service.auth.sessionKey,
+      });
+      const acceptedValue = accepted.take();
+      if (isErr(acceptedValue)) {
+        throw acceptedValue.error;
+      }
+
+      const resumed = client.operation("Billing.Refund").resume(acceptedValue.ref);
+      void (async () => {
+        await acceptedValue.started();
+        await acceptedValue.progress({ message: "working" });
+        await acceptedValue.complete({ refundId: "rf_456" });
+      })();
+
+      const terminal = (await resumed.wait()).match({
+        ok: (value) => value,
+        err: (error) => {
+          throw error;
+        },
+      });
+      assertEquals(terminal.state, "completed");
+      assertEquals(terminal.output?.refundId, "rf_456");
 
       await clientNc.drain();
       await service.stop();

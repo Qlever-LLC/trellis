@@ -47,6 +47,9 @@ type OperationInvoker<
   TOutput,
   TCancelable extends boolean,
 > = {
+  resume(
+    ref: OperationRefData,
+  ): OperationRef<TProgress, TOutput, TCancelable>;
   start(
     input: TInput,
   ): Promise<Result<OperationRef<TProgress, TOutput, TCancelable>, BaseError>>;
@@ -62,7 +65,7 @@ type OperationRef<
   operation: string;
   get(): Promise<Result<OperationSnapshot<TProgress, TOutput>, BaseError>>;
   wait(): Promise<Result<TerminalOperation<TProgress, TOutput>, BaseError>>;
-  watch(): AsyncIterable<OperationEvent<TProgress, TOutput>>;
+  watch(): Promise<Result<AsyncIterable<OperationEvent<TProgress, TOutput>>, BaseError>>;
 } & (TCancelable extends true
   ? {
       cancel(): Promise<Result<OperationSnapshot<TProgress, TOutput>, BaseError>>;
@@ -85,10 +88,13 @@ if (started.isErr()) {
 const op = started.value;
 const snapshot = await op.get();
 const terminal = await op.wait();
+const watch = await op.watch();
 
-for await (const event of op.watch()) {
-  if (event.type === "progress") {
-    console.log(event.snapshot.progress);
+if (watch.isOk()) {
+  for await (const event of watch.value) {
+    if (event.type === "progress") {
+      console.log(event.snapshot.progress);
+    }
   }
 }
 ```
@@ -113,6 +119,9 @@ type OperationDefinition<
   TOutput,
   TCancelable extends boolean,
 > = {
+  accept(args: {
+    sessionKey: string;
+  }): Promise<Result<AcceptedOperation<TProgress, TOutput, TCancelable>, BaseError>>;
   handle(
     handler: (ctx: {
       input: TInput;
@@ -140,6 +149,15 @@ type ActiveOperation<
       cancel(): Promise<Result<TerminalOperation<TProgress, TOutput>, BaseError>>;
     }
   : {});
+
+type AcceptedOperation<
+  TProgress,
+  TOutput,
+  TCancelable extends boolean,
+> = ActiveOperation<TProgress, TOutput, TCancelable> & {
+  ref: OperationRefData;
+  snapshot: OperationSnapshot<TProgress, TOutput>;
+};
 ```
 
 Example:
@@ -170,6 +188,13 @@ await service.operation("Billing.Refund").handle(async ({ input, op }) => {
 
   return await op.attach(created.value);
 });
+
+const accepted = await service.operation("Billing.Refund").accept({
+  sessionKey: callerSessionKey,
+});
+if (accepted.isOk()) {
+  await accepted.value.started();
+}
 ```
 
 ## Shared Types
@@ -214,8 +239,10 @@ type OperationEvent<TProgress, TOutput> =
 ## Generation Rules
 
 - generated runtimes MUST expose one typed `operation(key)` helper per owned or used operation surface
+- generated runtimes MUST expose `resume(ref)` so callers can bind behavior to an operation reference that was returned from another contract-owned API such as an RPC
 - generated runtimes MUST derive `OperationInputOf`, `OperationProgressOf`, `OperationOutputOf`, and `OperationCancelableOf` from the contract
 - generated runtimes MUST hide internal control envelopes and caller reply subjects
+- generated service runtimes MUST expose `accept(...)` so service code can create durable operation refs from other owned entrypoints such as RPCs or transfer callbacks
 - generated runtimes SHOULD omit `cancel()` from non-cancelable operation handles rather than exposing a method that always fails
 - generated runtimes MUST preserve Trellis `Result` conventions for expected remote failures
 

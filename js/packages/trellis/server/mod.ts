@@ -54,6 +54,7 @@ export { ServiceTransfer } from "./transfer.ts";
 export type {
   InitiateDownloadArgs,
   InitiateUploadArgs,
+  StoredTransfer,
   TransferStoreHandle,
 } from "./transfer.ts";
 

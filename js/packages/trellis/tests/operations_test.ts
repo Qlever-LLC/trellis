@@ -123,6 +123,21 @@ Deno.test("OperationInvoker.start type surface stays specific", () => {
   assertEquals(true, true);
 });
 
+Deno.test("OperationInvoker.resume() returns an OperationRef bound to the provided ref data", () => {
+  const transport = new FakeOperationTransport([]);
+  const operation = new OperationInvoker(transport, refundOperation);
+
+  const reference = operation.resume({
+    id: "op_123",
+    service: "billing",
+    operation: "Billing.Refund",
+  });
+
+  assertEquals(reference.id, "op_123");
+  assertEquals(reference.service, "billing");
+  assertEquals(reference.operation, "Billing.Refund");
+});
+
 Deno.test("OperationRef.get() sends action:get to <subject>.control and decodes the snapshot frame", async () => {
   const transport = new FakeOperationTransport([
     {

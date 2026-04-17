@@ -24,6 +24,8 @@ These headings are intentionally named for fast human and AI lookup.
 ## Practical Guides
 
 - Service-local RPC errors: `../docs/guides/service-local-rpc-errors.md`
+- Transfer-backed file processing workflows: `../docs/guides/transfer-file-processing-workflows.md`
+- Working with staged uploaded files: `../docs/guides/staged-store-uploads.md`
 
 ## Core Platform Docs
 

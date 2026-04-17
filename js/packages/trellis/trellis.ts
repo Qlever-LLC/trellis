@@ -325,6 +325,15 @@ export type OperationRuntimeHandle<TProgress = unknown, TOutput = unknown> = {
     job: { wait(): Promise<Result<unknown, BaseError>> },
   ): Promise<Result<RuntimeOperationSnapshot, UnexpectedError>>;
 };
+export type AcceptedOperation<TProgress = unknown, TOutput = unknown> =
+  & OperationRuntimeHandle<TProgress, TOutput>
+  & {
+    ref: OperationRefData;
+    snapshot: RuntimeOperationSnapshot & {
+      progress?: TProgress;
+      output?: TOutput;
+    };
+  };
 export type OperationHandlerContext<
   TInput,
   TProgress = unknown,
@@ -339,6 +348,9 @@ export type OperationRegistration<
   TProgress = unknown,
   TOutput = unknown,
 > = {
+  accept(args: {
+    sessionKey: string;
+  }): Promise<Result<AcceptedOperation<TProgress, TOutput>, UnexpectedError>>;
   handle(
     handler: (
       context: OperationHandlerContext<TInput, TProgress, TOutput>,

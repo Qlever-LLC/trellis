@@ -13,7 +13,7 @@ export const contract = defineServiceContract(
     id: "trellis.demo-service@v1",
     displayName: "Demo Service",
     description:
-      "Demo installable service with a groups RPC and a file upload endpoint.",
+      "Demo installable service with a groups RPC and a file processing workflow.",
     uses: {
       auth: auth.useDefaults(),
       health: health.useDefaults(),
@@ -23,8 +23,16 @@ export const contract = defineServiceContract(
         uploads: {
           purpose: "Temporary uploaded files for the demo service.",
           ttlMs: 0,
-          maxObjectBytes: 1024 * 1024,
-          maxTotalBytes: 8 * 1024 * 1024,
+          maxObjectBytes: 64 * 1024 * 1024,
+          maxTotalBytes: 256 * 1024 * 1024,
+        },
+      },
+      jobs: {
+        queues: {
+          "file-process": {
+            payload: ref.schema("FilesProcessJobPayload"),
+            result: ref.schema("FilesProcessResult"),
+          },
         },
       },
     },
@@ -36,16 +44,28 @@ export const contract = defineServiceContract(
         capabilities: { call: [] },
         errors: [ref.error("UnexpectedError")],
       },
-      "Demo.Files.InitiateUpload": {
+      "Demo.Files.Process.Start": {
         version: "v1",
-        input: ref.schema("FilesInitiateUploadRequest"),
-        output: ref.schema("FilesInitiateUploadResponse"),
+        input: ref.schema("FilesProcessStartRequest"),
+        output: ref.schema("FilesProcessStartResponse"),
         capabilities: { call: ["uploader"] },
         errors: [
           ref.error("ReservedUploadKeyError"),
           ref.error("TransferError"),
           ref.error("UnexpectedError"),
         ],
+      },
+    },
+    operations: {
+      "Demo.Files.Process": {
+        version: "v1",
+        input: ref.schema("FilesProcessStartRequest"),
+        progress: ref.schema("FilesProcessProgress"),
+        output: ref.schema("FilesProcessResult"),
+        capabilities: {
+          call: ["uploader"],
+          read: ["uploader"],
+        },
       },
     },
   }),

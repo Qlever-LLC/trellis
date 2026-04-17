@@ -111,6 +111,7 @@ export type {
   StoreOpenOptions,
   StorePutOptions,
   StoreStatus,
+  StoreWaitOptions,
 } from "./store.ts";
 export {
   DownloadTransferGrantSchema,
@@ -140,6 +141,7 @@ export {
   OperationRef,
 } from "./operations.ts";
 export type {
+  AcceptedOperation,
   EventOpts,
   EventHandler,
   EventName,

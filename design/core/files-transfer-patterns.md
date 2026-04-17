@@ -90,6 +90,18 @@ Rules:
 - the actual byte transfer uses raw NATS chunk traffic rather than JSON/base64 RPC payloads
 - the transfer protocol is Trellis-owned runtime machinery, not a service-specific public protocol surface
 
+### Service-side stored callback
+
+Owning services often need to react when uploaded bytes have actually landed in their backing store.
+
+Rules:
+
+- `service.transfer.initiateUpload(...)` SHOULD support a per-session `onStored(...)` callback
+- `onStored(...)` fires after the staged object has been durably written to the service-owned store
+- `onStored(...)` is the bridge from transfer runtime state into service-owned processing logic; it is not a policy helper that consumes or deletes the object automatically
+- the callback receives normal store-facing primitives such as the staged `TypedStoreEntry`, the owning `TypedStore`, and file info
+- transfer success still means `bytes stored`; failures in `onStored(...)` belong to the service's follow-up workflow rather than to the transfer protocol itself
+
 ### Transfer Grants
 
 Transfer grants are capability objects returned by service-owned initiation RPCs.
@@ -173,6 +185,25 @@ Rules:
 - `service.transfer` may use one or more store aliases as its backing storage
 - services may later mirror or copy files to external systems, but `Files` does not depend on those backends
 - `Files` does not imply shared raw store access across services
+- once an upload completes, service code works with the staged object through normal store APIs such as `onStored(...)`, `waitFor(...)`, `get(...)`, `stream()`, `bytes()`, and `delete(...)`
+- Trellis should make staged uploaded objects easy for the owning service to access, but it does not impose post-upload processing policy on the service author
+
+### Transfer plus operations
+
+For caller-visible file-processing workflows, the recommended pattern is:
+
+1. a contract-owned RPC creates a durable operation and an upload transfer grant
+2. the RPC returns both the transfer grant and the operation ref to the caller
+3. the caller starts watching the operation and uploads the bytes
+4. `onStored(...)` advances the operation and usually enqueues service-private processing work
+
+Rules:
+
+- the start RPC owns business authorization and id allocation for the workflow
+- the client uses `operation(key).resume(ref)` to bind behavior to the returned operation ref
+- `onStored(...)` may update operation progress directly or enqueue a service-private job that does so later
+- use operations for caller-visible progress and final results
+- use jobs for service-private execution, retries, and background processing after the bytes are stored
 
 ### Events
 
