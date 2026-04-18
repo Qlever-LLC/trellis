@@ -20,9 +20,10 @@ It defines only the language-facing surface. Internal wire envelopes, reply-subj
 
 ## Design Rules
 
-- callers start operations with `operation(key).start(input)`
+- callers configure operations with `operation(key).input(input)`
 - callers observe work through `OperationRef`
-- transfer-capable operations expose `op.transfer(body | stream)`
+- transfer initiation is builder-only through `operation(key).input(input).transfer(body).start()`
+- resumed operation refs observe transfer-backed operations through `get()`, `wait()`, and `watch()` but do not initiate byte upload
 - owning services register handlers with `service.operation(key).handle(...)`
 - public TypeScript APIs use `Result` / `AsyncResult` for expected failures
 - public APIs do not expose hidden control subjects or runtime control envelopes
@@ -51,9 +52,73 @@ type OperationInvoker<
   resume(
     ref: OperationRefData,
   ): OperationRef<TProgress, TOutput, TCancelable>;
-  start(
+  input(
     input: TInput,
-  ): Promise<Result<OperationRef<TProgress, TOutput, TCancelable>, BaseError>>;
+  ): OperationInputBuilder<TProgress, TOutput, TCancelable>;
+};
+
+type OperationInputBuilder<TProgress, TOutput, TCancelable extends boolean> = {
+  onAccepted(
+    handler: (event: AcceptedOperationEvent<TProgress, TOutput>) => void | Promise<void>,
+  ): OperationInputBuilder<TProgress, TOutput, TCancelable>;
+  onStarted(
+    handler: (event: StartedOperationEvent<TProgress, TOutput>) => void | Promise<void>,
+  ): OperationInputBuilder<TProgress, TOutput, TCancelable>;
+  onProgress(
+    handler: (event: ProgressOperationEvent<TProgress, TOutput>) => void | Promise<void>,
+  ): OperationInputBuilder<TProgress, TOutput, TCancelable>;
+  onCompleted(
+    handler: (event: CompletedOperationEvent<TProgress, TOutput>) => void | Promise<void>,
+  ): OperationInputBuilder<TProgress, TOutput, TCancelable>;
+  onFailed(
+    handler: (event: FailedOperationEvent<TProgress, TOutput>) => void | Promise<void>,
+  ): OperationInputBuilder<TProgress, TOutput, TCancelable>;
+  onCancelled(
+    handler: (event: CancelledOperationEvent<TProgress, TOutput>) => void | Promise<void>,
+  ): OperationInputBuilder<TProgress, TOutput, TCancelable>;
+  onEvent(
+    handler: (event: OperationEvent<TProgress, TOutput>) => void | Promise<void>,
+  ): OperationInputBuilder<TProgress, TOutput, TCancelable>;
+  start(): AsyncResult<OperationRef<TProgress, TOutput, TCancelable>, BaseError>;
+  transfer?: (body: TransferBody) => TransferOperationBuilder<TProgress, TOutput, TCancelable>;
+};
+
+type TransferOperationBuilder<TProgress, TOutput, TCancelable extends boolean> = {
+  onAccepted(
+    handler: (event: AcceptedOperationEvent<TProgress, TOutput>) => void | Promise<void>,
+  ): TransferOperationBuilder<TProgress, TOutput, TCancelable>;
+  onStarted(
+    handler: (event: StartedOperationEvent<TProgress, TOutput>) => void | Promise<void>,
+  ): TransferOperationBuilder<TProgress, TOutput, TCancelable>;
+  onTransfer(
+    handler: (event: TransferOperationEvent<TProgress, TOutput>) => void | Promise<void>,
+  ): TransferOperationBuilder<TProgress, TOutput, TCancelable>;
+  onProgress(
+    handler: (event: ProgressOperationEvent<TProgress, TOutput>) => void | Promise<void>,
+  ): TransferOperationBuilder<TProgress, TOutput, TCancelable>;
+  onCompleted(
+    handler: (event: CompletedOperationEvent<TProgress, TOutput>) => void | Promise<void>,
+  ): TransferOperationBuilder<TProgress, TOutput, TCancelable>;
+  onFailed(
+    handler: (event: FailedOperationEvent<TProgress, TOutput>) => void | Promise<void>,
+  ): TransferOperationBuilder<TProgress, TOutput, TCancelable>;
+  onCancelled(
+    handler: (event: CancelledOperationEvent<TProgress, TOutput>) => void | Promise<void>,
+  ): TransferOperationBuilder<TProgress, TOutput, TCancelable>;
+  onEvent(
+    handler: (event: OperationEvent<TProgress, TOutput>) => void | Promise<void>,
+  ): TransferOperationBuilder<TProgress, TOutput, TCancelable>;
+  start(): AsyncResult<StartedTransfer<TProgress, TOutput, TCancelable>, BaseError>;
+};
+
+type StartedTransfer<TProgress, TOutput, TCancelable extends boolean> = {
+  operation: OperationRef<TProgress, TOutput, TCancelable>;
+  wait(): AsyncResult<CompletedTransfer<TProgress, TOutput>, BaseError>;
+};
+
+type CompletedTransfer<TProgress, TOutput> = {
+  transferred: FileInfo;
+  terminal: TerminalOperation<TProgress, TOutput>;
 };
 
 type OperationRef<
@@ -64,13 +129,12 @@ type OperationRef<
   id: string;
   service: string;
   operation: string;
-  get(): Promise<Result<OperationSnapshot<TProgress, TOutput>, BaseError>>;
-  wait(): Promise<Result<TerminalOperation<TProgress, TOutput>, BaseError>>;
-  watch(): Promise<Result<AsyncIterable<OperationEvent<TProgress, TOutput>>, BaseError>>;
-  transfer?: (body: TransferBody) => Promise<Result<FileInfo, TransferError>>;
+  get(): AsyncResult<OperationSnapshot<TProgress, TOutput>, BaseError>;
+  wait(): AsyncResult<TerminalOperation<TProgress, TOutput>, BaseError>;
+  watch(): AsyncResult<AsyncIterable<OperationEvent<TProgress, TOutput>>, BaseError>;
 } & (TCancelable extends true
   ? {
-      cancel(): Promise<Result<OperationSnapshot<TProgress, TOutput>, BaseError>>;
+      cancel(): AsyncResult<OperationSnapshot<TProgress, TOutput>, BaseError>;
     }
   : {});
 ```
@@ -78,32 +142,37 @@ type OperationRef<
 Example:
 
 ```ts
-const started = await billing.operation("Billing.Refund").start({
-  chargeId: "ch_123",
-  amount: 5000,
-});
+const refund = await billing.operation("Billing.Refund")
+  .input({
+    chargeId: "ch_123",
+    amount: 5000,
+  })
+  .onProgress((event) => {
+    console.log(event.progress.message);
+  })
+  .start()
+  .orThrow();
 
-if (started.isErr()) {
-  throw started.error;
-}
+const refundDone = await refund.wait().orThrow();
+console.log(refundDone.output);
 
-const op = started.value;
-const snapshot = await op.get();
-const watch = await op.watch();
+const upload = await documents.operation("Documents.Files.Upload")
+  .input({
+    key: "incoming/report.pdf",
+    contentType: "application/pdf",
+  })
+  .transfer(fileBytes)
+  .onTransfer((event) => {
+    console.log(event.transfer.transferredBytes);
+  })
+  .onProgress((event) => {
+    console.log(event.progress.stage);
+  })
+  .start()
+  .orThrow();
 
-if (watch.isOk()) {
-  for await (const event of watch.value) {
-    if (event.type === "transfer") {
-      console.log(event.transfer.transferredBytes);
-    }
-    if (event.type === "progress") {
-      console.log(event.snapshot.progress);
-    }
-  }
-}
-
-const transferred = await op.transfer?.(fileBytes);
-const terminal = await op.wait();
+const completed = await upload.wait().orThrow();
+console.log(completed.terminal.output);
 ```
 
 ## Service-Owned Surface
@@ -230,32 +299,76 @@ type TerminalOperation<TProgress, TOutput> = OperationSnapshot<TProgress, TOutpu
   state: "completed" | "failed" | "cancelled";
 };
 
+type AcceptedOperationEvent<TProgress, TOutput> = {
+  type: "accepted";
+  snapshot: OperationSnapshot<TProgress, TOutput>;
+};
+
+type StartedOperationEvent<TProgress, TOutput> = {
+  type: "started";
+  snapshot: OperationSnapshot<TProgress, TOutput>;
+};
+
+type TransferOperationEvent<TProgress, TOutput> = {
+  type: "transfer";
+  transfer: {
+    chunkIndex: number;
+    chunkBytes: number;
+    transferredBytes: number;
+  };
+  snapshot: OperationSnapshot<TProgress, TOutput> & {
+    transfer: {
+      chunkIndex: number;
+      chunkBytes: number;
+      transferredBytes: number;
+    };
+  };
+};
+
+type ProgressOperationEvent<TProgress, TOutput> = {
+  type: "progress";
+  progress: TProgress;
+  snapshot: OperationSnapshot<TProgress, TOutput> & {
+    progress: TProgress;
+  };
+};
+
+type CompletedOperationEvent<TProgress, TOutput> = {
+  type: "completed";
+  snapshot: TerminalOperation<TProgress, TOutput>;
+};
+
+type FailedOperationEvent<TProgress, TOutput> = {
+  type: "failed";
+  snapshot: TerminalOperation<TProgress, TOutput>;
+};
+
+type CancelledOperationEvent<TProgress, TOutput> = {
+  type: "cancelled";
+  snapshot: TerminalOperation<TProgress, TOutput>;
+};
+
 type OperationEvent<TProgress, TOutput> =
-  | { type: "accepted"; snapshot: OperationSnapshot<TProgress, TOutput> }
-  | { type: "started"; snapshot: OperationSnapshot<TProgress, TOutput> }
-  | {
-      type: "transfer";
-      snapshot: OperationSnapshot<TProgress, TOutput>;
-      transfer: {
-        chunkIndex: number;
-        chunkBytes: number;
-        transferredBytes: number;
-      };
-    }
-  | { type: "progress"; snapshot: OperationSnapshot<TProgress, TOutput> }
-  | { type: "completed"; snapshot: TerminalOperation<TProgress, TOutput> }
-  | { type: "failed"; snapshot: TerminalOperation<TProgress, TOutput> }
-  | { type: "cancelled"; snapshot: TerminalOperation<TProgress, TOutput> };
+  | AcceptedOperationEvent<TProgress, TOutput>
+  | StartedOperationEvent<TProgress, TOutput>
+  | TransferOperationEvent<TProgress, TOutput>
+  | ProgressOperationEvent<TProgress, TOutput>
+  | CompletedOperationEvent<TProgress, TOutput>
+  | FailedOperationEvent<TProgress, TOutput>
+  | CancelledOperationEvent<TProgress, TOutput>;
 ```
 
 ## Generation Rules
 
 - generated runtimes MUST expose one typed `operation(key)` helper per owned or used operation surface
 - generated runtimes MUST expose `resume(ref)` so callers can bind behavior to an operation reference that was returned from another contract-owned API such as an RPC
-- generated runtimes MUST expose `transfer(body | stream)` on operation refs when the contract operation declares transfer support
+- generated runtimes MUST expose `input(input)` as the explicit operation-builder entrypoint
+- generated runtimes MUST expose `input(input).transfer(body).start()` when the contract operation declares transfer support so callers can combine input, observation, transfer, and wait through one helper while still receiving the underlying `OperationRef`
+- generated runtimes MUST keep transfer initiation off resumed or already-started operation refs
 - generated runtimes MUST derive `OperationInputOf`, `OperationProgressOf`, `OperationOutputOf`, and `OperationCancelableOf` from the contract
 - generated runtimes MUST hide internal control envelopes and caller reply subjects
 - generated service runtimes MUST expose provider-side `transfer.updates()` and `transfer.completed()` when the contract operation declares transfer support
+- generated progress events MUST carry the progress payload as both `event.progress` and `event.snapshot.progress`; generated transfer events MUST carry transfer progress as both `event.transfer` and `event.snapshot.transfer`
 - generated service runtimes MAY expose `accept(...)` for non-transfer operations started from other owned entrypoints
 - generated runtimes SHOULD omit `cancel()` from non-cancelable operation handles rather than exposing a method that always fails
 - generated runtimes MUST preserve Trellis `Result` conventions for expected remote failures

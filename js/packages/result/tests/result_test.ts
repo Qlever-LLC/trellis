@@ -131,6 +131,20 @@ Deno.test("Result class", async (t) => {
     }
   });
 
+  await t.step("orThrow returns Ok values and throws Err errors", () => {
+    assertEquals(Result.ok(5).orThrow(), 5);
+
+    let thrown: unknown;
+    try {
+      Result.err(new TestError("failed")).orThrow();
+    } catch (error) {
+      thrown = error;
+    }
+
+    assertInstanceOf(thrown, TestError);
+    assertEquals((thrown as TestError).message, "failed");
+  });
+
   await t.step("take with early return pattern", () => {
     function processValue(input: number): Result<string, TestError> {
       const doubled = Result.ok(input).map((x) => x * 2).take();
@@ -486,6 +500,20 @@ Deno.test("AsyncResult class", async (t) => {
     if (Result.isErr(error)) {
       assertEquals(error.error.message, "User not found");
     }
+  });
+
+  await t.step("orThrow returns async Ok values and throws Err errors", async () => {
+    assertEquals(await AsyncResult.ok(42).orThrow(), 42);
+
+    let thrown: unknown;
+    try {
+      await AsyncResult.err(new TestError("failed")).orThrow();
+    } catch (error) {
+      thrown = error;
+    }
+
+    assertInstanceOf(thrown, TestError);
+    assertEquals((thrown as TestError).message, "failed");
   });
 
   await t.step("await AsyncResult returns Result", async () => {

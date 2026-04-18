@@ -1,5 +1,4 @@
-import type { OperationEvent, RpcOutputOf } from "@qlever-llc/trellis";
-import { isErr, TrellisDevice } from "@qlever-llc/trellis";
+import { TrellisDevice } from "@qlever-llc/trellis";
 import contract from "../contracts/demo_device.ts";
 import config from "../deno.json" with { type: "json" };
 import { UploadProgress } from "./upload_progress.ts";
@@ -33,7 +32,6 @@ async function main(): Promise<void> {
     },
   });
 
-  // Set static health/service info
   trellis.health.setInfo({
     info: {
       name: config.name,
@@ -43,105 +41,72 @@ async function main(): Promise<void> {
     },
   });
 
-  // Add a health check
   trellis.health.add("Johnny_5", () => ({
     status: Math.random() > 0.2 ? "ok" : "failed",
   }));
 
-  const me = (await trellis.request("Auth.Me", {})).take();
-  if (isErr(me)) {
-    console.error("Could not connect", { err: me });
-    Deno.exit();
-  }
+  const me = (await trellis.request("Auth.Me", {})).orThrow();
 
   console.info("You are:");
   console.dir({ me }, { depth: null });
 
-  const groups = (await trellis.request("Demo.Groups.List", {})).take();
-  if (isErr(groups)) {
-    console.error("Could not list groups", { err: groups });
-    Deno.exit();
-  }
+  const groups = (await trellis.request("Demo.Groups.List", {})).orThrow();
 
   console.info("groups", groups);
 
   const bytes = await Deno.readFile(filePath);
   const fileName = fileNameFromPath(filePath);
 
-  const started = await trellis.operation("Demo.Files.Upload").start({
-    key: fileName,
-    contentType: DEFAULT_CONTENT_TYPE,
-  });
-  const operation = started.take();
-  if (isErr(operation)) {
-    console.error("Could not start file upload", { err: operation });
-    Deno.exit();
-  }
-
-  const watch = (await operation.watch()).take();
-  if (isErr(watch)) {
-    console.error("Could not watch file upload", { err: watch });
-    Deno.exit();
-  }
-
-  console.info("upload accepted", {
-    id: operation.id,
-    operation: operation.operation,
-  });
-
   const progress = new UploadProgress(bytes.length);
-  const transferResultPromise = operation.transfer(bytes);
-  const waitResultPromise = operation.wait();
-
   let progressFinished = false;
   let lastTransferredBytes = -1;
-  for await (const event of watch as AsyncIterable<
-    OperationEvent<{ stage: string; message: string }, unknown>
-  >) {
-    if (event.type === "transfer") {
+
+  const upload = await trellis.operation("Demo.Files.Upload")
+    .input({
+      key: fileName,
+      contentType: DEFAULT_CONTENT_TYPE,
+    })
+    .transfer(bytes)
+    .onTransfer((event) => {
       if (event.transfer.transferredBytes !== lastTransferredBytes) {
         progress.update(event.transfer.transferredBytes);
         lastTransferredBytes = event.transfer.transferredBytes;
       }
-      continue;
-    }
-
-    if (event.type === "progress" && event.snapshot.progress) {
+    })
+    .onProgress((event) => {
       if (!progressFinished) {
         progress.finish();
         progressFinished = true;
       }
 
       console.info(
-        `${event.snapshot.progress.stage}: ${event.snapshot.progress.message}`,
+        `${event.progress.stage}: ${event.progress.message}`,
       );
-    }
-  }
+    })
+    .start()
+    .orThrow();
+
+  console.info("upload accepted", {
+    id: upload.operation.id,
+    operation: upload.operation.operation,
+  });
+
+  const completed = await upload.wait().orThrow();
 
   if (!progressFinished) {
     progress.finish();
   }
 
-  const transferResult = await transferResultPromise;
-  const uploaded = transferResult.take();
-  if (isErr(uploaded)) {
-    console.error("Upload failed", { err: uploaded });
-    Deno.exit();
-  }
-
-  console.info("uploaded", uploaded);
-  const waited = await waitResultPromise;
-  const terminal = waited.take();
-  if (isErr(terminal)) {
-    console.error("Upload operation failed", { err: terminal });
-    Deno.exit();
-  }
-
-  console.info("upload completed", terminal.output);
-
-  Deno.exit();
+  console.info("uploaded", completed.transferred);
+  console.info("upload completed", completed.terminal.output);
 }
 
 if (import.meta.main) {
-  await main();
+  try {
+    await main();
+    Deno.exit(0);
+  } catch (error) {
+    console.error("demo device failed", error);
+    Deno.exit(1);
+  }
 }

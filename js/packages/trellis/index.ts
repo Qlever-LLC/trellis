@@ -81,7 +81,7 @@ export type {
   TrellisContractV1,
   UseSpec,
 } from "./contract.ts";
-export { err, isErr, isOk, ok, Result } from "@qlever-llc/result";
+export { AsyncResult, err, isErr, isOk, ok, Result } from "@qlever-llc/result";
 export type { ClientOpts } from "./client.ts";
 export type {
   ClientAuthContinuation,
@@ -121,18 +121,33 @@ export type {
   TransferBody,
 } from "./transfer.ts";
 export type {
+  AcceptedOperationEvent,
+  CancelledOperationEvent,
+  CompletedOperationEvent,
+  CompletedTransfer,
+  FailedOperationEvent,
   OperationEvent,
+  OperationInputBuilder,
+  OperationObserverCallbacks,
+  OperationRef,
   OperationRefData,
   OperationSnapshot,
   OperationState,
   OperationTransport,
   OperationTransferProgress,
+  ProgressOperationEvent,
+  ProgressOperationSnapshot,
+  StartedOperationEvent,
+  StartedTransfer,
   TerminalOperation,
+  TransferCapableOperationInputBuilder,
+  TransferOperationBuilder,
+  TransferOperationEvent,
+  TransferOperationSnapshot,
 } from "./operations.ts";
 export {
   controlSubject,
   OperationInvoker,
-  OperationRef,
 } from "./operations.ts";
 export type {
   AcceptedOperation,

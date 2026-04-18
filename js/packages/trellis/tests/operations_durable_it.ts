@@ -2,6 +2,7 @@ import { connect } from "@nats-io/transport-deno";
 import { assertEquals, assertExists } from "@std/assert";
 import { Type } from "typebox";
 import { defineServiceContract } from "../contract.ts";
+import { auth } from "@qlever-llc/trellis-sdk/auth";
 import { ok } from "../index.ts";
 import { TrellisServer } from "../server/mod.ts";
 import { createClient } from "../client.ts";
@@ -50,6 +51,29 @@ async function createTestAuth(): Promise<
   return { auth, inboxPrefix: `_INBOX.${sessionKey.slice(0, 16)}` };
 }
 
+function startPermissiveAuthResponder(nc: Awaited<ReturnType<typeof NatsTest.start>>["nc"]): void {
+  const sub = nc.subscribe("rpc.v1.Auth.ValidateRequest");
+  void (async () => {
+    for await (const msg of sub) {
+      const input = msg.json() as { sessionKey: string };
+      msg.respond(JSON.stringify({
+        allowed: true,
+        inboxPrefix: `_INBOX.${input.sessionKey.slice(0, 16)}`,
+        caller: {
+          type: "user",
+          id: "auth0|test-user",
+          trellisId: "tid_test_user",
+          origin: "test",
+          active: true,
+          name: "Test User",
+          email: "test@example.com",
+          capabilities: ["billing.refund", "billing.read", "billing.cancel", "service"],
+        },
+      }));
+    }
+  })();
+}
+
 const billing = defineServiceContract(
   {
     schemas: {
@@ -68,6 +92,9 @@ const billing = defineServiceContract(
     id: "trellis.billing.durable-test@v1",
     displayName: "Billing Durable Test",
     description: "Exercise durable operations state over restart.",
+    uses: {
+      auth: auth.use({ rpc: { call: ["Auth.ValidateRequest"] } }),
+    },
     operations: {
       "Billing.Refund": {
         version: "v1",
@@ -90,6 +117,7 @@ Deno.test({
   ignore: !RUN_NATS_TESTS,
   async fn() {
     await using nats = await NatsTest.start();
+    startPermissiveAuthResponder(nats.nc);
     const { auth, inboxPrefix } = await createTestAuth();
     const info = nats.nc.info!;
 
@@ -106,7 +134,7 @@ Deno.test({
       "billing-server",
       serverNc1,
       auth,
-      { api: billing.API.owned },
+      { api: billing.API.trellis },
     );
     await server1.operation("Billing.Refund").handle(async ({ input, op }) => {
       assertEquals(input.chargeId, "ch_123");
@@ -119,18 +147,21 @@ Deno.test({
     const client = createClient(billing, clientNc, auth, {
       name: "durability-client",
     });
-    const started = await client.operation("Billing.Refund").start({
+    const ref = (await client.operation("Billing.Refund").input({
       chargeId: "ch_123",
+    }).start()).match({
+      ok: (value) => value,
+      err: (error) => {
+        throw error;
+      },
     });
-    const ref = started.take() as {
-      get: () => Promise<{ take: () => unknown }>;
-      wait: () => Promise<{ take: () => unknown }>;
-      id: string;
-      service: string;
-      operation: string;
-    };
 
-    const firstSnapshot = (await ref.wait()).take() as {
+    const firstSnapshot = (await ref.wait()).match({
+      ok: (value) => value,
+      err: (error) => {
+        throw error;
+      },
+    }) as {
       revision: number;
       state: string;
       id: string;
@@ -159,13 +190,18 @@ Deno.test({
       "billing-server",
       serverNc2,
       auth,
-      { api: billing.API.owned },
+      { api: billing.API.trellis },
     );
     await server2.operation("Billing.Refund").handle(async () =>
       ok({ refundId: "unused" })
     );
 
-    const afterRestart = (await ref.get()).take() as {
+    const afterRestart = (await ref.get()).match({
+      ok: (value) => value,
+      err: (error) => {
+        throw error;
+      },
+    }) as {
       revision: number;
       state: string;
       id: string;

@@ -137,7 +137,7 @@ Rules:
 - service handlers mounted from contract-owned RPCs receive typed payloads from
   Trellis and may return either `Result` or `Promise<Result>`
 - transfer execution belongs to transfer-capable operations and is initiated by
-  `op.transfer(body | stream)`
+  the higher-level `operation(...).input(...).transfer(...).start()` helper
 - both sides use explicit `Result` conventions rather than exception-driven
   remote error handling
 

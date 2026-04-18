@@ -273,7 +273,7 @@ The contract definition produces three distinct projected API views:
   participant and therefore mountable or publishable as owner behavior
 - `API.used` - the subset of remote SDK APIs explicitly permitted by `uses`
 - `API.trellis` - the merged runtime surface used for outbound
-  `operation(...).start(...)`, `request`, `publish`, and `subscribe` operations
+  `operation(...).input(...).start()`, `request`, `publish`, and `subscribe` operations
 
 Rules:
 

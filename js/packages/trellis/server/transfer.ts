@@ -1,4 +1,4 @@
-import { isErr, Result, type Result as ResultType } from "@qlever-llc/result";
+import { AsyncResult, isErr, Result, type Result as ResultType } from "@qlever-llc/result";
 import { headers as natsHeaders, type Msg, type NatsConnection, type Subscription } from "@nats-io/nats-core";
 import { ulid } from "ulid";
 
@@ -24,7 +24,7 @@ const TRANSFER_EOF_HEADER = "trellis-transfer-eof";
 const DEFAULT_TRANSFER_CHUNK_BYTES = 256 * 1024;
 
 export type TransferStoreHandle = {
-  open(): Promise<ResultType<TypedStore, StoreError>>;
+  open(): AsyncResult<TypedStore, StoreError>;
 };
 
 export type InitiateUploadArgs = {
@@ -91,7 +91,7 @@ type UploadSession = {
   subscription: Subscription;
   timeoutId: ReturnType<typeof setTimeout>;
   queue: AsyncChunkQueue;
-  putPromise: Promise<ResultType<void, StoreError>>;
+  putPromise: AsyncResult<void, StoreError>;
   nextSeq: number;
   receivedBytes: number;
 };
@@ -462,7 +462,7 @@ export class ServiceTransfer {
       grant: grantValue,
       transfer: {
         updates: () => updates.subscribe(),
-        completed: async () => await completed.promise,
+        completed: () => AsyncResult.from(completed.promise),
       },
     });
   }

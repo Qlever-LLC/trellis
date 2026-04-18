@@ -10,6 +10,11 @@ export const FilesUploadProgress = Type.Object({
   message: Type.String({ minLength: 1 }),
 });
 
+export const FilesUploadJobPayload = Type.Object({
+  operationId: Type.String({ minLength: 1 }),
+  key: Type.String({ minLength: 1 }),
+});
+
 export const FilesUploadResult = Type.Object({
   key: Type.String({ minLength: 1 }),
   size: Type.Integer({ minimum: 0 }),

@@ -414,8 +414,8 @@ Rules:
   third parameter includes service-only helpers such as `kv`, `store`, and
   transfer-aware operation contexts without widening browser-safe root runtime
   types
-- returned runtimes expose transfer through transfer-capable operation refs such
-  as `op.transfer(body | stream)`, not through a standalone
+- returned runtimes expose transfer through the transfer builder
+  `operation(...).input(...).transfer(...).start()`, not through a standalone
   `trellis.transfer(...)` entrypoint
 - runtime helpers must not widen the callable surface beyond what the contract
   allows

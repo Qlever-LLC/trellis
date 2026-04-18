@@ -235,21 +235,22 @@ Deno.test({
         return ok({ refundId: "rf_123" });
       });
 
-      const started = await client.operation("Billing.Refund").start({
+      const ref = (await client.operation("Billing.Refund").input({
         chargeId: "ch_123",
+      }).start()).match({
+        ok: (value) => value,
+        err: (error) => {
+          throw error;
+        },
       });
-      const startedValue = started.take();
-      if (isErr(startedValue)) {
-        throw startedValue.error;
-      }
-      const ref = startedValue as {
-        wait: () => Promise<
-          { take: () => { state: string; output?: { refundId: string } } }
-        >;
-      };
       assertExists(ref);
 
-      const terminal = (await ref.wait()).take();
+      const terminal = (await ref.wait()).match({
+        ok: (value) => value,
+        err: (error) => {
+          throw error;
+        },
+      });
       assertEquals(terminal.state, "completed");
       assertEquals(terminal.output?.refundId, "rf_123");
 
@@ -453,6 +454,8 @@ Deno.test({
       });
 
       const providerUpdates: Array<number> = [];
+      const callerUpdates: Array<number> = [];
+      const callerEvents: Array<string> = [];
       await service.operation("Demo.Files.Upload").handle(async ({ input, op, transfer }) => {
         assertEquals(input satisfies UploadInput, input);
         const watchProviderUpdates = (async () => {
@@ -470,6 +473,7 @@ Deno.test({
         });
 
         await watchProviderUpdates;
+        await new Promise((resolve) => setTimeout(resolve, 25));
         const started = await op.started();
         if (started.isErr()) {
           throw started.error;
@@ -477,55 +481,53 @@ Deno.test({
         return ok({ key: input.key, size: storedInfo.size });
       });
 
-      const started = await client.operation("Demo.Files.Upload").start({
+      const upload = (await client.operation("Demo.Files.Upload").input({
         key: "incoming/test.txt",
         contentType: "text/plain",
-      });
-      const operation = started.match({
+      })
+        .onAccepted(() => {
+          callerEvents.push("accepted");
+        })
+        .transfer(new TextEncoder().encode("hello transfer"))
+        .onTransfer((event) => {
+          callerEvents.push("transfer");
+          callerUpdates.push(event.transfer.transferredBytes);
+        })
+        .onStarted(() => {
+          callerEvents.push("started");
+        })
+        .onCompleted(() => {
+          callerEvents.push("completed");
+        })
+        .start()).match({
         ok: (value) => value,
         err: (error) => {
           throw error;
         },
       });
 
-      const callerUpdates: Array<number> = [];
-      const watch = await operation.watch();
-      const events = watch.match({
-        ok: (value) => value,
-        err: (error) => {
-          throw error;
-        },
-      });
-      const watchTask = (async () => {
-        for await (const event of events) {
-          if (event.type === "transfer") {
-            callerUpdates.push(event.transfer.transferredBytes);
-          }
-        }
-      })();
-
-      const transferred = await operation.transfer(new TextEncoder().encode("hello transfer"));
-      const uploaded = transferred.match({
-        ok: (value) => value,
-        err: (error) => {
-          throw error;
-        },
-      });
-      assertEquals(uploaded.size, 14);
-
-      const terminal = await operation.wait();
+      const terminal = await upload.wait();
       const terminalValue = terminal.match({
         ok: (value) => value,
         err: (error) => {
           throw error;
         },
       });
+      await waitFor(
+        () => providerUpdates.at(-1) === 14 && callerEvents.at(-1) === "completed",
+        { description: "transfer completion callbacks" },
+      );
 
-      await watchTask;
-      assertEquals(terminalValue.state, "completed");
-      assertEquals(terminalValue.output, { key: "incoming/test.txt", size: 14 });
-      assertEquals(callerUpdates.at(-1), 14);
+      assertEquals(terminalValue.terminal.state, "completed");
+      assertEquals(terminalValue.terminal.output, {
+        key: "incoming/test.txt",
+        size: 14,
+      });
+      assertEquals(terminalValue.transferred.size, 14);
       assertEquals(providerUpdates.at(-1), 14);
+      assertEquals(callerEvents[0], "accepted");
+      assertEquals(callerEvents.includes("started"), true);
+      assertEquals(callerEvents.at(-1), "completed");
 
       await clientNc.drain();
       await service.stop();
@@ -534,3 +536,20 @@ Deno.test({
     }
   },
 });
+
+async function waitFor(
+  condition: () => boolean,
+  opts: { description: string; timeoutMs?: number; intervalMs?: number },
+): Promise<void> {
+  const timeoutMs = opts.timeoutMs ?? 5_000;
+  const intervalMs = opts.intervalMs ?? 25;
+  const start = Date.now();
+
+  while (true) {
+    if (condition()) return;
+    if (Date.now() - start > timeoutMs) {
+      throw new Error(`Timeout waiting for ${opts.description}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+}

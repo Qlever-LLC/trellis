@@ -93,18 +93,19 @@ The storage mechanism is service-owned and is not centralized in `trellis.jobs`.
 
 Rules:
 
-- `operation(...).start(...)` returns an `OperationRef`, not a terminal result
+- `operation(...).input(...).start()` returns an `OperationRef`, not a terminal result
 - `OperationRef.get()` returns the current durable snapshot
 - `OperationRef.wait()` resolves from durable state and live events to a terminal snapshot
 - `OperationRef.watch()` returns a live async stream of typed operation events
-- transfer-capable operations expose `OperationRef.transfer(body | stream)`
+- transfer-capable operations initiate byte upload through `operation(...).input(...).transfer(body).start()`
 - public TypeScript operations APIs MUST use `Result` / `AsyncResult` for expected failures rather than exception-oriented wrappers
 - runtimes MUST expose operation APIs through normal helpers; callers MUST NOT need to know hidden `*.Start`, `*.Get`, `*.Wait`, or `*.Watch` wire names
 
 Caller surface:
 
-- callers start async workflows with `operation(key).start(input)` and receive an `OperationRef`
-- callers observe the operation through `get()`, `wait()`, `watch()`, optional `cancel()`, and optional `transfer(body | stream)` when the operation declares transfer support
+- callers start async workflows with `operation(key).input(input).start()` and receive an `OperationRef`
+- callers observe the operation through `get()`, `wait()`, `watch()`, and optional `cancel()`
+- callers upload bytes for transfer-backed operations through `operation(key).input(input).transfer(body).start()`
 
 Owning-service surface:
 
@@ -170,14 +171,26 @@ type OperationEvent<TProgress, TOutput> =
   | { type: "started"; snapshot: OperationSnapshot<TProgress, TOutput> }
   | {
       type: "transfer";
-      snapshot: OperationSnapshot<TProgress, TOutput>;
       transfer: {
         chunkIndex: number;
         chunkBytes: number;
         transferredBytes: number;
       };
+      snapshot: OperationSnapshot<TProgress, TOutput> & {
+        transfer: {
+          chunkIndex: number;
+          chunkBytes: number;
+          transferredBytes: number;
+        };
+      };
     }
-  | { type: "progress"; snapshot: OperationSnapshot<TProgress, TOutput> }
+  | {
+      type: "progress";
+      progress: TProgress;
+      snapshot: OperationSnapshot<TProgress, TOutput> & {
+        progress: TProgress;
+      };
+    }
   | { type: "completed"; snapshot: TerminalOperation<TProgress, TOutput> }
   | { type: "failed"; snapshot: TerminalOperation<TProgress, TOutput> }
   | { type: "cancelled"; snapshot: TerminalOperation<TProgress, TOutput> };
@@ -188,8 +201,8 @@ Lifecycle rules:
 - the first externally visible event MUST be `accepted`
 - `accepted` creates a durable operation snapshot in `pending`
 - `started` transitions the snapshot to `running`
-- `transfer` updates the stored transfer progress payload and emits once per acknowledged chunk
-- `progress` updates the stored progress payload but does not change terminal state
+- `transfer` updates the stored transfer progress payload, emits once per acknowledged chunk, and MUST carry that payload as both `event.transfer` and `event.snapshot.transfer`
+- `progress` updates the stored progress payload, does not change terminal state, and MUST carry that payload as both `event.progress` and `event.snapshot.progress`
 - `completed`, `failed`, and `cancelled` are terminal
 
 ### 6) Operations use caller `_INBOX` subjects for live watch streams
@@ -208,7 +221,7 @@ This keeps operation watches private to the authenticated caller while avoiding 
 
 ### 7) Operation wire model
 
-The public API is `operation(...).start(...)` plus `OperationRef.get/wait/watch/cancel`. Those methods are part of the normal generated Trellis API surface, while the underlying wire model is standardized enough for auth and codegen.
+The public API is `operation(...).input(...).start()` plus `OperationRef.get/wait/watch/cancel`. Those methods are part of the normal generated Trellis API surface, while the underlying wire model is standardized enough for auth and codegen.
 
 Rules:
 
@@ -245,9 +258,9 @@ Rules:
 
 - the service MUST allocate the operation id before replying
 - the accepted reply MUST include the initial durable snapshot
-- transfer-capable operations MUST include the runtime-owned upload transfer session data needed to execute `op.transfer(...)`
+- transfer-capable operations MUST include the runtime-owned upload transfer session data needed to execute the builder-managed upload step
 - the initial snapshot revision MUST be `1`
-- the accepted reply is the only response sent for `operation(...).start(...)`
+- the accepted reply is the only response sent for `operation(...).input(...).start()`
 
 #### 7b) Internal control request envelope
 
@@ -392,18 +405,21 @@ Rules:
 Caller-visible API:
 
 ```ts
-const refund = await billing.operation("Billing.Refund").start({
-  chargeId: "ch_123",
-  amount: 5000,
-});
+const refund = await billing.operation("Billing.Refund")
+  .input({
+    chargeId: "ch_123",
+    amount: 5000,
+  })
+  .start()
+  .orThrow();
 
-for await (const event of refund.watch()) {
+for await (const event of await refund.watch().orThrow()) {
   if (event.type === "progress") {
-    console.log(event.snapshot.progress);
+    console.log(event.progress);
   }
 }
 
-const done = await refund.wait();
+const done = await refund.wait().orThrow();
 ```
 
 Owning service:
@@ -428,20 +444,24 @@ await service.jobs.submitRefund.handle(async (job) => {
     message: "Submitting refund to payment processor",
   });
 
-  const payment = await payments.operation("Payments.Refund").start({
-    chargeId,
-    amount,
-  });
+  const payment = await payments.operation("Payments.Refund")
+    .input({
+      chargeId,
+      amount,
+    })
+    .start();
 
   const paymentDone = await payment.wait();
   if (paymentDone.isErr()) {
     return Result.err(paymentDone.error);
   }
 
-  void notifications.operation("Notifications.Email.Send").start({
-    template: "refund-receipt",
-    refundId: paymentDone.value.output.refundId,
-  });
+  void notifications.operation("Notifications.Email.Send")
+    .input({
+      template: "refund-receipt",
+      refundId: paymentDone.value.output.refundId,
+    })
+    .start();
 
   return Result.ok({
     refundId: paymentDone.value.output.refundId,

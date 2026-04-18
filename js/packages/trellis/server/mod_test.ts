@@ -5,7 +5,7 @@
 
 import { assertEquals, assertExists } from "jsr:@std/assert";
 import { Type } from "typebox";
-import { type BaseError, Result } from "@qlever-llc/result";
+import { AsyncResult, type BaseError, Result } from "@qlever-llc/result";
 import { defineServiceContract } from "../contract.ts";
 import type {
   EventHandler,
@@ -145,14 +145,12 @@ Deno.test("service wrapper type surface stays specific", () => {
     kvHandle: KVHandle,
     storeHandle: StoreHandle,
   ): {
-    request: Promise<Result<{ ok: boolean }, BaseError>>;
-    requestOrThrow: Promise<{ ok: boolean }>;
-    kvOpen: Promise<Result<TypedKV<typeof schema>, KVError>>;
-    storeOpen: Promise<Result<TypedStore, StoreError>>;
+    request: AsyncResult<{ ok: boolean }, BaseError>;
+    kvOpen: AsyncResult<TypedKV<typeof schema>, KVError>;
+    storeOpen: AsyncResult<TypedStore, StoreError>;
   } {
     return {
       request: service.request("Test.Ping", { value: "ping" }),
-      requestOrThrow: service.requestOrThrow("Test.Ping", { value: "ping" }),
       kvOpen: kvHandle.open(schema),
       storeOpen: storeHandle.open(),
     };

@@ -2,6 +2,7 @@ import { connect } from "@nats-io/transport-deno";
 import { assertEquals, assertExists } from "@std/assert";
 import { Type } from "typebox";
 import { defineServiceContract } from "../contract.ts";
+import { auth } from "@qlever-llc/trellis-sdk/auth";
 import { ok } from "../index.ts";
 import { TrellisServer } from "../server/mod.ts";
 import { createClient } from "../client.ts";
@@ -68,6 +69,9 @@ const billing = defineServiceContract(
     id: "trellis.billing.attach-test@v1",
     displayName: "Billing Attach Test",
     description: "Exercise operations attach() over NATS.",
+    uses: {
+      auth: auth.use({ rpc: { call: ["Auth.ValidateRequest"] } }),
+    },
     operations: {
       "Billing.Refund": {
         version: "v1",
@@ -93,11 +97,35 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
   return { promise, resolve };
 }
 
+function startPermissiveAuthResponder(nc: Awaited<ReturnType<typeof NatsTest.start>>["nc"]): void {
+  const sub = nc.subscribe("rpc.v1.Auth.ValidateRequest");
+  void (async () => {
+    for await (const msg of sub) {
+      const input = msg.json() as { sessionKey: string };
+      msg.respond(JSON.stringify({
+        allowed: true,
+        inboxPrefix: `_INBOX.${input.sessionKey.slice(0, 16)}`,
+        caller: {
+          type: "user",
+          id: "auth0|test-user",
+          trellisId: "tid_test_user",
+          origin: "test",
+          active: true,
+          name: "Test User",
+          email: "test@example.com",
+          capabilities: ["billing.refund", "billing.read", "billing.cancel", "service"],
+        },
+      }));
+    }
+  })();
+}
+
 Deno.test({
   name: "Operation attach waits for job completion",
   ignore: !RUN_NATS_TESTS,
   async fn() {
     await using nats = await NatsTest.start();
+    startPermissiveAuthResponder(nats.nc);
     const { auth, inboxPrefix } = await createTestAuth();
     const info = nats.nc.info!;
 
@@ -114,7 +142,7 @@ Deno.test({
       "billing-server",
       serverNc,
       auth,
-      { api: billing.API.owned },
+      { api: billing.API.trellis },
     );
     const client = createClient(billing, clientNc, auth, {
       name: "attach-client",
@@ -146,17 +174,22 @@ Deno.test({
     });
 
     try {
-      const started = await client.operation("Billing.Refund").start({
+      const ref = (await client.operation("Billing.Refund").input({
         chargeId: "ch_123",
+      }).start()).match({
+        ok: (value) => value,
+        err: (error) => {
+          throw error;
+        },
       });
-      const ref = started.take() as {
-        wait: () => Promise<
-          { take: () => { state: string; output?: { refundId: string } } }
-        >;
-      };
       assertExists(ref);
 
-      const terminal = (await ref.wait()).take();
+      const terminal = (await ref.wait()).match({
+        ok: (value) => value,
+        err: (error) => {
+          throw error;
+        },
+      });
       assertEquals(terminal.state, "completed");
       assertEquals(terminal.output?.refundId, "rf_123");
     } finally {

@@ -310,20 +310,20 @@ export type OperationOutputOf<
   : unknown;
 export type OperationRuntimeHandle<TProgress = unknown, TOutput = unknown> = {
   id: string;
-  started(): Promise<Result<RuntimeOperationSnapshot, UnexpectedError>>;
+  started(): AsyncResult<RuntimeOperationSnapshot, UnexpectedError>;
   progress(
     value: TProgress,
-  ): Promise<Result<RuntimeOperationSnapshot, UnexpectedError>>;
+  ): AsyncResult<RuntimeOperationSnapshot, UnexpectedError>;
   complete(
     value: TOutput,
-  ): Promise<Result<RuntimeOperationSnapshot, UnexpectedError>>;
+  ): AsyncResult<RuntimeOperationSnapshot, UnexpectedError>;
   fail(
     error: BaseError,
-  ): Promise<Result<RuntimeOperationSnapshot, UnexpectedError>>;
-  cancel(): Promise<Result<RuntimeOperationSnapshot, UnexpectedError>>;
+  ): AsyncResult<RuntimeOperationSnapshot, UnexpectedError>;
+  cancel(): AsyncResult<RuntimeOperationSnapshot, UnexpectedError>;
   attach(
-    job: { wait(): Promise<Result<unknown, BaseError>> },
-  ): Promise<Result<RuntimeOperationSnapshot, UnexpectedError>>;
+    job: { wait(): AsyncResult<unknown, BaseError> },
+  ): AsyncResult<RuntimeOperationSnapshot, UnexpectedError>;
 };
 export type AcceptedOperation<TProgress = unknown, TOutput = unknown> =
   & OperationRuntimeHandle<TProgress, TOutput>
@@ -336,7 +336,7 @@ export type AcceptedOperation<TProgress = unknown, TOutput = unknown> =
   };
 export type OperationTransferHandle = {
   updates(): AsyncIterable<RuntimeOperationTransferProgress>;
-  completed(): Promise<Result<FileInfo, TransferError>>;
+  completed(): AsyncResult<FileInfo, TransferError>;
 };
 export type OperationHandlerContext<
   TInput,
@@ -356,7 +356,7 @@ export type OperationRegistration<
 > = {
   accept(args: {
     sessionKey: string;
-  }): Promise<Result<AcceptedOperation<TProgress, TOutput>, UnexpectedError>>;
+  }): AsyncResult<AcceptedOperation<TProgress, TOutput>, UnexpectedError>;
   handle(
     handler: (
       context: OperationHandlerContext<TInput, TProgress, TOutput, TTransfer>,
@@ -626,22 +626,17 @@ export type HandlerTrellis<TA extends AnyTrellisAPI> = {
     method: M,
     input: MethodInputOf<TA, M>,
     opts?: RequestOpts,
-  ): Promise<Result<MethodOutputOf<TA, M>, RequestErrorOf<TA, M>>>;
-  requestOrThrow<M extends MethodsOf<TA>>(
-    method: M,
-    input: MethodInputOf<TA, M>,
-    opts?: RequestOpts,
-  ): Promise<MethodOutputOf<TA, M>>;
+  ): AsyncResult<MethodOutputOf<TA, M>, RequestErrorOf<TA, M>>;
   publish<E extends EventsOf<TA>>(
     event: E,
     data: EventPayloadOf<TA, E>,
-  ): Promise<Result<void, ValidationError | UnexpectedError>>;
+  ): AsyncResult<void, ValidationError | UnexpectedError>;
   event<E extends EventsOf<TA>>(
     event: E,
     subjectData: Record<string, unknown>,
     fn: (message: EventOf<TA, E>) => MaybeAsync<void, BaseError>,
     opts?: EventOpts,
-  ): Promise<Result<void, ValidationError | UnexpectedError>>;
+  ): AsyncResult<void, ValidationError | UnexpectedError>;
   operation<O extends OperationsOf<TA>>(
     operation: O,
   ): OperationSurface<TA, TrellisMode, O>;
@@ -915,21 +910,21 @@ export class Trellis<
    * @param method The name of the RPC method to call.
    * @param input The input data for the method, conforming to its schema.
    * @param opts Optional request-specific options.
-   * @returns A promise that resolves with a `Result` containing either the method's
-   * output or an error.
-   * @returns A `Result` object:
-   *              ok: A validated reponse of method M
+   * @returns An `AsyncResult` containing either the method's output or an error.
+   * @returns A `Result` object after awaiting:
+   *              ok: A validated response for method M
    *              err: declared RPC errors | RemoteError | ValidationError | UnexpectedError
    */
-  async request(
+  request(
     method: string,
     input: unknown,
     opts?: RequestOpts,
-  ): Promise<Result<unknown, BaseError>> {
-    this.#log.trace(
-      { method: String(method) },
-      `Calling ${method.toString()}.`,
-    );
+  ): AsyncResult<unknown, BaseError> {
+    return AsyncResult.from((async () => {
+      this.#log.trace(
+        { method: String(method) },
+        `Calling ${method.toString()}.`,
+      );
 
     const methodName = method as MethodsOf<TA>;
     const ctx = this.api["rpc"][methodName] as RpcDescriptorOf<
@@ -1087,53 +1082,34 @@ export class Trellis<
       return ok(outputResult);
     };
 
-    return withSpanAsync(span, async () => {
-      try {
-        const result = await attempt();
+      return await withSpanAsync(span, async () => {
+        try {
+          const result = await attempt();
 
-        const value = result.take();
-        if (isErr(value)) {
+          const value = result.take();
+          if (isErr(value)) {
+            span.setStatus({
+              code: SpanStatusCode.ERROR,
+              message: value.error.message,
+            });
+          } else {
+            span.setStatus({ code: SpanStatusCode.OK });
+          }
+
+          return result;
+        } catch (cause) {
+          const unexpected = new UnexpectedError({ cause });
           span.setStatus({
             code: SpanStatusCode.ERROR,
-            message: value.error.message,
+            message: unexpected.message,
           });
-        } else {
-          span.setStatus({ code: SpanStatusCode.OK });
+          span.recordException(unexpected);
+          return err(unexpected);
+        } finally {
+          span.end();
         }
-
-        return result;
-      } catch (cause) {
-        const unexpected = new UnexpectedError({ cause });
-        span.setStatus({
-          code: SpanStatusCode.ERROR,
-          message: unexpected.message,
-        });
-        span.recordException(unexpected);
-        return err(unexpected);
-      } finally {
-        span.end();
-      }
-    });
-  }
-
-  async requestOrThrow(
-    method: string,
-    input: unknown,
-    opts?: RequestOpts,
-  ): Promise<unknown> {
-    const result = await (
-      this.request as (
-        method: string,
-        input: unknown,
-        opts?: RequestOpts,
-      ) => Promise<Result<unknown, BaseError>>
-    )(method, input, opts);
-    const value = result.take();
-    if (isErr(value)) {
-      throw value.error;
-    }
-
-    return value;
+      });
+    })());
   }
 
   operation<O extends OperationsOf<TA>>(
@@ -1588,120 +1564,123 @@ export class Trellis<
     this.#respondWithError(msg, error);
   }
 
-  async publish(
+  publish(
     event: string,
     data: Record<string, unknown>,
-  ): Promise<Result<void, ValidationError | UnexpectedError>> {
-    const eventName = event as EventsOf<TA>;
-    const ctx = this.api["events"][eventName] as EventDescriptorOf<
-      TA,
-      typeof eventName
-    >;
-    if (!ctx) {
-      return err(
-        new UnexpectedError({
-          cause: this.#unknownApiError("event", event.toString()),
-          context: { event: event.toString() },
-        }),
-      );
-    }
+  ): AsyncResult<void, ValidationError | UnexpectedError> {
+    return AsyncResult.from((async () => {
+      const eventName = event as EventsOf<TA>;
+      const ctx = this.api["events"][eventName] as EventDescriptorOf<
+        TA,
+        typeof eventName
+      >;
+      if (!ctx) {
+        return err(
+          new UnexpectedError({
+            cause: this.#unknownApiError("event", event.toString()),
+            context: { event: event.toString() },
+          }),
+        );
+      }
 
-    const subject = this.template(ctx.subject, data).take();
-    if (isErr(subject)) {
-      logger.error({ err: subject.error }, "Failed to template event.");
-      return subject;
-    }
+      const subject = this.template(ctx.subject, data).take();
+      if (isErr(subject)) {
+        logger.error({ err: subject.error }, "Failed to template event.");
+        return subject;
+      }
 
-    const payload: Record<string, unknown> = {
-      ...data,
-      header: {
-        id: ulid(),
-        time: new Date().toISOString(),
-      },
-    };
-    const msg = encodeSchema(ctx.event, payload).take();
-    if (isErr(msg)) {
-      logger.error({ err: msg.error }, "Failed to encode event.");
-      return err(new UnexpectedError({ cause: msg.error }));
-    }
+      const payload: Record<string, unknown> = {
+        ...data,
+        header: {
+          id: ulid(),
+          time: new Date().toISOString(),
+        },
+      };
+      const msg = encodeSchema(ctx.event, payload).take();
+      if (isErr(msg)) {
+        logger.error({ err: msg.error }, "Failed to encode event.");
+        return err(new UnexpectedError({ cause: msg.error }));
+      }
 
-    logger.trace({ subject }, `Publishing ${event.toString()} event.`);
-    await this.js.publish(subject, msg);
-    return ok(undefined);
+      logger.trace({ subject }, `Publishing ${event.toString()} event.`);
+      await this.js.publish(subject, msg);
+      return ok(undefined);
+    })());
   }
 
-  async event(
+  event(
     event: string,
     subjectData: Record<string, unknown>,
     fn: (message: unknown) => MaybeAsync<void, BaseError>,
     opts?: EventOpts,
-  ): Promise<Result<void, ValidationError | UnexpectedError>> {
-    const eventName = event as EventsOf<TA>;
-    const ctx = this.api["events"][eventName] as EventDescriptorOf<
-      TA,
-      typeof eventName
-    >;
-    if (!ctx) {
-      return err(
-        new UnexpectedError({
-          cause: this.#unknownApiError("event", event.toString()),
-          context: { event: event.toString() },
-        }),
-      );
-    }
-    const subject = this.template(ctx.subject, subjectData, true).take();
-    if (isErr(subject)) return subject;
-
-    if (opts?.mode === "ephemeral") {
-      return this.#startEphemeralEvent(
-        eventName,
-        ctx,
-        subject,
-        fn,
-        opts.signal,
-      );
-    }
-
-    const jsm = await jetstreamManager(this.nats);
-
-    const consumerName = opts?.durableName ??
-      `${this.name}-${event.replaceAll(".", "_")}`;
-    const addResult = await AsyncResult.try(() =>
-      jsm.consumers.add(this.stream, {
-        durable_name: consumerName,
-        ack_policy: "explicit",
-        deliver_policy: opts?.replay === "new" ? "new" : "all",
-        filter_subjects: [subject],
-      })
-    );
-
-    // If add failed (consumer already exists), try to get existing consumer info
-    const consumerInfoResult = addResult.isOk()
-      ? addResult
-      : await AsyncResult.try(() =>
-        jsm.consumers.info(this.stream, consumerName)
-      );
-
-    const info = consumerInfoResult.take();
-    if (isErr(info)) return info;
-
-    const consumer = this.js.consumers.getConsumerFromInfo(info);
-    const messages = await consumer.consume();
-    if (opts?.signal) {
-      if (opts.signal.aborted) {
-        messages.stop();
-      } else {
-        opts.signal.addEventListener("abort", () => messages.stop(), {
-          once: true,
-        });
+  ): AsyncResult<void, ValidationError | UnexpectedError> {
+    return AsyncResult.from((async () => {
+      const eventName = event as EventsOf<TA>;
+      const ctx = this.api["events"][eventName] as EventDescriptorOf<
+        TA,
+        typeof eventName
+      >;
+      if (!ctx) {
+        return err(
+          new UnexpectedError({
+            cause: this.#unknownApiError("event", event.toString()),
+            context: { event: event.toString() },
+          }),
+        );
       }
-    }
+      const subject = this.template(ctx.subject, subjectData, true).take();
+      if (isErr(subject)) return subject;
 
-    this.#tasks.add(
-      `event:${eventName}:${ulid()}`,
-      this.#handleDurableEvent(eventName, ctx, messages, fn),
-    );
-    return ok(undefined);
+      if (opts?.mode === "ephemeral") {
+        return this.#startEphemeralEvent(
+          eventName,
+          ctx,
+          subject,
+          fn,
+          opts.signal,
+        );
+      }
+
+      const jsm = await jetstreamManager(this.nats);
+
+      const consumerName = opts?.durableName ??
+        `${this.name}-${event.replaceAll(".", "_")}`;
+      const addResult = await AsyncResult.try(() =>
+        jsm.consumers.add(this.stream, {
+          durable_name: consumerName,
+          ack_policy: "explicit",
+          deliver_policy: opts?.replay === "new" ? "new" : "all",
+          filter_subjects: [subject],
+        })
+      );
+
+      const consumerInfoResult = addResult.isOk()
+        ? addResult
+        : await AsyncResult.try(() =>
+          jsm.consumers.info(this.stream, consumerName)
+        );
+
+      const info = consumerInfoResult.take();
+      if (isErr(info)) return info;
+
+      const consumer = this.js.consumers.getConsumerFromInfo(info);
+      const messages = await consumer.consume();
+      if (opts?.signal) {
+        if (opts.signal.aborted) {
+          messages.stop();
+        } else {
+          opts.signal.addEventListener("abort", () => messages.stop(), {
+            once: true,
+          });
+        }
+      }
+
+      this.#tasks.add(
+        `event:${eventName}:${ulid()}`,
+        this.#handleDurableEvent(eventName, ctx, messages, fn),
+      );
+      return ok(undefined);
+    })());
   }
 
   #startEphemeralEvent(
@@ -1951,11 +1930,9 @@ export class Trellis<
       method: string,
       input: unknown,
       opts?: RequestOpts,
-    ) => Promise<
-      Result<
-        unknown,
-        AuthError | RemoteError | ValidationError | UnexpectedError
-      >
+    ) => AsyncResult<
+      unknown,
+      AuthError | RemoteError | ValidationError | UnexpectedError
     >;
     const result = await request("Auth.ValidateRequest", input);
     return result as Result<
@@ -1973,36 +1950,8 @@ export interface Trellis<
     method: M,
     input: MethodInputOf<TA, M>,
     opts?: RequestOpts,
-  ): Promise<
-    Result<
-      MethodOutputOf<TA, M>,
-      RequestErrorOf<TA, M>
-    >
+  ): AsyncResult<
+    MethodOutputOf<TA, M>,
+    RequestErrorOf<TA, M>
   >;
-  requestOrThrow<M extends MethodsOf<TA>>(
-    method: M,
-    input: MethodInputOf<TA, M>,
-    opts?: RequestOpts,
-  ): Promise<MethodOutputOf<TA, M>>;
-}
-
-export interface Trellis<
-  TA extends AnyTrellisAPI = TrellisAPI,
-  TMode extends TrellisMode = "client",
-> {
-  request<M extends MethodsOf<TA>>(
-    method: M,
-    input: MethodInputOf<TA, M>,
-    opts?: RequestOpts,
-  ): Promise<
-    Result<
-      MethodOutputOf<TA, M>,
-      RequestErrorOf<TA, M>
-    >
-  >;
-  requestOrThrow<M extends MethodsOf<TA>>(
-    method: M,
-    input: MethodInputOf<TA, M>,
-    opts?: RequestOpts,
-  ): Promise<MethodOutputOf<TA, M>>;
 }

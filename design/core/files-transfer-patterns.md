@@ -75,8 +75,8 @@ Rules:
 File bytes use an operation-native model:
 
 1. a contract-owned operation accepts JSON input and declares transfer support
-2. the caller starts the operation and receives a typed `OperationRef`
-3. the caller executes the raw byte transfer through `op.transfer(body | stream)`
+2. the caller configures the operation input and starts it through `operation(...).input(input).start()`
+3. the caller executes the raw byte transfer through the higher-level `operation(...).input(input).transfer(body).start()` helper
 4. the provider awaits `transfer.completed()` and continues with service-owned processing
 
 Example:
@@ -89,7 +89,7 @@ Rules:
 - the operation contract declares the backing store alias and the input pointers used to derive transfer metadata such as `key` and `contentType`
 - the actual byte movement still uses raw NATS chunk traffic rather than JSON/base64 RPC payloads
 - the transfer protocol is Trellis-owned runtime machinery, not a service-specific public protocol surface
-- callers observe transport progress through `watch()` transfer events and durable snapshot state
+- callers observe transport progress through `watch()` transfer events or the higher-level fluent transfer builder callbacks, plus durable snapshot state
 - providers observe the same transport progress through `transfer.updates()`
 
 ### Operation Transfer Declaration
@@ -133,23 +133,28 @@ Rules:
 Public runtime code uses:
 
 ```ts
-const started = await docs.operation("Documents.Files.Upload").start({
-  key: "incoming/report.pdf",
-  contentType: "application/pdf",
-});
+const upload = await docs.operation("Documents.Files.Upload")
+  .input({
+    key: "incoming/report.pdf",
+    contentType: "application/pdf",
+  })
+  .transfer(fileBytes)
+  .onTransfer((event) => {
+    console.log(event.transfer.transferredBytes);
+  })
+  .onProgress((event) => {
+    console.log(event.progress.stage);
+  })
+  .start()
+  .orThrow();
 
-if (started.isErr()) {
-  return started;
-}
-
-const op = started.value;
-const transferred = await op.transfer(fileBytes);
+const completed = await upload.wait().orThrow();
 ```
 
 Rules:
 
-- `@qlever-llc/trellis` exposes transfer through `OperationRef.transfer(...)`, not through `trellis.transfer(grant)`
-- transfer-capable operation refs accept the same body forms as the old runtime helper: `Uint8Array`, `ArrayBuffer`, `ReadableStream<Uint8Array>`, and `AsyncIterable<Uint8Array>`
+- `@qlever-llc/trellis` exposes transfer through `operation(...).input(...).transfer(...).start()`, not through `OperationRef.transfer(...)` or `trellis.transfer(grant)`
+- the transfer builder accepts the same body forms as the old runtime helper: `Uint8Array`, `ArrayBuffer`, `ReadableStream<Uint8Array>`, and `AsyncIterable<Uint8Array>`
 - metadata actions such as list/head/delete remain ordinary typed request calls on the contract client
 
 #### Rust
@@ -157,9 +162,9 @@ Rules:
 Rust should mirror the same operation-native semantics:
 
 ```rust
-let op = documents.documents_files_upload().start(request).await?;
-let transferred = op.transfer(bytes).await?;
-let terminal = op.wait().await?;
+let upload = documents.documents_files_upload().input(request).transfer(bytes).start().await?;
+let completed = upload.wait().await?;
+let terminal = completed.terminal;
 ```
 
 Rules:
@@ -195,15 +200,15 @@ Rules:
 For caller-visible file-processing workflows, the recommended pattern is:
 
 1. a contract-owned operation declares transfer support
-2. the caller starts the operation and begins watching it
-3. the caller sends bytes with `op.transfer(body | stream)`
+2. the caller starts the operation and begins watching it, either directly or through the fluent transfer builder
+3. the caller sends bytes with `input(input).transfer(body).start()`
 4. the provider awaits `transfer.completed()` and updates business progress or enqueues follow-up work
 5. the operation completes when the service-owned workflow completes
 
 Rules:
 
 - transfer success means `bytes stored`, not `workflow finished`
-- use runtime-owned transfer events for progress bars and service-authored `progress(...)` calls for domain milestones
+- use runtime-owned transfer events or fluent transfer builder callbacks for progress bars and service-authored `progress(...)` calls for domain milestones
 - use operations for caller-visible progress and final results
 - use jobs for service-private execution, retries, and background processing after the bytes are stored
 

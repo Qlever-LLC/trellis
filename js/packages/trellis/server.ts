@@ -207,7 +207,7 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
       progress: async (operationId, progress) =>
         this.#applyOperationUpdate(operationId, "running", {
           patch: { progress },
-          event: { type: "progress" },
+          event: { type: "progress", progress },
         }),
       complete: async (operationId, output) =>
         this.#applyOperationUpdate(operationId, "completed", {
@@ -257,7 +257,7 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
     state: RuntimeOperationState,
     opts: {
       patch?: Partial<RuntimeOperationSnapshot>;
-      event: { type: string };
+      event: Record<string, unknown> & { type: string };
     },
   ): Promise<Result<RuntimeOperationSnapshot, UnexpectedError>> {
     const runtime = await this.#resolveOperation(operationId);
@@ -290,8 +290,8 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
       kind: "event",
       sequence: runtime.sequence,
       event: {
-        type: opts.event.type,
         snapshot: runtime.snapshot,
+        ...opts.event,
       },
     };
     for (const reply of runtime.watchers) {
@@ -320,31 +320,34 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
         operation: runtime.operation,
       },
       snapshot: runtime.snapshot,
-      started: async () => await this.operations.started(runtime.id),
-      progress: async (value: unknown) => await this.operations.progress(runtime.id, value),
-      complete: async (value: unknown) => await this.operations.complete(runtime.id, value),
-      fail: async (error: BaseError) => await this.operations.fail(runtime.id, error),
-      cancel: async () => await this.operations.cancel(runtime.id),
-      attach: async (job: { wait(): Promise<Result<unknown, BaseError>> }) => {
-        const waited = await job.wait();
-        const waitedValue = waited.take();
-        if (isErr(waitedValue)) {
-          return err(new UnexpectedError({ cause: waitedValue.error }));
-        }
+      started: () => AsyncResult.from(this.operations.started(runtime.id)),
+      progress: (value: unknown) =>
+        AsyncResult.from(this.operations.progress(runtime.id, value)),
+      complete: (value: unknown) =>
+        AsyncResult.from(this.operations.complete(runtime.id, value)),
+      fail: (error: BaseError) => AsyncResult.from(this.operations.fail(runtime.id, error)),
+      cancel: () => AsyncResult.from(this.operations.cancel(runtime.id)),
+      attach: (job: { wait(): AsyncResult<unknown, BaseError> }) =>
+        AsyncResult.from((async () => {
+          const waited = await job.wait();
+          const waitedValue = waited.take();
+          if (isErr(waitedValue)) {
+            return err(new UnexpectedError({ cause: waitedValue.error }));
+          }
 
-        const finalRuntime = await this.#resolveOperation(runtime.id);
-        if (!finalRuntime || !finalRuntime.terminal) {
-          return err(
-            new UnexpectedError({
-              cause: new Error(
-                "attached job completed without terminal operation state",
-              ),
-            }),
-          );
-        }
+          const finalRuntime = await this.#resolveOperation(runtime.id);
+          if (!finalRuntime || !finalRuntime.terminal) {
+            return err(
+              new UnexpectedError({
+                cause: new Error(
+                  "attached job completed without terminal operation state",
+                ),
+              }),
+            );
+          }
 
-        return ok(finalRuntime.snapshot);
-      },
+          return ok(finalRuntime.snapshot);
+        })()),
     };
   }
 
@@ -698,16 +701,16 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
     }
 
     return {
-      accept: async ({ sessionKey }) => {
+      accept: ({ sessionKey }) => {
         this.#ensureOperationControlLoop(String(operation), ctx);
         if (ctx.transfer) {
-          return err(new UnexpectedError({
+          return AsyncResult.err(new UnexpectedError({
             cause: new Error(
               `Operation '${String(operation)}' uses transfer-capable start semantics and cannot be accepted manually`,
             ),
           }));
         }
-        return await this.#acceptOperation(String(operation), sessionKey);
+        return AsyncResult.from(this.#acceptOperation(String(operation), sessionKey));
       },
       handle: async (
         handler: (
@@ -783,7 +786,7 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
 
           return {
             id: runtime.id,
-            started: async () => {
+            started: () => AsyncResult.from((async () => {
               const active = ensureActive();
               if (active) return active;
               return transition("running", undefined, {
@@ -792,8 +795,8 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
                   revision: runtime.snapshot.revision + 1,
                 }),
               });
-            },
-            progress: async (value: unknown) => {
+            })()),
+            progress: (value: unknown) => AsyncResult.from((async () => {
               const active = ensureActive();
               if (active) return active;
               return transition("running", { progress: value }, {
@@ -803,8 +806,8 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
                   progress: value,
                 }),
               });
-            },
-            complete: async (value: unknown) => {
+            })()),
+            complete: (value: unknown) => AsyncResult.from((async () => {
               const active = ensureActive();
               if (active) return active;
               const snapshot = buildRuntimeOperationSnapshot(
@@ -825,8 +828,8 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
               });
               await flushWaiters(runtime);
               return ok(snapshot);
-            },
-            fail: async (error: BaseError) => {
+            })()),
+            fail: (error: BaseError) => AsyncResult.from((async () => {
               const active = ensureActive();
               if (active) return active;
               const snapshot = buildRuntimeOperationSnapshot(
@@ -847,8 +850,8 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
               });
               await flushWaiters(runtime);
               return ok(snapshot);
-            },
-            cancel: async () => {
+            })()),
+            cancel: () => AsyncResult.from((async () => {
               const active = ensureActive();
               if (active) return active;
               const snapshot = buildRuntimeOperationSnapshot(
@@ -868,29 +871,28 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
               });
               await flushWaiters(runtime);
               return ok(snapshot);
-            },
-            attach: async (
-              job: { wait: () => Promise<Result<unknown, BaseError>> },
-            ) => {
-              const waited = await job.wait();
-              const waitedValue = waited.take();
-              if (isErr(waitedValue)) {
-                return err(new UnexpectedError({ cause: waitedValue.error }));
-              }
+            })()),
+            attach: (job: { wait: () => AsyncResult<unknown, BaseError> }) =>
+              AsyncResult.from((async () => {
+                const waited = await job.wait();
+                const waitedValue = waited.take();
+                if (isErr(waitedValue)) {
+                  return err(new UnexpectedError({ cause: waitedValue.error }));
+                }
 
-              const finalRuntime = await this.#resolveOperation(runtime.id);
-              if (!finalRuntime || !finalRuntime.terminal) {
-                return err(
-                  new UnexpectedError({
-                    cause: new Error(
-                      "attached job completed without terminal operation state",
-                    ),
-                  }),
-                );
-              }
+                const finalRuntime = await this.#resolveOperation(runtime.id);
+                if (!finalRuntime || !finalRuntime.terminal) {
+                  return err(
+                    new UnexpectedError({
+                      cause: new Error(
+                        "attached job completed without terminal operation state",
+                      ),
+                    }),
+                  );
+                }
 
-              return ok(finalRuntime.snapshot);
-            },
+                return ok(finalRuntime.snapshot);
+              })()),
           };
         };
 

@@ -255,7 +255,7 @@ Behavior:
 Example:
 
 ```ts
-const op = await billing.operation("Billing.Refund").start(input);
+const op = await billing.operation("Billing.Refund").input(input).start();
 const done = await op.wait();
 
 const job = await service.jobs.refundCharge.create({

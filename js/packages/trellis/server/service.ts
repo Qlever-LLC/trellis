@@ -27,7 +27,7 @@ import {
   type InferSchemaType,
 } from "@qlever-llc/trellis/contracts";
 import type { TrellisAPI } from "@qlever-llc/trellis/contracts";
-import { type BaseError, isErr, type Result } from "@qlever-llc/result";
+import { AsyncResult, type BaseError, isErr, type Result } from "@qlever-llc/result";
 import { type TSchema, Type } from "typebox";
 import { Value } from "typebox/value";
 import { type HealthCheckFn, ServiceHealth } from "./health.ts";
@@ -449,7 +449,7 @@ export class KVHandle {
     this.binding = binding;
   }
 
-  open<S extends TSchema>(schema: S): Promise<Result<TypedKV<S>, KVError>> {
+  open<S extends TSchema>(schema: S): AsyncResult<TypedKV<S>, KVError> {
     return TypedKV.open(this.#nc, this.binding.bucket, schema, {
       history: this.binding.history,
       ttl: this.binding.ttlMs,
@@ -468,7 +468,7 @@ export class StoreHandle {
     this.binding = binding;
   }
 
-  open(): Promise<Result<TypedStore, StoreError>> {
+  open(): AsyncResult<TypedStore, StoreError> {
     return TypedStore.open(this.#nc, this.binding.name, {
       ttlMs: this.binding.ttlMs,
       maxObjectBytes: this.binding.maxObjectBytes,
@@ -480,16 +480,11 @@ export class StoreHandle {
   /**
    * Waits for a staged object to appear in the bound store and returns its entry.
    */
-  async waitFor(
+  waitFor(
     key: string,
     options: StoreWaitOptions = {},
-  ): Promise<Result<TypedStoreEntry, StoreError>> {
-    const opened = await this.open();
-    const store = opened.take();
-    if (isErr(store)) {
-      return store;
-    }
-    return await store.waitFor(key, options);
+  ): AsyncResult<TypedStoreEntry, StoreError> {
+    return this.open().andThen((store) => store.waitFor(key, options));
   }
 }
 
@@ -722,14 +717,13 @@ async function createConnectedService<
 
   const handlerTrellis: ServiceHandlerTrellis<TTrellisApi> = {
     request: (method, input, opts) => outbound.request(method, input, opts),
-    requestOrThrow: (method, input, opts) =>
-      outbound.requestOrThrow(method, input, opts),
     publish: (event, data) => outbound.publish(event, data),
-    event: (event, subjectData, fn) =>
+    event: (event, subjectData, fn, opts) =>
       outbound.event(
         event,
         subjectData,
         fn as (message: unknown) => ReturnType<typeof fn>,
+        opts,
       ),
     operation: (operation) => outbound.operation(operation),
     get kv() {
@@ -809,7 +803,7 @@ async function createConnectedService<
         outbound.publish as (
           event: string,
           data: Record<string, unknown>,
-        ) => Promise<Result<void, BaseError>>
+        ) => AsyncResult<void, BaseError>
       )("Health.Heartbeat", heartbeat as Record<string, unknown>);
       const value = published.take();
       if (isErr(value)) {
@@ -1162,35 +1156,17 @@ export class TrellisService<
     method: M,
     input: RpcMethodInput<TTrellisApi, M>,
     opts?: RequestOpts,
-  ): Promise<
-    Result<
-      RpcMethodOutput<TTrellisApi, M>,
-      RpcRequestErrorOf<TTrellisApi, M>
-    >
+  ): AsyncResult<
+    RpcMethodOutput<TTrellisApi, M>,
+    RpcRequestErrorOf<TTrellisApi, M>
   > {
     return this.trellis.request(
       method as never,
       input as never,
       opts,
-    ) as Promise<
-      Result<
-        RpcMethodOutput<TTrellisApi, M>,
-        RpcRequestErrorOf<TTrellisApi, M>
-      >
-    >;
-  }
-
-  requestOrThrow<M extends RpcMethodName<TTrellisApi>>(
-    method: M,
-    input: RpcMethodInput<TTrellisApi, M>,
-    opts?: RequestOpts,
-  ): Promise<RpcMethodOutput<TTrellisApi, M>> {
-    return this.trellis.requestOrThrow(
-      method as never,
-      input as never,
-      opts,
-    ) as Promise<
-      RpcMethodOutput<TTrellisApi, M>
+    ) as AsyncResult<
+      RpcMethodOutput<TTrellisApi, M>,
+      RpcRequestErrorOf<TTrellisApi, M>
     >;
   }
 

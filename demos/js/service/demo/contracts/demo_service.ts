@@ -27,6 +27,14 @@ export const contract = defineServiceContract(
           maxTotalBytes: 256 * 1024 * 1024,
         },
       },
+      jobs: {
+        queues: {
+          processUpload: {
+            payload: ref.schema("FilesUploadJobPayload"),
+            result: ref.schema("FilesUploadResult"),
+          },
+        },
+      },
     },
     rpc: {
       "Demo.Groups.List": {

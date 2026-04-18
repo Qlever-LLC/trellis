@@ -498,6 +498,24 @@ export class Result<T, E extends BaseError> {
   }
 
   /**
+   * Returns the Ok value or throws the Err error.
+   *
+   * This is useful at process or demo boundaries where exception-style control
+   * flow is acceptable and a caller wants to avoid repetitive `take()` /
+   * `isErr(...)` branching.
+   *
+   * @returns The unwrapped Ok value
+   * @throws The contained Err error
+   */
+  orThrow(): T {
+    const value = this._value;
+    if (isOkValue(value)) {
+      return value.value;
+    }
+    throw value.error;
+  }
+
+  /**
    * Adds context to an Err result for early returns.
    * Chainable with take() for adding context when propagating errors.
    *
@@ -1089,6 +1107,19 @@ export class AsyncResult<T, E extends BaseError>
   async take(): Promise<T | Result<never, E>> {
     const result = await this.promise;
     return result.take();
+  }
+
+  /**
+   * Returns the Ok value or throws the Err error.
+   *
+   * Async version of `Result.orThrow()`.
+   *
+   * @returns Promise of the unwrapped Ok value
+   * @throws The contained Err error
+   */
+  async orThrow(): Promise<T> {
+    const result = await this.promise;
+    return result.orThrow();
   }
 
   /**

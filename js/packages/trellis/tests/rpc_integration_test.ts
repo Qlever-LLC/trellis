@@ -410,7 +410,7 @@ Deno.test({
 
       const result = await withSpanAsync(
         parent,
-        () => client.request("Test.Trace", {}),
+        async () => await client.request("Test.Trace", {}),
       );
       parent.end();
 
@@ -567,7 +567,7 @@ Deno.test({
     });
 
     await t.step(
-      "requestOrThrow unwraps successful RPC responses",
+      "request().orThrow() unwraps successful RPC responses",
       async () => {
         const meService = createClient<typeof authContract.API.owned>(
           authContract,
@@ -627,10 +627,10 @@ Deno.test({
         );
         const response = await waitFor<{ user: { id: string } | null }>(
           () =>
-            client.requestOrThrow("Auth.Me", {}, { timeout: 500 }).catch(() =>
+            client.request("Auth.Me", {}, { timeout: 500 }).orThrow().catch(() =>
               null
             ),
-          { description: "Me responder ready for requestOrThrow" },
+          { description: "Me responder ready for request().orThrow()" },
         );
 
         assertExists(response?.user);

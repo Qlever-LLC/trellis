@@ -20,7 +20,8 @@ const client = await TrellisClient.connect({
   trellisUrl: "https://trellis.example.com",
   contract: app,
 });
-const me = await client.requestOrThrow("Auth.Me", {});
+const meResult = await client.request("Auth.Me", {});
+const me = meResult.orThrow();
 ```
 
 Host connection helpers live in `@qlever-llc/trellis/host*` to keep the root

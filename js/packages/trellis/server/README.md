@@ -8,4 +8,4 @@ Server-side helpers for Trellis services.
 
 Use the runtime-specific subpath when connecting a service.
 
-Connected services keep `mount(...)` typed from `contract.API.owned`, while outbound calls stay typed from `contract.API.trellis`. Use `service.requestOrThrow(...)` for the common throw-on-error path, or `service.trellis.request(...)` when you need the raw `Result`.
+Connected services keep `mount(...)` typed from `contract.API.owned`, while outbound calls stay typed from `contract.API.trellis`. Prefer `service.request(...)` when you want the raw `Result`, and use `await service.request(...).orThrow()` as the throw-on-error outlet when that fits the caller.

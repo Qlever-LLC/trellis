@@ -30,7 +30,7 @@ deno task -c demos/js/device/demo/deno.json start -- http://localhost:3000 "<roo
 ```
 
 After connecting, the device starts the `Demo.Files.Upload` operation, transfers
-the file through `op.transfer(...)`, prints a transfer progress bar from the
+the file through the fluent transfer builder, prints a transfer progress bar from the
 operation watch stream, and waits for the final result while the service writes
 the staged object to `/tmp`.
 
