@@ -2,6 +2,7 @@ import { assert, assertEquals, assertFalse, assertThrows } from "@std/assert";
 import Value from "typebox/value";
 
 import {
+  AppIdentitySchema,
   AuthBrowserFlowSchema,
   AuthRenewBindingTokenRequestSchema,
   AuthRenewBindingTokenResponseSchema,
@@ -21,6 +22,7 @@ import {
   LoginPortalSelectionSchema,
   LoginQuerySchema,
   OAuthStateSchema,
+  PendingAuthSchema,
   PortalSchema,
   ServiceRegistrySchema,
   SessionKeySchema,
@@ -56,6 +58,10 @@ Deno.test("SessionSchema validates session entries", () => {
       contractId: "trellis.console@v1",
       contractDisplayName: "Trellis Console",
       contractDescription: "Admin app",
+      app: {
+        contractId: "trellis.console@v1",
+        origin: "https://app.example.com",
+      },
       appOrigin: "https://app.example.com",
       approvalSource: "admin_policy",
       delegatedCapabilities: ["admin"],
@@ -102,11 +108,19 @@ Deno.test("SessionSchema validates session entries", () => {
 });
 
 Deno.test("Portal and browser-flow schemas validate", () => {
+  assert(Value.Check(AppIdentitySchema, {
+    contractId: "trellis.console@v1",
+    origin: "https://app.example.com",
+  }));
   assert(Value.Check(AuthBrowserFlowSchema, {
     flowId: "flow_123",
     kind: "login",
     sessionKey,
     redirectTo: "https://app.example.com/dashboard",
+    app: {
+      contractId: "trellis.console@v1",
+      origin: "https://app.example.com",
+    },
     contract: { id: "trellis.console@v1" },
     createdAt: new Date().toISOString(),
     expiresAt: new Date().toISOString(),
@@ -238,9 +252,32 @@ Deno.test("OAuthStateSchema validates browser flow linkage", () => {
     redirectTo: "https://app.example.com/dashboard",
     codeVerifier: "code-verifier",
     sessionKey,
+    app: {
+      contractId: "trellis.console@v1",
+      origin: "https://app.example.com",
+    },
     contract: { id: "trellis.console@v1" },
     context: { subtitle: "Welcome" },
     flowId: "flow_123",
+    createdAt: new Date().toISOString(),
+  }));
+});
+
+Deno.test("PendingAuthSchema validates explicit app identity", () => {
+  assert(Value.Check(PendingAuthSchema, {
+    user: {
+      origin: "github",
+      id: "123",
+      email: "user@example.com",
+      name: "User",
+    },
+    sessionKey,
+    redirectTo: "https://app.example.com/dashboard",
+    app: {
+      contractId: "trellis.console@v1",
+      origin: "https://app.example.com",
+    },
+    contract: { id: "trellis.console@v1" },
     createdAt: new Date().toISOString(),
   }));
 });

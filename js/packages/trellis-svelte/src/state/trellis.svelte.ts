@@ -1,13 +1,19 @@
 import { defineAppContract } from "../../../trellis/contract.ts";
 import type { TrellisAPI, TrellisContractV1 } from "../../../trellis/contracts.ts";
 import type { Trellis } from "../../../trellis/trellis.ts";
-import { TrellisClient } from "../../../trellis/client_connect.ts";
 import { createClient } from "../../../trellis/client.ts";
 import { getPublicSessionKey, signBytes } from "@qlever-llc/trellis/auth/browser";
 import type { AuthState } from "./auth.svelte.ts";
 import type { NatsState } from "./nats.svelte.ts";
 
-export type TrellisClientContract<TApi extends TrellisAPI = TrellisAPI> = {
+type TrellisClientApi = {
+  rpc: Record<string, unknown>;
+  operations: Record<string, unknown>;
+  events: Record<string, unknown>;
+  subjects: Record<string, unknown>;
+};
+
+export type TrellisClientContract<TApi extends TrellisClientApi = TrellisClientApi> = {
   CONTRACT: TrellisContractV1;
   CONTRACT_DIGEST: string;
   API: {
@@ -15,7 +21,7 @@ export type TrellisClientContract<TApi extends TrellisAPI = TrellisAPI> = {
   };
 };
 
-export type TrellisStateConfig<TApi extends TrellisAPI = TrellisAPI> = {
+export type TrellisStateConfig<TApi extends TrellisClientApi = TrellisClientApi> = {
   contract?: TrellisClientContract<TApi>;
 };
 
@@ -34,17 +40,17 @@ const DEFAULT_TRELLIS_CONTRACT = defineAppContract(
  * - Trellis client instance
  * - Session-key based request signing
  */
-export class TrellisState<TApi extends TrellisAPI = TrellisAPI> {
-  readonly trellis: Trellis<TApi>;
+export class TrellisState<TApi extends TrellisClientApi = TrellisClientApi> {
+  readonly trellis: Trellis;
 
-  private constructor(trellis: Trellis<TApi>) {
+  private constructor(trellis: Trellis) {
     this.trellis = trellis;
   }
 
   /**
    * Create a TrellisState instance with proper authentication.
    */
-  static async create<TApi extends TrellisAPI>(
+  static async create<TApi extends TrellisClientApi>(
     authState: AuthState,
     natsState: NatsState,
     config: TrellisStateConfig<TApi>,
@@ -54,8 +60,8 @@ export class TrellisState<TApi extends TrellisAPI = TrellisAPI> {
     const clientName = typeof contract.CONTRACT.id === "string" && contract.CONTRACT.id.length > 0
       ? contract.CONTRACT.id
       : "client";
-    const trellis = createClient<TApi>(
-      contract,
+    const trellis = createClient(
+      contract as TrellisClientContract<TrellisAPI>,
       natsState.nc,
       {
         sessionKey: getPublicSessionKey(handle),
@@ -66,7 +72,7 @@ export class TrellisState<TApi extends TrellisAPI = TrellisAPI> {
     return new TrellisState<TApi>(trellis);
   }
 
-  static fromTrellis<TApi extends TrellisAPI>(trellis: Trellis<TApi>): TrellisState<TApi> {
+  static fromTrellis<TApi extends TrellisClientApi>(trellis: Trellis): TrellisState<TApi> {
     return new TrellisState<TApi>(trellis);
   }
 
@@ -78,7 +84,7 @@ export class TrellisState<TApi extends TrellisAPI = TrellisAPI> {
 /**
  * Factory function to create a TrellisState instance.
  */
-export async function createTrellisState<TApi extends TrellisAPI>(
+export async function createTrellisState<TApi extends TrellisClientApi>(
   authState: AuthState,
   natsState: NatsState,
   config: TrellisStateConfig<TApi>,

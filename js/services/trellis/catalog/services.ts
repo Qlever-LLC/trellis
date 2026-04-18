@@ -1,5 +1,5 @@
 import { UnexpectedError, ValidationError } from "@qlever-llc/trellis";
-import { isErr, Result, type BaseError } from "@qlever-llc/result";
+import { type AsyncResult, isErr, Result, type BaseError } from "@qlever-llc/result";
 
 import {
   connectionsKV,
@@ -48,14 +48,14 @@ type ServiceRow = {
 };
 
 type KVLike<V> = {
-  get: (key: string) => Promise<Result<{ value: V }, BaseError>>;
-  put: (key: string, value: V) => Promise<Result<void, BaseError>>;
-  delete: (key: string) => Promise<Result<void, BaseError>>;
-  keys: (filter: string) => Promise<Result<AsyncIterable<string>, BaseError>>;
+  get: (key: string) => AsyncResult<{ value: V }, BaseError>;
+  put: (key: string, value: V) => AsyncResult<void, BaseError>;
+  delete: (key: string) => AsyncResult<void, BaseError>;
+  keys: (filter: string) => AsyncResult<AsyncIterable<string>, BaseError>;
 };
 
 type CreateKVLike<V> = KVLike<V> & {
-  create: (key: string, value: V) => Promise<Result<void, BaseError>>;
+  create: (key: string, value: V) => AsyncResult<void, BaseError>;
 };
 
 async function publishSessionRevoked(

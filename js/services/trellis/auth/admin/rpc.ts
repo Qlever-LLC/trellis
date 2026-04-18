@@ -471,7 +471,7 @@ async function revokeInvalidatedInstanceGrantSessions(args: {
     const matchedPolicies = matchingInstanceGrantPolicies({
       policies: args.policies,
       contractId: session.contractId,
-      appOrigin: session.appOrigin,
+      appOrigin: session.app?.origin ?? session.appOrigin,
     });
     const sessionAllowed = projection !== null &&
       userDelegationAllowed({

@@ -52,7 +52,7 @@
     };
   }
 
-  async function requestOrThrow<T>(method: string, input: unknown): Promise<T> {
+  async function requestValue<T>(method: string, input: unknown): Promise<T> {
     const trellis = await trellisPromise;
     const result = await trellis.request<T>(method as string, input);
     const value = result.take();
@@ -65,8 +65,8 @@
     error = null;
     try {
       const [instancesResponse, profilesResponse] = await Promise.all([
-        requestOrThrow<AuthListDeviceInstancesOutput>("Auth.ListDeviceInstances", instanceQuery()),
-        requestOrThrow<AuthListDeviceProfilesOutput>("Auth.ListDeviceProfiles", {}),
+        requestValue<AuthListDeviceInstancesOutput>("Auth.ListDeviceInstances", instanceQuery()),
+        requestValue<AuthListDeviceProfilesOutput>("Auth.ListDeviceProfiles", {}),
       ]);
 
       instances = instancesResponse.instances ?? [];
@@ -87,6 +87,10 @@
 
   function opaqueMetadataEntries(metadata: Instance["metadata"]): Array<[string, string]> {
     return Object.entries(metadata ?? {}).filter(([key]) => !understoodMetadataKeys.includes(key as (typeof understoodMetadataKeys)[number])) as Array<[string, string]>;
+  }
+
+  function instanceRowKey(instance: Instance): string {
+    return `${instance.instanceId}:${instance.createdAt}:${instance.publicIdentityKey}`;
   }
 
   function parseProvisionMetadata(): DeviceMetadata | undefined {
@@ -135,7 +139,7 @@
     error = null;
     try {
       const metadata = parseProvisionMetadata();
-      await requestOrThrow(
+      await requestValue(
         "Auth.ProvisionDeviceInstance",
         {
           profileId: provisionProfileId,
@@ -166,7 +170,7 @@
     disableTarget = instance.instanceId;
     error = null;
     try {
-      await requestOrThrow(
+      await requestValue(
         "Auth.DisableDeviceInstance",
         { instanceId: instance.instanceId } satisfies AuthDisableDeviceInstanceInput,
       );
@@ -312,7 +316,7 @@ location=front-desk"
           </tr>
         </thead>
         <tbody>
-          {#each instances as instance (instance.instanceId)}
+          {#each instances as instance (instanceRowKey(instance))}
             <tr>
               <td class="font-medium">{instance.instanceId}</td>
               <td class="text-base-content/60">{instance.profileId}</td>

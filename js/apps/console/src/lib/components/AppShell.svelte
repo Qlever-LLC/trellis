@@ -95,7 +95,7 @@
 
   async function authMe(): Promise<AuthMeOutput> {
     const trellis = await trellisPromise;
-    return await trellis.requestOrThrow<AuthMeOutput>("Auth.Me", {});
+    return await trellis.request<AuthMeOutput>("Auth.Me", {}).orThrow();
   }
 
   onMount(() => {
@@ -147,7 +147,7 @@
 
   async function logoutRequest(): Promise<void> {
     const trellis = await trellisPromise;
-    await trellis.requestOrThrow<void>("Auth.Logout" as string, {});
+    await trellis.request<void>("Auth.Logout" as string, {}).orThrow();
   }
 
   async function signOut() {

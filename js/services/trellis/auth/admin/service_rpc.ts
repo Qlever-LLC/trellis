@@ -1,5 +1,5 @@
 import { UnexpectedError, ValidationError } from "@qlever-llc/trellis";
-import { type BaseError, isErr, Result } from "@qlever-llc/result";
+import { type AsyncResult, type BaseError, isErr, Result } from "@qlever-llc/result";
 
 import {
   connectionsKV,
@@ -20,13 +20,12 @@ import {
 
 type RpcUser = { type: string; id?: string };
 
-type KVResult<T> = { take(): T };
 type KVLike<V> = {
-  get: (key: string) => Promise<KVResult<{ value: V } | V | unknown>>;
-  put: (key: string, value: V) => Promise<KVResult<void | unknown>>;
-  delete: (key: string) => Promise<KVResult<void | unknown>>;
-  keys: (filter: string) => Promise<KVResult<AsyncIterable<string> | unknown>>;
-  create?: (key: string, value: V) => Promise<KVResult<void | unknown>>;
+  get: (key: string) => AsyncResult<{ value: V } | V | unknown, BaseError>;
+  put: (key: string, value: V) => AsyncResult<void | unknown, BaseError>;
+  delete: (key: string) => AsyncResult<void | unknown, BaseError>;
+  keys: (filter: string) => AsyncResult<AsyncIterable<string> | unknown, BaseError>;
+  create?: (key: string, value: V) => AsyncResult<void | unknown, BaseError>;
 };
 
 function unwrapValue<V>(entry: { value: V } | V | unknown): V {

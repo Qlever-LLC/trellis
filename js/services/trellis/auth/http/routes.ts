@@ -36,6 +36,7 @@ import { getApprovalResolutionErrorMessage } from "./approval_errors.ts";
 import { planUserContractApproval } from "../approval/plan.ts";
 import {
   applyApprovalDecision,
+  buildAppIdentity,
   buildRedirectLocation,
   contractApprovalKey,
   type CookieContext,
@@ -162,6 +163,10 @@ export function registerHttpRoutes(
     kind: "login" | "device_activation";
     sessionKey?: string;
     redirectTo?: string;
+    app?: {
+      contractId: string;
+      origin?: string;
+    };
     context?: Record<string, unknown>;
     contract?: Record<string, unknown>;
     provider?: string;
@@ -370,8 +375,11 @@ export function registerHttpRoutes(
       contractId: args.resolution.plan.contract.id,
       contractDisplayName: args.resolution.plan.contract.displayName,
       contractDescription: args.resolution.plan.contract.description,
-      ...(args.resolution.appOrigin
-        ? { appOrigin: args.resolution.appOrigin }
+      ...(args.resolution.app
+        ? { app: args.resolution.app }
+        : {}),
+      ...(args.resolution.app?.origin
+        ? { appOrigin: args.resolution.app.origin }
         : {}),
       ...(args.approvalSource
         ? { approvalSource: args.approvalSource }
@@ -445,6 +453,10 @@ export function registerHttpRoutes(
       kind: "login",
       sessionKey: args.sessionKey,
       redirectTo: args.redirectTo,
+      app: buildAppIdentity({
+        contractId: args.plan.contract.id,
+        redirectTo: args.redirectTo,
+      }),
       ...(args.context ? { context: args.context } : {}),
       contract: { ...args.plan.contract, digest: args.plan.digest },
       createdAt: new Date(),
@@ -821,6 +833,10 @@ export function registerHttpRoutes(
       kind: "login",
       sessionKey,
       redirectTo,
+      app: buildAppIdentity({
+        contractId: plan.contract.id,
+        redirectTo,
+      }),
       ...(decodedContext ? { context: decodedContext } : {}),
       contract: { ...plan.contract, digest: plan.digest },
       createdAt: new Date(),
@@ -865,6 +881,7 @@ export function registerHttpRoutes(
       redirectTo: flow.redirectTo ?? "",
       codeVerifier: idpParams.codeVerifier,
       sessionKey: flow.sessionKey,
+      app: flow.app,
       context: flow.context,
       contract: flow.contract,
       createdAt: new Date(),
@@ -976,6 +993,7 @@ export function registerHttpRoutes(
       },
       sessionKey: oauthEntry.value.sessionKey,
       redirectTo: oauthEntry.value.redirectTo,
+      ...(oauthEntry.value.app ? { app: oauthEntry.value.app } : {}),
       contract: oauthEntry.value.contract,
       createdAt: new Date(),
     };

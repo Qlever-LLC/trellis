@@ -46,8 +46,8 @@
     try {
       const trellis = await trellisPromise;
       const [instancesRes, profilesRes] = await Promise.all([
-        trellis.requestOrThrow<AuthListServiceInstancesOutput>("Auth.ListServiceInstances" as string, query()),
-        trellis.requestOrThrow<AuthListServiceProfilesOutput>("Auth.ListServiceProfiles" as string, {}),
+        trellis.request<AuthListServiceInstancesOutput>("Auth.ListServiceInstances" as string, query()).orThrow(),
+        trellis.request<AuthListServiceProfilesOutput>("Auth.ListServiceProfiles" as string, {}).orThrow(),
       ]);
       instances = instancesRes.instances ?? [];
       profiles = profilesRes.profiles ?? [];
@@ -66,10 +66,10 @@
     error = null;
     try {
       const trellis = await trellisPromise;
-      await trellis.requestOrThrow<void>("Auth.ProvisionServiceInstance" as string, {
+      await trellis.request<void>("Auth.ProvisionServiceInstance" as string, {
         profileId: provisionProfileId,
         instanceKey: instanceKey.trim(),
-      });
+      }).orThrow();
       notifications.success("Service instance provisioned.", "Provisioned");
       instanceKey = "";
       await load();
@@ -87,9 +87,9 @@
     error = null;
     try {
       const trellis = await trellisPromise;
-      await trellis.requestOrThrow<void>((disabled ? "Auth.DisableServiceInstance" : "Auth.EnableServiceInstance") as string, {
+      await trellis.request<void>((disabled ? "Auth.DisableServiceInstance" : "Auth.EnableServiceInstance") as string, {
         instanceId: instance.instanceId,
-      });
+      }).orThrow();
       notifications.success(`Service instance ${instance.instanceId} ${disabled ? "disabled" : "enabled"}.`, disabled ? "Disabled" : "Enabled");
       await load();
     } catch (e) {
@@ -105,7 +105,7 @@
     error = null;
     try {
       const trellis = await trellisPromise;
-      await trellis.requestOrThrow<void>("Auth.RemoveServiceInstance" as string, { instanceId: instance.instanceId });
+      await trellis.request<void>("Auth.RemoveServiceInstance" as string, { instanceId: instance.instanceId }).orThrow();
       notifications.success(`Service instance ${instance.instanceId} removed.`, "Removed");
       await load();
     } catch (e) {

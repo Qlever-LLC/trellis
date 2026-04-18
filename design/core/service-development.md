@@ -94,7 +94,10 @@ const stagedUpload = (await uploadsStore.waitFor("incoming/report.pdf", {
 await service.trellis.mount("SomeMethod", handler);
 await service.trellis.event("SomeEvent", {}, eventHandler);
 
-const catalog = await service.requestOrThrow("Trellis.Catalog", {});
+const catalog = await service.request("Trellis.Catalog", {});
+if (catalog.isErr()) {
+  throw catalog.error;
+}
 
 Deno.addSignalListener("SIGTERM", async () => {
   await service.stop();

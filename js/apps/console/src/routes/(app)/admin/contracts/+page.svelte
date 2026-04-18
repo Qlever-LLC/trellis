@@ -68,12 +68,12 @@
 
   async function listInstalledContracts(): Promise<AuthListInstalledContractsOutput> {
     const trellis = await trellisPromise;
-    return await trellis.requestOrThrow<AuthListInstalledContractsOutput>("Auth.ListInstalledContracts" as string, {});
+    return await trellis.request<AuthListInstalledContractsOutput>("Auth.ListInstalledContracts" as string, {}).orThrow();
   }
 
   async function getInstalledContract(digest: string): Promise<AuthGetInstalledContractOutput> {
     const trellis = await trellisPromise;
-    return await trellis.requestOrThrow<AuthGetInstalledContractOutput>("Auth.GetInstalledContract" as string, { digest });
+    return await trellis.request<AuthGetInstalledContractOutput>("Auth.GetInstalledContract" as string, { digest }).orThrow();
   }
 
   async function load() {

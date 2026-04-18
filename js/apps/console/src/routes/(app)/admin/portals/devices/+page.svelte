@@ -25,7 +25,7 @@
   const trellisPromise = getTrellis();
   const notifications = getNotifications();
 
-  async function requestOrThrow<T>(method: string, input: unknown): Promise<T> {
+  async function requestValue<T>(method: string, input: unknown): Promise<T> {
     const trellis = await trellisPromise;
     const result = await trellis.request<T>(method as string, input);
     const value = result.take();
@@ -90,10 +90,10 @@
     error = null;
     try {
       const [portalRes, profileRes, defaultRes, selectionRes] = await Promise.all([
-        requestOrThrow<AuthListPortalsOutput>("Auth.ListPortals", {}),
-        requestOrThrow<AuthListDeviceProfilesOutput>("Auth.ListDeviceProfiles", {}),
-        requestOrThrow<AuthGetDevicePortalDefaultOutput>("Auth.GetDevicePortalDefault", {}),
-        requestOrThrow<AuthListDevicePortalSelectionsOutput>("Auth.ListDevicePortalSelections", {}),
+        requestValue<AuthListPortalsOutput>("Auth.ListPortals", {}),
+        requestValue<AuthListDeviceProfilesOutput>("Auth.ListDeviceProfiles", {}),
+        requestValue<AuthGetDevicePortalDefaultOutput>("Auth.GetDevicePortalDefault", {}),
+        requestValue<AuthListDevicePortalSelectionsOutput>("Auth.ListDevicePortalSelections", {}),
       ]);
 
       portals = portalRes.portals ?? [];
@@ -118,7 +118,7 @@
     defaultPending = true;
     error = null;
     try {
-      await requestOrThrow("Auth.SetDevicePortalDefault", {
+      await requestValue("Auth.SetDevicePortalDefault", {
         portalId: optionToPortalId(defaultDraft),
       } satisfies AuthSetDevicePortalDefaultInput);
       notifications.success("Default device portal updated.", "Updated");
@@ -136,12 +136,12 @@
     try {
       const option = selectionDrafts[profileId] ?? INHERIT_OPTION;
       if (option === INHERIT_OPTION) {
-        await requestOrThrow("Auth.ClearDevicePortalSelection", {
+        await requestValue("Auth.ClearDevicePortalSelection", {
           profileId,
         } satisfies AuthClearDevicePortalSelectionInput);
         notifications.success(`Device policy cleared for ${profileId}.`, "Cleared");
       } else {
-        await requestOrThrow("Auth.SetDevicePortalSelection", {
+        await requestValue("Auth.SetDevicePortalSelection", {
           profileId,
           portalId: optionToPortalId(option),
         } satisfies AuthSetDevicePortalSelectionInput);
@@ -161,7 +161,7 @@
     clearTarget = profileId;
     error = null;
     try {
-      await requestOrThrow("Auth.ClearDevicePortalSelection", {
+      await requestValue("Auth.ClearDevicePortalSelection", {
         profileId,
       } satisfies AuthClearDevicePortalSelectionInput);
       notifications.success(`Device policy cleared for ${profileId}.`, "Cleared");

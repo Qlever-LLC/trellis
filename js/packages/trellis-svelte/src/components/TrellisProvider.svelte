@@ -1,7 +1,9 @@
 <script lang="ts">
-  import type { NatsConnection } from "@nats-io/nats-core";
   import { AsyncResult } from "@qlever-llc/result";
-  import type { Trellis, TrellisAPI } from "../../../trellis/trellis.ts";
+  import { getPublicSessionKey, signBytes } from "@qlever-llc/trellis/auth/browser";
+  import type { TrellisAPI } from "../../../trellis/contracts.ts";
+  import type { Trellis } from "../../../trellis/trellis.ts";
+  import { createClient } from "../../../trellis/client.ts";
   import { onDestroy } from "svelte";
   import type { Snippet } from "svelte";
   import {
@@ -9,6 +11,7 @@
     setNatsStateContext,
     setTrellisContext,
   } from "../context.svelte.ts";
+  import { createLiveObjectProxy } from "../live_trellis.ts";
   import { createAuthState, type BindErrorResult } from "../state/auth.svelte.ts";
   import { createConnectedNatsState, type NatsState } from "../state/nats.svelte.ts";
   import {
@@ -109,6 +112,33 @@
     }
   }
 
+  function createLiveTrellis(
+    auth: ReturnType<typeof createAuthState>,
+    natsState: NatsState,
+    baseClient: Trellis<TrellisAPI>,
+  ): Trellis<TrellisAPI> {
+    return createLiveObjectProxy(() => {
+      const handle = auth.handle;
+      if (!handle) {
+        throw new Error("Not authenticated: missing session handle");
+      }
+
+      return createClient(
+        contract as TrellisClientContract<TrellisAPI>,
+        natsState.nc,
+        {
+          sessionKey: getPublicSessionKey(handle),
+          sign: (data: Uint8Array) => signBytes(handle, data),
+        },
+        {
+          name: baseClient.name,
+          timeout: baseClient.timeout,
+          stream: baseClient.stream,
+        },
+      );
+    });
+  }
+
   async function initialize(): Promise<InitContext | null> {
     const result = await AsyncResult.try(async () => {
       const auth = getProviderAuth();
@@ -127,9 +157,9 @@
         return null;
       }
 
-      const trellis = await TrellisClient.connect({
+      const seedTrellis = await TrellisClient.connect({
         trellisUrl: requireTrellisUrl(),
-        contract,
+        contract: contract as TrellisClientContract<TrellisAPI>,
         auth: {
           handle: auth.handle ?? undefined,
         },
@@ -143,7 +173,7 @@
         },
       });
 
-      const natsState = await createConnectedNatsState(trellis.natsConnection, auth, {
+      const natsState = await createConnectedNatsState(seedTrellis.natsConnection, auth, {
         onConnecting: onNatsConnecting,
         onConnected: onNatsConnected,
         onDisconnect: onNatsDisconnect,
@@ -159,7 +189,7 @@
       return {
         auth,
         nats: natsState,
-        trellis,
+        trellis: createLiveTrellis(auth, natsState, seedTrellis),
       };
     });
 
@@ -186,16 +216,13 @@
     return ctx;
   }) ?? null;
   const natsStatePromise: Promise<NatsState> | null = readyPromise?.then((ctx) => ctx.nats) ?? null;
-  const trellisPromise: Promise<Trellis<TrellisAPI>> | null = readyPromise?.then((ctx) => ctx.trellis) ?? null;
-  const natsPromise: Promise<NatsConnection> | null = readyPromise?.then((ctx) => ctx.nats.nc) ?? null;
-
-  if (readyPromise && natsStatePromise && trellisPromise && natsPromise) {
+  if (readyPromise && natsStatePromise) {
     void readyPromise.catch(() => {});
     setAuthContext(() => getProviderAuth());
     setNatsStateContext(natsStatePromise);
     setTrellisContext({
-      trellis: trellisPromise,
-      nats: natsPromise,
+      getTrellis: async () => (await readyPromise).trellis,
+      getNats: async () => (await readyPromise).nats.nc,
     });
   }
 

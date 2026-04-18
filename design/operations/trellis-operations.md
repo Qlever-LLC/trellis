@@ -134,11 +134,11 @@ type OperationRef<TProgress, TOutput> = {
   id: string;
   service: string;
   operation: string;
-  get(): Promise<Result<OperationSnapshot<TProgress, TOutput>, BaseError>>;
-  wait(): Promise<Result<TerminalOperation<TProgress, TOutput>, BaseError>>;
-  watch(): AsyncIterable<OperationEvent<TProgress, TOutput>>;
-  transfer?(body: TransferBody): Promise<Result<FileInfo, BaseError>>;
-  cancel?(): Promise<Result<OperationSnapshot<TProgress, TOutput>, BaseError>>;
+  get(): AsyncResult<OperationSnapshot<TProgress, TOutput>, BaseError>;
+  wait(): AsyncResult<TerminalOperation<TProgress, TOutput>, BaseError>;
+  watch(): AsyncResult<AsyncIterable<OperationEvent<TProgress, TOutput>>, BaseError>;
+  transfer?(body: TransferBody): AsyncResult<FileInfo, BaseError>;
+  cancel?(): AsyncResult<OperationSnapshot<TProgress, TOutput>, BaseError>;
 };
 
 type OperationSnapshot<TProgress, TOutput> = {

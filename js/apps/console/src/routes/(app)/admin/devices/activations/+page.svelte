@@ -47,7 +47,7 @@
     };
   }
 
-  async function requestOrThrow<T>(method: string, input: unknown): Promise<T> {
+  async function requestValue<T>(method: string, input: unknown): Promise<T> {
     const trellis = await trellisPromise;
     const result = await trellis.request<T>(method as string, input);
     const value = result.take();
@@ -60,9 +60,9 @@
     error = null;
     try {
       const [activationsResponse, instancesResponse, profilesResponse] = await Promise.all([
-        requestOrThrow<AuthListDeviceActivationsOutput>("Auth.ListDeviceActivations", activationQuery()),
-        requestOrThrow<AuthListDeviceInstancesOutput>("Auth.ListDeviceInstances", {}),
-        requestOrThrow<AuthListDeviceProfilesOutput>("Auth.ListDeviceProfiles", {}),
+        requestValue<AuthListDeviceActivationsOutput>("Auth.ListDeviceActivations", activationQuery()),
+        requestValue<AuthListDeviceInstancesOutput>("Auth.ListDeviceInstances", {}),
+        requestValue<AuthListDeviceProfilesOutput>("Auth.ListDeviceProfiles", {}),
       ]);
 
       activations = activationsResponse.activations ?? [];
@@ -85,6 +85,10 @@
     ) as Array<[string, string]>;
   }
 
+  function activationRowKey(activation: Activation): string {
+    return `${activation.instanceId}:${activation.activatedAt}:${activation.revokedAt ?? ""}:${activation.state}`;
+  }
+
   async function revokeActivation(activation: Activation) {
     if (activation.state === "revoked") return;
     if (!window.confirm(`Revoke activation for ${activation.instanceId}?`)) return;
@@ -92,7 +96,7 @@
     revokeTarget = activation.instanceId;
     error = null;
     try {
-      await requestOrThrow(
+      await requestValue(
         "Auth.RevokeDeviceActivation",
         { instanceId: activation.instanceId } satisfies AuthRevokeDeviceActivationInput,
       );
@@ -173,7 +177,7 @@
           </tr>
         </thead>
         <tbody>
-          {#each activations as activation (activation.instanceId)}
+          {#each activations as activation (activationRowKey(activation))}
             <tr>
               <td>
                 <div class="font-medium">{activation.instanceId}</div>

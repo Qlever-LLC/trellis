@@ -1,11 +1,11 @@
 import { trellisIdFromOriginId } from "@qlever-llc/trellis/auth";
 import { isErr } from "@qlever-llc/result";
-import type { BaseError, Result } from "@qlever-llc/result";
+import type { AsyncResult, BaseError, Result } from "@qlever-llc/result";
 import type { UserProjectionEntry } from "../../state/schemas.ts";
 
 export type UserProjectionKV<E extends BaseError = BaseError> = {
-  get: (key: string) => Promise<Result<{ value: UserProjectionEntry }, E>>;
-  put: (key: string, value: UserProjectionEntry) => Promise<Result<void, E>>;
+  get: (key: string) => AsyncResult<{ value: UserProjectionEntry }, E>;
+  put: (key: string, value: UserProjectionEntry) => AsyncResult<void, E>;
 };
 
 export async function upsertUserProjection<E extends BaseError>(

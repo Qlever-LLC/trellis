@@ -1,4 +1,4 @@
-import { BaseError, type BaseErrorOptions, isErr, Result } from "@qlever-llc/result";
+import { AsyncResult, BaseError, type BaseErrorOptions, isErr, Result } from "@qlever-llc/result";
 import Type, { type Static } from "typebox";
 import type { Connection, Session, UserSession } from "../../state/schemas.ts";
 
@@ -7,11 +7,11 @@ type KVResult<T> = { take(): T };
 type Taken<T> = T | Result<never, BaseError>;
 
 type KVLike<V> = {
-  keys: (filter: string | string[]) => Promise<KVResult<Taken<AsyncIterable<string>>>>;
-  get: (key: string) => Promise<KVResult<Taken<{ value: V } | V>>>;
-  create?: (key: string, value: V) => Promise<KVResult<Taken<void>>>;
-  put: (key: string, value: V) => Promise<KVResult<Taken<void>>>;
-  delete: (key: string) => Promise<KVResult<Taken<void>>>;
+  keys: (filter: string | string[]) => AsyncResult<Taken<AsyncIterable<string>>, BaseError>;
+  get: (key: string) => AsyncResult<Taken<{ value: V } | V>, BaseError>;
+  create?: (key: string, value: V) => AsyncResult<Taken<void>, BaseError>;
+  put: (key: string, value: V) => AsyncResult<Taken<void>, BaseError>;
+  delete: (key: string) => AsyncResult<Taken<void>, BaseError>;
 };
 
 function unwrapValue<V>(entry: { value: V } | V): V {
@@ -84,6 +84,7 @@ export async function ensureBoundUserSession(args: {
   contractId: string;
   contractDisplayName: string;
   contractDescription: string;
+  app?: UserSession["app"];
   appOrigin?: string;
   approvalSource?: UserSession["approvalSource"];
   delegatedCapabilities: string[];
@@ -139,6 +140,7 @@ export async function ensureBoundUserSession(args: {
     contractId: args.contractId,
     contractDisplayName: args.contractDisplayName,
     contractDescription: args.contractDescription,
+    ...(args.app ? { app: args.app } : {}),
     ...(args.appOrigin ? { appOrigin: args.appOrigin } : {}),
     ...(args.approvalSource ? { approvalSource: args.approvalSource } : {}),
     delegatedCapabilities: args.delegatedCapabilities,
@@ -187,6 +189,7 @@ export async function ensureBoundUserSession(args: {
     contractId: args.contractId,
     contractDisplayName: args.contractDisplayName,
     contractDescription: args.contractDescription,
+    ...(args.app ? { app: args.app } : {}),
     ...(args.appOrigin ? { appOrigin: args.appOrigin } : {}),
     ...(args.approvalSource ? { approvalSource: args.approvalSource } : {}),
     delegatedCapabilities: args.delegatedCapabilities,

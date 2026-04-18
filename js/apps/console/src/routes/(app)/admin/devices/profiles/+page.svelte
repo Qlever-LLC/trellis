@@ -65,7 +65,7 @@
       .filter(Boolean);
   }
 
-  async function requestOrThrow<T>(method: string, input: unknown): Promise<T> {
+  async function requestValue<T>(method: string, input: unknown): Promise<T> {
     const trellis = await trellisPromise;
     const result = await trellis.request<T>(method as string, input);
     const value = result.take();
@@ -78,8 +78,8 @@
     error = null;
     try {
       const [profilesResponse, contractsResponse] = await Promise.all([
-        requestOrThrow<AuthListDeviceProfilesOutput>("Auth.ListDeviceProfiles", profileQuery()),
-        requestOrThrow<AuthListInstalledContractsOutput>("Auth.ListInstalledContracts", {}),
+        requestValue<AuthListDeviceProfilesOutput>("Auth.ListDeviceProfiles", profileQuery()),
+        requestValue<AuthListInstalledContractsOutput>("Auth.ListInstalledContracts", {}),
       ]);
 
       profiles = profilesResponse.profiles ?? [];
@@ -101,7 +101,7 @@
         reviewMode,
       };
 
-      await requestOrThrow("Auth.CreateDeviceProfile", input);
+      await requestValue("Auth.CreateDeviceProfile", input);
       notifications.success(`Device profile ${input.profileId} created.`, "Created");
       profileId = "";
       contractId = "";
@@ -123,7 +123,7 @@
     disableTarget = profile.profileId;
     error = null;
     try {
-      await requestOrThrow(
+      await requestValue(
         "Auth.DisableDeviceProfile",
         { profileId: profile.profileId } satisfies AuthDisableDeviceProfileInput,
       );

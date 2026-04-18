@@ -17,6 +17,8 @@ import { Type } from "typebox";
 import { Value } from "typebox/value";
 import type { TrellisClientContract } from "./trellis.svelte.ts";
 
+type AuthContract = Pick<TrellisClientContract, "CONTRACT" | "CONTRACT_DIGEST">;
+
 export type BindErrorResult =
   | { status: "insufficient_capabilities"; missingCapabilities: string[] }
   | { status: "approval_required" }
@@ -103,7 +105,7 @@ function clearPersistedAuth(): void {
 export type AuthStateConfig = {
   authUrl?: string; // https://auth.example.com
   loginPath?: string;
-  contract?: TrellisClientContract;
+  contract?: AuthContract;
 };
 
 export type SignInOptions = {
@@ -206,7 +208,7 @@ export class AuthState {
     return authUrl;
   }
 
-  #requireContract(): TrellisClientContract {
+  #requireContract(): AuthContract {
     const contract = this.#config.contract;
     if (!contract) {
       throw new Error("Auth contract is not configured");
@@ -229,7 +231,7 @@ export class AuthState {
   get loginPath(): string {
     return this.#config.loginPath ?? "/login";
   }
-  get contract(): TrellisClientContract | undefined {
+  get contract(): AuthContract | undefined {
     return this.#config.contract;
   }
   get contractDigest(): string {

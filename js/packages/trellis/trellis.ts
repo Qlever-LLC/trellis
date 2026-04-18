@@ -1569,42 +1569,46 @@ export class Trellis<
     data: Record<string, unknown>,
   ): AsyncResult<void, ValidationError | UnexpectedError> {
     return AsyncResult.from((async () => {
-      const eventName = event as EventsOf<TA>;
-      const ctx = this.api["events"][eventName] as EventDescriptorOf<
-        TA,
-        typeof eventName
-      >;
-      if (!ctx) {
-        return err(
-          new UnexpectedError({
-            cause: this.#unknownApiError("event", event.toString()),
-            context: { event: event.toString() },
-          }),
-        );
-      }
+      try {
+        const eventName = event as EventsOf<TA>;
+        const ctx = this.api["events"][eventName] as EventDescriptorOf<
+          TA,
+          typeof eventName
+        >;
+        if (!ctx) {
+          return err(
+            new UnexpectedError({
+              cause: this.#unknownApiError("event", event.toString()),
+              context: { event: event.toString() },
+            }),
+          );
+        }
 
-      const subject = this.template(ctx.subject, data).take();
-      if (isErr(subject)) {
-        logger.error({ err: subject.error }, "Failed to template event.");
-        return subject;
-      }
+        const subject = this.template(ctx.subject, data).take();
+        if (isErr(subject)) {
+          logger.error({ err: subject.error }, "Failed to template event.");
+          return subject;
+        }
 
-      const payload: Record<string, unknown> = {
-        ...data,
-        header: {
-          id: ulid(),
-          time: new Date().toISOString(),
-        },
-      };
-      const msg = encodeSchema(ctx.event, payload).take();
-      if (isErr(msg)) {
-        logger.error({ err: msg.error }, "Failed to encode event.");
-        return err(new UnexpectedError({ cause: msg.error }));
-      }
+        const payload: Record<string, unknown> = {
+          ...data,
+          header: {
+            id: ulid(),
+            time: new Date().toISOString(),
+          },
+        };
+        const msg = encodeSchema(ctx.event, payload).take();
+        if (isErr(msg)) {
+          logger.error({ err: msg.error }, "Failed to encode event.");
+          return err(new UnexpectedError({ cause: msg.error }));
+        }
 
-      logger.trace({ subject }, `Publishing ${event.toString()} event.`);
-      await this.js.publish(subject, msg);
-      return ok(undefined);
+        logger.trace({ subject }, `Publishing ${event.toString()} event.`);
+        await this.js.publish(subject, msg);
+        return ok(undefined);
+      } catch (cause) {
+        return err(new UnexpectedError({ cause, context: { event: event.toString() } }));
+      }
     })());
   }
 
@@ -1615,71 +1619,75 @@ export class Trellis<
     opts?: EventOpts,
   ): AsyncResult<void, ValidationError | UnexpectedError> {
     return AsyncResult.from((async () => {
-      const eventName = event as EventsOf<TA>;
-      const ctx = this.api["events"][eventName] as EventDescriptorOf<
-        TA,
-        typeof eventName
-      >;
-      if (!ctx) {
-        return err(
-          new UnexpectedError({
-            cause: this.#unknownApiError("event", event.toString()),
-            context: { event: event.toString() },
-          }),
-        );
-      }
-      const subject = this.template(ctx.subject, subjectData, true).take();
-      if (isErr(subject)) return subject;
-
-      if (opts?.mode === "ephemeral") {
-        return this.#startEphemeralEvent(
-          eventName,
-          ctx,
-          subject,
-          fn,
-          opts.signal,
-        );
-      }
-
-      const jsm = await jetstreamManager(this.nats);
-
-      const consumerName = opts?.durableName ??
-        `${this.name}-${event.replaceAll(".", "_")}`;
-      const addResult = await AsyncResult.try(() =>
-        jsm.consumers.add(this.stream, {
-          durable_name: consumerName,
-          ack_policy: "explicit",
-          deliver_policy: opts?.replay === "new" ? "new" : "all",
-          filter_subjects: [subject],
-        })
-      );
-
-      const consumerInfoResult = addResult.isOk()
-        ? addResult
-        : await AsyncResult.try(() =>
-          jsm.consumers.info(this.stream, consumerName)
-        );
-
-      const info = consumerInfoResult.take();
-      if (isErr(info)) return info;
-
-      const consumer = this.js.consumers.getConsumerFromInfo(info);
-      const messages = await consumer.consume();
-      if (opts?.signal) {
-        if (opts.signal.aborted) {
-          messages.stop();
-        } else {
-          opts.signal.addEventListener("abort", () => messages.stop(), {
-            once: true,
-          });
+      try {
+        const eventName = event as EventsOf<TA>;
+        const ctx = this.api["events"][eventName] as EventDescriptorOf<
+          TA,
+          typeof eventName
+        >;
+        if (!ctx) {
+          return err(
+            new UnexpectedError({
+              cause: this.#unknownApiError("event", event.toString()),
+              context: { event: event.toString() },
+            }),
+          );
         }
-      }
+        const subject = this.template(ctx.subject, subjectData, true).take();
+        if (isErr(subject)) return subject;
 
-      this.#tasks.add(
-        `event:${eventName}:${ulid()}`,
-        this.#handleDurableEvent(eventName, ctx, messages, fn),
-      );
-      return ok(undefined);
+        if (opts?.mode === "ephemeral") {
+          return this.#startEphemeralEvent(
+            eventName,
+            ctx,
+            subject,
+            fn,
+            opts.signal,
+          );
+        }
+
+        const jsm = await jetstreamManager(this.nats);
+
+        const consumerName = opts?.durableName ??
+          `${this.name}-${event.replaceAll(".", "_")}`;
+        const addResult = await AsyncResult.try(() =>
+          jsm.consumers.add(this.stream, {
+            durable_name: consumerName,
+            ack_policy: "explicit",
+            deliver_policy: opts?.replay === "new" ? "new" : "all",
+            filter_subjects: [subject],
+          })
+        );
+
+        const consumerInfoResult = addResult.isOk()
+          ? addResult
+          : await AsyncResult.try(() =>
+            jsm.consumers.info(this.stream, consumerName)
+          );
+
+        const info = consumerInfoResult.take();
+        if (isErr(info)) return info;
+
+        const consumer = this.js.consumers.getConsumerFromInfo(info);
+        const messages = await consumer.consume();
+        if (opts?.signal) {
+          if (opts.signal.aborted) {
+            messages.stop();
+          } else {
+            opts.signal.addEventListener("abort", () => messages.stop(), {
+              once: true,
+            });
+          }
+        }
+
+        this.#tasks.add(
+          `event:${eventName}:${ulid()}`,
+          this.#handleDurableEvent(eventName, ctx, messages, fn),
+        );
+        return ok(undefined);
+      } catch (cause) {
+        return err(new UnexpectedError({ cause, context: { event: event.toString() } }));
+      }
     })());
   }
 

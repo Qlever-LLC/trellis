@@ -17,7 +17,7 @@
   const trellisPromise = getTrellis();
   const notifications = getNotifications();
 
-  async function requestOrThrow<T>(method: string, input: unknown): Promise<T> {
+  async function requestValue<T>(method: string, input: unknown): Promise<T> {
     const trellis = await trellisPromise;
     const result = await trellis.request<T>(method as string, input);
     const value = result.take();
@@ -49,8 +49,8 @@
     error = null;
     try {
       const [portalRes, contractRes] = await Promise.all([
-        requestOrThrow<AuthListPortalsOutput>("Auth.ListPortals", {}),
-        requestOrThrow<AuthListInstalledContractsOutput>("Auth.ListInstalledContracts", {}),
+        requestValue<AuthListPortalsOutput>("Auth.ListPortals", {}),
+        requestValue<AuthListInstalledContractsOutput>("Auth.ListInstalledContracts", {}),
       ]);
       portals = portalRes.portals ?? [];
       contracts = contractRes.contracts ?? [];
@@ -65,7 +65,7 @@
     createPending = true;
     error = null;
     try {
-      await requestOrThrow("Auth.CreatePortal", {
+      await requestValue("Auth.CreatePortal", {
         portalId: portalId.trim(),
         entryUrl: entryUrl.trim(),
         appContractId: appContractId || undefined,
@@ -88,7 +88,7 @@
     disableTarget = portal.portalId;
     error = null;
     try {
-      await requestOrThrow("Auth.DisablePortal", {
+      await requestValue("Auth.DisablePortal", {
         portalId: portal.portalId,
       } satisfies AuthDisablePortalInput);
       notifications.success(`Portal ${portal.portalId} disabled.`, "Disabled");

@@ -3,7 +3,7 @@ import {
   trellisIdFromOriginId,
   verifyProof,
 } from "@qlever-llc/trellis/auth";
-import { AsyncResult, isErr, Result } from "@qlever-llc/result";
+import { AsyncResult, type BaseError, isErr, Result } from "@qlever-llc/result";
 import { AuthError } from "../../../../packages/trellis/errors/AuthError.ts";
 import {
   bindingTokenKV,
@@ -66,11 +66,9 @@ type AuthMeResponse = {
   service: AuthenticatedService | null;
 };
 
-type KVResult<T> = { take(): T };
-
 type KVLike<V> = {
-  get: (key: string) => Promise<KVResult<{ value: V } | V | unknown>>;
-  keys?: (filter: string) => Promise<KVResult<AsyncIterable<string> | unknown>>;
+  get: (key: string) => AsyncResult<{ value: V } | V | unknown, BaseError>;
+  keys?: (filter: string) => AsyncResult<AsyncIterable<string> | unknown, BaseError>;
 };
 
 function unwrapValue<V>(entry: unknown): V {

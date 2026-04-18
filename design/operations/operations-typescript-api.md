@@ -197,7 +197,7 @@ type OperationDefinition<
 > = {
   accept(args: {
     sessionKey: string;
-  }): Promise<Result<AcceptedOperation<TProgress, TOutput, TCancelable>, BaseError>>;
+  }): AsyncResult<AcceptedOperation<TProgress, TOutput, TCancelable>, BaseError>;
   handle(
     handler: (ctx: {
       input: TInput;
@@ -205,7 +205,7 @@ type OperationDefinition<
       caller: SessionUser;
       transfer?: {
         updates(): AsyncIterable<OperationTransferProgress>;
-        completed(): Promise<Result<FileInfo, TransferError>>;
+        completed(): AsyncResult<FileInfo, TransferError>;
       };
     }) => Promise<Result<TOutput, BaseError>>,
   ): Promise<void>;
@@ -217,16 +217,16 @@ type ActiveOperation<
   TCancelable extends boolean,
 > = {
   id: string;
-  started(): Promise<Result<void, BaseError>>;
-  progress(value: TProgress): Promise<Result<void, BaseError>>;
-  complete(value: TOutput): Promise<Result<TerminalOperation<TProgress, TOutput>, BaseError>>;
-  fail(error: BaseError): Promise<Result<TerminalOperation<TProgress, TOutput>, BaseError>>;
+  started(): AsyncResult<void, BaseError>;
+  progress(value: TProgress): AsyncResult<void, BaseError>;
+  complete(value: TOutput): AsyncResult<TerminalOperation<TProgress, TOutput>, BaseError>;
+  fail(error: BaseError): AsyncResult<TerminalOperation<TProgress, TOutput>, BaseError>;
   attach<TPayload>(
     job: JobRef<TPayload, TOutput>,
-  ): Promise<Result<TerminalOperation<TProgress, TOutput>, BaseError>>;
+  ): AsyncResult<TerminalOperation<TProgress, TOutput>, BaseError>;
 } & (TCancelable extends true
   ? {
-      cancel(): Promise<Result<TerminalOperation<TProgress, TOutput>, BaseError>>;
+      cancel(): AsyncResult<TerminalOperation<TProgress, TOutput>, BaseError>;
     }
   : {});
 

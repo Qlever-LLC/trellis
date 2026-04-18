@@ -427,9 +427,9 @@ Rules:
 
 Expected type behavior:
 
-- `service.requestOrThrow("Trellis.Catalog", {})` is valid because it is
+- `service.request("Trellis.Catalog", {})` is valid because it is
   declared in `uses`
-- `service.requestOrThrow("Auth.Me", {})` is a type error unless it is also
+- `service.request("Auth.Me", {})` is a type error unless it is also
   declared in `uses` directly or through `auth.useDefaults(...)`
 - `service.trellis.mount("Trellis.Catalog", ...)` is a type error because that
   RPC is used, not owned

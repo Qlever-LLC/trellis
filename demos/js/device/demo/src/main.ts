@@ -1,4 +1,4 @@
-import { TrellisDevice } from "@qlever-llc/trellis";
+import { isErr, TrellisDevice } from "@qlever-llc/trellis";
 import contract from "../contracts/demo_device.ts";
 import config from "../deno.json" with { type: "json" };
 import { UploadProgress } from "./upload_progress.ts";
@@ -45,12 +45,16 @@ async function main(): Promise<void> {
     status: Math.random() > 0.2 ? "ok" : "failed",
   }));
 
-  const me = (await trellis.request("Auth.Me", {})).orThrow();
+  const meResult = await trellis.request("Auth.Me", {});
+  const me = meResult.take();
+  if (isErr(me)) throw me.error;
 
   console.info("You are:");
   console.dir({ me }, { depth: null });
 
-  const groups = (await trellis.request("Demo.Groups.List", {})).orThrow();
+  const groupsResult = await trellis.request("Demo.Groups.List", {});
+  const groups = groupsResult.take();
+  if (isErr(groups)) throw groups.error;
 
   console.info("groups", groups);
 

@@ -1,6 +1,6 @@
 import { Objm, type ObjectInfo, type ObjectResult, type ObjectStore, type ObjectStoreStatus } from "@nats-io/obj";
 import type { NatsConnection } from "@nats-io/nats-core/internal";
-import { Result, type Result as ResultType } from "@qlever-llc/result";
+import { AsyncResult, Result, type Result as ResultType } from "@qlever-llc/result";
 import { StoreError } from "./errors/index.ts";
 
 const INTERNAL_CONTENT_TYPE_METADATA_KEY = "__trellis_content_type";
@@ -224,129 +224,143 @@ export class TypedStore {
     };
   }
 
-  static async open(
+  static open(
     nats: NatsConnection,
     name: string,
     options: StoreOpenOptions = {},
-  ): Promise<ResultType<TypedStore, StoreError>> {
-    try {
-      const objm = new Objm(nats);
-      const store = options.bindOnly
-        ? await objm.open(name)
-        : await objm.create(name, {
-          ...(options.ttlMs && options.ttlMs > 0 ? { ttl: options.ttlMs * 1_000_000 } : {}),
-          ...(options.maxTotalBytes !== undefined ? { max_bytes: options.maxTotalBytes } : {}),
-        });
-      return Result.ok(new TypedStore(store, options));
-    } catch (cause) {
-      return Result.err(new StoreError({ operation: "open", cause, context: { name } }));
-    }
+  ): AsyncResult<TypedStore, StoreError> {
+    return AsyncResult.from((async () => {
+      try {
+        const objm = new Objm(nats);
+        const store = options.bindOnly
+          ? await objm.open(name)
+          : await objm.create(name, {
+            ...(options.ttlMs && options.ttlMs > 0 ? { ttl: options.ttlMs * 1_000_000 } : {}),
+            ...(options.maxTotalBytes !== undefined ? { max_bytes: options.maxTotalBytes } : {}),
+          });
+        return Result.ok(new TypedStore(store, options));
+      } catch (cause) {
+        return Result.err(new StoreError({ operation: "open", cause, context: { name } }));
+      }
+    })());
   }
 
-  async create(
+  create(
     key: string,
     body: StoreBody,
     options?: StorePutOptions,
-  ): Promise<ResultType<void, StoreError>> {
-    const existing = await unwrapObjectInfo(this.#store, key);
-    if (existing.isOk()) {
-      return Result.err(
-        new StoreError({ operation: "create", context: { key, reason: "already_exists" } }),
-      );
-    }
+  ): AsyncResult<void, StoreError> {
+    return AsyncResult.from((async () => {
+      const existing = await unwrapObjectInfo(this.#store, key);
+      if (existing.isOk()) {
+        return Result.err(
+          new StoreError({ operation: "create", context: { key, reason: "already_exists" } }),
+        );
+      }
 
-    return this.#putInternal("create", key, body, options);
+      return await this.#putInternal("create", key, body, options);
+    })());
   }
 
-  async put(
+  put(
     key: string,
     body: StoreBody,
     options?: StorePutOptions,
-  ): Promise<ResultType<void, StoreError>> {
-    return this.#putInternal("put", key, body, options);
+  ): AsyncResult<void, StoreError> {
+    return AsyncResult.from(this.#putInternal("put", key, body, options));
   }
 
-  async get(key: string): Promise<ResultType<TypedStoreEntry, StoreError>> {
-    const info = await unwrapObjectInfo(this.#store, key);
-    return info.map((objectInfo) => new TypedStoreEntry(this.#store, storeInfoFromObjectInfo(objectInfo)));
+  get(key: string): AsyncResult<TypedStoreEntry, StoreError> {
+    return AsyncResult.from((async () => {
+      const info = await unwrapObjectInfo(this.#store, key);
+      return info.map((objectInfo) => new TypedStoreEntry(this.#store, storeInfoFromObjectInfo(objectInfo)));
+    })());
   }
 
   /**
    * Waits for an object key to appear in the store and returns the resulting entry.
    */
-  async waitFor(key: string, options: StoreWaitOptions = {}): Promise<ResultType<TypedStoreEntry, StoreError>> {
-    const startedAt = Date.now();
-    const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_STORE_WAIT_POLL_INTERVAL_MS;
+  waitFor(key: string, options: StoreWaitOptions = {}): AsyncResult<TypedStoreEntry, StoreError> {
+    return AsyncResult.from((async () => {
+      const startedAt = Date.now();
+      const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_STORE_WAIT_POLL_INTERVAL_MS;
 
-    while (true) {
-      if (options.signal?.aborted) {
-        return Result.err(abortedStoreError(key, options.signal.reason));
-      }
+      while (true) {
+        if (options.signal?.aborted) {
+          return Result.err(abortedStoreError(key, options.signal.reason));
+        }
 
-      const entry = await this.get(key);
-      if (entry.isOk()) {
-        return entry;
-      }
-      if (!isNotFoundStoreError(entry.error)) {
-        return entry;
-      }
+        const entry = await this.get(key);
+        if (entry.isOk()) {
+          return entry;
+        }
+        if (!isNotFoundStoreError(entry.error)) {
+          return entry;
+        }
 
-      const remainingTimeoutMs = options.timeoutMs === undefined
-        ? undefined
-        : options.timeoutMs - (Date.now() - startedAt);
-      if (remainingTimeoutMs !== undefined && remainingTimeoutMs <= 0) {
-        return Result.err(new StoreError({
-          operation: "waitFor",
-          context: { key, reason: "timeout", timeoutMs: options.timeoutMs },
-        }));
-      }
+        const remainingTimeoutMs = options.timeoutMs === undefined
+          ? undefined
+          : options.timeoutMs - (Date.now() - startedAt);
+        if (remainingTimeoutMs !== undefined && remainingTimeoutMs <= 0) {
+          return Result.err(new StoreError({
+            operation: "waitFor",
+            context: { key, reason: "timeout", timeoutMs: options.timeoutMs },
+          }));
+        }
 
-      try {
-        await sleepWithSignal(
-          remainingTimeoutMs === undefined ? pollIntervalMs : Math.min(pollIntervalMs, remainingTimeoutMs),
-          options.signal,
-        );
-      } catch (cause) {
-        return Result.err(abortedStoreError(key, cause));
-      }
-    }
-  }
-
-  async delete(key: string): Promise<ResultType<void, StoreError>> {
-    try {
-      await this.#store.delete(key);
-      return Result.ok(undefined);
-    } catch (cause) {
-      return Result.err(new StoreError({ operation: "delete", cause, context: { key } }));
-    }
-  }
-
-  async list(prefix = ""): Promise<ResultType<AsyncIterable<StoreInfo>, StoreError>> {
-    try {
-      const objects = await this.#store.list();
-      const filtered = objects
-        .filter((info) => !info.deleted && info.name.startsWith(prefix))
-        .map(storeInfoFromObjectInfo);
-
-      async function* iterate(): AsyncIterable<StoreInfo> {
-        for (const info of filtered) {
-          yield info;
+        try {
+          await sleepWithSignal(
+            remainingTimeoutMs === undefined ? pollIntervalMs : Math.min(pollIntervalMs, remainingTimeoutMs),
+            options.signal,
+          );
+        } catch (cause) {
+          return Result.err(abortedStoreError(key, cause));
         }
       }
-
-      return Result.ok(iterate());
-    } catch (cause) {
-      return Result.err(new StoreError({ operation: "list", cause, context: { prefix } }));
-    }
+    })());
   }
 
-  async status(): Promise<ResultType<StoreStatus, StoreError>> {
-    try {
-      const status = await this.#store.status();
-      return Result.ok(storeStatusFromObjectStoreStatus(status, this.#options));
-    } catch (cause) {
-      return Result.err(new StoreError({ operation: "status", cause }));
-    }
+  delete(key: string): AsyncResult<void, StoreError> {
+    return AsyncResult.from((async () => {
+      try {
+        await this.#store.delete(key);
+        return Result.ok(undefined);
+      } catch (cause) {
+        return Result.err(new StoreError({ operation: "delete", cause, context: { key } }));
+      }
+    })());
+  }
+
+  list(prefix = ""): AsyncResult<AsyncIterable<StoreInfo>, StoreError> {
+    return AsyncResult.from((async () => {
+      try {
+        const objects = await this.#store.list();
+        const filtered = objects
+          .filter((info) => !info.deleted && info.name.startsWith(prefix))
+          .map(storeInfoFromObjectInfo);
+
+        async function* iterate(): AsyncIterable<StoreInfo> {
+          for (const info of filtered) {
+            yield info;
+          }
+        }
+
+        return Result.ok(iterate());
+      } catch (cause) {
+        return Result.err(new StoreError({ operation: "list", cause, context: { prefix } }));
+      }
+    })());
+  }
+
+  status(): AsyncResult<StoreStatus, StoreError> {
+    return AsyncResult.from((async () => {
+      try {
+        const status = await this.#store.status();
+        return Result.ok(storeStatusFromObjectStoreStatus(status, this.#options));
+      } catch (cause) {
+        return Result.err(new StoreError({ operation: "status", cause }));
+      }
+    })());
   }
 
   async #putInternal(
@@ -413,29 +427,33 @@ export class TypedStoreEntry {
     this.info = info;
   }
 
-  async stream(): Promise<ResultType<ReadableStream<Uint8Array>, StoreError>> {
-    try {
-      const result = await this.#store.get(this.key);
-      if (result === null) {
-        return Result.err(new StoreError({ operation: "stream", context: { key: this.key, reason: "not_found" } }));
-      }
+  stream(): AsyncResult<ReadableStream<Uint8Array>, StoreError> {
+    return AsyncResult.from((async () => {
+      try {
+        const result = await this.#store.get(this.key);
+        if (result === null) {
+          return Result.err(new StoreError({ operation: "stream", context: { key: this.key, reason: "not_found" } }));
+        }
 
-      return Result.ok(streamWithErrorCheck(result));
-    } catch (cause) {
-      return Result.err(new StoreError({ operation: "stream", cause, context: { key: this.key } }));
-    }
+        return Result.ok(streamWithErrorCheck(result));
+      } catch (cause) {
+        return Result.err(new StoreError({ operation: "stream", cause, context: { key: this.key } }));
+      }
+    })());
   }
 
-  async bytes(): Promise<ResultType<Uint8Array, StoreError>> {
-    try {
-      const bytes = await this.#store.getBlob(this.key);
-      if (bytes === null) {
-        return Result.err(new StoreError({ operation: "bytes", context: { key: this.key, reason: "not_found" } }));
+  bytes(): AsyncResult<Uint8Array, StoreError> {
+    return AsyncResult.from((async () => {
+      try {
+        const bytes = await this.#store.getBlob(this.key);
+        if (bytes === null) {
+          return Result.err(new StoreError({ operation: "bytes", context: { key: this.key, reason: "not_found" } }));
+        }
+        return Result.ok(bytes);
+      } catch (cause) {
+        return Result.err(new StoreError({ operation: "bytes", cause, context: { key: this.key } }));
       }
-      return Result.ok(bytes);
-    } catch (cause) {
-      return Result.err(new StoreError({ operation: "bytes", cause, context: { key: this.key } }));
-    }
+    })());
   }
 }
 

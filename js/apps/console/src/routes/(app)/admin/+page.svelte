@@ -24,17 +24,17 @@
 
   async function listSessions() {
     const trellis = await trellisPromise;
-    return await trellis.requestOrThrow<AuthListSessionsOutput>("Auth.ListSessions" as string, {});
+    return await trellis.request<AuthListSessionsOutput>("Auth.ListSessions" as string, {}).orThrow();
   }
 
   async function listConnections() {
     const trellis = await trellisPromise;
-    return await trellis.requestOrThrow<AuthListConnectionsOutput>("Auth.ListConnections" as string, {});
+    return await trellis.request<AuthListConnectionsOutput>("Auth.ListConnections" as string, {}).orThrow();
   }
 
   async function listServiceInstances() {
     const trellis = await trellisPromise;
-    return await trellis.requestOrThrow<AuthListServiceInstancesOutput>("Auth.ListServiceInstances" as string, {});
+    return await trellis.request<AuthListServiceInstancesOutput>("Auth.ListServiceInstances" as string, {}).orThrow();
   }
 
   async function load() {

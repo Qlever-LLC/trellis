@@ -43,11 +43,11 @@ Public service-local jobs APIs do not expose manual binding assembly or conversi
 ```ts
 type JobsFacade = {
   refundCharge: JobQueue<RefundChargePayload, RefundChargeResult>;
-  startWorkers(): Promise<Result<JobWorkerHost, BaseError>>;
+  startWorkers(): AsyncResult<JobWorkerHost, BaseError>;
 };
 
 type JobQueue<TPayload, TResult> = {
-  create(payload: TPayload): Promise<Result<JobRef<TPayload, TResult>, BaseError>>;
+  create(payload: TPayload): AsyncResult<JobRef<TPayload, TResult>, BaseError>;
   handle(
     handler: (job: ActiveJob<TPayload, TResult>) => Promise<Result<TResult, BaseError>>,
   ): Promise<void>;
@@ -57,25 +57,25 @@ type JobRef<TPayload, TResult> = {
   id: string;
   service: string;
   type: string;
-  get(): Promise<Result<JobSnapshot<TPayload, TResult>, BaseError>>;
-  wait(): Promise<Result<TerminalJob<TPayload, TResult>, BaseError>>;
-  cancel(): Promise<Result<JobSnapshot<TPayload, TResult>, BaseError>>;
+  get(): AsyncResult<JobSnapshot<TPayload, TResult>, BaseError>;
+  wait(): AsyncResult<TerminalJob<TPayload, TResult>, BaseError>;
+  cancel(): AsyncResult<JobSnapshot<TPayload, TResult>, BaseError>;
 };
 
 type ActiveJob<TPayload, TResult> = {
   ref: JobRef<TPayload, TResult>;
   payload: TPayload;
   cancelled: boolean;
-  heartbeat(): Promise<Result<void, BaseError>>;
-  progress(value: JobProgress): Promise<Result<void, BaseError>>;
-  log(entry: JobLogEntry): Promise<Result<void, BaseError>>;
+  heartbeat(): AsyncResult<void, BaseError>;
+  progress(value: JobProgress): AsyncResult<void, BaseError>;
+  log(entry: JobLogEntry): AsyncResult<void, BaseError>;
   redeliveryCount(): number;
   isRedelivery(): boolean;
 };
 
 type JobWorkerHost = {
-  stop(): Promise<Result<void, BaseError>>;
-  join(): Promise<Result<void, BaseError>>;
+  stop(): AsyncResult<void, BaseError>;
+  join(): AsyncResult<void, BaseError>;
 };
 ```
 
@@ -159,15 +159,15 @@ All job progress fields are optional. Use `step` and `message` for human-readabl
 
 ```ts
 type JobsAdminClient = {
-  health(): Promise<Result<JobsHealth, BaseError>>;
-  listServices(): Promise<Result<ServiceInfo[], BaseError>>;
-  list(filter: JobFilter): Promise<Result<JobSnapshot<unknown, unknown>[], BaseError>>;
-  get(ref: JobIdentity): Promise<Result<JobSnapshot<unknown, unknown>, BaseError>>;
-  cancel(ref: JobIdentity): Promise<Result<JobSnapshot<unknown, unknown>, BaseError>>;
-  retry(ref: JobIdentity): Promise<Result<JobSnapshot<unknown, unknown>, BaseError>>;
-  listDLQ(filter: JobFilter): Promise<Result<JobSnapshot<unknown, unknown>[], BaseError>>;
-  replayDLQ(ref: JobIdentity): Promise<Result<JobSnapshot<unknown, unknown>, BaseError>>;
-  dismissDLQ(ref: JobIdentity): Promise<Result<JobSnapshot<unknown, unknown>, BaseError>>;
+  health(): AsyncResult<JobsHealth, BaseError>;
+  listServices(): AsyncResult<ServiceInfo[], BaseError>;
+  list(filter: JobFilter): AsyncResult<JobSnapshot<unknown, unknown>[], BaseError>;
+  get(ref: JobIdentity): AsyncResult<JobSnapshot<unknown, unknown>, BaseError>;
+  cancel(ref: JobIdentity): AsyncResult<JobSnapshot<unknown, unknown>, BaseError>;
+  retry(ref: JobIdentity): AsyncResult<JobSnapshot<unknown, unknown>, BaseError>;
+  listDLQ(filter: JobFilter): AsyncResult<JobSnapshot<unknown, unknown>[], BaseError>;
+  replayDLQ(ref: JobIdentity): AsyncResult<JobSnapshot<unknown, unknown>, BaseError>;
+  dismissDLQ(ref: JobIdentity): AsyncResult<JobSnapshot<unknown, unknown>, BaseError>;
 };
 
 type JobIdentity = {

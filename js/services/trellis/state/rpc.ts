@@ -1,6 +1,7 @@
 import type { JsonValue } from "@qlever-llc/trellis/contracts";
 import { isJsonValue } from "@qlever-llc/trellis/contracts";
 import { trellisIdFromOriginId } from "@qlever-llc/trellis/auth";
+import type { AsyncResult, BaseError } from "@qlever-llc/result";
 import { isErr } from "@qlever-llc/result";
 import { AuthError, ValidationError } from "@qlever-llc/trellis";
 
@@ -19,8 +20,8 @@ import type { StateNamespace } from "./model.ts";
 import { StateStore } from "./storage.ts";
 
 type SessionLike = {
-  get: (key: string) => Promise<{ take(): { value: Session } | Session | unknown }>;
-  keys: (filter: string) => Promise<{ take(): AsyncIterable<string> | unknown }>;
+  get: (key: string) => AsyncResult<{ value: Session } | Session | unknown, BaseError>;
+  keys: (filter: string) => AsyncResult<AsyncIterable<string> | unknown, BaseError>;
 };
 
 type Caller = {

@@ -434,6 +434,10 @@ Deno.test("getApprovalResolution uses injected loaders", async () => {
     capabilities: [],
   });
   assertEquals(resolution.storedApproval?.answer, "approved");
+  assertEquals(resolution.app, {
+    contractId: "trellis.console@v1",
+    origin: "http://localhost:5173",
+  });
 });
 
 Deno.test("getApprovalResolution prefers matching instance grant policy over stored denial", async () => {
@@ -505,7 +509,10 @@ Deno.test("getApprovalResolution prefers matching instance grant policy over sto
     }],
   });
 
-  assertEquals(resolution.appOrigin, "https://app.example.com");
+  assertEquals(resolution.app, {
+    contractId: "trellis.console@v1",
+    origin: "https://app.example.com",
+  });
   assertEquals(resolution.existingCapabilities, []);
   assertEquals(resolution.effectiveCapabilities, ["audit"]);
   assertEquals(resolution.missingCapabilities, []);

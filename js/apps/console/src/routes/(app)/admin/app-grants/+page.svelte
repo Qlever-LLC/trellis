@@ -112,8 +112,8 @@
     try {
       const trellis = await trellisPromise;
       const [policyRes, contractRes] = await Promise.all([
-        trellis.requestOrThrow<AuthListInstanceGrantPoliciesOutput>("Auth.ListInstanceGrantPolicies" as string, {}),
-        trellis.requestOrThrow<AuthListInstalledContractsOutput>("Auth.ListInstalledContracts" as string, {}),
+        trellis.request<AuthListInstanceGrantPoliciesOutput>("Auth.ListInstanceGrantPolicies" as string, {}).orThrow(),
+        trellis.request<AuthListInstalledContractsOutput>("Auth.ListInstalledContracts" as string, {}).orThrow(),
       ]);
       policies = (policyRes.policies ?? []).slice().sort((left, right) =>
         left.contractId.localeCompare(right.contractId)
@@ -136,11 +136,11 @@
     error = null;
     try {
       const trellis = await trellisPromise;
-      await trellis.requestOrThrow<void>("Auth.UpsertInstanceGrantPolicy" as string, {
+      await trellis.request<void>("Auth.UpsertInstanceGrantPolicy" as string, {
         contractId,
         impliedCapabilities: parseCsv(impliedCapabilitiesText),
         allowedOrigins: allowedOrigins.length ? allowedOrigins : undefined,
-      } satisfies AuthUpsertInstanceGrantPolicyInput);
+      } satisfies AuthUpsertInstanceGrantPolicyInput).orThrow();
       notifications.success(`Instance grant policy saved for ${contractId}.`, "Saved");
       editingContractId = contractId;
       await load();
@@ -159,9 +159,9 @@
     error = null;
     try {
       const trellis = await trellisPromise;
-      await trellis.requestOrThrow<void>("Auth.DisableInstanceGrantPolicy" as string, {
+      await trellis.request<void>("Auth.DisableInstanceGrantPolicy" as string, {
         contractId: policy.contractId,
-      } satisfies AuthDisableInstanceGrantPolicyInput);
+      } satisfies AuthDisableInstanceGrantPolicyInput).orThrow();
       notifications.success(`Instance grant policy disabled for ${policy.contractId}.`, "Disabled");
       await load();
     } catch (e) {

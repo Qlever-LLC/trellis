@@ -5,7 +5,7 @@ let provider: { register(): void } | undefined;
 
 type TracingRuntimeModules = {
   NodeTracerProvider: typeof import("@opentelemetry/sdk-trace-node").NodeTracerProvider;
-  OTLPTraceExporter: typeof import("@opentelemetry/exporter-trace-otlp-http").OTLPTraceExporter;
+  OTLPTraceExporter: typeof import("@opentelemetry/exporter-trace-otlp-proto").OTLPTraceExporter;
   BatchSpanProcessor: typeof import("@opentelemetry/sdk-trace-base").BatchSpanProcessor;
   ConsoleSpanExporter: typeof import("@opentelemetry/sdk-trace-base").ConsoleSpanExporter;
   Resource: typeof import("@opentelemetry/resources").Resource;
@@ -24,8 +24,8 @@ async function loadTracingRuntime(): Promise<TracingRuntimeModules> {
     runtimeImport<typeof import("@opentelemetry/sdk-trace-node")>(
       ["@opentelemetry", "sdk-trace-node"].join("/"),
     ),
-    runtimeImport<typeof import("@opentelemetry/exporter-trace-otlp-http")>(
-      ["@opentelemetry", "exporter-trace-otlp-http"].join("/"),
+    runtimeImport<typeof import("@opentelemetry/exporter-trace-otlp-proto")>(
+      ["@opentelemetry", "exporter-trace-otlp-proto"].join("/"),
     ),
     runtimeImport<typeof import("@opentelemetry/sdk-trace-base")>(
       ["@opentelemetry", "sdk-trace-base"].join("/"),
@@ -66,7 +66,9 @@ async function initTracingRuntime(serviceName: string): Promise<void> {
           new runtime.OTLPTraceExporter({ url: `${endpoint}/v1/traces` }),
         ),
       );
-    } else if (consoleTracing) {
+    }
+
+    if (consoleTracing) {
       spanProcessors.push(
         new runtime.BatchSpanProcessor(new runtime.ConsoleSpanExporter()),
       );

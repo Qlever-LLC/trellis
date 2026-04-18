@@ -1,6 +1,5 @@
 {
   "workspace": [
-    "./apps/activity",
     "./apps/console",
     "./packages/result",
     "./packages/trellis-sdk",
@@ -34,7 +33,7 @@
     "@nats-io/transport-node": "npm:@nats-io/transport-node@^3.3.1",
     "@nats-io/transport-deno": "jsr:@nats-io/transport-deno@^3.2.0",
     "@opentelemetry/api": "npm:@opentelemetry/api@^1.9.0",
-    "@opentelemetry/exporter-trace-otlp-http": "npm:@opentelemetry/exporter-trace-otlp-http@^0.56.0",
+    "@opentelemetry/exporter-trace-otlp-proto": "npm:@opentelemetry/exporter-trace-otlp-proto@^0.56.0",
     "@opentelemetry/resources": "npm:@opentelemetry/resources@^1.29.0",
     "@opentelemetry/sdk-trace-base": "npm:@opentelemetry/sdk-trace-base@^1.29.0",
     "@opentelemetry/sdk-trace-node": "npm:@opentelemetry/sdk-trace-node@^1.29.0",

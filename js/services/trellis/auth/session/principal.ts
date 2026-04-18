@@ -1,3 +1,4 @@
+import type { AsyncResult, BaseError } from "@qlever-llc/result";
 import { isErr } from "@qlever-llc/result";
 import type {
   ContractApprovalRecord,
@@ -12,11 +13,9 @@ import {
   userDelegationAllowed,
 } from "../grants/policy.ts";
 
-type KVResult<T> = { take(): T };
-
 type KVLike<V> = {
-  get: (key: string) => Promise<KVResult<{ value: V } | V | unknown>>;
-  keys?: (filter: string) => Promise<KVResult<AsyncIterable<string> | unknown>>;
+  get: (key: string) => AsyncResult<{ value: V } | V | unknown, BaseError>;
+  keys?: (filter: string) => AsyncResult<AsyncIterable<string> | unknown, BaseError>;
 };
 
 export type SessionPrincipal = {
@@ -225,7 +224,7 @@ export async function resolveSessionPrincipal(
   const matchedPolicies = matchingInstanceGrantPolicies({
     policies: await (deps.loadInstanceGrantPolicies?.(session.contractId) ?? Promise.resolve([])),
     contractId: session.contractId,
-    appOrigin: session.appOrigin,
+    appOrigin: session.app?.origin ?? session.appOrigin,
   });
   const storedApproval = deps.loadStoredApproval
     ? await deps.loadStoredApproval(`${session.trellisId}.${session.contractDigest}`)

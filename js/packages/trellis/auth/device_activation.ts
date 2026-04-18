@@ -1,6 +1,8 @@
 import type { StaticDecode } from "typebox";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
+import type { BaseError } from "@qlever-llc/result";
+import { AsyncResult } from "@qlever-llc/result";
 
 import {
   importEd25519PrivateKeyFromSeedBase64url,
@@ -123,11 +125,11 @@ type DeviceActivationRpcOutputMap = {
 };
 
 type RequestClient = {
-  requestOrThrow<M extends DeviceActivationRpcMethod>(
+  request<M extends DeviceActivationRpcMethod>(
     method: M,
     input: DeviceActivationRpcInputMap[M],
     opts?: unknown,
-  ): Promise<DeviceActivationRpcOutputMap[M]>;
+  ): AsyncResult<DeviceActivationRpcOutputMap[M], BaseError>;
 };
 
 export type DeviceActivationTransport = RequestClient;
@@ -594,19 +596,19 @@ export function createDeviceActivationClient(
 ) {
   return {
     activateDevice(input: AuthActivateDeviceInput) {
-      return client.requestOrThrow("Auth.ActivateDevice", input);
+      return client.request("Auth.ActivateDevice", input).orThrow();
     },
     getDeviceActivationStatus(input: AuthGetDeviceActivationStatusInput) {
-      return client.requestOrThrow("Auth.GetDeviceActivationStatus", input);
+      return client.request("Auth.GetDeviceActivationStatus", input).orThrow();
     },
     listDeviceActivations(input: AuthListDeviceActivationsInput = {}) {
-      return client.requestOrThrow("Auth.ListDeviceActivations", input);
+      return client.request("Auth.ListDeviceActivations", input).orThrow();
     },
     revokeDeviceActivation(input: AuthRevokeDeviceActivationInput) {
-      return client.requestOrThrow("Auth.RevokeDeviceActivation", input);
+      return client.request("Auth.RevokeDeviceActivation", input).orThrow();
     },
     getDeviceConnectInfo(input: GetDeviceConnectInfoInput) {
-      return client.requestOrThrow("Auth.GetDeviceConnectInfo", input);
+      return client.request("Auth.GetDeviceConnectInfo", input).orThrow();
     },
   };
 }

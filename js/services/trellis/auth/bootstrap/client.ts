@@ -119,16 +119,16 @@ export type ClientBootstrapResult =
   };
 
 type SessionStore = {
-  get(key: string): Promise<{ take(): { value: Session } | Session | Result<never, BaseError> }>;
-  keys(filter: string): Promise<{ take(): AsyncIterable<string> | Result<never, BaseError> }>;
+  get(key: string): AsyncResult<{ value: Session } | Session, BaseError>;
+  keys(filter: string): AsyncResult<AsyncIterable<string>, BaseError>;
 };
 
 type UserStore = {
-  get(key: string): Promise<{ take(): unknown }>;
+  get(key: string): AsyncResult<unknown, BaseError>;
 };
 
 type BindingTokenStore = {
-  put(key: string, value: BindingTokenRecord): Promise<{ take(): unknown }>;
+  put(key: string, value: BindingTokenRecord): AsyncResult<unknown, BaseError>;
 };
 
 export type ClientBootstrapDeps = {

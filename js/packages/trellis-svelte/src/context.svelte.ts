@@ -5,8 +5,8 @@ import type { AuthState } from "./state/auth.svelte.ts";
 import type { NatsState } from "./state/nats.svelte.ts";
 
 type TrellisContext = {
-  trellis: Promise<unknown>;
-  nats: Promise<NatsConnection>;
+  getTrellis: () => Promise<unknown>;
+  getNats: () => Promise<NatsConnection>;
 };
 
 export type TrellisContractLike<TA extends TrellisAPI = TrellisAPI> = {
@@ -34,11 +34,11 @@ export function setAuthContext(getAuth: () => AuthState): void {
 }
 
 export function getTrellis<T = unknown>(): Promise<T> {
-  return getTrellisContext().trellis as Promise<T>;
+  return getTrellisContext().getTrellis() as Promise<T>;
 }
 
 export function getNats(): Promise<NatsConnection> {
-  return getTrellisContext().nats;
+  return getTrellisContext().getNats();
 }
 
 export function getNatsState(): Promise<NatsState> {

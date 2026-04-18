@@ -1,5 +1,5 @@
 import { UnexpectedError } from "@qlever-llc/trellis";
-import { isErr, Result, type BaseError } from "@qlever-llc/result";
+import { type AsyncResult, isErr, Result, type BaseError } from "@qlever-llc/result";
 
 import type {
   Connection,
@@ -9,10 +9,10 @@ import type {
 } from "../state/schemas.ts";
 
 export type KVLike<V> = {
-  get: (key: string) => Promise<Result<{ value: V }, BaseError>>;
-  put: (key: string, value: V) => Promise<Result<void, BaseError>>;
-  delete: (key: string) => Promise<Result<void, BaseError>>;
-  keys: (filter: string) => Promise<Result<AsyncIterable<string>, BaseError>>;
+  get: (key: string) => AsyncResult<{ value: V }, BaseError>;
+  put: (key: string, value: V) => AsyncResult<void, BaseError>;
+  delete: (key: string) => AsyncResult<void, BaseError>;
+  keys: (filter: string) => AsyncResult<AsyncIterable<string>, BaseError>;
 };
 
 export type RpcUser = {

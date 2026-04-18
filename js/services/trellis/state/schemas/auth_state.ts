@@ -65,11 +65,18 @@ export const SignatureSchema = Type.String({
 
 export type SessionKey = StaticDecode<typeof SessionKeySchema>;
 
+export const AppIdentitySchema = Type.Object({
+  contractId: Type.String({ minLength: 1 }),
+  origin: Type.Optional(Type.String({ minLength: 1 })),
+}, { additionalProperties: false });
+export type AppIdentity = StaticDecode<typeof AppIdentitySchema>;
+
 export const OAuthStateSchema = Type.Object({
   provider: Type.String(),
   redirectTo: Type.String(),
   codeVerifier: Type.String(),
   sessionKey: SessionKeySchema,
+  app: Type.Optional(AppIdentitySchema),
   contract: Type.Object({}, { additionalProperties: true }),
   context: Type.Optional(Type.Object({}, { additionalProperties: true })),
   flowId: Type.Optional(Type.String({ minLength: 1 })),
@@ -97,6 +104,7 @@ export const PendingAuthSchema = Type.Object({
   user: OAuthUserSchema,
   sessionKey: SessionKeySchema,
   redirectTo: Type.String(),
+  app: Type.Optional(AppIdentitySchema),
   contract: Type.Object({}, { additionalProperties: true }),
   createdAt: IsoDateSchema,
 }, { additionalProperties: false });
@@ -126,6 +134,7 @@ export const AuthBrowserFlowSchema = Type.Object({
   kind: AuthBrowserFlowKindSchema,
   sessionKey: Type.Optional(SessionKeySchema),
   redirectTo: Type.Optional(Type.String({ minLength: 1 })),
+  app: Type.Optional(AppIdentitySchema),
   context: Type.Optional(Type.Object({}, { additionalProperties: true })),
   contract: Type.Optional(Type.Object({}, { additionalProperties: true })),
   provider: Type.Optional(Type.String({ minLength: 1 })),
@@ -228,6 +237,7 @@ export const UserSessionSchema = Type.Object({
   contractId: Type.String({ minLength: 1 }),
   contractDisplayName: Type.String({ minLength: 1 }),
   contractDescription: Type.String({ minLength: 1 }),
+  app: Type.Optional(AppIdentitySchema),
   appOrigin: Type.Optional(Type.String({ minLength: 1 })),
   approvalSource: Type.Optional(SessionApprovalSourceSchema),
   delegatedCapabilities: Type.Array(Type.String()),

@@ -1,6 +1,6 @@
 import { type KV, type KvEntry, Kvm } from "@nats-io/kv";
 import type { NatsConnection } from "@nats-io/nats-core/internal";
-import { Result } from "@qlever-llc/result";
+import { AsyncResult, Result } from "@qlever-llc/result";
 import type { StaticDecode, TSchema } from "typebox";
 import Value, { ParseError } from "typebox/value";
 import { KVError, ValidationError } from "./errors/index.ts";
@@ -91,7 +91,7 @@ export class TypedKV<S extends TSchema> {
     return new TypedKV<S>(schema, kv);
   }
 
-  static async open<S extends TSchema>(
+  static open<S extends TSchema>(
     nats: NatsConnection,
     name: string,
     schema: S,
@@ -101,109 +101,123 @@ export class TypedKV<S extends TSchema> {
       bindOnly?: boolean;
       maxValueBytes?: number;
     },
-  ): Promise<Result<TypedKV<S>, KVError>> {
-    try {
-      const kvm = new Kvm(nats);
-      const kv = options.bindOnly
-        ? await kvm.open(name)
-        : await kvm.create(name, {
-        history: options.history ?? 1,
-        ttl: options.ttl ?? 0,
-        ...(options.maxValueBytes ? { maxValueSize: options.maxValueBytes } : {}),
-      });
+  ): AsyncResult<TypedKV<S>, KVError> {
+    return AsyncResult.from((async () => {
+      try {
+        const kvm = new Kvm(nats);
+        const kv = options.bindOnly
+          ? await kvm.open(name)
+          : await kvm.create(name, {
+            history: options.history ?? 1,
+            ttl: options.ttl ?? 0,
+            ...(options.maxValueBytes ? { maxValueSize: options.maxValueBytes } : {}),
+          });
 
-      const typedKv = TypedKV.fromParts(schema, kv);
-      return Result.ok<TypedKV<S>, KVError>(typedKv);
-    } catch (cause) {
-      return Result.err(new KVError({ operation: "open", cause }));
-    }
+        const typedKv = TypedKV.fromParts(schema, kv);
+        return Result.ok<TypedKV<S>, KVError>(typedKv);
+      } catch (cause) {
+        return Result.err(new KVError({ operation: "open", cause }));
+      }
+    })());
   }
 
-  async get(
+  get(
     key: string,
-  ): Promise<Result<TypedKVEntry<S>, KVError | ValidationError>> {
-    let s: KvEntry | null;
-    try {
-      s = await this.kv.get(escapeKvKey(key));
-    } catch (cause) {
-      return Result.err(
-        new KVError({ operation: "get", cause, context: { key } }),
-      );
-    }
-    if (!s) {
-      return Result.err(
-        new KVError({
-          operation: "get",
-          context: { key, reason: "not found" },
-        }),
-      );
-    }
-    const result = await createTypedKvEntry(this.schema, this.kv, s);
-    return result as Result<TypedKVEntry<S>, ValidationError>;
+  ): AsyncResult<TypedKVEntry<S>, KVError | ValidationError> {
+    return AsyncResult.from((async () => {
+      let s: KvEntry | null;
+      try {
+        s = await this.kv.get(escapeKvKey(key));
+      } catch (cause) {
+        return Result.err(
+          new KVError({ operation: "get", cause, context: { key } }),
+        );
+      }
+      if (!s) {
+        return Result.err(
+          new KVError({
+            operation: "get",
+            context: { key, reason: "not found" },
+          }),
+        );
+      }
+      const result = await createTypedKvEntry(this.schema, this.kv, s);
+      return result as Result<TypedKVEntry<S>, KVError | ValidationError>;
+    })());
   }
 
   private serialize(value: unknown): string {
     return serializeExternalValue(this.schema, value);
   }
 
-  async create(
+  create(
     key: string,
     value: unknown,
-  ): Promise<Result<void, KVError>> {
-    try {
-      await this.kv.create(escapeKvKey(key), this.serialize(value));
-      return Result.ok(undefined);
-    } catch (cause) {
-      return Result.err(
-        new KVError({ operation: "create", cause, context: { key } }),
-      );
-    }
+  ): AsyncResult<void, KVError> {
+    return AsyncResult.from((async () => {
+      try {
+        await this.kv.create(escapeKvKey(key), this.serialize(value));
+        return Result.ok(undefined);
+      } catch (cause) {
+        return Result.err(
+          new KVError({ operation: "create", cause, context: { key } }),
+        );
+      }
+    })());
   }
 
-  async put(
+  put(
     key: string,
     value: unknown,
-  ): Promise<Result<void, KVError>> {
-    try {
-      await this.kv.put(escapeKvKey(key), this.serialize(value));
-      return Result.ok(undefined);
-    } catch (cause) {
-      return Result.err(
-        new KVError({ operation: "put", cause, context: { key } }),
-      );
-    }
+  ): AsyncResult<void, KVError> {
+    return AsyncResult.from((async () => {
+      try {
+        await this.kv.put(escapeKvKey(key), this.serialize(value));
+        return Result.ok(undefined);
+      } catch (cause) {
+        return Result.err(
+          new KVError({ operation: "put", cause, context: { key } }),
+        );
+      }
+    })());
   }
 
-  async delete(key: string): Promise<Result<void, KVError>> {
-    try {
-      await this.kv.delete(escapeKvKey(key));
-      return Result.ok(undefined);
-    } catch (cause) {
-      return Result.err(
-        new KVError({ operation: "delete", cause, context: { key } }),
-      );
-    }
+  delete(key: string): AsyncResult<void, KVError> {
+    return AsyncResult.from((async () => {
+      try {
+        await this.kv.delete(escapeKvKey(key));
+        return Result.ok(undefined);
+      } catch (cause) {
+        return Result.err(
+          new KVError({ operation: "delete", cause, context: { key } }),
+        );
+      }
+    })());
   }
 
-  async keys(
+  keys(
     filter: string | string[] = ">",
-  ): Promise<Result<AsyncIterable<string>, KVError>> {
-    try {
-      return Result.ok(await this.kv.keys(filter));
-    } catch (cause) {
-      return Result.err(
-        new KVError({ operation: "keys", cause, context: { filter } }),
-      );
-    }
+  ): AsyncResult<AsyncIterable<string>, KVError> {
+    return AsyncResult.from((async () => {
+      try {
+        return Result.ok(await this.kv.keys(filter));
+      } catch (cause) {
+        return Result.err(
+          new KVError({ operation: "keys", cause, context: { filter } }),
+        );
+      }
+    })());
   }
 
-  async status(): Promise<Result<{ values: number }, KVError>> {
-    try {
-      const status = await this.kv.status();
-      return Result.ok({ values: status.values });
-    } catch (cause) {
-      return Result.err(new KVError({ operation: "status", cause }));
-    }
+  status(): AsyncResult<{ values: number }, KVError> {
+    return AsyncResult.from((async () => {
+      try {
+        const status = await this.kv.status();
+        return Result.ok({ values: status.values });
+      } catch (cause) {
+        return Result.err(new KVError({ operation: "status", cause }));
+      }
+    })());
   }
 }
 
@@ -223,13 +237,15 @@ export class TypedKVEntry<S extends TSchema> {
     return this.#value as StaticDecode<S>;
   }
 
-  static async create<S extends TSchema>(
+  static create<S extends TSchema>(
     schema: S,
     kv: KV,
     entry: KvEntry,
-  ): Promise<Result<TypedKVEntry<S>, ValidationError>> {
-    const result = await createTypedKvEntry(schema, kv, entry);
-    return result as Result<TypedKVEntry<S>, ValidationError>;
+  ): AsyncResult<TypedKVEntry<S>, ValidationError> {
+    return AsyncResult.from((async () => {
+      const result = await createTypedKvEntry(schema, kv, entry);
+      return result as Result<TypedKVEntry<S>, ValidationError>;
+    })());
   }
 
   get key() {
@@ -308,53 +324,57 @@ export class TypedKVEntry<S extends TSchema> {
     };
   }
 
-  async merge(
+  merge(
     value: unknown,
     vcc?: boolean,
-  ): Promise<Result<void, KVError | ValidationError>> {
+  ): AsyncResult<void, KVError | ValidationError> {
     const mergedData = mergeUnknown(this.#value, value);
     const mergeResult = Result.try(() => serializeExternalValue(this.schema, mergedData));
     if (mergeResult.isErr()) {
       const cause = mergeResult.error.cause;
       if (cause instanceof ParseError) {
         const errors = Value.Errors(this.schema, externalizeValue(mergedData));
-        return Result.err(new ValidationError({ errors, cause }));
+        return AsyncResult.err(new ValidationError({ errors, cause }));
       }
-      return Result.err(
+      return AsyncResult.err(
         new KVError({ operation: "merge", cause: mergeResult.error, context: { key: this.key } }),
       );
     }
     return this.put(mergedData, vcc);
   }
 
-  async put(
+  put(
     value: unknown,
     vcc?: boolean,
-  ): Promise<Result<void, KVError>> {
-    const serialized = serializeValue(this.schema, value);
-    try {
-      await this.kv.put(this.entry.key, serialized, {
-        previousSeq: vcc ? this.entry.revision : undefined,
-      });
-      return Result.ok(undefined);
-    } catch (cause) {
-      return Result.err(
-        new KVError({ operation: "put", cause, context: { key: this.key } }),
-      );
-    }
+  ): AsyncResult<void, KVError> {
+    return AsyncResult.from((async () => {
+      const serialized = serializeValue(this.schema, value);
+      try {
+        await this.kv.put(this.entry.key, serialized, {
+          previousSeq: vcc ? this.entry.revision : undefined,
+        });
+        return Result.ok(undefined);
+      } catch (cause) {
+        return Result.err(
+          new KVError({ operation: "put", cause, context: { key: this.key } }),
+        );
+      }
+    })());
   }
 
-  async delete(vcc?: boolean): Promise<Result<void, KVError>> {
-    try {
-      await this.kv.delete(this.entry.key, {
-        previousSeq: vcc ? this.entry.revision : undefined,
-      });
-      return Result.ok(undefined);
-    } catch (cause) {
-      return Result.err(
-        new KVError({ operation: "delete", cause, context: { key: this.key } }),
-      );
-    }
+  delete(vcc?: boolean): AsyncResult<void, KVError> {
+    return AsyncResult.from((async () => {
+      try {
+        await this.kv.delete(this.entry.key, {
+          previousSeq: vcc ? this.entry.revision : undefined,
+        });
+        return Result.ok(undefined);
+      } catch (cause) {
+        return Result.err(
+          new KVError({ operation: "delete", cause, context: { key: this.key } }),
+        );
+      }
+    })());
   }
 }
 

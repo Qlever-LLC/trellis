@@ -30,9 +30,9 @@
     error = null;
     try {
       const trellis = await trellisPromise;
-      const response = await trellis.requestOrThrow<AuthListSessionsOutput>("Auth.ListSessions" as string, {
+      const response = await trellis.request<AuthListSessionsOutput>("Auth.ListSessions" as string, {
         user: sessionFilterUser.trim() || undefined
-      });
+      }).orThrow();
       sessions = (response.sessions ?? []).map((s) => ({
         ...s,
         parsed: parseSessionRowKey(s.key)
@@ -49,10 +49,10 @@
     error = null;
     try {
       const trellis = await trellisPromise;
-      const response = await trellis.requestOrThrow<AuthListConnectionsOutput>("Auth.ListConnections" as string, {
+      const response = await trellis.request<AuthListConnectionsOutput>("Auth.ListConnections" as string, {
         user: connFilterUser.trim() || undefined,
         sessionKey: connFilterSessionKey.trim() || undefined
-      });
+      }).orThrow();
       connections = (response.connections ?? []).map((c) => ({
         ...c,
         parsed: parseConnectionRowKey(c.key)
@@ -74,7 +74,7 @@
     revokeTarget = sessionKey;
     try {
       const trellis = await trellisPromise;
-      await trellis.requestOrThrow<void>("Auth.RevokeSession" as string, { sessionKey } satisfies AuthRevokeSessionInput);
+      await trellis.request<void>("Auth.RevokeSession" as string, { sessionKey } satisfies AuthRevokeSessionInput).orThrow();
       notifications.success(`Session revoked for ${principal}.`, "Revoked");
       await loadSessions();
     } catch (e) { error = errorMessage(e); }
@@ -86,7 +86,7 @@
     kickTarget = userNkey;
     try {
       const trellis = await trellisPromise;
-      await trellis.requestOrThrow<void>("Auth.KickConnection" as string, { userNkey } satisfies AuthKickConnectionInput);
+      await trellis.request<void>("Auth.KickConnection" as string, { userNkey } satisfies AuthKickConnectionInput).orThrow();
       notifications.success(`Disconnected ${principal}.`, "Kicked");
       await loadConnections();
     } catch (e) { error = errorMessage(e); }

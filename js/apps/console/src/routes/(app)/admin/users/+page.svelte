@@ -29,7 +29,7 @@
     error = null;
     try {
       const trellis = await trellisPromise;
-      const res = await trellis.requestOrThrow<AuthListUsersOutput>("Auth.ListUsers" as string, {});
+      const res = await trellis.request<AuthListUsersOutput>("Auth.ListUsers" as string, {}).orThrow();
       users = res.users ?? [];
     } catch (e) { error = errorMessage(e); }
     finally { loading = false; }
@@ -48,11 +48,11 @@
   async function toggleActive(user: UserView) {
     try {
       const trellis = await trellisPromise;
-      await trellis.requestOrThrow<void>("Auth.UpdateUser" as string, {
+      await trellis.request<void>("Auth.UpdateUser" as string, {
         origin: user.origin,
         id: user.id,
         active: !user.active,
-      } satisfies AuthUpdateUserInput);
+      } satisfies AuthUpdateUserInput).orThrow();
       notifications.success(`${user.name ?? user.id} ${user.active ? "deactivated" : "activated"}.`, "Updated");
       await load();
     } catch (e) { error = errorMessage(e); }
@@ -64,11 +64,11 @@
     try {
       const capabilities = editCaps.split(",").map((c) => c.trim()).filter(Boolean);
       const trellis = await trellisPromise;
-      await trellis.requestOrThrow<void>("Auth.UpdateUser" as string, {
+      await trellis.request<void>("Auth.UpdateUser" as string, {
         origin: editTarget.origin,
         id: editTarget.id,
         capabilities,
-      } satisfies AuthUpdateUserInput);
+      } satisfies AuthUpdateUserInput).orThrow();
       notifications.success(`Capabilities updated for ${editTarget.name ?? editTarget.id}.`, "Updated");
       cancelEdit();
       await load();

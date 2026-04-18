@@ -1,4 +1,5 @@
 import { assert, assertEquals, assertFalse, assertRejects } from "@std/assert";
+import { AsyncResult } from "@qlever-llc/result";
 
 import {
   buildDeviceActivationPayload,
@@ -328,56 +329,56 @@ Deno.test("device activation wait retries transient fetch failures", async () =>
 
 Deno.test("device activation client wrappers hide method strings", async () => {
   const requests: Array<{ method: string; input: unknown }> = [];
-  function requestOrThrow(
+  function request(
     method: "Auth.ActivateDevice",
     input: AuthActivateDeviceInput,
     _opts?: unknown,
-  ): Promise<AuthActivateDeviceOutput>;
-  function requestOrThrow(
+  ): AsyncResult<AuthActivateDeviceOutput, never>;
+  function request(
     method: "Auth.GetDeviceActivationStatus",
     input: AuthGetDeviceActivationStatusInput,
     _opts?: unknown,
-  ): Promise<AuthGetDeviceActivationStatusOutput>;
-  function requestOrThrow(
+  ): AsyncResult<AuthGetDeviceActivationStatusOutput, never>;
+  function request(
     method: "Auth.ListDeviceActivations",
     input: AuthListDeviceActivationsInput,
     _opts?: unknown,
-  ): Promise<AuthListDeviceActivationsOutput>;
-  function requestOrThrow(
+  ): AsyncResult<AuthListDeviceActivationsOutput, never>;
+  function request(
     method: "Auth.RevokeDeviceActivation",
     input: AuthRevokeDeviceActivationInput,
     _opts?: unknown,
-  ): Promise<AuthRevokeDeviceActivationResponse>;
-  function requestOrThrow(
+  ): AsyncResult<AuthRevokeDeviceActivationResponse, never>;
+  function request(
     method: "Auth.GetDeviceConnectInfo",
     input: Record<string, unknown>,
     _opts?: unknown,
-  ): Promise<GetDeviceConnectInfoOutput>;
-  async function requestOrThrow(method: string, input: unknown): Promise<unknown> {
+  ): AsyncResult<GetDeviceConnectInfoOutput, never>;
+  function request(method: string, input: unknown): AsyncResult<unknown, never> {
     requests.push({ method, input });
     switch (method) {
       case "Auth.ActivateDevice":
-        return {
+        return AsyncResult.ok({
           status: "activated",
           instanceId: "dev_123",
           profileId: "reader.default",
           activatedAt: "2026-04-08T12:00:00Z",
-        };
+        });
       case "Auth.GetDeviceActivationStatus":
-        return {
+        return AsyncResult.ok({
           status: "pending_review",
           reviewId: "dar_123",
           linkRequestId: "link_123",
           instanceId: "dev_123",
           profileId: "reader.default",
           requestedAt: "2026-04-08T11:55:00Z",
-        };
+        });
       case "Auth.ListDeviceActivations":
-        return { activations: [] };
+        return AsyncResult.ok({ activations: [] });
       case "Auth.RevokeDeviceActivation":
-        return { success: true };
+        return AsyncResult.ok({ success: true });
       case "Auth.GetDeviceConnectInfo":
-        return {
+        return AsyncResult.ok({
           status: "ready",
           connectInfo: {
             instanceId: "dev_123",
@@ -392,14 +393,14 @@ Deno.test("device activation client wrappers hide method strings", async () => {
             },
             auth: { mode: "device_identity", iatSkewSeconds: 30 },
           },
-        };
+        });
       default:
         throw new Error(`Unexpected method ${method}`);
     }
   }
 
   const transport: DeviceActivationTransport = {
-    requestOrThrow,
+    request,
   };
   const client = createDeviceActivationClient(transport);
 

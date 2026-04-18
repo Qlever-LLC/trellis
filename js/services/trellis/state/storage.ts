@@ -1,4 +1,4 @@
-import { isErr, Result } from "@qlever-llc/result";
+import { AsyncResult, isErr, Result } from "@qlever-llc/result";
 import {
   KVError,
   UnexpectedError,
@@ -25,15 +25,15 @@ type StateKvEntryLike = {
   key: string;
   value: StoredStateEntry;
   revision: number;
-  put(value: unknown, vcc?: boolean): Promise<Result<void, KVError>>;
-  delete(vcc?: boolean): Promise<Result<void, KVError>>;
+  put(value: unknown, vcc?: boolean): AsyncResult<void, KVError>;
+  delete(vcc?: boolean): AsyncResult<void, KVError>;
 };
 
 type StateKvLike = {
-  create(key: string, value: unknown): Promise<Result<void, KVError>>;
-  put(key: string, value: unknown): Promise<Result<void, KVError>>;
-  get(key: string): Promise<Result<StateKvEntryLike, KVError | ValidationError>>;
-  keys(filter?: string | string[]): Promise<Result<AsyncIterable<string>, KVError>>;
+  create(key: string, value: unknown): AsyncResult<void, KVError>;
+  put(key: string, value: unknown): AsyncResult<void, KVError>;
+  get(key: string): AsyncResult<StateKvEntryLike, KVError | ValidationError>;
+  keys(filter?: string | string[]): AsyncResult<AsyncIterable<string>, KVError>;
 };
 
 type StateStoreDeps = {
@@ -45,10 +45,10 @@ type StateStoreDeps = {
 };
 
 type TypedStateKvLike = {
-  create(key: string, value: unknown): Promise<Result<void, KVError>>;
-  put(key: string, value: unknown): Promise<Result<void, KVError>>;
-  get(key: string): Promise<Result<unknown, KVError | ValidationError>>;
-  keys(filter?: string | string[]): Promise<Result<AsyncIterable<string>, KVError>>;
+  create(key: string, value: unknown): AsyncResult<void, KVError>;
+  put(key: string, value: unknown): AsyncResult<void, KVError>;
+  get(key: string): AsyncResult<unknown, KVError | ValidationError>;
+  keys(filter?: string | string[]): AsyncResult<AsyncIterable<string>, KVError>;
 };
 
 function makePaginated(
@@ -94,18 +94,20 @@ export function createStateKvAdapter(kv: TypedStateKvLike): StateKvLike {
     put(key, value) {
       return kv.put(key, value);
     },
-    async get(key) {
-      const result = await kv.get(key);
-      if (result.isErr()) return Result.err(result.error);
-      const entry = result.unwrapOrElse(() => {
-        throw new Error("state KV get unexpectedly failed");
-      });
-      if (!isStateKvEntryLike(entry)) {
-        return Result.err(new ValidationError({
-          errors: [{ path: "/entry", message: "state KV entry shape is invalid" }],
-        }));
-      }
-      return Result.ok(entry);
+    get(key) {
+      return AsyncResult.from((async () => {
+        const result = await kv.get(key);
+        if (result.isErr()) return Result.err(result.error);
+        const entry = result.unwrapOrElse(() => {
+          throw new Error("state KV get unexpectedly failed");
+        });
+        if (!isStateKvEntryLike(entry)) {
+          return Result.err(new ValidationError({
+            errors: [{ path: "/entry", message: "state KV entry shape is invalid" }],
+          }));
+        }
+        return Result.ok(entry);
+      })());
     },
     keys(filter) {
       return kv.keys(filter);

@@ -3,6 +3,7 @@
   import { replaceState } from "$app/navigation";
   import { page } from "$app/state";
   import { onMount } from "svelte";
+  import type { AsyncResult, BaseError } from "@qlever-llc/result";
   import {
     type AuthState,
     type NatsState,
@@ -20,7 +21,7 @@
     natsState: NatsState,
   ): Promise<{
     trellis: {
-      requestOrThrow: (method: string, input: unknown) => Promise<unknown>;
+      request: (method: string, input: unknown) => AsyncResult<unknown, BaseError>;
     };
   }> {
     const contract: TrellisClientContract = portalApp;
@@ -29,7 +30,7 @@
     });
     return {
       trellis: {
-        requestOrThrow: trellisState.trellis.requestOrThrow.bind(trellisState.trellis),
+        request: trellisState.trellis.request.bind(trellisState.trellis),
       },
     };
   }
@@ -332,13 +333,14 @@
     });
 
     const trellisState = await createPortalTrellisState(authState, natsState);
-    const requestOrThrow: (
+    const requestValue: (
       method: string,
       input: unknown,
-    ) => Promise<unknown> = trellisState.trellis.requestOrThrow.bind(trellisState.trellis);
+    ) => Promise<unknown> = (method, input) =>
+      trellisState.trellis.request(method, input).orThrow();
 
     startPortalActivation = async (nextFlowId: string) => {
-      const result = await requestOrThrow(
+      const result = await requestValue(
         "Auth.ActivateDevice",
         createActivateDeviceInput(nextFlowId),
       );
@@ -349,11 +351,12 @@
     };
 
     getPortalActivationStatus = async (nextFlowId: string) => {
-      const requestOrThrow: (
+      const requestValue: (
         method: string,
         input: unknown,
-      ) => Promise<unknown> = trellisState.trellis.requestOrThrow.bind(trellisState.trellis);
-      const result = await requestOrThrow(
+      ) => Promise<unknown> = (method, input) =>
+        trellisState.trellis.request(method, input).orThrow();
+      const result = await requestValue(
         "Auth.GetDeviceActivationStatus",
         { flowId: nextFlowId },
       );

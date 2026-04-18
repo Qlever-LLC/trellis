@@ -1,3 +1,4 @@
+import { AsyncResult } from "@qlever-llc/result";
 import type { BaseError, MaybeAsync, Result } from "@qlever-llc/result";
 import { resolve } from "$app/paths";
 import { getPublicSessionKey, signBytes } from "../../../../packages/trellis/auth/browser.ts";
@@ -20,28 +21,18 @@ type AppTrellis = {
     method: TMethod,
     input: RpcInput<TMethod>,
     opts?: RequestOpts,
-  ): Promise<Result<RpcOutput<TMethod>, BaseError>>;
+  ): AsyncResult<RpcOutput<TMethod>, BaseError>;
   request<T = unknown>(
     method: string,
     input: unknown,
     opts?: RequestOpts,
-  ): Promise<Result<T, BaseError>>;
-  requestOrThrow<TMethod extends RpcMethodName>(
-    method: TMethod,
-    input: RpcInput<TMethod>,
-    opts?: RequestOpts,
-  ): Promise<RpcOutput<TMethod>>;
-  requestOrThrow<T = unknown>(
-    method: string,
-    input: unknown,
-    opts?: RequestOpts,
-  ): Promise<T>;
+  ): AsyncResult<T, BaseError>;
   event(
     method: "Health.Heartbeat",
     subjectData: Record<string, unknown>,
     fn: (heartbeat: HealthHeartbeat) => MaybeAsync<void, BaseError>,
     opts?: EventOpts,
-  ): Promise<Result<void, BaseError>>;
+  ): AsyncResult<void, BaseError>;
 };
 
 type RuntimeTrellis = {
@@ -49,18 +40,13 @@ type RuntimeTrellis = {
     method: string,
     input: unknown,
     opts?: RequestOpts,
-  ): Promise<Result<unknown, BaseError>>;
-  requestOrThrow(
-    method: string,
-    input: unknown,
-    opts?: RequestOpts,
-  ): Promise<unknown>;
+  ): AsyncResult<unknown, BaseError>;
   event(
     method: "Health.Heartbeat",
     subjectData: Record<string, unknown>,
     fn: (heartbeat: HealthHeartbeat) => MaybeAsync<void, BaseError>,
     opts?: EventOpts,
-  ): Promise<Result<void, BaseError>>;
+  ): AsyncResult<void, BaseError>;
 };
 
 export const auth = createAuthState({
@@ -69,44 +55,26 @@ export const auth = createAuthState({
   loginPath: resolve("/login"),
 });
 
-async function request<TMethod extends RpcMethodName>(
+function request<TMethod extends RpcMethodName>(
   method: TMethod,
   input: RpcInput<TMethod>,
   opts?: RequestOpts,
-): Promise<Result<RpcOutput<TMethod>, BaseError>>;
-async function request<T = unknown>(
+): AsyncResult<RpcOutput<TMethod>, BaseError>;
+function request<T = unknown>(
   method: string,
   input: unknown,
   opts?: RequestOpts,
-): Promise<Result<T, BaseError>>;
-async function request(
+): AsyncResult<T, BaseError>;
+function request(
   this: { createLiveClient: () => Promise<RuntimeTrellis> },
   method: string,
   input: unknown,
   opts?: RequestOpts,
-): Promise<Result<unknown, BaseError>> {
-  const trellis = await this.createLiveClient();
-  return await trellis.request(method, input, opts);
-}
-
-async function requestOrThrow<TMethod extends RpcMethodName>(
-  method: TMethod,
-  input: RpcInput<TMethod>,
-  opts?: RequestOpts,
-): Promise<RpcOutput<TMethod>>;
-async function requestOrThrow<T = unknown>(
-  method: string,
-  input: unknown,
-  opts?: RequestOpts,
-): Promise<T>;
-async function requestOrThrow(
-  this: { createLiveClient: () => Promise<RuntimeTrellis> },
-  method: string,
-  input: unknown,
-  opts?: RequestOpts,
-): Promise<unknown> {
-  const trellis = await this.createLiveClient();
-  return await trellis.requestOrThrow(method, input, opts);
+): AsyncResult<unknown, BaseError> {
+  return AsyncResult.from((async () => {
+    const trellis = await this.createLiveClient();
+    return await trellis.request(method, input, opts);
+  })());
 }
 
 export function getTrellis(): Promise<AppTrellis> {
@@ -135,15 +103,16 @@ export function getTrellis(): Promise<AppTrellis> {
   const liveTrellis: AppTrellis & { createLiveClient: typeof createLiveClient } = {
     createLiveClient,
     request,
-    requestOrThrow,
-    event: async function (
+    event: function (
       method: "Health.Heartbeat",
       subjectData: Record<string, unknown>,
       fn: (heartbeat: HealthHeartbeat) => MaybeAsync<void, BaseError>,
       opts?: EventOpts,
-    ): Promise<Result<void, BaseError>> {
-      const trellis = await this.createLiveClient();
-      return await trellis.event(method, subjectData, fn, opts);
+    ): AsyncResult<void, BaseError> {
+      return AsyncResult.from((async () => {
+        const trellis = await this.createLiveClient();
+        return await trellis.event(method, subjectData, fn, opts);
+      })());
     },
   };
 

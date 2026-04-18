@@ -517,11 +517,11 @@ declare function verifyDeviceConfirmationCode(args: {
 }): Promise<boolean>;
 
 declare function createDeviceActivationClient(client: {
-  requestOrThrow(
+  request(
     method: string,
     input: unknown,
     opts?: unknown,
-  ): Promise<unknown>;
+  ): AsyncResult<unknown, BaseError>;
 }): {
   activateDevice(input: { flowId: string; linkRequestId: string }): Promise<
     | {
@@ -674,7 +674,7 @@ const trellis = await TrellisDevice.connect({
   },
 });
 
-const me = (await trellis.request("Auth.Me", {})).take();
+const me = await trellis.request("Auth.Me", {});
 if (isErr(me)) throw me.error;
 ```
 

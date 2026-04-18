@@ -2,6 +2,7 @@ import { HTTPException } from "@hono/hono/http-exception";
 
 import type { PendingAuth, SessionApprovalSource } from "../../state/schemas.ts";
 import {
+  buildAppIdentity,
   getApprovalResolutionBlocker,
   type ApprovalResolution,
 } from "./support.ts";
@@ -118,6 +119,14 @@ export function createAuthStartRequestHandler(deps: {
         },
         sessionKey: req.sessionKey,
         redirectTo: req.redirectTo,
+        ...(typeof req.contract.id === "string"
+          ? {
+            app: buildAppIdentity({
+              contractId: req.contract.id,
+              redirectTo: req.redirectTo,
+            }),
+          }
+          : {}),
         contract: req.contract,
         createdAt: new Date(),
       };

@@ -80,7 +80,11 @@ function userSessionFields() {
     contractId: "trellis.console@v1",
     contractDisplayName: "Trellis Console",
     contractDescription: "Admin app",
-    contractKind: "app",
+    app: {
+      contractId: "trellis.console@v1",
+      origin: "https://app.example.com",
+    },
+    appOrigin: "https://app.example.com",
     delegatedCapabilities: ["admin"],
     delegatedPublishSubjects: ["rpc.v1.Auth.ListServices"],
     delegatedSubscribeSubjects: ["events.v1.Auth.Connect"],
@@ -155,6 +159,10 @@ Deno.test("ensureBoundUserSession recovers when the session already exists for t
   assertEquals(updated.lastAuth.toISOString(), now.toISOString());
   assertEquals(updated.email, "new@example.com");
   assertEquals(updated.name, "Alice");
+  assertEquals(updated.app, {
+    contractId: "trellis.console@v1",
+    origin: "https://app.example.com",
+  });
 });
 
 Deno.test("ensureBoundUserSession kicks connections and replaces session when bound to a different identity", async () => {

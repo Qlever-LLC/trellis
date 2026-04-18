@@ -25,7 +25,7 @@
   const trellisPromise = getTrellis();
   const notifications = getNotifications();
 
-  async function requestOrThrow<T>(method: string, input: unknown): Promise<T> {
+  async function requestValue<T>(method: string, input: unknown): Promise<T> {
     const trellis = await trellisPromise;
     const result = await trellis.request<T>(method as string, input);
     const value = result.take();
@@ -82,10 +82,10 @@
     error = null;
     try {
       const [portalRes, contractRes, defaultRes, selectionRes] = await Promise.all([
-        requestOrThrow<AuthListPortalsOutput>("Auth.ListPortals", {}),
-        requestOrThrow<AuthListInstalledContractsOutput>("Auth.ListInstalledContracts", {}),
-        requestOrThrow<AuthGetLoginPortalDefaultOutput>("Auth.GetLoginPortalDefault", {}),
-        requestOrThrow<AuthListLoginPortalSelectionsOutput>("Auth.ListLoginPortalSelections", {}),
+        requestValue<AuthListPortalsOutput>("Auth.ListPortals", {}),
+        requestValue<AuthListInstalledContractsOutput>("Auth.ListInstalledContracts", {}),
+        requestValue<AuthGetLoginPortalDefaultOutput>("Auth.GetLoginPortalDefault", {}),
+        requestValue<AuthListLoginPortalSelectionsOutput>("Auth.ListLoginPortalSelections", {}),
       ]);
 
       portals = portalRes.portals ?? [];
@@ -110,7 +110,7 @@
     defaultPending = true;
     error = null;
     try {
-      await requestOrThrow("Auth.SetLoginPortalDefault", {
+      await requestValue("Auth.SetLoginPortalDefault", {
         portalId: optionToPortalId(defaultDraft),
       } satisfies AuthSetLoginPortalDefaultInput);
       notifications.success("Default login portal updated.", "Updated");
@@ -128,12 +128,12 @@
     try {
       const option = selectionDrafts[contractId] ?? INHERIT_OPTION;
       if (option === INHERIT_OPTION) {
-        await requestOrThrow("Auth.ClearLoginPortalSelection", {
+        await requestValue("Auth.ClearLoginPortalSelection", {
           contractId,
         } satisfies AuthClearLoginPortalSelectionInput);
         notifications.success(`Login policy cleared for ${contractId}.`, "Cleared");
       } else {
-        await requestOrThrow("Auth.SetLoginPortalSelection", {
+        await requestValue("Auth.SetLoginPortalSelection", {
           contractId,
           portalId: optionToPortalId(option),
         } satisfies AuthSetLoginPortalSelectionInput);
@@ -153,7 +153,7 @@
     clearTarget = contractId;
     error = null;
     try {
-      await requestOrThrow("Auth.ClearLoginPortalSelection", {
+      await requestValue("Auth.ClearLoginPortalSelection", {
         contractId,
       } satisfies AuthClearLoginPortalSelectionInput);
       notifications.success(`Login policy cleared for ${contractId}.`, "Cleared");

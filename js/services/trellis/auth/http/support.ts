@@ -1,4 +1,5 @@
 import { trellisIdFromOriginId } from "@qlever-llc/trellis/auth";
+import type { AsyncResult, BaseError } from "@qlever-llc/result";
 
 import { planUserContractApproval } from "../approval/plan.ts";
 import {
@@ -12,6 +13,7 @@ import {
 import type { Config } from "../../config.ts";
 import type { ContractStore } from "../../catalog/store.ts";
 import type {
+  AppIdentity,
   ContractApprovalRecord,
   InstanceGrantPolicy,
   OAuthState,
@@ -21,12 +23,12 @@ import type {
 
 export type OAuthStateEntry = {
   value: OAuthState;
-  delete: (cas?: boolean) => Promise<unknown>;
+  delete: (cas?: boolean) => AsyncResult<unknown, BaseError>;
 };
 
 export type PendingAuthEntry = {
   value: PendingAuth;
-  delete: (cas?: boolean) => Promise<unknown>;
+  delete: (cas?: boolean) => AsyncResult<unknown, BaseError>;
 };
 
 export type ApprovalResolution = {
@@ -36,7 +38,7 @@ export type ApprovalResolution = {
   userId: string;
   userEmail: string;
   userName: string;
-  appOrigin?: string;
+  app?: AppIdentity;
   existingProjection: UserProjectionEntry | null;
   existingCapabilities: string[];
   effectiveCapabilities: string[];
@@ -166,6 +168,17 @@ export function buildRedirectLocation(target: string, values: Record<string, str
   return url.toString();
 }
 
+export function buildAppIdentity(args: {
+  contractId: string;
+  redirectTo: string;
+}): AppIdentity {
+  const origin = getAppOrigin(args.redirectTo);
+  return {
+    contractId: args.contractId,
+    ...(origin ? { origin } : {}),
+  };
+}
+
 export function resolveLoginPortal(args: {
   contractId: string;
   portals: PortalRecord[];
@@ -228,7 +241,10 @@ export async function getApprovalResolution(
   const trellisId = await trellisIdFromOriginId(pending.user.origin, pending.user.id);
   const userEmail = pending.user.email ?? `${pending.user.origin}:${pending.user.id}`;
   const userName = pending.user.name ?? pending.user.id;
-  const appOrigin = getAppOrigin(pending.redirectTo);
+  const app = buildAppIdentity({
+    contractId: plan.contract.id,
+    redirectTo: pending.redirectTo,
+  });
   const existingProjection = await deps.loadUserProjection(trellisId);
   const existingCapabilities = existingProjection?.capabilities ?? [];
   const storedApproval = await deps.loadStoredApproval(
@@ -237,7 +253,7 @@ export async function getApprovalResolution(
   const matchedPolicies = matchingInstanceGrantPolicies({
     policies: await (deps.loadInstanceGrantPolicies?.(plan.contract.id) ?? Promise.resolve([])),
     contractId: plan.contract.id,
-    appOrigin,
+    appOrigin: app.origin,
   });
   const resolvedCapabilities = effectiveCapabilities({
     explicitCapabilities: existingCapabilities,
@@ -259,7 +275,7 @@ export async function getApprovalResolution(
     userId: pending.user.id,
     userEmail,
     userName,
-    ...(appOrigin ? { appOrigin } : {}),
+    app,
     existingProjection,
     existingCapabilities,
     effectiveCapabilities: resolvedCapabilities,

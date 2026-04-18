@@ -107,8 +107,8 @@ TypeScript expectations:
 
 ```ts
 class StoreHandle {
-  open(): Promise<Result<TypedStore, StoreError>>;
-  waitFor(key: string, opts?: StoreWaitOptions): Promise<Result<TypedStoreEntry, StoreError>>;
+  open(): AsyncResult<TypedStore, StoreError>;
+  waitFor(key: string, opts?: StoreWaitOptions): AsyncResult<TypedStoreEntry, StoreError>;
 }
 
 class TypedStore {
@@ -116,19 +116,19 @@ class TypedStore {
     key: string,
     body: Uint8Array | ReadableStream<Uint8Array> | AsyncIterable<Uint8Array>,
     opts?: { contentType?: string; metadata?: Record<string, string> },
-  ): Promise<Result<void, StoreError>>;
+  ): AsyncResult<void, StoreError>;
 
   put(
     key: string,
     body: Uint8Array | ReadableStream<Uint8Array> | AsyncIterable<Uint8Array>,
     opts?: { contentType?: string; metadata?: Record<string, string> },
-  ): Promise<Result<void, StoreError>>;
+  ): AsyncResult<void, StoreError>;
 
-  get(key: string): Promise<Result<TypedStoreEntry, StoreError>>;
-  waitFor(key: string, opts?: StoreWaitOptions): Promise<Result<TypedStoreEntry, StoreError>>;
-  delete(key: string): Promise<Result<void, StoreError>>;
-  list(prefix?: string): Promise<Result<AsyncIterable<StoreInfo>, StoreError>>;
-  status(): Promise<Result<StoreStatus, StoreError>>;
+  get(key: string): AsyncResult<TypedStoreEntry, StoreError>;
+  waitFor(key: string, opts?: StoreWaitOptions): AsyncResult<TypedStoreEntry, StoreError>;
+  delete(key: string): AsyncResult<void, StoreError>;
+  list(prefix?: string): AsyncResult<AsyncIterable<StoreInfo>, StoreError>;
+  status(): AsyncResult<StoreStatus, StoreError>;
 }
 
 type StoreWaitOptions = {
@@ -141,8 +141,8 @@ class TypedStoreEntry {
   readonly key: string;
   readonly info: StoreInfo;
 
-  stream(): Promise<Result<ReadableStream<Uint8Array> | AsyncIterable<Uint8Array>, StoreError>>;
-  bytes(): Promise<Result<Uint8Array, StoreError>>;
+  stream(): AsyncResult<ReadableStream<Uint8Array> | AsyncIterable<Uint8Array>, StoreError>;
+  bytes(): AsyncResult<Uint8Array, StoreError>;
 }
 ```
 

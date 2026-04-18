@@ -47,7 +47,7 @@
     };
   }
 
-  async function requestOrThrow<T>(method: string, input: unknown): Promise<T> {
+  async function requestValue<T>(method: string, input: unknown): Promise<T> {
     const trellis = await trellisPromise;
     const result = await trellis.request<T>(method as string, input);
     const value = result.take();
@@ -60,9 +60,9 @@
     error = null;
     try {
       const [reviewsResponse, instancesResponse, profilesResponse] = await Promise.all([
-        requestOrThrow<AuthListDeviceActivationReviewsOutput>("Auth.ListDeviceActivationReviews", reviewQuery()),
-        requestOrThrow<AuthListDeviceInstancesOutput>("Auth.ListDeviceInstances", {}),
-        requestOrThrow<AuthListDeviceProfilesOutput>("Auth.ListDeviceProfiles", {}),
+        requestValue<AuthListDeviceActivationReviewsOutput>("Auth.ListDeviceActivationReviews", reviewQuery()),
+        requestValue<AuthListDeviceInstancesOutput>("Auth.ListDeviceInstances", {}),
+        requestValue<AuthListDeviceProfilesOutput>("Auth.ListDeviceProfiles", {}),
       ]);
 
       reviews = reviewsResponse.reviews ?? [];
@@ -92,7 +92,7 @@
     decisionTarget = review.reviewId;
     error = null;
     try {
-      await requestOrThrow(
+      await requestValue(
         "Auth.DecideDeviceActivationReview",
         {
           reviewId: review.reviewId,
@@ -116,7 +116,7 @@
     decisionTarget = review.reviewId;
     error = null;
     try {
-      await requestOrThrow(
+      await requestValue(
         "Auth.DecideDeviceActivationReview",
         {
           reviewId: review.reviewId,

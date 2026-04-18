@@ -333,7 +333,7 @@ declare function getDeviceConnectInfo(args: {
 }): Promise<GetDeviceConnectInfoResponse>;
 
 declare function createDeviceActivationClient(client: {
-  requestOrThrow(method: string, input: unknown, opts?: unknown): Promise<unknown>;
+  request(method: string, input: unknown, opts?: unknown): AsyncResult<unknown, BaseError>;
 }): {
   activateDevice(input: { flowId: string; linkRequestId: string }): Promise<ActivateDeviceResponse>;
   getDeviceActivationStatus(input: GetDeviceActivationStatusRequest): Promise<GetDeviceActivationStatusResponse>;
@@ -369,7 +369,7 @@ Rules:
 - if the wait endpoint returns `{ status: "rejected" }`, `waitForDeviceActivation(...)` SHOULD throw rather than returning a rejected union branch
 - `getDeviceConnectInfo(...)` owns the connect-info proof/signature step for `POST /auth/devices/connect-info`
 - portal and admin apps SHOULD prefer `createDeviceActivationClient(...)` over
-  repeated raw string `requestOrThrow(...)` calls and manual plumbing
+  repeated raw string `request(...).orThrow()` calls and manual plumbing
 - `TrellisDevice.connect(...)` is the intended high-level runtime entrypoint; it SHOULD behave more like `TrellisService.connect(...)` than a caller-managed activation state machine
 - `TrellisDevice.connect(...)` accepts `rootSecret` directly as bytes or a string form; storage/loading policy belongs to the application, not the helper
 - `TrellisDevice.connect(...)` SHOULD fetch connect info on startup rather than persisting stale connect info across restarts
