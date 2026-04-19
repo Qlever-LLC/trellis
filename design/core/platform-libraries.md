@@ -34,7 +34,6 @@ libraries.
 | `@qlever-llc/trellis-sdk` and `@qlever-llc/trellis-sdk/*` | First-party generated SDK modules                                                                                            | Apps and services that consume Trellis-owned contracts |
 | `@qlever-llc/trellis/tracing`       | Specialized Trellis tracing facade                                                                                           | Runtime libraries and services                         |
 | `@qlever-llc/trellis-svelte`        | Svelte-specific Trellis browser integration with a Trellis-only public surface                                               | Svelte applications                                    |
-| `@qlever-llc/trellis-jobs`          | Job creation and processing                                                                                                  | Service-private retryable work                         |
 
 ## Library Rules
 
@@ -58,6 +57,8 @@ libraries.
   and the narrower `@qlever-llc/trellis/auth/browser` facade
 - service-only resource handles and bootstrap helpers belong on
   `@qlever-llc/trellis/host*`
+- public TypeScript jobs helpers belong on `@qlever-llc/trellis` and
+  `@qlever-llc/trellis/host*`, not on a standalone jobs package
 
 ## `@qlever-llc/trellis`
 
@@ -134,6 +135,8 @@ Rules:
 - RPCs are timeout-bounded
 - operations and events are contract-driven rather than raw-subject-driven in
   normal app code
+- admin jobs access should use `trellis.jobs()` from the connected Trellis
+  runtime rather than a separate package client
 - service handlers mounted from contract-owned RPCs receive typed payloads from
   Trellis and may return either `Result` or `Promise<Result>`
 - transfer execution belongs to transfer-capable operations and is initiated by
@@ -149,6 +152,9 @@ Rules:
 
 - service code should use `service.kv`, `service.store`, and `service.jobs`
   rather than a nested `service.resources.*` runtime shape
+- jobs-enabled services should declare top-level contract `jobs` and use
+  `service.jobs.<queue>` plus `service.jobs.startWorkers()` rather than raw
+  worker-runtime helpers or stream bindings
 - transfer-aware operation contexts belong on the server runtime surface for
   transfer-capable operations
 - extracted service RPC handler aliases that need service-only helpers belong on
@@ -224,13 +230,18 @@ Provides the specialized Trellis tracing facade used by runtime libraries and
 services without widening the root package. See
 [observability-patterns.md](./observability-patterns.md).
 
-## `@qlever-llc/trellis-jobs`
+## Jobs Surfaces
 
-Provides service-private job creation and processing. See:
+Service-private jobs are part of the Trellis runtime surface rather than a
+standalone TypeScript package.
 
-- [../jobs/trellis-jobs.md](./../jobs/trellis-jobs.md)
-- [../jobs/jobs-typescript-api.md](./../jobs/jobs-typescript-api.md)
-- [../jobs/jobs-rust-api.md](./../jobs/jobs-rust-api.md)
+- TypeScript service-local jobs live on connected service runtimes as
+  `service.jobs`
+- TypeScript admin jobs access lives on connected clients as `trellis.jobs()`
+- subsystem semantics and language-specific details live in:
+  - [../jobs/trellis-jobs.md](./../jobs/trellis-jobs.md)
+  - [../jobs/jobs-typescript-api.md](./../jobs/jobs-typescript-api.md)
+  - [../jobs/jobs-rust-api.md](./../jobs/jobs-rust-api.md)
 
 ## `@qlever-llc/trellis/contracts`
 

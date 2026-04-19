@@ -503,6 +503,26 @@ Deno.test("defineServiceContract preserves rich stream resource configuration", 
   });
 });
 
+Deno.test("defineServiceContract emits top-level jobs with defaults", () => {
+  const contract = defineServiceContract({}, () => ({
+    id: "jobs.example@v1",
+    displayName: "Jobs Example",
+    description: "Expose top-level jobs declarations in emitted manifests.",
+    jobs: {
+      refresh: {
+        payload: { schema: "Empty" },
+        result: { schema: "StringValue" },
+      },
+    },
+  }));
+
+  assertEquals(contract.CONTRACT.jobs?.refresh, {
+    payload: { schema: "Empty" },
+    result: { schema: "StringValue" },
+  });
+  assertEquals("jobs" in (contract.CONTRACT.resources ?? {}), false);
+});
+
 Deno.test("defineServiceContract emits store resources with defaults", () => {
   const contract = defineServiceContract({}, () => ({
     id: "store.example@v1",

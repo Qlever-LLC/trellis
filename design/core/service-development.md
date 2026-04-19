@@ -207,10 +207,9 @@ Behavior:
   bootstrap and are opened explicitly by service code before use
 - transfer-capable operations receive runtime-owned transfer contexts while
   service code continues to access staged files through `service.store.*`
-- when a contract requests `resources.jobs`, `TrellisService.connect(...)`
-  resolves both `service.jobs` and the synthetic `service.streams.jobsWork`
-  binding used by generic worker runtimes such as
-  `startNatsWorkerHostFromBinding(...)`
+- when a contract declares top-level `jobs`, `TrellisService.connect(...)`
+  resolves a typed `service.jobs` facade for job creation, handler
+  registration, and worker startup
 - the shared jobs streams and projected-state KV are Trellis-owned
   infrastructure; service bootstrap should provision them automatically so a
   jobs-enabled service does not require a separate manual jobs install step
@@ -233,7 +232,7 @@ Behavior:
 - operation APIs should expose `OperationRef`-style handles with `get()`,
   `wait()`, and optional `watch()`
 - service-local jobs APIs should expose per-job-type handles with `create()`
-  returning `JobRef`
+  returning `JobRef` and worker startup through `service.jobs.startWorkers()`
 - public APIs must not expose weak raw wire types except in explicit
   raw/debug/admin surfaces
 - public service APIs should hang off connected runtime objects such as

@@ -65,7 +65,7 @@ export const ContractSchemaRefSchema = Type.Object({
 
 export type ContractSchemaRef = Static<typeof ContractSchemaRefSchema>;
 
-export const ContractJobQueueResourceSchema = Type.Object({
+export const ContractJobQueueSchema = Type.Object({
   payload: ContractSchemaRefSchema,
   result: Type.Optional(ContractSchemaRefSchema),
   maxDeliver: Type.Optional(Type.Integer({ minimum: 1 })),
@@ -78,18 +78,14 @@ export const ContractJobQueueResourceSchema = Type.Object({
   concurrency: Type.Optional(Type.Integer({ minimum: 1 })),
 }, { additionalProperties: false });
 
-export type ContractJobQueueResource = Static<
-  typeof ContractJobQueueResourceSchema
->;
+export type ContractJobQueue = Static<typeof ContractJobQueueSchema>;
 
-export const ContractJobsResourceSchema = Type.Object({
-  queues: Type.Record(
-    Type.String({ minLength: 1 }),
-    ContractJobQueueResourceSchema,
-  ),
-}, { additionalProperties: false });
+export const ContractJobsSchema = Type.Record(
+  Type.String({ minLength: 1 }),
+  ContractJobQueueSchema,
+);
 
-export type ContractJobsResource = Static<typeof ContractJobsResourceSchema>;
+export type ContractJobs = Static<typeof ContractJobsSchema>;
 
 export const ContractResourcesSchema = Type.Object({
   kv: Type.Optional(
@@ -101,7 +97,6 @@ export const ContractResourcesSchema = Type.Object({
   streams: Type.Optional(
     Type.Record(Type.String({ minLength: 1 }), ContractStreamResourceSchema),
   ),
-  jobs: Type.Optional(ContractJobsResourceSchema),
 });
 
 export type ContractResources = Static<typeof ContractResourcesSchema>;
@@ -165,6 +160,7 @@ export type JobsQueueBinding = Static<typeof JobsQueueBindingSchema>;
 
 export const JobsResourceBindingSchema = Type.Object({
   namespace: Type.String({ minLength: 1 }),
+  jobsStateBucket: Type.Optional(Type.String({ minLength: 1 })),
   queues: Type.Record(Type.String({ minLength: 1 }), JobsQueueBindingSchema),
 });
 

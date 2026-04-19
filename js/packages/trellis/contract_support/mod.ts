@@ -36,8 +36,8 @@ import {
 } from "./schema_pointers.ts";
 
 export {
-  ContractJobQueueResourceSchema,
-  ContractJobsResourceSchema,
+  ContractJobQueueSchema,
+  ContractJobsSchema,
   ContractKvResourceSchema,
   ContractResourceBindingsSchema,
   ContractResourcesSchema,
@@ -68,6 +68,9 @@ export const CATALOG_FORMAT_V1 = "trellis.catalog.v1" as const;
 
 const CONTRACT_MODULE_METADATA = Symbol.for(
   "@qlever-llc/trellis/contracts/contract-module",
+);
+export const CONTRACT_JOBS_METADATA = Symbol.for(
+  "@qlever-llc/trellis/contracts/jobs",
 );
 const CONTRACT_ERROR_RUNTIME_METADATA = Symbol.for(
   "@qlever-llc/trellis/contracts/error-runtime",
@@ -230,9 +233,9 @@ export type ContractJobQueueResource = {
   concurrency?: number;
 };
 
-export type ContractJobsResource = {
-  queues: Record<string, ContractJobQueueResource>;
-};
+export type ContractJobQueue = ContractJobQueueResource;
+
+export type ContractJobs = Record<string, ContractJobQueue>;
 
 export type ContractKvResource = {
   purpose: string;
@@ -272,7 +275,6 @@ export type ContractResources = {
   kv?: Record<string, ContractKvResource>;
   store?: Record<string, ContractStoreResource>;
   streams?: Record<string, ContractStreamResource>;
-  jobs?: ContractJobsResource;
 };
 
 export type ContractUsesRpc = {
@@ -307,6 +309,7 @@ export type TrellisContractV1 = {
   events?: Record<string, ContractEvent>;
   subjects?: Record<string, ContractSubject>;
   errors?: Record<string, ContractErrorDecl>;
+  jobs?: ContractJobs;
   resources?: ContractResources;
 };
 
@@ -572,7 +575,7 @@ export type ContractSourceSubject<TSchemaName extends string = string> = {
   };
 };
 
-export type ContractSourceJobQueueResource<
+export type ContractSourceJobQueue<
   TSchemaName extends string = string,
 > = {
   payload: ContractSchemaRef<TSchemaName>;
@@ -587,9 +590,10 @@ export type ContractSourceJobQueueResource<
   concurrency?: number;
 };
 
-export type ContractSourceJobsResource<TSchemaName extends string = string> = {
-  queues: Record<string, ContractSourceJobQueueResource<TSchemaName>>;
-};
+export type ContractSourceJobs<TSchemaName extends string = string> = Record<
+  string,
+  ContractSourceJobQueue<TSchemaName>
+>;
 
 export type ContractSourceKvResource = {
   purpose: string;
@@ -629,7 +633,6 @@ export type ContractSourceResources<TSchemaName extends string = string> = {
   kv?: Record<string, ContractSourceKvResource>;
   store?: Record<string, ContractSourceStoreResource>;
   streams?: Record<string, ContractSourceStreamResource>;
-  jobs?: ContractSourceJobsResource<TSchemaName>;
 };
 
 export type ContractSourceUse = {
@@ -652,6 +655,7 @@ export type TrellisContractSource = {
   events?: Record<string, ContractSourceEvent>;
   subjects?: Record<string, ContractSourceSubject>;
   errors?: Record<string, ContractSourceErrorDecl>;
+  jobs?: ContractSourceJobs;
   resources?: ContractSourceResources;
 };
 
@@ -819,6 +823,40 @@ type ResolveSchemaFromMap<
     : Schema<unknown>
   : Schema<unknown>
   : Schema<unknown>;
+
+type ResolveSchemaTypeFromMap<
+  TSchemas,
+  TRef,
+> = TRef extends { schema: infer TName }
+  ? TName extends SchemaNameOf<TSchemas>
+    ? NonNullable<TSchemas>[TName] extends TSchema
+      ? InferSchemaType<NonNullable<TSchemas>[TName]>
+      : unknown
+    : unknown
+  : unknown;
+
+export type ContractJobsMetadata = Record<string, {
+  payload: unknown;
+  result: unknown;
+}>;
+
+type ProjectedJobs<
+  T extends ContractSourceJobs<string> | undefined,
+  TSchemas,
+> = T extends ContractSourceJobs<string> ? {
+    [K in keyof T]: {
+      payload: ResolveSchemaTypeFromMap<TSchemas, T[K]["payload"]>;
+      result: ResolveSchemaTypeFromMap<TSchemas, T[K]["result"]>;
+    };
+  }
+  : {};
+
+type JobsFromSource<T> = T extends { jobs?: infer TJobs }
+  ? Extract<TJobs, ContractSourceJobs<string> | undefined>
+  : undefined;
+
+type SchemasFromSource<T> = T extends { schemas?: infer TSchemas } ? TSchemas
+  : undefined;
 
 type RuntimeErrorFromSourceDecl<TDecl, TSchemas> = TDecl extends {
   type: infer TType extends string;
@@ -988,25 +1026,29 @@ export type ContractModule<
   TOwnedApi extends ApiShape,
   TUsedApi extends ApiShape,
   TTrellisApi extends ApiShape,
+  TJobs extends ContractJobsMetadata = {},
 > = {
   CONTRACT_ID: TContractId;
   CONTRACT: TrellisContractV1;
   CONTRACT_DIGEST: string;
   API: ContractApiViews<TOwnedApi, TUsedApi, TTrellisApi>;
   use: ContractUseFn<TContractId, TOwnedApi>;
+  readonly [CONTRACT_JOBS_METADATA]?: TJobs;
 };
 
 export type SdkContractModule<
   TContractId extends string,
   TOwnedApi extends ApiShape,
-> = ContractModule<TContractId, TOwnedApi, EmptyApi, TOwnedApi>;
+  TJobs extends ContractJobsMetadata = {},
+> = ContractModule<TContractId, TOwnedApi, EmptyApi, TOwnedApi, TJobs>;
 
 export type DefinedContract<
   TOwnedApi extends ApiShape,
   TUsedApi extends ApiShape,
   TTrellisApi extends ApiShape,
   TContractId extends string = string,
-> = ContractModule<TContractId, TOwnedApi, TUsedApi, TTrellisApi>;
+  TJobs extends ContractJobsMetadata = {},
+> = ContractModule<TContractId, TOwnedApi, TUsedApi, TTrellisApi, TJobs>;
 
 export type DefineContractInput<
   TSchemas extends Readonly<Record<string, TSchema>> | undefined = undefined,
@@ -1045,6 +1087,7 @@ export type DefineContractInput<
   operations?: TOperations;
   events?: TEvents;
   subjects?: TSubjects;
+  jobs?: ContractSourceJobs<SchemaNameOf<TSchemas>>;
   resources?: ContractSourceResources<SchemaNameOf<TSchemas>>;
 };
 
@@ -1060,6 +1103,7 @@ type DefineContractSource = {
   operations?: Readonly<Record<string, ContractSourceOperation>>;
   events?: Readonly<Record<string, ContractSourceEvent>>;
   subjects?: Readonly<Record<string, ContractSourceSubject>>;
+  jobs?: ContractSourceJobs;
   resources?: ContractSourceResources;
 };
 
@@ -1526,10 +1570,7 @@ function eventSubject(
 function emitResources(
   resources: ContractSourceResources | undefined,
 ): ContractResources | undefined {
-  if (
-    !resources?.kv && !resources?.store && !resources?.streams &&
-    !resources?.jobs
-  ) {
+  if (!resources?.kv && !resources?.store && !resources?.streams) {
     return undefined;
   }
 
@@ -1614,40 +1655,56 @@ function emitResources(
         ),
       }
       : {}),
-    ...(resources.jobs
-      ? {
-        jobs: {
-          queues: Object.fromEntries(
-            Object.entries(resources.jobs.queues).map(([queueType, queue]) => [
-              queueType,
-              {
-                payload: { ...queue.payload },
-                ...(queue.result ? { result: { ...queue.result } } : {}),
-                ...(queue.maxDeliver !== undefined
-                  ? { maxDeliver: queue.maxDeliver }
-                  : {}),
-                ...(queue.backoffMs ? { backoffMs: [...queue.backoffMs] } : {}),
-                ...(queue.ackWaitMs !== undefined
-                  ? { ackWaitMs: queue.ackWaitMs }
-                  : {}),
-                ...(queue.defaultDeadlineMs !== undefined
-                  ? { defaultDeadlineMs: queue.defaultDeadlineMs }
-                  : {}),
-                ...(queue.progress !== undefined
-                  ? { progress: queue.progress }
-                  : {}),
-                ...(queue.logs !== undefined ? { logs: queue.logs } : {}),
-                ...(queue.dlq !== undefined ? { dlq: queue.dlq } : {}),
-                ...(queue.concurrency !== undefined
-                  ? { concurrency: queue.concurrency }
-                  : {}),
-              } satisfies ContractJobQueueResource,
-            ]),
-          ),
-        } satisfies ContractJobsResource,
-      }
-      : {}),
   };
+}
+
+function emitJobs(
+  jobs: ContractSourceJobs | undefined,
+): ContractJobs | undefined {
+  if (!jobs) {
+    return undefined;
+  }
+
+  return Object.fromEntries(
+    Object.entries(jobs).map(([queueType, queue]) => [
+      queueType,
+      {
+        payload: { ...queue.payload },
+        ...(queue.result ? { result: { ...queue.result } } : {}),
+        ...(queue.maxDeliver !== undefined
+          ? { maxDeliver: queue.maxDeliver }
+          : {}),
+        ...(queue.backoffMs ? { backoffMs: [...queue.backoffMs] } : {}),
+        ...(queue.ackWaitMs !== undefined
+          ? { ackWaitMs: queue.ackWaitMs }
+          : {}),
+        ...(queue.defaultDeadlineMs !== undefined
+          ? { defaultDeadlineMs: queue.defaultDeadlineMs }
+          : {}),
+        ...(queue.progress !== undefined ? { progress: queue.progress } : {}),
+        ...(queue.logs !== undefined ? { logs: queue.logs } : {}),
+        ...(queue.dlq !== undefined ? { dlq: queue.dlq } : {}),
+        ...(queue.concurrency !== undefined
+          ? { concurrency: queue.concurrency }
+          : {}),
+      } satisfies ContractJobQueue,
+    ]),
+  );
+}
+
+function buildContractJobsMetadata(
+  jobs: ContractSourceJobs | undefined,
+): ContractJobsMetadata {
+  if (!jobs) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.keys(jobs).map((queueType) => [queueType, {
+      payload: undefined,
+      result: undefined,
+    }]),
+  ) as ContractJobsMetadata;
 }
 
 function emitUses(
@@ -1862,6 +1919,7 @@ function emitContract(source: TrellisContractSource): TrellisContractV1 {
     )
     : undefined;
 
+  const jobs = emitJobs(source.jobs);
   const resources = emitResources(source.resources);
   const uses = emitUses(source.uses);
 
@@ -1878,6 +1936,7 @@ function emitContract(source: TrellisContractSource): TrellisContractV1 {
     ...(events ? { events } : {}),
     ...(subjects ? { subjects } : {}),
     ...(errors ? { errors } : {}),
+    ...(jobs ? { jobs } : {}),
     ...(resources ? { resources } : {}),
   };
 }
@@ -2572,6 +2631,7 @@ function defineContract(
     ...(source.events ? { events: source.events } : {}),
     ...(source.subjects ? { subjects: source.subjects } : {}),
     ...(source.errors ? { errors: source.errors } : {}),
+    ...(source.jobs ? { jobs: source.jobs } : {}),
     ...(source.resources ? { resources: source.resources } : {}),
   };
 
@@ -2603,6 +2663,7 @@ function defineContract(
     use: createUseHelper(
       () => contract,
     ),
+    [CONTRACT_JOBS_METADATA]: buildContractJobsMetadata(source.jobs),
   };
 
   return contract;
@@ -2676,7 +2737,11 @@ export function defineServiceContract<
     >,
     UsedApiFromUses<TBody["uses"]>
   >,
-  TBody["id"]
+  TBody["id"],
+  ProjectedJobs<
+    JobsFromSource<BuiltContractSource<TRegistry, WithKind<TBody, "service">>>,
+    SchemasFromSource<BuiltContractSource<TRegistry, WithKind<TBody, "service">>>
+  >
 > {
   return defineContract(
     registry,
@@ -2695,7 +2760,11 @@ export function defineServiceContract<
       >,
       UsedApiFromUses<TBody["uses"]>
     >,
-    TBody["id"]
+    TBody["id"],
+    ProjectedJobs<
+      JobsFromSource<BuiltContractSource<TRegistry, WithKind<TBody, "service">>>,
+      SchemasFromSource<BuiltContractSource<TRegistry, WithKind<TBody, "service">>>
+    >
   >;
 }
 

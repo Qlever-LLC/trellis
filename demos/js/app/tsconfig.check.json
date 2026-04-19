@@ -9,7 +9,6 @@
       "@qlever-llc/trellis/auth": ["../../../js/packages/trellis/auth.ts"],
       "@qlever-llc/trellis/auth/browser": ["../../../js/packages/trellis/auth/browser.ts"],
       "@qlever-llc/trellis/contracts": ["./types/trellis-contracts.d.ts"],
-      "@qlever-llc/trellis-jobs": ["./types/trellis-jobs.d.ts"],
       "@qlever-llc/trellis-sdk": ["../../../js/packages/trellis-sdk/mod.ts"],
       "@qlever-llc/trellis-sdk/auth": ["../../../js/packages/trellis-sdk/auth.ts"],
       "@qlever-llc/trellis-sdk/core": ["../../../js/packages/trellis-sdk/core.ts"],

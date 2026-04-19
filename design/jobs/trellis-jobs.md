@@ -31,11 +31,19 @@ referenced above.
 
 ## Design
 
-This document defines `@qlever-llc/trellis-jobs`:
+This document defines the Trellis jobs subsystem and its public language
+surfaces:
 
-- A **server library** for services to manage their own jobs
-- An **admin client library** for operators to query and manage jobs across all
+- a service-local jobs surface for services to create and process their own jobs
+- an admin jobs surface for operators to query and manage jobs across all
   services
+
+In TypeScript, those public surfaces live in `@qlever-llc/trellis` rather than
+in a standalone jobs package:
+
+- service-local jobs are exposed on connected service runtimes as `service.jobs`
+- admin and operator jobs access is exposed on connected clients as
+  `trellis.jobs()`
 
 This document also defines the shared Trellis-owned jobs infrastructure plus a
 separate `jobs` admin runtime for admin queries, janitor, and KV projection.
@@ -180,10 +188,11 @@ payload, enabling stream replay to reconstruct job state.
   type)
 - Retention: WorkQueue policy
 
-When a service calls `JobManager.create()`, it publishes a `.created` event to
-`JOBS`. The `JOBS_WORK` stream is configured to source `.created` and `.retried`
-events from `JOBS` with a subject transform, automatically populating the work
-queue. This keeps initial enqueue and manual retry stream-first and replayable.
+When a service calls `service.jobs.<queue>.create()`, the runtime publishes a
+`.created` event to `JOBS`. The `JOBS_WORK` stream is configured to source
+`.created` and `.retried` events from `JOBS` with a subject transform,
+automatically populating the work queue. This keeps initial enqueue and manual
+retry stream-first and replayable.
 
 **Consumer configuration (per job-type):**
 
@@ -231,7 +240,7 @@ Shared jobs infrastructure is Trellis-owned runtime state. Trellis provisions it
 automatically during service bootstrap for jobs-enabled environments rather than
 requiring a separate manual jobs install step.
 
-- normal services request `resources.jobs` to participate in jobs processing
+- normal services declare top-level `jobs` to participate in jobs processing
   without owning the shared stream topology directly
 - Trellis owns the shared streams and projected-state KV bucket needed by the
   jobs subsystem
@@ -244,26 +253,24 @@ requiring a separate manual jobs install step.
   consumers at runtime
 - the runtime should consume those bindings, rather than hard-coding an
   imperative infrastructure setup path
-- when a contract requests `resources.jobs`, Trellis also synthesizes a
-  `resources.streams.jobsWork` binding in the resolved runtime bindings so
-  generic worker runtimes can discover the shared work stream name without
-  requiring each service contract to declare a separate `resources.streams`
-  alias manually
+- resolved runtime bindings may still include internal work-stream and
+  projected-state details needed by the host runtime, but public service-author
+  APIs should use `service.jobs.startWorkers()` and `JobRef` helpers rather than
+  runtime stream bindings directly
 
 This document depends on the contract resource model in
 `../contracts/trellis-contracts-catalog.md` supporting JetStream streams, stream
 source transforms, and binding-driven resource access.
 
-Normal consuming service contracts should continue to request `resources.jobs`.
-The JSON examples below show the resolved JetStream or KV configuration the Jobs
-runtime expects after binding. Trellis should provision these shared resources
-during bootstrap so service-local workers can rely on the bindings without a
-separate infrastructure install step.
+Normal consuming service contracts should declare top-level `jobs`. The JSON
+examples below show the resolved JetStream or KV configuration the jobs runtime
+expects after binding. Trellis should provision these shared resources during
+bootstrap so service-local workers can rely on the bindings without a separate
+infrastructure install step.
 
-For ordinary services that request only `resources.jobs`, the resolved service
-bindings still include a `resources.streams.jobsWork` entry pointing at the
-shared `JOBS_WORK` stream. Service-local workers should treat that binding as
-runtime-generated infrastructure, not as a contract-authored stream alias.
+Resolved service bindings may still include internal runtime-generated work
+stream details such as `JOBS_WORK`, but ordinary service code should treat those
+as Trellis internals rather than as public contract-authored stream aliases.
 
 **Stream: `JOBS`**
 
@@ -590,8 +597,8 @@ Language-specific public API details live in:
 
 ### Client Library API
 
-The client-side jobs library should provide operator query and admin helpers
-over the centralized jobs RPC surface.
+The client-side admin jobs surface should provide operator query and admin
+helpers over the centralized jobs RPC surface.
 
 Admin client rules:
 
@@ -600,7 +607,8 @@ Admin client rules:
 - public TypeScript admin helpers MUST follow Trellis `Result` conventions
   rather than throwing for expected remote or validation failures
 - centralized jobs queries and mutations SHOULD be generated-contract-aligned
-  wrappers over `trellis.jobs@v1` rather than handwritten cast-heavy adapters
+  wrappers over `trellis.jobs@v1` exposed through higher-level language helpers
+  such as `trellis.jobs()` rather than handwritten cast-heavy adapters
 
 The required v1 surface is:
 
@@ -725,12 +733,11 @@ configured.
 ### Library Structure
 
 ```text
-js/packages/jobs/
-├── mod.ts               # Package exports
-├── client.ts            # Query/admin client helpers
-├── job-manager.ts       # Current handwritten runtime helper subset
-├── projection.ts        # Reducer / projector logic
-└── types.ts             # Job, JobState, schemas
+js/packages/trellis/
+├── jobs.ts                     # Public TS jobs types and admin helpers
+└── server/
+    ├── service.ts              # Typed service.jobs facade and JobRef wiring
+    └── internal_jobs/          # Internal transport-aware jobs runtime pieces
 
 rust/crates/jobs/
 └── src/

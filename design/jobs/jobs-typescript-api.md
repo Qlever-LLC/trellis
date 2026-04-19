@@ -14,7 +14,12 @@ order: 20
 
 ## Design
 
-The TypeScript jobs surface is split into two shapes: a service-local API for creating and handling jobs, and an admin API for observing jobs across the system. Both follow the same jobs model defined in `trellis-jobs.md`.
+The TypeScript jobs surface is split into two shapes: a service-local API for creating and handling jobs, and an admin API for observing jobs across the system. Both live in `@qlever-llc/trellis` and follow the same jobs model defined in `trellis-jobs.md`.
+
+- service-local jobs are exposed on connected service runtimes such as
+  `service.jobs` from `@qlever-llc/trellis/host*`
+- admin and operator jobs access is exposed on connected clients such as
+  `trellis.jobs()` from `@qlever-llc/trellis`
 
 It covers:
 
@@ -50,7 +55,7 @@ type JobQueue<TPayload, TResult> = {
   create(payload: TPayload): AsyncResult<JobRef<TPayload, TResult>, BaseError>;
   handle(
     handler: (job: ActiveJob<TPayload, TResult>) => Promise<Result<TResult, BaseError>>,
-  ): Promise<void>;
+  ): AsyncResult<void, BaseError>;
 };
 
 type JobRef<TPayload, TResult> = {
@@ -95,7 +100,7 @@ if (created.isErr()) {
 const job = created.value;
 const terminal = await job.wait();
 
-await service.jobs.refundCharge.handle(async (job) => {
+const registered = await service.jobs.refundCharge.handle(async (job) => {
   const progress = await job.progress({
     step: "processor",
     message: "Submitting refund",
@@ -113,6 +118,10 @@ await service.jobs.refundCharge.handle(async (job) => {
     status: "refunded",
   });
 });
+
+if (registered.isErr()) {
+  throw registered.error;
+}
 
 const host = await service.jobs.startWorkers();
 if (host.isOk()) {
@@ -162,7 +171,7 @@ type JobsAdminClient = {
   health(): AsyncResult<JobsHealth, BaseError>;
   listServices(): AsyncResult<ServiceInfo[], BaseError>;
   list(filter: JobFilter): AsyncResult<JobSnapshot<unknown, unknown>[], BaseError>;
-  get(ref: JobIdentity): AsyncResult<JobSnapshot<unknown, unknown>, BaseError>;
+  get(ref: JobIdentity): AsyncResult<JobSnapshot<unknown, unknown> | null, BaseError>;
   cancel(ref: JobIdentity): AsyncResult<JobSnapshot<unknown, unknown>, BaseError>;
   retry(ref: JobIdentity): AsyncResult<JobSnapshot<unknown, unknown>, BaseError>;
   listDLQ(filter: JobFilter): AsyncResult<JobSnapshot<unknown, unknown>[], BaseError>;
@@ -179,7 +188,9 @@ type JobIdentity = {
 type JobFilter = {
   service?: string;
   jobType?: string;
-  state?: JobState;
+  state?: JobState | JobState[];
+  since?: string;
+  limit?: number;
 };
 ```
 
@@ -205,6 +216,7 @@ const retried = await jobs.retry({
 ### Generation rules
 
 - generated service runtimes MUST expose one typed property per declared job type such as `service.jobs.refundCharge`
+- generated service runtimes MUST derive those typed job handles from the contract's top-level `jobs` map rather than from `resources`
 - any generic string-based queue lookup helper is a low-level escape hatch and MUST NOT be the primary public API
 - `startWorkers()` owns binding resolution and worker-loop startup; application code SHOULD NOT pass runtime bindings manually
 - operator/admin APIs MAY return wire-shaped `unknown` payload and result fields because they are an observability and debugging surface rather than a typed service-author execution surface

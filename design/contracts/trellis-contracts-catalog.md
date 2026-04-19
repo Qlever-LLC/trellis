@@ -130,6 +130,7 @@ A `trellis.contract.v1` manifest has this top-level structure:
   "description": "Serve graph RPCs and publish graph change events.",
   "kind": "service",
   "uses": {},
+  "jobs": {},
   "operations": {},
   "rpc": {},
   "events": {},
@@ -158,6 +159,7 @@ Top-level fields:
 | `description` | yes      | string | Human-facing explanation of the contract's purpose                 |
 | `kind`        | yes      | string | Contract role such as `service`, `app`, `portal`, `device`, `cli`  |
 | `uses`        | no       | object | Explicit cross-contract operation/RPC/event/subject dependencies   |
+| `jobs`        | no       | object | Map of first-class service-private job queue descriptors           |
 | `operations`  | no       | object | Map of logical operation names to operation descriptors            |
 | `rpc`         | no       | object | Map of logical RPC names to RPC operation descriptors              |
 | `events`      | no       | object | Map of logical event names to event descriptors                    |
@@ -217,6 +219,9 @@ communication surface:
 - `resources` are per-digest install data; they do not need to be additive
   across the lineage, but install or upgrade MUST validate and provision the
   exact resource set requested by the digest bound to that principal
+- `jobs` are part of the owned execution surface and follow the same additive
+  compatibility expectations as other owned contract sections while multiple
+  digests in one lineage coexist
 
 Additive-only means:
 
@@ -556,8 +561,8 @@ Rules:
 - aliases are part of the contract and are stable API surface for the service
 - the contract requests logical resources; Trellis assigns physical names and
   backing infrastructure at install or upgrade time
-- the v1 resource surface supports `resources.kv`, `resources.store`,
-  `resources.streams`, and `resources.jobs`
+- the v1 resource surface supports `resources.kv`, `resources.store`, and
+  `resources.streams`
 - a KV request declares:
   - `purpose`: required human-facing explanation of why the service needs the
     resource
@@ -589,24 +594,6 @@ Rules:
   - `maxBytes`: byte limit; default `-1`
   - `maxAgeMs`: age limit in milliseconds; default `0`
   - `sources`: optional list of source-stream descriptors
-- a jobs request declares:
-  - `queues`: map of queue types to per-queue runtime settings
-  - each queue entry requires `payload.schema`
-  - each queue entry may include `result.schema`
-  - each queue entry may include `maxDeliver`; default `5`
-  - each queue entry may include `backoffMs`; default
-    `[5000, 30000, 120000, 600000, 1800000]`
-  - each queue entry may include `ackWaitMs`; default `300000`
-  - each queue entry may include `defaultDeadlineMs`
-  - each queue entry may include `progress`; default `true`
-  - each queue entry may include `logs`; default `true`
-  - each queue entry may include `dlq`; default `true`
-  - each queue entry may include `concurrency`; default `1`
-  - resolved runtime bindings also include a synthetic
-    `resources.streams.jobsWork` binding that points at the shared `JOBS_WORK`
-    stream for the requesting service namespace; service code may use that
-    stream binding for worker consumers even though the contract only declared
-    `resources.jobs`
 - a source-stream descriptor declares:
   - `fromAlias`: another stream alias in the same contract
   - `filterSubject`: optional source filter subject
@@ -617,6 +604,52 @@ Rules:
   runtime-created
 - install or upgrade approves the requested alias/type/spec, not general
   infrastructure-management credentials for the service
+
+### 10a) First-class jobs
+
+The optional top-level `jobs` map declares first-class service-private job
+queues.
+
+Example:
+
+```json
+{
+  "jobs": {
+    "refundCharge": {
+      "payload": { "schema": "RefundChargePayload" },
+      "result": { "schema": "RefundChargeResult" },
+      "maxDeliver": 5,
+      "backoffMs": [5000, 30000, 120000, 600000, 1800000],
+      "ackWaitMs": 300000,
+      "defaultDeadlineMs": 900000,
+      "progress": true,
+      "logs": true,
+      "dlq": true,
+      "concurrency": 1
+    }
+  }
+}
+```
+
+Rules:
+
+- job keys such as `refundCharge` are logical queue names chosen by the service
+  author
+- the v1 jobs surface is top-level contract data, not a `resources` request
+- each queue entry requires `payload.schema`
+- each queue entry may include `result.schema`
+- each queue entry may include `maxDeliver`; default `5`
+- each queue entry may include `backoffMs`; default
+  `[5000, 30000, 120000, 600000, 1800000]`
+- each queue entry may include `ackWaitMs`; default `300000`
+- each queue entry may include `defaultDeadlineMs`
+- each queue entry may include `progress`; default `true`
+- each queue entry may include `logs`; default `true`
+- each queue entry may include `dlq`; default `true`
+- each queue entry may include `concurrency`; default `1`
+- Trellis owns the shared jobs infrastructure and resolves any internal
+  work-stream or projected-state bindings needed by the runtime; ordinary
+  service-author APIs should use `service.jobs` rather than raw stream bindings
 
 ### 11) Error declarations
 

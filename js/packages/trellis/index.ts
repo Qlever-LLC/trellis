@@ -101,6 +101,32 @@ export {
   UnexpectedError,
   ValidationError,
 } from "./errors/index.ts";
+export {
+  ActiveJob,
+  JobQueue,
+  JobRef,
+  JobWorkerHostAdapter,
+  JobsAdminClient,
+  JobLogEntrySchema,
+  JobProgressSchema,
+} from "./jobs.ts";
+export type {
+  Job,
+  JobFilter,
+  JobIdentity,
+  JobLogEntry,
+  JobProgress,
+  JobsFacade,
+  JobsFacadeOf,
+  JobsHealth,
+  JobSnapshot,
+  JobState,
+  JobTypeMetadata,
+  JobWorkerHost,
+  ServiceInfo,
+  TerminalJob,
+  WorkerInfo,
+} from "./jobs.ts";
 export { TypedKV, TypedKVEntry } from "./kv.ts";
 export type { WatchEvent, WatchOptions } from "./kv.ts";
 export { TypedStore, TypedStoreEntry } from "./store.ts";

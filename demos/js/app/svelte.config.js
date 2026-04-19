@@ -24,7 +24,6 @@ const config = {
       "@qlever-llc/trellis/auth": aliasPath("js/packages/trellis/auth.ts"),
       "@qlever-llc/trellis/auth/browser": aliasPath("js/packages/trellis/auth/browser.ts"),
       "@qlever-llc/trellis/contracts": aliasPath("js/packages/trellis/contracts.ts"),
-      "@qlever-llc/trellis-jobs": aliasPath("js/packages/jobs/mod.ts"),
       "@qlever-llc/trellis-sdk": aliasPath("js/packages/trellis-sdk/mod.ts"),
       "@qlever-llc/trellis-sdk/auth": aliasPath("js/packages/trellis-sdk/auth.ts"),
       "@qlever-llc/trellis-sdk/jobs": aliasPath("generated/js/sdks/jobs/mod.ts"),

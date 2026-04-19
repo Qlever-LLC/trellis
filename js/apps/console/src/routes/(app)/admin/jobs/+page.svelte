@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import { errorMessage, formatDate } from "../../../../lib/format";
   import { loadJobsPageData } from "../../../../lib/jobs_page.ts";
-  import type { Job, ServiceInfo } from "@qlever-llc/trellis-jobs";
+  import type { Job, ServiceInfo } from "@qlever-llc/trellis/jobs";
   import { getTrellis } from "../../../../lib/trellis";
 
   const trellisPromise = getTrellis();
@@ -15,6 +15,10 @@
   let selectedService = $state("");
 
   const totalJobs = $derived(jobs.length);
+
+  function hasJobsClient(value: object): value is Parameters<typeof loadJobsPageData>[0] {
+    return "jobs" in value && typeof value.jobs === "function";
+  }
 
   function stateBadgeClass(state: Job["state"]): string {
     switch (state) {
@@ -40,6 +44,10 @@
 
     try {
       const trellis = await trellisPromise;
+      if (!hasJobsClient(trellis)) {
+        throw new Error("Trellis jobs admin client is unavailable.");
+      }
+
       const data = await loadJobsPageData(trellis, {
         service: selectedService || undefined,
       });

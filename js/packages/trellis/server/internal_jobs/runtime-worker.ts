@@ -203,7 +203,9 @@ function toWorkerConsumer(
             yield {
               data: msg.data,
               subject: msg.subject,
-              info: { redeliveryCount: msg.info.pending },
+              info: {
+                redeliveryCount: Math.max(0, msg.info.deliveryCount - 1),
+              },
               ack: msg.ack.bind(msg),
               nak: msg.nak.bind(msg),
               inProgress: msg.working.bind(msg),
@@ -213,62 +215,6 @@ function toWorkerConsumer(
       };
     },
   };
-}
-
-export function processWorkPayload<TResult>(
-  manager: JobManager<unknown, TResult>,
-  payload: Uint8Array,
-  handler: (job: ActiveJob<unknown, TResult>) => Promise<TResult>,
-  validation?: {
-    payloadSchema?: SchemaRef;
-    validatePayload?: (
-      args: PayloadValidationArgs<TResult>,
-    ) => Promise<void> | void;
-    resultSchema?: SchemaRef;
-    validateResult?: (
-      args: ResultValidationArgs<TResult>,
-    ) => Promise<void> | void;
-  },
-  runtime?: { redeliveryCount?: number },
-): Promise<JobProcessOutcome<TResult> | undefined> {
-  return processWorkPayloadWithContext(
-    manager,
-    payload,
-    new JobCancellationToken(),
-    handler,
-    validation,
-    runtime,
-  );
-}
-
-export function processWorkPayloadWithContext<TResult>(
-  manager: JobManager<unknown, TResult>,
-  payload: Uint8Array,
-  cancellation: JobCancellationToken,
-  handler: (job: ActiveJob<unknown, TResult>) => Promise<TResult>,
-  validation?: {
-    payloadSchema?: SchemaRef;
-    validatePayload?: (
-      args: PayloadValidationArgs<TResult>,
-    ) => Promise<void> | void;
-    resultSchema?: SchemaRef;
-    validateResult?: (
-      args: ResultValidationArgs<TResult>,
-    ) => Promise<void> | void;
-  },
-  runtime?: { redeliveryCount?: number },
-): Promise<JobProcessOutcome<TResult> | undefined> {
-  return processWorkPayloadWithContextAndHeartbeat(
-    manager,
-    payload,
-    cancellation,
-    () => {
-      throw new Error("worker heartbeat unavailable");
-    },
-    handler,
-    validation,
-    runtime,
-  );
 }
 
 export async function processWorkPayloadWithContextAndHeartbeat<TResult>(

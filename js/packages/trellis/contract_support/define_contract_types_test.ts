@@ -223,21 +223,70 @@ const inlineSchemaContract = defineServiceContract(
         output: { schema: "Result" },
       },
     },
-    resources: {
-      jobs: {
-        queues: {
-          import: {
-            payload: { schema: "Empty" },
-            result: { schema: "Result" },
-          },
-        },
+    jobs: {
+      import: {
+        payload: { schema: "Empty" },
+        result: { schema: "Result" },
       },
     },
   }),
 );
 
+inlineSchemaContract.CONTRACT.jobs?.import?.payload.schema;
 inlineSchemaContract.API.owned.rpc["Inline.Run"].subject;
 inlineSchemaContract.API.owned.operations["Inline.Import"].subject;
+
+const topLevelJobsContract = defineServiceContract(
+  {
+    schemas: {
+      Empty: EmptySchema,
+      Result: StringSchema,
+    },
+  },
+  () => ({
+    id: "trellis.top-level-jobs@v1",
+    displayName: "Top Level Jobs",
+    description: "Ensure jobs are typed as a first-class contract surface.",
+    jobs: {
+      import: {
+        payload: { schema: "Empty" },
+        result: { schema: "Result" },
+      },
+      export: {
+        payload: { schema: "Empty" },
+      },
+    },
+  }),
+);
+
+topLevelJobsContract.CONTRACT.jobs?.import?.result?.schema;
+topLevelJobsContract.CONTRACT.jobs?.export?.payload.schema;
+
+if (false) {
+  defineServiceContract(
+    {
+      schemas: {
+        Empty: EmptySchema,
+      },
+    },
+    () => ({
+      id: "trellis.invalid-jobs-resource@v1",
+      displayName: "Invalid Jobs Resource",
+      description: "Should fail type checking.",
+      resources: {
+        // @ts-expect-error jobs are now a first-class top-level contract section
+        jobs: {
+          queues: {
+            import: {
+              payload: { schema: "Empty" },
+            },
+          },
+        },
+      },
+    }),
+  );
+
+}
 
 const transferSchemas = {
   UploadInput: Type.Object({
@@ -354,14 +403,10 @@ if (false) {
       id: "trellis.invalid-job-schema@v1",
       displayName: "Invalid Job Schema",
       description: "Should fail type checking.",
-      resources: {
-        jobs: {
-          queues: {
-            import: {
-              // @ts-expect-error job queue schema refs must use local schema keys
-              payload: { schema: "Missing" },
-            },
-          },
+      jobs: {
+        import: {
+          // @ts-expect-error job queue schema refs must use local schema keys
+          payload: { schema: "Missing" },
         },
       },
     }),

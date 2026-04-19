@@ -1,8 +1,17 @@
-import { BaseError, isErr, type Result } from "@qlever-llc/result";
-import { type Job, JobClient, type JobFilter, type ServiceInfo } from "@qlever-llc/trellis-jobs";
+import { AsyncResult, BaseError, isErr } from "@qlever-llc/result";
+import {
+  type JobFilter,
+  type JobSnapshot,
+  type ServiceInfo,
+} from "@qlever-llc/trellis";
+
+type JobsAdminClientLike = {
+  listServices(): AsyncResult<ServiceInfo[], BaseError>;
+  list(filter?: JobFilter): AsyncResult<JobSnapshot<unknown, unknown>[], BaseError>;
+};
 
 type JobsClientLike = {
-  request(method: string, input: unknown): Promise<Result<unknown, BaseError>>;
+  jobs(): JobsAdminClientLike;
 };
 
 export async function loadJobsPageData(
@@ -12,10 +21,10 @@ export async function loadJobsPageData(
   available: boolean;
   message?: string;
   services: ServiceInfo[];
-  jobs: Job[];
+  jobs: JobSnapshot<unknown, unknown>[];
 }> {
   try {
-    const client = new JobClient(trellis as ConstructorParameters<typeof JobClient>[0]);
+    const client = trellis.jobs();
     const [servicesResponse, jobsResponse] = await Promise.all([
       client.listServices(),
       client.list(filter),
@@ -37,11 +46,14 @@ export async function loadJobsPageData(
       jobs: jobsValue,
     };
   } catch (error) {
-    const message = error instanceof BaseError
-      ? String(error.getContext().causeMessage ?? error.message)
-      : error instanceof Error
-      ? error.message
-      : String(error);
+    let message: string;
+    if (error instanceof BaseError) {
+      message = String(error.getContext().causeMessage ?? error.message);
+    } else if (error instanceof Error) {
+      message = error.message;
+    } else {
+      message = String(error);
+    }
     if (
       message.includes("Permissions Violation") &&
       message.includes("rpc.v1.Jobs.")

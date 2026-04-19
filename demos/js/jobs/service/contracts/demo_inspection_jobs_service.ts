@@ -53,20 +53,18 @@ export const contract = defineServiceContract(
       auth: auth.useDefaults(),
       health: health.useDefaults(),
     },
+    jobs: {
+      refreshSummaries: {
+        payload: ref.schema("InspectionSummariesRefreshJobPayload"),
+        result: ref.schema("InspectionSummariesRefreshJobResult"),
+      },
+    },
     resources: {
       kv: {
         refreshStatuses: {
           purpose: "Stored refresh statuses for the jobs demo.",
           history: 1,
           ttlMs: 0,
-        },
-      },
-      jobs: {
-        queues: {
-          refreshSummaries: {
-            payload: ref.schema("InspectionSummariesRefreshJobPayload"),
-            result: ref.schema("InspectionSummariesRefreshJobResult"),
-          },
         },
       },
     },

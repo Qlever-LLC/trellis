@@ -4,7 +4,6 @@
     "../../js/packages/result",
     "../../js/packages/trellis-sdk",
     "../../js/packages/trellis",
-    "../../js/packages/jobs",
     "../../js/packages/trellis-svelte"
   ],
   "workspace": [
@@ -65,12 +64,7 @@
   "nodeModulesDir": "auto",
   "compilerOptions": {
     "strict": true,
-    "lib": [
-      "dom",
-      "dom.iterable",
-      "dom.asynciterable",
-      "deno.ns"
-    ],
+    "lib": ["dom", "dom.iterable", "dom.asynciterable", "deno.ns"],
     "verbatimModuleSyntax": true
   }
 }

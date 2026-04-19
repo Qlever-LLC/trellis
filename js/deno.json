@@ -52,7 +52,6 @@
     // Internal workspace-only aliases for local source resolution and generated SDK builds.
     "@qlever-llc/result": "./packages/result/mod.ts",
     "@qlever-llc/trellis-svelte": "./packages/trellis-svelte/src/index.ts",
-    "@qlever-llc/trellis-jobs": "./packages/jobs/mod.ts",
     "@qlever-llc/trellis": "./packages/trellis/index.ts",
     "@qlever-llc/trellis/auth": "./packages/trellis/auth.ts",
     "@qlever-llc/trellis/auth/browser": "./packages/trellis/auth/browser.ts",

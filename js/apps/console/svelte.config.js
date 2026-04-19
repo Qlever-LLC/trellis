@@ -27,7 +27,6 @@ const config = {
       // Internal workspace-only aliases for local source resolution.
       // Public app code should import the canonical `@qlever-llc/trellis...` paths.
       "@qlever-llc/result": aliasPath("packages/result/mod.ts"),
-      "@qlever-llc/trellis-jobs": aliasPath("packages/jobs/mod.ts"),
       "@qlever-llc/trellis-sdk-jobs": aliasPath(
         "../generated/js/sdks/jobs/mod.ts",
       ),
@@ -39,6 +38,7 @@ const config = {
       ),
       "@qlever-llc/trellis/auth": aliasPath("packages/trellis/auth.ts"),
       "@qlever-llc/trellis/contracts": aliasPath("packages/trellis/contracts.ts"),
+      "@qlever-llc/trellis/jobs": aliasPath("packages/trellis/jobs.ts"),
       "@qlever-llc/trellis/health": aliasPath("packages/trellis/health.ts"),
       "@qlever-llc/trellis/host": aliasPath("packages/trellis/host/mod.ts"),
       "@qlever-llc/trellis/host/*": `${aliasPath("packages/trellis/host")}/*`,

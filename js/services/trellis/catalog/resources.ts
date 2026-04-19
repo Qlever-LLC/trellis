@@ -101,6 +101,7 @@ export type ContractResourceBindings = {
   streams?: Record<string, StreamResourceBinding>;
   jobs?: {
     namespace: string;
+    jobsStateBucket?: string;
     queues: Record<string, {
       queueType: string;
       publishPrefix: string;
@@ -449,24 +450,7 @@ export function getKvResourceRequests(
 export function getJobsQueueRequests(
   contract: TrellisContractV1,
 ): JobsQueueRequest[] {
-  const queues = (contract as TrellisContractV1 & {
-    resources?: {
-      jobs?: {
-        queues?: Record<string, {
-          payload: { schema: string };
-          result?: { schema: string };
-          maxDeliver?: number;
-          backoffMs?: number[];
-          ackWaitMs?: number;
-          defaultDeadlineMs?: number;
-          progress?: boolean;
-          logs?: boolean;
-          dlq?: boolean;
-          concurrency?: number;
-        }>;
-      };
-    };
-  }).resources?.jobs?.queues;
+  const queues = contract.jobs;
 
   return (Object.entries(queues ?? {}) as Array<[string, {
     payload: { schema: string };
@@ -748,6 +732,7 @@ export async function provisionContractResourceBindings(
     const namespace = sanitizeToken(serviceSessionKey).slice(0, 32);
     bindings.jobs = {
       namespace,
+      jobsStateBucket: BUILTIN_JOBS_STATE_BUCKET,
       queues: Object.fromEntries(
         jobs.map((queue) => {
           const queueToken = sanitizeToken(queue.queueType).slice(0, 48);

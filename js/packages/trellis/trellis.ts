@@ -31,6 +31,7 @@ import {
   ok,
   Result,
 } from "@qlever-llc/result";
+import { JobsAdminClient } from "./jobs.ts";
 import {
   context,
   createNatsHeaderCarrier,
@@ -841,6 +842,10 @@ export class Trellis<
    */
   get natsConnection(): NatsConnection {
     return this.nats;
+  }
+
+  jobs(): JobsAdminClient {
+    return new JobsAdminClient(this);
   }
 
   #unknownApiError(

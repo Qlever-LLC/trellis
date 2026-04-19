@@ -1,4 +1,4 @@
-import { AsyncResult, BaseError } from "@qlever-llc/result";
+import { BaseError } from "@qlever-llc/result";
 import {
   err,
   isErr,
@@ -6,7 +6,6 @@ import {
   type Result,
   UnexpectedError,
 } from "@qlever-llc/trellis";
-import { JobManager, startNatsWorkerHostFromBinding } from "@qlever-llc/trellis-jobs";
 import { TrellisService } from "@qlever-llc/trellis/host/deno";
 import contract from "../contracts/demo_inspection_operation_service.ts";
 import { ASSIGNED_INSPECTIONS } from "../../../shared/field_data.ts";
@@ -14,7 +13,6 @@ import { printScenarioHeading } from "../../../shared/logging.ts";
 
 const trellisUrl = Deno.args[0]?.trim();
 const sessionKeySeed = Deno.args[1]?.trim();
-const REPORT_PUBLISH_QUEUE = "publishInspectionReport";
 
 type PublishJobPayload = {
   operationId: string;
@@ -27,20 +25,6 @@ type PublishJobResult = {
   inspectionId: string;
   status: "published" | "cancelled";
 };
-
-type Deferred<T> = {
-  promise: Promise<T>;
-  resolve(value: T): void;
-};
-
-function deferred<T>(): Deferred<T> {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((innerResolve) => {
-    resolve = innerResolve;
-  });
-
-  return { promise, resolve };
-}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -104,50 +88,6 @@ async function main(): Promise<void> {
     sessionKeySeed,
   });
 
-  const jobs = service.jobs;
-  const jobsWork = service.streams.jobsWork;
-  if (!jobs || !jobsWork) {
-    throw new Error("operation demo service is missing jobs bindings");
-  }
-
-  const publishJobs = new JobManager<PublishJobPayload, PublishJobResult>({
-    nc: service.nc,
-    jobs,
-  });
-  const publishJobWaiters = new Map<string, Deferred<Result<unknown, BaseError>>>();
-  const completedPublishJobs = new Map<string, Result<unknown, BaseError>>();
-
-  const attachPublishJob = (jobId: string) => {
-    const waiting = deferred<Result<unknown, BaseError>>();
-    const completed = completedPublishJobs.get(jobId);
-    if (completed) {
-      completedPublishJobs.delete(jobId);
-      waiting.resolve(completed);
-      return {
-        wait: () => AsyncResult.from(waiting.promise),
-      };
-    }
-
-    publishJobWaiters.set(jobId, waiting);
-    return {
-      wait: () => AsyncResult.from(waiting.promise),
-    };
-  };
-
-  const settlePublishJob = (
-    jobId: string,
-    result: Result<unknown, BaseError>,
-  ): void => {
-    const waiting = publishJobWaiters.get(jobId);
-    if (!waiting) {
-      completedPublishJobs.set(jobId, result);
-      return;
-    }
-
-    publishJobWaiters.delete(jobId);
-    waiting.resolve(result);
-  };
-
   const operationIsCancelled = async (operationId: string): Promise<boolean> => {
     const snapshot = (await service.operations.get(operationId)).take();
     if (isErr(snapshot)) {
@@ -157,74 +97,69 @@ async function main(): Promise<void> {
     return snapshot.state === "cancelled";
   };
 
-  const workerHost = await startNatsWorkerHostFromBinding<PublishJobResult>(
-    {
-      jobs,
-      workStream: jobsWork.name,
-    },
-    {
-      nats: service.nc,
-      instanceId: "demo-operation-service-worker",
-      queueTypes: [REPORT_PUBLISH_QUEUE],
-      manager: publishJobs,
-      handler: async (job) => {
-        const payload = asPublishJobPayload(job.job().payload);
-        const finishCancelled = (): PublishJobResult => {
-          settlePublishJob(job.job().id, ok(undefined));
-          return {
-            reportId: payload.reportId,
-            inspectionId: payload.inspectionId,
-            status: "cancelled",
-          };
-        };
+  const registered = await service.jobs.publishInspectionReport.handle(async (job) => {
+    const payload = asPublishJobPayload(job.payload);
+    const finishCancelled = (): PublishJobResult => ({
+      reportId: payload.reportId,
+      inspectionId: payload.inspectionId,
+      status: "cancelled",
+    });
 
-        try {
-          if (await operationIsCancelled(payload.operationId)) {
-            return finishCancelled();
-          }
+    try {
+      if (await operationIsCancelled(payload.operationId)) {
+        return ok(finishCancelled());
+      }
 
-          const publishing = (await service.operations.progress(payload.operationId, {
-            stage: "publishing",
-            message: `Publishing ${payload.reportId} for ${inspectionLabel(payload.inspectionId)}`,
-          })).take();
-          if (isErr(publishing)) {
-            if (await operationIsCancelled(payload.operationId)) {
-              return finishCancelled();
-            }
-            throw publishing.error;
-          }
-
-          await sleep(900);
-
-          if (await operationIsCancelled(payload.operationId)) {
-            return finishCancelled();
-          }
-
-          const completed = (await service.operations.complete(payload.operationId, {
-            reportId: payload.reportId,
-            inspectionId: payload.inspectionId,
-            status: "published",
-          })).take();
-          if (isErr(completed)) {
-            if (await operationIsCancelled(payload.operationId)) {
-              return finishCancelled();
-            }
-            throw completed.error;
-          }
-
-          settlePublishJob(job.job().id, ok(undefined));
-          return {
-            reportId: payload.reportId,
-            inspectionId: payload.inspectionId,
-            status: "published",
-          };
-        } catch (cause) {
-          settlePublishJob(job.job().id, err(asBaseError(cause)));
-          throw cause;
+      const publishing = (await service.operations.progress(payload.operationId, {
+        stage: "publishing",
+        message: `Publishing ${payload.reportId} for ${inspectionLabel(payload.inspectionId)}`,
+      })).take();
+      if (isErr(publishing)) {
+        if (await operationIsCancelled(payload.operationId)) {
+          return ok(finishCancelled());
         }
-      },
-    },
-  );
+        throw publishing.error;
+      }
+
+      await sleep(900);
+
+      if (await operationIsCancelled(payload.operationId)) {
+        return ok(finishCancelled());
+      }
+
+      const output: PublishJobResult = {
+        reportId: payload.reportId,
+        inspectionId: payload.inspectionId,
+        status: "published",
+      };
+      const completed = (await service.operations.complete(payload.operationId, output)).take();
+      if (isErr(completed)) {
+        if (await operationIsCancelled(payload.operationId)) {
+          return ok(finishCancelled());
+        }
+        throw completed.error;
+      }
+
+      return ok(output);
+    } catch (cause) {
+      const error = asBaseError(cause);
+      const failed = (await service.operations.fail(payload.operationId, error)).take();
+      if (isErr(failed) && !(await operationIsCancelled(payload.operationId))) {
+        return err(failed.error);
+      }
+      return err(error);
+    }
+  }).take();
+  if (isErr(registered)) {
+    throw registered.error;
+  }
+
+  const workerHost = await service.jobs.startWorkers({
+    instanceId: "demo-operation-service-worker",
+  }).take();
+  if (isErr(workerHost)) {
+    throw workerHost.error;
+  }
 
   await service.operation("Inspection.Report.Generate").handle(async ({ input, op }) => {
     const reportId = `report-${input.inspectionId}`;
@@ -251,18 +186,24 @@ async function main(): Promise<void> {
       message: `Handing off ${reportId} for final publish`,
     }).orThrow();
 
-    const publishJob = await publishJobs.create(REPORT_PUBLISH_QUEUE, {
+    const publishJob = await service.jobs.publishInspectionReport.create({
       operationId: op.id,
       inspectionId: input.inspectionId,
       reportId,
-    });
+    }).take();
+    if (isErr(publishJob)) {
+      throw publishJob.error;
+    }
 
-    return await op.attach(attachPublishJob(publishJob.id));
+    return await op.attach(publishJob);
   });
 
   printScenarioHeading("Inspection operation service");
   const shutdown = async () => {
-    await workerHost.stop();
+    const stopped = await workerHost.stop().take();
+    if (isErr(stopped)) {
+      console.warn("failed to stop jobs worker host", stopped.error);
+    }
     await service.stop();
     Deno.exit(0);
   };

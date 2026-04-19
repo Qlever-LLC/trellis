@@ -1,5 +1,6 @@
-import { Result, UnexpectedError } from "@qlever-llc/result";
+import { AsyncResult, UnexpectedError } from "@qlever-llc/result";
 import { deepEqual } from "node:assert/strict";
+import type { JobFilter } from "@qlever-llc/trellis";
 
 import { loadJobsPageData } from "./jobs_page.ts";
 
@@ -10,12 +11,29 @@ declare const Deno: {
 Deno.test("loadJobsPageData requests jobs and services with the provided filter", async () => {
   const calls: Array<{ method: string; input: unknown }> = [];
   const data = await loadJobsPageData({
-    request(method: string, input: unknown) {
-      calls.push({ method, input });
-      if (method === "Jobs.ListServices") {
-        return Promise.resolve(Result.ok({ services: [{ name: "documents", healthy: true, workers: [] }] }));
-      }
-      return Promise.resolve(Result.ok({ jobs: [{ id: "job-1", service: "documents", type: "document-process", state: "pending" }] }));
+    jobs() {
+      return {
+        listServices() {
+          calls.push({ method: "Jobs.ListServices", input: {} });
+          return AsyncResult.ok([{ name: "documents", healthy: true, workers: [] }]);
+        },
+        list(filter?: JobFilter) {
+          calls.push({ method: "Jobs.List", input: filter ?? {} });
+          return AsyncResult.ok([
+            {
+              id: "job-1",
+              service: "documents",
+              type: "document-process",
+              state: "pending",
+              payload: null,
+              createdAt: "2026-01-01T00:00:00.000Z",
+              updatedAt: "2026-01-01T00:00:00.000Z",
+              tries: 0,
+              maxTries: 3,
+            },
+          ]);
+        },
+      };
     },
   }, { service: "documents", state: "pending" });
 
@@ -29,8 +47,15 @@ Deno.test("loadJobsPageData requests jobs and services with the provided filter"
 
 Deno.test("loadJobsPageData reports jobs service as unavailable when Jobs RPCs have no responders", async () => {
   const data = await loadJobsPageData({
-    request() {
-      return Promise.resolve(Result.err(new UnexpectedError({ cause: new Error("No responders available for request") })));
+    jobs() {
+      return {
+        listServices() {
+          return AsyncResult.err(new UnexpectedError({ cause: new Error("No responders available for request") }));
+        },
+        list() {
+          return AsyncResult.ok([]);
+        },
+      };
     },
   });
 
@@ -45,8 +70,15 @@ Deno.test("loadJobsPageData reports jobs service as unavailable when Jobs RPCs h
 
 Deno.test("loadJobsPageData reports missing Jobs permissions with re-auth guidance", async () => {
   const data = await loadJobsPageData({
-    request() {
-      return Promise.resolve(Result.err(new UnexpectedError({ cause: new Error('Permissions Violation for Publish to "rpc.v1.Jobs.ListServices"') })));
+    jobs() {
+      return {
+        listServices() {
+          return AsyncResult.err(new UnexpectedError({ cause: new Error('Permissions Violation for Publish to "rpc.v1.Jobs.ListServices"') }));
+        },
+        list() {
+          return AsyncResult.ok([]);
+        },
+      };
     },
   });
 

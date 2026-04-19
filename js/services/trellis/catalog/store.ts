@@ -134,16 +134,12 @@ function validateSchemaRefs(contract: TrellisContractV1) {
     }
   }
 
-  const jobsQueues = contract.resources?.jobs?.queues ?? {};
+  const jobsQueues = contract.jobs ?? {};
   for (
     const [queueType, queue] of Object.entries(jobsQueues) as Array<
       [
         string,
-        NonNullable<
-          NonNullable<
-            NonNullable<TrellisContractV1["resources"]>["jobs"]
-          >["queues"]
-        >[string],
+        NonNullable<NonNullable<TrellisContractV1["jobs"]>>[string],
       ]
     >
   ) {

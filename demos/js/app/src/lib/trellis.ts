@@ -28,7 +28,6 @@ import type {
   InspectionEvidenceUploadOutput,
   InspectionEvidenceUploadProgress,
 } from "../../../../generated/js/sdks/demo-transfer-service/types.ts";
-import { JobClient } from "@qlever-llc/trellis-jobs";
 import type {
   StateDeleteInput,
   StateDeleteOutput,
@@ -147,6 +146,39 @@ type RuntimeAuthState = {
 
 type RuntimeContract = unknown;
 
+type AppJobsWorkerInfo = {
+  instanceId: string;
+  jobType: string;
+  timestamp: string;
+};
+
+type AppJobsServiceInfo = {
+  healthy: boolean;
+  name: string;
+  workers: AppJobsWorkerInfo[];
+};
+
+type AppJobsSnapshot = {
+  id: string;
+  service: string;
+  state: string;
+  type: string;
+  updatedAt: string;
+};
+
+type AppJobsFilter = {
+  limit?: number;
+  service?: string;
+  state?: string | string[];
+  since?: string;
+  jobType?: string;
+};
+
+type AppJobsClient = {
+  listServices(): AsyncResult<AppJobsServiceInfo[], BaseError>;
+  list(filter?: AppJobsFilter): AsyncResult<AppJobsSnapshot[], BaseError>;
+};
+
 export type AppTrellis = {
   request<TMethod extends RpcMethodName>(
     method: TMethod,
@@ -163,6 +195,7 @@ export type AppTrellis = {
       transfer(body: Uint8Array | ArrayBuffer): TransferBuilder;
     };
   };
+  jobs(): AppJobsClient;
 };
 
 export const trellisUrl = "http://localhost:3000";
@@ -263,12 +296,7 @@ export async function requestValue<TMethod extends RpcMethodName>(
   return value as AppRpcMap[TMethod]["output"];
 }
 
-export async function getJobsClient(): Promise<JobClient> {
+export async function getJobsClient(): Promise<AppJobsClient> {
   const trellis = await getTrellis();
-
-  return new JobClient({
-    async request(method: string, input: unknown) {
-      return await trellis.request(method, input);
-    },
-  });
+  return trellis.jobs();
 }

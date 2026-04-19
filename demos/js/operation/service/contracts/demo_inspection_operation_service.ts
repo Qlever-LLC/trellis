@@ -37,14 +37,10 @@ const contract = defineServiceContract(
       auth: auth.useDefaults(),
       health: health.useDefaults(),
     },
-    resources: {
-      jobs: {
-        queues: {
-          publishInspectionReport: {
-            payload: ref.schema("InspectionReportPublishJobPayload"),
-            result: ref.schema("InspectionReportPublishJobResult"),
-          },
-        },
+    jobs: {
+      publishInspectionReport: {
+        payload: ref.schema("InspectionReportPublishJobPayload"),
+        result: ref.schema("InspectionReportPublishJobResult"),
       },
     },
     operations: {

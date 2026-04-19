@@ -20,6 +20,7 @@ import type {
   RpcOutput,
   RpcOutputOf,
   StoreError,
+  TrellisAPI,
   TrellisFor,
   TypedKV,
   TypedStore,
@@ -33,6 +34,7 @@ import {
   type HealthResponse,
   KVHandle,
   type OrderingGroup,
+  type ServiceContract,
   type ServiceRpcHandler,
   StoreHandle,
   type SubscribeOpts,
@@ -66,6 +68,26 @@ const typeTestContract = defineServiceContract(
       "Test.Pinged": {
         version: "v1",
         event: ref.schema("PingedEvent"),
+      },
+    },
+  }),
+);
+
+const jobsTypeTestSchemas = {
+  RefreshPayload: Type.Object({ siteId: Type.String() }),
+  RefreshResult: Type.Object({ refreshId: Type.String() }),
+} as const;
+
+const jobsTypeTestContract = defineServiceContract(
+  { schemas: jobsTypeTestSchemas },
+  (ref) => ({
+    id: "trellis.server.jobs-type-test@v1",
+    displayName: "Jobs Type Test",
+    description: "Verify typed service.jobs surface.",
+    jobs: {
+      refreshSummaries: {
+        payload: ref.schema("RefreshPayload"),
+        result: ref.schema("RefreshResult"),
       },
     },
   }),
@@ -201,6 +223,39 @@ Deno.test("service wrapper mount handlers stay method-typed", () => {
   }
 
   assertExists(expectTypedMount);
+});
+
+Deno.test("service wrapper exposes typed jobs facade", () => {
+  type JobsContract = typeof jobsTypeTestContract;
+  type JobsService = TrellisService<
+    JobsContract["API"]["owned"],
+    JobsContract["API"]["trellis"],
+    JobsContract extends ServiceContract<
+      infer _TOwned,
+      infer _TTrellis,
+      infer TJobs
+    > ? TJobs : never
+  >;
+
+  function expectTypedJobs(service: JobsService) {
+    const created = service.jobs.refreshSummaries.create({ siteId: "site-1" });
+    const registered = service.jobs.refreshSummaries.handle(async (job) => {
+      const siteId: string = job.payload.siteId;
+      assertEquals(siteId, job.payload.siteId);
+      return Result.ok({ refreshId: `refresh-${siteId}` });
+    });
+    const workers = service.jobs.startWorkers({
+      queues: ["refreshSummaries"],
+      instanceId: "worker-a",
+      version: "1.0.0",
+    });
+
+    assertExists(created);
+    assertExists(registered);
+    assertExists(workers);
+  }
+
+  assertExists(expectTypedJobs);
 });
 
 Deno.test("server RPC helper types support extracted handlers", () => {

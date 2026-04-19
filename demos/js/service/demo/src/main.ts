@@ -2,7 +2,6 @@ import { TrellisService } from "@qlever-llc/trellis/host/deno";
 import type { Result } from "@qlever-llc/trellis";
 import { BaseError } from "@qlever-llc/result";
 import { err, isErr, ok, UnexpectedError } from "@qlever-llc/trellis";
-import { JobManager, JobProcessError, startNatsWorkerHostFromBinding } from "@qlever-llc/trellis-jobs";
 import * as rpc from "./rpc/index.ts";
 import contract from "../contracts/demo_service.ts";
 import config from "../deno.json" with { type: "json" };
@@ -11,7 +10,6 @@ const trellisUrl = Deno.args[0]?.trim();
 const sessionKeySeed = Deno.args[1]?.trim();
 
 const DEFAULT_UPLOAD_FILE_NAME = "upload.bin";
-const UPLOAD_JOB_QUEUE = "processUpload";
 
 type UploadJobPayload = {
   operationId: string;
@@ -23,19 +21,6 @@ type UploadResult = {
   size: number;
   tempFilePath: string;
 };
-
-type Deferred<T> = {
-  promise: Promise<T>;
-  resolve(value: T): void;
-};
-
-function deferred<T>(): Deferred<T> {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((innerResolve) => {
-    resolve = innerResolve;
-  });
-  return { promise, resolve };
-}
 
 function toTempFileSuffix(key: string): string {
   const fileName = key.split(/[\\/]/).at(-1) || DEFAULT_UPLOAD_FILE_NAME;
@@ -136,51 +121,6 @@ async function main(): Promise<void> {
   if (isErr(uploads)) {
     throw uploads.error;
   }
-  const jobs = service.jobs;
-  const jobsWork = service.streams.jobsWork;
-  if (!jobs || !jobsWork) {
-    throw new Error("demo service is missing jobs bindings");
-  }
-
-  const uploadJobs = new JobManager<UploadJobPayload, UploadResult>({
-    nc: service.nc,
-    jobs,
-  });
-  const uploadJobWaiters = new Map<
-    string,
-    Deferred<Result<unknown, BaseError>>
-  >();
-  const completedUploadJobs = new Map<string, Result<unknown, BaseError>>();
-
-  const attachUploadJob = (jobId: string) => {
-    const waiting = deferred<Result<unknown, BaseError>>();
-    const completed = completedUploadJobs.get(jobId);
-    if (completed) {
-      completedUploadJobs.delete(jobId);
-      waiting.resolve(completed);
-      return {
-        wait: async () => await waiting.promise,
-      };
-    }
-
-    uploadJobWaiters.set(jobId, waiting);
-    return {
-      wait: async () => await waiting.promise,
-    };
-  };
-
-  const settleUploadJob = (
-    jobId: string,
-    result: Result<unknown, BaseError>,
-  ): void => {
-    const waiting = uploadJobWaiters.get(jobId);
-    if (!waiting) {
-      completedUploadJobs.set(jobId, result);
-      return;
-    }
-    uploadJobWaiters.delete(jobId);
-    waiting.resolve(result);
-  };
 
   const updateOperationStage = async (
     operationId: string,
@@ -205,10 +145,13 @@ async function main(): Promise<void> {
         return err(transferred.error);
       }
 
-      const job = await uploadJobs.create(UPLOAD_JOB_QUEUE, {
+      const job = await service.jobs.processUpload.create({
         operationId: op.id,
         key: input.key,
-      });
+      }).take();
+      if (isErr(job)) {
+        throw job.error;
+      }
 
       console.info("demo upload staged", {
         operationId: op.id,
@@ -217,98 +160,92 @@ async function main(): Promise<void> {
         size: transferred.size,
       });
 
-      return await op.attach(attachUploadJob(job.id));
+      return await op.attach(job);
     });
 
-  const workerHost = await startNatsWorkerHostFromBinding<UploadResult>(
-    {
-      jobs,
-      workStream: jobsWork.name,
-    },
-    {
-      nats: service.nc,
-      instanceId: `${config.name}-worker`,
-      queueTypes: [UPLOAD_JOB_QUEUE],
-      manager: uploadJobs,
-      handler: async (job) => {
-        try {
-          const payload = asUploadJobPayload(job.job().payload);
-          const started = (await service.operations.started(payload.operationId)).take();
-          if (isErr(started)) {
-            throw started.error;
-          }
+  const registered = await service.jobs.processUpload.handle(async (job) => {
+    try {
+      const payload = asUploadJobPayload(job.payload);
+      const started = (await service.operations.started(payload.operationId)).take();
+      if (isErr(started)) {
+        throw started.error;
+      }
 
-          const entry = (await uploads.get(payload.key)).take();
-          if (isErr(entry)) {
-            throw entry.error;
-          }
-          await updateOperationStage(
-            payload.operationId,
-            "stored",
-            `Stored ${entry.info.size} bytes for ${payload.key}`,
-          );
+      const entry = (await uploads.get(payload.key)).take();
+      if (isErr(entry)) {
+        throw entry.error;
+      }
+      await updateOperationStage(
+        payload.operationId,
+        "stored",
+        `Stored ${entry.info.size} bytes for ${payload.key}`,
+      );
 
-          const body = (await entry.stream()).take();
-          if (isErr(body)) {
-            throw body.error;
-          }
-          await updateOperationStage(
-            payload.operationId,
-            "writing",
-            "Writing the staged file to /tmp",
-          );
+      const body = (await entry.stream()).take();
+      if (isErr(body)) {
+        throw body.error;
+      }
+      await updateOperationStage(
+        payload.operationId,
+        "writing",
+        "Writing the staged file to /tmp",
+      );
 
-          const tempFilePath = await Deno.makeTempFile({
-            dir: "/tmp",
-            prefix: "demo-upload-",
-            suffix: `-${toTempFileSuffix(payload.key)}`,
-          });
-          await writeStreamToFile(tempFilePath, body);
+      const tempFilePath = await Deno.makeTempFile({
+        dir: "/tmp",
+        prefix: "demo-upload-",
+        suffix: `-${toTempFileSuffix(payload.key)}`,
+      });
+      await writeStreamToFile(tempFilePath, body);
 
-          await updateOperationStage(
-            payload.operationId,
-            "cleanup",
-            "Deleting the staged object from the upload store",
-          );
+      await updateOperationStage(
+        payload.operationId,
+        "cleanup",
+        "Deleting the staged object from the upload store",
+      );
 
-          const deleted = await uploads.delete(payload.key);
-          if (deleted.isErr()) {
-            console.warn("demo upload cleanup failed", deleted.error);
-          }
+      const deleted = await uploads.delete(payload.key);
+      if (deleted.isErr()) {
+        console.warn("demo upload cleanup failed", deleted.error);
+      }
 
-          const output: UploadResult = {
-            key: payload.key,
-            size: entry.info.size,
-            tempFilePath,
-          };
-          const completed = (await service.operations.complete(
-            payload.operationId,
-            output,
-          )).take();
-          if (isErr(completed)) {
-            throw completed.error;
-          }
-          settleUploadJob(job.job().id, ok(output));
-          console.info(`demo processed file path: ${tempFilePath}`);
-          return output;
-        } catch (cause) {
-          const error = asBaseError(cause);
-          const operationId = maybeOperationId(job.job().payload);
-          if (operationId) {
-            const failed = await service.operations.fail(operationId, error);
-            if (failed.isErr()) {
-              settleUploadJob(job.job().id, err(failed.error));
-            } else {
-              settleUploadJob(job.job().id, err(error));
-            }
-          } else {
-            settleUploadJob(job.job().id, err(error));
-          }
-          throw JobProcessError.failed(error.message);
+      const output: UploadResult = {
+        key: payload.key,
+        size: entry.info.size,
+        tempFilePath,
+      };
+      const completed = (await service.operations.complete(
+        payload.operationId,
+        output,
+      )).take();
+      if (isErr(completed)) {
+        throw completed.error;
+      }
+
+      console.info(`demo processed file path: ${tempFilePath}`);
+      return ok(output);
+    } catch (cause) {
+      const error = asBaseError(cause);
+      const operationId = maybeOperationId(job.payload);
+      if (operationId) {
+        const failed = await service.operations.fail(operationId, error);
+        if (failed.isErr()) {
+          return err(failed.error);
         }
-      },
-    },
-  );
+      }
+      return err(error);
+    }
+  }).take();
+  if (isErr(registered)) {
+    throw registered.error;
+  }
+
+  const workerHost = await service.jobs.startWorkers({
+    instanceId: `${config.name}-worker`,
+  }).take();
+  if (isErr(workerHost)) {
+    throw workerHost.error;
+  }
 
   console.info(`demo service started`);
 
@@ -319,7 +256,7 @@ async function main(): Promise<void> {
     }
     stopping = true;
     await Promise.allSettled([
-      workerHost.stop(),
+      workerHost.stop().take(),
       service.stop(),
     ]);
     Deno.exit(0);

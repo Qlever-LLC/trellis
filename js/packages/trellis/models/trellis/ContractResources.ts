@@ -1,6 +1,6 @@
 import {
-  ContractJobQueueResourceSchema,
-  ContractJobsResourceSchema,
+  ContractJobQueueSchema,
+  ContractJobsSchema,
   ContractKvResourceSchema,
   ContractResourceBindingsSchema,
   ContractResourcesSchema,
@@ -14,8 +14,8 @@ import {
 import type { Static } from "typebox";
 
 export {
-  ContractJobQueueResourceSchema,
-  ContractJobsResourceSchema,
+  ContractJobQueueSchema,
+  ContractJobsSchema,
   ContractKvResourceSchema,
   ContractStoreResourceSchema,
   ContractResourceBindingsSchema,
@@ -29,8 +29,8 @@ export {
 
 export type ContractKvResource = Static<typeof ContractKvResourceSchema>;
 export type ContractStoreResource = Static<typeof ContractStoreResourceSchema>;
-export type ContractJobQueueResource = Static<typeof ContractJobQueueResourceSchema>;
-export type ContractJobsResource = Static<typeof ContractJobsResourceSchema>;
+export type ContractJobQueue = Static<typeof ContractJobQueueSchema>;
+export type ContractJobs = Static<typeof ContractJobsSchema>;
 export type ContractResources = Static<typeof ContractResourcesSchema>;
 export type KvResourceBinding = Static<typeof KvResourceBindingSchema>;
 export type StoreResourceBinding = Static<typeof StoreResourceBindingSchema>;

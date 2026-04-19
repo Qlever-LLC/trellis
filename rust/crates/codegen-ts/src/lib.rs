@@ -142,6 +142,13 @@ fn render_contract_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Stri
     let source_reference =
         manifest_source_reference(&opts.manifest_path, opts.runtime_deps.repo_root.as_deref());
     let is_trellis_auth = loaded.manifest.id == "trellis.auth@v1";
+    let contract_jobs_type = render_contract_jobs_type(loaded);
+    let has_contract_jobs = contract_jobs_type.is_some();
+    let sdk_contract_module_type = if has_contract_jobs {
+        "SdkContractModule<typeof CONTRACT_ID, typeof API.owned, ContractJobs>"
+    } else {
+        "SdkContractModule<typeof CONTRACT_ID, typeof API.owned>"
+    };
     let import_line = if is_trellis_auth {
         "import type { ContractDependencyUse, SdkContractModule, TrellisContractV1, UseSpec } from \"@qlever-llc/trellis\";".to_string()
     } else {
@@ -185,6 +192,31 @@ fn render_contract_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Stri
         "}".to_string(),
     ];
 
+    if has_contract_jobs {
+        lines.insert(
+            2,
+            "import { CONTRACT_JOBS_METADATA, type ContractJobsMetadata } from \"@qlever-llc/trellis/contracts\";"
+                .to_string(),
+        );
+    }
+
+    if let Some(contract_jobs_type) = contract_jobs_type {
+        lines.extend([
+            String::new(),
+            contract_jobs_type,
+            String::new(),
+            "function defineContractJobsMetadata<TJobs extends ContractJobsMetadata>(".to_string(),
+            "  jobs: ContractJobsMetadata,".to_string(),
+            "): TJobs {".to_string(),
+            "  return jobs as TJobs;".to_string(),
+            "}".to_string(),
+            String::new(),
+            "const CONTRACT_JOBS = defineContractJobsMetadata<ContractJobs>({".to_string(),
+        ]);
+        lines.extend(render_contract_jobs_value(loaded));
+        lines.push("});".to_string());
+    }
+
     if is_trellis_auth {
         lines.extend([
             String::new(),
@@ -214,9 +246,7 @@ fn render_contract_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Stri
             "  AuthOwnedApi,".to_string(),
             "  WithDefaultAuthUseSpec<TSpec>".to_string(),
             ">;".to_string(),
-            format!(
-                "type AuthModule = SdkContractModule<typeof CONTRACT_ID, typeof API.owned> & {{",
-            ),
+            format!("type AuthModule = {sdk_contract_module_type} & {{"),
             "  useDefaults: AuthUseDefaultsFn;".to_string(),
             "};".to_string(),
             String::new(),
@@ -243,17 +273,22 @@ fn render_contract_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Stri
         lines.extend([
             String::new(),
             format!(
-                "export const {}: SdkContractModule<typeof CONTRACT_ID, typeof API.owned> = {{",
-                module_export
+                "export const {}: {} = {{",
+                module_export, sdk_contract_module_type
             ),
         ]);
     }
 
-    lines.extend([
+    let mut contract_fields = vec![
         "  CONTRACT_ID,".to_string(),
         "  CONTRACT_DIGEST,".to_string(),
         "  CONTRACT,".to_string(),
         "  API,".to_string(),
+    ];
+    if has_contract_jobs {
+        contract_fields.push("  [CONTRACT_JOBS_METADATA]: CONTRACT_JOBS,".to_string());
+    }
+    contract_fields.extend([
         "  use: ((spec: UseSpec<typeof API.owned>) => {".to_string(),
         "    assertValidUseSpec(spec);".to_string(),
         String::new(),
@@ -287,6 +322,7 @@ fn render_contract_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Stri
         "    return dependencyUse;".to_string(),
         "  }),".to_string(),
     ]);
+    lines.extend(contract_fields);
 
     if is_trellis_auth {
         lines.extend([
@@ -317,6 +353,64 @@ fn render_contract_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Stri
 "
         )
     )
+}
+
+fn top_level_contract_jobs<'a>(loaded: &'a LoadedManifest) -> Option<&'a serde_json::Map<String, Value>> {
+    loaded.value.get("jobs")?.as_object()
+}
+
+fn render_contract_jobs_type(loaded: &LoadedManifest) -> Option<String> {
+    let jobs = top_level_contract_jobs(loaded)?;
+
+    if jobs.is_empty() {
+        return None;
+    }
+
+    let mut lines = vec!["type ContractJobs = {".to_string()];
+
+    for (queue_type, queue) in jobs {
+        let queue = queue
+            .as_object()
+            .expect("contract jobs queue must be an object");
+        let payload_schema = queue
+            .get("payload")
+            .and_then(Value::as_object)
+            .and_then(|payload| payload.get("schema"))
+            .and_then(Value::as_str)
+            .expect("contract jobs queue payload must include a schema ref");
+        let payload = schema_to_ts(resolve_schema_ref(loaded, payload_schema));
+        let result = queue
+            .get("result")
+            .and_then(Value::as_object)
+            .and_then(|result| result.get("schema"))
+            .and_then(Value::as_str)
+            .map(|schema_name| schema_to_ts(resolve_schema_ref(loaded, schema_name)))
+            .unwrap_or_else(|| "unknown".to_string());
+
+        lines.push(format!("  {}: {{", js_string(queue_type)));
+        lines.push(format!("    payload: {payload};"));
+        lines.push(format!("    result: {result};"));
+        lines.push("  };".to_string());
+    }
+
+    lines.push("};".to_string());
+    Some(lines.join("\n"))
+}
+
+fn render_contract_jobs_value(loaded: &LoadedManifest) -> Vec<String> {
+    let Some(jobs) = top_level_contract_jobs(loaded) else {
+        return Vec::new();
+    };
+
+    jobs
+        .keys()
+        .map(|queue_type| {
+            format!(
+                "  {}: {{ payload: undefined, result: undefined }},",
+                js_string(queue_type)
+            )
+        })
+        .collect()
 }
 
 fn render_types_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
@@ -1559,6 +1653,202 @@ mod tests {
         assert!(mod_ts.contains(
             "export { CONTRACT, CONTRACT_DIGEST, CONTRACT_ID, use, useDefaults, auth } from \"./contract.ts\";"
         ));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn generated_contract_emits_jobs_metadata_type_for_top_level_jobs() {
+        let root = unique_temp_dir("jobs-contract");
+        fs::create_dir_all(&root).unwrap();
+        let manifest_path = root.join("contract.json");
+        fs::write(
+            &manifest_path,
+            serde_json::to_string(&json!({
+                "format": "trellis.contract.v1",
+                "id": "trellis.jobs-demo@v1",
+                "displayName": "Jobs Demo",
+                "description": "Contract with top-level jobs.",
+                "kind": "service",
+                "schemas": {
+                    "PingInput": {
+                        "type": "object",
+                        "properties": {},
+                        "additionalProperties": false
+                    },
+                    "PingOutput": {
+                        "type": "object",
+                        "properties": {
+                            "ok": { "type": "boolean" }
+                        },
+                        "required": ["ok"],
+                        "additionalProperties": false
+                    },
+                    "JobPayload": {
+                        "type": "object",
+                        "properties": {
+                            "id": { "type": "string" }
+                        },
+                        "required": ["id"],
+                        "additionalProperties": false
+                    },
+                    "JobResult": {
+                        "type": "object",
+                        "properties": {
+                            "ok": { "type": "boolean" }
+                        },
+                        "required": ["ok"],
+                        "additionalProperties": false
+                    }
+                },
+                "rpc": {
+                    "Example.Ping": {
+                        "version": "v1",
+                        "subject": "rpc.v1.Example.Ping",
+                        "input": { "schema": "PingInput" },
+                        "output": { "schema": "PingOutput" }
+                    }
+                },
+                "operations": {},
+                "events": {},
+                "subjects": {},
+                "jobs": {
+                    "exampleJob": {
+                        "payload": { "schema": "JobPayload" },
+                        "result": { "schema": "JobResult" }
+                    },
+                    "fireAndForget": {
+                        "payload": { "schema": "JobPayload" }
+                    }
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let opts = GenerateTsSdkOpts {
+            manifest_path: manifest_path.clone(),
+            out_dir: root.join("out"),
+            package_name: "@qlever-llc/trellis-sdk-jobs-demo".to_string(),
+            package_version: "0.4.0".to_string(),
+            runtime_deps: TsRuntimeDeps {
+                source: TsRuntimeSource::Registry,
+                version: "0.4.0".to_string(),
+                repo_root: None,
+            },
+        };
+        let loaded = load_manifest(&manifest_path).unwrap();
+        let contract = render_contract_ts(&opts, &loaded);
+
+        assert!(contract.contains("type ContractJobs = {"));
+        assert!(contract.contains("\"exampleJob\": {"));
+        assert!(contract.contains("payload: { id: string; };"));
+        assert!(contract.contains("result: { ok: boolean; };"));
+        assert!(contract.contains("\"fireAndForget\": {"));
+        assert!(contract.contains("result: unknown;"));
+        assert!(contract.contains(
+            "export const jobsDemo: SdkContractModule<typeof CONTRACT_ID, typeof API.owned, ContractJobs> = {"
+        ));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn generated_contract_emits_top_level_jobs_metadata() {
+        let root = unique_temp_dir("generated-sdk-jobs-metadata");
+        fs::create_dir_all(&root).unwrap();
+        let manifest_path = root.join("contract.json");
+        let manifest = serde_json::from_str::<Value>(
+            r#"{
+                "format": "trellis.contract.v1",
+                "id": "example.jobs@v1",
+                "displayName": "Jobs Example",
+                "description": "Contract with first-class jobs.",
+                "kind": "service",
+                "schemas": {
+                    "PingInput": {
+                        "type": "object",
+                        "properties": {},
+                        "additionalProperties": false
+                    },
+                    "PingOutput": {
+                        "type": "object",
+                        "properties": {
+                            "ok": { "type": "boolean" }
+                        },
+                        "required": ["ok"],
+                        "additionalProperties": false
+                    },
+                    "EmailPayload": {
+                        "type": "object",
+                        "properties": {
+                            "address": { "type": "string" }
+                        },
+                        "required": ["address"],
+                        "additionalProperties": false
+                    },
+                    "EmailResult": {
+                        "type": "object",
+                        "properties": {
+                            "delivered": { "type": "boolean" }
+                        },
+                        "required": ["delivered"],
+                        "additionalProperties": false
+                    }
+                },
+                "rpc": {
+                    "Example.Ping": {
+                        "version": "v1",
+                        "subject": "rpc.v1.Example.Ping",
+                        "input": { "schema": "PingInput" },
+                        "output": { "schema": "PingOutput" }
+                    }
+                },
+                "jobs": {
+                    "sendEmail": {
+                        "payload": { "schema": "EmailPayload" },
+                        "result": { "schema": "EmailResult" }
+                    }
+                },
+                "events": {},
+                "subjects": {}
+            }"#,
+        )
+        .unwrap();
+        fs::write(&manifest_path, serde_json::to_string(&manifest).unwrap()).unwrap();
+
+        let opts = GenerateTsSdkOpts {
+            manifest_path: manifest_path.clone(),
+            out_dir: root.join("out"),
+            package_name: "@qlever-llc/trellis-sdk-example-jobs".to_string(),
+            package_version: "0.4.0".to_string(),
+            runtime_deps: TsRuntimeDeps {
+                source: TsRuntimeSource::Registry,
+                version: "0.4.0".to_string(),
+                repo_root: None,
+            },
+        };
+        let loaded = load_manifest(&manifest_path).unwrap();
+
+        let contract = render_contract_ts(&opts, &loaded);
+
+        assert!(contract.contains(
+            "import { CONTRACT_JOBS_METADATA, type ContractJobsMetadata } from \"@qlever-llc/trellis/contracts\";"
+        ));
+        assert!(contract.contains(
+            "export const exampleJobs: SdkContractModule<typeof CONTRACT_ID, typeof API.owned, ContractJobs> = {"
+        ));
+        assert!(contract.contains("type ContractJobs = {"));
+        assert!(contract.contains("\"sendEmail\": {"));
+        assert!(contract.contains("payload: { address: string; };"));
+        assert!(contract.contains("result: { delivered: boolean; };"));
+        assert!(contract.contains(
+            "const CONTRACT_JOBS = defineContractJobsMetadata<ContractJobs>({"
+        ));
+        assert!(contract.contains(
+            "  \"sendEmail\": { payload: undefined, result: undefined },"
+        ));
+        assert!(contract.contains("  [CONTRACT_JOBS_METADATA]: CONTRACT_JOBS,"));
 
         fs::remove_dir_all(root).unwrap();
     }
