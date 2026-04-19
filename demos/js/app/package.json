@@ -1,0 +1,22 @@
+{
+  "name": "@trellis-demo/app",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "deno task dev",
+    "build": "deno task build",
+    "preview": "deno task preview",
+    "check": "deno task check"
+  },
+  "devDependencies": {
+    "@sveltejs/adapter-static": "3.0.10",
+    "@sveltejs/kit": "2.55.0",
+    "@sveltejs/vite-plugin-svelte": "7.0.0",
+    "@types/node": "25.5.0",
+    "svelte": "5.54.1",
+    "svelte-check": "4.4.5",
+    "typescript": "5.9.3",
+    "vite": "8.0.1"
+  }
+}

@@ -151,7 +151,10 @@ async fn transfer_put_and_get_use_raw_chunk_transport() {
         .subscribe(operation_subject.to_string())
         .await
         .expect("subscribe operation subject");
-    service_client.flush().await.expect("flush operation subscription");
+    service_client
+        .flush()
+        .await
+        .expect("flush operation subscription");
     let service_for_operation = service_client.clone();
     let accepted_session_key = session_key.clone();
     tokio::spawn(async move {

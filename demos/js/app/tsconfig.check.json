@@ -1,0 +1,27 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["deno.ns"],
+    "paths": {
+      "$lib": ["./src/lib"],
+      "$lib/*": ["./src/lib/*"],
+      "@qlever-llc/trellis": ["./types/trellis.d.ts"],
+      "@qlever-llc/trellis/auth": ["../../../js/packages/trellis/auth.ts"],
+      "@qlever-llc/trellis/auth/browser": ["../../../js/packages/trellis/auth/browser.ts"],
+      "@qlever-llc/trellis/contracts": ["./types/trellis-contracts.d.ts"],
+      "@qlever-llc/trellis-jobs": ["./types/trellis-jobs.d.ts"],
+      "@qlever-llc/trellis-sdk": ["../../../js/packages/trellis-sdk/mod.ts"],
+      "@qlever-llc/trellis-sdk/auth": ["../../../js/packages/trellis-sdk/auth.ts"],
+      "@qlever-llc/trellis-sdk/core": ["../../../js/packages/trellis-sdk/core.ts"],
+      "@qlever-llc/trellis-sdk/jobs": ["../../../generated/js/sdks/jobs/mod.ts"],
+      "@qlever-llc/trellis-sdk/state": ["../../../js/packages/trellis-sdk/state.ts"],
+      "@qlever-llc/result": ["../../../js/packages/result/mod.ts"],
+      "@qlever-llc/trellis-svelte": ["./types/trellis-svelte.d.ts"],
+      "@trellis-demo/rpc-service-sdk": ["../generated/js/sdks/demo-rpc-service/mod.ts"],
+      "@trellis-demo/operation-service-sdk": ["../generated/js/sdks/demo-operation-service/mod.ts"],
+      "@trellis-demo/transfer-service-sdk": ["../generated/js/sdks/demo-transfer-service/mod.ts"],
+      "@trellis-demo/kv-service-sdk": ["../generated/js/sdks/demo-kv-service/mod.ts"],
+      "@trellis-demo/jobs-service-sdk": ["../generated/js/sdks/demo-jobs-service/mod.ts"]
+    }
+  }
+}

@@ -338,7 +338,10 @@ fn install_service_response_deserializes_typed_resource_bindings() {
         }))
         .expect("deserialize install service response");
 
-    let resource_bindings = response.instance.resource_bindings.expect("resource bindings");
+    let resource_bindings = response
+        .instance
+        .resource_bindings
+        .expect("resource bindings");
     let jobs = resource_bindings.jobs.expect("jobs bindings");
     assert_eq!(
         jobs.queues

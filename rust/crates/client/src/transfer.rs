@@ -148,7 +148,10 @@ pub(crate) async fn get_download_grant(
 
     let mut headers = HeaderMap::new();
     headers.insert("session-key", client.auth().session_key.as_str());
-    headers.insert("proof", client.auth().create_proof(&grant.subject, &[]).as_str());
+    headers.insert(
+        "proof",
+        client.auth().create_proof(&grant.subject, &[]).as_str(),
+    );
 
     let inbox = client.nats().new_inbox();
     let mut subscriber = tokio::time::timeout(
@@ -161,9 +164,12 @@ pub(crate) async fn get_download_grant(
 
     tokio::time::timeout(
         Duration::from_millis(client.timeout_ms()),
-        client
-            .nats()
-            .publish_with_reply_and_headers(grant.subject.clone(), inbox, headers, Bytes::new()),
+        client.nats().publish_with_reply_and_headers(
+            grant.subject.clone(),
+            inbox,
+            headers,
+            Bytes::new(),
+        ),
     )
     .await
     .map_err(|_| TrellisClientError::Timeout)?

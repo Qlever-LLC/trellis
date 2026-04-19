@@ -125,7 +125,7 @@ pub trait OperationTransport {
         body: Value,
     ) -> impl Future<
         Output = Result<BoxStream<'a, Result<Value, TrellisClientError>>, TrellisClientError>,
-     > + Send
+    > + Send
            + 'a;
 
     fn put_upload_transfer<'a>(
@@ -325,10 +325,7 @@ where
         )))
     }
 
-    pub async fn transfer(
-        &self,
-        body: impl AsRef<[u8]>,
-    ) -> Result<FileInfo, TrellisClientError> {
+    pub async fn transfer(&self, body: impl AsRef<[u8]>) -> Result<FileInfo, TrellisClientError> {
         let grant = self.accepted_transfer.clone().ok_or_else(|| {
             TrellisClientError::OperationProtocol(
                 "operation does not have an accepted transfer session".into(),

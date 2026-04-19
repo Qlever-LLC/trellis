@@ -19,8 +19,8 @@ pub use descriptor::{EventDescriptor, RpcDescriptor};
 pub use error::TrellisClientError;
 pub use operations::{
     control_subject, OperationDescriptor, OperationEvent, OperationInvoker, OperationRef,
-    OperationRefData, OperationSnapshot, OperationState, OperationTransport,
-    OperationTransferProgress,
+    OperationRefData, OperationSnapshot, OperationState, OperationTransferProgress,
+    OperationTransport,
 };
 pub use proof::verify_proof;
 pub use transfer::{DownloadTransferGrant, FileInfo, UploadTransferGrant};

@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
 use std::io::{self, Write};
 
-use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine as _;
 use miette::IntoDiagnostic;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use trellis_auth as authlib;
 
 use crate::app::{connect_authenticated_cli_client, json_value_label};
@@ -491,8 +491,8 @@ fn opaque_metadata_or_dash(metadata: Option<&BTreeMap<String, String>>) -> Strin
 #[cfg(test)]
 mod tests {
     use super::{
-        DEVICE_MODEL_METADATA_KEY, DEVICE_NAME_METADATA_KEY, DEVICE_SERIAL_METADATA_KEY,
         build_device_metadata, opaque_metadata_or_dash, parse_metadata_entry,
+        DEVICE_MODEL_METADATA_KEY, DEVICE_NAME_METADATA_KEY, DEVICE_SERIAL_METADATA_KEY,
     };
     use crate::cli::DeviceProvisionArgs;
     use std::collections::BTreeMap;
@@ -533,21 +533,17 @@ mod tests {
         })
         .expect_err("duplicate metadata key should fail");
 
-        assert!(
-            error
-                .to_string()
-                .contains("duplicate device metadata key: name")
-        );
+        assert!(error
+            .to_string()
+            .contains("duplicate device metadata key: name"));
     }
 
     #[test]
     fn parse_metadata_entry_requires_key_value_syntax() {
         let error = parse_metadata_entry("assetTag").expect_err("missing separator should fail");
-        assert!(
-            error
-                .to_string()
-                .contains("invalid metadata entry 'assetTag'; expected KEY=VALUE")
-        );
+        assert!(error
+            .to_string()
+            .contains("invalid metadata entry 'assetTag'; expected KEY=VALUE"));
     }
 
     #[test]
