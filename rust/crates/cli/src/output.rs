@@ -9,6 +9,11 @@ pub fn print_json<T: Serialize>(value: &T) -> miette::Result<()> {
     Ok(())
 }
 
+pub fn print_json_progress<T: Serialize>(value: &T) -> miette::Result<()> {
+    eprintln!("{}", serde_json::to_string(value).into_diagnostic()?);
+    Ok(())
+}
+
 pub fn print_success(message: &str) {
     println!("{} {}", "ok".green().bold(), message);
 }

@@ -56,7 +56,8 @@ The same pattern works for device contracts. A device that needs `deviceApp` sta
 
 ## 2. Read and write state from the client
 
-After your app has an authenticated Trellis client, call `State.*` with the scope you need.
+After your app has an authenticated Trellis client, call `State.*` with the
+state partition you need.
 
 ```ts
 const trellis = await getTrellis();
@@ -77,12 +78,14 @@ if (!prefs.found) {
 
 `userApp` means one authenticated user inside one app contract namespace. The same user signing into a different app contract does not see these keys.
 
-## 3. Choose the right scope
+## 3. Choose the right state partition
 
 v1 supports two scopes:
 
 - `userApp` for per-user app state
 - `deviceApp` for per-device app state when the caller is an authenticated device participant
+
+These are state partitions, not OAuth scopes and not Trellis capabilities.
 
 Use `userApp` for settings and drafts that should follow the same user across browsers or CLIs of the same app lineage.
 

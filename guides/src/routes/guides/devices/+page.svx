@@ -171,6 +171,7 @@ If the device contract has not been installed yet, use the same contract source 
 ## 7. Revoke an activated device
 
 Activated device revocation is handled through the device activation admin surface. The next NATS connect attempt by that device will be rejected.
+Revocation also removes the device's ability to reconnect with previously fetched connect info.
 
 ```sh
 # Find the instance ID

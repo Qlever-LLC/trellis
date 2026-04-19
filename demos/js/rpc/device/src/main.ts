@@ -23,7 +23,7 @@ async function main(): Promise<void> {
       await activation.waitForOnlineApproval();
     },
   });
-  const me = (await device.request("Auth.Me", {})).take();
+  const me = await device.request("Auth.Me", {}).take();
   if (isErr(me)) {
     throw me.error;
   }
@@ -31,11 +31,9 @@ async function main(): Promise<void> {
   printScenarioHeading("Inspection RPC device");
   console.info("Connected as", me.device?.deviceId ?? "unknown-device");
 
-  const assignmentsResult = await device.request(
-    "Inspection.Assignments.List",
-    {},
-  );
-  const assignments = assignmentsResult.take();
+  const assignments = await device
+    .request("Inspection.Assignments.List", {})
+    .take();
   if (isErr(assignments)) {
     throw assignments.error;
   }
@@ -55,10 +53,11 @@ async function main(): Promise<void> {
   console.info("Site summaries:");
 
   for (const siteId of siteIds) {
-    const summaryResult = await device.request("Inspection.Sites.GetSummary", {
-      siteId,
-    });
-    const summary = summaryResult.take();
+    const summary = await device
+      .request("Inspection.Sites.GetSummary", {
+        siteId,
+      })
+      .take();
     if (isErr(summary)) {
       throw summary.error;
     }

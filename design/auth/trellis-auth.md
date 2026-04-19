@@ -20,7 +20,7 @@ order: 10
 Trellis needs one authentication and authorization model that works for:
 
 - browser applications
-- CLIs
+- agents, including the Trellis CLI
 - backend services
 - activated devices
 - NATS transport permissions
@@ -135,8 +135,8 @@ Rules:
 
 ### 7) User auth is approval-gated by exact contract digest
 
-Trellis treats browser apps and other normal user-facing clients as
-contract-bearing clients.
+Trellis treats `app` and `agent` participants as contract-bearing delegated user
+clients.
 
 Rules:
 
@@ -297,6 +297,6 @@ are split by concern:
   connect info, and activation flow
 - [auth-typescript-api.md](./auth-typescript-api.md) - TypeScript browser and
   service auth helpers
-- [auth-rust-api.md](./auth-rust-api.md) - Rust service and CLI auth helpers
+- [auth-rust-api.md](./auth-rust-api.md) - Rust service and agent auth helpers
 - [auth-operations.md](./auth-operations.md) - deployment, HA, rate limits,
   rotation, and accepted operational risks

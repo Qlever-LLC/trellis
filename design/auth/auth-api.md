@@ -19,7 +19,7 @@ This document defines the public Trellis auth API.
 It covers:
 
 - browser-flow broker, OAuth, and bind endpoints
-- browser-flow APIs consumed by portal
+- browser-flow APIs consumed by portal, including detached agent login
 - HTTP device activation endpoints
 - public and admin `rpc.Auth.*` endpoints
 - emitted auth events
@@ -61,9 +61,9 @@ path.
 
 ### POST /auth/requests
 
-Starts the normal auth flow for a browser app or other contract-bearing user
-client. The caller sends the initiating contract in the request body so auth can
-either auto-complete reauth immediately or create an auth-owned browser flow and
+Starts the normal auth flow for an `app` or `agent` participant. The caller
+sends the initiating contract in the request body so auth can either
+auto-complete reauth immediately or create an auth-owned browser flow and
 return a short `flowId`-based login URL.
 
 Request body:
@@ -73,7 +73,7 @@ Request body:
 | `provider`   | no       | Preferred provider id for direct provider continuation                                          |
 | `redirectTo` | yes      | Post-login redirect URL                                                                         |
 | `sessionKey` | yes      | Client public session key                                                                       |
-| `sig`        | yes      | `sign(hash("oauth-init:" + redirectTo + ":" + canonicalJson(context ?? null)))` by `sessionKey` |
+| `sig`        | yes      | `sign(hash("oauth-init:" + redirectTo + ":" + (provider ?? "") + ":" + canonicalJson(contract) + ":" + canonicalJson(context ?? null)))` by `sessionKey` |
 | `contract`   | yes      | Initiating browser-app contract manifest JSON for portal routing and approval planning          |
 | `context`    | no       | Opaque JSON payload for app and portal coordination                                             |
 
@@ -131,6 +131,12 @@ Behavior:
 3. Store `{ provider, flowId, codeVerifier, createdAt }`
 4. Set `trellis_oauth=state`
 5. Redirect to the provider
+
+Rules:
+
+- the OAuth state cookie is `Secure` for HTTPS public origins
+- loopback HTTP origins remain allowed without extra configuration for local development
+- non-loopback HTTP public origins MUST be explicitly allowlisted with `web.allowInsecureOrigins`
 
 ### GET /auth/callback/:provider
 
@@ -231,6 +237,10 @@ Rules:
 - portal MUST treat `redirect.location` as an opaque next auth step
 - `redirect.location` may point back to the originating browser app or to
   another auth-owned step in the same login flow
+- for detached agent login, `redirect.location` may resolve to the same portal
+  login page; the built-in Trellis portal treats that same-page redirect as
+  completion UX and tells the user to return to the Trellis CLI rather than
+  redirecting again
 - portal does not invent auth-protocol next-step URLs locally, though it may
   still use its own local routes and UI state while rendering the flow
 - portal-specific customization data travels through `app.context` rather than
@@ -350,7 +360,7 @@ Behavior:
 
 Rules:
 
-- normal browser and CLI flows reach `/auth/bind` only after Trellis has already
+- normal browser and detached agent flows reach `/auth/bind` only after Trellis has already
   recorded an approval decision
 - `/auth/bind` still rechecks approval and capabilities defensively
 - portal is a browser UX surface only; bind remains auth-owned
@@ -409,7 +419,9 @@ Response:
 }
 ```
 
-Revocation SHOULD also revoke matching active delegated sessions.
+Revocation removes the stored delegated approval for that exact digest, revokes
+matching active delegated sessions, and removes reconnect authority until a new
+approval is granted.
 
 ## Authenticated User RPCs
 

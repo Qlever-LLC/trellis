@@ -58,9 +58,14 @@ export async function oauthInitSig(
   handle: SessionKeyHandle,
   redirectTo: string,
   context?: unknown,
+  provider?: string,
+  contract?: Record<string, unknown>,
 ): Promise<string> {
   const canonicalContext = canonicalizeJsonValue(context ?? null);
-  const digest = await sha256(utf8(`oauth-init:${redirectTo}:${canonicalContext}`));
+  const payload = contract === undefined
+    ? `${redirectTo}:${canonicalContext}`
+    : `${redirectTo}:${provider ?? ""}:${canonicalizeJsonValue(contract)}:${canonicalContext}`;
+  const digest = await sha256(utf8(`oauth-init:${payload}`));
   const sig = await signBytes(handle, digest);
   return base64urlEncode(sig);
 }

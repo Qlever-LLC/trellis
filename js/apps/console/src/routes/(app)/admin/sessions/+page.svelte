@@ -1,26 +1,33 @@
 <script lang="ts">
-  import type { AuthKickConnectionInput, AuthListConnectionsOutput, AuthListSessionsOutput, AuthRevokeSessionInput } from "@qlever-llc/trellis-sdk/auth";
+  import type { AuthKickConnectionInput, AuthRevokeSessionInput } from "@qlever-llc/trellis-sdk/auth";
   import { onMount } from "svelte";
+  import {
+    describeSessionPrincipal,
+    formatShortKey,
+    participantKindBadgeClass,
+    participantKindLabel,
+    type ConnectionRecord,
+    type SessionRecord,
+  } from "../../../../lib/auth_display.ts";
   import { errorMessage, formatDate } from "../../../../lib/format";
-  import { type ConnectionRow, formatOriginId, parseConnectionRowKey, parseSessionRowKey, type SessionRow } from "../../../../lib/keys";
   import { getNotifications } from "../../../../lib/notifications.svelte";
   import { getTrellis } from "../../../../lib/trellis";
 
   const trellisPromise = getTrellis();
   const notifications = getNotifications();
 
-  type SessionView = AuthListSessionsOutput["sessions"][number] & { parsed: SessionRow | null };
-  type ConnectionView = AuthListConnectionsOutput["connections"][number] & { parsed: ConnectionRow | null };
+  type SessionListResponse = { sessions: SessionRecord[] };
+  type ConnectionListResponse = { connections: ConnectionRecord[] };
 
   let activeTab = $state<"sessions" | "connections">("sessions");
   let loading = $state(true);
   let error = $state<string | null>(null);
 
-  let sessions = $state<SessionView[]>([]);
+  let sessions = $state<SessionRecord[]>([]);
   let sessionFilterUser = $state("");
   let revokeTarget = $state<string | null>(null);
 
-  let connections = $state<ConnectionView[]>([]);
+  let connections = $state<ConnectionRecord[]>([]);
   let connFilterUser = $state("");
   let connFilterSessionKey = $state("");
   let kickTarget = $state<string | null>(null);
@@ -30,13 +37,10 @@
     error = null;
     try {
       const trellis = await trellisPromise;
-      const response = await trellis.request<AuthListSessionsOutput>("Auth.ListSessions" as string, {
+      const response = await trellis.request<SessionListResponse>("Auth.ListSessions" as string, {
         user: sessionFilterUser.trim() || undefined
       }).orThrow();
-      sessions = (response.sessions ?? []).map((s) => ({
-        ...s,
-        parsed: parseSessionRowKey(s.key)
-      }));
+      sessions = response.sessions ?? [];
     } catch (e) {
       error = errorMessage(e);
     } finally {
@@ -49,14 +53,11 @@
     error = null;
     try {
       const trellis = await trellisPromise;
-      const response = await trellis.request<AuthListConnectionsOutput>("Auth.ListConnections" as string, {
+      const response = await trellis.request<ConnectionListResponse>("Auth.ListConnections" as string, {
         user: connFilterUser.trim() || undefined,
         sessionKey: connFilterSessionKey.trim() || undefined
       }).orThrow();
-      connections = (response.connections ?? []).map((c) => ({
-        ...c,
-        parsed: parseConnectionRowKey(c.key)
-      }));
+      connections = response.connections ?? [];
     } catch (e) {
       error = errorMessage(e);
     } finally {
@@ -69,25 +70,27 @@
     else void loadConnections();
   }
 
-  async function revokeSession(sessionKey: string, principal: string) {
-    if (!window.confirm(`Revoke this session? ${principal} will be disconnected.`)) return;
-    revokeTarget = sessionKey;
+  async function revokeSession(session: SessionRecord) {
+    const summary = describeSessionPrincipal(session);
+    if (!window.confirm(`Revoke this ${participantKindLabel(session.participantKind).toLowerCase()} session? ${summary.title} will be disconnected.`)) return;
+    revokeTarget = session.sessionKey;
     try {
       const trellis = await trellisPromise;
-      await trellis.request<void>("Auth.RevokeSession" as string, { sessionKey } satisfies AuthRevokeSessionInput).orThrow();
-      notifications.success(`Session revoked for ${principal}.`, "Revoked");
+      await trellis.request<void>("Auth.RevokeSession" as string, { sessionKey: session.sessionKey } satisfies AuthRevokeSessionInput).orThrow();
+      notifications.success(`Session revoked for ${summary.title}.`, "Revoked");
       await loadSessions();
     } catch (e) { error = errorMessage(e); }
     finally { revokeTarget = null; }
   }
 
-  async function kickConnection(userNkey: string, principal: string) {
-    if (!window.confirm(`Disconnect ${principal}?`)) return;
-    kickTarget = userNkey;
+  async function kickConnection(connection: ConnectionRecord) {
+    const summary = describeSessionPrincipal(connection);
+    if (!window.confirm(`Disconnect this ${participantKindLabel(connection.participantKind).toLowerCase()} connection for ${summary.title}?`)) return;
+    kickTarget = connection.userNkey;
     try {
       const trellis = await trellisPromise;
-      await trellis.request<void>("Auth.KickConnection" as string, { userNkey } satisfies AuthKickConnectionInput).orThrow();
-      notifications.success(`Disconnected ${principal}.`, "Kicked");
+      await trellis.request<void>("Auth.KickConnection" as string, { userNkey: connection.userNkey } satisfies AuthKickConnectionInput).orThrow();
+      notifications.success(`Disconnected ${summary.title}.`, "Kicked");
       await loadConnections();
     } catch (e) { error = errorMessage(e); }
     finally { kickTarget = null; }
@@ -138,33 +141,40 @@
           <thead>
             <tr>
               <th>Principal</th>
-              <th>Type</th>
+              <th>Kind</th>
               <th>Session Key</th>
-              <th>Connected</th>
+              <th>Activity</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
             {#each sessions as session (session.key)}
+              {@const summary = describeSessionPrincipal(session)}
               <tr>
-                <td class="font-medium">{session.parsed ? formatOriginId(session.parsed.origin, session.parsed.id) : session.key}</td>
                 <td>
-                  <span class="badge badge-sm" class:badge-info={session.type !== "service"} class:badge-ghost={session.type === "service"}>
-                    {session.type === "service" ? "Service" : "User"}
+                  <div class="font-medium">{summary.title}</div>
+                  {#if summary.details}
+                    <div class="text-xs text-base-content/60">{summary.details}</div>
+                  {/if}
+                </td>
+                <td>
+                  <span class={["badge badge-sm", participantKindBadgeClass(session.participantKind)]}>
+                    {participantKindLabel(session.participantKind)}
                   </span>
                 </td>
-                <td class="font-mono text-xs text-base-content/60">{session.parsed?.sessionKey?.slice(0, 12) ?? "—"}…</td>
-                <td class="text-base-content/60">{formatDate(session.createdAt)}</td>
+                <td class="font-mono text-xs text-base-content/60">{formatShortKey(session.sessionKey)}</td>
+                <td class="text-xs text-base-content/60">
+                  <div>Last auth {formatDate(session.lastAuth)}</div>
+                  <div>Created {formatDate(session.createdAt)}</div>
+                </td>
                 <td class="text-right">
-                  {#if session.parsed?.sessionKey}
-                    <button
-                      class="btn btn-ghost btn-xs text-error"
-                      onclick={() => revokeSession(session.parsed.sessionKey, formatOriginId(session.parsed.origin, session.parsed.id))}
-                      disabled={revokeTarget === session.parsed.sessionKey}
-                    >
-                      {revokeTarget === session.parsed.sessionKey ? "Revoking…" : "Revoke"}
-                    </button>
-                  {/if}
+                  <button
+                    class="btn btn-ghost btn-xs text-error"
+                    onclick={() => revokeSession(session)}
+                    disabled={revokeTarget === session.sessionKey}
+                  >
+                    {revokeTarget === session.sessionKey ? "Revoking…" : "Revoke"}
+                  </button>
                 </td>
               </tr>
             {/each}
@@ -194,6 +204,7 @@
           <thead>
             <tr>
               <th>Principal</th>
+              <th>Kind</th>
               <th>Session Key</th>
               <th>User NKey</th>
               <th>Server</th>
@@ -203,25 +214,34 @@
           </thead>
           <tbody>
             {#each connections as connection (connection.key)}
+              {@const summary = describeSessionPrincipal(connection)}
               <tr>
-                <td class="font-medium">{connection.parsed ? formatOriginId(connection.parsed.origin, connection.parsed.id) : connection.key}</td>
-                <td class="font-mono text-xs text-base-content/60">{connection.parsed?.sessionKey?.slice(0, 12) ?? "—"}…</td>
-                <td class="font-mono text-xs text-base-content/60">{connection.parsed?.userNkey?.slice(0, 12) ?? "—"}…</td>
+                <td>
+                  <div class="font-medium">{summary.title}</div>
+                  {#if summary.details}
+                    <div class="text-xs text-base-content/60">{summary.details}</div>
+                  {/if}
+                </td>
+                <td>
+                  <span class={["badge badge-sm", participantKindBadgeClass(connection.participantKind)]}>
+                    {participantKindLabel(connection.participantKind)}
+                  </span>
+                </td>
+                <td class="font-mono text-xs text-base-content/60">{formatShortKey(connection.sessionKey)}</td>
+                <td class="font-mono text-xs text-base-content/60">{formatShortKey(connection.userNkey)}</td>
                 <td>
                   <span class="text-sm">{connection.serverId}</span>
                   <span class="text-xs text-base-content/50 block">client {connection.clientId}</span>
                 </td>
                 <td class="text-base-content/60">{formatDate(connection.connectedAt)}</td>
                 <td class="text-right">
-                  {#if connection.parsed}
-                    <button
-                      class="btn btn-ghost btn-xs text-error"
-                      onclick={() => kickConnection(connection.parsed.userNkey, formatOriginId(connection.parsed.origin, connection.parsed.id))}
-                      disabled={kickTarget === connection.parsed.userNkey}
-                    >
-                      {kickTarget === connection.parsed.userNkey ? "Kicking…" : "Kick"}
-                    </button>
-                  {/if}
+                  <button
+                    class="btn btn-ghost btn-xs text-error"
+                    onclick={() => kickConnection(connection)}
+                    disabled={kickTarget === connection.userNkey}
+                  >
+                    {kickTarget === connection.userNkey ? "Kicking…" : "Kick"}
+                  </button>
                 </td>
               </tr>
             {/each}

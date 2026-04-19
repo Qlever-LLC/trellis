@@ -76,8 +76,10 @@ function request(
 }
 
 export function getTrellis(): Promise<AppTrellis> {
+  const liveClientPromise = getProviderTrellis<AppApi>() as unknown as Promise<RuntimeTrellis>;
+
   const createLiveClient = async (): Promise<RuntimeTrellis> => {
-    return await getProviderTrellis<AppApi>() as unknown as RuntimeTrellis;
+    return await liveClientPromise;
   };
 
   const liveTrellis: AppTrellis & { createLiveClient: typeof createLiveClient } = {

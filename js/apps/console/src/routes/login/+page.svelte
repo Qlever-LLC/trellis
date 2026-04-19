@@ -106,10 +106,6 @@
           auth.setAuthUrl(selectedAuthUrl);
         }
         await auth.init();
-        if (auth.isAuthenticated) {
-          await goto(targetPath());
-          return;
-        }
       } catch (error) {
         authError = errorMessage(error);
       } finally {

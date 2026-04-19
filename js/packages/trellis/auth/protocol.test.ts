@@ -2,6 +2,14 @@ import { assert, assertFalse } from "@std/assert";
 import Value from "typebox/value";
 
 import {
+  AuthListUserGrantsResponseSchema as GeneratedAuthListUserGrantsResponseSchema,
+  AuthListUserGrantsSchema as GeneratedAuthListUserGrantsSchema,
+} from "../models/auth/rpc/ListUserGrants.ts";
+import {
+  AuthRevokeUserGrantResponseSchema as GeneratedAuthRevokeUserGrantResponseSchema,
+  AuthRevokeUserGrantSchema as GeneratedAuthRevokeUserGrantSchema,
+} from "../models/auth/rpc/RevokeUserGrant.ts";
+import {
   ContractApprovalSchema,
   NatsAuthTokenV1Schema,
   AuthDeviceActivationReviewRequestedEventSchema,
@@ -49,11 +57,15 @@ import {
   AuthListLoginPortalSelectionsSchema,
   AuthListPortalsResponseSchema,
   AuthListPortalsSchema,
+  AuthListUserGrantsResponseSchema,
+  AuthListUserGrantsSchema,
   AuthMeResponseSchema,
   AuthProvisionDeviceInstanceResponseSchema,
   AuthProvisionDeviceInstanceSchema,
   AuthRevokeDeviceActivationResponseSchema,
   AuthRevokeDeviceActivationSchema,
+  AuthRevokeUserGrantResponseSchema,
+  AuthRevokeUserGrantSchema,
   AuthSetDevicePortalDefaultResponseSchema,
   AuthSetDevicePortalDefaultSchema,
   AuthSetDevicePortalSelectionResponseSchema,
@@ -105,6 +117,7 @@ Deno.test("auth schemas keep contractDigest consistently typed", () => {
     contractId: "trellis.console@v1",
     displayName: "Console",
     description: "Admin app",
+    participantKind: "app",
     capabilities: ["admin"],
   }));
   assert(Value.Check(NatsAuthTokenV1Schema, {
@@ -163,6 +176,7 @@ Deno.test("AuthValidateRequestResponseSchema validates device caller variants", 
     inboxPrefix: "_INBOX.session",
     caller: {
       type: "user",
+      participantKind: "app",
       trellisId: "tid_123",
       id: "123",
       origin: "github",
@@ -421,6 +435,7 @@ Deno.test("portal, portal selection, and device admin schemas validate", () => {
 
 Deno.test("AuthMeResponseSchema validates user, device, and service envelopes", () => {
   assert(Value.Check(AuthMeResponseSchema, {
+    participantKind: "agent",
     user: {
       id: "123",
       origin: "github",
@@ -433,6 +448,7 @@ Deno.test("AuthMeResponseSchema validates user, device, and service envelopes", 
     service: null,
   }));
   assert(Value.Check(AuthMeResponseSchema, {
+    participantKind: "device",
     user: null,
     device: {
       type: "device",
@@ -446,6 +462,7 @@ Deno.test("AuthMeResponseSchema validates user, device, and service envelopes", 
     service: null,
   }));
   assert(Value.Check(AuthMeResponseSchema, {
+    participantKind: "service",
     user: null,
     device: null,
     service: {
@@ -457,6 +474,7 @@ Deno.test("AuthMeResponseSchema validates user, device, and service envelopes", 
     },
   }));
   assert(Value.Check(AuthMeResponseSchema, {
+    participantKind: "app",
     user: {
       id: "123",
       origin: "github",
@@ -469,6 +487,91 @@ Deno.test("AuthMeResponseSchema validates user, device, and service envelopes", 
     device: null,
     service: null,
     requestId: "req_123",
+  }));
+});
+
+Deno.test("user grant schemas validate self-service grant rows", () => {
+  assert(Value.Check(AuthListUserGrantsSchema, {}));
+  assert(Value.Check(GeneratedAuthListUserGrantsSchema, {}));
+  assert(Value.Check(AuthListUserGrantsResponseSchema, {
+    grants: [
+      {
+        contractDigest: "digest_123",
+        contractId: "trellis.agent@v1",
+        displayName: "Trellis Agent",
+        description: "Local delegated tooling",
+        participantKind: "agent",
+        capabilities: ["jobs.read"],
+        grantedAt: now,
+        updatedAt: now,
+      },
+    ],
+  }));
+  assert(Value.Check(GeneratedAuthListUserGrantsResponseSchema, {
+    grants: [
+      {
+        contractDigest: "digest_123",
+        contractId: "trellis.agent@v1",
+        displayName: "Trellis Agent",
+        description: "Local delegated tooling",
+        participantKind: "agent",
+        capabilities: ["jobs.read"],
+        grantedAt: now,
+        updatedAt: now,
+      },
+    ],
+  }));
+  assert(Value.Check(AuthRevokeUserGrantSchema, {
+    contractDigest: "digest_123",
+  }));
+  assert(Value.Check(GeneratedAuthRevokeUserGrantSchema, {
+    contractDigest: "digest_123",
+  }));
+  assert(Value.Check(AuthRevokeUserGrantResponseSchema, {
+    success: true,
+  }));
+  assert(Value.Check(GeneratedAuthRevokeUserGrantResponseSchema, {
+    success: true,
+  }));
+
+  assertFalse(Value.Check(GeneratedAuthListUserGrantsResponseSchema, {
+    grants: [{
+      contractDigest: "digest with spaces",
+      contractId: "trellis.agent@v1",
+      displayName: "Trellis Agent",
+      description: "Local delegated tooling",
+      participantKind: "agent",
+      capabilities: ["jobs.read"],
+      grantedAt: now,
+      updatedAt: now,
+    }],
+  }));
+  assertFalse(Value.Check(GeneratedAuthListUserGrantsResponseSchema, {
+    grants: [{
+      contractDigest: "digest_123",
+      contractId: "",
+      displayName: "Trellis Agent",
+      description: "Local delegated tooling",
+      participantKind: "agent",
+      capabilities: ["jobs.read"],
+      grantedAt: now,
+      updatedAt: now,
+    }],
+  }));
+  assertFalse(Value.Check(GeneratedAuthListUserGrantsResponseSchema, {
+    grants: [{
+      contractDigest: "digest_123",
+      contractId: "trellis.agent@v1",
+      displayName: "Trellis Agent",
+      description: "Local delegated tooling",
+      participantKind: "agent",
+      capabilities: ["jobs.read"],
+      grantedAt: "not-a-date",
+      updatedAt: now,
+    }],
+  }));
+  assertFalse(Value.Check(GeneratedAuthRevokeUserGrantSchema, {
+    contractDigest: "digest with spaces",
   }));
 });
 

@@ -25,6 +25,8 @@ import type {
 } from "../../state/schemas.ts";
 import { resolveSessionPrincipal } from "./principal.ts";
 import { loadServiceInstanceByKey, loadServiceProfile } from "../admin/service_rpc.ts";
+export { createAuthRevokeSessionHandler } from "./revoke.ts";
+import { createAuthRevokeSessionHandler } from "./revoke.ts";
 
 type AuthenticatedUser = {
   id: string;
@@ -56,6 +58,7 @@ type AuthenticatedDevice = {
 };
 
 type AuthMeResponse = {
+  participantKind: "app" | "agent" | "device" | "service";
   user: AuthenticatedUser | null;
   device: AuthenticatedDevice | null;
   service: AuthenticatedService | null;
@@ -104,9 +107,10 @@ type SessionUser = {
 };
 
 type SessionContext = {
-  caller: {
-    type: string;
-    trellisId?: string;
+    caller: {
+      type: string;
+      participantKind?: "app" | "agent";
+      trellisId?: string;
     id?: string;
     origin?: string;
     email?: string;
@@ -136,12 +140,45 @@ type SessionKeyRequest = { sessionKey: string };
 type UserNkeyRequest = { userNkey: string };
 type SessionListRow = {
   key: string;
-  type: "user" | "service" | "device";
+  sessionKey: string;
+  participantKind: "app" | "agent" | "device" | "service";
+  principal:
+    | {
+      type: "user";
+      trellisId: string;
+      origin: string;
+      id: string;
+      name: string;
+    }
+    | {
+      type: "service";
+      id: string;
+      name: string;
+      instanceId: string;
+      profileId: string;
+    }
+    | {
+      type: "device";
+      deviceId: string;
+      deviceType: string;
+      runtimePublicKey: string;
+      profileId: string;
+    };
+  contractId?: string;
+  contractDisplayName?: string;
+  appOrigin?: string;
   createdAt: string;
   lastAuth: string;
 };
 type ConnectionRow = {
   key: string;
+  userNkey: string;
+  sessionKey: string;
+  participantKind: "app" | "agent" | "device" | "service";
+  principal: SessionListRow["principal"];
+  contractId?: string;
+  contractDisplayName?: string;
+  appOrigin?: string;
   serverId: string;
   clientId: number;
   connectedAt: string;
@@ -168,6 +205,85 @@ function sessionActorKey(
   return userNkey
     ? `${actor}.${sessionKey}.${userNkey}`
     : `${actor}.${sessionKey}`;
+}
+
+function buildSessionRow(session: Session, sessionKey: string): SessionListRow {
+  if (session.type === "user") {
+    return {
+      key: sessionActorKey(session, sessionKey),
+      sessionKey,
+      participantKind: session.participantKind,
+      principal: {
+        type: "user",
+        trellisId: session.trellisId,
+        origin: session.origin,
+        id: session.id,
+        name: session.name,
+      },
+      contractId: session.contractId,
+      contractDisplayName: session.contractDisplayName,
+      ...(session.app?.origin ? { appOrigin: session.app.origin } : {}),
+      createdAt: iso(session.createdAt),
+      lastAuth: iso(session.lastAuth),
+    };
+  }
+
+  if (session.type === "device") {
+    return {
+      key: sessionActorKey(session, sessionKey),
+      sessionKey,
+      participantKind: "device",
+      principal: {
+        type: "device",
+        deviceId: session.instanceId,
+        deviceType: deviceTypeFromProfileId(session.profileId),
+        runtimePublicKey: session.publicIdentityKey,
+        profileId: session.profileId,
+      },
+      contractId: session.contractId,
+      createdAt: iso(session.createdAt),
+      lastAuth: iso(session.lastAuth),
+    };
+  }
+
+  return {
+    key: sessionActorKey(session, sessionKey),
+    sessionKey,
+    participantKind: "service",
+    principal: {
+      type: "service",
+      id: session.id,
+      name: session.name,
+      instanceId: session.instanceId,
+      profileId: session.profileId,
+    },
+    createdAt: iso(session.createdAt),
+    lastAuth: iso(session.lastAuth),
+  };
+}
+
+function buildConnectionRow(
+  session: Session,
+  sessionKey: string,
+  userNkey: string,
+  connection: { serverId: string; clientId: number; connectedAt: string | Date },
+): ConnectionRow {
+  const sessionRow = buildSessionRow(session, sessionKey);
+  return {
+    key: sessionActorKey(session, sessionKey, userNkey),
+    userNkey,
+    sessionKey,
+    participantKind: sessionRow.participantKind,
+    principal: sessionRow.principal,
+    ...(sessionRow.contractId ? { contractId: sessionRow.contractId } : {}),
+    ...(sessionRow.contractDisplayName
+      ? { contractDisplayName: sessionRow.contractDisplayName }
+      : {}),
+    ...(sessionRow.appOrigin ? { appOrigin: sessionRow.appOrigin } : {}),
+    serverId: connection.serverId,
+    clientId: connection.clientId,
+    connectedAt: iso(connection.connectedAt),
+  };
 }
 
 function requireUserCaller(caller: SessionContext["caller"]): SessionUser {
@@ -227,8 +343,9 @@ function formatCaller(
   }
 
   return {
-    type: "user" as const,
-    trellisId: session.trellisId,
+      type: "user" as const,
+      participantKind: session.participantKind,
+      trellisId: session.trellisId,
     id: session.id,
     origin: session.origin,
     active: principal.active,
@@ -270,6 +387,7 @@ function responseFromCaller(
     caller.name && caller.active !== undefined
   ) {
     return {
+      participantKind: caller.participantKind ?? "app",
       user: {
         id: caller.id,
         origin: caller.origin,
@@ -290,6 +408,7 @@ function responseFromCaller(
     caller.active !== undefined
   ) {
     return {
+      participantKind: "service",
       user: null,
       device: null,
       service: {
@@ -305,6 +424,7 @@ function responseFromCaller(
   const deviceCaller = deviceCallerFields(caller);
   if (deviceCaller) {
     return {
+      participantKind: "device",
       user: null,
       device: {
         type: "device",
@@ -366,6 +486,7 @@ async function responseFromDeviceCaller(args: {
     : null;
 
   return {
+    participantKind: "device",
     user,
     device: {
       type: "device",
@@ -607,7 +728,12 @@ export function createAuthMeHandler(deps: {
             active: true,
           },
         });
-        return Result.ok<AuthMeResponse>({ user, device: null, service: null });
+        return Result.ok<AuthMeResponse>({
+          participantKind: session.participantKind,
+          user,
+          device: null,
+          service: null,
+        });
       }
 
       if (session.type === "service") {
@@ -615,7 +741,12 @@ export function createAuthMeHandler(deps: {
           sessionKey,
           session: session as Session & { type: "service" },
         });
-        return Result.ok<AuthMeResponse>({ user: null, device: null, service });
+        return Result.ok<AuthMeResponse>({
+          participantKind: "service",
+          user: null,
+          device: null,
+          service,
+        });
       }
 
       const { user, device } = await loadAuthenticatedDevice({
@@ -624,7 +755,12 @@ export function createAuthMeHandler(deps: {
         deviceProfilesKV: deps.deviceProfilesKV,
         session: session as Session & { type: "device" },
       });
-      return Result.ok<AuthMeResponse>({ user, device, service: null });
+      return Result.ok<AuthMeResponse>({
+        participantKind: "device",
+        user,
+        device,
+        service: null,
+      });
     } catch (error) {
       if (error instanceof AuthError) return Result.err(error);
       throw error;
@@ -753,156 +889,130 @@ export const authLogoutHandler = async (
   return Result.ok({ success: true });
 };
 
-export const authListSessionsHandler = async (req: UserRefFilter) => {
-  logger.trace({ rpc: "Auth.ListSessions", user: req.user }, "RPC request");
-  const userFilter = typeof req.user === "string" ? req.user : undefined;
-  let filter = ">";
-  if (userFilter) {
-    const parsed = parseOriginId(userFilter);
-    if (!parsed) {
-      return Result.err(new AuthError({ reason: "invalid_request" }));
-    }
-    const trellisId = await trellisIdFromOriginId(parsed.origin, parsed.id);
-    filter = `>.${trellisId}`;
-  }
-
-  const iter = (await sessionKV.keys(filter)).take();
-  if (isErr(iter)) {
-    return Result.ok({ sessions: [] });
-  }
-
-  const sessions: SessionListRow[] = [];
-  for await (const key of iter) {
-    const entry = (await sessionKV.get(key)).take();
-    if (isErr(entry)) continue;
-
-    const sessionKey = key.split(".")[0] ?? "";
-    sessions.push({
-      key: sessionActorKey(entry.value as Session, sessionKey),
-      type: entry.value.type,
-      createdAt: iso(entry.value.createdAt),
-      lastAuth: iso(entry.value.lastAuth),
-    });
-  }
-
-  return Result.ok({ sessions });
-};
-
-export function createAuthRevokeSessionHandler(opts: {
-  kick: (serverId: string, clientId: number) => Promise<void>;
+export function createAuthListSessionsHandler(deps: {
+  sessionKV: {
+    keys: (filter: string) => { take(): unknown | Promise<unknown> } | Promise<{ take(): unknown | Promise<unknown> }>;
+    get: (key: string) => { take(): unknown | Promise<unknown> } | Promise<{ take(): unknown | Promise<unknown> }>;
+  };
 }) {
-  return async (
-    req: SessionKeyRequest,
-    { caller }: { caller: SessionContext["caller"] },
-  ) => {
-    const user = requireUserCaller(caller);
-    logger.trace({
-      rpc: "Auth.RevokeSession",
-      targetSessionKey: req.sessionKey,
-      userId: user.id,
-    }, "RPC request");
-    if (typeof req.sessionKey !== "string" || req.sessionKey.length === 0) {
-      return Result.err(new AuthError({ reason: "invalid_request" }));
-    }
-
-    const sessionIter = (await sessionKV.keys(`${req.sessionKey}.>`)).take();
-    if (isErr(sessionIter)) {
-      return Result.ok({ success: false });
-    }
-
-    const sessionsToDelete: string[] = [];
-    for await (const key of sessionIter) sessionsToDelete.push(key);
-    if (sessionsToDelete.length === 0) return Result.ok({ success: false });
-
-    const kickedBy = `${user.origin}.${user.id}`;
-    const connIter = (await connectionsKV.keys(`${req.sessionKey}.>.>`)).take();
-    if (!isErr(connIter)) {
-      for await (const key of connIter) {
-        const entry = (await connectionsKV.get(key)).take();
-        if (!isErr(entry)) {
-          await opts.kick(entry.value.serverId, entry.value.clientId);
-        }
-        await connectionsKV.delete(key);
+  return async (req: UserRefFilter = {}) => {
+    logger.trace({ rpc: "Auth.ListSessions", user: req.user }, "RPC request");
+    const userFilter = typeof req.user === "string" ? req.user : undefined;
+    let filter = ">";
+    if (userFilter) {
+      const parsed = parseOriginId(userFilter);
+      if (!parsed) {
+        return Result.err(new AuthError({ reason: "invalid_request" }));
       }
+      const trellisId = await trellisIdFromOriginId(parsed.origin, parsed.id);
+      filter = `>.${trellisId}`;
     }
 
-    for (const sessionKeyId of sessionsToDelete) {
-      const entry = (await sessionKV.get(sessionKeyId)).take();
-      if (!isErr(entry)) {
-        if (entry.value.type === "device") {
-          continue;
-        }
-        (
-          await trellis.publish("Auth.SessionRevoked", {
-            origin: entry.value.origin,
-            id: entry.value.id,
-            sessionKey: req.sessionKey,
-            revokedBy: kickedBy,
-          })
-        ).inspectErr((error) =>
-          logger.warn({ error }, "Failed to publish Auth.SessionRevoked")
-        );
-      }
-      await sessionKV.delete(sessionKeyId);
+    const iter = (await deps.sessionKV.keys(filter)).take();
+    if (isErr(iter)) {
+      return Result.ok({ sessions: [] });
     }
 
-    return Result.ok({ success: true });
+    const sessions: SessionListRow[] = [];
+    for await (const key of iter as AsyncIterable<string>) {
+      const entry = (await deps.sessionKV.get(key)).take();
+      if (isErr(entry)) continue;
+
+      const sessionKey = key.split(".")[0] ?? "";
+      sessions.push(buildSessionRow((entry as { value: Session }).value, sessionKey));
+    }
+
+    sessions.sort((left, right) => left.key.localeCompare(right.key));
+    return Result.ok({ sessions });
   };
 }
 
-export const authListConnectionsHandler = async (req: SessionFilter) => {
-  logger.trace({
-    rpc: "Auth.ListConnections",
-    user: req.user,
-    sessionKey: req.sessionKey,
-  }, "RPC request");
-  const userFilter = typeof req.user === "string" ? req.user : undefined;
-  const sessionKeyFilter = typeof req.sessionKey === "string"
-    ? req.sessionKey
-    : undefined;
+export const authListSessionsHandler = createAuthListSessionsHandler({ sessionKV });
 
-  let filter = ">";
-  if (sessionKeyFilter) {
-    filter = `${sessionKeyFilter}.>.>`;
-  } else if (userFilter) {
-    const parsed = parseOriginId(userFilter);
-    if (!parsed) {
-      return Result.err(new AuthError({ reason: "invalid_request" }));
+export const authRevokeSessionHandler = createAuthRevokeSessionHandler({
+  sessionKV,
+  connectionsKV,
+  contractApprovalsKV,
+  deviceActivationsKV,
+  serviceInstancesKV,
+  kick: async (serverId, clientId) => {
+    await import("../callout/kick.ts").then(({ kick }) => kick(serverId, clientId));
+  },
+  publishSessionRevoked: async (event) => {
+    (await trellis.publish("Auth.SessionRevoked", event)).inspectErr((error) =>
+      logger.warn({ error }, "Failed to publish Auth.SessionRevoked")
+    );
+  },
+});
+
+export function createAuthListConnectionsHandler(deps: {
+  sessionKV: {
+    get: (key: string) => { take(): unknown | Promise<unknown> } | Promise<{ take(): unknown | Promise<unknown> }>;
+  };
+  connectionsKV: {
+    keys: (filter: string) => { take(): unknown | Promise<unknown> } | Promise<{ take(): unknown | Promise<unknown> }>;
+    get: (key: string) => { take(): unknown | Promise<unknown> } | Promise<{ take(): unknown | Promise<unknown> }>;
+  };
+}) {
+  return async (req: SessionFilter = {}) => {
+    logger.trace({
+      rpc: "Auth.ListConnections",
+      user: req.user,
+      sessionKey: req.sessionKey,
+    }, "RPC request");
+    const userFilter = typeof req.user === "string" ? req.user : undefined;
+    const sessionKeyFilter = typeof req.sessionKey === "string"
+      ? req.sessionKey
+      : undefined;
+
+    let filter = ">";
+    if (sessionKeyFilter) {
+      filter = `${sessionKeyFilter}.>.>`;
+    } else if (userFilter) {
+      const parsed = parseOriginId(userFilter);
+      if (!parsed) {
+        return Result.err(new AuthError({ reason: "invalid_request" }));
+      }
+      const trellisId = await trellisIdFromOriginId(parsed.origin, parsed.id);
+      filter = `>.${trellisId}.>`;
     }
-    const trellisId = await trellisIdFromOriginId(parsed.origin, parsed.id);
-    filter = `>.${trellisId}.>`;
-  }
 
-  const iter = (await connectionsKV.keys(filter)).take();
-  if (isErr(iter)) {
-    return Result.ok({ connections: [] });
-  }
+    const iter = (await deps.connectionsKV.keys(filter)).take();
+    if (isErr(iter)) {
+      return Result.ok({ connections: [] });
+    }
 
-  const connections: ConnectionRow[] = [];
-  for await (const key of iter) {
-    const entry = (await connectionsKV.get(key)).take();
-    if (isErr(entry)) continue;
+    const connections: ConnectionRow[] = [];
+    for await (const key of iter as AsyncIterable<string>) {
+      const entry = (await deps.connectionsKV.get(key)).take();
+      if (isErr(entry)) continue;
 
-    const parts = key.split(".");
-    const sessionKey = parts[0];
-    const trellisId = parts[1];
-    const userNkey = parts[2];
-    if (!sessionKey || !trellisId || !userNkey) continue;
+      const parts = key.split(".");
+      const sessionKey = parts[0];
+      const trellisId = parts[1];
+      const userNkey = parts[2];
+      if (!sessionKey || !trellisId || !userNkey) continue;
 
-    const session = (await sessionKV.get(`${sessionKey}.${trellisId}`)).take();
-    if (isErr(session)) continue;
+      const session = (await deps.sessionKV.get(`${sessionKey}.${trellisId}`)).take();
+      if (isErr(session)) continue;
 
-    const sessionValue = session.value as Session;
-    connections.push({
-      key: sessionActorKey(sessionValue, sessionKey, userNkey),
-      serverId: entry.value.serverId,
-      clientId: entry.value.clientId,
-      connectedAt: iso(entry.value.connectedAt),
-    });
-  }
+      const sessionValue = (session as { value: Session }).value;
+      connections.push(buildConnectionRow(sessionValue, sessionKey, userNkey, {
+        serverId: (entry as { value: { serverId: string; clientId: number; connectedAt: string | Date } }).value.serverId,
+        clientId: (entry as { value: { serverId: string; clientId: number; connectedAt: string | Date } }).value.clientId,
+        connectedAt: (entry as { value: { serverId: string; clientId: number; connectedAt: string | Date } }).value.connectedAt,
+      }));
+    }
 
-  return Result.ok({ connections });
-};
+    connections.sort((left, right) => left.key.localeCompare(right.key));
+    return Result.ok({ connections });
+  };
+}
+
+export const authListConnectionsHandler = createAuthListConnectionsHandler({
+  sessionKV,
+  connectionsKV,
+});
 
 export function createAuthKickConnectionHandler(opts: {
   kick: (serverId: string, clientId: number) => Promise<void>;

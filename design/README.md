@@ -248,7 +248,7 @@ ergonomics.
 - load language surface docs for public API details
 - load auth/contracts docs only when the task crosses those boundaries
 - prefer task-specific reading paths over broad context dumps
-- choose docs by participant kind (`service`, `device`, `app`, `portal`, `cli`)
+- choose docs by participant kind (`service`, `device`, `app`, `agent`)
   rather than by repo folder name
 - search for the exact headings `Minimal installable service example` and
   `Minimal activated device example` before inventing a new participant shape

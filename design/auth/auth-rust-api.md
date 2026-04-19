@@ -1,6 +1,6 @@
 ---
 title: Auth Rust API
-description: Rust CLI and client auth helpers for browser login, admin sessions, typed auth/admin RPC access, and device activation.
+description: Rust agent and client auth helpers for detached agent login, admin sessions, typed auth/admin RPC access, and device activation.
 order: 50
 ---
 
@@ -19,7 +19,7 @@ This document defines the normative Rust public API surface for the `trellis-aut
 
 It covers:
 
-- browser-login helpers used by the CLI
+- detached agent-login helpers used by the Trellis CLI
 - persisted admin session helpers
 - typed auth/admin RPC access through `AuthClient`
 - device activation helpers
@@ -29,24 +29,23 @@ It covers:
 
 - Rust returns `Result` directly rather than exception-oriented helpers
 - public Rust APIs hide proof-string construction and token-envelope formatting
-- browser login helpers may run a local callback listener, but normal callers do not deal with callback HTTP parsing directly
+- agent login is detached-only: helpers do not start a local callback listener or auto-open a browser
 
 ## Exported Surface
 
 ```rust
 pub fn generate_session_keypair() -> (String, String);
 
+pub async fn start_agent_login(
+    opts: &StartAgentLoginOpts<'_>,
+) -> Result<AgentLoginChallenge, TrellisAuthError>;
+
 pub async fn start_admin_reauth(
     state: &AdminSessionState,
-    listen: &str,
     contract_json: &str,
 ) -> Result<AdminReauthOutcome, TrellisAuthError>;
 
-pub async fn start_browser_login(
-    opts: StartBrowserLoginOpts<'_>,
-) -> Result<BrowserLoginChallenge, TrellisAuthError>;
-
-impl BrowserLoginChallenge {
+impl AgentLoginChallenge {
     pub fn login_url(&self) -> &str;
     pub async fn complete(self) -> Result<AdminLoginOutcome, TrellisAuthError>;
 }
@@ -64,25 +63,25 @@ pub struct AuthClient<'a> { /* opaque */ }
 
 The crate also re-exports the typed request and response structs from `protocol.rs` and the public session/login models from `models.rs`.
 
-## Browser Login Flow
+## Detached Agent Login Flow
 
-The Rust browser-login flow uses the same auth-owned `flowId` continuation model as
+The Rust agent-login flow uses the same auth-owned `flowId` continuation model as
 the TypeScript browser helpers. Device activation now uses the same public
 `flowId` concept with `kind: "device_activation"` auth flows and is documented
-in the device-activation surfaces rather than in this browser-login flow.
+in the device-activation surfaces rather than in this agent-login flow.
 
 Flow summary:
 
-1. `start_browser_login(...)` generates a session keypair, signs the login init proof, and starts a local callback listener.
-2. `start_browser_login(...)` starts the auth request through `POST /auth/requests` and returns a `BrowserLoginChallenge` when browser interaction is required.
-3. `BrowserLoginChallenge::login_url()` returns the auth login URL to open in a browser.
-4. The callback returns `flowId` or `authError` to the local listener.
-5. `BrowserLoginChallenge::complete()` binds that flow through the auth-owned flow endpoint and returns an `AdminLoginOutcome`.
+1. `start_agent_login(...)` generates a session keypair, signs the login init proof, and starts the auth request with the detached portal redirect target `/_trellis/portal/login`.
+2. `start_agent_login(...)` returns an `AgentLoginChallenge` with the auth-owned `flowId` and `loginUrl` when browser interaction is required.
+3. `AgentLoginChallenge::login_url()` returns the URL for the user to open manually; the Trellis CLI may print it or render a QR code, but it does not auto-open a browser.
+4. The portal completes the auth flow and, for detached agent login, finishes on a completion page that tells the user to return to the CLI.
+5. `AgentLoginChallenge::complete()` polls the auth-owned flow until it is ready to bind, then binds and returns an `AdminLoginOutcome`.
 
 `start_admin_reauth(...)` reuses the stored session key for contract-changed
 reauth. It returns `AdminReauthOutcome::Bound(...)` when auth can auto-approve
 the new contract immediately, or `AdminReauthOutcome::Flow(...)` when the CLI
-must continue through the normal browser flow.
+must continue through the same detached portal flow.
 
 `AdminSessionState` persists the current delegated `contract_digest` together
 with the session seed and sentinel credentials. Rust runtime reconnect

@@ -235,6 +235,34 @@ fn parses_auth_grant_set_command() {
 }
 
 #[test]
+fn parses_auth_login_command_without_listener_flag() {
+    let cli = Cli::parse_from(["trellis", "auth", "login", "--auth-url", "https://auth.example.com"]);
+    match cli.command {
+        TopLevelCommand::Auth(command) => match command.command {
+            AuthSubcommand::Login(args) => {
+                assert_eq!(args.auth_url, "https://auth.example.com");
+            }
+            other => panic!("unexpected auth command: {other:?}"),
+        },
+        other => panic!("unexpected top-level command: {other:?}"),
+    }
+}
+
+#[test]
+fn rejects_legacy_auth_login_listen_flag() {
+    let error = Cli::try_parse_from([
+        "trellis",
+        "auth",
+        "login",
+        "--listen",
+        "127.0.0.1:0",
+    ])
+    .unwrap_err();
+
+    assert!(error.to_string().contains("--listen"));
+}
+
+#[test]
 fn parses_device_profile_create_command() {
     let cli = Cli::parse_from([
         "trellis",

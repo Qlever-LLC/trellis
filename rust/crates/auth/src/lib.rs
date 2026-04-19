@@ -1,4 +1,4 @@
-//! Reusable Trellis auth/session helpers for Rust clients and the CLI.
+//! Reusable Trellis auth/session helpers for Rust clients and the Trellis agent.
 
 mod browser_login;
 mod client;
@@ -8,7 +8,9 @@ mod models;
 mod protocol;
 mod session_store;
 
-pub use browser_login::{generate_session_keypair, start_admin_reauth, start_browser_login};
+pub use browser_login::{
+    contract_digest, generate_session_keypair, start_admin_reauth, start_agent_login,
+};
 pub use client::{connect_admin_client_async, AuthClient};
 pub use device_activation::{
     build_device_activation_payload, build_device_wait_proof_input,
@@ -19,10 +21,10 @@ pub use device_activation::{
 };
 pub use error::TrellisAuthError;
 pub use models::{
-    AdminLoginOutcome, AdminReauthOutcome, AdminSessionState, BoundSession, BrowserLoginChallenge,
+    AdminLoginOutcome, AdminReauthOutcome, AdminSessionState, AgentLoginChallenge, BoundSession,
     DeviceActivationActivatedResponse, DeviceActivationPayload, DeviceActivationPendingResponse,
     DeviceActivationRejectedResponse, DeviceActivationWaitRequest, DeviceIdentity,
-    StartBrowserLoginOpts, WaitForDeviceActivationOpts, WaitForDeviceActivationResponse,
+    StartAgentLoginOpts, WaitForDeviceActivationOpts, WaitForDeviceActivationResponse,
 };
 pub use protocol::{
     ApprovalEntryRecord, ApprovalScopeRecord, AuthGetInstalledContractRequest,

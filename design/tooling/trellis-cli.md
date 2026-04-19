@@ -91,8 +91,8 @@ These commands:
 - preserve the current TypeScript generated surface where practical
 - generate Rust SDK crates that target `trellis-client` and `trellis-server`
 - use required contract `kind` metadata to decide discovery behavior: `service`
-  generates manifest and SDK artifacts, while `app`, `portal`, `device`, and
-  `cli` contracts are verified only
+  generates manifest and SDK artifacts, while `app`, `agent`, and `device`
+  contracts are verified only
 
 Normal docs should not teach `trellis generate` or
 `trellis contracts build/verify`. Those workflows belong to `trellis-generate`
@@ -175,11 +175,12 @@ Operational command behavior:
   persisted internally rather than exposed as normal CLI flags
 - normal authenticated CLI commands reconnect with freshly generated runtime auth
   proofs derived from the stored session key, current contract digest, and
-  `iat`; when the local CLI contract digest changes, the CLI starts the normal
-  auth request flow with the full CLI contract, may complete immediately when
-  the existing delegated envelope already covers the new contract, otherwise
-  opens the browser and waits for the standard portal flow, then reconnects
-  NATS before issuing admin RPCs
+  `iat`; when the local agent contract digest changes, the CLI starts the normal
+  auth request flow with the full agent contract, may complete immediately when
+  the existing delegated grant already covers the new contract, otherwise prints
+  the detached portal login URL, may render a QR code, does not auto-open a
+  browser or start a localhost callback listener, and completes by polling the
+  auth-owned flow before reconnecting NATS and issuing admin RPCs
 - `trellis portal *` manages registered custom portal web apps used to replace
   the built-in Trellis portal for login flows, device flows, or both; an
   optional `app-contract-id` attaches a normal browser app contract for portals
@@ -188,17 +189,17 @@ Operational command behavior:
   including the deployment login default and any contract-specific selections
 - `trellis portal device *` manages deployment-owned device portal policy,
   including the deployment device default and any profile-specific selections
-- `trellis auth approval list` shows stored app approval decisions from the
-  `trellis` service, with server-side filtering by exact contract digest and
-  optionally by user when the caller is an admin
+- `trellis auth approval list` shows stored delegated approval decisions for app
+  and agent contracts from the `trellis` service, with server-side filtering by
+  exact contract digest and optionally by user when the caller is an admin
 - `trellis auth approval revoke` removes a stored `user <-> contractDigest`
-  decision and causes matching active delegated sessions to be revoked by the
-  `trellis` service
-- `trellis auth grant *` manages deployment-wide instance grant policies keyed
-  by browser-app contract lineage; `set` may resolve the lineage from either a
+  decision, removes reconnect authority for that delegated app or agent grant,
+  and revokes matching active delegated sessions in the `trellis` service
+- `trellis auth grant *` manages deployment-wide delegated grant policies keyed
+  by app or agent contract lineage; `set` may resolve the lineage from either a
   contract id or a local contract source path, may optionally restrict matching
-  browser origins, and causes affected delegated sessions to reconnect so auth
-  re-evaluates current policy
+  browser origins for app callers, and causes affected delegated sessions to
+  reconnect so auth re-evaluates current policy
 - `trellis device profile *` manages device classes, allowed digests, and review
   policy for activated devices; profile creation is separate from contract
   application, so `apply` and `unapply` manage the allowed digest set after the
@@ -241,9 +242,10 @@ Operational command behavior:
   `--servers` or `--creds` outside explicit bootstrap-only flows
 
 Normal authenticated CLI behavior is contract-governed in the same architectural
-sense as browser apps: the CLI has a generated participant contract, approval is
-stored against the exact contract digest, and Trellis auth does not create
-normal client sessions without such a contract.
+sense as browser apps: the CLI authenticates as an `agent` participant with a
+generated agent contract, approval is stored against the exact contract digest,
+and Trellis auth does not create normal client sessions without such a
+contract.
 
 ### Explicitness rule
 

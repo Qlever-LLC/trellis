@@ -1,10 +1,26 @@
-use crate::app::{connect_authenticated_cli_client, resolve_contract_lineage_id, try_open_browser};
+use crate::agent_contract::agent_contract_json;
+use crate::app::{connect_authenticated_cli_client, resolve_contract_lineage_id};
 use crate::cli::*;
-use crate::cli_contract::cli_contract_json;
 use crate::output;
 use miette::IntoDiagnostic;
+use qrcode::{render::unicode, QrCode};
 use serde_json::{json, Value};
 use trellis_auth as authlib;
+
+pub(crate) fn render_agent_login_instructions(login_url: &str) -> miette::Result<String> {
+    let qr = QrCode::new(login_url.as_bytes()).into_diagnostic()?;
+    let qr = qr.render::<unicode::Dense1x2>().quiet_zone(false).build();
+    Ok(format!(
+        "Open this activation URL:\n{login_url}\n\nScan this QR code:\n{qr}"
+    ))
+}
+
+pub(crate) fn pending_agent_login_json(login_url: &str) -> Value {
+    json!({
+        "status": "pending",
+        "loginUrl": login_url,
+    })
+}
 
 pub(super) async fn run(format: OutputFormat, command: AuthCommand) -> miette::Result<()> {
     match command.command {
@@ -24,19 +40,19 @@ pub(super) async fn run(format: OutputFormat, command: AuthCommand) -> miette::R
 }
 
 async fn login_command(format: OutputFormat, args: &AuthLoginArgs) -> miette::Result<()> {
-    let challenge = authlib::start_browser_login(&authlib::StartBrowserLoginOpts {
+    let challenge = authlib::start_agent_login(&authlib::StartAgentLoginOpts {
         auth_url: &args.auth_url,
-        listen: &args.listen,
-        contract_json: cli_contract_json(),
+        contract_json: agent_contract_json(),
     })
     .await
     .into_diagnostic()?;
     let login_url = challenge.login_url().to_string();
 
-    if !output::is_json(format) {
-        output::print_info(&format!("Open this URL to sign in: {login_url}"));
+    if output::is_json(format) {
+        output::print_json_progress(&pending_agent_login_json(&login_url))?;
+    } else {
+        output::print_info(&render_agent_login_instructions(&login_url)?);
     }
-    try_open_browser(&login_url);
 
     let outcome = challenge.complete(&args.auth_url).await.into_diagnostic()?;
     let state = outcome.state;
@@ -54,7 +70,7 @@ async fn login_command(format: OutputFormat, args: &AuthLoginArgs) -> miette::Re
             "expires": state.expires,
         }))?;
     } else {
-        output::print_success("logged in admin session");
+        output::print_success("logged in delegated agent session");
         output::print_info(&format!("user={}:{}", me.origin, me.id));
         output::print_info(&format!("name={}", me.name));
         output::print_info(&format!("sessionKey={}", state.session_key));
@@ -85,17 +101,17 @@ async fn logout_command(format: OutputFormat) -> miette::Result<()> {
         output::print_json(&response)?;
     } else if removed {
         if revoked {
-            output::print_success("revoked remote session and cleared local admin session");
+            output::print_success("revoked remote session and cleared local agent session");
         } else if let Some(error) = &revoke_error {
-            output::print_success("cleared stored admin session");
+            output::print_success("cleared stored agent session");
             output::print_info(&format!(
                 "warning: remote session revocation failed: {error}"
             ));
         } else {
-            output::print_success("cleared stored admin session");
+            output::print_success("cleared stored agent session");
         }
     } else {
-        output::print_info("no stored admin session found");
+        output::print_info("no stored agent session found");
     }
     Ok(())
 }
@@ -116,7 +132,7 @@ async fn status_command(format: OutputFormat) -> miette::Result<()> {
             "expires": state.expires,
         }))?;
     } else {
-        output::print_success("admin session is active");
+        output::print_success("delegated agent session is active");
         output::print_info(&format!("user={}:{}", me.origin, me.id));
         output::print_info(&format!("name={}", me.name));
         output::print_info(&format!("sessionKey={}", state.session_key));
@@ -311,4 +327,40 @@ async fn grants_disable_command(
     output::print_success("instance grant policy disabled");
     output::print_info(&format!("contractId={}", policy.contract_id));
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{pending_agent_login_json, render_agent_login_instructions};
+    use serde_json::json;
+
+    #[test]
+    fn agent_login_instructions_include_plain_url_and_terminal_qr() {
+        let instructions = render_agent_login_instructions(
+            "https://auth.example.com/_trellis/portal/login?flowId=flow_123",
+        )
+        .expect("render instructions");
+
+        assert!(instructions.contains("Open this activation URL:"));
+        assert!(
+            instructions.contains("https://auth.example.com/_trellis/portal/login?flowId=flow_123")
+        );
+        assert!(instructions.contains("Scan this QR code:"));
+        assert!(
+            instructions.contains("█") || instructions.contains("▀") || instructions.contains("▄")
+        );
+    }
+
+    #[test]
+    fn pending_agent_login_json_includes_login_url() {
+        assert_eq!(
+            pending_agent_login_json(
+                "https://auth.example.com/_trellis/portal/login?flowId=flow_123"
+            ),
+            json!({
+                "status": "pending",
+                "loginUrl": "https://auth.example.com/_trellis/portal/login?flowId=flow_123",
+            })
+        );
+    }
 }

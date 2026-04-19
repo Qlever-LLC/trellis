@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::time::Duration;
-use tokio::sync::oneshot;
 
 use crate::{AuthenticatedUser, ClientTransportsRecord, SentinelCredsRecord};
 use trellis_client::SessionAuth;
@@ -23,7 +22,7 @@ pub struct AdminSessionState {
     pub sentinel_jwt: String,
     /// Sentinel seed used for NATS authentication.
     pub sentinel_seed: String,
-    /// RFC3339 expiry timestamp for the current binding token.
+    /// RFC3339 expiry timestamp for the current delegated agent grant.
     pub expires: String,
 }
 
@@ -67,41 +66,24 @@ pub(crate) enum BindResponse {
     },
 }
 
-#[derive(Debug, Clone, Deserialize)]
-pub(crate) struct CallbackTokenRequest {
-    #[serde(rename = "flowId")]
-    pub flow_id: Option<String>,
-    #[serde(rename = "authError")]
-    pub auth_error: Option<String>,
-}
-
-#[derive(Debug)]
-pub(crate) enum CallbackOutcome {
-    FlowId(String),
-    AuthError(String),
-}
-
-/// An in-progress browser login flow waiting for the auth callback.
-pub struct BrowserLoginChallenge {
+/// An in-progress agent login flow waiting for completion.
+pub struct AgentLoginChallenge {
+    pub(crate) flow_id: String,
     pub(crate) login_url: String,
     pub(crate) session_seed: String,
     pub(crate) contract_digest: String,
     pub(crate) auth: SessionAuth,
-    pub(crate) receiver: oneshot::Receiver<CallbackOutcome>,
-    pub(crate) server_handle: tokio::task::JoinHandle<()>,
 }
 
-/// Options for starting a browser-based admin login flow.
-pub struct StartBrowserLoginOpts<'a> {
+/// Options for starting an agent login flow.
+pub struct StartAgentLoginOpts<'a> {
     /// Base URL for the Trellis auth service.
     pub auth_url: &'a str,
-    /// Local callback address in `host:port` form.
-    pub listen: &'a str,
     /// Contract JSON sent to `/auth/login` when starting the flow.
     pub contract_json: &'a str,
 }
 
-/// Successful browser-login result after the admin user has been verified.
+/// Successful agent-login result after the admin user has been verified.
 pub struct AdminLoginOutcome {
     /// Persistable admin session state for later CLI reuse.
     pub state: AdminSessionState,
@@ -113,8 +95,8 @@ pub struct AdminLoginOutcome {
 pub enum AdminReauthOutcome {
     /// Contract change was auto-approved and the session was rebound immediately.
     Bound(AdminLoginOutcome),
-    /// Browser interaction is still required to finish the auth flow.
-    Flow(BrowserLoginChallenge),
+    /// External interaction is still required to finish the agent auth flow.
+    Flow(AgentLoginChallenge),
 }
 
 /// Derived device identity material used by the device activation helpers.

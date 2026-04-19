@@ -13,6 +13,9 @@ import {
   SentinelCredsSchema,
 } from "@qlever-llc/trellis/auth";
 import {
+  Type,
+} from "typebox";
+import {
   DeviceActivationActorSchema,
   DeviceActivationRecordSchema,
   DeviceActivationReviewSchema,
@@ -29,7 +32,11 @@ import {
 } from "../../../../packages/trellis/auth/protocol.ts";
 import { IsoDateSchema } from "@qlever-llc/trellis/contracts";
 import type { StaticDecode } from "typebox";
-import { Type } from "typebox";
+
+export const UserParticipantKindSchema = Type.Union([
+  Type.Literal("app"),
+  Type.Literal("agent"),
+]);
 
 export type { BindRequest, BindResponse, LoginQuery, SentinelCreds };
 export {
@@ -180,6 +187,7 @@ export type DeviceActivationReviewRecord = StaticDecode<
 
 export type ApprovalDecision = StaticDecode<typeof ApprovalDecisionSchema>;
 export type ContractApproval = StaticDecode<typeof ContractApprovalSchema>;
+export type UserParticipantKind = StaticDecode<typeof UserParticipantKindSchema>;
 export type InstanceGrantPolicy = StaticDecode<
   typeof InstanceGrantPolicySchema
 >;
@@ -225,6 +233,7 @@ const SessionBaseFields = {
 export const UserSessionSchema = Type.Object({
   type: Type.Literal("user"),
   ...SessionBaseFields,
+  participantKind: UserParticipantKindSchema,
   contractDigest: Type.String({ pattern: "^[A-Za-z0-9_-]+$" }),
   contractId: Type.String({ minLength: 1 }),
   contractDisplayName: Type.String({ minLength: 1 }),

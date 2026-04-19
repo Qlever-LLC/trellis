@@ -33,7 +33,7 @@ contract `kind`, install behavior, or which connect helper is correct.
 | ---------------------- | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | `service`              | `TrellisService.connect(...)` | The participant owns installable RPCs, operations, events, or service-owned resources and runs as a deployment service principal |
 | `device`               | `TrellisDevice.connect(...)`  | The participant authenticates through device activation using a preregistered device root secret                                 |
-| `app`, `portal`, `cli` | `TrellisClient.connect(...)`  | The participant is a user-facing app, portal, or tool rather than an installed service                                           |
+| `app`, `agent`         | `TrellisClient.connect(...)`  | The participant is a user-facing app or delegated tool rather than an installed service                                           |
 
 Rules:
 

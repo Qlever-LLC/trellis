@@ -159,7 +159,7 @@ Top-level fields:
 | `id`          | yes      | string | Stable contract identifier such as `trellis.core@v1` or `graph@v1` |
 | `displayName` | yes      | string | Human-facing contract name shown in tooling and approval UIs       |
 | `description` | yes      | string | Human-facing explanation of the contract's purpose                 |
-| `kind`        | yes      | string | Contract role such as `service`, `app`, `portal`, `device`, `cli`  |
+| `kind`        | yes      | string | Contract role such as `service`, `app`, `agent`, or `device`       |
 | `schemas`     | no       | object | Reusable self-contained JSON Schema values keyed by schema name    |
 | `uses`        | no       | object | Explicit cross-contract operation/RPC/event/subject dependencies   |
 | `jobs`        | no       | object | Map of first-class service-private job queue descriptors           |
@@ -177,8 +177,8 @@ Rules:
 - `schemas` is the contract-level schema registry referenced by RPC,
   operations, events, jobs, and state declarations.
 - `kind` drives discovery behavior in bootstrap-safe generation flows: `service`
-  contracts generate manifests and SDKs, while `app`, `portal`, `device`, and
-  `cli` contracts are verified.
+  contracts generate manifests and SDKs, while `app`, `agent`, and `device`
+  contracts are verified.
 - `displayName` and `description` are part of the canonical manifest and
   therefore part of the digest.
 - runtime service identity, install routing, and authorization boundaries MUST

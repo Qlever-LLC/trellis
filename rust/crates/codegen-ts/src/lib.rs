@@ -355,7 +355,9 @@ fn render_contract_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Stri
     )
 }
 
-fn top_level_contract_jobs<'a>(loaded: &'a LoadedManifest) -> Option<&'a serde_json::Map<String, Value>> {
+fn top_level_contract_jobs<'a>(
+    loaded: &'a LoadedManifest,
+) -> Option<&'a serde_json::Map<String, Value>> {
     loaded.value.get("jobs")?.as_object()
 }
 
@@ -402,8 +404,7 @@ fn render_contract_jobs_value(loaded: &LoadedManifest) -> Vec<String> {
         return Vec::new();
     };
 
-    jobs
-        .keys()
+    jobs.keys()
         .map(|queue_type| {
             format!(
                 "  {}: {{ payload: undefined, result: undefined }},",
@@ -1842,12 +1843,10 @@ mod tests {
         assert!(contract.contains("\"sendEmail\": {"));
         assert!(contract.contains("payload: { address: string; };"));
         assert!(contract.contains("result: { delivered: boolean; };"));
-        assert!(contract.contains(
-            "const CONTRACT_JOBS = defineContractJobsMetadata<ContractJobs>({"
-        ));
-        assert!(contract.contains(
-            "  \"sendEmail\": { payload: undefined, result: undefined },"
-        ));
+        assert!(
+            contract.contains("const CONTRACT_JOBS = defineContractJobsMetadata<ContractJobs>({")
+        );
+        assert!(contract.contains("  \"sendEmail\": { payload: undefined, result: undefined },"));
         assert!(contract.contains("  [CONTRACT_JOBS_METADATA]: CONTRACT_JOBS,"));
 
         fs::remove_dir_all(root).unwrap();

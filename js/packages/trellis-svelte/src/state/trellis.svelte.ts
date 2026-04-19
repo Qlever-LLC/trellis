@@ -2,7 +2,7 @@ import { defineAppContract } from "../../../trellis/contract.ts";
 import type { TrellisAPI, TrellisContractV1 } from "../../../trellis/contracts.ts";
 import type { Trellis } from "../../../trellis/trellis.ts";
 import { createClient } from "../../../trellis/client.ts";
-import { getPublicSessionKey, signBytes } from "@qlever-llc/trellis/auth/browser";
+import { getPublicSessionKey, signBytes } from "../../../trellis/auth/browser.ts";
 import type { AuthState } from "./auth.svelte.ts";
 import type { NatsState } from "./nats.svelte.ts";
 

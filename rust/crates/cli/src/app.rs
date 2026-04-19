@@ -1,11 +1,10 @@
 use std::env;
 use std::io;
 use std::path::Path;
-use std::process::Command;
 use std::time::Duration;
 
+use crate::agent_contract::agent_contract_json;
 use crate::cli::*;
-use crate::cli_contract::cli_contract_json;
 use crate::contract_input::{default_image_contract_path, resolve_contract_input};
 use crate::output;
 use crate::self_update::{ReleaseChannel, SelfUpdateTarget};
@@ -40,8 +39,6 @@ const SELF_UPDATE_TARGET: SelfUpdateTarget = SelfUpdateTarget::new(
     "trellis",
     env!("CARGO_PKG_VERSION"),
 );
-
-const DEFAULT_AUTH_REAUTH_LISTEN: &str = "127.0.0.1:0";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct KvBucketSpec {
@@ -190,79 +187,318 @@ pub(crate) fn trellis_id_from_origin_id(origin: &str, id: &str) -> String {
     base64url_encode(&digest)[..22].to_string()
 }
 
-pub(crate) fn contract_digest(contract_json: &str) -> String {
-    base64url_encode(&Sha256::digest(contract_json.as_bytes()))
-}
-
 pub(crate) async fn connect_authenticated_cli_client(
     format: OutputFormat,
 ) -> miette::Result<(authlib::AdminSessionState, TrellisClient)> {
     let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let cli_contract_json = cli_contract_json();
-    let cli_contract_digest = contract_digest(cli_contract_json);
-    if state.contract_digest != cli_contract_digest {
+    let agent_contract_json = agent_contract_json();
+    let agent_contract_digest = authlib::contract_digest(agent_contract_json).into_diagnostic()?;
+    if state.contract_digest != agent_contract_digest {
         if !output::is_json(format) {
             output::print_info(
-                "Saved admin session contract changed; starting browser reauthentication",
+                "Saved agent session contract changed; starting agent reauthentication",
             );
         }
-        state = complete_admin_reauth(format, &state, cli_contract_json).await?;
+        state = complete_admin_reauth(format, &state, agent_contract_json).await?;
     }
 
     let connected = match authlib::connect_admin_client_async(&state).await {
         Ok(connected) => connected,
-        Err(error) if should_start_admin_reauth(&error) => {
-            if !output::is_json(format) {
-                output::print_info(
-                    "Saved admin session was rejected; starting browser reauthentication",
-                );
-            }
-            state = complete_admin_reauth(format, &state, cli_contract_json).await?;
-            authlib::connect_admin_client_async(&state)
-                .await
-                .into_diagnostic()?
-        }
-        Err(error) => return Err(miette::miette!(error.to_string())),
+        Err(error) => return Err(map_admin_session_error(error)),
     };
+
+    match authlib::AuthClient::new(&connected).me().await {
+        Ok(_) => {}
+        Err(error) => return Err(map_admin_session_error(error)),
+    }
+
     Ok((state, connected))
 }
 
-fn should_start_admin_reauth(error: &authlib::TrellisAuthError) -> bool {
+fn map_admin_session_error(error: authlib::TrellisAuthError) -> miette::Report {
+    match rejected_admin_session_error_report(&error) {
+        Ok(Some(report)) => report,
+        Ok(None) => miette::miette!(error.to_string()),
+        Err(report) => report,
+    }
+}
+
+fn map_admin_session_result<T>(
+    result: Result<T, authlib::TrellisAuthError>,
+) -> miette::Result<T> {
+    result.map_err(map_admin_session_error)
+}
+
+fn rejected_admin_session_error_report(
+    error: &authlib::TrellisAuthError,
+) -> miette::Result<Option<miette::Report>> {
+    if is_rejected_admin_session_error(error) {
+        Ok(Some(rejected_admin_session_report()?))
+    } else {
+        Ok(None)
+    }
+}
+
+fn is_rejected_admin_session_error(error: &authlib::TrellisAuthError) -> bool {
     match error {
-        authlib::TrellisAuthError::TrellisClient(TrellisClientError::NatsConnect(message)) => {
-            message.contains("authorization violation")
-        }
-        authlib::TrellisAuthError::TrellisClient(TrellisClientError::NatsRequest(message)) => {
-            message.contains("authorization violation")
+        authlib::TrellisAuthError::TrellisClient(
+            TrellisClientError::NatsConnect(message)
+            | TrellisClientError::NatsRequest(message)
+            | TrellisClientError::RpcError(message),
+        )
+        | authlib::TrellisAuthError::AuthRequestHttpFailure(_, message)
+        | authlib::TrellisAuthError::BindHttpFailure(_, message) => {
+            is_rejected_admin_session_message(message)
         }
         _ => false,
+    }
+}
+
+fn is_rejected_admin_session_message(message: &str) -> bool {
+    let message = message.to_ascii_lowercase();
+    message.contains("authorization violation")
+        || message.contains("revoked")
+        || message.contains("rejected")
+        || message.contains("session_not_found")
+}
+
+fn rejected_admin_session_report() -> miette::Result<miette::Report> {
+    let cleared = authlib::clear_admin_session().into_diagnostic()?;
+    let message = if cleared {
+        "Saved agent session was rejected by the server and the stored local session was cleared; run `trellis auth login` explicitly."
+    } else {
+        "Saved agent session was rejected by the server; run `trellis auth login` explicitly."
+    };
+    Ok(miette::miette!(message))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        is_rejected_admin_session_error, map_admin_session_result,
+        rejected_admin_session_error_report, rejected_admin_session_report,
+    };
+    use std::env;
+    use std::fs;
+    use std::path::Path;
+    use std::sync::{Mutex, OnceLock};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    use trellis_auth::{save_admin_session, AdminSessionState, TrellisAuthError};
+    use trellis_client::TrellisClientError;
+
+    fn config_env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn unique_test_dir(label: &str) -> std::path::PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time before unix epoch")
+            .as_nanos();
+        env::temp_dir().join(format!("trellis-cli-{label}-{nanos}"))
+    }
+
+    fn admin_session_path(root: &Path) -> std::path::PathBuf {
+        root.join("trellis").join("admin-session.json")
+    }
+
+    fn test_admin_session_state() -> AdminSessionState {
+        AdminSessionState {
+            auth_url: "http://localhost:3000".to_string(),
+            nats_servers: "localhost".to_string(),
+            session_seed: "seed".to_string(),
+            session_key: "key".to_string(),
+            contract_digest: "digest".to_string(),
+            sentinel_jwt: "jwt".to_string(),
+            sentinel_seed: "sentinel".to_string(),
+            expires: "2026-01-01T00:00:00Z".to_string(),
+        }
+    }
+
+    #[test]
+    fn treats_authorization_violation_as_rejected_session() {
+        let error = TrellisAuthError::TrellisClient(TrellisClientError::NatsConnect(
+            "authorization violation".to_string(),
+        ));
+
+        assert!(is_rejected_admin_session_error(&error));
+    }
+
+    #[test]
+    fn treats_request_authorization_violation_as_rejected_session() {
+        let error = TrellisAuthError::TrellisClient(TrellisClientError::NatsRequest(
+            "authorization violation".to_string(),
+        ));
+
+        assert!(is_rejected_admin_session_error(&error));
+    }
+
+    #[test]
+    fn treats_rpc_error_authorization_violation_as_rejected_session() {
+        let error = TrellisAuthError::TrellisClient(TrellisClientError::RpcError(
+            "authorization violation".to_string(),
+        ));
+
+        assert!(is_rejected_admin_session_error(&error));
+    }
+
+    #[test]
+    fn treats_mixed_case_authorization_violation_as_rejected_session() {
+        let error = TrellisAuthError::TrellisClient(TrellisClientError::NatsRequest(
+            "Authorization Violation".to_string(),
+        ));
+
+        assert!(is_rejected_admin_session_error(&error));
+    }
+
+    #[test]
+    fn treats_revoked_session_message_as_rejected_session() {
+        let error = TrellisAuthError::TrellisClient(TrellisClientError::NatsConnect(
+            "Session revoked by server".to_string(),
+        ));
+
+        assert!(is_rejected_admin_session_error(&error));
+    }
+
+    #[test]
+    fn treats_session_not_found_message_as_rejected_session() {
+        let error = TrellisAuthError::TrellisClient(TrellisClientError::RpcError(
+            "session_not_found".to_string(),
+        ));
+
+        assert!(is_rejected_admin_session_error(&error));
+    }
+
+    #[test]
+    fn treats_auth_request_http_rejection_as_rejected_session() {
+        let error = TrellisAuthError::AuthRequestHttpFailure(
+            401,
+            "session rejected by server".to_string(),
+        );
+
+        assert!(is_rejected_admin_session_error(&error));
+    }
+
+    #[test]
+    fn treats_bind_http_revocation_as_rejected_session() {
+        let error = TrellisAuthError::BindHttpFailure(403, "session revoked".to_string());
+
+        assert!(is_rejected_admin_session_error(&error));
+    }
+
+    #[test]
+    fn rejected_session_report_clears_local_session_and_requires_explicit_login() {
+        let _guard = config_env_lock().lock().expect("lock config env");
+        let test_dir = unique_test_dir("rejected-session-report");
+        fs::create_dir_all(test_dir.join("trellis")).expect("create test config dir");
+        unsafe {
+            env::set_var("XDG_CONFIG_HOME", &test_dir);
+        }
+
+        save_admin_session(&test_admin_session_state()).expect("save admin session");
+        assert!(admin_session_path(&test_dir).exists());
+
+        let report = rejected_admin_session_report().expect("build rejected-session report");
+        assert!(!admin_session_path(&test_dir).exists());
+        assert!(
+            report
+                .to_string()
+                .contains("run `trellis auth login` explicitly")
+        );
+
+        unsafe {
+            env::remove_var("XDG_CONFIG_HOME");
+        }
+        let _ = fs::remove_dir_all(test_dir);
+    }
+
+    #[test]
+    fn rejected_session_request_error_clears_local_session_and_requires_explicit_login() {
+        let _guard = config_env_lock().lock().expect("lock config env");
+        let test_dir = unique_test_dir("rejected-session-request-error");
+        fs::create_dir_all(test_dir.join("trellis")).expect("create test config dir");
+        unsafe {
+            env::set_var("XDG_CONFIG_HOME", &test_dir);
+        }
+
+        save_admin_session(&test_admin_session_state()).expect("save admin session");
+        assert!(admin_session_path(&test_dir).exists());
+
+        let error = TrellisAuthError::TrellisClient(TrellisClientError::NatsRequest(
+            "authorization violation".to_string(),
+        ));
+        let report = rejected_admin_session_error_report(&error)
+            .expect("map rejected-session request error")
+            .expect("rejected-session request error should map to report");
+
+        assert!(!admin_session_path(&test_dir).exists());
+        assert!(
+            report
+                .to_string()
+                .contains("run `trellis auth login` explicitly")
+        );
+
+        unsafe {
+            env::remove_var("XDG_CONFIG_HOME");
+        }
+        let _ = fs::remove_dir_all(test_dir);
+    }
+
+    #[test]
+    fn mapped_rejected_session_result_clears_local_session_and_requires_explicit_login() {
+        let _guard = config_env_lock().lock().expect("lock config env");
+        let test_dir = unique_test_dir("mapped-rejected-session-result");
+        fs::create_dir_all(test_dir.join("trellis")).expect("create test config dir");
+        unsafe {
+            env::set_var("XDG_CONFIG_HOME", &test_dir);
+        }
+
+        save_admin_session(&test_admin_session_state()).expect("save admin session");
+        assert!(admin_session_path(&test_dir).exists());
+
+        let error = TrellisAuthError::TrellisClient(TrellisClientError::NatsRequest(
+            "Authorization Violation: session revoked".to_string(),
+        ));
+        let report = map_admin_session_result::<()> (Err(error))
+            .expect_err("rejected-session result should map to report");
+
+        assert!(!admin_session_path(&test_dir).exists());
+        assert!(
+            report
+                .to_string()
+                .contains("run `trellis auth login` explicitly")
+        );
+
+        unsafe {
+            env::remove_var("XDG_CONFIG_HOME");
+        }
+        let _ = fs::remove_dir_all(test_dir);
     }
 }
 
 async fn complete_admin_reauth(
     format: OutputFormat,
     state: &authlib::AdminSessionState,
-    cli_contract_json: &str,
+    agent_contract_json: &str,
 ) -> miette::Result<authlib::AdminSessionState> {
-    let next_state =
-        match authlib::start_admin_reauth(state, DEFAULT_AUTH_REAUTH_LISTEN, cli_contract_json)
-            .await
-            .into_diagnostic()?
-        {
-            authlib::AdminReauthOutcome::Bound(outcome) => outcome.state,
-            authlib::AdminReauthOutcome::Flow(challenge) => {
-                let login_url = challenge.login_url().to_string();
-                if !output::is_json(format) {
-                    output::print_info(&format!("Open this URL to continue auth: {login_url}"));
-                }
-                try_open_browser(&login_url);
-                challenge
-                    .complete(&state.auth_url)
-                    .await
-                    .into_diagnostic()?
-                    .state
+    let next_state = match authlib::start_admin_reauth(state, agent_contract_json).await {
+        Ok(authlib::AdminReauthOutcome::Bound(outcome)) => outcome.state,
+        Ok(authlib::AdminReauthOutcome::Flow(challenge)) => {
+            let login_url = challenge.login_url().to_string();
+            if output::is_json(format) {
+                output::print_json_progress(&crate::app::auth::pending_agent_login_json(
+                    &login_url,
+                ))?;
+            } else {
+                output::print_info(&crate::app::auth::render_agent_login_instructions(
+                    &login_url,
+                )?);
             }
-        };
+            map_admin_session_result(challenge.complete(&state.auth_url).await)?.state
+        }
+        Err(error) => return Err(map_admin_session_error(error)),
+    };
 
     authlib::save_admin_session(&next_state).into_diagnostic()?;
     Ok(next_state)
@@ -391,16 +627,6 @@ pub(crate) fn prompt_for_confirmation(prompt: &str) -> miette::Result<bool> {
     io::stdin().read_line(&mut line).into_diagnostic()?;
     let trimmed = line.trim().to_ascii_lowercase();
     Ok(trimmed == "y" || trimmed == "yes")
-}
-
-pub(crate) fn try_open_browser(url: &str) {
-    let _ = if cfg!(target_os = "macos") {
-        Command::new("open").arg(url).status()
-    } else if cfg!(target_os = "windows") {
-        Command::new("cmd").args(["/C", "start", "", url]).status()
-    } else {
-        Command::new("xdg-open").arg(url).status()
-    };
 }
 
 pub(crate) fn json_value_label(value: &Value) -> String {

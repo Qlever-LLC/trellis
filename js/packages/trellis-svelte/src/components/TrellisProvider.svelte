@@ -5,6 +5,7 @@
   import { onDestroy } from "svelte";
   import type { Snippet } from "svelte";
   import {
+    type PublicTrellis,
     setAuthContext,
     setConnectionStateContext,
     setTrellisContext,
@@ -71,6 +72,9 @@
     auth: ReturnType<typeof createAuthState>;
     nats: NatsState;
     trellis: Trellis<TrellisAPI>;
+  };
+  type ProviderTrellisContext = {
+    getTrellis: () => Promise<PublicTrellis>;
   };
   const isBrowser = typeof window !== "undefined";
 
@@ -181,9 +185,10 @@
       },
       disconnect: () => ctx.nats.disconnect(),
     })));
-    setTrellisContext({
-      getTrellis: async () => (await readyPromise).trellis,
-    });
+    const trellisContext = {
+      getTrellis: () => readyPromise.then((ctx) => ctx.trellis),
+    } as ProviderTrellisContext;
+    setTrellisContext(trellisContext);
   }
 
   onDestroy(() => {

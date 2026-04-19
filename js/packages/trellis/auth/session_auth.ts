@@ -1,11 +1,9 @@
 import { type Authenticator } from "@nats-io/nats-core";
-import { Buffer } from "node:buffer";
-import { createHash, createPrivateKey, sign as signBytesSync } from "node:crypto";
 
 import {
   importEd25519PrivateKeyFromSeedBase64url,
-  pkcs8FromEd25519Seed,
-  publicKeyBase64urlFromPrivateKey,
+  publicKeyBase64urlFromSeed,
+  signEd25519SeedSha256,
 } from "./keys.ts";
 import { createProof } from "./proof.ts";
 import { correctedIatSeconds } from "./time.ts";
@@ -30,7 +28,12 @@ export type TrellisAuth = {
   currentIat: () => number;
   setServerClockOffsetMs: (clockOffsetMs: number) => void;
 
-  oauthInitSig: (redirectTo: string, context?: unknown) => Promise<string>;
+  oauthInitSig: (
+    redirectTo: string,
+    context?: unknown,
+    provider?: string,
+    contract?: Record<string, unknown>,
+  ) => Promise<string>;
   bindSig: (authToken: string) => Promise<string>;
   natsConnectSigForIat: (iat: number) => Promise<string>;
 
@@ -43,12 +46,7 @@ export async function createAuth(
 ): Promise<TrellisAuth> {
   const seed = base64urlDecode(opts.sessionKeySeed);
   const privateKey = await importEd25519PrivateKeyFromSeedBase64url(opts.sessionKeySeed);
-  const sessionKey = await publicKeyBase64urlFromPrivateKey(privateKey);
-  const reconnectKey = createPrivateKey({
-    key: Buffer.from(pkcs8FromEd25519Seed(seed)),
-    format: "der",
-    type: "pkcs8",
-  });
+  const sessionKey = publicKeyBase64urlFromSeed(seed);
   let serverClockOffsetMs = 0;
 
   const sign = async (data: Uint8Array): Promise<Uint8Array> => {
@@ -66,19 +64,25 @@ export async function createAuth(
     return base64urlEncode(sigBytes);
   };
 
-  const signOauthInit = async (redirectTo: string, context?: unknown): Promise<string> => {
+  const signOauthInit = async (
+    redirectTo: string,
+    context?: unknown,
+    provider?: string,
+    contract?: Record<string, unknown>,
+  ): Promise<string> => {
     const canonicalContext = canonicalizeJsonValue(context ?? null);
-    return await signDomainHash("oauth-init", `${redirectTo}:${canonicalContext}`);
+    const payload = contract === undefined
+      ? `${redirectTo}:${canonicalContext}`
+      : `${redirectTo}:${provider ?? ""}:${canonicalizeJsonValue(contract)}:${canonicalContext}`;
+    return await signDomainHash("oauth-init", payload);
   };
 
   const buildServiceNatsAuthToken = (iat: number): NatsAuthTokenV1 => {
-    const digest = createHash("sha256").update(`nats-connect:${iat}`, "utf8").digest();
-    const sig = signBytesSync(null, digest, reconnectKey);
     return {
       v: 1,
       sessionKey,
       iat,
-      sig: base64urlEncode(new Uint8Array(sig)),
+      sig: base64urlEncode(signEd25519SeedSha256(seed, utf8(`nats-connect:${iat}`))),
     };
   };
 

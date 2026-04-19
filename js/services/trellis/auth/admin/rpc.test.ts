@@ -1,4 +1,11 @@
 import { assert, assertEquals } from "@std/assert";
+import Value from "typebox/value";
+import {
+  AuthListConnectionsResponseSchema,
+} from "../../../../packages/trellis/models/auth/rpc/ListConnections.ts";
+import {
+  AuthListSessionsResponseSchema,
+} from "../../../../packages/trellis/models/auth/rpc/ListSessions.ts";
 import {
   TRELLIS_AUTH_EVENTS,
   TRELLIS_AUTH_RPC,
@@ -68,12 +75,62 @@ Deno.test("auth contract exposes service, portal, and device admin RPCs", () => 
   assert(methods.includes("Auth.DisableServiceInstance"));
   assert(methods.includes("Auth.EnableServiceInstance"));
   assert(methods.includes("Auth.RemoveServiceInstance"));
+  assert(methods.includes("Auth.ListUserGrants"));
+  assert(methods.includes("Auth.RevokeUserGrant"));
   assert(!methods.includes("Auth.CreatePortalRoute"));
   assert(!methods.includes("Auth.ListPortalRoutes"));
   assert(!methods.includes("Auth.DisablePortalRoute"));
   assert(!methods.includes("Auth.InstallService"));
   assert(!methods.includes("Auth.UpgradeServiceContract"));
   assert(!methods.includes("Auth.RemoveService"));
+});
+
+Deno.test("session and connection admin schemas expose explicit participant metadata", () => {
+  assert(Value.Check(AuthListSessionsResponseSchema, {
+    sessions: [
+      {
+        key: "github.123.sk_agent",
+        sessionKey: "sk_agent",
+        participantKind: "agent",
+        principal: {
+          type: "user",
+          origin: "github",
+          id: "123",
+          trellisId: "tid_123",
+          name: "Ada",
+        },
+        contractId: "trellis.agent@v1",
+        contractDisplayName: "Trellis Agent",
+        appOrigin: "https://agent.example.com",
+        createdAt: new Date().toISOString(),
+        lastAuth: new Date().toISOString(),
+      },
+    ],
+  }));
+
+  assert(Value.Check(AuthListConnectionsResponseSchema, {
+    connections: [
+      {
+        key: "github.123.sk_agent.user_nkey",
+        userNkey: "user_nkey",
+        sessionKey: "sk_agent",
+        participantKind: "agent",
+        principal: {
+          type: "user",
+          origin: "github",
+          id: "123",
+          trellisId: "tid_123",
+          name: "Ada",
+        },
+        contractId: "trellis.agent@v1",
+        contractDisplayName: "Trellis Agent",
+        appOrigin: "https://agent.example.com",
+        serverId: "n1",
+        clientId: 7,
+        connectedAt: new Date().toISOString(),
+      },
+    ],
+  }));
 });
 
 Deno.test("validateServiceProfileRequest normalizes namespaces without display metadata", () => {

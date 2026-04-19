@@ -10,7 +10,7 @@ pub struct AuthCommand {
 #[derive(Debug, Subcommand)]
 /// Authenticate the CLI or inspect stored app approvals.
 pub enum AuthSubcommand {
-    /// Start an interactive browser login against a Trellis auth service.
+    /// Start a detached portal login against a Trellis auth service.
     Login(AuthLoginArgs),
     /// Revoke the current admin session and clear local session state.
     Logout,
@@ -108,13 +108,9 @@ pub struct AuthApprovalRevokeArgs {
 }
 
 #[derive(Debug, Args)]
-/// Start an interactive browser login against an auth service.
+/// Start a detached portal login against an auth service.
 pub struct AuthLoginArgs {
     #[arg(long, default_value = "http://localhost:3000")]
     /// Base URL for the Trellis auth service.
     pub auth_url: String,
-
-    #[arg(long, default_value = "127.0.0.1:0")]
-    /// Local callback address to bind while waiting for the browser redirect.
-    pub listen: String,
 }

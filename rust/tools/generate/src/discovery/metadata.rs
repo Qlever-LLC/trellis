@@ -77,7 +77,7 @@ pub fn parse_contract_kind(value: &str) -> miette::Result<ContractKind> {
         "app" => Ok(ContractKind::App),
         "portal" => Ok(ContractKind::Portal),
         "device" => Ok(ContractKind::Device),
-        "cli" => Ok(ContractKind::Cli),
+        "agent" => Ok(ContractKind::Agent),
         _ => Err(miette::miette!("unsupported contract kind '{value}'")),
     }
 }
@@ -88,7 +88,7 @@ fn infer_contract_kind_from_typescript_source(source: &str) -> Option<ContractKi
         ("defineAppContract(", ContractKind::App),
         ("definePortalContract(", ContractKind::Portal),
         ("defineDeviceContract(", ContractKind::Device),
-        ("defineCliContract(", ContractKind::Cli),
+        ("defineAgentContract(", ContractKind::Agent),
     ];
 
     HELPER_KINDS

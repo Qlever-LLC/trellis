@@ -1,18 +1,19 @@
 #[test]
-fn cli_contract_manifest_validates_and_declares_expected_auth_and_core_surface() {
+fn agent_contract_manifest_validates_and_declares_expected_auth_and_core_surface() {
     let temp_dir = tempfile::tempdir().expect("temp dir");
-    let manifest_path = temp_dir.path().join("trellis.cli@v1.json");
+    let manifest_path = temp_dir.path().join("trellis.agent@v1.json");
     std::fs::write(
         &manifest_path,
-        format!("{}\n", trellis_cli::cli_contract::cli_contract_json()),
+        format!("{}\n", trellis_cli::agent_contract::agent_contract_json()),
     )
-    .expect("write cli contract manifest");
+    .expect("write agent contract manifest");
 
     let loaded =
-        trellis_contracts::load_manifest(&manifest_path).expect("load cli contract manifest");
+        trellis_contracts::load_manifest(&manifest_path).expect("load agent contract manifest");
 
-    assert_eq!(loaded.manifest.id, "trellis.cli@v1");
-    assert_eq!(loaded.manifest.display_name, "Trellis CLI");
+    assert_eq!(loaded.manifest.id, "trellis.agent@v1");
+    assert_eq!(loaded.manifest.kind, trellis_contracts::ContractKind::Agent);
+    assert_eq!(loaded.manifest.display_name, "Trellis Agent");
 
     let auth = loaded
         .manifest

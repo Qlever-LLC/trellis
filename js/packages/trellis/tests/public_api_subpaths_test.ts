@@ -8,7 +8,7 @@ import type { TrellisCatalogHandler } from "../../trellis-sdk/core.ts";
 import * as healthSdk from "../../trellis-sdk/health.ts";
 import {
   defineAppContract,
-  defineCliContract,
+  defineAgentContract,
   defineDeviceContract,
   definePortalContract,
   defineServiceContract,
@@ -63,7 +63,7 @@ Deno.test("contracts subpath exposes only kind-specific contract helpers", () =>
   assertEquals("defineContract" in contracts, false);
   assertEquals(typeof defineAppContract, "function");
   assertEquals(typeof definePortalContract, "function");
-  assertEquals(typeof defineCliContract, "function");
+  assertEquals(typeof defineAgentContract, "function");
   assertEquals(typeof defineDeviceContract, "function");
   assertEquals(typeof defineServiceContract, "function");
 

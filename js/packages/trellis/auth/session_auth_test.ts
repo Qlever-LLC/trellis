@@ -32,14 +32,23 @@ Deno.test("createAuth derives sessionKey from 32-byte seed", async () => {
   assertEquals(pk.length, 32);
 });
 
-Deno.test("oauthInitSig signs hash('oauth-init:' + redirectTo + ':' + canonicalContext)", async () => {
+Deno.test("oauthInitSig signs the auth-start payload including provider, contract, and context", async () => {
   const seed = base64urlEncode(crypto.getRandomValues(new Uint8Array(32)));
   const auth = await createAuth({ sessionKeySeed: seed });
 
   const redirectTo = "https://example.com/app";
-  const sig = await auth.oauthInitSig(redirectTo, { subtitle: "Welcome back" });
+  const sig = await auth.oauthInitSig(
+    redirectTo,
+    { subtitle: "Welcome back" },
+    "github",
+    { id: "trellis.console@v1", origin: "https://console.example.com" },
+  );
 
-  const digest = await sha256(utf8(`oauth-init:${redirectTo}:{"subtitle":"Welcome back"}`));
+  const digest = await sha256(
+    utf8(
+      "oauth-init:https://example.com/app:github:{\"id\":\"trellis.console@v1\",\"origin\":\"https://console.example.com\"}:{\"subtitle\":\"Welcome back\"}",
+    ),
+  );
   const pub = await crypto.subtle.importKey(
     "raw",
     toArrayBuffer(base64urlDecode(auth.sessionKey)),

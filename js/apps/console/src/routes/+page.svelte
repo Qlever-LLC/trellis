@@ -18,10 +18,6 @@
       auth.setAuthUrl(selectedAuthUrl);
     }
     await auth.init();
-    if (auth.isAuthenticated) {
-      await goto(resolve("/profile"));
-      return;
-    }
     await goto(resolve("/login"));
   });
 </script>

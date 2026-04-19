@@ -48,8 +48,12 @@ const rawSchema = z.object({
     .object({
       origins: z.array(z.string()).default(["*"]),
       publicOrigin: z.string().optional(),
+      allowInsecureOrigins: z.array(z.string()).default([]),
     })
-    .default({ origins: ["*"] }),
+    .default({
+      origins: ["*"],
+      allowInsecureOrigins: [],
+    }),
   httpRateLimit: httpRateLimitSchema.default({
     windowMs: 60_000,
     max: 60,
@@ -104,7 +108,7 @@ const rawSchema = z.object({
         ]),
       )
       .refine(
-        (providers) => Object.keys(providers).length > 0,
+        (providers: unknown) => Object.keys(providers as Record<string, unknown>).length > 0,
         "At least one auth provider must be configured",
       ),
   }),
@@ -135,6 +139,7 @@ export type Config = {
   web: {
     origins: string[];
     publicOrigin?: string;
+    allowInsecureOrigins: string[];
   };
   httpRateLimit: {
     windowMs: number;
@@ -188,16 +193,20 @@ function canonicalizeLoopbackUrl(
   }
 }
 
-function normalizeWebOrigins(origins: string[]): string[] {
+function normalizeOriginList(origins: string[]): string[] {
   const normalized: string[] = [];
   for (const origin of origins) {
-    if (origin === "*") return ["*"];
     const canonicalOrigin = canonicalizeLoopbackUrl(origin) ?? origin;
     if (!normalized.includes(canonicalOrigin)) {
       normalized.push(canonicalOrigin);
     }
   }
   return normalized;
+}
+
+function normalizeWebOrigins(origins: string[]): string[] {
+  if (origins.includes("*")) return ["*"];
+  return normalizeOriginList(origins);
 }
 
 function resolvePath(configPath: string, targetPath: string): string {
@@ -269,6 +278,9 @@ function normalizeConfig(configPath: string, raw: RawConfig): Config {
     web: {
       origins: normalizeWebOrigins(raw.web.origins),
       publicOrigin: canonicalizeLoopbackUrl(raw.web.publicOrigin),
+      allowInsecureOrigins: normalizeOriginList(
+        raw.web.allowInsecureOrigins,
+      ),
     },
     httpRateLimit: raw.httpRateLimit,
     ttlMs: raw.ttlMs,

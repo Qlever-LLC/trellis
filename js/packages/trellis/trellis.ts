@@ -1270,11 +1270,16 @@ export class Trellis<
     input: unknown,
     opts?: RequestOpts,
   ): AsyncResult<unknown, BaseError> {
-    const methodName = method as MethodsOf<TA>;
-    const ctx = this.api["rpc"][methodName] as RpcDescriptorOf<
-      TA,
-      typeof methodName
-    >;
+    const rpcApi = this.api["rpc"] as Record<string, unknown>;
+    const ctx = rpcApi[method] as {
+      subject: string;
+      input: unknown;
+      output: unknown;
+      callerCapabilities: readonly string[];
+      errors?: readonly string[];
+      declaredErrorTypes?: readonly string[];
+      runtimeErrors?: readonly RuntimeRpcErrorDesc[];
+    } | undefined;
     if (!ctx) {
       return AsyncResult.from(Promise.resolve(err(
         new UnexpectedError({
@@ -1284,6 +1289,23 @@ export class Trellis<
       )));
     }
 
+    return this.#requestBuiltRpcUnknown(method, input, ctx, opts);
+  }
+
+  #requestBuiltRpcUnknown(
+    method: string,
+    input: unknown,
+    ctx: {
+      subject: string;
+      input: unknown;
+      output: unknown;
+      callerCapabilities: readonly string[];
+      errors?: readonly string[];
+      declaredErrorTypes?: readonly string[];
+      runtimeErrors?: readonly RuntimeRpcErrorDesc[];
+    },
+    opts?: RequestOpts,
+  ): AsyncResult<unknown, BaseError> {
     return this.#requestBuiltRpc(method, input, ctx, opts);
   }
 

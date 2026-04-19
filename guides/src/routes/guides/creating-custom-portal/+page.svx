@@ -14,6 +14,10 @@ When a browser app starts a Trellis login with `GET /auth/login`, Trellis create
 
 For a normal user login, the portal usually shows the supported identity providers, starts the chosen provider flow, and then shows the approval screen so the user can allow the original app to access their account.
 
+That approval screen shows Trellis capabilities derived from the app contract.
+They are internal Trellis permissions, not OAuth scopes from the external login
+provider.
+
 For device onboarding, the portal may need to do more than show login screens. For example, a user might be activating a new device and the portal may need to collect extra details, confirm payment, or call Trellis APIs to finish setup. In that kind of flow, the portal is not just a login screen anymore. It is also acting like a Trellis web app for that user.
 
 Some flows may also pause for administrative review before the final step is allowed. That review might be done manually by an admin user or by a local Trellis service that checks some outside condition first.
@@ -138,6 +142,10 @@ For a SvelteKit portal, the target shape is a page like `src/routes/login/+page.
 ```
 
 The helper shown above is the intended public shape. Under the hood it still uses the auth-owned flow endpoints, but app authors should not need to rebuild those request details by hand.
+
+`portal.state.approval.capabilities` is the Trellis-side capability list that
+the app contract requested. A portal should present it as application access
+inside Trellis, not as provider-owned OAuth scopes.
 
 The `portal.state.app.context` payload is optional and app-defined. Portals must validate fields and should only access the fields they define.
 

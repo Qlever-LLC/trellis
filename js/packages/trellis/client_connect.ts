@@ -23,7 +23,7 @@ import {
   selectRuntimeTransportServers,
   type RuntimeTransport,
 } from "./runtime_transport.ts";
-import { Trellis, type RuntimeStateStoresForContract } from "./trellis.ts";
+import { Trellis } from "./trellis.ts";
 import { Type, type StaticDecode } from "typebox";
 import { Value } from "typebox/value";
 import {
@@ -118,8 +118,8 @@ const ClientTransportsSchema = Type.Object({
 type ClientConnectDeps = {
   loadTransport(): Promise<RuntimeTransport>;
   now(): number;
-  setInterval?: (handler: () => void, ms: number) => number;
-  clearInterval?: (id: number) => void;
+  setInterval?: (handler: () => void, ms: number) => ReturnType<typeof globalThis.setInterval>;
+  clearInterval?: (id: ReturnType<typeof globalThis.setInterval>) => void;
 };
 
 const ClientBootstrapReadySchema = Type.Object({
@@ -488,9 +488,10 @@ async function createRuntimeUserAuthenticator(args: {
 
   await refresh();
   const setRefreshInterval = args.deps.setInterval ??
-    ((handler: () => void, ms: number) => globalThis.setInterval(handler, ms));
+    ((handler: () => void, ms: number): ReturnType<typeof globalThis.setInterval> =>
+      globalThis.setInterval(handler, ms));
   const clearRefreshInterval = args.deps.clearInterval ??
-    ((id: number) => globalThis.clearInterval(id));
+    ((id: ReturnType<typeof globalThis.setInterval>) => globalThis.clearInterval(id));
   const refreshIntervalId = setRefreshInterval(() => {
     void refresh();
   }, 10_000);
@@ -539,9 +540,15 @@ function cleanupBrowserCallbackUrl(currentUrl: URL): void {
 function needsReauth(
   bootstrap: ClientBootstrapResponse,
 ): bootstrap is Extract<ClientBootstrapResponse, { status: "auth_required" }> |
-  Extract<ClientBootstrapResponse, { status: "not_ready"; reason: "insufficient_permissions" }> {
+  Extract<
+    ClientBootstrapResponse,
+    { status: "not_ready"; reason: "contract_not_active" | "insufficient_permissions" }
+  > {
   return bootstrap.status === "auth_required" ||
-    (bootstrap.status === "not_ready" && bootstrap.reason === "insufficient_permissions");
+    (
+      bootstrap.status === "not_ready" &&
+      (bootstrap.reason === "insufficient_permissions" || bootstrap.reason === "contract_not_active")
+    );
 }
 
 function bootstrapTargetsRequestedContract<TApi extends TrellisAPI>(
@@ -593,13 +600,10 @@ async function buildSessionKeyLoginUrl(args: {
   throw new Error("Login flow creation returned an invalid response");
 }
 
-export async function connectClientWithDeps<
-  TApi extends TrellisAPI,
-  TContract extends ClientContract<TApi, TrellisContractV1>,
->(
-  args: TrellisClientConnectArgs<TApi, TContract>,
+export async function connectClientWithDeps(
+  args: TrellisClientConnectArgs,
   deps: ClientConnectDeps,
-): Promise<Trellis<TApi, "client", RuntimeStateStoresForContract<TContract>>> {
+): Promise<Trellis> {
   const trellisUrl = normalizeTrellisUrl(args.trellisUrl);
   const identity = await resolveClientIdentity(args.auth);
   const currentUrl = args.auth?.mode === "session_key" ? null : resolveCurrentUrl(args.auth);
@@ -696,11 +700,7 @@ export async function connectClientWithDeps<
     ...(args.noResponderRetry ? { noResponderRetry: args.noResponderRetry } : {}),
   };
 
-  return new Trellis<
-    TApi,
-    "client",
-    RuntimeStateStoresForContract<TContract>
-  >(
+  return new Trellis<TrellisAPI>(
     clientOpts.name ?? "client",
     nc,
     {
@@ -805,9 +805,9 @@ async function resolveAuthRequired<TApi extends TrellisAPI>(
 }
 
 export class TrellisClient {
-  static connect<TApi extends TrellisAPI, TContract extends ClientContract<TApi, TrellisContractV1>>(
-    args: TrellisClientConnectArgs<TApi, TContract>,
-  ): Promise<Trellis<TApi, "client", RuntimeStateStoresForContract<TContract>>> {
-    return connectClientWithDeps<TApi, TContract>(args, defaultDeps);
+  static connect(
+    args: TrellisClientConnectArgs,
+  ): Promise<Trellis> {
+    return connectClientWithDeps(args, defaultDeps);
   }
 }

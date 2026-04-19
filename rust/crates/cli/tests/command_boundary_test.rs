@@ -125,6 +125,7 @@ fn auth_login_help_hides_transport_flags() {
     assert!(!stdout.contains("--nats-servers"));
     assert!(!stdout.contains("--servers <SERVERS>"));
     assert!(!stdout.contains("--creds <CREDS>"));
+    assert!(!stdout.contains("--listen"));
 }
 
 #[test]

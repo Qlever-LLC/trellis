@@ -77,26 +77,26 @@ when available.
 ### Deno / Node Client
 
 ```ts
-import { TrellisClient, defineCliContract } from "@qlever-llc/trellis";
+import { TrellisClient, defineAgentContract } from "@qlever-llc/trellis";
 import { graph } from "@acme/graph-contract";
 import { auth } from "@qlever-llc/trellis-sdk";
 
-export const cli = defineCliContract(() => ({
-  id: "acme.graph-cli@v1",
-  displayName: "Graph CLI",
-  description: "Query the graph service and inspect auth state.",
+export const agent = defineAgentContract(() => ({
+  id: "acme.graph-agent@v1",
+  displayName: "Graph Agent",
+  description: "Query the graph service and inspect auth state as delegated tooling.",
   uses: {
     auth: auth.useDefaults(),
     graph: graph.use({ rpc: { call: ["Graph.Query"] } }),
   },
 }));
 
-export default cli;
+export default agent;
 
 const client = await TrellisClient.connect({
   trellisUrl: "https://trellis.example.com",
-  contract: cli,
-  name: "cli-tool",
+  contract: agent,
+  name: "graph-agent",
 });
 ```
 

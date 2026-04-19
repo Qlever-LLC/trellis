@@ -2,6 +2,8 @@ import { Hono } from "@hono/hono";
 import { initTracing } from "@qlever-llc/trellis/tracing";
 import {
   authListApprovalsHandler,
+  authListUserGrantsHandler,
+  authRevokeUserGrantHandler,
   createAuthRevokeApprovalHandler,
 } from "./auth/approval/rpc.ts";
 import { kick } from "./auth/callout/kick.ts";
@@ -12,9 +14,9 @@ import {
   authListSessionsHandler,
   authLogoutHandler,
   authMeHandler,
+  authRevokeSessionHandler,
   authValidateRequestHandler,
   createAuthKickConnectionHandler,
-  createAuthRevokeSessionHandler,
 } from "./auth/session/rpc.ts";
 import {
   createActivateDeviceHandler,
@@ -193,7 +195,7 @@ await trellis.mount("Auth.Logout", authLogoutHandler);
 await trellis.mount("Auth.ListSessions", authListSessionsHandler);
 await trellis.mount(
   "Auth.RevokeSession",
-  createAuthRevokeSessionHandler({ kick }),
+  authRevokeSessionHandler,
 );
 await trellis.mount("Auth.ListConnections", authListConnectionsHandler);
 await trellis.mount(
@@ -202,10 +204,12 @@ await trellis.mount(
 );
 
 await trellis.mount("Auth.ListApprovals", authListApprovalsHandler);
+await trellis.mount("Auth.ListUserGrants", authListUserGrantsHandler);
 await trellis.mount(
   "Auth.RevokeApproval",
   createAuthRevokeApprovalHandler({ kick }),
 );
+await trellis.mount("Auth.RevokeUserGrant", authRevokeUserGrantHandler);
 
 await trellis.mount("Auth.ListUsers", authListUsersHandler);
 await trellis.mount("Auth.UpdateUser", authUpdateUserHandler);

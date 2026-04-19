@@ -165,9 +165,17 @@ import {
   AuthListSessionsSchema,
 } from "../../../packages/trellis/models/auth/rpc/ListSessions.ts";
 import {
+  AuthListUserGrantsResponseSchema,
+  AuthListUserGrantsSchema,
+} from "../../../packages/trellis/models/auth/rpc/ListUserGrants.ts";
+import {
   AuthLogoutResponseSchema,
   AuthLogoutSchema,
 } from "../../../packages/trellis/models/auth/rpc/Logout.ts";
+import {
+  AuthRevokeUserGrantResponseSchema,
+  AuthRevokeUserGrantSchema,
+} from "../../../packages/trellis/models/auth/rpc/RevokeUserGrant.ts";
 import {
   AuthRevokeSessionResponseSchema,
   AuthRevokeSessionSchema,
@@ -333,10 +341,14 @@ const schemas = {
   AuthListConnectionsResponse: AuthListConnectionsResponseSchema,
   AuthListSessionsRequest: AuthListSessionsSchema,
   AuthListSessionsResponse: AuthListSessionsResponseSchema,
+  AuthListUserGrantsRequest: AuthListUserGrantsSchema,
+  AuthListUserGrantsResponse: AuthListUserGrantsResponseSchema,
   AuthLogoutRequest: AuthLogoutSchema,
   AuthLogoutResponse: AuthLogoutResponseSchema,
   AuthRevokeSessionRequest: AuthRevokeSessionSchema,
   AuthRevokeSessionResponse: AuthRevokeSessionResponseSchema,
+  AuthRevokeUserGrantRequest: AuthRevokeUserGrantSchema,
+  AuthRevokeUserGrantResponse: AuthRevokeUserGrantResponseSchema,
 } as const;
 
 function schemaRef<const TName extends keyof typeof schemas & string>(
@@ -388,11 +400,25 @@ export const TRELLIS_AUTH_RPC = {
     capabilities: { call: [] },
     errors: ["AuthError", "UnexpectedError"],
   },
+  "Auth.ListUserGrants": {
+    version: "v1",
+    input: schemaRef("AuthListUserGrantsRequest"),
+    output: schemaRef("AuthListUserGrantsResponse"),
+    capabilities: { call: [] },
+    errors: ["AuthError", "UnexpectedError"],
+  },
   "Auth.RevokeSession": {
     version: "v1",
     input: schemaRef("AuthRevokeSessionRequest"),
     output: schemaRef("AuthRevokeSessionResponse"),
     capabilities: { call: ["admin"] },
+    errors: ["AuthError", "ValidationError", "UnexpectedError"],
+  },
+  "Auth.RevokeUserGrant": {
+    version: "v1",
+    input: schemaRef("AuthRevokeUserGrantRequest"),
+    output: schemaRef("AuthRevokeUserGrantResponse"),
+    capabilities: { call: [] },
     errors: ["AuthError", "ValidationError", "UnexpectedError"],
   },
   "Auth.ValidateRequest": {

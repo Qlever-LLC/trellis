@@ -88,6 +88,10 @@ If a dependency is not declared in `uses`, Trellis will not grant that cross-con
 
 ## Authentication and authorization
 
+Trellis uses external OAuth or OIDC providers for user login when needed, but
+those provider scopes are not Trellis's main authorization model. Inside
+Trellis, authorization is contract-driven and uses Trellis-owned capabilities.
+
 ### Principals
 
 Trellis has one user principal class and two device provisioning paths:
@@ -121,6 +125,11 @@ The flow:
 4. After the user authenticates and approval is satisfied, Trellis provisions the user immediately and the browser bind/bootstrap flow returns the approved session metadata, transport endpoints, and sentinel credentials for the app session.
 5. The app connects through `TrellisClient.connect(...)`, which generates fresh signed runtime auth proofs from the local session key and current contract digest during connect and reconnect.
 
+Provider scopes like `openid`, `profile`, and `email` stay in the external
+identity-provider layer. The approval screen inside Trellis is about the app's
+requested Trellis capabilities and contract-derived access, not about minting an
+OAuth access token for a Trellis API.
+
 Deployments can also configure **instance grant policies** for browser apps. An instance grant policy is keyed by contract lineage and may optionally restrict matching browser origins. When a policy matches, Trellis can imply approval and effective capabilities without copying those capabilities onto the user record. This is how a Trellis admin can remove first-login approval screens for trusted product apps while still keeping the policy deployment-owned and revocable.
 
 While an instance grant policy is enabled, it takes precedence over an older explicit user denial for that app lineage. If the policy changes in a way that removes access, Trellis revokes affected delegated sessions and requires reconnect or re-auth.
@@ -142,6 +151,17 @@ Contracts declare per-operation capability requirements:
 ```
 
 Capabilities use the pattern `<domain>.<action>` (e.g., `users.read`, `partners.write`). Some operations require the `service` capability, meaning only registered services can call them. The `admin` capability grants administrative access.
+
+They are similar to OAuth scopes, but they are intentionally different:
+
+- OAuth scopes belong to the external provider login flow.
+- Trellis capabilities belong to Trellis and gate RPCs, operations, events,
+  subjects, and other runtime permissions derived from contracts.
+
+Trellis keeps its own capabilities because the same authorization model has to
+work across browser apps, CLIs, backend services, activated devices, and NATS
+subject permissions. That is broader than a normal OAuth client-to-API scope
+check.
 
 Capabilities are assigned to users and devices at the deployment level. Authorization changes take effect immediately because Trellis derives NATS permissions from the active contracts and current grants.
 
@@ -192,9 +212,12 @@ Like KV, the key (`uploads`) is a logical alias and Trellis assigns the physical
 Not all state belongs in service-owned resources. Trellis also ships a public `trellis.state@v1` contract for semi-durable app memory that should be available across app instances, CLIs, and devices.
 
 - apps and devices call `State.*` over authenticated RPCs
-- scopes are currently `userApp` and `deviceApp`
+- state partitions are currently `userApp` and `deviceApp`
 - values are JSON and keys are opaque strings
 - services should still use `resources.kv` directly for private service state or projections
+
+Here, `userApp` and `deviceApp` are state-partition selectors, not OAuth scopes
+and not Trellis capabilities.
 
 Use `State` for things like saved filters, drafts, UI preferences, and app memory that should follow the same user or device across machines. Use `resources.kv` when the state is owned by a service implementation instead of by an app or device participant.
 

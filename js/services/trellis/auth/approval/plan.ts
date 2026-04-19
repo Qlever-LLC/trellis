@@ -27,6 +27,11 @@ export async function planUserContractApproval(
   const uses = resolveContractUsesFromStore(contractStore, validated.contract, {
     ignoreInactiveContracts: true,
   });
+  if (validated.contract.kind !== "app" && validated.contract.kind !== "agent") {
+    throw new Error(
+      `User approval requires an app or agent contract, got ${validated.contract.kind}`,
+    );
+  }
   const publishSubjects = new Set<string>();
   const subscribeSubjects = new Set<string>();
   const capabilities = new Set<string>();
@@ -108,6 +113,7 @@ export async function planUserContractApproval(
       contractId: validated.contract.id,
       displayName: validated.contract.displayName,
       description: validated.contract.description,
+      participantKind: validated.contract.kind,
       capabilities: sortUniqueStrings(capabilities),
     },
     publishSubjects: sortUniqueStrings(publishSubjects),

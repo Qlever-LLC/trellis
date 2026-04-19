@@ -1,8 +1,15 @@
 <script lang="ts">
-import type { AuthListApprovalsOutput, AuthMeOutput } from "@qlever-llc/trellis-sdk/auth";
-import { getConnectionState } from "@qlever-llc/trellis-svelte";
-import { onMount } from "svelte";
-import { getInitials, getRoleLabel } from "../../../lib/control-panel.ts";
+  import type { AuthMeOutput } from "@qlever-llc/trellis-sdk/auth";
+  import { getConnectionState } from "@qlever-llc/trellis-svelte";
+  import { onMount } from "svelte";
+  import { getInitials, getRoleLabel } from "../../../lib/control-panel.ts";
+  import {
+    describeUserGrant,
+    participantKindBadgeClass,
+    participantKindLabel,
+    type ParticipantKind,
+    type UserGrantRecord,
+  } from "../../../lib/auth_display.ts";
   import { errorMessage, formatDate } from "../../../lib/format";
   import { getNotifications } from "../../../lib/notifications.svelte";
   import { getTrellis } from "../../../lib/trellis";
@@ -11,11 +18,16 @@ import { getInitials, getRoleLabel } from "../../../lib/control-panel.ts";
   const connectionStatePromise = getConnectionState();
   const notifications = getNotifications();
 
+  type ProfileResponse = AuthMeOutput & { participantKind: ParticipantKind };
+  type UserGrantListResponse = { grants: UserGrantRecord[] };
+  type RevokeUserGrantInput = { contractDigest: string };
+
   let loading = $state(true);
   let error = $state<string | null>(null);
   let user = $state<AuthMeOutput["user"] | null>(null);
+  let participantKind = $state<ParticipantKind | null>(null);
   let connectionStatus = $state("connecting");
-  let approvals = $state<AuthListApprovalsOutput["approvals"]>([]);
+  let grants = $state<UserGrantRecord[]>([]);
   let revokeTarget = $state<string | null>(null);
 
   async function loadProfile() {
@@ -23,10 +35,11 @@ import { getInitials, getRoleLabel } from "../../../lib/control-panel.ts";
     error = null;
     try {
       const trellis = await trellisPromise;
-      const me = await trellis.request<AuthMeOutput>("Auth.Me" as string, {}).orThrow();
+      const me = await trellis.request<ProfileResponse>("Auth.Me" as string, {}).orThrow();
       user = me.user ?? null;
-      const appResponse = await trellis.request<AuthListApprovalsOutput>("Auth.ListApprovals" as string, {}).orThrow();
-      approvals = appResponse.approvals ?? [];
+      participantKind = me.participantKind;
+      const grantsResponse = await trellis.request<UserGrantListResponse>("Auth.ListUserGrants" as string, {}).orThrow();
+      grants = grantsResponse.grants ?? [];
     } catch (e) {
       error = errorMessage(e);
     } finally {
@@ -34,23 +47,21 @@ import { getInitials, getRoleLabel } from "../../../lib/control-panel.ts";
     }
   }
 
-  async function revokeApproval(contractDigest: string) {
-    if (!window.confirm("Revoke this app approval? The app will lose access to act on your behalf.")) return;
-    revokeTarget = contractDigest;
+  async function revokeGrant(grant: UserGrantRecord) {
+    if (!window.confirm(`Revoke this ${participantKindLabel(grant.participantKind).toLowerCase()} grant? ${grant.displayName || grant.contractId} will lose access to act on your behalf.`)) return;
+    revokeTarget = grant.contractDigest;
     try {
       const trellis = await trellisPromise;
-      await trellis.request<void>("Auth.RevokeApproval" as string, { contractDigest }).orThrow();
-      notifications.success("App approval revoked.", "Revoked");
+      await trellis.request<void>("Auth.RevokeUserGrant" as string, {
+        contractDigest: grant.contractDigest,
+      } satisfies RevokeUserGrantInput).orThrow();
+      notifications.success(`${participantKindLabel(grant.participantKind)} grant revoked.`, "Revoked");
       await loadProfile();
     } catch (e) {
       error = errorMessage(e);
     } finally {
       revokeTarget = null;
     }
-  }
-
-  function approvalRowKey(entry: AuthListApprovalsOutput["approvals"][number]): string {
-    return `${entry.user}:${entry.approval.contractDigest}:${entry.answeredAt}`;
   }
 
   onMount(() => {
@@ -106,11 +117,23 @@ import { getInitials, getRoleLabel } from "../../../lib/control-panel.ts";
       </div>
     </div>
 
-    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
       <div class="card bg-base-100 border border-base-300">
         <div class="card-body p-4">
           <p class="text-xs uppercase font-semibold text-base-content/50">Origin</p>
           <p class="text-sm mt-1">{user.origin}</p>
+        </div>
+      </div>
+      <div class="card bg-base-100 border border-base-300">
+        <div class="card-body p-4">
+          <p class="text-xs uppercase font-semibold text-base-content/50">Signed in as</p>
+          {#if participantKind}
+            <span class={["badge badge-sm mt-1", participantKindBadgeClass(participantKind)]}>
+              {participantKindLabel(participantKind)}
+            </span>
+          {:else}
+            <p class="text-sm mt-1">—</p>
+          {/if}
         </div>
       </div>
       <div class="card bg-base-100 border border-base-300">
@@ -139,35 +162,66 @@ import { getInitials, getRoleLabel } from "../../../lib/control-panel.ts";
 
     <div>
       <div class="flex items-center justify-between mb-3">
-        <h3 class="text-sm font-semibold">Approved Apps</h3>
+        <div>
+          <h3 class="text-sm font-semibold">Delegated grants</h3>
+          <p class="text-xs text-base-content/50 mt-1">Review the apps and agents that can act on your behalf and revoke access when needed.</p>
+        </div>
       </div>
 
-      {#if approvals.length === 0}
-        <p class="text-sm text-base-content/60">No app approvals.</p>
+      {#if grants.length === 0}
+        <p class="text-sm text-base-content/60">No delegated app or agent grants.</p>
       {:else}
         <div class="overflow-x-auto">
           <table class="table table-sm">
             <thead>
               <tr>
-                <th>App</th>
+                <th>Grant</th>
+                <th>Kind</th>
                 <th>Contract</th>
-                <th>Approved</th>
+                <th>Capabilities</th>
+                <th>Granted</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
-              {#each approvals as entry (approvalRowKey(entry))}
+              {#each grants as grant (grant.contractDigest)}
+                {@const summary = describeUserGrant(grant)}
                 <tr>
-                  <td class="font-medium">{entry.approval.displayName ?? entry.approval.contractId ?? "—"}</td>
-                  <td class="font-mono text-xs text-base-content/60">{entry.approval.contractDigest?.slice(0, 12)}…</td>
-                  <td class="text-base-content/60">{formatDate(entry.answeredAt)}</td>
+                  <td>
+                    <div class="font-medium">{summary.title}</div>
+                    <div class="text-xs text-base-content/60">{summary.details}</div>
+                  </td>
+                  <td>
+                    <span class={["badge badge-sm", participantKindBadgeClass(grant.participantKind)]}>
+                      {participantKindLabel(grant.participantKind)}
+                    </span>
+                  </td>
+                  <td>
+                    <div class="font-mono text-xs text-base-content/60">{grant.contractId}</div>
+                    <div class="font-mono text-xs text-base-content/40">{grant.contractDigest.slice(0, 12)}…</div>
+                  </td>
+                  <td class="text-xs text-base-content/60">
+                    {#if grant.capabilities.length}
+                      <div class="flex flex-wrap gap-1">
+                        {#each grant.capabilities as capability (capability)}
+                          <span class="badge badge-outline badge-xs">{capability}</span>
+                        {/each}
+                      </div>
+                    {:else}
+                      —
+                    {/if}
+                  </td>
+                  <td class="text-xs text-base-content/60">
+                    <div>{formatDate(grant.grantedAt)}</div>
+                    <div>Updated {formatDate(grant.updatedAt)}</div>
+                  </td>
                   <td class="text-right">
                     <button
                       class="btn btn-ghost btn-xs text-error"
-                      onclick={() => revokeApproval(entry.approval.contractDigest)}
-                      disabled={revokeTarget === entry.approval.contractDigest}
+                      onclick={() => revokeGrant(grant)}
+                      disabled={revokeTarget === grant.contractDigest}
                     >
-                      {revokeTarget === entry.approval.contractDigest ? "Revoking…" : "Revoke"}
+                      {revokeTarget === grant.contractDigest ? "Revoking…" : "Revoke"}
                     </button>
                   </td>
                 </tr>

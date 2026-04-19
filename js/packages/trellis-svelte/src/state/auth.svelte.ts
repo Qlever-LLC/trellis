@@ -8,7 +8,7 @@ import {
   getPublicSessionKey,
   startAuthRequest as browserStartAuthRequest,
   type SessionKeyHandle,
-} from "@qlever-llc/trellis/auth/browser";
+} from "../../../trellis/auth/browser.ts";
 import { Result } from "@qlever-llc/result";
 import type { TrellisClientContract } from "./trellis.svelte.ts";
 

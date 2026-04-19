@@ -311,7 +311,7 @@ export const guideDocs: DocEntry[] = [
   {
     title: "Trellis Concepts",
     description:
-      "The core ideas behind Trellis — contracts, communication, auth, resources, jobs, operations, and packages.",
+      "The core ideas behind Trellis, including contract-driven authorization and why Trellis capabilities are different from OAuth scopes.",
     href: "/guides/concepts",
     section: "Introduction",
   },
@@ -405,7 +405,7 @@ export const guideDocs: DocEntry[] = [
   {
     title: "State: TypeScript",
     description:
-      "Use Trellis-managed `State.*` RPCs from TypeScript apps and devices for semi-durable cloud-backed app memory.",
+      "Use Trellis-managed `State.*` RPCs from TypeScript apps and devices for semi-durable cloud-backed app memory, with `userApp` and `deviceApp` state partitions.",
     href: "/guides/using-state-ts",
     section: "Features",
     sidebarGroup: "Resources",

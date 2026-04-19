@@ -2,6 +2,7 @@ import { assertEquals } from "@std/assert";
 
 import { bindFlow, buildLoginUrl, startAuthRequest } from "./login.ts";
 import type { SessionKeyHandle } from "./session.ts";
+import { base64urlDecode, sha256, toArrayBuffer, utf8 } from "../utils.ts";
 
 async function createHandle(): Promise<SessionKeyHandle> {
   const keyPair = await crypto.subtle.generateKey(
@@ -127,6 +128,46 @@ Deno.test("startAuthRequest omits scalar context from both request body and sign
       handle: await createHandle(),
       contract: { id: "demo.app@v1" },
       context: "scalar-context",
+    });
+
+    assertEquals(response.status, "flow_started");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("startAuthRequest signs provider, contract, and canonical context", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    const handle = await createHandle();
+    globalThis.fetch = (async (_input, init) => {
+      const body = JSON.parse(String(init?.body));
+      const digest = await sha256(
+        utf8(
+          "oauth-init:http://localhost:5173/profile:github:{\"capabilities\":[\"admin\"],\"id\":\"demo.app@v1\"}:{\"subtitle\":\"Welcome back\"}",
+        ),
+      );
+      const verified = await crypto.subtle.verify(
+        { name: "Ed25519" },
+        handle.publicKey,
+        toArrayBuffer(base64urlDecode(body.sig)),
+        toArrayBuffer(digest),
+      );
+      assertEquals(verified, true);
+      return new Response(JSON.stringify({
+        status: "flow_started",
+        flowId: "flow-signed",
+        loginUrl: "http://localhost:3000/auth/login/github?flowId=flow-signed",
+      }));
+    }) as typeof fetch;
+
+    const response = await startAuthRequest({
+      authUrl: "http://localhost:3000",
+      provider: "github",
+      redirectTo: "http://localhost:5173/profile",
+      handle,
+      contract: { id: "demo.app@v1", capabilities: ["admin"] },
+      context: { subtitle: "Welcome back" },
     });
 
     assertEquals(response.status, "flow_started");

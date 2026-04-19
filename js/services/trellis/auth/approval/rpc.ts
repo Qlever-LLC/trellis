@@ -10,6 +10,10 @@ import {
   trellis,
 } from "../../bootstrap/globals.ts";
 import type { Connection, ContractApprovalRecord, Session } from "../../state/schemas.ts";
+import {
+  createAuthListUserGrantsHandler,
+  createAuthRevokeUserGrantHandler,
+} from "./user_grants.ts";
 
 type RpcUser = {
   type: string;
@@ -21,6 +25,25 @@ type RpcUser = {
 
 type ListApprovalsRequest = { user?: string; digest?: string };
 type RevokeApprovalRequest = { contractDigest: string; user?: string };
+
+type KVResult<T = unknown> = { take(): T | Promise<T> };
+type KVLike<V> = {
+  get: (key: string) => Promise<KVResult> | KVResult;
+  keys: (filter: string) => Promise<KVResult> | KVResult;
+  delete: (key: string) => Promise<KVResult> | KVResult;
+};
+
+async function takeValue<T>(value: KVResult<T> | Promise<KVResult<T>>): Promise<T> {
+  const taken = await value;
+  return await taken.take();
+}
+
+function unwrapValue<V>(entry: { value: V } | V): V {
+  if (entry && typeof entry === "object" && "value" in entry) {
+    return entry.value;
+  }
+  return entry;
+}
 
 function parseOriginId(value: string): { origin: string; id: string } | null {
   const idx = value.indexOf(".");
@@ -85,15 +108,26 @@ async function resolveTargetUser(
 async function revokeApprovalSessions(
   userTrellisId: string,
   contractDigest: string,
-  kick: (serverId: string, clientId: number) => Promise<void>,
+  deps: {
+    sessionKV: KVLike<Session>;
+    connectionsKV: KVLike<Connection>;
+    kick: (serverId: string, clientId: number) => Promise<void>;
+    publishSessionRevoked: (event: {
+      origin: string;
+      id: string;
+      sessionKey: string;
+      revokedBy: string;
+    }) => Promise<void>;
+    revokedBy: string;
+  },
 ): Promise<void> {
-  const iter = (await sessionKV.keys(`>.${userTrellisId}`)).take();
+  const iter = await takeValue(deps.sessionKV.keys(`>.${userTrellisId}`));
   if (isErr(iter)) return;
 
-  for await (const key of iter) {
-    const entry = (await sessionKV.get(key)).take();
+  for await (const key of iter as AsyncIterable<string>) {
+    const entry = await takeValue(deps.sessionKV.get(key));
     if (isErr(entry)) continue;
-    const session = entry.value as Session;
+    const session = unwrapValue(entry) as Session;
     if (session.type !== "user") continue;
     if (session.contractDigest !== contractDigest) continue;
 
@@ -101,19 +135,25 @@ async function revokeApprovalSessions(
     if (!sessionKey) continue;
 
     const connIter =
-      (await connectionsKV.keys(`${sessionKey}.${userTrellisId}.>`)).take();
+      await takeValue(deps.connectionsKV.keys(`${sessionKey}.${userTrellisId}.>`));
     if (!isErr(connIter)) {
-      for await (const connKey of connIter) {
-        const connection = (await connectionsKV.get(connKey)).take();
+      for await (const connKey of connIter as AsyncIterable<string>) {
+        const connection = await takeValue(deps.connectionsKV.get(connKey));
         if (!isErr(connection)) {
-          const connectionValue = connection.value as Connection;
-          await kick(connectionValue.serverId, connectionValue.clientId);
+          const connectionValue = unwrapValue(connection) as Connection;
+          await deps.kick(connectionValue.serverId, connectionValue.clientId);
         }
-        await connectionsKV.delete(connKey);
+        await deps.connectionsKV.delete(connKey);
       }
     }
 
-    await sessionKV.delete(key);
+    await deps.publishSessionRevoked({
+      origin: session.origin,
+      id: session.id,
+      sessionKey,
+      revokedBy: deps.revokedBy,
+    });
+    await deps.sessionKV.delete(key);
   }
 }
 
@@ -141,6 +181,7 @@ export const authListApprovalsHandler = async (
       answer: "approved" | "denied";
       answeredAt: string;
       updatedAt: string;
+      participantKind: "app" | "agent";
       approval: {
         contractDigest: string;
         contractId: string;
@@ -152,17 +193,17 @@ export const authListApprovalsHandler = async (
 
     const target = req.user ? await resolveTargetUser(req.user, user) : null;
     const iter = target
-      ? (await contractApprovalsKV.keys(`${target.trellisId}.>`)).take()
-      : (await contractApprovalsKV.keys(">")).take();
+      ? await takeValue(contractApprovalsKV.keys(`${target.trellisId}.>`))
+      : await takeValue(contractApprovalsKV.keys(">"));
 
     if (isErr(iter)) {
       return Result.ok({ approvals: [] });
     }
 
-    for await (const key of iter) {
-      const entry = (await contractApprovalsKV.get(key)).take();
+    for await (const key of iter as AsyncIterable<string>) {
+      const entry = await takeValue(contractApprovalsKV.get(key));
       if (isErr(entry)) continue;
-      const approval = entry.value as ContractApprovalRecord;
+      const approval = unwrapValue(entry) as ContractApprovalRecord;
 
       if (
         !target && callerTrellisId &&
@@ -174,12 +215,16 @@ export const authListApprovalsHandler = async (
         continue;
       }
 
+      const contractApproval = approval.approval as ContractApprovalRecord["approval"] & {
+        participantKind: "app" | "agent";
+      };
       approvals.push({
         user: formatOriginId(approval.origin, approval.id),
         answer: approval.answer,
         answeredAt: approval.answeredAt.toISOString(),
         updatedAt: approval.updatedAt.toISOString(),
         approval: approval.approval,
+        participantKind: contractApproval.participantKind,
       });
     }
 
@@ -223,7 +268,7 @@ export function createAuthRevokeApprovalHandler(opts: {
     try {
       const target = await resolveTargetUser(req.user, user);
       const approvalKey = `${target.trellisId}.${req.contractDigest}`;
-      const existing = (await contractApprovalsKV.get(approvalKey)).take();
+      const existing = await takeValue(contractApprovalsKV.get(approvalKey));
       if (isErr(existing)) {
         return Result.ok({ success: false });
       }
@@ -232,7 +277,17 @@ export function createAuthRevokeApprovalHandler(opts: {
       await revokeApprovalSessions(
         target.trellisId,
         req.contractDigest,
-        opts.kick,
+        {
+          sessionKV,
+          connectionsKV,
+          kick: opts.kick,
+          publishSessionRevoked: async (event) => {
+            (await trellis.publish("Auth.SessionRevoked", event)).inspectErr((error) =>
+              logger.warn({ error }, "Failed to publish Auth.SessionRevoked")
+            );
+          },
+          revokedBy: formatOriginId(user.origin, user.id),
+        },
       );
       return Result.ok({ success: true });
     } catch (error) {
@@ -243,3 +298,21 @@ export function createAuthRevokeApprovalHandler(opts: {
     }
   };
 }
+
+export const authListUserGrantsHandler = createAuthListUserGrantsHandler({
+  contractApprovalsKV,
+});
+
+export const authRevokeUserGrantHandler = createAuthRevokeUserGrantHandler({
+  contractApprovalsKV,
+  sessionKV,
+  connectionsKV,
+  kick: async (serverId, clientId) => {
+    await import("../callout/kick.ts").then(({ kick }) => kick(serverId, clientId));
+  },
+  publishSessionRevoked: async (event) => {
+    (await trellis.publish("Auth.SessionRevoked", event)).inspectErr((error) =>
+      logger.warn({ error }, "Failed to publish Auth.SessionRevoked")
+    );
+  },
+});

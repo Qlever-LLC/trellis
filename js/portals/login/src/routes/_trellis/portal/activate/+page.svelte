@@ -4,13 +4,10 @@
   import { page } from "$app/state";
   import { onMount } from "svelte";
   import type { AsyncResult, BaseError } from "@qlever-llc/result";
+  import { TrellisClient } from "@qlever-llc/trellis";
   import {
     type AuthState,
-    type NatsState,
-    type TrellisClientContract,
     createAuthState,
-    createNatsState,
-    createTrellisState,
   } from "@qlever-llc/trellis-svelte";
   import { portalApp } from "../../../../../contracts/portal_app.ts";
   import { APP_CONFIG } from "../../../../lib/config";
@@ -18,19 +15,20 @@
 
   async function createPortalTrellisState(
     authState: AuthState,
-    natsState: NatsState,
   ): Promise<{
     trellis: {
       request: (method: string, input: unknown) => AsyncResult<unknown, BaseError>;
     };
   }> {
-    const contract: TrellisClientContract = portalApp;
-    const trellisState = await createTrellisState(authState, natsState, {
+    const contract = portalApp;
+    const trellis = await TrellisClient.connect({
+      trellisUrl: APP_CONFIG.authUrl,
+      auth: { handle: await authState.init() },
       contract,
     });
     return {
       trellis: {
-        request: trellisState.trellis.request.bind(trellisState.trellis),
+        request: trellis.request.bind(trellis),
       },
     };
   }
@@ -100,6 +98,7 @@
   let flowId = $state<string | null>(null);
   let startPortalActivation: StartPortalActivation | null = null;
   let getPortalActivationStatus: GetPortalActivationStatus | null = null;
+  let isAuthenticated = false;
 
   const ACTIVATION_STATUS_POLL_INTERVAL_MS = 2_000;
 
@@ -316,23 +315,8 @@
       return;
     }
 
-    if (!authState.isAuthenticated) {
-      return;
-    }
-
-    const natsState = await createNatsState(authState, {
-      onAuthRequired: () => {
-        authError = "Your portal session expired. Please sign in again.";
-        if (flowId) {
-          view = createSignInRequiredView(flowId);
-        }
-      },
-      onError: (error) => {
-        authError = error.message;
-      },
-    });
-
-    const trellisState = await createPortalTrellisState(authState, natsState);
+    const trellisState = await createPortalTrellisState(authState);
+    isAuthenticated = true;
     const requestValue: (
       method: string,
       input: unknown,
@@ -470,7 +454,7 @@
       try {
         await initializeBrowserState();
         if (!view) {
-          view = authState.isAuthenticated
+          view = isAuthenticated
             ? createReadyView(flowId)
             : createSignInRequiredView(flowId);
         }

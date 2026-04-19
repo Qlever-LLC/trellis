@@ -2,6 +2,7 @@ import { assertEquals } from "@std/assert";
 import { join } from "@std/path";
 
 const forbiddenImportPattern = /(?:from|require\()\s*["']@qlever-llc\/trellis-(?!sdk\b)[^"']+["']/;
+const staleCliArtifactPattern = /defineCliContract|"service" \| "app" \| "portal" \| "device" \| "cli"|defineClientContract\("cli"/;
 
 async function* walkFiles(dir: string): AsyncGenerator<string> {
   for await (const entry of Deno.readDir(dir)) {
@@ -40,11 +41,13 @@ Deno.test("trellis npm artifact only depends on allowed published Trellis packag
     if (!filePath.endsWith(".js") && !filePath.endsWith(".d.ts")) continue;
     const source = await Deno.readTextFile(filePath);
     assertEquals(forbiddenImportPattern.test(source), false, filePath);
+    assertEquals(staleCliArtifactPattern.test(source), false, filePath);
   }
 
   for await (const filePath of walkFiles(join(npmDir.pathname, "script"))) {
     if (!filePath.endsWith(".js") && !filePath.endsWith(".d.ts")) continue;
     const source = await Deno.readTextFile(filePath);
     assertEquals(forbiddenImportPattern.test(source), false, filePath);
+    assertEquals(staleCliArtifactPattern.test(source), false, filePath);
   }
 });

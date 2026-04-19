@@ -60,9 +60,8 @@ TypeScript authoring uses kind-specific public helpers:
 
 - `defineServiceContract(...)`
 - `defineAppContract(...)`
-- `definePortalContract(...)`
+- `defineAgentContract(...)`
 - `defineDeviceContract(...)`
-- `defineCliContract(...)`
 
 These helpers are the public TypeScript authoring surface. Docs and normal
 authored contract modules should use the kind-specific helper that matches the
@@ -144,19 +143,20 @@ For locally authored TypeScript contract source files under `contracts/*.ts`:
 - apps should normally use `defineAppContract({ schemas }, (ref) => ({ ... }))`
   when they declare schema-backed state, and `defineAppContract(() => ({ ... }))`
   otherwise
-- portals should normally use
-  `definePortalContract({ schemas }, (ref) => ({ ... }))` when they declare
-  schema-backed state, and `definePortalContract(() => ({ ... }))` otherwise
+- user-delegated agents should normally use
+  `defineAgentContract({ schemas }, (ref) => ({ ... }))` when they declare
+  schema-backed state, and `defineAgentContract(() => ({ ... }))` otherwise
 - devices should normally use
   `defineDeviceContract({ schemas }, (ref) => ({ ... }))` when they declare
   schema-backed state, and `defineDeviceContract(() => ({ ... }))` otherwise
-- CLIs should normally use `defineCliContract({ schemas }, (ref) => ({ ... }))`
-  when they declare schema-backed state, and `defineCliContract(() => ({ ... }))`
+- CLI and other long-lived user tooling should normally use
+  `defineAgentContract({ schemas }, (ref) => ({ ... }))` when they declare
+  schema-backed state, and `defineAgentContract(() => ({ ... }))`
   otherwise
 - `schemas` and local `errors` act as registries supplied to the contract
   builder for service contracts, while the callback body defines the owned
   surfaces, resources, and `uses`
-- app-, portal-, cli-, and device-style contracts may also take a `schemas`
+- app-, agent-, and device-style contracts may also take a `schemas`
   registry when they declare schema-backed owned surfaces such as top-level
   `state`
 - schema refs should normally use `ref.schema("...")`
@@ -489,7 +489,7 @@ Expected type behavior:
   and typed `use(...)`
 - runtime helpers should consume contract objects directly for client and
   service creation
-- the emitted manifest format and CLI contract workflow stay stable
+- the emitted manifest format and agent contract workflow stay stable
 
 ## References
 

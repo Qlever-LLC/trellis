@@ -1,4 +1,3 @@
-import type { AsyncResult, BaseError } from "@qlever-llc/result";
 import { Result, isErr } from "@qlever-llc/result";
 import { trellisIdFromOriginId } from "@qlever-llc/trellis/auth";
 import { AuthError } from "../../../../packages/trellis/errors/AuthError.ts";
@@ -39,6 +38,7 @@ type AuthenticatedDevice = {
 };
 
 type AuthMeResponse = {
+  participantKind: "app" | "agent" | "device" | "service";
   user: AuthenticatedUser | null;
   device: AuthenticatedDevice | null;
   service: AuthenticatedService | null;
@@ -46,6 +46,7 @@ type AuthMeResponse = {
 
 type SessionCaller = {
   type: string;
+  participantKind?: "app" | "agent";
   trellisId?: string;
   id?: string;
   origin?: string;
@@ -99,9 +100,14 @@ function deviceCallerFields(caller?: SessionCaller): {
 }
 
 type KVLike<V> = {
-  get: (key: string) => AsyncResult<{ value: V } | V | unknown, BaseError>;
-  keys?: (filter: string) => AsyncResult<AsyncIterable<string> | unknown, BaseError>;
+  get: (key: string) => { take(): unknown | Promise<unknown> } | Promise<{ take(): unknown | Promise<unknown> }>;
+  keys?: (filter: string) => { take(): unknown | Promise<unknown> } | Promise<{ take(): unknown | Promise<unknown> }>;
 };
+
+async function takeValue<T>(value: { take(): T | Promise<T> } | Promise<{ take(): T | Promise<T> }>): Promise<T> {
+  const taken = await value;
+  return await taken.take();
+}
 
 function unwrapValue<V>(entry: unknown): V {
   if (entry && typeof entry === "object" && "value" in entry) {
@@ -113,8 +119,7 @@ function unwrapValue<V>(entry: unknown): V {
 async function loadSessionBySessionKey(sessionKey: string, sessionStore: KVLike<Session>): Promise<Session | null> {
   if (!sessionStore.keys) return null;
 
-  const keysIterResult = await sessionStore.keys(`${sessionKey}.>`);
-  const keysIter = unwrapValue<AsyncIterable<string>>(keysIterResult.take());
+  const keysIter = unwrapValue<AsyncIterable<string>>(await takeValue(sessionStore.keys(`${sessionKey}.>`)));
   if (isErr(keysIter)) return null;
 
   let sessionKeyId: string | undefined;
@@ -126,7 +131,7 @@ async function loadSessionBySessionKey(sessionKey: string, sessionStore: KVLike<
   }
 
   if (!sessionKeyId) return null;
-  const sessionValue = unwrapValue<Session>((await sessionStore.get(sessionKeyId)).take());
+  const sessionValue = unwrapValue<Session>(await takeValue(sessionStore.get(sessionKeyId)));
   if (isErr(sessionValue)) return null;
   return sessionValue;
 }
@@ -138,7 +143,7 @@ async function loadAuthenticatedUser(args: {
   fallback: Pick<AuthenticatedUser, "name" | "email" | "capabilities"> & Partial<Pick<AuthenticatedUser, "image" | "lastLogin" | "active">>;
 }): Promise<AuthenticatedUser> {
   const trellisId = await trellisIdFromOriginId(args.origin, args.id);
-  const projectionEntry = unwrapValue<UserProjectionEntry>((await args.usersKV.get(trellisId)).take());
+  const projectionEntry = unwrapValue<UserProjectionEntry>(await takeValue(args.usersKV.get(trellisId)));
   if (!isErr(projectionEntry)) {
     const projection = projectionEntry;
     return {
@@ -170,7 +175,7 @@ async function loadAuthenticatedService(args: {
   sessionKey: string;
   session: Session & { type: "service" };
 }): Promise<AuthenticatedService> {
-  const serviceEntry = unwrapValue<ServiceRegistryEntry>((await args.servicesKV.get(args.sessionKey)).take());
+  const serviceEntry = unwrapValue<ServiceRegistryEntry>(await takeValue(args.servicesKV.get(args.sessionKey)));
   if (!isErr(serviceEntry)) {
     const service = serviceEntry;
     return {
@@ -197,7 +202,7 @@ async function loadAuthenticatedDevice(args: {
   deviceProfilesKV: KVLike<{ profileId: string; disabled: boolean }>;
   session: Session & { type: "device" };
 }): Promise<{ user: AuthenticatedUser | null; device: AuthenticatedDevice }> {
-  const activationEntry = unwrapValue<DeviceActivationRecord>((await args.deviceActivationsKV.get(args.session.instanceId)).take());
+  const activationEntry = unwrapValue<DeviceActivationRecord>(await takeValue(args.deviceActivationsKV.get(args.session.instanceId)));
   if (isErr(activationEntry)) {
     throw new AuthError({ reason: "unknown_device", context: { instanceId: args.session.instanceId } });
   }
@@ -220,7 +225,7 @@ async function loadAuthenticatedDevice(args: {
     });
   }
 
-  const profileEntry = unwrapValue<{ profileId: string; disabled: boolean }>((await args.deviceProfilesKV.get(activation.profileId)).take());
+  const profileEntry = unwrapValue<{ profileId: string; disabled: boolean }>(await takeValue(args.deviceProfilesKV.get(activation.profileId)));
   if (isErr(profileEntry)) {
     throw new AuthError({
       reason: "device_profile_not_found",
@@ -270,6 +275,7 @@ function responseFromCaller(caller?: SessionCaller): AuthMeResponse | null {
     caller.name && caller.active !== undefined
   ) {
     return {
+      participantKind: caller.participantKind ?? "app",
       user: {
         id: caller.id,
         origin: caller.origin,
@@ -290,6 +296,7 @@ function responseFromCaller(caller?: SessionCaller): AuthMeResponse | null {
     caller.active !== undefined
   ) {
     return {
+      participantKind: "service",
       user: null,
       device: null,
       service: {
@@ -305,6 +312,7 @@ function responseFromCaller(caller?: SessionCaller): AuthMeResponse | null {
   const deviceCaller = deviceCallerFields(caller);
   if (deviceCaller) {
     return {
+      participantKind: "device",
       user: null,
       device: {
         type: "device",
@@ -334,7 +342,7 @@ async function responseFromDeviceCaller(args: {
   }
 
   const activationEntry = unwrapValue<DeviceActivationRecord>(
-    (await args.deviceActivationsKV.get(deviceCaller.deviceId)).take(),
+    await takeValue(args.deviceActivationsKV.get(deviceCaller.deviceId)),
   );
   if (isErr(activationEntry)) return null;
   const activation = activationEntry;
@@ -347,7 +355,7 @@ async function responseFromDeviceCaller(args: {
   }
 
   const profileEntry = unwrapValue<{ profileId: string; disabled: boolean }>(
-    (await args.deviceProfilesKV.get(activation.profileId)).take(),
+    await takeValue(args.deviceProfilesKV.get(activation.profileId)),
   );
   if (isErr(profileEntry) || profileEntry.disabled) return null;
 
@@ -366,6 +374,7 @@ async function responseFromDeviceCaller(args: {
     : null;
 
   return {
+    participantKind: "device",
     user,
     device: {
       type: "device",
@@ -428,7 +437,12 @@ export function createAuthMeHandler(deps: {
             active: true,
           },
         });
-        return Result.ok<AuthMeResponse>({ user, device: null, service: null });
+        return Result.ok<AuthMeResponse>({
+          participantKind: session.participantKind,
+          user,
+          device: null,
+          service: null,
+        });
       }
 
       if (session.type === "service") {
@@ -437,7 +451,12 @@ export function createAuthMeHandler(deps: {
           sessionKey,
           session: session as Session & { type: "service" },
         });
-        return Result.ok<AuthMeResponse>({ user: null, device: null, service });
+        return Result.ok<AuthMeResponse>({
+          participantKind: "service",
+          user: null,
+          device: null,
+          service,
+        });
       }
 
       const { user, device } = await loadAuthenticatedDevice({
@@ -446,7 +465,12 @@ export function createAuthMeHandler(deps: {
         deviceProfilesKV: deps.deviceProfilesKV,
         session: session as Session & { type: "device" },
       });
-      return Result.ok<AuthMeResponse>({ user, device, service: null });
+      return Result.ok<AuthMeResponse>({
+        participantKind: "device",
+        user,
+        device,
+        service: null,
+      });
     } catch (error) {
       if (error instanceof AuthError) return Result.err(error);
       throw error;

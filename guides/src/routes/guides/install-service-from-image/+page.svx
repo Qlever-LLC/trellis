@@ -19,6 +19,8 @@ trellis --nats-servers localhost auth login \
  
 ```
 
+This CLI flow is detached-only. The command prints a portal URL and QR code for you to open or scan manually; it does not start a local callback listener or auto-open your browser.
+
 Confirm the session is active:
 
 ```sh
@@ -108,7 +110,7 @@ Trellis derives service access from:
 
 ## Practical deploy loop
 
-1. `trellis auth login`
+1. `trellis auth login` and follow the printed portal URL or QR code
 2. `trellis service install --image ghcr.io/my-org/my-service:1.2.3`
 3. store the seed
 4. start the container with the right env

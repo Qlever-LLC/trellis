@@ -4,9 +4,20 @@ import {
 } from "@qlever-llc/trellis/contracts";
 import type { StaticDecode } from "typebox";
 import { Type } from "typebox";
-import { ClientTransportsSchema, SentinelCredsSchema } from "./schemas.ts";
+import {
+  ClientTransportsSchema,
+  SentinelCredsSchema,
+  UserParticipantKindSchema,
+} from "./schemas.ts";
 
 const IsoDateStringSchema = Type.String({ format: "date-time" });
+
+export const ParticipantKindSchema = Type.Union([
+  UserParticipantKindSchema,
+  Type.Literal("device"),
+  Type.Literal("service"),
+]);
+export type ParticipantKind = StaticDecode<typeof ParticipantKindSchema>;
 
 export const DigestSchema = Type.String({ pattern: "^[A-Za-z0-9_-]+$" });
 
@@ -57,6 +68,7 @@ export const ApprovalRecordViewSchema = Type.Object({
   answeredAt: IsoDateStringSchema,
   updatedAt: IsoDateStringSchema,
   approval: ContractApprovalViewSchema,
+  participantKind: UserParticipantKindSchema,
 });
 
 export const InstanceGrantPolicyActorSchema = Type.Object({
@@ -396,6 +408,7 @@ const NullableAuthenticatedServiceSchema = Type.Union([
 ]);
 
 export const AuthMeResponseSchema = Type.Object({
+  participantKind: ParticipantKindSchema,
   user: NullableAuthenticatedUserSchema,
   device: NullableAuthenticatedDeviceSchema,
   service: NullableAuthenticatedServiceSchema,
@@ -405,6 +418,7 @@ export type AuthMeResponse = StaticDecode<typeof AuthMeResponseSchema>;
 export const CallerViewSchema = Type.Union([
   Type.Object({
     type: Type.Literal("user"),
+    participantKind: UserParticipantKindSchema,
     trellisId: Type.String(),
     id: Type.String(),
     origin: Type.String(),
@@ -437,6 +451,30 @@ export const AuthRevokeApprovalSchema = Type.Object({
   user: Type.Optional(Type.String({ minLength: 1 })),
 });
 export const AuthRevokeApprovalResponseSchema = Type.Object({
+  success: Type.Boolean(),
+});
+
+export const UserGrantViewSchema = Type.Object({
+  contractDigest: DigestSchema,
+  contractId: Type.String({ minLength: 1 }),
+  displayName: Type.String({ minLength: 1 }),
+  description: Type.String({ minLength: 1 }),
+  participantKind: UserParticipantKindSchema,
+  capabilities: Type.Array(Type.String()),
+  grantedAt: IsoDateStringSchema,
+  updatedAt: IsoDateStringSchema,
+});
+export type UserGrantView = StaticDecode<typeof UserGrantViewSchema>;
+
+export const AuthListUserGrantsSchema = Type.Object({});
+export const AuthListUserGrantsResponseSchema = Type.Object({
+  grants: Type.Array(UserGrantViewSchema),
+});
+
+export const AuthRevokeUserGrantSchema = Type.Object({
+  contractDigest: DigestSchema,
+});
+export const AuthRevokeUserGrantResponseSchema = Type.Object({
   success: Type.Boolean(),
 });
 

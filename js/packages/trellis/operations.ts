@@ -318,6 +318,10 @@ export interface OperationTransport {
   ): Promise<Result<FileInfo, TransferError>>;
 }
 
+function operationRequestBody(input: unknown): JsonValue {
+  return input as JsonValue;
+}
+
 export function controlSubject(subject: string): string {
   return `${subject}.control`;
 }
@@ -665,11 +669,11 @@ type InvokedOperation<TDesc extends OperationShape, TProgress, TOutput> = {
 async function invokeOperation<TDesc extends OperationShape, TProgress, TOutput>(
   transport: OperationTransport,
   descriptor: TDesc,
-  input: OperationInputOf<TDesc>,
+  input: unknown,
 ): Promise<Result<InvokedOperation<TDesc, TProgress, TOutput>, UnexpectedError>> {
   const response = await transport.requestJson(
     descriptor.subject,
-    input as JsonValue,
+    operationRequestBody(input),
   );
   if (response.isErr()) {
     return response;
@@ -726,7 +730,7 @@ async function beginObservedWatch<
     await iterator.return?.();
   };
 
-  const task = (async () => {
+  const task = (async (): Promise<Result<TerminalOperation<TProgress, TOutput>, UnexpectedError>> => {
     try {
       await options.ready;
 
@@ -747,7 +751,7 @@ async function beginObservedWatch<
         }
         if (isTerminalEvent(event)) {
           await close();
-          return ok(event.snapshot);
+          return ok(event.snapshot as TerminalOperation<TProgress, TOutput>);
         }
       }
 
@@ -771,7 +775,7 @@ async function startObservedOperation<
 >(
   transport: OperationTransport,
   descriptor: TDesc,
-  input: OperationInputOf<TDesc>,
+  input: unknown,
   callbacks: OperationObserverCallbacks<TProgress, TOutput>,
 ): Promise<Result<OperationRef<TDesc, TProgress, TOutput>, UnexpectedError>> {
   const started = await invokeOperation<TDesc, TProgress, TOutput>(
@@ -818,7 +822,7 @@ async function startObservedTransfer<
 >(
   transport: OperationTransport,
   descriptor: TDesc,
-  input: OperationInputOf<TDesc>,
+  input: unknown,
   body: TransferBody,
   callbacks: OperationObserverCallbacks<TProgress, TOutput>,
 ): Promise<Result<StartedTransfer<TDesc, TProgress, TOutput>, UnexpectedError | TransferError>> {
@@ -950,7 +954,7 @@ function createOperationInputBuilder<
 >(
   transport: OperationTransport,
   descriptor: TDesc,
-  input: OperationInputOf<TDesc>,
+  input: unknown,
   callbacks: OperationObserverCallbacks<TProgress, TOutput> = {},
 ): TDesc["transfer"] extends undefined ? OperationInputBuilder<TDesc, TProgress, TOutput>
   : TransferCapableOperationInputBuilder<TDesc, TProgress, TOutput> {
@@ -1027,7 +1031,7 @@ function createTransferOperationBuilder<
 >(
   transport: OperationTransport,
   descriptor: TDesc,
-  input: OperationInputOf<TDesc>,
+  input: unknown,
   body: TransferBody,
   callbacks: OperationObserverCallbacks<TProgress, TOutput> = {},
 ): TransferOperationBuilder<TDesc, TProgress, TOutput> {

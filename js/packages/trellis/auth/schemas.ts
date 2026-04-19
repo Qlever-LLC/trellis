@@ -55,14 +55,19 @@ export const ApprovalDecisionSchema = Type.Union([
 
 export type ApprovalDecision = StaticDecode<typeof ApprovalDecisionSchema>;
 
+export const UserParticipantKindSchema = Type.Union([
+  Type.Literal("app"),
+  Type.Literal("agent"),
+]);
+
+export type UserParticipantKind = StaticDecode<typeof UserParticipantKindSchema>;
+
 export const ContractApprovalSchema = Type.Object({
   contractDigest: ContractDigestSchema,
   contractId: Type.String(),
   displayName: Type.String(),
   description: Type.String(),
-  // Preserve legacy persisted approval records written before `kind` was removed
-  // from the public flow state shape.
-  kind: Type.Optional(Type.String({ minLength: 1 })),
+  participantKind: UserParticipantKindSchema,
   capabilities: Type.Array(Type.String()),
 });
 

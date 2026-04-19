@@ -24,6 +24,10 @@ deno add @qlever-llc/trellis @qlever-llc/trellis-svelte
 
 All Trellis apps and services define a contract that specifies the API they need access to. For browser applications, this also drives the approval screens that ask users to let your app sign in as them.
 
+Those approval screens are based on Trellis capabilities derived from the
+contract. They are not the OAuth scopes used between Trellis and an external
+identity provider.
+
 Start by creating `contracts/my_app.ts` next to your project `deno.json`. For this example, we only need to use the default Trellis auth features.
 
 ```ts

@@ -80,6 +80,7 @@ export async function ensureBoundUserSession(args: {
   email: string;
   name: string;
   image?: string;
+  participantKind: UserSession["participantKind"];
   contractDigest: string;
   contractId: string;
   contractDisplayName: string;
@@ -165,6 +166,7 @@ export async function ensureBoundUserSession(args: {
     email: args.email,
     name: args.name,
     ...(args.image ? { image: args.image } : {}),
+    participantKind: args.participantKind,
     contractDigest: args.contractDigest,
     contractId: args.contractId,
     contractDisplayName: args.contractDisplayName,
@@ -219,6 +221,7 @@ export async function ensureBoundUserSession(args: {
     email: args.email,
     name: args.name,
     ...(args.image ? { image: args.image } : {}),
+    participantKind: args.participantKind,
     contractDigest: args.contractDigest,
     contractId: args.contractId,
     contractDisplayName: args.contractDisplayName,

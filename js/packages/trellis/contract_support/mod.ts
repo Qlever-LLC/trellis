@@ -119,7 +119,7 @@ export type ContractManifestMetadata = {
   description: string;
 };
 
-export type ContractKind = "service" | "app" | "portal" | "device" | "cli";
+export type ContractKind = "service" | "app" | "portal" | "device" | "agent";
 
 export type Capability = string;
 export type JsonSchema = JsonValue | boolean;
@@ -3040,7 +3040,7 @@ export function definePortalContract(
   return defineClientContract("portal", registryOrBuild, maybeBuild!);
 }
 
-export function defineCliContract<
+export function defineAgentContract<
   const TSchemas extends Readonly<Record<string, TSchema>> | undefined,
   const TUses extends
     | Readonly<Record<string, AuthorContractDependencyUse>>
@@ -3050,36 +3050,36 @@ export function defineCliContract<
   registry: ClientContractRegistry<TSchemas>,
   build: (ref: ContractRefBuilder<TSchemas>) => TBody,
 ): DefinedContract<
-  OwnedApiFromSource<BuiltContractSource<ClientContractRegistry<TSchemas>, WithKind<TBody, "cli">>>,
+  OwnedApiFromSource<BuiltContractSource<ClientContractRegistry<TSchemas>, WithKind<TBody, "agent">>>,
   UsedApiFromUses<TBody["uses"]>,
   MergeApis<
-    OwnedApiFromSource<BuiltContractSource<ClientContractRegistry<TSchemas>, WithKind<TBody, "cli">>>,
+    OwnedApiFromSource<BuiltContractSource<ClientContractRegistry<TSchemas>, WithKind<TBody, "agent">>>,
     UsedApiFromUses<TBody["uses"]>
   >,
   TBody["id"],
   {},
   ProjectedState<
-    StateFromSource<BuiltContractSource<ClientContractRegistry<TSchemas>, WithKind<TBody, "cli">>>,
-    SchemasFromSource<BuiltContractSource<ClientContractRegistry<TSchemas>, WithKind<TBody, "cli">>>
+    StateFromSource<BuiltContractSource<ClientContractRegistry<TSchemas>, WithKind<TBody, "agent">>>,
+    SchemasFromSource<BuiltContractSource<ClientContractRegistry<TSchemas>, WithKind<TBody, "agent">>>
   >
 >;
-export function defineCliContract<
+export function defineAgentContract<
   const TUses extends
     | Readonly<Record<string, AuthorContractDependencyUse>>
     | undefined,
   const TBody extends ClientContractBodyInput<undefined, TUses>,
 >(build: () => TBody): DefinedContract<
-  OwnedApiFromSource<WithKind<TBody, "cli">>,
+  OwnedApiFromSource<WithKind<TBody, "agent">>,
   UsedApiFromUses<TBody["uses"]>,
   MergeApis<
-    OwnedApiFromSource<WithKind<TBody, "cli">>,
+    OwnedApiFromSource<WithKind<TBody, "agent">>,
     UsedApiFromUses<TBody["uses"]>
   >,
   TBody["id"],
   {},
-  ProjectedState<StateFromSource<WithKind<TBody, "cli">>, SchemasFromSource<WithKind<TBody, "cli">>>
+  ProjectedState<StateFromSource<WithKind<TBody, "agent">>, SchemasFromSource<WithKind<TBody, "agent">>>
 >;
-export function defineCliContract(
+export function defineAgentContract(
   ...args:
     | [() => ContractIdentityFields & Record<string, unknown>]
     | [
@@ -3090,10 +3090,10 @@ export function defineCliContract(
 ) {
   const [registryOrBuild, maybeBuild] = args;
   if (typeof registryOrBuild === "function") {
-    return defineClientContract("cli", {}, () => registryOrBuild());
+    return defineClientContract("agent", {}, () => registryOrBuild());
   }
 
-  return defineClientContract("cli", registryOrBuild, maybeBuild!);
+  return defineClientContract("agent", registryOrBuild, maybeBuild!);
 }
 
 export function defineDeviceContract<

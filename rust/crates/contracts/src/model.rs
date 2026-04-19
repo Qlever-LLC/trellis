@@ -18,7 +18,7 @@ pub enum ContractKind {
     App,
     Portal,
     Device,
-    Cli,
+    Agent,
 }
 
 /// A named serializable error definition declared by a contract.

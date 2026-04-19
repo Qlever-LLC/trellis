@@ -255,6 +255,8 @@ trellis --nats-servers 127.0.0.1 auth login \
   --auth-url http://localhost:3000
 ```
 
+This CLI flow is detached-only. The command prints a portal URL and QR code for you to open or scan manually; it does not start a local callback listener or auto-open your browser.
+
 Check the session:
 
 ```sh

@@ -57,7 +57,7 @@ export type DefinedContract<
 
 export {
   defineAppContract,
-  defineCliContract,
+  defineAgentContract,
   defineDeviceContract,
   definePortalContract,
   defineServiceContract,

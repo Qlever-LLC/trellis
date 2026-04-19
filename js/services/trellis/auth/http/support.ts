@@ -99,8 +99,6 @@ export type CookieContext = {
   redirect: (location: string) => Response;
 };
 
-const LOCAL_COOKIE_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
-
 export function contractApprovalKey(userTrellisId: string, contractDigest: string): string {
   return `${userTrellisId}.${contractDigest}`;
 }
@@ -332,15 +330,26 @@ export function shouldUseSecureOauthCookie(
   currentConfig: Config,
   deps: { logger?: WarnLogger } = {},
 ): boolean {
-  const origin = currentConfig.web.publicOrigin ?? currentConfig.oauth.redirectBase;
+  const configuredLocation = currentConfig.web.publicOrigin ??
+    currentConfig.oauth.redirectBase;
   try {
-    const url = new URL(origin);
+    const url = new URL(configuredLocation);
     if (url.protocol === "https:") return true;
-    if (url.protocol === "http:" && LOCAL_COOKIE_HOSTS.has(url.hostname)) {
-      return false;
+    if (url.protocol === "http:") {
+      if (isLoopbackHostname(url.hostname)) {
+        return false;
+      }
+      return !currentConfig.web.allowInsecureOrigins.includes(url.origin);
     }
   } catch {
-    deps.logger?.warn({ origin }, "Failed to parse auth public origin for cookie policy");
+    deps.logger?.warn(
+      { origin: configuredLocation },
+      "Failed to parse auth public origin for cookie policy",
+    );
   }
   return true;
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1" || hostname === "[::1]";
 }

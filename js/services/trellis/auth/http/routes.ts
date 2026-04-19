@@ -14,6 +14,7 @@ import {
   browserFlowsKV,
   connectionsKV,
   contractApprovalsKV,
+  contractsKV,
   deviceActivationsKV,
   deviceInstancesKV,
   deviceProfilesKV,
@@ -81,8 +82,6 @@ import {
   createAuthStartRequestHandler,
   type CurrentUserSession,
 } from "./start_request.ts";
-
-const CLI_CONTRACT_ID = "trellis.cli@v1";
 
 function splitNatsServers(value: string): string[] {
   return value.split(",").map((entry) => entry.trim()).filter((entry) =>
@@ -281,6 +280,21 @@ export function registerHttpRoutes(
     consumePending?: () => Promise<boolean>;
   }): Promise<AuthStartBoundResponse> {
     const now = new Date();
+    const validatedContract = await opts.contractStore.validate(
+      args.resolution.plan.contract,
+    );
+    const existingContract = (await contractsKV.get(validatedContract.digest)).take();
+    if (isErr(existingContract)) {
+      await contractsKV.put(validatedContract.digest, {
+        digest: validatedContract.digest,
+        id: validatedContract.contract.id,
+        displayName: validatedContract.contract.displayName,
+        description: validatedContract.contract.description,
+        installedAt: now,
+        contract: validatedContract.canonical,
+      });
+    }
+    opts.contractStore.activate(validatedContract.digest, validatedContract.contract);
     const trellisId = args.resolution.trellisId;
     const projectionUpsert = await upsertUserProjection(usersKV, {
       origin: args.pendingValue.user.origin,
@@ -346,6 +360,11 @@ export function registerHttpRoutes(
       email: args.resolution.userEmail,
       name: args.resolution.userName,
       image: args.pendingValue.user.image,
+      participantKind: (
+        args.resolution.plan.approval as typeof args.resolution.plan.approval & {
+          participantKind: "app" | "agent";
+        }
+      ).participantKind,
       contractDigest: args.resolution.plan.digest,
       contractId: args.resolution.plan.contract.id,
       contractDisplayName: args.resolution.plan.contract.displayName,
@@ -417,7 +436,7 @@ export function registerHttpRoutes(
         redirectTo: args.redirectTo,
       }),
       ...(args.context ? { context: args.context } : {}),
-      contract: { ...args.plan.contract, digest: args.plan.digest },
+      contract: args.plan.contract,
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + config.ttlMs.oauth),
     });
@@ -796,7 +815,7 @@ export function registerHttpRoutes(
         redirectTo,
       }),
       ...(decodedContext ? { context: decodedContext } : {}),
-      contract: { ...plan.contract, digest: plan.digest },
+      contract: plan.contract,
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + config.ttlMs.oauth),
     });
@@ -1002,26 +1021,6 @@ export function registerHttpRoutes(
       displayName: provider.displayName,
     }));
     const contract = flow.contract ?? {};
-    const appMeta = {
-      contractId: typeof contract["id"] === "string" &&
-          contract["id"].length > 0
-        ? contract["id"]
-        : "unknown",
-      contractDigest: typeof contract["digest"] === "string" &&
-          contract["digest"].length > 0
-        ? contract["digest"]
-        : "unknown",
-      displayName: typeof contract["displayName"] === "string" &&
-          contract["displayName"].length > 0
-        ? contract["displayName"]
-        : config.instanceName,
-      description: typeof contract["description"] === "string" &&
-          contract["description"].length > 0
-        ? contract["description"]
-        : config.instanceName,
-      ...(flow.context ? { context: flow.context } : {}),
-    };
-
     let resolution = null;
     let redirectLocation = undefined;
     let returnLocation = undefined;
@@ -1043,6 +1042,26 @@ export function registerHttpRoutes(
         }
       }
     }
+
+    const appMeta = {
+      contractId: typeof contract["id"] === "string" &&
+          contract["id"].length > 0
+        ? contract["id"]
+        : "unknown",
+      contractDigest: resolution?.plan.digest ??
+        (typeof contract["digest"] === "string" && contract["digest"].length > 0
+          ? contract["digest"]
+          : "unknown"),
+      displayName: typeof contract["displayName"] === "string" &&
+          contract["displayName"].length > 0
+        ? contract["displayName"]
+        : config.instanceName,
+      description: typeof contract["description"] === "string" &&
+          contract["description"].length > 0
+        ? contract["description"]
+        : config.instanceName,
+      ...(flow.context ? { context: flow.context } : {}),
+    };
 
     return c.json(
       await buildPortalFlowState({
@@ -1101,10 +1120,10 @@ export function registerHttpRoutes(
           contract["id"].length > 0
         ? contract["id"]
         : "unknown",
-      contractDigest: typeof contract["digest"] === "string" &&
-          contract["digest"].length > 0
-        ? contract["digest"]
-        : "unknown",
+      contractDigest: resolution.plan.digest ??
+        (typeof contract["digest"] === "string" && contract["digest"].length > 0
+          ? contract["digest"]
+          : "unknown"),
       displayName: typeof contract["displayName"] === "string" &&
           contract["displayName"].length > 0
         ? contract["displayName"]

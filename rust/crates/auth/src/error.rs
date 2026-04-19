@@ -7,15 +7,15 @@ pub enum TrellisAuthError {
     #[error("invalid contract json: {0}")]
     ContractJson(#[from] serde_json::Error),
 
-    /// A configured auth or callback URL was invalid.
+    /// A configured auth or portal URL was invalid.
     #[error("invalid url: {0}")]
     Url(#[from] url::ParseError),
 
-    /// The HTTP transport used for browser login or bind requests failed.
+    /// The HTTP transport used for agent login or bind requests failed.
     #[error("http client error: {0}")]
     Http(#[from] reqwest::Error),
 
-    /// Local filesystem persistence or callback listener I/O failed.
+    /// Local filesystem persistence or socket I/O failed.
     #[error("io error: {0}")]
     Io(#[from] io::Error),
 
@@ -23,21 +23,13 @@ pub enum TrellisAuthError {
     #[error("{0}")]
     TrellisClient(#[from] trellis_client::TrellisClientError),
 
-    /// The browser login callback never arrived before the timeout.
-    #[error("timed out waiting for browser login")]
+    /// Agent login never completed before the timeout.
+    #[error("timed out waiting for agent login")]
     LoginTimedOut,
 
-    /// The local browser login callback listener shut down before completion.
-    #[error("browser login was interrupted")]
+    /// The detached login flow shut down before completion.
+    #[error("agent login was interrupted")]
     LoginInterrupted,
-
-    /// The local callback request was missing the expected query or fragment shape.
-    #[error("invalid callback request")]
-    InvalidCallbackRequest,
-
-    /// The callback completed without returning an auth token.
-    #[error("missing auth token in callback")]
-    MissingAuthToken,
 
     /// The auth service returned a terminal flow error.
     #[error("auth flow failed: {0}")]

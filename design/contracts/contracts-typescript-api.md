@@ -50,9 +50,8 @@ It exports:
 
 - `defineServiceContract(...)`
 - `defineAppContract(...)`
-- `definePortalContract(...)`
+- `defineAgentContract(...)`
 - `defineDeviceContract(...)`
-- `defineCliContract(...)`
 - `defineError(...)`
 - contract-module and use-spec types needed by generated SDKs
 
@@ -176,7 +175,7 @@ declare function defineAppContract<TBody extends object>(
   build: () => TBody,
 ): DefinedContract<any, any, any>;
 
-declare function definePortalContract<
+declare function defineAgentContract<
   TRegistry extends object,
   TBody extends object,
 >(
@@ -184,7 +183,7 @@ declare function definePortalContract<
   build: (ref: ContractRefBuilder) => TBody,
 ): DefinedContract<any, any, any>;
 
-declare function definePortalContract<TBody extends object>(
+declare function defineAgentContract<TBody extends object>(
   build: () => TBody,
 ): DefinedContract<any, any, any>;
 
@@ -200,17 +199,6 @@ declare function defineDeviceContract<TBody extends object>(
   build: () => TBody,
 ): DefinedContract<any, any, any>;
 
-declare function defineCliContract<
-  TRegistry extends object,
-  TBody extends object,
->(
-  registry: TRegistry,
-  build: (ref: ContractRefBuilder) => TBody,
-): DefinedContract<any, any, any>;
-
-declare function defineCliContract<TBody extends object>(
-  build: () => TBody,
-): DefinedContract<any, any, any>;
 ```
 
 ## Illustrative Usage
@@ -276,7 +264,7 @@ export default activity;
 const client = await TrellisClient.connect({
   trellisUrl: "https://trellis.example.com",
   contract: activity,
-  name: "activity-cli",
+  name: "activity-agent",
 });
 ```
 
@@ -292,15 +280,12 @@ Rules:
 - local app contract files should prefer
   `defineAppContract({ schemas }, (ref) => ({ ... }))` when they declare
   schema-backed state and `defineAppContract(() => ({ ... }))` otherwise
-- local portal contract files should prefer
-  `definePortalContract({ schemas }, (ref) => ({ ... }))` when they declare
-  schema-backed state and `definePortalContract(() => ({ ... }))` otherwise
+- local agent contract files should prefer
+  `defineAgentContract({ schemas }, (ref) => ({ ... }))` when they declare
+  schema-backed state and `defineAgentContract(() => ({ ... }))` otherwise
 - local device contract files should prefer
   `defineDeviceContract({ schemas }, (ref) => ({ ... }))` when they declare
   schema-backed state and `defineDeviceContract(() => ({ ... }))` otherwise
-- local CLI contract files should prefer
-  `defineCliContract({ schemas }, (ref) => ({ ... }))` when they declare
-  schema-backed state and `defineCliContract(() => ({ ... }))` otherwise
 - contract source examples should export the specialized helper result directly
   and use that object for `contract.API`, `contract.use(...)`, and runtime
   bootstrap

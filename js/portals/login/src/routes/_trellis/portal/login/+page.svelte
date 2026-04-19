@@ -4,6 +4,10 @@
   import { portalRedirectLocation } from "@qlever-llc/trellis/auth/browser";
   import { createPortalFlow } from "@qlever-llc/trellis-svelte";
   import { APP_CONFIG } from "../../../../lib/config";
+  import {
+    shouldOfferPortalReturnLink,
+    shouldStayOnPortalCompletionPage,
+  } from "./page_state";
 
   const flow = createPortalFlow({
     authUrl: APP_CONFIG.authUrl,
@@ -12,6 +16,15 @@
 
   function pageUrl(): URL {
     return new URL(window.location.href);
+  }
+
+  function redirectLocation(): string | null {
+    return portalRedirectLocation(flow.state);
+  }
+
+  function showDetachedCompletion(): boolean {
+    if (!browser) return false;
+    return shouldStayOnPortalCompletionPage(pageUrl(), redirectLocation());
   }
 
   function returnToApp(): string {
@@ -27,9 +40,17 @@
     return APP_CONFIG.authUrl;
   }
 
+  function shouldShowReturnToAppLink(): boolean {
+    if (!browser) return false;
+    return shouldOfferPortalReturnLink(pageUrl(), returnToApp());
+  }
+
   function followRedirect(): void {
-    const nextLocation = portalRedirectLocation(flow.state);
+    const nextLocation = redirectLocation();
     if (nextLocation) {
+      if (shouldStayOnPortalCompletionPage(pageUrl(), nextLocation)) {
+        return;
+      }
       window.location.assign(nextLocation);
     }
   }
@@ -112,7 +133,13 @@
       {:else if flow.state?.status === "insufficient_capabilities"}
         <div>
           <h1 class="text-lg font-bold text-base-content">Access denied</h1>
-          <p class="mt-1 text-sm text-base-content/60">Your account is missing required capabilities.</p>
+          <p class="mt-1 text-sm text-base-content/60">
+            {#if shouldShowReturnToAppLink()}
+              Your account is missing required capabilities.
+            {:else}
+              Your account is missing required capabilities. Return to the CLI to finish sign-in or close this page.
+            {/if}
+          </p>
         </div>
         {#if flow.state.user}
           <div class="rounded-box border border-base-300 bg-base-100 p-4">
@@ -129,13 +156,22 @@
             {/each}
           </ul>
         </div>
-        <a class="btn btn-outline btn-block" href={returnToApp()}>Return to app</a>
+        {#if shouldShowReturnToAppLink()}
+          <a class="btn btn-outline btn-block" href={returnToApp()}>Return to app</a>
+        {/if}
       {:else if flow.state?.status === "approval_denied"}
         <div>
           <h1 class="text-lg font-bold text-base-content">Access denied</h1>
-          <p class="mt-1 text-sm text-base-content/60">You denied access to {flow.state.approval.displayName}.</p>
+          <p class="mt-1 text-sm text-base-content/60">
+            You denied access to {flow.state.approval.displayName}.
+            {#if !shouldShowReturnToAppLink()}
+              Return to the CLI to finish sign-in or close this page.
+            {/if}
+          </p>
         </div>
-        <a class="btn btn-outline btn-block" href={returnToApp()}>Return to app</a>
+        {#if shouldShowReturnToAppLink()}
+          <a class="btn btn-outline btn-block" href={returnToApp()}>Return to app</a>
+        {/if}
       {:else if flow.state?.status === "expired"}
         <div>
           <h1 class="text-lg font-bold text-base-content">Session expired</h1>
@@ -143,10 +179,17 @@
         </div>
         <a class="btn btn-outline btn-block" href={APP_CONFIG.authUrl}>Open auth service</a>
       {:else if flow.state?.status === "redirect"}
-        <div class="flex items-center gap-3 text-sm text-base-content/60">
-          <span class="loading loading-ring loading-sm"></span>
-          <span>Redirecting...</span>
-        </div>
+        {#if showDetachedCompletion()}
+          <div>
+            <h1 class="text-lg font-bold text-base-content">Connected</h1>
+            <p class="mt-1 text-sm text-base-content/60">Return to the CLI to finish sign-in.</p>
+          </div>
+        {:else}
+          <div class="flex items-center gap-3 text-sm text-base-content/60">
+            <span class="loading loading-ring loading-sm"></span>
+            <span>Redirecting...</span>
+          </div>
+        {/if}
       {/if}
 
       {#if flow.error}

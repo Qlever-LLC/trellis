@@ -18,7 +18,7 @@ import type { TrellisAPI } from "./contracts.ts";
 import { loadDefaultRuntimeTransport } from "./runtime_transport.ts";
 import { selectRuntimeTransportServers } from "./runtime_transport.ts";
 import { ServiceHealth } from "./health.ts";
-import { Trellis, type RuntimeStateStoresForContract } from "./trellis.ts";
+import { Trellis } from "./trellis.ts";
 import { Type, type StaticDecode } from "typebox";
 import { Value } from "typebox/value";
 
@@ -220,16 +220,10 @@ async function fetchDeviceBootstrap(args: {
   throw new Error("Device bootstrap returned an invalid response");
 }
 
-export async function connectDeviceWithDeps<
-  TApi extends TrellisAPI,
-  TContract extends DeviceContract<TApi, {
-    state?: Readonly<Record<string, unknown>>;
-    schemas?: Readonly<Record<string, unknown>>;
-  }>,
->(
-  args: TrellisDeviceConnectArgs<TApi, TContract>,
+export async function connectDeviceWithDeps(
+  args: TrellisDeviceConnectArgs,
   deps: DeviceConnectDeps,
-): Promise<TrellisDeviceConnection<TApi, RuntimeStateStoresForContract<TContract>>> {
+): Promise<TrellisDeviceConnection> {
   const rootSecret = normalizeRootSecret(args.rootSecret);
   const identity = await deriveDeviceIdentity(rootSecret);
   const contractDigest = args.contract.CONTRACT_DIGEST;
@@ -341,11 +335,7 @@ export async function connectDeviceWithDeps<
     ],
   });
 
-  const trellis = new Trellis<
-    TApi,
-    "client",
-    RuntimeStateStoresForContract<TContract>
-  >(
+  const trellis = new Trellis<TrellisAPI>(
     args.contract.CONTRACT_ID,
     nc,
     {
@@ -412,19 +402,20 @@ export async function connectDeviceWithDeps<
     void nc.closed().finally(stopHeartbeat);
   }
 
-  return Object.assign(trellis, { health });
+  const connection = trellis as TrellisDeviceConnection;
+  Object.defineProperty(connection, "health", {
+    value: health,
+    enumerable: true,
+    configurable: true,
+    writable: false,
+  });
+  return connection;
 }
 
 export const TrellisDevice = {
-  connect<
-    TApi extends TrellisAPI,
-    TContract extends DeviceContract<TApi, {
-      state?: Readonly<Record<string, unknown>>;
-      schemas?: Readonly<Record<string, unknown>>;
-    }>,
-  >(
-    args: TrellisDeviceConnectArgs<TApi, TContract>,
-  ): Promise<TrellisDeviceConnection<TApi, RuntimeStateStoresForContract<TContract>>> {
-    return connectDeviceWithDeps<TApi, TContract>(args, defaultDeps);
+  connect(
+    args: TrellisDeviceConnectArgs,
+  ): Promise<TrellisDeviceConnection> {
+    return connectDeviceWithDeps(args, defaultDeps);
   },
 };

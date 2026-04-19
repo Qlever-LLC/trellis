@@ -78,6 +78,7 @@ class InMemoryKV<V> {
 
 function userSessionFields() {
   return {
+    participantKind: "app" as const,
     contractDigest: "digest",
     contractId: "trellis.console@v1",
     contractDisplayName: "Trellis Console",
@@ -287,6 +288,7 @@ Deno.test("ensureBoundUserSession clears stale app identity when the rebound ses
     id: "123",
     email: "new@example.com",
     name: "Alice",
+    participantKind: "app",
     contractDigest: "digest",
     contractId: "trellis.console@v1",
     contractDisplayName: "Trellis Console",

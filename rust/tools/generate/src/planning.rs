@@ -200,7 +200,7 @@ pub fn discover_summary_lines(plan: &[AutoPlanEntry]) -> Vec<String> {
 pub fn action_for_kind(kind: &ContractKind) -> AutoAction {
     match kind {
         ContractKind::Service => AutoAction::Generate,
-        ContractKind::App | ContractKind::Portal | ContractKind::Device | ContractKind::Cli => {
+        ContractKind::App | ContractKind::Portal | ContractKind::Device | ContractKind::Agent => {
             AutoAction::Verify
         }
     }
@@ -212,7 +212,7 @@ pub fn contract_kind_label(kind: &ContractKind) -> &'static str {
         ContractKind::App => "app",
         ContractKind::Portal => "portal",
         ContractKind::Device => "device",
-        ContractKind::Cli => "cli",
+        ContractKind::Agent => "agent",
     }
 }
 

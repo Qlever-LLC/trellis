@@ -198,6 +198,60 @@ Deno.test("auth config defaults web origins to wildcard", async () => {
     async (configPath) => {
       const cfg = await loadAuthConfigFromFile(configPath);
       assertEquals(cfg.web.origins, ["*"]);
+      assertEquals(cfg.web.allowInsecureOrigins, []);
+    },
+  );
+});
+
+Deno.test("auth config loads explicit insecure origin allowlist", async () => {
+  await withTempConfig(
+    `{
+      "web": {
+        "origins": ["http://portal.internal:5173"],
+        "allowInsecureOrigins": [
+          "http://portal.internal:3000",
+          "http://127.0.0.1:3000",
+          "http://portal.internal:3000"
+        ]
+      },
+      "nats": {
+        "servers": "localhost",
+        "auth": { "credsPath": "/tmp/auth.creds" },
+        "trellis": { "credsPath": "/tmp/trellis.creds" },
+        "sentinelCredsPath": "/tmp/sentinel.creds",
+        "authCallout": {
+          "issuer": {
+            "nkey": "AAAUZNB6EFNV5BTZEE3FUNQIZ2OFAD7NALJZ3RQY3TCOSFREMANAGSER",
+            "signingSeedFile": "./issuer.seed"
+          },
+          "target": {
+            "nkey": "ADQCP2XPU3CAS2PLQKLSHQXWR64JEMOXLV53ABO7ERDTDV5QHJ4RUCSY",
+            "signingSeedFile": "./target.seed"
+          },
+          "sxSeedFile": "./sx.seed"
+        }
+      },
+      "sessionKeySeedFile": "./session.seed",
+      "client": {
+        "natsServers": ["ws://localhost:8080"]
+      },
+      "oauth": {
+        "redirectBase": "http://portal.internal:3000/auth/callback",
+        "providers": {
+          "github": {
+            "type": "github",
+            "clientId": "github-client",
+            "clientSecretFile": "./github.secret"
+          }
+        }
+      }
+    }`,
+    async (configPath) => {
+      const cfg = await loadAuthConfigFromFile(configPath);
+      assertEquals(cfg.web.allowInsecureOrigins, [
+        "http://portal.internal:3000",
+        "http://localhost:3000",
+      ]);
     },
   );
 });

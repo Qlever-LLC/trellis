@@ -1,4 +1,7 @@
-import { base64urlDecode, toArrayBuffer } from "./utils.ts";
+import { sha256 } from "js-sha256";
+import nacl from "tweetnacl";
+
+import { base64urlDecode, base64urlEncode, toArrayBuffer } from "./utils.ts";
 
 const ED25519_PKCS8_PREFIX = Uint8Array.from([
   0x30,
@@ -27,6 +30,29 @@ export function pkcs8FromEd25519Seed(seed32: Uint8Array): Uint8Array {
   pkcs8.set(ED25519_PKCS8_PREFIX, 0);
   pkcs8.set(seed32, ED25519_PKCS8_PREFIX.length);
   return pkcs8;
+}
+
+function validateEd25519Seed(seed32: Uint8Array): Uint8Array {
+  if (seed32.length !== 32) {
+    throw new Error(`Invalid Ed25519 seed length: ${seed32.length} (expected 32)`);
+  }
+  return seed32;
+}
+
+function ed25519KeyPairFromSeed(seed32: Uint8Array): nacl.SignKeyPair {
+  return nacl.sign.keyPair.fromSeed(validateEd25519Seed(seed32));
+}
+
+export function publicKeyBase64urlFromSeed(seed32: Uint8Array): string {
+  return base64urlEncode(ed25519KeyPairFromSeed(seed32).publicKey);
+}
+
+export function signEd25519SeedDetached(seed32: Uint8Array, data: Uint8Array): Uint8Array {
+  return nacl.sign.detached(data, ed25519KeyPairFromSeed(seed32).secretKey);
+}
+
+export function signEd25519SeedSha256(seed32: Uint8Array, data: Uint8Array): Uint8Array {
+  return signEd25519SeedDetached(seed32, new Uint8Array(sha256.arrayBuffer(data)));
 }
 
 export async function importEd25519PrivateKeyFromSeedBase64url(
