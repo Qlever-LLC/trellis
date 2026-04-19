@@ -1094,11 +1094,13 @@ export const authRevokeDeviceActivationHandler = async (
   if (!isAdmin(caller)) return insufficientPermissions();
   const activation = (await deviceActivationsKV.get(req.instanceId)).take();
   if (isErr(activation)) return Result.ok({ success: false });
-  await deviceActivationsKV.put(req.instanceId, {
+  const nextActivation = {
     ...(activation.value as unknown as DeviceActivation),
     state: "revoked",
     revokedAt: new Date().toISOString(),
-  });
+  };
+  await deviceActivationsKV.put(req.instanceId, nextActivation);
+  await kickInstanceRuntimeAccess(nextActivation.publicIdentityKey);
   return Result.ok({ success: true });
 };
 

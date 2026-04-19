@@ -87,7 +87,6 @@ Deno.test("startAuthRequest returns bound immediately when auth auto-approves", 
   try {
     globalThis.fetch = (async () => new Response(JSON.stringify({
       status: "bound",
-      bindingToken: "binding-token",
       inboxPrefix: "_INBOX.abc123",
       expires: "2026-01-01T00:00:00.000Z",
       sentinel: { jwt: "jwt", seed: "seed" },
@@ -109,6 +108,33 @@ Deno.test("startAuthRequest returns bound immediately when auth auto-approves", 
   }
 });
 
+Deno.test("startAuthRequest omits scalar context from both request body and signature input", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = (async (_input, init) => {
+      const body = JSON.parse(String(init?.body));
+      assertEquals("context" in body, false);
+      return new Response(JSON.stringify({
+        status: "flow_started",
+        flowId: "flow-ctx",
+        loginUrl: "http://localhost:3000/_trellis/portal/login?flowId=flow-ctx",
+      }));
+    }) as typeof fetch;
+
+    const response = await startAuthRequest({
+      authUrl: "http://localhost:3000",
+      redirectTo: "http://localhost:5173/profile",
+      handle: await createHandle(),
+      contract: { id: "demo.app@v1" },
+      context: "scalar-context",
+    });
+
+    assertEquals(response.status, "flow_started");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 Deno.test("bindFlow posts a flow-scoped bind request", async () => {
   const originalFetch = globalThis.fetch;
   try {
@@ -121,13 +147,12 @@ Deno.test("bindFlow posts a flow-scoped bind request", async () => {
       assertEquals(body.sessionKey.length, 43);
       assertEquals(typeof body.sig, "string");
       assertEquals("authToken" in body, false);
-      return new Response(
-        JSON.stringify({
-          status: "bound",
-          bindingToken: "binding-token",
-          inboxPrefix: "_INBOX.abc123",
-          expires: "2026-01-01T00:00:00.000Z",
-          sentinel: { jwt: "jwt", seed: "seed" },
+        return new Response(
+          JSON.stringify({
+            status: "bound",
+            inboxPrefix: "_INBOX.abc123",
+            expires: "2026-01-01T00:00:00.000Z",
+            sentinel: { jwt: "jwt", seed: "seed" },
           transports: {
             native: { natsServers: ["nats://localhost:4222"] },
             websocket: { natsServers: ["ws://localhost:8080"] },

@@ -37,7 +37,7 @@ export {
   getPublicSessionKey,
   hasSessionKey,
   loadSessionKey,
-  natsConnectSigForBindingToken,
+  natsConnectSigForIat,
   type SessionKeyHandle,
   signBytes,
 } from "./browser/session.ts";

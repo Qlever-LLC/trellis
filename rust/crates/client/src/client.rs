@@ -20,13 +20,13 @@ pub struct ServiceConnectOptions<'a> {
     pub timeout_ms: u64,
 }
 
-/// Connection options for a user/binding-token principal.
+/// Connection options for a user/session-key principal.
 pub struct UserConnectOptions<'a> {
     pub servers: &'a str,
     pub sentinel_jwt: &'a str,
     pub sentinel_seed: &'a str,
     pub session_key_seed_base64url: &'a str,
-    pub binding_token: &'a str,
+    pub contract_digest: &'a str,
     pub timeout_ms: u64,
 }
 
@@ -85,21 +85,35 @@ impl TrellisClient {
         })
     }
 
-    /// Connect using a previously issued binding token.
+    /// Connect using reconnect-safe session-key runtime auth for one contract digest.
     pub async fn connect_user(opts: UserConnectOptions<'_>) -> Result<Self, TrellisClientError> {
         let auth = SessionAuth::from_seed_base64url(opts.session_key_seed_base64url)?;
-        let token = auth.nats_connect_binding_token(opts.binding_token);
         let inbox_prefix = auth.inbox_prefix();
+        let callback_auth = std::sync::Arc::new(SessionAuth::from_seed_base64url(
+            opts.session_key_seed_base64url,
+        )?);
         let key_pair = std::sync::Arc::new(
             KeyPair::from_seed(opts.sentinel_seed)
                 .map_err(|error| TrellisClientError::NatsConnect(error.to_string()))?,
         );
+        let sentinel_jwt = opts.sentinel_jwt.to_string();
+        let contract_digest = opts.contract_digest.to_string();
 
-        let nats = ConnectOptions::with_jwt(opts.sentinel_jwt.to_string(), move |nonce| {
+        let nats = ConnectOptions::with_auth_callback(move |nonce| {
+            let auth = callback_auth.clone();
             let key_pair = key_pair.clone();
-            async move { key_pair.sign(&nonce).map_err(async_nats::AuthError::new) }
+            let sentinel_jwt = sentinel_jwt.clone();
+            let contract_digest = contract_digest.clone();
+            async move {
+                let mut credentials = async_nats::Auth::new();
+                credentials.jwt = Some(sentinel_jwt);
+                credentials.signature =
+                    Some(key_pair.sign(&nonce).map_err(async_nats::AuthError::new)?);
+                credentials.token =
+                    Some(auth.nats_connect_user_token(now_iat_seconds(), &contract_digest));
+                Ok(credentials)
+            }
         })
-        .token(token)
         .custom_inbox_prefix(inbox_prefix)
         .connect(opts.servers)
         .await

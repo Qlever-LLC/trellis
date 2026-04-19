@@ -58,7 +58,7 @@ Design keys for expected query patterns:
 
 | Tier | TTL | Use case |
 | --- | --- | --- |
-| Ephemeral | 5 min | OAuth state, binding tokens |
+| Ephemeral | 5 min | OAuth state, pending auth, browser flows |
 | Session | 24h | Sessions, active connections |
 | Permanent | None | Users, services, reference data |
 

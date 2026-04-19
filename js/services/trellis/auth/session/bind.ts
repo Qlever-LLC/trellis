@@ -94,10 +94,15 @@ export async function ensureBoundUserSession(args: {
   const sessionKeyId = `${args.sessionKey}.${args.trellisId}`;
 
   const existingIter = (await args.sessionKV.keys(`${args.sessionKey}.>`)).take();
-  const existingKeys: string[] = [];
-  if (!isErr(existingIter)) {
-    for await (const key of existingIter) existingKeys.push(key);
+  if (isErr(existingIter)) {
+    return Result.err(
+      new EnsureBoundUserSessionError("kv_error", {
+        context: { op: "keys", prefix: `${args.sessionKey}.>` },
+      }),
+    );
   }
+  const existingKeys: string[] = [];
+  for await (const key of existingIter) existingKeys.push(key);
 
   const expectedIdentityMatches = (s: Session): s is UserSession =>
     s.type === "user" &&
@@ -111,20 +116,44 @@ export async function ensureBoundUserSession(args: {
   if (needsReset) {
     // Kick and delete any tracked connections for this sessionKey.
     const connKeys = (await args.connectionsKV.keys(`${args.sessionKey}.>.>`)).take();
-    if (!isErr(connKeys)) {
-      for await (const key of connKeys) {
-        const entry = (await args.connectionsKV.get(key)).take();
-        if (!isErr(entry)) {
-          const v = unwrapValue(entry as { value: Connection } | Connection);
-          await args.kick(v.serverId, v.clientId);
-        }
-        await args.connectionsKV.delete(key);
+    if (isErr(connKeys)) {
+      return Result.err(
+        new EnsureBoundUserSessionError("kv_error", {
+          context: { op: "connections_keys", prefix: `${args.sessionKey}.>.>` },
+        }),
+      );
+    }
+    for await (const key of connKeys) {
+      const entry = (await args.connectionsKV.get(key)).take();
+      if (isErr(entry)) {
+        return Result.err(
+          new EnsureBoundUserSessionError("kv_error", {
+            context: { op: "connection_get", key },
+          }),
+        );
+      }
+      const v = unwrapValue(entry as { value: Connection } | Connection);
+      await args.kick(v.serverId, v.clientId);
+      const deleteConnection = (await args.connectionsKV.delete(key)).take();
+      if (isErr(deleteConnection)) {
+        return Result.err(
+          new EnsureBoundUserSessionError("kv_error", {
+            context: { op: "connection_delete", key },
+          }),
+        );
       }
     }
 
     // Delete all existing session entries for this sessionKey prefix.
     for (const key of existingKeys) {
-      await args.sessionKV.delete(key);
+      const deleteSession = (await args.sessionKV.delete(key)).take();
+      if (isErr(deleteSession)) {
+        return Result.err(
+          new EnsureBoundUserSessionError("kv_error", {
+            context: { op: "session_delete", key },
+          }),
+        );
+      }
     }
   }
 
@@ -180,8 +209,13 @@ export async function ensureBoundUserSession(args: {
   }
 
   // Update lastAuth + user fields, but preserve createdAt.
+  const {
+    app: _existingApp,
+    appOrigin: _existingAppOrigin,
+    ...existingSessionBase
+  } = existingSession;
   const updated: UserSession = {
-    ...existingSession,
+    ...existingSessionBase,
     email: args.email,
     name: args.name,
     ...(args.image ? { image: args.image } : {}),

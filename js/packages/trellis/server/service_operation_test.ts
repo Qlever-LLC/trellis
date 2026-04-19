@@ -169,6 +169,7 @@ Deno.test({
           new Response(
             JSON.stringify({
               status: "ready",
+              serverNow: 1_700_000_000,
               connectInfo: {
                 sessionKey: "session-key",
                 contractId: billing.CONTRACT_ID,
@@ -278,6 +279,7 @@ Deno.test({
           new Response(
             JSON.stringify({
               status: "ready",
+              serverNow: 1_700_000_000,
               connectInfo: {
                 sessionKey: "session-key",
                 contractId: billing.CONTRACT_ID,
@@ -381,6 +383,7 @@ Deno.test({
           new Response(
             JSON.stringify({
               status: "ready",
+              serverNow: 1_700_000_000,
               connectInfo: {
                 sessionKey: "session-key",
                 contractId: demoFiles.CONTRACT_ID,

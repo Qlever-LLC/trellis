@@ -5,7 +5,6 @@ import {
   createAuthRevokeApprovalHandler,
 } from "./auth/approval/rpc.ts";
 import { kick } from "./auth/callout/kick.ts";
-import { hashKey, randomToken } from "./auth/crypto.ts";
 import { registerHttpRoutes } from "./auth/http/routes.ts";
 import { registerBuiltinPortalStaticRoutes } from "./auth/http/builtin_portal.ts";
 import {
@@ -15,7 +14,6 @@ import {
   authMeHandler,
   authValidateRequestHandler,
   createAuthKickConnectionHandler,
-  createAuthRenewBindingTokenHandler,
   createAuthRevokeSessionHandler,
 } from "./auth/session/rpc.ts";
 import {
@@ -192,10 +190,6 @@ await trellis.mount(
 await trellis.mount("Auth.Me", authMeHandler);
 await trellis.mount("Auth.ValidateRequest", authValidateRequestHandler);
 await trellis.mount("Auth.Logout", authLogoutHandler);
-await trellis.mount(
-  "Auth.RenewBindingToken",
-  createAuthRenewBindingTokenHandler({ randomToken, hashKey }),
-);
 await trellis.mount("Auth.ListSessions", authListSessionsHandler);
 await trellis.mount(
   "Auth.RevokeSession",

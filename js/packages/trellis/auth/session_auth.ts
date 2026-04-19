@@ -8,6 +8,7 @@ import {
   publicKeyBase64urlFromPrivateKey,
 } from "./keys.ts";
 import { createProof } from "./proof.ts";
+import { correctedIatSeconds } from "./time.ts";
 import {
   base64urlDecode,
   base64urlEncode,
@@ -26,10 +27,11 @@ export type NatsConnectOptions = {
 export type TrellisAuth = {
   sessionKey: string; // base64url raw public key
   sign: (data: Uint8Array) => Promise<Uint8Array>;
+  currentIat: () => number;
+  setServerClockOffsetMs: (clockOffsetMs: number) => void;
 
   oauthInitSig: (redirectTo: string, context?: unknown) => Promise<string>;
   bindSig: (authToken: string) => Promise<string>;
-  natsConnectSigForBindingToken: (bindingToken: string) => Promise<string>;
   natsConnectSigForIat: (iat: number) => Promise<string>;
 
   createProof: (subject: string, payloadHash: Uint8Array) => Promise<string>;
@@ -47,6 +49,7 @@ export async function createAuth(
     format: "der",
     type: "pkcs8",
   });
+  let serverClockOffsetMs = 0;
 
   const sign = async (data: Uint8Array): Promise<Uint8Array> => {
     const sig = await crypto.subtle.sign(
@@ -79,20 +82,25 @@ export async function createAuth(
     };
   };
 
+  const currentIat = (): number =>
+    correctedIatSeconds(Date.now(), serverClockOffsetMs);
+
   return {
     sessionKey,
     sign,
+    currentIat,
+    setServerClockOffsetMs: (clockOffsetMs) => {
+      serverClockOffsetMs = clockOffsetMs;
+    },
     oauthInitSig: signOauthInit,
     bindSig: (authToken) => signDomainHash("bind", authToken),
-    natsConnectSigForBindingToken: (bindingToken) =>
-      signDomainHash("nats-connect", bindingToken),
     natsConnectSigForIat: (iat) => signDomainHash("nats-connect", String(iat)),
     createProof: (subject, payloadHash) =>
       createProof(privateKey, { sessionKey, subject, payloadHash }),
     natsConnectOptions: async () => {
       return {
         authenticator: () => {
-          const authToken = buildServiceNatsAuthToken(Math.floor(Date.now() / 1000));
+          const authToken = buildServiceNatsAuthToken(currentIat());
           return { auth_token: JSON.stringify(authToken) };
         },
         inboxPrefix: `_INBOX.${sessionKey.slice(0, 16)}`,

@@ -12,10 +12,10 @@
       "sig": "KUKkjqZwKsT52w50KB9odID2YAAZZ9084ZcY6jjDY2mxJS40UkDn4QJA9-wzBCxtjTp2GIauJOCIA6QA2p-GAQ"
     },
     "natsConnect": {
-      "bindingToken": "binding-token-123",
-      "bindingTokenSig": "kOHpKkHJfDTpMKIUyat5vsYGgnDIUeHBde32S-6Ijh8MD762nZvyEDY37IU6Dc8AL08HuUm-nJ5N_OuT9tKsCg",
+      "contractDigest": "digest-alpha",
       "iat": 1735689600,
-      "iatSig": "gi641PQZTV6SqalXlWtakgl_hF-PLbM13NC_VTeRer7pprLCD5m9lGruiQ827g5vnKqmcnAIL0-eB8L9AOiDAg"
+      "iatSig": "gi641PQZTV6SqalXlWtakgl_hF-PLbM13NC_VTeRer7pprLCD5m9lGruiQ827g5vnKqmcnAIL0-eB8L9AOiDAg",
+      "runtimeToken": "{\"contractDigest\":\"digest-alpha\",\"iat\":1735689600,\"sessionKey\":\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\",\"sig\":\"gi641PQZTV6SqalXlWtakgl_hF-PLbM13NC_VTeRer7pprLCD5m9lGruiQ827g5vnKqmcnAIL0-eB8L9AOiDAg\",\"v\":1}"
     },
     "rpcProof": {
       "subject": "rpc.v1.Trellis.Catalog",
@@ -39,10 +39,10 @@
       "sig": "xwnSZQCULYOzezGQb0sQ-yhmYxCxWazr48ntyowaSjw53EfABv1jtuotmZ-xIvLTFAm-r7kCjzwdBJgxZvNgCw"
     },
     "natsConnect": {
-      "bindingToken": "binding-token-789",
-      "bindingTokenSig": "xFWdgubF2gAb3IOVzS1iV56chPODlQNjOBHLvs-FppVvZy6Lgmpm_AC1MUhs5v9scgI_4AQQop32fPBcnHJmDQ",
+      "contractDigest": "digest-local",
       "iat": 1735689660,
-      "iatSig": "BrZhllDQAioUt0NIyP74ZwXyx4-or_CgXJ5889TIv3yM60c2McMOJuaJpyyRqrUwDD_S_4AMXwiaZV6WVpacAw"
+      "iatSig": "BrZhllDQAioUt0NIyP74ZwXyx4-or_CgXJ5889TIv3yM60c2McMOJuaJpyyRqrUwDD_S_4AMXwiaZV6WVpacAw",
+      "runtimeToken": "{\"contractDigest\":\"digest-local\",\"iat\":1735689660,\"sessionKey\":\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\",\"sig\":\"BrZhllDQAioUt0NIyP74ZwXyx4-or_CgXJ5889TIv3yM60c2McMOJuaJpyyRqrUwDD_S_4AMXwiaZV6WVpacAw\",\"v\":1}"
     },
     "rpcProof": {
       "subject": "rpc.v1.Auth.ValidateRequest",

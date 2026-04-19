@@ -8,6 +8,7 @@ import {
   applyApprovalDecision,
   buildRedirectLocation,
   contractApprovalKey,
+  getCookie,
   getApprovalResolutionBlocker,
   getApprovalResolution,
   resolveLoginPortal,
@@ -27,6 +28,27 @@ Deno.test("buildRedirectLocation appends flowId in the query string", () => {
   assertEquals(parsed.searchParams.get("redirectTo"), "/profile");
   assertEquals(parsed.searchParams.get("flowId"), "flow-123");
   assertEquals(parsed.hash, "");
+});
+
+Deno.test("buildRedirectLocation preserves relative redirects", () => {
+  const location = buildRedirectLocation("/callback?redirectTo=%2Fprofile", {
+    flowId: "flow-123",
+  });
+
+  assertEquals(location, "/callback?redirectTo=%2Fprofile&flowId=flow-123");
+});
+
+Deno.test("getCookie ignores malformed percent-encoding", () => {
+  const value = getCookie({
+    req: {
+      header: (name) => name === "Cookie" ? "session=%E0%A4%A" : undefined,
+    },
+    header: () => {},
+    json: () => new Response(),
+    redirect: () => new Response(),
+  }, "session");
+
+  assertEquals(value, null);
 });
 
 Deno.test("getApprovalResolutionErrorMessage explains inactive contract dependencies", () => {
@@ -526,6 +548,61 @@ Deno.test("getApprovalResolution prefers matching instance grant policy over sto
   assertEquals(resolution.storedApproval?.answer, "denied");
 });
 
+Deno.test("getApprovalResolution prefers persisted app identity over redirect-derived origin", async () => {
+  const contractStore = new ContractStore();
+  const pending: PendingAuth = {
+    user: {
+      origin: "github",
+      id: "123",
+      email: "user@example.com",
+      name: "User",
+    },
+    sessionKey: "A".repeat(43),
+    redirectTo: "https://redirect.example.com/callback",
+    app: {
+      contractId: "trellis.console@v1",
+      origin: "https://app.example.com",
+    },
+    contract: {
+      format: "trellis.contract.v1",
+      id: "trellis.console@v1",
+      displayName: "Console",
+      description: "Admin",
+      kind: "app",
+      subjects: {},
+    },
+    createdAt: new Date(),
+  };
+
+  const resolution = await getApprovalResolution(contractStore, pending, {
+    loadStoredApproval: async () => null,
+    loadUserProjection: async () => ({
+      origin: "github",
+      id: "123",
+      name: "User",
+      email: "user@example.com",
+      active: true,
+      capabilities: [],
+    }),
+    loadInstanceGrantPolicies: async () => [{
+      contractId: "trellis.console@v1",
+      impliedCapabilities: ["audit"],
+      allowedOrigins: ["https://app.example.com"],
+      disabled: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      source: {
+        kind: "admin_policy",
+      },
+    }],
+  });
+
+  assertEquals(resolution.app, pending.app);
+  assertEquals(resolution.matchedPolicies.map((policy) => policy.contractId), [
+    "trellis.console@v1",
+  ]);
+});
+
 Deno.test("getApprovalResolutionBlocker rejects inactive users from completing bind", async () => {
   const contractStore = new ContractStore();
   const pending: PendingAuth = {
@@ -576,7 +653,6 @@ Deno.test("shouldUseSecureOauthCookie logs through injected logger", () => {
       oauth: 1,
       deviceFlow: 1,
       pendingAuth: 1,
-      bindingTokens: { bucket: 1, initial: 1, renew: 1, cliInitial: 1, cliRenew: 1 },
       connections: 1,
       natsJwt: 1,
     },

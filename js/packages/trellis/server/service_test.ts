@@ -211,6 +211,7 @@ void versionRemoved;
 
 Deno.test("TrellisService.connect uses bootstrap response transport details", async () => {
   const originalFetch = globalThis.fetch;
+  const originalNow = Date.now;
   let connectServers = "";
   let connectToken = "";
   let authenticatorCount = 0;
@@ -232,11 +233,13 @@ Deno.test("TrellisService.connect uses bootstrap response transport details", as
   };
 
   try {
+    Date.now = () => 1_700_000_000_000;
     globalThis.fetch = (() => {
       return Promise.resolve(
         new Response(
           JSON.stringify({
             status: "ready",
+            serverNow: 1_700_000_120,
             connectInfo: {
               sessionKey: "session-key",
               contractId: core.CONTRACT_ID,
@@ -297,9 +300,104 @@ Deno.test("TrellisService.connect uses bootstrap response transport details", as
 
     assertEquals(connectServers, "nats://127.0.0.1:4222");
     assertEquals(connectToken.includes('"sessionKey":"'), true);
+    assertEquals(connectToken.includes('"iat":1700000120'), true);
     assertEquals(authenticatorCount, 2);
   } finally {
     globalThis.fetch = originalFetch;
+    Date.now = originalNow;
+  }
+});
+
+Deno.test("TrellisService.connect retries once on iat_out_of_range using server time", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalNow = Date.now;
+  const requestBodies: Array<{ iat: number }> = [];
+  let connectToken = "";
+
+  const fakeConnect: NatsConnectFn = async (opts) => {
+    const authenticators = authenticatorsFromValue(opts.authenticator);
+    const auth = authenticators[0]?.();
+    if (auth && typeof auth === "object") {
+      const record = auth as { auth_token?: unknown };
+      if (typeof record.auth_token === "string") {
+        connectToken = record.auth_token;
+      }
+    }
+    throw new Error("stop-after-connect");
+  };
+
+  try {
+    Date.now = () => 1_700_000_000_000;
+    globalThis.fetch = (async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as { iat: number };
+      requestBodies.push(body);
+      if (requestBodies.length === 1) {
+        return new Response(
+          JSON.stringify({
+            reason: "iat_out_of_range",
+            serverNow: 1_700_000_120,
+          }),
+          {
+            status: 400,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          status: "ready",
+          serverNow: 1_700_000_120,
+          connectInfo: {
+            sessionKey: "session-key",
+            contractId: core.CONTRACT_ID,
+            contractDigest: core.CONTRACT_DIGEST,
+            transports: {
+              native: {
+                natsServers: ["nats://127.0.0.1:4222"],
+              },
+            },
+            transport: {
+              sentinel: { jwt: "jwt", seed: "seed" },
+            },
+            auth: {
+              mode: "service_identity",
+              iatSkewSeconds: 30,
+            },
+          },
+          binding: {
+            contractId: core.CONTRACT_ID,
+            digest: core.CONTRACT_DIGEST,
+            resources: {
+              kv: {},
+              streams: {},
+            },
+          },
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    }) as typeof fetch;
+
+    await assertRejects(
+      () =>
+        TrellisService.connect({
+          trellisUrl: "https://trellis.example.com",
+          contract: core,
+          name: "svc",
+          sessionKeySeed: TEST_SEED,
+          server: {},
+        }, { connect: fakeConnect }),
+      Error,
+      "stop-after-connect",
+    );
+
+    assertEquals(requestBodies.map((entry) => entry.iat), [1_700_000_000, 1_700_000_120]);
+    assertEquals(connectToken.includes('"iat":1700000120'), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+    Date.now = originalNow;
   }
 });
 

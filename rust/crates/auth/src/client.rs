@@ -1,9 +1,8 @@
 use crate::{
-    save_admin_session, AdminSessionState, ApprovalEntryRecord, AuthGetInstalledContractRequest,
+    AdminSessionState, ApprovalEntryRecord, AuthGetInstalledContractRequest,
     AuthGetInstalledContractResponse, AuthValidateRequestRequest, AuthValidateRequestResponse,
-    AuthenticatedUser, BoundSession, ClientTransportsRecord, DisableInstanceGrantPolicyRequest,
-    InstanceGrantPolicyRecord, ListApprovalsRequest, RenewBindingTokenBoundResponse,
-    RenewBindingTokenRequest, RenewBindingTokenResponse, RevokeApprovalRequest, TrellisAuthError,
+    AuthenticatedUser, DisableInstanceGrantPolicyRequest, InstanceGrantPolicyRecord,
+    ListApprovalsRequest, RevokeApprovalRequest, TrellisAuthError,
     UpsertInstanceGrantPolicyRequest,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -16,22 +15,6 @@ use crate::protocol::{
     LogoutResponse, MeResponse, RevokeApprovalResponse, UpsertInstanceGrantPolicyResponse,
 };
 use trellis_sdk_auth::rpc::Empty;
-
-fn join_native_nats_servers(
-    transports: &ClientTransportsRecord,
-) -> Result<String, TrellisAuthError> {
-    let Some(native) = &transports.native else {
-        return Err(TrellisAuthError::UnexpectedBindStatus(
-            "missing_native_transport".to_string(),
-        ));
-    };
-    if native.nats_servers.is_empty() {
-        return Err(TrellisAuthError::UnexpectedBindStatus(
-            "missing_native_transport".to_string(),
-        ));
-    }
-    Ok(native.nats_servers.join(","))
-}
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -170,39 +153,10 @@ pub async fn connect_admin_client_async(
         sentinel_jwt: &state.sentinel_jwt,
         sentinel_seed: &state.sentinel_seed,
         session_key_seed_base64url: &state.session_seed,
-        binding_token: &state.binding_token,
+        contract_digest: &state.contract_digest,
         timeout_ms: 5_000,
     })
     .await?)
-}
-
-/// Persist a renewed binding token and sentinel credentials into the admin session state.
-pub fn persist_renewed_admin_session(
-    state: &mut AdminSessionState,
-    renewed: RenewBindingTokenBoundResponse,
-) -> Result<(), TrellisAuthError> {
-    apply_renewed_admin_session(state, renewed)?;
-    save_admin_session(state)
-}
-
-fn apply_renewed_admin_session(
-    state: &mut AdminSessionState,
-    renewed: RenewBindingTokenBoundResponse,
-) -> Result<(), TrellisAuthError> {
-    let renewed = BoundSession {
-        binding_token: renewed.binding_token,
-        inbox_prefix: renewed.inbox_prefix,
-        expires: renewed.expires,
-        nats_servers: join_native_nats_servers(&renewed.transports)?,
-        sentinel: renewed.sentinel,
-    };
-
-    state.binding_token = renewed.binding_token;
-    state.expires = renewed.expires;
-    state.nats_servers = renewed.nats_servers;
-    state.sentinel_jwt = renewed.sentinel.jwt;
-    state.sentinel_seed = renewed.sentinel.seed;
-    Ok(())
 }
 
 /// Thin typed client for Trellis auth/admin RPCs used by the CLI.
@@ -1034,42 +988,6 @@ impl<'a> AuthClient<'a> {
             .await?
             .success)
     }
-
-    /// Mint and persist a fresh binding token for the current session when the contract digest still matches.
-    pub async fn renew_binding_token(
-        &self,
-        state: &mut AdminSessionState,
-        contract_digest: &str,
-    ) -> Result<RenewBindingTokenResponse, TrellisAuthError> {
-        let response = self
-            .call(
-                "rpc.v1.Auth.RenewBindingToken",
-                &RenewBindingTokenRequest {
-                    contract_digest: contract_digest.to_string(),
-                },
-            )
-            .await?;
-        if let RenewBindingTokenResponse::Bound {
-            binding_token,
-            expires,
-            inbox_prefix,
-            sentinel,
-            transports,
-        } = &response
-        {
-            persist_renewed_admin_session(
-                state,
-                RenewBindingTokenBoundResponse {
-                    binding_token: binding_token.clone(),
-                    expires: expires.clone(),
-                    inbox_prefix: inbox_prefix.clone(),
-                    sentinel: sentinel.clone(),
-                    transports: transports.clone(),
-                },
-            )?;
-        }
-        Ok(response)
-    }
 }
 
 #[cfg(test)]
@@ -1077,15 +995,14 @@ mod tests {
     use serde_json::{json, Value};
 
     use super::{
-        apply_renewed_admin_session, CreatePortalRequest, DevicePortalSelectionRecord,
-        GetPortalDefaultResponse, LoginPortalSelectionRecord, PortalDefaultRecord, PortalRecord,
+        CreatePortalRequest, DevicePortalSelectionRecord, GetPortalDefaultResponse,
+        LoginPortalSelectionRecord, PortalDefaultRecord, PortalRecord,
         SetDevicePortalSelectionRequest, SetDevicePortalSelectionResponse,
         SetLoginPortalSelectionRequest,
     };
     use crate::{
-        AdminSessionState, ClientTransportRecord, ClientTransportsRecord,
-        InstanceGrantPolicyRecord, InstanceGrantPolicySourceRecord, RenewBindingTokenBoundResponse,
-        SentinelCredsRecord, TrellisAuthError, UpsertInstanceGrantPolicyRequest,
+        InstanceGrantPolicyRecord, InstanceGrantPolicySourceRecord,
+        UpsertInstanceGrantPolicyRequest,
     };
 
     #[test]
@@ -1272,77 +1189,6 @@ mod tests {
                 "source": { "kind": "admin_policy" },
                 "updatedAt": "2026-01-02T00:00:00Z"
             })
-        );
-    }
-
-    #[test]
-    fn renewed_admin_session_persists_discovered_transport_servers() {
-        let mut state = AdminSessionState {
-            auth_url: "http://localhost:3000".to_string(),
-            nats_servers: "old-a,old-b".to_string(),
-            session_seed: "seed".to_string(),
-            session_key: "key".to_string(),
-            binding_token: "old-token".to_string(),
-            sentinel_jwt: "old-jwt".to_string(),
-            sentinel_seed: "old-seed".to_string(),
-            expires: "2026-01-01T00:00:00Z".to_string(),
-        };
-        let renewed = RenewBindingTokenBoundResponse {
-            binding_token: "new-token".to_string(),
-            expires: "2026-02-01T00:00:00Z".to_string(),
-            inbox_prefix: "_INBOX.test".to_string(),
-            sentinel: SentinelCredsRecord {
-                jwt: "new-jwt".to_string(),
-                seed: "new-seed".to_string(),
-            },
-            transports: ClientTransportsRecord {
-                native: Some(ClientTransportRecord {
-                    nats_servers: vec!["nats://a:4222".to_string(), "nats://b:4222".to_string()],
-                }),
-                websocket: Some(ClientTransportRecord {
-                    nats_servers: vec!["ws://localhost:8080".to_string()],
-                }),
-            },
-        };
-
-        let error = apply_renewed_admin_session(&mut state, renewed);
-        assert!(error.is_ok());
-        assert_eq!(state.nats_servers, "nats://a:4222,nats://b:4222");
-        assert_eq!(state.binding_token, "new-token");
-    }
-
-    #[test]
-    fn renewed_admin_session_requires_native_transport() {
-        let mut state = AdminSessionState {
-            auth_url: "http://localhost:3000".to_string(),
-            nats_servers: "old-a,old-b".to_string(),
-            session_seed: "seed".to_string(),
-            session_key: "key".to_string(),
-            binding_token: "old-token".to_string(),
-            sentinel_jwt: "old-jwt".to_string(),
-            sentinel_seed: "old-seed".to_string(),
-            expires: "2026-01-01T00:00:00Z".to_string(),
-        };
-        let renewed = RenewBindingTokenBoundResponse {
-            binding_token: "new-token".to_string(),
-            expires: "2026-02-01T00:00:00Z".to_string(),
-            inbox_prefix: "_INBOX.test".to_string(),
-            sentinel: SentinelCredsRecord {
-                jwt: "new-jwt".to_string(),
-                seed: "new-seed".to_string(),
-            },
-            transports: ClientTransportsRecord {
-                native: None,
-                websocket: Some(ClientTransportRecord {
-                    nats_servers: vec!["ws://localhost:8080".to_string()],
-                }),
-            },
-        };
-
-        let error =
-            apply_renewed_admin_session(&mut state, renewed).expect_err("missing native transport");
-        assert!(
-            matches!(error, TrellisAuthError::UnexpectedBindStatus(message) if message == "missing_native_transport")
         );
     }
 }

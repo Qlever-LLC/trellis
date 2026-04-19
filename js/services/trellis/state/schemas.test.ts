@@ -4,10 +4,7 @@ import Value from "typebox/value";
 import {
   AppIdentitySchema,
   AuthBrowserFlowSchema,
-  AuthRenewBindingTokenRequestSchema,
-  AuthRenewBindingTokenResponseSchema,
   AuthValidateRequestRequestSchema,
-  BindingTokenRecordSchema,
   BindRequestSchema,
   BindResponseSchema,
   ContractApprovalRecordSchema,
@@ -332,7 +329,6 @@ Deno.test("BindResponseSchema validates bound responses with explicit transports
   assert(
     Value.Check(BindResponseSchema, {
       status: "bound",
-      bindingToken: "token",
       inboxPrefix: "_INBOX.abc",
       expires: new Date().toISOString(),
       sentinel: {
@@ -379,60 +375,6 @@ Deno.test("AuthValidateRequestRequestSchema validates ADR auth request", () => {
       payloadHash: "a".repeat(43),
       capabilities: ["users:read"],
     }),
-  );
-});
-
-Deno.test("AuthRenewBindingToken schemas validate", () => {
-  assert(Value.Check(AuthRenewBindingTokenRequestSchema, {}));
-  assert(
-    Value.Check(AuthRenewBindingTokenResponseSchema, {
-      status: "bound",
-      bindingToken: "token",
-      inboxPrefix: "_INBOX.aaaaaaaaaaaaaaaa",
-      expires: new Date().toISOString(),
-      sentinel: { jwt: "jwt", seed: "seed" },
-      transports: {
-        native: { natsServers: ["nats://127.0.0.1:4222"] },
-        websocket: { natsServers: ["ws://localhost:8080"] },
-      },
-    }),
-  );
-});
-
-Deno.test("BindingTokenRecordSchema validates stored binding token records", () => {
-  assert(
-    Value.Check(BindingTokenRecordSchema, {
-      sessionKey,
-      kind: "initial",
-      createdAt: new Date().toISOString(),
-      expiresAt: new Date().toISOString(),
-    }),
-  );
-});
-
-Deno.test("BindingTokenRecordSchema decodes canonical ISO dates to Date objects", () => {
-  const record = Value.Decode(BindingTokenRecordSchema, {
-    sessionKey,
-    kind: "initial",
-    createdAt: "2026-01-01T00:00:00.000Z",
-    expiresAt: "2026-01-02T00:00:00.000Z",
-  }) as {
-    createdAt: Date;
-    expiresAt: Date;
-  };
-
-  assertEquals(record.createdAt.toISOString(), "2026-01-01T00:00:00.000Z");
-  assertEquals(record.expiresAt.toISOString(), "2026-01-02T00:00:00.000Z");
-});
-
-Deno.test("BindingTokenRecordSchema rejects non-canonical ISO dates during decode", () => {
-  assertThrows(() =>
-    Value.Decode(BindingTokenRecordSchema, {
-      sessionKey,
-      kind: "initial",
-      createdAt: "2026-01-01T00:00:00Z",
-      expiresAt: "2026-01-02T00:00:00.000Z",
-    })
   );
 });
 

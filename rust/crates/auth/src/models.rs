@@ -17,8 +17,8 @@ pub struct AdminSessionState {
     pub session_seed: String,
     /// Public session key derived from `session_seed`.
     pub session_key: String,
-    /// Current binding token for the admin session.
-    pub binding_token: String,
+    /// Current delegated contract digest for admin runtime auth.
+    pub contract_digest: String,
     /// Sentinel JWT used for NATS authentication.
     pub sentinel_jwt: String,
     /// Sentinel seed used for NATS authentication.
@@ -30,9 +30,6 @@ pub struct AdminSessionState {
 /// A successfully bound user session.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct BoundSession {
-    /// Bind token used to establish NATS connections for the session.
-    #[serde(rename = "bindingToken")]
-    pub binding_token: String,
     /// Inbox prefix authorized for the bound session.
     #[serde(rename = "inboxPrefix")]
     pub inbox_prefix: String,
@@ -46,8 +43,6 @@ pub struct BoundSession {
 
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct BindResponseBound {
-    #[serde(rename = "bindingToken")]
-    pub binding_token: String,
     #[serde(rename = "inboxPrefix")]
     pub inbox_prefix: String,
     pub expires: String,
@@ -90,6 +85,7 @@ pub(crate) enum CallbackOutcome {
 pub struct BrowserLoginChallenge {
     pub(crate) login_url: String,
     pub(crate) session_seed: String,
+    pub(crate) contract_digest: String,
     pub(crate) auth: SessionAuth,
     pub(crate) receiver: oneshot::Receiver<CallbackOutcome>,
     pub(crate) server_handle: tokio::task::JoinHandle<()>,

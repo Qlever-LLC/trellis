@@ -2,6 +2,7 @@ import { assert, assertEquals, assertNotEquals } from "@std/assert";
 import {
   base64urlDecode,
   base64urlEncode,
+  correctedIatSeconds,
   createAuth,
   sha256,
   toArrayBuffer,
@@ -120,6 +121,30 @@ Deno.test("natsConnectOptions returns a reconnect-safe authenticator with fresh 
     assertEquals(secondToken.sig, await auth.natsConnectSigForIat(secondToken.iat));
     assertEquals(secondToken.iat - firstToken.iat, 31);
     assertNotEquals(firstToken.sig, secondToken.sig);
+  } finally {
+    Date.now = originalNow;
+  }
+});
+
+Deno.test("createAuth applies server clock offsets to current iat and reconnect auth tokens", async () => {
+  const seed = base64urlEncode(crypto.getRandomValues(new Uint8Array(32)));
+  const auth = await createAuth({ sessionKeySeed: seed });
+  const originalNow = Date.now;
+
+  try {
+    Date.now = () => 1_700_000_000_250;
+    auth.setServerClockOffsetMs(900);
+
+    assertEquals(auth.currentIat(), correctedIatSeconds(Date.now(), 900));
+
+    const options = await auth.natsConnectOptions();
+    const token = JSON.parse(authTokenFromAuthenticatorResult(options.authenticator())) as {
+      iat: number;
+      sig: string;
+    };
+
+    assertEquals(token.iat, 1_700_000_001);
+    assertEquals(token.sig, await auth.natsConnectSigForIat(1_700_000_001));
   } finally {
     Date.now = originalNow;
   }

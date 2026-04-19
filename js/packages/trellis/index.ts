@@ -10,7 +10,6 @@ export {
   hasSessionKey,
   isBindSuccessResponse,
   loadSessionKey,
-  natsConnectSigForBindingToken,
   signBytes,
 } from "./auth.ts";
 export type {

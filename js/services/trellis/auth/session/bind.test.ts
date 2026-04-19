@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { isErr, Result, UnexpectedError } from "@qlever-llc/result";
+import { AsyncResult, isErr, Result, UnexpectedError } from "@qlever-llc/result";
 import { ensureBoundUserSession } from "./bind.ts";
 import type { Connection, Session } from "../../state/schemas.ts";
 
@@ -37,40 +37,42 @@ class InMemoryKV<V> {
     return this.#store.get(key);
   }
 
-  async keys(filter: string | string[]): Promise<Result<AsyncIterable<string>, UnexpectedError>> {
+  keys(filter: string | string[]) {
     const filters = Array.isArray(filter) ? filter : [filter];
     async function* iter(store: Map<string, V>) {
       for (const key of store.keys()) {
         if (filters.some((f) => matchFilter(f, key))) yield key;
       }
     }
-    return Result.ok(iter(this.#store));
+    return AsyncResult.lift(Result.ok(iter(this.#store)));
   }
 
-  async get(key: string): Promise<Result<{ value: V }, UnexpectedError>> {
+  get(key: string) {
     const v = this.#store.get(key);
     if (v === undefined) {
-      return Result.err(new UnexpectedError({ context: { key } }));
+      return AsyncResult.lift(Result.err(new UnexpectedError({ context: { key } })));
     }
-    return Result.ok({ value: v });
+    return AsyncResult.lift(Result.ok({ value: v }));
   }
 
-  async create(key: string, value: V): Promise<Result<void, UnexpectedError>> {
+  create(key: string, value: V) {
     if (this.#store.has(key)) {
-      return Result.err(new UnexpectedError({ context: { key, reason: "exists" } }));
+      return AsyncResult.lift(
+        Result.err(new UnexpectedError({ context: { key, reason: "exists" } })),
+      );
     }
     this.#store.set(key, value);
-    return Result.ok(undefined);
+    return AsyncResult.lift(Result.ok(undefined));
   }
 
-  async put(key: string, value: V): Promise<Result<void, UnexpectedError>> {
+  put(key: string, value: V) {
     this.#store.set(key, value);
-    return Result.ok(undefined);
+    return AsyncResult.lift(Result.ok(undefined));
   }
 
-  async delete(key: string): Promise<Result<void, UnexpectedError>> {
+  delete(key: string) {
     this.#store.delete(key);
-    return Result.ok(undefined);
+    return AsyncResult.lift(Result.ok(undefined));
   }
 }
 
@@ -254,4 +256,81 @@ Deno.test("ensureBoundUserSession rejects if the sessionKeyId exists with a mism
   const rebound = sessionKV.getValue("sk.tid");
   if (!rebound || rebound.type !== "user") throw new Error("expected rebound session");
   assertEquals(rebound.id, "999");
+});
+
+Deno.test("ensureBoundUserSession clears stale app identity when the rebound session omits it", async () => {
+  const sessionKV = new InMemoryKV<Session>();
+  const connectionsKV = new InMemoryKV<Connection>();
+
+  const createdAt = new Date("2026-01-01T00:00:00.000Z");
+  sessionKV.seed("sk.tid", {
+    type: "user",
+    trellisId: "tid",
+    origin: "github",
+    id: "123",
+    email: "old@example.com",
+    name: "Old",
+    ...userSessionFields(),
+    createdAt,
+    lastAuth: createdAt,
+  });
+
+  const now = new Date("2026-01-02T00:00:00.000Z");
+  const res = await ensureBoundUserSession({
+    sessionKV,
+    connectionsKV,
+    kick: async () => {},
+    now,
+    sessionKey: "sk",
+    trellisId: "tid",
+    origin: "github",
+    id: "123",
+    email: "new@example.com",
+    name: "Alice",
+    contractDigest: "digest",
+    contractId: "trellis.console@v1",
+    contractDisplayName: "Trellis Console",
+    contractDescription: "Admin app",
+    delegatedCapabilities: ["admin"],
+    delegatedPublishSubjects: ["rpc.v1.Auth.ListServices"],
+    delegatedSubscribeSubjects: ["events.v1.Auth.Connect"],
+  });
+
+  const v = res.take();
+  if (isErr(v)) throw v.error;
+
+  const updated = sessionKV.getValue("sk.tid");
+  if (!updated || updated.type !== "user") throw new Error("expected updated session");
+  assertEquals("app" in updated, false);
+  assertEquals("appOrigin" in updated, false);
+});
+
+Deno.test("ensureBoundUserSession returns kv_error when listing existing sessions fails", async () => {
+  const sessionKV = {
+    keys: () => AsyncResult.lift(Result.err(new UnexpectedError({ context: { op: "keys" } }))),
+    get: () => AsyncResult.lift(Result.err(new UnexpectedError({ context: { op: "get" } }))),
+    create: () => AsyncResult.lift(Result.ok(undefined)),
+    put: () => AsyncResult.lift(Result.ok(undefined)),
+    delete: () => AsyncResult.lift(Result.ok(undefined)),
+  };
+  const connectionsKV = new InMemoryKV<Connection>();
+
+  const res = await ensureBoundUserSession({
+    sessionKV,
+    connectionsKV,
+    kick: async () => {},
+    now: new Date("2026-01-02T00:00:00.000Z"),
+    sessionKey: "sk",
+    trellisId: "tid",
+    origin: "github",
+    id: "123",
+    email: "a@example.com",
+    name: "Alice",
+    ...userSessionFields(),
+  });
+
+  const v = res.take();
+  assertEquals(isErr(v), true);
+  if (!isErr(v)) return;
+  assertEquals(v.error.reason, "kv_error");
 });

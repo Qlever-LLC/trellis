@@ -9,15 +9,13 @@ import { AsyncResult, isErr } from "@qlever-llc/result";
 import type { StaticDecode } from "typebox";
 import { Value } from "typebox/value";
 
-import { hashKey, randomToken, verifyDomainSig } from "../crypto.ts";
+import { verifyDomainSig } from "../crypto.ts";
 import { CalloutLimiter } from "./limiter.ts";
 import { buildAuthCalloutPermissions } from "./permissions.ts";
 import { getConfig } from "../../config.ts";
 import { getResourcePermissionGrants } from "../../catalog/resources.ts";
 import type { ContractStore } from "../../catalog/store.ts";
-import { CONTRACT as trellisAuthContract } from "../../contracts/trellis_auth.ts";
 import {
-  bindingTokenKV,
   connectionsKV,
   contractApprovalsKV,
   contractsKV,
@@ -31,6 +29,7 @@ import {
   usersKV,
 } from "../../bootstrap/globals.ts";
 import { kick } from "./kick.ts";
+import { resolveUserReconnectSession } from "./user_reconnect.ts";
 import {
   getServicePublishSubjects,
   getServiceSubscribeSubjects,
@@ -66,14 +65,9 @@ type DeviceActivationRecord =
     activatedBy?: { origin: string; id: string };
   };
 type DeviceProfile = StaticDecode<typeof DeviceProfileSchema>;
-type ParsedNatsAuthToken = StaticDecode<typeof NatsAuthTokenV1Schema> & {
-  contractDigest?: string;
-};
+type ParsedNatsAuthToken = StaticDecode<typeof NatsAuthTokenV1Schema>;
 
 const config = getConfig();
-const AUTH_RENEW_SUBJECT = trellisAuthContract.rpc?.["Auth.RenewBindingToken"]
-  ?.subject;
-
 export type BackgroundTaskHandle = {
   stop: () => Promise<void>;
 };
@@ -353,49 +347,11 @@ export function startAuthCallout(
       }
 
       let deviceGrant: DeviceRuntimeGrant | null = null;
+      const usesIat = typeof authToken.iat === "number";
 
-      if (
-        typeof authToken.bindingToken === "string" &&
-        authToken.bindingToken.length > 0
-      ) {
-        const bindingToken = authToken.bindingToken;
-        const bindingTokenHash = await hashKey(bindingToken);
-        const mapped = (await bindingTokenKV.get(bindingTokenHash)).take();
-        if (isErr(mapped)) throw new Error("invalid_binding_token");
-
-        const record = mapped.value as {
-          sessionKey?: unknown;
-          expiresAt?: unknown;
-        };
-        if (
-          typeof record.sessionKey !== "string" ||
-          record.sessionKey !== sessionKey
-        ) {
-          throw new Error("invalid_binding_token");
-        }
-
-        const expiresAt = record.expiresAt instanceof Date
-          ? record.expiresAt
-          : new Date(
-            typeof record.expiresAt === "string" ? record.expiresAt : "",
-          );
-        if (
-          Number.isNaN(expiresAt.getTime()) || expiresAt.getTime() <= Date.now()
-        ) {
-          throw new Error("invalid_binding_token");
-        }
-        if (
-          !(await verifyDomainSig(
-            sessionKey,
-            "nats-connect",
-            bindingToken,
-            sig,
-          ))
-        ) {
-          throw new Error("invalid_signature");
-        }
-      } else if (typeof authToken.iat === "number") {
+      if (usesIat) {
         const iat = authToken.iat;
+        if (typeof iat !== "number") throw new Error("invalid_auth_token");
         const nowSec = Math.floor(now.getTime() / 1000);
         if (Math.abs(nowSec - iat) > 30) throw new Error("iat_out_of_range");
         if (
@@ -409,12 +365,6 @@ export function startAuthCallout(
           if (service.disabled) throw new Error("service_disabled");
           const profile = await loadServiceProfile(service.profileId);
           if (!profile || profile.disabled) throw new Error("service_disabled");
-        } else {
-          deviceGrant = await resolveDeviceRuntimeGrant(
-            sessionKey,
-            authToken.contractDigest,
-            opts?.contractStore,
-          );
         }
       } else {
         throw new Error("invalid_auth_token");
@@ -471,7 +421,12 @@ export function startAuthCallout(
             createdAt: now,
             lastAuth: now,
           })).take();
-        } else if (deviceGrant) {
+        } else if (usesIat) {
+          deviceGrant = await resolveDeviceRuntimeGrant(
+            sessionKey,
+            authToken.contractDigest,
+            opts?.contractStore,
+          );
           sessionKeyId = `${sessionKey}.${deviceGrant.activation.instanceId}`;
           // The first successful runtime auth marks when an approved device was
           // actually used, which is distinct from the earlier review timestamp.
@@ -542,6 +497,41 @@ export function startAuthCallout(
             ? new Date(currentGrant.activation.revokedAt)
             : null,
         };
+      } else if (session.type === "user" && usesIat) {
+        if (!opts?.contractStore) {
+          throw new Error("contract_changed");
+        }
+        if (
+          typeof authToken.contractDigest !== "string" ||
+          authToken.contractDigest.length === 0
+        ) {
+          throw new Error("invalid_auth_token");
+        }
+
+        const resolvedReconnect = await resolveUserReconnectSession({
+          session,
+          presentedContractDigest: authToken.contractDigest,
+          contractStore: opts.contractStore,
+          loadUserProjection: async (trellisId) => {
+            const entry = (await usersKV.get(trellisId)).take();
+            return isErr(entry) ? null : entry.value;
+          },
+          loadStoredApproval: async (key) => {
+            const entry = (await contractApprovalsKV.get(key)).take();
+            return isErr(entry) ? null : entry.value;
+          },
+          loadInstanceGrantPolicies: async (contractId) => {
+            const entry = (await instanceGrantPoliciesKV.get(contractId)).take();
+            return isErr(entry) ? [] : [entry.value];
+          },
+        });
+        if (!resolvedReconnect.ok) {
+          throw new Error(resolvedReconnect.reason);
+        }
+        session = {
+          ...resolvedReconnect.session,
+          lastAuth: now,
+        };
       }
 
       const inboxPrefix = `_INBOX.${sessionKey.slice(0, 16)}`;
@@ -552,9 +542,15 @@ export function startAuthCallout(
       const principal = await resolveSessionPrincipal(session, sessionKey, {
         loadServiceInstance: loadServiceInstanceByKey,
         loadServiceProfile,
-        usersKV,
-        deviceActivationsKV,
-        deviceProfilesKV,
+        usersKV: {
+          get: (key) => AsyncResult.lift(usersKV.get(key)),
+        },
+        deviceActivationsKV: {
+          get: (key) => AsyncResult.lift(deviceActivationsKV.get(key)),
+        },
+        deviceProfilesKV: {
+          get: (key) => AsyncResult.lift(deviceProfilesKV.get(key)),
+        },
         loadStoredApproval: async (key) => {
           const entry = (await contractApprovalsKV.get(key)).take();
           return isErr(entry) ? null : entry.value;
@@ -625,10 +621,6 @@ export function startAuthCallout(
                 : "service",
             })
             : delegatedPublish),
-          ...(session.type === "user" && delegatedPublish.length > 0 &&
-              AUTH_RENEW_SUBJECT
-            ? [AUTH_RENEW_SUBJECT]
-            : []),
           ...resourcePermissions.publish,
         ],
         subscribeAllow: isService

@@ -1,7 +1,6 @@
 use std::env;
-use std::fs;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 
@@ -11,12 +10,12 @@ use crate::contract_input::{default_image_contract_path, resolve_contract_input}
 use crate::output;
 use crate::self_update::{ReleaseChannel, SelfUpdateTarget};
 use crate::{contract_input, core_client};
-use async_nats::ConnectOptions;
 use async_nats::jetstream;
 use async_nats::jetstream::kv;
 use async_nats::jetstream::stream;
-use base64::Engine as _;
+use async_nats::ConnectOptions;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine as _;
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
 use ed25519_dalek::SigningKey;
@@ -42,7 +41,6 @@ const SELF_UPDATE_TARGET: SelfUpdateTarget = SelfUpdateTarget::new(
     env!("CARGO_PKG_VERSION"),
 );
 
-const DEFAULT_TRELLIS_CONFIG_PATH: &str = "/etc/trellis/config.jsonc";
 const DEFAULT_AUTH_REAUTH_LISTEN: &str = "127.0.0.1:0";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -67,10 +65,6 @@ pub(crate) const AUTH_BOOTSTRAP_BUCKETS: &[KvBucketSpec] = &[
     KvBucketSpec {
         name: "trellis_contract_approvals",
         ttl_ms: 0,
-    },
-    KvBucketSpec {
-        name: "trellis_binding_tokens",
-        ttl_ms: 24 * 60 * 60_000_u64,
     },
     KvBucketSpec {
         name: "trellis_portals",
@@ -142,23 +136,6 @@ pub(crate) const AUTH_BOOTSTRAP_BUCKETS: &[KvBucketSpec] = &[
     },
 ];
 
-#[derive(Debug, serde::Deserialize)]
-pub(crate) struct BootstrapConfigFile {
-    #[serde(rename = "ttlMs")]
-    pub(crate) ttl_ms: Option<BootstrapTtlConfig>,
-}
-
-#[derive(Debug, serde::Deserialize)]
-pub(crate) struct BootstrapTtlConfig {
-    #[serde(rename = "bindingTokens")]
-    pub(crate) binding_tokens: Option<BootstrapBindingTokenConfig>,
-}
-
-#[derive(Debug, serde::Deserialize)]
-pub(crate) struct BootstrapBindingTokenConfig {
-    pub(crate) bucket: Option<u64>,
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum BucketEnsureStatus {
     Created,
@@ -223,6 +200,15 @@ pub(crate) async fn connect_authenticated_cli_client(
     let mut state = authlib::load_admin_session().into_diagnostic()?;
     let cli_contract_json = cli_contract_json();
     let cli_contract_digest = contract_digest(cli_contract_json);
+    if state.contract_digest != cli_contract_digest {
+        if !output::is_json(format) {
+            output::print_info(
+                "Saved admin session contract changed; starting browser reauthentication",
+            );
+        }
+        state = complete_admin_reauth(format, &state, cli_contract_json).await?;
+    }
+
     let connected = match authlib::connect_admin_client_async(&state).await {
         Ok(connected) => connected,
         Err(error) if should_start_admin_reauth(&error) => {
@@ -238,23 +224,7 @@ pub(crate) async fn connect_authenticated_cli_client(
         }
         Err(error) => return Err(miette::miette!(error.to_string())),
     };
-    let auth_client = authlib::AuthClient::new(&connected);
-
-    match auth_client
-        .renew_binding_token(&mut state, &cli_contract_digest)
-        .await
-        .into_diagnostic()?
-    {
-        authlib::RenewBindingTokenResponse::Bound { .. } => {}
-        authlib::RenewBindingTokenResponse::ContractChanged => {
-            state = complete_admin_reauth(format, &state, cli_contract_json).await?;
-        }
-    }
-
-    let refreshed = authlib::connect_admin_client_async(&state)
-        .await
-        .into_diagnostic()?;
-    Ok((state, refreshed))
+    Ok((state, connected))
 }
 
 fn should_start_admin_reauth(error: &authlib::TrellisAuthError) -> bool {
@@ -368,26 +338,6 @@ pub(crate) async fn ensure_bucket(
     .await
     .into_diagnostic()?;
     Ok(BucketEnsureStatus::Created)
-}
-
-pub(crate) fn resolve_auth_config_path() -> PathBuf {
-    env::var("TRELLIS_CONFIG")
-        .or_else(|_| env::var("TRELLIS_AUTH_CONFIG"))
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from(DEFAULT_TRELLIS_CONFIG_PATH))
-}
-
-pub(crate) fn load_binding_token_bucket_ttl_ms(path: &Path) -> miette::Result<Option<u64>> {
-    if !path.exists() {
-        return Ok(None);
-    }
-
-    let text = fs::read_to_string(path).into_diagnostic()?;
-    let parsed: BootstrapConfigFile = json5::from_str(&text).into_diagnostic()?;
-    Ok(parsed
-        .ttl_ms
-        .and_then(|ttl| ttl.binding_tokens)
-        .and_then(|binding_tokens| binding_tokens.bucket))
 }
 
 pub(crate) fn generate_session_keypair() -> (String, String) {

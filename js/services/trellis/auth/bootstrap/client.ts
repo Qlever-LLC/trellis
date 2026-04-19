@@ -1,5 +1,5 @@
 import type { Context } from "@hono/hono";
-import { AsyncResult, type BaseError, isErr, type Result } from "@qlever-llc/result";
+import { AsyncResult, type BaseError, isErr } from "@qlever-llc/result";
 import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 import { Type, type StaticDecode } from "typebox";
 import { Value } from "typebox/value";
@@ -8,13 +8,11 @@ import type { ContractStore } from "../../catalog/store.ts";
 import type { ContractResourceBindings } from "../../../../packages/trellis/contract_support/protocol.ts";
 import { resolveSessionPrincipal } from "../session/principal.ts";
 import type {
-  BindingTokenRecord,
   ContractApprovalRecord,
   InstanceGrantPolicy,
   SentinelCreds,
   Session,
   SessionKey,
-  UserSession,
 } from "../../state/schemas.ts";
 import {
   SessionKeySchema,
@@ -45,13 +43,6 @@ type ClientBootstrapContractView = {
   displayName: string;
   description: string;
   resources?: TrellisContractV1["resources"];
-};
-
-type SessionContractView = {
-  id: string;
-  digest: string;
-  displayName: string;
-  description: string;
 };
 
 const ClientTransportEndpointsSchema = Type.Object({
@@ -92,27 +83,24 @@ type ClientConnectInfo = {
     inboxPrefix: string;
     sentinel: SentinelCreds;
   };
-  auth: {
-    mode: "binding_token";
-    bindingToken: string;
-    expiresAt: string;
-  };
 };
 
 export type ClientBootstrapResult =
   | {
-    status: "ready";
-    connectInfo: ClientConnectInfo;
-    contract: ClientBootstrapContractView;
-    user: ClientBootstrapUserView;
-    binding: ClientBootstrapBindingView;
-  }
-  | { status: "auth_required" }
+     status: "ready";
+     serverNow: number;
+     connectInfo: ClientConnectInfo;
+     contract: ClientBootstrapContractView;
+     user: ClientBootstrapUserView;
+     binding: ClientBootstrapBindingView;
+   }
+  | { status: "auth_required"; serverNow: number }
   | {
-    status: "not_ready";
-    reason:
-      | "contract_not_active"
-      | "insufficient_permissions"
+      status: "not_ready";
+      serverNow: number;
+      reason:
+        | "contract_not_active"
+        | "insufficient_permissions"
       | "service_role_on_user"
       | "user_inactive"
       | "user_not_found";
@@ -127,10 +115,6 @@ type UserStore = {
   get(key: string): AsyncResult<unknown, BaseError>;
 };
 
-type BindingTokenStore = {
-  put(key: string, value: BindingTokenRecord): AsyncResult<unknown, BaseError>;
-};
-
 export type ClientBootstrapDeps = {
   contractStore: ContractStore;
   transports: ClientTransports;
@@ -140,16 +124,11 @@ export type ClientBootstrapDeps = {
   servicesKV?: unknown;
   loadStoredApproval(key: string): Promise<ContractApprovalRecord | null>;
   loadInstanceGrantPolicies(contractId: string): Promise<InstanceGrantPolicy[]>;
-  bindingTokenKV: BindingTokenStore;
-  hashKey(value: string): Promise<string>;
-  randomToken(bytes: number): string;
   verifyIdentityProof(input: {
     sessionKey: SessionKey;
     iat: number;
     sig: string;
   }): Promise<boolean>;
-  bindingTokenTtlMs(session: UserSession): number;
-  now?(): Date;
   nowSeconds?(): number;
 };
 
@@ -196,40 +175,14 @@ function buildContractView(
   };
 }
 
-function buildSessionContractView(contract: SessionContractView): ClientBootstrapContractView {
-  return {
-    id: contract.id,
-    digest: contract.digest,
-    displayName: contract.displayName,
-    description: contract.description,
-  };
-}
-
-async function issueBindingToken(
-  deps: ClientBootstrapDeps,
-  session: UserSession,
-  sessionKey: SessionKey,
-  now: Date,
-): Promise<{ bindingToken: string; expiresAt: Date }> {
-  const bindingToken = deps.randomToken(32);
-  const bindingTokenHash = await deps.hashKey(bindingToken);
-  const expiresAt = new Date(now.getTime() + deps.bindingTokenTtlMs(session));
-  await deps.bindingTokenKV.put(bindingTokenHash, {
-    sessionKey,
-    kind: "renew",
-    createdAt: now,
-    expiresAt,
-  });
-  return { bindingToken, expiresAt };
-}
-
 export async function resolveClientBootstrap(
   deps: ClientBootstrapDeps,
   request: ClientBootstrapRequest,
 ): Promise<ClientBootstrapResult> {
+  const nowSeconds = deps.nowSeconds?.() ?? Math.floor(Date.now() / 1_000);
   const session = await loadSessionBySessionKey(request.sessionKey, deps.sessionKV);
   if (!session || session.type !== "user") {
-    return { status: "auth_required" };
+    return { status: "auth_required", serverNow: nowSeconds };
   }
 
   const principal = await resolveSessionPrincipal(session, request.sessionKey, {
@@ -239,13 +192,13 @@ export async function resolveClientBootstrap(
   });
   if (!principal.ok) {
     switch (principal.error.reason) {
-      case "user_not_found":
-      case "user_inactive":
-      case "insufficient_permissions":
-      case "service_role_on_user":
-        return { status: "not_ready", reason: principal.error.reason };
+        case "user_not_found":
+        case "user_inactive":
+        case "insufficient_permissions":
+        case "service_role_on_user":
+        return { status: "not_ready", reason: principal.error.reason, serverNow: nowSeconds };
       default:
-        return { status: "auth_required" };
+        return { status: "auth_required", serverNow: nowSeconds };
     }
   }
 
@@ -253,20 +206,18 @@ export async function resolveClientBootstrap(
   const activeContract = activeDigest === session.contractDigest
     ? deps.contractStore.getContract(session.contractDigest)
     : undefined;
-  const contractView = activeContract && activeContract.id === session.contractId
-    ? buildContractView(activeContract, session.contractDigest)
-    : buildSessionContractView({
-      id: session.contractId,
-      digest: session.contractDigest,
-      displayName: session.contractDisplayName,
-      description: session.contractDescription,
-    });
-
-  const now = deps.now?.() ?? new Date();
-  const bindingToken = await issueBindingToken(deps, session, request.sessionKey, now);
+  if (!activeContract || activeContract.id !== session.contractId) {
+    return {
+      status: "not_ready",
+      reason: "contract_not_active",
+      serverNow: nowSeconds,
+    };
+  }
+  const contractView = buildContractView(activeContract, session.contractDigest);
 
   return {
     status: "ready",
+    serverNow: nowSeconds,
     connectInfo: {
       sessionKey: request.sessionKey,
       contractId: session.contractId,
@@ -275,11 +226,6 @@ export async function resolveClientBootstrap(
       transport: {
         inboxPrefix: `_INBOX.${request.sessionKey.slice(0, 16)}`,
         sentinel: deps.sentinel,
-      },
-      auth: {
-        mode: "binding_token",
-        bindingToken: bindingToken.bindingToken,
-        expiresAt: bindingToken.expiresAt.toISOString(),
       },
     },
     contract: contractView,
@@ -316,7 +262,7 @@ export function createClientBootstrapHandler(deps: ClientBootstrapDeps) {
     const request = Value.Parse(ClientBootstrapRequestSchema, body);
     const nowSeconds = deps.nowSeconds?.() ?? Math.floor(Date.now() / 1_000);
     if (!isClientBootstrapProofIatFresh(request.iat, nowSeconds)) {
-      return c.json({ reason: "iat_out_of_range" }, 400);
+      return c.json({ reason: "iat_out_of_range", serverNow: nowSeconds }, 400);
     }
 
     const proofOk = await deps.verifyIdentityProof({

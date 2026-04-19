@@ -244,8 +244,8 @@ in TypeScript authoring.
 
 Some SDKs may also expose convenience wrappers around `use(...)`. For example,
 `@qlever-llc/trellis-sdk` exposes `auth.useDefaults(...)`, which adds the
-baseline user-session RPC declarations `Auth.Me`, `Auth.Logout`, and
-`Auth.RenewBindingToken` before merging any additional requested auth surfaces.
+baseline user-session RPC declarations `Auth.Me` and `Auth.Logout` before
+merging any additional requested auth surfaces.
 
 ### 4) TypeScript enforcement of declared permissions
 

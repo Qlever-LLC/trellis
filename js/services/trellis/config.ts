@@ -30,60 +30,14 @@ const httpRateLimitSchema = z.object({
   max: z.coerce.number().default(60),
 });
 
-const DEFAULT_CLI_BINDING_TOKEN_TTL_MS = 24 * 60 * 60_000;
-
-function resolveCliBindingTokenTtl(
-  bucket: number,
-  value: number | undefined,
-): number {
-  return value ?? Math.min(DEFAULT_CLI_BINDING_TOKEN_TTL_MS, bucket);
-}
-
-const bindingTokenTtlSchema = z.object({
-  bucket: z.coerce.number().default(DEFAULT_CLI_BINDING_TOKEN_TTL_MS),
-  initial: z.coerce.number().default(5 * 60_000),
-  renew: z.coerce.number().default(60 * 60_000),
-  cliInitial: z.coerce.number().optional(),
-  cliRenew: z.coerce.number().optional(),
-});
-
 const ttlSchema = z
   .object({
     sessions: z.coerce.number().default(24 * 60 * 60_000),
     oauth: z.coerce.number().default(5 * 60_000),
     deviceFlow: z.coerce.number().default(30 * 60_000),
-      pendingAuth: z.coerce.number().default(5 * 60_000),
-      bindingTokens: bindingTokenTtlSchema.default({
-      bucket: DEFAULT_CLI_BINDING_TOKEN_TTL_MS,
-      initial: 5 * 60_000,
-      renew: 60 * 60_000,
-    }),
+    pendingAuth: z.coerce.number().default(5 * 60_000),
     connections: z.coerce.number().default(2 * 60 * 60_000),
     natsJwt: z.coerce.number().default(60 * 60_000),
-  })
-  .superRefine((ttl, ctx) => {
-    const cliInitial = resolveCliBindingTokenTtl(
-      ttl.bindingTokens.bucket,
-      ttl.bindingTokens.cliInitial,
-    );
-    const cliRenew = resolveCliBindingTokenTtl(
-      ttl.bindingTokens.bucket,
-      ttl.bindingTokens.cliRenew,
-    );
-    const requiredMin = Math.max(
-      ttl.bindingTokens.initial,
-      ttl.bindingTokens.renew,
-      cliInitial,
-      cliRenew,
-    );
-    if (ttl.bindingTokens.bucket < requiredMin) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message:
-          "AUTH_TTL_BINDING_TOKENS_BUCKET must be >= all binding token TTLs",
-        path: ["bindingTokens", "bucket"],
-      });
-    }
   });
 
 const rawSchema = z.object({
@@ -105,11 +59,6 @@ const rawSchema = z.object({
     oauth: 5 * 60_000,
     deviceFlow: 30 * 60_000,
     pendingAuth: 5 * 60_000,
-      bindingTokens: {
-        bucket: 24 * 60 * 60_000,
-        initial: 5 * 60_000,
-        renew: 60 * 60_000,
-      },
     connections: 2 * 60 * 60_000,
     natsJwt: 60 * 60_000,
   }),
@@ -196,13 +145,6 @@ export type Config = {
     oauth: number;
     deviceFlow: number;
     pendingAuth: number;
-      bindingTokens: {
-        bucket: number;
-        initial: number;
-        renew: number;
-        cliInitial: number;
-        cliRenew: number;
-      };
     connections: number;
     natsJwt: number;
   };
@@ -313,18 +255,6 @@ function resolveProviderConfig(
 }
 
 function normalizeConfig(configPath: string, raw: RawConfig): Config {
-  const bindingTokens = {
-    ...raw.ttlMs.bindingTokens,
-    cliInitial: resolveCliBindingTokenTtl(
-      raw.ttlMs.bindingTokens.bucket,
-      raw.ttlMs.bindingTokens.cliInitial,
-    ),
-    cliRenew: resolveCliBindingTokenTtl(
-      raw.ttlMs.bindingTokens.bucket,
-      raw.ttlMs.bindingTokens.cliRenew,
-    ),
-  };
-
   const providers = Object.fromEntries(
     Object.entries(raw.oauth.providers).map(([key, provider]) => [
       key,
@@ -341,10 +271,7 @@ function normalizeConfig(configPath: string, raw: RawConfig): Config {
       publicOrigin: canonicalizeLoopbackUrl(raw.web.publicOrigin),
     },
     httpRateLimit: raw.httpRateLimit,
-    ttlMs: {
-      ...raw.ttlMs,
-      bindingTokens,
-    },
+    ttlMs: raw.ttlMs,
     nats: {
       servers: raw.nats.servers,
       trellis: raw.nats.trellis,

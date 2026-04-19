@@ -1,6 +1,6 @@
 <script lang="ts">
 import type { AuthListApprovalsOutput, AuthMeOutput } from "@qlever-llc/trellis-sdk/auth";
-import { getNatsState } from "@qlever-llc/trellis-svelte";
+import { getConnectionState } from "@qlever-llc/trellis-svelte";
 import { onMount } from "svelte";
 import { getInitials, getRoleLabel } from "../../../lib/control-panel.ts";
   import { errorMessage, formatDate } from "../../../lib/format";
@@ -8,7 +8,7 @@ import { getInitials, getRoleLabel } from "../../../lib/control-panel.ts";
   import { getTrellis } from "../../../lib/trellis";
 
   const trellisPromise = getTrellis();
-  const natsStatePromise = getNatsState();
+  const connectionStatePromise = getConnectionState();
   const notifications = getNotifications();
 
   let loading = $state(true);
@@ -58,11 +58,11 @@ import { getInitials, getRoleLabel } from "../../../lib/control-panel.ts";
     let statusInterval: number | null = null;
 
     void (async () => {
-      const natsState = await natsStatePromise;
+      const connectionState = await connectionStatePromise;
       if (!active) return;
-      connectionStatus = natsState.status;
+      connectionStatus = connectionState.status;
       statusInterval = window.setInterval(() => {
-        connectionStatus = natsState.status;
+        connectionStatus = connectionState.status;
       }, 1000);
     })();
 

@@ -1,6 +1,6 @@
 import { Hono } from "@hono/hono";
 import { assertEquals } from "@std/assert";
-import { Result, UnexpectedError } from "@qlever-llc/result";
+import { AsyncResult, UnexpectedError } from "@qlever-llc/result";
 import {
   base64urlEncode,
   createAuth,
@@ -10,7 +10,6 @@ import {
 
 import { ContractStore } from "../../catalog/store.ts";
 import type {
-  BindingTokenRecord,
   SentinelCreds,
   Session,
   UserProjectionEntry,
@@ -31,18 +30,18 @@ class InMemoryKV<V> {
     return this.#values.get(key);
   }
 
-  async get(key: string): Promise<Result<{ value: V }, UnexpectedError>> {
+  get(key: string): AsyncResult<{ value: V }, UnexpectedError> {
     const value = this.#values.get(key);
     if (value === undefined) {
-      return Result.err(new UnexpectedError({ context: { key } }));
+      return AsyncResult.err(new UnexpectedError({ context: { key } }));
     }
-    return Result.ok({ value });
+    return AsyncResult.ok({ value });
   }
 
-  async keys(filter: string): Promise<Result<AsyncIterable<string>, UnexpectedError>> {
+  keys(filter: string): AsyncResult<AsyncIterable<string>, UnexpectedError> {
     const prefix = filter.endsWith(">") ? filter.slice(0, -1) : filter;
     const entries = [...this.#values.keys()].filter((key) => key.startsWith(prefix));
-    return Result.ok({
+    return AsyncResult.ok({
       async *[Symbol.asyncIterator]() {
         for (const key of entries) {
           yield key;
@@ -51,9 +50,9 @@ class InMemoryKV<V> {
     });
   }
 
-  async put(key: string, value: V): Promise<Result<void, UnexpectedError>> {
+  put(key: string, value: V): AsyncResult<void, UnexpectedError> {
     this.#values.set(key, value);
-    return Result.ok(undefined);
+    return AsyncResult.ok(undefined);
   }
 }
 
@@ -102,7 +101,6 @@ async function createVerifiedApp(args?: {
   const sessionKV = new InMemoryKV<Session>();
   const usersKV = new InMemoryKV<UserProjectionEntry>();
   const servicesKV = new InMemoryKV<{ active: boolean; capabilities: string[]; displayName: string; description: string; createdAt: Date }>();
-  const bindingTokenKV = new InMemoryKV<BindingTokenRecord>();
   const sentinel: SentinelCreds = { jwt: "jwt", seed: "seed" };
 
   sessionKV.seed(`${auth.sessionKey}.user-1`, {
@@ -161,22 +159,17 @@ async function createVerifiedApp(args?: {
       subscribeSubjects: ["events.profile.*"],
     }),
     loadInstanceGrantPolicies: async () => [],
-    bindingTokenKV,
-    hashKey: async (value) => `hash:${value}`,
-    randomToken: () => "binding-token-1",
     verifyIdentityProof: async ({ sessionKey, iat, sig }) =>
       sessionKey === auth.sessionKey &&
       sig === await signClientBootstrapProof(TEST_SEED, iat),
-    bindingTokenTtlMs: () => 60_000,
-    now: () => new Date("2026-01-01T00:02:00.000Z"),
     nowSeconds: () => args?.nowSeconds ?? TEST_IAT,
   }));
 
-  return { app, auth, contract: validated, bindingTokenKV };
+  return { app, auth, contract: validated };
 }
 
 Deno.test("POST /bootstrap/client returns runtime bootstrap info for bound browser sessions", async () => {
-  const { app, auth, contract, bindingTokenKV } = await createVerifiedApp();
+  const { app, auth, contract } = await createVerifiedApp();
   const response = await app.request("http://trellis/bootstrap/client", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -190,6 +183,7 @@ Deno.test("POST /bootstrap/client returns runtime bootstrap info for bound brows
   assertEquals(response.status, 200);
   assertEquals(await response.json(), {
     status: "ready",
+    serverNow: TEST_IAT,
     connectInfo: {
       sessionKey: auth.sessionKey,
       contractId: contract.contract.id,
@@ -201,11 +195,6 @@ Deno.test("POST /bootstrap/client returns runtime bootstrap info for bound brows
       transport: {
         inboxPrefix: `_INBOX.${auth.sessionKey.slice(0, 16)}`,
         sentinel: { jwt: "jwt", seed: "seed" },
-      },
-      auth: {
-        mode: "binding_token",
-        bindingToken: "binding-token-1",
-        expiresAt: "2026-01-01T00:03:00.000Z",
       },
     },
     contract: {
@@ -230,12 +219,6 @@ Deno.test("POST /bootstrap/client returns runtime bootstrap info for bound brows
       subscribeSubjects: ["events.profile.*"],
     },
   });
-  assertEquals(bindingTokenKV.getValue("hash:binding-token-1"), {
-    sessionKey: auth.sessionKey,
-    kind: "renew",
-    createdAt: new Date("2026-01-01T00:02:00.000Z"),
-    expiresAt: new Date("2026-01-01T00:03:00.000Z"),
-  });
 });
 
 Deno.test("POST /bootstrap/client returns auth_required when no bound user session exists", async () => {
@@ -257,14 +240,9 @@ Deno.test("POST /bootstrap/client returns auth_required when no bound user sessi
     servicesKV: new InMemoryKV<{ active: boolean; capabilities: string[]; displayName: string; description: string; createdAt: Date }>(),
     loadStoredApproval: async () => null,
     loadInstanceGrantPolicies: async () => [],
-    bindingTokenKV: new InMemoryKV<BindingTokenRecord>(),
-    hashKey: async (value) => `hash:${value}`,
-    randomToken: () => "binding-token-1",
     verifyIdentityProof: async ({ sessionKey, iat, sig }) =>
       sessionKey === auth.sessionKey &&
       sig === await signClientBootstrapProof(TEST_SEED, iat),
-    bindingTokenTtlMs: () => 60_000,
-    now: () => new Date("2026-01-01T00:02:00.000Z"),
     nowSeconds: () => TEST_IAT,
   }));
 
@@ -279,7 +257,7 @@ Deno.test("POST /bootstrap/client returns auth_required when no bound user sessi
   });
 
   assertEquals(response.status, 200);
-  assertEquals(await response.json(), { status: "auth_required" });
+  assertEquals(await response.json(), { status: "auth_required", serverNow: TEST_IAT });
 });
 
 Deno.test("POST /bootstrap/client returns not_ready when the bound user is inactive", async () => {
@@ -308,10 +286,48 @@ Deno.test("POST /bootstrap/client returns not_ready when the bound user is inact
   assertEquals(await response.json(), {
     status: "not_ready",
     reason: "user_inactive",
+    serverNow: TEST_IAT,
   });
 });
 
-Deno.test("POST /bootstrap/client falls back to session contract metadata when the contract is no longer active", async () => {
+Deno.test("POST /bootstrap/client returns serverNow when bootstrap proof iat is out of range", async () => {
+  const { app, auth } = await createVerifiedApp({ nowSeconds: TEST_IAT + 31 });
+  const response = await app.request("http://trellis/bootstrap/client", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sessionKey: auth.sessionKey,
+      iat: TEST_IAT,
+      sig: await signClientBootstrapProof(TEST_SEED, TEST_IAT),
+    }),
+  });
+
+  assertEquals(response.status, 400);
+  assertEquals(await response.json(), {
+    reason: "iat_out_of_range",
+    serverNow: TEST_IAT + 31,
+  });
+});
+
+Deno.test("POST /bootstrap/client rejects invalid bootstrap signatures", async () => {
+  const { app, auth } = await createVerifiedApp();
+  const validSig = await signClientBootstrapProof(TEST_SEED, TEST_IAT);
+  const invalidSig = `${validSig.slice(0, -1)}${validSig.endsWith("A") ? "B" : "A"}`;
+  const response = await app.request("http://trellis/bootstrap/client", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sessionKey: auth.sessionKey,
+      iat: TEST_IAT,
+      sig: invalidSig,
+    }),
+  });
+
+  assertEquals(response.status, 400);
+  assertEquals(await response.json(), { reason: "invalid_signature" });
+});
+
+Deno.test("POST /bootstrap/client returns contract_not_active when the session digest is no longer active", async () => {
   const { app, auth, contract } = await createVerifiedApp({ activateContract: false });
   const response = await app.request("http://trellis/bootstrap/client", {
     method: "POST",
@@ -325,44 +341,8 @@ Deno.test("POST /bootstrap/client falls back to session contract metadata when t
 
   assertEquals(response.status, 200);
   assertEquals(await response.json(), {
-    status: "ready",
-    connectInfo: {
-      sessionKey: auth.sessionKey,
-      contractId: contract.contract.id,
-      contractDigest: contract.digest,
-      transports: {
-        native: { natsServers: ["nats://127.0.0.1:4222"] },
-        websocket: { natsServers: ["ws://localhost:8080"] },
-      },
-      transport: {
-        inboxPrefix: `_INBOX.${auth.sessionKey.slice(0, 16)}`,
-        sentinel: { jwt: "jwt", seed: "seed" },
-      },
-      auth: {
-        mode: "binding_token",
-        bindingToken: "binding-token-1",
-        expiresAt: "2026-01-01T00:03:00.000Z",
-      },
-    },
-    contract: {
-      id: contract.contract.id,
-      digest: contract.digest,
-      displayName: contract.contract.displayName,
-      description: contract.contract.description,
-    },
-    user: {
-      trellisId: "user-1",
-      origin: "github",
-      id: "123",
-      email: "user@example.com",
-      name: "Example User",
-    },
-    binding: {
-      contractId: contract.contract.id,
-      digest: contract.digest,
-      capabilities: ["read:profile"],
-      publishSubjects: ["events.profile.updated"],
-      subscribeSubjects: ["events.profile.*"],
-    },
+    status: "not_ready",
+    serverNow: TEST_IAT,
+    reason: "contract_not_active",
   });
 });

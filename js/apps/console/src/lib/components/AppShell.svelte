@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { AuthMeOutput } from "@qlever-llc/trellis-sdk/auth";
-  import { getAuth, getNatsState } from "@qlever-llc/trellis-svelte";
+  import { getAuth, getConnectionState } from "@qlever-llc/trellis-svelte";
   import { onMount } from "svelte";
   import { afterNavigate, goto } from "$app/navigation";
   import { base } from "$app/paths";
@@ -22,7 +22,7 @@
   let { children } = $props();
 
   const auth = getAuth();
-  const natsStatePromise = getNatsState();
+  const connectionStatePromise = getConnectionState();
   const trellisPromise = getTrellis();
   const notifications = setNotifications(new NotificationsController());
 
@@ -104,12 +104,12 @@
 
     void (async () => {
       try {
-        const natsState = await natsStatePromise;
+        const connectionState = await connectionStatePromise;
         if (!active) return;
 
-        connectionStatus = natsState.status;
+        connectionStatus = connectionState.status;
         statusInterval = window.setInterval(() => {
-          connectionStatus = natsState.status;
+          connectionStatus = connectionState.status;
         }, 1000);
 
         const me = await authMe();

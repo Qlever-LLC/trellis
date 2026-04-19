@@ -23,7 +23,6 @@ function createConfig(): Config {
       oauth: 2,
       deviceFlow: 3,
       pendingAuth: 3,
-      bindingTokens: { bucket: 4, initial: 5, renew: 6, cliInitial: 7, cliRenew: 8 },
       connections: 7,
       natsJwt: 9,
     },

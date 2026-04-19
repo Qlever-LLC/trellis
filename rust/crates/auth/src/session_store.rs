@@ -2,7 +2,20 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use serde::Deserialize;
+
 use crate::{AdminSessionState, TrellisAuthError};
+
+#[derive(Deserialize)]
+struct LegacyAdminSessionState {
+    auth_url: String,
+    nats_servers: String,
+    session_seed: String,
+    session_key: String,
+    sentinel_jwt: String,
+    sentinel_seed: String,
+    expires: String,
+}
 
 fn cli_config_dir() -> PathBuf {
     if let Ok(dir) = env::var("XDG_CONFIG_HOME") {
@@ -46,7 +59,22 @@ pub fn load_admin_session() -> Result<AdminSessionState, TrellisAuthError> {
         ));
     }
     let state = fs::read_to_string(path)?;
-    Ok(serde_json::from_str(&state)?)
+    match serde_json::from_str(&state) {
+        Ok(state) => Ok(state),
+        Err(_) => {
+            let legacy: LegacyAdminSessionState = serde_json::from_str(&state)?;
+            Ok(AdminSessionState {
+                auth_url: legacy.auth_url,
+                nats_servers: legacy.nats_servers,
+                session_seed: legacy.session_seed,
+                session_key: legacy.session_key,
+                contract_digest: String::new(),
+                sentinel_jwt: legacy.sentinel_jwt,
+                sentinel_seed: legacy.sentinel_seed,
+                expires: legacy.expires,
+            })
+        }
+    }
 }
 
 /// Remove the stored admin session and related local credential files.

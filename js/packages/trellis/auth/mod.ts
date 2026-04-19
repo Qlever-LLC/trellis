@@ -54,7 +54,7 @@ export {
   hasSessionKey,
   isBindSuccessResponse,
   loadSessionKey,
-  natsConnectSigForBindingToken,
+  natsConnectSigForIat,
   portalFlowIdFromUrl,
   portalProviderLoginUrl,
   portalRedirectLocation,
@@ -259,6 +259,10 @@ export {
   type NatsConnectOptions,
   type TrellisAuth,
 } from "./session_auth.ts";
+export {
+  correctedIatSeconds,
+  estimateMidpointClockOffsetMs,
+} from "./time.ts";
 export { trellisIdFromOriginId } from "./trellis_id.ts";
 export {
   base64urlDecode,

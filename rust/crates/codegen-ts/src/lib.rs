@@ -191,7 +191,6 @@ fn render_contract_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Stri
             "const DEFAULT_AUTH_RPC_CALL = [".to_string(),
             "  \"Auth.Me\",".to_string(),
             "  \"Auth.Logout\",".to_string(),
-            "  \"Auth.RenewBindingToken\",".to_string(),
             "] as const;".to_string(),
             String::new(),
             "type AuthOwnedApi = typeof API.owned;".to_string(),

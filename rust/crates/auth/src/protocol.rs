@@ -130,41 +130,6 @@ pub struct ClientTransportsRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-/// Bound response payload returned by `Auth.RenewBindingToken`.
-pub struct RenewBindingTokenBoundResponse {
-    #[serde(rename = "bindingToken")]
-    pub binding_token: String,
-    pub expires: String,
-    #[serde(rename = "inboxPrefix")]
-    pub inbox_prefix: String,
-    pub sentinel: SentinelCredsRecord,
-    pub transports: ClientTransportsRecord,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(tag = "status", rename_all = "snake_case")]
-/// Response payload returned by `Auth.RenewBindingToken`.
-pub enum RenewBindingTokenResponse {
-    Bound {
-        #[serde(rename = "bindingToken")]
-        binding_token: String,
-        expires: String,
-        #[serde(rename = "inboxPrefix")]
-        inbox_prefix: String,
-        sentinel: SentinelCredsRecord,
-        transports: ClientTransportsRecord,
-    },
-    ContractChanged,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-/// Request payload for `Auth.RenewBindingToken`.
-pub struct RenewBindingTokenRequest {
-    pub contract_digest: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 /// Request payload for `POST /auth/requests`.
 pub struct AuthStartRequest {
@@ -183,8 +148,6 @@ pub struct AuthStartRequest {
 /// Response payload for `POST /auth/requests`.
 pub enum AuthStartResponse {
     Bound {
-        #[serde(rename = "bindingToken")]
-        binding_token: String,
         expires: String,
         #[serde(rename = "inboxPrefix")]
         inbox_prefix: String,

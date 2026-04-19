@@ -169,10 +169,6 @@ import {
   AuthLogoutSchema,
 } from "../../../packages/trellis/models/auth/rpc/Logout.ts";
 import {
-  AuthRenewBindingTokenResponseSchema,
-  AuthRenewBindingTokenSchema,
-} from "../../../packages/trellis/models/auth/rpc/RenewBindingToken.ts";
-import {
   AuthRevokeSessionResponseSchema,
   AuthRevokeSessionSchema,
 } from "../../../packages/trellis/models/auth/rpc/RevokeSession.ts";
@@ -339,8 +335,6 @@ const schemas = {
   AuthListSessionsResponse: AuthListSessionsResponseSchema,
   AuthLogoutRequest: AuthLogoutSchema,
   AuthLogoutResponse: AuthLogoutResponseSchema,
-  AuthRenewBindingTokenRequest: AuthRenewBindingTokenSchema,
-  AuthRenewBindingTokenResponse: AuthRenewBindingTokenResponseSchema,
   AuthRevokeSessionRequest: AuthRevokeSessionSchema,
   AuthRevokeSessionResponse: AuthRevokeSessionResponseSchema,
 } as const;
@@ -391,13 +385,6 @@ export const TRELLIS_AUTH_RPC = {
     version: "v1",
     input: schemaRef("AuthMeRequest"),
     output: schemaRef("AuthMeResponse"),
-    capabilities: { call: [] },
-    errors: ["AuthError", "UnexpectedError"],
-  },
-  "Auth.RenewBindingToken": {
-    version: "v1",
-    input: schemaRef("AuthRenewBindingTokenRequest"),
-    output: schemaRef("AuthRenewBindingTokenResponse"),
     capabilities: { call: [] },
     errors: ["AuthError", "UnexpectedError"],
   },
@@ -852,7 +839,6 @@ const baseTrellisAuth = defineServiceContract(
 const DEFAULT_AUTH_RPC_CALL = [
   "Auth.Me",
   "Auth.Logout",
-  "Auth.RenewBindingToken",
 ] as const;
 
 type TrellisAuthOwnedApi = typeof baseTrellisAuth.API.owned;

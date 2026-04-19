@@ -18,7 +18,6 @@ export type AuthStartRequest = {
 
 export type AuthStartBoundResponse = {
   status: "bound";
-  bindingToken: string;
   inboxPrefix: string;
   expires: string;
   sentinel: { jwt: string; seed: string };
@@ -43,15 +42,56 @@ export type CurrentUserSession = {
   name: string;
   image?: string;
   contractId: string;
+  app?: PendingAuth["app"];
+  appOrigin?: string;
   delegatedCapabilities: string[];
   delegatedPublishSubjects: string[];
   delegatedSubscribeSubjects: string[];
   approvalSource?: SessionApprovalSource;
 };
 
+function canonicalizeJsonValue(value: unknown): string {
+  if (value === null) return "null";
+  if (typeof value === "boolean") return value ? "true" : "false";
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      throw new Error("JSON numbers must be finite");
+    }
+    return JSON.stringify(value);
+  }
+  if (typeof value === "string") return JSON.stringify(value);
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalizeJsonValue).join(",")}]`;
+  }
+  if (typeof value === "object") {
+    const keys = Object.keys(value).sort();
+    return `{${
+      keys.map((key) =>
+        `${JSON.stringify(key)}:${canonicalizeJsonValue((value as Record<string, unknown>)[key])}`
+      ).join(",")
+    }}`;
+  }
+
+  throw new Error("Value is not JSON-serializable");
+}
+
+export function buildAuthStartSignaturePayload(args: AuthStartRequest): string {
+  return `${args.redirectTo}:${args.provider ?? ""}:${canonicalizeJsonValue(args.contract)}:${canonicalizeJsonValue(args.context ?? null)}`;
+}
+
 function isSubset(requested: string[], current: string[]): boolean {
   const currentSet = new Set(current);
   return requested.every((value) => currentSet.has(value));
+}
+
+function sameAppIdentity(
+  session: CurrentUserSession,
+  resolution: ApprovalResolution,
+): boolean {
+  const sessionContractId = session.app?.contractId ?? session.contractId;
+  const sessionOrigin = session.app?.origin ?? session.appOrigin;
+  return sessionContractId === resolution.app?.contractId &&
+    sessionOrigin === resolution.app?.origin;
 }
 
 export function canAutoApproveFromCurrentSession(
@@ -59,6 +99,9 @@ export function canAutoApproveFromCurrentSession(
   resolution: ApprovalResolution,
 ): boolean {
   if (session.contractId !== resolution.plan.contract.id) {
+    return false;
+  }
+  if (!sameAppIdentity(session, resolution)) {
     return false;
   }
   if (!isSubset(resolution.plan.approval.capabilities, session.delegatedCapabilities)) {

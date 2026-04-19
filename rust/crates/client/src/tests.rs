@@ -29,10 +29,10 @@ struct DomainSigFixture {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct NatsConnectFixture {
-    binding_token: String,
-    binding_token_sig: String,
+    contract_digest: String,
     iat: u64,
     iat_sig: String,
+    runtime_token: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -84,12 +84,15 @@ fn auth_proof_matches_shared_conformance_vectors() {
             fixture.bind.sig
         );
         assert_eq!(
-            auth.sign_sha256_domain("nats-connect", &fixture.nats_connect.binding_token),
-            fixture.nats_connect.binding_token_sig
-        );
-        assert_eq!(
             auth.sign_sha256_domain("nats-connect", &fixture.nats_connect.iat.to_string()),
             fixture.nats_connect.iat_sig
+        );
+        assert_eq!(
+            auth.nats_connect_user_token(
+                fixture.nats_connect.iat,
+                &fixture.nats_connect.contract_digest,
+            ),
+            fixture.nats_connect.runtime_token
         );
 
         let payload_hash = sha256(fixture.rpc_proof.payload.as_bytes());

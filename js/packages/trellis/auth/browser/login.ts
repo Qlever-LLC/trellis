@@ -121,14 +121,15 @@ export async function startAuthRequest(args: {
   contract: Record<string, unknown>;
   context?: unknown;
 }): Promise<AuthStartResponse> {
-  const sig = await oauthInitSig(args.handle, args.redirectTo, args.context);
+  const context = contextRecord(args.context);
+  const sig = await oauthInitSig(args.handle, args.redirectTo, context);
   const request = Value.Parse(AuthStartRequestSchema, {
     redirectTo: args.redirectTo,
     sessionKey: getPublicSessionKey(args.handle),
     sig,
     contract: args.contract,
     ...(args.provider ? { provider: args.provider } : {}),
-    ...(contextRecord(args.context) ? { context: contextRecord(args.context) } : {}),
+    ...(context ? { context } : {}),
   }) as AuthStartRequest;
 
   const response = await fetch(`${args.authUrl}/auth/requests`, {

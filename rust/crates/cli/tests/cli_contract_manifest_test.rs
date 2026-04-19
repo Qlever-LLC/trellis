@@ -28,7 +28,6 @@ fn cli_contract_manifest_validates_and_declares_expected_auth_and_core_surface()
         .expect("auth rpc call list");
 
     assert!(calls.iter().any(|value| value == "Auth.Me"));
-    assert!(calls.iter().any(|value| value == "Auth.RenewBindingToken"));
     assert!(calls.iter().any(|value| value == "Auth.ListApprovals"));
     assert!(calls.iter().any(|value| value == "Auth.RevokeApproval"));
     assert!(calls

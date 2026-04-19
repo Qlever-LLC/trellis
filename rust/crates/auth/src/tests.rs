@@ -42,7 +42,7 @@ fn admin_session_round_trips_through_private_file() {
         nats_servers: "localhost".to_string(),
         session_seed: "seed".to_string(),
         session_key: "key".to_string(),
-        binding_token: "token".to_string(),
+        contract_digest: "digest".to_string(),
         sentinel_jwt: "jwt".to_string(),
         sentinel_seed: "sentinel".to_string(),
         expires: "2026-01-01T00:00:00Z".to_string(),
@@ -52,6 +52,41 @@ fn admin_session_round_trips_through_private_file() {
     let loaded = load_admin_session().expect("load admin session");
     assert_eq!(loaded.session_key, state.session_key);
     assert!(clear_admin_session().expect("clear admin session"));
+
+    unsafe {
+        env::remove_var("XDG_CONFIG_HOME");
+    }
+    let _ = fs::remove_dir_all(test_dir);
+}
+
+#[test]
+fn legacy_admin_session_loads_and_forces_reauth() {
+    let test_dir = unique_test_dir("legacy-session-store");
+    let config_dir = test_dir.join("trellis");
+    fs::create_dir_all(&config_dir).expect("create test dir");
+    unsafe {
+        env::set_var("XDG_CONFIG_HOME", &test_dir);
+    }
+
+    let legacy_state = serde_json::json!({
+        "auth_url": "http://localhost:3000",
+        "nats_servers": "localhost",
+        "session_seed": "seed",
+        "session_key": "key",
+        "binding_token": "token",
+        "sentinel_jwt": "jwt",
+        "sentinel_seed": "sentinel",
+        "expires": "2026-01-01T00:00:00Z"
+    });
+    fs::write(
+        config_dir.join("admin-session.json"),
+        serde_json::to_string(&legacy_state).expect("serialize legacy state"),
+    )
+    .expect("write legacy session");
+
+    let loaded = load_admin_session().expect("load legacy admin session");
+    assert_eq!(loaded.session_key, "key");
+    assert!(loaded.contract_digest.is_empty());
 
     unsafe {
         env::remove_var("XDG_CONFIG_HOME");

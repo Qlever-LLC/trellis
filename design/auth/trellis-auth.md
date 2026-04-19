@@ -50,18 +50,27 @@ Rules:
 
 ### 2) Prove session-key ownership before granting access
 
-Users and services follow the same core model:
+Users, services, and devices follow the same core runtime pattern:
 
-1. bind an identity to a session key
-2. connect to NATS with sentinel credentials plus Trellis auth proof
+1. bind a stable identity to a key
+2. connect to NATS with sentinel credentials plus a Trellis auth proof
 3. receive a scoped NATS JWT from the Trellis auth callout
+
+For contract-bearing user runtimes, the reconnect proof carries:
+
+- `sessionKey`
+- `contractDigest`
+- `iat`
+- `sig`
 
 Rules:
 
 - session-key proof alone is not enough for ordinary user clients
-- contract-bearing clients must also present an approved contract digest
+- contract-bearing clients must present an approved exact `contractDigest`
 - permissions are always derived from active contracts plus current grants,
   never from hard-coded static ACLs
+- reconnect authorization is re-evaluated against the presented digest and the
+  bound app identity
 
 ### 3) Identity binding differs by principal class
 
@@ -144,16 +153,15 @@ Rules:
 - browser apps MAY attach opaque portal context to login initiation so custom portals can coordinate UX without introducing portal-specific app APIs
 - the approval key is `user <-> contractDigest`, not merely
   `user <-> contractId`
-- contract changes create a new digest and therefore require a fresh user
-  decision
-- normal reconnect keeps using the currently approved digest; when a caller's
-  local digest changes, `rpc.Auth.RenewBindingToken` returns
-  `contract_changed` and the caller must start the normal auth flow again with
-  the full contract body
-- auth MAY skip browser UX for a changed digest when the caller already has an
-  active delegated session for the same contract lineage and the new contract's
-  concrete publish subjects, subscribe subjects, and capabilities are each a
-  strict subset of that current delegated envelope
+- contract changes create a new digest and therefore require a fresh approval
+  decision unless auth can prove the new delegated envelope is a strict subset
+  of the currently delegated envelope for the same app identity and contract
+  lineage
+- user sessions bind user identity, session key, and explicit app identity
+  together; app identity includes the app contract id and, when available, the
+  app origin
+- reconnect authorization revalidates the presented digest against the bound
+  user/app context rather than relying on a renewable binding token
 - deployments MAY also configure instance grant policies keyed by contract
   lineage, with optional origin restrictions, that imply approval and effective
   capabilities dynamically
@@ -168,9 +176,8 @@ Rules:
   MUST revoke affected delegated sessions and require reconnect or re-auth
 - inactive users MUST NOT complete bind even if they still have a stored
   approval record
-- after any successful rebind or auto-approved contract change, callers MUST
-  reconnect NATS before using the new rights because transport JWTs are issued
-  per connection
+- after any successful rebind or digest change, callers MUST reconnect NATS
+  before using the new rights because transport JWTs are issued per connection
 
 ### 8) Provider-capable devices are installed, not self-registering
 
@@ -215,7 +222,7 @@ Rules:
 
 - users and devices all prove long-lived key ownership before receiving authenticated runtime access
 - users and devices all receive transport permissions derived from current grants and active contracts
-- activated devices do not use browser bind or binding tokens; they establish their session from activation state plus identity-key proof and exact digest presentation
+- activated devices do not use browser bind or user session flows; they establish their session from activation state plus identity-key proof and exact digest presentation
 - installed device resource permissions may be augmented from installed bindings
 - higher-level runtimes should resolve bindings eagerly and expose typed
   resource handles rather than raw connect details
@@ -267,7 +274,6 @@ The auth subsystem maintains Trellis-local state such as:
 - device instances
 - device activation flows
 - device activation records
-- binding tokens
 - active connection records
 
 Rules:

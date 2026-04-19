@@ -195,7 +195,7 @@ Key things to note:
 - contract source modules should import `defineContract(...)` from `@qlever-llc/trellis/contracts`; runtime helpers such as `isErr`, `Result`, and `TrellisClient.connect(...)` come from `@qlever-llc/trellis`, while the returned contract object remains usable anywhere a runtime contract is expected
 - contract source modules should export the `defineContract(...)` result directly instead of manually re-exporting `CONTRACT_ID`, `CONTRACT_DIGEST`, `API`, or `use`
 - `uses` declares cross-contract dependencies — without these, Trellis will not grant access to those RPCs/events
-- `auth.useDefaults(...)` adds the baseline auth session RPCs (`Auth.Me`, `Auth.Logout`, and `Auth.RenewBindingToken`) automatically
+- `auth.useDefaults(...)` adds the baseline auth session RPCs (`Auth.Me` and `Auth.Logout`) automatically
 - `resources.kv.orders` requests a KV bucket with the logical alias `orders` — Trellis assigns the physical name at install time
 - `capabilities` controls who can call each operation — `orders.read` and `orders.write` gate the `Orders.Get` and `Orders.Create` RPCs respectively
 

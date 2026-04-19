@@ -31,7 +31,7 @@ Rules:
 - authorization changes take effect immediately because auth derives subjects from active contracts and current grants
 - auth-owned self-service RPCs may intentionally require zero granted
   capabilities when ordinary authenticated user context is sufficient, such as
-  `Auth.Me`, `Auth.Logout`, and `Auth.RenewBindingToken`
+  `Auth.Me` and `Auth.Logout`
 
 Instance grant policies are deployment policy, not user-owned grants. They must
 not be copied onto the user projection, and they may be revoked dynamically so

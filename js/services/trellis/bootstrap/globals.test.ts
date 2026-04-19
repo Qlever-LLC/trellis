@@ -48,7 +48,6 @@ export const sessionKV = testKv();
 export const oauthStateKV = testKv();
 export const pendingAuthKV = testKv();
 export const contractApprovalsKV = testKv();
-export const bindingTokenKV = testKv();
 export const browserFlowsKV = testKv();
 export const portalsKV = testKv();
 export const portalDefaultsKV = testKv();

@@ -1,12 +1,10 @@
 import { AsyncResult } from "@qlever-llc/result";
 import type { BaseError, MaybeAsync, Result } from "@qlever-llc/result";
 import { resolve } from "$app/paths";
-import { getPublicSessionKey, signBytes } from "../../../../packages/trellis/auth/browser.ts";
-import { createClient } from "../../../../packages/trellis/client.ts";
 import type { EventOpts } from "../../../../packages/trellis/trellis.ts";
 import type { HealthHeartbeat } from "@qlever-llc/trellis/health";
 import type { InferSchemaType } from "@qlever-llc/trellis/contracts";
-import { createAuthState, getAuth, getNatsState } from "@qlever-llc/trellis-svelte";
+import { createAuthState, getTrellis as getProviderTrellis } from "@qlever-llc/trellis-svelte";
 import { trellisApp } from "../../contracts/trellis_app.ts";
 import { APP_CONFIG } from "./config.ts";
 
@@ -78,26 +76,8 @@ function request(
 }
 
 export function getTrellis(): Promise<AppTrellis> {
-  const authState = getAuth();
-  const natsStatePromise = getNatsState();
-
-  const createBrowserAuth = () => {
-    const handle = authState.handle;
-    if (!handle) {
-      throw new Error("Not authenticated: missing session handle");
-    }
-
-    return {
-      sessionKey: getPublicSessionKey(handle),
-      sign: (data: Uint8Array) => signBytes(handle, data),
-    };
-  };
-
   const createLiveClient = async (): Promise<RuntimeTrellis> => {
-    const natsState = await natsStatePromise;
-    return createClient(trellisApp, natsState.nc, createBrowserAuth(), {
-      name: "console",
-    }) as unknown as RuntimeTrellis;
+    return await getProviderTrellis<AppApi>() as unknown as RuntimeTrellis;
   };
 
   const liveTrellis: AppTrellis & { createLiveClient: typeof createLiveClient } = {

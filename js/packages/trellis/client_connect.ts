@@ -1,22 +1,18 @@
-import { jwtAuthenticator, type NatsConnection } from "@nats-io/nats-core";
+import { jwtAuthenticator, type Authenticator, type NatsConnection } from "@nats-io/nats-core";
 import {
-  buildLoginUrl,
-  bindSession,
-  clearSessionKey,
-  createRpcProof,
-  generateSessionKey,
+  base64urlDecode,
+  base64urlEncode,
   getOrCreateSessionKey,
   getPublicSessionKey,
-  hasSessionKey,
-  isBindSuccessResponse,
-  loadSessionKey,
-  natsConnectSigForBindingToken,
+  natsConnectSigForIat,
   startAuthRequest,
 } from "./auth/browser.ts";
 import { BindResponseSchema, sha256, toArrayBuffer, utf8 } from "./auth/browser.ts";
+import { correctedIatSeconds, estimateMidpointClockOffsetMs } from "./auth/time.ts";
 import { canonicalizeJsonValue } from "./auth/utils.ts";
 import {
   importEd25519PrivateKeyFromSeedBase64url,
+  pkcs8FromEd25519Seed,
   publicKeyBase64urlFromPrivateKey,
 } from "./auth/keys.ts";
 import type { ClientOpts } from "./client.ts";
@@ -88,9 +84,10 @@ type ClientRuntimeIdentity = {
   sessionKey: string;
   sign(data: Uint8Array): Promise<Uint8Array>;
   oauthInitSig(redirectTo: string, context?: unknown): Promise<string>;
-  bindingTokenSig(bindingToken: string): Promise<string>;
+  natsConnectSigForIat(iat: number): Promise<string>;
   bootstrapSig(iat: number): Promise<string>;
   bindFlowSig(flowId: string): Promise<string>;
+  buildRuntimeAuthTokenSync?(iat: number, contractDigest: string): string;
 };
 
 const ClientTransportEndpointsSchema = Type.Object({
@@ -105,10 +102,13 @@ const ClientTransportsSchema = Type.Object({
 type ClientConnectDeps = {
   loadTransport(): Promise<RuntimeTransport>;
   now(): number;
+  setInterval?: (handler: () => void, ms: number) => number;
+  clearInterval?: (id: number) => void;
 };
 
 const ClientBootstrapReadySchema = Type.Object({
   status: Type.Literal("ready"),
+  serverNow: Type.Integer(),
   connectInfo: Type.Object({
     sessionKey: Type.String({ minLength: 1 }),
     contractId: Type.String({ minLength: 1 }),
@@ -121,30 +121,35 @@ const ClientBootstrapReadySchema = Type.Object({
         seed: Type.String({ minLength: 1 }),
       }),
     }),
-    auth: Type.Object({
-      mode: Type.Literal("binding_token"),
-      bindingToken: Type.String({ minLength: 1 }),
-      expiresAt: Type.String({ format: "date-time" }),
-    }),
   }),
 }, { additionalProperties: true });
 
 const ClientBootstrapAuthRequiredSchema = Type.Object({
   status: Type.Literal("auth_required"),
+  serverNow: Type.Integer(),
 }, { additionalProperties: true });
 
 const ClientBootstrapNotReadySchema = Type.Object({
   status: Type.Literal("not_ready"),
   reason: Type.String({ minLength: 1 }),
+  serverNow: Type.Integer(),
+}, { additionalProperties: true });
+
+const ClientBootstrapIatOutOfRangeSchema = Type.Object({
+  reason: Type.Literal("iat_out_of_range"),
+  serverNow: Type.Integer(),
 }, { additionalProperties: true });
 
 type ClientBootstrapReady = StaticDecode<typeof ClientBootstrapReadySchema>;
 type ClientBootstrapAuthRequired = StaticDecode<typeof ClientBootstrapAuthRequiredSchema>;
 type ClientBootstrapNotReady = StaticDecode<typeof ClientBootstrapNotReadySchema>;
+type ClientBootstrapIatOutOfRange = StaticDecode<typeof ClientBootstrapIatOutOfRangeSchema>;
 type ClientBootstrapResponse =
   | ClientBootstrapReady
   | ClientBootstrapAuthRequired
   | ClientBootstrapNotReady;
+type ClientBootstrapAttemptResponse = ClientBootstrapResponse | ClientBootstrapIatOutOfRange;
+type ClockOffsetState = { serverClockOffsetMs: number };
 
 function isBrowserRuntime(): boolean {
   return typeof window !== "undefined" && typeof document !== "undefined";
@@ -153,6 +158,8 @@ function isBrowserRuntime(): boolean {
 const defaultDeps: ClientConnectDeps = {
   loadTransport: loadDefaultRuntimeTransport,
   now: () => Date.now(),
+  setInterval: (handler, ms) => globalThis.setInterval(handler, ms),
+  clearInterval: (id) => globalThis.clearInterval(id),
 };
 
 function normalizeTrellisUrl(trellisUrl: string): string {
@@ -183,6 +190,13 @@ function resolveRedirectTo(auth: BrowserClientAuthOptions, currentUrl: URL): str
   return currentUrl.toString();
 }
 
+function authRequestContextRecord(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  return value as Record<string, unknown>;
+}
+
 async function signDomainValue(sign: (data: Uint8Array) => Promise<Uint8Array>, prefix: string, value: string): Promise<string> {
   const digest = await sha256(utf8(`${prefix}:${value}`));
   const signature = await sign(digest);
@@ -191,8 +205,17 @@ async function signDomainValue(sign: (data: Uint8Array) => Promise<Uint8Array>, 
 }
 
 async function createSessionKeyRuntimeIdentity(sessionKeySeed: string): Promise<ClientRuntimeIdentity> {
+  const [{ Buffer }, { createHash, createPrivateKey, sign: signBytesSync }] = await Promise.all([
+    import("node:buffer"),
+    import("node:crypto"),
+  ]);
   const privateKey = await importEd25519PrivateKeyFromSeedBase64url(sessionKeySeed);
   const sessionKey = await publicKeyBase64urlFromPrivateKey(privateKey);
+  const reconnectKey = createPrivateKey({
+    key: Buffer.from(pkcs8FromEd25519Seed(base64urlDecode(sessionKeySeed))),
+    format: "der",
+    type: "pkcs8",
+  });
   const sign = async (data: Uint8Array): Promise<Uint8Array> => {
     const signature = await crypto.subtle.sign("Ed25519", privateKey, toArrayBuffer(data));
     return new Uint8Array(signature);
@@ -204,9 +227,20 @@ async function createSessionKeyRuntimeIdentity(sessionKeySeed: string): Promise<
     sign,
     oauthInitSig: (redirectTo, context) =>
       signDomainValue(sign, "oauth-init", `${redirectTo}:${canonicalizeJsonValue(context ?? null)}`),
-    bindingTokenSig: (bindingToken) => signDomainValue(sign, "nats-connect", bindingToken),
+    natsConnectSigForIat: (iat) => signDomainValue(sign, "nats-connect", String(iat)),
     bootstrapSig: (iat) => signDomainValue(sign, "bootstrap-client", String(iat)),
     bindFlowSig: (flowId) => signDomainValue(sign, "bind-flow", flowId),
+    buildRuntimeAuthTokenSync: (iat, contractDigest) => {
+      const digest = createHash("sha256").update(`nats-connect:${iat}`, "utf8").digest();
+      const sig = signBytesSync(null, digest, reconnectKey);
+      return JSON.stringify({
+        v: 1,
+        sessionKey,
+        iat,
+        contractDigest,
+        sig: base64urlEncode(new Uint8Array(sig)),
+      });
+    },
   };
 }
 
@@ -221,7 +255,7 @@ async function resolveClientIdentity(auth: ClientAuthOptions | undefined): Promi
     sessionKey: getPublicSessionKey(handle),
     sign: (data) => signBytes(handle, data),
     oauthInitSig: (redirectTo, context) => oauthInitSig(handle, redirectTo, context),
-    bindingTokenSig: (bindingToken) => signDomainValue((data) => signBytes(handle, data), "nats-connect", bindingToken),
+    natsConnectSigForIat: (iat) => natsConnectSigForIat(handle, iat),
     bootstrapSig: (iat) => signDomainValue((data) => signBytes(handle, data), "bootstrap-client", String(iat)),
     bindFlowSig: (flowId) => bindFlowSig(handle, flowId),
   };
@@ -257,8 +291,8 @@ async function fetchClientBootstrap(args: {
   sessionKey: string;
   bootstrapSig: string;
   iat: number;
-}): Promise<ClientBootstrapResponse> {
-  const response = await fetch(new URL("/bootstrap/client", args.trellisUrl), {
+}): Promise<ClientBootstrapAttemptResponse> {
+  const response = await fetch(`${args.trellisUrl}/bootstrap/client`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -270,6 +304,9 @@ async function fetchClientBootstrap(args: {
 
   const payload = await response.json();
   if (!response.ok) {
+    if (Value.Check(ClientBootstrapIatOutOfRangeSchema, payload)) {
+      return payload;
+    }
     const reason = typeof payload?.reason === "string"
       ? payload.reason
       : `http_${response.status}`;
@@ -289,6 +326,191 @@ async function fetchClientBootstrap(args: {
   throw new Error("Client bootstrap returned an invalid response");
 }
 
+function updateClockOffsetFromServer(args: {
+  offsetState: ClockOffsetState;
+  requestStartedAtMs: number;
+  responseReceivedAtMs: number;
+  serverNowSeconds: number;
+}): void {
+  args.offsetState.serverClockOffsetMs = estimateMidpointClockOffsetMs({
+    requestStartedAtMs: args.requestStartedAtMs,
+    responseReceivedAtMs: args.responseReceivedAtMs,
+    serverNowSeconds: args.serverNowSeconds,
+  });
+}
+
+async function fetchClientBootstrapWithRetry(args: {
+  trellisUrl: string;
+  sessionKey: string;
+  identity: ClientRuntimeIdentity;
+  deps: ClientConnectDeps;
+  offsetState: ClockOffsetState;
+}): Promise<ClientBootstrapResponse> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const requestStartedAtMs = args.deps.now();
+    const iat = correctedIatSeconds(requestStartedAtMs, args.offsetState.serverClockOffsetMs);
+    const response = await fetchClientBootstrap({
+      trellisUrl: args.trellisUrl,
+      sessionKey: args.sessionKey,
+      iat,
+      bootstrapSig: await args.identity.bootstrapSig(iat),
+    });
+    const responseReceivedAtMs = args.deps.now();
+
+    updateClockOffsetFromServer({
+      offsetState: args.offsetState,
+      requestStartedAtMs,
+      responseReceivedAtMs,
+      serverNowSeconds: response.serverNow,
+    });
+
+    if ("status" in response) {
+      return response;
+    }
+  }
+
+  throw new Error("Client bootstrap failed: iat_out_of_range");
+}
+
+async function createRuntimeUserAuthenticator(args: {
+  identity: ClientRuntimeIdentity;
+  deps: ClientConnectDeps;
+  offsetState: ClockOffsetState;
+  getContractDigest(): string;
+  getSentinel(): { jwt: string; seed: string };
+  recoverBrowserAuth?(): Promise<void>;
+}): Promise<{ authenticators: Authenticator[]; stop: () => void }> {
+  const browserTokenLookaheadSeconds = 300;
+  const jwtAuth: Authenticator = (nonce?: string) => {
+    const sentinel = args.getSentinel();
+    return jwtAuthenticator(
+      sentinel.jwt,
+      new TextEncoder().encode(sentinel.seed),
+    )(nonce);
+  };
+
+  if (args.identity.buildRuntimeAuthTokenSync) {
+    return {
+      authenticators: [
+        jwtAuth,
+        () => ({
+          auth_token: args.identity.buildRuntimeAuthTokenSync!(
+            correctedIatSeconds(args.deps.now(), args.offsetState.serverClockOffsetMs),
+            args.getContractDigest(),
+          ),
+        }),
+      ],
+      stop: () => {},
+    };
+  }
+
+  const buildRuntimeAuthToken = async (iat: number): Promise<string> => {
+    return JSON.stringify({
+      v: 1,
+      sessionKey: args.identity.sessionKey,
+      iat,
+      contractDigest: args.getContractDigest(),
+      sig: await args.identity.natsConnectSigForIat(iat),
+    });
+  };
+
+  let currentToken = await buildRuntimeAuthToken(
+    correctedIatSeconds(args.deps.now(), args.offsetState.serverClockOffsetMs),
+  );
+  const precomputedTokens = new Map<number, string>();
+  let latestPreparedIat = 0;
+  let refreshInFlight: Promise<void> | null = null;
+  let recoveryInFlight: Promise<void> | null = null;
+
+  const refresh = (): Promise<void> => {
+    if (refreshInFlight) return refreshInFlight;
+    refreshInFlight = (async () => {
+      const currentIat = correctedIatSeconds(
+        args.deps.now(),
+        args.offsetState.serverClockOffsetMs,
+      );
+      const maxIat = currentIat + browserTokenLookaheadSeconds;
+      const startIat = Math.max(currentIat, latestPreparedIat + 1);
+
+      for (let iat = startIat; iat <= maxIat; iat += 1) {
+        precomputedTokens.set(iat, await buildRuntimeAuthToken(iat));
+      }
+
+      latestPreparedIat = Math.max(latestPreparedIat, maxIat);
+      for (const iat of precomputedTokens.keys()) {
+        if (iat < currentIat - 5) {
+          precomputedTokens.delete(iat);
+        }
+      }
+
+      const nextToken = precomputedTokens.get(currentIat);
+      if (nextToken) {
+        currentToken = nextToken;
+      }
+    })().finally(() => {
+      refreshInFlight = null;
+    });
+    return refreshInFlight;
+  };
+
+  const recover = (): Promise<void> => {
+    if (!args.recoverBrowserAuth) {
+      return Promise.resolve();
+    }
+    if (recoveryInFlight) return recoveryInFlight;
+    recoveryInFlight = (async () => {
+      const digestBefore = args.getContractDigest();
+      await args.recoverBrowserAuth?.();
+      if (args.getContractDigest() !== digestBefore) {
+        precomputedTokens.clear();
+        latestPreparedIat = 0;
+      }
+      await refresh();
+    })().finally(() => {
+      recoveryInFlight = null;
+    });
+    return recoveryInFlight;
+  };
+
+  await refresh();
+  const setRefreshInterval = args.deps.setInterval ??
+    ((handler: () => void, ms: number) => globalThis.setInterval(handler, ms));
+  const clearRefreshInterval = args.deps.clearInterval ??
+    ((id: number) => globalThis.clearInterval(id));
+  const refreshIntervalId = setRefreshInterval(() => {
+    void refresh();
+  }, 10_000);
+
+  return {
+    authenticators: [
+      jwtAuth,
+      () => {
+        const currentIat = correctedIatSeconds(
+          args.deps.now(),
+          args.offsetState.serverClockOffsetMs,
+        );
+        const nextToken = precomputedTokens.get(currentIat);
+        if (nextToken) {
+          currentToken = nextToken;
+          if (currentIat >= latestPreparedIat - 60) {
+            void refresh();
+          }
+          return { auth_token: currentToken };
+        }
+        if (args.recoverBrowserAuth) {
+          void recover();
+          return { auth_token: currentToken };
+        }
+        void refresh();
+        return { auth_token: currentToken };
+      },
+    ],
+    stop: () => {
+      clearRefreshInterval(refreshIntervalId);
+    },
+  };
+}
+
 function cleanupBrowserCallbackUrl(currentUrl: URL): void {
   if (!isBrowserRuntime()) return;
   if (!currentUrl.searchParams.has("flowId") && !currentUrl.searchParams.has("authError")) {
@@ -297,7 +519,7 @@ function cleanupBrowserCallbackUrl(currentUrl: URL): void {
 
   currentUrl.searchParams.delete("flowId");
   currentUrl.searchParams.delete("authError");
-  window.history.replaceState({}, "", currentUrl.pathname + currentUrl.search);
+  window.history.replaceState({}, "", currentUrl.pathname + currentUrl.search + currentUrl.hash);
 }
 
 function needsReauth(
@@ -306,6 +528,14 @@ function needsReauth(
   Extract<ClientBootstrapResponse, { status: "not_ready"; reason: "insufficient_permissions" }> {
   return bootstrap.status === "auth_required" ||
     (bootstrap.status === "not_ready" && bootstrap.reason === "insufficient_permissions");
+}
+
+function bootstrapTargetsRequestedContract<TApi extends TrellisAPI>(
+  bootstrap: ClientBootstrapResponse,
+  args: TrellisClientConnectArgs<TApi>,
+): boolean {
+  return bootstrap.status === "ready" &&
+    bootstrap.connectInfo.contractId === args.contract.CONTRACT.id;
 }
 
 async function buildSessionKeyLoginUrl(args: {
@@ -317,6 +547,7 @@ async function buildSessionKeyLoginUrl(args: {
   context?: unknown;
   oauthInitSig: string;
 }): Promise<{ status: "bound" } | { status: "flow_started"; loginUrl: string }> {
+  const context = authRequestContextRecord(args.context);
   const response = await fetch(`${args.trellisUrl}/auth/requests`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -326,9 +557,7 @@ async function buildSessionKeyLoginUrl(args: {
       sig: args.oauthInitSig,
       contract: args.contract,
       ...(args.provider ? { provider: args.provider } : {}),
-      ...(args.context && typeof args.context === "object" && !Array.isArray(args.context)
-        ? { context: args.context }
-        : {}),
+      ...(context ? { context } : {}),
     }),
   });
   if (!response.ok) {
@@ -354,95 +583,133 @@ export async function connectClientWithDeps<TApi extends TrellisAPI>(
   args: TrellisClientConnectArgs<TApi>,
   deps: ClientConnectDeps,
 ): Promise<Trellis<TApi>> {
-    const trellisUrl = normalizeTrellisUrl(args.trellisUrl);
-    const identity = await resolveClientIdentity(args.auth);
-    const currentUrl = args.auth?.mode === "session_key" ? null : resolveCurrentUrl(args.auth);
-    const callbackFlowId = args.auth?.mode === "session_key"
-      ? args.auth.flowId
-      : currentUrl?.searchParams.get("flowId") ?? undefined;
+  const trellisUrl = normalizeTrellisUrl(args.trellisUrl);
+  const identity = await resolveClientIdentity(args.auth);
+  const currentUrl = args.auth?.mode === "session_key" ? null : resolveCurrentUrl(args.auth);
+  const browserAuth = args.auth?.mode === "session_key" ? undefined : args.auth;
+  const callbackFlowId = args.auth?.mode === "session_key"
+    ? args.auth.flowId
+    : currentUrl?.searchParams.get("flowId") ?? undefined;
+  const offsetState: ClockOffsetState = { serverClockOffsetMs: 0 };
 
-    if (callbackFlowId) {
-      await bindClientFlow({
-        trellisUrl,
-        sessionKey: identity.sessionKey,
-        flowId: callbackFlowId,
-        sig: await identity.bindFlowSig(callbackFlowId),
-      });
-      if (currentUrl) cleanupBrowserCallbackUrl(currentUrl);
-    }
-
-    const bootstrapIat = Math.floor(deps.now() / 1_000);
-    const initialBootstrap = await fetchClientBootstrap({
+  if (callbackFlowId) {
+    await bindClientFlow({
       trellisUrl,
       sessionKey: identity.sessionKey,
-      iat: bootstrapIat,
-      bootstrapSig: await identity.bootstrapSig(bootstrapIat),
+      flowId: callbackFlowId,
+      sig: await identity.bindFlowSig(callbackFlowId),
     });
-
-    const bootstrap = needsReauth(initialBootstrap)
-      ? await resolveAuthRequired(args, identity, currentUrl, deps)
-      : initialBootstrap;
-
-    if (bootstrap.status !== "ready") {
-      if (bootstrap.status === "not_ready") {
-        throw new Error(`Client bootstrap is not ready: ${bootstrap.reason}`);
-      }
-      throw new Error("Client bootstrap still requires authentication");
-    }
-
-    const transport = await deps.loadTransport();
-    const token = JSON.stringify({
-      v: 1,
-      sessionKey: identity.sessionKey,
-      bindingToken: bootstrap.connectInfo.auth.bindingToken,
-      sig: await identity.bindingTokenSig(bootstrap.connectInfo.auth.bindingToken),
-    });
-    const nc = await transport.connect({
-      servers: selectRuntimeTransportServers(bootstrap.connectInfo.transports),
-      token,
-      inboxPrefix: bootstrap.connectInfo.transport.inboxPrefix,
-      authenticator: jwtAuthenticator(
-        bootstrap.connectInfo.transport.sentinel.jwt,
-        new TextEncoder().encode(bootstrap.connectInfo.transport.sentinel.seed),
-      ),
-    });
-
-    const clientOpts: ClientOpts = {
-      ...(typeof args.name === "string" ? { name: args.name } : {}),
-      ...(args.log ? { log: args.log } : {}),
-      ...(typeof args.timeout === "number" ? { timeout: args.timeout } : {}),
-      ...(typeof args.stream === "string" ? { stream: args.stream } : {}),
-      ...(args.noResponderRetry ? { noResponderRetry: args.noResponderRetry } : {}),
-    };
-
-    return new Trellis<TApi>(
-      clientOpts.name ?? "client",
-      nc,
-      {
-        sessionKey: identity.sessionKey,
-        sign: identity.sign,
-      },
-      {
-        log: clientOpts.log,
-        timeout: clientOpts.timeout,
-        stream: clientOpts.stream,
-        noResponderRetry: clientOpts.noResponderRetry,
-        api: args.contract.API.trellis,
-      },
-    );
+    if (currentUrl) cleanupBrowserCallbackUrl(currentUrl);
   }
+
+  const initialBootstrap = await fetchClientBootstrapWithRetry({
+    trellisUrl,
+    sessionKey: identity.sessionKey,
+    identity,
+    deps,
+    offsetState,
+  });
+
+  const bootstrap = needsReauth(initialBootstrap) ||
+      !bootstrapTargetsRequestedContract(initialBootstrap, args)
+    ? await resolveAuthRequired(args, identity, currentUrl, deps, offsetState)
+    : initialBootstrap;
+
+  if (bootstrap.status !== "ready") {
+    if (bootstrap.status === "not_ready") {
+      throw new Error(`Client bootstrap is not ready: ${bootstrap.reason}`);
+    }
+    throw new Error("Client bootstrap still requires authentication");
+  }
+
+  const transport = await deps.loadTransport();
+  const runtimeState = {
+    contractDigest: bootstrap.connectInfo.contractDigest,
+    sentinel: bootstrap.connectInfo.transport.sentinel,
+  };
+  const recoverBrowserAuth = identity.mode === "browser"
+    ? async () => {
+      const latestCurrentUrl = resolveCurrentUrl(browserAuth);
+      const refreshedBootstrap = await fetchClientBootstrapWithRetry({
+        trellisUrl,
+        sessionKey: identity.sessionKey,
+        identity,
+        deps,
+        offsetState,
+      });
+      const resolvedBootstrap = needsReauth(refreshedBootstrap)
+        ? await resolveAuthRequired(args, identity, latestCurrentUrl, deps, offsetState)
+        : refreshedBootstrap;
+      if (resolvedBootstrap.status !== "ready") {
+        if (resolvedBootstrap.status === "not_ready") {
+          throw new Error(`Client bootstrap is not ready: ${resolvedBootstrap.reason}`);
+        }
+        throw new Error("Client bootstrap still requires authentication");
+      }
+      runtimeState.contractDigest = resolvedBootstrap.connectInfo.contractDigest;
+      runtimeState.sentinel = resolvedBootstrap.connectInfo.transport.sentinel;
+    }
+    : undefined;
+  const runtimeAuth = await createRuntimeUserAuthenticator({
+    identity,
+    deps,
+    offsetState,
+    getContractDigest: () => runtimeState.contractDigest,
+    getSentinel: () => runtimeState.sentinel,
+    recoverBrowserAuth,
+  });
+  let nc: NatsConnection;
+  try {
+    nc = await transport.connect({
+      servers: selectRuntimeTransportServers(bootstrap.connectInfo.transports),
+      inboxPrefix: bootstrap.connectInfo.transport.inboxPrefix,
+      authenticator: runtimeAuth.authenticators,
+    });
+  } catch (error) {
+    runtimeAuth.stop();
+    throw error;
+  }
+  void nc.closed().finally(() => runtimeAuth.stop());
+
+  const clientOpts: ClientOpts = {
+    ...(typeof args.name === "string" ? { name: args.name } : {}),
+    ...(args.log ? { log: args.log } : {}),
+    ...(typeof args.timeout === "number" ? { timeout: args.timeout } : {}),
+    ...(typeof args.stream === "string" ? { stream: args.stream } : {}),
+    ...(args.noResponderRetry ? { noResponderRetry: args.noResponderRetry } : {}),
+  };
+
+  return new Trellis<TApi>(
+    clientOpts.name ?? "client",
+    nc,
+    {
+      sessionKey: identity.sessionKey,
+      sign: identity.sign,
+    },
+    {
+      log: clientOpts.log,
+      timeout: clientOpts.timeout,
+      stream: clientOpts.stream,
+      noResponderRetry: clientOpts.noResponderRetry,
+      api: args.contract.API.trellis,
+    },
+  );
+}
 
 async function resolveAuthRequired<TApi extends TrellisAPI>(
   args: TrellisClientConnectArgs<TApi>,
   identity: ClientRuntimeIdentity,
   currentUrl: URL | null,
   deps: ClientConnectDeps,
+  offsetState: ClockOffsetState,
 ): Promise<ClientBootstrapResponse> {
   const browserAuth: BrowserClientAuthOptions = args.auth?.mode === "session_key"
     ? {}
     : args.auth ?? {};
   const redirectTo = args.auth?.mode === "session_key"
     ? args.auth.redirectTo
+    : browserAuth.redirectTo
+    ? browserAuth.redirectTo
     : currentUrl
     ? resolveRedirectTo(browserAuth, currentUrl)
     : undefined;
@@ -452,14 +719,17 @@ async function resolveAuthRequired<TApi extends TrellisAPI>(
 
   const authStart = args.auth?.mode === "session_key"
     ? await buildSessionKeyLoginUrl({
-      trellisUrl: normalizeTrellisUrl(args.trellisUrl),
-      redirectTo,
-      sessionKey: identity.sessionKey,
-      contract: args.contract.CONTRACT,
-      provider: args.auth.provider,
-      context: args.auth.context,
-      oauthInitSig: await identity.oauthInitSig(redirectTo, args.auth.context),
-    })
+        trellisUrl: normalizeTrellisUrl(args.trellisUrl),
+        redirectTo,
+        sessionKey: identity.sessionKey,
+        contract: args.contract.CONTRACT,
+        provider: args.auth.provider,
+        context: args.auth.context,
+        oauthInitSig: await identity.oauthInitSig(
+          redirectTo,
+          authRequestContextRecord(args.auth.context),
+        ),
+      })
     : await startAuthRequest({
       authUrl: normalizeTrellisUrl(args.trellisUrl),
       redirectTo,
@@ -470,12 +740,12 @@ async function resolveAuthRequired<TApi extends TrellisAPI>(
     });
 
   if (authStart.status === "bound") {
-    const bootstrapIat = Math.floor(deps.now() / 1_000);
-    return await fetchClientBootstrap({
+    return await fetchClientBootstrapWithRetry({
       trellisUrl: normalizeTrellisUrl(args.trellisUrl),
       sessionKey: identity.sessionKey,
-      iat: bootstrapIat,
-      bootstrapSig: await identity.bootstrapSig(bootstrapIat),
+      identity,
+      deps,
+      offsetState,
     });
   }
 
@@ -493,12 +763,12 @@ async function resolveAuthRequired<TApi extends TrellisAPI>(
       flowId: continuation.flowId,
       sig: await identity.bindFlowSig(continuation.flowId),
     });
-    const bootstrapIat = Math.floor(deps.now() / 1_000);
-    return await fetchClientBootstrap({
+    return await fetchClientBootstrapWithRetry({
       trellisUrl: normalizeTrellisUrl(args.trellisUrl),
       sessionKey: identity.sessionKey,
-      iat: bootstrapIat,
-      bootstrapSig: await identity.bootstrapSig(bootstrapIat),
+      identity,
+      deps,
+      offsetState,
     });
   }
 

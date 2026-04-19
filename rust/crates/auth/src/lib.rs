@@ -9,7 +9,7 @@ mod protocol;
 mod session_store;
 
 pub use browser_login::{generate_session_keypair, start_admin_reauth, start_browser_login};
-pub use client::{connect_admin_client_async, persist_renewed_admin_session, AuthClient};
+pub use client::{connect_admin_client_async, AuthClient};
 pub use device_activation::{
     build_device_activation_payload, build_device_wait_proof_input,
     derive_device_confirmation_code, derive_device_identity, derive_device_qr_mac,
@@ -30,8 +30,7 @@ pub use protocol::{
     AuthStartResponse, AuthValidateRequestRequest, AuthValidateRequestResponse, AuthenticatedUser,
     ClientTransportRecord, ClientTransportsRecord, DisableInstanceGrantPolicyRequest,
     InstanceGrantPolicyActorRecord, InstanceGrantPolicyRecord, InstanceGrantPolicySourceRecord,
-    JobsBindings, JobsRegistry, ListApprovalsRequest, RenewBindingTokenBoundResponse,
-    RenewBindingTokenRequest, RenewBindingTokenResponse, ResourceBindings, RevokeApprovalRequest,
+    JobsBindings, JobsRegistry, ListApprovalsRequest, ResourceBindings, RevokeApprovalRequest,
     SentinelCredsRecord, UpsertInstanceGrantPolicyRequest,
 };
 pub use session_store::{clear_admin_session, load_admin_session, save_admin_session};

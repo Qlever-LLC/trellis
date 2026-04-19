@@ -15,11 +15,6 @@
     "sessions": 86400000,
     "oauth": 300000,
     "pendingAuth": 300000,
-    "bindingTokens": {
-      "bucket": 7200000,
-      "initial": 300000,
-      "renew": 3600000
-    },
     "connections": 7200000,
     "natsJwt": 3600000
   },

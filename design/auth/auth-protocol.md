@@ -58,18 +58,19 @@ The signed value is always the exact UTF-8 bytes as transmitted. No URL normaliz
 
 After identity binding, clients connect to NATS with sentinel credentials plus a Trellis `auth_token` JSON payload.
 
-User connect or reconnect with binding token:
+User/session-key runtime auth:
 
 ```ts
 {
   v: 1,
   sessionKey: string,
-  bindingToken: string,
-  sig: string, // sign(hash("nats-connect:" + bindingToken))
+  contractDigest: string,
+  iat: number,
+  sig: string, // sign(hash("nats-connect:" + iat))
 }
 ```
 
-Service connect or reconnect with timestamp:
+Service/session-key runtime auth:
 
 ```ts
 {
@@ -83,9 +84,9 @@ Service connect or reconnect with timestamp:
 Rules:
 
 - `v` is mandatory and unknown versions are rejected
-- user clients should prefer `bindingToken`
-- services typically use `iat` and therefore require NTP drift within 30 seconds
-- services MAY use `bindingToken` if they obtained one through an identity binding flow
+- contract-bearing user runtimes MUST send `contractDigest`
+- reconnect uses freshly generated `iat`-based proofs rather than renewable binding tokens
+- clients with unstable local clocks SHOULD derive `iat` from server-relative time using bootstrap `serverNow`
 
 ## Auth Callout Behavior
 
@@ -93,8 +94,8 @@ When NATS calls `$SYS.REQ.USER.AUTH`:
 
 1. Require `Nats-Server-Xkey` and decrypt the payload
 2. Extract `user_nkey` and `connect_opts.auth_token`
-3. Parse `{ v, sessionKey, sig, bindingToken?, iat? }`
-4. Resolve identity by priority: `bindingToken` first, then `iat`
+3. Parse `{ v, sessionKey, sig, iat, contractDigest? }`
+4. Resolve the principal from the session key plus the presented proof shape
 5. Lookup grants from sessions or service registry
 6. Load active contracts and derive publish/subscribe permissions
 7. Issue a NATS JWT for the server-generated `user_nkey`
@@ -104,16 +105,17 @@ When NATS calls `$SYS.REQ.USER.AUTH`:
 Detailed behavior:
 
 ```text
-CASE: USER INITIAL / RECONNECT (bindingToken)
-- lookup hashed binding token with revision
-- verify token maps to sessionKey
-- verify sig = sign(hash("nats-connect:" + bindingToken))
-- reject if `expiresAt <= now`
+CASE: USER CONNECT / RECONNECT (`sessionKey + contractDigest + iat + sig`)
+- reject if abs(now - iat) > 30s
+- verify sig = sign(hash("nats-connect:" + iat))
 - lookup sessions by sessionKey prefix
 - reject and revoke on multi-match corruption
+- verify the bound session is still valid for the same app identity
 - verify user active
-- compute inboxPrefix
+- verify the presented `contractDigest` is currently allowed for that bound
+  user/app context
 - derive permissions and issue JWT
+- update session liveness and active-connection tracking
 
 CASE: SERVICE CONNECT / RECONNECT (iat)
 - reject if abs(now - iat) > 30s
@@ -138,6 +140,19 @@ CASE: ACTIVATED DEVICE CONNECT / RECONNECT (iat)
 - derive permissions from the active device profile and issue JWT
 - do not emit `events.v1.Auth.Connect` for activated-device sessions
 ```
+
+## Server-Relative Time
+
+Bootstrap and connect-info responses that expect `iat`-based runtime auth SHOULD return `serverNow`.
+
+Clients SHOULD:
+
+1. record request start and end time locally
+2. estimate midpoint clock offset from `serverNow`
+3. compute future `iat` values from corrected server-relative time
+4. retry once after `iat_out_of_range` when a fresh `serverNow` is returned
+
+Clients MUST NOT loop forever on repeated `iat_out_of_range`.
 
 Auth callout payload field names use canonical snake_case names such as:
 
@@ -319,11 +334,12 @@ All auth errors use `AuthError` with a `reason` code.
 | Session not found | `session_not_found` |
 | Session expired | `session_expired` |
 | Invalid signature | `invalid_signature` |
-| Invalid binding token | `invalid_binding_token` |
 | SessionKey mismatch in OAuth | `oauth_session_key_mismatch` |
 | Session already bound | `session_already_bound` |
 | AuthToken already used | `authtoken_already_used` |
 | Timestamp out of range | `iat_out_of_range` |
+| Approval required | `approval_required` |
+| Contract changed | `contract_changed` |
 | User inactive | `user_inactive` |
 | User not found | `user_not_found` |
 | Unknown service | `unknown_service` |
@@ -362,12 +378,11 @@ Flow summary:
 5. `POST /auth/flow/:flowId/approval` records the approval decision in the auth-owned flow.
 6. `POST /auth/flow/:flowId/bind` completes the browser bind from `{ sessionKey, sig }`.
 
-For contract-changed reauth, callers first use `rpc.Auth.RenewBindingToken` with
-their current digest. If auth returns `contract_changed`, they call
-`POST /auth/requests` with the full current contract. Auth may then bind
-immediately when the requested subjects and capabilities are a strict subset of
-the current delegated session for the same contract lineage; otherwise it
-returns a normal browser flow.
+When a caller's local contract digest changes, it starts the normal auth
+request flow again with the current contract body. Auth may bind immediately
+when the requested subjects and capabilities are a strict subset of the
+caller's current delegated envelope for the same app identity and contract
+lineage; otherwise it returns a normal browser flow.
 
 Bind proof rules:
 
@@ -394,12 +409,11 @@ Required KV buckets and logical contents:
 | `trellis_device_profiles` | `<profileId>` | Device profile | None |
 | `trellis_device_instances` | `instance.<instanceId>.identity.<publicIdentityKey>` | Preregistered device instance | None |
 | `trellis_device_activations` | `instance.<instanceId>.identity.<publicIdentityKey>` | Device activation record | None |
-| `trellis_binding_tokens` | `hash(<bindingToken>)` | Binding token record | bucket TTL + enforced `expiresAt` |
 | `trellis_connections` | `<sessionKey>.<trellisId>.<user_nkey>` | Active connection record | 2h |
 | `trellis_services` | `<sessionKey>` | Installed service policy | None |
 | `trellis_contracts` | `<digest>` | Stored contract metadata | None |
 
-Ephemeral tokens (`state`, `authToken`, `bindingToken`) are stored by `hash(token)` rather than raw token value.
+Ephemeral tokens (`state`, `authToken`) are stored by `hash(token)` rather than raw token value.
 
 Browser flows are keyed by raw `flowId` because the flow identifier is browser-visible and used to fetch auth-owned portal state. Device activation records persist for the lifetime of the activated device unless revoked. Login
 portal selections, device portal selections, and optional default-portal
@@ -413,6 +427,10 @@ activation.
   flowId: string;
   kind: "login" | "device_activation";
   sessionKey?: string;
+  app?: {
+    contractId: string;
+    origin?: string;
+  };
   redirectTo?: string;
   context?: unknown;
   contract?: Record<string, unknown>;
@@ -439,15 +457,18 @@ type UserSession = {
   origin: string;
   id: string;
   type: "user";
-  contractDigest?: string;
-  contractId?: string;
-  contractDisplayName?: string;
-  contractDescription?: string;
-  appOrigin?: string;
+  contractDigest: string;
+  contractId: string;
+  contractDisplayName: string;
+  contractDescription: string;
+  app?: {
+    contractId: string;
+    origin?: string;
+  };
   approvalSource?: "stored_approval" | "admin_policy";
-  delegatedCapabilities?: string[];
-  delegatedPublishSubjects?: string[];
-  delegatedSubscribeSubjects?: string[];
+  delegatedCapabilities: string[];
+  delegatedPublishSubjects: string[];
+  delegatedSubscribeSubjects: string[];
   createdAt: Date;
   lastAuth: Date;
 };
@@ -480,9 +501,9 @@ type ActivatedDeviceSession = {
 Rules:
 
 - the key is `<sessionKey>.<trellisId>`
-- user delegated fields are present only for contract-bearing user sessions
-- user delegated sessions MAY also record the browser app origin and approval
-  source used at bind time so reconnect can re-evaluate dynamic policy
+- user sessions bind user identity, explicit app identity, and the last
+  delegated contract envelope together; reconnect re-evaluates current digest
+  authorization for that app context
 - activated-device sessions use the key `<sessionKey>.<instanceId>`
 - if multiple sessions match a sessionKey prefix, Trellis MUST revoke them and return `session_corrupted`
 
@@ -559,25 +580,6 @@ This projection is Trellis-local and is updated by Trellis-managed flows.
 
 It stores explicit user state only. Deployment-wide implied app grants remain in
 the separate instance grant policy bucket.
-
-### Binding Tokens
-
-```ts
-{
-  sessionKey: string;
-  kind: "initial" | "renew";
-  createdAt: string;
-  expiresAt: string;
-}
-```
-
-Rules:
-
-- binding tokens are reusable until `expiresAt`
-- validation rejects expired tokens and tokens that do not map to the claimed `sessionKey`
-- a fresh binding token or delegated session update does not mutate permissions
-  on an already-open NATS connection; callers must reconnect to receive a JWT
-  that reflects the new grants
 
 ### Active Connections
 

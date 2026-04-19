@@ -2,9 +2,8 @@ use std::env;
 use std::path::PathBuf;
 
 use crate::app::{
-    AUTH_BOOTSTRAP_BUCKETS, BucketEnsureStatus, connect_with_creds, ensure_bucket, ensure_stream,
-    load_binding_token_bucket_ttl_ms, resolve_auth_config_path, resolve_servers,
-    trellis_id_from_origin_id,
+    connect_with_creds, ensure_bucket, ensure_stream, resolve_servers, trellis_id_from_origin_id,
+    BucketEnsureStatus, AUTH_BOOTSTRAP_BUCKETS,
 };
 use crate::cli::*;
 use crate::output;
@@ -36,27 +35,14 @@ async fn nats_bootstrap_command(args: &NatsBootstrapArgs) -> miette::Result<()> 
         vec!["events.>".to_string()],
     )
     .await?;
-    let auth_config_path = resolve_auth_config_path();
-    let binding_token_bucket_ttl_ms = load_binding_token_bucket_ttl_ms(&auth_config_path)?
-        .unwrap_or_else(|| {
-            AUTH_BOOTSTRAP_BUCKETS
-                .iter()
-                .find(|bucket| bucket.name == "trellis_binding_tokens")
-                .map(|bucket| bucket.ttl_ms)
-                .expect("binding token bootstrap bucket present")
-        });
     let mut rows = vec![vec![
         "stream".to_string(),
         "trellis".to_string(),
         if stream_created { "created" } else { "exists" }.to_string(),
     ]];
     for bucket in AUTH_BOOTSTRAP_BUCKETS {
-        let ttl_ms = if bucket.name == "trellis_binding_tokens" {
-            binding_token_bucket_ttl_ms
-        } else {
-            bucket.ttl_ms
-        };
-        let status = ensure_bucket(&servers, &args.auth_creds, bucket.name, 1, ttl_ms).await?;
+        let status =
+            ensure_bucket(&servers, &args.auth_creds, bucket.name, 1, bucket.ttl_ms).await?;
         rows.push(vec![
             "bucket".to_string(),
             bucket.name.to_string(),
@@ -127,7 +113,7 @@ async fn bootstrap_admin_command(args: &BootstrapAdminArgs) -> miette::Result<()
 
 #[cfg(test)]
 mod tests {
-    use crate::app::{AUTH_BOOTSTRAP_BUCKETS, KvBucketSpec};
+    use crate::app::{KvBucketSpec, AUTH_BOOTSTRAP_BUCKETS};
 
     #[derive(Debug, Eq, PartialEq)]
     struct RuntimeBucketSpec {
@@ -206,7 +192,6 @@ mod tests {
             "config.ttlMs.oauth" => 5 * 60_000_u64,
             "config.ttlMs.deviceFlow" => 30 * 60_000_u64,
             "config.ttlMs.pendingAuth" => 5 * 60_000_u64,
-            "config.ttlMs.bindingTokens.bucket" => 24 * 60 * 60_000_u64,
             "config.ttlMs.connections" => 2 * 60 * 60_000_u64,
             other => panic!("unexpected ttl expression in globals.ts: {other}"),
         })

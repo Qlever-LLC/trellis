@@ -69,7 +69,6 @@ Additional `trellis` service config:
 | portalLoginSelections | None |
 | portalDeviceSelections | None |
 | portalDefaults | None |
-| bindingTokens | 5 min initial bind, 1h general renew, 24h CLI bind/renew by default; bucket cleanup by TTL |
 | services | None |
 | connections | 2h |
 
@@ -89,7 +88,6 @@ Cluster-wide required state:
 - login portal selection store
 - device portal selection store
 - default portal setting store
-- binding token store
 - connection store
 
 Production requirements:
@@ -110,7 +108,6 @@ Production requirements:
 Secrets that MUST NOT be logged:
 
 - `authToken`
-- `bindingToken`
 - NATS `auth_token` payload
 - session key seeds
 - RPC `proof` header

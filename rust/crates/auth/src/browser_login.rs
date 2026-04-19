@@ -6,6 +6,7 @@ use base64::Engine as _;
 use ed25519_dalek::SigningKey;
 use reqwest::Client as HttpClient;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
@@ -40,6 +41,10 @@ fn join_native_nats_servers(
 
 fn base64url_encode(bytes: &[u8]) -> String {
     URL_SAFE_NO_PAD.encode(bytes)
+}
+
+fn contract_digest(contract_json: &str) -> String {
+    base64url_encode(&Sha256::digest(contract_json.as_bytes()))
 }
 
 pub(crate) fn callback_page_html() -> &'static str {
@@ -305,13 +310,11 @@ async fn bind_session(
 
     match serde_json::from_str::<BindResponse>(&text)? {
         BindResponse::Bound(BindResponseBound {
-            binding_token,
             inbox_prefix,
             expires,
             sentinel,
             transports,
         }) => Ok(BoundSession {
-            binding_token,
             inbox_prefix,
             expires,
             nats_servers: join_native_nats_servers(&transports)?,
@@ -359,7 +362,7 @@ impl BrowserLoginChallenge {
             nats_servers: bound.nats_servers.clone(),
             session_seed: self.session_seed,
             session_key: self.auth.session_key.clone(),
-            binding_token: bound.binding_token,
+            contract_digest: self.contract_digest,
             sentinel_jwt: bound.sentinel.jwt,
             sentinel_seed: bound.sentinel.seed,
             expires: bound.expires,
@@ -401,6 +404,7 @@ pub async fn start_browser_login(
     Ok(BrowserLoginChallenge {
         login_url,
         session_seed,
+        contract_digest: contract_digest(opts.contract_json),
         auth,
         receiver,
         server_handle,
@@ -418,7 +422,6 @@ pub async fn start_admin_reauth(
     let redirect_to = format!("http://{callback_addr}/callback");
     match start_auth_request(&state.auth_url, &redirect_to, &auth, contract_json).await? {
         AuthStartResponse::Bound {
-            binding_token,
             inbox_prefix: _,
             expires,
             sentinel,
@@ -430,7 +433,7 @@ pub async fn start_admin_reauth(
                 nats_servers: join_native_nats_servers(&transports)?,
                 session_seed: state.session_seed.clone(),
                 session_key: auth.session_key.clone(),
-                binding_token,
+                contract_digest: contract_digest(contract_json),
                 sentinel_jwt: sentinel.jwt,
                 sentinel_seed: sentinel.seed,
                 expires,
@@ -454,6 +457,7 @@ pub async fn start_admin_reauth(
             Ok(AdminReauthOutcome::Flow(BrowserLoginChallenge {
                 login_url,
                 session_seed: state.session_seed.clone(),
+                contract_digest: contract_digest(contract_json),
                 auth,
                 receiver,
                 server_handle,

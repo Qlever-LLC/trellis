@@ -7,7 +7,6 @@ import { getConfig } from "../config.ts";
 import { trellisControlPlaneApi } from "./control_plane_api.ts";
 import {
   AuthBrowserFlowSchema,
-  BindingTokenRecordSchema,
   ConnectionSchema,
   ContractApprovalRecordSchema,
   ContractRecordSchema,
@@ -133,20 +132,6 @@ if (isErr(contractApprovalsKVValue)) {
   );
 }
 export const contractApprovalsKV = contractApprovalsKVValue;
-
-const bindingTokenKVResult = await TypedKV.open(
-  natsAuth,
-  "trellis_binding_tokens",
-  BindingTokenRecordSchema,
-  { history: 1, ttl: config.ttlMs.bindingTokens.bucket },
-);
-const bindingTokenKVValue = bindingTokenKVResult.take();
-if (isErr(bindingTokenKVValue)) {
-  throw new Error(
-    `Failed to open binding token KV: ${bindingTokenKVValue.error.message}`,
-  );
-}
-export const bindingTokenKV = bindingTokenKVValue;
 
 const portalsKVResult = await TypedKV.open(
   natsAuth,

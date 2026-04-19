@@ -77,11 +77,11 @@ export async function bindFlowSig(handle: SessionKeyHandle, flowId: string): Pro
   return base64urlEncode(sig);
 }
 
-export async function natsConnectSigForBindingToken(
+export async function natsConnectSigForIat(
   handle: SessionKeyHandle,
-  bindingToken: string,
+  iat: number,
 ): Promise<string> {
-  const digest = await sha256(utf8(`nats-connect:${bindingToken}`));
+  const digest = await sha256(utf8(`nats-connect:${String(iat)}`));
   const sig = await signBytes(handle, digest);
   return base64urlEncode(sig);
 }

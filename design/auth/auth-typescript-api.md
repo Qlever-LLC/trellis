@@ -93,11 +93,6 @@ type BrowserSignInOptions = {
 type AuthState = {
   signIn(options?: BrowserSignInOptions): Promise<never>;
 };
-
-declare function natsConnectSigForBindingToken(
-  handle: SessionKeyHandle,
-  bindingToken: string,
-): Promise<string>;
 ```
 
 Rules:
@@ -118,9 +113,17 @@ Rules:
 - `context` is an opaque JSON value for app and portal coordination; auth stores it on the browser flow and portals receive it back in `PortalFlowState`
 - `context` is not an authorization input and portals MUST tolerate unknown shapes
 - login-init proofs SHOULD cover both `redirectTo` and canonicalized `context` so the browser flow cannot be retargeted or recontextualized after signing
-- browser renew flows SHOULD send only the current `contractDigest` over
-  `rpc.Auth.RenewBindingToken`; on `contract_changed` they SHOULD call
-  `startAuthRequest(...)`, then reconnect NATS after any resulting `bound`
+- browser and session-key runtime reconnect uses freshly generated auth payloads
+  carrying `sessionKey + contractDigest + iat + sig`
+- browser runtimes SHOULD estimate and store `serverClockOffsetMs` from
+  bootstrap `serverNow`
+- browser runtimes SHOULD compute `iat` from corrected server-relative time
+  rather than trusting local wall clock directly
+- on `iat_out_of_range`, browser runtimes SHOULD refresh server time and retry
+  once
+- if reconnect fails because approval is required, auth is required, or the
+  contract changed, callers SHOULD restart the normal auth request flow rather
+  than trying to renew a transport token
 
 ## Portal Flow Surface
 
@@ -130,6 +133,7 @@ type PortalFlowApp = {
   contractDigest: string;
   displayName: string;
   description: string;
+  origin?: string;
   context?: unknown;
 };
 
@@ -243,11 +247,11 @@ type AuthHandle = {
   sessionKey: string;
   oauthInitSig(redirectTo: string, context?: unknown): Promise<string>;
   bindSig(authToken: string): Promise<string>;
-  natsConnectSigForBindingToken(bindingToken: string): Promise<string>;
-  natsConnectSigForIat(iat: string): Promise<string>;
+  natsConnectSigForIat(iat: number): Promise<string>;
   createProof(subject: string, payload: Uint8Array | string): Promise<string>;
-  createNatsAuthTokenForService(): Promise<string>;
-  natsConnectOptions(): Promise<{ token: string; inboxPrefix: string }>;
+  currentIat(): number;
+  setServerClockOffsetMs(clockOffsetMs: number): void;
+  natsConnectOptions(): Promise<{ authenticator: Authenticator; inboxPrefix: string }>;
 };
 
 declare function createAuth(options: CreateAuthOptions): Promise<AuthHandle>;
@@ -257,6 +261,9 @@ Rules:
 
 - service helpers expose the same proof domains as browser helpers, but return direct values rather than fragment/callback-oriented flows
 - service NATS auth tokens use the session-key proof model described in `auth-protocol.md`
+- `TrellisClient.connect(...)` owns runtime bootstrap, `serverNow` handling,
+  corrected-`iat` retry, and reconnect-safe auth-token generation; bind
+  responses no longer carry a reusable runtime binding token
 
 ## Device Activation Surface
 

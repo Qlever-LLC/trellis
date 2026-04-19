@@ -6,7 +6,6 @@ import {
 import { AsyncResult, type BaseError, isErr, Result } from "@qlever-llc/result";
 import { AuthError } from "../../../../packages/trellis/errors/AuthError.ts";
 import {
-  bindingTokenKV,
   connectionsKV,
   contractApprovalsKV,
   deviceActivationsKV,
@@ -14,21 +13,17 @@ import {
   instanceGrantPoliciesKV,
   logger,
   natsAuth,
-  sentinelCreds,
   serviceInstancesKV,
   serviceProfilesKV,
   sessionKV,
   trellis,
   usersKV,
 } from "../../bootstrap/globals.ts";
-import { getConfig } from "../../config.ts";
 import type {
   Session,
   UserProjectionEntry,
 } from "../../state/schemas.ts";
-import { buildClientTransports } from "../transports.ts";
 import { resolveSessionPrincipal } from "./principal.ts";
-import { createAuthRenewBindingTokenHandler as createInjectedAuthRenewBindingTokenHandler } from "./renew.ts";
 import { loadServiceInstanceByKey, loadServiceProfile } from "../admin/service_rpc.ts";
 
 type AuthenticatedUser = {
@@ -91,8 +86,6 @@ type DeviceActivationRecord = {
   revokedAt: string | Date | null;
 };
 
-const config = getConfig();
-
 function deviceTypeFromProfileId(profileId: string): string {
   const [deviceType] = profileId.split(".", 1);
   return deviceType && deviceType.length > 0 ? deviceType : profileId;
@@ -136,8 +129,6 @@ type ValidateRequestInput = {
   proof: string;
   capabilities?: string[];
 };
-
-const CLI_CONTRACT_ID = "trellis.cli@v1";
 
 type UserRefFilter = { user?: string };
 type SessionFilter = { sessionKey?: string; user?: string };
@@ -761,69 +752,6 @@ export const authLogoutHandler = async (
 
   return Result.ok({ success: true });
 };
-
-export function createAuthRenewBindingTokenHandler(opts: {
-  randomToken: (bytes: number) => string;
-  hashKey: (value: string) => Promise<string>;
-}) {
-  const handler = createInjectedAuthRenewBindingTokenHandler({
-    loadUserSession: async (sessionKey, trellisId) => {
-      const sessionKeyId = `${sessionKey}.${trellisId}`;
-      const session = (await sessionKV.get(sessionKeyId)).take();
-      if (isErr(session)) {
-        return null;
-      }
-      const sessionValue = unwrapValue<Session>(session);
-      return sessionValue.type === "user" ? sessionValue : null;
-    },
-    issueBindingToken: async (sessionKey) => {
-      const sessionIter = (await sessionKV.keys(`${sessionKey}.>`)).take();
-      let sessionValue: Session | null = null;
-      if (!isErr(sessionIter)) {
-        for await (const key of sessionIter) {
-          const entry = (await sessionKV.get(key)).take();
-          if (!isErr(entry)) {
-            sessionValue = unwrapValue<Session>(entry);
-            break;
-          }
-        }
-      }
-
-      const bindingTtlMs = sessionValue?.type === "user" &&
-          sessionValue.contractId === CLI_CONTRACT_ID
-        ? config.ttlMs.bindingTokens.cliRenew
-        : config.ttlMs.bindingTokens.renew;
-      const bindingToken = opts.randomToken(32);
-      const bindingTokenHash = await opts.hashKey(bindingToken);
-      const now = new Date();
-      const expires = new Date(now.getTime() + bindingTtlMs);
-      await bindingTokenKV.put(bindingTokenHash, {
-        sessionKey,
-        kind: "renew",
-        createdAt: now,
-        expiresAt: expires,
-      });
-
-      return {
-        status: "bound" as const,
-        bindingToken,
-        inboxPrefix: `_INBOX.${sessionKey.slice(0, 16)}`,
-        expires: expires.toISOString(),
-        sentinel: sentinelCreds,
-        transports: buildClientTransports(config),
-      };
-    },
-  });
-
-  return async (req: { contractDigest: string }, context: SessionContext) => {
-    const user = requireUserCaller(context.caller);
-    logger.trace(
-      { rpc: "Auth.RenewBindingToken", sessionKey: context.sessionKey, userId: user.id },
-      "RPC request",
-    );
-    return handler(req, { caller: context.caller, sessionKey: context.sessionKey });
-  };
-}
 
 export const authListSessionsHandler = async (req: UserRefFilter) => {
   logger.trace({ rpc: "Auth.ListSessions", user: req.user }, "RPC request");

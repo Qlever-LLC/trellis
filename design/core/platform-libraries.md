@@ -33,7 +33,7 @@ libraries.
 | `@qlever-llc/trellis/contracts`     | Advanced contract-model, canonicalization, and low-level contract authoring surface                                          | SDK generation, docs, advanced tooling                 |
 | `@qlever-llc/trellis-sdk` and `@qlever-llc/trellis-sdk/*` | First-party generated SDK modules                                                                                            | Apps and services that consume Trellis-owned contracts |
 | `@qlever-llc/trellis/tracing`       | Specialized Trellis tracing facade                                                                                           | Runtime libraries and services                         |
-| `@qlever-llc/trellis-svelte`        | Svelte-specific Trellis integration                                                                                          | Svelte applications                                    |
+| `@qlever-llc/trellis-svelte`        | Svelte-specific Trellis browser integration with a Trellis-only public surface                                               | Svelte applications                                    |
 | `@qlever-llc/trellis-jobs`          | Job creation and processing                                                                                                  | Service-private retryable work                         |
 
 ## Library Rules
@@ -174,11 +174,12 @@ Rules:
   typed helpers for the rest of the app
 - `TrellisProvider` is the primary browser integration surface; app code should
   pass `trellisUrl`, `contract`, and `loginPath`
-- app code does not provide runtime transport topology; `TrellisProvider`
-  resolves connection details from Trellis auth during bind or renew
-- `TrellisProvider` restores auth state, handles auth callbacks, calls
-  `TrellisClient.connect(...)`, and exposes auth and the live Trellis runtime
-  through Svelte context
+- `TrellisProvider` restores auth state, handles auth callbacks, and delegates
+  runtime bootstrap and reconnect to `TrellisClient.connect(...)`
+- the public Svelte surface is Trellis-only: apps should use `getTrellis()`,
+  `getAuth()`, and `getConnectionState()`
+- `@qlever-llc/trellis-svelte` MUST NOT expose raw NATS clients, NATS
+  connection state, or other transport-owned handles as public API
 - normal pages and components should not recreate auth state; they should read
   the live runtime from context through app-scoped helpers
 - app-facing auth helpers should not require raw URL plumbing or placeholder

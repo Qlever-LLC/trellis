@@ -207,14 +207,6 @@ export type ContractApprovalRecord = StaticDecode<
   typeof ContractApprovalRecordSchema
 >;
 
-export const BindingTokenRecordSchema = Type.Object({
-  sessionKey: SessionKeySchema,
-  kind: Type.Union([Type.Literal("initial"), Type.Literal("renew")]),
-  createdAt: IsoDateSchema,
-  expiresAt: IsoDateSchema,
-}, { additionalProperties: false });
-export type BindingTokenRecord = StaticDecode<typeof BindingTokenRecordSchema>;
-
 export type BindSuccessResponse = StaticDecode<
   typeof BindSuccessResponseSchema
 >;
@@ -300,15 +292,5 @@ export const AuthLogoutResponseSchema = Type.Object({
   success: Type.Boolean(),
 }, { additionalProperties: false });
 export type AuthLogoutResponse = StaticDecode<typeof AuthLogoutResponseSchema>;
-
-export const AuthRenewBindingTokenRequestSchema = Type.Object({}, {
-  additionalProperties: false,
-});
-export type AuthRenewBindingTokenRequest = StaticDecode<
-  typeof AuthRenewBindingTokenRequestSchema
->;
-
-export const AuthRenewBindingTokenResponseSchema = BindSuccessResponseSchema;
-export type AuthRenewBindingTokenResponse = BindSuccessResponse;
 
 export { AuthValidateRequestRequestSchema };

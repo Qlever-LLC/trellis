@@ -2,6 +2,8 @@ import { assert, assertFalse } from "@std/assert";
 import Value from "typebox/value";
 
 import {
+  ContractApprovalSchema,
+  NatsAuthTokenV1Schema,
   AuthDeviceActivationReviewRequestedEventSchema,
   AuthActivateDeviceResponseSchema,
   AuthActivateDeviceSchema,
@@ -94,6 +96,30 @@ Deno.test("PortalFlowStateSchema tolerates additive portal app fields", () => {
       description: "Admin app",
       kind: "app",
     },
+  }));
+});
+
+Deno.test("auth schemas keep contractDigest consistently typed", () => {
+  assert(Value.Check(ContractApprovalSchema, {
+    contractDigest: "digest_123",
+    contractId: "trellis.console@v1",
+    displayName: "Console",
+    description: "Admin app",
+    capabilities: ["admin"],
+  }));
+  assert(Value.Check(NatsAuthTokenV1Schema, {
+    v: 1,
+    sessionKey: "A".repeat(43),
+    sig: "B".repeat(86),
+    iat: 1,
+    contractDigest: "digest_123",
+  }));
+  assertFalse(Value.Check(NatsAuthTokenV1Schema, {
+    v: 1,
+    sessionKey: "A".repeat(43),
+    sig: "B".repeat(86),
+    iat: 1,
+    contractDigest: "digest with spaces",
   }));
 });
 

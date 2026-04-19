@@ -41,10 +41,14 @@ async function createApp(args: {
   } | null;
   nowSeconds?: number;
   activateContract?: boolean;
+  registerInactiveContract?: boolean;
 }) {
   const auth = await createAuth({ sessionKeySeed: TEST_SEED });
   const validated = await createTestContractStore();
   const store = new ContractStore();
+  if (args.registerInactiveContract) {
+    await store.validate(validated.contract);
+  }
   if (args.activateContract !== false) {
     store.activate(validated.digest, validated.contract);
   }
@@ -125,6 +129,7 @@ Deno.test("POST /bootstrap/service returns runtime bootstrap info and bindings",
   assertEquals(response.status, 200);
   assertEquals(await response.json(), {
     status: "ready",
+    serverNow: TEST_IAT,
     connectInfo: {
       sessionKey: auth.sessionKey,
       contractId: contract.contract.id,
@@ -179,7 +184,10 @@ Deno.test("POST /bootstrap/service rejects stale identity proofs", async () => {
   });
 
   assertEquals(response.status, 400);
-  assertEquals(await response.json(), { reason: "iat_out_of_range" });
+  assertEquals(await response.json(), {
+    reason: "iat_out_of_range",
+    serverNow: TEST_IAT + 31,
+  });
 });
 
 Deno.test("POST /bootstrap/service rejects invalid signatures", async () => {
@@ -261,6 +269,35 @@ Deno.test("POST /bootstrap/service rejects disabled services", async () => {
 
 Deno.test("POST /bootstrap/service rejects services with inactive contracts", async () => {
   const { app, auth, contract } = await createApp({ activateContract: false });
+  const response = await app.request("http://trellis/bootstrap/service", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sessionKey: auth.sessionKey,
+      contractId: contract.contract.id,
+      contractDigest: contract.digest,
+      iat: TEST_IAT,
+      sig: await auth.natsConnectSigForIat(TEST_IAT),
+    }),
+  });
+
+  assertEquals(response.status, 409);
+  assertEquals(await response.json(), {
+    reason: "contract_not_active",
+    message:
+      `Contract '${contract.contract.id}' digest '${contract.digest}' is allowed for profile 'profile_1' but is not active in Trellis. Re-apply the contract to the profile or restart Trellis if contract state was lost.`,
+    instanceId: "svc_1",
+    profileId: "profile_1",
+    contractId: contract.contract.id,
+    contractDigest: contract.digest,
+  });
+});
+
+Deno.test("POST /bootstrap/service rejects contracts that are present but inactive", async () => {
+  const { app, auth, contract } = await createApp({
+    activateContract: false,
+    registerInactiveContract: true,
+  });
   const response = await app.request("http://trellis/bootstrap/service", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

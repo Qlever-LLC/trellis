@@ -154,6 +154,7 @@ export async function resolveSessionPrincipal(
       : null;
     if (
       activation.state !== "activated" ||
+      activation.publicIdentityKey !== session.publicIdentityKey ||
       activation.profileId !== session.profileId ||
       revokedAt !== null ||
       session.revokedAt !== null

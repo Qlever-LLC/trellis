@@ -170,6 +170,7 @@ type PortalFlowState =
       contractDigest: string;
       displayName: string;
       description: string;
+      origin?: string;
       context?: unknown;
     };
   }
@@ -274,7 +275,9 @@ Behavior:
 6. Reject the bind if the user projection is inactive
 7. Consume the pending auth state
 8. Create or recover the session record for `<sessionKey>.<trellisId>`
-9. Mint `bindingToken`
+9. Compute `inboxPrefix = _INBOX.${sessionKey.slice(0, 16)}`
+10. Return transport bootstrap details for the bound session (`inboxPrefix`,
+    `expires`, `sentinel`, `transports`)
 
 ### POST /auth/bind
 
@@ -298,14 +301,20 @@ Response:
 type BindResponse =
   | {
     status: "bound";
-    bindingToken: string;
     inboxPrefix: string;
     expires: string;
     sentinel: {
       jwt: string;
       seed: string;
     };
-    natsServers: string[];
+    transports: {
+      native?: {
+        natsServers: string[];
+      };
+      websocket?: {
+        natsServers: string[];
+      };
+    };
   }
   | {
     status: "insufficient_capabilities";
@@ -333,11 +342,11 @@ Behavior:
 7. Create or recover the session record for `<sessionKey>.<trellisId>`
 8. Persist delegated contract metadata and delegated publish/subscribe subjects
    into the session
-9. Mint `bindingToken`
-10. Compute `inboxPrefix = _INBOX.${sessionKey.slice(0, 16)}`
-11. Refresh the Trellis-local auth projection entry without overwriting
-    admin-managed `active` state or granted capabilities
-12. Return the bind response
+9. Compute `inboxPrefix = _INBOX.${sessionKey.slice(0, 16)}`
+10. Refresh the Trellis-local auth projection entry without overwriting
+     admin-managed `active` state or granted capabilities
+11. Return the bind response with `inboxPrefix`, `expires`, `sentinel`, and
+    `transports`
 
 Rules:
 
@@ -411,7 +420,6 @@ capabilities beyond successful authenticated user context:
 
 - `rpc.Auth.Me`
 - `rpc.Auth.Logout`
-- `rpc.Auth.RenewBindingToken`
 
 ### rpc.Auth.Logout
 
@@ -438,47 +446,10 @@ Behavior:
 5. Kick all connections
 6. Delete connection entries
 
-### rpc.Auth.RenewBindingToken
-
-Request:
-
-```ts
-{
-  contractDigest: string;
-}
-```
-
-Response:
-
-```ts
-type RenewBindingTokenResponse =
-  | {
-    status: "bound";
-    bindingToken: string;
-    inboxPrefix: string;
-    expires: string;
-    sentinel: {
-      jwt: string;
-      seed: string;
-    };
-    transports: ClientTransports;
-  }
-  | {
-    status: "contract_changed";
-  };
-```
-
-Rules:
-
-- binding tokens are reusable until `expiresAt`
-- this RPC is digest-only; it does not accept a replacement contract body or
-  perform approval evaluation
-- if `contractDigest` differs from the currently delegated session digest, auth
-  returns `contract_changed` and the caller must start the normal HTTP auth flow
-- if a later HTTP auth request returns `bound`, the caller MUST reconnect NATS
-  before using newly granted subjects because the current connection JWT still
-  carries the old permissions
-- this is a zero-capability authenticated self-service RPC
+Digest changes are handled by restarting the normal auth request flow with the
+current contract body. Runtime reconnect auth is regenerated locally from
+`sessionKey + contractDigest + iat + sig`; auth does not issue renewable
+binding tokens.
 
 ### rpc.Auth.Me
 

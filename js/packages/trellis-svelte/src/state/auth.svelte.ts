@@ -3,21 +3,16 @@ import {
   bindFlow,
   type BindResponse,
   bindSession,
-  type BindSuccessResponse,
   clearSessionKey,
   getOrCreateSessionKey,
   getPublicSessionKey,
   startAuthRequest as browserStartAuthRequest,
-  type SentinelCreds,
   type SessionKeyHandle,
 } from "@qlever-llc/trellis/auth/browser";
 import { Result } from "@qlever-llc/result";
-import { SvelteDate } from "svelte/reactivity";
-import { Type } from "typebox";
-import { Value } from "typebox/value";
 import type { TrellisClientContract } from "./trellis.svelte.ts";
 
-type AuthContract = Pick<TrellisClientContract, "CONTRACT" | "CONTRACT_DIGEST">;
+type AuthContract = Pick<TrellisClientContract, "CONTRACT">;
 
 export type BindErrorResult =
   | { status: "insufficient_capabilities"; missingCapabilities: string[] }
@@ -32,70 +27,7 @@ const AUTH_URL_STORAGE_KEY = "trellis_auth_url";
 
 type AuthStateData = {
   handle: SessionKeyHandle | null;
-  bindingToken: string | null;
-  inboxPrefix: string | null;
-  expiresMs: number | null;
-  sentinel: SentinelCreds | null;
-  natsServers: string[] | null;
 };
-
-type PersistedAuth = {
-  bindingToken: string;
-  inboxPrefix: string;
-  expires: string;
-  sentinel: SentinelCreds;
-  natsServers: string[];
-};
-
-const PersistedAuthSchema = Type.Object({
-  bindingToken: Type.String(),
-  inboxPrefix: Type.String(),
-  expires: Type.String({ format: "date-time" }),
-  sentinel: Type.Object({
-    jwt: Type.String(),
-    seed: Type.String(),
-  }, { additionalProperties: false }),
-  natsServers: Type.Array(Type.String()),
-}, { additionalProperties: false });
-
-function loadPersistedAuth(): PersistedAuth | null {
-  if (typeof localStorage === "undefined") return null;
-  const result = Result.try(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (!stored) return null;
-    const parsed = Value.Parse(
-      PersistedAuthSchema,
-      JSON.parse(stored),
-    ) as PersistedAuth;
-    if (new Date(parsed.expires) < new Date()) {
-      localStorage.removeItem(STORAGE_KEY);
-      return null;
-    }
-    if (!parsed.sentinel) return null;
-    return parsed;
-  });
-  return result.unwrapOr(null);
-}
-
-function persistAuth(state: {
-  bindingToken: string;
-  expires: Date;
-  inboxPrefix: string;
-  sentinel: SentinelCreds;
-  natsServers: string[];
-}): void {
-  if (typeof localStorage === "undefined") return;
-  localStorage.setItem(
-    STORAGE_KEY,
-    JSON.stringify({
-      bindingToken: state.bindingToken,
-      inboxPrefix: state.inboxPrefix,
-      expires: state.expires.toISOString(),
-      sentinel: state.sentinel,
-      natsServers: state.natsServers,
-    }),
-  );
-}
 
 function clearPersistedAuth(): void {
   if (typeof localStorage === "undefined") return;
@@ -117,12 +49,6 @@ export type SignInOptions = {
 
 function normalizeAuthUrl(authUrl: string): string {
   return new URL(authUrl).toString().replace(/\/$/, "");
-}
-
-function websocketTransportServers(response: {
-  transports?: { websocket?: { natsServers: string[] } };
-}): string[] | undefined {
-  return response.transports?.websocket?.natsServers;
 }
 
 function loadPersistedAuthUrl(): string | null {
@@ -167,17 +93,12 @@ function resolveRedirectTo(
  * Manages session-key based authentication including:
  * - Session key generation and storage (IndexedDB/WebCrypto)
  * - OAuth sign-in flow initiation (signed)
- * - Callback handling (authToken in URL fragment) + bind
- * - Binding token persistence (short lived)
+  * - Callback handling (authToken in URL fragment) + bind
+ * - Auth URL persistence and legacy auth cleanup
  */
 export class AuthState {
   #state: AuthStateData = $state({
     handle: null,
-    bindingToken: null,
-    inboxPrefix: null,
-    expiresMs: null,
-    sentinel: null,
-    natsServers: null,
   });
 
   #config: AuthStateConfig;
@@ -234,38 +155,11 @@ export class AuthState {
   get contract(): AuthContract | undefined {
     return this.#config.contract;
   }
-  get contractDigest(): string {
-    return this.#requireContract().CONTRACT_DIGEST;
-  }
   get sessionKey(): string | null {
     return this.#state.handle ? getPublicSessionKey(this.#state.handle) : null;
   }
-  get bindingToken(): string | null {
-    return this.#state.bindingToken;
-  }
-  get inboxPrefix(): string | null {
-    return this.#state.inboxPrefix;
-  }
-  get expires(): Date | null {
-    return this.#state.expiresMs === null
-      ? null
-      : new SvelteDate(this.#state.expiresMs);
-  }
-  get sentinel(): SentinelCreds | null {
-    return this.#state.sentinel;
-  }
-  get natsServers(): string[] | null {
-    return this.#state.natsServers;
-  }
-  get isAuthenticated(): boolean {
-    if (!this.#state.bindingToken) return false;
-    if (this.#state.expiresMs === null) return false;
-    if (!this.#state.sentinel) return false;
-    return this.#state.expiresMs > Date.now();
-  }
   /**
-   * Initialize the auth state by loading or creating a session key,
-   * and restoring any persisted binding token (if still valid).
+   * Initialize the auth state by loading or creating a session key.
    */
   async init(): Promise<SessionKeyHandle> {
     if (this.#state.handle) return this.#state.handle;
@@ -274,15 +168,6 @@ export class AuthState {
 
     const handle = await getOrCreateSessionKey();
     this.#state.handle = handle;
-
-    const persisted = loadPersistedAuth();
-    if (persisted) {
-      this.#state.bindingToken = persisted.bindingToken;
-      this.#state.inboxPrefix = persisted.inboxPrefix;
-      this.#state.expiresMs = Date.parse(persisted.expires);
-      this.#state.sentinel = persisted.sentinel;
-      this.#state.natsServers = persisted.natsServers;
-    }
 
     return handle;
   }
@@ -317,10 +202,6 @@ export class AuthState {
       contract: this.#requireContract().CONTRACT,
       context: options.context,
     });
-
-    if (response.status === "bound") {
-      this.setBindingToken(response);
-    }
 
     return response;
   }
@@ -377,8 +258,7 @@ export class AuthState {
   }
 
   /**
-   * Bind an authToken (returned from OAuth callback) to the session key,
-   * producing a short-lived binding token and inboxPrefix for NATS.
+   * Bind an authToken (returned from OAuth callback) to the session key.
    */
   async bind(authToken: string): Promise<BindResponse> {
     return this.#bind(authToken);
@@ -386,66 +266,20 @@ export class AuthState {
 
   async #bind(authToken: string): Promise<BindResponse> {
     const handle = await this.init();
-    const response = await bindSession(
+    return await bindSession(
       { authUrl: this.#requireAuthUrl() },
       handle,
       authToken,
     );
-
-    if (response.status === "bound") {
-      this.setBindingToken(response);
-    }
-
-    return response;
   }
 
   async bindFlow(flowId: string): Promise<BindResponse> {
     const handle = await this.init();
-    const response = await bindFlow(
+    return await bindFlow(
       { authUrl: this.#requireAuthUrl() },
       handle,
       flowId,
     );
-
-    if (response.status === "bound") {
-      this.setBindingToken(response);
-    }
-
-    return response;
-  }
-
-  setBindingToken(
-    response:
-      & Pick<BindSuccessResponse, "bindingToken" | "inboxPrefix" | "expires">
-      & {
-        sentinel?: SentinelCreds;
-        transports?: {
-          websocket?: { natsServers: string[] };
-        };
-      },
-  ): void {
-    this.#state.bindingToken = response.bindingToken;
-    this.#state.inboxPrefix = response.inboxPrefix;
-    this.#state.expiresMs = Date.parse(String(response.expires));
-    // Keep existing sentinel if not provided (e.g., from RenewBindingToken)
-    if (response.sentinel) {
-      this.#state.sentinel = response.sentinel;
-    }
-    const websocketServers = websocketTransportServers(response);
-    if (websocketServers) {
-      this.#state.natsServers = websocketServers;
-    }
-
-    // Only persist if we have sentinel credentials
-    if (this.#state.sentinel && this.#state.natsServers) {
-      persistAuth({
-        bindingToken: response.bindingToken,
-        inboxPrefix: response.inboxPrefix,
-        expires: new SvelteDate(String(response.expires)),
-        sentinel: this.#state.sentinel,
-        natsServers: this.#state.natsServers,
-      });
-    }
   }
 
   /**
@@ -454,11 +288,6 @@ export class AuthState {
    */
   clearAuth(): void {
     clearPersistedAuth();
-    this.#state.bindingToken = null;
-    this.#state.inboxPrefix = null;
-    this.#state.expiresMs = null;
-    this.#state.sentinel = null;
-    this.#state.natsServers = null;
   }
 
   /**

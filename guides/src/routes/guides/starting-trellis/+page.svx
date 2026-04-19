@@ -123,7 +123,7 @@ Edit `./config/config.jsonc` and fill in your deployment values:
 }
 ```
 
-`client.natsServers` is the browser-facing websocket endpoint list returned by the auth service during bind. This lets the console discover the correct Trellis realtime endpoint from the instance URL it signed into.
+`client.natsServers` is the browser-facing websocket endpoint list returned by the auth service during browser auth/bootstrap. This lets the console discover the correct Trellis realtime endpoint from the instance URL it signed into.
 
 Create `./config/trellis.env` with a single line pointing the runtime at the config file:
 
@@ -144,7 +144,7 @@ trellis bootstrap nats \
   --auth-creds ./nkeys/creds/Trellis/AUTH/trellis.creds
 ```
 
-The `trellis_binding_tokens` bucket TTL comes from `ttlMs.bindingTokens.bucket` in the auth config. If you increase CLI token lifetimes, rerun `trellis bootstrap nats` after updating the config so the bucket TTL is updated to match.
+`trellis bootstrap nats` creates the JetStream resources the runtime needs. Binding-token storage is no longer part of the runtime auth model, so there is no binding-token bucket or binding-token TTL setting to tune here.
 
 ## 7. Deploy the runtime with Quadlet
 

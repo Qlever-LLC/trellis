@@ -9,6 +9,10 @@ const SignatureSchema = Type.String({
   pattern: "^[A-Za-z0-9_-]{86}$",
 });
 
+export const ContractDigestSchema = Type.String({
+  pattern: "^[A-Za-z0-9_-]+$",
+});
+
 export const LoginQuerySchema = Type.Object({
   provider: Type.Optional(Type.String({ minLength: 1 })),
   redirectTo: Type.String(),
@@ -52,7 +56,7 @@ export const ApprovalDecisionSchema = Type.Union([
 export type ApprovalDecision = StaticDecode<typeof ApprovalDecisionSchema>;
 
 export const ContractApprovalSchema = Type.Object({
-  contractDigest: Type.String(),
+  contractDigest: ContractDigestSchema,
   contractId: Type.String(),
   displayName: Type.String(),
   description: Type.String(),
@@ -74,7 +78,6 @@ export type BindRequest = StaticDecode<typeof BindRequestSchema>;
 
 export const BindSuccessResponseSchema = Type.Object({
   status: Type.Literal("bound"),
-  bindingToken: Type.String(),
   inboxPrefix: Type.String(),
   expires: Type.String({ format: "date-time" }),
   sentinel: SentinelCredsSchema,
@@ -131,9 +134,8 @@ export const NatsAuthTokenV1Schema = Type.Object({
   v: Type.Literal(1),
   sessionKey: SessionKeySchema,
   sig: SignatureSchema,
-  bindingToken: Type.Optional(Type.String()),
   iat: Type.Optional(Type.Integer()),
-  contractDigest: Type.Optional(Type.String()),
+  contractDigest: Type.Optional(ContractDigestSchema),
 }, { additionalProperties: false });
 
 export type NatsAuthTokenV1 = StaticDecode<typeof NatsAuthTokenV1Schema>;

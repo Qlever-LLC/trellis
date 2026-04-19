@@ -48,13 +48,14 @@ impl SessionAuth {
         .expect("nats auth token json")
     }
 
-    /// Create a user auth-callout token using a binding token.
-    pub fn nats_connect_binding_token(&self, binding_token: &str) -> String {
-        let signature = self.sign_sha256_domain("nats-connect", binding_token);
+    /// Create a user auth-callout token using an `iat` timestamp and contract digest.
+    pub fn nats_connect_user_token(&self, iat: u64, contract_digest: &str) -> String {
+        let signature = self.sign_sha256_domain("nats-connect", &iat.to_string());
         serde_json::to_string(&json!({
           "v": 1,
           "sessionKey": self.session_key,
-          "bindingToken": binding_token,
+          "iat": iat,
+          "contractDigest": contract_digest,
           "sig": signature,
         }))
         .expect("nats auth token json")

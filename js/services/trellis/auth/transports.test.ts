@@ -21,13 +21,6 @@ function makeConfig(): Config {
       oauth: 300_000,
       deviceFlow: 1_800_000,
       pendingAuth: 300_000,
-      bindingTokens: {
-        bucket: 86_400_000,
-        initial: 300_000,
-        renew: 3_600_000,
-        cliInitial: 86_400_000,
-        cliRenew: 86_400_000,
-      },
       connections: 7_200_000,
       natsJwt: 3_600_000,
     },

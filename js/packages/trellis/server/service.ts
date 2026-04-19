@@ -18,6 +18,7 @@ import { auth as trellisAuth } from "@qlever-llc/trellis-sdk/auth";
 import { TrellisServer, type TrellisServerFor } from "../server.ts";
 import {
   createAuth,
+  estimateMidpointClockOffsetMs,
   type SentinelCreds,
   SentinelCredsSchema,
   type TrellisAuth as SessionAuth,
@@ -108,6 +109,7 @@ type ServiceBootstrapConnectInfo = {
 
 type ServiceBootstrapResponse = {
   status: "ready";
+  serverNow: number;
   connectInfo: ServiceBootstrapConnectInfo;
   binding: {
     contractId: string;
@@ -119,6 +121,7 @@ type ServiceBootstrapResponse = {
 type ServiceBootstrapFailure = {
   reason: string;
   message?: string;
+  serverNow?: number;
 };
 
 type RpcMethodName<TA extends TrellisAPI> = keyof TA["rpc"] & string;
@@ -357,6 +360,7 @@ async function loadDefaultServiceRuntimeDeps(): Promise<
 
 const ServiceBootstrapReadySchema = Type.Object({
   status: Type.Literal("ready"),
+  serverNow: Type.Integer(),
   connectInfo: Type.Object({
     sessionKey: Type.String({ minLength: 1 }),
     contractId: Type.String({ minLength: 1 }),
@@ -380,15 +384,23 @@ const ServiceBootstrapReadySchema = Type.Object({
 const ServiceBootstrapFailureSchema = Type.Object({
   reason: Type.String({ minLength: 1 }),
   message: Type.Optional(Type.String({ minLength: 1 })),
+  serverNow: Type.Optional(Type.Integer()),
 }, { additionalProperties: true });
 
-async function fetchServiceBootstrapInfo(args: {
+async function fetchServiceBootstrapInfoOnce(args: {
   trellisUrl: string;
   contractId: string;
   contractDigest: string;
   auth: SessionAuth;
-}): Promise<ServiceBootstrapResponse> {
-  const iat = Math.floor(Date.now() / 1_000);
+}): Promise<{
+  response: Response;
+  responseText: string;
+  payload: unknown;
+  requestStartedAtMs: number;
+  responseReceivedAtMs: number;
+}> {
+  const requestStartedAtMs = Date.now();
+  const iat = args.auth.currentIat();
   const response = await fetch(new URL("/bootstrap/service", args.trellisUrl), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -400,6 +412,7 @@ async function fetchServiceBootstrapInfo(args: {
       sig: await args.auth.natsConnectSigForIat(iat),
     }),
   });
+  const responseReceivedAtMs = Date.now();
 
   const responseText = await response.text();
   let payload: unknown;
@@ -408,36 +421,82 @@ async function fetchServiceBootstrapInfo(args: {
   } catch {
     payload = undefined;
   }
-  if (!response.ok) {
+  return {
+    response,
+    responseText,
+    payload,
+    requestStartedAtMs,
+    responseReceivedAtMs,
+  };
+}
+
+async function fetchServiceBootstrapInfo(args: {
+  trellisUrl: string;
+  contractId: string;
+  contractDigest: string;
+  auth: SessionAuth;
+}): Promise<ServiceBootstrapResponse> {
+  let settled = await fetchServiceBootstrapInfoOnce(args);
+  if (
+    !settled.response.ok &&
+    settled.payload !== undefined &&
+    Value.Check(ServiceBootstrapFailureSchema, settled.payload)
+  ) {
+    const failure = settled.payload as ServiceBootstrapFailure;
     if (
-      payload !== undefined &&
-      Value.Check(ServiceBootstrapFailureSchema, payload)
+      failure.reason === "iat_out_of_range" &&
+      typeof failure.serverNow === "number"
     ) {
-      const failure = payload as ServiceBootstrapFailure;
+      args.auth.setServerClockOffsetMs(
+        estimateMidpointClockOffsetMs({
+          requestStartedAtMs: settled.requestStartedAtMs,
+          responseReceivedAtMs: settled.responseReceivedAtMs,
+          serverNowSeconds: failure.serverNow,
+        }),
+      );
+      settled = await fetchServiceBootstrapInfoOnce(args);
+    }
+  }
+
+  if (!settled.response.ok) {
+    if (
+      settled.payload !== undefined &&
+      Value.Check(ServiceBootstrapFailureSchema, settled.payload)
+    ) {
+      const failure = settled.payload as ServiceBootstrapFailure;
       throw new Error(
         `Service bootstrap failed: ${failure.message ?? failure.reason}`,
       );
     }
-    const detail = responseText.trim();
+    const detail = settled.responseText.trim();
     throw new Error(
       detail.length > 0
-        ? `Service bootstrap failed with HTTP ${response.status}: ${detail}`
-        : `Service bootstrap failed with HTTP ${response.status}`,
+        ? `Service bootstrap failed with HTTP ${settled.response.status}: ${detail}`
+        : `Service bootstrap failed with HTTP ${settled.response.status}`,
     );
   }
 
-  if (payload === undefined) {
+  if (settled.payload === undefined) {
     throw new Error(
       `Service bootstrap returned invalid JSON: ${
-        responseText.trim() || "<empty body>"
+        settled.responseText.trim() || "<empty body>"
       }`,
     );
   }
 
-  return Value.Parse(
+  const ready = Value.Parse(
     ServiceBootstrapReadySchema,
-    payload,
+    settled.payload,
   ) as ServiceBootstrapResponse;
+  args.auth.setServerClockOffsetMs(
+    estimateMidpointClockOffsetMs({
+      requestStartedAtMs: settled.requestStartedAtMs,
+      responseReceivedAtMs: settled.responseReceivedAtMs,
+      serverNowSeconds: ready.serverNow,
+    }),
+  );
+
+  return ready;
 }
 
 export class KVHandle {

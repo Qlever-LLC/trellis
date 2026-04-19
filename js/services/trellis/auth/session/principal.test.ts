@@ -1,17 +1,19 @@
 import { assertEquals } from "@std/assert";
-import { err, ok, UnexpectedError } from "@qlever-llc/result";
+import { AsyncResult, err, ok, UnexpectedError } from "@qlever-llc/result";
 
 import { resolveSessionPrincipal } from "./principal.ts";
 
 function kvFromMap<T>(values: Record<string, T>) {
   return {
-    get: async (key: string) => {
+    get: (key: string) => {
       if (key in values) {
-        return ok({ value: values[key] });
+        return AsyncResult.lift(ok({ value: values[key] }));
       }
-      return err(new UnexpectedError({ cause: new Error(`missing ${key}`) }));
+      return AsyncResult.lift(
+        err(new UnexpectedError({ cause: new Error(`missing ${key}`) })),
+      );
     },
-    keys: async (filter: string) => {
+    keys: (filter: string) => {
       const parts = filter.split(".");
       const matches = Object.keys(values).filter((key) => {
         const keyParts = key.split(".");
@@ -24,11 +26,11 @@ function kvFromMap<T>(values: Record<string, T>) {
         }
         return i === keyParts.length;
       });
-      return ok({
+      return AsyncResult.lift(ok({
         async *[Symbol.asyncIterator]() {
           for (const key of matches) yield key;
         },
-      });
+      }));
     },
   };
 }
@@ -221,6 +223,52 @@ Deno.test("resolveSessionPrincipal does not borrow another activation for the sa
   assertEquals(result.ok, false);
   if (!result.ok) {
     assertEquals(result.error.reason, "unknown_device");
+  }
+});
+
+Deno.test("resolveSessionPrincipal rejects device sessions when the public identity key changes", async () => {
+  const result = await resolveSessionPrincipal(
+    {
+      type: "device",
+      instanceId: "dev-1",
+      publicIdentityKey: "A".repeat(43),
+      profileId: "drive.default",
+      contractId: "trellis.device@v1",
+      contractDigest: "digest-a",
+      delegatedCapabilities: ["device.sync"],
+      delegatedPublishSubjects: ["subject.v1.device.sync"],
+      delegatedSubscribeSubjects: ["events.v1.Device.Status.*"],
+      createdAt: new Date(),
+      lastAuth: new Date(),
+      activatedAt: null,
+      revokedAt: null,
+    },
+    "A".repeat(43),
+    {
+      servicesKV: kvFromMap({}),
+      deviceActivationsKV: kvFromMap({
+        "dev-1": {
+          instanceId: "dev-1",
+          publicIdentityKey: "B".repeat(43),
+          profileId: "drive.default",
+          state: "activated",
+          activatedAt: new Date().toISOString(),
+          revokedAt: null,
+        },
+      }),
+      deviceProfilesKV: kvFromMap({
+        "drive.default": {
+          profileId: "drive.default",
+          disabled: false,
+        },
+      }),
+      usersKV: kvFromMap({}),
+    },
+  );
+
+  assertEquals(result.ok, false);
+  if (!result.ok) {
+    assertEquals(result.error.reason, "device_activation_revoked");
   }
 });
 

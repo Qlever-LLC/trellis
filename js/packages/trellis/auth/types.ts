@@ -1,7 +1,4 @@
-export type NatsAuthTokenV1 = {
-  v: 1;
-  sessionKey: string;
-  sig: string;
-  bindingToken?: string;
-  iat?: number;
-};
+import type { StaticDecode } from "typebox";
+import { NatsAuthTokenV1Schema } from "./schemas.ts";
+
+export type NatsAuthTokenV1 = StaticDecode<typeof NatsAuthTokenV1Schema>;

@@ -161,11 +161,12 @@ export function decodeOpenObjectQuery(value: string): Record<string, unknown> {
 }
 
 export function buildRedirectLocation(target: string, values: Record<string, string>): string {
-  const url = new URL(target);
+  const relative = target.startsWith("/");
+  const url = relative ? new URL(target, "http://trellis.local") : new URL(target);
   for (const [key, value] of Object.entries(values)) {
     url.searchParams.set(key, value);
   }
-  return url.toString();
+  return relative ? `${url.pathname}${url.search}${url.hash}` : url.toString();
 }
 
 export function buildAppIdentity(args: {
@@ -241,7 +242,7 @@ export async function getApprovalResolution(
   const trellisId = await trellisIdFromOriginId(pending.user.origin, pending.user.id);
   const userEmail = pending.user.email ?? `${pending.user.origin}:${pending.user.id}`;
   const userName = pending.user.name ?? pending.user.id;
-  const app = buildAppIdentity({
+  const app = pending.app ?? buildAppIdentity({
     contractId: plan.contract.id,
     redirectTo: pending.redirectTo,
   });
@@ -295,7 +296,11 @@ export function getCookie(c: CookieContext, name: string): string | null {
     if (eq === -1) continue;
     const key = part.slice(0, eq);
     if (key !== name) continue;
-    return decodeURIComponent(part.slice(eq + 1));
+    try {
+      return decodeURIComponent(part.slice(eq + 1));
+    } catch {
+      return null;
+    }
   }
   return null;
 }

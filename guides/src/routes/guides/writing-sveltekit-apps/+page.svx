@@ -41,7 +41,7 @@ export const myApp = defineContract({
 });
 ```
 
-The defaults include at least `Auth.Me`, `Auth.Logout`, and `Auth.RenewBindingToken`, which most browser apps need. `Auth.Me` returns a `{ user, device, service }` envelope, with the device branch carrying the device identity and the activating user when applicable.
+The defaults include `Auth.Me` and `Auth.Logout`, which most browser apps need. `Auth.Me` returns a `{ user, device, service }` envelope, with the device branch carrying the device identity and the activating user when applicable.
 
 Contract source files should prefer `@qlever-llc/trellis/contracts`; keep runtime and auth helpers on `@qlever-llc/trellis` or `@qlever-llc/trellis-svelte`.
 
@@ -159,7 +159,7 @@ There are also optional callbacks:
 - `onAuthRequired` fires whenever `trellis-svelte` decides a new authentication flow is needed to continue. If you do not provide `onAuthRequired`, `trellis-svelte` automatically redirects the user to `loginPath` with a `redirectTo` query parameter that sends them back to where they were.
 - `onBindError` fires when the UI tried to bind itself to a Trellis session but could not continue. This is the same condition that selects the `bindError` snippet.
 
-`TrellisProvider` is the primary Svelte integration surface. It restores auth state, handles callbacks, calls `TrellisClient.connect(...)`, and puts the live client into Svelte context.
+`TrellisProvider` is the primary Svelte integration surface. It restores auth state, handles callbacks, calls `TrellisClient.connect(...)`, and puts the live client into Svelte context. It does not expose raw NATS handles; use `getTrellis()` for Trellis calls, `getAuth()` for auth state, and `getConnectionState()` for connection status.
 
 ## 6. Call RPCs
 

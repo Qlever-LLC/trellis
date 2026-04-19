@@ -178,7 +178,7 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
     const request = body;
     const nowSeconds = deps.nowSeconds?.() ?? Math.floor(Date.now() / 1_000);
     if (!isServiceBootstrapProofIatFresh(request.iat, nowSeconds)) {
-      return c.json({ reason: "iat_out_of_range" }, 400);
+      return c.json({ reason: "iat_out_of_range", serverNow: nowSeconds }, 400);
     }
 
     const proofOk = await deps.verifyIdentityProof({
@@ -254,9 +254,7 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
       );
     }
 
-    const contract = deps.contractStore.getContract(request.contractDigest, {
-      includeInactive: true,
-    });
+    const contract = deps.contractStore.getContract(request.contractDigest);
     if (!contract || contract.id !== request.contractId) {
       return c.json(
         bootstrapFailure(
@@ -306,6 +304,7 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
 
     return c.json({
       status: "ready",
+      serverNow: nowSeconds,
       connectInfo: {
         sessionKey: request.sessionKey,
         contractId: request.contractId,

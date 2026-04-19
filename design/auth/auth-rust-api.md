@@ -55,11 +55,6 @@ pub async fn connect_admin_client_async(
     state: &AdminSessionState,
 ) -> Result<TrellisClient, TrellisAuthError>;
 
-pub fn persist_renewed_admin_session(
-    state: &mut AdminSessionState,
-    renewed: RenewBindingTokenBoundResponse,
-) -> Result<(), TrellisAuthError>;
-
 pub fn save_admin_session(state: &AdminSessionState) -> Result<(), TrellisAuthError>;
 pub fn load_admin_session() -> Result<AdminSessionState, TrellisAuthError>;
 pub fn clear_admin_session() -> Result<bool, TrellisAuthError>;
@@ -88,6 +83,16 @@ Flow summary:
 reauth. It returns `AdminReauthOutcome::Bound(...)` when auth can auto-approve
 the new contract immediately, or `AdminReauthOutcome::Flow(...)` when the CLI
 must continue through the normal browser flow.
+
+`AdminSessionState` persists the current delegated `contract_digest` together
+with the session seed and sentinel credentials. Rust runtime reconnect
+regenerates the Trellis auth token from the stored session key and
+`contract_digest`; it does not persist or renew a separate binding token.
+
+`connect_admin_client_async(...)` uses reconnect-time auth callbacks. Each
+connect and reconnect regenerates the Trellis runtime auth payload from the
+current `iat` and persisted `contract_digest`, so the same NATS connection can
+survive transient reconnects without a fixed token snapshot.
 
 ## Admin RPC Surface
 
@@ -261,11 +266,6 @@ impl<'a> AuthClient<'a> {
     ) -> Result<AuthGetInstalledContractResponse, TrellisAuthError>;
 
     pub async fn logout(&self) -> Result<bool, TrellisAuthError>;
-    pub async fn renew_binding_token(
-        &self,
-        state: &mut AdminSessionState,
-        contract_digest: &str,
-    ) -> Result<RenewBindingTokenResponse, TrellisAuthError>;
     pub async fn validate_request(
         &self,
         request: &AuthValidateRequestRequest,

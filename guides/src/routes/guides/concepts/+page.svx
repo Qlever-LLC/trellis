@@ -102,7 +102,7 @@ All three share the same post-auth authorization pipeline. Installed and activat
 
 ### Session keys
 
-Every client has a local Ed25519 session key. The private seed never leaves the client. Authentication works by proving ownership of the session key in every RPC and NATS connect request.
+Every client has a local Ed25519 session key. The private seed never leaves the client. Authentication works by proving ownership of the session key in every RPC and runtime connect request. For user runtime reconnects, Trellis uses fresh signed proofs over the session key, active contract digest, and `iat` timestamp rather than renewable binding tokens.
 
 - **Installed devices** receive their identity when an operator installs the device contract against the device's public key
 - **Browser apps** store the session key in IndexedDB via WebCrypto (non-extractable)
@@ -118,8 +118,8 @@ The flow:
 1. An app redirects the browser to `GET /auth/login` with its session key, contract, and optional portal context
 2. Trellis creates a browser flow record, resolves any contract-specific login portal selection, otherwise falls back to the deployment login default custom portal when configured and then to the built-in Trellis login portal, and redirects into that portal
 3. The portal fetches `GET /auth/flow/:flowId` and renders UX based on the flow state — provider chooser, approval screen, optional app context, or a terminal redirect
-4. After the user authenticates and approval is satisfied, Trellis provisions the user immediately and the browser bind step exchanges the completed flow for a binding token and NATS credentials
-5. The app connects to NATS with those credentials
+4. After the user authenticates and approval is satisfied, Trellis provisions the user immediately and the browser bind/bootstrap flow returns the approved session metadata, transport endpoints, and sentinel credentials for the app session.
+5. The app connects through `TrellisClient.connect(...)`, which generates fresh signed runtime auth proofs from the local session key and current contract digest during connect and reconnect.
 
 Deployments can also configure **instance grant policies** for browser apps. An instance grant policy is keyed by contract lineage and may optionally restrict matching browser origins. When a policy matches, Trellis can imply approval and effective capabilities without copying those capabilities onto the user record. This is how a Trellis admin can remove first-login approval screens for trusted product apps while still keeping the policy deployment-owned and revocable.
 
@@ -223,11 +223,13 @@ Jobs are not visible to callers. If you need a caller-observable async workflow,
 | `@qlever-llc/trellis/server/node` | Node service runtime adapter |
 | `@qlever-llc/trellis/auth` | Full auth helper and auth schema surface |
 | `@qlever-llc/trellis/contracts` | Preferred contract authoring plus manifest validation and canonicalization surface |
-| `@qlever-llc/trellis-svelte` | Browser auth, NATS, and Trellis integration for Svelte apps |
+| `@qlever-llc/trellis-svelte` | Browser auth and Trellis integration for Svelte apps |
 | `@qlever-llc/trellis-telemetry` | Shared tracing helpers |
 | `@qlever-llc/trellis-jobs` | Job creation, processing, retry, progress tracking |
 | `@qlever-llc/trellis/sdk/*` | First-party generated SDK modules with typed DTOs for Trellis-owned contracts |
 
 `@qlever-llc/trellis/sdk/*` subpaths (for example `@qlever-llc/trellis/sdk/auth`, `@qlever-llc/trellis/sdk/core`, and `@qlever-llc/trellis/sdk/state`) are generated from contract definitions as part of the contract build pipeline. Import them for typed request or response types and `use(...)` declarations.
+
+`@qlever-llc/trellis-svelte` exposes Trellis-facing helpers such as `TrellisProvider`, `getTrellis()`, `getAuth()`, and `getConnectionState()`; raw NATS access is intentionally not part of its public API.
 
 On the Rust side, the equivalent building blocks are generated Rust SDK crates plus a generated crate for the app, service, or CLI you are building. That generated crate is the preferred ergonomic entrypoint because it exposes only the owned surface and `uses` aliases declared by the local contract.

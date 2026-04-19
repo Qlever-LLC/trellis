@@ -11,7 +11,6 @@ import { ensureBoundUserSession } from "../session/bind.ts";
 import { getConfig } from "../../config.ts";
 import type { ContractStore } from "../../catalog/store.ts";
 import {
-  bindingTokenKV,
   browserFlowsKV,
   connectionsKV,
   contractApprovalsKV,
@@ -78,6 +77,7 @@ import {
 import { upsertUserProjection } from "../session/projection.ts";
 import {
   type AuthStartBoundResponse,
+  buildAuthStartSignaturePayload,
   createAuthStartRequestHandler,
   type CurrentUserSession,
 } from "./start_request.ts";
@@ -129,33 +129,6 @@ export function registerHttpRoutes(
       }
       throw error;
     }
-  }
-
-  function canonicalizeJsonValue(value: unknown): string {
-    if (value === null) return "null";
-    if (typeof value === "boolean") return value ? "true" : "false";
-    if (typeof value === "number") {
-      if (!Number.isFinite(value)) {
-        throw new Error("JSON numbers must be finite");
-      }
-      return JSON.stringify(value);
-    }
-    if (typeof value === "string") return JSON.stringify(value);
-    if (Array.isArray(value)) {
-      return `[${value.map(canonicalizeJsonValue).join(",")}]`;
-    }
-    if (typeof value === "object") {
-      const keys = Object.keys(value).sort();
-      return `{${
-        keys.map((key) =>
-          `${JSON.stringify(key)}:${
-            canonicalizeJsonValue((value as Record<string, unknown>)[key])
-          }`
-        ).join(",")
-      }}`;
-    }
-
-    throw new Error("Value is not JSON-serializable");
   }
 
   type BrowserFlowRecord = {
@@ -289,6 +262,8 @@ export function registerHttpRoutes(
       name: session.name,
       ...(session.image ? { image: session.image } : {}),
       contractId: session.contractId,
+      ...(session.app ? { app: session.app } : {}),
+      ...(session.appOrigin ? { appOrigin: session.appOrigin } : {}),
       delegatedCapabilities: session.delegatedCapabilities,
       delegatedPublishSubjects: session.delegatedPublishSubjects,
       delegatedSubscribeSubjects: session.delegatedSubscribeSubjects,
@@ -402,28 +377,12 @@ export function registerHttpRoutes(
       throw new HTTPException(500, { message: "Failed to create session" });
     }
 
-    const bindingToken = randomToken(32);
-    const bindingTokenHash = await hashKey(bindingToken);
-    const bindingTtlMs = args.resolution.plan.contract.id === CLI_CONTRACT_ID
-      ? args.tokenKind === "initial"
-        ? config.ttlMs.bindingTokens.cliInitial
-        : config.ttlMs.bindingTokens.cliRenew
-      : args.tokenKind === "initial"
-      ? config.ttlMs.bindingTokens.initial
-      : config.ttlMs.bindingTokens.renew;
-    const bindingExpiresAt = new Date(now.getTime() + bindingTtlMs);
-    await bindingTokenKV.put(bindingTokenHash, {
-      sessionKey: args.pendingValue.sessionKey,
-      kind: args.tokenKind,
-      createdAt: now,
-      expiresAt: bindingExpiresAt,
-    });
+    const expiresAt = new Date(now.getTime() + config.ttlMs.sessions);
 
     return {
       status: "bound",
-      bindingToken,
       inboxPrefix: `_INBOX.${args.pendingValue.sessionKey.slice(0, 16)}`,
-      expires: bindingExpiresAt.toISOString(),
+      expires: expiresAt.toISOString(),
       sentinel: sentinelCreds,
       transports: buildClientTransports(config),
     };
@@ -594,15 +553,8 @@ export function registerHttpRoutes(
         const entry = (await instanceGrantPoliciesKV.get(contractId)).take();
         return isErr(entry) ? [] : [entry.value];
       },
-      bindingTokenKV,
-      hashKey,
-      randomToken,
       verifyIdentityProof: ({ sessionKey, iat, sig }) =>
         verifyDomainSig(sessionKey, "bootstrap-client", String(iat), sig),
-      bindingTokenTtlMs: (session) =>
-        session.contractId === CLI_CONTRACT_ID
-          ? config.ttlMs.bindingTokens.cliRenew
-          : config.ttlMs.bindingTokens.renew,
     }),
   );
 
@@ -665,13 +617,10 @@ export function registerHttpRoutes(
 
   const authStartRequestHandler = createAuthStartRequestHandler({
     verifyInitRequest: async (req) => {
-      const signedRedirect = `${req.redirectTo}:${
-        canonicalizeJsonValue(req.context ?? null)
-      }`;
       return verifyDomainSig(
         req.sessionKey,
         "oauth-init",
-        signedRedirect,
+        buildAuthStartSignaturePayload(req),
         req.sig,
       );
     },
@@ -796,11 +745,20 @@ export function registerHttpRoutes(
     } catch {
       throw new HTTPException(400, { message: "Invalid request" });
     }
-    const signedRedirect = `${redirectTo}:${
-      canonicalizeJsonValue(decodedContext ?? null)
-    }`;
     if (
-      !(await verifyDomainSig(sessionKey, "oauth-init", signedRedirect, sig))
+      !(await verifyDomainSig(
+        sessionKey,
+        "oauth-init",
+        buildAuthStartSignaturePayload({
+          provider: requestedProvider,
+          redirectTo,
+          sessionKey,
+          sig,
+          contract: decodedContract,
+          ...(decodedContext ? { context: decodedContext } : {}),
+        }),
+        sig,
+      ))
     ) {
       throw new HTTPException(400, { message: "Invalid signature" });
     }
