@@ -24,6 +24,7 @@ These headings are intentionally named for fast human and AI lookup.
 ## Practical Guides
 
 - Service-local RPC errors: `../docs/guides/service-local-rpc-errors.md`
+- Contract state stores: `../docs/guides/contract-state.md`
 - Transfer-backed file processing workflows: `../docs/guides/transfer-file-processing-workflows.md`
 - Working with staged uploaded files: `../docs/guides/staged-store-uploads.md`
 
@@ -52,7 +53,7 @@ These headings are intentionally named for fast human and AI lookup.
 | ---------------------------------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
 | `core/platform-libraries.md`       | You are changing library/package boundaries                     | Package ownership and runtime responsibilities                                     |
 | `core/files-transfer-patterns.md`  | You are changing the public files API or operation-native transfer | Contract-owned file metadata APIs, transfer-capable operations, and runtime helper boundaries |
-| `core/state-patterns.md`           | You are changing the public shared state API                    | Trellis-managed app state scopes, auth rules, revision semantics, and TTL behavior |
+| `core/state-patterns.md`           | You are changing the public shared state API                    | Named store declarations, runtime state semantics, admin inspection, and TTL behavior |
 | `core/kv-resource-patterns.md`     | You are changing KV buckets, keys, TTLs, or projections         | KV naming, TTL, and projection rules                                               |
 | `core/store-resource-patterns.md`  | You are changing service-owned blob store resources             | Store resource shape, runtime semantics, and auth boundaries                       |
 | `core/type-system-patterns.md`     | You are changing schemas, Result, or error modeling             | Shared type-system and validation rules                                            |
@@ -80,6 +81,7 @@ ergonomics.
 | `operations/operations-rust-api.md`       | Rust operations API                 | Implementing or reviewing Rust operation clients/services                                |
 | `jobs/jobs-typescript-api.md`             | TypeScript jobs API                 | Implementing or reviewing TS jobs service/admin APIs                                     |
 | `jobs/jobs-rust-api.md`                   | Rust jobs API                       | Implementing or reviewing Rust jobs service/admin APIs                                   |
+| `state/state-typescript-api.md`           | TypeScript state API                | Implementing or reviewing TS contract state authoring or runtime state ergonomics        |
 | `core/files-transfer-patterns.md`         | Files and transfer API              | Implementing or reviewing service-owned files APIs and operation-native transfer behavior |
 
 ## Suggested Read Paths
@@ -134,6 +136,13 @@ ergonomics.
 1. `core/store-resource-patterns.md`
 2. `contracts/trellis-contracts-catalog.md`
 3. relevant language surface doc if the public runtime API changes
+
+### Work on contract state
+
+1. `core/state-patterns.md`
+2. `state/state-typescript-api.md`
+3. `contracts/trellis-contracts-catalog.md`
+4. `contracts/trellis-typescript-contract-authoring.md` when changing TS authoring
 
 ### Work on files or transfer
 

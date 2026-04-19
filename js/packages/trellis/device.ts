@@ -1,6 +1,5 @@
 import { jwtAuthenticator, type Authenticator, type NatsConnection } from "@nats-io/nats-core";
-import { Buffer } from "node:buffer";
-import { createHash, createPrivateKey, sign as signBytesSync } from "node:crypto";
+import { CONTRACT_STATE_METADATA, type ContractStateMetadata } from "./contract_support/mod.ts";
 
 import {
   buildDeviceActivationPayload,
@@ -12,29 +11,42 @@ import {
 } from "./auth/device_activation.ts";
 import {
   importEd25519PrivateKeyFromSeedBase64url,
-  pkcs8FromEd25519Seed,
+  signEd25519SeedSha256,
 } from "./auth/keys.ts";
 import { base64urlDecode, base64urlEncode, toArrayBuffer } from "./auth/utils.ts";
 import type { TrellisAPI } from "./contracts.ts";
 import { loadDefaultRuntimeTransport } from "./runtime_transport.ts";
 import { selectRuntimeTransportServers } from "./runtime_transport.ts";
 import { ServiceHealth } from "./health.ts";
-import { Trellis } from "./trellis.ts";
+import { Trellis, type RuntimeStateStoresForContract } from "./trellis.ts";
 import { Type, type StaticDecode } from "typebox";
 import { Value } from "typebox/value";
 
-type DeviceContract<TApi extends TrellisAPI = TrellisAPI> = {
+type DeviceContract<
+  TApi extends TrellisAPI = TrellisAPI,
+  TContract extends {
+    state?: Readonly<Record<string, unknown>>;
+    schemas?: Readonly<Record<string, unknown>>;
+  } = {
+    state?: Readonly<Record<string, unknown>>;
+    schemas?: Readonly<Record<string, unknown>>;
+  },
+> = {
   CONTRACT_ID: string;
   CONTRACT_DIGEST: string;
-  CONTRACT?: {
+  CONTRACT: TContract & {
     displayName?: string;
   };
   API: {
     trellis: TApi;
   };
+  readonly [CONTRACT_STATE_METADATA]?: ContractStateMetadata;
 };
 
-export type TrellisDeviceConnection<TApi extends TrellisAPI = TrellisAPI> = Trellis<TApi> & {
+export type TrellisDeviceConnection<
+  TApi extends TrellisAPI = TrellisAPI,
+  TState extends Record<string, { kind: "value" | "map"; value: unknown }> = {},
+> = Trellis<TApi, "client", TState> & {
   health: ServiceHealth;
 };
 
@@ -67,9 +79,18 @@ export type DeviceActivationController = {
   acceptConfirmationCode(code: string): Promise<void>;
 };
 
-export type TrellisDeviceConnectArgs<TApi extends TrellisAPI = TrellisAPI> = {
+export type TrellisDeviceConnectArgs<
+  TApi extends TrellisAPI = TrellisAPI,
+  TContract extends DeviceContract<TApi, {
+    state?: Readonly<Record<string, unknown>>;
+    schemas?: Readonly<Record<string, unknown>>;
+  }> = DeviceContract<TApi, {
+    state?: Readonly<Record<string, unknown>>;
+    schemas?: Readonly<Record<string, unknown>>;
+  }>,
+> = {
   trellisUrl: string;
-  contract: DeviceContract<TApi>;
+  contract: TContract;
   rootSecret: Uint8Array | string;
   onActivationRequired?(activation: DeviceActivationController): Promise<void>;
 };
@@ -134,16 +155,9 @@ function createDeviceNatsAuthTokenAuthenticator(args: {
   contractDigest: string;
   now: () => number;
 }): Authenticator {
-  const reconnectKey = createPrivateKey({
-    key: Buffer.from(pkcs8FromEd25519Seed(args.identitySeed)),
-    format: "der",
-    type: "pkcs8",
-  });
-
   return () => {
     const iat = Math.floor(args.now() / 1_000);
-    const digest = createHash("sha256").update(`nats-connect:${iat}`, "utf8").digest();
-    const sig = signBytesSync(null, digest, reconnectKey);
+    const sig = signEd25519SeedSha256(args.identitySeed, new TextEncoder().encode(`nats-connect:${iat}`));
     return {
       auth_token: JSON.stringify({
         v: 1,
@@ -206,10 +220,16 @@ async function fetchDeviceBootstrap(args: {
   throw new Error("Device bootstrap returned an invalid response");
 }
 
-export async function connectDeviceWithDeps<TApi extends TrellisAPI>(
-  args: TrellisDeviceConnectArgs<TApi>,
+export async function connectDeviceWithDeps<
+  TApi extends TrellisAPI,
+  TContract extends DeviceContract<TApi, {
+    state?: Readonly<Record<string, unknown>>;
+    schemas?: Readonly<Record<string, unknown>>;
+  }>,
+>(
+  args: TrellisDeviceConnectArgs<TApi, TContract>,
   deps: DeviceConnectDeps,
-): Promise<TrellisDeviceConnection<TApi>> {
+): Promise<TrellisDeviceConnection<TApi, RuntimeStateStoresForContract<TContract>>> {
   const rootSecret = normalizeRootSecret(args.rootSecret);
   const identity = await deriveDeviceIdentity(rootSecret);
   const contractDigest = args.contract.CONTRACT_DIGEST;
@@ -321,7 +341,11 @@ export async function connectDeviceWithDeps<TApi extends TrellisAPI>(
     ],
   });
 
-  const trellis = new Trellis<TApi>(
+  const trellis = new Trellis<
+    TApi,
+    "client",
+    RuntimeStateStoresForContract<TContract>
+  >(
     args.contract.CONTRACT_ID,
     nc,
     {
@@ -330,6 +354,7 @@ export async function connectDeviceWithDeps<TApi extends TrellisAPI>(
     },
     {
       api: args.contract.API.trellis,
+      state: args.contract[CONTRACT_STATE_METADATA],
     },
   );
 
@@ -391,9 +416,15 @@ export async function connectDeviceWithDeps<TApi extends TrellisAPI>(
 }
 
 export const TrellisDevice = {
-  connect<TApi extends TrellisAPI>(
-    args: TrellisDeviceConnectArgs<TApi>,
-  ): Promise<TrellisDeviceConnection<TApi>> {
-    return connectDeviceWithDeps<TApi>(args, defaultDeps);
+  connect<
+    TApi extends TrellisAPI,
+    TContract extends DeviceContract<TApi, {
+      state?: Readonly<Record<string, unknown>>;
+      schemas?: Readonly<Record<string, unknown>>;
+    }>,
+  >(
+    args: TrellisDeviceConnectArgs<TApi, TContract>,
+  ): Promise<TrellisDeviceConnection<TApi, RuntimeStateStoresForContract<TContract>>> {
+    return connectDeviceWithDeps<TApi, TContract>(args, defaultDeps);
   },
 };

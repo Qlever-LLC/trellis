@@ -12,10 +12,6 @@ import {
   StateAdminListSchema,
 } from "../../../packages/trellis/models/trellis/rpc/StateAdminList.ts";
 import {
-  StateCompareAndSetResponseSchema,
-  StateCompareAndSetSchema,
-} from "../../../packages/trellis/models/trellis/rpc/StateCompareAndSet.ts";
-import {
   StateDeleteResponseSchema,
   StateDeleteSchema,
 } from "../../../packages/trellis/models/trellis/rpc/StateDelete.ts";
@@ -49,8 +45,6 @@ const schemas = {
   StatePutResponse: StatePutResponseSchema,
   StateDeleteRequest: StateDeleteSchema,
   StateDeleteResponse: StateDeleteResponseSchema,
-  StateCompareAndSetRequest: StateCompareAndSetSchema,
-  StateCompareAndSetResponse: StateCompareAndSetResponseSchema,
   StateListRequest: StateListSchema,
   StateListResponse: StateListResponseSchema,
   StateAdminGetRequest: StateAdminGetSchema,
@@ -84,12 +78,6 @@ export const trellisState = defineServiceContract(
         version: "v1",
         input: ref.schema("StateDeleteRequest"),
         output: ref.schema("StateDeleteResponse"),
-        errors: [ref.error("AuthError"), ref.error("ValidationError"), ref.error("UnexpectedError")],
-      },
-      "State.CompareAndSet": {
-        version: "v1",
-        input: ref.schema("StateCompareAndSetRequest"),
-        output: ref.schema("StateCompareAndSetResponse"),
         errors: [ref.error("AuthError"), ref.error("ValidationError"), ref.error("UnexpectedError")],
       },
       "State.List": {

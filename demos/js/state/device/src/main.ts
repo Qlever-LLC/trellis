@@ -5,7 +5,6 @@ import { printJson, printScenarioHeading } from "../../../shared/logging.ts";
 
 const trellisUrl = Deno.args[0]?.trim();
 const rootSecret = Deno.args[1]?.trim();
-const scope = "deviceApp" as const;
 
 type SelectedSiteState = {
   siteId: string;
@@ -41,7 +40,7 @@ async function main(): Promise<void> {
   }
 
   printScenarioHeading("Inspection state device");
-  console.info("Connected as", me.device?.deviceId ?? "unknown-device");
+  console.info("Connected to inspection state demo device runtime");
 
   const selectedInspection = ASSIGNED_INSPECTIONS[0];
   const draftInspections = ASSIGNED_INSPECTIONS.slice(0, 2);
@@ -64,47 +63,34 @@ async function main(): Promise<void> {
     updatedAt: new Date(Date.now() + index * 60_000).toISOString(),
   }));
 
-  const selectedSitePut = (await device.request("State.Put", {
-    scope,
-    key: "selected-site",
-    value: selectedSite,
-  })).take();
+  const selectedSitePut = (await device.state.selectedSite.put(selectedSite)).take();
   if (isErr(selectedSitePut)) {
     throw selectedSitePut.error;
   }
 
   for (const draft of drafts) {
-    const draftPut = (await device.request("State.Put", {
-      scope,
-      key: `draft-inspection/${draft.inspectionId}`,
-      value: draft,
-    })).take();
+    const draftPut = (await device.state.draftInspections.put(
+      draft.inspectionId,
+      draft,
+    )).take();
     if (isErr(draftPut)) {
       throw draftPut.error;
     }
   }
 
-  const selectedSiteEntry = (await device.request("State.Get", {
-    scope,
-    key: "selected-site",
-  })).take();
+  const selectedSiteEntry = (await device.state.selectedSite.get()).take();
   if (isErr(selectedSiteEntry)) {
     throw selectedSiteEntry.error;
   }
 
-  const firstDraftEntry = (await device.request("State.Get", {
-    scope,
-    key: `draft-inspection/${drafts[0].inspectionId}`,
-  })).take();
+  const firstDraftEntry = (await device.state.draftInspections.get(
+    drafts[0].inspectionId,
+  )).take();
   if (isErr(firstDraftEntry)) {
     throw firstDraftEntry.error;
   }
 
-  const listedEntries = (await device.request("State.List", {
-    scope,
-    offset: 0,
-    limit: 10,
-  })).take();
+  const listedEntries = (await device.state.draftInspections.list({ limit: 10 })).take();
   if (isErr(listedEntries)) {
     throw listedEntries.error;
   }

@@ -1,2 +1,2 @@
-export * from "../../../../generated/js/sdks/state/mod.ts";
-export { state } from "../../../../generated/js/sdks/state/mod.ts";
+export * from "../../trellis-sdk/state.ts";
+export { state } from "../../trellis-sdk/state.ts";

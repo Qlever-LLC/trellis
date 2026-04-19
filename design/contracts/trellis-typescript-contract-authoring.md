@@ -141,15 +141,24 @@ For locally authored TypeScript contract source files under `contracts/*.ts`:
   contract files
 - services should normally use
   `defineServiceContract({ schemas, errors }, (ref) => ({ ... }))`
-- apps should normally use `defineAppContract(() => ({ ... }))`
-- portals should normally use `definePortalContract(() => ({ ... }))`
-- devices should normally use `defineDeviceContract(() => ({ ... }))`
-- CLIs should normally use `defineCliContract(() => ({ ... }))`
+- apps should normally use `defineAppContract({ schemas }, (ref) => ({ ... }))`
+  when they declare schema-backed state, and `defineAppContract(() => ({ ... }))`
+  otherwise
+- portals should normally use
+  `definePortalContract({ schemas }, (ref) => ({ ... }))` when they declare
+  schema-backed state, and `definePortalContract(() => ({ ... }))` otherwise
+- devices should normally use
+  `defineDeviceContract({ schemas }, (ref) => ({ ... }))` when they declare
+  schema-backed state, and `defineDeviceContract(() => ({ ... }))` otherwise
+- CLIs should normally use `defineCliContract({ schemas }, (ref) => ({ ... }))`
+  when they declare schema-backed state, and `defineCliContract(() => ({ ... }))`
+  otherwise
 - `schemas` and local `errors` act as registries supplied to the contract
   builder for service contracts, while the callback body defines the owned
   surfaces, resources, and `uses`
-- app-, portal-, cli-, and device-style contracts do not take schema/error
-  registries today and should normally be `uses`-only participants
+- app-, portal-, cli-, and device-style contracts may also take a `schemas`
+  registry when they declare schema-backed owned surfaces such as top-level
+  `state`
 - schema refs should normally use `ref.schema("...")`
 - RPC `errors: [...]` entries should normally use `ref.error("...")` for both
   local declarations and built-in Trellis RPC errors such as `UnexpectedError`,
@@ -246,6 +255,44 @@ Some SDKs may also expose convenience wrappers around `use(...)`. For example,
 `@qlever-llc/trellis-sdk` exposes `auth.useDefaults(...)`, which adds the
 baseline user-session RPC declarations `Auth.Me` and `Auth.Logout` before
 merging any additional requested auth surfaces.
+
+### 3b) Named contract state stores
+
+TypeScript contract authoring declares public Trellis-managed state through the
+top-level `state` map.
+
+Example:
+
+```ts
+const schemas = {
+  Preferences: Type.Object({ theme: Type.String() }),
+  Draft: Type.Object({ title: Type.String() }),
+} as const;
+
+export const notes = defineAppContract(
+  { schemas },
+  (ref) => ({
+    id: "acme.notes@v1",
+    displayName: "Notes",
+    description: "Notes app",
+    state: {
+      preferences: { kind: "value", schema: ref.schema("Preferences") },
+      drafts: { kind: "map", schema: ref.schema("Draft") },
+    },
+  }),
+);
+```
+
+Rules:
+
+- state stores are declared at top level under `state`
+- each state store requires `kind: "value" | "map"`
+- each state store requires `schema: ref.schema("...")`
+- the referenced schema must exist in the local `schemas` registry
+- the declared stores project to the runtime surface at `trellis.state.<store>`
+- normal runtime callers do not declare or pass a public `scope`
+- conditional writes use runtime `put(..., { expectedRevision })`, not a
+  separate compare-and-set helper
 
 ### 4) TypeScript enforcement of declared permissions
 

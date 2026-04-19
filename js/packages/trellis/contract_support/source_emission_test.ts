@@ -193,6 +193,67 @@ Deno.test("defineServiceContract emits RPC error refs using declared wire types"
   ]);
 });
 
+Deno.test("defineAppContract emits top-level named state declarations", async () => {
+  const dashboardSchemas = {
+    Preferences: Type.Object({ theme: Type.String() }),
+    Draft: Type.Object({ title: Type.String() }),
+  } as const;
+
+  const dashboard = defineAppContract(
+    { schemas: dashboardSchemas },
+    (ref) => ({
+      id: "trellis.dashboard@v1",
+      displayName: "Dashboard",
+      description: "Persist dashboard preferences and drafts.",
+      state: {
+        preferences: {
+          kind: "value",
+          schema: ref.schema("Preferences"),
+        },
+        drafts: {
+          kind: "map",
+          schema: ref.schema("Draft"),
+        },
+      },
+    }),
+  );
+
+  assertEquals(dashboard.CONTRACT, {
+    format: "trellis.contract.v1",
+    id: "trellis.dashboard@v1",
+    displayName: "Dashboard",
+    description: "Persist dashboard preferences and drafts.",
+    kind: "app",
+    schemas: {
+      Preferences: {
+        properties: { theme: { type: "string" } },
+        required: ["theme"],
+        type: "object",
+      },
+      Draft: {
+        properties: { title: { type: "string" } },
+        required: ["title"],
+        type: "object",
+      },
+    },
+    state: {
+      preferences: {
+        kind: "value",
+        schema: { schema: "Preferences" },
+      },
+      drafts: {
+        kind: "map",
+        schema: { schema: "Draft" },
+      },
+    },
+  });
+
+  assertEquals(
+    dashboard.CONTRACT_DIGEST,
+    (await digestJson(dashboard.CONTRACT)).digest,
+  );
+});
+
 Deno.test("defineServiceContract derives local error schemas from defineError runtime metadata", () => {
   const NotFoundError = defineError({
     type: "NotFoundError",

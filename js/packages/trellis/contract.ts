@@ -1,7 +1,12 @@
 import {
   type ContractApiViews,
   type ContractDependencyUse,
+  type ContractJobsMetadata,
+  type ContractStateMetadata,
   type ContractModule,
+  type ContractState,
+  type ContractStateKind,
+  type ContractStateStore,
   type ContractUseFn,
   type DefineContractInput,
   type DefinedContract as BaseDefinedContract,
@@ -39,7 +44,16 @@ export type DefinedContract<
     subjects: Record<string, unknown>;
   },
   TContractId extends string = string,
-> = BaseDefinedContract<TOwnedApi, TUsedApi, TTrellisApi, TContractId>;
+  TJobs extends ContractJobsMetadata = {},
+  TState extends ContractStateMetadata = {},
+> = BaseDefinedContract<
+  TOwnedApi,
+  TUsedApi,
+  TTrellisApi,
+  TContractId,
+  TJobs,
+  TState
+>;
 
 export {
   defineAppContract,
@@ -53,6 +67,9 @@ export type {
   ContractApiViews,
   ContractDependencyUse,
   ContractModule,
+  ContractState,
+  ContractStateKind,
+  ContractStateStore,
   ContractUseFn,
   DefineContractInput,
   EmptyApi,

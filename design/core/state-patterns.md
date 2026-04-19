@@ -1,49 +1,145 @@
 # State Patterns
 
-`State` is the Trellis-managed API for semi-durable app state that should be available across app instances, CLIs, and devices through authenticated RPCs.
+`State` is the Trellis-managed API for semi-durable contract-owned state that
+should be available across authenticated app and device sessions.
 
 ## Purpose
 
-- provide cloud-backed app memory similar to localStorage or IndexedDB
-- preserve state across app upgrades and across instances of the same app contract
-- keep raw KV resources service-owned while exposing a public Trellis-managed API to apps and devices
+- provide cloud-backed contract state similar to app-local preferences or drafts
+- preserve state across upgrades within one contract lineage
+- keep raw KV resources service-owned while exposing a Trellis-owned public state
+  surface to normal callers
 
-`State` is not a replacement for service-owned `resources.kv`. Services that need internal KV projections or private state should continue to use `resources.kv` directly.
+`State` is not a replacement for service-owned `resources.kv`. Services that
+need private projections or internal checkpoints should continue to use
+`resources.kv` directly.
+
+## Contract Model
+
+The public state model is a top-level contract `state` declaration.
+
+Each declared store is named and schema-backed:
+
+- the contract declares `state.<storeName>`
+- each store requires `kind: "value" | "map"`
+- each store requires `schema: { schema: "SchemaName" }`
+- the referenced schema must exist in the contract's top-level `schemas` map
+
+Example:
+
+```ts
+const contract = defineAppContract(
+  {
+    schemas: {
+      Preferences: Type.Object({ theme: Type.String() }),
+      Draft: Type.Object({ title: Type.String() }),
+    },
+  },
+  (ref) => ({
+    id: "acme.notes@v1",
+    displayName: "Notes",
+    description: "Notes app",
+    state: {
+      preferences: { kind: "value", schema: ref.schema("Preferences") },
+      drafts: { kind: "map", schema: ref.schema("Draft") },
+    },
+  }),
+);
+```
+
+## Store Kinds
+
+### `kind: "value"`
+
+A value store holds one value for the authenticated caller and contract.
+
+- no public key argument
+- runtime helpers are `get()`, `put(value, opts?)`, and `delete(opts?)`
+
+Typical use cases:
+
+- preferences
+- selected workspace
+- last-viewed item
+
+### `kind: "map"`
+
+A map store holds many values under caller-provided keys for the authenticated
+caller and contract.
+
+- public key argument is required for `get`, `put`, and `delete`
+- `list(...)` is available only on map stores
+- `prefix(path)` creates a narrowed map-store view rooted at that path
+
+Typical use cases:
+
+- drafts
+- per-document UI state
+- cached records keyed by id
 
 ## Ownership And Boundary
 
 - `State` is a Trellis-owned contract surface
 - v1 is implemented by the `trellis` service
-- v1 is backed internally by a Trellis-owned NATS KV bucket
-- callers only interact with authenticated RPCs like `State.Get` or `State.Put`
+- backing storage is a Trellis-owned internal KV bucket
+- normal callers use contract-declared stores, not raw buckets or raw subjects
 
-This mirrors the existing `Files` boundary: the public API is contract-owned and the storage backing remains an implementation detail.
+This mirrors the `Files` boundary: the public API is contract-owned and the
+storage backing remains an implementation detail.
 
-## Scopes
+## Normal Runtime Surface
 
-v1 supports two scopes:
+The normal client/device runtime exposes declared stores at
+`trellis.state.<store>`.
 
-- `userApp`: state for one authenticated user within one app contract namespace
-- `deviceApp`: state for one authenticated device within one app contract namespace
+Example:
 
-`State` does not support cross-app shared namespaces in v1.
+```ts
+const preferences = await trellis.state.preferences.get();
 
-## Namespace Ownership
+const created = await trellis.state.preferences.put(
+  { theme: "dark" },
+  { expectedRevision: null },
+);
 
-- persistence namespaces are keyed by `contractId`
-- authorization is still derived from the authenticated approved artifact for the current session
-- app upgrades must not lose state only because the contract digest changed
+const activeDrafts = trellis.state.drafts.prefix("inspection/active");
+const listed = await activeDrafts.list({ limit: 20 });
+```
 
-The persistence namespace should therefore be stable across versions of the same app contract while access still depends on an authenticated session that belongs to that app lineage.
+Rules:
 
-## Public Data Model
+- the store name comes from the contract's top-level `state` map
+- normal callers do not provide `contractId`, `scope`, user identity, or device
+  identity
+- the runtime derives the target namespace from the authenticated session and the
+  active contract digest
+- there is no public normal-client generic keyspace API and no public normal-
+  client `scope` parameter
 
-- keys are opaque strings to Trellis
-- values are JSON on the wire
-- every stored entry returns a revision token
-- callers may attach an optional TTL per entry
+## Conditional Writes
 
-Public entry shape:
+Conditional writes use `put(..., { expectedRevision })`.
+
+- omit `expectedRevision` for unconditional create-or-overwrite
+- use `expectedRevision: null` for create-if-absent
+- use `expectedRevision: "<revision>"` for update-if-current-revision-matches
+- `delete(..., { expectedRevision })` supports delete-if-current-revision-
+  matches
+
+There is no separate normal-client compare-and-set API in the named-store model.
+
+## Public Entry Model
+
+State entries are JSON values plus Trellis-managed revision metadata.
+
+Value-store entry shape:
+
+- `value`
+- `revision`
+- `updatedAt`
+- `expiresAt?`
+
+Map-store entry shape:
 
 - `key`
 - `value`
@@ -51,66 +147,61 @@ Public entry shape:
 - `updatedAt`
 - `expiresAt?`
 
-## RPC Surface
+## Listing And Prefixing
 
-Normal callers:
+`list(...)` applies only to map stores.
 
-- `State.Get`
-- `State.Put`
-- `State.Delete`
-- `State.CompareAndSet`
-- `State.List`
+- results are lexicographic by key
+- pagination uses `offset` and `limit`
+- the current runtime default `limit` is `100`
+- `prefix(path)` composes path prefixes on the client and keeps the same typed
+  map-store API
 
-Admin callers:
+Example:
 
-- `State.Admin.Get`
-- `State.Admin.List`
-- `State.Admin.Delete`
+```ts
+const drafts = trellis.state.drafts.prefix("inspection/active");
 
-Normal callers do not provide `contractId`, `trellisId`, or device identity explicitly. The handler derives those from the authenticated session.
+await drafts.put("open", { title: "Draft" });
+await drafts.get("open");
+await drafts.list({ limit: 10 });
+```
 
-## Semantics
+## Validation
 
-- `State.Get`: returns `found: false` for a missing or expired key
-- `State.Put`: unconditional create or overwrite
-- `State.Delete`: unconditional when `expectedRevision` is omitted; conditional when it is present
-- `State.CompareAndSet`: write only if the current revision matches `expectedRevision`
-- `expectedRevision: null` in `State.CompareAndSet` means create only if absent
-- `State.List`: lexicographic by key and paginated with `offset` and `limit`
-
-`State.List` returns full values in v1. `State` is meant for relatively small values, not large blobs.
+- writes are validated against the declared store schema before the request is
+  sent
+- reads are validated against the declared store schema after the response is
+  parsed
+- state values must be valid JSON on the wire
 
 ## TTL
 
-NATS KV TTL is bucket-level, not per-entry. v1 therefore implements TTL as application-managed expiry metadata:
+NATS KV TTL is bucket-level, not per-entry. v1 therefore implements TTL as
+application-managed expiry metadata:
 
-- each entry may include `expiresAt`
-- expired entries are treated as absent by `Get`, `List`, `Delete`, and `CompareAndSet`
+- `put(..., { ttlMs })` may attach expiry metadata to one entry
+- expired entries are treated as absent by `get`, `list`, `put` conditional
+  checks, and `delete`
 - handlers may opportunistically delete expired entries when encountered
 
-This keeps the public API simple while still allowing cache-like behavior for callers that want it.
+## Admin Inspection
 
-## Limits
+Admin inspection is separate from the normal runtime API.
 
-v1 enforces request-level limits such as:
-
-- maximum key size
-- maximum value size
-- maximum list page size
-
-Strict total per-namespace quota enforcement is out of scope for v1.
-
-## Admin Model
-
-- admins may inspect any `userApp` or `deviceApp` namespace
-- admins may delete individual keys from any namespace
-- admin APIs should target human-meaningful identities like `{ origin, id }` for users rather than raw internal Trellis ids
+- normal callers use only `trellis.state.<store>`
+- admin callers use dedicated `State.Admin.*` RPCs
+- admin APIs still target an explicit namespace and may distinguish
+  `scope: "userApp" | "deviceApp"`
+- admin APIs are for inspection and mutation by administrators, not for normal
+  app/device runtime access
 
 ## Non-Goals
 
-- cross-app shared namespaces
+- a public normal-client `scope` parameter
+- a public normal-client generic key/value namespace as the primary API
+- cross-contract shared namespaces
 - watch or realtime subscriptions
-- delete-all or delete-prefix APIs
 - service use of `State` instead of `resources.kv`
 - binary/blob transport semantics
 - patch or merge helpers in the contract surface

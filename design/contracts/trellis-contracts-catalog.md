@@ -129,12 +129,14 @@ A `trellis.contract.v1` manifest has this top-level structure:
   "displayName": "Graph Service",
   "description": "Serve graph RPCs and publish graph change events.",
   "kind": "service",
+  "schemas": {},
   "uses": {},
   "jobs": {},
   "operations": {},
   "rpc": {},
   "events": {},
   "subjects": {},
+  "state": {},
   "resources": {
     "kv": {
       "state": {
@@ -158,18 +160,22 @@ Top-level fields:
 | `displayName` | yes      | string | Human-facing contract name shown in tooling and approval UIs       |
 | `description` | yes      | string | Human-facing explanation of the contract's purpose                 |
 | `kind`        | yes      | string | Contract role such as `service`, `app`, `portal`, `device`, `cli`  |
+| `schemas`     | no       | object | Reusable self-contained JSON Schema values keyed by schema name    |
 | `uses`        | no       | object | Explicit cross-contract operation/RPC/event/subject dependencies   |
 | `jobs`        | no       | object | Map of first-class service-private job queue descriptors           |
 | `operations`  | no       | object | Map of logical operation names to operation descriptors            |
 | `rpc`         | no       | object | Map of logical RPC names to RPC operation descriptors              |
 | `events`      | no       | object | Map of logical event names to event descriptors                    |
 | `subjects`    | no       | object | Map of logical raw-subject names to subject descriptors            |
+| `state`       | no       | object | Map of named Trellis-managed state stores                          |
 | `resources`   | no       | object | Map of declarative cloud resource requests                         |
 | `errors`      | no       | object | Map of declared error types to error descriptors                   |
 
 Rules:
 
 - `format`, `id`, `displayName`, `description`, and `kind` are required.
+- `schemas` is the contract-level schema registry referenced by RPC,
+  operations, events, jobs, and state declarations.
 - `kind` drives discovery behavior in bootstrap-safe generation flows: `service`
   contracts generate manifests and SDKs, while `app`, `portal`, `device`, and
   `cli` contracts are verified.
@@ -650,6 +656,59 @@ Rules:
 - Trellis owns the shared jobs infrastructure and resolves any internal
   work-stream or projected-state bindings needed by the runtime; ordinary
   service-author APIs should use `service.jobs` rather than raw stream bindings
+
+### 10b) First-class state stores
+
+The optional top-level `state` map declares named Trellis-managed state stores.
+
+Example:
+
+```json
+{
+  "schemas": {
+    "Preferences": {
+      "type": "object",
+      "properties": {
+        "theme": { "type": "string" }
+      },
+      "required": ["theme"]
+    },
+    "Draft": {
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" }
+      },
+      "required": ["title"]
+    }
+  },
+  "state": {
+    "preferences": {
+      "kind": "value",
+      "schema": { "schema": "Preferences" }
+    },
+    "drafts": {
+      "kind": "map",
+      "schema": { "schema": "Draft" }
+    }
+  }
+}
+```
+
+Rules:
+
+- state store keys such as `preferences` and `drafts` are logical store names
+  chosen by the contract author
+- the v1 state surface is top-level contract data, not a `resources` request
+- each state store requires `kind`
+- `kind` MUST be either `value` or `map`
+- each state store requires `schema`
+- `schema` MUST reference an entry in the top-level contract `schemas` map
+- state values are JSON on the wire and are validated against the declared store
+  schema
+- the named store is the public runtime entrypoint; normal callers do not choose
+  an arbitrary `scope` or a contract-wide generic keyspace
+- admin inspection remains a separate API surface from the normal runtime state
+  helpers
 
 ### 11) Error declarations
 

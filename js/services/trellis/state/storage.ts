@@ -4,9 +4,7 @@ import {
   UnexpectedError,
   ValidationError,
 } from "@qlever-llc/trellis";
-import type {
-  StateCompareAndSetResponse,
-} from "../../../packages/trellis/models/trellis/rpc/StateCompareAndSet.ts";
+import { parseUnknownSchema } from "../../../packages/trellis/codec.ts";
 import type { StateDeleteResponse } from "../../../packages/trellis/models/trellis/rpc/StateDelete.ts";
 import type { StateGetResponse } from "../../../packages/trellis/models/trellis/rpc/StateGet.ts";
 import type { StateListResponse } from "../../../packages/trellis/models/trellis/rpc/StateList.ts";
@@ -15,11 +13,13 @@ import type {
   JsonValue,
   StateEntry,
 } from "../../../packages/trellis/models/trellis/State.ts";
-import type { StoredStateEntry, StateNamespace } from "./model.ts";
+import type { ResolvedStateStore, StoredStateEntry } from "./model.ts";
 
 export const MAX_STATE_KEY_BYTES = 512;
 export const MAX_STATE_VALUE_BYTES = 64 * 1024;
 export const MAX_STATE_LIST_LIMIT = 100;
+
+const VALUE_STORE_KEY = "__value";
 
 type StateKvEntryLike = {
   key: string;
@@ -49,6 +49,22 @@ type TypedStateKvLike = {
   put(key: string, value: unknown): AsyncResult<void, KVError>;
   get(key: string): AsyncResult<unknown, KVError | ValidationError>;
   keys(filter?: string | string[]): AsyncResult<AsyncIterable<string>, KVError>;
+};
+
+type StateAddress = {
+  key?: string;
+};
+
+type StateWrite = {
+  key?: string;
+  value: JsonValue;
+  expectedRevision?: string | null;
+  ttlMs?: number;
+};
+
+type StateDelete = {
+  key?: string;
+  expectedRevision?: string;
 };
 
 function makePaginated(
@@ -130,135 +146,153 @@ export class StateStore {
     this.#maxListLimit = deps.maxListLimit ?? MAX_STATE_LIST_LIMIT;
   }
 
-  async get(namespace: StateNamespace, key: string): Promise<Result<StateGetResponse, ValidationError | UnexpectedError>> {
-    const valid = this.#validateKey(key);
-    if (isErr(valid)) return valid;
+  async get(target: ResolvedStateStore, address: StateAddress = {}): Promise<Result<StateGetResponse, ValidationError | UnexpectedError>> {
+    const keyResult = this.#resolveKey(target, address.key);
+    if (isErr(keyResult)) return keyResult;
+    const key = keyResult.unwrapOrElse(() => {
+      throw new Error("state key resolution unexpectedly failed");
+    });
 
-    const loaded = await this.#loadLiveEntry(namespace, key);
+    const loaded = await this.#loadLiveEntry(target, key);
     if (loaded.isErr()) return Result.err(loaded.error);
     const entry = loaded.unwrapOrElse(() => null);
     if (!entry) return Result.ok({ found: false });
-    return Result.ok({ found: true, entry: this.#toPublicEntry(entry, key) });
+    return Result.ok({ found: true, entry: this.#toPublicEntry(target, entry, key) });
   }
 
-  async put(
-    namespace: StateNamespace,
-    key: string,
-    value: JsonValue,
-    ttlMs?: number,
-  ): Promise<Result<StatePutResponse, ValidationError | UnexpectedError>> {
-    const valid = this.#validateWrite(key, value);
+  async put(target: ResolvedStateStore, write: StateWrite): Promise<Result<StatePutResponse, ValidationError | UnexpectedError>> {
+    const keyResult = this.#resolveKey(target, write.key);
+    if (isErr(keyResult)) return keyResult;
+    const key = keyResult.unwrapOrElse(() => {
+      throw new Error("state key resolution unexpectedly failed");
+    });
+
+    const valid = this.#validateWrite(key, write.value);
     if (isErr(valid)) return valid;
 
-    const envelope = this.#createEnvelope(value, ttlMs);
-    const putResult = (await this.#kv.put(this.#storageKey(namespace, key), envelope)).take();
-    if (isErr(putResult)) {
-      return Result.err(new UnexpectedError({ cause: putResult.error }));
-    }
+    const parsedValue = this.#validateStoreValue(target, write.value);
+    if (parsedValue.isErr()) return Result.err(parsedValue.error);
+    const value = parsedValue.unwrapOrElse(() => {
+      throw new Error("state value validation unexpectedly failed");
+    });
 
-    const refreshed = await this.#requireLiveEntry(namespace, key);
-    if (refreshed.isErr()) return Result.err(refreshed.error);
-    return Result.ok({ entry: this.#toPublicEntry(refreshed.unwrapOrElse(() => {
-      throw new Error("state KV refresh unexpectedly failed");
-    }), key) });
-  }
-
-  async compareAndSet(
-    namespace: StateNamespace,
-    key: string,
-    expectedRevision: string | null,
-    value: JsonValue,
-    ttlMs?: number,
-  ): Promise<Result<StateCompareAndSetResponse, ValidationError | UnexpectedError>> {
-    const valid = this.#validateWrite(key, value);
-    if (isErr(valid)) return valid;
-
-    const currentResult = await this.#loadLiveEntry(namespace, key);
+    const currentResult = await this.#loadLiveEntry(target, key);
     if (currentResult.isErr()) return Result.err(currentResult.error);
     const current = currentResult.unwrapOrElse(() => null);
 
-    const envelope = this.#createEnvelope(value, ttlMs);
-    if (expectedRevision === null) {
+    const envelope = this.#createEnvelope(value, write.ttlMs);
+    if (write.expectedRevision === undefined) {
+      const putResult = await this.#kv.put(this.#storageKey(target, key), envelope);
+      if (isErr(putResult)) {
+        return Result.err(new UnexpectedError({ cause: putResult.error }));
+      }
+      const refreshed = await this.#requireLiveEntry(target, key);
+      if (refreshed.isErr()) return Result.err(refreshed.error);
+      const response: StatePutResponse = {
+        applied: true,
+        entry: this.#toPublicEntry(target, refreshed.unwrapOrElse(() => {
+          throw new Error("state KV refresh unexpectedly failed");
+        }), key),
+      };
+      return Result.ok(response);
+    }
+
+    if (write.expectedRevision === null) {
       if (current) {
-        return Result.ok({
+        const response: StatePutResponse = {
           applied: false,
           found: true,
-          entry: this.#toPublicEntry(current, key),
-        });
+          entry: this.#toPublicEntry(target, current, key),
+        };
+        return Result.ok(response);
       }
 
-      const createResult = (await this.#kv.create(this.#storageKey(namespace, key), envelope)).take();
+      const createResult = await this.#kv.create(this.#storageKey(target, key), envelope);
       if (isErr(createResult)) {
-        const latestResult = await this.#loadLiveEntry(namespace, key);
+        const latestResult = await this.#loadLiveEntry(target, key);
         if (latestResult.isErr()) return Result.err(latestResult.error);
         const latest = latestResult.unwrapOrElse(() => null);
         if (!latest) {
           return Result.err(new UnexpectedError({ cause: createResult.error }));
         }
-        return Result.ok({
+        const response: StatePutResponse = {
           applied: false,
           found: true,
-          entry: this.#toPublicEntry(latest, key),
-        });
+          entry: this.#toPublicEntry(target, latest, key),
+        };
+        return Result.ok(response);
       }
 
-      const created = await this.#requireLiveEntry(namespace, key);
+      const created = await this.#requireLiveEntry(target, key);
       if (created.isErr()) return Result.err(created.error);
-      return Result.ok({ applied: true, entry: this.#toPublicEntry(created.unwrapOrElse(() => {
-        throw new Error("state KV create unexpectedly failed");
-      }), key) });
+      const response: StatePutResponse = {
+        applied: true,
+        entry: this.#toPublicEntry(target, created.unwrapOrElse(() => {
+          throw new Error("state KV create unexpectedly failed");
+        }), key),
+      };
+      return Result.ok(response);
     }
 
     if (!current) {
-      return Result.ok({ applied: false, found: false });
+      const response: StatePutResponse = { applied: false, found: false };
+      return Result.ok(response);
     }
 
-    if (toRevision(current.revision) !== expectedRevision) {
-      return Result.ok({
+    if (toRevision(current.revision) !== write.expectedRevision) {
+      const response: StatePutResponse = {
         applied: false,
         found: true,
-        entry: this.#toPublicEntry(current, key),
-      });
+        entry: this.#toPublicEntry(target, current, key),
+      };
+      return Result.ok(response);
     }
 
-    const putResult = (await current.put(envelope, true)).take();
+    const putResult = await current.put(envelope, true);
     if (isErr(putResult)) {
-      const latestResult = await this.#loadLiveEntry(namespace, key);
+      const latestResult = await this.#loadLiveEntry(target, key);
       if (latestResult.isErr()) return Result.err(latestResult.error);
       const latest = latestResult.unwrapOrElse(() => null);
-      if (!latest) return Result.ok({ applied: false, found: false });
-      return Result.ok({
+      if (!latest) {
+        const response: StatePutResponse = { applied: false, found: false };
+        return Result.ok(response);
+      }
+      const response: StatePutResponse = {
         applied: false,
         found: true,
-        entry: this.#toPublicEntry(latest, key),
-      });
+        entry: this.#toPublicEntry(target, latest, key),
+      };
+      return Result.ok(response);
     }
 
-    const updated = await this.#requireLiveEntry(namespace, key);
+    const updated = await this.#requireLiveEntry(target, key);
     if (updated.isErr()) return Result.err(updated.error);
-    return Result.ok({ applied: true, entry: this.#toPublicEntry(updated.unwrapOrElse(() => {
-      throw new Error("state KV update unexpectedly failed");
-    }), key) });
+    const response: StatePutResponse = {
+      applied: true,
+      entry: this.#toPublicEntry(target, updated.unwrapOrElse(() => {
+        throw new Error("state KV update unexpectedly failed");
+      }), key),
+    };
+    return Result.ok(response);
   }
 
-  async delete(
-    namespace: StateNamespace,
-    key: string,
-    expectedRevision?: string,
-  ): Promise<Result<StateDeleteResponse, ValidationError | UnexpectedError>> {
-    const valid = this.#validateKey(key);
-    if (isErr(valid)) return valid;
+  async delete(target: ResolvedStateStore, input: StateDelete): Promise<Result<StateDeleteResponse, ValidationError | UnexpectedError>> {
+    const keyResult = this.#resolveKey(target, input.key);
+    if (isErr(keyResult)) return keyResult;
+    const key = keyResult.unwrapOrElse(() => {
+      throw new Error("state key resolution unexpectedly failed");
+    });
 
-    const currentResult = await this.#loadLiveEntry(namespace, key);
+    const currentResult = await this.#loadLiveEntry(target, key);
     if (currentResult.isErr()) return Result.err(currentResult.error);
     const current = currentResult.unwrapOrElse(() => null);
     if (!current) return Result.ok({ deleted: false });
 
-    if (expectedRevision && toRevision(current.revision) !== expectedRevision) {
+    if (input.expectedRevision && toRevision(current.revision) !== input.expectedRevision) {
       return Result.ok({ deleted: false });
     }
 
-    const deleteResult = (await current.delete(Boolean(expectedRevision))).take();
+    const deleteResult = await current.delete(Boolean(input.expectedRevision));
     if (isErr(deleteResult)) {
       return Result.err(new UnexpectedError({ cause: deleteResult.error }));
     }
@@ -267,32 +301,48 @@ export class StateStore {
   }
 
   async list(
-    namespace: StateNamespace,
+    target: ResolvedStateStore,
     opts: { prefix?: string; offset: number; limit: number },
   ): Promise<Result<StateListResponse, ValidationError | UnexpectedError>> {
-    const valid = this.#validateList(opts.prefix, opts.limit);
+    const valid = this.#validateList(target, opts.prefix, opts.limit);
     if (isErr(valid)) return valid;
 
-    const namespacePrefix = this.#namespacePrefix(namespace);
-    const keys = (await this.#kv.keys(`${namespacePrefix}.>`)).take();
+    if (target.kind === "value") {
+      const current = await this.get(target);
+      if (current.isErr()) return Result.err(current.error);
+      const currentValue = current.unwrapOrElse(() => {
+        throw new Error("state get unexpectedly failed");
+      });
+      const entries = currentValue.found ? [currentValue.entry] : [];
+      return Result.ok({
+        ...makePaginated(opts.offset, opts.limit, entries.length),
+        entries: entries.slice(opts.offset, opts.offset + opts.limit),
+      });
+    }
+
+    const namespacePrefix = this.#namespacePrefix(target);
+    const keys = await this.#kv.keys(`${namespacePrefix}.>`);
     if (isErr(keys)) {
       return Result.err(new UnexpectedError({ cause: keys.error }));
     }
 
     const entries: StateEntry[] = [];
-    for await (const storageKey of keys) {
+    for await (const storageKey of keys.unwrapOrElse(() => {
+      throw new Error("state KV keys unexpectedly failed");
+    })) {
       if (!storageKey.startsWith(`${namespacePrefix}.`)) continue;
       const key = storageKey.slice(namespacePrefix.length + 1);
+      if (key === VALUE_STORE_KEY) continue;
       if (opts.prefix && !key.startsWith(opts.prefix)) continue;
 
-      const entryResult = await this.#loadLiveEntry(namespace, key);
+      const entryResult = await this.#loadLiveEntry(target, key);
       if (entryResult.isErr()) return Result.err(entryResult.error);
       const entry = entryResult.unwrapOrElse(() => null);
       if (!entry) continue;
-      entries.push(this.#toPublicEntry(entry, key));
+      entries.push(this.#toPublicEntry(target, entry, key));
     }
 
-    entries.sort((left, right) => left.key.localeCompare(right.key));
+    entries.sort((left, right) => (left.key ?? "").localeCompare(right.key ?? ""));
     return Result.ok({
       ...makePaginated(opts.offset, opts.limit, entries.length),
       entries: entries.slice(opts.offset, opts.offset + opts.limit),
@@ -307,19 +357,27 @@ export class StateStore {
   }
 
   async #loadLiveEntry(
-    namespace: StateNamespace,
+    target: ResolvedStateStore,
     key: string,
   ): Promise<Result<StateKvEntryLike | null, ValidationError | UnexpectedError>> {
-    const entry = (await this.#kv.get(this.#storageKey(namespace, key))).take();
+    const entry = await this.#kv.get(this.#storageKey(target, key));
     if (isErr(entry)) {
       if (isNotFound(entry.error)) return Result.ok(null);
       if (entry.error instanceof ValidationError) return Result.err(entry.error);
       return Result.err(new UnexpectedError({ cause: entry.error }));
     }
 
-    if (!this.#isExpired(entry.value)) return Result.ok(entry);
+    const loaded = entry.unwrapOrElse(() => {
+      throw new Error("state KV get unexpectedly failed");
+    });
+    const parsedValue = this.#validateStoreValue(target, loaded.value.value);
+    if (parsedValue.isErr()) return Result.err(parsedValue.error);
+    loaded.value.value = parsedValue.unwrapOrElse(() => {
+      throw new Error("state value validation unexpectedly failed");
+    });
+    if (!this.#isExpired(loaded.value)) return Result.ok(loaded);
 
-    const deleteResult = (await entry.delete(true)).take();
+    const deleteResult = await loaded.delete(true);
     if (isErr(deleteResult)) {
       return Result.err(new UnexpectedError({ cause: deleteResult.error }));
     }
@@ -328,10 +386,10 @@ export class StateStore {
   }
 
   async #requireLiveEntry(
-    namespace: StateNamespace,
+    target: ResolvedStateStore,
     key: string,
   ): Promise<Result<StateKvEntryLike, ValidationError | UnexpectedError>> {
-    const entry = await this.#loadLiveEntry(namespace, key);
+    const entry = await this.#loadLiveEntry(target, key);
     if (entry.isErr()) return Result.err(entry.error);
     const value = entry.unwrapOrElse(() => null);
     if (value) return Result.ok(value);
@@ -342,22 +400,41 @@ export class StateStore {
     return entry.expiresAt !== undefined && entry.expiresAt.getTime() <= this.#now().getTime();
   }
 
-  #namespacePrefix(namespace: StateNamespace): string {
-    return `${namespace.scope}.${namespace.ownerKey}.${namespace.contractId}`;
+  #namespacePrefix(target: ResolvedStateStore): string {
+    return `${target.ownerType}.${target.ownerKey}.${target.contractId}.${target.store}`;
   }
 
-  #storageKey(namespace: StateNamespace, key: string): string {
-    return `${this.#namespacePrefix(namespace)}.${key}`;
+  #storageKey(target: ResolvedStateStore, key: string): string {
+    return `${this.#namespacePrefix(target)}.${key}`;
   }
 
-  #toPublicEntry(entry: StateKvEntryLike, key: string): StateEntry {
+  #toPublicEntry(target: ResolvedStateStore, entry: StateKvEntryLike, key: string): StateEntry {
     return {
-      key,
+      ...(target.kind === "map" ? { key } : {}),
       value: entry.value.value,
       revision: toRevision(entry.revision),
       updatedAt: entry.value.updatedAt.toISOString(),
       ...(entry.value.expiresAt ? { expiresAt: entry.value.expiresAt.toISOString() } : {}),
     };
+  }
+
+  #resolveKey(target: ResolvedStateStore, key: string | undefined): Result<string, ValidationError> {
+    if (target.kind === "value") {
+      if (key !== undefined) {
+        return Result.err(new ValidationError({
+          errors: [{ path: "/key", message: "value stores do not accept key" }],
+        }));
+      }
+      return Result.ok(VALUE_STORE_KEY);
+    }
+
+    if (key === undefined) {
+      return Result.err(new ValidationError({
+        errors: [{ path: "/key", message: "map stores require key" }],
+      }));
+    }
+
+    return this.#validateKey(key).map(() => key);
   }
 
   #validateWrite(key: string, value: JsonValue): Result<void, ValidationError> {
@@ -373,6 +450,17 @@ export class StateStore {
     return Result.ok(undefined);
   }
 
+  #validateStoreValue(
+    target: ResolvedStateStore,
+    value: JsonValue,
+  ): Result<JsonValue, ValidationError | UnexpectedError> {
+    const parsed = parseUnknownSchema(target.schema, value);
+    if (parsed.isErr()) return Result.err(parsed.error);
+    return Result.ok(parsed.unwrapOrElse(() => {
+      throw new Error("state value validation unexpectedly failed");
+    }) as JsonValue);
+  }
+
   #validateKey(key: string): Result<void, ValidationError> {
     if (byteLength(key) > this.#maxKeyBytes) {
       return Result.err(new ValidationError({
@@ -383,7 +471,13 @@ export class StateStore {
     return Result.ok(undefined);
   }
 
-  #validateList(prefix: string | undefined, limit: number): Result<void, ValidationError> {
+  #validateList(target: ResolvedStateStore, prefix: string | undefined, limit: number): Result<void, ValidationError> {
+    if (target.kind === "value" && prefix !== undefined) {
+      return Result.err(new ValidationError({
+        errors: [{ path: "/prefix", message: "value stores do not support prefix" }],
+      }));
+    }
+
     if (prefix !== undefined && byteLength(prefix) > this.#maxKeyBytes) {
       return Result.err(new ValidationError({
         errors: [{ path: "/prefix", message: `state prefix exceeds ${this.#maxKeyBytes} bytes` }],

@@ -1,4 +1,4 @@
-import { Result } from "@qlever-llc/result";
+import { AsyncResult, Result } from "@qlever-llc/result";
 import { KVError } from "@qlever-llc/trellis";
 
 import type { Session } from "../state/schemas.ts";
@@ -13,57 +13,67 @@ export class FakeStateKV {
   readonly #values = new Map<string, StoredCell>();
   #nextRevision = 1;
 
-  async create(key: string, value: unknown) {
-    if (this.#values.has(key)) {
-      return Result.err(new KVError({ operation: "create", context: { key, reason: "exists" } }));
-    }
+  create(key: string, value: unknown) {
+    return AsyncResult.from((async () => {
+      if (this.#values.has(key)) {
+        return Result.err(new KVError({ operation: "create", context: { key, reason: "exists" } }));
+      }
 
-    this.#values.set(key, { value: value as StoredStateEntry, revision: this.#nextRevision++ });
-    return Result.ok(undefined);
+      this.#values.set(key, { value: value as StoredStateEntry, revision: this.#nextRevision++ });
+      return Result.ok(undefined);
+    })());
   }
 
-  async put(key: string, value: unknown) {
-    this.#values.set(key, { value: value as StoredStateEntry, revision: this.#nextRevision++ });
-    return Result.ok(undefined);
+  put(key: string, value: unknown) {
+    return AsyncResult.from((async () => {
+      this.#values.set(key, { value: value as StoredStateEntry, revision: this.#nextRevision++ });
+      return Result.ok(undefined);
+    })());
   }
 
-  async get(key: string) {
-    const current = this.#values.get(key);
-    if (!current) {
-      return Result.err(new KVError({ operation: "get", context: { key, reason: "not found" } }));
-    }
+  get(key: string) {
+    return AsyncResult.from((async () => {
+      const current = this.#values.get(key);
+      if (!current) {
+        return Result.err(new KVError({ operation: "get", context: { key, reason: "not found" } }));
+      }
 
-    const store = this;
-    return Result.ok({
-      key,
-      value: current.value,
-      revision: current.revision,
-      async put(value: unknown, vcc?: boolean) {
-        const next = store.#values.get(key);
-        if (!next) {
-          return Result.err(new KVError({ operation: "put", context: { key, reason: "not found" } }));
-        }
-        if (vcc && next.revision !== current.revision) {
-          return Result.err(new KVError({ operation: "put", context: { key, reason: "revision mismatch" } }));
-        }
-        store.#values.set(key, { value: value as StoredStateEntry, revision: store.#nextRevision++ });
-        return Result.ok(undefined);
-      },
-      async delete(vcc?: boolean) {
-        const next = store.#values.get(key);
-        if (!next) {
-          return Result.err(new KVError({ operation: "delete", context: { key, reason: "not found" } }));
-        }
-        if (vcc && next.revision !== current.revision) {
-          return Result.err(new KVError({ operation: "delete", context: { key, reason: "revision mismatch" } }));
-        }
-        store.#values.delete(key);
-        return Result.ok(undefined);
-      },
-    });
+      const store = this;
+      return Result.ok({
+        key,
+        value: current.value,
+        revision: current.revision,
+        put(value: unknown, vcc?: boolean) {
+          return AsyncResult.from((async () => {
+            const next = store.#values.get(key);
+            if (!next) {
+              return Result.err(new KVError({ operation: "put", context: { key, reason: "not found" } }));
+            }
+            if (vcc && next.revision !== current.revision) {
+              return Result.err(new KVError({ operation: "put", context: { key, reason: "revision mismatch" } }));
+            }
+            store.#values.set(key, { value: value as StoredStateEntry, revision: store.#nextRevision++ });
+            return Result.ok(undefined);
+          })());
+        },
+        delete(vcc?: boolean) {
+          return AsyncResult.from((async () => {
+            const next = store.#values.get(key);
+            if (!next) {
+              return Result.err(new KVError({ operation: "delete", context: { key, reason: "not found" } }));
+            }
+            if (vcc && next.revision !== current.revision) {
+              return Result.err(new KVError({ operation: "delete", context: { key, reason: "revision mismatch" } }));
+            }
+            store.#values.delete(key);
+            return Result.ok(undefined);
+          })());
+        },
+      });
+    })());
   }
 
-  async keys(filter: string | string[] = ">") {
+  keys(filter: string | string[] = ">") {
     const filters = Array.isArray(filter) ? filter : [filter];
     const values = [...this.#values.keys()].sort();
 
@@ -75,7 +85,7 @@ export class FakeStateKV {
       }
     }
 
-    return Result.ok(iter());
+    return AsyncResult.ok(iter());
   }
 }
 
@@ -86,15 +96,17 @@ export class FakeSessionKV {
     this.#values.set(key, value);
   }
 
-  async get(key: string) {
-    const value = this.#values.get(key);
-    if (!value) {
-      return Result.err(new KVError({ operation: "get", context: { key, reason: "not found" } }));
-    }
-    return Result.ok(value);
+  get(key: string) {
+    return AsyncResult.from((async () => {
+      const value = this.#values.get(key);
+      if (!value) {
+        return Result.err(new KVError({ operation: "get", context: { key, reason: "not found" } }));
+      }
+      return Result.ok(value);
+    })());
   }
 
-  async keys(filter: string | string[] = ">") {
+  keys(filter: string | string[] = ">") {
     const filters = Array.isArray(filter) ? filter : [filter];
     const values = [...this.#values.keys()].sort();
 
@@ -106,7 +118,7 @@ export class FakeSessionKV {
       }
     }
 
-    return Result.ok(iter());
+    return AsyncResult.ok(iter());
   }
 }
 

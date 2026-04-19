@@ -125,6 +125,57 @@ const dashboard = defineAppContract(() => ({
 
 dashboard.API.used.events["Activity.Recorded"].subject;
 
+const preferencesSchemas = {
+  Preferences: Type.Object({ theme: Type.String() }),
+  Draft: Type.Object({ title: Type.String() }),
+} as const;
+
+const preferencesApp = defineAppContract(
+  { schemas: preferencesSchemas },
+  (ref) => ({
+    id: "trellis.preferences@v1",
+    displayName: "Preferences",
+    description: "Declare named state stores for client contracts.",
+    state: {
+      preferences: {
+        kind: "value",
+        schema: ref.schema("Preferences"),
+      },
+      drafts: {
+        kind: "map",
+        schema: ref.schema("Draft"),
+      },
+    },
+  }),
+);
+
+preferencesApp.CONTRACT.state?.preferences.kind;
+preferencesApp.CONTRACT.state?.preferences.schema.schema;
+preferencesApp.CONTRACT.state?.drafts.kind;
+preferencesApp.CONTRACT.state?.drafts.schema.schema;
+
+if (false) {
+  defineAppContract(
+    { schemas: preferencesSchemas },
+    (ref) => ({
+      id: "trellis.invalid-state@v1",
+      displayName: "Invalid State",
+      description: "Should fail type checking.",
+      state: {
+        // @ts-expect-error top-level state declarations require kind
+        prefs: {
+          schema: ref.schema("Preferences"),
+        },
+        drafts: {
+          // @ts-expect-error state kind is limited to value or map
+          kind: "set",
+          schema: ref.schema("Draft"),
+        },
+      },
+    }),
+  );
+}
+
 const billingSchemas = {
   Empty: EmptySchema,
   Progress: StringSchema,

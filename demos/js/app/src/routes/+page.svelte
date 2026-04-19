@@ -17,7 +17,7 @@
   <p class="eyebrow">Packet 8 · Phase 5</p>
   <h1>{scenarioTitle}</h1>
   <p class="summary">
-    Sign in once, then jump between typed Trellis demos for RPC, operations, transfer, KV-backed reads, jobs, and shared state.
+    Sign in once, then jump between typed Trellis demos for RPC, operations, transfer, KV-backed reads, jobs, and schema-backed client state stores.
   </p>
 
   <div class="hero-actions">

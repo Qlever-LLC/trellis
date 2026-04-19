@@ -1,8 +1,13 @@
 import type { NatsConnection } from "@nats-io/nats-core";
+import { CONTRACT_STATE_METADATA } from "./contract_support/mod.ts";
+import type { ContractStateMetadata } from "./contract_support/mod.ts";
 import type { TrellisAPI } from "./contracts.ts";
 
 import type { LoggerLike } from "./globals.ts";
-import type { TrellisAuth } from "./trellis.ts";
+import type {
+  RuntimeStateStoresForContract,
+  TrellisAuth,
+} from "./trellis.ts";
 import { Trellis } from "./trellis.ts";
 
 type CoreSdkModule = {
@@ -33,28 +38,40 @@ export type ClientOpts = {
   noResponderRetry?: NoResponderRetryOpts;
 };
 
-type ClientContract<TApi> = {
+type ClientContract<TApi, TContract> = {
+  CONTRACT: TContract;
   API: {
     owned?: TApi;
     trellis?: TApi;
   };
+  readonly [CONTRACT_STATE_METADATA]?: ContractStateMetadata;
 };
 
 /**
  * Create a Trellis client typed from a contract module's derived outbound surface.
  */
-export function createClient<TApi extends TrellisAPI>(
-  contract: ClientContract<TApi>,
+export function createClient<
+  TApi extends TrellisAPI,
+  TContract extends ClientContract<TApi, {
+    state?: Readonly<Record<string, unknown>>;
+    schemas?: Readonly<Record<string, unknown>>;
+  }>,
+>(
+  contract: TContract,
   nats: NatsConnection,
   auth: TrellisAuth,
   opts?: ClientOpts,
-): Trellis<TApi> {
+): Trellis<TApi, "client", RuntimeStateStoresForContract<TContract>> {
   const api = contract.API.trellis ?? contract.API.owned;
   if (!api) {
     throw new Error("Contract is missing an owned or trellis API view");
   }
 
-  return new Trellis<TApi>(
+  return new Trellis<
+    TApi,
+    "client",
+    RuntimeStateStoresForContract<TContract>
+  >(
     opts?.name ?? "client",
     nats,
     auth,
@@ -64,6 +81,7 @@ export function createClient<TApi extends TrellisAPI>(
       stream: opts?.stream,
       noResponderRetry: opts?.noResponderRetry,
       api,
+      state: contract[CONTRACT_STATE_METADATA],
     },
   );
 }

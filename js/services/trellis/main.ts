@@ -103,6 +103,7 @@ const contracts = createContractsModule({
 const stateHandlers = createStateHandlers({
   sessionKV,
   state: new StateStore({ kv: createStateKvAdapter(stateKV) }),
+  contractStore: contracts.contractStore,
 });
 
 await contracts.refreshActiveContracts();
@@ -119,7 +120,6 @@ await trellis.mount("Trellis.Bindings.Get", trellisBindingsGetHandler);
 await trellis.mount("State.Get", stateHandlers.get);
 await trellis.mount("State.Put", stateHandlers.put);
 await trellis.mount("State.Delete", stateHandlers.delete);
-await trellis.mount("State.CompareAndSet", stateHandlers.compareAndSet);
 await trellis.mount("State.List", stateHandlers.list);
 await trellis.mount("State.Admin.Get", stateHandlers.adminGet);
 await trellis.mount("State.Admin.List", stateHandlers.adminList);

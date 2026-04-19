@@ -197,8 +197,10 @@ export type {
   RpcOutput,
   RpcOutputOf,
   RpcRequestErrorOf,
+  RuntimeStateStoresForContract,
   TrellisAuth,
   TrellisFor,
   TrellisSigner,
 } from "./trellis.ts";
 export { Trellis } from "./trellis.ts";
+export type { TrellisDeviceConnection } from "./device.ts";

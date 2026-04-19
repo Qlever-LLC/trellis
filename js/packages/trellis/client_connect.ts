@@ -1,4 +1,5 @@
 import { jwtAuthenticator, type Authenticator, type NatsConnection } from "@nats-io/nats-core";
+import { CONTRACT_STATE_METADATA, type ContractStateMetadata } from "./contract_support/mod.ts";
 import {
   base64urlDecode,
   base64urlEncode,
@@ -12,8 +13,8 @@ import { correctedIatSeconds, estimateMidpointClockOffsetMs } from "./auth/time.
 import { canonicalizeJsonValue } from "./auth/utils.ts";
 import {
   importEd25519PrivateKeyFromSeedBase64url,
-  pkcs8FromEd25519Seed,
-  publicKeyBase64urlFromPrivateKey,
+  publicKeyBase64urlFromSeed,
+  signEd25519SeedSha256,
 } from "./auth/keys.ts";
 import type { ClientOpts } from "./client.ts";
 import type { TrellisAPI, TrellisContractV1 } from "./contracts.ts";
@@ -22,7 +23,7 @@ import {
   selectRuntimeTransportServers,
   type RuntimeTransport,
 } from "./runtime_transport.ts";
-import { Trellis } from "./trellis.ts";
+import { Trellis, type RuntimeStateStoresForContract } from "./trellis.ts";
 import { Type, type StaticDecode } from "typebox";
 import { Value } from "typebox/value";
 import {
@@ -32,11 +33,15 @@ import {
   signBytes,
 } from "./auth/browser/session.ts";
 
-type ClientContract<TApi extends TrellisAPI = TrellisAPI> = {
-  CONTRACT: TrellisContractV1;
+type ClientContract<
+  TApi extends TrellisAPI = TrellisAPI,
+  TContract extends TrellisContractV1 = TrellisContractV1,
+> = {
+  CONTRACT: TContract;
   API: {
     trellis: TApi;
   };
+  readonly [CONTRACT_STATE_METADATA]?: ContractStateMetadata;
 };
 
 type BrowserClientAuthOptions = {
@@ -68,11 +73,17 @@ export type ClientAuthRequiredContext = {
 
 export type ClientAuthContinuation = { flowId: string } | void;
 
-export type TrellisClientConnectArgs<TApi extends TrellisAPI = TrellisAPI> =
+export type TrellisClientConnectArgs<
+  TApi extends TrellisAPI = TrellisAPI,
+  TContract extends ClientContract<TApi, TrellisContractV1> = ClientContract<
+    TApi,
+    TrellisContractV1
+  >,
+> =
   & ClientOpts
   & {
     trellisUrl: string;
-    contract: ClientContract<TApi>;
+    contract: TContract;
     auth?: ClientAuthOptions;
     onAuthRequired?: (
       ctx: ClientAuthRequiredContext,
@@ -83,7 +94,12 @@ type ClientRuntimeIdentity = {
   mode: "browser" | "session_key";
   sessionKey: string;
   sign(data: Uint8Array): Promise<Uint8Array>;
-  oauthInitSig(redirectTo: string, context?: unknown): Promise<string>;
+  oauthInitSig(
+    redirectTo: string,
+    context?: unknown,
+    provider?: string,
+    contract?: Record<string, unknown>,
+  ): Promise<string>;
   natsConnectSigForIat(iat: number): Promise<string>;
   bootstrapSig(iat: number): Promise<string>;
   bindFlowSig(flowId: string): Promise<string>;
@@ -205,17 +221,9 @@ async function signDomainValue(sign: (data: Uint8Array) => Promise<Uint8Array>, 
 }
 
 async function createSessionKeyRuntimeIdentity(sessionKeySeed: string): Promise<ClientRuntimeIdentity> {
-  const [{ Buffer }, { createHash, createPrivateKey, sign: signBytesSync }] = await Promise.all([
-    import("node:buffer"),
-    import("node:crypto"),
-  ]);
+  const seed = base64urlDecode(sessionKeySeed);
   const privateKey = await importEd25519PrivateKeyFromSeedBase64url(sessionKeySeed);
-  const sessionKey = await publicKeyBase64urlFromPrivateKey(privateKey);
-  const reconnectKey = createPrivateKey({
-    key: Buffer.from(pkcs8FromEd25519Seed(base64urlDecode(sessionKeySeed))),
-    format: "der",
-    type: "pkcs8",
-  });
+  const sessionKey = publicKeyBase64urlFromSeed(seed);
   const sign = async (data: Uint8Array): Promise<Uint8Array> => {
     const signature = await crypto.subtle.sign("Ed25519", privateKey, toArrayBuffer(data));
     return new Uint8Array(signature);
@@ -225,14 +233,19 @@ async function createSessionKeyRuntimeIdentity(sessionKeySeed: string): Promise<
     mode: "session_key",
     sessionKey,
     sign,
-    oauthInitSig: (redirectTo, context) =>
-      signDomainValue(sign, "oauth-init", `${redirectTo}:${canonicalizeJsonValue(context ?? null)}`),
+    oauthInitSig: (redirectTo, context, provider, contract) =>
+      signDomainValue(
+        sign,
+        "oauth-init",
+        contract === undefined
+          ? `${redirectTo}:${canonicalizeJsonValue(context ?? null)}`
+          : `${redirectTo}:${provider ?? ""}:${canonicalizeJsonValue(contract)}:${canonicalizeJsonValue(context ?? null)}`,
+      ),
     natsConnectSigForIat: (iat) => signDomainValue(sign, "nats-connect", String(iat)),
     bootstrapSig: (iat) => signDomainValue(sign, "bootstrap-client", String(iat)),
     bindFlowSig: (flowId) => signDomainValue(sign, "bind-flow", flowId),
     buildRuntimeAuthTokenSync: (iat, contractDigest) => {
-      const digest = createHash("sha256").update(`nats-connect:${iat}`, "utf8").digest();
-      const sig = signBytesSync(null, digest, reconnectKey);
+      const sig = signEd25519SeedSha256(seed, utf8(`nats-connect:${iat}`));
       return JSON.stringify({
         v: 1,
         sessionKey,
@@ -254,7 +267,8 @@ async function resolveClientIdentity(auth: ClientAuthOptions | undefined): Promi
     mode: "browser",
     sessionKey: getPublicSessionKey(handle),
     sign: (data) => signBytes(handle, data),
-    oauthInitSig: (redirectTo, context) => oauthInitSig(handle, redirectTo, context),
+    oauthInitSig: (redirectTo, context, provider, contract) =>
+      oauthInitSig(handle, redirectTo, context, provider, contract),
     natsConnectSigForIat: (iat) => natsConnectSigForIat(handle, iat),
     bootstrapSig: (iat) => signDomainValue((data) => signBytes(handle, data), "bootstrap-client", String(iat)),
     bindFlowSig: (flowId) => bindFlowSig(handle, flowId),
@@ -579,10 +593,13 @@ async function buildSessionKeyLoginUrl(args: {
   throw new Error("Login flow creation returned an invalid response");
 }
 
-export async function connectClientWithDeps<TApi extends TrellisAPI>(
-  args: TrellisClientConnectArgs<TApi>,
+export async function connectClientWithDeps<
+  TApi extends TrellisAPI,
+  TContract extends ClientContract<TApi, TrellisContractV1>,
+>(
+  args: TrellisClientConnectArgs<TApi, TContract>,
   deps: ClientConnectDeps,
-): Promise<Trellis<TApi>> {
+): Promise<Trellis<TApi, "client", RuntimeStateStoresForContract<TContract>>> {
   const trellisUrl = normalizeTrellisUrl(args.trellisUrl);
   const identity = await resolveClientIdentity(args.auth);
   const currentUrl = args.auth?.mode === "session_key" ? null : resolveCurrentUrl(args.auth);
@@ -679,7 +696,11 @@ export async function connectClientWithDeps<TApi extends TrellisAPI>(
     ...(args.noResponderRetry ? { noResponderRetry: args.noResponderRetry } : {}),
   };
 
-  return new Trellis<TApi>(
+  return new Trellis<
+    TApi,
+    "client",
+    RuntimeStateStoresForContract<TContract>
+  >(
     clientOpts.name ?? "client",
     nc,
     {
@@ -692,6 +713,7 @@ export async function connectClientWithDeps<TApi extends TrellisAPI>(
       stream: clientOpts.stream,
       noResponderRetry: clientOpts.noResponderRetry,
       api: args.contract.API.trellis,
+      state: args.contract[CONTRACT_STATE_METADATA],
     },
   );
 }
@@ -728,6 +750,8 @@ async function resolveAuthRequired<TApi extends TrellisAPI>(
         oauthInitSig: await identity.oauthInitSig(
           redirectTo,
           authRequestContextRecord(args.auth.context),
+          args.auth.provider,
+          args.contract.CONTRACT,
         ),
       })
     : await startAuthRequest({
@@ -781,9 +805,9 @@ async function resolveAuthRequired<TApi extends TrellisAPI>(
 }
 
 export class TrellisClient {
-  static connect<TApi extends TrellisAPI>(
-    args: TrellisClientConnectArgs<TApi>,
-  ): Promise<Trellis<TApi>> {
-    return connectClientWithDeps<TApi>(args, defaultDeps);
+  static connect<TApi extends TrellisAPI, TContract extends ClientContract<TApi, TrellisContractV1>>(
+    args: TrellisClientConnectArgs<TApi, TContract>,
+  ): Promise<Trellis<TApi, "client", RuntimeStateStoresForContract<TContract>>> {
+    return connectClientWithDeps<TApi, TContract>(args, defaultDeps);
   }
 }

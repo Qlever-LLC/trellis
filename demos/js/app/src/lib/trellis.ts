@@ -28,14 +28,6 @@ import type {
   InspectionEvidenceUploadOutput,
   InspectionEvidenceUploadProgress,
 } from "../../../../generated/js/sdks/demo-transfer-service/types.ts";
-import type {
-  StateDeleteInput,
-  StateDeleteOutput,
-  StateListInput,
-  StateListOutput,
-  StatePutInput,
-  StatePutOutput,
-} from "../../../../../generated/js/sdks/state/types.ts";
 
 type AppRpcMap = {
   "Inspection.Assignments.List": {
@@ -61,18 +53,6 @@ type AppRpcMap = {
   "Inspection.Summaries.RefreshStatus.Get": {
     input: InspectionSummariesRefreshStatusGetInput;
     output: InspectionSummariesRefreshStatusGetOutput;
-  };
-  "State.Put": {
-    input: StatePutInput;
-    output: StatePutOutput;
-  };
-  "State.List": {
-    input: StateListInput;
-    output: StateListOutput;
-  };
-  "State.Delete": {
-    input: StateDeleteInput;
-    output: StateDeleteOutput;
   };
 };
 
@@ -129,7 +109,59 @@ export type ReportProgress = InspectionReportGenerateProgress;
 export type ReportOutput = InspectionReportGenerateOutput;
 export type TransferProgress = InspectionEvidenceUploadProgress;
 export type TransferOutput = InspectionEvidenceUploadOutput;
-export type AppStateEntry = StateListOutput["entries"][number];
+
+type InspectionContextValue = {
+  siteId: string;
+  note: string;
+  updatedBy: string;
+  updatedAt: string;
+};
+
+export type AppStateEntry = {
+  key: string;
+  value: InspectionContextValue;
+  revision: string;
+  updatedAt: string;
+  expiresAt?: string;
+};
+
+type AppStatePutResult =
+  | { applied: true; entry: AppStateEntry }
+  | { applied: false; found: boolean; entry?: AppStateEntry };
+
+export type AppStatePutEntry = Extract<AppStatePutResult, { applied: true }>["entry"];
+
+type AppStateStore = {
+  get(key: string): AsyncResult<
+    { found: false } | { found: true; entry: AppStateEntry },
+    BaseError
+  >;
+  put(
+    key: string,
+    value: InspectionContextValue,
+    opts?: {
+      expectedRevision?: string | null;
+      ttlMs?: number;
+    },
+  ): AsyncResult<AppStatePutResult, BaseError>;
+  delete(
+    key: string,
+    opts?: { expectedRevision?: string },
+  ): AsyncResult<{ deleted: boolean }, BaseError>;
+  list(opts?: {
+    prefix?: string;
+    offset?: number;
+    limit?: number;
+  }): AsyncResult<{
+    entries: AppStateEntry[];
+    count: number;
+    offset: number;
+    limit: number;
+    next?: number;
+    prev?: number;
+  }, BaseError>;
+  prefix(path: string): AppStateStore;
+};
 
 type RuntimeAuthState = {
   authUrl: string | null;
@@ -179,7 +211,7 @@ type AppJobsClient = {
   list(filter?: AppJobsFilter): AsyncResult<AppJobsSnapshot[], BaseError>;
 };
 
-export type AppTrellis = {
+type AppRpcTrellis = {
   request<TMethod extends RpcMethodName>(
     method: TMethod,
     input: AppRpcMap[TMethod]["input"],
@@ -196,6 +228,12 @@ export type AppTrellis = {
     };
   };
   jobs(): AppJobsClient;
+};
+
+export type AppTrellis = AppRpcTrellis & {
+  state: {
+    inspectionContext: AppStateStore;
+  };
 };
 
 export const trellisUrl = "http://localhost:3000";
@@ -285,7 +323,7 @@ export async function requestValue<TMethod extends RpcMethodName>(
   method: TMethod,
   input: AppRpcMap[TMethod]["input"],
 ): Promise<AppRpcMap[TMethod]["output"]> {
-  const trellis = await getTrellis();
+  const trellis = await getTrellis() as AppRpcTrellis;
   const result = await trellis.request(method, input);
   const value = result.take();
 
@@ -297,6 +335,6 @@ export async function requestValue<TMethod extends RpcMethodName>(
 }
 
 export async function getJobsClient(): Promise<AppJobsClient> {
-  const trellis = await getTrellis();
+  const trellis = await getTrellis() as AppRpcTrellis;
   return trellis.jobs();
 }

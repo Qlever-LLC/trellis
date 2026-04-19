@@ -31,6 +31,8 @@ derivation.
   shape
 - local `uses` declarations are expressed through SDK-backed `use(...)` helpers
 - public runtime helpers are contract-driven and typed from the local contract
+- declared contract state stores project to `trellis.state` rather than to
+  `API.trellis`
 - service-owned resource helpers should prefer small handle-based APIs whose
   failable public methods return `Result`
 - TypeScript is the compile-time enforcement layer for declared remote
@@ -162,16 +164,48 @@ declare function defineServiceContract<
   build: (ref: ContractRefBuilder) => TBody,
 ): DefinedContract<any, any, any>;
 
+declare function defineAppContract<
+  TRegistry extends object,
+  TBody extends object,
+>(
+  registry: TRegistry,
+  build: (ref: ContractRefBuilder) => TBody,
+): DefinedContract<any, any, any>;
+
 declare function defineAppContract<TBody extends object>(
   build: () => TBody,
+): DefinedContract<any, any, any>;
+
+declare function definePortalContract<
+  TRegistry extends object,
+  TBody extends object,
+>(
+  registry: TRegistry,
+  build: (ref: ContractRefBuilder) => TBody,
 ): DefinedContract<any, any, any>;
 
 declare function definePortalContract<TBody extends object>(
   build: () => TBody,
 ): DefinedContract<any, any, any>;
 
+declare function defineDeviceContract<
+  TRegistry extends object,
+  TBody extends object,
+>(
+  registry: TRegistry,
+  build: (ref: ContractRefBuilder) => TBody,
+): DefinedContract<any, any, any>;
+
 declare function defineDeviceContract<TBody extends object>(
   build: () => TBody,
+): DefinedContract<any, any, any>;
+
+declare function defineCliContract<
+  TRegistry extends object,
+  TBody extends object,
+>(
+  registry: TRegistry,
+  build: (ref: ContractRefBuilder) => TBody,
 ): DefinedContract<any, any, any>;
 
 declare function defineCliContract<TBody extends object>(
@@ -255,19 +289,27 @@ Rules:
   manifest
 - local service contract files should prefer
   `defineServiceContract({ schemas, errors }, (ref) => ({ ... }))`
-- local app contract files should prefer `defineAppContract(() => ({ ... }))`
+- local app contract files should prefer
+  `defineAppContract({ schemas }, (ref) => ({ ... }))` when they declare
+  schema-backed state and `defineAppContract(() => ({ ... }))` otherwise
 - local portal contract files should prefer
-  `definePortalContract(() => ({ ... }))`
+  `definePortalContract({ schemas }, (ref) => ({ ... }))` when they declare
+  schema-backed state and `definePortalContract(() => ({ ... }))` otherwise
 - local device contract files should prefer
-  `defineDeviceContract(() => ({ ... }))`
-- local CLI contract files should prefer `defineCliContract(() => ({ ... }))`
+  `defineDeviceContract({ schemas }, (ref) => ({ ... }))` when they declare
+  schema-backed state and `defineDeviceContract(() => ({ ... }))` otherwise
+- local CLI contract files should prefer
+  `defineCliContract({ schemas }, (ref) => ({ ... }))` when they declare
+  schema-backed state and `defineCliContract(() => ({ ... }))` otherwise
 - contract source examples should export the specialized helper result directly
   and use that object for `contract.API`, `contract.use(...)`, and runtime
   bootstrap
-- local `operations`, `rpc`, `events`, `subjects`, `errors`, and `resources`
-  remain the source for emitted owned contract content
+- local `operations`, `rpc`, `events`, `subjects`, `state`, `errors`, and
+  `resources` remain the source for emitted owned contract content
 - service contract modules declare reusable schemas in a top-level `schemas` map
   and should usually reference them through `ref.schema(...)`
+- client-style contracts that declare top-level `state` should also use a local
+  `schemas` registry and `ref.schema(...)`
 - `uses` entries are expressed through SDK `use(...)` helpers rather than
   handwritten dependency objects in normal TypeScript code
 - SDK-specific convenience helpers such as `auth.useDefaults(...)` are allowed
@@ -397,6 +439,11 @@ Rules:
 
 Contract-driven runtime helpers include `TrellisClient.connect(...)`,
 `TrellisService.connect(...)`, and `TrellisDevice.connect(...)`.
+
+Declared state stores project into a separate runtime surface at
+`trellis.state.<storeName>`.
+
+That state surface is documented in `../state/state-typescript-api.md`.
 
 Public TypeScript documentation should lead with `TrellisClient.connect(...)`,
 `TrellisService.connect(...)`, and `TrellisDevice.connect(...)` rather than

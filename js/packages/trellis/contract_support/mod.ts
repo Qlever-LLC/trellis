@@ -42,6 +42,8 @@ export {
   ContractResourceBindingsSchema,
   ContractResourcesSchema,
   ContractSchemaRefSchema,
+  ContractStateSchema,
+  ContractStateStoreSchema,
   ContractStoreResourceSchema,
   ContractStreamResourceSchema,
   type EventHeader,
@@ -71,6 +73,9 @@ const CONTRACT_MODULE_METADATA = Symbol.for(
 );
 export const CONTRACT_JOBS_METADATA = Symbol.for(
   "@qlever-llc/trellis/contracts/jobs",
+);
+export const CONTRACT_STATE_METADATA = Symbol.for(
+  "@qlever-llc/trellis/contracts/state",
 );
 const CONTRACT_ERROR_RUNTIME_METADATA = Symbol.for(
   "@qlever-llc/trellis/contracts/error-runtime",
@@ -159,6 +164,15 @@ export type ContractRefBuilder<
 };
 
 export type ContractSchemas = Record<string, JsonSchema>;
+
+export type ContractStateKind = "value" | "map";
+
+export type ContractStateStore = {
+  kind: ContractStateKind;
+  schema: ContractSchemaRef;
+};
+
+export type ContractState = Record<string, ContractStateStore>;
 
 type ContractIdentityFields = {
   id: string;
@@ -303,6 +317,7 @@ export type TrellisContractV1 = {
   description: string;
   kind: ContractKind;
   schemas?: ContractSchemas;
+  state?: ContractState;
   uses?: ContractUses;
   rpc?: Record<string, ContractRpcMethod>;
   operations?: Record<string, ContractOperation>;
@@ -520,6 +535,16 @@ function attachDefinedErrorPayload<
 
 export type ContractSourceSchemas = Record<string, TSchema>;
 
+export type ContractSourceStateStore<TSchemaName extends string = string> = {
+  kind: ContractStateKind;
+  schema: ContractSchemaRef<TSchemaName>;
+};
+
+export type ContractSourceState<TSchemaName extends string = string> = Record<
+  string,
+  ContractSourceStateStore<TSchemaName>
+>;
+
 export type ContractSourceRpcMethod<
   TSchemaName extends string = string,
   TErrorName extends string = string,
@@ -649,6 +674,7 @@ export type TrellisContractSource = {
   description: string;
   kind: ContractKind;
   schemas?: ContractSourceSchemas;
+  state?: ContractSourceState;
   uses?: Record<string, ContractSourceUse>;
   rpc?: Record<string, ContractSourceRpcMethod>;
   operations?: Record<string, ContractSourceOperation>;
@@ -839,6 +865,11 @@ export type ContractJobsMetadata = Record<string, {
   payload: unknown;
   result: unknown;
 }>;
+export type ContractStateMetadata = Record<string, {
+  kind: ContractStateKind;
+  value: unknown;
+  schema: unknown;
+}>;
 
 type ProjectedJobs<
   T extends ContractSourceJobs<string> | undefined,
@@ -851,8 +882,25 @@ type ProjectedJobs<
   }
   : {};
 
+type ProjectedState<
+  T extends ContractSourceState<string> | undefined,
+  TSchemas,
+> = T extends ContractSourceState<string> ? {
+    [K in keyof T]: T[K] extends { kind: infer TKind extends ContractStateKind }
+      ? {
+        kind: TKind;
+        value: ResolveSchemaTypeFromMap<TSchemas, T[K]["schema"]>;
+        schema: unknown;
+      }
+      : never;
+  }
+  : {};
+
 type JobsFromSource<T> = T extends { jobs?: infer TJobs }
   ? Extract<TJobs, ContractSourceJobs<string> | undefined>
+  : undefined;
+type StateFromSource<T> = T extends { state?: infer TState }
+  ? Extract<TState, ContractSourceState<string> | undefined>
   : undefined;
 
 type SchemasFromSource<T> = T extends { schemas?: infer TSchemas } ? TSchemas
@@ -1027,6 +1075,7 @@ export type ContractModule<
   TUsedApi extends ApiShape,
   TTrellisApi extends ApiShape,
   TJobs extends ContractJobsMetadata = {},
+  TState extends ContractStateMetadata = {},
 > = {
   CONTRACT_ID: TContractId;
   CONTRACT: TrellisContractV1;
@@ -1034,13 +1083,15 @@ export type ContractModule<
   API: ContractApiViews<TOwnedApi, TUsedApi, TTrellisApi>;
   use: ContractUseFn<TContractId, TOwnedApi>;
   readonly [CONTRACT_JOBS_METADATA]?: TJobs;
+  readonly [CONTRACT_STATE_METADATA]?: TState;
 };
 
 export type SdkContractModule<
   TContractId extends string,
   TOwnedApi extends ApiShape,
   TJobs extends ContractJobsMetadata = {},
-> = ContractModule<TContractId, TOwnedApi, EmptyApi, TOwnedApi, TJobs>;
+  TState extends ContractStateMetadata = {},
+> = ContractModule<TContractId, TOwnedApi, EmptyApi, TOwnedApi, TJobs, TState>;
 
 export type DefinedContract<
   TOwnedApi extends ApiShape,
@@ -1048,7 +1099,15 @@ export type DefinedContract<
   TTrellisApi extends ApiShape,
   TContractId extends string = string,
   TJobs extends ContractJobsMetadata = {},
-> = ContractModule<TContractId, TOwnedApi, TUsedApi, TTrellisApi, TJobs>;
+  TState extends ContractStateMetadata = {},
+> = ContractModule<
+  TContractId,
+  TOwnedApi,
+  TUsedApi,
+  TTrellisApi,
+  TJobs,
+  TState
+>;
 
 export type DefineContractInput<
   TSchemas extends Readonly<Record<string, TSchema>> | undefined = undefined,
@@ -1081,6 +1140,7 @@ export type DefineContractInput<
   description: string;
   kind: ContractKind;
   schemas?: TSchemas;
+  state?: ContractSourceState<SchemaNameOf<TSchemas>>;
   uses?: TUses;
   errors?: TErrors;
   rpc?: TRpc;
@@ -1097,6 +1157,7 @@ type DefineContractSource = {
   description: string;
   kind: ContractKind;
   schemas?: Readonly<Record<string, TSchema>>;
+  state?: ContractSourceState;
   uses?: Readonly<Record<string, AuthorContractDependencyUse>>;
   errors?: Readonly<Record<string, ContractSourceErrorDecl>>;
   rpc?: Readonly<Record<string, ContractSourceRpcMethod>>;
@@ -1166,6 +1227,12 @@ type DefineContractRegistry<
 type AnyDefineContractRegistry = {
   schemas?: Readonly<Record<string, TSchema>>;
   errors?: Readonly<Record<string, unknown>>;
+};
+
+type ClientContractRegistry<
+  TSchemas extends Readonly<Record<string, TSchema>> | undefined = undefined,
+> = {
+  schemas?: TSchemas;
 };
 
 type RegistrySchemas<TRegistry extends AnyDefineContractRegistry> =
@@ -1314,10 +1381,12 @@ type ServiceContractBodyInput<
   & { kind?: never };
 
 type ClientContractBodyInput<
+  TSchemas extends Readonly<Record<string, TSchema>> | undefined = undefined,
   TUses extends
     | Readonly<Record<string, AuthorContractDependencyUse>>
     | undefined = undefined,
 > = ContractIdentityFields & {
+  state?: ContractSourceState<SchemaNameOf<TSchemas>>;
   uses?: TUses;
   kind?: never;
   schemas?: never;
@@ -1707,6 +1776,38 @@ function buildContractJobsMetadata(
   ) as ContractJobsMetadata;
 }
 
+function buildContractStateMetadata(
+  state: ContractSourceState | undefined,
+  schemas: ContractSourceSchemas | undefined,
+): ContractStateMetadata {
+  if (!state) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(state).map(([storeName, store]) => [storeName, {
+      kind: store.kind,
+      value: undefined,
+      schema: resolveSchemaRef(schemas, store.schema, `state store '${storeName}'`),
+    }]),
+  ) as ContractStateMetadata;
+}
+
+function emitState(
+  state: ContractSourceState | undefined,
+): ContractState | undefined {
+  if (!state) {
+    return undefined;
+  }
+
+  return Object.fromEntries(
+    Object.entries(state).map(([storeName, store]) => [storeName, {
+      kind: store.kind,
+      schema: { ...store.schema },
+    } satisfies ContractStateStore]),
+  );
+}
+
 function emitUses(
   uses: Record<string, ContractSourceUse> | undefined,
 ): ContractUses | undefined {
@@ -1920,6 +2021,7 @@ function emitContract(source: TrellisContractSource): TrellisContractV1 {
     : undefined;
 
   const jobs = emitJobs(source.jobs);
+  const state = emitState(source.state);
   const resources = emitResources(source.resources);
   const uses = emitUses(source.uses);
 
@@ -1930,6 +2032,7 @@ function emitContract(source: TrellisContractSource): TrellisContractV1 {
     description: source.description,
     kind: source.kind,
     ...(source.schemas ? { schemas: cloneSchemas(source.schemas) } : {}),
+    ...(state ? { state } : {}),
     ...(uses ? { uses } : {}),
     ...(rpc ? { rpc } : {}),
     ...(operations ? { operations } : {}),
@@ -2625,6 +2728,7 @@ function defineContract(
     description: source.description,
     kind: source.kind,
     ...(source.schemas ? { schemas: source.schemas } : {}),
+    ...(source.state ? { state: source.state } : {}),
     ...(manifestUses ? { uses: manifestUses } : {}),
     ...(source.rpc ? { rpc: source.rpc } : {}),
     ...(source.operations ? { operations: source.operations } : {}),
@@ -2664,6 +2768,10 @@ function defineContract(
       () => contract,
     ),
     [CONTRACT_JOBS_METADATA]: buildContractJobsMetadata(source.jobs),
+    [CONTRACT_STATE_METADATA]: buildContractStateMetadata(
+      source.state,
+      source.schemas,
+    ),
   };
 
   return contract;
@@ -2741,6 +2849,10 @@ export function defineServiceContract<
   ProjectedJobs<
     JobsFromSource<BuiltContractSource<TRegistry, WithKind<TBody, "service">>>,
     SchemasFromSource<BuiltContractSource<TRegistry, WithKind<TBody, "service">>>
+  >,
+  ProjectedState<
+    StateFromSource<BuiltContractSource<TRegistry, WithKind<TBody, "service">>>,
+    SchemasFromSource<BuiltContractSource<TRegistry, WithKind<TBody, "service">>>
   >
 > {
   return defineContract(
@@ -2764,47 +2876,86 @@ export function defineServiceContract<
     ProjectedJobs<
       JobsFromSource<BuiltContractSource<TRegistry, WithKind<TBody, "service">>>,
       SchemasFromSource<BuiltContractSource<TRegistry, WithKind<TBody, "service">>>
+    >,
+    ProjectedState<
+      StateFromSource<BuiltContractSource<TRegistry, WithKind<TBody, "service">>>,
+      SchemasFromSource<BuiltContractSource<TRegistry, WithKind<TBody, "service">>>
     >
   >;
 }
 
 function defineClientContract<
   const TKind extends Exclude<ContractKind, "service">,
+  const TSchemas extends Readonly<Record<string, TSchema>> | undefined,
   const TUses extends
     | Readonly<Record<string, AuthorContractDependencyUse>>
     | undefined,
-  const TBody extends ClientContractBodyInput<TUses>,
+  const TBody extends ClientContractBodyInput<TSchemas, TUses>,
 >(
   kind: TKind,
-  build: () => TBody,
+  registry: ClientContractRegistry<TSchemas>,
+  build: (ref: ContractRefBuilder<TSchemas>) => TBody,
 ): DefinedContract<
-  OwnedApiFromSource<WithKind<TBody, TKind>>,
+  OwnedApiFromSource<BuiltContractSource<ClientContractRegistry<TSchemas>, WithKind<TBody, TKind>>>,
   UsedApiFromUses<TBody["uses"]>,
   MergeApis<
-    OwnedApiFromSource<WithKind<TBody, TKind>>,
+    OwnedApiFromSource<BuiltContractSource<ClientContractRegistry<TSchemas>, WithKind<TBody, TKind>>>,
     UsedApiFromUses<TBody["uses"]>
   >,
-  TBody["id"]
+  TBody["id"],
+  {},
+  ProjectedState<
+    StateFromSource<BuiltContractSource<ClientContractRegistry<TSchemas>, WithKind<TBody, TKind>>>,
+    SchemasFromSource<BuiltContractSource<ClientContractRegistry<TSchemas>, WithKind<TBody, TKind>>>
+  >
 > {
   return defineContract(
-    {},
-    () => ({ ...build(), kind }),
+    registry,
+    (ref) => ({ ...build(ref), kind }),
   ) as unknown as DefinedContract<
-    OwnedApiFromSource<WithKind<TBody, TKind>>,
+    OwnedApiFromSource<BuiltContractSource<ClientContractRegistry<TSchemas>, WithKind<TBody, TKind>>>,
     UsedApiFromUses<TBody["uses"]>,
     MergeApis<
-      OwnedApiFromSource<WithKind<TBody, TKind>>,
+      OwnedApiFromSource<BuiltContractSource<ClientContractRegistry<TSchemas>, WithKind<TBody, TKind>>>,
       UsedApiFromUses<TBody["uses"]>
     >,
-    TBody["id"]
+    TBody["id"],
+    {},
+    ProjectedState<
+      StateFromSource<BuiltContractSource<ClientContractRegistry<TSchemas>, WithKind<TBody, TKind>>>,
+      SchemasFromSource<BuiltContractSource<ClientContractRegistry<TSchemas>, WithKind<TBody, TKind>>>
+    >
   >;
 }
 
 export function defineAppContract<
+  const TSchemas extends Readonly<Record<string, TSchema>> | undefined,
   const TUses extends
     | Readonly<Record<string, AuthorContractDependencyUse>>
     | undefined,
-  const TBody extends ClientContractBodyInput<TUses>,
+  const TBody extends ClientContractBodyInput<TSchemas, TUses>,
+>(
+  registry: ClientContractRegistry<TSchemas>,
+  build: (ref: ContractRefBuilder<TSchemas>) => TBody,
+): DefinedContract<
+  OwnedApiFromSource<BuiltContractSource<ClientContractRegistry<TSchemas>, WithKind<TBody, "app">>>,
+  UsedApiFromUses<TBody["uses"]>,
+  MergeApis<
+    OwnedApiFromSource<BuiltContractSource<ClientContractRegistry<TSchemas>, WithKind<TBody, "app">>>,
+    UsedApiFromUses<TBody["uses"]>
+  >,
+  TBody["id"],
+  {},
+  ProjectedState<
+    StateFromSource<BuiltContractSource<ClientContractRegistry<TSchemas>, WithKind<TBody, "app">>>,
+    SchemasFromSource<BuiltContractSource<ClientContractRegistry<TSchemas>, WithKind<TBody, "app">>>
+  >
+>;
+export function defineAppContract<
+  const TUses extends
+    | Readonly<Record<string, AuthorContractDependencyUse>>
+    | undefined,
+  const TBody extends ClientContractBodyInput<undefined, TUses>,
 >(build: () => TBody): DefinedContract<
   OwnedApiFromSource<WithKind<TBody, "app">>,
   UsedApiFromUses<TBody["uses"]>,
@@ -2812,16 +2963,55 @@ export function defineAppContract<
     OwnedApiFromSource<WithKind<TBody, "app">>,
     UsedApiFromUses<TBody["uses"]>
   >,
-  TBody["id"]
-> {
-  return defineClientContract("app", build);
+  TBody["id"],
+  {},
+  ProjectedState<StateFromSource<WithKind<TBody, "app">>, SchemasFromSource<WithKind<TBody, "app">>>
+>;
+export function defineAppContract(
+  ...args:
+    | [() => ContractIdentityFields & Record<string, unknown>]
+    | [
+      ClientContractRegistry<Readonly<Record<string, TSchema>>>,
+      (ref: ContractRefBuilder<Readonly<Record<string, TSchema>>>) =>
+        ContractIdentityFields & Record<string, unknown>,
+    ]
+) {
+  const [registryOrBuild, maybeBuild] = args;
+  if (typeof registryOrBuild === "function") {
+    return defineClientContract("app", {}, () => registryOrBuild());
+  }
+
+  return defineClientContract("app", registryOrBuild, maybeBuild!);
 }
 
+export function definePortalContract<
+  const TSchemas extends Readonly<Record<string, TSchema>> | undefined,
+  const TUses extends
+    | Readonly<Record<string, AuthorContractDependencyUse>>
+    | undefined,
+  const TBody extends ClientContractBodyInput<TSchemas, TUses>,
+>(
+  registry: ClientContractRegistry<TSchemas>,
+  build: (ref: ContractRefBuilder<TSchemas>) => TBody,
+): DefinedContract<
+  OwnedApiFromSource<BuiltContractSource<ClientContractRegistry<TSchemas>, WithKind<TBody, "portal">>>,
+  UsedApiFromUses<TBody["uses"]>,
+  MergeApis<
+    OwnedApiFromSource<BuiltContractSource<ClientContractRegistry<TSchemas>, WithKind<TBody, "portal">>>,
+    UsedApiFromUses<TBody["uses"]>
+  >,
+  TBody["id"],
+  {},
+  ProjectedState<
+    StateFromSource<BuiltContractSource<ClientContractRegistry<TSchemas>, WithKind<TBody, "portal">>>,
+    SchemasFromSource<BuiltContractSource<ClientContractRegistry<TSchemas>, WithKind<TBody, "portal">>>
+  >
+>;
 export function definePortalContract<
   const TUses extends
     | Readonly<Record<string, AuthorContractDependencyUse>>
     | undefined,
-  const TBody extends ClientContractBodyInput<TUses>,
+  const TBody extends ClientContractBodyInput<undefined, TUses>,
 >(build: () => TBody): DefinedContract<
   OwnedApiFromSource<WithKind<TBody, "portal">>,
   UsedApiFromUses<TBody["uses"]>,
@@ -2829,16 +3019,55 @@ export function definePortalContract<
     OwnedApiFromSource<WithKind<TBody, "portal">>,
     UsedApiFromUses<TBody["uses"]>
   >,
-  TBody["id"]
-> {
-  return defineClientContract("portal", build);
+  TBody["id"],
+  {},
+  ProjectedState<StateFromSource<WithKind<TBody, "portal">>, SchemasFromSource<WithKind<TBody, "portal">>>
+>;
+export function definePortalContract(
+  ...args:
+    | [() => ContractIdentityFields & Record<string, unknown>]
+    | [
+      ClientContractRegistry<Readonly<Record<string, TSchema>>>,
+      (ref: ContractRefBuilder<Readonly<Record<string, TSchema>>>) =>
+        ContractIdentityFields & Record<string, unknown>,
+    ]
+) {
+  const [registryOrBuild, maybeBuild] = args;
+  if (typeof registryOrBuild === "function") {
+    return defineClientContract("portal", {}, () => registryOrBuild());
+  }
+
+  return defineClientContract("portal", registryOrBuild, maybeBuild!);
 }
 
+export function defineCliContract<
+  const TSchemas extends Readonly<Record<string, TSchema>> | undefined,
+  const TUses extends
+    | Readonly<Record<string, AuthorContractDependencyUse>>
+    | undefined,
+  const TBody extends ClientContractBodyInput<TSchemas, TUses>,
+>(
+  registry: ClientContractRegistry<TSchemas>,
+  build: (ref: ContractRefBuilder<TSchemas>) => TBody,
+): DefinedContract<
+  OwnedApiFromSource<BuiltContractSource<ClientContractRegistry<TSchemas>, WithKind<TBody, "cli">>>,
+  UsedApiFromUses<TBody["uses"]>,
+  MergeApis<
+    OwnedApiFromSource<BuiltContractSource<ClientContractRegistry<TSchemas>, WithKind<TBody, "cli">>>,
+    UsedApiFromUses<TBody["uses"]>
+  >,
+  TBody["id"],
+  {},
+  ProjectedState<
+    StateFromSource<BuiltContractSource<ClientContractRegistry<TSchemas>, WithKind<TBody, "cli">>>,
+    SchemasFromSource<BuiltContractSource<ClientContractRegistry<TSchemas>, WithKind<TBody, "cli">>>
+  >
+>;
 export function defineCliContract<
   const TUses extends
     | Readonly<Record<string, AuthorContractDependencyUse>>
     | undefined,
-  const TBody extends ClientContractBodyInput<TUses>,
+  const TBody extends ClientContractBodyInput<undefined, TUses>,
 >(build: () => TBody): DefinedContract<
   OwnedApiFromSource<WithKind<TBody, "cli">>,
   UsedApiFromUses<TBody["uses"]>,
@@ -2846,16 +3075,55 @@ export function defineCliContract<
     OwnedApiFromSource<WithKind<TBody, "cli">>,
     UsedApiFromUses<TBody["uses"]>
   >,
-  TBody["id"]
-> {
-  return defineClientContract("cli", build);
+  TBody["id"],
+  {},
+  ProjectedState<StateFromSource<WithKind<TBody, "cli">>, SchemasFromSource<WithKind<TBody, "cli">>>
+>;
+export function defineCliContract(
+  ...args:
+    | [() => ContractIdentityFields & Record<string, unknown>]
+    | [
+      ClientContractRegistry<Readonly<Record<string, TSchema>>>,
+      (ref: ContractRefBuilder<Readonly<Record<string, TSchema>>>) =>
+        ContractIdentityFields & Record<string, unknown>,
+    ]
+) {
+  const [registryOrBuild, maybeBuild] = args;
+  if (typeof registryOrBuild === "function") {
+    return defineClientContract("cli", {}, () => registryOrBuild());
+  }
+
+  return defineClientContract("cli", registryOrBuild, maybeBuild!);
 }
 
+export function defineDeviceContract<
+  const TSchemas extends Readonly<Record<string, TSchema>> | undefined,
+  const TUses extends
+    | Readonly<Record<string, AuthorContractDependencyUse>>
+    | undefined,
+  const TBody extends ClientContractBodyInput<TSchemas, TUses>,
+>(
+  registry: ClientContractRegistry<TSchemas>,
+  build: (ref: ContractRefBuilder<TSchemas>) => TBody,
+): DefinedContract<
+  OwnedApiFromSource<BuiltContractSource<ClientContractRegistry<TSchemas>, WithKind<TBody, "device">>>,
+  UsedApiFromUses<TBody["uses"]>,
+  MergeApis<
+    OwnedApiFromSource<BuiltContractSource<ClientContractRegistry<TSchemas>, WithKind<TBody, "device">>>,
+    UsedApiFromUses<TBody["uses"]>
+  >,
+  TBody["id"],
+  {},
+  ProjectedState<
+    StateFromSource<BuiltContractSource<ClientContractRegistry<TSchemas>, WithKind<TBody, "device">>>,
+    SchemasFromSource<BuiltContractSource<ClientContractRegistry<TSchemas>, WithKind<TBody, "device">>>
+  >
+>;
 export function defineDeviceContract<
   const TUses extends
     | Readonly<Record<string, AuthorContractDependencyUse>>
     | undefined,
-  const TBody extends ClientContractBodyInput<TUses>,
+  const TBody extends ClientContractBodyInput<undefined, TUses>,
 >(build: () => TBody): DefinedContract<
   OwnedApiFromSource<WithKind<TBody, "device">>,
   UsedApiFromUses<TBody["uses"]>,
@@ -2863,9 +3131,25 @@ export function defineDeviceContract<
     OwnedApiFromSource<WithKind<TBody, "device">>,
     UsedApiFromUses<TBody["uses"]>
   >,
-  TBody["id"]
-> {
-  return defineClientContract("device", build);
+  TBody["id"],
+  {},
+  ProjectedState<StateFromSource<WithKind<TBody, "device">>, SchemasFromSource<WithKind<TBody, "device">>>
+>;
+export function defineDeviceContract(
+  ...args:
+    | [() => ContractIdentityFields & Record<string, unknown>]
+    | [
+      ClientContractRegistry<Readonly<Record<string, TSchema>>>,
+      (ref: ContractRefBuilder<Readonly<Record<string, TSchema>>>) =>
+        ContractIdentityFields & Record<string, unknown>,
+    ]
+) {
+  const [registryOrBuild, maybeBuild] = args;
+  if (typeof registryOrBuild === "function") {
+    return defineClientContract("device", {}, () => registryOrBuild());
+  }
+
+  return defineClientContract("device", registryOrBuild, maybeBuild!);
 }
 
 export type {

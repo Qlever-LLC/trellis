@@ -6,15 +6,19 @@ export const StateAdminDeleteSchema = Type.Union([
   Type.Object({
     scope: Type.Literal("userApp"),
     contractId: Type.String({ minLength: 1 }),
+    contractDigest: Type.String({ minLength: 1 }),
+    store: Type.String({ minLength: 1 }),
     user: StateUserTargetSchema,
-    key: Type.String({ minLength: 1 }),
+    key: Type.Optional(Type.String({ minLength: 1 })),
     expectedRevision: Type.Optional(Type.String({ minLength: 1 })),
   }),
   Type.Object({
     scope: Type.Literal("deviceApp"),
     contractId: Type.String({ minLength: 1 }),
+    contractDigest: Type.String({ minLength: 1 }),
+    store: Type.String({ minLength: 1 }),
     deviceId: Type.String({ minLength: 1 }),
-    key: Type.String({ minLength: 1 }),
+    key: Type.Optional(Type.String({ minLength: 1 })),
     expectedRevision: Type.Optional(Type.String({ minLength: 1 })),
   }),
 ]);

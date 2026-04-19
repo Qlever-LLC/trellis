@@ -1,13 +1,13 @@
 import Type, { type Static } from "typebox";
 
 import { PaginatedSchema } from "../../../contracts.ts";
-import { StateEntrySchema, StateScopeSchema } from "../State.ts";
+import { StateEntrySchema } from "../State.ts";
 import { PaginateSchema } from "../Paginate.ts";
 
 export const StateListSchema = Type.Intersect([
   PaginateSchema,
   Type.Object({
-    scope: StateScopeSchema,
+    store: Type.String({ minLength: 1 }),
     prefix: Type.Optional(Type.String({ minLength: 1 })),
   }),
 ]);

@@ -1,32 +1,39 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import type {
-    StateListOutput,
-    StatePutInput,
-    StatePutOutput,
-  } from "@qlever-llc/trellis-sdk/state";
-  import { requestValue, type AppStateEntry } from "$lib/trellis";
+  import { isErr } from "@qlever-llc/result";
+  import {
+    getTrellis,
+    type AppStateEntry,
+    type AppStatePutEntry,
+  } from "$lib/trellis";
 
   let key = $state("demo.selected-site");
   let siteId = $state("site-west-yard");
   let note = $state("Prioritize the west-yard follow-up during the next browser session.");
   let entries = $state<AppStateEntry[]>([]);
-  let latestPut = $state<StatePutOutput["entry"] | null>(null);
+  let latestPut = $state<AppStatePutEntry | null>(null);
   let loading = $state(true);
   let saving = $state(false);
   let error = $state<string | null>(null);
+
+  async function getInspectionContextStore() {
+    return (await getTrellis()).state.inspectionContext;
+  }
 
   async function loadEntries(): Promise<void> {
     loading = true;
     error = null;
 
     try {
-      const response = await requestValue("State.List", {
-        scope: "userApp",
+      const result = await (await getInspectionContextStore()).list({
         prefix: "demo.",
         offset: 0,
         limit: 12,
       });
+      const response = result.take();
+      if (isErr(response)) {
+        throw response.error;
+      }
       entries = response.entries;
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
@@ -40,17 +47,19 @@
     error = null;
 
     try {
-      const payload: StatePutInput = {
-        scope: "userApp",
-        key,
-        value: {
-          siteId,
-          note,
-          updatedBy: "demo-browser-app",
-          updatedAt: new Date().toISOString(),
-        },
-      };
-      const response = await requestValue("State.Put", payload);
+      const result = await (await getInspectionContextStore()).put(key, {
+        siteId,
+        note,
+        updatedBy: "demo-browser-app",
+        updatedAt: new Date().toISOString(),
+      });
+      const response = result.take();
+      if (isErr(response)) {
+        throw response.error;
+      }
+      if (!response.applied) {
+        throw new Error("Inspection context write was not applied.");
+      }
       latestPut = response.entry;
       await loadEntries();
     } catch (cause) {
@@ -64,10 +73,11 @@
     error = null;
 
     try {
-      await requestValue("State.Delete", {
-        scope: "userApp",
-        key: entryKey,
-      });
+      const result = await (await getInspectionContextStore()).delete(entryKey);
+      const response = result.take();
+      if (isErr(response)) {
+        throw response.error;
+      }
       if (latestPut?.key === entryKey) {
         latestPut = null;
       }
@@ -90,7 +100,7 @@
   <header class="page-header">
     <p class="eyebrow">State surface</p>
     <h1>Persist small app memory</h1>
-    <p class="page-summary">This route writes to the Trellis-managed app state namespace so the browser can keep compact user-app context between sessions.</p>
+    <p class="page-summary">This route writes to the named <span class="code">inspectionContext</span> client state store so the browser can keep compact inspection context between sessions.</p>
   </header>
 
   {#if error}
@@ -102,7 +112,7 @@
       <h2 class="section-title">Write a demo state entry</h2>
       <div class="form-grid">
         <label>
-          <span class="muted">State key</span>
+          <span class="muted">Store key</span>
           <input class="input code" bind:value={key} />
         </label>
 
@@ -118,7 +128,7 @@
 
         <div class="button-row">
           <button class="button" onclick={saveState} disabled={saving || key.trim().length === 0}>
-            {saving ? "Saving…" : "Save user-app state"}
+            {saving ? "Saving…" : "Save inspection context"}
           </button>
           <button class="ghost-button" onclick={loadEntries} disabled={loading}>Reload list</button>
         </div>
@@ -138,12 +148,12 @@
 
     <section class="surface-card stack">
       <div class="split">
-        <h2 class="section-title">Current demo namespace</h2>
+        <h2 class="section-title">Current inspectionContext store</h2>
         <span class="pill">{entries.length} keys</span>
       </div>
 
       {#if loading}
-        <div class="empty-state">Listing user-app state…</div>
+        <div class="empty-state">Listing inspectionContext entries…</div>
       {:else if entries.length === 0}
         <div class="empty-state">No demo keys exist yet. Save one from the form to the left.</div>
       {:else}

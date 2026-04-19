@@ -16,6 +16,7 @@ import type {
   RPCDesc,
   TrellisAPI,
 } from "./contracts.ts";
+import { CONTRACT_STATE_METADATA } from "./contract_support/mod.ts";
 import type { StaticDecode } from "typebox";
 import {
   AuthValidateRequestResponseSchema,
@@ -73,6 +74,14 @@ import {
   type OperationRefData,
   type OperationTransport,
 } from "./operations.ts";
+import type { StateDeleteResponse } from "./models/trellis/rpc/StateDelete.ts";
+import { StateDeleteResponseSchema, StateDeleteSchema } from "./models/trellis/rpc/StateDelete.ts";
+import type { StateGetResponse } from "./models/trellis/rpc/StateGet.ts";
+import { StateGetResponseSchema, StateGetSchema } from "./models/trellis/rpc/StateGet.ts";
+import type { StateListResponse } from "./models/trellis/rpc/StateList.ts";
+import { StateListResponseSchema, StateListSchema } from "./models/trellis/rpc/StateList.ts";
+import type { StatePutResponse } from "./models/trellis/rpc/StatePut.ts";
+import { StatePutResponseSchema, StatePutSchema } from "./models/trellis/rpc/StatePut.ts";
 import {
   createTransferHandle,
   type FileInfo,
@@ -211,6 +220,18 @@ type OwnedApiFor<TContract> = TContract extends
   ? TOwnedApi extends AnyTrellisAPI ? TOwnedApi
   : never
   : never;
+type RuntimeStateStoreShape = {
+  kind: "value" | "map";
+  value: unknown;
+  schema?: unknown;
+};
+type RuntimeStateStores = Record<string, RuntimeStateStoreShape>;
+export type RuntimeStateStoresForContract<TContract> = TContract extends {
+  readonly [CONTRACT_STATE_METADATA]?: infer TState;
+}
+  ? NonNullable<TState> extends RuntimeStateStores ? NonNullable<TState>
+  : {}
+  : {};
 type TrellisApiFor<TContract> = TContract extends
   { API: { trellis: infer TTrellisApi } }
   ? TTrellisApi extends AnyTrellisAPI ? TTrellisApi
@@ -338,6 +359,83 @@ export type AcceptedOperation<TProgress = unknown, TOutput = unknown> =
 export type OperationTransferHandle = {
   updates(): AsyncIterable<RuntimeOperationTransferProgress>;
   completed(): AsyncResult<FileInfo, TransferError>;
+};
+type StateEntryBase<TValue> = {
+  value: TValue;
+  revision: string;
+  updatedAt: string;
+  expiresAt?: string;
+};
+type ValueStateEntry<TValue> = StateEntryBase<TValue>;
+type MapStateEntry<TValue> = StateEntryBase<TValue> & { key: string };
+type StateGetResult<TStore extends RuntimeStateStoreShape> =
+  | { found: false }
+  | {
+    found: true;
+    entry: TStore["kind"] extends "map" ? MapStateEntry<TStore["value"]>
+      : ValueStateEntry<TStore["value"]>;
+  };
+type StatePutResult<TStore extends RuntimeStateStoreShape> =
+  | {
+    applied: true;
+    entry: TStore["kind"] extends "map" ? MapStateEntry<TStore["value"]>
+      : ValueStateEntry<TStore["value"]>;
+  }
+  | {
+    applied: false;
+    found: boolean;
+    entry?: TStore["kind"] extends "map" ? MapStateEntry<TStore["value"]>
+      : ValueStateEntry<TStore["value"]>;
+  };
+type StateDeleteOptions = {
+  expectedRevision?: string;
+};
+type StatePutOptions = {
+  expectedRevision?: string | null;
+  ttlMs?: number;
+};
+type StateListOptions = {
+  offset?: number;
+  limit?: number;
+};
+type ValueStateStoreClient<TValue> = {
+  get(): AsyncResult<
+    StateGetResult<{ kind: "value"; value: TValue }>,
+    BaseError
+  >;
+  put(
+    value: TValue,
+    opts?: StatePutOptions,
+  ): AsyncResult<StatePutResult<{ kind: "value"; value: TValue }>, BaseError>;
+  delete(opts?: StateDeleteOptions): AsyncResult<{ deleted: boolean }, BaseError>;
+};
+type MapStateStoreClient<TValue> = {
+  get(
+    key: string,
+  ): AsyncResult<StateGetResult<{ kind: "map"; value: TValue }>, BaseError>;
+  put(
+    key: string,
+    value: TValue,
+    opts?: StatePutOptions,
+  ): AsyncResult<StatePutResult<{ kind: "map"; value: TValue }>, BaseError>;
+  delete(
+    key: string,
+    opts?: StateDeleteOptions,
+  ): AsyncResult<{ deleted: boolean }, BaseError>;
+  list(opts?: StateListOptions): AsyncResult<{
+    entries: Array<MapStateEntry<TValue>>;
+    count: number;
+    offset: number;
+    limit: number;
+    next?: number;
+    prev?: number;
+  }, BaseError>;
+  prefix(path: string): MapStateStoreClient<TValue>;
+};
+type StateFacade<TState extends RuntimeStateStores> = {
+  [K in keyof TState]: TState[K]["kind"] extends "map"
+    ? MapStateStoreClient<TState[K]["value"]>
+    : ValueStateStoreClient<TState[K]["value"]>;
 };
 export type OperationHandlerContext<
   TInput,
@@ -601,6 +699,7 @@ export type TrellisOpts<TA extends AnyTrellisAPI> = {
   stream?: string;
   noResponderRetry?: NoResponderRetryOpts;
   api?: TA;
+  state?: RuntimeStateStores;
   authBypassMethods?: string[];
 };
 
@@ -659,6 +758,141 @@ export type RpcHandlerFn<
   M extends RpcMethodNameOf<TA>,
 > = HandlerFn<TA, M, TA>;
 export type TrellisFor<TContract> = HandlerTrellis<TrellisApiFor<TContract>>;
+
+const DEFAULT_STATE_LIST_LIMIT = 100;
+
+const STATE_RUNTIME_RPC = {
+  get: {
+    subject: "rpc.v1.State.Get",
+    input: StateGetSchema,
+    output: StateGetResponseSchema,
+    callerCapabilities: [],
+    errors: ["AuthError", "ValidationError", "UnexpectedError"] as const,
+    declaredErrorTypes: ["AuthError", "ValidationError", "UnexpectedError"] as const,
+  },
+  put: {
+    subject: "rpc.v1.State.Put",
+    input: StatePutSchema,
+    output: StatePutResponseSchema,
+    callerCapabilities: [],
+    errors: ["AuthError", "ValidationError", "UnexpectedError"] as const,
+    declaredErrorTypes: ["AuthError", "ValidationError", "UnexpectedError"] as const,
+  },
+  delete: {
+    subject: "rpc.v1.State.Delete",
+    input: StateDeleteSchema,
+    output: StateDeleteResponseSchema,
+    callerCapabilities: [],
+    errors: ["AuthError", "ValidationError", "UnexpectedError"] as const,
+    declaredErrorTypes: ["AuthError", "ValidationError", "UnexpectedError"] as const,
+  },
+  list: {
+    subject: "rpc.v1.State.List",
+    input: StateListSchema,
+    output: StateListResponseSchema,
+    callerCapabilities: [],
+    errors: ["AuthError", "ValidationError", "UnexpectedError"] as const,
+    declaredErrorTypes: ["AuthError", "ValidationError", "UnexpectedError"] as const,
+  },
+} satisfies Record<string, {
+  subject: string;
+  input: unknown;
+  output: unknown;
+  callerCapabilities: readonly string[];
+  errors: readonly string[];
+  declaredErrorTypes: readonly string[];
+}>;
+
+function joinStatePath(prefix: string | undefined, key: string): string {
+  return [prefix, key]
+    .flatMap((value) => value?.split("/") ?? [])
+    .filter((segment) => segment.length > 0)
+    .join("/");
+}
+
+function validateStateValue(
+  schema: unknown,
+  value: JsonValue,
+): Result<unknown, ValidationError | UnexpectedError> {
+  return parseRuntimeSchema(schema, value);
+}
+
+function validateStateGetResult<TStore extends RuntimeStateStoreShape>(
+  schema: unknown,
+  result: StateGetResult<TStore>,
+): Result<StateGetResult<TStore>, ValidationError | UnexpectedError> {
+  if (!result.found) {
+    return Result.ok(result);
+  }
+
+  const parsed = validateStateValue(schema, result.entry.value as JsonValue);
+  if (parsed.isErr()) {
+    return Result.err(parsed.error);
+  }
+
+  return Result.ok({
+    ...result,
+    entry: {
+      ...result.entry,
+      value: parsed.unwrapOrElse(() => {
+        throw new Error("state value validation unexpectedly failed");
+      }),
+    },
+  });
+}
+
+function validateStatePutResult<TStore extends RuntimeStateStoreShape>(
+  schema: unknown,
+  result: StatePutResult<TStore>,
+): Result<StatePutResult<TStore>, ValidationError | UnexpectedError> {
+  if (!result.entry) {
+    return Result.ok(result);
+  }
+
+  const parsed = validateStateValue(schema, result.entry.value as JsonValue);
+  if (parsed.isErr()) {
+    return Result.err(parsed.error);
+  }
+
+  return Result.ok({
+    ...result,
+    entry: {
+      ...result.entry,
+      value: parsed.unwrapOrElse(() => {
+        throw new Error("state value validation unexpectedly failed");
+      }),
+    },
+  });
+}
+
+function validateStateListResult(
+  schema: unknown,
+  result: {
+    entries: Array<MapStateEntry<unknown>>;
+    count: number;
+    offset: number;
+    limit: number;
+    next?: number;
+    prev?: number;
+  },
+): Result<typeof result, ValidationError | UnexpectedError> {
+  const entries: Array<MapStateEntry<unknown>> = [];
+  for (const entry of result.entries) {
+    const parsed = validateStateValue(schema, entry.value as JsonValue);
+    if (parsed.isErr()) {
+      return Result.err(parsed.error);
+    }
+    entries.push({
+      ...entry,
+      value: parsed.unwrapOrElse(() => {
+        throw new Error("state value validation unexpectedly failed");
+      }),
+    });
+  }
+
+  return Result.ok({ ...result, entries });
+}
+
 export type RpcName<TContract> = RpcMethodNameOf<OwnedApiFor<TContract>>;
 export type RpcInput<
   TContract,
@@ -794,10 +1028,12 @@ async function sleep(ms: number): Promise<void> {
 export class Trellis<
   TA extends AnyTrellisAPI = TrellisAPI,
   TMode extends TrellisMode = "client",
+  TState extends RuntimeStateStores = {},
 > {
   readonly name: string;
   readonly timeout: number;
   readonly stream: string;
+  readonly state: StateFacade<TState>;
 
   protected nats: NatsConnection;
   protected js: JetStreamClient;
@@ -835,6 +1071,7 @@ export class Trellis<
     this.#authBypassMethods = new Set(opts?.authBypassMethods ?? []);
 
     this.#tasks = new TrellisTasks({ log: this.#log });
+    this.state = this.#createStateFacade(opts?.state as TState | undefined);
   }
 
   /**
@@ -846,6 +1083,114 @@ export class Trellis<
 
   jobs(): JobsAdminClient {
     return new JobsAdminClient(this);
+  }
+
+  #createStateFacade(state: TState | undefined): StateFacade<TState> {
+    const stores = state ?? ({} as TState);
+    const facade = Object.fromEntries(
+      Object.entries(stores).map(([store, descriptor]) => {
+        if (descriptor.kind === "value") {
+          const client: ValueStateStoreClient<unknown> = {
+            get: () => AsyncResult.from((async () => {
+              const result = await this.#requestBuiltRpc<StateGetResult<{ kind: "value"; value: unknown }>>(
+                "State.Get",
+                { store },
+                STATE_RUNTIME_RPC.get,
+              );
+              if (result.isErr()) return result;
+              return validateStateGetResult(descriptor.schema, result.unwrapOrElse(() => {
+                throw new Error("state get unexpectedly failed");
+              }));
+            })()),
+            put: (value, opts) => AsyncResult.from((async () => {
+              const encoded = encodeRuntimeSchema(descriptor.schema, value).take();
+              if (isErr(encoded)) {
+                return Result.err(encoded.error);
+              }
+              const result = await this.#requestBuiltRpc<StatePutResult<{ kind: "value"; value: unknown }>>(
+                "State.Put",
+                { store, value, ...opts },
+                STATE_RUNTIME_RPC.put,
+              );
+              if (result.isErr()) return result;
+              return validateStatePutResult(descriptor.schema, result.unwrapOrElse(() => {
+                throw new Error("state put unexpectedly failed");
+              }));
+            })()),
+            delete: (opts) =>
+              this.#requestBuiltRpc<{ deleted: boolean }>(
+                "State.Delete",
+                { store, ...opts },
+                STATE_RUNTIME_RPC.delete,
+              ),
+          };
+          return [store, client];
+        }
+
+        const mapClient = (prefix?: string): MapStateStoreClient<unknown> => ({
+          get: (key) => AsyncResult.from((async () => {
+            const result = await this.#requestBuiltRpc<StateGetResult<{ kind: "map"; value: unknown }>>(
+              "State.Get",
+              { store, key: joinStatePath(prefix, key) },
+              STATE_RUNTIME_RPC.get,
+            );
+            if (result.isErr()) return result;
+            return validateStateGetResult(descriptor.schema, result.unwrapOrElse(() => {
+              throw new Error("state get unexpectedly failed");
+            }));
+          })()),
+          put: (key, value, opts) => AsyncResult.from((async () => {
+            const encoded = encodeRuntimeSchema(descriptor.schema, value).take();
+            if (isErr(encoded)) {
+              return Result.err(encoded.error);
+            }
+            const result = await this.#requestBuiltRpc<StatePutResult<{ kind: "map"; value: unknown }>>(
+              "State.Put",
+              { store, key: joinStatePath(prefix, key), value, ...opts },
+              STATE_RUNTIME_RPC.put,
+            );
+            if (result.isErr()) return result;
+            return validateStatePutResult(descriptor.schema, result.unwrapOrElse(() => {
+              throw new Error("state put unexpectedly failed");
+            }));
+          })()),
+          delete: (key, opts) =>
+            this.#requestBuiltRpc<{ deleted: boolean }>(
+              "State.Delete",
+              { store, key: joinStatePath(prefix, key), ...opts },
+              STATE_RUNTIME_RPC.delete,
+            ),
+          list: (opts) => AsyncResult.from((async () => {
+            const result = await this.#requestBuiltRpc<{
+              entries: Array<MapStateEntry<unknown>>;
+              count: number;
+              offset: number;
+              limit: number;
+              next?: number;
+              prev?: number;
+            }>(
+              "State.List",
+              {
+                store,
+                ...(prefix ? { prefix } : {}),
+                offset: opts?.offset ?? 0,
+                limit: opts?.limit ?? DEFAULT_STATE_LIST_LIMIT,
+              },
+              STATE_RUNTIME_RPC.list,
+            );
+            if (result.isErr()) return result;
+            return validateStateListResult(descriptor.schema, result.unwrapOrElse(() => {
+              throw new Error("state list unexpectedly failed");
+            }));
+          })()),
+          prefix: (path) => mapClient(joinStatePath(prefix, path)),
+        });
+
+        return [store, mapClient()];
+      }),
+    );
+
+    return facade as StateFacade<TState>;
   }
 
   #unknownApiError(
@@ -925,172 +1270,175 @@ export class Trellis<
     input: unknown,
     opts?: RequestOpts,
   ): AsyncResult<unknown, BaseError> {
-    return AsyncResult.from((async () => {
-      this.#log.trace(
-        { method: String(method) },
-        `Calling ${method.toString()}.`,
-      );
-
     const methodName = method as MethodsOf<TA>;
     const ctx = this.api["rpc"][methodName] as RpcDescriptorOf<
       TA,
       typeof methodName
     >;
     if (!ctx) {
-      return err(
+      return AsyncResult.from(Promise.resolve(err(
         new UnexpectedError({
           cause: this.#unknownApiError("RPC method", method.toString()),
           context: { method: method.toString() },
         }),
+      )));
+    }
+
+    return this.#requestBuiltRpc(method, input, ctx, opts);
+  }
+
+  #requestBuiltRpc<TOutput>(
+    method: string,
+    input: unknown,
+    ctx: {
+      subject: string;
+      input: unknown;
+      output: unknown;
+      callerCapabilities: readonly string[];
+      errors?: readonly string[];
+      declaredErrorTypes?: readonly string[];
+      runtimeErrors?: readonly RuntimeRpcErrorDesc[];
+    },
+    opts?: RequestOpts,
+  ): AsyncResult<TOutput, BaseError> {
+    return AsyncResult.from((async () => {
+      this.#log.trace(
+        { method: String(method) },
+        `Calling ${method.toString()}.`,
       );
-    }
 
-    const msg = encodeRuntimeSchema(ctx.input, input).take();
-    if (isErr(msg)) {
-      return msg;
-    }
-
-    const subject = this.template(ctx.subject, input).take();
-    if (isErr(subject)) {
-      return subject;
-    }
-
-    // Start a client span for this RPC request
-    const span = startClientSpan(method, subject);
-
-    const attempt = async (): Promise<Result<unknown, BaseError>> => {
-      const proof = await this.#createProof(subject, msg);
-
-      const headers = natsHeaders();
-      headers.set("session-key", this.auth.sessionKey);
-      headers.set("proof", proof);
-
-      // Inject trace context into NATS headers for propagation
-      injectTraceContext(createNatsHeaderCarrier(headers), span);
-
-      // Attempt request with retry for transient "no responders" errors
-      const requestWithRetry = async (): Promise<
-        Result<Msg, UnexpectedError>
-      > => {
-        for (let retry = 0; retry <= this.#noResponderMaxRetries; retry++) {
-          const result = await AsyncResult.try(() =>
-            this.nats.request(subject, msg, {
-              headers,
-              timeout: opts?.timeout ?? this.timeout,
-            })
-          );
-
-          if (result.isOk()) {
-            return ok((await result).take() as Msg);
-          }
-
-          const cause = result.error.cause;
-          const message = cause instanceof Error
-            ? cause.message
-            : String(cause);
-          const isNoResponders = message.includes("no responders");
-
-          // If it's a no-responders error and we have retries left, retry
-          if (isNoResponders && retry < this.#noResponderMaxRetries) {
-            this.#log.debug(
-              { method, subject, retry },
-              "No responders, retrying...",
-            );
-            await new Promise((r) =>
-              setTimeout(r, this.#noResponderRetryMs * (retry + 1))
-            );
-            continue;
-          }
-
-          // Final attempt failed or non-retryable error
-          this.#log.warn(
-            { method, subject, error: message },
-            "NATS request failed",
-          );
-          const isNatsPermission = message.includes("Permissions Violation");
-          const reason = isNatsPermission
-            ? `Permission denied. You need one of these capabilities: ${
-              ctx.callerCapabilities.join(
-                ", ",
-              )
-            }`
-            : message;
-          return err(
-            new UnexpectedError({
-              cause,
-              context: {
-                method,
-                subject,
-                reason,
-                requiredCapabilities: ctx.callerCapabilities,
-                noResponders: isNoResponders,
-              },
-            }),
-          );
-        }
-        // Should be unreachable, but TypeScript needs explicit return
-        return err(
-          new UnexpectedError({
-            context: { method, subject, reason: "retry loop exhausted" },
-          }),
-        );
-      };
-
-      const msgResult = await requestWithRetry();
-      const m = msgResult.take();
-      if (isErr(m)) {
-        return m;
+      const msg = encodeRuntimeSchema(ctx.input, input).take();
+      if (isErr(msg)) {
+        return msg;
       }
 
-      if (m.headers?.get("status") === "error") {
-        const json = safeJson(m).take();
+      const subject = this.template(ctx.subject, input).take();
+      if (isErr(subject)) {
+        return subject;
+      }
+
+      const span = startClientSpan(method, subject);
+      const attempt = async (): Promise<Result<TOutput, BaseError>> => {
+        const proof = await this.#createProof(subject, msg);
+
+        const headers = natsHeaders();
+        headers.set("session-key", this.auth.sessionKey);
+        headers.set("proof", proof);
+        injectTraceContext(createNatsHeaderCarrier(headers), span);
+
+        const requestWithRetry = async (): Promise<Result<Msg, UnexpectedError>> => {
+          for (let retry = 0; retry <= this.#noResponderMaxRetries; retry++) {
+            const result = await AsyncResult.try(() =>
+              this.nats.request(subject, msg, {
+                headers,
+                timeout: opts?.timeout ?? this.timeout,
+              })
+            );
+
+            if (result.isOk()) {
+              return ok((await result).take() as Msg);
+            }
+
+            const cause = result.error.cause;
+            const message = cause instanceof Error
+              ? cause.message
+              : String(cause);
+            const isNoResponders = message.includes("no responders");
+
+            if (isNoResponders && retry < this.#noResponderMaxRetries) {
+              this.#log.debug(
+                { method, subject, retry },
+                "No responders, retrying...",
+              );
+              await new Promise((resolve) =>
+                setTimeout(resolve, this.#noResponderRetryMs * (retry + 1))
+              );
+              continue;
+            }
+
+            this.#log.warn(
+              { method, subject, error: message },
+              "NATS request failed",
+            );
+            const isNatsPermission = message.includes("Permissions Violation");
+            const reason = isNatsPermission
+              ? `Permission denied. You need one of these capabilities: ${ctx.callerCapabilities.join(", ")}`
+              : message;
+            return err(
+              new UnexpectedError({
+                cause,
+                context: {
+                  method,
+                  subject,
+                  reason,
+                  requiredCapabilities: ctx.callerCapabilities,
+                  noResponders: isNoResponders,
+                },
+              }),
+            );
+          }
+
+          return err(
+            new UnexpectedError({
+              context: { method, subject, reason: "retry loop exhausted" },
+            }),
+          );
+        };
+
+        const msgResult = await requestWithRetry();
+        const response = msgResult.take();
+        if (isErr(response)) {
+          return response;
+        }
+
+        if (response.headers?.get("status") === "error") {
+          const json = safeJson(response).take();
+          if (isErr(json)) {
+            return json;
+          }
+
+          const errorData = parse(TrellisErrorDataSchema, json).take();
+          if (isErr(errorData)) {
+            return errorData;
+          }
+
+          const declaredErrorTypes = Array.isArray(ctx.declaredErrorTypes)
+            ? ctx.declaredErrorTypes.filter((value): value is string =>
+              typeof value === "string"
+            )
+            : ctx.errors;
+          const runtimeErrors = Array.isArray(ctx.runtimeErrors)
+            ? ctx.runtimeErrors.filter(isRuntimeRpcErrorDesc)
+            : undefined;
+          const reconstructed = reconstructDeclaredRpcError(
+            declaredErrorTypes,
+            runtimeErrors,
+            errorData,
+            json,
+          );
+          if (reconstructed) {
+            return err(reconstructed);
+          }
+
+          return err(new RemoteError({ error: errorData }));
+        }
+
+        const json = safeJson(response).take();
         if (isErr(json)) {
           return json;
         }
 
-        const errorData = parse(TrellisErrorDataSchema, json).take();
-        if (isErr(errorData)) {
-          return errorData;
+        const outputResult = parseRuntimeSchema(ctx.output, json).take();
+        if (isErr(outputResult)) {
+          return err(outputResult.error);
         }
 
-        const declaredErrorTypes = Array.isArray(ctx.declaredErrorTypes)
-          ? ctx.declaredErrorTypes.filter((value): value is string =>
-            typeof value === "string"
-          )
-          : ctx.errors;
-        const runtimeErrors = Array.isArray(ctx.runtimeErrors)
-          ? ctx.runtimeErrors.filter(isRuntimeRpcErrorDesc)
-          : undefined;
-        const reconstructed = reconstructDeclaredRpcError(
-          declaredErrorTypes,
-          runtimeErrors,
-          errorData,
-          json,
-        );
-        if (reconstructed) {
-          return err(reconstructed);
-        }
-
-        return err(new RemoteError({ error: errorData }));
-      }
-
-      const json = safeJson(m).take();
-      if (isErr(json)) {
-        return json;
-      }
-
-      const outputResult = parseRuntimeSchema(ctx.output, json).take();
-      if (isErr(outputResult)) {
-        return err(outputResult.error as ValidationError | UnexpectedError);
-      }
-
-      return ok(outputResult);
-    };
+        return ok(outputResult as TOutput);
+      };
 
       return await withSpanAsync(span, async () => {
         try {
           const result = await attempt();
-
           const value = result.take();
           if (isErr(value)) {
             span.setStatus({
@@ -1100,7 +1448,6 @@ export class Trellis<
           } else {
             span.setStatus({ code: SpanStatusCode.OK });
           }
-
           return result;
         } catch (cause) {
           const unexpected = new UnexpectedError({ cause });
@@ -1958,7 +2305,9 @@ export class Trellis<
 export interface Trellis<
   TA extends AnyTrellisAPI = TrellisAPI,
   TMode extends TrellisMode = "client",
+  TState extends RuntimeStateStores = {},
 > {
+  readonly state: StateFacade<TState>;
   request<M extends MethodsOf<TA>>(
     method: M,
     input: MethodInputOf<TA, M>,

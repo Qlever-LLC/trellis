@@ -65,6 +65,23 @@ export const ContractSchemaRefSchema = Type.Object({
 
 export type ContractSchemaRef = Static<typeof ContractSchemaRefSchema>;
 
+export const ContractStateStoreSchema = Type.Object({
+  kind: Type.Union([
+    Type.Literal("value"),
+    Type.Literal("map"),
+  ]),
+  schema: ContractSchemaRefSchema,
+}, { additionalProperties: false });
+
+export type ContractStateStore = Static<typeof ContractStateStoreSchema>;
+
+export const ContractStateSchema = Type.Record(
+  Type.String({ minLength: 1 }),
+  ContractStateStoreSchema,
+);
+
+export type ContractState = Static<typeof ContractStateSchema>;
+
 export const ContractJobQueueSchema = Type.Object({
   payload: ContractSchemaRefSchema,
   result: Type.Optional(ContractSchemaRefSchema),

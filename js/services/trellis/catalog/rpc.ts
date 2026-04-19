@@ -19,6 +19,7 @@ import {
   deviceInstancesKV,
   logger,
   natsTrellis,
+  sessionKV,
   serviceInstancesKV,
   trellis,
 } from "../bootstrap/globals.ts";
@@ -440,6 +441,21 @@ export function createContractsModule(opts: {
         };
         if (instance.state === "activated" && instance.currentContractDigest) {
           active.add(instance.currentContractDigest);
+        }
+      }
+    }
+
+    const sessionKeys = (await sessionKV.keys(">")).take();
+    if (!isErr(sessionKeys)) {
+      for await (const sessionKeyId of sessionKeys) {
+        const entry = (await sessionKV.get(sessionKeyId)).take();
+        if (isErr(entry)) continue;
+        const session = entry.value as unknown as {
+          type?: string;
+          contractDigest?: string;
+        };
+        if (session.type === "user" && session.contractDigest) {
+          active.add(session.contractDigest);
         }
       }
     }

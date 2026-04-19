@@ -1,8 +1,10 @@
 import Type, { type StaticDecode } from "typebox";
+import type { parseUnknownSchema } from "../../../packages/trellis/codec.ts";
 
 import {
+  type JsonValue,
   JsonValueSchema,
-  type StateScope,
+  type StateStoreKind,
 } from "../../../packages/trellis/models/trellis/State.ts";
 import { IsoDateSchema } from "../../../packages/trellis/models/trellis/IsoDate.ts";
 
@@ -11,10 +13,17 @@ export const StoredStateEntrySchema = Type.Object({
   updatedAt: IsoDateSchema,
   expiresAt: Type.Optional(IsoDateSchema),
 }, { additionalProperties: false });
-export type StoredStateEntry = StaticDecode<typeof StoredStateEntrySchema>;
+export type StoredStateEntry = {
+  value: JsonValue;
+  updatedAt: Date;
+  expiresAt?: Date;
+};
 
-export type StateNamespace = {
-  scope: StateScope;
+export type ResolvedStateStore = {
+  ownerType: "user" | "device";
   contractId: string;
   ownerKey: string;
+  store: string;
+  kind: StateStoreKind;
+  schema: Parameters<typeof parseUnknownSchema>[0];
 };

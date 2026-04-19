@@ -32,26 +32,31 @@ Deno.test("host, health, and trellis-sdk root and subpaths expose the canonical 
   assertEquals(typeof trellisSdk.health?.use, "function");
   assertEquals(typeof trellisSdk.health?.useDefaults, "function");
   assertEquals(typeof trellisSdk.state?.use, "function");
+  assertEquals(typeof trellisSdk.state?.useDefaults, "function");
   assertEquals(typeof authSdk.useDefaults, "function");
   assertEquals(typeof coreSdk.use, "function");
   assertEquals(typeof healthSdk.use, "function");
   assertEquals(typeof healthSdk.useDefaults, "function");
   assertEquals(typeof stateSdk.use, "function");
+  assertEquals(typeof stateSdk.useDefaults, "function");
   assertEquals(trellisSdk.auth?.useDefaults, authSdk.useDefaults);
   assertEquals(trellisSdk.core?.use, coreSdk.use);
   assertEquals(trellisSdk.health?.use, healthSdk.use);
   assertEquals(trellisSdk.health?.useDefaults, healthSdk.useDefaults);
   assertEquals(trellisSdk.state?.use, stateSdk.use);
+  assertEquals(trellisSdk.state?.useDefaults, stateSdk.useDefaults);
   assertEquals(typeof authSdk.auth?.useDefaults, "function");
   assertEquals(typeof coreSdk.core?.use, "function");
   assertEquals(typeof healthSdk.health?.use, "function");
   assertEquals(typeof healthSdk.health?.useDefaults, "function");
   assertEquals(typeof stateSdk.state?.use, "function");
+  assertEquals(typeof stateSdk.state?.useDefaults, "function");
   assertEquals(authSdk.auth?.useDefaults, authSdk.useDefaults);
   assertEquals(coreSdk.core?.use, coreSdk.use);
   assertEquals(healthSdk.health?.use, healthSdk.use);
   assertEquals(healthSdk.health?.useDefaults, healthSdk.useDefaults);
   assertEquals(stateSdk.state?.use, stateSdk.use);
+  assertEquals(stateSdk.state?.useDefaults, stateSdk.useDefaults);
 });
 
 Deno.test("contracts subpath exposes only kind-specific contract helpers", () => {
