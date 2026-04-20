@@ -1,7 +1,7 @@
 use std::fs;
 
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use ed25519_dalek::SigningKey;
 use miette::IntoDiagnostic;
 use serde_json::json;

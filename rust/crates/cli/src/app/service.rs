@@ -9,7 +9,7 @@ use crate::cli::*;
 use crate::contract_input::resolve_contract_input;
 use crate::output;
 use miette::IntoDiagnostic;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use trellis_auth as authlib;
 use trellis_client::SessionAuth;
 
