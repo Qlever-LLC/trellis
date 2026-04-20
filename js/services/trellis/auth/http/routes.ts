@@ -46,6 +46,7 @@ import {
   getApprovalResolution,
   getApprovalResolutionBlocker,
   getCookie,
+  normalizeBuiltinPortalEntryUrl,
   type OAuthStateEntry,
   type PendingAuthEntry,
   resolveLoginPortal,
@@ -234,9 +235,15 @@ export function registerHttpRoutes(
       defaultPortalId: await loadLoginPortalDefaultId(),
       selections: await listLoginPortalSelections(),
     });
-    return resolved.kind === "custom"
-      ? resolved.portal.entryUrl
-      : builtinPortalEntryUrl("/_trellis/portal/users/login");
+    if (resolved.kind === "custom") {
+      return normalizeBuiltinPortalEntryUrl({
+        entryUrl: resolved.portal.entryUrl,
+        baseUrl: config.web.publicOrigin ?? config.oauth.redirectBase,
+        expectedKind: "login",
+      });
+    }
+
+    return builtinPortalEntryUrl("/_trellis/portal/users/login");
   }
 
   async function loadCurrentUserSession(
