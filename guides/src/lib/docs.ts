@@ -460,6 +460,13 @@ export const guideDocs: DocEntry[] = [
     href: "/guides/in-repo-development",
     section: "Contributing",
   },
+  {
+    title: "Releasing Trellis",
+    description:
+      "Cut a Trellis release from the repo, including changelog prep, local verification, version bumps, tagging, and publish flow.",
+    href: "/guides/releasing-trellis",
+    section: "Contributing",
+  },
 ];
 
 export const designNavigationDocs: DocEntry[] = [

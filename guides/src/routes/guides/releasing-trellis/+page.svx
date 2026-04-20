@@ -1,0 +1,194 @@
+This guide walks through cutting a Trellis release from the repo: local verification, changelog prep, checked-in version bumps, tagging, and the publish workflows that run from the tag.
+
+The release tag is the source of truth for published artifact versions. The checked-in JS and Rust manifest versions are the expected base state that the release tooling validates and rewrites during publishing.
+
+## What you need
+
+- push access to the repository
+- Git configured for signed tags if your normal workflow requires them
+- [Deno](https://deno.com) (v2+)
+- a Rust toolchain (`rustup`)
+- Docker or Podman if you want to locally verify image builds
+
+## Release model
+
+Trellis has one release tag for the whole repo, for example `v0.8.0`.
+
+That single tag drives:
+
+- GitHub CLI release assets
+- npm package publication
+- Rust crate publication
+- OCI image publication
+
+The workflows all read the release tag and then run `js/tools/release/prepare_release.ts` to rewrite publishable versions at build time.
+
+## 1. Pick the version
+
+For a stable release, choose the next base version such as `0.8.0`.
+
+For a prerelease, keep the same checked-in base version and tag with a suffix such as `v0.8.0-rc.1`.
+
+- stable example: checked-in manifests move from `0.7.0` to `0.8.0`, then you tag `v0.8.0`
+- prerelease example: checked-in manifests stay on `0.8.0`, then you tag `v0.8.0-rc.1`
+
+## 2. Update the changelog
+
+`CHANGELOG.md` is the source of truth for both the repo changelog and the GitHub release body.
+
+Add a section whose heading matches the version being released exactly:
+
+- stable: `## [0.8.0] - YYYY-MM-DD`
+- prerelease: `## [0.8.0-rc.1] - YYYY-MM-DD`
+
+Keep the entry high level if you want. The release workflow extracts that exact section and publishes it as the GitHub release notes.
+
+If you are cutting a stable release from `Unreleased`, move the relevant bullets into the new version section before tagging.
+
+## 3. Bump the checked-in base versions
+
+For a new base release, bump the checked-in JS and Rust manifest versions together:
+
+```sh
+deno task -c js/deno.json release:bump-base --from 0.7.0 --to 0.8.0
+```
+
+This updates release-managed versions in:
+
+- `js/**/deno.json`
+- `js/**/deno.npm.json`
+- `rust/**/Cargo.toml`
+
+It intentionally skips app `package.json` files that stay on `0.0.0`.
+
+Do not run this for a prerelease bump like `0.8.0-rc.1`; prerelease tags are handled from the tag alone.
+
+## 4. Run local verification
+
+Start with the focused release-tooling checks:
+
+```sh
+deno test -A --config js/deno.json js/tools/release/*_test.ts
+deno check --config js/deno.json \
+  js/tools/release/write_release_notes.ts \
+  js/tools/release/write_release_notes_test.ts \
+  js/tools/release/bump_checked_in_versions.ts \
+  js/tools/release/bump_checked_in_versions_test.ts
+```
+
+Then run the release-critical repo checks that match the publish workflows:
+
+```sh
+cd js
+deno task prepare
+deno task build:npm
+cd ../rust
+cargo xtask prepare
+cargo test --workspace
+cargo build -p trellis-cli --release
+cd ..
+```
+
+If you want to verify the docs site too:
+
+```sh
+cd guides
+deno task check
+cd ..
+```
+
+If the release touches containerized surfaces and you want a local smoke test, build them explicitly:
+
+```sh
+docker build -f js/services/trellis/Containerfile .
+docker build -f js/apps/console/Containerfile .
+```
+
+## 5. Review the release commit
+
+Make sure the release commit includes at least:
+
+- the `CHANGELOG.md` update
+- any checked-in base version bump for a new stable line
+- any final docs or release-script updates you intend to ship
+
+Then commit the release preparation:
+
+```sh
+git status
+git add CHANGELOG.md js rust guides .github/workflows
+git commit -m "docs(release): prepare v0.8.0"
+```
+
+Adjust the commit message to match what actually changed.
+
+## 6. Tag the release
+
+Create the annotated tag from the release commit:
+
+```sh
+git tag -a v0.8.0 -m "v0.8.0"
+```
+
+Or for a prerelease:
+
+```sh
+git tag -a v0.8.0-rc.1 -m "v0.8.0-rc.1"
+```
+
+Double-check the changelog extractor before pushing if you want a final sanity check:
+
+```sh
+tmpdir=$(mktemp -d)
+TRELLIS_RELEASE_TAG=v0.8.0 \
+TRELLIS_RELEASE_NOTES_OUTPUT="$tmpdir/release-notes.md" \
+deno run --config js/deno.json -A js/tools/release/write_release_notes.ts
+cat "$tmpdir/release-notes.md"
+```
+
+## 7. Push the commit and tag
+
+```sh
+git push origin main
+git push origin v0.8.0
+```
+
+After the tag lands, GitHub Actions will publish:
+
+- the GitHub release with changelog-backed notes
+- npm packages
+- crates.io crates
+- GHCR images
+
+## 8. Verify the published release
+
+Check that the GitHub release body matches the intended changelog section and that the expected artifacts were attached.
+
+Then verify the downstream publishes you care about:
+
+- npm packages have the expected version and dist-tag
+- crates.io shows the expected crate versions
+- GHCR images have the expected tags such as `v0.8.0`, `latest`, or `rc`
+
+## 9. Prepare for the next cycle
+
+After a stable release, start the next development cycle by adding or reopening the `Unreleased` section in `CHANGELOG.md`.
+
+If you want the checked-in base versions to immediately move to the next line, run the bump helper again in a follow-up change, for example:
+
+```sh
+deno task -c js/deno.json release:bump-base --from 0.8.0 --to 0.9.0
+```
+
+That follow-up is separate from the tagged release itself.
+
+## Quick checklist
+
+1. Decide whether this is a stable release or prerelease.
+2. Update `CHANGELOG.md` with the exact release heading.
+3. Bump checked-in base versions if this starts a new stable line.
+4. Run local verification.
+5. Commit the release prep.
+6. Create the annotated tag.
+7. Push the commit and tag.
+8. Verify the GitHub release and downstream publishes.
