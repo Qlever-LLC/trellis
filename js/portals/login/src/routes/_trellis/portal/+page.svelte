@@ -5,7 +5,7 @@
 
   onMount(() => {
     if (!browser) return;
-    void goto(`/_trellis/portal/login${window.location.search}`);
+    void goto(`/_trellis/portal/users/login${window.location.search}`);
   });
 </script>
 

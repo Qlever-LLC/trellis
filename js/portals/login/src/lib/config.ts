@@ -13,7 +13,7 @@ export const APP_CONFIG = {
 };
 
 export function buildAppLoginUrl(redirectTo: string, authError?: string): string {
-  const url = new URL("/_trellis/portal/login", browserOrigin());
+  const url = new URL("/_trellis/portal/users/login", browserOrigin());
   url.searchParams.set("redirectTo", redirectTo);
   if (authError) url.searchParams.set("authError", authError);
   return url.toString();

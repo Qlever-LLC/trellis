@@ -9,9 +9,16 @@
     type AuthState,
     createAuthState,
   } from "@qlever-llc/trellis-svelte";
-  import { portalApp } from "../../../../../contracts/portal_app.ts";
-  import { APP_CONFIG } from "../../../../lib/config";
-  import { errorMessage } from "../../../../lib/format";
+  import { portalApp } from "../../../../../../contracts/portal_app.ts";
+  import { APP_CONFIG } from "../../../../../lib/config";
+  import { errorMessage } from "../../../../../lib/format";
+  import {
+    buildActivationCallbackPath,
+    clearPreservedActivationCallbackState,
+    getPreservedActivationCallbackState,
+    preserveActivationCallbackState,
+    shouldHandleActivationAuthCallback,
+  } from "./page_state";
 
   async function createPortalTrellisState(
     authState: AuthState,
@@ -87,7 +94,7 @@
 
   const authState = createAuthState({
     authUrl: APP_CONFIG.authUrl,
-    loginPath: "/_trellis/portal/login",
+    loginPath: "/_trellis/portal/users/login",
     contract: portalApp,
   });
 
@@ -126,12 +133,6 @@
     return value instanceof Date ? value.toISOString() : value;
   }
 
-  const PRESERVED_ACTIVATION_FLOW_ID_STORAGE_KEY = "portal.activate.flowId";
-
-  function currentCallbackPath(): string {
-    return `${window.location.pathname}${window.location.hash}`;
-  }
-
   function getErrorContext(error: unknown): Record<string, unknown> | null {
     if (!isRecord(error)) return null;
     if (!("context" in error)) return null;
@@ -164,18 +165,6 @@
     return isActivatedDeviceResult(value)
       || isPendingReviewDeviceResult(value)
       || isRejectedDeviceResult(value);
-  }
-
-  function getPreservedActivationFlowId(): string | null {
-    return sessionStorage.getItem(PRESERVED_ACTIVATION_FLOW_ID_STORAGE_KEY);
-  }
-
-  function setPreservedActivationFlowId(nextFlowId: string): void {
-    sessionStorage.setItem(PRESERVED_ACTIVATION_FLOW_ID_STORAGE_KEY, nextFlowId);
-  }
-
-  function clearPreservedActivationFlowId(): void {
-    sessionStorage.removeItem(PRESERVED_ACTIVATION_FLOW_ID_STORAGE_KEY);
   }
 
   function mapRejectedActivation(nextFlowId: string, reason?: string): ActivationView {
@@ -278,9 +267,14 @@
 
   function cleanupCallbackUrl(nextFlowId: string | null): void {
     const nextUrl = new URL(window.location.href);
-    if (nextUrl.searchParams.has("flowId") || nextUrl.searchParams.has("authError")) {
+    if (
+      nextUrl.searchParams.has("flowId") ||
+      nextUrl.searchParams.has("authError") ||
+      nextUrl.searchParams.has("portalCallback")
+    ) {
       nextUrl.searchParams.delete("flowId");
       nextUrl.searchParams.delete("authError");
+      nextUrl.searchParams.delete("portalCallback");
       if (nextFlowId) {
         nextUrl.searchParams.set("flowId", nextFlowId);
       }
@@ -288,18 +282,15 @@
     }
   }
 
-  async function initializeBrowserState(): Promise<void> {
+  async function initializeBrowserState(
+    shouldHandleCallback: boolean,
+    preservedFlowId: string | null,
+  ): Promise<void> {
     await authState.init();
-    const callbackFlowId = page.url.searchParams.get("flowId");
-    const callbackAuthError = page.url.searchParams.get("authError");
-    const preservedFlowId = getPreservedActivationFlowId();
-    const shouldHandleCallback = Boolean(
-      preservedFlowId && (callbackAuthError || callbackFlowId),
-    );
     const bindResult = shouldHandleCallback ? await authState.handleCallback() : null;
     if (shouldHandleCallback) {
       cleanupCallbackUrl(preservedFlowId);
-      clearPreservedActivationFlowId();
+      clearPreservedActivationCallbackState(sessionStorage);
     }
 
     if (bindResult && bindResult.status !== "bound") {
@@ -426,9 +417,14 @@
   async function signIn(): Promise<void> {
     authError = null;
     if (!flowId) return;
-    setPreservedActivationFlowId(flowId);
+    preserveActivationCallbackState(sessionStorage, {
+      flowId,
+      callbackToken: crypto.randomUUID(),
+    });
+    const preservedState = getPreservedActivationCallbackState(sessionStorage);
+    if (!preservedState) return;
     await authState.signIn({
-      redirectTo: currentCallbackPath(),
+      redirectTo: buildActivationCallbackPath(new URL(window.location.href), preservedState.callbackToken),
     });
   }
 
@@ -441,9 +437,9 @@
       cancelPolling();
     };
 
-    const queryFlowId = page.url.searchParams.get("flowId");
-    const preservedFlowId = getPreservedActivationFlowId();
-    flowId = queryFlowId ?? preservedFlowId;
+    const preservedCallbackState = getPreservedActivationCallbackState(sessionStorage);
+    const isAuthCallback = shouldHandleActivationAuthCallback(page.url, preservedCallbackState);
+    flowId = isAuthCallback ? preservedCallbackState?.flowId ?? null : page.url.searchParams.get("flowId");
     if (!flowId) {
       view = { mode: "invalid_flow", reason: "Missing flow id." };
       loading = false;
@@ -452,7 +448,7 @@
 
     void (async () => {
       try {
-        await initializeBrowserState();
+        await initializeBrowserState(isAuthCallback, flowId);
         if (!view) {
           view = isAuthenticated
             ? createReadyView(flowId)
