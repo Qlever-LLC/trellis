@@ -122,6 +122,8 @@ fn auth_login_help_hides_transport_flags() {
     let output = run_cli(&["auth", "login", "--help"]);
     assert!(output.status.success(), "auth login help should succeed");
     let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    assert!(stdout.contains("<TRELLIS_URL>"));
+    assert!(!stdout.contains("--auth-url"));
     assert!(!stdout.contains("--nats-servers"));
     assert!(!stdout.contains("--servers <SERVERS>"));
     assert!(!stdout.contains("--creds <CREDS>"));

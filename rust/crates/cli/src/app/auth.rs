@@ -3,8 +3,8 @@ use crate::app::{connect_authenticated_cli_client, resolve_contract_lineage_id};
 use crate::cli::*;
 use crate::output;
 use miette::IntoDiagnostic;
-use qrcode::{render::unicode, QrCode};
-use serde_json::{json, Value};
+use qrcode::{QrCode, render::unicode};
+use serde_json::{Value, json};
 use trellis_auth as authlib;
 
 pub(crate) fn render_agent_login_instructions(login_url: &str) -> miette::Result<String> {
@@ -41,7 +41,7 @@ pub(super) async fn run(format: OutputFormat, command: AuthCommand) -> miette::R
 
 async fn login_command(format: OutputFormat, args: &AuthLoginArgs) -> miette::Result<()> {
     let challenge = authlib::start_agent_login(&authlib::StartAgentLoginOpts {
-        auth_url: &args.auth_url,
+        trellis_url: &args.trellis_url,
         contract_json: agent_contract_json(),
     })
     .await
@@ -54,7 +54,10 @@ async fn login_command(format: OutputFormat, args: &AuthLoginArgs) -> miette::Re
         output::print_info(&render_agent_login_instructions(&login_url)?);
     }
 
-    let outcome = challenge.complete(&args.auth_url).await.into_diagnostic()?;
+    let outcome = challenge
+        .complete(&args.trellis_url)
+        .await
+        .into_diagnostic()?;
     let state = outcome.state;
     let me = outcome.user;
 
@@ -337,13 +340,13 @@ mod tests {
     #[test]
     fn agent_login_instructions_include_plain_url_and_terminal_qr() {
         let instructions = render_agent_login_instructions(
-            "https://auth.example.com/_trellis/portal/login?flowId=flow_123",
+            "https://auth.example.com/_trellis/portal/users/login?flowId=flow_123",
         )
         .expect("render instructions");
 
         assert!(instructions.contains("Open this activation URL:"));
         assert!(
-            instructions.contains("https://auth.example.com/_trellis/portal/login?flowId=flow_123")
+            instructions.contains("https://auth.example.com/_trellis/portal/users/login?flowId=flow_123")
         );
         assert!(instructions.contains("Scan this QR code:"));
         assert!(
@@ -355,11 +358,11 @@ mod tests {
     fn pending_agent_login_json_includes_login_url() {
         assert_eq!(
             pending_agent_login_json(
-                "https://auth.example.com/_trellis/portal/login?flowId=flow_123"
+                "https://auth.example.com/_trellis/portal/users/login?flowId=flow_123"
             ),
             json!({
                 "status": "pending",
-                "loginUrl": "https://auth.example.com/_trellis/portal/login?flowId=flow_123",
+                "loginUrl": "https://auth.example.com/_trellis/portal/users/login?flowId=flow_123",
             })
         );
     }

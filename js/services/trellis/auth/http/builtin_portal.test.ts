@@ -24,7 +24,7 @@ Deno.test("serveBuiltinPortalPath serves portal asset files and SPA fallback", a
 
     const fallback = await serveBuiltinPortalPath(
       root,
-      "/_trellis/portal/login",
+      "/_trellis/portal/users/login",
     );
     assertEquals(await fallback?.text(), "<html>portal</html>");
     assertEquals(
@@ -34,7 +34,7 @@ Deno.test("serveBuiltinPortalPath serves portal asset files and SPA fallback", a
 
     const activationFallback = await serveBuiltinPortalPath(
       root,
-      "/_trellis/portal/activate",
+      "/_trellis/portal/devices/activate",
     );
     assertEquals(await activationFallback?.text(), "<html>portal</html>");
     assertEquals(

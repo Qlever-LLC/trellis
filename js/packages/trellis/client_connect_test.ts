@@ -557,7 +557,7 @@ Deno.test("connectClientWithDeps recovers exhausted browser auth through auth co
         return Promise.resolve(new Response(JSON.stringify({
           status: "flow_started",
           flowId: "flow-2",
-          loginUrl: "https://trellis.example.com/_trellis/portal/login?flowId=flow-2",
+          loginUrl: "https://trellis.example.com/_trellis/portal/users/login?flowId=flow-2",
         }), { status: 200, headers: { "Content-Type": "application/json" } }));
       }
       if (url.includes("/auth/flow/flow-2/bind")) {
@@ -664,7 +664,7 @@ Deno.test("connectClientWithDeps uses auth continuation when bootstrap requires 
         return Promise.resolve(new Response(JSON.stringify({
           status: "flow_started",
           flowId: "flow-1",
-          loginUrl: "https://trellis.example.com/_trellis/portal/login?flowId=flow-1",
+          loginUrl: "https://trellis.example.com/_trellis/portal/users/login?flowId=flow-1",
         }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
@@ -707,7 +707,7 @@ Deno.test("connectClientWithDeps uses auth continuation when bootstrap requires 
           redirectTo: "https://cli.example.com/callback",
         },
         onAuthRequired: async ({ loginUrl }) => {
-          assertEquals(loginUrl, "https://trellis.example.com/_trellis/portal/login?flowId=flow-1");
+          assertEquals(loginUrl, "https://trellis.example.com/_trellis/portal/users/login?flowId=flow-1");
           return { flowId: "flow-1" };
         },
       }, {
@@ -780,7 +780,7 @@ Deno.test("connectClientWithDeps reauths when bootstrap resolves a different con
         return Promise.resolve(new Response(JSON.stringify({
           status: "flow_started",
           flowId: "flow-3",
-          loginUrl: "https://trellis.example.com/_trellis/portal/login?flowId=flow-3",
+          loginUrl: "https://trellis.example.com/_trellis/portal/users/login?flowId=flow-3",
         }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
@@ -866,7 +866,7 @@ Deno.test("connectClientWithDeps reauths when bootstrap reports insufficient per
         return Promise.resolve(new Response(JSON.stringify({
           status: "flow_started",
           flowId: "flow-2",
-          loginUrl: "https://trellis.example.com/_trellis/portal/login?flowId=flow-2",
+          loginUrl: "https://trellis.example.com/_trellis/portal/users/login?flowId=flow-2",
         }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
@@ -925,7 +925,7 @@ Deno.test("connectClientWithDeps reauths when bootstrap reports insufficient per
           redirectTo: "https://cli.example.com/callback",
         },
         onAuthRequired: async ({ loginUrl }) => {
-          assertEquals(loginUrl, "https://trellis.example.com/_trellis/portal/login?flowId=flow-2");
+          assertEquals(loginUrl, "https://trellis.example.com/_trellis/portal/users/login?flowId=flow-2");
           return { flowId: "flow-2" };
         },
       }, {
@@ -970,7 +970,7 @@ Deno.test("connectClientWithDeps reauths when bootstrap reports contract_not_act
         return Promise.resolve(new Response(JSON.stringify({
           status: "flow_started",
           flowId: "flow-4",
-          loginUrl: "https://trellis.example.com/_trellis/portal/login?flowId=flow-4",
+          loginUrl: "https://trellis.example.com/_trellis/portal/users/login?flowId=flow-4",
         }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
@@ -1029,7 +1029,7 @@ Deno.test("connectClientWithDeps reauths when bootstrap reports contract_not_act
           redirectTo: "https://cli.example.com/callback",
         },
         onAuthRequired: async ({ loginUrl }) => {
-          assertEquals(loginUrl, "https://trellis.example.com/_trellis/portal/login?flowId=flow-4");
+          assertEquals(loginUrl, "https://trellis.example.com/_trellis/portal/users/login?flowId=flow-4");
           return { flowId: "flow-4" };
         },
       }, {

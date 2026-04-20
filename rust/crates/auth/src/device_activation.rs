@@ -1,7 +1,7 @@
 use std::time::Duration;
 
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use ed25519_dalek::{Signer, SigningKey};
 use hkdf::Hkdf;
 use hmac::{Hmac, KeyInit, Mac};
@@ -10,11 +10,11 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use url::Url;
 
+use crate::TrellisAuthError;
 use crate::models::{
     DeviceActivationPayload, DeviceActivationWaitRequest, DeviceIdentity,
     WaitForDeviceActivationOpts, WaitForDeviceActivationResponse,
 };
-use crate::TrellisAuthError;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -180,10 +180,10 @@ pub struct DeviceActivationStartResponse {
 }
 
 pub async fn start_device_activation_request(
-    auth_url: &str,
+    trellis_url: &str,
     payload: &DeviceActivationPayload,
 ) -> Result<DeviceActivationStartResponse, TrellisAuthError> {
-    let url = Url::parse(auth_url)?.join("/auth/devices/activate/requests")?;
+    let url = Url::parse(trellis_url)?.join("/auth/devices/activate/requests")?;
     let response = Client::new()
         .post(url)
         .json(&DeviceActivationStartRequest { payload })
@@ -249,10 +249,10 @@ pub fn sign_device_wait_request(
 }
 
 pub async fn wait_for_device_activation_response(
-    auth_url: &str,
+    trellis_url: &str,
     request: &DeviceActivationWaitRequest,
 ) -> Result<WaitForDeviceActivationResponse, TrellisAuthError> {
-    let url = Url::parse(auth_url)?.join("/auth/devices/activate/wait")?;
+    let url = Url::parse(trellis_url)?.join("/auth/devices/activate/wait")?;
     let response = Client::new().post(url).json(request).send().await?;
     if !response.status().is_success() {
         let status = response.status().as_u16();
@@ -277,15 +277,15 @@ pub async fn wait_for_device_activation(
                 .unwrap_or_default()
                 .as_secs(),
         )?;
-        match wait_for_device_activation_response(opts.auth_url, &request).await? {
+        match wait_for_device_activation_response(opts.trellis_url, &request).await? {
             WaitForDeviceActivationResponse::Activated { connect_info, .. } => {
-                return Ok(connect_info)
+                return Ok(connect_info);
             }
             WaitForDeviceActivationResponse::Rejected { reason } => {
                 return Err(TrellisAuthError::DeviceActivationRejected(match reason {
                     Some(reason) => format!(": {reason}"),
                     None => String::new(),
-                }))
+                }));
             }
             WaitForDeviceActivationResponse::Pending => {
                 tokio::time::sleep(match opts.poll_interval {

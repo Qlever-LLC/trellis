@@ -294,6 +294,9 @@ async function bindClientFlow(args: {
   }
 
   const payload = await response.json();
+  if (payload && typeof payload === "object" && payload.status === "expired") {
+    throw new Error("Client bind did not complete: expired");
+  }
   const parsed = Value.Parse(BindResponseSchema, payload);
   if (parsed.status !== "bound") {
     throw new Error(`Client bind did not complete: ${parsed.status}`);

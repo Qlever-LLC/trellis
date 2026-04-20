@@ -89,7 +89,7 @@ Deno.test("connectDeviceWithDeps supports offline confirmation before reconnect"
           flowId: "flow_123",
           instanceId: "dev_123",
           profileId: "reader.default",
-          activationUrl: "https://trellis.example.com/_trellis/portal/activate?flowId=flow_123",
+          activationUrl: "https://trellis.example.com/_trellis/portal/devices/activate?flowId=flow_123",
         }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
@@ -170,7 +170,7 @@ Deno.test("connectDeviceWithDeps supports offline confirmation before reconnect"
 
     assertEquals(
       activationUrl,
-      "https://trellis.example.com/_trellis/portal/activate?flowId=flow_123",
+      "https://trellis.example.com/_trellis/portal/devices/activate?flowId=flow_123",
     );
     assertEquals(lastToken.includes('"contractDigest":"digest-a"'), true);
   } finally {
@@ -188,7 +188,7 @@ Deno.test("startDeviceActivationRequest returns a short server-owned activation 
         flowId: "flow_123",
         instanceId: "dev_123",
         profileId: "reader.default",
-        activationUrl: "https://trellis.example.com/_trellis/portal/activate?flowId=flow_123",
+        activationUrl: "https://trellis.example.com/_trellis/portal/devices/activate?flowId=flow_123",
       }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
@@ -205,7 +205,7 @@ Deno.test("startDeviceActivationRequest returns a short server-owned activation 
       },
     });
 
-    assertEquals(response.activationUrl, "https://trellis.example.com/_trellis/portal/activate?flowId=flow_123");
+    assertEquals(response.activationUrl, "https://trellis.example.com/_trellis/portal/devices/activate?flowId=flow_123");
     assertEquals(response.flowId, "flow_123");
   } finally {
     globalThis.fetch = originalFetch;

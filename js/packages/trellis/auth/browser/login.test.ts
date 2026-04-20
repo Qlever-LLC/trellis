@@ -1,4 +1,4 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertRejects } from "@std/assert";
 
 import { bindFlow, buildLoginUrl, startAuthRequest } from "./login.ts";
 import type { SessionKeyHandle } from "./session.ts";
@@ -38,7 +38,7 @@ Deno.test("buildLoginUrl targets auth chooser when provider is omitted", async (
       return new Response(JSON.stringify({
         status: "flow_started",
         flowId: "flow-1",
-        loginUrl: "http://localhost:3000/_trellis/portal/login?flowId=flow-1",
+        loginUrl: "http://localhost:3000/_trellis/portal/users/login?flowId=flow-1",
       }));
     }) as typeof fetch;
 
@@ -50,7 +50,7 @@ Deno.test("buildLoginUrl targets auth chooser when provider is omitted", async (
       context: { subtitle: "Welcome back" },
     });
 
-    assertEquals(url, "http://localhost:3000/_trellis/portal/login?flowId=flow-1");
+    assertEquals(url, "http://localhost:3000/_trellis/portal/users/login?flowId=flow-1");
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -118,7 +118,7 @@ Deno.test("startAuthRequest omits scalar context from both request body and sign
       return new Response(JSON.stringify({
         status: "flow_started",
         flowId: "flow-ctx",
-        loginUrl: "http://localhost:3000/_trellis/portal/login?flowId=flow-ctx",
+        loginUrl: "http://localhost:3000/_trellis/portal/users/login?flowId=flow-ctx",
       }));
     }) as typeof fetch;
 
@@ -218,6 +218,34 @@ Deno.test("bindFlow posts a flow-scoped bind request", async () => {
     assertEquals(response.transports.websocket?.natsServers, [
       "ws://localhost:8080",
     ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("bindFlow surfaces expired flow responses without a parse error", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    const handle = await createHandle();
+    globalThis.fetch = (async () => {
+      return new Response(
+        JSON.stringify({ status: "expired" }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    }) as typeof fetch;
+
+    await assertRejects(
+      () => bindFlow(
+        { authUrl: "http://localhost:3000" },
+        handle,
+        "flow-expired",
+      ),
+      Error,
+      "Bind failed: expired",
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }

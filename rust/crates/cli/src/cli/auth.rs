@@ -110,7 +110,7 @@ pub struct AuthApprovalRevokeArgs {
 #[derive(Debug, Args)]
 /// Start a detached portal login against an auth service.
 pub struct AuthLoginArgs {
-    #[arg(long, default_value = "http://localhost:3000")]
-    /// Base URL for the Trellis auth service.
-    pub auth_url: String,
+    #[arg(value_name = "TRELLIS_URL")]
+    /// Base URL for the Trellis deployment.
+    pub trellis_url: String,
 }

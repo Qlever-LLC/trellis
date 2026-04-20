@@ -210,7 +210,12 @@ export async function bindFlow(
     throw new Error(`Bind failed: ${response.status} ${text}`);
   }
 
-  return Value.Parse(BindResponseSchema, await response.json()) as BindResponse;
+  const payload = await response.json();
+  if (payload && typeof payload === "object" && payload.status === "expired") {
+    throw new Error("Bind failed: expired");
+  }
+
+  return Value.Parse(BindResponseSchema, payload) as BindResponse;
 }
 
 export async function bindSession(

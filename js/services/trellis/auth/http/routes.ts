@@ -167,7 +167,9 @@ export function registerHttpRoutes(
   }
 
   function builtinPortalEntryUrl(
-    pathname: "/_trellis/portal/login" | "/_trellis/portal/activate",
+    pathname:
+      | "/_trellis/portal/users/login"
+      | "/_trellis/portal/devices/activate",
   ): string {
     const base = config.web.publicOrigin ?? config.oauth.redirectBase;
     return new URL(pathname, base).toString();
@@ -234,7 +236,7 @@ export function registerHttpRoutes(
     });
     return resolved.kind === "custom"
       ? resolved.portal.entryUrl
-      : builtinPortalEntryUrl("/_trellis/portal/login");
+      : builtinPortalEntryUrl("/_trellis/portal/users/login");
   }
 
   async function loadCurrentUserSession(

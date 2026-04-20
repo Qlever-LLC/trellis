@@ -8,6 +8,12 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- Changed `trellis auth login` to require a positional Trellis URL, renamed the
+  persisted admin-session URL field to `trellis_url`, and updated the related
+  design and guide examples.
+
 ## [0.8.0] - 2026-04-19
 
 ### Added

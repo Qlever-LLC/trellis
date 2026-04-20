@@ -14,9 +14,7 @@ If you are deploying a published service from an OCI image, see [Install a servi
 Create or refresh the local administrator session:
 
 ```sh
-trellis --nats-servers localhost auth login \
-  --auth-url http://localhost:3000 \
- 
+trellis auth login http://localhost:3000
 ```
 
 This CLI flow is detached-only. The command prints a portal URL and QR code for you to open or scan manually; it does not start a local callback listener or auto-open your browser.

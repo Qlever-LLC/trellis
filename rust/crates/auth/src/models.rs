@@ -8,8 +8,8 @@ use trellis_client::SessionAuth;
 /// Persisted admin session details for the CLI.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AdminSessionState {
-    /// Base URL for the Trellis auth service.
-    pub auth_url: String,
+    /// Base URL for the Trellis deployment.
+    pub trellis_url: String,
     /// Comma-separated NATS server list returned by Trellis.
     pub nats_servers: String,
     /// Session-key seed used to sign subsequent Trellis requests.
@@ -77,8 +77,8 @@ pub struct AgentLoginChallenge {
 
 /// Options for starting an agent login flow.
 pub struct StartAgentLoginOpts<'a> {
-    /// Base URL for the Trellis auth service.
-    pub auth_url: &'a str,
+    /// Base URL for the Trellis deployment.
+    pub trellis_url: &'a str,
     /// Contract JSON sent to `/auth/login` when starting the flow.
     pub contract_json: &'a str,
 }
@@ -180,7 +180,7 @@ pub enum WaitForDeviceActivationResponse {
 
 /// Polling options for waiting on an activated device.
 pub struct WaitForDeviceActivationOpts<'a> {
-    pub auth_url: &'a str,
+    pub trellis_url: &'a str,
     pub public_identity_key: &'a str,
     pub nonce: &'a str,
     pub identity_seed_base64url: &'a str,

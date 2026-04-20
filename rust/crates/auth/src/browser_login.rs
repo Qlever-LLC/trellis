@@ -1,19 +1,19 @@
 use std::time::Duration;
 
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use ed25519_dalek::SigningKey;
 use reqwest::Client as HttpClient;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
-use crate::client::{connect_admin_client_async, AuthClient};
+use crate::TrellisAuthError;
+use crate::client::{AuthClient, connect_admin_client_async};
 use crate::models::{
     AdminLoginOutcome, AdminReauthOutcome, AdminSessionState, AgentLoginChallenge, BindResponse,
     BindResponseBound, BoundSession, StartAgentLoginOpts,
 };
-use crate::TrellisAuthError;
 use crate::{AuthStartRequest, AuthStartResponse, ClientTransportsRecord};
 use trellis_client::SessionAuth;
 
@@ -107,11 +107,11 @@ pub fn generate_session_keypair() -> (String, String) {
 }
 
 pub(crate) fn detached_login_redirect_to() -> Result<String, TrellisAuthError> {
-    Ok("/_trellis/portal/login".to_string())
+    Ok("/_trellis/portal/users/login".to_string())
 }
 
 async fn start_auth_request(
-    auth_url: &str,
+    trellis_url: &str,
     redirect_to: &str,
     auth: &SessionAuth,
     contract_json: &str,
@@ -131,7 +131,10 @@ async fn start_auth_request(
     );
     let client = HttpClient::builder().build()?;
     let response = client
-        .post(format!("{}/auth/requests", auth_url.trim_end_matches('/')))
+        .post(format!(
+            "{}/auth/requests",
+            trellis_url.trim_end_matches('/')
+        ))
         .json(&AuthStartRequest {
             provider: None,
             redirect_to: redirect_to.to_string(),
@@ -165,14 +168,14 @@ enum AgentFlowStatusResponse {
 }
 
 async fn fetch_agent_flow_status(
-    auth_url: &str,
+    trellis_url: &str,
     flow_id: &str,
 ) -> Result<AgentFlowStatusResponse, TrellisAuthError> {
     let client = HttpClient::builder().build()?;
     let response = client
         .get(format!(
             "{}/auth/flow/{}",
-            auth_url.trim_end_matches('/'),
+            trellis_url.trim_end_matches('/'),
             flow_id
         ))
         .send()
@@ -189,14 +192,14 @@ async fn fetch_agent_flow_status(
 }
 
 pub(crate) async fn poll_agent_flow_until_ready(
-    auth_url: &str,
+    trellis_url: &str,
     flow_id: &str,
     poll_interval: Duration,
     timeout_after: Duration,
 ) -> Result<String, TrellisAuthError> {
     let deadline = tokio::time::Instant::now() + timeout_after;
     loop {
-        match fetch_agent_flow_status(auth_url, flow_id).await? {
+        match fetch_agent_flow_status(trellis_url, flow_id).await? {
             AgentFlowStatusResponse::Redirect { location } => {
                 let _ = location;
                 return Ok(flow_id.to_string());
@@ -226,14 +229,14 @@ pub(crate) async fn poll_agent_flow_until_ready(
 }
 
 async fn bind_session(
-    auth_url: &str,
+    trellis_url: &str,
     auth: &SessionAuth,
     flow_id: &str,
 ) -> Result<BoundSession, TrellisAuthError> {
     let client = HttpClient::builder().build()?;
     let bind_url = format!(
         "{}/auth/flow/{}/bind",
-        auth_url.trim_end_matches('/'),
+        trellis_url.trim_end_matches('/'),
         flow_id
     );
     let sig = auth.sign_sha256_domain("bind-flow", flow_id);
@@ -285,7 +288,7 @@ impl AgentLoginChallenge {
     }
 
     /// Wait for detached portal completion, then bind the session.
-    pub async fn complete(self, auth_url: &str) -> Result<AdminLoginOutcome, TrellisAuthError> {
+    pub async fn complete(self, trellis_url: &str) -> Result<AdminLoginOutcome, TrellisAuthError> {
         let AgentLoginChallenge {
             flow_id,
             login_url: _,
@@ -294,15 +297,15 @@ impl AgentLoginChallenge {
             auth,
         } = self;
         let flow_id = poll_agent_flow_until_ready(
-            auth_url,
+            trellis_url,
             &flow_id,
             DETACHED_LOGIN_POLL_INTERVAL,
             Duration::from_secs(300),
         )
         .await?;
-        let bound = bind_session(auth_url, &auth, &flow_id).await?;
+        let bound = bind_session(trellis_url, &auth, &flow_id).await?;
         let state = AdminSessionState {
-            auth_url: auth_url.to_string(),
+            trellis_url: trellis_url.to_string(),
             nats_servers: bound.nats_servers.clone(),
             session_seed,
             session_key: auth.session_key.clone(),
@@ -334,23 +337,29 @@ pub async fn start_agent_login(
     let (session_seed, _session_key) = generate_session_keypair();
     let auth = SessionAuth::from_seed_base64url(&session_seed)?;
     let redirect_to = detached_login_redirect_to()?;
-    let (flow_id, login_url) =
-        match start_auth_request(opts.auth_url, &redirect_to, &auth, opts.contract_json).await? {
-            AuthStartResponse::FlowStarted { flow_id, login_url } => (flow_id, login_url),
-            AuthStartResponse::Bound { .. } => {
-                return Err(TrellisAuthError::UnexpectedAuthRequestStatus(
-                    "bound_without_existing_session".to_string(),
-                ))
-            }
-        };
+    let (flow_id, login_url) = match start_auth_request(
+        opts.trellis_url,
+        &redirect_to,
+        &auth,
+        opts.contract_json,
+    )
+    .await?
+    {
+        AuthStartResponse::FlowStarted { flow_id, login_url } => (flow_id, login_url),
+        AuthStartResponse::Bound { .. } => {
+            return Err(TrellisAuthError::UnexpectedAuthRequestStatus(
+                "bound_without_existing_session".to_string(),
+            ));
+        }
+    };
 
     Ok(AgentLoginChallenge {
-            flow_id,
-            login_url,
-            session_seed,
-            contract_digest: contract_digest(opts.contract_json)?,
-            auth,
-        })
+        flow_id,
+        login_url,
+        session_seed,
+        contract_digest: contract_digest(opts.contract_json)?,
+        auth,
+    })
 }
 
 /// Start admin reauthentication for a changed contract using the stored session key.
@@ -360,7 +369,7 @@ pub async fn start_admin_reauth(
 ) -> Result<AdminReauthOutcome, TrellisAuthError> {
     let auth = SessionAuth::from_seed_base64url(&state.session_seed)?;
     let redirect_to = detached_login_redirect_to()?;
-    match start_auth_request(&state.auth_url, &redirect_to, &auth, contract_json).await? {
+    match start_auth_request(&state.trellis_url, &redirect_to, &auth, contract_json).await? {
         AuthStartResponse::Bound {
             inbox_prefix: _,
             expires,
@@ -368,7 +377,7 @@ pub async fn start_admin_reauth(
             transports,
         } => {
             let next_state = AdminSessionState {
-                auth_url: state.auth_url.clone(),
+                trellis_url: state.trellis_url.clone(),
                 nats_servers: join_native_nats_servers(&transports)?,
                 session_seed: state.session_seed.clone(),
                 session_key: auth.session_key.clone(),

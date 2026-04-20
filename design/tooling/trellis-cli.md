@@ -107,7 +107,7 @@ inference is not enough for a repository.
 The CLI keeps and cleans up the existing operational commands:
 
 ```text
-trellis auth login ...
+trellis auth login <trellis-url>
 trellis auth logout
 trellis auth status
 trellis auth approval list [--user <origin.id>] [--digest <contractDigest>]
@@ -168,7 +168,7 @@ trellis completion <shell>
 
 Operational command behavior:
 
-- `trellis auth login` is a normal contract-bearing client login, not a
+- `trellis auth login <trellis-url>` is a normal contract-bearing client login, not a
   bootstrap bypass; it enters the auth-owned browser flow and continues through
   the resolved portal before storing local session material for later admin RPC
   calls; runtime transport details are discovered from the bind flow and

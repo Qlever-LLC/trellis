@@ -5,16 +5,16 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::browser_login::{
-    build_auth_start_signature_payload, contract_digest, detached_login_redirect_to,
-    poll_agent_flow_until_ready, DETACHED_LOGIN_POLL_INTERVAL,
+    DETACHED_LOGIN_POLL_INTERVAL, build_auth_start_signature_payload, contract_digest,
+    detached_login_redirect_to, poll_agent_flow_until_ready,
 };
 use crate::{
+    AdminSessionState, AgentLoginChallenge, StartAgentLoginOpts, WaitForDeviceActivationResponse,
     build_device_activation_payload, clear_admin_session, derive_device_confirmation_code,
     derive_device_identity, load_admin_session, parse_device_activation_payload,
     save_admin_session, sign_device_wait_request, start_admin_reauth, start_agent_login,
-    start_device_activation_request, AgentLoginChallenge,
-    verify_device_confirmation_code, wait_for_device_activation_response, AdminSessionState,
-    StartAgentLoginOpts, WaitForDeviceActivationResponse,
+    start_device_activation_request, verify_device_confirmation_code,
+    wait_for_device_activation_response,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -45,7 +45,7 @@ fn auth_start_signature_payload_matches_js_canonicalization() {
     });
 
     let payload = build_auth_start_signature_payload(
-        "https://trellis.example.test/_trellis/portal/login",
+        "https://trellis.example.test/_trellis/portal/users/login",
         Some("github"),
         &contract,
         Some(&context),
@@ -54,7 +54,7 @@ fn auth_start_signature_payload_matches_js_canonicalization() {
 
     assert_eq!(
         payload,
-        "https://trellis.example.test/_trellis/portal/login:github:{\"capabilities\":[\"admin\",{\"nested\":true}],\"displayName\":\"Agent\",\"id\":\"trellis.agent@v1\",\"meta\":{\"a\":[3,2,1],\"z\":1}}:{\"flags\":{\"alpha\":true,\"beta\":false},\"redirectHint\":\"/admin\"}"
+        "https://trellis.example.test/_trellis/portal/users/login:github:{\"capabilities\":[\"admin\",{\"nested\":true}],\"displayName\":\"Agent\",\"id\":\"trellis.agent@v1\",\"meta\":{\"a\":[3,2,1],\"z\":1}}:{\"flags\":{\"alpha\":true,\"beta\":false},\"redirectHint\":\"/admin\"}"
     );
 }
 
@@ -63,7 +63,7 @@ fn auth_start_signature_payload_uses_empty_provider_and_null_context_when_absent
     let contract = serde_json::json!({ "id": "trellis.agent@v1" });
 
     let payload = build_auth_start_signature_payload(
-        "https://trellis.example.test/_trellis/portal/login",
+        "https://trellis.example.test/_trellis/portal/users/login",
         None,
         &contract,
         None,
@@ -72,7 +72,7 @@ fn auth_start_signature_payload_uses_empty_provider_and_null_context_when_absent
 
     assert_eq!(
         payload,
-        "https://trellis.example.test/_trellis/portal/login::{\"id\":\"trellis.agent@v1\"}:null"
+        "https://trellis.example.test/_trellis/portal/users/login::{\"id\":\"trellis.agent@v1\"}:null"
     );
 }
 
@@ -98,12 +98,15 @@ fn contract_digest_matches_canonical_json_not_raw_text() {
 fn detached_login_redirect_target_is_relative_portal_login_path() {
     let redirect_to = detached_login_redirect_to().expect("build detached redirect target");
 
-    assert_eq!(redirect_to, "/_trellis/portal/login");
+    assert_eq!(redirect_to, "/_trellis/portal/users/login");
 }
 
 #[test]
 fn detached_login_poll_interval_is_rate_limit_friendly() {
-    assert_eq!(DETACHED_LOGIN_POLL_INTERVAL, std::time::Duration::from_secs(2));
+    assert_eq!(
+        DETACHED_LOGIN_POLL_INTERVAL,
+        std::time::Duration::from_secs(2)
+    );
 }
 
 #[tokio::test]
@@ -118,9 +121,9 @@ async fn start_agent_login_posts_detached_portal_redirect_target() {
         let read = stream.read(&mut buffer).await.expect("read request");
         let request = String::from_utf8_lossy(&buffer[..read]).into_owned();
         assert!(request.starts_with("POST /auth/requests HTTP/1.1\r\n"));
-        assert!(request.contains("\"redirectTo\":\"/_trellis/portal/login\""));
+        assert!(request.contains("\"redirectTo\":\"/_trellis/portal/users/login\""));
         assert!(!request.contains("/callback"));
-        let body = r#"{"status":"flow_started","flowId":"flow_123","loginUrl":"https://auth.example.test/_trellis/portal/login?flowId=flow_123"}"#;
+        let body = r#"{"status":"flow_started","flowId":"flow_123","loginUrl":"https://auth.example.test/_trellis/portal/users/login?flowId=flow_123"}"#;
         let response = format!(
             "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
             body.len(),
@@ -133,13 +136,16 @@ async fn start_agent_login_posts_detached_portal_redirect_target() {
     });
 
     let challenge = start_agent_login(&StartAgentLoginOpts {
-        auth_url: &format!("http://{address}"),
+        trellis_url: &format!("http://{address}"),
         contract_json: r#"{"id":"trellis.agent@v1","displayName":"Trellis Agent"}"#,
     })
     .await
     .expect("start agent login");
 
-    assert_eq!(challenge.login_url(), "https://auth.example.test/_trellis/portal/login?flowId=flow_123");
+    assert_eq!(
+        challenge.login_url(),
+        "https://auth.example.test/_trellis/portal/users/login?flowId=flow_123"
+    );
     server.await.expect("server task");
 }
 
@@ -155,9 +161,9 @@ async fn start_admin_reauth_flow_uses_detached_portal_redirect_target() {
         let read = stream.read(&mut buffer).await.expect("read request");
         let request = String::from_utf8_lossy(&buffer[..read]).into_owned();
         assert!(request.starts_with("POST /auth/requests HTTP/1.1\r\n"));
-        assert!(request.contains("\"redirectTo\":\"/_trellis/portal/login\""));
+        assert!(request.contains("\"redirectTo\":\"/_trellis/portal/users/login\""));
         assert!(!request.contains("/callback"));
-        let body = r#"{"status":"flow_started","flowId":"flow_456","loginUrl":"https://auth.example.test/_trellis/portal/login?flowId=flow_456"}"#;
+        let body = r#"{"status":"flow_started","flowId":"flow_456","loginUrl":"https://auth.example.test/_trellis/portal/users/login?flowId=flow_456"}"#;
         let response = format!(
             "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
             body.len(),
@@ -171,7 +177,7 @@ async fn start_admin_reauth_flow_uses_detached_portal_redirect_target() {
 
     let (session_seed, session_key) = crate::generate_session_keypair();
     let state = AdminSessionState {
-        auth_url: format!("http://{address}"),
+        trellis_url: format!("http://{address}"),
         nats_servers: "nats://127.0.0.1:4222".to_string(),
         session_seed,
         session_key,
@@ -192,7 +198,7 @@ async fn start_admin_reauth_flow_uses_detached_portal_redirect_target() {
         crate::AdminReauthOutcome::Flow(challenge) => {
             assert_eq!(
                 challenge.login_url(),
-                "https://auth.example.test/_trellis/portal/login?flowId=flow_456"
+                "https://auth.example.test/_trellis/portal/users/login?flowId=flow_456"
             );
         }
         crate::AdminReauthOutcome::Bound(_) => panic!("expected flow outcome"),
@@ -210,14 +216,15 @@ async fn agent_login_complete_polls_detached_flow_then_binds() {
     let server = tokio::spawn(async move {
         for response_body in [
             r#"{"status":"approval_required"}"#,
-            r#"{"status":"redirect","location":"http://127.0.0.1:7777/_trellis/portal/login?flowId=flow_ready"}"#,
+            r#"{"status":"redirect","location":"http://127.0.0.1:7777/_trellis/portal/users/login?flowId=flow_ready"}"#,
             r#"{"status":"bound","inboxPrefix":"admin.user","expires":"2026-01-01T00:00:00Z","sentinel":{"jwt":"jwt","seed":"seed"},"transports":{"native":{"natsServers":["nats://127.0.0.1:4222"]}}}"#,
         ] {
             let (mut stream, _) = listener.accept().await.expect("accept connection");
             let mut buffer = [0u8; 4096];
             let read = stream.read(&mut buffer).await.expect("read request");
             let request = String::from_utf8_lossy(&buffer[..read]).into_owned();
-            let status_line = if request.starts_with("POST /auth/flow/flow_ready/bind HTTP/1.1\r\n") {
+            let status_line = if request.starts_with("POST /auth/flow/flow_ready/bind HTTP/1.1\r\n")
+            {
                 "200 OK"
             } else {
                 assert!(request.starts_with("GET /auth/flow/flow_ready HTTP/1.1\r\n"));
@@ -239,7 +246,7 @@ async fn agent_login_complete_polls_detached_flow_then_binds() {
     let auth = SessionAuth::from_seed_base64url(&session_seed).expect("session auth");
     let challenge = AgentLoginChallenge {
         flow_id: "flow_ready".to_string(),
-        login_url: "https://auth.example.test/_trellis/portal/login?flowId=flow_ready".to_string(),
+        login_url: "https://auth.example.test/_trellis/portal/users/login?flowId=flow_ready".to_string(),
         session_seed,
         contract_digest: "digest".to_string(),
         auth,
@@ -270,7 +277,7 @@ async fn agent_flow_polling_waits_for_redirect_status() {
         for response_body in [
             r#"{"status":"choose_provider","flowId":"flow_123","providers":[],"app":{"contractId":"trellis.agent@v1","contractDigest":"digest","displayName":"Trellis Agent","description":"Agent"}}"#,
             r#"{"status":"approval_required","flowId":"flow_123","user":{"origin":"github","id":"octocat"},"approval":{"contractId":"trellis.agent@v1","contractDigest":"digest","displayName":"Trellis Agent","description":"Agent","capabilities":["admin"]}}"#,
-            r#"{"status":"redirect","location":"https://trellis.example.test/_trellis/portal/login?flowId=flow_123"}"#,
+            r#"{"status":"redirect","location":"https://trellis.example.test/_trellis/portal/users/login?flowId=flow_123"}"#,
         ] {
             let (mut stream, _) = listener.accept().await.expect("accept connection");
             let mut buffer = [0u8; 4096];
@@ -304,9 +311,11 @@ async fn agent_flow_polling_waits_for_redirect_status() {
     assert_eq!(flow_id, "flow_123");
     let recorded = requests.lock().expect("lock requests");
     assert_eq!(recorded.len(), 3);
-    assert!(recorded
-        .iter()
-        .all(|request| request.starts_with("GET /auth/flow/flow_123 HTTP/1.1\r\n")));
+    assert!(
+        recorded
+            .iter()
+            .all(|request| request.starts_with("GET /auth/flow/flow_123 HTTP/1.1\r\n"))
+    );
 
     server.await.expect("server task");
 }
@@ -320,7 +329,7 @@ fn admin_session_round_trips_through_private_file() {
     }
 
     let state = AdminSessionState {
-        auth_url: "http://localhost:3000".to_string(),
+        trellis_url: "http://localhost:3000".to_string(),
         nats_servers: "localhost".to_string(),
         session_seed: "seed".to_string(),
         session_key: "key".to_string(),
@@ -331,6 +340,11 @@ fn admin_session_round_trips_through_private_file() {
     };
 
     save_admin_session(&state).expect("save admin session");
+    let persisted = fs::read_to_string(test_dir.join("trellis").join("admin-session.json"))
+        .expect("read persisted session");
+    assert!(persisted.contains("\"trellis_url\""));
+    assert!(!persisted.contains("\"auth_url\""));
+
     let loaded = load_admin_session().expect("load admin session");
     assert_eq!(loaded.session_key, state.session_key);
     assert!(clear_admin_session().expect("clear admin session"));
@@ -342,7 +356,7 @@ fn admin_session_round_trips_through_private_file() {
 }
 
 #[test]
-fn legacy_admin_session_loads_and_forces_reauth() {
+fn legacy_admin_session_key_is_rejected() {
     let test_dir = unique_test_dir("legacy-session-store");
     let config_dir = test_dir.join("trellis");
     fs::create_dir_all(&config_dir).expect("create test dir");
@@ -366,9 +380,8 @@ fn legacy_admin_session_loads_and_forces_reauth() {
     )
     .expect("write legacy session");
 
-    let loaded = load_admin_session().expect("load legacy admin session");
-    assert_eq!(loaded.session_key, "key");
-    assert!(loaded.contract_digest.is_empty());
+    let error = load_admin_session().expect_err("legacy admin session should fail to load");
+    assert!(matches!(error, crate::TrellisAuthError::ContractJson(_)));
 
     unsafe {
         env::remove_var("XDG_CONFIG_HOME");
@@ -408,7 +421,7 @@ async fn device_activation_start_posts_to_request_endpoint() {
             "unexpected request line: {request}"
         );
 
-        let body = r#"{"flowId":"flow_123","instanceId":"dev_123","profileId":"reader.default","activationUrl":"https://auth.example.com/_trellis/portal/activate?flowId=flow_123"}"#;
+        let body = r#"{"flowId":"flow_123","instanceId":"dev_123","profileId":"reader.default","activationUrl":"https://auth.example.com/_trellis/portal/devices/activate?flowId=flow_123"}"#;
         let response = format!(
             "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
             body.len(),
@@ -433,7 +446,7 @@ async fn device_activation_start_posts_to_request_endpoint() {
     assert_eq!(response.flow_id, "flow_123");
     assert_eq!(
         response.activation_url,
-        "https://auth.example.com/_trellis/portal/activate?flowId=flow_123"
+        "https://auth.example.com/_trellis/portal/devices/activate?flowId=flow_123"
     );
 
     server.await.expect("server task");
@@ -495,11 +508,13 @@ fn device_confirmation_codes_verify_locally() {
     )
     .expect("derive confirmation code");
     assert_eq!(confirmation_code.len(), 8);
-    assert!(verify_device_confirmation_code(
-        &identity.activation_key_base64url,
-        &identity.public_identity_key,
-        "nonce_123",
-        &confirmation_code.to_lowercase(),
-    )
-    .expect("verify confirmation code"));
+    assert!(
+        verify_device_confirmation_code(
+            &identity.activation_key_base64url,
+            &identity.public_identity_key,
+            "nonce_123",
+            &confirmation_code.to_lowercase(),
+        )
+        .expect("verify confirmation code")
+    );
 }

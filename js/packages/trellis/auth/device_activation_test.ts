@@ -55,7 +55,7 @@ Deno.test("device activation start requests return short flow URLs", async () =>
       flowId: "flow_123",
       instanceId: "dev_123",
       profileId: "reader.default",
-      activationUrl: "https://trellis.example.com/_trellis/portal/activate?flowId=flow_123",
+      activationUrl: "https://trellis.example.com/_trellis/portal/devices/activate?flowId=flow_123",
     }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
@@ -74,7 +74,7 @@ Deno.test("device activation start requests return short flow URLs", async () =>
     assertEquals(response.flowId, "flow_123");
     assertEquals(
       response.activationUrl,
-      "https://trellis.example.com/_trellis/portal/activate?flowId=flow_123",
+      "https://trellis.example.com/_trellis/portal/devices/activate?flowId=flow_123",
     );
   } finally {
     globalThis.fetch = originalFetch;

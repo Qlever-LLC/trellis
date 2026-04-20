@@ -9,12 +9,12 @@ use crate::contract_input::{default_image_contract_path, resolve_contract_input}
 use crate::output;
 use crate::self_update::{ReleaseChannel, SelfUpdateTarget};
 use crate::{contract_input, core_client};
+use async_nats::ConnectOptions;
 use async_nats::jetstream;
 use async_nats::jetstream::kv;
 use async_nats::jetstream::stream;
-use async_nats::ConnectOptions;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
 use ed25519_dalek::SigningKey;
@@ -223,9 +223,7 @@ fn map_admin_session_error(error: authlib::TrellisAuthError) -> miette::Report {
     }
 }
 
-fn map_admin_session_result<T>(
-    result: Result<T, authlib::TrellisAuthError>,
-) -> miette::Result<T> {
+fn map_admin_session_result<T>(result: Result<T, authlib::TrellisAuthError>) -> miette::Result<T> {
     result.map_err(map_admin_session_error)
 }
 
@@ -283,7 +281,7 @@ mod tests {
     use std::path::Path;
     use std::sync::{Mutex, OnceLock};
     use std::time::{SystemTime, UNIX_EPOCH};
-    use trellis_auth::{save_admin_session, AdminSessionState, TrellisAuthError};
+    use trellis_auth::{AdminSessionState, TrellisAuthError, save_admin_session};
     use trellis_client::TrellisClientError;
 
     fn config_env_lock() -> &'static Mutex<()> {
@@ -305,7 +303,7 @@ mod tests {
 
     fn test_admin_session_state() -> AdminSessionState {
         AdminSessionState {
-            auth_url: "http://localhost:3000".to_string(),
+            trellis_url: "http://localhost:3000".to_string(),
             nats_servers: "localhost".to_string(),
             session_seed: "seed".to_string(),
             session_key: "key".to_string(),
@@ -372,10 +370,8 @@ mod tests {
 
     #[test]
     fn treats_auth_request_http_rejection_as_rejected_session() {
-        let error = TrellisAuthError::AuthRequestHttpFailure(
-            401,
-            "session rejected by server".to_string(),
-        );
+        let error =
+            TrellisAuthError::AuthRequestHttpFailure(401, "session rejected by server".to_string());
 
         assert!(is_rejected_admin_session_error(&error));
     }
@@ -460,7 +456,7 @@ mod tests {
         let error = TrellisAuthError::TrellisClient(TrellisClientError::NatsRequest(
             "Authorization Violation: session revoked".to_string(),
         ));
-        let report = map_admin_session_result::<()> (Err(error))
+        let report = map_admin_session_result::<()>(Err(error))
             .expect_err("rejected-session result should map to report");
 
         assert!(!admin_session_path(&test_dir).exists());
@@ -495,7 +491,7 @@ async fn complete_admin_reauth(
                     &login_url,
                 )?);
             }
-            map_admin_session_result(challenge.complete(&state.auth_url).await)?.state
+            map_admin_session_result(challenge.complete(&state.trellis_url).await)?.state
         }
         Err(error) => return Err(map_admin_session_error(error)),
     };

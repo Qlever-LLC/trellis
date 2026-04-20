@@ -262,7 +262,7 @@ async function confirmationCodeForActivation(args: { instanceId: string; publicI
 
 function builtinPortalEntryUrl(): string {
   const base = config.web.publicOrigin ?? config.oauth.redirectBase;
-  return new URL("/_trellis/portal/activate", base).toString();
+  return new URL("/_trellis/portal/devices/activate", base).toString();
 }
 
 async function createDeviceActivationRequest(payload: { publicIdentityKey: string; nonce: string; qrMac: string }): Promise<DeviceActivationRequestResponse> {
