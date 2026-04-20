@@ -1,6 +1,7 @@
 import { assertEquals } from "@std/assert";
 
 import {
+  buildActivationConnectAuthUrlState,
   buildActivationCallbackPath,
   clearPreservedActivationCallbackState,
   getPreservedActivationCallbackState,
@@ -34,6 +35,23 @@ Deno.test("buildActivationCallbackPath adds explicit activation callback marker"
   );
 });
 
+Deno.test("buildActivationConnectAuthUrlState keeps redirectTo but strips callback flow binding state", () => {
+  const state = buildActivationConnectAuthUrlState(
+    new URL(
+      "https://auth.example.com/_trellis/portal/devices/activate?flowId=device-flow&portalCallback=callback-token&authError=approval_denied#confirm",
+    ),
+  );
+
+  assertEquals(
+    state.currentUrl.toString(),
+    "https://auth.example.com/_trellis/portal/devices/activate#confirm",
+  );
+  assertEquals(
+    state.redirectTo,
+    "https://auth.example.com/_trellis/portal/devices/activate?flowId=device-flow#confirm",
+  );
+});
+
 Deno.test("shouldHandleActivationAuthCallback only matches explicit callback markers", () => {
   assertEquals(
     shouldHandleActivationAuthCallback(
@@ -47,6 +65,16 @@ Deno.test("shouldHandleActivationAuthCallback only matches explicit callback mar
     shouldHandleActivationAuthCallback(
       new URL(
         "https://auth.example.com/_trellis/portal/devices/activate?portalCallback=callback-token&flowId=auth-flow",
+      ),
+      { flowId: "device-flow", callbackToken: "callback-token" },
+    ),
+    true,
+  );
+
+  assertEquals(
+    shouldHandleActivationAuthCallback(
+      new URL(
+        "https://auth.example.com/_trellis/portal/devices/activate?portalCallback=callback-token",
       ),
       { flowId: "device-flow", callbackToken: "callback-token" },
     ),

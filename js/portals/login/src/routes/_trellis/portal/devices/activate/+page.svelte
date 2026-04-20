@@ -9,10 +9,11 @@
     type AuthState,
     createAuthState,
   } from "@qlever-llc/trellis-svelte";
-  import { portalApp } from "../../../../../../contracts/portal_app.ts";
+  import { portalActivationApp } from "../../../../../../contracts/portal_activation_app.ts";
   import { APP_CONFIG } from "../../../../../lib/config";
   import { errorMessage } from "../../../../../lib/format";
   import {
+    buildActivationConnectAuthUrlState,
     buildActivationCallbackPath,
     clearPreservedActivationCallbackState,
     getPreservedActivationCallbackState,
@@ -22,15 +23,21 @@
 
   async function createPortalTrellisState(
     authState: AuthState,
+    currentUrl: URL,
   ): Promise<{
     trellis: {
       request: (method: string, input: unknown) => AsyncResult<unknown, BaseError>;
     };
   }> {
-    const contract = portalApp;
+    const contract = portalActivationApp;
+    const authUrlState = buildActivationConnectAuthUrlState(currentUrl);
     const trellis = await TrellisClient.connect({
       trellisUrl: APP_CONFIG.authUrl,
-      auth: { handle: await authState.init() },
+      auth: {
+        handle: await authState.init(),
+        currentUrl: authUrlState.currentUrl,
+        redirectTo: authUrlState.redirectTo,
+      },
       contract,
     });
     return {
@@ -95,7 +102,7 @@
   const authState = createAuthState({
     authUrl: APP_CONFIG.authUrl,
     loginPath: "/_trellis/portal/users/login",
-    contract: portalApp,
+    contract: portalActivationApp,
   });
 
   let loading = $state(true);
@@ -287,10 +294,21 @@
     preservedFlowId: string | null,
   ): Promise<void> {
     await authState.init();
-    const bindResult = shouldHandleCallback ? await authState.handleCallback() : null;
+    if (!shouldHandleCallback) {
+      return;
+    }
+
+    const callbackUrl = new URL(window.location.href);
+    const callbackAuthError = callbackUrl.searchParams.get("authError");
+    const bindResult = await authState.handleCallback(callbackUrl.toString());
     if (shouldHandleCallback) {
       cleanupCallbackUrl(preservedFlowId);
       clearPreservedActivationCallbackState(sessionStorage);
+    }
+
+    if (callbackAuthError && !bindResult) {
+      authError = callbackAuthError;
+      return;
     }
 
     if (bindResult && bindResult.status !== "bound") {
@@ -306,7 +324,7 @@
       return;
     }
 
-    const trellisState = await createPortalTrellisState(authState);
+    const trellisState = await createPortalTrellisState(authState, new URL(window.location.href));
     isAuthenticated = true;
     const requestValue: (
       method: string,
@@ -423,9 +441,16 @@
     });
     const preservedState = getPreservedActivationCallbackState(sessionStorage);
     if (!preservedState) return;
-    await authState.signIn({
-      redirectTo: buildActivationCallbackPath(new URL(window.location.href), preservedState.callbackToken),
-    });
+    try {
+      await authState.signIn({
+        redirectTo: buildActivationCallbackPath(new URL(window.location.href), preservedState.callbackToken),
+      });
+    } catch (error) {
+      const message = errorMessage(error);
+      if (!message.startsWith("Redirecting to auth for provider selection")) {
+        authError = message;
+      }
+    }
   }
 
   onMount(() => {

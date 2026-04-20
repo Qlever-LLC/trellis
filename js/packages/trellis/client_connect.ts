@@ -48,10 +48,11 @@ type BrowserClientAuthOptions = {
   mode?: "browser";
   handle?: SessionKeyHandle;
   provider?: string;
-  redirectTo?: string;
+  redirectTo?: string | (() => string);
   landingPath?: string;
   context?: unknown;
-  currentUrl?: URL | string;
+  currentUrl?: URL | string | (() => URL | string);
+  flowId?: string;
 };
 
 type SessionKeyClientAuthOptions = {
@@ -183,15 +184,20 @@ function normalizeTrellisUrl(trellisUrl: string): string {
 }
 
 function resolveCurrentUrl(auth?: BrowserClientAuthOptions): URL | null {
-  if (auth?.currentUrl instanceof URL) return auth.currentUrl;
-  if (typeof auth?.currentUrl === "string") return new URL(auth.currentUrl);
-  if (isBrowserRuntime()) return new URL(window.location.href);
+  const currentUrl = typeof auth?.currentUrl === "function"
+    ? auth.currentUrl()
+    : auth?.currentUrl;
+  if (currentUrl instanceof URL) return currentUrl;
+  if (typeof currentUrl === "string") return new URL(currentUrl);
   return null;
 }
 
 function resolveRedirectTo(auth: BrowserClientAuthOptions, currentUrl: URL): string {
-  if (auth.redirectTo) {
-    return new URL(auth.redirectTo, currentUrl.origin).toString();
+  const redirectTo = typeof auth.redirectTo === "function"
+    ? auth.redirectTo()
+    : auth.redirectTo;
+  if (redirectTo) {
+    return new URL(redirectTo, currentUrl.origin).toString();
   }
 
   const queryRedirect = currentUrl.searchParams.get("redirectTo");
@@ -204,6 +210,12 @@ function resolveRedirectTo(auth: BrowserClientAuthOptions, currentUrl: URL): str
   }
 
   return currentUrl.toString();
+}
+
+function resolveConfiguredRedirectTo(
+  redirectTo: string | (() => string) | undefined,
+): string | undefined {
+  return typeof redirectTo === "function" ? redirectTo() : redirectTo;
 }
 
 function authRequestContextRecord(value: unknown): Record<string, unknown> | undefined {
@@ -540,6 +552,10 @@ function cleanupBrowserCallbackUrl(currentUrl: URL): void {
   window.history.replaceState({}, "", currentUrl.pathname + currentUrl.search + currentUrl.hash);
 }
 
+function isExpiredBindError(error: unknown): boolean {
+  return error instanceof Error && error.message === "Client bind did not complete: expired";
+}
+
 function needsReauth(
   bootstrap: ClientBootstrapResponse,
 ): bootstrap is Extract<ClientBootstrapResponse, { status: "auth_required" }> |
@@ -613,17 +629,24 @@ export async function connectClientWithDeps(
   const browserAuth = args.auth?.mode === "session_key" ? undefined : args.auth;
   const callbackFlowId = args.auth?.mode === "session_key"
     ? args.auth.flowId
-    : currentUrl?.searchParams.get("flowId") ?? undefined;
+    : browserAuth?.flowId ?? currentUrl?.searchParams.get("flowId") ?? undefined;
   const offsetState: ClockOffsetState = { serverClockOffsetMs: 0 };
 
   if (callbackFlowId) {
-    await bindClientFlow({
-      trellisUrl,
-      sessionKey: identity.sessionKey,
-      flowId: callbackFlowId,
-      sig: await identity.bindFlowSig(callbackFlowId),
-    });
-    if (currentUrl) cleanupBrowserCallbackUrl(currentUrl);
+    try {
+      await bindClientFlow({
+        trellisUrl,
+        sessionKey: identity.sessionKey,
+        flowId: callbackFlowId,
+        sig: await identity.bindFlowSig(callbackFlowId),
+      });
+      if (currentUrl) cleanupBrowserCallbackUrl(currentUrl);
+    } catch (error) {
+      if (currentUrl && isExpiredBindError(error)) {
+        cleanupBrowserCallbackUrl(currentUrl);
+      }
+      throw error;
+    }
   }
 
   const initialBootstrap = await fetchClientBootstrapWithRetry({
@@ -733,11 +756,9 @@ async function resolveAuthRequired<TApi extends TrellisAPI>(
     : args.auth ?? {};
   const redirectTo = args.auth?.mode === "session_key"
     ? args.auth.redirectTo
-    : browserAuth.redirectTo
-    ? browserAuth.redirectTo
     : currentUrl
     ? resolveRedirectTo(browserAuth, currentUrl)
-    : undefined;
+    : resolveConfiguredRedirectTo(browserAuth.redirectTo);
   if (!redirectTo) {
     throw new Error("Client authentication requires a redirectTo URL");
   }

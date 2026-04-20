@@ -3,17 +3,40 @@ export type ActivationCallbackState = {
   callbackToken: string;
 };
 
+export type ActivationConnectAuthUrlState = {
+  currentUrl: URL;
+  redirectTo: string;
+};
+
 type StorageLike = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
 const PRESERVED_ACTIVATION_FLOW_ID_STORAGE_KEY = "portal.activate.flowId";
 const ACTIVATION_CALLBACK_TOKEN_STORAGE_KEY = "portal.activate.callbackToken";
 const ACTIVATION_CALLBACK_QUERY_PARAM = "portalCallback";
+const AUTH_ERROR_QUERY_PARAM = "authError";
+const FLOW_ID_QUERY_PARAM = "flowId";
 
 export function buildActivationCallbackPath(currentUrl: URL, callbackToken: string): string {
   const callbackUrl = new URL(currentUrl.pathname, currentUrl.origin);
   callbackUrl.searchParams.set(ACTIVATION_CALLBACK_QUERY_PARAM, callbackToken);
   callbackUrl.hash = currentUrl.hash;
   return `${callbackUrl.pathname}${callbackUrl.search}${callbackUrl.hash}`;
+}
+
+export function buildActivationConnectAuthUrlState(
+  currentUrl: URL,
+): ActivationConnectAuthUrlState {
+  const redirectUrl = new URL(currentUrl);
+  redirectUrl.searchParams.delete(ACTIVATION_CALLBACK_QUERY_PARAM);
+  redirectUrl.searchParams.delete(AUTH_ERROR_QUERY_PARAM);
+
+  const authCurrentUrl = new URL(redirectUrl);
+  authCurrentUrl.searchParams.delete(FLOW_ID_QUERY_PARAM);
+
+  return {
+    currentUrl: authCurrentUrl,
+    redirectTo: redirectUrl.toString(),
+  };
 }
 
 export function getPreservedActivationCallbackState(storage: StorageLike): ActivationCallbackState | null {
@@ -43,9 +66,5 @@ export function shouldHandleActivationAuthCallback(
   preservedState: ActivationCallbackState | null,
 ): boolean {
   if (!preservedState) return false;
-  if (currentUrl.searchParams.get(ACTIVATION_CALLBACK_QUERY_PARAM) !== preservedState.callbackToken) {
-    return false;
-  }
-
-  return currentUrl.searchParams.has("flowId") || currentUrl.searchParams.has("authError");
+  return currentUrl.searchParams.get(ACTIVATION_CALLBACK_QUERY_PARAM) === preservedState.callbackToken;
 }

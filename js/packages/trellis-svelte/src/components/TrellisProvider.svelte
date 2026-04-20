@@ -96,6 +96,14 @@
     return window.location.pathname + window.location.search;
   }
 
+  function getCurrentUrl(): URL {
+    if (typeof window === "undefined") {
+      return new URL("http://localhost/");
+    }
+
+    return new URL(window.location.href);
+  }
+
   function redirectToLogin(redirectTo: string): void {
     if (typeof window === "undefined") return;
 
@@ -123,6 +131,7 @@
         contract: contract as TrellisClientContract<TrellisAPI>,
         auth: {
           handle,
+          currentUrl: getCurrentUrl,
         },
         onAuthRequired: ({ loginUrl }) => {
           onAuthExpired?.();
