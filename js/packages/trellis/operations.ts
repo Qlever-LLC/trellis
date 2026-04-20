@@ -307,15 +307,15 @@ export interface OperationTransport {
   requestJson(
     subject: string,
     body: JsonValue,
-  ): Promise<Result<JsonValue, UnexpectedError>>;
+  ): AsyncResult<JsonValue, UnexpectedError>;
   watchJson(
     subject: string,
     body: JsonValue,
-  ): Promise<Result<AsyncIterable<Result<JsonValue, UnexpectedError>>, UnexpectedError>>;
+  ): AsyncResult<AsyncIterable<Result<JsonValue, UnexpectedError>>, UnexpectedError>;
   putTransfer(
     grant: UploadTransferGrant,
     body: TransferBody,
-  ): Promise<Result<FileInfo, TransferError>>;
+  ): AsyncResult<FileInfo, TransferError>;
 }
 
 function operationRequestBody(input: unknown): JsonValue {
@@ -511,16 +511,12 @@ class RuntimeOperationRef<
   }
 
   get(): AsyncResult<OperationSnapshot<TProgress, TOutput>, UnexpectedError> {
-    return AsyncResult.from(this.#controlSnapshot("get"));
+    return this.#controlSnapshot("get");
   }
 
   wait(): AsyncResult<TerminalOperation<TProgress, TOutput>, UnexpectedError> {
     return AsyncResult.from((async () => {
-      const snapshot = await this.#controlSnapshot("wait");
-      if (snapshot.isErr()) {
-        return snapshot;
-      }
-      const snapshotValue = snapshot.take();
+      const snapshotValue = await this.#controlSnapshot("wait").take();
       if (isErr(snapshotValue)) {
         return snapshotValue;
       }
@@ -532,7 +528,7 @@ class RuntimeOperationRef<
   }
 
   cancel(): AsyncResult<OperationSnapshot<TProgress, TOutput>, UnexpectedError> {
-    return AsyncResult.from(this.#controlSnapshot("cancel"));
+    return this.#controlSnapshot("cancel");
   }
 
   startTransfer(body: TransferBody): AsyncResult<FileInfo, TransferError> {
@@ -543,23 +539,18 @@ class RuntimeOperationRef<
         context: { reason: "missing_transfer" },
       }));
     }
-    return AsyncResult.from(this.#transport.putTransfer(grant, body));
+    return this.#transport.putTransfer(grant, body);
   }
 
   watch(): AsyncResult<AsyncIterable<OperationEvent<TProgress, TOutput>>, UnexpectedError> {
     return AsyncResult.from((async () => {
-      const response = await this.#transport.watchJson(
+      const rawIterable = await this.#transport.watchJson(
         controlSubject(this.#descriptor.subject),
         {
           action: "watch",
           operationId: this.id,
         },
-      );
-      if (response.isErr()) {
-        return err(response.error);
-      }
-
-      const rawIterable = response.take();
+      ).take();
       if (isErr(rawIterable)) {
         return err(rawIterable.error);
       }
@@ -594,31 +585,29 @@ class RuntimeOperationRef<
     })());
   }
 
-  async #controlSnapshot(
+  #controlSnapshot(
     action: "get" | "wait" | "cancel" | "watch",
-  ): Promise<Result<OperationSnapshot<TProgress, TOutput>, UnexpectedError>> {
-    const response = await this.#transport.requestJson(
-      controlSubject(this.#descriptor.subject),
-      {
-        action,
-        operationId: this.id,
-      },
-    );
-    if (response.isErr()) {
-      return response;
-    }
-    const responseValue = response.take();
-    if (isErr(responseValue)) {
-      return responseValue;
-    }
+  ): AsyncResult<OperationSnapshot<TProgress, TOutput>, UnexpectedError> {
+    return AsyncResult.from((async () => {
+      const responseValue = await this.#transport.requestJson(
+        controlSubject(this.#descriptor.subject),
+        {
+          action,
+          operationId: this.id,
+        },
+      ).take();
+      if (isErr(responseValue)) {
+        return responseValue;
+      }
 
-    const frame = decodeSnapshotFrame<TProgress, TOutput>(
-      responseValue,
-    ).take();
-    if (isErr(frame)) {
-      return frame;
-    }
-    return ok(frame.snapshot);
+      const frame = decodeSnapshotFrame<TProgress, TOutput>(
+        responseValue,
+      ).take();
+      if (isErr(frame)) {
+        return frame;
+      }
+      return ok(frame.snapshot);
+    })());
   }
 }
 
@@ -666,43 +655,41 @@ type InvokedOperation<TDesc extends OperationShape, TProgress, TOutput> = {
   operation: RuntimeOperationRef<TDesc, TProgress, TOutput>;
 };
 
-async function invokeOperation<TDesc extends OperationShape, TProgress, TOutput>(
+function invokeOperation<TDesc extends OperationShape, TProgress, TOutput>(
   transport: OperationTransport,
   descriptor: TDesc,
   input: unknown,
-): Promise<Result<InvokedOperation<TDesc, TProgress, TOutput>, UnexpectedError>> {
-  const response = await transport.requestJson(
-    descriptor.subject,
-    operationRequestBody(input),
-  );
-  if (response.isErr()) {
-    return response;
-  }
-  const responseValue = response.take();
-  if (isErr(responseValue)) {
-    return responseValue;
-  }
+): AsyncResult<InvokedOperation<TDesc, TProgress, TOutput>, UnexpectedError> {
+  return AsyncResult.from((async () => {
+    const responseValue = await transport.requestJson(
+      descriptor.subject,
+      operationRequestBody(input),
+    ).take();
+    if (isErr(responseValue)) {
+      return responseValue;
+    }
 
-  const envelope = decodeAcceptedEnvelope<TProgress, TOutput>(responseValue).take();
-  if (isErr(envelope)) {
-    return envelope;
-  }
+    const envelope = decodeAcceptedEnvelope<TProgress, TOutput>(responseValue).take();
+    if (isErr(envelope)) {
+      return envelope;
+    }
 
-  return ok({
-    accepted: {
-      type: "accepted",
-      snapshot: envelope.snapshot,
-    },
-    operation: new RuntimeOperationRef<TDesc, TProgress, TOutput>(
-      transport,
-      descriptor,
-      envelope.ref,
-      envelope.transfer,
-    ),
-  });
+    return ok({
+      accepted: {
+        type: "accepted",
+        snapshot: envelope.snapshot,
+      },
+      operation: new RuntimeOperationRef<TDesc, TProgress, TOutput>(
+        transport,
+        descriptor,
+        envelope.ref,
+        envelope.transfer,
+      ),
+    });
+  })());
 }
 
-async function beginObservedWatch<
+function beginObservedWatch<
   TDesc extends OperationShape,
   TProgress,
   TOutput,
@@ -710,65 +697,62 @@ async function beginObservedWatch<
   operation: RuntimeOperationRef<TDesc, TProgress, TOutput>,
   callbacks: OperationObserverCallbacks<TProgress, TOutput>,
   options: ObservedWatchOptions<TProgress, TOutput> = {},
-): Promise<Result<OperationWatchObservation<TProgress, TOutput>, UnexpectedError>> {
+): AsyncResult<OperationWatchObservation<TProgress, TOutput>, UnexpectedError> {
   if (!hasObserverCallbacks(callbacks)) {
-    return ok({});
+    return AsyncResult.ok({});
   }
 
-  const watch = await operation.watch();
-  if (watch.isErr()) {
-    return watch;
-  }
-
-  const watchValue = watch.take();
-  if (isErr(watchValue)) {
-    return watchValue;
-  }
-
-  const iterator = watchValue[Symbol.asyncIterator]();
-  const close = async () => {
-    await iterator.return?.();
-  };
-
-  const task = (async (): Promise<Result<TerminalOperation<TProgress, TOutput>, UnexpectedError>> => {
-    try {
-      await options.ready;
-
-      while (true) {
-        const next = await iterator.next();
-        if (next.done) {
-          break;
-        }
-
-        const event = next.value;
-        if (options.skipEvent?.(event)) {
-          continue;
-        }
-        try {
-          await dispatchObservedOperationEvent(callbacks, event);
-        } catch (cause) {
-          return err(toObservedCallbackError(cause));
-        }
-        if (isTerminalEvent(event)) {
-          await close();
-          return ok(event.snapshot as TerminalOperation<TProgress, TOutput>);
-        }
-      }
-
-      return err(new UnexpectedError({
-        cause: new Error("operation watch ended before terminal event"),
-      }));
-    } catch (cause) {
-      return err(cause instanceof UnexpectedError
-        ? cause
-        : new UnexpectedError({ cause }));
+  return AsyncResult.from((async () => {
+    const watchValue = await operation.watch().take();
+    if (isErr(watchValue)) {
+      return watchValue;
     }
-  })();
 
-  return ok({ task, close });
+    const iterator = watchValue[Symbol.asyncIterator]();
+    const close = async () => {
+      await iterator.return?.();
+    };
+
+    const task = (async (): Promise<Result<TerminalOperation<TProgress, TOutput>, UnexpectedError>> => {
+      try {
+        await options.ready;
+
+        while (true) {
+          const next = await iterator.next();
+          if (next.done) {
+            break;
+          }
+
+          const event = next.value;
+          if (options.skipEvent?.(event)) {
+            continue;
+          }
+          try {
+            await dispatchObservedOperationEvent(callbacks, event);
+          } catch (cause) {
+            return err(toObservedCallbackError(cause));
+          }
+          if (isTerminalEvent(event)) {
+            await close();
+            return ok(event.snapshot as TerminalOperation<TProgress, TOutput>);
+          }
+        }
+
+        return err(new UnexpectedError({
+          cause: new Error("operation watch ended before terminal event"),
+        }));
+      } catch (cause) {
+        return err(cause instanceof UnexpectedError
+          ? cause
+          : new UnexpectedError({ cause }));
+      }
+    })();
+
+    return ok({ task, close });
+  })());
 }
 
-async function startObservedOperation<
+function startObservedOperation<
   TDesc extends OperationShape,
   TProgress,
   TOutput,
@@ -777,45 +761,45 @@ async function startObservedOperation<
   descriptor: TDesc,
   input: unknown,
   callbacks: OperationObserverCallbacks<TProgress, TOutput>,
-): Promise<Result<OperationRef<TDesc, TProgress, TOutput>, UnexpectedError>> {
-  const started = await invokeOperation<TDesc, TProgress, TOutput>(
-    transport,
-    descriptor,
-    input,
-  );
-  const startedValue = started.take();
-  if (isErr(startedValue)) {
-    return startedValue;
-  }
+): AsyncResult<OperationRef<TDesc, TProgress, TOutput>, UnexpectedError> {
+  return AsyncResult.from((async () => {
+    const startedValue = await invokeOperation<TDesc, TProgress, TOutput>(
+      transport,
+      descriptor,
+      input,
+    ).take();
+    if (isErr(startedValue)) {
+      return startedValue;
+    }
 
-  const ready = deferred<void>();
+    const ready = deferred<void>();
 
-  const observed = await beginObservedWatch(startedValue.operation, callbacks, {
-    ready: ready.promise,
-    skipEvent: createAcceptedReplayFilter(startedValue.accepted),
-  });
-  const observedValue = observed.take();
-  const observation = isErr(observedValue) ? {} : observedValue;
+    const observedValue = await beginObservedWatch(startedValue.operation, callbacks, {
+      ready: ready.promise,
+      skipEvent: createAcceptedReplayFilter(startedValue.accepted),
+    }).take();
+    const observation = isErr(observedValue) ? {} : observedValue;
 
-  const accepted = await dispatchOperationEventResult(callbacks, startedValue.accepted);
-  if (accepted.isErr()) {
+    const accepted = await dispatchOperationEventResult(callbacks, startedValue.accepted);
+    if (accepted.isErr()) {
+      if (!isErr(observedValue)) {
+        ready.resolve();
+        await observation.close?.();
+      }
+      return ok(createPublicOperationRef(
+        startedValue.operation,
+        failedObservation(accepted.error),
+      ));
+    }
+
     if (!isErr(observedValue)) {
       ready.resolve();
-      await observation.close?.();
     }
-    return ok(createPublicOperationRef(
-      startedValue.operation,
-      failedObservation(accepted.error),
-    ));
-  }
-
-  if (!isErr(observedValue)) {
-    ready.resolve();
-  }
-  return ok(createPublicOperationRef(startedValue.operation, observation));
+    return ok(createPublicOperationRef(startedValue.operation, observation));
+  })());
 }
 
-async function startObservedTransfer<
+function startObservedTransfer<
   TDesc extends OperationShape,
   TProgress,
   TOutput,
@@ -825,75 +809,73 @@ async function startObservedTransfer<
   input: unknown,
   body: TransferBody,
   callbacks: OperationObserverCallbacks<TProgress, TOutput>,
-): Promise<Result<StartedTransfer<TDesc, TProgress, TOutput>, UnexpectedError | TransferError>> {
-  const started = await invokeOperation<TDesc, TProgress, TOutput>(
-    transport,
-    descriptor,
-    input,
-  );
-  const startedValue = started.take();
-  if (isErr(startedValue)) {
-    return startedValue;
-  }
+): AsyncResult<StartedTransfer<TDesc, TProgress, TOutput>, UnexpectedError | TransferError> {
+  return AsyncResult.from((async () => {
+    const startedValue = await invokeOperation<TDesc, TProgress, TOutput>(
+      transport,
+      descriptor,
+      input,
+    ).take();
+    if (isErr(startedValue)) {
+      return startedValue;
+    }
 
-  const operation = startedValue.operation;
-  const ready = deferred<void>();
-  const observed = await beginObservedWatch(operation, callbacks, {
-    ready: ready.promise,
-    skipEvent: createAcceptedReplayFilter(startedValue.accepted),
-  });
-  const observedValue = observed.take();
-  const observation = isErr(observedValue) ? {} : observedValue;
+    const operation = startedValue.operation;
+    const ready = deferred<void>();
+    const observedValue = await beginObservedWatch(operation, callbacks, {
+      ready: ready.promise,
+      skipEvent: createAcceptedReplayFilter(startedValue.accepted),
+    }).take();
+    const observation = isErr(observedValue) ? {} : observedValue;
 
-  const accepted = await dispatchOperationEventResult(callbacks, startedValue.accepted);
-  if (accepted.isErr()) {
+    const accepted = await dispatchOperationEventResult(callbacks, startedValue.accepted);
+    if (accepted.isErr()) {
+      if (!isErr(observedValue)) {
+        ready.resolve();
+        await observation.close?.();
+      }
+    }
+
     if (!isErr(observedValue)) {
       ready.resolve();
-      await observation.close?.();
-    }
-  }
-
-  if (!isErr(observedValue)) {
-    ready.resolve();
-  }
-
-  const transferTask = (async () => {
-    const transferred = await operation.startTransfer(body);
-    const transferredValue = transferred.take();
-    if (isErr(transferredValue)) {
-      await observation.close?.();
-      return transferredValue;
     }
 
-    return ok(transferredValue);
-  })();
-
-  const publicOperation = createPublicOperationRef(
-    operation,
-    accepted.isErr() ? failedObservation(accepted.error) : observation,
-  );
-
-  return ok({
-    operation: publicOperation,
-    wait: () => AsyncResult.from((async () => {
-      const transferred = await transferTask;
-      const transferredValue = transferred.take();
+    const transferTask = (async () => {
+      const transferredValue = await operation.startTransfer(body).take();
       if (isErr(transferredValue)) {
+        await observation.close?.();
         return transferredValue;
       }
 
-      const terminal = await publicOperation.wait();
-      const terminalValue = terminal.take();
-      if (isErr(terminalValue)) {
-        return terminalValue;
-      }
+      return ok(transferredValue);
+    })();
 
-      return ok({
-        transferred: transferredValue,
-        terminal: terminalValue,
-      });
-    })()),
-  });
+    const publicOperation = createPublicOperationRef(
+      operation,
+      accepted.isErr() ? failedObservation(accepted.error) : observation,
+    );
+
+    return ok({
+      operation: publicOperation,
+      wait: () => AsyncResult.from((async () => {
+        const transferred = await transferTask;
+        const transferredValue = transferred.take();
+        if (isErr(transferredValue)) {
+          return transferredValue;
+        }
+
+        const terminalValue = await publicOperation.wait().take();
+        if (isErr(terminalValue)) {
+          return terminalValue;
+        }
+
+        return ok({
+          transferred: transferredValue,
+          terminal: terminalValue,
+        });
+      })()),
+    });
+  })());
 }
 
 function createObservedOperationRef<
@@ -990,12 +972,12 @@ function createOperationInputBuilder<
       return rebuild({ ...callbacks, onEvent: handler });
     },
     start() {
-      return AsyncResult.from(startObservedOperation<TDesc, TProgress, TOutput>(
+      return startObservedOperation<TDesc, TProgress, TOutput>(
         transport,
         descriptor,
         input,
         callbacks,
-      ));
+      );
     },
   } satisfies OperationInputBuilderBase<
     TDesc,
@@ -1071,13 +1053,13 @@ function createTransferOperationBuilder<
       return rebuild({ ...callbacks, onEvent: handler });
     },
     start() {
-      return AsyncResult.from(startObservedTransfer<TDesc, TProgress, TOutput>(
+      return startObservedTransfer<TDesc, TProgress, TOutput>(
         transport,
         descriptor,
         input,
         body,
         callbacks,
-      ));
+      );
     },
   };
 }

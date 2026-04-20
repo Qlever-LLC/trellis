@@ -1,4 +1,4 @@
-import { Result, isErr } from "@qlever-llc/result";
+import { type AsyncResult, type BaseError, Result, isErr } from "@qlever-llc/result";
 import { trellisIdFromOriginId } from "@qlever-llc/trellis/auth";
 import { AuthError } from "../../../../packages/trellis/errors/AuthError.ts";
 
@@ -100,13 +100,14 @@ function deviceCallerFields(caller?: SessionCaller): {
 }
 
 type KVLike<V> = {
-  get: (key: string) => { take(): unknown | Promise<unknown> } | Promise<{ take(): unknown | Promise<unknown> }>;
-  keys?: (filter: string) => { take(): unknown | Promise<unknown> } | Promise<{ take(): unknown | Promise<unknown> }>;
+  get: (key: string) => AsyncResult<{ value: V } | V | unknown, BaseError>;
+  keys?: (filter: string) => AsyncResult<AsyncIterable<string> | unknown, BaseError>;
 };
 
-async function takeValue<T>(value: { take(): T | Promise<T> } | Promise<{ take(): T | Promise<T> }>): Promise<T> {
-  const taken = await value;
-  return await taken.take();
+async function takeValue<T>(
+  value: AsyncResult<T, BaseError>,
+): Promise<T | Result<never, BaseError>> {
+  return await value.take();
 }
 
 function unwrapValue<V>(entry: unknown): V {

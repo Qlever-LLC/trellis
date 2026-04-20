@@ -1,4 +1,4 @@
-import { isErr, TrellisDevice } from "@qlever-llc/trellis";
+import { TrellisDevice } from "@qlever-llc/trellis";
 import contract from "../contracts/demo_inspection_operation_device.ts";
 import { ASSIGNED_INSPECTIONS } from "../../../shared/field_data.ts";
 import { printScenarioHeading } from "../../../shared/logging.ts";
@@ -10,85 +10,24 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-type WatchedOperationRef = {
-  watch(): {
-    orThrow(): Promise<AsyncIterable<unknown>>;
-  };
-};
-
-type OperationWatchEvent = {
-  type: string;
-  snapshot?: {
-    state?: string;
-  };
-  progress?: {
-    stage?: string;
-    message?: string;
-  };
-};
-
-function asOperationWatchEvent(value: unknown): OperationWatchEvent | undefined {
+function progressFields(value: unknown): { stage: string; message: string } | null {
   if (!value || typeof value !== "object") {
-    return undefined;
+    return null;
   }
 
-  const event = value as Record<string, unknown>;
-  const type = event.type;
-  if (typeof type !== "string") {
-    return undefined;
+  const record = value as Record<string, unknown>;
+  const stage = record.stage;
+  const message = record.message;
+  if (typeof stage !== "string" || typeof message !== "string") {
+    return null;
   }
 
-  const snapshot = event.snapshot;
-  const progress = event.progress;
-  return {
-    type,
-    snapshot: snapshot && typeof snapshot === "object"
-      ? { state: typeof (snapshot as Record<string, unknown>).state === "string" ? (snapshot as Record<string, unknown>).state as string : undefined }
-      : undefined,
-    progress: progress && typeof progress === "object"
-      ? {
-        stage: typeof (progress as Record<string, unknown>).stage === "string"
-          ? (progress as Record<string, unknown>).stage as string
-          : undefined,
-        message: typeof (progress as Record<string, unknown>).message === "string"
-          ? (progress as Record<string, unknown>).message as string
-          : undefined,
-      }
-      : undefined,
-  };
-}
-
-function watchOperation(
-  label: string,
-  reference: WatchedOperationRef,
-): Promise<void> {
-  const done = (async () => {
-    const watch = await reference.watch().orThrow();
-    for await (const event of watch) {
-      const parsed = asOperationWatchEvent(event);
-      if (!parsed) {
-        continue;
-      }
-
-      if (parsed.type === "progress") {
-        console.info(
-          `${label} progress`,
-          parsed.progress?.stage ?? "unknown",
-          parsed.progress?.message ?? "",
-        );
-        continue;
-      }
-
-      console.info(`${label} event`, parsed.type, parsed.snapshot?.state ?? "unknown");
-    }
-  })();
-
-  return done;
+  return { stage, message };
 }
 
 async function main(): Promise<void> {
   if (!trellisUrl || !rootSecret) {
-    throw new Error("Usage: deno task start -- <trellisUrl> <rootSecret>");
+    throw new Error("Usage: deno task start <trellisUrl> <rootSecret>");
   }
 
   const device = await TrellisDevice.connect({
@@ -100,13 +39,10 @@ async function main(): Promise<void> {
       await activation.waitForOnlineApproval();
     },
   });
-  const me = (await device.request("Auth.Me", {})).take();
-  if (isErr(me)) {
-    throw me.error;
-  }
+  await device.request("Auth.Me", {}).orThrow();
 
   printScenarioHeading("Inspection operation device");
-  console.info("Connected as", me.device?.deviceId ?? "unknown-device");
+  console.info("Connected to inspection operation demo device runtime");
 
   const cancelledInspectionId = ASSIGNED_INSPECTIONS[0]?.inspectionId;
   const completedInspectionId = ASSIGNED_INSPECTIONS[1]?.inspectionId;
@@ -117,6 +53,19 @@ async function main(): Promise<void> {
   console.info("starting cancellation flow", { inspectionId: cancelledInspectionId });
   const cancelled = await device.operation("Inspection.Report.Generate")
     .input({ inspectionId: cancelledInspectionId })
+    .onEvent((event) => {
+      if (event.type === "progress") {
+        const progress = progressFields(event.progress);
+        if (!progress) {
+          return;
+        }
+
+        console.info("cancel flow progress", progress.stage, progress.message);
+        return;
+      }
+
+      console.info("cancel flow event", event.type, event.snapshot.state);
+    })
     .start()
     .orThrow();
   console.info("cancel flow accepted", {
@@ -124,19 +73,30 @@ async function main(): Promise<void> {
     operation: cancelled.operation,
   });
 
-  const cancelledWatch = watchOperation("cancel flow", cancelled);
-  await sleep(1_200);
+  await sleep(700);
 
   const cancelledSnapshot = await cancelled.cancel().orThrow();
   console.info("cancel flow cancel()", cancelledSnapshot.state);
 
   const cancelledTerminal = await cancelled.wait().orThrow();
   console.info("cancel flow wait()", cancelledTerminal.state);
-  await cancelledWatch;
 
   console.info("starting completion flow", { inspectionId: completedInspectionId });
   const completed = await device.operation("Inspection.Report.Generate")
     .input({ inspectionId: completedInspectionId })
+    .onEvent((event) => {
+      if (event.type === "progress") {
+        const progress = progressFields(event.progress);
+        if (!progress) {
+          return;
+        }
+
+        console.info("completion flow progress", progress.stage, progress.message);
+        return;
+      }
+
+      console.info("completion flow event", event.type, event.snapshot.state);
+    })
     .start()
     .orThrow();
   console.info("completion flow accepted", {
@@ -144,11 +104,9 @@ async function main(): Promise<void> {
     operation: completed.operation,
   });
 
-  const completedWatch = watchOperation("completion flow", completed);
   const completedTerminal = await completed.wait().orThrow();
   console.info("completion flow wait()", completedTerminal.state);
   console.info("completion flow output", completedTerminal.output);
-  await completedWatch;
 }
 
 if (import.meta.main) {

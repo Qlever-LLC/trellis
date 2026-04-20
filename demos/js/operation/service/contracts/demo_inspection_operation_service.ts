@@ -15,16 +15,6 @@ const schemas = {
     inspectionId: Type.String({ minLength: 1 }),
     status: Type.String({ minLength: 1 }),
   }),
-  InspectionReportPublishJobPayload: Type.Object({
-    operationId: Type.String({ minLength: 1 }),
-    inspectionId: Type.String({ minLength: 1 }),
-    reportId: Type.String({ minLength: 1 }),
-  }),
-  InspectionReportPublishJobResult: Type.Object({
-    reportId: Type.String({ minLength: 1 }),
-    inspectionId: Type.String({ minLength: 1 }),
-    status: Type.String({ minLength: 1 }),
-  }),
 } as const;
 
 const contract = defineServiceContract(
@@ -36,12 +26,6 @@ const contract = defineServiceContract(
     uses: {
       auth: auth.useDefaults(),
       health: health.useDefaults(),
-    },
-    jobs: {
-      publishInspectionReport: {
-        payload: ref.schema("InspectionReportPublishJobPayload"),
-        result: ref.schema("InspectionReportPublishJobResult"),
-      },
     },
     operations: {
       "Inspection.Report.Generate": {

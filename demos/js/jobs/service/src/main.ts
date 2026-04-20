@@ -46,7 +46,7 @@ function asRefreshJobPayload(value: unknown): RefreshJobPayload {
 
 async function main(): Promise<void> {
   if (!trellisUrl || !sessionKeySeed) {
-    throw new Error("Usage: deno task start -- <trellisUrl> <sessionKeySeed>");
+    throw new Error("Usage: deno task start <trellisUrl> <sessionKeySeed>");
   }
 
   const service = await TrellisService.connect({
@@ -64,9 +64,7 @@ async function main(): Promise<void> {
   }
 
   const putRefreshStatus = async (refresh: RefreshStatus): Promise<void> => {
-    const stored = (
-      await refreshStatuses.put(refresh.refreshId, refresh)
-    ).take();
+    const stored = await refreshStatuses.put(refresh.refreshId, refresh).take();
     if (isErr(stored)) {
       throw stored.error;
     }
@@ -176,7 +174,7 @@ async function main(): Promise<void> {
   const getRefreshStatus: Rpc<
     "Inspection.Summaries.RefreshStatus.Get"
   > = async (input) => {
-    const refreshEntry = (await refreshStatuses.get(input.refreshId)).take();
+    const refreshEntry = await refreshStatuses.get(input.refreshId).take();
     const refresh = isErr(refreshEntry) ? undefined : refreshEntry.value;
 
     return Result.ok({

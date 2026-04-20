@@ -422,49 +422,51 @@ export class ServiceTransfer {
     });
   }
 
-  async createOperationUpload(args: InitiateUploadArgs): Promise<ResultType<OperationUploadTransfer, TransferError>> {
-    const updates = new AsyncValueBroadcaster<RuntimeOperationTransferProgress>();
-    const completed = deferred<ResultType<FileInfo, TransferError>>();
-    let settled = false;
-    const settle = (value: ResultType<FileInfo, TransferError>) => {
-      if (settled) {
-        return;
+  createOperationUpload(args: InitiateUploadArgs): AsyncResult<OperationUploadTransfer, TransferError> {
+    return AsyncResult.from((async (): Promise<ResultType<OperationUploadTransfer, TransferError>> => {
+      const updates = new AsyncValueBroadcaster<RuntimeOperationTransferProgress>();
+      const completed = deferred<ResultType<FileInfo, TransferError>>();
+      let settled = false;
+      const settle = (value: ResultType<FileInfo, TransferError>) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        updates.close();
+        completed.resolve(value);
+      };
+
+      const grant = await this.initiateUpload({
+        ...args,
+        onProgress: async (progress) => {
+          updates.push(progress);
+          await args.onProgress?.(progress);
+        },
+        onComplete: async (info) => {
+          await args.onComplete?.(info);
+          settle(Result.ok(info));
+        },
+        onError: async (error) => {
+          await args.onError?.(error);
+          settle(Result.err(error));
+        },
+        onStored: async (stored) => {
+          await args.onStored?.(stored);
+        },
+      });
+      const grantValue = grant.take();
+      if (isErr(grantValue)) {
+        return Result.err(grantValue.error);
       }
-      settled = true;
-      updates.close();
-      completed.resolve(value);
-    };
 
-    const grant = await this.initiateUpload({
-      ...args,
-      onProgress: async (progress) => {
-        updates.push(progress);
-        await args.onProgress?.(progress);
-      },
-      onComplete: async (info) => {
-        await args.onComplete?.(info);
-        settle(Result.ok(info));
-      },
-      onError: async (error) => {
-        await args.onError?.(error);
-        settle(Result.err(error));
-      },
-      onStored: async (stored) => {
-        await args.onStored?.(stored);
-      },
-    });
-    const grantValue = grant.take();
-    if (isErr(grantValue)) {
-      return Result.err(grantValue.error);
-    }
-
-    return Result.ok({
-      grant: grantValue,
-      transfer: {
-        updates: () => updates.subscribe(),
-        completed: () => AsyncResult.from(completed.promise),
-      },
-    });
+      return Result.ok({
+        grant: grantValue,
+        transfer: {
+          updates: () => updates.subscribe(),
+          completed: () => AsyncResult.from(completed.promise),
+        },
+      });
+    })());
   }
 
   async initiateDownload(args: InitiateDownloadArgs): Promise<ResultType<DownloadTransferGrant, TransferError>> {

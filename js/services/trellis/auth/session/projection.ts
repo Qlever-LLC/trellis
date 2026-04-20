@@ -13,7 +13,7 @@ export async function upsertUserProjection<E extends BaseError>(
   entry: UserProjectionEntry,
 ): Promise<Result<void, E>> {
   const trellisId = await trellisIdFromOriginId(entry.origin, entry.id);
-  const existing = (await usersKV.get(trellisId)).take();
+  const existing = await usersKV.get(trellisId).take();
   const merged = isErr(existing)
     ? entry
     : {
@@ -24,5 +24,5 @@ export async function upsertUserProjection<E extends BaseError>(
       active: existing.value.active,
       capabilities: existing.value.capabilities,
     };
-  return (await usersKV.put(trellisId, merged)).map(() => undefined);
+  return await usersKV.put(trellisId, merged).map(() => undefined);
 }

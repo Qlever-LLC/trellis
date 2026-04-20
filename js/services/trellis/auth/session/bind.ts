@@ -2,8 +2,6 @@ import { AsyncResult, BaseError, type BaseErrorOptions, isErr, Result } from "@q
 import Type, { type Static } from "typebox";
 import type { Connection, Session, UserSession } from "../../state/schemas.ts";
 
-type KVResult<T> = { take(): T };
-
 type Taken<T> = T | Result<never, BaseError>;
 
 type KVLike<V> = {
@@ -94,7 +92,7 @@ export async function ensureBoundUserSession(args: {
 }): Promise<Result<{ createdAt: Date }, EnsureBoundUserSessionError>> {
   const sessionKeyId = `${args.sessionKey}.${args.trellisId}`;
 
-  const existingIter = (await args.sessionKV.keys(`${args.sessionKey}.>`)).take();
+  const existingIter = await args.sessionKV.keys(`${args.sessionKey}.>`).take();
   if (isErr(existingIter)) {
     return Result.err(
       new EnsureBoundUserSessionError("kv_error", {
@@ -116,7 +114,7 @@ export async function ensureBoundUserSession(args: {
 
   if (needsReset) {
     // Kick and delete any tracked connections for this sessionKey.
-    const connKeys = (await args.connectionsKV.keys(`${args.sessionKey}.>.>`)).take();
+    const connKeys = await args.connectionsKV.keys(`${args.sessionKey}.>.>`).take();
     if (isErr(connKeys)) {
       return Result.err(
         new EnsureBoundUserSessionError("kv_error", {
@@ -125,7 +123,7 @@ export async function ensureBoundUserSession(args: {
       );
     }
     for await (const key of connKeys) {
-      const entry = (await args.connectionsKV.get(key)).take();
+      const entry = await args.connectionsKV.get(key).take();
       if (isErr(entry)) {
         return Result.err(
           new EnsureBoundUserSessionError("kv_error", {
@@ -135,7 +133,7 @@ export async function ensureBoundUserSession(args: {
       }
       const v = unwrapValue(entry as { value: Connection } | Connection);
       await args.kick(v.serverId, v.clientId);
-      const deleteConnection = (await args.connectionsKV.delete(key)).take();
+      const deleteConnection = await args.connectionsKV.delete(key).take();
       if (isErr(deleteConnection)) {
         return Result.err(
           new EnsureBoundUserSessionError("kv_error", {
@@ -147,7 +145,7 @@ export async function ensureBoundUserSession(args: {
 
     // Delete all existing session entries for this sessionKey prefix.
     for (const key of existingKeys) {
-      const deleteSession = (await args.sessionKV.delete(key)).take();
+      const deleteSession = await args.sessionKV.delete(key).take();
       if (isErr(deleteSession)) {
         return Result.err(
           new EnsureBoundUserSessionError("kv_error", {
@@ -182,7 +180,7 @@ export async function ensureBoundUserSession(args: {
   };
 
   if (typeof args.sessionKV.create === "function") {
-    const created = (await args.sessionKV.create(sessionKeyId, session)).take();
+    const created = await args.sessionKV.create(sessionKeyId, session).take();
     if (!isErr(created)) {
       return Result.ok({ createdAt: args.now });
     }
@@ -196,7 +194,7 @@ export async function ensureBoundUserSession(args: {
   }
 
   // If create failed, treat it as session recovery *only if* the existing session matches.
-  const existing = (await args.sessionKV.get(sessionKeyId)).take();
+  const existing = await args.sessionKV.get(sessionKeyId).take();
   if (isErr(existing)) {
     return Result.err(
       new EnsureBoundUserSessionError("kv_error", {
@@ -234,7 +232,7 @@ export async function ensureBoundUserSession(args: {
     delegatedSubscribeSubjects: args.delegatedSubscribeSubjects,
     lastAuth: args.now,
   };
-  const putRes = (await args.sessionKV.put(sessionKeyId, updated)).take();
+  const putRes = await args.sessionKV.put(sessionKeyId, updated).take();
   if (isErr(putRes)) {
     return Result.err(
       new EnsureBoundUserSessionError("kv_error", {

@@ -22,7 +22,7 @@ type DraftInspectionState = {
 
 async function main(): Promise<void> {
   if (!trellisUrl || !rootSecret) {
-    throw new Error("Usage: deno task start -- <trellisUrl> <rootSecret>");
+    throw new Error("Usage: deno task start <trellisUrl> <rootSecret>");
   }
 
   const device = await TrellisDevice.connect({
@@ -34,7 +34,7 @@ async function main(): Promise<void> {
       await activation.waitForOnlineApproval();
     },
   });
-  const me = (await device.request("Auth.Me", {})).take();
+  const me = await device.request("Auth.Me", {}).take();
   if (isErr(me)) {
     throw me.error;
   }
@@ -63,34 +63,44 @@ async function main(): Promise<void> {
     updatedAt: new Date(Date.now() + index * 60_000).toISOString(),
   }));
 
-  const selectedSitePut = (await device.state.selectedSite.put(selectedSite)).take();
+  const selectedSitePut = await device.request("State.Put", {
+    store: "selectedSite",
+    value: selectedSite,
+  }).take();
   if (isErr(selectedSitePut)) {
     throw selectedSitePut.error;
   }
 
   for (const draft of drafts) {
-    const draftPut = (await device.state.draftInspections.put(
-      draft.inspectionId,
-      draft,
-    )).take();
+    const draftPut = await device.request("State.Put", {
+      store: "draftInspections",
+      key: draft.inspectionId,
+      value: draft,
+    }).take();
     if (isErr(draftPut)) {
       throw draftPut.error;
     }
   }
 
-  const selectedSiteEntry = (await device.state.selectedSite.get()).take();
+  const selectedSiteEntry = await device.request("State.Get", {
+    store: "selectedSite",
+  }).take();
   if (isErr(selectedSiteEntry)) {
     throw selectedSiteEntry.error;
   }
 
-  const firstDraftEntry = (await device.state.draftInspections.get(
-    drafts[0].inspectionId,
-  )).take();
+  const firstDraftEntry = await device.request("State.Get", {
+    store: "draftInspections",
+    key: drafts[0].inspectionId,
+  }).take();
   if (isErr(firstDraftEntry)) {
     throw firstDraftEntry.error;
   }
 
-  const listedEntries = (await device.state.draftInspections.list({ limit: 10 })).take();
+  const listedEntries = await device.request("State.List", {
+    store: "draftInspections",
+    limit: 10,
+  }).take();
   if (isErr(listedEntries)) {
     throw listedEntries.error;
   }

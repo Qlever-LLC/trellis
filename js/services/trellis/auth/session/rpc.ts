@@ -5,6 +5,12 @@ import {
 } from "@qlever-llc/trellis/auth";
 import { AsyncResult, type BaseError, isErr, Result } from "@qlever-llc/result";
 import { AuthError } from "../../../../packages/trellis/errors/AuthError.ts";
+import type {
+  AuthListConnectionsInput,
+  AuthListConnectionsOutput,
+  AuthListSessionsInput,
+  AuthListSessionsOutput,
+} from "../../../../../generated/js/sdks/auth/types.ts";
 import {
   connectionsKV,
   contractApprovalsKV,
@@ -134,55 +140,12 @@ type ValidateRequestInput = {
   capabilities?: string[];
 };
 
-type UserRefFilter = { user?: string };
-type SessionFilter = { sessionKey?: string; user?: string };
+type UserRefFilter = AuthListSessionsInput;
+type SessionFilter = AuthListConnectionsInput;
 type SessionKeyRequest = { sessionKey: string };
 type UserNkeyRequest = { userNkey: string };
-type SessionListRow = {
-  key: string;
-  sessionKey: string;
-  participantKind: "app" | "agent" | "device" | "service";
-  principal:
-    | {
-      type: "user";
-      trellisId: string;
-      origin: string;
-      id: string;
-      name: string;
-    }
-    | {
-      type: "service";
-      id: string;
-      name: string;
-      instanceId: string;
-      profileId: string;
-    }
-    | {
-      type: "device";
-      deviceId: string;
-      deviceType: string;
-      runtimePublicKey: string;
-      profileId: string;
-    };
-  contractId?: string;
-  contractDisplayName?: string;
-  appOrigin?: string;
-  createdAt: string;
-  lastAuth: string;
-};
-type ConnectionRow = {
-  key: string;
-  userNkey: string;
-  sessionKey: string;
-  participantKind: "app" | "agent" | "device" | "service";
-  principal: SessionListRow["principal"];
-  contractId?: string;
-  contractDisplayName?: string;
-  appOrigin?: string;
-  serverId: string;
-  clientId: number;
-  connectedAt: string;
-};
+type SessionListRow = AuthListSessionsOutput["sessions"][number];
+type ConnectionRow = AuthListConnectionsOutput["connections"][number];
 
 function iso(value: string | Date): string {
   return value instanceof Date ? value.toISOString() : value;
@@ -268,21 +231,57 @@ function buildConnectionRow(
   userNkey: string,
   connection: { serverId: string; clientId: number; connectedAt: string | Date },
 ): ConnectionRow {
-  const sessionRow = buildSessionRow(session, sessionKey);
-  return {
+  const base = {
     key: sessionActorKey(session, sessionKey, userNkey),
     userNkey,
     sessionKey,
-    participantKind: sessionRow.participantKind,
-    principal: sessionRow.principal,
-    ...(sessionRow.contractId ? { contractId: sessionRow.contractId } : {}),
-    ...(sessionRow.contractDisplayName
-      ? { contractDisplayName: sessionRow.contractDisplayName }
-      : {}),
-    ...(sessionRow.appOrigin ? { appOrigin: sessionRow.appOrigin } : {}),
     serverId: connection.serverId,
     clientId: connection.clientId,
     connectedAt: iso(connection.connectedAt),
+  };
+
+  if (session.type === "user") {
+    return {
+      ...base,
+      participantKind: session.participantKind,
+      principal: {
+        type: "user",
+        trellisId: session.trellisId,
+        origin: session.origin,
+        id: session.id,
+        name: session.name,
+      },
+      contractId: session.contractId,
+      contractDisplayName: session.contractDisplayName,
+      ...(session.app?.origin ? { appOrigin: session.app.origin } : {}),
+    };
+  }
+
+  if (session.type === "device") {
+    return {
+      ...base,
+      participantKind: "device",
+      principal: {
+        type: "device",
+        deviceId: session.instanceId,
+        deviceType: deviceTypeFromProfileId(session.profileId),
+        runtimePublicKey: session.publicIdentityKey,
+        profileId: session.profileId,
+      },
+      contractId: session.contractId,
+    };
+  }
+
+  return {
+    ...base,
+    participantKind: "service",
+    principal: {
+      type: "service",
+      id: session.id,
+      name: session.name,
+      instanceId: session.instanceId,
+      profileId: session.profileId,
+    },
   };
 }
 
@@ -454,7 +453,7 @@ async function responseFromDeviceCaller(args: {
   }
 
   const activationEntry = unwrapValue<DeviceActivationRecord>(
-    (await args.deviceActivationsKV.get(deviceCaller.deviceId)).take(),
+    await args.deviceActivationsKV.get(deviceCaller.deviceId).take(),
   );
   if (isErr(activationEntry)) return null;
   const activation = activationEntry;
@@ -467,7 +466,7 @@ async function responseFromDeviceCaller(args: {
   }
 
   const profileEntry = unwrapValue<{ profileId: string; disabled: boolean }>(
-    (await args.deviceProfilesKV.get(activation.profileId)).take(),
+    await args.deviceProfilesKV.get(activation.profileId).take(),
   );
   if (isErr(profileEntry) || profileEntry.disabled) return null;
 
@@ -524,7 +523,7 @@ async function loadSessionBySessionKey(
 
   if (!sessionKeyId) return null;
   const sessionValue = unwrapValue<Session>(
-    (await sessionStore.get(sessionKeyId)).take(),
+    await sessionStore.get(sessionKeyId).take(),
   );
   if (isErr(sessionValue)) return null;
   return sessionValue;
@@ -540,7 +539,7 @@ async function loadAuthenticatedUser(args: {
 }): Promise<AuthenticatedUser> {
   const trellisId = await trellisIdFromOriginId(args.origin, args.id);
   const projectionEntry = unwrapValue<UserProjectionEntry>(
-    (await args.usersKV.get(trellisId)).take(),
+    await args.usersKV.get(trellisId).take(),
   );
   if (!isErr(projectionEntry)) {
     const projection = projectionEntry;
@@ -601,7 +600,7 @@ async function loadAuthenticatedDevice(args: {
   session: Session & { type: "device" };
 }): Promise<{ user: AuthenticatedUser | null; device: AuthenticatedDevice }> {
   const activationEntry = unwrapValue<DeviceActivationRecord>(
-    (await args.deviceActivationsKV.get(args.session.instanceId)).take(),
+    await args.deviceActivationsKV.get(args.session.instanceId).take(),
   );
   if (isErr(activationEntry)) {
     throw new AuthError({
@@ -632,7 +631,7 @@ async function loadAuthenticatedDevice(args: {
   }
 
   const profileEntry = unwrapValue<{ profileId: string; disabled: boolean }>(
-    (await args.deviceProfilesKV.get(activation.profileId)).take(),
+    await args.deviceProfilesKV.get(activation.profileId).take(),
   );
   if (isErr(profileEntry)) {
     throw new AuthError({
@@ -796,7 +795,7 @@ export const authValidateRequestHandler = async (req: ValidateRequestInput) => {
     return Result.err(new AuthError({ reason: "invalid_signature" }));
   }
 
-  const keysIter = (await sessionKV.keys(`${req.sessionKey}.>`)).take();
+  const keysIter = await sessionKV.keys(`${req.sessionKey}.>`).take();
   if (isErr(keysIter)) {
     return Result.err(new AuthError({ reason: "session_not_found" }));
   }
@@ -817,7 +816,7 @@ export const authValidateRequestHandler = async (req: ValidateRequestInput) => {
   if (!sessionKeyId) {
     return Result.err(new AuthError({ reason: "session_not_found" }));
   }
-  const sessionEntry = (await sessionKV.get(sessionKeyId)).take();
+  const sessionEntry = await sessionKV.get(sessionKeyId).take();
   if (isErr(sessionEntry)) {
     return Result.err(new AuthError({ reason: "session_not_found" }));
   }
@@ -831,11 +830,11 @@ export const authValidateRequestHandler = async (req: ValidateRequestInput) => {
     deviceActivationsKV: deviceActivationsKV,
     deviceProfilesKV: deviceProfilesKV,
     loadStoredApproval: async (key) => {
-      const entry = (await contractApprovalsKV.get(key)).take();
+      const entry = await contractApprovalsKV.get(key).take();
       return isErr(entry) ? null : entry.value;
     },
     loadInstanceGrantPolicies: async (contractId: string) => {
-      const entry = (await instanceGrantPoliciesKV.get(contractId)).take();
+      const entry = await instanceGrantPoliciesKV.get(contractId).take();
       return isErr(entry) ? [] : [entry.value];
     },
   });
@@ -869,11 +868,10 @@ export const authLogoutHandler = async (
 
   await sessionKV.delete(sessionKeyId);
 
-  const connKeys = (await connectionsKV.keys(`${sessionKey}.${user.trellisId}.>`))
-    .take();
+  const connKeys = await connectionsKV.keys(`${sessionKey}.${user.trellisId}.>`).take();
   if (!isErr(connKeys)) {
     for await (const key of connKeys) {
-      const entry = (await connectionsKV.get(key)).take();
+      const entry = await connectionsKV.get(key).take();
       if (!isErr(entry)) {
         await AsyncResult.try(() =>
           natsAuth.request(
@@ -890,10 +888,7 @@ export const authLogoutHandler = async (
 };
 
 export function createAuthListSessionsHandler(deps: {
-  sessionKV: {
-    keys: (filter: string) => { take(): unknown | Promise<unknown> } | Promise<{ take(): unknown | Promise<unknown> }>;
-    get: (key: string) => { take(): unknown | Promise<unknown> } | Promise<{ take(): unknown | Promise<unknown> }>;
-  };
+  sessionKV: Required<Pick<KVLike<Session>, "keys" | "get">>;
 }) {
   return async (req: UserRefFilter = {}) => {
     logger.trace({ rpc: "Auth.ListSessions", user: req.user }, "RPC request");
@@ -908,14 +903,14 @@ export function createAuthListSessionsHandler(deps: {
       filter = `>.${trellisId}`;
     }
 
-    const iter = (await deps.sessionKV.keys(filter)).take();
+    const iter = await deps.sessionKV.keys(filter).take();
     if (isErr(iter)) {
       return Result.ok({ sessions: [] });
     }
 
     const sessions: SessionListRow[] = [];
     for await (const key of iter as AsyncIterable<string>) {
-      const entry = (await deps.sessionKV.get(key)).take();
+      const entry = await deps.sessionKV.get(key).take();
       if (isErr(entry)) continue;
 
       const sessionKey = key.split(".")[0] ?? "";
@@ -939,19 +934,19 @@ export const authRevokeSessionHandler = createAuthRevokeSessionHandler({
     await import("../callout/kick.ts").then(({ kick }) => kick(serverId, clientId));
   },
   publishSessionRevoked: async (event) => {
-    (await trellis.publish("Auth.SessionRevoked", event)).inspectErr((error) =>
-      logger.warn({ error }, "Failed to publish Auth.SessionRevoked")
-    );
+    await trellis.publish("Auth.SessionRevoked", event).inspectErr((error) =>
+      logger.warn({ error }, "Failed to publish Auth.SessionRevoked"));
   },
 });
 
 export function createAuthListConnectionsHandler(deps: {
-  sessionKV: {
-    get: (key: string) => { take(): unknown | Promise<unknown> } | Promise<{ take(): unknown | Promise<unknown> }>;
-  };
+  sessionKV: Pick<KVLike<Session>, "get">;
   connectionsKV: {
-    keys: (filter: string) => { take(): unknown | Promise<unknown> } | Promise<{ take(): unknown | Promise<unknown> }>;
-    get: (key: string) => { take(): unknown | Promise<unknown> } | Promise<{ take(): unknown | Promise<unknown> }>;
+    keys: (filter: string) => AsyncResult<AsyncIterable<string> | unknown, BaseError>;
+    get: (key: string) => AsyncResult<
+      { value: { serverId: string; clientId: number; connectedAt: string | Date } } | unknown,
+      BaseError
+    >;
   };
 }) {
   return async (req: SessionFilter = {}) => {
@@ -977,14 +972,14 @@ export function createAuthListConnectionsHandler(deps: {
       filter = `>.${trellisId}.>`;
     }
 
-    const iter = (await deps.connectionsKV.keys(filter)).take();
+    const iter = await deps.connectionsKV.keys(filter).take();
     if (isErr(iter)) {
       return Result.ok({ connections: [] });
     }
 
     const connections: ConnectionRow[] = [];
     for await (const key of iter as AsyncIterable<string>) {
-      const entry = (await deps.connectionsKV.get(key)).take();
+      const entry = await deps.connectionsKV.get(key).take();
       if (isErr(entry)) continue;
 
       const parts = key.split(".");
@@ -993,7 +988,7 @@ export function createAuthListConnectionsHandler(deps: {
       const userNkey = parts[2];
       if (!sessionKey || !trellisId || !userNkey) continue;
 
-      const session = (await deps.sessionKV.get(`${sessionKey}.${trellisId}`)).take();
+      const session = await deps.sessionKV.get(`${sessionKey}.${trellisId}`).take();
       if (isErr(session)) continue;
 
       const sessionValue = (session as { value: Session }).value;
@@ -1031,7 +1026,7 @@ export function createAuthKickConnectionHandler(opts: {
       return Result.err(new AuthError({ reason: "invalid_request" }));
     }
 
-    const iter = (await connectionsKV.keys(`>.>.${req.userNkey}`)).take();
+    const iter = await connectionsKV.keys(`>.>.${req.userNkey}`).take();
     if (isErr(iter)) {
       return Result.ok({ success: false });
     }
@@ -1040,7 +1035,7 @@ export function createAuthKickConnectionHandler(opts: {
     let kicked = false;
 
     for await (const key of iter) {
-      const entry = (await connectionsKV.get(key)).take();
+      const entry = await connectionsKV.get(key).take();
       if (!isErr(entry)) {
         await opts.kick(entry.value.serverId, entry.value.clientId);
       }
@@ -1049,22 +1044,18 @@ export function createAuthKickConnectionHandler(opts: {
       const sessionKey = parts[0];
       const trellisId = parts[1];
       if (sessionKey && trellisId) {
-        const session = (await sessionKV.get(`${sessionKey}.${trellisId}`))
-          .take();
+        const session = await sessionKV.get(`${sessionKey}.${trellisId}`).take();
         if (!isErr(session)) {
           if (session.value.type === "device") {
             continue;
           }
-          (
-            await trellis.publish("Auth.ConnectionKicked", {
+          await trellis.publish("Auth.ConnectionKicked", {
               origin: session.value.origin,
               id: session.value.id,
               userNkey: req.userNkey,
               kickedBy,
-            })
-          ).inspectErr((error) =>
-            logger.warn({ error }, "Failed to publish Auth.ConnectionKicked")
-          );
+            }).inspectErr((error) =>
+            logger.warn({ error }, "Failed to publish Auth.ConnectionKicked"));
         }
       }
 

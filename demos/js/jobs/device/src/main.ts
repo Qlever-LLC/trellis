@@ -6,13 +6,55 @@ const trellisUrl = Deno.args[0]?.trim();
 const rootSecret = Deno.args[1]?.trim();
 const POLL_INTERVAL_MS = 250;
 
+type RefreshResponse = {
+  refreshId: string;
+  status: string;
+};
+
+type RefreshStatus = {
+  refreshId: string;
+  siteId: string;
+  status: string;
+  updatedAt: string;
+};
+
+type RefreshStatusResponse = {
+  refresh?: RefreshStatus;
+};
+
+function asRefreshResponse(value: unknown): RefreshResponse {
+  if (!value || typeof value !== "object") {
+    throw new Error("refresh response must be an object");
+  }
+
+  const record = value as Record<string, unknown>;
+  const refreshId = record.refreshId;
+  const status = record.status;
+  if (typeof refreshId !== "string" || typeof status !== "string") {
+    throw new Error("refresh response is missing fields");
+  }
+
+  return { refreshId, status };
+}
+
+function asRefreshStatusResponse(value: unknown): RefreshStatusResponse {
+  if (!value || typeof value !== "object") {
+    throw new Error("refresh status response must be an object");
+  }
+
+  const refresh = (value as Record<string, unknown>).refresh;
+  return {
+    refresh: refresh && typeof refresh === "object" ? refresh as RefreshStatus : undefined,
+  };
+}
+
 function isTerminalRefreshStatus(status: string): boolean {
   return status === "completed" || status === "failed";
 }
 
 async function main(): Promise<void> {
   if (!trellisUrl || !rootSecret) {
-    throw new Error("Usage: deno task start -- <trellisUrl> <rootSecret>");
+    throw new Error("Usage: deno task start <trellisUrl> <rootSecret>");
   }
 
   const device = await TrellisDevice.connect({
@@ -30,7 +72,7 @@ async function main(): Promise<void> {
   }
 
   printScenarioHeading("Inspection jobs device");
-  console.info("Connected as", me.device?.deviceId ?? "unknown-device");
+  console.info("Connected to inspection jobs demo device runtime");
 
   const siteId = "site-west-yard";
   const refresh = await device
@@ -39,22 +81,24 @@ async function main(): Promise<void> {
   if (isErr(refresh)) {
     throw refresh.error;
   }
+  const refreshRequest = asRefreshResponse(refresh);
 
-  console.info(`Queued refresh ${refresh.refreshId} for ${siteId}`);
+  console.info(`Queued refresh ${refreshRequest.refreshId} for ${siteId}`);
 
   while (true) {
     const status = await device
       .request("Inspection.Summaries.RefreshStatus.Get", {
-        refreshId: refresh.refreshId,
+        refreshId: refreshRequest.refreshId,
       })
       .take();
     if (isErr(status)) {
       throw status.error;
     }
+    const refreshStatus = asRefreshStatusResponse(status);
 
-    const current = status.refresh;
+    const current = refreshStatus.refresh;
     if (!current) {
-      console.info(`Refresh ${refresh.refreshId}: status not available yet`);
+      console.info(`Refresh ${refreshRequest.refreshId}: status not available yet`);
     } else {
       console.info(
         `Refresh ${current.refreshId}: ${current.status} at ${current.updatedAt} for ${current.siteId}`,

@@ -27,7 +27,7 @@ Deno.test("emit-contract writes canonical manifest from source contract module",
   const result = await command.output();
   assertEquals(result.code, 0, new TextDecoder().decode(result.stderr));
 
-  const emitted = (await Deno.readTextFile(outPath)).trim();
+  const emitted = await Deno.readTextFile(outPath).trim();
   const { CONTRACT } = await import(
     toFileUrl(join(repoRoot, "js/services/activity/contracts/trellis_activity.ts")).href,
   );

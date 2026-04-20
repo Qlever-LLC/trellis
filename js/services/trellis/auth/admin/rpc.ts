@@ -148,7 +148,7 @@ function deviceSelectionKey(profileId: string): string {
 }
 
 async function loadPortal(portalId: string): Promise<Portal | null> {
-  const entry = (await portalsKV.get(portalId)).take();
+  const entry = await portalsKV.get(portalId).take();
   if (isErr(entry)) return null;
   return entry.value as Portal;
 }
@@ -156,7 +156,7 @@ async function loadPortal(portalId: string): Promise<Portal | null> {
 async function loadInstanceGrantPolicy(
   contractId: string,
 ): Promise<InstanceGrantPolicy | null> {
-  const entry = (await instanceGrantPoliciesKV.get(contractId)).take();
+  const entry = await instanceGrantPoliciesKV.get(contractId).take();
   if (isErr(entry)) return null;
   return entry.value as InstanceGrantPolicy;
 }
@@ -164,7 +164,7 @@ async function loadInstanceGrantPolicy(
 async function loadDeviceProfile(
   profileId: string,
 ): Promise<DeviceProfile | null> {
-  const entry = (await deviceProfilesKV.get(profileId)).take();
+  const entry = await deviceProfilesKV.get(profileId).take();
   if (isErr(entry)) return null;
   return entry.value as unknown as DeviceProfile;
 }
@@ -172,7 +172,7 @@ async function loadDeviceProfile(
 async function loadDeviceInstance(
   instanceId: string,
 ): Promise<DeviceInstance | null> {
-  const entry = (await deviceInstancesKV.get(instanceId)).take();
+  const entry = await deviceInstancesKV.get(instanceId).take();
   if (isErr(entry)) return null;
   return entry.value as unknown as DeviceInstance;
 }
@@ -180,7 +180,7 @@ async function loadDeviceInstance(
 async function loadDeviceProvisioningSecret(
   instanceId: string,
 ): Promise<DeviceProvisioningSecret | null> {
-  const entry = (await deviceProvisioningSecretsKV.get(instanceId)).take();
+  const entry = await deviceProvisioningSecretsKV.get(instanceId).take();
   if (isErr(entry)) return null;
   return entry.value as DeviceProvisioningSecret;
 }
@@ -188,7 +188,7 @@ async function loadDeviceProvisioningSecret(
 async function loadDeviceActivationReview(
   reviewId: string,
 ): Promise<DeviceActivationReviewRecord | null> {
-  const entry = (await deviceActivationReviewsKV.get(reviewId)).take();
+  const entry = await deviceActivationReviewsKV.get(reviewId).take();
   if (isErr(entry)) return null;
   return entry.value as unknown as DeviceActivationReviewRecord;
 }
@@ -196,7 +196,7 @@ async function loadDeviceActivationReview(
 async function loadDeviceActivationFlow(
   flowId: string,
 ): Promise<DeviceActivationFlow | null> {
-  const entry = (await browserFlowsKV.get(flowId)).take();
+  const entry = await browserFlowsKV.get(flowId).take();
   if (isErr(entry)) return null;
   const flow = entry.value as {
     flowId?: string;
@@ -229,13 +229,13 @@ async function loadDeviceActivationFlow(
 async function loadDeviceActivation(
   instanceId: string,
 ): Promise<DeviceActivation | null> {
-  const entry = (await deviceActivationsKV.get(instanceId)).take();
+  const entry = await deviceActivationsKV.get(instanceId).take();
   if (isErr(entry)) return null;
   return entry.value as unknown as DeviceActivation;
 }
 
 async function loadPortalDefault(key: string): Promise<PortalDefault | null> {
-  const entry = (await portalDefaultsKV.get(key)).take();
+  const entry = await portalDefaultsKV.get(key).take();
   if (isErr(entry)) return null;
   return entry.value as PortalDefault;
 }
@@ -244,7 +244,7 @@ async function loadLoginPortalSelection(
   contractId: string,
 ): Promise<LoginPortalSelection | null> {
   const entry =
-    (await loginPortalSelectionsKV.get(loginSelectionKey(contractId))).take();
+    await loginPortalSelectionsKV.get(loginSelectionKey(contractId)).take();
   if (isErr(entry)) return null;
   return entry.value as LoginPortalSelection;
 }
@@ -253,17 +253,17 @@ async function loadDevicePortalSelection(
   profileId: string,
 ): Promise<DevicePortalSelection | null> {
   const entry =
-    (await devicePortalSelectionsKV.get(deviceSelectionKey(profileId))).take();
+    await devicePortalSelectionsKV.get(deviceSelectionKey(profileId)).take();
   if (isErr(entry)) return null;
   return entry.value as DevicePortalSelection;
 }
 
 async function listPortals(): Promise<Portal[]> {
-  const iter = (await portalsKV.keys(">"))?.take();
+  const iter = await portalsKV.keys(">").take();
   if (isErr(iter)) return [];
   const values: Portal[] = [];
   for await (const key of iter) {
-    const entry = (await portalsKV.get(key)).take();
+    const entry = await portalsKV.get(key).take();
     if (!isErr(entry)) values.push(entry.value as Portal);
   }
   values.sort((left, right) => left.portalId.localeCompare(right.portalId));
@@ -271,11 +271,11 @@ async function listPortals(): Promise<Portal[]> {
 }
 
 async function listInstanceGrantPolicies(): Promise<InstanceGrantPolicy[]> {
-  const iter = (await instanceGrantPoliciesKV.keys(">"))?.take();
+  const iter = await instanceGrantPoliciesKV.keys(">").take();
   if (isErr(iter)) return [];
   const values: InstanceGrantPolicy[] = [];
   for await (const key of iter) {
-    const entry = (await instanceGrantPoliciesKV.get(key)).take();
+    const entry = await instanceGrantPoliciesKV.get(key).take();
     if (!isErr(entry)) values.push(entry.value as InstanceGrantPolicy);
   }
   values.sort((left, right) => left.contractId.localeCompare(right.contractId));
@@ -283,11 +283,11 @@ async function listInstanceGrantPolicies(): Promise<InstanceGrantPolicy[]> {
 }
 
 async function listLoginPortalSelections(): Promise<LoginPortalSelection[]> {
-  const iter = (await loginPortalSelectionsKV.keys(">"))?.take();
+  const iter = await loginPortalSelectionsKV.keys(">").take();
   if (isErr(iter)) return [];
   const values: LoginPortalSelection[] = [];
   for await (const key of iter) {
-    const entry = (await loginPortalSelectionsKV.get(key)).take();
+    const entry = await loginPortalSelectionsKV.get(key).take();
     if (!isErr(entry)) values.push(entry.value as LoginPortalSelection);
   }
   values.sort((left, right) => left.contractId.localeCompare(right.contractId));
@@ -295,11 +295,11 @@ async function listLoginPortalSelections(): Promise<LoginPortalSelection[]> {
 }
 
 async function listDevicePortalSelections(): Promise<DevicePortalSelection[]> {
-  const iter = (await devicePortalSelectionsKV.keys(">"))?.take();
+  const iter = await devicePortalSelectionsKV.keys(">").take();
   if (isErr(iter)) return [];
   const values: DevicePortalSelection[] = [];
   for await (const key of iter) {
-    const entry = (await devicePortalSelectionsKV.get(key)).take();
+    const entry = await devicePortalSelectionsKV.get(key).take();
     if (!isErr(entry)) values.push(entry.value as DevicePortalSelection);
   }
   values.sort((left, right) => left.profileId.localeCompare(right.profileId));
@@ -307,11 +307,11 @@ async function listDevicePortalSelections(): Promise<DevicePortalSelection[]> {
 }
 
 async function listDeviceProfiles(): Promise<DeviceProfile[]> {
-  const iter = (await deviceProfilesKV.keys(">"))?.take();
+  const iter = await deviceProfilesKV.keys(">").take();
   if (isErr(iter)) return [];
   const values: DeviceProfile[] = [];
   for await (const key of iter) {
-    const entry = (await deviceProfilesKV.get(key)).take();
+    const entry = await deviceProfilesKV.get(key).take();
     if (!isErr(entry)) values.push(entry.value as unknown as DeviceProfile);
   }
   values.sort((left, right) => left.profileId.localeCompare(right.profileId));
@@ -319,11 +319,11 @@ async function listDeviceProfiles(): Promise<DeviceProfile[]> {
 }
 
 async function listDeviceInstances(): Promise<DeviceInstance[]> {
-  const iter = (await deviceInstancesKV.keys(">"))?.take();
+  const iter = await deviceInstancesKV.keys(">").take();
   if (isErr(iter)) return [];
   const values: DeviceInstance[] = [];
   for await (const key of iter) {
-    const entry = (await deviceInstancesKV.get(key)).take();
+    const entry = await deviceInstancesKV.get(key).take();
     if (!isErr(entry)) values.push(entry.value as unknown as DeviceInstance);
   }
   values.sort((left, right) => left.instanceId.localeCompare(right.instanceId));
@@ -331,11 +331,11 @@ async function listDeviceInstances(): Promise<DeviceInstance[]> {
 }
 
 async function listDeviceActivations(): Promise<DeviceActivation[]> {
-  const iter = (await deviceActivationsKV.keys(">"))?.take();
+  const iter = await deviceActivationsKV.keys(">").take();
   if (isErr(iter)) return [];
   const values: DeviceActivation[] = [];
   for await (const key of iter) {
-    const entry = (await deviceActivationsKV.get(key)).take();
+    const entry = await deviceActivationsKV.get(key).take();
     if (!isErr(entry)) values.push(entry.value as unknown as DeviceActivation);
   }
   values.sort((left, right) => left.instanceId.localeCompare(right.instanceId));
@@ -345,11 +345,11 @@ async function listDeviceActivations(): Promise<DeviceActivation[]> {
 async function listDeviceActivationReviews(): Promise<
   DeviceActivationReviewRecord[]
 > {
-  const iter = (await deviceActivationReviewsKV.keys(">"))?.take();
+  const iter = await deviceActivationReviewsKV.keys(">").take();
   if (isErr(iter)) return [];
   const values: DeviceActivationReviewRecord[] = [];
   for await (const key of iter) {
-    const entry = (await deviceActivationReviewsKV.get(key)).take();
+    const entry = await deviceActivationReviewsKV.get(key).take();
     if (!isErr(entry)) {
       values.push(entry.value as unknown as DeviceActivationReviewRecord);
     }
@@ -386,7 +386,7 @@ function policyActor(caller: RpcUser): InstanceGrantPolicyActor | undefined {
 async function loadUserProjection(
   trellisId: string,
 ): Promise<UserProjectionEntry | null> {
-  const entry = (await usersKV.get(trellisId)).take();
+  const entry = await usersKV.get(trellisId).take();
   if (isErr(entry)) return null;
   return entry.value as UserProjectionEntry;
 }
@@ -400,10 +400,10 @@ async function revokeUserSessionByKey(
   if (!sessionKey) return;
 
   const connIter =
-    (await connectionsKV.keys(`${sessionKey}.${session.trellisId}.>`)).take();
+    await connectionsKV.keys(`${sessionKey}.${session.trellisId}.>`).take();
   if (!isErr(connIter)) {
     for await (const connKey of connIter) {
-      const entry = (await connectionsKV.get(connKey)).take();
+      const entry = await connectionsKV.get(connKey).take();
       if (!isErr(entry)) {
         await kick(entry.value.serverId, entry.value.clientId);
       }
@@ -412,25 +412,22 @@ async function revokeUserSessionByKey(
   }
 
   if (revokedBy) {
-    (
-      await trellis.publish("Auth.SessionRevoked", {
+    await trellis.publish("Auth.SessionRevoked", {
         origin: session.origin,
         id: session.id,
         sessionKey,
         revokedBy,
-      })
-    ).inspectErr((error) =>
-      logger.warn({ error }, "Failed to publish Auth.SessionRevoked")
-    );
+      }).inspectErr((error) =>
+      logger.warn({ error }, "Failed to publish Auth.SessionRevoked"));
   }
   await sessionKV.delete(sessionKeyId);
 }
 
 async function kickInstanceRuntimeAccess(instanceKey: string): Promise<void> {
-  const connIter = (await connectionsKV.keys(`${instanceKey}.>.>`)).take();
+  const connIter = await connectionsKV.keys(`${instanceKey}.>.>`).take();
   if (!isErr(connIter)) {
     for await (const connKey of connIter) {
-      const entry = (await connectionsKV.get(connKey)).take();
+      const entry = await connectionsKV.get(connKey).take();
       if (!isErr(entry)) {
         await kick(entry.value.serverId, entry.value.clientId);
       }
@@ -438,7 +435,7 @@ async function kickInstanceRuntimeAccess(instanceKey: string): Promise<void> {
     }
   }
 
-  const sessionIter = (await sessionKV.keys(`${instanceKey}.>`)).take();
+  const sessionIter = await sessionKV.keys(`${instanceKey}.>`).take();
   if (!isErr(sessionIter)) {
     for await (const sessionKeyId of sessionIter) {
       await sessionKV.delete(sessionKeyId);
@@ -451,20 +448,20 @@ async function revokeInvalidatedInstanceGrantSessions(args: {
   policies: InstanceGrantPolicy[];
   revokedBy?: string;
 }): Promise<void> {
-  const iter = (await sessionKV.keys(">")).take();
+  const iter = await sessionKV.keys(">").take();
   if (isErr(iter)) return;
 
   for await (const key of iter) {
-    const entry = (await sessionKV.get(key)).take();
+    const entry = await sessionKV.get(key).take();
     if (isErr(entry)) continue;
     const session = entry.value as Session;
     if (session.type !== "user") continue;
     if (session.contractId !== args.contractId) continue;
 
     const projection = await loadUserProjection(session.trellisId);
-    const storedApprovalEntry = (await contractApprovalsKV.get(
+    const storedApprovalEntry = await contractApprovalsKV.get(
       `${session.trellisId}.${session.contractDigest}`,
-    )).take();
+    ).take();
     const storedApproval = isErr(storedApprovalEntry)
       ? null
       : storedApprovalEntry.value;
@@ -885,8 +882,7 @@ export function createAuthUnapplyDeviceProfileContractHandler() {
     };
     await deviceProfilesKV.put(nextProfile.profileId, nextProfile);
     const instances = (await listDeviceInstances()).filter((instance) =>
-      instance.profileId === profile.profileId
-    );
+      instance.profileId === profile.profileId);
     for (const instance of instances) {
       if (instance.currentContractId !== req.contractId) continue;
       if (
@@ -915,8 +911,7 @@ export const authDisableDeviceProfileHandler = async (
   await deviceProfilesKV.put(req.profileId, nextProfile);
   for (
     const instance of (await listDeviceInstances()).filter((entry) =>
-      entry.profileId === req.profileId
-    )
+      entry.profileId === req.profileId)
   ) {
     await kickInstanceRuntimeAccess(instance.publicIdentityKey);
   }
@@ -946,8 +941,7 @@ export const authRemoveDeviceProfileHandler = async (
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   const inUse = (await listDeviceInstances()).some((instance) =>
-    instance.profileId === req.profileId
-  );
+    instance.profileId === req.profileId);
   if (inUse) {
     return invalidRequest({
       profileId: req.profileId,
@@ -1092,7 +1086,7 @@ export const authRevokeDeviceActivationHandler = async (
   { caller }: { caller: RpcUser },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
-  const activation = (await deviceActivationsKV.get(req.instanceId)).take();
+  const activation = await deviceActivationsKV.get(req.instanceId).take();
   if (isErr(activation)) return Result.ok({ success: false });
   const nextActivation = {
     ...(activation.value as unknown as DeviceActivation),

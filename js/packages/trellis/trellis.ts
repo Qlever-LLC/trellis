@@ -600,25 +600,25 @@ export type RuntimeOperationControlRequest = {
 export type RuntimeOperationController = {
   get(
     operationId: string,
-  ): Promise<Result<RuntimeOperationSnapshot, UnexpectedError>>;
+  ): AsyncResult<RuntimeOperationSnapshot, UnexpectedError>;
   started(
     operationId: string,
-  ): Promise<Result<RuntimeOperationSnapshot, UnexpectedError>>;
+  ): AsyncResult<RuntimeOperationSnapshot, UnexpectedError>;
   progress(
     operationId: string,
     progress: unknown,
-  ): Promise<Result<RuntimeOperationSnapshot, UnexpectedError>>;
+  ): AsyncResult<RuntimeOperationSnapshot, UnexpectedError>;
   complete(
     operationId: string,
     output: unknown,
-  ): Promise<Result<RuntimeOperationSnapshot, UnexpectedError>>;
+  ): AsyncResult<RuntimeOperationSnapshot, UnexpectedError>;
   fail(
     operationId: string,
     error: BaseError,
-  ): Promise<Result<RuntimeOperationSnapshot, UnexpectedError>>;
+  ): AsyncResult<RuntimeOperationSnapshot, UnexpectedError>;
   cancel(
     operationId: string,
-  ): Promise<Result<RuntimeOperationSnapshot, UnexpectedError>>;
+  ): AsyncResult<RuntimeOperationSnapshot, UnexpectedError>;
 };
 
 export function buildRuntimeOperationSnapshot(
@@ -1358,7 +1358,7 @@ export class Trellis<
             );
 
             if (result.isOk()) {
-              return ok((await result).take() as Msg);
+              return ok(result.take() as Msg);
             }
 
             const cause = result.error.cause;
@@ -1498,10 +1498,10 @@ export class Trellis<
       requestJson: (subject, body) =>
         this.#requestJson(subject, body as JsonValue),
       watchJson: (subject, body) => this.#watchJson(subject, body as JsonValue),
-      putTransfer: async (
+      putTransfer: (
         grant: UploadTransferGrant,
         body: TransferBody,
-      ): Promise<Result<FileInfo, TransferError>> => {
+      ): AsyncResult<FileInfo, TransferError> => AsyncResult.from((async () => {
         const handle = createTransferHandle(this.nats, this.auth, this.timeout, grant);
         if (!(handle instanceof Object) || !("put" in handle)) {
           return err(new TransferError({
@@ -1510,7 +1510,7 @@ export class Trellis<
           }));
         }
         return await handle.put(body);
-      },
+      })()),
     };
 
     return new OperationInvoker(
@@ -1691,7 +1691,7 @@ export class Trellis<
             );
           });
           const signatureOk = verifyResult.isOk() &&
-            (await verifyResult).take() === true;
+            verifyResult.take() === true;
 
           if (!signatureOk) {
             span.setStatus({
@@ -1718,14 +1718,13 @@ export class Trellis<
             attempt < DEFAULT_AUTH_VALIDATE_SESSION_RETRY_ATTEMPTS;
             attempt++
           ) {
-            const authResult = await this.requestAuthValidate({
+            const authValue = await this.requestAuthValidate({
               sessionKey,
               proof,
               subject: msg.subject,
               payloadHash: base64urlEncode(payloadHash),
               capabilities: [...ctx.callerCapabilities],
-            });
-            const authValue = authResult.take();
+            }).take();
             if (!isErr(authValue)) {
               auth = authValue;
               break;
@@ -1858,7 +1857,7 @@ export class Trellis<
           return err(error);
         }
 
-        const handlerResult = (await handlerResultWrapped).take() as {
+        const handlerResult = handlerResultWrapped.take() as {
           take: () => unknown;
         };
         const handlerOutcome = handlerResult.take();
@@ -2233,80 +2232,83 @@ export class Trellis<
     return base64urlEncode(sigBytes);
   }
 
-  async #requestJson(
+  #requestJson(
     subject: string,
     body: JsonValue,
-  ): Promise<Result<JsonValue, UnexpectedError>> {
-    const payload = JSON.stringify(body);
-    const proof = await this.#createProof(subject, payload);
+  ): AsyncResult<JsonValue, UnexpectedError> {
+    return AsyncResult.from((async () => {
+      const payload = JSON.stringify(body);
+      const proof = await this.#createProof(subject, payload);
 
-    const headers = natsHeaders();
-    headers.set("session-key", this.auth.sessionKey);
-    headers.set("proof", proof);
+      const headers = natsHeaders();
+      headers.set("session-key", this.auth.sessionKey);
+      headers.set("proof", proof);
 
-    const response = await AsyncResult.try(() =>
-      this.nats.request(subject, payload, {
-        timeout: this.timeout,
-        headers,
-      })
-    ).take();
-    if (isErr(response)) {
-      return response;
-    }
-
-    return safeJson(response);
-  }
-
-  async #watchJson(
-    subject: string,
-    body: JsonValue,
-  ): Promise<
-    Result<AsyncIterable<Result<JsonValue, UnexpectedError>>, UnexpectedError>
-  > {
-    const payload = JSON.stringify(body);
-    const proof = await this.#createProof(subject, payload);
-
-    const headers = natsHeaders();
-    headers.set("session-key", this.auth.sessionKey);
-    headers.set("proof", proof);
-
-    const inbox = createInbox(`_INBOX.${this.auth.sessionKey.slice(0, 16)}`);
-    const sub = this.nats.subscribe(inbox);
-
-    try {
-      this.nats.publish(subject, payload, {
-        headers,
-        reply: inbox,
-      });
-      await this.nats.flush();
-    } catch (cause) {
-      sub.unsubscribe();
-      return err(new UnexpectedError({ cause }));
-    }
-
-    return ok((async function* () {
-      try {
-        for await (const msg of sub) {
-          if (msg.headers?.get("status") === "error") {
-            yield err(new UnexpectedError({ cause: new Error(msg.string()) }));
-            continue;
-          }
-
-          yield safeJson(msg);
-        }
-      } finally {
-        sub.unsubscribe();
+      const response = await AsyncResult.try(() =>
+        this.nats.request(subject, payload, {
+          timeout: this.timeout,
+          headers,
+        })
+      ).take();
+      if (isErr(response)) {
+        return response;
       }
+
+      return safeJson(response);
     })());
   }
 
-  protected async requestAuthValidate(
+  #watchJson(
+    subject: string,
+    body: JsonValue,
+  ): AsyncResult<
+    AsyncIterable<Result<JsonValue, UnexpectedError>>,
+    UnexpectedError
+  > {
+    return AsyncResult.from((async () => {
+      const payload = JSON.stringify(body);
+      const proof = await this.#createProof(subject, payload);
+
+      const headers = natsHeaders();
+      headers.set("session-key", this.auth.sessionKey);
+      headers.set("proof", proof);
+
+      const inbox = createInbox(`_INBOX.${this.auth.sessionKey.slice(0, 16)}`);
+      const sub = this.nats.subscribe(inbox);
+
+      try {
+        this.nats.publish(subject, payload, {
+          headers,
+          reply: inbox,
+        });
+        await this.nats.flush();
+      } catch (cause) {
+        sub.unsubscribe();
+        return err(new UnexpectedError({ cause }));
+      }
+
+      return ok((async function* () {
+        try {
+          for await (const msg of sub) {
+            if (msg.headers?.get("status") === "error") {
+              yield err(new UnexpectedError({ cause: new Error(msg.string()) }));
+              continue;
+            }
+
+            yield safeJson(msg);
+          }
+        } finally {
+          sub.unsubscribe();
+        }
+      })());
+    })());
+  }
+
+  protected requestAuthValidate(
     input: AuthValidateRequestInput,
-  ): Promise<
-    Result<
-      AuthValidateRequestResponse,
-      AuthError | RemoteError | ValidationError | UnexpectedError
-    >
+  ): AsyncResult<
+    AuthValidateRequestResponse,
+    AuthError | RemoteError | ValidationError | UnexpectedError
   > {
     const request = this.request.bind(this) as (
       method: string,
@@ -2316,8 +2318,7 @@ export class Trellis<
       unknown,
       AuthError | RemoteError | ValidationError | UnexpectedError
     >;
-    const result = await request("Auth.ValidateRequest", input);
-    return result as Result<
+    return request("Auth.ValidateRequest", input) as AsyncResult<
       AuthValidateRequestResponse,
       AuthError | RemoteError | ValidationError | UnexpectedError
     >;

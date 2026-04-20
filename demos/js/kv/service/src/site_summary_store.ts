@@ -18,7 +18,7 @@ export async function openSiteSummaryStore(
     throw new Error("Missing `siteSummaries` KV binding.");
   }
 
-  const result = (await handle.open(SiteSummarySchema)).take();
+  const result = await handle.open(SiteSummarySchema).take();
   if (isErr(result)) {
     throw result.error;
   }
@@ -31,17 +31,17 @@ export async function seedSiteSummaries(
   summaries: readonly SiteSummary[],
 ): Promise<void> {
   for (const summary of summaries) {
-    const existing = (await store.get(summary.siteId)).take();
+    const existing = await store.get(summary.siteId).take();
     if (!isErr(existing)) {
       continue;
     }
 
-    const created = (await store.create(summary.siteId, summary)).take();
+    const created = await store.create(summary.siteId, summary).take();
     if (!isErr(created)) {
       continue;
     }
 
-    const current = (await store.get(summary.siteId)).take();
+    const current = await store.get(summary.siteId).take();
     if (isErr(current)) {
       throw created.error;
     }
@@ -51,14 +51,14 @@ export async function seedSiteSummaries(
 export async function listSiteSummaries(
   store: SiteSummaryStore,
 ): Promise<SiteSummary[]> {
-  const keys = (await store.keys(">")).take();
+  const keys = await store.keys(">").take();
   if (isErr(keys)) {
     throw keys.error;
   }
 
   const summaries: SiteSummary[] = [];
   for await (const key of keys) {
-    const entry = (await store.get(key)).take();
+    const entry = await store.get(key).take();
     if (isErr(entry)) {
       continue;
     }
@@ -74,7 +74,7 @@ export async function getSiteSummary(
   store: SiteSummaryStore,
   siteId: string,
 ): Promise<SiteSummary | undefined> {
-  const entry = (await store.get(siteId)).take();
+  const entry = await store.get(siteId).take();
   if (isErr(entry)) {
     return undefined;
   }

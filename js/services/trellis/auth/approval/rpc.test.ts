@@ -200,6 +200,6 @@ Deno.test("Auth.RevokeUserGrant deletes the caller grant and matching user sessi
   assertEquals(value, { success: true });
   assertEquals(kicked.length, 1);
   assertEquals(kicked[0], { serverId: "n1", clientId: 7 });
-  assertEquals(isErr((await contractApprovalsKV.get(`${userTrellisId}.digest-agent`)).take()), true);
-  assertEquals(isErr((await sessionKV.get(`sk_123.${userTrellisId}`)).take()), true);
+  assertEquals(isErr(await contractApprovalsKV.get(`${userTrellisId}.digest-agent`).take()), true);
+  assertEquals(isErr(await sessionKV.get(`sk_123.${userTrellisId}`).take()), true);
 });

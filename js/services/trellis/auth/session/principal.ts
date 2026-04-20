@@ -135,7 +135,7 @@ export async function resolveSessionPrincipal(
 
   if (session.type === "device") {
     const activationEntry = deps.deviceActivationsKV
-      ? (await deps.deviceActivationsKV.get(session.instanceId)).take()
+      ? await deps.deviceActivationsKV.get(session.instanceId).take()
       : null;
     if (!activationEntry || isErr(activationEntry)) {
       return {
@@ -169,7 +169,7 @@ export async function resolveSessionPrincipal(
     }
 
     const profileEntry = deps.deviceProfilesKV
-      ? (await deps.deviceProfilesKV.get(activation.profileId)).take()
+      ? await deps.deviceProfilesKV.get(activation.profileId).take()
       : null;
     if (!profileEntry || isErr(profileEntry)) {
       return {
@@ -197,7 +197,7 @@ export async function resolveSessionPrincipal(
     };
   }
 
-  const projectionEntry = (await deps.usersKV.get(session.trellisId)).take();
+  const projectionEntry = await deps.usersKV.get(session.trellisId).take();
   if (isErr(projectionEntry)) {
     return {
       ok: false,

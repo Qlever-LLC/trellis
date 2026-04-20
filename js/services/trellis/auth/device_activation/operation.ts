@@ -143,7 +143,7 @@ function toDeviceActivationFlow(value: {
 async function loadDeviceActivationFlow(
   flowId: string,
 ): Promise<DeviceActivationFlow | null> {
-  const entry = (await browserFlowsKV.get(flowId)).take();
+  const entry = await browserFlowsKV.get(flowId).take();
   if (isErr(entry)) return null;
   return toDeviceActivationFlow(
     entry.value as {
@@ -165,7 +165,7 @@ async function loadDeviceActivationFlow(
 async function loadDeviceInstance(
   instanceId: string,
 ): Promise<DeviceInstance | null> {
-  const entry = (await deviceInstancesKV.get(instanceId)).take();
+  const entry = await deviceInstancesKV.get(instanceId).take();
   if (isErr(entry)) return null;
   return entry.value as DeviceInstance;
 }
@@ -173,7 +173,7 @@ async function loadDeviceInstance(
 async function loadDeviceProfile(
   profileId: string,
 ): Promise<DeviceProfile | null> {
-  const entry = (await deviceProfilesKV.get(profileId)).take();
+  const entry = await deviceProfilesKV.get(profileId).take();
   if (isErr(entry)) return null;
   return entry.value as DeviceProfile;
 }
@@ -181,7 +181,7 @@ async function loadDeviceProfile(
 async function loadDeviceProvisioningSecret(
   instanceId: string,
 ): Promise<DeviceProvisioningSecret | null> {
-  const entry = (await deviceProvisioningSecretsKV.get(instanceId)).take();
+  const entry = await deviceProvisioningSecretsKV.get(instanceId).take();
   if (isErr(entry)) return null;
   return entry.value as DeviceProvisioningSecret;
 }
@@ -189,7 +189,7 @@ async function loadDeviceProvisioningSecret(
 async function loadDeviceActivation(
   instanceId: string,
 ): Promise<DeviceActivationRecord | null> {
-  const entry = (await deviceActivationsKV.get(instanceId)).take();
+  const entry = await deviceActivationsKV.get(instanceId).take();
   if (isErr(entry)) return null;
   return entry.value as DeviceActivationRecord;
 }
@@ -197,10 +197,10 @@ async function loadDeviceActivation(
 async function findReviewByFlowId(
   flowId: string,
 ): Promise<DeviceActivationReviewRecord | null> {
-  const iter = (await deviceActivationReviewsKV.keys(">")).take();
+  const iter = await deviceActivationReviewsKV.keys(">").take();
   if (isErr(iter)) return null;
   for await (const key of iter) {
-    const entry = (await deviceActivationReviewsKV.get(key)).take();
+    const entry = await deviceActivationReviewsKV.get(key).take();
     if (isErr(entry)) continue;
     const review = entry.value as unknown as DeviceActivationReviewRecord;
     if (review.flowId === flowId) return review;

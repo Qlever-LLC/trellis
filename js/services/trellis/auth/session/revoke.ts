@@ -1,36 +1,34 @@
-import { isErr, Result } from "@qlever-llc/result";
+import { type AsyncResult, type BaseError, isErr, Result } from "@qlever-llc/result";
 import { AuthError } from "@qlever-llc/trellis";
 
 import { revokeGrantSessions } from "../approval/user_grants.ts";
 import type { ContractApprovalRecord, Session } from "../../state/schemas.ts";
 
-type TakeLike<T = unknown> = { take(): T | Promise<T> };
-
 type SessionStore = {
-  keys: (filter: string) => TakeLike | Promise<TakeLike>;
-  get: (key: string) => TakeLike | Promise<TakeLike>;
-  delete: (key: string) => TakeLike | Promise<TakeLike>;
+  keys: (filter: string) => AsyncResult<AsyncIterable<string> | unknown, BaseError>;
+  get: (key: string) => AsyncResult<unknown, BaseError>;
+  delete: (key: string) => AsyncResult<unknown, BaseError>;
 };
 
 type ConnectionsStore = {
-  keys: (filter: string) => TakeLike | Promise<TakeLike>;
-  get: (key: string) => TakeLike | Promise<TakeLike>;
-  delete: (key: string) => TakeLike | Promise<TakeLike>;
+  keys: (filter: string) => AsyncResult<AsyncIterable<string> | unknown, BaseError>;
+  get: (key: string) => AsyncResult<unknown, BaseError>;
+  delete: (key: string) => AsyncResult<unknown, BaseError>;
 };
 
 type ContractApprovalsStore = {
-  get: (key: string) => TakeLike | Promise<TakeLike>;
-  delete: (key: string) => TakeLike | Promise<TakeLike>;
+  get: (key: string) => AsyncResult<unknown, BaseError>;
+  delete: (key: string) => AsyncResult<unknown, BaseError>;
 };
 
 type DeviceActivationsStore<T = unknown> = {
-  get: (key: string) => TakeLike | Promise<TakeLike>;
-  put: (key: string, value: T) => TakeLike | Promise<TakeLike>;
+  get: (key: string) => AsyncResult<unknown, BaseError>;
+  put: (key: string, value: T) => AsyncResult<unknown, BaseError>;
 };
 
 type ServiceInstancesStore<T = unknown> = {
-  get: (key: string) => TakeLike | Promise<TakeLike>;
-  put: (key: string, value: T) => TakeLike | Promise<TakeLike>;
+  get: (key: string) => AsyncResult<unknown, BaseError>;
+  put: (key: string, value: T) => AsyncResult<unknown, BaseError>;
 };
 
 type SessionCaller = {
@@ -40,9 +38,10 @@ type SessionCaller = {
   id?: string;
 };
 
-async function takeValue<T>(value: TakeLike<T> | Promise<TakeLike<T>>): Promise<T> {
-  const taken = await value;
-  return await taken.take();
+async function takeValue<T>(
+  value: AsyncResult<T, BaseError>,
+): Promise<T | Result<never, BaseError>> {
+  return await value.take();
 }
 
 function requireUserCaller(caller: SessionCaller): {

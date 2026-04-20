@@ -18,9 +18,7 @@
     "./jobs/service",
     "./jobs/device",
     "./state/device",
-    "./app",
-    "./service/demo",
-    "./device/demo"
+    "./app"
   ],
   "tasks": {
     "prepare": "cargo run --manifest-path ../../rust/tools/generate/Cargo.toml --bin trellis-generate -- prepare ..",
@@ -37,8 +35,6 @@
     "check:device:jobs": "deno task -c jobs/device/deno.json check:prepared",
     "check:device:state": "deno task -c state/device/deno.json check:prepared",
     "check:app": "deno task -c app/deno.json check:prepared",
-    "check:service:demo": "deno task -c service/demo/deno.json check:prepared",
-    "check:device:demo": "deno task -c device/demo/deno.json check:prepared",
     "service:rpc": "deno task -c rpc/service/deno.json start",
     "device:rpc": "deno task -c rpc/device/deno.json start",
     "service:operation": "deno task -c operation/service/deno.json start",
@@ -53,7 +49,6 @@
     "app": "deno task -c app/deno.json dev"
   },
   "imports": {
-    "@trellis-demo/demo-service-sdk": "../generated/js/sdks/demo-service/mod.ts",
     "@trellis-demo/rpc-service-sdk": "../generated/js/sdks/demo-rpc-service/mod.ts",
     "@trellis-demo/operation-service-sdk": "../generated/js/sdks/demo-operation-service/mod.ts",
     "@trellis-demo/transfer-service-sdk": "../generated/js/sdks/demo-transfer-service/mod.ts",

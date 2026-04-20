@@ -1,5 +1,9 @@
-import { isErr, Result } from "@qlever-llc/result";
+import { type AsyncResult, type BaseError, isErr, Result } from "@qlever-llc/result";
 import { AuthError } from "@qlever-llc/trellis";
+import type {
+  AuthListUserGrantsInput,
+  AuthListUserGrantsOutput,
+} from "../../../../../generated/js/sdks/auth/types.ts";
 
 import type {
   Connection,
@@ -8,12 +12,10 @@ import type {
   UserParticipantKind,
 } from "../../state/schemas.ts";
 
-type TakeLike<T = unknown> = { take(): T | Promise<T> };
-
 type KVLike = {
-  get: (key: string) => TakeLike | Promise<TakeLike>;
-  keys: (filter: string) => TakeLike | Promise<TakeLike>;
-  delete: (key: string) => TakeLike | Promise<TakeLike>;
+  get: (key: string) => AsyncResult<unknown, BaseError>;
+  keys: (filter: string) => AsyncResult<AsyncIterable<string> | unknown, BaseError>;
+  delete: (key: string) => AsyncResult<unknown, BaseError>;
 };
 
 type RpcUser = {
@@ -44,9 +46,10 @@ function requireUserCaller(caller: {
   };
 }
 
-async function takeValue<T>(value: TakeLike<T> | Promise<TakeLike<T>>): Promise<T> {
-  const taken = await value;
-  return await taken.take();
+async function takeValue<T>(
+  value: AsyncResult<T, BaseError>,
+): Promise<T | Result<never, BaseError>> {
+  return await value.take();
 }
 
 function unwrapValue<V>(entry: { value: V } | V): V {
@@ -121,7 +124,7 @@ export function createAuthListUserGrantsHandler(deps: {
   contractApprovalsKV: Pick<KVLike, "get" | "keys">;
 }) {
   return async (
-    _req: Record<string, never>,
+    _req: AuthListUserGrantsInput,
     { caller }: { caller: { type: string; trellisId?: string; origin?: string; id?: string } },
   ) => {
     const user = requireUserCaller(caller);
@@ -138,7 +141,7 @@ export function createAuthListUserGrantsHandler(deps: {
     }
 
     grants.sort((left, right) => left.displayName.localeCompare(right.displayName));
-    return Result.ok({ grants });
+    return Result.ok<AuthListUserGrantsOutput, never>({ grants });
   };
 }
 

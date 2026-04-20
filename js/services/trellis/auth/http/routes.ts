@@ -101,15 +101,15 @@ export function registerHttpRoutes(
   const providers = opts.providers ?? createProviders(config);
   const approvalResolutionDeps = {
     loadStoredApproval: async (key: string) => {
-      const entry = (await contractApprovalsKV.get(key)).take();
+      const entry = await contractApprovalsKV.get(key).take();
       return isErr(entry) ? null : entry.value;
     },
     loadUserProjection: async (trellisId: string) => {
-      const entry = (await usersKV.get(trellisId)).take();
+      const entry = await usersKV.get(trellisId).take();
       return isErr(entry) ? null : entry.value;
     },
     loadInstanceGrantPolicies: async (contractId: string) => {
-      const entry = (await instanceGrantPoliciesKV.get(contractId)).take();
+      const entry = await instanceGrantPoliciesKV.get(contractId).take();
       return isErr(entry) ? [] : [entry.value];
     },
   };
@@ -157,7 +157,7 @@ export function registerHttpRoutes(
   async function loadBrowserFlow(
     flowId: string,
   ): Promise<BrowserFlowRecord | null> {
-    const entry = (await browserFlowsKV.get(flowId)).take();
+    const entry = await browserFlowsKV.get(flowId).take();
     if (isErr(entry)) return null;
     return entry.value as BrowserFlowRecord;
   }
@@ -176,13 +176,13 @@ export function registerHttpRoutes(
   async function listPortals(): Promise<
     Array<{ portalId: string; entryUrl: string; disabled?: boolean }>
   > {
-    const iter = (await portalsKV.keys(">"))?.take();
+    const iter = await portalsKV.keys(">").take();
     if (isErr(iter)) return [];
     const portals: Array<
       { portalId: string; entryUrl: string; disabled?: boolean }
     > = [];
     for await (const key of iter) {
-      const entry = (await portalsKV.get(key)).take();
+      const entry = await portalsKV.get(key).take();
       if (!isErr(entry)) {
         portals.push(
           entry.value as {
@@ -199,12 +199,12 @@ export function registerHttpRoutes(
   async function listLoginPortalSelections(): Promise<
     Array<{ contractId: string; portalId: string | null }>
   > {
-    const iter = (await loginPortalSelectionsKV.keys(">"))?.take();
+    const iter = await loginPortalSelectionsKV.keys(">").take();
     if (isErr(iter)) return [];
     const selections: Array<{ contractId: string; portalId: string | null }> =
       [];
     for await (const key of iter) {
-      const entry = (await loginPortalSelectionsKV.get(key)).take();
+      const entry = await loginPortalSelectionsKV.get(key).take();
       if (!isErr(entry)) {
         selections.push(
           entry.value as { contractId: string; portalId: string | null },
@@ -217,7 +217,7 @@ export function registerHttpRoutes(
   async function loadLoginPortalDefaultId(): Promise<
     string | null | undefined
   > {
-    const entry = (await portalDefaultsKV.get("login.default")).take();
+    const entry = await portalDefaultsKV.get("login.default").take();
     if (isErr(entry)) return undefined;
     return (entry.value as { portalId: string | null }).portalId;
   }
@@ -240,7 +240,7 @@ export function registerHttpRoutes(
   async function loadCurrentUserSession(
     sessionKey: string,
   ): Promise<CurrentUserSession | null> {
-    const iter = (await sessionKV.keys(`${sessionKey}.>`)).take();
+    const iter = await sessionKV.keys(`${sessionKey}.>`).take();
     if (isErr(iter)) return null;
 
     let sessionKeyId: string | undefined;
@@ -250,7 +250,7 @@ export function registerHttpRoutes(
     }
     if (!sessionKeyId) return null;
 
-    const entry = (await sessionKV.get(sessionKeyId)).take();
+    const entry = await sessionKV.get(sessionKeyId).take();
     if (isErr(entry)) return null;
     const session = entry.value as Session;
     if (session.type !== "user") return null;
@@ -283,7 +283,7 @@ export function registerHttpRoutes(
     const validatedContract = await opts.contractStore.validate(
       args.resolution.plan.contract,
     );
-    const existingContract = (await contractsKV.get(validatedContract.digest)).take();
+    const existingContract = await contractsKV.get(validatedContract.digest).take();
     if (isErr(existingContract)) {
       await contractsKV.put(validatedContract.digest, {
         digest: validatedContract.digest,
@@ -565,11 +565,11 @@ export function registerHttpRoutes(
       sessionKV,
       usersKV,
       loadStoredApproval: async (key) => {
-        const entry = (await contractApprovalsKV.get(key)).take();
+        const entry = await contractApprovalsKV.get(key).take();
         return isErr(entry) ? null : entry.value;
       },
       loadInstanceGrantPolicies: async (contractId: string) => {
-        const entry = (await instanceGrantPoliciesKV.get(contractId)).take();
+        const entry = await instanceGrantPoliciesKV.get(contractId).take();
         return isErr(entry) ? [] : [entry.value];
       },
       verifyIdentityProof: ({ sessionKey, iat, sig }) =>
@@ -586,14 +586,14 @@ export function registerHttpRoutes(
       sentinel: sentinelCreds,
       loadServiceInstance: async (sessionKey) => {
         const entry =
-          (await serviceInstancesKV.get(serviceInstanceId(sessionKey))).take();
+          await serviceInstancesKV.get(serviceInstanceId(sessionKey)).take();
         return isErr(entry) ? null : entry.value;
       },
       saveServiceInstance: async (instance) => {
         await serviceInstancesKV.put(instance.instanceId, instance);
       },
       loadServiceProfile: async (profileId) => {
-        const entry = (await serviceProfilesKV.get(profileId)).take();
+        const entry = await serviceProfilesKV.get(profileId).take();
         return isErr(entry) ? null : entry.value;
       },
       refreshActiveContracts: opts.refreshActiveContracts ?? (async () => {}),
@@ -608,15 +608,15 @@ export function registerHttpRoutes(
       transports: buildClientTransports(config),
       sentinel: sentinelCreds,
       loadDeviceInstance: async (instanceId) => {
-        const entry = (await deviceInstancesKV.get(instanceId)).take();
+        const entry = await deviceInstancesKV.get(instanceId).take();
         return isErr(entry) ? null : entry.value;
       },
       loadDeviceActivation: async (instanceId) => {
-        const entry = (await deviceActivationsKV.get(instanceId)).take();
+        const entry = await deviceActivationsKV.get(instanceId).take();
         return isErr(entry) ? null : entry.value;
       },
       loadDeviceProfile: async (profileId) => {
-        const entry = (await deviceProfilesKV.get(profileId)).take();
+        const entry = await deviceProfilesKV.get(profileId).take();
         return isErr(entry) ? null : entry.value as unknown as {
           profileId: string;
           disabled: boolean;
@@ -906,7 +906,7 @@ export function registerHttpRoutes(
     }
 
     const stateHash = await hashKey(state);
-    const oauthStateEntry = (await oauthStateKV.get(stateHash)).take();
+    const oauthStateEntry = await oauthStateKV.get(stateHash).take();
     if (isErr(oauthStateEntry)) {
       throw new HTTPException(400, { message: "Invalid or expired state" });
     }
@@ -1026,7 +1026,7 @@ export function registerHttpRoutes(
     let returnLocation = undefined;
     if (flow.authToken) {
       const pendingEntry =
-        (await pendingAuthKV.get(await hashKey(flow.authToken))).take();
+        await pendingAuthKV.get(await hashKey(flow.authToken)).take();
       if (!isErr(pendingEntry)) {
         const pending = pendingEntry.value as PendingAuth;
         resolution = await requireApprovalResolution(pending);
@@ -1104,7 +1104,7 @@ export function registerHttpRoutes(
     }
 
     const authTokenHash = await hashKey(flow.authToken);
-    const pendingEntry = (await pendingAuthKV.get(authTokenHash)).take();
+    const pendingEntry = await pendingAuthKV.get(authTokenHash).take();
     if (isErr(pendingEntry)) {
       return c.json({ status: "expired" });
     }
@@ -1240,7 +1240,7 @@ export function registerHttpRoutes(
       sig: string;
     };
     const pendingEntry =
-      (await pendingAuthKV.get(await hashKey(flow.authToken))).take();
+      await pendingAuthKV.get(await hashKey(flow.authToken)).take();
     if (isErr(pendingEntry)) {
       return c.json({ status: "expired" });
     }
@@ -1277,7 +1277,7 @@ export function registerHttpRoutes(
 
     const { authToken, sessionKey, sig } = body;
     const authTokenHash = await hashKey(authToken);
-    const pendingEntry = (await pendingAuthKV.get(authTokenHash)).take();
+    const pendingEntry = await pendingAuthKV.get(authTokenHash).take();
     if (isErr(pendingEntry)) {
       throw new HTTPException(400, { message: "Invalid or expired authToken" });
     }

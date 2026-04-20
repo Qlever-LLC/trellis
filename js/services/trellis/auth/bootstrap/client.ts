@@ -143,7 +143,7 @@ async function loadSessionBySessionKey(
   sessionKey: string,
   sessionStore: SessionStore,
 ): Promise<Session | null> {
-  const keysIter = (await sessionStore.keys(`${sessionKey}.>`)).take();
+  const keysIter = await sessionStore.keys(`${sessionKey}.>`).take();
   if (isErr(keysIter)) return null;
 
   let sessionKeyId: string | undefined;
@@ -157,7 +157,7 @@ async function loadSessionBySessionKey(
 
   if (!sessionKeyId) return null;
 
-  const sessionValue = (await sessionStore.get(sessionKeyId)).take();
+  const sessionValue = await sessionStore.get(sessionKeyId).take();
   if (isErr(sessionValue)) return null;
   return unwrapValue(sessionValue);
 }

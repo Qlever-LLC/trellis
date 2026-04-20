@@ -675,13 +675,13 @@ Deno.test("Auth.RevokeSession cascades agent revocation to the grant and sibling
     { origin: "github", id: "123", sessionKey: "sk_agent_1", revokedBy: "github.123" },
     { origin: "github", id: "123", sessionKey: "sk_agent_2", revokedBy: "github.123" },
   ]);
-  assertEquals(isErr((await contractApprovalsKV.get(`${userTrellisId}.digest-agent`)).take()), true);
-  assertEquals(isErr((await sessionKV.get(`sk_agent_1.${userTrellisId}`)).take()), true);
-  assertEquals(isErr((await sessionKV.get(`sk_agent_2.${userTrellisId}`)).take()), true);
-  assertEquals(isErr((await connectionsKV.get(`sk_agent_1.${userTrellisId}.user_nkey_1`)).take()), true);
-  assertEquals(isErr((await connectionsKV.get(`sk_agent_2.${userTrellisId}.user_nkey_2`)).take()), true);
-  assertEquals(isErr((await sessionKV.get(`sk_app.${userTrellisId}`)).take()), false);
-  assertEquals(isErr((await connectionsKV.get(`sk_app.${userTrellisId}.user_nkey_3`)).take()), false);
+  assertEquals(isErr(await contractApprovalsKV.get(`${userTrellisId}.digest-agent`).take()), true);
+  assertEquals(isErr(await sessionKV.get(`sk_agent_1.${userTrellisId}`).take()), true);
+  assertEquals(isErr(await sessionKV.get(`sk_agent_2.${userTrellisId}`).take()), true);
+  assertEquals(isErr(await connectionsKV.get(`sk_agent_1.${userTrellisId}.user_nkey_1`).take()), true);
+  assertEquals(isErr(await connectionsKV.get(`sk_agent_2.${userTrellisId}.user_nkey_2`).take()), true);
+  assertEquals(isErr(await sessionKV.get(`sk_app.${userTrellisId}`).take()), false);
+  assertEquals(isErr(await connectionsKV.get(`sk_app.${userTrellisId}.user_nkey_3`).take()), false);
 });
 
 Deno.test("Auth.RevokeSession cascades app revocation to the grant and sibling user sessions", async () => {
@@ -849,10 +849,10 @@ Deno.test("Auth.RevokeSession cascades app revocation to the grant and sibling u
     { origin: "github", id: "123", sessionKey: "sk_app_1", revokedBy: "github.123" },
     { origin: "github", id: "123", sessionKey: "sk_app_2", revokedBy: "github.123" },
   ]);
-  assertEquals(isErr((await contractApprovalsKV.get(`${userTrellisId}.digest-app`)).take()), true);
-  assertEquals(isErr((await sessionKV.get(`sk_app_1.${userTrellisId}`)).take()), true);
-  assertEquals(isErr((await sessionKV.get(`sk_app_2.${userTrellisId}`)).take()), true);
-  assertEquals(isErr((await sessionKV.get(`sk_agent.${userTrellisId}`)).take()), false);
+  assertEquals(isErr(await contractApprovalsKV.get(`${userTrellisId}.digest-app`).take()), true);
+  assertEquals(isErr(await sessionKV.get(`sk_app_1.${userTrellisId}`).take()), true);
+  assertEquals(isErr(await sessionKV.get(`sk_app_2.${userTrellisId}`).take()), true);
+  assertEquals(isErr(await sessionKV.get(`sk_agent.${userTrellisId}`).take()), false);
 });
 
 Deno.test("Auth.RevokeSession revokes device activation so the device cannot reconnect", async () => {
@@ -955,11 +955,11 @@ Deno.test("Auth.RevokeSession revokes device activation so the device cannot rec
   assertEquals(value, { success: true });
   assertEquals(kicked, [{ serverId: "n1", clientId: 7 }]);
   assertEquals(revoked, []);
-  const activationEntry = (await deviceActivationsKV.get("dev_1")).take();
+  const activationEntry = await deviceActivationsKV.get("dev_1").take();
   if (isErr(activationEntry)) throw activationEntry.error;
   assertEquals(activationEntry.value.state, "revoked");
   assert(activationEntry.value.revokedAt !== null);
-  assertEquals(isErr((await sessionKV.get("sk_device.dev_1")).take()), true);
+  assertEquals(isErr(await sessionKV.get("sk_device.dev_1").take()), true);
 });
 
 Deno.test("Auth.RevokeSession disables the service instance so it cannot reconnect", async () => {
@@ -1066,8 +1066,8 @@ Deno.test("Auth.RevokeSession disables the service instance so it cannot reconne
     sessionKey: "sk_service",
     revokedBy: "github.123",
   }]);
-  const serviceEntry = (await serviceInstancesKV.get("svc_1")).take();
+  const serviceEntry = await serviceInstancesKV.get("svc_1").take();
   if (isErr(serviceEntry)) throw serviceEntry.error;
   assertEquals(serviceEntry.value.disabled, true);
-  assertEquals(isErr((await sessionKV.get("sk_service.svc_1")).take()), true);
+  assertEquals(isErr(await sessionKV.get("sk_service.svc_1").take()), true);
 });

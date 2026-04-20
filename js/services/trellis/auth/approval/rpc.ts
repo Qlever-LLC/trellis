@@ -1,5 +1,5 @@
 import { trellisIdFromOriginId } from "@qlever-llc/trellis/auth";
-import { isErr, Result } from "@qlever-llc/result";
+import { type AsyncResult, type BaseError, isErr, Result } from "@qlever-llc/result";
 import { AuthError } from "@qlever-llc/trellis";
 
 import {
@@ -26,16 +26,16 @@ type RpcUser = {
 type ListApprovalsRequest = { user?: string; digest?: string };
 type RevokeApprovalRequest = { contractDigest: string; user?: string };
 
-type KVResult<T = unknown> = { take(): T | Promise<T> };
 type KVLike<V> = {
-  get: (key: string) => Promise<KVResult> | KVResult;
-  keys: (filter: string) => Promise<KVResult> | KVResult;
-  delete: (key: string) => Promise<KVResult> | KVResult;
+  get: (key: string) => AsyncResult<unknown, BaseError>;
+  keys: (filter: string) => AsyncResult<AsyncIterable<string> | unknown, BaseError>;
+  delete: (key: string) => AsyncResult<unknown, BaseError>;
 };
 
-async function takeValue<T>(value: KVResult<T> | Promise<KVResult<T>>): Promise<T> {
-  const taken = await value;
-  return await taken.take();
+async function takeValue<T>(
+  value: AsyncResult<T, BaseError>,
+): Promise<T | Result<never, BaseError>> {
+  return await value.take();
 }
 
 function unwrapValue<V>(entry: { value: V } | V): V {
@@ -282,9 +282,8 @@ export function createAuthRevokeApprovalHandler(opts: {
           connectionsKV,
           kick: opts.kick,
           publishSessionRevoked: async (event) => {
-            (await trellis.publish("Auth.SessionRevoked", event)).inspectErr((error) =>
-              logger.warn({ error }, "Failed to publish Auth.SessionRevoked")
-            );
+            await trellis.publish("Auth.SessionRevoked", event).inspectErr((error) =>
+              logger.warn({ error }, "Failed to publish Auth.SessionRevoked"));
           },
           revokedBy: formatOriginId(user.origin, user.id),
         },
@@ -311,8 +310,7 @@ export const authRevokeUserGrantHandler = createAuthRevokeUserGrantHandler({
     await import("../callout/kick.ts").then(({ kick }) => kick(serverId, clientId));
   },
   publishSessionRevoked: async (event) => {
-    (await trellis.publish("Auth.SessionRevoked", event)).inspectErr((error) =>
-      logger.warn({ error }, "Failed to publish Auth.SessionRevoked")
-    );
+    await trellis.publish("Auth.SessionRevoked", event).inspectErr((error) =>
+      logger.warn({ error }, "Failed to publish Auth.SessionRevoked"));
   },
 });

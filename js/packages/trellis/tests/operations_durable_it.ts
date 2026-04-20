@@ -147,16 +147,16 @@ Deno.test({
     const client = createClient(billing, clientNc, auth, {
       name: "durability-client",
     });
-    const ref = (await client.operation("Billing.Refund").input({
+    const ref = await client.operation("Billing.Refund").input({
       chargeId: "ch_123",
-    }).start()).match({
+    }).start().match({
       ok: (value) => value,
       err: (error) => {
         throw error;
       },
     });
 
-    const firstSnapshot = (await ref.wait()).match({
+    const firstSnapshot = await ref.wait().match({
       ok: (value) => value,
       err: (error) => {
         throw error;
@@ -196,7 +196,7 @@ Deno.test({
       ok({ refundId: "unused" })
     );
 
-    const afterRestart = (await ref.get()).match({
+    const afterRestart = await ref.get().match({
       ok: (value) => value,
       err: (error) => {
         throw error;

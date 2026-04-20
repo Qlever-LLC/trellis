@@ -102,19 +102,19 @@ type DeviceActivationRequestResponse = {
 };
 
 async function loadDeviceInstance(instanceId: string): Promise<DeviceInstance | null> {
-  const entry = (await deviceInstancesKV.get(instanceId)).take();
+  const entry = await deviceInstancesKV.get(instanceId).take();
   if (isErr(entry)) return null;
   return entry.value as DeviceInstance;
 }
 
 async function loadDeviceProfile(profileId: string): Promise<DeviceProfile | null> {
-  const entry = (await deviceProfilesKV.get(profileId)).take();
+  const entry = await deviceProfilesKV.get(profileId).take();
   if (isErr(entry)) return null;
   return entry.value as unknown as DeviceProfile;
 }
 
 async function loadDeviceActivation(instanceId: string) {
-  const entry = (await deviceActivationsKV.get(instanceId)).take();
+  const entry = await deviceActivationsKV.get(instanceId).take();
   if (isErr(entry)) return null;
   return entry.value as {
     instanceId: string;
@@ -127,16 +127,16 @@ async function loadDeviceActivation(instanceId: string) {
 }
 
 async function loadDeviceProvisioningSecret(instanceId: string): Promise<DeviceProvisioningSecret | null> {
-  const entry = (await deviceProvisioningSecretsKV.get(instanceId)).take();
+  const entry = await deviceProvisioningSecretsKV.get(instanceId).take();
   if (isErr(entry)) return null;
   return entry.value as DeviceProvisioningSecret;
 }
 
 async function findDeviceActivationReviewByFlowId(flowId: string): Promise<DeviceActivationReview | null> {
-  const iter = (await deviceActivationReviewsKV.keys(">")).take();
+  const iter = await deviceActivationReviewsKV.keys(">").take();
   if (isErr(iter)) return null;
   for await (const key of iter) {
-    const entry = (await deviceActivationReviewsKV.get(key)).take();
+    const entry = await deviceActivationReviewsKV.get(key).take();
     if (isErr(entry)) continue;
     const review = entry.value as unknown as DeviceActivationReview;
     if (review.flowId === flowId) return review;
@@ -179,10 +179,10 @@ async function findDeviceActivationFlow(input: {
   publicIdentityKey: string;
   nonce: string;
 }): Promise<DeviceActivationFlow | null> {
-  const iter = (await browserFlowsKV.keys(">")).take();
+  const iter = await browserFlowsKV.keys(">").take();
   if (isErr(iter)) return null;
   for await (const key of iter) {
-    const entry = (await browserFlowsKV.get(key)).take();
+    const entry = await browserFlowsKV.get(key).take();
     if (isErr(entry)) continue;
     const flow = toDeviceActivationFlow(entry.value as {
       flowId?: string;
@@ -206,11 +206,11 @@ async function findDeviceActivationFlow(input: {
 }
 
 async function listPortals(): Promise<Portal[]> {
-  const iter = (await portalsKV.keys(">")).take();
+  const iter = await portalsKV.keys(">").take();
   if (isErr(iter)) return [];
   const portals: Portal[] = [];
   for await (const key of iter) {
-    const entry = (await portalsKV.get(key)).take();
+    const entry = await portalsKV.get(key).take();
     if (isErr(entry)) continue;
     portals.push(entry.value as Portal);
   }
@@ -218,11 +218,11 @@ async function listPortals(): Promise<Portal[]> {
 }
 
 async function listDevicePortalSelections(): Promise<Array<{ profileId: string; portalId: string | null }>> {
-  const iter = (await devicePortalSelectionsKV.keys(">")).take();
+  const iter = await devicePortalSelectionsKV.keys(">").take();
   if (isErr(iter)) return [];
   const selections: Array<{ profileId: string; portalId: string | null }> = [];
   for await (const key of iter) {
-    const entry = (await devicePortalSelectionsKV.get(key)).take();
+    const entry = await devicePortalSelectionsKV.get(key).take();
     if (isErr(entry)) continue;
     selections.push(entry.value as { profileId: string; portalId: string | null });
   }
@@ -230,7 +230,7 @@ async function listDevicePortalSelections(): Promise<Array<{ profileId: string; 
 }
 
 async function loadDevicePortalDefaultId(): Promise<string | null | undefined> {
-  const entry = (await portalDefaultsKV.get("device.default")).take();
+  const entry = await portalDefaultsKV.get("device.default").take();
   if (isErr(entry)) return undefined;
   return (entry.value as { portalId: string | null }).portalId;
 }

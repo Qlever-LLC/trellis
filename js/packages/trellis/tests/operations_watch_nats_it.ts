@@ -164,7 +164,7 @@ Deno.test({
 
     try {
       const events: Array<{ type: string }> = [];
-      const op = (await client.operation("Billing.Refund").input({
+      const op = await client.operation("Billing.Refund").input({
         chargeId: "ch_123",
       })
         .onAccepted((event) => {
@@ -179,7 +179,7 @@ Deno.test({
         .onCompleted((event) => {
           events.push({ type: event.type });
         })
-        .start()).match({
+        .start().match({
         ok: (value) => value,
         err: (error) => {
           throw error;
@@ -247,7 +247,7 @@ Deno.test({
 
     try {
       const events: string[] = [];
-      const op = (await client.operation("Billing.Refund").input({
+      const op = await client.operation("Billing.Refund").input({
         chargeId: "ch_fast",
       })
         .onAccepted(() => {
@@ -256,14 +256,14 @@ Deno.test({
         .onCompleted(() => {
           events.push("completed");
         })
-        .start()).match({
+        .start().match({
         ok: (value) => value,
         err: (error) => {
           throw error;
         },
       });
 
-      (await op.wait()).match({
+      await op.wait().match({
         ok: () => undefined,
         err: (error) => {
           throw error;

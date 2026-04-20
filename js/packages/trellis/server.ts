@@ -102,7 +102,7 @@ type RuntimeOperationTransferSupport = {
     maxBytes?: number;
     contentType?: string;
     metadata?: Record<string, string>;
-  }): Promise<Result<RuntimeOperationTransferSession, TransferError>>;
+  }): AsyncResult<RuntimeOperationTransferSession, TransferError>;
 };
 
 function asStringPointerValue(
@@ -189,7 +189,7 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
     this.#log = (opts?.log ?? serverLogger).child({ lib: "trellis-server" });
     this.#transferSupport = opts?.transferSupport;
     this.operations = {
-      get: async (operationId) => {
+      get: (operationId) => AsyncResult.from((async () => {
         const runtime = await this.#resolveOperation(operationId);
         if (!runtime) {
           return err(
@@ -199,27 +199,27 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
           );
         }
         return ok(runtime.snapshot);
-      },
-      started: async (operationId) =>
+      })()),
+      started: (operationId) =>
         this.#applyOperationUpdate(operationId, "running", {
           event: { type: "started" },
         }),
-      progress: async (operationId, progress) =>
+      progress: (operationId, progress) =>
         this.#applyOperationUpdate(operationId, "running", {
           patch: { progress },
           event: { type: "progress", progress },
         }),
-      complete: async (operationId, output) =>
+      complete: (operationId, output) =>
         this.#applyOperationUpdate(operationId, "completed", {
           patch: { output },
           event: { type: "completed" },
         }),
-      fail: async (operationId, error) =>
+      fail: (operationId, error) =>
         this.#applyOperationUpdate(operationId, "failed", {
           patch: { error: { type: error.name, message: error.message } },
           event: { type: "failed" },
         }),
-      cancel: async (operationId) =>
+      cancel: (operationId) =>
         this.#applyOperationUpdate(operationId, "cancelled", {
           event: { type: "cancelled" },
         }),
@@ -252,61 +252,63 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
     return runtime;
   }
 
-  async #applyOperationUpdate(
+  #applyOperationUpdate(
     operationId: string,
     state: RuntimeOperationState,
     opts: {
       patch?: Partial<RuntimeOperationSnapshot>;
       event: Record<string, unknown> & { type: string };
     },
-  ): Promise<Result<RuntimeOperationSnapshot, UnexpectedError>> {
-    const runtime = await this.#resolveOperation(operationId);
-    if (!runtime) {
-      return err(
-        new UnexpectedError({
-          cause: new Error(`Unknown operation '${operationId}'`),
-        }),
-      );
-    }
-
-    if (runtime.terminal && state !== "cancelled") {
-      return err(
-        new UnexpectedError({ cause: new Error("operation already terminal") }),
-      );
-    }
-
-    runtime.sequence += 1;
-    runtime.snapshot = buildRuntimeOperationSnapshot(
-      runtime,
-      state,
-      opts.patch,
-    );
-    runtime.terminal = state === "completed" || state === "failed" ||
-      state === "cancelled";
-
-    await this.saveOperationRecord(runtime);
-
-    const frame = {
-      kind: "event",
-      sequence: runtime.sequence,
-      event: {
-        snapshot: runtime.snapshot,
-        ...opts.event,
-      },
-    };
-    for (const reply of runtime.watchers) {
-      await this.nats.publish(reply, JSON.stringify(frame));
-    }
-
-    if (runtime.terminal) {
-      const terminalFrame = { kind: "snapshot", snapshot: runtime.snapshot };
-      for (const reply of runtime.waiters) {
-        await this.nats.publish(reply, JSON.stringify(terminalFrame));
+  ): AsyncResult<RuntimeOperationSnapshot, UnexpectedError> {
+    return AsyncResult.from((async () => {
+      const runtime = await this.#resolveOperation(operationId);
+      if (!runtime) {
+        return err(
+          new UnexpectedError({
+            cause: new Error(`Unknown operation '${operationId}'`),
+          }),
+        );
       }
-      runtime.waiters.clear();
-    }
 
-    return ok(runtime.snapshot);
+      if (runtime.terminal && state !== "cancelled") {
+        return err(
+          new UnexpectedError({ cause: new Error("operation already terminal") }),
+        );
+      }
+
+      runtime.sequence += 1;
+      runtime.snapshot = buildRuntimeOperationSnapshot(
+        runtime,
+        state,
+        opts.patch,
+      );
+      runtime.terminal = state === "completed" || state === "failed" ||
+        state === "cancelled";
+
+      await this.saveOperationRecord(runtime);
+
+      const frame = {
+        kind: "event",
+        sequence: runtime.sequence,
+        event: {
+          snapshot: runtime.snapshot,
+          ...opts.event,
+        },
+      };
+      for (const reply of runtime.watchers) {
+        await this.nats.publish(reply, JSON.stringify(frame));
+      }
+
+      if (runtime.terminal) {
+        const terminalFrame = { kind: "snapshot", snapshot: runtime.snapshot };
+        for (const reply of runtime.waiters) {
+          await this.nats.publish(reply, JSON.stringify(terminalFrame));
+        }
+        runtime.waiters.clear();
+      }
+
+      return ok(runtime.snapshot);
+    })());
   }
 
   #makeAcceptedOperation(
@@ -320,13 +322,11 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
         operation: runtime.operation,
       },
       snapshot: runtime.snapshot,
-      started: () => AsyncResult.from(this.operations.started(runtime.id)),
-      progress: (value: unknown) =>
-        AsyncResult.from(this.operations.progress(runtime.id, value)),
-      complete: (value: unknown) =>
-        AsyncResult.from(this.operations.complete(runtime.id, value)),
-      fail: (error: BaseError) => AsyncResult.from(this.operations.fail(runtime.id, error)),
-      cancel: () => AsyncResult.from(this.operations.cancel(runtime.id)),
+      started: () => this.operations.started(runtime.id),
+      progress: (value: unknown) => this.operations.progress(runtime.id, value),
+      complete: (value: unknown) => this.operations.complete(runtime.id, value),
+      fail: (error: BaseError) => this.operations.fail(runtime.id, error),
+      cancel: () => this.operations.cancel(runtime.id),
       attach: (job: { wait(): AsyncResult<unknown, BaseError> }) =>
         AsyncResult.from((async () => {
           const waited = await job.wait();
@@ -441,7 +441,7 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
       );
     });
     const signatureOk = verifyResult.isOk() &&
-      (await verifyResult).take() === true;
+      verifyResult.take() === true;
     if (!signatureOk) {
       return err(
         new AuthError({
@@ -451,7 +451,7 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
       );
     }
 
-    const authResult = await this.requestAuthValidate({
+    const auth = await this.requestAuthValidate({
       sessionKey,
       proof,
       subject: msg.subject,
@@ -459,8 +459,7 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
       capabilities: ctx.callerCapabilities
         ? [...ctx.callerCapabilities]
         : undefined,
-    });
-    const auth = authResult.take();
+    }).take();
     if (isErr(auth)) {
       return err(
         auth.error as
@@ -956,7 +955,7 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
             );
           });
           const signatureOk = verifyResult.isOk() &&
-            (await verifyResult).take() === true;
+            verifyResult.take() === true;
           if (!signatureOk) {
             return err(
               new AuthError({
@@ -1079,7 +1078,7 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
                 continue;
               }
 
-              const openedTransfer = await this.#transferSupport.openOperationTransfer({
+              const openedTransferValue = await this.#transferSupport.openOperationTransfer({
                 sessionKey: value.sessionKey,
                 store: ctx.transfer.store,
                 key,
@@ -1089,8 +1088,7 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
                   : {}),
                 ...(contentType !== undefined ? { contentType } : {}),
                 ...(metadata !== undefined ? { metadata } : {}),
-              });
-              const openedTransferValue = openedTransfer.take();
+              }).take();
               if (isErr(openedTransferValue)) {
                 this.respondWithError(msg, openedTransferValue.error);
                 continue;

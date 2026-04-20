@@ -1,4 +1,4 @@
-import { isErr, TrellisDevice } from "@qlever-llc/trellis";
+import { TrellisDevice } from "@qlever-llc/trellis";
 import contract from "../contracts/demo_inspection_transfer_device.ts";
 import { printScenarioHeading } from "../../../shared/logging.ts";
 import { UploadProgress } from "./upload_progress.ts";
@@ -17,10 +17,25 @@ function buildEvidenceKey(path: string): string {
   return `evidence/${crypto.randomUUID()}-${fileNameFromPath(path)}`;
 }
 
+function progressFields(value: unknown): { stage: string; message: string } | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const stage = record.stage;
+  const message = record.message;
+  if (typeof stage !== "string" || typeof message !== "string") {
+    return null;
+  }
+
+  return { stage, message };
+}
+
 async function main(): Promise<void> {
   if (!trellisUrl || !rootSecret || !filePath) {
     throw new Error(
-      "Usage: deno task start -- <trellisUrl> <rootSecret> <filePath>",
+      "Usage: deno task start <trellisUrl> <rootSecret> <filePath>",
     );
   }
 
@@ -33,13 +48,10 @@ async function main(): Promise<void> {
       await activation.waitForOnlineApproval();
     },
   });
-  const me = (await device.request("Auth.Me", {})).take();
-  if (isErr(me)) {
-    throw me.error;
-  }
+  await device.request("Auth.Me", {}).orThrow();
 
   printScenarioHeading("Inspection transfer device");
-  console.info("Connected as", me.device?.deviceId ?? "unknown-device");
+  console.info("Connected to inspection transfer demo device runtime");
 
   const bytes = await Deno.readFile(filePath);
   const key = buildEvidenceKey(filePath);
@@ -66,7 +78,12 @@ async function main(): Promise<void> {
         progressFinished = true;
       }
 
-      console.info(`${event.progress.stage}: ${event.progress.message}`);
+      const update = progressFields(event.progress);
+      if (!update) {
+        return;
+      }
+
+      console.info(`${update.stage}: ${update.message}`);
     })
     .start()
     .orThrow();

@@ -174,9 +174,9 @@ Deno.test({
     });
 
     try {
-      const ref = (await client.operation("Billing.Refund").input({
+      const ref = await client.operation("Billing.Refund").input({
         chargeId: "ch_123",
-      }).start()).match({
+      }).start().match({
         ok: (value) => value,
         err: (error) => {
           throw error;
@@ -184,7 +184,7 @@ Deno.test({
       });
       assertExists(ref);
 
-      const terminal = (await ref.wait()).match({
+      const terminal = await ref.wait().match({
         ok: (value) => value,
         err: (error) => {
           throw error;

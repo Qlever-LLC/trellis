@@ -236,9 +236,9 @@ Deno.test({
         return ok({ refundId: "rf_123" });
       });
 
-      const ref = (await client.operation("Billing.Refund").input({
+      const ref = await client.operation("Billing.Refund").input({
         chargeId: "ch_123",
-      }).start()).match({
+      }).start().match({
         ok: (value) => value,
         err: (error) => {
           throw error;
@@ -246,7 +246,7 @@ Deno.test({
       });
       assertExists(ref);
 
-      const terminal = (await ref.wait()).match({
+      const terminal = await ref.wait().match({
         ok: (value) => value,
         err: (error) => {
           throw error;
@@ -350,7 +350,7 @@ Deno.test({
         await acceptedValue.complete({ refundId: "rf_456" });
       })();
 
-      const terminal = (await resumed.wait()).match({
+      const terminal = await resumed.wait().match({
         ok: (value) => value,
         err: (error) => {
           throw error;
@@ -484,7 +484,7 @@ Deno.test({
         return ok({ key: input.key, size: storedInfo.size });
       });
 
-      const upload = (await client.operation("Demo.Files.Upload").input({
+      const upload = await client.operation("Demo.Files.Upload").input({
         key: "incoming/test.txt",
         contentType: "text/plain",
       })
@@ -502,7 +502,7 @@ Deno.test({
         .onCompleted(() => {
           callerEvents.push("completed");
         })
-        .start()).match({
+        .start().match({
         ok: (value) => value,
         err: (error) => {
           throw error;

@@ -1,56 +1,36 @@
 import { trellisIdFromOriginId } from "@qlever-llc/trellis/auth";
-import { isErr, Result } from "@qlever-llc/result";
+import { type AsyncResult, type BaseError, isErr, Result } from "@qlever-llc/result";
 import { AuthError } from "@qlever-llc/trellis";
+import type {
+  AuthListConnectionsHandler,
+  AuthListConnectionsOutput,
+  AuthListSessionsHandler,
+  AuthListSessionsOutput,
+} from "../../../../../generated/js/sdks/auth/types.ts";
 
 import type { Session } from "../../state/schemas.ts";
 
 type UserRefFilter = { user?: string };
 type SessionFilter = { sessionKey?: string; user?: string };
 
-type SessionListRow = {
-  key: string;
-  sessionKey: string;
-  participantKind: "app" | "agent" | "device" | "service";
-  principal:
-    | { type: "user"; trellisId: string; origin: string; id: string; name: string }
-    | { type: "service"; id: string; name: string; instanceId: string; profileId: string }
-    | { type: "device"; deviceId: string; deviceType: string; runtimePublicKey: string; profileId: string };
-  contractId?: string;
-  contractDisplayName?: string;
-  appOrigin?: string;
-  createdAt: string;
-  lastAuth: string;
-};
-
-type ConnectionRow = {
-  key: string;
-  userNkey: string;
-  sessionKey: string;
-  participantKind: SessionListRow["participantKind"];
-  principal: SessionListRow["principal"];
-  contractId?: string;
-  contractDisplayName?: string;
-  appOrigin?: string;
-  serverId: string;
-  clientId: number;
-  connectedAt: string;
-};
-
-type TakeLike<T = unknown> = { take(): T | Promise<T> };
+type SessionListRow = AuthListSessionsOutput["sessions"][number];
+type ConnectionRow = AuthListConnectionsOutput["connections"][number];
 
 type SessionStore = {
-  keys: (filter: string) => TakeLike | Promise<TakeLike>;
-  get: (key: string) => TakeLike | Promise<TakeLike>;
+  keys: (filter: string) => AsyncResult<AsyncIterable<string> | unknown, BaseError>;
+  get: (key: string) => AsyncResult<{ value: Session } | Session | unknown, BaseError>;
 };
 
 type ConnectionStore = {
-  keys: (filter: string) => TakeLike | Promise<TakeLike>;
-  get: (key: string) => TakeLike | Promise<TakeLike>;
+  keys: (filter: string) => AsyncResult<AsyncIterable<string> | unknown, BaseError>;
+  get: (key: string) => AsyncResult<
+    { value: { serverId: string; clientId: number; connectedAt: string | Date } } | unknown,
+    BaseError
+  >;
 };
 
-async function takeValue<T>(value: TakeLike<T> | Promise<TakeLike<T>>): Promise<T> {
-  const taken = await value;
-  return await taken.take();
+async function takeValue<T>(value: AsyncResult<T, BaseError>): Promise<T | Result<never, BaseError>> {
+  return await value.take();
 }
 
 function iso(value: string | Date): string {
@@ -136,24 +116,62 @@ function buildConnectionRow(
   userNkey: string,
   connection: { serverId: string; clientId: number; connectedAt: string | Date },
 ): ConnectionRow {
-  const sessionRow = buildSessionRow(session, sessionKey);
-  return {
+  const base = {
     key: sessionActorKey(session, sessionKey, userNkey),
     userNkey,
     sessionKey,
-    participantKind: sessionRow.participantKind,
-    principal: sessionRow.principal,
-    ...(sessionRow.contractId ? { contractId: sessionRow.contractId } : {}),
-    ...(sessionRow.contractDisplayName ? { contractDisplayName: sessionRow.contractDisplayName } : {}),
-    ...(sessionRow.appOrigin ? { appOrigin: sessionRow.appOrigin } : {}),
     serverId: connection.serverId,
     clientId: connection.clientId,
     connectedAt: iso(connection.connectedAt),
   };
+
+  if (session.type === "user") {
+    return {
+      ...base,
+      participantKind: session.participantKind,
+      principal: {
+        type: "user",
+        trellisId: session.trellisId,
+        origin: session.origin,
+        id: session.id,
+        name: session.name,
+      },
+      contractId: session.contractId,
+      contractDisplayName: session.contractDisplayName,
+      ...(session.app?.origin ? { appOrigin: session.app.origin } : {}),
+    };
+  }
+
+  if (session.type === "device") {
+    return {
+      ...base,
+      participantKind: "device",
+      principal: {
+        type: "device",
+        deviceId: session.instanceId,
+        deviceType: deviceTypeFromProfileId(session.profileId),
+        runtimePublicKey: session.publicIdentityKey,
+        profileId: session.profileId,
+      },
+      contractId: session.contractId,
+    };
+  }
+
+  return {
+    ...base,
+    participantKind: "service",
+    principal: {
+      type: "service",
+      id: session.id,
+      name: session.name,
+      instanceId: session.instanceId,
+      profileId: session.profileId,
+    },
+  };
 }
 
 export function createAuthListSessionsHandler(deps: { sessionKV: SessionStore }) {
-  return async (req: UserRefFilter = {}) => {
+  const handler: AuthListSessionsHandler = async (req: UserRefFilter = {}) => {
     const userFilter = typeof req.user === "string" ? req.user : undefined;
     let filter = ">";
     if (userFilter) {
@@ -175,15 +193,17 @@ export function createAuthListSessionsHandler(deps: { sessionKV: SessionStore })
     }
 
     sessions.sort((left, right) => left.key.localeCompare(right.key));
-    return Result.ok({ sessions });
+    return Result.ok<AuthListSessionsOutput, AuthError>({ sessions });
   };
+
+  return handler;
 }
 
 export function createAuthListConnectionsHandler(deps: {
   sessionKV: Pick<SessionStore, "get">;
   connectionsKV: ConnectionStore;
 }) {
-  return async (req: SessionFilter = {}) => {
+  const handler: AuthListConnectionsHandler = async (req: SessionFilter = {}) => {
     const userFilter = typeof req.user === "string" ? req.user : undefined;
     const sessionKeyFilter = typeof req.sessionKey === "string" ? req.sessionKey : undefined;
 
@@ -223,6 +243,8 @@ export function createAuthListConnectionsHandler(deps: {
     }
 
     connections.sort((left, right) => left.key.localeCompare(right.key));
-    return Result.ok({ connections });
+    return Result.ok<AuthListConnectionsOutput, AuthError>({ connections });
   };
+
+  return handler;
 }

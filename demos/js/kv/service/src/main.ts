@@ -15,7 +15,7 @@ const sessionKeySeed = Deno.args[1]?.trim();
 
 async function main(): Promise<void> {
   if (!trellisUrl || !sessionKeySeed) {
-    throw new Error("Usage: deno task start -- <trellisUrl> <sessionKeySeed>");
+    throw new Error("Usage: deno task start <trellisUrl> <sessionKeySeed>");
   }
 
   const service = await TrellisService.connect({

@@ -51,11 +51,11 @@ function invalid(
 async function listValues<V extends { [key: string]: unknown }>(
   store: KVLike<V>,
 ): Promise<V[]> {
-  const keys = (await store.keys(">")).take();
+  const keys = await store.keys(">").take();
   if (isErr(keys)) return [];
   const values: V[] = [];
   for await (const key of keys as AsyncIterable<string>) {
-    const entry = (await store.get(key)).take();
+    const entry = await store.get(key).take();
     if (!isErr(entry)) values.push(unwrapValue<V>(entry));
   }
   return values;
@@ -70,11 +70,10 @@ async function kickInstanceRuntimeAccess(args: {
   const connectionStore = args.connectionsKV ?? connectionsKV;
   const sessionStore = args.sessionKV ?? sessionKV;
 
-  const connectionKeys = (await connectionStore.keys(`${args.instanceKey}.>.>`))
-    .take();
+  const connectionKeys = await connectionStore.keys(`${args.instanceKey}.>.>`).take();
   if (!isErr(connectionKeys)) {
     for await (const key of connectionKeys as AsyncIterable<string>) {
-      const entry = (await connectionStore.get(key)).take();
+      const entry = await connectionStore.get(key).take();
       if (!isErr(entry)) {
         const connection = unwrapValue<Connection>(entry);
         await args.kick(connection.serverId, connection.clientId);
@@ -83,7 +82,7 @@ async function kickInstanceRuntimeAccess(args: {
     }
   }
 
-  const sessionKeys = (await sessionStore.keys(`${args.instanceKey}.>`)).take();
+  const sessionKeys = await sessionStore.keys(`${args.instanceKey}.>`).take();
   if (!isErr(sessionKeys)) {
     for await (const key of sessionKeys as AsyncIterable<string>) {
       await sessionStore.delete(key);
@@ -96,8 +95,7 @@ async function instancesForProfile(
   store: KVLike<ServiceInstance>,
 ): Promise<ServiceInstance[]> {
   return (await listValues(store)).filter((instance) =>
-    instance.profileId === profileId
-  );
+    instance.profileId === profileId);
 }
 
 export const authListServiceProfilesHandler = async (
@@ -106,10 +104,8 @@ export const authListServiceProfilesHandler = async (
   logger.trace({ rpc: "Auth.ListServiceProfiles" }, "RPC request");
   const profiles = (await listValues<ServiceProfile>(
     serviceProfilesKV as unknown as KVLike<ServiceProfile>,
-  ))
-    .filter((profile) =>
-      req.disabled === undefined || profile.disabled === req.disabled
-    )
+  )).filter((profile) =>
+      req.disabled === undefined || profile.disabled === req.disabled)
     .sort((left, right) => left.profileId.localeCompare(right.profileId));
   return Result.ok({ profiles });
 };
@@ -128,7 +124,7 @@ export function createAuthCreateServiceProfileHandler() {
     if (isErr(validated)) return Result.err(validated.error);
     const { profile } = validated;
 
-    const existing = (await serviceProfilesKV.get(profile.profileId)).take();
+    const existing = await serviceProfilesKV.get(profile.profileId).take();
     if (!isErr(existing)) {
       return invalid("/profileId", "service profile already exists", {
         profileId: profile.profileId,
@@ -136,7 +132,7 @@ export function createAuthCreateServiceProfileHandler() {
     }
 
     const created =
-      (await serviceProfilesKV.create!(profile.profileId, profile)).take();
+      await serviceProfilesKV.create!(profile.profileId, profile).take();
     if (isErr(created)) {
       return Result.err(
         new UnexpectedError({ cause: created.error as BaseError }),
@@ -164,7 +160,7 @@ export function createAuthApplyServiceProfileContractHandler(deps: {
       caller,
       profileId: req.profileId,
     }, "RPC request");
-    const entry = (await serviceProfilesKV.get(req.profileId)).take();
+    const entry = await serviceProfilesKV.get(req.profileId).take();
     if (isErr(entry)) {
       return invalid("/profileId", "service profile not found", {
         profileId: req.profileId,
@@ -185,7 +181,7 @@ export function createAuthApplyServiceProfileContractHandler(deps: {
       ]),
     };
     const put =
-      (await serviceProfilesKV.put(nextProfile.profileId, nextProfile)).take();
+      await serviceProfilesKV.put(nextProfile.profileId, nextProfile).take();
     if (isErr(put)) {
       return Result.err(new UnexpectedError({ cause: put.error as BaseError }));
     }
@@ -215,7 +211,7 @@ export function createAuthUnapplyServiceProfileContractHandler(deps: {
       caller,
       profileId: req.profileId,
     }, "RPC request");
-    const entry = (await serviceProfilesKV.get(req.profileId)).take();
+    const entry = await serviceProfilesKV.get(req.profileId).take();
     if (isErr(entry)) {
       return invalid("/profileId", "service profile not found", {
         profileId: req.profileId,
@@ -242,7 +238,7 @@ export function createAuthUnapplyServiceProfileContractHandler(deps: {
       appliedContracts: normalizeAppliedContracts(nextContracts),
     };
     const put =
-      (await serviceProfilesKV.put(nextProfile.profileId, nextProfile)).take();
+      await serviceProfilesKV.put(nextProfile.profileId, nextProfile).take();
     if (isErr(put)) {
       return Result.err(new UnexpectedError({ cause: put.error as BaseError }));
     }
@@ -279,7 +275,7 @@ export function createAuthDisableServiceProfileHandler(deps: {
   kick: (serverId: string, clientId: number) => Promise<void>;
 }) {
   return async (req: { profileId: string }) => {
-    const entry = (await serviceProfilesKV.get(req.profileId)).take();
+    const entry = await serviceProfilesKV.get(req.profileId).take();
     if (isErr(entry)) {
       return invalid("/profileId", "service profile not found", {
         profileId: req.profileId,
@@ -290,7 +286,7 @@ export function createAuthDisableServiceProfileHandler(deps: {
       true,
     );
     const put =
-      (await serviceProfilesKV.put(nextProfile.profileId, nextProfile)).take();
+      await serviceProfilesKV.put(nextProfile.profileId, nextProfile).take();
     if (isErr(put)) {
       return Result.err(new UnexpectedError({ cause: put.error as BaseError }));
     }
@@ -314,7 +310,7 @@ export const authEnableServiceProfileHandler = async (
 ): Promise<
   Result<{ profile: ServiceProfile }, ValidationError | UnexpectedError>
 > => {
-  const entry = (await serviceProfilesKV.get(req.profileId)).take();
+  const entry = await serviceProfilesKV.get(req.profileId).take();
   if (isErr(entry)) {
     return invalid("/profileId", "service profile not found", {
       profileId: req.profileId,
@@ -324,8 +320,7 @@ export const authEnableServiceProfileHandler = async (
     unwrapValue<ServiceProfile>(entry),
     false,
   );
-  const put = (await serviceProfilesKV.put(nextProfile.profileId, nextProfile))
-    .take();
+  const put = await serviceProfilesKV.put(nextProfile.profileId, nextProfile).take();
   if (isErr(put)) {
     return Result.err(new UnexpectedError({ cause: put.error as BaseError }));
   }
@@ -344,7 +339,7 @@ export const authRemoveServiceProfileHandler = async (
       profileId: req.profileId,
     });
   }
-  const deleted = (await serviceProfilesKV.delete(req.profileId)).take();
+  const deleted = await serviceProfilesKV.delete(req.profileId).take();
   if (isErr(deleted)) {
     return Result.err(
       new UnexpectedError({ cause: deleted.error as BaseError }),
@@ -363,7 +358,7 @@ export function createAuthProvisionServiceInstanceHandler() {
       caller,
       profileId: req.profileId,
     }, "RPC request");
-    const profileEntry = (await serviceProfilesKV.get(req.profileId)).take();
+    const profileEntry = await serviceProfilesKV.get(req.profileId).take();
     if (isErr(profileEntry)) {
       return invalid("/profileId", "service profile not found", {
         profileId: req.profileId,
@@ -380,7 +375,7 @@ export function createAuthProvisionServiceInstanceHandler() {
     if (isErr(validated)) return Result.err(validated.error);
     const { instance } = validated;
 
-    const existing = (await serviceInstancesKV.get(instance.instanceId)).take();
+    const existing = await serviceInstancesKV.get(instance.instanceId).take();
     if (!isErr(existing)) {
       return invalid("/instanceKey", "service instance already exists", {
         instanceId: instance.instanceId,
@@ -388,7 +383,7 @@ export function createAuthProvisionServiceInstanceHandler() {
     }
 
     const created =
-      (await serviceInstancesKV.create!(instance.instanceId, instance)).take();
+      await serviceInstancesKV.create!(instance.instanceId, instance).take();
     if (isErr(created)) {
       return Result.err(
         new UnexpectedError({ cause: created.error as BaseError }),
@@ -404,10 +399,8 @@ export const authListServiceInstancesHandler = async (
   logger.trace({ rpc: "Auth.ListServiceInstances" }, "RPC request");
   const instances = (await listValues<ServiceInstance>(
     serviceInstancesKV as unknown as KVLike<ServiceInstance>,
-  ))
-    .filter((instance) =>
-      req.profileId === undefined || instance.profileId === req.profileId
-    )
+  )).filter((instance) =>
+      req.profileId === undefined || instance.profileId === req.profileId)
     .filter((instance) =>
       req.disabled === undefined || instance.disabled === req.disabled
     )
@@ -422,7 +415,7 @@ async function setInstanceDisabled(args: {
 }): Promise<
   Result<{ instance: ServiceInstance }, ValidationError | UnexpectedError>
 > {
-  const entry = (await serviceInstancesKV.get(args.instanceId)).take();
+  const entry = await serviceInstancesKV.get(args.instanceId).take();
   if (isErr(entry)) {
     return invalid("/instanceId", "service instance not found", {
       instanceId: args.instanceId,
@@ -431,8 +424,7 @@ async function setInstanceDisabled(args: {
   const instance = unwrapValue<ServiceInstance>(entry);
   const nextInstance = { ...instance, disabled: args.disabled };
   const put =
-    (await serviceInstancesKV.put(nextInstance.instanceId, nextInstance))
-      .take();
+    await serviceInstancesKV.put(nextInstance.instanceId, nextInstance).take();
   if (isErr(put)) {
     return Result.err(new UnexpectedError({ cause: put.error as BaseError }));
   }
@@ -462,7 +454,7 @@ export function createAuthRemoveServiceInstanceHandler(deps: {
   refreshActiveContracts: () => Promise<void>;
 }) {
   return async (req: { instanceId: string }) => {
-    const entry = (await serviceInstancesKV.get(req.instanceId)).take();
+    const entry = await serviceInstancesKV.get(req.instanceId).take();
     if (isErr(entry)) {
       return invalid("/instanceId", "service instance not found", {
         instanceId: req.instanceId,
@@ -473,7 +465,7 @@ export function createAuthRemoveServiceInstanceHandler(deps: {
       instanceKey: instance.instanceKey,
       kick: deps.kick,
     });
-    const deleted = (await serviceInstancesKV.delete(req.instanceId)).take();
+    const deleted = await serviceInstancesKV.delete(req.instanceId).take();
     if (isErr(deleted)) {
       return Result.err(
         new UnexpectedError({ cause: deleted.error as BaseError }),
@@ -487,8 +479,7 @@ export function createAuthRemoveServiceInstanceHandler(deps: {
 export async function loadServiceInstanceByKey(
   instanceKey: string,
 ): Promise<ServiceInstance | null> {
-  const entry = (await serviceInstancesKV.get(serviceInstanceId(instanceKey)))
-    .take();
+  const entry = await serviceInstancesKV.get(serviceInstanceId(instanceKey)).take();
   if (isErr(entry)) return null;
   const instance = unwrapValue<ServiceInstance>(entry);
   return instance.instanceKey === instanceKey ? instance : null;
@@ -497,7 +488,7 @@ export async function loadServiceInstanceByKey(
 export async function loadServiceProfile(
   profileId: string,
 ): Promise<ServiceProfile | null> {
-  const entry = (await serviceProfilesKV.get(profileId)).take();
+  const entry = await serviceProfilesKV.get(profileId).take();
   if (isErr(entry)) return null;
   return unwrapValue<ServiceProfile>(entry);
 }

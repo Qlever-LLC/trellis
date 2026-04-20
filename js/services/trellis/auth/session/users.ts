@@ -32,12 +32,12 @@ export const authListUsersHandler = async (
     "RPC request",
   );
 
-  const keys = (await usersKV.keys(">")).take();
+  const keys = await usersKV.keys(">").take();
   if (isErr(keys)) return Result.ok({ users: [] });
 
   const users = [];
   for await (const key of keys) {
-    const entry = (await usersKV.get(key)).take();
+    const entry = await usersKV.get(key).take();
     if (isErr(entry)) continue;
     users.push({
       origin: entry.value.origin,
@@ -72,7 +72,7 @@ export const authUpdateUserHandler = async (
   }, "RPC request");
 
   const trellisId = await trellisIdFromOriginId(req.origin, req.id);
-  const existing = (await usersKV.get(trellisId)).take();
+  const existing = await usersKV.get(trellisId).take();
   if (isErr(existing)) {
     return Result.err(
       new AuthError({
@@ -86,7 +86,7 @@ export const authUpdateUserHandler = async (
   if (req.active !== undefined) updated.active = req.active;
   if (req.capabilities !== undefined) updated.capabilities = req.capabilities;
 
-  const putResult = (await usersKV.put(trellisId, updated)).take();
+  const putResult = await usersKV.put(trellisId, updated).take();
   if (isErr(putResult)) {
     return Result.err(
       new AuthError({ reason: "user_not_found", context: { op: "put" } }),

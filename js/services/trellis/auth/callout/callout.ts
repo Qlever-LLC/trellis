@@ -106,7 +106,7 @@ async function findDeviceActivationByIdentityKey(
   publicIdentityKey: string,
 ): Promise<DeviceActivationRecord | null> {
   const activationEntry =
-    (await deviceActivationsKV.get(deviceInstanceId(publicIdentityKey))).take();
+    await deviceActivationsKV.get(deviceInstanceId(publicIdentityKey)).take();
   if (isErr(activationEntry)) return null;
   const activation = activationEntry.value as DeviceActivationRecord;
   return activation.publicIdentityKey === publicIdentityKey ? activation : null;
@@ -123,8 +123,7 @@ async function resolveDeviceRuntimeGrant(
     throw new Error("device_activation_revoked");
   }
 
-  const profileEntry = (await deviceProfilesKV.get(activation.profileId))
-    .take();
+  const profileEntry = await deviceProfilesKV.get(activation.profileId).take();
   if (isErr(profileEntry)) throw new Error("device_profile_not_found");
   const profile = profileEntry.value as unknown as DeviceProfile;
   if (profile.disabled) throw new Error("device_profile_disabled");
@@ -135,7 +134,7 @@ async function resolveDeviceRuntimeGrant(
   );
   const activationActor = (activation as DeviceActivationRecord).activatedBy;
 
-  const contractEntry = (await contractsKV.get(effectiveContractDigest)).take();
+  const contractEntry = await contractsKV.get(effectiveContractDigest).take();
   if (isErr(contractEntry)) throw new Error("device_contract_not_found");
   const contractRecord = contractEntry.value as ContractRecord;
   const access = deriveDeviceRuntimeAccess(
@@ -183,7 +182,7 @@ export function startDisconnectCleanup(): BackgroundTaskHandle {
         );
         if (typeof userNkey !== "string" || userNkey.length === 0) continue;
 
-        const keys = (await connectionsKV.keys(`>.>.${userNkey}`)).take();
+        const keys = await connectionsKV.keys(`>.>.${userNkey}`).take();
         if (isErr(keys)) continue;
 
         for await (const key of keys) {
@@ -192,8 +191,7 @@ export function startDisconnectCleanup(): BackgroundTaskHandle {
           const trellisId = parts[1];
           if (!sessionKey || !trellisId) continue;
 
-          const session = (await sessionKV.get(`${sessionKey}.${trellisId}`))
-            .take();
+          const session = await sessionKV.get(`${sessionKey}.${trellisId}`).take();
           if (!isErr(session)) {
             const sessionValue = session.value as Session;
             if (sessionValue.type !== "device") {
@@ -371,17 +369,16 @@ export function startAuthCallout(
       }
 
       let sessionKeyId: string | undefined;
-      const iter = (await sessionKV.keys(`${sessionKey}.>`)).take();
+      const iter = await sessionKV.keys(`${sessionKey}.>`).take();
       if (!isErr(iter)) {
         const matches: string[] = [];
         for await (const key of iter) matches.push(key);
 
         if (matches.length > 1) {
-          const connIter = (await connectionsKV.keys(`${sessionKey}.>.>`))
-            .take();
+          const connIter = await connectionsKV.keys(`${sessionKey}.>.>`).take();
           if (!isErr(connIter)) {
             for await (const key of connIter) {
-              const entry = (await connectionsKV.get(key)).take();
+              const entry = await connectionsKV.get(key).take();
               if (!isErr(entry)) {
                 await kick(entry.value.serverId, entry.value.clientId);
               }
@@ -406,7 +403,7 @@ export function startAuthCallout(
           const trellisId = await trellisIdFromOriginId("service", sessionKey);
           const displayName = profile?.profileId ?? service.instanceId;
           sessionKeyId = `${sessionKey}.${trellisId}`;
-          putResult = (await sessionKV.put(sessionKeyId, {
+          putResult = await sessionKV.put(sessionKeyId, {
             type: "service",
             trellisId,
             origin: "service",
@@ -420,7 +417,7 @@ export function startAuthCallout(
             currentContractDigest: service.currentContractDigest ?? null,
             createdAt: now,
             lastAuth: now,
-          })).take();
+          }).take();
         } else if (usesIat) {
           deviceGrant = await resolveDeviceRuntimeGrant(
             sessionKey,
@@ -430,7 +427,7 @@ export function startAuthCallout(
           sessionKeyId = `${sessionKey}.${deviceGrant.activation.instanceId}`;
           // The first successful runtime auth marks when an approved device was
           // actually used, which is distinct from the earlier review timestamp.
-          putResult = (await sessionKV.put(sessionKeyId, {
+          putResult = await sessionKV.put(sessionKeyId, {
             type: "device",
             instanceId: deviceGrant.activation.instanceId,
             publicIdentityKey: deviceGrant.activation.publicIdentityKey,
@@ -448,7 +445,7 @@ export function startAuthCallout(
             revokedAt: deviceGrant.activation.revokedAt
               ? new Date(deviceGrant.activation.revokedAt)
               : null,
-          })).take();
+          }).take();
         } else {
           throw new Error("session_not_found");
         }
@@ -461,7 +458,7 @@ export function startAuthCallout(
         }
       }
 
-      const sessionEntry = (await sessionKV.get(sessionKeyId)).take();
+      const sessionEntry = await sessionKV.get(sessionKeyId).take();
       if (isErr(sessionEntry)) throw new Error("session_not_found");
       let session = sessionEntry.value as Session;
 
@@ -513,15 +510,15 @@ export function startAuthCallout(
           presentedContractDigest: authToken.contractDigest,
           contractStore: opts.contractStore,
           loadUserProjection: async (trellisId) => {
-            const entry = (await usersKV.get(trellisId)).take();
+            const entry = await usersKV.get(trellisId).take();
             return isErr(entry) ? null : entry.value;
           },
           loadStoredApproval: async (key) => {
-            const entry = (await contractApprovalsKV.get(key)).take();
+            const entry = await contractApprovalsKV.get(key).take();
             return isErr(entry) ? null : entry.value;
           },
           loadInstanceGrantPolicies: async (contractId) => {
-            const entry = (await instanceGrantPoliciesKV.get(contractId)).take();
+            const entry = await instanceGrantPoliciesKV.get(contractId).take();
             return isErr(entry) ? [] : [entry.value];
           },
         });
@@ -552,11 +549,11 @@ export function startAuthCallout(
           get: (key) => AsyncResult.lift(deviceProfilesKV.get(key)),
         },
         loadStoredApproval: async (key) => {
-          const entry = (await contractApprovalsKV.get(key)).take();
+          const entry = await contractApprovalsKV.get(key).take();
           return isErr(entry) ? null : entry.value;
         },
         loadInstanceGrantPolicies: async (contractId: string) => {
-          const entry = (await instanceGrantPoliciesKV.get(contractId)).take();
+          const entry = await instanceGrantPoliciesKV.get(contractId).take();
           return isErr(entry) ? [] : [entry.value];
         },
       });
@@ -570,7 +567,7 @@ export function startAuthCallout(
         );
       }
 
-      (await sessionKV.put(sessionKeyId, { ...session, lastAuth: now })).take();
+      await sessionKV.put(sessionKeyId, { ...session, lastAuth: now }).take();
 
       const serverId = natsReq.server_id?.id ?? serverName;
       const clientId = natsReq.client_info?.id;
