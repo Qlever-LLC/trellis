@@ -269,6 +269,14 @@ export class ContractStore {
     return this.#activeDigests.has(digest);
   }
 
+  activateDigest(digest: string): void {
+    if (!this.#contractsByDigest.has(digest)) {
+      return;
+    }
+    this.#activeDigests.add(digest);
+    this.#rebuildActiveSubjectIndex();
+  }
+
   findActiveDigestById(id: string): string | undefined {
     const digests = this.#activeDigestsById.get(id);
     if (!digests || digests.size === 0) return undefined;

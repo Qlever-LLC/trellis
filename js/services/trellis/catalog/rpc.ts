@@ -191,7 +191,7 @@ async function collectInstalledContractRecords(): Promise<{
   byDigest: Map<string, InstalledContractRecord>;
 }> {
   const byDigest = new Map<string, InstalledContractRecord>();
-  const keys = (await contractsKV.keys(">")).take();
+  const keys = await contractsKV.keys(">").take();
 
   if (isErr(keys)) {
     logger.warn({ error: keys.error }, "Failed to list installed contracts");
@@ -199,7 +199,7 @@ async function collectInstalledContractRecords(): Promise<{
   }
 
   for await (const digest of keys) {
-    const entry = (await contractsKV.get(digest)).take();
+    const entry = await contractsKV.get(digest).take();
     if (isErr(entry)) continue;
 
     const record: InstalledContractRecord = {
@@ -334,8 +334,9 @@ export function createContractsModule(opts: {
       throw new Error("device contracts may not declare resources");
     }
 
-    const existing = (await contractsKV.get(validated.digest)).take();
+    const existing = await contractsKV.get(validated.digest).take();
     if (!isErr(existing)) {
+      contractStore.activateDigest(validated.digest);
       return {
         id: validated.contract.id,
         digest: validated.digest,
@@ -348,8 +349,7 @@ export function createContractsModule(opts: {
     }
 
     const now = new Date();
-    const persisted = (
-      await contractsKV.put(validated.digest, {
+    const persisted = await contractsKV.put(validated.digest, {
         digest: validated.digest,
         id: validated.contract.id,
         displayName: validated.contract.displayName,
@@ -361,8 +361,7 @@ export function createContractsModule(opts: {
         }).resources,
         analysisSummary: analyzed.summary,
         analysis: analyzed.analysis,
-      })
-    ).take();
+      }).take();
     if (isErr(persisted)) {
       logger.warn(
         { error: persisted.error },
@@ -372,6 +371,7 @@ export function createContractsModule(opts: {
     }
 
     contractStore.add(validated.digest, validated.contract);
+    contractStore.activateDigest(validated.digest);
 
     return {
       id: validated.contract.id,
@@ -419,10 +419,10 @@ export function createContractsModule(opts: {
       }
     }
 
-    const serviceKeys = (await serviceInstancesKV.keys(">")).take();
+    const serviceKeys = await serviceInstancesKV.keys(">").take();
     if (!isErr(serviceKeys)) {
       for await (const instanceId of serviceKeys) {
-        const entry = (await serviceInstancesKV.get(instanceId)).take();
+        const entry = await serviceInstancesKV.get(instanceId).take();
         if (isErr(entry)) continue;
         if (!entry.value.disabled && entry.value.currentContractDigest) {
           active.add(entry.value.currentContractDigest);
@@ -430,10 +430,10 @@ export function createContractsModule(opts: {
       }
     }
 
-    const deviceKeys = (await deviceInstancesKV.keys(">")).take();
+    const deviceKeys = await deviceInstancesKV.keys(">").take();
     if (!isErr(deviceKeys)) {
       for await (const instanceId of deviceKeys) {
-        const entry = (await deviceInstancesKV.get(instanceId)).take();
+        const entry = await deviceInstancesKV.get(instanceId).take();
         if (isErr(entry)) continue;
         const instance = entry.value as unknown as {
           state: string;
@@ -445,10 +445,10 @@ export function createContractsModule(opts: {
       }
     }
 
-    const sessionKeys = (await sessionKV.keys(">")).take();
+    const sessionKeys = await sessionKV.keys(">").take();
     if (!isErr(sessionKeys)) {
       for await (const sessionKeyId of sessionKeys) {
-        const entry = (await sessionKV.get(sessionKeyId)).take();
+        const entry = await sessionKV.get(sessionKeyId).take();
         if (isErr(entry)) continue;
         const session = entry.value as unknown as {
           type?: string;
@@ -464,7 +464,7 @@ export function createContractsModule(opts: {
       if (contractStore.getContract(digest, { includeInactive: true })) {
         continue;
       }
-      const entry = (await contractsKV.get(digest)).take();
+      const entry = await contractsKV.get(digest).take();
       if (isErr(entry)) continue;
       try {
         const parsed = JSON.parse(entry.value.contract);
@@ -557,7 +557,7 @@ export const trellisBindingsGetHandler = async (
   }
 
   const instanceId = serviceInstanceId(sessionKey);
-  const svc = (await serviceInstancesKV.get(instanceId)).take();
+  const svc = await serviceInstancesKV.get(instanceId).take();
   if (isErr(svc)) {
     return Result.err(
       new ValidationError({
@@ -597,14 +597,14 @@ export const authListInstalledContractsHandler = async (
   _req: ListInstalledContractsRequest,
 ): Promise<Result<{ contracts: InstalledContract[] }, UnexpectedError>> => {
   logger.trace({ rpc: "Auth.ListInstalledContracts" }, "RPC request");
-  const keys = (await contractsKV.keys(">")).take();
+  const keys = await contractsKV.keys(">").take();
   if (isErr(keys)) {
     return Result.err(new UnexpectedError({ cause: keys.error }));
   }
 
   const contracts = [];
   for await (const digest of keys) {
-    const entry = (await contractsKV.get(digest)).take();
+    const entry = await contractsKV.get(digest).take();
     if (isErr(entry)) continue;
     contracts.push(
       {
@@ -632,7 +632,7 @@ export const authGetInstalledContractHandler = async (
     { rpc: "Auth.GetInstalledContract", digest: req.digest },
     "RPC request",
   );
-  const entry = (await contractsKV.get(req.digest)).take();
+  const entry = await contractsKV.get(req.digest).take();
   if (isErr(entry)) {
     return Result.err(
       new ValidationError({

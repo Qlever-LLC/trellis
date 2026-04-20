@@ -539,14 +539,14 @@ Deno.test({
     );
     assertEquals(created.isOk(), true);
 
-    const entry = (await store.get("incoming/test.txt")).match({
+    const entry = await store.get("incoming/test.txt").match({
       ok: (value) => value,
       err: (error) => {
         throw error;
       },
     });
 
-    const bytes = (await entry.bytes()).match({
+    const bytes = await entry.bytes().match({
       ok: (value) => value,
       err: (error) => {
         throw error;

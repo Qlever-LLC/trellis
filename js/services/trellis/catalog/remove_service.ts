@@ -40,7 +40,7 @@ async function revokeServiceRuntimeAccess(opts: {
     revokedBy: string,
   ) => Promise<void>;
 }) {
-  const sessionIter = (await opts.sessionKV.keys(`${opts.sessionKey}.>`)).take();
+  const sessionIter = await opts.sessionKV.keys(`${opts.sessionKey}.>`).take();
   if (isErr(sessionIter)) {
     return Result.err(new UnexpectedError({ cause: sessionIter.error }));
   }
@@ -50,17 +50,17 @@ async function revokeServiceRuntimeAccess(opts: {
     sessionKeys.push(key);
   }
 
-  const connectionIter = (await opts.connectionsKV.keys(`${opts.sessionKey}.>.>`)).take();
+  const connectionIter = await opts.connectionsKV.keys(`${opts.sessionKey}.>.>`).take();
   if (isErr(connectionIter)) {
     return Result.err(new UnexpectedError({ cause: connectionIter.error }));
   }
 
   for await (const key of connectionIter) {
-    const connectionEntry = (await opts.connectionsKV.get(key)).take();
+    const connectionEntry = await opts.connectionsKV.get(key).take();
     if (!isErr(connectionEntry)) {
       await opts.kick(connectionEntry.value.serverId, connectionEntry.value.clientId);
     }
-    const deleted = (await opts.connectionsKV.delete(key)).take();
+    const deleted = await opts.connectionsKV.delete(key).take();
     if (isErr(deleted)) {
       return Result.err(new UnexpectedError({ cause: deleted.error }));
     }
@@ -68,7 +68,7 @@ async function revokeServiceRuntimeAccess(opts: {
 
   const revokedBy = revokedByLabel(opts.caller);
   for (const key of sessionKeys) {
-    const sessionEntry = (await opts.sessionKV.get(key)).take();
+    const sessionEntry = await opts.sessionKV.get(key).take();
     if (!isErr(sessionEntry)) {
       await opts.publishSessionRevoked(
         sessionEntry.value,
@@ -76,7 +76,7 @@ async function revokeServiceRuntimeAccess(opts: {
         revokedBy,
       );
     }
-    const deleted = (await opts.sessionKV.delete(key)).take();
+    const deleted = await opts.sessionKV.delete(key).take();
     if (isErr(deleted)) {
       return Result.err(new UnexpectedError({ cause: deleted.error }));
     }
@@ -90,7 +90,7 @@ async function findReplacementServiceKey(opts: {
   removedSessionKey: string;
   digest: string;
 }) {
-  const keys = (await opts.servicesKV.keys(">" )).take();
+  const keys = await opts.servicesKV.keys(">" ).take();
   if (isErr(keys)) {
     return Result.err(new UnexpectedError({ cause: keys.error }));
   }
@@ -99,7 +99,7 @@ async function findReplacementServiceKey(opts: {
     if (sessionKey === opts.removedSessionKey) {
       continue;
     }
-    const service = (await opts.servicesKV.get(sessionKey)).take();
+    const service = await opts.servicesKV.get(sessionKey).take();
     if (isErr(service)) {
       continue;
     }
@@ -121,7 +121,7 @@ async function repairInstalledContractLink(opts: {
     return Result.ok(undefined);
   }
 
-  const contractEntry = (await opts.contractsKV.get(opts.digest)).take();
+  const contractEntry = await opts.contractsKV.get(opts.digest).take();
   if (isErr(contractEntry)) {
     return Result.ok(undefined);
   }
@@ -144,7 +144,7 @@ async function repairInstalledContractLink(opts: {
       const { sessionKey: _sessionKey, ...rest } = contractEntry.value;
       return rest;
     })();
-  const put = (await opts.contractsKV.put(opts.digest, nextRecord)).take();
+  const put = await opts.contractsKV.put(opts.digest, nextRecord).take();
   if (isErr(put)) {
     return Result.err(new UnexpectedError({ cause: put.error }));
   }
@@ -169,7 +169,7 @@ export function createAuthRemoveServiceHandler(deps: {
     req: { sessionKey: string },
     { caller }: { caller: RpcUser },
   ) => {
-    const serviceEntry = (await deps.servicesKV.get(req.sessionKey)).take();
+    const serviceEntry = await deps.servicesKV.get(req.sessionKey).take();
     if (isErr(serviceEntry)) {
       return Result.ok({ success: false });
     }
@@ -186,7 +186,7 @@ export function createAuthRemoveServiceHandler(deps: {
       return revokeResult;
     }
 
-    const deleted = (await deps.servicesKV.delete(req.sessionKey)).take();
+    const deleted = await deps.servicesKV.delete(req.sessionKey).take();
     if (isErr(deleted)) {
       return Result.err(new UnexpectedError({ cause: deleted.error }));
     }

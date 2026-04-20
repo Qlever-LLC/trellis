@@ -20,14 +20,14 @@ export async function openActivityStore(service: TrellisService<ActivityOwnedApi
 }
 
 export async function putActivityEntry(activityKV: ActivityStore, entry: ActivityEntry) {
-  const existing = (await activityKV.get(entry.id)).take();
+  const existing = await activityKV.get(entry.id).take();
   if (!isErr(existing)) {
     return Result.ok(existing.value);
   }
 
-  const created = (await activityKV.create(entry.id, entry)).take();
+  const created = await activityKV.create(entry.id, entry).take();
   if (isErr(created)) {
-    const current = (await activityKV.get(entry.id)).take();
+    const current = await activityKV.get(entry.id).take();
     if (!isErr(current)) {
       return Result.ok(current.value);
     }
@@ -42,14 +42,14 @@ export async function listActivityEntries(
   activityKV: ActivityStore,
   opts?: { limit?: number; kind?: ActivityEntry["kind"] },
 ) {
-  const keys = (await activityKV.keys(">")).take();
+  const keys = await activityKV.keys(">").take();
   if (isErr(keys)) {
     return Result.err(keys.error);
   }
 
   const entries: ActivityEntry[] = [];
   for await (const key of keys) {
-    const entry = (await activityKV.get(key)).take();
+    const entry = await activityKV.get(key).take();
     if (isErr(entry)) continue;
     if (opts?.kind && entry.value.kind !== opts.kind) continue;
     entries.push(entry.value);
@@ -60,7 +60,7 @@ export async function listActivityEntries(
 }
 
 export async function getActivityEntry(activityKV: ActivityStore, id: string) {
-  const entry = (await activityKV.get(id)).take();
+  const entry = await activityKV.get(id).take();
   if (isErr(entry)) {
     return Result.err(entry.error);
   }

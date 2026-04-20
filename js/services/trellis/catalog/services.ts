@@ -78,14 +78,14 @@ async function publishSessionRevoked(
 
 export const authListServicesHandler = async () => {
   logger.trace({ rpc: "Auth.ListServices" }, "RPC request");
-  const keys = (await servicesKV.keys(">")).take();
+  const keys = await servicesKV.keys(">").take();
   if (isErr(keys)) {
     return Result.err(new UnexpectedError({ cause: keys.error }));
   }
 
   const services: ServiceRow[] = [];
   for await (const sessionKey of keys) {
-    const svc = (await servicesKV.get(sessionKey)).take();
+    const svc = await servicesKV.get(sessionKey).take();
     if (isErr(svc)) continue;
     services.push({
       sessionKey,
@@ -142,7 +142,7 @@ export function createAuthInstallServiceHandler(
 
     const serviceStore = deps.servicesKV ?? servicesKV;
 
-    const existing = (await serviceStore.get(req.sessionKey)).take();
+    const existing = await serviceStore.get(req.sessionKey).take();
     if (!isErr(existing)) {
       return Result.err(
         new ValidationError({
@@ -176,8 +176,7 @@ export function createAuthInstallServiceHandler(
     }
 
     const now = new Date();
-    const created = (
-      await serviceStore.create(
+    const created = await serviceStore.create(
         req.sessionKey,
         {
           displayName: req.displayName,
@@ -190,8 +189,7 @@ export function createAuthInstallServiceHandler(
           resourceBindings: installed.resourceBindings,
           createdAt: now,
         } satisfies ServiceLike,
-      )
-    ).take();
+      ).take();
 
     if (isErr(created)) {
       return Result.err(
@@ -245,7 +243,7 @@ export function createAuthUpgradeServiceContractHandler(
       sessionKey: req.sessionKey,
     }, "RPC request");
     const serviceStore = deps.servicesKV ?? servicesKV;
-    const entry = (await serviceStore.get(req.sessionKey)).take();
+    const entry = await serviceStore.get(req.sessionKey).take();
     if (isErr(entry)) {
       return Result.err(
         new ValidationError({
@@ -276,15 +274,13 @@ export function createAuthUpgradeServiceContractHandler(
       );
     }
 
-    const put = (
-      await serviceStore.put(req.sessionKey, {
+    const put = await serviceStore.put(req.sessionKey, {
         ...entry.value,
         capabilities: installed.capabilities,
         contractId: installed.id,
         contractDigest: installed.digest,
         resourceBindings: installed.resourceBindings,
-      })
-    ).take();
+      }).take();
     if (isErr(put)) {
       return Result.err(new UnexpectedError({ cause: put.error }));
     }
