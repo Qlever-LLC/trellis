@@ -213,6 +213,9 @@ pub struct DeviceProfileApplyArgs {
 
     #[command(flatten)]
     pub contract: ContractInputArgs,
+
+    #[arg(short = 'f', long)]
+    pub force: bool,
 }
 
 #[derive(Debug, Args)]

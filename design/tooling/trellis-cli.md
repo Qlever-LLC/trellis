@@ -130,7 +130,7 @@ trellis portal device set <profileId> (--builtin | --portal <portalId>)
 trellis portal device clear <profileId>
 trellis device profile list [--contract <contractId>] [--disabled]
 trellis device profile create <id> [--review-mode <none|required>]
-trellis device profile apply <id> (--source <file> | --manifest <file> | --image <ref>)
+trellis device profile apply <id> (--source <file> | --manifest <file> | --image <ref>) [-f]
 trellis device profile unapply <id> <contractId> [--digest <digest>...]
 trellis device profile disable <id>
 trellis device profile enable <id>

@@ -1,5 +1,16 @@
 use std::process::Command;
 
+fn write_contract_manifest() -> tempfile::TempDir {
+    let temp_dir = tempfile::tempdir().expect("temp dir");
+    let manifest_path = temp_dir.path().join("trellis.agent@v1.json");
+    std::fs::write(
+        &manifest_path,
+        format!("{}\n", trellis_cli::agent_contract::agent_contract_json()),
+    )
+    .expect("write contract manifest");
+    temp_dir
+}
+
 fn run_cli(args: &[&str]) -> std::process::Output {
     Command::new(env!("CARGO_BIN_EXE_trellis"))
         .args(args)
@@ -245,6 +256,7 @@ fn service_install_help_does_not_treat_modifiers_as_primary_inputs() {
     assert!(stdout.contains("--image <OCI_IMAGE>"));
     assert!(stdout.contains("--source-export <SOURCE_EXPORT>"));
     assert!(stdout.contains("--image-contract-path <IMAGE_CONTRACT_PATH>"));
+    assert!(stdout.contains("-f, --force"));
     assert!(!stdout.contains("--nats-servers"));
     assert!(!stdout.contains("--creds <CREDS>"));
     assert!(!stdout.contains("|--source-export <SOURCE_EXPORT>|"));
@@ -264,10 +276,65 @@ fn device_install_help_does_not_treat_modifiers_as_primary_inputs() {
     assert!(stdout.contains("--image <OCI_IMAGE>"));
     assert!(stdout.contains("--source-export <SOURCE_EXPORT>"));
     assert!(stdout.contains("--image-contract-path <IMAGE_CONTRACT_PATH>"));
+    assert!(stdout.contains("-f, --force"));
     assert!(!stdout.contains("--nats-servers"));
     assert!(!stdout.contains("--creds <CREDS>"));
     assert!(!stdout.contains("|--source-export <SOURCE_EXPORT>|"));
     assert!(!stdout.contains("|--image-contract-path <IMAGE_CONTRACT_PATH>|"));
+}
+
+#[test]
+fn service_profile_apply_json_requires_force_for_review_skip() {
+    let temp_dir = write_contract_manifest();
+    let manifest_path = temp_dir.path().join("trellis.agent@v1.json");
+    let output = Command::new(env!("CARGO_BIN_EXE_trellis"))
+        .args([
+            "--format",
+            "json",
+            "service",
+            "profile",
+            "apply",
+            "svc.default",
+            "--manifest",
+            manifest_path.to_str().expect("utf8 manifest path"),
+        ])
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .output()
+        .expect("run trellis");
+
+    assert!(
+        !output.status.success(),
+        "service profile apply without -f should fail in json mode"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
+    assert!(stderr.contains("use -f with --format json to skip the interactive apply review"));
+}
+
+#[test]
+fn device_profile_apply_json_requires_force_for_review_skip() {
+    let temp_dir = write_contract_manifest();
+    let manifest_path = temp_dir.path().join("trellis.agent@v1.json");
+    let output = Command::new(env!("CARGO_BIN_EXE_trellis"))
+        .args([
+            "--format",
+            "json",
+            "device",
+            "profile",
+            "apply",
+            "reader.default",
+            "--manifest",
+            manifest_path.to_str().expect("utf8 manifest path"),
+        ])
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .output()
+        .expect("run trellis");
+
+    assert!(
+        !output.status.success(),
+        "device profile apply without -f should fail in json mode"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
+    assert!(stderr.contains("use -f with --format json to skip the interactive apply review"));
 }
 
 #[test]
