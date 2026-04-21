@@ -119,20 +119,18 @@ fn validate_schema_refs(manifest: &ContractManifest) -> Result<(), ContractsErro
         }
     }
 
-    if let Some(jobs) = &manifest.resources.jobs {
-        for (queue_type, queue) in &jobs.queues {
+    for (queue_type, queue) in &manifest.jobs {
+        assert_schema_ref_exists(
+            manifest,
+            &queue.payload.schema,
+            &format!("jobs queue '{queue_type}' payload"),
+        )?;
+        if let Some(result) = &queue.result {
             assert_schema_ref_exists(
                 manifest,
-                &queue.payload.schema,
-                &format!("jobs queue '{queue_type}' payload"),
+                &result.schema,
+                &format!("jobs queue '{queue_type}' result"),
             )?;
-            if let Some(result) = &queue.result {
-                assert_schema_ref_exists(
-                    manifest,
-                    &result.schema,
-                    &format!("jobs queue '{queue_type}' result"),
-                )?;
-            }
         }
     }
 

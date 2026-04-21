@@ -71,5 +71,20 @@ Deno.test({
     await server.stop();
     assertEquals(nc.isClosed(), true);
   });
+
+  await t.step("concurrent stop() calls share the same drain", async () => {
+    const info = natsTest.nc.info!;
+    const nc = await connect({ servers: `localhost:${info.port}` });
+
+    const server = TrellisServer.create(
+      "test-server-concurrent-stop",
+      nc,
+      createMockAuth(),
+      { api: trellisCore.API.owned },
+    );
+
+    await Promise.all([server.stop(), server.stop()]);
+    assertEquals(nc.isClosed(), true);
+  });
   },
 });

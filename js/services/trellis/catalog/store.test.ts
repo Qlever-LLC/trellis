@@ -66,6 +66,43 @@ function makeOperationContract(
   };
 }
 
+function makeJobsContract(id: string, displayName = "Jobs"): TrellisContractV1 {
+  return {
+    format: "trellis.contract.v1",
+    id,
+    displayName,
+    description: `${displayName} test contract`,
+    kind: "service",
+    schemas: {
+      JobPayload: { type: "object" },
+      JobResult: { type: "object" },
+    },
+    jobs: {
+      process: {
+        payload: { schema: "JobPayload" },
+        result: { schema: "JobResult" },
+      },
+    },
+  };
+}
+
+function makeStoreContract(id: string, displayName = "Store"): TrellisContractV1 {
+  return {
+    format: "trellis.contract.v1",
+    id,
+    displayName,
+    description: `${displayName} test contract`,
+    kind: "service",
+    resources: {
+      store: {
+        uploads: {
+          purpose: "Temporary uploads",
+        },
+      },
+    },
+  };
+}
+
 Deno.test("contract store allows multiple digests for one contract id when only one is active", async () => {
   const store = new ContractStore();
   const contract1 = makeContract("graph@v1", "rpc.v1.Graph.Ping", "graph");
@@ -191,6 +228,56 @@ Deno.test("contract store preserves operations when validating contracts", async
   assertEquals(
     validated.contract.operations?.Refund?.output?.schema,
     "RefundOutput",
+  );
+});
+
+Deno.test("contract store preserves top-level jobs when validating contracts", async () => {
+  const store = new ContractStore();
+
+  const validated = await store.validate(makeJobsContract("jobs@v1"));
+
+  assertEquals(validated.contract.jobs?.process?.payload?.schema, "JobPayload");
+  assertEquals(validated.contract.jobs?.process?.result?.schema, "JobResult");
+});
+
+Deno.test("contract store rejects legacy resources.jobs contracts", async () => {
+  const store = new ContractStore();
+
+  await assertRejects(
+    async () => {
+      await store.validate({
+        format: "trellis.contract.v1",
+        id: "jobs@v1",
+        displayName: "Jobs",
+        description: "Jobs test contract",
+        kind: "service",
+        schemas: {
+          JobPayload: { type: "object" },
+        },
+        resources: {
+          jobs: {
+            queues: {
+              process: {
+                payload: { schema: "JobPayload" },
+              },
+            },
+          },
+        },
+      });
+    },
+    Error,
+    "/resources/jobs",
+  );
+});
+
+Deno.test("contract store preserves store resources when validating contracts", async () => {
+  const store = new ContractStore();
+
+  const validated = await store.validate(makeStoreContract("store@v1"));
+
+  assertEquals(
+    validated.contract.resources?.store?.uploads?.purpose,
+    "Temporary uploads",
   );
 });
 

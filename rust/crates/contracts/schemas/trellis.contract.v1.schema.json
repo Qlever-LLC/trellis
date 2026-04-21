@@ -80,6 +80,16 @@
         "$ref": "#/$defs/errorDecl"
       }
     },
+    "jobs": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/jobQueue"
+      }
+    },
     "resources": {
       "$ref": "#/$defs/resources"
     }
@@ -111,6 +121,7 @@
     },
     "resources": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "kv": {
           "type": "object",
@@ -122,6 +133,16 @@
             "$ref": "#/$defs/kvResource"
           }
         },
+        "store": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "minLength": 1
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/storeResource"
+          }
+        },
         "streams": {
           "type": "object",
           "propertyNames": {
@@ -131,9 +152,6 @@
           "additionalProperties": {
             "$ref": "#/$defs/streamResource"
           }
-        },
-        "jobs": {
-          "$ref": "#/$defs/jobsResource"
         }
       }
     },
@@ -229,6 +247,34 @@
         }
       }
     },
+    "storeResource": {
+      "type": "object",
+      "required": ["purpose"],
+      "additionalProperties": false,
+      "properties": {
+        "purpose": {
+          "type": "string",
+          "minLength": 1
+        },
+        "required": {
+          "type": "boolean",
+          "default": true
+        },
+        "ttlMs": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        },
+        "maxObjectBytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "maxTotalBytes": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
     "streamResource": {
       "type": "object",
       "required": ["purpose", "subjects"],
@@ -303,23 +349,6 @@
         "subjectTransformDest": {
           "type": "string",
           "minLength": 1
-        }
-      }
-    },
-    "jobsResource": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["queues"],
-      "properties": {
-        "queues": {
-          "type": "object",
-          "propertyNames": {
-            "type": "string",
-            "minLength": 1
-          },
-          "additionalProperties": {
-            "$ref": "#/$defs/jobQueue"
-          }
         }
       }
     },

@@ -826,6 +826,7 @@ export function getResourcePermissionGrants(
     for (const queue of Object.values(bindings.jobs.queues)) {
       publish.add(queue.publishPrefix + ".>");
       publish.add(queue.workSubject);
+      subscribe.add(`${queue.publishPrefix}.*.cancelled`);
     }
   }
 

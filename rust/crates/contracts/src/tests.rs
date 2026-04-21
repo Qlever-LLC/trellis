@@ -284,6 +284,40 @@ fn manifest_parses_stream_resources() {
 }
 
 #[test]
+fn manifest_parses_store_resources() {
+    let manifest = parse_manifest(json!({
+        "format": "trellis.contract.v1",
+        "id": "example.store@v1",
+        "displayName": "Example Store",
+        "description": "Expose store resources",
+        "kind": "service",
+        "resources": {
+            "store": {
+                "uploads": {
+                    "purpose": "Temporary uploaded files",
+                    "required": true,
+                    "ttlMs": 0,
+                    "maxObjectBytes": 1048576,
+                    "maxTotalBytes": 2097152
+                }
+            }
+        }
+    }))
+    .expect("manifest with store resources should parse");
+
+    let uploads = manifest
+        .resources
+        .store
+        .get("uploads")
+        .expect("uploads store resource");
+    assert_eq!(uploads.purpose, "Temporary uploaded files");
+    assert_eq!(uploads.required, Some(true));
+    assert_eq!(uploads.ttl_ms, Some(0));
+    assert_eq!(uploads.max_object_bytes, Some(1_048_576));
+    assert_eq!(uploads.max_total_bytes, Some(2_097_152));
+}
+
+#[test]
 fn manifest_parses_owned_and_used_operations() {
     let manifest = parse_manifest(json!({
         "format": "trellis.contract.v1",
@@ -375,6 +409,81 @@ fn manifest_parses_owned_and_used_operations() {
             .cloned(),
         Some(vec!["Billing.Refund".to_string()])
     );
+}
+
+#[test]
+fn manifest_parses_top_level_jobs() {
+    let manifest = parse_manifest(json!({
+        "format": "trellis.contract.v1",
+        "id": "example.jobs@v1",
+        "displayName": "Example Jobs",
+        "description": "Expose job queues.",
+        "kind": "service",
+        "schemas": {
+            "JobPayload": {"type": "object", "properties": {}, "additionalProperties": false},
+            "JobResult": {"type": "object", "properties": {}, "additionalProperties": false}
+        },
+        "jobs": {
+            "document-process": {
+                "payload": {"schema": "JobPayload"},
+                "result": {"schema": "JobResult"},
+                "maxDeliver": 5,
+                "backoffMs": [1000, 5000],
+                "ackWaitMs": 30000,
+                "defaultDeadlineMs": 60000,
+                "progress": true,
+                "logs": true,
+                "dlq": true,
+                "concurrency": 4
+            }
+        }
+    }))
+    .expect("manifest with top-level jobs should parse");
+
+    let queue = manifest
+        .jobs
+        .get("document-process")
+        .expect("document-process queue");
+    assert_eq!(queue.payload.schema, "JobPayload");
+    assert_eq!(queue.result.as_ref().map(|schema| schema.schema.as_str()), Some("JobResult"));
+    assert_eq!(queue.max_deliver, Some(5));
+    assert_eq!(queue.backoff_ms.as_ref(), Some(&vec![1000, 5000]));
+    assert_eq!(queue.ack_wait_ms, Some(30_000));
+    assert_eq!(queue.default_deadline_ms, Some(60_000));
+    assert_eq!(queue.progress, Some(true));
+    assert_eq!(queue.logs, Some(true));
+    assert_eq!(queue.dlq, Some(true));
+    assert_eq!(queue.concurrency, Some(4));
+}
+
+#[test]
+fn manifest_validation_rejects_legacy_resource_jobs() {
+    let error = parse_manifest(json!({
+        "format": "trellis.contract.v1",
+        "id": "example.jobs@v1",
+        "displayName": "Example Jobs",
+        "description": "Expose job queues.",
+        "kind": "service",
+        "schemas": {
+            "JobPayload": {"type": "object", "properties": {}, "additionalProperties": false}
+        },
+        "resources": {
+            "jobs": {
+                "queues": {
+                    "document-process": {
+                        "payload": {"schema": "JobPayload"}
+                    }
+                }
+            }
+        }
+    }))
+    .expect_err("legacy resources.jobs manifest should fail");
+
+    let ContractsError::SchemaValidation { details, .. } = error else {
+        panic!("expected schema validation error");
+    };
+    assert!(details.contains("resources"));
+    assert!(details.contains("jobs"));
 }
 
 #[test]

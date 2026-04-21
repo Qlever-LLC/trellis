@@ -1,6 +1,6 @@
 use serde_json::json;
 use trellis_contracts::{
-    schema_ref, stream, stream_source, subject, use_contract, ContractKind,
+    schema_ref, store, stream, stream_source, subject, use_contract, ContractKind,
     ContractManifestBuilder, CONTRACT_FORMAT_V1,
 };
 
@@ -87,13 +87,7 @@ fn builder_supports_uses_rpc_subject_kv_stream_and_job_queue_resources() {
     assert!(manifest.subjects.contains_key("Jobs.Stream"));
     assert!(manifest.resources.kv.contains_key("jobsState"));
     assert!(manifest.resources.streams.contains_key("jobsEvents"));
-    assert!(manifest.resources.jobs.is_some());
-    assert!(manifest
-        .resources
-        .jobs
-        .expect("jobs resources")
-        .queues
-        .contains_key("document-process"));
+    assert!(manifest.jobs.contains_key("document-process"));
 }
 
 #[test]
@@ -150,6 +144,37 @@ fn builder_supports_rich_stream_resources_with_sources() {
     let sources = jobs_work.sources.as_ref().expect("jobsWork sources");
     assert_eq!(sources.len(), 1);
     assert_eq!(sources[0].from_alias, "jobs");
+}
+
+#[test]
+fn builder_supports_store_resources() {
+    let manifest = ContractManifestBuilder::new(
+        "example.store@v1",
+        "Example Store",
+        "Example store manifest.",
+        ContractKind::Service,
+    )
+    .store_resource(
+        "uploads",
+        store("Temporary uploaded files")
+            .required(true)
+            .ttl_ms(0)
+            .max_object_bytes(1_048_576)
+            .max_total_bytes(2_097_152),
+    )
+    .build()
+    .expect("builder should produce a valid manifest");
+
+    let uploads = manifest
+        .resources
+        .store
+        .get("uploads")
+        .expect("uploads store resource");
+    assert_eq!(uploads.purpose, "Temporary uploaded files");
+    assert_eq!(uploads.required, Some(true));
+    assert_eq!(uploads.ttl_ms, Some(0));
+    assert_eq!(uploads.max_object_bytes, Some(1_048_576));
+    assert_eq!(uploads.max_total_bytes, Some(2_097_152));
 }
 
 #[test]

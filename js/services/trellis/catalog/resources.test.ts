@@ -188,14 +188,10 @@ Deno.test("jobs resource requests apply queue defaults", () => {
     schemas: {
       Payload: { type: "object" },
     },
-    resources: {
-      ...CONTRACT.resources,
-      jobs: {
-        queues: {
-          "document-process": {
-            payload: { schema: "Payload" },
-          },
-        },
+    resources: {},
+    jobs: {
+      "document-process": {
+        payload: { schema: "Payload" },
       },
     },
   } as TrellisContractV1;
@@ -221,13 +217,10 @@ Deno.test("jobs provisioning returns queue bindings and grants worker heartbeat 
     schemas: {
       Payload: { type: "object" },
     },
-    resources: {
-      jobs: {
-        queues: {
-          "document-process": {
-            payload: { schema: "Payload" },
-          },
-        },
+    resources: {},
+    jobs: {
+      "document-process": {
+        payload: { schema: "Payload" },
       },
     },
   } as TrellisContractV1;
@@ -240,6 +233,7 @@ Deno.test("jobs provisioning returns queue bindings and grants worker heartbeat 
 
   assertEquals(bindings.jobs, {
     namespace: "svc_test_documents_v1",
+    jobsStateBucket: "trellis_jobs",
     queues: {
       "document-process": {
         queueType: "document-process",
@@ -268,6 +262,12 @@ Deno.test("jobs provisioning returns queue bindings and grants worker heartbeat 
   const grants = getResourcePermissionGrants(bindings);
   assertEquals(
     grants.publish.includes("trellis.jobs.workers.svc_test_documents_v1.>"),
+    true,
+  );
+  assertEquals(
+    grants.subscribe.includes(
+      "trellis.jobs.svc_test_documents_v1.document-process.*.cancelled",
+    ),
     true,
   );
   assertEquals(
@@ -628,13 +628,10 @@ Deno.test({
       schemas: {
         Payload: { type: "object" },
       },
-      resources: {
-        jobs: {
-          queues: {
-            "document-process": {
-              payload: { schema: "Payload" },
-            },
-          },
+      resources: {},
+      jobs: {
+        "document-process": {
+          payload: { schema: "Payload" },
         },
       },
     } as TrellisContractV1;

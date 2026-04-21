@@ -42,6 +42,7 @@ type ClientBootstrapContractView = {
   digest: string;
   displayName: string;
   description: string;
+  jobs?: TrellisContractV1["jobs"];
   resources?: TrellisContractV1["resources"];
 };
 
@@ -171,6 +172,7 @@ function buildContractView(
     digest,
     displayName: contract.displayName,
     description: contract.description,
+    ...(contract.jobs ? { jobs: contract.jobs } : {}),
     ...(contract.resources ? { resources: contract.resources } : {}),
   };
 }

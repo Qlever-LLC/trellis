@@ -175,6 +175,7 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
   #log: LoggerLike;
   #operations = new Map<string, RuntimeOperationRecord>();
   #mountedOperationControls = new Set<string>();
+  #stopPromise?: Promise<void>;
   #transferSupport?: RuntimeOperationTransferSupport;
   readonly operations: RuntimeOperationController;
 
@@ -1200,8 +1201,25 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
   }
 
   async stop(): Promise<void> {
-    if (!this.natsConnection.isClosed()) {
-      await this.natsConnection.drain();
-    }
+    this.#stopPromise ??= (async () => {
+      if (this.natsConnection.isClosed()) {
+        return;
+      }
+
+      try {
+        await this.natsConnection.drain();
+      } catch (cause) {
+        if (
+          !(cause instanceof Error) ||
+          cause.name !== "DrainingConnectionError"
+        ) {
+          throw cause;
+        }
+
+        await this.natsConnection.closed().catch(() => undefined);
+      }
+    })();
+
+    await this.#stopPromise;
   }
 }

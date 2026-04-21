@@ -64,6 +64,14 @@ async function createTestContractStore() {
     displayName: "Example Client",
     description: "Example browser client contract",
     kind: "app",
+    schemas: {
+      JobPayload: { type: "object" },
+    },
+    jobs: {
+      process: {
+        payload: { schema: "JobPayload" },
+      },
+    },
     resources: {
       kv: {
         profile: {
@@ -105,6 +113,7 @@ async function createVerifiedApp(args?: {
 
   sessionKV.seed(`${auth.sessionKey}.user-1`, {
     type: "user",
+    participantKind: "app",
     trellisId: "user-1",
     origin: "github",
     id: "123",
@@ -152,7 +161,7 @@ async function createVerifiedApp(args?: {
         contractId: validated.contract.id,
         displayName: validated.contract.displayName,
         description: validated.contract.description,
-        kind: validated.contract.kind,
+        participantKind: "app",
         capabilities: ["read:profile"],
       },
       publishSubjects: ["events.profile.updated"],
@@ -202,6 +211,7 @@ Deno.test("POST /bootstrap/client returns runtime bootstrap info for bound brows
       digest: contract.digest,
       displayName: contract.contract.displayName,
       description: contract.contract.description,
+      jobs: contract.contract.jobs,
       resources: contract.contract.resources,
     },
     user: {

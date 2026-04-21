@@ -16,11 +16,17 @@ and this project adheres to
 - Made service and activated-device runtime NATS lifecycle logging explicit so
   disconnects, reconnect attempts, reconnect success, stale connections, and
   connection errors produce distinct operator-facing messages.
+- Moved contract-manifest job queue declarations to canonical top-level `jobs`
+  in both the JavaScript and Rust contract layers, and aligned bootstrap and
+  contract-get views with that shape.
 
 ### Fixed
 
 - Granted KV-backed services JetStream info access so operation handlers can
   open their durable operation store without `$JS.API.INFO` permission errors.
+- Fixed jobs worker permission grants for cancellation subscriptions, made
+  server shutdown idempotent while NATS draining is already in progress, and
+  corrected demo workspace generated-SDK resolution during contract prepare.
 
 ## [0.8.0] - 2026-04-19
 

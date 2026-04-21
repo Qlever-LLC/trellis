@@ -16,6 +16,14 @@ async function createTestContractStore() {
     displayName: "Example Service",
     description: "Example service contract",
     kind: "service",
+    schemas: {
+      JobPayload: { type: "object" },
+    },
+    jobs: {
+      process: {
+        payload: { schema: "JobPayload" },
+      },
+    },
     resources: {
       kv: {
         cache: {
@@ -151,6 +159,7 @@ Deno.test("POST /bootstrap/service returns runtime bootstrap info and bindings",
       digest: contract.digest,
       displayName: contract.contract.displayName,
       description: contract.contract.description,
+      jobs: contract.contract.jobs,
       resources: contract.contract.resources,
     },
     binding: {

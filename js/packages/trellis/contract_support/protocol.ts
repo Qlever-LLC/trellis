@@ -114,7 +114,7 @@ export const ContractResourcesSchema = Type.Object({
   streams: Type.Optional(
     Type.Record(Type.String({ minLength: 1 }), ContractStreamResourceSchema),
   ),
-});
+}, { additionalProperties: false });
 
 export type ContractResources = Static<typeof ContractResourcesSchema>;
 

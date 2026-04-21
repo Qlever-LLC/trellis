@@ -1,12 +1,12 @@
 use serde_json::Value;
 
 use crate::{
-    parse_manifest, ContractErrorRef, ContractJobQueueResource, ContractJobsResource, ContractKind,
-    ContractKvResource, ContractManifest, ContractOperation, ContractOperationTransfer,
-    ContractResources, ContractRpcMethod, ContractSchemaRef, ContractStreamResource,
-    ContractStreamSource, ContractSubject, ContractUseOperation, ContractUsePubSub, ContractUseRef,
-    ContractUseRpc, ContractsError, OperationCapabilities, PubSubCapabilities, RpcCapabilities,
-    CONTRACT_FORMAT_V1,
+    parse_manifest, ContractErrorRef, ContractJobQueueResource, ContractKind, ContractKvResource,
+    ContractManifest, ContractOperation, ContractOperationTransfer, ContractResources,
+    ContractRpcMethod, ContractSchemaRef, ContractStoreResource, ContractStreamResource,
+    ContractStreamSource, ContractSubject, ContractUseOperation, ContractUsePubSub,
+    ContractUseRef, ContractUseRpc, ContractsError, OperationCapabilities,
+    PubSubCapabilities, RpcCapabilities, CONTRACT_FORMAT_V1,
 };
 
 /// Thin builder over `ContractManifest` for Rust-authored contracts.
@@ -35,6 +35,7 @@ impl ContractManifestBuilder {
                 events: Default::default(),
                 subjects: Default::default(),
                 errors: Default::default(),
+                jobs: Default::default(),
                 resources: ContractResources::default(),
             },
         }
@@ -79,19 +80,21 @@ impl ContractManifestBuilder {
         self
     }
 
+    pub fn store_resource(
+        mut self,
+        name: impl Into<String>,
+        store: ContractStoreResource,
+    ) -> Self {
+        self.manifest.resources.store.insert(name.into(), store);
+        self
+    }
+
     pub fn job_queue(
         mut self,
         queue_type: impl Into<String>,
         queue: ContractJobQueueResource,
     ) -> Self {
-        self.manifest
-            .resources
-            .jobs
-            .get_or_insert_with(|| ContractJobsResource {
-                queues: Default::default(),
-            })
-            .queues
-            .insert(queue_type.into(), queue);
+        self.manifest.jobs.insert(queue_type.into(), queue);
         self
     }
 
@@ -163,6 +166,16 @@ pub fn kv(purpose: impl Into<String>) -> ContractKvResource {
         history: None,
         ttl_ms: None,
         max_value_bytes: None,
+    }
+}
+
+pub fn store(purpose: impl Into<String>) -> ContractStoreResource {
+    ContractStoreResource {
+        purpose: purpose.into(),
+        required: None,
+        ttl_ms: None,
+        max_object_bytes: None,
+        max_total_bytes: None,
     }
 }
 
@@ -360,6 +373,28 @@ impl ContractKvResource {
 
     pub fn ttl_ms(mut self, ttl_ms: i64) -> Self {
         self.ttl_ms = Some(ttl_ms);
+        self
+    }
+}
+
+impl ContractStoreResource {
+    pub fn required(mut self, required: bool) -> Self {
+        self.required = Some(required);
+        self
+    }
+
+    pub fn ttl_ms(mut self, ttl_ms: i64) -> Self {
+        self.ttl_ms = Some(ttl_ms);
+        self
+    }
+
+    pub fn max_object_bytes(mut self, max_object_bytes: i64) -> Self {
+        self.max_object_bytes = Some(max_object_bytes);
+        self
+    }
+
+    pub fn max_total_bytes(mut self, max_total_bytes: i64) -> Self {
+        self.max_total_bytes = Some(max_total_bytes);
         self
     }
 }

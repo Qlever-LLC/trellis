@@ -87,6 +87,7 @@ function buildContractView(contract: TrellisContractV1, digest: string) {
     digest,
     displayName: contract.displayName,
     description: contract.description,
+    ...(contract.jobs ? { jobs: contract.jobs } : {}),
     ...(contract.resources ? { resources: contract.resources } : {}),
   };
 }

@@ -1,6 +1,6 @@
 import Type, { type Static } from "typebox";
 
-import { ContractResourcesSchema } from "../ContractResources.ts";
+import { ContractJobsSchema, ContractResourcesSchema } from "../ContractResources.ts";
 
 const OpenValueSchema = Type.Unsafe<Record<string, unknown>>({ type: "object" });
 const OpenSchemaValueSchema = Type.Unsafe<Record<string, unknown> | boolean>({
@@ -12,12 +12,21 @@ export const TrellisContractSchema = Type.Object({
   id: Type.String({ minLength: 1 }),
   displayName: Type.String({ minLength: 1 }),
   description: Type.String({ minLength: 1 }),
+  kind: Type.Union([
+    Type.Literal("service"),
+    Type.Literal("app"),
+    Type.Literal("portal"),
+    Type.Literal("device"),
+    Type.Literal("agent"),
+  ]),
   schemas: Type.Optional(Type.Record(Type.String({ minLength: 1 }), OpenSchemaValueSchema)),
   uses: Type.Optional(Type.Record(Type.String({ minLength: 1 }), OpenValueSchema)),
   rpc: Type.Optional(Type.Record(Type.String({ minLength: 1 }), OpenValueSchema)),
+  operations: Type.Optional(Type.Record(Type.String({ minLength: 1 }), OpenValueSchema)),
   events: Type.Optional(Type.Record(Type.String({ minLength: 1 }), OpenValueSchema)),
   subjects: Type.Optional(Type.Record(Type.String({ minLength: 1 }), OpenValueSchema)),
   errors: Type.Optional(Type.Record(Type.String({ minLength: 1 }), OpenValueSchema)),
+  jobs: Type.Optional(ContractJobsSchema),
   resources: Type.Optional(ContractResourcesSchema),
 });
 export type TrellisContract = Static<typeof TrellisContractSchema>;

@@ -48,6 +48,7 @@ function normalizeContract(contract: TrellisContractV1): TrellisContractV1 {
     ...(contract.operations ? { operations: contract.operations } : {}),
     ...(contract.events ? { events: contract.events } : {}),
     ...(contract.subjects ? { subjects: contract.subjects } : {}),
+    ...(contract.jobs ? { jobs: contract.jobs } : {}),
     ...(contract.resources ? { resources: contract.resources } : {}),
     ...(contract.errors ? { errors: contract.errors } : {}),
   };

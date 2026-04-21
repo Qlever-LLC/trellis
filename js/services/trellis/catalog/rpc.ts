@@ -53,6 +53,7 @@ function toRpcContract(
     id: contract.id,
     displayName: contract.displayName,
     description: contract.description,
+    kind: contract.kind,
     ...(contract.schemas
       ? {
         schemas: Object.fromEntries(
@@ -64,9 +65,11 @@ function toRpcContract(
       : {}),
     ...(contract.uses ? { uses: contract.uses } : {}),
     ...(contract.rpc ? { rpc: contract.rpc } : {}),
+    ...(contract.operations ? { operations: contract.operations } : {}),
     ...(contract.events ? { events: contract.events } : {}),
     ...(contract.subjects ? { subjects: contract.subjects } : {}),
     ...(contract.errors ? { errors: contract.errors } : {}),
+    ...(contract.jobs ? { jobs: contract.jobs } : {}),
     ...(contract.resources ? { resources: contract.resources } : {}),
   };
 }

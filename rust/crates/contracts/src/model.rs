@@ -188,6 +188,20 @@ pub struct ContractKvResource {
     pub max_value_bytes: Option<i64>,
 }
 
+/// One logical store resource declaration in a contract manifest.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ContractStoreResource {
+    pub purpose: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub required: Option<bool>,
+    #[serde(rename = "ttlMs", skip_serializing_if = "Option::is_none")]
+    pub ttl_ms: Option<i64>,
+    #[serde(rename = "maxObjectBytes", skip_serializing_if = "Option::is_none")]
+    pub max_object_bytes: Option<i64>,
+    #[serde(rename = "maxTotalBytes", skip_serializing_if = "Option::is_none")]
+    pub max_total_bytes: Option<i64>,
+}
+
 /// One logical jobs queue declaration in a contract manifest.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ContractJobQueueResource {
@@ -251,21 +265,15 @@ pub struct ContractStreamResource {
     pub sources: Option<Vec<ContractStreamSource>>,
 }
 
-/// Jobs resource declarations in a contract manifest.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ContractJobsResource {
-    pub queues: BTreeMap<String, ContractJobQueueResource>,
-}
-
 /// Resource declarations in a contract manifest.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct ContractResources {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub kv: BTreeMap<String, ContractKvResource>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub store: BTreeMap<String, ContractStoreResource>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub streams: BTreeMap<String, ContractStreamResource>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub jobs: Option<ContractJobsResource>,
 }
 
 /// The canonical Trellis contract manifest model.
@@ -291,13 +299,15 @@ pub struct ContractManifest {
     pub subjects: BTreeMap<String, ContractSubject>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub errors: BTreeMap<String, ContractErrorDecl>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub jobs: BTreeMap<String, ContractJobQueueResource>,
     #[serde(default, skip_serializing_if = "ContractResources::is_empty")]
     pub resources: ContractResources,
 }
 
 impl ContractResources {
     fn is_empty(&self) -> bool {
-        self.kv.is_empty() && self.streams.is_empty() && self.jobs.is_none()
+        self.kv.is_empty() && self.store.is_empty() && self.streams.is_empty()
     }
 }
 
