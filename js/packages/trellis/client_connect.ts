@@ -23,7 +23,7 @@ import {
   selectRuntimeTransportServers,
   type RuntimeTransport,
 } from "./runtime_transport.ts";
-import { Trellis } from "./trellis.ts";
+import { type RuntimeStateStoresForContract, Trellis } from "./trellis.ts";
 import { Type, type StaticDecode } from "typebox";
 import { Value } from "typebox/value";
 import {
@@ -43,6 +43,9 @@ type ClientContract<
   };
   readonly [CONTRACT_STATE_METADATA]?: ContractStateMetadata;
 };
+
+type ClientContractApi<TContract extends ClientContract> =
+  TContract["API"]["trellis"];
 
 type BrowserClientAuthOptions = {
   mode?: "browser";
@@ -570,9 +573,11 @@ function needsReauth(
     );
 }
 
-function bootstrapTargetsRequestedContract<TApi extends TrellisAPI>(
+function bootstrapTargetsRequestedContract<
+  TContract extends ClientContract<TrellisAPI, TrellisContractV1>,
+>(
   bootstrap: ClientBootstrapResponse,
-  args: TrellisClientConnectArgs<TApi>,
+  args: TrellisClientConnectArgs<ClientContractApi<TContract>, TContract>,
 ): boolean {
   return bootstrap.status === "ready" &&
     bootstrap.connectInfo.contractId === args.contract.CONTRACT.id;
@@ -619,10 +624,18 @@ async function buildSessionKeyLoginUrl(args: {
   throw new Error("Login flow creation returned an invalid response");
 }
 
-export async function connectClientWithDeps(
-  args: TrellisClientConnectArgs,
+export async function connectClientWithDeps<
+  TContract extends ClientContract<TrellisAPI, TrellisContractV1>,
+>(
+  args: TrellisClientConnectArgs<ClientContractApi<TContract>, TContract>,
   deps: ClientConnectDeps,
-): Promise<Trellis> {
+): Promise<
+  Trellis<
+    ClientContractApi<TContract>,
+    "client",
+    RuntimeStateStoresForContract<TContract>
+  >
+> {
   const trellisUrl = normalizeTrellisUrl(args.trellisUrl);
   const identity = await resolveClientIdentity(args.auth);
   const currentUrl = args.auth?.mode === "session_key" ? null : resolveCurrentUrl(args.auth);
@@ -726,7 +739,11 @@ export async function connectClientWithDeps(
     ...(args.noResponderRetry ? { noResponderRetry: args.noResponderRetry } : {}),
   };
 
-  return new Trellis<TrellisAPI>(
+  return new Trellis<
+    ClientContractApi<TContract>,
+    "client",
+    RuntimeStateStoresForContract<TContract>
+  >(
     clientOpts.name ?? "client",
     nc,
     {
@@ -744,8 +761,10 @@ export async function connectClientWithDeps(
   );
 }
 
-async function resolveAuthRequired<TApi extends TrellisAPI>(
-  args: TrellisClientConnectArgs<TApi>,
+async function resolveAuthRequired<
+  TContract extends ClientContract<TrellisAPI, TrellisContractV1>,
+>(
+  args: TrellisClientConnectArgs<ClientContractApi<TContract>, TContract>,
   identity: ClientRuntimeIdentity,
   currentUrl: URL | null,
   deps: ClientConnectDeps,
@@ -829,9 +848,17 @@ async function resolveAuthRequired<TApi extends TrellisAPI>(
 }
 
 export class TrellisClient {
-  static connect(
-    args: TrellisClientConnectArgs,
-  ): Promise<Trellis> {
+  static connect<
+    TContract extends ClientContract<TrellisAPI, TrellisContractV1>,
+  >(
+    args: TrellisClientConnectArgs<ClientContractApi<TContract>, TContract>,
+  ): Promise<
+    Trellis<
+      ClientContractApi<TContract>,
+      "client",
+      RuntimeStateStoresForContract<TContract>
+    >
+  > {
     return connectClientWithDeps(args, defaultDeps);
   }
 }

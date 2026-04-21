@@ -27,6 +27,9 @@ and this project adheres to
 - Fixed jobs worker permission grants for cancellation subscriptions, made
   server shutdown idempotent while NATS draining is already in progress, and
   corrected demo workspace generated-SDK resolution during contract prepare.
+- Fixed `TrellisClient.connect(...)` and `TrellisDevice.connect(...)` so
+  contract-driven RPC request typing is inferred from the passed contract rather
+  than widening typed responses like `Auth.Me` to `unknown`.
 
 ## [0.8.0] - 2026-04-19
 

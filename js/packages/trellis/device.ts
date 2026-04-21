@@ -29,7 +29,7 @@ import type { TrellisAPI } from "./contracts.ts";
 import { loadDefaultRuntimeTransport } from "./runtime_transport.ts";
 import { selectRuntimeTransportServers } from "./runtime_transport.ts";
 import { ServiceHealth } from "./health.ts";
-import { Trellis } from "./trellis.ts";
+import { type RuntimeStateStoresForContract, Trellis } from "./trellis.ts";
 import { logger as noopLogger, type LoggerLike } from "./globals.ts";
 import { type StaticDecode, Type } from "typebox";
 import { Value } from "typebox/value";
@@ -54,6 +54,9 @@ type DeviceContract<
   };
   readonly [CONTRACT_STATE_METADATA]?: ContractStateMetadata;
 };
+
+type DeviceContractApi<TContract extends DeviceContract> =
+  TContract["API"]["trellis"];
 
 export type TrellisDeviceConnection<
   TApi extends TrellisAPI = TrellisAPI,
@@ -393,10 +396,20 @@ async function fetchDeviceBootstrap(args: {
   throw new Error("Device bootstrap returned an invalid response");
 }
 
-export async function connectDeviceWithDeps(
-  args: TrellisDeviceConnectArgs,
+export async function connectDeviceWithDeps<
+  TContract extends DeviceContract<TrellisAPI, {
+    state?: Readonly<Record<string, unknown>>;
+    schemas?: Readonly<Record<string, unknown>>;
+  }>,
+>(
+  args: TrellisDeviceConnectArgs<DeviceContractApi<TContract>, TContract>,
   deps: DeviceConnectDeps,
-): Promise<TrellisDeviceConnection> {
+): Promise<
+  TrellisDeviceConnection<
+    DeviceContractApi<TContract>,
+    RuntimeStateStoresForContract<TContract>
+  >
+> {
   const log = resolveDeviceLogger(args.log);
   const rootSecret = normalizeRootSecret(args.rootSecret);
   const identity = await deriveDeviceIdentity(rootSecret);
@@ -515,7 +528,11 @@ export async function connectDeviceWithDeps(
     log,
   });
 
-  const trellis = new Trellis<TrellisAPI>(
+  const trellis = new Trellis<
+    DeviceContractApi<TContract>,
+    "client",
+    RuntimeStateStoresForContract<TContract>
+  >(
     args.contract.CONTRACT_ID,
     nc,
     {
@@ -586,7 +603,10 @@ export async function connectDeviceWithDeps(
     void nc.closed().finally(stopHeartbeat);
   }
 
-  const connection = trellis as TrellisDeviceConnection;
+  const connection = trellis as TrellisDeviceConnection<
+    DeviceContractApi<TContract>,
+    RuntimeStateStoresForContract<TContract>
+  >;
   Object.defineProperty(connection, "health", {
     value: health,
     enumerable: true,
@@ -597,9 +617,19 @@ export async function connectDeviceWithDeps(
 }
 
 export const TrellisDevice = {
-  connect(
-    args: TrellisDeviceConnectArgs,
-  ): Promise<TrellisDeviceConnection> {
+  connect<
+    TContract extends DeviceContract<TrellisAPI, {
+      state?: Readonly<Record<string, unknown>>;
+      schemas?: Readonly<Record<string, unknown>>;
+    }>,
+  >(
+    args: TrellisDeviceConnectArgs<DeviceContractApi<TContract>, TContract>,
+  ): Promise<
+    TrellisDeviceConnection<
+      DeviceContractApi<TContract>,
+      RuntimeStateStoresForContract<TContract>
+    >
+  > {
     return connectDeviceWithDeps(args, defaultDeps);
   },
 };
