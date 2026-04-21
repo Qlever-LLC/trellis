@@ -463,9 +463,12 @@ export function startAuthCallout(
       let session = sessionEntry.value as Session;
 
       if (session.type === "device") {
+        const presentedContractDigest = usesIat
+          ? authToken.contractDigest
+          : session.contractDigest;
         const currentGrant = deviceGrant ?? await resolveDeviceRuntimeGrant(
           sessionKey,
-          session.contractDigest,
+          presentedContractDigest,
           opts?.contractStore,
         );
         let activatedAt = currentGrant.activation.activatedAt

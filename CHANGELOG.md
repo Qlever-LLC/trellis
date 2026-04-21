@@ -30,6 +30,9 @@ and this project adheres to
 - Fixed `TrellisClient.connect(...)` and `TrellisDevice.connect(...)` so
   contract-driven RPC request typing is inferred from the passed contract rather
   than widening typed responses like `Auth.Me` to `unknown`.
+- Fixed activated-device state flows by preserving top-level contract `state`
+  metadata, refreshing device reconnect permissions from the presented digest,
+  and encoding state KV keys safely so the JavaScript state demo runs end-to-end.
 
 ## [0.8.0] - 2026-04-19
 

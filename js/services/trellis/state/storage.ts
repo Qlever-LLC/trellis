@@ -85,6 +85,40 @@ function byteLength(value: string): number {
   return new TextEncoder().encode(value).length;
 }
 
+function encodeStateComponent(value: string): string {
+  return [...value].map((char) => {
+    if (/^[A-Za-z0-9_./-]$/.test(char)) {
+      return char;
+    }
+
+    return [...new TextEncoder().encode(char)]
+      .map((byte) => `=${byte.toString(16).toUpperCase().padStart(2, "0")}`)
+      .join("");
+  }).join("");
+}
+
+function decodeStateComponent(value: string): string {
+  const bytes: number[] = [];
+
+  for (let index = 0; index < value.length;) {
+    const char = value[index];
+    if (char === "=") {
+      const hex = value.slice(index + 1, index + 3);
+      if (!/^[0-9A-Fa-f]{2}$/.test(hex)) {
+        throw new Error(`invalid encoded state key component '${value}'`);
+      }
+      bytes.push(Number.parseInt(hex, 16));
+      index += 3;
+      continue;
+    }
+
+    bytes.push(char.charCodeAt(0));
+    index += 1;
+  }
+
+  return new TextDecoder().decode(new Uint8Array(bytes));
+}
+
 function toRevision(revision: number): string {
   return `${revision}`;
 }
@@ -321,6 +355,9 @@ export class StateStore {
     }
 
     const namespacePrefix = this.#namespacePrefix(target);
+    const encodedPrefix = opts.prefix === undefined
+      ? undefined
+      : encodeStateComponent(opts.prefix);
     const keys = await this.#kv.keys(`${namespacePrefix}.>`);
     if (isErr(keys)) {
       return Result.err(new UnexpectedError({ cause: keys.error }));
@@ -331,9 +368,11 @@ export class StateStore {
       throw new Error("state KV keys unexpectedly failed");
     })) {
       if (!storageKey.startsWith(`${namespacePrefix}.`)) continue;
-      const key = storageKey.slice(namespacePrefix.length + 1);
-      if (key === VALUE_STORE_KEY) continue;
-      if (opts.prefix && !key.startsWith(opts.prefix)) continue;
+      const encodedKey = storageKey.slice(namespacePrefix.length + 1);
+      if (encodedKey === VALUE_STORE_KEY) continue;
+      if (encodedPrefix && !encodedKey.startsWith(encodedPrefix)) continue;
+
+      const key = decodeStateComponent(encodedKey);
 
       const entryResult = await this.#loadLiveEntry(target, key);
       if (entryResult.isErr()) return Result.err(entryResult.error);
@@ -401,11 +440,16 @@ export class StateStore {
   }
 
   #namespacePrefix(target: ResolvedStateStore): string {
-    return `${target.ownerType}.${target.ownerKey}.${target.contractId}.${target.store}`;
+    return [
+      encodeStateComponent(target.ownerType),
+      encodeStateComponent(target.ownerKey),
+      encodeStateComponent(target.contractId),
+      encodeStateComponent(target.store),
+    ].join(".");
   }
 
   #storageKey(target: ResolvedStateStore, key: string): string {
-    return `${this.#namespacePrefix(target)}.${key}`;
+    return `${this.#namespacePrefix(target)}.${encodeStateComponent(key)}`;
   }
 
   #toPublicEntry(target: ResolvedStateStore, entry: StateKvEntryLike, key: string): StateEntry {

@@ -129,3 +129,32 @@ Deno.test("StateStore treats expired entries as absent and supports conditional 
   }));
   assertEquals(deleted.deleted, true);
 });
+
+Deno.test("StateStore encodes contract ids and caller keys for KV-safe storage", async () => {
+  const kv = new FakeStateKV();
+  const store = new StateStore({ kv, now: () => new Date("2026-01-01T00:00:00.000Z") });
+  const target = {
+    ownerType: "device" as const,
+    contractId: "trellis.demo-state-device@v1",
+    ownerKey: "device.with.dot",
+    store: "drafts.with.dot",
+    kind: "map" as const,
+    schema: Type.Object({ label: Type.String() }),
+  };
+
+  const written = unwrapOk(await store.put(target, {
+    key: "inspection.v1/open",
+    value: { label: "draft" },
+  }));
+  assertEquals(written.applied, true);
+
+  const got = unwrapOk(await store.get(target, { key: "inspection.v1/open" }));
+  assertEquals(got.found, true);
+
+  const listed = unwrapOk(await store.list(target, {
+    prefix: "inspection.v1/",
+    offset: 0,
+    limit: 10,
+  }));
+  assertEquals(listed.entries.map((entry) => entry.key), ["inspection.v1/open"]);
+});

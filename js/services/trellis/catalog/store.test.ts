@@ -103,6 +103,32 @@ function makeStoreContract(id: string, displayName = "Store"): TrellisContractV1
   };
 }
 
+function makeStateContract(id: string, displayName = "State App"): TrellisContractV1 {
+  return {
+    format: "trellis.contract.v1",
+    id,
+    displayName,
+    description: `${displayName} test contract`,
+    kind: "device",
+    schemas: {
+      Preferences: {
+        type: "object",
+        properties: {
+          theme: { type: "string" },
+        },
+        required: ["theme"],
+        additionalProperties: false,
+      },
+    },
+    state: {
+      preferences: {
+        kind: "value",
+        schema: { schema: "Preferences" },
+      },
+    },
+  };
+}
+
 Deno.test("contract store allows multiple digests for one contract id when only one is active", async () => {
   const store = new ContractStore();
   const contract1 = makeContract("graph@v1", "rpc.v1.Graph.Ping", "graph");
@@ -278,6 +304,21 @@ Deno.test("contract store preserves store resources when validating contracts", 
   assertEquals(
     validated.contract.resources?.store?.uploads?.purpose,
     "Temporary uploads",
+  );
+});
+
+Deno.test("contract store preserves top-level state when validating contracts", async () => {
+  const store = new ContractStore();
+
+  const validated = await store.validate(makeStateContract("stateful@v1"));
+
+  assertEquals(
+    validated.contract.state?.preferences?.kind,
+    "value",
+  );
+  assertEquals(
+    validated.contract.state?.preferences?.schema?.schema,
+    "Preferences",
   );
 });
 
