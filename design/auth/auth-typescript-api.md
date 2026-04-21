@@ -362,6 +362,7 @@ declare class TrellisDevice {
     trellisUrl: string;
     contract: TrellisClientContract<TApi>;
     rootSecret: Uint8Array | string;
+    log?: LoggerLike | false;
     onActivationRequired?(activation: DeviceActivationController): Promise<void>;
   }): Promise<Trellis<TApi>>;
 }
@@ -379,6 +380,7 @@ Rules:
   repeated raw string `request(...).orThrow()` calls and manual plumbing
 - `TrellisDevice.connect(...)` is the intended high-level runtime entrypoint; it SHOULD behave more like `TrellisService.connect(...)` than a caller-managed activation state machine
 - `TrellisDevice.connect(...)` accepts `rootSecret` directly as bytes or a string form; storage/loading policy belongs to the application, not the helper
+- `TrellisDevice.connect(...)` accepts `log?: LoggerLike | false` using the same convention as service runtime helpers; device NATS lifecycle logs should emit distinct messages for disconnect, reconnect attempts, reconnect success, stale connections, and connection errors
 - `TrellisDevice.connect(...)` SHOULD fetch connect info on startup rather than persisting stale connect info across restarts
 - when the connected device contract uses the shared `Health.Heartbeat` event,
   `TrellisDevice.connect(...)` publishes baseline heartbeats automatically and

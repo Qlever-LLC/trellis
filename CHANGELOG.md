@@ -13,6 +13,9 @@ and this project adheres to
 - Changed `trellis auth login` to require a positional Trellis URL, renamed the
   persisted admin-session URL field to `trellis_url`, and updated the related
   design and guide examples.
+- Made service and activated-device runtime NATS lifecycle logging explicit so
+  disconnects, reconnect attempts, reconnect success, stale connections, and
+  connection errors produce distinct operator-facing messages.
 
 ### Fixed
 

@@ -85,14 +85,18 @@ function createTestLogger() {
   };
 }
 
-function createFakeNatsConnection(statuses: unknown[] = []): NatsConnection {
+function createFakeNatsConnection(args: {
+  statuses?: unknown[];
+  closedResult?: Error | void;
+  deferClosed?: boolean;
+} = {}): NatsConnection {
   type TestNatsConnection = NatsConnection & {
     options: { inboxPrefix: string };
   };
 
   const status = (() =>
     (async function* () {
-      for (const entry of statuses) {
+      for (const entry of args.statuses ?? []) {
         yield entry;
       }
     })()) as NatsConnection["status"];
@@ -124,10 +128,19 @@ function createFakeNatsConnection(statuses: unknown[] = []): NatsConnection {
     },
   };
 
+  let resolveClosed: ((value: Error | void) => void) | undefined;
+  const closedPromise = args.deferClosed
+    ? new Promise<Error | void>((resolve) => {
+      resolveClosed = resolve;
+    })
+    : Promise.resolve(args.closedResult);
+
   const connection: TestNatsConnection = {
     info: undefined,
-    closed: async () => undefined,
-    close: async () => {},
+    closed: async () => await closedPromise,
+    close: async () => {
+      resolveClosed?.(args.closedResult);
+    },
     options: {
       inboxPrefix: "_INBOX.test",
     },
@@ -393,7 +406,10 @@ Deno.test("TrellisService.connect retries once on iat_out_of_range using server 
       "stop-after-connect",
     );
 
-    assertEquals(requestBodies.map((entry) => entry.iat), [1_700_000_000, 1_700_000_120]);
+    assertEquals(requestBodies.map((entry) => entry.iat), [
+      1_700_000_000,
+      1_700_000_120,
+    ]);
     assertEquals(connectToken.includes('"iat":1700000120'), true);
   } finally {
     globalThis.fetch = originalFetch;
@@ -518,7 +534,7 @@ Deno.test("TrellisService.connectInternal accepts log false", async () => {
       log: false,
     },
   }, {
-    connect: async () => createFakeNatsConnection(),
+    connect: async () => createFakeNatsConnection({ deferClosed: true }),
   });
 
   assertEquals(service.name, "svc");
@@ -546,7 +562,7 @@ Deno.test("TrellisService.connectInternal uses the provided logger", async () =>
   assertEquals(testLogger.childBindings.length >= 3, true);
 });
 
-Deno.test("TrellisService.connectInternal logs routine NATS status at debug and exceptional statuses at info", async () => {
+Deno.test("TrellisService.connectInternal logs explicit service NATS lifecycle events", async () => {
   const testLogger = createTestLogger();
 
   const service = await TrellisService.connectInternal("svc", {
@@ -562,10 +578,15 @@ Deno.test("TrellisService.connectInternal logs routine NATS status at debug and 
     },
   }, {
     connect: async () =>
-      createFakeNatsConnection([
-        { type: "update", data: "cluster change" },
-        { type: "disconnect", data: "nats://127.0.0.1:4222" },
-      ]),
+      createFakeNatsConnection({
+        statuses: [
+          { type: "disconnect", data: "nats://127.0.0.1:4222" },
+          { type: "reconnecting", data: "nats://127.0.0.1:4223" },
+          { type: "forceReconnect", data: "nats://127.0.0.1:4224" },
+          { type: "reconnect", data: "nats://127.0.0.1:4222" },
+          { type: "staleConnection" },
+        ],
+      }),
   });
 
   try {
@@ -574,26 +595,53 @@ Deno.test("TrellisService.connectInternal logs routine NATS status at debug and 
     await service.stop();
   }
 
-  const debugStatusCalls = testLogger.debugCalls.filter((args) =>
-    args[1] === "Service NATS connection status"
-  );
-  const infoStatusCalls = testLogger.infoCalls.filter((args) =>
-    args[1] === "Service NATS connection status"
+  const lifecycleWarnCalls = testLogger.warnCalls.filter((args) =>
+    args[1] !== "Service NATS connection closed"
   );
 
-  assertEquals(debugStatusCalls.length, 1);
-  assertEquals(infoStatusCalls.length, 1);
-  assertEquals(debugStatusCalls[0]?.[0], {
-    service: "svc",
-    connection: { type: "update", data: "cluster change" },
-  });
-  assertEquals(infoStatusCalls[0]?.[0], {
-    service: "svc",
-    connection: { type: "disconnect", data: "nats://127.0.0.1:4222" },
-  });
+  assertEquals(lifecycleWarnCalls, [
+    [
+      {
+        service: "svc",
+        connection: { type: "disconnect", data: "nats://127.0.0.1:4222" },
+      },
+      "Service disconnected from NATS",
+    ],
+    [
+      {
+        service: "svc",
+        connection: { type: "reconnecting", data: "nats://127.0.0.1:4223" },
+      },
+      "Service attempting NATS reconnect",
+    ],
+    [
+      {
+        service: "svc",
+        connection: { type: "forceReconnect", data: "nats://127.0.0.1:4224" },
+      },
+      "Service forcing NATS reconnect",
+    ],
+    [
+      {
+        service: "svc",
+        connection: { type: "staleConnection" },
+      },
+      "Service NATS connection became stale",
+    ],
+  ]);
+  assertEquals(testLogger.infoCalls, [
+    [
+      {
+        service: "svc",
+        connection: { type: "reconnect", data: "nats://127.0.0.1:4222" },
+      },
+      "Service reconnected to NATS",
+    ],
+  ]);
+  assertEquals(testLogger.debugCalls.length, 0);
 });
 
-Deno.test("TrellisService.connectInternal includes NATS error details in status logs", async () => {
+Deno.test("TrellisService.connectInternal logs service NATS errors at error severity", async () => {
   const testLogger = createTestLogger();
 
   const service = await TrellisService.connectInternal("svc", {
@@ -609,16 +657,18 @@ Deno.test("TrellisService.connectInternal includes NATS error details in status 
     },
   }, {
     connect: async () =>
-      createFakeNatsConnection([
-        {
-          type: "error",
-          error: new PermissionViolationError(
-            'Permissions Violation for Publish to "_INBOX.session.123"',
-            "publish",
-            "_INBOX.session.123",
-          ),
-        },
-      ]),
+      createFakeNatsConnection({
+        statuses: [
+          {
+            type: "error",
+            error: new PermissionViolationError(
+              'Permissions Violation for Publish to "_INBOX.session.123"',
+              "publish",
+              "_INBOX.session.123",
+            ),
+          },
+        ],
+      }),
   });
 
   try {
@@ -627,23 +677,71 @@ Deno.test("TrellisService.connectInternal includes NATS error details in status 
     await service.stop();
   }
 
-  const infoStatusCalls = testLogger.infoCalls.filter((args) =>
-    args[1] === "Service NATS connection status"
-  );
-
-  assertEquals(infoStatusCalls.length, 1);
-  assertEquals(infoStatusCalls[0]?.[0], {
-    service: "svc",
-    connection: {
-      type: "error",
-      error: {
-        name: "PermissionViolationError",
-        message: 'Permissions Violation for Publish to "_INBOX.session.123"',
-        operation: "publish",
-        subject: "_INBOX.session.123",
+  assertEquals(testLogger.errorCalls, [
+    [
+      {
+        service: "svc",
+        connection: {
+          type: "error",
+          error: {
+            name: "PermissionViolationError",
+            message:
+              'Permissions Violation for Publish to "_INBOX.session.123"',
+            operation: "publish",
+            subject: "_INBOX.session.123",
+          },
+        },
       },
+      "Service NATS error",
+    ],
+  ]);
+});
+
+Deno.test("TrellisService.connectInternal keeps final closed logging explicit", async () => {
+  const testLogger = createTestLogger();
+
+  const service = await TrellisService.connectInternal("svc", {
+    sessionKeySeed: TEST_SEED,
+    nats: {
+      servers: "nats://127.0.0.1:4222",
+      authenticator: {},
     },
+    server: {
+      api: core.API.owned,
+      trellisApi: core.API.trellis,
+      log: testLogger.logger,
+    },
+  }, {
+    connect: async () =>
+      createFakeNatsConnection({
+        closedResult: new Error("socket closed"),
+      }),
   });
+
+  try {
+    await delay(20);
+  } finally {
+    await service.stop();
+  }
+
+  assertEquals(testLogger.errorCalls.length, 1);
+  assertEquals(
+    testLogger.errorCalls[0]?.[1],
+    "Service NATS connection closed with error",
+  );
+  assertEquals(
+    (testLogger.errorCalls[0]?.[0] as { service?: unknown }).service,
+    "svc",
+  );
+  assertEquals(
+    (testLogger.errorCalls[0]?.[0] as { error?: unknown }).error instanceof
+      Error,
+    true,
+  );
+  assertEquals(
+    (testLogger.errorCalls[0]?.[0] as { error?: Error }).error?.message,
+    "socket closed",
+  );
 });
 
 Deno.test("TrellisService.connectInternal defaults to the server logger", async () => {

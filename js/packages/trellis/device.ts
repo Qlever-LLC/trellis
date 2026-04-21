@@ -1,5 +1,12 @@
-import { jwtAuthenticator, type Authenticator, type NatsConnection } from "@nats-io/nats-core";
-import { CONTRACT_STATE_METADATA, type ContractStateMetadata } from "./contract_support/mod.ts";
+import {
+  type Authenticator,
+  jwtAuthenticator,
+  type NatsConnection,
+} from "@nats-io/nats-core";
+import {
+  CONTRACT_STATE_METADATA,
+  type ContractStateMetadata,
+} from "./contract_support/mod.ts";
 
 import {
   buildDeviceActivationPayload,
@@ -13,13 +20,18 @@ import {
   importEd25519PrivateKeyFromSeedBase64url,
   signEd25519SeedSha256,
 } from "./auth/keys.ts";
-import { base64urlDecode, base64urlEncode, toArrayBuffer } from "./auth/utils.ts";
+import {
+  base64urlDecode,
+  base64urlEncode,
+  toArrayBuffer,
+} from "./auth/utils.ts";
 import type { TrellisAPI } from "./contracts.ts";
 import { loadDefaultRuntimeTransport } from "./runtime_transport.ts";
 import { selectRuntimeTransportServers } from "./runtime_transport.ts";
 import { ServiceHealth } from "./health.ts";
 import { Trellis } from "./trellis.ts";
-import { Type, type StaticDecode } from "typebox";
+import { logger as noopLogger, type LoggerLike } from "./globals.ts";
+import { type StaticDecode, Type } from "typebox";
 import { Value } from "typebox/value";
 
 type DeviceContract<
@@ -92,6 +104,7 @@ export type TrellisDeviceConnectArgs<
   trellisUrl: string;
   contract: TContract;
   rootSecret: Uint8Array | string;
+  log?: LoggerLike | false;
   onActivationRequired?(activation: DeviceActivationController): Promise<void>;
 };
 
@@ -126,8 +139,12 @@ const DeviceBootstrapNotReadySchema = Type.Object({
 });
 
 type DeviceBootstrapReady = StaticDecode<typeof DeviceBootstrapReadySchema>;
-type DeviceBootstrapActivationRequired = StaticDecode<typeof DeviceBootstrapActivationRequiredSchema>;
-type DeviceBootstrapNotReady = StaticDecode<typeof DeviceBootstrapNotReadySchema>;
+type DeviceBootstrapActivationRequired = StaticDecode<
+  typeof DeviceBootstrapActivationRequiredSchema
+>;
+type DeviceBootstrapNotReady = StaticDecode<
+  typeof DeviceBootstrapNotReadySchema
+>;
 type DeviceBootstrapResponse =
   | DeviceBootstrapReady
   | DeviceBootstrapActivationRequired
@@ -144,9 +161,16 @@ function normalizeRootSecret(rootSecret: Uint8Array | string): Uint8Array {
   return rootSecret;
 }
 
-async function signIdentityBytes(identitySeed: Uint8Array, data: Uint8Array): Promise<Uint8Array> {
-  const privateKey = await importEd25519PrivateKeyFromSeedBase64url(base64urlEncode(identitySeed));
-  return new Uint8Array(await crypto.subtle.sign("Ed25519", privateKey, toArrayBuffer(data)));
+async function signIdentityBytes(
+  identitySeed: Uint8Array,
+  data: Uint8Array,
+): Promise<Uint8Array> {
+  const privateKey = await importEd25519PrivateKeyFromSeedBase64url(
+    base64urlEncode(identitySeed),
+  );
+  return new Uint8Array(
+    await crypto.subtle.sign("Ed25519", privateKey, toArrayBuffer(data)),
+  );
 }
 
 function createDeviceNatsAuthTokenAuthenticator(args: {
@@ -157,7 +181,10 @@ function createDeviceNatsAuthTokenAuthenticator(args: {
 }): Authenticator {
   return () => {
     const iat = Math.floor(args.now() / 1_000);
-    const sig = signEd25519SeedSha256(args.identitySeed, new TextEncoder().encode(`nats-connect:${iat}`));
+    const sig = signEd25519SeedSha256(
+      args.identitySeed,
+      new TextEncoder().encode(`nats-connect:${iat}`),
+    );
     return {
       auth_token: JSON.stringify({
         v: 1,
@@ -176,12 +203,154 @@ const defaultDeps: DeviceConnectDeps = {
 };
 
 function activationRequiredError(): Error {
-  return new Error("Device activation required but no activation handler was provided");
+  return new Error(
+    "Device activation required but no activation handler was provided",
+  );
+}
+
+function resolveDeviceLogger(log?: LoggerLike | false): LoggerLike {
+  if (log === false) {
+    return noopLogger;
+  }
+
+  return log ?? noopLogger;
+}
+
+function normalizeNatsError(error: Error): Record<string, unknown> {
+  const record = error as Error & {
+    operation?: unknown;
+    subject?: unknown;
+    queue?: unknown;
+  };
+
+  return {
+    name: error.name,
+    message: error.message,
+    ...(typeof record.operation === "string"
+      ? { operation: record.operation }
+      : {}),
+    ...(typeof record.subject === "string" ? { subject: record.subject } : {}),
+    ...(typeof record.queue === "string" ? { queue: record.queue } : {}),
+  };
+}
+
+function normalizeNatsStatus(status: unknown): Record<string, unknown> {
+  if (!status || typeof status !== "object") {
+    return { status };
+  }
+
+  const record = status as Record<string, unknown>;
+  return {
+    ...(typeof record.type === "string" ? { type: record.type } : {}),
+    ...(record.error instanceof Error
+      ? { error: normalizeNatsError(record.error) }
+      : {}),
+    ...(typeof record.data === "string" ? { data: record.data } : {}),
+    ...(record.data && typeof record.data === "object"
+      ? { data: record.data }
+      : {}),
+  };
+}
+
+function getDeviceNatsLifecycleLog(status: unknown): {
+  level: "info" | "warn" | "error";
+  message: string;
+} | null {
+  if (!status || typeof status !== "object") {
+    return null;
+  }
+
+  switch ((status as { type?: unknown }).type) {
+    case "disconnect":
+      return {
+        level: "warn",
+        message: "Device disconnected from NATS",
+      };
+    case "reconnecting":
+      return {
+        level: "warn",
+        message: "Device attempting NATS reconnect",
+      };
+    case "forceReconnect":
+      return {
+        level: "warn",
+        message: "Device forcing NATS reconnect",
+      };
+    case "reconnect":
+      return {
+        level: "info",
+        message: "Device reconnected to NATS",
+      };
+    case "staleConnection":
+      return {
+        level: "warn",
+        message: "Device NATS connection became stale",
+      };
+    case "error":
+      return {
+        level: "error",
+        message: "Device NATS error",
+      };
+    default:
+      return null;
+  }
+}
+
+function startDeviceNatsConnectionLogging(args: {
+  contractId: string;
+  nc: NatsConnection;
+  log: LoggerLike;
+}): void {
+  const statusFn = (args.nc as NatsConnection & {
+    status?: () => AsyncIterable<unknown>;
+  }).status;
+
+  if (typeof statusFn === "function") {
+    void (async () => {
+      try {
+        for await (const status of statusFn.call(args.nc)) {
+          const lifecycleLog = getDeviceNatsLifecycleLog(status);
+          if (!lifecycleLog) {
+            continue;
+          }
+
+          args.log[lifecycleLog.level](
+            {
+              contractId: args.contractId,
+              connection: normalizeNatsStatus(status),
+            },
+            lifecycleLog.message,
+          );
+        }
+      } catch (error) {
+        args.log.warn(
+          { contractId: args.contractId, error },
+          "Device NATS status watcher failed",
+        );
+      }
+    })();
+  }
+
+  void args.nc.closed().then((error: unknown) => {
+    if (error) {
+      args.log.error(
+        { contractId: args.contractId, error },
+        "Device NATS connection closed with error",
+      );
+      return;
+    }
+
+    args.log.warn(
+      { contractId: args.contractId },
+      "Device NATS connection closed",
+    );
+  });
 }
 
 function isConnectInfoUnavailable(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
-  return message.includes("404") || message.includes("unknown_device") || message.includes("activation_required");
+  return message.includes("404") || message.includes("unknown_device") ||
+    message.includes("activation_required");
 }
 
 async function fetchDeviceBootstrap(args: {
@@ -210,12 +379,16 @@ async function fetchDeviceBootstrap(args: {
     body: JSON.stringify(bootstrapRequest),
   });
   if (!response.ok) {
-    throw new Error(`Device bootstrap failed: ${response.status} ${await response.text()}`);
+    throw new Error(
+      `Device bootstrap failed: ${response.status} ${await response.text()}`,
+    );
   }
 
   const payload = await response.json();
   if (Value.Check(DeviceBootstrapReadySchema, payload)) return payload;
-  if (Value.Check(DeviceBootstrapActivationRequiredSchema, payload)) return payload;
+  if (Value.Check(DeviceBootstrapActivationRequiredSchema, payload)) {
+    return payload;
+  }
   if (Value.Check(DeviceBootstrapNotReadySchema, payload)) return payload;
   throw new Error("Device bootstrap returned an invalid response");
 }
@@ -224,6 +397,7 @@ export async function connectDeviceWithDeps(
   args: TrellisDeviceConnectArgs,
   deps: DeviceConnectDeps,
 ): Promise<TrellisDeviceConnection> {
+  const log = resolveDeviceLogger(args.log);
   const rootSecret = normalizeRootSecret(args.rootSecret);
   const identity = await deriveDeviceIdentity(rootSecret);
   const contractDigest = args.contract.CONTRACT_DIGEST;
@@ -335,21 +509,30 @@ export async function connectDeviceWithDeps(
     ],
   });
 
+  startDeviceNatsConnectionLogging({
+    contractId: args.contract.CONTRACT_ID,
+    nc,
+    log,
+  });
+
   const trellis = new Trellis<TrellisAPI>(
     args.contract.CONTRACT_ID,
     nc,
     {
       sessionKey: identity.publicIdentityKey,
-      sign: (data: Uint8Array) => signIdentityBytes(identity.identitySeed, data),
+      sign: (data: Uint8Array) =>
+        signIdentityBytes(identity.identitySeed, data),
     },
     {
+      log,
       api: args.contract.API.trellis,
       state: args.contract[CONTRACT_STATE_METADATA],
     },
   );
 
   const health = new ServiceHealth({
-    serviceName: args.contract.CONTRACT?.displayName ?? args.contract.CONTRACT_ID,
+    serviceName: args.contract.CONTRACT?.displayName ??
+      args.contract.CONTRACT_ID,
     kind: "device",
     instanceId: connectInfo.instanceId,
     contractId: connectInfo.contractId,
@@ -367,7 +550,8 @@ export async function connectDeviceWithDeps(
   }));
 
   const heartbeatEventEnabled = Boolean(
-    (args.contract.API.trellis.events as Record<string, unknown> | undefined)?.["Health.Heartbeat"],
+    (args.contract.API.trellis.events as Record<string, unknown> | undefined)
+      ?.["Health.Heartbeat"],
   );
   let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
   let publishingHeartbeat = false;

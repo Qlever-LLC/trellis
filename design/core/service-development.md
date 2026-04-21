@@ -179,6 +179,10 @@ Rules:
   no-responder retry behavior, and extra health checks
 - `server.log` defaults to the package server logger; set it to `false` to
   disable runtime logging or provide a pino-compatible logger to use your own
+- service runtime NATS lifecycle logging is explicit rather than generic;
+  disconnect, reconnect attempts, reconnect success, stale connections, and
+  connection errors should each log a distinct message so operators can tell
+  whether the service is recovering or stuck
 - when the connected contract uses the shared `Health.Heartbeat` event,
   `TrellisService.connect(...)` publishes baseline heartbeats automatically and
   service code may enrich them through `service.health.setInfo(...)` and

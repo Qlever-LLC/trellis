@@ -59,17 +59,20 @@ import { serverLogger } from "../server_logger.ts";
 import { UnexpectedError } from "../errors/index.ts";
 import {
   ActiveJob as PublicActiveJob,
-  JobQueue,
-  JobRef,
-  JobWorkerHostAdapter,
   type JobIdentity,
   type JobLogEntry,
   type JobProgress,
+  JobQueue,
+  JobRef,
   type JobsFacadeOf,
   type JobSnapshot,
+  JobWorkerHostAdapter,
   type TerminalJob,
 } from "../jobs.ts";
-import { JobManager as InternalJobManager, JobProcessError as InternalJobProcessError } from "./internal_jobs/job-manager.ts";
+import {
+  JobManager as InternalJobManager,
+  JobProcessError as InternalJobProcessError,
+} from "./internal_jobs/job-manager.ts";
 import { startNatsWorkerHostFromBinding } from "./internal_jobs/runtime-worker.ts";
 import type { ActiveJob as InternalActiveJob } from "./internal_jobs/active-job.ts";
 import type { Job as InternalJob } from "./internal_jobs/types.ts";
@@ -232,14 +235,48 @@ function normalizeNatsStatus(status: unknown): Record<string, unknown> {
   };
 }
 
-function isImportantNatsStatus(status: unknown): boolean {
+function getServiceNatsLifecycleLog(status: unknown): {
+  level: "info" | "warn" | "error";
+  message: string;
+} | null {
   if (!status || typeof status !== "object") {
-    return false;
+    return null;
   }
 
-  const type = (status as { type?: unknown }).type;
-  return type === "disconnect" || type === "forceReconnect" ||
-    type === "staleConnection" || type === "error";
+  switch ((status as { type?: unknown }).type) {
+    case "disconnect":
+      return {
+        level: "warn",
+        message: "Service disconnected from NATS",
+      };
+    case "reconnecting":
+      return {
+        level: "warn",
+        message: "Service attempting NATS reconnect",
+      };
+    case "forceReconnect":
+      return {
+        level: "warn",
+        message: "Service forcing NATS reconnect",
+      };
+    case "reconnect":
+      return {
+        level: "info",
+        message: "Service reconnected to NATS",
+      };
+    case "staleConnection":
+      return {
+        level: "warn",
+        message: "Service NATS connection became stale",
+      };
+    case "error":
+      return {
+        level: "error",
+        message: "Service NATS error",
+      };
+    default:
+      return null;
+  }
 }
 
 function startNatsConnectionLogging(args: {
@@ -258,16 +295,17 @@ function startNatsConnectionLogging(args: {
         for await (const status of statusFn.call(args.nc)) {
           if (stopped) return;
 
-          const logConnectionStatus = isImportantNatsStatus(status)
-            ? args.log.info.bind(args.log)
-            : args.log.debug.bind(args.log);
+          const lifecycleLog = getServiceNatsLifecycleLog(status);
+          if (!lifecycleLog) {
+            continue;
+          }
 
-          logConnectionStatus(
+          args.log[lifecycleLog.level](
             {
               service: args.name,
               connection: normalizeNatsStatus(status),
             },
-            "Service NATS connection status",
+            lifecycleLog.message,
           );
         }
       } catch (error) {
@@ -676,19 +714,35 @@ export type ServiceContract<
 };
 
 type ContractOwnedApi<
-  TContract extends ServiceContract<TrellisAPI, TrellisAPI, ContractJobsMetadata>,
+  TContract extends ServiceContract<
+    TrellisAPI,
+    TrellisAPI,
+    ContractJobsMetadata
+  >,
 > = TContract["API"]["owned"];
 
 type ContractTrellisApi<
-  TContract extends ServiceContract<TrellisAPI, TrellisAPI, ContractJobsMetadata>,
+  TContract extends ServiceContract<
+    TrellisAPI,
+    TrellisAPI,
+    ContractJobsMetadata
+  >,
 > = TContract["API"]["trellis"];
 
 type ContractJobsOf<
-  TContract extends ServiceContract<TrellisAPI, TrellisAPI, ContractJobsMetadata>,
+  TContract extends ServiceContract<
+    TrellisAPI,
+    TrellisAPI,
+    ContractJobsMetadata
+  >,
 > = NonNullable<TContract[typeof CONTRACT_JOBS_METADATA]>;
 
 export type ServiceRpcHandler<
-  TContract extends ServiceContract<TrellisAPI, TrellisAPI, ContractJobsMetadata>,
+  TContract extends ServiceContract<
+    TrellisAPI,
+    TrellisAPI,
+    ContractJobsMetadata
+  >,
   M extends RpcMethodName<ContractOwnedApi<TContract>>,
 > = (
   input: RpcMethodInput<ContractOwnedApi<TContract>, M>,
@@ -707,7 +761,11 @@ export type ServiceRpcHandler<
   >;
 
 export type TrellisServiceConnectArgs<
-  TContract extends ServiceContract<TrellisAPI, TrellisAPI, ContractJobsMetadata>,
+  TContract extends ServiceContract<
+    TrellisAPI,
+    TrellisAPI,
+    ContractJobsMetadata
+  >,
 > = {
   trellisUrl: string;
   contract: TContract;
@@ -978,7 +1036,9 @@ function wrapVoidTask(task: () => Promise<void>): AsyncResult<void, BaseError> {
   })());
 }
 
-function isTerminalJobState(state: string): state is TerminalJob<unknown, unknown>["state"] {
+function isTerminalJobState(
+  state: string,
+): state is TerminalJob<unknown, unknown>["state"] {
   return state === "completed" || state === "failed" || state === "cancelled" ||
     state === "expired" || state === "dead" || state === "dismissed";
 }
@@ -1021,7 +1081,10 @@ function createJobRef<TPayload, TResult>(args: {
       ),
     );
 
-  const readLatest = (): AsyncResult<JobSnapshot<TPayload, TResult> | null, BaseError> => {
+  const readLatest = (): AsyncResult<
+    JobSnapshot<TPayload, TResult> | null,
+    BaseError
+  > => {
     if (!args.jobsBinding.jobsStateBucket) {
       return AsyncResult.ok(null);
     }
@@ -1039,73 +1102,78 @@ function createJobRef<TPayload, TResult>(args: {
       jobType: args.queueType,
     },
     {
-      get: () => AsyncResult.from((async () => {
-        const latest = await readLatest().take();
-        if (isErr(latest)) {
-          return Result.err(latest.error);
-        }
-        return Result.ok(latest ?? args.seed);
-      })()),
-      wait: () => AsyncResult.from((async () => {
-        if (!args.jobsBinding.jobsStateBucket) {
-          return Result.err(projectedStateUnavailable());
-        }
-        for (;;) {
+      get: () =>
+        AsyncResult.from((async () => {
+          const latest = await readLatest().take();
+          if (isErr(latest)) {
+            return Result.err(latest.error);
+          }
+          return Result.ok(latest ?? args.seed);
+        })()),
+      wait: () =>
+        AsyncResult.from((async () => {
+          if (!args.jobsBinding.jobsStateBucket) {
+            return Result.err(projectedStateUnavailable());
+          }
+          for (;;) {
+            const latest = await readLatest().take();
+            if (isErr(latest)) {
+              return Result.err(latest.error);
+            }
+            const snapshot = latest ?? args.seed;
+            if (isTerminalJobState(snapshot.state)) {
+              return Result.ok(snapshot as TerminalJob<TPayload, TResult>);
+            }
+            await sleep(250);
+          }
+        })()),
+      cancel: () =>
+        AsyncResult.from((async () => {
+          if (!args.jobsBinding.jobsStateBucket) {
+            return Result.err(projectedStateUnavailable());
+          }
           const latest = await readLatest().take();
           if (isErr(latest)) {
             return Result.err(latest.error);
           }
           const snapshot = latest ?? args.seed;
           if (isTerminalJobState(snapshot.state)) {
-            return Result.ok(snapshot as TerminalJob<TPayload, TResult>);
+            return Result.ok(snapshot);
           }
-          await sleep(250);
-        }
-      })()),
-      cancel: () => AsyncResult.from((async () => {
-        if (!args.jobsBinding.jobsStateBucket) {
-          return Result.err(projectedStateUnavailable());
-        }
-        const latest = await readLatest().take();
-        if (isErr(latest)) {
-          return Result.err(latest.error);
-        }
-        const snapshot = latest ?? args.seed;
-        if (isTerminalJobState(snapshot.state)) {
-          return Result.ok(snapshot);
-        }
 
-        try {
-          args.nc.publish(
-            `${args.queueBinding.publishPrefix}.${args.seed.id}.cancelled`,
-            new TextEncoder().encode(JSON.stringify({
-              jobId: args.seed.id,
-              service: snapshot.service,
-              jobType: args.queueType,
-              eventType: "cancelled",
-              state: "cancelled",
-              previousState: snapshot.state,
-              tries: snapshot.tries,
-              error: "cancelled",
-              timestamp: new Date().toISOString(),
-            })),
-          );
-        } catch (cause) {
-          return Result.err(toUnexpectedError(cause));
-        }
+          try {
+            args.nc.publish(
+              `${args.queueBinding.publishPrefix}.${args.seed.id}.cancelled`,
+              new TextEncoder().encode(JSON.stringify({
+                jobId: args.seed.id,
+                service: snapshot.service,
+                jobType: args.queueType,
+                eventType: "cancelled",
+                state: "cancelled",
+                previousState: snapshot.state,
+                tries: snapshot.tries,
+                error: "cancelled",
+                timestamp: new Date().toISOString(),
+              })),
+            );
+          } catch (cause) {
+            return Result.err(toUnexpectedError(cause));
+          }
 
-        for (;;) {
-          const refreshed = await readLatest().take();
-          if (isErr(refreshed)) {
-            return Result.err(refreshed.error);
+          for (;;) {
+            const refreshed = await readLatest().take();
+            if (isErr(refreshed)) {
+              return Result.err(refreshed.error);
+            }
+            const current = refreshed ?? snapshot;
+            if (
+              current.state === "cancelled" || isTerminalJobState(current.state)
+            ) {
+              return Result.ok(current);
+            }
+            await sleep(250);
           }
-          const current = refreshed ?? snapshot;
-          if (current.state === "cancelled" || isTerminalJobState(current.state)) {
-            return Result.ok(current);
-          }
-          await sleep(250);
-        }
-      })()),
+        })()),
     },
   );
 }
@@ -1129,44 +1197,55 @@ function createJobsFacade<TJobs extends ContractJobsMetadata>(args: {
 
   for (const queueType of Object.keys(args.contractJobs ?? {})) {
     jobsFacade[queueType] = new JobQueue<unknown, unknown>({
-      create: (payload) => AsyncResult.from((async () => {
-        try {
-          const jobsBinding = args.jobsBinding;
-          if (!jobsBinding) {
-            return Result.err(toUnexpectedError(new Error("Jobs bindings are unavailable")));
+      create: (payload) =>
+        AsyncResult.from((async () => {
+          try {
+            const jobsBinding = args.jobsBinding;
+            if (!jobsBinding) {
+              return Result.err(
+                toUnexpectedError(new Error("Jobs bindings are unavailable")),
+              );
+            }
+            const queueBinding = jobsBinding.queues[queueType];
+            if (!queueBinding) {
+              return Result.err(toUnexpectedError(
+                new Error(
+                  `Jobs binding for queue '${queueType}' is unavailable`,
+                ),
+              ));
+            }
+
+            const manager = new InternalJobManager<unknown, unknown>({
+              nc: args.nc,
+              jobs: jobsBinding,
+            });
+            const created = await manager.create(queueType, payload);
+            return Result.ok(createJobRef({
+              nc: args.nc,
+              queueType,
+              jobsBinding,
+              queueBinding,
+              seed: created as JobSnapshot<unknown, unknown>,
+            }));
+          } catch (cause) {
+            return Result.err(toUnexpectedError(cause));
           }
-          const queueBinding = jobsBinding.queues[queueType];
-          if (!queueBinding) {
+        })()),
+      handle: (handler) =>
+        AsyncResult.from((async () => {
+          if (handlers.has(queueType)) {
             return Result.err(toUnexpectedError(
-              new Error(`Jobs binding for queue '${queueType}' is unavailable`),
+              new Error(
+                `Job handler for queue '${queueType}' is already registered`,
+              ),
             ));
           }
-
-          const manager = new InternalJobManager<unknown, unknown>({
-            nc: args.nc,
-            jobs: jobsBinding,
-          });
-          const created = await manager.create(queueType, payload);
-          return Result.ok(createJobRef({
-            nc: args.nc,
+          handlers.set(
             queueType,
-            jobsBinding,
-            queueBinding,
-            seed: created as JobSnapshot<unknown, unknown>,
-          }));
-        } catch (cause) {
-          return Result.err(toUnexpectedError(cause));
-        }
-      })()),
-      handle: (handler) => AsyncResult.from((async () => {
-        if (handlers.has(queueType)) {
-          return Result.err(toUnexpectedError(
-            new Error(`Job handler for queue '${queueType}' is already registered`),
-          ));
-        }
-        handlers.set(queueType, handler as RegisteredJobHandler<unknown, unknown>);
-        return okVoid();
-      })()),
+            handler as RegisteredJobHandler<unknown, unknown>,
+          );
+          return okVoid();
+        })()),
     });
   }
 
@@ -1174,85 +1253,97 @@ function createJobsFacade<TJobs extends ContractJobsMetadata>(args: {
     queues?: readonly string[];
     instanceId?: string;
     version?: string;
-  }) => AsyncResult.from((async () => {
-    const selectedQueues = opts?.queues ? [...opts.queues] : [...handlers.keys()];
-    if (selectedQueues.length === 0) {
-      return Result.ok(createNoopJobWorkerHost());
-    }
-
-    if (!args.jobsBinding || !args.workStream) {
-      return Result.err(toUnexpectedError(
-        new Error("Jobs infrastructure bindings are unavailable for this service"),
-      ));
-    }
-
-    const jobsBinding = args.jobsBinding;
-    const workStream = args.workStream;
-
-    const hosts = [] as Array<{ stop(): Promise<void> }>;
-    for (const queueType of selectedQueues) {
-      const queueBinding = jobsBinding.queues[queueType];
-      if (!queueBinding) {
-        return Result.err(toUnexpectedError(new Error(`Unknown jobs queue '${queueType}'`)));
+  }) =>
+    AsyncResult.from((async () => {
+      const selectedQueues = opts?.queues
+        ? [...opts.queues]
+        : [...handlers.keys()];
+      if (selectedQueues.length === 0) {
+        return Result.ok(createNoopJobWorkerHost());
       }
-      const handler = handlers.get(queueType);
-      if (!handler) {
+
+      if (!args.jobsBinding || !args.workStream) {
         return Result.err(toUnexpectedError(
-          new Error(`No job handler registered for queue '${queueType}'`),
+          new Error(
+            "Jobs infrastructure bindings are unavailable for this service",
+          ),
         ));
       }
 
-      const manager = new InternalJobManager<unknown, unknown>({
-        nc: args.nc,
-        jobs: jobsBinding,
-      });
-      const host = await startNatsWorkerHostFromBinding<unknown>({
-        jobs: jobsBinding,
-        workStream,
-      }, {
-        nats: args.nc,
-        instanceId: opts?.instanceId ?? `${args.serviceName}-worker`,
-        queueTypes: [queueType],
-        manager,
-        version: opts?.version,
-        handler: async (job: InternalActiveJob<unknown, unknown>) => {
-          const publicJob = new PublicActiveJob(
-            createJobRef({
-              nc: args.nc,
-              queueType,
-              jobsBinding,
-              queueBinding,
-              seed: job.job() as JobSnapshot<unknown, unknown>,
-            }),
-            job.job().payload,
-            () => job.isCancelled(),
-            {
-              heartbeat: () => wrapVoidTask(() => job.heartbeat()),
-              progress: (value: JobProgress) => wrapVoidTask(() => job.updateProgress(value)),
-              log: (entry: JobLogEntry) => wrapVoidTask(() => job.log(entry.level, entry.message)),
-              redeliveryCount: job.redeliveryCount(),
-            },
+      const jobsBinding = args.jobsBinding;
+      const workStream = args.workStream;
+
+      const hosts = [] as Array<{ stop(): Promise<void> }>;
+      for (const queueType of selectedQueues) {
+        const queueBinding = jobsBinding.queues[queueType];
+        if (!queueBinding) {
+          return Result.err(
+            toUnexpectedError(new Error(`Unknown jobs queue '${queueType}'`)),
           );
-
-          const handled = await handler(publicJob);
-          if (isErr(handled)) {
-            throw InternalJobProcessError.failed(handled.error.message);
-          }
-          return handled;
-        },
-      });
-      hosts.push(host);
-    }
-
-    return Result.ok(new JobWorkerHostAdapter({
-      stop: () => wrapVoidTask(async () => {
-        for (const host of hosts) {
-          await host.stop();
         }
-      }),
-      join: () => AsyncResult.ok(undefined),
-    }));
-  })());
+        const handler = handlers.get(queueType);
+        if (!handler) {
+          return Result.err(toUnexpectedError(
+            new Error(`No job handler registered for queue '${queueType}'`),
+          ));
+        }
+
+        const manager = new InternalJobManager<unknown, unknown>({
+          nc: args.nc,
+          jobs: jobsBinding,
+        });
+        const host = await startNatsWorkerHostFromBinding<unknown>({
+          jobs: jobsBinding,
+          workStream,
+        }, {
+          nats: args.nc,
+          instanceId: opts?.instanceId ?? `${args.serviceName}-worker`,
+          queueTypes: [queueType],
+          manager,
+          version: opts?.version,
+          handler: async (job: InternalActiveJob<unknown, unknown>) => {
+            const publicJob = new PublicActiveJob(
+              createJobRef({
+                nc: args.nc,
+                queueType,
+                jobsBinding,
+                queueBinding,
+                seed: job.job() as JobSnapshot<unknown, unknown>,
+              }),
+              job.job().payload,
+              () => job.isCancelled(),
+              {
+                heartbeat: () => wrapVoidTask(() => job.heartbeat()),
+                progress: (value: JobProgress) =>
+                  wrapVoidTask(() => job.updateProgress(value)),
+                log: (entry: JobLogEntry) =>
+                  wrapVoidTask(() => job.log(entry.level, entry.message)),
+                redeliveryCount: job.redeliveryCount(),
+              },
+            );
+
+            const handled = await handler(publicJob);
+            if (isErr(handled)) {
+              throw InternalJobProcessError.failed(handled.error.message);
+            }
+            return handled;
+          },
+        });
+        hosts.push(host);
+      }
+
+      return Result.ok(
+        new JobWorkerHostAdapter({
+          stop: () =>
+            wrapVoidTask(async () => {
+              for (const host of hosts) {
+                await host.stop();
+              }
+            }),
+          join: () => AsyncResult.ok(undefined),
+        }),
+      );
+    })());
 
   return jobsFacade as JobsFacadeOf<TJobs>;
 }
@@ -1325,7 +1416,11 @@ export class TrellisService<
   }
 
   static async connect<
-    TContract extends ServiceContract<TrellisAPI, TrellisAPI, ContractJobsMetadata>,
+    TContract extends ServiceContract<
+      TrellisAPI,
+      TrellisAPI,
+      ContractJobsMetadata
+    >,
   >(
     args: TrellisServiceConnectArgs<TContract>,
     deps?: Partial<TrellisServiceRuntimeDeps>,
@@ -1377,7 +1472,9 @@ export class TrellisService<
       contractId: args.contract.CONTRACT_ID,
       contractDigest: args.contract.CONTRACT_DIGEST,
       contractJobs:
-        (args.contract[CONTRACT_JOBS_METADATA] ?? {}) as ContractJobsOf<TContract>,
+        (args.contract[CONTRACT_JOBS_METADATA] ?? {}) as ContractJobsOf<
+          TContract
+        >,
       server: {
         ...(args.server ?? {}),
         api: args.contract.API.owned,
