@@ -20,7 +20,6 @@ import {
 } from "./auth/session/rpc.ts";
 import {
   createActivateDeviceHandler,
-  createGetDeviceActivationStatusHandler,
   createGetDeviceConnectInfoHandler,
 } from "./auth/device_activation/operation.ts";
 import {
@@ -329,10 +328,8 @@ await trellis.mount(
   "Auth.RevokeDeviceActivation",
   authRevokeDeviceActivationHandler,
 );
-await trellis.mount("Auth.ActivateDevice", createActivateDeviceHandler());
-await trellis.mount(
-  "Auth.GetDeviceActivationStatus",
-  createGetDeviceActivationStatusHandler(),
+await trellis.operation("Auth.ActivateDevice").handle(
+  createActivateDeviceHandler(),
 );
 await trellis.mount(
   "Auth.GetDeviceConnectInfo",

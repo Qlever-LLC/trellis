@@ -2,7 +2,6 @@
   import type {
     AuthCreatePortalInput,
     AuthDisablePortalInput,
-    AuthListInstalledContractsOutput,
     AuthListPortalsOutput,
   } from "@qlever-llc/trellis-sdk/auth";
   import { isErr } from "@qlever-llc/result";
@@ -12,7 +11,6 @@
   import { getTrellis } from "../../../../lib/trellis";
 
   type PortalRecord = AuthListPortalsOutput["portals"][number];
-  type ContractRecord = AuthListInstalledContractsOutput["contracts"][number];
 
   const trellisPromise = getTrellis();
   const notifications = getNotifications();
@@ -31,29 +29,18 @@
   let disableTarget = $state<string | null>(null);
 
   let portals = $state<PortalRecord[]>([]);
-  let contracts = $state<ContractRecord[]>([]);
 
   let portalId = $state("");
   let entryUrl = $state("");
-  let appContractId = $state("");
 
   const activePortalCount = $derived(portals.filter((portal) => !portal.disabled).length);
-  const contractLabelById = $derived.by(() =>
-    Object.fromEntries(
-      contracts.map((contract) => [contract.id, contract.displayName ? `${contract.displayName} (${contract.id})` : contract.id]),
-    ) as Record<string, string>,
-  );
 
   async function load() {
     loading = true;
     error = null;
     try {
-      const [portalRes, contractRes] = await Promise.all([
-        requestValue<AuthListPortalsOutput>("Auth.ListPortals", {}),
-        requestValue<AuthListInstalledContractsOutput>("Auth.ListInstalledContracts", {}),
-      ]);
+      const portalRes = await requestValue<AuthListPortalsOutput>("Auth.ListPortals", {});
       portals = portalRes.portals ?? [];
-      contracts = contractRes.contracts ?? [];
     } catch (e) {
       error = errorMessage(e);
     } finally {
@@ -68,12 +55,10 @@
       await requestValue("Auth.CreatePortal", {
         portalId: portalId.trim(),
         entryUrl: entryUrl.trim(),
-        appContractId: appContractId || undefined,
       } satisfies AuthCreatePortalInput);
       notifications.success(`Portal ${portalId.trim()} created.`, "Created");
       portalId = "";
       entryUrl = "";
-      appContractId = "";
       await load();
     } catch (e) {
       error = errorMessage(e);
@@ -121,10 +106,10 @@
     <div class="card-body gap-4">
       <div>
         <h2 class="card-title text-base">Create portal</h2>
-        <p class="text-sm text-base-content/60">Register a portal entry URL and optionally associate it with an installed app contract.</p>
+        <p class="text-sm text-base-content/60">Register a portal ID and entry URL for a portal route.</p>
       </div>
 
-      <form class="grid gap-3 md:grid-cols-[1fr_2fr_1.5fr_auto] md:items-end" onsubmit={(event) => { event.preventDefault(); void createPortal(); }}>
+      <form class="grid gap-3 md:grid-cols-[1fr_2fr_auto] md:items-end" onsubmit={(event) => { event.preventDefault(); void createPortal(); }}>
         <label class="form-control gap-1">
           <span class="label-text text-xs">Portal ID</span>
           <input class="input input-bordered input-sm" bind:value={portalId} placeholder="portal-login" required />
@@ -133,16 +118,6 @@
         <label class="form-control gap-1">
           <span class="label-text text-xs">Entry URL</span>
           <input class="input input-bordered input-sm" bind:value={entryUrl} placeholder="https://portal.example.com/" required />
-        </label>
-
-        <label class="form-control gap-1">
-          <span class="label-text text-xs">App contract</span>
-          <select class="select select-bordered select-sm" bind:value={appContractId}>
-            <option value="">None</option>
-            {#each contracts as contract (contract.digest)}
-              <option value={contract.id}>{contractLabelById[contract.id]}</option>
-            {/each}
-          </select>
         </label>
 
         <button type="submit" class="btn btn-primary btn-sm" disabled={createPending}>
@@ -167,7 +142,6 @@
           <tr>
             <th>Portal</th>
             <th>Entry URL</th>
-            <th>App contract</th>
             <th>Status</th>
             <th></th>
           </tr>
@@ -179,7 +153,6 @@
               <td>
                 <a class="link link-hover font-mono text-xs" href={portal.entryUrl} target="_blank" rel="noreferrer">{portal.entryUrl}</a>
               </td>
-              <td class="text-base-content/60">{portal.appContractId ? contractLabelById[portal.appContractId] ?? portal.appContractId : "—"}</td>
               <td>
                 {#if portal.disabled}
                   <span class="badge badge-ghost badge-sm">Disabled</span>

@@ -8,6 +8,7 @@ import {
 } from "../../../../packages/trellis/models/auth/rpc/ListSessions.ts";
 import {
   TRELLIS_AUTH_EVENTS,
+  TRELLIS_AUTH_OPERATIONS,
   TRELLIS_AUTH_RPC,
 } from "../../contracts/trellis_auth.ts";
 
@@ -57,8 +58,6 @@ Deno.test("auth contract exposes service, portal, and device admin RPCs", () => 
   assert(methods.includes("Auth.DisableDeviceInstance"));
   assert(methods.includes("Auth.EnableDeviceInstance"));
   assert(methods.includes("Auth.RemoveDeviceInstance"));
-  assert(methods.includes("Auth.ActivateDevice"));
-  assert(methods.includes("Auth.GetDeviceActivationStatus"));
   assert(methods.includes("Auth.ListDeviceActivations"));
   assert(methods.includes("Auth.RevokeDeviceActivation"));
   assert(methods.includes("Auth.ListDeviceActivationReviews"));
@@ -83,6 +82,9 @@ Deno.test("auth contract exposes service, portal, and device admin RPCs", () => 
   assert(!methods.includes("Auth.InstallService"));
   assert(!methods.includes("Auth.UpgradeServiceContract"));
   assert(!methods.includes("Auth.RemoveService"));
+
+  const operations = Object.keys(TRELLIS_AUTH_OPERATIONS);
+  assertEquals(operations, ["Auth.ActivateDevice"]);
 });
 
 Deno.test("session and connection admin schemas expose explicit participant metadata", () => {
@@ -161,13 +163,11 @@ Deno.test("auth review event is templated by profile", () => {
 Deno.test("validatePortalRequest requires portal identity and URL", () => {
   const valid = validatePortalRequest({
     portalId: "main",
-    appContractId: "trellis.portal@v1",
     entryUrl: "https://portal.example.com/auth",
   });
   assert(!valid.isErr());
   assertEquals((valid.take() as { portal: Record<string, unknown> }).portal, {
     portalId: "main",
-    appContractId: "trellis.portal@v1",
     entryUrl: "https://portal.example.com/auth",
     disabled: false,
   });

@@ -3,6 +3,7 @@ import { Type } from "typebox";
 import { Value } from "typebox/value";
 import type { BaseError } from "@qlever-llc/result";
 import { AsyncResult } from "@qlever-llc/result";
+import type { OperationRef } from "../operations.ts";
 
 import {
   importEd25519PrivateKeyFromSeedBase64url,
@@ -11,10 +12,9 @@ import {
 } from "./keys.ts";
 import type { NatsAuthTokenV1 } from "./schemas.ts";
 import {
+  AuthActivateDeviceProgressSchema,
   AuthActivateDeviceResponseSchema,
   AuthActivateDeviceSchema,
-  AuthGetDeviceActivationStatusResponseSchema,
-  AuthGetDeviceActivationStatusSchema,
   AuthGetDeviceConnectInfoResponseSchema,
   AuthGetDeviceConnectInfoSchema,
   AuthListDeviceActivationsResponseSchema,
@@ -65,14 +65,11 @@ export type WaitForDeviceActivationResponse = StaticDecode<
 export type AuthActivateDeviceInput = StaticDecode<
   typeof AuthActivateDeviceSchema
 >;
+export type AuthActivateDeviceProgress = StaticDecode<
+  typeof AuthActivateDeviceProgressSchema
+>;
 export type AuthActivateDeviceOutput = StaticDecode<
   typeof AuthActivateDeviceResponseSchema
->;
-export type AuthGetDeviceActivationStatusInput = StaticDecode<
-  typeof AuthGetDeviceActivationStatusSchema
->;
-export type AuthGetDeviceActivationStatusOutput = StaticDecode<
-  typeof AuthGetDeviceActivationStatusResponseSchema
 >;
 export type AuthListDeviceActivationsInput = StaticDecode<
   typeof AuthListDeviceActivationsSchema
@@ -102,23 +99,30 @@ export type DeviceIdentity = {
 };
 
 type DeviceActivationRpcMethod =
-  | "Auth.ActivateDevice"
-  | "Auth.GetDeviceActivationStatus"
   | "Auth.ListDeviceActivations"
   | "Auth.RevokeDeviceActivation"
   | "Auth.GetDeviceConnectInfo";
 
+type AuthActivateDeviceOperationShape = {
+  subject: string;
+  input: typeof AuthActivateDeviceSchema;
+  progress: typeof AuthActivateDeviceProgressSchema;
+  output: typeof AuthActivateDeviceResponseSchema;
+};
+
+export type AuthActivateDeviceOperation = OperationRef<
+  AuthActivateDeviceOperationShape,
+  AuthActivateDeviceProgress,
+  AuthActivateDeviceOutput
+>;
+
 type DeviceActivationRpcInputMap = {
-  "Auth.ActivateDevice": AuthActivateDeviceInput;
-  "Auth.GetDeviceActivationStatus": AuthGetDeviceActivationStatusInput;
   "Auth.ListDeviceActivations": AuthListDeviceActivationsInput;
   "Auth.RevokeDeviceActivation": AuthRevokeDeviceActivationInput;
   "Auth.GetDeviceConnectInfo": GetDeviceConnectInfoInput;
 };
 
 type DeviceActivationRpcOutputMap = {
-  "Auth.ActivateDevice": AuthActivateDeviceOutput;
-  "Auth.GetDeviceActivationStatus": AuthGetDeviceActivationStatusOutput;
   "Auth.ListDeviceActivations": AuthListDeviceActivationsOutput;
   "Auth.RevokeDeviceActivation": AuthRevokeDeviceActivationResponse;
   "Auth.GetDeviceConnectInfo": GetDeviceConnectInfoOutput;
@@ -132,7 +136,17 @@ type RequestClient = {
   ): AsyncResult<DeviceActivationRpcOutputMap[M], BaseError>;
 };
 
-export type DeviceActivationTransport = RequestClient;
+type ActivateDeviceOperationClient = {
+  operation(method: "Auth.ActivateDevice"): {
+    input(
+      input: AuthActivateDeviceInput,
+    ): {
+      start(): AsyncResult<AuthActivateDeviceOperation, BaseError>;
+    };
+  };
+};
+
+export type DeviceActivationTransport = RequestClient & ActivateDeviceOperationClient;
 
 function concatBytes(parts: Uint8Array[]): Uint8Array {
   const size = parts.reduce((total, part) => total + part.length, 0);
@@ -618,10 +632,7 @@ export function createDeviceActivationClient(
 ) {
   return {
     activateDevice(input: AuthActivateDeviceInput) {
-      return client.request("Auth.ActivateDevice", input).orThrow();
-    },
-    getDeviceActivationStatus(input: AuthGetDeviceActivationStatusInput) {
-      return client.request("Auth.GetDeviceActivationStatus", input).orThrow();
+      return client.operation("Auth.ActivateDevice").input(input).start().orThrow();
     },
     listDeviceActivations(input: AuthListDeviceActivationsInput = {}) {
       return client.request("Auth.ListDeviceActivations", input).orThrow();

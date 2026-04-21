@@ -173,10 +173,10 @@ explicitly. It is still explicit on the server side because Trellis relies on
 stored portal, login-selection, device-selection, and device-profile records
 plus the built-in Trellis fallback.
 
-### 6) Known-device activation uses a direct happy path
+### 6) Known-device activation uses one auth-owned operation
 
-Known preregistered device activation does not require a requester-visible auth
-operation in the default path.
+Known preregistered device activation uses one requester-visible auth-owned
+operation: `Auth.ActivateDevice`.
 
 Happy path without review:
 
@@ -190,17 +190,16 @@ sequenceDiagram
     W->>T: POST /auth/devices/activate/requests
     T-->>W: Return activationUrl with flowId
     W->>U: Show activation URL or QR payload
-    U->>P: Open /_trellis/portal/activate?flowId=...
+    U->>P: Open /_trellis/portal/devices/activate?flowId=...
     U->>P: Authenticate and complete portal business logic
     P->>T: Activate known device instance
     T-->>W: Wait endpoint resolves with activated status
 ```
 
-If portal-side business logic is long-running, the portal may use its own async
-workflow. That is portal/business-layer behavior rather than a mandatory
-auth-owned requester operation. If the portal calls Trellis during that
-workflow, it does so using a normal user-authenticated browser app contract
-rather than service credentials.
+If portal-side business logic is long-running, the portal may still use its own
+async workflow around that auth-owned operation. If the portal calls Trellis
+during that work, it does so using a normal user-authenticated browser app
+contract rather than service credentials or portal-specific contract machinery.
 
 If `reviewMode` is `required`, the activation flow inserts an auth-owned
 pending-review step:
@@ -210,7 +209,8 @@ pending-review step:
 - auth emits a device-review-requested event for reviewer automation
 - a service or privileged user with `device.review` or `admin` decides the
   review through auth RPCs
-- the built-in portal and custom portals poll activation status until it becomes
+- the built-in portal and custom portals observe review and completion through
+  the operation's `progress`, `watch()`, and `wait()` semantics until it becomes
   `activated` or `rejected`
 
 ### 7) Device records
@@ -528,55 +528,30 @@ declare function verifyDeviceConfirmationCode(args: {
   confirmationCode: string;
 }): Promise<boolean>;
 
+type AuthActivateDeviceOperation = {
+  watch(): AsyncResult<
+    AsyncIterable<OperationEvent<AuthActivateDeviceProgress, AuthActivateDeviceOutput>>,
+    BaseError
+  >;
+  wait(): AsyncResult<
+    TerminalOperation<AuthActivateDeviceProgress, AuthActivateDeviceOutput>,
+    BaseError
+  >;
+};
+
 declare function createDeviceActivationClient(client: {
   request(
     method: string,
     input: unknown,
     opts?: unknown,
   ): AsyncResult<unknown, BaseError>;
+  operation(method: "Auth.ActivateDevice"): {
+    input(input: { flowId: string }): {
+      start(): AsyncResult<AuthActivateDeviceOperation, BaseError>;
+    };
+  };
 }): {
-  activateDevice(input: { flowId: string; linkRequestId: string }): Promise<
-    | {
-      status: "activated";
-      instanceId: string;
-      profileId: string;
-      activatedAt: string;
-      confirmationCode?: string;
-    }
-    | {
-      status: "pending_review";
-      reviewId: string;
-      linkRequestId: string;
-      instanceId: string;
-      profileId: string;
-      requestedAt: string;
-    }
-    | {
-      status: "rejected";
-      reason?: string;
-    }
-  >;
-  getDeviceActivationStatus(input: { flowId: string }): Promise<
-    | {
-      status: "activated";
-      instanceId: string;
-      profileId: string;
-      activatedAt: string;
-      confirmationCode?: string;
-    }
-    | {
-      status: "pending_review";
-      reviewId: string;
-      linkRequestId: string;
-      instanceId: string;
-      profileId: string;
-      requestedAt: string;
-    }
-    | {
-      status: "rejected";
-      reason?: string;
-    }
-  >;
+  activateDevice(input: { flowId: string }): Promise<AuthActivateDeviceOperation>;
   listDeviceActivations(input?: {
     instanceId?: string;
     profileId?: string;
@@ -671,6 +646,9 @@ Rules:
 - portal and admin browser apps SHOULD prefer
   `createDeviceActivationClient(...)` over manually spelling auth RPC method
   names
+- authenticated portal-side activation starts the `Auth.ActivateDevice`
+  operation; review and completion are observed through operation progress and
+  watch/wait semantics rather than a separate status-poll RPC
 - device activation helpers own proof construction and payload encoding; app
   code should not reimplement those byte layouts locally
 - `TrellisDevice.connect(...)` is a pure runtime connect helper; if Trellis says

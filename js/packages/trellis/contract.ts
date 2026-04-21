@@ -59,7 +59,6 @@ export {
   defineAppContract,
   defineAgentContract,
   defineDeviceContract,
-  definePortalContract,
   defineServiceContract,
 } from "./contract_support/mod.ts";
 

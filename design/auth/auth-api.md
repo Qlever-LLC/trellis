@@ -573,10 +573,9 @@ section defines the canonical public API shapes that other auth docs refer to.
 
 Public auth-owned surfaces:
 
-- HTTP endpoints `GET /auth/devices/activate`,
+- HTTP endpoints `POST /auth/devices/activate/requests`,
   `POST /auth/devices/activate/wait`, and `POST /auth/devices/connect-info`
-- RPC subject `rpc.v1.Auth.ActivateDevice`
-- RPC subject `rpc.v1.Auth.GetDeviceActivationStatus`
+- operation subject `operations.v1.Auth.ActivateDevice`
 - portal, portal-override, device-profile, device-instance, and device lifecycle
   admin RPCs under `rpc.v1.Auth.*`
 - event subject `events.v1.Auth.DeviceActivationReviewRequested`
@@ -588,7 +587,6 @@ type ActivationDecisionReason = string; // deployment-defined machine-readable c
 
 type Portal = {
   portalId: string;
-  appContractId?: string;
   entryUrl: string;
   disabled: boolean;
 };
@@ -765,35 +763,28 @@ type DeviceConnectInfo = {
 
 type ActivateDeviceRequest = {
   flowId: string;
-  linkRequestId: string;
+};
+
+type ActivateDeviceProgress = {
+  status: "pending_review";
+  reviewId: string;
+  instanceId: string;
+  profileId: string;
+  requestedAt: string;
 };
 
 type ActivateDeviceResponse =
   | {
-    status: "activated";
-    instanceId: string;
-    profileId: string;
-    activatedAt: string;
-    confirmationCode?: string;
-  }
-  | {
-    status: "pending_review";
-    reviewId: string;
-    linkRequestId: string;
-    instanceId: string;
-    profileId: string;
-    requestedAt: string;
-  }
-  | {
-    status: "rejected";
-    reason?: ActivationDecisionReason;
-};
-
-type GetDeviceActivationStatusRequest = {
-  flowId: string;
-};
-
-type GetDeviceActivationStatusResponse = ActivateDeviceResponse;
+     status: "activated";
+     instanceId: string;
+     profileId: string;
+     activatedAt: string;
+     confirmationCode?: string;
+   }
+   | {
+     status: "rejected";
+     reason?: ActivationDecisionReason;
+   };
 
 type WaitForDeviceActivationResponse =
   | { status: "pending" }
@@ -822,7 +813,6 @@ type GetDeviceConnectInfoResponse = {
 
 type CreatePortalRequest = {
   portalId: string;
-  appContractId?: string;
   entryUrl: string;
 };
 type CreatePortalResponse = { portal: Portal };
@@ -938,10 +928,13 @@ Portal rules:
 - Trellis always provides a built-in portal served by the Trellis HTTP server
   from static assets; it includes both login and generic device-activation
   routes and is not represented as a mutable portal record
-- a portal record registers a custom browser destination and optional user-app
-  identity metadata; it does not install or authenticate a service principal
-- `appContractId`, when present, refers to a normal browser app contract that
-  the portal may use after login while acting as the logged-in user
+- a portal record registers only custom browser routing config:
+  `portalId`, `entryUrl`, and `disabled`
+- custom portals remain first-class, but there is no portal-specific contract
+  kind or portal-specific auth machinery
+- if a portal later calls Trellis after bind, it does so as a normal
+  user-authenticated browser app contract rather than through portal-specific
+  contract handling
 - portals MUST NOT use service-authenticated install or upgrade flows as their
   trust model
 
@@ -964,7 +957,13 @@ Library rule:
 
 - public client libraries MAY wrap these HTTP and RPC surfaces with higher-level
   device-activation helpers, but those helpers MUST preserve these canonical
-  wire shapes
+  wire shapes and the `Auth.ActivateDevice` operation model
+
+Device-activation observation rule:
+
+- portal-side review state is observed through normal operation `progress`,
+  `watch()`, and `wait()` semantics on `Auth.ActivateDevice`, not through a
+  separate status-poll RPC
 
 Capability rule:
 
@@ -975,8 +974,6 @@ Capability rule:
 
 Canonical RPC inventory:
 
-- `rpc.v1.Auth.ActivateDevice`
-- `rpc.v1.Auth.GetDeviceActivationStatus`
 - `rpc.v1.Auth.CreatePortal`
 - `rpc.v1.Auth.ListPortals`
 - `rpc.v1.Auth.DisablePortal`
@@ -1021,6 +1018,10 @@ Canonical RPC inventory:
 - `rpc.v1.Auth.RevokeDeviceActivation`
 - `rpc.v1.Auth.ListDeviceActivationReviews`
 - `rpc.v1.Auth.DecideDeviceActivationReview`
+
+Canonical operation inventory:
+
+- `operations.v1.Auth.ActivateDevice`
 
 Canonical event inventory:
 

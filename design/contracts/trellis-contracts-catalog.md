@@ -914,9 +914,9 @@ Install or upgrade validation MUST also:
   when other digests in the same lineage remain active
 - when install or activation is profile-driven, validate that the digest being
   bound is allowed by that profile's contract lineage and allowed digest set
-- when a portal record is created with `appContractId`, validate that the
-  referenced contract is active, is a browser app contract, and declares the
-  auth surfaces needed by that portal when acting as a user-authenticated app
+- portal records are deployment-owned routing config for browser UX only; they
+  are not a contract kind and do not create portal-specific install or auth
+  behavior
 
 Operationally, install or upgrade fails if any of these conditions is true:
 

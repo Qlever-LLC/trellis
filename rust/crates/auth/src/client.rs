@@ -5,7 +5,7 @@ use crate::{
     ListApprovalsRequest, RevokeApprovalRequest, TrellisAuthError,
     UpsertInstanceGrantPolicyRequest,
 };
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use trellis_client::{TrellisClient, UserConnectOptions};
@@ -20,7 +20,6 @@ use trellis_sdk_auth::rpc::Empty;
 #[serde(rename_all = "camelCase")]
 pub struct PortalRecord {
     pub portal_id: String,
-    pub app_contract_id: Option<String>,
     pub entry_url: String,
     pub disabled: bool,
 }
@@ -139,8 +138,6 @@ struct ClearDevicePortalSelectionResponse {
 #[serde(rename_all = "camelCase")]
 struct CreatePortalRequest {
     portal_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    app_contract_id: Option<String>,
     entry_url: String,
 }
 
@@ -236,7 +233,6 @@ impl<'a> AuthClient<'a> {
     pub async fn create_portal(
         &self,
         portal_id: &str,
-        app_contract_id: Option<&str>,
         entry_url: &str,
     ) -> Result<PortalRecord, TrellisAuthError> {
         Ok(self
@@ -244,7 +240,6 @@ impl<'a> AuthClient<'a> {
                 "rpc.v1.Auth.CreatePortal",
                 &CreatePortalRequest {
                     portal_id: portal_id.to_string(),
-                    app_contract_id: app_contract_id.map(ToOwned::to_owned),
                     entry_url: entry_url.to_string(),
                 },
             )
@@ -617,20 +612,6 @@ impl<'a> AuthClient<'a> {
             .instance)
     }
 
-    /// Get device activation status for one device activation flow.
-    pub async fn get_device_activation_status(
-        &self,
-        flow_id: &str,
-    ) -> Result<trellis_sdk_auth::AuthGetDeviceActivationStatusResponse, TrellisAuthError> {
-        self.call(
-            "rpc.v1.Auth.GetDeviceActivationStatus",
-            &trellis_sdk_auth::AuthGetDeviceActivationStatusRequest {
-                flow_id: flow_id.to_string(),
-            },
-        )
-        .await
-    }
-
     /// List device instances.
     pub async fn list_device_instances(
         &self,
@@ -992,7 +973,7 @@ impl<'a> AuthClient<'a> {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     use super::{
         CreatePortalRequest, DevicePortalSelectionRecord, GetPortalDefaultResponse,
@@ -1009,29 +990,9 @@ mod tests {
     fn portal_create_requests_serialize_with_camel_case_fields() {
         let value = serde_json::to_value(CreatePortalRequest {
             portal_id: "main".to_string(),
-            app_contract_id: Some("trellis.portal@v1".to_string()),
             entry_url: "https://portal.example.com/auth".to_string(),
         })
         .expect("serialize portal create request");
-
-        assert_eq!(
-            value,
-            json!({
-                "portalId": "main",
-                "appContractId": "trellis.portal@v1",
-                "entryUrl": "https://portal.example.com/auth"
-            })
-        );
-    }
-
-    #[test]
-    fn portal_create_requests_omit_app_contract_id_when_unset() {
-        let value = serde_json::to_value(CreatePortalRequest {
-            portal_id: "main".to_string(),
-            app_contract_id: None,
-            entry_url: "https://portal.example.com/auth".to_string(),
-        })
-        .expect("serialize portal create request without app contract");
 
         assert_eq!(
             value,
@@ -1046,13 +1007,11 @@ mod tests {
     fn portal_records_and_defaults_deserialize_from_camel_case_fields() {
         let portal: PortalRecord = serde_json::from_value(json!({
             "portalId": "main",
-            "appContractId": "trellis.portal@v1",
             "entryUrl": "https://portal.example.com/auth",
             "disabled": false
         }))
         .expect("deserialize portal record");
         assert_eq!(portal.portal_id, "main");
-        assert_eq!(portal.app_contract_id.as_deref(), Some("trellis.portal@v1"));
         assert_eq!(portal.entry_url, "https://portal.example.com/auth");
 
         let response: GetPortalDefaultResponse = serde_json::from_value(json!({

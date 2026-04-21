@@ -339,11 +339,47 @@ declare function getDeviceConnectInfo(args: {
   iat?: number;
 }): Promise<GetDeviceConnectInfoResponse>;
 
+type AuthActivateDeviceProgress = {
+  status: "pending_review";
+  reviewId: string;
+  instanceId: string;
+  profileId: string;
+  requestedAt: string;
+};
+
+type AuthActivateDeviceOutput =
+  | {
+      status: "activated";
+      instanceId: string;
+      profileId: string;
+      activatedAt: string;
+      confirmationCode?: string;
+    }
+  | {
+      status: "rejected";
+      reason?: string;
+    };
+
+type AuthActivateDeviceOperation = {
+  watch(): AsyncResult<
+    AsyncIterable<OperationEvent<AuthActivateDeviceProgress, AuthActivateDeviceOutput>>,
+    BaseError
+  >;
+  wait(): AsyncResult<
+    TerminalOperation<AuthActivateDeviceProgress, AuthActivateDeviceOutput>,
+    BaseError
+  >;
+};
+
 declare function createDeviceActivationClient(client: {
   request(method: string, input: unknown, opts?: unknown): AsyncResult<unknown, BaseError>;
+  operation(method: "Auth.ActivateDevice"): {
+    input(input: { flowId: string }): {
+      start(): AsyncResult<AuthActivateDeviceOperation, BaseError>;
+    };
+  };
 }): {
-  activateDevice(input: { flowId: string; linkRequestId: string }): Promise<ActivateDeviceResponse>;
-  getDeviceActivationStatus(input: GetDeviceActivationStatusRequest): Promise<GetDeviceActivationStatusResponse>;
+  activateDevice(input: { flowId: string }): Promise<AuthActivateDeviceOperation>;
   listDeviceActivations(input?: Record<string, unknown>): Promise<{
     activations: DeviceActivationRecord[];
   }>;
@@ -404,6 +440,9 @@ Rules:
 - `getDeviceConnectInfo(...)` owns the connect-info proof/signature step for `POST /auth/devices/connect-info`
 - portal and admin apps SHOULD prefer `createDeviceActivationClient(...)` over
   repeated raw string `request(...).orThrow()` calls and manual plumbing
+- authenticated portal-side activation starts the `Auth.ActivateDevice`
+  operation; review state is observed through operation `progress`, `watch()`,
+  and `wait()` rather than a separate status RPC
 - `TrellisDevice.connect(...)` is a pure runtime entrypoint; it does not accept
   `onActivationRequired(...)` and does not start activation on the caller's
   behalf

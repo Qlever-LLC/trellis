@@ -116,7 +116,7 @@ trellis auth grant list
 trellis auth grant set <contractId|path> [--capability <capability>...] [--allow-origin <origin>...]
 trellis auth grant disable <contractId>
 trellis portal list
-trellis portal create <portalId> <entryUrl> [--app-contract-id <contractId>]
+trellis portal create <portalId> <entryUrl>
 trellis portal disable <portalId>
 trellis portal login default
 trellis portal login set-default (--builtin | --portal <portalId>)
@@ -182,9 +182,8 @@ Operational command behavior:
   browser or start a localhost callback listener, and completes by polling the
   auth-owned flow before reconnecting NATS and issuing admin RPCs
 - `trellis portal *` manages registered custom portal web apps used to replace
-  the built-in Trellis portal for login flows, device flows, or both; an
-  optional `app-contract-id` attaches a normal browser app contract for portals
-  that later call Trellis as the logged-in user
+  the built-in Trellis portal for login flows, device flows, or both; portal
+  records are routing config only (`portalId`, `entryUrl`, `disabled`)
 - `trellis portal login *` manages deployment-owned login portal policy,
   including the deployment login default and any contract-specific selections
 - `trellis portal device *` manages deployment-owned device portal policy,

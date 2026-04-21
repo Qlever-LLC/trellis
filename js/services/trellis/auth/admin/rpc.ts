@@ -82,7 +82,6 @@ type DeviceActivationFlow = {
 
 type DeviceActivationReviewRecord = {
   reviewId: string;
-  linkRequestId: string;
   flowId: string;
   instanceId: string;
   publicIdentityKey: string;
@@ -363,7 +362,6 @@ function toPublicReview(
 ): DeviceActivationReview {
   return {
     reviewId: review.reviewId,
-    linkRequestId: review.linkRequestId,
     instanceId: review.instanceId,
     publicIdentityKey: review.publicIdentityKey,
     profileId: review.profileId,
@@ -1176,9 +1174,9 @@ export const authDecideDeviceActivationReviewHandler = async (
     decidedAt,
     ...(req.reason ? { reason: req.reason } : {}),
   };
-  await deviceActivationReviewsKV.put(updatedReview.reviewId, updatedReview);
 
   if (req.decision === "reject") {
+    await deviceActivationReviewsKV.put(updatedReview.reviewId, updatedReview);
     return Result.ok({ review: toPublicReview(updatedReview) });
   }
 
@@ -1197,7 +1195,7 @@ export const authDecideDeviceActivationReviewHandler = async (
     });
   }
 
-  const activatedAt = new Date().toISOString();
+  const activatedAt = decidedAt;
   const activation: DeviceActivation = {
     instanceId: instance.instanceId,
     publicIdentityKey: instance.publicIdentityKey,
@@ -1214,6 +1212,7 @@ export const authDecideDeviceActivationReviewHandler = async (
     activatedAt,
     revokedAt: null,
   });
+  await deviceActivationReviewsKV.put(updatedReview.reviewId, updatedReview);
   const confirmationCode = await confirmationCodeForReview(updatedReview);
   return Result.ok({
     review: toPublicReview(updatedReview),

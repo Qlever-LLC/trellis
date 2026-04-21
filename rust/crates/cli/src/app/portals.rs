@@ -1,6 +1,5 @@
 use crate::app::{connect_authenticated_cli_client, portal_target_id, portal_target_label};
 use crate::cli::*;
-use crate::contract_input::{default_image_contract_path, resolve_contract_input};
 use crate::output;
 use miette::IntoDiagnostic;
 use serde_json::json;
@@ -50,7 +49,6 @@ async fn list_command(format: OutputFormat) -> miette::Result<()> {
         .map(|portal| {
             vec![
                 portal.portal_id,
-                portal.app_contract_id.unwrap_or_else(|| "-".to_string()),
                 portal.entry_url,
                 if portal.disabled {
                     "Disabled"
@@ -61,19 +59,15 @@ async fn list_command(format: OutputFormat) -> miette::Result<()> {
             ]
         })
         .collect::<Vec<_>>();
-    println!(
-        "{}",
-        output::table(&["portal", "app contract", "entry", "state"], rows)
-    );
+    println!("{}", output::table(&["portal", "entry", "state"], rows));
     Ok(())
 }
 
 async fn create_command(format: OutputFormat, args: &PortalCreateArgs) -> miette::Result<()> {
     let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
-    let app_contract_id = resolve_portal_app_contract_id(args)?;
     let portal = auth_client
-        .create_portal(&args.portal_id, app_contract_id.as_deref(), &args.entry_url)
+        .create_portal(&args.portal_id, &args.entry_url)
         .await
         .into_diagnostic()?;
 
@@ -85,92 +79,6 @@ async fn create_command(format: OutputFormat, args: &PortalCreateArgs) -> miette
     output::print_info(&format!("portalId={}", portal.portal_id));
     output::print_info(&format!("entry={}", portal.entry_url));
     Ok(())
-}
-
-fn resolve_portal_app_contract_id(args: &PortalCreateArgs) -> miette::Result<Option<String>> {
-    if let Some(contract_id) = &args.app_contract_id {
-        return Ok(Some(contract_id.clone()));
-    }
-
-    let resolved = args
-        .manifest
-        .as_deref()
-        .map(|manifest| {
-            resolve_contract_input(
-                Some(manifest),
-                None,
-                None,
-                "CONTRACT",
-                default_image_contract_path(),
-            )
-        })
-        .or_else(|| {
-            args.source.as_deref().map(|source| {
-                resolve_contract_input(
-                    None,
-                    Some(source),
-                    None,
-                    "CONTRACT",
-                    default_image_contract_path(),
-                )
-            })
-        })
-        .or_else(|| {
-            args.image.as_deref().map(|image| {
-                resolve_contract_input(
-                    None,
-                    None,
-                    Some(image),
-                    "CONTRACT",
-                    default_image_contract_path(),
-                )
-            })
-        });
-
-    let Some(resolved) = resolved else {
-        return Ok(None);
-    };
-    let resolved = resolved?;
-
-    Ok(Some(resolved.loaded.manifest.id))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::resolve_portal_app_contract_id;
-    use crate::cli::PortalCreateArgs;
-    use std::fs;
-    use tempfile::TempDir;
-
-    #[test]
-    fn resolves_portal_app_contract_id_from_manifest() {
-        let temp = TempDir::new().unwrap();
-        let manifest_path = temp.path().join("portal-app.contract.json");
-        fs::write(
-            &manifest_path,
-            r#"{
-  "format": "trellis.contract.v1",
-  "id": "trellis.portal-app@v1",
-  "displayName": "Portal App",
-  "description": "Portal app",
-  "kind": "app"
-}
-"#,
-        )
-        .unwrap();
-
-        let args = PortalCreateArgs {
-            portal_id: "main".to_string(),
-            entry_url: "https://portal.example.com".to_string(),
-            app_contract_id: None,
-            manifest: Some(manifest_path),
-            source: None,
-            image: None,
-        };
-
-        let contract_id = resolve_portal_app_contract_id(&args).unwrap();
-        assert_eq!(contract_id.as_deref(), Some("trellis.portal-app@v1"));
-    }
 }
 
 async fn disable_command(format: OutputFormat, args: &PortalDisableArgs) -> miette::Result<()> {

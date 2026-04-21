@@ -1,6 +1,4 @@
-use std::path::PathBuf;
-
-use clap::{ArgGroup, Args, Subcommand};
+use clap::{Args, Subcommand};
 
 #[derive(Debug, Args)]
 /// Manage custom portal applications used for Trellis login and device flows.
@@ -81,13 +79,8 @@ pub struct PortalTargetArgs {
     pub portal_id: Option<String>,
 }
 
-#[derive(Debug, Args)]
-#[command(group(
-    ArgGroup::new("portal-app-contract")
-        .args(["app_contract_id", "manifest", "source", "image"])
-        .multiple(false)
-))]
 /// Register a custom portal application.
+#[derive(Debug, Args)]
 pub struct PortalCreateArgs {
     #[arg(value_name = "PORTAL")]
     /// Stable identifier for the custom portal.
@@ -96,22 +89,6 @@ pub struct PortalCreateArgs {
     #[arg(value_name = "ENTRY_URL")]
     /// Browser entry URL for the portal application.
     pub entry_url: String,
-
-    #[arg(long = "app-contract-id", group = "portal-app-contract")]
-    /// Optional browser app contract attached to this portal.
-    pub app_contract_id: Option<String>,
-
-    #[arg(long, value_name = "CONTRACT_JSON", group = "portal-app-contract")]
-    /// Optional contract manifest used to resolve the browser app contract id.
-    pub manifest: Option<PathBuf>,
-
-    #[arg(long, value_name = "CONTRACT_SOURCE", group = "portal-app-contract")]
-    /// Optional contract source used to resolve the browser app contract id.
-    pub source: Option<PathBuf>,
-
-    #[arg(long, value_name = "OCI_IMAGE", group = "portal-app-contract")]
-    /// Optional OCI image used to resolve the browser app contract id.
-    pub image: Option<String>,
 }
 
 #[derive(Debug, Args)]

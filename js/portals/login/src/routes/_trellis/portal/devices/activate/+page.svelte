@@ -1,105 +1,33 @@
 <script lang="ts">
-  import { browser } from "$app/environment";
-  import { replaceState } from "$app/navigation";
-  import { page } from "$app/state";
   import { onMount } from "svelte";
-  import type { AsyncResult, BaseError } from "@qlever-llc/result";
   import { TrellisClient } from "@qlever-llc/trellis";
   import type { TrellisClientConnectArgs } from "@qlever-llc/trellis";
   import {
-    type AuthState,
     createAuthState,
+    createDeviceActivationController,
+    type DeviceActivationClient,
   } from "@qlever-llc/trellis-svelte";
   import { portalActivationApp } from "../../../../../../contracts/portal_activation_app.ts";
   import { APP_CONFIG } from "../../../../../lib/config";
-  import { errorMessage } from "../../../../../lib/format";
-  import {
-    buildActivationConnectAuthUrlState,
-    buildActivationCallbackPath,
-    clearPreservedActivationCallbackState,
-    getPreservedActivationCallbackState,
-    preserveActivationCallbackState,
-    shouldHandleActivationAuthCallback,
-  } from "./page_state";
 
-  async function createPortalTrellisState(
-    authState: AuthState,
-    currentUrl: URL,
-  ): Promise<{
-    trellis: {
-      request: (method: string, input: unknown) => AsyncResult<unknown, BaseError>;
-    };
-  }> {
-    const contract = portalActivationApp;
-    const authUrlState = buildActivationConnectAuthUrlState(currentUrl);
-    const connectArgs: TrellisClientConnectArgs = {
+  async function connectPortalActivation(
+    authUrlState: { currentUrl: URL; redirectTo: string },
+  ): Promise<DeviceActivationClient> {
+    const trellis = await TrellisClient.connect({
       trellisUrl: APP_CONFIG.authUrl,
       auth: {
         handle: await authState.init(),
         currentUrl: authUrlState.currentUrl,
         redirectTo: authUrlState.redirectTo,
       },
-      contract,
-    };
-    const trellis = await TrellisClient.connect(connectArgs).orThrow();
+      contract: portalActivationApp,
+    });
     return {
-      trellis: {
-        request: trellis.request.bind(trellis),
+      activateDevice(input) {
+        return trellis.operation("Auth.ActivateDevice").input(input).start().orThrow();
       },
     };
   }
-
-  type ActivatedDeviceResult = {
-    status: "activated";
-    instanceId: string;
-    profileId: string;
-    activatedAt: string | Date;
-    confirmationCode?: string;
-  };
-
-  type PendingReviewDeviceResult = {
-    status: "pending_review";
-    reviewId: string;
-    instanceId: string;
-    profileId: string;
-    requestedAt: string | Date;
-  };
-
-  type RejectedDeviceResult = {
-    status: "rejected";
-    reason?: string;
-  };
-
-  type DeviceActivationResult =
-    | ActivatedDeviceResult
-    | PendingReviewDeviceResult
-    | RejectedDeviceResult;
-
-  type StartPortalActivation = (flowId: string) => Promise<DeviceActivationResult>;
-  type GetPortalActivationStatus = (flowId: string) => Promise<DeviceActivationResult>;
-
-  type ActivationView =
-    | { mode: "sign_in_required"; flowId: string }
-    | { mode: "ready"; flowId: string }
-    | {
-      mode: "pending_review";
-      flowId: string;
-      instanceId: string;
-      profileId: string;
-      reviewId: string;
-      requestedAt: string;
-    }
-    | {
-      mode: "activated";
-      flowId: string;
-      instanceId: string;
-      profileId: string;
-      activatedAt: string;
-      confirmationCode?: string;
-    }
-    | { mode: "rejected"; flowId: string; reason?: string }
-    | { mode: "expired"; flowId: string; reason: string }
-    | { mode: "invalid_flow"; reason: string; flowId?: string };
 
   const authState = createAuthState({
     authUrl: APP_CONFIG.authUrl,
@@ -107,389 +35,15 @@
     contract: portalActivationApp,
   });
 
-  let loading = $state(true);
-  let requestPending = $state(false);
-  let authError = $state<string | null>(null);
-  let view = $state<ActivationView | null>(null);
-  let flowId = $state<string | null>(null);
-  let startPortalActivation: StartPortalActivation | null = null;
-  let getPortalActivationStatus: GetPortalActivationStatus | null = null;
-  let isAuthenticated = false;
-
-  const ACTIVATION_STATUS_POLL_INTERVAL_MS = 2_000;
-
-  let pollingRunId = 0;
-  let mounted = false;
-
-  function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null;
-  }
-
-  function hasStringField(record: Record<string, unknown>, key: string): boolean {
-    return typeof record[key] === "string";
-  }
-
-  function hasOptionalStringField(record: Record<string, unknown>, key: string): boolean {
-    return !(key in record) || typeof record[key] === "string";
-  }
-
-  function hasIsoValueField(record: Record<string, unknown>, key: string): boolean {
-    const value = record[key];
-    return typeof value === "string" || value instanceof Date;
-  }
-
-  function isoString(value: string | Date): string {
-    return value instanceof Date ? value.toISOString() : value;
-  }
-
-  function getErrorContext(error: unknown): Record<string, unknown> | null {
-    if (!isRecord(error)) return null;
-    if (!("context" in error)) return null;
-    const context = Reflect.get(error, "context");
-    return isRecord(context) ? context : null;
-  }
-
-  function isActivatedDeviceResult(value: unknown): value is ActivatedDeviceResult {
-    if (!isRecord(value) || value.status !== "activated") return false;
-    return hasStringField(value, "instanceId")
-      && hasStringField(value, "profileId")
-      && hasIsoValueField(value, "activatedAt")
-      && hasOptionalStringField(value, "confirmationCode");
-  }
-
-  function isPendingReviewDeviceResult(value: unknown): value is PendingReviewDeviceResult {
-    if (!isRecord(value) || value.status !== "pending_review") return false;
-    return hasStringField(value, "reviewId")
-      && hasStringField(value, "instanceId")
-      && hasStringField(value, "profileId")
-      && hasIsoValueField(value, "requestedAt");
-  }
-
-  function isRejectedDeviceResult(value: unknown): value is RejectedDeviceResult {
-    if (!isRecord(value) || value.status !== "rejected") return false;
-    return hasOptionalStringField(value, "reason");
-  }
-
-  function isDeviceActivationResult(value: unknown): value is DeviceActivationResult {
-    return isActivatedDeviceResult(value)
-      || isPendingReviewDeviceResult(value)
-      || isRejectedDeviceResult(value);
-  }
-
-  function mapRejectedActivation(nextFlowId: string, reason?: string): ActivationView {
-    if (reason === "device_flow_expired") {
-      return {
-        mode: "expired",
-        flowId: nextFlowId,
-        reason: "The activation request expired. Start again from the auth service.",
-      };
-    }
-
-    if (reason === "activation_not_started") {
-      return createReadyView(nextFlowId);
-    }
-
-    if (reason === "device_activation_revoked") {
-      return {
-        mode: "rejected",
-        flowId: nextFlowId,
-        reason: "The activation request was revoked.",
-      };
-    }
-
-    return {
-      mode: "rejected",
-      flowId: nextFlowId,
-      ...(reason ? { reason } : {}),
-    };
-  }
-
-  function mapActivationResult(nextFlowId: string, result: DeviceActivationResult): ActivationView {
-    if (result.status === "activated") {
-      return {
-        mode: "activated",
-        flowId: nextFlowId,
-        instanceId: result.instanceId,
-        profileId: result.profileId,
-        activatedAt: isoString(result.activatedAt),
-        ...(result.confirmationCode ? { confirmationCode: result.confirmationCode } : {}),
-      };
-    }
-
-    if (result.status === "pending_review") {
-      return {
-        mode: "pending_review",
-        flowId: nextFlowId,
-        instanceId: result.instanceId,
-        profileId: result.profileId,
-        reviewId: result.reviewId,
-        requestedAt: isoString(result.requestedAt),
-      };
-    }
-
-    return mapRejectedActivation(nextFlowId, result.reason);
-  }
-
-  function createReadyView(nextFlowId: string): ActivationView {
-    return {
-      mode: "ready",
-      flowId: nextFlowId,
-    };
-  }
-
-  function createSignInRequiredView(nextFlowId: string): ActivationView {
-    return {
-      mode: "sign_in_required",
-      flowId: nextFlowId,
-    };
-  }
-
-  function createActivateDeviceInput(nextFlowId: string): {
-    flowId: string;
-    linkRequestId: string;
-  } {
-    return {
-      flowId: nextFlowId,
-      linkRequestId: nextFlowId,
-    };
-  }
-
-  function mapActivationFailure(nextFlowId: string, error: unknown): ActivationView | null {
-    const message = errorMessage(error);
-    const context = getErrorContext(error);
-    const reason = typeof context?.reason === "string" ? context.reason : undefined;
-
-    if (message.includes("device_flow_not_found")) {
-      return { mode: "invalid_flow", flowId: nextFlowId, reason: "This activation link is no longer valid." };
-    }
-
-    if (message.includes("device_flow_expired")) {
-      return { mode: "expired", flowId: nextFlowId, reason: "The activation request expired. Start again from the auth service." };
-    }
-
-    if (message.includes("device_activation_revoked")) {
-      return { mode: "rejected", flowId: nextFlowId, reason };
-    }
-
-    return null;
-  }
-
-  function cleanupCallbackUrl(nextFlowId: string | null): void {
-    const nextUrl = new URL(window.location.href);
-    if (
-      nextUrl.searchParams.has("flowId") ||
-      nextUrl.searchParams.has("authError") ||
-      nextUrl.searchParams.has("portalCallback")
-    ) {
-      nextUrl.searchParams.delete("flowId");
-      nextUrl.searchParams.delete("authError");
-      nextUrl.searchParams.delete("portalCallback");
-      if (nextFlowId) {
-        nextUrl.searchParams.set("flowId", nextFlowId);
-      }
-      replaceState(`${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`, page.state);
-    }
-  }
-
-  async function initializeBrowserState(
-    shouldHandleCallback: boolean,
-    preservedFlowId: string | null,
-  ): Promise<void> {
-    await authState.init();
-    if (!shouldHandleCallback) {
-      return;
-    }
-
-    const callbackUrl = new URL(window.location.href);
-    const callbackAuthError = callbackUrl.searchParams.get("authError");
-    const bindResult = await authState.handleCallback(callbackUrl.toString());
-    if (shouldHandleCallback) {
-      cleanupCallbackUrl(preservedFlowId);
-      clearPreservedActivationCallbackState(sessionStorage);
-    }
-
-    if (callbackAuthError && !bindResult) {
-      authError = callbackAuthError;
-      return;
-    }
-
-    if (bindResult && bindResult.status !== "bound") {
-      if (bindResult.status === "approval_denied") {
-        authError = "Portal access was denied.";
-      } else if (bindResult.status === "insufficient_capabilities") {
-        authError = `Missing capabilities: ${bindResult.missingCapabilities.join(", ")}`;
-      } else if (bindResult.status === "approval_required") {
-        authError = "Approval is still pending.";
-      } else {
-        authError = bindResult.message;
-      }
-      return;
-    }
-
-    const trellisState = await createPortalTrellisState(authState, new URL(window.location.href));
-    isAuthenticated = true;
-    const requestValue: (
-      method: string,
-      input: unknown,
-    ) => Promise<unknown> = (method, input) =>
-      trellisState.trellis.request(method, input).orThrow();
-
-    startPortalActivation = async (nextFlowId: string) => {
-      const result = await requestValue(
-        "Auth.ActivateDevice",
-        createActivateDeviceInput(nextFlowId),
-      );
-      if (!isDeviceActivationResult(result)) {
-        throw new Error("Invalid device activation response.");
-      }
-      return result;
-    };
-
-    getPortalActivationStatus = async (nextFlowId: string) => {
-      const requestValue: (
-        method: string,
-        input: unknown,
-      ) => Promise<unknown> = (method, input) =>
-        trellisState.trellis.request(method, input).orThrow();
-      const result = await requestValue(
-        "Auth.GetDeviceActivationStatus",
-        { flowId: nextFlowId },
-      );
-      if (!isDeviceActivationResult(result)) {
-        throw new Error("Invalid device activation status response.");
-      }
-      return result;
-    };
-  }
-
-  function cancelPolling(): void {
-    pollingRunId += 1;
-  }
-
-  function isPollingActive(runId: number): boolean {
-    return mounted && pollingRunId === runId;
-  }
-
-  function sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => {
-      window.setTimeout(resolve, ms);
-    });
-  }
-
-  async function pollActivationStatus(nextFlowId: string, runId: number): Promise<void> {
-    if (!getPortalActivationStatus) return;
-
-    while (isPollingActive(runId)) {
-      await sleep(ACTIVATION_STATUS_POLL_INTERVAL_MS);
-      if (!isPollingActive(runId)) return;
-
-      try {
-        const result = await getPortalActivationStatus(nextFlowId);
-        if (!isPollingActive(runId)) return;
-
-        view = mapActivationResult(nextFlowId, result);
-        if (result.status !== "pending_review") {
-          return;
-        }
-      } catch (nextError) {
-        if (!isPollingActive(runId)) return;
-
-        const nextView = mapActivationFailure(nextFlowId, nextError);
-        if (nextView) {
-          view = nextView;
-        } else {
-          view = createReadyView(nextFlowId);
-          authError = errorMessage(nextError);
-        }
-        return;
-      }
-    }
-  }
-
-  async function requestActivation(): Promise<void> {
-    if (!flowId || !startPortalActivation) return;
-
-    cancelPolling();
-    requestPending = true;
-    authError = null;
-
-    try {
-      const output = await startPortalActivation(flowId);
-      view = mapActivationResult(flowId, output);
-
-      if (output.status === "pending_review") {
-        const runId = pollingRunId;
-        await pollActivationStatus(flowId, runId);
-      }
-    } catch (nextError) {
-      const nextView = mapActivationFailure(flowId, nextError);
-      if (nextView) {
-        view = nextView;
-      } else {
-        view = createReadyView(flowId);
-        authError = errorMessage(nextError);
-      }
-    } finally {
-      requestPending = false;
-    }
-  }
-
-  async function signIn(): Promise<void> {
-    authError = null;
-    if (!flowId) return;
-    preserveActivationCallbackState(sessionStorage, {
-      flowId,
-      callbackToken: crypto.randomUUID(),
-    });
-    const preservedState = getPreservedActivationCallbackState(sessionStorage);
-    if (!preservedState) return;
-    try {
-      await authState.signIn({
-        redirectTo: buildActivationCallbackPath(new URL(window.location.href), preservedState.callbackToken),
-      });
-    } catch (error) {
-      const message = errorMessage(error);
-      if (!message.startsWith("Redirecting to auth for provider selection")) {
-        authError = message;
-      }
-    }
-  }
+  const controller = createDeviceActivationController({
+    authState,
+    createClient: connectPortalActivation,
+    sessionStorage: typeof window === "undefined" ? undefined : window.sessionStorage,
+  });
 
   onMount(() => {
-    if (!browser) return;
-
-    mounted = true;
-    const cleanup = () => {
-      mounted = false;
-      cancelPolling();
-    };
-
-    const preservedCallbackState = getPreservedActivationCallbackState(sessionStorage);
-    const isAuthCallback = shouldHandleActivationAuthCallback(page.url, preservedCallbackState);
-    flowId = isAuthCallback ? preservedCallbackState?.flowId ?? null : page.url.searchParams.get("flowId");
-    if (!flowId) {
-      view = { mode: "invalid_flow", reason: "Missing flow id." };
-      loading = false;
-      return cleanup;
-    }
-
-    void (async () => {
-      try {
-        await initializeBrowserState(isAuthCallback, flowId);
-        if (!view) {
-          view = isAuthenticated
-            ? createReadyView(flowId)
-            : createSignInRequiredView(flowId);
-        }
-      } catch (nextError) {
-        authError = errorMessage(nextError);
-        view = createSignInRequiredView(flowId);
-      } finally {
-        loading = false;
-      }
-    })();
-
-    return cleanup;
+    void controller.load();
+    return () => controller.stop();
   });
 </script>
 
@@ -505,24 +59,24 @@
 
   <div class="card w-full max-w-md border border-base-300 bg-base-100 shadow-md">
     <div class="card-body gap-5 p-6">
-      {#if loading}
+      {#if controller.loading}
         <div class="flex items-center justify-center py-4">
           <span class="loading loading-ring loading-md"></span>
         </div>
       {:else}
         <div>
           <h1 class="text-lg font-bold text-base-content">
-            {#if view?.mode === "sign_in_required"}
+            {#if controller.view?.mode === "sign_in_required"}
               Sign in to continue
-            {:else if view?.mode === "ready"}
+            {:else if controller.view?.mode === "ready"}
               Approve this device
-            {:else if view?.mode === "pending_review"}
+            {:else if controller.view?.mode === "pending_review"}
               Approval pending
-            {:else if view?.mode === "activated"}
+            {:else if controller.view?.mode === "activated"}
               Device approved
-            {:else if view?.mode === "rejected"}
+            {:else if controller.view?.mode === "rejected"}
               Request denied
-            {:else if view?.mode === "expired"}
+            {:else if controller.view?.mode === "expired"}
               Link expired
             {:else}
               Invalid link
@@ -530,17 +84,17 @@
           </h1>
 
           <p class="mt-1 text-sm text-base-content/60">
-            {#if view?.mode === "sign_in_required"}
+            {#if controller.view?.mode === "sign_in_required"}
               Sign in to approve this device.
-            {:else if view?.mode === "ready"}
+            {:else if controller.view?.mode === "ready"}
               You are signed in and can approve this device now.
-            {:else if view?.mode === "pending_review"}
-              We have sent your approval request. Keep this page open while we check for a decision.
-            {:else if view?.mode === "activated"}
+            {:else if controller.view?.mode === "pending_review"}
+              A reviewer still needs to approve this device before setup can continue.
+            {:else if controller.view?.mode === "activated"}
               This device has been approved and can finish setup.
-            {:else if view?.mode === "rejected"}
+            {:else if controller.view?.mode === "rejected"}
               This device was not approved.
-            {:else if view?.mode === "expired"}
+            {:else if controller.view?.mode === "expired"}
               This approval link has expired. Start again from your app.
             {:else}
               This approval link is missing or no longer valid.
@@ -548,70 +102,68 @@
           </p>
         </div>
 
-        {#if view?.mode === "sign_in_required"}
-          <button class="btn btn-primary btn-block" onclick={() => void signIn()}>Continue to sign in</button>
-        {:else if view?.mode === "ready"}
-          <button class="btn btn-primary btn-block" disabled={requestPending} onclick={() => void requestActivation()}>
-            {#if requestPending}
+        {#if controller.view?.mode === "sign_in_required"}
+          <button class="btn btn-primary btn-block" onclick={() => void controller.signIn()}>Continue to sign in</button>
+        {:else if controller.view?.mode === "ready"}
+          <button class="btn btn-primary btn-block" disabled={controller.requestPending} onclick={() => void controller.requestActivation()}>
+            {#if controller.requestPending}
               <span class="loading loading-spinner loading-sm"></span>
               Approving...
             {:else}
               Approve device
             {/if}
           </button>
-        {:else if view?.mode === "pending_review"}
+        {:else if controller.view?.mode === "pending_review"}
           <div class="alert alert-info text-sm">
-            <span>Waiting for a decision. This page checks automatically.</span>
+            <span>Approval has been requested and is waiting for review.</span>
           </div>
 
           <div class="rounded-box border border-base-300 bg-base-100 p-4">
             <p class="text-xs font-bold uppercase tracking-widest text-base-content/45">Request details</p>
-            <p class="mono mt-2 break-all text-sm text-base-content">{view.profileId}</p>
-            <p class="mt-1 text-xs text-base-content/55">Device <span class="mono break-all">{view.instanceId}</span></p>
+            <p class="mono mt-2 break-all text-sm text-base-content">{controller.view.profileId}</p>
+            <p class="mt-1 text-xs text-base-content/55">Device <span class="mono break-all">{controller.view.instanceId}</span></p>
           </div>
-
-          <div class="flex items-center justify-center py-1">
-            <span class="loading loading-spinner loading-md"></span>
-          </div>
-        {:else if view?.mode === "activated"}
+        {:else if controller.view?.mode === "activated"}
           <div class="alert alert-success text-sm">
             <span>Approval complete.</span>
           </div>
 
-          {#if view.confirmationCode}
+          {#if controller.view.confirmationCode}
             <div class="rounded-box border border-success/30 bg-success/10 p-5 text-center">
               <p class="text-xs font-bold uppercase tracking-[0.2em] text-base-content/45">Confirmation code</p>
-              <p class="mono mt-3 break-all text-3xl font-semibold tracking-[0.3em] text-base-content sm:text-4xl">{view.confirmationCode}</p>
+              <p class="mono mt-3 break-all text-3xl font-semibold tracking-[0.3em] text-base-content sm:text-4xl">{controller.view.confirmationCode}</p>
             </div>
           {/if}
 
           <div class="rounded-box border border-base-300 bg-base-100 p-4">
             <p class="text-xs font-bold uppercase tracking-widest text-base-content/45">Profile</p>
-            <p class="mono mt-2 break-all text-sm text-base-content">{view.profileId}</p>
+            <p class="mono mt-2 break-all text-sm text-base-content">{controller.view.profileId}</p>
             <p class="mt-4 text-xs font-bold uppercase tracking-widest text-base-content/35">Device id</p>
-            <p class="mono mt-1 break-all text-xs text-base-content/50">{view.instanceId}</p>
+            <p class="mono mt-1 break-all text-xs text-base-content/50">{controller.view.instanceId}</p>
           </div>
-        {:else if view?.mode === "rejected"}
+        {:else if controller.view?.mode === "rejected"}
           <div class="alert alert-error text-sm">
-            <span>{view.reason ?? "This approval request was denied."}</span>
+            <span>{controller.view.reason ?? "This approval request was denied."}</span>
           </div>
-          <button class="btn btn-outline btn-block" onclick={() => void signIn()}>Sign in again</button>
-        {:else if view?.mode === "expired"}
+          <button class="btn btn-outline btn-block" onclick={() => void controller.signIn()}>Sign in again</button>
+        {:else if controller.view?.mode === "expired"}
           <div class="alert alert-error text-sm">
-            <span>{view.reason}</span>
+            <span>{controller.view.reason}</span>
           </div>
           <a class="btn btn-outline btn-block" href={APP_CONFIG.authUrl}>Return to app</a>
-        {:else if view?.mode === "invalid_flow"}
+        {:else if controller.view?.mode === "invalid_flow"}
           <div class="alert alert-error text-sm">
-            <span>{view.reason}</span>
+            <span>{controller.view.reason}</span>
           </div>
           <a class="btn btn-outline btn-block" href={APP_CONFIG.authUrl}>Return to app</a>
         {/if}
       {/if}
 
-      {#if authError}
-        <div class="alert alert-error text-sm">
-          <span>{authError}</span>
+      {#if controller.authError}
+        <div class="flex items-center justify-center py-4">
+          <div class="alert alert-error text-sm">
+            <span>{controller.authError}</span>
+          </div>
         </div>
       {/if}
     </div>

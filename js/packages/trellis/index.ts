@@ -65,7 +65,6 @@ export {
   defineAgentContract,
   defineAppContract,
   defineDeviceContract,
-  definePortalContract,
   defineServiceContract,
 } from "./contract.ts";
 export type {

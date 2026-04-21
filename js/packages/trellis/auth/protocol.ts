@@ -480,7 +480,6 @@ export const AuthRevokeUserGrantResponseSchema = Type.Object({
 
 export const PortalSchema = Type.Object({
   portalId: Type.String({ minLength: 1 }),
-  appContractId: Type.Optional(Type.String({ minLength: 1 })),
   entryUrl: Type.String({ minLength: 1 }),
   disabled: Type.Boolean(),
 });
@@ -659,7 +658,6 @@ export type DeviceActivationRecord = StaticDecode<
 
 export const DeviceActivationReviewSchema = Type.Object({
   reviewId: Type.String({ minLength: 1 }),
-  linkRequestId: Type.String({ minLength: 1 }),
   instanceId: Type.String({ minLength: 1 }),
   publicIdentityKey: Type.String({ minLength: 1 }),
   profileId: Type.String({ minLength: 1 }),
@@ -675,7 +673,6 @@ export const DeviceActivationReviewSchema = Type.Object({
 
 export const AuthDeviceActivationReviewRequestedEventSchema = Type.Object({
   reviewId: Type.String({ minLength: 1 }),
-  linkRequestId: Type.String({ minLength: 1 }),
   flowId: Type.String({ minLength: 1 }),
   instanceId: Type.String({ minLength: 1 }),
   publicIdentityKey: Type.String({ minLength: 1 }),
@@ -704,7 +701,6 @@ export const DeviceConnectInfoSchema = Type.Object({
 
 export const AuthCreatePortalSchema = Type.Object({
   portalId: Type.String({ minLength: 1 }),
-  appContractId: Type.Optional(Type.String({ minLength: 1 })),
   entryUrl: Type.String({ minLength: 1 }),
 });
 export const AuthCreatePortalResponseSchema = Type.Object({
@@ -875,7 +871,13 @@ export const AuthRemoveDeviceInstanceResponseSchema = Type.Object({
 
 export const AuthActivateDeviceSchema = Type.Object({
   flowId: Type.String({ minLength: 1 }),
-  linkRequestId: Type.String({ minLength: 1 }),
+});
+export const AuthActivateDeviceProgressSchema = Type.Object({
+  status: Type.Literal("pending_review"),
+  reviewId: Type.String({ minLength: 1 }),
+  instanceId: Type.String({ minLength: 1 }),
+  profileId: Type.String({ minLength: 1 }),
+  requestedAt: IsoDateStringSchema,
 });
 export const AuthActivateDeviceResponseSchema = Type.Union([
   Type.Object({
@@ -886,23 +888,10 @@ export const AuthActivateDeviceResponseSchema = Type.Union([
     confirmationCode: Type.Optional(Type.String({ minLength: 1 })),
   }),
   Type.Object({
-    status: Type.Literal("pending_review"),
-    reviewId: Type.String({ minLength: 1 }),
-    linkRequestId: Type.String({ minLength: 1 }),
-    instanceId: Type.String({ minLength: 1 }),
-    profileId: Type.String({ minLength: 1 }),
-    requestedAt: IsoDateStringSchema,
-  }),
-  Type.Object({
     status: Type.Literal("rejected"),
     reason: Type.Optional(Type.String({ minLength: 1 })),
   }),
 ]);
-export const AuthGetDeviceActivationStatusSchema = Type.Object({
-  flowId: Type.String({ minLength: 1 }),
-});
-export const AuthGetDeviceActivationStatusResponseSchema =
-  AuthActivateDeviceResponseSchema;
 
 export const WaitForDeviceActivationResponseSchema = Type.Union([
   Type.Object({ status: Type.Literal("pending") }),

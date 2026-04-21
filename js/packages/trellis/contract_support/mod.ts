@@ -122,7 +122,7 @@ export type ContractManifestMetadata = {
   description: string;
 };
 
-export type ContractKind = "service" | "app" | "portal" | "device" | "agent";
+export type ContractKind = "service" | "app" | "device" | "agent";
 
 export type Capability = string;
 export type JsonSchema = JsonValue | boolean;
@@ -3070,62 +3070,6 @@ export function defineAppContract(
   }
 
   return defineClientContract("app", registryOrBuild, maybeBuild!);
-}
-
-export function definePortalContract<
-  const TSchemas extends Readonly<Record<string, TSchema>> | undefined,
-  const TUses extends
-    | Readonly<Record<string, AuthorContractDependencyUse>>
-    | undefined,
-  const TBody extends ClientContractBodyInput<TSchemas, TUses>,
->(
-  registry: ClientContractRegistry<TSchemas>,
-  build: (ref: ContractRefBuilder<TSchemas>) => TBody,
-): DefinedContract<
-  OwnedApiFromSource<BuiltContractSource<ClientContractRegistry<TSchemas>, WithKind<TBody, "portal">>>,
-  UsedApiFromUses<TBody["uses"]>,
-  MergeApis<
-    OwnedApiFromSource<BuiltContractSource<ClientContractRegistry<TSchemas>, WithKind<TBody, "portal">>>,
-    UsedApiFromUses<TBody["uses"]>
-  >,
-  TBody["id"],
-  {},
-  ProjectedState<
-    StateFromSource<BuiltContractSource<ClientContractRegistry<TSchemas>, WithKind<TBody, "portal">>>,
-    SchemasFromSource<BuiltContractSource<ClientContractRegistry<TSchemas>, WithKind<TBody, "portal">>>
-  >
->;
-export function definePortalContract<
-  const TUses extends
-    | Readonly<Record<string, AuthorContractDependencyUse>>
-    | undefined,
-  const TBody extends ClientContractBodyInput<undefined, TUses>,
->(build: () => TBody): DefinedContract<
-  OwnedApiFromSource<WithKind<TBody, "portal">>,
-  UsedApiFromUses<TBody["uses"]>,
-  MergeApis<
-    OwnedApiFromSource<WithKind<TBody, "portal">>,
-    UsedApiFromUses<TBody["uses"]>
-  >,
-  TBody["id"],
-  {},
-  ProjectedState<StateFromSource<WithKind<TBody, "portal">>, SchemasFromSource<WithKind<TBody, "portal">>>
->;
-export function definePortalContract(
-  ...args:
-    | [() => ContractIdentityFields & Record<string, unknown>]
-    | [
-      ClientContractRegistry<Readonly<Record<string, TSchema>>>,
-      (ref: ContractRefBuilder<Readonly<Record<string, TSchema>>>) =>
-        ContractIdentityFields & Record<string, unknown>,
-    ]
-) {
-  const [registryOrBuild, maybeBuild] = args;
-  if (typeof registryOrBuild === "function") {
-    return defineClientContract("portal", {}, () => registryOrBuild());
-  }
-
-  return defineClientContract("portal", registryOrBuild, maybeBuild!);
 }
 
 export function defineAgentContract<

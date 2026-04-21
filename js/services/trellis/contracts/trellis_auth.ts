@@ -18,6 +18,7 @@ import {
   PortalFlowStateSchema,
 } from "@qlever-llc/trellis/auth";
 import {
+  AuthActivateDeviceProgressSchema,
   AuthActivateDeviceResponseSchema,
   AuthActivateDeviceSchema,
   AuthApplyDeviceProfileContractResponseSchema,
@@ -57,8 +58,6 @@ import {
   AuthEnableServiceInstanceSchema,
   AuthEnableServiceProfileResponseSchema,
   AuthEnableServiceProfileSchema,
-  AuthGetDeviceActivationStatusResponseSchema,
-  AuthGetDeviceActivationStatusSchema,
   AuthGetDeviceConnectInfoResponseSchema,
   AuthGetDeviceConnectInfoSchema,
   AuthGetDevicePortalDefaultResponseSchema,
@@ -231,9 +230,6 @@ const schemas = {
     AuthDecideDeviceActivationReviewResponseSchema,
   AuthListPortalsRequest: AuthListPortalsSchema,
   AuthListPortalsResponse: AuthListPortalsResponseSchema,
-  AuthGetDeviceActivationStatusRequest: AuthGetDeviceActivationStatusSchema,
-  AuthGetDeviceActivationStatusResponse:
-    AuthGetDeviceActivationStatusResponseSchema,
   AuthListDeviceActivationReviewsRequest: AuthListDeviceActivationReviewsSchema,
   AuthListDeviceActivationReviewsResponse:
     AuthListDeviceActivationReviewsResponseSchema,
@@ -247,6 +243,7 @@ const schemas = {
   AuthDisableDeviceInstanceRequest: AuthDisableDeviceInstanceSchema,
   AuthDisableDeviceInstanceResponse: AuthDisableDeviceInstanceResponseSchema,
   AuthActivateDeviceRequest: AuthActivateDeviceSchema,
+  AuthActivateDeviceProgress: AuthActivateDeviceProgressSchema,
   AuthActivateDeviceResponse: AuthActivateDeviceResponseSchema,
   AuthGetDeviceConnectInfoRequest: AuthGetDeviceConnectInfoSchema,
   AuthGetDeviceConnectInfoResponse: AuthGetDeviceConnectInfoResponseSchema,
@@ -744,20 +741,6 @@ export const TRELLIS_AUTH_RPC = {
     capabilities: { call: ["admin"] },
     errors: ["AuthError", "ValidationError", "UnexpectedError"],
   },
-  "Auth.ActivateDevice": {
-    version: "v1",
-    input: schemaRef("AuthActivateDeviceRequest"),
-    output: schemaRef("AuthActivateDeviceResponse"),
-    capabilities: { call: [] },
-    errors: ["AuthError", "ValidationError", "UnexpectedError"],
-  },
-  "Auth.GetDeviceActivationStatus": {
-    version: "v1",
-    input: schemaRef("AuthGetDeviceActivationStatusRequest"),
-    output: schemaRef("AuthGetDeviceActivationStatusResponse"),
-    capabilities: { call: [] },
-    errors: ["AuthError", "ValidationError", "UnexpectedError"],
-  },
   "Auth.GetDeviceConnectInfo": {
     version: "v1",
     input: schemaRef("AuthGetDeviceConnectInfoRequest"),
@@ -803,7 +786,16 @@ export const TRELLIS_AUTH_RPC = {
   },
 } as const;
 
-export const TRELLIS_AUTH_OPERATIONS = {} as const;
+export const TRELLIS_AUTH_OPERATIONS = {
+  "Auth.ActivateDevice": {
+    version: "v1",
+    input: schemaRef("AuthActivateDeviceRequest"),
+    progress: schemaRef("AuthActivateDeviceProgress"),
+    output: schemaRef("AuthActivateDeviceResponse"),
+    capabilities: { call: [] },
+    errors: ["AuthError", "ValidationError", "UnexpectedError"],
+  },
+} as const;
 
 export const TRELLIS_AUTH_EVENTS = {
   "Auth.Connect": {

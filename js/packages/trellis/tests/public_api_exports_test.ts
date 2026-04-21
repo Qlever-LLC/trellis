@@ -6,7 +6,6 @@ import {
   defineAppContract,
   defineDeviceContract,
   defineError,
-  definePortalContract,
   defineServiceContract,
   err,
   FileInfoSchema,
@@ -31,7 +30,6 @@ import * as trellis from "../index.ts";
 Deno.test("root public API includes core runtime, contracts, and result helpers", () => {
   assertEquals("defineContract" in trellis, false);
   assertEquals(typeof defineAppContract, "function");
-  assertEquals(typeof definePortalContract, "function");
   assertEquals(typeof defineAgentContract, "function");
   assertEquals(typeof defineDeviceContract, "function");
   assertEquals(typeof defineServiceContract, "function");

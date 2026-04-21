@@ -9,17 +9,12 @@ fn parses_portal_create_command() {
         "create",
         "main",
         "https://portal.example.com/auth",
-        "--app-contract-id",
-        "trellis.portal@v1",
     ]);
     match cli.command {
         TopLevelCommand::Portal(command) => match command.command {
             PortalSubcommand::Create(args) => {
                 assert_eq!(args.portal_id, "main");
-                assert_eq!(args.app_contract_id.as_deref(), Some("trellis.portal@v1"));
-                assert!(args.manifest.is_none());
-                assert!(args.source.is_none());
-                assert!(args.image.is_none());
+                assert_eq!(args.entry_url, "https://portal.example.com/auth");
             }
             other => panic!("unexpected portal command: {other:?}"),
         },
@@ -28,94 +23,7 @@ fn parses_portal_create_command() {
 }
 
 #[test]
-fn parses_portal_create_command_with_manifest() {
-    let cli = Cli::parse_from([
-        "trellis",
-        "portal",
-        "create",
-        "main",
-        "https://portal.example.com/auth",
-        "--manifest",
-        "./contracts/portal-app.json",
-    ]);
-    match cli.command {
-        TopLevelCommand::Portal(command) => match command.command {
-            PortalSubcommand::Create(args) => {
-                assert_eq!(args.portal_id, "main");
-                assert!(args.app_contract_id.is_none());
-                assert_eq!(
-                    args.manifest.as_deref(),
-                    Some(std::path::Path::new("./contracts/portal-app.json"))
-                );
-                assert!(args.source.is_none());
-                assert!(args.image.is_none());
-            }
-            other => panic!("unexpected portal command: {other:?}"),
-        },
-        other => panic!("unexpected top-level command: {other:?}"),
-    }
-}
-
-#[test]
-fn parses_portal_create_command_with_source() {
-    let cli = Cli::parse_from([
-        "trellis",
-        "portal",
-        "create",
-        "main",
-        "https://portal.example.com/auth",
-        "--source",
-        "./contracts/portal-app.ts",
-    ]);
-    match cli.command {
-        TopLevelCommand::Portal(command) => match command.command {
-            PortalSubcommand::Create(args) => {
-                assert_eq!(args.portal_id, "main");
-                assert!(args.app_contract_id.is_none());
-                assert!(args.manifest.is_none());
-                assert_eq!(
-                    args.source.as_deref(),
-                    Some(std::path::Path::new("./contracts/portal-app.ts"))
-                );
-                assert!(args.image.is_none());
-            }
-            other => panic!("unexpected portal command: {other:?}"),
-        },
-        other => panic!("unexpected top-level command: {other:?}"),
-    }
-}
-
-#[test]
-fn parses_portal_create_command_with_image() {
-    let cli = Cli::parse_from([
-        "trellis",
-        "portal",
-        "create",
-        "main",
-        "https://portal.example.com/auth",
-        "--image",
-        "ghcr.io/acme/portal-app:latest",
-    ]);
-    match cli.command {
-        TopLevelCommand::Portal(command) => match command.command {
-            PortalSubcommand::Create(args) => {
-                assert_eq!(args.portal_id, "main");
-                assert!(args.app_contract_id.is_none());
-                assert!(args.manifest.is_none());
-                assert!(args.source.is_none());
-                assert_eq!(
-                    args.image.as_deref(),
-                    Some("ghcr.io/acme/portal-app:latest")
-                );
-            }
-            other => panic!("unexpected portal command: {other:?}"),
-        },
-        other => panic!("unexpected top-level command: {other:?}"),
-    }
-}
-
-#[test]
-fn rejects_multiple_portal_create_contract_inputs() {
+fn rejects_removed_portal_create_app_contract_id_flag() {
     let error = Cli::try_parse_from([
         "trellis",
         "portal",
@@ -124,13 +32,58 @@ fn rejects_multiple_portal_create_contract_inputs() {
         "https://portal.example.com/auth",
         "--app-contract-id",
         "trellis.portal@v1",
+    ])
+    .unwrap_err();
+
+    assert!(error.to_string().contains("--app-contract-id"));
+}
+
+#[test]
+fn rejects_removed_portal_create_manifest_flag() {
+    let error = Cli::try_parse_from([
+        "trellis",
+        "portal",
+        "create",
+        "main",
+        "https://portal.example.com/auth",
         "--manifest",
         "./contracts/portal-app.json",
     ])
     .unwrap_err();
 
-    assert!(error.to_string().contains("--app-contract-id"));
     assert!(error.to_string().contains("--manifest"));
+}
+
+#[test]
+fn rejects_removed_portal_create_source_flag() {
+    let error = Cli::try_parse_from([
+        "trellis",
+        "portal",
+        "create",
+        "main",
+        "https://portal.example.com/auth",
+        "--source",
+        "./contracts/portal-app.ts",
+    ])
+    .unwrap_err();
+
+    assert!(error.to_string().contains("--source"));
+}
+
+#[test]
+fn rejects_removed_portal_create_image_flag() {
+    let error = Cli::try_parse_from([
+        "trellis",
+        "portal",
+        "create",
+        "main",
+        "https://portal.example.com/auth",
+        "--image",
+        "ghcr.io/acme/portal-app:latest",
+    ])
+    .unwrap_err();
+
+    assert!(error.to_string().contains("--image"));
 }
 
 #[test]

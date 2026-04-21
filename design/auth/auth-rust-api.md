@@ -115,7 +115,6 @@ impl<'a> AuthClient<'a> {
     pub async fn create_portal(
         &self,
         portal_id: &str,
-        app_contract_id: Option<&str>,
         entry_url: &str,
     ) -> Result<AuthCreatePortalResponsePortal, TrellisAuthError>;
     pub async fn disable_portal(&self, portal_id: &str) -> Result<bool, TrellisAuthError>;
@@ -179,14 +178,6 @@ impl<'a> AuthClient<'a> {
     ) -> Result<Vec<AuthListDeviceInstancesResponseInstancesItem>, TrellisAuthError>;
     pub async fn disable_device_instance(&self, instance_id: &str) -> Result<bool, TrellisAuthError>;
 
-    pub async fn activate_device(
-        &self,
-        flow_id: &str,
-    ) -> Result<trellis_sdk_auth::AuthActivateDeviceResponse, TrellisAuthError>;
-    pub async fn get_device_activation_status(
-        &self,
-        flow_id: &str,
-    ) -> Result<trellis_sdk_auth::AuthGetDeviceActivationStatusResponse, TrellisAuthError>;
     pub async fn list_device_activations(
         &self,
         instance_id: Option<&str>,
@@ -314,7 +305,11 @@ pub fn verify_device_confirmation_code(
 Rules:
 
 - Rust activated-device code SHOULD use these helpers instead of hand-written HKDF, HMAC, wait-proof, and connect-info logic
-- `AuthClient` SHOULD expose small typed device-activation convenience methods in addition to the lower-level generated SDK surfaces
+- Rust callers may use lower-level generated SDK surfaces for authenticated
+  portal-side activation until a small typed convenience wrapper lands
+- authenticated portal-side activation uses the `Auth.ActivateDevice` operation;
+  review state is observed through normal operation progress/watch semantics,
+  not a separate status RPC
 - a future Rust device runtime helper SHOULD follow the same service-style `connect(...)` pattern as the TypeScript device runtime helper rather than exposing a docs-only activation facade
 - these helpers remain thin wrappers over the same public auth HTTP and RPC
   surfaces defined elsewhere
@@ -325,11 +320,17 @@ The built-in Trellis portal is implicit and always available. The crate only man
 
 Rules enforced by the crate:
 
-- custom portals may include `app_contract_id`, but they do not require one unless they later call Trellis as the logged-in user
+- custom portals remain first-class, but portal records are only routing config:
+  `portal_id`, `entry_url`, and `disabled`
+- there is no portal-specific contract kind or portal-specific contract
+  machinery in the Rust auth API
 - login portal selections are keyed by `contract_id`
 - device portal selections are keyed by `profile_id`
 - selection records may use `portal_id = null` to force the built-in Trellis portal for that scope
 - selection records that name a custom portal must reference an existing enabled portal
+- if a portal later calls Trellis after bind, it does so as a normal
+  user-authenticated browser app contract rather than through portal-specific
+  auth handling
 
 ## Non-Goals
 

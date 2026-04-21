@@ -16,7 +16,6 @@ pub const CATALOG_FORMAT_V1: &str = "trellis.catalog.v1";
 pub enum ContractKind {
     Service,
     App,
-    Portal,
     Device,
     Agent,
 }

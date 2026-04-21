@@ -2,7 +2,7 @@ import { assertEquals } from "@std/assert";
 import { join } from "@std/path";
 
 const forbiddenImportPattern = /(?:from|require\()\s*["']@qlever-llc\/trellis-(?!sdk\b)[^"']+["']/;
-const staleCliArtifactPattern = /defineCliContract|"service" \| "app" \| "portal" \| "device" \| "cli"|defineClientContract\("cli"/;
+const staleCliArtifactPattern = /defineCliContract|"service" \| "app" \| "device" \| "cli"|defineClientContract\("cli"/;
 
 async function* walkFiles(dir: string): AsyncGenerator<string> {
   for await (const entry of Deno.readDir(dir)) {

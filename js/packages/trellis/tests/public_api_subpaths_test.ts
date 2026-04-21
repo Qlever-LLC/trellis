@@ -10,7 +10,6 @@ import {
   defineAgentContract,
   defineAppContract,
   defineDeviceContract,
-  definePortalContract,
   defineServiceContract,
 } from "../contracts.ts";
 import * as contracts from "../contracts.ts";
@@ -68,7 +67,6 @@ Deno.test("service, health, and trellis-sdk root and subpaths expose the canonic
 Deno.test("contracts subpath exposes only kind-specific contract helpers", () => {
   assertEquals("defineContract" in contracts, false);
   assertEquals(typeof defineAppContract, "function");
-  assertEquals(typeof definePortalContract, "function");
   assertEquals(typeof defineAgentContract, "function");
   assertEquals(typeof defineDeviceContract, "function");
   assertEquals(typeof defineServiceContract, "function");

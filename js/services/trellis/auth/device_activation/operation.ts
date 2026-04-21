@@ -82,7 +82,6 @@ type DeviceActivationRecord = {
 
 type DeviceActivationReviewRecord = {
   reviewId: string;
-  linkRequestId: string;
   flowId: string;
   instanceId: string;
   publicIdentityKey: string;
@@ -98,6 +97,7 @@ type DeviceActivationReviewRecord = {
 };
 
 const config = getConfig();
+const REVIEW_POLL_INTERVAL_MS = 1_000;
 
 function activationFailure(reason: string, context?: Record<string, unknown>) {
   return Result.err(
@@ -292,6 +292,45 @@ async function activateInstance(args: {
   };
 }
 
+async function activateApprovedReview(
+  flow: DeviceActivationFlow,
+  review: DeviceActivationReviewRecord,
+): Promise<{
+  instanceId: string;
+  profileId: string;
+  activatedAt: string;
+  confirmationCode?: string;
+}> {
+  const instance = await loadDeviceInstance(review.instanceId);
+  if (!instance || instance.state === "disabled") {
+    throw new AuthError({
+      reason: "invalid_request",
+      context: {
+        instanceId: review.instanceId,
+        reason: "unknown_device",
+      },
+    });
+  }
+
+  const profile = await loadDeviceProfile(review.profileId);
+  if (!profile || profile.disabled) {
+    throw new AuthError({
+      reason: "invalid_request",
+      context: {
+        profileId: review.profileId,
+        reason: "device_profile_not_found",
+      },
+    });
+  }
+
+  return await activateInstance({
+    flow,
+    instance,
+    profile,
+    activatedBy: review.requestedBy,
+  });
+}
+
 async function currentActivationStatus(flow: DeviceActivationFlow) {
   const activation = await loadDeviceActivation(flow.instanceId);
   if (activation) {
@@ -317,13 +356,12 @@ async function currentActivationStatus(flow: DeviceActivationFlow) {
   const review = await findReviewByFlowId(flow.flowId);
   if (!review) return null;
   if (review.state === "pending") {
-    return {
-      status: "pending_review" as const,
-      reviewId: review.reviewId,
-      linkRequestId: review.linkRequestId,
-      instanceId: review.instanceId,
-      profileId: review.profileId,
-      requestedAt: isoString(review.requestedAt),
+      return {
+        status: "pending_review" as const,
+        reviewId: review.reviewId,
+        instanceId: review.instanceId,
+        profileId: review.profileId,
+        requestedAt: isoString(review.requestedAt),
     };
   }
   if (review.state === "rejected") {
@@ -335,24 +373,74 @@ async function currentActivationStatus(flow: DeviceActivationFlow) {
   return null;
 }
 
+function pendingReviewProgress(review: DeviceActivationReviewRecord) {
+  return {
+    status: "pending_review" as const,
+    reviewId: review.reviewId,
+    instanceId: review.instanceId,
+    profileId: review.profileId,
+    requestedAt: isoString(review.requestedAt),
+  };
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForTerminalActivationStatus(
+  flow: DeviceActivationFlow,
+): Promise<
+  | {
+    status: "activated";
+    instanceId: string;
+    profileId: string;
+    activatedAt: string;
+    confirmationCode?: string;
+  }
+  | { status: "rejected"; reason?: string }
+> {
+  while (true) {
+    const status = await currentActivationStatus(flow);
+    if (status && status.status !== "pending_review") {
+      return status;
+    }
+
+    if (new Date(isoString(flow.expiresAt)).getTime() <= Date.now()) {
+      return {
+        status: "rejected",
+        reason: "device_flow_expired",
+      };
+    }
+
+    await sleep(REVIEW_POLL_INTERVAL_MS);
+  }
+}
+
 export function createActivateDeviceHandler() {
   return async (
-    {
-      input: req,
-      context: { caller },
-    }: {
-      input: { flowId: string; linkRequestId: string };
-      context: { caller: Caller };
+    { input, caller, op }: {
+      input: { flowId: string };
+      caller: Caller;
+      op: {
+        started(): Promise<unknown>;
+        progress(value: {
+          status: "pending_review";
+          reviewId: string;
+          instanceId: string;
+          profileId: string;
+          requestedAt: string;
+        }): Promise<unknown>;
+      };
     },
   ) => {
     logger.trace(
-      { rpc: "Auth.ActivateDevice", flowId: req.flowId },
-      "RPC request",
+      { operation: "Auth.ActivateDevice", flowId: input.flowId },
+      "Operation request",
     );
     if (caller.type !== "user" || !caller.origin || !caller.id) {
       return activationFailure("insufficient_permissions");
     }
-    const flow = await loadDeviceActivationFlow(req.flowId);
+    const flow = await loadDeviceActivationFlow(input.flowId);
     if (!flow) {
       return activationFailure("invalid_request", {
         reason: "device_flow_not_found",
@@ -374,14 +462,37 @@ export function createActivateDeviceHandler() {
       });
     }
 
+    await op.started();
+
     const existingStatus = await currentActivationStatus(flow);
-    if (existingStatus) return Result.ok(existingStatus);
+    if (existingStatus?.status === "activated" || existingStatus?.status === "rejected") {
+      return Result.ok(existingStatus);
+    }
+
+    const existingReview = await findReviewByFlowId(flow.flowId);
+    if (existingReview?.state === "pending") {
+      await op.progress(pendingReviewProgress(existingReview));
+      return Result.ok(await waitForTerminalActivationStatus(flow));
+    }
+
+    if (existingReview?.state === "approved") {
+      try {
+        return Result.ok({
+          status: "activated" as const,
+          ...(await activateApprovedReview(flow, existingReview)),
+        });
+      } catch (error) {
+        if (error instanceof AuthError) {
+          return Result.err(error);
+        }
+        throw error;
+      }
+    }
 
     if (profile.reviewMode === "required") {
       const requestedAt = new Date().toISOString();
       const review: DeviceActivationReviewRecord = {
         reviewId: `dar_${randomToken(12)}`,
-        linkRequestId: req.linkRequestId,
         flowId: flow.flowId,
         instanceId: instance.instanceId,
         publicIdentityKey: instance.publicIdentityKey,
@@ -397,7 +508,6 @@ export function createActivateDeviceHandler() {
       await deviceActivationReviewsKV.put(review.reviewId, review);
       await trellis.publish("Auth.DeviceActivationReviewRequested", {
         reviewId: review.reviewId,
-        linkRequestId: review.linkRequestId,
         flowId: flow.flowId,
         instanceId: instance.instanceId,
         publicIdentityKey: instance.publicIdentityKey,
@@ -405,14 +515,8 @@ export function createActivateDeviceHandler() {
         requestedAt,
         requestedBy: review.requestedBy,
       });
-      return Result.ok({
-        status: "pending_review" as const,
-        reviewId: review.reviewId,
-        linkRequestId: review.linkRequestId,
-        instanceId: instance.instanceId,
-        profileId: profile.profileId,
-        requestedAt,
-      });
+      await op.progress(pendingReviewProgress(review));
+      return Result.ok(await waitForTerminalActivationStatus(flow));
     }
 
     return Result.ok({
@@ -426,33 +530,6 @@ export function createActivateDeviceHandler() {
           id: caller.id,
         },
       })),
-    });
-  };
-}
-
-export function createGetDeviceActivationStatusHandler() {
-  return async ({ input: req }: { input: { flowId: string } }) => {
-    logger.trace({
-      rpc: "Auth.GetDeviceActivationStatus",
-      flowId: req.flowId,
-    }, "RPC request");
-    const flow = await loadDeviceActivationFlow(req.flowId);
-    if (!flow) {
-      return activationFailure("invalid_request", {
-        reason: "device_flow_not_found",
-      });
-    }
-    if (new Date(isoString(flow.expiresAt)).getTime() <= Date.now()) {
-      return Result.ok({
-        status: "rejected" as const,
-        reason: "device_flow_expired",
-      });
-    }
-    const status = await currentActivationStatus(flow);
-    if (status) return Result.ok(status);
-    return Result.ok({
-      status: "rejected" as const,
-      reason: "activation_not_started",
     });
   };
 }

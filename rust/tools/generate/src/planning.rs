@@ -275,21 +275,22 @@ pub fn discover_summary_lines(plan: &[AutoPlanEntry]) -> Vec<String> {
 }
 
 pub fn action_for_kind(kind: &ContractKind) -> AutoAction {
+    #[allow(unreachable_patterns)]
     match kind {
         ContractKind::Service => AutoAction::Generate,
-        ContractKind::App | ContractKind::Portal | ContractKind::Device | ContractKind::Agent => {
-            AutoAction::Verify
-        }
+        ContractKind::App | ContractKind::Device | ContractKind::Agent => AutoAction::Verify,
+        _ => unreachable!("portal contract kind has been removed"),
     }
 }
 
 pub fn contract_kind_label(kind: &ContractKind) -> &'static str {
+    #[allow(unreachable_patterns)]
     match kind {
         ContractKind::Service => "service",
         ContractKind::App => "app",
-        ContractKind::Portal => "portal",
         ContractKind::Device => "device",
         ContractKind::Agent => "agent",
+        _ => unreachable!("portal contract kind has been removed"),
     }
 }
 

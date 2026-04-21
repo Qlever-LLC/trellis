@@ -147,6 +147,10 @@ Rules:
   deployments may register custom portals to replace that behavior selectively
 - a portal is a browser web app registered by deployment-owned portal records;
   it is never a service-authenticated principal
+- portal records are routing config only: `portalId`, `entryUrl`, and
+  `disabled`
+- there is no special portal contract kind; custom portals remain first-class
+  browser UX surfaces without portal-specific contract machinery
 - a portal MAY also act later as a normal user-authenticated browser app, but
   any such authority is delegated from the logged-in user rather than from a
   service install record
@@ -194,7 +198,7 @@ Rules:
 
 After identity binding, users and devices share the same auth-callout-based NATS connection model.
 
-Activated devices join that same runtime model after activation is complete. Before that point, device setup uses auth-owned browser flows with `kind: "device_activation"`, activation RPCs, and pre-auth wait surfaces defined in [device-activation.md](./device-activation.md). Browser auth UX runs through portals selected by explicit login and device portal-selection state; callers do not choose portals directly in the normal path. A portal may later continue as a user-authenticated browser app for onboarding or activation work, but that remains user-delegated app authority rather than service authority.
+Activated devices join that same runtime model after activation is complete. Before that point, device setup uses auth-owned browser flows with `kind: "device_activation"`, the `Auth.ActivateDevice` operation, and pre-auth wait surfaces defined in [device-activation.md](./device-activation.md). Browser auth UX runs through portals selected by explicit login and device portal-selection state; callers do not choose portals directly in the normal path. A portal may later continue as a user-authenticated browser app for onboarding or activation work, but that remains user-delegated app authority rather than service authority.
 
 The important distinction is that installed and activated devices differ in auth establishment, not in the basic runtime treatment after auth succeeds.
 
@@ -265,7 +269,7 @@ The auth subsystem maintains Trellis-local state such as:
 - user projections
 - installed device registry entries
 - approval records
-- portal records
+- portal records (`portalId`, `entryUrl`, `disabled`)
 - login portal selection records
 - device portal selection records
 - optional login/device default-portal deployment settings

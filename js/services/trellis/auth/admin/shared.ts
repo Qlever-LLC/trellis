@@ -4,7 +4,6 @@ import { sha256Base64urlSync } from "../../../../packages/trellis/contract_suppo
 
 export type Portal = {
   portalId: string;
-  appContractId?: string;
   entryUrl: string;
   disabled: boolean;
 };
@@ -83,7 +82,6 @@ export type DeviceMetadata = Record<string, string>;
 
 export type DeviceActivationReview = {
   reviewId: string;
-  linkRequestId: string;
   instanceId: string;
   publicIdentityKey: string;
   profileId: string;
@@ -108,7 +106,6 @@ export type DeviceInstance = {
 
 export type CreatePortalRequest = {
   portalId: string;
-  appContractId?: string;
   entryUrl: string;
 };
 
@@ -273,13 +270,9 @@ export function validatePortalRequest(req: CreatePortalRequest) {
   if (!req.portalId || !entryUrl) {
     return invalidRequest({ portalId: req.portalId, entryUrl: req.entryUrl });
   }
-  if (req.appContractId !== undefined && req.appContractId.length === 0) {
-    return invalidRequest({ appContractId: req.appContractId });
-  }
   return Result.ok({
     portal: {
       portalId: req.portalId,
-      appContractId: req.appContractId,
       entryUrl,
       disabled: false,
     } as Portal,

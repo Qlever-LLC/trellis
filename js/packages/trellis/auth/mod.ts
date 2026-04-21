@@ -10,9 +10,9 @@
 
 export {
   type AuthActivateDeviceInput,
+  type AuthActivateDeviceOperation,
   type AuthActivateDeviceOutput,
-  type AuthGetDeviceActivationStatusInput,
-  type AuthGetDeviceActivationStatusOutput,
+  type AuthActivateDeviceProgress,
   type AuthListDeviceActivationsInput,
   type AuthListDeviceActivationsOutput,
   type AuthRevokeDeviceActivationInput,
@@ -70,6 +70,7 @@ export {
   verifyProof,
 } from "./proof.ts";
 export {
+  AuthActivateDeviceProgressSchema,
   ApprovalRecordViewSchema,
   AuthActivateDeviceResponseSchema,
   AuthActivateDeviceSchema,
@@ -114,8 +115,6 @@ export {
   AuthenticatedDeviceSchema,
   type AuthenticatedService,
   type AuthenticatedUser,
-  AuthGetDeviceActivationStatusResponseSchema,
-  AuthGetDeviceActivationStatusSchema,
   AuthGetDeviceConnectInfoResponseSchema,
   AuthGetDeviceConnectInfoSchema,
   AuthGetDevicePortalDefaultResponseSchema,

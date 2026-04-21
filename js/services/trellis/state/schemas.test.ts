@@ -140,7 +140,6 @@ Deno.test("Portal and browser-flow schemas validate", () => {
 Deno.test("portal and device state schemas validate", () => {
   assert(Value.Check(PortalSchema, {
     portalId: "main",
-    appContractId: "trellis.portal@v1",
     entryUrl: "https://portal.example.com/auth",
     disabled: false,
   }));
@@ -196,7 +195,6 @@ Deno.test("portal and device state schemas validate", () => {
   }));
   assert(Value.Check(DeviceActivationReviewRecordSchema, {
     reviewId: "dar_123",
-    linkRequestId: "dlr_123",
     flowId: "flow_123",
     instanceId: "dev_123",
     publicIdentityKey: sessionKey,

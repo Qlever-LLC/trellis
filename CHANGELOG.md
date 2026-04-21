@@ -44,12 +44,26 @@ and this project adheres to
 - Changed `trellis auth login` to require a positional Trellis URL, renamed the
   persisted admin-session URL field to `trellis_url`, and updated the related
   design and guide examples.
+<<<<<<< HEAD
+- Simplified portal auth by removing the portal contract kind and portal
+  `appContractId`, keeping custom portals as routing config, and moving
+  authenticated device activation to a single `Auth.ActivateDevice` operation.
+
+### Added
+
+- Added a reusable Svelte `DeviceActivationController` for custom and built-in
+  authenticated device portal flows.
 - Made service and activated-device runtime NATS lifecycle logging explicit so
   disconnects, reconnect attempts, reconnect success, stale connections, and
   connection errors produce distinct operator-facing messages.
 - Moved contract-manifest job queue declarations to canonical top-level `jobs`
   in both the JavaScript and Rust contract layers, and aligned bootstrap and
   contract-get views with that shape.
+
+### Added
+
+- Added a reusable Svelte `DeviceActivationController` for custom and built-in
+  authenticated device portal flows.
 
 ### Fixed
 

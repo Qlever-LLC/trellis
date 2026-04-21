@@ -8,8 +8,8 @@ export const portalActivationApp = defineAppContract(
     description: "Built-in app contract for authenticated device activation in the Trellis portal.",
     uses: {
       auth: trellisAuth.use({
-        rpc: {
-          call: ["Auth.ActivateDevice", "Auth.GetDeviceActivationStatus"],
+        operations: {
+          call: ["Auth.ActivateDevice"],
         },
       }),
     },

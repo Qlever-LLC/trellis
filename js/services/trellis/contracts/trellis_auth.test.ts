@@ -1,9 +1,9 @@
 import { assertEquals } from "@std/assert";
-import { definePortalContract } from "@qlever-llc/trellis";
+import { defineAppContract } from "@qlever-llc/trellis";
 
 import { trellisAuth } from "./trellis_auth.ts";
 
-const portal = definePortalContract(
+const app = defineAppContract(
   () => ({
     id: "test.portal@v1",
     displayName: "Test Portal",
@@ -19,7 +19,7 @@ const portal = definePortalContract(
 );
 
 Deno.test("trellisAuth.useDefaults adds baseline auth rpc uses once", () => {
-  assertEquals(portal.CONTRACT.uses?.auth, {
+  assertEquals(app.CONTRACT.uses?.auth, {
     contract: "trellis.auth@v1",
     rpc: {
       call: [
@@ -32,10 +32,10 @@ Deno.test("trellisAuth.useDefaults adds baseline auth rpc uses once", () => {
 });
 
 Deno.test("trellisAuth.useDefaults exposes baseline rpc api surface", () => {
-  assertEquals(portal.API.used.rpc["Auth.Me"].subject, "rpc.v1.Auth.Me");
-  assertEquals(portal.API.used.rpc["Auth.Logout"].subject, "rpc.v1.Auth.Logout");
+  assertEquals(app.API.used.rpc["Auth.Me"].subject, "rpc.v1.Auth.Me");
+  assertEquals(app.API.used.rpc["Auth.Logout"].subject, "rpc.v1.Auth.Logout");
   assertEquals(
-    portal.API.used.rpc["Auth.ListApprovals"].subject,
+    app.API.used.rpc["Auth.ListApprovals"].subject,
     "rpc.v1.Auth.ListApprovals",
   );
 });
