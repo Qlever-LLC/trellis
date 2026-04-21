@@ -261,6 +261,7 @@ Deno.test("service permissions include owned RPCs and declared dependencies", ()
       ),
       true,
     );
+    assertEquals(publishSubjects.includes("$JS.API.INFO"), true);
     assertEquals(
       publishSubjects.includes(
         "$JS.API.STREAM.CREATE.KV_trellis_operations_graph-key",

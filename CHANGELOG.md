@@ -14,6 +14,11 @@ and this project adheres to
   persisted admin-session URL field to `trellis_url`, and updated the related
   design and guide examples.
 
+### Fixed
+
+- Granted KV-backed services JetStream info access so operation handlers can
+  open their durable operation store without `$JS.API.INFO` permission errors.
+
 ## [0.8.0] - 2026-04-19
 
 ### Added

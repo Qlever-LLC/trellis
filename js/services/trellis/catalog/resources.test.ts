@@ -105,6 +105,10 @@ Deno.test("resource permission grants include per-bucket JetStream subjects", ()
   });
 
   assertEquals(
+    grants.publish.includes("$JS.API.INFO"),
+    true,
+  );
+  assertEquals(
     grants.publish.includes("$KV.svc_test_activity_v1_activity.>"),
     true,
   );

@@ -134,6 +134,7 @@ export function getKvPermissionGrants(bucket: string): {
   const stream = `KV_${bucket}`;
   return {
     publish: [
+      "$JS.API.INFO",
       `$KV.${bucket}.>`,
       `$JS.API.STREAM.INFO.${stream}`,
       `$JS.API.STREAM.CREATE.${stream}`,
