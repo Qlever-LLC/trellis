@@ -24,16 +24,28 @@ fn discover_typescript_contract_metadata(
         Err(resolve_error) => {
             let source = fs::read_to_string(path).into_diagnostic()?;
             let contract_id = extract_quoted_source_field(&source, "id").ok_or(resolve_error)?;
-            let kind = if let Some(kind) = extract_quoted_source_field(&source, "kind") {
-                parse_contract_kind(&kind)?
-            } else {
-                infer_contract_kind_from_typescript_source(&source).ok_or_else(|| {
-                    miette::miette!("failed to infer contract kind from {}", path.display())
-                })?
-            };
+            let kind = discover_typescript_contract_kind(&source, path)?;
             Ok((contract_id, kind))
         }
     }
+}
+
+fn discover_typescript_contract_kind(
+    source: &str,
+    path: &std::path::Path,
+) -> miette::Result<ContractKind> {
+    if let Some(kind) = infer_contract_kind_from_typescript_source(source) {
+        return Ok(kind);
+    }
+
+    if let Some(kind) = extract_quoted_source_field(source, "kind") {
+        return parse_contract_kind(&kind);
+    }
+
+    Err(miette::miette!(
+        "failed to infer contract kind from {}",
+        path.display()
+    ))
 }
 
 fn discover_rust_contract_metadata(
@@ -177,6 +189,49 @@ mod tests {
 
         let (id, kind) = discover_contract_metadata(&discovered).unwrap();
         assert_eq!(id, "trellis.activity-app@v1");
+        assert_eq!(kind, ContractKind::App);
+    }
+
+    #[test]
+    fn helper_inference_wins_over_nested_state_kind_in_typescript_fallback() {
+        let temp = TempDir::new().unwrap();
+        let project = temp.path().join("inspection-app");
+        let contracts = project.join("contracts");
+        fs::create_dir_all(&contracts).unwrap();
+        fs::write(
+            project.join("package.json"),
+            "{\n  \"name\": \"inspection-app\",\n  \"version\": \"0.4.0\",\n  \"type\": \"module\"\n}\n",
+        )
+        .unwrap();
+        fs::write(
+            contracts.join("inspection_app.ts"),
+            concat!(
+                "import { defineAppContract } from '@qlever-llc/trellis/contracts';\n",
+                "export const inspectionApp = defineAppContract({ schemas: {} }, () => ({\n",
+                "  id: \"trellis.inspection-app@v1\",\n",
+                "  displayName: \"Inspection App\",\n",
+                "  description: \"Inspection UI\",\n",
+                "  state: {\n",
+                "    inspectionContext: {\n",
+                "      kind: \"map\",\n",
+                "      schema: { schema: \"InspectionContext\" },\n",
+                "    },\n",
+                "  },\n",
+                "}));\n",
+                "export default inspectionApp;\n",
+            ),
+        )
+        .unwrap();
+
+        let discovered = DiscoveredContractSource {
+            project_root: project.clone(),
+            manifest_path: project.join("package.json"),
+            source_path: contracts.join("inspection_app.ts"),
+            language: SourceLanguage::TypeScript,
+        };
+
+        let (id, kind) = discover_contract_metadata(&discovered).unwrap();
+        assert_eq!(id, "trellis.inspection-app@v1");
         assert_eq!(kind, ContractKind::App);
     }
 }
