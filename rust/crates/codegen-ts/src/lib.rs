@@ -141,6 +141,8 @@ fn render_contract_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Stri
     let module_export = sdk_module_export_name(&opts.package_name);
     let source_reference =
         manifest_source_reference(&opts.manifest_path, opts.runtime_deps.repo_root.as_deref());
+    let trellis_import = trellis_runtime_import(opts);
+    let trellis_contracts_import = trellis_contracts_import(opts);
     let is_trellis_auth = loaded.manifest.id == "trellis.auth@v1";
     let contract_jobs_type = render_contract_jobs_type(loaded);
     let has_contract_jobs = contract_jobs_type.is_some();
@@ -150,9 +152,15 @@ fn render_contract_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Stri
         "SdkContractModule<typeof CONTRACT_ID, typeof API.owned>"
     };
     let import_line = if is_trellis_auth {
-        "import type { ContractDependencyUse, SdkContractModule, TrellisContractV1, UseSpec } from \"@qlever-llc/trellis\";".to_string()
+        format!(
+            "import type {{ ContractDependencyUse, SdkContractModule, TrellisContractV1, UseSpec }} from {};",
+            js_string(&trellis_import)
+        )
     } else {
-        "import type { SdkContractModule, TrellisContractV1, UseSpec } from \"@qlever-llc/trellis\";".to_string()
+        format!(
+            "import type {{ SdkContractModule, TrellisContractV1, UseSpec }} from {};",
+            js_string(&trellis_import)
+        )
     };
 
     let mut lines = vec![
@@ -195,8 +203,10 @@ fn render_contract_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Stri
     if has_contract_jobs {
         lines.insert(
             2,
-            "import { CONTRACT_JOBS_METADATA, type ContractJobsMetadata } from \"@qlever-llc/trellis/contracts\";"
-                .to_string(),
+            format!(
+                "import {{ CONTRACT_JOBS_METADATA, type ContractJobsMetadata }} from {};",
+                js_string(&trellis_contracts_import)
+            ),
         );
     }
 
@@ -417,6 +427,7 @@ fn render_contract_jobs_value(loaded: &LoadedManifest) -> Vec<String> {
 fn render_types_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
     let source_reference =
         manifest_source_reference(&opts.manifest_path, opts.runtime_deps.repo_root.as_deref());
+    let trellis_import = trellis_runtime_import(opts);
     let mut lines = vec![format!(
         "// Generated from {}",
         escape_js_string(&source_reference)
@@ -424,7 +435,10 @@ fn render_types_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String 
 
     if !loaded.manifest.rpc.is_empty() {
         lines.extend([
-            "import type { RpcHandlerFn } from \"@qlever-llc/trellis\";".to_string(),
+            format!(
+                "import type {{ RpcHandlerFn }} from {};",
+                js_string(&trellis_import)
+            ),
             "import { API } from \"./api.ts\";".to_string(),
             String::new(),
         ]);
@@ -432,8 +446,10 @@ fn render_types_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String 
 
     if !loaded.manifest.errors.is_empty() {
         lines.extend([
-            "import { TrellisError, type TransportErrorData } from \"@qlever-llc/trellis\";"
-                .to_string(),
+            format!(
+                "import {{ TrellisError, type TransportErrorData }} from {};",
+                js_string(&trellis_import)
+            ),
             "import { SCHEMAS } from \"./schemas.ts\";".to_string(),
             String::new(),
         ]);
@@ -707,10 +723,17 @@ fn render_schemas_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Strin
 fn render_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
     let source_reference =
         manifest_source_reference(&opts.manifest_path, opts.runtime_deps.repo_root.as_deref());
+    let trellis_contracts_import = trellis_contracts_import(opts);
     let mut lines = vec![
         format!("// Generated from {}", escape_js_string(&source_reference)),
-        "import type { TrellisAPI } from \"@qlever-llc/trellis/contracts\";".to_string(),
-        "import { schema } from \"@qlever-llc/trellis/contracts\";".to_string(),
+        format!(
+            "import type {{ TrellisAPI }} from {};",
+            js_string(&trellis_contracts_import)
+        ),
+        format!(
+            "import {{ schema }} from {};",
+            js_string(&trellis_contracts_import)
+        ),
         "import * as Types from \"./types.ts\";".to_string(),
         "import { SCHEMAS } from \"./schemas.ts\";".to_string(),
         String::new(),
@@ -1021,6 +1044,28 @@ fn resolved_extends(opts: &GenerateTsSdkOpts) -> Result<Option<String>, CodegenT
             Ok(Some(relative_path_string(&out_dir, &runtime_config)))
         }
     }
+}
+
+fn trellis_runtime_import(opts: &GenerateTsSdkOpts) -> String {
+    match opts.runtime_deps.source {
+        TsRuntimeSource::Registry => "@qlever-llc/trellis".to_string(),
+        TsRuntimeSource::Local => local_runtime_import_path(opts, "js/packages/trellis/index.ts"),
+    }
+}
+
+fn trellis_contracts_import(opts: &GenerateTsSdkOpts) -> String {
+    match opts.runtime_deps.source {
+        TsRuntimeSource::Registry => "@qlever-llc/trellis/contracts".to_string(),
+        TsRuntimeSource::Local => local_runtime_import_path(opts, "js/packages/trellis/contracts.ts"),
+    }
+}
+
+fn local_runtime_import_path(opts: &GenerateTsSdkOpts, relative_target: &str) -> String {
+    opts.runtime_deps
+        .repo_root
+        .as_ref()
+        .map(|repo_root| relative_path_string(&opts.out_dir, &repo_root.join(relative_target)))
+        .unwrap_or_else(|| relative_target.to_string())
 }
 
 fn runtime_config_path(repo_root: &Path) -> Result<PathBuf, CodegenTsError> {
@@ -1577,6 +1622,35 @@ mod tests {
         );
         assert!(deno.get("imports").is_none());
 
+        fs::remove_dir_all(repo_root).unwrap();
+    }
+
+    #[test]
+    fn local_mode_emits_relative_runtime_imports() {
+        let repo_root = unique_temp_dir("repo-root-local-imports");
+        let out_dir = repo_root.join("workspaces/demo/generated/js/sdks/auth");
+        fs::create_dir_all(repo_root.join("js/packages/trellis")).unwrap();
+        fs::create_dir_all(&out_dir).unwrap();
+        fs::write(repo_root.join("js/deno.json"), "{}\n").unwrap();
+
+        let (mut opts, loaded, root) =
+            sample_opts_and_loaded("@qlever-llc/trellis-sdk-auth", "trellis.auth@v1");
+        opts.out_dir = out_dir.clone();
+        opts.runtime_deps = TsRuntimeDeps {
+            source: TsRuntimeSource::Local,
+            version: "0.4.0".to_string(),
+            repo_root: Some(repo_root.clone()),
+        };
+
+        let api = render_api_ts(&opts, &loaded);
+        let contract = render_contract_ts(&opts, &loaded);
+        let types = render_types_ts(&opts, &loaded);
+
+        assert!(api.contains("../../../../../../js/packages/trellis/contracts.ts"));
+        assert!(contract.contains("../../../../../../js/packages/trellis/index.ts"));
+        assert!(types.contains("../../../../../../js/packages/trellis/index.ts"));
+
+        fs::remove_dir_all(root).unwrap();
         fs::remove_dir_all(repo_root).unwrap();
     }
 

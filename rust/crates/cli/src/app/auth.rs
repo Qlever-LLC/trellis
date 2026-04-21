@@ -3,8 +3,8 @@ use crate::app::{connect_authenticated_cli_client, resolve_contract_lineage_id};
 use crate::cli::*;
 use crate::output;
 use miette::IntoDiagnostic;
-use qrcode::{QrCode, render::unicode};
-use serde_json::{Value, json};
+use qrcode::{render::unicode, QrCode};
+use serde_json::{json, Value};
 use trellis_auth as authlib;
 
 pub(crate) fn render_agent_login_instructions(login_url: &str) -> miette::Result<String> {
@@ -345,9 +345,8 @@ mod tests {
         .expect("render instructions");
 
         assert!(instructions.contains("Open this activation URL:"));
-        assert!(
-            instructions.contains("https://auth.example.com/_trellis/portal/users/login?flowId=flow_123")
-        );
+        assert!(instructions
+            .contains("https://auth.example.com/_trellis/portal/users/login?flowId=flow_123"));
         assert!(instructions.contains("Scan this QR code:"));
         assert!(
             instructions.contains("█") || instructions.contains("▀") || instructions.contains("▄")

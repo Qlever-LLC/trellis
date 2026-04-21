@@ -9,12 +9,12 @@ use crate::contract_input::{default_image_contract_path, resolve_contract_input}
 use crate::output;
 use crate::self_update::{ReleaseChannel, SelfUpdateTarget};
 use crate::{contract_input, core_client};
-use async_nats::ConnectOptions;
 use async_nats::jetstream;
 use async_nats::jetstream::kv;
 use async_nats::jetstream::stream;
-use base64::Engine as _;
+use async_nats::ConnectOptions;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine as _;
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
 use ed25519_dalek::SigningKey;
@@ -281,7 +281,7 @@ mod tests {
     use std::path::Path;
     use std::sync::{Mutex, OnceLock};
     use std::time::{SystemTime, UNIX_EPOCH};
-    use trellis_auth::{AdminSessionState, TrellisAuthError, save_admin_session};
+    use trellis_auth::{save_admin_session, AdminSessionState, TrellisAuthError};
     use trellis_client::TrellisClientError;
 
     fn config_env_lock() -> &'static Mutex<()> {
@@ -397,11 +397,9 @@ mod tests {
 
         let report = rejected_admin_session_report().expect("build rejected-session report");
         assert!(!admin_session_path(&test_dir).exists());
-        assert!(
-            report
-                .to_string()
-                .contains("run `trellis auth login` explicitly")
-        );
+        assert!(report
+            .to_string()
+            .contains("run `trellis auth login` explicitly"));
 
         unsafe {
             env::remove_var("XDG_CONFIG_HOME");
@@ -429,11 +427,9 @@ mod tests {
             .expect("rejected-session request error should map to report");
 
         assert!(!admin_session_path(&test_dir).exists());
-        assert!(
-            report
-                .to_string()
-                .contains("run `trellis auth login` explicitly")
-        );
+        assert!(report
+            .to_string()
+            .contains("run `trellis auth login` explicitly"));
 
         unsafe {
             env::remove_var("XDG_CONFIG_HOME");
@@ -460,11 +456,9 @@ mod tests {
             .expect_err("rejected-session result should map to report");
 
         assert!(!admin_session_path(&test_dir).exists());
-        assert!(
-            report
-                .to_string()
-                .contains("run `trellis auth login` explicitly")
-        );
+        assert!(report
+            .to_string()
+            .contains("run `trellis auth login` explicitly"));
 
         unsafe {
             env::remove_var("XDG_CONFIG_HOME");

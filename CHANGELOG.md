@@ -24,9 +24,11 @@ and this project adheres to
 
 - Granted KV-backed services JetStream info access so operation handlers can
   open their durable operation store without `$JS.API.INFO` permission errors.
-- Fixed jobs worker permission grants for cancellation subscriptions, made
-  server shutdown idempotent while NATS draining is already in progress, and
-  corrected demo workspace generated-SDK resolution during contract prepare.
+- Fixed jobs worker permission grants for cancellation subscriptions and made
+  server shutdown idempotent while NATS draining is already in progress.
+- Corrected demo workspace generated-SDK resolution during contract prepare,
+  wrote local TypeScript SDKs into the owning nested JS workspace, and switched
+  local generated Trellis imports to repo-relative runtime paths.
 - Fixed `TrellisClient.connect(...)` and `TrellisDevice.connect(...)` so
   contract-driven RPC request typing is inferred from the passed contract rather
   than widening typed responses like `Auth.Me` to `unknown`.

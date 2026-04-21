@@ -1,5 +1,7 @@
+use std::fs;
 use std::path::{Path, PathBuf};
 
+use serde_json::Value;
 use trellis_contracts::ContractKind;
 
 use crate::artifacts::{
@@ -50,19 +52,27 @@ pub fn build_auto_plan(
         let output_root = shared_output_root
             .map(Path::to_path_buf)
             .unwrap_or_else(|| detect_output_root(&contract.project_root));
-        let runtime_source = detect_runtime_source(&output_root);
-        let runtime_repo_root =
-            matches!(runtime_source, RuntimeSource::Local).then_some(output_root.clone());
+        let runtime_repo_root = detect_runtime_repo_root(&output_root);
+        let runtime_source = if runtime_repo_root.is_some() {
+            RuntimeSource::Local
+        } else {
+            RuntimeSource::Registry
+        };
         let (out_manifest, ts_out, rust_out) = match action {
             AutoAction::Generate => {
                 let sdk_stem = sdk_output_stem(&contract_id);
+                let ts_sdk_root = resolve_typescript_sdk_root(
+                    &output_root,
+                    &contract.project_root,
+                    runtime_repo_root.as_deref(),
+                );
                 (
                     Some(
                         output_root
                             .join("generated/contracts/manifests")
                             .join(format!("{}.json", &contract_id)),
                     ),
-                    Some(output_root.join("generated/js/sdks").join(&sdk_stem)),
+                    Some(ts_sdk_root.join(&sdk_stem)),
                     Some(output_root.join("generated/rust/sdks").join(&sdk_stem)),
                 )
             }
@@ -90,6 +100,73 @@ pub fn build_auto_plan(
             })
     });
     Ok(plan)
+}
+
+fn resolve_typescript_sdk_root(
+    output_root: &Path,
+    project_root: &Path,
+    runtime_repo_root: Option<&Path>,
+) -> PathBuf {
+    if runtime_repo_root == Some(output_root) {
+        return output_root.join("generated/js/sdks");
+    }
+
+    find_nested_workspace_root(project_root, output_root)
+        .map(|workspace_root| workspace_root.join("generated/js/sdks"))
+        .unwrap_or_else(|| output_root.join("generated/js/sdks"))
+}
+
+fn detect_runtime_repo_root(output_root: &Path) -> Option<PathBuf> {
+    if matches!(detect_runtime_source(output_root), RuntimeSource::Local) {
+        return Some(output_root.to_path_buf());
+    }
+
+    let mut current = output_root.parent();
+    while let Some(dir) = current {
+        if matches!(detect_runtime_source(dir), RuntimeSource::Local) {
+            return Some(dir.to_path_buf());
+        }
+        current = dir.parent();
+    }
+    None
+}
+
+fn find_nested_workspace_root(project_root: &Path, output_root: &Path) -> Option<PathBuf> {
+    let mut current = Some(project_root);
+    while let Some(dir) = current {
+        if !dir.starts_with(output_root) {
+            break;
+        }
+        if dir != output_root && has_workspace_manifest(dir) {
+            return Some(dir.to_path_buf());
+        }
+        current = dir.parent();
+    }
+    None
+}
+
+fn has_workspace_manifest(dir: &Path) -> bool {
+    ["deno.json", "deno.jsonc", "package.json"]
+        .into_iter()
+        .any(|name| manifest_declares_workspace(&dir.join(name)))
+}
+
+fn manifest_declares_workspace(path: &Path) -> bool {
+    let Ok(contents) = fs::read_to_string(path) else {
+        return false;
+    };
+    let Ok(value) = serde_json::from_str::<Value>(&contents) else {
+        return false;
+    };
+
+    value
+        .get("workspace")
+        .map(Value::is_array)
+        .unwrap_or(false)
+        || value
+            .get("workspaces")
+            .map(|workspaces| workspaces.is_array() || workspaces.is_object())
+            .unwrap_or(false)
 }
 
 pub fn execute_auto_plan(

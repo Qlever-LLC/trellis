@@ -131,6 +131,51 @@ fn prepare_bootstraps_repo_without_discover_summary() {
 }
 
 #[test]
+fn prepare_writes_demo_typescript_sdks_inside_demos_js_workspace() {
+    let temp = tempfile::tempdir().unwrap();
+    let demos_root = temp.path().join("demos");
+    let js_workspace = demos_root.join("js");
+    let service = js_workspace.join("rpc/service");
+    fs::create_dir_all(service.join("contracts")).unwrap();
+    fs::write(
+        js_workspace.join("deno.json"),
+        "{\n  \"version\": \"0.4.0\",\n  \"workspace\": [\"./rpc/service\"]\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        service.join("deno.json"),
+        "{\n  \"version\": \"0.4.0\"\n}\n",
+    )
+    .unwrap();
+    write_ts_contract(
+        &service.join("contracts/demo_rpc_service.ts"),
+        "trellis.demo-rpc-service@v1",
+        "Demo RPC Service",
+        "service",
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_trellis-generate"))
+        .args(["prepare", demos_root.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    assert!(demos_root
+        .join("generated/contracts/manifests/trellis.demo-rpc-service@v1.json")
+        .exists());
+    assert!(demos_root
+        .join("js/generated/js/sdks/demo-rpc-service/mod.ts")
+        .exists());
+    assert!(demos_root
+        .join("generated/rust/sdks/demo-rpc-service/Cargo.toml")
+        .exists());
+}
+
+#[test]
 fn local_mode_verifies_non_service_without_detail_block() {
     let temp = tempfile::tempdir().unwrap();
     let project = temp.path().join("app");
