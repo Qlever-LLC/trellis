@@ -8,6 +8,7 @@
     "./auth": "./auth.ts",
     "./core": "./core.ts",
     "./health": "./health.ts",
+    "./jobs": "./jobs.ts",
     "./state": "./state.ts"
   },
   "tasks": {

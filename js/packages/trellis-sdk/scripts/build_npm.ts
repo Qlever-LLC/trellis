@@ -12,6 +12,7 @@ async function writeRootBarrelFiles() {
       'export { auth } from "./auth/mod.js";',
       'export { core } from "./trellis-core/mod.js";',
       'export { health } from "./health/mod.js";',
+      'export { trellisJobs as jobs } from "./jobs/mod.js";',
       'export { state } from "./state/mod.js";',
       "",
     ].join("\n"),
@@ -25,6 +26,7 @@ async function writeRootBarrelFiles() {
       'export { auth } from "./auth/mod.js";',
       'export { core } from "./trellis-core/mod.js";',
       'export { health } from "./health/mod.js";',
+      'export { trellisJobs as jobs } from "./jobs/mod.js";',
       'export { state } from "./state/mod.js";',
       "",
     ].join("\n"),
@@ -35,7 +37,7 @@ async function writeRootBarrelFiles() {
     [
       '"use strict";',
       'Object.defineProperty(exports, "__esModule", { value: true });',
-      "exports.state = exports.health = exports.core = exports.auth = exports.activity = void 0;",
+      "exports.state = exports.jobs = exports.health = exports.core = exports.auth = exports.activity = void 0;",
       'require("./_dnt.polyfills.js");',
       'var mod_js_1 = require("./activity/mod.js");',
       'Object.defineProperty(exports, "activity", { enumerable: true, get: function () { return mod_js_1.activity; } });',
@@ -45,8 +47,10 @@ async function writeRootBarrelFiles() {
       'Object.defineProperty(exports, "core", { enumerable: true, get: function () { return mod_js_3.core; } });',
       'var mod_js_4 = require("./health/mod.js");',
       'Object.defineProperty(exports, "health", { enumerable: true, get: function () { return mod_js_4.health; } });',
-      'var mod_js_5 = require("./state/mod.js");',
-      'Object.defineProperty(exports, "state", { enumerable: true, get: function () { return mod_js_5.state; } });',
+      'var mod_js_5 = require("./jobs/mod.js");',
+      'Object.defineProperty(exports, "jobs", { enumerable: true, get: function () { return mod_js_5.trellisJobs; } });',
+      'var mod_js_6 = require("./state/mod.js");',
+      'Object.defineProperty(exports, "state", { enumerable: true, get: function () { return mod_js_6.state; } });',
       "",
     ].join("\n"),
   );
@@ -59,6 +63,7 @@ async function writeRootBarrelFiles() {
       'export { auth } from "./auth/mod.js";',
       'export { core } from "./trellis-core/mod.js";',
       'export { health } from "./health/mod.js";',
+      'export { trellisJobs as jobs } from "./jobs/mod.js";',
       'export { state } from "./state/mod.js";',
       "",
     ].join("\n"),
@@ -75,6 +80,7 @@ async function normalizePackageJsonExports() {
       .replace(/^\.\/generated\/js\/sdks\/auth\/mod$/, "./auth")
       .replace(/^\.\/generated\/js\/sdks\/trellis-core\/mod$/, "./core")
       .replace(/^\.\/generated\/js\/sdks\/health\/mod$/, "./health")
+      .replace(/^\.\/generated\/js\/sdks\/jobs\/mod$/, "./jobs")
       .replace(/^\.\/generated\/js\/sdks\/state\/mod$/, "./state");
 
     return [normalizedKey, value];
@@ -106,6 +112,7 @@ await buildDntPackage({
     "./generated/js/sdks/auth/mod.ts",
     "./generated/js/sdks/trellis-core/mod.ts",
     "./generated/js/sdks/health/mod.ts",
+    "./generated/js/sdks/jobs/mod.ts",
     "./generated/js/sdks/state/mod.ts",
   ],
   description:

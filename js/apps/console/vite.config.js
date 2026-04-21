@@ -48,6 +48,7 @@ const config = {
       { find: "@qlever-llc/trellis-sdk/core", replacement: aliasPath("packages/trellis-sdk/core.ts") },
       { find: "@qlever-llc/trellis-sdk/auth", replacement: aliasPath("packages/trellis-sdk/auth.ts") },
       { find: "@qlever-llc/trellis-sdk/activity", replacement: aliasPath("packages/trellis-sdk/activity.ts") },
+      { find: "@qlever-llc/trellis-sdk/jobs", replacement: aliasPath("packages/trellis-sdk/jobs.ts") },
       { find: "@qlever-llc/trellis-svelte", replacement: aliasPath("packages/trellis-svelte/src/index.ts") },
       { find: "@qlever-llc/trellis-svelte/", replacement: `${aliasPath("packages/trellis-svelte/src")}/` },
       { find: "@qlever-llc/trellis/browser", replacement: aliasPath("packages/trellis/browser.ts") },

@@ -19,6 +19,7 @@ const config = {
       { find: "@qlever-llc/trellis/auth", replacement: aliasPath("js/packages/trellis/auth.ts") },
       { find: "@qlever-llc/trellis/auth/browser", replacement: aliasPath("js/packages/trellis/auth/browser.ts") },
       { find: "@qlever-llc/trellis/contracts", replacement: aliasPath("js/packages/trellis/contracts.ts") },
+      { find: "@qlever-llc/trellis-sdk/jobs", replacement: aliasPath("js/packages/trellis-sdk/jobs.ts") },
       { find: "@qlever-llc/trellis-sdk", replacement: aliasPath("js/packages/trellis-sdk/mod.ts") },
       { find: "@qlever-llc/trellis-sdk/", replacement: `${aliasPath("js/packages/trellis-sdk")}/` },
       { find: "@qlever-llc/trellis-sdk/auth", replacement: aliasPath("js/packages/trellis-sdk/auth.ts") },

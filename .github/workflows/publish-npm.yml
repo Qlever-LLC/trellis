@@ -149,6 +149,7 @@ jobs:
           await import("@qlever-llc/trellis/errors");
           await import("@qlever-llc/trellis-sdk/auth");
           await import("@qlever-llc/trellis-sdk/core");
+          await import("@qlever-llc/trellis-sdk/jobs");
           await import("@qlever-llc/trellis/tracing");
           await import("@qlever-llc/trellis/host");
           await import("@qlever-llc/trellis/host/node");
@@ -161,6 +162,7 @@ jobs:
           require("@qlever-llc/trellis/errors");
           require("@qlever-llc/trellis-sdk/auth");
           require("@qlever-llc/trellis-sdk/core");
+          require("@qlever-llc/trellis-sdk/jobs");
           require("@qlever-llc/trellis/tracing");
           require("@qlever-llc/trellis/host");
           require("@qlever-llc/trellis/host/node");

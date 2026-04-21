@@ -49,6 +49,7 @@
     "app": "deno task -c app/deno.json dev"
   },
   "imports": {
+    "@qlever-llc/trellis-sdk/jobs": "../../js/packages/trellis-sdk/jobs.ts",
     "@trellis-demo/rpc-service-sdk": "../generated/js/sdks/demo-rpc-service/mod.ts",
     "@trellis-demo/operation-service-sdk": "../generated/js/sdks/demo-operation-service/mod.ts",
     "@trellis-demo/transfer-service-sdk": "../generated/js/sdks/demo-transfer-service/mod.ts",
