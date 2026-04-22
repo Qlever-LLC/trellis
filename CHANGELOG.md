@@ -10,6 +10,10 @@ and this project adheres to
 
 ### Changed
 
+- Changed TypeScript contract discovery and authoring guidance so
+  single-contract projects may use a top-level `contract.ts` or `contract.js`,
+  updated design and guide docs to describe that layout, and migrated the JS
+  demos from one-file `contracts/` folders to root `contract.ts` modules.
 - Renamed the TypeScript service runtime package from
   `@qlever-llc/trellis/host*` to `@qlever-llc/trellis/service*`, aligned the
   extracted service handler types to `RpcHandler`, `JobHandler`, and
@@ -28,6 +32,9 @@ and this project adheres to
 
 ### Fixed
 
+- Fixed `trellis-generate` top-level contract discovery to reject ambiguous
+  duplicate layouts while ignoring helper modules named `contract.ts` or
+  `contract.js` that do not default export a contract.
 - Granted KV-backed services JetStream info access so operation handlers can
   open their durable operation store without `$JS.API.INFO` permission errors.
 - Fixed jobs worker permission grants for cancellation subscriptions and made

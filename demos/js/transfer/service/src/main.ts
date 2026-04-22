@@ -1,6 +1,6 @@
 import type { OperationHandler } from "@qlever-llc/trellis/service";
 import { TrellisService } from "@qlever-llc/trellis/service/deno";
-import contract from "../contracts/demo_inspection_transfer_service.ts";
+import contract from "../contract.ts";
 import { Command } from "@cliffy/command";
 import chalk from "chalk";
 
@@ -20,7 +20,7 @@ async function main(): Promise<void> {
     contract,
     name: "demo-transfer-service",
     sessionKeySeed,
-  });
+  }).orThrow();
   const uploads = await service.store.uploads.open().orThrow();
 
   const uploadEvidence: OperationHandler<

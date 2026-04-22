@@ -1,15 +1,13 @@
-import {
-  Result,
-  UnexpectedError,
-  type TypedKV,
-} from "@qlever-llc/trellis";
+import { Result, type TypedKV, UnexpectedError } from "@qlever-llc/trellis";
 import type { JobHandler } from "@qlever-llc/trellis/service";
-import contract from "../contracts/demo_inspection_jobs_service.ts";
-import { InspectionSummariesRefreshStatusSchema } from "../schemas/index.ts";
+import type contract from "../contract.ts";
+import type * as schemas from "../schemas/index.ts";
 import { getSiteSummary } from "../../../shared/field_data.ts";
 
 export function createRefreshSummariesHandler(
-  refreshStatuses: TypedKV<typeof InspectionSummariesRefreshStatusSchema>,
+  refreshStatuses: TypedKV<
+    typeof schemas.InspectionSummariesRefreshStatusSchema
+  >,
 ): JobHandler<typeof contract, "refreshSummaries"> {
   return async ({ job }) => {
     const siteSummary = getSiteSummary(job.payload.siteId);

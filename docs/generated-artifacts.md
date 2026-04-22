@@ -2,9 +2,10 @@
 
 `generated/` is disposable build output. It is ignored by git and recreated by repo-local prepare tasks that run `trellis-generate` behind the scenes.
 
-For TypeScript contract sources, prepare resolves `contracts/*.ts` from the
-file's default export. Authors do not need to add named `CONTRACT` exports just
-for generation.
+For TypeScript contract sources, prepare resolves either a top-level
+`contract.ts` or `contract.js` for single-contract projects, or
+`contracts/*.ts` for multi-contract layouts, from the file's default export.
+Authors do not need to add named `CONTRACT` exports just for generation.
 
 Outputs include:
 

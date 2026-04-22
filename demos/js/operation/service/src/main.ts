@@ -2,7 +2,7 @@ import { BaseError } from "@qlever-llc/result";
 import { UnexpectedError } from "@qlever-llc/trellis";
 import type { OperationHandler } from "@qlever-llc/trellis/service";
 import { TrellisService } from "@qlever-llc/trellis/service/deno";
-import contract from "../contracts/demo_inspection_operation_service.ts";
+import contract from "../contract.ts";
 import { ASSIGNED_INSPECTIONS } from "../../../shared/field_data.ts";
 import { Command } from "@cliffy/command";
 import chalk from "chalk";
@@ -23,7 +23,7 @@ async function main(): Promise<void> {
     contract,
     name: "demo-operation-service",
     sessionKeySeed,
-  });
+  }).orThrow();
 
   const generateReport: OperationHandler<
     typeof contract,

@@ -1,17 +1,14 @@
 import { isErr, Result } from "@qlever-llc/trellis";
 import type { RpcArgs, RpcResult } from "@qlever-llc/trellis";
 import { TrellisService } from "@qlever-llc/trellis/service/deno";
-import contract from "../contracts/demo_inspection_jobs_service.ts";
+import contract from "../contract.ts";
 import { createRefreshSummariesHandler } from "../jobs/refreshSummaries.ts";
 import { InspectionSummariesRefreshStatusSchema } from "../schemas/index.ts";
 import { Command } from "@cliffy/command";
 import chalk from "chalk";
 
 type RefreshArgs = RpcArgs<typeof contract, "Inspection.Summaries.Refresh">;
-type RefreshReturn = RpcResult<
-  typeof contract,
-  "Inspection.Summaries.Refresh"
->;
+type RefreshReturn = RpcResult<typeof contract, "Inspection.Summaries.Refresh">;
 type GetRefreshStatusArgs = RpcArgs<
   typeof contract,
   "Inspection.Summaries.RefreshStatus.Get"
@@ -37,15 +34,15 @@ async function main(): Promise<void> {
     contract,
     name: "demo-jobs-service",
     sessionKeySeed,
-  });
+  }).orThrow();
 
   const refreshStatuses = await service.kv.refreshStatuses
     .open(InspectionSummariesRefreshStatusSchema)
     .orThrow();
 
-  await service.jobs.refreshSummaries.handle(
-    createRefreshSummariesHandler(refreshStatuses),
-  ).orThrow();
+  await service.jobs.refreshSummaries
+    .handle(createRefreshSummariesHandler(refreshStatuses))
+    .orThrow();
 
   const workerHost = await service.jobs
     .startWorkers({
@@ -87,9 +84,9 @@ async function main(): Promise<void> {
 
   await service.trellis.mount("Inspection.Summaries.Refresh", refresh);
 
-  async function getRefreshStatus(
-    { input }: GetRefreshStatusArgs,
-  ): Promise<GetRefreshStatusReturn> {
+  async function getRefreshStatus({
+    input,
+  }: GetRefreshStatusArgs): Promise<GetRefreshStatusReturn> {
     const refreshEntry = await refreshStatuses.get(input.refreshId).take();
     const refresh = isErr(refreshEntry) ? undefined : refreshEntry.value;
 

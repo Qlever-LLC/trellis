@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use miette::IntoDiagnostic;
 
 const TS_MANIFEST_FILES: &[&str] = &["deno.json", "deno.jsonc", "package.json"];
+const TOP_LEVEL_TS_CONTRACT_FILES: &[&str] = &["contract.ts", "contract.js"];
 const RUST_MANIFEST_FILE: &str = "Cargo.toml";
 const SKIPPED_DISCOVERY_DIRS: &[&str] = &[
     ".git",
@@ -49,7 +50,7 @@ pub fn discover_local_contracts(start: &Path) -> miette::Result<Vec<DiscoveredCo
     }
 
     Err(miette::miette!(
-        "could not find a local project root with a sibling contracts directory"
+        "could not find a local project root with discoverable contract sources"
     ))
 }
 
@@ -109,6 +110,83 @@ fn collect_project_contracts(
         .parent()
         .ok_or_else(|| miette::miette!("manifest has no parent: {}", manifest_path.display()))?
         .to_path_buf();
+    if language == SourceLanguage::TypeScript {
+        return collect_typescript_project_contracts(&project_root, manifest_path);
+    }
+
+    collect_contracts_dir_sources(&project_root, manifest_path, language)
+}
+
+fn collect_typescript_project_contracts(
+    project_root: &Path,
+    manifest_path: &Path,
+) -> miette::Result<Vec<DiscoveredContractSource>> {
+    let contracts_dir = project_root.join("contracts");
+    let contracts_dir_sources =
+        collect_contracts_dir_sources(project_root, manifest_path, SourceLanguage::TypeScript)?;
+    let top_level_sources = collect_top_level_ts_contract_sources(project_root, manifest_path)?;
+
+    if top_level_sources.len() > 1 {
+        return Err(miette::miette!(
+            "project root {} has multiple top-level contract sources; choose exactly one of contract.ts or contract.js",
+            project_root.display()
+        ));
+    }
+
+    if contracts_dir.exists() && contracts_dir.is_dir() {
+        if !contracts_dir_sources.is_empty() && !top_level_sources.is_empty() {
+            return Err(miette::miette!(
+                "project root {} has both contracts/ and a top-level contract.ts or contract.js; choose one layout",
+                project_root.display()
+            ));
+        }
+
+        if !contracts_dir_sources.is_empty() {
+            return Ok(contracts_dir_sources);
+        }
+    }
+
+    Ok(top_level_sources)
+}
+
+fn collect_top_level_ts_contract_sources(
+    project_root: &Path,
+    manifest_path: &Path,
+) -> miette::Result<Vec<DiscoveredContractSource>> {
+    let mut discovered = Vec::new();
+
+    for file_name in TOP_LEVEL_TS_CONTRACT_FILES {
+        let source_path = project_root.join(file_name);
+        if !source_path.exists() || !source_path.is_file() {
+            continue;
+        }
+        if !source_has_default_export(&source_path) {
+            continue;
+        }
+
+        discovered.push(DiscoveredContractSource {
+            project_root: project_root.to_path_buf(),
+            manifest_path: manifest_path.to_path_buf(),
+            language: SourceLanguage::TypeScript,
+            source_path: source_path.canonicalize().into_diagnostic()?,
+        });
+    }
+
+    discovered.sort();
+    Ok(discovered)
+}
+
+fn source_has_default_export(path: &Path) -> bool {
+    fs::read_to_string(path)
+        .ok()
+        .is_some_and(|source| source.contains("export default"))
+}
+
+fn collect_contracts_dir_sources(
+    project_root: &Path,
+    manifest_path: &Path,
+    language: SourceLanguage,
+) -> miette::Result<Vec<DiscoveredContractSource>> {
     let contracts_dir = project_root.join("contracts");
     if !contracts_dir.exists() || !contracts_dir.is_dir() {
         return Ok(Vec::new());
@@ -125,7 +203,7 @@ fn collect_project_contracts(
             continue;
         }
         discovered.push(DiscoveredContractSource {
-            project_root: project_root.clone(),
+            project_root: project_root.to_path_buf(),
             manifest_path: manifest_path.to_path_buf(),
             language,
             source_path: source_path.canonicalize().into_diagnostic()?,
@@ -193,6 +271,24 @@ mod tests {
     }
 
     #[test]
+    fn discover_local_contracts_finds_top_level_contract_ts() {
+        let temp = tempfile::tempdir().unwrap();
+        let project = temp.path().join("service");
+        fs::create_dir_all(project.join("src/nested")).unwrap();
+        fs::write(project.join("package.json"), "{}\n").unwrap();
+        fs::write(
+            project.join("contract.ts"),
+            "const contract = {};\nexport default contract;\n",
+        )
+        .unwrap();
+
+        let discovered = discover_local_contracts(&project.join("src/nested")).unwrap();
+        assert_eq!(discovered.len(), 1);
+        assert_eq!(discovered[0].project_root, project.canonicalize().unwrap());
+        assert!(discovered[0].source_path.ends_with("contract.ts"));
+    }
+
+    #[test]
     fn discover_contracts_finds_ts_and_rust_sources_in_contracts_dirs() {
         let temp = tempfile::tempdir().unwrap();
         let repo_root = temp.path();
@@ -232,6 +328,130 @@ mod tests {
             value.language == SourceLanguage::Rust
                 && value.source_path.ends_with("contracts/service.rs")
         }));
+    }
+
+    #[test]
+    fn discover_contracts_finds_top_level_contract_js() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo_root = temp.path();
+        let project = repo_root.join("apps/dashboard");
+        fs::create_dir_all(&project).unwrap();
+        fs::write(project.join("package.json"), "{}\n").unwrap();
+        fs::write(
+            project.join("contract.js"),
+            "const contract = {};\nexport default contract;\n",
+        )
+        .unwrap();
+
+        let discovered = discover_contracts(repo_root).unwrap();
+        assert_eq!(discovered.len(), 1);
+        assert_eq!(discovered[0].project_root, project.canonicalize().unwrap());
+        assert_eq!(discovered[0].language, SourceLanguage::TypeScript);
+        assert!(discovered[0].source_path.ends_with("contract.js"));
+    }
+
+    #[test]
+    fn discover_contracts_errors_for_duplicate_typescript_layouts() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo_root = temp.path();
+        let project = repo_root.join("service");
+        fs::create_dir_all(project.join("contracts")).unwrap();
+        fs::write(project.join("package.json"), "{}\n").unwrap();
+        fs::write(
+            project.join("contracts/orders.ts"),
+            "export const CONTRACT = {};\n",
+        )
+        .unwrap();
+        fs::write(
+            project.join("contract.ts"),
+            "const contract = {};\nexport default contract;\n",
+        )
+        .unwrap();
+
+        let error = discover_contracts(repo_root).unwrap_err();
+        assert!(error.to_string().contains("has both contracts/ and a top-level contract.ts or contract.js"));
+    }
+
+    #[test]
+    fn discover_contracts_errors_for_multiple_top_level_contract_sources() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo_root = temp.path();
+        let project = repo_root.join("service");
+        fs::create_dir_all(&project).unwrap();
+        fs::write(project.join("package.json"), "{}\n").unwrap();
+        fs::write(
+            project.join("contract.ts"),
+            "const contract = {};\nexport default contract;\n",
+        )
+        .unwrap();
+        fs::write(
+            project.join("contract.js"),
+            "const contract = {};\nexport default contract;\n",
+        )
+        .unwrap();
+
+        let error = discover_contracts(repo_root).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("has multiple top-level contract sources"));
+    }
+
+    #[test]
+    fn discover_contracts_ignores_top_level_contract_helper_without_default_export() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo_root = temp.path();
+        let project = repo_root.join("package");
+        fs::create_dir_all(&project).unwrap();
+        fs::write(project.join("package.json"), "{}\n").unwrap();
+        fs::write(
+            project.join("contract.ts"),
+            "export function defineContract() { return {}; }\n",
+        )
+        .unwrap();
+
+        let discovered = discover_contracts(repo_root).unwrap();
+        assert!(discovered.is_empty());
+    }
+
+    #[test]
+    fn discover_contracts_allows_top_level_contract_with_empty_contracts_dir() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo_root = temp.path();
+        let project = repo_root.join("service");
+        fs::create_dir_all(project.join("contracts")).unwrap();
+        fs::write(project.join("package.json"), "{}\n").unwrap();
+        fs::write(
+            project.join("contract.ts"),
+            "const contract = {};\nexport default contract;\n",
+        )
+        .unwrap();
+
+        let discovered = discover_contracts(repo_root).unwrap();
+        assert_eq!(discovered.len(), 1);
+        assert!(discovered[0].source_path.ends_with("contract.ts"));
+    }
+
+    #[test]
+    fn discover_contracts_allows_top_level_contract_with_only_ignored_contracts_files() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo_root = temp.path();
+        let project = repo_root.join("service");
+        fs::create_dir_all(project.join("contracts")).unwrap();
+        fs::write(project.join("package.json"), "{}\n").unwrap();
+        fs::write(
+            project.join("contract.js"),
+            "const contract = {};\nexport default contract;\n",
+        )
+        .unwrap();
+        fs::write(
+            project.join("contracts/contract.test.ts"),
+            "export const CONTRACT = {};\n",
+        )
+        .unwrap();
+
+        let discovered = discover_contracts(repo_root).unwrap();
+        assert_eq!(discovered.len(), 1);
+        assert!(discovered[0].source_path.ends_with("contract.js"));
     }
 
     #[test]

@@ -120,8 +120,9 @@ if (isErr(value)) {
 - `defineServiceContract(...)` derives the local error schema entry
   automatically when it is not already present in the contract `schemas` map
 - the `errors` map key is the error class export name used by RPC `errors: [...]`
-- when this lives in a `contracts/*.ts` source file, the file should default
-  export the defined contract module
+- when this lives in a TypeScript contract source file, whether top-level
+  `contract.ts` or under `contracts/*.ts`, the file should default export the
+  defined contract module
 - for new local service contract files, prefer
   `defineServiceContract({ schemas, errors }, (ref) => ({ ... }))`
 - builtin Trellis RPC errors should also be referenced through `ref.error(...)`

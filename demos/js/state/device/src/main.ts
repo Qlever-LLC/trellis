@@ -1,5 +1,5 @@
 import { TrellisDevice } from "@qlever-llc/trellis";
-import contract from "../contracts/demo_inspection_state_device.ts";
+import contract from "../contract.ts";
 import { ASSIGNED_INSPECTIONS } from "../../../shared/field_data.ts";
 import { Command } from "@cliffy/command";
 import { qrcode } from "@libs/qrcode";
@@ -26,7 +26,7 @@ async function main(): Promise<void> {
 
       await activation.waitForOnlineApproval();
     },
-  });
+  }).orThrow();
   console.log(chalk.green.bold("== Fetching Current Identify"));
 
   const me = await device.request("Auth.Me", {}).orThrow();

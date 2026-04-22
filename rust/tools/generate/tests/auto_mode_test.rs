@@ -6,7 +6,7 @@ fn write_ts_contract(path: &Path, id: &str, display_name: &str, kind: &str) {
     fs::write(
         path,
         format!(
-            "export const CONTRACT = {{\n  format: \"trellis.contract.v1\",\n  id: \"{id}\",\n  displayName: \"{display_name}\",\n  description: \"Fixture contract\",\n  kind: \"{kind}\",\n}};\n"
+            "const contract = {{\n  format: \"trellis.contract.v1\",\n  id: \"{id}\",\n  displayName: \"{display_name}\",\n  description: \"Fixture contract\",\n  kind: \"{kind}\",\n}};\n\nexport default contract;\n"
         ),
     )
     .unwrap();
@@ -247,6 +247,44 @@ fn local_mode_generates_service_artifacts_from_nearest_project_root() {
 }
 
 #[test]
+fn local_mode_generates_service_artifacts_from_top_level_contract_ts() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = temp.path().join("service");
+    fs::create_dir_all(project.join("src/nested")).unwrap();
+    fs::write(
+        project.join("package.json"),
+        "{\n  \"name\": \"service\",\n  \"version\": \"0.4.0\",\n  \"type\": \"module\"\n}\n",
+    )
+    .unwrap();
+    write_ts_contract(
+        &project.join("contract.ts"),
+        "trellis.top-level-orders@v1",
+        "Top Level Orders",
+        "service",
+    );
+
+    let output = trellis_generate()
+        .current_dir(project.join("src/nested"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    assert!(project
+        .join("generated/contracts/manifests/trellis.top-level-orders@v1.json")
+        .exists());
+    assert!(project
+        .join("generated/js/sdks/top-level-orders/mod.ts")
+        .exists());
+    assert!(project
+        .join("generated/rust/sdks/top-level-orders/Cargo.toml")
+        .exists());
+}
+
+#[test]
 fn local_mode_generates_service_artifacts_from_node_project_contracts() {
     let temp = tempfile::tempdir().unwrap();
     let project = temp.path().join("node-service");
@@ -360,6 +398,108 @@ fn discover_mode_summarizes_actions_and_verifies_non_service_contracts() {
         .join("generated/contracts/manifests/trellis.orders@v1.json")
         .exists());
     assert!(!apps.join("generated").exists());
+}
+
+#[test]
+fn discover_mode_supports_top_level_contract_js() {
+    let temp = tempfile::tempdir().unwrap();
+    let app = temp.path().join("apps/dashboard");
+    fs::create_dir_all(&app).unwrap();
+    fs::write(
+        app.join("package.json"),
+        "{\n  \"name\": \"dashboard\",\n  \"version\": \"0.4.0\",\n  \"type\": \"module\"\n}\n",
+    )
+    .unwrap();
+    write_ts_contract(
+        &app.join("contract.js"),
+        "trellis.dashboard-js@v1",
+        "Dashboard JS",
+        "app",
+    );
+
+    let output = trellis_generate()
+        .args(["discover", temp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("Plan"));
+    assert!(stdout.contains("trellis.dashboard-js@v1"));
+    assert!(stdout.contains("verify"));
+}
+
+#[test]
+fn prepare_mode_supports_top_level_contract_js() {
+    let temp = tempfile::tempdir().unwrap();
+    let service = temp.path().join("services/orders");
+    fs::create_dir_all(&service).unwrap();
+    fs::write(
+        service.join("package.json"),
+        "{\n  \"name\": \"orders\",\n  \"version\": \"0.4.0\",\n  \"type\": \"module\"\n}\n",
+    )
+    .unwrap();
+    write_ts_contract(
+        &service.join("contract.js"),
+        "trellis.orders-js@v1",
+        "Orders JS",
+        "service",
+    );
+
+    let output = trellis_generate()
+        .args(["prepare", temp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    assert!(temp
+        .path()
+        .join("generated/contracts/manifests/trellis.orders-js@v1.json")
+        .exists());
+    assert!(temp.path().join("generated/js/sdks/orders-js/mod.ts").exists());
+    assert!(temp
+        .path()
+        .join("generated/rust/sdks/orders-js/Cargo.toml")
+        .exists());
+}
+
+#[test]
+fn local_mode_fails_for_duplicate_contract_layouts() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = temp.path().join("service");
+    fs::create_dir_all(project.join("contracts")).unwrap();
+    fs::write(
+        project.join("package.json"),
+        "{\n  \"name\": \"service\",\n  \"version\": \"0.4.0\",\n  \"type\": \"module\"\n}\n",
+    )
+    .unwrap();
+    write_ts_contract(
+        &project.join("contracts/orders.ts"),
+        "trellis.orders@v1",
+        "Orders",
+        "service",
+    );
+    write_ts_contract(
+        &project.join("contract.ts"),
+        "trellis.orders-top-level@v1",
+        "Orders Top Level",
+        "service",
+    );
+
+    let output = trellis_generate().current_dir(&project).output().unwrap();
+    assert!(!output.status.success());
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("has both contracts/"));
+    assert!(stderr.contains("choose one layout"));
 }
 
 #[test]

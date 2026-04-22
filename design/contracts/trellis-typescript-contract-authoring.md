@@ -133,7 +133,9 @@ export const core = defineServiceContract(
 export default core;
 ```
 
-For locally authored TypeScript contract source files under `contracts/*.ts`:
+For locally authored TypeScript contract source files, whether a top-level
+`contract.ts` or `contract.js` for a single contract or `contracts/*.ts` for a
+multi-contract layout:
 
 - the file MUST `default export` the contract helper return value
 - Trellis source loading resolves the default export only for TypeScript
@@ -397,8 +399,9 @@ Rules:
 - locally authored contracts should normally export the helper result directly
   return value directly; do not wrap it in a handwritten default-export object
   that reassembles `CONTRACT_ID`, `CONTRACT`, `CONTRACT_DIGEST`, and `API`
-- for `contracts/*.ts` source files, that direct export should be the file's
+- for TypeScript contract source files, that direct export should be the file's
   default export so prepare/generation can resolve it consistently
+- single-contract examples should normally use a top-level `contract.ts`
 - for contracts that own schemas or local errors, prefer top-level
   `const schemas = ...`, optional `const errors = ...`, and a
   `defineServiceContract({ schemas, errors }, (ref) => ({ ... }))` layout

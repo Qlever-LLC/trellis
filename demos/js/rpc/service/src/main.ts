@@ -1,7 +1,7 @@
 import { Result } from "@qlever-llc/trellis";
 import type { RpcArgs, RpcResult } from "@qlever-llc/trellis";
 import { TrellisService } from "@qlever-llc/trellis/service/deno";
-import contract from "../contracts/demo_inspection_rpc_service.ts";
+import contract from "../contract.ts";
 import {
   ASSIGNED_INSPECTIONS,
   getSiteSummary,
@@ -50,7 +50,7 @@ async function main(): Promise<void> {
     contract,
     sessionKeySeed,
     name: "demo-rpc-service",
-  });
+  }).orThrow();
 
   await service.trellis.mount("Inspection.Assignments.List", listAssignments);
   await service.trellis.mount("Inspection.Sites.GetSummary", getSummary);

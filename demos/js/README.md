@@ -19,8 +19,10 @@ Supported demos:
 
 ```sh
 deno task -c demos/js/deno.json prepare
-deno task -c demos/js/deno.json check
 ```
+
+If you are editing a specific demo, run that demo's focused `check:prepared`
+task instead of the workspace-wide `check` task.
 
 ## First Device Activation
 
@@ -40,7 +42,7 @@ Create and start the service:
 
 ```sh
 trellis service profile create demo.rpc
-trellis service profile apply demo.rpc --source demos/js/rpc/service/contracts/demo_inspection_rpc_service.ts
+trellis service profile apply demo.rpc --source demos/js/rpc/service/contract.ts
 trellis service instance provision demo.rpc --format json
 deno task -c demos/js/rpc/service/deno.json start http://localhost:3000 <instance-seed>
 ```
@@ -51,7 +53,7 @@ Create and run the device:
 
 ```sh
 trellis device profile create demo.rpc
-trellis device profile apply demo.rpc --source demos/js/rpc/device/contracts/demo_inspection_rpc_device.ts
+trellis device profile apply demo.rpc --source demos/js/rpc/device/contract.ts
 trellis device instance provision demo.rpc --format json
 deno task -c demos/js/rpc/device/deno.json start http://localhost:3000 <root-secret>
 ```
@@ -69,7 +71,7 @@ Create and start the service:
 
 ```sh
 trellis service profile create demo.operation
-trellis service profile apply demo.operation --source demos/js/operation/service/contracts/demo_inspection_operation_service.ts
+trellis service profile apply demo.operation --source demos/js/operation/service/contract.ts
 trellis service instance provision demo.operation --format json
 deno task -c demos/js/operation/service/deno.json start http://localhost:3000 <instance-seed>
 ```
@@ -80,7 +82,7 @@ Create and run the device:
 
 ```sh
 trellis device profile create demo.operation
-trellis device profile apply demo.operation --source demos/js/operation/device/contracts/demo_inspection_operation_device.ts
+trellis device profile apply demo.operation --source demos/js/operation/device/contract.ts
 trellis device instance provision demo.operation --format json
 deno task -c demos/js/operation/device/deno.json start http://localhost:3000 <root-secret>
 ```
@@ -99,7 +101,7 @@ Create and start the service:
 
 ```sh
 trellis service profile create demo.transfer
-trellis service profile apply demo.transfer --source demos/js/transfer/service/contracts/demo_inspection_transfer_service.ts
+trellis service profile apply demo.transfer --source demos/js/transfer/service/contract.ts
 trellis service instance provision demo.transfer --format json
 deno task -c demos/js/transfer/service/deno.json start http://localhost:3000 <instance-seed>
 ```
@@ -110,7 +112,7 @@ Create and run the device:
 
 ```sh
 trellis device profile create demo.transfer
-trellis device profile apply demo.transfer --source demos/js/transfer/device/contracts/demo_inspection_transfer_device.ts
+trellis device profile apply demo.transfer --source demos/js/transfer/device/contract.ts
 trellis device instance provision demo.transfer --format json
 deno task -c demos/js/transfer/device/deno.json start http://localhost:3000 <root-secret> /path/to/file.bin
 ```
@@ -128,7 +130,7 @@ Create and start the service:
 
 ```sh
 trellis service profile create demo.kv
-trellis service profile apply demo.kv --source demos/js/kv/service/contracts/demo_inspection_kv_service.ts
+trellis service profile apply demo.kv --source demos/js/kv/service/contract.ts
 trellis service instance provision demo.kv --format json
 deno task -c demos/js/kv/service/deno.json start http://localhost:3000 <instance-seed>
 ```
@@ -139,7 +141,7 @@ Create and run the device:
 
 ```sh
 trellis device profile create demo.kv
-trellis device profile apply demo.kv --source demos/js/kv/device/contracts/demo_inspection_kv_device.ts
+trellis device profile apply demo.kv --source demos/js/kv/device/contract.ts
 trellis device instance provision demo.kv --format json
 deno task -c demos/js/kv/device/deno.json start http://localhost:3000 <root-secret>
 ```
@@ -157,7 +159,7 @@ Create and start the service:
 
 ```sh
 trellis service profile create demo.jobs
-trellis service profile apply demo.jobs --source demos/js/jobs/service/contracts/demo_inspection_jobs_service.ts
+trellis service profile apply demo.jobs --source demos/js/jobs/service/contract.ts
 trellis service instance provision demo.jobs --format json
 deno task -c demos/js/jobs/service/deno.json start http://localhost:3000 <instance-seed>
 ```
@@ -168,7 +170,7 @@ Create and run the device:
 
 ```sh
 trellis device profile create demo.jobs
-trellis device profile apply demo.jobs --source demos/js/jobs/device/contracts/demo_inspection_jobs_device.ts
+trellis device profile apply demo.jobs --source demos/js/jobs/device/contract.ts
 trellis device instance provision demo.jobs --format json
 deno task -c demos/js/jobs/device/deno.json start http://localhost:3000 <root-secret>
 ```
@@ -192,7 +194,7 @@ Create and run the device:
 
 ```sh
 trellis device profile create demo.state
-trellis device profile apply demo.state --source demos/js/state/device/contracts/demo_inspection_state_device.ts
+trellis device profile apply demo.state --source demos/js/state/device/contract.ts
 trellis device instance provision demo.state --format json
 deno task -c demos/js/state/device/deno.json start http://localhost:3000 <root-secret>
 ```

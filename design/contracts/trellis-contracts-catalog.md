@@ -1007,7 +1007,9 @@ state.
 For TypeScript, distinguish between local contract source files and generated
 SDK packages.
 
-Local TypeScript contract source files under `contracts/*.ts` MUST:
+Local TypeScript contract source files, whether a top-level `contract.ts` or
+`contract.js` for single-contract projects or `contracts/*.ts` for
+multi-contract projects, MUST:
 
 - default export the defined contract module itself
 

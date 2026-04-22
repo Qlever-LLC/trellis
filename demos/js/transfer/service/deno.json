@@ -6,7 +6,7 @@
   "tasks": {
     "prepare": "deno task -c ../../deno.json prepare",
     "check": "deno task prepare && deno task check:prepared",
-    "check:prepared": "deno check src/main.ts contracts/demo_inspection_transfer_service.ts",
+    "check:prepared": "deno check src/main.ts contract.ts",
     "start": "deno run --allow-env --allow-net --allow-sys --allow-write=/tmp src/main.ts"
   }
 }

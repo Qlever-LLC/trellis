@@ -1,23 +1,14 @@
-import { TrellisDevice } from "@qlever-llc/trellis";
-import contract from "../contracts/demo_inspection_jobs_device.ts";
+import { TransportError, TrellisDevice } from "@qlever-llc/trellis";
+import contract from "../contract.ts";
 import { Command } from "@cliffy/command";
 import { qrcode } from "@libs/qrcode";
 import chalk from "chalk";
 
 const POLL_INTERVAL_MS = 250;
 
-function isTransportError(
-  error: unknown,
-): error is Error & { code: string; hint: string } {
-  return error instanceof Error && error.name === "TransportError"
-    && typeof Reflect.get(error, "code") === "string"
-    && typeof Reflect.get(error, "hint") === "string";
-}
-
 async function main(): Promise<void> {
-  const {
-    args: [trellisUrl, rootSecret],
-  } = await new Command()
+  // Parse demo CLI args
+  const { args } = await new Command()
     .name("demo-jobs")
     .arguments("<trellisUrl:string> <rootSecret:string>", [
       "URL of Trellis instance to connect to",
@@ -25,21 +16,25 @@ async function main(): Promise<void> {
     ])
     .parse(Deno.args);
 
+  // Connect to Trellis
   const device = await TrellisDevice.connect({
-    trellisUrl,
     contract,
-    rootSecret,
+    trellisUrl: args[0],
+    rootSecret: args[1],
     onActivationRequired: async (activation) => {
       console.info("Please activate device at:", activation.url);
       qrcode(activation.url, { output: "console" });
 
       await activation.waitForOnlineApproval();
     },
-  });
+  }).orThrow();
+
+  // Fetch authenticated identity
   console.log(chalk.green.bold("== Fetching Current Identify"));
   const me = await device.request("Auth.Me", {}).orThrow();
   console.dir(me, { depth: null });
 
+  // Make a simple RPC
   console.log(chalk.green.bold("== Queueing Summary Refresh"));
   const siteId = "site-west-yard";
   const refresh = await device
@@ -77,7 +72,7 @@ if (import.meta.main) {
   try {
     await main();
   } catch (error) {
-    if (isTransportError(error)) {
+    if (error instanceof TransportError) {
       console.error(chalk.red.bold("Trellis request failed"));
       console.error(`${error.message} (${error.code})`);
       console.error(error.hint);

@@ -1,5 +1,5 @@
 import { TrellisDevice } from "@qlever-llc/trellis";
-import contract from "../contracts/demo_inspection_kv_device.ts";
+import contract from "../contract.ts";
 import { Command } from "@cliffy/command";
 import { qrcode } from "@libs/qrcode";
 import chalk from "chalk";
@@ -25,7 +25,7 @@ async function main(): Promise<void> {
 
       await activation.waitForOnlineApproval();
     },
-  });
+  }).orThrow();
   console.log(chalk.green.bold("== Fetching Current Identify"));
 
   const me = await device.request("Auth.Me", {}).orThrow();

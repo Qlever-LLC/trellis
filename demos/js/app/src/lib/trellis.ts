@@ -1,5 +1,5 @@
 import { createAuthState } from "@qlever-llc/trellis-svelte";
-import contract from "../../contracts/demo_inspection_app.ts";
+import contract from "../../contract.ts";
 
 export const trellisUrl = "http://localhost:3000";
 

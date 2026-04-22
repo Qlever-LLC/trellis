@@ -3,7 +3,7 @@
   import type { Snippet } from "svelte";
   import { TrellisProvider } from "@qlever-llc/trellis-svelte";
   import { trellisUrl } from "$lib/trellis";
-  import contract from "../../../contracts/demo_inspection_app.ts";
+  import contract from "../../../contract.ts";
 
   let { children }: { children: Snippet } = $props();
 

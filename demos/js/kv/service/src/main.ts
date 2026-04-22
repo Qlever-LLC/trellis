@@ -3,7 +3,7 @@ import type { RpcArgs, RpcResult } from "@qlever-llc/trellis";
 import { TrellisService } from "@qlever-llc/trellis/service/deno";
 import contract, {
   SiteSummarySchema,
-} from "../contracts/demo_inspection_kv_service.ts";
+} from "../contract.ts";
 import { SITE_SUMMARIES } from "../../../shared/field_data.ts";
 import { Command } from "@cliffy/command";
 import chalk from "chalk";
@@ -32,7 +32,7 @@ async function main(): Promise<void> {
     contract,
     name: "demo-kv-service",
     sessionKeySeed,
-  });
+  }).orThrow();
 
   const siteSummaries = await service.kv.siteSummaries.open(SiteSummarySchema)
     .orThrow();

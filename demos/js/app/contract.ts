@@ -1,8 +1,8 @@
-import { defineAppContract } from "../../../../js/packages/trellis/contracts.ts";
+import { defineAppContract } from "../../../js/packages/trellis/contracts.ts";
 import { Type } from "typebox";
-import { trellisJobs } from "../../../../js/packages/trellis-sdk/jobs.ts";
-import { auth } from "../../../../js/packages/trellis-sdk/auth.ts";
-import { useDefaults as useDefaultState } from "../../../../js/packages/trellis-sdk/state.ts";
+import { trellisJobs } from "../../../js/packages/trellis-sdk/jobs.ts";
+import { auth } from "../../../js/packages/trellis-sdk/auth.ts";
+import { useDefaults as useDefaultState } from "../../../js/packages/trellis-sdk/state.ts";
 import { trellisDemoJobsService } from "@trellis-demo/jobs-service-sdk";
 import { trellisDemoKvService } from "@trellis-demo/kv-service-sdk";
 import { trellisDemoOperationService } from "@trellis-demo/operation-service-sdk";
