@@ -1,100 +1,64 @@
-import { isErr, TrellisDevice } from "@qlever-llc/trellis";
+import { TrellisDevice } from "@qlever-llc/trellis";
 import contract from "../contracts/demo_inspection_kv_device.ts";
-import type { SiteSummary } from "../../../shared/field_data.ts";
-import { printScenarioHeading } from "../../../shared/logging.ts";
-
-const trellisUrl = Deno.args[0]?.trim();
-const rootSecret = Deno.args[1]?.trim();
-
-type SiteSummariesResponse = {
-  summaries: SiteSummary[];
-};
-
-type SiteSummaryResponse = {
-  summary?: SiteSummary;
-};
-
-function asSiteSummariesResponse(value: unknown): SiteSummariesResponse {
-  if (!value || typeof value !== "object") {
-    throw new Error("site summaries response must be an object");
-  }
-
-  const summaries = (value as Record<string, unknown>).summaries;
-  if (!Array.isArray(summaries)) {
-    throw new Error("site summaries response is missing summaries");
-  }
-
-  return { summaries: summaries as SiteSummary[] };
-}
-
-function asSiteSummaryResponse(value: unknown): SiteSummaryResponse {
-  if (!value || typeof value !== "object") {
-    throw new Error("site summary response must be an object");
-  }
-
-  const summary = (value as Record<string, unknown>).summary;
-  return {
-    summary: summary && typeof summary === "object" ? summary as SiteSummary : undefined,
-  };
-}
+import { Command } from "@cliffy/command";
+import { qrcode } from "@libs/qrcode";
+import chalk from "chalk";
 
 async function main(): Promise<void> {
-  if (!trellisUrl || !rootSecret) {
-    throw new Error("Usage: deno task start <trellisUrl> <rootSecret>");
-  }
+  const {
+    args: [trellisUrl, rootSecret],
+  } = await new Command()
+    .name("demo-kv")
+    .arguments("<trellisUrl:string> <rootSecret:string>", [
+      "URL of Trellis instance to connect to",
+      "Trellis device root secret",
+    ])
+    .parse(Deno.args);
 
   const device = await TrellisDevice.connect({
     trellisUrl,
     contract,
     rootSecret,
     onActivationRequired: async (activation) => {
-      console.info(activation.url);
+      console.info("Please activate device at:", activation.url);
+      qrcode(activation.url, { output: "console" });
+
       await activation.waitForOnlineApproval();
     },
   });
-  const me = await device.request("Auth.Me", {}).take();
-  if (isErr(me)) {
-    throw me.error;
-  }
+  console.log(chalk.green.bold("== Fetching Current Identify"));
 
-  printScenarioHeading("Inspection KV device");
-  console.info("Connected to inspection KV demo device runtime");
+  const me = await device.request("Auth.Me", {}).orThrow();
+  console.dir(me, { depth: null });
 
-  const summariesResult = await device.request("Inspection.Summaries.List", {});
-  const summaries = summariesResult.take();
-  if (isErr(summaries)) {
-    throw summaries.error;
-  }
-  const siteSummaries = asSiteSummariesResponse(summaries);
+  console.log(chalk.green.bold("== Fetching Site Summaries"));
+  const { summaries } = await device.request("Inspection.Summaries.List", {})
+    .orThrow();
 
   console.info("Site summaries fetched over RPC:");
-  for (const summary of siteSummaries.summaries) {
+  for (const summary of summaries) {
     console.info(
       `- ${summary.siteName}: ${summary.openInspections} open, ${summary.overdueInspections} overdue, status ${summary.latestStatus}`,
     );
   }
 
-  const firstSiteId = siteSummaries.summaries[0]?.siteId;
+  const firstSiteId = summaries[0]?.siteId;
   if (!firstSiteId) {
     return;
   }
 
-  const summaryResult = await device.request("Inspection.Summaries.Get", {
+  console.log(chalk.green.bold("== Fetching Site Summary Detail"));
+  const { summary } = await device.request("Inspection.Summaries.Get", {
     siteId: firstSiteId,
-  });
-  const summary = summaryResult.take();
-  if (isErr(summary)) {
-    throw summary.error;
-  }
-  const siteSummary = asSiteSummaryResponse(summary);
+  }).orThrow();
 
-  if (!siteSummary.summary) {
+  if (!summary) {
     console.info(`No summary found for ${firstSiteId}`);
     return;
   }
 
   console.info(
-    `Detailed summary via RPC for ${siteSummary.summary.siteName}: last report ${siteSummary.summary.lastReportAt}`,
+    `Detailed summary via RPC for ${summary.siteName}: last report ${summary.lastReportAt}`,
   );
 }
 

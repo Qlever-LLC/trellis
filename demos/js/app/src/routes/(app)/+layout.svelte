@@ -1,51 +1,71 @@
 <script lang="ts">
   import { page } from "$app/state";
   import type { Snippet } from "svelte";
-  import { inspectionLinks } from "$lib/inspection-links";
-  import TrellisProviderHost from "$lib/TrellisProviderHost.svelte";
+  import { TrellisProvider } from "@qlever-llc/trellis-svelte";
   import { trellisUrl } from "$lib/trellis";
+  import contract from "../../../contracts/demo_inspection_app.ts";
 
   let { children }: { children: Snippet } = $props();
 
-  const currentPath = $derived($state.eager(page.url.pathname));
+  const demoLinks = [
+    { href: "/rpc", label: "RPC" },
+    { href: "/operation", label: "Operation" },
+    { href: "/transfer", label: "Transfer" },
+    { href: "/kv", label: "KV" },
+    { href: "/jobs", label: "Jobs" },
+    { href: "/state", label: "State" },
+  ] as const;
+
+  const currentPath = $derived(page.url.pathname);
 </script>
 
-<TrellisProviderHost trellisUrl={trellisUrl} loginPath="/login">
+<TrellisProvider {trellisUrl} {contract} loginPath="/login">
   {#snippet loading()}
-    <section class="page-shell">
-      <div class="panel stack panel-strong">
-        <p class="eyebrow">Connecting</p>
-        <h1>Opening the field inspection workspace</h1>
-        <p class="page-summary">Trellis is restoring your authenticated runtime and route context.</p>
+    <section class="mx-auto flex min-h-screen w-full max-w-6xl items-center justify-center px-4 py-8 sm:px-6 lg:px-8">
+      <div class="card w-full max-w-md bg-base-100 shadow-sm">
+        <div class="card-body items-center text-center">
+          <span class="loading loading-spinner loading-sm"></span>
+          <h1 class="card-title text-lg">Loading demo</h1>
+        </div>
       </div>
     </section>
   {/snippet}
 
-  <section class="page-shell layout-grid">
-    <aside class="panel stack panel-strong">
-      <div class="stack">
-        <p class="eyebrow">Packet 8 · Phase 5</p>
-        <h1>Field inspection browser</h1>
-        <p class="page-summary">A small authenticated app shell driven by TrellisProvider and the live demo surfaces.</p>
+  <section class="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
+    <header class="navbar rounded-box border border-base-300 bg-base-100 shadow-sm">
+      <div class="navbar-start">
+        <a class="btn btn-ghost text-base font-semibold" href="/">Trellis demo</a>
       </div>
-
-      <nav class="stack" aria-label="Demo routes">
-        {#each inspectionLinks as link (link.href)}
-          <a class="nav-link" href={link.href} aria-current={currentPath === link.href ? "page" : undefined}>
-            <strong>{link.label}</strong>
-            <span>{link.detail}</span>
-          </a>
-        {/each}
-      </nav>
-
-      <div class="panel stack">
-        <span class="kicker">Authenticated layout</span>
-        <p class="status-line">The route group holds the live Trellis client in context. Login stays outside this shell.</p>
+      <div class="navbar-end">
+        <a class="btn btn-sm btn-outline" href="/login?redirectTo=/rpc">Sign in</a>
       </div>
-    </aside>
+    </header>
 
-    <main class="stack">
-      {@render children()}
-    </main>
+    <div class="grid gap-6 lg:grid-cols-[14rem_minmax(0,1fr)]">
+      <aside class="card bg-base-100 shadow-sm">
+        <div class="card-body gap-4">
+          <div class="space-y-1">
+            <h1 class="card-title text-lg">Demo routes</h1>
+            <p class="text-sm text-base-content/70">Pick a route to learn a Trellis feature.</p>
+          </div>
+
+          <nav aria-label="Demo routes">
+            <ul class="menu rounded-box bg-base-100 p-0">
+              {#each demoLinks as link (link.href)}
+                <li>
+                  <a href={link.href} class={{ "menu-active": currentPath === link.href }} aria-current={currentPath === link.href ? "page" : undefined}>
+                    {link.label}
+                  </a>
+                </li>
+              {/each}
+            </ul>
+          </nav>
+        </div>
+      </aside>
+
+      <main class="min-w-0">
+        {@render children()}
+      </main>
+    </div>
   </section>
-</TrellisProviderHost>
+</TrellisProvider>

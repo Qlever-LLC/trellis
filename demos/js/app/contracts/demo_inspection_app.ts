@@ -1,6 +1,6 @@
-import { defineAppContract } from "../../../../js/packages/trellis/contract_support/mod.ts";
+import { defineAppContract } from "../../../../js/packages/trellis/contracts.ts";
 import { Type } from "typebox";
-import { trellisJobs } from "@qlever-llc/trellis-sdk/jobs";
+import { trellisJobs } from "../../../../js/packages/trellis-sdk/jobs.ts";
 import { auth } from "../../../../js/packages/trellis-sdk/auth.ts";
 import { useDefaults as useDefaultState } from "../../../../js/packages/trellis-sdk/state.ts";
 import { trellisDemoJobsService } from "@trellis-demo/jobs-service-sdk";

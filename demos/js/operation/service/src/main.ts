@@ -1,40 +1,21 @@
 import { BaseError } from "@qlever-llc/result";
-import {
-  isErr,
-  UnexpectedError,
-} from "@qlever-llc/trellis";
+import { UnexpectedError } from "@qlever-llc/trellis";
 import { TrellisService } from "@qlever-llc/trellis/host/deno";
 import contract from "../contracts/demo_inspection_operation_service.ts";
 import { ASSIGNED_INSPECTIONS } from "../../../shared/field_data.ts";
-import { printScenarioHeading } from "../../../shared/logging.ts";
-
-const trellisUrl = Deno.args[0]?.trim();
-const sessionKeySeed = Deno.args[1]?.trim();
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function inspectionLabel(inspectionId: string): string {
-  const inspection = ASSIGNED_INSPECTIONS.find((candidate) => {
-    return candidate.inspectionId === inspectionId;
-  });
-
-  return inspection
-    ? `${inspection.siteName} / ${inspection.assetName}`
-    : inspectionId;
-}
-
-function asBaseError(cause: unknown): BaseError {
-  return cause instanceof BaseError
-    ? cause
-    : new UnexpectedError({ cause });
-}
+import { Command } from "@cliffy/command";
+import chalk from "chalk";
 
 async function main(): Promise<void> {
-  if (!trellisUrl || !sessionKeySeed) {
-    throw new Error("Usage: deno task start <trellisUrl> <sessionKeySeed>");
-  }
+  const {
+    args: [trellisUrl, sessionKeySeed],
+  } = await new Command()
+    .name("demo-operation")
+    .arguments("<trellisUrl:string> <sessionKeySeed:string>", [
+      "URL of Trellis instance to connect to",
+      "Trellis service root key",
+    ])
+    .parse(Deno.args);
 
   const service = await TrellisService.connect({
     trellisUrl,
@@ -43,49 +24,40 @@ async function main(): Promise<void> {
     sessionKeySeed,
   });
 
-  const operationIsCancelled = async (operationId: string): Promise<boolean> => {
-    const snapshot = await service.operations.get(operationId).take();
-    if (isErr(snapshot)) {
-      throw snapshot.error;
-    }
-
-    return snapshot.state === "cancelled";
-  };
-
   await service.operation("Inspection.Report.Generate").handle(async ({ input, op }) => {
+    const inspection = ASSIGNED_INSPECTIONS.find((candidate) => {
+      return candidate.inspectionId === input.inspectionId;
+    });
+    const inspectionLabel = inspection
+      ? `${inspection.siteName} / ${inspection.assetName}`
+      : input.inspectionId;
     const reportId = `report-${input.inspectionId}`;
+    const progressUpdates = [
+      {
+        stage: "drafting",
+        message: `Collecting field notes for ${inspectionLabel}`,
+      },
+      {
+        stage: "rendering",
+        message: `Rendering ${reportId}`,
+      },
+      {
+        stage: "publishing",
+        message: `Publishing ${reportId} for ${inspectionLabel}`,
+      },
+    ] as const;
 
     try {
       await op.started().orThrow();
-      await sleep(250);
-      await op.progress({
-        stage: "drafting",
-        message: `Collecting field notes for ${inspectionLabel(input.inspectionId)}`,
-      }).orThrow();
-      await sleep(300);
+      await new Promise((resolve) => setTimeout(resolve, 250));
 
-      if (await operationIsCancelled(op.id)) {
-        return;
-      }
+      for (const progress of progressUpdates) {
+        await op.progress(progress).orThrow();
+        await new Promise((resolve) => setTimeout(resolve, 300));
 
-      await op.progress({
-        stage: "rendering",
-        message: `Rendering ${reportId}`,
-      }).orThrow();
-      await sleep(300);
-
-      if (await operationIsCancelled(op.id)) {
-        return;
-      }
-
-      await op.progress({
-        stage: "publishing",
-        message: `Publishing ${reportId} for ${inspectionLabel(input.inspectionId)}`,
-      }).orThrow();
-      await sleep(300);
-
-      if (await operationIsCancelled(op.id)) {
-        return;
+        if ((await service.operations.get(op.id).orThrow()).state === "cancelled") {
+          return;
+        }
       }
 
       return await op.complete({
@@ -94,18 +66,25 @@ async function main(): Promise<void> {
         status: "published",
       }).orThrow();
     } catch (cause) {
-      const error = asBaseError(cause);
-      if (!(await operationIsCancelled(op.id))) {
-        const failed = await service.operations.fail(op.id, error).take();
-        if (isErr(failed) && !(await operationIsCancelled(op.id))) {
-          throw failed.error;
+      const error = cause instanceof BaseError
+        ? cause
+        : new UnexpectedError({ cause });
+
+      if ((await service.operations.get(op.id).orThrow()).state !== "cancelled") {
+        try {
+          await service.operations.fail(op.id, error).orThrow();
+        } catch (failError) {
+          if ((await service.operations.get(op.id).orThrow()).state !== "cancelled") {
+            throw failError;
+          }
         }
       }
+
       throw error;
     }
   });
 
-  printScenarioHeading("Inspection operation service");
+  console.log(chalk.green.bold("== Inspection operation service"));
   const shutdown = async () => {
     await service.stop();
     Deno.exit(0);

@@ -37,9 +37,19 @@
     void (async () => {
       try {
         await auth.init();
-        if (auth.isAuthenticated) {
+        const bindResult = await auth.handleCallback(page.url.toString());
+        if (bindResult?.status === "bound") {
           await goto(targetPath);
           return;
+        }
+        if (bindResult) {
+          authError = bindResult.status === "insufficient_capabilities"
+            ? `Missing capabilities: ${bindResult.missingCapabilities.join(", ")}`
+            : bindResult.status === "approval_denied"
+            ? "Portal access was denied."
+            : bindResult.status === "approval_required"
+            ? "Approval is still pending."
+            : authError;
         }
       } catch (error) {
         authError = error instanceof Error ? error.message : String(error);
@@ -51,51 +61,49 @@
 </script>
 
 <svelte:head>
-  <title>Sign in · Field inspection demo</title>
+  <title>Sign in · Trellis Demo App</title>
 </svelte:head>
 
-<section class="page-shell login-shell">
-  <div class="panel panel-strong stack login-card">
-    <p class="eyebrow">Sign in</p>
-    <h1>Authenticate this browser app</h1>
-    <p class="page-summary">This demo uses a fixed Trellis instance and returns you to the route you picked after approval completes.</p>
-
-    <dl class="meta-grid">
-      <div>
-        <dt>Instance</dt>
-        <dd class="code">{trellisUrl}</dd>
+<section class="mx-auto flex min-h-screen w-full max-w-3xl items-center px-4 py-8 sm:px-6 lg:px-8">
+  <div class="card w-full bg-base-100 shadow-sm">
+    <div class="card-body gap-5">
+      <div class="space-y-2">
+        <h1 class="card-title text-2xl">Sign in to the demo app</h1>
+        <p class="text-sm leading-6 text-base-content/75 sm:text-base">
+          Start a Trellis sign-in flow, then return to the route you want to test.
+        </p>
       </div>
-      <div>
-        <dt>Next route</dt>
-        <dd class="code">{targetPath}</dd>
-      </div>
-    </dl>
 
-    {#if authError}
-      <div class="error-banner">{authError}</div>
-    {/if}
+      <dl class="grid gap-4 sm:grid-cols-2">
+        <div class="rounded-box border border-base-300 bg-base-200 p-4">
+          <dt class="text-sm font-medium text-base-content/70">Target route</dt>
+          <dd class="mt-2 break-all font-mono text-sm">{targetPath}</dd>
+        </div>
+        <div class="rounded-box border border-base-300 bg-base-200 p-4">
+          <dt class="text-sm font-medium text-base-content/70">Trellis URL</dt>
+          <dd class="mt-2 break-all font-mono text-sm">{trellisUrl}</dd>
+        </div>
+      </dl>
 
-    {#if ready}
-      <div class="button-row">
-        <button class="button" onclick={beginSignIn} disabled={signingIn}>
-          {signingIn ? "Redirecting…" : "Continue to Trellis sign in"}
-        </button>
-        <a class="ghost-button" href="/">Back to overview</a>
-      </div>
-    {:else}
-      <p class="status-line">Checking for an existing authenticated session…</p>
-    {/if}
+      {#if authError}
+        <div class="alert alert-error">
+          <span>{authError}</span>
+        </div>
+      {/if}
+
+      {#if ready}
+        <div class="flex flex-wrap gap-3">
+          <button class="btn btn-primary" onclick={beginSignIn} disabled={signingIn}>
+            {signingIn ? "Redirecting…" : "Continue to sign in"}
+          </button>
+          <a class="btn btn-outline" href="/">Back to home</a>
+        </div>
+      {:else}
+        <div class="flex items-center gap-3 text-sm text-base-content/70">
+          <span class="loading loading-spinner loading-sm"></span>
+          <span>Checking session</span>
+        </div>
+      {/if}
+    </div>
   </div>
 </section>
-
-<style>
-  .login-shell {
-    min-height: 100vh;
-    display: grid;
-    place-items: center;
-  }
-
-  .login-card {
-    width: min(34rem, 100%);
-  }
-</style>

@@ -49,6 +49,7 @@
     "app": "deno task -c app/deno.json dev"
   },
   "imports": {
+    "@cliffy/command": "jsr:@cliffy/command@^1.0.1",
     "@hono/hono": "jsr:@hono/hono@^4.9.8",
     "@hono-rate-limiter/hono-rate-limiter": "jsr:@hono-rate-limiter/hono-rate-limiter@^0.4.2",
     "@libs/qrcode": "jsr:@libs/qrcode@^3.0.1",
@@ -83,6 +84,7 @@
     "@trellis-demo/transfer-service-sdk": "./generated/js/sdks/demo-transfer-service/mod.ts",
     "@trellis-demo/kv-service-sdk": "./generated/js/sdks/demo-kv-service/mod.ts",
     "@trellis-demo/jobs-service-sdk": "./generated/js/sdks/demo-jobs-service/mod.ts",
+    "chalk": "npm:chalk@^5.6.2",
     "json-schema-library": "npm:json-schema-library@^10.5.2",
     "js-sha256": "npm:js-sha256@^0.11.1",
     "jsonc-parser": "npm:jsonc-parser@^3.3.1",
@@ -92,7 +94,6 @@
     "serialize-error": "npm:serialize-error@^12.0.0",
     "svelte": "npm:svelte@5.46.0",
     "tweetnacl": "npm:tweetnacl@^1.0.3",
-    "ts-command-line-args": "npm:ts-command-line-args@^2.5.1",
     "ts-deepmerge": "npm:ts-deepmerge@^7.0.3",
     "type-fest": "npm:type-fest@^5.0.1",
     "typebox": "npm:typebox@^1.0.15",

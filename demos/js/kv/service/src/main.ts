@@ -1,22 +1,22 @@
-import { Result } from "@qlever-llc/trellis";
+import { isErr, Result } from "@qlever-llc/trellis";
 import { TrellisService } from "@qlever-llc/trellis/host/deno";
-import contract, { type Rpc } from "../contracts/demo_inspection_kv_service.ts";
+import contract, {
+  SiteSummarySchema,
+} from "../contracts/demo_inspection_kv_service.ts";
 import { SITE_SUMMARIES } from "../../../shared/field_data.ts";
-import { printScenarioHeading } from "../../../shared/logging.ts";
-import {
-  getSiteSummary,
-  listSiteSummaries,
-  openSiteSummaryStore,
-  seedSiteSummaries,
-} from "./site_summary_store.ts";
-
-const trellisUrl = Deno.args[0]?.trim();
-const sessionKeySeed = Deno.args[1]?.trim();
+import { Command } from "@cliffy/command";
+import chalk from "chalk";
 
 async function main(): Promise<void> {
-  if (!trellisUrl || !sessionKeySeed) {
-    throw new Error("Usage: deno task start <trellisUrl> <sessionKeySeed>");
-  }
+  const {
+    args: [trellisUrl, sessionKeySeed],
+  } = await new Command()
+    .name("demo-kv")
+    .arguments("<trellisUrl:string> <sessionKeySeed:string>", [
+      "URL of Trellis instance to connect to",
+      "Trellis service root key",
+    ])
+    .parse(Deno.args);
 
   const service = await TrellisService.connect({
     trellisUrl,
@@ -25,23 +25,37 @@ async function main(): Promise<void> {
     sessionKeySeed,
   });
 
-  const siteSummaryStore = await openSiteSummaryStore(service);
-  await seedSiteSummaries(siteSummaryStore, SITE_SUMMARIES);
+  const siteSummaries = await service.kv.siteSummaries.open(SiteSummarySchema)
+    .orThrow();
 
-  const listSummaries: Rpc<"Inspection.Summaries.List"> = async () => {
-    return Result.ok({ summaries: await listSiteSummaries(siteSummaryStore) });
-  };
+  for (const summary of SITE_SUMMARIES) {
+    if (isErr(await siteSummaries.get(summary.siteId).take())) {
+      await siteSummaries.create(summary.siteId, summary).orThrow();
+    }
+  }
 
-  const getSummary: Rpc<"Inspection.Summaries.Get"> = async (input) => {
-    return Result.ok({
-      summary: await getSiteSummary(siteSummaryStore, input.siteId),
-    });
-  };
+  await service.trellis.mount("Inspection.Summaries.List", async () => {
+    const summaries = [];
+    const keys = await siteSummaries.keys(">")
+      .orThrow();
 
-  await service.trellis.mount("Inspection.Summaries.List", listSummaries);
-  await service.trellis.mount("Inspection.Summaries.Get", getSummary);
+    for await (const key of keys) {
+      const entry = await siteSummaries.get(key).take();
+      if (!isErr(entry)) {
+        summaries.push(entry.value);
+      }
+    }
 
-  printScenarioHeading("Inspection KV service");
+    summaries.sort((left, right) => left.siteName.localeCompare(right.siteName));
+    return Result.ok({ summaries });
+  });
+
+  await service.trellis.mount("Inspection.Summaries.Get", async (input) => {
+    const entry = await siteSummaries.get(input.siteId).take();
+    return Result.ok({ summary: isErr(entry) ? undefined : entry.value });
+  });
+
+  console.log(chalk.green.bold("== Inspection KV service"));
   const shutdown = async () => {
     await service.stop();
     Deno.exit(0);

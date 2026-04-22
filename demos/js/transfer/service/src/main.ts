@@ -1,37 +1,18 @@
-import { ok } from "@qlever-llc/trellis";
 import { TrellisService } from "@qlever-llc/trellis/host/deno";
 import contract from "../contracts/demo_inspection_transfer_service.ts";
-import { printScenarioHeading } from "../../../shared/logging.ts";
-
-const trellisUrl = Deno.args[0]?.trim();
-const sessionKeySeed = Deno.args[1]?.trim();
-
-async function countStreamChunks(
-  stream: ReadableStream<Uint8Array>,
-): Promise<{ chunkCount: number; byteCount: number }> {
-  const reader = stream.getReader();
-  let chunkCount = 0;
-  let byteCount = 0;
-
-  try {
-    while (true) {
-      const next = await reader.read();
-      if (next.done) {
-        return { chunkCount, byteCount };
-      }
-
-      chunkCount += 1;
-      byteCount += next.value.byteLength;
-    }
-  } finally {
-    reader.releaseLock();
-  }
-}
+import { Command } from "@cliffy/command";
+import chalk from "chalk";
 
 async function main(): Promise<void> {
-  if (!trellisUrl || !sessionKeySeed) {
-    throw new Error("Usage: deno task start <trellisUrl> <sessionKeySeed>");
-  }
+  const {
+    args: [trellisUrl, sessionKeySeed],
+  } = await new Command()
+    .name("demo-transfer")
+    .arguments("<trellisUrl:string> <sessionKeySeed:string>", [
+      "URL of Trellis instance to connect to",
+      "Trellis service root key",
+    ])
+    .parse(Deno.args);
 
   const service = await TrellisService.connect({
     trellisUrl,
@@ -51,32 +32,45 @@ async function main(): Promise<void> {
     }).orThrow();
 
     const entry = await uploads.get(transferred.key).orThrow();
+    const reader = (await entry.stream().orThrow()).getReader();
+    let chunkCount = 0;
+    let byteCount = 0;
 
     await op.progress({
       stage: "processing",
       message: `Inspecting staged evidence at ${transferred.key}`,
     }).orThrow();
 
-    const body = await entry.stream().orThrow();
+    try {
+      while (true) {
+        const next = await reader.read();
+        if (next.done) {
+          break;
+        }
 
-    const processed = await countStreamChunks(body);
+        chunkCount += 1;
+        byteCount += next.value.byteLength;
+      }
+    } finally {
+      reader.releaseLock();
+    }
+
     await op.progress({
       stage: "indexed",
-      message: `Indexed ${processed.chunkCount} evidence blocks from ${transferred.key}`,
+      message: `Indexed ${chunkCount} evidence blocks from ${transferred.key}`,
     }).orThrow();
 
     const output = {
       evidenceId: `evidence-${input.key}`,
       key: transferred.key,
-      size: processed.byteCount,
+      size: byteCount,
       disposition: "ready-for-review",
     };
 
-    await op.complete(output).orThrow();
-    return ok(output);
+    return await op.complete(output).orThrow();
   });
 
-  printScenarioHeading("Inspection transfer service");
+  console.log(chalk.green.bold("== Inspection transfer service"));
   const shutdown = async () => {
     await service.stop();
     Deno.exit(0);

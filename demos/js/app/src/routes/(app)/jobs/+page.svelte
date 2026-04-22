@@ -1,7 +1,38 @@
 <script lang="ts">
-  import { isErr } from "@qlever-llc/result";
   import { onMount } from "svelte";
-  import { getJobsClient, requestValue, type JobsRefresh } from "$lib/trellis";
+  import { getTrellis } from "@qlever-llc/trellis-svelte";
+  import type {
+    InspectionSummariesRefreshOutput,
+    InspectionSummariesRefreshStatusGetOutput,
+  } from "../../../../../generated/js/sdks/demo-jobs-service/types.ts";
+
+  type JobsRefresh = NonNullable<InspectionSummariesRefreshStatusGetOutput["refresh"]>;
+  type JobsDemoTrellis = {
+    jobs(): {
+      listServices(): {
+        orThrow(): Promise<Array<{
+          healthy: boolean;
+          name: string;
+          workers: Array<{ instanceId: string; jobType: string; timestamp: string }>;
+        }>>;
+      };
+      list(filter?: { limit?: number }): {
+        orThrow(): Promise<Array<{
+          id: string;
+          service: string;
+          state: string;
+          type: string;
+          updatedAt: string;
+        }>>;
+      };
+    };
+    request(method: "Inspection.Summaries.Refresh", input: { siteId: string }): {
+      orThrow(): Promise<InspectionSummariesRefreshOutput>;
+    };
+    request(method: "Inspection.Summaries.RefreshStatus.Get", input: { refreshId: string }): {
+      orThrow(): Promise<InspectionSummariesRefreshStatusGetOutput>;
+    };
+  };
 
   const siteId = "site-west-yard";
   const terminalStates = new Set(["completed", "failed"]);
@@ -12,29 +43,20 @@
   let services = $state<Array<{ healthy: boolean; name: string; workers: Array<{ instanceId: string; jobType: string; timestamp: string; }> }>>([]);
   let jobs = $state<Array<{ id: string; service: string; state: string; type: string; updatedAt: string }>>([]);
   let refresh = $state<JobsRefresh | null>(null);
+  const appTrellis = getTrellis() as unknown as Promise<JobsDemoTrellis>;
 
   async function loadAdminView(): Promise<void> {
     loading = true;
     error = null;
 
     try {
-      const client = await getJobsClient();
+      const client = (await appTrellis).jobs();
       const [servicesResult, jobsResult] = await Promise.all([
-        client.listServices(),
-        client.list({ limit: 8 }),
+        client.listServices().orThrow(),
+        client.list({ limit: 8 }).orThrow(),
       ]);
 
-      const servicesValue = servicesResult.take();
-      if (isErr(servicesValue)) {
-        throw servicesValue.error;
-      }
-
-      const jobsValue = jobsResult.take();
-      if (isErr(jobsValue)) {
-        throw jobsValue.error;
-      }
-
-      services = servicesValue.map((service) => ({
+      services = servicesResult.map((service) => ({
         healthy: service.healthy,
         name: service.name,
         workers: service.workers.map((worker) => ({
@@ -43,7 +65,7 @@
           timestamp: worker.timestamp,
         })),
       }));
-      jobs = jobsValue.map((job) => ({
+      jobs = jobsResult.map((job) => ({
         id: job.id,
         service: job.service,
         state: job.state,
@@ -59,7 +81,9 @@
 
   async function pollRefresh(refreshId: string): Promise<void> {
     for (let attempt = 0; attempt < 16; attempt += 1) {
-      const response = await requestValue("Inspection.Summaries.RefreshStatus.Get", { refreshId });
+      const response = await (await appTrellis)
+        .request("Inspection.Summaries.RefreshStatus.Get", { refreshId })
+        .orThrow();
       refresh = response.refresh ?? null;
 
       if (response.refresh && terminalStates.has(response.refresh.status)) {
@@ -75,7 +99,9 @@
     error = null;
 
     try {
-      const queued = await requestValue("Inspection.Summaries.Refresh", { siteId });
+      const queued = await (await appTrellis)
+        .request("Inspection.Summaries.Refresh", { siteId })
+        .orThrow();
       refresh = {
         refreshId: queued.refreshId,
         siteId,
@@ -91,106 +117,174 @@
     }
   }
 
+  function refreshBadgeClass(status: string): string {
+    if (status === "completed") return "badge badge-success badge-outline";
+    if (status === "failed") return "badge badge-error badge-outline";
+    return "badge badge-warning badge-outline";
+  }
+
   onMount(() => {
     void loadAdminView();
   });
 </script>
 
 <svelte:head>
-  <title>Jobs · Field inspection demo</title>
+  <title>Jobs · Trellis demo</title>
 </svelte:head>
 
-<section class="stack">
-  <header class="page-header">
-    <p class="eyebrow">Jobs surface</p>
-    <h1>Queue a refresh, then inspect workers</h1>
-    <p class="page-summary">The page uses the demo jobs RPCs to enqueue work and the Trellis Jobs admin surface to read the broader worker and job state.</p>
+<section class="mx-auto flex w-full max-w-6xl flex-col gap-6 p-4 md:p-6">
+  <header class="space-y-1">
+    <h1 class="text-2xl font-semibold">Jobs</h1>
+    <p class="text-sm text-base-content/70">Queue work, then inspect workers and recent jobs.</p>
   </header>
 
-  <div class="button-row">
-    <button class="button" onclick={queueRefresh} disabled={queueing}>{queueing ? "Queueing…" : "Queue West Yard refresh"}</button>
-    <button class="ghost-button" onclick={loadAdminView} disabled={loading}>Reload jobs view</button>
+  <div class="flex flex-wrap gap-3">
+    <button class="btn btn-primary" onclick={queueRefresh} disabled={queueing}>
+      {queueing ? "Queueing..." : "Queue West Yard refresh"}
+    </button>
+    <button class="btn btn-outline" onclick={loadAdminView} disabled={loading}>
+      Reload admin view
+    </button>
   </div>
 
   {#if error}
-    <div class="error-banner">{error}</div>
+    <div role="alert" class="alert alert-error">
+      <span>{error}</span>
+    </div>
   {/if}
 
-  <div class="feature-grid" style="grid-template-columns: 0.95fr 1.05fr;">
-    <section class="surface-card">
-      <div class="split">
-        <h2 class="section-title">Latest refresh</h2>
+  <div class="grid gap-6 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+    <section class="card border border-base-300 bg-base-100 shadow-sm">
+      <div class="card-body gap-4">
+        <div class="flex items-center justify-between gap-3">
+          <h2 class="card-title text-lg">Latest refresh</h2>
+          {#if refresh}
+            <span class={refreshBadgeClass(refresh.status)}>{refresh.status}</span>
+          {/if}
+        </div>
+
         {#if refresh}
-          <span class={`pill ${refresh.status === "completed" ? "success" : refresh.status === "failed" ? "danger" : "warn"}`}>
-            {refresh.status}
-          </span>
+          <div class="overflow-x-auto">
+            <table class="table table-sm">
+              <tbody>
+                <tr>
+                  <th>Refresh id</th>
+                  <td class="font-mono text-xs">{refresh.refreshId}</td>
+                </tr>
+                <tr>
+                  <th>Site</th>
+                  <td>{refresh.siteId}</td>
+                </tr>
+                <tr>
+                  <th>Updated</th>
+                  <td class="font-mono text-xs">{refresh.updatedAt}</td>
+                </tr>
+                {#if refresh.message}
+                  <tr>
+                    <th>Message</th>
+                    <td>{refresh.message}</td>
+                  </tr>
+                {/if}
+              </tbody>
+            </table>
+          </div>
+        {:else}
+          <div class="alert">
+            <span>Queue a refresh to watch job status move.</span>
+          </div>
         {/if}
       </div>
+    </section>
 
-      {#if refresh}
-        <dl class="field-list">
-          <li><strong class="code">{refresh.refreshId}</strong><span class="muted">Refresh id</span></li>
-          <li><strong>{refresh.siteId}</strong><span class="muted">Target site</span></li>
-          <li><strong class="code">{refresh.updatedAt}</strong><span class="muted">Last status timestamp</span></li>
-          {#if refresh.message}
-            <li><strong>{refresh.message}</strong><span class="muted">Worker message</span></li>
+    <div class="grid gap-6">
+      <section class="card border border-base-300 bg-base-100 shadow-sm">
+        <div class="card-body gap-4">
+          <div class="flex items-center justify-between gap-3">
+            <h2 class="card-title text-lg">Workers</h2>
+            <span class="badge badge-outline">{services.length} service{services.length === 1 ? "" : "s"}</span>
+          </div>
+
+          {#if loading}
+            <div class="alert">
+              <span>Loading worker services.</span>
+            </div>
+          {:else if services.length === 0}
+            <div class="alert">
+              <span>No worker services reported.</span>
+            </div>
+          {:else}
+            <div class="overflow-x-auto">
+              <table class="table table-zebra table-sm">
+                <thead>
+                  <tr>
+                    <th>Service</th>
+                    <th>Health</th>
+                    <th>Worker heartbeats</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {#each services as service (service.name)}
+                    <tr>
+                      <td>{service.name}</td>
+                      <td>
+                        <span class={service.healthy ? "badge badge-success badge-outline" : "badge badge-error badge-outline"}>
+                          {service.healthy ? "healthy" : "unhealthy"}
+                        </span>
+                      </td>
+                      <td>{service.workers.length}</td>
+                    </tr>
+                  {/each}
+                </tbody>
+              </table>
+            </div>
           {/if}
-        </dl>
-      {:else}
-        <div class="empty-state">Queue a refresh to watch the demo job move through its status updates.</div>
-      {/if}
-    </section>
-
-    <section class="surface-card stack">
-      <div class="split">
-        <h2 class="section-title">Jobs admin snapshot</h2>
-        <span class="pill">{jobs.length} recent jobs</span>
-      </div>
-
-      {#if loading}
-        <div class="empty-state">Loading worker and job state…</div>
-      {:else}
-        <div class="stack">
-          <div>
-            <h3>Workers</h3>
-            {#if services.length === 0}
-              <div class="empty-state">No worker services were reported.</div>
-            {:else}
-              <ul class="data-list">
-                {#each services as service (service.name)}
-                  <li>
-                    <div class="split">
-                      <strong>{service.name}</strong>
-                      <span class={`pill ${service.healthy ? "success" : "danger"}`}>{service.healthy ? "healthy" : "unhealthy"}</span>
-                    </div>
-                    <p class="status-line">{service.workers.length} worker heartbeat(s)</p>
-                  </li>
-                {/each}
-              </ul>
-            {/if}
-          </div>
-
-          <div>
-            <h3>Recent jobs</h3>
-            {#if jobs.length === 0}
-              <div class="empty-state">No jobs were returned by the admin list call.</div>
-            {:else}
-              <ul class="log-list">
-                {#each jobs as job (job.id)}
-                  <li>
-                    <div class="split">
-                      <strong>{job.type}</strong>
-                      <span class="pill">{job.state}</span>
-                    </div>
-                    <p class="status-line code">{job.service} · {job.id}</p>
-                    <p class="status-line">Updated {job.updatedAt}</p>
-                  </li>
-                {/each}
-              </ul>
-            {/if}
-          </div>
         </div>
-      {/if}
-    </section>
+      </section>
+
+      <section class="card border border-base-300 bg-base-100 shadow-sm">
+        <div class="card-body gap-4">
+          <div class="flex items-center justify-between gap-3">
+            <h2 class="card-title text-lg">Recent jobs</h2>
+            <span class="badge badge-outline">{jobs.length} job{jobs.length === 1 ? "" : "s"}</span>
+          </div>
+
+          {#if loading}
+            <div class="alert">
+              <span>Loading jobs.</span>
+            </div>
+          {:else if jobs.length === 0}
+            <div class="alert">
+              <span>No jobs returned.</span>
+            </div>
+          {:else}
+            <div class="overflow-x-auto">
+              <table class="table table-zebra table-sm">
+                <thead>
+                  <tr>
+                    <th>Type</th>
+                    <th>State</th>
+                    <th>Service</th>
+                    <th>Updated</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {#each jobs as job (job.id)}
+                    <tr>
+                      <td>
+                        <div>{job.type}</div>
+                        <div class="font-mono text-xs text-base-content/60">{job.id}</div>
+                      </td>
+                      <td>{job.state}</td>
+                      <td>{job.service}</td>
+                      <td class="font-mono text-xs">{job.updatedAt}</td>
+                    </tr>
+                  {/each}
+                </tbody>
+              </table>
+            </div>
+          {/if}
+        </div>
+      </section>
+    </div>
   </div>
 </section>

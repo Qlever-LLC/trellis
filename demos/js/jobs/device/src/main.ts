@@ -1,110 +1,62 @@
-import { isErr, TrellisDevice } from "@qlever-llc/trellis";
+import { TrellisDevice } from "@qlever-llc/trellis";
 import contract from "../contracts/demo_inspection_jobs_device.ts";
-import { printScenarioHeading } from "../../../shared/logging.ts";
+import { Command } from "@cliffy/command";
+import { qrcode } from "@libs/qrcode";
+import chalk from "chalk";
 
-const trellisUrl = Deno.args[0]?.trim();
-const rootSecret = Deno.args[1]?.trim();
 const POLL_INTERVAL_MS = 250;
 
-type RefreshResponse = {
-  refreshId: string;
-  status: string;
-};
-
-type RefreshStatus = {
-  refreshId: string;
-  siteId: string;
-  status: string;
-  updatedAt: string;
-};
-
-type RefreshStatusResponse = {
-  refresh?: RefreshStatus;
-};
-
-function asRefreshResponse(value: unknown): RefreshResponse {
-  if (!value || typeof value !== "object") {
-    throw new Error("refresh response must be an object");
-  }
-
-  const record = value as Record<string, unknown>;
-  const refreshId = record.refreshId;
-  const status = record.status;
-  if (typeof refreshId !== "string" || typeof status !== "string") {
-    throw new Error("refresh response is missing fields");
-  }
-
-  return { refreshId, status };
-}
-
-function asRefreshStatusResponse(value: unknown): RefreshStatusResponse {
-  if (!value || typeof value !== "object") {
-    throw new Error("refresh status response must be an object");
-  }
-
-  const refresh = (value as Record<string, unknown>).refresh;
-  return {
-    refresh: refresh && typeof refresh === "object" ? refresh as RefreshStatus : undefined,
-  };
-}
-
-function isTerminalRefreshStatus(status: string): boolean {
-  return status === "completed" || status === "failed";
-}
-
 async function main(): Promise<void> {
-  if (!trellisUrl || !rootSecret) {
-    throw new Error("Usage: deno task start <trellisUrl> <rootSecret>");
-  }
+  const {
+    args: [trellisUrl, rootSecret],
+  } = await new Command()
+    .name("demo-jobs")
+    .arguments("<trellisUrl:string> <rootSecret:string>", [
+      "URL of Trellis instance to connect to",
+      "Trellis device root secret",
+    ])
+    .parse(Deno.args);
 
   const device = await TrellisDevice.connect({
     trellisUrl,
     contract,
     rootSecret,
     onActivationRequired: async (activation) => {
-      console.info(activation.url);
+      console.info("Please activate device at:", activation.url);
+      qrcode(activation.url, { output: "console" });
+
       await activation.waitForOnlineApproval();
     },
   });
-  const me = await device.request("Auth.Me", {}).take();
-  if (isErr(me)) {
-    throw me.error;
-  }
+  console.log(chalk.green.bold("== Fetching Current Identify"));
 
-  printScenarioHeading("Inspection jobs device");
-  console.info("Connected to inspection jobs demo device runtime");
+  const me = await device.request("Auth.Me", {}).orThrow();
+  console.dir(me, { depth: null });
 
   const siteId = "site-west-yard";
+  console.log(chalk.green.bold("== Queueing Summary Refresh"));
   const refresh = await device
     .request("Inspection.Summaries.Refresh", { siteId })
-    .take();
-  if (isErr(refresh)) {
-    throw refresh.error;
-  }
-  const refreshRequest = asRefreshResponse(refresh);
+    .orThrow();
 
-  console.info(`Queued refresh ${refreshRequest.refreshId} for ${siteId}`);
+  console.info(`Queued refresh ${refresh.refreshId} for ${siteId}`);
 
+  console.log(chalk.green.bold("== Polling Refresh Status"));
   while (true) {
-    const status = await device
+    const { refresh: current } = await device
       .request("Inspection.Summaries.RefreshStatus.Get", {
-        refreshId: refreshRequest.refreshId,
+        refreshId: refresh.refreshId,
       })
-      .take();
-    if (isErr(status)) {
-      throw status.error;
-    }
-    const refreshStatus = asRefreshStatusResponse(status);
+      .orThrow();
 
-    const current = refreshStatus.refresh;
     if (!current) {
-      console.info(`Refresh ${refreshRequest.refreshId}: status not available yet`);
+      console.info(`Refresh ${refresh.refreshId}: status not available yet`);
     } else {
       console.info(
         `Refresh ${current.refreshId}: ${current.status} at ${current.updatedAt} for ${current.siteId}`,
       );
 
-      if (isTerminalRefreshStatus(current.status)) {
+      if (current.status === "completed" || current.status === "failed") {
         break;
       }
     }

@@ -1,48 +1,36 @@
 import { TrellisDevice } from "@qlever-llc/trellis";
 import contract from "../contracts/demo_inspection_operation_device.ts";
 import { ASSIGNED_INSPECTIONS } from "../../../shared/field_data.ts";
-import { printScenarioHeading } from "../../../shared/logging.ts";
-
-const trellisUrl = Deno.args[0]?.trim();
-const rootSecret = Deno.args[1]?.trim();
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function progressFields(value: unknown): { stage: string; message: string } | null {
-  if (!value || typeof value !== "object") {
-    return null;
-  }
-
-  const record = value as Record<string, unknown>;
-  const stage = record.stage;
-  const message = record.message;
-  if (typeof stage !== "string" || typeof message !== "string") {
-    return null;
-  }
-
-  return { stage, message };
-}
+import { Command } from "@cliffy/command";
+import { qrcode } from "@libs/qrcode";
+import chalk from "chalk";
 
 async function main(): Promise<void> {
-  if (!trellisUrl || !rootSecret) {
-    throw new Error("Usage: deno task start <trellisUrl> <rootSecret>");
-  }
+  const {
+    args: [trellisUrl, rootSecret],
+  } = await new Command()
+    .name("demo-operation")
+    .arguments("<trellisUrl:string> <rootSecret:string>", [
+      "URL of Trellis instance to connect to",
+      "Trellis device root secret",
+    ])
+    .parse(Deno.args);
 
   const device = await TrellisDevice.connect({
     trellisUrl,
     contract,
     rootSecret,
     onActivationRequired: async (activation) => {
-      console.info(activation.url);
+      console.info("Please activate device at:", activation.url);
+      qrcode(activation.url, { output: "console" });
+
       await activation.waitForOnlineApproval();
     },
   });
-  await device.request("Auth.Me", {}).orThrow();
+  console.log(chalk.green.bold("== Fetching Current Identify"));
 
-  printScenarioHeading("Inspection operation device");
-  console.info("Connected to inspection operation demo device runtime");
+  const me = await device.request("Auth.Me", {}).orThrow();
+  console.dir(me, { depth: null });
 
   const cancelledInspectionId = ASSIGNED_INSPECTIONS[0]?.inspectionId;
   const completedInspectionId = ASSIGNED_INSPECTIONS[1]?.inspectionId;
@@ -50,17 +38,13 @@ async function main(): Promise<void> {
     throw new Error("operation demo requires at least two assigned inspections");
   }
 
+  console.log(chalk.green.bold("== Starting Cancellation Flow"));
   console.info("starting cancellation flow", { inspectionId: cancelledInspectionId });
   const cancelled = await device.operation("Inspection.Report.Generate")
     .input({ inspectionId: cancelledInspectionId })
     .onEvent((event) => {
       if (event.type === "progress") {
-        const progress = progressFields(event.progress);
-        if (!progress) {
-          return;
-        }
-
-        console.info("cancel flow progress", progress.stage, progress.message);
+        console.info("cancel flow progress", event.progress);
         return;
       }
 
@@ -73,7 +57,7 @@ async function main(): Promise<void> {
     operation: cancelled.operation,
   });
 
-  await sleep(700);
+  await new Promise((resolve) => setTimeout(resolve, 700));
 
   const cancelledSnapshot = await cancelled.cancel().orThrow();
   console.info("cancel flow cancel()", cancelledSnapshot.state);
@@ -81,17 +65,13 @@ async function main(): Promise<void> {
   const cancelledTerminal = await cancelled.wait().orThrow();
   console.info("cancel flow wait()", cancelledTerminal.state);
 
+  console.log(chalk.green.bold("== Starting Completion Flow"));
   console.info("starting completion flow", { inspectionId: completedInspectionId });
   const completed = await device.operation("Inspection.Report.Generate")
     .input({ inspectionId: completedInspectionId })
     .onEvent((event) => {
       if (event.type === "progress") {
-        const progress = progressFields(event.progress);
-        if (!progress) {
-          return;
-        }
-
-        console.info("completion flow progress", progress.stage, progress.message);
+        console.info("completion flow progress", event.progress);
         return;
       }
 

@@ -1,12 +1,32 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import {
-    getTrellis,
-    requestValue,
-    type ReportOutput,
-    type ReportProgress,
-    type RpcAssignment,
-  } from "$lib/trellis";
+  import { getTrellis } from "@qlever-llc/trellis-svelte";
+  import type {
+    InspectionReportGenerateOutput,
+    InspectionReportGenerateProgress,
+  } from "../../../../../generated/js/sdks/demo-operation-service/types.ts";
+  import type { InspectionAssignmentsListOutput } from "../../../../../generated/js/sdks/demo-rpc-service/types.ts";
+
+  type ReportOutput = InspectionReportGenerateOutput;
+  type ReportProgress = InspectionReportGenerateProgress;
+  type RpcAssignment = InspectionAssignmentsListOutput["assignments"][number];
+  type OperationDemoTrellis = {
+    request(method: "Inspection.Assignments.List", input: {}): {
+      orThrow(): Promise<InspectionAssignmentsListOutput>;
+    };
+    operation(method: "Inspection.Report.Generate"): {
+      input(input: { inspectionId: string }): {
+        start(): {
+          orThrow(): Promise<{
+            id: string;
+            watch(): { orThrow(): Promise<AsyncIterable<ReportEvent>> };
+            wait(): { orThrow(): Promise<ReportTerminal> };
+            cancel(): { orThrow(): Promise<{ state: string }> };
+          }>;
+        };
+      };
+    };
+  };
 
   type ReportEvent = {
     type: string;
@@ -27,9 +47,10 @@
   let events = $state<Array<{ label: string; state: string }>>([]);
   let acceptedId = $state<string | null>(null);
   let terminal = $state<ReportTerminal | null>(null);
+  const appTrellis = getTrellis() as unknown as Promise<OperationDemoTrellis>;
 
   async function createOperationRef(inspectionId: string) {
-    const trellis = await getTrellis();
+    const trellis = await appTrellis;
     return await trellis.operation("Inspection.Report.Generate")
       .input({ inspectionId })
       .start()
@@ -45,7 +66,9 @@
     error = null;
 
     try {
-      const response = await requestValue("Inspection.Assignments.List", {});
+      const response = await (await appTrellis)
+        .request("Inspection.Assignments.List", {})
+        .orThrow();
       assignments = response.assignments;
       selectedInspectionId = response.assignments[0]?.inspectionId ?? "";
     } catch (cause) {
@@ -112,91 +135,132 @@
     }
   }
 
+  function terminalBadgeClass(state: ReportTerminal["state"]): string {
+    if (state === "completed") return "badge badge-success badge-outline";
+    if (state === "cancelled") return "badge badge-warning badge-outline";
+    return "badge badge-error badge-outline";
+  }
+
   onMount(() => {
     void loadAssignments();
   });
 </script>
 
 <svelte:head>
-  <title>Operation · Field inspection demo</title>
+  <title>Operation · Trellis demo</title>
 </svelte:head>
 
-<section class="stack">
-  <header class="page-header">
-    <p class="eyebrow">Operation surface</p>
-    <h1>Generate an inspection report</h1>
-    <p class="page-summary">This route starts the real demo operation, watches live progress, and surfaces the terminal output for a chosen inspection.</p>
+<section class="mx-auto flex w-full max-w-6xl flex-col gap-6 p-4 md:p-6">
+  <header class="space-y-1">
+    <h1 class="text-2xl font-semibold">Operation</h1>
+    <p class="text-sm text-base-content/70">Start, watch, and cancel a long-running operation.</p>
   </header>
 
   {#if error}
-    <div class="error-banner">{error}</div>
+    <div role="alert" class="alert alert-error">
+      <span>{error}</span>
+    </div>
   {/if}
 
-  <div class="feature-grid" style="grid-template-columns: 0.95fr 1.05fr;">
-    <section class="surface-card stack">
-      <div class="split">
-        <h2 class="section-title">Operation input</h2>
-        {#if acceptedId}
-          <span class="pill code">{acceptedId}</span>
-        {/if}
-      </div>
+  <div class="grid gap-6 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+    <section class="card border border-base-300 bg-base-100 shadow-sm">
+      <div class="card-body gap-4">
+        <div class="flex items-center justify-between gap-3">
+          <h2 class="card-title text-lg">Start operation</h2>
+          {#if acceptedId}
+            <span class="badge badge-outline font-mono">{acceptedId}</span>
+          {/if}
+        </div>
 
-      {#if loading}
-        <div class="empty-state">Loading assignment choices…</div>
-      {:else}
-        <div class="form-grid">
-          <label>
-            <span class="muted">Inspection</span>
-            <select class="select" bind:value={selectedInspectionId}>
+        {#if loading}
+          <div class="alert">
+            <span>Loading inspections.</span>
+          </div>
+        {:else}
+          <label class="form-control gap-2">
+            <span class="label-text font-medium">Inspection</span>
+            <select class="select select-bordered w-full" bind:value={selectedInspectionId}>
               {#each assignments as assignment (assignment.inspectionId)}
-                <option value={assignment.inspectionId}>{assignment.siteName} · {assignment.assetName}</option>
+                <option value={assignment.inspectionId}>
+                  {assignment.siteName} · {assignment.assetName}
+                </option>
               {/each}
             </select>
           </label>
 
-          <div class="button-row">
-            <button class="button" onclick={startOperation} disabled={running || !selectedInspectionId}>
-              {running ? "Running…" : "Start report generation"}
+          <div class="flex flex-wrap gap-3">
+            <button class="btn btn-primary" onclick={startOperation} disabled={running || !selectedInspectionId}>
+              {running ? "Running..." : "Start report generation"}
             </button>
-            <button class="ghost-button" onclick={cancelOperation} disabled={!running || !canCancel}>Cancel active run</button>
+            <button class="btn btn-outline" onclick={cancelOperation} disabled={!running || !canCancel}>
+              Cancel
+            </button>
+            <button class="btn btn-ghost" onclick={loadAssignments} disabled={loading || running}>
+              Reload inspections
+            </button>
           </div>
-        </div>
-      {/if}
-    </section>
-
-    <section class="surface-card stack">
-      <div class="split">
-        <h2 class="section-title">Progress and output</h2>
-        {#if terminal}
-          <span class={`pill ${terminal.state === "completed" ? "success" : terminal.state === "cancelled" ? "warn" : "danger"}`}>
-            {terminal.state}
-          </span>
         {/if}
       </div>
+    </section>
 
-      {#if events.length > 0}
-        <ul class="log-list">
-          {#each events as event, index (`${event.label}-${index}`)}
-            <li>
-              <strong>{event.label}</strong>
-              <p class="status-line">Snapshot state: {event.state}</p>
-            </li>
-          {/each}
-        </ul>
-      {:else}
-        <div class="empty-state">Start the operation to stream progress events here.</div>
-      {/if}
-
-      {#if terminal?.output}
-        <div class="panel">
-          <span class="kicker">Terminal output</span>
-          <dl class="field-list">
-            <li><strong class="code">{terminal.output.reportId}</strong><span class="muted">Report id</span></li>
-            <li><strong>{terminal.output.inspectionId}</strong><span class="muted">Inspection id</span></li>
-            <li><strong>{terminal.output.status}</strong><span class="muted">Reported status</span></li>
-          </dl>
+    <section class="card border border-base-300 bg-base-100 shadow-sm">
+      <div class="card-body gap-4">
+        <div class="flex items-center justify-between gap-3">
+          <h2 class="card-title text-lg">Progress</h2>
+          {#if terminal}
+            <span class={terminalBadgeClass(terminal.state)}>{terminal.state}</span>
+          {:else if running}
+            <span class="badge badge-outline">running</span>
+          {/if}
         </div>
-      {/if}
+
+        {#if events.length === 0}
+          <div class="alert">
+            <span>Start the operation to stream watch events.</span>
+          </div>
+        {:else}
+          <div class="overflow-x-auto">
+            <table class="table table-zebra table-sm">
+              <thead>
+                <tr>
+                  <th>Event</th>
+                  <th>Snapshot state</th>
+                </tr>
+              </thead>
+              <tbody>
+                {#each events as event, index (`${event.label}-${index}`)}
+                  <tr>
+                    <td>{event.label}</td>
+                    <td>{event.state}</td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+        {/if}
+
+        {#if terminal?.output}
+          <div class="divider my-0">Output</div>
+          <div class="overflow-x-auto">
+            <table class="table table-sm">
+              <tbody>
+                <tr>
+                  <th>Report id</th>
+                  <td class="font-mono text-xs">{terminal.output.reportId}</td>
+                </tr>
+                <tr>
+                  <th>Inspection id</th>
+                  <td>{terminal.output.inspectionId}</td>
+                </tr>
+                <tr>
+                  <th>Status</th>
+                  <td>{terminal.output.status}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        {/if}
+      </div>
     </section>
   </div>
 </section>

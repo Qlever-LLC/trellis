@@ -1,19 +1,28 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { requestValue, type KvSummary } from "$lib/trellis";
+  import { getTrellis } from "@qlever-llc/trellis-svelte";
+  import type {
+    InspectionSummariesGetOutput,
+    InspectionSummariesListOutput,
+  } from "../../../../../generated/js/sdks/demo-kv-service/types.ts";
+
+  type KvSummary = InspectionSummariesListOutput["summaries"][number];
 
   let loading = $state(true);
   let error = $state<string | null>(null);
   let summaries = $state<KvSummary[]>([]);
   let selectedSiteId = $state<string | null>(null);
   let selectedSummary = $state<KvSummary | null>(null);
+  const appTrellis = getTrellis();
 
   async function loadSummary(siteId: string): Promise<void> {
     selectedSiteId = siteId;
     error = null;
 
     try {
-      const response = await requestValue("Inspection.Summaries.Get", { siteId });
+      const response = (await (await appTrellis)
+        .request("Inspection.Summaries.Get", { siteId })
+        .orThrow()) as InspectionSummariesGetOutput;
       selectedSummary = response.summary ?? null;
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
@@ -25,11 +34,17 @@
     error = null;
 
     try {
-      const response = await requestValue("Inspection.Summaries.List", {});
+      const response = (await (await appTrellis)
+        .request("Inspection.Summaries.List", {})
+        .orThrow()) as InspectionSummariesListOutput;
       summaries = response.summaries;
+
       const firstSiteId = response.summaries[0]?.siteId;
       if (firstSiteId) {
         await loadSummary(firstSiteId);
+      } else {
+        selectedSiteId = null;
+        selectedSummary = null;
       }
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
@@ -44,72 +59,126 @@
 </script>
 
 <svelte:head>
-  <title>KV · Field inspection demo</title>
+  <title>KV · Trellis demo</title>
 </svelte:head>
 
-<section class="stack">
-  <header class="page-header">
-    <p class="eyebrow">KV-backed view</p>
-    <h1>Site summary projection</h1>
-    <p class="page-summary">The KV demo service projects its latest site summaries and exposes them through small read-oriented RPCs.</p>
+<section class="mx-auto flex w-full max-w-6xl flex-col gap-6 p-4 md:p-6">
+  <header class="space-y-1">
+    <h1 class="text-2xl font-semibold">KV</h1>
+    <p class="text-sm text-base-content/70">Read a KV-backed projection.</p>
   </header>
 
-  <div class="button-row">
-    <button class="button" onclick={loadSummaries} disabled={loading}>Refresh summary list</button>
+  <div class="flex flex-wrap gap-3">
+    <button class="btn btn-primary btn-sm" onclick={loadSummaries} disabled={loading}>
+      {loading ? "Loading..." : "Refresh summaries"}
+    </button>
+    <div class="badge badge-outline badge-lg">{summaries.length} projected site{summaries.length === 1 ? "" : "s"}</div>
   </div>
 
   {#if error}
-    <div class="error-banner">{error}</div>
+    <div role="alert" class="alert alert-error">
+      <span>{error}</span>
+    </div>
   {/if}
 
-  <div class="feature-grid" style="grid-template-columns: 1.1fr 0.9fr;">
-    <section class="surface-card">
-      <div class="split">
-        <h2 class="section-title">Projected sites</h2>
-        <span class="pill">{summaries.length} records</span>
-      </div>
+  <div class="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(20rem,0.9fr)]">
+    <section class="card border border-base-300 bg-base-100 shadow-sm">
+      <div class="card-body gap-4">
+        <div class="flex items-center justify-between gap-3">
+          <h2 class="card-title text-lg">Projection list</h2>
+          <span class="text-sm text-base-content/60">Inspection.Summaries.List</span>
+        </div>
 
-      {#if loading}
-        <div class="empty-state">Reading the latest KV-backed projection…</div>
-      {:else if summaries.length === 0}
-        <div class="empty-state">No site summaries are available yet.</div>
-      {:else}
-        <ul class="data-list">
-          {#each summaries as summary (summary.siteId)}
-            <li>
-              <div class="split">
-                <h3>{summary.siteName}</h3>
-                <button class="ghost-button" onclick={() => loadSummary(summary.siteId)} disabled={selectedSiteId === summary.siteId}>
-                  Open detail
-                </button>
-              </div>
-              <p class="muted">{summary.openInspections} open · {summary.overdueInspections} overdue</p>
-              <p class="status-line code">{summary.siteId} · {summary.latestStatus}</p>
-            </li>
-          {/each}
-        </ul>
-      {/if}
-    </section>
-
-    <section class="surface-card">
-      <div class="split">
-        <h2 class="section-title">Selected projection</h2>
-        {#if selectedSiteId}
-          <span class="pill">{selectedSiteId}</span>
+        {#if loading}
+          <div class="alert">
+            <span>Loading projection data.</span>
+          </div>
+        {:else if summaries.length === 0}
+          <div class="alert">
+            <span>No site summaries available.</span>
+          </div>
+        {:else}
+          <div class="overflow-x-auto">
+            <table class="table table-zebra">
+              <thead>
+                <tr>
+                  <th>Site</th>
+                  <th>Status</th>
+                  <th>Open</th>
+                  <th>Overdue</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {#each summaries as summary (summary.siteId)}
+                  <tr class={selectedSiteId === summary.siteId ? "bg-base-200" : undefined}>
+                    <td>
+                      <div class="font-medium">{summary.siteName}</div>
+                      <div class="font-mono text-xs text-base-content/60">{summary.siteId}</div>
+                    </td>
+                    <td>{summary.latestStatus}</td>
+                    <td>{summary.openInspections}</td>
+                    <td>{summary.overdueInspections}</td>
+                    <td class="text-right">
+                      <button
+                        class="btn btn-outline btn-sm"
+                        onclick={() => loadSummary(summary.siteId)}
+                        disabled={selectedSiteId === summary.siteId}
+                      >
+                        View
+                      </button>
+                    </td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
         {/if}
       </div>
+    </section>
 
-      {#if selectedSummary}
-        <dl class="field-list">
-          <li><strong>{selectedSummary.siteName}</strong><span class="muted">Projected display name</span></li>
-          <li><strong>{selectedSummary.latestStatus}</strong><span class="muted">Latest status flag</span></li>
-          <li><strong>{selectedSummary.openInspections}</strong><span class="muted">Open inspections</span></li>
-          <li><strong>{selectedSummary.overdueInspections}</strong><span class="muted">Overdue inspections</span></li>
-          <li><strong class="code">{selectedSummary.lastReportAt}</strong><span class="muted">Last report timestamp</span></li>
-        </dl>
-      {:else}
-        <div class="empty-state">Choose a projected site to inspect its current read model.</div>
-      {/if}
+    <section class="card border border-base-300 bg-base-100 shadow-sm">
+      <div class="card-body gap-4">
+        <div class="flex items-center justify-between gap-3">
+          <h2 class="card-title text-lg">Selected summary</h2>
+          {#if selectedSiteId}
+            <span class="badge badge-outline">{selectedSiteId}</span>
+          {/if}
+        </div>
+
+        {#if selectedSummary}
+          <div class="overflow-x-auto">
+            <table class="table table-sm">
+              <tbody>
+                <tr>
+                  <th>Site</th>
+                  <td>{selectedSummary.siteName}</td>
+                </tr>
+                <tr>
+                  <th>Status</th>
+                  <td>{selectedSummary.latestStatus}</td>
+                </tr>
+                <tr>
+                  <th>Open inspections</th>
+                  <td>{selectedSummary.openInspections}</td>
+                </tr>
+                <tr>
+                  <th>Overdue inspections</th>
+                  <td>{selectedSummary.overdueInspections}</td>
+                </tr>
+                <tr>
+                  <th>Last report</th>
+                  <td class="font-mono text-xs">{selectedSummary.lastReportAt}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        {:else}
+          <div class="alert">
+            <span>Select a site to load Inspection.Summaries.Get.</span>
+          </div>
+        {/if}
+      </div>
     </section>
   </div>
 </section>

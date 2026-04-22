@@ -1,46 +1,36 @@
-import { isErr, TrellisDevice } from "@qlever-llc/trellis";
+import { TrellisDevice } from "@qlever-llc/trellis";
 import contract from "../contracts/demo_inspection_state_device.ts";
 import { ASSIGNED_INSPECTIONS } from "../../../shared/field_data.ts";
-import { printJson, printScenarioHeading } from "../../../shared/logging.ts";
-
-const trellisUrl = Deno.args[0]?.trim();
-const rootSecret = Deno.args[1]?.trim();
-
-type SelectedSiteState = {
-  siteId: string;
-  siteName: string;
-  selectedAt: string;
-};
-
-type DraftInspectionState = {
-  inspectionId: string;
-  siteId: string;
-  checklistName: string;
-  notes: string;
-  updatedAt: string;
-};
+import { Command } from "@cliffy/command";
+import { qrcode } from "@libs/qrcode";
+import chalk from "chalk";
 
 async function main(): Promise<void> {
-  if (!trellisUrl || !rootSecret) {
-    throw new Error("Usage: deno task start <trellisUrl> <rootSecret>");
-  }
+  const {
+    args: [trellisUrl, rootSecret],
+  } = await new Command()
+    .name("demo-state")
+    .arguments("<trellisUrl:string> <rootSecret:string>", [
+      "URL of Trellis instance to connect to",
+      "Trellis device root secret",
+    ])
+    .parse(Deno.args);
 
   const device = await TrellisDevice.connect({
     trellisUrl,
     contract,
     rootSecret,
     onActivationRequired: async (activation) => {
-      console.info(activation.url);
+      console.info("Please activate device at:", activation.url);
+      qrcode(activation.url, { output: "console" });
+
       await activation.waitForOnlineApproval();
     },
   });
-  const me = await device.request("Auth.Me", {}).take();
-  if (isErr(me)) {
-    throw me.error;
-  }
+  console.log(chalk.green.bold("== Fetching Current Identify"));
 
-  printScenarioHeading("Inspection state device");
-  console.info("Connected to inspection state demo device runtime");
+  const me = await device.request("Auth.Me", {}).orThrow();
+  console.dir(me, { depth: null });
 
   const selectedInspection = ASSIGNED_INSPECTIONS[0];
   const draftInspections = ASSIGNED_INSPECTIONS.slice(0, 2);
@@ -48,12 +38,12 @@ async function main(): Promise<void> {
     throw new Error("state demo requires at least two assigned inspections");
   }
 
-  const selectedSite: SelectedSiteState = {
+  const selectedSite = {
     siteId: selectedInspection.siteId,
     siteName: selectedInspection.siteName,
     selectedAt: new Date().toISOString(),
   };
-  const drafts: DraftInspectionState[] = draftInspections.map((inspection, index) => ({
+  const drafts = draftInspections.map((inspection, index) => ({
     inspectionId: inspection.inspectionId,
     siteId: inspection.siteId,
     checklistName: inspection.checklistName,
@@ -63,43 +53,32 @@ async function main(): Promise<void> {
     updatedAt: new Date(Date.now() + index * 60_000).toISOString(),
   }));
 
-  const selectedSitePut = await device.state.selectedSite.put(selectedSite).take();
-  if (isErr(selectedSitePut)) {
-    throw selectedSitePut.error;
-  }
+  await device.state.selectedSite.put(selectedSite).orThrow();
 
   for (const draft of drafts) {
-    const draftPut = await device.state.draftInspections.put(
+    await device.state.draftInspections.put(
       draft.inspectionId,
       draft,
-    ).take();
-    if (isErr(draftPut)) {
-      throw draftPut.error;
-    }
+    ).orThrow();
   }
 
-  const selectedSiteEntry = await device.state.selectedSite.get().take();
-  if (isErr(selectedSiteEntry)) {
-    throw selectedSiteEntry.error;
-  }
-
+  const selectedSiteEntry = await device.state.selectedSite.get().orThrow();
   const firstDraftEntry = await device.state.draftInspections.get(
     drafts[0].inspectionId,
-  ).take();
-  if (isErr(firstDraftEntry)) {
-    throw firstDraftEntry.error;
-  }
-
+  ).orThrow();
   const listedEntries = await device.state.draftInspections.list({
     limit: 10,
-  }).take();
-  if (isErr(listedEntries)) {
-    throw listedEntries.error;
-  }
+  }).orThrow();
 
-  printJson("Selected site state", selectedSiteEntry);
-  printJson("Draft inspection state", firstDraftEntry);
-  printJson("Listed device state", listedEntries);
+  console.log(chalk.green.bold("== Selected Site State"));
+  console.info("Selected site state");
+  console.dir(selectedSiteEntry, { depth: null });
+  console.log(chalk.green.bold("== Draft Inspection State"));
+  console.info("Draft inspection state");
+  console.dir(firstDraftEntry, { depth: null });
+  console.log(chalk.green.bold("== Listed Device State"));
+  console.info("Listed device state");
+  console.dir(listedEntries, { depth: null });
 
   await device.natsConnection.close();
 }

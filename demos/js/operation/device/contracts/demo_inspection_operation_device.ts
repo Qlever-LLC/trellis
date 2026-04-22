@@ -2,13 +2,15 @@ import { defineDeviceContract } from "@qlever-llc/trellis";
 import { auth, health } from "@qlever-llc/trellis-sdk";
 import { trellisDemoOperationService as operationService } from "@trellis-demo/operation-service-sdk";
 
-const inspectionsUse = operationService.use({
+const inspections = operationService.use({
   operations: {
     call: ["Inspection.Report.Generate"],
   },
 });
 
-Object.assign(inspectionsUse, {
+// The generated `use(...)` helper only models operation calls, so add the
+// read/cancel permissions this demo needs on the same use object.
+Object.assign(inspections, {
   operations: {
     call: ["Inspection.Report.Generate"],
     read: ["Inspection.Report.Generate"],
@@ -23,7 +25,7 @@ const contract = defineDeviceContract(() => ({
   uses: {
     auth: auth.useDefaults(),
     health: health.useDefaults(),
-    inspections: inspectionsUse,
+    inspections,
   },
 }));
 

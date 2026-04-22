@@ -20,20 +20,41 @@ const config = {
     }),
     alias: {
       "@qlever-llc/result": aliasPath("js/packages/result/mod.ts"),
-      "@qlever-llc/trellis": aliasPath("js/packages/trellis/index.ts"),
       "@qlever-llc/trellis/auth": aliasPath("js/packages/trellis/auth.ts"),
-      "@qlever-llc/trellis/auth/browser": aliasPath("js/packages/trellis/auth/browser.ts"),
-      "@qlever-llc/trellis/contracts": aliasPath("js/packages/trellis/contracts.ts"),
-      "@qlever-llc/trellis-sdk/jobs": aliasPath("js/packages/trellis-sdk/jobs.ts"),
+      "@qlever-llc/trellis/auth/browser": aliasPath(
+        "js/packages/trellis/auth/browser.ts",
+      ),
+      "@qlever-llc/trellis/contracts": aliasPath(
+        "js/packages/trellis/contracts.ts",
+      ),
+      "@qlever-llc/trellis-sdk/auth": aliasPath(
+        "js/packages/trellis-sdk/auth.ts",
+      ),
+      "@qlever-llc/trellis-sdk/state": aliasPath(
+        "js/packages/trellis-sdk/state.ts",
+      ),
+      "@qlever-llc/trellis-sdk/jobs": aliasPath(
+        "js/packages/trellis-sdk/jobs.ts",
+      ),
       "@qlever-llc/trellis-sdk": aliasPath("js/packages/trellis-sdk/mod.ts"),
-      "@qlever-llc/trellis-sdk/auth": aliasPath("js/packages/trellis-sdk/auth.ts"),
-      "@qlever-llc/trellis-sdk/state": aliasPath("js/packages/trellis-sdk/state.ts"),
-      "@qlever-llc/trellis-svelte": resolve(rootDir, "src/runtime/trellis-svelte.js"),
-      "@trellis-demo/rpc-service-sdk": aliasPath("demos/generated/js/sdks/demo-rpc-service/mod.ts"),
-      "@trellis-demo/operation-service-sdk": aliasPath("demos/generated/js/sdks/demo-operation-service/mod.ts"),
-      "@trellis-demo/transfer-service-sdk": aliasPath("demos/generated/js/sdks/demo-transfer-service/mod.ts"),
-      "@trellis-demo/kv-service-sdk": aliasPath("demos/generated/js/sdks/demo-kv-service/mod.ts"),
-      "@trellis-demo/jobs-service-sdk": aliasPath("demos/generated/js/sdks/demo-jobs-service/mod.ts"),
+      "@qlever-llc/trellis-svelte": aliasPath(
+        "js/packages/trellis-svelte/src/index.ts",
+      ),
+      "@trellis-demo/rpc-service-sdk": aliasPath(
+        "demos/js/generated/js/sdks/demo-rpc-service/mod.ts",
+      ),
+      "@trellis-demo/operation-service-sdk": aliasPath(
+        "demos/js/generated/js/sdks/demo-operation-service/mod.ts",
+      ),
+      "@trellis-demo/transfer-service-sdk": aliasPath(
+        "demos/js/generated/js/sdks/demo-transfer-service/mod.ts",
+      ),
+      "@trellis-demo/kv-service-sdk": aliasPath(
+        "demos/js/generated/js/sdks/demo-kv-service/mod.ts",
+      ),
+      "@trellis-demo/jobs-service-sdk": aliasPath(
+        "demos/js/generated/js/sdks/demo-jobs-service/mod.ts",
+      ),
     },
   },
 };
