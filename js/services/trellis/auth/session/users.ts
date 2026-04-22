@@ -23,8 +23,11 @@ function requireUserCaller(caller: {
 }
 
 export const authListUsersHandler = async (
-  _req: unknown,
-  { caller }: { caller: { type: string; id?: string; origin?: string; capabilities?: string[] } },
+  {
+    context: { caller },
+  }: {
+    context: { caller: { type: string; id?: string; origin?: string; capabilities?: string[] } };
+  },
 ) => {
   const user = requireUserCaller(caller);
   logger.trace(
@@ -56,13 +59,18 @@ export const authListUsersHandler = async (
 };
 
 export const authUpdateUserHandler = async (
-  req: {
-    origin: string;
-    id: string;
-    active?: boolean;
-    capabilities?: string[];
+  {
+    input: req,
+    context: { caller },
+  }: {
+    input: {
+      origin: string;
+      id: string;
+      active?: boolean;
+      capabilities?: string[];
+    };
+    context: { caller: { type: string; id?: string; origin?: string; capabilities?: string[] } };
   },
-  { caller }: { caller: { type: string; id?: string; origin?: string; capabilities?: string[] } },
 ) => {
   const user = requireUserCaller(caller);
   logger.trace({

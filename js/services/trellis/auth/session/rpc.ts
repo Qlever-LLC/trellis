@@ -682,7 +682,7 @@ export function createAuthMeHandler(deps: {
   deviceActivationsKV: KVLike<DeviceActivationRecord>;
   deviceProfilesKV: KVLike<{ profileId: string; disabled: boolean }>;
 }) {
-  return async (_req: unknown, { sessionKey, caller }: SessionContext) => {
+  return async ({ context: { sessionKey, caller } }: { context: SessionContext }) => {
     logger.trace({ rpc: "Auth.Me", sessionKey }, "RPC request");
 
     try {
@@ -774,7 +774,9 @@ export const authMeHandler = createAuthMeHandler({
   deviceProfilesKV: deviceProfilesKV,
 });
 
-export const authValidateRequestHandler = async (req: ValidateRequestInput) => {
+export const authValidateRequestHandler = async (
+  { input: req }: { input: ValidateRequestInput },
+) => {
   logger.trace({
     rpc: "Auth.ValidateRequest",
     sessionKey: req.sessionKey,
@@ -856,8 +858,7 @@ export const authValidateRequestHandler = async (req: ValidateRequestInput) => {
 };
 
 export const authLogoutHandler = async (
-  _req: unknown,
-  { caller, sessionKey }: SessionContext,
+  { context: { caller, sessionKey } }: { context: SessionContext },
 ) => {
   const user = requireUserCaller(caller);
   logger.trace(
@@ -890,7 +891,7 @@ export const authLogoutHandler = async (
 export function createAuthListSessionsHandler(deps: {
   sessionKV: Required<Pick<KVLike<Session>, "keys" | "get">>;
 }) {
-  return async (req: UserRefFilter = {}) => {
+  return async ({ input: req = {} }: { input?: UserRefFilter }) => {
     logger.trace({ rpc: "Auth.ListSessions", user: req.user }, "RPC request");
     const userFilter = typeof req.user === "string" ? req.user : undefined;
     let filter = ">";
@@ -949,7 +950,7 @@ export function createAuthListConnectionsHandler(deps: {
     >;
   };
 }) {
-  return async (req: SessionFilter = {}) => {
+  return async ({ input: req = {} }: { input?: SessionFilter }) => {
     logger.trace({
       rpc: "Auth.ListConnections",
       user: req.user,
@@ -1013,8 +1014,13 @@ export function createAuthKickConnectionHandler(opts: {
   kick: (serverId: string, clientId: number) => Promise<void>;
 }) {
   return async (
-    req: UserNkeyRequest,
-    { caller }: { caller: SessionContext["caller"] },
+    {
+      input: req,
+      context: { caller },
+    }: {
+      input: UserNkeyRequest;
+      context: { caller: SessionContext["caller"] };
+    },
   ) => {
     const user = requireUserCaller(caller);
     logger.trace({

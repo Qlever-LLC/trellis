@@ -337,8 +337,13 @@ async function currentActivationStatus(flow: DeviceActivationFlow) {
 
 export function createActivateDeviceHandler() {
   return async (
-    req: { flowId: string; linkRequestId: string },
-    { caller }: { caller: Caller },
+    {
+      input: req,
+      context: { caller },
+    }: {
+      input: { flowId: string; linkRequestId: string };
+      context: { caller: Caller };
+    },
   ) => {
     logger.trace(
       { rpc: "Auth.ActivateDevice", flowId: req.flowId },
@@ -426,7 +431,7 @@ export function createActivateDeviceHandler() {
 }
 
 export function createGetDeviceActivationStatusHandler() {
-  return async (req: { flowId: string }) => {
+  return async ({ input: req }: { input: { flowId: string } }) => {
     logger.trace({
       rpc: "Auth.GetDeviceActivationStatus",
       flowId: req.flowId,
@@ -453,11 +458,15 @@ export function createGetDeviceActivationStatusHandler() {
 }
 
 export function createGetDeviceConnectInfoHandler() {
-  return async (req: {
-    publicIdentityKey: string;
-    contractDigest: string;
-    iat: number;
-    sig: string;
+  return async ({
+    input: req,
+  }: {
+    input: {
+      publicIdentityKey: string;
+      contractDigest: string;
+      iat: number;
+      sig: string;
+    };
   }) => {
     logger.trace({
       rpc: "Auth.GetDeviceConnectInfo",

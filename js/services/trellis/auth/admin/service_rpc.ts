@@ -99,7 +99,7 @@ async function instancesForProfile(
 }
 
 export const authListServiceProfilesHandler = async (
-  req: { disabled?: boolean },
+  { input: req }: { input: { disabled?: boolean } },
 ): Promise<Result<{ profiles: ServiceProfile[] }, UnexpectedError>> => {
   logger.trace({ rpc: "Auth.ListServiceProfiles" }, "RPC request");
   const profiles = (await listValues<ServiceProfile>(
@@ -112,8 +112,13 @@ export const authListServiceProfilesHandler = async (
 
 export function createAuthCreateServiceProfileHandler() {
   return async (
-    req: { profileId: string; namespaces: string[] },
-    { caller }: { caller: RpcUser },
+    {
+      input: req,
+      context: { caller },
+    }: {
+      input: { profileId: string; namespaces: string[] };
+      context: { caller: RpcUser };
+    },
   ) => {
     logger.trace({
       rpc: "Auth.CreateServiceProfile",
@@ -152,8 +157,13 @@ export function createAuthApplyServiceProfileContractHandler(deps: {
   }>;
 }) {
   return async (
-    req: { profileId: string; contract: unknown },
-    { caller }: { caller: RpcUser },
+    {
+      input: req,
+      context: { caller },
+    }: {
+      input: { profileId: string; contract: unknown };
+      context: { caller: RpcUser };
+    },
   ) => {
     logger.trace({
       rpc: "Auth.ApplyServiceProfileContract",
@@ -203,8 +213,13 @@ export function createAuthUnapplyServiceProfileContractHandler(deps: {
   kick: (serverId: string, clientId: number) => Promise<void>;
 }) {
   return async (
-    req: { profileId: string; contractId: string; digests?: string[] },
-    { caller }: { caller: RpcUser },
+    {
+      input: req,
+      context: { caller },
+    }: {
+      input: { profileId: string; contractId: string; digests?: string[] };
+      context: { caller: RpcUser };
+    },
   ) => {
     logger.trace({
       rpc: "Auth.UnapplyServiceProfileContract",
@@ -274,7 +289,7 @@ function toggleProfileDisabled(
 export function createAuthDisableServiceProfileHandler(deps: {
   kick: (serverId: string, clientId: number) => Promise<void>;
 }) {
-  return async (req: { profileId: string }) => {
+  return async ({ input: req }: { input: { profileId: string } }) => {
     const entry = await serviceProfilesKV.get(req.profileId).take();
     if (isErr(entry)) {
       return invalid("/profileId", "service profile not found", {
@@ -306,7 +321,7 @@ export function createAuthDisableServiceProfileHandler(deps: {
 }
 
 export const authEnableServiceProfileHandler = async (
-  req: { profileId: string },
+  { input: req }: { input: { profileId: string } },
 ): Promise<
   Result<{ profile: ServiceProfile }, ValidationError | UnexpectedError>
 > => {
@@ -328,7 +343,7 @@ export const authEnableServiceProfileHandler = async (
 };
 
 export const authRemoveServiceProfileHandler = async (
-  req: { profileId: string },
+  { input: req }: { input: { profileId: string } },
 ): Promise<Result<{ success: boolean }, ValidationError | UnexpectedError>> => {
   const instances = await instancesForProfile(
     req.profileId,
@@ -350,8 +365,13 @@ export const authRemoveServiceProfileHandler = async (
 
 export function createAuthProvisionServiceInstanceHandler() {
   return async (
-    req: { profileId: string; instanceKey: string },
-    { caller }: { caller: RpcUser },
+    {
+      input: req,
+      context: { caller },
+    }: {
+      input: { profileId: string; instanceKey: string };
+      context: { caller: RpcUser };
+    },
   ) => {
     logger.trace({
       rpc: "Auth.ProvisionServiceInstance",
@@ -394,7 +414,7 @@ export function createAuthProvisionServiceInstanceHandler() {
 }
 
 export const authListServiceInstancesHandler = async (
-  req: { profileId?: string; disabled?: boolean },
+  { input: req }: { input: { profileId?: string; disabled?: boolean } },
 ): Promise<Result<{ instances: ServiceInstance[] }, UnexpectedError>> => {
   logger.trace({ rpc: "Auth.ListServiceInstances" }, "RPC request");
   const instances = (await listValues<ServiceInstance>(
@@ -438,14 +458,14 @@ async function setInstanceDisabled(args: {
 export function createAuthDisableServiceInstanceHandler(deps: {
   kick: (serverId: string, clientId: number) => Promise<void>;
 }) {
-  return async (req: { instanceId: string }) =>
+  return async ({ input: req }: { input: { instanceId: string } }) =>
     await setInstanceDisabled({ ...req, disabled: true, kick: deps.kick });
 }
 
 export function createAuthEnableServiceInstanceHandler(deps: {
   kick: (serverId: string, clientId: number) => Promise<void>;
 }) {
-  return async (req: { instanceId: string }) =>
+  return async ({ input: req }: { input: { instanceId: string } }) =>
     await setInstanceDisabled({ ...req, disabled: false, kick: deps.kick });
 }
 
@@ -453,7 +473,7 @@ export function createAuthRemoveServiceInstanceHandler(deps: {
   kick: (serverId: string, clientId: number) => Promise<void>;
   refreshActiveContracts: () => Promise<void>;
 }) {
-  return async (req: { instanceId: string }) => {
+  return async ({ input: req }: { input: { instanceId: string } }) => {
     const entry = await serviceInstancesKV.get(req.instanceId).take();
     if (isErr(entry)) {
       return invalid("/instanceId", "service instance not found", {

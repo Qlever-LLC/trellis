@@ -158,8 +158,13 @@ async function revokeApprovalSessions(
 }
 
 export const authListApprovalsHandler = async (
-  req: ListApprovalsRequest,
-  { caller }: { caller: { type: string; trellisId?: string; origin?: string; id?: string; capabilities?: string[] } },
+  {
+    input: req,
+    context: { caller },
+  }: {
+    input: ListApprovalsRequest;
+    context: { caller: { type: string; trellisId?: string; origin?: string; id?: string; capabilities?: string[] } };
+  },
 ) => {
   const user = requireUserCaller(caller);
   logger.trace(
@@ -249,8 +254,13 @@ export function createAuthRevokeApprovalHandler(opts: {
   kick: (serverId: string, clientId: number) => Promise<void>;
 }) {
   return async (
-    req: RevokeApprovalRequest,
-    { caller }: { caller: { type: string; trellisId?: string; origin?: string; id?: string; capabilities?: string[] } },
+    {
+      input: req,
+      context: { caller },
+    }: {
+      input: RevokeApprovalRequest;
+      context: { caller: { type: string; trellisId?: string; origin?: string; id?: string; capabilities?: string[] } };
+    },
   ) => {
     const user = requireUserCaller(caller);
     logger.trace({

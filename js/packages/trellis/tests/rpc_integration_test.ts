@@ -377,7 +377,7 @@ Deno.test({
       // For this unit integration, mount a permissive Auth.ValidateRequest handler.
       await authService.mount(
         "Auth.ValidateRequest",
-        async (input: unknown) => {
+        async ({ input }: { input: unknown }) => {
           const authInput = input as { sessionKey: string };
           return ok({
             allowed: true,
@@ -431,7 +431,7 @@ Deno.test({
 
       await authService.mount(
         "Auth.ValidateRequest",
-        async (input: unknown) => {
+        async ({ input }: { input: unknown }) => {
           const authInput = input as { sessionKey: string };
           return ok({
             allowed: true,
@@ -510,7 +510,7 @@ Deno.test({
 
       await authService.mount(
         "Auth.ValidateRequest",
-        async (input: unknown) => {
+        async ({ input }: { input: unknown }) => {
           const authInput = input as { sessionKey: string };
           return ok({
             allowed: true,
@@ -520,7 +520,7 @@ Deno.test({
         },
       );
 
-      await meService.mount("Auth.Me", async (_input, ctx) => {
+      await meService.mount("Auth.Me", async ({ context: ctx }) => {
         if (ctx.caller.type !== "user") {
           throw new Error("expected user caller");
         }
@@ -584,7 +584,7 @@ Deno.test({
 
         await authService.mount(
           "Auth.ValidateRequest",
-          async (input: unknown) => {
+          async ({ input }: { input: unknown }) => {
             const authInput = input as { sessionKey: string };
             return ok({
               allowed: true,
@@ -594,7 +594,7 @@ Deno.test({
           },
         );
 
-        await meService.mount("Auth.Me", async (_input, ctx) => {
+        await meService.mount("Auth.Me", async ({ context: ctx }) => {
           if (ctx.caller.type !== "user") {
             throw new Error("expected user caller");
           }
@@ -663,7 +663,7 @@ Deno.test({
     let validateCalls = 0;
     await authService.mount(
       "Auth.ValidateRequest",
-      async (input: unknown) => {
+      async ({ input }: { input: unknown }) => {
         const authInput = input as { sessionKey: string };
         validateCalls += 1;
         if (validateCalls === 1) {
@@ -677,7 +677,7 @@ Deno.test({
       },
     );
 
-    await meService.mount("Auth.Me", async (_input, ctx) => {
+    await meService.mount("Auth.Me", async ({ context: ctx }) => {
       if (ctx.caller.type !== "user") {
         throw new Error("expected user caller");
       }

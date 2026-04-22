@@ -124,8 +124,11 @@ export function createAuthListUserGrantsHandler(deps: {
   contractApprovalsKV: Pick<KVLike, "get" | "keys">;
 }) {
   return async (
-    _req: AuthListUserGrantsInput,
-    { caller }: { caller: { type: string; trellisId?: string; origin?: string; id?: string } },
+    {
+      context: { caller },
+    }: {
+      context: { caller: { type: string; trellisId?: string; origin?: string; id?: string } };
+    },
   ) => {
     const user = requireUserCaller(caller);
     const iter = await takeValue(deps.contractApprovalsKV.keys(`${user.trellisId}.>`));
@@ -153,8 +156,13 @@ export function createAuthRevokeUserGrantHandler(deps: {
   publishSessionRevoked: (event: { origin: string; id: string; sessionKey: string; revokedBy: string }) => Promise<void>;
 }) {
   return async (
-    req: { contractDigest: string },
-    { caller }: { caller: { type: string; trellisId?: string; origin?: string; id?: string } },
+    {
+      input: req,
+      context: { caller },
+    }: {
+      input: { contractDigest: string };
+      context: { caller: { type: string; trellisId?: string; origin?: string; id?: string } };
+    },
   ) => {
     const user = requireUserCaller(caller);
     if (typeof req.contractDigest !== "string" || req.contractDigest.length === 0) {

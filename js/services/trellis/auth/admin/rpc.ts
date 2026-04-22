@@ -509,7 +509,15 @@ async function ensurePortalReference(portalId: string | null) {
 }
 
 export function createAuthCreatePortalHandler() {
-  return async (req: CreatePortalRequest, { caller }: { caller: RpcUser }) => {
+  return async (
+    {
+      input: req,
+      context: { caller },
+    }: {
+      input: CreatePortalRequest;
+      context: { caller: RpcUser };
+    },
+  ) => {
     logger.trace(
       { rpc: "Auth.CreatePortal", portalId: req.portalId },
       "RPC request",
@@ -524,16 +532,14 @@ export function createAuthCreatePortalHandler() {
 }
 
 export const authListPortalsHandler = async (
-  _req: unknown,
-  { caller }: { caller: RpcUser },
+  { context: { caller } }: { context: { caller: RpcUser } },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   return Result.ok({ portals: await listPortals() });
 };
 
 export const authDisablePortalHandler = async (
-  req: { portalId: string },
-  { caller }: { caller: RpcUser },
+  { input: req, context: { caller } }: { input: { portalId: string }; context: { caller: RpcUser } },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   const portal = await loadPortal(req.portalId);
@@ -543,8 +549,7 @@ export const authDisablePortalHandler = async (
 };
 
 export const authGetLoginPortalDefaultHandler = async (
-  _req: unknown,
-  { caller }: { caller: RpcUser },
+  { context: { caller } }: { context: { caller: RpcUser } },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   return Result.ok({
@@ -554,16 +559,20 @@ export const authGetLoginPortalDefaultHandler = async (
 };
 
 export const authListInstanceGrantPoliciesHandler = async (
-  _req: unknown,
-  { caller }: { caller: RpcUser },
+  { context: { caller } }: { context: { caller: RpcUser } },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   return Result.ok({ policies: await listInstanceGrantPolicies() });
 };
 
 export const authUpsertInstanceGrantPolicyHandler = async (
-  req: UpsertInstanceGrantPolicyRequest,
-  { caller }: { caller: RpcUser },
+  {
+    input: req,
+    context: { caller },
+  }: {
+    input: UpsertInstanceGrantPolicyRequest;
+    context: { caller: RpcUser };
+  },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   const validation = validateInstanceGrantPolicyRequest(req);
@@ -608,8 +617,7 @@ export const authUpsertInstanceGrantPolicyHandler = async (
 };
 
 export const authDisableInstanceGrantPolicyHandler = async (
-  req: { contractId: string },
-  { caller }: { caller: RpcUser },
+  { input: req, context: { caller } }: { input: { contractId: string }; context: { caller: RpcUser } },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   if (!req.contractId) return invalidRequest({ contractId: req.contractId });
@@ -640,8 +648,7 @@ export const authDisableInstanceGrantPolicyHandler = async (
 };
 
 export const authSetLoginPortalDefaultHandler = async (
-  req: PortalDefaultRequest,
-  { caller }: { caller: RpcUser },
+  { input: req, context: { caller } }: { input: PortalDefaultRequest; context: { caller: RpcUser } },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   const validation = validatePortalDefaultRequest(req);
@@ -656,16 +663,14 @@ export const authSetLoginPortalDefaultHandler = async (
 };
 
 export const authListLoginPortalSelectionsHandler = async (
-  _req: unknown,
-  { caller }: { caller: RpcUser },
+  { context: { caller } }: { context: { caller: RpcUser } },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   return Result.ok({ selections: await listLoginPortalSelections() });
 };
 
 export const authSetLoginPortalSelectionHandler = async (
-  req: LoginPortalSelectionRequest,
-  { caller }: { caller: RpcUser },
+  { input: req, context: { caller } }: { input: LoginPortalSelectionRequest; context: { caller: RpcUser } },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   const validation = validateLoginPortalSelectionRequest(req);
@@ -683,8 +688,7 @@ export const authSetLoginPortalSelectionHandler = async (
 };
 
 export const authClearLoginPortalSelectionHandler = async (
-  req: { contractId: string },
-  { caller }: { caller: RpcUser },
+  { input: req, context: { caller } }: { input: { contractId: string }; context: { caller: RpcUser } },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   const selection = await loadLoginPortalSelection(req.contractId);
@@ -694,8 +698,7 @@ export const authClearLoginPortalSelectionHandler = async (
 };
 
 export const authGetDevicePortalDefaultHandler = async (
-  _req: unknown,
-  { caller }: { caller: RpcUser },
+  { context: { caller } }: { context: { caller: RpcUser } },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   return Result.ok({
@@ -705,8 +708,7 @@ export const authGetDevicePortalDefaultHandler = async (
 };
 
 export const authSetDevicePortalDefaultHandler = async (
-  req: PortalDefaultRequest,
-  { caller }: { caller: RpcUser },
+  { input: req, context: { caller } }: { input: PortalDefaultRequest; context: { caller: RpcUser } },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   const validation = validatePortalDefaultRequest(req);
@@ -721,16 +723,14 @@ export const authSetDevicePortalDefaultHandler = async (
 };
 
 export const authListDevicePortalSelectionsHandler = async (
-  _req: unknown,
-  { caller }: { caller: RpcUser },
+  { context: { caller } }: { context: { caller: RpcUser } },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   return Result.ok({ selections: await listDevicePortalSelections() });
 };
 
 export const authSetDevicePortalSelectionHandler = async (
-  req: DevicePortalSelectionRequest,
-  { caller }: { caller: RpcUser },
+  { input: req, context: { caller } }: { input: DevicePortalSelectionRequest; context: { caller: RpcUser } },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   const validation = validateDevicePortalSelectionRequest(req);
@@ -755,8 +755,7 @@ export const authSetDevicePortalSelectionHandler = async (
 };
 
 export const authClearDevicePortalSelectionHandler = async (
-  req: { profileId: string },
-  { caller }: { caller: RpcUser },
+  { input: req, context: { caller } }: { input: { profileId: string }; context: { caller: RpcUser } },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   const selection = await loadDevicePortalSelection(req.profileId);
@@ -774,8 +773,13 @@ export function createAuthCreateDeviceProfileHandler(deps: {
   refreshActiveContracts: () => Promise<void>;
 }) {
   return async (
-    req: Parameters<typeof validateDeviceProfileRequest>[0],
-    { caller }: { caller: RpcUser },
+    {
+      input: req,
+      context: { caller },
+    }: {
+      input: Parameters<typeof validateDeviceProfileRequest>[0];
+      context: { caller: RpcUser };
+    },
   ) => {
     if (!isAdmin(caller)) return insufficientPermissions();
     const validation = validateDeviceProfileRequest(req);
@@ -787,8 +791,7 @@ export function createAuthCreateDeviceProfileHandler(deps: {
 }
 
 export const authListDeviceProfilesHandler = async (
-  req: { disabled?: boolean },
-  { caller }: { caller: RpcUser },
+  { input: req, context: { caller } }: { input: { disabled?: boolean }; context: { caller: RpcUser } },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   let profiles = await listDeviceProfiles();
@@ -806,8 +809,13 @@ export function createAuthApplyDeviceProfileContractHandler(deps: {
   >;
 }) {
   return async (
-    req: { profileId: string; contract: unknown },
-    { caller }: { caller: RpcUser },
+    {
+      input: req,
+      context: { caller },
+    }: {
+      input: { profileId: string; contract: unknown };
+      context: { caller: RpcUser };
+    },
   ) => {
     if (!isAdmin(caller)) return insufficientPermissions();
     const profile = await loadDeviceProfile(req.profileId);
@@ -849,8 +857,13 @@ export function createAuthApplyDeviceProfileContractHandler(deps: {
 
 export function createAuthUnapplyDeviceProfileContractHandler() {
   return async (
-    req: { profileId: string; contractId: string; digests?: string[] },
-    { caller }: { caller: RpcUser },
+    {
+      input: req,
+      context: { caller },
+    }: {
+      input: { profileId: string; contractId: string; digests?: string[] };
+      context: { caller: RpcUser };
+    },
   ) => {
     if (!isAdmin(caller)) return insufficientPermissions();
     const profile = await loadDeviceProfile(req.profileId);
@@ -896,8 +909,7 @@ export function createAuthUnapplyDeviceProfileContractHandler() {
 }
 
 export const authDisableDeviceProfileHandler = async (
-  req: { profileId: string },
-  { caller }: { caller: RpcUser },
+  { input: req, context: { caller } }: { input: { profileId: string }; context: { caller: RpcUser } },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   const profile = await loadDeviceProfile(req.profileId);
@@ -919,8 +931,7 @@ export const authDisableDeviceProfileHandler = async (
 };
 
 export const authEnableDeviceProfileHandler = async (
-  req: { profileId: string },
-  { caller }: { caller: RpcUser },
+  { input: req, context: { caller } }: { input: { profileId: string }; context: { caller: RpcUser } },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   const profile = await loadDeviceProfile(req.profileId);
@@ -936,8 +947,7 @@ export const authEnableDeviceProfileHandler = async (
 };
 
 export const authRemoveDeviceProfileHandler = async (
-  req: { profileId: string },
-  { caller }: { caller: RpcUser },
+  { input: req, context: { caller } }: { input: { profileId: string }; context: { caller: RpcUser } },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   const inUse = (await listDeviceInstances()).some((instance) =>
@@ -954,8 +964,13 @@ export const authRemoveDeviceProfileHandler = async (
 
 export function createAuthProvisionDeviceInstanceHandler() {
   return async (
-    req: ProvisionDeviceInstanceRequest,
-    { caller }: { caller: RpcUser },
+    {
+      input: req,
+      context: { caller },
+    }: {
+      input: ProvisionDeviceInstanceRequest;
+      context: { caller: RpcUser };
+    },
   ) => {
     if (!isAdmin(caller)) return insufficientPermissions();
     const validation = validateDeviceProvisionRequest(req);
@@ -981,8 +996,7 @@ export function createAuthProvisionDeviceInstanceHandler() {
 }
 
 export const authListDeviceInstancesHandler = async (
-  req: { profileId?: string; state?: string },
-  { caller }: { caller: RpcUser },
+  { input: req, context: { caller } }: { input: { profileId?: string; state?: string }; context: { caller: RpcUser } },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   let instances = await listDeviceInstances();
@@ -998,8 +1012,7 @@ export const authListDeviceInstancesHandler = async (
 };
 
 export const authDisableDeviceInstanceHandler = async (
-  req: { instanceId: string },
-  { caller }: { caller: RpcUser },
+  { input: req, context: { caller } }: { input: { instanceId: string }; context: { caller: RpcUser } },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   const instance = await loadDeviceInstance(req.instanceId);
@@ -1016,8 +1029,7 @@ export const authDisableDeviceInstanceHandler = async (
 };
 
 export const authEnableDeviceInstanceHandler = async (
-  req: { instanceId: string },
-  { caller }: { caller: RpcUser },
+  { input: req, context: { caller } }: { input: { instanceId: string }; context: { caller: RpcUser } },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   const instance = await loadDeviceInstance(req.instanceId);
@@ -1039,8 +1051,7 @@ export const authEnableDeviceInstanceHandler = async (
 };
 
 export const authRemoveDeviceInstanceHandler = async (
-  req: { instanceId: string },
-  { caller }: { caller: RpcUser },
+  { input: req, context: { caller } }: { input: { instanceId: string }; context: { caller: RpcUser } },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   const instance = await loadDeviceInstance(req.instanceId);
@@ -1058,8 +1069,7 @@ export const authRemoveDeviceInstanceHandler = async (
 };
 
 export const authListDeviceActivationsHandler = async (
-  req: { instanceId?: string; profileId?: string; state?: string },
-  { caller }: { caller: RpcUser },
+  { input: req, context: { caller } }: { input: { instanceId?: string; profileId?: string; state?: string }; context: { caller: RpcUser } },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   let activations = await listDeviceActivations();
@@ -1082,8 +1092,7 @@ export const authListDeviceActivationsHandler = async (
 };
 
 export const authRevokeDeviceActivationHandler = async (
-  req: { instanceId: string },
-  { caller }: { caller: RpcUser },
+  { input: req, context: { caller } }: { input: { instanceId: string }; context: { caller: RpcUser } },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   const activation = await deviceActivationsKV.get(req.instanceId).take();
@@ -1099,8 +1108,7 @@ export const authRevokeDeviceActivationHandler = async (
 };
 
 export const authListDeviceActivationReviewsHandler = async (
-  req: { instanceId?: string; profileId?: string; state?: string },
-  { caller }: { caller: RpcUser },
+  { input: req, context: { caller } }: { input: { instanceId?: string; profileId?: string; state?: string }; context: { caller: RpcUser } },
 ) => {
   if (!canReview(caller)) return insufficientPermissions();
   const allowedProfiles = reviewableProfiles(caller);
@@ -1127,8 +1135,13 @@ export const authListDeviceActivationReviewsHandler = async (
 };
 
 export const authDecideDeviceActivationReviewHandler = async (
-  req: { reviewId: string; decision: "approve" | "reject"; reason?: string },
-  { caller }: { caller: RpcUser },
+  {
+    input: req,
+    context: { caller },
+  }: {
+    input: { reviewId: string; decision: "approve" | "reject"; reason?: string };
+    context: { caller: RpcUser };
+  },
 ) => {
   const review = await loadDeviceActivationReview(req.reviewId);
   if (!review) {
