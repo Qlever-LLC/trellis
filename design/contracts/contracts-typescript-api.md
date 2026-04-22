@@ -57,7 +57,7 @@ It exports:
 
 The kind-specific contract helpers return contract objects with projected API
 views and manifest metadata. The canonical public bootstrap helpers live in
-`@qlever-llc/trellis` and `@qlever-llc/trellis/host*`.
+`@qlever-llc/trellis` and `@qlever-llc/trellis/service*`.
 
 Rules:
 
@@ -206,7 +206,6 @@ declare function defineDeviceContract<
 declare function defineDeviceContract<TBody extends object>(
   build: () => TBody,
 ): DefinedContract<any, any, any>;
-
 ```
 
 ## Illustrative Usage
@@ -324,10 +323,7 @@ generated class factory.
 TypeScript authoring shape:
 
 ```ts
-import {
-  defineError,
-  defineServiceContract,
-} from "@qlever-llc/trellis";
+import { defineError, defineServiceContract } from "@qlever-llc/trellis";
 
 export const NotFoundError = defineError({
   type: "NotFoundError",
@@ -448,15 +444,16 @@ Rules:
   `API.owned`
 - returned runtimes expose typed operation, request, publish, and subscribe
   helpers derived from the contract
-- request and operation helpers may still fail with `TransportError` for
-  Trellis transport/runtime boundary failures even when that error is not listed
-  in the contract's declared remote `errors: [...]`
+- request and operation helpers may still fail with `TransportError` for Trellis
+  transport/runtime boundary failures even when that error is not listed in the
+  contract's declared remote `errors: [...]`
 - `UnexpectedError` is reserved for true internal or otherwise unexpected
   runtime conditions rather than normal Trellis transport failures
 - `service.trellis.mount(...)` handlers receive already-validated typed payloads
   and may return either `Result` or `Promise<Result>`
 - server-side extracted RPC handler aliases should use the server package so the
-  third parameter includes service-only helpers such as `kv`, `store`, and
+  canonical `({ input, context, trellis })` object shape carries the narrow
+  injected service runtime facade with helpers such as `kv`, `store`, and
   transfer-aware operation contexts without widening browser-safe root runtime
   types
 - returned runtimes expose transfer through the transfer builder

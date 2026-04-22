@@ -40,9 +40,9 @@ const config = {
         "packages/trellis/contracts.ts",
       ),
       "@qlever-llc/trellis/health": aliasPath("packages/trellis/health.ts"),
-      "@qlever-llc/trellis/host": aliasPath("packages/trellis/host/mod.ts"),
-      "@qlever-llc/trellis/host/*": `${
-        aliasPath("packages/trellis/host")
+      "@qlever-llc/trellis/service": aliasPath("packages/trellis/service/mod.ts"),
+      "@qlever-llc/trellis/service/*": `${
+        aliasPath("packages/trellis/service")
       }/*`,
       "@qlever-llc/trellis-sdk/auth": aliasPath("packages/trellis-sdk/auth.ts"),
       "@qlever-llc/trellis-sdk/core": aliasPath("packages/trellis-sdk/core.ts"),

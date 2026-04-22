@@ -1,6 +1,6 @@
 import { connect, credsAuthenticator } from "@nats-io/transport-deno";
 import { createAuth, isErr, TypedKV } from "@qlever-llc/trellis";
-import { TrellisService } from "@qlever-llc/trellis/host/deno";
+import { TrellisService } from "@qlever-llc/trellis/service/deno";
 import { pino } from "pino";
 import { Value } from "typebox/value";
 import { getConfig } from "../config.ts";

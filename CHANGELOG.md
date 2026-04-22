@@ -10,6 +10,12 @@ and this project adheres to
 
 ### Changed
 
+- Renamed the TypeScript service runtime package from
+  `@qlever-llc/trellis/host*` to `@qlever-llc/trellis/service*`, aligned the
+  extracted service handler types to `RpcHandler`, `JobHandler`, and
+  `OperationHandler`, and updated design docs and demo examples to show the
+  canonical single-object handler callback shape with the narrow injected
+  service `trellis` facade.
 - Changed `trellis auth login` to require a positional Trellis URL, renamed the
   persisted admin-session URL field to `trellis_url`, and updated the related
   design and guide examples.
@@ -34,7 +40,8 @@ and this project adheres to
   than widening typed responses like `Auth.Me` to `unknown`.
 - Fixed activated-device state flows by preserving top-level contract `state`
   metadata, refreshing device reconnect permissions from the presented digest,
-  and encoding state KV keys safely so the JavaScript state demo runs end-to-end.
+  and encoding state KV keys safely so the JavaScript state demo runs
+  end-to-end.
 
 ## [0.8.0] - 2026-04-19
 

@@ -9,9 +9,9 @@
     "./browser": "./browser.ts",
     "./contracts": "./contracts.ts",
     "./health": "./health.ts",
-    "./host": "./host/mod.ts",
-    "./host/deno": "./host/deno.ts",
-    "./host/node": "./host/node.ts",
+    "./service": "./service/mod.ts",
+    "./service/deno": "./service/deno.ts",
+    "./service/node": "./service/node.ts",
     "./tracing": "./tracing.ts",
     "./errors": "./errors/index.ts"
   },

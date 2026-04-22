@@ -1,6 +1,7 @@
 import { BaseError } from "@qlever-llc/result";
 import { UnexpectedError } from "@qlever-llc/trellis";
-import { TrellisService } from "@qlever-llc/trellis/host/deno";
+import type { OperationHandler } from "@qlever-llc/trellis/service";
+import { TrellisService } from "@qlever-llc/trellis/service/deno";
 import contract from "../contracts/demo_inspection_operation_service.ts";
 import { ASSIGNED_INSPECTIONS } from "../../../shared/field_data.ts";
 import { Command } from "@cliffy/command";
@@ -24,7 +25,10 @@ async function main(): Promise<void> {
     sessionKeySeed,
   });
 
-  await service.operation("Inspection.Report.Generate").handle(async ({ input, op }) => {
+  const generateReport: OperationHandler<
+    typeof contract,
+    "Inspection.Report.Generate"
+  > = async ({ input, op }) => {
     const inspection = ASSIGNED_INSPECTIONS.find((candidate) => {
       return candidate.inspectionId === input.inspectionId;
     });
@@ -82,7 +86,9 @@ async function main(): Promise<void> {
 
       throw error;
     }
-  });
+  };
+
+  await service.operation("Inspection.Report.Generate").handle(generateReport);
 
   console.log(chalk.green.bold("== Inspection operation service"));
   const shutdown = async () => {

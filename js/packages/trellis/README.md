@@ -24,6 +24,6 @@ const meResult = await client.request("Auth.Me", {});
 const me = meResult.orThrow();
 ```
 
-Host connection helpers live in `@qlever-llc/trellis/host*` to keep the root
+Service connection helpers live in `@qlever-llc/trellis/service*` to keep the root
 package browser-safe. Browser login and portal-flow helpers live on
 `@qlever-llc/trellis/auth` and `@qlever-llc/trellis/auth/browser`.

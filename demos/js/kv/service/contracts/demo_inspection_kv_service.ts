@@ -1,7 +1,5 @@
-import type { RpcName } from "@qlever-llc/trellis";
 import { defineServiceContract } from "@qlever-llc/trellis/contracts";
 import { auth, health } from "@qlever-llc/trellis-sdk";
-import type { ServiceRpcHandler } from "@qlever-llc/trellis/host";
 import Type from "typebox";
 
 export const EmptySchema = Type.Object({});
@@ -73,8 +71,4 @@ export const contract = defineServiceContract(
   }),
 );
 
-export type Rpc<T extends RpcName<typeof contract>> = ServiceRpcHandler<
-  typeof contract,
-  T
->;
 export default contract;

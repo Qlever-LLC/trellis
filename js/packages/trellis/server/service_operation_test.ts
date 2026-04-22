@@ -125,6 +125,7 @@ function startPermissiveAuthResponder(nc: Awaited<ReturnType<typeof NatsTest.sta
         inboxPrefix: `_INBOX.${input.sessionKey.slice(0, 16)}`,
         caller: {
           type: "user",
+          participantKind: "app",
           id: "auth0|test-user",
           trellisId: "tid_test_user",
           origin: "test",
@@ -145,12 +146,6 @@ type RefundOperationHandle = {
   fail(error: Error): Promise<unknown>;
   cancel(): Promise<unknown>;
   attach(job: { wait(): Promise<unknown> }): Promise<unknown>;
-};
-
-type RefundOperationContext = {
-  input: RefundInput;
-  op: RefundOperationHandle;
-  caller: unknown;
 };
 
 Deno.test({
@@ -227,10 +222,9 @@ Deno.test({
         name: "billing-client",
       });
 
-      await service.operation("Billing.Refund").handle(async (
-        { input, op }: RefundOperationContext,
-      ) => {
+      await service.operation("Billing.Refund").handle(async ({ input, op, trellis }) => {
         assertEquals(input.chargeId, "ch_123");
+        assertExists(trellis);
         await op.started();
         await op.progress({ message: "working" });
         return ok({ refundId: "rf_123" });
@@ -253,7 +247,7 @@ Deno.test({
         },
       });
       assertEquals(terminal.state, "completed");
-      assertEquals(terminal.output?.refundId, "rf_123");
+      assertEquals(terminal.output, { refundId: "rf_123" });
 
       await clientNc.drain();
       await service.stop();
@@ -357,7 +351,7 @@ Deno.test({
         },
       });
       assertEquals(terminal.state, "completed");
-      assertEquals(terminal.output?.refundId, "rf_456");
+      assertEquals(terminal.output, { refundId: "rf_456" });
 
       await clientNc.drain();
       await service.stop();
@@ -459,8 +453,9 @@ Deno.test({
       const providerUpdates: Array<number> = [];
       const callerUpdates: Array<number> = [];
       const callerEvents: Array<string> = [];
-      await service.operation("Demo.Files.Upload").handle(async ({ input, op, transfer }) => {
+      await service.operation("Demo.Files.Upload").handle(async ({ input, op, transfer, trellis }) => {
         assertEquals(input satisfies UploadInput, input);
+        assertExists(trellis);
         const watchProviderUpdates = (async () => {
           for await (const update of transfer.updates()) {
             providerUpdates.push(update.transferredBytes);

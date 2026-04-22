@@ -1,9 +1,9 @@
-import { isErr, Result, UnexpectedError } from "@qlever-llc/trellis";
-import { TrellisService } from "@qlever-llc/trellis/host/deno";
-import contract, {
-  InspectionSummariesRefreshStatusSchema,
-} from "../contracts/demo_inspection_jobs_service.ts";
-import { getSiteSummary } from "../../../shared/field_data.ts";
+import { isErr, Result } from "@qlever-llc/trellis";
+import type { RpcHandler } from "@qlever-llc/trellis/service";
+import { TrellisService } from "@qlever-llc/trellis/service/deno";
+import contract from "../contracts/demo_inspection_jobs_service.ts";
+import { createRefreshSummariesHandler } from "../jobs/refreshSummaries.ts";
+import { InspectionSummariesRefreshStatusSchema } from "../schemas/index.ts";
 import { Command } from "@cliffy/command";
 import chalk from "chalk";
 
@@ -29,68 +29,23 @@ async function main(): Promise<void> {
     .open(InspectionSummariesRefreshStatusSchema)
     .orThrow();
 
-  await service.jobs.refreshSummaries.handle(async (job) => {
-    const siteSummary = getSiteSummary(job.payload.siteId);
+  await service.jobs.refreshSummaries.handle(
+    createRefreshSummariesHandler(refreshStatuses),
+  ).orThrow();
 
-    await refreshStatuses.put(job.ref.id, {
-      refreshId: job.ref.id,
-      siteId: job.payload.siteId,
-      status: "running",
-      updatedAt: new Date().toISOString(),
-      message: siteSummary
-        ? `Refreshing summary for ${siteSummary.siteName}`
-        : `Refreshing summary for ${job.payload.siteId}`,
-    }).orThrow();
+  const workerHost = await service.jobs
+    .startWorkers({
+      instanceId: "demo-jobs-service-worker",
+    })
+    .orThrow();
 
-    await job.progress({
-      step: "refreshing-summary",
-      message: "Loading latest inspection summary",
-      current: 1,
-      total: 2,
-    }).orThrow();
-    await new Promise((resolve) => setTimeout(resolve, 250));
-
-    if (!siteSummary) {
-      const message = `Unknown site '${job.payload.siteId}'`;
-      await refreshStatuses.put(job.ref.id, {
-        refreshId: job.ref.id,
-        siteId: job.payload.siteId,
-        status: "failed",
-        updatedAt: new Date().toISOString(),
-        message,
-      }).orThrow();
-      return Result.err(new UnexpectedError({ cause: new Error(message) }));
-    }
-
-    await job.progress({
-      step: "refreshing-summary",
-      message: "Stored refreshed inspection summary",
-      current: 2,
-      total: 2,
-    }).orThrow();
-
-    await refreshStatuses.put(job.ref.id, {
-      refreshId: job.ref.id,
-      siteId: job.payload.siteId,
-      status: "completed",
-      updatedAt: new Date().toISOString(),
-      message: `Refresh completed for ${siteSummary.siteName}`,
-    }).orThrow();
-
-    return Result.ok({
-      refreshId: job.ref.id,
-      status: "completed",
-    });
-  }).orThrow();
-
-  const workerHost = await service.jobs.startWorkers({
-    instanceId: "demo-jobs-service-worker",
-  }).orThrow();
-
-  await service.trellis.mount("Inspection.Summaries.Refresh", async (input) => {
-    const created = await service.jobs.refreshSummaries.create({
-      siteId: input.siteId,
-    }).orThrow();
+  const refresh: RpcHandler<typeof contract, "Inspection.Summaries.Refresh"> =
+    async ({ input }) => {
+    const created = await service.jobs.refreshSummaries
+      .create({
+        siteId: input.siteId,
+      })
+      .orThrow();
     const queuedStatus = {
       refreshId: created.id,
       siteId: input.siteId,
@@ -115,14 +70,24 @@ async function main(): Promise<void> {
       refreshId: created.id,
       status: "queued",
     });
-  });
+    };
 
-  await service.trellis.mount("Inspection.Summaries.RefreshStatus.Get", async (input) => {
+  await service.trellis.mount("Inspection.Summaries.Refresh", refresh);
+
+  const getRefreshStatus: RpcHandler<
+    typeof contract,
+    "Inspection.Summaries.RefreshStatus.Get"
+  > = async ({ input }) => {
     const refreshEntry = await refreshStatuses.get(input.refreshId).take();
     const refresh = isErr(refreshEntry) ? undefined : refreshEntry.value;
 
     return Result.ok({ refresh });
-  });
+  };
+
+  await service.trellis.mount(
+    "Inspection.Summaries.RefreshStatus.Get",
+    getRefreshStatus,
+  );
 
   console.log(chalk.green.bold("== Inspection jobs service"));
   const shutdown = async () => {

@@ -1,7 +1,7 @@
 /**
- * Trellis host package entry point.
+ * Trellis service package entry point.
  *
- * This package is host-side glue: it re-exports the RPC/event hosting runtime
+ * This package is service-side glue: it re-exports the RPC/event hosting runtime
  * plus common service helpers (health checks, subscription types).
  *
  * @module
@@ -36,16 +36,21 @@ export {
   HealthRpcSchema,
 } from "./health_schemas.ts";
 export {
+  type JobQueue,
   KVHandle,
+  type JobHandler,
+  type JobsFacadeOf,
+  type OperationRegistration,
+  type OperationHandler,
   type ResourceBindingKV,
   type ResourceBindings,
   type ResourceBindingStore,
   type ResourceBindingStream,
+  type RpcHandler,
   type ServiceContract,
-  type ServiceHandlerTrellis,
-  type ServiceRpcHandler,
   type ServiceTrellis,
   StoreHandle,
+  type Trellis,
   TrellisService,
   type TrellisServiceConnectOpts,
 } from "./service.ts";

@@ -1,5 +1,6 @@
 import { isErr, Result } from "@qlever-llc/trellis";
-import { TrellisService } from "@qlever-llc/trellis/host/deno";
+import type { RpcHandler } from "@qlever-llc/trellis/service";
+import { TrellisService } from "@qlever-llc/trellis/service/deno";
 import contract, {
   SiteSummarySchema,
 } from "../contracts/demo_inspection_kv_service.ts";
@@ -34,7 +35,8 @@ async function main(): Promise<void> {
     }
   }
 
-  await service.trellis.mount("Inspection.Summaries.List", async () => {
+  const listSummaries: RpcHandler<typeof contract, "Inspection.Summaries.List"> =
+    async ({}) => {
     const summaries = [];
     const keys = await siteSummaries.keys(">")
       .orThrow();
@@ -48,12 +50,16 @@ async function main(): Promise<void> {
 
     summaries.sort((left, right) => left.siteName.localeCompare(right.siteName));
     return Result.ok({ summaries });
-  });
+    };
 
-  await service.trellis.mount("Inspection.Summaries.Get", async (input) => {
-    const entry = await siteSummaries.get(input.siteId).take();
-    return Result.ok({ summary: isErr(entry) ? undefined : entry.value });
-  });
+  const getSummary: RpcHandler<typeof contract, "Inspection.Summaries.Get"> =
+    async ({ input }) => {
+      const entry = await siteSummaries.get(input.siteId).take();
+      return Result.ok({ summary: isErr(entry) ? undefined : entry.value });
+    };
+
+  await service.trellis.mount("Inspection.Summaries.List", listSummaries);
+  await service.trellis.mount("Inspection.Summaries.Get", getSummary);
 
   console.log(chalk.green.bold("== Inspection KV service"));
   const shutdown = async () => {

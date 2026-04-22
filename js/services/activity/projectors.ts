@@ -1,6 +1,6 @@
 import { isErr, Result, ValidationError } from "@qlever-llc/trellis";
 import type { BaseError } from "@qlever-llc/result";
-import type { TrellisService } from "@qlever-llc/trellis/host";
+import type { TrellisService } from "@qlever-llc/trellis/service";
 import { Value } from "typebox/value";
 import { ulid } from "ulid";
 import {
@@ -179,8 +179,8 @@ export async function registerActivityRpcHandlers(
   service: TrellisService<ActivityOwnedApi, ActivityTrellisApi>,
   activityKV: ActivityStore,
 ) {
-  await service.trellis.mount("Activity.List", async (req) => {
-    const parsedReq = Value.Parse(ActivityListRequestSchema, req);
+  await service.trellis.mount("Activity.List", async ({ input }) => {
+    const parsedReq = Value.Parse(ActivityListRequestSchema, input);
     const entries = await listActivityEntries(activityKV, {
       limit: parsedReq.limit,
       kind: parsedReq.kind,
@@ -192,8 +192,8 @@ export async function registerActivityRpcHandlers(
     return Result.ok({ entries: value });
   });
 
-  await service.trellis.mount("Activity.Get", async (req) => {
-    const parsedReq = Value.Parse(ActivityGetRequestSchema, req);
+  await service.trellis.mount("Activity.Get", async ({ input }) => {
+    const parsedReq = Value.Parse(ActivityGetRequestSchema, input);
     const entry = await getActivityEntry(activityKV, parsedReq.id);
     const value = entry.take();
     if (isErr(value)) {

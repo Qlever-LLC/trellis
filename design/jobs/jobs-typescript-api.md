@@ -8,16 +8,22 @@ order: 20
 
 ## Prerequisites
 
-- [trellis-jobs.md](./trellis-jobs.md) - subsystem semantics and authorization model
-- [../core/type-system-patterns.md](./../core/type-system-patterns.md) - Result conventions and error-model guidance
-- [../operations/trellis-operations.md](./../operations/trellis-operations.md) - public async workflows that may attach to jobs
+- [trellis-jobs.md](./trellis-jobs.md) - subsystem semantics and authorization
+  model
+- [../core/type-system-patterns.md](./../core/type-system-patterns.md) - Result
+  conventions and error-model guidance
+- [../operations/trellis-operations.md](./../operations/trellis-operations.md) -
+  public async workflows that may attach to jobs
 
 ## Design
 
-The TypeScript jobs surface is split into two shapes: a service-local API for creating and handling jobs, and an admin API for observing jobs across the system. Both live in `@qlever-llc/trellis` and follow the same jobs model defined in `trellis-jobs.md`.
+The TypeScript jobs surface is split into two shapes: a service-local API for
+creating and handling jobs, and an admin API for observing jobs across the
+system. Both live in `@qlever-llc/trellis` and follow the same jobs model
+defined in `trellis-jobs.md`.
 
 - service-local jobs are exposed on connected service runtimes such as
-  `service.jobs` from `@qlever-llc/trellis/host*`
+  `service.jobs` from `@qlever-llc/trellis/service*`
 - admin and operator jobs access is exposed on connected clients such as
   `trellis.jobs()` from `@qlever-llc/trellis`
 
@@ -27,9 +33,12 @@ It covers:
 - worker host lifecycle
 - operator/admin query APIs
 
-It does not redefine the jobs stream model, storage model, or admin authorization model; those remain in `trellis-jobs.md`.
+It does not redefine the jobs stream model, storage model, or admin
+authorization model; those remain in `trellis-jobs.md`.
 
-The API surface stays typed by job type for service-local code, keeps operator/admin access separate from service execution, and returns `Result`/`AsyncResult` for expected failures.
+The API surface stays typed by job type for service-local code, keeps
+operator/admin access separate from service execution, and returns
+`Result`/`AsyncResult` for expected failures.
 
 Jobs are service-private execution primitives.
 
@@ -41,7 +50,8 @@ Service-local jobs APIs are typed per job type.
 
 Public TypeScript jobs APIs use `Result` / `AsyncResult` for expected failures.
 
-Public service-local jobs APIs do not expose manual binding assembly or conversion helpers.
+Public service-local jobs APIs do not expose manual binding assembly or
+conversion helpers.
 
 ### Service-local surface
 
@@ -54,7 +64,9 @@ type JobsFacade = {
 type JobQueue<TPayload, TResult> = {
   create(payload: TPayload): AsyncResult<JobRef<TPayload, TResult>, BaseError>;
   handle(
-    handler: (job: ActiveJob<TPayload, TResult>) => Promise<Result<TResult, BaseError>>,
+    handler: (
+      args: { job: ActiveJob<TPayload, TResult>; trellis: object },
+    ) => Promise<Result<TResult, BaseError>>,
   ): AsyncResult<void, BaseError>;
 };
 
@@ -100,7 +112,7 @@ if (created.isErr()) {
 const job = created.value;
 const terminal = await job.wait();
 
-const registered = await service.jobs.refundCharge.handle(async (job) => {
+const registered = await service.jobs.refundCharge.handle(async ({ job }) => {
   const progress = await job.progress({
     step: "processor",
     message: "Submitting refund",
@@ -158,11 +170,23 @@ type JobSnapshot<TPayload, TResult> = {
 };
 
 type TerminalJob<TPayload, TResult> = JobSnapshot<TPayload, TResult> & {
-  state: "completed" | "failed" | "cancelled" | "expired" | "dead" | "dismissed";
+  state:
+    | "completed"
+    | "failed"
+    | "cancelled"
+    | "expired"
+    | "dead"
+    | "dismissed";
 };
 ```
 
-All job progress fields are optional. Use `step` and `message` for human-readable status, and `current` / `total` only when you have a numeric progress fraction.
+All job progress fields are optional. Use `step` and `message` for
+human-readable status, and `current` / `total` only when you have a numeric
+progress fraction.
+
+Job handlers use the canonical `({ job, trellis })` callback shape. The injected
+`trellis` value is the narrow service runtime facade for handler code, not the
+full `TrellisService` instance.
 
 ### Admin surface
 
@@ -170,13 +194,27 @@ All job progress fields are optional. Use `step` and `message` for human-readabl
 type JobsAdminClient = {
   health(): AsyncResult<JobsHealth, BaseError>;
   listServices(): AsyncResult<ServiceInfo[], BaseError>;
-  list(filter: JobFilter): AsyncResult<JobSnapshot<unknown, unknown>[], BaseError>;
-  get(ref: JobIdentity): AsyncResult<JobSnapshot<unknown, unknown> | null, BaseError>;
-  cancel(ref: JobIdentity): AsyncResult<JobSnapshot<unknown, unknown>, BaseError>;
-  retry(ref: JobIdentity): AsyncResult<JobSnapshot<unknown, unknown>, BaseError>;
-  listDLQ(filter: JobFilter): AsyncResult<JobSnapshot<unknown, unknown>[], BaseError>;
-  replayDLQ(ref: JobIdentity): AsyncResult<JobSnapshot<unknown, unknown>, BaseError>;
-  dismissDLQ(ref: JobIdentity): AsyncResult<JobSnapshot<unknown, unknown>, BaseError>;
+  list(
+    filter: JobFilter,
+  ): AsyncResult<JobSnapshot<unknown, unknown>[], BaseError>;
+  get(
+    ref: JobIdentity,
+  ): AsyncResult<JobSnapshot<unknown, unknown> | null, BaseError>;
+  cancel(
+    ref: JobIdentity,
+  ): AsyncResult<JobSnapshot<unknown, unknown>, BaseError>;
+  retry(
+    ref: JobIdentity,
+  ): AsyncResult<JobSnapshot<unknown, unknown>, BaseError>;
+  listDLQ(
+    filter: JobFilter,
+  ): AsyncResult<JobSnapshot<unknown, unknown>[], BaseError>;
+  replayDLQ(
+    ref: JobIdentity,
+  ): AsyncResult<JobSnapshot<unknown, unknown>, BaseError>;
+  dismissDLQ(
+    ref: JobIdentity,
+  ): AsyncResult<JobSnapshot<unknown, unknown>, BaseError>;
 };
 
 type JobIdentity = {
@@ -215,12 +253,19 @@ const retried = await jobs.retry({
 
 ### Generation rules
 
-- generated service runtimes MUST expose one typed property per declared job type such as `service.jobs.refundCharge`
-- generated service runtimes MUST derive those typed job handles from the contract's top-level `jobs` map rather than from `resources`
-- any generic string-based queue lookup helper is a low-level escape hatch and MUST NOT be the primary public API
-- `startWorkers()` owns binding resolution and worker-loop startup; application code SHOULD NOT pass runtime bindings manually
-- operator/admin APIs MAY return wire-shaped `unknown` payload and result fields because they are an observability and debugging surface rather than a typed service-author execution surface
-- generated admin wrappers are preferred over handwritten `requestOrThrow(...) as ...` adapters
+- generated service runtimes MUST expose one typed property per declared job
+  type such as `service.jobs.refundCharge`
+- generated service runtimes MUST derive those typed job handles from the
+  contract's top-level `jobs` map rather than from `resources`
+- any generic string-based queue lookup helper is a low-level escape hatch and
+  MUST NOT be the primary public API
+- `startWorkers()` owns binding resolution and worker-loop startup; application
+  code SHOULD NOT pass runtime bindings manually
+- operator/admin APIs MAY return wire-shaped `unknown` payload and result fields
+  because they are an observability and debugging surface rather than a typed
+  service-author execution surface
+- generated admin wrappers are preferred over handwritten
+  `requestOrThrow(...) as ...` adapters
 
 ## Non-goals
 

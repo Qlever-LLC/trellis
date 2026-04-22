@@ -3,7 +3,7 @@ import { assertEquals, assertExists } from "@std/assert";
 import { Type } from "typebox";
 import { defineServiceContract } from "../contract.ts";
 import { auth } from "@qlever-llc/trellis-sdk/auth";
-import { ok } from "../index.ts";
+import { AsyncResult, ok } from "../index.ts";
 import { TrellisServer } from "../server/mod.ts";
 import { createClient } from "../client.ts";
 import { NatsTest } from "../testing/nats.ts";
@@ -107,6 +107,7 @@ function startPermissiveAuthResponder(nc: Awaited<ReturnType<typeof NatsTest.sta
         inboxPrefix: `_INBOX.${input.sessionKey.slice(0, 16)}`,
         caller: {
           type: "user",
+          participantKind: "app",
           id: "auth0|test-user",
           trellisId: "tid_test_user",
           origin: "test",
@@ -157,10 +158,10 @@ Deno.test({
         id: "job_123",
         service: "billing-server",
         type: "submit-refund",
-        wait: async () => {
+        wait: () => AsyncResult.from((async () => {
           await jobDone.promise;
           return ok(undefined);
-        },
+        })()),
       };
 
       void (async () => {
@@ -191,7 +192,15 @@ Deno.test({
         },
       });
       assertEquals(terminal.state, "completed");
-      assertEquals(terminal.output?.refundId, "rf_123");
+      assertExists(terminal.output);
+      if (
+        typeof terminal.output !== "object" ||
+        terminal.output === null ||
+        !("refundId" in terminal.output)
+      ) {
+        throw new Error("expected refundId output");
+      }
+      assertEquals(terminal.output.refundId, "rf_123");
     } finally {
       await server.stop();
       await clientNc.drain();

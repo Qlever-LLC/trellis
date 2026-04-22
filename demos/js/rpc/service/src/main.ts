@@ -1,5 +1,6 @@
 import { Result } from "@qlever-llc/trellis";
-import { TrellisService } from "@qlever-llc/trellis/host/deno";
+import type { RpcHandler } from "@qlever-llc/trellis/service";
+import { TrellisService } from "@qlever-llc/trellis/service/deno";
 import contract from "../contracts/demo_inspection_rpc_service.ts";
 import {
   ASSIGNED_INSPECTIONS,
@@ -40,12 +41,15 @@ async function main(): Promise<void> {
     name: "demo-rpc-service",
   });
 
-  await service.trellis.mount("Inspection.Assignments.List", () =>
-    Result.ok({ assignments: ASSIGNED_INSPECTIONS }),
-  );
-  await service.trellis.mount("Inspection.Sites.GetSummary", (input) =>
-    Result.ok({ summary: getSiteSummary(input.siteId) }),
-  );
+  const listAssignments: RpcHandler<
+    typeof contract,
+    "Inspection.Assignments.List"
+  > = ({}) => Result.ok({ assignments: ASSIGNED_INSPECTIONS });
+  const getSummary: RpcHandler<typeof contract, "Inspection.Sites.GetSummary"> =
+    ({ input }) => Result.ok({ summary: getSiteSummary(input.siteId) });
+
+  await service.trellis.mount("Inspection.Assignments.List", listAssignments);
+  await service.trellis.mount("Inspection.Sites.GetSummary", getSummary);
 
   const shutdown = async () => {
     await service.stop();

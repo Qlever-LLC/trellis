@@ -1,10 +1,10 @@
-# Trellis Host Source Package
+# Trellis Service Source Package
 
 Server-side helpers for Trellis services.
 
-- `@qlever-llc/trellis/host` — shared host core, types, and service helpers
-- `@qlever-llc/trellis/host/node` — Node host adapter
-- `@qlever-llc/trellis/host/deno` — Deno host adapter
+- `@qlever-llc/trellis/service` — shared service core, types, and service helpers
+- `@qlever-llc/trellis/service/node` — Node service adapter
+- `@qlever-llc/trellis/service/deno` — Deno service adapter
 
 Use the runtime-specific subpath when connecting a service.
 

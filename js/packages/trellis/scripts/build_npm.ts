@@ -103,9 +103,9 @@ await buildDntPackage({
     "./js/packages/trellis/contracts.ts",
     "./js/packages/trellis/health.ts",
     "./js/packages/trellis/errors/index.ts",
-    "./js/packages/trellis/host/mod.ts",
-    "./js/packages/trellis/host/deno.ts",
-    "./js/packages/trellis/host/node.ts",
+    "./js/packages/trellis/service/mod.ts",
+    "./js/packages/trellis/service/deno.ts",
+    "./js/packages/trellis/service/node.ts",
     "./js/packages/trellis/tracing.ts",
   ],
   description:

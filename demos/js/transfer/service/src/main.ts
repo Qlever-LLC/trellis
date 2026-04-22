@@ -1,4 +1,5 @@
-import { TrellisService } from "@qlever-llc/trellis/host/deno";
+import type { OperationHandler } from "@qlever-llc/trellis/service";
+import { TrellisService } from "@qlever-llc/trellis/service/deno";
 import contract from "../contracts/demo_inspection_transfer_service.ts";
 import { Command } from "@cliffy/command";
 import chalk from "chalk";
@@ -22,7 +23,10 @@ async function main(): Promise<void> {
   });
   const uploads = await service.store.uploads.open().orThrow();
 
-  await service.operation("Inspection.Evidence.Upload").handle(async ({ input, op, transfer }) => {
+  const uploadEvidence: OperationHandler<
+    typeof contract,
+    "Inspection.Evidence.Upload"
+  > = async ({ input, op, transfer }) => {
     const transferred = await transfer.completed().orThrow();
 
     await op.started().orThrow();
@@ -68,7 +72,9 @@ async function main(): Promise<void> {
     };
 
     return await op.complete(output).orThrow();
-  });
+  };
+
+  await service.operation("Inspection.Evidence.Upload").handle(uploadEvidence);
 
   console.log(chalk.green.bold("== Inspection transfer service"));
   const shutdown = async () => {

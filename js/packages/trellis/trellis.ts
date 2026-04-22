@@ -838,15 +838,21 @@ export type HandlerTrellis<TA extends AnyTrellisAPI> = {
   ): OperationSurface<TA, TrellisMode, O>;
 };
 
+export type HandlerArgs<
+  TMountApi extends AnyTrellisAPI,
+  M extends MethodsOf<TMountApi>,
+  TOutboundApi extends AnyTrellisAPI = TMountApi,
+> = {
+  input: MethodInputOf<TMountApi, M>;
+  context: RpcHandlerContext;
+  trellis: HandlerTrellis<TOutboundApi>;
+};
+
 export type HandlerFn<
   TMountApi extends AnyTrellisAPI,
   M extends MethodsOf<TMountApi>,
   TOutboundApi extends AnyTrellisAPI = TMountApi,
-> = (
-  m: MethodInputOf<TMountApi, M>,
-  context: RpcHandlerContext,
-  trellis: HandlerTrellis<TOutboundApi>,
-) => MaybePromise<
+> = (args: HandlerArgs<TMountApi, M, TOutboundApi>) => MaybePromise<
   Result<MethodOutputOf<TMountApi, M>, HandlerErrorOf<TMountApi, M>>
 >;
 export type RpcHandlerFn<
@@ -1591,11 +1597,11 @@ export class Trellis<
    */
   async mount(
     method: string,
-    fn: (
-      input: unknown,
-      context: RpcHandlerContext,
-      trellis: HandlerTrellis<TA>,
-    ) => MaybePromise<Result<unknown, BaseError>>,
+    fn: (args: {
+      input: unknown;
+      context: RpcHandlerContext;
+      trellis: HandlerTrellis<TA>;
+    }) => MaybePromise<Result<unknown, BaseError>>,
   ) {
     const methodName = method as MethodsOf<TA>;
     const ctx = this.api["rpc"][methodName];
@@ -1892,16 +1898,22 @@ export class Trellis<
         }
 
         const invokeHandler = fn as (
-          input: unknown,
-          context: RpcHandlerContext,
-          trellis: HandlerTrellis<TA>,
+          args: {
+            input: unknown;
+            context: RpcHandlerContext;
+            trellis: HandlerTrellis<TA>;
+          },
         ) => MaybeAsync<unknown, BaseError>;
         const handlerResultWrapped = await AsyncResult.try(async () =>
           await Promise.resolve(
-            invokeHandler(parsedInput, {
-              caller,
-              sessionKey: callerSessionKey,
-            }, handlerTrellis),
+            invokeHandler({
+              input: parsedInput,
+              context: {
+                caller,
+                sessionKey: callerSessionKey,
+              },
+              trellis: handlerTrellis,
+            }),
           )
         );
 

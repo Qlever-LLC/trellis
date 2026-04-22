@@ -61,6 +61,7 @@ function startPermissiveAuthResponder(nc: Awaited<ReturnType<typeof NatsTest.sta
         inboxPrefix: `_INBOX.${input.sessionKey.slice(0, 16)}`,
         caller: {
           type: "user",
+          participantKind: "app",
           id: "auth0|test-user",
           trellisId: "tid_test_user",
           origin: "test",

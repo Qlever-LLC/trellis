@@ -77,8 +77,8 @@ The kind-specific contract authoring helpers are available from
 `@qlever-llc/trellis` and are the normal authoring entrypoint for everyday
 contract source modules.
 
-`@qlever-llc/trellis/contracts` remains the advanced contract-system surface
-for broader contract-model helpers and codegen-facing types.
+`@qlever-llc/trellis/contracts` remains the advanced contract-system surface for
+broader contract-model helpers and codegen-facing types.
 
 Rules:
 
@@ -87,7 +87,7 @@ Rules:
 - `@qlever-llc/trellis/contracts` is the advanced package for broader
   contract-model helpers, and the specialized helper return values remain usable
   anywhere a runtime contract is expected
-- `@qlever-llc/trellis/host/node` and `@qlever-llc/trellis/host/deno`
+- `@qlever-llc/trellis/service/node` and `@qlever-llc/trellis/service/deno`
   consume contract objects for service runtime helpers
 
 ### 3) SDK-driven `uses`
@@ -141,8 +141,8 @@ For locally authored TypeScript contract source files under `contracts/*.ts`:
 - services should normally use
   `defineServiceContract({ schemas, errors }, (ref) => ({ ... }))`
 - apps should normally use `defineAppContract({ schemas }, (ref) => ({ ... }))`
-  when they declare schema-backed state, and `defineAppContract(() => ({ ... }))`
-  otherwise
+  when they declare schema-backed state, and
+  `defineAppContract(() => ({ ... }))` otherwise
 - user-delegated agents should normally use
   `defineAgentContract({ schemas }, (ref) => ({ ... }))` when they declare
   schema-backed state, and `defineAgentContract(() => ({ ... }))` otherwise
@@ -151,14 +151,12 @@ For locally authored TypeScript contract source files under `contracts/*.ts`:
   schema-backed state, and `defineDeviceContract(() => ({ ... }))` otherwise
 - CLI and other long-lived user tooling should normally use
   `defineAgentContract({ schemas }, (ref) => ({ ... }))` when they declare
-  schema-backed state, and `defineAgentContract(() => ({ ... }))`
-  otherwise
+  schema-backed state, and `defineAgentContract(() => ({ ... }))` otherwise
 - `schemas` and local `errors` act as registries supplied to the contract
   builder for service contracts, while the callback body defines the owned
   surfaces, resources, and `uses`
-- app-, agent-, and device-style contracts may also take a `schemas`
-  registry when they declare schema-backed owned surfaces such as top-level
-  `state`
+- app-, agent-, and device-style contracts may also take a `schemas` registry
+  when they declare schema-backed owned surfaces such as top-level `state`
 - schema refs should normally use `ref.schema("...")`
 - RPC `errors: [...]` entries should normally use `ref.error("...")` for both
   local declarations and built-in Trellis RPC errors such as `UnexpectedError`,
@@ -226,12 +224,12 @@ Rules:
 - the `errors` map stays local to the contract rather than using a central
   global registry
 - new local transportable errors should normally use `defineError(...)`
-- each local transportable error still becomes a real runtime class, not a
-  plain manifest object
+- each local transportable error still becomes a real runtime class, not a plain
+  manifest object
 - the generated class `type` is the wire `type`
 - `defineServiceContract(...)` derives manifest-emitted local error schema refs
-  from local error runtime metadata when the schema is not already
-  present in the local `schemas` map
+  from local error runtime metadata when the schema is not already present in
+  the local `schemas` map
 - authors may still include the error schema explicitly in `schemas` when they
   want a stable local schema key or to reference that schema elsewhere
 - RPC `errors: [...]` entries should usually be authored through
@@ -239,8 +237,7 @@ Rules:
   one pattern
 - `TransportError` should not be used as a service-local domain error; it is
   reserved for Trellis-native transport/runtime boundary failures, while
-  `UnexpectedError` remains for true internal or otherwise unexpected
-  conditions
+  `UnexpectedError` remains for true internal or otherwise unexpected conditions
 - the emitted manifest remains plain JSON; Trellis attaches JS-only
   reconstruction metadata to the local contract object rather than serializing
   class constructors
@@ -328,7 +325,8 @@ The contract definition produces three distinct projected API views:
   participant and therefore mountable or publishable as owner behavior
 - `API.used` - the subset of remote SDK APIs explicitly permitted by `uses`
 - `API.trellis` - the merged runtime surface used for outbound
-  `operation(...).input(...).start()`, `request`, `publish`, and `subscribe` operations
+  `operation(...).input(...).start()`, `request`, `publish`, and `subscribe`
+  operations
 
 Rules:
 
@@ -350,7 +348,7 @@ Examples:
 
 ```ts
 import { TrellisClient } from "@qlever-llc/trellis";
-import { TrellisService } from "@qlever-llc/trellis/host/deno";
+import { TrellisService } from "@qlever-llc/trellis/service/deno";
 
 export const app = defineAppContract(() => ({ ...appBody }));
 export default app;
@@ -387,13 +385,14 @@ Rules:
 - mounted RPC handlers may return either `Result` or `Promise<Result>`
 - for locally owned contracts, author-facing code should normally define short
   aliases in the contract module such as
-  `type Rpc<T extends RpcName<typeof myContract>> = ServiceRpcHandler<typeof myContract, T>`
+  `type Rpc<T extends RpcName<typeof myContract>> = RpcHandler<typeof myContract, T>`
   and
   `type Event<T extends EventName<typeof myContract>> = EventHandler<typeof myContract, T>`
-  for service-owned RPC handlers, `ServiceRpcHandler` should come from
-  `@qlever-llc/trellis/host` so the third parameter includes service-only
-  helpers like `kv`, `store`, and `transfer` rather than repeating
-  `typeof contract.API.owned...` in every handler
+  for service-owned RPC handlers, `RpcHandler` should come from
+  `@qlever-llc/trellis/service` so handlers use the canonical
+  `({ input, context, trellis })` object shape and the injected `trellis`
+  parameter stays the narrow service runtime facade rather than the full
+  `TrellisService`
 - callers do not manually assemble runtime API arrays for normal usage
 - locally authored contracts should normally export the helper result directly
   return value directly; do not wrap it in a handwritten default-export object
@@ -438,7 +437,7 @@ This document only constrains the architectural direction behind that API:
 - `@qlever-llc/trellis` remains the runtime package for
   `TrellisClient.connect(...)`, auth helpers, and `Result`
 - runtime connection helpers live in `@qlever-llc/trellis` and
-  `@qlever-llc/trellis/host*`
+  `@qlever-llc/trellis/service*`
 - locally defined contracts and generated SDK modules share one compatible
   contract-module shape
 - `uses` declarations remain SDK-backed and contract-driven rather than
@@ -482,10 +481,10 @@ Rules:
 
 Expected type behavior:
 
-- `service.request("Trellis.Catalog", {})` is valid because it is
-  declared in `uses`
-- `service.request("Auth.Me", {})` is a type error unless it is also
-  declared in `uses` directly or through `auth.useDefaults(...)`
+- `service.request("Trellis.Catalog", {})` is valid because it is declared in
+  `uses`
+- `service.request("Auth.Me", {})` is a type error unless it is also declared in
+  `uses` directly or through `auth.useDefaults(...)`
 - `service.trellis.mount("Trellis.Catalog", ...)` is a type error because that
   RPC is used, not owned
 - `auth.use({ rpc: { call: ["Trellis.Catalog"] } })` is a type error because

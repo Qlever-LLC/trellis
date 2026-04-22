@@ -17,11 +17,11 @@ import * as contracts from "../contracts.ts";
 import * as coreSdk from "../../trellis-sdk/core.ts";
 import * as stateSdk from "../../trellis-sdk/state.ts";
 import * as healthSurface from "../health.ts";
-import { TrellisService as DenoTrellisService } from "../host/deno.ts";
-import { TrellisService as NodeTrellisService } from "../host/node.ts";
-import { TrellisServer } from "../host/mod.ts";
+import { TrellisService as DenoTrellisService } from "../service/deno.ts";
+import { TrellisService as NodeTrellisService } from "../service/node.ts";
+import { TrellisServer } from "../service/mod.ts";
 
-Deno.test("host, health, and trellis-sdk root and subpaths expose the canonical wrapper API", () => {
+Deno.test("service, health, and trellis-sdk root and subpaths expose the canonical wrapper API", () => {
   assertEquals(typeof TrellisServer, "function");
   assertEquals(typeof DenoTrellisService, "function");
   assertEquals(typeof NodeTrellisService, "function");
@@ -95,9 +95,9 @@ Deno.test("contracts subpath exposes only kind-specific contract helpers", () =>
 });
 
 Deno.test("generated SDK exports handler aliases for extracted handlers", () => {
-  const handler: TrellisCatalogHandler = (payload, context) => {
+  const handler: TrellisCatalogHandler = ({ input, context }) => {
     const sessionKey: string = context.sessionKey;
-    assertEquals(Object.keys(payload).length, 0);
+    assertEquals(Object.keys(input).length, 0);
     assertEquals(typeof sessionKey, "string");
     return Result.ok({
       catalog: {

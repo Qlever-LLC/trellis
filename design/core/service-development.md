@@ -29,11 +29,11 @@ Before choosing a file layout, choose the participant kind and runtime helper.
 Repo folder names are local organization only. They do not determine Trellis
 contract `kind`, install behavior, or which connect helper is correct.
 
-| Contract kind          | Normal helper                 | Use when                                                                                                                         |
-| ---------------------- | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `service`              | `TrellisService.connect(...)` | The participant owns installable RPCs, operations, events, or service-owned resources and runs as a deployment service principal |
-| `device`               | `TrellisDevice.connect(...)`  | The participant authenticates through device activation using a preregistered device root secret                                 |
-| `app`, `agent`         | `TrellisClient.connect(...)`  | The participant is a user-facing app or delegated tool rather than an installed service                                           |
+| Contract kind  | Normal helper                 | Use when                                                                                                                         |
+| -------------- | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `service`      | `TrellisService.connect(...)` | The participant owns installable RPCs, operations, events, or service-owned resources and runs as a deployment service principal |
+| `device`       | `TrellisDevice.connect(...)`  | The participant authenticates through device activation using a preregistered device root secret                                 |
+| `app`, `agent` | `TrellisClient.connect(...)`  | The participant is a user-facing app or delegated tool rather than an installed service                                          |
 
 Rules:
 
@@ -74,7 +74,7 @@ and generation can resolve it directly.
 For `kind: "service"` participants:
 
 ```ts
-import { TrellisService } from "@qlever-llc/trellis/host/deno";
+import { TrellisService } from "@qlever-llc/trellis/service/deno";
 import { myService } from "./contract.ts";
 
 const service = await TrellisService.connect({
@@ -110,9 +110,9 @@ Deno.addSignalListener("SIGTERM", async () => {
 ```ts
 import { Result } from "@qlever-llc/trellis";
 import type { RpcName } from "@qlever-llc/trellis";
-import type { ServiceRpcHandler } from "@qlever-llc/trellis/host";
+import type { RpcHandler } from "@qlever-llc/trellis/service";
 import { defineServiceContract } from "@qlever-llc/trellis/contracts";
-import { TrellisService } from "@qlever-llc/trellis/host/deno";
+import { TrellisService } from "@qlever-llc/trellis/service/deno";
 import {
   HealthResponseSchema,
   HealthRpcSchema,
@@ -143,7 +143,7 @@ export const serviceContract = defineServiceContract(
 
 export default serviceContract;
 
-export type Rpc<T extends RpcName<typeof serviceContract>> = ServiceRpcHandler<
+export type Rpc<T extends RpcName<typeof serviceContract>> = RpcHandler<
   typeof serviceContract,
   T
 >;
@@ -156,7 +156,7 @@ const service = await TrellisService.connect({
   server: {},
 });
 
-export const health: Rpc<"Echo.Health"> = (_input, _context, trellis) => {
+export const health: Rpc<"Echo.Health"> = ({ trellis }) => {
   return Result.ok({
     status: "healthy",
     service: "echo",
@@ -190,8 +190,9 @@ Rules:
 - mounted RPC handlers should rely on Trellis-provided payload typing and
   validation rather than re-parsing the mounted payload just to recover types
 - extracted service RPC handler aliases should come from
-  `@qlever-llc/trellis/host` so the third parameter includes service-only
-  helpers such as `kv`, `store`, and `transfer`
+  `@qlever-llc/trellis/service` so handlers use the canonical object argument
+  shape and receive the narrow injected `trellis` service runtime facade rather
+  than the full `TrellisService`
 - mounted RPC handlers may be synchronous when they do not need `await`
 - mounted RPC handlers may return declared local `TrellisError` subclasses
   directly when those errors are listed in the contract RPC `errors: [...]`
@@ -212,8 +213,8 @@ Behavior:
 - transfer-capable operations receive runtime-owned transfer contexts while
   service code continues to access staged files through `service.store.*`
 - when a contract declares top-level `jobs`, `TrellisService.connect(...)`
-  resolves a typed `service.jobs` facade for job creation, handler
-  registration, and worker startup
+  resolves a typed `service.jobs` facade for job creation, handler registration,
+  and worker startup
 - the shared jobs streams and projected-state KV are Trellis-owned
   infrastructure; service bootstrap should provision them automatically so a
   jobs-enabled service does not require a separate manual jobs install step

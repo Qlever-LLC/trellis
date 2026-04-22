@@ -12,7 +12,7 @@ import type {
   EventName,
   EventPayload,
   KVError,
-  RpcHandler,
+  RpcHandler as ContractRpcHandler,
   RpcHandlerFn,
   RpcInput,
   RpcInputOf,
@@ -32,11 +32,14 @@ import {
   type HealthCheckFn,
   type HealthCheckResult,
   type HealthResponse,
+  type JobHandler,
   KVHandle,
+  type OperationHandler,
   type OrderingGroup,
+  type RpcHandler,
   type ServiceContract,
-  type ServiceRpcHandler,
   StoreHandle,
+  type Trellis as ServiceTrellisHandler,
   type SubscribeOpts,
   TrellisServer,
   type TrellisService,
@@ -88,6 +91,29 @@ const jobsTypeTestContract = defineServiceContract(
       refreshSummaries: {
         payload: ref.schema("RefreshPayload"),
         result: ref.schema("RefreshResult"),
+      },
+    },
+  }),
+);
+
+const operationsTypeTestSchemas = {
+  RunInput: Type.Object({ value: Type.String() }),
+  RunProgress: Type.Object({ value: Type.String() }),
+  RunOutput: Type.Object({ ok: Type.Boolean() }),
+} as const;
+
+const operationsTypeTestContract = defineServiceContract(
+  { schemas: operationsTypeTestSchemas },
+  (ref) => ({
+    id: "trellis.server.operations-type-test@v1",
+    displayName: "Operations Type Test",
+    description: "Verify typed service.operation surface.",
+    operations: {
+      "Test.Run": {
+        version: "v1",
+        input: ref.schema("RunInput"),
+        progress: ref.schema("RunProgress"),
+        output: ref.schema("RunOutput"),
       },
     },
   }),
@@ -194,8 +220,8 @@ Deno.test("service wrapper mount handlers stay method-typed", () => {
   ) {
     void service.trellis.mount(
       "Test.Ping",
-      async (payload, context, trellis) => {
-        const value: string = payload.value;
+      async ({ input, context, trellis }) => {
+        const value: string = input.value;
         const sessionKey: string = context.sessionKey;
         const ping = trellis.request("Test.Ping", { value });
         const kv = trellis.kv.items.open(schema);
@@ -208,8 +234,8 @@ Deno.test("service wrapper mount handlers stay method-typed", () => {
       },
     );
 
-    void service.trellis.mount("Test.Ping", (payload, context, trellis) => {
-      const value: string = payload.value;
+    void service.trellis.mount("Test.Ping", ({ input, context, trellis }) => {
+      const value: string = input.value;
       const sessionKey: string = context.sessionKey;
       const ping = trellis.request("Test.Ping", { value });
       const kv = trellis.kv.items.open(schema);
@@ -239,9 +265,11 @@ Deno.test("service wrapper exposes typed jobs facade", () => {
 
   function expectTypedJobs(service: JobsService) {
     const created = service.jobs.refreshSummaries.create({ siteId: "site-1" });
-    const registered = service.jobs.refreshSummaries.handle(async (job) => {
+    const registered = service.jobs.refreshSummaries.handle(async ({ job, trellis }) => {
       const siteId: string = job.payload.siteId;
       assertEquals(siteId, job.payload.siteId);
+      assertExists(trellis.kv);
+      assertExists(trellis.store);
       return Result.ok({ refreshId: `refresh-${siteId}` });
     });
     const workers = service.jobs.startWorkers({
@@ -259,15 +287,15 @@ Deno.test("service wrapper exposes typed jobs facade", () => {
 });
 
 Deno.test("server RPC helper types support extracted handlers", () => {
-  type PingHandler = ServiceRpcHandler<typeof typeTestContract, "Test.Ping">;
+  type PingHandler = RpcHandler<typeof typeTestContract, "Test.Ping">;
   const schema = Type.Object({ value: Type.String() });
 
-  const pingHandler: PingHandler = (payload, context, service) => {
-    const value: string = payload.value;
+  const pingHandler: PingHandler = ({ input, context, trellis }) => {
+    const value: string = input.value;
     const sessionKey: string = context.sessionKey;
-    const ping = service.request("Test.Ping", { value });
-    const kv = service.kv.items.open(schema);
-    const store = service.store.uploads.open();
+    const ping = trellis.request("Test.Ping", { value });
+    const kv = trellis.kv.items.open(schema);
+    const store = trellis.store.uploads.open();
     assertExists(ping);
     assertExists(kv);
     assertExists(store);
@@ -283,11 +311,11 @@ Deno.test("public RPC helper types support extracted handlers", () => {
   type PingInput = RpcInputOf<OwnedApi, "Test.Ping">;
   type PingOutput = RpcOutputOf<OwnedApi, "Test.Ping">;
 
-  const pingHandler: RpcHandlerFn<OwnedApi, "Test.Ping"> = (
-    payload,
+  const pingHandler: RpcHandlerFn<OwnedApi, "Test.Ping"> = ({
+    input,
     context,
-  ) => {
-    const value: PingInput["value"] = payload.value;
+  }) => {
+    const value: PingInput["value"] = input.value;
     const sessionKey: string = context.sessionKey;
     const output: PingOutput = {
       ok: value.length > 0 && sessionKey.length >= 0,
@@ -299,7 +327,7 @@ Deno.test("public RPC helper types support extracted handlers", () => {
 });
 
 Deno.test("contract-oriented helper types support local Rpc<T> and Event<T> aliases", () => {
-  type TypeTestRpc<T extends RpcName<typeof typeTestContract>> = RpcHandler<
+  type TypeTestRpc<T extends RpcName<typeof typeTestContract>> = ContractRpcHandler<
     typeof typeTestContract,
     T
   >;
@@ -317,8 +345,8 @@ Deno.test("contract-oriented helper types support local Rpc<T> and Event<T> alia
     EventPayload<typeof typeTestContract, T>;
   type TypeTestTrellis = TrellisFor<typeof typeTestContract>;
 
-  const ping: TypeTestRpc<"Test.Ping"> = (payload, context, trellis) => {
-    const value: TypeTestRpcIn<"Test.Ping">["value"] = payload.value;
+  const ping: TypeTestRpc<"Test.Ping"> = ({ input, context, trellis }) => {
+    const value: TypeTestRpcIn<"Test.Ping">["value"] = input.value;
     const sessionKey: string = context.sessionKey;
     const outbound: TypeTestTrellis = trellis;
     assertExists(outbound.request("Test.Ping", { value }));
@@ -336,4 +364,46 @@ Deno.test("contract-oriented helper types support local Rpc<T> and Event<T> alia
 
   assertExists(ping);
   assertExists(onPinged);
+});
+
+Deno.test("service handler aliases expose narrow trellis object args", () => {
+  const schema = Type.Object({ value: Type.String() });
+
+  type ServiceRuntime = ServiceTrellisHandler<typeof typeTestContract.API.trellis>;
+  type PingRpcHandler = RpcHandler<typeof typeTestContract, "Test.Ping">;
+  type RefreshJobHandler = JobHandler<
+    typeof jobsTypeTestContract,
+    "refreshSummaries"
+  >;
+  type PingOperationHandler = OperationHandler<
+    typeof operationsTypeTestContract,
+    "Test.Run"
+  >;
+
+  const expectRuntime = (trellis: ServiceRuntime) => {
+    assertExists(trellis.request("Test.Ping", { value: "ok" }));
+    assertExists(trellis.kv.items.open(schema));
+    assertExists(trellis.store.uploads.open());
+  };
+
+  const rpcHandler: PingRpcHandler = ({ input, context, trellis }) => {
+    expectRuntime(trellis);
+    return Result.ok({ ok: input.value.length > context.sessionKey.length - context.sessionKey.length });
+  };
+
+  const jobHandler: RefreshJobHandler = async ({ job, trellis }) => {
+    expectRuntime(trellis);
+    return Result.ok({ refreshId: job.payload.siteId });
+  };
+
+  const operationHandler: PingOperationHandler = async ({ input, op, trellis }) => {
+    assertEquals(input.value, "run");
+    assertExists(op.started());
+    expectRuntime(trellis);
+    return Result.ok(undefined);
+  };
+
+  assertExists(rpcHandler);
+  assertExists(jobHandler);
+  assertExists(operationHandler);
 });
