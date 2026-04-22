@@ -56,10 +56,10 @@ import {
   parseUnknownSchema,
 } from "./codec.ts";
 import {
-  TransferError,
   AuthError,
   BUILTIN_RPC_ERRORS,
   getBuiltinRpcError,
+  TransferError,
   TransportError,
   type TrellisErrorInstance,
   type TrellisErrorMap,
@@ -77,13 +77,25 @@ import {
   type OperationTransport,
 } from "./operations.ts";
 import type { StateDeleteResponse } from "./models/trellis/rpc/StateDelete.ts";
-import { StateDeleteResponseSchema, StateDeleteSchema } from "./models/trellis/rpc/StateDelete.ts";
+import {
+  StateDeleteResponseSchema,
+  StateDeleteSchema,
+} from "./models/trellis/rpc/StateDelete.ts";
 import type { StateGetResponse } from "./models/trellis/rpc/StateGet.ts";
-import { StateGetResponseSchema, StateGetSchema } from "./models/trellis/rpc/StateGet.ts";
+import {
+  StateGetResponseSchema,
+  StateGetSchema,
+} from "./models/trellis/rpc/StateGet.ts";
 import type { StateListResponse } from "./models/trellis/rpc/StateList.ts";
-import { StateListResponseSchema, StateListSchema } from "./models/trellis/rpc/StateList.ts";
+import {
+  StateListResponseSchema,
+  StateListSchema,
+} from "./models/trellis/rpc/StateList.ts";
 import type { StatePutResponse } from "./models/trellis/rpc/StatePut.ts";
-import { StatePutResponseSchema, StatePutSchema } from "./models/trellis/rpc/StatePut.ts";
+import {
+  StatePutResponseSchema,
+  StatePutSchema,
+} from "./models/trellis/rpc/StatePut.ts";
 import {
   createTransferHandle,
   type FileInfo,
@@ -323,8 +335,7 @@ type RuntimeStateStoreShape = {
 type RuntimeStateStores = Record<string, RuntimeStateStoreShape>;
 export type RuntimeStateStoresForContract<TContract> = TContract extends {
   readonly [CONTRACT_STATE_METADATA]?: infer TState;
-}
-  ? NonNullable<TState> extends RuntimeStateStores ? NonNullable<TState>
+} ? NonNullable<TState> extends RuntimeStateStores ? NonNullable<TState>
   : {}
   : {};
 type TrellisApiFor<TContract> = TContract extends
@@ -503,7 +514,9 @@ type ValueStateStoreClient<TValue> = {
     value: TValue,
     opts?: StatePutOptions,
   ): AsyncResult<StatePutResult<{ kind: "value"; value: TValue }>, BaseError>;
-  delete(opts?: StateDeleteOptions): AsyncResult<{ deleted: boolean }, BaseError>;
+  delete(
+    opts?: StateDeleteOptions,
+  ): AsyncResult<{ deleted: boolean }, BaseError>;
 };
 type MapStateStoreClient<TValue> = {
   get(
@@ -870,7 +883,11 @@ const STATE_RUNTIME_RPC = {
     output: StateGetResponseSchema,
     callerCapabilities: [],
     errors: ["AuthError", "ValidationError", "UnexpectedError"] as const,
-    declaredErrorTypes: ["AuthError", "ValidationError", "UnexpectedError"] as const,
+    declaredErrorTypes: [
+      "AuthError",
+      "ValidationError",
+      "UnexpectedError",
+    ] as const,
   },
   put: {
     subject: "rpc.v1.State.Put",
@@ -878,7 +895,11 @@ const STATE_RUNTIME_RPC = {
     output: StatePutResponseSchema,
     callerCapabilities: [],
     errors: ["AuthError", "ValidationError", "UnexpectedError"] as const,
-    declaredErrorTypes: ["AuthError", "ValidationError", "UnexpectedError"] as const,
+    declaredErrorTypes: [
+      "AuthError",
+      "ValidationError",
+      "UnexpectedError",
+    ] as const,
   },
   delete: {
     subject: "rpc.v1.State.Delete",
@@ -886,7 +907,11 @@ const STATE_RUNTIME_RPC = {
     output: StateDeleteResponseSchema,
     callerCapabilities: [],
     errors: ["AuthError", "ValidationError", "UnexpectedError"] as const,
-    declaredErrorTypes: ["AuthError", "ValidationError", "UnexpectedError"] as const,
+    declaredErrorTypes: [
+      "AuthError",
+      "ValidationError",
+      "UnexpectedError",
+    ] as const,
   },
   list: {
     subject: "rpc.v1.State.List",
@@ -894,7 +919,11 @@ const STATE_RUNTIME_RPC = {
     output: StateListResponseSchema,
     callerCapabilities: [],
     errors: ["AuthError", "ValidationError", "UnexpectedError"] as const,
-    declaredErrorTypes: ["AuthError", "ValidationError", "UnexpectedError"] as const,
+    declaredErrorTypes: [
+      "AuthError",
+      "ValidationError",
+      "UnexpectedError",
+    ] as const,
   },
 } satisfies Record<string, {
   subject: string;
@@ -995,15 +1024,17 @@ function validateStateListResult(
   return Result.ok({ ...result, entries });
 }
 
-export type RpcName<TContract> = RpcMethodNameOf<OwnedApiFor<TContract>>;
-export type RpcInput<
+export type RpcArgs<
   TContract,
-  M extends RpcName<TContract>,
-> = RpcInputOf<OwnedApiFor<TContract>, M>;
-export type RpcOutput<
+  M extends RpcMethodNameOf<OwnedApiFor<TContract>>,
+> = HandlerArgs<OwnedApiFor<TContract>, M, TrellisApiFor<TContract>>;
+export type RpcResult<
   TContract,
-  M extends RpcName<TContract>,
-> = RpcOutputOf<OwnedApiFor<TContract>, M>;
+  M extends RpcMethodNameOf<OwnedApiFor<TContract>>,
+> = Result<
+  RpcOutputOf<OwnedApiFor<TContract>, M>,
+  RpcHandlerErrorOf<OwnedApiFor<TContract>, M>
+>;
 export type RpcRequestErrorOf<
   TA extends AnyTrellisAPI,
   M extends RpcMethodNameOf<TA>,
@@ -1012,10 +1043,6 @@ export type RpcHandlerErrorOf<
   TA extends AnyTrellisAPI,
   M extends RpcMethodNameOf<TA>,
 > = HandlerErrorOf<TA, M>;
-export type RpcHandler<
-  TContract,
-  M extends RpcName<TContract>,
-> = HandlerFn<OwnedApiFor<TContract>, M, TrellisApiFor<TContract>>;
 export type EventName<TContract> = EventsOf<OwnedApiFor<TContract>>;
 export type EventType<
   TContract,
@@ -1193,32 +1220,45 @@ export class Trellis<
       Object.entries(stores).map(([store, descriptor]) => {
         if (descriptor.kind === "value") {
           const client: ValueStateStoreClient<unknown> = {
-            get: () => AsyncResult.from((async () => {
-              const result = await this.#requestBuiltRpc<StateGetResult<{ kind: "value"; value: unknown }>>(
-                "State.Get",
-                { store },
-                STATE_RUNTIME_RPC.get,
-              );
-              if (result.isErr()) return result;
-              return validateStateGetResult(descriptor.schema, result.unwrapOrElse(() => {
-                throw new Error("state get unexpectedly failed");
-              }));
-            })()),
-            put: (value, opts) => AsyncResult.from((async () => {
-              const encoded = encodeRuntimeSchema(descriptor.schema, value).take();
-              if (isErr(encoded)) {
-                return Result.err(encoded.error);
-              }
-              const result = await this.#requestBuiltRpc<StatePutResult<{ kind: "value"; value: unknown }>>(
-                "State.Put",
-                { store, value, ...opts },
-                STATE_RUNTIME_RPC.put,
-              );
-              if (result.isErr()) return result;
-              return validateStatePutResult(descriptor.schema, result.unwrapOrElse(() => {
-                throw new Error("state put unexpectedly failed");
-              }));
-            })()),
+            get: () =>
+              AsyncResult.from((async () => {
+                const result = await this.#requestBuiltRpc<
+                  StateGetResult<{ kind: "value"; value: unknown }>
+                >(
+                  "State.Get",
+                  { store },
+                  STATE_RUNTIME_RPC.get,
+                );
+                if (result.isErr()) return result;
+                return validateStateGetResult(
+                  descriptor.schema,
+                  result.unwrapOrElse(() => {
+                    throw new Error("state get unexpectedly failed");
+                  }),
+                );
+              })()),
+            put: (value, opts) =>
+              AsyncResult.from((async () => {
+                const encoded = encodeRuntimeSchema(descriptor.schema, value)
+                  .take();
+                if (isErr(encoded)) {
+                  return Result.err(encoded.error);
+                }
+                const result = await this.#requestBuiltRpc<
+                  StatePutResult<{ kind: "value"; value: unknown }>
+                >(
+                  "State.Put",
+                  { store, value, ...opts },
+                  STATE_RUNTIME_RPC.put,
+                );
+                if (result.isErr()) return result;
+                return validateStatePutResult(
+                  descriptor.schema,
+                  result.unwrapOrElse(() => {
+                    throw new Error("state put unexpectedly failed");
+                  }),
+                );
+              })()),
             delete: (opts) =>
               this.#requestBuiltRpc<{ deleted: boolean }>(
                 "State.Delete",
@@ -1230,61 +1270,78 @@ export class Trellis<
         }
 
         const mapClient = (prefix?: string): MapStateStoreClient<unknown> => ({
-          get: (key) => AsyncResult.from((async () => {
-            const result = await this.#requestBuiltRpc<StateGetResult<{ kind: "map"; value: unknown }>>(
-              "State.Get",
-              { store, key: joinStatePath(prefix, key) },
-              STATE_RUNTIME_RPC.get,
-            );
-            if (result.isErr()) return result;
-            return validateStateGetResult(descriptor.schema, result.unwrapOrElse(() => {
-              throw new Error("state get unexpectedly failed");
-            }));
-          })()),
-          put: (key, value, opts) => AsyncResult.from((async () => {
-            const encoded = encodeRuntimeSchema(descriptor.schema, value).take();
-            if (isErr(encoded)) {
-              return Result.err(encoded.error);
-            }
-            const result = await this.#requestBuiltRpc<StatePutResult<{ kind: "map"; value: unknown }>>(
-              "State.Put",
-              { store, key: joinStatePath(prefix, key), value, ...opts },
-              STATE_RUNTIME_RPC.put,
-            );
-            if (result.isErr()) return result;
-            return validateStatePutResult(descriptor.schema, result.unwrapOrElse(() => {
-              throw new Error("state put unexpectedly failed");
-            }));
-          })()),
+          get: (key) =>
+            AsyncResult.from((async () => {
+              const result = await this.#requestBuiltRpc<
+                StateGetResult<{ kind: "map"; value: unknown }>
+              >(
+                "State.Get",
+                { store, key: joinStatePath(prefix, key) },
+                STATE_RUNTIME_RPC.get,
+              );
+              if (result.isErr()) return result;
+              return validateStateGetResult(
+                descriptor.schema,
+                result.unwrapOrElse(() => {
+                  throw new Error("state get unexpectedly failed");
+                }),
+              );
+            })()),
+          put: (key, value, opts) =>
+            AsyncResult.from((async () => {
+              const encoded = encodeRuntimeSchema(descriptor.schema, value)
+                .take();
+              if (isErr(encoded)) {
+                return Result.err(encoded.error);
+              }
+              const result = await this.#requestBuiltRpc<
+                StatePutResult<{ kind: "map"; value: unknown }>
+              >(
+                "State.Put",
+                { store, key: joinStatePath(prefix, key), value, ...opts },
+                STATE_RUNTIME_RPC.put,
+              );
+              if (result.isErr()) return result;
+              return validateStatePutResult(
+                descriptor.schema,
+                result.unwrapOrElse(() => {
+                  throw new Error("state put unexpectedly failed");
+                }),
+              );
+            })()),
           delete: (key, opts) =>
             this.#requestBuiltRpc<{ deleted: boolean }>(
               "State.Delete",
               { store, key: joinStatePath(prefix, key), ...opts },
               STATE_RUNTIME_RPC.delete,
             ),
-          list: (opts) => AsyncResult.from((async () => {
-            const result = await this.#requestBuiltRpc<{
-              entries: Array<MapStateEntry<unknown>>;
-              count: number;
-              offset: number;
-              limit: number;
-              next?: number;
-              prev?: number;
-            }>(
-              "State.List",
-              {
-                store,
-                ...(prefix ? { prefix } : {}),
-                offset: opts?.offset ?? 0,
-                limit: opts?.limit ?? DEFAULT_STATE_LIST_LIMIT,
-              },
-              STATE_RUNTIME_RPC.list,
-            );
-            if (result.isErr()) return result;
-            return validateStateListResult(descriptor.schema, result.unwrapOrElse(() => {
-              throw new Error("state list unexpectedly failed");
-            }));
-          })()),
+          list: (opts) =>
+            AsyncResult.from((async () => {
+              const result = await this.#requestBuiltRpc<{
+                entries: Array<MapStateEntry<unknown>>;
+                count: number;
+                offset: number;
+                limit: number;
+                next?: number;
+                prev?: number;
+              }>(
+                "State.List",
+                {
+                  store,
+                  ...(prefix ? { prefix } : {}),
+                  offset: opts?.offset ?? 0,
+                  limit: opts?.limit ?? DEFAULT_STATE_LIST_LIMIT,
+                },
+                STATE_RUNTIME_RPC.list,
+              );
+              if (result.isErr()) return result;
+              return validateStateListResult(
+                descriptor.schema,
+                result.unwrapOrElse(() => {
+                  throw new Error("state list unexpectedly failed");
+                }),
+              );
+            })()),
           prefix: (path) => mapClient(joinStatePath(prefix, path)),
         });
 
@@ -1469,7 +1526,8 @@ export class Trellis<
             return err(requestFailedTransportError({
               code: "trellis.request.invalid_response",
               message: "Trellis returned an invalid response.",
-              hint: "Retry the request. If it keeps happening, check the Trellis capability handling this request.",
+              hint:
+                "Retry the request. If it keeps happening, check the Trellis capability handling this request.",
               method,
               subject,
               cause: json.error.cause,
@@ -1481,7 +1539,8 @@ export class Trellis<
             return err(requestFailedTransportError({
               code: "trellis.request.invalid_response",
               message: "Trellis returned an invalid response.",
-              hint: "Retry the request. If it keeps happening, check the Trellis capability handling this request.",
+              hint:
+                "Retry the request. If it keeps happening, check the Trellis capability handling this request.",
               method,
               subject,
               cause: errorData.error,
@@ -1514,7 +1573,8 @@ export class Trellis<
           return err(requestFailedTransportError({
             code: "trellis.request.invalid_response",
             message: "Trellis returned an invalid response.",
-            hint: "Retry the request. If it keeps happening, check the Trellis capability handling this request.",
+            hint:
+              "Retry the request. If it keeps happening, check the Trellis capability handling this request.",
             method,
             subject,
             cause: json.error.cause,
@@ -1574,16 +1634,24 @@ export class Trellis<
       putTransfer: (
         grant: UploadTransferGrant,
         body: TransferBody,
-      ): AsyncResult<FileInfo, TransferError> => AsyncResult.from((async () => {
-        const handle = createTransferHandle(this.nats, this.auth, this.timeout, grant);
-        if (!(handle instanceof Object) || !("put" in handle)) {
-          return err(new TransferError({
-            operation: "transfer",
-            context: { reason: "invalid_operation_transfer_grant" },
-          }));
-        }
-        return await handle.put(body);
-      })()),
+      ): AsyncResult<FileInfo, TransferError> =>
+        AsyncResult.from((async () => {
+          const handle = createTransferHandle(
+            this.nats,
+            this.auth,
+            this.timeout,
+            grant,
+          );
+          if (!(handle instanceof Object) || !("put" in handle)) {
+            return err(
+              new TransferError({
+                operation: "transfer",
+                context: { reason: "invalid_operation_transfer_grant" },
+              }),
+            );
+          }
+          return await handle.put(body);
+        })()),
     };
 
     return new OperationInvoker(
@@ -2060,7 +2128,9 @@ export class Trellis<
         await this.js.publish(subject, msg);
         return ok(undefined);
       } catch (cause) {
-        return err(new UnexpectedError({ cause, context: { event: event.toString() } }));
+        return err(
+          new UnexpectedError({ cause, context: { event: event.toString() } }),
+        );
       }
     })());
   }
@@ -2139,7 +2209,9 @@ export class Trellis<
         );
         return ok(undefined);
       } catch (cause) {
-        return err(new UnexpectedError({ cause, context: { event: event.toString() } }));
+        return err(
+          new UnexpectedError({ cause, context: { event: event.toString() } }),
+        );
       }
     })());
   }
@@ -2363,7 +2435,8 @@ export class Trellis<
       requestFailedTransportError({
         code: "trellis.request.retry_exhausted",
         message: "Trellis could not complete the request after retrying.",
-        hint: "Retry the request. If it keeps failing, check that the target service is available.",
+        hint:
+          "Retry the request. If it keeps failing, check that the target service is available.",
         method: args.method,
         subject: args.subject,
         context: { retries: this.#noResponderMaxRetries + 1 },
@@ -2398,7 +2471,8 @@ export class Trellis<
         return err(createTransportError({
           code: "trellis.request.invalid_response",
           message: "Trellis returned an invalid response.",
-          hint: "Retry the request. If it keeps happening, reconnect to Trellis and try again.",
+          hint:
+            "Retry the request. If it keeps happening, reconnect to Trellis and try again.",
           cause: json.error.cause,
           context: { subject },
         }));
@@ -2437,7 +2511,8 @@ export class Trellis<
         return err(createTransportError({
           code: "trellis.watch.failed",
           message: "Trellis could not start the operation watch.",
-          hint: "Retry watching the operation. If it keeps failing, reconnect to Trellis and try again.",
+          hint:
+            "Retry watching the operation. If it keeps failing, reconnect to Trellis and try again.",
           cause,
           context: { subject },
         }));
@@ -2450,7 +2525,8 @@ export class Trellis<
               yield err(createTransportError({
                 code: "trellis.watch.failed",
                 message: "Trellis stopped the operation watch.",
-                hint: "Retry watching the operation. If it keeps happening, reconnect to Trellis and try again.",
+                hint:
+                  "Retry watching the operation. If it keeps happening, reconnect to Trellis and try again.",
                 context: { subject, frame: msg.string() },
               }));
               continue;
@@ -2461,7 +2537,8 @@ export class Trellis<
               yield err(createTransportError({
                 code: "trellis.watch.invalid_response",
                 message: "Trellis returned an invalid watch update.",
-                hint: "Retry watching the operation. If it keeps happening, reconnect to Trellis and try again.",
+                hint:
+                  "Retry watching the operation. If it keeps happening, reconnect to Trellis and try again.",
                 cause: json.error.cause,
                 context: { subject },
               }));
@@ -2489,11 +2566,19 @@ export class Trellis<
       opts?: RequestOpts,
     ) => AsyncResult<
       unknown,
-      AuthError | RemoteError | TransportError | ValidationError | UnexpectedError
+      | AuthError
+      | RemoteError
+      | TransportError
+      | ValidationError
+      | UnexpectedError
     >;
     return request("Auth.ValidateRequest", input) as AsyncResult<
       AuthValidateRequestResponse,
-      AuthError | RemoteError | TransportError | ValidationError | UnexpectedError
+      | AuthError
+      | RemoteError
+      | TransportError
+      | ValidationError
+      | UnexpectedError
     >;
   }
 }

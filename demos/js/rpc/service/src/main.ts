@@ -1,5 +1,5 @@
 import { Result } from "@qlever-llc/trellis";
-import type { RpcHandler } from "@qlever-llc/trellis/service";
+import type { RpcArgs, RpcResult } from "@qlever-llc/trellis";
 import { TrellisService } from "@qlever-llc/trellis/service/deno";
 import contract from "../contracts/demo_inspection_rpc_service.ts";
 import {
@@ -8,20 +8,31 @@ import {
 } from "../../../shared/field_data.ts";
 import { Command } from "@cliffy/command";
 
-interface ICliArgs {
-  trellisUrl: string;
-  sessionKeySeed: string;
+type ListAssignmentsArgs = RpcArgs<
+  typeof contract,
+  "Inspection.Assignments.List"
+>;
+type ListAssignmentsReturn = RpcResult<
+  typeof contract,
+  "Inspection.Assignments.List"
+>;
+type GetSummaryArgs = RpcArgs<typeof contract, "Inspection.Sites.GetSummary">;
+type GetSummaryReturn = RpcResult<
+  typeof contract,
+  "Inspection.Sites.GetSummary"
+>;
+
+async function listAssignments(
+  _args: ListAssignmentsArgs,
+): Promise<ListAssignmentsReturn> {
+  return Result.ok({ assignments: ASSIGNED_INSPECTIONS });
 }
-const ARGS = {
-  trellisUrl: {
-    type: String,
-    description: "URL of Trellis instance to connect to",
-  },
-  sessionKeySeed: {
-    type: String,
-    description: "Trellis service rootKey",
-  },
-};
+
+async function getSummary(
+  { input }: GetSummaryArgs,
+): Promise<GetSummaryReturn> {
+  return Result.ok({ summary: getSiteSummary(input.siteId) });
+}
 
 async function main(): Promise<void> {
   const {
@@ -40,13 +51,6 @@ async function main(): Promise<void> {
     sessionKeySeed,
     name: "demo-rpc-service",
   });
-
-  const listAssignments: RpcHandler<
-    typeof contract,
-    "Inspection.Assignments.List"
-  > = ({}) => Result.ok({ assignments: ASSIGNED_INSPECTIONS });
-  const getSummary: RpcHandler<typeof contract, "Inspection.Sites.GetSummary"> =
-    ({ input }) => Result.ok({ summary: getSiteSummary(input.siteId) });
 
   await service.trellis.mount("Inspection.Assignments.List", listAssignments);
   await service.trellis.mount("Inspection.Sites.GetSummary", getSummary);

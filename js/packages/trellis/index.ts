@@ -29,29 +29,29 @@ export {
 } from "./contracts.ts";
 export type { InferSchemaType, JsonValue, TrellisAPI } from "./contracts.ts";
 export type {
-  HealthHeartbeat,
   HealthCheckFn,
   HealthCheckResult,
+  HealthHeartbeat,
   HealthResponse,
   ServiceHealthCheck,
   ServiceHealthCheckFn,
-  ServiceHealthInfoFn,
   ServiceHealthInfo,
+  ServiceHealthInfoFn,
 } from "./health.ts";
 export {
   createHealthHeartbeat,
+  HealthCheckResultSchema,
+  HealthHeartbeatHeaderSchema,
+  HealthHeartbeatSchema,
+  HealthHeartbeatServiceSchema,
+  HealthInfoSchema,
+  HealthResponseSchema,
+  HealthRpcSchema,
   runAllHealthChecks,
   runAllServiceHealthChecks,
   runHealthCheck,
   runServiceHealthCheck,
   ServiceHealth,
-  HealthHeartbeatHeaderSchema,
-  HealthHeartbeatSchema,
-  HealthHeartbeatServiceSchema,
-  HealthCheckResultSchema,
-  HealthInfoSchema,
-  HealthResponseSchema,
-  HealthRpcSchema,
 } from "./health.ts";
 export { defineError } from "./contract_support/mod.ts";
 export type {
@@ -62,8 +62,8 @@ export type {
   SerializableErrorData,
 } from "./contract_support/mod.ts";
 export {
-  defineAppContract,
   defineAgentContract,
+  defineAppContract,
   defineDeviceContract,
   definePortalContract,
   defineServiceContract,
@@ -96,20 +96,20 @@ export {
   KVError,
   RemoteError,
   StoreError,
-  TransportError,
   TransferError,
+  TransportError,
   TrellisError,
   UnexpectedError,
   ValidationError,
 } from "./errors/index.ts";
 export {
   ActiveJob,
-  JobQueue,
-  JobRef,
-  JobWorkerHostAdapter,
-  JobsAdminClient,
   JobLogEntrySchema,
   JobProgressSchema,
+  JobQueue,
+  JobRef,
+  JobsAdminClient,
+  JobWorkerHostAdapter,
 } from "./jobs.ts";
 export type {
   Job,
@@ -139,13 +139,8 @@ export type {
   StoreStatus,
   StoreWaitOptions,
 } from "./store.ts";
-export {
-  FileInfoSchema,
-} from "./transfer.ts";
-export type {
-  FileInfo,
-  TransferBody,
-} from "./transfer.ts";
+export { FileInfoSchema } from "./transfer.ts";
+export type { FileInfo, TransferBody } from "./transfer.ts";
 export type {
   AcceptedOperationEvent,
   CancelledOperationEvent,
@@ -159,8 +154,8 @@ export type {
   OperationRefData,
   OperationSnapshot,
   OperationState,
-  OperationTransport,
   OperationTransferProgress,
+  OperationTransport,
   ProgressOperationEvent,
   ProgressOperationSnapshot,
   StartedOperationEvent,
@@ -171,15 +166,12 @@ export type {
   TransferOperationEvent,
   TransferOperationSnapshot,
 } from "./operations.ts";
-export {
-  controlSubject,
-  OperationInvoker,
-} from "./operations.ts";
+export { controlSubject, OperationInvoker } from "./operations.ts";
 export type {
   AcceptedOperation,
-  EventOpts,
   EventHandler,
   EventName,
+  EventOpts,
   EventPayload,
   EventType,
   HandlerTrellis,
@@ -187,17 +179,15 @@ export type {
   OperationRegistration,
   OperationTransferContextOf,
   OperationTransferHandle,
-  RpcHandler,
+  RpcArgs,
   RpcHandlerContext,
   RpcHandlerErrorOf,
   RpcHandlerFn,
-  RpcInput,
   RpcInputOf,
   RpcMethodNameOf,
-  RpcName,
-  RpcOutput,
   RpcOutputOf,
   RpcRequestErrorOf,
+  RpcResult,
   RuntimeStateStoresForContract,
   TrellisAuth,
   TrellisFor,

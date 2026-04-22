@@ -1,11 +1,25 @@
 import { isErr, Result } from "@qlever-llc/trellis";
-import type { RpcHandler } from "@qlever-llc/trellis/service";
+import type { RpcArgs, RpcResult } from "@qlever-llc/trellis";
 import { TrellisService } from "@qlever-llc/trellis/service/deno";
 import contract from "../contracts/demo_inspection_jobs_service.ts";
 import { createRefreshSummariesHandler } from "../jobs/refreshSummaries.ts";
 import { InspectionSummariesRefreshStatusSchema } from "../schemas/index.ts";
 import { Command } from "@cliffy/command";
 import chalk from "chalk";
+
+type RefreshArgs = RpcArgs<typeof contract, "Inspection.Summaries.Refresh">;
+type RefreshReturn = RpcResult<
+  typeof contract,
+  "Inspection.Summaries.Refresh"
+>;
+type GetRefreshStatusArgs = RpcArgs<
+  typeof contract,
+  "Inspection.Summaries.RefreshStatus.Get"
+>;
+type GetRefreshStatusReturn = RpcResult<
+  typeof contract,
+  "Inspection.Summaries.RefreshStatus.Get"
+>;
 
 async function main(): Promise<void> {
   const {
@@ -39,8 +53,7 @@ async function main(): Promise<void> {
     })
     .orThrow();
 
-  const refresh: RpcHandler<typeof contract, "Inspection.Summaries.Refresh"> =
-    async ({ input }) => {
+  async function refresh({ input }: RefreshArgs): Promise<RefreshReturn> {
     const created = await service.jobs.refreshSummaries
       .create({
         siteId: input.siteId,
@@ -70,19 +83,18 @@ async function main(): Promise<void> {
       refreshId: created.id,
       status: "queued",
     });
-    };
+  }
 
   await service.trellis.mount("Inspection.Summaries.Refresh", refresh);
 
-  const getRefreshStatus: RpcHandler<
-    typeof contract,
-    "Inspection.Summaries.RefreshStatus.Get"
-  > = async ({ input }) => {
+  async function getRefreshStatus(
+    { input }: GetRefreshStatusArgs,
+  ): Promise<GetRefreshStatusReturn> {
     const refreshEntry = await refreshStatuses.get(input.refreshId).take();
     const refresh = isErr(refreshEntry) ? undefined : refreshEntry.value;
 
     return Result.ok({ refresh });
-  };
+  }
 
   await service.trellis.mount(
     "Inspection.Summaries.RefreshStatus.Get",

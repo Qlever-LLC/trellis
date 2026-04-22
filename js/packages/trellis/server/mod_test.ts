@@ -12,15 +12,11 @@ import type {
   EventName,
   EventPayload,
   KVError,
-  RpcHandler as ContractRpcHandler,
+  RpcArgs,
   RpcHandlerFn,
-  RpcInput,
-  RpcInputOf,
-  RpcName,
-  RpcOutput,
   RpcOutputOf,
+  RpcResult,
   StoreError,
-  TrellisAPI,
   TrellisFor,
   TypedKV,
   TypedStore,
@@ -39,8 +35,8 @@ import {
   type RpcHandler,
   type ServiceContract,
   StoreHandle,
-  type Trellis as ServiceTrellisHandler,
   type SubscribeOpts,
+  type Trellis as ServiceTrellisHandler,
   TrellisServer,
   type TrellisService,
   TrellisService as TrellisServiceClass,
@@ -260,18 +256,21 @@ Deno.test("service wrapper exposes typed jobs facade", () => {
       infer _TOwned,
       infer _TTrellis,
       infer TJobs
-    > ? TJobs : never
+    > ? TJobs
+      : never
   >;
 
   function expectTypedJobs(service: JobsService) {
     const created = service.jobs.refreshSummaries.create({ siteId: "site-1" });
-    const registered = service.jobs.refreshSummaries.handle(async ({ job, trellis }) => {
-      const siteId: string = job.payload.siteId;
-      assertEquals(siteId, job.payload.siteId);
-      assertExists(trellis.kv);
-      assertExists(trellis.store);
-      return Result.ok({ refreshId: `refresh-${siteId}` });
-    });
+    const registered = service.jobs.refreshSummaries.handle(
+      async ({ job, trellis }) => {
+        const siteId: string = job.payload.siteId;
+        assertEquals(siteId, job.payload.siteId);
+        assertExists(trellis.kv);
+        assertExists(trellis.store);
+        return Result.ok({ refreshId: `refresh-${siteId}` });
+      },
+    );
     const workers = service.jobs.startWorkers({
       queues: ["refreshSummaries"],
       instanceId: "worker-a",
@@ -306,18 +305,18 @@ Deno.test("server RPC helper types support extracted handlers", () => {
   assertExists(pingHandler);
 });
 
-Deno.test("public RPC helper types support extracted handlers", () => {
+Deno.test("lower-level API RPC helper types support extracted handlers", () => {
   type OwnedApi = typeof typeTestContract.API.owned;
-  type PingInput = RpcInputOf<OwnedApi, "Test.Ping">;
-  type PingOutput = RpcOutputOf<OwnedApi, "Test.Ping">;
+  type PingArgs = Parameters<RpcHandlerFn<OwnedApi, "Test.Ping">>[0];
+  type PingResult = RpcOutputOf<OwnedApi, "Test.Ping">;
 
-  const pingHandler: RpcHandlerFn<OwnedApi, "Test.Ping"> = ({
+  const pingHandler = ({
     input,
     context,
-  }) => {
-    const value: PingInput["value"] = input.value;
+  }: PingArgs): Result<PingResult, BaseError> => {
+    const value: PingArgs["input"]["value"] = input.value;
     const sessionKey: string = context.sessionKey;
-    const output: PingOutput = {
+    const output: PingResult = {
       ok: value.length > 0 && sessionKey.length >= 0,
     };
     return Result.ok(output);
@@ -326,37 +325,34 @@ Deno.test("public RPC helper types support extracted handlers", () => {
   assertExists(pingHandler);
 });
 
-Deno.test("contract-oriented helper types support local Rpc<T> and Event<T> aliases", () => {
-  type TypeTestRpc<T extends RpcName<typeof typeTestContract>> = ContractRpcHandler<
-    typeof typeTestContract,
-    T
-  >;
-  type TypeTestRpcIn<T extends RpcName<typeof typeTestContract>> = RpcInput<
-    typeof typeTestContract,
-    T
-  >;
-  type TypeTestRpcOut<T extends RpcName<typeof typeTestContract>> = RpcOutput<
-    typeof typeTestContract,
-    T
-  >;
+Deno.test("contract-oriented helper types support local Args and Return aliases", () => {
+  type Args = RpcArgs<typeof typeTestContract, "Test.Ping">;
+  type Return = RpcResult<typeof typeTestContract, "Test.Ping">;
   type TypeTestEvent<T extends EventName<typeof typeTestContract>> =
     EventHandler<typeof typeTestContract, T>;
   type TypeTestEventPayload<T extends EventName<typeof typeTestContract>> =
     EventPayload<typeof typeTestContract, T>;
   type TypeTestTrellis = TrellisFor<typeof typeTestContract>;
+  const argsTypeCheck: Args | undefined = undefined;
 
-  const ping: TypeTestRpc<"Test.Ping"> = ({ input, context, trellis }) => {
-    const value: TypeTestRpcIn<"Test.Ping">["value"] = input.value;
+  const ping = ({
+    input,
+    context,
+    trellis,
+  }: Args): Return => {
+    const value: string = input.value;
     const sessionKey: string = context.sessionKey;
     const outbound: TypeTestTrellis = trellis;
     assertExists(outbound.request("Test.Ping", { value }));
-    const output: TypeTestRpcOut<"Test.Ping"> = {
+    const output = {
       ok: value.length > 0 && sessionKey.length >= 0,
     };
     return Result.ok(output);
   };
 
-  const onPinged: TypeTestEvent<"Test.Pinged"> = async (event) => {
+  const onPinged: TypeTestEvent<"Test.Pinged"> = async (
+    event: Parameters<TypeTestEvent<"Test.Pinged">>[0],
+  ) => {
     const value: TypeTestEventPayload<"Test.Pinged">["value"] = event.value;
     assertEquals(value, event.value);
     return Result.ok(undefined);
@@ -364,12 +360,15 @@ Deno.test("contract-oriented helper types support local Rpc<T> and Event<T> alia
 
   assertExists(ping);
   assertExists(onPinged);
+  assertEquals(argsTypeCheck, undefined);
 });
 
 Deno.test("service handler aliases expose narrow trellis object args", () => {
   const schema = Type.Object({ value: Type.String() });
 
-  type ServiceRuntime = ServiceTrellisHandler<typeof typeTestContract.API.trellis>;
+  type ServiceRuntime = ServiceTrellisHandler<
+    typeof typeTestContract.API.trellis
+  >;
   type PingRpcHandler = RpcHandler<typeof typeTestContract, "Test.Ping">;
   type RefreshJobHandler = JobHandler<
     typeof jobsTypeTestContract,
@@ -388,7 +387,10 @@ Deno.test("service handler aliases expose narrow trellis object args", () => {
 
   const rpcHandler: PingRpcHandler = ({ input, context, trellis }) => {
     expectRuntime(trellis);
-    return Result.ok({ ok: input.value.length > context.sessionKey.length - context.sessionKey.length });
+    return Result.ok({
+      ok: input.value.length >
+        context.sessionKey.length - context.sessionKey.length,
+    });
   };
 
   const jobHandler: RefreshJobHandler = async ({ job, trellis }) => {
@@ -396,7 +398,9 @@ Deno.test("service handler aliases expose narrow trellis object args", () => {
     return Result.ok({ refreshId: job.payload.siteId });
   };
 
-  const operationHandler: PingOperationHandler = async ({ input, op, trellis }) => {
+  const operationHandler: PingOperationHandler = async (
+    { input, op, trellis },
+  ) => {
     assertEquals(input.value, "run");
     assertExists(op.started());
     expectRuntime(trellis);

@@ -383,16 +383,16 @@ Rules:
   derives from the contract; docs and examples should not re-parse mounted RPC
   payloads just to recover types
 - mounted RPC handlers may return either `Result` or `Promise<Result>`
-- for locally owned contracts, author-facing code should normally define short
-  aliases in the contract module such as
-  `type Rpc<T extends RpcName<typeof myContract>> = RpcHandler<typeof myContract, T>`
-  and
-  `type Event<T extends EventName<typeof myContract>> = EventHandler<typeof myContract, T>`
-  for service-owned RPC handlers, `RpcHandler` should come from
-  `@qlever-llc/trellis/service` so handlers use the canonical
-  `({ input, context, trellis })` object shape and the injected `trellis`
-  parameter stays the narrow service runtime facade rather than the full
-  `TrellisService`
+- for locally owned contracts, author-facing code should normally define
+  concrete handler-local aliases such as
+  `type Args = RpcArgs<typeof myContract, "My.Method">` and
+  `type Return = RpcResult<typeof myContract, "My.Method">`
+- service-owned RPC handlers should normally use explicit function declarations
+  with those aliases, for example
+  `async function myHandler({ input, context }: Args): Promise<Return> { ... }`
+- if a service needs a whole-handler alias for `service.trellis.mount(...)`, the
+  service runtime package may still expose one, but docs and examples should
+  prefer the explicit `Args` and `Return` form
 - callers do not manually assemble runtime API arrays for normal usage
 - locally authored contracts should normally export the helper result directly
   return value directly; do not wrap it in a handwritten default-export object

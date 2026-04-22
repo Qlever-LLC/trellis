@@ -1,5 +1,5 @@
 import { isErr, Result } from "@qlever-llc/trellis";
-import type { RpcHandler } from "@qlever-llc/trellis/service";
+import type { RpcArgs, RpcResult } from "@qlever-llc/trellis";
 import { TrellisService } from "@qlever-llc/trellis/service/deno";
 import contract, {
   SiteSummarySchema,
@@ -7,6 +7,14 @@ import contract, {
 import { SITE_SUMMARIES } from "../../../shared/field_data.ts";
 import { Command } from "@cliffy/command";
 import chalk from "chalk";
+
+type ListSummariesArgs = RpcArgs<typeof contract, "Inspection.Summaries.List">;
+type ListSummariesReturn = RpcResult<
+  typeof contract,
+  "Inspection.Summaries.List"
+>;
+type GetSummaryArgs = RpcArgs<typeof contract, "Inspection.Summaries.Get">;
+type GetSummaryReturn = RpcResult<typeof contract, "Inspection.Summaries.Get">;
 
 async function main(): Promise<void> {
   const {
@@ -35,8 +43,9 @@ async function main(): Promise<void> {
     }
   }
 
-  const listSummaries: RpcHandler<typeof contract, "Inspection.Summaries.List"> =
-    async ({}) => {
+  async function listSummaries(
+    _args: ListSummariesArgs,
+  ): Promise<ListSummariesReturn> {
     const summaries = [];
     const keys = await siteSummaries.keys(">")
       .orThrow();
@@ -48,15 +57,18 @@ async function main(): Promise<void> {
       }
     }
 
-    summaries.sort((left, right) => left.siteName.localeCompare(right.siteName));
+    summaries.sort((left, right) =>
+      left.siteName.localeCompare(right.siteName)
+    );
     return Result.ok({ summaries });
-    };
+  }
 
-  const getSummary: RpcHandler<typeof contract, "Inspection.Summaries.Get"> =
-    async ({ input }) => {
-      const entry = await siteSummaries.get(input.siteId).take();
-      return Result.ok({ summary: isErr(entry) ? undefined : entry.value });
-    };
+  async function getSummary(
+    { input }: GetSummaryArgs,
+  ): Promise<GetSummaryReturn> {
+    const entry = await siteSummaries.get(input.siteId).take();
+    return Result.ok({ summary: isErr(entry) ? undefined : entry.value });
+  }
 
   await service.trellis.mount("Inspection.Summaries.List", listSummaries);
   await service.trellis.mount("Inspection.Summaries.Get", getSummary);
