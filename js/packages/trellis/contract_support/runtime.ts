@@ -10,7 +10,7 @@ export type Schema<T> = {
 
 export type SchemaLike<T = unknown> = TSchema | Schema<T>;
 
-export type TransportErrorData = {
+export type SerializableErrorData = {
   id: string;
   type: string;
   message: string;
@@ -19,7 +19,7 @@ export type TransportErrorData = {
 } & Record<string, unknown>;
 
 export type RpcErrorClass<
-  TData extends TransportErrorData = TransportErrorData,
+  TData extends SerializableErrorData = SerializableErrorData,
   TError extends BaseError = BaseError,
 > = {
   fromSerializable(data: TData): TError;
@@ -33,7 +33,7 @@ export type RuntimeRpcErrorDesc<
   type: TType;
   schema?: TSchema;
   fromSerializable(
-    data: TSchema extends SchemaLike ? InferSchemaType<TSchema> : TransportErrorData,
+    data: TSchema extends SchemaLike ? InferSchemaType<TSchema> : SerializableErrorData,
   ): TError;
 };
 

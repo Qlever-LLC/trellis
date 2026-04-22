@@ -17,6 +17,9 @@ import { KVErrorDataSchema } from "./KVError.ts";
 import { StoreError } from "./StoreError.ts";
 import type { StoreErrorData } from "./StoreError.ts";
 import { StoreErrorDataSchema } from "./StoreError.ts";
+import { TransportError } from "./TransportError.ts";
+import type { TransportErrorData } from "./TransportError.ts";
+import { TransportErrorDataSchema } from "./TransportError.ts";
 import { TransferError } from "./TransferError.ts";
 import type { TransferErrorData } from "./TransferError.ts";
 import { TransferErrorDataSchema } from "./TransferError.ts";
@@ -34,6 +37,7 @@ export { ValidationError } from "./ValidationError.ts";
 export { RemoteError } from "./RemoteError.ts";
 export { KVError } from "./KVError.ts";
 export { StoreError } from "./StoreError.ts";
+export { TransportError } from "./TransportError.ts";
 export { TransferError } from "./TransferError.ts";
 
 export { type AuthErrorData, AuthErrorDataSchema } from "./AuthError.ts";
@@ -46,6 +50,7 @@ export {
 export { type RemoteErrorData, RemoteErrorDataSchema } from "./RemoteError.ts";
 export { type KVErrorData, KVErrorDataSchema } from "./KVError.ts";
 export { type StoreErrorData, StoreErrorDataSchema } from "./StoreError.ts";
+export { type TransportErrorData, TransportErrorDataSchema } from "./TransportError.ts";
 export { type TransferErrorData, TransferErrorDataSchema } from "./TransferError.ts";
 
 /**
@@ -54,6 +59,7 @@ export { type TransferErrorData, TransferErrorDataSchema } from "./TransferError
  */
 const TRANSPORTABLE_TRELLIS_ERRORS = {
   UnexpectedError,
+  TransportError,
   AuthError,
   ValidationError,
   KVError,
@@ -108,6 +114,20 @@ export const BUILTIN_RPC_ERRORS = {
         reason: data.reason,
         id: data.id,
         context: data.context,
+      });
+    },
+  },
+  TransportError: {
+    type: "TransportError",
+    schema: schema<TransportErrorData>(TransportErrorDataSchema),
+    fromSerializable(data: TransportErrorData) {
+      return new TransportError({
+        code: data.code,
+        message: data.message,
+        hint: data.hint,
+        id: data.id,
+        context: data.context,
+        traceId: data.traceId,
       });
     },
   },

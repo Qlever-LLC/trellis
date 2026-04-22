@@ -24,6 +24,7 @@ import {
   type RuntimeTransport,
 } from "./runtime_transport.ts";
 import { type RuntimeStateStoresForContract, Trellis } from "./trellis.ts";
+import { TransportError } from "./errors/index.ts";
 import { Type, type StaticDecode } from "typebox";
 import { Value } from "typebox/value";
 import {
@@ -182,6 +183,52 @@ const defaultDeps: ClientConnectDeps = {
   clearInterval: (id) => globalThis.clearInterval(id),
 };
 
+function transportCauseContext(cause: unknown): Record<string, unknown> {
+  if (cause instanceof Error) {
+    return { causeName: cause.name, causeMessage: cause.message };
+  }
+
+  return { cause: String(cause) };
+}
+
+function createTransportError(args: {
+  code: string;
+  message: string;
+  hint: string;
+  context?: Record<string, unknown>;
+  cause?: unknown;
+}): TransportError {
+  return new TransportError({
+    code: args.code,
+    message: args.message,
+    hint: args.hint,
+    cause: args.cause,
+    context: {
+      ...(args.context ?? {}),
+      ...(args.cause === undefined ? {} : transportCauseContext(args.cause)),
+    },
+  });
+}
+
+async function readJsonResponse(
+  response: Response,
+  args: {
+    code: string;
+    message: string;
+    hint: string;
+    context?: Record<string, unknown>;
+  },
+): Promise<unknown> {
+  try {
+    return await response.json();
+  } catch (cause) {
+    throw createTransportError({
+      ...args,
+      cause,
+    });
+  }
+}
+
 function normalizeTrellisUrl(trellisUrl: string): string {
   return new URL(trellisUrl).toString().replace(/\/$/, "");
 }
@@ -305,16 +352,53 @@ async function bindClientFlow(args: {
     },
   );
   if (!response.ok) {
-    throw new Error(`Client bind failed: ${response.status} ${await response.text()}`);
+    const reason = await response.text();
+    throw createTransportError({
+      code: "trellis.auth.bind_failed",
+      message: "Trellis could not finish the sign-in step.",
+      hint: "Start the sign-in flow again.",
+      context: { status: response.status, trellisUrl: args.trellisUrl, reason },
+    });
   }
 
-  const payload = await response.json();
-  if (payload && typeof payload === "object" && payload.status === "expired") {
-    throw new Error("Client bind did not complete: expired");
+  const payload = await readJsonResponse(response, {
+    code: "trellis.auth.bind_invalid_response",
+    message: "Trellis returned an invalid sign-in response.",
+    hint: "Start the sign-in flow again.",
+    context: { flowId: args.flowId },
+  });
+  if (
+    payload && typeof payload === "object" &&
+    (payload as { status?: unknown }).status === "expired"
+  ) {
+    throw createTransportError({
+      code: "trellis.auth.bind_expired",
+      message: "The Trellis sign-in step expired.",
+      hint: "Start the sign-in flow again.",
+      context: { flowId: args.flowId },
+    });
   }
-  const parsed = Value.Parse(BindResponseSchema, payload);
+  let parsed: StaticDecode<typeof BindResponseSchema>;
+  try {
+    parsed = Value.Parse(BindResponseSchema, payload) as StaticDecode<
+      typeof BindResponseSchema
+    >;
+  } catch (cause) {
+    throw createTransportError({
+      code: "trellis.auth.bind_invalid_response",
+      message: "Trellis returned an invalid sign-in response.",
+      hint: "Start the sign-in flow again.",
+      cause,
+      context: { flowId: args.flowId },
+    });
+  }
   if (parsed.status !== "bound") {
-    throw new Error(`Client bind did not complete: ${parsed.status}`);
+    throw createTransportError({
+      code: "trellis.auth.bind_invalid_response",
+      message: "Trellis returned an invalid sign-in response.",
+      hint: "Start the sign-in flow again.",
+      context: { flowId: args.flowId, status: parsed.status },
+    });
   }
 }
 
@@ -334,15 +418,26 @@ async function fetchClientBootstrap(args: {
     }),
   });
 
-  const payload = await response.json();
+  const payload = await readJsonResponse(response, {
+    code: "trellis.bootstrap.invalid_response",
+    message: "Trellis returned an invalid bootstrap response.",
+    hint: "Retry the connection. If it keeps happening, check the Trellis deployment.",
+    context: { trellisUrl: args.trellisUrl },
+  });
   if (!response.ok) {
     if (Value.Check(ClientBootstrapIatOutOfRangeSchema, payload)) {
       return payload;
     }
-    const reason = typeof payload?.reason === "string"
-      ? payload.reason
+    const reason = payload && typeof payload === "object" &&
+        typeof (payload as { reason?: unknown }).reason === "string"
+      ? (payload as { reason: string }).reason
       : `http_${response.status}`;
-    throw new Error(`Client bootstrap failed: ${reason}`);
+    throw createTransportError({
+      code: "trellis.bootstrap.failed",
+      message: "Trellis could not prepare the client session.",
+      hint: "Retry the connection. If it keeps failing, check Trellis availability and access.",
+      context: { trellisUrl: args.trellisUrl, status: response.status, reason },
+    });
   }
 
   if (Value.Check(ClientBootstrapReadySchema, payload)) {
@@ -355,7 +450,12 @@ async function fetchClientBootstrap(args: {
     return payload;
   }
 
-  throw new Error("Client bootstrap returned an invalid response");
+  throw createTransportError({
+    code: "trellis.bootstrap.invalid_response",
+    message: "Trellis returned an invalid bootstrap response.",
+    hint: "Retry the connection. If it keeps happening, check the Trellis deployment.",
+    context: { trellisUrl: args.trellisUrl },
+  });
 }
 
 function updateClockOffsetFromServer(args: {
@@ -401,7 +501,12 @@ async function fetchClientBootstrapWithRetry(args: {
     }
   }
 
-  throw new Error("Client bootstrap failed: iat_out_of_range");
+  throw createTransportError({
+    code: "trellis.bootstrap.time_sync_failed",
+    message: "Trellis could not confirm the client time window.",
+    hint: "Retry the connection. If it keeps happening, check the client and Trellis clocks.",
+    context: { trellisUrl: args.trellisUrl },
+  });
 }
 
 async function createRuntimeUserAuthenticator(args: {
@@ -556,7 +661,7 @@ function cleanupBrowserCallbackUrl(currentUrl: URL): void {
 }
 
 function isExpiredBindError(error: unknown): boolean {
-  return error instanceof Error && error.message === "Client bind did not complete: expired";
+  return error instanceof TransportError && error.code === "trellis.auth.bind_expired";
 }
 
 function needsReauth(
@@ -607,10 +712,20 @@ async function buildSessionKeyLoginUrl(args: {
   });
   if (!response.ok) {
     const reason = await response.text();
-    throw new Error(`Login flow creation failed: ${response.status} ${reason}`);
+    throw createTransportError({
+      code: "trellis.auth.login_failed",
+      message: "Trellis could not start sign-in.",
+      hint: "Retry sign-in. If it keeps failing, check Trellis availability and access.",
+      context: { status: response.status, reason, trellisUrl: args.trellisUrl },
+    });
   }
 
-  const payload = await response.json();
+  const payload = await readJsonResponse(response, {
+    code: "trellis.auth.login_invalid_response",
+    message: "Trellis returned an invalid sign-in response.",
+    hint: "Retry sign-in. If it keeps happening, start the sign-in flow again.",
+    context: { trellisUrl: args.trellisUrl },
+  });
   if (
     payload && typeof payload === "object" &&
     (payload as { status?: unknown }).status === "flow_started" &&
@@ -621,7 +736,12 @@ async function buildSessionKeyLoginUrl(args: {
   if (payload && typeof payload === "object" && (payload as { status?: unknown }).status === "bound") {
     return { status: "bound" };
   }
-  throw new Error("Login flow creation returned an invalid response");
+  throw createTransportError({
+    code: "trellis.auth.login_invalid_response",
+    message: "Trellis returned an invalid sign-in response.",
+    hint: "Retry sign-in. If it keeps happening, start the sign-in flow again.",
+    context: { trellisUrl: args.trellisUrl },
+  });
 }
 
 export async function connectClientWithDeps<
@@ -677,9 +797,18 @@ export async function connectClientWithDeps<
 
   if (bootstrap.status !== "ready") {
     if (bootstrap.status === "not_ready") {
-      throw new Error(`Client bootstrap is not ready: ${bootstrap.reason}`);
+      throw createTransportError({
+        code: "trellis.bootstrap.not_ready",
+        message: "Trellis is not ready to connect this client.",
+        hint: "Wait for the requested app access to become available, then try again.",
+        context: { reason: bootstrap.reason },
+      });
     }
-    throw new Error("Client bootstrap still requires authentication");
+    throw createTransportError({
+      code: "trellis.bootstrap.auth_required",
+      message: "Trellis still requires sign-in before connecting this client.",
+      hint: "Complete sign-in, then try again.",
+    });
   }
 
   const transport = await deps.loadTransport();
@@ -702,9 +831,18 @@ export async function connectClientWithDeps<
         : refreshedBootstrap;
       if (resolvedBootstrap.status !== "ready") {
         if (resolvedBootstrap.status === "not_ready") {
-          throw new Error(`Client bootstrap is not ready: ${resolvedBootstrap.reason}`);
+          throw createTransportError({
+            code: "trellis.bootstrap.not_ready",
+            message: "Trellis is not ready to reconnect this client.",
+            hint: "Wait for the requested app access to become available, then try again.",
+            context: { reason: resolvedBootstrap.reason },
+          });
         }
-        throw new Error("Client bootstrap still requires authentication");
+        throw createTransportError({
+          code: "trellis.bootstrap.auth_required",
+          message: "Trellis still requires sign-in before reconnecting this client.",
+          hint: "Complete sign-in, then try again.",
+        });
       }
       runtimeState.contractDigest = resolvedBootstrap.connectInfo.contractDigest;
       runtimeState.sentinel = resolvedBootstrap.connectInfo.transport.sentinel;
@@ -727,7 +865,13 @@ export async function connectClientWithDeps<
     });
   } catch (error) {
     runtimeAuth.stop();
-    throw error;
+    throw createTransportError({
+      code: "trellis.runtime.connect_failed",
+      message: "Trellis could not open the runtime connection.",
+      hint: "Retry the connection. If it keeps failing, check Trellis transport availability.",
+      cause: error,
+      context: { trellisUrl },
+    });
   }
   void nc.closed().finally(() => runtimeAuth.stop());
 

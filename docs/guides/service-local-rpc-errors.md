@@ -175,11 +175,21 @@ Keep using built-in Trellis errors when the failure is platform-wide or already
 semantically covered:
 
 - `AuthError`
+- `TransportError` for Trellis transport/runtime boundary failures outside the
+  handler's declared domain result
 - `ValidationError`
 - `UnexpectedError`
 
-Do not overload `ValidationError` just to get a typed transport error for domain
-failures like:
+`TransportError` is runtime-provided, not a service-local contract error to add
+to `errors: [...]`. It is for Trellis-native connection, routing, protocol, or
+other runtime-boundary failures, and should usually carry a Trellis-native
+message and hint.
+
+`UnexpectedError` is still for true internal or otherwise unexpected
+conditions.
+
+Do not overload `ValidationError` or `TransportError` just to get a typed error
+for domain failures like:
 
 - workspace not found
 - invitation not found
@@ -192,6 +202,8 @@ Those should be service-local errors.
 - Reaching for handwritten error subclasses instead of `defineError(...)`
 - Returning a domain-specific error from a handler without listing its local
   declaration in the RPC `errors: [...]`
+- Adding `TransportError` to RPC `errors: [...]` instead of treating it as a
+  runtime-side Trellis boundary failure
 - Using `RemoteError` checks for declared contract errors instead of
   `instanceof`
 

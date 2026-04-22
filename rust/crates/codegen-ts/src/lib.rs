@@ -447,7 +447,7 @@ fn render_types_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String 
     if !loaded.manifest.errors.is_empty() {
         lines.extend([
             format!(
-                "import {{ TrellisError, type TransportErrorData }} from {};",
+                "import {{ TrellisError, type SerializableErrorData }} from {};",
                 js_string(&trellis_import)
             ),
             "import { SCHEMAS } from \"./schemas.ts\";".to_string(),
@@ -528,7 +528,7 @@ fn render_types_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String 
             .schema
             .as_ref()
             .map(|schema| schema_to_ts(resolve_schema_ref(loaded, &schema.schema)))
-            .unwrap_or_else(|| "TransportErrorData".to_string());
+            .unwrap_or_else(|| "SerializableErrorData".to_string());
         lines.push(format!("export type {data_type} = {ts_type};"));
         lines.push(format!(
             "export class {base} extends TrellisError<{data_type}> {{"
@@ -2124,7 +2124,7 @@ mod tests {
         let api = render_api_ts(&opts, &loaded);
 
         assert!(types.contains(
-            "import { TrellisError, type TransportErrorData } from \"@qlever-llc/trellis\";"
+            "import { TrellisError, type SerializableErrorData } from \"@qlever-llc/trellis\";"
         ));
         assert!(types.contains("export type NotFoundErrorData = {"));
         assert!(types.contains("type: \"NotFoundError\";"));

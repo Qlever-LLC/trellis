@@ -1,6 +1,6 @@
-import { assertEquals, assertExists } from "@std/assert";
+import { assertEquals, assertExists, assertInstanceOf } from "@std/assert";
 import { Type } from "typebox";
-import { AsyncResult, ok, type Result } from "../../result/mod.ts";
+import { AsyncResult, err, ok, type Result } from "../../result/mod.ts";
 import type { JsonValue } from "@qlever-llc/trellis/contracts";
 import { defineServiceContract } from "../contract.ts";
 import {
@@ -12,7 +12,7 @@ import {
   type OperationRef,
   type OperationTransport,
 } from "../operations.ts";
-import { TransferError, UnexpectedError } from "../errors/index.ts";
+import { TransferError, TransportError, UnexpectedError } from "../errors/index.ts";
 import type { TransferBody, UploadTransferGrant } from "../transfer.ts";
 
 const schemas = {
@@ -81,34 +81,40 @@ class FakeOperationTransport implements OperationTransport {
     this.#watchError = options.watchError;
   }
 
-  async requestJson(subject: string, body: unknown) {
-    this.seen.push({ subject, body });
-    const next = this.#responses.shift();
-    if (next === undefined) throw new Error("missing fake response");
-    return ok(next);
-  }
-
-  async watchJson(subject: string, body: unknown) {
-    this.seen.push({ subject, body });
-    if (this.#watchError) {
-      return AsyncResult.err(this.#watchError);
-    }
-    const frames = this.#responses.splice(0).map((value) => ok(value));
-    return ok((async function* () {
-      for (const frame of frames) {
-        yield frame;
-      }
+  requestJson(subject: string, body: unknown) {
+    return AsyncResult.from((async () => {
+      this.seen.push({ subject, body });
+      const next = this.#responses.shift();
+      if (next === undefined) throw new Error("missing fake response");
+      return ok(next);
     })());
   }
 
-  async putTransfer(grant: UploadTransferGrant, body: TransferBody) {
-    this.transferred.push({ grant, body });
-    return ok({
-      key: "incoming/test.bin",
-      size: 11,
-      updatedAt: "2026-01-01T00:00:00.000Z",
-      metadata: {},
-    });
+  watchJson(subject: string, body: unknown) {
+    return AsyncResult.from((async () => {
+      this.seen.push({ subject, body });
+      if (this.#watchError) {
+        return err(this.#watchError);
+      }
+      const frames = this.#responses.splice(0).map((value) => ok(value));
+      return ok((async function* () {
+        for (const frame of frames) {
+          yield frame;
+        }
+      })());
+    })());
+  }
+
+  putTransfer(grant: UploadTransferGrant, body: TransferBody) {
+    return AsyncResult.from((async () => {
+      this.transferred.push({ grant, body });
+      return ok({
+        key: "incoming/test.bin",
+        size: 11,
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        metadata: {},
+      });
+    })());
   }
 }
 
@@ -158,7 +164,7 @@ Deno.test("OperationInvoker.input().start() type surface stays specific", () => 
   let started!: Started;
   const typed: AsyncResult<
     OperationRef<typeof refundOperation>,
-    UnexpectedError
+    TransportError | UnexpectedError
   > = started;
   assertEquals(true, true);
 });
@@ -303,7 +309,7 @@ Deno.test("OperationInvoker.input().transfer().start() type surface stays specif
   let started!: Started;
   const typed: AsyncResult<
     StartedTransfer<typeof uploadOperation>,
-    UnexpectedError | TransferError
+    TransportError | UnexpectedError | TransferError
   > = started;
   assertEquals(true, true);
 });
@@ -944,10 +950,12 @@ Deno.test("OperationRef.get() surfaces control error frames with the runtime err
     err: (value) => value,
   });
 
+  assertEquals(error.name, "TransportError");
+  assertEquals(Reflect.get(error, "code"), "trellis.operation.control_error");
   const context = error.getContext();
   assertEquals(context.controlErrorType, "AuthError");
   assertEquals(context.controlErrorMessage, "not allowed");
-  assertEquals(context.causeMessage, "Operation control error AuthError: not allowed");
+  assertEquals(context.controlErrorType, "AuthError");
 });
 
 Deno.test("OperationRef.cancel() sends action:cancel to <subject>.control and decodes the returned snapshot frame", async () => {
@@ -1039,13 +1047,11 @@ Deno.test("OperationRef.cancel() surfaces control error frames with the runtime 
     err: (value) => value,
   });
 
+  assertEquals(error.name, "TransportError");
+  assertEquals(Reflect.get(error, "code"), "trellis.operation.control_error");
   const context = error.getContext();
   assertEquals(context.controlErrorType, "ValidationError");
   assertEquals(context.controlErrorMessage, "cannot cancel now");
-  assertEquals(
-    context.causeMessage,
-    "Operation control error ValidationError: cannot cancel now",
-  );
 });
 
 Deno.test("OperationRef.wait() sends action:wait and rejects a non-terminal snapshot", async () => {
@@ -1082,7 +1088,12 @@ Deno.test("OperationRef.wait() sends action:wait and rejects a non-terminal snap
     },
   });
   const result = await reference.wait();
-  const error = result.take();
+  const error = result.match({
+    ok: () => {
+      throw new Error("expected wait() to fail");
+    },
+    err: (value) => value,
+  });
 
   assertEquals(transport.seen, [
     {
@@ -1095,6 +1106,8 @@ Deno.test("OperationRef.wait() sends action:wait and rejects a non-terminal snap
     },
   ]);
   assertExists(error);
+  assertEquals(error.name, "TransportError");
+  assertEquals(Reflect.get(error, "code"), "trellis.operation.invalid_snapshot");
 });
 
 Deno.test("OperationRef.wait() surfaces control error frames with the runtime error details", async () => {
@@ -1135,13 +1148,11 @@ Deno.test("OperationRef.wait() surfaces control error frames with the runtime er
     err: (value) => value,
   });
 
+  assertEquals(error.name, "TransportError");
+  assertEquals(Reflect.get(error, "code"), "trellis.operation.control_error");
   const context = error.getContext();
   assertEquals(context.controlErrorType, "UnexpectedError");
   assertEquals(context.controlErrorMessage, "watch backend unavailable");
-  assertEquals(
-    context.causeMessage,
-    "Operation control error UnexpectedError: watch backend unavailable",
-  );
 });
 
 Deno.test("OperationRef.watch() sends action:watch to <subject>.control and yields operation events", async () => {
@@ -1298,16 +1309,69 @@ Deno.test("OperationRef.watch() surfaces an initial control error frame during i
     thrown = error;
   }
 
-  if (!(thrown instanceof UnexpectedError)) {
-    throw new Error(`expected UnexpectedError, got ${String(thrown)}`);
+  if (!(thrown instanceof TransportError)) {
+    throw new Error(`expected TransportError, got ${String(thrown)}`);
   }
+  assertEquals(thrown.code, "trellis.operation.control_error");
   const context = thrown.getContext();
   assertEquals(context.controlErrorType, "AuthError");
   assertEquals(context.controlErrorMessage, "cannot watch this operation");
-  assertEquals(
-    context.causeMessage,
-    "Operation control error AuthError: cannot watch this operation",
-  );
+});
+
+Deno.test("OperationRef.watch() maps malformed event frames to TransportError", async () => {
+  const transport = new FakeOperationTransport([
+    {
+      kind: "accepted",
+      ref: {
+        id: "op_123",
+        service: "billing",
+        operation: "Billing.Refund",
+      },
+      snapshot: {
+        revision: 1,
+        state: "pending",
+      },
+    },
+    {
+      kind: "event",
+      event: {
+        type: "progress",
+        snapshot: {
+          revision: 2,
+          state: "running",
+        },
+      },
+    },
+  ]);
+
+  const operation = new OperationInvoker(transport, refundOperation);
+  const reference = await operation.input({ chargeId: "ch_123" }).start().match({
+    ok: (value) => value,
+    err: (error) => {
+      throw error;
+    },
+  });
+  const watch = await reference.watch().match({
+    ok: (value) => value,
+    err: (error) => {
+      throw error;
+    },
+  });
+
+  let thrown: unknown;
+  try {
+    for await (const _event of watch) {
+      throw new Error("expected watch iteration to fail");
+    }
+  } catch (error) {
+    thrown = error;
+  }
+
+  if (!(thrown instanceof TransportError)) {
+    throw new Error(`expected TransportError, got ${String(thrown)}`);
+  }
+  assertEquals(thrown.code, "trellis.operation.invalid_event");
+  assertEquals(thrown.message, "Trellis returned an invalid operation event.");
 });
 
 Deno.test("OperationRef.watch() yields transfer events with per-chunk progress", async () => {

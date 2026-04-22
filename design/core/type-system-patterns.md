@@ -210,6 +210,15 @@ Rules:
 Trellis-shared errors come from Trellis packages. Service-specific errors may
 extend the same base locally.
 
+Built-in error roles:
+
+- `TransportError` covers Trellis transport and runtime boundary failures such
+  as malformed replies, unavailable routes, bind/bootstrap failures, and other
+  Trellis-owned protocol or connection problems. It should carry human-facing
+  Trellis-native `message`, `code`, and `hint` values.
+- `UnexpectedError` remains the bucket for true internal or otherwise
+  unexpected conditions, usually by wrapping an unplanned cause.
+
 ```ts
 export class AuthError extends TrellisError<AuthErrorData> {
   override readonly name = "AuthError" as const;
@@ -238,11 +247,16 @@ RPC rule:
 - declared RPC errors may be service-local `TrellisError` subclasses owned by
   the service contract
 - new TypeScript service-local RPC errors should normally use `defineError(...)`
+- generic TypeScript runtime helper typing for open serializable error payloads
+  should use `SerializableErrorData`
 - for TypeScript service contracts, local error `static schema` values may be
   derived into emitted contract schemas automatically from local error runtime
   metadata
 - callers receive declared remote errors as reconstructed runtime instances of
   those classes
+- callers may also receive `TransportError` from the Trellis runtime when the
+  transport or runtime boundary fails before a declared remote error can be
+  reconstructed
 - `RemoteError` is a fallback for undeclared or unknown remote error payloads,
   not the preferred shape for declared contract errors
 

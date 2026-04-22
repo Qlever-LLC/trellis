@@ -24,8 +24,8 @@ import {
   type Schema,
   schema,
   type SchemaLike,
+  type SerializableErrorData,
   type SubjectDesc,
-  type TransportErrorData,
   type TrellisAPI,
   unwrapSchema,
 } from "./runtime.ts";
@@ -139,6 +139,7 @@ function createSchemaRef<
 
 export type BuiltinContractErrorName =
   | "UnexpectedError"
+  | "TransportError"
   | "AuthError"
   | "ValidationError"
   | "KVError"
@@ -359,7 +360,7 @@ type ContractErrorRuntimeMarker<
 };
 
 export type ErrorClass<
-  TData extends TransportErrorData = TransportErrorData,
+  TData extends SerializableErrorData = SerializableErrorData,
   TError extends BaseError = BaseError,
   TRuntimeSchema extends TSchema = TSchema,
 > = RpcErrorClass<TData, TError> & {
@@ -373,7 +374,7 @@ type DefinedErrorPayload<TFields extends TProperties> =
   & object;
 
 type DefinedErrorData<TType extends string, TFields extends TProperties> =
-  & TransportErrorData
+  & SerializableErrorData
   & { type: TType }
   & DefinedErrorPayload<TFields>;
 
@@ -432,7 +433,7 @@ function getContractErrorType(errorClass: ErrorClass): string {
   return typeof explicitType === "string" ? explicitType : errorClass.name;
 }
 
-function isTransportErrorData(value: unknown): value is TransportErrorData {
+function isSerializableErrorData(value: unknown): value is SerializableErrorData {
   return !!value && typeof value === "object" &&
     typeof (value as { id?: unknown }).id === "string" &&
     typeof (value as { type?: unknown }).type === "string" &&
@@ -523,7 +524,7 @@ function definedErrorBaseOptions<TPayload extends object>(
 }
 
 function attachDefinedErrorPayload<
-  TError extends TrellisError<TransportErrorData>,
+  TError extends TrellisError<SerializableErrorData>,
   TPayload extends object,
 >(
   error: TError & DefinedErrorPayloadCarrier<TPayload>,
@@ -911,7 +912,7 @@ type RuntimeErrorFromSourceDecl<TDecl, TSchemas> = TDecl extends {
   schema?: infer TSchemaRef;
 }
   ? TDecl extends ContractErrorRuntimeMarker<infer TClass>
-    ? TClass extends RpcErrorClass<TransportErrorData, infer TError>
+    ? TClass extends RpcErrorClass<SerializableErrorData, infer TError>
       ? RuntimeRpcErrorDesc<
         TType,
         ResolveSchemaFromMap<TSchemas, TSchemaRef>,
@@ -946,7 +947,7 @@ type ProjectedRpcMethod<
 type BuiltRuntimeErrorDesc = {
   type: string;
   schema?: Schema<unknown>;
-  fromSerializable(data: TransportErrorData): BaseError;
+  fromSerializable(data: SerializableErrorData): BaseError;
 };
 
 type BuiltRpcDesc = {
@@ -2070,8 +2071,8 @@ function buildOwnedApi(source: TrellisContractSource): ApiShape {
           ),
         }
         : {}),
-      fromSerializable(data: TransportErrorData) {
-        if (!isTransportErrorData(data)) {
+      fromSerializable(data: SerializableErrorData) {
+        if (!isSerializableErrorData(data)) {
           throw new Error(
             `Transport error '${errorDecl.type}' is missing base error fields`,
           );
@@ -2356,7 +2357,7 @@ export function defineError<
   type TData = DefinedErrorData<TType, TFields>;
   type TInit = DefinedErrorInit<TFields>;
 
-  class DefinedErrorImpl extends TrellisError<TransportErrorData>
+  class DefinedErrorImpl extends TrellisError<SerializableErrorData>
     implements DefinedErrorPayloadCarrier<TPayload> {
     static readonly type = options.type;
     static readonly schema = errorSchema;
@@ -2377,7 +2378,7 @@ export function defineError<
       const customPayload = pickDefinedErrorPayload(fieldNames, data);
       const ErrorCtor = DefinedErrorImpl as new (
         payload: object,
-      ) => TrellisError<TransportErrorData> &
+      ) => TrellisError<SerializableErrorData> &
         DefinedErrorPayloadCarrier<Record<string, unknown>>;
       const error = new ErrorCtor({
         ...customPayload,
@@ -2389,7 +2390,7 @@ export function defineError<
       return Object.assign(error, customPayload) as DefinedErrorInstance<TType, TFields>;
     }
 
-    override toSerializable(): TransportErrorData {
+    override toSerializable(): SerializableErrorData {
       return {
         ...this.baseSerializable(),
         type: this.name,
@@ -3162,8 +3163,8 @@ export type {
   RuntimeRpcErrorDesc,
   Schema,
   SchemaLike,
+  SerializableErrorData,
   SubjectDesc,
-  TransportErrorData,
   TrellisAPI,
 };
 export { canonicalizeJson, digestJson, isJsonValue, schema, unwrapSchema };

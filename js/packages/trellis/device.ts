@@ -31,6 +31,7 @@ import { selectRuntimeTransportServers } from "./runtime_transport.ts";
 import { ServiceHealth } from "./health.ts";
 import { type RuntimeStateStoresForContract, Trellis } from "./trellis.ts";
 import { logger as noopLogger, type LoggerLike } from "./globals.ts";
+import { TransportError } from "./errors/index.ts";
 import { type StaticDecode, Type } from "typebox";
 import { Value } from "typebox/value";
 
@@ -205,6 +206,52 @@ const defaultDeps: DeviceConnectDeps = {
   now: () => Date.now(),
 };
 
+function transportCauseContext(cause: unknown): Record<string, unknown> {
+  if (cause instanceof Error) {
+    return { causeName: cause.name, causeMessage: cause.message };
+  }
+
+  return { cause: String(cause) };
+}
+
+function createTransportError(args: {
+  code: string;
+  message: string;
+  hint: string;
+  context?: Record<string, unknown>;
+  cause?: unknown;
+}): TransportError {
+  return new TransportError({
+    code: args.code,
+    message: args.message,
+    hint: args.hint,
+    cause: args.cause,
+    context: {
+      ...(args.context ?? {}),
+      ...(args.cause === undefined ? {} : transportCauseContext(args.cause)),
+    },
+  });
+}
+
+async function readJsonResponse(
+  response: Response,
+  args: {
+    code: string;
+    message: string;
+    hint: string;
+    context?: Record<string, unknown>;
+  },
+): Promise<unknown> {
+  try {
+    return await response.json();
+  } catch (cause) {
+    throw createTransportError({
+      ...args,
+      cause,
+    });
+  }
+}
+
 function activationRequiredError(): Error {
   return new Error(
     "Device activation required but no activation handler was provided",
@@ -351,6 +398,12 @@ function startDeviceNatsConnectionLogging(args: {
 }
 
 function isConnectInfoUnavailable(error: unknown): boolean {
+  if (error instanceof TransportError) {
+    const context = error.getContext();
+    return context.reason === "unknown_device" || context.reason === "activation_required" ||
+      context.status === 404;
+  }
+
   const message = error instanceof Error ? error.message : String(error);
   return message.includes("404") || message.includes("unknown_device") ||
     message.includes("activation_required");
@@ -382,18 +435,32 @@ async function fetchDeviceBootstrap(args: {
     body: JSON.stringify(bootstrapRequest),
   });
   if (!response.ok) {
-    throw new Error(
-      `Device bootstrap failed: ${response.status} ${await response.text()}`,
-    );
+    const reason = await response.text();
+    throw createTransportError({
+      code: "trellis.bootstrap.failed",
+      message: "Trellis could not prepare the device session.",
+      hint: "Retry the connection. If it keeps failing, check Trellis availability and device activation state.",
+      context: { trellisUrl: args.trellisUrl, status: response.status, reason },
+    });
   }
 
-  const payload = await response.json();
+  const payload = await readJsonResponse(response, {
+    code: "trellis.bootstrap.invalid_response",
+    message: "Trellis returned an invalid bootstrap response.",
+    hint: "Retry the connection. If it keeps happening, check the Trellis deployment.",
+    context: { trellisUrl: args.trellisUrl },
+  });
   if (Value.Check(DeviceBootstrapReadySchema, payload)) return payload;
   if (Value.Check(DeviceBootstrapActivationRequiredSchema, payload)) {
     return payload;
   }
   if (Value.Check(DeviceBootstrapNotReadySchema, payload)) return payload;
-  throw new Error("Device bootstrap returned an invalid response");
+  throw createTransportError({
+    code: "trellis.bootstrap.invalid_response",
+    message: "Trellis returned an invalid bootstrap response.",
+    hint: "Retry the connection. If it keeps happening, check the Trellis deployment.",
+    context: { trellisUrl: args.trellisUrl },
+  });
 }
 
 export async function connectDeviceWithDeps<
@@ -427,7 +494,12 @@ export async function connectDeviceWithDeps<
     if (bootstrap.status === "ready") {
       connectInfo = bootstrap.connectInfo;
     } else if (bootstrap.status === "not_ready") {
-      throw new Error(bootstrap.reason);
+      throw createTransportError({
+        code: "trellis.bootstrap.not_ready",
+        message: "Trellis is not ready to connect this device.",
+        hint: "Wait for the device to be activated and the requested profile to become available, then try again.",
+        context: { reason: bootstrap.reason },
+      });
     }
   } catch (error) {
     if (!isConnectInfoUnavailable(error)) throw error;
@@ -494,33 +566,54 @@ export async function connectDeviceWithDeps<
         contractDigest,
       });
       if (bootstrap.status !== "ready") {
-        throw new Error(`Device bootstrap is not ready: ${bootstrap.status}`);
+        throw createTransportError({
+          code: "trellis.bootstrap.not_ready",
+          message: "Trellis is not ready to connect this device.",
+          hint: "Wait for the device activation to finish, then try again.",
+          context: { status: bootstrap.status },
+        });
       }
       connectInfo = bootstrap.connectInfo;
     }
   }
 
   if (!connectInfo) {
-    throw new Error("Device bootstrap did not return runtime connect info");
+    throw createTransportError({
+      code: "trellis.runtime.connect_info_missing",
+      message: "Trellis did not return the device connection details.",
+      hint: "Retry the connection. If it keeps happening, check the Trellis deployment.",
+      context: { contractId: args.contract.CONTRACT_ID },
+    });
   }
 
   const transport = await deps.loadTransport();
-  const nc = await transport.connect({
-    servers: selectRuntimeTransportServers(connectInfo.transports),
-    inboxPrefix: `_INBOX.${identity.publicIdentityKey.slice(0, 16)}`,
-    authenticator: [
-      createDeviceNatsAuthTokenAuthenticator({
-        publicIdentityKey: identity.publicIdentityKey,
-        identitySeed: identity.identitySeed,
-        contractDigest,
-        now: deps.now,
-      }),
-      jwtAuthenticator(
-        connectInfo.transport.sentinel.jwt,
-        new TextEncoder().encode(connectInfo.transport.sentinel.seed),
-      ),
-    ],
-  });
+  let nc: NatsConnection;
+  try {
+    nc = await transport.connect({
+      servers: selectRuntimeTransportServers(connectInfo.transports),
+      inboxPrefix: `_INBOX.${identity.publicIdentityKey.slice(0, 16)}`,
+      authenticator: [
+        createDeviceNatsAuthTokenAuthenticator({
+          publicIdentityKey: identity.publicIdentityKey,
+          identitySeed: identity.identitySeed,
+          contractDigest,
+          now: deps.now,
+        }),
+        jwtAuthenticator(
+          connectInfo.transport.sentinel.jwt,
+          new TextEncoder().encode(connectInfo.transport.sentinel.seed),
+        ),
+      ],
+    });
+  } catch (cause) {
+    throw createTransportError({
+      code: "trellis.runtime.connect_failed",
+      message: "Trellis could not open the device runtime connection.",
+      hint: "Retry the connection. If it keeps failing, check Trellis transport availability.",
+      cause,
+      context: { contractId: args.contract.CONTRACT_ID },
+    });
+  }
 
   startDeviceNatsConnectionLogging({
     contractId: args.contract.CONTRACT_ID,

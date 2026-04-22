@@ -3,6 +3,8 @@ import {
   ValidationError,
   RemoteError,
   AuthError,
+  TransportError,
+  getBuiltinRpcError,
 } from "../errors/index.ts";
 import { Result, UnexpectedError } from "../../result/mod.ts";
 
@@ -31,6 +33,43 @@ Deno.test("Verify errors serialize and validate", async (t) => {
     assertEquals(value.type, "AuthError");
     assertEquals(value.message, "Auth failed: invalid_request");
     assertEquals(Reflect.get(value, "reason"), "invalid_request");
+  });
+
+  await t.step("TransportError", () => {
+    const error = new TransportError({
+      code: "trellis.transport.unavailable",
+      message: "Trellis could not reach the requested capability.",
+      hint: "Check that the target service is installed and reachable, then try again.",
+      context: { subject: "rpc.v1.Example.Run" },
+      traceId: "trace-123",
+    });
+    const json = error.toJSON();
+
+    const result = RemoteError.parseJSON(json);
+    const value = result.take();
+    assert(!Result.isErr(value), "Expected successful parse");
+
+    assertEquals(value.type, "TransportError");
+    assertEquals(Reflect.get(value, "code"), "trellis.transport.unavailable");
+    assertEquals(
+      Reflect.get(value, "hint"),
+      "Check that the target service is installed and reachable, then try again.",
+    );
+    assertEquals(value.context, { subject: "rpc.v1.Example.Run" });
+    assertEquals(value.traceId, "trace-123");
+
+    const runtimeError = getBuiltinRpcError("TransportError");
+    assert(runtimeError, "Expected builtin transport error descriptor");
+    const reconstructed = runtimeError.fromSerializable(value);
+    assert(reconstructed instanceof TransportError);
+    assertEquals(reconstructed.message, error.message);
+    assertEquals(reconstructed.code, "trellis.transport.unavailable");
+    assertEquals(
+      reconstructed.hint,
+      "Check that the target service is installed and reachable, then try again.",
+    );
+    assertEquals(reconstructed.getContext(), { subject: "rpc.v1.Example.Run" });
+    assertEquals(reconstructed.toSerializable().traceId, "trace-123");
   });
 
   await t.step("ValidationError", () => {
@@ -101,6 +140,8 @@ Deno.test("Type narrowing", async (t) => {
     if (value.type === "ValidationError") {
       assert(false, "Should not reach this branch");
     } else if (value.type === "UnexpectedError") {
+      assert(false, "Should not reach this branch");
+    } else if (value.type === "TransportError") {
       assert(false, "Should not reach this branch");
     } else if (value.type === "KVError") {
       assert(false, "Should not reach this branch");

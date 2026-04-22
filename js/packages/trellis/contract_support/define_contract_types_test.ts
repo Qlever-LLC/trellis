@@ -6,6 +6,7 @@ import {
   defineDeviceContract,
   defineError,
   defineServiceContract,
+  type SerializableErrorData,
 } from "./mod.ts";
 
 const EmptySchema = Type.Object({});
@@ -19,10 +20,16 @@ const BuilderFailed = defineError({
 
 type Assert<T extends true> = T;
 type Not<T extends boolean> = T extends true ? false : true;
+type Extends<T, U> = T extends U ? true : false;
 type HasKey<T, K extends PropertyKey> = K extends keyof T ? true : false;
 type HasMember<T, U> = U extends T ? true : false;
 type HasSubject<T, TKey extends PropertyKey> = TKey extends keyof T ? true
   : false;
+
+type BuilderFailedData = Parameters<typeof BuilderFailed.fromSerializable>[0];
+type _BuilderFailedDataExtendsSerializableErrorData = Assert<
+  Extends<BuilderFailedData, SerializableErrorData>
+>;
 
 const authSchemas = {
   Empty: EmptySchema,

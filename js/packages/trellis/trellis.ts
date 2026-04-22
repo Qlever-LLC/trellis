@@ -8,6 +8,7 @@ import {
   createInbox,
   headers as natsHeaders,
   type Msg,
+  type MsgHdrs,
   type NatsConnection,
 } from "@nats-io/nats-core";
 import type {
@@ -59,6 +60,7 @@ import {
   AuthError,
   BUILTIN_RPC_ERRORS,
   getBuiltinRpcError,
+  TransportError,
   type TrellisErrorInstance,
   type TrellisErrorMap,
   type TrellisErrorName,
@@ -117,6 +119,99 @@ export type SessionCaller = AuthValidateRequestResponse["caller"];
  */
 export function safeJson(msg: Msg): Result<JsonValue, UnexpectedError> {
   return Result.try(() => msg.json() as JsonValue);
+}
+
+function transportCauseContext(cause: unknown): Record<string, unknown> {
+  if (cause instanceof Error) {
+    return {
+      causeName: cause.name,
+      causeMessage: cause.message,
+    };
+  }
+
+  return { cause: String(cause) };
+}
+
+function createTransportError(args: {
+  code: string;
+  message: string;
+  hint: string;
+  context?: Record<string, unknown>;
+  cause?: unknown;
+}): TransportError {
+  return new TransportError({
+    code: args.code,
+    message: args.message,
+    hint: args.hint,
+    cause: args.cause,
+    context: {
+      ...(args.context ?? {}),
+      ...(args.cause === undefined ? {} : transportCauseContext(args.cause)),
+    },
+  });
+}
+
+function requestFailedTransportError(args: {
+  code: string;
+  method?: string;
+  subject: string;
+  hint: string;
+  message: string;
+  cause?: unknown;
+  context?: Record<string, unknown>;
+}): TransportError {
+  return createTransportError({
+    code: args.code,
+    message: args.message,
+    hint: args.hint,
+    cause: args.cause,
+    context: {
+      subject: args.subject,
+      ...(args.method === undefined ? {} : { method: args.method }),
+      ...(args.context ?? {}),
+    },
+  });
+}
+
+function classifyRequestTransportFailure(args: {
+  method?: string;
+  subject: string;
+  callerCapabilities?: readonly string[];
+  cause: unknown;
+}): TransportError {
+  const message = args.cause instanceof Error
+    ? args.cause.message
+    : String(args.cause);
+  const isNoResponders = message.includes("no responders");
+  const isNatsPermission = message.includes("Permissions Violation");
+
+  return requestFailedTransportError({
+    code: isNoResponders
+      ? "trellis.request.unavailable"
+      : isNatsPermission
+      ? "trellis.request.denied"
+      : "trellis.request.failed",
+    message: isNoResponders
+      ? "Trellis could not reach the requested capability."
+      : isNatsPermission
+      ? "Trellis denied this request."
+      : "Trellis could not complete the request.",
+    hint: isNoResponders
+      ? "Check that the target service is installed and reachable, then try again."
+      : isNatsPermission
+      ? "Sign in with a profile that has the required capability, then try again."
+      : "Retry the request. If it keeps failing, check Trellis runtime health.",
+    cause: args.cause,
+    method: args.method,
+    subject: args.subject,
+    context: {
+      ...(args.callerCapabilities === undefined
+        ? {}
+        : { requiredCapabilities: args.callerCapabilities }),
+      noResponders: isNoResponders,
+      lowLevelMessage: message,
+    },
+  });
 }
 
 function encodeRuntimeSchema(
@@ -295,6 +390,7 @@ type MethodDeclaredErrorOf<TA extends AnyTrellisAPI, M extends MethodsOf<TA>> =
 type RequestErrorOf<TA extends AnyTrellisAPI, M extends MethodsOf<TA>> =
   | MethodDeclaredErrorOf<TA, M>
   | RemoteError
+  | TransportError
   | ValidationError
   | UnexpectedError;
 type HandlerErrorOf<TA extends AnyTrellisAPI, M extends MethodsOf<TA>> =
@@ -1348,66 +1444,14 @@ export class Trellis<
         headers.set("proof", proof);
         injectTraceContext(createNatsHeaderCarrier(headers), span);
 
-        const requestWithRetry = async (): Promise<Result<Msg, UnexpectedError>> => {
-          for (let retry = 0; retry <= this.#noResponderMaxRetries; retry++) {
-            const result = await AsyncResult.try(() =>
-              this.nats.request(subject, msg, {
-                headers,
-                timeout: opts?.timeout ?? this.timeout,
-              })
-            );
-
-            if (result.isOk()) {
-              return ok(result.take() as Msg);
-            }
-
-            const cause = result.error.cause;
-            const message = cause instanceof Error
-              ? cause.message
-              : String(cause);
-            const isNoResponders = message.includes("no responders");
-
-            if (isNoResponders && retry < this.#noResponderMaxRetries) {
-              this.#log.debug(
-                { method, subject, retry },
-                "No responders, retrying...",
-              );
-              await new Promise((resolve) =>
-                setTimeout(resolve, this.#noResponderRetryMs * (retry + 1))
-              );
-              continue;
-            }
-
-            this.#log.warn(
-              { method, subject, error: message },
-              "NATS request failed",
-            );
-            const isNatsPermission = message.includes("Permissions Violation");
-            const reason = isNatsPermission
-              ? `Permission denied. You need one of these capabilities: ${ctx.callerCapabilities.join(", ")}`
-              : message;
-            return err(
-              new UnexpectedError({
-                cause,
-                context: {
-                  method,
-                  subject,
-                  reason,
-                  requiredCapabilities: ctx.callerCapabilities,
-                  noResponders: isNoResponders,
-                },
-              }),
-            );
-          }
-
-          return err(
-            new UnexpectedError({
-              context: { method, subject, reason: "retry loop exhausted" },
-            }),
-          );
-        };
-
-        const msgResult = await requestWithRetry();
+        const msgResult = await this.#requestMessageWithRetry({
+          method,
+          subject,
+          payload: msg,
+          headers,
+          timeout: opts?.timeout ?? this.timeout,
+          callerCapabilities: ctx.callerCapabilities,
+        });
         const response = msgResult.take();
         if (isErr(response)) {
           return response;
@@ -1416,12 +1460,26 @@ export class Trellis<
         if (response.headers?.get("status") === "error") {
           const json = safeJson(response).take();
           if (isErr(json)) {
-            return json;
+            return err(requestFailedTransportError({
+              code: "trellis.request.invalid_response",
+              message: "Trellis returned an invalid response.",
+              hint: "Retry the request. If it keeps happening, check the Trellis capability handling this request.",
+              method,
+              subject,
+              cause: json.error.cause,
+            }));
           }
 
           const errorData = parse(TrellisErrorDataSchema, json).take();
           if (isErr(errorData)) {
-            return errorData;
+            return err(requestFailedTransportError({
+              code: "trellis.request.invalid_response",
+              message: "Trellis returned an invalid response.",
+              hint: "Retry the request. If it keeps happening, check the Trellis capability handling this request.",
+              method,
+              subject,
+              cause: errorData.error,
+            }));
           }
 
           const declaredErrorTypes = Array.isArray(ctx.declaredErrorTypes)
@@ -1447,7 +1505,14 @@ export class Trellis<
 
         const json = safeJson(response).take();
         if (isErr(json)) {
-          return json;
+          return err(requestFailedTransportError({
+            code: "trellis.request.invalid_response",
+            message: "Trellis returned an invalid response.",
+            hint: "Retry the request. If it keeps happening, check the Trellis capability handling this request.",
+            method,
+            subject,
+            cause: json.error.cause,
+          }));
         }
 
         const outputResult = parseRuntimeSchema(ctx.output, json).take();
@@ -1472,7 +1537,9 @@ export class Trellis<
           }
           return result;
         } catch (cause) {
-          const unexpected = new UnexpectedError({ cause });
+          const unexpected = cause instanceof TransportError
+            ? cause
+            : new UnexpectedError({ cause });
           span.setStatus({
             code: SpanStatusCode.ERROR,
             message: unexpected.message,
@@ -1710,6 +1777,7 @@ export class Trellis<
             | AuthValidateRequestResponse
             | AuthError
             | RemoteError
+            | TransportError
             | ValidationError
             | UnexpectedError
             | undefined;
@@ -2232,10 +2300,69 @@ export class Trellis<
     return base64urlEncode(sigBytes);
   }
 
+  async #requestMessageWithRetry(args: {
+    method?: string;
+    subject: string;
+    payload: string;
+    headers: MsgHdrs;
+    timeout: number;
+    callerCapabilities?: readonly string[];
+  }): Promise<Result<Msg, TransportError>> {
+    for (let retry = 0; retry <= this.#noResponderMaxRetries; retry++) {
+      const result = await AsyncResult.try(() =>
+        this.nats.request(args.subject, args.payload, {
+          headers: args.headers,
+          timeout: args.timeout,
+        })
+      );
+
+      if (result.isOk()) {
+        return ok(result.take() as Msg);
+      }
+
+      const cause = result.error.cause;
+      const message = cause instanceof Error ? cause.message : String(cause);
+      const isNoResponders = message.includes("no responders");
+
+      if (isNoResponders && retry < this.#noResponderMaxRetries) {
+        this.#log.debug(
+          { method: args.method, subject: args.subject, retry },
+          "No responders, retrying...",
+        );
+        await new Promise((resolve) =>
+          setTimeout(resolve, this.#noResponderRetryMs * (retry + 1))
+        );
+        continue;
+      }
+
+      this.#log.warn(
+        { method: args.method, subject: args.subject, error: message },
+        "NATS request failed",
+      );
+      return err(classifyRequestTransportFailure({
+        method: args.method,
+        subject: args.subject,
+        callerCapabilities: args.callerCapabilities,
+        cause,
+      }));
+    }
+
+    return err(
+      requestFailedTransportError({
+        code: "trellis.request.retry_exhausted",
+        message: "Trellis could not complete the request after retrying.",
+        hint: "Retry the request. If it keeps failing, check that the target service is available.",
+        method: args.method,
+        subject: args.subject,
+        context: { retries: this.#noResponderMaxRetries + 1 },
+      }),
+    );
+  }
+
   #requestJson(
     subject: string,
     body: JsonValue,
-  ): AsyncResult<JsonValue, UnexpectedError> {
+  ): AsyncResult<JsonValue, TransportError | UnexpectedError> {
     return AsyncResult.from((async () => {
       const payload = JSON.stringify(body);
       const proof = await this.#createProof(subject, payload);
@@ -2244,17 +2371,28 @@ export class Trellis<
       headers.set("session-key", this.auth.sessionKey);
       headers.set("proof", proof);
 
-      const response = await AsyncResult.try(() =>
-        this.nats.request(subject, payload, {
-          timeout: this.timeout,
-          headers,
-        })
-      ).take();
+      const response = (await this.#requestMessageWithRetry({
+        subject,
+        payload,
+        headers,
+        timeout: this.timeout,
+      })).take();
       if (isErr(response)) {
         return response;
       }
 
-      return safeJson(response);
+      const json = safeJson(response).take();
+      if (isErr(json)) {
+        return err(createTransportError({
+          code: "trellis.request.invalid_response",
+          message: "Trellis returned an invalid response.",
+          hint: "Retry the request. If it keeps happening, reconnect to Trellis and try again.",
+          cause: json.error.cause,
+          context: { subject },
+        }));
+      }
+
+      return ok(json);
     })());
   }
 
@@ -2262,8 +2400,8 @@ export class Trellis<
     subject: string,
     body: JsonValue,
   ): AsyncResult<
-    AsyncIterable<Result<JsonValue, UnexpectedError>>,
-    UnexpectedError
+    AsyncIterable<Result<JsonValue, TransportError | UnexpectedError>>,
+    TransportError | UnexpectedError
   > {
     return AsyncResult.from((async () => {
       const payload = JSON.stringify(body);
@@ -2284,18 +2422,41 @@ export class Trellis<
         await this.nats.flush();
       } catch (cause) {
         sub.unsubscribe();
-        return err(new UnexpectedError({ cause }));
+        return err(createTransportError({
+          code: "trellis.watch.failed",
+          message: "Trellis could not start the operation watch.",
+          hint: "Retry watching the operation. If it keeps failing, reconnect to Trellis and try again.",
+          cause,
+          context: { subject },
+        }));
       }
 
       return ok((async function* () {
         try {
           for await (const msg of sub) {
             if (msg.headers?.get("status") === "error") {
-              yield err(new UnexpectedError({ cause: new Error(msg.string()) }));
+              yield err(createTransportError({
+                code: "trellis.watch.failed",
+                message: "Trellis stopped the operation watch.",
+                hint: "Retry watching the operation. If it keeps happening, reconnect to Trellis and try again.",
+                context: { subject, frame: msg.string() },
+              }));
               continue;
             }
 
-            yield safeJson(msg);
+            const json = safeJson(msg).take();
+            if (isErr(json)) {
+              yield err(createTransportError({
+                code: "trellis.watch.invalid_response",
+                message: "Trellis returned an invalid watch update.",
+                hint: "Retry watching the operation. If it keeps happening, reconnect to Trellis and try again.",
+                cause: json.error.cause,
+                context: { subject },
+              }));
+              continue;
+            }
+
+            yield ok(json);
           }
         } finally {
           sub.unsubscribe();
@@ -2308,7 +2469,7 @@ export class Trellis<
     input: AuthValidateRequestInput,
   ): AsyncResult<
     AuthValidateRequestResponse,
-    AuthError | RemoteError | ValidationError | UnexpectedError
+    AuthError | RemoteError | TransportError | ValidationError | UnexpectedError
   > {
     const request = this.request.bind(this) as (
       method: string,
@@ -2316,11 +2477,11 @@ export class Trellis<
       opts?: RequestOpts,
     ) => AsyncResult<
       unknown,
-      AuthError | RemoteError | ValidationError | UnexpectedError
+      AuthError | RemoteError | TransportError | ValidationError | UnexpectedError
     >;
     return request("Auth.ValidateRequest", input) as AsyncResult<
       AuthValidateRequestResponse,
-      AuthError | RemoteError | ValidationError | UnexpectedError
+      AuthError | RemoteError | TransportError | ValidationError | UnexpectedError
     >;
   }
 }

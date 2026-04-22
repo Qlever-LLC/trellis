@@ -155,6 +155,14 @@ type ContractRefBuilder = {
   error(name: string): string;
 };
 
+type SerializableErrorData = {
+  id: string;
+  type: string;
+  message: string;
+  context?: Record<string, unknown>;
+  traceId?: string;
+} & Record<string, unknown>;
+
 declare function defineServiceContract<
   TRegistry extends object,
   TBody extends object,
@@ -440,6 +448,11 @@ Rules:
   `API.owned`
 - returned runtimes expose typed operation, request, publish, and subscribe
   helpers derived from the contract
+- request and operation helpers may still fail with `TransportError` for
+  Trellis transport/runtime boundary failures even when that error is not listed
+  in the contract's declared remote `errors: [...]`
+- `UnexpectedError` is reserved for true internal or otherwise unexpected
+  runtime conditions rather than normal Trellis transport failures
 - `service.trellis.mount(...)` handlers receive already-validated typed payloads
   and may return either `Result` or `Promise<Result>`
 - server-side extracted RPC handler aliases should use the server package so the

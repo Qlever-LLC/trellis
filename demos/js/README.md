@@ -181,6 +181,11 @@ Expected result:
 - the device prints `Queued refresh ...`
 - the device polls until the refresh reaches `completed`
 
+If the jobs service is offline or the capability is unavailable, the device now
+prints a Trellis-native request failure such as `Trellis could not reach the
+requested capability. (trellis.request.unavailable)` plus a retry hint instead
+of an unhandled stack trace.
+
 ## State Demo
 
 Create and run the device:

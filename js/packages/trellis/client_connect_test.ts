@@ -6,6 +6,7 @@ import { base64urlEncode, createAuth } from "./auth/mod.ts";
 import type { SessionKeyHandle } from "./auth/browser.ts";
 import { connectClientWithDeps } from "./client_connect.ts";
 import type { TrellisAPI } from "./contracts.ts";
+import { TransportError } from "./errors/index.ts";
 
 const emptyApi = {
   rpc: {},
@@ -163,7 +164,7 @@ Deno.test("connectClientWithDeps uses reconnect-safe iat auth payloads for runti
       }));
     }) as typeof fetch;
 
-    await assertRejects(
+    const error = await assertRejects(
       () => connectClientWithDeps({
         trellisUrl: "https://trellis.example.com",
         contract: testContract,
@@ -182,9 +183,10 @@ Deno.test("connectClientWithDeps uses reconnect-safe iat auth payloads for runti
         }),
         now: () => nowMs,
       }),
-      Error,
-      "stop-after-connect",
+      TransportError,
     );
+
+    assertEquals(error.code, "trellis.runtime.connect_failed");
 
     const auth = await createAuth({ sessionKeySeed: TEST_SEED });
     const firstToken = JSON.parse(authTokenFromAuthenticator(connectAuthenticator)) as {
@@ -254,7 +256,7 @@ Deno.test("connectClientWithDeps retries bootstrap once after iat_out_of_range u
       throw new Error(`Unexpected fetch ${url}`);
     }) as typeof fetch;
 
-    await assertRejects(
+    const error = await assertRejects(
       () => connectClientWithDeps({
         trellisUrl: "https://trellis.example.com",
         contract: testContract,
@@ -271,11 +273,318 @@ Deno.test("connectClientWithDeps retries bootstrap once after iat_out_of_range u
         }),
         now: () => 1_700_000_000_000,
       }),
-      Error,
-      "stop-after-connect",
+      TransportError,
     );
 
+    assertEquals(error.code, "trellis.runtime.connect_failed");
     assertEquals(bootstrapIats, [1_700_000_000, 1_700_000_030]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("connectClientWithDeps maps callback bind failures to TransportError", async () => {
+  const originalFetch = globalThis.fetch;
+
+  try {
+    globalThis.fetch = ((input: URL | Request | string) => {
+      const url = String(input);
+      if (url.endsWith("/auth/flow/flow_123/bind")) {
+        return Promise.resolve(new Response(JSON.stringify({ status: "expired" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }));
+      }
+
+      throw new Error(`Unexpected fetch ${url}`);
+    }) as typeof fetch;
+
+    const error = await assertRejects(
+      () => connectClientWithDeps({
+        trellisUrl: "https://trellis.example.com",
+        contract: testContract,
+        auth: {
+          mode: "session_key",
+          sessionKeySeed: TEST_SEED,
+          redirectTo: "https://cli.example.com/callback",
+          flowId: "flow_123",
+        },
+      }, {
+        loadTransport: async () => ({
+          connect: async () => {
+            throw new Error("transport should not be used");
+          },
+        }),
+        now: () => 1_700_000_000_000,
+      }),
+      TransportError,
+    );
+
+    assertEquals(error.code, "trellis.auth.bind_expired");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("connectClientWithDeps maps malformed bind responses to TransportError", async () => {
+  const originalFetch = globalThis.fetch;
+  const handle = await createBrowserHandle();
+
+  try {
+    globalThis.fetch = ((input: URL | Request | string) => {
+      const url = String(input);
+      if (url.includes("/auth/flow/flow-invalid/bind")) {
+        return Promise.resolve(new Response("not-json", {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }));
+      }
+
+      throw new Error(`Unexpected fetch ${url}`);
+    }) as typeof fetch;
+
+    const error = await assertRejects(
+      () => connectClientWithDeps({
+        trellisUrl: "https://trellis.example.com",
+        contract: testContract,
+        auth: {
+          handle,
+          currentUrl: new URL("https://app.example.com/dashboard?flowId=flow-invalid"),
+        },
+      }, {
+        loadTransport: async () => {
+          throw new Error("loadTransport should not be called");
+        },
+        now: () => 1_700_000_000_000,
+      }),
+      TransportError,
+    );
+
+    assertEquals(error.code, "trellis.auth.bind_invalid_response");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("connectClientWithDeps maps invalid login flow responses to TransportError", async () => {
+  const originalFetch = globalThis.fetch;
+
+  try {
+    globalThis.fetch = ((input: URL | Request | string) => {
+      const url = String(input);
+      if (url.endsWith("/bootstrap/client")) {
+        return Promise.resolve(new Response(JSON.stringify({
+          status: "auth_required",
+          serverNow: 1_700_000_000,
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }));
+      }
+      if (url.endsWith("/auth/requests")) {
+        return Promise.resolve(new Response(JSON.stringify({ status: "pending" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }));
+      }
+
+      throw new Error(`Unexpected fetch ${url}`);
+    }) as typeof fetch;
+
+    const error = await assertRejects(
+      () => connectClientWithDeps({
+        trellisUrl: "https://trellis.example.com",
+        contract: testContract,
+        auth: {
+          mode: "session_key",
+          sessionKeySeed: TEST_SEED,
+          redirectTo: "https://cli.example.com/callback",
+        },
+      }, {
+        loadTransport: async () => ({
+          connect: async () => {
+            throw new Error("transport should not be used");
+          },
+        }),
+        now: () => 1_700_000_000_000,
+      }),
+      TransportError,
+    );
+
+    assertEquals(error.code, "trellis.auth.login_invalid_response");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("connectClientWithDeps maps invalid bootstrap responses to TransportError", async () => {
+  const originalFetch = globalThis.fetch;
+
+  try {
+    globalThis.fetch = (() => {
+      return Promise.resolve(new Response(JSON.stringify({ status: "ready" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }));
+    }) as typeof fetch;
+
+    const error = await assertRejects(
+      () => connectClientWithDeps({
+        trellisUrl: "https://trellis.example.com",
+        contract: testContract,
+        auth: {
+          mode: "session_key",
+          sessionKeySeed: TEST_SEED,
+          redirectTo: "https://cli.example.com/callback",
+        },
+      }, {
+        loadTransport: async () => ({
+          connect: async () => {
+            throw new Error("transport should not be used");
+          },
+        }),
+        now: () => 1_700_000_000_000,
+      }),
+      TransportError,
+    );
+
+    assertEquals(error.code, "trellis.bootstrap.invalid_response");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("connectClientWithDeps maps malformed bootstrap responses to TransportError", async () => {
+  const originalFetch = globalThis.fetch;
+
+  try {
+    globalThis.fetch = (() => {
+      return Promise.resolve(new Response("not-json", {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }));
+    }) as typeof fetch;
+
+    const error = await assertRejects(
+      () => connectClientWithDeps({
+        trellisUrl: "https://trellis.example.com",
+        contract: testContract,
+        auth: {
+          mode: "session_key",
+          sessionKeySeed: TEST_SEED,
+          redirectTo: "https://cli.example.com/callback",
+        },
+      }, {
+        loadTransport: async () => {
+          throw new Error("loadTransport should not be called");
+        },
+        now: () => 1_700_000_000_000,
+      }),
+      TransportError,
+    );
+
+    assertEquals(error.code, "trellis.bootstrap.invalid_response");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("connectClientWithDeps maps malformed login flow responses to TransportError", async () => {
+  const originalFetch = globalThis.fetch;
+
+  try {
+    globalThis.fetch = ((input: URL | Request | string) => {
+      const url = String(input);
+      if (url.endsWith("/bootstrap/client")) {
+        return Promise.resolve(new Response(JSON.stringify({
+          status: "auth_required",
+          serverNow: 1_700_000_000,
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }));
+      }
+      if (url.endsWith("/auth/requests")) {
+        return Promise.resolve(new Response("not-json", {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }));
+      }
+
+      throw new Error(`Unexpected fetch ${url}`);
+    }) as typeof fetch;
+
+    const error = await assertRejects(
+      () => connectClientWithDeps({
+        trellisUrl: "https://trellis.example.com",
+        contract: testContract,
+        auth: {
+          mode: "session_key",
+          sessionKeySeed: TEST_SEED,
+          redirectTo: "https://cli.example.com/callback",
+        },
+      }, {
+        loadTransport: async () => {
+          throw new Error("loadTransport should not be called");
+        },
+        now: () => 1_700_000_000_000,
+      }),
+      TransportError,
+    );
+
+    assertEquals(error.code, "trellis.auth.login_invalid_response");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("connectClientWithDeps maps runtime connection failures to TransportError", async () => {
+  const originalFetch = globalThis.fetch;
+
+  try {
+    globalThis.fetch = (() => {
+      return Promise.resolve(new Response(JSON.stringify({
+        status: "ready",
+        serverNow: 1_700_000_000,
+        connectInfo: {
+          sessionKey: "session-key",
+          contractId: testContract.CONTRACT.id,
+          contractDigest: "digest-a",
+          transports: {
+            native: { natsServers: ["nats://127.0.0.1:4222"] },
+          },
+          transport: {
+            inboxPrefix: "_INBOX.session-key",
+            sentinel: { jwt: "jwt", seed: "seed" },
+          },
+        },
+      }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }));
+    }) as typeof fetch;
+
+    const error = await assertRejects(
+      () => connectClientWithDeps({
+        trellisUrl: "https://trellis.example.com",
+        contract: testContract,
+        auth: {
+          mode: "session_key",
+          sessionKeySeed: TEST_SEED,
+          redirectTo: "https://cli.example.com/callback",
+        },
+      }, {
+        loadTransport: async () => ({
+          connect: async () => {
+            throw new Error("connection refused");
+          },
+        }),
+        now: () => 1_700_000_000_000,
+      }),
+      TransportError,
+    );
+
+    assertEquals(error.code, "trellis.runtime.connect_failed");
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -310,7 +619,7 @@ Deno.test("connectClientWithDeps preserves trellisUrl path when calling bootstra
       }));
     }) as typeof fetch;
 
-    await assertRejects(
+    const error = await assertRejects(
       () => connectClientWithDeps({
         trellisUrl: "https://trellis.example.com/base",
         contract: testContract,
@@ -327,10 +636,10 @@ Deno.test("connectClientWithDeps preserves trellisUrl path when calling bootstra
         }),
         now: () => 1_700_000_000_000,
       }),
-      Error,
-      "stop-after-connect",
+      TransportError,
     );
 
+    assertEquals(error.code, "trellis.runtime.connect_failed");
     assertEquals(fetchUrls[0], "https://trellis.example.com/base/bootstrap/client");
   } finally {
     globalThis.fetch = originalFetch;
@@ -371,7 +680,7 @@ Deno.test("connectClientWithDeps precomputes fresh browser-mode runtime auth tok
       }));
     }) as typeof fetch;
 
-    await assertRejects(
+    const error = await assertRejects(
       () => connectClientWithDeps({
         trellisUrl: "https://trellis.example.com",
         contract: testContract,
@@ -395,10 +704,10 @@ Deno.test("connectClientWithDeps precomputes fresh browser-mode runtime auth tok
         setInterval: () => 1,
         clearInterval: () => {},
       }),
-      Error,
-      "stop-after-connect",
+      TransportError,
     );
 
+    assertEquals(error.code, "trellis.runtime.connect_failed");
     const firstToken = JSON.parse(authTokenFromAuthenticator(connectAuthenticator)) as {
       iat: number;
       contractDigest: string;
@@ -467,7 +776,7 @@ Deno.test("connectClientWithDeps does not bind browser callbacks from window.loc
       throw new Error(`Unexpected fetch ${url}`);
     }) as typeof fetch;
 
-    await assertRejects(
+    const error = await assertRejects(
       () => connectClientWithDeps({
         trellisUrl: "https://trellis.example.com",
         contract: testContract,
@@ -480,10 +789,10 @@ Deno.test("connectClientWithDeps does not bind browser callbacks from window.loc
         }),
         now: () => 1_700_000_000_000,
       }),
-      Error,
-      "stop-after-connect",
+      TransportError,
     );
 
+    assertEquals(error.code, "trellis.runtime.connect_failed");
     assertEquals(fetchUrls, ["https://trellis.example.com/bootstrap/client"]);
   } finally {
     globalThis.fetch = originalFetch;
@@ -536,7 +845,7 @@ Deno.test("connectClientWithDeps requires explicit browser redirect state when r
       throw new Error(`Unexpected fetch ${url}`);
     }) as typeof fetch;
 
-    await assertRejects(
+    const error = await assertRejects(
       () => connectClientWithDeps({
         trellisUrl: "https://trellis.example.com",
         contract: testContract,
@@ -867,7 +1176,7 @@ Deno.test("connectClientWithDeps uses auth continuation when bootstrap requires 
       throw new Error(`Unexpected fetch ${url}`);
     }) as typeof fetch;
 
-    await assertRejects(
+    const error = await assertRejects(
       () => connectClientWithDeps({
         trellisUrl: "https://trellis.example.com",
         contract: testContract,
@@ -888,10 +1197,10 @@ Deno.test("connectClientWithDeps uses auth continuation when bootstrap requires 
         }),
         now: () => 1_700_000_000_000,
       }),
-      Error,
-      "stop-after-connect",
+      TransportError,
     );
 
+    assertEquals(error.code, "trellis.runtime.connect_failed");
     assertEquals(fetchUrls.some((url) => url.includes("/auth/flow/flow-1/bind")), true);
   } finally {
     globalThis.fetch = originalFetch;
@@ -935,7 +1244,7 @@ Deno.test("connectClientWithDeps cleans up stale browser callback URLs when bind
       throw new Error(`Unexpected fetch ${url}`);
     }) as typeof fetch;
 
-    await assertRejects(
+    const error = await assertRejects(
       () => connectClientWithDeps({
         trellisUrl: "https://trellis.example.com",
         contract: testContract,
@@ -949,10 +1258,10 @@ Deno.test("connectClientWithDeps cleans up stale browser callback URLs when bind
         },
         now: () => 1_700_000_000_000,
       }),
-      Error,
-      "Client bind did not complete: expired",
+      TransportError,
     );
 
+    assertEquals(error.code, "trellis.auth.bind_expired");
     assertEquals(currentUrl.toString(), "https://app.example.com/dashboard?redirectTo=%2Fdashboard#section");
     assertEquals(replaceStateCalls, [{ url: "/dashboard?redirectTo=%2Fdashboard#section" }]);
   } finally {
@@ -1055,7 +1364,7 @@ Deno.test("connectClientWithDeps reauths when bootstrap resolves a different con
       throw new Error(`Unexpected fetch ${url}`);
     }) as typeof fetch;
 
-    await assertRejects(
+    const error = await assertRejects(
       () => connectClientWithDeps({
         trellisUrl: "https://trellis.example.com",
         contract: testContract,
@@ -1073,10 +1382,10 @@ Deno.test("connectClientWithDeps reauths when bootstrap resolves a different con
         }),
         now: () => 1_700_000_000_000,
       }),
-      Error,
-      "stop-after-connect",
+      TransportError,
     );
 
+    assertEquals(error.code, "trellis.runtime.connect_failed");
     assertEquals(fetchUrls.some((url) => url.includes("/auth/requests")), true);
     assertEquals(fetchUrls.some((url) => url.includes("/auth/flow/flow-3/bind")), true);
   } finally {
@@ -1157,7 +1466,7 @@ Deno.test("connectClientWithDeps reauths when bootstrap reports insufficient per
       throw new Error(`Unexpected fetch ${url}`);
     }) as typeof fetch;
 
-    await assertRejects(
+    const error = await assertRejects(
       () => connectClientWithDeps({
         trellisUrl: "https://trellis.example.com",
         contract: testContract,
@@ -1178,10 +1487,10 @@ Deno.test("connectClientWithDeps reauths when bootstrap reports insufficient per
         }),
         now: () => 1_700_000_000_000,
       }),
-      Error,
-      "stop-after-connect",
+      TransportError,
     );
 
+    assertEquals(error.code, "trellis.runtime.connect_failed");
     assertEquals(fetchUrls.some((url) => url.endsWith("/auth/requests")), true);
   } finally {
     globalThis.fetch = originalFetch;
@@ -1261,7 +1570,7 @@ Deno.test("connectClientWithDeps reauths when bootstrap reports contract_not_act
       throw new Error(`Unexpected fetch ${url}`);
     }) as typeof fetch;
 
-    await assertRejects(
+    const error = await assertRejects(
       () => connectClientWithDeps({
         trellisUrl: "https://trellis.example.com",
         contract: testContract,
@@ -1282,10 +1591,10 @@ Deno.test("connectClientWithDeps reauths when bootstrap reports contract_not_act
         }),
         now: () => 1_700_000_000_000,
       }),
-      Error,
-      "stop-after-connect",
+      TransportError,
     );
 
+    assertEquals(error.code, "trellis.runtime.connect_failed");
     assertEquals(fetchUrls.some((url) => url.endsWith("/auth/requests")), true);
   } finally {
     globalThis.fetch = originalFetch;

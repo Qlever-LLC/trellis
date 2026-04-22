@@ -4,7 +4,7 @@ import type {
 import { AsyncResult, err, isErr, ok, type Result } from "@qlever-llc/result";
 
 import type { JsonValue } from "./codec.ts";
-import { TransferError, UnexpectedError } from "./errors/index.ts";
+import { TransferError, TransportError, UnexpectedError } from "./errors/index.ts";
 import type {
   FileInfo,
   TransferBody,
@@ -74,7 +74,7 @@ export type StartedTransfer<
   >;
   wait(): AsyncResult<
     CompletedTransfer<TDesc, TProgress, TOutput>,
-    UnexpectedError | TransferError
+    TransportError | UnexpectedError | TransferError
   >;
 };
 
@@ -91,12 +91,12 @@ export type OperationRef<
   id: string;
   service: string;
   operation: string;
-  get(): AsyncResult<OperationSnapshot<TProgress, TOutput>, UnexpectedError>;
-  wait(): AsyncResult<TerminalOperation<TProgress, TOutput>, UnexpectedError>;
-  watch(): AsyncResult<AsyncIterable<OperationEvent<TProgress, TOutput>>, UnexpectedError>;
+  get(): AsyncResult<OperationSnapshot<TProgress, TOutput>, TransportError | UnexpectedError>;
+  wait(): AsyncResult<TerminalOperation<TProgress, TOutput>, TransportError | UnexpectedError>;
+  watch(): AsyncResult<AsyncIterable<OperationEvent<TProgress, TOutput>>, TransportError | UnexpectedError>;
 } & (OperationRefCanCancel<TDesc> extends true
   ? {
-      cancel(): AsyncResult<OperationSnapshot<TProgress, TOutput>, UnexpectedError>;
+      cancel(): AsyncResult<OperationSnapshot<TProgress, TOutput>, TransportError | UnexpectedError>;
     }
   : {});
 
@@ -215,7 +215,7 @@ interface OperationInputBuilderBase<
   TOutput,
   TBuilder,
 > extends OperationObserverBuilderBase<TBuilder, TProgress, TOutput> {
-  start(): AsyncResult<OperationRef<TDesc, TProgress, TOutput>, UnexpectedError>;
+  start(): AsyncResult<OperationRef<TDesc, TProgress, TOutput>, TransportError | UnexpectedError>;
 }
 
 export interface TransferOperationBuilder<
@@ -232,7 +232,7 @@ export interface TransferOperationBuilder<
   ): TransferOperationBuilder<TDesc, TProgress, TOutput>;
   start(): AsyncResult<
     StartedTransfer<TDesc, TProgress, TOutput>,
-    UnexpectedError | TransferError
+    TransportError | UnexpectedError | TransferError
   >;
 }
 
@@ -307,11 +307,11 @@ export interface OperationTransport {
   requestJson(
     subject: string,
     body: JsonValue,
-  ): AsyncResult<JsonValue, UnexpectedError>;
+  ): AsyncResult<JsonValue, TransportError | UnexpectedError>;
   watchJson(
     subject: string,
     body: JsonValue,
-  ): AsyncResult<AsyncIterable<Result<JsonValue, UnexpectedError>>, UnexpectedError>;
+  ): AsyncResult<AsyncIterable<Result<JsonValue, TransportError | UnexpectedError>>, TransportError | UnexpectedError>;
   putTransfer(
     grant: UploadTransferGrant,
     body: TransferBody,
@@ -328,6 +328,29 @@ export function controlSubject(subject: string): string {
 
 function isTerminalState(state: OperationState): boolean {
   return state === "completed" || state === "failed" || state === "cancelled";
+}
+
+function createTransportError(args: {
+  code: string;
+  message: string;
+  hint: string;
+  context?: Record<string, unknown>;
+  cause?: unknown;
+}): TransportError {
+  return new TransportError({
+    code: args.code,
+    message: args.message,
+    hint: args.hint,
+    cause: args.cause,
+    context: {
+      ...(args.context ?? {}),
+      ...(args.cause instanceof Error
+        ? { causeName: args.cause.name, causeMessage: args.cause.message }
+        : args.cause === undefined
+        ? {}
+        : { cause: String(args.cause) }),
+    },
+  });
 }
 
 function snapshotToEvent<TProgress, TOutput>(
@@ -358,7 +381,7 @@ function isTerminalEvent<TProgress, TOutput>(
 
 function normalizeOperationEvent<TProgress, TOutput>(
   event: OperationEvent<TProgress, TOutput>,
-): Result<OperationEvent<TProgress, TOutput>, UnexpectedError> {
+): Result<OperationEvent<TProgress, TOutput>, TransportError> {
   try {
     switch (event.type) {
       case "transfer": {
@@ -395,7 +418,12 @@ function normalizeOperationEvent<TProgress, TOutput>(
         return ok(event);
     }
   } catch (cause) {
-    return err(new UnexpectedError({ cause }));
+    return err(createTransportError({
+      code: "trellis.operation.invalid_event",
+      message: "Trellis returned an invalid operation event.",
+      hint: "Retry the operation watch. If it keeps failing, reconnect to Trellis and try again.",
+      cause,
+    }));
   }
 }
 
@@ -447,7 +475,7 @@ function hasObserverCallbacks<TProgress, TOutput>(
 
 function decodeAcceptedEnvelope<TProgress, TOutput>(
   value: JsonValue,
-): Result<OperationAcceptedEnvelope<TProgress, TOutput>, UnexpectedError> {
+): Result<OperationAcceptedEnvelope<TProgress, TOutput>, TransportError> {
   try {
     const envelope = value as OperationAcceptedEnvelope<TProgress, TOutput>;
     if (envelope?.kind !== "accepted" || !envelope.ref || !envelope.snapshot) {
@@ -457,16 +485,21 @@ function decodeAcceptedEnvelope<TProgress, TOutput>(
     }
     return ok(envelope);
   } catch (cause) {
-    return err(new UnexpectedError({ cause }));
+    return err(createTransportError({
+      code: "trellis.operation.invalid_accept",
+      message: "Trellis returned an invalid operation start response.",
+      hint: "Retry starting the operation. If it keeps failing, reconnect to Trellis and try again.",
+      cause,
+    }));
   }
 }
 
 function decodeSnapshotFrame<TProgress, TOutput>(
   value: JsonValue,
-): Result<OperationSnapshotFrame<TProgress, TOutput>, UnexpectedError> {
+): Result<OperationSnapshotFrame<TProgress, TOutput>, TransportError> {
   try {
     if (isOperationControlErrorFrame(value)) {
-      return err(controlFrameToUnexpectedError(value));
+      return err(controlFrameToTransportError(value));
     }
 
     const frame = value as OperationSnapshotFrame<TProgress, TOutput>;
@@ -475,7 +508,12 @@ function decodeSnapshotFrame<TProgress, TOutput>(
     }
     return ok(frame);
   } catch (cause) {
-    return err(new UnexpectedError({ cause }));
+    return err(createTransportError({
+      code: "trellis.operation.invalid_snapshot",
+      message: "Trellis returned an invalid operation snapshot.",
+      hint: "Retry the operation request. If it keeps failing, reconnect to Trellis and try again.",
+      cause,
+    }));
   }
 }
 
@@ -510,24 +548,29 @@ class RuntimeOperationRef<
     return this.#descriptor.cancel === true;
   }
 
-  get(): AsyncResult<OperationSnapshot<TProgress, TOutput>, UnexpectedError> {
+  get(): AsyncResult<OperationSnapshot<TProgress, TOutput>, TransportError | UnexpectedError> {
     return this.#controlSnapshot("get");
   }
 
-  wait(): AsyncResult<TerminalOperation<TProgress, TOutput>, UnexpectedError> {
+  wait(): AsyncResult<TerminalOperation<TProgress, TOutput>, TransportError | UnexpectedError> {
     return AsyncResult.from((async () => {
       const snapshotValue = await this.#controlSnapshot("wait").take();
       if (isErr(snapshotValue)) {
         return snapshotValue;
       }
       if (!isTerminalState(snapshotValue.state)) {
-        return err(new UnexpectedError({ cause: new Error("wait returned non-terminal snapshot") }));
+        return err(createTransportError({
+          code: "trellis.operation.invalid_snapshot",
+          message: "Trellis returned an incomplete operation snapshot.",
+          hint: "Retry the operation request. If it keeps happening, reconnect to Trellis and try again.",
+          cause: new Error("wait returned non-terminal snapshot"),
+        }));
       }
       return ok(snapshotValue as TerminalOperation<TProgress, TOutput>);
     })());
   }
 
-  cancel(): AsyncResult<OperationSnapshot<TProgress, TOutput>, UnexpectedError> {
+  cancel(): AsyncResult<OperationSnapshot<TProgress, TOutput>, TransportError | UnexpectedError> {
     return this.#controlSnapshot("cancel");
   }
 
@@ -542,7 +585,7 @@ class RuntimeOperationRef<
     return this.#transport.putTransfer(grant, body);
   }
 
-  watch(): AsyncResult<AsyncIterable<OperationEvent<TProgress, TOutput>>, UnexpectedError> {
+  watch(): AsyncResult<AsyncIterable<OperationEvent<TProgress, TOutput>>, TransportError | UnexpectedError> {
     return AsyncResult.from((async () => {
       const rawIterable = await this.#transport.watchJson(
         controlSubject(this.#descriptor.subject),
@@ -554,7 +597,7 @@ class RuntimeOperationRef<
       if (isErr(rawIterable)) {
         return err(rawIterable.error);
       }
-      const iterable = rawIterable as AsyncIterable<Result<JsonValue, UnexpectedError>>;
+      const iterable = rawIterable as AsyncIterable<Result<JsonValue, TransportError | UnexpectedError>>;
 
       async function* events() {
         for await (const frame of iterable) {
@@ -587,7 +630,7 @@ class RuntimeOperationRef<
 
   #controlSnapshot(
     action: "get" | "wait" | "cancel" | "watch",
-  ): AsyncResult<OperationSnapshot<TProgress, TOutput>, UnexpectedError> {
+  ): AsyncResult<OperationSnapshot<TProgress, TOutput>, TransportError | UnexpectedError> {
     return AsyncResult.from((async () => {
       const responseValue = await this.#transport.requestJson(
         controlSubject(this.#descriptor.subject),
@@ -613,14 +656,14 @@ class RuntimeOperationRef<
 
 function decodeWatchFrame<TProgress, TOutput>(
   value: JsonValue,
-): Result<OperationEvent<TProgress, TOutput> | null, UnexpectedError> {
+): Result<OperationEvent<TProgress, TOutput> | null, TransportError> {
   try {
     if (value && typeof value === "object" && (value as { kind?: string }).kind === "keepalive") {
       return ok(null);
     }
 
     if (isOperationControlErrorFrame(value)) {
-      return err(controlFrameToUnexpectedError(value));
+      return err(controlFrameToTransportError(value));
     }
 
     const frame = value as
@@ -636,12 +679,17 @@ function decodeWatchFrame<TProgress, TOutput>(
 
     throw new Error("Expected snapshot, event, or keepalive frame");
   } catch (cause) {
-    return err(new UnexpectedError({ cause }));
+    return err(createTransportError({
+      code: "trellis.operation.invalid_frame",
+      message: "Trellis returned an invalid operation watch frame.",
+      hint: "Retry the operation watch. If it keeps failing, reconnect to Trellis and try again.",
+      cause,
+    }));
   }
 }
 
 type OperationWatchObservation<TProgress, TOutput> = {
-  task?: Promise<Result<TerminalOperation<TProgress, TOutput>, UnexpectedError>>;
+  task?: Promise<Result<TerminalOperation<TProgress, TOutput>, TransportError | UnexpectedError>>;
   close?: () => Promise<void>;
 };
 
@@ -659,7 +707,7 @@ function invokeOperation<TDesc extends OperationShape, TProgress, TOutput>(
   transport: OperationTransport,
   descriptor: TDesc,
   input: unknown,
-): AsyncResult<InvokedOperation<TDesc, TProgress, TOutput>, UnexpectedError> {
+): AsyncResult<InvokedOperation<TDesc, TProgress, TOutput>, TransportError | UnexpectedError> {
   return AsyncResult.from((async () => {
     const responseValue = await transport.requestJson(
       descriptor.subject,
@@ -697,7 +745,7 @@ function beginObservedWatch<
   operation: RuntimeOperationRef<TDesc, TProgress, TOutput>,
   callbacks: OperationObserverCallbacks<TProgress, TOutput>,
   options: ObservedWatchOptions<TProgress, TOutput> = {},
-): AsyncResult<OperationWatchObservation<TProgress, TOutput>, UnexpectedError> {
+): AsyncResult<OperationWatchObservation<TProgress, TOutput>, TransportError | UnexpectedError> {
   if (!hasObserverCallbacks(callbacks)) {
     return AsyncResult.ok({});
   }
@@ -713,7 +761,7 @@ function beginObservedWatch<
       await iterator.return?.();
     };
 
-    const task = (async (): Promise<Result<TerminalOperation<TProgress, TOutput>, UnexpectedError>> => {
+    const task = (async (): Promise<Result<TerminalOperation<TProgress, TOutput>, TransportError | UnexpectedError>> => {
       try {
         await options.ready;
 
@@ -738,11 +786,14 @@ function beginObservedWatch<
           }
         }
 
-        return err(new UnexpectedError({
+        return err(createTransportError({
+          code: "trellis.operation.watch_incomplete",
+          message: "Trellis ended the operation watch before completion.",
+          hint: "Retry watching the operation. If it keeps happening, reconnect to Trellis and try again.",
           cause: new Error("operation watch ended before terminal event"),
         }));
       } catch (cause) {
-        return err(cause instanceof UnexpectedError
+        return err(cause instanceof TransportError || cause instanceof UnexpectedError
           ? cause
           : new UnexpectedError({ cause }));
       }
@@ -761,7 +812,7 @@ function startObservedOperation<
   descriptor: TDesc,
   input: unknown,
   callbacks: OperationObserverCallbacks<TProgress, TOutput>,
-): AsyncResult<OperationRef<TDesc, TProgress, TOutput>, UnexpectedError> {
+): AsyncResult<OperationRef<TDesc, TProgress, TOutput>, TransportError | UnexpectedError> {
   return AsyncResult.from((async () => {
     const startedValue = await invokeOperation<TDesc, TProgress, TOutput>(
       transport,
@@ -809,7 +860,7 @@ function startObservedTransfer<
   input: unknown,
   body: TransferBody,
   callbacks: OperationObserverCallbacks<TProgress, TOutput>,
-): AsyncResult<StartedTransfer<TDesc, TProgress, TOutput>, UnexpectedError | TransferError> {
+): AsyncResult<StartedTransfer<TDesc, TProgress, TOutput>, TransportError | UnexpectedError | TransferError> {
   return AsyncResult.from((async () => {
     const startedValue = await invokeOperation<TDesc, TProgress, TOutput>(
       transport,
@@ -1104,9 +1155,11 @@ function isOperationControlErrorFrame(value: JsonValue): value is OperationContr
     typeof Reflect.get(value, "error") === "object";
 }
 
-function controlFrameToUnexpectedError(frame: OperationControlErrorFrame): UnexpectedError {
-  return new UnexpectedError({
-    cause: new Error(`Operation control error ${frame.error.type}: ${frame.error.message}`),
+function controlFrameToTransportError(frame: OperationControlErrorFrame): TransportError {
+  return createTransportError({
+    code: "trellis.operation.control_error",
+    message: "Trellis rejected the operation control request.",
+    hint: "Check the operation state, then retry the action if it still applies.",
     context: {
       controlErrorType: frame.error.type,
       controlErrorMessage: frame.error.message,
@@ -1136,7 +1189,7 @@ function createAcceptedReplayFilter<TProgress, TOutput>(
 }
 
 function failedObservation<TProgress, TOutput>(
-  error: UnexpectedError,
+  error: TransportError | UnexpectedError,
 ): OperationWatchObservation<TProgress, TOutput> {
   return {
     task: Promise.resolve(err(error)),
@@ -1160,6 +1213,7 @@ function toObservedCallbackError(cause: unknown): UnexpectedError {
     .withContext({ operationObserverCallback: true });
 }
 
-function isObservedCallbackError(error: UnexpectedError): boolean {
-  return error.getContext().operationObserverCallback === true;
+function isObservedCallbackError(error: TransportError | UnexpectedError): boolean {
+  return error instanceof UnexpectedError &&
+    error.getContext().operationObserverCallback === true;
 }

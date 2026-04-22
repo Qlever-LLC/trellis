@@ -59,7 +59,7 @@ export type {
   InferRuntimeRpcError,
   RpcErrorClass,
   RuntimeRpcErrorDesc,
-  TransportErrorData,
+  SerializableErrorData,
 } from "./contract_support/mod.ts";
 export {
   defineAppContract,
@@ -96,6 +96,7 @@ export {
   KVError,
   RemoteError,
   StoreError,
+  TransportError,
   TransferError,
   TrellisError,
   UnexpectedError,

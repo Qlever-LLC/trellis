@@ -10,6 +10,7 @@ import type { KVErrorData } from "./KVError.ts";
 import type { StoreErrorData } from "./StoreError.ts";
 import type { TrellisErrorData } from "../models/trellis/TrellisError.ts";
 import { TrellisErrorDataSchema } from "../models/trellis/TrellisError.ts";
+import type { TransportErrorData } from "./TransportError.ts";
 import type { TransferErrorData } from "./TransferError.ts";
 import { TrellisError } from "./TrellisError.ts";
 import { ValidationError } from "./ValidationError.ts";
@@ -31,6 +32,7 @@ export type TransportableTrellisErrorData =
   | ValidationErrorData
   | KVErrorData
   | StoreErrorData
+  | TransportErrorData
   | TransferErrorData
   | TrellisErrorData;
 

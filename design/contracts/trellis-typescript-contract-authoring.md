@@ -163,6 +163,10 @@ For locally authored TypeScript contract source files under `contracts/*.ts`:
 - RPC `errors: [...]` entries should normally use `ref.error("...")` for both
   local declarations and built-in Trellis RPC errors such as `UnexpectedError`,
   `ValidationError`, `AuthError`, and `TransferError`
+- `TransportError` is built into Trellis runtime call surfaces, but it is not a
+  contract-authored RPC `errors: [...]` entry; it represents Trellis
+  transport/runtime boundary failures rather than a handler-declared remote
+  error
 - authors should not hand-assemble a wrapper object that re-exports
   `CONTRACT_ID`, `CONTRACT`, `CONTRACT_DIGEST`, and `API` just to satisfy
   generator tooling
@@ -233,6 +237,10 @@ Rules:
 - RPC `errors: [...]` entries should usually be authored through
   `ref.error(...)` so local declaration keys and built-in Trellis errors share
   one pattern
+- `TransportError` should not be used as a service-local domain error; it is
+  reserved for Trellis-native transport/runtime boundary failures, while
+  `UnexpectedError` remains for true internal or otherwise unexpected
+  conditions
 - the emitted manifest remains plain JSON; Trellis attaches JS-only
   reconstruction metadata to the local contract object rather than serializing
   class constructors
