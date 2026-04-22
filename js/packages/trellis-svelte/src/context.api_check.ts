@@ -3,13 +3,19 @@ import { CONTRACT_STATE_METADATA } from "../../trellis/contract_support/mod.ts";
 import type { Snippet } from "svelte";
 import type { TrellisProviderProps } from "./components/TrellisProvider.types.ts";
 import type { AuthState } from "./state/auth.svelte.ts";
-import type { ConnectionState, TypedPublicTrellis } from "./context.svelte.ts";
+import type {
+  ConnectionState,
+  PublicTrellis,
+  TypedPublicTrellis,
+} from "./context.svelte.ts";
 import {
   createAuthContext,
   createAuthState,
   createConnectionStateContext,
   createTrellisContext,
   createTrellisProviderContexts,
+  getConnectionState,
+  getTrellis,
 } from "./index.ts";
 
 const trellisApi = {
@@ -104,7 +110,19 @@ const signInResult: Promise<never> = typedAuth.signIn({
   authUrl: "http://localhost:4000",
   landingPath: "/dashboard",
 });
-const connectionStatus: Promise<"disconnected" | "connecting" | "connected" | "error"> = connectionState.then((state) => state.status);
+
+const providerTrellis: Promise<PublicTrellis<TrellisAPI>> = getTrellis({
+  CONTRACT: {
+    id: "trellis.svelte.test@v1",
+  },
+  CONTRACT_DIGEST: "digest-a",
+  API: {
+    trellis: trellisApi,
+  },
+});
+const providerConnectionState = getConnectionState();
+const connectionStatus: Promise<"disconnected" | "connecting" | "connected" | "error"> = providerConnectionState
+  .then((state) => state.status);
 
 typedTrellis.then((trellis) => {
   // @ts-expect-error clean break: raw NATS access is no longer part of the public trellis-svelte surface
@@ -126,3 +144,4 @@ void bundledTypedAuth;
 void providerProps;
 void invalidProviderContexts;
 void otherTrellisContext;
+void providerTrellis;

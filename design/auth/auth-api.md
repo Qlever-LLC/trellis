@@ -156,6 +156,12 @@ Behavior:
 9. Redirect back into portal with `flowId` so portal can reload browser-flow
    state and follow the next server-generated redirect when appropriate
 
+Rules:
+
+- callback redirects preserve `flowId`; they do not need to carry `trellisUrl`
+  in the default model because the selected portal deployment already has an
+  explicit Trellis instance URL configuration
+
 ### GET /auth/flow/:flowId
 
 Returns machine-readable browser flow state for portal.
@@ -925,9 +931,11 @@ type DecideDeviceActivationReviewResponse = {
 
 Portal rules:
 
-- Trellis always provides a built-in portal served by the Trellis HTTP server
-  from static assets; it includes both login and generic device-activation
-  routes and is not represented as a mutable portal record
+- Trellis always provides a built-in portal deployment for login and generic
+  device-activation routes; it is commonly served by the Trellis HTTP server
+  from static assets and is not represented as a mutable portal record
+- portals are per-instance deployments by default, and built-in or custom portal
+  apps should use explicit Trellis URL config rather than same-origin inference
 - a portal record registers only custom browser routing config:
   `portalId`, `entryUrl`, and `disabled`
 - custom portals remain first-class, but there is no portal-specific contract

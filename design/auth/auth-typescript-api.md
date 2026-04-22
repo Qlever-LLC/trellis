@@ -33,6 +33,7 @@ It covers:
 - browser login clients preserve and consume `flowId`; they do not treat fragment-delivered `authToken` as the main UX path
 - device activation portal clients preserve and consume `flowId`
 - high-level runtime entrypoints use `trellisUrl`; lower-level auth-only helpers may still use `authUrl`
+- portal redirects in the default model preserve `flowId` but do not need to carry `trellisUrl`; portal and app deployments should already know their target Trellis URL from explicit instance config
 
 ## Browser Surface
 
@@ -104,6 +105,7 @@ Rules:
 - `buildLoginUrl(...)` is a convenience wrapper over `startAuthRequest(...)`
   that expects `flow_started` and returns only the resulting `loginUrl`
 - browser clients MUST preserve `flowId` in redirects and callback URLs
+- browser and portal redirects in the default model SHOULD rely on deployment-local Trellis URL config rather than echoing `trellisUrl` through auth-owned redirect URLs
 - portal state comes from `GET /auth/flow/:flowId`
 - the final browser bind proof is `sign(hash("bind-flow:" + flowId))`
 - `bindSession(..., authToken)` still exists as a lower-level path, but `bindFlow(..., flowId)` is the primary browser UX path
@@ -173,6 +175,7 @@ Portal/browser route rules:
 - normal browser bind is `POST /auth/flow/:flowId/bind`
 - the portal redirects using the `location` returned by auth-owned flow state
 - portal customization data comes from `flowState.app.context`, not from portal-local query conventions
+- static SvelteKit portal apps SHOULD read their Trellis URL from build-time public env such as `PUBLIC_TRELLIS_URL`
 - a portal may later continue as a normal user-authenticated browser app route, but that uses a standard browser app contract rather than service auth
 
 ## Portal Helper Surface

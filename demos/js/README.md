@@ -28,7 +28,10 @@ Supported demos:
 
 1. Make sure Trellis is running at `http://localhost:3000`.
 2. Make sure the `trellis` CLI is logged in as an admin.
-3. Prepare the demo workspace:
+3. If you want to run the Svelte demo app, set `PUBLIC_TRELLIS_URL` to the
+   Trellis instance URL. The checked-in `.env.example` uses
+   `http://localhost:3000`.
+4. Prepare the demo workspace:
 
 ```sh
 deno task -c demos/js/deno.json prepare
@@ -36,6 +39,21 @@ deno task -c demos/js/deno.json prepare
 
 If you are editing a specific demo, run that demo's focused `check:prepared`
 task instead of the workspace-wide `check` task.
+
+## Browser App Demo
+
+The Svelte demo app uses explicit per-instance Trellis URL configuration instead
+of hardcoding or inferring the browser origin.
+
+1. Copy `demos/js/app/.env.example` to `demos/js/app/.env` if needed.
+2. Set `PUBLIC_TRELLIS_URL` to the Trellis instance the app should talk to.
+3. Run `deno task -c demos/js/app/deno.json dev`.
+
+For ad hoc runs, you can also set the env var from the shell:
+
+```sh
+PUBLIC_TRELLIS_URL=http://localhost:3000 deno task -c demos/js/app/deno.json dev
+```
 
 ## First Device Activation
 

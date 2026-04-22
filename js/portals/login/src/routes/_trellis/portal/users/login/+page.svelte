@@ -2,17 +2,13 @@
   import { browser } from "$app/environment";
   import { onMount } from "svelte";
   import { portalRedirectLocation } from "@qlever-llc/trellis/auth/browser";
-  import { createPortalFlow } from "@qlever-llc/trellis-svelte";
-  import { APP_CONFIG } from "../../../../../lib/config";
+  import { trellisUrl, createPortalLoginFlow } from "../../../../../lib/trellis";
   import {
     shouldOfferPortalReturnLink,
     shouldStayOnPortalCompletionPage,
   } from "./page_state";
 
-  const flow = createPortalFlow({
-    authUrl: APP_CONFIG.authUrl,
-    getUrl: () => pageUrl(),
-  });
+  const flow = createPortalLoginFlow();
 
   function pageUrl(): URL {
     return new URL(window.location.href);
@@ -35,9 +31,9 @@
       const returnLocation = "returnLocation" in flow.state && typeof flow.state.returnLocation === "string"
         ? flow.state.returnLocation
         : undefined;
-      return returnLocation ?? APP_CONFIG.authUrl;
+      return returnLocation ?? trellisUrl;
     }
-    return APP_CONFIG.authUrl;
+    return trellisUrl;
   }
 
   function shouldShowReturnToAppLink(): boolean {
@@ -177,7 +173,7 @@
           <h1 class="text-lg font-bold text-base-content">Session expired</h1>
           <p class="mt-1 text-sm text-base-content/60">Return to the app and try again.</p>
         </div>
-        <a class="btn btn-outline btn-block" href={APP_CONFIG.authUrl}>Open auth service</a>
+        <a class="btn btn-outline btn-block" href={trellisUrl}>Open auth service</a>
       {:else if flow.state?.status === "redirect"}
         {#if showDetachedCompletion()}
           <div>

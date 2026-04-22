@@ -1,9 +1,9 @@
+import type { TrellisAPI } from "../../trellis/contracts.ts";
 import { createContext } from "svelte";
 import {
   createPublicTrellis,
   type ConnectionState,
   type PublicTrellis,
-  type TrellisContractLike,
   type TypedPublicTrellis,
 } from "./state/trellis.svelte.ts";
 import type { AuthState } from "./state/auth.svelte.ts";
@@ -11,10 +11,19 @@ import type { AuthState } from "./state/auth.svelte.ts";
 export type {
   ConnectionState,
   PublicTrellis,
-  TrellisContractLike,
   TypedPublicTrellis,
 } from "./state/trellis.svelte.ts";
 export { createPublicTrellis } from "./state/trellis.svelte.ts";
+
+export type TrellisContractLike<TA extends TrellisAPI = TrellisAPI> = {
+  CONTRACT: {
+    id: string;
+  };
+  CONTRACT_DIGEST: string;
+  API: {
+    trellis: TA;
+  };
+};
 
 export type TrellisContext<TContract extends TrellisContractLike = TrellisContractLike> = {
   getTrellis(): Promise<TypedPublicTrellis<TContract>>;
@@ -38,6 +47,17 @@ export type TrellisProviderContexts<
   auth: AuthContext;
   connectionState: ConnectionStateContext;
 };
+
+type ProviderRuntimeContext = {
+  contractId: string;
+  getTrellis: () => Promise<unknown>;
+};
+
+const [getProviderTrellisContextValue, setProviderTrellisContextValue] = createContext<ProviderRuntimeContext>();
+const [getProviderConnectionStateContextValue, setProviderConnectionStateContextValue] = createContext<
+  Promise<ConnectionState>
+>();
+const [getProviderAuthContextValue, setProviderAuthContextValue] = createContext<() => AuthState>();
 
 function createValueContext<T>() {
   const [getValue, setValue] = createContext<T>();
@@ -107,4 +127,60 @@ export function createTrellisProviderContexts<TContract extends TrellisContractL
     auth: createAuthContext(),
     connectionState: createConnectionStateContext(),
   };
+}
+
+export function setTrellisContext(ctx: ProviderRuntimeContext): void {
+  setProviderTrellisContextValue(ctx);
+}
+
+export function setConnectionStateContext(connectionState: Promise<ConnectionState>): void {
+  setProviderConnectionStateContextValue(connectionState);
+}
+
+export function setAuthContext(getAuth: () => AuthState): void {
+  setProviderAuthContextValue(getAuth);
+}
+
+function isTrellisContextForContract<TContract extends TrellisContractLike>(
+  ctx: ProviderRuntimeContext,
+  contract: TContract,
+): ctx is {
+  contractId: TContract["CONTRACT"]["id"];
+  getTrellis: () => Promise<PublicTrellis<TContract["API"]["trellis"]>>;
+} {
+  return ctx.contractId === contract.CONTRACT.id;
+}
+
+export function getTrellis<TContract extends TrellisContractLike>(
+  contract: TContract,
+): Promise<PublicTrellis<TContract["API"]["trellis"]>> {
+  const ctx = getProviderTrellisContextValue();
+  if (!isTrellisContextForContract(ctx, contract)) {
+    throw new Error(`Trellis contract mismatch: expected ${contract.CONTRACT.id}, got ${ctx.contractId}`);
+  }
+
+  return ctx.getTrellis();
+}
+
+/**
+ * Returns the live Trellis runtime from context for a specific contract id.
+ * @param contractId The expected contract id for the current Trellis provider.
+ * @returns The live runtime instance stored in Svelte context.
+ * @throws {Error} If the current provider contract id does not match `contractId`.
+ */
+export function getTrellisRuntime(contractId: string): Promise<unknown> {
+  const ctx = getProviderTrellisContextValue();
+  if (ctx.contractId !== contractId) {
+    throw new Error(`Trellis contract mismatch: expected ${contractId}, got ${ctx.contractId}`);
+  }
+
+  return ctx.getTrellis();
+}
+
+export function getConnectionState(): Promise<ConnectionState> {
+  return getProviderConnectionStateContextValue();
+}
+
+export function getAuth(): AuthState {
+  return getProviderAuthContextValue()();
 }

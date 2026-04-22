@@ -4,6 +4,10 @@ export {
   createConnectionStateContext,
   createTrellisContext,
   createTrellisProviderContexts,
+  getAuth,
+  getConnectionState,
+  getTrellis,
+  getTrellisRuntime,
 } from "./context.svelte.ts";
 export type {
   AuthContext,

@@ -3,7 +3,7 @@
   import { TrellisProvider } from "@qlever-llc/trellis-svelte";
   import type { Snippet } from "svelte";
   import { onMount } from "svelte";
-  import AppShell from "../../lib/components/AppShell.svelte";
+  import AuthenticatedApp from "../../lib/components/AuthenticatedApp.svelte";
   import { buildAppLoginUrl, getSelectedAuthUrl, persistSelectedAuthUrl } from "../../lib/config";
   import { errorMessage } from "../../lib/format";
   import { contexts } from "../../lib/trellis-context.svelte";
@@ -69,8 +69,8 @@
       </div>
     {/snippet}
 
-    <AppShell>
+    <AuthenticatedApp>
       {@render children()}
-    </AppShell>
+    </AuthenticatedApp>
   </TrellisProvider>
 {/if}

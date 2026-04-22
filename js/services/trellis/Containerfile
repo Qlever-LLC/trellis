@@ -2,6 +2,9 @@ FROM --platform=$BUILDPLATFORM docker.io/denoland/deno:2.7.7 AS portal-build
 
 WORKDIR /app
 
+ARG PUBLIC_TRELLIS_URL
+ENV PUBLIC_TRELLIS_URL=${PUBLIC_TRELLIS_URL}
+
 COPY js /app/js
 COPY generated/js /app/generated/js
 

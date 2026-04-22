@@ -4,7 +4,8 @@
   "version": "0.7.0",
   "exports": "./main.ts",
   "tasks": {
-    "dev": "deno task prepare && deno task -c ../../portals/login/deno.json build:static:prebuilt && deno run --env --allow-env --allow-sys --allow-read --allow-net --allow-ffi --watch main.ts",
+    "build:builtin-portal": "deno run --allow-env --allow-read --allow-run scripts/build_builtin_portal.ts",
+    "dev": "deno task prepare && deno task build:builtin-portal && deno run --env --allow-env --allow-sys --allow-read --allow-net --allow-ffi --watch main.ts",
     "prepare": "cargo run --manifest-path ../../../rust/tools/generate/Cargo.toml --bin trellis-generate --",
     "verify:contracts": "deno task prepare",
     "test": "deno task prepare && deno test --allow-env --allow-sys --allow-read --allow-write"

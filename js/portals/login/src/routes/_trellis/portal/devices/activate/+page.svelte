@@ -1,43 +1,19 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { TrellisClient } from "@qlever-llc/trellis";
-  import type { TrellisClientConnectArgs } from "@qlever-llc/trellis";
   import {
-    createAuthState,
     createDeviceActivationController,
-    type DeviceActivationClient,
   } from "@qlever-llc/trellis-svelte";
-  import { portalActivationApp } from "../../../../../../contracts/portal_activation_app.ts";
-  import { APP_CONFIG } from "../../../../../lib/config";
+  import {
+    connectPortalActivation,
+    createPortalActivationAuthState,
+    trellisUrl,
+  } from "../../../../../lib/trellis";
 
-  async function connectPortalActivation(
-    authUrlState: { currentUrl: URL; redirectTo: string },
-  ): Promise<DeviceActivationClient> {
-    const trellis = await TrellisClient.connect({
-      trellisUrl: APP_CONFIG.authUrl,
-      auth: {
-        handle: await authState.init(),
-        currentUrl: authUrlState.currentUrl,
-        redirectTo: authUrlState.redirectTo,
-      },
-      contract: portalActivationApp,
-    });
-    return {
-      activateDevice(input) {
-        return trellis.operation("Auth.ActivateDevice").input(input).start().orThrow();
-      },
-    };
-  }
-
-  const authState = createAuthState({
-    authUrl: APP_CONFIG.authUrl,
-    loginPath: "/_trellis/portal/users/login",
-    contract: portalActivationApp,
-  });
+  const authState = createPortalActivationAuthState();
 
   const controller = createDeviceActivationController({
     authState,
-    createClient: connectPortalActivation,
+    createClient: (authUrlState) => connectPortalActivation(authState, authUrlState),
     sessionStorage: typeof window === "undefined" ? undefined : window.sessionStorage,
   });
 
@@ -150,12 +126,12 @@
           <div class="alert alert-error text-sm">
             <span>{controller.view.reason}</span>
           </div>
-          <a class="btn btn-outline btn-block" href={APP_CONFIG.authUrl}>Return to app</a>
+          <a class="btn btn-outline btn-block" href={trellisUrl}>Return to app</a>
         {:else if controller.view?.mode === "invalid_flow"}
           <div class="alert alert-error text-sm">
             <span>{controller.view.reason}</span>
           </div>
-          <a class="btn btn-outline btn-block" href={APP_CONFIG.authUrl}>Return to app</a>
+          <a class="btn btn-outline btn-block" href={trellisUrl}>Return to app</a>
         {/if}
       {/if}
 

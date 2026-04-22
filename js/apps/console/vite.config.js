@@ -2,13 +2,9 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { sveltekit } from "@sveltejs/kit/vite";
 import tailwindcss from "@tailwindcss/vite";
+import { frontendWorkspaceAliases } from "../../frontend-workspace-aliases.js";
 
 const rootDir = dirname(fileURLToPath(import.meta.url));
-const jsRoot = resolve(rootDir, "../..");
-
-function aliasPath(path) {
-  return resolve(jsRoot, path);
-}
 
 function manualChunks(id) {
   if (!id.includes("node_modules")) return undefined;
@@ -33,28 +29,7 @@ const config = {
   },
   resolve: {
     dedupe: ["svelte"],
-    alias: [
-      // Internal workspace-only aliases for local source resolution.
-      // Public app code should import the canonical `@qlever-llc/trellis...` paths.
-      { find: "@qlever-llc/result", replacement: aliasPath("packages/result/mod.ts") },
-      { find: "@qlever-llc/result/", replacement: `${aliasPath("packages/result")}/` },
-      { find: "@qlever-llc/trellis/auth/browser", replacement: aliasPath("packages/trellis/auth/browser.ts") },
-      { find: "@qlever-llc/trellis/auth", replacement: aliasPath("packages/trellis/auth.ts") },
-      { find: "@qlever-llc/trellis/contracts", replacement: aliasPath("packages/trellis/contracts.ts") },
-      { find: "@qlever-llc/trellis/health", replacement: aliasPath("packages/trellis/health.ts") },
-      { find: "@qlever-llc/trellis/service/deno", replacement: aliasPath("packages/trellis/service/deno.ts") },
-      { find: "@qlever-llc/trellis/service/node", replacement: aliasPath("packages/trellis/service/node.ts") },
-      { find: "@qlever-llc/trellis/service", replacement: aliasPath("packages/trellis/service/mod.ts") },
-      { find: "@qlever-llc/trellis-sdk/core", replacement: aliasPath("packages/trellis-sdk/core.ts") },
-      { find: "@qlever-llc/trellis-sdk/auth", replacement: aliasPath("packages/trellis-sdk/auth.ts") },
-      { find: "@qlever-llc/trellis-sdk/activity", replacement: aliasPath("packages/trellis-sdk/activity.ts") },
-      { find: "@qlever-llc/trellis-sdk/jobs", replacement: aliasPath("packages/trellis-sdk/jobs.ts") },
-      { find: "@qlever-llc/trellis-svelte", replacement: aliasPath("packages/trellis-svelte/src/index.ts") },
-      { find: "@qlever-llc/trellis-svelte/", replacement: `${aliasPath("packages/trellis-svelte/src")}/` },
-      { find: "@qlever-llc/trellis/browser", replacement: aliasPath("packages/trellis/browser.ts") },
-      { find: "@qlever-llc/trellis", replacement: aliasPath("packages/trellis/index.ts") },
-      { find: "@qlever-llc/trellis/", replacement: `${aliasPath("packages/trellis")}/` },
-    ]
+    alias: frontendWorkspaceAliases()
   },
   server: {
     fs: {

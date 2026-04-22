@@ -142,9 +142,13 @@ Rules:
 
 - portal owns browser UX such as provider chooser and approval screens, but auth
   remains the protocol and state authority
-- Trellis ships a built-in portal served by the Trellis HTTP server from static
-  assets; it handles both login and generic device activation flows, and
-  deployments may register custom portals to replace that behavior selectively
+- portals are per-instance deployments by default; built-in and custom portal
+  deployments should use explicit Trellis URL config rather than assuming the
+  portal shares an origin with the Trellis HTTP service
+- Trellis ships a built-in portal deployment for login and generic device
+  activation flows, commonly served by the Trellis HTTP server from static
+  assets; deployments may register custom portals to replace that behavior
+  selectively
 - a portal is a browser web app registered by deployment-owned portal records;
   it is never a service-authenticated principal
 - portal records are routing config only: `portalId`, `entryUrl`, and
@@ -198,7 +202,7 @@ Rules:
 
 After identity binding, users and devices share the same auth-callout-based NATS connection model.
 
-Activated devices join that same runtime model after activation is complete. Before that point, device setup uses auth-owned browser flows with `kind: "device_activation"`, the `Auth.ActivateDevice` operation, and pre-auth wait surfaces defined in [device-activation.md](./device-activation.md). Browser auth UX runs through portals selected by explicit login and device portal-selection state; callers do not choose portals directly in the normal path. A portal may later continue as a user-authenticated browser app for onboarding or activation work, but that remains user-delegated app authority rather than service authority.
+Activated devices join that same runtime model after activation is complete. Before that point, device setup uses auth-owned browser flows with `kind: "device_activation"`, the `Auth.ActivateDevice` operation, and pre-auth wait surfaces defined in [device-activation.md](./device-activation.md). Browser auth UX runs through portals selected by explicit login and device portal-selection state; callers do not choose portals directly in the normal path. Normal auth redirects only need to preserve `flowId`; they do not need to carry `trellisUrl` in the default per-instance portal model because the portal deployment already knows which Trellis instance it targets. A portal may later continue as a user-authenticated browser app for onboarding or activation work, but that remains user-delegated app authority rather than service authority.
 
 The important distinction is that installed and activated devices differ in auth establishment, not in the basic runtime treatment after auth succeeds.
 

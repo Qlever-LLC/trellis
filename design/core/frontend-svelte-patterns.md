@@ -52,9 +52,21 @@ Svelte browser apps should split responsibilities between one app-local module a
 ```ts
 // src/lib/trellis-context.svelte.ts
 import { createTrellisProviderContexts } from "@qlever-llc/trellis-svelte";
-import { myApp } from "$lib/contracts/my_app";
+import { contract } from "$lib/trellis";
 
-export const contexts = createTrellisProviderContexts<typeof myApp>();
+export const contexts = createTrellisProviderContexts<typeof contract>();
+
+// src/lib/trellis.ts
+import { PUBLIC_TRELLIS_URL } from "$env/static/public";
+import { myApp } from "$lib/contracts/my_app";
+import { contexts } from "$lib/trellis-context.svelte";
+
+function requirePublicTrellisUrl(): string {
+  return new URL(PUBLIC_TRELLIS_URL).toString().replace(/\/$/, "");
+}
+
+export const trellisUrl = requirePublicTrellisUrl();
+export { myApp as contract };
 
 export const getTrellis = contexts.trellis.getTrellis;
 export const getAuth = contexts.auth.getAuth;
@@ -69,4 +81,5 @@ Rules:
 - `trellis-svelte` should keep Trellis, auth, and connection state in separate contexts rather than bundling them into a synthetic runtime bag
 - normal pages should import app-local helpers such as `getTrellis`, `getAuth`, and `getConnectionState`; they should not rebuild auth config just to make an RPC call
 - Svelte context is the runtime transport for the live Trellis instance and related browser state; the app-local module is the static typing boundary that keeps contract knowledge out of arbitrary page files
+- SvelteKit static portal or app builds should usually source that fixed instance URL from build-time public env such as `PUBLIC_TRELLIS_URL`
 - apps that let the user choose an auth instance at runtime may still need a more dynamic sign-in path, but that should remain an explicit advanced pattern rather than the default guide story

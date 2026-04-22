@@ -1,24 +1,7 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "types": ["deno.ns"],
-    "paths": {
-      // Internal workspace-only path aliases for local source resolution.
-      "@qlever-llc/trellis": ["../../packages/trellis/index.ts"],
-      "@qlever-llc/trellis/auth": ["../../packages/trellis/auth.ts"],
-      "@qlever-llc/trellis/contracts": ["../../packages/trellis/contracts.ts"],
-      "@qlever-llc/trellis/jobs": ["../../packages/trellis/jobs.ts"],
-      "@qlever-llc/trellis/health": ["../../packages/trellis/health.ts"],
-      "@qlever-llc/trellis/service": ["../../packages/trellis/service/mod.ts"],
-      "@qlever-llc/trellis/service/*": ["../../packages/trellis/service/*"],
-      "@qlever-llc/trellis-sdk": ["../../packages/trellis-sdk/mod.ts"],
-      "@qlever-llc/trellis-sdk/auth": ["../../packages/trellis-sdk/auth.ts"],
-      "@qlever-llc/trellis-sdk/core": ["../../packages/trellis-sdk/core.ts"],
-      "@qlever-llc/trellis-sdk/health": ["../../packages/trellis-sdk/health.ts"],
-      "@qlever-llc/trellis-sdk/jobs": ["../../packages/trellis-sdk/jobs.ts"],
-      "@qlever-llc/result": ["../../packages/result/mod.ts"],
-      "@qlever-llc/trellis-svelte": ["../../packages/trellis-svelte/src/index.ts"]
-    }
+    "types": ["deno.ns"]
   },
   "exclude": [
     "../../packages/trellis/server/**/*.ts",

@@ -1037,6 +1037,6 @@ export const TrellisDevice = {
   >(
     args: TrellisDeviceConnectArgs<DeviceContractApi<TContract>, TContract>,
   ) {
-    return deviceConnectResult(connectDeviceWithDeps(args, defaultDeps));
+    return connectDeviceWithDeps(args, defaultDeps);
   },
 };

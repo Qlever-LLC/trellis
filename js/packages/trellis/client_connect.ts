@@ -1,6 +1,5 @@
-import { jwtAuthenticator, type Authenticator, type Msg, type NatsConnection } from "@nats-io/nats-core";
+import { jwtAuthenticator, type Authenticator, type NatsConnection } from "@nats-io/nats-core";
 import { CONTRACT_STATE_METADATA, type ContractStateMetadata } from "./contract_support/mod.ts";
-import { AsyncResult, type BaseError, Result, UnexpectedError } from "@qlever-llc/result";
 import {
   base64urlDecode,
   base64urlEncode,
@@ -24,10 +23,7 @@ import {
   selectRuntimeTransportServers,
   type RuntimeTransport,
 } from "./runtime_transport.ts";
-import {
-  type RuntimeStateStoresForContract,
-  Trellis,
-} from "./trellis.ts";
+import { type RuntimeStateStoresForContract, Trellis } from "./trellis.ts";
 import { TransportError } from "./errors/index.ts";
 import { Type, type StaticDecode } from "typebox";
 import { Value } from "typebox/value";
@@ -51,6 +47,39 @@ type ClientContract<
 
 type ClientContractApi<TContract extends ClientContract> =
   TContract["API"]["trellis"];
+
+type ConnectedClient<TContract extends ClientContract<TrellisAPI, TrellisContractV1>> =
+  Trellis<
+    ClientContractApi<TContract>,
+    "client"
+  >;
+
+function createConnectedClient<
+  TContract extends ClientContract<TrellisAPI, TrellisContractV1>,
+>(args: {
+  name: string;
+  nc: NatsConnection;
+  sessionKey: string;
+  sign(data: Uint8Array): Promise<Uint8Array>;
+  opts: {
+    log: ClientOpts["log"];
+    timeout: ClientOpts["timeout"];
+    stream: ClientOpts["stream"];
+    noResponderRetry: ClientOpts["noResponderRetry"];
+    api: ClientContractApi<TContract>;
+    state: RuntimeStateStoresForContract<TContract> | undefined;
+  };
+}): ConnectedClient<TContract> {
+  return new Trellis<ClientContractApi<TContract>, "client">(
+    args.name,
+    args.nc,
+    {
+      sessionKey: args.sessionKey,
+      sign: args.sign,
+    },
+    args.opts,
+  );
+}
 
 type BrowserClientAuthOptions = {
   mode?: "browser";
@@ -81,65 +110,6 @@ export type ClientAuthRequiredContext = {
 };
 
 export type ClientAuthContinuation = { flowId: string } | void;
-
-type ClientRuntime<
-  TApi extends TrellisAPI,
-  TState extends Record<string, { kind: "value" | "map"; value: unknown }>,
-> = Trellis<TApi, "client", TState>;
-
-export type TrellisClientConnection<
-  TApi extends TrellisAPI,
-  TState extends Record<string, { kind: "value" | "map"; value: unknown }> = {},
-> = {
-  readonly jobs: ClientRuntime<TApi, TState>["jobs"];
-  readonly respondWithError: (msg: Msg, error: Error | BaseError) => void;
-  readonly request: ClientRuntime<TApi, TState>["request"];
-  readonly publish: ClientRuntime<TApi, TState>["publish"];
-  readonly event: ClientRuntime<TApi, TState>["event"];
-  readonly operation: ClientRuntime<TApi, TState>["operation"];
-  readonly wait: ClientRuntime<TApi, TState>["wait"];
-  readonly template: ClientRuntime<TApi, TState>["template"];
-  readonly state: ClientRuntime<TApi, TState>["state"];
-  readonly name: string;
-  readonly timeout: number;
-  readonly stream: string;
-  readonly api: TApi;
-  readonly natsConnection: NatsConnection;
-};
-
-type ClientConnection<
-  TApi extends TrellisAPI,
-  TState extends Record<string, { kind: "value" | "map"; value: unknown }> = {},
-> = TrellisClientConnection<TApi, TState>;
-type ConnectArgsForApi<TApi extends TrellisAPI = TrellisAPI> =
-  & ClientOpts
-  & {
-    trellisUrl: string;
-    contract: ClientContract<TApi, TrellisContractV1>;
-    auth?: ClientAuthOptions;
-    onAuthRequired?: (
-      ctx: ClientAuthRequiredContext,
-    ) => Promise<ClientAuthContinuation> | ClientAuthContinuation;
-  };
-
-function clientConnectResult<T>(
-  promise: Promise<T>,
-): AsyncResult<T, TransportError | UnexpectedError> {
-  return AsyncResult.from(
-    promise.then(
-      (
-        value,
-      ): Result<T, TransportError | UnexpectedError> => Result.ok(value),
-      (
-        cause,
-      ): Result<T, TransportError | UnexpectedError> => Result.err(
-        cause instanceof TransportError
-          ? cause
-          : new UnexpectedError({ cause }),
-      ),
-    ),
-  );
-}
 
 export type TrellisClientConnectArgs<
   TApi extends TrellisAPI = TrellisAPI,
@@ -741,9 +711,11 @@ function needsReauth(
     );
 }
 
-function bootstrapTargetsRequestedContract<TApi extends TrellisAPI>(
+function bootstrapTargetsRequestedContract<
+  TContract extends ClientContract<TrellisAPI, TrellisContractV1>,
+>(
   bootstrap: ClientBootstrapResponse,
-  args: ConnectArgsForApi<TApi>,
+  args: TrellisClientConnectArgs<ClientContractApi<TContract>, TContract>,
 ): boolean {
   return bootstrap.status === "ready" &&
     bootstrap.connectInfo.contractId === args.contract.CONTRACT.id;
@@ -810,12 +782,7 @@ export async function connectClientWithDeps<
 >(
   args: TrellisClientConnectArgs<ClientContractApi<TContract>, TContract>,
   deps: ClientConnectDeps,
-): Promise<
-  ClientConnection<
-    ClientContractApi<TContract>,
-    RuntimeStateStoresForContract<TContract>
-  >
-> {
+): Promise<ConnectedClient<TContract>> {
   const trellisUrl = normalizeTrellisUrl(args.trellisUrl);
   const identity = await resolveClientIdentity(args.auth);
   const currentUrl = args.auth?.mode === "session_key" ? null : resolveCurrentUrl(args.auth);
@@ -943,46 +910,31 @@ export async function connectClientWithDeps<
     ...(args.noResponderRetry ? { noResponderRetry: args.noResponderRetry } : {}),
   };
 
-  const trellis = new Trellis<
-    ClientContractApi<TContract>,
-    "client",
-    RuntimeStateStoresForContract<TContract>
-  >(
-    clientOpts.name ?? "client",
+  const api: ClientContractApi<TContract> = args.contract.API.trellis;
+  const state = args.contract[CONTRACT_STATE_METADATA] as
+    | RuntimeStateStoresForContract<TContract>
+    | undefined;
+
+  return createConnectedClient<TContract>({
+    name: clientOpts.name ?? "client",
     nc,
-    {
-      sessionKey: identity.sessionKey,
-      sign: identity.sign,
-    },
-    {
+    sessionKey: identity.sessionKey,
+    sign: identity.sign,
+    opts: {
       log: clientOpts.log,
       timeout: clientOpts.timeout,
       stream: clientOpts.stream,
       noResponderRetry: clientOpts.noResponderRetry,
-      api: args.contract.API.trellis,
-      state: args.contract[CONTRACT_STATE_METADATA],
+      api,
+      state,
     },
-  );
-  return {
-    jobs: trellis.jobs.bind(trellis),
-    respondWithError: trellis.respondWithError.bind(trellis),
-    request: trellis.request.bind(trellis),
-    publish: trellis.publish.bind(trellis),
-    event: trellis.event.bind(trellis),
-    operation: trellis.operation.bind(trellis),
-    wait: trellis.wait.bind(trellis),
-    template: trellis.template.bind(trellis),
-    state: trellis.state,
-    name: trellis.name,
-    timeout: trellis.timeout,
-    stream: trellis.stream,
-    api: trellis.api,
-    natsConnection: trellis.natsConnection,
-  };
+  });
 }
 
-async function resolveAuthRequired<TApi extends TrellisAPI>(
-  args: ConnectArgsForApi<TApi>,
+async function resolveAuthRequired<
+  TContract extends ClientContract<TrellisAPI, TrellisContractV1>,
+>(
+  args: TrellisClientConnectArgs<ClientContractApi<TContract>, TContract>,
   identity: ClientRuntimeIdentity,
   currentUrl: URL | null,
   deps: ClientConnectDeps,
@@ -1065,12 +1017,12 @@ async function resolveAuthRequired<TApi extends TrellisAPI>(
   throw new Error("Client authentication required and no auth continuation was provided");
 }
 
-function connectTypedClient<
-  TContract extends ClientContract<TrellisAPI, TrellisContractV1>,
->(args: TrellisClientConnectArgs<ClientContractApi<TContract>, TContract>) {
-  return clientConnectResult(connectClientWithDeps(args, defaultDeps));
-}
-
 export class TrellisClient {
-  static connect = connectTypedClient;
+  static connect<
+    TContract extends ClientContract<TrellisAPI, TrellisContractV1>,
+  >(
+    args: TrellisClientConnectArgs<ClientContractApi<TContract>, TContract>,
+  ) {
+    return connectClientWithDeps(args, defaultDeps);
+  }
 }

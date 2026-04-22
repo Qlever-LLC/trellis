@@ -14,7 +14,8 @@ export type {
 
 export class DeviceActivationController extends DeviceActivationControllerCore {
   constructor(config: DeviceActivationControllerConfig) {
-    super(config, $state(createInitialDeviceActivationState()));
+    const state = $state(createInitialDeviceActivationState());
+    super(config, state);
   }
 }
 

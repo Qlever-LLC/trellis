@@ -1,40 +1,43 @@
 <script lang="ts">
   import type { AuthMeOutput } from "@qlever-llc/trellis-sdk/auth";
-  import { onMount } from "svelte";
-  import { afterNavigate, goto } from "$app/navigation";
+  import type { ConnectionState } from "@qlever-llc/trellis-svelte";
+  import { afterNavigate } from "$app/navigation";
   import { base } from "$app/paths";
   import { page } from "$app/state";
-  import { APP_CONFIG, getSelectedAuthUrl } from "../config";
+  import type { Snippet } from "svelte";
   import {
     getInitials,
     getPageTitle,
     getRoleLabel,
-    getVisibleNavSections,
-    isAdmin,
-    requiresAdminRoute
+    requiresAdminRoute,
+    type NavSection,
   } from "../control-panel.ts";
-  import { errorMessage } from "../format";
-  import { NotificationsController, setNotifications } from "../notifications.svelte";
-  import { getAuth, getConnectionState } from "../trellis-context.svelte";
-  import { getTrellis } from "../trellis";
   import ToastViewport from "./ToastViewport.svelte";
 
-  let { children } = $props();
+  type Props = {
+    children: Snippet;
+    profile: AuthMeOutput["user"] | null;
+    profileLoaded: boolean;
+    navSections: NavSection[];
+    connectionStatus: ConnectionState["status"];
+    authFailure: string | null;
+    onSignOut: () => Promise<void> | void;
+  };
 
-  const auth = getAuth();
-  const connectionStatePromise = getConnectionState();
-  const trellisPromise = getTrellis();
-  const notifications = setNotifications(new NotificationsController());
+  let {
+    children,
+    profile,
+    profileLoaded,
+    navSections,
+    connectionStatus,
+    authFailure,
+    onSignOut,
+  }: Props = $props();
 
   let darkMode = $state(
     typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches
   );
-  let authFailure = $state<string | null>(null);
-  let connectionStatus = $state("connecting");
   let drawerOpen = $state(false);
-  let navSections = $state(getVisibleNavSections(null));
-  let profile = $state<AuthMeOutput["user"] | null>(null);
-  let profileLoaded = $state(false);
 
   const routePath = $derived(toRoutePath(page.url.pathname));
   const pageTitle = $derived(getPageTitle(routePath));
@@ -59,22 +62,6 @@
     return pathname;
   }
 
-  function buildLoginUrl(redirectTo: string): string {
-    const url = new URL(resolveAppPath("/login"), page.url);
-    url.searchParams.set("redirectTo", redirectTo);
-
-    const authUrl = getSelectedAuthUrl(page.url);
-    if (authUrl && authUrl !== APP_CONFIG.authUrl) {
-      url.searchParams.set("authUrl", authUrl);
-    }
-
-    return url.toString();
-  }
-
-  function currentPath(): string {
-    return page.url.pathname + page.url.search;
-  }
-
   function closeDrawer(): void {
     drawerOpen = false;
   }
@@ -84,79 +71,9 @@
     document.documentElement.setAttribute("data-theme", darkMode ? "dracula" : "corporate");
   }
 
-  function enforceAdminAccess(pathname: string): void {
-    if (!profileLoaded || !requiresAdminRoute(pathname) || isAdmin(profile)) {
-      return;
-    }
-    authFailure = "Administrator access is required for operations pages.";
+  afterNavigate(() => {
     closeDrawer();
-    void goto(resolveAppPath("/profile"));
-  }
-
-  async function authMe(): Promise<AuthMeOutput> {
-    const trellis = await trellisPromise;
-    return await trellis.request<AuthMeOutput>("Auth.Me", {}).orThrow();
-  }
-
-  onMount(() => {
-    let active = true;
-    let statusInterval: number | null = null;
-
-    void (async () => {
-      try {
-        const connectionState = await connectionStatePromise;
-        if (!active) return;
-
-        connectionStatus = connectionState.status;
-        statusInterval = window.setInterval(() => {
-          connectionStatus = connectionState.status;
-        }, 1000);
-
-        const me = await authMe();
-        if (!active) return;
-
-        if (me.user) {
-          profile = me.user;
-          navSections = getVisibleNavSections(profile);
-        }
-      } catch (error) {
-        if (!active) return;
-        authFailure = errorMessage(error);
-        window.location.href = buildLoginUrl(currentPath());
-      } finally {
-        if (active) {
-          profileLoaded = true;
-          enforceAdminAccess(routePath);
-        }
-      }
-    })();
-
-    afterNavigate(({ to }) => {
-      if (!to) return;
-      enforceAdminAccess(toRoutePath(to.url.pathname));
-    });
-
-    return () => {
-      active = false;
-      notifications.clear();
-      if (statusInterval !== null) {
-        window.clearInterval(statusInterval);
-      }
-    };
   });
-
-  async function logoutRequest(): Promise<void> {
-    const trellis = await trellisPromise;
-    await trellis.request<void>("Auth.Logout" as string, {}).orThrow();
-  }
-
-  async function signOut() {
-    try {
-      await auth.signOut(logoutRequest);
-    } catch {
-      // signOut redirects and throws to stop normal control flow
-    }
-  }
 </script>
 
 <svelte:head>
@@ -274,7 +191,7 @@
               <p class="text-xs text-base-content/60">{getRoleLabel(profile)}</p>
             </div>
           </div>
-          <button class="btn btn-ghost btn-sm btn-block justify-start" onclick={signOut}>Sign out</button>
+          <button class="btn btn-ghost btn-sm btn-block justify-start" onclick={onSignOut}>Sign out</button>
         </div>
       {/if}
     </aside>
