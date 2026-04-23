@@ -11,8 +11,7 @@
   } from "../../../lib/auth_display.ts";
   import { errorMessage, formatDate } from "../../../lib/format";
   import { getNotifications } from "../../../lib/notifications.svelte";
-  import { getConnectionState } from "../../../lib/trellis-context.svelte";
-  import { getTrellis } from "../../../lib/trellis";
+  import { getConnectionState, getTrellis } from "../../../lib/trellis";
 
   const trellisPromise = getTrellis();
   const connectionStatePromise = getConnectionState();

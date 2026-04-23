@@ -1,4 +1,4 @@
-<script lang="ts">
+<script lang="ts" generics="TContract extends TrellisClientContract<TrellisAPI>">
   import type { TrellisAPI } from "../../../trellis/contracts.ts";
   import { onDestroy, untrack } from "svelte";
   import type { TrellisProviderProps } from "./TrellisProvider.types.ts";
@@ -15,11 +15,8 @@
     type TrellisClientContract,
   } from "../state/trellis.svelte.ts";
 
-  type ProviderContract = TrellisClientContract<TrellisAPI>;
-  type ImplementationContexts = TrellisProviderProps<ProviderContract>["contexts"];
-  type ImplementationProps = Omit<TrellisProviderProps<ProviderContract>, "contexts"> & {
-    contexts?: ImplementationContexts;
-  };
+  type ImplementationContexts = TrellisProviderProps<TContract>["contexts"];
+  type ImplementationProps = TrellisProviderProps<TContract>;
 
   let {
     children,
@@ -109,11 +106,9 @@
     try {
       const auth = getProviderAuth();
       const handle = await auth.init();
-      const providerContract: ProviderContract = contract;
-
       const seedTrellis = await connectProviderTrellis({
         trellisUrl: requireTrellisUrl(),
-        contract: providerContract,
+        contract,
         auth: {
           handle,
           currentUrl: getCurrentUrl,
@@ -149,9 +144,9 @@
       });
       const publicTrellis = createProviderPublicTrellis(seedTrellis);
 
-      contexts?.auth.setAuth(auth);
-      contexts?.connectionState.setConnectionState(connectionStatePromise);
-      contexts?.trellis.setTrellis(Promise.resolve(publicTrellis));
+      contexts.auth.setAuth(auth);
+      contexts.connectionState.setConnectionState(connectionStatePromise);
+      contexts.trellis.setTrellis(Promise.resolve(publicTrellis));
 
       return {
         auth,

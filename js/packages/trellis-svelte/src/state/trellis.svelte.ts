@@ -1,6 +1,5 @@
 import { defineAppContract } from "../../../trellis/contract.ts";
 import { CONTRACT_STATE_METADATA } from "../../../trellis/contract_support/mod.ts";
-import type { TrellisClientConnection } from "../../../trellis/client_connect.ts";
 import type { TrellisAPI, TrellisContractV1 } from "../../../trellis/contracts.ts";
 import type { RuntimeStateStoresForContract, Trellis } from "../../../trellis/trellis.ts";
 import { createClient } from "../../../trellis/client.ts";
@@ -34,19 +33,19 @@ export type PublicTrellis<
   TA extends TrellisAPI = TrellisAPI,
   TState extends RuntimeStateShape = {},
 > = {
-  readonly jobs: TrellisClientConnection<TA, TState>["jobs"];
-  readonly respondWithError: TrellisClientConnection<TA, TState>["respondWithError"];
-  readonly request: TrellisClientConnection<TA, TState>["request"];
-  readonly publish: TrellisClientConnection<TA, TState>["publish"];
-  readonly event: TrellisClientConnection<TA, TState>["event"];
-  readonly operation: TrellisClientConnection<TA, TState>["operation"];
-  readonly wait: TrellisClientConnection<TA, TState>["wait"];
-  readonly template: TrellisClientConnection<TA, TState>["template"];
-  readonly state: TrellisClientConnection<TA, TState>["state"];
-  readonly name: string;
-  readonly timeout: number;
-  readonly stream: string;
-  readonly api: TA;
+  readonly jobs: Trellis<TA, "client", TState>["jobs"];
+  readonly respondWithError: Trellis<TA, "client", TState>["respondWithError"];
+  readonly request: Trellis<TA, "client", TState>["request"];
+  readonly publish: Trellis<TA, "client", TState>["publish"];
+  readonly event: Trellis<TA, "client", TState>["event"];
+  readonly operation: Trellis<TA, "client", TState>["operation"];
+  readonly wait: Trellis<TA, "client", TState>["wait"];
+  readonly template: Trellis<TA, "client", TState>["template"];
+  readonly state: Trellis<TA, "client", TState>["state"];
+  readonly name: Trellis<TA, "client", TState>["name"];
+  readonly timeout: Trellis<TA, "client", TState>["timeout"];
+  readonly stream: Trellis<TA, "client", TState>["stream"];
+  readonly api: Trellis<TA, "client", TState>["api"];
 };
 
 export type ConnectionState = {
@@ -72,7 +71,7 @@ export function createPublicTrellis<
   TA extends TrellisAPI,
   TState extends RuntimeStateShape = {},
 >(
-  trellis: TrellisClientConnection<TA, TState>,
+  trellis: Trellis<TA, "client", TState>,
 ): PublicTrellis<TA, TState> {
   return {
     jobs: trellis.jobs,

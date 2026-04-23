@@ -18,13 +18,3 @@ function requirePublicTrellisUrl(): string {
 }
 
 export const trellisUrl = requirePublicTrellisUrl();
-
-export function buildAppLoginUrl(
-  redirectTo: string,
-  authError?: string,
-): string {
-  const url = new URL("/_trellis/portal/users/login", trellisUrl);
-  url.searchParams.set("redirectTo", redirectTo);
-  if (authError) url.searchParams.set("authError", authError);
-  return url.toString();
-}

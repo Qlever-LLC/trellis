@@ -1,7 +1,7 @@
 import { createTrellisProviderContexts } from "@qlever-llc/trellis-svelte";
-import { trellisApp } from "../../contracts/trellis_app.ts";
+import contract from "./contract.ts";
 
-export const contexts = createTrellisProviderContexts<typeof trellisApp>();
+export const contexts = createTrellisProviderContexts<typeof contract>();
 
 export const getTrellis = contexts.trellis.getTrellis;
 export const getAuth = contexts.auth.getAuth;

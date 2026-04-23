@@ -4,7 +4,7 @@
   import { goto } from "$app/navigation";
   import { resolve } from "$app/paths";
   import { getCanonicalLoopbackRedirectUrl, getSelectedAuthUrl } from "../lib/config";
-  import { auth } from "../lib/trellis";
+  import { auth } from "../lib/auth";
 
   onMount(async () => {
     if (!browser) return;

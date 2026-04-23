@@ -1,4 +1,5 @@
 export { default as TrellisProvider } from "./components/TrellisProvider.svelte";
+export type { TrellisProviderProps } from "./components/TrellisProvider.types.ts";
 export {
   createAuthContext,
   createConnectionStateContext,

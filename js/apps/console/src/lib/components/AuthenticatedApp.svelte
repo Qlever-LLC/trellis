@@ -2,8 +2,6 @@
   import { goto, afterNavigate } from "$app/navigation";
   import { base } from "$app/paths";
   import { page } from "$app/state";
-  import type { ConnectionState } from "@qlever-llc/trellis-svelte";
-  import { getAuth, getConnectionState } from "@qlever-llc/trellis-svelte";
   import type { AuthMeOutput } from "@qlever-llc/trellis-sdk/auth";
   import type { Snippet } from "svelte";
   import { onDestroy, onMount } from "svelte";
@@ -16,7 +14,7 @@
   import { APP_CONFIG, getSelectedAuthUrl } from "../config";
   import { errorMessage } from "../format";
   import { NotificationsController, setNotifications } from "../notifications.svelte";
-  import { getTrellis } from "../trellis";
+  import { getAuth, getConnectionState, getTrellis, type ConnectionState } from "../trellis";
   import AppShell from "./AppShell.svelte";
 
   type Props = {

@@ -1,17 +1,23 @@
-import { resolve } from "$app/paths";
 import { AsyncResult } from "@qlever-llc/result";
 import type { BaseError, MaybeAsync } from "@qlever-llc/result";
 import type { EventOpts } from "@qlever-llc/trellis";
 import type { HealthHeartbeat } from "@qlever-llc/trellis/health";
 import type { InferSchemaType } from "@qlever-llc/trellis/contracts";
-import { createAuthState, getTrellisRuntime } from "@qlever-llc/trellis-svelte";
-import { trellisApp } from "../../contracts/trellis_app.ts";
+import {
+  type ConnectionState,
+} from "@qlever-llc/trellis-svelte";
+import contract from "./contract.ts";
 import { APP_CONFIG } from "./config.ts";
+import {
+  getAuth as getAuthContext,
+  getConnectionState as getConnectionStateContext,
+  getTrellis as getTrellisContext,
+} from "./trellis-context.svelte.ts";
 
-export const trellisUrl = APP_CONFIG.authUrl;
-export const contract = trellisApp;
+export { contract };
+export type { ConnectionState };
 
-type AppApi = typeof trellisApp.API.trellis;
+type AppApi = typeof contract.API.trellis;
 type RequestOpts = { timeout?: number };
 type RpcMethodName = keyof AppApi["rpc"] & string;
 type RpcInput<TMethod extends RpcMethodName> = InferSchemaType<AppApi["rpc"][TMethod]["input"]>;
@@ -30,15 +36,6 @@ type RuntimeTrellis = {
     opts?: EventOpts,
   ): AsyncResult<void, BaseError>;
 };
-
-function isRuntimeTrellis(value: unknown): value is RuntimeTrellis {
-  return typeof value === "object" &&
-    value !== null &&
-    "request" in value &&
-    typeof value.request === "function" &&
-    "event" in value &&
-    typeof value.event === "function";
-}
 
 export type AppTrellis = {
   request<TMethod extends RpcMethodName>(
@@ -59,11 +56,7 @@ export type AppTrellis = {
   ): AsyncResult<void, BaseError>;
 };
 
-export const auth = createAuthState({
-  authUrl: trellisUrl,
-  contract,
-  loginPath: resolve("/login"),
-});
+export const trellisUrl = APP_CONFIG.authUrl;
 
 function request<TMethod extends RpcMethodName>(
   method: TMethod,
@@ -88,13 +81,8 @@ function request(
 }
 
 export function getTrellis(): Promise<AppTrellis> {
-  const createLiveClient = async (): Promise<RuntimeTrellis> => {
-    const trellis = await getTrellisRuntime(contract.CONTRACT.id);
-    if (!isRuntimeTrellis(trellis)) {
-      throw new Error(`Trellis runtime for ${contract.CONTRACT.id} is missing request/event helpers`);
-    }
-
-    return trellis;
+  const createLiveClient = (): Promise<RuntimeTrellis> => {
+    return getTrellisContext() as Promise<RuntimeTrellis>;
   };
 
   const liveTrellis: AppTrellis & { createLiveClient: typeof createLiveClient } = {
@@ -114,4 +102,12 @@ export function getTrellis(): Promise<AppTrellis> {
   };
 
   return Promise.resolve(liveTrellis);
+}
+
+export function getAuth() {
+  return getAuthContext();
+}
+
+export function getConnectionState() {
+  return getConnectionStateContext();
 }

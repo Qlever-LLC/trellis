@@ -1,7 +1,7 @@
-import { defineAppContract } from "@qlever-llc/trellis/contracts";
+import { defineAppContract } from "@qlever-llc/trellis";
 import { auth as trellisAuth } from "@qlever-llc/trellis-sdk/auth";
 
-export const portalActivationApp = defineAppContract(() => ({
+export const contract = defineAppContract(() => ({
   id: "portal.trellis.activation@v1",
   displayName: "Trellis Device Activation",
   description: "Trellis built-in app for authenticated device activation.",
@@ -14,4 +14,4 @@ export const portalActivationApp = defineAppContract(() => ({
   },
 }));
 
-export default portalActivationApp;
+export default contract;

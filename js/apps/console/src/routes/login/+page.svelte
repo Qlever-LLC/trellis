@@ -2,7 +2,6 @@
   import { onMount } from "svelte";
   import { browser } from "$app/environment";
   import { goto } from "$app/navigation";
-  import { base } from "$app/paths";
   import { page } from "$app/state";
   import {
     APP_CONFIG,
@@ -10,8 +9,13 @@
     getSelectedAuthUrl,
     persistSelectedAuthUrl
   } from "../../lib/config";
+  import {
+    getConsoleRedirectTarget,
+    resolveConsolePath,
+    startConsoleSignIn,
+    auth,
+  } from "../../lib/auth";
   import { errorMessage } from "../../lib/format";
-  import { auth } from "../../lib/trellis";
 
   let authError = $state<string | null>(null);
   let selectedAuthUrl = $state(APP_CONFIG.authUrl ?? "");
@@ -19,36 +23,8 @@
 
   const requiresAuthUrl = $derived(!APP_CONFIG.authUrl);
 
-  function resolveAppPath(path: string): string {
-    const url = new URL(path, page.url);
-    const appBase = base || "";
-
-    if (url.origin !== page.url.origin) {
-      return url.toString();
-    }
-
-    if (appBase && url.pathname === appBase) {
-      return `${appBase}/${url.search}${url.hash}`;
-    }
-
-    if (appBase && url.pathname.startsWith(`${appBase}/`)) {
-      return `${appBase}${url.pathname.slice(appBase.length)}${url.search}${url.hash}`;
-    }
-
-    return `${appBase}${url.pathname}${url.search}${url.hash}`;
-  }
-
-  function buildCallbackUrl(redirectTo: string, authUrl?: string): string {
-    const url = new URL(resolveAppPath("/callback"), page.url);
-    url.searchParams.set("redirectTo", redirectTo);
-    if (authUrl && authUrl !== APP_CONFIG.authUrl) {
-      url.searchParams.set("authUrl", authUrl);
-    }
-    return url.toString();
-  }
-
   function targetPath(): string {
-    return resolveAppPath(page.url.searchParams.get("redirectTo") ?? "/profile");
+    return getConsoleRedirectTarget(page.url);
   }
 
   async function continueToSignIn(): Promise<void> {
@@ -71,9 +47,10 @@
     }
 
     try {
-      await auth.signIn({
+      await startConsoleSignIn({
         authUrl: selectedAuthUrl,
-        redirectTo: buildCallbackUrl(targetPath(), selectedAuthUrl),
+        redirectTo: targetPath(),
+        location: page.url,
       });
     } catch (error) {
       const message = errorMessage(error);
@@ -90,7 +67,7 @@
     selectedAuthUrl = getSelectedAuthUrl(page.url) ?? "";
 
     if (page.url.searchParams.has("flowId")) {
-      void goto(resolveAppPath(`/callback${page.url.search}`));
+      void goto(resolveConsolePath(`/callback${page.url.search}`, page.url));
       return;
     }
 
