@@ -28,7 +28,10 @@ import {
 } from "../../bootstrap/globals.ts";
 import { randomToken } from "../crypto.ts";
 import { deviceInstanceId } from "../admin/shared.ts";
-import { resolveDevicePortal } from "../http/support.ts";
+import {
+  normalizeBuiltinPortalEntryUrl,
+  resolveDevicePortal,
+} from "../http/support.ts";
 import { isDeviceProofIatFresh } from "./shared.ts";
 
 const config = getConfig();
@@ -332,7 +335,11 @@ async function createDeviceActivationRequest(
     selections: await listDevicePortalSelections(),
   });
   const portalEntryUrl = portalResolution.kind === "custom"
-    ? portalResolution.portal.entryUrl
+    ? normalizeBuiltinPortalEntryUrl({
+      entryUrl: portalResolution.portal.entryUrl,
+      baseUrl: builtinPortalEntryUrl(),
+      expectedKind: "device",
+    })
     : builtinPortalEntryUrl();
   const portalUrl = new URL(portalEntryUrl);
   portalUrl.searchParams.set("flowId", flowId);

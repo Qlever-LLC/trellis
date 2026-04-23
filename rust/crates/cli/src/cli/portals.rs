@@ -16,10 +16,30 @@ pub enum PortalSubcommand {
     Create(PortalCreateArgs),
     /// Disable one registered custom portal.
     Disable(PortalDisableArgs),
+    /// Manage portal-owned auth profiles for portal apps.
+    Profile(PortalProfileCommand),
     /// Manage login portal defaults and contract-specific selections.
     Login(PortalLoginCommand),
     /// Manage device portal defaults and profile-specific selections.
     Device(PortalDeviceCommand),
+}
+
+#[derive(Debug, Args)]
+/// Manage portal trust profiles for portal app auth flows.
+pub struct PortalProfileCommand {
+    #[command(subcommand)]
+    pub command: PortalProfileSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+/// List, create, and disable portal trust profiles.
+pub enum PortalProfileSubcommand {
+    /// List portal profiles.
+    List,
+    /// Create or replace one portal profile.
+    Set(PortalProfileSetArgs),
+    /// Disable one portal trust profile without disabling portal routing.
+    Disable(PortalDisableArgs),
 }
 
 #[derive(Debug, Args)]
@@ -89,6 +109,26 @@ pub struct PortalCreateArgs {
     #[arg(value_name = "ENTRY_URL")]
     /// Browser entry URL for the portal application.
     pub entry_url: String,
+}
+
+/// Create or replace one portal profile.
+#[derive(Debug, Args)]
+pub struct PortalProfileSetArgs {
+    #[arg(value_name = "PORTAL")]
+    /// Stable identifier for the custom portal.
+    pub portal_id: String,
+
+    #[arg(value_name = "ENTRY_URL")]
+    /// Browser entry URL for the portal application.
+    pub entry_url: String,
+
+    #[arg(value_name = "CONTRACT")]
+    /// Contract reference for the portal app profile.
+    pub contract: String,
+
+    #[arg(long = "allow-origin", value_name = "ORIGIN")]
+    /// Optional browser origin restriction for the portal profile.
+    pub allowed_origins: Vec<String>,
 }
 
 #[derive(Debug, Args)]

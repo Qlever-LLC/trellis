@@ -81,11 +81,7 @@ impl ContractManifestBuilder {
         self
     }
 
-    pub fn store_resource(
-        mut self,
-        name: impl Into<String>,
-        store: ContractStoreResource,
-    ) -> Self {
+    pub fn store_resource(mut self, name: impl Into<String>, store: ContractStoreResource) -> Self {
         self.manifest.resources.store.insert(name.into(), store);
         self
     }

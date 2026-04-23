@@ -118,6 +118,9 @@ trellis auth grant disable <contractId>
 trellis portal list
 trellis portal create <portalId> <entryUrl>
 trellis portal disable <portalId>
+trellis portal profile list
+trellis portal profile set <portalId> <entryUrl> <contractId|path> [--allow-origin <origin>...]
+trellis portal profile disable <portalId>
 trellis portal login default
 trellis portal login set-default (--builtin | --portal <portalId>)
 trellis portal login list
@@ -184,6 +187,10 @@ Operational command behavior:
 - `trellis portal *` manages registered custom portal web apps used to replace
   the built-in Trellis portal for login flows, device flows, or both; portal
   records are routing config only (`portalId`, `entryUrl`, `disabled`)
+- `trellis portal profile *` manages auth-owned portal trust profiles keyed by
+  `portalId`; `set` upserts the routed portal record, binds one browser app
+  contract lineage and optional origin restrictions to that portal, and lets
+  auth derive implied capabilities server-side
 - `trellis portal login *` manages deployment-owned login portal policy,
   including the deployment login default and any contract-specific selections
 - `trellis portal device *` manages deployment-owned device portal policy,
@@ -224,11 +231,12 @@ Operational command behavior:
   names continue to come from the applied contract manifests rather than from a
   separate profile-local `displayName` or `description`
 - deployments may rely on the built-in Trellis portal with no portal setup, or
-  register one or more custom portals, optionally choose separate login and
-  device default custom portals, assign portals to specific browser contracts or
-  device profiles, then create device profiles and provision device instances
-  for activated-device flows; install automation may offer convenience wrappers,
-  but the underlying actions remain explicit admin calls
+  register one or more custom portals, optionally configure portal profiles for
+  browser portal apps, choose separate login and device default custom portals,
+  assign portals to specific browser contracts or device profiles, then create
+  device profiles and provision device instances for activated-device flows;
+  install automation may offer convenience wrappers, but the underlying actions
+  remain explicit admin calls
 - `trellis bootstrap nats` creates the shared stream and auth-owned KV buckets
   needed before the runtime starts; this is an explicit super-user path that
   talks directly to NATS with credentials

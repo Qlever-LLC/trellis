@@ -18,7 +18,6 @@ import {
   deviceActivationsKV,
   deviceInstancesKV,
   deviceProfilesKV,
-  instanceGrantPoliciesKV,
   logger,
   loginPortalSelectionsKV,
   natsTrellis,
@@ -34,6 +33,7 @@ import {
 } from "../../bootstrap/globals.ts";
 import { getApprovalResolutionErrorMessage } from "./approval_errors.ts";
 import { planUserContractApproval } from "../approval/plan.ts";
+import { loadEffectiveGrantPolicies } from "../grants/store.ts";
 import {
   applyApprovalDecision,
   buildAppIdentity,
@@ -110,8 +110,7 @@ export function registerHttpRoutes(
       return isErr(entry) ? null : entry.value;
     },
     loadInstanceGrantPolicies: async (contractId: string) => {
-      const entry = await instanceGrantPoliciesKV.get(contractId).take();
-      return isErr(entry) ? [] : [entry.value];
+      return await loadEffectiveGrantPolicies(contractId);
     },
   };
 
@@ -578,8 +577,7 @@ export function registerHttpRoutes(
         return isErr(entry) ? null : entry.value;
       },
       loadInstanceGrantPolicies: async (contractId: string) => {
-        const entry = await instanceGrantPoliciesKV.get(contractId).take();
-        return isErr(entry) ? [] : [entry.value];
+        return await loadEffectiveGrantPolicies(contractId);
       },
       verifyIdentityProof: ({ sessionKey, iat, sig }) =>
         verifyDomainSig(sessionKey, "bootstrap-client", String(iat), sig),
@@ -1147,7 +1145,10 @@ export function registerHttpRoutes(
       flowId,
     });
 
-    if (resolution.effectiveApproval.kind === "admin_policy") {
+    if (
+      resolution.effectiveApproval.kind === "admin_policy" ||
+      resolution.effectiveApproval.kind === "portal_profile"
+    ) {
       return c.json(
         await buildPortalFlowState({
           flowId,

@@ -1,4 +1,7 @@
-use crate::app::{connect_authenticated_cli_client, portal_target_id, portal_target_label};
+use crate::app::{
+    connect_authenticated_cli_client, portal_target_id, portal_target_label,
+    resolve_contract_lineage_id,
+};
 use crate::cli::*;
 use crate::output;
 use miette::IntoDiagnostic;
@@ -10,6 +13,11 @@ pub(super) async fn run(format: OutputFormat, command: PortalCommand) -> miette:
         PortalSubcommand::List => list_command(format).await,
         PortalSubcommand::Create(args) => create_command(format, &args).await,
         PortalSubcommand::Disable(args) => disable_command(format, &args).await,
+        PortalSubcommand::Profile(profile) => match profile.command {
+            PortalProfileSubcommand::List => profile_list_command(format).await,
+            PortalProfileSubcommand::Set(args) => profile_set_command(format, &args).await,
+            PortalProfileSubcommand::Disable(args) => profile_disable_command(format, &args).await,
+        },
         PortalSubcommand::Login(login) => match login.command {
             PortalLoginSubcommand::Default => logins_default_show_command(format).await,
             PortalLoginSubcommand::SetDefault(args) => {
@@ -75,9 +83,128 @@ async fn create_command(format: OutputFormat, args: &PortalCreateArgs) -> miette
         output::print_json(&json!({ "portal": portal }))?;
         return Ok(());
     }
+
     output::print_success("portal created");
     output::print_info(&format!("portalId={}", portal.portal_id));
     output::print_info(&format!("entry={}", portal.entry_url));
+
+    Ok(())
+}
+
+async fn profile_list_command(format: OutputFormat) -> miette::Result<()> {
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
+    let auth_client = authlib::AuthClient::new(&connected);
+    let profiles = auth_client.list_portal_profiles().await.into_diagnostic()?;
+
+    if output::is_json(format) {
+        output::print_json(&json!({ "profiles": profiles }))?;
+        return Ok(());
+    }
+    if profiles.is_empty() {
+        output::print_info("no portal profiles configured");
+        return Ok(());
+    }
+    let rows = profiles
+        .into_iter()
+        .map(|profile| {
+            vec![
+                profile.portal_id,
+                profile.contract_id,
+                profile.entry_url,
+                profile.allowed_origins.unwrap_or_default().join(", "),
+                if profile.implied_capabilities.is_empty() {
+                    "-".to_string()
+                } else {
+                    profile.implied_capabilities.join(", ")
+                },
+                if profile.disabled {
+                    "Disabled"
+                } else {
+                    "Active"
+                }
+                .to_string(),
+            ]
+        })
+        .collect::<Vec<_>>();
+    println!(
+        "{}",
+        output::table(
+            &[
+                "portal",
+                "contract",
+                "entry",
+                "origins",
+                "capabilities",
+                "state"
+            ],
+            rows,
+        )
+    );
+    Ok(())
+}
+
+async fn profile_set_command(
+    format: OutputFormat,
+    args: &PortalProfileSetArgs,
+) -> miette::Result<()> {
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
+    let auth_client = authlib::AuthClient::new(&connected);
+    let contract_id = resolve_contract_lineage_id(&connected, &args.contract).await?;
+    let profile = auth_client
+        .set_portal_profile(
+            &args.portal_id,
+            &args.entry_url,
+            &contract_id,
+            if args.allowed_origins.is_empty() {
+                None
+            } else {
+                Some(args.allowed_origins.as_slice())
+            },
+        )
+        .await
+        .into_diagnostic()?;
+
+    if output::is_json(format) {
+        output::print_json(&json!({ "profile": profile }))?;
+        return Ok(());
+    }
+
+    output::print_success("portal profile saved");
+    output::print_info(&format!("portalId={}", profile.portal_id));
+    output::print_info(&format!("contractId={}", profile.contract_id));
+    output::print_info(&format!("entry={}", profile.entry_url));
+    output::print_info(&format!(
+        "allowedOrigins={}",
+        profile.allowed_origins.unwrap_or_default().join(", ")
+    ));
+    output::print_info(&format!(
+        "capabilities={}",
+        if profile.implied_capabilities.is_empty() {
+            "-".to_string()
+        } else {
+            profile.implied_capabilities.join(", ")
+        }
+    ));
+    Ok(())
+}
+
+async fn profile_disable_command(
+    format: OutputFormat,
+    args: &PortalDisableArgs,
+) -> miette::Result<()> {
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
+    let auth_client = authlib::AuthClient::new(&connected);
+    let profile = auth_client
+        .disable_portal_profile(&args.portal_id)
+        .await
+        .into_diagnostic()?;
+    if output::is_json(format) {
+        output::print_json(&json!({ "profile": profile }))?;
+        return Ok(());
+    }
+    output::print_success("portal profile disabled");
+    output::print_info(&format!("portalId={}", profile.portal_id));
+    output::print_info(&format!("contractId={}", profile.contract_id));
     Ok(())
 }
 

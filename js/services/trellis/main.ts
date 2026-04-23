@@ -30,6 +30,7 @@ import {
   authDisableDeviceProfileHandler,
   authDisableInstanceGrantPolicyHandler,
   authDisablePortalHandler,
+  authDisablePortalProfileHandler,
   authEnableDeviceInstanceHandler,
   authEnableDeviceProfileHandler,
   authGetDevicePortalDefaultHandler,
@@ -41,6 +42,7 @@ import {
   authListDeviceProfilesHandler,
   authListInstanceGrantPoliciesHandler,
   authListLoginPortalSelectionsHandler,
+  authListPortalProfilesHandler,
   authListPortalsHandler,
   authRemoveDeviceInstanceHandler,
   authRemoveDeviceProfileHandler,
@@ -53,6 +55,7 @@ import {
   createAuthApplyDeviceProfileContractHandler,
   createAuthCreateDeviceProfileHandler,
   createAuthCreatePortalHandler,
+  createAuthSetPortalProfileHandler,
   createAuthProvisionDeviceInstanceHandler,
   createAuthUnapplyDeviceProfileContractHandler,
 } from "./auth/admin/rpc.ts";
@@ -215,6 +218,15 @@ await trellis.mount("Auth.UpdateUser", authUpdateUserHandler);
 await trellis.mount("Auth.CreatePortal", createAuthCreatePortalHandler());
 await trellis.mount("Auth.ListPortals", authListPortalsHandler);
 await trellis.mount("Auth.DisablePortal", authDisablePortalHandler);
+await trellis.mount("Auth.ListPortalProfiles", authListPortalProfilesHandler);
+await trellis.mount(
+  "Auth.SetPortalProfile",
+  createAuthSetPortalProfileHandler({ contractStore: contracts.contractStore }),
+);
+await trellis.mount(
+  "Auth.DisablePortalProfile",
+  authDisablePortalProfileHandler,
+);
 await trellis.mount(
   "Auth.GetLoginPortalDefault",
   authGetLoginPortalDefaultHandler,

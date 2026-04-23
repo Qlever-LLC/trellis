@@ -32,6 +32,8 @@ import {
   AuthDisableDeviceProfileSchema,
   AuthDisablePortalResponseSchema,
   AuthDisablePortalSchema,
+  AuthDisablePortalProfileResponseSchema,
+  AuthDisablePortalProfileSchema,
   AuthGetDeviceConnectInfoResponseSchema,
   AuthGetDeviceConnectInfoSchema,
   AuthGetDevicePortalDefaultResponseSchema,
@@ -54,6 +56,8 @@ import {
   AuthListDeviceProfilesSchema,
   AuthListLoginPortalSelectionsResponseSchema,
   AuthListLoginPortalSelectionsSchema,
+  AuthListPortalProfilesResponseSchema,
+  AuthListPortalProfilesSchema,
   AuthListPortalsResponseSchema,
   AuthListPortalsSchema,
   AuthListUserGrantsResponseSchema,
@@ -75,11 +79,14 @@ import {
   AuthSetLoginPortalDefaultSchema,
   AuthSetLoginPortalSelectionResponseSchema,
   AuthSetLoginPortalSelectionSchema,
+  AuthSetPortalProfileResponseSchema,
+  AuthSetPortalProfileSchema,
   AuthValidateRequestResponseSchema,
   DeviceConnectInfoSchema,
   DeviceSchema,
   InstanceGrantPolicySchema,
   PortalFlowStateSchema,
+  PortalProfileSchema,
 } from "./mod.ts";
 
 const now = new Date().toISOString();
@@ -240,6 +247,47 @@ Deno.test("portal, portal selection, and device admin schemas validate", () => {
   assert(Value.Check(AuthListPortalsResponseSchema, { portals: [] }));
   assert(Value.Check(AuthDisablePortalSchema, { portalId: "portal-1" }));
   assert(Value.Check(AuthDisablePortalResponseSchema, { success: true }));
+  assert(Value.Check(AuthListPortalProfilesSchema, {}));
+  assert(Value.Check(AuthListPortalProfilesResponseSchema, { profiles: [] }));
+  assert(Value.Check(AuthSetPortalProfileSchema, {
+    portalId: "portal-1",
+    entryUrl: "https://portal.example.com/auth",
+    contractId: "trellis.portal@v1",
+    allowedOrigins: ["https://portal.example.com"],
+  }));
+  assert(Value.Check(PortalProfileSchema, {
+    portalId: "portal-1",
+    entryUrl: "https://portal.example.com/auth",
+    contractId: "trellis.portal@v1",
+    allowedOrigins: ["https://portal.example.com"],
+    impliedCapabilities: ["auth.login"],
+    disabled: false,
+    createdAt: now,
+    updatedAt: now,
+  }));
+  assert(Value.Check(AuthSetPortalProfileResponseSchema, {
+    profile: {
+      portalId: "portal-1",
+      entryUrl: "https://portal.example.com/auth",
+      contractId: "trellis.portal@v1",
+      impliedCapabilities: ["auth.login"],
+      disabled: false,
+      createdAt: now,
+      updatedAt: now,
+    },
+  }));
+  assert(Value.Check(AuthDisablePortalProfileSchema, { portalId: "portal-1" }));
+  assert(Value.Check(AuthDisablePortalProfileResponseSchema, {
+    profile: {
+      portalId: "portal-1",
+      entryUrl: "https://portal.example.com/auth",
+      contractId: "trellis.portal@v1",
+      impliedCapabilities: ["auth.login"],
+      disabled: true,
+      createdAt: now,
+      updatedAt: now,
+    },
+  }));
 
   assert(Value.Check(AuthGetLoginPortalDefaultSchema, {}));
   assert(Value.Check(AuthGetLoginPortalDefaultResponseSchema, {
@@ -260,8 +308,21 @@ Deno.test("portal, portal selection, and device admin schemas validate", () => {
     impliedCapabilities: ["admin"],
     disabled: false,
     createdAt: now,
+     updatedAt: now,
+     source: { kind: "admin_policy" },
+   }));
+  assert(Value.Check(InstanceGrantPolicySchema, {
+    contractId: "trellis.portal@v1",
+    allowedOrigins: ["https://portal.example.com"],
+    impliedCapabilities: ["auth.login"],
+    disabled: false,
+    createdAt: now,
     updatedAt: now,
-    source: { kind: "admin_policy" },
+    source: {
+      kind: "portal_profile",
+      portalId: "portal-1",
+      entryUrl: "https://portal.example.com/auth",
+    },
   }));
   assert(Value.Check(AuthUpsertInstanceGrantPolicyResponseSchema, {
     policy: {

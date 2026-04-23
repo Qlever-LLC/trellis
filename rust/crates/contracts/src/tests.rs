@@ -513,7 +513,10 @@ fn manifest_parses_top_level_jobs() {
         .get("document-process")
         .expect("document-process queue");
     assert_eq!(queue.payload.schema, "JobPayload");
-    assert_eq!(queue.result.as_ref().map(|schema| schema.schema.as_str()), Some("JobResult"));
+    assert_eq!(
+        queue.result.as_ref().map(|schema| schema.schema.as_str()),
+        Some("JobResult")
+    );
     assert_eq!(queue.max_deliver, Some(5));
     assert_eq!(queue.backoff_ms.as_ref(), Some(&vec![1000, 5000]));
     assert_eq!(queue.ack_wait_ms, Some(30_000));

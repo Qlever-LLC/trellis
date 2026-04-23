@@ -50,6 +50,7 @@ export const pendingAuthKV = testKv();
 export const contractApprovalsKV = testKv();
 export const browserFlowsKV = testKv();
 export const portalsKV = testKv();
+export const portalProfilesKV = testKv();
 export const portalDefaultsKV = testKv();
 export const loginPortalSelectionsKV = testKv();
 export const instanceGrantPoliciesKV = testKv();

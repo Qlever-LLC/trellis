@@ -5,7 +5,7 @@ use crate::{
     ListApprovalsRequest, RevokeApprovalRequest, TrellisAuthError,
     UpsertInstanceGrantPolicyRequest,
 };
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use trellis_client::{TrellisClient, UserConnectOptions};
@@ -245,6 +245,58 @@ impl<'a> AuthClient<'a> {
             )
             .await?
             .portal)
+    }
+
+    /// List configured portal profiles.
+    pub async fn list_portal_profiles(
+        &self,
+    ) -> Result<Vec<trellis_sdk_auth::AuthListPortalProfilesResponseProfilesItem>, TrellisAuthError>
+    {
+        Ok(self
+            .call::<_, trellis_sdk_auth::AuthListPortalProfilesResponse>(
+                "rpc.v1.Auth.ListPortalProfiles",
+                &trellis_sdk_auth::AuthListPortalProfilesRequest(BTreeMap::new()),
+            )
+            .await?
+            .profiles)
+    }
+
+    /// Create or replace a portal profile.
+    pub async fn set_portal_profile(
+        &self,
+        portal_id: &str,
+        entry_url: &str,
+        contract_id: &str,
+        allowed_origins: Option<&[String]>,
+    ) -> Result<trellis_sdk_auth::AuthSetPortalProfileResponseProfile, TrellisAuthError> {
+        Ok(self
+            .call::<_, trellis_sdk_auth::AuthSetPortalProfileResponse>(
+                "rpc.v1.Auth.SetPortalProfile",
+                &trellis_sdk_auth::AuthSetPortalProfileRequest {
+                    allowed_origins: allowed_origins.map(|values| values.to_vec()),
+                    contract_id: contract_id.to_string(),
+                    entry_url: entry_url.to_string(),
+                    portal_id: portal_id.to_string(),
+                },
+            )
+            .await?
+            .profile)
+    }
+
+    /// Disable a portal profile.
+    pub async fn disable_portal_profile(
+        &self,
+        portal_id: &str,
+    ) -> Result<trellis_sdk_auth::AuthDisablePortalProfileResponseProfile, TrellisAuthError> {
+        Ok(self
+            .call::<_, trellis_sdk_auth::AuthDisablePortalProfileResponse>(
+                "rpc.v1.Auth.DisablePortalProfile",
+                &trellis_sdk_auth::AuthDisablePortalProfileRequest {
+                    portal_id: portal_id.to_string(),
+                },
+            )
+            .await?
+            .profile)
     }
 
     /// Disable a portal.
@@ -973,7 +1025,7 @@ impl<'a> AuthClient<'a> {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::{Value, json};
+    use serde_json::{json, Value};
 
     use super::{
         CreatePortalRequest, DevicePortalSelectionRecord, GetPortalDefaultResponse,

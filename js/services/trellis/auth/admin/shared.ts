@@ -8,6 +8,17 @@ export type Portal = {
   disabled: boolean;
 };
 
+export type PortalProfile = {
+  portalId: string;
+  entryUrl: string;
+  contractId: string;
+  allowedOrigins?: string[];
+  impliedCapabilities: string[];
+  disabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type InstanceGrantPolicyActor = {
   origin: string;
   id: string;
@@ -20,11 +31,17 @@ export type InstanceGrantPolicy = {
   disabled: boolean;
   createdAt: string;
   updatedAt: string;
-  source: {
-    kind: "admin_policy";
-    createdBy?: InstanceGrantPolicyActor;
-    updatedBy?: InstanceGrantPolicyActor;
-  };
+  source:
+    | {
+      kind: "admin_policy";
+      createdBy?: InstanceGrantPolicyActor;
+      updatedBy?: InstanceGrantPolicyActor;
+    }
+    | {
+      kind: "portal_profile";
+      portalId: string;
+      entryUrl: string;
+    };
 };
 
 export type PortalDefault = {
@@ -109,6 +126,13 @@ export type CreatePortalRequest = {
   entryUrl: string;
 };
 
+export type SetPortalProfileRequest = {
+  portalId: string;
+  entryUrl: string;
+  contractId: string;
+  allowedOrigins?: string[];
+};
+
 export type PortalDefaultRequest = {
   portalId: string | null;
 };
@@ -170,10 +194,15 @@ function invalidRequest(context?: Record<string, unknown>) {
   return Result.err(new AuthError({ reason: "invalid_request", context }));
 }
 
+function isAllowedWebProtocol(url: URL): boolean {
+  return url.protocol === "https:" || url.protocol === "http:";
+}
+
 function parseUrl(value: string | undefined): string | null {
   if (!value) return null;
   try {
-    return new URL(value).toString();
+    const url = new URL(value);
+    return isAllowedWebProtocol(url) ? url.toString() : null;
   } catch {
     return null;
   }
@@ -227,7 +256,8 @@ export function normalizeStringList(values: string[]): string[] {
 function parseOrigin(value: string | undefined): string | null {
   if (!value) return null;
   try {
-    return new URL(value).origin;
+    const url = new URL(value);
+    return isAllowedWebProtocol(url) ? url.origin : null;
   } catch {
     return null;
   }
@@ -276,6 +306,42 @@ export function validatePortalRequest(req: CreatePortalRequest) {
       entryUrl,
       disabled: false,
     } as Portal,
+  });
+}
+
+export function validatePortalProfileRequest(req: SetPortalProfileRequest) {
+  const entryUrl = parseUrl(req.entryUrl);
+  if (!req.portalId || !entryUrl || !req.contractId) {
+    return invalidRequest({
+      portalId: req.portalId,
+      entryUrl: req.entryUrl,
+      contractId: req.contractId,
+    });
+  }
+  const allowedOrigins = req.allowedOrigins === undefined ? undefined : (() => {
+    const normalized = [] as string[];
+    for (const value of req.allowedOrigins) {
+      const origin = parseOrigin(value);
+      if (!origin) return null;
+      normalized.push(origin);
+    }
+    const uniqueOrigins = normalizeStringList(normalized);
+    return uniqueOrigins.length > 0 ? uniqueOrigins : undefined;
+  })();
+  if (allowedOrigins === null) {
+    return invalidRequest({ allowedOrigins: req.allowedOrigins });
+  }
+
+  return Result.ok({
+    profile: {
+      portalId: req.portalId,
+      entryUrl,
+      contractId: req.contractId,
+      allowedOrigins,
+    } as Pick<
+      PortalProfile,
+      "portalId" | "entryUrl" | "contractId" | "allowedOrigins"
+    >,
   });
 }
 

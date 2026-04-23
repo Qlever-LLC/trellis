@@ -5,16 +5,16 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::browser_login::{
-    DETACHED_LOGIN_POLL_INTERVAL, build_auth_start_signature_payload, contract_digest,
-    detached_login_redirect_to, poll_agent_flow_until_ready,
+    build_auth_start_signature_payload, contract_digest, detached_login_redirect_to,
+    poll_agent_flow_until_ready, DETACHED_LOGIN_POLL_INTERVAL,
 };
 use crate::{
-    AdminSessionState, AgentLoginChallenge, StartAgentLoginOpts, WaitForDeviceActivationResponse,
     build_device_activation_payload, clear_admin_session, derive_device_confirmation_code,
     derive_device_identity, load_admin_session, parse_device_activation_payload,
     save_admin_session, sign_device_wait_request, start_admin_reauth, start_agent_login,
     start_device_activation_request, verify_device_confirmation_code,
-    wait_for_device_activation_response,
+    wait_for_device_activation_response, AdminSessionState, AgentLoginChallenge,
+    StartAgentLoginOpts, WaitForDeviceActivationResponse,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -246,7 +246,8 @@ async fn agent_login_complete_polls_detached_flow_then_binds() {
     let auth = SessionAuth::from_seed_base64url(&session_seed).expect("session auth");
     let challenge = AgentLoginChallenge {
         flow_id: "flow_ready".to_string(),
-        login_url: "https://auth.example.test/_trellis/portal/users/login?flowId=flow_ready".to_string(),
+        login_url: "https://auth.example.test/_trellis/portal/users/login?flowId=flow_ready"
+            .to_string(),
         session_seed,
         contract_digest: "digest".to_string(),
         auth,
@@ -311,11 +312,9 @@ async fn agent_flow_polling_waits_for_redirect_status() {
     assert_eq!(flow_id, "flow_123");
     let recorded = requests.lock().expect("lock requests");
     assert_eq!(recorded.len(), 3);
-    assert!(
-        recorded
-            .iter()
-            .all(|request| request.starts_with("GET /auth/flow/flow_123 HTTP/1.1\r\n"))
-    );
+    assert!(recorded
+        .iter()
+        .all(|request| request.starts_with("GET /auth/flow/flow_123 HTTP/1.1\r\n")));
 
     server.await.expect("server task");
 }
@@ -508,13 +507,11 @@ fn device_confirmation_codes_verify_locally() {
     )
     .expect("derive confirmation code");
     assert_eq!(confirmation_code.len(), 8);
-    assert!(
-        verify_device_confirmation_code(
-            &identity.activation_key_base64url,
-            &identity.public_identity_key,
-            "nonce_123",
-            &confirmation_code.to_lowercase(),
-        )
-        .expect("verify confirmation code")
-    );
+    assert!(verify_device_confirmation_code(
+        &identity.activation_key_base64url,
+        &identity.public_identity_key,
+        "nonce_123",
+        &confirmation_code.to_lowercase(),
+    )
+    .expect("verify confirmation code"));
 }

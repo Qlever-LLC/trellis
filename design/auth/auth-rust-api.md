@@ -316,12 +316,15 @@ Rules:
 
 ## Portal And Selection Invariants
 
-The built-in Trellis portal is implicit and always available. The crate only manages custom portal records plus login/device portal selection policy.
+The built-in Trellis portal is implicit and always available. The crate manages custom portal records, portal profiles, and login/device portal selection policy.
 
 Rules enforced by the crate:
 
 - custom portals remain first-class, but portal records are only routing config:
   `portal_id`, `entry_url`, and `disabled`
+- portal profiles are the portal-specific trust policy keyed by `portal_id`; they
+  bind one browser app contract lineage and optional allowed origins to one
+  routed portal and return server-derived implied capabilities
 - there is no portal-specific contract kind or portal-specific contract
   machinery in the Rust auth API
 - login portal selections are keyed by `contract_id`

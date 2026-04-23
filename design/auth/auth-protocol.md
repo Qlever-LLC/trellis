@@ -402,6 +402,7 @@ Required KV buckets and logical contents:
 | `trellis_contract_approvals` | `<trellisId>.<contractDigest>` | Approval object | None |
 | `trellis_browser_flows` | `<flowId>` | Browser flow record, including `kind: "login"` and `kind: "device_activation"` | 5 min |
 | `trellis_portals` | `<portalId>` | Portal record | None |
+| `trellis_portal_profiles` | `<portalId>` | Portal profile record | None |
 | `trellis_portal_login_selections` | `contract.<contractId>` | Login portal selection record | None |
 | `trellis_instance_grant_policies` | `<contractId>` | Deployment-wide instance grant policy | None |
 | `trellis_portal_device_selections` | `profile.<profileId>` | Device portal selection record | None |
@@ -416,9 +417,9 @@ Required KV buckets and logical contents:
 Ephemeral tokens (`state`, `authToken`) are stored by `hash(token)` rather than raw token value.
 
 Browser flows are keyed by raw `flowId` because the flow identifier is browser-visible and used to fetch auth-owned portal state. Device activation records persist for the lifetime of the activated device unless revoked. Login
-portal selections, device portal selections, and optional default-portal
-settings are deployment-owned routing records used by browser login and device
-activation.
+portal selections, device portal selections, optional default-portal settings,
+and portal profiles are deployment-owned records used by browser login and
+device activation.
 
 ### Browser Flow Record
 
@@ -465,7 +466,7 @@ type UserSession = {
     contractId: string;
     origin?: string;
   };
-  approvalSource?: "stored_approval" | "admin_policy";
+  approvalSource?: "stored_approval" | "admin_policy" | "portal_profile";
   delegatedCapabilities: string[];
   delegatedPublishSubjects: string[];
   delegatedSubscribeSubjects: string[];
@@ -551,6 +552,25 @@ Trellis stores one approval record per `user <-> contractDigest` pair.
       origin: string;
       id: string;
     };
+  };
+}
+```
+
+Portal profiles are projected into the same effective-policy matching path using
+`source.kind = "portal_profile"` plus routed portal metadata:
+
+```ts
+{
+  contractId: string;
+  allowedOrigins?: string[];
+  impliedCapabilities: string[];
+  disabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+  source: {
+    kind: "portal_profile";
+    portalId: string;
+    entryUrl: string;
   };
 }
 ```

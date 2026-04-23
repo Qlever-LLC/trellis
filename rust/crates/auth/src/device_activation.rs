@@ -1,7 +1,7 @@
 use std::time::Duration;
 
-use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine as _;
 use ed25519_dalek::{Signer, SigningKey};
 use hkdf::Hkdf;
 use hmac::{Hmac, KeyInit, Mac};
@@ -10,11 +10,11 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use url::Url;
 
-use crate::TrellisAuthError;
 use crate::models::{
     DeviceActivationPayload, DeviceActivationWaitRequest, DeviceIdentity,
     WaitForDeviceActivationOpts, WaitForDeviceActivationResponse,
 };
+use crate::TrellisAuthError;
 
 type HmacSha256 = Hmac<Sha256>;
 

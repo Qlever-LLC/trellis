@@ -103,15 +103,15 @@ Rules:
 - if present, `context` is stored on the browser flow and returned to portals as
   app-owned opaque data
 - a portal is trusted for this redirect only because deployment configuration
-  registered its `entryUrl`; portal registration does not grant service
-  authority
+  routed the flow there; portal records remain routing-only config and do not by
+  themselves grant delegated approval or service authority
 - first login does not require pre-registering a portal because the built-in
   Trellis login portal is always available
-- auth MAY also apply a matching deployment-wide instance grant policy for the
-  app's contract lineage and optional app origin; when it matches, or when an
-  existing delegated session already grants a strict superset of the requested
-  subjects and capabilities for the same contract lineage, auth may skip browser
-  UX and return `bound` directly
+- auth MAY also apply a matching deployment-wide instance grant policy or
+  portal-profile policy for the app's contract lineage and optional app origin;
+  when one matches, or when an existing delegated session already grants a
+  strict superset of the requested subjects and capabilities for the same
+  contract lineage, auth may skip browser UX and return `bound` directly
 
 ### GET /auth/login/:provider
 
@@ -938,6 +938,9 @@ Portal rules:
   apps should use explicit Trellis URL config rather than same-origin inference
 - a portal record registers only custom browser routing config:
   `portalId`, `entryUrl`, and `disabled`
+- a portal profile is the auth-owned portal trust policy keyed by `portalId`;
+  it binds one browser app contract lineage and optional allowed origins to one
+  routed portal entry point and stores the server-derived implied capabilities
 - custom portals remain first-class, but there is no portal-specific contract
   kind or portal-specific auth machinery
 - if a portal later calls Trellis after bind, it does so as a normal
@@ -979,12 +982,18 @@ Capability rule:
 - instance grant policies are deployment policy, not user-owned grants;
   user-facing callers still see only explicit user capabilities in
   insufficient-capability responses
+- portal profiles are also deployment policy, not user-owned grants; they imply
+  approval only while both the portal profile and routed portal record remain
+  enabled
 
 Canonical RPC inventory:
 
 - `rpc.v1.Auth.CreatePortal`
 - `rpc.v1.Auth.ListPortals`
 - `rpc.v1.Auth.DisablePortal`
+- `rpc.v1.Auth.ListPortalProfiles`
+- `rpc.v1.Auth.SetPortalProfile`
+- `rpc.v1.Auth.DisablePortalProfile`
 - `rpc.v1.Auth.GetLoginPortalDefault`
 - `rpc.v1.Auth.ListInstanceGrantPolicies`
 - `rpc.v1.Auth.UpsertInstanceGrantPolicy`
@@ -1128,6 +1137,107 @@ Response:
   policy: InstanceGrantPolicy;
 }
 ```
+
+### rpc.Auth.ListPortalProfiles
+
+Request:
+
+```ts
+{}
+```
+
+Response:
+
+```ts
+{
+  profiles: Array<{
+    portalId: string;
+    entryUrl: string;
+    contractId: string;
+    allowedOrigins?: string[];
+    impliedCapabilities: string[];
+    disabled: boolean;
+    createdAt: string;
+    updatedAt: string;
+  }>;
+}
+```
+
+### rpc.Auth.SetPortalProfile
+
+Request:
+
+```ts
+{
+  portalId: string;
+  entryUrl: string;
+  contractId: string;
+  allowedOrigins?: string[];
+}
+```
+
+Response:
+
+```ts
+{
+  profile: {
+    portalId: string;
+    entryUrl: string;
+    contractId: string;
+    allowedOrigins?: string[];
+    impliedCapabilities: string[];
+    disabled: boolean;
+    createdAt: string;
+    updatedAt: string;
+  };
+}
+```
+
+Rules:
+
+- `portalId` targets one routed custom portal entry point
+- `contractId` targets a browser app contract lineage and MUST resolve to an
+  installed browser app contract
+- `allowedOrigins`, when present, further restrict matching browser-app origins;
+  omitting them allows any origin that otherwise matches the contract lineage
+- auth derives `impliedCapabilities` from the active installed contracts in that
+  lineage rather than trusting caller-provided capability lists
+- saving a portal profile also upserts the corresponding routed portal record so
+  operators can register portal routing and portal trust in one admin action
+- policy updates SHOULD revoke affected delegated user sessions so reconnect
+  re-evaluates current policy
+
+### rpc.Auth.DisablePortalProfile
+
+Request:
+
+```ts
+{
+  portalId: string;
+}
+```
+
+Response:
+
+```ts
+{
+  profile: {
+    portalId: string;
+    entryUrl: string;
+    contractId: string;
+    allowedOrigins?: string[];
+    impliedCapabilities: string[];
+    disabled: boolean;
+    createdAt: string;
+    updatedAt: string;
+  };
+}
+```
+
+Rules:
+
+- disabling a portal profile removes the portal-owned implied approval path but
+  does not by itself disable the routed portal record
 
 ### rpc.Auth.RevokeSession
 

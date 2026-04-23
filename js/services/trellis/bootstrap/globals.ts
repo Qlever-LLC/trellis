@@ -21,6 +21,7 @@ import {
   LoginPortalSelectionSchema,
   OAuthStateSchema,
   PendingAuthSchema,
+  PortalProfileSchema,
   PortalSchema,
   type SentinelCreds,
   SentinelCredsSchema,
@@ -144,6 +145,20 @@ if (isErr(portalsKVValue)) {
   throw new Error(`Failed to open portals KV: ${portalsKVValue.error.message}`);
 }
 export const portalsKV = portalsKVValue;
+
+const portalProfilesKVResult = await TypedKV.open(
+  natsAuth,
+  "trellis_portal_profiles",
+  PortalProfileSchema,
+  { history: 1, ttl: 0 },
+);
+const portalProfilesKVValue = portalProfilesKVResult.take();
+if (isErr(portalProfilesKVValue)) {
+  throw new Error(
+    `Failed to open portal profiles KV: ${portalProfilesKVValue.error.message}`,
+  );
+}
+export const portalProfilesKV = portalProfilesKVValue;
 
 const portalDefaultsKVResult = await TypedKV.open(
   natsAuth,

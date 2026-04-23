@@ -20,6 +20,7 @@ import {
   validateInstanceGrantPolicyRequest,
   validateLoginPortalSelectionRequest,
   validatePortalDefaultRequest,
+  validatePortalProfileRequest,
   validatePortalRequest,
   validateServiceProfileRequest,
 } from "./shared.ts";
@@ -33,6 +34,9 @@ Deno.test("auth contract exposes service, portal, and device admin RPCs", () => 
   assert(methods.includes("Auth.CreatePortal"));
   assert(methods.includes("Auth.ListPortals"));
   assert(methods.includes("Auth.DisablePortal"));
+  assert(methods.includes("Auth.ListPortalProfiles"));
+  assert(methods.includes("Auth.SetPortalProfile"));
+  assert(methods.includes("Auth.DisablePortalProfile"));
   assert(methods.includes("Auth.GetLoginPortalDefault"));
   assert(methods.includes("Auth.SetLoginPortalDefault"));
   assert(methods.includes("Auth.ListInstanceGrantPolicies"));
@@ -171,6 +175,60 @@ Deno.test("validatePortalRequest requires portal identity and URL", () => {
     entryUrl: "https://portal.example.com/auth",
     disabled: false,
   });
+
+  assert(
+    validatePortalRequest({
+      portalId: "main",
+      entryUrl: "javascript:alert(1)",
+    }).isErr(),
+  );
+});
+
+Deno.test("validatePortalProfileRequest normalizes origins and allows unrestricted profiles", () => {
+  const valid = validatePortalProfileRequest({
+    portalId: "main",
+    entryUrl: "https://portal.example.com/auth",
+    contractId: "trellis.portal@v1",
+    allowedOrigins: [
+      "https://portal.example.com/callback",
+      "https://alt.example.com/path",
+    ],
+  });
+  assert(!valid.isErr());
+  assertEquals((valid.take() as { profile: Record<string, unknown> }).profile, {
+    portalId: "main",
+    entryUrl: "https://portal.example.com/auth",
+    contractId: "trellis.portal@v1",
+    allowedOrigins: ["https://portal.example.com", "https://alt.example.com"],
+  });
+
+  const unrestricted = validatePortalProfileRequest({
+    portalId: "main",
+    entryUrl: "https://portal.example.com/auth",
+    contractId: "trellis.portal@v1",
+  });
+  assert(!unrestricted.isErr());
+  assertEquals(
+    (unrestricted.take() as { profile: { allowedOrigins?: string[] } }).profile
+      .allowedOrigins,
+    undefined,
+  );
+
+  assert(
+    validatePortalProfileRequest({
+      portalId: "main",
+      entryUrl: "javascript:alert(1)",
+      contractId: "trellis.portal@v1",
+    }).isErr(),
+  );
+  assert(
+    validatePortalProfileRequest({
+      portalId: "main",
+      entryUrl: "https://portal.example.com/auth",
+      contractId: "trellis.portal@v1",
+      allowedOrigins: ["javascript:alert(1)"],
+    }).isErr(),
+  );
 });
 
 Deno.test("validatePortalDefaultRequest accepts builtin and custom selections", () => {

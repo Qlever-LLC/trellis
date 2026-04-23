@@ -1,7 +1,9 @@
 import { assertEquals } from "@std/assert";
 
 import {
+  effectiveApproval,
   matchingInstanceGrantPolicies,
+  portalProfileToGrantPolicy,
   userDelegationAllowed,
 } from "./policy.ts";
 
@@ -36,7 +38,7 @@ Deno.test("matching policy allows delegated access even when stored approval is 
         contractId: "trellis.console@v1",
         displayName: "Console",
         description: "Admin",
-        kind: "app",
+        participantKind: "app",
         capabilities: ["admin"],
       },
       publishSubjects: [],
@@ -77,7 +79,7 @@ Deno.test("origin mismatch falls back to stored approval behavior", () => {
         contractId: "trellis.console@v1",
         displayName: "Console",
         description: "Admin",
-        kind: "app",
+        participantKind: "app",
         capabilities: ["admin"],
       },
       publishSubjects: [],
@@ -104,7 +106,7 @@ Deno.test("stored approval remains valid when no policy matches", () => {
         contractId: "trellis.console@v1",
         displayName: "Console",
         description: "Admin",
-        kind: "app",
+        participantKind: "app",
         capabilities: ["admin"],
       },
       publishSubjects: [],
@@ -112,4 +114,34 @@ Deno.test("stored approval remains valid when no policy matches", () => {
     },
     matchedPolicies: [],
   }), true);
+});
+
+Deno.test("portal profile policies reuse matching semantics with portal source metadata", () => {
+  const policy = portalProfileToGrantPolicy({
+    portalId: "main",
+    entryUrl: "https://portal.example.com/auth",
+    contractId: "trellis.portal@v1",
+    allowedOrigins: ["https://portal.example.com"],
+    impliedCapabilities: ["auth.login"],
+    disabled: false,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+
+  const policies = matchingInstanceGrantPolicies({
+    policies: [policy],
+    contractId: "trellis.portal@v1",
+    appOrigin: "https://portal.example.com",
+  });
+
+  assertEquals(policies, [policy]);
+  assertEquals(policy.source, {
+    kind: "portal_profile",
+    portalId: "main",
+    entryUrl: "https://portal.example.com/auth",
+  });
+  assertEquals(effectiveApproval({ storedApproval: null, matchedPolicies: policies }), {
+    kind: "portal_profile",
+    answer: "approved",
+  });
 });

@@ -896,9 +896,9 @@ The `trellis` runtime service MUST:
   `trellis` service principal
 - support deployment-owned device profile records that resolve a device class to
   a contract lineage plus an allowed digest set
-- support deployment-owned portal records plus login/device portal selection
-  records for browser login and device-activation customization, with built-in
-  Trellis portal paths as the fallback
+- support deployment-owned portal records, portal profiles, and login/device
+  portal selection records for browser login and device-activation
+  customization, with built-in Trellis portal paths as the fallback
 - remove the old submission/approval flow rather than preserving a compatibility
   path
 - ensure any stored user approval or consent decision references the exact
@@ -917,6 +917,9 @@ Install or upgrade validation MUST also:
 - portal records are deployment-owned routing config for browser UX only; they
   are not a contract kind and do not create portal-specific install or auth
   behavior
+- portal profiles are deployment-owned auth policy layered on top of routed
+  portal records; they imply approval for one browser app lineage without
+  changing contract install semantics
 
 Operationally, install or upgrade fails if any of these conditions is true:
 

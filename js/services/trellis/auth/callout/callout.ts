@@ -21,7 +21,6 @@ import {
   contractsKV,
   deviceActivationsKV,
   deviceProfilesKV,
-  instanceGrantPoliciesKV,
   logger,
   natsAuth,
   sessionKV,
@@ -54,6 +53,7 @@ import {
 } from "../../state/schemas.ts";
 import { resolveSessionPrincipal } from "../session/principal.ts";
 import { deviceInstanceId } from "../admin/shared.ts";
+import { loadEffectiveGrantPolicies } from "../grants/store.ts";
 import {
   loadServiceInstanceByKey,
   loadServiceProfile,
@@ -521,8 +521,7 @@ export function startAuthCallout(
             return isErr(entry) ? null : entry.value;
           },
           loadInstanceGrantPolicies: async (contractId) => {
-            const entry = await instanceGrantPoliciesKV.get(contractId).take();
-            return isErr(entry) ? [] : [entry.value];
+            return await loadEffectiveGrantPolicies(contractId);
           },
         });
         if (!resolvedReconnect.ok) {
@@ -556,8 +555,7 @@ export function startAuthCallout(
           return isErr(entry) ? null : entry.value;
         },
         loadInstanceGrantPolicies: async (contractId: string) => {
-          const entry = await instanceGrantPoliciesKV.get(contractId).take();
-          return isErr(entry) ? [] : [entry.value];
+          return await loadEffectiveGrantPolicies(contractId);
         },
       });
       if (!principal.ok) {

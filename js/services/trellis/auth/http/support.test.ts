@@ -11,6 +11,7 @@ import {
   getCookie,
   getApprovalResolutionBlocker,
   getApprovalResolution,
+  normalizeBuiltinPortalEntryUrl,
   resolveLoginPortal,
   resolveDevicePortal,
   shouldUseSecureOauthCookie,
@@ -63,6 +64,26 @@ Deno.test("buildRedirectLocation preserves relative redirects", () => {
   });
 
   assertEquals(location, "/callback?redirectTo=%2Fprofile&flowId=flow-123");
+});
+
+Deno.test("normalizeBuiltinPortalEntryUrl rewrites same-origin builtin opposite paths", () => {
+  assertEquals(
+    normalizeBuiltinPortalEntryUrl({
+      entryUrl: "https://auth.example.com/_trellis/portal/devices/activate",
+      baseUrl: "https://auth.example.com/_trellis/portal/users/login",
+      expectedKind: "login",
+    }),
+    "https://auth.example.com/_trellis/portal/users/login",
+  );
+
+  assertEquals(
+    normalizeBuiltinPortalEntryUrl({
+      entryUrl: "https://auth.example.com/_trellis/portal/users/login",
+      baseUrl: "https://auth.example.com/_trellis/portal/devices/activate",
+      expectedKind: "device",
+    }),
+    "https://auth.example.com/_trellis/portal/devices/activate",
+  );
 });
 
 Deno.test("getCookie ignores malformed percent-encoding", () => {

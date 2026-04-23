@@ -76,6 +76,18 @@ export const InstanceGrantPolicyActorSchema = Type.Object({
   id: Type.String({ minLength: 1 }),
 });
 
+export const PortalProfileSourceSchema = Type.Object({
+  kind: Type.Literal("portal_profile"),
+  portalId: Type.String({ minLength: 1 }),
+  entryUrl: Type.String({ minLength: 1 }),
+});
+
+export const AdminPolicySourceSchema = Type.Object({
+  kind: Type.Literal("admin_policy"),
+  createdBy: Type.Optional(InstanceGrantPolicyActorSchema),
+  updatedBy: Type.Optional(InstanceGrantPolicyActorSchema),
+});
+
 export const InstanceGrantPolicySchema = Type.Object({
   contractId: Type.String({ minLength: 1 }),
   allowedOrigins: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
@@ -83,11 +95,7 @@ export const InstanceGrantPolicySchema = Type.Object({
   disabled: Type.Boolean(),
   createdAt: IsoDateStringSchema,
   updatedAt: IsoDateStringSchema,
-  source: Type.Object({
-    kind: Type.Literal("admin_policy"),
-    createdBy: Type.Optional(InstanceGrantPolicyActorSchema),
-    updatedBy: Type.Optional(InstanceGrantPolicyActorSchema),
-  }),
+  source: Type.Union([AdminPolicySourceSchema, PortalProfileSourceSchema]),
 });
 export type InstanceGrantPolicy = StaticDecode<
   typeof InstanceGrantPolicySchema
@@ -483,6 +491,19 @@ export const PortalSchema = Type.Object({
   entryUrl: Type.String({ minLength: 1 }),
   disabled: Type.Boolean(),
 });
+export type Portal = StaticDecode<typeof PortalSchema>;
+
+export const PortalProfileSchema = Type.Object({
+  portalId: Type.String({ minLength: 1 }),
+  entryUrl: Type.String({ minLength: 1 }),
+  contractId: Type.String({ minLength: 1 }),
+  allowedOrigins: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+  impliedCapabilities: Type.Array(Type.String()),
+  disabled: Type.Boolean(),
+  createdAt: IsoDateStringSchema,
+  updatedAt: IsoDateStringSchema,
+});
+export type PortalProfile = StaticDecode<typeof PortalProfileSchema>;
 
 const NullablePortalIdSchema = Type.Union([
   Type.String({ minLength: 1 }),
@@ -715,6 +736,26 @@ export const AuthDisablePortalSchema = Type.Object({
 });
 export const AuthDisablePortalResponseSchema = Type.Object({
   success: Type.Boolean(),
+});
+
+export const AuthListPortalProfilesSchema = Type.Object({});
+export const AuthListPortalProfilesResponseSchema = Type.Object({
+  profiles: Type.Array(PortalProfileSchema),
+});
+export const AuthSetPortalProfileSchema = Type.Object({
+  portalId: Type.String({ minLength: 1 }),
+  entryUrl: Type.String({ minLength: 1 }),
+  contractId: Type.String({ minLength: 1 }),
+  allowedOrigins: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+});
+export const AuthSetPortalProfileResponseSchema = Type.Object({
+  profile: PortalProfileSchema,
+});
+export const AuthDisablePortalProfileSchema = Type.Object({
+  portalId: Type.String({ minLength: 1 }),
+});
+export const AuthDisablePortalProfileResponseSchema = Type.Object({
+  profile: PortalProfileSchema,
 });
 
 export const AuthGetLoginPortalDefaultSchema = Type.Object({});

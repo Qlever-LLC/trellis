@@ -124,9 +124,10 @@ export function applyApprovalDecision(args: {
   };
   return {
     ...args.resolution,
-    effectiveApproval: args.resolution.matchedPolicies.length > 0
-      ? { kind: "admin_policy", answer: "approved" }
-      : { kind: "stored_approval", answer: storedApproval.answer },
+    effectiveApproval: effectiveApproval({
+      storedApproval,
+      matchedPolicies: args.resolution.matchedPolicies,
+    }),
     storedApproval,
   };
 }

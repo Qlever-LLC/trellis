@@ -153,6 +153,10 @@ Rules:
   it is never a service-authenticated principal
 - portal records are routing config only: `portalId`, `entryUrl`, and
   `disabled`
+- deployments MAY also configure portal profiles keyed by `portalId`; portal
+  profiles bind one browser app contract lineage and optional origin
+  restrictions to one routed portal entry point and imply approval plus
+  effective capabilities while the profile remains enabled
 - there is no special portal contract kind; custom portals remain first-class
   browser UX surfaces without portal-specific contract machinery
 - a portal MAY also act later as a normal user-authenticated browser app, but
@@ -173,6 +177,8 @@ Rules:
 - deployments MAY also configure instance grant policies keyed by contract
   lineage, with optional origin restrictions, that imply approval and effective
   capabilities dynamically
+- portal profiles are the portal-specific variant of that deployment policy;
+  broader app and agent bypasses remain deployment-wide instance grant policies
 - when a matching instance grant policy is enabled, it overrides explicit user
   denial for that app lineage while the policy remains enabled
 - approval scopes are derived from declared contract APIs; there is no separate

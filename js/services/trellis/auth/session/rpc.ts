@@ -16,7 +16,6 @@ import {
   contractApprovalsKV,
   deviceActivationsKV,
   deviceProfilesKV,
-  instanceGrantPoliciesKV,
   logger,
   natsAuth,
   serviceInstancesKV,
@@ -31,6 +30,7 @@ import type {
 } from "../../state/schemas.ts";
 import { resolveSessionPrincipal } from "./principal.ts";
 import { loadServiceInstanceByKey, loadServiceProfile } from "../admin/service_rpc.ts";
+import { loadEffectiveGrantPolicies } from "../grants/store.ts";
 export { createAuthRevokeSessionHandler } from "./revoke.ts";
 import { createAuthRevokeSessionHandler } from "./revoke.ts";
 
@@ -836,8 +836,7 @@ export const authValidateRequestHandler = async (
       return isErr(entry) ? null : entry.value;
     },
     loadInstanceGrantPolicies: async (contractId: string) => {
-      const entry = await instanceGrantPoliciesKV.get(contractId).take();
-      return isErr(entry) ? [] : [entry.value];
+      return await loadEffectiveGrantPolicies(contractId);
     },
   });
   if (!principal.ok) {

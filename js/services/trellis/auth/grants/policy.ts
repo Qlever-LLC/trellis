@@ -1,10 +1,12 @@
 import type {
   ContractApprovalRecord,
   InstanceGrantPolicy,
+  PortalProfile,
 } from "../../state/schemas.ts";
 
 export type EffectiveApproval =
   | { kind: "admin_policy"; answer: "approved" }
+  | { kind: "portal_profile"; answer: "approved" }
   | { kind: "stored_approval"; answer: "approved" | "denied" }
   | { kind: "none"; answer: "none" };
 
@@ -46,6 +48,33 @@ export function matchingInstanceGrantPolicies(args: {
   );
 }
 
+export function portalProfileToGrantPolicy(
+  profile: PortalProfile,
+): InstanceGrantPolicy {
+  return {
+    contractId: profile.contractId,
+    ...(profile.allowedOrigins ? { allowedOrigins: profile.allowedOrigins } : {}),
+    impliedCapabilities: profile.impliedCapabilities,
+    disabled: profile.disabled,
+    createdAt: profile.createdAt,
+    updatedAt: profile.updatedAt,
+    source: {
+      kind: "portal_profile",
+      portalId: profile.portalId,
+      entryUrl: profile.entryUrl,
+    },
+  };
+}
+
+function policyApprovalSource(
+  policies: InstanceGrantPolicy[],
+): "admin_policy" | "portal_profile" {
+  if (policies.some((policy) => policy.source.kind === "portal_profile")) {
+    return "portal_profile";
+  }
+  return "admin_policy";
+}
+
 export function effectiveCapabilities(args: {
   explicitCapabilities: string[];
   matchedPolicies: InstanceGrantPolicy[];
@@ -61,7 +90,7 @@ export function effectiveApproval(args: {
   matchedPolicies: InstanceGrantPolicy[];
 }): EffectiveApproval {
   if (args.matchedPolicies.length > 0) {
-    return { kind: "admin_policy", answer: "approved" };
+    return { kind: policyApprovalSource(args.matchedPolicies), answer: "approved" };
   }
   if (args.storedApproval) {
     return {

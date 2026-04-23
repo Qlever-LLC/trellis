@@ -95,10 +95,7 @@ fn builder_supports_uses_rpc_subject_kv_stream_and_job_queue_resources() {
     assert!(manifest.rpc.contains_key("Jobs.Health"));
     assert!(manifest.subjects.contains_key("Jobs.Stream"));
     assert!(manifest.resources.kv.contains_key("jobsState"));
-    assert_eq!(
-        manifest.resources.kv["jobsState"].schema.schema,
-        "JobState"
-    );
+    assert_eq!(manifest.resources.kv["jobsState"].schema.schema, "JobState");
     assert!(manifest.resources.streams.contains_key("jobsEvents"));
     assert!(manifest.jobs.contains_key("document-process"));
 }

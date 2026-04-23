@@ -1,19 +1,19 @@
 use std::time::Duration;
 
-use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine as _;
 use ed25519_dalek::SigningKey;
 use reqwest::Client as HttpClient;
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
-use crate::TrellisAuthError;
-use crate::client::{AuthClient, connect_admin_client_async};
+use crate::client::{connect_admin_client_async, AuthClient};
 use crate::models::{
     AdminLoginOutcome, AdminReauthOutcome, AdminSessionState, AgentLoginChallenge, BindResponse,
     BindResponseBound, BoundSession, StartAgentLoginOpts,
 };
+use crate::TrellisAuthError;
 use crate::{AuthStartRequest, AuthStartResponse, ClientTransportsRecord};
 use trellis_client::SessionAuth;
 

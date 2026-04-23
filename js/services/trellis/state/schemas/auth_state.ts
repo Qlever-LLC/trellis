@@ -26,6 +26,7 @@ import {
   InstanceGrantPolicySchema,
   LoginPortalDefaultSchema,
   LoginPortalSelectionSchema,
+  PortalProfileSchema,
   PortalSchema,
   ServiceInstanceSchema,
   ServiceProfileSchema,
@@ -56,6 +57,7 @@ export {
   LoginPortalDefaultSchema,
   LoginPortalSelectionSchema,
   LoginQuerySchema,
+  PortalProfileSchema,
   PortalSchema,
   SentinelCredsSchema,
   ServiceInstanceSchema,
@@ -190,10 +192,12 @@ export type UserParticipantKind = StaticDecode<typeof UserParticipantKindSchema>
 export type InstanceGrantPolicy = StaticDecode<
   typeof InstanceGrantPolicySchema
 >;
+export type PortalProfile = StaticDecode<typeof PortalProfileSchema>;
 
 export const SessionApprovalSourceSchema = Type.Union([
   Type.Literal("stored_approval"),
   Type.Literal("admin_policy"),
+  Type.Literal("portal_profile"),
 ]);
 export type SessionApprovalSource = StaticDecode<
   typeof SessionApprovalSourceSchema

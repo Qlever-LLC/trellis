@@ -23,6 +23,104 @@ fn parses_portal_create_command() {
 }
 
 #[test]
+fn rejects_portal_create_contract_flag() {
+    let error = Cli::try_parse_from([
+        "trellis",
+        "portal",
+        "create",
+        "main",
+        "https://portal.example.com/auth",
+        "--contract",
+        "./js/apps/portal/contracts/trellis_app.ts",
+    ])
+    .unwrap_err();
+
+    assert_eq!(error.kind(), clap::error::ErrorKind::UnknownArgument);
+    assert!(error.to_string().contains("--contract"));
+}
+
+#[test]
+fn rejects_portal_create_capability_flag() {
+    let error = Cli::try_parse_from([
+        "trellis",
+        "portal",
+        "create",
+        "main",
+        "https://portal.example.com/auth",
+        "--capability",
+        "portal.login",
+    ])
+    .unwrap_err();
+
+    assert_eq!(error.kind(), clap::error::ErrorKind::UnknownArgument);
+    assert!(error.to_string().contains("--capability"));
+}
+
+#[test]
+fn rejects_portal_create_allow_origin_flag() {
+    let error = Cli::try_parse_from([
+        "trellis",
+        "portal",
+        "create",
+        "main",
+        "https://portal.example.com/auth",
+        "--allow-origin",
+        "https://portal.example.com",
+    ])
+    .unwrap_err();
+
+    assert_eq!(error.kind(), clap::error::ErrorKind::UnknownArgument);
+    assert!(error.to_string().contains("--allow-origin"));
+}
+
+#[test]
+fn parses_portal_profile_set_command() {
+    let cli = Cli::parse_from([
+        "trellis",
+        "portal",
+        "profile",
+        "set",
+        "main",
+        "https://portal.example.com/auth",
+        "./js/apps/portal/contracts/trellis_app.ts",
+        "--allow-origin",
+        "https://portal.example.com",
+    ]);
+    match cli.command {
+        TopLevelCommand::Portal(command) => match command.command {
+            PortalSubcommand::Profile(profile) => match profile.command {
+                PortalProfileSubcommand::Set(args) => {
+                    assert_eq!(args.portal_id, "main");
+                    assert_eq!(args.entry_url, "https://portal.example.com/auth");
+                    assert_eq!(args.contract, "./js/apps/portal/contracts/trellis_app.ts");
+                    assert_eq!(args.allowed_origins, vec!["https://portal.example.com"]);
+                }
+                other => panic!("unexpected portal profile command: {other:?}"),
+            },
+            other => panic!("unexpected portal command: {other:?}"),
+        },
+        other => panic!("unexpected top-level command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_portal_profile_disable_command() {
+    let cli = Cli::parse_from(["trellis", "portal", "profile", "disable", "main"]);
+    match cli.command {
+        TopLevelCommand::Portal(command) => match command.command {
+            PortalSubcommand::Profile(profile) => match profile.command {
+                PortalProfileSubcommand::Disable(args) => {
+                    assert_eq!(args.portal_id, "main");
+                }
+                other => panic!("unexpected portal profile command: {other:?}"),
+            },
+            other => panic!("unexpected portal command: {other:?}"),
+        },
+        other => panic!("unexpected top-level command: {other:?}"),
+    }
+}
+
+#[test]
 fn rejects_removed_portal_create_app_contract_id_flag() {
     let error = Cli::try_parse_from([
         "trellis",

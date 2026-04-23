@@ -68,6 +68,10 @@ pub(crate) const AUTH_BOOTSTRAP_BUCKETS: &[KvBucketSpec] = &[
         ttl_ms: 0,
     },
     KvBucketSpec {
+        name: "trellis_portal_profiles",
+        ttl_ms: 0,
+    },
+    KvBucketSpec {
         name: "trellis_portal_defaults",
         ttl_ms: 0,
     },

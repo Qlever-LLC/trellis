@@ -5,6 +5,7 @@ import {
   browserFlowsKV,
   connectionsKV,
   contractApprovalsKV,
+  contractsKV,
   deviceActivationReviewsKV,
   deviceActivationsKV,
   deviceInstancesKV,
@@ -15,6 +16,7 @@ import {
   logger,
   loginPortalSelectionsKV,
   portalDefaultsKV,
+  portalProfilesKV,
   portalsKV,
   sessionKV,
   trellis,
@@ -29,15 +31,16 @@ import {
   type DevicePortalSelectionRequest,
   type DeviceProfile,
   type DeviceProvisioningSecret,
-  type InstanceGrantPolicy,
   type InstanceGrantPolicyActor,
   type LoginPortalSelection,
   type LoginPortalSelectionRequest,
   normalizeAppliedContracts,
   type Portal,
+  type PortalProfile,
   type PortalDefault,
   type PortalDefaultRequest,
   type ProvisionDeviceInstanceRequest,
+  type SetPortalProfileRequest,
   type UpsertInstanceGrantPolicyRequest,
   validateDevicePortalSelectionRequest,
   validateDeviceProfileRequest,
@@ -45,15 +48,23 @@ import {
   validateInstanceGrantPolicyRequest,
   validateLoginPortalSelectionRequest,
   validatePortalDefaultRequest,
+  validatePortalProfileRequest,
   validatePortalRequest,
 } from "./shared.ts";
 import { deriveDeviceConfirmationCode } from "@qlever-llc/trellis/auth";
 import { kick } from "../callout/kick.ts";
+import type { ContractStore } from "../../catalog/store.ts";
+import { planUserContractApproval } from "../approval/plan.ts";
 import {
   matchingInstanceGrantPolicies,
   userDelegationAllowed,
 } from "../grants/policy.ts";
-import type { Session, UserProjectionEntry } from "../../state/schemas.ts";
+import { loadEffectiveGrantPolicies } from "../grants/store.ts";
+import type {
+  InstanceGrantPolicy,
+  Session,
+  UserProjectionEntry,
+} from "../../state/schemas.ts";
 
 type RpcUser = { capabilities?: string[]; origin?: string; id?: string };
 type DeviceActivation = {
@@ -160,6 +171,14 @@ async function loadInstanceGrantPolicy(
   return entry.value as InstanceGrantPolicy;
 }
 
+async function loadPortalProfile(
+  portalId: string,
+): Promise<PortalProfile | null> {
+  const entry = await portalProfilesKV.get(portalId).take();
+  if (isErr(entry)) return null;
+  return entry.value as PortalProfile;
+}
+
 async function loadDeviceProfile(
   profileId: string,
 ): Promise<DeviceProfile | null> {
@@ -264,6 +283,18 @@ async function listPortals(): Promise<Portal[]> {
   for await (const key of iter) {
     const entry = await portalsKV.get(key).take();
     if (!isErr(entry)) values.push(entry.value as Portal);
+  }
+  values.sort((left, right) => left.portalId.localeCompare(right.portalId));
+  return values;
+}
+
+async function listPortalProfiles(): Promise<PortalProfile[]> {
+  const iter = await portalProfilesKV.keys(">").take();
+  if (isErr(iter)) return [];
+  const values: PortalProfile[] = [];
+  for await (const key of iter) {
+    const entry = await portalProfilesKV.get(key).take();
+    if (!isErr(entry)) values.push(entry.value as PortalProfile);
   }
   values.sort((left, right) => left.portalId.localeCompare(right.portalId));
   return values;
@@ -415,7 +446,7 @@ async function revokeUserSessionByKey(
         id: session.id,
         sessionKey,
         revokedBy,
-      }).inspectErr((error) =>
+      }).inspectErr((error: unknown) =>
       logger.warn({ error }, "Failed to publish Auth.SessionRevoked"));
   }
   await sessionKV.delete(sessionKeyId);
@@ -506,6 +537,104 @@ async function ensurePortalReference(portalId: string | null) {
   return Result.ok(undefined);
 }
 
+async function loadInstalledContractPayloads(contractId: string): Promise<
+  Record<string, unknown>[]
+> {
+  const iter = await contractsKV.keys(">").take();
+  if (isErr(iter)) return [];
+
+  const contracts: Record<string, unknown>[] = [];
+  for await (const key of iter) {
+    const entry = await contractsKV.get(key).take();
+    if (isErr(entry)) continue;
+    const record = entry.value as {
+      id: string;
+      contract: string;
+    };
+    if (record.id !== contractId) continue;
+
+    let contract: Record<string, unknown>;
+    try {
+      const parsed = JSON.parse(record.contract);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        continue;
+      }
+      contract = parsed as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+
+    contracts.push(contract);
+  }
+
+  return contracts;
+}
+
+async function derivePortalProfileCapabilities(args: {
+  contractStore: ContractStore;
+  contractId: string;
+}) {
+  const installedContracts = await loadInstalledContractPayloads(args.contractId);
+  if (installedContracts.length === 0) {
+    return invalidRequest({
+      contractId: args.contractId,
+      reason: "portal_contract_not_installed",
+    });
+  }
+
+  try {
+    const impliedCapabilities = new Set<string>();
+    for (const installedContract of installedContracts) {
+      const plan = await planUserContractApproval(
+        args.contractStore,
+        installedContract,
+      );
+      if (plan.contract.kind !== "app") {
+        return invalidRequest({
+          contractId: args.contractId,
+          reason: "portal_contract_not_browser_app",
+        });
+      }
+      for (const capability of plan.approval.capabilities) {
+        impliedCapabilities.add(capability);
+      }
+    }
+    return Result.ok({
+      impliedCapabilities: [...impliedCapabilities].sort((left, right) =>
+        left.localeCompare(right)
+      ),
+    });
+  } catch (error) {
+    return invalidRequest({
+      contractId: args.contractId,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+function adminPolicyActors(policy: InstanceGrantPolicy | null | undefined): {
+  createdBy?: InstanceGrantPolicyActor;
+  updatedBy?: InstanceGrantPolicyActor;
+} {
+  return policy?.source.kind === "admin_policy"
+    ? {
+      ...(policy.source.createdBy ? { createdBy: policy.source.createdBy } : {}),
+      ...(policy.source.updatedBy ? { updatedBy: policy.source.updatedBy } : {}),
+    }
+    : {};
+}
+
+async function revokeInvalidatedEffectiveGrantSessions(args: {
+  contractId: string;
+  revokedBy?: string;
+}): Promise<void> {
+  await revokeInvalidatedInstanceGrantSessions({
+    contractId: args.contractId,
+    policies: await loadEffectiveGrantPolicies(args.contractId),
+    revokedBy: args.revokedBy,
+  });
+}
+
 export function createAuthCreatePortalHandler() {
   return async (
     {
@@ -543,7 +672,122 @@ export const authDisablePortalHandler = async (
   const portal = await loadPortal(req.portalId);
   if (!portal) return Result.ok({ success: false });
   await portalsKV.put(req.portalId, { ...portal, disabled: true });
+
+  const profile = await loadPortalProfile(req.portalId);
+  if (profile && !profile.disabled) {
+    await portalProfilesKV.put(req.portalId, {
+      ...profile,
+      disabled: true,
+      updatedAt: new Date().toISOString(),
+    });
+    await revokeInvalidatedEffectiveGrantSessions({
+      contractId: profile.contractId,
+      revokedBy: caller.origin && caller.id
+        ? `${caller.origin}.${caller.id}`
+        : undefined,
+    });
+  }
   return Result.ok({ success: true });
+};
+
+export const authListPortalProfilesHandler = async (
+  { context: { caller } }: { context: { caller: RpcUser } },
+) => {
+  if (!isAdmin(caller)) return insufficientPermissions();
+  return Result.ok({ profiles: await listPortalProfiles() });
+};
+
+export function createAuthSetPortalProfileHandler(deps: {
+  contractStore: ContractStore;
+}) {
+  return async (
+    {
+      input: req,
+      context: { caller },
+    }: {
+      input: SetPortalProfileRequest;
+      context: { caller: RpcUser };
+    },
+  ) => {
+    if (!isAdmin(caller)) return insufficientPermissions();
+    const validation = validatePortalProfileRequest(req);
+    if (validation.isErr()) return validation;
+    const { profile: normalizedProfile } = validation.take() as {
+      profile: Pick<
+        PortalProfile,
+        "portalId" | "entryUrl" | "contractId" | "allowedOrigins"
+      >;
+    };
+    const derived = await derivePortalProfileCapabilities({
+      contractStore: deps.contractStore,
+      contractId: normalizedProfile.contractId,
+    });
+    if (derived.isErr()) return derived;
+    const { impliedCapabilities } = derived.take() as {
+      impliedCapabilities: string[];
+    };
+
+    const existing = await loadPortalProfile(normalizedProfile.portalId);
+    const now = new Date().toISOString();
+    const profile: PortalProfile = {
+      portalId: normalizedProfile.portalId,
+      entryUrl: normalizedProfile.entryUrl,
+      contractId: normalizedProfile.contractId,
+      ...(normalizedProfile.allowedOrigins
+        ? { allowedOrigins: normalizedProfile.allowedOrigins }
+        : {}),
+      impliedCapabilities,
+      disabled: false,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    };
+    const existingPortal = await loadPortal(profile.portalId);
+    await portalProfilesKV.put(profile.portalId, profile);
+    await portalsKV.put(profile.portalId, {
+      portalId: profile.portalId,
+      entryUrl: profile.entryUrl,
+      disabled: existingPortal?.disabled ?? false,
+    });
+
+    const revokedBy = caller.origin && caller.id
+      ? `${caller.origin}.${caller.id}`
+      : undefined;
+    const affectedContractIds = new Set([
+      profile.contractId,
+      ...(existing ? [existing.contractId] : []),
+    ]);
+    for (const contractId of affectedContractIds) {
+      await revokeInvalidatedEffectiveGrantSessions({ contractId, revokedBy });
+    }
+    return Result.ok({ profile });
+  };
+}
+
+export const authDisablePortalProfileHandler = async (
+  { input: req, context: { caller } }: { input: { portalId: string }; context: { caller: RpcUser } },
+) => {
+  if (!isAdmin(caller)) return insufficientPermissions();
+  const existing = await loadPortalProfile(req.portalId);
+  if (!existing) {
+    return invalidRequest({
+      portalId: req.portalId,
+      reason: "portal_profile_not_found",
+    });
+  }
+  const profile: PortalProfile = {
+    ...existing,
+    disabled: true,
+    updatedAt: new Date().toISOString(),
+  };
+  await portalProfilesKV.put(profile.portalId, profile);
+
+  await revokeInvalidatedEffectiveGrantSessions({
+    contractId: profile.contractId,
+    revokedBy: caller.origin && caller.id
+      ? `${caller.origin}.${caller.id}`
+      : undefined,
+  });
+  return Result.ok({ profile });
 };
 
 export const authGetLoginPortalDefaultHandler = async (
@@ -584,6 +828,7 @@ export const authUpsertInstanceGrantPolicyHandler = async (
   const existing = await loadInstanceGrantPolicy(normalizedPolicy.contractId);
   const now = new Date().toISOString();
   const actor = policyActor(caller);
+  const existingActors = adminPolicyActors(existing);
   const policy: InstanceGrantPolicy = {
     contractId: normalizedPolicy.contractId,
     ...(normalizedPolicy.allowedOrigins
@@ -595,20 +840,19 @@ export const authUpsertInstanceGrantPolicyHandler = async (
     updatedAt: now,
     source: {
       kind: "admin_policy",
-      ...(existing?.source.createdBy || actor
-        ? { createdBy: existing?.source.createdBy ?? actor }
+      ...(existingActors.createdBy || actor
+        ? { createdBy: existingActors.createdBy ?? actor }
         : {}),
       ...(actor
         ? { updatedBy: actor }
-        : existing?.source.updatedBy
-        ? { updatedBy: existing.source.updatedBy }
+        : existingActors.updatedBy
+        ? { updatedBy: existingActors.updatedBy }
         : {}),
     },
   };
   await instanceGrantPoliciesKV.put(policy.contractId, policy);
-  await revokeInvalidatedInstanceGrantSessions({
+  await revokeInvalidatedEffectiveGrantSessions({
     contractId: policy.contractId,
-    policies: await listInstanceGrantPolicies(),
     revokedBy: actor ? `${actor.origin}.${actor.id}` : undefined,
   });
   return Result.ok({ policy });
@@ -632,14 +876,14 @@ export const authDisableInstanceGrantPolicyHandler = async (
     disabled: true,
     updatedAt: new Date().toISOString(),
     source: {
-      ...existing.source,
+      kind: "admin_policy",
+      ...adminPolicyActors(existing),
       ...(actor ? { updatedBy: actor } : {}),
     },
   };
   await instanceGrantPoliciesKV.put(policy.contractId, policy);
-  await revokeInvalidatedInstanceGrantSessions({
+  await revokeInvalidatedEffectiveGrantSessions({
     contractId: policy.contractId,
-    policies: await listInstanceGrantPolicies(),
     revokedBy: actor ? `${actor.origin}.${actor.id}` : undefined,
   });
   return Result.ok({ policy });
