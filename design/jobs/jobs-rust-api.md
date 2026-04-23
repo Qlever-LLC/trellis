@@ -19,7 +19,7 @@ The Rust jobs surface mirrors the TypeScript jobs model, but it uses Rust-native
 It covers:
 
 - service-local job creation and handling
-- worker host lifecycle
+- service-owned worker lifecycle
 - operator/admin query APIs
 
 It does not redefine the jobs stream model, storage model, or admin authorization model; those remain in `trellis-jobs.md`.
@@ -47,12 +47,11 @@ pub trait JobsService {
 
 pub trait JobsFacade {
     fn refund_charge(&self) -> impl JobQueue<RefundChargePayload, RefundChargeResult>;
-    async fn start_workers(&self) -> Result<JobWorkerHost, JobsError>;
 }
 
 pub trait JobQueue<TPayload, TResult> {
     async fn create(&self, payload: TPayload) -> Result<JobRef<TPayload, TResult>, JobsError>;
-    async fn handle<H, Fut>(&self, handler: H) -> Result<(), JobsError>
+    fn handle<H, Fut>(&self, handler: H)
     where
         H: Fn(ActiveJob<TPayload, TResult>) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<TResult, JobsError>> + Send;
@@ -80,11 +79,6 @@ impl<TPayload, TResult> ActiveJob<TPayload, TResult> {
     pub async fn log(&self, entry: JobLogEntry) -> Result<(), JobsError>;
     pub fn redelivery_count(&self) -> u64;
     pub fn is_redelivery(&self) -> bool;
-}
-
-pub trait JobWorkerHost {
-    async fn stop(&self) -> Result<(), JobsError>;
-    async fn join(&self) -> Result<(), JobsError>;
 }
 ```
 
@@ -119,11 +113,9 @@ service
             refund_id: "rf_123".into(),
             status: "refunded".into(),
         })
-    })
-    .await?;
+    });
 
-let host = service.jobs().start_workers().await?;
-host.stop().await?;
+service.wait().await?;
 ```
 
 ### Shared service-local types

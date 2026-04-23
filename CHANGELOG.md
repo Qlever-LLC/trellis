@@ -10,6 +10,10 @@ and this project adheres to
 
 ### Changed
 
+- Made the JavaScript service jobs lifecycle service-owned by removing public
+  `jobs.startWorkers()`, making `jobs.<queue>.handle(...)` synchronous, and
+  starting and stopping registered job workers through `service.wait()` /
+  `service.stop()` instead.
 - Changed TypeScript contract discovery and authoring guidance so
   single-contract projects may use a top-level `contract.ts` or `contract.js`,
   updated design and guide docs to describe that layout, and migrated the JS

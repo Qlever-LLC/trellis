@@ -255,8 +255,8 @@ requiring a separate manual jobs install step.
   imperative infrastructure setup path
 - resolved runtime bindings may still include internal work-stream and
   projected-state details needed by the host runtime, but public service-author
-  APIs should use `service.jobs.startWorkers()` and `JobRef` helpers rather than
-  runtime stream bindings directly
+  APIs should use `service.jobs.<queue>.handle(...)`, `service.wait()`, and
+  `JobRef` helpers rather than runtime stream bindings directly
 
 This document depends on the contract resource model in
 `../contracts/trellis-contracts-catalog.md` supporting JetStream streams, stream

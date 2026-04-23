@@ -1,27 +1,14 @@
-import { isErr, Result } from "@qlever-llc/trellis";
-import type { RpcArgs, RpcResult } from "@qlever-llc/trellis";
 import { TrellisService } from "@qlever-llc/trellis/service/deno";
 import contract from "../contract.ts";
-import { createRefreshSummariesHandler } from "../jobs/refreshSummaries.ts";
-import { InspectionSummariesRefreshStatusSchema } from "../schemas/index.ts";
+import { InspectionSummariesRefreshStatusSchema } from "./schemas/index.ts";
 import { Command } from "@cliffy/command";
 import chalk from "chalk";
-
-type RefreshArgs = RpcArgs<typeof contract, "Inspection.Summaries.Refresh">;
-type RefreshReturn = RpcResult<typeof contract, "Inspection.Summaries.Refresh">;
-type GetRefreshStatusArgs = RpcArgs<
-  typeof contract,
-  "Inspection.Summaries.RefreshStatus.Get"
->;
-type GetRefreshStatusReturn = RpcResult<
-  typeof contract,
-  "Inspection.Summaries.RefreshStatus.Get"
->;
+import * as jobs from "./jobs/index.ts";
+import * as rpcs from "./rpcs/index.ts";
 
 async function main(): Promise<void> {
-  const {
-    args: [trellisUrl, sessionKeySeed],
-  } = await new Command()
+  // Parse service CLI
+  const { args } = await new Command()
     .name("demo-jobs")
     .arguments("<trellisUrl:string> <sessionKeySeed:string>", [
       "URL of Trellis instance to connect to",
@@ -29,89 +16,59 @@ async function main(): Promise<void> {
     ])
     .parse(Deno.args);
 
-  const service = await TrellisService.connect({
-    trellisUrl,
+  // Connect to service to Trellis
+  const trellis = await TrellisService.connect({
     contract,
+    trellisUrl: args[0],
+    sessionKeySeed: args[1],
     name: "demo-jobs-service",
-    sessionKeySeed,
   }).orThrow();
 
-  const refreshStatuses = await service.kv.refreshStatuses
+  // Open KV store binding
+  const refreshStatuses = await trellis.kv.refreshStatuses
     .open(InspectionSummariesRefreshStatusSchema)
     .orThrow();
 
-  await service.jobs.refreshSummaries
-    .handle(createRefreshSummariesHandler(refreshStatuses))
-    .orThrow();
+  // Mount Job handler
+  trellis.jobs.refreshSummaries.handle(jobs.refreshSummaries(refreshStatuses));
 
-  const workerHost = await service.jobs
-    .startWorkers({
-      instanceId: "demo-jobs-service-worker",
-    })
-    .orThrow();
+  await trellis.trellis.mount(
+    "Inspection.Summaries.Refresh",
+    rpcs.inspectionSummariesRefreshRpc,
+  );
 
-  async function refresh({ input }: RefreshArgs): Promise<RefreshReturn> {
-    const created = await service.jobs.refreshSummaries
-      .create({
-        siteId: input.siteId,
-      })
-      .orThrow();
-    const queuedStatus = {
-      refreshId: created.id,
-      siteId: input.siteId,
-      status: "queued",
-      updatedAt: new Date().toISOString(),
-      message: `Queued summary refresh for ${input.siteId}`,
-    };
-
-    try {
-      await refreshStatuses.create(created.id, queuedStatus).orThrow();
-    } catch (error) {
-      if (isErr(await refreshStatuses.get(created.id).take())) {
-        console.warn("failed to persist queued refresh status", {
-          refreshId: created.id,
-          siteId: input.siteId,
-          error,
-        });
-      }
-    }
-
-    return Result.ok({
-      refreshId: created.id,
-      status: "queued",
-    });
-  }
-
-  await service.trellis.mount("Inspection.Summaries.Refresh", refresh);
-
-  async function getRefreshStatus({
-    input,
-  }: GetRefreshStatusArgs): Promise<GetRefreshStatusReturn> {
-    const refreshEntry = await refreshStatuses.get(input.refreshId).take();
-    const refresh = isErr(refreshEntry) ? undefined : refreshEntry.value;
-
-    return Result.ok({ refresh });
-  }
-
-  await service.trellis.mount(
+  await trellis.trellis.mount(
     "Inspection.Summaries.RefreshStatus.Get",
-    getRefreshStatus,
+    rpcs.getRefreshStatus,
   );
 
   console.log(chalk.green.bold("== Inspection jobs service"));
+  let shuttingDown = false;
   const shutdown = async () => {
-    try {
-      await workerHost.stop().orThrow();
-    } catch (error) {
-      console.warn("failed to stop jobs worker host", error);
+    if (shuttingDown) {
+      return;
     }
-    await service.stop();
-    Deno.exit(0);
+    shuttingDown = true;
+    try {
+      await trellis.stop();
+      Deno.exit(0);
+    } catch (error) {
+      console.error(chalk.red.bold("Failed to stop jobs service"));
+      console.error(error);
+      Deno.exit(1);
+    }
   };
 
-  Deno.addSignalListener("SIGINT", () => void shutdown());
-  Deno.addSignalListener("SIGTERM", () => void shutdown());
-  await new Promise<void>(() => {});
+  Deno.addSignalListener("SIGINT", shutdown);
+  Deno.addSignalListener("SIGTERM", shutdown);
+
+  try {
+    await trellis.wait();
+  } catch (error) {
+    console.error(chalk.red.bold("Jobs service stopped unexpectedly"));
+    console.error(error);
+    Deno.exit(1);
+  }
 }
 
 if (import.meta.main) {

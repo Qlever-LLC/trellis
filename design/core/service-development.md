@@ -236,7 +236,9 @@ Behavior:
 - operation APIs should expose `OperationRef`-style handles with `get()`,
   `wait()`, and optional `watch()`
 - service-local jobs APIs should expose per-job-type handles with `create()`
-  returning `JobRef` and worker startup through `service.jobs.startWorkers()`
+  returning `JobRef`, synchronous handler registration through
+  `service.jobs.<queue>.handle(...)`, and service-owned worker lifecycle through
+  `service.wait()` / `service.stop()`
 - public APIs must not expose weak raw wire types except in explicit
   raw/debug/admin surfaces
 - public service APIs should hang off connected runtime objects such as

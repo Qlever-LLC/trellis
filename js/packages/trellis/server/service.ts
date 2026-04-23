@@ -58,7 +58,7 @@ import { logger as noopLogger, type LoggerLike } from "../globals.ts";
 import { loadDefaultRuntimeTransport } from "../runtime_transport.ts";
 import { selectRuntimeTransportServers } from "../runtime_transport.ts";
 import { serverLogger } from "../server_logger.ts";
-import { UnexpectedError } from "../errors/index.ts";
+import { TransportError, UnexpectedError } from "../errors/index.ts";
 import {
   ActiveJob as PublicActiveJob,
   type JobIdentity,
@@ -523,24 +523,53 @@ async function fetchServiceBootstrapInfo(args: {
       Value.Check(ServiceBootstrapFailureSchema, settled.payload)
     ) {
       const failure = settled.payload as ServiceBootstrapFailure;
-      throw new Error(
-        `Service bootstrap failed: ${failure.message ?? failure.reason}`,
-      );
+      throw new TransportError({
+        code: "trellis.bootstrap.failed",
+        message: `Service bootstrap failed: ${
+          failure.message ?? failure.reason
+        }`,
+        hint:
+          "Retry the connection. If it keeps failing, check Trellis bootstrap availability and contract activation.",
+        context: {
+          trellisUrl: args.trellisUrl,
+          contractId: args.contractId,
+          contractDigest: args.contractDigest,
+          status: settled.response.status,
+          reason: failure.reason,
+        },
+      });
     }
     const detail = settled.responseText.trim();
-    throw new Error(
-      detail.length > 0
+    throw new TransportError({
+      code: "trellis.bootstrap.failed",
+      message: detail.length > 0
         ? `Service bootstrap failed with HTTP ${settled.response.status}: ${detail}`
         : `Service bootstrap failed with HTTP ${settled.response.status}`,
-    );
+      hint:
+        "Retry the connection. If it keeps failing, check Trellis bootstrap availability.",
+      context: {
+        trellisUrl: args.trellisUrl,
+        contractId: args.contractId,
+        contractDigest: args.contractDigest,
+        status: settled.response.status,
+      },
+    });
   }
 
   if (settled.payload === undefined) {
-    throw new Error(
-      `Service bootstrap returned invalid JSON: ${
+    throw new TransportError({
+      code: "trellis.bootstrap.invalid_response",
+      message: `Service bootstrap returned invalid JSON: ${
         settled.responseText.trim() || "<empty body>"
       }`,
-    );
+      hint:
+        "Retry the connection. If it keeps happening, check the Trellis deployment.",
+      context: {
+        trellisUrl: args.trellisUrl,
+        contractId: args.contractId,
+        contractDigest: args.contractDigest,
+      },
+    });
   }
 
   const ready = Value.Parse(
@@ -813,7 +842,10 @@ export type JobHandler<
   job,
   trellis,
 }: {
-  job: PublicActiveJob<ContractJobPayload<TContract, TJob>, ContractJobResult<TContract, TJob>>;
+  job: PublicActiveJob<
+    ContractJobPayload<TContract, TJob>,
+    ContractJobResult<TContract, TJob>
+  >;
   trellis: Trellis<ContractTrellisApi<TContract>>;
 }) => Promise<Result<ContractJobResult<TContract, TJob>, BaseError>>;
 
@@ -848,20 +880,32 @@ export type JobQueue<
       job: PublicActiveJob<TPayload, TResult>;
       trellis: Trellis<TTrellisApi>;
     }) => Promise<Result<TResult, BaseError>>,
-  ): AsyncResult<void, BaseError>;
+  ): void;
 };
 
 export type JobsFacadeOf<
   TJobs extends ContractJobsMetadata,
   TTrellisApi extends TrellisAPI,
 > = {
-  [K in keyof TJobs]: JobQueue<TJobs[K]["payload"], TJobs[K]["result"], TTrellisApi>;
-} & {
-  startWorkers(opts?: {
-    queues?: readonly string[];
-    instanceId?: string;
-    version?: string;
-  }): AsyncResult<JobWorkerHostAdapter, BaseError>;
+  [K in keyof TJobs]: JobQueue<
+    TJobs[K]["payload"],
+    TJobs[K]["result"],
+    TTrellisApi
+  >;
+};
+
+const MANAGED_JOB_WORKERS = Symbol("trellis.managedJobWorkers");
+
+type ManagedJobWorkers = {
+  start(): AsyncResult<JobWorkerHostAdapter, BaseError>;
+  stop(): AsyncResult<void, BaseError>;
+};
+
+type ManagedJobsFacade<
+  TJobs extends ContractJobsMetadata,
+  TTrellisApi extends TrellisAPI,
+> = JobsFacadeOf<TJobs, TTrellisApi> & {
+  [MANAGED_JOB_WORKERS]: ManagedJobWorkers;
 };
 
 export type OperationRegistration<
@@ -1322,6 +1366,20 @@ function createNoopJobWorkerHost(): JobWorkerHostAdapter {
   });
 }
 
+async function closeFailedServiceBootstrapConnection(
+  nc: NatsConnection,
+): Promise<void> {
+  if (nc.isClosed()) {
+    return;
+  }
+
+  try {
+    await nc.drain();
+  } catch {
+    await nc.closed().catch(() => undefined);
+  }
+}
+
 function createJobsFacade<
   TJobs extends ContractJobsMetadata,
   TTrellisApi extends TrellisAPI,
@@ -1332,9 +1390,14 @@ function createJobsFacade<
   trellis: Trellis<TTrellisApi>;
   jobsBinding?: ResourceBindingJobs;
   workStream?: string;
-}): JobsFacadeOf<TJobs, TTrellisApi> {
+}): ManagedJobsFacade<TJobs, TTrellisApi> {
   const handlers = new Map<string, RegisteredJobHandler<unknown, unknown>>();
   const jobsFacade: Record<string, unknown> = {};
+  let activeHost: JobWorkerHostAdapter | undefined;
+  let startupPromise:
+    | Promise<Result<JobWorkerHostAdapter, BaseError>>
+    | undefined;
+  let stopPromise: Promise<Result<void, BaseError>> | undefined;
 
   for (const queueType of Object.keys(args.contractJobs ?? {})) {
     jobsFacade[queueType] = {
@@ -1372,112 +1435,129 @@ function createJobsFacade<
             return Result.err(toUnexpectedError(cause));
           }
         })()),
-      handle: (handler) =>
-        AsyncResult.from((async () => {
-          if (handlers.has(queueType)) {
-            return Result.err(toUnexpectedError(
-              new Error(
-                `Job handler for queue '${queueType}' is already registered`,
-              ),
-            ));
-          }
-          handlers.set(
-            queueType,
-            async (job) => await handler({
+      handle: (handler) => {
+        if (handlers.has(queueType)) {
+          throw new Error(
+            `Job handler for queue '${queueType}' is already registered`,
+          );
+        }
+        if (activeHost || startupPromise) {
+          throw new Error(
+            `Job handler for queue '${queueType}' cannot be registered after worker startup has begun`,
+          );
+        }
+        handlers.set(
+          queueType,
+          async (job) =>
+            await handler({
               job,
               trellis: args.trellis as Trellis<TTrellisApi>,
             }),
-          );
-          return okVoid();
-        })()),
+        );
+      },
     } satisfies JobQueue<unknown, unknown, TTrellisApi>;
   }
 
-  jobsFacade.startWorkers = (opts?: {
-    queues?: readonly string[];
-    instanceId?: string;
-    version?: string;
-  }) =>
-    AsyncResult.from((async () => {
-      const selectedQueues = opts?.queues
-        ? [...opts.queues]
-        : [...handlers.keys()];
-      if (selectedQueues.length === 0) {
-        return Result.ok(createNoopJobWorkerHost());
+  const managedWorkers: ManagedJobWorkers = {
+    start: () => {
+      if (activeHost) {
+        return AsyncResult.ok(activeHost);
+      }
+      if (startupPromise) {
+        return AsyncResult.from(startupPromise);
       }
 
-      if (!args.jobsBinding || !args.workStream) {
-        return Result.err(toUnexpectedError(
-          new Error(
-            "Jobs infrastructure bindings are unavailable for this service",
-          ),
-        ));
-      }
-
-      const jobsBinding = args.jobsBinding;
-      const workStream = args.workStream;
-
-      const hosts = [] as Array<{ stop(): Promise<void> }>;
-      for (const queueType of selectedQueues) {
-        const queueBinding = jobsBinding.queues[queueType];
-        if (!queueBinding) {
-          return Result.err(
-            toUnexpectedError(new Error(`Unknown jobs queue '${queueType}'`)),
-          );
+      startupPromise = (async () => {
+        const selectedQueues = [...handlers.keys()];
+        if (selectedQueues.length === 0) {
+          const host = createNoopJobWorkerHost();
+          activeHost = host;
+          return Result.ok(host);
         }
-        const handler = handlers.get(queueType);
-        if (!handler) {
+
+        if (!args.jobsBinding || !args.workStream) {
           return Result.err(toUnexpectedError(
-            new Error(`No job handler registered for queue '${queueType}'`),
+            new Error(
+              "Jobs infrastructure bindings are unavailable for this service",
+            ),
           ));
         }
 
-        const manager = new InternalJobManager<unknown, unknown>({
-          nc: args.nc,
-          jobs: jobsBinding,
-        });
-        const host = await startNatsWorkerHostFromBinding<unknown>({
-          jobs: jobsBinding,
-          workStream,
-        }, {
-          nats: args.nc,
-          instanceId: opts?.instanceId ?? `${args.serviceName}-worker`,
-          queueTypes: [queueType],
-          manager,
-          version: opts?.version,
-          handler: async (job: InternalActiveJob<unknown, unknown>) => {
-            const publicJob = new PublicActiveJob(
-              createJobRef({
-                nc: args.nc,
-                queueType,
-                jobsBinding,
-                queueBinding,
-                seed: job.job() as JobSnapshot<unknown, unknown>,
-              }),
-              job.job().payload,
-              () => job.isCancelled(),
-              {
-                heartbeat: () => wrapVoidTask(() => job.heartbeat()),
-                progress: (value: JobProgress) =>
-                  wrapVoidTask(() => job.updateProgress(value)),
-                log: (entry: JobLogEntry) =>
-                  wrapVoidTask(() => job.log(entry.level, entry.message)),
-                redeliveryCount: job.redeliveryCount(),
-              },
-            );
+        const jobsBinding = args.jobsBinding;
+        const workStream = args.workStream;
 
-            const handled = await handler(publicJob);
-            if (isErr(handled)) {
-              throw InternalJobProcessError.failed(handled.error.message);
+        const hosts = [] as Array<{ stop(): Promise<void> }>;
+        try {
+          for (const queueType of selectedQueues) {
+            const queueBinding = jobsBinding.queues[queueType];
+            if (!queueBinding) {
+              throw new Error(`Unknown jobs queue '${queueType}'`);
             }
-            return handled;
-          },
-        });
-        hosts.push(host);
-      }
+            const handler = handlers.get(queueType);
+            if (!handler) {
+              throw new Error(`No job handler registered for queue '${queueType}'`);
+            }
 
-      return Result.ok(
-        new JobWorkerHostAdapter({
+            const manager = new InternalJobManager<unknown, unknown>({
+              nc: args.nc,
+              jobs: jobsBinding,
+            });
+            const host = await startNatsWorkerHostFromBinding<unknown>({
+              jobs: jobsBinding,
+              workStream,
+            }, {
+              nats: args.nc,
+              instanceId: `${args.serviceName}-worker`,
+              queueTypes: [queueType],
+              manager,
+              handler: async (job: InternalActiveJob<unknown, unknown>) => {
+                const publicJob = new PublicActiveJob(
+                  createJobRef({
+                    nc: args.nc,
+                    queueType,
+                    jobsBinding,
+                    queueBinding,
+                    seed: job.job() as JobSnapshot<unknown, unknown>,
+                  }),
+                  job.job().payload,
+                  () => job.isCancelled(),
+                  {
+                    heartbeat: () => wrapVoidTask(() => job.heartbeat()),
+                    progress: (value: JobProgress) =>
+                      wrapVoidTask(() => job.updateProgress(value)),
+                    log: (entry: JobLogEntry) =>
+                      wrapVoidTask(() => job.log(entry.level, entry.message)),
+                    redeliveryCount: job.redeliveryCount(),
+                  },
+                );
+
+                const handled = await handler(publicJob);
+                if (isErr(handled)) {
+                  throw InternalJobProcessError.failed(handled.error.message);
+                }
+                return handled;
+              },
+            });
+            hosts.push(host);
+          }
+        } catch (cause) {
+          const stopResults = await Promise.allSettled(
+            hosts.map((host) => host.stop()),
+          );
+          const stopErrors = stopResults
+            .filter((result): result is PromiseRejectedResult =>
+              result.status === "rejected"
+            )
+            .map((result) => result.reason);
+          if (stopErrors.length > 0) {
+            return Result.err(
+              toUnexpectedError(new AggregateError([cause, ...stopErrors])),
+            );
+          }
+          return Result.err(toUnexpectedError(cause));
+        }
+
+        activeHost = new JobWorkerHostAdapter({
           stop: () =>
             wrapVoidTask(async () => {
               for (const host of hosts) {
@@ -1485,11 +1565,51 @@ function createJobsFacade<
               }
             }),
           join: () => AsyncResult.ok(undefined),
-        }),
-      );
-    })());
+        });
+        return Result.ok(activeHost);
+      })().finally(() => {
+        startupPromise = undefined;
+      });
 
-  return jobsFacade as JobsFacadeOf<TJobs, TTrellisApi>;
+      return AsyncResult.from(startupPromise);
+    },
+    stop: () => {
+      if (stopPromise) {
+        return AsyncResult.from(stopPromise);
+      }
+      stopPromise = (async () => {
+        const startup = startupPromise;
+        if (startup) {
+          const started = await startup;
+          if (isErr(started)) {
+            return Result.ok(undefined);
+          }
+        }
+        if (!activeHost) {
+          return Result.ok(undefined);
+        }
+
+        const host = activeHost;
+        try {
+          return await host.stop();
+        } finally {
+          if (activeHost === host) {
+            activeHost = undefined;
+          }
+          stopPromise = undefined;
+        }
+      })();
+
+      return AsyncResult.from(stopPromise);
+    },
+  };
+
+  Object.defineProperty(jobsFacade, MANAGED_JOB_WORKERS, {
+    value: managedWorkers,
+    enumerable: false,
+  });
+
+  return jobsFacade as ManagedJobsFacade<TJobs, TTrellisApi>;
 }
 
 export class TrellisService<
@@ -1512,6 +1632,9 @@ export class TrellisService<
   readonly #operationTransfer: ServiceTransfer;
   readonly #stopHealthPublishing: () => Promise<void>;
   readonly #stopConnectionLogging: () => void;
+  readonly #managedJobWorkers: ManagedJobWorkers;
+  #waitPromise?: Promise<void>;
+  #stopPromise?: Promise<void>;
 
   constructor(
     name: string,
@@ -1550,7 +1673,7 @@ export class TrellisService<
     );
     this.#operationTransfer = operationTransfer;
     this.streams = streamBindings;
-    this.jobs = createJobsFacade<TJobs, TTrellisApi>({
+    const jobs = createJobsFacade<TJobs, TTrellisApi>({
       serviceName: name,
       nc,
       contractJobs,
@@ -1558,12 +1681,14 @@ export class TrellisService<
       jobsBinding: bindings.jobs,
       workStream: bindings.streams?.jobsWork?.name,
     });
+    this.jobs = jobs;
+    this.#managedJobWorkers = jobs[MANAGED_JOB_WORKERS];
     this.health = health;
     this.#stopHealthPublishing = stopHealthPublishing;
     this.#stopConnectionLogging = stopConnectionLogging;
   }
 
-  static async connect<
+  static connect<
     TContract extends ServiceContract<
       TrellisAPI,
       TrellisAPI,
@@ -1572,64 +1697,100 @@ export class TrellisService<
   >(
     args: TrellisServiceConnectArgs<TContract>,
     deps?: Partial<TrellisServiceRuntimeDeps>,
-  ): Promise<
+  ): AsyncResult<
     TrellisService<
       ContractOwnedApi<TContract>,
       ContractTrellisApi<TContract>,
       ContractJobsOf<TContract>
-    >
+    >,
+    TransportError | UnexpectedError
   > {
-    type TOwnedApi = ContractOwnedApi<TContract>;
-    type TTrellisApi = ContractTrellisApi<TContract>;
+    return AsyncResult.from((async () => {
+      try {
+        type TOwnedApi = ContractOwnedApi<TContract>;
+        type TTrellisApi = ContractTrellisApi<TContract>;
 
-    const runtimeDeps = {
-      ...(await loadDefaultServiceRuntimeDeps()),
-      ...deps,
-    } satisfies TrellisServiceRuntimeDeps;
-    const auth = await createAuth({ sessionKeySeed: args.sessionKeySeed });
-    const bootstrap = await fetchServiceBootstrapInfo({
-      trellisUrl: args.trellisUrl,
-      contractId: args.contract.CONTRACT_ID,
-      contractDigest: args.contract.CONTRACT_DIGEST,
-      auth,
-    });
-    const { authenticator: authTokenAuthenticator, inboxPrefix } = await auth
-      .natsConnectOptions();
-    const nc = await runtimeDeps.connect({
-      servers: selectRuntimeTransportServers(bootstrap.connectInfo.transports),
-      inboxPrefix,
-      authenticator: [
-        authTokenAuthenticator,
-        jwtAuthenticator(
-          bootstrap.connectInfo.transport.sentinel.jwt,
-          new TextEncoder().encode(
-            bootstrap.connectInfo.transport.sentinel.seed,
-          ),
-        ),
-      ],
-    });
+        const runtimeDeps = {
+          ...(await loadDefaultServiceRuntimeDeps()),
+          ...deps,
+        } satisfies TrellisServiceRuntimeDeps;
+        const auth = await createAuth({ sessionKeySeed: args.sessionKeySeed });
+        const bootstrap = await fetchServiceBootstrapInfo({
+          trellisUrl: args.trellisUrl,
+          contractId: args.contract.CONTRACT_ID,
+          contractDigest: args.contract.CONTRACT_DIGEST,
+          auth,
+        });
+        const { authenticator: authTokenAuthenticator, inboxPrefix } =
+          await auth
+            .natsConnectOptions();
 
-    return await createConnectedService<
-      TOwnedApi,
-      TTrellisApi,
-      ContractJobsOf<TContract>
-    >({
-      name: args.name,
-      auth,
-      nc,
-      contractId: args.contract.CONTRACT_ID,
-      contractDigest: args.contract.CONTRACT_DIGEST,
-      contractJobs:
-        (args.contract[CONTRACT_JOBS_METADATA] ?? {}) as ContractJobsOf<
-          TContract
-        >,
-      server: {
-        ...(args.server ?? {}),
-        api: args.contract.API.owned,
-        trellisApi: args.contract.API.trellis,
-      },
-      bindings: bootstrap.binding.resources,
-    });
+        let nc: NatsConnection;
+        try {
+          nc = await runtimeDeps.connect({
+            servers: selectRuntimeTransportServers(
+              bootstrap.connectInfo.transports,
+            ),
+            inboxPrefix,
+            authenticator: [
+              authTokenAuthenticator,
+              jwtAuthenticator(
+                bootstrap.connectInfo.transport.sentinel.jwt,
+                new TextEncoder().encode(
+                  bootstrap.connectInfo.transport.sentinel.seed,
+                ),
+              ),
+            ],
+          });
+        } catch (cause) {
+          throw new TransportError({
+            code: "trellis.runtime.connect_failed",
+            message: "Trellis could not open the service runtime connection.",
+            hint:
+              "Retry the connection. If it keeps failing, check Trellis transport availability.",
+            cause,
+            context: {
+              trellisUrl: args.trellisUrl,
+              contractId: args.contract.CONTRACT_ID,
+              contractDigest: args.contract.CONTRACT_DIGEST,
+            },
+          });
+        }
+
+        try {
+          return Result.ok(
+            await createConnectedService<
+              TOwnedApi,
+              TTrellisApi,
+              ContractJobsOf<TContract>
+            >({
+              name: args.name,
+              auth,
+              nc,
+              contractId: args.contract.CONTRACT_ID,
+              contractDigest: args.contract.CONTRACT_DIGEST,
+              contractJobs:
+                (args.contract[CONTRACT_JOBS_METADATA] ?? {}) as ContractJobsOf<
+                  TContract
+                >,
+              server: {
+                ...(args.server ?? {}),
+                api: args.contract.API.owned,
+                trellisApi: args.contract.API.trellis,
+              },
+              bindings: bootstrap.binding.resources,
+            }),
+          );
+        } catch (cause) {
+          await closeFailedServiceBootstrapConnection(nc);
+          throw cause;
+        }
+      } catch (cause) {
+        return Result.err(
+          cause instanceof TransportError ? cause : toUnexpectedError(cause),
+        );
+      }
+    })());
   }
 
   static async connectInternal<
@@ -1687,123 +1848,162 @@ export class TrellisService<
       ...(opts.nats.options ?? {}),
     } as NatsConnectOpts);
 
-    let bindings: ResourceBindings = { kv: {}, store: {}, streams: {} };
+    try {
+      let bindings: ResourceBindings = { kv: {}, store: {}, streams: {} };
 
-    if (opts.contractId && opts.contractDigest) {
-      const resolvedLog = resolveServiceLogger(opts.server.log);
-      const runtimeApi = (opts.server.trellisApi ?? opts.server.api) as
-        & TOwnedApi
-        & TTrellisApi;
-      const outbound = new RootTrellis<TTrellisApi>(
-        name,
-        nc,
-        { sessionKey: auth.sessionKey, sign: auth.sign },
-        {
-          log: resolvedLog,
-          timeout: opts.server.timeout,
-          stream: opts.server.stream,
-          noResponderRetry: opts.server.noResponderRetry,
-          api: runtimeApi,
-        },
-      );
-      const trellis: ServiceTrellis<TOwnedApi, TTrellisApi> = Object.assign(
-        outbound,
-        {
-          mount: () => {
-            throw new Error(
-              "mount is unavailable during internal bootstrap probing",
-            );
+      if (opts.contractId && opts.contractDigest) {
+        const resolvedLog = resolveServiceLogger(opts.server.log);
+        const runtimeApi = (opts.server.trellisApi ?? opts.server.api) as
+          & TOwnedApi
+          & TTrellisApi;
+        const outbound = new RootTrellis<TTrellisApi>(
+          name,
+          nc,
+          { sessionKey: auth.sessionKey, sign: auth.sign },
+          {
+            log: resolvedLog,
+            timeout: opts.server.timeout,
+            stream: opts.server.stream,
+            noResponderRetry: opts.server.noResponderRetry,
+            api: runtimeApi,
           },
-        },
-      );
-      const bootstrapRequest = trellis.request.bind(trellis) as Pick<
-        Trellis<BootstrapTrellisApi>,
-        "request"
-      >["request"];
-      const catalogResult = await bootstrapRequest("Trellis.Catalog", {});
-      const catalogValue = catalogResult.take();
-      if (isErr(catalogValue)) {
-        throw bootstrapContractStateError({
-          serviceName: name,
-          contractId: opts.contractId,
-          contractDigest: opts.contractDigest,
-          step: "catalog lookup",
-          cause: catalogValue.error,
-        });
-      }
-      const catalog: TrellisCatalogOutput = catalogValue;
-      const isActive = catalog.catalog.contracts.some(
-        (c: { digest: string }) => c.digest === opts.contractDigest,
-      );
-      if (!isActive) {
-        throw new Error(
-          `Contract ${opts.contractId} (${opts.contractDigest}) is not active. Install it with the trellis CLI first.`,
         );
-      }
-
-      const bindingsResult = await bootstrapRequest(
-        "Trellis.Bindings.Get",
-        { contractId: opts.contractId },
-      );
-      const bindingsValue = bindingsResult.take();
-      if (isErr(bindingsValue)) {
-        throw bootstrapContractStateError({
-          serviceName: name,
-          contractId: opts.contractId,
-          contractDigest: opts.contractDigest,
-          step: "bindings lookup",
-          cause: bindingsValue.error,
-        });
-      }
-      const resolved: TrellisBindingsGetOutput = bindingsValue;
-      if (!resolved.binding) {
-        throw bootstrapContractStateError({
-          serviceName: name,
-          contractId: opts.contractId,
-          contractDigest: opts.contractDigest,
-          step: "bindings lookup",
-        });
-      }
-
-      if (
-        resolved.binding.contractId !== opts.contractId ||
-        resolved.binding.digest !== opts.contractDigest
-      ) {
-        throw new Error(
-          `Service '${name}' received bindings for '${
-            resolved.binding.contractId ?? "unknown"
-          }' (${resolved.binding.digest ?? "unknown"}) ` +
-            `while bootstrapping '${opts.contractId}' (${opts.contractDigest}). Re-run the service profile apply or instance provisioning flow so Trellis records the correct active contract for this instance key.`,
+        const trellis: ServiceTrellis<TOwnedApi, TTrellisApi> = Object.assign(
+          outbound,
+          {
+            mount: () => {
+              throw new Error(
+                "mount is unavailable during internal bootstrap probing",
+              );
+            },
+          },
         );
+        const bootstrapRequest = trellis.request.bind(trellis) as Pick<
+          Trellis<BootstrapTrellisApi>,
+          "request"
+        >["request"];
+        const catalogResult = await bootstrapRequest("Trellis.Catalog", {});
+        const catalogValue = catalogResult.take();
+        if (isErr(catalogValue)) {
+          throw bootstrapContractStateError({
+            serviceName: name,
+            contractId: opts.contractId,
+            contractDigest: opts.contractDigest,
+            step: "catalog lookup",
+            cause: catalogValue.error,
+          });
+        }
+        const catalog: TrellisCatalogOutput = catalogValue;
+        const isActive = catalog.catalog.contracts.some(
+          (c: { digest: string }) => c.digest === opts.contractDigest,
+        );
+        if (!isActive) {
+          throw new Error(
+            `Contract ${opts.contractId} (${opts.contractDigest}) is not active. Install it with the trellis CLI first.`,
+          );
+        }
+
+        const bindingsResult = await bootstrapRequest(
+          "Trellis.Bindings.Get",
+          { contractId: opts.contractId },
+        );
+        const bindingsValue = bindingsResult.take();
+        if (isErr(bindingsValue)) {
+          throw bootstrapContractStateError({
+            serviceName: name,
+            contractId: opts.contractId,
+            contractDigest: opts.contractDigest,
+            step: "bindings lookup",
+            cause: bindingsValue.error,
+          });
+        }
+        const resolved: TrellisBindingsGetOutput = bindingsValue;
+        if (!resolved.binding) {
+          throw bootstrapContractStateError({
+            serviceName: name,
+            contractId: opts.contractId,
+            contractDigest: opts.contractDigest,
+            step: "bindings lookup",
+          });
+        }
+
+        if (
+          resolved.binding.contractId !== opts.contractId ||
+          resolved.binding.digest !== opts.contractDigest
+        ) {
+          throw new Error(
+            `Service '${name}' received bindings for '${
+              resolved.binding.contractId ?? "unknown"
+            }' (${resolved.binding.digest ?? "unknown"}) ` +
+              `while bootstrapping '${opts.contractId}' (${opts.contractDigest}). Re-run the service profile apply or instance provisioning flow so Trellis records the correct active contract for this instance key.`,
+          );
+        }
+
+        bindings = {
+          kv: resolved.binding?.resources?.kv ?? {},
+          store: resolved.binding?.resources?.store ?? {},
+          streams: resolved.binding?.resources?.streams ?? {},
+          ...(resolved.binding?.resources?.jobs
+            ? { jobs: resolved.binding.resources.jobs }
+            : {}),
+        };
       }
 
-      bindings = {
-        kv: resolved.binding?.resources?.kv ?? {},
-        store: resolved.binding?.resources?.store ?? {},
-        streams: resolved.binding?.resources?.streams ?? {},
-        ...(resolved.binding?.resources?.jobs
-          ? { jobs: resolved.binding.resources.jobs }
-          : {}),
-      };
+      return await createConnectedService<TOwnedApi, TTrellisApi>({
+        name,
+        auth,
+        nc,
+        contractId: opts.contractId,
+        contractDigest: opts.contractDigest,
+        contractJobs: {},
+        server: opts.server,
+        bindings,
+      });
+    } catch (cause) {
+      await closeFailedServiceBootstrapConnection(nc);
+      throw cause;
     }
+  }
 
-    return await createConnectedService<TOwnedApi, TTrellisApi>({
-      name,
-      auth,
-      nc,
-      contractId: opts.contractId,
-      contractDigest: opts.contractDigest,
-      contractJobs: {},
-      server: opts.server,
-      bindings,
-    });
+  /**
+   * Starts managed job workers for registered handlers and waits for shutdown.
+   */
+  async wait(): Promise<void> {
+    this.#waitPromise ??= (async () => {
+      try {
+        await this.#managedJobWorkers.start().orThrow();
+        const closed = await this.nc.closed();
+        if (closed instanceof Error) {
+          throw closed;
+        }
+      } finally {
+        await this.stop();
+      }
+    })();
+
+    await this.#waitPromise;
   }
 
   async stop(): Promise<void> {
-    this.#stopConnectionLogging();
-    await this.#stopHealthPublishing();
-    await this.#operationTransfer.stop();
-    await this.server.stop();
+    this.#stopPromise ??= (async () => {
+      this.#stopConnectionLogging();
+
+      try {
+        await this.#stopHealthPublishing();
+      } finally {
+        try {
+          await this.#managedJobWorkers.stop().orThrow();
+        } finally {
+          try {
+            await this.#operationTransfer.stop();
+          } finally {
+            await this.server.stop();
+          }
+        }
+      }
+    })();
+
+    await this.#stopPromise;
   }
 
   request<M extends RpcMethodName<TTrellisApi>>(
@@ -1827,7 +2027,9 @@ export class TrellisService<
   operation<O extends keyof TOwnedApi["operations"] & string>(
     operation: O,
   ): OperationRegistration<TOwnedApi, TTrellisApi, O> {
-    const registration = this.server.operation(operation) as RootOperationRegistration<
+    const registration = this.server.operation(
+      operation,
+    ) as RootOperationRegistration<
       InferSchemaType<TOwnedApi["operations"][O]["input"]>,
       OperationProgressOf<TOwnedApi, O>,
       OperationOutputOf<TOwnedApi, O>,
@@ -1848,10 +2050,12 @@ export class TrellisService<
             & { trellis: Trellis<TTrellisApi> },
         ) => unknown | Promise<unknown>,
       ) =>
-        registration.handle((context) => handler({
-          ...context,
-          trellis: this.#handlerTrellis,
-        })),
+        registration.handle((context) =>
+          handler({
+            ...context,
+            trellis: this.#handlerTrellis,
+          })
+        ),
     };
   }
 }

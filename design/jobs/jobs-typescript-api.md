@@ -30,7 +30,7 @@ defined in `trellis-jobs.md`.
 It covers:
 
 - service-local job creation and handling
-- worker host lifecycle
+- service-owned worker lifecycle
 - operator/admin query APIs
 
 It does not redefine the jobs stream model, storage model, or admin
@@ -58,7 +58,6 @@ conversion helpers.
 ```ts
 type JobsFacade = {
   refundCharge: JobQueue<RefundChargePayload, RefundChargeResult>;
-  startWorkers(): AsyncResult<JobWorkerHost, BaseError>;
 };
 
 type JobQueue<TPayload, TResult> = {
@@ -67,7 +66,7 @@ type JobQueue<TPayload, TResult> = {
     handler: (
       args: { job: ActiveJob<TPayload, TResult>; trellis: object },
     ) => Promise<Result<TResult, BaseError>>,
-  ): AsyncResult<void, BaseError>;
+  ): void;
 };
 
 type JobRef<TPayload, TResult> = {
@@ -89,11 +88,6 @@ type ActiveJob<TPayload, TResult> = {
   redeliveryCount(): number;
   isRedelivery(): boolean;
 };
-
-type JobWorkerHost = {
-  stop(): AsyncResult<void, BaseError>;
-  join(): AsyncResult<void, BaseError>;
-};
 ```
 
 Example:
@@ -112,7 +106,7 @@ if (created.isErr()) {
 const job = created.value;
 const terminal = await job.wait();
 
-const registered = await service.jobs.refundCharge.handle(async ({ job }) => {
+service.jobs.refundCharge.handle(async ({ job }) => {
   const progress = await job.progress({
     step: "processor",
     message: "Submitting refund",
@@ -131,14 +125,7 @@ const registered = await service.jobs.refundCharge.handle(async ({ job }) => {
   });
 });
 
-if (registered.isErr()) {
-  throw registered.error;
-}
-
-const host = await service.jobs.startWorkers();
-if (host.isOk()) {
-  await host.value.stop();
-}
+await service.wait();
 ```
 
 ### Shared service-local types
@@ -187,6 +174,9 @@ progress fraction.
 Job handlers use the canonical `({ job, trellis })` callback shape. The injected
 `trellis` value is the narrow service runtime facade for handler code, not the
 full `TrellisService` instance.
+
+Duplicate handler registration is a bootstrap-time programming error. The
+runtime should fail fast if the same job queue registers more than one handler.
 
 ### Admin surface
 
@@ -259,8 +249,11 @@ const retried = await jobs.retry({
   contract's top-level `jobs` map rather than from `resources`
 - any generic string-based queue lookup helper is a low-level escape hatch and
   MUST NOT be the primary public API
-- `startWorkers()` owns binding resolution and worker-loop startup; application
-  code SHOULD NOT pass runtime bindings manually
+- service runtimes SHOULD own worker-loop startup and shutdown through the
+  connected service lifecycle rather than exposing worker hosts on the normal
+  public path
+- application code SHOULD call `service.wait()` to start registered job
+  handlers and `service.stop()` to tear them down
 - operator/admin APIs MAY return wire-shaped `unknown` payload and result fields
   because they are an observability and debugging surface rather than a typed
   service-author execution surface

@@ -11,7 +11,6 @@ import type {
   EventHandler,
   EventName,
   EventPayload,
-  KVError,
   RpcArgs,
   RpcHandlerFn,
   RpcOutputOf,
@@ -29,7 +28,6 @@ import {
   type HealthCheckResult,
   type HealthResponse,
   type JobHandler,
-  KVHandle,
   type OperationHandler,
   type OrderingGroup,
   type RpcHandler,
@@ -67,6 +65,19 @@ const typeTestContract = defineServiceContract(
       "Test.Pinged": {
         version: "v1",
         event: ref.schema("PingedEvent"),
+      },
+    },
+    resources: {
+      kv: {
+        items: {
+          purpose: "Store typed items",
+          schema: ref.schema("KVValue"),
+        },
+      },
+      store: {
+        uploads: {
+          purpose: "Store staged uploads",
+        },
       },
     },
   }),
@@ -178,24 +189,21 @@ Deno.test("Subscription types are re-exported", () => {
 });
 
 Deno.test("service wrapper type surface stays specific", () => {
-  const schema = Type.Object({ value: Type.String() });
   function expectTypedSurface(
     service:
       & TrellisService<
         typeof typeTestContract.API.owned,
         typeof typeTestContract.API.owned
-      >
-      & { store: Record<string, StoreHandle> },
-    kvHandle: KVHandle,
+      >,
     storeHandle: StoreHandle,
   ): {
     request: AsyncResult<{ ok: boolean }, BaseError>;
-    kvOpen: AsyncResult<TypedKV<typeof schema>, KVError>;
+    kv: TypedKV<typeof typeTestSchemas.KVValue>;
     storeOpen: AsyncResult<TypedStore, StoreError>;
   } {
     return {
       request: service.request("Test.Ping", { value: "ping" }),
-      kvOpen: kvHandle.open(schema),
+      kv: service.kv.items,
       storeOpen: storeHandle.open(),
     };
   }
@@ -206,8 +214,6 @@ Deno.test("service wrapper type surface stays specific", () => {
 });
 
 Deno.test("service wrapper mount handlers stay method-typed", () => {
-  const schema = Type.Object({ value: Type.String() });
-
   function expectTypedMount(
     service: TrellisService<
       typeof typeTestContract.API.owned,
@@ -220,7 +226,7 @@ Deno.test("service wrapper mount handlers stay method-typed", () => {
         const value: string = input.value;
         const sessionKey: string = context.sessionKey;
         const ping = trellis.request("Test.Ping", { value });
-        const kv = trellis.kv.items.open(schema);
+        const kv: TypedKV<typeof typeTestSchemas.KVValue> = trellis.kv.items;
         const store = trellis.store.uploads.open();
         assertExists(ping);
         assertExists(kv);
@@ -234,7 +240,7 @@ Deno.test("service wrapper mount handlers stay method-typed", () => {
       const value: string = input.value;
       const sessionKey: string = context.sessionKey;
       const ping = trellis.request("Test.Ping", { value });
-      const kv = trellis.kv.items.open(schema);
+      const kv: TypedKV<typeof typeTestSchemas.KVValue> = trellis.kv.items;
       const store = trellis.store.uploads.open();
       assertExists(ping);
       assertExists(kv);
@@ -271,15 +277,9 @@ Deno.test("service wrapper exposes typed jobs facade", () => {
         return Result.ok({ refreshId: `refresh-${siteId}` });
       },
     );
-    const workers = service.jobs.startWorkers({
-      queues: ["refreshSummaries"],
-      instanceId: "worker-a",
-      version: "1.0.0",
-    });
 
     assertExists(created);
-    assertExists(registered);
-    assertExists(workers);
+    assertEquals(registered, undefined);
   }
 
   assertExists(expectTypedJobs);
@@ -287,13 +287,12 @@ Deno.test("service wrapper exposes typed jobs facade", () => {
 
 Deno.test("server RPC helper types support extracted handlers", () => {
   type PingHandler = RpcHandler<typeof typeTestContract, "Test.Ping">;
-  const schema = Type.Object({ value: Type.String() });
 
   const pingHandler: PingHandler = ({ input, context, trellis }) => {
     const value: string = input.value;
     const sessionKey: string = context.sessionKey;
     const ping = trellis.request("Test.Ping", { value });
-    const kv = trellis.kv.items.open(schema);
+    const kv: TypedKV<typeof typeTestSchemas.KVValue> = trellis.kv.items;
     const store = trellis.store.uploads.open();
     assertExists(ping);
     assertExists(kv);
@@ -364,8 +363,6 @@ Deno.test("contract-oriented helper types support local Args and Return aliases"
 });
 
 Deno.test("service handler aliases expose narrow trellis object args", () => {
-  const schema = Type.Object({ value: Type.String() });
-
   type ServiceRuntime = ServiceTrellisHandler<
     typeof typeTestContract.API.trellis
   >;
@@ -381,7 +378,7 @@ Deno.test("service handler aliases expose narrow trellis object args", () => {
 
   const expectRuntime = (trellis: ServiceRuntime) => {
     assertExists(trellis.request("Test.Ping", { value: "ok" }));
-    assertExists(trellis.kv.items.open(schema));
+    assertExists(trellis.kv.items);
     assertExists(trellis.store.uploads.open());
   };
 

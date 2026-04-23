@@ -1,4 +1,4 @@
-import { type BaseError, AsyncResult, Result } from "@qlever-llc/result";
+import { AsyncResult, type BaseError, Result } from "@qlever-llc/result";
 import { UnexpectedError } from "./errors/index.ts";
 import { type StaticDecode, Type } from "typebox";
 
@@ -58,10 +58,19 @@ export type JobSnapshot<TPayload, TResult> = {
   logs?: JobLogEntry[];
 };
 
-export type Job<TPayload = unknown, TResult = unknown> = JobSnapshot<TPayload, TResult>;
+export type Job<TPayload = unknown, TResult = unknown> = JobSnapshot<
+  TPayload,
+  TResult
+>;
 
 export type TerminalJob<TPayload, TResult> = JobSnapshot<TPayload, TResult> & {
-  state: "completed" | "failed" | "cancelled" | "expired" | "dead" | "dismissed";
+  state:
+    | "completed"
+    | "failed"
+    | "cancelled"
+    | "expired"
+    | "dead"
+    | "dismissed";
 };
 
 export type JobFilter = {
@@ -117,7 +126,10 @@ export class JobRef<TPayload, TResult> {
 
   readonly #get: () => AsyncResult<JobSnapshot<TPayload, TResult>, BaseError>;
   readonly #wait: () => AsyncResult<TerminalJob<TPayload, TResult>, BaseError>;
-  readonly #cancel: () => AsyncResult<JobSnapshot<TPayload, TResult>, BaseError>;
+  readonly #cancel: () => AsyncResult<
+    JobSnapshot<TPayload, TResult>,
+    BaseError
+  >;
 
   constructor(
     ref: JobIdentity,
@@ -234,16 +246,24 @@ export class ActiveJob<TPayload, TResult> {
 }
 
 export class JobQueue<TPayload, TResult> {
-  readonly #create: (payload: TPayload) => AsyncResult<JobRef<TPayload, TResult>, BaseError>;
+  readonly #create: (
+    payload: TPayload,
+  ) => AsyncResult<JobRef<TPayload, TResult>, BaseError>;
   readonly #handle: (
-    handler: (job: ActiveJob<TPayload, TResult>) => Promise<Result<TResult, BaseError>>,
-  ) => AsyncResult<void, BaseError>;
+    handler: (
+      job: ActiveJob<TPayload, TResult>,
+    ) => Promise<Result<TResult, BaseError>>,
+  ) => void;
 
   constructor(impl: {
-    create: (payload: TPayload) => AsyncResult<JobRef<TPayload, TResult>, BaseError>;
+    create: (
+      payload: TPayload,
+    ) => AsyncResult<JobRef<TPayload, TResult>, BaseError>;
     handle: (
-      handler: (job: ActiveJob<TPayload, TResult>) => Promise<Result<TResult, BaseError>>,
-    ) => AsyncResult<void, BaseError>;
+      handler: (
+        job: ActiveJob<TPayload, TResult>,
+      ) => Promise<Result<TResult, BaseError>>,
+    ) => void;
   }) {
     this.#create = impl.create;
     this.#handle = impl.handle;
@@ -258,13 +278,11 @@ export class JobQueue<TPayload, TResult> {
   }
 
   handle(
-    handler: (job: ActiveJob<TPayload, TResult>) => Promise<Result<TResult, BaseError>>,
-  ): AsyncResult<void, BaseError> {
-    try {
-      return this.#handle(handler);
-    } catch (cause) {
-      return AsyncResult.err(toUnexpectedError(cause));
-    }
+    handler: (
+      job: ActiveJob<TPayload, TResult>,
+    ) => Promise<Result<TResult, BaseError>>,
+  ): void {
+    this.#handle(handler);
   }
 }
 
@@ -302,17 +320,13 @@ export class JobWorkerHostAdapter implements JobWorkerHost {
   }
 }
 
-export type JobsFacade = {
-  startWorkers(opts?: {
-    queues?: readonly string[];
-    instanceId?: string;
-    version?: string;
-  }): AsyncResult<JobWorkerHost, BaseError>;
-};
+export type JobsFacade = {};
 
-export type JobsFacadeOf<TJobs extends Record<string, JobTypeMetadata>> = {
-  [K in keyof TJobs]: JobQueue<TJobs[K]["payload"], TJobs[K]["result"]>;
-} & JobsFacade;
+export type JobsFacadeOf<TJobs extends Record<string, JobTypeMetadata>> =
+  & {
+    [K in keyof TJobs]: JobQueue<TJobs[K]["payload"], TJobs[K]["result"]>;
+  }
+  & JobsFacade;
 
 type JobsClientLike = {
   request<T>(method: string, input: unknown): AsyncResult<T, BaseError>;
@@ -330,61 +344,98 @@ export class JobsAdminClient {
   }
 
   listServices(): AsyncResult<ServiceInfo[], BaseError> {
-    return this.#trellis.request<{ services?: ServiceInfo[] }>("Jobs.ListServices", {})
+    return this.#trellis.request<{ services?: ServiceInfo[] }>(
+      "Jobs.ListServices",
+      {},
+    )
       .map((response) => response.services ?? []);
   }
 
-  list(filter: JobFilter = {}): AsyncResult<JobSnapshot<unknown, unknown>[], BaseError> {
-    return this.#trellis.request<{ jobs?: JobSnapshot<unknown, unknown>[] }>("Jobs.List", {
-      ...filter,
-      ...(filter.jobType ? { type: filter.jobType } : {}),
-    }).map((response) => response.jobs ?? []);
+  list(
+    filter: JobFilter = {},
+  ): AsyncResult<JobSnapshot<unknown, unknown>[], BaseError> {
+    return this.#trellis.request<{ jobs?: JobSnapshot<unknown, unknown>[] }>(
+      "Jobs.List",
+      {
+        ...filter,
+        ...(filter.jobType ? { type: filter.jobType } : {}),
+      },
+    ).map((response) => response.jobs ?? []);
   }
 
-  get(ref: JobIdentity): AsyncResult<JobSnapshot<unknown, unknown> | null, BaseError> {
-    return this.#trellis.request<{ job?: JobSnapshot<unknown, unknown> | null }>("Jobs.Get", {
+  get(
+    ref: JobIdentity,
+  ): AsyncResult<JobSnapshot<unknown, unknown> | null, BaseError> {
+    return this.#trellis.request<
+      { job?: JobSnapshot<unknown, unknown> | null }
+    >("Jobs.Get", {
       service: ref.service,
       jobType: ref.jobType,
       id: ref.id,
     }).map((response) => response.job ?? null);
   }
 
-  cancel(ref: JobIdentity): AsyncResult<JobSnapshot<unknown, unknown>, BaseError> {
-    return this.#trellis.request<{ job: JobSnapshot<unknown, unknown> }>("Jobs.Cancel", {
-      service: ref.service,
-      jobType: ref.jobType,
-      id: ref.id,
-    }).map((response) => response.job);
+  cancel(
+    ref: JobIdentity,
+  ): AsyncResult<JobSnapshot<unknown, unknown>, BaseError> {
+    return this.#trellis.request<{ job: JobSnapshot<unknown, unknown> }>(
+      "Jobs.Cancel",
+      {
+        service: ref.service,
+        jobType: ref.jobType,
+        id: ref.id,
+      },
+    ).map((response) => response.job);
   }
 
-  retry(ref: JobIdentity): AsyncResult<JobSnapshot<unknown, unknown>, BaseError> {
-    return this.#trellis.request<{ job: JobSnapshot<unknown, unknown> }>("Jobs.Retry", {
-      service: ref.service,
-      jobType: ref.jobType,
-      id: ref.id,
-    }).map((response) => response.job);
+  retry(
+    ref: JobIdentity,
+  ): AsyncResult<JobSnapshot<unknown, unknown>, BaseError> {
+    return this.#trellis.request<{ job: JobSnapshot<unknown, unknown> }>(
+      "Jobs.Retry",
+      {
+        service: ref.service,
+        jobType: ref.jobType,
+        id: ref.id,
+      },
+    ).map((response) => response.job);
   }
 
-  listDLQ(filter: JobFilter = {}): AsyncResult<JobSnapshot<unknown, unknown>[], BaseError> {
-    return this.#trellis.request<{ jobs?: JobSnapshot<unknown, unknown>[] }>("Jobs.ListDLQ", {
-      ...filter,
-      ...(filter.jobType ? { type: filter.jobType } : {}),
-    }).map((response) => response.jobs ?? []);
+  listDLQ(
+    filter: JobFilter = {},
+  ): AsyncResult<JobSnapshot<unknown, unknown>[], BaseError> {
+    return this.#trellis.request<{ jobs?: JobSnapshot<unknown, unknown>[] }>(
+      "Jobs.ListDLQ",
+      {
+        ...filter,
+        ...(filter.jobType ? { type: filter.jobType } : {}),
+      },
+    ).map((response) => response.jobs ?? []);
   }
 
-  replayDLQ(ref: JobIdentity): AsyncResult<JobSnapshot<unknown, unknown>, BaseError> {
-    return this.#trellis.request<{ job: JobSnapshot<unknown, unknown> }>("Jobs.ReplayDLQ", {
-      service: ref.service,
-      jobType: ref.jobType,
-      id: ref.id,
-    }).map((response) => response.job);
+  replayDLQ(
+    ref: JobIdentity,
+  ): AsyncResult<JobSnapshot<unknown, unknown>, BaseError> {
+    return this.#trellis.request<{ job: JobSnapshot<unknown, unknown> }>(
+      "Jobs.ReplayDLQ",
+      {
+        service: ref.service,
+        jobType: ref.jobType,
+        id: ref.id,
+      },
+    ).map((response) => response.job);
   }
 
-  dismissDLQ(ref: JobIdentity): AsyncResult<JobSnapshot<unknown, unknown>, BaseError> {
-    return this.#trellis.request<{ job: JobSnapshot<unknown, unknown> }>("Jobs.DismissDLQ", {
-      service: ref.service,
-      jobType: ref.jobType,
-      id: ref.id,
-    }).map((response) => response.job);
+  dismissDLQ(
+    ref: JobIdentity,
+  ): AsyncResult<JobSnapshot<unknown, unknown>, BaseError> {
+    return this.#trellis.request<{ job: JobSnapshot<unknown, unknown> }>(
+      "Jobs.DismissDLQ",
+      {
+        service: ref.service,
+        jobType: ref.jobType,
+        id: ref.id,
+      },
+    ).map((response) => response.job);
   }
 }

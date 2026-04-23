@@ -1,4 +1,9 @@
-import { assertEquals, assertNotEquals, assertRejects } from "@std/assert";
+import {
+  assertEquals,
+  assertNotEquals,
+  assertRejects,
+  assertThrows,
+} from "@std/assert";
 import {
   type Msg,
   type NatsConnection,
@@ -10,6 +15,7 @@ import { core } from "@qlever-llc/trellis-sdk/core";
 import { Type } from "typebox";
 
 import type { LoggerLike } from "../globals.ts";
+import { TransportError } from "../errors/index.ts";
 import { TypedStore } from "../store.ts";
 import { NatsTest } from "../testing/nats.ts";
 import { defineServiceContract } from "../contract.ts";
@@ -44,6 +50,145 @@ const handlerSurfaceTestContract = defineServiceContract(
     },
   }),
 );
+
+const jobsHandlerTestSchemas = {
+  RefreshPayload: Type.Object({ siteId: Type.String() }),
+  RefreshResult: Type.Object({ refreshId: Type.String() }),
+} as const;
+
+const jobsHandlerTestContract = defineServiceContract(
+  { schemas: jobsHandlerTestSchemas },
+  (ref) => ({
+    id: "trellis.server.jobs-handler-test@v1",
+    displayName: "Jobs Handler Test",
+    description: "Verify jobs handler registration and lifecycle ownership.",
+    jobs: {
+      refreshSummaries: {
+        payload: ref.schema("RefreshPayload"),
+        result: ref.schema("RefreshResult"),
+      },
+    },
+  }),
+);
+
+type WaitableService = {
+  wait(): Promise<void>;
+  stop(): Promise<void>;
+};
+
+function hasServiceWait(value: object): value is WaitableService {
+  return Reflect.has(value, "wait") &&
+    typeof Reflect.get(value, "wait") === "function";
+}
+
+function waitForServiceStop(service: WaitableService): Promise<void> {
+  return service.wait();
+}
+
+async function connectJobsHandlerTestService(opts?: {
+  includeWorkStream?: boolean;
+  deferClosed?: boolean;
+}) {
+  const originalFetch = globalThis.fetch;
+  const includeWorkStream = opts?.includeWorkStream ?? true;
+
+  globalThis.fetch = (() =>
+    Promise.resolve(
+      new Response(
+        JSON.stringify({
+          status: "ready",
+          serverNow: 1_700_000_120,
+          connectInfo: {
+            sessionKey: "session-key",
+            contractId: jobsHandlerTestContract.CONTRACT_ID,
+            contractDigest: jobsHandlerTestContract.CONTRACT_DIGEST,
+            transports: {
+              native: {
+                natsServers: ["nats://127.0.0.1:4222"],
+              },
+            },
+            transport: {
+              sentinel: { jwt: "jwt", seed: "seed", issuer: "trellis" },
+            },
+            auth: {
+              mode: "service_identity",
+              iatSkewSeconds: 30,
+            },
+          },
+          binding: {
+            contractId: jobsHandlerTestContract.CONTRACT_ID,
+            digest: jobsHandlerTestContract.CONTRACT_DIGEST,
+            resources: {
+              kv: {},
+              store: {},
+              streams: includeWorkStream
+                ? {
+                  jobsWork: {
+                    name: "JOBS_WORK",
+                    retention: "workqueue",
+                    storage: "file",
+                    subjects: [
+                      "trellis.work.jobs_handler_test.refreshSummaries",
+                    ],
+                  },
+                }
+                : {},
+              jobs: {
+                namespace: "jobs_handler_test",
+                jobsStateBucket: "trellis_jobs",
+                queues: {
+                  refreshSummaries: {
+                    queueType: "refreshSummaries",
+                    publishPrefix:
+                      "trellis.jobs.jobs_handler_test.refreshSummaries",
+                    workSubject:
+                      "trellis.work.jobs_handler_test.refreshSummaries",
+                    consumerName: "jobs_handler_test-refreshSummaries",
+                    payload: { schema: "RefreshPayload" },
+                    result: { schema: "RefreshResult" },
+                    maxDeliver: 5,
+                    backoffMs: [5_000, 30_000],
+                    ackWaitMs: 300_000,
+                    progress: true,
+                    logs: true,
+                    dlq: true,
+                    concurrency: 1,
+                  },
+                },
+              },
+            },
+          },
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    )) as typeof fetch;
+
+  try {
+    const service = await TrellisService.connect({
+      trellisUrl: "https://trellis.example.com",
+      contract: jobsHandlerTestContract,
+      name: "svc",
+      sessionKeySeed: TEST_SEED,
+      server: { log: false },
+    }, {
+      connect: async () =>
+        createFakeNatsConnection({ deferClosed: opts?.deferClosed }),
+    }).orThrow();
+
+    return {
+      service,
+      restore() {
+        globalThis.fetch = originalFetch;
+      },
+    };
+  } catch (error) {
+    globalThis.fetch = originalFetch;
+    throw error;
+  }
+}
 
 function createTestLogger() {
   const childBindings: Array<Record<string, unknown>> = [];
@@ -129,16 +274,18 @@ function createFakeNatsConnection(args: {
   };
 
   let resolveClosed: ((value: Error | void) => void) | undefined;
+  let closed = false;
   const closedPromise = args.deferClosed
     ? new Promise<Error | void>((resolve) => {
-      resolveClosed = resolve;
-    })
+        resolveClosed = resolve;
+      })
     : Promise.resolve(args.closedResult);
 
   const connection: TestNatsConnection = {
     info: undefined,
     closed: async () => await closedPromise,
     close: async () => {
+      closed = true;
       resolveClosed?.(args.closedResult);
     },
     options: {
@@ -154,8 +301,11 @@ function createFakeNatsConnection(args: {
         return;
       })(),
     flush: async () => {},
-    drain: async () => {},
-    isClosed: () => false,
+    drain: async () => {
+      closed = true;
+      resolveClosed?.(args.closedResult);
+    },
+    isClosed: () => closed,
     isDraining: () => false,
     getServer: () => "nats://127.0.0.1:4222",
     status,
@@ -298,7 +448,7 @@ Deno.test("TrellisService.connect uses bootstrap response transport details", as
       );
     }) as typeof fetch;
 
-    await assertRejects(
+    const error = await assertRejects(
       () =>
         TrellisService.connect({
           trellisUrl: "https://trellis.example.com",
@@ -306,10 +456,11 @@ Deno.test("TrellisService.connect uses bootstrap response transport details", as
           name: "svc",
           sessionKeySeed: TEST_SEED,
           server: {},
-        }, { connect: fakeConnect }),
-      Error,
-      "stop-after-connect",
+        }, { connect: fakeConnect }).orThrow(),
+      TransportError,
     );
+
+    assertEquals(error.code, "trellis.runtime.connect_failed");
 
     assertEquals(connectServers, "nats://127.0.0.1:4222");
     assertEquals(connectToken.includes('"sessionKey":"'), true);
@@ -393,7 +544,7 @@ Deno.test("TrellisService.connect retries once on iat_out_of_range using server 
       );
     }) as typeof fetch;
 
-    await assertRejects(
+    const error = await assertRejects(
       () =>
         TrellisService.connect({
           trellisUrl: "https://trellis.example.com",
@@ -401,10 +552,11 @@ Deno.test("TrellisService.connect retries once on iat_out_of_range using server 
           name: "svc",
           sessionKeySeed: TEST_SEED,
           server: {},
-        }, { connect: fakeConnect }),
-      Error,
-      "stop-after-connect",
+        }, { connect: fakeConnect }).orThrow(),
+      TransportError,
     );
+
+    assertEquals(error.code, "trellis.runtime.connect_failed");
 
     assertEquals(requestBodies.map((entry) => entry.iat), [
       1_700_000_000,
@@ -512,7 +664,7 @@ Deno.test("TrellisService.connect surfaces bootstrap failure reasons", async () 
           connect: async (): Promise<NatsConnection> => {
             throw new Error("connect should not be called");
           },
-        }),
+        }).orThrow(),
       Error,
       "Service bootstrap failed: Contract 'trellis.core@v1' digest 'digest_123' is not active in Trellis.",
     );
@@ -744,6 +896,52 @@ Deno.test("TrellisService.connectInternal keeps final closed logging explicit", 
   );
 });
 
+Deno.test("TrellisService.connectInternal cleans up the connection when bootstrap probing fails", async () => {
+  let closed = false;
+  let resolveClosed: ((value: Error | void) => void) | undefined;
+  const closedPromise = new Promise<Error | void>((resolve) => {
+    resolveClosed = resolve;
+  });
+
+  const baseConnection = createFakeNatsConnection({ deferClosed: true });
+  const failingConnection = {
+    ...baseConnection,
+    closed: async () => await closedPromise,
+    close: async () => {
+      closed = true;
+      resolveClosed?.();
+    },
+    drain: async () => {
+      closed = true;
+      resolveClosed?.();
+    },
+    isClosed: () => closed,
+  } satisfies NatsConnection;
+
+  await assertRejects(
+    () =>
+      TrellisService.connectInternal("svc", {
+        sessionKeySeed: TEST_SEED,
+        contractId: core.CONTRACT_ID,
+        contractDigest: core.CONTRACT_DIGEST,
+        nats: {
+          servers: "nats://127.0.0.1:4222",
+          authenticator: {},
+        },
+        server: {
+          api: core.API.owned,
+          trellisApi: core.API.trellis,
+          log: false,
+        },
+      }, {
+        connect: async () => failingConnection,
+      }),
+    Error,
+  );
+
+  assertEquals(closed, true);
+});
+
 Deno.test("TrellisService.connectInternal defaults to the server logger", async () => {
   const service = await TrellisService.connectInternal("svc", {
     sessionKeySeed: TEST_SEED,
@@ -804,9 +1002,9 @@ Deno.test("TrellisService mount passes kv and store to handlers", async () => {
   );
 
   try {
-    await service.trellis.mount("Test.Ping", (_input, _context, runtime) => {
-      assertEquals(runtime.kv, service.kv);
-      assertEquals(runtime.store, service.store);
+    await service.trellis.mount("Test.Ping", ({ trellis }) => {
+      assertEquals(trellis.kv, service.kv);
+      assertEquals(trellis.store, service.store);
       return Result.ok({ ok: true });
     });
 
@@ -822,6 +1020,90 @@ Deno.test("TrellisService mount passes kv and store to handlers", async () => {
     assertEquals(result.isErr(), false);
   } finally {
     await service.stop();
+  }
+});
+
+Deno.test("service jobs reject duplicate handler registration immediately", async () => {
+  const { service, restore } = await connectJobsHandlerTestService();
+
+  try {
+    const firstHandler: Parameters<
+      typeof service.jobs.refreshSummaries.handle
+    >[0] = async ({
+      job,
+    }) => {
+      return Result.ok({ refreshId: job.payload.siteId });
+    };
+    const duplicateHandler: Parameters<
+      typeof service.jobs.refreshSummaries.handle
+    >[0] = async ({ job }) => {
+      return Result.ok({ refreshId: job.payload.siteId });
+    };
+
+    const first = service.jobs.refreshSummaries.handle(firstHandler);
+
+    assertEquals(first, undefined);
+    assertThrows(
+      () => {
+        service.jobs.refreshSummaries.handle(duplicateHandler);
+      },
+      Error,
+      "Job handler for queue 'refreshSummaries' is already registered",
+    );
+  } finally {
+    await service.stop();
+    restore();
+  }
+});
+
+Deno.test("service wait starts managed job workers before waiting", async () => {
+  const { service, restore } = await connectJobsHandlerTestService({
+    includeWorkStream: false,
+    deferClosed: true,
+  });
+
+  try {
+    const handler: Parameters<typeof service.jobs.refreshSummaries.handle>[0] =
+      async ({
+        job,
+      }) => {
+        return Result.ok({ refreshId: job.payload.siteId });
+      };
+    const registered = service.jobs.refreshSummaries.handle(handler);
+    assertEquals(registered, undefined);
+
+    if (!hasServiceWait(service)) {
+      return;
+    }
+
+    await assertRejects(
+      () => waitForServiceStop(service),
+      Error,
+      "An unexpected error has occurred",
+    );
+    assertEquals(service.nc.isClosed(), true);
+  } finally {
+    await service.stop();
+    restore();
+  }
+});
+
+Deno.test("service wait resolves after service stop when no job handlers are registered", async () => {
+  const { service, restore } = await connectJobsHandlerTestService({
+    deferClosed: true,
+  });
+
+  try {
+    if (!hasServiceWait(service)) {
+      return;
+    }
+
+    const waiting = waitForServiceStop(service);
+    await delay(5);
+    await service.stop();
+    await waiting;
+  } finally {
+    restore();
   }
 });
 

@@ -155,8 +155,8 @@ Rules:
 - service code should use `service.kv`, `service.store`, and `service.jobs`
   rather than a nested `service.resources.*` runtime shape
 - jobs-enabled services should declare top-level contract `jobs` and use
-  `service.jobs.<queue>` plus `service.jobs.startWorkers()` rather than raw
-  worker-runtime helpers or stream bindings
+  `service.jobs.<queue>` plus `service.wait()` / `service.stop()` rather than
+  raw worker-runtime helpers or stream bindings
 - transfer-aware operation contexts belong on the server runtime surface for
   transfer-capable operations
 - extracted service RPC handler aliases that need service-only helpers belong on
