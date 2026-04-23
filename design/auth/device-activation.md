@@ -193,7 +193,7 @@ sequenceDiagram
     U->>P: Open /_trellis/portal/activate?flowId=...
     U->>P: Authenticate and complete portal business logic
     P->>T: Activate known device instance
-    T-->>W: Wait endpoint resolves with activated status and connect info
+    T-->>W: Wait endpoint resolves with activated status
 ```
 
 If portal-side business logic is long-running, the portal may use its own async
@@ -363,12 +363,16 @@ Rules:
 - when activation completes, Trellis derives the same confirmation code from the
   stored `activationKey` and may return or display it even for online flows
 - local confirmation is separate from later online Trellis auth
+- Deno's high-level `checkDeviceActivation(...)` helper treats both online wait
+  completion and offline confirmation as internal transitions to later
+  `activated` status; it does not attempt a runtime connection until the caller
+  later invokes `TrellisDevice.connect(...)`
 
 ### 10) Connect info is server-provided
 
 Activated devices need current runtime connect information from Trellis both:
 
-- immediately after activation completes
+- when a caller explicitly asks to connect after activation completes
 - on later startups when activation is already complete and the device wants to
   reconnect directly
 
@@ -380,8 +384,15 @@ type DeviceConnectInfo = {
   profileId: string;
   contractId: string;
   contractDigest: string;
+  transports: {
+    native?: {
+      natsServers: string[];
+    };
+    websocket?: {
+      natsServers: string[];
+    };
+  };
   transport: {
-    natsServers: string[];
     sentinel: {
       jwt: string;
       seed: string;
@@ -399,8 +410,9 @@ Rules:
 - Trellis returns `natsServers` and sentinel credentials from deployment state
 - devices should refresh connect info on startup rather than treating previously
   returned transport data as a permanent source of truth
-- local persistence should store the root secret and activation state, not
-  hard-coded NATS topology
+- reboot-safe storage should keep the root secret, not connect info, sentinel
+  credentials, or hard-coded NATS topology; any Deno activation-state
+  persistence stays internal to the Deno activation helper
 
 ### 11) Runtime auth presents an exact digest
 
@@ -590,14 +602,8 @@ declare function createDeviceActivationClient(client: {
   }): Promise<{ status: "ready"; connectInfo: DeviceConnectInfo }>;
 };
 
-type DeviceActivationController = {
-  url: string;
-  waitForOnlineApproval(opts?: { signal?: AbortSignal }): Promise<void>;
-  acceptConfirmationCode(code: string): Promise<void>;
-};
-
-declare class TrellisDevice {
-  static connect<TApi extends TrellisAPI>(args: {
+declare const TrellisDevice: {
+  connect<TApi extends TrellisAPI>(args: {
     trellisUrl: string;
     contract: {
       CONTRACT_ID: string;
@@ -605,17 +611,53 @@ declare class TrellisDevice {
       API: { trellis: TApi };
     };
     rootSecret: Uint8Array | string;
-    onActivationRequired?(
-      activation: DeviceActivationController,
-    ): Promise<void>;
-  }): Promise<Trellis<TApi>>;
+    log?: LoggerLike | false;
+  }): AsyncResult<TrellisDeviceConnection<TApi>, TransportError | UnexpectedError>;
+};
+```
+
+```ts
+declare module "@qlever-llc/trellis/device/deno" {
+type TrellisDeviceActivatedStatus = {
+  status: "activated";
+};
+
+type TrellisDeviceNotReadyStatus = {
+  status: "not_ready";
+  reason: string;
+};
+
+type TrellisDeviceActivationRequiredStatus = {
+  status: "activation_required";
+  activationUrl: string;
+  waitForOnlineApproval(opts?: { signal?: AbortSignal }): Promise<TrellisDeviceActivatedStatus>;
+  acceptConfirmationCode(code: string): Promise<TrellisDeviceActivatedStatus>;
+};
+
+type TrellisDeviceActivationStatus =
+  | TrellisDeviceActivatedStatus
+  | TrellisDeviceNotReadyStatus
+  | TrellisDeviceActivationRequiredStatus;
+
+declare function checkDeviceActivation<TApi extends TrellisAPI>(args: {
+  trellisUrl: string;
+  contract: {
+    CONTRACT_ID: string;
+    CONTRACT_DIGEST: string;
+    API: { trellis: TApi };
+  };
+  rootSecret: Uint8Array | string;
+  stateDir?: string;
+  statePath?: string;
+}): Promise<TrellisDeviceActivationStatus>;
 }
 ```
 
 Rules:
 
 - device-side code SHOULD treat `deriveDeviceIdentity(...)` as the root helper
-  and persist only the device root secret plus local activation state
+  and persist only the device root secret directly; any Deno activation-state
+  persistence belongs to `checkDeviceActivation(...)`
 - `buildDeviceActivationUrl(...)` always targets Trellis at
   `POST /auth/devices/activate/requests`; callers do not choose a portal URL directly
 - `waitForDeviceActivation(...)` polls the auth wait endpoint and returns once
@@ -631,9 +673,9 @@ Rules:
   names
 - device activation helpers own proof construction and payload encoding; app
   code should not reimplement those byte layouts locally
-- `TrellisDevice.connect(...)` SHOULD mirror the service-style "connect and
-  return a ready runtime" pattern rather than forcing application code to
-  orchestrate the full activation state machine itself
+- `TrellisDevice.connect(...)` is a pure runtime connect helper; if Trellis says
+  activation is still required it returns a transport error instead of starting
+  activation
 - `TrellisDevice.connect(...)` accepts `rootSecret` directly as bytes or a
   string form; it does not generate or persist secrets on behalf of the
   application
@@ -643,13 +685,25 @@ Rules:
   `TrellisDevice.connect(...)` publishes baseline heartbeats automatically and
   exposes the same callback-based `health` helper surface used by services for
   enriching those heartbeats
-- `onActivationRequired(...)` is the integration hook for local displays, local
-  web UIs, CLIs, and other device-local activation UX
+- Deno device runtimes SHOULD use `checkDeviceActivation(...)` as the main
+  high-level helper; it reports `activated`, `activation_required`, or
+  `not_ready`
+- callers do not manage or persist serialized local activation state directly
+- Deno file-backed activation persistence stays internal to
+  `checkDeviceActivation(...)`, with optional `stateDir` and `statePath`
+  overrides when the runtime needs to control the storage location
+- `waitForOnlineApproval(...)` and `acceptConfirmationCode(...)` are exposed
+  only on `activation_required` status and transition the helper to later
+  `activated` status for a separate `connect()` call
+- there is no documented migration or backward-compatibility path for the
+  removed root activation-session surface or earlier callback-driven activation
+  flow
 
 ### Minimal activated device example
 
 ```ts
 import { isErr, TrellisDevice } from "@qlever-llc/trellis";
+import { checkDeviceActivation } from "@qlever-llc/trellis/device/deno";
 import { defineDeviceContract } from "@qlever-llc/trellis/contracts";
 import { auth } from "@qlever-llc/trellis-sdk";
 
@@ -664,15 +718,26 @@ export const device = defineDeviceContract(() => ({
 
 export default device;
 
+const activation = await checkDeviceActivation({
+  trellisUrl,
+  contract: device,
+  rootSecret,
+});
+
+if (activation.status === "activation_required") {
+  console.info(activation.activationUrl);
+  await activation.waitForOnlineApproval();
+}
+
+if (activation.status === "not_ready") {
+  throw new Error(`Device is not ready: ${activation.reason}`);
+}
+
 const trellis = await TrellisDevice.connect({
   trellisUrl,
   contract: device,
   rootSecret,
-  onActivationRequired: async (activation) => {
-    console.info(activation.url);
-    await activation.waitForOnlineApproval();
-  },
-});
+}).orThrow();
 
 const me = await trellis.request("Auth.Me", {});
 if (isErr(me)) throw me.error;
@@ -684,9 +749,10 @@ Rules:
   resources at all; a small `uses`-only contract is valid
 - requesting `Auth.Me` from a device runtime is only valid because the local
   contract declared auth access through `auth.useDefaults()`
-- device-local UI and review flow handling belong in `onActivationRequired(...)`;
-  application code should not reimplement the activation protocol primitives
-  described above
+- device-local UI and review flow handling belong around
+  `checkDeviceActivation(...)`, not inside `connect()`
+- demos and applications should check activation status first and then connect
+  with a separate `TrellisDevice.connect(...)` call
 
 Those helpers SHOULD own:
 

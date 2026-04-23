@@ -1,11 +1,7 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import type { NatsConnection } from "@nats-io/nats-core";
 
-import {
-  deriveDeviceConfirmationCode,
-  deriveDeviceIdentity,
-  startDeviceActivationRequest,
-} from "./auth.ts";
+import { deriveDeviceIdentity, startDeviceActivationRequest } from "./auth.ts";
 import { connectDeviceWithDeps } from "./device.ts";
 import type { TrellisAPI } from "./contracts.ts";
 import { TransportError } from "./errors/index.ts";
@@ -32,20 +28,6 @@ const testContract = {
     throw new Error("unreachable");
   },
 };
-
-function authenticatorsFromValue(
-  value: unknown,
-): Array<(...args: unknown[]) => unknown> {
-  if (typeof value === "function") {
-    return [value as (...args: unknown[]) => unknown];
-  }
-  if (
-    Array.isArray(value) && value.every((entry) => typeof entry === "function")
-  ) {
-    return value as Array<(...args: unknown[]) => unknown>;
-  }
-  return [];
-}
 
 function createTestLogger() {
   const childBindings: Array<Record<string, unknown>> = [];
@@ -140,7 +122,7 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-Deno.test("connectDeviceWithDeps requires an activation handler when activation is needed", async () => {
+Deno.test("connectDeviceWithDeps returns TransportError when activation is required", async () => {
   const originalFetch = globalThis.fetch;
 
   try {
@@ -167,9 +149,10 @@ Deno.test("connectDeviceWithDeps requires an activation handler when activation 
           }),
           now: () => Date.UTC(2026, 0, 1),
         }),
-      Error,
-      "Device activation required but no activation handler was provided",
+      TransportError,
     );
+
+    assertEquals(error.code, "trellis.bootstrap.activation_required");
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -306,128 +289,143 @@ Deno.test("connectDeviceWithDeps maps runtime connection failures to TransportEr
   }
 });
 
-Deno.test("connectDeviceWithDeps supports offline confirmation before reconnect", async () => {
+Deno.test("connectDeviceWithDeps rejects bootstrap contract mismatches", async () => {
   const originalFetch = globalThis.fetch;
-  const identity = await deriveDeviceIdentity(new Uint8Array(32).fill(7));
-  let fetchCalls = 0;
-  let activationUrl = "";
-  let activationNonce = "";
-  let lastToken = "";
 
   try {
-    globalThis.fetch = ((input: URL | Request | string, init?: RequestInit) => {
-      const url = String(input);
-      fetchCalls += 1;
-      if (url.endsWith("/auth/devices/activate/requests")) {
-        const request = JSON.parse(String(init?.body ?? "{}")) as {
-          payload?: { nonce?: string };
-        };
-        activationNonce = request.payload?.nonce ?? "";
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              flowId: "flow_123",
+    globalThis.fetch = (() => {
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            status: "ready",
+            connectInfo: {
               instanceId: "dev_123",
               profileId: "reader.default",
-              activationUrl:
-                "https://trellis.example.com/_trellis/portal/devices/activate?flowId=flow_123",
-            }),
-            {
-              status: 200,
-              headers: { "Content-Type": "application/json" },
+              contractId: "different.device@v1",
+              contractDigest: "digest-b",
+              transports: {
+                native: {
+                  natsServers: ["nats://127.0.0.1:4222"],
+                },
+              },
+              transport: {
+                sentinel: { jwt: "jwt", seed: "seed" },
+              },
+              auth: {
+                mode: "device_identity",
+                iatSkewSeconds: 30,
+              },
             },
-          ),
-        );
-      }
-      if (url.includes("/bootstrap/device") && fetchCalls === 1) {
-        return Promise.resolve(
-          new Response(JSON.stringify({ status: "activation_required" }), {
+          }),
+          {
             status: 200,
             headers: { "Content-Type": "application/json" },
-          }),
-        );
-      }
-      if (url.includes("/bootstrap/device")) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              status: "ready",
-              connectInfo: {
-                instanceId: "dev_123",
-                profileId: "reader.default",
-                contractId: "example.device@v1",
-                contractDigest: "digest-a",
-                transports: {
-                  native: {
-                    natsServers: ["nats://127.0.0.1:4222"],
-                    tlsRequired: true,
-                  },
-                  websocket: { natsServers: ["ws://localhost:8080"] },
-                },
-                transport: {
-                  sentinel: { jwt: "jwt", seed: "seed", issuer: "trellis" },
-                },
-                auth: {
-                  mode: "device_identity",
-                  iatSkewSeconds: 30,
-                  tokenVersion: 2,
-                },
-                rollout: "canary",
-              },
-              requestId: "req_123",
-            }),
-            {
-              status: 200,
-              headers: { "Content-Type": "application/json" },
-            },
-          ),
-        );
-      }
-      throw new Error(`Unexpected fetch ${url}`);
+          },
+        ),
+      );
     }) as typeof fetch;
 
     const error = await assertRejects(
       () =>
-        connectDeviceWithDeps({
-          trellisUrl: "https://trellis.example.com",
-          contract: testContract,
-          rootSecret: new Uint8Array(32).fill(7),
-          onActivationRequired: async (activation) => {
-            activationUrl = activation.url;
-            const confirmationCode = await deriveDeviceConfirmationCode({
-              activationKey: identity.activationKey,
-              publicIdentityKey: identity.publicIdentityKey,
-              nonce: activationNonce,
-            });
-            await activation.acceptConfirmationCode(
-              confirmationCode.toLowerCase(),
-            );
+        connectDeviceWithDeps(
+          {
+            trellisUrl: "https://trellis.example.com",
+            contract: testContract,
+            rootSecret: new Uint8Array(32).fill(7),
           },
-        }, {
-          loadTransport: async () => ({
-            connect: async (options): Promise<NatsConnection> => {
-              const auth = authenticatorsFromValue(options.authenticator)
-                [0]?.();
-              if (auth && typeof auth === "object") {
-                const record = auth as { auth_token?: unknown };
-                if (typeof record.auth_token === "string") {
-                  lastToken = record.auth_token;
-                }
-              }
-              throw new Error("stop-after-token");
+          {
+            loadTransport: async () => ({
+              connect: async (): Promise<NatsConnection> => {
+                throw new Error("transport should not be used");
+              },
+            }),
+            now: () => 1_700_000_000_000,
+          },
+        ),
+      TransportError,
+    );
+
+    assertEquals(error.code, "trellis.bootstrap.contract_mismatch");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("connectDeviceWithDeps retries bootstrap once on iat_out_of_range using server time", async () => {
+  const originalFetch = globalThis.fetch;
+  let bootstrapCalls = 0;
+
+  try {
+    globalThis.fetch = (() => {
+      bootstrapCalls += 1;
+      if (bootstrapCalls === 1) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              reason: "iat_out_of_range",
+              serverNow: 1_700_000_120,
+            }),
+            {
+              status: 400,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        );
+      }
+
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            status: "ready",
+            connectInfo: {
+              instanceId: "dev_123",
+              profileId: "reader.default",
+              contractId: "example.device@v1",
+              contractDigest: "digest-a",
+              transports: {
+                native: {
+                  natsServers: ["nats://127.0.0.1:4222"],
+                },
+              },
+              transport: {
+                sentinel: { jwt: "jwt", seed: "seed" },
+              },
+              auth: {
+                mode: "device_identity",
+                iatSkewSeconds: 30,
+              },
             },
           }),
-          now: () => 1_700_000_000_000,
-        }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      );
+    }) as typeof fetch;
+
+    const error = await assertRejects(
+      () =>
+        connectDeviceWithDeps(
+          {
+            trellisUrl: "https://trellis.example.com",
+            contract: testContract,
+            rootSecret: new Uint8Array(32).fill(7),
+          },
+          {
+            loadTransport: async () => ({
+              connect: async (): Promise<NatsConnection> => {
+                throw new Error("stop-after-retry");
+              },
+            }),
+            now: () => 1_700_000_000_000,
+          },
+        ),
       TransportError,
     );
 
     assertEquals(error.code, "trellis.runtime.connect_failed");
-    assertEquals(
-      activationUrl,
-      "https://trellis.example.com/_trellis/portal/devices/activate?flowId=flow_123",
-    );
-    assertEquals(lastToken.includes('"contractDigest":"digest-a"'), true);
+    assertEquals(bootstrapCalls, 2);
   } finally {
     globalThis.fetch = originalFetch;
   }

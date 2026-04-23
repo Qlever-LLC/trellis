@@ -54,42 +54,62 @@ Even when you define the contract from `@qlever-llc/trellis/contracts`, the resu
 
 ## 3. Write the device startup code
 
-The intended public startup surface is a service-style helper: `TrellisDevice.connect(...)`. Your application is responsible for loading the root secret however it wants before calling into Trellis.
+The intended public startup surface now has two steps:
+
+1. `checkDeviceActivation(...)` answers whether the device is already activated
+2. `TrellisDevice.connect(...)` opens the runtime connection once activation is ready
+
+Your application is still responsible for loading the root secret however it wants before calling into Trellis.
 
 ```ts
 import { TrellisDevice } from "@qlever-llc/trellis";
+import { checkDeviceActivation } from "@qlever-llc/trellis/device/deno";
 import { myDevice } from "./contracts/my_device.ts";
 
 const rootSecret = await Deno.readTextFile("./secrets/root.secret");
+
+const activation = await checkDeviceActivation({
+  trellisUrl: "http://localhost:3000",
+  contract: myDevice,
+  rootSecret,
+});
+
+if (activation.status === "not_ready") {
+  throw new Error(`Device is not ready: ${activation.reason}`);
+}
+
+if (activation.status === "activation_required") {
+  console.log(`Open this URL to activate the device: ${activation.activationUrl}`);
+
+  const confirmationCode = prompt(
+    "Enter a confirmation code for offline activation, or press Cancel to wait for online approval.",
+  );
+
+  if (confirmationCode && confirmationCode.trim().length > 0) {
+    await activation.acceptConfirmationCode(confirmationCode);
+  } else {
+    await activation.waitForOnlineApproval();
+  }
+}
 
 const trellis = await TrellisDevice.connect({
   trellisUrl: "http://localhost:3000",
   contract: myDevice,
   rootSecret,
-  onActivationRequired: async (activation) => {
-    console.log(`Open this URL to activate the device: ${activation.url}`);
-
-    const confirmationCode = prompt(
-      "Enter a confirmation code for offline activation, or press Cancel to wait for online approval.",
-    );
-
-    if (confirmationCode && confirmationCode.trim().length > 0) {
-      await activation.acceptConfirmationCode(confirmationCode);
-      return;
-    }
-
-    await activation.waitForOnlineApproval();
-  },
-});
+}).orThrow();
 
 console.log("device connected", trellis);
 ```
 
-That one entrypoint covers the normal device startup cases:
+That activation-status check covers the normal device startup cases:
 
 1. already activated: connect immediately after fetching fresh connect info
-2. first online activation: show QR/URL and wait for approval
+2. first online activation: return an activation URL and wait for approval
 3. first offline activation: accept a confirmation code from local user input
+
+For Deno devices, the activation helper hides local activation-state persistence
+internally so the same activation attempt can survive restart without the
+application managing pending activation details directly.
 
 ## 4. Create the device profile
 
@@ -138,7 +158,7 @@ trellis device provision \
   --metadata site=lab-a
 ```
 
-The device only needs the printed `rootSecret` before calling `TrellisDevice.connect(...)`. Store it securely when you provision the instance.
+The device only needs the printed `rootSecret` before calling `checkDeviceActivation(...)` and `TrellisDevice.connect(...)`. Store it securely when you provision the instance.
 
 Provisioning metadata is optional. Trellis understands `name`, `serialNumber`, and `modelNumber` for default CLI and console display, and it also accepts arbitrary opaque string metadata through repeated `--metadata key=value` flags.
 

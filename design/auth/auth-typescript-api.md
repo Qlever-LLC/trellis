@@ -351,20 +351,46 @@ declare function createDeviceActivationClient(client: {
   getDeviceConnectInfo(input: GetDeviceConnectInfoRequest): Promise<GetDeviceConnectInfoResponse>;
 };
 
-type DeviceActivationController = {
-  url: string;
-  waitForOnlineApproval(opts?: { signal?: AbortSignal }): Promise<void>;
-  acceptConfirmationCode(code: string): Promise<void>;
-};
-
-declare class TrellisDevice {
-  static connect<TApi extends TrellisAPI>(args: {
+declare const TrellisDevice: {
+  connect<TApi extends TrellisAPI>(args: {
     trellisUrl: string;
     contract: TrellisClientContract<TApi>;
     rootSecret: Uint8Array | string;
     log?: LoggerLike | false;
-    onActivationRequired?(activation: DeviceActivationController): Promise<void>;
-  }): Promise<Trellis<TApi>>;
+  }): AsyncResult<TrellisDeviceConnection<TApi>, TransportError | UnexpectedError>;
+};
+```
+
+```ts
+declare module "@qlever-llc/trellis/device/deno" {
+type TrellisDeviceActivatedStatus = {
+  status: "activated";
+};
+
+type TrellisDeviceNotReadyStatus = {
+  status: "not_ready";
+  reason: string;
+};
+
+type TrellisDeviceActivationRequiredStatus = {
+  status: "activation_required";
+  activationUrl: string;
+  waitForOnlineApproval(opts?: { signal?: AbortSignal }): Promise<TrellisDeviceActivatedStatus>;
+  acceptConfirmationCode(code: string): Promise<TrellisDeviceActivatedStatus>;
+};
+
+type TrellisDeviceActivationStatus =
+  | TrellisDeviceActivatedStatus
+  | TrellisDeviceNotReadyStatus
+  | TrellisDeviceActivationRequiredStatus;
+
+declare function checkDeviceActivation<TApi extends TrellisAPI>(args: {
+  trellisUrl: string;
+  contract: TrellisClientContract<TApi>;
+  rootSecret: Uint8Array | string;
+  stateDir?: string;
+  statePath?: string;
+}): Promise<TrellisDeviceActivationStatus>;
 }
 ```
 
@@ -378,14 +404,21 @@ Rules:
 - `getDeviceConnectInfo(...)` owns the connect-info proof/signature step for `POST /auth/devices/connect-info`
 - portal and admin apps SHOULD prefer `createDeviceActivationClient(...)` over
   repeated raw string `request(...).orThrow()` calls and manual plumbing
-- `TrellisDevice.connect(...)` is the intended high-level runtime entrypoint; it SHOULD behave more like `TrellisService.connect(...)` than a caller-managed activation state machine
+- `TrellisDevice.connect(...)` is a pure runtime entrypoint; it does not accept
+  `onActivationRequired(...)` and does not start activation on the caller's
+  behalf
 - `TrellisDevice.connect(...)` accepts `rootSecret` directly as bytes or a string form; storage/loading policy belongs to the application, not the helper
 - `TrellisDevice.connect(...)` accepts `log?: LoggerLike | false` using the same convention as service runtime helpers; device NATS lifecycle logs should emit distinct messages for disconnect, reconnect attempts, reconnect success, stale connections, and connection errors
 - `TrellisDevice.connect(...)` SHOULD fetch connect info on startup rather than persisting stale connect info across restarts
+- `@qlever-llc/trellis/device/deno` exposes the high-level activation-status helper for Deno device runtimes; callers check activation status first and then call plain `TrellisDevice.connect(...)`
+- `checkDeviceActivation(...)` returns `activated`, `activation_required`, or `not_ready`; callers do not manage serialized local activation state directly
+- Deno file-backed activation persistence is internal to `checkDeviceActivation(...)`; callers work only with the returned status plus activation actions, with optional `stateDir` and `statePath` overrides when they need to control the storage location
+- offline confirmation through `acceptConfirmationCode(...)` transitions the Deno helper to later `activated` status; callers still connect with a separate `TrellisDevice.connect(...)` call
 - when the connected device contract uses the shared `Health.Heartbeat` event,
   `TrellisDevice.connect(...)` publishes baseline heartbeats automatically and
   exposes a `health` helper for adding callback-based heartbeat metadata
-- `onActivationRequired(...)` is the hook for local displays, local setup web UIs, CLIs, and other device-local activation UX
+- no migration or backward-compatibility helper is documented for the removed
+  root activation-session surface or the earlier callback-driven activation flow
 - the helper layer MUST remain a thin wrapper over the canonical wire surfaces
   defined in `auth-api.md` and `device-activation.md`
 

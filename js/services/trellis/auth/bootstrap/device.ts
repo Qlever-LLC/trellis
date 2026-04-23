@@ -210,7 +210,7 @@ export function createDeviceBootstrapHandler(deps: DeviceBootstrapDeps) {
     const request = body;
     const nowSeconds = deps.nowSeconds?.() ?? Math.floor(Date.now() / 1_000);
     if (!isDeviceProofIatFresh(request.iat, nowSeconds)) {
-      return c.json({ reason: "iat_out_of_range" }, 400);
+      return c.json({ reason: "iat_out_of_range", serverNow: nowSeconds }, 400);
     }
 
     const proofOk = await deps.verifyIdentityProof({

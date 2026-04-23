@@ -1,9 +1,10 @@
-import { TrellisDevice } from "@qlever-llc/trellis";
 import contract from "../contract.ts";
 import { ASSIGNED_INSPECTIONS } from "../../../shared/field_data.ts";
 import { Command } from "@cliffy/command";
-import { qrcode } from "@libs/qrcode";
 import chalk from "chalk";
+import { TrellisDevice } from "@qlever-llc/trellis";
+import { checkDeviceActivation } from "@qlever-llc/trellis/device/deno";
+import { qrcode } from "@libs/qrcode";
 
 async function main(): Promise<void> {
   const {
@@ -16,16 +17,24 @@ async function main(): Promise<void> {
     ])
     .parse(Deno.args);
 
+  const activation = await checkDeviceActivation({
+    trellisUrl,
+    contract,
+    rootSecret,
+  });
+  if (activation.status === "not_ready") {
+    throw new Error(`Device is not ready: ${activation.reason}`);
+  }
+  if (activation.status === "activation_required") {
+    console.info("Please activate device at:", activation.activationUrl);
+    qrcode(activation.activationUrl, { output: "console" });
+    await activation.waitForOnlineApproval();
+  }
+
   const device = await TrellisDevice.connect({
     trellisUrl,
     contract,
     rootSecret,
-    onActivationRequired: async (activation) => {
-      console.info("Please activate device at:", activation.url);
-      qrcode(activation.url, { output: "console" });
-
-      await activation.waitForOnlineApproval();
-    },
   }).orThrow();
   console.log(chalk.green.bold("== Fetching Current Identify"));
 
@@ -35,11 +44,15 @@ async function main(): Promise<void> {
   const cancelledInspectionId = ASSIGNED_INSPECTIONS[0]?.inspectionId;
   const completedInspectionId = ASSIGNED_INSPECTIONS[1]?.inspectionId;
   if (!cancelledInspectionId || !completedInspectionId) {
-    throw new Error("operation demo requires at least two assigned inspections");
+    throw new Error(
+      "operation demo requires at least two assigned inspections",
+    );
   }
 
   console.log(chalk.green.bold("== Starting Cancellation Flow"));
-  console.info("starting cancellation flow", { inspectionId: cancelledInspectionId });
+  console.info("starting cancellation flow", {
+    inspectionId: cancelledInspectionId,
+  });
   const cancelled = await device.operation("Inspection.Report.Generate")
     .input({ inspectionId: cancelledInspectionId })
     .onEvent((event) => {
@@ -66,7 +79,9 @@ async function main(): Promise<void> {
   console.info("cancel flow wait()", cancelledTerminal.state);
 
   console.log(chalk.green.bold("== Starting Completion Flow"));
-  console.info("starting completion flow", { inspectionId: completedInspectionId });
+  console.info("starting completion flow", {
+    inspectionId: completedInspectionId,
+  });
   const completed = await device.operation("Inspection.Report.Generate")
     .input({ inspectionId: completedInspectionId })
     .onEvent((event) => {

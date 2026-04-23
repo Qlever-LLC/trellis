@@ -8,6 +8,7 @@
     "./auth/browser": "./auth/browser.ts",
     "./browser": "./browser.ts",
     "./contracts": "./contracts.ts",
+    "./device/deno": "./device/deno.ts",
     "./health": "./health.ts",
     "./service": "./service/mod.ts",
     "./service/deno": "./service/deno.ts",

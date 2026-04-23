@@ -6,6 +6,15 @@ Service demos follow the public service-author path with
 `TrellisService.connect(...)`. They do not use Trellis-internal bootstrap
 helpers.
 
+The browser demo app under `demos/js/app` now follows the app-local
+`trellis-svelte` pattern:
+
+- it creates one app-owned `contexts` bundle with
+  `createTrellisProviderContexts<typeof contract>()`
+- it passes that bundle into `TrellisProvider`
+- it re-exports local `getTrellis()`, `getAuth()`, and `getConnectionState()`
+  helpers from `src/lib/trellis-context.svelte.ts`
+
 Supported demos:
 
 - `rpc`: simple request/response RPCs
@@ -39,6 +48,12 @@ Every device demo prints an activation URL the first time you run it with a new
 
 After that, rerunning the same demo with the same `rootSecret` should connect
 without another approval step.
+
+The device demos now call the Deno-only `checkDeviceActivation(...)` helper
+before `TrellisDevice.connect(...)`. That helper persists local activation state
+in a Deno-backed state file keyed by Trellis origin plus device identity, so
+rerunning the same demo can resume the same activation attempt across restarts
+before the first successful connect.
 
 ## RPC Demo
 

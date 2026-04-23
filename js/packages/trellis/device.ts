@@ -4,6 +4,12 @@ import {
   type NatsConnection,
 } from "@nats-io/nats-core";
 import {
+  AsyncResult,
+  type BaseError,
+  Result,
+  UnexpectedError,
+} from "@qlever-llc/result";
+import {
   CONTRACT_STATE_METADATA,
   type ContractStateMetadata,
 } from "./contract_support/mod.ts";
@@ -59,11 +65,58 @@ type DeviceContract<
 type DeviceContractApi<TContract extends DeviceContract> =
   TContract["API"]["trellis"];
 
+type DeviceRuntime<
+  TApi extends TrellisAPI,
+  TState extends Record<string, { kind: "value" | "map"; value: unknown }>,
+> = Trellis<TApi, "client", TState>;
+
+type RuntimeStateShape = Record<
+  string,
+  { kind: "value" | "map"; value: unknown }
+>;
+type BroadStateStore = {
+  get(...args: unknown[]): AsyncResult<unknown, BaseError>;
+  put(...args: unknown[]): AsyncResult<unknown, BaseError>;
+  list(...args: unknown[]): AsyncResult<unknown, BaseError>;
+  delete(...args: unknown[]): AsyncResult<unknown, BaseError>;
+};
+type BroadStateFacade = Record<string, BroadStateStore>;
+
+function deviceConnectResult<T>(
+  promise: Promise<T>,
+): AsyncResult<T, TransportError | UnexpectedError> {
+  return AsyncResult.from(
+    promise.then(
+      (
+        value,
+      ): Result<T, TransportError | UnexpectedError> => Result.ok(value),
+      (
+        cause,
+      ): Result<T, TransportError | UnexpectedError> =>
+        Result.err(
+          cause instanceof TransportError
+            ? cause
+            : new UnexpectedError({ cause }),
+        ),
+    ),
+  );
+}
+
 export type TrellisDeviceConnection<
   TApi extends TrellisAPI = TrellisAPI,
   TState extends Record<string, { kind: "value" | "map"; value: unknown }> = {},
-> = Trellis<TApi, "client", TState> & {
-  health: ServiceHealth;
+> = {
+  readonly request: DeviceRuntime<TApi, TState>["request"];
+  readonly publish: DeviceRuntime<TApi, TState>["publish"];
+  readonly event: DeviceRuntime<TApi, TState>["event"];
+  readonly operation: DeviceRuntime<TApi, TState>["operation"];
+  readonly state: DeviceRuntime<TApi, TState>["state"];
+  readonly name: string;
+  readonly timeout: number;
+  readonly stream: string;
+  readonly api: TApi;
+  readonly natsConnection: NatsConnection;
+  readonly health: ServiceHealth;
 };
 
 type DeviceConnectTransport = {
@@ -89,10 +142,70 @@ const ClientTransportsSchema = Type.Object({
   websocket: Type.Optional(ClientTransportEndpointsSchema),
 });
 
-export type DeviceActivationController = {
-  url: string;
-  waitForOnlineApproval(opts?: { signal?: AbortSignal }): Promise<void>;
-  acceptConfirmationCode(code: string): Promise<void>;
+export type TrellisDevicePendingActivationState = {
+  status: "pending";
+  contractDigest: string;
+  publicIdentityKey: string;
+  instanceId: string;
+  profileId: string;
+  nonce: string;
+  activationUrl: string;
+};
+
+export type TrellisDeviceActivatedActivationState = {
+  status: "activated";
+  contractDigest: string;
+  publicIdentityKey: string;
+  instanceId: string;
+  profileId: string;
+  nonce: string;
+  activationUrl: string;
+};
+
+export type TrellisDeviceLocalActivationState =
+  | TrellisDevicePendingActivationState
+  | TrellisDeviceActivatedActivationState;
+
+export type TrellisDeviceActivationSession<
+  TState extends TrellisDeviceLocalActivationState =
+    TrellisDeviceLocalActivationState,
+> = {
+  activationUrl: string;
+  localState: TState;
+  waitForOnlineApproval(opts?: {
+    signal?: AbortSignal;
+  }): Promise<TrellisDeviceActivatedActivationState>;
+  acceptConfirmationCode(
+    code: string,
+  ): Promise<TrellisDeviceActivatedActivationState>;
+};
+
+export type TrellisDeviceActivationArgs<
+  TApi extends TrellisAPI = TrellisAPI,
+  TContract extends DeviceContract<TApi, {
+    state?: Readonly<Record<string, unknown>>;
+    schemas?: Readonly<Record<string, unknown>>;
+  }> = DeviceContract<TApi, {
+    state?: Readonly<Record<string, unknown>>;
+    schemas?: Readonly<Record<string, unknown>>;
+  }>,
+> = {
+  trellisUrl: string;
+  contract: TContract;
+  rootSecret: Uint8Array | string;
+};
+
+export type TrellisDeviceResumeActivationArgs<
+  TApi extends TrellisAPI = TrellisAPI,
+  TContract extends DeviceContract<TApi, {
+    state?: Readonly<Record<string, unknown>>;
+    schemas?: Readonly<Record<string, unknown>>;
+  }> = DeviceContract<TApi, {
+    state?: Readonly<Record<string, unknown>>;
+    schemas?: Readonly<Record<string, unknown>>;
+  }>,
+> = TrellisDeviceActivationArgs<TApi, TContract> & {
+  localState: TrellisDeviceLocalActivationState;
 };
 
 export type TrellisDeviceConnectArgs<
@@ -109,7 +222,6 @@ export type TrellisDeviceConnectArgs<
   contract: TContract;
   rootSecret: Uint8Array | string;
   log?: LoggerLike | false;
-  onActivationRequired?(activation: DeviceActivationController): Promise<void>;
 };
 
 const DeviceBootstrapReadySchema = Type.Object({
@@ -233,6 +345,31 @@ function createTransportError(args: {
   });
 }
 
+function assertBootstrapContractMatches(args: {
+  contractId: string;
+  contractDigest: string;
+  connectInfo: ResolvedDeviceConnectInfo;
+}): void {
+  if (
+    args.connectInfo.contractId !== args.contractId ||
+    args.connectInfo.contractDigest !== args.contractDigest
+  ) {
+    throw createTransportError({
+      code: "trellis.bootstrap.contract_mismatch",
+      message:
+        "Trellis returned connection details for a different device contract.",
+      hint:
+        "Retry the connection. If it keeps happening, check the requested device contract and Trellis activation state.",
+      context: {
+        requestedContractId: args.contractId,
+        requestedContractDigest: args.contractDigest,
+        returnedContractId: args.connectInfo.contractId,
+        returnedContractDigest: args.connectInfo.contractDigest,
+      },
+    });
+  }
+}
+
 async function readJsonResponse(
   response: Response,
   args: {
@@ -252,10 +389,18 @@ async function readJsonResponse(
   }
 }
 
-function activationRequiredError(): Error {
-  return new Error(
-    "Device activation required but no activation handler was provided",
-  );
+function parseResponseRecord(text: string): Record<string, unknown> | null {
+  if (text.length === 0) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(text);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 function resolveDeviceLogger(log?: LoggerLike | false): LoggerLike {
@@ -397,16 +542,152 @@ function startDeviceNatsConnectionLogging(args: {
   });
 }
 
-function isConnectInfoUnavailable(error: unknown): boolean {
-  if (error instanceof TransportError) {
-    const context = error.getContext();
-    return context.reason === "unknown_device" || context.reason === "activation_required" ||
-      context.status === 404;
+async function readResponseReason(response: Response): Promise<string | null> {
+  const text = await response.text();
+  if (!text) {
+    return null;
   }
 
-  const message = error instanceof Error ? error.message : String(error);
-  return message.includes("404") || message.includes("unknown_device") ||
-    message.includes("activation_required");
+  try {
+    const parsed = JSON.parse(text) as Record<string, unknown>;
+    if (typeof parsed.reason === "string" && parsed.reason.length > 0) {
+      return parsed.reason;
+    }
+  } catch {
+    return text;
+  }
+
+  return text;
+}
+
+function createActivationRequiredTransportError(
+  context?: Record<string, unknown>,
+) {
+  return createTransportError({
+    code: "trellis.bootstrap.activation_required",
+    message: "Trellis requires device activation before connecting.",
+    hint:
+      "Start or resume device activation, then retry the runtime connection after activation completes.",
+    context,
+  });
+}
+
+function createInvalidConfirmationCodeTransportError(
+  context?: Record<string, unknown>,
+) {
+  return createTransportError({
+    code: "trellis.device.invalid_confirmation_code",
+    message: "The device confirmation code is invalid.",
+    hint:
+      "Retry with the current confirmation code for this activation, or restart activation if the code is no longer valid.",
+    context,
+  });
+}
+
+function createActivatedLocalState(
+  localState: TrellisDeviceLocalActivationState,
+): TrellisDeviceActivatedActivationState {
+  return {
+    ...localState,
+    status: "activated",
+  };
+}
+
+function assertActivationStateMatchesIdentity(args: {
+  localState: TrellisDeviceLocalActivationState;
+  publicIdentityKey: string;
+}): void {
+  if (args.localState.publicIdentityKey !== args.publicIdentityKey) {
+    throw createTransportError({
+      code: "trellis.device.activation_state_mismatch",
+      message:
+        "Local device activation state does not match the provided root secret.",
+      hint:
+        "Use the activation state for the same device identity, or start a new activation for this root secret.",
+      context: {
+        statePublicIdentityKey: args.localState.publicIdentityKey,
+        publicIdentityKey: args.publicIdentityKey,
+      },
+    });
+  }
+}
+
+function assertActivationStateMatchesContract(args: {
+  localState: TrellisDeviceLocalActivationState;
+  contractDigest: string;
+}): void {
+  if (args.localState.contractDigest !== args.contractDigest) {
+    throw createTransportError({
+      code: "trellis.device.activation_state_contract_mismatch",
+      message:
+        "Local device activation state does not match the requested device contract.",
+      hint:
+        "Use activation state for the same device contract, or start activation again for this contract digest.",
+      context: {
+        stateContractDigest: args.localState.contractDigest,
+        contractDigest: args.contractDigest,
+      },
+    });
+  }
+}
+
+async function createActivationSession<
+  TLocalState extends TrellisDeviceLocalActivationState,
+>(args: {
+  trellisUrl: string;
+  contractDigest: string;
+  identity: Awaited<ReturnType<typeof deriveDeviceIdentity>>;
+  localState: TLocalState;
+}): Promise<TrellisDeviceActivationSession<TLocalState>> {
+  assertActivationStateMatchesIdentity({
+    localState: args.localState,
+    publicIdentityKey: args.identity.publicIdentityKey,
+  });
+  assertActivationStateMatchesContract({
+    localState: args.localState,
+    contractDigest: args.contractDigest,
+  });
+
+  const activatedState = createActivatedLocalState(args.localState);
+  return {
+    activationUrl: args.localState.activationUrl,
+    localState: args.localState,
+    waitForOnlineApproval: async (opts?: { signal?: AbortSignal }) => {
+      if (args.localState.status === "activated") {
+        return activatedState;
+      }
+
+      await waitForDeviceActivation({
+        trellisUrl: args.trellisUrl,
+        publicIdentityKey: args.identity.publicIdentityKey,
+        nonce: args.localState.nonce,
+        identitySeed: args.identity.identitySeed,
+        contractDigest: args.contractDigest,
+        signal: opts?.signal,
+      });
+      return activatedState;
+    },
+    acceptConfirmationCode: async (code: string) => {
+      if (args.localState.status === "activated") {
+        return activatedState;
+      }
+
+      const ok = await verifyDeviceConfirmationCode({
+        activationKey: args.identity.activationKey,
+        publicIdentityKey: args.identity.publicIdentityKey,
+        nonce: args.localState.nonce,
+        confirmationCode: code,
+      });
+      if (!ok) {
+        throw createInvalidConfirmationCodeTransportError({
+          publicIdentityKey: args.identity.publicIdentityKey,
+          instanceId: args.localState.instanceId,
+          profileId: args.localState.profileId,
+        });
+      }
+      return activatedState;
+    },
+  };
 }
 
 async function fetchDeviceBootstrap(args: {
@@ -416,50 +697,159 @@ async function fetchDeviceBootstrap(args: {
   contractDigest: string;
   iat?: number;
 }): Promise<DeviceBootstrapResponse> {
-  const request = await signDeviceWaitRequest({
-    publicIdentityKey: args.publicIdentityKey,
-    nonce: "connect-info",
-    identitySeed: args.identitySeed,
-    contractDigest: args.contractDigest,
-    iat: args.iat,
-  });
-  const bootstrapRequest = {
-    publicIdentityKey: request.publicIdentityKey,
-    contractDigest: request.contractDigest,
-    iat: request.iat,
-    sig: request.sig,
-  };
-  const response = await fetch(new URL("/bootstrap/device", args.trellisUrl), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(bootstrapRequest),
-  });
-  if (!response.ok) {
-    const reason = await response.text();
+  let iat = args.iat;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const request = await signDeviceWaitRequest({
+      publicIdentityKey: args.publicIdentityKey,
+      nonce: "connect-info",
+      identitySeed: args.identitySeed,
+      contractDigest: args.contractDigest,
+      iat,
+    });
+    const bootstrapRequest = {
+      publicIdentityKey: request.publicIdentityKey,
+      contractDigest: request.contractDigest,
+      iat: request.iat,
+      sig: request.sig,
+    };
+    const response = await fetch(
+      new URL("/bootstrap/device", args.trellisUrl),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(bootstrapRequest),
+      },
+    );
+    if (!response.ok) {
+      const responseText = await response.text();
+      const parsed = parseResponseRecord(responseText);
+      const reason = typeof parsed?.reason === "string"
+        ? parsed.reason
+        : responseText;
+      const serverNow = typeof parsed?.serverNow === "number"
+        ? parsed.serverNow
+        : null;
+      if (
+        attempt === 0 &&
+        response.status === 400 &&
+        reason === "iat_out_of_range" &&
+        serverNow !== null
+      ) {
+        iat = serverNow;
+        continue;
+      }
+      if (
+        response.status === 404 &&
+        (reason === "unknown_device" || reason === "activation_required")
+      ) {
+        return { status: "activation_required" };
+      }
+
+      throw createTransportError({
+        code: "trellis.bootstrap.failed",
+        message: "Trellis could not prepare the device session.",
+        hint:
+          "Retry the connection. If it keeps failing, check Trellis availability and device activation state.",
+        context: {
+          trellisUrl: args.trellisUrl,
+          status: response.status,
+          reason,
+        },
+      });
+    }
+
+    const payload = await readJsonResponse(response, {
+      code: "trellis.bootstrap.invalid_response",
+      message: "Trellis returned an invalid bootstrap response.",
+      hint:
+        "Retry the connection. If it keeps happening, check the Trellis deployment.",
+      context: { trellisUrl: args.trellisUrl },
+    });
+    if (Value.Check(DeviceBootstrapReadySchema, payload)) return payload;
+    if (Value.Check(DeviceBootstrapActivationRequiredSchema, payload)) {
+      return payload;
+    }
+    if (Value.Check(DeviceBootstrapNotReadySchema, payload)) return payload;
     throw createTransportError({
-      code: "trellis.bootstrap.failed",
-      message: "Trellis could not prepare the device session.",
-      hint: "Retry the connection. If it keeps failing, check Trellis availability and device activation state.",
-      context: { trellisUrl: args.trellisUrl, status: response.status, reason },
+      code: "trellis.bootstrap.invalid_response",
+      message: "Trellis returned an invalid bootstrap response.",
+      hint:
+        "Retry the connection. If it keeps happening, check the Trellis deployment.",
+      context: { trellisUrl: args.trellisUrl },
     });
   }
 
-  const payload = await readJsonResponse(response, {
-    code: "trellis.bootstrap.invalid_response",
-    message: "Trellis returned an invalid bootstrap response.",
-    hint: "Retry the connection. If it keeps happening, check the Trellis deployment.",
+  throw createTransportError({
+    code: "trellis.bootstrap.time_sync_failed",
+    message: "Trellis could not confirm the device time window.",
+    hint:
+      "Retry the connection. If it keeps happening, check the device and Trellis clocks.",
     context: { trellisUrl: args.trellisUrl },
   });
-  if (Value.Check(DeviceBootstrapReadySchema, payload)) return payload;
-  if (Value.Check(DeviceBootstrapActivationRequiredSchema, payload)) {
-    return payload;
-  }
-  if (Value.Check(DeviceBootstrapNotReadySchema, payload)) return payload;
-  throw createTransportError({
-    code: "trellis.bootstrap.invalid_response",
-    message: "Trellis returned an invalid bootstrap response.",
-    hint: "Retry the connection. If it keeps happening, check the Trellis deployment.",
-    context: { trellisUrl: args.trellisUrl },
+}
+
+export async function startDeviceActivationWithDeps<
+  TContract extends DeviceContract<TrellisAPI, {
+    state?: Readonly<Record<string, unknown>>;
+    schemas?: Readonly<Record<string, unknown>>;
+  }>,
+>(
+  args: TrellisDeviceActivationArgs<DeviceContractApi<TContract>, TContract>,
+  _deps: Pick<DeviceConnectDeps, "now">,
+): Promise<
+  TrellisDeviceActivationSession<TrellisDevicePendingActivationState>
+> {
+  const rootSecret = normalizeRootSecret(args.rootSecret);
+  const identity = await deriveDeviceIdentity(rootSecret);
+  const nonce = crypto.randomUUID();
+  const payload = await buildDeviceActivationPayload({
+    activationKey: identity.activationKey,
+    publicIdentityKey: identity.publicIdentityKey,
+    nonce,
+  });
+  const activation = await startDeviceActivationRequest({
+    trellisUrl: args.trellisUrl,
+    payload,
+  });
+
+  return await createActivationSession({
+    trellisUrl: args.trellisUrl,
+    contractDigest: args.contract.CONTRACT_DIGEST,
+    identity,
+    localState: {
+      status: "pending",
+      contractDigest: args.contract.CONTRACT_DIGEST,
+      publicIdentityKey: identity.publicIdentityKey,
+      instanceId: activation.instanceId,
+      profileId: activation.profileId,
+      nonce,
+      activationUrl: activation.activationUrl,
+    },
+  });
+}
+
+export async function resumeDeviceActivationWithDeps<
+  TLocalState extends TrellisDeviceLocalActivationState,
+  TContract extends DeviceContract<TrellisAPI, {
+    state?: Readonly<Record<string, unknown>>;
+    schemas?: Readonly<Record<string, unknown>>;
+  }>,
+>(
+  args:
+    & TrellisDeviceResumeActivationArgs<DeviceContractApi<TContract>, TContract>
+    & {
+      localState: TLocalState;
+    },
+  _deps: Pick<DeviceConnectDeps, "now">,
+): Promise<TrellisDeviceActivationSession<TLocalState>> {
+  const rootSecret = normalizeRootSecret(args.rootSecret);
+  const identity = await deriveDeviceIdentity(rootSecret);
+
+  return await createActivationSession({
+    trellisUrl: args.trellisUrl,
+    contractDigest: args.contract.CONTRACT_DIGEST,
+    identity,
+    localState: args.localState,
   });
 }
 
@@ -481,110 +871,36 @@ export async function connectDeviceWithDeps<
   const rootSecret = normalizeRootSecret(args.rootSecret);
   const identity = await deriveDeviceIdentity(rootSecret);
   const contractDigest = args.contract.CONTRACT_DIGEST;
+  const bootstrap = await fetchDeviceBootstrap({
+    trellisUrl: args.trellisUrl,
+    publicIdentityKey: identity.publicIdentityKey,
+    identitySeed: identity.identitySeed,
+    contractDigest,
+  });
 
-  let connectInfo: ResolvedDeviceConnectInfo | null = null;
-
-  try {
-    const bootstrap = await fetchDeviceBootstrap({
-      trellisUrl: args.trellisUrl,
+  if (bootstrap.status === "activation_required") {
+    throw createActivationRequiredTransportError({
       publicIdentityKey: identity.publicIdentityKey,
-      identitySeed: identity.identitySeed,
-      contractDigest,
+      contractId: args.contract.CONTRACT_ID,
     });
-    if (bootstrap.status === "ready") {
-      connectInfo = bootstrap.connectInfo;
-    } else if (bootstrap.status === "not_ready") {
-      throw createTransportError({
-        code: "trellis.bootstrap.not_ready",
-        message: "Trellis is not ready to connect this device.",
-        hint: "Wait for the device to be activated and the requested profile to become available, then try again.",
-        context: { reason: bootstrap.reason },
-      });
-    }
-  } catch (error) {
-    if (!isConnectInfoUnavailable(error)) throw error;
   }
 
-  if (!connectInfo) {
-    if (!args.onActivationRequired) throw activationRequiredError();
-
-    const nonce = crypto.randomUUID();
-    const payload = await buildDeviceActivationPayload({
-      activationKey: identity.activationKey,
-      publicIdentityKey: identity.publicIdentityKey,
-      nonce,
-    });
-    const activationUrl = (await startDeviceActivationRequest({
-      trellisUrl: args.trellisUrl,
-      payload,
-    })).activationUrl;
-
-    let activationCompleted = false;
-    let onlineConnectInfo: ResolvedDeviceConnectInfo | null = null;
-
-    await args.onActivationRequired({
-      url: activationUrl,
-      waitForOnlineApproval: async (opts?: { signal?: AbortSignal }) => {
-        if (activationCompleted) return;
-        const activation = await waitForDeviceActivation({
-          trellisUrl: args.trellisUrl,
-          publicIdentityKey: identity.publicIdentityKey,
-          nonce,
-          identitySeed: identity.identitySeed,
-          contractDigest,
-          signal: opts?.signal,
-        });
-        onlineConnectInfo = activation.connectInfo;
-        activationCompleted = true;
-      },
-      acceptConfirmationCode: async (code: string) => {
-        if (activationCompleted) return;
-        const ok = await verifyDeviceConfirmationCode({
-          activationKey: identity.activationKey,
-          publicIdentityKey: identity.publicIdentityKey,
-          nonce,
-          confirmationCode: code,
-        });
-        if (!ok) {
-          throw new Error("Invalid device confirmation code");
-        }
-        activationCompleted = true;
-      },
-    });
-
-    if (!activationCompleted) {
-      throw new Error("Device activation did not complete");
-    }
-
-    if (onlineConnectInfo) {
-      connectInfo = onlineConnectInfo;
-    } else {
-      const bootstrap = await fetchDeviceBootstrap({
-        trellisUrl: args.trellisUrl,
-        publicIdentityKey: identity.publicIdentityKey,
-        identitySeed: identity.identitySeed,
-        contractDigest,
-      });
-      if (bootstrap.status !== "ready") {
-        throw createTransportError({
-          code: "trellis.bootstrap.not_ready",
-          message: "Trellis is not ready to connect this device.",
-          hint: "Wait for the device activation to finish, then try again.",
-          context: { status: bootstrap.status },
-        });
-      }
-      connectInfo = bootstrap.connectInfo;
-    }
-  }
-
-  if (!connectInfo) {
+  if (bootstrap.status === "not_ready") {
     throw createTransportError({
-      code: "trellis.runtime.connect_info_missing",
-      message: "Trellis did not return the device connection details.",
-      hint: "Retry the connection. If it keeps happening, check the Trellis deployment.",
-      context: { contractId: args.contract.CONTRACT_ID },
+      code: "trellis.bootstrap.not_ready",
+      message: "Trellis is not ready to connect this device.",
+      hint:
+        "Wait for the device to be activated and the requested profile to become available, then try again.",
+      context: { reason: bootstrap.reason },
     });
   }
+
+  const connectInfo = bootstrap.connectInfo;
+  assertBootstrapContractMatches({
+    contractId: args.contract.CONTRACT_ID,
+    contractDigest,
+    connectInfo,
+  });
 
   const transport = await deps.loadTransport();
   let nc: NatsConnection;
@@ -609,7 +925,8 @@ export async function connectDeviceWithDeps<
     throw createTransportError({
       code: "trellis.runtime.connect_failed",
       message: "Trellis could not open the device runtime connection.",
-      hint: "Retry the connection. If it keeps failing, check Trellis transport availability.",
+      hint:
+        "Retry the connection. If it keeps failing, check Trellis transport availability.",
       cause,
       context: { contractId: args.contract.CONTRACT_ID },
     });
@@ -696,17 +1013,19 @@ export async function connectDeviceWithDeps<
     void nc.closed().finally(stopHeartbeat);
   }
 
-  const connection = trellis as TrellisDeviceConnection<
-    DeviceContractApi<TContract>,
-    RuntimeStateStoresForContract<TContract>
-  >;
-  Object.defineProperty(connection, "health", {
-    value: health,
-    enumerable: true,
-    configurable: true,
-    writable: false,
-  });
-  return connection;
+  return {
+    request: trellis.request.bind(trellis),
+    publish: trellis.publish.bind(trellis),
+    event: trellis.event.bind(trellis),
+    operation: trellis.operation.bind(trellis),
+    state: trellis.state,
+    name: trellis.name,
+    timeout: trellis.timeout,
+    stream: trellis.stream,
+    api: trellis.api,
+    natsConnection: trellis.natsConnection,
+    health,
+  };
 }
 
 export const TrellisDevice = {
@@ -717,12 +1036,7 @@ export const TrellisDevice = {
     }>,
   >(
     args: TrellisDeviceConnectArgs<DeviceContractApi<TContract>, TContract>,
-  ): Promise<
-    TrellisDeviceConnection<
-      DeviceContractApi<TContract>,
-      RuntimeStateStoresForContract<TContract>
-    >
-  > {
-    return connectDeviceWithDeps(args, defaultDeps);
+  ) {
+    return deviceConnectResult(connectDeviceWithDeps(args, defaultDeps));
   },
 };

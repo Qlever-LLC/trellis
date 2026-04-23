@@ -17,10 +17,7 @@ import * as contracts from "../contracts.ts";
 import * as coreSdk from "../../trellis-sdk/core.ts";
 import * as stateSdk from "../../trellis-sdk/state.ts";
 import * as healthSurface from "../health.ts";
-import {
-  openDeviceActivationStateStore,
-  resolveDeviceActivationStatePath,
-} from "../device/deno.ts";
+import * as deviceDeno from "../device/deno.ts";
 import { TrellisService as DenoTrellisService } from "../service/deno.ts";
 import { TrellisService as NodeTrellisService } from "../service/node.ts";
 import { TrellisServer } from "../service/mod.ts";
@@ -31,8 +28,9 @@ Deno.test("service, health, and trellis-sdk root and subpaths expose the canonic
   assertEquals(typeof NodeTrellisService, "function");
   assertEquals("connectInternal" in DenoTrellisService, false);
   assertEquals("connectInternal" in NodeTrellisService, false);
-  assertEquals(typeof openDeviceActivationStateStore, "function");
-  assertEquals(typeof resolveDeviceActivationStatePath, "function");
+  assertEquals(typeof deviceDeno.checkDeviceActivation, "function");
+  assertEquals("openDeviceActivationStateStore" in deviceDeno, false);
+  assertEquals("resolveDeviceActivationStatePath" in deviceDeno, false);
   assertEquals(typeof healthSurface.HealthRpcSchema, "object");
   assertEquals(typeof healthSurface.runAllHealthChecks, "function");
   assertEquals(typeof trellisSdk.auth?.useDefaults, "function");

@@ -10,6 +10,17 @@ and this project adheres to
 
 ### Changed
 
+- Changed TypeScript activated-device startup so root `TrellisDevice.connect(...)`
+  is runtime-only, Deno devices use `checkDeviceActivation(...)` to learn
+  whether activation is ready or still required, hidden Deno activation-state
+  persistence is scoped by deployment origin, device identity, and contract
+  digest, and the JS device demos, design docs, and device guide now follow the
+  `checkDeviceActivation(...)` then `connect(...)` flow.
+- Redesigned `@qlever-llc/trellis-svelte` around app-owned separate contexts:
+  `createTrellisProviderContexts<TContract>()` now bundles Trellis, auth, and
+  connection-state contexts for `TrellisProvider`, the old runtime-bag design is
+  gone, and the design docs, SvelteKit guide, and browser demo app now show the
+  `contexts`-based integration path.
 - Changed service-owned KV from an opened-at-startup helper pattern to a
   schema-backed contract surface: `resources.kv.<alias>` now requires `schema`,
   `service.kv.<alias>` and handler `trellis.kv.<alias>` are directly typed

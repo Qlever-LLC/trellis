@@ -1,10 +1,19 @@
-import { TransportError, TrellisDevice } from "@qlever-llc/trellis";
+import { TransportError } from "@qlever-llc/trellis/errors";
 import contract from "../contract.ts";
 import { Command } from "@cliffy/command";
-import { qrcode } from "@libs/qrcode";
 import chalk from "chalk";
+import { TrellisDevice } from "@qlever-llc/trellis";
+import { checkDeviceActivation } from "@qlever-llc/trellis/device/deno";
+import { qrcode } from "@libs/qrcode";
 
 const POLL_INTERVAL_MS = 250;
+
+type RefreshStatus = {
+  refreshId: string;
+  siteId: string;
+  status: string;
+  updatedAt: string;
+};
 
 async function main(): Promise<void> {
   // Parse demo CLI args
@@ -17,16 +26,24 @@ async function main(): Promise<void> {
     .parse(Deno.args);
 
   // Connect to Trellis
+  const activation = await checkDeviceActivation({
+    contract,
+    trellisUrl: args[0],
+    rootSecret: args[1],
+  });
+  if (activation.status === "not_ready") {
+    throw new Error(`Device is not ready: ${activation.reason}`);
+  }
+  if (activation.status === "activation_required") {
+    console.info("Please activate device at:", activation.activationUrl);
+    qrcode(activation.activationUrl, { output: "console" });
+    await activation.waitForOnlineApproval();
+  }
+
   const device = await TrellisDevice.connect({
     contract,
     trellisUrl: args[0],
     rootSecret: args[1],
-    onActivationRequired: async (activation) => {
-      console.info("Please activate device at:", activation.url);
-      qrcode(activation.url, { output: "console" });
-
-      await activation.waitForOnlineApproval();
-    },
   }).orThrow();
 
   // Fetch authenticated identity
@@ -37,20 +54,20 @@ async function main(): Promise<void> {
   // Make a simple RPC
   console.log(chalk.green.bold("== Queueing Summary Refresh"));
   const siteId = "site-west-yard";
-  const refresh = await device
+  const refresh = (await device
     .request("Inspection.Summaries.Refresh", { siteId })
-    .orThrow();
+    .orThrow()) as { refreshId: string };
 
   // NOTE: In practice, a Trellis "operation" would be a much better fit
   // for work. Operations integrate seamlessly with Trellis Jobs.
   console.info(`Queued refresh ${refresh.refreshId} for ${siteId}`);
   console.log(chalk.green.bold("== Polling Refresh Status"));
   while (true) {
-    const { refresh: current } = await device
+    const { refresh: current } = (await device
       .request("Inspection.Summaries.RefreshStatus.Get", {
         refreshId: refresh.refreshId,
       })
-      .orThrow();
+      .orThrow()) as { refresh?: RefreshStatus };
 
     if (!current) {
       console.info(`Refresh ${refresh.refreshId}: status not available yet`);

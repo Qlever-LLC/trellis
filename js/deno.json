@@ -59,6 +59,7 @@
     "@qlever-llc/trellis/browser": "./packages/trellis/browser.ts",
     "@qlever-llc/trellis/contracts": "./packages/trellis/contracts.ts",
     "@qlever-llc/trellis/device": "./packages/trellis/device.ts",
+    "@qlever-llc/trellis/device/deno": "./packages/trellis/device/deno.ts",
     "@qlever-llc/trellis/health": "./packages/trellis/health.ts",
     "@qlever-llc/trellis/service": "./packages/trellis/service/mod.ts",
     "@qlever-llc/trellis/service/deno": "./packages/trellis/service/deno.ts",

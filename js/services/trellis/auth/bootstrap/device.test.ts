@@ -233,3 +233,25 @@ Deno.test("POST /bootstrap/device rejects invalid signatures", async () => {
   assertEquals(response.status, 400);
   assertEquals(await response.json(), { reason: "invalid_signature" });
 });
+
+Deno.test("POST /bootstrap/device returns serverNow when bootstrap proof iat is out of range", async () => {
+  const request = await createSignedRequest("digest-a");
+  const app = createApp({
+    instance: null,
+    activation: null,
+    profile: null,
+    nowSeconds: TEST_IAT + 31,
+  });
+
+  const response = await app.request("http://trellis/bootstrap/device", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  });
+
+  assertEquals(response.status, 400);
+  assertEquals(await response.json(), {
+    reason: "iat_out_of_range",
+    serverNow: TEST_IAT + 31,
+  });
+});

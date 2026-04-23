@@ -1,13 +1,30 @@
-import { TrellisDevice } from "@qlever-llc/trellis";
 import contract from "../contract.ts";
 import { Command } from "@cliffy/command";
-import { qrcode } from "@libs/qrcode";
 import chalk from "chalk";
+import { TrellisDevice } from "@qlever-llc/trellis";
+import { checkDeviceActivation } from "@qlever-llc/trellis/device/deno";
+import { qrcode } from "@libs/qrcode";
+
+type Assignment = {
+  priority: string;
+  siteId: string;
+  siteName: string;
+  assetName: string;
+  checklistName: string;
+  scheduledFor: string;
+};
+
+type SiteSummary = {
+  siteName: string;
+  openInspections: number;
+  overdueInspections: number;
+  latestStatus: string;
+  lastReportAt?: string;
+};
 
 async function main(): Promise<void> {
-  const {
-    args: [trellisUrl, rootSecret],
-  } = await new Command()
+  // Process demo CLI arguments
+  const { args } = await new Command()
     .name("demo-rpc")
     .arguments("<trellisUrl:string> <rootSecret:string>", [
       "URL of Trellis instance to connect to",
@@ -15,26 +32,37 @@ async function main(): Promise<void> {
     ])
     .parse(Deno.args);
 
-  const device = await TrellisDevice.connect({
-    trellisUrl,
+  const activation = await checkDeviceActivation({
     contract,
-    rootSecret,
-    onActivationRequired: async (activation) => {
-      console.info("Please activate device at:", activation.url);
-      qrcode(activation.url, { output: "console" });
+    trellisUrl: args[0],
+    rootSecret: args[1],
+  });
+  if (activation.status === "not_ready") {
+    throw new Error(`Device is not ready: ${activation.reason}`);
+  }
+  if (activation.status === "activation_required") {
+    console.info("Please activate device at:", activation.activationUrl);
+    qrcode(activation.activationUrl, { output: "console" });
+    await activation.waitForOnlineApproval();
+  }
 
-      await activation.waitForOnlineApproval();
-    },
+  // Connect device to Trellis after activation if needed
+  const trellis = await TrellisDevice.connect({
+    contract,
+    trellisUrl: args[0],
+    rootSecret: args[1],
   }).orThrow();
 
+  // Check who we are authenticated as
   console.log(chalk.green.bold("== Fetching Current Identify"));
-  const me = await device.request("Auth.Me", {}).orThrow();
+  const me = await trellis.request("Auth.Me", {}).orThrow();
   console.dir(me, { depth: null });
 
+  // Make a simple RPC
   console.log(chalk.green.bold("== Fetching Assignment List"));
-  const { assignments } = await device
+  const { assignments } = (await trellis
     .request("Inspection.Assignments.List", {})
-    .orThrow();
+    .orThrow()) as { assignments: Assignment[] };
 
   console.info("Assigned inspections:");
   for (const item of assignments) {
@@ -43,21 +71,21 @@ async function main(): Promise<void> {
     );
   }
 
+  // Make an RPC call with input
   const siteIds = [...new Set(assignments.map((item) => item.siteId))];
   console.info("Site summaries:");
   for (const siteId of siteIds) {
-    const { summary } = await device
+    const { summary } = (await trellis
       .request("Inspection.Sites.GetSummary", { siteId })
-      .orThrow();
+      .orThrow()) as { summary?: SiteSummary };
 
     if (!summary) {
       console.info(`- ${siteId}: no summary available`);
-      continue;
+    } else {
+      console.info(
+        `- ${summary.siteName}: ${summary.openInspections} open, ${summary.overdueInspections} overdue, status ${summary.latestStatus}, last report ${summary.lastReportAt}`,
+      );
     }
-
-    console.info(
-      `- ${summary.siteName}: ${summary.openInspections} open, ${summary.overdueInspections} overdue, status ${summary.latestStatus}, last report ${summary.lastReportAt}`,
-    );
   }
 }
 

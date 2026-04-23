@@ -1,8 +1,18 @@
-import { TrellisDevice } from "@qlever-llc/trellis";
 import contract from "../contract.ts";
 import { Command } from "@cliffy/command";
-import { qrcode } from "@libs/qrcode";
 import chalk from "chalk";
+import { TrellisDevice } from "@qlever-llc/trellis";
+import { checkDeviceActivation } from "@qlever-llc/trellis/device/deno";
+import { qrcode } from "@libs/qrcode";
+
+type SiteSummary = {
+  siteId: string;
+  siteName: string;
+  openInspections: number;
+  overdueInspections: number;
+  latestStatus: string;
+  lastReportAt?: string;
+};
 
 async function main(): Promise<void> {
   const {
@@ -15,16 +25,24 @@ async function main(): Promise<void> {
     ])
     .parse(Deno.args);
 
+  const activation = await checkDeviceActivation({
+    trellisUrl,
+    contract,
+    rootSecret,
+  });
+  if (activation.status === "not_ready") {
+    throw new Error(`Device is not ready: ${activation.reason}`);
+  }
+  if (activation.status === "activation_required") {
+    console.info("Please activate device at:", activation.activationUrl);
+    qrcode(activation.activationUrl, { output: "console" });
+    await activation.waitForOnlineApproval();
+  }
+
   const device = await TrellisDevice.connect({
     trellisUrl,
     contract,
     rootSecret,
-    onActivationRequired: async (activation) => {
-      console.info("Please activate device at:", activation.url);
-      qrcode(activation.url, { output: "console" });
-
-      await activation.waitForOnlineApproval();
-    },
   }).orThrow();
   console.log(chalk.green.bold("== Fetching Current Identify"));
 
@@ -32,8 +50,8 @@ async function main(): Promise<void> {
   console.dir(me, { depth: null });
 
   console.log(chalk.green.bold("== Fetching Site Summaries"));
-  const { summaries } = await device.request("Inspection.Summaries.List", {})
-    .orThrow();
+  const { summaries } = (await device.request("Inspection.Summaries.List", {})
+    .orThrow()) as { summaries: SiteSummary[] };
 
   console.info("Site summaries fetched over RPC:");
   for (const summary of summaries) {
@@ -48,9 +66,9 @@ async function main(): Promise<void> {
   }
 
   console.log(chalk.green.bold("== Fetching Site Summary Detail"));
-  const { summary } = await device.request("Inspection.Summaries.Get", {
+  const { summary } = (await device.request("Inspection.Summaries.Get", {
     siteId: firstSiteId,
-  }).orThrow();
+  }).orThrow()) as { summary?: SiteSummary };
 
   if (!summary) {
     console.info(`No summary found for ${firstSiteId}`);

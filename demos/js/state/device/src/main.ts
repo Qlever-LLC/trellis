@@ -1,4 +1,5 @@
 import { TrellisDevice } from "@qlever-llc/trellis";
+import { checkDeviceActivation } from "@qlever-llc/trellis/device/deno";
 import contract from "../contract.ts";
 import { ASSIGNED_INSPECTIONS } from "../../../shared/field_data.ts";
 import { Command } from "@cliffy/command";
@@ -16,16 +17,24 @@ async function main(): Promise<void> {
     ])
     .parse(Deno.args);
 
+  const activation = await checkDeviceActivation({
+    trellisUrl,
+    contract,
+    rootSecret,
+  });
+  if (activation.status === "not_ready") {
+    throw new Error(`Device is not ready: ${activation.reason}`);
+  }
+  if (activation.status === "activation_required") {
+    console.info("Please activate device at:", activation.activationUrl);
+    qrcode(activation.activationUrl, { output: "console" });
+    await activation.waitForOnlineApproval();
+  }
+
   const device = await TrellisDevice.connect({
     trellisUrl,
     contract,
     rootSecret,
-    onActivationRequired: async (activation) => {
-      console.info("Please activate device at:", activation.url);
-      qrcode(activation.url, { output: "console" });
-
-      await activation.waitForOnlineApproval();
-    },
   }).orThrow();
   console.log(chalk.green.bold("== Fetching Current Identify"));
 

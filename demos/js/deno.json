@@ -78,6 +78,7 @@
     "@sveltejs/kit/vite": "npm:@sveltejs/kit@^2.48.3/vite",
     "@sveltejs/vite-plugin-svelte": "npm:@sveltejs/vite-plugin-svelte@^6.2.1",
     "@tailwindcss/vite": "npm:@tailwindcss/vite@^4.1.17",
+    "@qlever-llc/trellis/device/deno": "../../js/packages/trellis/device/deno.ts",
     "@qlever-llc/trellis-sdk/jobs": "../../js/packages/trellis-sdk/jobs.ts",
     "@trellis-demo/rpc-service-sdk": "./generated/js/sdks/demo-rpc-service/mod.ts",
     "@trellis-demo/operation-service-sdk": "./generated/js/sdks/demo-operation-service/mod.ts",

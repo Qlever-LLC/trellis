@@ -2,8 +2,8 @@ import { assert, assertEquals } from "@std/assert";
 import { Type } from "typebox";
 
 import {
-  defineAppContract,
   defineAgentContract,
+  defineAppContract,
   defineDeviceContract,
   defineError,
   definePortalContract,
@@ -39,6 +39,8 @@ Deno.test("root public API includes core runtime, contracts, and result helpers"
   assertEquals(typeof schema, "function");
   assertEquals(typeof TrellisClient.connect, "function");
   assertEquals(typeof TrellisDevice.connect, "function");
+  assertEquals("startActivation" in TrellisDevice, false);
+  assertEquals("resumeActivation" in TrellisDevice, false);
   assertEquals(typeof TypedStore, "function");
   assertEquals(typeof TypedStoreEntry, "function");
   assertEquals(typeof StoreError, "function");
@@ -96,7 +98,8 @@ Deno.test("defineError creates a typed runtime class", () => {
       resource: Type.String(),
       resourceId: Type.String(),
     },
-    message: ({ resource, resourceId }) => `${resource} ${resourceId} not found`,
+    message: ({ resource, resourceId }) =>
+      `${resource} ${resourceId} not found`,
   });
 
   const error = new ExampleWorkspaceMissingError({
@@ -109,7 +112,10 @@ Deno.test("defineError creates a typed runtime class", () => {
 
   assert(error instanceof TrellisError);
   assert(revived instanceof ExampleWorkspaceMissingError);
-  assertEquals(ExampleWorkspaceMissingError.type, "ExampleWorkspaceMissingError");
+  assertEquals(
+    ExampleWorkspaceMissingError.type,
+    "ExampleWorkspaceMissingError",
+  );
   assertEquals(ExampleWorkspaceMissingError.schema.type, "object");
   assertEquals(serialized.type, "ExampleWorkspaceMissingError");
   assertEquals(serialized.resource, "Workspace");
@@ -128,4 +134,6 @@ Deno.test("root public API stays browser-safe and excludes server runtime export
   assertEquals("portalProviderLoginUrl" in trellis, false);
   assertEquals("portalRedirectLocation" in trellis, false);
   assertEquals("submitPortalApproval" in trellis, false);
+  assertEquals("openDeviceActivationStateStore" in trellis, false);
+  assertEquals("resolveDeviceActivationStatePath" in trellis, false);
 });

@@ -345,23 +345,37 @@ export function parseDeviceActivationPayload(
 export async function startDeviceActivationRequest(args: {
   trellisUrl: string;
   payload: DeviceActivationPayload;
-}): Promise<{ flowId: string; instanceId: string; profileId: string; activationUrl: string }> {
-  const response = await fetch(new URL("/auth/devices/activate/requests", args.trellisUrl), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ payload: args.payload }),
-  });
+}): Promise<
+  {
+    flowId: string;
+    instanceId: string;
+    profileId: string;
+    activationUrl: string;
+  }
+> {
+  const response = await fetch(
+    new URL("/auth/devices/activate/requests", args.trellisUrl),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ payload: args.payload }),
+    },
+  );
   if (!response.ok) {
     const detail = await responseErrorDetail(response);
     throw new Error(
-      `Device activation request failed: ${response.status}${detail ? ` ${detail}` : ""}`,
+      `Device activation request failed: ${response.status}${
+        detail ? ` ${detail}` : ""
+      }`,
     );
   }
 
   const parsed = await response.json() as Record<string, unknown>;
   if (
-    typeof parsed.flowId !== "string" || typeof parsed.instanceId !== "string" ||
-    typeof parsed.profileId !== "string" || typeof parsed.activationUrl !== "string"
+    typeof parsed.flowId !== "string" ||
+    typeof parsed.instanceId !== "string" ||
+    typeof parsed.profileId !== "string" ||
+    typeof parsed.activationUrl !== "string"
   ) {
     throw new Error("Device activation request returned an invalid response");
   }
@@ -409,15 +423,18 @@ export function buildDeviceWaitProofInput(
   publicIdentityKey: string,
   nonce: string,
   iat: number,
+  contractDigest?: string,
 ): Uint8Array {
   const enc = new TextEncoder();
   const publicIdentityKeyBytes = enc.encode(publicIdentityKey);
   const nonceBytes = enc.encode(nonce);
   const iatBytes = enc.encode(String(iat));
+  const contractDigestBytes = enc.encode(contractDigest ?? "");
   const buf = new Uint8Array(
     4 + publicIdentityKeyBytes.length +
       4 + nonceBytes.length +
-      4 + iatBytes.length,
+      4 + iatBytes.length +
+      4 + contractDigestBytes.length,
   );
   const view = new DataView(buf.buffer);
   let offset = 0;
@@ -432,6 +449,10 @@ export function buildDeviceWaitProofInput(
   view.setUint32(offset, iatBytes.length);
   offset += 4;
   buf.set(iatBytes, offset);
+  offset += iatBytes.length;
+  view.setUint32(offset, contractDigestBytes.length);
+  offset += 4;
+  buf.set(contractDigestBytes, offset);
   return buf;
 }
 
@@ -451,6 +472,7 @@ export async function signDeviceWaitRequest(args: {
     args.publicIdentityKey,
     args.nonce,
     iat,
+    args.contractDigest,
   );
   const proofHash = await sha256(proofInput);
   const signature = new Uint8Array(
@@ -624,6 +646,7 @@ export async function verifyDeviceWaitSignature(
       input.publicIdentityKey,
       input.nonce,
       input.iat,
+      input.contractDigest,
     ),
   );
   return await crypto.subtle.verify(
