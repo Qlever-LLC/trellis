@@ -1,43 +1,10 @@
-import { Result } from "@qlever-llc/trellis";
-import type { RpcArgs, RpcResult } from "@qlever-llc/trellis";
 import { TrellisService } from "@qlever-llc/trellis/service/deno";
 import contract from "../contract.ts";
-import {
-  ASSIGNED_INSPECTIONS,
-  getSiteSummary,
-} from "../../../shared/field_data.ts";
 import { Command } from "@cliffy/command";
-
-type ListAssignmentsArgs = RpcArgs<
-  typeof contract,
-  "Inspection.Assignments.List"
->;
-type ListAssignmentsReturn = RpcResult<
-  typeof contract,
-  "Inspection.Assignments.List"
->;
-type GetSummaryArgs = RpcArgs<typeof contract, "Inspection.Sites.GetSummary">;
-type GetSummaryReturn = RpcResult<
-  typeof contract,
-  "Inspection.Sites.GetSummary"
->;
-
-async function listAssignments(
-  _args: ListAssignmentsArgs,
-): Promise<ListAssignmentsReturn> {
-  return Result.ok({ assignments: ASSIGNED_INSPECTIONS });
-}
-
-async function getSummary(
-  { input }: GetSummaryArgs,
-): Promise<GetSummaryReturn> {
-  return Result.ok({ summary: getSiteSummary(input.siteId) });
-}
+import * as rpcs from "./rpcs/index.ts";
 
 async function main(): Promise<void> {
-  const {
-    args: [trellisUrl, sessionKeySeed],
-  } = await new Command()
+  const { args } = await new Command()
     .name("demo-rpc")
     .arguments("<trellisUrl:string> <sessionKeySeed:string>", [
       "URL of Trellis instance to connect to",
@@ -46,24 +13,25 @@ async function main(): Promise<void> {
     .parse(Deno.args);
 
   const service = await TrellisService.connect({
-    trellisUrl,
     contract,
-    sessionKeySeed,
+    trellisUrl: args[0],
+    sessionKeySeed: args[1],
     name: "demo-rpc-service",
   }).orThrow();
 
-  await service.trellis.mount("Inspection.Assignments.List", listAssignments);
-  await service.trellis.mount("Inspection.Sites.GetSummary", getSummary);
+  await service.trellis.mount(
+    "Inspection.Assignments.List",
+    rpcs.listAssignments,
+  );
+  await service.trellis.mount("Inspection.Sites.GetSummary", rpcs.getSummary);
 
   const shutdown = async () => {
     await service.stop();
     Deno.exit(0);
   };
 
-  Deno.addSignalListener("SIGINT", shutdown);
-  Deno.addSignalListener("SIGTERM", shutdown);
-
-  await new Promise<void>(() => {});
+  Deno.addSignalListener("SIGINT", () => void shutdown());
+  Deno.addSignalListener("SIGTERM", () => void shutdown());
 }
 
 if (import.meta.main) {

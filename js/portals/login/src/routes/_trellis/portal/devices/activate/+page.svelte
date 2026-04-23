@@ -5,6 +5,7 @@
   import { onMount } from "svelte";
   import type { AsyncResult, BaseError } from "@qlever-llc/result";
   import { TrellisClient } from "@qlever-llc/trellis";
+  import type { TrellisClientConnectArgs } from "@qlever-llc/trellis";
   import {
     type AuthState,
     createAuthState,
@@ -31,7 +32,7 @@
   }> {
     const contract = portalActivationApp;
     const authUrlState = buildActivationConnectAuthUrlState(currentUrl);
-    const trellis = await TrellisClient.connect({
+    const connectArgs: TrellisClientConnectArgs = {
       trellisUrl: APP_CONFIG.authUrl,
       auth: {
         handle: await authState.init(),
@@ -39,7 +40,8 @@
         redirectTo: authUrlState.redirectTo,
       },
       contract,
-    });
+    };
+    const trellis = await TrellisClient.connect(connectArgs).orThrow();
     return {
       trellis: {
         request: trellis.request.bind(trellis),

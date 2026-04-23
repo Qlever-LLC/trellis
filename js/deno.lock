@@ -93,6 +93,7 @@
     "npm:tweetnacl@1.0.3": "1.0.3",
     "npm:tweetnacl@^1.0.3": "1.0.3",
     "npm:type-fest@^5.0.1": "5.5.0",
+    "npm:typebox@*": "1.1.6",
     "npm:typebox@^1.0.15": "1.1.6",
     "npm:typescript@5.9.3": "5.9.3",
     "npm:ulid@^3.0.1": "3.0.2",

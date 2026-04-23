@@ -206,7 +206,7 @@ Deno.test({
         name: "billing-service",
         sessionKeySeed: seed,
         server: {},
-      }, { connect: natsConnect });
+      }, { connect: natsConnect }).orThrow();
 
       assertEquals(typeof service.operation, "function");
 
@@ -315,7 +315,7 @@ Deno.test({
         name: "billing-service",
         sessionKeySeed: seed,
         server: {},
-      }, { connect: natsConnect });
+      }, { connect: natsConnect }).orThrow();
 
       const clientNc = await connect({
         servers: `localhost:${info.port}`,
@@ -436,7 +436,7 @@ Deno.test({
         name: "demo-files-service",
         sessionKeySeed: seed,
         server: {},
-      }, { connect: natsConnect });
+      }, { connect: natsConnect }).orThrow();
 
       const clientNc = await connect({
         servers: `localhost:${info.port}`,

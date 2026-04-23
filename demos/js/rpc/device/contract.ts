@@ -1,6 +1,6 @@
 import { defineDeviceContract } from "@qlever-llc/trellis";
 import { auth, health } from "@qlever-llc/trellis-sdk";
-import { trellisDemoRpcService as rpcService } from "@trellis-demo/rpc-service-sdk";
+import { trellisDemoRpcService } from "@trellis-demo/rpc-service-sdk";
 
 const contract = defineDeviceContract(() => ({
   id: "trellis.demo-rpc-device@v1",
@@ -9,7 +9,7 @@ const contract = defineDeviceContract(() => ({
   uses: {
     auth: auth.useDefaults(),
     health: health.useDefaults(),
-    inspections: rpcService.use({
+    inspections: trellisDemoRpcService.use({
       rpc: {
         call: ["Inspection.Assignments.List", "Inspection.Sites.GetSummary"],
       },
