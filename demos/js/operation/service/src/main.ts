@@ -59,7 +59,9 @@ async function main(): Promise<void> {
         await op.progress(progress).orThrow();
         await new Promise((resolve) => setTimeout(resolve, 300));
 
-        if ((await service.operations.get(op.id).orThrow()).state === "cancelled") {
+        if (
+          (await service.operations.get(op.id).orThrow()).state === "cancelled"
+        ) {
           return;
         }
       }
@@ -74,11 +76,16 @@ async function main(): Promise<void> {
         ? cause
         : new UnexpectedError({ cause });
 
-      if ((await service.operations.get(op.id).orThrow()).state !== "cancelled") {
+      if (
+        (await service.operations.get(op.id).orThrow()).state !== "cancelled"
+      ) {
         try {
           await service.operations.fail(op.id, error).orThrow();
         } catch (failError) {
-          if ((await service.operations.get(op.id).orThrow()).state !== "cancelled") {
+          if (
+            (await service.operations.get(op.id).orThrow()).state !==
+              "cancelled"
+          ) {
             throw failError;
           }
         }
@@ -91,9 +98,22 @@ async function main(): Promise<void> {
   await service.operation("Inspection.Report.Generate").handle(generateReport);
 
   console.log(chalk.green.bold("== Inspection operation service"));
+  let shuttingDown = false;
   const shutdown = async () => {
-    await service.stop();
-    Deno.exit(0);
+    if (shuttingDown) {
+      return;
+    }
+
+    shuttingDown = true;
+
+    try {
+      await service.stop();
+      Deno.exit(0);
+    } catch (error) {
+      console.error(chalk.red.bold("Failed to stop operation service"));
+      console.error(error);
+      Deno.exit(1);
+    }
   };
 
   Deno.addSignalListener("SIGINT", () => void shutdown());

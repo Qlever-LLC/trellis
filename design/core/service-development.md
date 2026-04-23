@@ -107,6 +107,15 @@ Deno.addSignalListener("SIGTERM", async () => {
 });
 ```
 
+Rules:
+
+- service shutdown handlers SHOULD call `Deno.exit(0)` after `service.stop()` so
+  file-watched local dev restarts do not leave the old process alive with a
+  bound port
+- if a service also owns an HTTP listener, its shutdown path SHOULD bound the
+  wait for listener drain before exiting rather than waiting indefinitely on
+  long-lived keep-alive or streaming connections
+
 ### Minimal installable service example
 
 ```ts
@@ -220,9 +229,9 @@ Behavior:
   jobs-enabled service does not require a separate manual jobs install step
 - when an RPC needs to start caller-visible follow-up work after a transfer,
   prefer a transfer-capable operation over an RPC-started workflow
-- the `trellis` control-plane service is the one bootstrap exception and may
-  use Trellis-internal bootstrap paths; that exception is not part of the
-  public service-author surface
+- the `trellis` control-plane service is the one bootstrap exception and may use
+  Trellis-internal bootstrap paths; that exception is not part of the public
+  service-author surface
 
 ### Jobs and operations
 

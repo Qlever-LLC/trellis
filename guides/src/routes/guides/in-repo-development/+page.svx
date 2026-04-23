@@ -175,7 +175,7 @@ cd js/services/trellis
 deno task dev
 ```
 
-The runtime starts on `http://localhost:3000` with file watching enabled. Code changes under `js/` will trigger an automatic restart.
+The runtime starts on `http://localhost:3000` with file watching enabled. Code changes under `js/` will trigger an automatic restart. Trellis now exits explicitly after its signal shutdown path completes so watched restarts release the old HTTP port promptly instead of leaving the previous process behind.
 
 Test it:
 

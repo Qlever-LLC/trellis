@@ -32,7 +32,8 @@ async function main(): Promise<void> {
     await op.started().orThrow();
     await op.progress({
       stage: "staged",
-      message: `Staged ${transferred.size} bytes of ${input.evidenceType} evidence`,
+      message:
+        `Staged ${transferred.size} bytes of ${input.evidenceType} evidence`,
     }).orThrow();
 
     const entry = await uploads.get(transferred.key).orThrow();
@@ -77,9 +78,22 @@ async function main(): Promise<void> {
   await service.operation("Inspection.Evidence.Upload").handle(uploadEvidence);
 
   console.log(chalk.green.bold("== Inspection transfer service"));
+  let shuttingDown = false;
   const shutdown = async () => {
-    await service.stop();
-    Deno.exit(0);
+    if (shuttingDown) {
+      return;
+    }
+
+    shuttingDown = true;
+
+    try {
+      await service.stop();
+      Deno.exit(0);
+    } catch (error) {
+      console.error(chalk.red.bold("Failed to stop transfer service"));
+      console.error(error);
+      Deno.exit(1);
+    }
   };
 
   Deno.addSignalListener("SIGINT", () => void shutdown());

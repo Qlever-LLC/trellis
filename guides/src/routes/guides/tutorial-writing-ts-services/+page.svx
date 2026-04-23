@@ -437,6 +437,8 @@ Upgrade the contract and restart.
 
 Add a SIGTERM handler so the service drains in-flight messages cleanly before the process exits:
 
+Explicitly exiting after `service.stop()` also keeps `deno task dev` or other watched local dev restarts from leaving the old process around.
+
 ```ts
 Deno.addSignalListener("SIGTERM", async () => {
   await service.stop();

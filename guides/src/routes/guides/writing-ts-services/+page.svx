@@ -309,6 +309,8 @@ await service.trellis.event("Auth.Connect", {}, async (event) => {
 
 ## 8. Handle shutdown
 
+Exit explicitly after `service.stop()` so watched local dev restarts do not keep the old process alive.
+
 ```ts
 Deno.addSignalListener("SIGTERM", async () => {
   await service.stop();

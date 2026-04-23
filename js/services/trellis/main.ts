@@ -24,38 +24,38 @@ import {
   createGetDeviceConnectInfoHandler,
 } from "./auth/device_activation/operation.ts";
 import {
-  authEnableDeviceInstanceHandler,
-  authEnableDeviceProfileHandler,
-  authDisablePortalHandler,
-  authDisableInstanceGrantPolicyHandler,
-  authClearLoginPortalSelectionHandler,
   authClearDevicePortalSelectionHandler,
-  createAuthApplyDeviceProfileContractHandler,
+  authClearLoginPortalSelectionHandler,
   authDecideDeviceActivationReviewHandler,
   authDisableDeviceInstanceHandler,
   authDisableDeviceProfileHandler,
-  authGetLoginPortalDefaultHandler,
+  authDisableInstanceGrantPolicyHandler,
+  authDisablePortalHandler,
+  authEnableDeviceInstanceHandler,
+  authEnableDeviceProfileHandler,
   authGetDevicePortalDefaultHandler,
-  authRemoveDeviceInstanceHandler,
-  authRemoveDeviceProfileHandler,
+  authGetLoginPortalDefaultHandler,
+  authListDeviceActivationReviewsHandler,
+  authListDeviceActivationsHandler,
+  authListDeviceInstancesHandler,
+  authListDevicePortalSelectionsHandler,
+  authListDeviceProfilesHandler,
   authListInstanceGrantPoliciesHandler,
   authListLoginPortalSelectionsHandler,
   authListPortalsHandler,
-  authListDeviceActivationReviewsHandler,
-  authListDevicePortalSelectionsHandler,
-  authListDeviceActivationsHandler,
-  authListDeviceInstancesHandler,
-  authListDeviceProfilesHandler,
+  authRemoveDeviceInstanceHandler,
+  authRemoveDeviceProfileHandler,
   authRevokeDeviceActivationHandler,
-  createAuthCreatePortalHandler,
-  createAuthCreateDeviceProfileHandler,
-  createAuthProvisionDeviceInstanceHandler,
-  createAuthUnapplyDeviceProfileContractHandler,
-  authSetLoginPortalDefaultHandler,
-  authUpsertInstanceGrantPolicyHandler,
-  authSetLoginPortalSelectionHandler,
   authSetDevicePortalDefaultHandler,
   authSetDevicePortalSelectionHandler,
+  authSetLoginPortalDefaultHandler,
+  authSetLoginPortalSelectionHandler,
+  authUpsertInstanceGrantPolicyHandler,
+  createAuthApplyDeviceProfileContractHandler,
+  createAuthCreateDeviceProfileHandler,
+  createAuthCreatePortalHandler,
+  createAuthProvisionDeviceInstanceHandler,
+  createAuthUnapplyDeviceProfileContractHandler,
 } from "./auth/admin/rpc.ts";
 import {
   authEnableServiceProfileHandler,
@@ -216,7 +216,10 @@ await trellis.mount("Auth.UpdateUser", authUpdateUserHandler);
 await trellis.mount("Auth.CreatePortal", createAuthCreatePortalHandler());
 await trellis.mount("Auth.ListPortals", authListPortalsHandler);
 await trellis.mount("Auth.DisablePortal", authDisablePortalHandler);
-await trellis.mount("Auth.GetLoginPortalDefault", authGetLoginPortalDefaultHandler);
+await trellis.mount(
+  "Auth.GetLoginPortalDefault",
+  authGetLoginPortalDefaultHandler,
+);
 await trellis.mount(
   "Auth.ListInstanceGrantPolicies",
   authListInstanceGrantPoliciesHandler,
@@ -229,15 +232,42 @@ await trellis.mount(
   "Auth.DisableInstanceGrantPolicy",
   authDisableInstanceGrantPolicyHandler,
 );
-await trellis.mount("Auth.SetLoginPortalDefault", authSetLoginPortalDefaultHandler);
-await trellis.mount("Auth.ListLoginPortalSelections", authListLoginPortalSelectionsHandler);
-await trellis.mount("Auth.SetLoginPortalSelection", authSetLoginPortalSelectionHandler);
-await trellis.mount("Auth.ClearLoginPortalSelection", authClearLoginPortalSelectionHandler);
-await trellis.mount("Auth.GetDevicePortalDefault", authGetDevicePortalDefaultHandler);
-await trellis.mount("Auth.SetDevicePortalDefault", authSetDevicePortalDefaultHandler);
-await trellis.mount("Auth.ListDevicePortalSelections", authListDevicePortalSelectionsHandler);
-await trellis.mount("Auth.SetDevicePortalSelection", authSetDevicePortalSelectionHandler);
-await trellis.mount("Auth.ClearDevicePortalSelection", authClearDevicePortalSelectionHandler);
+await trellis.mount(
+  "Auth.SetLoginPortalDefault",
+  authSetLoginPortalDefaultHandler,
+);
+await trellis.mount(
+  "Auth.ListLoginPortalSelections",
+  authListLoginPortalSelectionsHandler,
+);
+await trellis.mount(
+  "Auth.SetLoginPortalSelection",
+  authSetLoginPortalSelectionHandler,
+);
+await trellis.mount(
+  "Auth.ClearLoginPortalSelection",
+  authClearLoginPortalSelectionHandler,
+);
+await trellis.mount(
+  "Auth.GetDevicePortalDefault",
+  authGetDevicePortalDefaultHandler,
+);
+await trellis.mount(
+  "Auth.SetDevicePortalDefault",
+  authSetDevicePortalDefaultHandler,
+);
+await trellis.mount(
+  "Auth.ListDevicePortalSelections",
+  authListDevicePortalSelectionsHandler,
+);
+await trellis.mount(
+  "Auth.SetDevicePortalSelection",
+  authSetDevicePortalSelectionHandler,
+);
+await trellis.mount(
+  "Auth.ClearDevicePortalSelection",
+  authClearDevicePortalSelectionHandler,
+);
 await trellis.mount(
   "Auth.CreateDeviceProfile",
   createAuthCreateDeviceProfileHandler({
@@ -336,6 +366,25 @@ const server = Deno.serve(
   app.fetch,
 );
 
+const SERVER_DRAIN_TIMEOUT_MS = 5_000;
+
+async function waitForServerDrain(): Promise<void> {
+  let timeoutId: number | undefined;
+
+  try {
+    await Promise.race([
+      server.finished,
+      new Promise<void>((resolve) => {
+        timeoutId = setTimeout(resolve, SERVER_DRAIN_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+    }
+  }
+}
+
 let shuttingDown: Promise<void> | null = null;
 
 async function shutdown(signal: string): Promise<void> {
@@ -348,7 +397,7 @@ async function shutdown(signal: string): Promise<void> {
     serverAbort.abort();
     await backgroundTasks.stop();
     await shutdownGlobals();
-    await server.finished;
+    await waitForServerDrain();
     logger.info({ signal }, "Trellis service stopped");
   })();
 
@@ -357,8 +406,12 @@ async function shutdown(signal: string): Promise<void> {
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   Deno.addSignalListener(signal, () => {
-    void shutdown(signal).catch((error) => {
-      logger.error({ error, signal }, "Failed during Trellis shutdown");
-    });
+    void shutdown(signal)
+      .then(() => {
+        Deno.exit(0);
+      })
+      .catch((error) => {
+        logger.error({ error, signal }, "Failed during Trellis shutdown");
+      });
   });
 }

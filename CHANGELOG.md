@@ -11,9 +11,9 @@ and this project adheres to
 ### Changed
 
 - Changed service-owned KV from an opened-at-startup helper pattern to a
-  schema-backed contract surface: `resources.kv.<alias>` now requires
-  `schema`, `service.kv.<alias>` and handler `trellis.kv.<alias>` are directly
-  typed stores, and public service-author guidance now leads only with
+  schema-backed contract surface: `resources.kv.<alias>` now requires `schema`,
+  `service.kv.<alias>` and handler `trellis.kv.<alias>` are directly typed
+  stores, and public service-author guidance now leads only with
   `TrellisService.connect(...)` rather than exposing Trellis-internal bootstrap
   helpers.
 - Made the JavaScript service jobs lifecycle service-owned by removing public
@@ -42,6 +42,10 @@ and this project adheres to
 
 ### Fixed
 
+- Fixed Trellis local watched restarts to exit cleanly after shutdown, bounded
+  HTTP listener drain during Trellis control-plane shutdown, and aligned
+  service-author docs and JS demo shutdown examples with that deterministic exit
+  pattern.
 - Fixed schema-backed KV validation so invalid stored values now surface read or
   watch errors instead of being auto-deleted, and delayed service heartbeat
   publishing until required KV bootstrap succeeds.

@@ -65,9 +65,22 @@ async function main(): Promise<void> {
   await service.trellis.mount("Inspection.Summaries.Get", getSummary);
 
   console.log(chalk.green.bold("== Inspection KV service"));
+  let shuttingDown = false;
   const shutdown = async () => {
-    await service.stop();
-    Deno.exit(0);
+    if (shuttingDown) {
+      return;
+    }
+
+    shuttingDown = true;
+
+    try {
+      await service.stop();
+      Deno.exit(0);
+    } catch (error) {
+      console.error(chalk.red.bold("Failed to stop KV service"));
+      console.error(error);
+      Deno.exit(1);
+    }
   };
 
   Deno.addSignalListener("SIGINT", () => void shutdown());
