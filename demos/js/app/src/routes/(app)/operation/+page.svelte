@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { getTrellis } from "@qlever-llc/trellis-svelte";
+  import { getTrellis } from "$lib/trellis-context.svelte";
   import type {
     InspectionReportGenerateOutput,
     InspectionReportGenerateProgress,
@@ -10,24 +10,6 @@
   type ReportOutput = InspectionReportGenerateOutput;
   type ReportProgress = InspectionReportGenerateProgress;
   type RpcAssignment = InspectionAssignmentsListOutput["assignments"][number];
-  type OperationDemoTrellis = {
-    request(method: "Inspection.Assignments.List", input: {}): {
-      orThrow(): Promise<InspectionAssignmentsListOutput>;
-    };
-    operation(method: "Inspection.Report.Generate"): {
-      input(input: { inspectionId: string }): {
-        start(): {
-          orThrow(): Promise<{
-            id: string;
-            watch(): { orThrow(): Promise<AsyncIterable<ReportEvent>> };
-            wait(): { orThrow(): Promise<ReportTerminal> };
-            cancel(): { orThrow(): Promise<{ state: string }> };
-          }>;
-        };
-      };
-    };
-  };
-
   type ReportEvent = {
     type: string;
     snapshot: { state: string };
@@ -37,6 +19,15 @@
     state: "completed" | "failed" | "cancelled";
     output?: ReportOutput;
   };
+  type OperationAssignmentsTrellis = {
+    request(method: "Inspection.Assignments.List", input: {}): {
+      orThrow(): Promise<InspectionAssignmentsListOutput>;
+    };
+  };
+
+  async function getAssignmentsTrellis(): Promise<OperationAssignmentsTrellis> {
+    return await getTrellis() as OperationAssignmentsTrellis;
+  }
 
   let assignments = $state<RpcAssignment[]>([]);
   let selectedInspectionId = $state("");
@@ -47,7 +38,7 @@
   let events = $state<Array<{ label: string; state: string }>>([]);
   let acceptedId = $state<string | null>(null);
   let terminal = $state<ReportTerminal | null>(null);
-  const appTrellis = getTrellis() as unknown as Promise<OperationDemoTrellis>;
+  const appTrellis = getTrellis();
 
   async function createOperationRef(inspectionId: string) {
     const trellis = await appTrellis;
@@ -66,7 +57,7 @@
     error = null;
 
     try {
-      const response = await (await appTrellis)
+      const response = await (await getAssignmentsTrellis())
         .request("Inspection.Assignments.List", {})
         .orThrow();
       assignments = response.assignments;

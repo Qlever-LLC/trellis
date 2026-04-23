@@ -185,15 +185,20 @@ Rules:
 - browser apps should define one small app-local Trellis module and re-export
   typed helpers for the rest of the app
 - `TrellisProvider` is the primary browser integration surface; app code should
-  pass `trellisUrl`, `contract`, and `loginPath`
+  pass `trellisUrl`, `contract`, `loginPath`, and an app-owned `contexts`
+  bundle created with `createTrellisProviderContexts<typeof contract>()`
 - `TrellisProvider` restores auth state, handles auth callbacks, and delegates
   runtime bootstrap and reconnect to `TrellisClient.connect(...)`
-- the public Svelte surface is Trellis-only: apps should use `getTrellis()`,
-  `getAuth()`, and `getConnectionState()`
+- `trellis-svelte` should keep the typed Trellis client, auth state, and
+  connection state in separate contexts rather than exposing a synthetic runtime
+  bag
+- the public Svelte surface is app-scoped: apps should re-export local
+  `getTrellis()`, `getAuth()`, and `getConnectionState()` helpers from their
+  app-owned context module
 - `@qlever-llc/trellis-svelte` MUST NOT expose raw NATS clients, NATS connection
   state, or other transport-owned handles as public API
 - normal pages and components should not recreate auth state; they should read
-  the live runtime from context through app-scoped helpers
+  the live Trellis/auth/connection contexts through app-scoped helpers
 - app-facing auth helpers should not require raw URL plumbing or placeholder
   positional arguments from app code; they should expose an options-shaped API
   with sensible redirect defaults
@@ -211,8 +216,8 @@ Rules:
 - bind failures should be renderable through a `bindError(result)` snippet;
   `onBindError` remains available for imperative reactions
 - app-local helper modules should usually export the contract, the fixed
-  `trellisUrl` when there is one, and a typed `getTrellis()` wrapper around
-  Svelte context
+  `trellisUrl` when there is one, and local `getTrellis()` / `getAuth()` /
+  `getConnectionState()` wrappers around an app-owned `contexts` bundle
 - dynamic auth-instance selection remains a valid advanced case, but the default
   public browser-app API should optimize for the fixed-instance path rather than
   forcing every app through explicit auth-state construction

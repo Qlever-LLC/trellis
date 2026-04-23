@@ -50,23 +50,23 @@ Patterns:
 Svelte browser apps should split responsibilities between one app-local module and Svelte context.
 
 ```ts
-// src/lib/trellis.ts
-import { getTrellis as getTrellisContext } from "@qlever-llc/trellis-svelte";
+// src/lib/trellis-context.svelte.ts
+import { createTrellisProviderContexts } from "@qlever-llc/trellis-svelte";
 import { myApp } from "$lib/contracts/my_app";
 
-export const trellisUrl = "http://localhost:3000";
-export { myApp as contract };
+export const contexts = createTrellisProviderContexts<typeof myApp>();
 
-export function getTrellis() {
-  return getTrellisContext<typeof myApp>();
-}
+export const getTrellis = contexts.trellis.getTrellis;
+export const getAuth = contexts.auth.getAuth;
+export const getConnectionState = contexts.connectionState.getConnectionState;
 ```
 
 Rules:
 
 - the app-local module owns static app metadata and typed helpers
 - in the common fixed-instance case, the app-local module should export the fixed `trellisUrl` and the contract once
-- `TrellisProvider` should receive `trellisUrl`, `contract`, and `loginPath`, then place the live auth state and Trellis runtime into Svelte context
-- normal pages should import typed helpers such as `getTrellis` from the app-local module; they should not rebuild auth config just to make an RPC call
-- Svelte context is the runtime transport for the live Trellis instance; the app-local module is the static typing boundary that keeps contract knowledge out of arbitrary page files
+- `TrellisProvider` should receive `trellisUrl`, `contract`, `loginPath`, and an app-owned `contexts` bundle created with `createTrellisProviderContexts<typeof contract>()`
+- `trellis-svelte` should keep Trellis, auth, and connection state in separate contexts rather than bundling them into a synthetic runtime bag
+- normal pages should import app-local helpers such as `getTrellis`, `getAuth`, and `getConnectionState`; they should not rebuild auth config just to make an RPC call
+- Svelte context is the runtime transport for the live Trellis instance and related browser state; the app-local module is the static typing boundary that keeps contract knowledge out of arbitrary page files
 - apps that let the user choose an auth instance at runtime may still need a more dynamic sign-in path, but that should remain an explicit advanced pattern rather than the default guide story

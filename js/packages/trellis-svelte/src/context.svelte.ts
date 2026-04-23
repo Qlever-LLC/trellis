@@ -1,57 +1,110 @@
-import type { TrellisAPI } from "../../trellis/contracts.ts";
-import type { Trellis } from "../../trellis/trellis.ts";
 import { createContext } from "svelte";
+import {
+  createPublicTrellis,
+  type ConnectionState,
+  type PublicTrellis,
+  type TrellisContractLike,
+  type TypedPublicTrellis,
+} from "./state/trellis.svelte.ts";
 import type { AuthState } from "./state/auth.svelte.ts";
-import type { Status } from "./state/nats.svelte.ts";
 
-export type PublicTrellis<TA extends TrellisAPI = TrellisAPI> = Omit<
-  Trellis<TA>,
-  "nats" | "natsConnection" | "js"
->;
+export type {
+  ConnectionState,
+  PublicTrellis,
+  TrellisContractLike,
+  TypedPublicTrellis,
+} from "./state/trellis.svelte.ts";
+export { createPublicTrellis } from "./state/trellis.svelte.ts";
 
-export type ConnectionState = {
-  readonly status: Status;
-  disconnect(): Promise<void>;
+export type TrellisContext<TContract extends TrellisContractLike = TrellisContractLike> = {
+  getTrellis(): Promise<TypedPublicTrellis<TContract>>;
+  setTrellis(trellis: Promise<TypedPublicTrellis<TContract>>): void;
 };
 
-type TrellisContext<TA extends TrellisAPI = TrellisAPI> = {
-  getTrellis: () => Promise<PublicTrellis<TA>>;
+export type AuthContext = {
+  getAuth(): AuthState;
+  setAuth(auth: AuthState): void;
 };
 
-export type TrellisContractLike<TA extends TrellisAPI = TrellisAPI> = {
-  API: {
-    trellis: TA;
+export type ConnectionStateContext = {
+  getConnectionState(): Promise<ConnectionState>;
+  setConnectionState(connectionState: Promise<ConnectionState>): void;
+};
+
+export type TrellisProviderContexts<
+  TContract extends TrellisContractLike = TrellisContractLike,
+> = {
+  trellis: TrellisContext<TContract>;
+  auth: AuthContext;
+  connectionState: ConnectionStateContext;
+};
+
+function createValueContext<T>() {
+  const [getValue, setValue] = createContext<T>();
+
+  return {
+    getValue,
+    setValue,
   };
-};
-
-const [getTrellisContext, setTrellisContextValue] = createContext<TrellisContext>();
-const [getConnectionStateContext, setConnectionStateContextValue] = createContext<
-  Promise<ConnectionState>
->();
-const [getAuthContext, setAuthContextValue] = createContext<() => AuthState>();
-
-export function setTrellisContext(
-  ctx: TrellisContext,
-): void {
-  setTrellisContextValue(ctx);
 }
 
-export function setConnectionStateContext(connectionState: Promise<ConnectionState>): void {
-  setConnectionStateContextValue(connectionState);
+/**
+ * Factory for an app-local typed Trellis context.
+ */
+export function createTrellisContext<TContract extends TrellisContractLike>():
+  TrellisContext<TContract> {
+  const { getValue, setValue } = createValueContext<Promise<TypedPublicTrellis<TContract>>>();
+
+  return {
+    getTrellis(): Promise<TypedPublicTrellis<TContract>> {
+      return getValue();
+    },
+    setTrellis(trellis: Promise<TypedPublicTrellis<TContract>>): void {
+      setValue(trellis);
+    },
+  };
 }
 
-export function setAuthContext(getAuth: () => AuthState): void {
-  setAuthContextValue(getAuth);
+/**
+ * Factory for an app-local auth context.
+ */
+export function createAuthContext(): AuthContext {
+  const { getValue, setValue } = createValueContext<AuthState>();
+
+  return {
+    getAuth(): AuthState {
+      return getValue();
+    },
+    setAuth(auth: AuthState): void {
+      setValue(auth);
+    },
+  };
 }
 
-export function getTrellis<TA extends TrellisAPI = TrellisAPI>(): Promise<PublicTrellis<TA>> {
-  return getTrellisContext().getTrellis() as unknown as Promise<PublicTrellis<TA>>;
+/**
+ * Factory for an app-local connection-state context.
+ */
+export function createConnectionStateContext(): ConnectionStateContext {
+  const { getValue, setValue } = createValueContext<Promise<ConnectionState>>();
+
+  return {
+    getConnectionState(): Promise<ConnectionState> {
+      return getValue();
+    },
+    setConnectionState(connectionState: Promise<ConnectionState>): void {
+      setValue(connectionState);
+    },
+  };
 }
 
-export function getConnectionState(): Promise<ConnectionState> {
-  return getConnectionStateContext();
-}
-
-export function getAuth(): AuthState {
-  return getAuthContext()();
+/**
+ * Factory for the standard Trellis provider context bundle.
+ */
+export function createTrellisProviderContexts<TContract extends TrellisContractLike>():
+  TrellisProviderContexts<TContract> {
+  return {
+    trellis: createTrellisContext<TContract>(),
+    auth: createAuthContext(),
+    connectionState: createConnectionStateContext(),
+  };
 }

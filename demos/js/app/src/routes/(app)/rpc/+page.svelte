@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { getTrellis } from "@qlever-llc/trellis-svelte";
+  import { getTrellis } from "$lib/trellis-context.svelte";
   import type {
     InspectionAssignmentsListOutput,
     InspectionSitesGetSummaryOutput,
@@ -17,19 +17,21 @@
     };
   };
 
+  async function getRpcTrellis(): Promise<RpcDemoTrellis> {
+    return await getTrellis() as RpcDemoTrellis;
+  }
+
   let loading = $state(true);
   let error = $state<string | null>(null);
   let assignments = $state<RpcAssignment[]>([]);
   let selectedSiteId = $state<string | null>(null);
   let summary = $state<RpcSiteSummary | null>(null);
-  const appTrellis = getTrellis() as unknown as Promise<RpcDemoTrellis>;
-
   async function selectSite(siteId: string): Promise<void> {
     selectedSiteId = siteId;
     error = null;
 
     try {
-      const response = await (await appTrellis)
+      const response = await (await getRpcTrellis())
         .request("Inspection.Sites.GetSummary", { siteId })
         .orThrow();
       summary = response.summary ?? null;
@@ -43,7 +45,7 @@
     error = null;
 
     try {
-      const response = await (await appTrellis)
+      const response = await (await getRpcTrellis())
         .request("Inspection.Assignments.List", {})
         .orThrow();
       assignments = response.assignments;

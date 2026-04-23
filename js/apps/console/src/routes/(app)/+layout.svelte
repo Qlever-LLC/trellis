@@ -6,6 +6,7 @@
   import AppShell from "../../lib/components/AppShell.svelte";
   import { buildAppLoginUrl, getSelectedAuthUrl, persistSelectedAuthUrl } from "../../lib/config";
   import { errorMessage } from "../../lib/format";
+  import { contexts } from "../../lib/trellis-context.svelte";
   import { trellisApp } from "../../../contracts/trellis_app.ts";
 
   type Props = {
@@ -50,6 +51,7 @@
 
 {#if initialized}
     <TrellisProvider
+      {contexts}
       trellisUrl={authUrl}
       contract={trellisApp}
       loginPath={resolve("/login")}

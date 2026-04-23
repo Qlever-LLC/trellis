@@ -1,6 +1,5 @@
 <script lang="ts">
   import type { AuthMeOutput } from "@qlever-llc/trellis-sdk/auth";
-  import { getConnectionState } from "@qlever-llc/trellis-svelte";
   import { onMount } from "svelte";
   import { getInitials, getRoleLabel } from "../../../lib/control-panel.ts";
   import {
@@ -12,6 +11,7 @@
   } from "../../../lib/auth_display.ts";
   import { errorMessage, formatDate } from "../../../lib/format";
   import { getNotifications } from "../../../lib/notifications.svelte";
+  import { getConnectionState } from "../../../lib/trellis-context.svelte";
   import { getTrellis } from "../../../lib/trellis";
 
   const trellisPromise = getTrellis();

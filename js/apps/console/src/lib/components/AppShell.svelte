@@ -1,6 +1,5 @@
 <script lang="ts">
   import type { AuthMeOutput } from "@qlever-llc/trellis-sdk/auth";
-  import { getAuth, getConnectionState } from "@qlever-llc/trellis-svelte";
   import { onMount } from "svelte";
   import { afterNavigate, goto } from "$app/navigation";
   import { base } from "$app/paths";
@@ -16,6 +15,7 @@
   } from "../control-panel.ts";
   import { errorMessage } from "../format";
   import { NotificationsController, setNotifications } from "../notifications.svelte";
+  import { getAuth, getConnectionState } from "../trellis-context.svelte";
   import { getTrellis } from "../trellis";
   import ToastViewport from "./ToastViewport.svelte";
 

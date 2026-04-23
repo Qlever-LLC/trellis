@@ -1,10 +1,13 @@
 import { defineAppContract } from "../../../trellis/contract.ts";
+import { CONTRACT_STATE_METADATA } from "../../../trellis/contract_support/mod.ts";
+import type { TrellisClientConnection } from "../../../trellis/client_connect.ts";
 import type { TrellisAPI, TrellisContractV1 } from "../../../trellis/contracts.ts";
-import type { Trellis } from "../../../trellis/trellis.ts";
+import type { RuntimeStateStoresForContract, Trellis } from "../../../trellis/trellis.ts";
 import { createClient } from "../../../trellis/client.ts";
 import { getPublicSessionKey, signBytes } from "../../../trellis/auth/browser.ts";
 import type { AuthState } from "./auth.svelte.ts";
 import type { NatsState } from "./nats.svelte.ts";
+import type { Status } from "./nats.svelte.ts";
 
 type TrellisClientApi = {
   rpc: Record<string, unknown>;
@@ -24,6 +27,69 @@ export type TrellisClientContract<TApi extends TrellisClientApi = TrellisClientA
 export type TrellisStateConfig<TApi extends TrellisClientApi = TrellisClientApi> = {
   contract?: TrellisClientContract<TApi>;
 };
+
+type RuntimeStateShape = Record<string, { kind: "value" | "map"; value: unknown }>;
+
+export type PublicTrellis<
+  TA extends TrellisAPI = TrellisAPI,
+  TState extends RuntimeStateShape = {},
+> = {
+  readonly jobs: TrellisClientConnection<TA, TState>["jobs"];
+  readonly respondWithError: TrellisClientConnection<TA, TState>["respondWithError"];
+  readonly request: TrellisClientConnection<TA, TState>["request"];
+  readonly publish: TrellisClientConnection<TA, TState>["publish"];
+  readonly event: TrellisClientConnection<TA, TState>["event"];
+  readonly operation: TrellisClientConnection<TA, TState>["operation"];
+  readonly wait: TrellisClientConnection<TA, TState>["wait"];
+  readonly template: TrellisClientConnection<TA, TState>["template"];
+  readonly state: TrellisClientConnection<TA, TState>["state"];
+  readonly name: string;
+  readonly timeout: number;
+  readonly stream: string;
+  readonly api: TA;
+};
+
+export type ConnectionState = {
+  readonly status: Status;
+  disconnect(): Promise<void>;
+};
+
+export type TrellisContractLike<
+  TA extends TrellisAPI = TrellisAPI,
+  TState extends RuntimeStateShape = RuntimeStateShape,
+> = {
+  CONTRACT_DIGEST: string;
+  API: {
+    trellis: TA;
+  };
+  readonly [CONTRACT_STATE_METADATA]?: TState;
+};
+
+export type TypedPublicTrellis<TContract extends TrellisContractLike = TrellisContractLike> =
+  PublicTrellis<TContract["API"]["trellis"], RuntimeStateStoresForContract<TContract>>;
+
+export function createPublicTrellis<
+  TA extends TrellisAPI,
+  TState extends RuntimeStateShape = {},
+>(
+  trellis: TrellisClientConnection<TA, TState>,
+): PublicTrellis<TA, TState> {
+  return {
+    jobs: trellis.jobs,
+    respondWithError: trellis.respondWithError,
+    request: trellis.request,
+    publish: trellis.publish,
+    event: trellis.event,
+    operation: trellis.operation,
+    wait: trellis.wait,
+    template: trellis.template,
+    state: trellis.state,
+    name: trellis.name,
+    timeout: trellis.timeout,
+    stream: trellis.stream,
+    api: trellis.api,
+  };
+}
 
 const DEFAULT_TRELLIS_CONTRACT = defineAppContract(
   () => ({

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { getTrellis } from "@qlever-llc/trellis-svelte";
+  import { getTrellis } from "$lib/trellis-context.svelte";
   import type {
     InspectionSummariesRefreshOutput,
     InspectionSummariesRefreshStatusGetOutput,
@@ -33,9 +33,12 @@
       orThrow(): Promise<InspectionSummariesRefreshStatusGetOutput>;
     };
   };
-
   const siteId = "site-west-yard";
   const terminalStates = new Set(["completed", "failed"]);
+
+  async function getJobsTrellis(): Promise<JobsDemoTrellis> {
+    return await getTrellis() as JobsDemoTrellis;
+  }
 
   let loading = $state(true);
   let error = $state<string | null>(null);
@@ -43,14 +46,26 @@
   let services = $state<Array<{ healthy: boolean; name: string; workers: Array<{ instanceId: string; jobType: string; timestamp: string; }> }>>([]);
   let jobs = $state<Array<{ id: string; service: string; state: string; type: string; updatedAt: string }>>([]);
   let refresh = $state<JobsRefresh | null>(null);
-  const appTrellis = getTrellis() as unknown as Promise<JobsDemoTrellis>;
+  async function requestRefreshStatus(
+    refreshId: string,
+  ): Promise<InspectionSummariesRefreshStatusGetOutput> {
+    const trellis = await getJobsTrellis();
+    return await trellis.request("Inspection.Summaries.RefreshStatus.Get", { refreshId }).orThrow();
+  }
+
+  async function requestRefresh(
+    targetSiteId: string,
+  ): Promise<InspectionSummariesRefreshOutput> {
+    const trellis = await getJobsTrellis();
+    return await trellis.request("Inspection.Summaries.Refresh", { siteId: targetSiteId }).orThrow();
+  }
 
   async function loadAdminView(): Promise<void> {
     loading = true;
     error = null;
 
     try {
-      const client = (await appTrellis).jobs();
+      const client = (await getJobsTrellis()).jobs();
       const [servicesResult, jobsResult] = await Promise.all([
         client.listServices().orThrow(),
         client.list({ limit: 8 }).orThrow(),
@@ -81,9 +96,7 @@
 
   async function pollRefresh(refreshId: string): Promise<void> {
     for (let attempt = 0; attempt < 16; attempt += 1) {
-      const response = await (await appTrellis)
-        .request("Inspection.Summaries.RefreshStatus.Get", { refreshId })
-        .orThrow();
+      const response = await requestRefreshStatus(refreshId);
       refresh = response.refresh ?? null;
 
       if (response.refresh && terminalStates.has(response.refresh.status)) {
@@ -99,9 +112,7 @@
     error = null;
 
     try {
-      const queued = await (await appTrellis)
-        .request("Inspection.Summaries.Refresh", { siteId })
-        .orThrow();
+      const queued = await requestRefresh(siteId);
       refresh = {
         refreshId: queued.refreshId,
         siteId,

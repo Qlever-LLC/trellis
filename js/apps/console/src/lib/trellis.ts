@@ -1,25 +1,15 @@
-import { AsyncResult } from "@qlever-llc/result";
-import type { BaseError, MaybeAsync, Result } from "@qlever-llc/result";
 import { resolve } from "$app/paths";
+import { AsyncResult } from "@qlever-llc/result";
+import type { BaseError, MaybeAsync } from "@qlever-llc/result";
 import type { EventOpts } from "../../../../packages/trellis/trellis.ts";
 import type { HealthHeartbeat } from "@qlever-llc/trellis/health";
-import type { InferSchemaType } from "@qlever-llc/trellis/contracts";
-import { createAuthState, getTrellis as getProviderTrellis } from "@qlever-llc/trellis-svelte";
+import { createAuthState } from "@qlever-llc/trellis-svelte";
 import { trellisApp } from "../../contracts/trellis_app.ts";
 import { APP_CONFIG } from "./config.ts";
+import { getTrellis as getContextTrellis } from "./trellis-context.svelte.ts";
 
 type RequestOpts = { timeout?: number };
-type AppApi = typeof trellisApp.API.trellis;
-type RpcMethodName = keyof AppApi["rpc"] & string;
-type RpcInput<TMethod extends RpcMethodName> = InferSchemaType<AppApi["rpc"][TMethod]["input"]>;
-type RpcOutput<TMethod extends RpcMethodName> = InferSchemaType<AppApi["rpc"][TMethod]["output"]>;
-
-type AppTrellis = {
-  request<TMethod extends RpcMethodName>(
-    method: TMethod,
-    input: RpcInput<TMethod>,
-    opts?: RequestOpts,
-  ): AsyncResult<RpcOutput<TMethod>, BaseError>;
+type RuntimeTrellis = {
   request<T = unknown>(
     method: string,
     input: unknown,
@@ -33,12 +23,12 @@ type AppTrellis = {
   ): AsyncResult<void, BaseError>;
 };
 
-type RuntimeTrellis = {
-  request(
+type AppTrellis = {
+  request<T = unknown>(
     method: string,
     input: unknown,
     opts?: RequestOpts,
-  ): AsyncResult<unknown, BaseError>;
+  ): AsyncResult<T, BaseError>;
   event(
     method: "Health.Heartbeat",
     subjectData: Record<string, unknown>,
@@ -53,22 +43,12 @@ export const auth = createAuthState({
   loginPath: resolve("/login"),
 });
 
-function request<TMethod extends RpcMethodName>(
-  method: TMethod,
-  input: RpcInput<TMethod>,
-  opts?: RequestOpts,
-): AsyncResult<RpcOutput<TMethod>, BaseError>;
 function request<T = unknown>(
-  method: string,
-  input: unknown,
-  opts?: RequestOpts,
-): AsyncResult<T, BaseError>;
-function request(
   this: { createLiveClient: () => Promise<RuntimeTrellis> },
   method: string,
   input: unknown,
   opts?: RequestOpts,
-): AsyncResult<unknown, BaseError> {
+): AsyncResult<T, BaseError> {
   return AsyncResult.from((async () => {
     const trellis = await this.createLiveClient();
     return await trellis.request(method, input, opts);
@@ -76,7 +56,7 @@ function request(
 }
 
 export function getTrellis(): Promise<AppTrellis> {
-  const liveClientPromise = getProviderTrellis<AppApi>() as unknown as Promise<RuntimeTrellis>;
+  const liveClientPromise: Promise<RuntimeTrellis> = getContextTrellis().then((trellis: unknown) => trellis as RuntimeTrellis);
 
   const createLiveClient = async (): Promise<RuntimeTrellis> => {
     return await liveClientPromise;

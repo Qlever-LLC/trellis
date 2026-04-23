@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getTrellis } from "@qlever-llc/trellis-svelte";
+  import { getTrellis } from "$lib/trellis-context.svelte";
   import type {
     InspectionEvidenceUploadOutput,
     InspectionEvidenceUploadProgress,
@@ -26,11 +26,14 @@
         contentType: string;
         evidenceType: string;
       }): {
-        transfer(body: Uint8Array | ArrayBuffer): TransferBuilder;
+        transfer(bytes: Uint8Array): TransferBuilder;
       };
     };
   };
 
+  async function getTransferTrellis(): Promise<TransferDemoTrellis> {
+    return await getTrellis() as TransferDemoTrellis;
+  }
   const encoder = new TextEncoder();
 
   let note = $state("West Yard · Pump Station 7\nObserved minor vibration during the morning walk-through. Follow-up image attached from the browser demo upload.");
@@ -42,8 +45,6 @@
   let progressLog = $state<TransferProgress[]>([]);
   let result = $state<TransferOutput | null>(null);
   let payloadBytes = $derived(encoder.encode(note).byteLength);
-  const appTrellis = getTrellis() as unknown as Promise<TransferDemoTrellis>;
-
   async function startUpload(): Promise<void> {
     running = true;
     error = null;
@@ -55,7 +56,7 @@
     try {
       const bytes = encoder.encode(note);
       const key = `evidence/${crypto.randomUUID()}.txt`;
-      const trellis = await appTrellis;
+      const trellis = await getTransferTrellis();
 
       const upload = await trellis.operation("Inspection.Evidence.Upload")
         .input({

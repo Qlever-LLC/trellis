@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { getTrellis } from "@qlever-llc/trellis-svelte";
+  import { getTrellis } from "$lib/trellis-context.svelte";
 
   type InspectionContextValue = {
     siteId: string;
@@ -22,22 +22,28 @@
     | { applied: false; found: boolean; entry?: AppStateEntry };
 
   type AppStatePutEntry = Extract<AppStatePutResult, { applied: true }>["entry"];
-  type StateDemoTrellis = {
-    state: {
-      inspectionContext: {
-        list(opts?: {
-          prefix?: string;
-          offset?: number;
-          limit?: number;
-        }): { orThrow(): Promise<{ entries: AppStateEntry[] }> };
-        put(
-          key: string,
-          value: InspectionContextValue,
-        ): { orThrow(): Promise<AppStatePutResult> };
-        delete(key: string): { orThrow(): Promise<{ deleted: boolean }> };
+  type InspectionContextStore = {
+    prefix(prefix: string): {
+      list(input: { offset: number; limit: number }): {
+        orThrow(): Promise<{ entries: AppStateEntry[] }>;
       };
     };
+    put(key: string, value: InspectionContextValue): {
+      orThrow(): Promise<AppStatePutResult>;
+    };
+    delete(key: string): {
+      orThrow(): Promise<{ deleted: boolean }>;
+    };
   };
+  type StateDemoTrellis = {
+    state: {
+      inspectionContext: InspectionContextStore;
+    };
+  };
+
+  async function getStateTrellis(): Promise<StateDemoTrellis> {
+    return await getTrellis() as StateDemoTrellis;
+  }
 
   let key = $state("demo.selected-site");
   let siteId = $state("site-west-yard");
@@ -47,10 +53,8 @@
   let loading = $state(true);
   let saving = $state(false);
   let error = $state<string | null>(null);
-  const appTrellis = getTrellis() as unknown as Promise<StateDemoTrellis>;
-
   async function getInspectionContextStore() {
-    return (await appTrellis).state.inspectionContext;
+    return (await getStateTrellis()).state.inspectionContext;
   }
 
   async function loadEntries(): Promise<void> {
@@ -58,8 +62,7 @@
     error = null;
 
     try {
-      const response = await (await getInspectionContextStore()).list({
-        prefix: "demo.",
+      const response = await (await getInspectionContextStore()).prefix("demo.").list({
         offset: 0,
         limit: 12,
       }).orThrow();

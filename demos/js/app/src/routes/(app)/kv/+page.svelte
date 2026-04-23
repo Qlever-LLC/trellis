@@ -1,28 +1,35 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { getTrellis } from "@qlever-llc/trellis-svelte";
-  import type {
-    InspectionSummariesGetOutput,
-    InspectionSummariesListOutput,
-  } from "../../../../../generated/js/sdks/demo-kv-service/types.ts";
+  import { getTrellis } from "$lib/trellis-context.svelte";
+import type { InspectionSummariesListOutput } from "../../../../../generated/js/sdks/demo-kv-service/types.ts";
 
   type KvSummary = InspectionSummariesListOutput["summaries"][number];
+  type KvDemoTrellis = {
+    request(method: "Inspection.Summaries.Get", input: { siteId: string }): {
+      orThrow(): Promise<{ summary: KvSummary | null }>;
+    };
+    request(method: "Inspection.Summaries.List", input: {}): {
+      orThrow(): Promise<{ summaries: KvSummary[] }>;
+    };
+  };
+
+  async function getKvTrellis(): Promise<KvDemoTrellis> {
+    return await getTrellis() as KvDemoTrellis;
+  }
 
   let loading = $state(true);
   let error = $state<string | null>(null);
   let summaries = $state<KvSummary[]>([]);
   let selectedSiteId = $state<string | null>(null);
   let selectedSummary = $state<KvSummary | null>(null);
-  const appTrellis = getTrellis();
-
   async function loadSummary(siteId: string): Promise<void> {
     selectedSiteId = siteId;
     error = null;
 
     try {
-      const response = (await (await appTrellis)
+      const response = await (await getKvTrellis())
         .request("Inspection.Summaries.Get", { siteId })
-        .orThrow()) as InspectionSummariesGetOutput;
+        .orThrow();
       selectedSummary = response.summary ?? null;
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
@@ -34,9 +41,9 @@
     error = null;
 
     try {
-      const response = (await (await appTrellis)
+      const response = await (await getKvTrellis())
         .request("Inspection.Summaries.List", {})
-        .orThrow()) as InspectionSummariesListOutput;
+        .orThrow();
       summaries = response.summaries;
 
       const firstSiteId = response.summaries[0]?.siteId;
