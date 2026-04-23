@@ -159,9 +159,10 @@ pub fn use_contract(contract: impl Into<String>) -> ContractUseRef {
     }
 }
 
-pub fn kv(purpose: impl Into<String>) -> ContractKvResource {
+pub fn kv(purpose: impl Into<String>, schema: impl Into<String>) -> ContractKvResource {
     ContractKvResource {
         purpose: purpose.into(),
+        schema: schema_ref(schema),
         required: None,
         history: None,
         ttl_ms: None,

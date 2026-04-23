@@ -1,6 +1,6 @@
 import { defineServiceContract } from "@qlever-llc/trellis/contracts";
 import { auth, health } from "@qlever-llc/trellis-sdk";
-import * as schemas from "./schemas/index.ts";
+import * as schemas from "./src/schemas/index.ts";
 
 export const contract = defineServiceContract({ schemas }, (ref) => ({
   id: "trellis.demo-jobs-service@v1",
@@ -20,6 +20,7 @@ export const contract = defineServiceContract({ schemas }, (ref) => ({
     kv: {
       refreshStatuses: {
         purpose: "Stored refresh statuses for the jobs demo.",
+        schema: ref.schema("InspectionSummariesRefreshStatusSchema"),
         history: 1,
         ttlMs: 0,
       },

@@ -1,7 +1,9 @@
 import { assertEquals, assertExists } from "@std/assert";
+import { Kvm } from "@nats-io/kv";
 import type { BaseError } from "../result/mod.ts";
 import { Result } from "../result/mod.ts";
 import { Type as T } from "typebox";
+import { ValidationError } from "./errors/index.ts";
 
 function unwrapOk<T, E extends BaseError>(result: Result<T, E>, message: string): T {
   return result.match({
@@ -69,6 +71,90 @@ Deno.test("WatchEvent type shape", async (t) => {
     assertExists(deleteEvent.revision);
     assertExists(deleteEvent.timestamp);
   });
+
+  await t.step("WatchEvent has correct properties for error events", () => {
+    const errorEvent: WatchEvent<typeof TestSchema> = {
+      type: "error",
+      key: "test-key",
+      error: new ValidationError({
+        errors: [{ path: "/count", message: "Expected number" }],
+      }),
+      revision: 3,
+      timestamp: new Date(),
+    };
+
+    assertEquals(errorEvent.type, "error");
+    assertExists(errorEvent.key);
+    assertExists(errorEvent.error);
+    assertEquals(errorEvent.value, undefined);
+    assertExists(errorEvent.revision);
+    assertExists(errorEvent.timestamp);
+  });
+});
+
+Deno.test({
+  name: "TypedKV invalid entries surface errors without deleting data",
+  ignore: !RUN_NATS_TESTS,
+  async fn(t) {
+    await using nats = await NatsTest.start();
+    const kv = await openTestKV(nats.nc, "invalid-entry-test");
+
+    await t.step("get() returns ValidationError and preserves the raw entry", async () => {
+      await kv.kv.put("invalid-get", JSON.stringify({ name: "missing-count" }));
+
+      const result = await kv.get("invalid-get");
+      assertEquals(result.isErr(), true);
+      assertEquals(result.error instanceof ValidationError, true);
+
+      const raw = await kv.kv.get("invalid-get");
+      assertExists(raw, "Invalid entry should not be auto-deleted");
+    });
+
+    await t.step("watch() emits an error event and preserves the raw entry", async () => {
+      const key = "invalid-watch";
+      const createResult = await kv.create(key, { name: "initial", count: 1 });
+      if (createResult.isErr()) throw new Error("Failed to create entry");
+
+      const entryResult = await kv.get(key);
+      if (entryResult.isErr()) throw new Error("Failed to get entry");
+      const entry = unwrapOk(entryResult, "Failed to get entry");
+
+      const events: WatchEvent<typeof TestSchema>[] = [];
+      const unsubscribe = await entry.watch((event) => {
+        events.push(event);
+      }, { includeDeletes: true });
+
+      await delay(100);
+      await kv.kv.put(key, JSON.stringify({ name: "missing-count" }));
+      await delay(200);
+
+      const errorEvent = events.find((event) => event.type === "error");
+      assertExists(errorEvent, "Should receive an error event");
+      assertEquals(errorEvent.key, key);
+      assertEquals(errorEvent.error instanceof ValidationError, true);
+
+      const raw = await kv.kv.get(key);
+      assertExists(raw, "Invalid watch entry should not be auto-deleted");
+
+      unsubscribe();
+    });
+
+    await t.step("TypedKVEntry.create() returns ValidationError and preserves the raw entry", async () => {
+      const rawKv = await new Kvm(nats.nc).open("invalid-entry-test");
+      await rawKv.put("invalid-entry-create", JSON.stringify({ count: 10 }));
+
+      const rawEntry = await rawKv.get("invalid-entry-create");
+      assertExists(rawEntry);
+
+      const { TypedKVEntry } = await import("./kv.ts");
+      const result = await TypedKVEntry.create(TestSchema, rawKv, rawEntry);
+      assertEquals(result.isErr(), true);
+      assertEquals(result.error instanceof ValidationError, true);
+
+      const preserved = await rawKv.get("invalid-entry-create");
+      assertExists(preserved, "Invalid entry should remain present after validation failure");
+    });
+  },
 });
 
 Deno.test({

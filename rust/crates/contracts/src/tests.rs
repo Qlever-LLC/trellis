@@ -251,6 +251,74 @@ fn manifest_paths_only_select_contract_manifest_candidates() {
 }
 
 #[test]
+fn manifest_parses_kv_resources_with_schema() {
+    let manifest = parse_manifest(json!({
+        "format": "trellis.contract.v1",
+        "id": "example.kv@v1",
+        "displayName": "Example KV",
+        "description": "Expose kv resources",
+        "kind": "service",
+        "schemas": {
+            "JobState": {
+                "type": "object",
+                "required": ["status"],
+                "properties": {"status": {"type": "string"}},
+                "additionalProperties": false
+            }
+        },
+        "resources": {
+            "kv": {
+                "jobsState": {
+                    "purpose": "Store projected job state",
+                    "schema": {"schema": "JobState"},
+                    "required": true,
+                    "history": 1,
+                    "ttlMs": 0
+                }
+            }
+        }
+    }))
+    .expect("manifest with kv resources should parse");
+
+    let jobs_state = manifest
+        .resources
+        .kv
+        .get("jobsState")
+        .expect("jobsState kv resource");
+    assert_eq!(jobs_state.purpose, "Store projected job state");
+    assert_eq!(jobs_state.schema.schema, "JobState");
+    assert_eq!(jobs_state.required, Some(true));
+    assert_eq!(jobs_state.history, Some(1));
+    assert_eq!(jobs_state.ttl_ms, Some(0));
+}
+
+#[test]
+fn manifest_validation_rejects_unknown_kv_schema_refs() {
+    let error = parse_manifest(json!({
+        "format": "trellis.contract.v1",
+        "id": "example.kv@v1",
+        "displayName": "Example KV",
+        "description": "Expose kv resources",
+        "kind": "service",
+        "resources": {
+            "kv": {
+                "jobsState": {
+                    "purpose": "Store projected job state",
+                    "schema": {"schema": "MissingState"}
+                }
+            }
+        }
+    }))
+    .expect_err("manifest with missing kv schema should fail");
+
+    let ContractsError::SchemaValidation { details, .. } = error else {
+        panic!("expected schema validation error");
+    };
+    assert!(details.contains("resources.kv"));
+    assert!(details.contains("unknown schema"));
+}
+
+#[test]
 fn manifest_parses_stream_resources() {
     let manifest = parse_manifest(json!({
         "format": "trellis.contract.v1",

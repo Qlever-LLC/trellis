@@ -1,25 +1,35 @@
 import { Result, type TypedKV, UnexpectedError } from "@qlever-llc/trellis";
-import type { JobHandler } from "@qlever-llc/trellis/service";
-import type contract from "../contract.ts";
-import type * as schemas from "../schemas/index.ts";
-import { getSiteSummary } from "../../../shared/field_data.ts";
+import * as schemas from "../schemas/index.ts";
+import { getSiteSummary } from "../../../../shared/field_data.ts";
+import type { TSchema } from "typebox";
 
-export function createRefreshSummariesHandler(
-  refreshStatuses: TypedKV<
-    typeof schemas.InspectionSummariesRefreshStatusSchema
-  >,
-): JobHandler<typeof contract, "refreshSummaries"> {
-  return async ({ job }) => {
+export function refreshSummaries(
+  refreshStatuses: TypedKV<TSchema>,
+) {
+  return async (
+    { job }: {
+      job: {
+        payload: { siteId: string };
+        ref: { id: string };
+        progress(update: {
+          step: string;
+          message: string;
+          current: number;
+          total: number;
+        }): { orThrow(): Promise<unknown> };
+      };
+    },
+  ) => {
     const siteSummary = getSiteSummary(job.payload.siteId);
 
     await refreshStatuses
-      .put(job.ref.id, {
-        refreshId: job.ref.id,
-        siteId: job.payload.siteId,
-        status: "running",
-        updatedAt: new Date().toISOString(),
-        message: siteSummary
-          ? `Refreshing summary for ${siteSummary.siteName}`
+        .put(job.ref.id, {
+          refreshId: job.ref.id,
+          siteId: job.payload.siteId,
+          status: "running" as const,
+          updatedAt: new Date().toISOString(),
+          message: siteSummary
+            ? `Refreshing summary for ${siteSummary.siteName}`
           : `Refreshing summary for ${job.payload.siteId}`,
       })
       .orThrow();
@@ -40,7 +50,7 @@ export function createRefreshSummariesHandler(
         .put(job.ref.id, {
           refreshId: job.ref.id,
           siteId: job.payload.siteId,
-          status: "failed",
+          status: "failed" as const,
           updatedAt: new Date().toISOString(),
           message,
         })
@@ -58,18 +68,18 @@ export function createRefreshSummariesHandler(
       .orThrow();
 
     await refreshStatuses
-      .put(job.ref.id, {
-        refreshId: job.ref.id,
-        siteId: job.payload.siteId,
-        status: "completed",
-        updatedAt: new Date().toISOString(),
-        message: `Refresh completed for ${siteSummary.siteName}`,
-      })
+        .put(job.ref.id, {
+          refreshId: job.ref.id,
+          siteId: job.payload.siteId,
+          status: "completed" as const,
+          updatedAt: new Date().toISOString(),
+          message: `Refresh completed for ${siteSummary.siteName}`,
+        })
       .orThrow();
 
     return Result.ok({
       refreshId: job.ref.id,
-      status: "completed",
+      status: "completed" as const,
     });
   };
 }

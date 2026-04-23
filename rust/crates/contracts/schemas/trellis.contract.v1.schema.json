@@ -220,12 +220,15 @@
     },
     "kvResource": {
       "type": "object",
-      "required": ["purpose"],
+      "required": ["purpose", "schema"],
       "additionalProperties": false,
       "properties": {
         "purpose": {
           "type": "string",
           "minLength": 1
+        },
+        "schema": {
+          "$ref": "#/$defs/schemaRef"
         },
         "required": {
           "type": "boolean",

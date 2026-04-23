@@ -74,6 +74,9 @@ const CONTRACT_MODULE_METADATA = Symbol.for(
 export const CONTRACT_JOBS_METADATA = Symbol.for(
   "@qlever-llc/trellis/contracts/jobs",
 );
+export const CONTRACT_KV_METADATA = Symbol.for(
+  "@qlever-llc/trellis/contracts/kv",
+);
 export const CONTRACT_STATE_METADATA = Symbol.for(
   "@qlever-llc/trellis/contracts/state",
 );
@@ -254,6 +257,7 @@ export type ContractJobs = Record<string, ContractJobQueue>;
 
 export type ContractKvResource = {
   purpose: string;
+  schema: ContractSchemaRef;
   required?: boolean;
   history?: number;
   ttlMs?: number;
@@ -621,8 +625,9 @@ export type ContractSourceJobs<TSchemaName extends string = string> = Record<
   ContractSourceJobQueue<TSchemaName>
 >;
 
-export type ContractSourceKvResource = {
+export type ContractSourceKvResource<TSchemaName extends string = string> = {
   purpose: string;
+  schema: ContractSchemaRef<TSchemaName>;
   required?: boolean;
   history?: number;
   ttlMs?: number;
@@ -656,7 +661,7 @@ export type ContractSourceStreamResource = {
 };
 
 export type ContractSourceResources<TSchemaName extends string = string> = {
-  kv?: Record<string, ContractSourceKvResource>;
+  kv?: Record<string, ContractSourceKvResource<TSchemaName>>;
   store?: Record<string, ContractSourceStoreResource>;
   streams?: Record<string, ContractSourceStreamResource>;
 };
@@ -866,11 +871,24 @@ export type ContractJobsMetadata = Record<string, {
   payload: unknown;
   result: unknown;
 }>;
+export type ContractKvMetadata = Record<string, {
+  required: boolean;
+  value: unknown;
+  schema: TSchema;
+}>;
 export type ContractStateMetadata = Record<string, {
   kind: ContractStateKind;
   value: unknown;
   schema: unknown;
 }>;
+
+type ResolveTypeBoxSchemaFromMap<TSchemas, TRef> = TRef extends {
+  schema: infer TName;
+} ? TName extends SchemaNameOf<TSchemas>
+  ? NonNullable<TSchemas>[TName] extends TSchema ? NonNullable<TSchemas>[TName]
+    : TSchema
+  : TSchema
+  : TSchema;
 
 type ProjectedJobs<
   T extends ContractSourceJobs<string> | undefined,
@@ -897,8 +915,30 @@ type ProjectedState<
   }
   : {};
 
+type ProjectedKvResources<
+  T extends ContractSourceResources<string> | undefined,
+  TSchemas,
+> = T extends { kv?: infer TKv }
+  ? TKv extends Record<
+      string,
+      { schema: ContractSchemaRef<string>; required?: boolean }
+    > ? {
+      [K in keyof TKv]: {
+        required: TKv[K] extends { required: infer TRequired extends boolean }
+          ? TRequired
+          : true;
+        value: ResolveSchemaTypeFromMap<TSchemas, TKv[K]["schema"]>;
+        schema: ResolveTypeBoxSchemaFromMap<TSchemas, TKv[K]["schema"]>;
+      };
+    }
+  : {}
+  : {};
+
 type JobsFromSource<T> = T extends { jobs?: infer TJobs }
   ? Extract<TJobs, ContractSourceJobs<string> | undefined>
+  : undefined;
+type ResourcesFromSource<T> = T extends { resources?: infer TResources }
+  ? Extract<TResources, ContractSourceResources<string> | undefined>
   : undefined;
 type StateFromSource<T> = T extends { state?: infer TState }
   ? Extract<TState, ContractSourceState<string> | undefined>
@@ -1077,6 +1117,7 @@ export type ContractModule<
   TTrellisApi extends ApiShape,
   TJobs extends ContractJobsMetadata = {},
   TState extends ContractStateMetadata = {},
+  TKv extends ContractKvMetadata = ContractKvMetadata,
 > = {
   CONTRACT_ID: TContractId;
   CONTRACT: TrellisContractV1;
@@ -1085,6 +1126,7 @@ export type ContractModule<
   use: ContractUseFn<TContractId, TOwnedApi>;
   readonly [CONTRACT_JOBS_METADATA]?: TJobs;
   readonly [CONTRACT_STATE_METADATA]?: TState;
+  readonly [CONTRACT_KV_METADATA]?: TKv;
 };
 
 export type SdkContractModule<
@@ -1092,7 +1134,16 @@ export type SdkContractModule<
   TOwnedApi extends ApiShape,
   TJobs extends ContractJobsMetadata = {},
   TState extends ContractStateMetadata = {},
-> = ContractModule<TContractId, TOwnedApi, EmptyApi, TOwnedApi, TJobs, TState>;
+  TKv extends ContractKvMetadata = ContractKvMetadata,
+> = ContractModule<
+  TContractId,
+  TOwnedApi,
+  EmptyApi,
+  TOwnedApi,
+  TJobs,
+  TState,
+  TKv
+>;
 
 export type DefinedContract<
   TOwnedApi extends ApiShape,
@@ -1101,13 +1152,15 @@ export type DefinedContract<
   TContractId extends string = string,
   TJobs extends ContractJobsMetadata = {},
   TState extends ContractStateMetadata = {},
+  TKv extends ContractKvMetadata = ContractKvMetadata,
 > = ContractModule<
   TContractId,
   TOwnedApi,
   TUsedApi,
   TTrellisApi,
   TJobs,
-  TState
+  TState,
+  TKv
 >;
 
 export type DefineContractInput<
@@ -1652,6 +1705,7 @@ function emitResources(
             alias,
             {
               purpose: resource.purpose,
+              schema: { ...resource.schema },
               required: resource.required ?? true,
               history: resource.history ?? 1,
               ttlMs: resource.ttlMs ?? 0,
@@ -1775,6 +1829,27 @@ function buildContractJobsMetadata(
       result: undefined,
     }]),
   ) as ContractJobsMetadata;
+}
+
+function buildContractKvMetadata(
+  resources: ContractSourceResources | undefined,
+  schemas: ContractSourceSchemas | undefined,
+): ContractKvMetadata {
+  const kv = resources?.kv;
+  if (!kv) {
+    return {};
+  }
+
+  const metadata: ContractKvMetadata = {};
+  for (const [alias, resource] of Object.entries(kv)) {
+    assertSchemaRefExists(schemas, resource.schema, `kv resource '${alias}'`);
+    metadata[alias] = {
+      required: resource.required ?? true,
+      value: undefined,
+      schema: schemas![resource.schema.schema],
+    };
+  }
+  return metadata;
 }
 
 function buildContractStateMetadata(
@@ -2769,6 +2844,10 @@ function defineContract(
       () => contract,
     ),
     [CONTRACT_JOBS_METADATA]: buildContractJobsMetadata(source.jobs),
+    [CONTRACT_KV_METADATA]: buildContractKvMetadata(
+      source.resources,
+      source.schemas,
+    ),
     [CONTRACT_STATE_METADATA]: buildContractStateMetadata(
       source.state,
       source.schemas,
@@ -2854,6 +2933,10 @@ export function defineServiceContract<
   ProjectedState<
     StateFromSource<BuiltContractSource<TRegistry, WithKind<TBody, "service">>>,
     SchemasFromSource<BuiltContractSource<TRegistry, WithKind<TBody, "service">>>
+  >,
+  ProjectedKvResources<
+    ResourcesFromSource<BuiltContractSource<TRegistry, WithKind<TBody, "service">>>,
+    SchemasFromSource<BuiltContractSource<TRegistry, WithKind<TBody, "service">>>
   >
 > {
   return defineContract(
@@ -2880,6 +2963,10 @@ export function defineServiceContract<
     >,
     ProjectedState<
       StateFromSource<BuiltContractSource<TRegistry, WithKind<TBody, "service">>>,
+      SchemasFromSource<BuiltContractSource<TRegistry, WithKind<TBody, "service">>>
+    >,
+    ProjectedKvResources<
+      ResourcesFromSource<BuiltContractSource<TRegistry, WithKind<TBody, "service">>>,
       SchemasFromSource<BuiltContractSource<TRegistry, WithKind<TBody, "service">>>
     >
   >;

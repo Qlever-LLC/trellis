@@ -2,12 +2,16 @@
 
 These demos are small, terminal-first examples of one Trellis surface at a time.
 
+Service demos follow the public service-author path with
+`TrellisService.connect(...)`. They do not use Trellis-internal bootstrap
+helpers.
+
 Supported demos:
 
 - `rpc`: simple request/response RPCs
 - `operation`: progress + cancel + completion for one operation
 - `transfer`: upload bytes into a transfer-capable operation
-- `kv`: read service-owned KV-backed projections through RPC
+- `kv`: read schema-backed service-owned KV data through RPC
 - `jobs`: queue a background job and poll its status
 - `state`: read and write device-owned state
 

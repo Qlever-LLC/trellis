@@ -6,7 +6,7 @@ import {
 import { openActivityStore } from "./store.ts";
 
 const service = await bootstrapAndConnectActivityService();
-const activityKV = await openActivityStore(service);
+const activityKV = openActivityStore(service);
 
 await registerActivityRpcHandlers(service, activityKV);
 await registerActivityProjection(service, activityKV);

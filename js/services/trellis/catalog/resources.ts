@@ -486,7 +486,24 @@ export function getJobsQueueRequests(
 export function getStoreResourceRequests(
   contract: TrellisContractV1,
 ): StoreResourceRequest[] {
-  const entries = Object.entries(contract.resources?.store ?? {});
+  const resources = (contract as TrellisContractV1 & {
+    resources?: {
+      store?: Record<string, {
+        purpose: string;
+        required?: boolean;
+        ttlMs?: number;
+        maxObjectBytes?: number;
+        maxTotalBytes?: number;
+      }>;
+    };
+  }).resources;
+  const entries = Object.entries(resources?.store ?? {}) as Array<[string, {
+    purpose: string;
+    required?: boolean;
+    ttlMs?: number;
+    maxObjectBytes?: number;
+    maxTotalBytes?: number;
+  }]>;
 
   return entries
     .map(([alias, resource]) => ({

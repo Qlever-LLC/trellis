@@ -47,6 +47,7 @@ export const contract = defineServiceContract(
       kv: {
         siteSummaries: {
           purpose: "Latest site summaries for the KV demo.",
+          schema: ref.schema("SiteSummary"),
           history: 1,
           ttlMs: 0,
         },

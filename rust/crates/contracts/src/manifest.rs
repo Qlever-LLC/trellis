@@ -134,6 +134,14 @@ fn validate_schema_refs(manifest: &ContractManifest) -> Result<(), ContractsErro
         }
     }
 
+    for (alias, kv) in &manifest.resources.kv {
+        assert_schema_ref_exists(
+            manifest,
+            &kv.schema.schema,
+            &format!("resources.kv.{alias}"),
+        )?;
+    }
+
     Ok(())
 }
 

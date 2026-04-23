@@ -1,6 +1,5 @@
 export {
   type JobQueue,
-  KVHandle,
   type JobHandler,
   type JobsFacadeOf,
   type OperationRegistration,

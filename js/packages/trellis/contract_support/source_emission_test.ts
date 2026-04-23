@@ -502,6 +502,37 @@ Deno.test("defineServiceContract emits stream resources with defaults", () => {
   });
 });
 
+Deno.test("defineServiceContract emits KV resources with schema-backed defaults", () => {
+  const kvSchemas = {
+    Item: Type.Object({ value: Type.String() }),
+  } as const;
+
+  const contract = defineServiceContract(
+    { schemas: kvSchemas },
+    (ref) => ({
+      id: "kv.example@v1",
+      displayName: "KV Example",
+      description: "Expose schema-backed KV resource declarations.",
+      resources: {
+        kv: {
+          items: {
+            purpose: "Persist typed items",
+            schema: ref.schema("Item"),
+          },
+        },
+      },
+    }),
+  );
+
+  assertEquals(contract.CONTRACT.resources?.kv?.items, {
+    purpose: "Persist typed items",
+    schema: { schema: "Item" },
+    required: true,
+    history: 1,
+    ttlMs: 0,
+  });
+});
+
 Deno.test("defineServiceContract preserves rich stream resource configuration", () => {
   const contract = defineServiceContract({}, () => ({
     id: "streams.rich@v1",

@@ -1,6 +1,5 @@
 import { TrellisService } from "@qlever-llc/trellis/service/deno";
 import contract from "../contract.ts";
-import { InspectionSummariesRefreshStatusSchema } from "./schemas/index.ts";
 import { Command } from "@cliffy/command";
 import chalk from "chalk";
 import * as jobs from "./jobs/index.ts";
@@ -24,22 +23,21 @@ async function main(): Promise<void> {
     name: "demo-jobs-service",
   }).orThrow();
 
-  // Open KV store binding
-  const refreshStatuses = await trellis.kv.refreshStatuses
-    .open(InspectionSummariesRefreshStatusSchema)
-    .orThrow();
+  const refreshStatuses = trellis.kv.refreshStatuses;
 
-  // Mount Job handler
   trellis.jobs.refreshSummaries.handle(jobs.refreshSummaries(refreshStatuses));
 
   await trellis.trellis.mount(
     "Inspection.Summaries.Refresh",
-    rpcs.inspectionSummariesRefreshRpc,
+    rpcs.inspectionSummariesRefreshRpc(
+      refreshStatuses,
+      trellis.jobs.refreshSummaries,
+    ),
   );
 
   await trellis.trellis.mount(
     "Inspection.Summaries.RefreshStatus.Get",
-    rpcs.getRefreshStatus,
+    rpcs.getRefreshStatus(refreshStatuses),
   );
 
   console.log(chalk.green.bold("== Inspection jobs service"));

@@ -14,6 +14,9 @@ This is the preferred Trellis pattern when:
 
 Prefer `defineError(...)` for service-local RPC errors.
 
+Public service code in this guide assumes normal bootstrap through
+`TrellisService.connect(...)`.
+
 It generates a real `TrellisError` subclass with:
 
 - a typed wire schema

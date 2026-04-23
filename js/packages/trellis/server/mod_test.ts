@@ -7,6 +7,7 @@ import { assertEquals, assertExists } from "jsr:@std/assert";
 import { Type } from "typebox";
 import { AsyncResult, type BaseError, Result } from "@qlever-llc/result";
 import { defineServiceContract } from "../contract.ts";
+import { CONTRACT_KV_METADATA } from "../contract_support/mod.ts";
 import type {
   EventHandler,
   EventName,
@@ -83,9 +84,14 @@ const typeTestContract = defineServiceContract(
   }),
 );
 
+type TypeTestKv = NonNullable<
+  typeof typeTestContract[typeof CONTRACT_KV_METADATA]
+>;
+
 const jobsTypeTestSchemas = {
   RefreshPayload: Type.Object({ siteId: Type.String() }),
   RefreshResult: Type.Object({ refreshId: Type.String() }),
+  KVValue: Type.Object({ value: Type.String() }),
 } as const;
 
 const jobsTypeTestContract = defineServiceContract(
@@ -100,13 +106,49 @@ const jobsTypeTestContract = defineServiceContract(
         result: ref.schema("RefreshResult"),
       },
     },
+    resources: {
+      kv: {
+        items: {
+          purpose: "Store typed items",
+          schema: ref.schema("KVValue"),
+        },
+      },
+      store: {
+        uploads: {
+          purpose: "Store staged uploads",
+        },
+      },
+    },
   }),
 );
+
+const optionalKvTypeTestContract = defineServiceContract(
+  { schemas: typeTestSchemas },
+  (ref) => ({
+    id: "trellis.server.optional-kv-type-test@v1",
+    displayName: "Optional KV Type Test",
+    description: "Verify optional KV aliases stay optional in the service type.",
+    resources: {
+      kv: {
+        items: {
+          purpose: "Optionally store typed items",
+          schema: ref.schema("KVValue"),
+          required: false,
+        },
+      },
+    },
+  }),
+);
+
+type OptionalKvTypeTest = NonNullable<
+  typeof optionalKvTypeTestContract[typeof CONTRACT_KV_METADATA]
+>;
 
 const operationsTypeTestSchemas = {
   RunInput: Type.Object({ value: Type.String() }),
   RunProgress: Type.Object({ value: Type.String() }),
   RunOutput: Type.Object({ ok: Type.Boolean() }),
+  KVValue: Type.Object({ value: Type.String() }),
 } as const;
 
 const operationsTypeTestContract = defineServiceContract(
@@ -123,6 +165,19 @@ const operationsTypeTestContract = defineServiceContract(
         output: ref.schema("RunOutput"),
       },
     },
+    resources: {
+      kv: {
+        items: {
+          purpose: "Store typed items",
+          schema: ref.schema("KVValue"),
+        },
+      },
+      store: {
+        uploads: {
+          purpose: "Store staged uploads",
+        },
+      },
+    },
   }),
 );
 
@@ -130,6 +185,10 @@ Deno.test("TrellisServer export exists", () => {
   assertExists(TrellisServer);
   assertEquals(typeof TrellisServer, "function");
   assertEquals(typeof TrellisServiceClass, "function");
+  assertEquals(
+    Reflect.has(TrellisServiceClass as object, "connectInternal"),
+    false,
+  );
   assertEquals(typeof StoreHandle, "function");
 });
 
@@ -193,7 +252,9 @@ Deno.test("service wrapper type surface stays specific", () => {
     service:
       & TrellisService<
         typeof typeTestContract.API.owned,
-        typeof typeTestContract.API.owned
+        typeof typeTestContract.API.owned,
+        {},
+        TypeTestKv
       >,
     storeHandle: StoreHandle,
   ): {
@@ -217,7 +278,9 @@ Deno.test("service wrapper mount handlers stay method-typed", () => {
   function expectTypedMount(
     service: TrellisService<
       typeof typeTestContract.API.owned,
-      typeof typeTestContract.API.trellis
+      typeof typeTestContract.API.trellis,
+      {},
+      TypeTestKv
     >,
   ) {
     void service.trellis.mount(
@@ -251,6 +314,21 @@ Deno.test("service wrapper mount handlers stay method-typed", () => {
   }
 
   assertExists(expectTypedMount);
+});
+
+Deno.test("optional KV aliases stay optional in the service type", () => {
+  function expectOptionalKv(
+    service: TrellisService<
+      typeof optionalKvTypeTestContract.API.owned,
+      typeof optionalKvTypeTestContract.API.trellis,
+      {},
+      OptionalKvTypeTest
+    >,
+  ): TypedKV<typeof typeTestSchemas.KVValue> | undefined {
+    return service.kv.items;
+  }
+
+  assertExists(expectOptionalKv);
 });
 
 Deno.test("service wrapper exposes typed jobs facade", () => {
@@ -364,7 +442,8 @@ Deno.test("contract-oriented helper types support local Args and Return aliases"
 
 Deno.test("service handler aliases expose narrow trellis object args", () => {
   type ServiceRuntime = ServiceTrellisHandler<
-    typeof typeTestContract.API.trellis
+    typeof typeTestContract.API.trellis,
+    TypeTestKv
   >;
   type PingRpcHandler = RpcHandler<typeof typeTestContract, "Test.Ping">;
   type RefreshJobHandler = JobHandler<

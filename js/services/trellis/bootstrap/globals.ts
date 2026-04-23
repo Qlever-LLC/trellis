@@ -1,6 +1,6 @@
 import { connect, credsAuthenticator } from "@nats-io/transport-deno";
 import { createAuth, isErr, TypedKV } from "@qlever-llc/trellis";
-import { TrellisService } from "@qlever-llc/trellis/service/deno";
+import { connectTrellisServiceInternal } from "../../../packages/trellis/server/internal_connect.ts";
 import { pino } from "pino";
 import { Value } from "typebox/value";
 import { getConfig } from "../config.ts";
@@ -379,7 +379,7 @@ export const stateKV = stateKVValue;
 // TrellisService.connect(...) bootstrap flow. The control-plane is the component
 // that serves bootstrap state and mounts the RPCs that normal services depend on
 // during startup.
-export const trellisService = await TrellisService.connectInternal(
+export const trellisService = await connectTrellisServiceInternal(
   "trellis",
   {
     auth,

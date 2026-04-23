@@ -1,22 +1,13 @@
 import { isErr, Result, type TypedKV } from "@qlever-llc/trellis";
-import type { TrellisService } from "@qlever-llc/trellis/service";
-import type { ActivityOwnedApi, ActivityTrellisApi } from "./contracts/trellis_activity.ts";
 import type { ActivityEntry } from "./schemas.ts";
 import { ActivityEntrySchema } from "./schemas.ts";
 
 export type ActivityStore = TypedKV<typeof ActivityEntrySchema>;
 
-export async function openActivityStore(service: TrellisService<ActivityOwnedApi, ActivityTrellisApi>): Promise<ActivityStore> {
-  const handle = service.kv.activity;
-  if (!handle) {
-    throw new Error("Missing `activity` KV binding.");
-  }
-  const result = await handle.open(ActivityEntrySchema);
-  const value = result.take();
-  if (isErr(value)) {
-    throw value.error;
-  }
-  return value;
+export function openActivityStore(
+  service: { kv: { activity: ActivityStore } },
+): ActivityStore {
+  return service.kv.activity;
 }
 
 export async function putActivityEntry(activityKV: ActivityStore, entry: ActivityEntry) {

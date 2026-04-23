@@ -17,6 +17,7 @@ async function createTestContractStore() {
     description: "Example service contract",
     kind: "service",
     schemas: {
+      CacheEntry: { type: "object" },
       JobPayload: { type: "object" },
     },
     jobs: {
@@ -28,6 +29,7 @@ async function createTestContractStore() {
       kv: {
         cache: {
           purpose: "Store cache entries",
+          schema: { schema: "CacheEntry" },
         },
       },
     },

@@ -37,7 +37,6 @@ export {
 } from "./health_schemas.ts";
 export {
   type JobQueue,
-  KVHandle,
   type JobHandler,
   type JobsFacadeOf,
   type OperationRegistration,

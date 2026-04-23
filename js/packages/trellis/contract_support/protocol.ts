@@ -17,8 +17,15 @@ function formatIsoDate(value: Date): string {
   return value.toISOString();
 }
 
+export const ContractSchemaRefSchema = Type.Object({
+  schema: Type.String({ minLength: 1 }),
+}, { additionalProperties: false });
+
+export type ContractSchemaRef = Static<typeof ContractSchemaRefSchema>;
+
 export const ContractKvResourceSchema = Type.Object({
   purpose: Type.String({ minLength: 1 }),
+  schema: ContractSchemaRefSchema,
   required: Type.Optional(Type.Boolean({ default: true })),
   history: Type.Optional(Type.Integer({ minimum: 1, default: 1 })),
   ttlMs: Type.Optional(Type.Integer({ minimum: 0, default: 0 })),
@@ -58,12 +65,6 @@ export const ContractStreamResourceSchema = Type.Object({
 export type ContractStreamResource = Static<
   typeof ContractStreamResourceSchema
 >;
-
-export const ContractSchemaRefSchema = Type.Object({
-  schema: Type.String({ minLength: 1 }),
-}, { additionalProperties: false });
-
-export type ContractSchemaRef = Static<typeof ContractSchemaRefSchema>;
 
 export const ContractStateStoreSchema = Type.Object({
   kind: Type.Union([

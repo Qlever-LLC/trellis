@@ -129,7 +129,9 @@ A `trellis.contract.v1` manifest has this top-level structure:
   "displayName": "Graph Service",
   "description": "Serve graph RPCs and publish graph change events.",
   "kind": "service",
-  "schemas": {},
+  "schemas": {
+    "Checkpoint": { "type": "object" }
+  },
   "uses": {},
   "jobs": {},
   "operations": {},
@@ -141,6 +143,7 @@ A `trellis.contract.v1` manifest has this top-level structure:
     "kv": {
       "state": {
         "purpose": "Store service checkpoints",
+        "schema": { "schema": "Checkpoint" },
         "required": true,
         "history": 1,
         "ttlMs": 0
@@ -175,7 +178,7 @@ Rules:
 
 - `format`, `id`, `displayName`, `description`, and `kind` are required.
 - `schemas` is the contract-level schema registry referenced by RPC,
-  operations, events, jobs, and state declarations.
+  operations, events, jobs, state declarations, and schema-backed KV resources.
 - `kind` drives discovery behavior in bootstrap-safe generation flows: `service`
   contracts generate manifests and SDKs, while `app`, `agent`, and `device`
   contracts are verified.
@@ -507,6 +510,7 @@ Example:
     "kv": {
       "activity": {
         "purpose": "Store normalized activity entries",
+        "schema": { "schema": "ActivityEntry" },
         "required": true,
         "history": 1,
         "ttlMs": 0,
@@ -572,6 +576,7 @@ Rules:
 - a KV request declares:
   - `purpose`: required human-facing explanation of why the service needs the
     resource
+  - `schema`: required schema reference for the JSON value stored in the bucket
   - `required`: whether activation depends on successful provisioning; default
     `true`
   - `history`: desired KV history depth; default `1`

@@ -10,6 +10,9 @@
         "history": 1,
         "purpose": "Store projected job state for Jobs.List and Jobs.Get.",
         "required": true,
+        "schema": {
+          "schema": "Job"
+        },
         "ttlMs": 0
       }
     },

@@ -21,10 +21,14 @@ const CONTRACT = {
   displayName: "Activity",
   description: "Store activity entries in KV.",
   kind: "service",
+  schemas: {
+    ActivityEntry: { type: "object" },
+  },
   resources: {
     kv: {
       activity: {
         purpose: "Store activity entries",
+        schema: { schema: "ActivityEntry" },
       },
     },
   },
@@ -531,8 +535,8 @@ Deno.test({
       },
     );
     const store = opened.match({
-      ok: (value) => value,
-      err: (error) => {
+      ok: (value: TypedStore) => value,
+      err: (error: Error) => {
         throw error;
       },
     });
@@ -545,14 +549,14 @@ Deno.test({
 
     const entry = await store.get("incoming/test.txt").match({
       ok: (value) => value,
-      err: (error) => {
+      err: (error: Error) => {
         throw error;
       },
     });
 
     const bytes = await entry.bytes().match({
       ok: (value) => value,
-      err: (error) => {
+      err: (error: Error) => {
         throw error;
       },
     });

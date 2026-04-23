@@ -448,7 +448,8 @@ This document only constrains the architectural direction behind that API:
 - the participant runtime surface remains derived from `API.owned`, `API.used`,
   and `API.trellis`
 - public documentation should lead with `TrellisClient.connect(...)`,
-  `TrellisService.connect(...)`, and `TrellisDevice.connect(...)`
+  `TrellisService.connect(...)`, and `TrellisDevice.connect(...)`; public
+  service author guidance should not point at Trellis-internal bootstrap paths
 - emitted manifests remain canonical `trellis.contract.v1` artifacts; this
   design does not create a parallel manifest format
 - generated SDK outputs still need the richer contract module shape with

@@ -355,11 +355,17 @@ const transferSchemas = {
 
 const transferContract = defineServiceContract(
   { schemas: transferSchemas },
-  () => ({
+  (ref) => ({
     id: "trellis.transfer@v1",
     displayName: "Transfer",
     description: "Exercise transfer-capable operation typing.",
     resources: {
+      kv: {
+        uploadsByKey: {
+          purpose: "Track upload metadata",
+          schema: ref.schema("UploadInput"),
+        },
+      },
       store: {
         uploads: {
           purpose: "Temporary uploads",
@@ -384,6 +390,7 @@ const transferContract = defineServiceContract(
 );
 
 transferContract.API.owned.operations["Demo.Files.Upload"].transfer?.store;
+transferContract.CONTRACT.resources?.kv?.uploadsByKey?.schema.schema;
 
 const builderContract = defineServiceContract(
   {
@@ -465,6 +472,28 @@ if (false) {
         import: {
           // @ts-expect-error job queue schema refs must use local schema keys
           payload: { schema: "Missing" },
+        },
+      },
+    }),
+  );
+
+  defineServiceContract(
+    {
+      schemas: {
+        Empty: EmptySchema,
+      },
+    },
+    (ref) => ({
+      id: "trellis.invalid-kv-schema@v1",
+      displayName: "Invalid KV Schema",
+      description: "Should fail type checking.",
+      resources: {
+        kv: {
+          cache: {
+            purpose: "Broken KV schema ref",
+            // @ts-expect-error kv resource schema refs must use local schema keys
+            schema: ref.schema("Missing"),
+          },
         },
       },
     }),

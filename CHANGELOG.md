@@ -10,6 +10,12 @@ and this project adheres to
 
 ### Changed
 
+- Changed service-owned KV from an opened-at-startup helper pattern to a
+  schema-backed contract surface: `resources.kv.<alias>` now requires
+  `schema`, `service.kv.<alias>` and handler `trellis.kv.<alias>` are directly
+  typed stores, and public service-author guidance now leads only with
+  `TrellisService.connect(...)` rather than exposing Trellis-internal bootstrap
+  helpers.
 - Made the JavaScript service jobs lifecycle service-owned by removing public
   `jobs.startWorkers()`, making `jobs.<queue>.handle(...)` synchronous, and
   starting and stopping registered job workers through `service.wait()` /
@@ -36,9 +42,13 @@ and this project adheres to
 
 ### Fixed
 
+- Fixed schema-backed KV validation so invalid stored values now surface read or
+  watch errors instead of being auto-deleted, and delayed service heartbeat
+  publishing until required KV bootstrap succeeds.
 - Fixed `trellis-generate` top-level contract discovery to reject ambiguous
   duplicate layouts while ignoring helper modules named `contract.ts` or
-  `contract.js` that do not default export a contract.
+  `contract.js` that do not default export a contract, while also skipping
+  `.worktrees/` during contract discovery.
 - Granted KV-backed services JetStream info access so operation handlers can
   open their durable operation store without `$JS.API.INFO` permission errors.
 - Fixed jobs worker permission grants for cancellation subscriptions and made

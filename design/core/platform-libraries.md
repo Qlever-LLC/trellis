@@ -154,6 +154,9 @@ Rules:
 
 - service code should use `service.kv`, `service.store`, and `service.jobs`
   rather than a nested `service.resources.*` runtime shape
+- schema-backed service KV resources are exposed directly as typed
+  `service.kv.<alias>` and handler `trellis.kv.<alias>` stores; only store
+  resources use `.open()`
 - jobs-enabled services should declare top-level contract `jobs` and use
   `service.jobs.<queue>` plus `service.wait()` / `service.stop()` rather than
   raw worker-runtime helpers or stream bindings

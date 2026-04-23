@@ -8,6 +8,7 @@ import { trellisCore } from "../../trellis/contracts/trellis_core.ts";
 import { health as trellisHealth } from "../../trellis/contracts/trellis_health.ts";
 
 import {
+  ActivityEntrySchema,
   ActivityGetRequestSchema,
   ActivityGetResponseSchema,
   ActivityListRequestSchema,
@@ -16,6 +17,7 @@ import {
 } from "../schemas.ts";
 
 const schemas = {
+  ActivityEntry: ActivityEntrySchema,
   ActivityGetRequest: ActivityGetRequestSchema,
   ActivityGetResponse: ActivityGetResponseSchema,
   ActivityListRequest: ActivityListRequestSchema,
@@ -53,6 +55,7 @@ export const activity = defineServiceContract(
       kv: {
         activity: {
           purpose: "Store normalized audit activity entries for the service projection.",
+          schema: ref.schema("ActivityEntry"),
           history: 1,
           ttlMs: 0,
         },

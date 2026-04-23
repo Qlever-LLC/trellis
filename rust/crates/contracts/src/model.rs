@@ -178,6 +178,7 @@ pub struct ContractSubject {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ContractKvResource {
     pub purpose: String,
+    pub schema: ContractSchemaRef,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub required: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]

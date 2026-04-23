@@ -8,6 +8,10 @@ semi-durable state such as preferences, selections, or draft records.
 Declare named stores at the top level of the contract, then use them through the
 connected runtime at `trellis.state.<store>`.
 
+Use this surface for caller-owned Trellis-managed state. When a service owns
+durable structured data for itself, declare schema-backed `resources.kv` and use
+typed `service.kv.<alias>` from a `TrellisService.connect(...)` runtime.
+
 - use `kind: "value"` for one value per caller
 - use `kind: "map"` for many values keyed by string
 - every store must reference a declared schema

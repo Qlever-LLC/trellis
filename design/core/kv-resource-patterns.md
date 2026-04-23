@@ -16,6 +16,33 @@ This document defines Trellis KV resource patterns, especially for NATS KV bucke
 
 ## NATS KV
 
+### Contract Declaration
+
+Service-owned KV resources are schema-backed contract declarations.
+
+Example:
+
+```ts
+resources: {
+  kv: {
+    activity: {
+      purpose: "Store normalized activity entries",
+      schema: ref.schema("ActivityEntry"),
+      history: 1,
+      ttlMs: 0,
+    },
+  },
+}
+```
+
+Rules:
+
+- each `resources.kv.<alias>` entry must declare `schema: ref.schema("...")`
+- the referenced schema must exist in the contract's top-level `schemas` map
+- service bootstrap resolves `service.kv.<alias>` and injected handler
+  `trellis.kv.<alias>` as direct typed KV stores; service code does not call
+  `.open(schema)`
+
 ### Bucket Naming
 
 Use `trellis_<domain>` with lowercase underscores.

@@ -12,7 +12,8 @@ should be available across authenticated app and device sessions.
 
 `State` is not a replacement for service-owned `resources.kv`. Services that
 need private projections or internal checkpoints should continue to use
-`resources.kv` directly.
+schema-backed `resources.kv` directly through `service.kv.<alias>` or injected
+handler `trellis.kv.<alias>` stores.
 
 ## Contract Model
 

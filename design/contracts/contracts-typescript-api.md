@@ -436,7 +436,8 @@ That state surface is documented in `../state/state-typescript-api.md`.
 
 Public TypeScript documentation should lead with `TrellisClient.connect(...)`,
 `TrellisService.connect(...)`, and `TrellisDevice.connect(...)` rather than
-lower-level runtime construction helpers.
+lower-level runtime construction helpers or Trellis-internal service bootstrap
+paths.
 
 Rules:
 

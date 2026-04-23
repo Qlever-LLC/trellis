@@ -9,6 +9,7 @@ const TOP_LEVEL_TS_CONTRACT_FILES: &[&str] = &["contract.ts", "contract.js"];
 const RUST_MANIFEST_FILE: &str = "Cargo.toml";
 const SKIPPED_DISCOVERY_DIRS: &[&str] = &[
     ".git",
+    ".worktrees",
     ".svelte-kit",
     "build",
     "demos",
@@ -471,6 +472,35 @@ mod tests {
         .unwrap();
         fs::write(
             demo_service.join("contracts/demo.ts"),
+            "export const CONTRACT = {};\n",
+        )
+        .unwrap();
+
+        let discovered = discover_contracts(repo_root).unwrap();
+
+        assert_eq!(discovered.len(), 1);
+        assert!(discovered[0]
+            .source_path
+            .ends_with("js/service/contracts/service.ts"));
+    }
+
+    #[test]
+    fn discover_contracts_skips_worktrees_dir() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo_root = temp.path();
+        let service = repo_root.join("js/service");
+        let worktree_service = repo_root.join(".worktrees/feature/js/service");
+        fs::create_dir_all(service.join("contracts")).unwrap();
+        fs::create_dir_all(worktree_service.join("contracts")).unwrap();
+        fs::write(service.join("deno.json"), "{}\n").unwrap();
+        fs::write(worktree_service.join("deno.json"), "{}\n").unwrap();
+        fs::write(
+            service.join("contracts/service.ts"),
+            "export const CONTRACT = {};\n",
+        )
+        .unwrap();
+        fs::write(
+            worktree_service.join("contracts/worktree.ts"),
             "export const CONTRACT = {};\n",
         )
         .unwrap();

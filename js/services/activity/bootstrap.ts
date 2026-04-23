@@ -12,5 +12,5 @@ export async function bootstrapAndConnectActivityService() {
     name: config.serviceName,
     sessionKeySeed: config.sessionKeySeed,
     server: {},
-  });
+  }).orThrow();
 }

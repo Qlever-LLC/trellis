@@ -20,6 +20,7 @@ import { TypedStore } from "../store.ts";
 import { NatsTest } from "../testing/nats.ts";
 import { defineServiceContract } from "../contract.ts";
 import type { NatsConnectFn } from "./runtime.ts";
+import { connectTrellisServiceInternal } from "./internal_connect.ts";
 import {
   StoreHandle,
   TrellisService,
@@ -234,6 +235,7 @@ function createFakeNatsConnection(args: {
   statuses?: unknown[];
   closedResult?: Error | void;
   deferClosed?: boolean;
+  requestJson?: (subject: string) => unknown;
 } = {}): NatsConnection {
   type TestNatsConnection = NatsConnection & {
     options: { inboxPrefix: string };
@@ -246,14 +248,14 @@ function createFakeNatsConnection(args: {
       }
     })()) as NatsConnection["status"];
 
-  const message: Msg = {
-    subject: "test.subject",
+  const createMessage = (subject: string, value: unknown): Msg => ({
+    subject,
     sid: 1,
     data: new Uint8Array(),
     respond: () => true,
-    json: <T>() => ({}) as T,
+    json: <T>() => value as T,
     string: () => "",
-  };
+  });
 
   const subscription: Subscription = {
     closed: Promise.resolve(),
@@ -295,7 +297,8 @@ function createFakeNatsConnection(args: {
     publishMessage: () => {},
     respondMessage: () => true,
     subscribe: () => subscription,
-    request: async () => message,
+    request: async (subject) =>
+      createMessage(subject, args.requestJson?.(subject) ?? {}),
     requestMany: async () =>
       (async function* () {
         return;
@@ -569,7 +572,7 @@ Deno.test("TrellisService.connect retries once on iat_out_of_range using server 
   }
 });
 
-Deno.test("TrellisService.connectInternal uses a reconnect-safe auth token authenticator", async () => {
+Deno.test("internal service connect uses a reconnect-safe auth token authenticator", async () => {
   const originalNow = Date.now;
   let firstToken = "";
   let secondToken = "";
@@ -581,7 +584,7 @@ Deno.test("TrellisService.connectInternal uses a reconnect-safe auth token authe
 
     await assertRejects(
       () =>
-        TrellisService.connectInternal("svc", {
+        connectTrellisServiceInternal("svc", {
           sessionKeySeed: TEST_SEED,
           nats: {
             servers: "nats://127.0.0.1:4222",
@@ -673,8 +676,8 @@ Deno.test("TrellisService.connect surfaces bootstrap failure reasons", async () 
   }
 });
 
-Deno.test("TrellisService.connectInternal accepts log false", async () => {
-  const service = await TrellisService.connectInternal("svc", {
+Deno.test("internal service connect accepts log false", async () => {
+  const service = await connectTrellisServiceInternal("svc", {
     sessionKeySeed: TEST_SEED,
     nats: {
       servers: "nats://127.0.0.1:4222",
@@ -692,10 +695,10 @@ Deno.test("TrellisService.connectInternal accepts log false", async () => {
   assertEquals(service.name, "svc");
 });
 
-Deno.test("TrellisService.connectInternal uses the provided logger", async () => {
+Deno.test("internal service connect uses the provided logger", async () => {
   const testLogger = createTestLogger();
 
-  const service = await TrellisService.connectInternal("svc", {
+  const service = await connectTrellisServiceInternal("svc", {
     sessionKeySeed: TEST_SEED,
     nats: {
       servers: "nats://127.0.0.1:4222",
@@ -714,10 +717,10 @@ Deno.test("TrellisService.connectInternal uses the provided logger", async () =>
   assertEquals(testLogger.childBindings.length >= 3, true);
 });
 
-Deno.test("TrellisService.connectInternal logs explicit service NATS lifecycle events", async () => {
+Deno.test("internal service connect logs explicit service NATS lifecycle events", async () => {
   const testLogger = createTestLogger();
 
-  const service = await TrellisService.connectInternal("svc", {
+  const service = await connectTrellisServiceInternal("svc", {
     sessionKeySeed: TEST_SEED,
     nats: {
       servers: "nats://127.0.0.1:4222",
@@ -793,10 +796,10 @@ Deno.test("TrellisService.connectInternal logs explicit service NATS lifecycle e
   assertEquals(testLogger.debugCalls.length, 0);
 });
 
-Deno.test("TrellisService.connectInternal logs service NATS errors at error severity", async () => {
+Deno.test("internal service connect logs service NATS errors at error severity", async () => {
   const testLogger = createTestLogger();
 
-  const service = await TrellisService.connectInternal("svc", {
+  const service = await connectTrellisServiceInternal("svc", {
     sessionKeySeed: TEST_SEED,
     nats: {
       servers: "nats://127.0.0.1:4222",
@@ -849,10 +852,10 @@ Deno.test("TrellisService.connectInternal logs service NATS errors at error seve
   ]);
 });
 
-Deno.test("TrellisService.connectInternal keeps final closed logging explicit", async () => {
+Deno.test("internal service connect keeps final closed logging explicit", async () => {
   const testLogger = createTestLogger();
 
-  const service = await TrellisService.connectInternal("svc", {
+  const service = await connectTrellisServiceInternal("svc", {
     sessionKeySeed: TEST_SEED,
     nats: {
       servers: "nats://127.0.0.1:4222",
@@ -896,7 +899,7 @@ Deno.test("TrellisService.connectInternal keeps final closed logging explicit", 
   );
 });
 
-Deno.test("TrellisService.connectInternal cleans up the connection when bootstrap probing fails", async () => {
+Deno.test("internal service connect cleans up the connection when bootstrap probing fails", async () => {
   let closed = false;
   let resolveClosed: ((value: Error | void) => void) | undefined;
   const closedPromise = new Promise<Error | void>((resolve) => {
@@ -920,7 +923,7 @@ Deno.test("TrellisService.connectInternal cleans up the connection when bootstra
 
   await assertRejects(
     () =>
-      TrellisService.connectInternal("svc", {
+      connectTrellisServiceInternal("svc", {
         sessionKeySeed: TEST_SEED,
         contractId: core.CONTRACT_ID,
         contractDigest: core.CONTRACT_DIGEST,
@@ -942,30 +945,34 @@ Deno.test("TrellisService.connectInternal cleans up the connection when bootstra
   assertEquals(closed, true);
 });
 
-Deno.test("TrellisService.connectInternal defaults to the server logger", async () => {
-  const service = await TrellisService.connectInternal("svc", {
-    sessionKeySeed: TEST_SEED,
-    nats: {
-      servers: "nats://127.0.0.1:4222",
-      authenticator: {},
-    },
-    server: {
-      api: core.API.owned,
-      trellisApi: core.API.trellis,
-    },
-  }, {
-    connect: async () => createFakeNatsConnection(),
-  });
+Deno.test({
+  name: "internal service connect defaults to the server logger",
+  sanitizeOps: false,
+  async fn() {
+    const service = await connectTrellisServiceInternal("svc", {
+      sessionKeySeed: TEST_SEED,
+      nats: {
+        servers: "nats://127.0.0.1:4222",
+        authenticator: {},
+      },
+      server: {
+        api: core.API.owned,
+        trellisApi: core.API.trellis,
+      },
+    }, {
+      connect: async () => createFakeNatsConnection(),
+    });
 
-  try {
-    assertEquals(service.name, "svc");
-  } finally {
-    await service.stop();
-  }
+    try {
+      assertEquals(service.name, "svc");
+    } finally {
+      await service.stop();
+    }
+  },
 });
 
 Deno.test("TrellisService mount passes kv and store to handlers", async () => {
-  const service = await TrellisService.connectInternal("svc", {
+  const service = await connectTrellisServiceInternal("svc", {
     sessionKeySeed: TEST_SEED,
     nats: {
       servers: "nats://127.0.0.1:4222",

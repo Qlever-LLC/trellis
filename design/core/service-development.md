@@ -87,7 +87,7 @@ const service = await TrellisService.connect({
   server: {},
 });
 
-const itemsKV = (await service.kv.items.open(ItemSchema)).take();
+const itemsKV = service.kv.items;
 const uploadsStore = (await service.store.uploads.open()).take();
 const stagedUpload = (await uploadsStore.waitFor("incoming/report.pdf", {
   timeoutMs: 10_000,
@@ -207,8 +207,9 @@ Behavior:
 - `TrellisService.connect(...)` performs bootstrap, auth handshake, contract
   verification, runtime connection setup, and eager binding resolution
 - if the contract is not installed, startup fails immediately
-- resource handles such as `service.kv.*` and `service.store.*` resolve during
-  bootstrap and are opened explicitly by service code before use
+- schema-backed KV handles such as `service.kv.<alias>` resolve during bootstrap
+  as direct typed stores, while store handles such as `service.store.<alias>`
+  are opened explicitly before use
 - transfer-capable operations receive runtime-owned transfer contexts while
   service code continues to access staged files through `service.store.*`
 - when a contract declares top-level `jobs`, `TrellisService.connect(...)`
@@ -220,7 +221,8 @@ Behavior:
 - when an RPC needs to start caller-visible follow-up work after a transfer,
   prefer a transfer-capable operation over an RPC-started workflow
 - the `trellis` control-plane service is the one bootstrap exception and may
-  need lower-level runtime paths
+  use Trellis-internal bootstrap paths; that exception is not part of the
+  public service-author surface
 
 ### Jobs and operations
 

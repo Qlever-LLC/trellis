@@ -40,6 +40,15 @@ fn builder_supports_uses_rpc_subject_kv_stream_and_job_queue_resources() {
             "additionalProperties": false
         }),
     )
+    .schema(
+        "JobState",
+        json!({
+            "type": "object",
+            "required": ["status"],
+            "properties": {"status": {"type": "string"}},
+            "additionalProperties": false
+        }),
+    )
     .use_ref(
         "core",
         use_contract("trellis.core@v1").with_rpc_call(["Trellis.Catalog"]),
@@ -63,7 +72,7 @@ fn builder_supports_uses_rpc_subject_kv_stream_and_job_queue_resources() {
     )
     .kv_resource(
         "jobsState",
-        trellis_contracts::kv("Store projected job state")
+        trellis_contracts::kv("Store projected job state", "JobState")
             .required(true)
             .history(1)
             .ttl_ms(0),
@@ -86,6 +95,10 @@ fn builder_supports_uses_rpc_subject_kv_stream_and_job_queue_resources() {
     assert!(manifest.rpc.contains_key("Jobs.Health"));
     assert!(manifest.subjects.contains_key("Jobs.Stream"));
     assert!(manifest.resources.kv.contains_key("jobsState"));
+    assert_eq!(
+        manifest.resources.kv["jobsState"].schema.schema,
+        "JobState"
+    );
     assert!(manifest.resources.streams.contains_key("jobsEvents"));
     assert!(manifest.jobs.contains_key("document-process"));
 }
@@ -197,6 +210,26 @@ fn builder_build_returns_validation_error_for_unknown_schema_ref() {
     .expect_err("builder should reuse manifest schema validation");
 
     let message = error.to_string();
+    assert!(message.contains("unknown schema"));
+}
+
+#[test]
+fn builder_build_returns_validation_error_for_unknown_kv_schema_ref() {
+    let error = ContractManifestBuilder::new(
+        "example.kv@v1",
+        "Example KV",
+        "Example kv manifest.",
+        ContractKind::Service,
+    )
+    .kv_resource(
+        "jobsState",
+        trellis_contracts::kv("Store projected job state", "MissingState"),
+    )
+    .build()
+    .expect_err("builder should reuse kv schema validation");
+
+    let message = error.to_string();
+    assert!(message.contains("resources.kv"));
     assert!(message.contains("unknown schema"));
 }
 

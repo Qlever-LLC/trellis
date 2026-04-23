@@ -66,6 +66,7 @@ async function createTestContractStore() {
     kind: "app",
     schemas: {
       JobPayload: { type: "object" },
+      ProfileState: { type: "object" },
     },
     jobs: {
       process: {
@@ -76,6 +77,7 @@ async function createTestContractStore() {
       kv: {
         profile: {
           purpose: "Store profile state",
+          schema: { schema: "ProfileState" },
         },
       },
     },

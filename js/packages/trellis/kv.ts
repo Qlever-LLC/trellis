@@ -61,17 +61,30 @@ function mergeUnknown(target: unknown, source: unknown): unknown {
  * Represents a watch event emitted when a KV entry changes.
  */
 export type WatchEvent<S extends TSchema> = {
-  /** The type of change: "update" for new/modified values, "delete" for deletions */
-  type: "update" | "delete";
   /** The key that changed */
   key: string;
-  /** The new value (only present for update events) */
-  value?: StaticDecode<S>;
   /** The revision number of this change */
   revision: number;
   /** The timestamp when this change occurred */
   timestamp: Date;
-};
+} & (
+  | {
+    /** The type of change: "update" for new/modified values */
+    type: "update";
+    value: StaticDecode<S>;
+  }
+  | {
+    /** The type of change: "delete" for deletions */
+    type: "delete";
+    value?: undefined;
+  }
+  | {
+    /** The type of change: "error" for invalid stored values */
+    type: "error";
+    error: ValidationError;
+    value?: undefined;
+  }
+);
 
 /**
  * Options for the watch() method.
@@ -293,20 +306,9 @@ export class TypedKVEntry<S extends TSchema> {
             });
           }
         } else {
-          let validated: unknown;
           try {
             const json = entry.json();
-            validated = parseExternalValue(this.schema as TSchema, json);
-          } catch {
-            try {
-              await this.kv.delete(entry.key, {
-                previousSeq: entry.revision,
-              });
-            } catch {
-              // Best-effort cleanup of invalid entries.
-            }
-            continue;
-          }
+            const validated = parseExternalValue(this.schema, json);
             callback({
               type: "update",
               key: decodeSubject(entry.key),
@@ -314,6 +316,15 @@ export class TypedKVEntry<S extends TSchema> {
               revision: entry.revision,
               timestamp: entry.created,
             });
+          } catch (cause) {
+            callback({
+              type: "error",
+              key: decodeSubject(entry.key),
+              error: createValidationError(this.schema, entry, cause),
+              revision: entry.revision,
+              timestamp: entry.created,
+            });
+          }
         }
       }
     })();
@@ -383,38 +394,10 @@ async function createTypedKvEntry<S extends TSchema>(
   kv: KV,
   entry: KvEntry,
 ): Promise<Result<TypedKVEntry<S>, ValidationError>> {
-  async function deleteInvalidEntry(reason: string): Promise<Record<string, unknown>> {
-    try {
-      await kv.delete(entry.key, {
-        previousSeq: entry.revision,
-      });
-
-      return {
-        key: decodeSubject(entry.key),
-        revision: entry.revision,
-        invalidEntryDeleted: true,
-        invalidEntryReason: reason,
-      };
-    } catch (cause) {
-      return {
-        key: decodeSubject(entry.key),
-        revision: entry.revision,
-        invalidEntryDeleted: false,
-        invalidEntryDeleteError: cause instanceof Error ? cause.message : String(cause),
-        invalidEntryReason: reason,
-      };
-    }
-  }
-
   const jsonResult = Result.try(() => entry.json());
   if (jsonResult.isErr()) {
-    const context = await deleteInvalidEntry(`decode failed: ${jsonResult.error.message}`);
     return Result.err(
-      new ValidationError({
-        errors: [{ path: "", message: `Failed to decode KV value: ${jsonResult.error.message}` }],
-        cause: jsonResult.error,
-        context,
-      }),
+      createValidationError(schema, entry, jsonResult.error),
     );
   }
   const json = jsonResult.take();
@@ -425,20 +408,7 @@ async function createTypedKvEntry<S extends TSchema>(
     return Value.Parse(schema, json);
   });
   if (parseResult.isErr()) {
-    const cause = parseResult.error.cause;
-    if (cause instanceof ParseError) {
-      const errors = Value.Errors(schema, json);
-      const context = await deleteInvalidEntry("schema parse failed");
-      return Result.err(new ValidationError({ errors, cause, context }));
-    }
-    const context = await deleteInvalidEntry(parseResult.error.message);
-    return Result.err(
-      new ValidationError({
-        errors: [{ path: "", message: parseResult.error.message }],
-        cause: parseResult.error,
-        context,
-      }),
-    );
+    return Result.err(createValidationError(schema, entry, parseResult.error, json));
   }
 
   const typedEntry = new TypedKVEntry(
@@ -448,4 +418,32 @@ async function createTypedKvEntry<S extends TSchema>(
     parseResult.take() as StaticDecode<S>,
   );
   return Result.ok<TypedKVEntry<S>, ValidationError>(typedEntry);
+}
+
+function createValidationError(
+  schema: TSchema,
+  entry: KvEntry,
+  cause: unknown,
+  json?: unknown,
+): ValidationError {
+  if (cause instanceof ParseError) {
+    return new ValidationError({
+      errors: Value.Errors(schema, json),
+      cause,
+      context: {
+        key: decodeSubject(entry.key),
+        revision: entry.revision,
+      },
+    });
+  }
+
+  const error = cause instanceof Error ? cause : new Error(String(cause));
+  return new ValidationError({
+    errors: [{ path: "", message: `Failed to decode KV value: ${error.message}` }],
+    cause: error,
+    context: {
+      key: decodeSubject(entry.key),
+      revision: entry.revision,
+    },
+  });
 }
