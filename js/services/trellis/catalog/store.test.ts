@@ -257,6 +257,38 @@ Deno.test("contract store preserves operations when validating contracts", async
   );
 });
 
+Deno.test("contract store preserves exported schema declarations when validating contracts", async () => {
+  const store = new ContractStore();
+
+  const validated = await store.validate({
+    ...makeContract("exports@v1", "rpc.v1.Exports.Ping", "exports"),
+    exports: {
+      schemas: ["PingOutput"],
+    },
+  });
+
+  assertEquals(validated.contract.exports, {
+    schemas: ["PingOutput"],
+  });
+});
+
+Deno.test("contract store rejects exported schema names missing from the registry", async () => {
+  const store = new ContractStore();
+
+  await assertRejects(
+    async () => {
+      await store.validate({
+        ...makeContract("exports-invalid@v1", "rpc.v1.Exports.Ping", "exports"),
+        exports: {
+          schemas: ["MissingSchema"],
+        },
+      });
+    },
+    Error,
+    "exports.schemas: unknown schema 'MissingSchema'",
+  );
+});
+
 Deno.test("contract store preserves top-level jobs when validating contracts", async () => {
   const store = new ContractStore();
 

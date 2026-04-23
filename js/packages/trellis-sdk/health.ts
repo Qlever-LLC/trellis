@@ -4,8 +4,7 @@ import {
   CONTRACT,
   CONTRACT_DIGEST,
   CONTRACT_ID,
-  SCHEMAS,
-  trellisHealth,
+  trellisHealth as baseHealth,
   use,
 } from "../../../generated/js/sdks/health/mod.ts";
 
@@ -61,5 +60,5 @@ export const useDefaults: HealthUseDefaultsFn = ((spec?: HealthUseSpec) => {
   return use(mergeHealthUseDefaults(spec));
 }) as HealthUseDefaultsFn;
 
-export const health = Object.assign(trellisHealth, { useDefaults });
-export { API, CONTRACT, CONTRACT_DIGEST, CONTRACT_ID, SCHEMAS, use };
+export const health = Object.assign(baseHealth, { useDefaults });
+export { API, CONTRACT, CONTRACT_DIGEST, CONTRACT_ID, use };

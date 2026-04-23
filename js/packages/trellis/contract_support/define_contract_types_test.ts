@@ -46,7 +46,12 @@ function schemaRef<
 }
 
 const auth = defineServiceContract(
-  { schemas: authSchemas },
+  {
+    schemas: authSchemas,
+    exports: {
+      schemas: ["StringValue"],
+    },
+  },
   () => ({
     id: "trellis.auth@v1",
     displayName: "Trellis Auth",
@@ -110,6 +115,7 @@ activity.API.used.rpc["Auth.Me"].subject;
 activity.API.used.events["Auth.Connect"].subject;
 activity.API.trellis.rpc["Activity.List"].subject;
 activity.API.trellis.rpc["Auth.Me"].subject;
+auth.CONTRACT.exports?.schemas?.[0];
 
 type AuthUseArg = Parameters<typeof auth.use>[0];
 type AuthUseRpcCall = NonNullable<

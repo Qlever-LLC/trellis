@@ -4,7 +4,6 @@ import {
   CONTRACT,
   CONTRACT_DIGEST,
   CONTRACT_ID,
-  SCHEMAS,
   state as baseState,
   use,
 } from "../../../generated/js/sdks/state/mod.ts";
@@ -63,4 +62,4 @@ export const useDefaults: StateUseDefaultsFn = ((spec?: StateUseSpec) => {
 }) as StateUseDefaultsFn;
 
 export const state = Object.assign(baseState, { useDefaults });
-export { API, CONTRACT, CONTRACT_DIGEST, CONTRACT_ID, SCHEMAS, use };
+export { API, CONTRACT, CONTRACT_DIGEST, CONTRACT_ID, use };

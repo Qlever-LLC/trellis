@@ -28,7 +28,12 @@ function schemaRef<
 
 Deno.test("kind-specific helpers preserve emitted manifest shape and digest", async () => {
   const auth = defineServiceContract(
-    { schemas: baseSchemas },
+    {
+      schemas: baseSchemas,
+      exports: {
+        schemas: ["StringValue"],
+      },
+    },
     () => ({
       id: "trellis.auth@v1",
       displayName: "Trellis Auth",
@@ -154,6 +159,37 @@ Deno.test("kind-specific helpers preserve emitted manifest shape and digest", as
     activity.CONTRACT_DIGEST,
     (await digestJson(activity.CONTRACT)).digest,
   );
+  assertEquals(auth.CONTRACT.exports, {
+    schemas: ["StringValue"],
+  });
+});
+
+Deno.test("defineServiceContract emits explicit exported schema names without filtering local schemas", () => {
+  const contract = defineServiceContract(
+    {
+      schemas: baseSchemas,
+      exports: {
+        schemas: ["StringValue"],
+      },
+    },
+    () => ({
+      id: "exports.example@v1",
+      displayName: "Exports Example",
+      description: "Declare which schema registry entries are public.",
+      rpc: {
+        "Exports.Read": {
+          version: "v1",
+          input: schemaRef<typeof baseSchemas, "Empty">("Empty"),
+          output: schemaRef<typeof baseSchemas, "StringValue">("StringValue"),
+        },
+      },
+    }),
+  );
+
+  assertEquals(contract.CONTRACT.exports, {
+    schemas: ["StringValue"],
+  });
+  assertEquals(Object.keys(contract.CONTRACT.schemas ?? {}), ["Empty", "StringValue"]);
 });
 
 Deno.test("defineServiceContract emits RPC error refs using declared wire types", () => {

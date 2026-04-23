@@ -1,5 +1,6 @@
 //! TypeScript SDK generation from canonical Trellis contract manifests.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -88,6 +89,13 @@ pub fn generate_ts_sdk(opts: &GenerateTsSdkOpts) -> Result<(), CodegenTsError> {
     )?;
 
     Ok(())
+}
+
+#[derive(Debug, Clone)]
+struct PublicSchemaExport {
+    key: String,
+    const_name: String,
+    type_name: Option<String>,
 }
 
 fn deno_json(opts: &GenerateTsSdkOpts) -> Result<serde_json::Map<String, Value>, CodegenTsError> {
@@ -428,6 +436,23 @@ fn render_types_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String 
     let source_reference =
         manifest_source_reference(&opts.manifest_path, opts.runtime_deps.repo_root.as_deref());
     let trellis_import = trellis_runtime_import(opts);
+    let public_schema_exports = public_schema_exports(loaded);
+    let schema_const_names = public_schema_exports
+        .iter()
+        .map(|export| (export.key.as_str(), export.const_name.as_str()))
+        .collect::<BTreeMap<_, _>>();
+    let error_schema_imports = loaded
+        .manifest
+        .errors
+        .values()
+        .filter_map(|error| error.schema.as_ref())
+        .map(|schema| {
+            schema_const_names
+                .get(schema.schema.as_str())
+                .expect("missing public schema export for error schema")
+                .to_string()
+        })
+        .collect::<BTreeSet<_>>();
     let mut lines = vec![format!(
         "// Generated from {}",
         escape_js_string(&source_reference)
@@ -450,7 +475,19 @@ fn render_types_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String 
                 "import {{ TrellisError, type SerializableErrorData }} from {};",
                 js_string(&trellis_import)
             ),
-            "import { SCHEMAS } from \"./schemas.ts\";".to_string(),
+            String::new(),
+        ]);
+    }
+
+    if !error_schema_imports.is_empty() {
+        lines.extend([
+            format!(
+                "import {{ {} }} from \"./schemas.ts\";",
+                error_schema_imports
+                    .into_iter()
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
             String::new(),
         ]);
     }
@@ -466,6 +503,16 @@ fn render_types_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String 
         ),
         String::new(),
     ]);
+
+    for export in &public_schema_exports {
+        if let Some(type_name) = &export.type_name {
+            lines.push(format!(
+                "export type {type_name} = {};",
+                schema_to_ts(resolve_schema_ref(loaded, &export.key))
+            ));
+            lines.push(String::new());
+        }
+    }
 
     for (key, rpc) in &loaded.manifest.rpc {
         let base = key_to_pascal(key);
@@ -521,7 +568,7 @@ fn render_types_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String 
         }
     }
 
-    for (key, error) in &loaded.manifest.errors {
+    for (_key, error) in &loaded.manifest.errors {
         let base = key_to_pascal(&error.error_type);
         let data_type = format!("{base}Data");
         let ts_type = error
@@ -533,10 +580,12 @@ fn render_types_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String 
         lines.push(format!(
             "export class {base} extends TrellisError<{data_type}> {{"
         ));
-        if let Some(_schema) = &error.schema {
+        if let Some(schema) = &error.schema {
             lines.push(format!(
-                "  static readonly schema = SCHEMAS.errors[{}].schema;",
-                js_string(key)
+                "  static readonly schema = {};",
+                schema_const_names
+                    .get(schema.schema.as_str())
+                    .expect("missing public schema export for error schema")
             ));
         }
         lines.push(format!(
@@ -626,89 +675,20 @@ fn render_types_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String 
 fn render_schemas_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
     let source_reference =
         manifest_source_reference(&opts.manifest_path, opts.runtime_deps.repo_root.as_deref());
-    let mut lines = vec![
-        format!("// Generated from {}", escape_js_string(&source_reference)),
-        "export const SCHEMAS = {".to_string(),
-        "  schemas: {".to_string(),
-    ];
-    for (key, schema) in &loaded.manifest.schemas {
+    let public_schema_exports = public_schema_exports(loaded);
+    let mut lines = vec![format!(
+        "// Generated from {}",
+        escape_js_string(&source_reference)
+    )];
+
+    for export in public_schema_exports {
         lines.push(format!(
-            "    {}: {} as const,",
-            js_string(key),
-            serde_json::to_string(schema).unwrap()
+            "export const {} = {} as const;",
+            export.const_name,
+            serde_json::to_string(resolve_schema_ref(loaded, &export.key)).unwrap()
         ));
+        lines.push(String::new());
     }
-    lines.extend(["  },".to_string(), "  errors: {".to_string()]);
-    for (key, error) in &loaded.manifest.errors {
-        lines.push(format!("    {}: {{", js_string(key)));
-        if let Some(schema) = &error.schema {
-            lines.push(format!(
-                "      schema: {} as const,",
-                serde_json::to_string(resolve_schema_ref(loaded, &schema.schema)).unwrap()
-            ));
-        }
-        lines.push("    },".to_string());
-    }
-    lines.extend(["  },".to_string(), "  rpc: {".to_string()]);
-    for (key, rpc) in &loaded.manifest.rpc {
-        lines.push(format!("    {}: {{", js_string(key)));
-        lines.push(format!(
-            "      input: {} as const,",
-            serde_json::to_string(resolve_schema_ref(loaded, &rpc.input.schema)).unwrap()
-        ));
-        lines.push(format!(
-            "      output: {} as const,",
-            serde_json::to_string(resolve_schema_ref(loaded, &rpc.output.schema)).unwrap()
-        ));
-        lines.push("    },".to_string());
-    }
-    lines.push("  },".to_string());
-    lines.push("  operations: {".to_string());
-    for (key, operation) in &loaded.manifest.operations {
-        lines.push(format!("    {}: {{", js_string(key)));
-        lines.push(format!(
-            "      input: {} as const,",
-            serde_json::to_string(resolve_schema_ref(loaded, &operation.input.schema)).unwrap()
-        ));
-        if let Some(progress) = &operation.progress {
-            lines.push(format!(
-                "      progress: {} as const,",
-                serde_json::to_string(resolve_schema_ref(loaded, &progress.schema)).unwrap()
-            ));
-        }
-        if let Some(output) = &operation.output {
-            lines.push(format!(
-                "      output: {} as const,",
-                serde_json::to_string(resolve_schema_ref(loaded, &output.schema)).unwrap()
-            ));
-        }
-        lines.push("    },".to_string());
-    }
-    lines.push("  },".to_string());
-    lines.push("  events: {".to_string());
-    for (key, event) in &loaded.manifest.events {
-        lines.push(format!("    {}: {{", js_string(key)));
-        lines.push(format!(
-            "      event: {} as const,",
-            serde_json::to_string(resolve_schema_ref(loaded, &event.event.schema)).unwrap()
-        ));
-        lines.push("    },".to_string());
-    }
-    lines.push("  },".to_string());
-    lines.push("  subjects: {".to_string());
-    for (key, subject) in &loaded.manifest.subjects {
-        lines.push(format!("    {}: {{", js_string(key)));
-        if let Some(message) = &subject.message {
-            lines.push(format!(
-                "      schema: {} as const,",
-                serde_json::to_string(resolve_schema_ref(loaded, &message.schema)).unwrap()
-            ));
-        }
-        lines.push("    },".to_string());
-    }
-    lines.push("  },".to_string());
-    lines.push("} as const;".to_string());
-    lines.push(String::new());
 
     format!(
         "{}
@@ -724,6 +704,38 @@ fn render_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
     let source_reference =
         manifest_source_reference(&opts.manifest_path, opts.runtime_deps.repo_root.as_deref());
     let trellis_contracts_import = trellis_contracts_import(opts);
+    let public_schema_exports = public_schema_exports(loaded);
+    let schema_const_names = public_schema_exports
+        .iter()
+        .map(|export| (export.key.as_str(), export.const_name.as_str()))
+        .collect::<BTreeMap<_, _>>();
+    let mut api_schema_imports = BTreeSet::new();
+    for rpc in loaded.manifest.rpc.values() {
+        api_schema_imports.insert(rpc.input.schema.as_str());
+        api_schema_imports.insert(rpc.output.schema.as_str());
+    }
+    for operation in loaded.manifest.operations.values() {
+        api_schema_imports.insert(operation.input.schema.as_str());
+        if let Some(progress) = &operation.progress {
+            api_schema_imports.insert(progress.schema.as_str());
+        }
+        if let Some(output) = &operation.output {
+            api_schema_imports.insert(output.schema.as_str());
+        }
+    }
+    for event in loaded.manifest.events.values() {
+        api_schema_imports.insert(event.event.schema.as_str());
+    }
+    for subject in loaded.manifest.subjects.values() {
+        if let Some(message) = &subject.message {
+            api_schema_imports.insert(message.schema.as_str());
+        }
+    }
+    for error in loaded.manifest.errors.values() {
+        if let Some(schema) = &error.schema {
+            api_schema_imports.insert(schema.schema.as_str());
+        }
+    }
     let mut lines = vec![
         format!("// Generated from {}", escape_js_string(&source_reference)),
         format!(
@@ -735,23 +747,41 @@ fn render_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
             js_string(&trellis_contracts_import)
         ),
         "import * as Types from \"./types.ts\";".to_string(),
-        "import { SCHEMAS } from \"./schemas.ts\";".to_string(),
         String::new(),
         "export const OWNED_API = {".to_string(),
         "  rpc: {".to_string(),
     ];
+
+    if !api_schema_imports.is_empty() {
+        lines.insert(
+            4,
+            format!(
+                "import {{ {} }} from \"./schemas.ts\";",
+                public_schema_exports
+                    .iter()
+                    .filter(|export| api_schema_imports.contains(export.key.as_str()))
+                    .map(|export| export.const_name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        );
+    }
 
     for (key, rpc) in &loaded.manifest.rpc {
         let base = key_to_pascal(key);
         lines.push(format!("    {}: {{", js_string(key)));
         lines.push(format!("      subject: {},", js_string(&rpc.subject)));
         lines.push(format!(
-            "      input: schema<Types.{base}Input>(SCHEMAS.rpc[{}].input),",
-            js_string(key)
+            "      input: schema<Types.{base}Input>({}),",
+            schema_const_names
+                .get(rpc.input.schema.as_str())
+                .expect("missing public schema export for rpc input")
         ));
         lines.push(format!(
-            "      output: schema<Types.{base}Output>(SCHEMAS.rpc[{}].output),",
-            js_string(key)
+            "      output: schema<Types.{base}Output>({}),",
+            schema_const_names
+                .get(rpc.output.schema.as_str())
+                .expect("missing public schema export for rpc output")
         ));
         let capabilities = rpc
             .capabilities
@@ -797,7 +827,7 @@ fn render_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
             .unwrap_or_default();
         if !local_runtime_errors.is_empty() {
             lines.push("      runtimeErrors: [".to_string());
-            for (error_name, error_decl) in local_runtime_errors {
+            for (_error_name, error_decl) in local_runtime_errors {
                 let base = key_to_pascal(&error_decl.error_type);
                 lines.push("        {".to_string());
                 lines.push(format!(
@@ -806,8 +836,17 @@ fn render_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
                 ));
                 if error_decl.schema.is_some() {
                     lines.push(format!(
-                        "          schema: schema<Types.{base}Data>(SCHEMAS.errors[{}].schema),",
-                        js_string(error_name)
+                        "          schema: schema<Types.{base}Data>({}),",
+                        schema_const_names
+                            .get(
+                                error_decl
+                                    .schema
+                                    .as_ref()
+                                    .expect("checked above")
+                                    .schema
+                                    .as_str(),
+                            )
+                            .expect("missing public schema export for error schema")
                     ));
                 }
                 lines.push(format!(
@@ -827,19 +866,39 @@ fn render_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
         lines.push(format!("    {}: {{", js_string(key)));
         lines.push(format!("      subject: {},", js_string(&operation.subject)));
         lines.push(format!(
-            "      input: schema<Types.{base}Input>(SCHEMAS.operations[{}].input),",
-            js_string(key)
+            "      input: schema<Types.{base}Input>({}),",
+            schema_const_names
+                .get(operation.input.schema.as_str())
+                .expect("missing public schema export for operation input")
         ));
         if operation.progress.is_some() {
             lines.push(format!(
-                "      progress: schema<Types.{base}Progress>(SCHEMAS.operations[{}].progress),",
-                js_string(key)
+                "      progress: schema<Types.{base}Progress>({}),",
+                schema_const_names
+                    .get(
+                        operation
+                            .progress
+                            .as_ref()
+                            .expect("checked above")
+                            .schema
+                            .as_str(),
+                    )
+                    .expect("missing public schema export for operation progress")
             ));
         }
         if operation.output.is_some() {
             lines.push(format!(
-                "      output: schema<Types.{base}Output>(SCHEMAS.operations[{}].output),",
-                js_string(key)
+                "      output: schema<Types.{base}Output>({}),",
+                schema_const_names
+                    .get(
+                        operation
+                            .output
+                            .as_ref()
+                            .expect("checked above")
+                            .schema
+                            .as_str(),
+                    )
+                    .expect("missing public schema export for operation output")
             ));
         }
         if let Some(transfer) = &operation.transfer {
@@ -911,8 +970,10 @@ fn render_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
             }
         }
         lines.push(format!(
-            "      event: schema<Types.{base}Event>(SCHEMAS.events[{}].event),",
-            js_string(key)
+            "      event: schema<Types.{base}Event>({}),",
+            schema_const_names
+                .get(event.event.schema.as_str())
+                .expect("missing public schema export for event schema")
         ));
         let publish = event
             .capabilities
@@ -943,8 +1004,17 @@ fn render_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
         lines.push(format!("      subject: {},", js_string(&subject.subject)));
         if subject.message.is_some() {
             lines.push(format!(
-                "      schema: schema<Types.{base}Message>(SCHEMAS.subjects[{}].schema),",
-                js_string(key)
+                "      schema: schema<Types.{base}Message>({}),",
+                schema_const_names
+                    .get(
+                        subject
+                            .message
+                            .as_ref()
+                            .expect("checked above")
+                            .schema
+                            .as_str(),
+                    )
+                    .expect("missing public schema export for subject schema")
             ));
         }
         let publish = subject
@@ -1056,7 +1126,9 @@ fn trellis_runtime_import(opts: &GenerateTsSdkOpts) -> String {
 fn trellis_contracts_import(opts: &GenerateTsSdkOpts) -> String {
     match opts.runtime_deps.source {
         TsRuntimeSource::Registry => "@qlever-llc/trellis/contracts".to_string(),
-        TsRuntimeSource::Local => local_runtime_import_path(opts, "js/packages/trellis/contracts.ts"),
+        TsRuntimeSource::Local => {
+            local_runtime_import_path(opts, "js/packages/trellis/contracts.ts")
+        }
     }
 }
 
@@ -1453,9 +1525,136 @@ fn render_mod_ts(opts: &GenerateTsSdkOpts) -> String {
         )
     };
     format!(
-        "export {{ API, OWNED_API }} from \"./api.ts\";\nexport type {{ Api, ApiViews, OwnedApi }} from \"./api.ts\";\nexport * from \"./types.ts\";\nexport {{ SCHEMAS }} from \"./schemas.ts\";\nexport {{ {} }} from \"./contract.ts\";\n",
+        "export {{ API, OWNED_API }} from \"./api.ts\";\nexport type {{ Api, ApiViews, OwnedApi }} from \"./api.ts\";\nexport * from \"./types.ts\";\nexport * from \"./schemas.ts\";\nexport {{ {} }} from \"./contract.ts\";\n",
         use_exports,
     )
+}
+
+fn public_schema_exports(loaded: &LoadedManifest) -> Vec<PublicSchemaExport> {
+    let exported_schema_keys = exported_schema_keys(loaded);
+    let mut used_const_names = BTreeSet::new();
+    let mut used_type_names = generated_type_names(loaded);
+
+    public_schema_keys(loaded)
+        .into_iter()
+        .map(|key| {
+            let base_name = key_to_pascal(&key);
+            let const_name =
+                unique_export_name(&format!("{base_name}Schema"), &mut used_const_names);
+            let type_name = if exported_schema_keys.contains(&key)
+                && used_type_names.insert(base_name.clone())
+            {
+                Some(base_name)
+            } else {
+                None
+            };
+
+            PublicSchemaExport {
+                key,
+                const_name,
+                type_name,
+            }
+        })
+        .collect()
+}
+
+fn public_schema_keys(loaded: &LoadedManifest) -> BTreeSet<String> {
+    let mut keys = exported_schema_keys(loaded);
+
+    for rpc in loaded.manifest.rpc.values() {
+        keys.insert(rpc.input.schema.clone());
+        keys.insert(rpc.output.schema.clone());
+    }
+
+    for operation in loaded.manifest.operations.values() {
+        keys.insert(operation.input.schema.clone());
+        if let Some(progress) = &operation.progress {
+            keys.insert(progress.schema.clone());
+        }
+        if let Some(output) = &operation.output {
+            keys.insert(output.schema.clone());
+        }
+    }
+
+    for event in loaded.manifest.events.values() {
+        keys.insert(event.event.schema.clone());
+    }
+
+    for subject in loaded.manifest.subjects.values() {
+        if let Some(message) = &subject.message {
+            keys.insert(message.schema.clone());
+        }
+    }
+
+    for error in loaded.manifest.errors.values() {
+        if let Some(schema) = &error.schema {
+            keys.insert(schema.schema.clone());
+        }
+    }
+
+    keys
+}
+
+fn exported_schema_keys(loaded: &LoadedManifest) -> BTreeSet<String> {
+    loaded.manifest.exports.schemas.iter().cloned().collect()
+}
+
+fn generated_type_names(loaded: &LoadedManifest) -> BTreeSet<String> {
+    let mut names = BTreeSet::new();
+
+    for key in loaded.manifest.rpc.keys() {
+        let base = key_to_pascal(key);
+        names.insert(format!("{base}Input"));
+        names.insert(format!("{base}Output"));
+        names.insert(format!("{base}Handler"));
+    }
+
+    for key in loaded.manifest.operations.keys() {
+        let base = key_to_pascal(key);
+        names.insert(format!("{base}Input"));
+        names.insert(format!("{base}Progress"));
+        names.insert(format!("{base}Output"));
+    }
+
+    for key in loaded.manifest.events.keys() {
+        names.insert(format!("{}Event", key_to_pascal(key)));
+    }
+
+    for key in loaded.manifest.subjects.keys() {
+        names.insert(format!("{}Message", key_to_pascal(key)));
+    }
+
+    for error in loaded.manifest.errors.values() {
+        let base = key_to_pascal(&error.error_type);
+        names.insert(base.clone());
+        names.insert(format!("{base}Data"));
+    }
+
+    names.extend([
+        "Api".to_string(),
+        "ApiViews".to_string(),
+        "OwnedApi".to_string(),
+        "RpcMap".to_string(),
+        "EventMap".to_string(),
+        "SubjectMap".to_string(),
+    ]);
+
+    names
+}
+
+fn unique_export_name(base: &str, used: &mut BTreeSet<String>) -> String {
+    if used.insert(base.to_string()) {
+        return base.to_string();
+    }
+
+    let mut index = 2;
+    loop {
+        let candidate = format!("{base}{index}");
+        if used.insert(candidate.clone()) {
+            return candidate;
+        }
+        index += 1;
+    }
 }
 
 #[cfg(test)]
@@ -1699,6 +1898,8 @@ mod tests {
         assert!(mod_ts.contains(
             "export { CONTRACT, CONTRACT_DIGEST, CONTRACT_ID, use, core } from \"./contract.ts\";"
         ));
+        assert!(mod_ts.contains("export * from \"./schemas.ts\";"));
+        assert!(!mod_ts.contains("SCHEMAS"));
         assert!(types.contains("import type { RpcHandlerFn } from \"@qlever-llc/trellis\";"));
         assert!(types.contains(
             "export type ExamplePingHandler = RpcHandlerFn<typeof API.owned, \"Example.Ping\">;"
@@ -2132,17 +2333,14 @@ mod tests {
         assert!(
             types.contains("export class NotFoundError extends TrellisError<NotFoundErrorData>")
         );
-        assert!(
-            types.contains("static readonly schema = SCHEMAS.errors[\"WorkspaceMissing\"].schema;")
-        );
+        assert!(types.contains("static readonly schema = NotFoundErrorDataSchema;"));
         assert!(types.contains("static fromSerializable(data: NotFoundErrorData): NotFoundError"));
-        assert!(schemas.contains("errors: {"));
-        assert!(schemas.contains("\"WorkspaceMissing\": {"));
+        assert!(schemas.contains("export const EmptySchema = "));
+        assert!(schemas.contains("export const NotFoundErrorDataSchema = "));
+        assert!(!schemas.contains("SCHEMAS"));
         assert!(api.contains("runtimeErrors: ["));
         assert!(api.contains("type: \"NotFoundError\""));
-        assert!(api.contains(
-            "schema: schema<Types.NotFoundErrorData>(SCHEMAS.errors[\"WorkspaceMissing\"].schema)"
-        ));
+        assert!(api.contains("schema: schema<Types.NotFoundErrorData>(NotFoundErrorDataSchema)"));
         assert!(api.contains("fromSerializable: Types.NotFoundError.fromSerializable"));
 
         fs::remove_dir_all(root).unwrap();
@@ -2167,9 +2365,120 @@ mod tests {
             sample_opts_and_loaded("@qlever-llc/trellis-sdk-core", "trellis.core@v1");
         let schemas = render_schemas_ts(&opts, &loaded);
 
-        assert!(schemas.contains("operations: {"));
-        assert!(schemas.contains("\"Example.Process\": {"));
-        assert!(schemas.contains("progress: {"));
+        assert!(schemas.contains("export const PingInputSchema = "));
+        assert!(schemas.contains("export const PingOutputSchema = "));
+        assert!(schemas.contains("export const ProcessProgressSchema = "));
+        assert!(!schemas.contains("SCHEMAS"));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn generated_public_schema_exports_follow_surface_and_exports_config() {
+        let root = unique_temp_dir("public-schema-exports");
+        fs::create_dir_all(&root).unwrap();
+        let manifest_path = root.join("contract.json");
+        fs::write(
+            &manifest_path,
+            serde_json::to_string(&json!({
+                "format": "trellis.contract.v1",
+                "id": "example.schemas@v1",
+                "displayName": "Schema Exports",
+                "description": "Schema exports test.",
+                "kind": "service",
+                "schemas": {
+                    "PingInput": {
+                        "type": "object",
+                        "properties": {},
+                        "additionalProperties": false
+                    },
+                    "PingOutput": {
+                        "type": "object",
+                        "properties": {
+                            "ok": { "type": "boolean" }
+                        },
+                        "required": ["ok"],
+                        "additionalProperties": false
+                    },
+                    "SharedModel": {
+                        "type": "object",
+                        "properties": {
+                            "name": { "type": "string" }
+                        },
+                        "required": ["name"],
+                        "additionalProperties": false
+                    },
+                    "NotFoundErrorData": {
+                        "type": "object",
+                        "required": ["id", "type", "message", "resource"],
+                        "additionalProperties": false,
+                        "properties": {
+                            "id": { "type": "string" },
+                            "type": { "const": "NotFoundError" },
+                            "message": { "type": "string" },
+                            "resource": { "type": "string" }
+                        }
+                    },
+                    "InternalOnly": {
+                        "type": "object",
+                        "properties": {
+                            "value": { "type": "string" }
+                        },
+                        "required": ["value"],
+                        "additionalProperties": false
+                    }
+                },
+                "exports": {
+                    "schemas": ["SharedModel", "NotFoundErrorData"]
+                },
+                "errors": {
+                    "WorkspaceMissing": {
+                        "type": "NotFoundError",
+                        "schema": { "schema": "NotFoundErrorData" }
+                    }
+                },
+                "rpc": {
+                    "Example.Ping": {
+                        "version": "v1",
+                        "subject": "rpc.v1.Example.Ping",
+                        "input": { "schema": "PingInput" },
+                        "output": { "schema": "PingOutput" }
+                    }
+                },
+                "events": {},
+                "subjects": {}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let opts = GenerateTsSdkOpts {
+            manifest_path: manifest_path.clone(),
+            out_dir: root.join("out"),
+            package_name: "@qlever-llc/trellis-sdk-schema-exports".to_string(),
+            package_version: "0.4.0".to_string(),
+            runtime_deps: TsRuntimeDeps {
+                source: TsRuntimeSource::Registry,
+                version: "0.4.0".to_string(),
+                repo_root: None,
+            },
+        };
+        let loaded = load_manifest(&manifest_path).unwrap();
+
+        let types = render_types_ts(&opts, &loaded);
+        let schemas = render_schemas_ts(&opts, &loaded);
+
+        assert!(schemas.contains("export const PingInputSchema = "));
+        assert!(schemas.contains("export const SharedModelSchema = "));
+        assert!(schemas.contains("export const NotFoundErrorDataSchema = "));
+        assert!(!schemas.contains("InternalOnlySchema"));
+        assert!(types.contains("export type SharedModel = { name: string; };"));
+        assert_eq!(
+            types
+                .match_indices("export type NotFoundErrorData = ")
+                .count(),
+            1
+        );
 
         fs::remove_dir_all(root).unwrap();
     }

@@ -1,11 +1,11 @@
 use serde_json::Value;
 
 use crate::{
-    parse_manifest, ContractErrorRef, ContractJobQueueResource, ContractKind, ContractKvResource,
-    ContractManifest, ContractOperation, ContractOperationTransfer, ContractResources,
-    ContractRpcMethod, ContractSchemaRef, ContractStoreResource, ContractStreamResource,
-    ContractStreamSource, ContractSubject, ContractUseOperation, ContractUsePubSub,
-    ContractUseRef, ContractUseRpc, ContractsError, OperationCapabilities,
+    parse_manifest, ContractErrorRef, ContractExports, ContractJobQueueResource, ContractKind,
+    ContractKvResource, ContractManifest, ContractOperation, ContractOperationTransfer,
+    ContractResources, ContractRpcMethod, ContractSchemaRef, ContractStoreResource,
+    ContractStreamResource, ContractStreamSource, ContractSubject, ContractUseOperation,
+    ContractUsePubSub, ContractUseRef, ContractUseRpc, ContractsError, OperationCapabilities,
     PubSubCapabilities, RpcCapabilities, CONTRACT_FORMAT_V1,
 };
 
@@ -29,6 +29,7 @@ impl ContractManifestBuilder {
                 description: description.into(),
                 kind,
                 schemas: Default::default(),
+                exports: ContractExports::default(),
                 uses: Default::default(),
                 rpc: Default::default(),
                 operations: Default::default(),

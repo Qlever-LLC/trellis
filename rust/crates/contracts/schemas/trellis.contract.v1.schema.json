@@ -27,6 +27,9 @@
     "schemas": {
       "$ref": "#/$defs/schemas"
     },
+    "exports": {
+      "$ref": "#/$defs/exports"
+    },
     "uses": {
       "$ref": "#/$defs/uses"
     },
@@ -117,6 +120,20 @@
       },
       "additionalProperties": {
         "$ref": "#/$defs/schemaValue"
+      }
+    },
+    "exports": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemas": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        }
       }
     },
     "resources": {

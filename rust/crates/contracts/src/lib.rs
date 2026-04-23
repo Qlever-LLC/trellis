@@ -25,12 +25,12 @@ pub use error::ContractsError;
 pub use manifest::{load_json_value, load_manifest, manifest_paths_in_dir, parse_manifest};
 pub use model::{
     Catalog, CatalogEntry, CatalogPack, ContractErrorDecl, ContractErrorRef, ContractEvent,
-    ContractJobQueueResource, ContractKind, ContractKvResource, ContractManifest,
-    ContractOperation, ContractOperationTransfer, ContractResources, ContractRpcMethod,
-    ContractSchemaRef, ContractStoreResource, ContractStreamResource, ContractStreamSource,
-    ContractSubject, ContractUseOperation, ContractUsePubSub, ContractUseRef, ContractUseRpc,
-    LoadedManifest, OperationCapabilities, PubSubCapabilities, RpcCapabilities,
-    CATALOG_FORMAT_V1, CONTRACT_FORMAT_V1,
+    ContractExports, ContractJobQueueResource, ContractKind, ContractKvResource,
+    ContractManifest, ContractOperation, ContractOperationTransfer, ContractResources,
+    ContractRpcMethod, ContractSchemaRef, ContractStoreResource, ContractStreamResource,
+    ContractStreamSource, ContractSubject, ContractUseOperation, ContractUsePubSub,
+    ContractUseRef, ContractUseRpc, LoadedManifest, OperationCapabilities, PubSubCapabilities,
+    RpcCapabilities, CATALOG_FORMAT_V1, CONTRACT_FORMAT_V1,
 };
 pub use schema::{validate_catalog, validate_manifest};
 

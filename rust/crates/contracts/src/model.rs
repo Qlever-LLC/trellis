@@ -276,6 +276,13 @@ pub struct ContractResources {
     pub streams: BTreeMap<String, ContractStreamResource>,
 }
 
+/// Explicit public schema exports for generated SDK consumers.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct ContractExports {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub schemas: Vec<String>,
+}
+
 /// The canonical Trellis contract manifest model.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ContractManifest {
@@ -287,6 +294,8 @@ pub struct ContractManifest {
     pub kind: ContractKind,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub schemas: BTreeMap<String, Value>,
+    #[serde(default, skip_serializing_if = "ContractExports::is_empty")]
+    pub exports: ContractExports,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub uses: BTreeMap<String, ContractUseRef>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -308,6 +317,12 @@ pub struct ContractManifest {
 impl ContractResources {
     fn is_empty(&self) -> bool {
         self.kv.is_empty() && self.store.is_empty() && self.streams.is_empty()
+    }
+}
+
+impl ContractExports {
+    fn is_empty(&self) -> bool {
+        self.schemas.is_empty()
     }
 }
 

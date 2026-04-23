@@ -43,6 +43,7 @@ function normalizeContract(contract: TrellisContractV1): TrellisContractV1 {
     description: contract.description,
     kind: contract.kind,
     ...(contract.schemas ? { schemas: contract.schemas } : {}),
+    ...(contract.exports ? { exports: contract.exports } : {}),
     ...(contract.uses ? { uses: contract.uses } : {}),
     ...(contract.state ? { state: contract.state } : {}),
     ...(contract.rpc ? { rpc: contract.rpc } : {}),
@@ -66,6 +67,10 @@ function assertSchemaRefExists(
 }
 
 function validateSchemaRefs(contract: TrellisContractV1) {
+  for (const schemaName of contract.exports?.schemas ?? []) {
+    assertSchemaRefExists(contract, schemaName, "exports.schemas");
+  }
+
   for (
     const [name, store] of Object.entries(contract.state ?? {}) as Array<
       [string, NonNullable<TrellisContractV1["state"]>[string]]

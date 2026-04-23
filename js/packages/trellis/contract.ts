@@ -1,6 +1,7 @@
 import {
   type ContractApiViews,
   type ContractDependencyUse,
+  type ContractExports,
   type ContractJobsMetadata,
   type ContractStateMetadata,
   type ContractModule,
@@ -65,6 +66,7 @@ export {
 export type {
   ContractApiViews,
   ContractDependencyUse,
+  ContractExports,
   ContractModule,
   ContractState,
   ContractStateKind,
