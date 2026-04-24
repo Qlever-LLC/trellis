@@ -4,7 +4,6 @@
 
 - Use `design/README.md` to choose the smallest relevant design-doc set for the task.
 - Do not load the entire `design/` tree by default.
-- For multi-step implementation work, use the `implementation-process` skill if it is available in the current agent environment.
 
 ## Repo-Wide Engineering Rules
 
@@ -30,7 +29,6 @@
 - Use `rust-best-practices` before substantial Rust edits or Rust code review.
 - Use `svelte-code-writer` and `svelte-core-bestpractices` for Svelte components or Svelte modules.
 - Use `daisyui` when working in a project that uses daisyUI.
-- Use `external-llm` when the user asks for external review or when a second model review would materially help.
 
 ## Common Reading Paths
 

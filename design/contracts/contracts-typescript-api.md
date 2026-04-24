@@ -397,6 +397,39 @@ Rules:
   typed `use(...)`
 - local contracts additionally expose runtime connection helpers
 
+## Generated SDK Schema Exports
+
+Service-owned data model types that cross a contract boundary should be declared
+as named schemas in the service contract and exported through `exports.schemas`.
+
+```ts
+const schemas = {
+  SiteSummary: Type.Object({
+    siteId: Type.String({ minLength: 1 }),
+    siteName: Type.String({ minLength: 1 }),
+  }),
+  SiteSummaryResponse: Type.Object({
+    summary: Type.Optional(SiteSummary),
+  }),
+} as const;
+
+export const contract = defineServiceContract(
+  { schemas, exports: { schemas: ["SiteSummary"] } },
+  (ref) => ({
+    // RPC and operation declarations reference the named schemas above.
+  }),
+);
+```
+
+Rules:
+
+- browser apps, devices, and other callers should import server-owned model
+  types from the generated SDK instead of redefining those shapes locally
+- generated TypeScript SDKs export aliases for schemas listed in
+  `exports.schemas`
+- generated RPC, operation, event, and subject types should reuse exported
+  schema aliases when their nested wire shapes match those exported schemas
+
 ## Derived API Views
 
 Contract helpers derive three projected API surfaces:

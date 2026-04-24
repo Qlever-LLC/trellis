@@ -1,33 +1,30 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { getTrellis } from "$lib/trellis-context.svelte";
-import type { InspectionSummariesListOutput } from "../../../../../generated/js/sdks/demo-kv-service/types.ts";
+  import { getTrellis } from "$lib/trellis";
+  import type { SiteSummary } from "@trellis-demo/kv-service-sdk";
 
-  type KvSummary = InspectionSummariesListOutput["summaries"][number];
   type KvDemoTrellis = {
     request(method: "Inspection.Summaries.Get", input: { siteId: string }): {
-      orThrow(): Promise<{ summary: KvSummary | null }>;
+      orThrow(): Promise<{ summary?: SiteSummary }>;
     };
     request(method: "Inspection.Summaries.List", input: {}): {
-      orThrow(): Promise<{ summaries: KvSummary[] }>;
+      orThrow(): Promise<{ summaries: SiteSummary[] }>;
     };
   };
 
-  async function getKvTrellis(): Promise<KvDemoTrellis> {
-    return await getTrellis() as KvDemoTrellis;
-  }
+  const trellis = getTrellis<KvDemoTrellis>();
 
   let loading = $state(true);
   let error = $state<string | null>(null);
-  let summaries = $state<KvSummary[]>([]);
+  let summaries = $state<SiteSummary[]>([]);
   let selectedSiteId = $state<string | null>(null);
-  let selectedSummary = $state<KvSummary | null>(null);
+  let selectedSummary = $state<SiteSummary | null>(null);
   async function loadSummary(siteId: string): Promise<void> {
     selectedSiteId = siteId;
     error = null;
 
     try {
-      const response = await (await getKvTrellis())
+      const response = await trellis
         .request("Inspection.Summaries.Get", { siteId })
         .orThrow();
       selectedSummary = response.summary ?? null;
@@ -41,7 +38,7 @@ import type { InspectionSummariesListOutput } from "../../../../../generated/js/
     error = null;
 
     try {
-      const response = await (await getKvTrellis())
+      const response = await trellis
         .request("Inspection.Summaries.List", {})
         .orThrow();
       summaries = response.summaries;
@@ -69,7 +66,7 @@ import type { InspectionSummariesListOutput } from "../../../../../generated/js/
   <title>KV · Trellis demo</title>
 </svelte:head>
 
-<section class="mx-auto flex w-full max-w-6xl flex-col gap-6 p-4 md:p-6">
+<section class="flex w-full flex-col gap-6">
   <header class="space-y-1">
     <h1 class="text-2xl font-semibold">KV</h1>
     <p class="text-sm text-base-content/70">Read a KV-backed projection.</p>

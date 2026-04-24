@@ -1,15 +1,14 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { getTrellis } from "$lib/trellis-context.svelte";
+  import { getTrellis } from "$lib/trellis";
   import type {
     InspectionReportGenerateOutput,
     InspectionReportGenerateProgress,
-  } from "../../../../../generated/js/sdks/demo-operation-service/types.ts";
-  import type { InspectionAssignmentsListOutput } from "../../../../../generated/js/sdks/demo-rpc-service/types.ts";
+  } from "@trellis-demo/operation-service-sdk";
+  import type { InspectionAssignment, InspectionAssignmentsListOutput } from "@trellis-demo/rpc-service-sdk";
 
   type ReportOutput = InspectionReportGenerateOutput;
   type ReportProgress = InspectionReportGenerateProgress;
-  type RpcAssignment = InspectionAssignmentsListOutput["assignments"][number];
   type ReportEvent = {
     type: string;
     snapshot: { state: string };
@@ -24,12 +23,25 @@
       orThrow(): Promise<InspectionAssignmentsListOutput>;
     };
   };
+  type OperationDemoTrellis = OperationAssignmentsTrellis & {
+    operation(method: "Inspection.Report.Generate"): {
+      input(input: { inspectionId: string }): {
+        start(): {
+          orThrow(): Promise<{
+            id: string;
+            watch(): { orThrow(): Promise<AsyncIterable<ReportEvent>> };
+            wait(): { orThrow(): Promise<ReportTerminal> };
+            cancel(): { orThrow(): Promise<{ state: string }> };
+          }>;
+        };
+      };
+    };
+  };
 
-  async function getAssignmentsTrellis(): Promise<OperationAssignmentsTrellis> {
-    return await getTrellis() as OperationAssignmentsTrellis;
-  }
+  const assignmentsTrellis = getTrellis<OperationAssignmentsTrellis>();
+  const operationTrellis = getTrellis<OperationDemoTrellis>();
 
-  let assignments = $state<RpcAssignment[]>([]);
+  let assignments = $state<InspectionAssignment[]>([]);
   let selectedInspectionId = $state("");
   let loading = $state(true);
   let running = $state(false);
@@ -38,11 +50,8 @@
   let events = $state<Array<{ label: string; state: string }>>([]);
   let acceptedId = $state<string | null>(null);
   let terminal = $state<ReportTerminal | null>(null);
-  const appTrellis = getTrellis();
-
   async function createOperationRef(inspectionId: string) {
-    const trellis = await appTrellis;
-    return await trellis.operation("Inspection.Report.Generate")
+    return await operationTrellis.operation("Inspection.Report.Generate")
       .input({ inspectionId })
       .start()
       .orThrow();
@@ -57,7 +66,7 @@
     error = null;
 
     try {
-      const response = await (await getAssignmentsTrellis())
+      const response = await assignmentsTrellis
         .request("Inspection.Assignments.List", {})
         .orThrow();
       assignments = response.assignments;
@@ -141,7 +150,7 @@
   <title>Operation · Trellis demo</title>
 </svelte:head>
 
-<section class="mx-auto flex w-full max-w-6xl flex-col gap-6 p-4 md:p-6">
+<section class="flex w-full flex-col gap-6">
   <header class="space-y-1">
     <h1 class="text-2xl font-semibold">Operation</h1>
     <p class="text-sm text-base-content/70">Start, watch, and cancel a long-running operation.</p>

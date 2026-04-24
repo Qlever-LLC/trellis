@@ -34,7 +34,7 @@ const schemas = {
 } as const;
 
 export const contract = defineServiceContract(
-  { schemas },
+  { schemas, exports: { schemas: ["SiteSummary"] } },
   (ref) => ({
     id: "trellis.demo-kv-service@v1",
     displayName: "Inspection KV Demo Service",

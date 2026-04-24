@@ -137,8 +137,8 @@ Rules:
 - RPCs are timeout-bounded
 - operations and events are contract-driven rather than raw-subject-driven in
   normal app code
-- admin jobs access should use `trellis.jobs()` from the connected Trellis
-  runtime rather than a separate package client
+- admin jobs access should use `Jobs.*` RPCs declared through the jobs SDK
+  rather than a client-side `trellis.jobs()` helper
 - service handlers mounted from contract-owned RPCs receive typed payloads from
   Trellis and may return either `Result` or `Promise<Result>`
 - transfer execution belongs to transfer-capable operations and is initiated by
@@ -185,20 +185,24 @@ Rules:
 - browser apps should define one small app-local Trellis module and re-export
   typed helpers for the rest of the app
 - `TrellisProvider` is the primary browser integration surface; app code should
-  pass `trellisUrl`, `contract`, `loginPath`, and an app-owned `contexts`
-  bundle created with `createTrellisProviderContexts<typeof contract>()`
-- `TrellisProvider` restores auth state, handles auth callbacks, and delegates
-  runtime bootstrap and reconnect to `TrellisClient.connect(...)`
-- `trellis-svelte` should keep the typed Trellis client, auth state, and
-  connection state in separate contexts rather than exposing a synthetic runtime
+  pass `trellisUrl` and an app-owned `trellisApp` created with
+  `createTrellisApp(contract)`
+- `TrellisProvider` delegates runtime bootstrap and reconnect to
+  `TrellisClient.connect(...)`; auth behavior is configured through provider
+  auth options or `onAuthRequired`
+- `trellis-svelte` should keep the typed Trellis client and reactive connection
+  adapter scoped to app-owned context rather than exposing a synthetic runtime
   bag
 - the public Svelte surface is app-scoped: apps should re-export local
-  `getTrellis()`, `getAuth()`, and `getConnectionState()` helpers from their
-  app-owned context module
+  `getTrellis()` and `getConnection()` helpers from their app-local Trellis
+  module
 - `@qlever-llc/trellis-svelte` MUST NOT expose raw NATS clients, NATS connection
   state, or other transport-owned handles as public API
 - normal pages and components should not recreate auth state; they should read
-  the live Trellis/auth/connection contexts through app-scoped helpers
+  the live Trellis client and connection context through app-scoped helpers
+- `getTrellis()` and `getConnection()` are Svelte context getters; components
+  must call them during component initialization and reuse the returned client
+  or connection adapter from event handlers, effects, and async helpers
 - app-facing auth helpers should not require raw URL plumbing or placeholder
   positional arguments from app code; they should expose an options-shaped API
   with sensible redirect defaults
@@ -209,15 +213,11 @@ Rules:
   wrapper layered over the browser auth/portal helpers from
   `@qlever-llc/trellis/auth` or the narrower `@qlever-llc/trellis/auth/browser`
   facade
-- `loginPath` is the default auth-required redirect target; if `onAuthRequired`
-  is omitted, the provider redirects to `loginPath?redirectTo=...`
-- `onAuthRequired` remains available as an override for apps that need custom
-  routing or side effects
-- bind failures should be renderable through a `bindError(result)` snippet;
-  `onBindError` remains available for imperative reactions
+- `onAuthRequired` remains available for apps that need custom routing or side
+  effects when the client requires auth
 - app-local helper modules should usually export the contract, the fixed
-  `trellisUrl` when there is one, and local `getTrellis()` / `getAuth()` /
-  `getConnectionState()` wrappers around an app-owned `contexts` bundle
+  `trellisUrl` when there is one, and local `getTrellis()` / `getConnection()`
+  wrappers around an app-owned `trellisApp`
 - dynamic auth-instance selection remains a valid advanced case, but the default
   public browser-app API should optimize for the fixed-instance path rather than
   forcing every app through explicit auth-state construction
@@ -248,7 +248,8 @@ standalone TypeScript package.
 
 - TypeScript service-local jobs live on connected service runtimes as
   `service.jobs`
-- TypeScript admin jobs access lives on connected clients as `trellis.jobs()`
+- TypeScript admin jobs access uses `Jobs.*` RPCs declared through
+  `@qlever-llc/trellis-sdk/jobs`
 - subsystem semantics and language-specific details live in:
   - [../jobs/trellis-jobs.md](./../jobs/trellis-jobs.md)
   - [../jobs/jobs-typescript-api.md](./../jobs/jobs-typescript-api.md)

@@ -7,14 +7,12 @@ export function getRefreshStatus(
   refreshStatuses: TypedKV<TSchema>,
 ) {
   return async ({ input }: { input: { refreshId: string } }) => {
-  const refreshEntry = await refreshStatuses.get(input.refreshId).take();
-  const refresh = isErr(refreshEntry)
-    ? undefined
-    : Value.Parse(
+    const refreshEntry = await refreshStatuses.get(input.refreshId).take();
+    const refresh = isErr(refreshEntry) ? undefined : Value.Parse(
       schemas.InspectionSummariesRefreshStatusSchema,
       refreshEntry.value,
     );
 
-  return ok({ refresh });
+    return ok({ refresh });
   };
 }

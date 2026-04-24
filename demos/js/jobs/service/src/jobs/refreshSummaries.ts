@@ -23,13 +23,13 @@ export function refreshSummaries(
     const siteSummary = getSiteSummary(job.payload.siteId);
 
     await refreshStatuses
-        .put(job.ref.id, {
-          refreshId: job.ref.id,
-          siteId: job.payload.siteId,
-          status: "running" as const,
-          updatedAt: new Date().toISOString(),
-          message: siteSummary
-            ? `Refreshing summary for ${siteSummary.siteName}`
+      .put(job.ref.id, {
+        refreshId: job.ref.id,
+        siteId: job.payload.siteId,
+        status: "running" as const,
+        updatedAt: new Date().toISOString(),
+        message: siteSummary
+          ? `Refreshing summary for ${siteSummary.siteName}`
           : `Refreshing summary for ${job.payload.siteId}`,
       })
       .orThrow();
@@ -68,13 +68,13 @@ export function refreshSummaries(
       .orThrow();
 
     await refreshStatuses
-        .put(job.ref.id, {
-          refreshId: job.ref.id,
-          siteId: job.payload.siteId,
-          status: "completed" as const,
-          updatedAt: new Date().toISOString(),
-          message: `Refresh completed for ${siteSummary.siteName}`,
-        })
+      .put(job.ref.id, {
+        refreshId: job.ref.id,
+        siteId: job.payload.siteId,
+        status: "completed" as const,
+        updatedAt: new Date().toISOString(),
+        message: `Refresh completed for ${siteSummary.siteName}`,
+      })
       .orThrow();
 
     return Result.ok({

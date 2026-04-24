@@ -1,37 +1,34 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { getTrellis } from "$lib/trellis-context.svelte";
+  import { getTrellis } from "$lib/trellis";
   import type {
+    InspectionAssignment,
     InspectionAssignmentsListOutput,
-    InspectionSitesGetSummaryOutput,
-  } from "../../../../../generated/js/sdks/demo-rpc-service/types.ts";
+    SiteSummary,
+  } from "@trellis-demo/rpc-service-sdk";
 
-  type RpcAssignment = InspectionAssignmentsListOutput["assignments"][number];
-  type RpcSiteSummary = NonNullable<InspectionSitesGetSummaryOutput["summary"]>;
   type RpcDemoTrellis = {
     request(method: "Inspection.Assignments.List", input: {}): {
       orThrow(): Promise<InspectionAssignmentsListOutput>;
     };
     request(method: "Inspection.Sites.GetSummary", input: { siteId: string }): {
-      orThrow(): Promise<InspectionSitesGetSummaryOutput>;
+      orThrow(): Promise<{ summary?: SiteSummary }>;
     };
   };
 
-  async function getRpcTrellis(): Promise<RpcDemoTrellis> {
-    return await getTrellis() as RpcDemoTrellis;
-  }
+  const trellis = getTrellis<RpcDemoTrellis>();
 
   let loading = $state(true);
   let error = $state<string | null>(null);
-  let assignments = $state<RpcAssignment[]>([]);
+  let assignments = $state<InspectionAssignment[]>([]);
   let selectedSiteId = $state<string | null>(null);
-  let summary = $state<RpcSiteSummary | null>(null);
+  let summary = $state<SiteSummary | null>(null);
   async function selectSite(siteId: string): Promise<void> {
     selectedSiteId = siteId;
     error = null;
 
     try {
-      const response = await (await getRpcTrellis())
+      const response = await trellis
         .request("Inspection.Sites.GetSummary", { siteId })
         .orThrow();
       summary = response.summary ?? null;
@@ -45,7 +42,7 @@
     error = null;
 
     try {
-      const response = await (await getRpcTrellis())
+      const response = await trellis
         .request("Inspection.Assignments.List", {})
         .orThrow();
       assignments = response.assignments;
@@ -64,7 +61,7 @@
     }
   }
 
-  function priorityClass(priority: RpcAssignment["priority"]): string {
+  function priorityClass(priority: InspectionAssignment["priority"]): string {
     if (priority === "high") return "badge badge-error badge-outline";
     if (priority === "medium") return "badge badge-warning badge-outline";
     return "badge badge-success badge-outline";
@@ -79,7 +76,7 @@
   <title>RPC · Trellis demo</title>
 </svelte:head>
 
-<section class="mx-auto flex w-full max-w-6xl flex-col gap-6 p-4 md:p-6">
+<section class="flex w-full flex-col gap-6">
   <header class="space-y-1">
     <h1 class="text-2xl font-semibold">RPC</h1>
     <p class="text-sm text-base-content/70">Direct request and response calls.</p>

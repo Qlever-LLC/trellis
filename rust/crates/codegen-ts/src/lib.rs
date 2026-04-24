@@ -98,6 +98,13 @@ struct PublicSchemaExport {
     type_name: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+struct SchemaTypeAlias {
+    key: String,
+    type_name: String,
+    schema: Value,
+}
+
 fn deno_json(opts: &GenerateTsSdkOpts) -> Result<serde_json::Map<String, Value>, CodegenTsError> {
     let mut root = serde_json::Map::new();
     let extends = resolved_extends(opts)?;
@@ -437,6 +444,7 @@ fn render_types_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String 
         manifest_source_reference(&opts.manifest_path, opts.runtime_deps.repo_root.as_deref());
     let trellis_import = trellis_runtime_import(opts);
     let public_schema_exports = public_schema_exports(loaded);
+    let schema_type_aliases = public_schema_type_aliases(loaded, &public_schema_exports);
     let schema_const_names = public_schema_exports
         .iter()
         .map(|export| (export.key.as_str(), export.const_name.as_str()))
@@ -508,7 +516,11 @@ fn render_types_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String 
         if let Some(type_name) = &export.type_name {
             lines.push(format!(
                 "export type {type_name} = {};",
-                schema_to_ts(resolve_schema_ref(loaded, &export.key))
+                schema_to_ts_with_aliases(
+                    resolve_schema_ref(loaded, &export.key),
+                    &schema_type_aliases,
+                    Some(&export.key),
+                )
             ));
             lines.push(String::new());
         }
@@ -518,11 +530,19 @@ fn render_types_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String 
         let base = key_to_pascal(key);
         lines.push(format!(
             "export type {base}Input = {};",
-            schema_to_ts(resolve_schema_ref(loaded, &rpc.input.schema))
+            schema_to_ts_with_aliases(
+                resolve_schema_ref(loaded, &rpc.input.schema),
+                &schema_type_aliases,
+                None,
+            )
         ));
         lines.push(format!(
             "export type {base}Output = {};",
-            schema_to_ts(resolve_schema_ref(loaded, &rpc.output.schema))
+            schema_to_ts_with_aliases(
+                resolve_schema_ref(loaded, &rpc.output.schema),
+                &schema_type_aliases,
+                None,
+            )
         ));
         lines.push(String::new());
     }
@@ -531,18 +551,30 @@ fn render_types_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String 
         let base = key_to_pascal(key);
         lines.push(format!(
             "export type {base}Input = {};",
-            schema_to_ts(resolve_schema_ref(loaded, &operation.input.schema))
+            schema_to_ts_with_aliases(
+                resolve_schema_ref(loaded, &operation.input.schema),
+                &schema_type_aliases,
+                None,
+            )
         ));
         if let Some(progress) = &operation.progress {
             lines.push(format!(
                 "export type {base}Progress = {};",
-                schema_to_ts(resolve_schema_ref(loaded, &progress.schema))
+                schema_to_ts_with_aliases(
+                    resolve_schema_ref(loaded, &progress.schema),
+                    &schema_type_aliases,
+                    None,
+                )
             ));
         }
         if let Some(output) = &operation.output {
             lines.push(format!(
                 "export type {base}Output = {};",
-                schema_to_ts(resolve_schema_ref(loaded, &output.schema))
+                schema_to_ts_with_aliases(
+                    resolve_schema_ref(loaded, &output.schema),
+                    &schema_type_aliases,
+                    None,
+                )
             ));
         }
         lines.push(String::new());
@@ -552,7 +584,11 @@ fn render_types_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String 
         let base = key_to_pascal(key);
         lines.push(format!(
             "export type {base}Event = {};",
-            schema_to_ts(resolve_schema_ref(loaded, &event.event.schema))
+            schema_to_ts_with_aliases(
+                resolve_schema_ref(loaded, &event.event.schema),
+                &schema_type_aliases,
+                None,
+            )
         ));
         lines.push(String::new());
     }
@@ -562,7 +598,11 @@ fn render_types_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String 
             let base = key_to_pascal(key);
             lines.push(format!(
                 "export type {base}Message = {};",
-                schema_to_ts(resolve_schema_ref(loaded, &message.schema))
+                schema_to_ts_with_aliases(
+                    resolve_schema_ref(loaded, &message.schema),
+                    &schema_type_aliases,
+                    None,
+                )
             ));
             lines.push(String::new());
         }
@@ -574,7 +614,13 @@ fn render_types_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String 
         let ts_type = error
             .schema
             .as_ref()
-            .map(|schema| schema_to_ts(resolve_schema_ref(loaded, &schema.schema)))
+            .map(|schema| {
+                schema_to_ts_with_aliases(
+                    resolve_schema_ref(loaded, &schema.schema),
+                    &schema_type_aliases,
+                    None,
+                )
+            })
             .unwrap_or_else(|| "SerializableErrorData".to_string());
         lines.push(format!("export type {data_type} = {ts_type};"));
         lines.push(format!(
@@ -1359,6 +1405,21 @@ fn to_pascal_case_token(value: &str) -> String {
 }
 
 fn schema_to_ts(schema: &Value) -> String {
+    schema_to_ts_with_aliases(schema, &[], None)
+}
+
+fn schema_to_ts_with_aliases(
+    schema: &Value,
+    aliases: &[SchemaTypeAlias],
+    excluded_alias_key: Option<&str>,
+) -> String {
+    if let Some(alias) = aliases
+        .iter()
+        .find(|alias| Some(alias.key.as_str()) != excluded_alias_key && alias.schema == *schema)
+    {
+        return alias.type_name.clone();
+    }
+
     match schema {
         Value::Bool(true) => "unknown".to_string(),
         Value::Bool(false) => "never".to_string(),
@@ -1386,7 +1447,9 @@ fn schema_to_ts(schema: &Value) -> String {
                             "({})",
                             values
                                 .iter()
-                                .map(schema_to_ts)
+                                .map(|value| {
+                                    schema_to_ts_with_aliases(value, aliases, excluded_alias_key)
+                                })
                                 .collect::<Vec<_>>()
                                 .join(&format!(" {operator} "))
                         );
@@ -1407,7 +1470,11 @@ fn schema_to_ts(schema: &Value) -> String {
                                         "type".to_string(),
                                         Value::String(type_name.clone()),
                                     );
-                                    schema_to_ts(&Value::Object(clone))
+                                    schema_to_ts_with_aliases(
+                                        &Value::Object(clone),
+                                        aliases,
+                                        excluded_alias_key,
+                                    )
                                 }
                                 _ => "unknown".to_string(),
                             })
@@ -1422,11 +1489,11 @@ fn schema_to_ts(schema: &Value) -> String {
                 Some("number") | Some("integer") => "number".to_string(),
                 Some("boolean") => "boolean".to_string(),
                 Some("null") => "null".to_string(),
-                Some("array") => render_array_ts(object),
-                Some("object") => render_object_ts(object),
+                Some("array") => render_array_ts(object, aliases, excluded_alias_key),
+                Some("object") => render_object_ts(object, aliases, excluded_alias_key),
                 _ => {
                     if object.contains_key("properties") {
-                        render_object_ts(object)
+                        render_object_ts(object, aliases, excluded_alias_key)
                     } else {
                         "unknown".to_string()
                     }
@@ -1439,22 +1506,33 @@ fn schema_to_ts(schema: &Value) -> String {
     }
 }
 
-fn render_array_ts(object: &serde_json::Map<String, Value>) -> String {
+fn render_array_ts(
+    object: &serde_json::Map<String, Value>,
+    aliases: &[SchemaTypeAlias],
+    excluded_alias_key: Option<&str>,
+) -> String {
     match object.get("items") {
         Some(Value::Array(values)) => format!(
             "[{}]",
             values
                 .iter()
-                .map(schema_to_ts)
+                .map(|value| schema_to_ts_with_aliases(value, aliases, excluded_alias_key))
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
-        Some(value) => format!("Array<{}>", schema_to_ts(value)),
+        Some(value) => format!(
+            "Array<{}>",
+            schema_to_ts_with_aliases(value, aliases, excluded_alias_key)
+        ),
         None => "unknown[]".to_string(),
     }
 }
 
-fn render_object_ts(object: &serde_json::Map<String, Value>) -> String {
+fn render_object_ts(
+    object: &serde_json::Map<String, Value>,
+    aliases: &[SchemaTypeAlias],
+    excluded_alias_key: Option<&str>,
+) -> String {
     let required = object
         .get("required")
         .and_then(Value::as_array)
@@ -1480,7 +1558,10 @@ fn render_object_ts(object: &serde_json::Map<String, Value>) -> String {
             } else {
                 js_string(key)
             };
-            lines.push(format!("{safe_key}{optional}: {};", schema_to_ts(value)));
+            lines.push(format!(
+                "{safe_key}{optional}: {};",
+                schema_to_ts_with_aliases(value, aliases, excluded_alias_key)
+            ));
         }
     }
 
@@ -1490,14 +1571,20 @@ fn render_object_ts(object: &serde_json::Map<String, Value>) -> String {
                 .values()
                 .next()
                 .expect("single pattern property value");
-            lines.push(format!("[k: string]: {};", schema_to_ts(value)));
+            lines.push(format!(
+                "[k: string]: {};",
+                schema_to_ts_with_aliases(value, aliases, excluded_alias_key)
+            ));
         }
     }
 
     match object.get("additionalProperties") {
         Some(Value::Bool(true)) => lines.push("[k: string]: unknown;".to_string()),
         Some(value @ Value::Object(_)) => {
-            lines.push(format!("[k: string]: {};", schema_to_ts(value)));
+            lines.push(format!(
+                "[k: string]: {};",
+                schema_to_ts_with_aliases(value, aliases, excluded_alias_key)
+            ));
         }
         _ => {}
     }
@@ -1554,6 +1641,22 @@ fn public_schema_exports(loaded: &LoadedManifest) -> Vec<PublicSchemaExport> {
                 const_name,
                 type_name,
             }
+        })
+        .collect()
+}
+
+fn public_schema_type_aliases(
+    loaded: &LoadedManifest,
+    exports: &[PublicSchemaExport],
+) -> Vec<SchemaTypeAlias> {
+    exports
+        .iter()
+        .filter_map(|export| {
+            Some(SchemaTypeAlias {
+                key: export.key.clone(),
+                type_name: export.type_name.clone()?,
+                schema: resolve_schema_ref(loaded, &export.key).clone(),
+            })
         })
         .collect()
 }
@@ -2395,9 +2498,17 @@ mod tests {
                     "PingOutput": {
                         "type": "object",
                         "properties": {
-                            "ok": { "type": "boolean" }
+                            "ok": { "type": "boolean" },
+                            "shared": {
+                                "type": "object",
+                                "properties": {
+                                    "name": { "type": "string" }
+                                },
+                                "required": ["name"],
+                                "additionalProperties": false
+                            }
                         },
-                        "required": ["ok"],
+                        "required": ["ok", "shared"],
                         "additionalProperties": false
                     },
                     "SharedModel": {
@@ -2473,6 +2584,7 @@ mod tests {
         assert!(schemas.contains("export const NotFoundErrorDataSchema = "));
         assert!(!schemas.contains("InternalOnlySchema"));
         assert!(types.contains("export type SharedModel = { name: string; };"));
+        assert!(types.contains("shared: SharedModel;"), "{types}");
         assert_eq!(
             types
                 .match_indices("export type NotFoundErrorData = ")

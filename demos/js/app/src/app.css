@@ -1,9 +1,7 @@
 @import "tailwindcss";
 
 @plugin "daisyui" {
-  themes:
-    corporate --default,
-    business --prefersdark;
+  themes: corporate --default, business --prefersdark;
   logs: false;
 }
 
@@ -14,10 +12,5 @@ body {
 }
 
 body {
-  min-height: 100vh;
-}
-
-#svelte,
-[data-theme] {
   min-height: 100vh;
 }

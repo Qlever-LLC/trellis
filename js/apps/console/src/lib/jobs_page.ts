@@ -1,33 +1,30 @@
 import { AsyncResult, BaseError, isErr } from "@qlever-llc/result";
 import {
-  type JobFilter,
-  type JobSnapshot,
-  type ServiceInfo,
-} from "@qlever-llc/trellis";
+  type JobsListInput,
+  type JobsListOutput,
+  type JobsListServicesOutput,
+} from "@qlever-llc/trellis-sdk/jobs";
 
-type JobsAdminClientLike = {
-  listServices(): AsyncResult<ServiceInfo[], BaseError>;
-  list(filter?: JobFilter): AsyncResult<JobSnapshot<unknown, unknown>[], BaseError>;
-};
-
-type JobsClientLike = {
-  jobs(): JobsAdminClientLike;
+type JobsRpcClientLike = {
+  request<TOutput = unknown>(
+    method: string,
+    input: unknown,
+  ): AsyncResult<TOutput, BaseError>;
 };
 
 export async function loadJobsPageData(
-  trellis: JobsClientLike,
-  filter: JobFilter = {},
+  trellis: JobsRpcClientLike,
+  filter: JobsListInput = {},
 ): Promise<{
   available: boolean;
   message?: string;
-  services: ServiceInfo[];
-  jobs: JobSnapshot<unknown, unknown>[];
+  services: JobsListServicesOutput["services"];
+  jobs: JobsListOutput["jobs"];
 }> {
   try {
-    const client = trellis.jobs();
     const [servicesResponse, jobsResponse] = await Promise.all([
-      client.listServices(),
-      client.list(filter),
+      trellis.request<JobsListServicesOutput>("Jobs.ListServices", {}),
+      trellis.request<JobsListOutput>("Jobs.List", filter),
     ]);
 
     const servicesValue = servicesResponse.take();
@@ -42,8 +39,8 @@ export async function loadJobsPageData(
 
     return {
       available: true,
-      services: servicesValue,
-      jobs: jobsValue,
+      services: servicesValue.services,
+      jobs: jobsValue.jobs,
     };
   } catch (error) {
     let message: string;

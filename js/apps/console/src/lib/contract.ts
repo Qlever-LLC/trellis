@@ -1,6 +1,7 @@
 import { defineAppContract } from "@qlever-llc/trellis";
 import { auth as trellisAuth } from "@qlever-llc/trellis-sdk/auth";
 import { health as trellisHealth } from "@qlever-llc/trellis-sdk/health";
+import { jobs as trellisJobs } from "@qlever-llc/trellis-sdk/jobs";
 
 export const contract = defineAppContract(
   () => ({
@@ -73,6 +74,11 @@ export const contract = defineAppContract(
       health: trellisHealth.use({
         events: {
           subscribe: ["Health.Heartbeat"],
+        },
+      }),
+      jobs: trellisJobs.use({
+        rpc: {
+          call: ["Jobs.List", "Jobs.ListServices"],
         },
       }),
     },

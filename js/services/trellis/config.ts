@@ -30,15 +30,14 @@ const httpRateLimitSchema = z.object({
   max: z.coerce.number().default(60),
 });
 
-const ttlSchema = z
-  .object({
-    sessions: z.coerce.number().default(24 * 60 * 60_000),
-    oauth: z.coerce.number().default(5 * 60_000),
-    deviceFlow: z.coerce.number().default(30 * 60_000),
-    pendingAuth: z.coerce.number().default(5 * 60_000),
-    connections: z.coerce.number().default(2 * 60 * 60_000),
-    natsJwt: z.coerce.number().default(60 * 60_000),
-  });
+const ttlSchema = z.object({
+  sessions: z.coerce.number().default(24 * 60 * 60_000),
+  oauth: z.coerce.number().default(5 * 60_000),
+  deviceFlow: z.coerce.number().default(30 * 60_000),
+  pendingAuth: z.coerce.number().default(5 * 60_000),
+  connections: z.coerce.number().default(2 * 60 * 60_000),
+  natsJwt: z.coerce.number().default(60 * 60_000),
+});
 
 const rawSchema = z.object({
   logLevel: z.string().default("info"),
@@ -108,7 +107,8 @@ const rawSchema = z.object({
         ]),
       )
       .refine(
-        (providers: unknown) => Object.keys(providers as Record<string, unknown>).length > 0,
+        (providers: unknown) =>
+          Object.keys(providers as Record<string, unknown>).length > 0,
         "At least one auth provider must be configured",
       ),
   }),
@@ -278,9 +278,7 @@ function normalizeConfig(configPath: string, raw: RawConfig): Config {
     web: {
       origins: normalizeWebOrigins(raw.web.origins),
       publicOrigin: canonicalizeLoopbackUrl(raw.web.publicOrigin),
-      allowInsecureOrigins: normalizeOriginList(
-        raw.web.allowInsecureOrigins,
-      ),
+      allowInsecureOrigins: normalizeOriginList(raw.web.allowInsecureOrigins),
     },
     httpRateLimit: raw.httpRateLimit,
     ttlMs: raw.ttlMs,

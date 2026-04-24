@@ -19,13 +19,14 @@ order: 20
 
 The TypeScript jobs surface is split into two shapes: a service-local API for
 creating and handling jobs, and an admin API for observing jobs across the
-system. Both live in `@qlever-llc/trellis` and follow the same jobs model
-defined in `trellis-jobs.md`.
+system. The service-local runtime API lives in `@qlever-llc/trellis`, while the
+admin RPC contract and types live in `@qlever-llc/trellis-sdk/jobs`. Both follow
+the same jobs model defined in `trellis-jobs.md`.
 
 - service-local jobs are exposed on connected service runtimes such as
   `service.jobs` from `@qlever-llc/trellis/service*`
-- admin and operator jobs access is exposed on connected clients such as
-  `trellis.jobs()` from `@qlever-llc/trellis`
+- admin and operator jobs access uses the `Jobs.*` RPC surface declared through
+  `@qlever-llc/trellis-sdk/jobs`
 
 It covers:
 
@@ -178,67 +179,52 @@ full `TrellisService` instance.
 Duplicate handler registration is a bootstrap-time programming error. The
 runtime should fail fast if the same job queue registers more than one handler.
 
-### Admin surface
+### Admin RPC surface
 
 ```ts
-type JobsAdminClient = {
-  health(): AsyncResult<JobsHealth, BaseError>;
-  listServices(): AsyncResult<ServiceInfo[], BaseError>;
-  list(
-    filter: JobFilter,
-  ): AsyncResult<JobSnapshot<unknown, unknown>[], BaseError>;
-  get(
-    ref: JobIdentity,
-  ): AsyncResult<JobSnapshot<unknown, unknown> | null, BaseError>;
-  cancel(
-    ref: JobIdentity,
-  ): AsyncResult<JobSnapshot<unknown, unknown>, BaseError>;
-  retry(
-    ref: JobIdentity,
-  ): AsyncResult<JobSnapshot<unknown, unknown>, BaseError>;
-  listDLQ(
-    filter: JobFilter,
-  ): AsyncResult<JobSnapshot<unknown, unknown>[], BaseError>;
-  replayDLQ(
-    ref: JobIdentity,
-  ): AsyncResult<JobSnapshot<unknown, unknown>, BaseError>;
-  dismissDLQ(
-    ref: JobIdentity,
-  ): AsyncResult<JobSnapshot<unknown, unknown>, BaseError>;
-};
+import { defineAppContract } from "@qlever-llc/trellis";
+import { jobs as trellisJobs } from "@qlever-llc/trellis-sdk/jobs";
+import type {
+  JobsListInput,
+  JobsListOutput,
+  JobsListServicesOutput,
+} from "@qlever-llc/trellis-sdk/jobs";
 
-type JobIdentity = {
-  service: string;
-  jobType: string;
-  id: string;
-};
+const app = defineAppContract(() => ({
+  uses: {
+    jobs: trellisJobs.use({
+      rpc: {
+        call: ["Jobs.List", "Jobs.ListServices"],
+      },
+    }),
+  },
+}));
 
-type JobFilter = {
-  service?: string;
-  jobType?: string;
-  state?: JobState | JobState[];
-  since?: string;
-  limit?: number;
-};
+const services: JobsListServicesOutput = await trellis.request(
+  "Jobs.ListServices",
+  {},
+).orThrow();
+
+const listed: JobsListOutput = await trellis.request(
+  "Jobs.List",
+  {
+    service: "billing",
+  } satisfies JobsListInput,
+).orThrow();
 ```
 
 Example:
 
 ```ts
-const jobs = trellis.jobs();
+const listed = await trellis.request("Jobs.List", {
+  service: "billing",
+}).orThrow();
 
-const services = await jobs.listServices();
-const listed = await jobs.list({ service: "billing" });
-const one = await jobs.get({
+const one = await trellis.request("Jobs.Get", {
   service: "billing",
   jobType: "refund-charge",
   id: "job_123",
-});
-const retried = await jobs.retry({
-  service: "billing",
-  jobType: "refund-charge",
-  id: "job_123",
-});
+}).orThrow();
 ```
 
 ### Generation rules
@@ -252,13 +238,15 @@ const retried = await jobs.retry({
 - service runtimes SHOULD own worker-loop startup and shutdown through the
   connected service lifecycle rather than exposing worker hosts on the normal
   public path
-- application code SHOULD call `service.wait()` to start registered job
-  handlers and `service.stop()` to tear them down
+- application code SHOULD call `service.wait()` to start registered job handlers
+  and `service.stop()` to tear them down
 - operator/admin APIs MAY return wire-shaped `unknown` payload and result fields
   because they are an observability and debugging surface rather than a typed
   service-author execution surface
-- generated admin wrappers are preferred over handwritten
-  `requestOrThrow(...) as ...` adapters
+- generated SDK request and response types are preferred over handwritten
+  `request(... ) as ...` adapters
+- connected clients MUST NOT expose a generic `trellis.jobs()` helper for admin
+  queries; jobs admin access should stay on the normal contract RPC surface
 
 ## Non-goals
 

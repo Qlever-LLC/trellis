@@ -9,11 +9,10 @@ helpers.
 The browser demo app under `demos/js/app` now follows the app-local
 `trellis-svelte` pattern:
 
-- it creates one app-owned `contexts` bundle with
-  `createTrellisProviderContexts<typeof contract>()`
-- it passes that bundle into `TrellisProvider`
-- it re-exports local `getTrellis()`, `getAuth()`, and `getConnectionState()`
-  helpers from `src/lib/trellis-context.svelte.ts`
+- it creates one app-owned `trellisApp` with `createTrellisApp(contract)`
+- it passes that app into `TrellisProvider`
+- it re-exports local `getTrellis()` and `getConnection()` helpers from
+  `src/lib/trellis.ts`
 
 Supported demos:
 
@@ -28,9 +27,9 @@ Supported demos:
 
 1. Make sure Trellis is running at `http://localhost:3000`.
 2. Make sure the `trellis` CLI is logged in as an admin.
-3. If you want to run the Svelte demo app, set `PUBLIC_TRELLIS_URL` to the
-   Trellis instance URL. The checked-in `.env.example` uses
-   `http://localhost:3000`.
+3. If you want to run the Svelte demo app against a non-default Trellis URL, set
+   `PUBLIC_TRELLIS_URL` to the Trellis instance URL. The app defaults to
+   `http://localhost:3000` for local demos.
 4. Prepare the demo workspace:
 
 ```sh
@@ -42,10 +41,11 @@ task instead of the workspace-wide `check` task.
 
 ## Browser App Demo
 
-The Svelte demo app uses explicit per-instance Trellis URL configuration instead
-of hardcoding or inferring the browser origin.
+The Svelte demo app reads `PUBLIC_TRELLIS_URL` for explicit per-instance
+configuration and falls back to `http://localhost:3000` for local demos.
 
-1. Copy `demos/js/app/.env.example` to `demos/js/app/.env` if needed.
+1. Copy `demos/js/app/.env.example` to `demos/js/app/.env` if you need to
+   override the default `http://localhost:3000` Trellis URL.
 2. Set `PUBLIC_TRELLIS_URL` to the Trellis instance the app should talk to.
 3. Run `deno task -c demos/js/app/deno.json dev`.
 
@@ -159,7 +159,8 @@ Use the `rootSecret` field from the provision JSON as `<root-secret>`.
 Expected result:
 
 - the service prints `Inspection transfer service`
-- the device prints `upload accepted`, progress updates, `transfer completed`, and `terminal output`
+- the device prints `upload accepted`, progress updates, `transfer completed`,
+  and `terminal output`
 
 ## KV Demo
 
@@ -188,7 +189,8 @@ Use the `rootSecret` field from the provision JSON as `<root-secret>`.
 Expected result:
 
 - the service prints `Inspection KV service`
-- the device prints `Site summaries fetched over RPC:` and `Detailed summary via RPC`
+- the device prints `Site summaries fetched over RPC:` and
+  `Detailed summary via RPC`
 
 ## Jobs Demo
 
@@ -221,9 +223,8 @@ Expected result:
 - the device polls until the refresh reaches `completed`
 
 If the jobs service is offline or the capability is unavailable, the device now
-prints a Trellis-native request failure such as `Trellis could not reach the
-requested capability. (trellis.request.unavailable)` plus a retry hint instead
-of an unhandled stack trace.
+prints a Trellis-native `trellis.request.unavailable` failure plus a retry hint
+instead of an unhandled stack trace.
 
 ## State Demo
 

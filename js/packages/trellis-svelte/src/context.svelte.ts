@@ -1,5 +1,4 @@
 import type {
-  JobsAdminClient,
   RequestOpts,
   RuntimeStateStoresForContract,
   StateFacade,
@@ -27,7 +26,8 @@ type EventCallback<TMessage> = {
 
 /** Real connected Trellis client type exposed by a Svelte app context. */
 export type TrellisClientFor<TContract extends TrellisContractLike> =
-  ConnectedTrellisRuntime & {
+  & ConnectedTrellisRuntime
+  & {
     readonly api: TContract["API"]["trellis"];
     readonly state: StateFacade<RuntimeStateStoresForContract<TContract>>;
     request<TOutput = unknown>(
@@ -39,9 +39,12 @@ export type TrellisClientFor<TContract extends TrellisContractLike> =
       event: string,
       subjectData: Record<string, unknown>,
       fn: EventCallback<TMessage>,
-      opts?: { mode?: "ephemeral" | "durable"; replay?: "new" | "all"; signal?: AbortSignal },
+      opts?: {
+        mode?: "ephemeral" | "durable";
+        replay?: "new" | "all";
+        signal?: AbortSignal;
+      },
     ): AsyncResult<void, BaseError>;
-    jobs(): JobsAdminClient;
     wait(): AsyncResult<void, BaseError>;
   };
 

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { getTrellis } from "$lib/trellis-context.svelte";
+  import { getTrellis } from "$lib/trellis";
 
   type InspectionContextValue = {
     siteId: string;
@@ -41,9 +41,7 @@
     };
   };
 
-  async function getStateTrellis(): Promise<StateDemoTrellis> {
-    return await getTrellis() as StateDemoTrellis;
-  }
+  const trellis = getTrellis<StateDemoTrellis>();
 
   let key = $state("demo.selected-site");
   let siteId = $state("site-west-yard");
@@ -53,16 +51,14 @@
   let loading = $state(true);
   let saving = $state(false);
   let error = $state<string | null>(null);
-  async function getInspectionContextStore() {
-    return (await getStateTrellis()).state.inspectionContext;
-  }
+  const inspectionContextStore = trellis.state.inspectionContext;
 
   async function loadEntries(): Promise<void> {
     loading = true;
     error = null;
 
     try {
-      const response = await (await getInspectionContextStore()).prefix("demo.").list({
+      const response = await inspectionContextStore.prefix("demo.").list({
         offset: 0,
         limit: 12,
       }).orThrow();
@@ -79,7 +75,7 @@
     error = null;
 
     try {
-      const response = await (await getInspectionContextStore()).put(key, {
+      const response = await inspectionContextStore.put(key, {
         siteId,
         note,
         updatedBy: "demo-browser-app",
@@ -103,7 +99,7 @@
     error = null;
 
     try {
-      await (await getInspectionContextStore()).delete(entryKey).orThrow();
+      await inspectionContextStore.delete(entryKey).orThrow();
       if (latestPut?.key === entryKey) {
         latestPut = null;
       }
@@ -126,7 +122,7 @@
   <title>State · Trellis demo</title>
 </svelte:head>
 
-<section class="mx-auto flex w-full max-w-6xl flex-col gap-6 p-4 md:p-6">
+<section class="flex w-full flex-col gap-6">
   <header class="space-y-1">
     <h1 class="text-2xl font-semibold">State</h1>
     <p class="text-sm text-base-content/70">Write and list entries from a named state store.</p>

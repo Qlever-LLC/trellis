@@ -8,13 +8,19 @@ order: 30
 
 ## Prerequisites
 
-- [trellis-jobs.md](./trellis-jobs.md) - subsystem semantics and authorization model
-- [../core/type-system-patterns.md](./../core/type-system-patterns.md) - shared type-system and error guidance
-- [../operations/trellis-operations.md](./../operations/trellis-operations.md) - public async workflows that may attach to jobs
+- [trellis-jobs.md](./trellis-jobs.md) - subsystem semantics and authorization
+  model
+- [../core/type-system-patterns.md](./../core/type-system-patterns.md) - shared
+  type-system and error guidance
+- [../operations/trellis-operations.md](./../operations/trellis-operations.md) -
+  public async workflows that may attach to jobs
 
 ## Design
 
-The Rust jobs surface mirrors the TypeScript jobs model, but it uses Rust-native traits, structs, and `Result`-based ergonomics. Service-local code works against typed job queues and handles, while admin code uses a separate query client surface.
+The Rust jobs surface mirrors the TypeScript jobs model, but it uses Rust-native
+traits, structs, and `Result`-based ergonomics. Service-local code works against
+typed job queues and handles, while admin code uses the generated jobs SDK over
+the `Jobs.*` RPC surface.
 
 It covers:
 
@@ -22,9 +28,11 @@ It covers:
 - service-owned worker lifecycle
 - operator/admin query APIs
 
-It does not redefine the jobs stream model, storage model, or admin authorization model; those remain in `trellis-jobs.md`.
+It does not redefine the jobs stream model, storage model, or admin
+authorization model; those remain in `trellis-jobs.md`.
 
-The Rust API keeps jobs typed by job type, keeps admin access separate from service execution, and avoids exposing manual binding assembly in normal code.
+The Rust API keeps jobs typed by job type, keeps admin access separate from
+service execution, and avoids exposing manual binding assembly in normal code.
 
 Jobs are service-private execution primitives.
 
@@ -34,9 +42,11 @@ Service-local Rust jobs APIs are typed per job type.
 
 `JobRef.wait()` is valid internally but is not a public caller contract.
 
-Rust returns `Result` directly and does not model expected failures with exceptions.
+Rust returns `Result` directly and does not model expected failures with
+exceptions.
 
-Public service-local jobs APIs do not expose manual binding assembly or conversion helpers.
+Public service-local jobs APIs do not expose manual binding assembly or
+conversion helpers.
 
 ### Service-local surface
 
@@ -149,81 +159,74 @@ pub struct JobSnapshot<TPayload, TResult> {
 pub type TerminalJob<TPayload, TResult> = JobSnapshot<TPayload, TResult>;
 ```
 
-All job progress fields are optional. Use `step` and `message` for human-readable status, and `current` / `total` only when you have a numeric progress fraction.
+All job progress fields are optional. Use `step` and `message` for
+human-readable status, and `current` / `total` only when you have a numeric
+progress fraction.
 
-### Admin surface
+### Admin RPC surface
 
 ```rust
-pub trait JobsAdminClient {
-    async fn health(&self) -> Result<JobsHealth, JobsError>;
-    async fn list_services(&self) -> Result<Vec<ServiceInfo>, JobsError>;
-    async fn list(
-        &self,
-        filter: JobFilter,
-    ) -> Result<Vec<JobSnapshot<serde_json::Value, serde_json::Value>>, JobsError>;
-    async fn get(
-        &self,
-        id: JobIdentity,
-    ) -> Result<JobSnapshot<serde_json::Value, serde_json::Value>, JobsError>;
-    async fn cancel(
-        &self,
-        id: JobIdentity,
-    ) -> Result<JobSnapshot<serde_json::Value, serde_json::Value>, JobsError>;
-    async fn retry(
-        &self,
-        id: JobIdentity,
-    ) -> Result<JobSnapshot<serde_json::Value, serde_json::Value>, JobsError>;
-    async fn list_dlq(
-        &self,
-        filter: JobFilter,
-    ) -> Result<Vec<JobSnapshot<serde_json::Value, serde_json::Value>>, JobsError>;
-    async fn replay_dlq(
-        &self,
-        id: JobIdentity,
-    ) -> Result<JobSnapshot<serde_json::Value, serde_json::Value>, JobsError>;
-    async fn dismiss_dlq(
-        &self,
-        id: JobIdentity,
-    ) -> Result<JobSnapshot<serde_json::Value, serde_json::Value>, JobsError>;
+use trellis_sdk_jobs::JobsClient;
+
+pub struct JobsClient<'a> {
+    // wraps an already connected low-level Trellis client
 }
 
-pub struct JobIdentity {
-    pub service: String,
-    pub job_type: String,
-    pub id: String,
-}
+impl<'a> JobsClient<'a> {
+    pub fn new(inner: &'a trellis_client::TrellisClient) -> Self;
 
-pub struct JobFilter {
-    pub service: Option<String>,
-    pub job_type: Option<String>,
-    pub state: Option<JobState>,
+    pub async fn jobs_list_services(
+        &self,
+    ) -> Result<trellis_sdk_jobs::JobsListServicesResponse, trellis_client::TrellisClientError>;
+
+    pub async fn jobs_list(
+        &self,
+        request: &trellis_sdk_jobs::JobsListRequest,
+    ) -> Result<trellis_sdk_jobs::JobsListResponse, trellis_client::TrellisClientError>;
+
+    pub async fn jobs_get(
+        &self,
+        request: &trellis_sdk_jobs::JobsGetRequest,
+    ) -> Result<trellis_sdk_jobs::JobsGetResponse, trellis_client::TrellisClientError>;
 }
 ```
 
 Example:
 
 ```rust
-let jobs = trellis.jobs();
+let jobs = trellis_sdk_jobs::JobsClient::new(&trellis);
 
-let services = jobs.list_services().await?;
-let listed = jobs.list(JobFilter {
+let services = jobs.jobs_list_services().await?;
+let listed = jobs.jobs_list(&trellis_sdk_jobs::JobsListRequest {
     service: Some("billing".into()),
-    job_type: None,
+    r#type: None,
     state: None,
-}).await?;
-let one = jobs.get(JobIdentity {
+    since: None,
+    limit: None,
+})
+.await?;
+let one = jobs.jobs_get(&trellis_sdk_jobs::JobsGetRequest {
     service: "billing".into(),
     job_type: "refund-charge".into(),
     id: "job_123".into(),
-}).await?;
+})
+.await?;
 ```
 
 ## Generation Rules
 
-- generated Rust service surfaces MUST expose one typed method per declared job type such as `jobs().refund_charge()`
-- any generic string-based queue lookup helper is a low-level escape hatch and MUST NOT be the primary public API
-- `start_workers()` owns binding resolution and worker-loop startup; application code SHOULD NOT pass runtime bindings manually
-- operator/admin APIs MAY return wire-shaped `serde_json::Value` payload and result fields because they are an observability and debugging surface rather than a typed service-author execution surface
+- generated Rust service surfaces MUST expose one typed method per declared job
+  type such as `jobs().refund_charge()`
+- any generic string-based queue lookup helper is a low-level escape hatch and
+  MUST NOT be the primary public API
+- `start_workers()` owns binding resolution and worker-loop startup; application
+  code SHOULD NOT pass runtime bindings manually
+- operator/admin APIs MAY return wire-shaped `serde_json::Value` payload and
+  result fields because they are an observability and debugging surface rather
+  than a typed service-author execution surface
+- connected Rust clients MUST NOT expose a generic `.jobs()` helper for admin
+  queries; admin access should come from the generated jobs SDK or direct RPC
+  calls
 
 ## Non-goals
 

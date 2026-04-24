@@ -175,7 +175,7 @@ Portal/browser route rules:
 - normal browser bind is `POST /auth/flow/:flowId/bind`
 - the portal redirects using the `location` returned by auth-owned flow state
 - portal customization data comes from `flowState.app.context`, not from portal-local query conventions
-- static SvelteKit portal apps SHOULD read their Trellis URL from build-time public env such as `PUBLIC_TRELLIS_URL`
+- SvelteKit portal apps SHOULD read their Trellis URL from public env such as `PUBLIC_TRELLIS_URL`
 - a portal may later continue as a normal user-authenticated browser app route, but that uses a standard browser app contract rather than service auth
 
 ## Portal Helper Surface

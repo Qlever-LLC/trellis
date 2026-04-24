@@ -123,7 +123,6 @@ export {
   JobProgressSchema,
   JobQueue,
   JobRef,
-  JobsAdminClient,
   JobWorkerHostAdapter,
 } from "./jobs.ts";
 export type {
@@ -184,18 +183,19 @@ export type {
 export { controlSubject, OperationInvoker } from "./operations.ts";
 export type {
   AcceptedOperation,
+  ClientTrellis,
+  ConnectedTrellisClient,
   EventHandler,
   EventName,
   EventOpts,
   EventPayload,
   EventType,
-  ClientTrellis,
-  ConnectedTrellisClient,
   HandlerTrellis,
   OperationHandlerContext,
   OperationRegistration,
   OperationTransferContextOf,
   OperationTransferHandle,
+  RequestOpts,
   RpcArgs,
   RpcHandlerContext,
   RpcHandlerErrorOf,
@@ -205,7 +205,6 @@ export type {
   RpcOutputOf,
   RpcRequestErrorOf,
   RpcResult,
-  RequestOpts,
   RuntimeStateStoresForContract,
   StateFacade,
   TrellisAuth,

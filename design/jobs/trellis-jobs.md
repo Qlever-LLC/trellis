@@ -38,12 +38,12 @@ surfaces:
 - an admin jobs surface for operators to query and manage jobs across all
   services
 
-In TypeScript, those public surfaces live in `@qlever-llc/trellis` rather than
-in a standalone jobs package:
+In TypeScript, the service-local runtime surface lives in `@qlever-llc/trellis`
+and the admin RPC contract lives in `@qlever-llc/trellis-sdk/jobs`:
 
 - service-local jobs are exposed on connected service runtimes as `service.jobs`
-- admin and operator jobs access is exposed on connected clients as
-  `trellis.jobs()`
+- admin and operator jobs access uses the centralized `Jobs.*` RPC surface,
+  typically through generated jobs SDK types or client wrappers
 
 This document also defines the shared Trellis-owned jobs infrastructure plus a
 separate `jobs` admin runtime for admin queries, janitor, and KV projection.
@@ -607,8 +607,8 @@ Admin client rules:
 - public TypeScript admin helpers MUST follow Trellis `Result` conventions
   rather than throwing for expected remote or validation failures
 - centralized jobs queries and mutations SHOULD be generated-contract-aligned
-  wrappers over `trellis.jobs@v1` exposed through higher-level language helpers
-  such as `trellis.jobs()` rather than handwritten cast-heavy adapters
+  wrappers over `trellis.jobs@v1` exposed through generated SDK modules or typed
+  request helpers rather than handwritten cast-heavy adapters
 
 The required v1 surface is:
 

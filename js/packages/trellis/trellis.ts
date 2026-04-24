@@ -33,7 +33,6 @@ import {
   ok,
   Result,
 } from "@qlever-llc/result";
-import { JobsAdminClient } from "./jobs.ts";
 import {
   context,
   createNatsHeaderCarrier,
@@ -865,11 +864,10 @@ export interface ClientTrellis<
   readonly name: string;
   readonly timeout: number;
   readonly stream: string;
-  readonly api: TrellisAPI;
+  readonly api: TA;
   readonly state: StateFacade<TState>;
   readonly connection: TrellisConnection;
   readonly natsConnection: NatsConnection;
-  jobs(): JobsAdminClient;
   request<M extends MethodsOf<TA>>(
     method: M,
     input: MethodInputOf<TA, M>,
@@ -1260,10 +1258,6 @@ export class Trellis<
    */
   get natsConnection(): NatsConnection {
     return this.nats;
-  }
-
-  jobs(): JobsAdminClient {
-    return new JobsAdminClient(this);
   }
 
   #createStateFacade(state: TState | undefined): StateFacade<TState> {

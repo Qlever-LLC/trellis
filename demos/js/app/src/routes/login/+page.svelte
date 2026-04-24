@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { browser } from "$app/environment";
   import { goto } from "$app/navigation";
   import { resolve } from "$app/paths";
   import { page } from "$app/state";
@@ -10,7 +9,22 @@
   let ready = $state(false);
   let signingIn = $state(false);
 
-  const targetPath = $derived(page.url.searchParams.get("redirectTo") ?? resolve("/rpc"));
+  type DemoPath = "/rpc" | "/operation" | "/transfer" | "/kv" | "/jobs" | "/state";
+
+  function demoPath(value: string | null): DemoPath {
+    switch (value) {
+      case "/operation":
+      case "/transfer":
+      case "/kv":
+      case "/jobs":
+      case "/state":
+        return value;
+      default:
+        return "/rpc";
+    }
+  }
+
+  const targetPath = $derived.by((): DemoPath => demoPath(page.url.searchParams.get("redirectTo")));
 
   async function beginSignIn(): Promise<void> {
     signingIn = true;
@@ -21,17 +35,12 @@
         redirectTo: new URL(targetPath, page.url).toString(),
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (!message.startsWith("Redirecting")) {
-        authError = message;
-      }
+      authError = error instanceof Error ? error.message : String(error);
       signingIn = false;
     }
   }
 
   onMount(() => {
-    if (!browser) return;
-
     authError = page.url.searchParams.get("authError");
 
     void (async () => {
@@ -39,7 +48,7 @@
         await auth.init();
         const bindResult = await auth.handleCallback(page.url.toString());
         if (bindResult?.status === "bound") {
-          await goto(targetPath);
+          await goto(resolve(targetPath));
           return;
         }
         if (bindResult) {
@@ -96,7 +105,7 @@
           <button class="btn btn-primary" onclick={beginSignIn} disabled={signingIn}>
             {signingIn ? "Redirecting…" : "Continue to sign in"}
           </button>
-          <a class="btn btn-outline" href="/">Back to home</a>
+          <a class="btn btn-outline" href={resolve("/")}>Back to home</a>
         </div>
       {:else}
         <div class="flex items-center gap-3 text-sm text-base-content/70">

@@ -70,23 +70,32 @@ A simple setup that ensures this:
 To keep the Trellis typing in one place, create `src/lib/trellis-context.svelte.ts` with:
 
 ```ts
-import { createTrellisProviderContexts } from "@qlever-llc/trellis-svelte";
+import { createTrellisApp } from "@qlever-llc/trellis-svelte";
+import type { TrellisClientFor } from "@qlever-llc/trellis-svelte";
 import { myApp } from "../../contracts/my_app";
 
-export const contexts = createTrellisProviderContexts<typeof myApp>();
+export const trellisApp = createTrellisApp(myApp);
 
-export const getTrellis = contexts.trellis.getTrellis;
-export const getAuth = contexts.auth.getAuth;
-export const getConnectionState = contexts.connectionState.getConnectionState;
+export function getTrellis<TClient = TrellisClientFor<typeof myApp>>(): TClient {
+  return trellisApp.getTrellis<TClient>();
+}
+
+export const getConnection = trellisApp.getConnection.bind(trellisApp);
 ```
 
 Then create `src/lib/trellis.ts` for static app metadata:
 
 ```ts
+import { env } from "$env/dynamic/public";
 import { myApp } from "../../contracts/my_app";
 
-export const trellisUrl = "http://localhost:3000";
-export const loginPath = "/login";
+function publicTrellisUrl(): string {
+  return new URL(env.PUBLIC_TRELLIS_URL ?? "http://localhost:3000")
+    .toString()
+    .replace(/\/$/, "");
+}
+
+export const trellisUrl = publicTrellisUrl();
 export { myApp as contract };
 ```
 
@@ -98,20 +107,27 @@ To sign in to Trellis, your app needs a screen that kicks off the flow. Create `
 
 ```svelte
 <script lang="ts">
-  import { createAuthState } from "@qlever-llc/trellis-svelte";
-  import { contract, loginPath, trellisUrl } from "$lib/trellis";
-
-  const auth = createAuthState({
-    authUrl: trellisUrl,
-    contract,
-    loginPath,
-  });
+  import { page } from "$app/state";
+  import { getOrCreateSessionKey } from "@qlever-llc/trellis";
+  import { startAuthRequest } from "@qlever-llc/trellis/auth";
+  import { contract, trellisUrl } from "$lib/trellis";
 
   async function signIn() {
-    await auth.signIn({
-      landingPath: "/dashboard",
+    const redirectTo = new URL(page.url.searchParams.get("redirectTo") ?? "/dashboard", page.url);
+    const response = await startAuthRequest({
+      authUrl: trellisUrl,
+      redirectTo: redirectTo.toString(),
+      handle: await getOrCreateSessionKey(),
+      contract,
       context: { subtitle: "Welcome back to the spring preview" },
     });
+
+    if (response.status === "flow_started") {
+      window.location.href = response.loginUrl;
+      return;
+    }
+
+    window.location.href = redirectTo.toString();
   }
 </script>
 
@@ -119,9 +135,7 @@ To sign in to Trellis, your app needs a screen that kicks off the flow. Create `
 <button onclick={signIn}>Continue to sign in</button>
 ```
 
-`landingPath` is the default path to redirect to once sign-in is complete. If the user reached the sign-in page with a `?redirectTo=...` query parameter, `trellis-svelte` automatically sends them back there after sign-in instead of using `landingPath`.
-
-`createAuthState(...)` is the lower-level auth helper, so its config still uses `authUrl`. The runtime connection path uses `trellisUrl` through `TrellisProvider`.
+The `redirectTo` query parameter lets protected routes send the user back to the page they originally requested. `TrellisProvider` also accepts an auth `redirectTo` option for the runtime connection path.
 
 The optional `context` object lets your app provide hints to custom portals for more integrated UX flows.
 
@@ -134,30 +148,24 @@ To do this, create a layout group `(app)` and define its layout by creating `src
 ```svelte
 <script lang="ts">
   import { TrellisProvider } from "@qlever-llc/trellis-svelte";
-  import { contexts } from "$lib/trellis-context.svelte";
-  import { contract, loginPath, trellisUrl } from "$lib/trellis";
+  import { trellisUrl } from "$lib/trellis";
+  import { trellisApp } from "$lib/trellis-context.svelte";
 
   let { children } = $props();
 </script>
 
-<TrellisProvider {contexts} {trellisUrl} {contract} {loginPath}>
+<TrellisProvider
+  app={trellisApp}
+  {trellisUrl}
+  auth={{ redirectTo: () => window.location.href }}
+>
   <!-- Svelte 5 snippet syntax for rendering states -->
   {#snippet loading()}
     <p>Connecting...</p>
   {/snippet}
 
-  {#snippet bindError(result)}
-    <p>
-      {#if result.status === "approval_denied"}
-        Access was denied.
-      {:else if result.status === "approval_required"}
-        This app requires approval before it can access Trellis.
-      {:else if result.status === "insufficient_capabilities"}
-        Your account is missing required capabilities: {result.missingCapabilities.join(", ")}
-      {:else}
-        Authentication failed: {result.message}
-      {/if}
-    </p>
+  {#snippet error(error)}
+    <p>Could not connect to Trellis: {error instanceof Error ? error.message : String(error)}</p>
     <a href="/login">Try again</a>
   {/snippet}
 
@@ -169,10 +177,10 @@ After that point, pages do not need to recreate auth state. They read the live r
 
 There are also optional callbacks:
 
-- `onAuthRequired` fires whenever `trellis-svelte` decides a new authentication flow is needed to continue. If you do not provide `onAuthRequired`, `trellis-svelte` automatically redirects the user to `loginPath` with a `redirectTo` query parameter that sends them back to where they were.
-- `onBindError` fires when the UI tried to bind itself to a Trellis session but could not continue. This is the same condition that selects the `bindError` snippet.
+- `onAuthRequired` fires whenever `trellis-svelte` decides a new authentication flow is needed to continue. If you do not provide `onAuthRequired`, the core browser client redirects to the Trellis login URL.
+- `error(error)` renders unexpected connection failures.
 
-`TrellisProvider` is the primary Svelte integration surface. It restores auth state, handles callbacks, calls `TrellisClient.connect(...)`, and fills the app-owned Trellis, auth, and connection-state contexts. It does not expose raw NATS handles; use your app-local `getTrellis()` for Trellis calls, `getAuth()` for auth state, and `getConnectionState()` for connection status.
+`TrellisProvider` is the primary Svelte integration surface. It calls `TrellisClient.connect(...)` and fills the app-owned Trellis and connection contexts. It does not expose raw NATS handles; use your app-local `getTrellis()` for Trellis calls and `getConnection()` for connection status.
 
 ## 6. Call RPCs
 
@@ -180,13 +188,27 @@ Call RPCs directly from a page at `src/routes/(app)/dashboard/+page.svelte`:
 
 ```svelte
 <script lang="ts">
+  import { onMount } from "svelte";
   import { getTrellis } from "$lib/trellis-context.svelte";
 
-  const trellis = await getTrellis();
-  const me = await trellis.requestOrThrow("Auth.Me", {});
+  type AuthMeOutput = {
+    user: { name?: string; email?: string; id: string };
+  };
+
+  const trellis = getTrellis();
+
+  let me = $state<AuthMeOutput | null>(null);
+
+  async function loadMe() {
+    me = await trellis.request<AuthMeOutput>("Auth.Me", {}).orThrow();
+  }
+
+  onMount(() => {
+    void loadMe();
+  });
 </script>
 
-<h1>Welcome, {me.user.name}</h1>
+<h1>Welcome, {me?.user.name ?? me?.user.email ?? me?.user.id ?? "loading"}</h1>
 ```
 
-Svelte 5 allows top-level `await`, which makes the component async and suspends rendering until those awaits resolve. In practice, this means the page renders for the first time only after a valid Trellis client is available.
+`getTrellis()` and `getConnection()` are Svelte context getters. Call them during component initialization and store the returned client or connection in a top-level `const`. Do not call them inside `onMount`, event handlers, async helper functions, or later callbacks; doing so violates Svelte's context lifecycle rules.

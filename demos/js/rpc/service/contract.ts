@@ -2,7 +2,10 @@ import { defineServiceContract } from "@qlever-llc/trellis/contracts";
 import { auth, health } from "@qlever-llc/trellis-sdk";
 import * as schemas from "./src/schemas/index.ts";
 
-export const contract = defineServiceContract({ schemas }, (ref) => ({
+export const contract = defineServiceContract({
+  schemas,
+  exports: { schemas: ["InspectionAssignment", "SiteSummary"] },
+}, (ref) => ({
   id: "trellis.demo-rpc-service@v1",
   displayName: "Inspection RPC Demo Service",
   description: "Field inspection RPC demo service.",

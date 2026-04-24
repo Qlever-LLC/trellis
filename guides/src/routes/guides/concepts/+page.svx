@@ -253,6 +253,6 @@ Jobs are not visible to callers. If you need a caller-observable async workflow,
 
 `@qlever-llc/trellis/sdk/*` subpaths (for example `@qlever-llc/trellis/sdk/auth`, `@qlever-llc/trellis/sdk/core`, and `@qlever-llc/trellis/sdk/state`) are generated from contract definitions as part of the contract build pipeline. Import them for typed request or response types and `use(...)` declarations.
 
-`@qlever-llc/trellis-svelte` exposes Trellis-facing helpers such as `TrellisProvider`, `getTrellis()`, `getAuth()`, and `getConnectionState()`; raw NATS access is intentionally not part of its public API.
+`@qlever-llc/trellis-svelte` exposes app-scoped Trellis-facing helpers such as `TrellisProvider`, `createTrellisApp(...)`, `getTrellis()`, and `getConnection()`; raw NATS access is intentionally not part of its public API.
 
 On the Rust side, the equivalent building blocks are generated Rust SDK crates plus a generated crate for the app, service, or CLI you are building. That generated crate is the preferred ergonomic entrypoint because it exposes only the owned surface and `uses` aliases declared by the local contract.

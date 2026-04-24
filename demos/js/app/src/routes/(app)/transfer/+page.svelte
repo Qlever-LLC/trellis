@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { getTrellis } from "$lib/trellis-context.svelte";
+  import { getTrellis } from "$lib/trellis";
   import type {
     InspectionEvidenceUploadOutput,
     InspectionEvidenceUploadProgress,
-  } from "../../../../../generated/js/sdks/demo-transfer-service/types.ts";
+  } from "@trellis-demo/transfer-service-sdk";
 
   type TransferProgress = InspectionEvidenceUploadProgress;
   type TransferOutput = InspectionEvidenceUploadOutput;
@@ -31,9 +31,7 @@
     };
   };
 
-  async function getTransferTrellis(): Promise<TransferDemoTrellis> {
-    return await getTrellis() as TransferDemoTrellis;
-  }
+  const trellis = getTrellis<TransferDemoTrellis>();
   const encoder = new TextEncoder();
 
   let note = $state("West Yard · Pump Station 7\nObserved minor vibration during the morning walk-through. Follow-up image attached from the browser demo upload.");
@@ -56,8 +54,6 @@
     try {
       const bytes = encoder.encode(note);
       const key = `evidence/${crypto.randomUUID()}.txt`;
-      const trellis = await getTransferTrellis();
-
       const upload = await trellis.operation("Inspection.Evidence.Upload")
         .input({
           key,
@@ -89,7 +85,7 @@
   <title>Transfer · Trellis demo</title>
 </svelte:head>
 
-<section class="mx-auto flex w-full max-w-6xl flex-col gap-6 p-4 md:p-6">
+<section class="flex w-full flex-col gap-6">
   <header class="space-y-1">
     <h1 class="text-2xl font-semibold">Transfer</h1>
     <p class="text-sm text-base-content/70">Upload bytes through a transfer-capable operation.</p>

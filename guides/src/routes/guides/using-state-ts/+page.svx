@@ -60,21 +60,23 @@ After your app has an authenticated Trellis client, call `State.*` with the
 state partition you need.
 
 ```ts
-const trellis = await getTrellis();
+const trellis = getTrellis();
 
-const prefs = await trellis.requestOrThrow("State.Get", {
+const prefs = await trellis.request("State.Get", {
   scope: "userApp",
   key: "prefs/theme",
-});
+}).orThrow();
 
 if (!prefs.found) {
-  await trellis.requestOrThrow("State.Put", {
+  await trellis.request("State.Put", {
     scope: "userApp",
     key: "prefs/theme",
     value: { theme: "dark" },
-  });
+  }).orThrow();
 }
 ```
+
+In a Svelte component, call the app-local `getTrellis()` helper during component initialization and reuse the returned client from handlers and async helpers.
 
 `userApp` means one authenticated user inside one app contract namespace. The same user signing into a different app contract does not see these keys.
 
@@ -96,18 +98,18 @@ Use `deviceApp` for state that belongs to one authenticated device instance, suc
 Every state entry includes a `revision`. Use that revision when you want optimistic concurrency.
 
 ```ts
-const current = await trellis.requestOrThrow("State.Get", {
+const current = await trellis.request("State.Get", {
   scope: "userApp",
   key: "drafts/current",
-});
+}).orThrow();
 
 if (current.found) {
-  const updated = await trellis.requestOrThrow("State.CompareAndSet", {
+  const updated = await trellis.request("State.CompareAndSet", {
     scope: "userApp",
     key: "drafts/current",
     expectedRevision: current.entry.revision,
     value: { body: "updated text" },
-  });
+  }).orThrow();
 
   if (!updated.applied) {
     // Another instance wrote a newer revision first.
@@ -122,17 +124,17 @@ To create only if absent, pass `expectedRevision: null`.
 `State.List` returns keys in lexicographic order and supports `offset` and `limit` pagination.
 
 ```ts
-const page = await trellis.requestOrThrow("State.List", {
+const page = await trellis.request("State.List", {
   scope: "userApp",
   prefix: "drafts/",
   offset: 0,
   limit: 20,
-});
+}).orThrow();
 
-await trellis.requestOrThrow("State.Delete", {
+await trellis.request("State.Delete", {
   scope: "userApp",
   key: "drafts/old",
-});
+}).orThrow();
 ```
 
 `State.Delete` may also include `expectedRevision` when you want a conditional delete.
@@ -142,12 +144,12 @@ await trellis.requestOrThrow("State.Delete", {
 If a key is cache-like rather than durable, attach `ttlMs` on `State.Put` or `State.CompareAndSet`.
 
 ```ts
-await trellis.requestOrThrow("State.Put", {
+await trellis.request("State.Put", {
   scope: "userApp",
   key: "search/last-results",
   value: { ids: ["a", "b", "c"] },
   ttlMs: 5 * 60_000,
-});
+}).orThrow();
 ```
 
 Expired entries behave like missing keys.

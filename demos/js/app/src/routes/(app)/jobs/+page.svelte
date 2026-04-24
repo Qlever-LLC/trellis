@@ -1,63 +1,47 @@
-<script lang="ts">
+  <script lang="ts">
   import { onMount } from "svelte";
-  import { getTrellis } from "$lib/trellis-context.svelte";
+  import { getTrellis } from "$lib/trellis";
   import type {
+    InspectionSummariesRefreshStatus,
     InspectionSummariesRefreshOutput,
     InspectionSummariesRefreshStatusGetOutput,
-  } from "../../../../../generated/js/sdks/demo-jobs-service/types.ts";
+  } from "@trellis-demo/jobs-service-sdk";
+  import type {
+    JobsListOutput,
+    JobsListServicesOutput,
+  } from "@qlever-llc/trellis-sdk/jobs";
 
-  type JobsRefresh = NonNullable<InspectionSummariesRefreshStatusGetOutput["refresh"]>;
-  type JobsDemoTrellis = {
-    jobs(): {
-      listServices(): {
-        orThrow(): Promise<Array<{
-          healthy: boolean;
-          name: string;
-          workers: Array<{ instanceId: string; jobType: string; timestamp: string }>;
-        }>>;
-      };
-      list(filter?: { limit?: number }): {
-        orThrow(): Promise<Array<{
-          id: string;
-          service: string;
-          state: string;
-          type: string;
-          updatedAt: string;
-        }>>;
-      };
-    };
-    request(method: "Inspection.Summaries.Refresh", input: { siteId: string }): {
-      orThrow(): Promise<InspectionSummariesRefreshOutput>;
-    };
-    request(method: "Inspection.Summaries.RefreshStatus.Get", input: { refreshId: string }): {
-      orThrow(): Promise<InspectionSummariesRefreshStatusGetOutput>;
-    };
-  };
   const siteId = "site-west-yard";
   const terminalStates = new Set(["completed", "failed"]);
 
-  async function getJobsTrellis(): Promise<JobsDemoTrellis> {
-    return await getTrellis() as JobsDemoTrellis;
-  }
+  const trellis = getTrellis();
 
   let loading = $state(true);
   let error = $state<string | null>(null);
   let queueing = $state(false);
-  let services = $state<Array<{ healthy: boolean; name: string; workers: Array<{ instanceId: string; jobType: string; timestamp: string; }> }>>([]);
-  let jobs = $state<Array<{ id: string; service: string; state: string; type: string; updatedAt: string }>>([]);
-  let refresh = $state<JobsRefresh | null>(null);
+  let services = $state<JobsListServicesOutput["services"]>([]);
+  let jobs = $state<JobsListOutput["jobs"]>([]);
+  let refresh = $state<InspectionSummariesRefreshStatus | null>(null);
   async function requestRefreshStatus(
     refreshId: string,
   ): Promise<InspectionSummariesRefreshStatusGetOutput> {
-    const trellis = await getJobsTrellis();
-    return await trellis.request("Inspection.Summaries.RefreshStatus.Get", { refreshId }).orThrow();
+    return await trellis
+      .request<InspectionSummariesRefreshStatusGetOutput>(
+        "Inspection.Summaries.RefreshStatus.Get",
+        { refreshId },
+      )
+      .orThrow();
   }
 
   async function requestRefresh(
     targetSiteId: string,
   ): Promise<InspectionSummariesRefreshOutput> {
-    const trellis = await getJobsTrellis();
-    return await trellis.request("Inspection.Summaries.Refresh", { siteId: targetSiteId }).orThrow();
+    return await trellis
+      .request<InspectionSummariesRefreshOutput>(
+        "Inspection.Summaries.Refresh",
+        { siteId: targetSiteId },
+      )
+      .orThrow();
   }
 
   async function loadAdminView(): Promise<void> {
@@ -65,28 +49,13 @@
     error = null;
 
     try {
-      const client = (await getJobsTrellis()).jobs();
       const [servicesResult, jobsResult] = await Promise.all([
-        client.listServices().orThrow(),
-        client.list({ limit: 8 }).orThrow(),
+        trellis.request<JobsListServicesOutput>("Jobs.ListServices", {}).orThrow(),
+        trellis.request<JobsListOutput>("Jobs.List", { limit: 8 }).orThrow(),
       ]);
 
-      services = servicesResult.map((service) => ({
-        healthy: service.healthy,
-        name: service.name,
-        workers: service.workers.map((worker) => ({
-          instanceId: worker.instanceId,
-          jobType: worker.jobType,
-          timestamp: worker.timestamp,
-        })),
-      }));
-      jobs = jobsResult.map((job) => ({
-        id: job.id,
-        service: job.service,
-        state: job.state,
-        type: job.type,
-        updatedAt: job.updatedAt,
-      }));
+      services = servicesResult.services;
+      jobs = jobsResult.jobs;
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
     } finally {
@@ -143,10 +112,12 @@
   <title>Jobs · Trellis demo</title>
 </svelte:head>
 
-<section class="mx-auto flex w-full max-w-6xl flex-col gap-6 p-4 md:p-6">
+<section class="flex w-full flex-col gap-6">
   <header class="space-y-1">
     <h1 class="text-2xl font-semibold">Jobs</h1>
-    <p class="text-sm text-base-content/70">Queue work, then inspect workers and recent jobs.</p>
+    <p class="text-sm text-base-content/70">
+      Queue work, then inspect workers and recent jobs.
+    </p>
   </header>
 
   <div class="flex flex-wrap gap-3">
@@ -170,7 +141,9 @@
         <div class="flex items-center justify-between gap-3">
           <h2 class="card-title text-lg">Latest refresh</h2>
           {#if refresh}
-            <span class={refreshBadgeClass(refresh.status)}>{refresh.status}</span>
+            <span class={refreshBadgeClass(refresh.status)}
+              >{refresh.status}</span
+            >
           {/if}
         </div>
 
@@ -212,7 +185,9 @@
         <div class="card-body gap-4">
           <div class="flex items-center justify-between gap-3">
             <h2 class="card-title text-lg">Workers</h2>
-            <span class="badge badge-outline">{services.length} service{services.length === 1 ? "" : "s"}</span>
+            <span class="badge badge-outline"
+              >{services.length} service{services.length === 1 ? "" : "s"}</span
+            >
           </div>
 
           {#if loading}
@@ -238,7 +213,11 @@
                     <tr>
                       <td>{service.name}</td>
                       <td>
-                        <span class={service.healthy ? "badge badge-success badge-outline" : "badge badge-error badge-outline"}>
+                        <span
+                          class={service.healthy
+                            ? "badge badge-success badge-outline"
+                            : "badge badge-error badge-outline"}
+                        >
                           {service.healthy ? "healthy" : "unhealthy"}
                         </span>
                       </td>
@@ -256,7 +235,9 @@
         <div class="card-body gap-4">
           <div class="flex items-center justify-between gap-3">
             <h2 class="card-title text-lg">Recent jobs</h2>
-            <span class="badge badge-outline">{jobs.length} job{jobs.length === 1 ? "" : "s"}</span>
+            <span class="badge badge-outline"
+              >{jobs.length} job{jobs.length === 1 ? "" : "s"}</span
+            >
           </div>
 
           {#if loading}
@@ -283,7 +264,9 @@
                     <tr>
                       <td>
                         <div>{job.type}</div>
-                        <div class="font-mono text-xs text-base-content/60">{job.id}</div>
+                        <div class="font-mono text-xs text-base-content/60">
+                          {job.id}
+                        </div>
                       </td>
                       <td>{job.state}</td>
                       <td>{job.service}</td>
