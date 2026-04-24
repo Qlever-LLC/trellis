@@ -5,12 +5,13 @@ import {
   type TrellisCatalogOutput,
 } from "@qlever-llc/trellis-sdk/core";
 import { createAuth } from "@qlever-llc/trellis/auth";
-import { Trellis as RootTrellis, isErr } from "@qlever-llc/trellis";
+import { isErr, Trellis as RootTrellis } from "@qlever-llc/trellis";
 
 import { logger as noopLogger, type LoggerLike } from "../globals.ts";
 import { serverLogger } from "../server_logger.ts";
 import type { TrellisAPI } from "@qlever-llc/trellis/contracts";
 import type { ContractKvMetadata } from "../contract_support/mod.ts";
+import { DEFAULT_RUNTIME_MAX_RECONNECT_ATTEMPTS } from "../runtime_transport.ts";
 import type { TrellisServiceRuntimeDeps } from "./runtime.ts";
 import {
   createConnectedService,
@@ -135,6 +136,7 @@ export async function connectTrellisServiceInternal<
 
   const nc = await connectFn({
     servers: opts.nats.servers,
+    maxReconnectAttempts: DEFAULT_RUNTIME_MAX_RECONNECT_ATTEMPTS,
     inboxPrefix,
     authenticator: [authTokenAuthenticator, authenticator],
     ...(opts.nats.options ?? {}),
@@ -188,7 +190,8 @@ export async function connectTrellisServiceInternal<
       }
       const catalog: TrellisCatalogOutput = catalogValue;
       const isActive = catalog.catalog.contracts.some(
-        (contract: { digest: string }) => contract.digest === opts.contractDigest,
+        (contract: { digest: string }) =>
+          contract.digest === opts.contractDigest,
       );
       if (!isActive) {
         throw new Error(

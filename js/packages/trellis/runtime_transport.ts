@@ -10,24 +10,37 @@ type RuntimeTransports = {
   websocket?: RuntimeTransportEndpoints;
 };
 
+export const DEFAULT_RUNTIME_MAX_RECONNECT_ATTEMPTS = -1;
+
 export type RuntimeTransportConnectOptions = {
   servers: string | string[];
   token?: string;
   authenticator?: Authenticator | Authenticator[];
   inboxPrefix?: string;
-};
+  maxReconnectAttempts?: number;
+} & Record<string, unknown>;
 
 export type RuntimeTransport = {
   connect(options: RuntimeTransportConnectOptions): Promise<NatsConnection>;
 };
 
-export function selectRuntimeTransportServers(transports: RuntimeTransports): string[] {
+export function selectRuntimeTransportServers(
+  transports: RuntimeTransports,
+): string[] {
   if (isBrowserRuntime()) {
-    if (transports.websocket?.natsServers?.length) return transports.websocket.natsServers;
-    if (transports.native?.natsServers?.length) return transports.native.natsServers;
+    if (transports.websocket?.natsServers?.length) {
+      return transports.websocket.natsServers;
+    }
+    if (transports.native?.natsServers?.length) {
+      return transports.native.natsServers;
+    }
   } else {
-    if (transports.native?.natsServers?.length) return transports.native.natsServers;
-    if (transports.websocket?.natsServers?.length) return transports.websocket.natsServers;
+    if (transports.native?.natsServers?.length) {
+      return transports.native.natsServers;
+    }
+    if (transports.websocket?.natsServers?.length) {
+      return transports.websocket.natsServers;
+    }
   }
 
   throw new Error("No supported NATS transport endpoints available");
@@ -39,7 +52,9 @@ function isBrowserRuntime(): boolean {
 
 function usesWebSocketTransport(servers: string | string[]): boolean {
   const values = Array.isArray(servers) ? servers : [servers];
-  return values.some((server) => server.startsWith("ws://") || server.startsWith("wss://"));
+  return values.some((server) =>
+    server.startsWith("ws://") || server.startsWith("wss://")
+  );
 }
 
 function runtimeImport<TModule>(specifier: string): Promise<TModule> {
@@ -63,7 +78,9 @@ export async function loadDefaultRuntimeTransport(): Promise<RuntimeTransport> {
           return await wsconnect(options);
         }
 
-        const mod = await runtimeImport<{ connect: RuntimeTransport["connect"] }>(
+        const mod = await runtimeImport<
+          { connect: RuntimeTransport["connect"] }
+        >(
           ["@nats-io", "transport-deno"].join("/"),
         );
         return await mod.connect(options);

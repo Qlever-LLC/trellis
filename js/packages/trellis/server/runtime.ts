@@ -10,6 +10,7 @@ export type NatsConnectOpts = {
   token?: string;
   inboxPrefix?: string;
   authenticator?: unknown;
+  maxReconnectAttempts?: number;
 } & Record<string, unknown>;
 
 export type NatsConnectFn = (opts: NatsConnectOpts) => Promise<NatsConnection>;

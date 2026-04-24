@@ -1,4 +1,7 @@
-<script lang="ts" generics="TContract extends TrellisContractLike">
+<script
+  lang="ts"
+  generics="TContract extends TrellisContractLike"
+>
   import {
     ClientAuthHandledError,
     TrellisClient,
@@ -6,7 +9,7 @@
   } from "@qlever-llc/trellis";
   import { onMount } from "svelte";
   import type {
-    ConnectedTrellisRuntime,
+    TrellisContextClient,
     TrellisContractLike,
   } from "../context.svelte.ts";
   import TrellisContextProvider from "./TrellisContextProvider.svelte";
@@ -23,7 +26,7 @@
     onAuthRequired,
   }: TrellisProviderProps<TContract> = $props();
 
-  let trellis = $state<ConnectedTrellisRuntime | null>(null);
+  let trellis = $state<TrellisContextClient | null>(null);
   let connectError = $state<unknown>(null);
 
   onMount(() => {
@@ -38,18 +41,20 @@
 
       return {
         ...authOptions,
-        currentUrl: authOptions?.currentUrl ?? (() => new URL(window.location.href)),
+        currentUrl: authOptions?.currentUrl ??
+          (() => new URL(window.location.href)),
       };
     }
 
     const connectAuth = withBrowserAuthDefaults(auth);
+    const contract = app.contract;
 
     void (async () => {
       try {
         const connected = await TrellisClient.connect({
           ...client,
           trellisUrl,
-          contract: app.contract,
+          contract,
           auth: connectAuth,
           onAuthRequired: onAuthRequired
             ? async (ctx) => {

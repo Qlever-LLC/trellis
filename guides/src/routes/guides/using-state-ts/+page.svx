@@ -27,8 +27,8 @@ Apps and devices access `State` through `uses`, just like any other Trellis-owne
 
 ```ts
 import { defineContract } from "@qlever-llc/trellis/contracts";
-import { auth } from "@qlever-llc/trellis/sdk/auth";
-import { state } from "@qlever-llc/trellis/sdk/state";
+import { auth } from "@qlever-llc/trellis-sdk/auth";
+import { state } from "@qlever-llc/trellis-sdk/state";
 
 export const notesApp = defineContract({
   id: "notes-app@v1",

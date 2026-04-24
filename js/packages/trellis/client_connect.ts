@@ -34,11 +34,13 @@ import {
 import type { ClientOpts } from "./client.ts";
 import type { TrellisAPI, TrellisContractV1 } from "./contracts.ts";
 import {
+  DEFAULT_RUNTIME_MAX_RECONNECT_ATTEMPTS,
   loadDefaultRuntimeTransport,
   type RuntimeTransport,
   selectRuntimeTransportServers,
 } from "./runtime_transport.ts";
 import {
+  type ConnectedTrellisClient,
   type RuntimeStateStores,
   Trellis,
   type TrellisOpts,
@@ -68,9 +70,6 @@ type ClientContract<
   };
   readonly [CONTRACT_STATE_METADATA]?: ContractStateMetadata;
 };
-
-type ClientContractApi<TContract extends ClientContract> =
-  TContract["API"]["trellis"];
 
 function createConnectedClient(args: {
   name: string;
@@ -164,13 +163,7 @@ export class ClientAuthHandledError extends Error {
   }
 }
 
-export type TrellisClientConnectArgs<
-  TApi extends TrellisAPI = TrellisAPI,
-  TContract extends ClientContract<TApi, TrellisContractV1> = ClientContract<
-    TApi,
-    TrellisContractV1
-  >,
-> =
+type ClientConnectArgsFor<TContract extends ClientContract> =
   & ClientOpts
   & {
     trellisUrl: string;
@@ -180,6 +173,14 @@ export type TrellisClientConnectArgs<
       ctx: ClientAuthRequiredContext,
     ) => Promise<ClientAuthContinuation> | ClientAuthContinuation;
   };
+
+export type TrellisClientConnectArgs<
+  TApi extends TrellisAPI = TrellisAPI,
+  TContract extends ClientContract<TApi, TrellisContractV1> = ClientContract<
+    TApi,
+    TrellisContractV1
+  >,
+> = ClientConnectArgsFor<TContract>;
 
 type ClientRuntimeIdentity = {
   mode: "browser" | "session_key";
@@ -837,7 +838,7 @@ function bootstrapTargetsRequestedContract<
   TContract extends ClientContract<TrellisAPI, TrellisContractV1>,
 >(
   bootstrap: ClientBootstrapResponse,
-  args: TrellisClientConnectArgs<ClientContractApi<TContract>, TContract>,
+  args: ClientConnectArgsFor<TContract>,
 ): boolean {
   return bootstrap.status === "ready" &&
     bootstrap.connectInfo.contractId === args.contract.CONTRACT.id;
@@ -908,8 +909,10 @@ async function buildSessionKeyLoginUrl(args: {
   });
 }
 
-export async function connectClientWithDeps(
-  args: TrellisClientConnectArgs,
+export async function connectClientWithDeps<
+  TContract extends ClientContract<TrellisAPI, TrellisContractV1>,
+>(
+  args: ClientConnectArgsFor<TContract>,
   deps: ClientConnectDeps,
 ): Promise<Trellis<TrellisAPI, "client", RuntimeStateStores>> {
   const trellisUrl = normalizeTrellisUrl(args.trellisUrl);
@@ -986,7 +989,9 @@ export async function connectClientWithDeps(
         deps,
         offsetState,
       });
-      const resolvedBootstrap = needsReauth(refreshedBootstrap)
+      const resolvedBootstrap = needsReauth(refreshedBootstrap) ||
+          (refreshedBootstrap.status === "ready" &&
+            !bootstrapTargetsRequestedContract(refreshedBootstrap, args))
         ? await resolveAuthRequired(
           args,
           identity,
@@ -1029,6 +1034,7 @@ export async function connectClientWithDeps(
   try {
     nc = await transport.connect({
       servers: selectRuntimeTransportServers(bootstrap.connectInfo.transports),
+      maxReconnectAttempts: DEFAULT_RUNTIME_MAX_RECONNECT_ATTEMPTS,
       inboxPrefix: bootstrap.connectInfo.transport.inboxPrefix,
       authenticator: runtimeAuth.authenticators,
     });
@@ -1093,7 +1099,7 @@ export async function connectClientWithDeps(
 async function resolveAuthRequired<
   TContract extends ClientContract<TrellisAPI, TrellisContractV1>,
 >(
-  args: TrellisClientConnectArgs<ClientContractApi<TContract>, TContract>,
+  args: ClientConnectArgsFor<TContract>,
   identity: ClientRuntimeIdentity,
   currentUrl: URL | null,
   deps: ClientConnectDeps,
@@ -1182,12 +1188,17 @@ async function resolveAuthRequired<
 }
 
 export class TrellisClient {
+  static connect<
+    TContract extends ClientContract<TrellisAPI, TrellisContractV1>,
+  >(
+    args: ClientConnectArgsFor<TContract>,
+  ): AsyncResult<
+    ConnectedTrellisClient<TContract>,
+    TransportError | UnexpectedError
+  >;
   static connect(
     args: TrellisClientConnectArgs,
-  ): AsyncResult<
-    Trellis<TrellisAPI, "client", RuntimeStateStores>,
-    TransportError | UnexpectedError
-  > {
+  ): AsyncResult<unknown, TransportError | UnexpectedError> {
     return clientConnectResult(connectClientWithDeps(args, defaultDeps));
   }
 }

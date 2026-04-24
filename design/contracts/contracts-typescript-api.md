@@ -517,12 +517,18 @@ Generated SDK outputs must include:
 - `CONTRACT_DIGEST`
 - `CONTRACT`
 - `API.owned`
-- `API.used` as an empty API projection
-- `API.trellis` equal to `API.owned`
+- `API.used` from selected SDK-backed `uses`, or an empty API projection when
+  the contract has no selected dependencies
+- `API.trellis` as the merge of `API.used` and `API.owned`
 - typed `use(...)`
+- `client.ts` with a concrete generated client facade for consumers
 
-Generated SDK outputs may continue to expose request, response, event, and
-schema types alongside the richer contract module surface.
+Generated SDK outputs may continue to expose request, response, event, schema,
+state, and facade types alongside the richer contract module surface.
+
+Generated client facades should expose explicit request, operation, event,
+publish, state, and common runtime members without requiring consumers to name
+`ClientTrellis<...>` or other deep contract-derived runtime aliases.
 
 ## Non-Goals
 

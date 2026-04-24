@@ -6,7 +6,6 @@
     AuthListDeviceInstancesOutput,
     AuthListDeviceProfilesOutput,
   } from "@qlever-llc/trellis-sdk/auth";
-  import { isErr } from "@qlever-llc/result";
   import { onMount } from "svelte";
   import { errorMessage, formatDate } from "../../../../../lib/format";
   import { getNotifications } from "../../../../../lib/notifications.svelte";
@@ -23,6 +22,14 @@
 
   const trellis = getTrellis();
   const notifications = getNotifications();
+  type ReviewsRequester = {
+    request(method: "Auth.ListDeviceActivationReviews", input: AuthListDeviceActivationReviewsInput): { orThrow(): Promise<AuthListDeviceActivationReviewsOutput> };
+    request(method: "Auth.ListDeviceInstances", input: Record<string, never>): { orThrow(): Promise<AuthListDeviceInstancesOutput> };
+    request(method: "Auth.ListDeviceProfiles", input: Record<string, never>): { orThrow(): Promise<AuthListDeviceProfilesOutput> };
+    request(method: "Auth.DecideDeviceActivationReview", input: AuthDecideDeviceActivationReviewInput): { orThrow(): Promise<void> };
+  };
+  const reviewsSource: object = trellis;
+  const reviewsRequester = reviewsSource as ReviewsRequester;
 
   let loading = $state(true);
   let error = $state<string | null>(null);
@@ -47,21 +54,14 @@
     };
   }
 
-  async function requestValue<T>(method: string, input: unknown): Promise<T> {
-    const result = await trellis.request<T>(method, input);
-    const value = result.take();
-    if (isErr(value)) throw value.error;
-    return value as T;
-  }
-
   async function load() {
     loading = true;
     error = null;
     try {
       const [reviewsResponse, instancesResponse, profilesResponse] = await Promise.all([
-        requestValue<AuthListDeviceActivationReviewsOutput>("Auth.ListDeviceActivationReviews", reviewQuery()),
-        requestValue<AuthListDeviceInstancesOutput>("Auth.ListDeviceInstances", {}),
-        requestValue<AuthListDeviceProfilesOutput>("Auth.ListDeviceProfiles", {}),
+        reviewsRequester.request("Auth.ListDeviceActivationReviews", reviewQuery()).orThrow(),
+        reviewsRequester.request("Auth.ListDeviceInstances", {}).orThrow(),
+        reviewsRequester.request("Auth.ListDeviceProfiles", {}).orThrow(),
       ]);
 
       reviews = reviewsResponse.reviews ?? [];
@@ -91,13 +91,13 @@
     decisionTarget = review.reviewId;
     error = null;
     try {
-      await requestValue(
+      await reviewsRequester.request(
         "Auth.DecideDeviceActivationReview",
         {
           reviewId: review.reviewId,
           decision: "approve",
         } satisfies AuthDecideDeviceActivationReviewInput,
-      );
+      ).orThrow();
       notifications.success(`Review ${review.reviewId} approved.`, "Approved");
       await load();
     } catch (e) {
@@ -115,14 +115,14 @@
     decisionTarget = review.reviewId;
     error = null;
     try {
-      await requestValue(
+      await reviewsRequester.request(
         "Auth.DecideDeviceActivationReview",
         {
           reviewId: review.reviewId,
           decision: "reject",
           reason: reason.trim() || undefined,
         } satisfies AuthDecideDeviceActivationReviewInput,
-      );
+      ).orThrow();
       notifications.success(`Review ${review.reviewId} rejected.`, "Rejected");
       await load();
     } catch (e) {

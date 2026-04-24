@@ -23,21 +23,16 @@ async function main(): Promise<void> {
     name: "demo-jobs-service",
   }).orThrow();
 
-  const refreshStatuses = trellis.kv.refreshStatuses;
-
-  trellis.jobs.refreshSummaries.handle(jobs.refreshSummaries(refreshStatuses));
+  trellis.jobs.refreshSummaries.handle(jobs.refreshSummaries);
 
   await trellis.trellis.mount(
     "Inspection.Summaries.Refresh",
-    rpcs.inspectionSummariesRefreshRpc(
-      refreshStatuses,
-      trellis.jobs.refreshSummaries,
-    ),
+    rpcs.inspectionSummariesRefresh,
   );
 
   await trellis.trellis.mount(
     "Inspection.Summaries.RefreshStatus.Get",
-    rpcs.getRefreshStatus(refreshStatuses),
+    rpcs.getRefreshStatus,
   );
 
   console.log(chalk.green.bold("== Inspection jobs service"));

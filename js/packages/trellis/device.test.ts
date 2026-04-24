@@ -122,6 +122,28 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function authTokenFromAuthenticator(authenticator: unknown): string {
+  const candidates = Array.isArray(authenticator)
+    ? authenticator
+    : [authenticator];
+  for (const candidate of candidates) {
+    if (typeof candidate !== "function") continue;
+    try {
+      const value = candidate();
+      if (
+        value && typeof value === "object" && "auth_token" in value &&
+        typeof value.auth_token === "string"
+      ) {
+        return value.auth_token;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  throw new Error("Expected runtime authenticator to expose auth_token");
+}
+
 Deno.test("connectDeviceWithDeps returns TransportError when activation is required", async () => {
   const originalFetch = globalThis.fetch;
 
@@ -232,6 +254,7 @@ Deno.test("connectDeviceWithDeps maps malformed bootstrap responses to Transport
 
 Deno.test("connectDeviceWithDeps maps runtime connection failures to TransportError", async () => {
   const originalFetch = globalThis.fetch;
+  let maxReconnectAttempts: unknown;
 
   try {
     globalThis.fetch = (() => {
@@ -274,7 +297,11 @@ Deno.test("connectDeviceWithDeps maps runtime connection failures to TransportEr
           rootSecret: new Uint8Array(32).fill(7),
         }, {
           loadTransport: async () => ({
-            connect: async (): Promise<NatsConnection> => {
+            connect: async (opts): Promise<NatsConnection> => {
+              maxReconnectAttempts = Reflect.get(
+                opts,
+                "maxReconnectAttempts",
+              );
               throw new Error("connection refused");
             },
           }),
@@ -284,6 +311,7 @@ Deno.test("connectDeviceWithDeps maps runtime connection failures to TransportEr
     );
 
     assertEquals(error.code, "trellis.runtime.connect_failed");
+    assertEquals(maxReconnectAttempts, -1);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -354,6 +382,7 @@ Deno.test("connectDeviceWithDeps rejects bootstrap contract mismatches", async (
 Deno.test("connectDeviceWithDeps retries bootstrap once on iat_out_of_range using server time", async () => {
   const originalFetch = globalThis.fetch;
   let bootstrapCalls = 0;
+  let connectAuthenticator: unknown;
 
   try {
     globalThis.fetch = (() => {
@@ -414,7 +443,8 @@ Deno.test("connectDeviceWithDeps retries bootstrap once on iat_out_of_range usin
           },
           {
             loadTransport: async () => ({
-              connect: async (): Promise<NatsConnection> => {
+              connect: async (opts): Promise<NatsConnection> => {
+                connectAuthenticator = opts.authenticator;
                 throw new Error("stop-after-retry");
               },
             }),
@@ -426,6 +456,10 @@ Deno.test("connectDeviceWithDeps retries bootstrap once on iat_out_of_range usin
 
     assertEquals(error.code, "trellis.runtime.connect_failed");
     assertEquals(bootstrapCalls, 2);
+    const runtimeToken = JSON.parse(
+      authTokenFromAuthenticator(connectAuthenticator),
+    ) as { iat: number };
+    assertEquals(runtimeToken.iat, 1_700_000_120);
   } finally {
     globalThis.fetch = originalFetch;
   }

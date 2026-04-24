@@ -44,7 +44,13 @@ and this project adheres to
 - Changed `trellis auth login` to require a positional Trellis URL, renamed the
   persisted admin-session URL field to `trellis_url`, and updated the related
   design and guide examples.
-<<<<<<< HEAD
+- Changed TypeScript `prepare` so service and app contracts generate concrete
+  consumer `client.ts` facade types, SvelteKit-style `src/lib/contract.ts`
+  contracts are discovered, and app contracts produce TypeScript SDKs without
+  Rust SDK crates.
+- Updated Svelte app integration so `createTrellisApp` can bind generated client
+  facade types and app-local `getTrellis()` helpers return concrete generated
+  clients without app-local casts or handwritten overloads.
 - Simplified portal auth by removing the portal contract kind and portal
   `appContractId`, keeping custom portals as routing config, and moving
   authenticated device activation to a single `Auth.ActivateDevice` operation.
@@ -59,11 +65,6 @@ and this project adheres to
 - Moved contract-manifest job queue declarations to canonical top-level `jobs`
   in both the JavaScript and Rust contract layers, and aligned bootstrap and
   contract-get views with that shape.
-
-### Added
-
-- Added a reusable Svelte `DeviceActivationController` for custom and built-in
-  authenticated device portal flows.
 
 ### Fixed
 

@@ -1,11 +1,8 @@
-import { BaseError } from "@qlever-llc/result";
-import { UnexpectedError } from "@qlever-llc/trellis";
-import type { OperationHandler } from "@qlever-llc/trellis/service";
 import { TrellisService } from "@qlever-llc/trellis/service/deno";
 import contract from "../contract.ts";
-import { ASSIGNED_INSPECTIONS } from "../../../shared/field_data.ts";
 import { Command } from "@cliffy/command";
 import chalk from "chalk";
+import * as operations from "./operations/index.ts";
 
 async function main(): Promise<void> {
   const {
@@ -25,77 +22,9 @@ async function main(): Promise<void> {
     sessionKeySeed,
   }).orThrow();
 
-  const generateReport: OperationHandler<
-    typeof contract,
-    "Inspection.Report.Generate"
-  > = async ({ input, op }) => {
-    const inspection = ASSIGNED_INSPECTIONS.find((candidate) => {
-      return candidate.inspectionId === input.inspectionId;
-    });
-    const inspectionLabel = inspection
-      ? `${inspection.siteName} / ${inspection.assetName}`
-      : input.inspectionId;
-    const reportId = `report-${input.inspectionId}`;
-    const progressUpdates = [
-      {
-        stage: "drafting",
-        message: `Collecting field notes for ${inspectionLabel}`,
-      },
-      {
-        stage: "rendering",
-        message: `Rendering ${reportId}`,
-      },
-      {
-        stage: "publishing",
-        message: `Publishing ${reportId} for ${inspectionLabel}`,
-      },
-    ] as const;
-
-    try {
-      await op.started().orThrow();
-      await new Promise((resolve) => setTimeout(resolve, 250));
-
-      for (const progress of progressUpdates) {
-        await op.progress(progress).orThrow();
-        await new Promise((resolve) => setTimeout(resolve, 300));
-
-        if (
-          (await service.operations.get(op.id).orThrow()).state === "cancelled"
-        ) {
-          return;
-        }
-      }
-
-      return await op.complete({
-        reportId,
-        inspectionId: input.inspectionId,
-        status: "published",
-      }).orThrow();
-    } catch (cause) {
-      const error = cause instanceof BaseError
-        ? cause
-        : new UnexpectedError({ cause });
-
-      if (
-        (await service.operations.get(op.id).orThrow()).state !== "cancelled"
-      ) {
-        try {
-          await service.operations.fail(op.id, error).orThrow();
-        } catch (failError) {
-          if (
-            (await service.operations.get(op.id).orThrow()).state !==
-              "cancelled"
-          ) {
-            throw failError;
-          }
-        }
-      }
-
-      throw error;
-    }
-  };
-
-  await service.operation("Inspection.Report.Generate").handle(generateReport);
+  await service.operation("Inspection.Report.Generate").handle(
+    operations.generateReport,
+  );
 
   console.log(chalk.green.bold("== Inspection operation service"));
   let shuttingDown = false;

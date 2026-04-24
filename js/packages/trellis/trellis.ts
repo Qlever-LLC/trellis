@@ -17,7 +17,13 @@ import type {
   RPCDesc,
   TrellisAPI,
 } from "./contracts.ts";
-import { CONTRACT_STATE_METADATA } from "./contract_support/mod.ts";
+import {
+  CONTRACT_JOBS_METADATA,
+  CONTRACT_KV_METADATA,
+  CONTRACT_STATE_METADATA,
+  type ContractJobsMetadata,
+  type ContractKvMetadata,
+} from "./contract_support/mod.ts";
 import type { StaticDecode } from "typebox";
 import {
   AuthValidateRequestResponseSchema,
@@ -58,6 +64,7 @@ import {
   AuthError,
   BUILTIN_RPC_ERRORS,
   getBuiltinRpcError,
+  type StoreError,
   TransferError,
   TransportError,
   type TrellisErrorInstance,
@@ -70,6 +77,8 @@ import { RemoteError } from "./errors/RemoteError.ts";
 import { logger, type LoggerLike } from "./globals.ts";
 import { TypedKV } from "./kv.ts";
 import { TrellisErrorDataSchema } from "./models/trellis/TrellisError.ts";
+import type { ActiveJob, JobRef, JobTypeMetadata } from "./jobs.ts";
+import type { StoreWaitOptions, TypedStore, TypedStoreEntry } from "./store.ts";
 import {
   OperationInvoker,
   type OperationRefData,
@@ -104,6 +113,8 @@ import {
 } from "./transfer.ts";
 import { TrellisTasks } from "./tasks.ts";
 import { TrellisConnection } from "./connection.ts";
+
+export type { NatsConnection } from "@nats-io/nats-core";
 
 type RuntimeRpcErrorDesc = {
   type: string;
@@ -322,12 +333,27 @@ export type TrellisAuth = {
 export type AnyTrellisAPI = TrellisAPI;
 export type TrellisMode = "client" | "server";
 type NonNever<T> = [T] extends [never] ? string : T;
+type UnionToIntersection<T> = (
+  T extends unknown ? (value: T) => void : never
+) extends (value: infer I) => void ? I
+  : never;
+type Simplify<T> = { [K in keyof T]: T[K] } & {};
 type OwnedApiFor<TContract> = TContract extends
   { API: { owned: infer TOwnedApi } }
   ? TOwnedApi extends AnyTrellisAPI ? TOwnedApi
   : never
   : never;
-type RuntimeStateStoreShape = {
+type ContractKvFor<TContract> = TContract extends {
+  readonly [CONTRACT_KV_METADATA]?: infer TKv;
+} ? NonNullable<TKv> extends ContractKvMetadata ? NonNullable<TKv>
+  : {}
+  : {};
+type ContractJobsFor<TContract> = TContract extends {
+  readonly [CONTRACT_JOBS_METADATA]?: infer TJobs;
+} ? NonNullable<TJobs> extends ContractJobsMetadata ? NonNullable<TJobs>
+  : {}
+  : {};
+export type RuntimeStateStoreShape = {
   kind: "value" | "map";
   value: unknown;
   schema?: unknown;
@@ -343,34 +369,34 @@ type TrellisApiFor<TContract> = TContract extends
   ? TTrellisApi extends AnyTrellisAPI ? TTrellisApi
   : OwnedApiFor<TContract>
   : OwnedApiFor<TContract>;
+type RpcMethodsOf<TA extends AnyTrellisAPI> = TA["rpc"];
 export type MethodsOf<TA extends AnyTrellisAPI> = NonNever<
-  keyof TA["rpc"] & string
+  keyof RpcMethodsOf<TA> & string
 >;
 export type RpcMethodNameOf<TA extends AnyTrellisAPI> = MethodsOf<TA>;
 export type OperationsOf<TA extends AnyTrellisAPI> = NonNever<
   keyof TA["operations"] & string
 >;
 type EventsOf<TA extends AnyTrellisAPI> = NonNever<keyof TA["events"] & string>;
+type RpcMethodOf<TA extends AnyTrellisAPI, M extends MethodsOf<TA>> =
+  RpcMethodsOf<TA>[M];
 type MethodInputOf<TA extends AnyTrellisAPI, M extends MethodsOf<TA>> =
-  TA["rpc"][M] extends {
-    input: infer TInput;
-  } ? InferSchemaType<TInput>
+  RpcMethodOf<TA, M> extends { input: infer TInput } ? InferSchemaType<TInput>
     : never;
 export type RpcInputOf<
   TA extends AnyTrellisAPI,
   M extends RpcMethodNameOf<TA>,
 > = MethodInputOf<TA, M>;
 type MethodOutputOf<TA extends AnyTrellisAPI, M extends MethodsOf<TA>> =
-  TA["rpc"][M] extends {
-    output: infer TOutput;
-  } ? InferSchemaType<TOutput>
+  RpcMethodOf<TA, M> extends { output: infer TOutput }
+    ? InferSchemaType<TOutput>
     : never;
 export type RpcOutputOf<
   TA extends AnyTrellisAPI,
   M extends RpcMethodNameOf<TA>,
 > = MethodOutputOf<TA, M>;
 type RpcDescriptorOf<TA extends AnyTrellisAPI, M extends MethodsOf<TA>> =
-  TA["rpc"][M] extends {
+  RpcMethodOf<TA, M> extends {
     input: infer TInput;
     output: infer TOutput;
     errors?: infer TErrors;
@@ -382,7 +408,7 @@ type RpcDescriptorOf<TA extends AnyTrellisAPI, M extends MethodsOf<TA>> =
       errors?: TErrors;
       runtimeErrors?: TRuntimeErrors;
       declaredErrorTypes?: TDeclaredErrorTypes;
-    } & TA["rpc"][M]
+    } & RpcMethodOf<TA, M>
     : never;
 type DeclaredBuiltinErrorOf<TNames> = TNames extends readonly (infer TName)[]
   ? TName extends TrellisErrorName ? TrellisErrorMap[TName]
@@ -404,6 +430,17 @@ type RequestErrorOf<TA extends AnyTrellisAPI, M extends MethodsOf<TA>> =
   | TransportError
   | ValidationError
   | UnexpectedError;
+type ClientRequestInvoker<TA extends AnyTrellisAPI> = UnionToIntersection<
+  {
+    [M in MethodsOf<TA>]: {
+      request(
+        method: M,
+        input: MethodInputOf<TA, M>,
+        opts?: RequestOpts,
+      ): AsyncResult<MethodOutputOf<TA, M>, BaseError>;
+    };
+  }[MethodsOf<TA>]
+>;
 type HandlerErrorOf<TA extends AnyTrellisAPI, M extends MethodsOf<TA>> =
   | MethodDeclaredErrorOf<TA, M>
   | TrellisErrorInstance;
@@ -505,7 +542,7 @@ type StateListOptions = {
   offset?: number;
   limit?: number;
 };
-type ValueStateStoreClient<TValue> = {
+export type ValueStateStoreClient<TValue> = {
   get(): AsyncResult<
     StateGetResult<{ kind: "value"; value: TValue }>,
     BaseError
@@ -518,7 +555,7 @@ type ValueStateStoreClient<TValue> = {
     opts?: StateDeleteOptions,
   ): AsyncResult<{ deleted: boolean }, BaseError>;
 };
-type MapStateStoreClient<TValue> = {
+export type MapStateStoreClient<TValue> = {
   get(
     key: string,
   ): AsyncResult<StateGetResult<{ kind: "map"; value: TValue }>, BaseError>;
@@ -838,7 +875,7 @@ export type RpcHandlerContext = {
 export type HandlerTrellis<TA extends AnyTrellisAPI> = {
   request<M extends MethodsOf<TA>>(
     method: M,
-    input: MethodInputOf<TA, M>,
+    input: NoInfer<MethodInputOf<TA, M>>,
     opts?: RequestOpts,
   ): AsyncResult<MethodOutputOf<TA, M>, BaseError>;
   publish(
@@ -856,11 +893,61 @@ export type HandlerTrellis<TA extends AnyTrellisAPI> = {
   ): OperationSurface<TA, TrellisMode, O>;
 };
 
+export type HandlerKvFacade<TKv extends ContractKvMetadata> = {
+  [K in keyof TKv]: TKv[K]["required"] extends false
+    ? TypedKV<TKv[K]["schema"]> | undefined
+    : TypedKV<TKv[K]["schema"]>;
+};
+
+export type HandlerStoreHandle = {
+  open(): AsyncResult<TypedStore, StoreError>;
+  waitFor(
+    key: string,
+    options?: StoreWaitOptions,
+  ): AsyncResult<TypedStoreEntry, StoreError>;
+};
+
+export type HandlerJobQueue<
+  TPayload,
+  TResult,
+  TTrellis,
+> = {
+  create(payload: TPayload): AsyncResult<JobRef<TPayload, TResult>, BaseError>;
+  handle(
+    handler: (args: {
+      job: ActiveJob<TPayload, TResult>;
+      trellis: TTrellis;
+    }) => Promise<Result<TResult, BaseError>>,
+  ): void;
+};
+
+export type HandlerJobsFacade<
+  TJobs extends Record<string, JobTypeMetadata>,
+  TTrellis,
+> = {
+  [K in keyof TJobs]: HandlerJobQueue<
+    TJobs[K]["payload"],
+    TJobs[K]["result"],
+    TTrellis
+  >;
+};
+
+export type HandlerTrellisForContract<TContract> =
+  & HandlerTrellis<TrellisApiFor<TContract>>
+  & {
+    kv: HandlerKvFacade<ContractKvFor<TContract>>;
+    store: Record<string, HandlerStoreHandle>;
+    jobs: HandlerJobsFacade<
+      ContractJobsFor<TContract>,
+      HandlerTrellisForContract<TContract>
+    >;
+  };
+
 /** Public client-side surface returned by `TrellisClient.connect`. */
-export interface ClientTrellis<
+export type ClientTrellis<
   TA extends AnyTrellisAPI = TrellisAPI,
   TState extends RuntimeStateStores = {},
-> {
+> = ClientRequestInvoker<TA> & {
   readonly name: string;
   readonly timeout: number;
   readonly stream: string;
@@ -868,11 +955,6 @@ export interface ClientTrellis<
   readonly state: StateFacade<TState>;
   readonly connection: TrellisConnection;
   readonly natsConnection: NatsConnection;
-  request<M extends MethodsOf<TA>>(
-    method: M,
-    input: MethodInputOf<TA, M>,
-    opts?: RequestOpts,
-  ): AsyncResult<MethodOutputOf<TA, M>, BaseError>;
   publish<E extends EventsOf<TA>>(
     event: E,
     data: EventPayloadOf<TA, E>,
@@ -883,28 +965,31 @@ export interface ClientTrellis<
     fn: EventCallback<unknown>,
     opts?: EventOpts,
   ): AsyncResult<void, ValidationError | UnexpectedError>;
-  operation(
-    operation: string,
-  ): OperationSurface<TrellisAPI, "client", OperationsOf<TrellisAPI>>;
+  operation<O extends OperationsOf<TA>>(
+    operation: O,
+  ): OperationSurface<TA, "client", O>;
   wait(): AsyncResult<void, BaseError>;
-}
+};
 
 /** Connected client type for a generated Trellis contract. */
-export type ConnectedTrellisClient<TContract> = ClientTrellis<
-  TContract extends { API: { trellis: infer TApi } }
-    ? TApi extends AnyTrellisAPI ? TApi : TrellisAPI
-    : TrellisAPI,
-  RuntimeStateStoresForContract<TContract>
+export type ConnectedTrellisClient<TContract> = Simplify<
+  ClientTrellis<
+    TContract extends { API: { trellis: infer TApi } }
+      ? TApi extends AnyTrellisAPI ? TApi : TrellisAPI
+      : TrellisAPI,
+    RuntimeStateStoresForContract<TContract>
+  >
 >;
 
 export type HandlerArgs<
   TMountApi extends AnyTrellisAPI,
   M extends MethodsOf<TMountApi>,
   TOutboundApi extends AnyTrellisAPI = TMountApi,
+  TTrellis extends HandlerTrellis<TOutboundApi> = HandlerTrellis<TOutboundApi>,
 > = {
   input: MethodInputOf<TMountApi, M>;
   context: RpcHandlerContext;
-  trellis: HandlerTrellis<TOutboundApi>;
+  trellis: TTrellis;
 };
 
 export type HandlerFn<
@@ -918,7 +1003,7 @@ export type RpcHandlerFn<
   TA extends AnyTrellisAPI,
   M extends RpcMethodNameOf<TA>,
 > = HandlerFn<TA, M, TA>;
-export type TrellisFor<TContract> = HandlerTrellis<TrellisApiFor<TContract>>;
+export type TrellisFor<TContract> = HandlerTrellisForContract<TContract>;
 
 const DEFAULT_STATE_LIST_LIMIT = 100;
 
@@ -1073,7 +1158,12 @@ function validateStateListResult(
 export type RpcArgs<
   TContract,
   M extends RpcMethodNameOf<OwnedApiFor<TContract>>,
-> = HandlerArgs<OwnedApiFor<TContract>, M, TrellisApiFor<TContract>>;
+> = HandlerArgs<
+  OwnedApiFor<TContract>,
+  M,
+  TrellisApiFor<TContract>,
+  HandlerTrellisForContract<TContract>
+>;
 export type RpcResult<
   TContract,
   M extends RpcMethodNameOf<OwnedApiFor<TContract>>,
@@ -1472,7 +1562,7 @@ export class Trellis<
    */
   request<M extends MethodsOf<TA>>(
     method: M,
-    input: MethodInputOf<TA, M>,
+    input: NoInfer<MethodInputOf<TA, M>>,
     opts?: RequestOpts,
   ): AsyncResult<MethodOutputOf<TA, M>, BaseError>;
   request(

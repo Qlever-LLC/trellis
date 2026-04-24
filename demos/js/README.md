@@ -9,10 +9,13 @@ helpers.
 The browser demo app under `demos/js/app` now follows the app-local
 `trellis-svelte` pattern:
 
-- it creates one app-owned `trellisApp` with `createTrellisApp(contract)`
+- it creates one app-owned `trellisApp` with
+  `createTrellisApp<typeof contract, TrellisDemoAppClient>(contract)`
 - it passes that app into `TrellisProvider`
 - it re-exports local `getTrellis()` and `getConnection()` helpers from
   `src/lib/trellis.ts`
+- it imports `TrellisDemoAppClient` from the generated `demo-app/client.ts`
+  facade so page code sees explicit RPC, operation, event, and state members
 
 Supported demos:
 
@@ -38,6 +41,10 @@ deno task -c demos/js/deno.json prepare
 
 If you are editing a specific demo, run that demo's focused `check:prepared`
 task instead of the workspace-wide `check` task.
+
+The prepare step also generates the browser app SDK. If you change
+`demos/js/app/contract.ts` or any service contract it uses, rerun prepare before
+checking the app so `TrellisDemoAppClient` stays aligned with the contract.
 
 ## Browser App Demo
 

@@ -91,8 +91,9 @@ These commands:
 - preserve the current TypeScript generated surface where practical
 - generate Rust SDK crates that target `trellis-client` and `trellis-server`
 - use required contract `kind` metadata to decide discovery behavior: `service`
-  generates manifest and SDK artifacts, while `app`, `agent`, and `device`
-  contracts are verified only
+  generates manifest, TypeScript SDK, and Rust SDK artifacts; `app` generates
+  manifest and TypeScript SDK artifacts; `agent` and `device` contracts are
+  verified only
 
 Normal docs should not teach `trellis generate` or
 `trellis contracts build/verify`. Those workflows belong to `trellis-generate`

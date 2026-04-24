@@ -1,22 +1,9 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { getTrellis } from "$lib/trellis";
-  import type {
-    InspectionAssignment,
-    InspectionAssignmentsListOutput,
-    SiteSummary,
-  } from "@trellis-demo/rpc-service-sdk";
+  import type { InspectionAssignment, SiteSummary } from "@trellis-demo/rpc-service-sdk";
 
-  type RpcDemoTrellis = {
-    request(method: "Inspection.Assignments.List", input: {}): {
-      orThrow(): Promise<InspectionAssignmentsListOutput>;
-    };
-    request(method: "Inspection.Sites.GetSummary", input: { siteId: string }): {
-      orThrow(): Promise<{ summary?: SiteSummary }>;
-    };
-  };
-
-  const trellis = getTrellis<RpcDemoTrellis>();
+  const trellis = getTrellis();
 
   let loading = $state(true);
   let error = $state<string | null>(null);
@@ -28,9 +15,10 @@
     error = null;
 
     try {
-      const response = await trellis
-        .request("Inspection.Sites.GetSummary", { siteId })
-        .orThrow();
+      const response = await trellis.request(
+        "Inspection.Sites.GetSummary",
+        { siteId },
+      ).orThrow();
       summary = response.summary ?? null;
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
@@ -42,9 +30,10 @@
     error = null;
 
     try {
-      const response = await trellis
-        .request("Inspection.Assignments.List", {})
-        .orThrow();
+      const response = await trellis.request(
+        "Inspection.Assignments.List",
+        {},
+      ).orThrow();
       assignments = response.assignments;
 
       const firstSiteId = response.assignments[0]?.siteId;
@@ -79,14 +68,22 @@
 <section class="flex w-full flex-col gap-6">
   <header class="space-y-1">
     <h1 class="text-2xl font-semibold">RPC</h1>
-    <p class="text-sm text-base-content/70">Direct request and response calls.</p>
+    <p class="text-sm text-base-content/70">
+      Direct request and response calls.
+    </p>
   </header>
 
   <div class="flex flex-wrap gap-3">
-    <button class="btn btn-primary btn-sm" onclick={loadAssignments} disabled={loading}>
+    <button
+      class="btn btn-primary btn-sm"
+      onclick={loadAssignments}
+      disabled={loading}
+    >
       {loading ? "Loading..." : "Reload assignments"}
     </button>
-    <div class="badge badge-outline badge-lg">{assignments.length} assignment{assignments.length === 1 ? "" : "s"}</div>
+    <div class="badge badge-outline badge-lg">
+      {assignments.length} assignment{assignments.length === 1 ? "" : "s"}
+    </div>
   </div>
 
   {#if error}
@@ -100,7 +97,9 @@
       <div class="card-body gap-4">
         <div class="flex items-center justify-between gap-3">
           <h2 class="card-title text-lg">Assignments</h2>
-          <span class="text-sm text-base-content/60">Inspection.Assignments.List</span>
+          <span class="text-sm text-base-content/60"
+            >Inspection.Assignments.List</span
+          >
         </div>
 
         {#if loading}
@@ -124,17 +123,27 @@
               </thead>
               <tbody>
                 {#each assignments as assignment (assignment.inspectionId)}
-                  <tr class={selectedSiteId === assignment.siteId ? "bg-base-200" : undefined}>
+                  <tr
+                    class={selectedSiteId === assignment.siteId
+                      ? "bg-base-200"
+                      : undefined}
+                  >
                     <td>
                       <div class="font-medium">{assignment.siteName}</div>
-                      <div class="text-xs text-base-content/60">{assignment.checklistName}</div>
+                      <div class="text-xs text-base-content/60">
+                        {assignment.checklistName}
+                      </div>
                     </td>
                     <td>
                       <div>{assignment.assetName}</div>
-                      <div class="font-mono text-xs text-base-content/60">{assignment.inspectionId}</div>
+                      <div class="font-mono text-xs text-base-content/60">
+                        {assignment.inspectionId}
+                      </div>
                     </td>
                     <td>
-                      <span class={priorityClass(assignment.priority)}>{assignment.priority}</span>
+                      <span class={priorityClass(assignment.priority)}
+                        >{assignment.priority}</span
+                      >
                     </td>
                     <td class="text-right">
                       <button
@@ -192,7 +201,9 @@
           </div>
         {:else}
           <div class="alert">
-            <span>Select an assignment to load Inspection.Sites.GetSummary.</span>
+            <span
+              >Select an assignment to load Inspection.Sites.GetSummary.</span
+            >
           </div>
         {/if}
       </div>

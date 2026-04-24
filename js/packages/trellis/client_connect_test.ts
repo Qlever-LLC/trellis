@@ -4,7 +4,10 @@ import { createUser } from "@nats-io/nkeys";
 
 import { base64urlEncode, createAuth } from "./auth/mod.ts";
 import type { SessionKeyHandle } from "./auth/browser.ts";
-import { ClientAuthHandledError, connectClientWithDeps } from "./client_connect.ts";
+import {
+  ClientAuthHandledError,
+  connectClientWithDeps,
+} from "./client_connect.ts";
 import type { TrellisAPI } from "./contracts.ts";
 import { TransportError } from "./errors/index.ts";
 
@@ -151,6 +154,7 @@ Deno.test("connectClientWithDeps uses reconnect-safe iat auth payloads for runti
   const originalFetch = globalThis.fetch;
   let connectInboxPrefix = "";
   let connectAuthenticator: unknown;
+  let maxReconnectAttempts: unknown;
   let nowMs = 1_700_000_000_000;
 
   try {
@@ -197,6 +201,7 @@ Deno.test("connectClientWithDeps uses reconnect-safe iat auth payloads for runti
             connect: async (options) => {
               connectAuthenticator = options.authenticator;
               connectInboxPrefix = String(options.inboxPrefix ?? "");
+              maxReconnectAttempts = options.maxReconnectAttempts;
               throw new Error("stop-after-connect");
             },
           }),
@@ -223,6 +228,7 @@ Deno.test("connectClientWithDeps uses reconnect-safe iat auth payloads for runti
     ) as typeof firstToken;
 
     assertEquals(connectInboxPrefix, "_INBOX.session-key");
+    assertEquals(maxReconnectAttempts, -1);
     assertEquals(firstToken.sessionKey, auth.sessionKey);
     assertEquals(firstToken.contractDigest, "digest-a");
     assertEquals(firstToken.bindingToken, undefined);
@@ -1365,6 +1371,140 @@ Deno.test("connectClientWithDeps recovers exhausted browser auth through auth co
     assertEquals(authRequiredCalls, 1);
     assertEquals(bootstrapCalls, 3);
     assertEquals(token.bindingToken, undefined);
+    assertEquals(token.contractDigest, "digest-c");
+    await testConnection.close();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("connectClientWithDeps reauths when reconnect bootstrap targets another contract", async () => {
+  const originalFetch = globalThis.fetch;
+  let connectAuthenticator: unknown;
+  let nowMs = 1_700_000_000_000;
+  let bootstrapCalls = 0;
+  let authRequiredCalls = 0;
+  const testConnection = createControllableNatsConnection();
+  const keyPair = await crypto.subtle.generateKey(
+    { name: "Ed25519" },
+    false,
+    ["sign", "verify"],
+  ) as CryptoKeyPair;
+  const publicKeyRaw = new Uint8Array(
+    await crypto.subtle.exportKey("raw", keyPair.publicKey),
+  );
+
+  try {
+    globalThis.fetch = ((input: URL | Request | string, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/bootstrap/client")) {
+        bootstrapCalls += 1;
+        const contractId = bootstrapCalls === 2
+          ? "other.app@v1"
+          : testContract.CONTRACT.id;
+        const contractDigest = bootstrapCalls === 1
+          ? "digest-a"
+          : bootstrapCalls === 2
+          ? "digest-other"
+          : "digest-c";
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              status: "ready",
+              serverNow: 1_700_000_000 + (bootstrapCalls - 1) * 301,
+              connectInfo: {
+                sessionKey: "session-key",
+                contractId,
+                contractDigest,
+                transports: {
+                  native: { natsServers: ["nats://127.0.0.1:4222"] },
+                },
+                transport: {
+                  inboxPrefix: "_INBOX.session-key",
+                  sentinel: { jwt: "jwt", seed: "seed" },
+                },
+              },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      }
+      if (url.endsWith("/auth/requests")) {
+        authRequiredCalls += 1;
+        const body = JSON.parse(String(init?.body ?? "null"));
+        assertEquals(body.redirectTo, "https://app.example.com/after");
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              status: "flow_started",
+              flowId: "flow-wrong-contract",
+              loginUrl:
+                "https://trellis.example.com/_trellis/portal/users/login?flowId=flow-wrong-contract",
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      }
+      if (url.includes("/auth/flow/flow-wrong-contract/bind")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              status: "bound",
+              bindingToken: "binding-token-wrong-contract",
+              inboxPrefix: "_INBOX.session-key",
+              expires: "2026-01-01T00:08:00.000Z",
+              sentinel: { jwt: "jwt", seed: "seed" },
+              transports: {
+                native: { natsServers: ["nats://127.0.0.1:4222"] },
+              },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    }) as typeof fetch;
+
+    await connectClientWithDeps({
+      trellisUrl: "https://trellis.example.com",
+      contract: testContract,
+      auth: {
+        redirectTo: "https://app.example.com/after",
+        handle: {
+          privateKey: keyPair.privateKey,
+          publicKey: keyPair.publicKey,
+          publicKeyRaw,
+          sessionKey: base64urlEncode(publicKeyRaw),
+        },
+      },
+      onAuthRequired: () => ({
+        status: "bound",
+        flowId: "flow-wrong-contract",
+      }),
+    }, {
+      loadTransport: async () => ({
+        connect: async (options) => {
+          connectAuthenticator = options.authenticator;
+          return testConnection.connection;
+        },
+      }),
+      now: () => nowMs,
+      setInterval: () => 1,
+      clearInterval: () => {},
+    });
+
+    nowMs += 301_000;
+    authTokenFromAuthenticator(connectAuthenticator);
+    await waitFor(() => bootstrapCalls === 3 && authRequiredCalls === 1);
+    const token = JSON.parse(
+      authTokenFromAuthenticator(connectAuthenticator),
+    ) as {
+      contractDigest?: string;
+    };
+
+    assertEquals(authRequiredCalls, 1);
+    assertEquals(bootstrapCalls, 3);
     assertEquals(token.contractDigest, "digest-c");
     await testConnection.close();
     await new Promise((resolve) => setTimeout(resolve, 20));

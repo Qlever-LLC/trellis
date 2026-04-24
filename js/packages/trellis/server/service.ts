@@ -56,8 +56,11 @@ import type {
 } from "./runtime.ts";
 import { ServiceTransfer } from "./transfer.ts";
 import { logger as noopLogger, type LoggerLike } from "../globals.ts";
-import { loadDefaultRuntimeTransport } from "../runtime_transport.ts";
-import { selectRuntimeTransportServers } from "../runtime_transport.ts";
+import {
+  DEFAULT_RUNTIME_MAX_RECONNECT_ATTEMPTS,
+  loadDefaultRuntimeTransport,
+  selectRuntimeTransportServers,
+} from "../runtime_transport.ts";
 import { serverLogger } from "../server_logger.ts";
 import { TransportError, UnexpectedError } from "../errors/index.ts";
 import {
@@ -264,14 +267,15 @@ async function loadDefaultServiceRuntimeDeps(): Promise<
 > {
   const transport = await loadDefaultRuntimeTransport();
   return {
-    connect: (opts) =>
+    connect: (
+      { servers, token, authenticator, inboxPrefix, ...extraOptions },
+    ) =>
       transport.connect({
-        servers: opts.servers,
-        ...(opts.token ? { token: opts.token } : {}),
-        ...(opts.authenticator
-          ? { authenticator: opts.authenticator as never }
-          : {}),
-        ...(opts.inboxPrefix ? { inboxPrefix: opts.inboxPrefix } : {}),
+        servers,
+        ...extraOptions,
+        ...(token ? { token } : {}),
+        ...(authenticator ? { authenticator: authenticator as never } : {}),
+        ...(inboxPrefix ? { inboxPrefix } : {}),
       }),
   };
 }
@@ -1172,6 +1176,7 @@ export async function createConnectedService<
     healthPublishTimer = setInterval(() => {
       void publishHealthHeartbeat();
     }, health.publishIntervalMs);
+    void args.nc.closed().finally(stopHealthPublishing);
   }
 
   return service;
@@ -1675,7 +1680,7 @@ export class TrellisService<
   }
 
   static connect<
-    TContract extends ServiceContract<
+    const TContract extends ServiceContract<
       TrellisAPI,
       TrellisAPI,
       ContractJobsMetadata,
@@ -1719,6 +1724,7 @@ export class TrellisService<
             servers: selectRuntimeTransportServers(
               bootstrap.connectInfo.transports,
             ),
+            maxReconnectAttempts: DEFAULT_RUNTIME_MAX_RECONNECT_ATTEMPTS,
             inboxPrefix,
             authenticator: [
               authTokenAuthenticator,

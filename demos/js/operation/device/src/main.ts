@@ -1,10 +1,10 @@
 import contract from "../contract.ts";
+import { renderCompactQr } from "../../../shared/compact_qr.ts";
 import { ASSIGNED_INSPECTIONS } from "../../../shared/field_data.ts";
 import { Command } from "@cliffy/command";
 import chalk from "chalk";
 import { TrellisDevice } from "@qlever-llc/trellis";
 import { checkDeviceActivation } from "@qlever-llc/trellis/device/deno";
-import { qrcode } from "@libs/qrcode";
 
 async function main(): Promise<void> {
   const {
@@ -27,7 +27,7 @@ async function main(): Promise<void> {
   }
   if (activation.status === "activation_required") {
     console.info("Please activate device at:", activation.activationUrl);
-    qrcode(activation.activationUrl, { output: "console" });
+    renderCompactQr(activation.activationUrl);
     await activation.waitForOnlineApproval();
   }
 

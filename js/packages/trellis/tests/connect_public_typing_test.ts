@@ -2,10 +2,11 @@ import { assertEquals } from "@std/assert";
 import { Type } from "typebox";
 
 import {
+  type ConnectedTrellisClient,
   defineAppContract,
   defineDeviceContract,
   defineServiceContract,
-  type ConnectedTrellisClient,
+  TrellisClient,
   TrellisDevice,
 } from "../index.ts";
 import { checkDeviceActivation } from "../device/deno.ts";
@@ -82,6 +83,32 @@ async function typecheckClientConnectRequestSurface() {
   };
 }
 
+async function typecheckTrellisClientConnectRequestSurface() {
+  const connected = await TrellisClient.connect({
+    trellisUrl: "https://trellis.example",
+    contract: appContract,
+  }).orThrow();
+
+  const me = await connected.request("Auth.Me", {}).orThrow();
+  const participantKind: "app" | "agent" | "device" | "service" =
+    me.participantKind;
+  const preferences = await connected.state.preferences.get().orThrow();
+  if (preferences.found) {
+    const theme: string = preferences.entry.value.theme;
+    // @ts-expect-error declared state values must preserve schema-derived fields
+    const missingField: number = preferences.entry.value.missingField;
+    return { missingField, participantKind, theme };
+  }
+
+  type ClientMethod = Parameters<typeof connected.request>[0];
+  const authMeMethod: ClientMethod = "Auth.Me";
+
+  // @ts-expect-error undeclared RPC methods must not typecheck
+  const invalidMethod: ClientMethod = "Auth.NotDeclared";
+
+  return { authMeMethod, invalidMethod, participantKind };
+}
+
 async function typecheckDeviceConnectRequestSurface() {
   const connected = await TrellisDevice.connect({
     trellisUrl: "https://trellis.example",
@@ -153,6 +180,7 @@ async function typecheckServiceConnectSurface() {
 }
 
 void typecheckClientConnectRequestSurface;
+void typecheckTrellisClientConnectRequestSurface;
 void typecheckDeviceConnectRequestSurface;
 void typecheckDeviceActivationSurface;
 void typecheckServiceConnectSurface;

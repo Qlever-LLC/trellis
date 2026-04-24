@@ -7,31 +7,8 @@
 
   type TransferProgress = InspectionEvidenceUploadProgress;
   type TransferOutput = InspectionEvidenceUploadOutput;
-  type TransferBuilder = {
-    onTransfer(handler: (event: { transfer: { transferredBytes: number } }) => void): TransferBuilder;
-    onProgress(handler: (event: { progress: TransferProgress }) => void): TransferBuilder;
-    start(): {
-      orThrow(): Promise<{
-        operation: { id: string };
-        wait(): {
-          orThrow(): Promise<{ terminal: { output?: TransferOutput } }>;
-        };
-      }>;
-    };
-  };
-  type TransferDemoTrellis = {
-    operation(method: "Inspection.Evidence.Upload"): {
-      input(input: {
-        key: string;
-        contentType: string;
-        evidenceType: string;
-      }): {
-        transfer(bytes: Uint8Array): TransferBuilder;
-      };
-    };
-  };
 
-  const trellis = getTrellis<TransferDemoTrellis>();
+  const trellis = getTrellis();
   const encoder = new TextEncoder();
 
   let note = $state("West Yard · Pump Station 7\nObserved minor vibration during the morning walk-through. Follow-up image attached from the browser demo upload.");

@@ -15,7 +15,7 @@
   import { APP_CONFIG, getSelectedAuthUrl } from "../config";
   import { errorMessage } from "../format";
   import { NotificationsController, setNotifications } from "../notifications.svelte";
-  import { getConnection, getTrellis, type ConnectionStatus } from "../trellis";
+  import { getAuthenticatedUser, getConnection, getTrellis, logoutAuthenticatedUser, type ConnectionStatus } from "../trellis";
   import AppShell from "./AppShell.svelte";
 
   type Props = {
@@ -75,15 +75,12 @@
     void goto(resolveAppPath("/profile"));
   }
 
-  async function authMe(): Promise<AuthMeOutput> {
-    const method: string = "Auth.Me";
-    const me = await trellis.request<AuthMeOutput>(method, {}).orThrow();
-    return me as AuthMeOutput;
+  async function authMe() {
+    return await getAuthenticatedUser(trellis);
   }
 
   async function logoutRequest(): Promise<void> {
-    const method: string = "Auth.Logout";
-    await trellis.request<void>(method, {}).orThrow();
+    await logoutAuthenticatedUser(trellis);
   }
 
   async function signOut(): Promise<void> {

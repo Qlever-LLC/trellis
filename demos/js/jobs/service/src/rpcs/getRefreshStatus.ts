@@ -1,18 +1,15 @@
-import { isErr, ok, type TypedKV } from "@qlever-llc/trellis";
-import type { TSchema } from "typebox";
-import { Value } from "typebox/value";
-import * as schemas from "../schemas/index.ts";
+import { isErr, ok, type RpcArgs, type RpcResult } from "@qlever-llc/trellis";
+import contract from "../../contract.ts";
 
-export function getRefreshStatus(
-  refreshStatuses: TypedKV<TSchema>,
-) {
-  return async ({ input }: { input: { refreshId: string } }) => {
-    const refreshEntry = await refreshStatuses.get(input.refreshId).take();
-    const refresh = isErr(refreshEntry) ? undefined : Value.Parse(
-      schemas.InspectionSummariesRefreshStatusSchema,
-      refreshEntry.value,
-    );
+type Args = RpcArgs<typeof contract, "Inspection.Summaries.RefreshStatus.Get">;
+type Result = RpcResult<typeof contract, "Inspection.Summaries.RefreshStatus.Get">;
 
-    return ok({ refresh });
-  };
+export async function getRefreshStatus({
+  input,
+  trellis,
+}: Args): Promise<Result> {
+  const refreshEntry = await trellis.kv.refreshStatuses.get(input.refreshId).take();
+  const refresh = isErr(refreshEntry) ? undefined : refreshEntry.value;
+
+  return ok({ refresh });
 }

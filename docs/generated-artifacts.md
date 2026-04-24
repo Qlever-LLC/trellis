@@ -15,6 +15,11 @@ Outputs include:
 - npm build output under `generated/js/sdks/*/npm/`
 - Rust build output under `generated/rust/sdks/*/target/`
 
+TypeScript SDKs include `client.ts` facade types for consumers. Service
+contracts generate TypeScript and Rust SDKs; app contracts generate TypeScript
+SDKs so Svelte/browser code can import concrete client facade types. Device and
+agent contracts are verified but do not produce SDK artifacts by default.
+
 Refresh the outputs with the repo workflow entrypoints:
 
 - `cd js && deno task prepare`

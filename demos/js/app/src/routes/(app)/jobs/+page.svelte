@@ -1,9 +1,9 @@
-  <script lang="ts">
+<script lang="ts">
   import { onMount } from "svelte";
   import { getTrellis } from "$lib/trellis";
   import type {
-    InspectionSummariesRefreshStatus,
     InspectionSummariesRefreshOutput,
+    InspectionSummariesRefreshStatus,
     InspectionSummariesRefreshStatusGetOutput,
   } from "@trellis-demo/jobs-service-sdk";
   import type {
@@ -16,33 +16,51 @@
 
   const trellis = getTrellis();
 
+  async function requestRefreshStatus(
+    refreshId: string,
+  ): Promise<InspectionSummariesRefreshStatusGetOutput> {
+    const response = await trellis.request(
+      "Inspection.Summaries.RefreshStatus.Get",
+      {
+        refreshId,
+      },
+    ).orThrow();
+    return response;
+  }
+
+  async function requestRefresh(
+    targetSiteId: string,
+  ): Promise<InspectionSummariesRefreshOutput> {
+    const response = await trellis.request(
+      "Inspection.Summaries.Refresh",
+      {
+        siteId: targetSiteId,
+      },
+    ).orThrow();
+    return response;
+  }
+
+  async function requestServices(): Promise<JobsListServicesOutput> {
+    const response = await trellis.request(
+      "Jobs.ListServices",
+      {},
+    ).orThrow();
+    return response;
+  }
+
+  async function requestJobs(): Promise<JobsListOutput> {
+    const response = await trellis.request("Jobs.List", {
+      limit: 8,
+    }).orThrow();
+    return response;
+  }
+
   let loading = $state(true);
   let error = $state<string | null>(null);
   let queueing = $state(false);
   let services = $state<JobsListServicesOutput["services"]>([]);
   let jobs = $state<JobsListOutput["jobs"]>([]);
   let refresh = $state<InspectionSummariesRefreshStatus | null>(null);
-  async function requestRefreshStatus(
-    refreshId: string,
-  ): Promise<InspectionSummariesRefreshStatusGetOutput> {
-    return await trellis
-      .request<InspectionSummariesRefreshStatusGetOutput>(
-        "Inspection.Summaries.RefreshStatus.Get",
-        { refreshId },
-      )
-      .orThrow();
-  }
-
-  async function requestRefresh(
-    targetSiteId: string,
-  ): Promise<InspectionSummariesRefreshOutput> {
-    return await trellis
-      .request<InspectionSummariesRefreshOutput>(
-        "Inspection.Summaries.Refresh",
-        { siteId: targetSiteId },
-      )
-      .orThrow();
-  }
 
   async function loadAdminView(): Promise<void> {
     loading = true;
@@ -50,8 +68,8 @@
 
     try {
       const [servicesResult, jobsResult] = await Promise.all([
-        trellis.request<JobsListServicesOutput>("Jobs.ListServices", {}).orThrow(),
-        trellis.request<JobsListOutput>("Jobs.List", { limit: 8 }).orThrow(),
+        requestServices(),
+        requestJobs(),
       ]);
 
       services = servicesResult.services;

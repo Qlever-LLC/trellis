@@ -5,15 +5,13 @@ import {
   type JobsListServicesOutput,
 } from "@qlever-llc/trellis-sdk/jobs";
 
-type JobsRpcClientLike = {
-  request<TOutput = unknown>(
-    method: string,
-    input: unknown,
-  ): AsyncResult<TOutput, BaseError>;
+type JobsPageRpc = {
+  listServices(): AsyncResult<JobsListServicesOutput, BaseError>;
+  listJobs(filter: JobsListInput): AsyncResult<JobsListOutput, BaseError>;
 };
 
 export async function loadJobsPageData(
-  trellis: JobsRpcClientLike,
+  rpc: JobsPageRpc,
   filter: JobsListInput = {},
 ): Promise<{
   available: boolean;
@@ -23,8 +21,8 @@ export async function loadJobsPageData(
 }> {
   try {
     const [servicesResponse, jobsResponse] = await Promise.all([
-      trellis.request<JobsListServicesOutput>("Jobs.ListServices", {}),
-      trellis.request<JobsListOutput>("Jobs.List", filter),
+      rpc.listServices(),
+      rpc.listJobs(filter),
     ]);
 
     const servicesValue = servicesResponse.take();

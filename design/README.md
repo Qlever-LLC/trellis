@@ -27,6 +27,7 @@ These headings are intentionally named for fast human and AI lookup.
 - Contract state stores: `../docs/guides/contract-state.md`
 - Transfer-backed file processing workflows: `../docs/guides/transfer-file-processing-workflows.md`
 - Working with staged uploaded files: `../docs/guides/staged-store-uploads.md`
+- SvelteKit app authoring: `../guides/src/routes/guides/writing-sveltekit-apps/+page.svx`
 
 ## Core Platform Docs
 

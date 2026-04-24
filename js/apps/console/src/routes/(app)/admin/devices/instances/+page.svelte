@@ -6,7 +6,6 @@
     AuthListDeviceProfilesOutput,
     AuthProvisionDeviceInstanceInput,
   } from "@qlever-llc/trellis-sdk/auth";
-  import { isErr } from "@qlever-llc/result";
   import { onMount } from "svelte";
   import { errorMessage, formatDate } from "../../../../../lib/format";
   import { getNotifications } from "../../../../../lib/notifications.svelte";
@@ -23,6 +22,14 @@
 
   const trellis = getTrellis();
   const notifications = getNotifications();
+  type InstancesRequester = {
+    request(method: "Auth.ListDeviceInstances", input: AuthListDeviceInstancesInput): { orThrow(): Promise<AuthListDeviceInstancesOutput> };
+    request(method: "Auth.ListDeviceProfiles", input: Record<string, never>): { orThrow(): Promise<AuthListDeviceProfilesOutput> };
+    request(method: "Auth.ProvisionDeviceInstance", input: AuthProvisionDeviceInstanceInput): { orThrow(): Promise<void> };
+    request(method: "Auth.DisableDeviceInstance", input: AuthDisableDeviceInstanceInput): { orThrow(): Promise<void> };
+  };
+  const instancesSource: object = trellis;
+  const instancesRequester = instancesSource as InstancesRequester;
 
   let loading = $state(true);
   let error = $state<string | null>(null);
@@ -52,20 +59,13 @@
     };
   }
 
-  async function requestValue<T>(method: string, input: unknown): Promise<T> {
-    const result = await trellis.request<T>(method, input);
-    const value = result.take();
-    if (isErr(value)) throw value.error;
-    return value as T;
-  }
-
   async function load() {
     loading = true;
     error = null;
     try {
       const [instancesResponse, profilesResponse] = await Promise.all([
-        requestValue<AuthListDeviceInstancesOutput>("Auth.ListDeviceInstances", instanceQuery()),
-        requestValue<AuthListDeviceProfilesOutput>("Auth.ListDeviceProfiles", {}),
+        instancesRequester.request("Auth.ListDeviceInstances", instanceQuery()).orThrow(),
+        instancesRequester.request("Auth.ListDeviceProfiles", {}).orThrow(),
       ]);
 
       instances = instancesResponse.instances ?? [];
@@ -138,7 +138,7 @@
     error = null;
     try {
       const metadata = parseProvisionMetadata();
-      await requestValue(
+      await instancesRequester.request(
         "Auth.ProvisionDeviceInstance",
         {
           profileId: provisionProfileId,
@@ -146,7 +146,7 @@
           activationKey: activationKey.trim(),
           ...(metadata ? { metadata } : {}),
         } satisfies AuthProvisionDeviceInstanceInput,
-      );
+      ).orThrow();
       notifications.success("Device instance provisioned.", "Provisioned");
       publicIdentityKey = "";
       activationKey = "";
@@ -169,10 +169,10 @@
     disableTarget = instance.instanceId;
     error = null;
     try {
-      await requestValue(
+      await instancesRequester.request(
         "Auth.DisableDeviceInstance",
         { instanceId: instance.instanceId } satisfies AuthDisableDeviceInstanceInput,
-      );
+      ).orThrow();
       notifications.success(`Device instance ${instance.instanceId} disabled.`, "Disabled");
       await load();
     } catch (e) {

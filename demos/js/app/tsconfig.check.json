@@ -13,6 +13,7 @@
       "@qlever-llc/trellis-sdk": ["../../../js/packages/trellis-sdk/mod.ts"],
       "@qlever-llc/trellis-sdk/auth": ["../../../js/packages/trellis-sdk/auth.ts"],
       "@qlever-llc/trellis-sdk/core": ["../../../js/packages/trellis-sdk/core.ts"],
+      "@qlever-llc/trellis-sdk/health": ["../../../js/packages/trellis-sdk/health.ts"],
       "@qlever-llc/trellis-sdk/state": ["../../../js/packages/trellis-sdk/state.ts"],
       "@qlever-llc/result": ["../../../js/packages/result/mod.ts"],
       "@qlever-llc/trellis-svelte": ["../../../js/packages/trellis-svelte/src/index.ts"],

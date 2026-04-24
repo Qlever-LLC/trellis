@@ -1,19 +1,13 @@
 import { TransportError } from "@qlever-llc/trellis/errors";
 import contract from "../contract.ts";
+import { renderCompactQr } from "../../../shared/compact_qr.ts";
 import { Command } from "@cliffy/command";
 import chalk from "chalk";
 import { TrellisDevice } from "@qlever-llc/trellis";
 import { checkDeviceActivation } from "@qlever-llc/trellis/device/deno";
-import { qrcode } from "@libs/qrcode";
+import type { InspectionSummariesRefreshStatus } from "@trellis-demo/jobs-service-sdk";
 
 const POLL_INTERVAL_MS = 250;
-
-type RefreshStatus = {
-  refreshId: string;
-  siteId: string;
-  status: string;
-  updatedAt: string;
-};
 
 async function main(): Promise<void> {
   // Parse demo CLI args
@@ -36,7 +30,7 @@ async function main(): Promise<void> {
   }
   if (activation.status === "activation_required") {
     console.info("Please activate device at:", activation.activationUrl);
-    qrcode(activation.activationUrl, { output: "console" });
+    renderCompactQr(activation.activationUrl);
     await activation.waitForOnlineApproval();
   }
 
@@ -54,20 +48,22 @@ async function main(): Promise<void> {
   // Make a simple RPC
   console.log(chalk.green.bold("== Queueing Summary Refresh"));
   const siteId = "site-west-yard";
-  const refresh = (await device
+  const refresh = await device
     .request("Inspection.Summaries.Refresh", { siteId })
-    .orThrow()) as { refreshId: string };
+    .orThrow();
 
   // NOTE: In practice, a Trellis "operation" would be a much better fit
   // for work. Operations integrate seamlessly with Trellis Jobs.
   console.info(`Queued refresh ${refresh.refreshId} for ${siteId}`);
   console.log(chalk.green.bold("== Polling Refresh Status"));
   while (true) {
-    const { refresh: current } = (await device
+    const refreshStatus = await device
       .request("Inspection.Summaries.RefreshStatus.Get", {
         refreshId: refresh.refreshId,
       })
-      .orThrow()) as { refresh?: RefreshStatus };
+      .orThrow();
+    const current: InspectionSummariesRefreshStatus | undefined =
+      refreshStatus.refresh;
 
     if (!current) {
       console.info(`Refresh ${refresh.refreshId}: status not available yet`);

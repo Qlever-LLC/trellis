@@ -2,14 +2,21 @@
   import { onMount } from "svelte";
   import { errorMessage, formatDate } from "../../../../lib/format";
   import { loadJobsPageData } from "../../../../lib/jobs_page.ts";
-  import type { AppTrellis } from "../../../../lib/trellis";
+  import type { AsyncResult, BaseError } from "@qlever-llc/result";
   import type {
+    JobsListInput,
     JobsListOutput,
     JobsListServicesOutput,
   } from "@qlever-llc/trellis-sdk/jobs";
   import { getTrellis } from "../../../../lib/trellis";
 
-  const trellis: AppTrellis = getTrellis();
+  const trellis = getTrellis();
+  type JobsRequester = {
+    request(method: "Jobs.ListServices", input: Record<string, never>): AsyncResult<JobsListServicesOutput, BaseError>;
+    request(method: "Jobs.List", input: JobsListInput): AsyncResult<JobsListOutput, BaseError>;
+  };
+  const jobsSource: object = trellis;
+  const jobsRequester = jobsSource as JobsRequester;
 
   type Job = JobsListOutput["jobs"][number];
   type ServiceInfo = JobsListServicesOutput["services"][number];
@@ -46,9 +53,10 @@
     unavailableMessage = null;
 
     try {
-      const data = await loadJobsPageData(trellis, {
-        service: selectedService || undefined,
-      });
+      const data = await loadJobsPageData({
+        listServices: () => jobsRequester.request("Jobs.ListServices", {}),
+        listJobs: (filter) => jobsRequester.request("Jobs.List", filter),
+      }, { service: selectedService || undefined });
 
       unavailableMessage = data.available ? null : data.message ?? "Jobs service is unavailable.";
       services = data.services;

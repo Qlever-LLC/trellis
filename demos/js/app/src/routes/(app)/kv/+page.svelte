@@ -3,22 +3,14 @@
   import { getTrellis } from "$lib/trellis";
   import type { SiteSummary } from "@trellis-demo/kv-service-sdk";
 
-  type KvDemoTrellis = {
-    request(method: "Inspection.Summaries.Get", input: { siteId: string }): {
-      orThrow(): Promise<{ summary?: SiteSummary }>;
-    };
-    request(method: "Inspection.Summaries.List", input: {}): {
-      orThrow(): Promise<{ summaries: SiteSummary[] }>;
-    };
-  };
-
-  const trellis = getTrellis<KvDemoTrellis>();
+  const trellis = getTrellis();
 
   let loading = $state(true);
   let error = $state<string | null>(null);
   let summaries = $state<SiteSummary[]>([]);
   let selectedSiteId = $state<string | null>(null);
   let selectedSummary = $state<SiteSummary | null>(null);
+
   async function loadSummary(siteId: string): Promise<void> {
     selectedSiteId = siteId;
     error = null;
@@ -73,10 +65,16 @@
   </header>
 
   <div class="flex flex-wrap gap-3">
-    <button class="btn btn-primary btn-sm" onclick={loadSummaries} disabled={loading}>
+    <button
+      class="btn btn-primary btn-sm"
+      onclick={loadSummaries}
+      disabled={loading}
+    >
       {loading ? "Loading..." : "Refresh summaries"}
     </button>
-    <div class="badge badge-outline badge-lg">{summaries.length} projected site{summaries.length === 1 ? "" : "s"}</div>
+    <div class="badge badge-outline badge-lg">
+      {summaries.length} projected site{summaries.length === 1 ? "" : "s"}
+    </div>
   </div>
 
   {#if error}
@@ -90,7 +88,9 @@
       <div class="card-body gap-4">
         <div class="flex items-center justify-between gap-3">
           <h2 class="card-title text-lg">Projection list</h2>
-          <span class="text-sm text-base-content/60">Inspection.Summaries.List</span>
+          <span class="text-sm text-base-content/60"
+            >Inspection.Summaries.List</span
+          >
         </div>
 
         {#if loading}
@@ -115,10 +115,16 @@
               </thead>
               <tbody>
                 {#each summaries as summary (summary.siteId)}
-                  <tr class={selectedSiteId === summary.siteId ? "bg-base-200" : undefined}>
+                  <tr
+                    class={selectedSiteId === summary.siteId
+                      ? "bg-base-200"
+                      : undefined}
+                  >
                     <td>
                       <div class="font-medium">{summary.siteName}</div>
-                      <div class="font-mono text-xs text-base-content/60">{summary.siteId}</div>
+                      <div class="font-mono text-xs text-base-content/60">
+                        {summary.siteId}
+                      </div>
                     </td>
                     <td>{summary.latestStatus}</td>
                     <td>{summary.openInspections}</td>
@@ -172,7 +178,9 @@
                 </tr>
                 <tr>
                   <th>Last report</th>
-                  <td class="font-mono text-xs">{selectedSummary.lastReportAt}</td>
+                  <td class="font-mono text-xs"
+                    >{selectedSummary.lastReportAt}</td
+                  >
                 </tr>
               </tbody>
             </table>

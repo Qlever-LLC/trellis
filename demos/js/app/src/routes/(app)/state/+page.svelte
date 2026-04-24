@@ -9,39 +9,23 @@
     updatedAt: string;
   };
 
-  type AppStateEntry = {
-    key: string;
-    value: InspectionContextValue;
-    revision: string;
-    updatedAt: string;
-    expiresAt?: string;
-  };
+  const trellis = getTrellis();
+  const inspectionContextStore = trellis.state.inspectionContext;
 
-  type AppStatePutResult =
-    | { applied: true; entry: AppStateEntry }
-    | { applied: false; found: boolean; entry?: AppStateEntry };
+  async function listInspectionContextEntries() {
+    return await inspectionContextStore.prefix("demo.").list({
+      offset: 0,
+      limit: 12,
+    }).orThrow();
+  }
 
+  async function putInspectionContextEntry(value: InspectionContextValue) {
+    return await inspectionContextStore.put(key, value).orThrow();
+  }
+
+  type AppStateEntry = Awaited<ReturnType<typeof listInspectionContextEntries>>["entries"][number];
+  type AppStatePutResult = Awaited<ReturnType<typeof putInspectionContextEntry>>;
   type AppStatePutEntry = Extract<AppStatePutResult, { applied: true }>["entry"];
-  type InspectionContextStore = {
-    prefix(prefix: string): {
-      list(input: { offset: number; limit: number }): {
-        orThrow(): Promise<{ entries: AppStateEntry[] }>;
-      };
-    };
-    put(key: string, value: InspectionContextValue): {
-      orThrow(): Promise<AppStatePutResult>;
-    };
-    delete(key: string): {
-      orThrow(): Promise<{ deleted: boolean }>;
-    };
-  };
-  type StateDemoTrellis = {
-    state: {
-      inspectionContext: InspectionContextStore;
-    };
-  };
-
-  const trellis = getTrellis<StateDemoTrellis>();
 
   let key = $state("demo.selected-site");
   let siteId = $state("site-west-yard");
@@ -51,17 +35,13 @@
   let loading = $state(true);
   let saving = $state(false);
   let error = $state<string | null>(null);
-  const inspectionContextStore = trellis.state.inspectionContext;
 
   async function loadEntries(): Promise<void> {
     loading = true;
     error = null;
 
     try {
-      const response = await inspectionContextStore.prefix("demo.").list({
-        offset: 0,
-        limit: 12,
-      }).orThrow();
+      const response = await listInspectionContextEntries();
       entries = response.entries;
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
@@ -75,12 +55,12 @@
     error = null;
 
     try {
-      const response = await inspectionContextStore.put(key, {
+      const response = await putInspectionContextEntry({
         siteId,
         note,
         updatedBy: "demo-browser-app",
         updatedAt: new Date().toISOString(),
-      }).orThrow();
+      });
 
       if (!response.applied) {
         throw new Error("Inspection context write was not applied.");

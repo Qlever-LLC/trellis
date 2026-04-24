@@ -54,14 +54,17 @@ and Svelte context.
 ```ts
 // src/lib/trellis-context.ts
 import { createTrellisApp } from "@qlever-llc/trellis-svelte";
-import contract from "$lib/contracts/my_app";
+import type { MyAppClient } from "../../generated/js/sdks/my-app/client.ts";
+import contract from "$lib/contract";
 
-export const trellisApp = createTrellisApp(contract);
+export const trellisApp = createTrellisApp<typeof contract, MyAppClient>(
+  contract,
+);
 
 // src/lib/trellis.ts
 import { env } from "$env/dynamic/public";
-import type { TrellisClientFor } from "@qlever-llc/trellis-svelte";
-import contract from "$lib/contracts/my_app";
+import type { MyAppClient } from "../../generated/js/sdks/my-app/client.ts";
+import contract from "$lib/contract";
 import { trellisApp } from "$lib/trellis-context";
 
 function publicTrellisUrl(): string {
@@ -72,10 +75,8 @@ function publicTrellisUrl(): string {
 
 export const trellisUrl = publicTrellisUrl();
 
-export function getTrellis<
-  TClient = TrellisClientFor<typeof contract>,
->(): TClient {
-  return trellisApp.getTrellis<TClient>();
+export function getTrellis(): MyAppClient {
+  return trellisApp.getTrellis();
 }
 
 export function getConnection() {
@@ -86,10 +87,12 @@ export function getConnection() {
 Rules:
 
 - the app-local module owns static app metadata and typed helpers
+- browser apps should bind `createTrellisApp` to the generated client facade from
+  `prepare`, for example `MyAppClient` from `generated/js/sdks/my-app/client.ts`
 - in the common fixed-instance case, the app-local module should export the
   fixed `trellisUrl` and the contract once
 - `TrellisProvider` should receive `trellisUrl` and an app-owned `trellisApp`
-  created with `createTrellisApp(contract)`
+  created with `createTrellisApp<typeof contract, MyAppClient>(contract)`
 - `trellis-svelte` should keep the connected Trellis client and reactive
   connection adapter scoped to that app context rather than exposing a synthetic
   runtime bag
@@ -102,6 +105,9 @@ Rules:
 - Svelte context is the runtime transport for the live Trellis instance and
   related browser state; the app-local module is the static typing boundary that
   keeps contract knowledge out of arbitrary page files
+- generated client facades are a type-only view of the runtime client; the
+  facade type used with `createTrellisApp` must come from the same contract that
+  `TrellisProvider` connects with
 - SvelteKit apps should usually source that fixed instance URL from public env
   such as `PUBLIC_TRELLIS_URL`; use `$env/dynamic/public` when local demos need
   a safe default and `$env/static/public` when the value must be fixed at build

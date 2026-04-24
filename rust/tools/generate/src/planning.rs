@@ -73,7 +73,11 @@ pub fn build_auto_plan(
                             .join(format!("{}.json", &contract_id)),
                     ),
                     Some(ts_sdk_root.join(&sdk_stem)),
-                    Some(output_root.join("generated/rust/sdks").join(&sdk_stem)),
+                    if matches!(contract_kind, ContractKind::Service) {
+                        Some(output_root.join("generated/rust/sdks").join(&sdk_stem))
+                    } else {
+                        None
+                    },
                 )
             }
             AutoAction::Verify => (None, None, None),
@@ -91,8 +95,8 @@ pub fn build_auto_plan(
         });
     }
     plan.sort_by(|left, right| {
-        auto_action_rank(left.action)
-            .cmp(&auto_action_rank(right.action))
+        auto_plan_rank(left)
+            .cmp(&auto_plan_rank(right))
             .then_with(|| {
                 left.discovered
                     .source_path
@@ -159,10 +163,7 @@ fn manifest_declares_workspace(path: &Path) -> bool {
         return false;
     };
 
-    value
-        .get("workspace")
-        .map(Value::is_array)
-        .unwrap_or(false)
+    value.get("workspace").map(Value::is_array).unwrap_or(false)
         || value
             .get("workspaces")
             .map(|workspaces| workspaces.is_array() || workspaces.is_object())
@@ -195,7 +196,7 @@ pub fn execute_auto_plan(
             AutoAction::Generate => {
                 let artifact_version = required_owner_version(
                     &resolved,
-                    "generate service artifacts from local discovery",
+                    "generate contract artifacts from local discovery",
                 )?;
                 let package_name = default_ts_package_name_from_id(&resolved.loaded.manifest.id);
                 let crate_name = default_rust_crate_name_from_id(&resolved.loaded.manifest.id);
@@ -277,8 +278,8 @@ pub fn discover_summary_lines(plan: &[AutoPlanEntry]) -> Vec<String> {
 pub fn action_for_kind(kind: &ContractKind) -> AutoAction {
     #[allow(unreachable_patterns)]
     match kind {
-        ContractKind::Service => AutoAction::Generate,
-        ContractKind::App | ContractKind::Device | ContractKind::Agent => AutoAction::Verify,
+        ContractKind::Service | ContractKind::App => AutoAction::Generate,
+        ContractKind::Device | ContractKind::Agent => AutoAction::Verify,
         _ => unreachable!("portal contract kind has been removed"),
     }
 }
@@ -320,9 +321,12 @@ fn action_label(action: AutoAction) -> &'static str {
     }
 }
 
-fn auto_action_rank(action: AutoAction) -> u8 {
-    match action {
-        AutoAction::Generate => 0,
-        AutoAction::Verify => 1,
+fn auto_plan_rank(entry: &AutoPlanEntry) -> u8 {
+    match (entry.action, &entry.contract_kind) {
+        (AutoAction::Generate, ContractKind::Service) => 0,
+        (AutoAction::Generate, ContractKind::App) => 1,
+        (AutoAction::Verify, _) => 2,
+        #[allow(unreachable_patterns)]
+        _ => 3,
     }
 }

@@ -1,18 +1,10 @@
 import contract from "../contract.ts";
+import { renderCompactQr } from "../../../shared/compact_qr.ts";
 import { Command } from "@cliffy/command";
 import chalk from "chalk";
 import { TrellisDevice } from "@qlever-llc/trellis";
 import { checkDeviceActivation } from "@qlever-llc/trellis/device/deno";
-import { qrcode } from "@libs/qrcode";
-
-type SiteSummary = {
-  siteId: string;
-  siteName: string;
-  openInspections: number;
-  overdueInspections: number;
-  latestStatus: string;
-  lastReportAt?: string;
-};
+import type { SiteSummary } from "@trellis-demo/kv-service-sdk";
 
 async function main(): Promise<void> {
   const {
@@ -35,7 +27,7 @@ async function main(): Promise<void> {
   }
   if (activation.status === "activation_required") {
     console.info("Please activate device at:", activation.activationUrl);
-    qrcode(activation.activationUrl, { output: "console" });
+    renderCompactQr(activation.activationUrl);
     await activation.waitForOnlineApproval();
   }
 
@@ -50,8 +42,9 @@ async function main(): Promise<void> {
   console.dir(me, { depth: null });
 
   console.log(chalk.green.bold("== Fetching Site Summaries"));
-  const { summaries } = (await device.request("Inspection.Summaries.List", {})
-    .orThrow()) as { summaries: SiteSummary[] };
+  const summariesResult = await device.request("Inspection.Summaries.List", {})
+    .orThrow();
+  const summaries: SiteSummary[] = summariesResult.summaries;
 
   console.info("Site summaries fetched over RPC:");
   for (const summary of summaries) {
@@ -66,9 +59,10 @@ async function main(): Promise<void> {
   }
 
   console.log(chalk.green.bold("== Fetching Site Summary Detail"));
-  const { summary } = (await device.request("Inspection.Summaries.Get", {
+  const summaryResult = await device.request("Inspection.Summaries.Get", {
     siteId: firstSiteId,
-  }).orThrow()) as { summary?: SiteSummary };
+  }).orThrow();
+  const summary: SiteSummary | undefined = summaryResult.summary;
 
   if (!summary) {
     console.info(`No summary found for ${firstSiteId}`);

@@ -11,14 +11,18 @@
   } from "../../../lib/auth_display.ts";
   import { errorMessage, formatDate } from "../../../lib/format";
   import { getNotifications } from "../../../lib/notifications.svelte";
-  import { getConnection, getTrellis } from "../../../lib/trellis";
+  import { getAuthenticatedUser, getConnection, getTrellis } from "../../../lib/trellis";
 
   const trellis = getTrellis();
   const connection = getConnection();
   const notifications = getNotifications();
+  type ProfileRequester = {
+    request(method: "Auth.ListUserGrants", input: Record<string, never>): { orThrow(): Promise<{ grants: UserGrantRecord[] }> };
+    request(method: "Auth.RevokeUserGrant", input: RevokeUserGrantInput): { orThrow(): Promise<void> };
+  };
+  const profileSource: object = trellis;
+  const profileRequester = profileSource as ProfileRequester;
 
-  type ProfileResponse = AuthMeOutput & { participantKind: ParticipantKind };
-  type UserGrantListResponse = { grants: UserGrantRecord[] };
   type RevokeUserGrantInput = { contractDigest: string };
 
   let loading = $state(true);
@@ -33,10 +37,10 @@
     loading = true;
     error = null;
     try {
-      const me: ProfileResponse = await trellis.request<ProfileResponse>("Auth.Me", {}).orThrow();
+      const me = await getAuthenticatedUser(trellis);
       user = me.user ?? null;
       participantKind = me.participantKind;
-      const grantsResponse: UserGrantListResponse = await trellis.request<UserGrantListResponse>("Auth.ListUserGrants", {}).orThrow();
+      const grantsResponse = await profileRequester.request("Auth.ListUserGrants", {}).orThrow();
       grants = grantsResponse.grants ?? [];
     } catch (e) {
       error = errorMessage(e);
@@ -49,7 +53,7 @@
     if (!window.confirm(`Revoke this ${participantKindLabel(grant.participantKind).toLowerCase()} grant? ${grant.displayName || grant.contractId} will lose access to act on your behalf.`)) return;
     revokeTarget = grant.contractDigest;
     try {
-      await trellis.request<void>("Auth.RevokeUserGrant", {
+      await profileRequester.request("Auth.RevokeUserGrant", {
         contractDigest: grant.contractDigest,
       } satisfies RevokeUserGrantInput).orThrow();
       notifications.success(`${participantKindLabel(grant.participantKind)} grant revoked.`, "Revoked");

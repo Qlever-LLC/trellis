@@ -1,6 +1,6 @@
-import { AsyncResult, UnexpectedError } from "@qlever-llc/result";
+import { AsyncResult, BaseError, UnexpectedError } from "@qlever-llc/result";
 import { deepEqual } from "node:assert/strict";
-import type { JobsListInput } from "@qlever-llc/trellis-sdk/jobs";
+import type { JobsListInput, JobsListOutput, JobsListServicesOutput } from "@qlever-llc/trellis-sdk/jobs";
 
 import { loadJobsPageData } from "./jobs_page.ts";
 
@@ -10,16 +10,17 @@ declare const Deno: {
 
 Deno.test("loadJobsPageData requests jobs and services with the provided filter", async () => {
   const calls: Array<{ method: string; input: unknown }> = [];
-  const request =
-    ((method: "Jobs.ListServices" | "Jobs.List", input: {} | JobsListInput) => {
+  function request(method: "Jobs.ListServices", input: Record<string, never>): AsyncResult<JobsListServicesOutput, BaseError>;
+  function request(method: "Jobs.List", input: JobsListInput): AsyncResult<JobsListOutput, BaseError>;
+  function request(method: "Jobs.ListServices" | "Jobs.List", input: Record<string, never> | JobsListInput): AsyncResult<JobsListServicesOutput | JobsListOutput, BaseError> {
       calls.push({ method, input });
       if (method === "Jobs.ListServices") {
-        return AsyncResult.ok({
+        return AsyncResult.ok<JobsListServicesOutput>({
           services: [{ name: "documents", healthy: true, workers: [] }],
         });
       }
 
-      return AsyncResult.ok({
+      return AsyncResult.ok<JobsListOutput>({
         jobs: [
           {
             id: "job-1",
@@ -34,9 +35,10 @@ Deno.test("loadJobsPageData requests jobs and services with the provided filter"
           },
         ],
       });
-    }) as unknown as Parameters<typeof loadJobsPageData>[0]["request"];
+    }
   const data = await loadJobsPageData({
-    request,
+    listServices: () => request("Jobs.ListServices", {}),
+    listJobs: (filter) => request("Jobs.List", filter),
   }, { service: "documents", state: "pending" });
 
   deepEqual(calls, [
@@ -48,7 +50,9 @@ Deno.test("loadJobsPageData requests jobs and services with the provided filter"
 });
 
 Deno.test("loadJobsPageData reports jobs service as unavailable when Jobs RPCs have no responders", async () => {
-  const request = ((method: "Jobs.ListServices" | "Jobs.List") => {
+  function request(method: "Jobs.ListServices", input: Record<string, never>): AsyncResult<JobsListServicesOutput, BaseError>;
+  function request(method: "Jobs.List", input: JobsListInput): AsyncResult<JobsListOutput, BaseError>;
+  function request(method: "Jobs.ListServices" | "Jobs.List", _input: Record<string, never> | JobsListInput): AsyncResult<JobsListServicesOutput | JobsListOutput, BaseError> {
     if (method === "Jobs.ListServices") {
       return AsyncResult.err(
         new UnexpectedError({
@@ -57,10 +61,11 @@ Deno.test("loadJobsPageData reports jobs service as unavailable when Jobs RPCs h
       );
     }
 
-    return AsyncResult.ok({ jobs: [] });
-  }) as unknown as Parameters<typeof loadJobsPageData>[0]["request"];
+    return AsyncResult.ok<JobsListOutput>({ jobs: [] });
+  }
   const data = await loadJobsPageData({
-    request,
+    listServices: () => request("Jobs.ListServices", {}),
+    listJobs: (filter) => request("Jobs.List", filter),
   });
 
   deepEqual(data.available, false);
@@ -73,7 +78,9 @@ Deno.test("loadJobsPageData reports jobs service as unavailable when Jobs RPCs h
 });
 
 Deno.test("loadJobsPageData reports missing Jobs permissions with re-auth guidance", async () => {
-  const request = ((method: "Jobs.ListServices" | "Jobs.List") => {
+  function request(method: "Jobs.ListServices", input: Record<string, never>): AsyncResult<JobsListServicesOutput, BaseError>;
+  function request(method: "Jobs.List", input: JobsListInput): AsyncResult<JobsListOutput, BaseError>;
+  function request(method: "Jobs.ListServices" | "Jobs.List", _input: Record<string, never> | JobsListInput): AsyncResult<JobsListServicesOutput | JobsListOutput, BaseError> {
     if (method === "Jobs.ListServices") {
       return AsyncResult.err(
         new UnexpectedError({
@@ -84,10 +91,11 @@ Deno.test("loadJobsPageData reports missing Jobs permissions with re-auth guidan
       );
     }
 
-    return AsyncResult.ok({ jobs: [] });
-  }) as unknown as Parameters<typeof loadJobsPageData>[0]["request"];
+    return AsyncResult.ok<JobsListOutput>({ jobs: [] });
+  }
   const data = await loadJobsPageData({
-    request,
+    listServices: () => request("Jobs.ListServices", {}),
+    listJobs: (filter) => request("Jobs.List", filter),
   });
 
   deepEqual(data.available, false);

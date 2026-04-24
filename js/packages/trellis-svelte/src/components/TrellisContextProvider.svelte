@@ -1,15 +1,14 @@
-<script lang="ts" generics="TContract extends TrellisContractLike">
+<script lang="ts">
   import type { Snippet } from "svelte";
   import {
     provideConnectedTrellisContext,
-    type ConnectedTrellisRuntime,
-    type TrellisApp,
-    type TrellisContractLike,
+    type TrellisAppOwner,
+    type TrellisContextClient,
   } from "../context.svelte.ts";
 
   type Props = {
-    app: TrellisApp<TContract>;
-    trellis: ConnectedTrellisRuntime;
+    app: TrellisAppOwner;
+    trellis: TrellisContextClient;
     children: Snippet;
   };
 

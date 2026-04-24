@@ -1,15 +1,15 @@
 import type {
-  RequestOpts,
+  ClientTrellis,
   RuntimeStateStoresForContract,
-  StateFacade,
   TrellisAPI,
   TrellisConnection,
   TrellisConnectionStatus,
   TrellisContractV1,
 } from "@qlever-llc/trellis";
-import type { AsyncResult, BaseError, MaybeAsync } from "@qlever-llc/result";
 import { createContext } from "svelte";
 import { createSubscriber } from "svelte/reactivity";
+
+type Simplify<T> = { [K in keyof T]: T[K] } & {};
 
 /** Minimal contract shape required to create a typed Trellis Svelte app context. */
 export type TrellisContractLike<TA extends TrellisAPI = TrellisAPI> = {
@@ -20,36 +20,16 @@ export type TrellisContractLike<TA extends TrellisAPI = TrellisAPI> = {
   };
 };
 
-type EventCallback<TMessage> = {
-  bivarianceHack(message: TMessage): MaybeAsync<void, BaseError>;
-}["bivarianceHack"];
-
 /** Real connected Trellis client type exposed by a Svelte app context. */
-export type TrellisClientFor<TContract extends TrellisContractLike> =
-  & ConnectedTrellisRuntime
-  & {
-    readonly api: TContract["API"]["trellis"];
-    readonly state: StateFacade<RuntimeStateStoresForContract<TContract>>;
-    request<TOutput = unknown>(
-      method: string,
-      input: unknown,
-      opts?: RequestOpts,
-    ): AsyncResult<TOutput, BaseError>;
-    event<TMessage = unknown>(
-      event: string,
-      subjectData: Record<string, unknown>,
-      fn: EventCallback<TMessage>,
-      opts?: {
-        mode?: "ephemeral" | "durable";
-        replay?: "new" | "all";
-        signal?: AbortSignal;
-      },
-    ): AsyncResult<void, BaseError>;
-    wait(): AsyncResult<void, BaseError>;
-  };
+export type TrellisClientFor<TContract extends TrellisContractLike> = Simplify<
+  ClientTrellis<
+    TContract["API"]["trellis"],
+    RuntimeStateStoresForContract<TContract>
+  >
+>;
 
-/** Minimal connected runtime surface needed by the Svelte provider. */
-export type ConnectedTrellisRuntime = {
+/** Minimal client surface required for Trellis Svelte context clients. */
+export type TrellisContextClient = {
   readonly connection: TrellisConnection;
 };
 
@@ -78,22 +58,37 @@ export class SvelteTrellisConnection {
   }
 }
 
-type TrellisAppContext<TContract extends TrellisContractLike> = {
-  trellis: ConnectedTrellisRuntime;
+type TrellisAppContext<TClient extends TrellisContextClient> = {
+  trellis: TClient;
   connection: SvelteTrellisConnection;
 };
 
 const provideTrellisContext = Symbol("provideTrellisContext");
+const trellisAppOwnerBrand: unique symbol = Symbol("trellisAppOwner");
 
-/** Public app-scoped typed Svelte context owner for a Trellis browser app. */
+/** Minimal branded app owner surface accepted by the Trellis Svelte provider. */
+export type TrellisAppOwner<
+  TContract extends TrellisContractLike = TrellisContractLike,
+> = {
+  readonly contract: TContract;
+  readonly [trellisAppOwnerBrand]: true;
+};
+
+/**
+ * Public app-scoped typed Svelte context owner for a Trellis browser app.
+ *
+ * `TClient` is a type-only facade over the runtime client that `TrellisProvider`
+ * installs. Use it with generated client facade types for the same contract.
+ */
 export interface TrellisApp<
   TContract extends TrellisContractLike = TrellisContractLike,
-> {
+  TClient extends TrellisContextClient = TrellisClientFor<TContract>,
+> extends TrellisAppOwner<TContract> {
   /** Contract used by this app context and by `TrellisProvider` connections. */
   readonly contract: TContract;
 
-  /** Returns the real connected Trellis client from Svelte context synchronously. */
-  getTrellis<TClient = TrellisClientFor<TContract>>(): TClient;
+  /** Returns the contract-typed connected Trellis client from Svelte context synchronously. */
+  getTrellis(): TClient;
 
   /** Returns a Svelte-reactive adapter for the real Trellis connection. */
   getConnection(): SvelteTrellisConnection;
@@ -102,18 +97,20 @@ export interface TrellisApp<
 /** Internal app-scoped typed Svelte context implementation. */
 class TrellisAppImpl<
   TContract extends TrellisContractLike = TrellisContractLike,
+  TClient extends TrellisContextClient = TrellisClientFor<TContract>,
 > {
+  readonly [trellisAppOwnerBrand] = true as const;
   readonly #contract: TContract;
-  readonly #getContext: () => TrellisAppContext<TContract>;
+  readonly #getContext: () => TrellisAppContext<TClient>;
   readonly #setContext: (
-    context: TrellisAppContext<TContract>,
-  ) => TrellisAppContext<TContract>;
+    context: TrellisAppContext<TClient>,
+  ) => TrellisAppContext<TClient>;
 
   /** Creates an app-scoped context owner for a specific Trellis contract. */
   constructor(contract: TContract) {
     this.#contract = contract;
     const [getContext, setContext] = createContext<
-      TrellisAppContext<TContract>
+      TrellisAppContext<TClient>
     >();
     this.#getContext = getContext;
     this.#setContext = setContext;
@@ -124,9 +121,9 @@ class TrellisAppImpl<
     return this.#contract;
   }
 
-  /** Returns the real connected Trellis client from Svelte context synchronously. */
-  getTrellis<TClient = TrellisClientFor<TContract>>(): TClient {
-    return this.#getContext().trellis as TClient;
+  /** Returns the contract-typed connected Trellis client from Svelte context synchronously. */
+  getTrellis(): TClient {
+    return this.#getContext().trellis;
   }
 
   /** Returns a Svelte-reactive adapter for the real Trellis connection. */
@@ -135,19 +132,33 @@ class TrellisAppImpl<
   }
 
   /** Installs the connected Trellis runtime into Svelte context synchronously. */
-  [provideTrellisContext](trellis: ConnectedTrellisRuntime): void {
+  [provideTrellisContext](trellis: TrellisContextClient): void {
     this.#setContext({
-      trellis,
+      trellis: trellis as TClient,
       connection: new SvelteTrellisConnection(trellis.connection),
     });
   }
 }
 
-/** Creates an app-scoped typed Svelte context owner for the given Trellis contract. */
-export function createTrellisApp<TContract extends TrellisContractLike>(
+/**
+ * Creates an app-scoped typed Svelte context owner for the given Trellis contract.
+ *
+ * The optional `TClient` type parameter is a type-only facade over the connected
+ * runtime client. It should be a generated client facade for `contract`.
+ */
+export function createTrellisApp<
+  TContract extends TrellisContractLike,
+  TClient extends TrellisContextClient = TrellisClientFor<TContract>,
+>(
   contract: TContract,
-): TrellisApp<TContract> {
-  return new TrellisAppImpl(contract);
+): TrellisApp<TContract, TClient> {
+  return new TrellisAppImpl<TContract, TClient>(contract);
+}
+
+function isTrellisAppImpl(
+  app: TrellisAppOwner,
+): app is TrellisAppImpl<TrellisContractLike> {
+  return app instanceof TrellisAppImpl;
 }
 
 /**
@@ -156,10 +167,10 @@ export function createTrellisApp<TContract extends TrellisContractLike>(
  * This is intentionally not exported from `src/index.ts`.
  */
 export function provideConnectedTrellisContext(
-  app: object,
-  trellis: ConnectedTrellisRuntime,
+  app: TrellisAppOwner,
+  trellis: TrellisContextClient,
 ): void {
-  if (!(app instanceof TrellisAppImpl)) {
+  if (!isTrellisAppImpl(app)) {
     throw new TypeError("Expected an app created by createTrellisApp");
   }
   app[provideTrellisContext](trellis);

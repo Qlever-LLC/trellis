@@ -1,6 +1,6 @@
 <script lang="ts">
   import { TrellisProvider } from "@qlever-llc/trellis-svelte";
-  import type { Snippet } from "svelte";
+  import type { Component, Snippet } from "svelte";
   import { onMount } from "svelte";
   import { trellisApp } from "$lib/trellis-context.svelte";
   import AuthenticatedApp from "../../lib/components/AuthenticatedApp.svelte";
@@ -11,6 +11,16 @@
   type Props = {
     children: Snippet;
   };
+  type ConsoleTrellisProviderProps = {
+    app: object;
+    trellisUrl: string;
+    auth: { redirectTo(): string };
+    onAuthRequired(loginUrl: string): void;
+    children: Snippet;
+    loading: Snippet;
+  };
+
+  const ConsoleTrellisProvider = TrellisProvider as Component<ConsoleTrellisProviderProps>;
 
   let { children }: Props = $props();
   let initialized = $state(false);
@@ -46,7 +56,7 @@
 </script>
 
 {#if initialized && authUrl}
-  <TrellisProvider
+  <ConsoleTrellisProvider
     app={trellisApp}
     trellisUrl={authUrl}
     auth={{ redirectTo: () => window.location.href }}
@@ -66,7 +76,7 @@
     <AuthenticatedApp>
       {@render children()}
     </AuthenticatedApp>
-  </TrellisProvider>
+  </ConsoleTrellisProvider>
 {:else}
   <div class="flex min-h-screen items-center justify-center px-4 py-10">
     <div class="card w-full max-w-sm bg-base-100 shadow-lg">

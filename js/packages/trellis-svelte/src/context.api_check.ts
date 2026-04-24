@@ -27,14 +27,28 @@ const testContract = defineAppContract(
 );
 
 const app = createTrellisApp(testContract);
-type AuthMeResponse = {
-  participantKind: "app" | "agent" | "device" | "service";
-};
 const providerProps: Omit<
   TrellisProviderProps<typeof testContract>,
   "children"
 > = {
   app,
+  trellisUrl: "https://trellis.example",
+};
+
+type GeneratedClient = {
+  readonly [K in keyof TrellisClientFor<typeof testContract>]: TrellisClientFor<
+    typeof testContract
+  >[K];
+};
+
+const generatedApp = createTrellisApp<typeof testContract, GeneratedClient>(
+  testContract,
+);
+const generatedProviderProps: Omit<
+  TrellisProviderProps<typeof testContract>,
+  "children"
+> = {
+  app: generatedApp,
   trellisUrl: "https://trellis.example",
 };
 
@@ -46,9 +60,15 @@ async function typecheckContextApi(): Promise<void> {
   // @ts-expect-error context installation is not part of the public app API
   const privateInstaller = app._provide;
 
-  const me = await trellis.request<AuthMeResponse>("Auth.Me", {}).orThrow();
+  const generatedTrellis: GeneratedClient = generatedApp.getTrellis();
+  const generatedConnectionStatus: TrellisConnectionStatus =
+    generatedTrellis.connection.status;
+  const generatedMe = await generatedTrellis.request("Auth.Me", {}).orThrow();
+
+  const me = await trellis.request("Auth.Me", {}).orThrow();
   const participantKind: "app" | "agent" | "device" | "service" =
     me.participantKind;
+  const deviceId: string | undefined = me.device?.deviceId;
 
   const preferences = await trellis.state.preferences.get().orThrow();
   if (preferences.found) {
@@ -65,16 +85,26 @@ async function typecheckContextApi(): Promise<void> {
   type ClientMethod = Parameters<typeof trellis.request>[0];
   const authMeMethod: ClientMethod = "Auth.Me";
   // @ts-expect-error contract-anchored typing should reject undeclared RPC methods
+  const invalidMethod: ClientMethod = "Auth.NotDeclared";
+  // @ts-expect-error contract-anchored typing should reject invalid RPC inputs
+  const invalidInput = trellis.request("Auth.GetInstalledContract", {});
+  // @ts-expect-error contract-anchored typing should reject undeclared RPC methods
   const invalidRpc = trellis.api.rpc.notDeclared;
 
   void authMeMethod;
+  void deviceId;
+  void invalidInput;
+  void invalidMethod;
   void invalidRpc;
   void invalidStateList;
   void participantKind;
   void sameTrellis;
   void statusPhase;
   void privateInstaller;
+  void generatedConnectionStatus;
+  void generatedMe;
 }
 
 void providerProps;
+void generatedProviderProps;
 void typecheckContextApi;

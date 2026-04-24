@@ -17,7 +17,7 @@ cd my-app
 Install the Trellis packages:
 
 ```sh
-deno add @qlever-llc/trellis @qlever-llc/trellis-svelte
+deno add @qlever-llc/trellis @qlever-llc/trellis-sdk @qlever-llc/trellis-svelte
 ```
 
 ## 2. Define the app contract
@@ -28,21 +28,22 @@ Those approval screens are based on Trellis capabilities derived from the
 contract. They are not the OAuth scopes used between Trellis and an external
 identity provider.
 
-Start by creating `contracts/my_app.ts` next to your project `deno.json`. For this example, we only need to use the default Trellis auth features.
+Start by creating `src/lib/contract.ts`. For this example, we only need to use the default Trellis auth features.
 
 ```ts
-import { defineContract } from "@qlever-llc/trellis/contracts";
-import { auth } from "@qlever-llc/trellis/sdk/auth";
+import { defineAppContract } from "@qlever-llc/trellis/contracts";
+import { auth } from "@qlever-llc/trellis-sdk/auth";
 
-export const myApp = defineContract({
+const contract = defineAppContract(() => ({
   id: "my-app@v1",
   displayName: "My App",
   description: "A browser app that reads auth state.",
-  kind: "app",
   uses: {
     auth: auth.useDefaults(),
   },
-});
+}));
+
+export default contract;
 ```
 
 The defaults include `Auth.Me` and `Auth.Logout`, which most browser apps need. `Auth.Me` returns a `{ user, device, service }` envelope, with the device branch carrying the device identity and the activating user when applicable.
@@ -58,12 +59,15 @@ A simple setup that ensures this:
 ```json
 {
   "tasks": {
-    "contracts": "deno task -c ../../deno.json prepare && deno task verify:contracts",
-    "dev": "deno task contracts && vite dev",
-    "build": "deno task contracts && vite build"
+    "prepare": "deno task -c ../../deno.json prepare",
+    "dev": "deno task prepare && vite dev",
+    "build": "deno task prepare && vite build",
+    "check": "deno task prepare && svelte-kit sync && svelte-check --tsconfig ./tsconfig.check.json"
   }
 }
 ```
+
+`prepare` generates the app SDK under `generated/js/sdks/my-app/`, including a concrete `client.ts` facade type for editor-friendly browser code. Regenerate whenever the contract changes.
 
 ## 3. Create one app-local Trellis context module
 
@@ -71,23 +75,21 @@ To keep the Trellis typing in one place, create `src/lib/trellis-context.svelte.
 
 ```ts
 import { createTrellisApp } from "@qlever-llc/trellis-svelte";
-import type { TrellisClientFor } from "@qlever-llc/trellis-svelte";
-import { myApp } from "../../contracts/my_app";
+import type { MyAppClient } from "../../generated/js/sdks/my-app/client.ts";
+import contract from "$lib/contract";
 
-export const trellisApp = createTrellisApp(myApp);
-
-export function getTrellis<TClient = TrellisClientFor<typeof myApp>>(): TClient {
-  return trellisApp.getTrellis<TClient>();
-}
-
-export const getConnection = trellisApp.getConnection.bind(trellisApp);
+export const trellisApp = createTrellisApp<typeof contract, MyAppClient>(
+  contract,
+);
 ```
 
-Then create `src/lib/trellis.ts` for static app metadata:
+Then create `src/lib/trellis.ts` for static app metadata and local helpers:
 
 ```ts
 import { env } from "$env/dynamic/public";
-import { myApp } from "../../contracts/my_app";
+import type { MyAppClient } from "../../generated/js/sdks/my-app/client.ts";
+import contract from "$lib/contract";
+import { trellisApp } from "$lib/trellis-context.svelte";
 
 function publicTrellisUrl(): string {
   return new URL(env.PUBLIC_TRELLIS_URL ?? "http://localhost:3000")
@@ -96,10 +98,21 @@ function publicTrellisUrl(): string {
 }
 
 export const trellisUrl = publicTrellisUrl();
-export { myApp as contract };
+
+export function getTrellis(): MyAppClient {
+  return trellisApp.getTrellis();
+}
+
+export function getConnection() {
+  return trellisApp.getConnection();
+}
+
+export { contract };
 ```
 
 For the common case where your browser app talks to one known Trellis server, put that fixed `trellisUrl` in the metadata module. If users choose a Trellis instance at runtime, keep the context module typed around the contract and handle the URL separately in your sign-in flow.
+
+The `MyAppClient` type is a generated facade over the runtime client. It should come from the same contract passed to `createTrellisApp`.
 
 ## 4. Build the login page
 
@@ -118,7 +131,7 @@ To sign in to Trellis, your app needs a screen that kicks off the flow. Create `
       authUrl: trellisUrl,
       redirectTo: redirectTo.toString(),
       handle: await getOrCreateSessionKey(),
-      contract,
+      contract: contract.CONTRACT,
       context: { subtitle: "Welcome back to the spring preview" },
     });
 
@@ -189,18 +202,15 @@ Call RPCs directly from a page at `src/routes/(app)/dashboard/+page.svelte`:
 ```svelte
 <script lang="ts">
   import { onMount } from "svelte";
-  import { getTrellis } from "$lib/trellis-context.svelte";
-
-  type AuthMeOutput = {
-    user: { name?: string; email?: string; id: string };
-  };
+  import { getTrellis } from "$lib/trellis";
 
   const trellis = getTrellis();
 
-  let me = $state<AuthMeOutput | null>(null);
+  let displayName = $state("loading");
 
   async function loadMe() {
-    me = await trellis.request<AuthMeOutput>("Auth.Me", {}).orThrow();
+    const me = await trellis.request("Auth.Me", {}).orThrow();
+    displayName = me.user?.name ?? me.user?.email ?? me.user?.id ?? "signed in";
   }
 
   onMount(() => {
@@ -208,7 +218,7 @@ Call RPCs directly from a page at `src/routes/(app)/dashboard/+page.svelte`:
   });
 </script>
 
-<h1>Welcome, {me?.user.name ?? me?.user.email ?? me?.user.id ?? "loading"}</h1>
+<h1>Welcome, {displayName}</h1>
 ```
 
 `getTrellis()` and `getConnection()` are Svelte context getters. Call them during component initialization and store the returned client or connection in a top-level `const`. Do not call them inside `onMount`, event handlers, async helper functions, or later callbacks; doing so violates Svelte's context lifecycle rules.

@@ -5,7 +5,7 @@
     InspectionReportGenerateOutput,
     InspectionReportGenerateProgress,
   } from "@trellis-demo/operation-service-sdk";
-  import type { InspectionAssignment, InspectionAssignmentsListOutput } from "@trellis-demo/rpc-service-sdk";
+  import type { InspectionAssignment } from "@trellis-demo/rpc-service-sdk";
 
   type ReportOutput = InspectionReportGenerateOutput;
   type ReportProgress = InspectionReportGenerateProgress;
@@ -18,28 +18,8 @@
     state: "completed" | "failed" | "cancelled";
     output?: ReportOutput;
   };
-  type OperationAssignmentsTrellis = {
-    request(method: "Inspection.Assignments.List", input: {}): {
-      orThrow(): Promise<InspectionAssignmentsListOutput>;
-    };
-  };
-  type OperationDemoTrellis = OperationAssignmentsTrellis & {
-    operation(method: "Inspection.Report.Generate"): {
-      input(input: { inspectionId: string }): {
-        start(): {
-          orThrow(): Promise<{
-            id: string;
-            watch(): { orThrow(): Promise<AsyncIterable<ReportEvent>> };
-            wait(): { orThrow(): Promise<ReportTerminal> };
-            cancel(): { orThrow(): Promise<{ state: string }> };
-          }>;
-        };
-      };
-    };
-  };
 
-  const assignmentsTrellis = getTrellis<OperationAssignmentsTrellis>();
-  const operationTrellis = getTrellis<OperationDemoTrellis>();
+  const trellis = getTrellis();
 
   let assignments = $state<InspectionAssignment[]>([]);
   let selectedInspectionId = $state("");
@@ -51,7 +31,7 @@
   let acceptedId = $state<string | null>(null);
   let terminal = $state<ReportTerminal | null>(null);
   async function createOperationRef(inspectionId: string) {
-    return await operationTrellis.operation("Inspection.Report.Generate")
+    return await trellis.operation("Inspection.Report.Generate")
       .input({ inspectionId })
       .start()
       .orThrow();
@@ -66,9 +46,10 @@
     error = null;
 
     try {
-      const response = await assignmentsTrellis
-        .request("Inspection.Assignments.List", {})
-        .orThrow();
+      const response = await trellis.request(
+        "Inspection.Assignments.List",
+        {},
+      ).orThrow();
       assignments = response.assignments;
       selectedInspectionId = response.assignments[0]?.inspectionId ?? "";
     } catch (cause) {

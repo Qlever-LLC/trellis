@@ -99,18 +99,70 @@ fn prepare_bootstraps_repo_without_discover_summary() {
     )
     .unwrap();
     fs::write(apps.join("deno.json"), "{\n  \"version\": \"0.4.0\"\n}\n").unwrap();
-    write_ts_contract(
-        &services.join("contracts/orders.ts"),
-        "trellis.orders@v1",
-        "Orders",
-        "service",
-    );
-    write_ts_contract(
-        &apps.join("contracts/dashboard.ts"),
-        "trellis.dashboard@v1",
-        "Dashboard",
-        "app",
-    );
+    fs::write(
+        services.join("contracts/orders.ts"),
+        r#"const contract = {
+  format: "trellis.contract.v1",
+  id: "trellis.orders@v1",
+  displayName: "Orders",
+  description: "Fixture contract",
+  kind: "service",
+  schemas: {
+    Empty: {
+      type: "object",
+      properties: {},
+      required: [],
+      additionalProperties: false,
+    },
+    Order: {
+      type: "object",
+      properties: { id: { type: "string" } },
+      required: ["id"],
+      additionalProperties: false,
+    },
+  },
+  rpc: {
+    "Orders.Get": {
+      version: "v1",
+      subject: "rpc.v1.Orders.Get",
+      input: { schema: "Empty" },
+      output: { schema: "Order" },
+    },
+  },
+  operations: {},
+  events: {},
+  subjects: {},
+};
+
+export default contract;
+"#,
+    )
+    .unwrap();
+    fs::write(
+        apps.join("contracts/dashboard.ts"),
+        r#"const contract = {
+  format: "trellis.contract.v1",
+  id: "trellis.dashboard@v1",
+  displayName: "Dashboard",
+  description: "Fixture contract",
+  kind: "app",
+  schemas: {},
+  rpc: {},
+  operations: {},
+  events: {},
+  subjects: {},
+  uses: {
+    orders: {
+      contract: "trellis.orders@v1",
+      rpc: { call: ["Orders.Get"] },
+    },
+  },
+};
+
+export default contract;
+"#,
+    )
+    .unwrap();
 
     let output = Command::new(env!("CARGO_BIN_EXE_trellis-generate"))
         .args(["prepare", temp.path().to_str().unwrap()])
@@ -127,6 +179,76 @@ fn prepare_bootstraps_repo_without_discover_summary() {
     assert!(temp
         .path()
         .join("generated/contracts/manifests/trellis.orders@v1.json")
+        .exists());
+    assert!(temp
+        .path()
+        .join("generated/contracts/manifests/trellis.dashboard@v1.json")
+        .exists());
+    assert!(temp
+        .path()
+        .join("generated/js/sdks/dashboard/client.ts")
+        .exists());
+    let client = fs::read_to_string(temp.path().join("generated/js/sdks/dashboard/client.ts"))
+        .unwrap();
+    assert!(client.contains(
+        "request(method: \"Orders.Get\", input: OrdersSdk.OrdersGetInput, opts?: RequestOpts): AsyncResult<OrdersSdk.OrdersGetOutput, BaseError>;"
+    ));
+    let api = fs::read_to_string(temp.path().join("generated/js/sdks/dashboard/api.ts")).unwrap();
+    assert!(api.contains("export const USED_API = {"));
+    assert!(api.contains("\"Orders.Get\": OrdersApi.API.owned.rpc[\"Orders.Get\"]"));
+    assert!(!temp
+        .path()
+        .join("generated/rust/sdks/dashboard/Cargo.toml")
+        .exists());
+}
+
+#[test]
+fn prepare_generates_app_typescript_sdk_from_sveltekit_lib_contract() {
+    let temp = tempfile::tempdir().unwrap();
+    let app = temp.path().join("js/apps/console");
+    fs::create_dir_all(app.join("src/lib")).unwrap();
+    fs::write(
+        temp.path().join("js/deno.json"),
+        "{\n  \"version\": \"0.4.0\",\n  \"workspace\": [\"./apps/console\"]\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        app.join("package.json"),
+        "{\n  \"name\": \"console\",\n  \"version\": \"0.4.0\",\n  \"type\": \"module\"\n}\n",
+    )
+    .unwrap();
+    write_ts_contract(
+        &app.join("src/lib/contract.ts"),
+        "trellis.console@v1",
+        "Console",
+        "app",
+    );
+
+    let output = trellis_generate()
+        .args(["prepare", temp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    assert!(temp
+        .path()
+        .join("generated/contracts/manifests/trellis.console@v1.json")
+        .exists());
+    assert!(temp
+        .path()
+        .join("js/generated/js/sdks/console/client.ts")
+        .exists());
+    assert!(temp
+        .path()
+        .join("js/generated/js/sdks/console/mod.ts")
+        .exists());
+    assert!(!temp
+        .path()
+        .join("generated/rust/sdks/console/Cargo.toml")
         .exists());
 }
 
@@ -171,12 +293,15 @@ fn prepare_writes_demo_typescript_sdks_inside_demos_js_workspace() {
         .join("js/generated/js/sdks/demo-rpc-service/mod.ts")
         .exists());
     assert!(demos_root
+        .join("js/generated/js/sdks/demo-rpc-service/client.ts")
+        .exists());
+    assert!(demos_root
         .join("generated/rust/sdks/demo-rpc-service/Cargo.toml")
         .exists());
 }
 
 #[test]
-fn local_mode_verifies_non_service_without_detail_block() {
+fn local_mode_generates_app_typescript_client_without_rust_sdk() {
     let temp = tempfile::tempdir().unwrap();
     let project = temp.path().join("app");
     fs::create_dir_all(project.join("contracts")).unwrap();
@@ -200,10 +325,16 @@ fn local_mode_verifies_non_service_without_detail_block() {
     );
 
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("verified trellis.dashboard@v1"));
-    assert!(!stdout.contains("verify trellis.dashboard@v1"));
-    assert!(!stdout.contains("kind: app"));
-    assert!(!stdout.contains("source:"));
+    assert!(stdout.contains("generate trellis.dashboard@v1"));
+    assert!(stdout.contains("generated contract artifacts for trellis.dashboard@v1"));
+    assert!(project
+        .join("generated/contracts/manifests/trellis.dashboard@v1.json")
+        .exists());
+    assert!(project
+        .join("generated/js/sdks/dashboard/client.ts")
+        .exists());
+    assert!(project.join("generated/js/sdks/dashboard/mod.ts").exists());
+    assert!(!project.join("generated/rust/sdks/dashboard").exists());
 }
 
 #[test]
@@ -352,7 +483,7 @@ printf '{\"format\":\"trellis.contract.v1\",\"id\":\"trellis.node-orders@v1\",\"
 }
 
 #[test]
-fn discover_mode_summarizes_actions_and_verifies_non_service_contracts() {
+fn discover_mode_summarizes_generation_actions_for_service_and_app_contracts() {
     let temp = tempfile::tempdir().unwrap();
     let services = temp.path().join("services/orders");
     let apps = temp.path().join("apps/dashboard");
@@ -392,7 +523,7 @@ fn discover_mode_summarizes_actions_and_verifies_non_service_contracts() {
     assert!(stdout.contains("trellis.orders@v1"));
     assert!(stdout.contains("generate"));
     assert!(stdout.contains("trellis.dashboard@v1"));
-    assert!(stdout.contains("verify"));
+    assert!(stdout.contains("generate"));
     assert!(temp
         .path()
         .join("generated/contracts/manifests/trellis.orders@v1.json")
@@ -430,7 +561,7 @@ fn discover_mode_supports_top_level_contract_js() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("Plan"));
     assert!(stdout.contains("trellis.dashboard-js@v1"));
-    assert!(stdout.contains("verify"));
+    assert!(stdout.contains("generate"));
 }
 
 #[test]
@@ -464,7 +595,10 @@ fn prepare_mode_supports_top_level_contract_js() {
         .path()
         .join("generated/contracts/manifests/trellis.orders-js@v1.json")
         .exists());
-    assert!(temp.path().join("generated/js/sdks/orders-js/mod.ts").exists());
+    assert!(temp
+        .path()
+        .join("generated/js/sdks/orders-js/mod.ts")
+        .exists());
     assert!(temp
         .path()
         .join("generated/rust/sdks/orders-js/Cargo.toml")

@@ -447,6 +447,9 @@ This document only constrains the architectural direction behind that API:
   handwritten dependency objects in normal usage
 - the participant runtime surface remains derived from `API.owned`, `API.used`,
   and `API.trellis`
+- generated TypeScript SDKs include consumer client facade types that apps and
+  peer services can use as concrete editor-friendly views over the runtime
+  client
 - public documentation should lead with `TrellisClient.connect(...)`,
   `TrellisService.connect(...)`, and `TrellisDevice.connect(...)`; public
   service author guidance should not point at Trellis-internal bootstrap paths

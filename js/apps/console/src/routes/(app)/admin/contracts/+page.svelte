@@ -8,6 +8,12 @@
   import { getTrellis } from "../../../../lib/trellis";
 
   const trellis = getTrellis();
+  type ContractsRequester = {
+    request(method: "Auth.ListInstalledContracts", input: Record<string, never>): { orThrow(): Promise<AuthListInstalledContractsOutput> };
+    request(method: "Auth.GetInstalledContract", input: { digest: string }): { orThrow(): Promise<AuthGetInstalledContractOutput> };
+  };
+  const contractsSource: object = trellis;
+  const contractsRequester = contractsSource as ContractsRequester;
 
   type ContractSummary = {
     digest: string;
@@ -67,11 +73,11 @@
   });
 
   async function listInstalledContracts(): Promise<AuthListInstalledContractsOutput> {
-    return await trellis.request<AuthListInstalledContractsOutput>("Auth.ListInstalledContracts", {}).orThrow();
+    return await contractsRequester.request("Auth.ListInstalledContracts", {}).orThrow();
   }
 
   async function getInstalledContract(digest: string): Promise<AuthGetInstalledContractOutput> {
-    return await trellis.request<AuthGetInstalledContractOutput>("Auth.GetInstalledContract", { digest }).orThrow();
+    return await contractsRequester.request("Auth.GetInstalledContract", { digest }).orThrow();
   }
 
   async function load() {

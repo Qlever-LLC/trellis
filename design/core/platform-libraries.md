@@ -184,9 +184,11 @@ Rules:
 
 - browser apps should define one small app-local Trellis module and re-export
   typed helpers for the rest of the app
+- app-local Trellis modules should import the app contract's generated client
+  facade from `generated/js/sdks/<contract>/client.ts` after `prepare`
 - `TrellisProvider` is the primary browser integration surface; app code should
   pass `trellisUrl` and an app-owned `trellisApp` created with
-  `createTrellisApp(contract)`
+  `createTrellisApp<typeof contract, GeneratedClient>(contract)`
 - `TrellisProvider` delegates runtime bootstrap and reconnect to
   `TrellisClient.connect(...)`; auth behavior is configured through provider
   auth options or `onAuthRequired`
@@ -218,6 +220,9 @@ Rules:
 - app-local helper modules should usually export the contract, the fixed
   `trellisUrl` when there is one, and local `getTrellis()` / `getConnection()`
   wrappers around an app-owned `trellisApp`
+- `getTrellis()` should return the generated client facade directly so page code
+  sees explicit RPC, operation, event, and state members instead of deep runtime
+  generic aliases
 - dynamic auth-instance selection remains a valid advanced case, but the default
   public browser-app API should optimize for the fixed-instance path rather than
   forcing every app through explicit auth-state construction

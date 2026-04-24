@@ -1,44 +1,42 @@
-import { isErr, Result, type TypedKV } from "@qlever-llc/trellis";
-import * as schemas from "../schemas/index.ts";
-import type { TSchema } from "typebox";
+import { isErr, ok, type RpcArgs, type RpcResult } from "@qlever-llc/trellis";
+import contract from "../../contract.ts";
 
-export function inspectionSummariesRefreshRpc(
-  refreshStatuses: TypedKV<TSchema>,
-  refreshSummaries: {
-    create(payload: { siteId: string }): {
-      orThrow(): Promise<{ id: string }>;
-    };
-  },
-) {
-  return async ({ input }: { input: { siteId: string } }) => {
-    const created = await refreshSummaries
-      .create({
-        siteId: input.siteId,
-      })
-      .orThrow();
-    const queuedStatus = {
-      refreshId: created.id,
-      siteId: input.siteId,
-      status: "queued" as const,
-      updatedAt: new Date().toISOString(),
-      message: `Queued summary refresh for ${input.siteId}`,
-    };
+type Args = RpcArgs<typeof contract, "Inspection.Summaries.Refresh">;
+type Result = RpcResult<typeof contract, "Inspection.Summaries.Refresh">;
 
-    try {
-      await refreshStatuses.create(created.id, queuedStatus).orThrow();
-    } catch (error) {
-      if (isErr(await refreshStatuses.get(created.id).take())) {
-        console.warn("failed to persist queued refresh status", {
-          refreshId: created.id,
-          siteId: input.siteId,
-          error,
-        });
-      }
-    }
+export async function inspectionSummariesRefresh({
+  input,
+  trellis,
+}: Args): Promise<Result> {
+  const created = await trellis.jobs.refreshSummaries
+    .create({ siteId: input.siteId })
+    .orThrow();
 
-    return Result.ok({
-      refreshId: created.id,
-      status: "queued" as const,
-    });
+  const queuedStatus = {
+    refreshId: created.id,
+    siteId: input.siteId,
+    status: "queued" as const,
+    updatedAt: new Date().toISOString(),
+    message: `Queued summary refresh for ${input.siteId}`,
   };
+
+  const persisted = await trellis.kv.refreshStatuses.create(
+    created.id,
+    queuedStatus,
+  ).take();
+  if (isErr(persisted)) {
+    const current = await trellis.kv.refreshStatuses.get(created.id).take();
+    if (isErr(current)) {
+      console.warn("failed to persist queued refresh status", {
+        refreshId: created.id,
+        siteId: input.siteId,
+        error: persisted.error,
+      });
+    }
+  }
+
+  return ok({
+    refreshId: created.id,
+    status: "queued" as const,
+  });
 }

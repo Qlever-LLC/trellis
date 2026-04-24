@@ -6,7 +6,6 @@
     AuthListPortalsOutput,
     AuthSetPortalProfileInput,
   } from "@qlever-llc/trellis-sdk/auth";
-  import { isErr } from "@qlever-llc/result";
   import { onMount } from "svelte";
   import { errorMessage } from "../../../../lib/format";
   import { getNotifications } from "../../../../lib/notifications.svelte";
@@ -22,13 +21,15 @@
 
   const trellis = getTrellis();
   const notifications = getNotifications();
-
-  async function requestValue<T>(method: string, input: unknown): Promise<T> {
-    const result = await trellis.request<T>(method, input);
-    const value = result.take();
-    if (isErr(value)) throw value.error;
-    return value as T;
-  }
+  type PortalsRequester = {
+    request(method: "Auth.ListPortalProfiles", input: Record<string, never>): { orThrow(): Promise<AuthListPortalProfilesOutput> };
+    request(method: "Auth.ListPortals", input: Record<string, never>): { orThrow(): Promise<AuthListPortalsOutput> };
+    request(method: "Auth.ListInstalledContracts", input: Record<string, never>): { orThrow(): Promise<AuthListInstalledContractsOutput> };
+    request(method: "Auth.SetPortalProfile", input: AuthSetPortalProfileInput): { orThrow(): Promise<void> };
+    request(method: "Auth.DisablePortalProfile", input: AuthDisablePortalProfileInput): { orThrow(): Promise<void> };
+  };
+  const portalsSource: object = trellis;
+  const portalsRequester = portalsSource as PortalsRequester;
 
   let loading = $state(true);
   let error = $state<string | null>(null);
@@ -92,9 +93,9 @@
     error = null;
     try {
       const [profileRes, portalRes, contractRes] = await Promise.all([
-        requestValue<AuthListPortalProfilesOutput>("Auth.ListPortalProfiles", {}),
-        requestValue<AuthListPortalsOutput>("Auth.ListPortals", {}),
-        requestValue<AuthListInstalledContractsOutput>("Auth.ListInstalledContracts", {}),
+        portalsRequester.request("Auth.ListPortalProfiles", {}).orThrow(),
+        portalsRequester.request("Auth.ListPortals", {}).orThrow(),
+        portalsRequester.request("Auth.ListInstalledContracts", {}).orThrow(),
       ]);
 
       profiles = profileRes.profiles ?? [];
@@ -124,12 +125,12 @@
     error = null;
     saveFeedback = null;
     try {
-      await requestValue("Auth.SetPortalProfile", {
+      await portalsRequester.request("Auth.SetPortalProfile", {
         portalId: nextPortalId,
         entryUrl: nextEntryUrl,
         contractId: nextContractId,
         allowedOrigins: nextAllowedOrigins.length ? nextAllowedOrigins : undefined,
-      } satisfies AuthSetPortalProfileInput);
+      } satisfies AuthSetPortalProfileInput).orThrow();
 
       const successMessage = isUpdate
         ? `Portal profile ${nextPortalId} updated.`
@@ -155,9 +156,9 @@
     error = null;
     saveFeedback = null;
     try {
-      await requestValue("Auth.DisablePortalProfile", {
+      await portalsRequester.request("Auth.DisablePortalProfile", {
         portalId: profile.portalId,
-      } satisfies AuthDisablePortalProfileInput);
+      } satisfies AuthDisablePortalProfileInput).orThrow();
       notifications.success(`Portal profile ${profile.portalId} disabled.`, "Disabled");
       if (editingPortalId === profile.portalId) {
         resetForm();

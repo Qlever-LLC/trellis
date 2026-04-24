@@ -6,7 +6,6 @@
     AuthListDeviceProfilesOutput,
     AuthListInstalledContractsOutput,
   } from "@qlever-llc/trellis-sdk/auth";
-  import { isErr } from "@qlever-llc/result";
   import { onMount } from "svelte";
   import { errorMessage } from "../../../../../lib/format";
   import { getNotifications } from "../../../../../lib/notifications.svelte";
@@ -18,6 +17,14 @@
 
   const trellis = getTrellis();
   const notifications = getNotifications();
+  type ProfilesRequester = {
+    request(method: "Auth.ListDeviceProfiles", input: AuthListDeviceProfilesInput): { orThrow(): Promise<AuthListDeviceProfilesOutput> };
+    request(method: "Auth.ListInstalledContracts", input: Record<string, never>): { orThrow(): Promise<AuthListInstalledContractsOutput> };
+    request(method: "Auth.CreateDeviceProfile", input: AuthCreateDeviceProfileInput): { orThrow(): Promise<void> };
+    request(method: "Auth.DisableDeviceProfile", input: AuthDisableDeviceProfileInput): { orThrow(): Promise<void> };
+  };
+  const profilesSource: object = trellis;
+  const profilesRequester = profilesSource as ProfilesRequester;
 
   let loading = $state(true);
   let error = $state<string | null>(null);
@@ -65,20 +72,13 @@
       .filter(Boolean);
   }
 
-  async function requestValue<T>(method: string, input: unknown): Promise<T> {
-    const result = await trellis.request<T>(method, input);
-    const value = result.take();
-    if (isErr(value)) throw value.error;
-    return value as T;
-  }
-
   async function load() {
     loading = true;
     error = null;
     try {
       const [profilesResponse, contractsResponse] = await Promise.all([
-        requestValue<AuthListDeviceProfilesOutput>("Auth.ListDeviceProfiles", profileQuery()),
-        requestValue<AuthListInstalledContractsOutput>("Auth.ListInstalledContracts", {}),
+        profilesRequester.request("Auth.ListDeviceProfiles", profileQuery()).orThrow(),
+        profilesRequester.request("Auth.ListInstalledContracts", {}).orThrow(),
       ]);
 
       profiles = profilesResponse.profiles ?? [];
@@ -100,7 +100,7 @@
         reviewMode,
       };
 
-      await requestValue("Auth.CreateDeviceProfile", input);
+      await profilesRequester.request("Auth.CreateDeviceProfile", input).orThrow();
       notifications.success(`Device profile ${input.profileId} created.`, "Created");
       profileId = "";
       contractId = "";
@@ -122,10 +122,10 @@
     disableTarget = profile.profileId;
     error = null;
     try {
-      await requestValue(
+      await profilesRequester.request(
         "Auth.DisableDeviceProfile",
         { profileId: profile.profileId } satisfies AuthDisableDeviceProfileInput,
-      );
+      ).orThrow();
       notifications.success(`Device profile ${profile.profileId} disabled.`, "Disabled");
       await load();
     } catch (e) {

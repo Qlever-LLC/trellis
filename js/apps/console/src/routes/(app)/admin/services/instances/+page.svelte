@@ -15,6 +15,16 @@
 
   const trellis = getTrellis();
   const notifications = getNotifications();
+  type ServiceInstancesRequester = {
+    request(method: "Auth.ListServiceInstances", input: ReturnType<typeof query>): { orThrow(): Promise<AuthListServiceInstancesOutput> };
+    request(method: "Auth.ListServiceProfiles", input: Record<string, never>): { orThrow(): Promise<AuthListServiceProfilesOutput> };
+    request(method: "Auth.ProvisionServiceInstance", input: { profileId: string; instanceKey: string }): { orThrow(): Promise<void> };
+    request(method: "Auth.DisableServiceInstance", input: { instanceId: string }): { orThrow(): Promise<void> };
+    request(method: "Auth.EnableServiceInstance", input: { instanceId: string }): { orThrow(): Promise<void> };
+    request(method: "Auth.RemoveServiceInstance", input: { instanceId: string }): { orThrow(): Promise<void> };
+  };
+  const serviceInstancesSource: object = trellis;
+  const serviceInstancesRequester = serviceInstancesSource as ServiceInstancesRequester;
 
   let loading = $state(true);
   let error = $state<string | null>(null);
@@ -45,8 +55,8 @@
     error = null;
     try {
       const [instancesRes, profilesRes] = await Promise.all([
-        trellis.request<AuthListServiceInstancesOutput>("Auth.ListServiceInstances", query()).orThrow(),
-        trellis.request<AuthListServiceProfilesOutput>("Auth.ListServiceProfiles", {}).orThrow(),
+        serviceInstancesRequester.request("Auth.ListServiceInstances", query()).orThrow(),
+        serviceInstancesRequester.request("Auth.ListServiceProfiles", {}).orThrow(),
       ]);
       instances = instancesRes.instances ?? [];
       profiles = profilesRes.profiles ?? [];
@@ -64,7 +74,7 @@
     createPending = true;
     error = null;
     try {
-      await trellis.request<void>("Auth.ProvisionServiceInstance", {
+      await serviceInstancesRequester.request("Auth.ProvisionServiceInstance", {
         profileId: provisionProfileId,
         instanceKey: instanceKey.trim(),
       }).orThrow();
@@ -84,9 +94,11 @@
     actionTarget = instance.instanceId;
     error = null;
     try {
-      await trellis.request<void>((disabled ? "Auth.DisableServiceInstance" : "Auth.EnableServiceInstance"), {
-        instanceId: instance.instanceId,
-      }).orThrow();
+      if (disabled) {
+        await serviceInstancesRequester.request("Auth.DisableServiceInstance", { instanceId: instance.instanceId }).orThrow();
+      } else {
+        await serviceInstancesRequester.request("Auth.EnableServiceInstance", { instanceId: instance.instanceId }).orThrow();
+      }
       notifications.success(`Service instance ${instance.instanceId} ${disabled ? "disabled" : "enabled"}.`, disabled ? "Disabled" : "Enabled");
       await load();
     } catch (e) {
@@ -101,7 +113,7 @@
     actionTarget = `${instance.instanceId}:remove`;
     error = null;
     try {
-      await trellis.request<void>("Auth.RemoveServiceInstance", { instanceId: instance.instanceId }).orThrow();
+      await serviceInstancesRequester.request("Auth.RemoveServiceInstance", { instanceId: instance.instanceId }).orThrow();
       notifications.success(`Service instance ${instance.instanceId} removed.`, "Removed");
       await load();
     } catch (e) {

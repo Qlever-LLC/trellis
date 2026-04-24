@@ -1,23 +1,8 @@
-import { defineServiceContract } from "@qlever-llc/trellis";
+import { defineServiceContract } from "@qlever-llc/trellis/contracts";
 import { auth, health } from "@qlever-llc/trellis-sdk";
-import Type from "typebox";
+import * as schemas from "./src/schemas/index.ts";
 
-const schemas = {
-  InspectionReportGenerateRequest: Type.Object({
-    inspectionId: Type.String({ minLength: 1 }),
-  }),
-  InspectionReportGenerateProgress: Type.Object({
-    stage: Type.String({ minLength: 1 }),
-    message: Type.String({ minLength: 1 }),
-  }),
-  InspectionReportGenerateResponse: Type.Object({
-    reportId: Type.String({ minLength: 1 }),
-    inspectionId: Type.String({ minLength: 1 }),
-    status: Type.String({ minLength: 1 }),
-  }),
-} as const;
-
-const contract = defineServiceContract(
+export const contract = defineServiceContract(
   { schemas },
   (ref) => ({
     id: "trellis.demo-operation-service@v1",

@@ -7,6 +7,12 @@
 
   const trellis = getTrellis();
   const notifications = getNotifications();
+  type AppsRequester = {
+    request(method: "Auth.ListApprovals", input: { user?: string }): { orThrow(): Promise<AuthListApprovalsOutput> };
+    request(method: "Auth.RevokeApproval", input: { contractDigest: string; user: string }): { orThrow(): Promise<void> };
+  };
+  const appsSource: object = trellis;
+  const appsRequester = appsSource as AppsRequester;
 
   let loading = $state(true);
   let error = $state<string | null>(null);
@@ -15,11 +21,11 @@
   let revokeTarget = $state<string | null>(null);
 
   async function listApprovals(user?: string) {
-    return await trellis.request<AuthListApprovalsOutput>("Auth.ListApprovals", { user }).orThrow();
+    return await appsRequester.request("Auth.ListApprovals", { user }).orThrow();
   }
 
   async function revokeApproval(contractDigest: string, user: string) {
-    return trellis.request<void>("Auth.RevokeApproval", { contractDigest, user }).orThrow();
+    return appsRequester.request("Auth.RevokeApproval", { contractDigest, user }).orThrow();
   }
 
   async function load() {

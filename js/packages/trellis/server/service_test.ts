@@ -12,6 +12,7 @@ import {
 } from "@nats-io/nats-core";
 import { type BaseError, Result } from "@qlever-llc/result";
 import { core } from "@qlever-llc/trellis-sdk/core";
+import { health } from "@qlever-llc/trellis-sdk/health";
 import { Type } from "typebox";
 
 import type { LoggerLike } from "../globals.ts";
@@ -71,6 +72,13 @@ const jobsHandlerTestContract = defineServiceContract(
     },
   }),
 );
+
+const heartbeatTestContract = defineServiceContract({}, () => ({
+  id: "trellis.server.heartbeat-test@v1",
+  displayName: "Heartbeat Test",
+  description: "Verify heartbeat runtime lifecycle behavior.",
+  uses: { health: health.useDefaults() },
+}));
 
 type WaitableService = {
   wait(): Promise<void>;
@@ -381,11 +389,13 @@ Deno.test("TrellisService.connect uses bootstrap response transport details", as
   let connectServers = "";
   let connectToken = "";
   let authenticatorCount = 0;
+  let maxReconnectAttempts: unknown;
 
   const fakeConnect: NatsConnectFn = async (opts) => {
     connectServers = Array.isArray(opts.servers)
       ? opts.servers.join(",")
       : opts.servers;
+    maxReconnectAttempts = opts.maxReconnectAttempts;
     const authenticators = authenticatorsFromValue(opts.authenticator);
     authenticatorCount = authenticators.length;
     const auth = authenticators[0]?.();
@@ -469,6 +479,7 @@ Deno.test("TrellisService.connect uses bootstrap response transport details", as
     assertEquals(connectToken.includes('"sessionKey":"'), true);
     assertEquals(connectToken.includes('"iat":1700000120'), true);
     assertEquals(authenticatorCount, 2);
+    assertEquals(maxReconnectAttempts, -1);
   } finally {
     globalThis.fetch = originalFetch;
     Date.now = originalNow;
@@ -577,6 +588,7 @@ Deno.test("internal service connect uses a reconnect-safe auth token authenticat
   let firstToken = "";
   let secondToken = "";
   let authenticatorCount = 0;
+  let maxReconnectAttempts: unknown;
 
   try {
     let nowMs = 1_700_000_000_000;
@@ -597,6 +609,7 @@ Deno.test("internal service connect uses a reconnect-safe auth token authenticat
           },
         }, {
           connect: async (opts): Promise<NatsConnection> => {
+            maxReconnectAttempts = opts.maxReconnectAttempts;
             const authenticators = authenticatorsFromValue(opts.authenticator);
             authenticatorCount = authenticators.length;
 
@@ -630,9 +643,40 @@ Deno.test("internal service connect uses a reconnect-safe auth token authenticat
     assertEquals(first.sessionKey, second.sessionKey);
     assertEquals(second.iat - first.iat, 31);
     assertNotEquals(first.sig, second.sig);
+    assertEquals(maxReconnectAttempts, -1);
   } finally {
     Date.now = originalNow;
   }
+});
+
+Deno.test("internal service connect preserves explicit reconnect attempt overrides", async () => {
+  let maxReconnectAttempts: unknown;
+
+  await assertRejects(
+    () =>
+      connectTrellisServiceInternal("svc", {
+        sessionKeySeed: TEST_SEED,
+        nats: {
+          servers: "nats://127.0.0.1:4222",
+          authenticator: {},
+          options: { maxReconnectAttempts: 3 },
+        },
+        server: {
+          api: core.API.owned,
+          trellisApi: core.API.trellis,
+          log: false,
+        },
+      }, {
+        connect: async (opts): Promise<NatsConnection> => {
+          maxReconnectAttempts = opts.maxReconnectAttempts;
+          throw new Error("stop-after-connect-options");
+        },
+      }),
+    Error,
+    "stop-after-connect-options",
+  );
+
+  assertEquals(maxReconnectAttempts, 3);
 });
 
 Deno.test("TrellisService.connect surfaces bootstrap failure reasons", async () => {
@@ -898,6 +942,45 @@ Deno.test("internal service connect keeps final closed logging explicit", async 
     (testLogger.errorCalls[0]?.[0] as { error?: Error }).error?.message,
     "socket closed",
   );
+});
+
+Deno.test("service heartbeat publishing stops after terminal NATS close", async () => {
+  let publishRequests = 0;
+  const connection = createFakeNatsConnection({
+    deferClosed: true,
+    requestJson: () => {
+      publishRequests += 1;
+      return { stream: "HEALTH", seq: publishRequests, duplicate: false };
+    },
+  });
+
+  const service = await connectTrellisServiceInternal("svc", {
+    sessionKeySeed: TEST_SEED,
+    nats: {
+      servers: "nats://127.0.0.1:4222",
+      authenticator: {},
+    },
+    server: {
+      api: heartbeatTestContract.API.owned,
+      trellisApi: heartbeatTestContract.API.trellis,
+      log: false,
+      health: { publishIntervalMs: 10 },
+    },
+  }, {
+    connect: () => Promise.resolve(connection),
+  });
+
+  try {
+    const requestsBeforeClose = publishRequests;
+    assertEquals(requestsBeforeClose > 0, true);
+
+    await service.nc.close();
+    await delay(30);
+
+    assertEquals(publishRequests, requestsBeforeClose);
+  } finally {
+    await service.stop();
+  }
 });
 
 Deno.test("internal service connect cleans up the connection when bootstrap probing fails", async () => {

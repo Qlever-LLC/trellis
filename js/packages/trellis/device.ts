@@ -31,9 +31,16 @@ import {
   base64urlEncode,
   toArrayBuffer,
 } from "./auth/utils.ts";
+import {
+  correctedIatSeconds,
+  estimateMidpointClockOffsetMs,
+} from "./auth/time.ts";
 import type { TrellisAPI } from "./contracts.ts";
-import { loadDefaultRuntimeTransport } from "./runtime_transport.ts";
-import { selectRuntimeTransportServers } from "./runtime_transport.ts";
+import {
+  DEFAULT_RUNTIME_MAX_RECONNECT_ATTEMPTS,
+  loadDefaultRuntimeTransport,
+  selectRuntimeTransportServers,
+} from "./runtime_transport.ts";
 import { ServiceHealth } from "./health.ts";
 import { type RuntimeStateStoresForContract, Trellis } from "./trellis.ts";
 import { logger as noopLogger, type LoggerLike } from "./globals.ts";
@@ -130,6 +137,7 @@ type DeviceConnectTransport = {
     token?: string;
     authenticator?: unknown;
     inboxPrefix?: string;
+    maxReconnectAttempts?: number;
   }): Promise<NatsConnection>;
 };
 
@@ -271,6 +279,9 @@ type DeviceBootstrapResponse =
   | DeviceBootstrapActivationRequired
   | DeviceBootstrapNotReady;
 type ResolvedDeviceConnectInfo = DeviceBootstrapReady["connectInfo"];
+type DeviceClockOffsetState = {
+  serverClockOffsetMs: number;
+};
 
 function normalizeRootSecret(rootSecret: Uint8Array | string): Uint8Array {
   if (typeof rootSecret === "string") {
@@ -299,9 +310,13 @@ function createDeviceNatsAuthTokenAuthenticator(args: {
   identitySeed: Uint8Array;
   contractDigest: string;
   now: () => number;
+  getServerClockOffsetMs: () => number;
 }): Authenticator {
   return () => {
-    const iat = Math.floor(args.now() / 1_000);
+    const iat = correctedIatSeconds(
+      args.now(),
+      args.getServerClockOffsetMs(),
+    );
     const sig = signEd25519SeedSha256(
       args.identitySeed,
       new TextEncoder().encode(`nats-connect:${iat}`),
@@ -569,16 +584,20 @@ async function fetchDeviceBootstrap(args: {
   publicIdentityKey: string;
   identitySeed: Uint8Array | string;
   contractDigest: string;
-  iat?: number;
+  now: () => number;
+  offsetState: DeviceClockOffsetState;
 }): Promise<DeviceBootstrapResponse> {
-  let iat = args.iat;
   for (let attempt = 0; attempt < 2; attempt += 1) {
+    const requestStartedAtMs = args.now();
     const request = await signDeviceWaitRequest({
       publicIdentityKey: args.publicIdentityKey,
       nonce: "connect-info",
       identitySeed: args.identitySeed,
       contractDigest: args.contractDigest,
-      iat,
+      iat: correctedIatSeconds(
+        requestStartedAtMs,
+        args.offsetState.serverClockOffsetMs,
+      ),
     });
     const bootstrapRequest = {
       publicIdentityKey: request.publicIdentityKey,
@@ -594,6 +613,7 @@ async function fetchDeviceBootstrap(args: {
         body: JSON.stringify(bootstrapRequest),
       },
     );
+    const responseReceivedAtMs = args.now();
     if (!response.ok) {
       const responseText = await response.text();
       const parsed = parseResponseRecord(responseText);
@@ -609,7 +629,11 @@ async function fetchDeviceBootstrap(args: {
         reason === "iat_out_of_range" &&
         serverNow !== null
       ) {
-        iat = serverNow;
+        args.offsetState.serverClockOffsetMs = estimateMidpointClockOffsetMs({
+          requestStartedAtMs,
+          responseReceivedAtMs,
+          serverNowSeconds: serverNow,
+        });
         continue;
       }
       if (
@@ -639,6 +663,16 @@ async function fetchDeviceBootstrap(args: {
         "Retry the connection. If it keeps happening, check the Trellis deployment.",
       context: { trellisUrl: args.trellisUrl },
     });
+    if (
+      payload && typeof payload === "object" &&
+      typeof (payload as { serverNow?: unknown }).serverNow === "number"
+    ) {
+      args.offsetState.serverClockOffsetMs = estimateMidpointClockOffsetMs({
+        requestStartedAtMs,
+        responseReceivedAtMs,
+        serverNowSeconds: (payload as { serverNow: number }).serverNow,
+      });
+    }
     if (Value.Check(DeviceBootstrapReadySchema, payload)) return payload;
     if (Value.Check(DeviceBootstrapActivationRequiredSchema, payload)) {
       return payload;
@@ -745,11 +779,14 @@ export async function connectDeviceWithDeps<
   const rootSecret = normalizeRootSecret(args.rootSecret);
   const identity = await deriveDeviceIdentity(rootSecret);
   const contractDigest = args.contract.CONTRACT_DIGEST;
+  const offsetState: DeviceClockOffsetState = { serverClockOffsetMs: 0 };
   const bootstrap = await fetchDeviceBootstrap({
     trellisUrl: args.trellisUrl,
     publicIdentityKey: identity.publicIdentityKey,
     identitySeed: identity.identitySeed,
     contractDigest,
+    now: deps.now,
+    offsetState,
   });
 
   if (bootstrap.status === "activation_required") {
@@ -781,6 +818,7 @@ export async function connectDeviceWithDeps<
   try {
     nc = await transport.connect({
       servers: selectRuntimeTransportServers(connectInfo.transports),
+      maxReconnectAttempts: DEFAULT_RUNTIME_MAX_RECONNECT_ATTEMPTS,
       inboxPrefix: `_INBOX.${identity.publicIdentityKey.slice(0, 16)}`,
       authenticator: [
         createDeviceNatsAuthTokenAuthenticator({
@@ -788,6 +826,7 @@ export async function connectDeviceWithDeps<
           identitySeed: identity.identitySeed,
           contractDigest,
           now: deps.now,
+          getServerClockOffsetMs: () => offsetState.serverClockOffsetMs,
         }),
         jwtAuthenticator(
           connectInfo.transport.sentinel.jwt,

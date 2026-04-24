@@ -95,7 +95,8 @@ export type {
   TrellisContractV1,
   UseSpec,
 } from "./contract.ts";
-export { AsyncResult, err, isErr, isOk, ok, Result } from "@qlever-llc/result";
+export { AsyncResult, BaseError, err, isErr, isOk, ok, Result } from "@qlever-llc/result";
+export type { MaybeAsync } from "@qlever-llc/result";
 export type { ClientOpts } from "./client.ts";
 export type {
   ClientAuthContinuation,
@@ -190,7 +191,12 @@ export type {
   EventOpts,
   EventPayload,
   EventType,
+  HandlerJobQueue,
+  HandlerJobsFacade,
+  HandlerKvFacade,
+  HandlerStoreHandle,
   HandlerTrellis,
+  HandlerTrellisForContract,
   OperationHandlerContext,
   OperationRegistration,
   OperationTransferContextOf,
@@ -206,10 +212,15 @@ export type {
   RpcRequestErrorOf,
   RpcResult,
   RuntimeStateStoresForContract,
+  RuntimeStateStoreShape,
+  RuntimeStateStores,
   StateFacade,
+  MapStateStoreClient,
   TrellisAuth,
   TrellisFor,
   TrellisSigner,
+  ValueStateStoreClient,
+  NatsConnection,
 } from "./trellis.ts";
 export { Trellis } from "./trellis.ts";
 export type { TrellisDeviceConnection } from "./device.ts";

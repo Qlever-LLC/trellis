@@ -101,8 +101,8 @@ Create `contracts/orders_service.ts`. The contract declares every RPC, event, de
 ```ts
 import { defineContract } from "@qlever-llc/trellis/contracts";
 import { HealthResponseSchema, HealthRpcSchema } from "@qlever-llc/trellis/server/health";
-import { auth } from "@qlever-llc/trellis/sdk/auth";
-import { core } from "@qlever-llc/trellis/sdk/core";
+import { auth } from "@qlever-llc/trellis-sdk/auth";
+import { core } from "@qlever-llc/trellis-sdk/core";
 import {
   CreateOrderRequestSchema,
   CreateOrderResponseSchema,
@@ -353,6 +353,8 @@ This produces a Deno package under `./generated/sdk/ts/`. The generated SDK vers
 - `types.ts` — typed request, response, and event definitions
 - `schemas.ts` — JSON schemas extracted from the manifest
 - `contract.ts` — contract metadata and `use(...)` helpers for consumers
+- `client.ts` — a concrete consumer client facade with explicit request,
+  operation, event, publish, and state members
 - `scripts/build_npm.ts` — a build script that uses `dnt` to produce an npm package
 
 Consumers import the SDK like any other Trellis contract package:
@@ -372,7 +374,7 @@ const app = defineContract({
 });
 ```
 
-Regenerate the SDK whenever the contract changes. This is the same pattern that the first-party `@qlever-llc/trellis/sdk/auth`, `@qlever-llc/trellis/sdk/core`, and `@qlever-llc/trellis/sdk/state` subpaths follow.
+Regenerate the SDK whenever the contract changes. This is the same pattern that the first-party `@qlever-llc/trellis-sdk/auth`, `@qlever-llc/trellis-sdk/core`, and `@qlever-llc/trellis-sdk/state` subpaths follow.
 
 ## 11. Install and run
 

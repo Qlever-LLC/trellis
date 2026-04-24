@@ -7,6 +7,12 @@
 
   const trellis = getTrellis();
   const notifications = getNotifications();
+  type UsersRequester = {
+    request(method: "Auth.ListUsers", input: Record<string, never>): { orThrow(): Promise<AuthListUsersOutput> };
+    request(method: "Auth.UpdateUser", input: AuthUpdateUserInput): { orThrow(): Promise<void> };
+  };
+  const usersSource: object = trellis;
+  const usersRequester = usersSource as UsersRequester;
 
   type UserView = {
     origin: string;
@@ -28,7 +34,7 @@
     loading = true;
     error = null;
     try {
-      const res = await trellis.request<AuthListUsersOutput>("Auth.ListUsers", {}).orThrow();
+      const res = await usersRequester.request("Auth.ListUsers", {}).orThrow();
       users = res.users ?? [];
     } catch (e) { error = errorMessage(e); }
     finally { loading = false; }
@@ -46,7 +52,7 @@
 
   async function toggleActive(user: UserView) {
     try {
-      await trellis.request<void>("Auth.UpdateUser", {
+      await usersRequester.request("Auth.UpdateUser", {
         origin: user.origin,
         id: user.id,
         active: !user.active,
@@ -61,7 +67,7 @@
     savePending = true;
     try {
       const capabilities = editCaps.split(",").map((c) => c.trim()).filter(Boolean);
-      await trellis.request<void>("Auth.UpdateUser", {
+      await usersRequester.request("Auth.UpdateUser", {
         origin: editTarget.origin,
         id: editTarget.id,
         capabilities,

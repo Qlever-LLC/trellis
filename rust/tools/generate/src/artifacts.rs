@@ -211,7 +211,10 @@ fn ts_key_outputs_exist(ts_out: Option<&Path>) -> bool {
     let Some(ts_out) = ts_out else {
         return true;
     };
-    ts_out.join("mod.ts").exists() && ts_out.join("contract.ts").exists()
+    ts_out.join("mod.ts").exists()
+        && ts_out.join("api.ts").exists()
+        && ts_out.join("contract.ts").exists()
+        && ts_out.join("client.ts").exists()
 }
 
 fn rust_key_outputs_exist(rust_out: Option<&Path>, expected: &GeneratedArtifactsMetadata) -> bool {
@@ -240,18 +243,22 @@ fn write_if_changed(path: &Path, contents: &str) -> miette::Result<()> {
 }
 
 fn rewrite_local_trellis_imports(ts_out: &Path, repo_root: &Path) -> miette::Result<()> {
-    let trellis_import = relative_path_string(ts_out, &repo_root.join("js/packages/trellis/index.ts"));
+    let trellis_import =
+        relative_path_string(ts_out, &repo_root.join("js/packages/trellis/index.ts"));
     let contracts_import =
         relative_path_string(ts_out, &repo_root.join("js/packages/trellis/contracts.ts"));
 
-    for file_name in ["api.ts", "contract.ts", "types.ts"] {
+    for file_name in ["api.ts", "client.ts", "contract.ts", "types.ts"] {
         let path = ts_out.join(file_name);
         if !path.exists() {
             continue;
         }
         let contents = fs::read_to_string(&path).into_diagnostic()?;
         let updated = contents
-            .replace("\"@qlever-llc/trellis/contracts\"", &format!("\"{contracts_import}\""))
+            .replace(
+                "\"@qlever-llc/trellis/contracts\"",
+                &format!("\"{contracts_import}\""),
+            )
             .replace("\"@qlever-llc/trellis\"", &format!("\"{trellis_import}\""));
         if updated != contents {
             fs::write(&path, updated).into_diagnostic()?;

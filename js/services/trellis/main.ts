@@ -55,8 +55,8 @@ import {
   createAuthApplyDeviceProfileContractHandler,
   createAuthCreateDeviceProfileHandler,
   createAuthCreatePortalHandler,
-  createAuthSetPortalProfileHandler,
   createAuthProvisionDeviceInstanceHandler,
+  createAuthSetPortalProfileHandler,
   createAuthUnapplyDeviceProfileContractHandler,
 } from "./auth/admin/rpc.ts";
 import {
@@ -376,6 +376,7 @@ const server = Deno.serve(
 );
 
 const SERVER_DRAIN_TIMEOUT_MS = 5_000;
+const PROCESS_SHUTDOWN_TIMEOUT_MS = 10_000;
 
 async function waitForServerDrain(): Promise<void> {
   let timeoutId: number | undefined;
@@ -396,7 +397,7 @@ async function waitForServerDrain(): Promise<void> {
 
 let shuttingDown: Promise<void> | null = null;
 
-async function shutdown(signal: string): Promise<void> {
+function shutdown(signal: string): Promise<void> {
   if (shuttingDown) {
     return shuttingDown;
   }
@@ -413,14 +414,37 @@ async function shutdown(signal: string): Promise<void> {
   return shuttingDown;
 }
 
+async function shutdownForSignal(signal: string): Promise<void> {
+  let timeoutId: number | undefined;
+
+  try {
+    await Promise.race([
+      shutdown(signal),
+      new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(
+          () =>
+            reject(
+              new Error(
+                `Trellis shutdown timed out after ${PROCESS_SHUTDOWN_TIMEOUT_MS}ms`,
+              ),
+            ),
+          PROCESS_SHUTDOWN_TIMEOUT_MS,
+        );
+      }),
+    ]);
+    Deno.exit(0);
+  } catch (error) {
+    logger.error({ error, signal }, "Failed during Trellis shutdown");
+    Deno.exit(1);
+  } finally {
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+    }
+  }
+}
+
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   Deno.addSignalListener(signal, () => {
-    void shutdown(signal)
-      .then(() => {
-        Deno.exit(0);
-      })
-      .catch((error) => {
-        logger.error({ error, signal }, "Failed during Trellis shutdown");
-      });
+    void shutdownForSignal(signal);
   });
 }

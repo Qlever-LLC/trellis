@@ -12,6 +12,13 @@
   type ServiceInstance = AuthListServiceInstancesOutput["instances"][number];
 
   const trellis = getTrellis();
+  type AdminOverviewRequester = {
+    request(method: "Auth.ListSessions", input: Record<string, never>): { orThrow(): Promise<AuthListSessionsOutput> };
+    request(method: "Auth.ListConnections", input: Record<string, never>): { orThrow(): Promise<AuthListConnectionsOutput> };
+    request(method: "Auth.ListServiceInstances", input: Record<string, never>): { orThrow(): Promise<AuthListServiceInstancesOutput> };
+  };
+  const adminOverviewSource: object = trellis;
+  const adminOverviewRequester = adminOverviewSource as AdminOverviewRequester;
 
   let loading = $state(true);
   let error = $state<string | null>(null);
@@ -23,15 +30,15 @@
   const disabledInstances = $derived(instances.filter((instance) => instance.disabled).length);
 
   async function listSessions() {
-    return await trellis.request<AuthListSessionsOutput>("Auth.ListSessions", {}).orThrow();
+    return await adminOverviewRequester.request("Auth.ListSessions", {}).orThrow();
   }
 
   async function listConnections() {
-    return await trellis.request<AuthListConnectionsOutput>("Auth.ListConnections", {}).orThrow();
+    return await adminOverviewRequester.request("Auth.ListConnections", {}).orThrow();
   }
 
   async function listServiceInstances() {
-    return await trellis.request<AuthListServiceInstancesOutput>("Auth.ListServiceInstances", {}).orThrow();
+    return await adminOverviewRequester.request("Auth.ListServiceInstances", {}).orThrow();
   }
 
   async function load() {

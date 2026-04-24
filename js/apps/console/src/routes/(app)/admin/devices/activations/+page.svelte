@@ -6,7 +6,6 @@
     AuthListDeviceProfilesOutput,
     AuthRevokeDeviceActivationInput,
   } from "@qlever-llc/trellis-sdk/auth";
-  import { isErr } from "@qlever-llc/result";
   import { onMount } from "svelte";
   import { errorMessage, formatDate } from "../../../../../lib/format";
   import { getNotifications } from "../../../../../lib/notifications.svelte";
@@ -23,6 +22,14 @@
 
   const trellis = getTrellis();
   const notifications = getNotifications();
+  type ActivationsRequester = {
+    request(method: "Auth.ListDeviceActivations", input: AuthListDeviceActivationsInput): { orThrow(): Promise<AuthListDeviceActivationsOutput> };
+    request(method: "Auth.ListDeviceInstances", input: Record<string, never>): { orThrow(): Promise<AuthListDeviceInstancesOutput> };
+    request(method: "Auth.ListDeviceProfiles", input: Record<string, never>): { orThrow(): Promise<AuthListDeviceProfilesOutput> };
+    request(method: "Auth.RevokeDeviceActivation", input: AuthRevokeDeviceActivationInput): { orThrow(): Promise<void> };
+  };
+  const activationsSource: object = trellis;
+  const activationsRequester = activationsSource as ActivationsRequester;
 
   let loading = $state(true);
   let error = $state<string | null>(null);
@@ -47,21 +54,14 @@
     };
   }
 
-  async function requestValue<T>(method: string, input: unknown): Promise<T> {
-    const result = await trellis.request<T>(method, input);
-    const value = result.take();
-    if (isErr(value)) throw value.error;
-    return value as T;
-  }
-
   async function load() {
     loading = true;
     error = null;
     try {
       const [activationsResponse, instancesResponse, profilesResponse] = await Promise.all([
-        requestValue<AuthListDeviceActivationsOutput>("Auth.ListDeviceActivations", activationQuery()),
-        requestValue<AuthListDeviceInstancesOutput>("Auth.ListDeviceInstances", {}),
-        requestValue<AuthListDeviceProfilesOutput>("Auth.ListDeviceProfiles", {}),
+        activationsRequester.request("Auth.ListDeviceActivations", activationQuery()).orThrow(),
+        activationsRequester.request("Auth.ListDeviceInstances", {}).orThrow(),
+        activationsRequester.request("Auth.ListDeviceProfiles", {}).orThrow(),
       ]);
 
       activations = activationsResponse.activations ?? [];
@@ -95,10 +95,10 @@
     revokeTarget = activation.instanceId;
     error = null;
     try {
-      await requestValue(
+      await activationsRequester.request(
         "Auth.RevokeDeviceActivation",
         { instanceId: activation.instanceId } satisfies AuthRevokeDeviceActivationInput,
-      );
+      ).orThrow();
       notifications.success(`Device activation revoked for ${activation.instanceId}.`, "Revoked");
       await load();
     } catch (e) {

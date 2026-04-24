@@ -6,18 +6,12 @@ import {
   type SessionKeyHandle,
 } from "@qlever-llc/trellis";
 import { startAuthRequest } from "@qlever-llc/trellis/auth";
-import type { TrellisClientFor } from "@qlever-llc/trellis-svelte";
+import type { TrellisDemoAppClient } from "../../../generated/js/sdks/demo-app/client.ts";
 import contract from "../../contract.ts";
 import { trellisApp } from "./trellis-context.ts";
 
-export type AppTrellis = TrellisClientFor<typeof contract>;
-
-export function getTrellis(): AppTrellis;
-export function getTrellis<TClient>(): TClient;
-export function getTrellis<
-  TClient = AppTrellis,
->(): TClient {
-  return trellisApp.getTrellis<TClient>();
+export function getTrellis(): TrellisDemoAppClient {
+  return trellisApp.getTrellis();
 }
 
 export function getConnection() {
