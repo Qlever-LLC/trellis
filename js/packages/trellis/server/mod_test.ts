@@ -28,7 +28,9 @@ import {
   type HealthCheckFn,
   type HealthCheckResult,
   type HealthResponse,
+  type JobArgs,
   type JobHandler,
+  type JobResult,
   type OperationHandler,
   type OrderingGroup,
   type RpcHandler,
@@ -127,7 +129,8 @@ const optionalKvTypeTestContract = defineServiceContract(
   (ref) => ({
     id: "trellis.server.optional-kv-type-test@v1",
     displayName: "Optional KV Type Test",
-    description: "Verify optional KV aliases stay optional in the service type.",
+    description:
+      "Verify optional KV aliases stay optional in the service type.",
     resources: {
       kv: {
         items: {
@@ -249,13 +252,12 @@ Deno.test("Subscription types are re-exported", () => {
 
 Deno.test("service wrapper type surface stays specific", () => {
   function expectTypedSurface(
-    service:
-      & TrellisService<
-        typeof typeTestContract.API.owned,
-        typeof typeTestContract.API.owned,
-        {},
-        TypeTestKv
-      >,
+    service: TrellisService<
+      typeof typeTestContract.API.owned,
+      typeof typeTestContract.API.owned,
+      {},
+      TypeTestKv
+    >,
     storeHandle: StoreHandle,
   ): {
     request: AsyncResult<{ ok: boolean }, BaseError>;
@@ -339,7 +341,8 @@ Deno.test("service wrapper exposes typed jobs facade", () => {
     JobsContract extends ServiceContract<
       infer _TOwned,
       infer _TTrellis,
-      infer TJobs
+      infer TJobs,
+      infer _TKv
     > ? TJobs
       : never
   >;
@@ -352,6 +355,7 @@ Deno.test("service wrapper exposes typed jobs facade", () => {
         assertEquals(siteId, job.payload.siteId);
         assertExists(trellis.kv);
         assertExists(trellis.store);
+        assertExists(trellis.jobs.refreshSummaries.create({ siteId }));
         return Result.ok({ refreshId: `refresh-${siteId}` });
       },
     );
@@ -421,6 +425,11 @@ Deno.test("contract-oriented helper types support local Args and Return aliases"
     const sessionKey: string = context.sessionKey;
     const outbound: TypeTestTrellis = trellis;
     assertExists(outbound.request("Test.Ping", { value }));
+    const kv: TypedKV<typeof typeTestSchemas.KVValue> = trellis.kv.items;
+    const store = trellis.store.uploads.open();
+    assertExists(kv);
+    assertExists(store);
+    assertExists(trellis.jobs);
     const output = {
       ok: value.length > 0 && sessionKey.length >= 0,
     };
@@ -437,6 +446,26 @@ Deno.test("contract-oriented helper types support local Args and Return aliases"
 
   assertExists(ping);
   assertExists(onPinged);
+  assertEquals(argsTypeCheck, undefined);
+});
+
+Deno.test("job helper types support local Args and Return aliases", () => {
+  type Args = JobArgs<typeof jobsTypeTestContract, "refreshSummaries">;
+  type Return = JobResult<typeof jobsTypeTestContract, "refreshSummaries">;
+  const argsTypeCheck: Args | undefined = undefined;
+
+  const refresh = async ({ job, trellis }: Args): Promise<Return> => {
+    const siteId: string = job.payload.siteId;
+    const kv: TypedKV<typeof jobsTypeTestSchemas.KVValue> = trellis.kv.items;
+    const created = trellis.jobs.refreshSummaries.create({ siteId });
+    const store = trellis.store.uploads.open();
+    assertExists(kv);
+    assertExists(created);
+    assertExists(store);
+    return Result.ok({ refreshId: siteId });
+  };
+
+  assertExists(refresh);
   assertEquals(argsTypeCheck, undefined);
 });
 

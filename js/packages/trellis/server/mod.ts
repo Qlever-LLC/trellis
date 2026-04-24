@@ -10,37 +10,39 @@
 export { TrellisServer } from "../server.ts";
 // Re-export health types
 export {
-  type HealthHeartbeat,
+  createHealthHeartbeat,
   type HealthCheckFn,
   type HealthCheckResult,
+  type HealthHeartbeat,
   type HealthResponse,
-  type ServiceHealthInfoFn,
-  type ServiceHealthCheck,
-  type ServiceHealthCheckFn,
-  type ServiceHealthInfo,
-  createHealthHeartbeat,
   runAllHealthChecks,
   runAllServiceHealthChecks,
   runHealthCheck,
   runServiceHealthCheck,
   ServiceHealth,
+  type ServiceHealthCheck,
+  type ServiceHealthCheckFn,
+  type ServiceHealthInfo,
+  type ServiceHealthInfoFn,
 } from "./health.ts";
 export { mountStandardHealthRpc } from "./health_rpc.ts";
 export {
+  HealthCheckResultSchema,
   HealthHeartbeatHeaderSchema,
   HealthHeartbeatSchema,
   HealthHeartbeatServiceSchema,
-  HealthCheckResultSchema,
   HealthInfoSchema,
   HealthResponseSchema,
   HealthRpcSchema,
 } from "./health_schemas.ts";
 export {
-  type JobQueue,
+  type JobArgs,
   type JobHandler,
+  type JobQueue,
+  type JobResult,
   type JobsFacadeOf,
-  type OperationRegistration,
   type OperationHandler,
+  type OperationRegistration,
   type ResourceBindingKV,
   type ResourceBindings,
   type ResourceBindingStore,

@@ -1,9 +1,11 @@
 export {
-  type JobQueue,
+  type JobArgs,
   type JobHandler,
+  type JobQueue,
+  type JobResult,
   type JobsFacadeOf,
-  type OperationRegistration,
   type OperationHandler,
+  type OperationRegistration,
   type ResourceBindingKV,
   type ResourceBindings,
   type ResourceBindingStream,

@@ -1013,6 +1013,7 @@ Deno.test("TrellisService mount passes kv and store to handlers", async () => {
     await service.trellis.mount("Test.Ping", ({ trellis }) => {
       assertEquals(trellis.kv, service.kv);
       assertEquals(trellis.store, service.store);
+      assertEquals(trellis.jobs, service.jobs);
       return Result.ok({ ok: true });
     });
 
