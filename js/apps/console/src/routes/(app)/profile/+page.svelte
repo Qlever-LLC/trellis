@@ -11,10 +11,10 @@
   } from "../../../lib/auth_display.ts";
   import { errorMessage, formatDate } from "../../../lib/format";
   import { getNotifications } from "../../../lib/notifications.svelte";
-  import { getConnectionState, getTrellis } from "../../../lib/trellis";
+  import { getConnection, getTrellis } from "../../../lib/trellis";
 
-  const trellisPromise = getTrellis();
-  const connectionStatePromise = getConnectionState();
+  const trellis = getTrellis();
+  const connection = getConnection();
   const notifications = getNotifications();
 
   type ProfileResponse = AuthMeOutput & { participantKind: ParticipantKind };
@@ -25,7 +25,7 @@
   let error = $state<string | null>(null);
   let user = $state<AuthMeOutput["user"] | null>(null);
   let participantKind = $state<ParticipantKind | null>(null);
-  let connectionStatus = $state("connecting");
+  const connectionStatus = $derived(connection.status.phase);
   let grants = $state<UserGrantRecord[]>([]);
   let revokeTarget = $state<string | null>(null);
 
@@ -33,11 +33,10 @@
     loading = true;
     error = null;
     try {
-      const trellis = await trellisPromise;
-      const me = await trellis.request<ProfileResponse>("Auth.Me" as string, {}).orThrow();
+      const me: ProfileResponse = await trellis.request<ProfileResponse>("Auth.Me", {}).orThrow();
       user = me.user ?? null;
       participantKind = me.participantKind;
-      const grantsResponse = await trellis.request<UserGrantListResponse>("Auth.ListUserGrants" as string, {}).orThrow();
+      const grantsResponse: UserGrantListResponse = await trellis.request<UserGrantListResponse>("Auth.ListUserGrants", {}).orThrow();
       grants = grantsResponse.grants ?? [];
     } catch (e) {
       error = errorMessage(e);
@@ -50,8 +49,7 @@
     if (!window.confirm(`Revoke this ${participantKindLabel(grant.participantKind).toLowerCase()} grant? ${grant.displayName || grant.contractId} will lose access to act on your behalf.`)) return;
     revokeTarget = grant.contractDigest;
     try {
-      const trellis = await trellisPromise;
-      await trellis.request<void>("Auth.RevokeUserGrant" as string, {
+      await trellis.request<void>("Auth.RevokeUserGrant", {
         contractDigest: grant.contractDigest,
       } satisfies RevokeUserGrantInput).orThrow();
       notifications.success(`${participantKindLabel(grant.participantKind)} grant revoked.`, "Revoked");
@@ -64,24 +62,7 @@
   }
 
   onMount(() => {
-    let active = true;
-    let statusInterval: number | null = null;
-
-    void (async () => {
-      const connectionState = await connectionStatePromise;
-      if (!active) return;
-      connectionStatus = connectionState.status;
-      statusInterval = window.setInterval(() => {
-        connectionStatus = connectionState.status;
-      }, 1000);
-    })();
-
     void loadProfile();
-
-    return () => {
-      active = false;
-      if (statusInterval !== null) window.clearInterval(statusInterval);
-    };
   });
 </script>
 
@@ -139,8 +120,8 @@
         <div class="card-body p-4">
           <p class="text-xs uppercase font-semibold text-base-content/50">Session</p>
           <p class="text-sm mt-1 flex items-center gap-2">
-            <span class="inline-block w-2 h-2 rounded-full" class:bg-success={connectionStatus === "connected"} class:bg-warning={connectionStatus === "connecting"} class:bg-error={connectionStatus !== "connected" && connectionStatus !== "connecting"}></span>
-            {connectionStatus === "connected" ? "Connected" : connectionStatus === "connecting" ? "Connecting" : "Disconnected"}
+            <span class="inline-block w-2 h-2 rounded-full" class:bg-success={connectionStatus === "connected"} class:bg-warning={connectionStatus === "reconnecting"} class:bg-error={connectionStatus !== "connected" && connectionStatus !== "reconnecting"}></span>
+            {connectionStatus === "connected" ? "Connected" : connectionStatus === "reconnecting" ? "Reconnecting" : "Disconnected"}
           </p>
         </div>
       </div>

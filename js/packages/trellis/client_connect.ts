@@ -1,5 +1,12 @@
-import { jwtAuthenticator, type Authenticator, type NatsConnection } from "@nats-io/nats-core";
-import { CONTRACT_STATE_METADATA, type ContractStateMetadata } from "./contract_support/mod.ts";
+import {
+  type Authenticator,
+  jwtAuthenticator,
+  type NatsConnection,
+} from "@nats-io/nats-core";
+import {
+  CONTRACT_STATE_METADATA,
+  type ContractStateMetadata,
+} from "./contract_support/mod.ts";
 import {
   base64urlDecode,
   base64urlEncode,
@@ -8,8 +15,16 @@ import {
   natsConnectSigForIat,
   startAuthRequest,
 } from "./auth/browser.ts";
-import { BindResponseSchema, sha256, toArrayBuffer, utf8 } from "./auth/browser.ts";
-import { correctedIatSeconds, estimateMidpointClockOffsetMs } from "./auth/time.ts";
+import {
+  BindResponseSchema,
+  sha256,
+  toArrayBuffer,
+  utf8,
+} from "./auth/browser.ts";
+import {
+  correctedIatSeconds,
+  estimateMidpointClockOffsetMs,
+} from "./auth/time.ts";
 import { canonicalizeJsonValue } from "./auth/utils.ts";
 import {
   importEd25519PrivateKeyFromSeedBase64url,
@@ -20,19 +35,28 @@ import type { ClientOpts } from "./client.ts";
 import type { TrellisAPI, TrellisContractV1 } from "./contracts.ts";
 import {
   loadDefaultRuntimeTransport,
-  selectRuntimeTransportServers,
   type RuntimeTransport,
+  selectRuntimeTransportServers,
 } from "./runtime_transport.ts";
-import { type RuntimeStateStoresForContract, Trellis } from "./trellis.ts";
+import {
+  type RuntimeStateStores,
+  Trellis,
+  type TrellisOpts,
+} from "./trellis.ts";
 import { TransportError } from "./errors/index.ts";
-import { Type, type StaticDecode } from "typebox";
+import { AsyncResult, Result, UnexpectedError } from "@qlever-llc/result";
+import { type StaticDecode, Type } from "typebox";
 import { Value } from "typebox/value";
 import {
-  type SessionKeyHandle,
   bindFlowSig,
   oauthInitSig,
+  type SessionKeyHandle,
   signBytes,
 } from "./auth/browser/session.ts";
+import {
+  observeNatsTrellisConnection,
+  type TrellisConnection,
+} from "./connection.ts";
 
 type ClientContract<
   TApi extends TrellisAPI = TrellisAPI,
@@ -48,17 +72,10 @@ type ClientContract<
 type ClientContractApi<TContract extends ClientContract> =
   TContract["API"]["trellis"];
 
-type ConnectedClient<TContract extends ClientContract<TrellisAPI, TrellisContractV1>> =
-  Trellis<
-    ClientContractApi<TContract>,
-    "client"
-  >;
-
-function createConnectedClient<
-  TContract extends ClientContract<TrellisAPI, TrellisContractV1>,
->(args: {
+function createConnectedClient(args: {
   name: string;
   nc: NatsConnection;
+  connection: TrellisConnection;
   sessionKey: string;
   sign(data: Uint8Array): Promise<Uint8Array>;
   opts: {
@@ -66,18 +83,39 @@ function createConnectedClient<
     timeout: ClientOpts["timeout"];
     stream: ClientOpts["stream"];
     noResponderRetry: ClientOpts["noResponderRetry"];
-    api: ClientContractApi<TContract>;
-    state: RuntimeStateStoresForContract<TContract> | undefined;
+    api: TrellisAPI;
+    state: TrellisOpts<TrellisAPI>["state"];
   };
-}): ConnectedClient<TContract> {
-  return new Trellis<ClientContractApi<TContract>, "client">(
+}): Trellis<TrellisAPI, "client", RuntimeStateStores> {
+  const trellis = new Trellis<TrellisAPI, "client", RuntimeStateStores>(
     args.name,
     args.nc,
     {
       sessionKey: args.sessionKey,
       sign: args.sign,
     },
-    args.opts,
+    {
+      ...args.opts,
+      connection: args.connection,
+    },
+  );
+
+  return trellis;
+}
+
+function clientConnectResult<T>(
+  promise: Promise<T>,
+): AsyncResult<T, TransportError | UnexpectedError> {
+  return AsyncResult.from(
+    promise.then(
+      (value): Result<T, TransportError | UnexpectedError> => Result.ok(value),
+      (cause): Result<T, TransportError | UnexpectedError> =>
+        Result.err(
+          cause instanceof TransportError
+            ? cause
+            : new UnexpectedError({ cause }),
+        ),
+    ),
   );
 }
 
@@ -101,7 +139,9 @@ type SessionKeyClientAuthOptions = {
   flowId?: string;
 };
 
-export type ClientAuthOptions = BrowserClientAuthOptions | SessionKeyClientAuthOptions;
+export type ClientAuthOptions =
+  | BrowserClientAuthOptions
+  | SessionKeyClientAuthOptions;
 
 export type ClientAuthRequiredContext = {
   loginUrl: string;
@@ -109,7 +149,20 @@ export type ClientAuthRequiredContext = {
   mode: "browser" | "session_key";
 };
 
-export type ClientAuthContinuation = { flowId: string } | void;
+export type ClientAuthContinuation =
+  | { status: "bound"; flowId: string }
+  | { status: "handled" }
+  | void;
+
+/**
+ * Error raised when client authentication was delegated to caller-owned routing.
+ */
+export class ClientAuthHandledError extends Error {
+  constructor() {
+    super("Client authentication was handled by the caller");
+    this.name = "ClientAuthHandledError";
+  }
+}
 
 export type TrellisClientConnectArgs<
   TApi extends TrellisAPI = TrellisAPI,
@@ -156,7 +209,10 @@ const ClientTransportsSchema = Type.Object({
 type ClientConnectDeps = {
   loadTransport(): Promise<RuntimeTransport>;
   now(): number;
-  setInterval?: (handler: () => void, ms: number) => ReturnType<typeof globalThis.setInterval>;
+  setInterval?: (
+    handler: () => void,
+    ms: number,
+  ) => ReturnType<typeof globalThis.setInterval>;
   clearInterval?: (id: ReturnType<typeof globalThis.setInterval>) => void;
 };
 
@@ -195,14 +251,22 @@ const ClientBootstrapIatOutOfRangeSchema = Type.Object({
 }, { additionalProperties: true });
 
 type ClientBootstrapReady = StaticDecode<typeof ClientBootstrapReadySchema>;
-type ClientBootstrapAuthRequired = StaticDecode<typeof ClientBootstrapAuthRequiredSchema>;
-type ClientBootstrapNotReady = StaticDecode<typeof ClientBootstrapNotReadySchema>;
-type ClientBootstrapIatOutOfRange = StaticDecode<typeof ClientBootstrapIatOutOfRangeSchema>;
+type ClientBootstrapAuthRequired = StaticDecode<
+  typeof ClientBootstrapAuthRequiredSchema
+>;
+type ClientBootstrapNotReady = StaticDecode<
+  typeof ClientBootstrapNotReadySchema
+>;
+type ClientBootstrapIatOutOfRange = StaticDecode<
+  typeof ClientBootstrapIatOutOfRangeSchema
+>;
 type ClientBootstrapResponse =
   | ClientBootstrapReady
   | ClientBootstrapAuthRequired
   | ClientBootstrapNotReady;
-type ClientBootstrapAttemptResponse = ClientBootstrapResponse | ClientBootstrapIatOutOfRange;
+type ClientBootstrapAttemptResponse =
+  | ClientBootstrapResponse
+  | ClientBootstrapIatOutOfRange;
 type ClockOffsetState = { serverClockOffsetMs: number };
 
 function isBrowserRuntime(): boolean {
@@ -275,7 +339,10 @@ function resolveCurrentUrl(auth?: BrowserClientAuthOptions): URL | null {
   return null;
 }
 
-function resolveRedirectTo(auth: BrowserClientAuthOptions, currentUrl: URL): string {
+function resolveRedirectTo(
+  auth: BrowserClientAuthOptions,
+  currentUrl: URL,
+): string {
   const redirectTo = typeof auth.redirectTo === "function"
     ? auth.redirectTo()
     : auth.redirectTo;
@@ -301,26 +368,43 @@ function resolveConfiguredRedirectTo(
   return typeof redirectTo === "function" ? redirectTo() : redirectTo;
 }
 
-function authRequestContextRecord(value: unknown): Record<string, unknown> | undefined {
+function authRequestContextRecord(
+  value: unknown,
+): Record<string, unknown> | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return undefined;
   }
   return value as Record<string, unknown>;
 }
 
-async function signDomainValue(sign: (data: Uint8Array) => Promise<Uint8Array>, prefix: string, value: string): Promise<string> {
+async function signDomainValue(
+  sign: (data: Uint8Array) => Promise<Uint8Array>,
+  prefix: string,
+  value: string,
+): Promise<string> {
   const digest = await sha256(utf8(`${prefix}:${value}`));
   const signature = await sign(digest);
   const binary = String.fromCharCode(...signature);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(
+    /=+$/g,
+    "",
+  );
 }
 
-async function createSessionKeyRuntimeIdentity(sessionKeySeed: string): Promise<ClientRuntimeIdentity> {
+async function createSessionKeyRuntimeIdentity(
+  sessionKeySeed: string,
+): Promise<ClientRuntimeIdentity> {
   const seed = base64urlDecode(sessionKeySeed);
-  const privateKey = await importEd25519PrivateKeyFromSeedBase64url(sessionKeySeed);
+  const privateKey = await importEd25519PrivateKeyFromSeedBase64url(
+    sessionKeySeed,
+  );
   const sessionKey = publicKeyBase64urlFromSeed(seed);
   const sign = async (data: Uint8Array): Promise<Uint8Array> => {
-    const signature = await crypto.subtle.sign("Ed25519", privateKey, toArrayBuffer(data));
+    const signature = await crypto.subtle.sign(
+      "Ed25519",
+      privateKey,
+      toArrayBuffer(data),
+    );
     return new Uint8Array(signature);
   };
 
@@ -334,10 +418,14 @@ async function createSessionKeyRuntimeIdentity(sessionKeySeed: string): Promise<
         "oauth-init",
         contract === undefined
           ? `${redirectTo}:${canonicalizeJsonValue(context ?? null)}`
-          : `${redirectTo}:${provider ?? ""}:${canonicalizeJsonValue(contract)}:${canonicalizeJsonValue(context ?? null)}`,
+          : `${redirectTo}:${provider ?? ""}:${
+            canonicalizeJsonValue(contract)
+          }:${canonicalizeJsonValue(context ?? null)}`,
       ),
-    natsConnectSigForIat: (iat) => signDomainValue(sign, "nats-connect", String(iat)),
-    bootstrapSig: (iat) => signDomainValue(sign, "bootstrap-client", String(iat)),
+    natsConnectSigForIat: (iat) =>
+      signDomainValue(sign, "nats-connect", String(iat)),
+    bootstrapSig: (iat) =>
+      signDomainValue(sign, "bootstrap-client", String(iat)),
     bindFlowSig: (flowId) => signDomainValue(sign, "bind-flow", flowId),
     buildRuntimeAuthTokenSync: (iat, contractDigest) => {
       const sig = signEd25519SeedSha256(seed, utf8(`nats-connect:${iat}`));
@@ -352,7 +440,9 @@ async function createSessionKeyRuntimeIdentity(sessionKeySeed: string): Promise<
   };
 }
 
-async function resolveClientIdentity(auth: ClientAuthOptions | undefined): Promise<ClientRuntimeIdentity> {
+async function resolveClientIdentity(
+  auth: ClientAuthOptions | undefined,
+): Promise<ClientRuntimeIdentity> {
   if (auth?.mode === "session_key") {
     return await createSessionKeyRuntimeIdentity(auth.sessionKeySeed);
   }
@@ -365,7 +455,12 @@ async function resolveClientIdentity(auth: ClientAuthOptions | undefined): Promi
     oauthInitSig: (redirectTo, context, provider, contract) =>
       oauthInitSig(handle, redirectTo, context, provider, contract),
     natsConnectSigForIat: (iat) => natsConnectSigForIat(handle, iat),
-    bootstrapSig: (iat) => signDomainValue((data) => signBytes(handle, data), "bootstrap-client", String(iat)),
+    bootstrapSig: (iat) =>
+      signDomainValue(
+        (data) => signBytes(handle, data),
+        "bootstrap-client",
+        String(iat),
+      ),
     bindFlowSig: (flowId) => bindFlowSig(handle, flowId),
   };
 }
@@ -454,7 +549,8 @@ async function fetchClientBootstrap(args: {
   const payload = await readJsonResponse(response, {
     code: "trellis.bootstrap.invalid_response",
     message: "Trellis returned an invalid bootstrap response.",
-    hint: "Retry the connection. If it keeps happening, check the Trellis deployment.",
+    hint:
+      "Retry the connection. If it keeps happening, check the Trellis deployment.",
     context: { trellisUrl: args.trellisUrl },
   });
   if (!response.ok) {
@@ -468,7 +564,8 @@ async function fetchClientBootstrap(args: {
     throw createTransportError({
       code: "trellis.bootstrap.failed",
       message: "Trellis could not prepare the client session.",
-      hint: "Retry the connection. If it keeps failing, check Trellis availability and access.",
+      hint:
+        "Retry the connection. If it keeps failing, check Trellis availability and access.",
       context: { trellisUrl: args.trellisUrl, status: response.status, reason },
     });
   }
@@ -486,7 +583,8 @@ async function fetchClientBootstrap(args: {
   throw createTransportError({
     code: "trellis.bootstrap.invalid_response",
     message: "Trellis returned an invalid bootstrap response.",
-    hint: "Retry the connection. If it keeps happening, check the Trellis deployment.",
+    hint:
+      "Retry the connection. If it keeps happening, check the Trellis deployment.",
     context: { trellisUrl: args.trellisUrl },
   });
 }
@@ -513,7 +611,10 @@ async function fetchClientBootstrapWithRetry(args: {
 }): Promise<ClientBootstrapResponse> {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const requestStartedAtMs = args.deps.now();
-    const iat = correctedIatSeconds(requestStartedAtMs, args.offsetState.serverClockOffsetMs);
+    const iat = correctedIatSeconds(
+      requestStartedAtMs,
+      args.offsetState.serverClockOffsetMs,
+    );
     const response = await fetchClientBootstrap({
       trellisUrl: args.trellisUrl,
       sessionKey: args.sessionKey,
@@ -537,7 +638,8 @@ async function fetchClientBootstrapWithRetry(args: {
   throw createTransportError({
     code: "trellis.bootstrap.time_sync_failed",
     message: "Trellis could not confirm the client time window.",
-    hint: "Retry the connection. If it keeps happening, check the client and Trellis clocks.",
+    hint:
+      "Retry the connection. If it keeps happening, check the client and Trellis clocks.",
     context: { trellisUrl: args.trellisUrl },
   });
 }
@@ -565,7 +667,10 @@ async function createRuntimeUserAuthenticator(args: {
         jwtAuth,
         () => ({
           auth_token: args.identity.buildRuntimeAuthTokenSync!(
-            correctedIatSeconds(args.deps.now(), args.offsetState.serverClockOffsetMs),
+            correctedIatSeconds(
+              args.deps.now(),
+              args.offsetState.serverClockOffsetMs,
+            ),
             args.getContractDigest(),
           ),
         }),
@@ -644,10 +749,14 @@ async function createRuntimeUserAuthenticator(args: {
 
   await refresh();
   const setRefreshInterval = args.deps.setInterval ??
-    ((handler: () => void, ms: number): ReturnType<typeof globalThis.setInterval> =>
+    ((
+      handler: () => void,
+      ms: number,
+    ): ReturnType<typeof globalThis.setInterval> =>
       globalThis.setInterval(handler, ms));
   const clearRefreshInterval = args.deps.clearInterval ??
-    ((id: ReturnType<typeof globalThis.setInterval>) => globalThis.clearInterval(id));
+    ((id: ReturnType<typeof globalThis.setInterval>) =>
+      globalThis.clearInterval(id));
   const refreshIntervalId = setRefreshInterval(() => {
     void refresh();
   }, 10_000);
@@ -684,30 +793,43 @@ async function createRuntimeUserAuthenticator(args: {
 
 function cleanupBrowserCallbackUrl(currentUrl: URL): void {
   if (!isBrowserRuntime()) return;
-  if (!currentUrl.searchParams.has("flowId") && !currentUrl.searchParams.has("authError")) {
+  if (
+    !currentUrl.searchParams.has("flowId") &&
+    !currentUrl.searchParams.has("authError")
+  ) {
     return;
   }
 
   currentUrl.searchParams.delete("flowId");
   currentUrl.searchParams.delete("authError");
-  window.history.replaceState({}, "", currentUrl.pathname + currentUrl.search + currentUrl.hash);
+  window.history.replaceState(
+    {},
+    "",
+    currentUrl.pathname + currentUrl.search + currentUrl.hash,
+  );
 }
 
 function isExpiredBindError(error: unknown): boolean {
-  return error instanceof TransportError && error.code === "trellis.auth.bind_expired";
+  return error instanceof TransportError &&
+    error.code === "trellis.auth.bind_expired";
 }
 
 function needsReauth(
   bootstrap: ClientBootstrapResponse,
-): bootstrap is Extract<ClientBootstrapResponse, { status: "auth_required" }> |
-  Extract<
+): bootstrap is
+  | Extract<ClientBootstrapResponse, { status: "auth_required" }>
+  | Extract<
     ClientBootstrapResponse,
-    { status: "not_ready"; reason: "contract_not_active" | "insufficient_permissions" }
+    {
+      status: "not_ready";
+      reason: "contract_not_active" | "insufficient_permissions";
+    }
   > {
   return bootstrap.status === "auth_required" ||
     (
       bootstrap.status === "not_ready" &&
-      (bootstrap.reason === "insufficient_permissions" || bootstrap.reason === "contract_not_active")
+      (bootstrap.reason === "insufficient_permissions" ||
+        bootstrap.reason === "contract_not_active")
     );
 }
 
@@ -729,7 +851,9 @@ async function buildSessionKeyLoginUrl(args: {
   provider?: string;
   context?: unknown;
   oauthInitSig: string;
-}): Promise<{ status: "bound" } | { status: "flow_started"; loginUrl: string }> {
+}): Promise<
+  { status: "bound" } | { status: "flow_started"; loginUrl: string }
+> {
   const context = authRequestContextRecord(args.context);
   const response = await fetch(`${args.trellisUrl}/auth/requests`, {
     method: "POST",
@@ -748,7 +872,8 @@ async function buildSessionKeyLoginUrl(args: {
     throw createTransportError({
       code: "trellis.auth.login_failed",
       message: "Trellis could not start sign-in.",
-      hint: "Retry sign-in. If it keeps failing, check Trellis availability and access.",
+      hint:
+        "Retry sign-in. If it keeps failing, check Trellis availability and access.",
       context: { status: response.status, reason, trellisUrl: args.trellisUrl },
     });
   }
@@ -764,9 +889,15 @@ async function buildSessionKeyLoginUrl(args: {
     (payload as { status?: unknown }).status === "flow_started" &&
     typeof (payload as { loginUrl?: unknown }).loginUrl === "string"
   ) {
-    return { status: "flow_started", loginUrl: (payload as { loginUrl: string }).loginUrl };
+    return {
+      status: "flow_started",
+      loginUrl: (payload as { loginUrl: string }).loginUrl,
+    };
   }
-  if (payload && typeof payload === "object" && (payload as { status?: unknown }).status === "bound") {
+  if (
+    payload && typeof payload === "object" &&
+    (payload as { status?: unknown }).status === "bound"
+  ) {
     return { status: "bound" };
   }
   throw createTransportError({
@@ -777,19 +908,20 @@ async function buildSessionKeyLoginUrl(args: {
   });
 }
 
-export async function connectClientWithDeps<
-  TContract extends ClientContract<TrellisAPI, TrellisContractV1>,
->(
-  args: TrellisClientConnectArgs<ClientContractApi<TContract>, TContract>,
+export async function connectClientWithDeps(
+  args: TrellisClientConnectArgs,
   deps: ClientConnectDeps,
-): Promise<ConnectedClient<TContract>> {
+): Promise<Trellis<TrellisAPI, "client", RuntimeStateStores>> {
   const trellisUrl = normalizeTrellisUrl(args.trellisUrl);
   const identity = await resolveClientIdentity(args.auth);
-  const currentUrl = args.auth?.mode === "session_key" ? null : resolveCurrentUrl(args.auth);
+  const currentUrl = args.auth?.mode === "session_key"
+    ? null
+    : resolveCurrentUrl(args.auth);
   const browserAuth = args.auth?.mode === "session_key" ? undefined : args.auth;
   const callbackFlowId = args.auth?.mode === "session_key"
     ? args.auth.flowId
-    : browserAuth?.flowId ?? currentUrl?.searchParams.get("flowId") ?? undefined;
+    : browserAuth?.flowId ?? currentUrl?.searchParams.get("flowId") ??
+      undefined;
   const offsetState: ClockOffsetState = { serverClockOffsetMs: 0 };
 
   if (callbackFlowId) {
@@ -827,7 +959,8 @@ export async function connectClientWithDeps<
       throw createTransportError({
         code: "trellis.bootstrap.not_ready",
         message: "Trellis is not ready to connect this client.",
-        hint: "Wait for the requested app access to become available, then try again.",
+        hint:
+          "Wait for the requested app access to become available, then try again.",
         context: { reason: bootstrap.reason },
       });
     }
@@ -854,24 +987,33 @@ export async function connectClientWithDeps<
         offsetState,
       });
       const resolvedBootstrap = needsReauth(refreshedBootstrap)
-        ? await resolveAuthRequired(args, identity, latestCurrentUrl, deps, offsetState)
+        ? await resolveAuthRequired(
+          args,
+          identity,
+          latestCurrentUrl,
+          deps,
+          offsetState,
+        )
         : refreshedBootstrap;
       if (resolvedBootstrap.status !== "ready") {
         if (resolvedBootstrap.status === "not_ready") {
           throw createTransportError({
             code: "trellis.bootstrap.not_ready",
             message: "Trellis is not ready to reconnect this client.",
-            hint: "Wait for the requested app access to become available, then try again.",
+            hint:
+              "Wait for the requested app access to become available, then try again.",
             context: { reason: resolvedBootstrap.reason },
           });
         }
         throw createTransportError({
           code: "trellis.bootstrap.auth_required",
-          message: "Trellis still requires sign-in before reconnecting this client.",
+          message:
+            "Trellis still requires sign-in before reconnecting this client.",
           hint: "Complete sign-in, then try again.",
         });
       }
-      runtimeState.contractDigest = resolvedBootstrap.connectInfo.contractDigest;
+      runtimeState.contractDigest =
+        resolvedBootstrap.connectInfo.contractDigest;
       runtimeState.sentinel = resolvedBootstrap.connectInfo.transport.sentinel;
     }
     : undefined;
@@ -895,7 +1037,8 @@ export async function connectClientWithDeps<
     throw createTransportError({
       code: "trellis.runtime.connect_failed",
       message: "Trellis could not open the runtime connection.",
-      hint: "Retry the connection. If it keeps failing, check Trellis transport availability.",
+      hint:
+        "Retry the connection. If it keeps failing, check Trellis transport availability.",
       cause: error,
       context: { trellisUrl },
     });
@@ -907,17 +1050,33 @@ export async function connectClientWithDeps<
     ...(args.log ? { log: args.log } : {}),
     ...(typeof args.timeout === "number" ? { timeout: args.timeout } : {}),
     ...(typeof args.stream === "string" ? { stream: args.stream } : {}),
-    ...(args.noResponderRetry ? { noResponderRetry: args.noResponderRetry } : {}),
+    ...(args.noResponderRetry
+      ? { noResponderRetry: args.noResponderRetry }
+      : {}),
   };
+  const connection = observeNatsTrellisConnection({
+    kind: "client",
+    nc,
+    log: false,
+    ...(args.log
+      ? {
+        lifecycleLog: {
+          log: args.log,
+          context: { client: clientOpts.name ?? "client" },
+        },
+      }
+      : {}),
+  });
 
-  const api: ClientContractApi<TContract> = args.contract.API.trellis;
-  const state = args.contract[CONTRACT_STATE_METADATA] as
-    | RuntimeStateStoresForContract<TContract>
-    | undefined;
+  const api: TrellisAPI = args.contract.API.trellis;
+  const state = args.contract[CONTRACT_STATE_METADATA] as TrellisOpts<
+    TrellisAPI
+  >["state"];
 
-  return createConnectedClient<TContract>({
+  return createConnectedClient({
     name: clientOpts.name ?? "client",
     nc,
+    connection,
     sessionKey: identity.sessionKey,
     sign: identity.sign,
     opts: {
@@ -940,9 +1099,8 @@ async function resolveAuthRequired<
   deps: ClientConnectDeps,
   offsetState: ClockOffsetState,
 ): Promise<ClientBootstrapResponse> {
-  const browserAuth: BrowserClientAuthOptions = args.auth?.mode === "session_key"
-    ? {}
-    : args.auth ?? {};
+  const browserAuth: BrowserClientAuthOptions =
+    args.auth?.mode === "session_key" ? {} : args.auth ?? {};
   const redirectTo = args.auth?.mode === "session_key"
     ? args.auth.redirectTo
     : currentUrl
@@ -954,19 +1112,19 @@ async function resolveAuthRequired<
 
   const authStart = args.auth?.mode === "session_key"
     ? await buildSessionKeyLoginUrl({
-        trellisUrl: normalizeTrellisUrl(args.trellisUrl),
+      trellisUrl: normalizeTrellisUrl(args.trellisUrl),
+      redirectTo,
+      sessionKey: identity.sessionKey,
+      contract: args.contract.CONTRACT,
+      provider: args.auth.provider,
+      context: args.auth.context,
+      oauthInitSig: await identity.oauthInitSig(
         redirectTo,
-        sessionKey: identity.sessionKey,
-        contract: args.contract.CONTRACT,
-        provider: args.auth.provider,
-        context: args.auth.context,
-        oauthInitSig: await identity.oauthInitSig(
-          redirectTo,
-          authRequestContextRecord(args.auth.context),
-          args.auth.provider,
-          args.contract.CONTRACT,
-        ),
-      })
+        authRequestContextRecord(args.auth.context),
+        args.auth.provider,
+        args.contract.CONTRACT,
+      ),
+    })
     : await startAuthRequest({
       authUrl: normalizeTrellisUrl(args.trellisUrl),
       redirectTo,
@@ -993,7 +1151,11 @@ async function resolveAuthRequired<
     sessionKey: identity.sessionKey,
     mode: identity.mode,
   });
-  if (continuation && typeof continuation === "object" && "flowId" in continuation) {
+  if (continuation && continuation.status === "handled") {
+    throw new ClientAuthHandledError();
+  }
+
+  if (continuation && continuation.status === "bound") {
     await bindClientFlow({
       trellisUrl: normalizeTrellisUrl(args.trellisUrl),
       sessionKey: identity.sessionKey,
@@ -1014,15 +1176,18 @@ async function resolveAuthRequired<
     throw new Error("Redirecting to Trellis login");
   }
 
-  throw new Error("Client authentication required and no auth continuation was provided");
+  throw new Error(
+    "Client authentication required and no auth continuation was provided",
+  );
 }
 
 export class TrellisClient {
-  static connect<
-    TContract extends ClientContract<TrellisAPI, TrellisContractV1>,
-  >(
-    args: TrellisClientConnectArgs<ClientContractApi<TContract>, TContract>,
-  ) {
-    return connectClientWithDeps(args, defaultDeps);
+  static connect(
+    args: TrellisClientConnectArgs,
+  ): AsyncResult<
+    Trellis<TrellisAPI, "client", RuntimeStateStores>,
+    TransportError | UnexpectedError
+  > {
+    return clientConnectResult(connectClientWithDeps(args, defaultDeps));
   }
 }

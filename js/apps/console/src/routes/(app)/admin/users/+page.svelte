@@ -5,7 +5,7 @@
   import { getNotifications } from "../../../../lib/notifications.svelte";
   import { getTrellis } from "../../../../lib/trellis";
 
-  const trellisPromise = getTrellis();
+  const trellis = getTrellis();
   const notifications = getNotifications();
 
   type UserView = {
@@ -28,8 +28,7 @@
     loading = true;
     error = null;
     try {
-      const trellis = await trellisPromise;
-      const res = await trellis.request<AuthListUsersOutput>("Auth.ListUsers" as string, {}).orThrow();
+      const res = await trellis.request<AuthListUsersOutput>("Auth.ListUsers", {}).orThrow();
       users = res.users ?? [];
     } catch (e) { error = errorMessage(e); }
     finally { loading = false; }
@@ -47,8 +46,7 @@
 
   async function toggleActive(user: UserView) {
     try {
-      const trellis = await trellisPromise;
-      await trellis.request<void>("Auth.UpdateUser" as string, {
+      await trellis.request<void>("Auth.UpdateUser", {
         origin: user.origin,
         id: user.id,
         active: !user.active,
@@ -63,8 +61,7 @@
     savePending = true;
     try {
       const capabilities = editCaps.split(",").map((c) => c.trim()).filter(Boolean);
-      const trellis = await trellisPromise;
-      await trellis.request<void>("Auth.UpdateUser" as string, {
+      await trellis.request<void>("Auth.UpdateUser", {
         origin: editTarget.origin,
         id: editTarget.id,
         capabilities,

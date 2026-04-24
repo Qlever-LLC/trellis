@@ -1,30 +1,18 @@
 export { default as TrellisProvider } from "./components/TrellisProvider.svelte";
 export type { TrellisProviderProps } from "./components/TrellisProvider.types.ts";
-export {
-  createAuthContext,
-  createConnectionStateContext,
-  createTrellisContext,
-  createTrellisProviderContexts,
-  getAuth,
-  getConnectionState,
-  getTrellis,
-  getTrellisRuntime,
-} from "./context.svelte.ts";
 export type {
-  AuthContext,
-  ConnectionStateContext,
-  ConnectionState,
-  PublicTrellis,
-  TrellisProviderContexts,
+  SvelteTrellisConnection,
+  TrellisApp,
+  TrellisClientFor,
   TrellisContractLike,
-  TypedPublicTrellis,
 } from "./context.svelte.ts";
+export { createTrellisApp } from "./context.svelte.ts";
 export {
   createDeviceActivationController,
   DeviceActivationController,
+  type DeviceActivationAuth,
   type DeviceActivationClient,
   type DeviceActivationControllerConfig,
+  type DeviceActivationOperationRef,
 } from "./device_activation.svelte.ts";
 export { createPortalFlow, PortalFlowController, type CreatePortalFlowConfig } from "./portal_flow.svelte.ts";
-export { AuthState, type BindErrorResult, type BindResult, createAuthState, type SignInOptions } from "./state/auth.svelte.ts";
-export type { TrellisClientContract } from "./state/trellis.svelte.ts";

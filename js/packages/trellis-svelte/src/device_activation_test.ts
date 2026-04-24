@@ -2,16 +2,18 @@ import { assertEquals } from "@std/assert";
 import { AsyncResult } from "@qlever-llc/result";
 
 import type {
-  AuthActivateDeviceProgress,
   AuthActivateDeviceOutput,
+  AuthActivateDeviceProgress,
 } from "../../trellis/auth/device_activation.ts";
 import type { OperationEvent } from "../../trellis/operations.ts";
 import {
-  DeviceActivationControllerCore,
+  type DeviceActivationAuth,
+  type DeviceActivationBindResult,
   type DeviceActivationClient,
+  DeviceActivationControllerCore,
   type DeviceActivationOperationRef,
+  type DeviceActivationSignInOptions,
 } from "./device_activation_controller.ts";
-import type { AuthState, BindResult, SignInOptions } from "./state/auth.svelte.ts";
 
 function createStorage(): Pick<Storage, "getItem" | "setItem" | "removeItem"> {
   const values = new Map<string, string>();
@@ -29,10 +31,10 @@ function createStorage(): Pick<Storage, "getItem" | "setItem" | "removeItem"> {
   };
 }
 
-function createAuthStateStub(overrides: {
-  handleCallback?: () => Promise<BindResult | null>;
-  signIn?: (options?: SignInOptions) => Promise<never>;
-} = {}): AuthState {
+function createAuthStub(overrides: {
+  handleCallback?: () => Promise<DeviceActivationBindResult | null>;
+  signIn?: (options?: DeviceActivationSignInOptions) => Promise<never>;
+} = {}): DeviceActivationAuth {
   return {
     init() {
       return Promise.resolve("handle_123");
@@ -40,11 +42,11 @@ function createAuthStateStub(overrides: {
     handleCallback() {
       return overrides.handleCallback?.() ?? Promise.resolve(null);
     },
-    signIn(options?: SignInOptions) {
+    signIn(options?: DeviceActivationSignInOptions) {
       return overrides.signIn?.(options) ??
         Promise.reject(new Error("Redirecting to auth for provider selection"));
     },
-  } as unknown as AuthState;
+  };
 }
 
 function createOperationRef(
@@ -68,8 +70,24 @@ function createOperationRef(
     },
     watch() {
       return AsyncResult.ok((async function* () {
-        yield { type: "accepted" as const, snapshot: { ...terminal, revision: 1, state: "pending" as const, output: undefined } };
-        yield { type: "started" as const, snapshot: { ...terminal, revision: 1, state: "running" as const, output: undefined } };
+        yield {
+          type: "accepted" as const,
+          snapshot: {
+            ...terminal,
+            revision: 1,
+            state: "pending" as const,
+            output: undefined,
+          },
+        };
+        yield {
+          type: "started" as const,
+          snapshot: {
+            ...terminal,
+            revision: 1,
+            state: "running" as const,
+            output: undefined,
+          },
+        };
         yield { type: "completed" as const, snapshot: terminal };
       })());
     },
@@ -112,32 +130,49 @@ function createPendingReviewOperationRef(args: {
       return AsyncResult.ok((async function* (): AsyncIterable<
         OperationEvent<AuthActivateDeviceProgress, AuthActivateDeviceOutput>
       > {
-        yield { type: "accepted" as const, snapshot: { ...running, revision: 1, state: "pending" as const, progress: undefined } };
+        yield {
+          type: "accepted" as const,
+          snapshot: {
+            ...running,
+            revision: 1,
+            state: "pending" as const,
+            progress: undefined,
+          },
+        };
         yield { type: "started" as const, snapshot: running };
-        yield { type: "progress" as const, progress: args.progress, snapshot: running };
+        yield {
+          type: "progress" as const,
+          progress: args.progress,
+          snapshot: running,
+        };
         args.onProgress();
         await args.waitForCompletion;
         yield { type: "completed" as const, snapshot: terminal };
       })());
     },
-  } as unknown as DeviceActivationOperationRef;
+  };
 }
 
 Deno.test("DeviceActivationController shows sign-in-required before auth", async () => {
   const controller = new DeviceActivationControllerCore({
-    authState: createAuthStateStub(),
+    authState: createAuthStub(),
     createClient() {
       return Promise.reject(new Error("missing_session_key"));
     },
     getUrl() {
-      return new URL("https://auth.example.com/_trellis/portal/devices/activate?flowId=device-flow");
+      return new URL(
+        "https://auth.example.com/_trellis/portal/devices/activate?flowId=device-flow",
+      );
     },
     sessionStorage: createStorage(),
   });
 
   await controller.load();
 
-  assertEquals(controller.view, { mode: "sign_in_required", flowId: "device-flow" });
+  assertEquals(controller.view, {
+    mode: "sign_in_required",
+    flowId: "device-flow",
+  });
   assertEquals(controller.authError, null);
 });
 
@@ -146,17 +181,21 @@ Deno.test("DeviceActivationController preserves flowId through sign-in callback 
   let redirectTo: string | undefined;
 
   const controller = new DeviceActivationControllerCore({
-    authState: createAuthStateStub({
+    authState: createAuthStub({
       signIn(options) {
         redirectTo = options?.redirectTo;
-        return Promise.reject(new Error("Redirecting to auth for provider selection"));
+        return Promise.reject(
+          new Error("Redirecting to auth for provider selection"),
+        );
       },
     }),
     createClient() {
       return Promise.reject(new Error("missing_session_key"));
     },
     getUrl() {
-      return new URL("https://auth.example.com/_trellis/portal/devices/activate?flowId=device-flow#confirm");
+      return new URL(
+        "https://auth.example.com/_trellis/portal/devices/activate?flowId=device-flow#confirm",
+      );
     },
     sessionStorage: storage,
     createCallbackToken() {
@@ -167,9 +206,15 @@ Deno.test("DeviceActivationController preserves flowId through sign-in callback 
   await controller.load();
   await controller.signIn();
 
-  assertEquals(redirectTo, "/_trellis/portal/devices/activate?portalCallback=callback-token#confirm");
+  assertEquals(
+    redirectTo,
+    "/_trellis/portal/devices/activate?portalCallback=callback-token#confirm",
+  );
   assertEquals(storage.getItem("portal.activate.flowId"), "device-flow");
-  assertEquals(storage.getItem("portal.activate.callbackToken"), "callback-token");
+  assertEquals(
+    storage.getItem("portal.activate.callbackToken"),
+    "callback-token",
+  );
 });
 
 Deno.test("DeviceActivationController restores callback flow and maps activation completion", async () => {
@@ -193,7 +238,7 @@ Deno.test("DeviceActivationController restores callback flow and maps activation
   };
 
   const controller = new DeviceActivationControllerCore({
-    authState: createAuthStateStub({
+    authState: createAuthStub({
       handleCallback() {
         return Promise.resolve({ status: "bound" });
       },
@@ -214,7 +259,9 @@ Deno.test("DeviceActivationController restores callback flow and maps activation
 
   await controller.load();
   assertEquals(controller.view, { mode: "ready", flowId: "device-flow" });
-  assertEquals(replacedUrls, ["/_trellis/portal/devices/activate?flowId=device-flow#confirm"]);
+  assertEquals(replacedUrls, [
+    "/_trellis/portal/devices/activate?flowId=device-flow#confirm",
+  ]);
   assertEquals(storage.getItem("portal.activate.flowId"), null);
   assertEquals(storage.getItem("portal.activate.callbackToken"), null);
 
@@ -242,7 +289,7 @@ Deno.test("DeviceActivationController shows pending review from operation progre
   });
 
   const controller = new DeviceActivationControllerCore({
-    authState: createAuthStateStub(),
+    authState: createAuthStub(),
     createClient() {
       return Promise.resolve({
         activateDevice() {
@@ -267,7 +314,9 @@ Deno.test("DeviceActivationController shows pending review from operation progre
       });
     },
     getUrl() {
-      return new URL("https://auth.example.com/_trellis/portal/devices/activate?flowId=device-flow");
+      return new URL(
+        "https://auth.example.com/_trellis/portal/devices/activate?flowId=device-flow",
+      );
     },
     sessionStorage: createStorage(),
   });

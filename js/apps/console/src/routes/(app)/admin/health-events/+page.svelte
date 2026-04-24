@@ -14,7 +14,7 @@
   import { errorMessage, formatDate } from "../../../../lib/format";
   import { getTrellis } from "../../../../lib/trellis";
 
-  const trellisPromise = getTrellis();
+  const trellis = getTrellis();
   const STALE_REFRESH_MS = 5_000;
 
   let recentEvents = $state.raw<HealthFeedEvent[]>([]);
@@ -76,7 +76,6 @@
 
     void (async () => {
       try {
-        const trellis = await trellisPromise;
         const result = await trellis.event(
           "Health.Heartbeat",
           {},

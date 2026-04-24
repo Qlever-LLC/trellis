@@ -13,7 +13,7 @@
   import { getNotifications } from "../../../../lib/notifications.svelte";
   import { getTrellis } from "../../../../lib/trellis";
 
-  const trellisPromise = getTrellis();
+  const trellis = getTrellis();
   const notifications = getNotifications();
 
   type SessionListResponse = { sessions: SessionRecord[] };
@@ -36,8 +36,7 @@
     loading = true;
     error = null;
     try {
-      const trellis = await trellisPromise;
-      const response = await trellis.request<SessionListResponse>("Auth.ListSessions" as string, {
+      const response = await trellis.request<SessionListResponse>("Auth.ListSessions", {
         user: sessionFilterUser.trim() || undefined
       }).orThrow();
       sessions = response.sessions ?? [];
@@ -52,8 +51,7 @@
     loading = true;
     error = null;
     try {
-      const trellis = await trellisPromise;
-      const response = await trellis.request<ConnectionListResponse>("Auth.ListConnections" as string, {
+      const response = await trellis.request<ConnectionListResponse>("Auth.ListConnections", {
         user: connFilterUser.trim() || undefined,
         sessionKey: connFilterSessionKey.trim() || undefined
       }).orThrow();
@@ -75,8 +73,7 @@
     if (!window.confirm(`Revoke this ${participantKindLabel(session.participantKind).toLowerCase()} session? ${summary.title} will be disconnected.`)) return;
     revokeTarget = session.sessionKey;
     try {
-      const trellis = await trellisPromise;
-      await trellis.request<void>("Auth.RevokeSession" as string, { sessionKey: session.sessionKey } satisfies AuthRevokeSessionInput).orThrow();
+      await trellis.request<void>("Auth.RevokeSession", { sessionKey: session.sessionKey } satisfies AuthRevokeSessionInput).orThrow();
       notifications.success(`Session revoked for ${summary.title}.`, "Revoked");
       await loadSessions();
     } catch (e) { error = errorMessage(e); }
@@ -88,8 +85,7 @@
     if (!window.confirm(`Disconnect this ${participantKindLabel(connection.participantKind).toLowerCase()} connection for ${summary.title}?`)) return;
     kickTarget = connection.userNkey;
     try {
-      const trellis = await trellisPromise;
-      await trellis.request<void>("Auth.KickConnection" as string, { userNkey: connection.userNkey } satisfies AuthKickConnectionInput).orThrow();
+      await trellis.request<void>("Auth.KickConnection", { userNkey: connection.userNkey } satisfies AuthKickConnectionInput).orThrow();
       notifications.success(`Disconnected ${summary.title}.`, "Kicked");
       await loadConnections();
     } catch (e) { error = errorMessage(e); }

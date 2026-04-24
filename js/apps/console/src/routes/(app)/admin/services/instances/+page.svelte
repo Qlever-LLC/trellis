@@ -13,7 +13,7 @@
   type ServiceProfile = AuthListServiceProfilesOutput["profiles"][number];
   type DisabledFilter = "all" | "active" | "disabled";
 
-  const trellisPromise = getTrellis();
+  const trellis = getTrellis();
   const notifications = getNotifications();
 
   let loading = $state(true);
@@ -44,10 +44,9 @@
     loading = true;
     error = null;
     try {
-      const trellis = await trellisPromise;
       const [instancesRes, profilesRes] = await Promise.all([
-        trellis.request<AuthListServiceInstancesOutput>("Auth.ListServiceInstances" as string, query()).orThrow(),
-        trellis.request<AuthListServiceProfilesOutput>("Auth.ListServiceProfiles" as string, {}).orThrow(),
+        trellis.request<AuthListServiceInstancesOutput>("Auth.ListServiceInstances", query()).orThrow(),
+        trellis.request<AuthListServiceProfilesOutput>("Auth.ListServiceProfiles", {}).orThrow(),
       ]);
       instances = instancesRes.instances ?? [];
       profiles = profilesRes.profiles ?? [];
@@ -65,8 +64,7 @@
     createPending = true;
     error = null;
     try {
-      const trellis = await trellisPromise;
-      await trellis.request<void>("Auth.ProvisionServiceInstance" as string, {
+      await trellis.request<void>("Auth.ProvisionServiceInstance", {
         profileId: provisionProfileId,
         instanceKey: instanceKey.trim(),
       }).orThrow();
@@ -86,8 +84,7 @@
     actionTarget = instance.instanceId;
     error = null;
     try {
-      const trellis = await trellisPromise;
-      await trellis.request<void>((disabled ? "Auth.DisableServiceInstance" : "Auth.EnableServiceInstance") as string, {
+      await trellis.request<void>((disabled ? "Auth.DisableServiceInstance" : "Auth.EnableServiceInstance"), {
         instanceId: instance.instanceId,
       }).orThrow();
       notifications.success(`Service instance ${instance.instanceId} ${disabled ? "disabled" : "enabled"}.`, disabled ? "Disabled" : "Enabled");
@@ -104,8 +101,7 @@
     actionTarget = `${instance.instanceId}:remove`;
     error = null;
     try {
-      const trellis = await trellisPromise;
-      await trellis.request<void>("Auth.RemoveServiceInstance" as string, { instanceId: instance.instanceId }).orThrow();
+      await trellis.request<void>("Auth.RemoveServiceInstance", { instanceId: instance.instanceId }).orThrow();
       notifications.success(`Service instance ${instance.instanceId} removed.`, "Removed");
       await load();
     } catch (e) {

@@ -1,12 +1,14 @@
 import {
   createInitialDeviceActivationState,
-  DeviceActivationControllerCore,
+  type DeviceActivationAuth,
   type DeviceActivationClient,
   type DeviceActivationControllerConfig,
+  DeviceActivationControllerCore,
   type DeviceActivationOperationRef,
 } from "./device_activation_controller.ts";
 
 export type {
+  DeviceActivationAuth,
   DeviceActivationClient,
   DeviceActivationControllerConfig,
   DeviceActivationOperationRef,

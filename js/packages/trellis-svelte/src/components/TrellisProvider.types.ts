@@ -1,25 +1,24 @@
+import type {
+  ClientAuthOptions,
+  ClientAuthRequiredContext,
+  ClientOpts,
+} from "@qlever-llc/trellis";
 import type { Snippet } from "svelte";
-import type { TrellisProviderContexts } from "../context.svelte.ts";
-import type { BindErrorResult } from "../state/auth.svelte.ts";
-import type { TrellisClientContract } from "../state/trellis.svelte.ts";
-import type { TrellisAPI } from "../../../trellis/contracts.ts";
+import type { TrellisApp, TrellisContractLike } from "../context.svelte.ts";
 
-export type TrellisProviderProps<TContract extends TrellisClientContract<TrellisAPI>> = {
+/** Props accepted by the Svelte Trellis provider component. */
+export type TrellisProviderProps<
+  TContract extends TrellisContractLike = TrellisContractLike,
+> = {
+  app: TrellisApp<TContract>;
+  trellisUrl: string;
+  auth?: ClientAuthOptions;
+  client?: ClientOpts;
   children: Snippet;
   loading?: Snippet;
-  bindError?: Snippet<[BindErrorResult]>;
-  contexts: TrellisProviderContexts<TContract>;
-  trellisUrl: string;
-  loginPath?: string;
-  contract: TContract;
-  onAuthExpired?: () => void;
-  onAuthFailed?: (error: unknown) => void;
-  onAuthRequired?: (redirectTo: string) => void;
-  onBindError?: (result: BindErrorResult) => void;
-  onNatsConnecting?: () => void;
-  onNatsConnected?: () => void;
-  onNatsDisconnect?: () => void;
-  onNatsReconnecting?: () => void;
-  onNatsReconnect?: () => void;
-  onNatsError?: (error: Error) => void;
+  error?: Snippet<[unknown]>;
+  onAuthRequired?: (
+    loginUrl: string,
+    context: ClientAuthRequiredContext,
+  ) => void | Promise<void>;
 };

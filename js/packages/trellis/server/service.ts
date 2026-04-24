@@ -77,6 +77,10 @@ import {
 import { startNatsWorkerHostFromBinding } from "./internal_jobs/runtime-worker.ts";
 import type { ActiveJob as InternalActiveJob } from "./internal_jobs/active-job.ts";
 import type { Job as InternalJob } from "./internal_jobs/types.ts";
+import {
+  observeNatsTrellisConnection,
+  type TrellisConnection,
+} from "../connection.ts";
 
 type ExtraNatsConnectOpts = Omit<
   NatsConnectOpts,
@@ -189,143 +193,6 @@ function resolveServiceLogger(log?: LoggerLike | false): LoggerLike {
   }
 
   return log ?? serverLogger;
-}
-
-function normalizeNatsError(error: Error): Record<string, unknown> {
-  const record = error as Error & {
-    operation?: unknown;
-    subject?: unknown;
-    queue?: unknown;
-  };
-
-  return {
-    name: error.name,
-    message: error.message,
-    ...(typeof record.operation === "string"
-      ? { operation: record.operation }
-      : {}),
-    ...(typeof record.subject === "string" ? { subject: record.subject } : {}),
-    ...(typeof record.queue === "string" ? { queue: record.queue } : {}),
-  };
-}
-
-function normalizeNatsStatus(status: unknown): Record<string, unknown> {
-  if (!status || typeof status !== "object") {
-    return { status };
-  }
-
-  const record = status as Record<string, unknown>;
-  return {
-    ...(typeof record.type === "string" ? { type: record.type } : {}),
-    ...(record.error instanceof Error
-      ? { error: normalizeNatsError(record.error) }
-      : {}),
-    ...(typeof record.data === "string" ? { data: record.data } : {}),
-    ...(record.data && typeof record.data === "object"
-      ? { data: record.data }
-      : {}),
-  };
-}
-
-function getServiceNatsLifecycleLog(status: unknown): {
-  level: "info" | "warn" | "error";
-  message: string;
-} | null {
-  if (!status || typeof status !== "object") {
-    return null;
-  }
-
-  switch ((status as { type?: unknown }).type) {
-    case "disconnect":
-      return {
-        level: "warn",
-        message: "Service disconnected from NATS",
-      };
-    case "reconnecting":
-      return {
-        level: "warn",
-        message: "Service attempting NATS reconnect",
-      };
-    case "forceReconnect":
-      return {
-        level: "warn",
-        message: "Service forcing NATS reconnect",
-      };
-    case "reconnect":
-      return {
-        level: "info",
-        message: "Service reconnected to NATS",
-      };
-    case "staleConnection":
-      return {
-        level: "warn",
-        message: "Service NATS connection became stale",
-      };
-    case "error":
-      return {
-        level: "error",
-        message: "Service NATS error",
-      };
-    default:
-      return null;
-  }
-}
-
-function startNatsConnectionLogging(args: {
-  name: string;
-  nc: NatsConnection;
-  log: LoggerLike;
-}): () => void {
-  let stopped = false;
-  const statusFn = (args.nc as NatsConnection & {
-    status?: () => AsyncIterable<unknown>;
-  }).status;
-
-  if (typeof statusFn === "function") {
-    void (async () => {
-      try {
-        for await (const status of statusFn.call(args.nc)) {
-          if (stopped) return;
-
-          const lifecycleLog = getServiceNatsLifecycleLog(status);
-          if (!lifecycleLog) {
-            continue;
-          }
-
-          args.log[lifecycleLog.level](
-            {
-              service: args.name,
-              connection: normalizeNatsStatus(status),
-            },
-            lifecycleLog.message,
-          );
-        }
-      } catch (error) {
-        if (!stopped) {
-          args.log.warn(
-            { service: args.name, error },
-            "Service NATS status watcher failed",
-          );
-        }
-      }
-    })();
-  }
-
-  void args.nc.closed().then((error: unknown) => {
-    if (stopped) return;
-    if (error) {
-      args.log.error(
-        { service: args.name, error },
-        "Service NATS connection closed with error",
-      );
-      return;
-    }
-    args.log.warn({ service: args.name }, "Service NATS connection closed");
-  });
-
-  return () => {
-    stopped = true;
-  };
 }
 
 export type ResourceBindingKV = {
@@ -631,12 +498,17 @@ async function openServiceKvBindings<TKv extends ContractKvMetadata>(args: {
         throw new Error(`Required KV binding '${alias}' is unavailable`);
       }
 
-      const store = await TypedKV.open(args.nc, binding.bucket, metadata.schema, {
-        history: binding.history,
-        ttl: binding.ttlMs,
-        maxValueBytes: binding.maxValueBytes,
-        bindOnly: true,
-      }).orThrow();
+      const store = await TypedKV.open(
+        args.nc,
+        binding.bucket,
+        metadata.schema,
+        {
+          history: binding.history,
+          ttl: binding.ttlMs,
+          maxValueBytes: binding.maxValueBytes,
+          bindOnly: true,
+        },
+      ).orThrow();
 
       return [alias, store] as const;
     }),
@@ -715,11 +587,11 @@ export type ServiceTrellis<
         input,
         context,
         trellis,
-        }: {
-          input: RpcMethodInput<TOwnedApi, M>;
-          context: RpcHandlerContext;
-          trellis: Trellis<TTrellisApi, TKv>;
-        }) =>
+      }: {
+        input: RpcMethodInput<TOwnedApi, M>;
+        context: RpcHandlerContext;
+        trellis: Trellis<TTrellisApi, TKv>;
+      }) =>
         | Promise<
           Result<RpcMethodOutput<TOwnedApi, M>, RpcHandlerErrorOf<TOwnedApi, M>>
         >
@@ -1018,10 +890,14 @@ export async function createConnectedService<
   bindings: ResourceBindings;
 }): Promise<TrellisService<TOwnedApi, TTrellisApi, TJobs, TKv>> {
   const resolvedLog = resolveServiceLogger(args.server.log);
-  const stopConnectionLogging = startNatsConnectionLogging({
-    name: args.name,
+  const connection = observeNatsTrellisConnection({
+    kind: "service",
     nc: args.nc,
-    log: resolvedLog,
+    log: false,
+    lifecycleLog: {
+      log: resolvedLog,
+      context: { service: args.name },
+    },
   });
   const currentApi = (args.server.trellisApi ?? args.server.api) as
     & TOwnedApi
@@ -1044,6 +920,7 @@ export async function createConnectedService<
       stream: args.server.stream,
       noResponderRetry: args.server.noResponderRetry,
       api: runtimeApi,
+      connection,
       transferSupport: {
         openOperationTransfer: (transferArgs) =>
           getTransfer().createOperationUpload(transferArgs),
@@ -1062,6 +939,7 @@ export async function createConnectedService<
       stream: args.server.stream,
       noResponderRetry: args.server.noResponderRetry,
       api: runtimeApi,
+      connection,
     },
   );
 
@@ -1230,7 +1108,7 @@ export async function createConnectedService<
     operationTransfer,
     health,
     stopHealthPublishing,
-    stopConnectionLogging,
+    connection,
   );
   handlerResources = { kv: service.kv, store: service.store };
   transfer = operationTransfer;
@@ -1549,7 +1427,9 @@ function createJobsFacade<
             }
             const handler = handlers.get(queueType);
             if (!handler) {
-              throw new Error(`No job handler registered for queue '${queueType}'`);
+              throw new Error(
+                `No job handler registered for queue '${queueType}'`,
+              );
             }
 
             const manager = new InternalJobManager<unknown, unknown>({
@@ -1684,9 +1564,10 @@ export class TrellisService<
   readonly streams: Record<string, ResourceBindingStream>;
   readonly jobs: JobsFacadeOf<TJobs, TTrellisApi, TKv>;
   readonly health: ServiceHealth;
+  /** Framework-neutral lifecycle handle for the service runtime connection. */
+  readonly connection: TrellisConnection;
   readonly #operationTransfer: ServiceTransfer;
   readonly #stopHealthPublishing: () => Promise<void>;
-  readonly #stopConnectionLogging: () => void;
   readonly #managedJobWorkers: ManagedJobWorkers;
   #waitPromise?: Promise<void>;
   #stopPromise?: Promise<void>;
@@ -1704,7 +1585,7 @@ export class TrellisService<
     operationTransfer: ServiceTransfer,
     health: ServiceHealth,
     stopHealthPublishing: () => Promise<void>,
-    stopConnectionLogging: () => void,
+    connection: TrellisConnection,
   ) {
     const storeBindings = bindings.store ?? {};
     const streamBindings = bindings.streams ?? {};
@@ -1735,8 +1616,8 @@ export class TrellisService<
     this.jobs = jobs;
     this.#managedJobWorkers = jobs[MANAGED_JOB_WORKERS];
     this.health = health;
+    this.connection = connection;
     this.#stopHealthPublishing = stopHealthPublishing;
-    this.#stopConnectionLogging = stopConnectionLogging;
   }
 
   static connect<
@@ -1870,7 +1751,7 @@ export class TrellisService<
 
   async stop(): Promise<void> {
     this.#stopPromise ??= (async () => {
-      this.#stopConnectionLogging();
+      this.connection.stopObserving();
 
       try {
         await this.#stopHealthPublishing();

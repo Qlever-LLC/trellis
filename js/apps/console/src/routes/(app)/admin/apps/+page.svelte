@@ -5,7 +5,7 @@
   import { getNotifications } from "../../../../lib/notifications.svelte";
   import { getTrellis } from "../../../../lib/trellis";
 
-  const trellisPromise = getTrellis();
+  const trellis = getTrellis();
   const notifications = getNotifications();
 
   let loading = $state(true);
@@ -15,13 +15,11 @@
   let revokeTarget = $state<string | null>(null);
 
   async function listApprovals(user?: string) {
-    const trellis = await trellisPromise;
-    return await trellis.request<AuthListApprovalsOutput>("Auth.ListApprovals" as string, { user }).orThrow();
+    return await trellis.request<AuthListApprovalsOutput>("Auth.ListApprovals", { user }).orThrow();
   }
 
   async function revokeApproval(contractDigest: string, user: string) {
-    const trellis = await trellisPromise;
-    return trellis.request<void>("Auth.RevokeApproval" as string, { contractDigest, user }).orThrow();
+    return trellis.request<void>("Auth.RevokeApproval", { contractDigest, user }).orThrow();
   }
 
   async function load() {

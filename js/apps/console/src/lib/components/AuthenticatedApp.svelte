@@ -2,6 +2,7 @@
   import { goto, afterNavigate } from "$app/navigation";
   import { base } from "$app/paths";
   import { page } from "$app/state";
+  import { clearSessionKey } from "@qlever-llc/trellis";
   import type { AuthMeOutput } from "@qlever-llc/trellis-sdk/auth";
   import type { Snippet } from "svelte";
   import { onDestroy, onMount } from "svelte";
@@ -14,7 +15,7 @@
   import { APP_CONFIG, getSelectedAuthUrl } from "../config";
   import { errorMessage } from "../format";
   import { NotificationsController, setNotifications } from "../notifications.svelte";
-  import { getAuth, getConnectionState, getTrellis, type ConnectionState } from "../trellis";
+  import { getConnection, getTrellis, type ConnectionStatus } from "../trellis";
   import AppShell from "./AppShell.svelte";
 
   type Props = {
@@ -23,18 +24,15 @@
 
   let { children }: Props = $props();
 
-  const auth = getAuth();
-  const connectionStatePromise = getConnectionState();
-  const trellisPromise = getTrellis();
+  const connection = getConnection();
+  const trellis = getTrellis();
   const notifications = setNotifications(new NotificationsController());
 
   let authFailure = $state<string | null>(null);
-  let connectionStatus = $state<ConnectionState["status"]>("connecting");
+  const connectionStatus = $derived<ConnectionStatus["phase"]>(connection.status.phase);
   let navSections = $state<NavSection[]>(getVisibleNavSections(null));
   let profile = $state<AuthMeOutput["user"] | null>(null);
   let profileLoaded = $state(false);
-
-  let statusInterval: ReturnType<typeof globalThis.setInterval> | null = null;
 
   function resolveAppPath(path: string): string {
     return `${base}${path}`;
@@ -78,20 +76,24 @@
   }
 
   async function authMe(): Promise<AuthMeOutput> {
-    const trellis = await trellisPromise;
-    return await trellis.request<AuthMeOutput>("Auth.Me", {}).orThrow();
+    const method: string = "Auth.Me";
+    const me = await trellis.request<AuthMeOutput>(method, {}).orThrow();
+    return me as AuthMeOutput;
   }
 
   async function logoutRequest(): Promise<void> {
-    const trellis = await trellisPromise;
-    await trellis.request<void>("Auth.Logout", {}).orThrow();
+    const method: string = "Auth.Logout";
+    await trellis.request<void>(method, {}).orThrow();
   }
 
   async function signOut(): Promise<void> {
     try {
-      await auth.signOut(logoutRequest);
+      await logoutRequest();
     } catch {
-      // signOut redirects and throws to stop normal control flow
+      // Continue clearing the browser session even if the server logout fails.
+    } finally {
+      await clearSessionKey();
+      window.location.href = buildLoginUrl(currentPath());
     }
   }
 
@@ -105,14 +107,6 @@
 
     void (async () => {
       try {
-        const connectionState = await connectionStatePromise;
-        if (!active) return;
-
-        connectionStatus = connectionState.status;
-        statusInterval = globalThis.setInterval(() => {
-          connectionStatus = connectionState.status;
-        }, 1000);
-
         const me = await authMe();
         if (!active) return;
 
@@ -139,9 +133,6 @@
 
   onDestroy(() => {
     notifications.clear();
-    if (statusInterval !== null) {
-      globalThis.clearInterval(statusInterval);
-    }
   });
 </script>
 

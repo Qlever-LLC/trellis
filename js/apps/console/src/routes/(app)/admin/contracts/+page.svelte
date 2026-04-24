@@ -7,7 +7,7 @@
   import { errorMessage, formatDate } from "../../../../lib/format";
   import { getTrellis } from "../../../../lib/trellis";
 
-  const trellisPromise = getTrellis();
+  const trellis = getTrellis();
 
   type ContractSummary = {
     digest: string;
@@ -67,13 +67,11 @@
   });
 
   async function listInstalledContracts(): Promise<AuthListInstalledContractsOutput> {
-    const trellis = await trellisPromise;
-    return await trellis.request<AuthListInstalledContractsOutput>("Auth.ListInstalledContracts" as string, {}).orThrow();
+    return await trellis.request<AuthListInstalledContractsOutput>("Auth.ListInstalledContracts", {}).orThrow();
   }
 
   async function getInstalledContract(digest: string): Promise<AuthGetInstalledContractOutput> {
-    const trellis = await trellisPromise;
-    return await trellis.request<AuthGetInstalledContractOutput>("Auth.GetInstalledContract" as string, { digest }).orThrow();
+    return await trellis.request<AuthGetInstalledContractOutput>("Auth.GetInstalledContract", { digest }).orThrow();
   }
 
   async function load() {

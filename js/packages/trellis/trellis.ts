@@ -104,6 +104,7 @@ import {
   type UploadTransferGrant,
 } from "./transfer.ts";
 import { TrellisTasks } from "./tasks.ts";
+import { TrellisConnection } from "./connection.ts";
 
 type RuntimeRpcErrorDesc = {
   type: string;
@@ -332,7 +333,7 @@ type RuntimeStateStoreShape = {
   value: unknown;
   schema?: unknown;
 };
-type RuntimeStateStores = Record<string, RuntimeStateStoreShape>;
+export type RuntimeStateStores = Record<string, RuntimeStateStoreShape>;
 export type RuntimeStateStoresForContract<TContract> = TContract extends {
   readonly [CONTRACT_STATE_METADATA]?: infer TState;
 } ? NonNullable<TState> extends RuntimeStateStores ? NonNullable<TState>
@@ -541,7 +542,7 @@ type MapStateStoreClient<TValue> = {
   }, BaseError>;
   prefix(path: string): MapStateStoreClient<TValue>;
 };
-type StateFacade<TState extends RuntimeStateStores> = {
+export type StateFacade<TState extends RuntimeStateStores> = {
   [K in keyof TState]: TState[K]["kind"] extends "map"
     ? MapStateStoreClient<TState[K]["value"]>
     : ValueStateStoreClient<TState[K]["value"]>;
@@ -809,6 +810,7 @@ export type TrellisOpts<TA extends AnyTrellisAPI> = {
   noResponderRetry?: NoResponderRetryOpts;
   api?: TA;
   state?: RuntimeStateStores;
+  connection?: TrellisConnection;
   authBypassMethods?: string[];
 };
 
@@ -825,6 +827,10 @@ export type EventOpts = {
 
 type MaybePromise<T> = T | Promise<T>;
 
+type EventCallback<TMessage> = {
+  bivarianceHack(message: TMessage): MaybeAsync<void, BaseError>;
+}["bivarianceHack"];
+
 export type RpcHandlerContext = {
   caller: SessionCaller;
   sessionKey: string;
@@ -835,21 +841,63 @@ export type HandlerTrellis<TA extends AnyTrellisAPI> = {
     method: M,
     input: MethodInputOf<TA, M>,
     opts?: RequestOpts,
-  ): AsyncResult<MethodOutputOf<TA, M>, RequestErrorOf<TA, M>>;
-  publish<E extends EventsOf<TA>>(
-    event: E,
-    data: EventPayloadOf<TA, E>,
+  ): AsyncResult<MethodOutputOf<TA, M>, BaseError>;
+  publish(
+    event: string,
+    data: Record<string, unknown>,
   ): AsyncResult<void, ValidationError | UnexpectedError>;
   event<E extends EventsOf<TA>>(
     event: E,
     subjectData: Record<string, unknown>,
-    fn: (message: EventOf<TA, E>) => MaybeAsync<void, BaseError>,
+    fn: EventCallback<EventOf<TA, E>>,
     opts?: EventOpts,
   ): AsyncResult<void, ValidationError | UnexpectedError>;
   operation<O extends OperationsOf<TA>>(
     operation: O,
   ): OperationSurface<TA, TrellisMode, O>;
 };
+
+/** Public client-side surface returned by `TrellisClient.connect`. */
+export interface ClientTrellis<
+  TA extends AnyTrellisAPI = TrellisAPI,
+  TState extends RuntimeStateStores = {},
+> {
+  readonly name: string;
+  readonly timeout: number;
+  readonly stream: string;
+  readonly api: TrellisAPI;
+  readonly state: StateFacade<TState>;
+  readonly connection: TrellisConnection;
+  readonly natsConnection: NatsConnection;
+  jobs(): JobsAdminClient;
+  request<M extends MethodsOf<TA>>(
+    method: M,
+    input: MethodInputOf<TA, M>,
+    opts?: RequestOpts,
+  ): AsyncResult<MethodOutputOf<TA, M>, BaseError>;
+  publish<E extends EventsOf<TA>>(
+    event: E,
+    data: EventPayloadOf<TA, E>,
+  ): AsyncResult<void, ValidationError | UnexpectedError>;
+  event(
+    event: string,
+    subjectData: Record<string, unknown>,
+    fn: EventCallback<unknown>,
+    opts?: EventOpts,
+  ): AsyncResult<void, ValidationError | UnexpectedError>;
+  operation(
+    operation: string,
+  ): OperationSurface<TrellisAPI, "client", OperationsOf<TrellisAPI>>;
+  wait(): AsyncResult<void, BaseError>;
+}
+
+/** Connected client type for a generated Trellis contract. */
+export type ConnectedTrellisClient<TContract> = ClientTrellis<
+  TContract extends { API: { trellis: infer TApi } }
+    ? TApi extends AnyTrellisAPI ? TApi : TrellisAPI
+    : TrellisAPI,
+  RuntimeStateStoresForContract<TContract>
+>;
 
 export type HandlerArgs<
   TMountApi extends AnyTrellisAPI,
@@ -1163,6 +1211,8 @@ export class Trellis<
   readonly timeout: number;
   readonly stream: string;
   readonly state: StateFacade<TState>;
+  /** Framework-neutral lifecycle handle for this Trellis runtime connection. */
+  readonly connection: TrellisConnection;
 
   protected nats: NatsConnection;
   protected js: JetStreamClient;
@@ -1198,6 +1248,8 @@ export class Trellis<
     this.#noResponderRetryMs = opts?.noResponderRetry?.baseDelayMs ??
       DEFAULT_NO_RESPONDER_RETRY_MS;
     this.#authBypassMethods = new Set(opts?.authBypassMethods ?? []);
+    this.connection = opts?.connection ??
+      new TrellisConnection({ kind: "client" });
 
     this.#tasks = new TrellisTasks({ log: this.#log });
     this.state = this.#createStateFacade(opts?.state as TState | undefined);
@@ -1424,6 +1476,16 @@ export class Trellis<
    *              ok: A validated response for method M
    *              err: declared RPC errors | RemoteError | ValidationError | UnexpectedError
    */
+  request<M extends MethodsOf<TA>>(
+    method: M,
+    input: MethodInputOf<TA, M>,
+    opts?: RequestOpts,
+  ): AsyncResult<MethodOutputOf<TA, M>, BaseError>;
+  request(
+    method: string,
+    input: unknown,
+    opts?: RequestOpts,
+  ): AsyncResult<unknown, BaseError>;
   request(
     method: string,
     input: unknown,
@@ -2138,7 +2200,7 @@ export class Trellis<
   event(
     event: string,
     subjectData: Record<string, unknown>,
-    fn: (message: unknown) => MaybeAsync<void, BaseError>,
+    fn: EventCallback<unknown>,
     opts?: EventOpts,
   ): AsyncResult<void, ValidationError | UnexpectedError> {
     return AsyncResult.from((async () => {
@@ -2220,7 +2282,7 @@ export class Trellis<
     event: EventsOf<TA>,
     ctx: EventDescriptorOf<TA, EventsOf<TA>>,
     subject: string,
-    fn: (m: EventOf<TA, EventsOf<TA>>) => MaybeAsync<void, BaseError>,
+    fn: EventCallback<EventOf<TA, EventsOf<TA>>>,
     signal?: AbortSignal,
   ): Result<void, ValidationError | UnexpectedError> {
     const sub = this.nats.subscribe(subject);
@@ -2265,7 +2327,7 @@ export class Trellis<
     event: EventsOf<TA>,
     ctx: EventDescriptorOf<TA, EventsOf<TA>>,
     messages: ConsumerMessages,
-    fn: (m: EventOf<TA, EventsOf<TA>>) => MaybeAsync<void, BaseError>,
+    fn: EventCallback<EventOf<TA, EventsOf<TA>>>,
   ): AsyncResult<void, ValidationError | UnexpectedError> {
     return AsyncResult.try(async () => {
       for await (const msg of messages) {
@@ -2581,20 +2643,4 @@ export class Trellis<
       | UnexpectedError
     >;
   }
-}
-
-export interface Trellis<
-  TA extends AnyTrellisAPI = TrellisAPI,
-  TMode extends TrellisMode = "client",
-  TState extends RuntimeStateStores = {},
-> {
-  readonly state: StateFacade<TState>;
-  request<M extends MethodsOf<TA>>(
-    method: M,
-    input: MethodInputOf<TA, M>,
-    opts?: RequestOpts,
-  ): AsyncResult<
-    MethodOutputOf<TA, M>,
-    RequestErrorOf<TA, M>
-  >;
 }

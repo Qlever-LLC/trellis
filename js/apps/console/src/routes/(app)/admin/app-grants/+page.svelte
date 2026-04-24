@@ -18,7 +18,7 @@
     digests: string[];
   };
 
-  const trellisPromise = getTrellis();
+  const trellis = getTrellis();
   const notifications = getNotifications();
 
   let loading = $state(true);
@@ -110,10 +110,9 @@
     loading = true;
     error = null;
     try {
-      const trellis = await trellisPromise;
       const [policyRes, contractRes] = await Promise.all([
-        trellis.request<AuthListInstanceGrantPoliciesOutput>("Auth.ListInstanceGrantPolicies" as string, {}).orThrow(),
-        trellis.request<AuthListInstalledContractsOutput>("Auth.ListInstalledContracts" as string, {}).orThrow(),
+        trellis.request<AuthListInstanceGrantPoliciesOutput>("Auth.ListInstanceGrantPolicies", {}).orThrow(),
+        trellis.request<AuthListInstalledContractsOutput>("Auth.ListInstalledContracts", {}).orThrow(),
       ]);
       policies = (policyRes.policies ?? []).slice().sort((left, right) =>
         left.contractId.localeCompare(right.contractId)
@@ -135,8 +134,7 @@
     savePending = true;
     error = null;
     try {
-      const trellis = await trellisPromise;
-      await trellis.request<void>("Auth.UpsertInstanceGrantPolicy" as string, {
+      await trellis.request<void>("Auth.UpsertInstanceGrantPolicy", {
         contractId,
         impliedCapabilities: parseCsv(impliedCapabilitiesText),
         allowedOrigins: allowedOrigins.length ? allowedOrigins : undefined,
@@ -158,8 +156,7 @@
     disableTarget = policy.contractId;
     error = null;
     try {
-      const trellis = await trellisPromise;
-      await trellis.request<void>("Auth.DisableInstanceGrantPolicy" as string, {
+      await trellis.request<void>("Auth.DisableInstanceGrantPolicy", {
         contractId: policy.contractId,
       } satisfies AuthDisableInstanceGrantPolicyInput).orThrow();
       notifications.success(`Instance grant policy disabled for ${policy.contractId}.`, "Disabled");

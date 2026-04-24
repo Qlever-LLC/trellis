@@ -16,7 +16,7 @@
     "packages:build:npm": "deno task -c packages/result/deno.json build:npm && deno task -c packages/trellis-sdk/deno.json build:npm && deno task -c packages/trellis/deno.json build:npm && deno task -c packages/trellis-svelte/deno.json build:npm",
     "generated:build:npm": "bash -lc 'cd ../generated/js/sdks/auth && deno run --config ../../../../js/deno.json -A ./scripts/build_npm.ts && cd ../trellis-core && deno run --config ../../../../js/deno.json -A ./scripts/build_npm.ts && cd ../activity && deno run --config ../../../../js/deno.json -A ./scripts/build_npm.ts && cd ../health && deno run --config ../../../../js/deno.json -A ./scripts/build_npm.ts && cd ../state && deno run --config ../../../../js/deno.json -A ./scripts/build_npm.ts'",
     "build:npm": "deno task prepare && deno task packages:build:npm",
-    "check": "deno task prepare && deno check packages/trellis/index.ts packages/trellis-svelte/src/context.svelte.ts packages/trellis-svelte/src/state/auth.svelte.ts packages/trellis-svelte/src/state/nats.svelte.ts packages/trellis-svelte/src/state/trellis.svelte.ts services/trellis/main.ts",
+    "check": "deno task prepare && deno check packages/trellis/index.ts packages/trellis-svelte/src/index.ts packages/trellis-svelte/src/context.svelte.ts services/trellis/main.ts",
     "test:contracts": "deno task prepare && deno test -A packages/trellis/contract_support/source_emission_test.ts packages/trellis/contract_support/conformance_test.ts services/trellis/catalog/store.test.ts services/trellis/catalog/permissions.test.ts",
     "test:auth": "deno task prepare && deno test -A packages/trellis/auth/conformance_test.ts packages/trellis/auth/session_auth_test.ts services/trellis",
     "trellis": "bash ../scripts/trellis-cli.sh",

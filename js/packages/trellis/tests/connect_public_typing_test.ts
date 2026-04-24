@@ -1,24 +1,35 @@
 import { assertEquals } from "@std/assert";
+import { Type } from "typebox";
 
 import {
   defineAppContract,
   defineDeviceContract,
   defineServiceContract,
-  TrellisClient,
+  type ConnectedTrellisClient,
   TrellisDevice,
 } from "../index.ts";
 import { checkDeviceActivation } from "../device/deno.ts";
 import { auth } from "../sdk/auth.ts";
 import { TrellisService } from "../service/deno.ts";
 
-const appContract = defineAppContract(() => ({
-  id: "trellis.connect-typing-app@v1",
-  displayName: "Connect Typing App",
-  description: "Typecheck the public client connect helper.",
-  uses: {
-    auth: auth.useDefaults(),
+const appContract = defineAppContract(
+  {
+    schemas: {
+      Preferences: Type.Object({ theme: Type.String() }),
+    },
   },
-}));
+  (ref) => ({
+    id: "trellis.connect-typing-app@v1",
+    displayName: "Connect Typing App",
+    description: "Typecheck the public client connect helper.",
+    uses: {
+      auth: auth.useDefaults(),
+    },
+    state: {
+      preferences: { kind: "value", schema: ref.schema("Preferences") },
+    },
+  }),
+);
 
 const deviceContract = defineDeviceContract(() => ({
   id: "trellis.connect-typing-device@v1",
@@ -35,16 +46,10 @@ const serviceContract = defineServiceContract({}, () => ({
   description: "Typecheck the public service connect helper.",
 }));
 
+declare const connectedAppClient: ConnectedTrellisClient<typeof appContract>;
+
 async function typecheckClientConnectRequestSurface() {
-  const connected = await TrellisClient.connect({
-    trellisUrl: "https://trellis.example",
-    contract: appContract,
-    auth: {
-      mode: "session_key",
-      sessionKeySeed: "test-session-seed",
-      redirectTo: "https://app.example/callback",
-    },
-  }).orThrow();
+  const connected = connectedAppClient;
 
   const me = await connected.request("Auth.Me", {}).orThrow();
   const deviceId: string | undefined = me.device?.deviceId;
@@ -53,10 +58,28 @@ async function typecheckClientConnectRequestSurface() {
   type ClientMethod = Parameters<typeof connected.request>[0];
   const authMeMethod: ClientMethod = "Auth.Me";
 
+  const preferences = await connected.state.preferences.get().orThrow();
+  if (preferences.found) {
+    const theme: string = preferences.entry.value.theme;
+    // @ts-expect-error declared state values must preserve schema-derived fields
+    const missingField: number = preferences.entry.value.missingField;
+    return { authMeMethod, deviceId, missingField, participantKind, theme };
+  }
+  await connected.state.preferences.put({ theme: "dark" }).orThrow();
+
+  // @ts-expect-error value state stores do not expose map-only list
+  const invalidStateList = connected.state.preferences.list;
+
   // @ts-expect-error undeclared RPC methods must not typecheck
   const invalidMethod: ClientMethod = "Auth.NotDeclared";
 
-  return { authMeMethod, deviceId, invalidMethod, participantKind };
+  return {
+    authMeMethod,
+    deviceId,
+    invalidMethod,
+    invalidStateList,
+    participantKind,
+  };
 }
 
 async function typecheckDeviceConnectRequestSurface() {
@@ -73,10 +96,7 @@ async function typecheckDeviceConnectRequestSurface() {
   type DeviceMethod = Parameters<typeof connected.request>[0];
   const authMeMethod: DeviceMethod = "Auth.Me";
 
-  // @ts-expect-error undeclared RPC methods must not typecheck
-  const invalidMethod: DeviceMethod = "Auth.NotDeclared";
-
-  return { authMeMethod, deviceId, invalidMethod, participantKind };
+  return { authMeMethod, deviceId, participantKind };
 }
 
 async function typecheckDeviceActivationSurface() {

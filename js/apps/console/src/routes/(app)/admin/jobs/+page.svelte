@@ -5,7 +5,7 @@
   import type { Job, ServiceInfo } from "@qlever-llc/trellis/jobs";
   import { getTrellis } from "../../../../lib/trellis";
 
-  const trellisPromise = getTrellis();
+  const trellis = getTrellis();
 
   let loading = $state(true);
   let error = $state<string | null>(null);
@@ -43,7 +43,6 @@
     unavailableMessage = null;
 
     try {
-      const trellis = await trellisPromise;
       if (!hasJobsClient(trellis)) {
         throw new Error("Trellis jobs admin client is unavailable.");
       }

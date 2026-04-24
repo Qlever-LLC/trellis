@@ -279,8 +279,8 @@ function createFakeNatsConnection(args: {
   let closed = false;
   const closedPromise = args.deferClosed
     ? new Promise<Error | void>((resolve) => {
-        resolveClosed = resolve;
-      })
+      resolveClosed = resolve;
+    })
     : Promise.resolve(args.closedResult);
 
   const connection: TestNatsConnection = {
@@ -745,6 +745,7 @@ Deno.test("internal service connect logs explicit service NATS lifecycle events"
   });
 
   try {
+    assertEquals(service.connection.status.kind, "service");
     await delay(20);
   } finally {
     await service.stop();

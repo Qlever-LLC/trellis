@@ -1,10 +1,13 @@
 import type { BaseError } from "@qlever-llc/result";
 import type { AsyncResult } from "@qlever-llc/result";
 import type {
-  AuthActivateDeviceProgress,
   AuthActivateDeviceOutput,
+  AuthActivateDeviceProgress,
 } from "../../trellis/auth/device_activation.ts";
-import type { OperationEvent, TerminalOperation } from "../../trellis/operations.ts";
+import type {
+  OperationEvent,
+  TerminalOperation,
+} from "../../trellis/operations.ts";
 import {
   clearPreservedDeviceActivationCallbackState,
   getPreservedDeviceActivationCallbackState,
@@ -15,22 +18,42 @@ import {
   buildDeviceActivationCallbackPath,
   buildDeviceActivationConnectAuthUrlState,
   cleanupDeviceActivationCallbackUrl,
-  resolveDeviceActivationUrlState,
   type DeviceActivationConnectAuthUrlState,
+  resolveDeviceActivationUrlState,
 } from "./internal/portal_url.ts";
 import {
   createDeviceActivationReadyView,
   createDeviceActivationSignInRequiredView,
   createInvalidDeviceActivationView,
+  type DeviceActivationView,
   mapDeviceActivationFailure,
   mapDeviceActivationProgress,
   mapDeviceActivationTerminal,
-  type DeviceActivationView,
 } from "./internal/activation_view.ts";
-import type { AuthState, BindResult } from "./state/auth.svelte.ts";
+
+export type DeviceActivationSignInOptions = {
+  redirectTo?: string;
+  landingPath?: string;
+  context?: unknown;
+};
+
+export type DeviceActivationBindResult =
+  | { status: "bound" }
+  | { status: "approval_denied" }
+  | { status: "approval_required" }
+  | { status: "insufficient_capabilities"; missingCapabilities: string[] }
+  | { status: "error"; message: string };
+
+export type DeviceActivationAuth = {
+  init(): Promise<unknown>;
+  handleCallback(
+    callbackUrl: string,
+  ): Promise<DeviceActivationBindResult | null>;
+  signIn(options?: DeviceActivationSignInOptions): Promise<never>;
+};
 
 export type DeviceActivationControllerConfig = {
-  authState: AuthState;
+  authState: DeviceActivationAuth;
   createClient(
     authUrlState: DeviceActivationConnectAuthUrlState,
   ): Promise<DeviceActivationClient>;
@@ -42,7 +65,9 @@ export type DeviceActivationControllerConfig = {
 
 export type DeviceActivationOperationRef = {
   watch(): AsyncResult<
-    AsyncIterable<OperationEvent<AuthActivateDeviceProgress, AuthActivateDeviceOutput>>,
+    AsyncIterable<
+      OperationEvent<AuthActivateDeviceProgress, AuthActivateDeviceOutput>
+    >,
     BaseError
   >;
   wait(): AsyncResult<
@@ -52,7 +77,9 @@ export type DeviceActivationOperationRef = {
 };
 
 export type DeviceActivationClient = {
-  activateDevice(input: { flowId: string }): Promise<DeviceActivationOperationRef>;
+  activateDevice(
+    input: { flowId: string },
+  ): Promise<DeviceActivationOperationRef>;
 };
 
 export type DeviceActivationState = {
@@ -74,10 +101,12 @@ function redirectErrorMessage(error: unknown): string | null {
     : message;
 }
 
-function bindErrorMessage(result: Exclude<BindResult, null>): string | null {
+function bindErrorMessage(result: DeviceActivationBindResult): string | null {
   if (result.status === "bound") return null;
   if (result.status === "approval_denied") return "Portal access was denied.";
-  if (result.status === "approval_required") return "Approval is still pending.";
+  if (result.status === "approval_required") {
+    return "Approval is still pending.";
+  }
   if (result.status === "insufficient_capabilities") {
     return `Missing capabilities: ${result.missingCapabilities.join(", ")}`;
   }
@@ -109,7 +138,7 @@ export function createInitialDeviceActivationState(): DeviceActivationState {
 export class DeviceActivationControllerCore {
   protected readonly state: DeviceActivationState;
 
-  #authState: AuthState;
+  #authState: DeviceActivationAuth;
   #createClient: DeviceActivationControllerConfig["createClient"];
   #getUrl: () => URL;
   #replaceUrl: (url: string) => void;
@@ -179,8 +208,13 @@ export class DeviceActivationControllerCore {
       await this.#authState.init();
 
       if (isAuthCallback) {
-        const bindResult = await this.#authState.handleCallback(currentUrl.toString());
-        const cleanedUrl = cleanupDeviceActivationCallbackUrl(currentUrl, flowId);
+        const bindResult = await this.#authState.handleCallback(
+          currentUrl.toString(),
+        );
+        const cleanedUrl = cleanupDeviceActivationCallbackUrl(
+          currentUrl,
+          flowId,
+        );
         if (cleanedUrl) {
           this.#replaceUrl(cleanedUrl);
         }
@@ -241,7 +275,10 @@ export class DeviceActivationControllerCore {
 
     try {
       await this.#authState.signIn({
-        redirectTo: buildDeviceActivationCallbackPath(this.#getUrl(), callbackToken),
+        redirectTo: buildDeviceActivationCallbackPath(
+          this.#getUrl(),
+          callbackToken,
+        ),
       });
     } catch (error) {
       const message = redirectErrorMessage(error);
@@ -297,7 +334,10 @@ export class DeviceActivationControllerCore {
 
   #applyTerminal(
     flowId: string,
-    terminal: TerminalOperation<AuthActivateDeviceProgress, AuthActivateDeviceOutput>,
+    terminal: TerminalOperation<
+      AuthActivateDeviceProgress,
+      AuthActivateDeviceOutput
+    >,
   ): void {
     const view = mapDeviceActivationTerminal(flowId, terminal);
     if (view) {

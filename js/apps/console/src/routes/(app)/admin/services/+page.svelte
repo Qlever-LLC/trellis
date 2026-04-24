@@ -7,7 +7,7 @@
 
   type Profile = AuthListServiceProfilesOutput["profiles"][number];
 
-  const trellisPromise = getTrellis();
+  const trellis = getTrellis();
   const notifications = getNotifications();
 
   let loading = $state(true);
@@ -42,8 +42,7 @@
     loading = true;
     error = null;
     try {
-      const trellis = await trellisPromise;
-      const res = await trellis.request<AuthListServiceProfilesOutput>("Auth.ListServiceProfiles" as string, {}).orThrow();
+      const res = await trellis.request<AuthListServiceProfilesOutput>("Auth.ListServiceProfiles", {}).orThrow();
       const nextProfiles = res.profiles ?? [];
       profiles = nextProfiles;
       syncSelectedProfile(nextProfiles);
@@ -59,8 +58,7 @@
     error = null;
     try {
       const nextProfileId = profileId.trim();
-      const trellis = await trellisPromise;
-      await trellis.request<void>("Auth.CreateServiceProfile" as string, {
+      await trellis.request<void>("Auth.CreateServiceProfile", {
         profileId: nextProfileId,
         namespaces: parseNamespaces(namespaces),
       }).orThrow();
@@ -82,8 +80,7 @@
     error = null;
     try {
       const contract = JSON.parse(contractJson) as Record<string, unknown>;
-      const trellis = await trellisPromise;
-      await trellis.request<void>("Auth.ApplyServiceProfileContract" as string, {
+      await trellis.request<void>("Auth.ApplyServiceProfileContract", {
         profileId: selectedProfile.profileId,
         contract,
       }).orThrow();
@@ -104,8 +101,7 @@
     actionTarget = `${profile.profileId}:${target}:unapply`;
     error = null;
     try {
-      const trellis = await trellisPromise;
-      await trellis.request<void>("Auth.UnapplyServiceProfileContract" as string, {
+      await trellis.request<void>("Auth.UnapplyServiceProfileContract", {
         profileId: profile.profileId,
         contractId,
         digests,
@@ -125,8 +121,7 @@
     actionTarget = `${profile.profileId}:${verb.toLowerCase()}`;
     error = null;
     try {
-      const trellis = await trellisPromise;
-      await trellis.request<void>((disabled ? "Auth.DisableServiceProfile" : "Auth.EnableServiceProfile") as string, {
+      await trellis.request<void>((disabled ? "Auth.DisableServiceProfile" : "Auth.EnableServiceProfile"), {
         profileId: profile.profileId,
       }).orThrow();
       notifications.success(`Service profile ${profile.profileId} ${disabled ? "disabled" : "enabled"}.`, disabled ? "Disabled" : "Enabled");
@@ -143,8 +138,7 @@
     actionTarget = `${profile.profileId}:remove`;
     error = null;
     try {
-      const trellis = await trellisPromise;
-      await trellis.request<void>("Auth.RemoveServiceProfile" as string, { profileId: profile.profileId }).orThrow();
+      await trellis.request<void>("Auth.RemoveServiceProfile", { profileId: profile.profileId }).orThrow();
       notifications.success(`Service profile ${profile.profileId} removed.`, "Removed");
       await load();
     } catch (e) {

@@ -4,7 +4,7 @@
   import { base } from "$app/paths";
   import { page } from "$app/state";
   import type { Snippet } from "svelte";
-  import type { ConnectionState } from "../trellis";
+  import type { ConnectionStatus } from "../trellis";
   import {
     getInitials,
     getPageTitle,
@@ -19,7 +19,7 @@
     profile: AuthMeOutput["user"] | null;
     profileLoaded: boolean;
     navSections: NavSection[];
-    connectionStatus: ConnectionState["status"];
+    connectionStatus: ConnectionStatus["phase"];
     authFailure: string | null;
     onSignOut: () => Promise<void> | void;
   };
@@ -43,7 +43,7 @@
   const pageTitle = $derived(getPageTitle(routePath));
   const statusColor = $derived(
     connectionStatus === "connected" ? "text-success" :
-    connectionStatus === "connecting" ? "text-warning" : "text-error"
+    connectionStatus === "reconnecting" ? "text-warning" : "text-error"
   );
 
   function resolveAppPath(path: string): string {

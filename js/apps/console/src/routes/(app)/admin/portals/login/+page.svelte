@@ -22,12 +22,11 @@
   type SelectionRecord = AuthListLoginPortalSelectionsOutput["selections"][number];
   type DefaultPortal = AuthGetLoginPortalDefaultOutput["defaultPortal"];
 
-  const trellisPromise = getTrellis();
+  const trellis = getTrellis();
   const notifications = getNotifications();
 
   async function requestValue<T>(method: string, input: unknown): Promise<T> {
-    const trellis = await trellisPromise;
-    const result = await trellis.request<T>(method as string, input);
+    const result = await trellis.request<T>(method, input);
     const value = result.take();
     if (isErr(value)) throw value.error;
     return value as T;

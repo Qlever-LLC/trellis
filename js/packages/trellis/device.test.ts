@@ -468,7 +468,7 @@ Deno.test("connectDeviceWithDeps logs explicit device NATS lifecycle status even
       );
     }) as typeof fetch;
 
-    await connectDeviceWithDeps({
+    const connected = await connectDeviceWithDeps({
       trellisUrl: "https://trellis.example.com",
       contract: testContract,
       rootSecret: new Uint8Array(32).fill(7),
@@ -490,6 +490,7 @@ Deno.test("connectDeviceWithDeps logs explicit device NATS lifecycle status even
       now: () => 1_700_000_000_000,
     });
 
+    assertEquals(connected.connection.status.kind, "device");
     await delay(0);
 
     assertEquals(

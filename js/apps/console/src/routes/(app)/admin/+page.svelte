@@ -11,7 +11,7 @@
 
   type ServiceInstance = AuthListServiceInstancesOutput["instances"][number];
 
-  const trellisPromise = getTrellis();
+  const trellis = getTrellis();
 
   let loading = $state(true);
   let error = $state<string | null>(null);
@@ -23,18 +23,15 @@
   const disabledInstances = $derived(instances.filter((instance) => instance.disabled).length);
 
   async function listSessions() {
-    const trellis = await trellisPromise;
-    return await trellis.request<AuthListSessionsOutput>("Auth.ListSessions" as string, {}).orThrow();
+    return await trellis.request<AuthListSessionsOutput>("Auth.ListSessions", {}).orThrow();
   }
 
   async function listConnections() {
-    const trellis = await trellisPromise;
-    return await trellis.request<AuthListConnectionsOutput>("Auth.ListConnections" as string, {}).orThrow();
+    return await trellis.request<AuthListConnectionsOutput>("Auth.ListConnections", {}).orThrow();
   }
 
   async function listServiceInstances() {
-    const trellis = await trellisPromise;
-    return await trellis.request<AuthListServiceInstancesOutput>("Auth.ListServiceInstances" as string, {}).orThrow();
+    return await trellis.request<AuthListServiceInstancesOutput>("Auth.ListServiceInstances", {}).orThrow();
   }
 
   async function load() {
