@@ -189,6 +189,7 @@ export class DeviceActivationControllerCore {
     this.#client = null;
 
     const currentUrl = this.#getUrl();
+    let clientUrl = currentUrl;
     const preservedState = this.#sessionStorage
       ? getPreservedDeviceActivationCallbackState(this.#sessionStorage)
       : null;
@@ -217,6 +218,7 @@ export class DeviceActivationControllerCore {
         );
         if (cleanedUrl) {
           this.#replaceUrl(cleanedUrl);
+          clientUrl = new URL(cleanedUrl, currentUrl.origin);
         }
         if (this.#sessionStorage) {
           clearPreservedDeviceActivationCallbackState(this.#sessionStorage);
@@ -241,7 +243,7 @@ export class DeviceActivationControllerCore {
 
       try {
         this.#client = await this.#createClient(
-          buildDeviceActivationConnectAuthUrlState(currentUrl),
+          buildDeviceActivationConnectAuthUrlState(clientUrl),
         );
         this.state.view = createDeviceActivationReadyView(flowId);
       } catch (error) {

@@ -208,7 +208,7 @@ Deno.test("DeviceActivationController preserves flowId through sign-in callback 
 
   assertEquals(
     redirectTo,
-    "/_trellis/portal/devices/activate?portalCallback=callback-token#confirm",
+    "/_trellis/portal/devices/activate?portalCallback=callback-token&deviceFlowId=device-flow#confirm",
   );
   assertEquals(storage.getItem("portal.activate.flowId"), "device-flow");
   assertEquals(
@@ -223,6 +223,7 @@ Deno.test("DeviceActivationController restores callback flow and maps activation
   storage.setItem("portal.activate.callbackToken", "callback-token");
 
   const replacedUrls: string[] = [];
+  const authUrlStates: Array<{ currentUrl: URL; redirectTo: string }> = [];
   let activateFlowId: string | null = null;
   const client: DeviceActivationClient = {
     activateDevice(input) {
@@ -243,12 +244,13 @@ Deno.test("DeviceActivationController restores callback flow and maps activation
         return Promise.resolve({ status: "bound" });
       },
     }),
-    createClient() {
+    createClient(nextAuthUrlState) {
+      authUrlStates.push(nextAuthUrlState);
       return Promise.resolve(client);
     },
     getUrl() {
       return new URL(
-        "https://auth.example.com/_trellis/portal/devices/activate?portalCallback=callback-token&flowId=auth-flow&authError=ignored#confirm",
+        "https://auth.example.com/_trellis/portal/devices/activate?portalCallback=callback-token&deviceFlowId=device-flow&flowId=auth-flow&authError=ignored#confirm",
       );
     },
     replaceUrl(url) {
@@ -264,6 +266,14 @@ Deno.test("DeviceActivationController restores callback flow and maps activation
   ]);
   assertEquals(storage.getItem("portal.activate.flowId"), null);
   assertEquals(storage.getItem("portal.activate.callbackToken"), null);
+  assertEquals(
+    authUrlStates[0]?.currentUrl.toString(),
+    "https://auth.example.com/_trellis/portal/devices/activate#confirm",
+  );
+  assertEquals(
+    authUrlStates[0]?.redirectTo,
+    "https://auth.example.com/_trellis/portal/devices/activate?flowId=device-flow#confirm",
+  );
 
   await controller.requestActivation();
 
@@ -276,6 +286,44 @@ Deno.test("DeviceActivationController restores callback flow and maps activation
     activatedAt: "2026-04-21T12:34:56Z",
     confirmationCode: "1234",
   });
+});
+
+Deno.test("DeviceActivationController restores callback flow from URL fallback", async () => {
+  const replacedUrls: string[] = [];
+  let callbackUrl: string | null = null;
+
+  const controller = new DeviceActivationControllerCore({
+    authState: createAuthStub({
+      handleCallback() {
+        callbackUrl = "called";
+        return Promise.resolve({ status: "bound" });
+      },
+    }),
+    createClient() {
+      return Promise.resolve({
+        activateDevice() {
+          throw new Error("not used");
+        },
+      });
+    },
+    getUrl() {
+      return new URL(
+        "https://auth.example.com/_trellis/portal/devices/activate?portalCallback=callback-token&deviceFlowId=device-flow&flowId=auth-flow#confirm",
+      );
+    },
+    replaceUrl(url) {
+      replacedUrls.push(url);
+    },
+    sessionStorage: createStorage(),
+  });
+
+  await controller.load();
+
+  assertEquals(callbackUrl, "called");
+  assertEquals(controller.view, { mode: "ready", flowId: "device-flow" });
+  assertEquals(replacedUrls, [
+    "/_trellis/portal/devices/activate?flowId=device-flow#confirm",
+  ]);
 });
 
 Deno.test("DeviceActivationController shows pending review from operation progress before terminal completion", async () => {

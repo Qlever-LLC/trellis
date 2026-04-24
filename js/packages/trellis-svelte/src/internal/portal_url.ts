@@ -13,6 +13,7 @@ export type DeviceActivationUrlState = {
 
 const ACTIVATION_CALLBACK_QUERY_PARAM = "portalCallback";
 const AUTH_ERROR_QUERY_PARAM = "authError";
+const DEVICE_FLOW_ID_QUERY_PARAM = "deviceFlowId";
 const FLOW_ID_QUERY_PARAM = "flowId";
 
 export function buildDeviceActivationCallbackPath(
@@ -21,6 +22,10 @@ export function buildDeviceActivationCallbackPath(
 ): string {
   const callbackUrl = new URL(currentUrl.pathname, currentUrl.origin);
   callbackUrl.searchParams.set(ACTIVATION_CALLBACK_QUERY_PARAM, callbackToken);
+  const flowId = currentUrl.searchParams.get(FLOW_ID_QUERY_PARAM);
+  if (flowId) {
+    callbackUrl.searchParams.set(DEVICE_FLOW_ID_QUERY_PARAM, flowId);
+  }
   callbackUrl.hash = currentUrl.hash;
   return `${callbackUrl.pathname}${callbackUrl.search}${callbackUrl.hash}`;
 }
@@ -31,8 +36,10 @@ export function buildDeviceActivationConnectAuthUrlState(
   const redirectUrl = new URL(currentUrl);
   redirectUrl.searchParams.delete(ACTIVATION_CALLBACK_QUERY_PARAM);
   redirectUrl.searchParams.delete(AUTH_ERROR_QUERY_PARAM);
+  redirectUrl.searchParams.delete(DEVICE_FLOW_ID_QUERY_PARAM);
 
   const authCurrentUrl = new URL(redirectUrl);
+  authCurrentUrl.searchParams.delete(DEVICE_FLOW_ID_QUERY_PARAM);
   authCurrentUrl.searchParams.delete(FLOW_ID_QUERY_PARAM);
 
   return {
@@ -48,6 +55,7 @@ export function cleanupDeviceActivationCallbackUrl(
   if (
     !currentUrl.searchParams.has(FLOW_ID_QUERY_PARAM) &&
     !currentUrl.searchParams.has(AUTH_ERROR_QUERY_PARAM) &&
+    !currentUrl.searchParams.has(DEVICE_FLOW_ID_QUERY_PARAM) &&
     !currentUrl.searchParams.has(ACTIVATION_CALLBACK_QUERY_PARAM)
   ) {
     return null;
@@ -56,6 +64,7 @@ export function cleanupDeviceActivationCallbackUrl(
   const nextUrl = new URL(currentUrl);
   nextUrl.searchParams.delete(FLOW_ID_QUERY_PARAM);
   nextUrl.searchParams.delete(AUTH_ERROR_QUERY_PARAM);
+  nextUrl.searchParams.delete(DEVICE_FLOW_ID_QUERY_PARAM);
   nextUrl.searchParams.delete(ACTIVATION_CALLBACK_QUERY_PARAM);
   if (flowId) {
     nextUrl.searchParams.set(FLOW_ID_QUERY_PARAM, flowId);
@@ -68,11 +77,17 @@ export function resolveDeviceActivationUrlState(
   currentUrl: URL,
   preservedState: DeviceActivationCallbackState | null,
 ): DeviceActivationUrlState {
-  const isAuthCallback = isDeviceActivationAuthCallback(currentUrl, preservedState);
+  const callbackFlowId = currentUrl.searchParams.get(
+    DEVICE_FLOW_ID_QUERY_PARAM,
+  );
+  const isAuthCallback =
+    isDeviceActivationAuthCallback(currentUrl, preservedState) ||
+    (currentUrl.searchParams.has(ACTIVATION_CALLBACK_QUERY_PARAM) &&
+      !!callbackFlowId);
 
   return {
     flowId: isAuthCallback
-      ? preservedState?.flowId ?? null
+      ? preservedState?.flowId ?? callbackFlowId
       : currentUrl.searchParams.get(FLOW_ID_QUERY_PARAM),
     isAuthCallback,
   };

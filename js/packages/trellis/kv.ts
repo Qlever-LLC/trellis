@@ -1,4 +1,5 @@
 import { type KV, type KvEntry, Kvm } from "@nats-io/kv";
+import { jetstreamManager } from "@nats-io/jetstream";
 import type { NatsConnection } from "@nats-io/nats-core/internal";
 import { AsyncResult, Result } from "@qlever-llc/result";
 import type { StaticDecode, TSchema } from "typebox";
@@ -38,6 +39,26 @@ function serializeValue(schema: TSchema, value: unknown): string {
 
 function serializeExternalValue(schema: TSchema, value: unknown): string {
   return serializeValue(schema, value);
+}
+
+async function ensureExistingBucketOptions(
+  nats: NatsConnection,
+  name: string,
+  options: { ttl?: number },
+): Promise<void> {
+  const desiredTtlMs = options.ttl ?? 0;
+  if (desiredTtlMs <= 0) return;
+
+  const jsm = await jetstreamManager(nats);
+  const streamName = `KV_${name}`;
+  const info = await jsm.streams.info(streamName);
+  const desiredMaxAge = desiredTtlMs * 1_000_000;
+  if (info.config.max_age >= desiredMaxAge) return;
+
+  await jsm.streams.update(info.config.name, {
+    ...info.config,
+    max_age: desiredMaxAge,
+  });
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -125,6 +146,10 @@ export class TypedKV<S extends TSchema> {
             ttl: options.ttl ?? 0,
             ...(options.maxValueBytes ? { maxValueSize: options.maxValueBytes } : {}),
           });
+
+        if (!options.bindOnly) {
+          await ensureExistingBucketOptions(nats, name, options);
+        }
 
         const typedKv = TypedKV.fromParts(schema, kv);
         return Result.ok<TypedKV<S>, KVError>(typedKv);

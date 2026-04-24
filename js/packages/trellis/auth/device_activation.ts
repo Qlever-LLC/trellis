@@ -36,7 +36,7 @@ const DEVICE_ACTIVATION_HKDF_INFO = "trellis/device-activate/v1";
 const DEVICE_QR_MAC_DOMAIN = "trellis-device-qr/v1";
 const DEVICE_CONFIRMATION_DOMAIN = "trellis-device-confirm/v1";
 const CROCKFORD_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
-const DEFAULT_WAIT_POLL_INTERVAL_MS = 1_000;
+const DEFAULT_WAIT_POLL_INTERVAL_MS = 3_000;
 
 export const DeviceActivationPayloadSchema = Type.Object({
   v: Type.Literal(1),
@@ -146,7 +146,9 @@ type ActivateDeviceOperationClient = {
   };
 };
 
-export type DeviceActivationTransport = RequestClient & ActivateDeviceOperationClient;
+export type DeviceActivationTransport =
+  & RequestClient
+  & ActivateDeviceOperationClient;
 
 function concatBytes(parts: Uint8Array[]): Uint8Array {
   const size = parts.reduce((total, part) => total + part.length, 0);
@@ -250,6 +252,18 @@ async function sleep(ms: number, signal?: AbortSignal): Promise<void> {
     }
     signal?.addEventListener("abort", onAbort, { once: true });
   });
+}
+
+function retryAfterDelayMs(response: Response): number | null {
+  const value = response.headers.get("Retry-After");
+  if (!value) return null;
+
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1_000;
+
+  const dateMs = Date.parse(value);
+  if (!Number.isFinite(dateMs)) return null;
+  return Math.max(0, dateMs - Date.now());
 }
 
 async function responseErrorDetail(response: Response): Promise<string | null> {
@@ -565,6 +579,16 @@ export async function waitForDeviceActivation(args: {
       continue;
     }
     if (!response.ok) {
+      if (response.status === 429) {
+        const retryAfterMs = retryAfterDelayMs(response);
+        await sleep(
+          retryAfterMs === null
+            ? pollIntervalMs
+            : Math.max(pollIntervalMs, retryAfterMs),
+          args.signal,
+        );
+        continue;
+      }
       const detail = await responseErrorDetail(response);
       throw new Error(
         detail
@@ -632,7 +656,8 @@ export function createDeviceActivationClient(
 ) {
   return {
     activateDevice(input: AuthActivateDeviceInput) {
-      return client.operation("Auth.ActivateDevice").input(input).start().orThrow();
+      return client.operation("Auth.ActivateDevice").input(input).start()
+        .orThrow();
     },
     listDeviceActivations(input: AuthListDeviceActivationsInput = {}) {
       return client.request("Auth.ListDeviceActivations", input).orThrow();

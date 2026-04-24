@@ -10,17 +10,19 @@ import {
 Deno.test("buildDeviceActivationCallbackPath adds explicit activation callback marker", () => {
   assertEquals(
     buildDeviceActivationCallbackPath(
-      new URL("https://auth.example.com/_trellis/portal/devices/activate?flowId=device-flow#confirm"),
+      new URL(
+        "https://auth.example.com/_trellis/portal/devices/activate?flowId=device-flow#confirm",
+      ),
       "callback-token",
     ),
-    "/_trellis/portal/devices/activate?portalCallback=callback-token#confirm",
+    "/_trellis/portal/devices/activate?portalCallback=callback-token&deviceFlowId=device-flow#confirm",
   );
 });
 
 Deno.test("buildDeviceActivationConnectAuthUrlState keeps redirectTo but strips callback binding state", () => {
   const state = buildDeviceActivationConnectAuthUrlState(
     new URL(
-      "https://auth.example.com/_trellis/portal/devices/activate?flowId=device-flow&portalCallback=callback-token&authError=approval_denied#confirm",
+      "https://auth.example.com/_trellis/portal/devices/activate?flowId=device-flow&portalCallback=callback-token&deviceFlowId=device-flow&authError=approval_denied#confirm",
     ),
   );
 
@@ -38,11 +40,23 @@ Deno.test("cleanupDeviceActivationCallbackUrl preserves the activation flow id",
   assertEquals(
     cleanupDeviceActivationCallbackUrl(
       new URL(
-        "https://auth.example.com/_trellis/portal/devices/activate?portalCallback=callback-token&authError=approval_denied#confirm",
+        "https://auth.example.com/_trellis/portal/devices/activate?portalCallback=callback-token&deviceFlowId=device-flow&authError=approval_denied#confirm",
       ),
       "device-flow",
     ),
     "/_trellis/portal/devices/activate?flowId=device-flow#confirm",
+  );
+});
+
+Deno.test("resolveDeviceActivationUrlState restores flowId from callback URL fallback", () => {
+  assertEquals(
+    resolveDeviceActivationUrlState(
+      new URL(
+        "https://auth.example.com/_trellis/portal/devices/activate?portalCallback=callback-token&deviceFlowId=device-flow&flowId=auth-flow",
+      ),
+      null,
+    ),
+    { flowId: "device-flow", isAuthCallback: true },
   );
 });
 

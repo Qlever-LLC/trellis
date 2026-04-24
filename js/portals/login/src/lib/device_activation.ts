@@ -108,6 +108,7 @@ export function createPortalDeviceActivationController() {
           currentUrl: authUrlState.currentUrl,
           redirectTo: authUrlState.redirectTo,
         },
+        onAuthRequired: () => ({ status: "handled" }),
         contract,
       }).orThrow();
       const operation = Reflect.get(trellis as object, "operation");

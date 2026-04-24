@@ -116,7 +116,7 @@ type DeviceBootstrapResponse =
   | { status: "not_ready"; reason: string };
 
 type DeviceActivationWaitStatus =
-  | { status: "pending" }
+  | { status: "pending"; retryAfterMs?: number }
   | {
     status: "activated";
     connectInfo: StaticDecode<typeof DeviceBootstrapReadySchema>["connectInfo"];
@@ -130,7 +130,7 @@ type PendingActivationResolution =
   | { status: "not_ready"; reason: string }
   | { status: "stale" };
 
-const DEFAULT_WAIT_POLL_INTERVAL_MS = 1_000;
+const DEFAULT_WAIT_POLL_INTERVAL_MS = 3_000;
 
 type DeviceActivationStateStoreOptions = {
   trellisUrl: string;
@@ -557,6 +557,7 @@ async function fetchDeviceActivationWaitStatus(args: {
   identitySeed: Uint8Array | string;
   contractDigest: string;
   nonce: string;
+  signal?: AbortSignal;
   iat?: number;
 }): Promise<DeviceActivationWaitStatus> {
   let iat = args.iat;
@@ -574,9 +575,13 @@ async function fetchDeviceActivationWaitStatus(args: {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(request),
+        signal: args.signal,
       },
     );
     if (!response.ok) {
+      if (response.status === 429) {
+        return { status: "pending", ...retryAfterStatus(response) };
+      }
       const responseText = await response.text();
       const parsed = parseResponseRecord(responseText);
       const reason = typeof parsed?.reason === "string"
@@ -619,6 +624,20 @@ async function fetchDeviceActivationWaitStatus(args: {
   }
 
   throw new Error("Device activation status time synchronization failed");
+}
+
+function retryAfterStatus(response: Response): { retryAfterMs?: number } {
+  const value = response.headers.get("Retry-After");
+  if (!value) return {};
+
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return { retryAfterMs: seconds * 1_000 };
+  }
+
+  const dateMs = Date.parse(value);
+  if (!Number.isFinite(dateMs)) return {};
+  return { retryAfterMs: Math.max(0, dateMs - Date.now()) };
 }
 
 function activatedStatus(): TrellisDeviceActivatedStatus {
@@ -690,6 +709,7 @@ async function waitForActivationCompletion(args: {
       identitySeed: identity.identitySeed,
       contractDigest: args.contractDigest,
       nonce: args.localState.nonce,
+      signal: args.signal,
     });
 
     if (waitStatus.status === "activated") {
@@ -709,7 +729,10 @@ async function waitForActivationCompletion(args: {
       throw new Error(`device activation not ready: ${waitStatus.reason}`);
     }
 
-    await sleep(DEFAULT_WAIT_POLL_INTERVAL_MS, args.signal);
+    await sleep(
+      Math.max(DEFAULT_WAIT_POLL_INTERVAL_MS, waitStatus.retryAfterMs ?? 0),
+      args.signal,
+    );
   }
 }
 

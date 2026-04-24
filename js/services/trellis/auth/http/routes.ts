@@ -163,7 +163,16 @@ export function registerHttpRoutes(
   }
 
   async function saveBrowserFlow(flow: BrowserFlowRecord): Promise<void> {
-    await browserFlowsKV.put(flow.flowId, flow);
+    const putResult = await browserFlowsKV.put(flow.flowId, flow).take();
+    if (isErr(putResult)) {
+      logger.error(
+        { error: putResult.error, flowId: flow.flowId, kind: flow.kind },
+        "Failed to store browser flow",
+      );
+      throw new HTTPException(500, {
+        message: "Failed to create browser flow",
+      });
+    }
   }
 
   function builtinPortalEntryUrl(

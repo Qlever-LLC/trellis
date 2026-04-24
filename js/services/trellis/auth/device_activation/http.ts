@@ -22,6 +22,7 @@ import {
   devicePortalSelectionsKV,
   deviceProfilesKV,
   deviceProvisioningSecretsKV,
+  logger,
   portalDefaultsKV,
   portalsKV,
   sentinelCreds,
@@ -314,7 +315,7 @@ async function createDeviceActivationRequest(
 
   const now = new Date();
   const flowId = randomToken(16);
-  await browserFlowsKV.put(flowId, {
+  const putResult = await browserFlowsKV.put(flowId, {
     flowId,
     kind: "device_activation",
     deviceActivation: {
@@ -326,7 +327,14 @@ async function createDeviceActivationRequest(
     },
     createdAt: now,
     expiresAt: new Date(now.getTime() + config.ttlMs.deviceFlow),
-  });
+  }).take();
+  if (isErr(putResult)) {
+    logger.error(
+      { error: putResult.error, flowId },
+      "Failed to store device activation flow",
+    );
+    throw new Error("Failed to create device activation flow");
+  }
 
   const portalResolution = resolveDevicePortal({
     profileId: profile.profileId,
@@ -375,10 +383,11 @@ export function registerDeviceActivationHttpRoutes(
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      const status =
-        message === "Unknown device" || message === "Device profile not found"
-          ? 404
-          : 400;
+      const status = message === "Failed to create device activation flow"
+        ? 500
+        : message === "Unknown device" || message === "Device profile not found"
+        ? 404
+        : 400;
       return c.json({ error: message }, status);
     }
   });
@@ -416,7 +425,12 @@ export function registerDeviceActivationHttpRoutes(
       return c.json({ reason: "invalid_signature" }, 400);
     }
     const flow = await findDeviceActivationFlow({ publicIdentityKey, nonce });
-    if (!flow) return c.json({ status: "pending" });
+    if (!flow) {
+      return c.json({
+        status: "rejected",
+        reason: "device_activation_flow_not_found",
+      });
+    }
     if (new Date(flow.expiresAt).getTime() <= Date.now()) {
       return c.json({ status: "rejected", reason: "device_flow_expired" });
     }

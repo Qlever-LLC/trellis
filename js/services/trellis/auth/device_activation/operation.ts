@@ -99,9 +99,16 @@ type DeviceActivationReviewRecord = {
 const config = getConfig();
 const REVIEW_POLL_INTERVAL_MS = 1_000;
 
-function activationFailure(reason: string, context?: Record<string, unknown>) {
+function activationFailure(
+  reason: AuthError["reason"],
+  context?: Record<string, unknown>,
+) {
+  logger.warn(
+    { reason, ...(context ? { context } : {}) },
+    "Device activation failed",
+  );
   return Result.err(
-    new AuthError({ reason: reason as AuthError["reason"], context }),
+    new AuthError({ reason, context }),
   );
 }
 
@@ -123,7 +130,8 @@ function toDeviceActivationFlow(value: {
   expiresAt?: string | Date;
 }): DeviceActivationFlow | null {
   if (
-    value.kind !== "device_activation" || !value.flowId || !value.deviceActivation ||
+    value.kind !== "device_activation" || !value.flowId ||
+    !value.deviceActivation ||
     !value.createdAt || !value.expiresAt
   ) {
     return null;
@@ -304,10 +312,9 @@ async function activateApprovedReview(
   const instance = await loadDeviceInstance(review.instanceId);
   if (!instance || instance.state === "disabled") {
     throw new AuthError({
-      reason: "invalid_request",
+      reason: "unknown_device",
       context: {
         instanceId: review.instanceId,
-        reason: "unknown_device",
       },
     });
   }
@@ -315,10 +322,9 @@ async function activateApprovedReview(
   const profile = await loadDeviceProfile(review.profileId);
   if (!profile || profile.disabled) {
     throw new AuthError({
-      reason: "invalid_request",
+      reason: "device_profile_not_found",
       context: {
         profileId: review.profileId,
-        reason: "device_profile_not_found",
       },
     });
   }
@@ -356,12 +362,12 @@ async function currentActivationStatus(flow: DeviceActivationFlow) {
   const review = await findReviewByFlowId(flow.flowId);
   if (!review) return null;
   if (review.state === "pending") {
-      return {
-        status: "pending_review" as const,
-        reviewId: review.reviewId,
-        instanceId: review.instanceId,
-        profileId: review.profileId,
-        requestedAt: isoString(review.requestedAt),
+    return {
+      status: "pending_review" as const,
+      reviewId: review.reviewId,
+      instanceId: review.instanceId,
+      profileId: review.profileId,
+      requestedAt: isoString(review.requestedAt),
     };
   }
   if (review.state === "rejected") {
@@ -442,30 +448,35 @@ export function createActivateDeviceHandler() {
     }
     const flow = await loadDeviceActivationFlow(input.flowId);
     if (!flow) {
-      return activationFailure("invalid_request", {
-        reason: "device_flow_not_found",
+      return activationFailure("device_activation_flow_not_found", {
+        flowId: input.flowId,
       });
     }
     if (new Date(isoString(flow.expiresAt)).getTime() <= Date.now()) {
-      return activationFailure("invalid_request", {
-        reason: "device_flow_expired",
+      return activationFailure("device_activation_flow_expired", {
+        flowId: input.flowId,
       });
     }
     const instance = await loadDeviceInstance(flow.instanceId);
     if (!instance || instance.state === "disabled") {
-      return activationFailure("invalid_request", { reason: "unknown_device" });
+      return activationFailure("unknown_device", {
+        instanceId: flow.instanceId,
+      });
     }
     const profile = await loadDeviceProfile(instance.profileId);
     if (!profile || profile.disabled) {
-      return activationFailure("invalid_request", {
-        reason: "device_profile_not_found",
+      return activationFailure("device_profile_not_found", {
+        profileId: instance.profileId,
       });
     }
 
     await op.started();
 
     const existingStatus = await currentActivationStatus(flow);
-    if (existingStatus?.status === "activated" || existingStatus?.status === "rejected") {
+    if (
+      existingStatus?.status === "activated" ||
+      existingStatus?.status === "rejected"
+    ) {
       return Result.ok(existingStatus);
     }
 
@@ -551,9 +562,7 @@ export function createGetDeviceConnectInfoHandler() {
     }, "RPC request");
 
     if (!isDeviceProofIatFresh(req.iat)) {
-      return activationFailure("invalid_request", {
-        reason: "iat_out_of_range",
-      });
+      return activationFailure("iat_out_of_range");
     }
 
     const proofOk = await verifyDeviceWaitSignature({
@@ -571,12 +580,14 @@ export function createGetDeviceConnectInfoHandler() {
     const instance = await loadDeviceInstance(instanceId);
     const activation = await loadDeviceActivation(instanceId);
     if (!instance || !activation || activation.state !== "activated") {
-      return activationFailure("invalid_request", { reason: "unknown_device" });
+      return activationFailure("unknown_device", {
+        publicIdentityKey: req.publicIdentityKey,
+      });
     }
     const profile = await loadDeviceProfile(activation.profileId);
     if (!profile || profile.disabled) {
-      return activationFailure("invalid_request", {
-        reason: "device_profile_not_found",
+      return activationFailure("device_profile_not_found", {
+        profileId: activation.profileId,
       });
     }
 

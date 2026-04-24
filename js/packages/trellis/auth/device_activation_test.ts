@@ -8,9 +8,9 @@ import type {
 
 import {
   type AuthActivateDeviceInput,
-  type AuthActivateDeviceProgress,
-  type AuthActivateDeviceOutput,
   type AuthActivateDeviceOperation,
+  type AuthActivateDeviceOutput,
+  type AuthActivateDeviceProgress,
   type AuthListDeviceActivationsInput,
   type AuthListDeviceActivationsOutput,
   type AuthRevokeDeviceActivationInput,
@@ -380,8 +380,66 @@ Deno.test("device activation wait retries transient fetch failures", async () =>
   }
 });
 
+Deno.test("device activation wait backs off after rate limiting", async () => {
+  const originalFetch = globalThis.fetch;
+  const identity = await deriveDeviceIdentity(new Uint8Array(32).fill(7));
+  let calls = 0;
+
+  try {
+    globalThis.fetch = ((_: URL | Request | string, _init?: RequestInit) => {
+      calls += 1;
+      if (calls === 1) {
+        return Promise.resolve(
+          new Response("Too many requests", { status: 429 }),
+        );
+      }
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            status: "activated",
+            activatedAt: "2026-04-08T12:00:00Z",
+            connectInfo: {
+              instanceId: "dev_123",
+              profileId: "reader.default",
+              contractId: "acme.reader@v1",
+              contractDigest: "digest-a",
+              transports: {
+                native: { natsServers: ["nats://127.0.0.1:4222"] },
+              },
+              transport: {
+                sentinel: { jwt: "jwt", seed: "seed" },
+              },
+              auth: { mode: "device_identity", iatSkewSeconds: 30 },
+            },
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      );
+    }) as typeof fetch;
+
+    const activated = await waitForDeviceActivation({
+      trellisUrl: "https://trellis.example.com",
+      publicIdentityKey: identity.publicIdentityKey,
+      nonce: "nonce_123",
+      identitySeed: identity.identitySeed,
+      contractDigest: "digest-a",
+      pollIntervalMs: 0,
+    });
+
+    assertEquals(activated.status, "activated");
+    assertEquals(calls, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 Deno.test("device activation client wrappers hide method strings", async () => {
-  const calls: Array<{ kind: "operation" | "request"; method: string; input: unknown }> = [];
+  const calls: Array<
+    { kind: "operation" | "request"; method: string; input: unknown }
+  > = [];
   function operation(method: "Auth.ActivateDevice") {
     return {
       input(input: AuthActivateDeviceInput) {
@@ -393,44 +451,57 @@ Deno.test("device activation client wrappers hide method strings", async () => {
               service: "trellis",
               operation: method,
               get() {
-                return AsyncResult.ok({
-                  id: "op_123",
-                  service: "trellis",
-                  operation: method,
-                  revision: 1,
-                  state: "completed",
-                  createdAt: "2026-04-08T11:55:00Z",
-                  updatedAt: "2026-04-08T12:00:00Z",
-                  completedAt: "2026-04-08T12:00:00Z",
-                  output: {
-                    status: "activated",
-                    instanceId: "dev_123",
-                    profileId: "reader.default",
-                    activatedAt: "2026-04-08T12:00:00Z",
-                  },
-                } satisfies OperationSnapshot<unknown, AuthActivateDeviceOutput>);
+                return AsyncResult.ok(
+                  {
+                    id: "op_123",
+                    service: "trellis",
+                    operation: method,
+                    revision: 1,
+                    state: "completed",
+                    createdAt: "2026-04-08T11:55:00Z",
+                    updatedAt: "2026-04-08T12:00:00Z",
+                    completedAt: "2026-04-08T12:00:00Z",
+                    output: {
+                      status: "activated",
+                      instanceId: "dev_123",
+                      profileId: "reader.default",
+                      activatedAt: "2026-04-08T12:00:00Z",
+                    },
+                  } satisfies OperationSnapshot<
+                    unknown,
+                    AuthActivateDeviceOutput
+                  >,
+                );
               },
               wait() {
-                return AsyncResult.ok({
-                  id: "op_123",
-                  service: "trellis",
-                  operation: method,
-                  revision: 1,
-                  state: "completed",
-                  createdAt: "2026-04-08T11:55:00Z",
-                  updatedAt: "2026-04-08T12:00:00Z",
-                  completedAt: "2026-04-08T12:00:00Z",
-                  output: {
-                    status: "activated",
-                    instanceId: "dev_123",
-                    profileId: "reader.default",
-                    activatedAt: "2026-04-08T12:00:00Z",
-                  },
-                } satisfies TerminalOperation<AuthActivateDeviceProgress, AuthActivateDeviceOutput>);
+                return AsyncResult.ok(
+                  {
+                    id: "op_123",
+                    service: "trellis",
+                    operation: method,
+                    revision: 1,
+                    state: "completed",
+                    createdAt: "2026-04-08T11:55:00Z",
+                    updatedAt: "2026-04-08T12:00:00Z",
+                    completedAt: "2026-04-08T12:00:00Z",
+                    output: {
+                      status: "activated",
+                      instanceId: "dev_123",
+                      profileId: "reader.default",
+                      activatedAt: "2026-04-08T12:00:00Z",
+                    },
+                  } satisfies TerminalOperation<
+                    AuthActivateDeviceProgress,
+                    AuthActivateDeviceOutput
+                  >,
+                );
               },
               watch() {
                 return AsyncResult.ok((async function* (): AsyncIterable<
-                  OperationEvent<AuthActivateDeviceProgress, AuthActivateDeviceOutput>
+                  OperationEvent<
+                    AuthActivateDeviceProgress,
+                    AuthActivateDeviceOutput
+                  >
                 > {
                   yield {
                     type: "progress" as const,
@@ -481,7 +552,10 @@ Deno.test("device activation client wrappers hide method strings", async () => {
     input: Record<string, unknown>,
     _opts?: unknown,
   ): AsyncResult<GetDeviceConnectInfoOutput, never>;
-  function request(method: string, input: unknown): AsyncResult<unknown, never> {
+  function request(
+    method: string,
+    input: unknown,
+  ): AsyncResult<unknown, never> {
     calls.push({ kind: "request", method, input });
     switch (method) {
       case "Auth.ListDeviceActivations":
@@ -544,7 +618,9 @@ Deno.test("device activation client wrappers hide method strings", async () => {
   const pendingStatus = await activation.wait().orThrow();
   if (pendingStatus.output?.status !== "activated") {
     throw new Error(
-      `Expected activated output, received ${pendingStatus.output?.status ?? "missing"}`,
+      `Expected activated output, received ${
+        pendingStatus.output?.status ?? "missing"
+      }`,
     );
   }
   assertEquals(pendingStatus.output, {

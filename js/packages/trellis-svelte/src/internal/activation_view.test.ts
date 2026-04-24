@@ -33,7 +33,47 @@ Deno.test("mapDeviceActivationFailure uses auth error context reasons for expire
     {
       mode: "expired",
       flowId: "flow_123",
-      reason: "The activation request expired. Start again from the auth service.",
+      reason:
+        "The activation request expired. Start again from the auth service.",
+    },
+  );
+});
+
+Deno.test("mapDeviceActivationFailure uses terminal auth error messages", () => {
+  assertEquals(
+    mapDeviceActivationFailure("flow_123", {
+      message: "Auth failed: device_activation_flow_not_found",
+    }),
+    {
+      mode: "invalid_flow",
+      flowId: "flow_123",
+      reason: "This activation link is no longer valid.",
+    },
+  );
+  assertEquals(
+    mapDeviceActivationFailure("flow_123", {
+      message: "Auth failed: device_activation_flow_expired",
+    }),
+    {
+      mode: "expired",
+      flowId: "flow_123",
+      reason:
+        "The activation request expired. Start again from the auth service.",
+    },
+  );
+});
+
+Deno.test("mapDeviceActivationFailure gives a helpful generic invalid request message", () => {
+  assertEquals(
+    mapDeviceActivationFailure(
+      "flow_123",
+      new AuthError({ reason: "invalid_request" }),
+    ),
+    {
+      mode: "invalid_flow",
+      flowId: "flow_123",
+      reason:
+        "Trellis rejected this activation request. Start again from the device.",
     },
   );
 });

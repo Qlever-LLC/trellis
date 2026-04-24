@@ -220,7 +220,7 @@ const browserFlowsKVResult = await TypedKV.open(
   natsAuth,
   "trellis_browser_flows",
   AuthBrowserFlowSchema,
-  { history: 1, ttl: config.ttlMs.oauth },
+  { history: 1, ttl: Math.max(config.ttlMs.oauth, config.ttlMs.deviceFlow) },
 );
 const browserFlowsKVValue = browserFlowsKVResult.take();
 if (isErr(browserFlowsKVValue)) {

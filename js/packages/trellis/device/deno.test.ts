@@ -95,6 +95,82 @@ Deno.test("checkDeviceActivation starts activation and persists pending state wh
   }
 });
 
+Deno.test("checkDeviceActivation treats rate-limited pending waits as still pending", async () => {
+  const stateDir = await Deno.makeTempDir({ prefix: "trellis-device-state-" });
+  let activationCalls = 0;
+  let waitCalls = 0;
+
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = ((input: URL | Request | string) => {
+      const url = String(input);
+      if (url.endsWith("/bootstrap/device")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ status: "activation_required" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }
+
+      if (url.endsWith("/auth/devices/activate/requests")) {
+        activationCalls += 1;
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              flowId: "flow_rate_limited",
+              instanceId: "dev_123",
+              profileId: "reader.default",
+              activationUrl: activationUrl("flow_rate_limited"),
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        );
+      }
+
+      if (url.endsWith("/auth/devices/activate/wait")) {
+        waitCalls += 1;
+        return Promise.resolve(
+          new Response("Too many requests", { status: 429 }),
+        );
+      }
+
+      throw new Error(`Unexpected fetch ${url}`);
+    }) as typeof fetch;
+
+    const initialStatus = await checkDeviceActivation({
+      trellisUrl: "https://trellis.example.com",
+      contract: deviceContract,
+      rootSecret: rootSecretA,
+      stateDir,
+    });
+    assertEquals(initialStatus.status, "activation_required");
+
+    const resumedStatus = await checkDeviceActivation({
+      trellisUrl: "https://trellis.example.com",
+      contract: deviceContract,
+      rootSecret: rootSecretA,
+      stateDir,
+    });
+
+    assertEquals(resumedStatus.status, "activation_required");
+    if (resumedStatus.status === "activation_required") {
+      assertEquals(
+        resumedStatus.activationUrl,
+        activationUrl("flow_rate_limited"),
+      );
+    }
+    assertEquals(activationCalls, 1);
+    assertEquals(waitCalls, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await Deno.remove(stateDir, { recursive: true });
+  }
+});
+
 Deno.test("checkDeviceActivation retries bootstrap once on iat_out_of_range using server time", async () => {
   const stateDir = await Deno.makeTempDir({ prefix: "trellis-device-state-" });
   let bootstrapCalls = 0;
