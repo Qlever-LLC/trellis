@@ -57,6 +57,10 @@ and this project adheres to
 
 ### Added
 
+- Added `trellis-generate prepare --watch`, repo-local
+  `cargo xtask prepare-watch`, and JS/demo `prepare:watch` tasks so contract and
+  SDK artifacts can stay fresh during active service and app development; pass
+  `--changes` to print the file events that trigger regeneration.
 - Added a reusable Svelte `DeviceActivationController` for custom and built-in
   authenticated device portal flows.
 - Made service and activated-device runtime NATS lifecycle logging explicit so

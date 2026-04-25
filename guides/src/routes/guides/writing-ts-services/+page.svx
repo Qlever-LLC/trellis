@@ -339,6 +339,18 @@ Refresh generated artifacts from the project root with your repo-local task:
 deno task prepare
 ```
 
+While editing the contract, schemas, RPCs, operations, or events in a normal
+service/app development loop, run the watch task in another terminal:
+
+```sh
+deno task prepare:watch
+```
+
+Watch mode reruns the same prepare workflow on relevant source changes and
+filters out `.git/`, `.worktrees/`, generated artifacts, and `.gitignore` paths.
+If it reruns unexpectedly, invoke `trellis-generate prepare --watch --changes .`
+to print the triggering event kind and paths.
+
 ## 10. Generate an SDK for consumers
 
 Other services and apps that want to call your RPCs or subscribe to your events need a typed SDK package. Generate one as part of the same repo-local prepare/build flow rather than by teaching consumers standalone generator commands.

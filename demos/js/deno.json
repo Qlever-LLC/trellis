@@ -22,6 +22,7 @@
   ],
   "tasks": {
     "prepare": "cargo run --manifest-path ../../rust/tools/generate/Cargo.toml --bin trellis-generate -- prepare ..",
+    "prepare:watch": "cargo run --manifest-path ../../rust/tools/generate/Cargo.toml --bin trellis-generate -- prepare --watch ..",
     "check": "deno task prepare && deno task check:service:rpc && deno task check:device:rpc && deno task check:service:operation && deno task check:device:operation && deno task check:service:transfer && deno task check:device:transfer && deno task check:service:kv && deno task check:device:kv && deno task check:service:jobs && deno task check:device:jobs && deno task check:device:state && deno task check:app",
     "check:service:rpc": "deno task -c rpc/service/deno.json check:prepared",
     "check:device:rpc": "deno task -c rpc/device/deno.json check:prepared",

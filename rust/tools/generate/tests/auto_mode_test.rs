@@ -188,8 +188,8 @@ export default contract;
         .path()
         .join("generated/js/sdks/dashboard/client.ts")
         .exists());
-    let client = fs::read_to_string(temp.path().join("generated/js/sdks/dashboard/client.ts"))
-        .unwrap();
+    let client =
+        fs::read_to_string(temp.path().join("generated/js/sdks/dashboard/client.ts")).unwrap();
     assert!(client.contains(
         "request(method: \"Orders.Get\", input: OrdersSdk.OrdersGetInput, opts?: RequestOpts): AsyncResult<OrdersSdk.OrdersGetOutput, BaseError>;"
     ));

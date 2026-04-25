@@ -26,6 +26,12 @@ pub enum TopLevelCommand {
 
 #[derive(Debug, Args)]
 pub struct PrepareArgs {
+    #[arg(long)]
+    pub watch: bool,
+
+    #[arg(long, requires = "watch")]
+    pub changes: bool,
+
     #[arg(default_value = ".")]
     pub root: PathBuf,
 }
@@ -154,4 +160,45 @@ pub struct GenerateAllArgs {
 
     #[arg(long)]
     pub runtime_repo_root: Option<PathBuf>,
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser;
+
+    use super::{Cli, TopLevelCommand};
+
+    #[test]
+    fn prepare_accepts_watch_flag() {
+        let cli = Cli::try_parse_from(["trellis-generate", "prepare", "--watch", "."])
+            .expect("prepare --watch should parse");
+
+        let Some(TopLevelCommand::Prepare(args)) = cli.command else {
+            panic!("expected prepare command");
+        };
+
+        assert!(args.watch, "prepare --watch should set the watch flag");
+    }
+
+    #[test]
+    fn prepare_accepts_changes_flag_with_watch() {
+        let cli = Cli::try_parse_from(["trellis-generate", "prepare", "--watch", "--changes", "."])
+            .expect("prepare --watch --changes should parse");
+
+        let Some(TopLevelCommand::Prepare(args)) = cli.command else {
+            panic!("expected prepare command");
+        };
+
+        assert!(args.watch, "prepare --watch should set the watch flag");
+        assert!(
+            args.changes,
+            "prepare --changes should set the changes flag"
+        );
+    }
+
+    #[test]
+    fn prepare_rejects_changes_without_watch() {
+        Cli::try_parse_from(["trellis-generate", "prepare", "--changes", "."])
+            .expect_err("prepare --changes should require --watch");
+    }
 }

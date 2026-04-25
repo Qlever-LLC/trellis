@@ -39,7 +39,9 @@ Current TypeScript runtime entrypoints:
 For repository development workflows, prefer the repo-local prepare entrypoints:
 
 - `cd js && deno task prepare`
+- `cd js && deno task prepare:watch`
 - `cargo xtask prepare`
+- `cargo xtask prepare-watch`
 - `cargo xtask build`
 
 Normal operators only need `trellis`; repo generation flows stay behind those local tasks and wrappers.
@@ -48,6 +50,8 @@ If you build or install Rust binaries from this repo directly, run `cargo xtask 
 first so the generated Rust SDK crates under `generated/rust/sdks/` exist.
 `cargo xtask build` is the convenient Rust-side wrapper for `prepare` followed by
 `cargo build`.
+Use `cargo xtask prepare-watch` during active contract development to rerun
+prepare when relevant sources change.
 
 ## Design documents
 

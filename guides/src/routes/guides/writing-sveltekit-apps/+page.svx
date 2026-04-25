@@ -60,6 +60,7 @@ A simple setup that ensures this:
 {
   "tasks": {
     "prepare": "deno task -c ../../deno.json prepare",
+    "prepare:watch": "deno task -c ../../deno.json prepare:watch",
     "dev": "deno task prepare && vite dev",
     "build": "deno task prepare && vite build",
     "check": "deno task prepare && svelte-kit sync && svelte-check --tsconfig ./tsconfig.check.json"
@@ -68,6 +69,13 @@ A simple setup that ensures this:
 ```
 
 `prepare` generates the app SDK under `generated/js/sdks/my-app/`, including a concrete `client.ts` facade type for editor-friendly browser code. Regenerate whenever the contract changes.
+
+For active app or service-contract editing, keep `deno task prepare:watch`
+running in a separate terminal. It reruns the same prepare workflow when relevant
+source files change while ignoring `.git/`, `.worktrees/`, generated artifacts,
+and paths covered by `.gitignore`. Use `trellis-generate prepare --watch
+--changes .` only when you need to see the event kind and path that triggered a
+rerun.
 
 ## 3. Create one app-local Trellis context module
 

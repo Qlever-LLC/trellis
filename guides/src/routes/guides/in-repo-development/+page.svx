@@ -48,6 +48,19 @@ and manifests required for the main Rust workspace.
 
 Rust-first workflows can run the same repo-local generation step with `cargo xtask prepare`.
 
+When you are actively editing contracts or files they import, run the watch form
+in a separate terminal instead of manually rerunning prepare after every edit:
+
+```sh
+cargo xtask prepare-watch
+```
+
+The JS workspace exposes the same workflow as `cd js && deno task prepare:watch`.
+Watch mode respects `.gitignore`, ignores `.git/`, `.worktrees/`, and generated
+artifact directories, and reruns the same prepare planner used by CI. If you need
+to diagnose why it reran, call `trellis-generate prepare --watch --changes .` to
+print the triggering event kind and paths.
+
 The commands below use the installed `trellis` CLI directly.
 
 ```sh
@@ -236,7 +249,7 @@ Open `http://localhost:5173` in your browser and complete the OAuth login with t
 
 - **Runtime changes** — edit files under `js/services/trellis/` or `js/packages/`. The `deno task dev` watcher restarts the process automatically.
 - **Console changes** — edit files under `js/apps/console/`. Vite HMR applies changes in-place.
-- **Contract changes** — run `cd js && deno task prepare` to regenerate SDKs with `trellis-generate`, then restart the affected service.
+- **Contract changes** — run `cd js && deno task prepare` to regenerate SDKs with `trellis-generate`, or keep `cd js && deno task prepare:watch` running during active contract work. Restart affected services after generated artifacts change.
 - **CLI changes** — run `cargo build -p trellis-cli` in the `rust/` directory, then re-run `trellis ...` commands from the repo root.
 - **Type checking** — run `deno task -c js/deno.json check` to type-check the full JS workspace.
 - **Tests** — run `deno task -c js/deno.json test:contracts` or `deno task -c js/deno.json test:auth`.

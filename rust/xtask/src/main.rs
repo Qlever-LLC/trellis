@@ -5,6 +5,7 @@ use std::process::{Command, ExitCode};
 #[derive(Debug, Clone, Eq, PartialEq)]
 enum XtaskCommand {
     Prepare,
+    PrepareWatch,
     Build(Vec<String>),
 }
 
@@ -21,6 +22,7 @@ fn main() -> ExitCode {
 fn run() -> Result<(), String> {
     match parse_command(env::args().skip(1))? {
         XtaskCommand::Prepare => run_prepare(),
+        XtaskCommand::PrepareWatch => run_prepare_watch(),
         XtaskCommand::Build(args) => run_build(&args),
     }
 }
@@ -37,6 +39,13 @@ where
                 Ok(XtaskCommand::Prepare)
             }
         }
+        Some("prepare-watch") => {
+            if let Some(extra) = args.next() {
+                Err(format!("unexpected argument `{extra}`\n{}", usage_text()))
+            } else {
+                Ok(XtaskCommand::PrepareWatch)
+            }
+        }
         Some("build") => Ok(XtaskCommand::Build(args.collect())),
         Some(command) => Err(format!(
             "unsupported xtask command `{command}`\n{}",
@@ -47,10 +56,18 @@ where
 }
 
 fn usage_text() -> &'static str {
-    "usage: cargo xtask prepare | cargo xtask build [cargo-build-args...]"
+    "usage: cargo xtask prepare | cargo xtask prepare-watch | cargo xtask build [cargo-build-args...]"
 }
 
 fn run_prepare() -> Result<(), String> {
+    run_generate_prepare(&[])
+}
+
+fn run_prepare_watch() -> Result<(), String> {
+    run_generate_prepare(&["--watch"])
+}
+
+fn run_generate_prepare(extra_args: &[&str]) -> Result<(), String> {
     let repo_root = repo_root()?;
     let bootstrap_manifest = repo_root.join("rust/tools/generate/Cargo.toml");
     let status = Command::new("cargo")
@@ -62,6 +79,7 @@ fn run_prepare() -> Result<(), String> {
         .arg("trellis-generate")
         .arg("--")
         .arg("prepare")
+        .args(extra_args)
         .arg(".")
         .status()
         .map_err(|error| format!("failed to run cargo for prepare workflow: {error}"))?;
@@ -113,6 +131,13 @@ mod tests {
     }
 
     #[test]
+    fn parse_prepare_watch_command() {
+        let command =
+            parse_command(["prepare-watch".to_string()].into_iter()).expect("parse prepare-watch");
+        assert_eq!(command, XtaskCommand::PrepareWatch);
+    }
+
+    #[test]
     fn parse_build_command_preserves_passthrough_args() {
         let command = parse_command(
             ["build", "--workspace", "--release"]
@@ -130,6 +155,17 @@ mod tests {
     fn prepare_rejects_extra_args() {
         let error = parse_command(["prepare", "--workspace"].into_iter().map(str::to_string))
             .expect_err("prepare should reject extra args");
+        assert!(error.contains("unexpected argument `--workspace`"));
+    }
+
+    #[test]
+    fn prepare_watch_rejects_extra_args() {
+        let error = parse_command(
+            ["prepare-watch", "--workspace"]
+                .into_iter()
+                .map(str::to_string),
+        )
+        .expect_err("prepare-watch should reject extra args");
         assert!(error.contains("unexpected argument `--workspace`"));
     }
 }

@@ -39,6 +39,18 @@ Supported demos:
 deno task -c demos/js/deno.json prepare
 ```
 
+During active contract or browser-app work, keep generated demo SDKs fresh with
+the watch task instead:
+
+```sh
+deno task -c demos/js/deno.json prepare:watch
+```
+
+The watch task reruns prepare for relevant source changes while ignoring
+`.git/`, `.worktrees/`, `generated/`, and paths ignored by `.gitignore`. If you
+need to see which file event triggered a rerun, run the underlying generator with
+`--changes`.
+
 If you are editing a specific demo, run that demo's focused `check:prepared`
 task instead of the workspace-wide `check` task.
 

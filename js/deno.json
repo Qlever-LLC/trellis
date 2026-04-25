@@ -12,6 +12,7 @@
   "tasks": {
     "contracts:verify": "cargo run --manifest-path ../rust/tools/generate/Cargo.toml --bin trellis-generate -- discover ./services/trellis",
     "prepare": "cargo run --manifest-path ../rust/tools/generate/Cargo.toml --bin trellis-generate -- prepare ..",
+    "prepare:watch": "cargo run --manifest-path ../rust/tools/generate/Cargo.toml --bin trellis-generate -- prepare --watch ..",
     "release:bump-base": "deno run -A tools/release/bump_checked_in_versions.ts",
     "packages:build:npm": "deno task -c packages/result/deno.json build:npm && deno task -c packages/trellis-sdk/deno.json build:npm && deno task -c packages/trellis/deno.json build:npm && deno task -c packages/trellis-svelte/deno.json build:npm",
     "generated:build:npm": "bash -lc 'cd ../generated/js/sdks/auth && deno run --config ../../../../js/deno.json -A ./scripts/build_npm.ts && cd ../trellis-core && deno run --config ../../../../js/deno.json -A ./scripts/build_npm.ts && cd ../activity && deno run --config ../../../../js/deno.json -A ./scripts/build_npm.ts && cd ../health && deno run --config ../../../../js/deno.json -A ./scripts/build_npm.ts && cd ../state && deno run --config ../../../../js/deno.json -A ./scripts/build_npm.ts'",

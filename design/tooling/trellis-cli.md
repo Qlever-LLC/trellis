@@ -55,7 +55,9 @@ machine-global generator commands:
 
 ```text
 cd js && deno task prepare
+cd js && deno task prepare:watch
 cargo xtask prepare
+cargo xtask prepare-watch
 cargo xtask build
 ```
 
@@ -63,6 +65,15 @@ Those tasks route to `trellis-generate`, which can run before the main `trellis`
 CLI is buildable from a clean checkout. `cargo xtask prepare` shells into the
 bootstrap generator from the Rust workspace. `deno task prepare` does the same
 for the JS workspace.
+
+During active contract development, `prepare:watch` and
+`cargo xtask prepare-watch` keep the same prepare workflow running in the
+background. Watch mode observes the chosen project root, filters events through
+`.gitignore`, and always ignores `.git/`, `.worktrees/`, and `generated/` so
+repository scans and generated artifact writes do not loop back into prepare.
+Change diagnostics are quiet by default; direct `trellis-generate` callers may
+add `--changes` with `--watch` to print the event kind and paths that triggered
+a rerun.
 
 Rust contributors should run `cargo xtask prepare` before `cargo build` or
 `cargo install --path rust/crates/cli`, because the Rust workspace depends on
@@ -74,6 +85,7 @@ scripts, wrappers, and CI:
 
 ```text
 trellis-generate
+trellis-generate prepare [--watch [--changes]] <path>
 trellis-generate discover <path>
 trellis-generate generate manifest (--source <file> | --manifest <file> | --image <ref>) --out <file>
 trellis-generate generate ts (--source <file> | --manifest <file> | --image <ref>) --out <dir>
