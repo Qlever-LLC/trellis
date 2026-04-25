@@ -2,10 +2,8 @@
 
 @plugin "@tailwindcss/typography";
 
-@plugin "daisyui" {
-  themes:
-    business --default,
-    dracula --prefersdark;
+@plugin "daisyui/index.js" {
+  themes: business --default, dracula --prefersdark;
   logs: false;
 }
 

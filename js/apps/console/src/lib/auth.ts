@@ -1,18 +1,14 @@
 import { resolve } from "$app/paths";
 import {
   bindFlow,
+  type BindResponse,
   clearSessionKey,
   getOrCreateSessionKey,
-  type BindResponse,
   type SessionKeyHandle,
 } from "@qlever-llc/trellis";
 import { startAuthRequest } from "@qlever-llc/trellis/auth";
-import contract from "./contract.ts";
-import {
-  APP_CONFIG,
-  buildAppCallbackUrl,
-  buildAppLoginUrl,
-} from "./config.ts";
+import contract from "../../contract.ts";
+import { APP_CONFIG, buildAppCallbackUrl, buildAppLoginUrl } from "./config.ts";
 
 type AuthCallbackResult =
   | BindResponse
@@ -33,13 +29,19 @@ class ConsoleAuthState {
     return this.#handle;
   }
 
-  async handleCallback(callbackUrl: string): Promise<AuthCallbackResult | null> {
+  async handleCallback(
+    callbackUrl: string,
+  ): Promise<AuthCallbackResult | null> {
     const url = new URL(callbackUrl);
     const flowId = url.searchParams.get("flowId");
     if (!flowId) return null;
 
     try {
-      return await bindFlow({ authUrl: this.#requireAuthUrl() }, await this.init(), flowId);
+      return await bindFlow(
+        { authUrl: this.#requireAuthUrl() },
+        await this.init(),
+        flowId,
+      );
     } catch (error) {
       return {
         status: "error",
@@ -48,7 +50,9 @@ class ConsoleAuthState {
     }
   }
 
-  async signIn(options: { authUrl?: string; redirectTo: string }): Promise<never> {
+  async signIn(
+    options: { authUrl?: string; redirectTo: string },
+  ): Promise<never> {
     if (options.authUrl) {
       this.setAuthUrl(options.authUrl);
     }
@@ -98,7 +102,9 @@ class ConsoleAuthState {
 export const auth = new ConsoleAuthState();
 
 function toUrl(location: URL | Location): URL {
-  return location instanceof URL ? new URL(location.toString()) : new URL(location.href);
+  return location instanceof URL
+    ? new URL(location.toString())
+    : new URL(location.href);
 }
 
 export function resolveConsolePath(
@@ -118,7 +124,9 @@ export function resolveConsolePath(
   }
 
   if (appBase && url.pathname.startsWith(`${appBase}/`)) {
-    return `${appBase}${url.pathname.slice(appBase.length)}${url.search}${url.hash}`;
+    return `${appBase}${
+      url.pathname.slice(appBase.length)
+    }${url.search}${url.hash}`;
   }
 
   return `${appBase}${url.pathname}${url.search}${url.hash}`;
@@ -129,7 +137,10 @@ export function getConsoleRedirectTarget(
   fallback = "/profile",
 ): string {
   const currentUrl = toUrl(location);
-  return resolveConsolePath(currentUrl.searchParams.get("redirectTo") ?? fallback, currentUrl);
+  return resolveConsolePath(
+    currentUrl.searchParams.get("redirectTo") ?? fallback,
+    currentUrl,
+  );
 }
 
 export function buildConsoleLoginUrl(options: {

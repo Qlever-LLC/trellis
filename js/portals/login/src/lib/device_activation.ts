@@ -1,9 +1,9 @@
 import {
   bindFlow,
-  getOrCreateSessionKey,
-  TrellisClient,
   type BindResponse,
+  getOrCreateSessionKey,
   type SessionKeyHandle,
+  TrellisClient,
 } from "@qlever-llc/trellis";
 import { startAuthRequest } from "@qlever-llc/trellis/auth";
 import {
@@ -11,7 +11,7 @@ import {
   type DeviceActivationAuth,
   type DeviceActivationOperationRef,
 } from "@qlever-llc/trellis-svelte";
-import { contract } from "./contract.ts";
+import { contract } from "../../contract.ts";
 import { trellisUrl } from "./config.ts";
 
 type DeviceActivationBindResult = Exclude<
@@ -56,7 +56,9 @@ function createPortalAuthState(): PortalAuthState {
       if (!flowId) return null;
 
       try {
-        return mapBindResponse(await bindFlow({ authUrl: trellisUrl }, await init(), flowId));
+        return mapBindResponse(
+          await bindFlow({ authUrl: trellisUrl }, await init(), flowId),
+        );
       } catch (error) {
         return {
           status: "error",
@@ -113,7 +115,9 @@ export function createPortalDeviceActivationController() {
       }).orThrow();
       const operation = Reflect.get(trellis as object, "operation");
       if (typeof operation !== "function") {
-        throw new TypeError("Connected Trellis client is missing operation support");
+        throw new TypeError(
+          "Connected Trellis client is missing operation support",
+        );
       }
       const activationClient: ActivateDeviceOperationClient = {
         operation: operation.bind(trellis),
@@ -129,7 +133,8 @@ export function createPortalDeviceActivationController() {
         },
       };
     },
-    sessionStorage:
-      typeof window === "undefined" ? undefined : window.sessionStorage,
+    sessionStorage: typeof window === "undefined"
+      ? undefined
+      : window.sessionStorage,
   });
 }

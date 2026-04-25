@@ -1,6 +1,6 @@
 import { createTrellisApp } from "@qlever-llc/trellis-svelte";
 import type { TrellisConsoleClient } from "../../../../../generated/js/sdks/console/client.ts";
-import contract from "./contract.ts";
+import contract from "../../contract.ts";
 
 export const trellisApp = createTrellisApp<
   typeof contract,

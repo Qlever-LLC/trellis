@@ -1,17 +1,18 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import adapter from "npm:@sveltejs/adapter-static";
-import { vitePreprocess } from "npm:@sveltejs/vite-plugin-svelte";
-import { escapeSvelte, mdsvex } from "npm:mdsvex";
-import rehypeAutolinkHeadings from "npm:rehype-autolink-headings";
-import rehypeSlug from "npm:rehype-slug";
-import remarkGfm from "npm:remark-gfm";
-import { codeToHtml } from "npm:shiki";
+import adapter from "@sveltejs/adapter-static";
+import { vitePreprocess } from "@sveltejs/vite-plugin-svelte";
+import { escapeSvelte, mdsvex } from "mdsvex";
+import rehypeAutolinkHeadings from "rehype-autolink-headings";
+import rehypeSlug from "rehype-slug";
+import remarkGfm from "remark-gfm";
+import { codeToHtml } from "shiki";
 
 const githubRepository = process.env.GITHUB_REPOSITORY;
 const guidesRoot = fileURLToPath(new URL(".", import.meta.url));
-const basePath = process.env.SITE_BASE_PATH ?? (githubRepository ? `/${githubRepository.split("/")[1]}` : "");
+const basePath = process.env.SITE_BASE_PATH ??
+  (githubRepository ? `/${githubRepository.split("/")[1]}` : "");
 const designRoot = fileURLToPath(new URL("../design", import.meta.url));
 
 function collectMarkdownFiles(dir) {
@@ -24,14 +25,19 @@ function collectMarkdownFiles(dir) {
   });
 }
 
-const designPrerenderEntries = collectMarkdownFiles(designRoot).map((filePath) => {
-  const relativePath = path.relative(designRoot, filePath).replaceAll("\\", "/");
-  const slug = relativePath
-    .replace(/\.md$/i, "")
-    .replace(/(?:^|\/)README$/i, "");
+const designPrerenderEntries = collectMarkdownFiles(designRoot).map(
+  (filePath) => {
+    const relativePath = path.relative(designRoot, filePath).replaceAll(
+      "\\",
+      "/",
+    );
+    const slug = relativePath
+      .replace(/\.md$/i, "")
+      .replace(/(?:^|\/)README$/i, "");
 
-  return slug ? `/design/${slug}` : "/design";
-});
+    return slug ? `/design/${slug}` : "/design";
+  },
+);
 
 function prefixRootLinks(base) {
   return function transformer(tree) {
@@ -41,7 +47,10 @@ function prefixRootLinks(base) {
       }
 
       const href = node.properties?.href;
-      if (typeof href !== "string" || !href.startsWith("/") || href.startsWith("//")) {
+      if (
+        typeof href !== "string" || !href.startsWith("/") ||
+        href.startsWith("//")
+      ) {
         return;
       }
 
@@ -72,14 +81,18 @@ function rewriteDesignDocLinks() {
         return;
       }
 
-      const match = href.match(/^((?:\.{1,2}\/|\/design\/|design\/)[^?#]+)\.md((?:[?#].*)?)$/);
+      const match = href.match(
+        /^((?:\.{1,2}\/|\/design\/|design\/)[^?#]+)\.md((?:[?#].*)?)$/,
+      );
       if (!match) {
         return;
       }
 
       const [, markdownPath, suffix = ""] = match;
       if (markdownPath.startsWith("design/")) {
-        node.properties.href = `/${markdownPath.replace(/\.md$/i, "")}${suffix}`;
+        node.properties.href = `/${
+          markdownPath.replace(/\.md$/i, "")
+        }${suffix}`;
         return;
       }
 
@@ -89,7 +102,10 @@ function rewriteDesignDocLinks() {
 }
 function visit(node, callback) {
   callback(node);
-  if (!node || typeof node !== "object" || !("children" in node) || !Array.isArray(node.children)) {
+  if (
+    !node || typeof node !== "object" || !("children" in node) ||
+    !Array.isArray(node.children)
+  ) {
     return;
   }
   for (const child of node.children) {
@@ -110,7 +126,9 @@ async function highlighter(code, lang) {
 
   if (language === "mermaid") {
     return escapeSvelte(
-      `<pre class="shiki github-dark-default" style="background-color:#0d1117;color:#e6edf3"><code class="language-mermaid">${escapeHtml(code)}</code></pre>`,
+      `<pre class="shiki github-dark-default" style="background-color:#0d1117;color:#e6edf3"><code class="language-mermaid">${
+        escapeHtml(code)
+      }</code></pre>`,
     );
   }
 
@@ -147,7 +165,10 @@ const config = {
       remarkPlugins: [remarkGfm],
       rehypePlugins: [
         rehypeSlug,
-        [rehypeAutolinkHeadings, { behavior: "append", properties: { ariaHidden: "true", className: ["heading-anchor"] } }],
+        [rehypeAutolinkHeadings, {
+          behavior: "append",
+          properties: { ariaHidden: "true", className: ["heading-anchor"] },
+        }],
         rewriteDesignDocLinks,
         [prefixRootLinks, basePath],
       ],

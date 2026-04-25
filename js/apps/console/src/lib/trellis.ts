@@ -1,5 +1,5 @@
 import type { TrellisConsoleClient } from "../../../../../generated/js/sdks/console/client.ts";
-import contract from "./contract.ts";
+import contract from "../../contract.ts";
 import { APP_CONFIG } from "./config.ts";
 import { getConnection, getTrellis } from "./trellis-context.svelte.ts";
 export {
