@@ -1,38 +1,5 @@
 <script lang="ts">
   import { resolve } from "$app/paths";
-
-  const demoLinks = [
-    {
-      href: "/rpc",
-      label: "RPC",
-      detail: "Read a device record through a direct request.",
-    },
-    {
-      href: "/operation",
-      label: "Operation",
-      detail: "Run an inspection flow with tracked progress.",
-    },
-    {
-      href: "/transfer",
-      label: "Transfer",
-      detail: "View uploaded photos and attachments.",
-    },
-    {
-      href: "/kv",
-      label: "KV",
-      detail: "Check cached values and lookup data.",
-    },
-    {
-      href: "/jobs",
-      label: "Jobs",
-      detail: "Follow background processing work.",
-    },
-    {
-      href: "/state",
-      label: "State",
-      detail: "Inspect shared app state for the demo session.",
-    },
-  ] as const;
 </script>
 
 <svelte:head>
@@ -55,7 +22,7 @@
       </div>
 
       <div class="flex flex-wrap gap-3">
-        <a class="btn btn-primary" href={resolve("/login?redirectTo=/rpc")}>Sign in to start</a>
+        <a class="btn btn-primary" href={resolve("/rpc")}>Sign in to start</a>
         <a class="btn btn-outline" href={resolve("/rpc")}>Open RPC route</a>
       </div>
     </div>
@@ -66,16 +33,54 @@
       <h2 class="card-title text-xl">Demo routes</h2>
 
       <ul class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {#each demoLinks as link (link.href)}
-          <li>
-            <a class="card h-full border border-base-300/70 bg-base-100 transition-colors hover:border-primary/30 hover:bg-base-200" href={resolve(link.href)}>
-              <div class="card-body gap-2 p-4">
-                <span class="font-semibold">{link.label}</span>
-                <span class="text-sm text-base-content/70">{link.detail}</span>
-              </div>
-            </a>
-          </li>
-        {/each}
+        <li>
+          <a class="card h-full border border-base-300/70 bg-base-100 transition-colors hover:border-primary/30 hover:bg-base-200" href={resolve("/rpc")}>
+            <div class="card-body gap-2 p-4">
+              <span class="font-semibold">RPC</span>
+              <span class="text-sm text-base-content/70">Read a device record through a direct request.</span>
+            </div>
+          </a>
+        </li>
+        <li>
+          <a class="card h-full border border-base-300/70 bg-base-100 transition-colors hover:border-primary/30 hover:bg-base-200" href={resolve("/operation")}>
+            <div class="card-body gap-2 p-4">
+              <span class="font-semibold">Operation</span>
+              <span class="text-sm text-base-content/70">Run an inspection flow with tracked progress.</span>
+            </div>
+          </a>
+        </li>
+        <li>
+          <a class="card h-full border border-base-300/70 bg-base-100 transition-colors hover:border-primary/30 hover:bg-base-200" href={resolve("/transfer")}>
+            <div class="card-body gap-2 p-4">
+              <span class="font-semibold">Transfer</span>
+              <span class="text-sm text-base-content/70">View uploaded photos and attachments.</span>
+            </div>
+          </a>
+        </li>
+        <li>
+          <a class="card h-full border border-base-300/70 bg-base-100 transition-colors hover:border-primary/30 hover:bg-base-200" href={resolve("/kv")}>
+            <div class="card-body gap-2 p-4">
+              <span class="font-semibold">KV</span>
+              <span class="text-sm text-base-content/70">Check cached values and lookup data.</span>
+            </div>
+          </a>
+        </li>
+        <li>
+          <a class="card h-full border border-base-300/70 bg-base-100 transition-colors hover:border-primary/30 hover:bg-base-200" href={resolve("/jobs")}>
+            <div class="card-body gap-2 p-4">
+              <span class="font-semibold">Jobs</span>
+              <span class="text-sm text-base-content/70">Follow background processing work.</span>
+            </div>
+          </a>
+        </li>
+        <li>
+          <a class="card h-full border border-base-300/70 bg-base-100 transition-colors hover:border-primary/30 hover:bg-base-200" href={resolve("/state")}>
+            <div class="card-body gap-2 p-4">
+              <span class="font-semibold">State</span>
+              <span class="text-sm text-base-content/70">Inspect shared app state for the demo session.</span>
+            </div>
+          </a>
+        </li>
       </ul>
     </div>
   </div>

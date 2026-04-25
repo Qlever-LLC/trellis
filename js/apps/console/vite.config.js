@@ -11,8 +11,13 @@ function manualChunks(id) {
 
   if (id.includes("@opentelemetry")) return "vendor-observability";
   if (id.includes("@nats-io")) return "vendor-nats";
-  if (id.includes("typebox") || id.includes("json-schema-library")) return "vendor-schema";
-  if (id.includes("@sveltejs") || id.includes("svelte") || id.includes("esrap") || id.includes("clsx")) return "vendor-ui";
+  if (id.includes("typebox") || id.includes("json-schema-library")) {
+    return "vendor-schema";
+  }
+  if (
+    id.includes("@sveltejs") || id.includes("svelte") || id.includes("esrap") ||
+    id.includes("clsx")
+  ) return "vendor-ui";
   return "vendor-misc";
 }
 
@@ -23,19 +28,19 @@ const config = {
     rollupOptions: {
       external: ["@nats-io/transport-deno"],
       output: {
-        manualChunks
-      }
-    }
+        manualChunks,
+      },
+    },
   },
   resolve: {
     dedupe: ["svelte"],
-    alias: frontendWorkspaceAliases()
+    alias: frontendWorkspaceAliases(),
   },
   server: {
     fs: {
-      allow: [resolve(rootDir, "../../..")]
-    }
-  }
+      allow: [resolve(rootDir, "../../..")],
+    },
+  },
 };
 
 export default config;

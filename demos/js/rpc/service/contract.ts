@@ -1,5 +1,6 @@
 import { defineServiceContract } from "@qlever-llc/trellis/contracts";
-import { auth, health } from "@qlever-llc/trellis-sdk";
+import { auth } from "@qlever-llc/trellis/sdk/auth";
+import { health } from "@qlever-llc/trellis/sdk/health";
 import * as schemas from "./src/schemas/index.ts";
 
 export const contract = defineServiceContract({

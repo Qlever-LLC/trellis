@@ -1,7 +1,9 @@
 import { defineDeviceContract } from "@qlever-llc/trellis";
 import { Type } from "typebox";
 
-import { auth, health, state } from "@qlever-llc/trellis-sdk";
+import { auth } from "@qlever-llc/trellis/sdk/auth";
+import { health } from "@qlever-llc/trellis/sdk/health";
+import { state } from "@qlever-llc/trellis/sdk/state";
 
 const schemas = {
   SelectedSiteState: Type.Object({

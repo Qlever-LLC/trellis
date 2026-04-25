@@ -259,7 +259,7 @@ This makes imported SDK modules the source of truth for remote dependency names
 in TypeScript authoring.
 
 Some SDKs may also expose convenience wrappers around `use(...)`. For example,
-`@qlever-llc/trellis-sdk` exposes `auth.useDefaults(...)`, which adds the
+`@qlever-llc/trellis/sdk/auth` exposes `auth.useDefaults(...)`, which adds the
 baseline user-session RPC declarations `Auth.Me` and `Auth.Logout` before
 merging any additional requested auth surfaces.
 

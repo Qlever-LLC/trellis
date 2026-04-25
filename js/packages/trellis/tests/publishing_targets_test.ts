@@ -7,11 +7,13 @@ Deno.test("workspace npm build task only builds the supported published packages
   const source = await Deno.readFile(
     new URL("../../../deno.json", import.meta.url),
   );
-  const config = parse(decoder.decode(source)) as { tasks: Record<string, string> };
+  const config = parse(decoder.decode(source)) as {
+    tasks: Record<string, string>;
+  };
 
   assertEquals(
     config.tasks["packages:build:npm"],
-    "deno task -c packages/result/deno.json build:npm && deno task -c packages/trellis-sdk/deno.json build:npm && deno task -c packages/trellis/deno.json build:npm && deno task -c packages/trellis-svelte/deno.json build:npm",
+    "deno task -c packages/result/deno.json build:npm && deno task -c packages/trellis/deno.json build:npm && deno task -c packages/trellis-svelte/deno.json build:npm",
   );
   assertEquals(
     config.tasks["build:npm"],
@@ -19,37 +21,32 @@ Deno.test("workspace npm build task only builds the supported published packages
   );
 });
 
-Deno.test("trellis-sdk package exports the first-party SDK subpaths", async () => {
+Deno.test("trellis package exports the first-party SDK subpaths", async () => {
   const source = await Deno.readTextFile(
-    new URL("../../trellis-sdk/deno.json", import.meta.url),
+    new URL("../deno.json", import.meta.url),
   );
 
-  assertStringIncludes(source, '".": "./mod.ts"');
-  assertStringIncludes(source, '"./activity": "./activity.ts"');
-  assertStringIncludes(source, '"./auth": "./auth.ts"');
-  assertStringIncludes(source, '"./core": "./core.ts"');
-  assertStringIncludes(source, '"./health": "./health.ts"');
-  assertStringIncludes(source, '"./jobs": "./jobs.ts"');
-  assertStringIncludes(source, '"./state": "./state.ts"');
+  assertStringIncludes(source, '"./sdk/activity": "./sdk/activity.ts"');
+  assertStringIncludes(source, '"./sdk/auth": "./sdk/auth.ts"');
+  assertStringIncludes(source, '"./sdk/core": "./sdk/core.ts"');
+  assertStringIncludes(source, '"./sdk/health": "./sdk/health.ts"');
+  assertStringIncludes(source, '"./sdk/jobs": "./sdk/jobs.ts"');
+  assertStringIncludes(source, '"./sdk/state": "./sdk/state.ts"');
 });
 
-Deno.test("workspace config exposes the trellis-sdk root alias", async () => {
+Deno.test("workspace config exposes the trellis sdk subpath aliases", async () => {
   const source = await Deno.readTextFile(
     new URL("../../../deno.json", import.meta.url),
   );
 
-  assertStringIncludes(source, '"@qlever-llc/trellis-sdk": "./packages/trellis-sdk/mod.ts"');
-  assertStringIncludes(source, '"@qlever-llc/trellis-sdk/jobs": "./packages/trellis-sdk/jobs.ts"');
-});
-
-Deno.test("trellis-sdk npm build includes the folded jobs sdk", async () => {
-  const source = await Deno.readTextFile(
-    new URL("../../trellis-sdk/scripts/build_npm.ts", import.meta.url),
+  assertStringIncludes(
+    source,
+    '"@qlever-llc/trellis/sdk/jobs": "./packages/trellis/sdk/jobs.ts"',
   );
-
-  assertStringIncludes(source, '"./generated/js/sdks/jobs/mod.ts"');
-  assertStringIncludes(source, 'export { trellisJobs as jobs } from "./jobs/mod.js";');
-  assertStringIncludes(source, '.replace(/^\\.\\/generated\\/js\\/sdks\\/jobs\\/mod$/, "./jobs")');
+  assertStringIncludes(
+    source,
+    '"@qlever-llc/trellis/sdk/auth": "./packages/trellis/sdk/auth.ts"',
+  );
 });
 
 Deno.test("trellis npm build depends on the standalone result package name", async () => {

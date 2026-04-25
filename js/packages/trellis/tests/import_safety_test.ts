@@ -21,7 +21,8 @@ Deno.test("root package import does not require the trellis-sdk package", async 
       JSON.stringify({
         imports: {
           ...imports,
-          "@qlever-llc/trellis-sdk/core": "./missing/generated/trellis-core/mod.ts",
+          "@qlever-llc/trellis/sdk/core":
+            "./missing/generated/trellis-core/mod.ts",
         },
         nodeModulesDir: "auto",
       }),

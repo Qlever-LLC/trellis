@@ -2,7 +2,7 @@ import { connect } from "@nats-io/transport-deno";
 import { assertEquals, assertExists } from "@std/assert";
 import { Type } from "typebox";
 import { defineServiceContract } from "../contract.ts";
-import { auth } from "@qlever-llc/trellis-sdk/auth";
+import { auth } from "@qlever-llc/trellis/sdk/auth";
 import { AsyncResult, ok } from "../index.ts";
 import { TrellisServer } from "../server/mod.ts";
 import { createClient } from "../client.ts";
@@ -97,7 +97,9 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
   return { promise, resolve };
 }
 
-function startPermissiveAuthResponder(nc: Awaited<ReturnType<typeof NatsTest.start>>["nc"]): void {
+function startPermissiveAuthResponder(
+  nc: Awaited<ReturnType<typeof NatsTest.start>>["nc"],
+): void {
   const sub = nc.subscribe("rpc.v1.Auth.ValidateRequest");
   void (async () => {
     for await (const msg of sub) {
@@ -114,7 +116,12 @@ function startPermissiveAuthResponder(nc: Awaited<ReturnType<typeof NatsTest.sta
           active: true,
           name: "Test User",
           email: "test@example.com",
-          capabilities: ["billing.refund", "billing.read", "billing.cancel", "service"],
+          capabilities: [
+            "billing.refund",
+            "billing.read",
+            "billing.cancel",
+            "service",
+          ],
         },
       }));
     }
@@ -158,10 +165,11 @@ Deno.test({
         id: "job_123",
         service: "billing-server",
         type: "submit-refund",
-        wait: () => AsyncResult.from((async () => {
-          await jobDone.promise;
-          return ok(undefined);
-        })()),
+        wait: () =>
+          AsyncResult.from((async () => {
+            await jobDone.promise;
+            return ok(undefined);
+          })()),
       };
 
       void (async () => {

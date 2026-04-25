@@ -215,10 +215,11 @@ pending-review step:
 
 ### 7) Device records
 
-The flow uses four durable record families, one short-lived browser flow
-record, and one auth-owned secret record.
+The flow uses four durable record families, one short-lived browser flow record,
+and one auth-owned secret record.
 
-`AuthBrowserFlow(kind="device_activation")` preserves QR context across login or account creation.
+`AuthBrowserFlow(kind="device_activation")` preserves QR context across login or
+account creation.
 
 ```json
 {
@@ -530,7 +531,9 @@ declare function verifyDeviceConfirmationCode(args: {
 
 type AuthActivateDeviceOperation = {
   watch(): AsyncResult<
-    AsyncIterable<OperationEvent<AuthActivateDeviceProgress, AuthActivateDeviceOutput>>,
+    AsyncIterable<
+      OperationEvent<AuthActivateDeviceProgress, AuthActivateDeviceOutput>
+    >,
     BaseError
   >;
   wait(): AsyncResult<
@@ -551,7 +554,9 @@ declare function createDeviceActivationClient(client: {
     };
   };
 }): {
-  activateDevice(input: { flowId: string }): Promise<AuthActivateDeviceOperation>;
+  activateDevice(
+    input: { flowId: string },
+  ): Promise<AuthActivateDeviceOperation>;
   listDeviceActivations(input?: {
     instanceId?: string;
     profileId?: string;
@@ -587,44 +592,49 @@ declare const TrellisDevice: {
     };
     rootSecret: Uint8Array | string;
     log?: LoggerLike | false;
-  }): AsyncResult<TrellisDeviceConnection<TApi>, TransportError | UnexpectedError>;
+  }): AsyncResult<
+    TrellisDeviceConnection<TApi>,
+    TransportError | UnexpectedError
+  >;
 };
 ```
 
 ```ts
 declare module "@qlever-llc/trellis/device/deno" {
-type TrellisDeviceActivatedStatus = {
-  status: "activated";
-};
-
-type TrellisDeviceNotReadyStatus = {
-  status: "not_ready";
-  reason: string;
-};
-
-type TrellisDeviceActivationRequiredStatus = {
-  status: "activation_required";
-  activationUrl: string;
-  waitForOnlineApproval(opts?: { signal?: AbortSignal }): Promise<TrellisDeviceActivatedStatus>;
-  acceptConfirmationCode(code: string): Promise<TrellisDeviceActivatedStatus>;
-};
-
-type TrellisDeviceActivationStatus =
-  | TrellisDeviceActivatedStatus
-  | TrellisDeviceNotReadyStatus
-  | TrellisDeviceActivationRequiredStatus;
-
-declare function checkDeviceActivation<TApi extends TrellisAPI>(args: {
-  trellisUrl: string;
-  contract: {
-    CONTRACT_ID: string;
-    CONTRACT_DIGEST: string;
-    API: { trellis: TApi };
+  type TrellisDeviceActivatedStatus = {
+    status: "activated";
   };
-  rootSecret: Uint8Array | string;
-  stateDir?: string;
-  statePath?: string;
-}): Promise<TrellisDeviceActivationStatus>;
+
+  type TrellisDeviceNotReadyStatus = {
+    status: "not_ready";
+    reason: string;
+  };
+
+  type TrellisDeviceActivationRequiredStatus = {
+    status: "activation_required";
+    activationUrl: string;
+    waitForOnlineApproval(
+      opts?: { signal?: AbortSignal },
+    ): Promise<TrellisDeviceActivatedStatus>;
+    acceptConfirmationCode(code: string): Promise<TrellisDeviceActivatedStatus>;
+  };
+
+  type TrellisDeviceActivationStatus =
+    | TrellisDeviceActivatedStatus
+    | TrellisDeviceNotReadyStatus
+    | TrellisDeviceActivationRequiredStatus;
+
+  declare function checkDeviceActivation<TApi extends TrellisAPI>(args: {
+    trellisUrl: string;
+    contract: {
+      CONTRACT_ID: string;
+      CONTRACT_DIGEST: string;
+      API: { trellis: TApi };
+    };
+    rootSecret: Uint8Array | string;
+    stateDir?: string;
+    statePath?: string;
+  }): Promise<TrellisDeviceActivationStatus>;
 }
 ```
 
@@ -634,7 +644,8 @@ Rules:
   and persist only the device root secret directly; any Deno activation-state
   persistence belongs to `checkDeviceActivation(...)`
 - `buildDeviceActivationUrl(...)` always targets Trellis at
-  `POST /auth/devices/activate/requests`; callers do not choose a portal URL directly
+  `POST /auth/devices/activate/requests`; callers do not choose a portal URL
+  directly
 - `waitForDeviceActivation(...)` polls the auth wait endpoint and returns once
   activation is ready
 - if the wait endpoint returns `{ status: "rejected" }`,
@@ -683,7 +694,7 @@ Rules:
 import { isErr, TrellisDevice } from "@qlever-llc/trellis";
 import { checkDeviceActivation } from "@qlever-llc/trellis/device/deno";
 import { defineDeviceContract } from "@qlever-llc/trellis/contracts";
-import { auth } from "@qlever-llc/trellis-sdk";
+import { auth } from "@qlever-llc/trellis/sdk/auth";
 
 export const device = defineDeviceContract(() => ({
   id: "acme.demo-device@v1",

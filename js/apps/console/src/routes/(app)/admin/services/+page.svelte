@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { AuthListServiceProfilesOutput } from "@qlever-llc/trellis-sdk/auth";
+  import type { AuthListServiceProfilesOutput } from "@qlever-llc/trellis/sdk/auth";
   import { onMount } from "svelte";
   import { errorMessage } from "../../../../lib/format";
   import { getNotifications } from "../../../../lib/notifications.svelte";

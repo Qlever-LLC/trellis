@@ -1,6 +1,10 @@
 import { AsyncResult, BaseError, UnexpectedError } from "@qlever-llc/result";
 import { deepEqual } from "node:assert/strict";
-import type { JobsListInput, JobsListOutput, JobsListServicesOutput } from "@qlever-llc/trellis-sdk/jobs";
+import type {
+  JobsListInput,
+  JobsListOutput,
+  JobsListServicesOutput,
+} from "@qlever-llc/trellis/sdk/jobs";
 
 import { loadJobsPageData } from "./jobs_page.ts";
 
@@ -10,32 +14,41 @@ declare const Deno: {
 
 Deno.test("loadJobsPageData requests jobs and services with the provided filter", async () => {
   const calls: Array<{ method: string; input: unknown }> = [];
-  function request(method: "Jobs.ListServices", input: Record<string, never>): AsyncResult<JobsListServicesOutput, BaseError>;
-  function request(method: "Jobs.List", input: JobsListInput): AsyncResult<JobsListOutput, BaseError>;
-  function request(method: "Jobs.ListServices" | "Jobs.List", input: Record<string, never> | JobsListInput): AsyncResult<JobsListServicesOutput | JobsListOutput, BaseError> {
-      calls.push({ method, input });
-      if (method === "Jobs.ListServices") {
-        return AsyncResult.ok<JobsListServicesOutput>({
-          services: [{ name: "documents", healthy: true, workers: [] }],
-        });
-      }
-
-      return AsyncResult.ok<JobsListOutput>({
-        jobs: [
-          {
-            id: "job-1",
-            service: "documents",
-            type: "document-process",
-            state: "pending",
-            payload: null,
-            createdAt: "2026-01-01T00:00:00.000Z",
-            updatedAt: "2026-01-01T00:00:00.000Z",
-            tries: 0,
-            maxTries: 3,
-          },
-        ],
+  function request(
+    method: "Jobs.ListServices",
+    input: Record<string, never>,
+  ): AsyncResult<JobsListServicesOutput, BaseError>;
+  function request(
+    method: "Jobs.List",
+    input: JobsListInput,
+  ): AsyncResult<JobsListOutput, BaseError>;
+  function request(
+    method: "Jobs.ListServices" | "Jobs.List",
+    input: Record<string, never> | JobsListInput,
+  ): AsyncResult<JobsListServicesOutput | JobsListOutput, BaseError> {
+    calls.push({ method, input });
+    if (method === "Jobs.ListServices") {
+      return AsyncResult.ok<JobsListServicesOutput>({
+        services: [{ name: "documents", healthy: true, workers: [] }],
       });
     }
+
+    return AsyncResult.ok<JobsListOutput>({
+      jobs: [
+        {
+          id: "job-1",
+          service: "documents",
+          type: "document-process",
+          state: "pending",
+          payload: null,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+          tries: 0,
+          maxTries: 3,
+        },
+      ],
+    });
+  }
   const data = await loadJobsPageData({
     listServices: () => request("Jobs.ListServices", {}),
     listJobs: (filter) => request("Jobs.List", filter),
@@ -50,9 +63,18 @@ Deno.test("loadJobsPageData requests jobs and services with the provided filter"
 });
 
 Deno.test("loadJobsPageData reports jobs service as unavailable when Jobs RPCs have no responders", async () => {
-  function request(method: "Jobs.ListServices", input: Record<string, never>): AsyncResult<JobsListServicesOutput, BaseError>;
-  function request(method: "Jobs.List", input: JobsListInput): AsyncResult<JobsListOutput, BaseError>;
-  function request(method: "Jobs.ListServices" | "Jobs.List", _input: Record<string, never> | JobsListInput): AsyncResult<JobsListServicesOutput | JobsListOutput, BaseError> {
+  function request(
+    method: "Jobs.ListServices",
+    input: Record<string, never>,
+  ): AsyncResult<JobsListServicesOutput, BaseError>;
+  function request(
+    method: "Jobs.List",
+    input: JobsListInput,
+  ): AsyncResult<JobsListOutput, BaseError>;
+  function request(
+    method: "Jobs.ListServices" | "Jobs.List",
+    _input: Record<string, never> | JobsListInput,
+  ): AsyncResult<JobsListServicesOutput | JobsListOutput, BaseError> {
     if (method === "Jobs.ListServices") {
       return AsyncResult.err(
         new UnexpectedError({
@@ -78,9 +100,18 @@ Deno.test("loadJobsPageData reports jobs service as unavailable when Jobs RPCs h
 });
 
 Deno.test("loadJobsPageData reports missing Jobs permissions with re-auth guidance", async () => {
-  function request(method: "Jobs.ListServices", input: Record<string, never>): AsyncResult<JobsListServicesOutput, BaseError>;
-  function request(method: "Jobs.List", input: JobsListInput): AsyncResult<JobsListOutput, BaseError>;
-  function request(method: "Jobs.ListServices" | "Jobs.List", _input: Record<string, never> | JobsListInput): AsyncResult<JobsListServicesOutput | JobsListOutput, BaseError> {
+  function request(
+    method: "Jobs.ListServices",
+    input: Record<string, never>,
+  ): AsyncResult<JobsListServicesOutput, BaseError>;
+  function request(
+    method: "Jobs.List",
+    input: JobsListInput,
+  ): AsyncResult<JobsListOutput, BaseError>;
+  function request(
+    method: "Jobs.ListServices" | "Jobs.List",
+    _input: Record<string, never> | JobsListInput,
+  ): AsyncResult<JobsListServicesOutput | JobsListOutput, BaseError> {
     if (method === "Jobs.ListServices") {
       return AsyncResult.err(
         new UnexpectedError({

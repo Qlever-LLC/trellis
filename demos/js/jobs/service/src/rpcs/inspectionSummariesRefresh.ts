@@ -20,10 +20,9 @@ export async function inspectionSummariesRefresh({
     message: `Queued summary refresh for ${input.siteId}`,
   };
 
-  const persisted = await trellis.kv.refreshStatuses.create(
-    created.id,
-    queuedStatus,
-  ).take();
+  const persisted = await trellis.kv.refreshStatuses
+    .create(created.id, queuedStatus)
+    .take();
   if (isErr(persisted)) {
     const current = await trellis.kv.refreshStatuses.get(created.id).take();
     if (isErr(current)) {

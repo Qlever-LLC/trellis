@@ -3,7 +3,7 @@
   import { base } from "$app/paths";
   import { page } from "$app/state";
   import { clearSessionKey } from "@qlever-llc/trellis";
-  import type { AuthMeOutput } from "@qlever-llc/trellis-sdk/auth";
+  import type { AuthMeOutput } from "@qlever-llc/trellis/sdk/auth";
   import type { Snippet } from "svelte";
   import { onDestroy, onMount } from "svelte";
   import {

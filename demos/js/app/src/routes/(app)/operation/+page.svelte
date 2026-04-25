@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { getTrellis } from "$lib/trellis";
+  import { getTrellis } from "$lib/trellis-context.ts";
   import type {
     InspectionReportGenerateOutput,
     InspectionReportGenerateProgress,
@@ -18,6 +18,12 @@
     state: "completed" | "failed" | "cancelled";
     output?: ReportOutput;
   };
+  type ReportOperationRef = {
+    id: string;
+    watch(): { orThrow(): Promise<AsyncIterable<ReportEvent>> };
+    wait(): { orThrow(): Promise<ReportTerminal> };
+    cancel(): { orThrow(): Promise<{ state: string }> };
+  };
 
   const trellis = getTrellis();
 
@@ -30,15 +36,6 @@
   let events = $state<Array<{ label: string; state: string }>>([]);
   let acceptedId = $state<string | null>(null);
   let terminal = $state<ReportTerminal | null>(null);
-  async function createOperationRef(inspectionId: string) {
-    return await trellis.operation("Inspection.Report.Generate")
-      .input({ inspectionId })
-      .start()
-      .orThrow();
-  }
-
-  type ReportOperationRef = Awaited<ReturnType<typeof createOperationRef>>;
-
   let currentRef: ReportOperationRef | null = null;
 
   async function loadAssignments(): Promise<void> {
@@ -90,7 +87,10 @@
     terminal = null;
 
     try {
-      const ref = await createOperationRef(selectedInspectionId);
+      const ref = await trellis.operation("Inspection.Report.Generate")
+        .input({ inspectionId: selectedInspectionId })
+        .start()
+        .orThrow();
       currentRef = ref;
       canCancel = true;
       acceptedId = ref.id;

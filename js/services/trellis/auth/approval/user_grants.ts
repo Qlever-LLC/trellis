@@ -1,9 +1,14 @@
-import { type AsyncResult, type BaseError, isErr, Result } from "@qlever-llc/result";
+import {
+  type AsyncResult,
+  type BaseError,
+  isErr,
+  Result,
+} from "@qlever-llc/result";
 import { AuthError } from "@qlever-llc/trellis";
 import type {
   AuthListUserGrantsInput,
   AuthListUserGrantsOutput,
-} from "../../../../../generated/js/sdks/auth/types.ts";
+} from "@qlever-llc/trellis/sdk/auth";
 
 import type {
   Connection,
@@ -14,7 +19,9 @@ import type {
 
 type KVLike = {
   get: (key: string) => AsyncResult<unknown, BaseError>;
-  keys: (filter: string) => AsyncResult<AsyncIterable<string> | unknown, BaseError>;
+  keys: (
+    filter: string,
+  ) => AsyncResult<AsyncIterable<string> | unknown, BaseError>;
   delete: (key: string) => AsyncResult<unknown, BaseError>;
 };
 
@@ -35,7 +42,9 @@ function requireUserCaller(caller: {
   origin?: string;
   id?: string;
 }): RpcUser {
-  if (caller.type !== "user" || !caller.trellisId || !caller.origin || !caller.id) {
+  if (
+    caller.type !== "user" || !caller.trellisId || !caller.origin || !caller.id
+  ) {
     throw new AuthError({ reason: "insufficient_permissions" });
   }
   return {
@@ -60,9 +69,11 @@ function unwrapValue<V>(entry: { value: V } | V): V {
 }
 
 function toUserGrant(approval: ContractApprovalRecord) {
-  const contractApproval = approval.approval as ContractApprovalRecord["approval"] & {
-    participantKind: "app" | "agent";
-  };
+  const contractApproval = approval.approval as
+    & ContractApprovalRecord["approval"]
+    & {
+      participantKind: "app" | "agent";
+    };
   return {
     contractDigest: contractApproval.contractDigest,
     contractId: contractApproval.contractId,
@@ -82,7 +93,14 @@ export async function revokeGrantSessions(args: {
   sessionKV: KVLike;
   connectionsKV: KVLike;
   kick: (serverId: string, clientId: number) => Promise<void>;
-  publishSessionRevoked: (event: { origin: string; id: string; sessionKey: string; revokedBy: string }) => Promise<void>;
+  publishSessionRevoked: (
+    event: {
+      origin: string;
+      id: string;
+      sessionKey: string;
+      revokedBy: string;
+    },
+  ) => Promise<void>;
   revokedBy: string;
 }): Promise<void> {
   const iter = await takeValue(args.sessionKV.keys(`>.${args.userTrellisId}`));
@@ -92,13 +110,19 @@ export async function revokeGrantSessions(args: {
     const entry = await takeValue(args.sessionKV.get(key));
     if (isErr(entry)) continue;
     const session = unwrapValue(entry) as Session;
-    if (session.type !== "user" || session.contractDigest !== args.contractDigest) continue;
-    if (args.participantKind && session.participantKind !== args.participantKind) continue;
+    if (
+      session.type !== "user" || session.contractDigest !== args.contractDigest
+    ) continue;
+    if (
+      args.participantKind && session.participantKind !== args.participantKind
+    ) continue;
 
     const sessionKey = key.split(".")[0];
     if (!sessionKey) continue;
 
-    const connIter = await takeValue(args.connectionsKV.keys(`${sessionKey}.${args.userTrellisId}.>`));
+    const connIter = await takeValue(
+      args.connectionsKV.keys(`${sessionKey}.${args.userTrellisId}.>`),
+    );
     if (!isErr(connIter)) {
       for await (const connKey of connIter as AsyncIterable<string>) {
         const connection = await takeValue(args.connectionsKV.get(connKey));
@@ -127,11 +151,20 @@ export function createAuthListUserGrantsHandler(deps: {
     {
       context: { caller },
     }: {
-      context: { caller: { type: string; trellisId?: string; origin?: string; id?: string } };
+      context: {
+        caller: {
+          type: string;
+          trellisId?: string;
+          origin?: string;
+          id?: string;
+        };
+      };
     },
   ) => {
     const user = requireUserCaller(caller);
-    const iter = await takeValue(deps.contractApprovalsKV.keys(`${user.trellisId}.>`));
+    const iter = await takeValue(
+      deps.contractApprovalsKV.keys(`${user.trellisId}.>`),
+    );
     if (isErr(iter)) return Result.ok({ grants: [] });
 
     const grants = [] as Array<ReturnType<typeof toUserGrant>>;
@@ -143,7 +176,9 @@ export function createAuthListUserGrantsHandler(deps: {
       grants.push(toUserGrant(approval));
     }
 
-    grants.sort((left, right) => left.displayName.localeCompare(right.displayName));
+    grants.sort((left, right) =>
+      left.displayName.localeCompare(right.displayName)
+    );
     return Result.ok<AuthListUserGrantsOutput, never>({ grants });
   };
 }
@@ -153,7 +188,14 @@ export function createAuthRevokeUserGrantHandler(deps: {
   sessionKV: KVLike;
   connectionsKV: KVLike;
   kick: (serverId: string, clientId: number) => Promise<void>;
-  publishSessionRevoked: (event: { origin: string; id: string; sessionKey: string; revokedBy: string }) => Promise<void>;
+  publishSessionRevoked: (
+    event: {
+      origin: string;
+      id: string;
+      sessionKey: string;
+      revokedBy: string;
+    },
+  ) => Promise<void>;
 }) {
   return async (
     {
@@ -161,11 +203,20 @@ export function createAuthRevokeUserGrantHandler(deps: {
       context: { caller },
     }: {
       input: { contractDigest: string };
-      context: { caller: { type: string; trellisId?: string; origin?: string; id?: string } };
+      context: {
+        caller: {
+          type: string;
+          trellisId?: string;
+          origin?: string;
+          id?: string;
+        };
+      };
     },
   ) => {
     const user = requireUserCaller(caller);
-    if (typeof req.contractDigest !== "string" || req.contractDigest.length === 0) {
+    if (
+      typeof req.contractDigest !== "string" || req.contractDigest.length === 0
+    ) {
       return Result.err(new AuthError({ reason: "invalid_request" }));
     }
 

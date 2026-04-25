@@ -9,7 +9,7 @@ description = "Bootstrap adapters for the generated Trellis core SDK."
 [dependencies]
 futures-util.workspace = true
 trellis-client = { path = "../client", version = "0.7.0" }
-trellis-sdk-core = { path = "../../../generated/rust/sdks/trellis-core", version = "0.7.0" }
+trellis-sdk-core.workspace = true
 trellis-server = { path = "../server", version = "0.7.0" }
 
 [dev-dependencies]

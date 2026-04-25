@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getTrellis } from "$lib/trellis";
+  import { getTrellis } from "$lib/trellis-context.ts";
   import type {
     InspectionEvidenceUploadOutput,
     InspectionEvidenceUploadProgress,

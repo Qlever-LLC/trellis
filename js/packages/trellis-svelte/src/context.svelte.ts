@@ -9,8 +9,6 @@ import type {
 import { createContext } from "svelte";
 import { createSubscriber } from "svelte/reactivity";
 
-type Simplify<T> = { [K in keyof T]: T[K] } & {};
-
 /** Minimal contract shape required to create a typed Trellis Svelte app context. */
 export type TrellisContractLike<TA extends TrellisAPI = TrellisAPI> = {
   CONTRACT: TrellisContractV1;
@@ -21,12 +19,11 @@ export type TrellisContractLike<TA extends TrellisAPI = TrellisAPI> = {
 };
 
 /** Real connected Trellis client type exposed by a Svelte app context. */
-export type TrellisClientFor<TContract extends TrellisContractLike> = Simplify<
+export type TrellisClientFor<TContract extends TrellisContractLike> =
   ClientTrellis<
     TContract["API"]["trellis"],
     RuntimeStateStoresForContract<TContract>
-  >
->;
+  >;
 
 /** Minimal client surface required for Trellis Svelte context clients. */
 export type TrellisContextClient = {

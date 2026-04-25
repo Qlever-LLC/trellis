@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { getTrellis } from "$lib/trellis";
+  import { getTrellis } from "$lib/trellis-context.ts";
 
   type InspectionContextValue = {
     siteId: string;
@@ -12,19 +12,9 @@
   const trellis = getTrellis();
   const inspectionContextStore = trellis.state.inspectionContext;
 
-  async function listInspectionContextEntries() {
-    return await inspectionContextStore.prefix("demo.").list({
-      offset: 0,
-      limit: 12,
-    }).orThrow();
-  }
-
-  async function putInspectionContextEntry(value: InspectionContextValue) {
-    return await inspectionContextStore.put(key, value).orThrow();
-  }
-
-  type AppStateEntry = Awaited<ReturnType<typeof listInspectionContextEntries>>["entries"][number];
-  type AppStatePutResult = Awaited<ReturnType<typeof putInspectionContextEntry>>;
+  type AppStateListResult = Awaited<ReturnType<ReturnType<typeof inspectionContextStore.list>["orThrow"]>>;
+  type AppStateEntry = AppStateListResult["entries"][number];
+  type AppStatePutResult = Awaited<ReturnType<ReturnType<typeof inspectionContextStore.put>["orThrow"]>>;
   type AppStatePutEntry = Extract<AppStatePutResult, { applied: true }>["entry"];
 
   let key = $state("demo.selected-site");
@@ -41,7 +31,10 @@
     error = null;
 
     try {
-      const response = await listInspectionContextEntries();
+      const response = await inspectionContextStore.prefix("demo.").list({
+        offset: 0,
+        limit: 12,
+      }).orThrow();
       entries = response.entries;
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
@@ -55,12 +48,12 @@
     error = null;
 
     try {
-      const response = await putInspectionContextEntry({
+      const response = await inspectionContextStore.put(key, {
         siteId,
         note,
         updatedBy: "demo-browser-app",
         updatedAt: new Date().toISOString(),
-      });
+      }).orThrow();
 
       if (!response.applied) {
         throw new Error("Inspection context write was not applied.");

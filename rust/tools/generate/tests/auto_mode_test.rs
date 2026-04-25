@@ -301,6 +301,81 @@ fn prepare_writes_demo_typescript_sdks_inside_demos_js_workspace() {
 }
 
 #[test]
+fn prepare_in_local_runtime_repo_keeps_typescript_package_specifiers() {
+    let temp = tempfile::tempdir().unwrap();
+    let repo = temp.path();
+    let app = repo.join("apps/dashboard");
+    fs::create_dir_all(app.join("contracts")).unwrap();
+    fs::create_dir_all(repo.join("js/packages/trellis")).unwrap();
+    fs::create_dir_all(repo.join("rust")).unwrap();
+    fs::write(repo.join("js/deno.json"), "{}\n").unwrap();
+    fs::write(
+        repo.join("rust/Cargo.toml"),
+        "[workspace]\nmembers = []\nresolver = \"2\"\n",
+    )
+    .unwrap();
+    fs::write(app.join("deno.json"), "{\n  \"version\": \"0.4.0\"\n}\n").unwrap();
+    fs::write(
+        app.join("contracts/dashboard.ts"),
+        r#"const contract = {
+  format: "trellis.contract.v1",
+  id: "trellis.dashboard@v1",
+  displayName: "Dashboard",
+  description: "Fixture contract",
+  kind: "app",
+  schemas: {
+    Empty: {
+      type: "object",
+      properties: {},
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  rpc: {
+    "Dashboard.Ping": {
+      version: "v1",
+      subject: "rpc.v1.Dashboard.Ping",
+      input: { schema: "Empty" },
+      output: { schema: "Empty" },
+    },
+  },
+  operations: {},
+  events: {},
+  subjects: {},
+};
+
+export default contract;
+"#,
+    )
+    .unwrap();
+
+    let output = trellis_generate()
+        .args(["prepare", repo.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let sdk = repo.join("generated/js/sdks/dashboard");
+    let api = fs::read_to_string(sdk.join("api.ts")).unwrap();
+    let contract = fs::read_to_string(sdk.join("contract.ts")).unwrap();
+    let types = fs::read_to_string(sdk.join("types.ts")).unwrap();
+    let deno = fs::read_to_string(sdk.join("deno.json")).unwrap();
+    let combined = format!("{api}\n{contract}\n{types}\n{deno}");
+
+    assert!(api.contains("@qlever-llc/trellis/contracts"));
+    assert!(contract.contains("@qlever-llc/trellis"));
+    assert!(types.contains("@qlever-llc/trellis"));
+    assert!(!sdk.join("scripts/build_npm.ts").exists());
+    assert!(!deno.contains("build:npm"));
+    assert!(!combined.contains("js/packages/trellis"));
+    assert!(!combined.contains("file:"));
+}
+
+#[test]
 fn local_mode_generates_app_typescript_client_without_rust_sdk() {
     let temp = tempfile::tempdir().unwrap();
     let project = temp.path().join("app");

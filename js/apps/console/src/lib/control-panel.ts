@@ -1,4 +1,4 @@
-import type { AuthMeOutput } from "@qlever-llc/trellis-sdk/auth";
+import type { AuthMeOutput } from "@qlever-llc/trellis/sdk/auth";
 
 type Profile = AuthMeOutput["user"] | null | undefined;
 
@@ -17,7 +17,7 @@ export type NavSection = {
 const navSections: NavSection[] = [
   {
     title: "Personal",
-    items: [{ href: "/profile", label: "Profile" }]
+    items: [{ href: "/profile", label: "Profile" }],
   },
   {
     title: "Operations",
@@ -32,8 +32,8 @@ const navSections: NavSection[] = [
       { href: "/admin/health-events", label: "Health" },
       { href: "/admin/contracts", label: "Contracts" },
       { href: "/admin/apps", label: "Approved Apps" },
-      { href: "/admin/jobs", label: "Jobs" }
-    ]
+      { href: "/admin/jobs", label: "Jobs" },
+    ],
   },
   {
     title: "Portals",
@@ -41,8 +41,8 @@ const navSections: NavSection[] = [
     items: [
       { href: "/admin/portals", label: "Registry" },
       { href: "/admin/portals/login", label: "Login Policy" },
-      { href: "/admin/portals/devices", label: "Device Policy" }
-    ]
+      { href: "/admin/portals/devices", label: "Device Policy" },
+    ],
   },
   {
     title: "Devices",
@@ -51,8 +51,8 @@ const navSections: NavSection[] = [
       { href: "/admin/devices/profiles", label: "Profiles" },
       { href: "/admin/devices/instances", label: "Instances" },
       { href: "/admin/devices/activations", label: "Activations" },
-      { href: "/admin/devices/reviews", label: "Reviews" }
-    ]
+      { href: "/admin/devices/reviews", label: "Reviews" },
+    ],
   },
 ];
 
@@ -74,7 +74,7 @@ const routeTitles: Record<string, string> = {
   "/admin/devices/profiles": "Device Profiles",
   "/admin/devices/instances": "Device Instances",
   "/admin/devices/activations": "Device Activations",
-  "/admin/devices/reviews": "Device Reviews"
+  "/admin/devices/reviews": "Device Reviews",
 };
 
 export function requiresAdminRoute(pathname: string): boolean {
@@ -91,7 +91,7 @@ export function getVisibleNavSections(profile: Profile): NavSection[] {
     .filter((section) => !section.adminOnly || admin)
     .map((section) => ({
       ...section,
-      items: section.items.filter((item) => !item.adminOnly || admin)
+      items: section.items.filter((item) => !item.adminOnly || admin),
     }));
 }
 
@@ -110,6 +110,8 @@ export function getInitials(profile: Profile): string {
   if (!name) return "TR";
 
   const parts = name.split(/\s+/).filter(Boolean);
-  const initials = parts.slice(0, 2).map((part: string) => part[0]?.toUpperCase() ?? "").join("");
+  const initials = parts.slice(0, 2).map((part: string) =>
+    part[0]?.toUpperCase() ?? ""
+  ).join("");
   return initials || name.slice(0, 2).toUpperCase();
 }

@@ -348,7 +348,7 @@ Our service shouldn't exist in a vacuum. Let's say we want to know whenever a us
 Events from other services are gated by your contract's `uses` block. Open `contracts/orders_service.ts` and update the `uses` section:
 
 ```ts
-import { auth } from "@qlever-llc/trellis-sdk/auth";
+import { auth } from "@qlever-llc/trellis/sdk/auth";
 
 export const ordersService = defineContract({
   // ...
@@ -470,7 +470,7 @@ project manifests and discovery-shape changes. It asks you to restart the
 watcher after generator/tooling changes. Use `trellis-generate prepare --watch
 --changes .` when you need event paths plus the watch decision and reason.
 
-This generates a package under `./generated/sdk/ts/`. It includes typed request/response definitions, schema constants, a concrete `client.ts` consumer facade, and a `use(...)` export that consumers drop into their own contracts' `uses` blocks — the same pattern that `@qlever-llc/trellis-sdk/auth` follows. Regenerate whenever the contract changes.
+This generates a package under `./generated/sdk/ts/`. It includes typed request/response definitions, schema constants, a concrete `client.ts` consumer facade, and a `use(...)` export that consumers drop into their own contracts' `uses` blocks — the same pattern that `@qlever-llc/trellis/sdk/auth` follows. Regenerate whenever the contract changes.
 
 ---
 

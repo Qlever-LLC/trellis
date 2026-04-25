@@ -112,12 +112,6 @@ pub fn write_contract_outputs(
             ),
         })
         .into_diagnostic()?;
-
-        if matches!(runtime_source, RuntimeSource::Local) {
-            if let Some(repo_root) = runtime_repo_root.as_deref() {
-                rewrite_local_trellis_imports(ts_out, repo_root)?;
-            }
-        }
     }
 
     if let Some(rust_out) = rust_out {
@@ -242,57 +236,6 @@ fn write_if_changed(path: &Path, contents: &str) -> miette::Result<()> {
     Ok(())
 }
 
-fn rewrite_local_trellis_imports(ts_out: &Path, repo_root: &Path) -> miette::Result<()> {
-    let trellis_import =
-        relative_path_string(ts_out, &repo_root.join("js/packages/trellis/index.ts"));
-    let contracts_import =
-        relative_path_string(ts_out, &repo_root.join("js/packages/trellis/contracts.ts"));
-
-    for file_name in ["api.ts", "client.ts", "contract.ts", "types.ts"] {
-        let path = ts_out.join(file_name);
-        if !path.exists() {
-            continue;
-        }
-        let contents = fs::read_to_string(&path).into_diagnostic()?;
-        let updated = contents
-            .replace(
-                "\"@qlever-llc/trellis/contracts\"",
-                &format!("\"{contracts_import}\""),
-            )
-            .replace("\"@qlever-llc/trellis\"", &format!("\"{trellis_import}\""));
-        if updated != contents {
-            fs::write(&path, updated).into_diagnostic()?;
-        }
-    }
-
-    Ok(())
-}
-
-fn relative_path_string(from_dir: &Path, to_path: &Path) -> String {
-    let from_components = from_dir.components().collect::<Vec<_>>();
-    let to_components = to_path.components().collect::<Vec<_>>();
-    let common_len = from_components
-        .iter()
-        .zip(&to_components)
-        .take_while(|(left, right)| left == right)
-        .count();
-
-    let mut relative = PathBuf::new();
-    for _ in common_len..from_components.len() {
-        relative.push("..");
-    }
-    for component in &to_components[common_len..] {
-        relative.push(component.as_os_str());
-    }
-
-    let path = relative.to_string_lossy().replace('\\', "/");
-    if path.starts_with("../") || path.starts_with("./") {
-        path
-    } else {
-        format!("./{path}")
-    }
-}
-
 pub fn current_generator_fingerprint() -> &'static str {
     env!("TRELLIS_GENERATE_FINGERPRINT")
 }
@@ -327,11 +270,13 @@ pub fn default_ts_package_name_from_id(contract_id: &str) -> String {
         .unwrap_or("trellis-sdk")
         .replace('.', "-");
     match stem.as_str() {
-        "trellis-auth" => "@qlever-llc/trellis-sdk-auth".to_string(),
-        "trellis-activity" => "@qlever-llc/trellis-sdk-activity".to_string(),
-        "trellis-core" => "@qlever-llc/trellis-sdk-core".to_string(),
-        "trellis-state" => "@qlever-llc/trellis-sdk-state".to_string(),
-        other => format!("@qlever-llc/trellis-sdk-{other}"),
+        "trellis-activity" => "@qlever-llc/trellis/sdk/activity".to_string(),
+        "trellis-auth" => "@qlever-llc/trellis/sdk/auth".to_string(),
+        "trellis-core" => "@qlever-llc/trellis/sdk/core".to_string(),
+        "trellis-health" => "@qlever-llc/trellis/sdk/health".to_string(),
+        "trellis-jobs" => "@qlever-llc/trellis/sdk/jobs".to_string(),
+        "trellis-state" => "@qlever-llc/trellis/sdk/state".to_string(),
+        other => format!("@qlever-llc/trellis-generated-{other}"),
     }
 }
 

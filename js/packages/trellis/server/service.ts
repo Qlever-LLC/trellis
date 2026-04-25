@@ -10,7 +10,7 @@ import {
   TypedStore,
   TypedStoreEntry,
 } from "@qlever-llc/trellis";
-import { auth as trellisAuth } from "@qlever-llc/trellis-sdk/auth";
+import { auth as trellisAuth } from "@qlever-llc/trellis/sdk/auth";
 import { TrellisServer, type TrellisServerFor } from "../server.ts";
 import {
   createAuth,
@@ -1012,7 +1012,7 @@ export async function createConnectedService<
   };
 
   const handlerTrellis: Trellis<TTrellisApi, TKv, TJobs> = {
-    request: (method, input, opts) => outbound.request(method, input, opts),
+    request: outbound.request.bind(outbound),
     publish: (event, data) => outbound.publish(event, data),
     event: (event, subjectData, fn, opts) =>
       outbound.event(

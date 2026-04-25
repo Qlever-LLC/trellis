@@ -38,5 +38,5 @@ name = "trellis"
 path = "src/main.rs"
 
 [dev-dependencies]
-trellis-sdk-auth = { path = "../../../generated/rust/sdks/auth", version = "0.7.0" }
-trellis-sdk-core = { path = "../../../generated/rust/sdks/trellis-core", version = "0.7.0", package = "trellis-sdk-core" }
+trellis-sdk-auth.workspace = true
+trellis-sdk-core.workspace = true

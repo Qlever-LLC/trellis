@@ -7,7 +7,7 @@
     JobsListInput,
     JobsListOutput,
     JobsListServicesOutput,
-  } from "@qlever-llc/trellis-sdk/jobs";
+  } from "@qlever-llc/trellis/sdk/jobs";
   import { getTrellis } from "../../../../lib/trellis";
 
   const trellis = getTrellis();

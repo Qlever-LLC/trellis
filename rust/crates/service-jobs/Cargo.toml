@@ -18,9 +18,9 @@ trellis-client = { path = "../client", version = "0.7.0" }
 trellis-auth = { path = "../auth", version = "0.7.0" }
 trellis-auth-adapters = { path = "../auth-adapters", version = "0.7.0" }
 trellis-core-bootstrap = { path = "../core-bootstrap", version = "0.7.0" }
-trellis-sdk-auth = { path = "../../../generated/rust/sdks/auth", version = "0.7.0" }
-trellis-sdk-core = { path = "../../../generated/rust/sdks/trellis-core", version = "0.7.0" }
-trellis-sdk-jobs = { path = "../../../generated/rust/sdks/jobs", version = "0.7.0" }
+trellis-sdk-auth.workspace = true
+trellis-sdk-core.workspace = true
+trellis-sdk-jobs.workspace = true
 trellis-server = { path = "../server", version = "0.7.0" }
 trellis-contracts = { path = "../contracts", version = "0.7.0" }
 trellis-jobs = { path = "../jobs", version = "0.7.0" }

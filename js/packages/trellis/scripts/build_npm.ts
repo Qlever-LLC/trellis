@@ -1,18 +1,18 @@
 import { buildDntPackage } from "../../../tools/package_build/build_dnt_package.ts";
 
-const generatedCoreSdkSpecifier = new URL(
-  "../../../../generated/js/sdks/trellis-core/mod.ts",
-  import.meta.url,
-).href;
-
 const npmPackageJsonPath = new URL("../npm/package.json", import.meta.url);
 const npmScriptDirUrl = new URL("../npm/script/", import.meta.url);
+const generatedSdkSourceUrl = new URL(
+  "../../../../generated/js/sdks/",
+  import.meta.url,
+);
+const generatedSdkBuildUrl = new URL(
+  "../.build/generated-sdk/",
+  import.meta.url,
+);
 
 function rewriteCjsPath(path: string): string {
-  return path.replace(
-    /^\.\/script\//,
-    "./script/js/packages/trellis/npm/src/",
-  );
+  return path;
 }
 
 function normalizeExportValue(value: unknown): unknown {
@@ -32,6 +32,43 @@ function normalizeExportValue(value: unknown): unknown {
   );
 }
 
+function removeRequireCondition(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return value;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).filter(([key]) => key !== "require"),
+  );
+}
+
+async function removeMissingRequireCondition(value: unknown): Promise<unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return value;
+  }
+
+  const entries = await Promise.all(
+    Object.entries(value).map(async ([key, nestedValue]) => {
+      if (key !== "require" || typeof nestedValue !== "string") {
+        return [key, nestedValue] as const;
+      }
+
+      const fileUrl = new URL(nestedValue, npmPackageJsonPath);
+      try {
+        await Deno.stat(fileUrl);
+        return [key, nestedValue] as const;
+      } catch (error) {
+        if (error instanceof Deno.errors.NotFound) {
+          return undefined;
+        }
+        throw error;
+      }
+    }),
+  );
+
+  return Object.fromEntries(entries.filter((entry) => entry !== undefined));
+}
+
 async function* walkFiles(dir: URL): AsyncGenerator<URL> {
   for await (const entry of Deno.readDir(dir)) {
     const entryUrl = new URL(entry.name, dir);
@@ -42,6 +79,36 @@ async function* walkFiles(dir: URL): AsyncGenerator<URL> {
 
     yield entryUrl;
   }
+}
+
+async function copyDir(source: URL, target: URL) {
+  await Deno.mkdir(target, { recursive: true });
+  for await (const entry of Deno.readDir(source)) {
+    if (["node_modules", "npm", "scripts"].includes(entry.name)) {
+      continue;
+    }
+    const sourceUrl = new URL(entry.name, source);
+    const targetUrl = new URL(entry.name, target);
+    if (entry.isDirectory) {
+      await copyDir(
+        new URL(`${entry.name}/`, source),
+        new URL(`${entry.name}/`, target),
+      );
+      continue;
+    }
+    await Deno.copyFile(sourceUrl, targetUrl);
+  }
+}
+
+async function stageGeneratedSdks() {
+  await Deno.remove(generatedSdkBuildUrl, { recursive: true }).catch(
+    (error) => {
+      if (!(error instanceof Deno.errors.NotFound)) {
+        throw error;
+      }
+    },
+  );
+  await copyDir(generatedSdkSourceUrl, generatedSdkBuildUrl);
 }
 
 async function normalizeScriptModuleSpecifiers() {
@@ -67,18 +134,31 @@ async function normalizeScriptModuleSpecifiers() {
 async function normalizePackageJsonExports() {
   const packageJson = JSON.parse(await Deno.readTextFile(npmPackageJsonPath));
   const exports = packageJson.exports ?? {};
-  const normalizedEntries = Object.entries(exports).map(([key, value]) => {
-    if (key === ".") {
-      return [key, normalizeExportValue(value)];
-    }
+  const normalizedEntries = await Promise.all(
+    Object.entries(exports).map(async ([key, value]) => {
+      if (key === ".") {
+        return [
+          key,
+          await removeMissingRequireCondition(normalizeExportValue(value)),
+        ];
+      }
 
-    const normalizedKey = key
-      .replace("./js/packages/trellis", ".")
-      .replace(/\/mod$/, "")
-      .replace(/\/index$/, "");
+      const normalizedKey = key
+        .replace("./js/packages/trellis", ".")
+        .replace(/\/mod$/, "")
+        .replace(/\/index$/, "");
 
-    return [normalizedKey, normalizeExportValue(value)];
-  });
+      const normalizedValue = normalizeExportValue(value);
+      return [
+        normalizedKey,
+        await removeMissingRequireCondition(
+          normalizedKey.startsWith("./sdk/")
+            ? removeRequireCondition(normalizedValue)
+            : normalizedValue,
+        ),
+      ];
+    }),
+  );
 
   packageJson.exports = Object.fromEntries(normalizedEntries);
   if (typeof packageJson.main === "string") {
@@ -89,6 +169,8 @@ async function normalizePackageJsonExports() {
     JSON.stringify(packageJson, null, 2) + "\n",
   );
 }
+
+await stageGeneratedSdks();
 
 await buildDntPackage({
   buildRoot: "../../..",
@@ -101,7 +183,15 @@ await buildDntPackage({
     "./js/packages/trellis/auth/browser.ts",
     "./js/packages/trellis/browser.ts",
     "./js/packages/trellis/contracts.ts",
+    "./js/packages/trellis/device.ts",
+    "./js/packages/trellis/device/deno.ts",
     "./js/packages/trellis/health.ts",
+    "./js/packages/trellis/sdk/activity.ts",
+    "./js/packages/trellis/sdk/auth.ts",
+    "./js/packages/trellis/sdk/core.ts",
+    "./js/packages/trellis/sdk/health.ts",
+    "./js/packages/trellis/sdk/jobs.ts",
+    "./js/packages/trellis/sdk/state.ts",
     "./js/packages/trellis/errors/index.ts",
     "./js/packages/trellis/service/mod.ts",
     "./js/packages/trellis/service/deno.ts",
@@ -122,7 +212,6 @@ await buildDntPackage({
     "@nats-io/obj": "^3.3.1",
     "@nats-io/nats-core": "^3.3.1",
     "@nats-io/transport-node": "^3.3.1",
-    "@qlever-llc/trellis-sdk": "^0.7.0",
     "@qlever-llc/result": "^0.7.0",
     "json-schema-library": "^10.5.2",
     "js-sha256": "^0.11.1",
@@ -144,7 +233,6 @@ await buildDntPackage({
     "@nats-io/obj": "^3.3.1",
     "@nats-io/nats-core": "^3.3.1",
     "@nats-io/transport-node": "^3.3.1",
-    "@qlever-llc/trellis-sdk": "^0.7.0",
     "json-schema-library": "^10.5.2",
     "js-sha256": "^0.11.1",
     pino: "^9.11.0",
@@ -153,13 +241,6 @@ await buildDntPackage({
     typebox: "^1.0.15",
     ulid: "^3.0.1",
   },
-  mappings: {
-    [generatedCoreSdkSpecifier]: {
-      name: "@qlever-llc/trellis-sdk",
-      version: "^0.7.0",
-      subPath: "core",
-    },
-  },
   externalizePackageDirs: {
     result: "@qlever-llc/result",
   },
@@ -167,3 +248,4 @@ await buildDntPackage({
 
 await normalizeScriptModuleSpecifiers();
 await normalizePackageJsonExports();
+await Deno.remove(generatedSdkBuildUrl, { recursive: true });

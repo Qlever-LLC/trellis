@@ -33,7 +33,7 @@ Create `contracts/my_device.ts`. Devices declare the Trellis surfaces they need 
 
 ```ts
 import { defineContract } from "@qlever-llc/trellis/contracts";
-import { auth } from "@qlever-llc/trellis-sdk/auth";
+import { auth } from "@qlever-llc/trellis/sdk/auth";
 
 export const myDevice = defineContract({
   id: "my-device@v1",

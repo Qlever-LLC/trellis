@@ -1,14 +1,17 @@
-import type { ContractDependencyUse, UseSpec } from "@qlever-llc/trellis/contracts";
+import type {
+  ContractDependencyUse,
+  UseSpec,
+} from "@qlever-llc/trellis/contracts";
 import {
   API,
   CONTRACT,
   CONTRACT_DIGEST,
   CONTRACT_ID,
-  trellisHealth as baseHealth,
+  health as baseHealth,
   use,
-} from "../../../generated/js/sdks/health/mod.ts";
+} from "#trellis-generated-sdk/health";
 
-export * from "../../../generated/js/sdks/health/mod.ts";
+export * from "#trellis-generated-sdk/health";
 
 const DEFAULT_HEALTH_EVENT_PUBLISH = ["Health.Heartbeat"] as const;
 
@@ -17,7 +20,8 @@ type HealthUseSpec = UseSpec<HealthOwnedApi>;
 type DefaultHealthEventPublish = typeof DEFAULT_HEALTH_EVENT_PUBLISH;
 
 type WithDefaultHealthEventPublish<TSpec extends HealthUseSpec | undefined> =
-  TSpec extends { events?: { publish?: infer TPublish extends readonly string[] } }
+  TSpec extends
+    { events?: { publish?: infer TPublish extends readonly string[] } }
     ? readonly [...DefaultHealthEventPublish, ...TPublish]
     : DefaultHealthEventPublish;
 
@@ -26,7 +30,8 @@ type WithDefaultHealthUseSpec<TSpec extends HealthUseSpec | undefined> =
   & {
     events: {
       publish: WithDefaultHealthEventPublish<TSpec>;
-      subscribe?: TSpec extends { events?: { subscribe?: infer TSubscribe extends readonly string[] } }
+      subscribe?: TSpec extends
+        { events?: { subscribe?: infer TSubscribe extends readonly string[] } }
         ? TSubscribe
         : never;
     };
@@ -36,7 +41,11 @@ type HealthUseDefaultsFn = <
   const TSpec extends HealthUseSpec | undefined = undefined,
 >(
   spec?: TSpec,
-) => ContractDependencyUse<typeof CONTRACT_ID, HealthOwnedApi, WithDefaultHealthUseSpec<TSpec>>;
+) => ContractDependencyUse<
+  typeof CONTRACT_ID,
+  HealthOwnedApi,
+  WithDefaultHealthUseSpec<TSpec>
+>;
 
 function mergeHealthUseDefaults(spec?: HealthUseSpec): HealthUseSpec {
   const publish = [...DEFAULT_HEALTH_EVENT_PUBLISH];
@@ -51,7 +60,9 @@ function mergeHealthUseDefaults(spec?: HealthUseSpec): HealthUseSpec {
     events: {
       ...spec?.events,
       publish,
-      ...(spec?.events?.subscribe ? { subscribe: [...spec.events.subscribe] } : {}),
+      ...(spec?.events?.subscribe
+        ? { subscribe: [...spec.events.subscribe] }
+        : {}),
     },
   };
 }

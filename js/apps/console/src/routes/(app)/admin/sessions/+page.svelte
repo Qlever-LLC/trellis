@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { AuthKickConnectionInput, AuthRevokeSessionInput } from "@qlever-llc/trellis-sdk/auth";
+  import type { AuthKickConnectionInput, AuthRevokeSessionInput } from "@qlever-llc/trellis/sdk/auth";
   import { onMount } from "svelte";
   import {
     describeSessionPrincipal,

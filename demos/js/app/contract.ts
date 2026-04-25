@@ -1,22 +1,13 @@
-import { defineAppContract } from "../../../js/packages/trellis/contracts.ts";
-import { Type } from "typebox";
-import { trellisJobs } from "../../../js/packages/trellis-sdk/jobs.ts";
-import { auth } from "../../../js/packages/trellis-sdk/auth.ts";
-import { useDefaults as useDefaultState } from "../../../js/packages/trellis-sdk/state.ts";
+import { defineAppContract } from "@qlever-llc/trellis/contracts";
+import { auth } from "@qlever-llc/trellis/sdk/auth";
+import { jobs } from "@qlever-llc/trellis/sdk/jobs";
+import { state } from "@qlever-llc/trellis/sdk/state";
 import { trellisDemoJobsService } from "@trellis-demo/jobs-service-sdk";
 import { trellisDemoKvService } from "@trellis-demo/kv-service-sdk";
 import { trellisDemoOperationService } from "@trellis-demo/operation-service-sdk";
 import { trellisDemoRpcService } from "@trellis-demo/rpc-service-sdk";
 import { trellisDemoTransferService } from "@trellis-demo/transfer-service-sdk";
-
-const schemas = {
-  InspectionContextState: Type.Object({
-    siteId: Type.String(),
-    note: Type.String(),
-    updatedBy: Type.String(),
-    updatedAt: Type.String({ format: "date-time" }),
-  }),
-} as const;
+import * as schemas from "./schemas/index.ts";
 
 const contract = defineAppContract({ schemas }, (ref) => ({
   id: "trellis.demo-app@v1",
@@ -52,12 +43,12 @@ const contract = defineAppContract({ schemas }, (ref) => ({
         ],
       },
     }),
-    jobs: trellisJobs.use({
+    jobs: jobs.use({
       rpc: {
         call: ["Jobs.Health", "Jobs.List", "Jobs.ListServices"],
       },
     }),
-    state: useDefaultState(),
+    state: state.useDefaults(),
   },
   state: {
     inspectionContext: {

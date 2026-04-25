@@ -6,12 +6,53 @@ import {
   defineAppContract,
   defineDeviceContract,
   defineServiceContract,
+  type Trellis as RootTrellis,
   TrellisClient,
   TrellisDevice,
 } from "../index.ts";
 import { checkDeviceActivation } from "../device/deno.ts";
 import { auth } from "../sdk/auth.ts";
+import { jobs } from "../sdk/jobs.ts";
 import { TrellisService } from "../service/deno.ts";
+
+const selectionSchemas = {
+  Empty: Type.Object({}),
+  SelectedOutput: Type.Object({ value: Type.String() }),
+  HiddenOutput: Type.Object({ hidden: Type.Boolean() }),
+} as const;
+
+const selectionContract = defineServiceContract(
+  { schemas: selectionSchemas },
+  (ref) => ({
+    id: "trellis.connect-typing-selection@v1",
+    displayName: "Connect Typing Selection Service",
+    description: "Expose multiple RPCs for selected-use typing tests.",
+    rpc: {
+      "Selection.Selected": {
+        version: "v1",
+        input: ref.schema("Empty"),
+        output: ref.schema("SelectedOutput"),
+        errors: [],
+      },
+      "Selection.Hidden": {
+        version: "v1",
+        input: ref.schema("Empty"),
+        output: ref.schema("HiddenOutput"),
+        errors: [],
+      },
+    },
+  }),
+);
+
+const appUses = {
+  auth: auth.useDefaults(),
+  jobs: jobs.use({
+    rpc: { call: ["Jobs.List", "Jobs.ListServices"] },
+  }),
+  selection: selectionContract.use({
+    rpc: { call: ["Selection.Selected"] },
+  }),
+} as const;
 
 const appContract = defineAppContract(
   {
@@ -23,9 +64,7 @@ const appContract = defineAppContract(
     id: "trellis.connect-typing-app@v1",
     displayName: "Connect Typing App",
     description: "Typecheck the public client connect helper.",
-    uses: {
-      auth: auth.useDefaults(),
-    },
+    uses: appUses,
     state: {
       preferences: { kind: "value", schema: ref.schema("Preferences") },
     },
@@ -48,6 +87,7 @@ const serviceContract = defineServiceContract({}, () => ({
 }));
 
 declare const connectedAppClient: ConnectedTrellisClient<typeof appContract>;
+declare const rootAppTrellis: RootTrellis<typeof appContract.API.trellis>;
 
 async function typecheckClientConnectRequestSurface() {
   const connected = connectedAppClient;
@@ -58,6 +98,18 @@ async function typecheckClientConnectRequestSurface() {
     me.participantKind;
   type ClientMethod = Parameters<typeof connected.request>[0];
   const authMeMethod: ClientMethod = "Auth.Me";
+  const selectedMethod: ClientMethod = "Selection.Selected";
+
+  const selected = await connected.request("Selection.Selected", {}).orThrow();
+  const selectedValue: string = selected.value;
+  // @ts-expect-error selected output must be concrete, not any.
+  const selectedOutputCheck: number = selected;
+
+  const jobsResult = await connected.request("Jobs.List", { limit: 8 })
+    .orThrow();
+  const jobCount: number = jobsResult.jobs.length;
+  // @ts-expect-error generated SDK request output must be concrete, not any.
+  const jobsOutputCheck: number = jobsResult;
 
   const preferences = await connected.state.preferences.get().orThrow();
   if (preferences.found) {
@@ -73,13 +125,63 @@ async function typecheckClientConnectRequestSurface() {
 
   // @ts-expect-error undeclared RPC methods must not typecheck
   const invalidMethod: ClientMethod = "Auth.NotDeclared";
+  // @ts-expect-error unselected dependency RPCs must not typecheck
+  const hiddenMethod: ClientMethod = "Selection.Hidden";
+  // @ts-expect-error unselected dependency RPCs must not be callable
+  const hiddenResult = connected.request("Selection.Hidden", {});
+  // @ts-expect-error unselected generated SDK RPCs must not be callable
+  const hiddenJobsResult = connected.request("Jobs.Cancel", { id: "job" });
 
   return {
     authMeMethod,
+    hiddenMethod,
+    hiddenResult,
+    hiddenJobsResult,
+    jobCount,
+    jobsOutputCheck,
     deviceId,
     invalidMethod,
     invalidStateList,
     participantKind,
+    selectedMethod,
+    selectedOutputCheck,
+    selectedValue,
+  };
+}
+
+async function typecheckRootTrellisRequestSurface() {
+  const selected = await rootAppTrellis.request(
+    "Selection.Selected",
+    {},
+  ).orThrow();
+  const selectedValue: string = selected.value;
+  const jobsResult = await rootAppTrellis.request("Jobs.List", {
+    limit: 8,
+  }).orThrow();
+  const jobCount: number = jobsResult.jobs.length;
+  type RootMethod = Parameters<typeof rootAppTrellis.request>[0];
+  const selectedMethod: RootMethod = "Selection.Selected";
+
+  // @ts-expect-error root Trellis must preserve concrete request output typing.
+  const selectedOutputCheck: number = selected;
+  // @ts-expect-error root Trellis generated SDK output must be concrete, not any.
+  const jobsOutputCheck: number = jobsResult;
+  // @ts-expect-error unselected dependency RPCs must not typecheck on root Trellis
+  const hiddenMethod: RootMethod = "Selection.Hidden";
+  // @ts-expect-error unselected dependency RPCs must not be callable on root Trellis
+  const hiddenResult = rootAppTrellis.request("Selection.Hidden", {});
+  // @ts-expect-error unselected generated SDK RPCs must not be callable on root Trellis
+  const hiddenJobsResult = rootAppTrellis.request("Jobs.Cancel", { id: "job" });
+
+  return {
+    hiddenMethod,
+    hiddenResult,
+    hiddenJobsResult,
+    jobCount,
+    jobsOutputCheck,
+    selectedMethod,
+    selectedOutputCheck,
+    selectedValue,
   };
 }
 
@@ -102,11 +204,40 @@ async function typecheckTrellisClientConnectRequestSurface() {
 
   type ClientMethod = Parameters<typeof connected.request>[0];
   const authMeMethod: ClientMethod = "Auth.Me";
+  const selectedMethod: ClientMethod = "Selection.Selected";
+  const selected = await connected.request("Selection.Selected", {}).orThrow();
+  const selectedValue: string = selected.value;
+  // @ts-expect-error selected output must be concrete, not any.
+  const selectedOutputCheck: number = selected;
+
+  const jobsResult = await connected.request("Jobs.List", { limit: 8 })
+    .orThrow();
+  const jobCount: number = jobsResult.jobs.length;
+  // @ts-expect-error generated SDK request output must be concrete, not any.
+  const jobsOutputCheck: number = jobsResult;
 
   // @ts-expect-error undeclared RPC methods must not typecheck
   const invalidMethod: ClientMethod = "Auth.NotDeclared";
+  // @ts-expect-error unselected dependency RPCs must not typecheck
+  const hiddenMethod: ClientMethod = "Selection.Hidden";
+  // @ts-expect-error unselected dependency RPCs must not be callable
+  const hiddenResult = connected.request("Selection.Hidden", {});
+  // @ts-expect-error unselected generated SDK RPCs must not be callable
+  const hiddenJobsResult = connected.request("Jobs.Cancel", { id: "job" });
 
-  return { authMeMethod, invalidMethod, participantKind };
+  return {
+    authMeMethod,
+    hiddenMethod,
+    hiddenResult,
+    hiddenJobsResult,
+    invalidMethod,
+    jobCount,
+    jobsOutputCheck,
+    participantKind,
+    selectedMethod,
+    selectedOutputCheck,
+    selectedValue,
+  };
 }
 
 async function typecheckDeviceConnectRequestSurface() {
@@ -180,6 +311,7 @@ async function typecheckServiceConnectSurface() {
 }
 
 void typecheckClientConnectRequestSurface;
+void typecheckRootTrellisRequestSurface;
 void typecheckTrellisClientConnectRequestSurface;
 void typecheckDeviceConnectRequestSurface;
 void typecheckDeviceActivationSurface;

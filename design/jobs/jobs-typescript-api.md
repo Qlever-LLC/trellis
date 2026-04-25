@@ -20,13 +20,13 @@ order: 20
 The TypeScript jobs surface is split into two shapes: a service-local API for
 creating and handling jobs, and an admin API for observing jobs across the
 system. The service-local runtime API lives in `@qlever-llc/trellis`, while the
-admin RPC contract and types live in `@qlever-llc/trellis-sdk/jobs`. Both follow
+admin RPC contract and types live in `@qlever-llc/trellis/sdk/jobs`. Both follow
 the same jobs model defined in `trellis-jobs.md`.
 
 - service-local jobs are exposed on connected service runtimes such as
   `service.jobs` from `@qlever-llc/trellis/service*`
 - admin and operator jobs access uses the `Jobs.*` RPC surface declared through
-  `@qlever-llc/trellis-sdk/jobs`
+  `@qlever-llc/trellis/sdk/jobs`
 
 It covers:
 
@@ -183,12 +183,12 @@ runtime should fail fast if the same job queue registers more than one handler.
 
 ```ts
 import { defineAppContract } from "@qlever-llc/trellis";
-import { jobs as trellisJobs } from "@qlever-llc/trellis-sdk/jobs";
+import { jobs as trellisJobs } from "@qlever-llc/trellis/sdk/jobs";
 import type {
   JobsListInput,
   JobsListOutput,
   JobsListServicesOutput,
-} from "@qlever-llc/trellis-sdk/jobs";
+} from "@qlever-llc/trellis/sdk/jobs";
 
 const app = defineAppContract(() => ({
   uses: {

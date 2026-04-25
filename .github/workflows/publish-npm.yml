@@ -22,7 +22,6 @@ on:
       - "js/services/**/deno.json"
       - "js/tools/package_build/**"
       - "js/packages/result/**"
-      - "js/packages/trellis-sdk/**"
       - "js/packages/trellis/**"
       - "js/packages/trellis-svelte/**"
       - "js/services/trellis/contracts/**"
@@ -103,7 +102,6 @@ jobs:
 
           packages=(
             js/packages/result/npm
-            js/packages/trellis-sdk/npm
             js/packages/trellis/npm
             js/packages/trellis-svelte/npm
           )
@@ -130,7 +128,6 @@ jobs:
           }
 
           result_tgz=$(tgz_name js/packages/result/npm/package.json)
-          trellis_sdk_tgz=$(tgz_name js/packages/trellis-sdk/npm/package.json)
           trellis_tgz=$(tgz_name js/packages/trellis/npm/package.json)
           trellis_svelte_tgz=$(tgz_name js/packages/trellis-svelte/npm/package.json)
 
@@ -138,7 +135,6 @@ jobs:
           npm init -y >/dev/null
           npm install \
             "$GITHUB_WORKSPACE/dist/npm/$result_tgz" \
-            "$GITHUB_WORKSPACE/dist/npm/$trellis_sdk_tgz" \
             "$GITHUB_WORKSPACE/dist/npm/$trellis_tgz" \
             "$GITHUB_WORKSPACE/dist/npm/$trellis_svelte_tgz" >/dev/null
           node --input-type=module <<'EOF'
@@ -147,9 +143,9 @@ jobs:
           await import("@qlever-llc/trellis/auth");
           await import("@qlever-llc/trellis/contracts");
           await import("@qlever-llc/trellis/errors");
-          await import("@qlever-llc/trellis-sdk/auth");
-          await import("@qlever-llc/trellis-sdk/core");
-          await import("@qlever-llc/trellis-sdk/jobs");
+          await import("@qlever-llc/trellis/sdk/auth");
+          await import("@qlever-llc/trellis/sdk/core");
+          await import("@qlever-llc/trellis/sdk/jobs");
           await import("@qlever-llc/trellis/tracing");
           await import("@qlever-llc/trellis/host");
           await import("@qlever-llc/trellis/host/node");
@@ -160,9 +156,9 @@ jobs:
           require("@qlever-llc/trellis/auth");
           require("@qlever-llc/trellis/contracts");
           require("@qlever-llc/trellis/errors");
-          require("@qlever-llc/trellis-sdk/auth");
-          require("@qlever-llc/trellis-sdk/core");
-          require("@qlever-llc/trellis-sdk/jobs");
+          require("@qlever-llc/trellis/sdk/auth");
+          require("@qlever-llc/trellis/sdk/core");
+          require("@qlever-llc/trellis/sdk/jobs");
           require("@qlever-llc/trellis/tracing");
           require("@qlever-llc/trellis/host");
           require("@qlever-llc/trellis/host/node");
@@ -230,7 +226,6 @@ jobs:
 
           packages=(
             js/packages/result/npm
-            js/packages/trellis-sdk/npm
             js/packages/trellis/npm
             js/packages/trellis-svelte/npm
           )

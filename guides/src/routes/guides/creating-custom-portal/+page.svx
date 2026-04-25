@@ -45,7 +45,7 @@ Portals that keep going after login and call Trellis for the user need their own
 
 ```ts
 import { defineContract } from "@qlever-llc/trellis/contracts";
-import { auth } from "@qlever-llc/trellis-sdk/auth";
+import { auth } from "@qlever-llc/trellis/sdk/auth";
 
 export const portalContract = defineContract({
   id: "my-portal@v1",

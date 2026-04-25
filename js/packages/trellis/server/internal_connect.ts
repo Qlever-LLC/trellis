@@ -3,7 +3,7 @@ import {
   API as TRELLIS_CORE_API,
   type TrellisBindingsGetOutput,
   type TrellisCatalogOutput,
-} from "@qlever-llc/trellis-sdk/core";
+} from "@qlever-llc/trellis/sdk/core";
 import { createAuth } from "@qlever-llc/trellis/auth";
 import { isErr, Trellis as RootTrellis } from "@qlever-llc/trellis";
 

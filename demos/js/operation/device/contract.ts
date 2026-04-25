@@ -1,5 +1,6 @@
 import { defineDeviceContract } from "@qlever-llc/trellis";
-import { auth, health } from "@qlever-llc/trellis-sdk";
+import { auth } from "@qlever-llc/trellis/sdk/auth";
+import { health } from "@qlever-llc/trellis/sdk/health";
 import { trellisDemoOperationService as operationService } from "@trellis-demo/operation-service-sdk";
 
 const inspections = operationService.use({

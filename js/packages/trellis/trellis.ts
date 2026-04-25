@@ -332,11 +332,6 @@ export type TrellisAuth = {
 
 export type AnyTrellisAPI = TrellisAPI;
 export type TrellisMode = "client" | "server";
-type NonNever<T> = [T] extends [never] ? string : T;
-type UnionToIntersection<T> = (
-  T extends unknown ? (value: T) => void : never
-) extends (value: infer I) => void ? I
-  : never;
 type Simplify<T> = { [K in keyof T]: T[K] } & {};
 type OwnedApiFor<TContract> = TContract extends
   { API: { owned: infer TOwnedApi } }
@@ -370,46 +365,63 @@ type TrellisApiFor<TContract> = TContract extends
   : OwnedApiFor<TContract>
   : OwnedApiFor<TContract>;
 type RpcMethodsOf<TA extends AnyTrellisAPI> = TA["rpc"];
-export type MethodsOf<TA extends AnyTrellisAPI> = NonNever<
-  keyof RpcMethodsOf<TA> & string
->;
+export type MethodsOf<TA extends AnyTrellisAPI> =
+  & keyof RpcMethodsOf<TA>
+  & string;
 export type RpcMethodNameOf<TA extends AnyTrellisAPI> = MethodsOf<TA>;
-export type OperationsOf<TA extends AnyTrellisAPI> = NonNever<
-  keyof TA["operations"] & string
->;
-type EventsOf<TA extends AnyTrellisAPI> = NonNever<keyof TA["events"] & string>;
-type RpcMethodOf<TA extends AnyTrellisAPI, M extends MethodsOf<TA>> =
+export type OperationsOf<TA extends AnyTrellisAPI> =
+  & keyof TA["operations"]
+  & string;
+type EventsOf<TA extends AnyTrellisAPI> = keyof TA["events"] & string;
+type RpcMethodOf<TA extends AnyTrellisAPI, M extends keyof TA["rpc"] & string> =
   RpcMethodsOf<TA>[M];
-type MethodInputOf<TA extends AnyTrellisAPI, M extends MethodsOf<TA>> =
-  RpcMethodOf<TA, M> extends { input: infer TInput } ? InferSchemaType<TInput>
-    : never;
+type MethodInputOf<
+  TA extends AnyTrellisAPI,
+  M extends keyof TA["rpc"] & string,
+> = RpcMethodOf<TA, M> extends { input: infer TInput } ? InferSchemaType<TInput>
+  : never;
 export type RpcInputOf<
   TA extends AnyTrellisAPI,
   M extends RpcMethodNameOf<TA>,
 > = MethodInputOf<TA, M>;
-type MethodOutputOf<TA extends AnyTrellisAPI, M extends MethodsOf<TA>> =
-  RpcMethodOf<TA, M> extends { output: infer TOutput }
-    ? InferSchemaType<TOutput>
-    : never;
+type MethodOutputOf<
+  TA extends AnyTrellisAPI,
+  M extends keyof TA["rpc"] & string,
+> = RpcMethodOf<TA, M> extends { output: infer TOutput }
+  ? InferSchemaType<TOutput>
+  : never;
 export type RpcOutputOf<
   TA extends AnyTrellisAPI,
   M extends RpcMethodNameOf<TA>,
 > = MethodOutputOf<TA, M>;
-type RpcDescriptorOf<TA extends AnyTrellisAPI, M extends MethodsOf<TA>> =
-  RpcMethodOf<TA, M> extends {
-    input: infer TInput;
-    output: infer TOutput;
-    errors?: infer TErrors;
-    runtimeErrors?: infer TRuntimeErrors;
-    declaredErrorTypes?: infer TDeclaredErrorTypes;
-  } ? {
-      input: TInput;
-      output: TOutput;
-      errors?: TErrors;
-      runtimeErrors?: TRuntimeErrors;
-      declaredErrorTypes?: TDeclaredErrorTypes;
-    } & RpcMethodOf<TA, M>
-    : never;
+type RpcRequestShapes<TA extends AnyTrellisAPI> = {
+  [M in keyof TA["rpc"] & string]: {
+    input: MethodInputOf<TA, M>;
+    output: MethodOutputOf<TA, M>;
+  };
+};
+type RequestMethodOf<TRequests> = keyof TRequests & string;
+type RequestInputOf<TRequests, M extends RequestMethodOf<TRequests>> =
+  TRequests[M] extends { input: infer TInput } ? TInput : never;
+type RequestOutputOf<TRequests, M extends RequestMethodOf<TRequests>> =
+  TRequests[M] extends { output: infer TOutput } ? TOutput : never;
+type RpcDescriptorOf<
+  TA extends AnyTrellisAPI,
+  M extends keyof TA["rpc"] & string,
+> = RpcMethodOf<TA, M> extends {
+  input: infer TInput;
+  output: infer TOutput;
+  errors?: infer TErrors;
+  runtimeErrors?: infer TRuntimeErrors;
+  declaredErrorTypes?: infer TDeclaredErrorTypes;
+} ? {
+    input: TInput;
+    output: TOutput;
+    errors?: TErrors;
+    runtimeErrors?: TRuntimeErrors;
+    declaredErrorTypes?: TDeclaredErrorTypes;
+  } & RpcMethodOf<TA, M>
+  : never;
 type DeclaredBuiltinErrorOf<TNames> = TNames extends readonly (infer TName)[]
   ? TName extends TrellisErrorName ? TrellisErrorMap[TName]
   : never
@@ -418,29 +430,20 @@ type DeclaredRuntimeErrorOf<TRuntimeErrors> = TRuntimeErrors extends readonly (
   infer TRuntimeError
 )[] ? InferRuntimeRpcError<TRuntimeError>
   : never;
-type MethodDeclaredErrorOf<TA extends AnyTrellisAPI, M extends MethodsOf<TA>> =
-  RpcDescriptorOf<TA, M> extends {
-    errors?: infer TErrors;
-    runtimeErrors?: infer TRuntimeErrors;
-  } ? DeclaredBuiltinErrorOf<TErrors> | DeclaredRuntimeErrorOf<TRuntimeErrors>
-    : never;
+type MethodDeclaredErrorOf<
+  TA extends AnyTrellisAPI,
+  M extends keyof TA["rpc"] & string,
+> = RpcDescriptorOf<TA, M> extends {
+  errors?: infer TErrors;
+  runtimeErrors?: infer TRuntimeErrors;
+} ? DeclaredBuiltinErrorOf<TErrors> | DeclaredRuntimeErrorOf<TRuntimeErrors>
+  : never;
 type RequestErrorOf<TA extends AnyTrellisAPI, M extends MethodsOf<TA>> =
   | MethodDeclaredErrorOf<TA, M>
   | RemoteError
   | TransportError
   | ValidationError
   | UnexpectedError;
-type ClientRequestInvoker<TA extends AnyTrellisAPI> = UnionToIntersection<
-  {
-    [M in MethodsOf<TA>]: {
-      request(
-        method: M,
-        input: MethodInputOf<TA, M>,
-        opts?: RequestOpts,
-      ): AsyncResult<MethodOutputOf<TA, M>, BaseError>;
-    };
-  }[MethodsOf<TA>]
->;
 type HandlerErrorOf<TA extends AnyTrellisAPI, M extends MethodsOf<TA>> =
   | MethodDeclaredErrorOf<TA, M>
   | TrellisErrorInstance;
@@ -872,12 +875,15 @@ export type RpcHandlerContext = {
   sessionKey: string;
 };
 
-export type HandlerTrellis<TA extends AnyTrellisAPI> = {
-  request<M extends MethodsOf<TA>>(
+export type HandlerTrellis<
+  TA extends AnyTrellisAPI,
+  TRequests = RpcRequestShapes<TA>,
+> = {
+  request<const M extends RequestMethodOf<TRequests>>(
     method: M,
-    input: NoInfer<MethodInputOf<TA, M>>,
+    input: RequestInputOf<TRequests, M>,
     opts?: RequestOpts,
-  ): AsyncResult<MethodOutputOf<TA, M>, BaseError>;
+  ): AsyncResult<RequestOutputOf<TRequests, M>, BaseError>;
   publish(
     event: string,
     data: Record<string, unknown>,
@@ -947,7 +953,8 @@ export type HandlerTrellisForContract<TContract> =
 export type ClientTrellis<
   TA extends AnyTrellisAPI = TrellisAPI,
   TState extends RuntimeStateStores = {},
-> = ClientRequestInvoker<TA> & {
+  TRequests = RpcRequestShapes<TA>,
+> = {
   readonly name: string;
   readonly timeout: number;
   readonly stream: string;
@@ -955,6 +962,11 @@ export type ClientTrellis<
   readonly state: StateFacade<TState>;
   readonly connection: TrellisConnection;
   readonly natsConnection: NatsConnection;
+  request<const M extends RequestMethodOf<TRequests>>(
+    method: M,
+    input: RequestInputOf<TRequests, M>,
+    opts?: RequestOpts,
+  ): AsyncResult<RequestOutputOf<TRequests, M>, BaseError>;
   publish<E extends EventsOf<TA>>(
     event: E,
     data: EventPayloadOf<TA, E>,
@@ -1294,6 +1306,7 @@ export class Trellis<
   TA extends AnyTrellisAPI = TrellisAPI,
   TMode extends TrellisMode = "client",
   TState extends RuntimeStateStores = {},
+  TRequests = RpcRequestShapes<TA>,
 > {
   readonly name: string;
   readonly timeout: number;
@@ -1560,16 +1573,11 @@ export class Trellis<
    *              ok: A validated response for method M
    *              err: declared RPC errors | RemoteError | ValidationError | UnexpectedError
    */
-  request<M extends MethodsOf<TA>>(
+  request<const M extends RequestMethodOf<TRequests>>(
     method: M,
-    input: NoInfer<MethodInputOf<TA, M>>,
+    input: RequestInputOf<TRequests, M>,
     opts?: RequestOpts,
-  ): AsyncResult<MethodOutputOf<TA, M>, BaseError>;
-  request(
-    method: string,
-    input: unknown,
-    opts?: RequestOpts,
-  ): AsyncResult<unknown, BaseError>;
+  ): AsyncResult<RequestOutputOf<TRequests, M>, BaseError>;
   request(
     method: string,
     input: unknown,

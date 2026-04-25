@@ -3,7 +3,7 @@
     AuthListConnectionsOutput,
     AuthListServiceInstancesOutput,
     AuthListSessionsOutput,
-  } from "@qlever-llc/trellis-sdk/auth";
+  } from "@qlever-llc/trellis/sdk/auth";
   import { resolve } from "$app/paths";
   import { onMount } from "svelte";
   import { errorMessage } from "../../../lib/format";

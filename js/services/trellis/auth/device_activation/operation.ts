@@ -428,14 +428,14 @@ export function createActivateDeviceHandler() {
       input: { flowId: string };
       caller: Caller;
       op: {
-        started(): Promise<unknown>;
+        started(): PromiseLike<unknown>;
         progress(value: {
           status: "pending_review";
           reviewId: string;
           instanceId: string;
           profileId: string;
           requestedAt: string;
-        }): Promise<unknown>;
+        }): PromiseLike<unknown>;
       };
     },
   ) => {

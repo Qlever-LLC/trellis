@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { getTrellis } from "$lib/trellis";
+  import { getTrellis } from "$lib/trellis-context.ts";
   import type { InspectionAssignment, SiteSummary } from "@trellis-demo/rpc-service-sdk";
 
   const trellis = getTrellis();

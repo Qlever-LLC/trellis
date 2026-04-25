@@ -1,12 +1,17 @@
 import { trellisIdFromOriginId } from "@qlever-llc/trellis/auth";
-import { type AsyncResult, type BaseError, isErr, Result } from "@qlever-llc/result";
+import {
+  type AsyncResult,
+  type BaseError,
+  isErr,
+  Result,
+} from "@qlever-llc/result";
 import { AuthError } from "@qlever-llc/trellis";
 import type {
   AuthListConnectionsHandler,
   AuthListConnectionsOutput,
   AuthListSessionsHandler,
   AuthListSessionsOutput,
-} from "../../../../../generated/js/sdks/auth/types.ts";
+} from "@qlever-llc/trellis/sdk/auth";
 
 import type { Session } from "../../state/schemas.ts";
 
@@ -17,19 +22,29 @@ type SessionListRow = AuthListSessionsOutput["sessions"][number];
 type ConnectionRow = AuthListConnectionsOutput["connections"][number];
 
 type SessionStore = {
-  keys: (filter: string) => AsyncResult<AsyncIterable<string> | unknown, BaseError>;
-  get: (key: string) => AsyncResult<{ value: Session } | Session | unknown, BaseError>;
+  keys: (
+    filter: string,
+  ) => AsyncResult<AsyncIterable<string> | unknown, BaseError>;
+  get: (
+    key: string,
+  ) => AsyncResult<{ value: Session } | Session | unknown, BaseError>;
 };
 
 type ConnectionStore = {
-  keys: (filter: string) => AsyncResult<AsyncIterable<string> | unknown, BaseError>;
+  keys: (
+    filter: string,
+  ) => AsyncResult<AsyncIterable<string> | unknown, BaseError>;
   get: (key: string) => AsyncResult<
-    { value: { serverId: string; clientId: number; connectedAt: string | Date } } | unknown,
+    {
+      value: { serverId: string; clientId: number; connectedAt: string | Date };
+    } | unknown,
     BaseError
   >;
 };
 
-async function takeValue<T>(value: AsyncResult<T, BaseError>): Promise<T | Result<never, BaseError>> {
+async function takeValue<T>(
+  value: AsyncResult<T, BaseError>,
+): Promise<T | Result<never, BaseError>> {
   return await value.take();
 }
 
@@ -48,11 +63,17 @@ function deviceTypeFromProfileId(profileId: string): string {
   return deviceType && deviceType.length > 0 ? deviceType : profileId;
 }
 
-function sessionActorKey(session: Session, sessionKey: string, userNkey?: string): string {
+function sessionActorKey(
+  session: Session,
+  sessionKey: string,
+  userNkey?: string,
+): string {
   const actor = session.type === "device"
     ? `${session.instanceId}.${session.publicIdentityKey}`
     : `${session.origin}.${session.id}`;
-  return userNkey ? `${actor}.${sessionKey}.${userNkey}` : `${actor}.${sessionKey}`;
+  return userNkey
+    ? `${actor}.${sessionKey}.${userNkey}`
+    : `${actor}.${sessionKey}`;
 }
 
 function buildSessionRow(session: Session, sessionKey: string): SessionListRow {
@@ -114,7 +135,11 @@ function buildConnectionRow(
   session: Session,
   sessionKey: string,
   userNkey: string,
-  connection: { serverId: string; clientId: number; connectedAt: string | Date },
+  connection: {
+    serverId: string;
+    clientId: number;
+    connectedAt: string | Date;
+  },
 ): ConnectionRow {
   const base = {
     key: sessionActorKey(session, sessionKey, userNkey),
@@ -170,13 +195,18 @@ function buildConnectionRow(
   };
 }
 
-export function createAuthListSessionsHandler(deps: { sessionKV: SessionStore }) {
-  const handler: AuthListSessionsHandler = async (req: UserRefFilter = {}) => {
+export function createAuthListSessionsHandler(
+  deps: { sessionKV: SessionStore },
+) {
+  const handler: AuthListSessionsHandler = async (args) => {
+    const req: UserRefFilter = args.input ?? {};
     const userFilter = typeof req.user === "string" ? req.user : undefined;
     let filter = ">";
     if (userFilter) {
       const parsed = parseOriginId(userFilter);
-      if (!parsed) return Result.err(new AuthError({ reason: "invalid_request" }));
+      if (!parsed) {
+        return Result.err(new AuthError({ reason: "invalid_request" }));
+      }
       const trellisId = await trellisIdFromOriginId(parsed.origin, parsed.id);
       filter = `>.${trellisId}`;
     }
@@ -189,7 +219,9 @@ export function createAuthListSessionsHandler(deps: { sessionKV: SessionStore })
       const entry = await takeValue(deps.sessionKV.get(key));
       if (isErr(entry)) continue;
       const sessionKey = key.split(".")[0] ?? "";
-      sessions.push(buildSessionRow((entry as { value: Session }).value, sessionKey));
+      sessions.push(
+        buildSessionRow((entry as { value: Session }).value, sessionKey),
+      );
     }
 
     sessions.sort((left, right) => left.key.localeCompare(right.key));
@@ -203,16 +235,21 @@ export function createAuthListConnectionsHandler(deps: {
   sessionKV: Pick<SessionStore, "get">;
   connectionsKV: ConnectionStore;
 }) {
-  const handler: AuthListConnectionsHandler = async (req: SessionFilter = {}) => {
+  const handler: AuthListConnectionsHandler = async (args) => {
+    const req: SessionFilter = args.input ?? {};
     const userFilter = typeof req.user === "string" ? req.user : undefined;
-    const sessionKeyFilter = typeof req.sessionKey === "string" ? req.sessionKey : undefined;
+    const sessionKeyFilter = typeof req.sessionKey === "string"
+      ? req.sessionKey
+      : undefined;
 
     let filter = ">";
     if (sessionKeyFilter) {
       filter = `${sessionKeyFilter}.>.>`;
     } else if (userFilter) {
       const parsed = parseOriginId(userFilter);
-      if (!parsed) return Result.err(new AuthError({ reason: "invalid_request" }));
+      if (!parsed) {
+        return Result.err(new AuthError({ reason: "invalid_request" }));
+      }
       const trellisId = await trellisIdFromOriginId(parsed.origin, parsed.id);
       filter = `>.${trellisId}.>`;
     }
@@ -231,14 +268,22 @@ export function createAuthListConnectionsHandler(deps: {
       const userNkey = parts[2];
       if (!sessionKey || !trellisId || !userNkey) continue;
 
-      const session = await takeValue(deps.sessionKV.get(`${sessionKey}.${trellisId}`));
+      const session = await takeValue(
+        deps.sessionKV.get(`${sessionKey}.${trellisId}`),
+      );
       if (isErr(session)) continue;
 
       connections.push(buildConnectionRow(
         (session as { value: Session }).value,
         sessionKey,
         userNkey,
-        (entry as { value: { serverId: string; clientId: number; connectedAt: string | Date } }).value,
+        (entry as {
+          value: {
+            serverId: string;
+            clientId: number;
+            connectedAt: string | Date;
+          };
+        }).value,
       ));
     }
 

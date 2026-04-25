@@ -1,2 +1,2 @@
-export * from "../../../../generated/js/sdks/auth/mod.ts";
-export { auth } from "../../../../generated/js/sdks/auth/mod.ts";
+export * from "#trellis-generated-sdk/auth";
+export { auth } from "#trellis-generated-sdk/auth";

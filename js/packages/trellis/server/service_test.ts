@@ -11,8 +11,8 @@ import {
   type Subscription,
 } from "@nats-io/nats-core";
 import { type BaseError, Result } from "@qlever-llc/result";
-import { core } from "@qlever-llc/trellis-sdk/core";
-import { health } from "@qlever-llc/trellis-sdk/health";
+import { core } from "@qlever-llc/trellis/sdk/core";
+import { health } from "@qlever-llc/trellis/sdk/health";
 import { Type } from "typebox";
 
 import type { LoggerLike } from "../globals.ts";

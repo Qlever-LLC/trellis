@@ -7,7 +7,7 @@
     AuthListPortalsOutput,
     AuthSetLoginPortalDefaultInput,
     AuthSetLoginPortalSelectionInput,
-  } from "@qlever-llc/trellis-sdk/auth";
+  } from "@qlever-llc/trellis/sdk/auth";
   import { onMount } from "svelte";
   import { errorMessage } from "../../../../../lib/format";
   import { getNotifications } from "../../../../../lib/notifications.svelte";

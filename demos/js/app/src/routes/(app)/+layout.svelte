@@ -3,15 +3,15 @@
   import { TrellisProvider } from "@qlever-llc/trellis-svelte";
   import AppShell from "$lib/components/AppShell.svelte";
   import { trellisUrl } from "$lib/trellis";
-  import { trellisApp } from "$lib/trellis-context.ts";
+  import { contract, setTrellis } from "$lib/trellis-context.ts";
 
   let { children }: { children: Snippet } = $props();
 </script>
 
 <TrellisProvider
-  app={trellisApp}
+  {contract}
+  {setTrellis}
   {trellisUrl}
-  auth={{ redirectTo: () => window.location.href }}
 >
   {#snippet loading()}
     <section class="mx-auto flex min-h-screen w-full max-w-6xl items-center justify-center px-4 py-8 sm:px-6 lg:px-8">

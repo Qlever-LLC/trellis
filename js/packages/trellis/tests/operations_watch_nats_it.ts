@@ -2,7 +2,7 @@ import { connect } from "@nats-io/transport-deno";
 import { assertEquals, assertExists } from "@std/assert";
 import { Type } from "typebox";
 import { defineServiceContract } from "../contract.ts";
-import { auth } from "@qlever-llc/trellis-sdk/auth";
+import { auth } from "@qlever-llc/trellis/sdk/auth";
 import { ok } from "../index.ts";
 import { TrellisServer } from "../server/mod.ts";
 import { createClient } from "../client.ts";
@@ -97,7 +97,9 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
   return { promise, resolve };
 }
 
-function startPermissiveAuthResponder(nc: Awaited<ReturnType<typeof NatsTest.start>>["nc"]): void {
+function startPermissiveAuthResponder(
+  nc: Awaited<ReturnType<typeof NatsTest.start>>["nc"],
+): void {
   const sub = nc.subscribe("rpc.v1.Auth.ValidateRequest");
   void (async () => {
     for await (const msg of sub) {
@@ -114,7 +116,12 @@ function startPermissiveAuthResponder(nc: Awaited<ReturnType<typeof NatsTest.sta
           active: true,
           name: "Test User",
           email: "test@example.com",
-          capabilities: ["billing.refund", "billing.read", "billing.cancel", "service"],
+          capabilities: [
+            "billing.refund",
+            "billing.read",
+            "billing.cancel",
+            "service",
+          ],
         },
       }));
     }
@@ -181,11 +188,11 @@ Deno.test({
           events.push({ type: event.type });
         })
         .start().match({
-        ok: (value) => value,
-        err: (error) => {
-          throw error;
-        },
-      });
+          ok: (value) => value,
+          err: (error) => {
+            throw error;
+          },
+        });
       assertExists(op);
 
       await waitFor(() => events.length >= 1, {
@@ -211,7 +218,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Operations builder callbacks keep accepted deterministic over NATS for fast completion",
+  name:
+    "Operations builder callbacks keep accepted deterministic over NATS for fast completion",
   ignore: !RUN_NATS_TESTS,
   async fn() {
     await using nats = await NatsTest.start();
@@ -258,11 +266,11 @@ Deno.test({
           events.push("completed");
         })
         .start().match({
-        ok: (value) => value,
-        err: (error) => {
-          throw error;
-        },
-      });
+          ok: (value) => value,
+          err: (error) => {
+            throw error;
+          },
+        });
 
       await op.wait().match({
         ok: () => undefined,

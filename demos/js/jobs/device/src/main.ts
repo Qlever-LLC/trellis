@@ -10,8 +10,12 @@ import type { InspectionSummariesRefreshStatus } from "@trellis-demo/jobs-servic
 const POLL_INTERVAL_MS = 250;
 
 async function main(): Promise<void> {
-  // Parse demo CLI args
-  const { args } = await new Command()
+  ////////////////////////////
+  // 1. Parse demo CLI args //
+  ////////////////////////////
+  const {
+    args: [trellisUrl, rootSecret],
+  } = await new Command()
     .name("demo-jobs")
     .arguments("<trellisUrl:string> <rootSecret:string>", [
       "URL of Trellis instance to connect to",
@@ -19,42 +23,53 @@ async function main(): Promise<void> {
     ])
     .parse(Deno.args);
 
-  // Connect to Trellis
+  ////////////////////////////
+  // 2. Check device status //
+  ////////////////////////////
   const activation = await checkDeviceActivation({
     contract,
-    trellisUrl: args[0],
-    rootSecret: args[1],
+    trellisUrl,
+    rootSecret,
   });
-  if (activation.status === "not_ready") {
-    throw new Error(`Device is not ready: ${activation.reason}`);
-  }
-  if (activation.status === "activation_required") {
-    console.info("Please activate device at:", activation.activationUrl);
-    renderCompactQr(activation.activationUrl);
-    await activation.waitForOnlineApproval();
+
+  switch (activation.status) {
+    case "not_ready":
+      throw new Error(`Device is not ready: ${activation.reason}`);
+
+    case "activation_required":
+      console.info("Please activate device at:", activation.activationUrl);
+      renderCompactQr(activation.activationUrl);
+      await activation.waitForOnlineApproval();
+      console.info("Activated!");
+
+      break;
+
+    case "activated":
+      console.log("Device is already activated. Continueing.");
   }
 
+  ///////////////////////////
+  // 3. Connect to Trellis //
+  ///////////////////////////
   const device = await TrellisDevice.connect({
     contract,
-    trellisUrl: args[0],
-    rootSecret: args[1],
+    trellisUrl,
+    rootSecret,
   }).orThrow();
 
-  // Fetch authenticated identity
-  console.log(chalk.green.bold("== Fetching Current Identify"));
-  const me = await device.request("Auth.Me", {}).orThrow();
-  console.dir(me, { depth: null });
-
-  // Make a simple RPC
+  /////////////////////////
+  // 4. RPC triggers Job //
+  /////////////////////////
   console.log(chalk.green.bold("== Queueing Summary Refresh"));
-  const siteId = "site-west-yard";
   const refresh = await device
-    .request("Inspection.Summaries.Refresh", { siteId })
+    .request("Inspection.Summaries.Refresh", { siteId: "site-west-yard" })
     .orThrow();
-
+  ////////////////////////////
+  // 5. Check on Job status //
+  ////////////////////////////
   // NOTE: In practice, a Trellis "operation" would be a much better fit
   // for work. Operations integrate seamlessly with Trellis Jobs.
-  console.info(`Queued refresh ${refresh.refreshId} for ${siteId}`);
+  console.info(`Queued refresh ${refresh.refreshId}`);
   console.log(chalk.green.bold("== Polling Refresh Status"));
   while (true) {
     const refreshStatus = await device

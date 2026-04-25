@@ -118,23 +118,48 @@ await trellis.mount(
 );
 await trellis.mount(
   "Trellis.Contract.Get",
-  createTrellisContractGetHandler(contracts.contractStore),
+  ({ input }) =>
+    createTrellisContractGetHandler(contracts.contractStore)(input),
 );
-await trellis.mount("Trellis.Bindings.Get", trellisBindingsGetHandler);
-await trellis.mount("State.Get", stateHandlers.get);
-await trellis.mount("State.Put", stateHandlers.put);
-await trellis.mount("State.Delete", stateHandlers.delete);
-await trellis.mount("State.List", stateHandlers.list);
-await trellis.mount("State.Admin.Get", stateHandlers.adminGet);
-await trellis.mount("State.Admin.List", stateHandlers.adminList);
-await trellis.mount("State.Admin.Delete", stateHandlers.adminDelete);
+await trellis.mount(
+  "Trellis.Bindings.Get",
+  ({ input, context }) => trellisBindingsGetHandler(input, context),
+);
+await trellis.mount(
+  "State.Get",
+  ({ input, context }) => stateHandlers.get(input, context),
+);
+await trellis.mount(
+  "State.Put",
+  ({ input, context }) => stateHandlers.put(input, context),
+);
+await trellis.mount(
+  "State.Delete",
+  ({ input, context }) => stateHandlers.delete(input, context),
+);
+await trellis.mount(
+  "State.List",
+  ({ input, context }) => stateHandlers.list(input, context),
+);
+await trellis.mount(
+  "State.Admin.Get",
+  ({ input, context }) => stateHandlers.adminGet(input, context),
+);
+await trellis.mount(
+  "State.Admin.List",
+  ({ input, context }) => stateHandlers.adminList(input, context),
+);
+await trellis.mount(
+  "State.Admin.Delete",
+  ({ input, context }) => stateHandlers.adminDelete(input, context),
+);
 await trellis.mount(
   "Auth.ListInstalledContracts",
   authListInstalledContractsHandler,
 );
 await trellis.mount(
   "Auth.GetInstalledContract",
-  authGetInstalledContractHandler,
+  ({ input }) => authGetInstalledContractHandler(input),
 );
 
 await trellis.mount(
@@ -197,7 +222,7 @@ await trellis.mount("Auth.Logout", authLogoutHandler);
 await trellis.mount("Auth.ListSessions", authListSessionsHandler);
 await trellis.mount(
   "Auth.RevokeSession",
-  authRevokeSessionHandler,
+  ({ input, context }) => authRevokeSessionHandler(input, context),
 );
 await trellis.mount("Auth.ListConnections", authListConnectionsHandler);
 await trellis.mount(

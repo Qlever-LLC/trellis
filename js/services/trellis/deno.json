@@ -8,5 +8,8 @@
     "dev": "deno task prepare && deno task build:builtin-portal && deno run --env --allow-env --allow-sys --allow-read --allow-net --allow-ffi --watch main.ts",
     "prepare": "cargo run --manifest-path ../../../rust/tools/generate/Cargo.toml --bin trellis-generate --",
     "test": "deno task prepare && deno test --allow-env --allow-sys --allow-read --allow-write"
+  },
+  "imports": {
+    "set-cookie-parser": "npm:set-cookie-parser@^3.1.0"
   }
 }

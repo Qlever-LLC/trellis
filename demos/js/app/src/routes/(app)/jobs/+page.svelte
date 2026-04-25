@@ -1,75 +1,42 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { getTrellis } from "$lib/trellis";
-  import type {
-    InspectionSummariesRefreshOutput,
-    InspectionSummariesRefreshStatus,
-    InspectionSummariesRefreshStatusGetOutput,
-  } from "@trellis-demo/jobs-service-sdk";
+  import { getTrellis } from "$lib/trellis-context.ts";
+  import type { InspectionSummariesRefreshStatusGetOutput } from "@trellis-demo/jobs-service-sdk";
   import type {
     JobsListOutput,
     JobsListServicesOutput,
-  } from "@qlever-llc/trellis-sdk/jobs";
+  } from "@qlever-llc/trellis/sdk/jobs";
+
+  type Services = JobsListServicesOutput["services"];
+  type Jobs = JobsListOutput["jobs"];
+  type Refresh = NonNullable<
+    InspectionSummariesRefreshStatusGetOutput["refresh"]
+  >;
 
   const siteId = "site-west-yard";
   const terminalStates = new Set(["completed", "failed"]);
 
   const trellis = getTrellis();
 
-  async function requestRefreshStatus(
-    refreshId: string,
-  ): Promise<InspectionSummariesRefreshStatusGetOutput> {
-    const response = await trellis.request(
-      "Inspection.Summaries.RefreshStatus.Get",
-      {
-        refreshId,
-      },
-    ).orThrow();
-    return response;
-  }
-
-  async function requestRefresh(
-    targetSiteId: string,
-  ): Promise<InspectionSummariesRefreshOutput> {
-    const response = await trellis.request(
-      "Inspection.Summaries.Refresh",
-      {
-        siteId: targetSiteId,
-      },
-    ).orThrow();
-    return response;
-  }
-
-  async function requestServices(): Promise<JobsListServicesOutput> {
-    const response = await trellis.request(
-      "Jobs.ListServices",
-      {},
-    ).orThrow();
-    return response;
-  }
-
-  async function requestJobs(): Promise<JobsListOutput> {
-    const response = await trellis.request("Jobs.List", {
-      limit: 8,
-    }).orThrow();
-    return response;
-  }
-
   let loading = $state(true);
   let error = $state<string | null>(null);
   let queueing = $state(false);
-  let services = $state<JobsListServicesOutput["services"]>([]);
-  let jobs = $state<JobsListOutput["jobs"]>([]);
-  let refresh = $state<InspectionSummariesRefreshStatus | null>(null);
+  let services = $state<Services>([]);
+  let jobs = $state<Jobs>([]);
+  let refresh = $state<Refresh | null>(null);
 
   async function loadAdminView(): Promise<void> {
     loading = true;
     error = null;
 
     try {
+      const servicesPromise = trellis
+        .request("Jobs.ListServices", {})
+        .orThrow();
+      const jobsPromise = trellis.request("Jobs.List", { limit: 8 }).orThrow();
       const [servicesResult, jobsResult] = await Promise.all([
-        requestServices(),
-        requestJobs(),
+        servicesPromise,
+        jobsPromise,
       ]);
 
       services = servicesResult.services;
@@ -83,7 +50,9 @@
 
   async function pollRefresh(refreshId: string): Promise<void> {
     for (let attempt = 0; attempt < 16; attempt += 1) {
-      const response = await requestRefreshStatus(refreshId);
+      const response = await trellis
+        .request("Inspection.Summaries.RefreshStatus.Get", { refreshId })
+        .orThrow();
       refresh = response.refresh ?? null;
 
       if (response.refresh && terminalStates.has(response.refresh.status)) {
@@ -99,7 +68,9 @@
     error = null;
 
     try {
-      const queued = await requestRefresh(siteId);
+      const queued = await trellis
+        .request("Inspection.Summaries.Refresh", { siteId })
+        .orThrow();
       refresh = {
         refreshId: queued.refreshId,
         siteId,

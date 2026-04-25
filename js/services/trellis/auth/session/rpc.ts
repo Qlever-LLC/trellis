@@ -10,7 +10,7 @@ import type {
   AuthListConnectionsOutput,
   AuthListSessionsInput,
   AuthListSessionsOutput,
-} from "../../../../../generated/js/sdks/auth/types.ts";
+} from "@qlever-llc/trellis/sdk/auth";
 import {
   connectionsKV,
   contractApprovalsKV,
@@ -24,12 +24,12 @@ import {
   trellis,
   usersKV,
 } from "../../bootstrap/globals.ts";
-import type {
-  Session,
-  UserProjectionEntry,
-} from "../../state/schemas.ts";
+import type { Session, UserProjectionEntry } from "../../state/schemas.ts";
 import { resolveSessionPrincipal } from "./principal.ts";
-import { loadServiceInstanceByKey, loadServiceProfile } from "../admin/service_rpc.ts";
+import {
+  loadServiceInstanceByKey,
+  loadServiceProfile,
+} from "../admin/service_rpc.ts";
 import { loadEffectiveGrantPolicies } from "../grants/store.ts";
 export { createAuthRevokeSessionHandler } from "./revoke.ts";
 import { createAuthRevokeSessionHandler } from "./revoke.ts";
@@ -72,7 +72,9 @@ type AuthMeResponse = {
 
 type KVLike<V> = {
   get: (key: string) => AsyncResult<{ value: V } | V | unknown, BaseError>;
-  keys?: (filter: string) => AsyncResult<AsyncIterable<string> | unknown, BaseError>;
+  keys?: (
+    filter: string,
+  ) => AsyncResult<AsyncIterable<string> | unknown, BaseError>;
 };
 
 function unwrapValue<V>(entry: unknown): V {
@@ -113,10 +115,10 @@ type SessionUser = {
 };
 
 type SessionContext = {
-    caller: {
-      type: string;
-      participantKind?: "app" | "agent";
-      trellisId?: string;
+  caller: {
+    type: string;
+    participantKind?: "app" | "agent";
+    trellisId?: string;
     id?: string;
     origin?: string;
     email?: string;
@@ -229,7 +231,11 @@ function buildConnectionRow(
   session: Session,
   sessionKey: string,
   userNkey: string,
-  connection: { serverId: string; clientId: number; connectedAt: string | Date },
+  connection: {
+    serverId: string;
+    clientId: number;
+    connectedAt: string | Date;
+  },
 ): ConnectionRow {
   const base = {
     key: sessionActorKey(session, sessionKey, userNkey),
@@ -342,9 +348,9 @@ function formatCaller(
   }
 
   return {
-      type: "user" as const,
-      participantKind: session.participantKind,
-      trellisId: session.trellisId,
+    type: "user" as const,
+    participantKind: session.participantKind,
+    trellisId: session.trellisId,
     id: session.id,
     origin: session.origin,
     active: principal.active,
@@ -664,12 +670,12 @@ async function loadAuthenticatedDevice(args: {
 
   return {
     user,
-      device: {
-        type: "device",
-        deviceId: args.session.instanceId,
-        deviceType: deviceTypeFromProfileId(args.session.profileId),
-        runtimePublicKey: args.session.publicIdentityKey,
-        profileId: args.session.profileId,
+    device: {
+      type: "device",
+      deviceId: args.session.instanceId,
+      deviceType: deviceTypeFromProfileId(args.session.profileId),
+      runtimePublicKey: args.session.publicIdentityKey,
+      profileId: args.session.profileId,
       active: true,
       capabilities: args.session.delegatedCapabilities,
     },
@@ -682,7 +688,9 @@ export function createAuthMeHandler(deps: {
   deviceActivationsKV: KVLike<DeviceActivationRecord>;
   deviceProfilesKV: KVLike<{ profileId: string; disabled: boolean }>;
 }) {
-  return async ({ context: { sessionKey, caller } }: { context: SessionContext }) => {
+  return async (
+    { context: { sessionKey, caller } }: { context: SessionContext },
+  ) => {
     logger.trace({ rpc: "Auth.Me", sessionKey }, "RPC request");
 
     try {
@@ -868,7 +876,8 @@ export const authLogoutHandler = async (
 
   await sessionKV.delete(sessionKeyId);
 
-  const connKeys = await connectionsKV.keys(`${sessionKey}.${user.trellisId}.>`).take();
+  const connKeys = await connectionsKV.keys(`${sessionKey}.${user.trellisId}.>`)
+    .take();
   if (!isErr(connKeys)) {
     for await (const key of connKeys) {
       const entry = await connectionsKV.get(key).take();
@@ -914,7 +923,9 @@ export function createAuthListSessionsHandler(deps: {
       if (isErr(entry)) continue;
 
       const sessionKey = key.split(".")[0] ?? "";
-      sessions.push(buildSessionRow((entry as { value: Session }).value, sessionKey));
+      sessions.push(
+        buildSessionRow((entry as { value: Session }).value, sessionKey),
+      );
     }
 
     sessions.sort((left, right) => left.key.localeCompare(right.key));
@@ -922,7 +933,9 @@ export function createAuthListSessionsHandler(deps: {
   };
 }
 
-export const authListSessionsHandler = createAuthListSessionsHandler({ sessionKV });
+export const authListSessionsHandler = createAuthListSessionsHandler({
+  sessionKV,
+});
 
 export const authRevokeSessionHandler = createAuthRevokeSessionHandler({
   sessionKV,
@@ -931,20 +944,31 @@ export const authRevokeSessionHandler = createAuthRevokeSessionHandler({
   deviceActivationsKV,
   serviceInstancesKV,
   kick: async (serverId, clientId) => {
-    await import("../callout/kick.ts").then(({ kick }) => kick(serverId, clientId));
+    await import("../callout/kick.ts").then(({ kick }) =>
+      kick(serverId, clientId)
+    );
   },
   publishSessionRevoked: async (event) => {
     await trellis.publish("Auth.SessionRevoked", event).inspectErr((error) =>
-      logger.warn({ error }, "Failed to publish Auth.SessionRevoked"));
+      logger.warn({ error }, "Failed to publish Auth.SessionRevoked")
+    );
   },
 });
 
 export function createAuthListConnectionsHandler(deps: {
   sessionKV: Pick<KVLike<Session>, "get">;
   connectionsKV: {
-    keys: (filter: string) => AsyncResult<AsyncIterable<string> | unknown, BaseError>;
+    keys: (
+      filter: string,
+    ) => AsyncResult<AsyncIterable<string> | unknown, BaseError>;
     get: (key: string) => AsyncResult<
-      { value: { serverId: string; clientId: number; connectedAt: string | Date } } | unknown,
+      {
+        value: {
+          serverId: string;
+          clientId: number;
+          connectedAt: string | Date;
+        };
+      } | unknown,
       BaseError
     >;
   };
@@ -988,14 +1012,33 @@ export function createAuthListConnectionsHandler(deps: {
       const userNkey = parts[2];
       if (!sessionKey || !trellisId || !userNkey) continue;
 
-      const session = await deps.sessionKV.get(`${sessionKey}.${trellisId}`).take();
+      const session = await deps.sessionKV.get(`${sessionKey}.${trellisId}`)
+        .take();
       if (isErr(session)) continue;
 
       const sessionValue = (session as { value: Session }).value;
       connections.push(buildConnectionRow(sessionValue, sessionKey, userNkey, {
-        serverId: (entry as { value: { serverId: string; clientId: number; connectedAt: string | Date } }).value.serverId,
-        clientId: (entry as { value: { serverId: string; clientId: number; connectedAt: string | Date } }).value.clientId,
-        connectedAt: (entry as { value: { serverId: string; clientId: number; connectedAt: string | Date } }).value.connectedAt,
+        serverId: (entry as {
+          value: {
+            serverId: string;
+            clientId: number;
+            connectedAt: string | Date;
+          };
+        }).value.serverId,
+        clientId: (entry as {
+          value: {
+            serverId: string;
+            clientId: number;
+            connectedAt: string | Date;
+          };
+        }).value.clientId,
+        connectedAt: (entry as {
+          value: {
+            serverId: string;
+            clientId: number;
+            connectedAt: string | Date;
+          };
+        }).value.connectedAt,
       }));
     }
 
@@ -1049,18 +1092,20 @@ export function createAuthKickConnectionHandler(opts: {
       const sessionKey = parts[0];
       const trellisId = parts[1];
       if (sessionKey && trellisId) {
-        const session = await sessionKV.get(`${sessionKey}.${trellisId}`).take();
+        const session = await sessionKV.get(`${sessionKey}.${trellisId}`)
+          .take();
         if (!isErr(session)) {
           if (session.value.type === "device") {
             continue;
           }
           await trellis.publish("Auth.ConnectionKicked", {
-              origin: session.value.origin,
-              id: session.value.id,
-              userNkey: req.userNkey,
-              kickedBy,
-            }).inspectErr((error) =>
-            logger.warn({ error }, "Failed to publish Auth.ConnectionKicked"));
+            origin: session.value.origin,
+            id: session.value.id,
+            userNkey: req.userNkey,
+            kickedBy,
+          }).inspectErr((error) =>
+            logger.warn({ error }, "Failed to publish Auth.ConnectionKicked")
+          );
         }
       }
 

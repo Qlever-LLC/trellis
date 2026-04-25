@@ -3,7 +3,7 @@ import {
   type JobsListInput,
   type JobsListOutput,
   type JobsListServicesOutput,
-} from "@qlever-llc/trellis-sdk/jobs";
+} from "@qlever-llc/trellis/sdk/jobs";
 
 type JobsPageRpc = {
   listServices(): AsyncResult<JobsListServicesOutput, BaseError>;

@@ -19,8 +19,9 @@ function manualChunks(id) {
     id.includes("svelte") ||
     id.includes("esrap") ||
     id.includes("clsx")
-  )
+  ) {
     return "vendor-ui";
+  }
   return "vendor-misc";
 }
 

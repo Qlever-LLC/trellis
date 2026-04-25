@@ -87,8 +87,9 @@ export function getConnection() {
 Rules:
 
 - the app-local module owns static app metadata and typed helpers
-- browser apps should bind `createTrellisApp` to the generated client facade from
-  `prepare`, for example `MyAppClient` from `generated/js/sdks/my-app/client.ts`
+- browser apps should bind `createTrellisApp` to the generated client facade
+  from `prepare`, for example `MyAppClient` from
+  `generated/js/sdks/my-app/client.ts`
 - in the common fixed-instance case, the app-local module should export the
   fixed `trellisUrl` and the contract once
 - `TrellisProvider` should receive `trellisUrl` and an app-owned `trellisApp`
@@ -115,3 +116,28 @@ Rules:
 - apps that let the user choose an auth instance at runtime may still need a
   more dynamic sign-in path, but that should remain an explicit advanced pattern
   rather than the default guide story
+
+## Local Workspace Alias Pattern
+
+SvelteKit apps that consume local workspace packages must keep Deno, Vite, and
+the Svelte/TypeScript editor on the same package graph.
+
+Rules:
+
+- installed registry packages do not need aliases; let the package manager and
+  normal resolver handle them
+- local generated service SDK packages need SvelteKit and Vite aliases unless
+  they are installed packages
+- if Trellis itself is local-linked, alias the package root
+  `@qlever-llc/trellis` and every Trellis subpath the app or generated SDKs
+  import
+- do not rely on Vite regex aliases alone; SvelteKit's `kit.alias` generates the
+  `.svelte-kit/tsconfig.json` path mappings used by editor tooling and
+  `svelte-check`
+- prefer deriving aliases from the same Deno `imports` map used by the local
+  workspace instead of maintaining an independent frontend-only alias list
+
+The Trellis repo's local frontend apps use `frontendWorkspaceAliases()` for Vite
+and `frontendWorkspaceSvelteAliases()` for SvelteKit. App workspaces that define
+their own local generated SDK package names should include those prefixes when
+building aliases, for example `@trellis-demo/` in the demo workspace.

@@ -24,11 +24,8 @@ Each service owns a local contract definition that emits the canonical
 `trellis.contract.v1` artifact.
 
 ```ts
-import {
-  defineError,
-  defineServiceContract,
-} from "@qlever-llc/trellis";
-import { core } from "@qlever-llc/trellis-sdk";
+import { defineError, defineServiceContract } from "@qlever-llc/trellis";
+import { core } from "@qlever-llc/trellis/sdk/core";
 
 const schemas = {
   FindUser: FindUserSchema,
@@ -216,8 +213,8 @@ Built-in error roles:
   as malformed replies, unavailable routes, bind/bootstrap failures, and other
   Trellis-owned protocol or connection problems. It should carry human-facing
   Trellis-native `message`, `code`, and `hint` values.
-- `UnexpectedError` remains the bucket for true internal or otherwise
-  unexpected conditions, usually by wrapping an unplanned cause.
+- `UnexpectedError` remains the bucket for true internal or otherwise unexpected
+  conditions, usually by wrapping an unplanned cause.
 
 ```ts
 export class AuthError extends TrellisError<AuthErrorData> {

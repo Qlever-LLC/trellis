@@ -213,7 +213,8 @@ declare function defineDeviceContract<TBody extends object>(
 ```ts
 import { TrellisClient } from "@qlever-llc/trellis";
 import { defineServiceContract } from "@qlever-llc/trellis/contracts";
-import { auth, core } from "@qlever-llc/trellis-sdk";
+import { auth } from "@qlever-llc/trellis/sdk/auth";
+import { core } from "@qlever-llc/trellis/sdk/core";
 
 const schemas = {
   ActivityImportRequest: ActivityImportRequestSchema,

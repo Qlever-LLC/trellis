@@ -61,7 +61,10 @@ pub fn generate_ts_sdk(opts: &GenerateTsSdkOpts) -> Result<(), CodegenTsError> {
 
     write_if_changed(
         &opts.out_dir.join("deno.json"),
-        &format!("{}\n", serde_json::to_string_pretty(&deno_json(opts)?)?),
+        &format!(
+            "{}\n",
+            serde_json::to_string_pretty(&deno_json(opts, &loaded)?)?
+        ),
     )?;
     write_if_changed(
         &opts.out_dir.join("contract.ts"),
@@ -82,11 +85,16 @@ pub fn generate_ts_sdk(opts: &GenerateTsSdkOpts) -> Result<(), CodegenTsError> {
     )?;
     write_if_changed(&opts.out_dir.join("mod.ts"), &render_mod_ts(opts, &loaded))?;
 
-    fs::create_dir_all(opts.out_dir.join("scripts"))?;
-    write_if_changed(
-        &opts.out_dir.join("scripts").join("build_npm.ts"),
-        &render_build_npm_ts(opts, &loaded),
-    )?;
+    let scripts_dir = opts.out_dir.join("scripts");
+    if is_standalone_package_name(&opts.package_name) {
+        fs::create_dir_all(&scripts_dir)?;
+        write_if_changed(
+            &scripts_dir.join("build_npm.ts"),
+            &render_build_npm_ts(opts, &loaded),
+        )?;
+    } else if scripts_dir.exists() {
+        fs::remove_dir_all(&scripts_dir)?;
+    }
     write_if_changed(
         &opts.out_dir.join("README.md"),
         &render_readme(opts, &loaded),
@@ -109,7 +117,10 @@ struct SchemaTypeAlias {
     schema: Value,
 }
 
-fn deno_json(opts: &GenerateTsSdkOpts) -> Result<serde_json::Map<String, Value>, CodegenTsError> {
+fn deno_json(
+    opts: &GenerateTsSdkOpts,
+    _loaded: &LoadedManifest,
+) -> Result<serde_json::Map<String, Value>, CodegenTsError> {
     let mut root = serde_json::Map::new();
     let extends = resolved_extends(opts)?;
 
@@ -132,19 +143,24 @@ fn deno_json(opts: &GenerateTsSdkOpts) -> Result<serde_json::Map<String, Value>,
             "./contract": "./contract.ts"
         }),
     );
-    root.insert(
-        "tasks".to_string(),
-        serde_json::json!({
-            "build:npm": "deno run -A scripts/build_npm.ts"
-        }),
-    );
-    if extends.is_none() {
+    if is_standalone_package_name(&opts.package_name) {
         root.insert(
-            "imports".to_string(),
+            "tasks".to_string(),
             serde_json::json!({
-                "@qlever-llc/trellis": format!("jsr:@qlever-llc/trellis@^{}", opts.runtime_deps.version)
+                "build:npm": "deno run -A scripts/build_npm.ts"
             }),
         );
+    }
+    if extends.is_none() {
+        let mut imports = serde_json::Map::new();
+        imports.insert(
+            "@qlever-llc/trellis".to_string(),
+            Value::String(format!(
+                "jsr:@qlever-llc/trellis@^{}",
+                opts.runtime_deps.version
+            )),
+        );
+        root.insert("imports".to_string(), Value::Object(imports));
     }
     root.insert(
         "compilerOptions".to_string(),
@@ -155,6 +171,13 @@ fn deno_json(opts: &GenerateTsSdkOpts) -> Result<serde_json::Map<String, Value>,
     );
 
     Ok(root)
+}
+
+fn is_standalone_package_name(package_name: &str) -> bool {
+    if package_name.starts_with("@qlever-llc/trellis-generated-") {
+        return false;
+    }
+    !package_name.starts_with('@') || package_name.matches('/').count() == 1
 }
 
 fn render_contract_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
@@ -171,17 +194,10 @@ fn render_contract_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Stri
     } else {
         "SdkContractModule<typeof CONTRACT_ID, typeof API.owned>"
     };
-    let import_line = if is_trellis_auth {
-        format!(
-            "import type {{ ContractDependencyUse, SdkContractModule, TrellisContractV1, UseSpec }} from {};",
-            js_string(&trellis_import)
-        )
-    } else {
-        format!(
-            "import type {{ SdkContractModule, TrellisContractV1, UseSpec }} from {};",
-            js_string(&trellis_import)
-        )
-    };
+    let import_line = format!(
+        "import type {{ ContractDependencyUse, SdkContractModule, TrellisContractV1, UseSpec }} from {};",
+        js_string(&trellis_import)
+    );
 
     let mut lines = vec![
         format!("// Generated from {}", escape_js_string(&source_reference)),
@@ -319,7 +335,7 @@ fn render_contract_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Stri
         contract_fields.push("  [CONTRACT_JOBS_METADATA]: CONTRACT_JOBS,".to_string());
     }
     contract_fields.extend([
-        "  use: ((spec: UseSpec<typeof API.owned>) => {".to_string(),
+        "  use: (<const TSpec extends UseSpec<typeof API.owned>>(spec: TSpec) => {".to_string(),
         "    assertValidUseSpec(spec);".to_string(),
         String::new(),
         "    const dependencyUse = {".to_string(),
@@ -349,7 +365,7 @@ fn render_contract_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Stri
         "      enumerable: false,".to_string(),
         "    });".to_string(),
         String::new(),
-        "    return dependencyUse;".to_string(),
+        "    return dependencyUse as ContractDependencyUse<typeof CONTRACT_ID, typeof API.owned, TSpec>;".to_string(),
         "  }),".to_string(),
     ]);
     lines.extend(contract_fields);
@@ -477,7 +493,7 @@ fn render_types_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String 
                 "import type {{ RpcHandlerFn }} from {};",
                 js_string(&trellis_import)
             ),
-            "import { API } from \"./api.ts\";".to_string(),
+            "import type { API } from \"./api.ts\";".to_string(),
             String::new(),
         ]);
     }
@@ -788,6 +804,7 @@ fn render_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
             api_schema_imports.insert(schema.schema.as_str());
         }
     }
+    let uses_types_as_value = api_uses_types_as_value(loaded);
     let mut lines = vec![
         format!("// Generated from {}", escape_js_string(&source_reference)),
         format!(
@@ -798,7 +815,11 @@ fn render_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
             "import {{ schema }} from {};",
             js_string(&trellis_contracts_import)
         ),
-        "import * as Types from \"./types.ts\";".to_string(),
+        if uses_types_as_value {
+            "import * as Types from \"./types.ts\";".to_string()
+        } else {
+            "import type * as Types from \"./types.ts\";".to_string()
+        },
         String::new(),
         "export const OWNED_API = {".to_string(),
         "  rpc: {".to_string(),
@@ -1131,6 +1152,20 @@ fn render_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
     )
 }
 
+fn api_uses_types_as_value(loaded: &LoadedManifest) -> bool {
+    loaded.manifest.rpc.values().any(|rpc| {
+        rpc.errors.as_ref().is_some_and(|errors| {
+            errors.iter().any(|error| {
+                loaded
+                    .manifest
+                    .errors
+                    .values()
+                    .any(|decl| decl.error_type == error.error_type)
+            })
+        })
+    })
+}
+
 fn render_used_api_ts(uses: &[ClientUseDependency]) -> Vec<String> {
     let mut lines = vec!["export const USED_API = {".to_string()];
     for (field, selectors) in [
@@ -1356,12 +1391,12 @@ fn api_dependency_namespace(client_namespace: &str) -> String {
 
 fn builtin_trellis_sdk_import(contract_id: &str) -> Option<&'static str> {
     match contract_id {
-        "trellis.auth@v1" => Some("@qlever-llc/trellis-sdk/auth"),
-        "trellis.jobs@v1" => Some("@qlever-llc/trellis-sdk/jobs"),
-        "trellis.health@v1" => Some("@qlever-llc/trellis-sdk/health"),
-        "trellis.state@v1" => Some("@qlever-llc/trellis-sdk/state"),
-        "trellis.core@v1" => Some("@qlever-llc/trellis-sdk/core"),
-        "trellis.activity@v1" => Some("@qlever-llc/trellis-sdk/activity"),
+        "trellis.auth@v1" => Some("@qlever-llc/trellis/sdk/auth"),
+        "trellis.jobs@v1" => Some("@qlever-llc/trellis/sdk/jobs"),
+        "trellis.health@v1" => Some("@qlever-llc/trellis/sdk/health"),
+        "trellis.state@v1" => Some("@qlever-llc/trellis/sdk/state"),
+        "trellis.core@v1" => Some("@qlever-llc/trellis/sdk/core"),
+        "trellis.activity@v1" => Some("@qlever-llc/trellis/sdk/activity"),
         _ => None,
     }
 }
@@ -1389,8 +1424,8 @@ fn render_client_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String
             "import type {{ AsyncResult, BaseError, EventOpts, MapStateStoreClient, MaybeAsync, NatsConnection, OperationInputBuilder, OperationRef, OperationRefData, RequestOpts, TransferCapableOperationInputBuilder, TrellisConnection, UnexpectedError, ValidationError, ValueStateStoreClient }} from {};",
             js_string(&trellis_import)
         ),
-        "import { API } from \"./api.ts\";".to_string(),
-        "import * as Types from \"./types.ts\";".to_string(),
+        "import type { API } from \"./api.ts\";".to_string(),
+        "import type * as Types from \"./types.ts\";".to_string(),
     ];
 
     for use_dep in &uses {
@@ -1665,21 +1700,7 @@ fn client_state_value_type(loaded: &LoadedManifest, schema_name: &str) -> String
 fn render_build_npm_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
     let source_reference =
         manifest_source_reference(&opts.manifest_path, opts.runtime_deps.repo_root.as_deref());
-    let trellis_dependency = match opts.runtime_deps.source {
-        TsRuntimeSource::Registry => format!("^{}", opts.runtime_deps.version),
-        TsRuntimeSource::Local => opts
-            .runtime_deps
-            .repo_root
-            .as_ref()
-            .map(|repo_root| {
-                format!(
-                    "file:{}",
-                    relative_path_string(&opts.out_dir, &repo_root.join("js/packages/trellis/npm"))
-                )
-            })
-            .unwrap_or_else(|| format!("^{}", opts.runtime_deps.version)),
-    };
-    let publish_trellis_dependency = format!("^{}", opts.runtime_deps.version);
+    let trellis_dependency = format!("^{}", opts.runtime_deps.version);
 
     format!(
         "// Generated from {}\nimport {{ build, emptyDir }} from \"jsr:@deno/dnt@^0.41.3\";\n\nawait emptyDir(new URL(\"../npm\", import.meta.url));\n\nawait build({{\n  entryPoints: [\"./mod.ts\"],\n  outDir: \"./npm\",\n  shims: {{\n    deno: true,\n  }},\n  test: false,\n  typeCheck: false,\n  package: {{\n    name: {},\n    version: {},\n    description: \"Generated Trellis SDK for contract {}\",\n    license: \"Apache-2.0\",\n    homepage: \"https://github.com/Qlever-LLC/trellis#readme\",\n    bugs: {{\n      url: \"https://github.com/Qlever-LLC/trellis/issues\",\n    }},\n    repository: {{\n      type: \"git\",\n      url: \"https://github.com/Qlever-LLC/trellis\",\n    }},\n    publishConfig: {{\n      access: \"public\",\n    }},\n    dependencies: {{\n      \"@qlever-llc/trellis\": {},\n    }},\n  }},\n}});\n\nconst packageJsonPath = new URL(\"../npm/package.json\", import.meta.url);\nconst packageJson = JSON.parse(await Deno.readTextFile(packageJsonPath));\npackageJson.dependencies = {{\n  ...(packageJson.dependencies ?? {{}}),\n  \"@qlever-llc/trellis\": {},\n}};\nawait Deno.writeTextFile(packageJsonPath, `${{JSON.stringify(packageJson, null, 2)}}\n`);\n",
@@ -1688,7 +1709,7 @@ fn render_build_npm_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Str
         js_string(&opts.package_version),
         escape_js_string(&loaded.manifest.id),
         js_string(&trellis_dependency),
-        js_string(&publish_trellis_dependency),
+        js_string(&trellis_dependency),
     )
 }
 
@@ -1712,28 +1733,12 @@ fn resolved_extends(opts: &GenerateTsSdkOpts) -> Result<Option<String>, CodegenT
     }
 }
 
-fn trellis_runtime_import(opts: &GenerateTsSdkOpts) -> String {
-    match opts.runtime_deps.source {
-        TsRuntimeSource::Registry => "@qlever-llc/trellis".to_string(),
-        TsRuntimeSource::Local => local_runtime_import_path(opts, "js/packages/trellis/index.ts"),
-    }
+fn trellis_runtime_import(_opts: &GenerateTsSdkOpts) -> String {
+    "@qlever-llc/trellis".to_string()
 }
 
-fn trellis_contracts_import(opts: &GenerateTsSdkOpts) -> String {
-    match opts.runtime_deps.source {
-        TsRuntimeSource::Registry => "@qlever-llc/trellis/contracts".to_string(),
-        TsRuntimeSource::Local => {
-            local_runtime_import_path(opts, "js/packages/trellis/contracts.ts")
-        }
-    }
-}
-
-fn local_runtime_import_path(opts: &GenerateTsSdkOpts, relative_target: &str) -> String {
-    opts.runtime_deps
-        .repo_root
-        .as_ref()
-        .map(|repo_root| relative_path_string(&opts.out_dir, &repo_root.join(relative_target)))
-        .unwrap_or_else(|| relative_target.to_string())
+fn trellis_contracts_import(_opts: &GenerateTsSdkOpts) -> String {
+    "@qlever-llc/trellis/contracts".to_string()
 }
 
 fn runtime_config_path(repo_root: &Path) -> Result<PathBuf, CodegenTsError> {
@@ -1873,13 +1878,15 @@ fn key_to_pascal(value: &str) -> String {
 fn sdk_module_export_name(package_name: &str) -> String {
     let trimmed = package_name
         .strip_prefix("@qlever-llc/trellis-sdk-")
+        .or_else(|| package_name.strip_prefix("@qlever-llc/trellis/sdk/"))
+        .or_else(|| package_name.strip_prefix("@qlever-llc/trellis-generated-"))
         .unwrap_or(package_name);
     kebab_to_camel(trimmed)
 }
 
 fn sdk_readme_import_specifier(package_name: &str) -> String {
     if let Some(trimmed) = package_name.strip_prefix("@qlever-llc/trellis-sdk-") {
-        format!("@qlever-llc/trellis-sdk/{trimmed}")
+        format!("@qlever-llc/trellis/sdk/{trimmed}")
     } else {
         package_name.to_string()
     }
@@ -2350,6 +2357,21 @@ mod tests {
         std::env::temp_dir().join(format!("trellis-codegen-ts-{label}-{nanos}"))
     }
 
+    fn minimal_manifest(contract_id: &str) -> Value {
+        json!({
+            "format": "trellis.contract.v1",
+            "id": contract_id,
+            "displayName": "Test Contract",
+            "description": "Fixture contract",
+            "kind": "service",
+            "schemas": {},
+            "rpc": {},
+            "operations": {},
+            "events": {},
+            "subjects": {}
+        })
+    }
+
     fn sample_opts_and_loaded(
         package_name: &str,
         contract_id: &str,
@@ -2451,7 +2473,15 @@ mod tests {
 
     #[test]
     fn registry_mode_emits_jsr_imports() {
-        let deno = deno_json(&GenerateTsSdkOpts {
+        let root = unique_temp_dir("registry-mode-jsr-imports");
+        fs::create_dir_all(&root).unwrap();
+        let manifest_path = root.join("trellis.core@v1.json");
+        fs::write(
+            &manifest_path,
+            serde_json::to_string(&minimal_manifest("trellis.core@v1")).unwrap(),
+        )
+        .unwrap();
+        let opts = GenerateTsSdkOpts {
             manifest_path: PathBuf::from("generated/contracts/manifests/trellis.core@v1.json"),
             out_dir: PathBuf::from("generated/js/sdks/trellis-core"),
             package_name: "@qlever-llc/trellis-sdk-core".to_string(),
@@ -2461,8 +2491,9 @@ mod tests {
                 version: "0.2.3".to_string(),
                 repo_root: None,
             },
-        })
-        .unwrap();
+        };
+        let loaded = load_manifest(&manifest_path).unwrap();
+        let deno = deno_json(&opts, &loaded).unwrap();
 
         let imports = deno.get("imports").and_then(Value::as_object).unwrap();
         assert_eq!(
@@ -2471,6 +2502,8 @@ mod tests {
         );
         assert_eq!(imports.len(), 1);
         assert!(deno.get("extends").is_none());
+
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -2481,7 +2514,14 @@ mod tests {
         fs::create_dir_all(&out_dir).unwrap();
         fs::write(repo_root.join("js/deno.json"), "{}\n").unwrap();
 
-        let deno = deno_json(&GenerateTsSdkOpts {
+        let manifest_path = repo_root.join("generated/contracts/manifests/trellis.auth@v1.json");
+        fs::create_dir_all(manifest_path.parent().unwrap()).unwrap();
+        fs::write(
+            &manifest_path,
+            serde_json::to_string(&minimal_manifest("trellis.auth@v1")).unwrap(),
+        )
+        .unwrap();
+        let opts = GenerateTsSdkOpts {
             manifest_path: repo_root.join("generated/contracts/manifests/trellis.auth@v1.json"),
             out_dir: out_dir.clone(),
             package_name: "@qlever-llc/trellis-sdk-auth".to_string(),
@@ -2491,8 +2531,9 @@ mod tests {
                 version: "0.4.0".to_string(),
                 repo_root: Some(repo_root.clone()),
             },
-        })
-        .unwrap();
+        };
+        let loaded = load_manifest(&manifest_path).unwrap();
+        let deno = deno_json(&opts, &loaded).unwrap();
 
         assert_eq!(
             deno.get("extends").and_then(Value::as_str),
@@ -2504,7 +2545,7 @@ mod tests {
     }
 
     #[test]
-    fn local_mode_emits_relative_runtime_imports() {
+    fn local_mode_emits_package_runtime_imports() {
         let repo_root = unique_temp_dir("repo-root-local-imports");
         let out_dir = repo_root.join("workspaces/demo/generated/js/sdks/auth");
         fs::create_dir_all(repo_root.join("js/packages/trellis")).unwrap();
@@ -2524,9 +2565,38 @@ mod tests {
         let contract = render_contract_ts(&opts, &loaded);
         let types = render_types_ts(&opts, &loaded);
 
-        assert!(api.contains("../../../../../../js/packages/trellis/contracts.ts"));
-        assert!(contract.contains("../../../../../../js/packages/trellis/index.ts"));
-        assert!(types.contains("../../../../../../js/packages/trellis/index.ts"));
+        assert!(api.contains("@qlever-llc/trellis/contracts"));
+        assert!(contract.contains("@qlever-llc/trellis"));
+        assert!(types.contains("@qlever-llc/trellis"));
+        assert!(!api.contains("js/packages/trellis"));
+        assert!(!contract.contains("js/packages/trellis"));
+        assert!(!types.contains("js/packages/trellis"));
+
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(repo_root).unwrap();
+    }
+
+    #[test]
+    fn local_mode_build_npm_uses_registry_version_metadata() {
+        let repo_root = unique_temp_dir("repo-root-local-build-npm");
+        let out_dir = repo_root.join("generated/js/sdks/auth");
+        fs::create_dir_all(repo_root.join("js/packages/trellis/npm")).unwrap();
+        fs::create_dir_all(&out_dir).unwrap();
+        fs::write(repo_root.join("deno.json"), "{}\n").unwrap();
+
+        let (mut opts, loaded, root) =
+            sample_opts_and_loaded("@qlever-llc/trellis-sdk-auth", "trellis.auth@v1");
+        opts.out_dir = out_dir;
+        opts.runtime_deps = TsRuntimeDeps {
+            source: TsRuntimeSource::Local,
+            version: "0.4.0".to_string(),
+            repo_root: Some(repo_root.clone()),
+        };
+
+        let build_npm = render_build_npm_ts(&opts, &loaded);
+
+        assert!(build_npm.contains("\"@qlever-llc/trellis\": \"^0.4.0\""));
+        assert!(!build_npm.contains("file:"));
 
         fs::remove_dir_all(root).unwrap();
         fs::remove_dir_all(repo_root).unwrap();
@@ -2540,6 +2610,7 @@ mod tests {
 
         assert!(api.contains("import type { TrellisAPI } from \"@qlever-llc/trellis/contracts\";"));
         assert!(api.contains("import { schema } from \"@qlever-llc/trellis/contracts\";"));
+        assert!(api.contains("import type * as Types from \"./types.ts\";"));
         assert!(api.contains("export const OWNED_API = {"));
         assert!(api.contains("export const API = {"));
         assert!(api.contains("owned: OWNED_API"));
@@ -2567,10 +2638,15 @@ mod tests {
         let build_npm = render_build_npm_ts(&opts, &loaded);
 
         assert!(contract.contains(
-            "import type { SdkContractModule, TrellisContractV1, UseSpec } from \"@qlever-llc/trellis\";"
+            "import type { ContractDependencyUse, SdkContractModule, TrellisContractV1, UseSpec } from \"@qlever-llc/trellis\";"
         ));
         assert!(contract.contains(
             "export const core: SdkContractModule<typeof CONTRACT_ID, typeof API.owned> = {"
+        ));
+        assert!(contract
+            .contains("use: (<const TSpec extends UseSpec<typeof API.owned>>(spec: TSpec) => {"));
+        assert!(contract.contains(
+            "return dependencyUse as ContractDependencyUse<typeof CONTRACT_ID, typeof API.owned, TSpec>;"
         ));
         assert!(contract.contains("export const use = core.use;"));
         assert!(contract.contains("spec.operations?.call"));
@@ -2581,6 +2657,7 @@ mod tests {
         assert!(mod_ts.contains("export * from \"./schemas.ts\";"));
         assert!(!mod_ts.contains("SCHEMAS"));
         assert!(types.contains("import type { RpcHandlerFn } from \"@qlever-llc/trellis\";"));
+        assert!(types.contains("import type { API } from \"./api.ts\";"));
         assert!(types.contains(
             "export type ExamplePingHandler = RpcHandlerFn<typeof API.owned, \"Example.Ping\">;"
         ));
@@ -2598,7 +2675,7 @@ mod tests {
         );
         let client = render_client_ts(&opts, &loaded);
         let mod_ts = render_mod_ts(&opts, &loaded);
-        let deno = deno_json(&opts).unwrap();
+        let deno = deno_json(&opts, &loaded).unwrap();
 
         assert_eq!(
             deno.get("exports")
@@ -2608,6 +2685,8 @@ mod tests {
             Some("./client.ts")
         );
         assert!(client.contains("export interface TrellisDemoKvServiceClient {"));
+        assert!(client.contains("import type { API } from \"./api.ts\";"));
+        assert!(client.contains("import type * as Types from \"./types.ts\";"));
         assert!(client.contains(
             "request(method: \"Example.Ping\", input: Types.ExamplePingInput, opts?: RequestOpts): AsyncResult<Types.ExamplePingOutput, BaseError>;"
         ));
@@ -2748,10 +2827,15 @@ mod tests {
             },
         };
         let loaded = load_manifest(&app_manifest_path).unwrap();
+        let deno = deno_json(&opts, &loaded).unwrap();
         let client = render_client_ts(&opts, &loaded);
         let api = render_api_ts(&opts, &loaded);
+        let build_npm = render_build_npm_ts(&opts, &loaded);
+        let imports = deno.get("imports").and_then(Value::as_object).unwrap();
 
-        assert!(client.contains("import type * as JobsSdk from \"@qlever-llc/trellis-sdk/jobs\";"));
+        assert!(client.contains("import type * as JobsSdk from \"@qlever-llc/trellis/sdk/jobs\";"));
+        assert!(imports.get("@qlever-llc/trellis/sdk/jobs").is_none());
+        assert!(!build_npm.contains("\"@qlever-llc/trellis-sdk\""));
         assert!(client.contains("export type TrellisDemoAppState = {"));
         assert!(client.contains("\"settings\": ValueStateStoreClient<Types.Settings>;"));
         assert!(client.contains("\"profiles\": MapStateStoreClient<Types.Settings>;"));
@@ -2775,7 +2859,7 @@ mod tests {
         assert!(!client.contains("publish(event: string, data: Record<string, unknown>)"));
         assert!(!client.contains("event(event: string, subjectData: Record<string, unknown>"));
         assert!(!client.contains("StateFacade<"));
-        assert!(api.contains("import * as JobsApi from \"@qlever-llc/trellis-sdk/jobs\";"));
+        assert!(api.contains("import * as JobsApi from \"@qlever-llc/trellis/sdk/jobs\";"));
         assert!(api.contains("export const USED_API = {"));
         assert!(api.contains("\"Jobs.Get\": JobsApi.API.owned.rpc[\"Jobs.Get\"]"));
         assert!(api.contains("\"Jobs.Run\": JobsApi.API.owned.operations[\"Jobs.Run\"]"));
@@ -3246,7 +3330,7 @@ mod tests {
         let readme = render_readme(&opts, &loaded);
 
         assert!(readme.contains("import { defineContract } from \"@qlever-llc/trellis\";"));
-        assert!(readme.contains("import { activity } from \"@qlever-llc/trellis-sdk/activity\";"));
+        assert!(readme.contains("import { activity } from \"@qlever-llc/trellis/sdk/activity\";"));
         assert!(readme.contains("displayName: \"Example App\""));
         assert!(readme.contains("description: \"User-facing app for the example deployment.\""));
         assert!(readme.contains("kind: \"app\""));
@@ -3346,6 +3430,7 @@ mod tests {
         assert!(schemas.contains("export const NotFoundErrorDataSchema = "));
         assert!(!schemas.contains("SCHEMAS"));
         assert!(api.contains("runtimeErrors: ["));
+        assert!(api.contains("import * as Types from \"./types.ts\";"));
         assert!(api.contains("type: \"NotFoundError\""));
         assert!(api.contains("schema: schema<Types.NotFoundErrorData>(NotFoundErrorDataSchema)"));
         assert!(api.contains("fromSerializable: Types.NotFoundError.fromSerializable"));

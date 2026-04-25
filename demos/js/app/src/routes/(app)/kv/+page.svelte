@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { getTrellis } from "$lib/trellis";
+  import { getTrellis } from "$lib/trellis-context.ts";
   import type { SiteSummary } from "@trellis-demo/kv-service-sdk";
 
   const trellis = getTrellis();
@@ -17,7 +17,9 @@
 
     try {
       const response = await trellis
-        .request("Inspection.Summaries.Get", { siteId })
+        .request("Inspection.Summaries.Get", {
+          siteId,
+        })
         .orThrow();
       selectedSummary = response.summary ?? null;
     } catch (cause) {

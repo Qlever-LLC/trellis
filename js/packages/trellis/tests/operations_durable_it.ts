@@ -2,7 +2,7 @@ import { connect } from "@nats-io/transport-deno";
 import { assertEquals, assertExists } from "@std/assert";
 import { Type } from "typebox";
 import { defineServiceContract } from "../contract.ts";
-import { auth } from "@qlever-llc/trellis-sdk/auth";
+import { auth } from "@qlever-llc/trellis/sdk/auth";
 import { ok } from "../index.ts";
 import { TrellisServer } from "../server/mod.ts";
 import { createClient } from "../client.ts";
@@ -51,7 +51,9 @@ async function createTestAuth(): Promise<
   return { auth, inboxPrefix: `_INBOX.${sessionKey.slice(0, 16)}` };
 }
 
-function startPermissiveAuthResponder(nc: Awaited<ReturnType<typeof NatsTest.start>>["nc"]): void {
+function startPermissiveAuthResponder(
+  nc: Awaited<ReturnType<typeof NatsTest.start>>["nc"],
+): void {
   const sub = nc.subscribe("rpc.v1.Auth.ValidateRequest");
   void (async () => {
     for await (const msg of sub) {
@@ -68,7 +70,12 @@ function startPermissiveAuthResponder(nc: Awaited<ReturnType<typeof NatsTest.sta
           active: true,
           name: "Test User",
           email: "test@example.com",
-          capabilities: ["billing.refund", "billing.read", "billing.cancel", "service"],
+          capabilities: [
+            "billing.refund",
+            "billing.read",
+            "billing.cancel",
+            "service",
+          ],
         },
       }));
     }

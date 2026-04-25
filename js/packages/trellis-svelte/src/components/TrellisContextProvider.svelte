@@ -7,15 +7,24 @@
   } from "../context.svelte.ts";
 
   type Props = {
-    app: TrellisAppOwner;
+    app?: TrellisAppOwner;
+    setTrellis?: (trellis: TrellisContextClient) => TrellisContextClient;
     trellis: TrellisContextClient;
     children: Snippet;
   };
 
-  const { app, trellis, children }: Props = $props();
+  const { app, setTrellis, trellis, children }: Props = $props();
 
   function installContext(): void {
-    provideConnectedTrellisContext(app, trellis);
+    if (setTrellis) {
+      setTrellis(trellis);
+      return;
+    }
+    if (app) {
+      provideConnectedTrellisContext(app, trellis);
+      return;
+    }
+    throw new TypeError("Expected either app or setTrellis");
   }
 
   installContext();

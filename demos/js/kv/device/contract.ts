@@ -1,5 +1,6 @@
 import { defineDeviceContract } from "@qlever-llc/trellis";
-import { auth, health } from "@qlever-llc/trellis-sdk";
+import { auth } from "@qlever-llc/trellis/sdk/auth";
+import { health } from "@qlever-llc/trellis/sdk/health";
 import { trellisDemoKvService as kvService } from "@trellis-demo/kv-service-sdk";
 
 const contract = defineDeviceContract(() => ({

@@ -2,7 +2,7 @@
   import type {
     AuthListServiceInstancesOutput,
     AuthListServiceProfilesOutput,
-  } from "@qlever-llc/trellis-sdk/auth";
+  } from "@qlever-llc/trellis/sdk/auth";
   import { resolve } from "$app/paths";
   import { onMount } from "svelte";
   import { errorMessage, formatDate } from "../../../../../lib/format";
