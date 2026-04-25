@@ -4,12 +4,18 @@ let initialized = false;
 let provider: { register(): void } | undefined;
 
 type TracingRuntimeModules = {
-  NodeTracerProvider: typeof import("@opentelemetry/sdk-trace-node").NodeTracerProvider;
-  OTLPTraceExporter: typeof import("@opentelemetry/exporter-trace-otlp-proto").OTLPTraceExporter;
-  BatchSpanProcessor: typeof import("@opentelemetry/sdk-trace-base").BatchSpanProcessor;
-  ConsoleSpanExporter: typeof import("@opentelemetry/sdk-trace-base").ConsoleSpanExporter;
-  Resource: typeof import("@opentelemetry/resources").Resource;
-  ATTR_SERVICE_NAME: typeof import("@opentelemetry/semantic-conventions").ATTR_SERVICE_NAME;
+  NodeTracerProvider:
+    typeof import("@opentelemetry/sdk-trace-node").NodeTracerProvider;
+  OTLPTraceExporter:
+    typeof import("@opentelemetry/exporter-trace-otlp-proto").OTLPTraceExporter;
+  BatchSpanProcessor:
+    typeof import("@opentelemetry/sdk-trace-base").BatchSpanProcessor;
+  ConsoleSpanExporter:
+    typeof import("@opentelemetry/sdk-trace-base").ConsoleSpanExporter;
+  resourceFromAttributes:
+    typeof import("@opentelemetry/resources").resourceFromAttributes;
+  ATTR_SERVICE_NAME:
+    typeof import("@opentelemetry/semantic-conventions").ATTR_SERVICE_NAME;
 };
 
 function runtimeImport<TModule>(specifier: string): Promise<TModule> {
@@ -43,7 +49,7 @@ async function loadTracingRuntime(): Promise<TracingRuntimeModules> {
     OTLPTraceExporter: otlp.OTLPTraceExporter,
     BatchSpanProcessor: traceBase.BatchSpanProcessor,
     ConsoleSpanExporter: traceBase.ConsoleSpanExporter,
-    Resource: resources.Resource,
+    resourceFromAttributes: resources.resourceFromAttributes,
     ATTR_SERVICE_NAME: semantic.ATTR_SERVICE_NAME,
   };
 }
@@ -58,7 +64,9 @@ async function initTracingRuntime(serviceName: string): Promise<void> {
 
   try {
     const runtime = await loadTracingRuntime();
-    const spanProcessors: Array<InstanceType<typeof runtime.BatchSpanProcessor>> = [];
+    const spanProcessors: Array<
+      InstanceType<typeof runtime.BatchSpanProcessor>
+    > = [];
 
     if (endpoint) {
       spanProcessors.push(
@@ -74,14 +82,15 @@ async function initTracingRuntime(serviceName: string): Promise<void> {
       );
     }
 
-    provider = new runtime.NodeTracerProvider({
-      resource: new runtime.Resource({
+    const nextProvider = new runtime.NodeTracerProvider({
+      resource: runtime.resourceFromAttributes({
         [runtime.ATTR_SERVICE_NAME]: serviceName,
       }),
       ...(spanProcessors.length > 0 ? { spanProcessors } : {}),
     });
 
-    provider.register();
+    provider = nextProvider;
+    nextProvider.register();
   } catch (error) {
     console.warn("Failed to initialize tracing runtime", error);
   }

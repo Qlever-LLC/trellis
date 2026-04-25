@@ -3,14 +3,13 @@
   import { TrellisProvider } from "@qlever-llc/trellis-svelte";
   import AppShell from "$lib/components/AppShell.svelte";
   import { trellisUrl } from "$lib/trellis";
-  import { contract, setTrellis } from "$lib/trellis-context.ts";
+  import { trellisApp } from "$lib/trellis-context.ts";
 
   let { children }: { children: Snippet } = $props();
 </script>
 
 <TrellisProvider
-  {contract}
-  {setTrellis}
+  app={trellisApp}
   {trellisUrl}
 >
   {#snippet loading()}

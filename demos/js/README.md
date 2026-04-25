@@ -1,39 +1,24 @@
-# JS Demos
+# JS Demo
 
-These demos are small, terminal-first examples of one Trellis surface at a time.
+This workspace contains one consolidated Field Ops demo:
 
-Service demos follow the public service-author path with
-`TrellisService.connect(...)`. They do not use Trellis-internal bootstrap
-helpers.
+- `demos/js/service`: an installable Field Ops service.
+- `demos/js/device`: an activated field-device TUI.
+- `demos/js/app`: a browser Field Ops Console.
+- `demos/js/shared`: sample data and helpers used by the demo participants.
 
-The browser demo app under `demos/js/app` now follows the app-local
-`trellis-svelte` pattern:
-
-- it creates one app-owned `trellisApp` with
-  `createTrellisApp<typeof contract, TrellisDemoAppClient>(contract)`
-- it passes that app into `TrellisProvider`
-- it re-exports local `getTrellis()` and `getConnection()` helpers from
-  `src/lib/trellis.ts`
-- it imports `TrellisDemoAppClient` from the generated `demo-app/client.ts`
-  facade so page code sees explicit RPC, operation, event, and state members
-
-Supported demos:
-
-- `rpc`: simple request/response RPCs
-- `operation`: progress + cancel + completion for one operation
-- `transfer`: upload bytes into a transfer-capable operation
-- `kv`: read schema-backed service-owned KV data through RPC
-- `jobs`: queue a background job and poll its status
-- `state`: read and write device-owned state
+The demo is product-oriented instead of split by Trellis primitive. Assignments,
+sites, reports, evidence, activity, and workspace state each call out the
+Trellis concept they exercise.
 
 ## Before You Start
 
 1. Make sure Trellis is running at `http://localhost:3000`.
 2. Make sure the `trellis` CLI is logged in as an admin.
-3. If you want to run the Svelte demo app against a non-default Trellis URL, set
-   `PUBLIC_TRELLIS_URL` to the Trellis instance URL. The app defaults to
-   `http://localhost:3000` for local demos.
-4. Prepare the demo workspace:
+3. If the browser app should use a non-default Trellis URL, set
+   `PUBLIC_TRELLIS_URL` in `demos/js/app/.env`. The default is
+   `http://localhost:3000`.
+4. Prepare generated contracts and SDKs once:
 
 ```sh
 deno task -c demos/js/deno.json prepare
@@ -46,240 +31,100 @@ the watch task instead:
 deno task -c demos/js/deno.json prepare:watch
 ```
 
-The watch task watches broadly but only prepares affected contract entries when
-safe. It ignores file changes that are not TypeScript, JavaScript, or Rust source
-unless they are recognized project/discovery inputs, plus `.git/`, `.worktrees/`,
-`generated/`, and paths ignored by `.gitignore`. It falls back to full prepare
-for project manifests and discovery-shape changes, and asks you to restart the
-watcher after generator/tooling changes. If you need to see why a batch was
-handled that way, run the underlying generator with `--changes` to print event
-paths plus the watch decision and reason.
+The prepare step generates the service SDK used by both `demos/js/app` and
+`demos/js/device`. Rerun prepare after changing `demos/js/service/contract.ts`,
+`demos/js/device/contract.ts`, or `demos/js/app/contract.ts`.
 
-If you are editing a specific demo, run that demo's focused `check:prepared`
-task instead of the workspace-wide `check` task.
+## Create And Start The Service
 
-The prepare step also generates the browser app SDK. If you change
-`demos/js/app/contract.ts` or any service contract it uses, rerun prepare before
-checking the app so `TrellisDemoAppClient` stays aligned with the contract.
-
-## Browser App Demo
-
-The Svelte demo app reads `PUBLIC_TRELLIS_URL` for explicit per-instance
-configuration and falls back to `http://localhost:3000` for local demos.
-
-1. Copy `demos/js/app/.env.example` to `demos/js/app/.env` if you need to
-   override the default `http://localhost:3000` Trellis URL.
-2. Set `PUBLIC_TRELLIS_URL` to the Trellis instance the app should talk to.
-3. Run `deno task -c demos/js/app/deno.json dev`.
-
-For ad hoc runs, you can also set the env var from the shell:
+Create one service profile from `demos/js/service/contract.ts`, provision one
+service instance, then start the service with the provisioned instance seed.
 
 ```sh
-PUBLIC_TRELLIS_URL=http://localhost:3000 deno task -c demos/js/app/deno.json dev
-```
-
-## First Device Activation
-
-Every device demo prints an activation URL the first time you run it with a new
-`rootSecret`.
-
-1. Open the printed URL in your browser.
-2. Approve the device.
-3. Let the device process continue.
-
-After that, rerunning the same demo with the same `rootSecret` should connect
-without another approval step.
-
-The device demos now call the Deno-only `checkDeviceActivation(...)` helper
-before `TrellisDevice.connect(...)`. That helper persists local activation state
-in a Deno-backed state file keyed by Trellis origin plus device identity, so
-rerunning the same demo can resume the same activation attempt across restarts
-before the first successful connect.
-
-## RPC Demo
-
-Create and start the service:
-
-```sh
-trellis service profile create demo.rpc
-trellis service profile apply demo.rpc --source demos/js/rpc/service/contract.ts
-trellis service instance provision demo.rpc --format json
-deno task -c demos/js/rpc/service/deno.json start http://localhost:3000 <instance-seed>
+trellis service profile create demo.field-ops
+trellis service profile apply demo.field-ops --source demos/js/service/contract.ts
+trellis service instance provision demo.field-ops --format json
+deno task -c demos/js/deno.json service http://localhost:3000 <instance-seed>
 ```
 
 Use the `instanceSeed` field from the provision JSON as `<instance-seed>`.
 
-Create and run the device:
+## Create And Start The Device
+
+Create one device profile from `demos/js/device/contract.ts`, provision one
+device instance, then start the TUI with the provisioned root secret.
 
 ```sh
-trellis device profile create demo.rpc
-trellis device profile apply demo.rpc --source demos/js/rpc/device/contract.ts
-trellis device instance provision demo.rpc --format json
-deno task -c demos/js/rpc/device/deno.json start http://localhost:3000 <root-secret>
+trellis device profile create demo.field-device
+trellis device profile apply demo.field-device --source demos/js/device/contract.ts
+trellis device instance provision demo.field-device --format json
+deno task -c demos/js/deno.json device http://localhost:3000 <root-secret>
 ```
 
 Use the `rootSecret` field from the provision JSON as `<root-secret>`.
 
-Expected result:
+The first run for a new root secret prints an activation URL and QR code. Open
+the URL, approve the device, and let the TUI continue. Later runs with the same
+root secret should reconnect without another approval step.
 
-- the service prints `Inspection RPC service`
-- the device prints `Assigned inspections:` and `Site summaries:`
+## Start The Browser App
 
-## Operation Demo
-
-Create and start the service:
-
-```sh
-trellis service profile create demo.operation
-trellis service profile apply demo.operation --source demos/js/operation/service/contract.ts
-trellis service instance provision demo.operation --format json
-deno task -c demos/js/operation/service/deno.json start http://localhost:3000 <instance-seed>
-```
-
-Use the `instanceSeed` field from the provision JSON as `<instance-seed>`.
-
-Create and run the device:
+Start the Svelte Field Ops Console after prepare has generated the app SDK.
 
 ```sh
-trellis device profile create demo.operation
-trellis device profile apply demo.operation --source demos/js/operation/device/contract.ts
-trellis device instance provision demo.operation --format json
-deno task -c demos/js/operation/device/deno.json start http://localhost:3000 <root-secret>
+deno task -c demos/js/deno.json app
 ```
 
-Use the `rootSecret` field from the provision JSON as `<root-secret>`.
-
-Expected result:
-
-- the service prints `Inspection operation service`
-- the device shows one cancelled flow and one completed flow
-- the device prints `completion flow output`
-
-## Transfer Demo
-
-Create and start the service:
+For ad hoc runs against a non-default Trellis URL, set the env var from the
+shell:
 
 ```sh
-trellis service profile create demo.transfer
-trellis service profile apply demo.transfer --source demos/js/transfer/service/contract.ts
-trellis service instance provision demo.transfer --format json
-deno task -c demos/js/transfer/service/deno.json start http://localhost:3000 <instance-seed>
+PUBLIC_TRELLIS_URL=http://localhost:3000 deno task -c demos/js/deno.json app
 ```
 
-Use the `instanceSeed` field from the provision JSON as `<instance-seed>`.
+## Product Routes And Trellis Callouts
 
-Create and run the device:
+The browser app routes are named for product concepts, with each page calling
+out the Trellis surface it demonstrates:
 
-```sh
-trellis device profile create demo.transfer
-trellis device profile apply demo.transfer --source demos/js/transfer/device/contract.ts
-trellis device instance provision demo.transfer --format json
-deno task -c demos/js/transfer/device/deno.json start http://localhost:3000 <root-secret> /path/to/file.bin
-```
+- `Dashboard`: overview of the Field Ops workflow.
+- `Assignments`: `Assignments.List` and `Sites.Get` RPC requests.
+- `Sites`: `Sites.List` and `Sites.Get` RPC requests plus the `Sites.Refresh`
+  operation.
+- `Reports`: `Reports.Generate` operation progress, completion, and cancel.
+- `Evidence`: `Evidence.Upload` transfer-capable operation.
+- `Activity`: live event subscriptions.
+- `Workspace`: device or app state for saved operator context.
 
-Use the `rootSecret` field from the provision JSON as `<root-secret>`.
+The device TUI exposes the same concepts as menu actions: list assignments, view
+the selected site, refresh a site, generate a report, upload evidence, watch
+activity events briefly, and save or list draft state.
 
-Expected result:
+## Jobs Are Private Implementation
 
-- the service prints `Inspection transfer service`
-- the device prints `upload accepted`, progress updates, `transfer completed`,
-  and `terminal output`
+Jobs are demonstrated behind the `Sites.Refresh` operation. The caller starts
+and watches the public operation; the service uses its private
+`refreshSiteSummary` job internally to do the work. There is intentionally no
+public job polling API in this demo.
 
-## KV Demo
+## Event Subscription Demo
 
-Create and start the service:
-
-```sh
-trellis service profile create demo.kv
-trellis service profile apply demo.kv --source demos/js/kv/service/contract.ts
-trellis service instance provision demo.kv --format json
-deno task -c demos/js/kv/service/deno.json start http://localhost:3000 <instance-seed>
-```
-
-Use the `instanceSeed` field from the provision JSON as `<instance-seed>`.
-
-Create and run the device:
-
-```sh
-trellis device profile create demo.kv
-trellis device profile apply demo.kv --source demos/js/kv/device/contract.ts
-trellis device instance provision demo.kv --format json
-deno task -c demos/js/kv/device/deno.json start http://localhost:3000 <root-secret>
-```
-
-Use the `rootSecret` field from the provision JSON as `<root-secret>`.
-
-Expected result:
-
-- the service prints `Inspection KV service`
-- the device prints `Site summaries fetched over RPC:` and
-  `Detailed summary via RPC`
-
-## Jobs Demo
-
-Create and start the service:
-
-```sh
-trellis service profile create demo.jobs
-trellis service profile apply demo.jobs --source demos/js/jobs/service/contract.ts
-trellis service instance provision demo.jobs --format json
-deno task -c demos/js/jobs/service/deno.json start http://localhost:3000 <instance-seed>
-```
-
-Use the `instanceSeed` field from the provision JSON as `<instance-seed>`.
-
-Create and run the device:
-
-```sh
-trellis device profile create demo.jobs
-trellis device profile apply demo.jobs --source demos/js/jobs/device/contract.ts
-trellis device instance provision demo.jobs --format json
-deno task -c demos/js/jobs/device/deno.json start http://localhost:3000 <root-secret>
-```
-
-Use the `rootSecret` field from the provision JSON as `<root-secret>`.
-
-Expected result:
-
-- the service prints `Inspection jobs service`
-- the device prints `Queued refresh ...`
-- the device polls until the refresh reaches `completed`
-
-If the jobs service is offline or the capability is unavailable, the device now
-prints a Trellis-native `trellis.request.unavailable` failure plus a retry hint
-instead of an unhandled stack trace.
-
-## State Demo
-
-Create and run the device:
-
-```sh
-trellis device profile create demo.state
-trellis device profile apply demo.state --source demos/js/state/device/contract.ts
-trellis device instance provision demo.state --format json
-deno task -c demos/js/state/device/deno.json start http://localhost:3000 <root-secret>
-```
-
-Use the `rootSecret` field from the provision JSON as `<root-secret>`.
-
-Expected result:
-
-- the device prints `Selected site state`
-- the device prints `Draft inspection state`
-- the device prints `Listed device state`
+The app `Activity` route subscribes to `Activity.Recorded` and
+`Reports.Published` with ephemeral event handlers. The device TUI has a matching
+activity-watch menu option for a short terminal subscription. Report generation,
+evidence upload, and site refresh workflows publish service events that these
+subscribers can display.
 
 ## Cleanup
 
 Remove the instances and profiles you created when you are done:
 
 ```sh
-trellis service instance remove <instance-id> -f
-trellis service profile remove <profile-id> -f
-trellis device instance remove <instance-id> -f
-trellis device profile remove <profile-id> -f
+trellis service instance remove <service-instance-id> -f
+trellis service profile remove demo.field-ops -f
+trellis device instance remove <device-instance-id> -f
+trellis device profile remove demo.field-device -f
 ```
 
-Use the `instanceId` field from each provision JSON as `<instance-id>`. The
-`<profile-id>` values are the profile names you created in the runbook, such as
-`demo.rpc`, `demo.operation`, `demo.transfer`, `demo.kv`, `demo.jobs`, and
-`demo.state`.
+Use each provision JSON's `instanceId` field for `<service-instance-id>` and
+`<device-instance-id>`.

@@ -2,15 +2,14 @@
   import { page } from "$app/state";
   import { resolve } from "$app/paths";
   import type { Snippet } from "svelte";
-  import { getTrellis } from "$lib/trellis-context.ts";
+  import { getConnection } from "$lib/trellis-context.ts";
 
   let { children }: { children: Snippet } = $props();
 
-  const connection = getTrellis().connection;
+  const connection = getConnection();
 
   const currentPath = $derived(page.url.pathname);
   const status = $derived(connection.status);
-  const signInHref = $derived(`${page.url.pathname}${page.url.search}`);
   const isConnected = $derived(status.phase === "connected");
 </script>
 
@@ -23,7 +22,7 @@
     <div class="navbar-start">
       <a
         class="btn btn-ghost text-base font-semibold tracking-tight"
-        href={resolve("/")}>Trellis demo</a
+        href={resolve("/")}>Field Ops Console</a
       >
     </div>
     <div class="navbar-end gap-2">
@@ -43,7 +42,7 @@
           aria-label="Signed in and connected">Signed in</span
         >
       {:else}
-        <a class="btn btn-sm btn-outline" href={signInHref}>Sign in</a>
+        <a class="btn btn-sm btn-outline" href={resolve("/dashboard")}>Sign in</a>
       {/if}
     </div>
   </header>
@@ -54,63 +53,72 @@
     >
       <div class="card-body gap-4 p-4">
         <div class="space-y-1">
-          <h1 class="card-title text-base">Feature Demos</h1>
+          <h1 class="card-title text-base">Console</h1>
         </div>
 
-        <nav aria-label="Demo routes">
+        <nav aria-label="Console routes">
           <ul class="menu rounded-box bg-base-100 p-0">
             <li>
               <a
-                href={resolve("/rpc")}
-                class={{ "menu-active": currentPath === resolve("/rpc") }}
-                aria-current={currentPath === resolve("/rpc")
+                href={resolve("/dashboard")}
+                class={{ "menu-active": currentPath === resolve("/dashboard") }}
+                aria-current={currentPath === resolve("/dashboard")
                   ? "page"
-                  : undefined}>RPC</a
+                  : undefined}>Dashboard</a
               >
             </li>
             <li>
               <a
-                href={resolve("/operation")}
-                class={{ "menu-active": currentPath === resolve("/operation") }}
-                aria-current={currentPath === resolve("/operation")
+                href={resolve("/assignments")}
+                class={{ "menu-active": currentPath === resolve("/assignments") }}
+                aria-current={currentPath === resolve("/assignments")
                   ? "page"
-                  : undefined}>Operation</a
+                  : undefined}>Assignments</a
               >
             </li>
             <li>
               <a
-                href={resolve("/transfer")}
-                class={{ "menu-active": currentPath === resolve("/transfer") }}
-                aria-current={currentPath === resolve("/transfer")
+                href={resolve("/sites")}
+                class={{ "menu-active": currentPath === resolve("/sites") }}
+                aria-current={currentPath === resolve("/sites")
                   ? "page"
-                  : undefined}>Transfer</a
+                  : undefined}>Sites</a
               >
             </li>
             <li>
               <a
-                href={resolve("/kv")}
-                class={{ "menu-active": currentPath === resolve("/kv") }}
-                aria-current={currentPath === resolve("/kv")
+                href={resolve("/reports")}
+                class={{ "menu-active": currentPath === resolve("/reports") }}
+                aria-current={currentPath === resolve("/reports")
                   ? "page"
-                  : undefined}>KV</a
+                  : undefined}>Reports</a
               >
             </li>
             <li>
               <a
-                href={resolve("/jobs")}
-                class={{ "menu-active": currentPath === resolve("/jobs") }}
-                aria-current={currentPath === resolve("/jobs")
+                href={resolve("/evidence")}
+                class={{ "menu-active": currentPath === resolve("/evidence") }}
+                aria-current={currentPath === resolve("/evidence")
                   ? "page"
-                  : undefined}>Jobs</a
+                  : undefined}>Evidence</a
               >
             </li>
             <li>
               <a
-                href={resolve("/state")}
-                class={{ "menu-active": currentPath === resolve("/state") }}
-                aria-current={currentPath === resolve("/state")
+                href={resolve("/activity")}
+                class={{ "menu-active": currentPath === resolve("/activity") }}
+                aria-current={currentPath === resolve("/activity")
                   ? "page"
-                  : undefined}>State</a
+                  : undefined}>Activity</a
+              >
+            </li>
+            <li>
+              <a
+                href={resolve("/workspace")}
+                class={{ "menu-active": currentPath === resolve("/workspace") }}
+                aria-current={currentPath === resolve("/workspace")
+                  ? "page"
+                  : undefined}>Workspace</a
               >
             </li>
           </ul>
