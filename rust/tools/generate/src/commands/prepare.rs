@@ -9,7 +9,7 @@ use notify::{EventKind, RecursiveMode, Watcher};
 use crate::cli::PrepareArgs;
 use crate::discovery::discover_contracts;
 use crate::output;
-use crate::planning::{build_auto_plan, execute_auto_plan};
+use crate::planning::{build_auto_plan, execute_auto_plan, AutoPlanEntry};
 
 pub fn run(args: &PrepareArgs, force: bool) -> miette::Result<()> {
     if args.watch {
@@ -20,20 +20,40 @@ pub fn run(args: &PrepareArgs, force: bool) -> miette::Result<()> {
 }
 
 fn run_once(args: &PrepareArgs, force: bool) -> miette::Result<()> {
+    let plan = build_prepare_plan(args)?;
+    execute_prepare_plan(&plan, force, Some(&args.root))
+}
+
+fn build_prepare_plan(args: &PrepareArgs) -> miette::Result<Vec<AutoPlanEntry>> {
     let canonical_root = args.root.canonicalize().into_diagnostic()?;
-    let plan = build_auto_plan(discover_contracts(&args.root)?, Some(&canonical_root))?;
+    build_auto_plan(discover_contracts(&args.root)?, Some(&canonical_root))
+}
+
+fn execute_prepare_plan(
+    plan: &[AutoPlanEntry],
+    force: bool,
+    root: Option<&Path>,
+) -> miette::Result<()> {
     if plan.is_empty() {
         output::print_title("Trellis Prepare");
-        output::print_detail("root", args.root.display().to_string());
+        if let Some(root) = root {
+            output::print_detail("root", root.display().to_string());
+        }
         output::print_info("No contracts found.");
         return Ok(());
     }
-    execute_auto_plan(&plan, Some("Trellis Prepare"), false, force).map(|_| ())
+    execute_auto_plan(plan, Some("Trellis Prepare"), false, force).map(|_| ())
 }
 
 fn watch(args: &PrepareArgs, force: bool) -> miette::Result<()> {
     let canonical_root = args.root.canonicalize().into_diagnostic()?;
-    run_watch_prepare(args, force);
+    let mut current_plan = match run_full_watch_prepare(args, force) {
+        Ok(plan) => Some(plan),
+        Err(error) => {
+            eprintln!("prepare failed: {error:?}");
+            None
+        }
+    };
     let filter = WatchPathFilter::new(&canonical_root).into_diagnostic()?;
 
     let (tx, rx) = mpsc::channel();
@@ -65,18 +85,83 @@ fn watch(args: &PrepareArgs, force: bool) -> miette::Result<()> {
         }
 
         if !changes.is_empty() {
+            let decision = current_plan
+                .as_ref()
+                .map(|plan| decide_watch_prepare_in_root(plan, &changes, &canonical_root))
+                .unwrap_or_else(|| decide_watch_prepare_without_plan(&changes));
+
             if args.changes {
-                print_watch_changes(&changes);
+                print_watch_changes(&changes, &decision);
             }
-            run_watch_prepare(args, force);
+
+            match decision {
+                WatchPrepareDecision::Ignored => {}
+                WatchPrepareDecision::Affected(_) => {
+                    let fresh_plan = match build_prepare_plan(args) {
+                        Ok(plan) => plan,
+                        Err(error) => {
+                            eprintln!("prepare failed: {error:?}");
+                            continue;
+                        }
+                    };
+
+                    let update_current_plan = match decide_watch_prepare_in_root(
+                        &fresh_plan,
+                        &changes,
+                        &canonical_root,
+                    ) {
+                        WatchPrepareDecision::Ignored => true,
+                        WatchPrepareDecision::Affected(entries) => {
+                            let selected_plan: Vec<AutoPlanEntry> =
+                                entries.into_iter().cloned().collect();
+                            execute_watch_prepare(&selected_plan, force, None).is_ok()
+                        }
+                        WatchPrepareDecision::Full => {
+                            execute_watch_prepare(&fresh_plan, force, Some(&args.root)).is_ok()
+                        }
+                        WatchPrepareDecision::RestartRequired => {
+                            print_watch_restart_required();
+                            return Ok(());
+                        }
+                    };
+                    if update_current_plan {
+                        current_plan = Some(fresh_plan);
+                    }
+                }
+                WatchPrepareDecision::Full => match run_full_watch_prepare(args, force) {
+                    Ok(plan) => current_plan = Some(plan),
+                    Err(error) => eprintln!("prepare failed: {error:?}"),
+                },
+                WatchPrepareDecision::RestartRequired => {
+                    print_watch_restart_required();
+                    return Ok(());
+                }
+            }
         }
     }
 }
 
-fn run_watch_prepare(args: &PrepareArgs, force: bool) {
-    if let Err(error) = run_once(args, force) {
+fn run_full_watch_prepare(args: &PrepareArgs, force: bool) -> miette::Result<Vec<AutoPlanEntry>> {
+    let plan = build_prepare_plan(args)?;
+    execute_prepare_plan(&plan, force, Some(&args.root))?;
+    Ok(plan)
+}
+
+fn execute_watch_prepare(
+    plan: &[AutoPlanEntry],
+    force: bool,
+    root: Option<&Path>,
+) -> miette::Result<()> {
+    if let Err(error) = execute_prepare_plan(plan, force, root) {
         eprintln!("prepare failed: {error:?}");
+        return Err(error);
     }
+
+    Ok(())
+}
+
+fn print_watch_restart_required() {
+    eprintln!("prepare --watch must be restarted because generator or tooling code changed.");
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -114,10 +199,11 @@ fn is_relevant_watch_kind(kind: &EventKind) -> bool {
     }
 }
 
-fn print_watch_changes(changes: &[WatchChange]) {
+fn print_watch_changes(changes: &[WatchChange], decision: &WatchPrepareDecision<'_>) {
     const MAX_LOGGED_CHANGES: usize = 8;
 
-    output::print_info("Change detected; rerunning prepare.");
+    output::print_info("Change detected.");
+    output::print_detail("decision", watch_decision_reason(decision));
     for change in changes.iter().take(MAX_LOGGED_CHANGES) {
         output::print_detail(
             "change",
@@ -130,6 +216,213 @@ fn print_watch_changes(changes: &[WatchChange]) {
             format!("... {} more", changes.len() - MAX_LOGGED_CHANGES),
         );
     }
+}
+
+#[derive(Debug)]
+enum WatchPrepareDecision<'a> {
+    Ignored,
+    Full,
+    RestartRequired,
+    Affected(Vec<&'a AutoPlanEntry>),
+}
+
+impl PartialEq for WatchPrepareDecision<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Ignored, Self::Ignored)
+            | (Self::Full, Self::Full)
+            | (Self::RestartRequired, Self::RestartRequired) => true,
+            (Self::Affected(left), Self::Affected(right)) => {
+                left.len() == right.len()
+                    && left.iter().zip(right).all(|(left, right)| {
+                        left.contract_id == right.contract_id
+                            && paths_match(
+                                &left.discovered.source_path,
+                                &right.discovered.source_path,
+                            )
+                    })
+            }
+            _ => false,
+        }
+    }
+}
+
+#[cfg(test)]
+fn decide_watch_prepare<'a>(
+    plan: &'a [AutoPlanEntry],
+    changes: &[WatchChange],
+) -> WatchPrepareDecision<'a> {
+    decide_watch_prepare_in_root(plan, changes, Path::new(""))
+}
+
+fn decide_watch_prepare_in_root<'a>(
+    plan: &'a [AutoPlanEntry],
+    changes: &[WatchChange],
+    root: &Path,
+) -> WatchPrepareDecision<'a> {
+    let mut selected = vec![false; plan.len()];
+
+    for change in changes {
+        let path = change.path.as_path();
+        let relative_path = path.strip_prefix(root).unwrap_or(path);
+        let absolute_path = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            root.join(path)
+        };
+
+        if is_generator_or_tooling_path(relative_path) {
+            return WatchPrepareDecision::RestartRequired;
+        }
+
+        if is_project_manifest_path(relative_path) || is_removal_change(change) {
+            return WatchPrepareDecision::Full;
+        }
+
+        if let Some(index) = plan.iter().position(|entry| {
+            paths_match(&entry.discovered.source_path, path)
+                || paths_match(&entry.discovered.source_path, relative_path)
+                || paths_match(&entry.discovered.source_path, &absolute_path)
+        }) {
+            selected[index] = true;
+            continue;
+        }
+
+        if is_discovery_shape_path(relative_path) {
+            return WatchPrepareDecision::Full;
+        }
+
+        if !is_source_like_path(relative_path) {
+            continue;
+        }
+
+        for (index, entry) in plan.iter().enumerate() {
+            if path_has_prefix(path, &entry.discovered.project_root)
+                || path_has_prefix(relative_path, &entry.discovered.project_root)
+                || path_has_prefix(&absolute_path, &entry.discovered.project_root)
+            {
+                selected[index] = true;
+            }
+        }
+    }
+
+    let affected: Vec<&AutoPlanEntry> = plan
+        .iter()
+        .enumerate()
+        .filter_map(|(index, entry)| selected[index].then_some(entry))
+        .collect();
+
+    if affected.is_empty() {
+        WatchPrepareDecision::Ignored
+    } else {
+        WatchPrepareDecision::Affected(affected)
+    }
+}
+
+fn decide_watch_prepare_without_plan(changes: &[WatchChange]) -> WatchPrepareDecision<'static> {
+    for change in changes {
+        let path = change.path.as_path();
+        if is_generator_or_tooling_path(path) {
+            return WatchPrepareDecision::RestartRequired;
+        }
+
+        if is_project_manifest_path(path)
+            || is_removal_change(change)
+            || is_discovery_shape_path(path)
+            || is_source_like_path(path)
+        {
+            return WatchPrepareDecision::Full;
+        }
+    }
+
+    WatchPrepareDecision::Ignored
+}
+
+fn watch_decision_reason(decision: &WatchPrepareDecision<'_>) -> String {
+    match decision {
+        WatchPrepareDecision::Ignored => "ignored: no affected contracts".to_owned(),
+        WatchPrepareDecision::Full => {
+            "full prepare: fallback required for this change batch".to_owned()
+        }
+        WatchPrepareDecision::RestartRequired => {
+            "restart required: generator or tooling code changed".to_owned()
+        }
+        WatchPrepareDecision::Affected(entries) => {
+            format!("affected prepare: {} contract(s)", entries.len())
+        }
+    }
+}
+
+fn is_removal_change(change: &WatchChange) -> bool {
+    change.kind.starts_with("Remove(")
+}
+
+fn is_generator_or_tooling_path(path: &Path) -> bool {
+    let mut components = path.components();
+    let is_codegen_crate = components
+        .next()
+        .is_some_and(|component| component.as_os_str() == "rust")
+        && components
+            .next()
+            .is_some_and(|component| component.as_os_str() == "crates")
+        && components.next().is_some_and(|component| {
+            component
+                .as_os_str()
+                .to_string_lossy()
+                .starts_with("codegen-")
+        });
+
+    path_has_prefix(path, Path::new("rust/tools/generate"))
+        || path_has_prefix(path, Path::new("rust/crates/contracts"))
+        || is_codegen_crate
+}
+
+fn is_project_manifest_path(path: &Path) -> bool {
+    matches!(
+        path.file_name().and_then(|name| name.to_str()),
+        Some("deno.json" | "deno.jsonc" | "package.json" | "Cargo.toml")
+    )
+}
+
+fn is_discovery_shape_path(path: &Path) -> bool {
+    let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+
+    if matches!(file_name, "contract.ts" | "contract.js") {
+        return true;
+    }
+
+    matches!(
+        path.parent()
+            .and_then(Path::file_name)
+            .and_then(|name| name.to_str()),
+        Some("contracts")
+    ) && matches!(
+        path.extension().and_then(|extension| extension.to_str()),
+        Some("ts" | "js" | "rs")
+    )
+}
+
+fn is_source_like_path(path: &Path) -> bool {
+    matches!(
+        path.extension().and_then(|extension| extension.to_str()),
+        Some("ts" | "tsx" | "js" | "jsx" | "mts" | "mjs" | "cjs" | "rs")
+    )
+}
+
+fn paths_match(left: &Path, right: &Path) -> bool {
+    left.components().eq(right.components())
+}
+
+fn path_has_prefix(path: &Path, prefix: &Path) -> bool {
+    let mut path_components = path.components();
+    for prefix_component in prefix.components() {
+        if path_components.next() != Some(prefix_component) {
+            return false;
+        }
+    }
+    true
 }
 
 struct WatchPathFilter {
@@ -184,6 +477,11 @@ mod tests {
 
     use notify::event::{AccessKind, AccessMode, CreateKind, ModifyKind, RemoveKind};
     use notify::EventKind;
+    use trellis_contracts::ContractKind;
+
+    use crate::cli::RuntimeSource;
+    use crate::discovery::{DiscoveredContractSource, SourceLanguage};
+    use crate::planning::{AutoAction, AutoPlanEntry};
 
     #[test]
     fn prepare_watch_filter_ignores_generated_outputs_and_worktrees() {
@@ -346,5 +644,324 @@ mod tests {
             .len(),
             1
         );
+    }
+
+    #[test]
+    fn watch_decision_ignores_non_source_extensions() {
+        let plan = watch_decision_plan_fixture();
+
+        assert_watch_decision_ignored(&plan, &["README.md"]);
+        assert_watch_decision_ignored(&plan, &["apps/console/src/routes/+page.svelte"]);
+        assert_watch_decision_ignored(&plan, &["apps/console/src/content/guide.svx"]);
+        assert_watch_decision_ignored(&plan, &["services/orders/src/config.json"]);
+        assert_watch_decision_ignored(&plan, &["services/orders/src/config.jsonc"]);
+        assert_watch_decision_ignored(&plan, &["services/orders/Trellis.toml"]);
+    }
+
+    #[test]
+    fn watch_decision_treats_svelte_modules_as_typescript_or_javascript_source() {
+        let plan = watch_decision_plan_fixture();
+
+        assert_watch_decision_affected(
+            &plan,
+            &["apps/console/src/lib/page-state.svelte.ts"],
+            &["trellis.console@v1"],
+        );
+        assert_watch_decision_affected(
+            &plan,
+            &["apps/console/src/lib/page-state.svelte.js"],
+            &["trellis.console@v1"],
+        );
+    }
+
+    #[test]
+    fn watch_decision_exact_contract_source_selects_only_that_entry() {
+        let plan = watch_decision_plan_fixture();
+
+        assert_watch_decision_affected(
+            &plan,
+            &["services/orders/contracts/orders.ts"],
+            &["trellis.orders@v1"],
+        );
+    }
+
+    #[test]
+    fn watch_decision_source_like_file_inside_known_project_selects_project_entries() {
+        let plan = watch_decision_plan_fixture();
+
+        for changed_path in [
+            "services/orders/src/helper.ts",
+            "services/orders/src/helper.tsx",
+            "services/orders/src/helper.js",
+            "services/orders/src/helper.jsx",
+            "services/orders/src/helper.mts",
+            "services/orders/src/helper.mjs",
+            "services/orders/src/helper.cjs",
+            "services/orders/src/lib.rs",
+        ] {
+            assert_watch_decision_affected(
+                &plan,
+                &[changed_path],
+                &["trellis.orders@v1", "trellis.billing@v1"],
+            );
+        }
+    }
+
+    #[test]
+    fn watch_decision_project_manifest_changes_request_full_prepare() {
+        let plan = watch_decision_plan_fixture();
+
+        for changed_path in [
+            "services/orders/deno.json",
+            "services/orders/deno.jsonc",
+            "services/orders/package.json",
+            "devices/sensor/Cargo.toml",
+        ] {
+            assert_watch_decision_full(&plan, &[changed_path]);
+        }
+    }
+
+    #[test]
+    fn watch_decision_discovery_shape_create_or_remove_requests_full_prepare() {
+        let plan = watch_decision_plan_fixture();
+
+        for changed_path in [
+            "services/orders/contract.ts",
+            "services/orders/contract.js",
+            "services/orders/src/lib/contract.ts",
+            "services/orders/contracts/new-contract.ts",
+            "devices/sensor/contracts/new-contract.rs",
+        ] {
+            assert_watch_decision_full(&plan, &[changed_path]);
+        }
+    }
+
+    #[test]
+    fn watch_decision_removed_exact_contract_source_requests_full_prepare() {
+        let plan = watch_decision_plan_fixture();
+
+        assert_eq!(
+            super::decide_watch_prepare(
+                &plan,
+                &[super::WatchChange {
+                    kind: "Remove(File)".to_owned(),
+                    path: PathBuf::from("services/orders/contracts/orders.ts"),
+                }],
+            ),
+            super::WatchPrepareDecision::Full
+        );
+    }
+
+    #[test]
+    fn watch_decision_multiple_changes_dedupe_and_preserve_plan_order() {
+        let plan = watch_decision_plan_fixture();
+
+        assert_watch_decision_affected(
+            &plan,
+            &[
+                "apps/console/src/routes/+page.svelte",
+                "services/orders/src/helper.ts",
+                "services/orders/contracts/billing.ts",
+                "services/orders/contracts/orders.ts",
+            ],
+            &["trellis.orders@v1", "trellis.billing@v1"],
+        );
+    }
+
+    #[test]
+    fn watch_decision_generator_and_tooling_paths_request_restart() {
+        let plan = watch_decision_plan_fixture();
+
+        for changed_path in [
+            "rust/tools/generate/src/commands/prepare.rs",
+            "rust/crates/codegen-rust/src/lib.rs",
+            "rust/crates/codegen-typescript/src/lib.rs",
+            "rust/crates/contracts/src/model.rs",
+        ] {
+            assert_watch_decision_restart_required(&plan, &[changed_path]);
+        }
+    }
+
+    #[test]
+    fn watch_decision_in_root_matches_relative_changes_to_absolute_plan() {
+        let root = Path::new("/repo");
+        let plan = absolute_watch_decision_plan_fixture(root);
+
+        let super::WatchPrepareDecision::Affected(entries) = super::decide_watch_prepare_in_root(
+            &plan,
+            &watch_changes(&["services/orders/contracts/orders.ts"]),
+            root,
+        ) else {
+            panic!("expected affected prepare decision");
+        };
+
+        assert_eq!(entries[0].contract_id, "trellis.orders@v1");
+    }
+
+    #[test]
+    fn watch_decision_in_root_selects_absolute_project_entries() {
+        let root = Path::new("/repo");
+        let plan = absolute_watch_decision_plan_fixture(root);
+
+        let super::WatchPrepareDecision::Affected(entries) = super::decide_watch_prepare_in_root(
+            &plan,
+            &watch_changes(&["services/orders/src/helper.ts"]),
+            root,
+        ) else {
+            panic!("expected affected prepare decision");
+        };
+        let actual_contract_ids: Vec<&str> = entries
+            .iter()
+            .map(|entry| entry.contract_id.as_str())
+            .collect();
+
+        assert_eq!(
+            actual_contract_ids,
+            ["trellis.orders@v1", "trellis.billing@v1"]
+        );
+    }
+
+    #[test]
+    fn watch_decision_without_plan_retries_full_only_for_source_like_changes() {
+        assert_eq!(
+            super::decide_watch_prepare_without_plan(&watch_changes(&["README.md"])),
+            super::WatchPrepareDecision::Ignored
+        );
+        assert_eq!(
+            super::decide_watch_prepare_without_plan(&watch_changes(&[
+                "services/orders/src/helper.ts"
+            ])),
+            super::WatchPrepareDecision::Full
+        );
+        assert_eq!(
+            super::decide_watch_prepare_without_plan(&watch_changes(&[
+                "rust/tools/generate/src/commands/prepare.rs"
+            ])),
+            super::WatchPrepareDecision::RestartRequired
+        );
+    }
+
+    fn assert_watch_decision_ignored(plan: &[AutoPlanEntry], changes: &[&str]) {
+        assert_eq!(
+            super::decide_watch_prepare(plan, &watch_changes(changes)),
+            super::WatchPrepareDecision::Ignored
+        );
+    }
+
+    fn assert_watch_decision_full(plan: &[AutoPlanEntry], changes: &[&str]) {
+        assert_eq!(
+            super::decide_watch_prepare(plan, &watch_changes(changes)),
+            super::WatchPrepareDecision::Full
+        );
+    }
+
+    fn assert_watch_decision_restart_required(plan: &[AutoPlanEntry], changes: &[&str]) {
+        assert_eq!(
+            super::decide_watch_prepare(plan, &watch_changes(changes)),
+            super::WatchPrepareDecision::RestartRequired
+        );
+    }
+
+    fn assert_watch_decision_affected(
+        plan: &[AutoPlanEntry],
+        changes: &[&str],
+        expected_contract_ids: &[&str],
+    ) {
+        let super::WatchPrepareDecision::Affected(entries) =
+            super::decide_watch_prepare(plan, &watch_changes(changes))
+        else {
+            panic!("expected affected prepare decision");
+        };
+        let actual_contract_ids: Vec<&str> = entries
+            .iter()
+            .map(|entry| entry.contract_id.as_str())
+            .collect();
+
+        assert_eq!(actual_contract_ids, expected_contract_ids);
+    }
+
+    fn watch_changes(paths: &[&str]) -> Vec<super::WatchChange> {
+        paths
+            .iter()
+            .map(|path| super::WatchChange {
+                kind: "Modify(Data(Content))".to_owned(),
+                path: PathBuf::from(path),
+            })
+            .collect()
+    }
+
+    fn watch_decision_plan_fixture() -> Vec<AutoPlanEntry> {
+        vec![
+            plan_entry(
+                "services/orders",
+                "services/orders/deno.json",
+                SourceLanguage::TypeScript,
+                "services/orders/contracts/orders.ts",
+                "trellis.orders@v1",
+                ContractKind::Service,
+            ),
+            plan_entry(
+                "services/orders",
+                "services/orders/deno.json",
+                SourceLanguage::TypeScript,
+                "services/orders/contracts/billing.ts",
+                "trellis.billing@v1",
+                ContractKind::Service,
+            ),
+            plan_entry(
+                "devices/sensor",
+                "devices/sensor/Cargo.toml",
+                SourceLanguage::Rust,
+                "devices/sensor/contracts/sensor.rs",
+                "trellis.sensor@v1",
+                ContractKind::Device,
+            ),
+            plan_entry(
+                "apps/console",
+                "apps/console/package.json",
+                SourceLanguage::TypeScript,
+                "apps/console/src/lib/contract.ts",
+                "trellis.console@v1",
+                ContractKind::App,
+            ),
+        ]
+    }
+
+    fn absolute_watch_decision_plan_fixture(root: &Path) -> Vec<AutoPlanEntry> {
+        watch_decision_plan_fixture()
+            .into_iter()
+            .map(|mut entry| {
+                entry.discovered.project_root = root.join(&entry.discovered.project_root);
+                entry.discovered.manifest_path = root.join(&entry.discovered.manifest_path);
+                entry.discovered.source_path = root.join(&entry.discovered.source_path);
+                entry
+            })
+            .collect()
+    }
+
+    fn plan_entry(
+        project_root: &str,
+        manifest_path: &str,
+        language: SourceLanguage,
+        source_path: &str,
+        contract_id: &str,
+        contract_kind: ContractKind,
+    ) -> AutoPlanEntry {
+        AutoPlanEntry {
+            discovered: DiscoveredContractSource {
+                project_root: PathBuf::from(project_root),
+                manifest_path: PathBuf::from(manifest_path),
+                language,
+                source_path: PathBuf::from(source_path),
+            },
+            contract_id: contract_id.to_owned(),
+            contract_kind,
+            action: AutoAction::Generate,
+            out_manifest: None,
+            ts_out: None,
+            rust_out: None,
+            runtime_source: RuntimeSource::Local,
+            runtime_repo_root: Some(PathBuf::from(".")),
+        }
     }
 }

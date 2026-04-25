@@ -346,10 +346,14 @@ service/app development loop, run the watch task in another terminal:
 deno task prepare:watch
 ```
 
-Watch mode reruns the same prepare workflow on relevant source changes and
-filters out `.git/`, `.worktrees/`, generated artifacts, and `.gitignore` paths.
-If it reruns unexpectedly, invoke `trellis-generate prepare --watch --changes .`
-to print the triggering event kind and paths.
+Watch mode watches broadly but only prepares affected contract entries when safe.
+It ignores file changes that are not TypeScript, JavaScript, or Rust source
+unless they are recognized project/discovery inputs, plus `.git/`, `.worktrees/`,
+generated artifacts, and `.gitignore` paths. It falls back to full prepare for
+project manifests and discovery-shape changes, and asks you to restart the
+watcher after generator/tooling changes. If a batch behaves unexpectedly, invoke
+`trellis-generate prepare --watch --changes .` to print the event paths plus the
+watch decision and reason.
 
 ## 10. Generate an SDK for consumers
 

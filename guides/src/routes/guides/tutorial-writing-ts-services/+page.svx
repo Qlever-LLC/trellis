@@ -461,10 +461,14 @@ deno task prepare
 ```
 
 During active development, use `deno task prepare:watch` to keep those artifacts
-fresh while you edit the contract or modules it imports. The watcher filters out
-`.git/`, `.worktrees/`, generated artifacts, and `.gitignore` paths; use
-`trellis-generate prepare --watch --changes .` when you need to diagnose what
-triggered a rerun.
+fresh while you edit the contract or modules it imports. The watcher observes the
+workspace broadly but only prepares affected contract entries when safe. It
+ignores file changes that are not TypeScript, JavaScript, or Rust source unless
+they are recognized project/discovery inputs, plus `.git/`, `.worktrees/`,
+generated artifacts, and `.gitignore` paths, and falls back to full prepare for
+project manifests and discovery-shape changes. It asks you to restart the
+watcher after generator/tooling changes. Use `trellis-generate prepare --watch
+--changes .` when you need event paths plus the watch decision and reason.
 
 This generates a package under `./generated/sdk/ts/`. It includes typed request/response definitions, schema constants, a concrete `client.ts` consumer facade, and a `use(...)` export that consumers drop into their own contracts' `uses` blocks — the same pattern that `@qlever-llc/trellis-sdk/auth` follows. Regenerate whenever the contract changes.
 

@@ -68,12 +68,18 @@ for the JS workspace.
 
 During active contract development, `prepare:watch` and
 `cargo xtask prepare-watch` keep the same prepare workflow running in the
-background. Watch mode observes the chosen project root, filters events through
-`.gitignore`, and always ignores `.git/`, `.worktrees/`, and `generated/` so
-repository scans and generated artifact writes do not loop back into prepare.
-Change diagnostics are quiet by default; direct `trellis-generate` callers may
-add `--changes` with `--watch` to print the event kind and paths that triggered
-a rerun.
+background. Watch mode observes the chosen project root broadly, filters events
+through `.gitignore`, and always ignores `.git/`, `.worktrees/`, and
+`generated/` so repository scans and generated artifact writes do not loop back
+into prepare. It also ignores file changes that are not TypeScript, JavaScript,
+or Rust source unless they are recognized project/discovery inputs. When a batch
+maps safely to known contract source entries, watch mode prepares only those
+affected entries while preserving the full prepare plan order. It falls back to
+full prepare for project manifests and discovery-shape changes. Generator or
+tooling changes require restarting the watcher because the already-running
+process is still using the old generator code. Change diagnostics are quiet by
+default; direct `trellis-generate` callers may add `--changes` with `--watch` to
+print the event paths plus the watch decision and reason.
 
 Rust contributors should run `cargo xtask prepare` before `cargo build` or
 `cargo install --path rust/crates/cli`, because the Rust workspace depends on

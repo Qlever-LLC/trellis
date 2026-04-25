@@ -46,10 +46,14 @@ the watch task instead:
 deno task -c demos/js/deno.json prepare:watch
 ```
 
-The watch task reruns prepare for relevant source changes while ignoring
-`.git/`, `.worktrees/`, `generated/`, and paths ignored by `.gitignore`. If you
-need to see which file event triggered a rerun, run the underlying generator with
-`--changes`.
+The watch task watches broadly but only prepares affected contract entries when
+safe. It ignores file changes that are not TypeScript, JavaScript, or Rust source
+unless they are recognized project/discovery inputs, plus `.git/`, `.worktrees/`,
+`generated/`, and paths ignored by `.gitignore`. It falls back to full prepare
+for project manifests and discovery-shape changes, and asks you to restart the
+watcher after generator/tooling changes. If you need to see why a batch was
+handled that way, run the underlying generator with `--changes` to print event
+paths plus the watch decision and reason.
 
 If you are editing a specific demo, run that demo's focused `check:prepared`
 task instead of the workspace-wide `check` task.

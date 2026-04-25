@@ -21,7 +21,7 @@ pub enum AutoAction {
     Verify,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AutoPlanEntry {
     pub discovered: DiscoveredContractSource,
     pub contract_id: String,

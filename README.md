@@ -50,8 +50,12 @@ If you build or install Rust binaries from this repo directly, run `cargo xtask 
 first so the generated Rust SDK crates under `generated/rust/sdks/` exist.
 `cargo xtask build` is the convenient Rust-side wrapper for `prepare` followed by
 `cargo build`.
-Use `cargo xtask prepare-watch` during active contract development to rerun
-prepare when relevant sources change.
+Use `cargo xtask prepare-watch` during active contract development. Watch mode
+watches broadly, ignores file changes that are not TypeScript, JavaScript, or
+Rust source unless they are recognized project/discovery inputs, prepares only
+affected contract entries when safe, falls back to full prepare for project
+manifests and discovery-shape changes, and asks you to restart the watcher after
+generator/tooling changes.
 
 ## Design documents
 

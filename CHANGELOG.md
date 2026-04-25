@@ -59,8 +59,13 @@ and this project adheres to
 
 - Added `trellis-generate prepare --watch`, repo-local
   `cargo xtask prepare-watch`, and JS/demo `prepare:watch` tasks so contract and
-  SDK artifacts can stay fresh during active service and app development; pass
-  `--changes` to print the file events that trigger regeneration.
+  SDK artifacts can stay fresh during active service and app development. Watch
+  mode now prepares only affected contract entries when safe, ignores
+  non-TypeScript, non-JavaScript, and non-Rust file changes except recognized
+  project/discovery inputs, falls back to full prepare for project manifests and
+  discovery-shape changes, asks for a watch restart after generator/tooling
+  changes, and prints the event paths plus the watch decision and reason with
+  `--changes`.
 - Added a reusable Svelte `DeviceActivationController` for custom and built-in
   authenticated device portal flows.
 - Made service and activated-device runtime NATS lifecycle logging explicit so
