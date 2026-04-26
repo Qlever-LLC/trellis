@@ -2,6 +2,7 @@ import { Type } from "typebox";
 
 import {
   type ContractSourceRpcMethod,
+  defineAgentContract,
   defineAppContract,
   defineDeviceContract,
   defineError,
@@ -48,14 +49,14 @@ function schemaRef<
 const auth = defineServiceContract(
   {
     schemas: authSchemas,
-    exports: {
-      schemas: ["StringValue"],
-    },
   },
   () => ({
     id: "trellis.auth@v1",
     displayName: "Trellis Auth",
     description: "Expose Trellis auth RPCs and events for tests.",
+    exports: {
+      schemas: ["StringValue"],
+    },
     rpc: {
       "Auth.Me": {
         version: "v1",
@@ -349,7 +350,6 @@ if (false) {
       },
     }),
   );
-
 }
 
 const transferSchemas = {
@@ -542,6 +542,54 @@ if (false) {
     // @ts-expect-error app contracts may not declare local schemas
     schemas: { Empty: EmptySchema },
   }));
+
+  defineServiceContract(
+    {
+      // @ts-expect-error contract exports must be declared in the callback body
+      exports: { schemas: ["Empty"] },
+    },
+    () => ({
+      id: "trellis.invalid-service-exports@v1",
+      displayName: "Invalid Service Exports",
+      description: "Should fail type checking.",
+    }),
+  );
+
+  defineAppContract(
+    {
+      // @ts-expect-error contract exports must be declared in the callback body
+      exports: { schemas: ["Empty"] },
+    },
+    () => ({
+      id: "trellis.invalid-app-exports@v1",
+      displayName: "Invalid App Exports",
+      description: "Should fail type checking.",
+    }),
+  );
+
+  defineAgentContract(
+    {
+      // @ts-expect-error contract exports must be declared in the callback body
+      exports: { schemas: ["Empty"] },
+    },
+    () => ({
+      id: "trellis.invalid-agent-exports@v1",
+      displayName: "Invalid Agent Exports",
+      description: "Should fail type checking.",
+    }),
+  );
+
+  defineDeviceContract(
+    {
+      // @ts-expect-error contract exports must be declared in the callback body
+      exports: { schemas: ["Empty"] },
+    },
+    () => ({
+      id: "trellis.invalid-device-exports@v1",
+      displayName: "Invalid Device Exports",
+      description: "Should fail type checking.",
+    }),
+  );
 
   defineDeviceContract(() => ({
     id: "trellis.invalid-device@v1",

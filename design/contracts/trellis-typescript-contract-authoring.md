@@ -154,9 +154,11 @@ multi-contract layout:
 - CLI and other long-lived user tooling should normally use
   `defineAgentContract({ schemas }, (ref) => ({ ... }))` when they declare
   schema-backed state, and `defineAgentContract(() => ({ ... }))` otherwise
-- `schemas` and local `errors` act as registries supplied to the contract
-  builder for service contracts, while the callback body defines the owned
-  surfaces, resources, and `uses`
+- `schemas` and local `errors` act as local registries supplied to the contract
+  builder for service contracts, while the callback body defines the emitted
+  contract body including owned surfaces, resources, `uses`, and `exports`
+- emitted manifest fields such as `exports` are authored in the callback body,
+  not in the local registry argument
 - app-, agent-, and device-style contracts may also take a `schemas` registry
   when they declare schema-backed owned surfaces such as top-level `state`
 - schema refs should normally use `ref.schema("...")`
@@ -405,6 +407,9 @@ Rules:
 - for contracts that own schemas or local errors, prefer top-level
   `const schemas = ...`, optional `const errors = ...`, and a
   `defineServiceContract({ schemas, errors }, (ref) => ({ ... }))` layout
+- keep the first `define*Contract(...)` argument limited to local authoring
+  registries such as `schemas` and service-local `errors`; put emitted contract
+  body fields such as `exports` inside the callback return object
 - Trellis-specific bootstrap exceptions should stay in Trellis platform code and
   use lower-level runtime APIs directly rather than becoming general public
   service helpers

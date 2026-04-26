@@ -6,14 +6,14 @@ import * as schemas from "./src/schemas/index.ts";
 export const contract = defineServiceContract(
   {
     schemas,
-    exports: {
-      schemas: ["EvidenceRecord", "InspectionAssignment", "SiteSummary"],
-    },
   },
   (ref) => ({
     id: "trellis.demo-service@v1",
     displayName: "Field Ops Demo Service",
     description: "Consolidated Field Ops demo service for Trellis concepts.",
+    exports: {
+      schemas: ["EvidenceRecord", "InspectionAssignment", "SiteSummary"],
+    },
     uses: {
       auth: auth.useDefaults(),
       health: health.useDefaults(),

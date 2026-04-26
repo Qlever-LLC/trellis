@@ -30,14 +30,14 @@ Deno.test("kind-specific helpers preserve emitted manifest shape and digest", as
   const auth = defineServiceContract(
     {
       schemas: baseSchemas,
-      exports: {
-        schemas: ["StringValue"],
-      },
     },
     () => ({
       id: "trellis.auth@v1",
       displayName: "Trellis Auth",
       description: "Expose auth RPCs and events for source emission tests.",
+      exports: {
+        schemas: ["StringValue"],
+      },
       rpc: {
         "Auth.Me": {
           version: "v1",
@@ -168,14 +168,14 @@ Deno.test("defineServiceContract emits explicit exported schema names without fi
   const contract = defineServiceContract(
     {
       schemas: baseSchemas,
-      exports: {
-        schemas: ["StringValue"],
-      },
     },
     () => ({
       id: "exports.example@v1",
       displayName: "Exports Example",
       description: "Declare which schema registry entries are public.",
+      exports: {
+        schemas: ["StringValue"],
+      },
       rpc: {
         "Exports.Read": {
           version: "v1",
@@ -193,6 +193,36 @@ Deno.test("defineServiceContract emits explicit exported schema names without fi
     "Empty",
     "StringValue",
   ]);
+});
+
+Deno.test("contract helpers reject registry-side exports at runtime", () => {
+  assertThrows(
+    () =>
+      defineServiceContract(
+        JSON.parse('{"exports":{"schemas":["StringValue"]}}'),
+        () => ({
+          id: "exports.registry-service@v1",
+          displayName: "Registry Exports Service",
+          description: "Should reject registry-side exports.",
+        }),
+      ),
+    Error,
+    "contract exports must be declared in the callback body",
+  );
+
+  assertThrows(
+    () =>
+      defineAppContract(
+        JSON.parse('{"exports":{"schemas":["StringValue"]}}'),
+        () => ({
+          id: "exports.registry-app@v1",
+          displayName: "Registry Exports App",
+          description: "Should reject registry-side exports.",
+        }),
+      ),
+    Error,
+    "contract exports must be declared in the callback body",
+  );
 });
 
 Deno.test("defineServiceContract emits RPC error refs using declared wire types", () => {

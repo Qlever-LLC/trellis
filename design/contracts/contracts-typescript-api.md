@@ -283,6 +283,9 @@ Rules:
 - `id` remains the stable machine identity for the contract lineage
 - `displayName` and `description` are required and are part of the canonical
   manifest
+- the first helper argument is a local authoring registry for builder lookup,
+  such as `schemas` and service-local `errors`; it is not emitted as the
+  contract body
 - local service contract files should prefer
   `defineServiceContract({ schemas, errors }, (ref) => ({ ... }))`
 - local app contract files should prefer
@@ -299,6 +302,8 @@ Rules:
   bootstrap
 - local `operations`, `rpc`, `events`, `subjects`, `state`, `errors`, and
   `resources` remain the source for emitted owned contract content
+- emitted manifest fields such as `exports` are authored in the callback body
+  alongside owned surfaces, not in the local registry argument
 - service contract modules declare reusable schemas in a top-level `schemas` map
   and should usually reference them through `ref.schema(...)`
 - client-style contracts that declare top-level `state` should also use a local
@@ -415,8 +420,9 @@ const schemas = {
 } as const;
 
 export const contract = defineServiceContract(
-  { schemas, exports: { schemas: ["SiteSummary"] } },
+  { schemas },
   (ref) => ({
+    exports: { schemas: ["SiteSummary"] },
     // RPC and operation declarations reference the named schemas above.
   }),
 );

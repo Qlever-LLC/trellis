@@ -10,16 +10,21 @@ and this project adheres to
 
 ### Changed
 
+- Changed TypeScript contract authoring so manifest `exports` are declared in
+  the `define*Contract(...)` callback body rather than the first-argument local
+  registry, with registry-side `exports` now rejected at type and runtime
+  boundaries.
 - Changed Trellis control-plane storage so durable auth, catalog, service,
   device, portal, and session records are SQLite-backed with ULID row IDs while
   KV remains for OAuth/pending/browser scratch, connection presence, and the
   public State API; updated CLI bootstrap and docs for the SQL/KV boundary.
-- Changed TypeScript activated-device startup so root `TrellisDevice.connect(...)`
-  is runtime-only, Deno devices use `checkDeviceActivation(...)` to learn
-  whether activation is ready or still required, hidden Deno activation-state
-  persistence is scoped by deployment origin, device identity, and contract
-  digest, and the JS device demos, design docs, and device guide now follow the
-  `checkDeviceActivation(...)` then `connect(...)` flow.
+- Changed TypeScript activated-device startup so root
+  `TrellisDevice.connect(...)` is runtime-only, Deno devices use
+  `checkDeviceActivation(...)` to learn whether activation is ready or still
+  required, hidden Deno activation-state persistence is scoped by deployment
+  origin, device identity, and contract digest, and the JS device demos, design
+  docs, and device guide now follow the `checkDeviceActivation(...)` then
+  `connect(...)` flow.
 - Redesigned `@qlever-llc/trellis-svelte` around app-owned separate contexts:
   `createTrellisProviderContexts<TContract>()` now bundles Trellis, auth, and
   connection-state contexts for `TrellisProvider`, the old runtime-bag design is
