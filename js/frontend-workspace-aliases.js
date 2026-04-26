@@ -1,7 +1,6 @@
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parse } from "jsonc-parser";
 
 const jsRoot = dirname(fileURLToPath(import.meta.url));
 const workspaceConfigPath = resolve(jsRoot, "deno.json");
@@ -9,7 +8,7 @@ const defaultLocalImportPrefixes = ["@qlever-llc/", "#"];
 
 function loadWorkspaceImports(configPath) {
   const contents = readFileSync(configPath, "utf8");
-  const config = parse(contents);
+  const config = JSON.parse(contents);
   const imports = config?.imports;
 
   if (!imports || typeof imports !== "object") {

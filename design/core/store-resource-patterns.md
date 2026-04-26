@@ -18,7 +18,7 @@ Some services need a place to store large opaque values that do not fit well in 
 
 Examples:
 
-- temporary uploaded files awaiting processing
+- temporary caller-sent files awaiting processing
 - generated exports or reports before delivery
 - intermediate binary artifacts produced between workflow steps
 - service-local attachments that are not modeled as typed records
@@ -208,7 +208,7 @@ Rules:
 This document does not define:
 
 - direct client access to store bindings
-- caller-visible upload or download session protocols
+- caller-visible send or receive transfer session protocols
 - multi-owner or shared write access across services
 - backend-specific features such as links, sealing, or chunk-size tuning
 - a typed JSON value model; use `resources.kv` for that
@@ -221,5 +221,9 @@ That does not change the rules in this document:
 
 - `resources.store` remains service-owned
 - non-owner clients do not resolve store bindings
-- file transfer authorization still begins with contract-owned `Files.*` APIs from the owning service
+- file transfer authorization still begins with explicit contract-owned `Files.*`
+  APIs from the owning service, such as send-transfer operations and
+  receive-transfer RPCs
 - the public abstraction is `Files`; `store` remains the service-owned backing capability
+- receive transfer grants must not be treated as raw store delegation; they are
+  scoped runtime grants for bytes exposed by the owning service

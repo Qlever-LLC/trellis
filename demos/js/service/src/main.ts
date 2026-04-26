@@ -38,6 +38,11 @@ async function main(): Promise<void> {
   );
   await service.trellis.mount("Sites.List", features.sites.listSites);
   await service.trellis.mount("Sites.Get", features.sites.getSite);
+  await service.trellis.mount("Evidence.List", features.evidence.listEvidence);
+  await service.trellis.mount(
+    "Evidence.Download",
+    features.evidence.downloadEvidence(service),
+  );
   await service.operation("Sites.Refresh").handle(features.sites.refreshSite);
   await service.operation("Reports.Generate").handle(
     features.reports.generateReport,

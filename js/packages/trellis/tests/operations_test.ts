@@ -7,13 +7,17 @@ import {
   controlSubject,
   type OperationEvent,
   OperationInvoker,
-  type StartedTransfer,
-  type OperationTransferProgress,
   type OperationRef,
+  type OperationTransferProgress,
   type OperationTransport,
+  type StartedTransfer,
 } from "../operations.ts";
-import { TransferError, TransportError, UnexpectedError } from "../errors/index.ts";
-import type { TransferBody, UploadTransferGrant } from "../transfer.ts";
+import {
+  TransferError,
+  TransportError,
+  UnexpectedError,
+} from "../errors/index.ts";
+import type { SendTransferGrant, TransferBody } from "../transfer.ts";
 
 const schemas = {
   RefundInput: Type.Object({ chargeId: Type.String() }),
@@ -54,6 +58,7 @@ const refundOperation = billing.API.owned.operations["Billing.Refund"];
 const uploadOperation = {
   ...refundOperation,
   transfer: {
+    direction: "send",
     store: "uploads",
     key: "/chargeId",
     expiresInMs: 60_000,
@@ -69,7 +74,9 @@ const nonCancelableOperation = {
 
 class FakeOperationTransport implements OperationTransport {
   readonly seen: Array<{ subject: string; body: unknown }> = [];
-  readonly transferred: Array<{ grant: UploadTransferGrant; body: TransferBody }> = [];
+  readonly transferred: Array<
+    { grant: SendTransferGrant; body: TransferBody }
+  > = [];
   readonly #responses: JsonValue[];
   readonly #watchError?: UnexpectedError;
 
@@ -105,7 +112,7 @@ class FakeOperationTransport implements OperationTransport {
     })());
   }
 
-  putTransfer(grant: UploadTransferGrant, body: TransferBody) {
+  putTransfer(grant: SendTransferGrant, body: TransferBody) {
     return AsyncResult.from((async () => {
       this.transferred.push({ grant, body });
       return ok({
@@ -187,7 +194,7 @@ Deno.test("OperationInvoker.input().transfer().start() watches events, transfers
       },
       transfer: {
         type: "TransferGrant",
-        kind: "upload",
+        direction: "send",
         service: "billing",
         sessionKey: "session-key",
         transferId: "transfer_123",
@@ -297,7 +304,12 @@ Deno.test("OperationInvoker.input().transfer().start() watches events, transfers
   assertEquals(result.terminal.output, { refundId: "rf_123" });
   assertEquals(transferUpdates, [11]);
   assertEquals(progressUpdates, ["stored"]);
-  assertEquals(events.map((event) => event.type), ["accepted", "transfer", "progress", "completed"]);
+  assertEquals(events.map((event) => event.type), [
+    "accepted",
+    "transfer",
+    "progress",
+    "completed",
+  ]);
 });
 
 Deno.test("OperationInvoker.input().transfer().start() type surface stays specific", () => {
@@ -360,7 +372,7 @@ Deno.test("OperationInvoker.input().transfer().start() dispatches terminal callb
       },
       transfer: {
         type: "TransferGrant",
-        kind: "upload",
+        direction: "send",
         service: "billing",
         sessionKey: "session-key",
         transferId: "transfer_123",
@@ -713,7 +725,7 @@ Deno.test("OperationInvoker.input().transfer().start() still returns a StartedTr
       },
       transfer: {
         type: "TransferGrant",
-        kind: "upload",
+        direction: "send",
         service: "billing",
         sessionKey: "session-key",
         transferId: "transfer_123",
@@ -783,7 +795,7 @@ Deno.test("OperationInvoker.input().transfer().start() waits for terminal state 
       },
       transfer: {
         type: "TransferGrant",
-        kind: "upload",
+        direction: "send",
         service: "billing",
         sessionKey: "session-key",
         transferId: "transfer_123",
@@ -884,12 +896,14 @@ Deno.test("OperationRef.get() sends action:get to <subject>.control and decodes 
     transport,
     refundOperation,
   );
-  const reference = await operation.input({ chargeId: "ch_123" }).start().match({
-    ok: (value) => value,
-    err: (error) => {
-      throw error;
+  const reference = await operation.input({ chargeId: "ch_123" }).start().match(
+    {
+      ok: (value) => value,
+      err: (error) => {
+        throw error;
+      },
     },
-  });
+  );
   const snapshot = await reference.get().match({
     ok: (value) => value,
     err: (error) => {
@@ -936,12 +950,14 @@ Deno.test("OperationRef.get() surfaces control error frames with the runtime err
   ]);
 
   const operation = new OperationInvoker(transport, refundOperation);
-  const reference = await operation.input({ chargeId: "ch_123" }).start().match({
-    ok: (value) => value,
-    err: (error) => {
-      throw error;
+  const reference = await operation.input({ chargeId: "ch_123" }).start().match(
+    {
+      ok: (value) => value,
+      err: (error) => {
+        throw error;
+      },
     },
-  });
+  );
   const result = await reference.get();
   const error = result.match({
     ok: () => {
@@ -982,12 +998,14 @@ Deno.test("OperationRef.cancel() sends action:cancel to <subject>.control and de
   ]);
 
   const operation = new OperationInvoker(transport, refundOperation);
-  const reference = await operation.input({ chargeId: "ch_123" }).start().match({
-    ok: (value) => value,
-    err: (error) => {
-      throw error;
+  const reference = await operation.input({ chargeId: "ch_123" }).start().match(
+    {
+      ok: (value) => value,
+      err: (error) => {
+        throw error;
+      },
     },
-  });
+  );
   const snapshot = await reference.cancel().match({
     ok: (value) => value,
     err: (error) => {
@@ -1033,12 +1051,14 @@ Deno.test("OperationRef.cancel() surfaces control error frames with the runtime 
   ]);
 
   const operation = new OperationInvoker(transport, refundOperation);
-  const reference = await operation.input({ chargeId: "ch_123" }).start().match({
-    ok: (value) => value,
-    err: (error) => {
-      throw error;
+  const reference = await operation.input({ chargeId: "ch_123" }).start().match(
+    {
+      ok: (value) => value,
+      err: (error) => {
+        throw error;
+      },
     },
-  });
+  );
   const result = await reference.cancel();
   const error = result.match({
     ok: () => {
@@ -1081,12 +1101,14 @@ Deno.test("OperationRef.wait() sends action:wait and rejects a non-terminal snap
   ]);
 
   const operation = new OperationInvoker(transport, refundOperation);
-  const reference = await operation.input({ chargeId: "ch_123" }).start().match({
-    ok: (value) => value,
-    err: (error) => {
-      throw error;
+  const reference = await operation.input({ chargeId: "ch_123" }).start().match(
+    {
+      ok: (value) => value,
+      err: (error) => {
+        throw error;
+      },
     },
-  });
+  );
   const result = await reference.wait();
   const error = result.match({
     ok: () => {
@@ -1107,7 +1129,10 @@ Deno.test("OperationRef.wait() sends action:wait and rejects a non-terminal snap
   ]);
   assertExists(error);
   assertEquals(error.name, "TransportError");
-  assertEquals(Reflect.get(error, "code"), "trellis.operation.invalid_snapshot");
+  assertEquals(
+    Reflect.get(error, "code"),
+    "trellis.operation.invalid_snapshot",
+  );
 });
 
 Deno.test("OperationRef.wait() surfaces control error frames with the runtime error details", async () => {
@@ -1134,12 +1159,14 @@ Deno.test("OperationRef.wait() surfaces control error frames with the runtime er
   ]);
 
   const operation = new OperationInvoker(transport, refundOperation);
-  const reference = await operation.input({ chargeId: "ch_123" }).start().match({
-    ok: (value) => value,
-    err: (error) => {
-      throw error;
+  const reference = await operation.input({ chargeId: "ch_123" }).start().match(
+    {
+      ok: (value) => value,
+      err: (error) => {
+        throw error;
+      },
     },
-  });
+  );
   const result = await reference.wait();
   const error = result.match({
     ok: () => {
@@ -1225,12 +1252,14 @@ Deno.test("OperationRef.watch() sends action:watch to <subject>.control and yiel
   ]);
 
   const operation = new OperationInvoker(transport, refundOperation);
-  const reference = await operation.input({ chargeId: "ch_123" }).start().match({
-    ok: (value) => value,
-    err: (error) => {
-      throw error;
+  const reference = await operation.input({ chargeId: "ch_123" }).start().match(
+    {
+      ok: (value) => value,
+      err: (error) => {
+        throw error;
+      },
     },
-  });
+  );
   const watch = await reference.watch().match({
     ok: (value) => value,
     err: (error) => {
@@ -1287,12 +1316,14 @@ Deno.test("OperationRef.watch() surfaces an initial control error frame during i
   ]);
 
   const operation = new OperationInvoker(transport, refundOperation);
-  const reference = await operation.input({ chargeId: "ch_123" }).start().match({
-    ok: (value) => value,
-    err: (error) => {
-      throw error;
+  const reference = await operation.input({ chargeId: "ch_123" }).start().match(
+    {
+      ok: (value) => value,
+      err: (error) => {
+        throw error;
+      },
     },
-  });
+  );
   const watch = await reference.watch().match({
     ok: (value) => value,
     err: (error) => {
@@ -1345,12 +1376,14 @@ Deno.test("OperationRef.watch() maps malformed event frames to TransportError", 
   ]);
 
   const operation = new OperationInvoker(transport, refundOperation);
-  const reference = await operation.input({ chargeId: "ch_123" }).start().match({
-    ok: (value) => value,
-    err: (error) => {
-      throw error;
+  const reference = await operation.input({ chargeId: "ch_123" }).start().match(
+    {
+      ok: (value) => value,
+      err: (error) => {
+        throw error;
+      },
     },
-  });
+  );
   const watch = await reference.watch().match({
     ok: (value) => value,
     err: (error) => {
@@ -1426,12 +1459,14 @@ Deno.test("OperationRef.watch() yields transfer events with per-chunk progress",
   ]);
 
   const operation = new OperationInvoker(transport, refundOperation);
-  const reference = await operation.input({ chargeId: "ch_123" }).start().match({
-    ok: (value) => value,
-    err: (error) => {
-      throw error;
+  const reference = await operation.input({ chargeId: "ch_123" }).start().match(
+    {
+      ok: (value) => value,
+      err: (error) => {
+        throw error;
+      },
     },
-  });
+  );
   const watch = await reference.watch().match({
     ok: (value) => value,
     err: (error) => {

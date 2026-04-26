@@ -26,7 +26,7 @@ These headings are intentionally named for fast human and AI lookup.
 - Service-local RPC errors: `../docs/guides/service-local-rpc-errors.md`
 - Contract state stores: `../docs/guides/contract-state.md`
 - Transfer-backed file processing workflows: `../docs/guides/transfer-file-processing-workflows.md`
-- Working with staged uploaded files: `../docs/guides/staged-store-uploads.md`
+- Working with staged send transfers: `../docs/guides/staged-store-uploads.md`
 - SvelteKit app authoring: `../guides/src/routes/guides/writing-sveltekit-apps/+page.svx`
 
 ## Core Platform Docs

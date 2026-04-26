@@ -44,7 +44,13 @@ import {
 import { ServiceHealth } from "./health.ts";
 import { type RuntimeStateStoresForContract, Trellis } from "./trellis.ts";
 import { logger as noopLogger, type LoggerLike } from "./globals.ts";
-import { TransportError } from "./errors/index.ts";
+import { TransferError, TransportError } from "./errors/index.ts";
+import type {
+  ReceiveTransferGrant,
+  ReceiveTransferHandle,
+  SendTransferGrant,
+  SendTransferHandle,
+} from "./transfer.ts";
 import { type StaticDecode, Type } from "typebox";
 import { Value } from "typebox/value";
 import {
@@ -121,6 +127,10 @@ export type TrellisDeviceConnection<
   readonly publish: DeviceRuntime<TApi, TState>["publish"];
   readonly event: DeviceRuntime<TApi, TState>["event"];
   readonly operation: DeviceRuntime<TApi, TState>["operation"];
+  readonly transfer: {
+    (grant: SendTransferGrant): SendTransferHandle;
+    (grant: ReceiveTransferGrant): ReceiveTransferHandle;
+  };
   readonly state: DeviceRuntime<TApi, TState>["state"];
   readonly name: string;
   readonly timeout: number;
@@ -936,6 +946,7 @@ export async function connectDeviceWithDeps<
     publish: trellis.publish.bind(trellis),
     event: trellis.event.bind(trellis),
     operation: trellis.operation.bind(trellis),
+    transfer: trellis.transfer.bind(trellis),
     state: trellis.state,
     name: trellis.name,
     timeout: trellis.timeout,

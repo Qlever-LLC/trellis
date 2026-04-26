@@ -6,7 +6,6 @@ import chalk from "chalk";
 import contract from "../contract.ts";
 import { renderCompactQr } from "../../shared/compact_qr.ts";
 
-const DEFAULT_CONTENT_TYPE = "application/octet-stream";
 const EVENT_WATCH_MS = 15_000;
 
 async function main(): Promise<void> {
@@ -63,15 +62,18 @@ async function main(): Promise<void> {
           await uploadEvidence(device);
           break;
         case "6":
-          await watchActivity(device);
+          await listAndDownloadEvidence(device);
           break;
         case "7":
+          await watchActivity(device);
+          break;
+        case "8":
           await saveAndListDraftState(device);
           break;
         case "0":
           return;
         default:
-          console.info("Choose a menu number from 0 through 7.");
+          console.info("Choose a menu number from 0 through 8.");
       }
     }
   } finally {
@@ -96,9 +98,24 @@ function printMenu(): void {
   console.log("3. Refresh site summary");
   console.log("4. Generate inspection report");
   console.log("5. Upload evidence file");
-  console.log("6. Watch activity events briefly");
-  console.log("7. Save/list draft state");
+  console.log("6. List/download evidence files");
+  console.log("7. Watch activity events briefly");
+  console.log("8. Save/list draft state");
   console.log("0. Quit");
+}
+
+function contentTypeForFile(fileName: string): string {
+  const lower = fileName.toLowerCase();
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+  if (lower.endsWith(".png")) return "image/png";
+  if (lower.endsWith(".gif")) return "image/gif";
+  if (lower.endsWith(".webp")) return "image/webp";
+  return "application/octet-stream";
+}
+
+function safeFileName(fileName: string): string {
+  return fileName.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") ||
+    "evidence.bin";
 }
 
 async function listAssignments(device: Device): Promise<void> {
@@ -220,8 +237,9 @@ async function uploadEvidence(device: Device): Promise<void> {
   }
 
   const bytes = await Deno.readFile(filePath);
-  const fileName = filePath.split(/[\\/]/).at(-1) || "evidence.bin";
-  const key = `evidence/${crypto.randomUUID()}-${fileName}`;
+  const originalFileName = filePath.split(/[\\/]/).at(-1) || "evidence.bin";
+  const evidenceId = crypto.randomUUID();
+  const key = `evidence/${evidenceId}-${safeFileName(originalFileName)}`;
   let nextProgressPercent = 0;
 
   console.log(chalk.green.bold("== Uploading Evidence"));
@@ -230,8 +248,13 @@ async function uploadEvidence(device: Device): Promise<void> {
   const upload = await device.operation("Evidence.Upload")
     .input({
       key,
-      contentType: DEFAULT_CONTENT_TYPE,
+      contentType: contentTypeForFile(originalFileName),
       evidenceType: "field-photo",
+      metadata: {
+        evidenceId,
+        evidenceType: "field-photo",
+        fileName: originalFileName,
+      },
     })
     .transfer(bytes)
     .onTransfer((event: { transfer: { transferredBytes: number } }) => {
@@ -257,6 +280,50 @@ async function uploadEvidence(device: Device): Promise<void> {
   const completed = await upload.wait().orThrow();
   console.info("Upload finished:");
   console.dir(completed.terminal.output, { depth: null });
+}
+
+async function listAndDownloadEvidence(device: Device): Promise<void> {
+  console.log(chalk.green.bold("== Evidence Files"));
+  const result = await device.request("Evidence.List", { prefix: "evidence/" })
+    .orThrow();
+  if (result.evidence.length === 0) {
+    console.info("No evidence files found.");
+    return;
+  }
+
+  result.evidence.forEach((item, index) => {
+    console.info(
+      `${index + 1}. ${item.fileName ?? item.key} (${item.size} bytes, ${
+        item.contentType ?? "unknown"
+      })`,
+    );
+    console.info(`   key=${item.key}`);
+  });
+
+  const rawChoice = prompt("Download which number? Press Enter to skip")
+    ?.trim();
+  if (!rawChoice) return;
+
+  const choice = Number(rawChoice);
+  const selected = Number.isInteger(choice)
+    ? result.evidence[choice - 1]
+    : undefined;
+  if (!selected) {
+    console.info("No evidence file selected.");
+    return;
+  }
+
+  const defaultName = safeFileName(
+    selected.fileName ?? selected.key.split("/").at(-1) ?? "evidence.bin",
+  );
+  const outputPath = prompt("Output path", `./${defaultName}`)?.trim() ||
+    `./${defaultName}`;
+  const download = await device.request("Evidence.Download", {
+    key: selected.key,
+  }).orThrow();
+  const downloaded = await device.transfer(download.transfer).bytes().orThrow();
+  await Deno.writeFile(outputPath, downloaded);
+  console.info(`Downloaded ${downloaded.byteLength} bytes to ${outputPath}`);
 }
 
 async function watchActivity(device: Device): Promise<void> {

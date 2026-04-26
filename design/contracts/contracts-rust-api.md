@@ -44,7 +44,7 @@ Owns:
 
 - authenticated outbound Trellis session/client primitives
 - generic operation, RPC, event, and raw subject client primitives
-- operation-native transfer execution helpers for file upload/download runtime behavior
+- operation-native transfer execution helpers for send/receive runtime behavior
 - descriptor traits required by generated outbound code
 
 Does not own participant-specific alias filtering.

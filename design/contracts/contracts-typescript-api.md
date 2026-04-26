@@ -491,9 +491,15 @@ Rules:
   injected service runtime facade with helpers such as `kv`, `store`, and
   transfer-aware operation contexts without widening browser-safe root runtime
   types
-- returned runtimes expose transfer through the transfer builder
-  `operation(...).input(...).transfer(...).start()`, not through a standalone
-  `trellis.transfer(...)` entrypoint
+- returned runtimes expose operation-native send transfer through the transfer
+  builder `operation(...).input(...).transfer(...).start()`
+- returned runtimes expose grant consumption through `trellis.transfer(grant)`;
+  receive grants provide `.stream()` and `.bytes()`, while send grants provide
+  `.send(body)` where relevant
+- contract descriptors declare transfer direction explicitly: operations that
+  ingest caller bytes use `transfer: { direction: "send", store, key, ... }`,
+  and RPCs that issue service-owned byte grants use
+  `transfer: { direction: "receive" }`
 - runtime helpers must not widen the callable surface beyond what the contract
   allows
 - service-side helpers must not expose used remote APIs as mountable local

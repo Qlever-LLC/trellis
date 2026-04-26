@@ -62,7 +62,12 @@ import {
   selectRuntimeTransportServers,
 } from "../runtime_transport.ts";
 import { serverLogger } from "../server_logger.ts";
-import { TransportError, UnexpectedError } from "../errors/index.ts";
+import {
+  TransferError,
+  TransportError,
+  UnexpectedError,
+} from "../errors/index.ts";
+import type { ReceiveTransferGrant } from "../transfer.ts";
 import {
   ActiveJob as PublicActiveJob,
   type JobIdentity,
@@ -1677,6 +1682,26 @@ export class TrellisService<
     this.health = health;
     this.connection = connection;
     this.#stopHealthPublishing = stopHealthPublishing;
+  }
+
+  /**
+   * Creates a short-lived receive transfer grant for a caller session.
+   */
+  createTransfer(args: {
+    direction: "receive";
+    store: string;
+    key: string;
+    sessionKey: string;
+    expiresInMs?: number;
+  }): AsyncResult<ReceiveTransferGrant, TransferError> {
+    return AsyncResult.from(
+      this.#operationTransfer.initiateDownload({
+        store: args.store,
+        key: args.key,
+        sessionKey: args.sessionKey,
+        expiresInMs: args.expiresInMs ?? 60_000,
+      }),
+    );
   }
 
   static connect<

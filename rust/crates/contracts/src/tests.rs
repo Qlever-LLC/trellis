@@ -414,6 +414,7 @@ fn manifest_parses_owned_and_used_operations() {
                 "progress": {"schema": "CaptureProgress"},
                 "output": {"schema": "CaptureResult"},
                 "transfer": {
+                    "direction": "send",
                     "store": "uploads",
                     "key": "/key",
                     "contentType": "/contentType",
@@ -446,6 +447,7 @@ fn manifest_parses_owned_and_used_operations() {
         Some("CaptureResult")
     );
     let transfer = op.transfer.as_ref().expect("operation transfer");
+    assert_eq!(transfer.direction, ContractOperationTransferDirection::Send);
     assert_eq!(transfer.store, "uploads");
     assert_eq!(transfer.key, "/key");
     assert_eq!(transfer.content_type.as_deref(), Some("/contentType"));
@@ -477,6 +479,38 @@ fn manifest_parses_owned_and_used_operations() {
             .cloned(),
         Some(vec!["Billing.Refund".to_string()])
     );
+}
+
+#[test]
+fn manifest_parses_explicit_rpc_receive_transfer() {
+    let manifest = parse_manifest(json!({
+        "format": "trellis.contract.v1",
+        "id": "example.rpc-transfer@v1",
+        "displayName": "Example RPC Transfer",
+        "description": "Expose receive transfer grant RPCs.",
+        "kind": "service",
+        "schemas": {
+            "DownloadRequest": {"type": "object", "properties": {}, "additionalProperties": false},
+            "DownloadResponse": {"type": "object", "properties": {}, "additionalProperties": false}
+        },
+        "rpc": {
+            "Evidence.Download": {
+                "version": "v1",
+                "subject": "rpc.v1.Evidence.Download",
+                "input": {"schema": "DownloadRequest"},
+                "output": {"schema": "DownloadResponse"},
+                "transfer": {"direction": "receive"}
+            }
+        }
+    }))
+    .expect("manifest with RPC receive transfer should parse");
+
+    let rpc = manifest
+        .rpc
+        .get("Evidence.Download")
+        .expect("owned RPC should exist");
+    let transfer = rpc.transfer.as_ref().expect("RPC transfer");
+    assert_eq!(transfer.direction, ContractRpcTransferDirection::Receive);
 }
 
 #[test]

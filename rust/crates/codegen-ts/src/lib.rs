@@ -867,6 +867,11 @@ fn render_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
                 .get(rpc.output.schema.as_str())
                 .expect("missing public schema export for rpc output")
         ));
+        if rpc.transfer.is_some() {
+            lines.push("      transfer: {".to_string());
+            lines.push("        direction: \"receive\",".to_string());
+            lines.push("      },".to_string());
+        }
         let capabilities = rpc
             .capabilities
             .as_ref()
@@ -987,6 +992,7 @@ fn render_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
         }
         if let Some(transfer) = &operation.transfer {
             lines.push("      transfer: {".to_string());
+            lines.push("        direction: \"send\",".to_string());
             lines.push(format!("        store: {},", js_string(&transfer.store)));
             lines.push(format!("        key: {},", js_string(&transfer.key)));
             if let Some(content_type) = &transfer.content_type {
@@ -1421,7 +1427,7 @@ fn render_client_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String
     let mut lines = vec![
         format!("// Generated from {}", escape_js_string(&source_reference)),
         format!(
-            "import type {{ AsyncResult, BaseError, EventOpts, MapStateStoreClient, MaybeAsync, NatsConnection, OperationInputBuilder, OperationRef, OperationRefData, RequestOpts, TransferCapableOperationInputBuilder, TrellisConnection, UnexpectedError, ValidationError, ValueStateStoreClient }} from {};",
+            "import type {{ AsyncResult, BaseError, EventOpts, MapStateStoreClient, MaybeAsync, NatsConnection, OperationInputBuilder, OperationRef, OperationRefData, ReceiveTransferGrant, ReceiveTransferHandle, RequestOpts, SendTransferGrant, SendTransferHandle, TransferCapableOperationInputBuilder, TrellisConnection, UnexpectedError, ValidationError, ValueStateStoreClient }} from {};",
             js_string(&trellis_import)
         ),
         "import type { API } from \"./api.ts\";".to_string(),
@@ -1492,6 +1498,8 @@ fn render_client_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String
         format!("  readonly state: {state_type_name};"),
         "  readonly connection: TrellisConnection;".to_string(),
         "  readonly natsConnection: NatsConnection;".to_string(),
+        "  transfer(grant: SendTransferGrant): SendTransferHandle;".to_string(),
+        "  transfer(grant: ReceiveTransferGrant): ReceiveTransferHandle;".to_string(),
     ]);
 
     for key in loaded.manifest.rpc.keys() {
@@ -2741,7 +2749,8 @@ mod tests {
                         "version": "v1",
                         "subject": "rpc.v1.Jobs.Get",
                         "input": { "schema": "Empty" },
-                        "output": { "schema": "JobStatus" }
+                        "output": { "schema": "JobStatus" },
+                        "transfer": { "direction": "receive" }
                     }
                 },
                 "operations": {
@@ -2751,7 +2760,7 @@ mod tests {
                         "input": { "schema": "Empty" },
                         "progress": { "schema": "JobStatus" },
                         "output": { "schema": "JobStatus" },
-                        "transfer": { "store": "files", "key": "/upload" }
+                        "transfer": { "direction": "send", "store": "files", "key": "/upload" }
                     }
                 },
                 "events": {
@@ -2865,6 +2874,11 @@ mod tests {
         assert!(api.contains("\"Jobs.Run\": JobsApi.API.owned.operations[\"Jobs.Run\"]"));
         assert!(api.contains("\"Jobs.Updated\": JobsApi.API.owned.events[\"Jobs.Updated\"]"));
         assert!(api.contains("trellis: {"));
+
+        let jobs_loaded = load_manifest(&jobs_manifest_path).unwrap();
+        let jobs_api = render_api_ts(&opts, &jobs_loaded);
+        assert!(jobs_api.contains("transfer: {\n        direction: \"receive\",\n      },"));
+        assert!(jobs_api.contains("transfer: {\n        direction: \"send\",\n        store: \"files\",\n        key: \"/upload\","));
 
         fs::remove_dir_all(root).unwrap();
     }

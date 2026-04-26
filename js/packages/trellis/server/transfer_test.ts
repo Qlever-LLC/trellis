@@ -28,16 +28,21 @@ function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
 }
 
 Deno.test({
-  name: "ServiceTransfer issues grants and round-trips bytes through store-backed sessions",
+  name:
+    "ServiceTransfer issues grants and round-trips bytes through store-backed sessions",
   ignore: !RUN_NATS_TESTS,
   async fn() {
     await using nats = await NatsTest.start();
 
-    const storeResult = await TypedStore.open(nats.nc, "service-transfer-test", {
-      ttlMs: 60_000,
-      maxObjectBytes: 1024 * 1024,
-      maxTotalBytes: 4 * 1024 * 1024,
-    });
+    const storeResult = await TypedStore.open(
+      nats.nc,
+      "service-transfer-test",
+      {
+        ttlMs: 60_000,
+        maxObjectBytes: 1024 * 1024,
+        maxTotalBytes: 4 * 1024 * 1024,
+      },
+    );
     assertEquals(storeResult.isOk(), true);
 
     const serviceAuth = await createAuth({ sessionKeySeed: SERVICE_SEED });
@@ -49,12 +54,13 @@ Deno.test({
       auth: serviceAuth,
       stores: {
         uploads: {
-          open: () => TypedStore.open(nats.nc, "service-transfer-test", {
-            ttlMs: 60_000,
-            maxObjectBytes: 1024 * 1024,
-            maxTotalBytes: 4 * 1024 * 1024,
-            bindOnly: true,
-          }),
+          open: () =>
+            TypedStore.open(nats.nc, "service-transfer-test", {
+              ttlMs: 60_000,
+              maxObjectBytes: 1024 * 1024,
+              maxTotalBytes: 4 * 1024 * 1024,
+              bindOnly: true,
+            }),
         },
       },
     });
@@ -76,7 +82,13 @@ Deno.test({
       },
     });
 
-    const uploaded = await createTransferHandle(nats.nc, userAuth, 3000, uploadGrantValue).put(encode("hello transfer"));
+    assertEquals(uploadGrantValue.direction, "send");
+    const uploaded = await createTransferHandle(
+      nats.nc,
+      userAuth,
+      3000,
+      uploadGrantValue,
+    ).send(encode("hello transfer"));
     assertEquals(uploaded.isOk(), true);
 
     const downloadGrant = await transfer.initiateDownload({
@@ -93,7 +105,13 @@ Deno.test({
       },
     });
 
-    const downloaded = await createTransferHandle(nats.nc, userAuth, 3000, downloadGrantValue).getBytes();
+    assertEquals(downloadGrantValue.direction, "receive");
+    const downloaded = await createTransferHandle(
+      nats.nc,
+      userAuth,
+      3000,
+      downloadGrantValue,
+    ).bytes();
     assertEquals(downloaded.isOk(), true);
     const downloadedValue = downloaded.match({
       ok: (value) => value,
@@ -113,11 +131,15 @@ Deno.test({
   async fn() {
     await using nats = await NatsTest.start();
 
-    const storeResult = await TypedStore.open(nats.nc, "service-transfer-max-bytes-test", {
-      ttlMs: 60_000,
-      maxObjectBytes: 1024,
-      maxTotalBytes: 4 * 1024 * 1024,
-    });
+    const storeResult = await TypedStore.open(
+      nats.nc,
+      "service-transfer-max-bytes-test",
+      {
+        ttlMs: 60_000,
+        maxObjectBytes: 1024,
+        maxTotalBytes: 4 * 1024 * 1024,
+      },
+    );
     assertEquals(storeResult.isOk(), true);
 
     const serviceAuth = await createAuth({ sessionKeySeed: SERVICE_SEED });
@@ -129,12 +151,13 @@ Deno.test({
       auth: serviceAuth,
       stores: {
         uploads: {
-          open: () => TypedStore.open(nats.nc, "service-transfer-max-bytes-test", {
-            ttlMs: 60_000,
-            maxObjectBytes: 1024,
-            maxTotalBytes: 4 * 1024 * 1024,
-            bindOnly: true,
-          }),
+          open: () =>
+            TypedStore.open(nats.nc, "service-transfer-max-bytes-test", {
+              ttlMs: 60_000,
+              maxObjectBytes: 1024,
+              maxTotalBytes: 4 * 1024 * 1024,
+              bindOnly: true,
+            }),
         },
       },
     });
@@ -156,7 +179,12 @@ Deno.test({
     assertEquals(uploadGrantValue.maxBytes, 1024);
 
     const oversized = new Uint8Array(2048);
-    const uploaded = await createTransferHandle(nats.nc, userAuth, 3000, uploadGrantValue).put(oversized);
+    const uploaded = await createTransferHandle(
+      nats.nc,
+      userAuth,
+      3000,
+      uploadGrantValue,
+    ).send(oversized);
     assertEquals(uploaded.isErr(), true);
     const uploadError = uploaded.match({
       ok: () => {
@@ -173,16 +201,21 @@ Deno.test({
 });
 
 Deno.test({
-  name: "ServiceTransfer runs the onStored callback after the object lands in store",
+  name:
+    "ServiceTransfer runs the onStored callback after the object lands in store",
   ignore: !RUN_NATS_TESTS,
   async fn() {
     await using nats = await NatsTest.start();
 
-    const storeResult = await TypedStore.open(nats.nc, "service-transfer-on-stored-test", {
-      ttlMs: 60_000,
-      maxObjectBytes: 1024 * 1024,
-      maxTotalBytes: 4 * 1024 * 1024,
-    });
+    const storeResult = await TypedStore.open(
+      nats.nc,
+      "service-transfer-on-stored-test",
+      {
+        ttlMs: 60_000,
+        maxObjectBytes: 1024 * 1024,
+        maxTotalBytes: 4 * 1024 * 1024,
+      },
+    );
     assertEquals(storeResult.isOk(), true);
 
     const serviceAuth = await createAuth({ sessionKeySeed: SERVICE_SEED });
@@ -195,12 +228,13 @@ Deno.test({
       auth: serviceAuth,
       stores: {
         uploads: {
-          open: () => TypedStore.open(nats.nc, "service-transfer-on-stored-test", {
-            ttlMs: 60_000,
-            maxObjectBytes: 1024 * 1024,
-            maxTotalBytes: 4 * 1024 * 1024,
-            bindOnly: true,
-          }),
+          open: () =>
+            TypedStore.open(nats.nc, "service-transfer-on-stored-test", {
+              ttlMs: 60_000,
+              maxObjectBytes: 1024 * 1024,
+              maxTotalBytes: 4 * 1024 * 1024,
+              bindOnly: true,
+            }),
         },
       },
     });
@@ -232,7 +266,12 @@ Deno.test({
       },
     });
 
-    const uploaded = await createTransferHandle(nats.nc, userAuth, 3000, uploadGrantValue).put(encode("stored callback"));
+    const uploaded = await createTransferHandle(
+      nats.nc,
+      userAuth,
+      3000,
+      uploadGrantValue,
+    ).send(encode("stored callback"));
     assertEquals(uploaded.isOk(), true);
     assertEquals(await stored.promise, {
       key: "incoming/stored.txt",

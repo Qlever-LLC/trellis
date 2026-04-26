@@ -123,7 +123,7 @@ Rules:
 - `OperationRef.wait()` resolves from durable state and live events to a
   terminal snapshot
 - `OperationRef.watch()` returns a live async stream of typed operation events
-- transfer-capable operations initiate byte upload through
+- transfer-capable operations initiate caller-to-service send transfer through
   `operation(...).input(...).transfer(body).start()`
 - public TypeScript operations APIs MUST use `Result` / `AsyncResult` for
   expected failures rather than exception-oriented wrappers
@@ -136,7 +136,7 @@ Caller surface:
   receive an `OperationRef`
 - callers observe the operation through `get()`, `wait()`, `watch()`, and
   optional `cancel()`
-- callers upload bytes for transfer-backed operations through
+- callers send bytes for transfer-backed operations through
   `operation(key).input(input).transfer(body).start()`
 
 Owning-service surface:
@@ -174,7 +174,6 @@ type OperationRef<TProgress, TOutput> = {
     AsyncIterable<OperationEvent<TProgress, TOutput>>,
     BaseError
   >;
-  transfer?(body: TransferBody): AsyncResult<FileInfo, BaseError>;
   cancel?(): AsyncResult<OperationSnapshot<TProgress, TOutput>, BaseError>;
 };
 
@@ -305,7 +304,7 @@ type OperationAcceptedEnvelope<TProgress, TOutput> = {
   snapshot: OperationSnapshot<TProgress, TOutput> & {
     revision: number;
   };
-  transfer?: UploadTransferGrant;
+  transfer?: TransferGrant & { direction: "send" };
 };
 ```
 
@@ -313,8 +312,8 @@ Rules:
 
 - the service MUST allocate the operation id before replying
 - the accepted reply MUST include the initial durable snapshot
-- transfer-capable operations MUST include the runtime-owned upload transfer
-  session data needed to execute the builder-managed upload step
+- transfer-capable operations MUST include the runtime-owned send transfer
+  session data needed to execute the builder-managed send step
 - the initial snapshot revision MUST be `1`
 - the accepted reply is the only response sent for
   `operation(...).input(...).start()`

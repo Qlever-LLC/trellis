@@ -89,14 +89,21 @@
 </script>
 
 <svelte:head>
-  <title>Workspace · Field Ops Console</title>
+  <title>Operator Notes · Field Inspection Desk</title>
 </svelte:head>
 
 <section class="flex w-full flex-col gap-6">
-  <header class="space-y-1">
-    <h1 class="text-2xl font-semibold">Workspace</h1>
-    <p class="text-sm text-base-content/70">Save, list, and delete app state entries for operator context.</p>
-    <div class="badge badge-outline">Uses: state</div>
+  <header class="rounded-box border border-base-300 bg-base-100/80 p-4 shadow-sm md:p-5">
+    <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+      <div class="space-y-2">
+        <div class="badge badge-primary badge-outline">Workspace → Operator Notes</div>
+        <h1 class="text-2xl font-semibold tracking-tight md:text-3xl">Operator Notes</h1>
+        <p class="max-w-3xl text-sm text-base-content/70">
+          Save desk context for the active site, review recent notes, and clear stale handoff entries from the shared workspace state.
+        </p>
+      </div>
+      <div class="badge badge-outline badge-lg">Teaching note: state store</div>
+    </div>
   </header>
 
   {#if error}
@@ -106,32 +113,35 @@
   <div class="grid gap-6 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
     <section class="card border border-base-300 bg-base-100 shadow-sm">
       <div class="card-body gap-4">
-        <h2 class="card-title text-lg">Write entry</h2>
+        <h2 class="card-title text-lg">Handoff note</h2>
+        <p class="text-sm text-base-content/70">
+          Capture the site the operator is focused on and the next action for the following browser session.
+        </p>
 
         <label class="form-control gap-2">
-          <span class="label-text font-medium">Store key</span>
+          <span class="label-text font-medium">Workspace key</span>
           <input class="input input-bordered w-full font-mono" bind:value={key} />
         </label>
 
         <label class="form-control gap-2">
-          <span class="label-text font-medium">Site id</span>
+          <span class="label-text font-medium">Active site id</span>
           <input class="input input-bordered w-full font-mono" bind:value={siteId} />
         </label>
 
         <label class="form-control gap-2">
-          <span class="label-text font-medium">Note</span>
+          <span class="label-text font-medium">Operator note</span>
           <textarea class="textarea textarea-bordered min-h-40 w-full" bind:value={note}></textarea>
         </label>
 
         <div class="flex flex-wrap gap-3">
           <button class="btn btn-primary" onclick={saveState} disabled={saving || key.trim().length === 0}>
-            {saving ? "Saving..." : "Save workspace"}
+            {saving ? "Saving note..." : "Save operator note"}
           </button>
-          <button class="btn btn-outline" onclick={loadEntries} disabled={loading}>Reload entries</button>
+          <button class="btn btn-outline" onclick={loadEntries} disabled={loading}>Refresh notes</button>
         </div>
 
         {#if latestPut}
-          <div class="divider my-0">Latest write</div>
+          <div class="divider my-0">Latest saved note</div>
           <div class="overflow-x-auto">
             <table class="table table-sm">
               <tbody>
@@ -148,18 +158,18 @@
     <section class="card border border-base-300 bg-base-100 shadow-sm">
       <div class="card-body gap-4">
         <div class="flex items-center justify-between gap-3">
-          <h2 class="card-title text-lg">workspaceContext</h2>
+          <h2 class="card-title text-lg">Notes ledger</h2>
           <span class="badge badge-outline">{entries.length} entr{entries.length === 1 ? "y" : "ies"}</span>
         </div>
 
         {#if loading}
-          <div class="alert"><span>Loading entries.</span></div>
+          <div class="alert"><span>Loading operator notes.</span></div>
         {:else if entries.length === 0}
-          <div class="alert"><span>No workspace entries yet.</span></div>
+          <div class="alert"><span>No operator notes are stored yet.</span></div>
         {:else}
           <div class="space-y-4">
             {#each entries as entry (entry.key)}
-              <div class="rounded-box border border-base-300 p-4">
+              <div class="rounded-box border border-base-300 bg-base-200/40 p-4">
                 <div class="mb-3 flex flex-wrap items-start justify-between gap-3">
                   <div class="space-y-1">
                     <div class="font-mono text-sm font-medium">{entry.key}</div>

@@ -385,6 +385,7 @@ const transferContract = defineServiceContract(
         version: "v1",
         input: { schema: "UploadInput" },
         transfer: {
+          direction: "send",
           store: "uploads",
           key: "/key",
           contentType: "/contentType",

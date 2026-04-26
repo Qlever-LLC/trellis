@@ -107,9 +107,12 @@ import {
 import {
   createTransferHandle,
   type FileInfo,
+  type ReceiveTransferGrant,
+  type ReceiveTransferHandle,
+  type SendTransferGrant,
+  type SendTransferHandle,
   type TransferBody,
   type TransferGrant,
-  type UploadTransferGrant,
 } from "./transfer.ts";
 import { TrellisTasks } from "./tasks.ts";
 import { TrellisConnection } from "./connection.ts";
@@ -738,7 +741,7 @@ export type RuntimeOperationAcceptedEnvelope = {
   kind: "accepted";
   ref: OperationRefData;
   snapshot: RuntimeOperationSnapshot;
-  transfer?: UploadTransferGrant;
+  transfer?: SendTransferGrant;
 };
 
 export type RuntimeOperationControlRequest = {
@@ -980,6 +983,8 @@ export type ClientTrellis<
   operation<O extends OperationsOf<TA>>(
     operation: O,
   ): OperationSurface<TA, "client", O>;
+  transfer(grant: SendTransferGrant): SendTransferHandle;
+  transfer(grant: ReceiveTransferGrant): ReceiveTransferHandle;
   wait(): AsyncResult<void, BaseError>;
 };
 
@@ -1786,7 +1791,7 @@ export class Trellis<
         this.#requestJson(subject, body as JsonValue),
       watchJson: (subject, body) => this.#watchJson(subject, body as JsonValue),
       putTransfer: (
-        grant: UploadTransferGrant,
+        grant: SendTransferGrant,
         body: TransferBody,
       ): AsyncResult<FileInfo, TransferError> =>
         AsyncResult.from((async () => {
@@ -1796,7 +1801,7 @@ export class Trellis<
             this.timeout,
             grant,
           );
-          if (!(handle instanceof Object) || !("put" in handle)) {
+          if (!(handle instanceof Object) || !("send" in handle)) {
             return err(
               new TransferError({
                 operation: "transfer",
@@ -1804,7 +1809,7 @@ export class Trellis<
               }),
             );
           }
-          return await handle.put(body);
+          return await handle.send(body);
         })()),
     };
 
@@ -1812,6 +1817,15 @@ export class Trellis<
       transport,
       descriptor as TA["operations"][O] & RuntimeOperationDesc,
     ) as OperationSurface<TA, TMode, O>;
+  }
+
+  /**
+   * Creates a helper for a short-lived Trellis transfer grant.
+   */
+  transfer(grant: SendTransferGrant): SendTransferHandle;
+  transfer(grant: ReceiveTransferGrant): ReceiveTransferHandle;
+  transfer(grant: TransferGrant): ReturnType<typeof createTransferHandle> {
+    return createTransferHandle(this.nats, this.auth, this.timeout, grant);
   }
 
   /*

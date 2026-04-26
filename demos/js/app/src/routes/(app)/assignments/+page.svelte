@@ -72,22 +72,38 @@
 </script>
 
 <svelte:head>
-  <title>Assignments · Field Ops Console</title>
+  <title>Inspection Queue · Field Inspection Desk</title>
 </svelte:head>
 
 <section class="flex w-full flex-col gap-6">
-  <header class="space-y-1">
-    <h1 class="text-2xl font-semibold">Assignments</h1>
-    <p class="text-sm text-base-content/70">List assigned inspections and open the selected site.</p>
-    <div class="badge badge-outline">Uses: RPC</div>
+  <header class="rounded-box border border-base-300 bg-base-100/80 p-4 shadow-sm md:p-5">
+    <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+      <div class="space-y-2">
+        <div class="badge badge-primary badge-outline">Assignments → Inspection Queue</div>
+        <h1 class="text-2xl font-semibold tracking-tight md:text-3xl">Inspection Queue</h1>
+        <p class="max-w-3xl text-sm text-base-content/70">
+          Triage assigned inspections, jump to the site context, and keep priority work visible for the desk operator.
+        </p>
+      </div>
+      <div class="flex flex-wrap gap-3">
+        <button class="btn btn-primary btn-sm" onclick={loadAssignments} disabled={loading}>
+          {loading ? "Loading queue..." : "Refresh queue"}
+        </button>
+        <div class="badge badge-outline badge-lg">Teaching note: RPC</div>
+      </div>
+    </div>
   </header>
 
-  <div class="flex flex-wrap gap-3">
-    <button class="btn btn-primary btn-sm" onclick={loadAssignments} disabled={loading}>
-      {loading ? "Loading..." : "Reload assignments"}
-    </button>
-    <div class="badge badge-outline badge-lg">
-      {assignments.length} assignment{assignments.length === 1 ? "" : "s"}
+  <div class="stats stats-vertical border border-base-300 bg-base-100 shadow-sm md:stats-horizontal">
+    <div class="stat">
+      <div class="stat-title">Queued inspections</div>
+      <div class="stat-value text-3xl">{assignments.length}</div>
+      <div class="stat-desc">Assignments.List result</div>
+    </div>
+    <div class="stat">
+      <div class="stat-title">Selected site</div>
+      <div class="stat-value text-lg">{site?.siteName ?? "None"}</div>
+      <div class="stat-desc">Loaded with Sites.Get</div>
     </div>
   </div>
 
@@ -101,20 +117,20 @@
     <section class="card border border-base-300 bg-base-100 shadow-sm">
       <div class="card-body gap-4">
         <div class="flex items-center justify-between gap-3">
-          <h2 class="card-title text-lg">Work queue</h2>
-          <span class="text-sm text-base-content/60">Assignments.List</span>
+          <h2 class="card-title text-lg">Dispatch lane</h2>
+          <span class="badge badge-ghost">Assignments.List</span>
         </div>
 
         {#if loading}
-          <div class="alert"><span>Loading assignments.</span></div>
+          <div class="alert"><span>Loading the inspection queue.</span></div>
         {:else if assignments.length === 0}
-          <div class="alert"><span>No assignments returned.</span></div>
+          <div class="alert"><span>No inspections are waiting in the queue.</span></div>
         {:else}
           <div class="overflow-x-auto">
             <table class="table table-zebra">
               <thead>
                 <tr>
-                  <th>Site</th>
+                  <th>Inspection stop</th>
                   <th>Asset</th>
                   <th>Priority</th>
                   <th></th>
@@ -134,7 +150,7 @@
                     <td><span class={priorityClass(assignment.priority)}>{assignment.priority}</span></td>
                     <td class="text-right">
                       <button class="btn btn-outline btn-sm" onclick={() => selectSite(assignment.siteId)} disabled={selectedSiteId === assignment.siteId}>
-                        View site
+                        Open context
                       </button>
                     </td>
                   </tr>
@@ -149,7 +165,7 @@
     <section class="card border border-base-300 bg-base-100 shadow-sm">
       <div class="card-body gap-4">
         <div class="flex items-center justify-between gap-3">
-          <h2 class="card-title text-lg">Selected site</h2>
+          <h2 class="card-title text-lg">Site context</h2>
           {#if selectedSiteId}
             <span class="badge badge-outline">{selectedSiteId}</span>
           {/if}
@@ -159,16 +175,16 @@
           <div class="overflow-x-auto">
             <table class="table table-sm">
               <tbody>
-                <tr><th>Site</th><td>{site.siteName}</td></tr>
-                <tr><th>Status</th><td>{site.latestStatus}</td></tr>
-                <tr><th>Open</th><td>{site.openInspections}</td></tr>
-                <tr><th>Overdue</th><td>{site.overdueInspections}</td></tr>
-                <tr><th>Last report</th><td class="font-mono text-xs">{site.lastReportAt}</td></tr>
+                  <tr><th>Site</th><td class="font-medium">{site.siteName}</td></tr>
+                  <tr><th>Field status</th><td>{site.latestStatus}</td></tr>
+                  <tr><th>Open inspections</th><td>{site.openInspections}</td></tr>
+                  <tr><th>Overdue</th><td>{site.overdueInspections}</td></tr>
+                  <tr><th>Last report run</th><td class="font-mono text-xs">{site.lastReportAt}</td></tr>
               </tbody>
             </table>
           </div>
         {:else}
-          <div class="alert"><span>Select an assignment to load Sites.Get.</span></div>
+          <div class="alert"><span>Select an inspection to preview its site status. Teaching note: this calls Sites.Get.</span></div>
         {/if}
       </div>
     </section>

@@ -22,14 +22,19 @@ It defines only the language-facing surface. Internal wire envelopes, reply-subj
 
 - callers configure operations with `operation(key).input(input)`
 - callers observe work through `OperationRef`
-- transfer initiation is builder-only through `operation(key).input(input).transfer(body).start()`
-- resumed operation refs observe transfer-backed operations through `get()`, `wait()`, and `watch()` but do not initiate byte upload
+- operation-native send transfer initiation is builder-only through `operation(key).input(input).transfer(body).start()`
+- resumed operation refs observe transfer-backed operations through `get()`, `wait()`, and `watch()` but do not initiate byte transfer
 - owning services register handlers with `service.operation(key).handle(...)`
 - public TypeScript APIs use `Result` / `AsyncResult` for expected failures
 - public APIs do not expose hidden control subjects or runtime control envelopes
 - operation keys are typed contract keys, not free-form strings
 
 ## Client Surface
+
+Operations use `direction: "send"` transfer declarations when the caller sends
+bytes to a service-owned transfer endpoint. RPC-issued receive grants are
+consumed through the root `trellis.transfer(grant)` helper, not through
+`OperationRef`.
 
 ```ts
 type OperationCapableClient<API> = {
@@ -363,7 +368,7 @@ type OperationEvent<TProgress, TOutput> =
 - generated runtimes MUST expose one typed `operation(key)` helper per owned or used operation surface
 - generated runtimes MUST expose `resume(ref)` so callers can bind behavior to an operation reference that was returned from another contract-owned API such as an RPC
 - generated runtimes MUST expose `input(input)` as the explicit operation-builder entrypoint
-- generated runtimes MUST expose `input(input).transfer(body).start()` when the contract operation declares transfer support so callers can combine input, observation, transfer, and wait through one helper while still receiving the underlying `OperationRef`
+- generated runtimes MUST expose `input(input).transfer(body).start()` when the contract operation declares `transfer.direction: "send"` so callers can combine input, observation, transfer, and wait through one helper while still receiving the underlying `OperationRef`
 - generated runtimes MUST keep transfer initiation off resumed or already-started operation refs
 - generated runtimes MUST derive `OperationInputOf`, `OperationProgressOf`, `OperationOutputOf`, and `OperationCancelableOf` from the contract
 - generated runtimes MUST hide internal control envelopes and caller reply subjects

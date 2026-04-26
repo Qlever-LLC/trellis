@@ -1,5 +1,15 @@
-import { AsyncResult, isErr, Result, type Result as ResultType } from "@qlever-llc/result";
-import { headers as natsHeaders, type Msg, type NatsConnection, type Subscription } from "@nats-io/nats-core";
+import {
+  AsyncResult,
+  isErr,
+  Result,
+  type Result as ResultType,
+} from "@qlever-llc/result";
+import {
+  headers as natsHeaders,
+  type Msg,
+  type NatsConnection,
+  type Subscription,
+} from "@nats-io/nats-core";
 import { ulid } from "ulid";
 
 import type {
@@ -11,9 +21,9 @@ import type { StoreError } from "../errors/StoreError.ts";
 import { TransferError } from "../errors/TransferError.ts";
 import { type StoreInfo, TypedStore, TypedStoreEntry } from "../store.ts";
 import type {
-  DownloadTransferGrant,
   FileInfo,
-  UploadTransferGrant,
+  ReceiveTransferGrant,
+  SendTransferGrant,
 } from "../transfer.ts";
 import { verifyTransferMessage } from "../transfer.ts";
 
@@ -44,7 +54,7 @@ export type InitiateUploadArgs = {
 };
 
 export type OperationUploadTransfer = {
-  grant: UploadTransferGrant;
+  grant: SendTransferGrant;
   transfer: OperationTransferHandle;
 };
 
@@ -109,7 +119,10 @@ type DownloadSession = {
   timeoutId: ReturnType<typeof setTimeout>;
 };
 
-function effectiveUploadMaxBytes(argsMaxBytes?: number, storeMaxObjectBytes?: number): number | undefined {
+function effectiveUploadMaxBytes(
+  argsMaxBytes?: number,
+  storeMaxObjectBytes?: number,
+): number | undefined {
   if (argsMaxBytes === undefined) {
     return storeMaxObjectBytes;
   }
@@ -306,7 +319,11 @@ function replyError(msg: Msg, error: TransferError): void {
   msg.respond(JSON.stringify(error.toSerializable()), { headers });
 }
 
-function publishError(nc: NatsConnection, subject: string, error: TransferError): void {
+function publishError(
+  nc: NatsConnection,
+  subject: string,
+  error: TransferError,
+): void {
   const headers = natsHeaders();
   headers.set("status", "error");
   nc.publish(subject, JSON.stringify(error.toSerializable()), { headers });
@@ -315,16 +332,28 @@ function publishError(nc: NatsConnection, subject: string, error: TransferError)
 function parseSeq(msg: Msg): ResultType<number, TransferError> {
   const raw = msg.headers?.get(TRANSFER_SEQUENCE_HEADER);
   if (!raw) {
-    return Result.err(new TransferError({ operation: "transfer", context: { reason: "missing_sequence" } }));
+    return Result.err(
+      new TransferError({
+        operation: "transfer",
+        context: { reason: "missing_sequence" },
+      }),
+    );
   }
   const value = Number(raw);
   if (!Number.isInteger(value) || value < 0) {
-    return Result.err(new TransferError({ operation: "transfer", context: { reason: "invalid_sequence", raw } }));
+    return Result.err(
+      new TransferError({
+        operation: "transfer",
+        context: { reason: "invalid_sequence", raw },
+      }),
+    );
   }
   return Result.ok(value);
 }
 
-async function* iterateStream(stream: ReadableStream<Uint8Array>): AsyncIterable<Uint8Array> {
+async function* iterateStream(
+  stream: ReadableStream<Uint8Array>,
+): AsyncIterable<Uint8Array> {
   const reader = stream.getReader();
   try {
     while (true) {
@@ -356,7 +385,9 @@ export class ServiceTransfer {
     this.#chunkBytes = opts.chunkBytes ?? DEFAULT_TRANSFER_CHUNK_BYTES;
   }
 
-  async initiateUpload(args: InitiateUploadArgs): Promise<ResultType<UploadTransferGrant, TransferError>> {
+  async initiateUpload(
+    args: InitiateUploadArgs,
+  ): Promise<ResultType<SendTransferGrant, TransferError>> {
     const store = await this.#openStore(args.store, "initiateUpload");
     const storeValue = store.take();
     if (isErr(storeValue)) {
@@ -366,13 +397,23 @@ export class ServiceTransfer {
     const storeStatus = await storeValue.status();
     const storeStatusValue = storeStatus.take();
     if (isErr(storeStatusValue)) {
-      return Result.err(new TransferError({ operation: "initiateUpload", cause: storeStatusValue.error }));
+      return Result.err(
+        new TransferError({
+          operation: "initiateUpload",
+          cause: storeStatusValue.error,
+        }),
+      );
     }
 
-    const maxBytes = effectiveUploadMaxBytes(args.maxBytes, storeStatusValue.maxObjectBytes);
+    const maxBytes = effectiveUploadMaxBytes(
+      args.maxBytes,
+      storeStatusValue.maxObjectBytes,
+    );
 
     const transferId = ulid();
-    const subject = `${UPLOAD_SUBJECT_PREFIX}.${this.#auth.sessionKey.slice(0, 16)}.${transferId}`;
+    const subject = `${UPLOAD_SUBJECT_PREFIX}.${
+      this.#auth.sessionKey.slice(0, 16)
+    }.${transferId}`;
     const expiresAtMs = Date.now() + args.expiresInMs;
     const queue = new AsyncChunkQueue();
     const subscription = this.#nc.subscribe(subject);
@@ -397,7 +438,10 @@ export class ServiceTransfer {
       ...(args.onError ? { onError: args.onError } : {}),
       ...(args.onStored ? { onStored: args.onStored } : {}),
       subscription,
-      timeoutId: setTimeout(() => this.#expireUploadSession(subject), args.expiresInMs),
+      timeoutId: setTimeout(
+        () => this.#expireUploadSession(subject),
+        args.expiresInMs,
+      ),
       queue,
       putPromise,
       nextSeq: 0,
@@ -409,7 +453,7 @@ export class ServiceTransfer {
 
     return Result.ok({
       type: "TransferGrant",
-      kind: "upload",
+      direction: "send",
       service: this.#name,
       sessionKey: args.sessionKey,
       transferId,
@@ -422,54 +466,64 @@ export class ServiceTransfer {
     });
   }
 
-  createOperationUpload(args: InitiateUploadArgs): AsyncResult<OperationUploadTransfer, TransferError> {
-    return AsyncResult.from((async (): Promise<ResultType<OperationUploadTransfer, TransferError>> => {
-      const updates = new AsyncValueBroadcaster<RuntimeOperationTransferProgress>();
-      const completed = deferred<ResultType<FileInfo, TransferError>>();
-      let settled = false;
-      const settle = (value: ResultType<FileInfo, TransferError>) => {
-        if (settled) {
-          return;
+  createOperationUpload(
+    args: InitiateUploadArgs,
+  ): AsyncResult<OperationUploadTransfer, TransferError> {
+    return AsyncResult.from(
+      (async (): Promise<
+        ResultType<OperationUploadTransfer, TransferError>
+      > => {
+        const updates = new AsyncValueBroadcaster<
+          RuntimeOperationTransferProgress
+        >();
+        const completed = deferred<ResultType<FileInfo, TransferError>>();
+        let settled = false;
+        const settle = (value: ResultType<FileInfo, TransferError>) => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          updates.close();
+          completed.resolve(value);
+        };
+
+        const grant = await this.initiateUpload({
+          ...args,
+          onProgress: async (progress) => {
+            updates.push(progress);
+            await args.onProgress?.(progress);
+          },
+          onComplete: async (info) => {
+            await args.onComplete?.(info);
+            settle(Result.ok(info));
+          },
+          onError: async (error) => {
+            await args.onError?.(error);
+            settle(Result.err(error));
+          },
+          onStored: async (stored) => {
+            await args.onStored?.(stored);
+          },
+        });
+        const grantValue = grant.take();
+        if (isErr(grantValue)) {
+          return Result.err(grantValue.error);
         }
-        settled = true;
-        updates.close();
-        completed.resolve(value);
-      };
 
-      const grant = await this.initiateUpload({
-        ...args,
-        onProgress: async (progress) => {
-          updates.push(progress);
-          await args.onProgress?.(progress);
-        },
-        onComplete: async (info) => {
-          await args.onComplete?.(info);
-          settle(Result.ok(info));
-        },
-        onError: async (error) => {
-          await args.onError?.(error);
-          settle(Result.err(error));
-        },
-        onStored: async (stored) => {
-          await args.onStored?.(stored);
-        },
-      });
-      const grantValue = grant.take();
-      if (isErr(grantValue)) {
-        return Result.err(grantValue.error);
-      }
-
-      return Result.ok({
-        grant: grantValue,
-        transfer: {
-          updates: () => updates.subscribe(),
-          completed: () => AsyncResult.from(completed.promise),
-        },
-      });
-    })());
+        return Result.ok({
+          grant: grantValue,
+          transfer: {
+            updates: () => updates.subscribe(),
+            completed: () => AsyncResult.from(completed.promise),
+          },
+        });
+      })(),
+    );
   }
 
-  async initiateDownload(args: InitiateDownloadArgs): Promise<ResultType<DownloadTransferGrant, TransferError>> {
+  async initiateDownload(
+    args: InitiateDownloadArgs,
+  ): Promise<ResultType<ReceiveTransferGrant, TransferError>> {
     const store = await this.#openStore(args.store, "initiateDownload");
     const storeValue = store.take();
     if (isErr(storeValue)) {
@@ -479,11 +533,18 @@ export class ServiceTransfer {
     const entry = await storeValue.get(args.key);
     const entryValue = entry.take();
     if (isErr(entryValue)) {
-      return Result.err(new TransferError({ operation: "initiateDownload", cause: entryValue.error }));
+      return Result.err(
+        new TransferError({
+          operation: "initiateDownload",
+          cause: entryValue.error,
+        }),
+      );
     }
 
     const transferId = ulid();
-    const subject = `${DOWNLOAD_SUBJECT_PREFIX}.${this.#auth.sessionKey.slice(0, 16)}.${transferId}`;
+    const subject = `${DOWNLOAD_SUBJECT_PREFIX}.${
+      this.#auth.sessionKey.slice(0, 16)
+    }.${transferId}`;
     const expiresAtMs = Date.now() + args.expiresInMs;
     const subscription = this.#nc.subscribe(subject);
     const session: DownloadSession = {
@@ -496,7 +557,10 @@ export class ServiceTransfer {
       key: args.key,
       info: fileInfoFromStoreInfo(entryValue.info),
       subscription,
-      timeoutId: setTimeout(() => this.#cleanupDownloadSession(subject), args.expiresInMs),
+      timeoutId: setTimeout(
+        () => this.#cleanupDownloadSession(subject),
+        args.expiresInMs,
+      ),
     };
 
     this.#downloadSessions.set(subject, session);
@@ -504,7 +568,7 @@ export class ServiceTransfer {
 
     return Result.ok({
       type: "TransferGrant",
-      kind: "download",
+      direction: "receive",
       service: this.#name,
       sessionKey: args.sessionKey,
       transferId,
@@ -524,16 +588,30 @@ export class ServiceTransfer {
     }
   }
 
-  async #openStore(alias: string, operation: string): Promise<ResultType<TypedStore, TransferError>> {
+  async #openStore(
+    alias: string,
+    operation: string,
+  ): Promise<ResultType<TypedStore, TransferError>> {
     const handle = this.#stores[alias];
     if (!handle) {
-      return Result.err(new TransferError({ operation, context: { reason: "unknown_store", store: alias } }));
+      return Result.err(
+        new TransferError({
+          operation,
+          context: { reason: "unknown_store", store: alias },
+        }),
+      );
     }
 
     const store = await handle.open();
     const value = store.take();
     if (isErr(value)) {
-      return Result.err(new TransferError({ operation, cause: value.error, context: { store: alias } }));
+      return Result.err(
+        new TransferError({
+          operation,
+          cause: value.error,
+          context: { store: alias },
+        }),
+      );
     }
     return Result.ok(value);
   }
@@ -553,7 +631,10 @@ export class ServiceTransfer {
 
   async #handleUploadMessage(session: UploadSession, msg: Msg): Promise<void> {
     if (Date.now() >= session.expiresAtMs) {
-      const error = new TransferError({ operation: "put", context: { reason: "expired" } });
+      const error = new TransferError({
+        operation: "put",
+        context: { reason: "expired" },
+      });
       replyError(msg, error);
       this.#expireUploadSession(session.subject, error);
       return;
@@ -567,7 +648,10 @@ export class ServiceTransfer {
       sessionKey: msg.headers?.get("session-key"),
     });
     if (!authenticated) {
-      const error = new TransferError({ operation: "put", context: { reason: "invalid_proof" } });
+      const error = new TransferError({
+        operation: "put",
+        context: { reason: "invalid_proof" },
+      });
       replyError(msg, error);
       this.#expireUploadSession(session.subject, error);
       return;
@@ -582,7 +666,11 @@ export class ServiceTransfer {
     if (seq !== session.nextSeq) {
       const error = new TransferError({
         operation: "put",
-        context: { reason: "out_of_order", expected: session.nextSeq, actual: seq },
+        context: {
+          reason: "out_of_order",
+          expected: session.nextSeq,
+          actual: seq,
+        },
       });
       replyError(msg, error);
       this.#expireUploadSession(session.subject, error);
@@ -590,16 +678,29 @@ export class ServiceTransfer {
     }
     if (msg.data.length > 0) {
       if (msg.data.length > this.#chunkBytes) {
-        const error = new TransferError({ operation: "put", context: { reason: "chunk_too_large", maxChunkBytes: this.#chunkBytes } });
+        const error = new TransferError({
+          operation: "put",
+          context: {
+            reason: "chunk_too_large",
+            maxChunkBytes: this.#chunkBytes,
+          },
+        });
         replyError(msg, error);
         this.#expireUploadSession(session.subject, error);
         return;
       }
       session.receivedBytes += msg.data.length;
-      if (session.maxBytes !== undefined && session.receivedBytes > session.maxBytes) {
+      if (
+        session.maxBytes !== undefined &&
+        session.receivedBytes > session.maxBytes
+      ) {
         const error = new TransferError({
           operation: "put",
-          context: { reason: "max_bytes_exceeded", maxBytes: session.maxBytes, attemptedBytes: session.receivedBytes },
+          context: {
+            reason: "max_bytes_exceeded",
+            maxBytes: session.maxBytes,
+            attemptedBytes: session.receivedBytes,
+          },
         });
         replyError(msg, error);
         this.#expireUploadSession(session.subject, error);
@@ -619,7 +720,10 @@ export class ServiceTransfer {
       const putResult = await session.putPromise;
       const putValue = putResult.take();
       if (isErr(putValue)) {
-        const error = new TransferError({ operation: "put", cause: putValue.error });
+        const error = new TransferError({
+          operation: "put",
+          cause: putValue.error,
+        });
         replyError(msg, error);
         this.#expireUploadSession(session.subject, error);
         return;
@@ -628,7 +732,10 @@ export class ServiceTransfer {
       const stored = await session.store.get(session.key);
       const storedValue = stored.take();
       if (isErr(storedValue)) {
-        const error = new TransferError({ operation: "put", cause: storedValue.error });
+        const error = new TransferError({
+          operation: "put",
+          cause: storedValue.error,
+        });
         replyError(msg, error);
         this.#expireUploadSession(session.subject, error);
         return;
@@ -666,14 +773,29 @@ export class ServiceTransfer {
     }
   }
 
-  async #handleDownloadRequest(session: DownloadSession, msg: Msg): Promise<void> {
+  async #handleDownloadRequest(
+    session: DownloadSession,
+    msg: Msg,
+  ): Promise<void> {
     const reply = msg.reply;
-    if (!reply || !reply.startsWith(`_INBOX.${session.sessionKey.slice(0, 16)}.`)) {
-      replyError(msg, new TransferError({ operation: "get", context: { reason: "reply_subject_mismatch" } }));
+    if (
+      !reply || !reply.startsWith(`_INBOX.${session.sessionKey.slice(0, 16)}.`)
+    ) {
+      replyError(
+        msg,
+        new TransferError({
+          operation: "get",
+          context: { reason: "reply_subject_mismatch" },
+        }),
+      );
       return;
     }
     if (Date.now() >= session.expiresAtMs) {
-      publishError(this.#nc, reply, new TransferError({ operation: "get", context: { reason: "expired" } }));
+      publishError(
+        this.#nc,
+        reply,
+        new TransferError({ operation: "get", context: { reason: "expired" } }),
+      );
       return;
     }
 
@@ -685,21 +807,36 @@ export class ServiceTransfer {
       sessionKey: msg.headers?.get("session-key"),
     });
     if (!authenticated) {
-      publishError(this.#nc, reply, new TransferError({ operation: "get", context: { reason: "invalid_proof" } }));
+      publishError(
+        this.#nc,
+        reply,
+        new TransferError({
+          operation: "get",
+          context: { reason: "invalid_proof" },
+        }),
+      );
       return;
     }
 
     const entry = await session.store.get(session.key);
     const entryValue = entry.take();
     if (isErr(entryValue)) {
-      publishError(this.#nc, reply, new TransferError({ operation: "get", cause: entryValue.error }));
+      publishError(
+        this.#nc,
+        reply,
+        new TransferError({ operation: "get", cause: entryValue.error }),
+      );
       return;
     }
 
     const stream = await entryValue.stream();
     const streamValue = stream.take();
     if (isErr(streamValue)) {
-      publishError(this.#nc, reply, new TransferError({ operation: "get", cause: streamValue.error }));
+      publishError(
+        this.#nc,
+        reply,
+        new TransferError({ operation: "get", cause: streamValue.error }),
+      );
       return;
     }
 
@@ -717,13 +854,20 @@ export class ServiceTransfer {
       this.#nc.publish(reply, new Uint8Array(), { headers: finalHeaders });
       await this.#nc.flush();
     } catch (cause) {
-      publishError(this.#nc, reply, new TransferError({ operation: "get", cause }));
+      publishError(
+        this.#nc,
+        reply,
+        new TransferError({ operation: "get", cause }),
+      );
     }
   }
 
   #expireUploadSession(
     subject: string,
-    error = new TransferError({ operation: "put", context: { reason: "expired" } }),
+    error = new TransferError({
+      operation: "put",
+      context: { reason: "expired" },
+    }),
   ): void {
     const session = this.#uploadSessions.get(subject);
     if (!session) {

@@ -22,7 +22,13 @@ const schemas = {
 
 const fieldOps = trellisDemoService.use({
   rpc: {
-    call: ["Assignments.List", "Sites.List", "Sites.Get"],
+    call: [
+      "Assignments.List",
+      "Sites.List",
+      "Sites.Get",
+      "Evidence.List",
+      "Evidence.Download",
+    ],
   },
   operations: {
     call: ["Sites.Refresh", "Reports.Generate", "Evidence.Upload"],

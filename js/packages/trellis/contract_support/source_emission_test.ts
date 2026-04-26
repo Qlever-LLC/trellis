@@ -189,7 +189,10 @@ Deno.test("defineServiceContract emits explicit exported schema names without fi
   assertEquals(contract.CONTRACT.exports, {
     schemas: ["StringValue"],
   });
-  assertEquals(Object.keys(contract.CONTRACT.schemas ?? {}), ["Empty", "StringValue"]);
+  assertEquals(Object.keys(contract.CONTRACT.schemas ?? {}), [
+    "Empty",
+    "StringValue",
+  ]);
 });
 
 Deno.test("defineServiceContract emits RPC error refs using declared wire types", () => {
@@ -793,7 +796,8 @@ Deno.test("defineServiceContract emits transfer-capable operations", () => {
     () => ({
       id: "trellis.files@v1",
       displayName: "Files",
-      description: "Expose transfer-capable operations for source emission tests.",
+      description:
+        "Expose transfer-capable operations for source emission tests.",
       resources: {
         store: {
           uploads: {
@@ -808,6 +812,7 @@ Deno.test("defineServiceContract emits transfer-capable operations", () => {
           version: "v1",
           input: schemaRef<typeof fileSchemas, "UploadInput">("UploadInput"),
           transfer: {
+            direction: "send",
             store: "uploads",
             key: "/key",
             expiresInMs: 60_000,
@@ -822,12 +827,14 @@ Deno.test("defineServiceContract emits transfer-capable operations", () => {
     subject: "operations.v1.Demo.Files.Upload",
     input: { schema: "UploadInput" },
     transfer: {
+      direction: "send",
       store: "uploads",
       key: "/key",
       expiresInMs: 60_000,
     },
   });
   assertEquals(files.API.owned.operations["Demo.Files.Upload"].transfer, {
+    direction: "send",
     store: "uploads",
     key: "/key",
     expiresInMs: 60_000,

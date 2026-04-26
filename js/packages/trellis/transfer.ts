@@ -1,5 +1,17 @@
-import { AsyncResult, isErr, Result, type Result as ResultType } from "@qlever-llc/result";
-import { createInbox, headers as natsHeaders, type Msg, type MsgHdrs, type NatsConnection } from "@nats-io/nats-core";
+import {
+  AsyncResult,
+  isErr,
+  Result,
+  type Result as ResultType,
+} from "@qlever-llc/result";
+import {
+  createInbox,
+  headers as natsHeaders,
+  type Msg,
+  type MsgHdrs,
+  type NatsConnection,
+  type Subscription,
+} from "@nats-io/nats-core";
 import Type, { type Static } from "typebox";
 import { verifyProof } from "./auth/proof.ts";
 import { base64urlEncode, sha256 } from "./auth/utils.ts";
@@ -29,27 +41,29 @@ const TransferGrantBaseSchema = Type.Object({
   chunkBytes: Type.Integer({ minimum: 1 }),
 }, { additionalProperties: false });
 
-export const UploadTransferGrantSchema = Type.Object({
+export const SendTransferGrantSchema = Type.Object({
   ...TransferGrantBaseSchema.properties,
-  kind: Type.Literal("upload"),
+  direction: Type.Literal("send"),
   maxBytes: Type.Optional(Type.Integer({ minimum: 1 })),
   contentType: Type.Optional(Type.String({ minLength: 1 })),
-  metadata: Type.Optional(Type.Record(Type.String({ minLength: 1 }), Type.String())),
+  metadata: Type.Optional(
+    Type.Record(Type.String({ minLength: 1 }), Type.String()),
+  ),
 }, { additionalProperties: false });
 
-export const DownloadTransferGrantSchema = Type.Object({
+export const ReceiveTransferGrantSchema = Type.Object({
   ...TransferGrantBaseSchema.properties,
-  kind: Type.Literal("download"),
+  direction: Type.Literal("receive"),
   info: FileInfoSchema,
 }, { additionalProperties: false });
 
 export const TransferGrantSchema = Type.Union([
-  UploadTransferGrantSchema,
-  DownloadTransferGrantSchema,
+  SendTransferGrantSchema,
+  ReceiveTransferGrantSchema,
 ]);
 
-export type UploadTransferGrant = Static<typeof UploadTransferGrantSchema>;
-export type DownloadTransferGrant = Static<typeof DownloadTransferGrantSchema>;
+export type SendTransferGrant = Static<typeof SendTransferGrantSchema>;
+export type ReceiveTransferGrant = Static<typeof ReceiveTransferGrantSchema>;
 export type TransferGrant = Static<typeof TransferGrantSchema>;
 
 export type TransferBody =
@@ -73,7 +87,11 @@ async function createTransferProof(
   payload: Uint8Array,
 ): Promise<string> {
   const payloadHash = await sha256(payload);
-  const proofOk = await auth.sign(await sha256(buildTransferProofInput(auth.sessionKey, subject, payloadHash)));
+  const proofOk = await auth.sign(
+    await sha256(
+      buildTransferProofInput(auth.sessionKey, subject, payloadHash),
+    ),
+  );
   return base64urlEncode(proofOk);
 }
 
@@ -85,7 +103,10 @@ function buildTransferProofInput(
   const enc = new TextEncoder();
   const sessionKeyBytes = enc.encode(sessionKey);
   const subjectBytes = enc.encode(subject);
-  const buf = new Uint8Array(4 + sessionKeyBytes.length + 4 + subjectBytes.length + 4 + payloadHash.length);
+  const buf = new Uint8Array(
+    4 + sessionKeyBytes.length + 4 + subjectBytes.length + 4 +
+      payloadHash.length,
+  );
   const view = new DataView(buf.buffer);
 
   let offset = 0;
@@ -111,7 +132,9 @@ function asUint8Array(body: Uint8Array | ArrayBuffer): Uint8Array {
   return body instanceof Uint8Array ? body : new Uint8Array(body);
 }
 
-function streamFromAsyncIterable(iterable: AsyncIterable<Uint8Array>): ReadableStream<Uint8Array> {
+function streamFromAsyncIterable(
+  iterable: AsyncIterable<Uint8Array>,
+): ReadableStream<Uint8Array> {
   const iterator = iterable[Symbol.asyncIterator]();
   return new ReadableStream<Uint8Array>({
     async pull(controller) {
@@ -141,7 +164,10 @@ function streamFromBody(body: TransferBody): ReadableStream<Uint8Array> {
   return body instanceof ReadableStream ? body : streamFromAsyncIterable(body);
 }
 
-async function* chunkBody(body: TransferBody, chunkBytes: number): AsyncIterable<Uint8Array> {
+async function* chunkBody(
+  body: TransferBody,
+  chunkBytes: number,
+): AsyncIterable<Uint8Array> {
   const reader = streamFromBody(body).getReader();
   try {
     while (true) {
@@ -162,7 +188,10 @@ async function* chunkBody(body: TransferBody, chunkBytes: number): AsyncIterable
   }
 }
 
-function parseTransferAck(msg: Msg, operation: string): ResultType<TransferAck, TransferError> {
+function parseTransferAck(
+  msg: Msg,
+  operation: string,
+): ResultType<TransferAck, TransferError> {
   if (msg.headers?.get("status") === "error") {
     return Result.err(deserializeTransferError(msg, operation));
   }
@@ -177,7 +206,11 @@ function parseTransferAck(msg: Msg, operation: string): ResultType<TransferAck, 
 
 function deserializeTransferError(msg: Msg, operation: string): TransferError {
   try {
-    const value = JSON.parse(msg.string()) as { message?: string; operation?: string; context?: Record<string, unknown> };
+    const value = JSON.parse(msg.string()) as {
+      message?: string;
+      operation?: string;
+      context?: Record<string, unknown>;
+    };
     return new TransferError({
       operation: value.operation ?? operation,
       context: value.context,
@@ -188,51 +221,85 @@ function deserializeTransferError(msg: Msg, operation: string): TransferError {
   }
 }
 
-async function collectDownload(
-  nc: NatsConnection,
-  inbox: string,
+function receiveStream(
+  sub: Subscription,
   timeoutMs: number,
-): Promise<ResultType<Uint8Array, TransferError>> {
-  const sub = nc.subscribe(inbox);
+): ReadableStream<Uint8Array> {
   const iterator = sub[Symbol.asyncIterator]();
+
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const next = await new Promise<IteratorResult<Msg>>(
+          (resolve, reject) => {
+            const timer = setTimeout(() => {
+              reject(
+                new TransferError({
+                  operation: "stream",
+                  context: { reason: "timeout" },
+                }),
+              );
+            }, timeoutMs);
+
+            iterator.next().then(
+              (value) => {
+                clearTimeout(timer);
+                resolve(value);
+              },
+              (error) => {
+                clearTimeout(timer);
+                reject(error);
+              },
+            );
+          },
+        );
+
+        if (next.done) {
+          throw new TransferError({
+            operation: "stream",
+            context: { reason: "stream_closed" },
+          });
+        }
+
+        const msg = next.value;
+        if (msg.headers?.get("status") === "error") {
+          throw deserializeTransferError(msg, "stream");
+        }
+
+        if (msg.data.length > 0) {
+          controller.enqueue(msg.data);
+        }
+
+        if (msg.headers?.get(TRANSFER_EOF_HEADER) === "true") {
+          controller.close();
+          sub.unsubscribe();
+        }
+      } catch (cause) {
+        sub.unsubscribe();
+        controller.error(
+          cause instanceof TransferError
+            ? cause
+            : new TransferError({ operation: "stream", cause }),
+        );
+      }
+    },
+    cancel() {
+      sub.unsubscribe();
+    },
+  });
+}
+
+async function collectStream(
+  stream: ReadableStream<Uint8Array>,
+): Promise<ResultType<Uint8Array, TransferError>> {
+  const reader = stream.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
 
   try {
     while (true) {
-      const next = await new Promise<IteratorResult<Msg>>((resolve, reject) => {
-        const timer = setTimeout(() => {
-          clearTimeout(timer);
-          reject(new TransferError({ operation: "get", context: { reason: "timeout" } }));
-        }, timeoutMs);
-
-        iterator.next().then(
-          (value) => {
-            clearTimeout(timer);
-            resolve(value);
-          },
-          (error) => {
-            clearTimeout(timer);
-            reject(error);
-          },
-        );
-      });
-
+      const next = await reader.read();
       if (next.done) {
-        return Result.err(new TransferError({ operation: "get", context: { reason: "stream_closed" } }));
-      }
-
-      const msg = next.value;
-      if (msg.headers?.get("status") === "error") {
-        return Result.err(deserializeTransferError(msg, "get"));
-      }
-
-      if (msg.data.length > 0) {
-        chunks.push(msg.data);
-        total += msg.data.length;
-      }
-
-      if (msg.headers?.get(TRANSFER_EOF_HEADER) === "true") {
         const merged = new Uint8Array(total);
         let offset = 0;
         for (const chunk of chunks) {
@@ -241,11 +308,17 @@ async function collectDownload(
         }
         return Result.ok(merged);
       }
+      chunks.push(next.value);
+      total += next.value.length;
     }
   } catch (cause) {
-    return Result.err(cause instanceof TransferError ? cause : new TransferError({ operation: "get", cause }));
+    return Result.err(
+      cause instanceof TransferError
+        ? cause
+        : new TransferError({ operation: "bytes", cause }),
+    );
   } finally {
-    sub.unsubscribe();
+    reader.releaseLock();
   }
 }
 
@@ -254,7 +327,11 @@ class BaseTransferHandle {
   readonly #auth: TrellisTransferAuth;
   readonly #timeoutMs: number;
 
-  protected constructor(nc: NatsConnection, auth: TrellisTransferAuth, timeoutMs: number) {
+  protected constructor(
+    nc: NatsConnection,
+    auth: TrellisTransferAuth,
+    timeoutMs: number,
+  ) {
     this.#nc = nc;
     this.#auth = auth;
     this.#timeoutMs = timeoutMs;
@@ -272,9 +349,17 @@ class BaseTransferHandle {
     return this.#timeoutMs;
   }
 
-  protected validateGrant(grant: TransferGrant, operation: string): ResultType<void, TransferError> {
+  protected validateGrant(
+    grant: TransferGrant,
+    operation: string,
+  ): ResultType<void, TransferError> {
     if (expired(grant.expiresAt)) {
-      return Result.err(new TransferError({ operation, context: { reason: "expired", transferId: grant.transferId } }));
+      return Result.err(
+        new TransferError({
+          operation,
+          context: { reason: "expired", transferId: grant.transferId },
+        }),
+      );
     }
     if (grant.sessionKey !== this.#auth.sessionKey) {
       return Result.err(
@@ -291,10 +376,18 @@ class BaseTransferHandle {
     return Result.ok(undefined);
   }
 
-  protected async buildHeaders(subject: string, payload: Uint8Array, seq?: number, eof?: boolean): Promise<MsgHdrs> {
+  protected async buildHeaders(
+    subject: string,
+    payload: Uint8Array,
+    seq?: number,
+    eof?: boolean,
+  ): Promise<MsgHdrs> {
     const headers = natsHeaders();
     headers.set("session-key", this.#auth.sessionKey);
-    headers.set("proof", await createTransferProof(this.#auth, subject, payload));
+    headers.set(
+      "proof",
+      await createTransferProof(this.#auth, subject, payload),
+    );
     if (seq !== undefined) {
       headers.set(TRANSFER_SEQUENCE_HEADER, String(seq));
     }
@@ -305,120 +398,189 @@ class BaseTransferHandle {
   }
 }
 
-export class UploadTransferHandle extends BaseTransferHandle {
-  readonly #grant: UploadTransferGrant;
+export class SendTransferHandle extends BaseTransferHandle {
+  readonly #grant: SendTransferGrant;
 
-  constructor(nc: NatsConnection, auth: TrellisTransferAuth, timeoutMs: number, grant: UploadTransferGrant) {
+  constructor(
+    nc: NatsConnection,
+    auth: TrellisTransferAuth,
+    timeoutMs: number,
+    grant: SendTransferGrant,
+  ) {
     super(nc, auth, timeoutMs);
     this.#grant = grant;
   }
 
-  async put(body: TransferBody): Promise<ResultType<FileInfo, TransferError>> {
-    const valid = this.validateGrant(this.#grant, "put").take();
-    if (isErr(valid)) {
-      return Result.err(valid.error);
-    }
+  send(body: TransferBody): AsyncResult<FileInfo, TransferError> {
+    return AsyncResult.from(
+      (async (): Promise<ResultType<FileInfo, TransferError>> => {
+        const valid = this.validateGrant(this.#grant, "send").take();
+        if (isErr(valid)) {
+          return Result.err(valid.error);
+        }
 
-    let sentBytes = 0;
-    let seq = 0;
-    let completed: FileInfo | null = null;
+        let sentBytes = 0;
+        let seq = 0;
+        let completed: FileInfo | null = null;
 
-    for await (const chunk of chunkBody(body, this.#grant.chunkBytes)) {
-      sentBytes += chunk.length;
-      if (this.#grant.maxBytes !== undefined && sentBytes > this.#grant.maxBytes) {
-        return Result.err(new TransferError({
-          operation: "put",
-          context: {
-            reason: "max_bytes_exceeded",
-            maxBytes: this.#grant.maxBytes,
-            attemptedBytes: sentBytes,
-          },
-        }));
-      }
+        for await (const chunk of chunkBody(body, this.#grant.chunkBytes)) {
+          sentBytes += chunk.length;
+          if (
+            this.#grant.maxBytes !== undefined &&
+            sentBytes > this.#grant.maxBytes
+          ) {
+            return Result.err(
+              new TransferError({
+                operation: "send",
+                context: {
+                  reason: "max_bytes_exceeded",
+                  maxBytes: this.#grant.maxBytes,
+                  attemptedBytes: sentBytes,
+                },
+              }),
+            );
+          }
 
-      const headers = await this.buildHeaders(this.#grant.subject, chunk, seq, false);
-      const response = await AsyncResult.try(() =>
-        this.nc.request(this.#grant.subject, chunk, { timeout: this.timeoutMs, headers })
-      ).take();
-      if (isErr(response)) {
-        return Result.err(new TransferError({ operation: "put", cause: response.error }));
-      }
+          const headers = await this.buildHeaders(
+            this.#grant.subject,
+            chunk,
+            seq,
+            false,
+          );
+          const response = await AsyncResult.try(() =>
+            this.nc.request(this.#grant.subject, chunk, {
+              timeout: this.timeoutMs,
+              headers,
+            })
+          ).take();
+          if (isErr(response)) {
+            return Result.err(
+              new TransferError({ operation: "send", cause: response.error }),
+            );
+          }
 
-      const ack = parseTransferAck(response, "put").take();
-      if (isErr(ack)) {
-        return Result.err(ack.error);
-      }
-      if (ack.status === "complete") {
-        completed = ack.info;
-      }
-      seq += 1;
-    }
+          const ack = parseTransferAck(response, "send").take();
+          if (isErr(ack)) {
+            return Result.err(ack.error);
+          }
+          if (ack.status === "complete") {
+            completed = ack.info;
+          }
+          seq += 1;
+        }
 
-    const finalHeaders = await this.buildHeaders(this.#grant.subject, new Uint8Array(), seq, true);
-    const finalResponse = await AsyncResult.try(() =>
-      this.nc.request(this.#grant.subject, new Uint8Array(), {
-        timeout: this.timeoutMs,
-        headers: finalHeaders,
-      })
-    ).take();
-    if (isErr(finalResponse)) {
-      return Result.err(new TransferError({ operation: "put", cause: finalResponse.error }));
-    }
+        const finalHeaders = await this.buildHeaders(
+          this.#grant.subject,
+          new Uint8Array(),
+          seq,
+          true,
+        );
+        const finalResponse = await AsyncResult.try(() =>
+          this.nc.request(this.#grant.subject, new Uint8Array(), {
+            timeout: this.timeoutMs,
+            headers: finalHeaders,
+          })
+        ).take();
+        if (isErr(finalResponse)) {
+          return Result.err(
+            new TransferError({
+              operation: "send",
+              cause: finalResponse.error,
+            }),
+          );
+        }
 
-    const finalAck = parseTransferAck(finalResponse, "put").take();
-    if (isErr(finalAck)) {
-      return Result.err(finalAck.error);
-    }
-    if (finalAck.status !== "complete") {
-      return Result.err(new TransferError({ operation: "put", context: { reason: "missing_completion" } }));
-    }
-    return Result.ok(finalAck.info ?? completed!);
+        const finalAck = parseTransferAck(finalResponse, "send").take();
+        if (isErr(finalAck)) {
+          return Result.err(finalAck.error);
+        }
+        if (finalAck.status !== "complete") {
+          return Result.err(
+            new TransferError({
+              operation: "send",
+              context: { reason: "missing_completion" },
+            }),
+          );
+        }
+        return Result.ok(finalAck.info ?? completed!);
+      })(),
+    );
   }
 }
 
-export class DownloadTransferHandle extends BaseTransferHandle {
-  readonly #grant: DownloadTransferGrant;
+export class ReceiveTransferHandle extends BaseTransferHandle {
+  readonly #grant: ReceiveTransferGrant;
 
-  constructor(nc: NatsConnection, auth: TrellisTransferAuth, timeoutMs: number, grant: DownloadTransferGrant) {
+  constructor(
+    nc: NatsConnection,
+    auth: TrellisTransferAuth,
+    timeoutMs: number,
+    grant: ReceiveTransferGrant,
+  ) {
     super(nc, auth, timeoutMs);
     this.#grant = grant;
   }
 
-  async getBytes(): Promise<ResultType<Uint8Array, TransferError>> {
-    const valid = this.validateGrant(this.#grant, "get").take();
-    if (isErr(valid)) {
-      return Result.err(valid.error);
-    }
+  stream(): AsyncResult<ReadableStream<Uint8Array>, TransferError> {
+    return AsyncResult.from(
+      (async (): Promise<
+        ResultType<ReadableStream<Uint8Array>, TransferError>
+      > => {
+        const valid = this.validateGrant(this.#grant, "stream").take();
+        if (isErr(valid)) {
+          return Result.err(valid.error);
+        }
 
-    const inbox = createInbox(`_INBOX.${this.auth.sessionKey.slice(0, 16)}`);
-    const payload = new Uint8Array();
-    const headers = await this.buildHeaders(this.#grant.subject, payload);
+        const inbox = createInbox(
+          `_INBOX.${this.auth.sessionKey.slice(0, 16)}`,
+        );
+        const sub = this.nc.subscribe(inbox);
+        const payload = new Uint8Array();
+        const headers = await this.buildHeaders(this.#grant.subject, payload);
 
-    try {
-      this.nc.publish(this.#grant.subject, payload, { headers, reply: inbox });
-      await this.nc.flush();
-    } catch (cause) {
-      return Result.err(new TransferError({ operation: "get", cause }));
-    }
+        try {
+          this.nc.publish(this.#grant.subject, payload, {
+            headers,
+            reply: inbox,
+          });
+          await this.nc.flush();
+        } catch (cause) {
+          sub.unsubscribe();
+          return Result.err(new TransferError({ operation: "stream", cause }));
+        }
 
-    return await collectDownload(this.nc, inbox, this.timeoutMs);
+        return Result.ok(receiveStream(sub, this.timeoutMs));
+      })(),
+    );
+  }
+
+  bytes(): AsyncResult<Uint8Array, TransferError> {
+    return AsyncResult.from(
+      (async (): Promise<ResultType<Uint8Array, TransferError>> => {
+        const streamResult = await this.stream().take();
+        if (isErr(streamResult)) {
+          return Result.err(streamResult.error);
+        }
+        return await collectStream(streamResult);
+      })(),
+    );
   }
 }
 
-export type TransferHandle = UploadTransferHandle | DownloadTransferHandle;
+export type TransferHandle = SendTransferHandle | ReceiveTransferHandle;
 
 export function createTransferHandle(
   nc: NatsConnection,
   auth: TrellisTransferAuth,
   timeoutMs: number,
-  grant: UploadTransferGrant,
-): UploadTransferHandle;
+  grant: SendTransferGrant,
+): SendTransferHandle;
 export function createTransferHandle(
   nc: NatsConnection,
   auth: TrellisTransferAuth,
   timeoutMs: number,
-  grant: DownloadTransferGrant,
-): DownloadTransferHandle;
+  grant: ReceiveTransferGrant,
+): ReceiveTransferHandle;
 export function createTransferHandle(
   nc: NatsConnection,
   auth: TrellisTransferAuth,
@@ -431,9 +593,9 @@ export function createTransferHandle(
   timeoutMs: number,
   grant: TransferGrant,
 ): TransferHandle {
-  return grant.kind === "upload"
-    ? new UploadTransferHandle(nc, auth, timeoutMs, grant)
-    : new DownloadTransferHandle(nc, auth, timeoutMs, grant);
+  return grant.direction === "send"
+    ? new SendTransferHandle(nc, auth, timeoutMs, grant)
+    : new ReceiveTransferHandle(nc, auth, timeoutMs, grant);
 }
 
 export async function verifyTransferMessage(args: {
@@ -443,7 +605,10 @@ export async function verifyTransferMessage(args: {
   proof?: string | null;
   sessionKey?: string | null;
 }): Promise<boolean> {
-  if (!args.proof || !args.sessionKey || args.sessionKey !== args.expectedSessionKey) {
+  if (
+    !args.proof || !args.sessionKey ||
+    args.sessionKey !== args.expectedSessionKey
+  ) {
     return false;
   }
 

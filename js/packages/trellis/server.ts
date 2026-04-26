@@ -35,13 +35,13 @@ import {
   isTerminalRuntimeOperationSnapshot,
   type MethodsOf,
   type OperationHandlerContext,
-  type OperationTransferContextOf,
-  type OperationTransferHandle,
   type OperationInputOf,
   type OperationOutputOf,
   type OperationProgressOf,
   type OperationRegistration,
   type OperationsOf,
+  type OperationTransferContextOf,
+  type OperationTransferHandle,
   type RuntimeOperationAcceptedEnvelope,
   type RuntimeOperationController,
   type RuntimeOperationControlRequest,
@@ -57,7 +57,7 @@ import {
   type TrellisMode,
   type TrellisOpts,
 } from "./trellis.ts";
-import type { UploadTransferGrant } from "./transfer.ts";
+import type { SendTransferGrant } from "./transfer.ts";
 
 type TrellisServerOpts<TA extends AnyTrellisAPI> =
   & Omit<TrellisOpts<TA>, "api">
@@ -89,7 +89,7 @@ type RegisteredRuntimeOperationDesc = RuntimeOperationDesc & {
 };
 
 type RuntimeOperationTransferSession = {
-  grant: UploadTransferGrant;
+  grant: SendTransferGrant;
   transfer: OperationTransferHandle;
 };
 
@@ -113,10 +113,12 @@ function asStringPointerValue(
 ): Result<string, TransferError> {
   const value = Pointer.Get(input as Record<string, unknown>, pointer);
   if (typeof value !== "string" || value.length === 0) {
-    return err(new TransferError({
-      operation: "transfer",
-      context: { reason: "invalid_input", operation, field, pointer },
-    }));
+    return err(
+      new TransferError({
+        operation: "transfer",
+        context: { reason: "invalid_input", operation, field, pointer },
+      }),
+    );
   }
   return ok(value);
 }
@@ -133,10 +135,12 @@ function asOptionalStringPointerValue(
     return ok(undefined);
   }
   if (typeof value !== "string" || value.length === 0) {
-    return err(new TransferError({
-      operation: "transfer",
-      context: { reason: "invalid_input", field: pointer, pointer },
-    }));
+    return err(
+      new TransferError({
+        operation: "transfer",
+        context: { reason: "invalid_input", field: pointer, pointer },
+      }),
+    );
   }
   return ok(value);
 }
@@ -153,18 +157,24 @@ function asOptionalStringRecordPointerValue(
     return ok(undefined);
   }
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return err(new TransferError({
-      operation: "transfer",
-      context: { reason: "invalid_input", field: pointer, pointer },
-    }));
+    return err(
+      new TransferError({
+        operation: "transfer",
+        context: { reason: "invalid_input", field: pointer, pointer },
+      }),
+    );
   }
 
   const entries = Object.entries(value as Record<string, unknown>);
-  if (entries.some(([key, item]) => key.length === 0 || typeof item !== "string")) {
-    return err(new TransferError({
-      operation: "transfer",
-      context: { reason: "invalid_input", field: pointer, pointer },
-    }));
+  if (
+    entries.some(([key, item]) => key.length === 0 || typeof item !== "string")
+  ) {
+    return err(
+      new TransferError({
+        operation: "transfer",
+        context: { reason: "invalid_input", field: pointer, pointer },
+      }),
+    );
   }
 
   return ok(Object.fromEntries(entries) as Record<string, string>);
@@ -190,17 +200,18 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
     this.#log = (opts?.log ?? serverLogger).child({ lib: "trellis-server" });
     this.#transferSupport = opts?.transferSupport;
     this.operations = {
-      get: (operationId) => AsyncResult.from((async () => {
-        const runtime = await this.#resolveOperation(operationId);
-        if (!runtime) {
-          return err(
-            new UnexpectedError({
-              cause: new Error(`Unknown operation '${operationId}'`),
-            }),
-          );
-        }
-        return ok(runtime.snapshot);
-      })()),
+      get: (operationId) =>
+        AsyncResult.from((async () => {
+          const runtime = await this.#resolveOperation(operationId);
+          if (!runtime) {
+            return err(
+              new UnexpectedError({
+                cause: new Error(`Unknown operation '${operationId}'`),
+              }),
+            );
+          }
+          return ok(runtime.snapshot);
+        })()),
       started: (operationId) =>
         this.#applyOperationUpdate(operationId, "running", {
           event: { type: "started" },
@@ -273,7 +284,9 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
 
       if (runtime.terminal && state !== "cancelled") {
         return err(
-          new UnexpectedError({ cause: new Error("operation already terminal") }),
+          new UnexpectedError({
+            cause: new Error("operation already terminal"),
+          }),
         );
       }
 
@@ -527,7 +540,11 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
     const controlSub = this.nats.subscribe(controlSubject);
     void (async () => {
       for await (const msg of controlSub) {
-        const validated = await this.#authenticateOperationMessage(msg, ctx, false);
+        const validated = await this.#authenticateOperationMessage(
+          msg,
+          ctx,
+          false,
+        );
         const value = validated.take();
         if (isErr(value)) {
           this.respondWithError(msg, value.error);
@@ -543,8 +560,10 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
         if (
           !request ||
           typeof request !== "object" ||
-          typeof (request as RuntimeOperationControlRequest).action !== "string" ||
-          typeof (request as RuntimeOperationControlRequest).operationId !== "string"
+          typeof (request as RuntimeOperationControlRequest).action !==
+            "string" ||
+          typeof (request as RuntimeOperationControlRequest).operationId !==
+            "string"
         ) {
           this.respondWithError(
             msg,
@@ -571,7 +590,8 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
         }
 
         const snapshot = runtime?.snapshot ?? durableRecord!.snapshot;
-        const ownerSessionKey = runtime?.ownerSessionKey ?? durableRecord!.ownerSessionKey;
+        const ownerSessionKey = runtime?.ownerSessionKey ??
+          durableRecord!.ownerSessionKey;
 
         if (ownerSessionKey !== value.sessionKey) {
           this.respondWithError(
@@ -657,7 +677,9 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
             );
           }
           runtime.waiters.clear();
-          msg.respond(JSON.stringify({ kind: "snapshot", snapshot: runtime.snapshot }));
+          msg.respond(
+            JSON.stringify({ kind: "snapshot", snapshot: runtime.snapshot }),
+          );
           continue;
         }
 
@@ -704,13 +726,19 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
       accept: ({ sessionKey }) => {
         this.#ensureOperationControlLoop(String(operation), ctx);
         if (ctx.transfer) {
-          return AsyncResult.err(new UnexpectedError({
-            cause: new Error(
-              `Operation '${String(operation)}' uses transfer-capable start semantics and cannot be accepted manually`,
-            ),
-          }));
+          return AsyncResult.err(
+            new UnexpectedError({
+              cause: new Error(
+                `Operation '${
+                  String(operation)
+                }' uses transfer-capable start semantics and cannot be accepted manually`,
+              ),
+            }),
+          );
         }
-        return AsyncResult.from(this.#acceptOperation(String(operation), sessionKey));
+        return AsyncResult.from(
+          this.#acceptOperation(String(operation), sessionKey),
+        );
       },
       handle: async (
         handler: (
@@ -786,92 +814,97 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
 
           return {
             id: runtime.id,
-            started: () => AsyncResult.from((async () => {
-              const active = ensureActive();
-              if (active) return active;
-              return transition("running", undefined, {
-                type: "started",
-                snapshot: buildRuntimeOperationSnapshot(runtime, "running", {
-                  revision: runtime.snapshot.revision + 1,
-                }),
-              });
-            })()),
-            progress: (value: unknown) => AsyncResult.from((async () => {
-              const active = ensureActive();
-              if (active) return active;
-              return transition("running", { progress: value }, {
-                type: "progress",
-                snapshot: buildRuntimeOperationSnapshot(runtime, "running", {
-                  revision: runtime.snapshot.revision + 1,
-                  progress: value,
-                }),
-              });
-            })()),
-            complete: (value: unknown) => AsyncResult.from((async () => {
-              const active = ensureActive();
-              if (active) return active;
-              const snapshot = buildRuntimeOperationSnapshot(
-                runtime,
-                "completed",
-                {
-                  output: value,
-                  completedAt: now(),
-                },
-              );
-              runtime.sequence += 1;
-              runtime.snapshot = snapshot;
-              runtime.terminal = true;
-              await this.saveOperationRecord(runtime);
-              await publishEventToWatchers(runtime, {
-                type: "completed",
-                snapshot,
-              });
-              await flushWaiters(runtime);
-              return ok(snapshot);
-            })()),
-            fail: (error: BaseError) => AsyncResult.from((async () => {
-              const active = ensureActive();
-              if (active) return active;
-              const snapshot = buildRuntimeOperationSnapshot(
-                runtime,
-                "failed",
-                {
-                  error: { type: error.name, message: error.message },
-                  completedAt: now(),
-                },
-              );
-              runtime.sequence += 1;
-              runtime.snapshot = snapshot;
-              runtime.terminal = true;
-              await this.saveOperationRecord(runtime);
-              await publishEventToWatchers(runtime, {
-                type: "failed",
-                snapshot,
-              });
-              await flushWaiters(runtime);
-              return ok(snapshot);
-            })()),
-            cancel: () => AsyncResult.from((async () => {
-              const active = ensureActive();
-              if (active) return active;
-              const snapshot = buildRuntimeOperationSnapshot(
-                runtime,
-                "cancelled",
-                {
-                  completedAt: now(),
-                },
-              );
-              runtime.sequence += 1;
-              runtime.snapshot = snapshot;
-              runtime.terminal = true;
-              await this.saveOperationRecord(runtime);
-              await publishEventToWatchers(runtime, {
-                type: "cancelled",
-                snapshot,
-              });
-              await flushWaiters(runtime);
-              return ok(snapshot);
-            })()),
+            started: () =>
+              AsyncResult.from((async () => {
+                const active = ensureActive();
+                if (active) return active;
+                return transition("running", undefined, {
+                  type: "started",
+                  snapshot: buildRuntimeOperationSnapshot(runtime, "running", {
+                    revision: runtime.snapshot.revision + 1,
+                  }),
+                });
+              })()),
+            progress: (value: unknown) =>
+              AsyncResult.from((async () => {
+                const active = ensureActive();
+                if (active) return active;
+                return transition("running", { progress: value }, {
+                  type: "progress",
+                  snapshot: buildRuntimeOperationSnapshot(runtime, "running", {
+                    revision: runtime.snapshot.revision + 1,
+                    progress: value,
+                  }),
+                });
+              })()),
+            complete: (value: unknown) =>
+              AsyncResult.from((async () => {
+                const active = ensureActive();
+                if (active) return active;
+                const snapshot = buildRuntimeOperationSnapshot(
+                  runtime,
+                  "completed",
+                  {
+                    output: value,
+                    completedAt: now(),
+                  },
+                );
+                runtime.sequence += 1;
+                runtime.snapshot = snapshot;
+                runtime.terminal = true;
+                await this.saveOperationRecord(runtime);
+                await publishEventToWatchers(runtime, {
+                  type: "completed",
+                  snapshot,
+                });
+                await flushWaiters(runtime);
+                return ok(snapshot);
+              })()),
+            fail: (error: BaseError) =>
+              AsyncResult.from((async () => {
+                const active = ensureActive();
+                if (active) return active;
+                const snapshot = buildRuntimeOperationSnapshot(
+                  runtime,
+                  "failed",
+                  {
+                    error: { type: error.name, message: error.message },
+                    completedAt: now(),
+                  },
+                );
+                runtime.sequence += 1;
+                runtime.snapshot = snapshot;
+                runtime.terminal = true;
+                await this.saveOperationRecord(runtime);
+                await publishEventToWatchers(runtime, {
+                  type: "failed",
+                  snapshot,
+                });
+                await flushWaiters(runtime);
+                return ok(snapshot);
+              })()),
+            cancel: () =>
+              AsyncResult.from((async () => {
+                const active = ensureActive();
+                if (active) return active;
+                const snapshot = buildRuntimeOperationSnapshot(
+                  runtime,
+                  "cancelled",
+                  {
+                    completedAt: now(),
+                  },
+                );
+                runtime.sequence += 1;
+                runtime.snapshot = snapshot;
+                runtime.terminal = true;
+                await this.saveOperationRecord(runtime);
+                await publishEventToWatchers(runtime, {
+                  type: "cancelled",
+                  snapshot,
+                });
+                await flushWaiters(runtime);
+                return ok(snapshot);
+              })()),
             attach: (job: { wait: () => AsyncResult<unknown, BaseError> }) =>
               AsyncResult.from((async () => {
                 const waited = await job.wait();
@@ -1043,7 +1076,9 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
                   msg,
                   new UnexpectedError({
                     cause: new Error(
-                      `Operation '${String(operation)}' declared transfer support but no runtime transfer support is configured`,
+                      `Operation '${
+                        String(operation)
+                      }' declared transfer support but no runtime transfer support is configured`,
                     ),
                   }),
                 );
@@ -1079,17 +1114,18 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
                 continue;
               }
 
-              const openedTransferValue = await this.#transferSupport.openOperationTransfer({
-                sessionKey: value.sessionKey,
-                store: ctx.transfer.store,
-                key,
-                expiresInMs: ctx.transfer.expiresInMs ?? 60_000,
-                ...(ctx.transfer.maxBytes !== undefined
-                  ? { maxBytes: ctx.transfer.maxBytes }
-                  : {}),
-                ...(contentType !== undefined ? { contentType } : {}),
-                ...(metadata !== undefined ? { metadata } : {}),
-              }).take();
+              const openedTransferValue = await this.#transferSupport
+                .openOperationTransfer({
+                  sessionKey: value.sessionKey,
+                  store: ctx.transfer.store,
+                  key,
+                  expiresInMs: ctx.transfer.expiresInMs ?? 60_000,
+                  ...(ctx.transfer.maxBytes !== undefined
+                    ? { maxBytes: ctx.transfer.maxBytes }
+                    : {}),
+                  ...(contentType !== undefined ? { contentType } : {}),
+                  ...(metadata !== undefined ? { metadata } : {}),
+                }).take();
               if (isErr(openedTransferValue)) {
                 this.respondWithError(msg, openedTransferValue.error);
                 continue;
@@ -1123,7 +1159,9 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
 
             if (transferSession) {
               void (async () => {
-                for await (const progress of transferSession.transfer.updates()) {
+                for await (
+                  const progress of transferSession.transfer.updates()
+                ) {
                   runtime.sequence += 1;
                   runtime.snapshot = buildRuntimeOperationSnapshot(
                     runtime,

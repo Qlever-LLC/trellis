@@ -115,23 +115,29 @@
 </script>
 
 <svelte:head>
-  <title>Activity · Field Ops Console</title>
+  <title>Live Feed · Field Inspection Desk</title>
 </svelte:head>
 
 <section class="flex w-full flex-col gap-6">
-  <header class="space-y-1">
-    <h1 class="text-2xl font-semibold">Activity</h1>
-    <p class="text-sm text-base-content/70">Subscribe to live field activity and report publication events.</p>
-    <div class="badge badge-outline">Uses: events</div>
+  <header class="rounded-box border border-base-300 bg-base-100/80 p-4 shadow-sm md:p-5">
+    <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+      <div class="space-y-2">
+        <div class="badge badge-primary badge-outline">Activity → Live Feed</div>
+        <h1 class="text-2xl font-semibold tracking-tight md:text-3xl">Live Feed</h1>
+        <p class="max-w-3xl text-sm text-base-content/70">
+          Keep a live watch on field activity and report publication events as inspection work moves through the desk.
+        </p>
+      </div>
+      <div class="flex flex-wrap gap-3">
+        <button class="btn btn-primary btn-sm" onclick={startListening} disabled={listening}>Start feed</button>
+        <button class="btn btn-outline btn-sm" onclick={stopListening} disabled={!listening}>Pause feed</button>
+        <span class={listening ? "badge badge-success badge-outline badge-lg" : "badge badge-warning badge-outline badge-lg"}>
+          {listening ? "live" : "paused"}
+        </span>
+        <span class="badge badge-outline badge-lg">Teaching note: events</span>
+      </div>
+    </div>
   </header>
-
-  <div class="flex flex-wrap gap-3">
-    <button class="btn btn-primary btn-sm" onclick={startListening} disabled={listening}>Start listening</button>
-    <button class="btn btn-outline btn-sm" onclick={stopListening} disabled={!listening}>Stop</button>
-    <span class={listening ? "badge badge-success badge-outline badge-lg" : "badge badge-warning badge-outline badge-lg"}>
-      {listening ? "listening" : "stopped"}
-    </span>
-  </div>
 
   {#if error}
     <div role="alert" class="alert alert-error"><span>{error}</span></div>
@@ -140,16 +146,16 @@
   <section class="card border border-base-300 bg-base-100 shadow-sm">
     <div class="card-body gap-4">
       <div class="flex items-center justify-between gap-3">
-        <h2 class="card-title text-lg">Live events</h2>
-        <span class="text-sm text-base-content/60">Activity.Recorded + Reports.Published</span>
+        <h2 class="card-title text-lg">Event timeline</h2>
+        <span class="badge badge-ghost">Activity.Recorded + Reports.Published</span>
       </div>
 
       {#if liveEvents.length === 0}
-        <div class="alert"><span>Run a report or service workflow to see live activity here.</span></div>
+        <div class="alert"><span>Run a report or service workflow to see live inspection activity here.</span></div>
       {:else}
         <div class="space-y-3">
           {#each liveEvents as event (event.id)}
-            <article class="rounded-box border border-base-300 p-4">
+            <article class="rounded-box border border-base-300 bg-base-200/40 p-4">
               <div class="mb-2 flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <h3 class="font-medium">{event.title}</h3>

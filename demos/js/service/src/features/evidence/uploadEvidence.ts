@@ -46,9 +46,11 @@ export const uploadEvidence: OperationHandler<
   }).orThrow();
 
   const output = {
-    evidenceId: `evidence-${input.key}`,
+    evidenceId: input.metadata?.evidenceId ?? input.key,
     key: transferred.key,
     size: byteCount,
+    ...(input.contentType ? { contentType: input.contentType } : {}),
+    ...(input.metadata?.fileName ? { fileName: input.metadata.fileName } : {}),
     disposition: "ready-for-review",
   };
 
@@ -56,6 +58,8 @@ export const uploadEvidence: OperationHandler<
     evidenceId: output.evidenceId,
     key: output.key,
     size: output.size,
+    ...(output.contentType ? { contentType: output.contentType } : {}),
+    ...(output.fileName ? { fileName: output.fileName } : {}),
     evidenceType: input.evidenceType,
     uploadedAt: new Date().toISOString(),
   }).orThrow();

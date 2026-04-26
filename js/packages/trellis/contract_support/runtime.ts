@@ -33,7 +33,8 @@ export type RuntimeRpcErrorDesc<
   type: TType;
   schema?: TSchema;
   fromSerializable(
-    data: TSchema extends SchemaLike ? InferSchemaType<TSchema> : SerializableErrorData,
+    data: TSchema extends SchemaLike ? InferSchemaType<TSchema>
+      : SerializableErrorData,
   ): TError;
 };
 
@@ -68,6 +69,7 @@ export type RPCDesc<
   input: I;
   output: O;
   callerCapabilities: readonly string[];
+  transfer?: { direction: "receive" };
   authRequired?: boolean;
   errors?: E;
   runtimeErrors?: TRuntimeErrors;
@@ -92,6 +94,7 @@ export type OperationDesc<
   progress?: P;
   output?: O;
   transfer?: {
+    direction: "send";
     store: string;
     key: `/${string}`;
     contentType?: `/${string}`;

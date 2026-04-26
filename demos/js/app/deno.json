@@ -1,14 +1,13 @@
 {
   "name": "@trellis-demo/app",
   "version": "0.0.0",
-  "exports": "./contract.ts",
   "extends": "../deno.json",
   "tasks": {
-    "verify:contracts": "deno task -c ../deno.json prepare",
-    "dev": "deno task verify:contracts && deno run -A vite dev",
-    "build": "deno task verify:contracts && deno run -A vite build",
+    "prepare": "deno task -c ../deno.json prepare",
+    "dev": "deno task prepare && deno run -A vite dev",
+    "build": "deno task prepare && deno run -A vite build",
     "preview": "deno run -A vite preview",
-    "check": "deno task verify:contracts && deno task check:prepared",
+    "check": "deno task prepare && deno task check:prepared",
     "check:prepared": "deno run -A @sveltejs/kit sync && deno run -A svelte-check --tsconfig ./tsconfig.check.json"
   },
   "compilerOptions": {

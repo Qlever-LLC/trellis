@@ -468,6 +468,16 @@
           "items": {
             "$ref": "#/$defs/errorRef"
           }
+        },
+        "transfer": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["direction"],
+          "properties": {
+            "direction": {
+              "const": "receive"
+            }
+          }
         }
       }
     },
@@ -496,8 +506,11 @@
         "transfer": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["store", "key"],
+          "required": ["direction", "store", "key"],
           "properties": {
+            "direction": {
+              "const": "send"
+            },
             "store": {
               "type": "string",
               "minLength": 1

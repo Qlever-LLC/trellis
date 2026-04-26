@@ -4,12 +4,14 @@ This workspace contains one consolidated Field Ops demo:
 
 - `demos/js/service`: an installable Field Ops service.
 - `demos/js/device`: an activated field-device TUI.
-- `demos/js/app`: a browser Field Ops Console.
+- `demos/js/app`: a browser Field Inspection Desk.
 - `demos/js/shared`: sample data and helpers used by the demo participants.
 
-The demo is product-oriented instead of split by Trellis primitive. Assignments,
-sites, reports, evidence, activity, and workspace state each call out the
-Trellis concept they exercise.
+The demo is product-oriented instead of split by Trellis primitive. The browser
+app is framed as a coordinator desk for daily inspection work: review the queue,
+check site status, run reports, attach image evidence, watch live activity, and
+save operator notes. Each page still includes a secondary Trellis callout for
+the platform concept it exercises.
 
 ## Before You Start
 
@@ -69,7 +71,7 @@ root secret should reconnect without another approval step.
 
 ## Start The Browser App
 
-Start the Svelte Field Ops Console after prepare has generated the app SDK.
+Start the Svelte Field Inspection Desk after prepare has generated the app SDK.
 
 ```sh
 deno task -c demos/js/deno.json app
@@ -82,19 +84,24 @@ shell:
 PUBLIC_TRELLIS_URL=http://localhost:3000 deno task -c demos/js/deno.json app
 ```
 
-## Product Routes And Trellis Callouts
+## Field Desk Routes And Trellis Callouts
 
-The browser app routes are named for product concepts, with each page calling
-out the Trellis surface it demonstrates:
+The browser app routes are stable, but the UI presents them as one inspection
+desk workflow:
 
-- `Dashboard`: overview of the Field Ops workflow.
-- `Assignments`: `Assignments.List` and `Sites.Get` RPC requests.
-- `Sites`: `Sites.List` and `Sites.Get` RPC requests plus the `Sites.Refresh`
+- `Dashboard`: today's field board with queue, status, evidence, and live feed
+  context.
+- `Assignments`: inspection queue backed by `Assignments.List` and `Sites.Get`
+  RPC requests.
+- `Sites`: site status board backed by `Sites.List` and `Sites.Get` RPC
+  requests plus the `Sites.Refresh`
   operation.
-- `Reports`: `Reports.Generate` operation progress, completion, and cancel.
-- `Evidence`: `Evidence.Upload` transfer-capable operation.
-- `Activity`: live event subscriptions.
-- `Workspace`: device or app state for saved operator context.
+- `Reports`: report run workflow with `Reports.Generate` operation progress,
+  completion, and cancel.
+- `Evidence`: evidence locker with `Evidence.Upload` send transfer and
+  `Evidence.Download` receive transfer previews.
+- `Activity`: live feed using event subscriptions.
+- `Workspace`: operator notes backed by app/device state.
 
 The device TUI exposes the same concepts as menu actions: list assignments, view
 the selected site, refresh a site, generate a report, upload evidence, watch

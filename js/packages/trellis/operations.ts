@@ -1,15 +1,13 @@
-import type {
-  InferSchemaType,
-} from "./contracts.ts";
+import type { InferSchemaType } from "./contracts.ts";
 import { AsyncResult, err, isErr, ok, type Result } from "@qlever-llc/result";
 
 import type { JsonValue } from "./codec.ts";
-import { TransferError, TransportError, UnexpectedError } from "./errors/index.ts";
-import type {
-  FileInfo,
-  TransferBody,
-  UploadTransferGrant,
-} from "./transfer.ts";
+import {
+  TransferError,
+  TransportError,
+  UnexpectedError,
+} from "./errors/index.ts";
+import type { FileInfo, SendTransferGrant, TransferBody } from "./transfer.ts";
 
 export type OperationState =
   | "pending"
@@ -49,7 +47,8 @@ export type OperationTransferProgress = {
 };
 
 export type TerminalOperation<TProgress = unknown, TOutput = unknown> =
-  OperationSnapshot<TProgress, TOutput> & {
+  & OperationSnapshot<TProgress, TOutput>
+  & {
     state: "completed" | "failed" | "cancelled";
   };
 
@@ -78,27 +77,40 @@ export type StartedTransfer<
   >;
 };
 
-type OperationRefCanCancel<TDesc extends OperationShape> = "cancel" extends keyof TDesc
-  ? TDesc extends { cancel: false | undefined } ? false
-    : true
+type OperationRefCanCancel<TDesc extends OperationShape> = "cancel" extends
+  keyof TDesc ? TDesc extends { cancel: false | undefined } ? false
+  : true
   : false;
 
 export type OperationRef<
   TDesc extends OperationShape,
   TProgress = OperationProgressOf<TDesc>,
   TOutput = OperationOutputOf<TDesc>,
-> = {
-  id: string;
-  service: string;
-  operation: string;
-  get(): AsyncResult<OperationSnapshot<TProgress, TOutput>, TransportError | UnexpectedError>;
-  wait(): AsyncResult<TerminalOperation<TProgress, TOutput>, TransportError | UnexpectedError>;
-  watch(): AsyncResult<AsyncIterable<OperationEvent<TProgress, TOutput>>, TransportError | UnexpectedError>;
-} & (OperationRefCanCancel<TDesc> extends true
-  ? {
-      cancel(): AsyncResult<OperationSnapshot<TProgress, TOutput>, TransportError | UnexpectedError>;
+> =
+  & {
+    id: string;
+    service: string;
+    operation: string;
+    get(): AsyncResult<
+      OperationSnapshot<TProgress, TOutput>,
+      TransportError | UnexpectedError
+    >;
+    wait(): AsyncResult<
+      TerminalOperation<TProgress, TOutput>,
+      TransportError | UnexpectedError
+    >;
+    watch(): AsyncResult<
+      AsyncIterable<OperationEvent<TProgress, TOutput>>,
+      TransportError | UnexpectedError
+    >;
+  }
+  & (OperationRefCanCancel<TDesc> extends true ? {
+      cancel(): AsyncResult<
+        OperationSnapshot<TProgress, TOutput>,
+        TransportError | UnexpectedError
+      >;
     }
-  : {});
+    : {});
 
 export type AcceptedOperationEvent<TProgress = unknown, TOutput = unknown> = {
   type: "accepted";
@@ -154,32 +166,33 @@ export type OperationEvent<TProgress = unknown, TOutput = unknown> =
   | FailedOperationEvent<TProgress, TOutput>
   | CancelledOperationEvent<TProgress, TOutput>;
 
-export type OperationObserverCallbacks<TProgress = unknown, TOutput = unknown> = {
-  onAccepted?: (
-    event: AcceptedOperationEvent<TProgress, TOutput>,
-  ) => void | Promise<void>;
-  onStarted?: (
-    event: StartedOperationEvent<TProgress, TOutput>,
-  ) => void | Promise<void>;
-  onTransfer?: (
-    event: TransferOperationEvent<TProgress, TOutput>,
-  ) => void | Promise<void>;
-  onProgress?: (
-    event: ProgressOperationEvent<TProgress, TOutput>,
-  ) => void | Promise<void>;
-  onCompleted?: (
-    event: CompletedOperationEvent<TProgress, TOutput>,
-  ) => void | Promise<void>;
-  onFailed?: (
-    event: FailedOperationEvent<TProgress, TOutput>,
-  ) => void | Promise<void>;
-  onCancelled?: (
-    event: CancelledOperationEvent<TProgress, TOutput>,
-  ) => void | Promise<void>;
-  onEvent?: (
-    event: OperationEvent<TProgress, TOutput>,
-  ) => void | Promise<void>;
-};
+export type OperationObserverCallbacks<TProgress = unknown, TOutput = unknown> =
+  {
+    onAccepted?: (
+      event: AcceptedOperationEvent<TProgress, TOutput>,
+    ) => void | Promise<void>;
+    onStarted?: (
+      event: StartedOperationEvent<TProgress, TOutput>,
+    ) => void | Promise<void>;
+    onTransfer?: (
+      event: TransferOperationEvent<TProgress, TOutput>,
+    ) => void | Promise<void>;
+    onProgress?: (
+      event: ProgressOperationEvent<TProgress, TOutput>,
+    ) => void | Promise<void>;
+    onCompleted?: (
+      event: CompletedOperationEvent<TProgress, TOutput>,
+    ) => void | Promise<void>;
+    onFailed?: (
+      event: FailedOperationEvent<TProgress, TOutput>,
+    ) => void | Promise<void>;
+    onCancelled?: (
+      event: CancelledOperationEvent<TProgress, TOutput>,
+    ) => void | Promise<void>;
+    onEvent?: (
+      event: OperationEvent<TProgress, TOutput>,
+    ) => void | Promise<void>;
+  };
 
 interface OperationObserverBuilderBase<
   TBuilder,
@@ -187,25 +200,39 @@ interface OperationObserverBuilderBase<
   TOutput = unknown,
 > {
   onAccepted(
-    handler: NonNullable<OperationObserverCallbacks<TProgress, TOutput>["onAccepted"]>,
+    handler: NonNullable<
+      OperationObserverCallbacks<TProgress, TOutput>["onAccepted"]
+    >,
   ): TBuilder;
   onStarted(
-    handler: NonNullable<OperationObserverCallbacks<TProgress, TOutput>["onStarted"]>,
+    handler: NonNullable<
+      OperationObserverCallbacks<TProgress, TOutput>["onStarted"]
+    >,
   ): TBuilder;
   onProgress(
-    handler: NonNullable<OperationObserverCallbacks<TProgress, TOutput>["onProgress"]>,
+    handler: NonNullable<
+      OperationObserverCallbacks<TProgress, TOutput>["onProgress"]
+    >,
   ): TBuilder;
   onCompleted(
-    handler: NonNullable<OperationObserverCallbacks<TProgress, TOutput>["onCompleted"]>,
+    handler: NonNullable<
+      OperationObserverCallbacks<TProgress, TOutput>["onCompleted"]
+    >,
   ): TBuilder;
   onFailed(
-    handler: NonNullable<OperationObserverCallbacks<TProgress, TOutput>["onFailed"]>,
+    handler: NonNullable<
+      OperationObserverCallbacks<TProgress, TOutput>["onFailed"]
+    >,
   ): TBuilder;
   onCancelled(
-    handler: NonNullable<OperationObserverCallbacks<TProgress, TOutput>["onCancelled"]>,
+    handler: NonNullable<
+      OperationObserverCallbacks<TProgress, TOutput>["onCancelled"]
+    >,
   ): TBuilder;
   onEvent(
-    handler: NonNullable<OperationObserverCallbacks<TProgress, TOutput>["onEvent"]>,
+    handler: NonNullable<
+      OperationObserverCallbacks<TProgress, TOutput>["onEvent"]
+    >,
   ): TBuilder;
 }
 
@@ -215,20 +242,26 @@ interface OperationInputBuilderBase<
   TOutput,
   TBuilder,
 > extends OperationObserverBuilderBase<TBuilder, TProgress, TOutput> {
-  start(): AsyncResult<OperationRef<TDesc, TProgress, TOutput>, TransportError | UnexpectedError>;
+  start(): AsyncResult<
+    OperationRef<TDesc, TProgress, TOutput>,
+    TransportError | UnexpectedError
+  >;
 }
 
 export interface TransferOperationBuilder<
   TDesc extends OperationShape,
   TProgress = OperationProgressOf<TDesc>,
   TOutput = OperationOutputOf<TDesc>,
-> extends OperationObserverBuilderBase<
-  TransferOperationBuilder<TDesc, TProgress, TOutput>,
-  TProgress,
-  TOutput
-> {
+> extends
+  OperationObserverBuilderBase<
+    TransferOperationBuilder<TDesc, TProgress, TOutput>,
+    TProgress,
+    TOutput
+  > {
   onTransfer(
-    handler: NonNullable<OperationObserverCallbacks<TProgress, TOutput>["onTransfer"]>,
+    handler: NonNullable<
+      OperationObserverCallbacks<TProgress, TOutput>["onTransfer"]
+    >,
   ): TransferOperationBuilder<TDesc, TProgress, TOutput>;
   start(): AsyncResult<
     StartedTransfer<TDesc, TProgress, TOutput>,
@@ -240,32 +273,36 @@ export interface OperationInputBuilder<
   TDesc extends OperationShape,
   TProgress = OperationProgressOf<TDesc>,
   TOutput = OperationOutputOf<TDesc>,
-> extends OperationInputBuilderBase<
-  TDesc,
-  TProgress,
-  TOutput,
-  OperationInputBuilder<TDesc, TProgress, TOutput>
-> {
+> extends
+  OperationInputBuilderBase<
+    TDesc,
+    TProgress,
+    TOutput,
+    OperationInputBuilder<TDesc, TProgress, TOutput>
+  > {
 }
 
 export interface TransferCapableOperationInputBuilder<
   TDesc extends OperationShape,
   TProgress = OperationProgressOf<TDesc>,
   TOutput = OperationOutputOf<TDesc>,
-> extends OperationInputBuilderBase<
-  TDesc,
-  TProgress,
-  TOutput,
-  TransferCapableOperationInputBuilder<TDesc, TProgress, TOutput>
-> {
-  transfer(body: TransferBody): TransferOperationBuilder<TDesc, TProgress, TOutput>;
+> extends
+  OperationInputBuilderBase<
+    TDesc,
+    TProgress,
+    TOutput,
+    TransferCapableOperationInputBuilder<TDesc, TProgress, TOutput>
+  > {
+  transfer(
+    body: TransferBody,
+  ): TransferOperationBuilder<TDesc, TProgress, TOutput>;
 }
 
 type OperationAcceptedEnvelope<TProgress = unknown, TOutput = unknown> = {
   kind: "accepted";
   ref: OperationRefData;
   snapshot: OperationSnapshot<TProgress, TOutput>;
-  transfer?: UploadTransferGrant;
+  transfer?: SendTransferGrant;
 };
 
 type OperationSnapshotFrame<TProgress = unknown, TOutput = unknown> = {
@@ -297,10 +334,14 @@ type OperationShape = {
   cancel?: boolean;
 };
 
-type OperationInputOf<TDesc extends OperationShape> = InferSchemaType<TDesc["input"]>;
-type OperationProgressOf<TDesc extends OperationShape> = TDesc["progress"] extends undefined ? unknown
-  : InferSchemaType<NonNullable<TDesc["progress"]>>;
-type OperationOutputOf<TDesc extends OperationShape> = TDesc["output"] extends undefined ? unknown
+type OperationInputOf<TDesc extends OperationShape> = InferSchemaType<
+  TDesc["input"]
+>;
+type OperationProgressOf<TDesc extends OperationShape> =
+  TDesc["progress"] extends undefined ? unknown
+    : InferSchemaType<NonNullable<TDesc["progress"]>>;
+type OperationOutputOf<TDesc extends OperationShape> = TDesc["output"] extends
+  undefined ? unknown
   : InferSchemaType<NonNullable<TDesc["output"]>>;
 
 export interface OperationTransport {
@@ -311,9 +352,12 @@ export interface OperationTransport {
   watchJson(
     subject: string,
     body: JsonValue,
-  ): AsyncResult<AsyncIterable<Result<JsonValue, TransportError | UnexpectedError>>, TransportError | UnexpectedError>;
+  ): AsyncResult<
+    AsyncIterable<Result<JsonValue, TransportError | UnexpectedError>>,
+    TransportError | UnexpectedError
+  >;
   putTransfer(
-    grant: UploadTransferGrant,
+    grant: SendTransferGrant,
     body: TransferBody,
   ): AsyncResult<FileInfo, TransferError>;
 }
@@ -362,11 +406,20 @@ function snapshotToEvent<TProgress, TOutput>(
     case "running":
       return { type: "started", snapshot };
     case "completed":
-      return { type: "completed", snapshot: snapshot as TerminalOperation<TProgress, TOutput> };
+      return {
+        type: "completed",
+        snapshot: snapshot as TerminalOperation<TProgress, TOutput>,
+      };
     case "failed":
-      return { type: "failed", snapshot: snapshot as TerminalOperation<TProgress, TOutput> };
+      return {
+        type: "failed",
+        snapshot: snapshot as TerminalOperation<TProgress, TOutput>,
+      };
     case "cancelled":
-      return { type: "cancelled", snapshot: snapshot as TerminalOperation<TProgress, TOutput> };
+      return {
+        type: "cancelled",
+        snapshot: snapshot as TerminalOperation<TProgress, TOutput>,
+      };
   }
 }
 
@@ -376,7 +429,8 @@ function isTerminalEvent<TProgress, TOutput>(
   OperationEvent<TProgress, TOutput>,
   { type: "completed" | "failed" | "cancelled" }
 > {
-  return event.type === "completed" || event.type === "failed" || event.type === "cancelled";
+  return event.type === "completed" || event.type === "failed" ||
+    event.type === "cancelled";
 }
 
 function normalizeOperationEvent<TProgress, TOutput>(
@@ -421,7 +475,8 @@ function normalizeOperationEvent<TProgress, TOutput>(
     return err(createTransportError({
       code: "trellis.operation.invalid_event",
       message: "Trellis returned an invalid operation event.",
-      hint: "Retry the operation watch. If it keeps failing, reconnect to Trellis and try again.",
+      hint:
+        "Retry the operation watch. If it keeps failing, reconnect to Trellis and try again.",
       cause,
     }));
   }
@@ -488,7 +543,8 @@ function decodeAcceptedEnvelope<TProgress, TOutput>(
     return err(createTransportError({
       code: "trellis.operation.invalid_accept",
       message: "Trellis returned an invalid operation start response.",
-      hint: "Retry starting the operation. If it keeps failing, reconnect to Trellis and try again.",
+      hint:
+        "Retry starting the operation. If it keeps failing, reconnect to Trellis and try again.",
       cause,
     }));
   }
@@ -511,7 +567,8 @@ function decodeSnapshotFrame<TProgress, TOutput>(
     return err(createTransportError({
       code: "trellis.operation.invalid_snapshot",
       message: "Trellis returned an invalid operation snapshot.",
-      hint: "Retry the operation request. If it keeps failing, reconnect to Trellis and try again.",
+      hint:
+        "Retry the operation request. If it keeps failing, reconnect to Trellis and try again.",
       cause,
     }));
   }
@@ -528,13 +585,13 @@ class RuntimeOperationRef<
 
   readonly #transport: OperationTransport;
   readonly #descriptor: TDesc;
-  readonly #acceptedTransfer?: UploadTransferGrant;
+  readonly #acceptedTransfer?: SendTransferGrant;
 
   constructor(
     transport: OperationTransport,
     descriptor: TDesc,
     ref: OperationRefData,
-    acceptedTransfer?: UploadTransferGrant,
+    acceptedTransfer?: SendTransferGrant,
   ) {
     this.#transport = transport;
     this.#descriptor = descriptor;
@@ -548,11 +605,17 @@ class RuntimeOperationRef<
     return this.#descriptor.cancel === true;
   }
 
-  get(): AsyncResult<OperationSnapshot<TProgress, TOutput>, TransportError | UnexpectedError> {
+  get(): AsyncResult<
+    OperationSnapshot<TProgress, TOutput>,
+    TransportError | UnexpectedError
+  > {
     return this.#controlSnapshot("get");
   }
 
-  wait(): AsyncResult<TerminalOperation<TProgress, TOutput>, TransportError | UnexpectedError> {
+  wait(): AsyncResult<
+    TerminalOperation<TProgress, TOutput>,
+    TransportError | UnexpectedError
+  > {
     return AsyncResult.from((async () => {
       const snapshotValue = await this.#controlSnapshot("wait").take();
       if (isErr(snapshotValue)) {
@@ -562,7 +625,8 @@ class RuntimeOperationRef<
         return err(createTransportError({
           code: "trellis.operation.invalid_snapshot",
           message: "Trellis returned an incomplete operation snapshot.",
-          hint: "Retry the operation request. If it keeps happening, reconnect to Trellis and try again.",
+          hint:
+            "Retry the operation request. If it keeps happening, reconnect to Trellis and try again.",
           cause: new Error("wait returned non-terminal snapshot"),
         }));
       }
@@ -570,22 +634,30 @@ class RuntimeOperationRef<
     })());
   }
 
-  cancel(): AsyncResult<OperationSnapshot<TProgress, TOutput>, TransportError | UnexpectedError> {
+  cancel(): AsyncResult<
+    OperationSnapshot<TProgress, TOutput>,
+    TransportError | UnexpectedError
+  > {
     return this.#controlSnapshot("cancel");
   }
 
   startTransfer(body: TransferBody): AsyncResult<FileInfo, TransferError> {
     const grant = this.#acceptedTransfer;
     if (!grant) {
-      return AsyncResult.err(new TransferError({
-        operation: "transfer",
-        context: { reason: "missing_transfer" },
-      }));
+      return AsyncResult.err(
+        new TransferError({
+          operation: "transfer",
+          context: { reason: "missing_transfer" },
+        }),
+      );
     }
     return this.#transport.putTransfer(grant, body);
   }
 
-  watch(): AsyncResult<AsyncIterable<OperationEvent<TProgress, TOutput>>, TransportError | UnexpectedError> {
+  watch(): AsyncResult<
+    AsyncIterable<OperationEvent<TProgress, TOutput>>,
+    TransportError | UnexpectedError
+  > {
     return AsyncResult.from((async () => {
       const rawIterable = await this.#transport.watchJson(
         controlSubject(this.#descriptor.subject),
@@ -597,7 +669,9 @@ class RuntimeOperationRef<
       if (isErr(rawIterable)) {
         return err(rawIterable.error);
       }
-      const iterable = rawIterable as AsyncIterable<Result<JsonValue, TransportError | UnexpectedError>>;
+      const iterable = rawIterable as AsyncIterable<
+        Result<JsonValue, TransportError | UnexpectedError>
+      >;
 
       async function* events() {
         for await (const frame of iterable) {
@@ -630,7 +704,10 @@ class RuntimeOperationRef<
 
   #controlSnapshot(
     action: "get" | "wait" | "cancel" | "watch",
-  ): AsyncResult<OperationSnapshot<TProgress, TOutput>, TransportError | UnexpectedError> {
+  ): AsyncResult<
+    OperationSnapshot<TProgress, TOutput>,
+    TransportError | UnexpectedError
+  > {
     return AsyncResult.from((async () => {
       const responseValue = await this.#transport.requestJson(
         controlSubject(this.#descriptor.subject),
@@ -658,7 +735,10 @@ function decodeWatchFrame<TProgress, TOutput>(
   value: JsonValue,
 ): Result<OperationEvent<TProgress, TOutput> | null, TransportError> {
   try {
-    if (value && typeof value === "object" && (value as { kind?: string }).kind === "keepalive") {
+    if (
+      value && typeof value === "object" &&
+      (value as { kind?: string }).kind === "keepalive"
+    ) {
       return ok(null);
     }
 
@@ -670,7 +750,9 @@ function decodeWatchFrame<TProgress, TOutput>(
       | { kind: "snapshot"; snapshot: OperationSnapshot<TProgress, TOutput> }
       | { kind: "event"; event: OperationEvent<TProgress, TOutput> };
 
-    if ((frame as { kind?: string }).kind === "snapshot" && "snapshot" in frame) {
+    if (
+      (frame as { kind?: string }).kind === "snapshot" && "snapshot" in frame
+    ) {
       return ok(snapshotToEvent(frame.snapshot));
     }
     if ((frame as { kind?: string }).kind === "event" && "event" in frame) {
@@ -682,14 +764,20 @@ function decodeWatchFrame<TProgress, TOutput>(
     return err(createTransportError({
       code: "trellis.operation.invalid_frame",
       message: "Trellis returned an invalid operation watch frame.",
-      hint: "Retry the operation watch. If it keeps failing, reconnect to Trellis and try again.",
+      hint:
+        "Retry the operation watch. If it keeps failing, reconnect to Trellis and try again.",
       cause,
     }));
   }
 }
 
 type OperationWatchObservation<TProgress, TOutput> = {
-  task?: Promise<Result<TerminalOperation<TProgress, TOutput>, TransportError | UnexpectedError>>;
+  task?: Promise<
+    Result<
+      TerminalOperation<TProgress, TOutput>,
+      TransportError | UnexpectedError
+    >
+  >;
   close?: () => Promise<void>;
 };
 
@@ -707,7 +795,10 @@ function invokeOperation<TDesc extends OperationShape, TProgress, TOutput>(
   transport: OperationTransport,
   descriptor: TDesc,
   input: unknown,
-): AsyncResult<InvokedOperation<TDesc, TProgress, TOutput>, TransportError | UnexpectedError> {
+): AsyncResult<
+  InvokedOperation<TDesc, TProgress, TOutput>,
+  TransportError | UnexpectedError
+> {
   return AsyncResult.from((async () => {
     const responseValue = await transport.requestJson(
       descriptor.subject,
@@ -717,7 +808,8 @@ function invokeOperation<TDesc extends OperationShape, TProgress, TOutput>(
       return responseValue;
     }
 
-    const envelope = decodeAcceptedEnvelope<TProgress, TOutput>(responseValue).take();
+    const envelope = decodeAcceptedEnvelope<TProgress, TOutput>(responseValue)
+      .take();
     if (isErr(envelope)) {
       return envelope;
     }
@@ -745,7 +837,10 @@ function beginObservedWatch<
   operation: RuntimeOperationRef<TDesc, TProgress, TOutput>,
   callbacks: OperationObserverCallbacks<TProgress, TOutput>,
   options: ObservedWatchOptions<TProgress, TOutput> = {},
-): AsyncResult<OperationWatchObservation<TProgress, TOutput>, TransportError | UnexpectedError> {
+): AsyncResult<
+  OperationWatchObservation<TProgress, TOutput>,
+  TransportError | UnexpectedError
+> {
   if (!hasObserverCallbacks(callbacks)) {
     return AsyncResult.ok({});
   }
@@ -761,7 +856,12 @@ function beginObservedWatch<
       await iterator.return?.();
     };
 
-    const task = (async (): Promise<Result<TerminalOperation<TProgress, TOutput>, TransportError | UnexpectedError>> => {
+    const task = (async (): Promise<
+      Result<
+        TerminalOperation<TProgress, TOutput>,
+        TransportError | UnexpectedError
+      >
+    > => {
       try {
         await options.ready;
 
@@ -782,20 +882,25 @@ function beginObservedWatch<
           }
           if (isTerminalEvent(event)) {
             await close();
-            return ok(event.snapshot as TerminalOperation<TProgress, TOutput>);
+            return ok(
+              event.snapshot as TerminalOperation<TProgress, TOutput>,
+            );
           }
         }
 
         return err(createTransportError({
           code: "trellis.operation.watch_incomplete",
           message: "Trellis ended the operation watch before completion.",
-          hint: "Retry watching the operation. If it keeps happening, reconnect to Trellis and try again.",
+          hint:
+            "Retry watching the operation. If it keeps happening, reconnect to Trellis and try again.",
           cause: new Error("operation watch ended before terminal event"),
         }));
       } catch (cause) {
-        return err(cause instanceof TransportError || cause instanceof UnexpectedError
-          ? cause
-          : new UnexpectedError({ cause }));
+        return err(
+          cause instanceof TransportError || cause instanceof UnexpectedError
+            ? cause
+            : new UnexpectedError({ cause }),
+        );
       }
     })();
 
@@ -812,7 +917,10 @@ function startObservedOperation<
   descriptor: TDesc,
   input: unknown,
   callbacks: OperationObserverCallbacks<TProgress, TOutput>,
-): AsyncResult<OperationRef<TDesc, TProgress, TOutput>, TransportError | UnexpectedError> {
+): AsyncResult<
+  OperationRef<TDesc, TProgress, TOutput>,
+  TransportError | UnexpectedError
+> {
   return AsyncResult.from((async () => {
     const startedValue = await invokeOperation<TDesc, TProgress, TOutput>(
       transport,
@@ -825,13 +933,20 @@ function startObservedOperation<
 
     const ready = deferred<void>();
 
-    const observedValue = await beginObservedWatch(startedValue.operation, callbacks, {
-      ready: ready.promise,
-      skipEvent: createAcceptedReplayFilter(startedValue.accepted),
-    }).take();
+    const observedValue = await beginObservedWatch(
+      startedValue.operation,
+      callbacks,
+      {
+        ready: ready.promise,
+        skipEvent: createAcceptedReplayFilter(startedValue.accepted),
+      },
+    ).take();
     const observation = isErr(observedValue) ? {} : observedValue;
 
-    const accepted = await dispatchOperationEventResult(callbacks, startedValue.accepted);
+    const accepted = await dispatchOperationEventResult(
+      callbacks,
+      startedValue.accepted,
+    );
     if (accepted.isErr()) {
       if (!isErr(observedValue)) {
         ready.resolve();
@@ -860,7 +975,10 @@ function startObservedTransfer<
   input: unknown,
   body: TransferBody,
   callbacks: OperationObserverCallbacks<TProgress, TOutput>,
-): AsyncResult<StartedTransfer<TDesc, TProgress, TOutput>, TransportError | UnexpectedError | TransferError> {
+): AsyncResult<
+  StartedTransfer<TDesc, TProgress, TOutput>,
+  TransportError | UnexpectedError | TransferError
+> {
   return AsyncResult.from((async () => {
     const startedValue = await invokeOperation<TDesc, TProgress, TOutput>(
       transport,
@@ -879,7 +997,10 @@ function startObservedTransfer<
     }).take();
     const observation = isErr(observedValue) ? {} : observedValue;
 
-    const accepted = await dispatchOperationEventResult(callbacks, startedValue.accepted);
+    const accepted = await dispatchOperationEventResult(
+      callbacks,
+      startedValue.accepted,
+    );
     if (accepted.isErr()) {
       if (!isErr(observedValue)) {
         ready.resolve();
@@ -908,23 +1029,24 @@ function startObservedTransfer<
 
     return ok({
       operation: publicOperation,
-      wait: () => AsyncResult.from((async () => {
-        const transferred = await transferTask;
-        const transferredValue = transferred.take();
-        if (isErr(transferredValue)) {
-          return transferredValue;
-        }
+      wait: () =>
+        AsyncResult.from((async () => {
+          const transferred = await transferTask;
+          const transferredValue = transferred.take();
+          if (isErr(transferredValue)) {
+            return transferredValue;
+          }
 
-        const terminalValue = await publicOperation.wait().take();
-        if (isErr(terminalValue)) {
-          return terminalValue;
-        }
+          const terminalValue = await publicOperation.wait().take();
+          if (isErr(terminalValue)) {
+            return terminalValue;
+          }
 
-        return ok({
-          transferred: transferredValue,
-          terminal: terminalValue,
-        });
-      })()),
+          return ok({
+            transferred: transferredValue,
+            terminal: terminalValue,
+          });
+        })()),
     });
   })());
 }
@@ -953,20 +1075,21 @@ function createPublicOperationRef<
     service: operation.service,
     operation: operation.operation,
     get: () => operation.get(),
-    wait: () => AsyncResult.from((async () => {
-      if (observation.task) {
-        const terminal = await observation.task;
-        const terminalValue = terminal.take();
-        if (!isErr(terminalValue)) {
-          return ok(terminalValue);
+    wait: () =>
+      AsyncResult.from((async () => {
+        if (observation.task) {
+          const terminal = await observation.task;
+          const terminalValue = terminal.take();
+          if (!isErr(terminalValue)) {
+            return ok(terminalValue);
+          }
+          if (isObservedCallbackError(terminalValue.error)) {
+            return terminalValue;
+          }
         }
-        if (isObservedCallbackError(terminalValue.error)) {
-          return terminalValue;
-        }
-      }
 
-      return await operation.wait();
-    })()),
+        return await operation.wait();
+      })()),
     watch: () => operation.watch(),
   };
 
@@ -989,37 +1112,67 @@ function createOperationInputBuilder<
   descriptor: TDesc,
   input: unknown,
   callbacks: OperationObserverCallbacks<TProgress, TOutput> = {},
-): TDesc["transfer"] extends undefined ? OperationInputBuilder<TDesc, TProgress, TOutput>
+): TDesc["transfer"] extends undefined
+  ? OperationInputBuilder<TDesc, TProgress, TOutput>
   : TransferCapableOperationInputBuilder<TDesc, TProgress, TOutput> {
   const rebuild = (
     nextCallbacks: OperationObserverCallbacks<TProgress, TOutput>,
-  ) => createOperationInputBuilder<TDesc, TProgress, TOutput>(
-    transport,
-    descriptor,
-    input,
-    nextCallbacks,
-  );
+  ) =>
+    createOperationInputBuilder<TDesc, TProgress, TOutput>(
+      transport,
+      descriptor,
+      input,
+      nextCallbacks,
+    );
 
   const baseBuilder = {
-    onAccepted(handler: NonNullable<OperationObserverCallbacks<TProgress, TOutput>["onAccepted"]>) {
+    onAccepted(
+      handler: NonNullable<
+        OperationObserverCallbacks<TProgress, TOutput>["onAccepted"]
+      >,
+    ) {
       return rebuild({ ...callbacks, onAccepted: handler });
     },
-    onStarted(handler: NonNullable<OperationObserverCallbacks<TProgress, TOutput>["onStarted"]>) {
+    onStarted(
+      handler: NonNullable<
+        OperationObserverCallbacks<TProgress, TOutput>["onStarted"]
+      >,
+    ) {
       return rebuild({ ...callbacks, onStarted: handler });
     },
-    onProgress(handler: NonNullable<OperationObserverCallbacks<TProgress, TOutput>["onProgress"]>) {
+    onProgress(
+      handler: NonNullable<
+        OperationObserverCallbacks<TProgress, TOutput>["onProgress"]
+      >,
+    ) {
       return rebuild({ ...callbacks, onProgress: handler });
     },
-    onCompleted(handler: NonNullable<OperationObserverCallbacks<TProgress, TOutput>["onCompleted"]>) {
+    onCompleted(
+      handler: NonNullable<
+        OperationObserverCallbacks<TProgress, TOutput>["onCompleted"]
+      >,
+    ) {
       return rebuild({ ...callbacks, onCompleted: handler });
     },
-    onFailed(handler: NonNullable<OperationObserverCallbacks<TProgress, TOutput>["onFailed"]>) {
+    onFailed(
+      handler: NonNullable<
+        OperationObserverCallbacks<TProgress, TOutput>["onFailed"]
+      >,
+    ) {
       return rebuild({ ...callbacks, onFailed: handler });
     },
-    onCancelled(handler: NonNullable<OperationObserverCallbacks<TProgress, TOutput>["onCancelled"]>) {
+    onCancelled(
+      handler: NonNullable<
+        OperationObserverCallbacks<TProgress, TOutput>["onCancelled"]
+      >,
+    ) {
       return rebuild({ ...callbacks, onCancelled: handler });
     },
-    onEvent(handler: NonNullable<OperationObserverCallbacks<TProgress, TOutput>["onEvent"]>) {
+    onEvent(
+      handler: NonNullable<
+        OperationObserverCallbacks<TProgress, TOutput>["onEvent"]
+      >,
+    ) {
       return rebuild({ ...callbacks, onEvent: handler });
     },
     start() {
@@ -1049,11 +1202,13 @@ function createOperationInputBuilder<
           callbacks,
         );
       },
-    } as TDesc["transfer"] extends undefined ? OperationInputBuilder<TDesc, TProgress, TOutput>
+    } as TDesc["transfer"] extends undefined
+      ? OperationInputBuilder<TDesc, TProgress, TOutput>
       : TransferCapableOperationInputBuilder<TDesc, TProgress, TOutput>;
   }
 
-  return baseBuilder as TDesc["transfer"] extends undefined ? OperationInputBuilder<TDesc, TProgress, TOutput>
+  return baseBuilder as TDesc["transfer"] extends undefined
+    ? OperationInputBuilder<TDesc, TProgress, TOutput>
     : TransferCapableOperationInputBuilder<TDesc, TProgress, TOutput>;
 }
 
@@ -1070,13 +1225,14 @@ function createTransferOperationBuilder<
 ): TransferOperationBuilder<TDesc, TProgress, TOutput> {
   const rebuild = (
     nextCallbacks: OperationObserverCallbacks<TProgress, TOutput>,
-  ) => createTransferOperationBuilder<TDesc, TProgress, TOutput>(
-    transport,
-    descriptor,
-    input,
-    body,
-    nextCallbacks,
-  );
+  ) =>
+    createTransferOperationBuilder<TDesc, TProgress, TOutput>(
+      transport,
+      descriptor,
+      input,
+      body,
+      nextCallbacks,
+    );
 
   return {
     onAccepted(handler) {
@@ -1130,36 +1286,47 @@ export class OperationInvoker<
   }
 
   resume(ref: OperationRefData): OperationRef<TDesc, TProgress, TOutput> {
-    return createPublicOperationRef(new RuntimeOperationRef<TDesc, TProgress, TOutput>(
-      this.#transport,
-      this.#descriptor,
-      ref,
-    ), {});
+    return createPublicOperationRef(
+      new RuntimeOperationRef<TDesc, TProgress, TOutput>(
+        this.#transport,
+        this.#descriptor,
+        ref,
+      ),
+      {},
+    );
   }
 
   input(
     input: TInput,
-  ): TDesc["transfer"] extends undefined ? OperationInputBuilder<TDesc, TProgress, TOutput>
+  ): TDesc["transfer"] extends undefined
+    ? OperationInputBuilder<TDesc, TProgress, TOutput>
     : TransferCapableOperationInputBuilder<TDesc, TProgress, TOutput> {
     return createOperationInputBuilder<TDesc, TProgress, TOutput>(
       this.#transport,
       this.#descriptor,
       input as OperationInputOf<TDesc>,
-    ) as TDesc["transfer"] extends undefined ? OperationInputBuilder<TDesc, TProgress, TOutput>
+    ) as TDesc["transfer"] extends undefined
+      ? OperationInputBuilder<TDesc, TProgress, TOutput>
       : TransferCapableOperationInputBuilder<TDesc, TProgress, TOutput>;
   }
 }
 
-function isOperationControlErrorFrame(value: JsonValue): value is OperationControlErrorFrame {
-  return !!value && typeof value === "object" && (value as { kind?: string }).kind === "error" &&
+function isOperationControlErrorFrame(
+  value: JsonValue,
+): value is OperationControlErrorFrame {
+  return !!value && typeof value === "object" &&
+    (value as { kind?: string }).kind === "error" &&
     typeof Reflect.get(value, "error") === "object";
 }
 
-function controlFrameToTransportError(frame: OperationControlErrorFrame): TransportError {
+function controlFrameToTransportError(
+  frame: OperationControlErrorFrame,
+): TransportError {
   return createTransportError({
     code: "trellis.operation.control_error",
     message: "Trellis rejected the operation control request.",
-    hint: "Check the operation state, then retry the action if it still applies.",
+    hint:
+      "Check the operation state, then retry the action if it still applies.",
     context: {
       controlErrorType: frame.error.type,
       controlErrorMessage: frame.error.message,
@@ -1167,7 +1334,10 @@ function controlFrameToTransportError(frame: OperationControlErrorFrame): Transp
   });
 }
 
-function deferred<T>(): { promise: Promise<T>; resolve: (value: T | PromiseLike<T>) => void } {
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T | PromiseLike<T>) => void;
+} {
   let resolve!: (value: T | PromiseLike<T>) => void;
   const promise = new Promise<T>((r) => {
     resolve = r;
@@ -1209,11 +1379,15 @@ async function dispatchOperationEventResult<TProgress, TOutput>(
 }
 
 function toObservedCallbackError(cause: unknown): UnexpectedError {
-  return (cause instanceof UnexpectedError ? cause : new UnexpectedError({ cause }))
+  return (cause instanceof UnexpectedError
+    ? cause
+    : new UnexpectedError({ cause }))
     .withContext({ operationObserverCallback: true });
 }
 
-function isObservedCallbackError(error: TransportError | UnexpectedError): boolean {
+function isObservedCallbackError(
+  error: TransportError | UnexpectedError,
+): boolean {
   return error instanceof UnexpectedError &&
     error.getContext().operationObserverCallback === true;
 }

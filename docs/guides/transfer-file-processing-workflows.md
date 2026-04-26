@@ -1,10 +1,10 @@
 # Transfer-Backed File Processing Workflows
 
-Use this pattern when a caller transfers a file into a service-owned store, the service processes it asynchronously, and both sides need live chunk progress.
+Use this pattern when a caller sends a file into a service-owned store, the service processes it asynchronously, and both sides need live chunk progress. In Trellis terms this is a `direction: "send"` transfer; product docs may still call the workflow an upload.
 
 ## Shape
 
-1. A contract-owned operation declares transfer support.
+1. A contract-owned operation declares `direction: "send"` transfer support.
 2. The caller configures the operation with `input(...)`, adds `transfer(body)`, and starts it.
 3. The runtime sends bytes, emits typed transfer and progress callbacks, and exposes `wait()` for terminal completion.
 4. The runtime emits per-chunk transfer updates to both caller and provider.
@@ -20,6 +20,7 @@ operations: {
     progress: ref.schema("FilesUploadProgress"),
     output: ref.schema("FilesUploadResult"),
     transfer: {
+      direction: "send",
       store: "uploads",
       key: "/key",
       contentType: "/contentType",
@@ -101,3 +102,4 @@ const completed = await upload.wait().orThrow();
 - Use fluent transfer builder callbacks or runtime-owned transfer events for progress bars; use business `progress(...)` for domain milestones.
 - Use `transfer.completed()` as the bridge from transport to service-owned store processing.
 - If follow-up work should retry or outlive the current process, enqueue a service-private job after `transfer.completed()`.
+- Do not expose raw store bindings to callers. For caller-received bytes, use a contract-owned RPC that returns a `direction: "receive"` transfer grant and have the caller consume it with `trellis.transfer(grant).stream()` or `.bytes()`.

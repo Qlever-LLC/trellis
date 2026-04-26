@@ -106,8 +106,16 @@ pub struct OperationCapabilities {
     pub cancel: Option<Vec<String>>,
 }
 
+/// Transfer direction for operation-backed file uploads.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ContractOperationTransferDirection {
+    Send,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ContractOperationTransfer {
+    pub direction: ContractOperationTransferDirection,
     pub store: String,
     pub key: String,
     #[serde(rename = "contentType", skip_serializing_if = "Option::is_none")]
@@ -138,6 +146,19 @@ pub struct ContractOperation {
     pub cancel: Option<bool>,
 }
 
+/// Transfer direction for RPC-backed receive grants.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ContractRpcTransferDirection {
+    Receive,
+}
+
+/// One RPC transfer grant declaration in a contract manifest.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ContractRpcTransfer {
+    pub direction: ContractRpcTransferDirection,
+}
+
 /// One owned RPC declaration in a contract manifest.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ContractRpcMethod {
@@ -149,6 +170,8 @@ pub struct ContractRpcMethod {
     pub capabilities: Option<RpcCapabilities>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub errors: Option<Vec<ContractErrorRef>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transfer: Option<ContractRpcTransfer>,
 }
 
 /// One owned event declaration in a contract manifest.

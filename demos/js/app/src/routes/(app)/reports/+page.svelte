@@ -115,14 +115,21 @@
 </script>
 
 <svelte:head>
-  <title>Reports · Field Ops Console</title>
+  <title>Report Run · Field Inspection Desk</title>
 </svelte:head>
 
 <section class="flex w-full flex-col gap-6">
-  <header class="space-y-1">
-    <h1 class="text-2xl font-semibold">Reports</h1>
-    <p class="text-sm text-base-content/70">Generate a report, watch progress, and cancel when needed.</p>
-    <div class="badge badge-outline">Uses: operation</div>
+  <header class="rounded-box border border-base-300 bg-base-100/80 p-4 shadow-sm md:p-5">
+    <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+      <div class="space-y-2">
+        <div class="badge badge-primary badge-outline">Reports → Report Run</div>
+        <h1 class="text-2xl font-semibold tracking-tight md:text-3xl">Report Run</h1>
+        <p class="max-w-3xl text-sm text-base-content/70">
+          Pick an inspection, launch the report operation, and monitor every progress signal before publication.
+        </p>
+      </div>
+      <div class="badge badge-outline badge-lg">Teaching note: operation</div>
+    </div>
   </header>
 
   {#if error}
@@ -133,7 +140,7 @@
     <section class="card border border-base-300 bg-base-100 shadow-sm">
       <div class="card-body gap-4">
         <div class="flex items-center justify-between gap-3">
-          <h2 class="card-title text-lg">Generate report</h2>
+          <h2 class="card-title text-lg">Run controls</h2>
           {#if acceptedId}
             <span class="badge badge-outline font-mono">{acceptedId}</span>
           {/if}
@@ -143,7 +150,7 @@
           <div class="alert"><span>Loading inspections.</span></div>
         {:else}
           <label class="form-control gap-2">
-            <span class="label-text font-medium">Inspection</span>
+            <span class="label-text font-medium">Queued inspection</span>
             <select class="select select-bordered w-full" bind:value={selectedInspectionId}>
               {#each assignments as assignment (assignment.inspectionId)}
                 <option value={assignment.inspectionId}>{assignment.siteName} · {assignment.assetName}</option>
@@ -153,10 +160,10 @@
 
           <div class="flex flex-wrap gap-3">
             <button class="btn btn-primary" onclick={startOperation} disabled={running || !selectedInspectionId}>
-              {running ? "Running..." : "Generate report"}
+              {running ? "Running report..." : "Start report run"}
             </button>
             <button class="btn btn-outline" onclick={cancelOperation} disabled={!running || !canCancel}>Cancel</button>
-            <button class="btn btn-ghost" onclick={loadAssignments} disabled={loading || running}>Reload inspections</button>
+            <button class="btn btn-ghost" onclick={loadAssignments} disabled={loading || running}>Refresh queue</button>
           </div>
         {/if}
       </div>
@@ -165,7 +172,7 @@
     <section class="card border border-base-300 bg-base-100 shadow-sm">
       <div class="card-body gap-4">
         <div class="flex items-center justify-between gap-3">
-          <h2 class="card-title text-lg">Progress</h2>
+          <h2 class="card-title text-lg">Operation timeline</h2>
           {#if terminal}
             <span class={terminalBadgeClass(terminal.state)}>{terminal.state}</span>
           {:else if running}
@@ -174,22 +181,20 @@
         </div>
 
         {#if events.length === 0}
-          <div class="alert"><span>Start report generation to stream progress events.</span></div>
+          <div class="alert"><span>Start a report run to stream progress from Reports.Generate.</span></div>
         {:else}
-          <div class="overflow-x-auto">
-            <table class="table table-zebra table-sm">
-              <thead><tr><th>Event</th><th>Snapshot state</th></tr></thead>
-              <tbody>
-                {#each events as event, index (`${event.label}-${index}`)}
-                  <tr><td>{event.label}</td><td>{event.state}</td></tr>
-                {/each}
-              </tbody>
-            </table>
+          <div class="space-y-2">
+            {#each events as event, index (`${event.label}-${index}`)}
+              <div class="rounded-box border border-base-300 bg-base-200/70 px-3 py-2 text-sm">
+                <span class="badge badge-outline badge-sm">{event.state}</span>
+                <span class="ml-2">{event.label}</span>
+              </div>
+            {/each}
           </div>
         {/if}
 
         {#if terminal?.output}
-          <div class="divider my-0">Output</div>
+          <div class="divider my-0">Report package</div>
           <div class="overflow-x-auto">
             <table class="table table-sm">
               <tbody>

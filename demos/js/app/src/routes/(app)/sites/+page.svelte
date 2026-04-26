@@ -51,7 +51,7 @@
     }
   }
 
-  async function loadSites(): Promise<void> {
+  async function loadSites(preferredSiteId?: string): Promise<void> {
     loading = true;
     error = null;
 
@@ -59,9 +59,9 @@
       const response = await trellis.request("Sites.List", {}).orThrow();
       sites = response.sites;
 
-      const firstSiteId = response.sites[0]?.siteId;
-      if (firstSiteId) {
-        await loadSite(firstSiteId);
+      const siteIdToLoad = preferredSiteId ?? selectedSiteId ?? response.sites[0]?.siteId;
+      if (siteIdToLoad) {
+        await loadSite(siteIdToLoad);
       } else {
         selectedSiteId = null;
         selectedSite = null;
@@ -96,7 +96,7 @@
       const terminal = await ref.wait().orThrow();
       if (terminal.output) {
         selectedSite = terminal.output.site;
-        await loadSites();
+        await loadSites(terminal.output.site.siteId);
       }
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
@@ -111,24 +111,42 @@
 </script>
 
 <svelte:head>
-  <title>Sites · Field Ops Console</title>
+  <title>Site Status · Field Inspection Desk</title>
 </svelte:head>
 
 <section class="flex w-full flex-col gap-6">
-  <header class="space-y-1">
-    <h1 class="text-2xl font-semibold">Sites</h1>
-    <p class="text-sm text-base-content/70">Read site summaries and refresh one without polling a status endpoint.</p>
-    <div class="badge badge-outline">Uses: RPC + operation</div>
+  <header class="rounded-box border border-base-300 bg-base-100/80 p-4 shadow-sm md:p-5">
+    <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+      <div class="space-y-2">
+        <div class="badge badge-primary badge-outline">Sites → Site Status</div>
+        <h1 class="text-2xl font-semibold tracking-tight md:text-3xl">Site Status</h1>
+        <p class="max-w-3xl text-sm text-base-content/70">
+          Review each inspection location, refresh the active site summary, and watch the operation timeline as the service reconciles status.
+        </p>
+      </div>
+      <div class="flex flex-wrap gap-3">
+        <button class="btn btn-primary btn-sm" onclick={() => void loadSites()} disabled={loading || refreshing}>
+          {loading ? "Loading sites..." : "Refresh board"}
+        </button>
+        <button class="btn btn-outline btn-sm" onclick={refreshSite} disabled={refreshing || !selectedSiteId}>
+          {refreshing ? "Reconciling..." : "Reconcile active site"}
+        </button>
+        <div class="badge badge-outline badge-lg">Teaching note: RPC + operation</div>
+      </div>
+    </div>
   </header>
 
-  <div class="flex flex-wrap gap-3">
-    <button class="btn btn-primary btn-sm" onclick={loadSites} disabled={loading || refreshing}>
-      {loading ? "Loading..." : "Reload sites"}
-    </button>
-    <button class="btn btn-outline btn-sm" onclick={refreshSite} disabled={refreshing || !selectedSiteId}>
-      {refreshing ? "Refreshing..." : "Refresh site summary"}
-    </button>
-    <div class="badge badge-outline badge-lg">{sites.length} site{sites.length === 1 ? "" : "s"}</div>
+  <div class="stats stats-vertical border border-base-300 bg-base-100 shadow-sm md:stats-horizontal">
+    <div class="stat">
+      <div class="stat-title">Sites on board</div>
+      <div class="stat-value text-3xl">{sites.length}</div>
+      <div class="stat-desc">Sites.List result</div>
+    </div>
+    <div class="stat">
+      <div class="stat-title">Active status</div>
+      <div class="stat-value text-lg">{selectedSite?.latestStatus ?? "No site selected"}</div>
+      <div class="stat-desc">Current summary snapshot</div>
+    </div>
   </div>
 
   {#if error}
@@ -139,14 +157,14 @@
     <section class="card border border-base-300 bg-base-100 shadow-sm">
       <div class="card-body gap-4">
         <div class="flex items-center justify-between gap-3">
-          <h2 class="card-title text-lg">Site summaries</h2>
-          <span class="text-sm text-base-content/60">Sites.List</span>
+          <h2 class="card-title text-lg">Status board</h2>
+          <span class="badge badge-ghost">Sites.List</span>
         </div>
 
         {#if loading}
-          <div class="alert"><span>Loading site summaries.</span></div>
+          <div class="alert"><span>Loading site status summaries.</span></div>
         {:else if sites.length === 0}
-          <div class="alert"><span>No site summaries available.</span></div>
+          <div class="alert"><span>No site status records are available.</span></div>
         {:else}
           <div class="overflow-x-auto">
             <table class="table table-zebra">
@@ -160,11 +178,11 @@
                       <div class="font-medium">{siteItem.siteName}</div>
                       <div class="font-mono text-xs text-base-content/60">{siteItem.siteId}</div>
                     </td>
-                    <td>{siteItem.latestStatus}</td>
+                    <td><span class="badge badge-outline">{siteItem.latestStatus}</span></td>
                     <td>{siteItem.openInspections}</td>
                     <td>{siteItem.overdueInspections}</td>
                     <td class="text-right">
-                      <button class="btn btn-outline btn-sm" onclick={() => loadSite(siteItem.siteId)} disabled={selectedSiteId === siteItem.siteId}>View</button>
+                      <button class="btn btn-outline btn-sm" onclick={() => loadSite(siteItem.siteId)} disabled={selectedSiteId === siteItem.siteId}>Inspect</button>
                     </td>
                   </tr>
                 {/each}
@@ -178,7 +196,7 @@
     <section class="card border border-base-300 bg-base-100 shadow-sm">
       <div class="card-body gap-4">
         <div class="flex items-center justify-between gap-3">
-          <h2 class="card-title text-lg">Selected summary</h2>
+          <h2 class="card-title text-lg">Active site dossier</h2>
           {#if acceptedId}
             <span class="badge badge-outline font-mono">{acceptedId}</span>
           {:else if selectedSiteId}
@@ -190,8 +208,8 @@
           <div class="overflow-x-auto">
             <table class="table table-sm">
               <tbody>
-                <tr><th>Site</th><td>{selectedSite.siteName}</td></tr>
-                <tr><th>Status</th><td>{selectedSite.latestStatus}</td></tr>
+                <tr><th>Site</th><td class="font-medium">{selectedSite.siteName}</td></tr>
+                <tr><th>Field status</th><td>{selectedSite.latestStatus}</td></tr>
                 <tr><th>Open inspections</th><td>{selectedSite.openInspections}</td></tr>
                 <tr><th>Overdue inspections</th><td>{selectedSite.overdueInspections}</td></tr>
                 <tr><th>Last report</th><td class="font-mono text-xs">{selectedSite.lastReportAt}</td></tr>
@@ -199,15 +217,16 @@
             </table>
           </div>
         {:else}
-          <div class="alert"><span>Select a site to load Sites.Get.</span></div>
+          <div class="alert"><span>Select a site to load its dossier. Teaching note: this calls Sites.Get.</span></div>
         {/if}
 
         {#if progressLog.length > 0}
-          <div class="divider my-0">Refresh progress</div>
+          <div class="divider my-0">Reconcile timeline</div>
           <div class="space-y-2">
             {#each progressLog as entry, index (`${entry.label}-${index}`)}
-              <div class="rounded-box bg-base-200 px-3 py-2 text-sm">
-                <span class="font-medium">{entry.state}</span> · {entry.label}
+              <div class="rounded-box border border-base-300 bg-base-200/70 px-3 py-2 text-sm">
+                <span class="badge badge-outline badge-sm">{entry.state}</span>
+                <span class="ml-2">{entry.label}</span>
               </div>
             {/each}
           </div>

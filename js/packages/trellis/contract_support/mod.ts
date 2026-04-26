@@ -202,6 +202,7 @@ export type ContractRpcMethod = {
   subject: string;
   input: ContractSchemaRef;
   output: ContractSchemaRef;
+  transfer?: { direction: "receive" };
   capabilities?: { call?: Capability[] };
   errors?: ContractErrorRef[];
 };
@@ -213,6 +214,7 @@ export type ContractOperation = {
   progress?: ContractSchemaRef;
   output?: ContractSchemaRef;
   transfer?: {
+    direction: "send";
     store: string;
     key: `/${string}`;
     contentType?: `/${string}`;
@@ -577,6 +579,7 @@ export type ContractSourceRpcMethod<
   input: ContractSchemaRef<TSchemaName>;
   output: ContractSchemaRef<TSchemaName>;
   capabilities?: { call?: readonly Capability[] };
+  transfer?: { direction: "receive" };
   errors?: readonly TErrorName[];
   authRequired?: boolean;
   subject?: string;
@@ -588,6 +591,7 @@ export type ContractSourceOperation<TSchemaName extends string = string> = {
   progress?: ContractSchemaRef<TSchemaName>;
   output?: ContractSchemaRef<TSchemaName>;
   transfer?: {
+    direction: "send";
     store: string;
     key: `/${string}`;
     contentType?: `/${string}`;
@@ -989,7 +993,7 @@ type ProjectedRpcMethod<
   errors?: TMethod["errors"];
   runtimeErrors?: readonly RuntimeRpcErrorDesc[];
   declaredErrorTypes?: readonly string[];
-};
+} & (TMethod extends { transfer: infer TTransfer } ? { transfer: TTransfer } : {});
 
 type BuiltRuntimeErrorDesc = {
   type: string;
@@ -1002,6 +1006,7 @@ type BuiltRpcDesc = {
   input: Schema<unknown>;
   output: Schema<unknown>;
   callerCapabilities: readonly string[];
+  transfer?: { direction: "receive" };
   authRequired?: boolean;
   errors?: readonly string[];
   declaredErrorTypes?: readonly string[];
@@ -2004,6 +2009,9 @@ function emitContract(source: TrellisContractSource): TrellisContractV1 {
         if (method.capabilities?.call) {
           emitted.capabilities = { call: [...method.capabilities.call] };
         }
+        if (method.transfer) {
+          emitted.transfer = { ...method.transfer };
+        }
         if (method.errors && method.errors.length > 0) {
           emitted.errors = method.errors.map((errorName) => ({
             type: source.errors?.[errorName]?.type ?? errorName,
@@ -2061,7 +2069,7 @@ function emitContract(source: TrellisContractSource): TrellisContractV1 {
           emitted.output = { ...operation.output };
         }
         if (operation.transfer) {
-          emitted.transfer = { ...operation.transfer };
+          emitted.transfer = { ...operation.transfer, direction: "send" };
         }
         if (
           operation.capabilities?.call || operation.capabilities?.read ||
@@ -2239,6 +2247,7 @@ function buildOwnedApi(source: TrellisContractSource): ApiShape {
         ),
       ),
       callerCapabilities: method.capabilities?.call ?? [],
+      transfer: method.transfer ? { ...method.transfer } : undefined,
       authRequired: method.authRequired ?? true,
       errors: method.errors,
       declaredErrorTypes: method.errors?.map((errorName) =>
@@ -2281,7 +2290,9 @@ function buildOwnedApi(source: TrellisContractSource): ApiShape {
             ),
           )
           : undefined,
-        transfer: operation.transfer ? { ...operation.transfer } : undefined,
+        transfer: operation.transfer
+          ? { ...operation.transfer, direction: "send" }
+          : undefined,
         callerCapabilities: operation.capabilities?.call ?? [],
         readCapabilities: operation.capabilities?.read ?? [],
         cancelCapabilities: operation.capabilities?.cancel ?? [],

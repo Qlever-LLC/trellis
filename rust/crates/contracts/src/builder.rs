@@ -3,10 +3,11 @@ use serde_json::Value;
 use crate::{
     parse_manifest, ContractErrorRef, ContractExports, ContractJobQueueResource, ContractKind,
     ContractKvResource, ContractManifest, ContractOperation, ContractOperationTransfer,
-    ContractResources, ContractRpcMethod, ContractSchemaRef, ContractStoreResource,
-    ContractStreamResource, ContractStreamSource, ContractSubject, ContractUseOperation,
-    ContractUsePubSub, ContractUseRef, ContractUseRpc, ContractsError, OperationCapabilities,
-    PubSubCapabilities, RpcCapabilities, CONTRACT_FORMAT_V1,
+    ContractOperationTransferDirection, ContractResources, ContractRpcMethod, ContractRpcTransfer,
+    ContractRpcTransferDirection, ContractSchemaRef, ContractStoreResource, ContractStreamResource,
+    ContractStreamSource, ContractSubject, ContractUseOperation, ContractUsePubSub, ContractUseRef,
+    ContractUseRpc, ContractsError, OperationCapabilities, PubSubCapabilities, RpcCapabilities,
+    CONTRACT_FORMAT_V1,
 };
 
 /// Thin builder over `ContractManifest` for Rust-authored contracts.
@@ -124,6 +125,7 @@ pub fn rpc(
         output: schema_ref(output_schema),
         capabilities: None,
         errors: None,
+        transfer: None,
     }
 }
 
@@ -231,6 +233,13 @@ pub fn job_queue(
 }
 
 impl ContractRpcMethod {
+    pub fn with_receive_transfer(mut self) -> Self {
+        self.transfer = Some(ContractRpcTransfer {
+            direction: ContractRpcTransferDirection::Receive,
+        });
+        self
+    }
+
     pub fn with_call_capabilities(
         mut self,
         call: impl IntoIterator<Item = impl Into<String>>,
@@ -268,6 +277,7 @@ impl ContractOperation {
         max_bytes: Option<i64>,
     ) -> Self {
         self.transfer = Some(ContractOperationTransfer {
+            direction: ContractOperationTransferDirection::Send,
             store: store.into(),
             key: key.into(),
             content_type: content_type.map(Into::into),

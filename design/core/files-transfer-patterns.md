@@ -19,7 +19,7 @@ Services often need to expose file-like behavior to apps and peer services witho
 Examples:
 
 - transfer an attachment into service-owned storage
-- download a generated export
+- receive a generated export from a service-owned transfer endpoint
 - inspect file metadata before deciding whether to fetch bytes
 - delete a stored object through the owning service's business rules
 
@@ -32,7 +32,7 @@ Examples:
 This document defines the public Trellis files pattern:
 
 - which actions stay ordinary contract RPCs
-- how byte transfer is modeled as an operation capability rather than a standalone client helper
+- how byte transfer is modeled as one runtime concept with caller-facing directions
 - how services back the public files surface with service-owned `store`
 - how callers and providers receive per-chunk transfer progress
 
@@ -52,7 +52,7 @@ Rules:
 
 ### Public Files API Split
 
-There are two categories of file behavior.
+There are three common categories of file behavior.
 
 #### Metadata and control RPCs
 
@@ -70,11 +70,13 @@ Rules:
 - they return JSON payloads and `Result`-modeled failures
 - `list` is prefix/cursor/limit-oriented in v1 rather than arbitrary metadata query language
 
-#### Byte transfer operations
+#### Send transfer operations
 
-File bytes use an operation-native model:
+When the caller sends bytes to the service, file bytes use an operation-native
+model:
 
-1. a contract-owned operation accepts JSON input and declares transfer support
+1. a contract-owned operation accepts JSON input and declares `direction: "send"`
+   transfer support
 2. the caller configures the operation input and starts it through `operation(...).input(input).start()`
 3. the caller executes the raw byte transfer through the higher-level `operation(...).input(input).transfer(body).start()` helper
 4. the provider awaits `transfer.completed()` and continues with service-owned processing
@@ -85,12 +87,33 @@ Example:
 
 Rules:
 
-- transfer is modeled as a capability of an operation, not as a separate public client entrypoint
+- send transfer is modeled as a capability of an operation; upload/file-ingest remains operation-native
 - the operation contract declares the backing store alias and the input pointers used to derive transfer metadata such as `key` and `contentType`
 - the actual byte movement still uses raw NATS chunk traffic rather than JSON/base64 RPC payloads
 - the transfer protocol is Trellis-owned runtime machinery, not a service-specific public protocol surface
 - callers observe transport progress through `watch()` transfer events or the higher-level fluent transfer builder callbacks, plus durable snapshot state
 - providers observe the same transport progress through `transfer.updates()`
+
+#### Receive transfer RPCs
+
+When the caller receives bytes from the service, metadata and control remain a
+contract-owned RPC and the RPC returns a receive transfer grant.
+
+Example:
+
+- `Documents.Files.Download`
+
+Rules:
+
+- the RPC declares `transfer: { direction: "receive" }`
+- the RPC response contains a Trellis transfer grant, not raw store binding
+  details
+- callers consume the grant with `trellis.transfer(grant).stream()` for large
+  bodies or `trellis.transfer(grant).bytes()` when buffering is appropriate
+- service code decides whether and how the requested object maps to a
+  service-owned store entry
+- product-facing docs may still use words such as upload and download, but the
+  platform API should prefer transfer, send, and receive language where possible
 
 ### Operation Transfer Declaration
 
@@ -106,6 +129,7 @@ operations: {
     progress: ref.schema("FilesUploadProgress"),
     output: ref.schema("FilesUploadResult"),
     transfer: {
+      direction: "send",
       store: "uploads",
       key: "/key",
       contentType: "/contentType",
@@ -122,9 +146,32 @@ operations: {
 Rules:
 
 - `transfer.store` names the owning service store resource alias used for staging
+- `transfer.direction` is explicit; operation-native file ingest uses `"send"`
 - `transfer.key` points into the validated operation input and resolves to the staged store key
 - optional pointers such as `contentType` and `metadata` resolve from the same validated input payload
 - contract validation should fail if the configured store alias does not exist or a configured input pointer does not exist in the input schema
+
+RPCs that issue receive grants declare the receive direction explicitly:
+
+```ts
+rpc: {
+  "Documents.Files.Download": {
+    version: "v1",
+    input: ref.schema("FilesDownloadRequest"),
+    output: ref.schema("FilesDownloadResponse"),
+    transfer: {
+      direction: "receive",
+    },
+    capabilities: {
+      call: ["reader"],
+    },
+  },
+}
+```
+
+The response schema carries file metadata and the transfer grant. The service
+still owns the raw store binding and any lookup, authorization, retention, or
+audit policy behind the RPC.
 
 ### Runtime Helpers
 
@@ -149,11 +196,17 @@ const upload = await docs.operation("Documents.Files.Upload")
   .orThrow();
 
 const completed = await upload.wait().orThrow();
+
+const download = await docs.request("Documents.Files.Download", {
+  key: "exports/report.pdf",
+}).orThrow();
+const stream = await trellis.transfer(download.transfer).stream().orThrow();
 ```
 
 Rules:
 
-- `@qlever-llc/trellis` exposes transfer through `operation(...).input(...).transfer(...).start()`, not through `OperationRef.transfer(...)` or `trellis.transfer(grant)`
+- `@qlever-llc/trellis` exposes send transfer through `operation(...).input(...).transfer(...).start()`, not through `OperationRef.transfer(...)`
+- `trellis.transfer(grant)` consumes service-issued transfer grants; receive grants expose `.stream()` and `.bytes()`, and send grants expose `.send(body)` where relevant
 - the transfer builder accepts the same body forms as the old runtime helper: `Uint8Array`, `ArrayBuffer`, `ReadableStream<Uint8Array>`, and `AsyncIterable<Uint8Array>`
 - metadata actions such as list/head/delete remain ordinary typed request calls on the contract client
 
@@ -178,7 +231,8 @@ Rules:
 
 - byte transfer uses raw NATS messages, not JSON/base64 wrappers
 - request signing still uses session-bound proof headers
-- inbound transfer sends ordered chunk requests on a runtime-owned transfer subject and receives per-chunk acknowledgements
+- send transfer sends ordered chunk requests on a runtime-owned transfer subject and receives per-chunk acknowledgements
+- receive transfer streams ordered chunks from a service-owned transfer endpoint to the caller
 - the runtime emits one transfer update per acknowledged chunk on both caller and provider sides
 - chunk sequence and end-of-stream markers are runtime protocol details owned by Trellis
 
@@ -192,6 +246,7 @@ Rules:
 - services may use one or more store aliases as transfer staging backends
 - services may later mirror or copy files to external systems, but `Files` does not depend on those backends
 - `Files` does not imply shared raw store access across services
+- receive grants expose bytes from a service-owned endpoint; they do not expose or delegate raw store bindings
 - once transfer completes, service code works with the staged object through normal store APIs such as `get(...)`, `stream()`, `bytes()`, `waitFor(...)`, and `delete(...)`
 - Trellis should make staged transferred objects easy for the owning service to access, but it does not impose post-transfer processing policy on the service author
 
@@ -227,7 +282,7 @@ Rules:
 This document does not define:
 
 - direct client resolution of `resources.store`
-- HTTP upload/download endpoints
+- HTTP send/receive transfer endpoints
 - arbitrary query/filter semantics for file listing
 - shared writable store bindings across services
 - a global cross-service files admin query surface in v1

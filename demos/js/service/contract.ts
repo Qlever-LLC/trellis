@@ -6,7 +6,9 @@ import * as schemas from "./src/schemas/index.ts";
 export const contract = defineServiceContract(
   {
     schemas,
-    exports: { schemas: ["InspectionAssignment", "SiteSummary"] },
+    exports: {
+      schemas: ["EvidenceRecord", "InspectionAssignment", "SiteSummary"],
+    },
   },
   (ref) => ({
     id: "trellis.demo-service@v1",
@@ -62,6 +64,21 @@ export const contract = defineServiceContract(
         capabilities: { call: [] },
         errors: [ref.error("UnexpectedError")],
       },
+      "Evidence.List": {
+        version: "v1",
+        input: ref.schema("EvidenceListRequest"),
+        output: ref.schema("EvidenceListResponse"),
+        capabilities: { call: [] },
+        errors: [ref.error("UnexpectedError")],
+      },
+      "Evidence.Download": {
+        version: "v1",
+        input: ref.schema("EvidenceDownloadRequest"),
+        output: ref.schema("EvidenceDownloadResponse"),
+        transfer: { direction: "receive" },
+        capabilities: { call: [] },
+        errors: [ref.error("TransferError"), ref.error("UnexpectedError")],
+      },
     },
     operations: {
       "Sites.Refresh": {
@@ -85,9 +102,11 @@ export const contract = defineServiceContract(
         progress: ref.schema("EvidenceUploadProgress"),
         output: ref.schema("EvidenceUploadResponse"),
         transfer: {
+          direction: "send",
           store: "uploads",
           key: "/key",
           contentType: "/contentType",
+          metadata: "/metadata",
           expiresInMs: 60_000,
         },
         capabilities: { call: [], read: [] },

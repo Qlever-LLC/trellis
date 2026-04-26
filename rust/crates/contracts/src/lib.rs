@@ -26,7 +26,8 @@ pub use manifest::{load_json_value, load_manifest, manifest_paths_in_dir, parse_
 pub use model::{
     Catalog, CatalogEntry, CatalogPack, ContractErrorDecl, ContractErrorRef, ContractEvent,
     ContractExports, ContractJobQueueResource, ContractKind, ContractKvResource, ContractManifest,
-    ContractOperation, ContractOperationTransfer, ContractResources, ContractRpcMethod,
+    ContractOperation, ContractOperationTransfer, ContractOperationTransferDirection,
+    ContractResources, ContractRpcMethod, ContractRpcTransfer, ContractRpcTransferDirection,
     ContractSchemaRef, ContractStoreResource, ContractStreamResource, ContractStreamSource,
     ContractSubject, ContractUseOperation, ContractUsePubSub, ContractUseRef, ContractUseRpc,
     LoadedManifest, OperationCapabilities, PubSubCapabilities, RpcCapabilities, CATALOG_FORMAT_V1,

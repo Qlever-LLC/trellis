@@ -85,6 +85,7 @@ const demoFiles = defineServiceContract(
         progress: ref.schema("UploadProgress"),
         output: ref.schema("UploadOutput"),
         transfer: {
+          direction: "send",
           store: "uploads",
           key: "/key",
           contentType: "/contentType",
