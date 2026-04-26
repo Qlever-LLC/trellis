@@ -16,7 +16,7 @@ export { contract };
 export const trellisApp = createTrellisApp<
   typeof contract,
   TrellisDemoAppClient
->(contract);
+>({ contract, trellisUrl });
 
 export function getTrellis(): TrellisDemoAppClient {
   return trellisApp.getTrellis();

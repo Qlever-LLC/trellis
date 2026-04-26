@@ -131,27 +131,15 @@ discovery-shape changes, and asks you to restart the watcher after
 generator/tooling changes. Use `trellis-generate prepare --watch --changes .`
 only when you need to see the event paths plus the watch decision and reason.
 
-## 3. Create one app-local Trellis context module
+## 3. Create one app-local Trellis module
 
-To keep the Trellis typing in one place, create `src/lib/trellis-context.svelte.ts` with:
-
-```ts
-import { createTrellisApp } from "@qlever-llc/trellis-svelte";
-import type { MyAppClient } from "../../generated/js/sdks/my-app/client.ts";
-import contract from "$lib/contract";
-
-export const trellisApp = createTrellisApp<typeof contract, MyAppClient>(
-  contract,
-);
-```
-
-Then create `src/lib/trellis.ts` for static app metadata and local helpers:
+To keep the Trellis typing in one place, create `src/lib/trellis.ts` for static app metadata and local helpers:
 
 ```ts
 import { env } from "$env/dynamic/public";
+import { createTrellisApp } from "@qlever-llc/trellis-svelte";
 import type { MyAppClient } from "../../generated/js/sdks/my-app/client.ts";
 import contract from "$lib/contract";
-import { trellisApp } from "$lib/trellis-context.svelte";
 
 function publicTrellisUrl(): string {
   return new URL(env.PUBLIC_TRELLIS_URL ?? "http://localhost:3000")
@@ -160,6 +148,10 @@ function publicTrellisUrl(): string {
 }
 
 export const trellisUrl = publicTrellisUrl();
+
+export const trellisApp = createTrellisApp<typeof contract, MyAppClient>(
+  { contract, trellisUrl },
+);
 
 export function getTrellis(): MyAppClient {
   return trellisApp.getTrellis();
@@ -172,7 +164,7 @@ export function getConnection() {
 export { contract };
 ```
 
-For the common case where your browser app talks to one known Trellis server, put that fixed `trellisUrl` in the metadata module. If users choose a Trellis instance at runtime, keep the context module typed around the contract and handle the URL separately in your sign-in flow.
+For the common case where your browser app talks to one known Trellis server, resolve that fixed `trellisUrl` once and pass it into `createTrellisApp`. If users choose a Trellis instance at runtime, pass a resolver such as `trellisUrl: () => selectedUrl` and update the selected value before rendering `TrellisProvider`.
 
 The `MyAppClient` type is a generated facade over the runtime client. It should come from the same contract passed to `createTrellisApp`.
 
@@ -223,15 +215,13 @@ To do this, create a layout group `(app)` and define its layout by creating `src
 ```svelte
 <script lang="ts">
   import { TrellisProvider } from "@qlever-llc/trellis-svelte";
-  import { trellisUrl } from "$lib/trellis";
-  import { trellisApp } from "$lib/trellis-context.svelte";
+  import { trellisApp } from "$lib/trellis";
 
   let { children } = $props();
 </script>
 
 <TrellisProvider
-  app={trellisApp}
-  {trellisUrl}
+  {trellisApp}
   auth={{ redirectTo: () => window.location.href }}
 >
   <!-- Svelte 5 snippet syntax for rendering states -->

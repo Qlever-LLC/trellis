@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { ok } from "@qlever-llc/result";
-  import { getTrellis } from "$lib/trellis-context.ts";
+  import { getTrellis } from "$lib/trellis";
 
   type ActivityRecordedEvent = {
     activityId: string;

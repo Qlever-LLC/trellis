@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
-  import { getTrellis } from "$lib/trellis-context.ts";
+  import { getTrellis } from "$lib/trellis";
 
   type EvidenceUploadProgress = { stage: string; message: string };
   type EvidenceUploadResponse = { evidenceId: string; key: string; size: number; disposition: string };
@@ -126,7 +126,7 @@
       const list = await trellis.request("Evidence.List", { prefix: "evidence/" }).orThrow();
       gallery = list.evidence
         .slice()
-        .sort((left, right) => Date.parse(right.uploadedAt) - Date.parse(left.uploadedAt));
+        .sort((left: EvidenceRecord, right: EvidenceRecord) => Date.parse(right.uploadedAt) - Date.parse(left.uploadedAt));
 
       if (downloadLatest) {
         const latestImage = gallery.find((item) => item.contentType?.startsWith("image/"));

@@ -2,18 +2,16 @@
   import { TrellisProvider } from "@qlever-llc/trellis-svelte";
   import type { Component, Snippet } from "svelte";
   import { onMount } from "svelte";
-  import { trellisApp } from "$lib/trellis-context.svelte";
+  import { setSelectedTrellisUrl, trellisApp } from "$lib/trellis-context.svelte";
   import AuthenticatedApp from "../../lib/components/AuthenticatedApp.svelte";
   import { buildConsoleLoginUrl } from "../../lib/auth";
-  import { getSelectedAuthUrl, persistSelectedAuthUrl } from "../../lib/config";
-  import { trellisUrl as fixedTrellisUrl } from "../../lib/trellis";
+  import { APP_CONFIG, getSelectedAuthUrl, persistSelectedAuthUrl } from "../../lib/config";
 
   type Props = {
     children: Snippet;
   };
   type ConsoleTrellisProviderProps = {
-    app: object;
-    trellisUrl: string;
+    trellisApp: typeof trellisApp;
     auth: { redirectTo(): string };
     onAuthRequired(loginUrl: string): void;
     children: Snippet;
@@ -24,7 +22,7 @@
 
   let { children }: Props = $props();
   let initialized = $state(false);
-  let authUrl = $state<string | undefined>(fixedTrellisUrl);
+  let authUrl = $state<string | undefined>(APP_CONFIG.authUrl);
 
   function currentPath(): string {
     return window.location.pathname + window.location.search;
@@ -47,6 +45,7 @@
       return;
     }
 
+    setSelectedTrellisUrl(authUrl);
     initialized = true;
   });
 
@@ -57,8 +56,7 @@
 
 {#if initialized && authUrl}
   <ConsoleTrellisProvider
-    app={trellisApp}
-    trellisUrl={authUrl}
+    {trellisApp}
     auth={{ redirectTo: () => window.location.href }}
     onAuthRequired={redirectToLogin}
   >

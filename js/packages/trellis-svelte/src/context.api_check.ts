@@ -5,7 +5,11 @@ import {
 import { Type } from "typebox";
 import { auth } from "../../trellis/sdk/auth.ts";
 import type { TrellisProviderProps } from "./components/TrellisProvider.types.ts";
-import { createTrellisApp, type TrellisClientFor } from "./context.svelte.ts";
+import {
+  createTrellisApp,
+  resolveTrellisAppUrl,
+  type TrellisClientFor,
+} from "./context.svelte.ts";
 
 const testContract = defineAppContract(
   {
@@ -26,13 +30,15 @@ const testContract = defineAppContract(
   }),
 );
 
-const app = createTrellisApp(testContract);
+const app = createTrellisApp({
+  contract: testContract,
+  trellisUrl: "https://trellis.example",
+});
 const providerProps: Omit<
   TrellisProviderProps<typeof testContract>,
   "children"
 > = {
-  app,
-  trellisUrl: "https://trellis.example",
+  trellisApp: app,
 };
 
 type GeneratedClient = {
@@ -42,20 +48,43 @@ type GeneratedClient = {
 };
 
 const generatedApp = createTrellisApp<typeof testContract, GeneratedClient>(
-  testContract,
+  {
+    contract: testContract,
+    trellisUrl: () => new URL("https://trellis.example"),
+  },
 );
 const generatedProviderProps: Omit<
   TrellisProviderProps<typeof testContract>,
   "children"
 > = {
-  app: generatedApp,
+  trellisApp: generatedApp,
+};
+
+// @ts-expect-error createTrellisApp requires an options object
+const invalidBareContractApp = createTrellisApp(testContract);
+
+const invalidProviderTrellisUrl: Omit<
+  TrellisProviderProps<typeof testContract>,
+  "children"
+> = {
+  trellisApp: app,
+  // @ts-expect-error provider no longer accepts top-level Trellis URLs
   trellisUrl: "https://trellis.example",
+};
+
+const invalidProviderAppProp: Omit<
+  TrellisProviderProps<typeof testContract>,
+  "children"
+> = {
+  // @ts-expect-error provider prop is named trellisApp, not app
+  app,
 };
 
 async function typecheckContextApi(): Promise<void> {
   const trellis: TrellisClientFor<typeof testContract> = app.getTrellis();
   const sameTrellis: TrellisClientFor<typeof testContract> = trellis;
   const connectionStatus: TrellisConnectionStatus = app.getConnection().status;
+  const appUrl: string | undefined = resolveTrellisAppUrl(app.trellisUrl);
   const statusPhase: TrellisConnectionStatus["phase"] = connectionStatus.phase;
   // @ts-expect-error context installation is not part of the public app API
   const privateInstaller = app._provide;
@@ -99,6 +128,7 @@ async function typecheckContextApi(): Promise<void> {
   void invalidStateList;
   void participantKind;
   void sameTrellis;
+  void appUrl;
   void statusPhase;
   void privateInstaller;
   void generatedConnectionStatus;
@@ -107,4 +137,7 @@ async function typecheckContextApi(): Promise<void> {
 
 void providerProps;
 void generatedProviderProps;
+void invalidBareContractApp;
+void invalidProviderTrellisUrl;
+void invalidProviderAppProp;
 void typecheckContextApi;

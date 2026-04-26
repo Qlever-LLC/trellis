@@ -10,6 +10,9 @@ and this project adheres to
 
 ### Changed
 
+- Changed `@qlever-llc/trellis-svelte` so `createTrellisApp(...)` owns both
+  the contract and Trellis URL and `TrellisProvider` takes a single
+  `trellisApp` prop instead of separate app and `trellisUrl` props.
 - Changed TypeScript contract authoring so manifest `exports` are declared in
   the `define*Contract(...)` callback body rather than the first-argument local
   registry, with registry-side `exports` now rejected at type and runtime

@@ -52,20 +52,11 @@ Svelte browser apps should split responsibilities between one app-local module
 and Svelte context.
 
 ```ts
-// src/lib/trellis-context.ts
+// src/lib/trellis.ts
+import { env } from "$env/dynamic/public";
 import { createTrellisApp } from "@qlever-llc/trellis-svelte";
 import type { MyAppClient } from "../../generated/js/sdks/my-app/client.ts";
 import contract from "$lib/contract";
-
-export const trellisApp = createTrellisApp<typeof contract, MyAppClient>(
-  contract,
-);
-
-// src/lib/trellis.ts
-import { env } from "$env/dynamic/public";
-import type { MyAppClient } from "../../generated/js/sdks/my-app/client.ts";
-import contract from "$lib/contract";
-import { trellisApp } from "$lib/trellis-context";
 
 function publicTrellisUrl(): string {
   return new URL(env.PUBLIC_TRELLIS_URL ?? "http://localhost:3000")
@@ -74,6 +65,10 @@ function publicTrellisUrl(): string {
 }
 
 export const trellisUrl = publicTrellisUrl();
+
+export const trellisApp = createTrellisApp<typeof contract, MyAppClient>(
+  { contract, trellisUrl },
+);
 
 export function getTrellis(): MyAppClient {
   return trellisApp.getTrellis();
@@ -90,10 +85,10 @@ Rules:
 - browser apps should bind `createTrellisApp` to the generated client facade
   from `prepare`, for example `MyAppClient` from
   `generated/js/sdks/my-app/client.ts`
-- in the common fixed-instance case, the app-local module should export the
-  fixed `trellisUrl` and the contract once
-- `TrellisProvider` should receive `trellisUrl` and an app-owned `trellisApp`
-  created with `createTrellisApp<typeof contract, MyAppClient>(contract)`
+- in the common fixed-instance case, the app-local module should resolve the
+  fixed `trellisUrl` once and pass it to `createTrellisApp`
+- `TrellisProvider` should receive an app-owned `trellisApp` created with
+  `createTrellisApp<typeof contract, MyAppClient>({ contract, trellisUrl })`
 - `trellis-svelte` should keep the connected Trellis client and reactive
   connection adapter scoped to that app context rather than exposing a synthetic
   runtime bag
@@ -113,9 +108,10 @@ Rules:
   such as `PUBLIC_TRELLIS_URL`; use `$env/dynamic/public` when local demos need
   a safe default and `$env/static/public` when the value must be fixed at build
   time
-- apps that let the user choose an auth instance at runtime may still need a
-  more dynamic sign-in path, but that should remain an explicit advanced pattern
-  rather than the default guide story
+- apps that let the user choose an auth instance at runtime should pass a
+  resolver to `createTrellisApp`, for example `trellisUrl: () => selectedUrl`,
+  and update that selected value before rendering `TrellisProvider`; this should
+  remain an explicit advanced pattern rather than the default guide story
 
 ## Local Workspace Alias Pattern
 

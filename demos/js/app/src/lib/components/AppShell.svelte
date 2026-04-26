@@ -2,7 +2,7 @@
   import { page } from "$app/state";
   import { resolve } from "$app/paths";
   import type { Snippet } from "svelte";
-  import { getConnection } from "$lib/trellis-context.ts";
+  import { getConnection } from "$lib/trellis";
 
   let { children }: { children: Snippet } = $props();
 
@@ -13,14 +13,14 @@
   const isConnected = $derived(status.phase === "connected");
 
   const workflowNav = [
-    { href: resolve("/dashboard"), label: "Field board", eyebrow: "Overview" },
-    { href: resolve("/assignments"), label: "Assignments", eyebrow: "Queue" },
-    { href: resolve("/sites"), label: "Sites", eyebrow: "Location intel" },
-    { href: resolve("/reports"), label: "Reports", eyebrow: "Closeout" },
-    { href: resolve("/evidence"), label: "Evidence", eyebrow: "Media intake" },
-    { href: resolve("/activity"), label: "Activity", eyebrow: "Live feed" },
+    { path: "/dashboard", label: "Field board", eyebrow: "Overview" },
+    { path: "/assignments", label: "Assignments", eyebrow: "Queue" },
+    { path: "/sites", label: "Sites", eyebrow: "Location intel" },
+    { path: "/reports", label: "Reports", eyebrow: "Closeout" },
+    { path: "/evidence", label: "Evidence", eyebrow: "Media intake" },
+    { path: "/activity", label: "Activity", eyebrow: "Live feed" },
     {
-      href: resolve("/workspace"),
+      path: "/workspace",
       label: "Workspace",
       eyebrow: "Operator state",
     },
@@ -75,15 +75,15 @@
 
         <div class="navbar-center hidden flex-1 lg:flex">
           <div class="join border border-base-300 bg-base-200/60 p-1">
-            {#each workflowNav.slice(0, 4) as item (item.href)}
+            {#each workflowNav.slice(0, 4) as item (item.path)}
               <a
                 class={{
                   "btn join-item btn-sm": true,
-                  "btn-neutral": currentPath === item.href,
-                  "btn-ghost": currentPath !== item.href,
+                  "btn-neutral": currentPath === resolve(item.path),
+                  "btn-ghost": currentPath !== resolve(item.path),
                 }}
-                href={item.href}
-                aria-current={currentPath === item.href ? "page" : undefined}
+                href={resolve(item.path)}
+                aria-current={currentPath === resolve(item.path) ? "page" : undefined}
                 >{item.label}</a
               >
             {/each}
@@ -142,12 +142,12 @@
 
           <nav aria-label="Field inspection workflow">
             <ul class="menu gap-1 rounded-box bg-base-200/55 p-1">
-              {#each workflowNav as item (item.href)}
+              {#each workflowNav as item (item.path)}
                 <li>
                   <a
-                    href={item.href}
-                    class={{ "menu-active": currentPath === item.href }}
-                    aria-current={currentPath === item.href
+                    href={resolve(item.path)}
+                    class={{ "menu-active": currentPath === resolve(item.path) }}
+                    aria-current={currentPath === resolve(item.path)
                       ? "page"
                       : undefined}
                   >

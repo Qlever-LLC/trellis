@@ -30,6 +30,38 @@ export type TrellisContextClient = {
   readonly connection: TrellisConnection;
 };
 
+/** URL value accepted by a Trellis Svelte app owner. */
+export type TrellisAppUrl = string | URL;
+
+/**
+ * Trellis URL configuration for a Svelte app owner.
+ *
+ * A function resolver supports apps whose Trellis instance is selected at
+ * runtime. Returning `undefined` means no instance is currently available.
+ */
+export type TrellisAppUrlResolver =
+  | TrellisAppUrl
+  | (() => TrellisAppUrl | undefined);
+
+/** Options used to create a Trellis Svelte app owner. */
+export type CreateTrellisAppOptions<
+  TContract extends TrellisContractLike = TrellisContractLike,
+> = {
+  /** Contract used by this app context and by `TrellisProvider` connections. */
+  contract: TContract;
+
+  /** Trellis URL, or a resolver for runtime-selected Trellis URLs. */
+  trellisUrl: TrellisAppUrlResolver;
+};
+
+/** Resolves a Trellis app URL config to the string shape required by the client. */
+export function resolveTrellisAppUrl(
+  trellisUrl: TrellisAppUrlResolver,
+): string | undefined {
+  const resolved = typeof trellisUrl === "function" ? trellisUrl() : trellisUrl;
+  return resolved?.toString();
+}
+
 /** Svelte-reactive adapter around a framework-neutral Trellis connection. */
 export class SvelteTrellisConnection {
   #connection: TrellisConnection;
@@ -68,6 +100,7 @@ export type TrellisAppOwner<
   TContract extends TrellisContractLike = TrellisContractLike,
 > = {
   readonly contract: TContract;
+  readonly trellisUrl: TrellisAppUrlResolver;
   readonly [trellisAppOwnerBrand]: true;
 };
 
@@ -84,6 +117,9 @@ export interface TrellisApp<
   /** Contract used by this app context and by `TrellisProvider` connections. */
   readonly contract: TContract;
 
+  /** Trellis URL configuration used by `TrellisProvider` connections. */
+  readonly trellisUrl: TrellisAppUrlResolver;
+
   /** Returns the contract-typed connected Trellis client from Svelte context synchronously. */
   getTrellis(): TClient;
 
@@ -98,14 +134,17 @@ class TrellisAppImpl<
 > {
   readonly [trellisAppOwnerBrand] = true as const;
   readonly #contract: TContract;
+  readonly #trellisUrl: TrellisAppUrlResolver;
   readonly #getContext: () => TrellisAppContext<TClient>;
   readonly #setContext: (
     context: TrellisAppContext<TClient>,
   ) => TrellisAppContext<TClient>;
 
   /** Creates an app-scoped context owner for a specific Trellis contract. */
-  constructor(contract: TContract) {
+  constructor(options: CreateTrellisAppOptions<TContract>) {
+    const { contract, trellisUrl } = options;
     this.#contract = contract;
+    this.#trellisUrl = trellisUrl;
     const [getContext, setContext] = createContext<
       TrellisAppContext<TClient>
     >();
@@ -116,6 +155,11 @@ class TrellisAppImpl<
   /** Contract used by this app context and by `TrellisProvider` connections. */
   get contract(): TContract {
     return this.#contract;
+  }
+
+  /** Trellis URL configuration used by `TrellisProvider` connections. */
+  get trellisUrl(): TrellisAppUrlResolver {
+    return this.#trellisUrl;
   }
 
   /** Returns the contract-typed connected Trellis client from Svelte context synchronously. */
@@ -138,18 +182,18 @@ class TrellisAppImpl<
 }
 
 /**
- * Creates an app-scoped typed Svelte context owner for the given Trellis contract.
+ * Creates an app-scoped typed Svelte context owner for a Trellis contract and URL.
  *
  * The optional `TClient` type parameter is a type-only facade over the connected
- * runtime client. It should be a generated client facade for `contract`.
+ * runtime client. It should be a generated client facade for `options.contract`.
  */
 export function createTrellisApp<
   TContract extends TrellisContractLike,
   TClient extends TrellisContextClient = TrellisClientFor<TContract>,
 >(
-  contract: TContract,
+  options: CreateTrellisAppOptions<TContract>,
 ): TrellisApp<TContract, TClient> {
-  return new TrellisAppImpl<TContract, TClient>(contract);
+  return new TrellisAppImpl<TContract, TClient>(options);
 }
 
 function isTrellisAppImpl(

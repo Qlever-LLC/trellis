@@ -10,17 +10,14 @@
   } from "@qlever-llc/trellis";
   import { onMount } from "svelte";
   import type {
-    TrellisContextClient,
     TrellisContractLike,
   } from "../context.svelte.ts";
+  import { resolveTrellisAppUrl } from "../context.svelte.ts";
   import TrellisContextProvider from "./TrellisContextProvider.svelte";
   import type { TrellisProviderProps } from "./TrellisProvider.types.ts";
 
   const {
-    app,
-    contract: providedContract,
-    setTrellis,
-    trellisUrl,
+    trellisApp,
     auth,
     client,
     children,
@@ -31,12 +28,6 @@
 
   let trellis = $state<ConnectedTrellisClient<TContract> | null>(null);
   let connectError = $state<unknown>(null);
-
-  function setConnectedTrellisContext(
-    connected: TrellisContextClient,
-  ): TrellisContextClient {
-    return setTrellis?.(connected as ConnectedTrellisClient<TContract>) ?? connected;
-  }
 
   onMount(() => {
     let active = true;
@@ -56,9 +47,9 @@
     }
 
     const connectAuth = withBrowserAuthDefaults(auth);
-    const contract = providedContract ?? app?.contract;
-    if (!contract) {
-      connectError = new TypeError("Expected either contract or app");
+    const trellisUrl = resolveTrellisAppUrl(trellisApp.trellisUrl);
+    if (!trellisUrl) {
+      connectError = new TypeError("Expected trellisApp to resolve a Trellis URL");
       return;
     }
 
@@ -67,7 +58,7 @@
         const connected = await TrellisClient.connect({
           ...client,
           trellisUrl,
-          contract,
+          contract: trellisApp.contract,
           auth: connectAuth,
           onAuthRequired: onAuthRequired
             ? async (ctx) => {
@@ -102,8 +93,7 @@
 
 {#if trellis}
   <TrellisContextProvider
-    app={app ?? undefined}
-    setTrellis={setTrellis ? setConnectedTrellisContext : undefined}
+    {trellisApp}
     {trellis}
     {children}
   />

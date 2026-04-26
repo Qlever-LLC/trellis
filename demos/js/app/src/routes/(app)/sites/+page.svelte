@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { getTrellis } from "$lib/trellis-context.ts";
+  import { getTrellis } from "$lib/trellis";
 
   type SiteSummary = {
     siteId: string;
