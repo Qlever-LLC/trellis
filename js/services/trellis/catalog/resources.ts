@@ -607,13 +607,13 @@ export function getContractResourceSummary(
 ): {
   kvResources: number;
   storeResources: number;
-  streamsResources: number;
+  streamResources: number;
   jobsQueues: number;
 } {
   return {
     kvResources: getKvResourceRequests(contract).length,
     storeResources: getStoreResourceRequests(contract).length,
-    streamsResources: getStreamResourceRequests(contract).length,
+    streamResources: getStreamResourceRequests(contract).length,
     jobsQueues: getJobsQueueRequests(contract).length,
   };
 }

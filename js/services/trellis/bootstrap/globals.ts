@@ -8,27 +8,10 @@ import { trellisControlPlaneApi } from "./control_plane_api.ts";
 import {
   AuthBrowserFlowSchema,
   ConnectionSchema,
-  ContractApprovalRecordSchema,
-  ContractRecordSchema,
-  DeviceActivationRecordSchema,
-  DeviceActivationReviewRecordSchema,
-  DevicePortalSelectionSchema,
-  DeviceProfileSchema,
-  DeviceProvisioningSecretSchema,
-  DeviceSchema,
-  InstanceGrantPolicySchema,
-  LoginPortalDefaultSchema,
-  LoginPortalSelectionSchema,
   OAuthStateSchema,
   PendingAuthSchema,
-  PortalProfileSchema,
-  PortalSchema,
   type SentinelCreds,
   SentinelCredsSchema,
-  ServiceInstanceSchema,
-  ServiceProfileSchema,
-  SessionSchema,
-  UserProjectionSchema,
 } from "../state/schemas.ts";
 import { StoredStateEntrySchema } from "../state/model.ts";
 
@@ -60,6 +43,31 @@ export const logger = pino({
   base: { service: "trellis" },
 });
 
+const storageBootstrap = await import("./storage.ts");
+export const storage = storageBootstrap.storage;
+export const contractStorage = storageBootstrap.contractStorage;
+export const userStorage = storageBootstrap.userStorage;
+export const contractApprovalStorage = storageBootstrap.contractApprovalStorage;
+export const portalStorage = storageBootstrap.portalStorage;
+export const portalProfileStorage = storageBootstrap.portalProfileStorage;
+export const portalDefaultStorage = storageBootstrap.portalDefaultStorage;
+export const loginPortalSelectionStorage = storageBootstrap
+  .loginPortalSelectionStorage;
+export const devicePortalSelectionStorage = storageBootstrap
+  .devicePortalSelectionStorage;
+export const instanceGrantPolicyStorage = storageBootstrap
+  .instanceGrantPolicyStorage;
+export const serviceProfileStorage = storageBootstrap.serviceProfileStorage;
+export const serviceInstanceStorage = storageBootstrap.serviceInstanceStorage;
+export const deviceProfileStorage = storageBootstrap.deviceProfileStorage;
+export const deviceInstanceStorage = storageBootstrap.deviceInstanceStorage;
+export const deviceProvisioningSecretStorage = storageBootstrap
+  .deviceProvisioningSecretStorage;
+export const deviceActivationStorage = storageBootstrap.deviceActivationStorage;
+export const deviceActivationReviewStorage = storageBootstrap
+  .deviceActivationReviewStorage;
+export const sessionStorage = storageBootstrap.sessionStorage;
+
 const auth = await createAuth({ sessionKeySeed: config.sessionKeySeed });
 
 export const natsAuth = await connect({
@@ -76,21 +84,6 @@ export const natsTrellis = await connect({
   ),
   inboxPrefix: `_INBOX.${auth.sessionKey.slice(0, 16)}`,
 });
-
-const sessionKVResult = await TypedKV.open(
-  natsAuth,
-  "trellis_sessions",
-  SessionSchema,
-  {
-    history: 1,
-    ttl: config.ttlMs.sessions,
-  },
-);
-const sessionKVValue = sessionKVResult.take();
-if (isErr(sessionKVValue)) {
-  throw new Error(`Failed to open session KV: ${sessionKVValue.error.message}`);
-}
-export const sessionKV = sessionKVValue;
 
 const oauthStateKVResult = await TypedKV.open(
   natsAuth,
@@ -120,102 +113,6 @@ if (isErr(pendingAuthKVValue)) {
 }
 export const pendingAuthKV = pendingAuthKVValue;
 
-const contractApprovalsKVResult = await TypedKV.open(
-  natsAuth,
-  "trellis_contract_approvals",
-  ContractApprovalRecordSchema,
-  { history: 1, ttl: 0 },
-);
-const contractApprovalsKVValue = contractApprovalsKVResult.take();
-if (isErr(contractApprovalsKVValue)) {
-  throw new Error(
-    `Failed to open contract approvals KV: ${contractApprovalsKVValue.error.message}`,
-  );
-}
-export const contractApprovalsKV = contractApprovalsKVValue;
-
-const portalsKVResult = await TypedKV.open(
-  natsAuth,
-  "trellis_portals",
-  PortalSchema,
-  { history: 1, ttl: 0 },
-);
-const portalsKVValue = portalsKVResult.take();
-if (isErr(portalsKVValue)) {
-  throw new Error(`Failed to open portals KV: ${portalsKVValue.error.message}`);
-}
-export const portalsKV = portalsKVValue;
-
-const portalProfilesKVResult = await TypedKV.open(
-  natsAuth,
-  "trellis_portal_profiles",
-  PortalProfileSchema,
-  { history: 1, ttl: 0 },
-);
-const portalProfilesKVValue = portalProfilesKVResult.take();
-if (isErr(portalProfilesKVValue)) {
-  throw new Error(
-    `Failed to open portal profiles KV: ${portalProfilesKVValue.error.message}`,
-  );
-}
-export const portalProfilesKV = portalProfilesKVValue;
-
-const portalDefaultsKVResult = await TypedKV.open(
-  natsAuth,
-  "trellis_portal_defaults",
-  LoginPortalDefaultSchema,
-  { history: 1, ttl: 0 },
-);
-const portalDefaultsKVValue = portalDefaultsKVResult.take();
-if (isErr(portalDefaultsKVValue)) {
-  throw new Error(
-    `Failed to open portal defaults KV: ${portalDefaultsKVValue.error.message}`,
-  );
-}
-export const portalDefaultsKV = portalDefaultsKVValue;
-
-const loginPortalSelectionsKVResult = await TypedKV.open(
-  natsAuth,
-  "trellis_portal_login_selections",
-  LoginPortalSelectionSchema,
-  { history: 1, ttl: 0 },
-);
-const loginPortalSelectionsKVValue = loginPortalSelectionsKVResult.take();
-if (isErr(loginPortalSelectionsKVValue)) {
-  throw new Error(
-    `Failed to open login portal selections KV: ${loginPortalSelectionsKVValue.error.message}`,
-  );
-}
-export const loginPortalSelectionsKV = loginPortalSelectionsKVValue;
-
-const instanceGrantPoliciesKVResult = await TypedKV.open(
-  natsAuth,
-  "trellis_instance_grant_policies",
-  InstanceGrantPolicySchema,
-  { history: 1, ttl: 0 },
-);
-const instanceGrantPoliciesKVValue = instanceGrantPoliciesKVResult.take();
-if (isErr(instanceGrantPoliciesKVValue)) {
-  throw new Error(
-    `Failed to open instance grant policies KV: ${instanceGrantPoliciesKVValue.error.message}`,
-  );
-}
-export const instanceGrantPoliciesKV = instanceGrantPoliciesKVValue;
-
-const devicePortalSelectionsKVResult = await TypedKV.open(
-  natsAuth,
-  "trellis_portal_device_selections",
-  DevicePortalSelectionSchema,
-  { history: 1, ttl: 0 },
-);
-const devicePortalSelectionsKVValue = devicePortalSelectionsKVResult.take();
-if (isErr(devicePortalSelectionsKVValue)) {
-  throw new Error(
-    `Failed to open device portal selections KV: ${devicePortalSelectionsKVValue.error.message}`,
-  );
-}
-export const devicePortalSelectionsKV = devicePortalSelectionsKVValue;
-
 const browserFlowsKVResult = await TypedKV.open(
   natsAuth,
   "trellis_browser_flows",
@@ -230,77 +127,6 @@ if (isErr(browserFlowsKVValue)) {
 }
 export const browserFlowsKV = browserFlowsKVValue;
 
-const deviceProfilesKVResult = await TypedKV.open(
-  natsAuth,
-  "trellis_device_profiles_v2",
-  DeviceProfileSchema,
-  { history: 1, ttl: 0 },
-);
-const deviceProfilesKVValue = deviceProfilesKVResult.take();
-if (isErr(deviceProfilesKVValue)) {
-  throw new Error(
-    `Failed to open device profiles KV: ${deviceProfilesKVValue.error.message}`,
-  );
-}
-export const deviceProfilesKV = deviceProfilesKVValue;
-
-const deviceInstancesKVResult = await TypedKV.open(
-  natsAuth,
-  "trellis_device_instances_v2",
-  DeviceSchema,
-  { history: 1, ttl: 0 },
-);
-const deviceInstancesKVValue = deviceInstancesKVResult.take();
-if (isErr(deviceInstancesKVValue)) {
-  throw new Error(
-    `Failed to open device instances KV: ${deviceInstancesKVValue.error.message}`,
-  );
-}
-export const deviceInstancesKV = deviceInstancesKVValue;
-
-const deviceProvisioningSecretsKVResult = await TypedKV.open(
-  natsAuth,
-  "trellis_device_provisioning_secrets_v2",
-  DeviceProvisioningSecretSchema,
-  { history: 1, ttl: 0 },
-);
-const deviceProvisioningSecretsKVValue = deviceProvisioningSecretsKVResult
-  .take();
-if (isErr(deviceProvisioningSecretsKVValue)) {
-  throw new Error(
-    `Failed to open device provisioning secrets KV: ${deviceProvisioningSecretsKVValue.error.message}`,
-  );
-}
-export const deviceProvisioningSecretsKV = deviceProvisioningSecretsKVValue;
-
-const deviceActivationsKVResult = await TypedKV.open(
-  natsAuth,
-  "trellis_device_activations_v2",
-  DeviceActivationRecordSchema,
-  { history: 1, ttl: 0 },
-);
-const deviceActivationsKVValue = deviceActivationsKVResult.take();
-if (isErr(deviceActivationsKVValue)) {
-  throw new Error(
-    `Failed to open device activations KV: ${deviceActivationsKVValue.error.message}`,
-  );
-}
-export const deviceActivationsKV = deviceActivationsKVValue;
-
-const deviceActivationReviewsKVResult = await TypedKV.open(
-  natsAuth,
-  "trellis_device_activation_reviews_v2",
-  DeviceActivationReviewRecordSchema,
-  { history: 1, ttl: 0 },
-);
-const deviceActivationReviewsKVValue = deviceActivationReviewsKVResult.take();
-if (isErr(deviceActivationReviewsKVValue)) {
-  throw new Error(
-    `Failed to open device activation reviews KV: ${deviceActivationReviewsKVValue.error.message}`,
-  );
-}
-export const deviceActivationReviewsKV = deviceActivationReviewsKVValue;
-
 const connectionsKVResult = await TypedKV.open(
   natsAuth,
   "trellis_connections",
@@ -314,69 +140,6 @@ if (isErr(connectionsKVValue)) {
   );
 }
 export const connectionsKV = connectionsKVValue;
-
-const serviceProfilesKVResult = await TypedKV.open(
-  natsAuth,
-  "trellis_service_profiles",
-  ServiceProfileSchema,
-  {
-    history: 1,
-    ttl: 0,
-  },
-);
-const serviceProfilesKVValue = serviceProfilesKVResult.take();
-if (isErr(serviceProfilesKVValue)) {
-  throw new Error(
-    `Failed to open service profiles KV: ${serviceProfilesKVValue.error.message}`,
-  );
-}
-export const serviceProfilesKV = serviceProfilesKVValue;
-
-const serviceInstancesKVResult = await TypedKV.open(
-  natsAuth,
-  "trellis_service_instances",
-  ServiceInstanceSchema,
-  {
-    history: 1,
-    ttl: 0,
-  },
-);
-const serviceInstancesKVValue = serviceInstancesKVResult.take();
-if (isErr(serviceInstancesKVValue)) {
-  throw new Error(
-    `Failed to open service instances KV: ${serviceInstancesKVValue.error.message}`,
-  );
-}
-export const serviceInstancesKV = serviceInstancesKVValue;
-
-const contractsKVResult = await TypedKV.open(
-  natsAuth,
-  "trellis_contracts",
-  ContractRecordSchema,
-  {
-    history: 1,
-    ttl: 0,
-  },
-);
-const contractsKVValue = contractsKVResult.take();
-if (isErr(contractsKVValue)) {
-  throw new Error(
-    `Failed to open contracts KV: ${contractsKVValue.error.message}`,
-  );
-}
-export const contractsKV = contractsKVValue;
-
-const usersKVResult = await TypedKV.open(
-  natsAuth,
-  "trellis_users",
-  UserProjectionSchema,
-  { history: 1, ttl: 0 },
-);
-const usersKVValue = usersKVResult.take();
-if (isErr(usersKVValue)) {
-  throw new Error(`Failed to open users KV: ${usersKVValue.error.message}`);
-}
-export const usersKV = usersKVValue;
 
 const stateKVResult = await TypedKV.open(
   natsAuth,
@@ -427,4 +190,5 @@ export async function shutdownGlobals(): Promise<void> {
   if (!natsAuth.isClosed()) {
     await natsAuth.close();
   }
+  storage.client.close();
 }

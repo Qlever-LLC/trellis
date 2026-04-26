@@ -3,11 +3,11 @@ import { isErr, Result } from "@qlever-llc/result";
 
 import {
   browserFlowsKV,
-  deviceActivationReviewsKV,
-  deviceActivationsKV,
-  deviceInstancesKV,
-  deviceProfilesKV,
-  deviceProvisioningSecretsKV,
+  deviceActivationReviewStorage,
+  deviceActivationStorage,
+  deviceInstanceStorage,
+  deviceProfileStorage,
+  deviceProvisioningSecretStorage,
   logger,
   sentinelCreds,
   trellis,
@@ -52,9 +52,9 @@ type DeviceInstance = {
   state: "registered" | "activated" | "revoked" | "disabled";
   currentContractId?: string;
   currentContractDigest?: string;
-  createdAt: string | Date;
-  activatedAt: string | Date | null;
-  revokedAt: string | Date | null;
+  createdAt: string;
+  activatedAt: string | null;
+  revokedAt: string | null;
 };
 
 type DeviceProfile = {
@@ -173,47 +173,31 @@ async function loadDeviceActivationFlow(
 async function loadDeviceInstance(
   instanceId: string,
 ): Promise<DeviceInstance | null> {
-  const entry = await deviceInstancesKV.get(instanceId).take();
-  if (isErr(entry)) return null;
-  return entry.value as DeviceInstance;
+  return await deviceInstanceStorage.get(instanceId) ?? null;
 }
 
 async function loadDeviceProfile(
   profileId: string,
 ): Promise<DeviceProfile | null> {
-  const entry = await deviceProfilesKV.get(profileId).take();
-  if (isErr(entry)) return null;
-  return entry.value as DeviceProfile;
+  return await deviceProfileStorage.get(profileId) ?? null;
 }
 
 async function loadDeviceProvisioningSecret(
   instanceId: string,
 ): Promise<DeviceProvisioningSecret | null> {
-  const entry = await deviceProvisioningSecretsKV.get(instanceId).take();
-  if (isErr(entry)) return null;
-  return entry.value as DeviceProvisioningSecret;
+  return await deviceProvisioningSecretStorage.get(instanceId) ?? null;
 }
 
 async function loadDeviceActivation(
   instanceId: string,
 ): Promise<DeviceActivationRecord | null> {
-  const entry = await deviceActivationsKV.get(instanceId).take();
-  if (isErr(entry)) return null;
-  return entry.value as DeviceActivationRecord;
+  return await deviceActivationStorage.get(instanceId) ?? null;
 }
 
 async function findReviewByFlowId(
   flowId: string,
 ): Promise<DeviceActivationReviewRecord | null> {
-  const iter = await deviceActivationReviewsKV.keys(">").take();
-  if (isErr(iter)) return null;
-  for await (const key of iter) {
-    const entry = await deviceActivationReviewsKV.get(key).take();
-    if (isErr(entry)) continue;
-    const review = entry.value as unknown as DeviceActivationReviewRecord;
-    if (review.flowId === flowId) return review;
-  }
-  return null;
+  return await deviceActivationReviewStorage.getByFlowId(flowId) ?? null;
 }
 
 async function confirmationCodeFor(
@@ -273,7 +257,7 @@ async function activateInstance(args: {
   confirmationCode?: string;
 }> {
   const activatedAt = new Date().toISOString();
-  await deviceActivationsKV.put(args.instance.instanceId, {
+  await deviceActivationStorage.put({
     instanceId: args.instance.instanceId,
     publicIdentityKey: args.instance.publicIdentityKey,
     profileId: args.profile.profileId,
@@ -282,7 +266,7 @@ async function activateInstance(args: {
     activatedAt,
     revokedAt: null,
   });
-  await deviceInstancesKV.put(args.instance.instanceId, {
+  await deviceInstanceStorage.put({
     ...args.instance,
     state: "activated",
     activatedAt,
@@ -516,7 +500,7 @@ export function createActivateDeviceHandler() {
         requestedAt,
         decidedAt: null,
       };
-      await deviceActivationReviewsKV.put(review.reviewId, review);
+      await deviceActivationReviewStorage.put(review);
       await trellis.publish("Auth.DeviceActivationReviewRequested", {
         reviewId: review.reviewId,
         flowId: flow.flowId,
@@ -596,7 +580,7 @@ export function createGetDeviceConnectInfoHandler() {
       profile,
       contractDigest: req.contractDigest,
     });
-    await deviceInstancesKV.put(instance.instanceId, {
+    await deviceInstanceStorage.put({
       ...instance,
       currentContractId: connectInfo.contractId,
       currentContractDigest: connectInfo.contractDigest,

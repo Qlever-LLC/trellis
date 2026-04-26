@@ -2,18 +2,21 @@ import { assertEquals } from "@std/assert";
 import { trellisIdFromOriginId } from "@qlever-llc/trellis/auth";
 
 import { ContractStore } from "../../catalog/store.ts";
-import type { ContractApprovalRecord, PendingAuth } from "../../state/schemas.ts";
+import type {
+  ContractApprovalRecord,
+  PendingAuth,
+} from "../../state/schemas.ts";
 import { getApprovalResolutionErrorMessage } from "./approval_errors.ts";
 import {
   applyApprovalDecision,
   buildRedirectLocation,
   contractApprovalKey,
-  getCookie,
-  getApprovalResolutionBlocker,
   getApprovalResolution,
+  getApprovalResolutionBlocker,
+  getCookie,
   normalizeBuiltinPortalEntryUrl,
-  resolveLoginPortal,
   resolveDevicePortal,
+  resolveLoginPortal,
   shouldUseSecureOauthCookie,
 } from "./support.ts";
 
@@ -47,9 +50,12 @@ function storedAppApproval(args: {
 }
 
 Deno.test("buildRedirectLocation appends flowId in the query string", () => {
-  const location = buildRedirectLocation("http://localhost:5173/callback?redirectTo=%2Fprofile", {
-    flowId: "flow-123",
-  });
+  const location = buildRedirectLocation(
+    "http://localhost:5173/callback?redirectTo=%2Fprofile",
+    {
+      flowId: "flow-123",
+    },
+  );
 
   const parsed = new URL(location);
   assertEquals(parsed.pathname, "/callback");
@@ -101,7 +107,9 @@ Deno.test("getCookie ignores malformed percent-encoding", () => {
 
 Deno.test("getApprovalResolutionErrorMessage explains inactive contract dependencies", () => {
   const message = getApprovalResolutionErrorMessage(
-    new Error("Dependency 'jobs' references inactive contract 'trellis.jobs@v1'"),
+    new Error(
+      "Dependency 'jobs' references inactive contract 'trellis.jobs@v1'",
+    ),
   );
 
   assertEquals(
@@ -120,233 +128,313 @@ Deno.test("buildPortalFlowState maps browser flow records to typed states", asyn
     context: { subtitle: "Welcome back" },
   };
 
-  const choose = await buildPortalFlowState({
-    flowId: "flow-1",
-    flow: {
+  const choose = await buildPortalFlowState(
+    {
       flowId: "flow-1",
-      kind: "login" as const,
-      sessionKey: "A".repeat(43),
-      contract: { id: "trellis.console@v1", displayName: "Console", description: "Admin", format: "trellis.contract.v1", kind: "app" },
-      createdAt: now,
-      expiresAt: new Date(now.getTime() + 1_000),
-    },
-    app,
-    providers: [{ id: "github", displayName: "GitHub" }],
-  } satisfies Parameters<typeof buildPortalFlowState>[0]);
+      flow: {
+        flowId: "flow-1",
+        kind: "login" as const,
+        sessionKey: "A".repeat(43),
+        contract: {
+          id: "trellis.console@v1",
+          displayName: "Console",
+          description: "Admin",
+          format: "trellis.contract.v1",
+          kind: "app",
+        },
+        createdAt: now,
+        expiresAt: new Date(now.getTime() + 1_000),
+      },
+      app,
+      providers: [{ id: "github", displayName: "GitHub" }],
+    } satisfies Parameters<typeof buildPortalFlowState>[0],
+  );
   assertEquals(choose.status, "choose_provider");
   if (choose.status === "choose_provider") {
-    assertEquals((choose.app as { context?: unknown }).context, { subtitle: "Welcome back" });
+    assertEquals((choose.app as { context?: unknown }).context, {
+      subtitle: "Welcome back",
+    });
   }
 
-  const approval = await buildPortalFlowState({
-    flowId: "flow-2",
-    flow: {
+  const approval = await buildPortalFlowState(
+    {
       flowId: "flow-2",
-      kind: "login" as const,
-      sessionKey: "A".repeat(43),
-      authToken: "token",
-      contract: { id: "trellis.console@v1", displayName: "Console", description: "Admin", format: "trellis.contract.v1", kind: "app" },
-      createdAt: now,
-      expiresAt: new Date(now.getTime() + 1_000),
-    },
-    app,
-    providers: [{ id: "github", displayName: "GitHub" }],
-    resolution: {
-      plan: {
-        digest: "digest",
-        contract: { id: "trellis.console@v1", displayName: "Console", description: "Admin", format: "trellis.contract.v1", kind: "app" },
-        approval: {
-          contractId: "trellis.console@v1",
-          contractDigest: "digest",
+      flow: {
+        flowId: "flow-2",
+        kind: "login" as const,
+        sessionKey: "A".repeat(43),
+        authToken: "token",
+        contract: {
+          id: "trellis.console@v1",
           displayName: "Console",
           description: "Admin",
-          participantKind: "app",
-          capabilities: ["admin"],
+          format: "trellis.contract.v1",
+          kind: "app",
         },
-        publishSubjects: [],
-        subscribeSubjects: [],
+        createdAt: now,
+        expiresAt: new Date(now.getTime() + 1_000),
       },
-      trellisId: "trellis-123",
-      userOrigin: "github",
-      userId: "123",
-      userEmail: "user@example.com",
-      userName: "User",
-      existingProjection: null,
-      existingCapabilities: ["admin"],
-      effectiveCapabilities: ["admin"],
-      missingCapabilities: [],
-      matchedPolicies: [],
-      effectiveApproval: { kind: "none", answer: "none" },
-      storedApproval: null,
-    },
-  } satisfies Parameters<typeof buildPortalFlowState>[0]);
+      app,
+      providers: [{ id: "github", displayName: "GitHub" }],
+      resolution: {
+        plan: {
+          digest: "digest",
+          contract: {
+            id: "trellis.console@v1",
+            displayName: "Console",
+            description: "Admin",
+            format: "trellis.contract.v1",
+            kind: "app",
+          },
+          approval: {
+            contractId: "trellis.console@v1",
+            contractDigest: "digest",
+            displayName: "Console",
+            description: "Admin",
+            participantKind: "app",
+            capabilities: ["admin"],
+          },
+          publishSubjects: [],
+          subscribeSubjects: [],
+        },
+        trellisId: "trellis-123",
+        userOrigin: "github",
+        userId: "123",
+        userEmail: "user@example.com",
+        userName: "User",
+        existingProjection: null,
+        existingCapabilities: ["admin"],
+        effectiveCapabilities: ["admin"],
+        missingCapabilities: [],
+        matchedPolicies: [],
+        effectiveApproval: { kind: "none", answer: "none" },
+        storedApproval: null,
+      },
+    } satisfies Parameters<typeof buildPortalFlowState>[0],
+  );
   assertEquals(approval.status, "approval_required");
 
-  const denied = await buildPortalFlowState({
-    flowId: "flow-3",
-    flow: {
+  const denied = await buildPortalFlowState(
+    {
       flowId: "flow-3",
-      kind: "login" as const,
-      sessionKey: "A".repeat(43),
-      authToken: "token",
-      contract: { id: "trellis.console@v1", displayName: "Console", description: "Admin", format: "trellis.contract.v1", kind: "app" },
-      createdAt: now,
-      expiresAt: new Date(now.getTime() + 1_000),
-    },
-    app,
-    providers: [{ id: "github", displayName: "GitHub" }],
-    returnLocation: "http://localhost:5173/callback?flowId=flow-3",
-    resolution: {
-      plan: {
-        digest: "digest",
-        contract: { id: "trellis.console@v1", displayName: "Console", description: "Admin", format: "trellis.contract.v1", kind: "app" },
-        approval: {
-          contractId: "trellis.console@v1",
-          contractDigest: "digest",
+      flow: {
+        flowId: "flow-3",
+        kind: "login" as const,
+        sessionKey: "A".repeat(43),
+        authToken: "token",
+        contract: {
+          id: "trellis.console@v1",
           displayName: "Console",
           description: "Admin",
-          participantKind: "app",
-          capabilities: ["admin"],
+          format: "trellis.contract.v1",
+          kind: "app",
         },
-        publishSubjects: [],
-        subscribeSubjects: [],
+        createdAt: now,
+        expiresAt: new Date(now.getTime() + 1_000),
       },
-      trellisId: "trellis-123",
-      userOrigin: "github",
-      userId: "123",
-      userEmail: "user@example.com",
-      userName: "User",
-      existingProjection: null,
-      existingCapabilities: [],
-      effectiveCapabilities: [],
-      missingCapabilities: [],
-      matchedPolicies: [],
-      effectiveApproval: { kind: "stored_approval", answer: "denied" },
-      storedApproval: storedAppApproval({
-        userTrellisId: "trellis-123",
-        answer: "denied",
-        capabilities: ["admin"],
-        answeredAt: now,
-      }),
-    },
-  } satisfies Parameters<typeof buildPortalFlowState>[0]);
+      app,
+      providers: [{ id: "github", displayName: "GitHub" }],
+      returnLocation: "http://localhost:5173/callback?flowId=flow-3",
+      resolution: {
+        plan: {
+          digest: "digest",
+          contract: {
+            id: "trellis.console@v1",
+            displayName: "Console",
+            description: "Admin",
+            format: "trellis.contract.v1",
+            kind: "app",
+          },
+          approval: {
+            contractId: "trellis.console@v1",
+            contractDigest: "digest",
+            displayName: "Console",
+            description: "Admin",
+            participantKind: "app",
+            capabilities: ["admin"],
+          },
+          publishSubjects: [],
+          subscribeSubjects: [],
+        },
+        trellisId: "trellis-123",
+        userOrigin: "github",
+        userId: "123",
+        userEmail: "user@example.com",
+        userName: "User",
+        existingProjection: null,
+        existingCapabilities: [],
+        effectiveCapabilities: [],
+        missingCapabilities: [],
+        matchedPolicies: [],
+        effectiveApproval: { kind: "stored_approval", answer: "denied" },
+        storedApproval: storedAppApproval({
+          userTrellisId: "trellis-123",
+          answer: "denied",
+          capabilities: ["admin"],
+          answeredAt: now,
+        }),
+      },
+    } satisfies Parameters<typeof buildPortalFlowState>[0],
+  );
   assertEquals(denied.status, "approval_denied");
   if (denied.status === "approval_denied") {
-    assertEquals(denied.returnLocation, "http://localhost:5173/callback?flowId=flow-3");
+    assertEquals(
+      denied.returnLocation,
+      "http://localhost:5173/callback?flowId=flow-3",
+    );
   }
 
-  const insufficient = await buildPortalFlowState({
-    flowId: "flow-4",
-    flow: {
+  const insufficient = await buildPortalFlowState(
+    {
       flowId: "flow-4",
-      kind: "login" as const,
-      sessionKey: "A".repeat(43),
-      authToken: "token",
-      contract: { id: "trellis.console@v1", displayName: "Console", description: "Admin", format: "trellis.contract.v1", kind: "app" },
-      createdAt: now,
-      expiresAt: new Date(now.getTime() + 1_000),
-    },
-    app,
-    providers: [{ id: "github", displayName: "GitHub" }],
-    returnLocation: "http://localhost:5173/callback?flowId=flow-4",
-    resolution: {
-      plan: {
-        digest: "digest",
-        contract: { id: "trellis.console@v1", displayName: "Console", description: "Admin", format: "trellis.contract.v1", kind: "app" },
-        approval: {
-          contractId: "trellis.console@v1",
-          contractDigest: "digest",
+      flow: {
+        flowId: "flow-4",
+        kind: "login" as const,
+        sessionKey: "A".repeat(43),
+        authToken: "token",
+        contract: {
+          id: "trellis.console@v1",
           displayName: "Console",
           description: "Admin",
-          participantKind: "app",
-          capabilities: ["admin", "audit"],
+          format: "trellis.contract.v1",
+          kind: "app",
         },
-        publishSubjects: [],
-        subscribeSubjects: [],
+        createdAt: now,
+        expiresAt: new Date(now.getTime() + 1_000),
       },
-      trellisId: "trellis-123",
-      userOrigin: "github",
-      userId: "123",
-      userEmail: "user@example.com",
-      userName: "User",
-      existingProjection: null,
-      existingCapabilities: ["admin"],
-      effectiveCapabilities: ["admin"],
-      missingCapabilities: ["audit"],
-      matchedPolicies: [],
-      effectiveApproval: { kind: "none", answer: "none" },
-      storedApproval: null,
-    },
-  } satisfies Parameters<typeof buildPortalFlowState>[0]);
+      app,
+      providers: [{ id: "github", displayName: "GitHub" }],
+      returnLocation: "http://localhost:5173/callback?flowId=flow-4",
+      resolution: {
+        plan: {
+          digest: "digest",
+          contract: {
+            id: "trellis.console@v1",
+            displayName: "Console",
+            description: "Admin",
+            format: "trellis.contract.v1",
+            kind: "app",
+          },
+          approval: {
+            contractId: "trellis.console@v1",
+            contractDigest: "digest",
+            displayName: "Console",
+            description: "Admin",
+            participantKind: "app",
+            capabilities: ["admin", "audit"],
+          },
+          publishSubjects: [],
+          subscribeSubjects: [],
+        },
+        trellisId: "trellis-123",
+        userOrigin: "github",
+        userId: "123",
+        userEmail: "user@example.com",
+        userName: "User",
+        existingProjection: null,
+        existingCapabilities: ["admin"],
+        effectiveCapabilities: ["admin"],
+        missingCapabilities: ["audit"],
+        matchedPolicies: [],
+        effectiveApproval: { kind: "none", answer: "none" },
+        storedApproval: null,
+      },
+    } satisfies Parameters<typeof buildPortalFlowState>[0],
+  );
   assertEquals(insufficient.status, "insufficient_capabilities");
   if (insufficient.status === "insufficient_capabilities") {
-    assertEquals(insufficient.returnLocation, "http://localhost:5173/callback?flowId=flow-4");
+    assertEquals(
+      insufficient.returnLocation,
+      "http://localhost:5173/callback?flowId=flow-4",
+    );
   }
 
-  const redirect = await buildPortalFlowState({
-    flowId: "flow-5",
-    flow: {
+  const redirect = await buildPortalFlowState(
+    {
       flowId: "flow-5",
-      kind: "login" as const,
-      sessionKey: "A".repeat(43),
-      authToken: "token",
-      contract: { id: "trellis.console@v1", displayName: "Console", description: "Admin", format: "trellis.contract.v1", kind: "app" },
-      createdAt: now,
-      expiresAt: new Date(now.getTime() + 1_000),
-    },
-    app,
-    providers: [{ id: "github", displayName: "GitHub" }],
-    resolution: {
-      plan: {
-        digest: "digest",
-        contract: { id: "trellis.console@v1", displayName: "Console", description: "Admin", format: "trellis.contract.v1", kind: "app" },
-        approval: {
-          contractId: "trellis.console@v1",
-          contractDigest: "digest",
+      flow: {
+        flowId: "flow-5",
+        kind: "login" as const,
+        sessionKey: "A".repeat(43),
+        authToken: "token",
+        contract: {
+          id: "trellis.console@v1",
           displayName: "Console",
           description: "Admin",
-          participantKind: "app",
-          capabilities: ["admin"],
+          format: "trellis.contract.v1",
+          kind: "app",
         },
-        publishSubjects: [],
-        subscribeSubjects: [],
+        createdAt: now,
+        expiresAt: new Date(now.getTime() + 1_000),
       },
-      trellisId: "trellis-123",
-      userOrigin: "github",
-      userId: "123",
-      userEmail: "user@example.com",
-      userName: "User",
-      existingProjection: null,
-      existingCapabilities: ["admin"],
-      effectiveCapabilities: ["admin"],
-      missingCapabilities: [],
-      matchedPolicies: [],
-      effectiveApproval: { kind: "stored_approval", answer: "approved" },
-      storedApproval: storedAppApproval({
-        userTrellisId: "trellis-123",
-        answer: "approved",
-        capabilities: ["admin"],
-        answeredAt: now,
-      }),
-    },
-    redirectLocation: "http://localhost:5173/callback?flowId=flow-5",
-  } satisfies Parameters<typeof buildPortalFlowState>[0]);
+      app,
+      providers: [{ id: "github", displayName: "GitHub" }],
+      resolution: {
+        plan: {
+          digest: "digest",
+          contract: {
+            id: "trellis.console@v1",
+            displayName: "Console",
+            description: "Admin",
+            format: "trellis.contract.v1",
+            kind: "app",
+          },
+          approval: {
+            contractId: "trellis.console@v1",
+            contractDigest: "digest",
+            displayName: "Console",
+            description: "Admin",
+            participantKind: "app",
+            capabilities: ["admin"],
+          },
+          publishSubjects: [],
+          subscribeSubjects: [],
+        },
+        trellisId: "trellis-123",
+        userOrigin: "github",
+        userId: "123",
+        userEmail: "user@example.com",
+        userName: "User",
+        existingProjection: null,
+        existingCapabilities: ["admin"],
+        effectiveCapabilities: ["admin"],
+        missingCapabilities: [],
+        matchedPolicies: [],
+        effectiveApproval: { kind: "stored_approval", answer: "approved" },
+        storedApproval: storedAppApproval({
+          userTrellisId: "trellis-123",
+          answer: "approved",
+          capabilities: ["admin"],
+          answeredAt: now,
+        }),
+      },
+      redirectLocation: "http://localhost:5173/callback?flowId=flow-5",
+    } satisfies Parameters<typeof buildPortalFlowState>[0],
+  );
   assertEquals(redirect.status, "redirect");
 
-  const expired = await buildPortalFlowState({
-    flowId: "flow-6",
-    flow: {
+  const expired = await buildPortalFlowState(
+    {
       flowId: "flow-6",
-      kind: "login" as const,
-      sessionKey: "A".repeat(43),
-      contract: { id: "trellis.console@v1", displayName: "Console", description: "Admin", format: "trellis.contract.v1", kind: "app" },
-      createdAt: new Date(now.getTime() - 2_000),
-      expiresAt: new Date(now.getTime() - 1_000),
-    },
-    app,
-    providers: [{ id: "github", displayName: "GitHub" }],
-    now,
-  } satisfies Parameters<typeof buildPortalFlowState>[0]);
+      flow: {
+        flowId: "flow-6",
+        kind: "login" as const,
+        sessionKey: "A".repeat(43),
+        contract: {
+          id: "trellis.console@v1",
+          displayName: "Console",
+          description: "Admin",
+          format: "trellis.contract.v1",
+          kind: "app",
+        },
+        createdAt: new Date(now.getTime() - 2_000),
+        expiresAt: new Date(now.getTime() - 1_000),
+      },
+      app,
+      providers: [{ id: "github", displayName: "GitHub" }],
+      now,
+    } satisfies Parameters<typeof buildPortalFlowState>[0],
+  );
   assertEquals(expired.status, "expired");
 });
 
@@ -356,7 +444,13 @@ Deno.test("applyApprovalDecision returns a denied portal state immediately", asy
     resolution: {
       plan: {
         digest: "digest",
-        contract: { id: "trellis.console@v1", displayName: "Console", description: "Admin", format: "trellis.contract.v1", kind: "app" },
+        contract: {
+          id: "trellis.console@v1",
+          displayName: "Console",
+          description: "Admin",
+          format: "trellis.contract.v1",
+          kind: "app",
+        },
         approval: {
           contractId: "trellis.console@v1",
           contractDigest: "digest",
@@ -392,7 +486,13 @@ Deno.test("applyApprovalDecision returns a denied portal state immediately", asy
       kind: "login",
       sessionKey: "A".repeat(43),
       authToken: "token",
-      contract: { id: "trellis.console@v1", displayName: "Console", description: "Admin", format: "trellis.contract.v1", kind: "app" },
+      contract: {
+        id: "trellis.console@v1",
+        displayName: "Console",
+        description: "Admin",
+        format: "trellis.contract.v1",
+        kind: "app",
+      },
       createdAt: now,
       expiresAt: new Date(now.getTime() + 1_000),
     },
@@ -463,9 +563,12 @@ Deno.test("getApprovalResolution uses injected loaders", async () => {
   });
 
   assertEquals(resolution.trellisId, expectedTrellisId);
-  assertEquals(requestedApprovalKey, contractApprovalKey(expectedTrellisId, resolution.plan.digest));
+  assertEquals(
+    requestedApprovalKey,
+    contractApprovalKey(expectedTrellisId, resolution.plan.digest),
+  );
   assertEquals(resolution.missingCapabilities, ["audit"]);
-   assertEquals(resolution.existingProjection, {
+  assertEquals(resolution.existingProjection, {
     origin: "github",
     id: "123",
     name: "User",
@@ -510,11 +613,12 @@ Deno.test("getApprovalResolution prefers matching instance grant policy over sto
   };
 
   const resolution = await getApprovalResolution(contractStore, pending, {
-    loadStoredApproval: async () => storedAppApproval({
-      userTrellisId: "trellis-123",
-      answer: "denied",
-      capabilities: ["audit"],
-    }),
+    loadStoredApproval: async () =>
+      storedAppApproval({
+        userTrellisId: "trellis-123",
+        answer: "denied",
+        capabilities: ["audit"],
+      }),
     loadUserProjection: async () => ({
       origin: "github",
       id: "123",
@@ -647,49 +751,52 @@ Deno.test("getApprovalResolutionBlocker rejects inactive users from completing b
 Deno.test("shouldUseSecureOauthCookie logs through injected logger", () => {
   const warnings: Array<{ origin: string; message: string }> = [];
 
-  const secure = shouldUseSecureOauthCookie({
-    logLevel: "info",
-    port: 3000,
-    instanceName: "Trellis Test",
-    web: {
-      origins: ["http://localhost:3000"],
-      publicOrigin: "://bad-origin",
-      allowInsecureOrigins: [],
-    },
-    httpRateLimit: { windowMs: 60_000, max: 60 },
-    ttlMs: {
-      sessions: 1,
-      oauth: 1,
-      deviceFlow: 1,
-      pendingAuth: 1,
-      connections: 1,
-      natsJwt: 1,
-    },
-    nats: {
-      servers: "nats://localhost:4222",
-      trellis: { credsPath: "/tmp/trellis.creds" },
-      auth: { credsPath: "/tmp/auth.creds" },
-      sentinelCredsPath: "/tmp/sentinel.creds",
-      authCallout: {
-        issuer: { nkey: "issuer", signing: "signing" },
-        target: { nkey: "target", signing: "signing" },
-        sxSeed: "seed",
+  const secure = shouldUseSecureOauthCookie(
+    {
+      logLevel: "info",
+      port: 3000,
+      instanceName: "Trellis Test",
+      web: {
+        origins: ["http://localhost:3000"],
+        publicOrigin: "://bad-origin",
+        allowInsecureOrigins: [],
+      },
+      httpRateLimit: { windowMs: 60_000, max: 60 },
+      ttlMs: {
+        sessions: 1,
+        oauth: 1,
+        deviceFlow: 1,
+        pendingAuth: 1,
+        connections: 1,
+        natsJwt: 1,
+      },
+      nats: {
+        servers: "nats://localhost:4222",
+        trellis: { credsPath: "/tmp/trellis.creds" },
+        auth: { credsPath: "/tmp/auth.creds" },
+        sentinelCredsPath: "/tmp/sentinel.creds",
+        authCallout: {
+          issuer: { nkey: "issuer", signing: "signing" },
+          target: { nkey: "target", signing: "signing" },
+          sxSeed: "seed",
+        },
+      },
+      sessionKeySeed: "seed",
+      client: { natsServers: ["nats://localhost:4222"] },
+      oauth: {
+        redirectBase: "http://localhost:3000",
+        alwaysShowProviderChooser: false,
+        providers: {},
+      },
+    } satisfies Parameters<typeof shouldUseSecureOauthCookie>[0],
+    {
+      logger: {
+        warn: (context, message) => {
+          warnings.push({ origin: String(context.origin), message });
+        },
       },
     },
-    sessionKeySeed: "seed",
-    client: { natsServers: ["nats://localhost:4222"] },
-    oauth: {
-      redirectBase: "http://localhost:3000",
-      alwaysShowProviderChooser: false,
-      providers: {},
-    },
-  } satisfies Parameters<typeof shouldUseSecureOauthCookie>[0], {
-    logger: {
-      warn: (context, message) => {
-        warnings.push({ origin: String(context.origin), message });
-      },
-    },
-  });
+  );
 
   assertEquals(secure, true);
   assertEquals(warnings, [{
@@ -699,211 +806,221 @@ Deno.test("shouldUseSecureOauthCookie logs through injected logger", () => {
 });
 
 Deno.test("shouldUseSecureOauthCookie allows insecure cookies on plain-http loopback origins", () => {
-  const secure = shouldUseSecureOauthCookie({
-    logLevel: "info",
-    port: 3000,
-    instanceName: "Trellis Test",
-    web: {
-      origins: ["http://localhost:3000"],
-      publicOrigin: "http://localhost:3000",
-      allowInsecureOrigins: [],
-    },
-    httpRateLimit: { windowMs: 60_000, max: 60 },
-    ttlMs: {
-      sessions: 1,
-      oauth: 1,
-      deviceFlow: 1,
-      pendingAuth: 1,
-      connections: 1,
-      natsJwt: 1,
-    },
-    nats: {
-      servers: "nats://localhost:4222",
-      trellis: { credsPath: "/tmp/trellis.creds" },
-      auth: { credsPath: "/tmp/auth.creds" },
-      sentinelCredsPath: "/tmp/sentinel.creds",
-      authCallout: {
-        issuer: { nkey: "issuer", signing: "signing" },
-        target: { nkey: "target", signing: "signing" },
-        sxSeed: "seed",
+  const secure = shouldUseSecureOauthCookie(
+    {
+      logLevel: "info",
+      port: 3000,
+      instanceName: "Trellis Test",
+      web: {
+        origins: ["http://localhost:3000"],
+        publicOrigin: "http://localhost:3000",
+        allowInsecureOrigins: [],
       },
-    },
-    sessionKeySeed: "seed",
-    client: { natsServers: ["nats://localhost:4222"] },
-    oauth: {
-      redirectBase: "http://localhost:3000",
-      alwaysShowProviderChooser: false,
-      providers: {},
-    },
-  } satisfies Parameters<typeof shouldUseSecureOauthCookie>[0]);
+      httpRateLimit: { windowMs: 60_000, max: 60 },
+      ttlMs: {
+        sessions: 1,
+        oauth: 1,
+        deviceFlow: 1,
+        pendingAuth: 1,
+        connections: 1,
+        natsJwt: 1,
+      },
+      nats: {
+        servers: "nats://localhost:4222",
+        trellis: { credsPath: "/tmp/trellis.creds" },
+        auth: { credsPath: "/tmp/auth.creds" },
+        sentinelCredsPath: "/tmp/sentinel.creds",
+        authCallout: {
+          issuer: { nkey: "issuer", signing: "signing" },
+          target: { nkey: "target", signing: "signing" },
+          sxSeed: "seed",
+        },
+      },
+      sessionKeySeed: "seed",
+      client: { natsServers: ["nats://localhost:4222"] },
+      oauth: {
+        redirectBase: "http://localhost:3000",
+        alwaysShowProviderChooser: false,
+        providers: {},
+      },
+    } satisfies Parameters<typeof shouldUseSecureOauthCookie>[0],
+  );
 
   assertEquals(secure, false);
 });
 
 Deno.test("shouldUseSecureOauthCookie keeps plain-http non-loopback OAuth cookies secure by default", () => {
-  const secure = shouldUseSecureOauthCookie({
-    logLevel: "info",
-    port: 3000,
-    instanceName: "Trellis Test",
-    web: {
-      origins: ["http://private.example:3000"],
-      publicOrigin: "http://private.example:3000",
-      allowInsecureOrigins: [],
-    },
-    httpRateLimit: { windowMs: 60_000, max: 60 },
-    ttlMs: {
-      sessions: 1,
-      oauth: 1,
-      deviceFlow: 1,
-      pendingAuth: 1,
-      connections: 1,
-      natsJwt: 1,
-    },
-    nats: {
-      servers: "nats://localhost:4222",
-      trellis: { credsPath: "/tmp/trellis.creds" },
-      auth: { credsPath: "/tmp/auth.creds" },
-      sentinelCredsPath: "/tmp/sentinel.creds",
-      authCallout: {
-        issuer: { nkey: "issuer", signing: "signing" },
-        target: { nkey: "target", signing: "signing" },
-        sxSeed: "seed",
+  const secure = shouldUseSecureOauthCookie(
+    {
+      logLevel: "info",
+      port: 3000,
+      instanceName: "Trellis Test",
+      web: {
+        origins: ["http://private.example:3000"],
+        publicOrigin: "http://private.example:3000",
+        allowInsecureOrigins: [],
       },
-    },
-    sessionKeySeed: "seed",
-    client: { natsServers: ["nats://localhost:4222"] },
-    oauth: {
-      redirectBase: "http://private.example:3000",
-      alwaysShowProviderChooser: false,
-      providers: {},
-    },
-  } satisfies Parameters<typeof shouldUseSecureOauthCookie>[0]);
+      httpRateLimit: { windowMs: 60_000, max: 60 },
+      ttlMs: {
+        sessions: 1,
+        oauth: 1,
+        deviceFlow: 1,
+        pendingAuth: 1,
+        connections: 1,
+        natsJwt: 1,
+      },
+      nats: {
+        servers: "nats://localhost:4222",
+        trellis: { credsPath: "/tmp/trellis.creds" },
+        auth: { credsPath: "/tmp/auth.creds" },
+        sentinelCredsPath: "/tmp/sentinel.creds",
+        authCallout: {
+          issuer: { nkey: "issuer", signing: "signing" },
+          target: { nkey: "target", signing: "signing" },
+          sxSeed: "seed",
+        },
+      },
+      sessionKeySeed: "seed",
+      client: { natsServers: ["nats://localhost:4222"] },
+      oauth: {
+        redirectBase: "http://private.example:3000",
+        alwaysShowProviderChooser: false,
+        providers: {},
+      },
+    } satisfies Parameters<typeof shouldUseSecureOauthCookie>[0],
+  );
 
   assertEquals(secure, true);
 });
 
 Deno.test("shouldUseSecureOauthCookie honors exact insecure cookie origin allowlist", () => {
-  const secure = shouldUseSecureOauthCookie({
-    logLevel: "info",
-    port: 3000,
-    instanceName: "Trellis Test",
-    web: {
-      origins: ["http://private.example:3000"],
-      publicOrigin: "http://private.example:3000",
-      allowInsecureOrigins: ["http://private.example:3000"],
-    },
-    httpRateLimit: { windowMs: 60_000, max: 60 },
-    ttlMs: {
-      sessions: 1,
-      oauth: 1,
-      deviceFlow: 1,
-      pendingAuth: 1,
-      connections: 1,
-      natsJwt: 1,
-    },
-    nats: {
-      servers: "nats://localhost:4222",
-      trellis: { credsPath: "/tmp/trellis.creds" },
-      auth: { credsPath: "/tmp/auth.creds" },
-      sentinelCredsPath: "/tmp/sentinel.creds",
-      authCallout: {
-        issuer: { nkey: "issuer", signing: "signing" },
-        target: { nkey: "target", signing: "signing" },
-        sxSeed: "seed",
+  const secure = shouldUseSecureOauthCookie(
+    {
+      logLevel: "info",
+      port: 3000,
+      instanceName: "Trellis Test",
+      web: {
+        origins: ["http://private.example:3000"],
+        publicOrigin: "http://private.example:3000",
+        allowInsecureOrigins: ["http://private.example:3000"],
       },
-    },
-    sessionKeySeed: "seed",
-    client: { natsServers: ["nats://localhost:4222"] },
-    oauth: {
-      redirectBase: "http://private.example:3000",
-      alwaysShowProviderChooser: false,
-      providers: {},
-    },
-  } satisfies Parameters<typeof shouldUseSecureOauthCookie>[0]);
+      httpRateLimit: { windowMs: 60_000, max: 60 },
+      ttlMs: {
+        sessions: 1,
+        oauth: 1,
+        deviceFlow: 1,
+        pendingAuth: 1,
+        connections: 1,
+        natsJwt: 1,
+      },
+      nats: {
+        servers: "nats://localhost:4222",
+        trellis: { credsPath: "/tmp/trellis.creds" },
+        auth: { credsPath: "/tmp/auth.creds" },
+        sentinelCredsPath: "/tmp/sentinel.creds",
+        authCallout: {
+          issuer: { nkey: "issuer", signing: "signing" },
+          target: { nkey: "target", signing: "signing" },
+          sxSeed: "seed",
+        },
+      },
+      sessionKeySeed: "seed",
+      client: { natsServers: ["nats://localhost:4222"] },
+      oauth: {
+        redirectBase: "http://private.example:3000",
+        alwaysShowProviderChooser: false,
+        providers: {},
+      },
+    } satisfies Parameters<typeof shouldUseSecureOauthCookie>[0],
+  );
 
   assertEquals(secure, false);
 });
 
 Deno.test("shouldUseSecureOauthCookie keeps non-loopback plain-http cookies secure when allowlist does not exactly match", () => {
-  const secure = shouldUseSecureOauthCookie({
-    logLevel: "info",
-    port: 3000,
-    instanceName: "Trellis Test",
-    web: {
-      origins: ["http://private.example:3000"],
-      publicOrigin: "http://private.example:3000",
-      allowInsecureOrigins: ["http://private.example:4000"],
-    },
-    httpRateLimit: { windowMs: 60_000, max: 60 },
-    ttlMs: {
-      sessions: 1,
-      oauth: 1,
-      deviceFlow: 1,
-      pendingAuth: 1,
-      connections: 1,
-      natsJwt: 1,
-    },
-    nats: {
-      servers: "nats://localhost:4222",
-      trellis: { credsPath: "/tmp/trellis.creds" },
-      auth: { credsPath: "/tmp/auth.creds" },
-      sentinelCredsPath: "/tmp/sentinel.creds",
-      authCallout: {
-        issuer: { nkey: "issuer", signing: "signing" },
-        target: { nkey: "target", signing: "signing" },
-        sxSeed: "seed",
+  const secure = shouldUseSecureOauthCookie(
+    {
+      logLevel: "info",
+      port: 3000,
+      instanceName: "Trellis Test",
+      web: {
+        origins: ["http://private.example:3000"],
+        publicOrigin: "http://private.example:3000",
+        allowInsecureOrigins: ["http://private.example:4000"],
       },
-    },
-    sessionKeySeed: "seed",
-    client: { natsServers: ["nats://localhost:4222"] },
-    oauth: {
-      redirectBase: "http://private.example:3000",
-      alwaysShowProviderChooser: false,
-      providers: {},
-    },
-  } satisfies Parameters<typeof shouldUseSecureOauthCookie>[0]);
+      httpRateLimit: { windowMs: 60_000, max: 60 },
+      ttlMs: {
+        sessions: 1,
+        oauth: 1,
+        deviceFlow: 1,
+        pendingAuth: 1,
+        connections: 1,
+        natsJwt: 1,
+      },
+      nats: {
+        servers: "nats://localhost:4222",
+        trellis: { credsPath: "/tmp/trellis.creds" },
+        auth: { credsPath: "/tmp/auth.creds" },
+        sentinelCredsPath: "/tmp/sentinel.creds",
+        authCallout: {
+          issuer: { nkey: "issuer", signing: "signing" },
+          target: { nkey: "target", signing: "signing" },
+          sxSeed: "seed",
+        },
+      },
+      sessionKeySeed: "seed",
+      client: { natsServers: ["nats://localhost:4222"] },
+      oauth: {
+        redirectBase: "http://private.example:3000",
+        alwaysShowProviderChooser: false,
+        providers: {},
+      },
+    } satisfies Parameters<typeof shouldUseSecureOauthCookie>[0],
+  );
 
   assertEquals(secure, true);
 });
 
 Deno.test("shouldUseSecureOauthCookie keeps https OAuth cookies secure", () => {
-  const secure = shouldUseSecureOauthCookie({
-    logLevel: "info",
-    port: 3000,
-    instanceName: "Trellis Test",
-    web: {
-      origins: ["https://phi.oats"],
-      publicOrigin: "https://phi.oats",
-      allowInsecureOrigins: [],
-    },
-    httpRateLimit: { windowMs: 60_000, max: 60 },
-    ttlMs: {
-      sessions: 1,
-      oauth: 1,
-      deviceFlow: 1,
-      pendingAuth: 1,
-      connections: 1,
-      natsJwt: 1,
-    },
-    nats: {
-      servers: "nats://localhost:4222",
-      trellis: { credsPath: "/tmp/trellis.creds" },
-      auth: { credsPath: "/tmp/auth.creds" },
-      sentinelCredsPath: "/tmp/sentinel.creds",
-      authCallout: {
-        issuer: { nkey: "issuer", signing: "signing" },
-        target: { nkey: "target", signing: "signing" },
-        sxSeed: "seed",
+  const secure = shouldUseSecureOauthCookie(
+    {
+      logLevel: "info",
+      port: 3000,
+      instanceName: "Trellis Test",
+      web: {
+        origins: ["https://phi.oats"],
+        publicOrigin: "https://phi.oats",
+        allowInsecureOrigins: [],
       },
-    },
-    sessionKeySeed: "seed",
-    client: { natsServers: ["nats://localhost:4222"] },
-    oauth: {
-      redirectBase: "https://phi.oats",
-      alwaysShowProviderChooser: false,
-      providers: {},
-    },
-  } satisfies Parameters<typeof shouldUseSecureOauthCookie>[0]);
+      httpRateLimit: { windowMs: 60_000, max: 60 },
+      ttlMs: {
+        sessions: 1,
+        oauth: 1,
+        deviceFlow: 1,
+        pendingAuth: 1,
+        connections: 1,
+        natsJwt: 1,
+      },
+      nats: {
+        servers: "nats://localhost:4222",
+        trellis: { credsPath: "/tmp/trellis.creds" },
+        auth: { credsPath: "/tmp/auth.creds" },
+        sentinelCredsPath: "/tmp/sentinel.creds",
+        authCallout: {
+          issuer: { nkey: "issuer", signing: "signing" },
+          target: { nkey: "target", signing: "signing" },
+          sxSeed: "seed",
+        },
+      },
+      sessionKeySeed: "seed",
+      client: { natsServers: ["nats://localhost:4222"] },
+      oauth: {
+        redirectBase: "https://phi.oats",
+        alwaysShowProviderChooser: false,
+        providers: {},
+      },
+    } satisfies Parameters<typeof shouldUseSecureOauthCookie>[0],
+  );
 
   assertEquals(secure, true);
 });

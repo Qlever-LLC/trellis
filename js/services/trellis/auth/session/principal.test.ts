@@ -2,6 +2,11 @@ import { assertEquals } from "@std/assert";
 import { AsyncResult, err, ok, UnexpectedError } from "@qlever-llc/result";
 
 import { resolveSessionPrincipal } from "./principal.ts";
+import {
+  initializeTrellisStorageSchema,
+  openTrellisStorageDb,
+} from "../../storage/db.ts";
+import { SqlContractApprovalRepository } from "../storage.ts";
 
 function kvFromMap<T>(values: Record<string, T>) {
   return {
@@ -35,6 +40,18 @@ function kvFromMap<T>(values: Record<string, T>) {
   };
 }
 
+function loadProjectionFromMap<T>(values: Record<string, T>) {
+  return async (trellisId: string): Promise<T | null> => {
+    return values[trellisId] ?? null;
+  };
+}
+
+function storageFromMap<T>(values: Record<string, T>) {
+  return {
+    get: async (key: string): Promise<T | undefined> => values[key],
+  };
+}
+
 Deno.test("resolveSessionPrincipal accepts activated device sessions", async () => {
   const result = await resolveSessionPrincipal(
     {
@@ -54,8 +71,7 @@ Deno.test("resolveSessionPrincipal accepts activated device sessions", async () 
     },
     "A".repeat(43),
     {
-      servicesKV: kvFromMap({}),
-      deviceActivationsKV: kvFromMap({
+      deviceActivationStorage: storageFromMap({
         "dev-1": {
           instanceId: "dev-1",
           publicIdentityKey: "A".repeat(43),
@@ -65,13 +81,13 @@ Deno.test("resolveSessionPrincipal accepts activated device sessions", async () 
           revokedAt: null,
         },
       }),
-      deviceProfilesKV: kvFromMap({
+      deviceProfileStorage: storageFromMap({
         "drive.default": {
           profileId: "drive.default",
           disabled: false,
         },
       }),
-      usersKV: kvFromMap({}),
+      loadUserProjection: loadProjectionFromMap({}),
     },
   );
 
@@ -102,8 +118,7 @@ Deno.test("resolveSessionPrincipal rejects revoked device sessions", async () =>
     },
     "A".repeat(43),
     {
-      servicesKV: kvFromMap({}),
-      deviceActivationsKV: kvFromMap({
+      deviceActivationStorage: storageFromMap({
         "dev-1": {
           instanceId: "dev-1",
           publicIdentityKey: "A".repeat(43),
@@ -113,13 +128,13 @@ Deno.test("resolveSessionPrincipal rejects revoked device sessions", async () =>
           revokedAt: new Date().toISOString(),
         },
       }),
-      deviceProfilesKV: kvFromMap({
+      deviceProfileStorage: storageFromMap({
         "drive.default": {
           profileId: "drive.default",
           disabled: false,
         },
       }),
-      usersKV: kvFromMap({}),
+      loadUserProjection: loadProjectionFromMap({}),
     },
   );
 
@@ -148,8 +163,7 @@ Deno.test("resolveSessionPrincipal uses the activation matching session.publicId
     },
     "B".repeat(43),
     {
-      servicesKV: kvFromMap({}),
-      deviceActivationsKV: kvFromMap({
+      deviceActivationStorage: storageFromMap({
         "dev-old": {
           instanceId: "dev-old",
           publicIdentityKey: "A".repeat(43),
@@ -167,13 +181,13 @@ Deno.test("resolveSessionPrincipal uses the activation matching session.publicId
           revokedAt: null,
         },
       }),
-      deviceProfilesKV: kvFromMap({
+      deviceProfileStorage: storageFromMap({
         "drive.default": {
           profileId: "drive.default",
           disabled: false,
         },
       }),
-      usersKV: kvFromMap({}),
+      loadUserProjection: loadProjectionFromMap({}),
     },
   );
 
@@ -199,8 +213,7 @@ Deno.test("resolveSessionPrincipal does not borrow another activation for the sa
     },
     "B".repeat(43),
     {
-      servicesKV: kvFromMap({}),
-      deviceActivationsKV: kvFromMap({
+      deviceActivationStorage: storageFromMap({
         "dev-other": {
           instanceId: "dev-other",
           publicIdentityKey: "A".repeat(43),
@@ -210,13 +223,13 @@ Deno.test("resolveSessionPrincipal does not borrow another activation for the sa
           revokedAt: null,
         },
       }),
-      deviceProfilesKV: kvFromMap({
+      deviceProfileStorage: storageFromMap({
         "drive.default": {
           profileId: "drive.default",
           disabled: false,
         },
       }),
-      usersKV: kvFromMap({}),
+      loadUserProjection: loadProjectionFromMap({}),
     },
   );
 
@@ -245,8 +258,7 @@ Deno.test("resolveSessionPrincipal rejects device sessions when the public ident
     },
     "A".repeat(43),
     {
-      servicesKV: kvFromMap({}),
-      deviceActivationsKV: kvFromMap({
+      deviceActivationStorage: storageFromMap({
         "dev-1": {
           instanceId: "dev-1",
           publicIdentityKey: "B".repeat(43),
@@ -256,19 +268,102 @@ Deno.test("resolveSessionPrincipal rejects device sessions when the public ident
           revokedAt: null,
         },
       }),
-      deviceProfilesKV: kvFromMap({
+      deviceProfileStorage: storageFromMap({
         "drive.default": {
           profileId: "drive.default",
           disabled: false,
         },
       }),
-      usersKV: kvFromMap({}),
+      loadUserProjection: loadProjectionFromMap({}),
     },
   );
 
   assertEquals(result.ok, false);
   if (!result.ok) {
     assertEquals(result.error.reason, "device_activation_revoked");
+  }
+});
+
+Deno.test("resolveSessionPrincipal looks up SQL approvals for dotted user ids", async () => {
+  const dbPath = await Deno.makeTempFile({
+    dir: "/tmp",
+    prefix: "trellis-principal-",
+    suffix: ".sqlite",
+  });
+  const storage = await openTrellisStorageDb(dbPath);
+
+  try {
+    await initializeTrellisStorageSchema(storage);
+    const approvals = new SqlContractApprovalRepository(storage.db);
+    const userTrellisId = "github.user.with.dots";
+    await approvals.put({
+      userTrellisId,
+      origin: "github",
+      id: "user.with.dots",
+      answer: "approved",
+      answeredAt: new Date("2026-04-10T00:00:00.000Z"),
+      updatedAt: new Date("2026-04-11T00:00:00.000Z"),
+      approval: {
+        contractDigest: "digest-agent",
+        contractId: "trellis.agent@v1",
+        displayName: "Trellis Agent",
+        description: "Local delegated tooling",
+        participantKind: "agent",
+        capabilities: ["jobs.read"],
+      },
+      publishSubjects: [],
+      subscribeSubjects: [],
+    });
+
+    const result = await resolveSessionPrincipal(
+      {
+        type: "user",
+        trellisId: userTrellisId,
+        origin: "github",
+        id: "user.with.dots",
+        email: "ada@example.com",
+        name: "Ada",
+        participantKind: "agent",
+        contractDigest: "digest-agent",
+        contractId: "trellis.agent@v1",
+        contractDisplayName: "Trellis Agent",
+        contractDescription: "Local delegated tooling",
+        delegatedCapabilities: ["jobs.read"],
+        delegatedPublishSubjects: [],
+        delegatedSubscribeSubjects: [],
+        createdAt: new Date(),
+        lastAuth: new Date(),
+      },
+      "sk_agent",
+      {
+        loadUserProjection: loadProjectionFromMap({
+          [userTrellisId]: {
+            origin: "github",
+            id: "user.with.dots",
+            name: "Ada",
+            email: "ada@example.com",
+            active: true,
+            capabilities: ["jobs.read"],
+          },
+        }),
+        loadStoredApproval: async (key) => {
+          const separator = key.lastIndexOf(".");
+          if (separator <= 0 || separator >= key.length - 1) return null;
+          return await approvals.get(
+            key.slice(0, separator),
+            key.slice(separator + 1),
+          ) ?? null;
+        },
+      },
+    );
+
+    assertEquals(result.ok, true);
+    if (result.ok) {
+      assertEquals(result.value.capabilities, ["jobs.read"]);
+    }
+  } finally {
+    storage.client.close();
+    await Deno.remove(dbPath).catch(() => undefined);
   }
 });
 
@@ -291,8 +386,7 @@ Deno.test("resolveSessionPrincipal rejects device sessions when the activation p
     },
     "A".repeat(43),
     {
-      servicesKV: kvFromMap({}),
-      deviceActivationsKV: kvFromMap({
+      deviceActivationStorage: storageFromMap({
         "dev-1": {
           instanceId: "dev-1",
           publicIdentityKey: "A".repeat(43),
@@ -302,13 +396,13 @@ Deno.test("resolveSessionPrincipal rejects device sessions when the activation p
           revokedAt: null,
         },
       }),
-      deviceProfilesKV: kvFromMap({
+      deviceProfileStorage: storageFromMap({
         "drive.next": {
           profileId: "drive.next",
           disabled: false,
         },
       }),
-      usersKV: kvFromMap({}),
+      loadUserProjection: loadProjectionFromMap({}),
     },
   );
 
@@ -337,8 +431,7 @@ Deno.test("resolveSessionPrincipal rejects disabled device profiles", async () =
     },
     "A".repeat(43),
     {
-      servicesKV: kvFromMap({}),
-      deviceActivationsKV: kvFromMap({
+      deviceActivationStorage: storageFromMap({
         "dev-1": {
           instanceId: "dev-1",
           publicIdentityKey: "A".repeat(43),
@@ -348,13 +441,13 @@ Deno.test("resolveSessionPrincipal rejects disabled device profiles", async () =
           revokedAt: null,
         },
       }),
-      deviceProfilesKV: kvFromMap({
+      deviceProfileStorage: storageFromMap({
         "drive.default": {
           profileId: "drive.default",
           disabled: true,
         },
       }),
-      usersKV: kvFromMap({}),
+      loadUserProjection: loadProjectionFromMap({}),
     },
   );
 
@@ -386,8 +479,7 @@ Deno.test("resolveSessionPrincipal rejects inactive user projections", async () 
     },
     "A".repeat(43),
     {
-      servicesKV: kvFromMap({}),
-      usersKV: kvFromMap({
+      loadUserProjection: loadProjectionFromMap({
         tid: {
           origin: "github",
           id: "123",
@@ -434,8 +526,7 @@ Deno.test("resolveSessionPrincipal accepts user sessions with matching instance 
     },
     "A".repeat(43),
     {
-      servicesKV: kvFromMap({}),
-      usersKV: kvFromMap({
+      loadUserProjection: loadProjectionFromMap({
         tid: {
           origin: "github",
           id: "123",
@@ -487,8 +578,7 @@ Deno.test("resolveSessionPrincipal still matches instance grant policy from lega
     },
     "A".repeat(43),
     {
-      servicesKV: kvFromMap({}),
-      usersKV: kvFromMap({
+      loadUserProjection: loadProjectionFromMap({
         tid: {
           origin: "github",
           id: "123",

@@ -20,4 +20,3 @@ Deno.test("GitHub user parsing tolerates missing email and nullable fields", () 
   assertEquals(user.id, 123);
   assertEquals(user.email, null);
 });
-

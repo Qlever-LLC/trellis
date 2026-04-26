@@ -116,6 +116,26 @@ Rules:
   wait for listener drain before exiting rather than waiting indefinitely on
   long-lived keep-alive or streaming connections
 
+### Service-local storage
+
+Most services should keep durable domain storage behind their own service
+boundary and expose behavior through contract-owned RPCs, operations, events, and
+resource declarations. The Trellis control-plane service uses local SQLite for
+its own durable runtime records.
+
+Rules:
+
+- service-local storage is an implementation detail unless the contract exposes a
+  public API over it
+- the Trellis control-plane SQLite database defaults to
+  `/var/lib/trellis/trellis.sqlite` and is configurable as `storage.dbPath`
+- Trellis service bootstrap owns opening the database, creating the schema, and
+  constructing concrete storage modules
+- prefer concrete storage modules for the service's actual record types rather
+  than generic repository abstractions
+- app-generated ULID row primary keys are used for SQL table identity; public and
+  domain identifiers remain separate columns
+
 ### Minimal installable service example
 
 ```ts

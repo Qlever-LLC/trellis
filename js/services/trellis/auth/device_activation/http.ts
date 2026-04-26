@@ -16,17 +16,19 @@ import { buildClientTransports } from "../transports.ts";
 import { getConfig } from "../../config.ts";
 import {
   browserFlowsKV,
-  deviceActivationReviewsKV,
-  deviceActivationsKV,
-  deviceInstancesKV,
-  devicePortalSelectionsKV,
-  deviceProfilesKV,
-  deviceProvisioningSecretsKV,
+  deviceActivationReviewStorage,
+  deviceActivationStorage,
+  deviceInstanceStorage,
+  deviceProfileStorage,
+  deviceProvisioningSecretStorage,
   logger,
-  portalDefaultsKV,
-  portalsKV,
   sentinelCreds,
 } from "../../bootstrap/globals.ts";
+import type {
+  SqlDevicePortalSelectionRepository,
+  SqlPortalDefaultRepository,
+  SqlPortalRepository,
+} from "../storage.ts";
 import { randomToken } from "../crypto.ts";
 import { deviceInstanceId } from "../admin/shared.ts";
 import {
@@ -54,9 +56,9 @@ type DeviceInstance = {
   profileId: string;
   metadata?: Record<string, string>;
   state: "registered" | "activated" | "revoked" | "disabled";
-  createdAt: string | Date;
-  activatedAt: string | Date | null;
-  revokedAt: string | Date | null;
+  createdAt: string;
+  activatedAt: string | null;
+  revokedAt: string | null;
 };
 
 type DeviceProfile = {
@@ -105,55 +107,38 @@ type DeviceActivationRequestResponse = {
   activationUrl: string;
 };
 
+type DeviceActivationPortalDeps = {
+  portalStorage: SqlPortalRepository;
+  portalDefaultStorage: SqlPortalDefaultRepository;
+  devicePortalSelectionStorage: SqlDevicePortalSelectionRepository;
+};
+
 async function loadDeviceInstance(
   instanceId: string,
 ): Promise<DeviceInstance | null> {
-  const entry = await deviceInstancesKV.get(instanceId).take();
-  if (isErr(entry)) return null;
-  return entry.value as DeviceInstance;
+  return await deviceInstanceStorage.get(instanceId) ?? null;
 }
 
 async function loadDeviceProfile(
   profileId: string,
 ): Promise<DeviceProfile | null> {
-  const entry = await deviceProfilesKV.get(profileId).take();
-  if (isErr(entry)) return null;
-  return entry.value as unknown as DeviceProfile;
+  return await deviceProfileStorage.get(profileId) ?? null;
 }
 
 async function loadDeviceActivation(instanceId: string) {
-  const entry = await deviceActivationsKV.get(instanceId).take();
-  if (isErr(entry)) return null;
-  return entry.value as {
-    instanceId: string;
-    publicIdentityKey: string;
-    profileId: string;
-    state: "activated" | "revoked";
-    activatedAt: string;
-    revokedAt: string | null;
-  };
+  return await deviceActivationStorage.get(instanceId) ?? null;
 }
 
 async function loadDeviceProvisioningSecret(
   instanceId: string,
 ): Promise<DeviceProvisioningSecret | null> {
-  const entry = await deviceProvisioningSecretsKV.get(instanceId).take();
-  if (isErr(entry)) return null;
-  return entry.value as DeviceProvisioningSecret;
+  return await deviceProvisioningSecretStorage.get(instanceId) ?? null;
 }
 
 async function findDeviceActivationReviewByFlowId(
   flowId: string,
 ): Promise<DeviceActivationReview | null> {
-  const iter = await deviceActivationReviewsKV.keys(">").take();
-  if (isErr(iter)) return null;
-  for await (const key of iter) {
-    const entry = await deviceActivationReviewsKV.get(key).take();
-    if (isErr(entry)) continue;
-    const review = entry.value as unknown as DeviceActivationReview;
-    if (review.flowId === flowId) return review;
-  }
-  return null;
+  return await deviceActivationReviewStorage.getByFlowId(flowId) ?? null;
 }
 
 function toDeviceActivationFlow(value: {
@@ -223,38 +208,24 @@ async function findDeviceActivationFlow(input: {
   return null;
 }
 
-async function listPortals(): Promise<Portal[]> {
-  const iter = await portalsKV.keys(">").take();
-  if (isErr(iter)) return [];
-  const portals: Portal[] = [];
-  for await (const key of iter) {
-    const entry = await portalsKV.get(key).take();
-    if (isErr(entry)) continue;
-    portals.push(entry.value as Portal);
-  }
-  return portals;
+async function listPortals(
+  deps: DeviceActivationPortalDeps,
+): Promise<Portal[]> {
+  return await deps.portalStorage.list();
 }
 
-async function listDevicePortalSelections(): Promise<
+async function listDevicePortalSelections(
+  deps: DeviceActivationPortalDeps,
+): Promise<
   Array<{ profileId: string; portalId: string | null }>
 > {
-  const iter = await devicePortalSelectionsKV.keys(">").take();
-  if (isErr(iter)) return [];
-  const selections: Array<{ profileId: string; portalId: string | null }> = [];
-  for await (const key of iter) {
-    const entry = await devicePortalSelectionsKV.get(key).take();
-    if (isErr(entry)) continue;
-    selections.push(
-      entry.value as { profileId: string; portalId: string | null },
-    );
-  }
-  return selections;
+  return await deps.devicePortalSelectionStorage.list();
 }
 
-async function loadDevicePortalDefaultId(): Promise<string | null | undefined> {
-  const entry = await portalDefaultsKV.get("device.default").take();
-  if (isErr(entry)) return undefined;
-  return (entry.value as { portalId: string | null }).portalId;
+async function loadDevicePortalDefaultId(
+  deps: DeviceActivationPortalDeps,
+): Promise<string | null | undefined> {
+  return (await deps.portalDefaultStorage.getDevice())?.portalId;
 }
 
 function deviceBootstrapDeps() {
@@ -265,7 +236,7 @@ function deviceBootstrapDeps() {
     loadDeviceActivation,
     loadDeviceProfile,
     saveDeviceInstance: async (instance: DeviceInstance) => {
-      await deviceInstancesKV.put(instance.instanceId, instance);
+      await deviceInstanceStorage.put(instance);
     },
     refreshActiveContracts: async () => {},
     verifyIdentityProof: verifyDeviceBootstrapIdentityProof,
@@ -292,6 +263,7 @@ function builtinPortalEntryUrl(): string {
 }
 
 async function createDeviceActivationRequest(
+  deps: DeviceActivationPortalDeps,
   payload: { publicIdentityKey: string; nonce: string; qrMac: string },
 ): Promise<DeviceActivationRequestResponse> {
   const instanceId = deviceInstanceId(payload.publicIdentityKey);
@@ -338,9 +310,9 @@ async function createDeviceActivationRequest(
 
   const portalResolution = resolveDevicePortal({
     profileId: profile.profileId,
-    portals: await listPortals(),
-    defaultPortalId: await loadDevicePortalDefaultId(),
-    selections: await listDevicePortalSelections(),
+    portals: await listPortals(deps),
+    defaultPortalId: await loadDevicePortalDefaultId(deps),
+    selections: await listDevicePortalSelections(deps),
   });
   const portalEntryUrl = portalResolution.kind === "custom"
     ? normalizeBuiltinPortalEntryUrl({
@@ -361,6 +333,7 @@ async function createDeviceActivationRequest(
 
 export function registerDeviceActivationHttpRoutes(
   app: Pick<Hono, "post">,
+  deps: DeviceActivationPortalDeps,
 ): void {
   app.post("/auth/devices/activate/requests", async (c: Context) => {
     const bodyResult = await AsyncResult.try(() => c.req.json());
@@ -375,7 +348,7 @@ export function registerDeviceActivationHttpRoutes(
     }
     try {
       return c.json(
-        await createDeviceActivationRequest({
+        await createDeviceActivationRequest(deps, {
           publicIdentityKey: String(payload.publicIdentityKey ?? ""),
           nonce: String(payload.nonce ?? ""),
           qrMac: String(payload.qrMac ?? ""),

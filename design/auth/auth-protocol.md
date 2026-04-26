@@ -391,34 +391,22 @@ Bind proof rules:
 - `/auth/bind` remains the lower-level auth-token bind path used by current non-portal callers
 - browser clients SHOULD treat `authToken` as internal auth-service state rather than a fragment-delivered public contract
 
-Required KV buckets and logical contents:
+Runtime storage responsibilities:
 
-| Bucket | Key Pattern | Value | TTL |
-| --- | --- | --- | --- |
-| `trellis_sessions` | `<sessionKey>.<trellisId>` | Session object | `SESSION_TIMEOUT` |
-| `trellis_users` | `<trellisId>` | User projection provisioned on successful external auth | None |
-| `trellis_oauth_states` | `hash(<state>)` | OAuth state mapping | 5 min |
-| `trellis_pending_auth` | `hash(<authToken>)` | Pending authenticated bind | 5 min |
-| `trellis_contract_approvals` | `<trellisId>.<contractDigest>` | Approval object | None |
-| `trellis_browser_flows` | `<flowId>` | Browser flow record, including `kind: "login"` and `kind: "device_activation"` | 5 min |
-| `trellis_portals` | `<portalId>` | Portal record | None |
-| `trellis_portal_profiles` | `<portalId>` | Portal profile record | None |
-| `trellis_portal_login_selections` | `contract.<contractId>` | Login portal selection record | None |
-| `trellis_instance_grant_policies` | `<contractId>` | Deployment-wide instance grant policy | None |
-| `trellis_portal_device_selections` | `profile.<profileId>` | Device portal selection record | None |
-| `trellis_portal_defaults` | `login.default` / `device.default` | Optional deployment default custom portals | None |
-| `trellis_device_profiles` | `<profileId>` | Device profile | None |
-| `trellis_device_instances` | `instance.<instanceId>.identity.<publicIdentityKey>` | Preregistered device instance | None |
-| `trellis_device_activations` | `instance.<instanceId>.identity.<publicIdentityKey>` | Device activation record | None |
-| `trellis_connections` | `<sessionKey>.<trellisId>.<user_nkey>` | Active connection record | 2h |
-| `trellis_services` | `<sessionKey>` | Installed service policy | None |
-| `trellis_contracts` | `<digest>` | Stored contract metadata | None |
+| Storage | Logical contents | TTL |
+| --- | --- | --- |
+| SQL | Users, sessions, approval decisions, grant policies, portals, service records, device records, and installed contract records | Durable, with session expiry from `lastAuth` |
+| `trellis_oauth_states` KV | OAuth state mapping keyed by `hash(state)` | 5 min |
+| `trellis_pending_auth` KV | Pending authenticated bind keyed by `hash(authToken)` | 5 min |
+| `trellis_browser_flows` KV | Browser flow record keyed by `flowId`, including `kind: "login"` and `kind: "device_activation"` | Browser-flow TTL |
+| `trellis_connections` KV | Active connection presence keyed by session, principal, and NATS user key | Connection TTL |
 
-Ephemeral tokens (`state`, `authToken`) are stored by `hash(token)` rather than raw token value.
+Ephemeral tokens (`state`, `authToken`) are stored by `hash(token)` rather than
+raw token value.
 
 Browser flows are keyed by raw `flowId` because the flow identifier is browser-visible and used to fetch auth-owned portal state. Device activation records persist for the lifetime of the activated device unless revoked. Login
 portal selections, device portal selections, optional default-portal settings,
-and portal profiles are deployment-owned records used by browser login and
+and portal profiles are deployment-owned SQL records used by browser login and
 device activation.
 
 ### Browser Flow Record

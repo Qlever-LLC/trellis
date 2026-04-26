@@ -22,30 +22,33 @@ Deno.test("matching policy allows delegated access even when stored approval is 
     appOrigin: "https://console.example.com",
   });
 
-  assertEquals(userDelegationAllowed({
-    active: true,
-    explicitCapabilities: [],
-    delegatedCapabilities: ["admin"],
-    storedApproval: {
-      userTrellisId: "tid",
-      origin: "github",
-      id: "123",
-      answer: "denied",
-      answeredAt: new Date(),
-      updatedAt: new Date(),
-      approval: {
-        contractDigest: "digest",
-        contractId: "trellis.console@v1",
-        displayName: "Console",
-        description: "Admin",
-        participantKind: "app",
-        capabilities: ["admin"],
+  assertEquals(
+    userDelegationAllowed({
+      active: true,
+      explicitCapabilities: [],
+      delegatedCapabilities: ["admin"],
+      storedApproval: {
+        userTrellisId: "tid",
+        origin: "github",
+        id: "123",
+        answer: "denied",
+        answeredAt: new Date(),
+        updatedAt: new Date(),
+        approval: {
+          contractDigest: "digest",
+          contractId: "trellis.console@v1",
+          displayName: "Console",
+          description: "Admin",
+          participantKind: "app",
+          capabilities: ["admin"],
+        },
+        publishSubjects: [],
+        subscribeSubjects: [],
       },
-      publishSubjects: [],
-      subscribeSubjects: [],
-    },
-    matchedPolicies: policies,
-  }), true);
+      matchedPolicies: policies,
+    }),
+    true,
+  );
 });
 
 Deno.test("origin mismatch falls back to stored approval behavior", () => {
@@ -63,57 +66,63 @@ Deno.test("origin mismatch falls back to stored approval behavior", () => {
     appOrigin: "https://different.example.com",
   });
 
-  assertEquals(userDelegationAllowed({
-    active: true,
-    explicitCapabilities: [],
-    delegatedCapabilities: ["admin"],
-    storedApproval: {
-      userTrellisId: "tid",
-      origin: "github",
-      id: "123",
-      answer: "denied",
-      answeredAt: new Date(),
-      updatedAt: new Date(),
-      approval: {
-        contractDigest: "digest",
-        contractId: "trellis.console@v1",
-        displayName: "Console",
-        description: "Admin",
-        participantKind: "app",
-        capabilities: ["admin"],
+  assertEquals(
+    userDelegationAllowed({
+      active: true,
+      explicitCapabilities: [],
+      delegatedCapabilities: ["admin"],
+      storedApproval: {
+        userTrellisId: "tid",
+        origin: "github",
+        id: "123",
+        answer: "denied",
+        answeredAt: new Date(),
+        updatedAt: new Date(),
+        approval: {
+          contractDigest: "digest",
+          contractId: "trellis.console@v1",
+          displayName: "Console",
+          description: "Admin",
+          participantKind: "app",
+          capabilities: ["admin"],
+        },
+        publishSubjects: [],
+        subscribeSubjects: [],
       },
-      publishSubjects: [],
-      subscribeSubjects: [],
-    },
-    matchedPolicies: policies,
-  }), false);
+      matchedPolicies: policies,
+    }),
+    false,
+  );
 });
 
 Deno.test("stored approval remains valid when no policy matches", () => {
-  assertEquals(userDelegationAllowed({
-    active: true,
-    explicitCapabilities: ["admin"],
-    delegatedCapabilities: ["admin"],
-    storedApproval: {
-      userTrellisId: "tid",
-      origin: "github",
-      id: "123",
-      answer: "approved",
-      answeredAt: new Date(),
-      updatedAt: new Date(),
-      approval: {
-        contractDigest: "digest",
-        contractId: "trellis.console@v1",
-        displayName: "Console",
-        description: "Admin",
-        participantKind: "app",
-        capabilities: ["admin"],
+  assertEquals(
+    userDelegationAllowed({
+      active: true,
+      explicitCapabilities: ["admin"],
+      delegatedCapabilities: ["admin"],
+      storedApproval: {
+        userTrellisId: "tid",
+        origin: "github",
+        id: "123",
+        answer: "approved",
+        answeredAt: new Date(),
+        updatedAt: new Date(),
+        approval: {
+          contractDigest: "digest",
+          contractId: "trellis.console@v1",
+          displayName: "Console",
+          description: "Admin",
+          participantKind: "app",
+          capabilities: ["admin"],
+        },
+        publishSubjects: [],
+        subscribeSubjects: [],
       },
-      publishSubjects: [],
-      subscribeSubjects: [],
-    },
-    matchedPolicies: [],
-  }), true);
+      matchedPolicies: [],
+    }),
+    true,
+  );
 });
 
 Deno.test("portal profile policies reuse matching semantics with portal source metadata", () => {
@@ -140,8 +149,11 @@ Deno.test("portal profile policies reuse matching semantics with portal source m
     portalId: "main",
     entryUrl: "https://portal.example.com/auth",
   });
-  assertEquals(effectiveApproval({ storedApproval: null, matchedPolicies: policies }), {
-    kind: "portal_profile",
-    answer: "approved",
-  });
+  assertEquals(
+    effectiveApproval({ storedApproval: null, matchedPolicies: policies }),
+    {
+      kind: "portal_profile",
+      answer: "approved",
+    },
+  );
 });

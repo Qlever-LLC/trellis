@@ -1,10 +1,13 @@
 import { HTTPException } from "@hono/hono/http-exception";
 
-import type { PendingAuth, SessionApprovalSource } from "../../state/schemas.ts";
+import type {
+  PendingAuth,
+  SessionApprovalSource,
+} from "../../state/schemas.ts";
 import {
+  type ApprovalResolution,
   buildAppIdentity,
   getApprovalResolutionBlocker,
-  type ApprovalResolution,
 } from "./support.ts";
 
 export type AuthStartRequest = {
@@ -67,7 +70,9 @@ function canonicalizeJsonValue(value: unknown): string {
     const keys = Object.keys(value).sort();
     return `{${
       keys.map((key) =>
-        `${JSON.stringify(key)}:${canonicalizeJsonValue((value as Record<string, unknown>)[key])}`
+        `${JSON.stringify(key)}:${
+          canonicalizeJsonValue((value as Record<string, unknown>)[key])
+        }`
       ).join(",")
     }}`;
   }
@@ -76,7 +81,9 @@ function canonicalizeJsonValue(value: unknown): string {
 }
 
 export function buildAuthStartSignaturePayload(args: AuthStartRequest): string {
-  return `${args.redirectTo}:${args.provider ?? ""}:${canonicalizeJsonValue(args.contract)}:${canonicalizeJsonValue(args.context ?? null)}`;
+  return `${args.redirectTo}:${args.provider ?? ""}:${
+    canonicalizeJsonValue(args.contract)
+  }:${canonicalizeJsonValue(args.context ?? null)}`;
 }
 
 function isSubset(requested: string[], current: string[]): boolean {
@@ -104,10 +111,17 @@ export function canAutoApproveFromCurrentSession(
   if (!sameAppIdentity(session, resolution)) {
     return false;
   }
-  if (!isSubset(resolution.plan.approval.capabilities, session.delegatedCapabilities)) {
+  if (
+    !isSubset(
+      resolution.plan.approval.capabilities,
+      session.delegatedCapabilities,
+    )
+  ) {
     return false;
   }
-  if (!isSubset(resolution.plan.publishSubjects, session.delegatedPublishSubjects)) {
+  if (
+    !isSubset(resolution.plan.publishSubjects, session.delegatedPublishSubjects)
+  ) {
     return false;
   }
   return isSubset(
@@ -175,8 +189,7 @@ export function createAuthStartRequestHandler(deps: {
       };
       resolution = await deps.getApprovalResolution(pendingValue);
 
-      const approvalReady =
-        getApprovalResolutionBlocker(resolution) === null &&
+      const approvalReady = getApprovalResolutionBlocker(resolution) === null &&
         resolution.missingCapabilities.length === 0 &&
         (
           resolution.effectiveApproval.answer === "approved" ||

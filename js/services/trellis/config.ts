@@ -4,6 +4,7 @@ import { dirname, isAbsolute, join, normalize } from "@std/path";
 import { z } from "zod";
 
 const DEFAULT_TRELLIS_CONFIG_PATH = "/etc/trellis/config.jsonc";
+const DEFAULT_STORAGE_DB_PATH = "/var/lib/trellis/trellis.sqlite";
 const CANONICAL_LOOPBACK_HOST = "localhost";
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 
@@ -56,6 +57,11 @@ const rawSchema = z.object({
   httpRateLimit: httpRateLimitSchema.default({
     windowMs: 60_000,
     max: 60,
+  }),
+  storage: z.object({
+    dbPath: z.string().default(DEFAULT_STORAGE_DB_PATH),
+  }).default({
+    dbPath: DEFAULT_STORAGE_DB_PATH,
   }),
   ttlMs: ttlSchema.default({
     sessions: 24 * 60 * 60_000,
@@ -144,6 +150,9 @@ export type Config = {
   httpRateLimit: {
     windowMs: number;
     max: number;
+  };
+  storage: {
+    dbPath: string;
   };
   ttlMs: {
     sessions: number;
@@ -281,6 +290,9 @@ function normalizeConfig(configPath: string, raw: RawConfig): Config {
       allowInsecureOrigins: normalizeOriginList(raw.web.allowInsecureOrigins),
     },
     httpRateLimit: raw.httpRateLimit,
+    storage: {
+      dbPath: resolvePath(configPath, raw.storage.dbPath),
+    },
     ttlMs: raw.ttlMs,
     nats: {
       servers: raw.nats.servers,
@@ -325,8 +337,7 @@ function normalizeConfig(configPath: string, raw: RawConfig): Config {
       nativeNatsServers: raw.client.nativeNatsServers,
     },
     oauth: {
-      redirectBase:
-        canonicalizeLoopbackUrl(raw.oauth.redirectBase) ??
+      redirectBase: canonicalizeLoopbackUrl(raw.oauth.redirectBase) ??
         raw.oauth.redirectBase,
       alwaysShowProviderChooser: raw.oauth.alwaysShowProviderChooser,
       providers,
@@ -366,8 +377,8 @@ function resolveConfigPath(
 ): string {
   return (
     environment["TRELLIS_CONFIG"] ??
-    environment["TRELLIS_AUTH_CONFIG"] ??
-    DEFAULT_TRELLIS_CONFIG_PATH
+      environment["TRELLIS_AUTH_CONFIG"] ??
+      DEFAULT_TRELLIS_CONFIG_PATH
   );
 }
 

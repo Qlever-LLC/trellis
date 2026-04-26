@@ -21,10 +21,14 @@ function emptyAsyncIterable<T>(): AsyncIterable<T> {
 
 type TestKv = {
   get: (...args: unknown[]) => Promise<Result<never, UnexpectedError>>;
-  keys: (...args: unknown[]) => Promise<Result<AsyncIterable<string>, UnexpectedError>>;
+  keys: (
+    ...args: unknown[]
+  ) => Promise<Result<AsyncIterable<string>, UnexpectedError>>;
   put: (...args: unknown[]) => Promise<Result<void, UnexpectedError>>;
   delete: (...args: unknown[]) => Promise<Result<void, UnexpectedError>>;
-  watch: (...args: unknown[]) => Promise<Result<AsyncIterable<unknown>, UnexpectedError>>;
+  watch: (
+    ...args: unknown[]
+  ) => Promise<Result<AsyncIterable<unknown>, UnexpectedError>>;
 };
 
 function testKv(): TestKv {
@@ -37,6 +41,35 @@ function testKv(): TestKv {
   };
 }
 
+function testRepository<T, K extends string = string>(keyOf: (value: T) => K) {
+  const values = new Map<K, T>();
+  return {
+    get: async (key: K) => values.get(key),
+    put: async (value: T) => {
+      values.set(keyOf(value), value);
+    },
+    delete: async (key: K) => {
+      values.delete(key);
+    },
+    list: async () => [...values.values()],
+  };
+}
+
+function testPortalDefaultRepository() {
+  let login: { portalId: string | null } | undefined;
+  let device: { portalId: string | null } | undefined;
+  return {
+    getLogin: async () => login,
+    putLogin: async (value: { portalId: string | null }) => {
+      login = value;
+    },
+    getDevice: async () => device,
+    putDevice: async (value: { portalId: string | null }) => {
+      device = value;
+    },
+  };
+}
+
 export const logger = noopLogger();
 export const sentinelCreds = { jwt: "", seed: "" };
 export const natsAuth = {
@@ -44,27 +77,26 @@ export const natsAuth = {
   isClosed: () => true,
 };
 export const natsTrellis = natsAuth;
-export const sessionKV = testKv();
 export const oauthStateKV = testKv();
 export const pendingAuthKV = testKv();
-export const contractApprovalsKV = testKv();
 export const browserFlowsKV = testKv();
-export const portalsKV = testKv();
-export const portalProfilesKV = testKv();
-export const portalDefaultsKV = testKv();
-export const loginPortalSelectionsKV = testKv();
-export const instanceGrantPoliciesKV = testKv();
-export const devicePortalSelectionsKV = testKv();
-export const deviceProfilesKV = testKv();
-export const deviceInstancesKV = testKv();
-export const deviceActivationHandoffsKV = testKv();
-export const deviceProvisioningSecretsKV = testKv();
-export const deviceActivationsKV = testKv();
-export const deviceActivationReviewsKV = testKv();
+export const portalStorage = testRepository<
+  { portalId: string; entryUrl: string; disabled?: boolean }
+>((value) => value.portalId);
+export const portalProfileStorage = testRepository<
+  { portalId: string; contractId: string }
+>((value) => value.portalId);
+export const portalDefaultStorage = testPortalDefaultRepository();
+export const loginPortalSelectionStorage = testRepository<
+  { contractId: string; portalId: string | null }
+>((value) => value.contractId);
+export const instanceGrantPolicyStorage = testRepository<
+  { contractId: string }
+>((value) => value.contractId);
+export const devicePortalSelectionStorage = testRepository<
+  { profileId: string; portalId: string | null }
+>((value) => value.profileId);
 export const connectionsKV = testKv();
-export const servicesKV = testKv();
-export const contractsKV = testKv();
-export const usersKV = testKv();
 export const trellisService = {
   server: {
     mount: () => {},

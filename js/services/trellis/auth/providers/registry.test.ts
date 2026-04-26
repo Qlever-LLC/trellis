@@ -1,6 +1,6 @@
 import { assertEquals, assertInstanceOf } from "@std/assert";
 
-import { type Config, __testing__ as configTesting } from "../../config.ts";
+import { __testing__ as configTesting, type Config } from "../../config.ts";
 import { GitHub } from "./github.ts";
 import { OIDC } from "./oidc.ts";
 import { createProviders } from "./registry.ts";
@@ -13,10 +13,14 @@ function createConfig(): Config {
     web: {
       origins: ["http://localhost:5173"],
       publicOrigin: "http://localhost:3000",
+      allowInsecureOrigins: [],
     },
     httpRateLimit: {
       windowMs: 60_000,
       max: 60,
+    },
+    storage: {
+      dbPath: "/tmp/trellis.sqlite",
     },
     ttlMs: {
       sessions: 1,
@@ -74,7 +78,10 @@ Deno.test("createProviders builds configured GitHub and OIDC providers", () => {
     assertInstanceOf(providers.auth0, OIDC);
     assertEquals(providers.github.displayName, "GitHub");
     assertEquals(providers.auth0.displayName, "Company SSO");
-    assertEquals(providers.auth0.getRedirectUri(), "http://localhost:3000/auth/callback/auth0");
+    assertEquals(
+      providers.auth0.getRedirectUri(),
+      "http://localhost:3000/auth/callback/auth0",
+    );
   } finally {
     configTesting.resetConfig();
   }

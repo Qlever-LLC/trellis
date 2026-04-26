@@ -459,8 +459,6 @@ Rules:
 - when the connected device contract uses the shared `Health.Heartbeat` event,
   `TrellisDevice.connect(...)` publishes baseline heartbeats automatically and
   exposes a `health` helper for adding callback-based heartbeat metadata
-- no migration or backward-compatibility helper is documented for the removed
-  root activation-session surface or the earlier callback-driven activation flow
 - the helper layer MUST remain a thin wrapper over the canonical wire surfaces
   defined in `auth-api.md` and `device-activation.md`
 

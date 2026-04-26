@@ -5,11 +5,16 @@
   "exports": "./main.ts",
   "tasks": {
     "build:builtin-portal": "deno run --env --allow-env --allow-read --allow-run scripts/build_builtin_portal.ts",
-    "dev": "deno task prepare && deno task build:builtin-portal && deno run --env --allow-env --allow-sys --allow-read --allow-net --allow-ffi --watch main.ts",
+    "dev": "deno task prepare && deno task build:builtin-portal && deno run --env --allow-env --allow-sys --allow-read --allow-write --allow-net --allow-ffi --watch main.ts",
     "prepare": "cargo run --manifest-path ../../../rust/tools/generate/Cargo.toml --bin trellis-generate --",
-    "test": "deno task prepare && deno test --allow-env --allow-sys --allow-read --allow-write"
+    "test": "deno task prepare && deno test --allow-env --allow-sys --allow-read --allow-write --allow-ffi"
   },
   "imports": {
-    "set-cookie-parser": "npm:set-cookie-parser@^3.1.0"
+    "@libsql/client": "npm:@libsql/client@0.15.15",
+    "drizzle-orm": "npm:drizzle-orm@0.44.7",
+    "drizzle-orm/libsql": "npm:drizzle-orm@0.44.7/libsql",
+    "drizzle-orm/sqlite-core": "npm:drizzle-orm@0.44.7/sqlite-core",
+    "set-cookie-parser": "npm:set-cookie-parser@^3.1.0",
+    "ulid": "npm:ulid@^3.0.2"
   }
 }

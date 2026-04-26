@@ -29,12 +29,19 @@ export async function resolveUserReconnectSession(args: {
   session: UserSession;
   presentedContractDigest: string;
   contractStore: ContractStore;
-  loadUserProjection: (trellisId: string) => Promise<UserProjectionEntry | null>;
+  loadUserProjection: (
+    trellisId: string,
+  ) => Promise<UserProjectionEntry | null>;
   loadStoredApproval: (key: string) => Promise<ContractApprovalRecord | null>;
-  loadInstanceGrantPolicies: (contractId: string) => Promise<InstanceGrantPolicy[]>;
+  loadInstanceGrantPolicies: (
+    contractId: string,
+  ) => Promise<InstanceGrantPolicy[]>;
 }): Promise<ResolveUserReconnectResult> {
-  const activeContract = args.contractStore.getContract(args.presentedContractDigest);
-  const expectedContractId = args.session.app?.contractId ?? args.session.contractId;
+  const activeContract = args.contractStore.getContract(
+    args.presentedContractDigest,
+  );
+  const expectedContractId = args.session.app?.contractId ??
+    args.session.contractId;
   if (!activeContract || activeContract.id !== expectedContractId) {
     return { ok: false, reason: "contract_changed" };
   }
@@ -47,7 +54,10 @@ export async function resolveUserReconnectSession(args: {
     return { ok: false, reason: "user_inactive" };
   }
 
-  const plan = await planUserContractApproval(args.contractStore, activeContract);
+  const plan = await planUserContractApproval(
+    args.contractStore,
+    activeContract,
+  );
   if (
     plan.digest !== args.presentedContractDigest ||
     plan.contract.id !== expectedContractId

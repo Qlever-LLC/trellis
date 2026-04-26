@@ -172,6 +172,20 @@ Rules:
 - use one validation library per use case instead of stacking multiple libraries
   on the same boundary
 
+## Storage Identity
+
+SQL-backed Trellis storage separates row identity from domain identity.
+
+Rules:
+
+- SQL tables use an app-generated ULID `id` primary key for row identity
+- public IDs, external IDs, contract IDs, digests, session keys, and other domain
+  identifiers remain separate semantic columns with their own constraints
+- repository and service code should query by the semantic identifier that
+  matches the operation rather than exposing row IDs as public API identifiers
+- schema names should make the distinction clear, for example `id` for row
+  identity and `contract_id`, `trellis_id`, or `profile_id` for domain identity
+
 ## Result Type
 
 All Trellis public APIs and RPC handlers use `Result<T, E>`.

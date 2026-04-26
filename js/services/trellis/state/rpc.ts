@@ -1,7 +1,6 @@
 import type { JsonValue } from "@qlever-llc/trellis/contracts";
 import { isJsonValue } from "@qlever-llc/trellis/contracts";
 import { trellisIdFromOriginId } from "@qlever-llc/trellis/auth";
-import type { AsyncResult, BaseError } from "@qlever-llc/result";
 import { AuthError, ValidationError } from "@qlever-llc/trellis";
 import type { parseUnknownSchema } from "../../../packages/trellis/codec.ts";
 import type { SchemaLike } from "../../../packages/trellis/contracts.ts";
@@ -19,6 +18,7 @@ import type { StateStoreKind } from "../../../packages/trellis/models/trellis/St
 import type { Session } from "../state/schemas.ts";
 import type { ResolvedStateStore } from "./model.ts";
 import { StateStore } from "./storage.ts";
+import type { SqlSessionRepository } from "../auth/storage.ts";
 
 type ContractStateStore = {
   kind: StateStoreKind;
@@ -32,8 +32,7 @@ type StateContractLike = {
 };
 
 type SessionLike = {
-  get: (key: string) => AsyncResult<{ value: Session } | Session | unknown, BaseError>;
-  keys: (filter: string) => AsyncResult<AsyncIterable<string> | unknown, BaseError>;
+  getOneBySessionKey: SqlSessionRepository["getOneBySessionKey"];
 };
 
 type ContractStoreLike = {
@@ -51,38 +50,23 @@ type Caller = {
 };
 
 type RpcDeps = {
-  sessionKV: SessionLike;
+  sessionStorage: SessionLike;
   state: StateStore;
   contractStore: ContractStoreLike;
 };
 
-function unwrapValue<V>(entry: unknown): V {
-  if (entry && typeof entry === "object" && "value" in entry) {
-    return (entry as { value: V }).value;
+async function loadSessionBySessionKey(
+  sessionKey: string,
+  sessionStore: SessionLike,
+): Promise<Session | null> {
+  try {
+    return await sessionStore.getOneBySessionKey(sessionKey) ?? null;
+  } catch {
+    throw new AuthError({
+      reason: "session_corrupted",
+      context: { sessionKey },
+    });
   }
-  return entry as V;
-}
-
-async function loadSessionBySessionKey(sessionKey: string, sessionStore: SessionLike): Promise<Session | null> {
-  const keysIter = await sessionStore.keys(`${sessionKey}.>`);
-  if (keysIter.isErr()) return null;
-
-  let sessionKeyId: string | undefined;
-  for await (const key of unwrapValue<AsyncIterable<string>>(keysIter.unwrapOrElse(() => {
-    throw new Error("session KV keys unexpectedly failed");
-  }))) {
-    if (!sessionKeyId) sessionKeyId = key;
-    else {
-      throw new AuthError({ reason: "session_corrupted", context: { sessionKey } });
-    }
-  }
-
-  if (!sessionKeyId) return null;
-  const sessionValue = await sessionStore.get(sessionKeyId);
-  if (sessionValue.isErr()) return null;
-  return unwrapValue<Session>(sessionValue.unwrapOrElse(() => {
-    throw new Error("session KV get unexpectedly failed");
-  }));
 }
 
 function isAdmin(caller: Caller): boolean {
@@ -111,7 +95,10 @@ function requireStoreDefinition(
   const definition = contract?.state?.[store];
   if (!definition) {
     throw new ValidationError({
-      errors: [{ path: "/store", message: `state store '${store}' is not declared by the contract` }],
+      errors: [{
+        path: "/store",
+        message: `state store '${store}' is not declared by the contract`,
+      }],
     });
   }
   return definition;
@@ -125,7 +112,10 @@ function requireStoreSchema(
   const schema = contract?.schemas?.[definition.schema.schema];
   if (schema === null || typeof schema !== "object") {
     throw new ValidationError({
-      errors: [{ path: "/store", message: `state store '${store}' schema is not available` }],
+      errors: [{
+        path: "/store",
+        message: `state store '${store}' schema is not available`,
+      }],
     });
   }
   return schema;
@@ -136,7 +126,10 @@ async function resolveCallerStore(
   ctx: { caller: Caller; sessionKey: string },
   deps: RpcDeps,
 ): Promise<ResolvedStateStore> {
-  const session = await loadSessionBySessionKey(ctx.sessionKey, deps.sessionKV);
+  const session = await loadSessionBySessionKey(
+    ctx.sessionKey,
+    deps.sessionStorage,
+  );
   if (!session) {
     throw new AuthError({ reason: "insufficient_permissions" });
   }
@@ -149,7 +142,9 @@ async function resolveCallerStore(
     throw new AuthError({ reason: "insufficient_permissions" });
   }
 
-  const contract = deps.contractStore.getContract(session.contractDigest, { includeInactive: true });
+  const contract = deps.contractStore.getContract(session.contractDigest, {
+    includeInactive: true,
+  });
   const definition = requireStoreDefinition(contract, store);
   const schema = requireStoreSchema(contract, definition, store);
   return {
@@ -166,10 +161,15 @@ async function resolveAdminStore(
   req: StateAdminGetInput | StateAdminListInput | StateAdminDeleteInput,
   deps: RpcDeps,
 ): Promise<ResolvedStateStore> {
-  const contract = deps.contractStore.getContract(req.contractDigest, { includeInactive: true });
+  const contract = deps.contractStore.getContract(req.contractDigest, {
+    includeInactive: true,
+  });
   if (contract && contract.id !== req.contractId) {
     throw new ValidationError({
-      errors: [{ path: "/contractId", message: "contractId does not match contractDigest" }],
+      errors: [{
+        path: "/contractId",
+        message: "contractId does not match contractDigest",
+      }],
     });
   }
   const definition = requireStoreDefinition(contract, req.store);
@@ -196,14 +196,20 @@ async function resolveAdminStore(
 }
 
 export function createStateGetHandler(deps: RpcDeps) {
-  return async (req: StateGetInput, ctx: { caller: Caller; sessionKey: string }) => {
+  return async (
+    req: StateGetInput,
+    ctx: { caller: Caller; sessionKey: string },
+  ) => {
     const target = await resolveCallerStore(req.store, ctx, deps);
     return deps.state.get(target, { key: req.key });
   };
 }
 
 export function createStatePutHandler(deps: RpcDeps) {
-  return async (req: StatePutInput, ctx: { caller: Caller; sessionKey: string }) => {
+  return async (
+    req: StatePutInput,
+    ctx: { caller: Caller; sessionKey: string },
+  ) => {
     const target = await resolveCallerStore(req.store, ctx, deps);
     return deps.state.put(target, {
       key: req.key,
@@ -215,16 +221,29 @@ export function createStatePutHandler(deps: RpcDeps) {
 }
 
 export function createStateDeleteHandler(deps: RpcDeps) {
-  return async (req: StateDeleteInput, ctx: { caller: Caller; sessionKey: string }) => {
+  return async (
+    req: StateDeleteInput,
+    ctx: { caller: Caller; sessionKey: string },
+  ) => {
     const target = await resolveCallerStore(req.store, ctx, deps);
-    return deps.state.delete(target, { key: req.key, expectedRevision: req.expectedRevision });
+    return deps.state.delete(target, {
+      key: req.key,
+      expectedRevision: req.expectedRevision,
+    });
   };
 }
 
 export function createStateListHandler(deps: RpcDeps) {
-  return async (req: StateListInput, ctx: { caller: Caller; sessionKey: string }) => {
+  return async (
+    req: StateListInput,
+    ctx: { caller: Caller; sessionKey: string },
+  ) => {
     const target = await resolveCallerStore(req.store, ctx, deps);
-    return deps.state.list(target, { prefix: req.prefix, offset: req.offset, limit: req.limit });
+    return deps.state.list(target, {
+      prefix: req.prefix,
+      offset: req.offset,
+      limit: req.limit,
+    });
   };
 }
 
@@ -240,7 +259,11 @@ export function createStateAdminListHandler(deps: RpcDeps) {
   return async (req: StateAdminListInput, ctx: { caller: Caller }) => {
     requireAdmin(ctx.caller);
     const target = await resolveAdminStore(req, deps);
-    return deps.state.list(target, { prefix: req.prefix, offset: req.offset, limit: req.limit });
+    return deps.state.list(target, {
+      prefix: req.prefix,
+      offset: req.offset,
+      limit: req.limit,
+    });
   };
 }
 
@@ -248,7 +271,10 @@ export function createStateAdminDeleteHandler(deps: RpcDeps) {
   return async (req: StateAdminDeleteInput, ctx: { caller: Caller }) => {
     requireAdmin(ctx.caller);
     const target = await resolveAdminStore(req, deps);
-    return deps.state.delete(target, { key: req.key, expectedRevision: req.expectedRevision });
+    return deps.state.delete(target, {
+      key: req.key,
+      expectedRevision: req.expectedRevision,
+    });
   };
 }
 

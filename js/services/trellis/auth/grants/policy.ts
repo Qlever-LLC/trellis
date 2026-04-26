@@ -31,7 +31,8 @@ export function matchesInstanceGrantPolicy(args: {
   if (args.policy.contractId !== args.contractId) return false;
   const allowedOrigins = args.policy.allowedOrigins ?? [];
   if (allowedOrigins.length === 0) return true;
-  return args.appOrigin !== undefined && allowedOrigins.includes(args.appOrigin);
+  return args.appOrigin !== undefined &&
+    allowedOrigins.includes(args.appOrigin);
 }
 
 export function matchingInstanceGrantPolicies(args: {
@@ -53,7 +54,9 @@ export function portalProfileToGrantPolicy(
 ): InstanceGrantPolicy {
   return {
     contractId: profile.contractId,
-    ...(profile.allowedOrigins ? { allowedOrigins: profile.allowedOrigins } : {}),
+    ...(profile.allowedOrigins
+      ? { allowedOrigins: profile.allowedOrigins }
+      : {}),
     impliedCapabilities: profile.impliedCapabilities,
     disabled: profile.disabled,
     createdAt: profile.createdAt,
@@ -90,7 +93,10 @@ export function effectiveApproval(args: {
   matchedPolicies: InstanceGrantPolicy[];
 }): EffectiveApproval {
   if (args.matchedPolicies.length > 0) {
-    return { kind: policyApprovalSource(args.matchedPolicies), answer: "approved" };
+    return {
+      kind: policyApprovalSource(args.matchedPolicies),
+      answer: "approved",
+    };
   }
   if (args.storedApproval) {
     return {

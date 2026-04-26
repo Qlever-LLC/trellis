@@ -110,12 +110,16 @@ function getRequiredServiceCapabilities(
 ): string[] {
   const capabilities = new Set<string>(["service"]);
   const uses = resolveContractUsesFromStore(contractStore, contract);
-  const events = contract.events as Record<string, {
-    capabilities?: { publish?: string[] };
-  }> | undefined;
-  const subjects = contract.subjects as Record<string, {
-    capabilities?: { publish?: string[]; subscribe?: string[] };
-  }> | undefined;
+  const events = contract.events as
+    | Record<string, {
+      capabilities?: { publish?: string[] };
+    }>
+    | undefined;
+  const subjects = contract.subjects as
+    | Record<string, {
+      capabilities?: { publish?: string[]; subscribe?: string[] };
+    }>
+    | undefined;
 
   for (const event of Object.values(events ?? {})) {
     for (const capability of event.capabilities?.publish ?? []) {

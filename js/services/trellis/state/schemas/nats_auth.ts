@@ -52,7 +52,9 @@ export const AuthCalloutClaimsSchema = Type.Object({
   sub: Type.Optional(Type.String()),
 }, { additionalProperties: true });
 
-export type AuthCalloutClaimsData = StaticDecode<typeof AuthCalloutClaimsSchema>;
+export type AuthCalloutClaimsData = StaticDecode<
+  typeof AuthCalloutClaimsSchema
+>;
 
 export const NatsDisconnectEventSchema = Type.Object({
   client: Type.Optional(Type.Object({
@@ -60,4 +62,6 @@ export const NatsDisconnectEventSchema = Type.Object({
   }, { additionalProperties: true })),
 }, { additionalProperties: true });
 
-export type NatsDisconnectEvent = StaticDecode<typeof NatsDisconnectEventSchema>;
+export type NatsDisconnectEvent = StaticDecode<
+  typeof NatsDisconnectEventSchema
+>;

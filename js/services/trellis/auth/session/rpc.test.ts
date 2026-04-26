@@ -1,16 +1,30 @@
 import { assert, assertEquals } from "@std/assert";
-import { isErr, Result, UnexpectedError } from "@qlever-llc/result";
+import { AsyncResult, isErr, UnexpectedError } from "@qlever-llc/result";
 import { trellisIdFromOriginId } from "@qlever-llc/trellis/auth";
 import Value from "typebox/value";
 
 import { AuthMeResponseSchema } from "@qlever-llc/trellis/auth";
-import { createAuthMeHandler } from "./me.ts";
 import {
   createAuthListConnectionsHandler,
   createAuthListSessionsHandler,
-} from "./listing.ts";
+  createAuthMeHandler,
+} from "./rpc.ts";
+import { connectionKey } from "./connections.ts";
 import { createAuthRevokeSessionHandler } from "./revoke.ts";
-import type { ServiceRegistryEntry, Session, UserProjectionEntry } from "../../state/schemas.ts";
+import type {
+  ContractApprovalRecord,
+  Session,
+  UserProjectionEntry,
+} from "../../state/schemas.ts";
+import {
+  initializeTrellisStorageSchema,
+  openTrellisStorageDb,
+} from "../../storage/db.ts";
+import type { TrellisStorage } from "../../storage/db.ts";
+import {
+  SqlContractApprovalRepository,
+  SqlUserProjectionRepository,
+} from "../storage.ts";
 
 function matchFilter(filter: string, key: string): boolean {
   const filterParts = filter.split(".");
@@ -35,32 +49,159 @@ class InMemoryKV<V> {
     this.#store.set(key, value);
   }
 
-  async keys(filter: string): Promise<Result<AsyncIterable<string>, UnexpectedError>> {
+  keys(filter: string): AsyncResult<AsyncIterable<string>, UnexpectedError> {
     async function* iter(store: Map<string, V>) {
       for (const key of store.keys()) {
         if (matchFilter(filter, key)) yield key;
       }
     }
 
-    return Result.ok(iter(this.#store));
+    return AsyncResult.ok(iter(this.#store));
   }
 
-  async get(key: string): Promise<Result<{ value: V }, UnexpectedError>> {
+  get(key: string): AsyncResult<{ value: V }, UnexpectedError> {
     const value = this.#store.get(key);
     if (value === undefined) {
-      return Result.err(new UnexpectedError({ context: { key } }));
+      return AsyncResult.err(new UnexpectedError({ context: { key } }));
     }
-    return Result.ok({ value });
+    return AsyncResult.ok({ value });
   }
 
-  async put(key: string, value: V): Promise<Result<void, UnexpectedError>> {
+  put(key: string, value: V): AsyncResult<void, UnexpectedError> {
     this.#store.set(key, value);
-    return Result.ok(undefined);
+    return AsyncResult.ok(undefined);
   }
 
-  async delete(key: string): Promise<Result<void, UnexpectedError>> {
+  delete(key: string): AsyncResult<void, UnexpectedError> {
     this.#store.delete(key);
-    return Result.ok(undefined);
+    return AsyncResult.ok(undefined);
+  }
+}
+
+function sessionStorageFromKV(kv: InMemoryKV<Session>) {
+  async function entries(filter: string) {
+    const iter = await kv.keys(filter).take();
+    const result = [] as Array<{
+      sessionKey: string;
+      trellisId: string;
+      session: Session;
+    }>;
+    if (isErr(iter)) return result;
+    for await (const key of iter) {
+      const entry = await kv.get(key).take();
+      if (isErr(entry)) continue;
+      const [sessionKey, ...trellisIdParts] = key.split(".");
+      const trellisId = trellisIdParts.join(".");
+      if (!sessionKey || !trellisId) continue;
+      result.push({ sessionKey, trellisId, session: entry.value });
+    }
+    return result;
+  }
+  return {
+    get: async (sessionKey: string, trellisId: string) => {
+      const entry = await kv.get(`${sessionKey}.${trellisId}`).take();
+      return isErr(entry) ? undefined : entry.value;
+    },
+    getOneBySessionKey: async (sessionKey: string) => {
+      const rows = await entries(`${sessionKey}.>`);
+      return rows.length === 1 ? rows[0].session : undefined;
+    },
+    listEntries: () => entries(">"),
+    listEntriesBySessionKey: (sessionKey: string) => entries(`${sessionKey}.>`),
+    listEntriesByUser: async (trellisId: string) =>
+      (await entries(">")).filter((entry) => entry.trellisId === trellisId),
+    delete: async (sessionKey: string, trellisId: string) => {
+      await kv.delete(`${sessionKey}.${trellisId}`).take();
+    },
+  };
+}
+
+function deviceActivationStorageFromKV<V extends { instanceId: string }>(
+  kv: InMemoryKV<V>,
+) {
+  return {
+    get: async (instanceId: string): Promise<V | undefined> => {
+      const entry = await kv.get(instanceId).take();
+      return isErr(entry) ? undefined : entry.value;
+    },
+    put: async (value: V): Promise<void> => {
+      await kv.put(value.instanceId, value).take();
+    },
+  };
+}
+
+function getStorageFromKV<V>(kv: InMemoryKV<V>) {
+  return {
+    get: async (key: string): Promise<V | undefined> => {
+      const entry = await kv.get(key).take();
+      return isErr(entry) ? undefined : entry.value;
+    },
+  };
+}
+
+class InMemoryUserStorage {
+  #store = new Map<string, UserProjectionEntry>();
+
+  seed(key: string, value: UserProjectionEntry): void {
+    this.#store.set(key, value);
+  }
+
+  async get(key: string): Promise<UserProjectionEntry | undefined> {
+    return this.#store.get(key);
+  }
+}
+
+class InMemoryApprovalStorage {
+  #store = new Map<string, ContractApprovalRecord>();
+
+  seed(record: ContractApprovalRecord): void {
+    this.#store.set(
+      `${record.userTrellisId}.${record.approval.contractDigest}`,
+      record,
+    );
+  }
+
+  async get(
+    userTrellisId: string,
+    contractDigest: string,
+  ): Promise<ContractApprovalRecord | undefined> {
+    return this.#store.get(`${userTrellisId}.${contractDigest}`);
+  }
+
+  async delete(userTrellisId: string, contractDigest: string): Promise<void> {
+    this.#store.delete(`${userTrellisId}.${contractDigest}`);
+  }
+}
+
+const emptyApprovalStorage = {
+  get: (_userTrellisId: string, _contractDigest: string) =>
+    Promise.resolve(undefined),
+  delete: (_userTrellisId: string, _contractDigest: string) =>
+    Promise.resolve(),
+};
+
+async function withSqlAuthRepositories(
+  test: (repos: {
+    users: SqlUserProjectionRepository;
+    approvals: SqlContractApprovalRepository;
+  }, storage: TrellisStorage) => Promise<void>,
+): Promise<void> {
+  const dbPath = await Deno.makeTempFile({
+    dir: "/tmp",
+    prefix: "trellis-session-rpc-",
+    suffix: ".sqlite",
+  });
+  const storage = await openTrellisStorageDb(dbPath);
+
+  try {
+    await initializeTrellisStorageSchema(storage);
+    await test({
+      users: new SqlUserProjectionRepository(storage.db),
+      approvals: new SqlContractApprovalRepository(storage.db),
+    }, storage);
+  } finally {
+    storage.client.close();
+    await Deno.remove(dbPath).catch(() => undefined);
   }
 }
 
@@ -73,8 +214,7 @@ function baseSessionFields() {
 
 Deno.test("Auth.Me returns user, device, and service envelopes", async () => {
   const sessionKV = new InMemoryKV<Session>();
-  const usersKV = new InMemoryKV<UserProjectionEntry>();
-  const servicesKV = new InMemoryKV<ServiceRegistryEntry>();
+  const userStorage = new InMemoryUserStorage();
   const deviceActivationsKV = new InMemoryKV<{
     instanceId: string;
     publicIdentityKey: string;
@@ -84,18 +224,21 @@ Deno.test("Auth.Me returns user, device, and service envelopes", async () => {
     activatedAt: string;
     revokedAt: string | null;
   }>();
-  const deviceProfilesKV = new InMemoryKV<{ profileId: string; disabled: boolean }>();
+  const deviceProfilesKV = new InMemoryKV<{
+    profileId: string;
+    disabled: boolean;
+    appliedContracts: Array<{ contractId: string; allowedDigests: string[] }>;
+  }>();
 
   const handler = createAuthMeHandler({
-    sessionKV,
-    usersKV,
-    servicesKV,
-    deviceActivationsKV,
-    deviceProfilesKV,
+    sessionStorage: sessionStorageFromKV(sessionKV),
+    userStorage,
+    deviceActivationStorage: deviceActivationStorageFromKV(deviceActivationsKV),
+    deviceProfileStorage: getStorageFromKV(deviceProfilesKV),
   });
 
   const userTrellisId = await trellisIdFromOriginId("github", "123");
-  usersKV.seed(userTrellisId, {
+  userStorage.seed(userTrellisId, {
     origin: "github",
     id: "123",
     name: "Ada",
@@ -123,7 +266,9 @@ Deno.test("Auth.Me returns user, device, and service envelopes", async () => {
     ...baseSessionFields(),
   });
 
-  const userResult = await handler({}, { sessionKey: userSessionKey, caller: undefined });
+  const userResult = await handler({
+    context: { sessionKey: userSessionKey, caller: { type: "unknown" } },
+  });
   const userValue = userResult.take();
   if (isErr(userValue)) throw userValue.error;
   assert(Value.Check(AuthMeResponseSchema, userValue));
@@ -170,9 +315,12 @@ Deno.test("Auth.Me returns user, device, and service envelopes", async () => {
   deviceProfilesKV.seed("reader.default", {
     profileId: "reader.default",
     disabled: false,
+    appliedContracts: [],
   });
 
-  const deviceResult = await handler({}, { sessionKey: deviceSessionKey, caller: undefined });
+  const deviceResult = await handler({
+    context: { sessionKey: deviceSessionKey, caller: { type: "unknown" } },
+  });
   const deviceValue = deviceResult.take();
   if (isErr(deviceValue)) throw deviceValue.error;
   assertEquals(deviceValue, {
@@ -213,15 +361,9 @@ Deno.test("Auth.Me returns user, device, and service envelopes", async () => {
     createdAt: baseSessionFields().createdAt,
     lastAuth: baseSessionFields().lastAuth,
   });
-  servicesKV.seed(serviceSessionKey, {
-    displayName: "Billing",
-    active: true,
-    capabilities: ["service"],
-    description: "Billing service",
-    createdAt: new Date("2026-04-10T00:00:00.000Z"),
+  const serviceResult = await handler({
+    context: { sessionKey: serviceSessionKey, caller: { type: "unknown" } },
   });
-
-  const serviceResult = await handler({}, { sessionKey: serviceSessionKey, caller: undefined });
   const serviceValue = serviceResult.take();
   if (isErr(serviceValue)) throw serviceValue.error;
   assertEquals(serviceValue, {
@@ -232,40 +374,45 @@ Deno.test("Auth.Me returns user, device, and service envelopes", async () => {
       type: "service",
       id: "billing",
       name: "Billing",
-      active: true,
-      capabilities: ["service"],
+      active: false,
+      capabilities: [],
     },
   });
 });
 
 Deno.test("Auth.Me falls back to validated caller context for user sessions", async () => {
   const handler = createAuthMeHandler({
-    sessionKV: new InMemoryKV<Session>(),
-    usersKV: new InMemoryKV<UserProjectionEntry>(),
-    servicesKV: new InMemoryKV<ServiceRegistryEntry>(),
-      deviceActivationsKV: new InMemoryKV<{
-      instanceId: string;
-      publicIdentityKey: string;
-      profileId: string;
-      activatedBy?: { origin: string; id: string };
-      state: "activated" | "revoked";
-      activatedAt: string;
-      revokedAt: string | null;
-    }>(),
-      deviceProfilesKV: new InMemoryKV<{ profileId: string; disabled: boolean }>(),
+    sessionStorage: sessionStorageFromKV(new InMemoryKV<Session>()),
+    userStorage: new InMemoryUserStorage(),
+    deviceActivationStorage: deviceActivationStorageFromKV(
+      new InMemoryKV<{
+        instanceId: string;
+        publicIdentityKey: string;
+        profileId: string;
+        activatedBy?: { origin: string; id: string };
+        state: "activated" | "revoked";
+        activatedAt: string;
+        revokedAt: string | null;
+      }>(),
+    ),
+    deviceProfileStorage: {
+      get: async () => undefined,
+    },
   });
 
-  const result = await handler({}, {
-    sessionKey: "missing",
-    caller: {
-      type: "user",
-      trellisId: "tid_123",
-      id: "123",
-      origin: "github",
-      active: true,
-      name: "Ada",
-      email: "ada@example.com",
-      capabilities: ["admin"],
+  const result = await handler({
+    context: {
+      sessionKey: "missing",
+      caller: {
+        type: "user",
+        trellisId: "tid_123",
+        id: "123",
+        origin: "github",
+        active: true,
+        name: "Ada",
+        email: "ada@example.com",
+        capabilities: ["admin"],
+      },
     },
   });
   const value = result.take();
@@ -281,13 +428,92 @@ Deno.test("Auth.Me falls back to validated caller context for user sessions", as
       email: "ada@example.com",
       capabilities: ["admin"],
     },
-      device: null,
+    device: null,
     service: null,
   });
 });
 
+Deno.test("Auth.Me reflects SQL user active and capability changes", async () => {
+  await withSqlAuthRepositories(async ({ users }) => {
+    const sessionKV = new InMemoryKV<Session>();
+    const deviceActivationsKV = new InMemoryKV<{
+      instanceId: string;
+      publicIdentityKey: string;
+      profileId: string;
+      activatedBy?: { origin: string; id: string };
+      state: "activated" | "revoked";
+      activatedAt: string;
+      revokedAt: string | null;
+    }>();
+    const deviceProfilesKV = new InMemoryKV<{
+      profileId: string;
+      disabled: boolean;
+      appliedContracts: Array<{ contractId: string; allowedDigests: string[] }>;
+    }>();
+    const handler = createAuthMeHandler({
+      sessionStorage: sessionStorageFromKV(sessionKV),
+      userStorage: users,
+      deviceActivationStorage: deviceActivationStorageFromKV(
+        deviceActivationsKV,
+      ),
+      deviceProfileStorage: getStorageFromKV(deviceProfilesKV),
+    });
+
+    const userTrellisId = await trellisIdFromOriginId("github", "123");
+    sessionKV.seed(`sk_user.${userTrellisId}`, {
+      type: "user",
+      trellisId: userTrellisId,
+      origin: "github",
+      id: "123",
+      email: "ada@example.com",
+      name: "Ada",
+      participantKind: "app",
+      contractDigest: "digest-a",
+      contractId: "trellis.console@v1",
+      contractDisplayName: "Console",
+      contractDescription: "Admin app",
+      delegatedCapabilities: ["fallback"],
+      delegatedPublishSubjects: [],
+      delegatedSubscribeSubjects: [],
+      ...baseSessionFields(),
+    });
+
+    await users.put(userTrellisId, {
+      origin: "github",
+      id: "123",
+      name: "Ada",
+      email: "ada@example.com",
+      active: true,
+      capabilities: ["users.read"],
+    });
+    let result = await handler({
+      context: { sessionKey: "sk_user", caller: { type: "unknown" } },
+    });
+    let value = result.take();
+    if (isErr(value)) throw value.error;
+    assertEquals(value.user?.active, true);
+    assertEquals(value.user?.capabilities, ["users.read"]);
+
+    await users.put(userTrellisId, {
+      origin: "github",
+      id: "123",
+      name: "Ada",
+      email: "ada@example.com",
+      active: false,
+      capabilities: ["users.write"],
+    });
+    result = await handler({
+      context: { sessionKey: "sk_user", caller: { type: "unknown" } },
+    });
+    value = result.take();
+    if (isErr(value)) throw value.error;
+    assertEquals(value.user?.active, false);
+    assertEquals(value.user?.capabilities, ["users.write"]);
+  });
+});
+
 Deno.test("Auth.Me falls back to device activation context for device sessions", async () => {
-  const usersKV = new InMemoryKV<UserProjectionEntry>();
+  const userStorage = new InMemoryUserStorage();
   const deviceActivationsKV = new InMemoryKV<{
     instanceId: string;
     publicIdentityKey: string;
@@ -297,18 +523,21 @@ Deno.test("Auth.Me falls back to device activation context for device sessions",
     activatedAt: string;
     revokedAt: string | null;
   }>();
-  const deviceProfilesKV = new InMemoryKV<{ profileId: string; disabled: boolean }>();
+  const deviceProfilesKV = new InMemoryKV<{
+    profileId: string;
+    disabled: boolean;
+    appliedContracts: Array<{ contractId: string; allowedDigests: string[] }>;
+  }>();
 
   const handler = createAuthMeHandler({
-    sessionKV: new InMemoryKV<Session>(),
-    usersKV,
-    servicesKV: new InMemoryKV<ServiceRegistryEntry>(),
-    deviceActivationsKV,
-    deviceProfilesKV,
+    sessionStorage: sessionStorageFromKV(new InMemoryKV<Session>()),
+    userStorage,
+    deviceActivationStorage: deviceActivationStorageFromKV(deviceActivationsKV),
+    deviceProfileStorage: getStorageFromKV(deviceProfilesKV),
   });
 
   const userTrellisId = await trellisIdFromOriginId("github", "123");
-  usersKV.seed(userTrellisId, {
+  userStorage.seed(userTrellisId, {
     origin: "github",
     id: "123",
     name: "Ada",
@@ -328,17 +557,20 @@ Deno.test("Auth.Me falls back to device activation context for device sessions",
   deviceProfilesKV.seed("reader.default", {
     profileId: "reader.default",
     disabled: false,
+    appliedContracts: [],
   });
 
-  const result = await handler({}, {
-    sessionKey: "missing",
-    caller: {
-      type: "device",
-      deviceId: "dev_1",
-      runtimePublicKey: "A".repeat(43),
-      profileId: "reader.default",
-      active: true,
-      capabilities: ["device.sync"],
+  const result = await handler({
+    context: {
+      sessionKey: "missing",
+      caller: {
+        type: "device",
+        deviceId: "dev_1",
+        runtimePublicKey: "A".repeat(43),
+        profileId: "reader.default",
+        active: true,
+        capabilities: ["device.sync"],
+      },
     },
   });
   const value = result.take();
@@ -383,7 +615,10 @@ Deno.test("Auth.ListSessions returns explicit participant metadata for app, agen
     contractId: "trellis.console@v1",
     contractDisplayName: "Console",
     contractDescription: "Admin app",
-    app: { contractId: "trellis.console@v1", origin: "https://console.example.com" },
+    app: {
+      contractId: "trellis.console@v1",
+      origin: "https://console.example.com",
+    },
     delegatedCapabilities: ["admin"],
     delegatedPublishSubjects: [],
     delegatedSubscribeSubjects: [],
@@ -401,7 +636,10 @@ Deno.test("Auth.ListSessions returns explicit participant metadata for app, agen
     contractId: "trellis.agent@v1",
     contractDisplayName: "Trellis Agent",
     contractDescription: "Local delegated tooling",
-    app: { contractId: "trellis.agent@v1", origin: "https://agent.example.com" },
+    app: {
+      contractId: "trellis.agent@v1",
+      origin: "https://agent.example.com",
+    },
     delegatedCapabilities: ["jobs.read"],
     delegatedPublishSubjects: [],
     delegatedSubscribeSubjects: [],
@@ -437,18 +675,36 @@ Deno.test("Auth.ListSessions returns explicit participant metadata for app, agen
     ...baseSessionFields(),
   });
 
-  const handler = createAuthListSessionsHandler({ sessionKV });
-  const result = await handler({});
+  const handler = createAuthListSessionsHandler({
+    sessionStorage: sessionStorageFromKV(sessionKV),
+  });
+  const result = await handler({
+    input: {},
+  });
   const value = result.take();
   if (isErr(value)) throw value.error;
 
-  const sessionsByKey = new Map(value.sessions.map((session) => [session.key, session]));
-  assertEquals(new Set(sessionsByKey.keys()), new Set([
-    "github.123.sk_app",
-    "github.123.sk_agent",
-    `dev_1.${"A".repeat(43)}.sk_device`,
-    "service.billing.sk_service",
-  ]));
+  const sessionsByKey = new Map<
+    string,
+    {
+      key: string;
+      participantKind: string;
+    } & Record<string, unknown>
+  >(
+    value.sessions.map((session: { key: string; participantKind: string }) => [
+      session.key,
+      session,
+    ]),
+  );
+  assertEquals(
+    new Set(sessionsByKey.keys()),
+    new Set([
+      "github.123.sk_app",
+      "github.123.sk_agent",
+      `dev_1.${"A".repeat(43)}.sk_device`,
+      "service.billing.sk_service",
+    ]),
+  );
   assertEquals(sessionsByKey.get("github.123.sk_app"), {
     key: "github.123.sk_app",
     sessionKey: "sk_app",
@@ -466,14 +722,25 @@ Deno.test("Auth.ListSessions returns explicit participant metadata for app, agen
     createdAt: "2026-04-10T00:00:00.000Z",
     lastAuth: "2026-04-10T00:00:00.000Z",
   });
-  assertEquals(sessionsByKey.get("github.123.sk_agent")?.participantKind, "agent");
-  assertEquals(sessionsByKey.get(`dev_1.${"A".repeat(43)}.sk_device`)?.participantKind, "device");
-  assertEquals(sessionsByKey.get("service.billing.sk_service")?.participantKind, "service");
+  assertEquals(
+    sessionsByKey.get("github.123.sk_agent")?.participantKind,
+    "agent",
+  );
+  assertEquals(
+    sessionsByKey.get(`dev_1.${"A".repeat(43)}.sk_device`)?.participantKind,
+    "device",
+  );
+  assertEquals(
+    sessionsByKey.get("service.billing.sk_service")?.participantKind,
+    "service",
+  );
 });
 
 Deno.test("Auth.ListConnections returns explicit participant metadata for user sessions", async () => {
   const sessionKV = new InMemoryKV<Session>();
-  const connectionsKV = new InMemoryKV<{ serverId: string; clientId: number; connectedAt: Date }>();
+  const connectionsKV = new InMemoryKV<
+    { serverId: string; clientId: number; connectedAt: Date }
+  >();
   const userTrellisId = await trellisIdFromOriginId("github", "123");
 
   sessionKV.seed(`sk_agent.${userTrellisId}`, {
@@ -488,20 +755,28 @@ Deno.test("Auth.ListConnections returns explicit participant metadata for user s
     contractId: "trellis.agent@v1",
     contractDisplayName: "Trellis Agent",
     contractDescription: "Local delegated tooling",
-    app: { contractId: "trellis.agent@v1", origin: "https://agent.example.com" },
+    app: {
+      contractId: "trellis.agent@v1",
+      origin: "https://agent.example.com",
+    },
     delegatedCapabilities: ["jobs.read"],
     delegatedPublishSubjects: [],
     delegatedSubscribeSubjects: [],
     ...baseSessionFields(),
   });
-  connectionsKV.seed(`sk_agent.${userTrellisId}.user_nkey`, {
+  connectionsKV.seed(connectionKey("sk_agent", userTrellisId, "user_nkey"), {
     serverId: "n1",
     clientId: 7,
     connectedAt: new Date("2026-04-10T00:00:00.000Z"),
   });
 
-  const handler = createAuthListConnectionsHandler({ sessionKV, connectionsKV });
-  const result = await handler({});
+  const handler = createAuthListConnectionsHandler({
+    sessionStorage: sessionStorageFromKV(sessionKV),
+    connectionsKV,
+  });
+  const result = await handler({
+    input: {},
+  });
   const value = result.take();
   if (isErr(value)) throw value.error;
 
@@ -530,30 +805,17 @@ Deno.test("Auth.ListConnections returns explicit participant metadata for user s
 
 Deno.test("Auth.RevokeSession cascades agent revocation to the grant and sibling agent sessions", async () => {
   const userTrellisId = await trellisIdFromOriginId("github", "123");
-  const contractApprovalsKV = new InMemoryKV<{
-    userTrellisId: string;
-    origin: string;
-    id: string;
-    answer: "approved" | "denied";
-    answeredAt: Date;
-    updatedAt: Date;
-    approval: {
-      contractDigest: string;
-      contractId: string;
-      displayName: string;
-      description: string;
-      participantKind: "app" | "agent";
-      capabilities: string[];
-    };
-    publishSubjects: string[];
-    subscribeSubjects: string[];
-  }>();
+  const contractApprovalStorage = new InMemoryApprovalStorage();
   const sessionKV = new InMemoryKV<Session>();
-  const connectionsKV = new InMemoryKV<{ serverId: string; clientId: number; connectedAt: Date }>();
+  const connectionsKV = new InMemoryKV<
+    { serverId: string; clientId: number; connectedAt: Date }
+  >();
   const kicked: Array<{ serverId: string; clientId: number }> = [];
-  const revoked: Array<{ origin: string; id: string; sessionKey: string; revokedBy: string }> = [];
+  const revoked: Array<
+    { origin: string; id: string; sessionKey: string; revokedBy: string }
+  > = [];
 
-  contractApprovalsKV.seed(`${userTrellisId}.digest-agent`, {
+  contractApprovalStorage.seed({
     userTrellisId,
     origin: "github",
     id: "123",
@@ -641,9 +903,9 @@ Deno.test("Auth.RevokeSession cascades agent revocation to the grant and sibling
   });
 
   const handler = createAuthRevokeSessionHandler({
-    sessionKV,
+    sessionStorage: sessionStorageFromKV(sessionKV),
     connectionsKV,
-    contractApprovalsKV,
+    contractApprovalStorage,
     kick: async (serverId, clientId) => {
       kicked.push({ serverId, clientId });
     },
@@ -672,40 +934,62 @@ Deno.test("Auth.RevokeSession cascades agent revocation to the grant and sibling
     { serverId: "n2", clientId: 8 },
   ]);
   assertEquals(revoked, [
-    { origin: "github", id: "123", sessionKey: "sk_agent_1", revokedBy: "github.123" },
-    { origin: "github", id: "123", sessionKey: "sk_agent_2", revokedBy: "github.123" },
+    {
+      origin: "github",
+      id: "123",
+      sessionKey: "sk_agent_1",
+      revokedBy: "github.123",
+    },
+    {
+      origin: "github",
+      id: "123",
+      sessionKey: "sk_agent_2",
+      revokedBy: "github.123",
+    },
   ]);
-  assertEquals(isErr(await contractApprovalsKV.get(`${userTrellisId}.digest-agent`).take()), true);
-  assertEquals(isErr(await sessionKV.get(`sk_agent_1.${userTrellisId}`).take()), true);
-  assertEquals(isErr(await sessionKV.get(`sk_agent_2.${userTrellisId}`).take()), true);
-  assertEquals(isErr(await connectionsKV.get(`sk_agent_1.${userTrellisId}.user_nkey_1`).take()), true);
-  assertEquals(isErr(await connectionsKV.get(`sk_agent_2.${userTrellisId}.user_nkey_2`).take()), true);
-  assertEquals(isErr(await sessionKV.get(`sk_app.${userTrellisId}`).take()), false);
-  assertEquals(isErr(await connectionsKV.get(`sk_app.${userTrellisId}.user_nkey_3`).take()), false);
+  assertEquals(
+    await contractApprovalStorage.get(userTrellisId, "digest-agent"),
+    undefined,
+  );
+  assertEquals(
+    isErr(await sessionKV.get(`sk_agent_1.${userTrellisId}`).take()),
+    true,
+  );
+  assertEquals(
+    isErr(await sessionKV.get(`sk_agent_2.${userTrellisId}`).take()),
+    true,
+  );
+  assertEquals(
+    isErr(
+      await connectionsKV.get(`sk_agent_1.${userTrellisId}.user_nkey_1`).take(),
+    ),
+    true,
+  );
+  assertEquals(
+    isErr(
+      await connectionsKV.get(`sk_agent_2.${userTrellisId}.user_nkey_2`).take(),
+    ),
+    true,
+  );
+  assertEquals(
+    isErr(await sessionKV.get(`sk_app.${userTrellisId}`).take()),
+    false,
+  );
+  assertEquals(
+    isErr(
+      await connectionsKV.get(`sk_app.${userTrellisId}.user_nkey_3`).take(),
+    ),
+    false,
+  );
 });
 
 Deno.test("Auth.RevokeSession cascades app revocation to the grant and sibling user sessions", async () => {
   const userTrellisId = await trellisIdFromOriginId("github", "123");
-  const contractApprovalsKV = new InMemoryKV<{
-    userTrellisId: string;
-    origin: string;
-    id: string;
-    answer: "approved" | "denied";
-    answeredAt: Date;
-    updatedAt: Date;
-    approval: {
-      contractDigest: string;
-      contractId: string;
-      displayName: string;
-      description: string;
-      participantKind: "app" | "agent";
-      capabilities: string[];
-    };
-    publishSubjects: string[];
-    subscribeSubjects: string[];
-  }>();
+  const contractApprovalStorage = new InMemoryApprovalStorage();
   const sessionKV = new InMemoryKV<Session>();
-  const connectionsKV = new InMemoryKV<{ serverId: string; clientId: number; connectedAt: Date }>();
+  const connectionsKV = new InMemoryKV<
+    { serverId: string; clientId: number; connectedAt: Date }
+  >();
   const deviceActivationsKV = new InMemoryKV<{
     instanceId: string;
     publicIdentityKey: string;
@@ -723,9 +1007,11 @@ Deno.test("Auth.RevokeSession cascades app revocation to the grant and sibling u
     createdAt: string;
   }>();
   const kicked: Array<{ serverId: string; clientId: number }> = [];
-  const revoked: Array<{ origin: string; id: string; sessionKey: string; revokedBy: string }> = [];
+  const revoked: Array<
+    { origin: string; id: string; sessionKey: string; revokedBy: string }
+  > = [];
 
-  contractApprovalsKV.seed(`${userTrellisId}.digest-app`, {
+  contractApprovalStorage.seed({
     userTrellisId,
     origin: "github",
     id: "123",
@@ -813,11 +1099,9 @@ Deno.test("Auth.RevokeSession cascades app revocation to the grant and sibling u
   });
 
   const handler = createAuthRevokeSessionHandler({
-    sessionKV,
+    sessionStorage: sessionStorageFromKV(sessionKV),
     connectionsKV,
-    contractApprovalsKV,
-    deviceActivationsKV,
-    serviceInstancesKV,
+    contractApprovalStorage,
     kick: async (serverId, clientId) => {
       kicked.push({ serverId, clientId });
     },
@@ -846,36 +1130,112 @@ Deno.test("Auth.RevokeSession cascades app revocation to the grant and sibling u
     { serverId: "n2", clientId: 8 },
   ]);
   assertEquals(revoked, [
-    { origin: "github", id: "123", sessionKey: "sk_app_1", revokedBy: "github.123" },
-    { origin: "github", id: "123", sessionKey: "sk_app_2", revokedBy: "github.123" },
+    {
+      origin: "github",
+      id: "123",
+      sessionKey: "sk_app_1",
+      revokedBy: "github.123",
+    },
+    {
+      origin: "github",
+      id: "123",
+      sessionKey: "sk_app_2",
+      revokedBy: "github.123",
+    },
   ]);
-  assertEquals(isErr(await contractApprovalsKV.get(`${userTrellisId}.digest-app`).take()), true);
-  assertEquals(isErr(await sessionKV.get(`sk_app_1.${userTrellisId}`).take()), true);
-  assertEquals(isErr(await sessionKV.get(`sk_app_2.${userTrellisId}`).take()), true);
-  assertEquals(isErr(await sessionKV.get(`sk_agent.${userTrellisId}`).take()), false);
+  assertEquals(
+    await contractApprovalStorage.get(userTrellisId, "digest-app"),
+    undefined,
+  );
+  assertEquals(
+    isErr(await sessionKV.get(`sk_app_1.${userTrellisId}`).take()),
+    true,
+  );
+  assertEquals(
+    isErr(await sessionKV.get(`sk_app_2.${userTrellisId}`).take()),
+    true,
+  );
+  assertEquals(
+    isErr(await sessionKV.get(`sk_agent.${userTrellisId}`).take()),
+    false,
+  );
+});
+
+Deno.test("Auth.RevokeSession deletes app approvals from SQL", async () => {
+  await withSqlAuthRepositories(async ({ approvals }) => {
+    const userTrellisId = await trellisIdFromOriginId("github", "123");
+    await approvals.put({
+      userTrellisId,
+      origin: "github",
+      id: "123",
+      answer: "approved",
+      answeredAt: new Date("2026-04-10T00:00:00.000Z"),
+      updatedAt: new Date("2026-04-11T00:00:00.000Z"),
+      approval: {
+        contractDigest: "digest-app",
+        contractId: "trellis.console@v1",
+        displayName: "Console",
+        description: "Admin app",
+        participantKind: "app",
+        capabilities: ["admin"],
+      },
+      publishSubjects: [],
+      subscribeSubjects: [],
+    });
+
+    const sessionKV = new InMemoryKV<Session>();
+    const connectionsKV = new InMemoryKV<
+      { serverId: string; clientId: number; connectedAt: Date }
+    >();
+    sessionKV.seed(`sk_app.${userTrellisId}`, {
+      type: "user",
+      trellisId: userTrellisId,
+      origin: "github",
+      id: "123",
+      email: "ada@example.com",
+      name: "Ada",
+      participantKind: "app",
+      contractDigest: "digest-app",
+      contractId: "trellis.console@v1",
+      contractDisplayName: "Console",
+      contractDescription: "Admin app",
+      delegatedCapabilities: ["admin"],
+      delegatedPublishSubjects: [],
+      delegatedSubscribeSubjects: [],
+      ...baseSessionFields(),
+    });
+
+    const handler = createAuthRevokeSessionHandler({
+      sessionStorage: sessionStorageFromKV(sessionKV),
+      connectionsKV,
+      contractApprovalStorage: approvals,
+      kick: async () => undefined,
+      publishSessionRevoked: async () => undefined,
+    });
+
+    const result = await handler(
+      { sessionKey: "sk_app" },
+      {
+        caller: {
+          type: "user",
+          trellisId: userTrellisId,
+          origin: "github",
+          id: "123",
+        },
+      },
+    );
+    const value = result.take();
+    if (isErr(value)) throw value.error;
+    assertEquals(value, { success: true });
+    assertEquals(await approvals.get(userTrellisId, "digest-app"), undefined);
+  });
 });
 
 Deno.test("Auth.RevokeSession revokes device activation so the device cannot reconnect", async () => {
-  const contractApprovalsKV = new InMemoryKV<{
-    userTrellisId: string;
-    origin: string;
-    id: string;
-    answer: "approved" | "denied";
-    answeredAt: Date;
-    updatedAt: Date;
-    approval: {
-      contractDigest: string;
-      contractId: string;
-      displayName: string;
-      description: string;
-      participantKind: "app" | "agent";
-      capabilities: string[];
-    };
-    publishSubjects: string[];
-    subscribeSubjects: string[];
-  }>();
   const sessionKV = new InMemoryKV<Session>();
-  const connectionsKV = new InMemoryKV<{ serverId: string; clientId: number; connectedAt: Date }>();
+  const connectionsKV = new InMemoryKV<
+    { serverId: string; clientId: number; connectedAt: Date }
+  >();
   const deviceActivationsKV = new InMemoryKV<{
     instanceId: string;
     publicIdentityKey: string;
@@ -893,7 +1253,9 @@ Deno.test("Auth.RevokeSession revokes device activation so the device cannot rec
     createdAt: string;
   }>();
   const kicked: Array<{ serverId: string; clientId: number }> = [];
-  const revoked: Array<{ origin: string; id: string; sessionKey: string; revokedBy: string }> = [];
+  const revoked: Array<
+    { origin: string; id: string; sessionKey: string; revokedBy: string }
+  > = [];
 
   sessionKV.seed("sk_device.dev_1", {
     type: "device",
@@ -925,11 +1287,12 @@ Deno.test("Auth.RevokeSession revokes device activation so the device cannot rec
   });
 
   const handler = createAuthRevokeSessionHandler({
-    sessionKV,
+    sessionStorage: sessionStorageFromKV(sessionKV),
     connectionsKV,
-    contractApprovalsKV,
-    deviceActivationsKV,
-    serviceInstancesKV,
+    contractApprovalStorage: emptyApprovalStorage,
+    deviceActivationStorage: deviceActivationStorageFromKV(
+      deviceActivationsKV,
+    ),
     kick: async (serverId, clientId) => {
       kicked.push({ serverId, clientId });
     },
@@ -963,26 +1326,10 @@ Deno.test("Auth.RevokeSession revokes device activation so the device cannot rec
 });
 
 Deno.test("Auth.RevokeSession disables the service instance so it cannot reconnect", async () => {
-  const contractApprovalsKV = new InMemoryKV<{
-    userTrellisId: string;
-    origin: string;
-    id: string;
-    answer: "approved" | "denied";
-    answeredAt: Date;
-    updatedAt: Date;
-    approval: {
-      contractDigest: string;
-      contractId: string;
-      displayName: string;
-      description: string;
-      participantKind: "app" | "agent";
-      capabilities: string[];
-    };
-    publishSubjects: string[];
-    subscribeSubjects: string[];
-  }>();
   const sessionKV = new InMemoryKV<Session>();
-  const connectionsKV = new InMemoryKV<{ serverId: string; clientId: number; connectedAt: Date }>();
+  const connectionsKV = new InMemoryKV<
+    { serverId: string; clientId: number; connectedAt: Date }
+  >();
   const deviceActivationsKV = new InMemoryKV<{
     instanceId: string;
     publicIdentityKey: string;
@@ -1000,7 +1347,9 @@ Deno.test("Auth.RevokeSession disables the service instance so it cannot reconne
     createdAt: string;
   }>();
   const kicked: Array<{ serverId: string; clientId: number }> = [];
-  const revoked: Array<{ origin: string; id: string; sessionKey: string; revokedBy: string }> = [];
+  const revoked: Array<
+    { origin: string; id: string; sessionKey: string; revokedBy: string }
+  > = [];
 
   sessionKV.seed("sk_service.svc_1", {
     type: "service",
@@ -1031,11 +1380,18 @@ Deno.test("Auth.RevokeSession disables the service instance so it cannot reconne
   });
 
   const handler = createAuthRevokeSessionHandler({
-    sessionKV,
+    sessionStorage: sessionStorageFromKV(sessionKV),
     connectionsKV,
-    contractApprovalsKV,
-    deviceActivationsKV,
-    serviceInstancesKV,
+    contractApprovalStorage: emptyApprovalStorage,
+    serviceInstanceStorage: {
+      get: async (instanceId: string) => {
+        const entry = await serviceInstancesKV.get(instanceId).take();
+        return isErr(entry) ? undefined : entry.value;
+      },
+      put: async (instance) => {
+        await serviceInstancesKV.put(instance.instanceId, instance).take();
+      },
+    },
     kick: async (serverId, clientId) => {
       kicked.push({ serverId, clientId });
     },

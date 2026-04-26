@@ -1,9 +1,7 @@
-import { isErr } from "@qlever-llc/result";
-
 import {
-  instanceGrantPoliciesKV,
-  portalsKV,
-  portalProfilesKV,
+  instanceGrantPolicyStorage,
+  portalProfileStorage,
+  portalStorage,
 } from "../../bootstrap/globals.ts";
 import type {
   InstanceGrantPolicy,
@@ -12,17 +10,7 @@ import type {
 import { portalProfileToGrantPolicy } from "./policy.ts";
 
 async function listPortalProfiles(): Promise<PortalProfile[]> {
-  const iter = await portalProfilesKV.keys(">").take();
-  if (isErr(iter)) return [];
-
-  const profiles: PortalProfile[] = [];
-  for await (const key of iter) {
-    const entry = await portalProfilesKV.get(key).take();
-    if (!isErr(entry)) {
-      profiles.push(entry.value as PortalProfile);
-    }
-  }
-  return profiles;
+  return await portalProfileStorage.list();
 }
 
 export async function loadEffectiveGrantPolicies(
@@ -30,15 +18,15 @@ export async function loadEffectiveGrantPolicies(
 ): Promise<InstanceGrantPolicy[]> {
   const policies: InstanceGrantPolicy[] = [];
 
-  const instancePolicy = await instanceGrantPoliciesKV.get(contractId).take();
-  if (!isErr(instancePolicy)) {
-    policies.push(instancePolicy.value as InstanceGrantPolicy);
+  const instancePolicy = await instanceGrantPolicyStorage.get(contractId);
+  if (instancePolicy !== undefined) {
+    policies.push(instancePolicy);
   }
 
   for (const profile of await listPortalProfiles()) {
     if (profile.contractId !== contractId) continue;
-    const portal = await portalsKV.get(profile.portalId).take();
-    if (isErr(portal) || portal.value.disabled) continue;
+    const portal = await portalStorage.get(profile.portalId);
+    if (portal === undefined || portal.disabled) continue;
     policies.push(portalProfileToGrantPolicy(profile));
   }
 

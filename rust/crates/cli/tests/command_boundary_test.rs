@@ -142,15 +142,16 @@ fn auth_login_help_hides_transport_flags() {
 }
 
 #[test]
-fn bootstrap_admin_help_keeps_explicit_transport_flags() {
+fn bootstrap_admin_help_uses_storage_path() {
     let output = run_cli(&["bootstrap", "admin", "--help"]);
     assert!(
         output.status.success(),
         "bootstrap admin help should succeed"
     );
     let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
-    assert!(stdout.contains("--servers <SERVERS>"));
-    assert!(stdout.contains("--creds <CREDS>"));
+    assert!(stdout.contains("--db-path <DB_PATH>"));
+    assert!(!stdout.contains("--servers <SERVERS>"));
+    assert!(!stdout.contains("--creds <CREDS>"));
 }
 
 #[test]

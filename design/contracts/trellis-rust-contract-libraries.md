@@ -114,14 +114,14 @@ This document constrains the architecture behind that API:
 
 The replacement direction also remains the same: normal Rust participant code should not primarily depend on hard-coded Trellis runtime helpers, manual stitching of multiple SDK clients, or direct subject-string usage for contract-owned APIs once participant facades are fully capable.
 
-### Migration and rollout
+### Implementation Order
 
 Implementation should proceed in this order:
 
 1. strengthen `trellis-client` and `trellis-server` so they are stable generator targets for RPCs, events, and subjects
 2. enrich Rust SDK generation so each contract SDK crate exports the full owned-surface module shape
 3. add participant-facade generation from local manifest plus alias-to-crate mappings
-4. migrate first-party Rust code to participant-facade usage
+4. update first-party Rust code to participant-facade usage
 5. remove or de-emphasize hard-coded runtime contract helpers from `trellis-client`
 
 Rules:

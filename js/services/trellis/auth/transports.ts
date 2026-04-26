@@ -17,8 +17,8 @@ function splitServersCsv(value: string): string[] {
 }
 
 export function buildClientTransports(config: Config): ClientTransports {
-  const nativeServers =
-    config.client.nativeNatsServers ?? splitServersCsv(config.nats.servers);
+  const nativeServers = config.client.nativeNatsServers ??
+    splitServersCsv(config.nats.servers);
   const websocketServers = config.client.natsServers;
 
   return {

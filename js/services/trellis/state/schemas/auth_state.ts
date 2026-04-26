@@ -12,9 +12,7 @@ import {
   type SentinelCreds,
   SentinelCredsSchema,
 } from "@qlever-llc/trellis/auth";
-import {
-  Type,
-} from "typebox";
+import { Type } from "typebox";
 import {
   DeviceActivationActorSchema,
   DeviceActivationRecordSchema,
@@ -188,7 +186,9 @@ export type DeviceActivationReviewRecord = StaticDecode<
 
 export type ApprovalDecision = StaticDecode<typeof ApprovalDecisionSchema>;
 export type ContractApproval = StaticDecode<typeof ContractApprovalSchema>;
-export type UserParticipantKind = StaticDecode<typeof UserParticipantKindSchema>;
+export type UserParticipantKind = StaticDecode<
+  typeof UserParticipantKindSchema
+>;
 export type InstanceGrantPolicy = StaticDecode<
   typeof InstanceGrantPolicySchema
 >;

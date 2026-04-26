@@ -12,13 +12,17 @@ order: 40
 
 ## Scope
 
-This document defines Trellis KV resource patterns, especially for NATS KV bucket naming, key shape, TTL, and stream-derived projections.
+This document defines the Trellis KV resource pattern for service-requested NATS
+KV stores: contract declaration, bucket naming, key shape, TTL, and
+stream-derived projections.
 
 ## NATS KV
 
 ### Contract Declaration
 
-Service-owned KV resources are schema-backed contract declarations.
+Service-owned KV resources are schema-backed contract declarations under
+`resources.kv`. They are service-requested runtime resources, not a general
+description of the Trellis control-plane's private storage choices.
 
 Example:
 
@@ -45,13 +49,15 @@ Rules:
 
 ### Bucket Naming
 
-Use `trellis_<domain>` with lowercase underscores.
+Use `trellis_<domain>` with lowercase underscores. Bucket names should describe
+the service-owned resource purpose rather than an implementation table or domain
+model that belongs behind a service boundary.
 
 Examples:
 
-- `trellis_sessions`
+- `trellis_activity`
 - `trellis_jobs`
-- `trellis_users`
+- `trellis_upload_index`
 
 ### Key Structure
 
@@ -85,9 +91,9 @@ Design keys for expected query patterns:
 
 | Tier | TTL | Use case |
 | --- | --- | --- |
-| Ephemeral | 5 min | OAuth state, pending auth, browser flows |
-| Session | 24h | Sessions, active connections |
-| Permanent | None | Users, services, reference data |
+| Ephemeral | minutes | OAuth state, pending auth, browser flows, short-lived indexes |
+| Presence | hours | Active connection or worker presence records |
+| Permanent | None | Reference data or derived views that are refreshed explicitly |
 
 Set `max_age` at bucket creation and rewrite the full value on update when the TTL must refresh.
 

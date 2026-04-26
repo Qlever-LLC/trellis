@@ -1,15 +1,35 @@
-import { AsyncResult, BaseError, type BaseErrorOptions, isErr, Result } from "@qlever-llc/result";
+import {
+  AsyncResult,
+  BaseError,
+  type BaseErrorOptions,
+  isErr,
+  Result,
+} from "@qlever-llc/result";
 import Type, { type Static } from "typebox";
 import type { Connection, Session, UserSession } from "../../state/schemas.ts";
+import { connectionFilterForSession } from "./connections.ts";
 
 type Taken<T> = T | Result<never, BaseError>;
 
 type KVLike<V> = {
-  keys: (filter: string | string[]) => AsyncResult<Taken<AsyncIterable<string>>, BaseError>;
+  keys: (
+    filter: string | string[],
+  ) => AsyncResult<Taken<AsyncIterable<string>>, BaseError>;
   get: (key: string) => AsyncResult<Taken<{ value: V } | V>, BaseError>;
   create?: (key: string, value: V) => AsyncResult<Taken<void>, BaseError>;
   put: (key: string, value: V) => AsyncResult<Taken<void>, BaseError>;
   delete: (key: string) => AsyncResult<Taken<void>, BaseError>;
+};
+
+type SessionStore = {
+  listEntriesBySessionKey: (
+    sessionKey: string,
+  ) => Promise<
+    Array<{ sessionKey: string; trellisId: string; session: Session }>
+  >;
+  get: (sessionKey: string, trellisId: string) => Promise<Session | undefined>;
+  put: (sessionKey: string, session: Session) => Promise<void>;
+  delete: (sessionKey: string, trellisId: string) => Promise<void>;
 };
 
 function unwrapValue<V>(entry: { value: V } | V): V {
@@ -28,6 +48,7 @@ export const EnsureBoundUserSessionErrorDataSchema = Type.Object({
   reason: Type.Union([
     Type.Literal("session_already_bound"),
     Type.Literal("kv_error"),
+    Type.Literal("storage_error"),
   ]),
 });
 export type EnsureBoundUserSessionErrorData = Static<
@@ -45,7 +66,7 @@ export class EnsureBoundUserSessionError extends BaseError<
   ) {
     const msg = reason === "session_already_bound"
       ? "Session key already bound"
-      : "KV operation failed";
+      : "Session storage operation failed";
     super(msg, options);
   }
 
@@ -64,10 +85,10 @@ export class EnsureBoundUserSessionError extends BaseError<
  * This implements the ADR's bind semantics:
  * - Only one active session per `sessionKey` prefix.
  * - If a different user is currently bound: kick connections + delete sessions, then create.
- * - Atomic create (`revision=0`) via KV `create`; on conflict, treat it as recovery if identity matches.
+ * - Existing identity matches are treated as recovery and update mutable fields.
  */
 export async function ensureBoundUserSession(args: {
-  sessionKV: KVLike<Session>;
+  sessionStorage: SessionStore;
   connectionsKV: KVLike<Connection>;
   kick: (serverId: string, clientId: number) => Promise<void>;
   now: Date;
@@ -92,16 +113,22 @@ export async function ensureBoundUserSession(args: {
 }): Promise<Result<{ createdAt: Date }, EnsureBoundUserSessionError>> {
   const sessionKeyId = `${args.sessionKey}.${args.trellisId}`;
 
-  const existingIter = await args.sessionKV.keys(`${args.sessionKey}.>`).take();
-  if (isErr(existingIter)) {
+  let existingEntries: Array<{
+    sessionKey: string;
+    trellisId: string;
+    session: Session;
+  }>;
+  try {
+    existingEntries = await args.sessionStorage.listEntriesBySessionKey(
+      args.sessionKey,
+    );
+  } catch (error) {
     return Result.err(
-      new EnsureBoundUserSessionError("kv_error", {
-        context: { op: "keys", prefix: `${args.sessionKey}.>` },
+      new EnsureBoundUserSessionError("storage_error", {
+        context: { op: "listEntriesBySessionKey", error },
       }),
     );
   }
-  const existingKeys: string[] = [];
-  for await (const key of existingIter) existingKeys.push(key);
 
   const expectedIdentityMatches = (s: Session): s is UserSession =>
     s.type === "user" &&
@@ -109,16 +136,24 @@ export async function ensureBoundUserSession(args: {
     s.origin === args.origin &&
     s.id === args.id;
 
-  const existingKeyMismatch = existingKeys.some((k) => k !== sessionKeyId);
-  const needsReset = existingKeys.length > 1 || existingKeyMismatch;
+  const existingKeyMismatch = existingEntries.some((entry) =>
+    `${entry.sessionKey}.${entry.trellisId}` !== sessionKeyId
+  );
+  const needsReset = existingEntries.length > 1 || existingKeyMismatch;
 
   if (needsReset) {
     // Kick and delete any tracked connections for this sessionKey.
-    const connKeys = await args.connectionsKV.keys(`${args.sessionKey}.>.>`).take();
+    const connKeys = await args.connectionsKV.keys(
+      connectionFilterForSession(args.sessionKey),
+    )
+      .take();
     if (isErr(connKeys)) {
       return Result.err(
         new EnsureBoundUserSessionError("kv_error", {
-          context: { op: "connections_keys", prefix: `${args.sessionKey}.>.>` },
+          context: {
+            op: "connections_keys",
+            prefix: connectionFilterForSession(args.sessionKey),
+          },
         }),
       );
     }
@@ -126,7 +161,7 @@ export async function ensureBoundUserSession(args: {
       const entry = await args.connectionsKV.get(key).take();
       if (isErr(entry)) {
         return Result.err(
-          new EnsureBoundUserSessionError("kv_error", {
+          new EnsureBoundUserSessionError("storage_error", {
             context: { op: "connection_get", key },
           }),
         );
@@ -144,12 +179,18 @@ export async function ensureBoundUserSession(args: {
     }
 
     // Delete all existing session entries for this sessionKey prefix.
-    for (const key of existingKeys) {
-      const deleteSession = await args.sessionKV.delete(key).take();
-      if (isErr(deleteSession)) {
+    for (const entry of existingEntries) {
+      try {
+        await args.sessionStorage.delete(entry.sessionKey, entry.trellisId);
+      } catch (error) {
         return Result.err(
-          new EnsureBoundUserSessionError("kv_error", {
-            context: { op: "session_delete", key },
+          new EnsureBoundUserSessionError("storage_error", {
+            context: {
+              op: "session_delete",
+              sessionKey: entry.sessionKey,
+              trellisId: entry.trellisId,
+              error,
+            },
           }),
         );
       }
@@ -179,31 +220,30 @@ export async function ensureBoundUserSession(args: {
     lastAuth: args.now,
   };
 
-  if (typeof args.sessionKV.create === "function") {
-    const created = await args.sessionKV.create(sessionKeyId, session).take();
-    if (!isErr(created)) {
+  if (existingEntries.length === 0 || needsReset) {
+    try {
+      await args.sessionStorage.put(args.sessionKey, session);
       return Result.ok({ createdAt: args.now });
+    } catch (error) {
+      return Result.err(
+        new EnsureBoundUserSessionError("storage_error", {
+          context: { op: "put", key: sessionKeyId, error },
+        }),
+      );
     }
-  } else {
-    // Should not happen in production; `TypedKV` supports create().
-    return Result.err(
-      new EnsureBoundUserSessionError("kv_error", {
-        context: { op: "create_missing" },
-      }),
-    );
   }
 
-  // If create failed, treat it as session recovery *only if* the existing session matches.
-  const existing = await args.sessionKV.get(sessionKeyId).take();
-  if (isErr(existing)) {
+  const existingSession = await args.sessionStorage.get(
+    args.sessionKey,
+    args.trellisId,
+  );
+  if (!existingSession) {
     return Result.err(
-      new EnsureBoundUserSessionError("kv_error", {
+      new EnsureBoundUserSessionError("storage_error", {
         context: { op: "get", key: sessionKeyId },
       }),
     );
   }
-
-  const existingSession = unwrapValue(existing as { value: Session } | Session);
   if (!expectedIdentityMatches(existingSession)) {
     return Result.err(new EnsureBoundUserSessionError("session_already_bound"));
   }
@@ -232,11 +272,12 @@ export async function ensureBoundUserSession(args: {
     delegatedSubscribeSubjects: args.delegatedSubscribeSubjects,
     lastAuth: args.now,
   };
-  const putRes = await args.sessionKV.put(sessionKeyId, updated).take();
-  if (isErr(putRes)) {
+  try {
+    await args.sessionStorage.put(args.sessionKey, updated);
+  } catch (error) {
     return Result.err(
-      new EnsureBoundUserSessionError("kv_error", {
-        context: { op: "put", key: sessionKeyId },
+      new EnsureBoundUserSessionError("storage_error", {
+        context: { op: "put", key: sessionKeyId, error },
       }),
     );
   }

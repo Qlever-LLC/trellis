@@ -27,7 +27,7 @@ export const ContractRecordSchema = Type.Object({
     natsPublish: Type.Number(),
     natsSubscribe: Type.Number(),
     kvResources: Type.Number({ default: 0 }),
-    streamsResources: Type.Number({ default: 0 }),
+    streamResources: Type.Number({ default: 0 }),
     jobsQueues: Type.Number({ default: 0 }),
   }, { additionalProperties: false })),
   analysis: Type.Optional(Type.Object({

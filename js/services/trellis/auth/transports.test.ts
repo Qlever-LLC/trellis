@@ -11,10 +11,14 @@ function makeConfig(): Config {
     web: {
       origins: [],
       publicOrigin: "http://localhost:3000",
+      allowInsecureOrigins: [],
     },
     httpRateLimit: {
       windowMs: 60_000,
       max: 60,
+    },
+    storage: {
+      dbPath: "/tmp/trellis.sqlite",
     },
     ttlMs: {
       sessions: 86_400_000,

@@ -60,52 +60,81 @@ export const trellisState = defineServiceContract(
   (ref) => ({
     id: "trellis.state@v1",
     displayName: "Trellis State",
-    description: "Trellis-managed app state for authenticated app and device participants.",
+    description:
+      "Trellis-managed app state for authenticated app and device participants.",
     rpc: {
       "State.Get": {
         version: "v1",
         input: ref.schema("StateGetRequest"),
         output: ref.schema("StateGetResponse"),
-        errors: [ref.error("AuthError"), ref.error("ValidationError"), ref.error("UnexpectedError")],
+        errors: [
+          ref.error("AuthError"),
+          ref.error("ValidationError"),
+          ref.error("UnexpectedError"),
+        ],
       },
       "State.Put": {
         version: "v1",
         input: ref.schema("StatePutRequest"),
         output: ref.schema("StatePutResponse"),
-        errors: [ref.error("AuthError"), ref.error("ValidationError"), ref.error("UnexpectedError")],
+        errors: [
+          ref.error("AuthError"),
+          ref.error("ValidationError"),
+          ref.error("UnexpectedError"),
+        ],
       },
       "State.Delete": {
         version: "v1",
         input: ref.schema("StateDeleteRequest"),
         output: ref.schema("StateDeleteResponse"),
-        errors: [ref.error("AuthError"), ref.error("ValidationError"), ref.error("UnexpectedError")],
+        errors: [
+          ref.error("AuthError"),
+          ref.error("ValidationError"),
+          ref.error("UnexpectedError"),
+        ],
       },
       "State.List": {
         version: "v1",
         input: ref.schema("StateListRequest"),
         output: ref.schema("StateListResponse"),
-        errors: [ref.error("AuthError"), ref.error("ValidationError"), ref.error("UnexpectedError")],
+        errors: [
+          ref.error("AuthError"),
+          ref.error("ValidationError"),
+          ref.error("UnexpectedError"),
+        ],
       },
       "State.Admin.Get": {
         version: "v1",
         input: ref.schema("StateAdminGetRequest"),
         output: ref.schema("StateAdminGetResponse"),
         capabilities: { call: ["admin"] },
-        errors: [ref.error("AuthError"), ref.error("ValidationError"), ref.error("UnexpectedError")],
+        errors: [
+          ref.error("AuthError"),
+          ref.error("ValidationError"),
+          ref.error("UnexpectedError"),
+        ],
       },
       "State.Admin.List": {
         version: "v1",
         input: ref.schema("StateAdminListRequest"),
         output: ref.schema("StateAdminListResponse"),
         capabilities: { call: ["admin"] },
-        errors: [ref.error("AuthError"), ref.error("ValidationError"), ref.error("UnexpectedError")],
+        errors: [
+          ref.error("AuthError"),
+          ref.error("ValidationError"),
+          ref.error("UnexpectedError"),
+        ],
       },
       "State.Admin.Delete": {
         version: "v1",
         input: ref.schema("StateAdminDeleteRequest"),
         output: ref.schema("StateAdminDeleteResponse"),
         capabilities: { call: ["admin"] },
-        errors: [ref.error("AuthError"), ref.error("ValidationError"), ref.error("UnexpectedError")],
+        errors: [
+          ref.error("AuthError"),
+          ref.error("ValidationError"),
+          ref.error("UnexpectedError"),
+        ],
       },
     },
   }),

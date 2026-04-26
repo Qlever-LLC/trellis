@@ -75,7 +75,10 @@ Deno.test("validateRedirectTo rejects non-string values", () => {
 });
 
 Deno.test("resolveCorsOrigin echoes request origin for wildcard and explicit matches", () => {
-  assertEquals(resolveCorsOrigin("https://app.example.com", ["*"]), "https://app.example.com");
+  assertEquals(
+    resolveCorsOrigin("https://app.example.com", ["*"]),
+    "https://app.example.com",
+  );
   assertEquals(
     resolveCorsOrigin("https://app.example.com", ["https://app.example.com"]),
     "https://app.example.com",

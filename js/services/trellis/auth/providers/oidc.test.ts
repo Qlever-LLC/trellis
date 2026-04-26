@@ -12,32 +12,45 @@ Deno.test("OIDC provider maps userinfo claims using sub as stable id", async () 
     scopes: ["openid", "profile", "email"],
   });
 
-  const restore = __testing__.setFetch(async (input: Request | URL | string, init?: RequestInit) => {
-    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-    if (url.endsWith("/.well-known/openid-configuration")) {
-      return new Response(JSON.stringify({
-        issuer: "https://tenant.example.auth0.com/",
-        authorization_endpoint: "https://tenant.example.auth0.com/authorize",
-        token_endpoint: "https://tenant.example.auth0.com/oauth/token",
-        userinfo_endpoint: "https://tenant.example.auth0.com/userinfo",
-      }), { headers: { "content-type": "application/json" } });
-    }
-    assertEquals(url, "https://tenant.example.auth0.com/userinfo");
-    const authorization = init?.headers instanceof Headers
-      ? init.headers.get("authorization")
-      : init?.headers && !Array.isArray(init.headers)
-      ? (init.headers as Record<string, string>)["authorization"]
-      : undefined;
-    assertEquals(authorization, "Bearer access-token");
-    return new Response(JSON.stringify({
-      sub: "auth0|abc123",
-      name: "Ada Lovelace",
-      email: "ada@example.com",
-      email_verified: true,
-      picture: "https://example.com/avatar.png",
-      updated_at: "2026-03-26T00:00:00Z",
-    }), { headers: { "content-type": "application/json" } });
-  });
+  const restore = __testing__.setFetch(
+    async (input: Request | URL | string, init?: RequestInit) => {
+      const url = typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.href
+        : input.url;
+      if (url.endsWith("/.well-known/openid-configuration")) {
+        return new Response(
+          JSON.stringify({
+            issuer: "https://tenant.example.auth0.com/",
+            authorization_endpoint:
+              "https://tenant.example.auth0.com/authorize",
+            token_endpoint: "https://tenant.example.auth0.com/oauth/token",
+            userinfo_endpoint: "https://tenant.example.auth0.com/userinfo",
+          }),
+          { headers: { "content-type": "application/json" } },
+        );
+      }
+      assertEquals(url, "https://tenant.example.auth0.com/userinfo");
+      const authorization = init?.headers instanceof Headers
+        ? init.headers.get("authorization")
+        : init?.headers && !Array.isArray(init.headers)
+        ? (init.headers as Record<string, string>)["authorization"]
+        : undefined;
+      assertEquals(authorization, "Bearer access-token");
+      return new Response(
+        JSON.stringify({
+          sub: "auth0|abc123",
+          name: "Ada Lovelace",
+          email: "ada@example.com",
+          email_verified: true,
+          picture: "https://example.com/avatar.png",
+          updated_at: "2026-03-26T00:00:00Z",
+        }),
+        { headers: { "content-type": "application/json" } },
+      );
+    },
+  );
 
   try {
     const user = await provider.getUserInfo("access-token");

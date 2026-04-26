@@ -16,17 +16,28 @@ export class FakeStateKV {
   create(key: string, value: unknown) {
     return AsyncResult.from((async () => {
       if (this.#values.has(key)) {
-        return Result.err(new KVError({ operation: "create", context: { key, reason: "exists" } }));
+        return Result.err(
+          new KVError({
+            operation: "create",
+            context: { key, reason: "exists" },
+          }),
+        );
       }
 
-      this.#values.set(key, { value: value as StoredStateEntry, revision: this.#nextRevision++ });
+      this.#values.set(key, {
+        value: value as StoredStateEntry,
+        revision: this.#nextRevision++,
+      });
       return Result.ok(undefined);
     })());
   }
 
   put(key: string, value: unknown) {
     return AsyncResult.from((async () => {
-      this.#values.set(key, { value: value as StoredStateEntry, revision: this.#nextRevision++ });
+      this.#values.set(key, {
+        value: value as StoredStateEntry,
+        revision: this.#nextRevision++,
+      });
       return Result.ok(undefined);
     })());
   }
@@ -35,7 +46,12 @@ export class FakeStateKV {
     return AsyncResult.from((async () => {
       const current = this.#values.get(key);
       if (!current) {
-        return Result.err(new KVError({ operation: "get", context: { key, reason: "not found" } }));
+        return Result.err(
+          new KVError({
+            operation: "get",
+            context: { key, reason: "not found" },
+          }),
+        );
       }
 
       const store = this;
@@ -47,12 +63,25 @@ export class FakeStateKV {
           return AsyncResult.from((async () => {
             const next = store.#values.get(key);
             if (!next) {
-              return Result.err(new KVError({ operation: "put", context: { key, reason: "not found" } }));
+              return Result.err(
+                new KVError({
+                  operation: "put",
+                  context: { key, reason: "not found" },
+                }),
+              );
             }
             if (vcc && next.revision !== current.revision) {
-              return Result.err(new KVError({ operation: "put", context: { key, reason: "revision mismatch" } }));
+              return Result.err(
+                new KVError({
+                  operation: "put",
+                  context: { key, reason: "revision mismatch" },
+                }),
+              );
             }
-            store.#values.set(key, { value: value as StoredStateEntry, revision: store.#nextRevision++ });
+            store.#values.set(key, {
+              value: value as StoredStateEntry,
+              revision: store.#nextRevision++,
+            });
             return Result.ok(undefined);
           })());
         },
@@ -60,10 +89,20 @@ export class FakeStateKV {
           return AsyncResult.from((async () => {
             const next = store.#values.get(key);
             if (!next) {
-              return Result.err(new KVError({ operation: "delete", context: { key, reason: "not found" } }));
+              return Result.err(
+                new KVError({
+                  operation: "delete",
+                  context: { key, reason: "not found" },
+                }),
+              );
             }
             if (vcc && next.revision !== current.revision) {
-              return Result.err(new KVError({ operation: "delete", context: { key, reason: "revision mismatch" } }));
+              return Result.err(
+                new KVError({
+                  operation: "delete",
+                  context: { key, reason: "revision mismatch" },
+                }),
+              );
             }
             store.#values.delete(key);
             return Result.ok(undefined);
@@ -100,10 +139,25 @@ export class FakeSessionKV {
     return AsyncResult.from((async () => {
       const value = this.#values.get(key);
       if (!value) {
-        return Result.err(new KVError({ operation: "get", context: { key, reason: "not found" } }));
+        return Result.err(
+          new KVError({
+            operation: "get",
+            context: { key, reason: "not found" },
+          }),
+        );
       }
       return Result.ok(value);
     })());
+  }
+
+  async getOneBySessionKey(sessionKey: string): Promise<Session | undefined> {
+    const matches = [...this.#values.entries()].filter(([key]) =>
+      key.startsWith(`${sessionKey}.`)
+    );
+    if (matches.length > 1) {
+      throw new Error(`Multiple sessions stored for session key ${sessionKey}`);
+    }
+    return matches[0]?.[1];
   }
 
   keys(filter: string | string[] = ">") {
@@ -144,6 +198,7 @@ export function makeUserSession(args: {
     id: args.id ?? "123",
     email: "user@example.com",
     name: "User",
+    participantKind: "app",
     createdAt: new Date("2026-01-01T00:00:00.000Z"),
     lastAuth: new Date("2026-01-01T00:00:00.000Z"),
     contractDigest: args.contractDigest ?? `${args.contractId}-digest`,

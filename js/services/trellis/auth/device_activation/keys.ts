@@ -2,8 +2,7 @@ function encodeKeyPart(value: string): string {
   const bytes = new TextEncoder().encode(value);
   let encoded = "";
   for (const byte of bytes) {
-    const isAlphaNum =
-      (byte >= 48 && byte <= 57) ||
+    const isAlphaNum = (byte >= 48 && byte <= 57) ||
       (byte >= 65 && byte <= 90) ||
       (byte >= 97 && byte <= 122);
     if (isAlphaNum || byte === 45 || byte === 95) {
@@ -15,7 +14,9 @@ function encodeKeyPart(value: string): string {
   return encoded;
 }
 
-export function deviceActivationRecordKey(input: { instanceId: string; publicIdentityKey: string }): string {
+export function deviceActivationRecordKey(
+  input: { instanceId: string; publicIdentityKey: string },
+): string {
   return [
     "instance",
     encodeKeyPart(input.instanceId),
@@ -24,6 +25,8 @@ export function deviceActivationRecordKey(input: { instanceId: string; publicIde
   ].join(".");
 }
 
-export function deviceActivationByIdentityPattern(publicIdentityKey: string): string {
+export function deviceActivationByIdentityPattern(
+  publicIdentityKey: string,
+): string {
   return `instance.*.identity.${encodeKeyPart(publicIdentityKey)}`;
 }

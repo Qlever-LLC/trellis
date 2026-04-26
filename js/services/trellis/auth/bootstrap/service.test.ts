@@ -63,62 +63,65 @@ async function createApp(args: {
     store.activate(validated.digest, validated.contract);
   }
   const app = new Hono();
-  app.post("/bootstrap/service", createServiceBootstrapHandler({
-    contractStore: store,
-    transports: {
-      native: { natsServers: ["nats://127.0.0.1:4222"] },
-      websocket: { natsServers: ["ws://localhost:8080"] },
-    },
-    sentinel: { jwt: "jwt", seed: "seed" },
-    loadServiceInstance: async (instanceKey) => {
-      if (instanceKey !== auth.sessionKey) return null;
-      if (args.service === null) return null;
-      const service = args.service ?? {
-        displayName: "Example Service",
-        active: true,
-        capabilities: ["service"],
-        description: "Example service",
-        contractId: validated.contract.id,
-        contractDigest: validated.digest,
-        resourceBindings: {
-          kv: {
-            cache: {
-              bucket: "svc_cache",
-              history: 1,
-              ttlMs: 0,
+  app.post(
+    "/bootstrap/service",
+    createServiceBootstrapHandler({
+      contractStore: store,
+      transports: {
+        native: { natsServers: ["nats://127.0.0.1:4222"] },
+        websocket: { natsServers: ["ws://localhost:8080"] },
+      },
+      sentinel: { jwt: "jwt", seed: "seed" },
+      loadServiceInstance: async (instanceKey) => {
+        if (instanceKey !== auth.sessionKey) return null;
+        if (args.service === null) return null;
+        const service = args.service ?? {
+          displayName: "Example Service",
+          active: true,
+          capabilities: ["service"],
+          description: "Example service",
+          contractId: validated.contract.id,
+          contractDigest: validated.digest,
+          resourceBindings: {
+            kv: {
+              cache: {
+                bucket: "svc_cache",
+                history: 1,
+                ttlMs: 0,
+              },
             },
           },
-        },
-        createdAt: new Date("2026-01-01T00:00:00.000Z"),
-      };
+          createdAt: new Date("2026-01-01T00:00:00.000Z"),
+        };
 
-      return {
-        instanceId: "svc_1",
+        return {
+          instanceId: "svc_1",
+          profileId: "profile_1",
+          instanceKey: auth.sessionKey,
+          disabled: !service.active,
+          currentContractId: service.contractId,
+          currentContractDigest: service.contractDigest,
+          capabilities: service.capabilities,
+          resourceBindings: service.resourceBindings,
+          createdAt: service.createdAt,
+        };
+      },
+      saveServiceInstance: async () => {},
+      loadServiceProfile: async () => ({
         profileId: "profile_1",
-        instanceKey: auth.sessionKey,
-        disabled: !service.active,
-        currentContractId: service.contractId,
-        currentContractDigest: service.contractDigest,
-        capabilities: service.capabilities,
-        resourceBindings: service.resourceBindings,
-        createdAt: service.createdAt,
-      };
-    },
-    saveServiceInstance: async () => {},
-    loadServiceProfile: async () => ({
-      profileId: "profile_1",
-      disabled: false,
-      appliedContracts: [{
-        contractId: validated.contract.id,
-        allowedDigests: [validated.digest],
-      }],
+        disabled: false,
+        appliedContracts: [{
+          contractId: validated.contract.id,
+          allowedDigests: [validated.digest],
+        }],
+      }),
+      refreshActiveContracts: async () => {},
+      verifyIdentityProof: async ({ sessionKey, iat, sig }) =>
+        sessionKey === auth.sessionKey &&
+        sig === await auth.natsConnectSigForIat(iat),
+      nowSeconds: () => args.nowSeconds ?? TEST_IAT,
     }),
-    refreshActiveContracts: async () => {},
-    verifyIdentityProof: async ({ sessionKey, iat, sig }) =>
-      sessionKey === auth.sessionKey &&
-      sig === await auth.natsConnectSigForIat(iat),
-    nowSeconds: () => args.nowSeconds ?? TEST_IAT,
-  }));
+  );
   return { app, auth, contract: validated };
 }
 
@@ -181,7 +184,9 @@ Deno.test("POST /bootstrap/service returns runtime bootstrap info and bindings",
 });
 
 Deno.test("POST /bootstrap/service rejects stale identity proofs", async () => {
-  const { app, auth, contract } = await createApp({ nowSeconds: TEST_IAT + 31 });
+  const { app, auth, contract } = await createApp({
+    nowSeconds: TEST_IAT + 31,
+  });
   const response = await app.request("http://trellis/bootstrap/service", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

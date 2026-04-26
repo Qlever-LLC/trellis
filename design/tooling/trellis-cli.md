@@ -23,7 +23,7 @@ Trellis needs clear command boundaries for:
 - service install and upgrade flows that use locally generated keys
 - bootstrap-safe contract verification and SDK generation during repo builds
 
-The repository previously split those concerns across:
+The command model separates those concerns across:
 
 - an ad hoc Rust CLI for a few operational commands
 - a separate Rust verification binary for live catalog digest checks
@@ -167,8 +167,8 @@ trellis device activation revoke <id>
 trellis device activation review list [--instance <id>] [--profile <id>] [--state <pending|approved|rejected>]
 trellis device activation review approve <id> [--reason <code>]
 trellis device activation review reject <id> [--reason <code>]
-trellis bootstrap nats ...
-trellis bootstrap admin ...
+trellis bootstrap nats --trellis-creds <path> --auth-creds <path> [--servers <servers>]
+trellis bootstrap admin --origin <origin> --id <id> [--db-path <path>] [--capability <capability>...]
 trellis keygen ...
 trellis service profile list [--disabled]
 trellis service profile create <id> [--namespace <ns>...]
@@ -256,12 +256,14 @@ Operational command behavior:
   device profiles and provision device instances for activated-device flows;
   install automation may offer convenience wrappers, but the underlying actions
   remain explicit admin calls
-- `trellis bootstrap nats` creates the shared stream and auth-owned KV buckets
-  needed before the runtime starts; this is an explicit super-user path that
-  talks directly to NATS with credentials
-- `trellis bootstrap admin` bootstraps the initial admin user in auth's local
-  user projection; by default it seeds `admin`, `trellis.catalog.read`, and
-  `trellis.contract.read` so the first console user can load discovery data
+- `trellis bootstrap nats` creates the shared event stream and Trellis-owned KV
+  buckets needed before the runtime starts; these buckets are for OAuth state,
+  pending auth, browser flows, active connection presence, and the public Trellis
+  State API
+- `trellis bootstrap admin` bootstraps the initial admin user in Trellis service
+  SQLite storage; by default it writes `/var/lib/trellis/trellis.sqlite` and
+  seeds `admin`, `trellis.catalog.read`, and `trellis.contract.read` so the first
+  console user can load discovery data
 - `trellis keygen` remains an explicit offline utility for operators who want to
   separate key generation from install
 - the runtime/operator CLI no longer exposes direct transport flags like

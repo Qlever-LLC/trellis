@@ -409,8 +409,8 @@ type DeviceConnectInfo = {
 Rules:
 
 - Trellis returns `natsServers` and sentinel credentials from deployment state
-- devices should refresh connect info on startup rather than treating previously
-  returned transport data as a permanent source of truth
+- devices should refresh connect info on startup rather than treating cached
+  transport data as a permanent source of truth
 - reboot-safe storage should keep the root secret, not connect info, sentinel
   credentials, or hard-coded NATS topology; any Deno activation-state
   persistence stays internal to the Deno activation helper
@@ -684,9 +684,6 @@ Rules:
 - `waitForOnlineApproval(...)` and `acceptConfirmationCode(...)` are exposed
   only on `activation_required` status and transition the helper to later
   `activated` status for a separate `connect()` call
-- there is no documented migration or backward-compatibility path for the
-  removed root activation-session surface or earlier callback-driven activation
-  flow
 
 ### Minimal activated device example
 

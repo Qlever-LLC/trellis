@@ -31,9 +31,12 @@ async function discoverUserInfoEndpoint(issuer: string): Promise<string> {
   const response = await fetchImpl(url, {
     headers: { accept: "application/json" },
   });
-  const config = Value.Parse(Type.Object({
-    userinfo_endpoint: Type.String({ format: "url" }),
-  }), await response.json());
+  const config = Value.Parse(
+    Type.Object({
+      userinfo_endpoint: Type.String({ format: "url" }),
+    }),
+    await response.json(),
+  );
   return config.userinfo_endpoint;
 }
 
@@ -73,7 +76,8 @@ export class OIDC extends OIDCProvider {
       provider: this.name,
       id: payload.sub,
       name: payload.name ?? payload.email ?? payload.sub,
-      email: payload.email ?? `${this.name}-${payload.sub}@users.noreply.invalid`,
+      email: payload.email ??
+        `${this.name}-${payload.sub}@users.noreply.invalid`,
       emailVerified: payload.email_verified ?? false,
       picture: payload.picture,
       updated: payload.updated_at,

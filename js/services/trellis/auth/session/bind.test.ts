@@ -1,5 +1,10 @@
 import { assertEquals } from "@std/assert";
-import { AsyncResult, isErr, Result, UnexpectedError } from "@qlever-llc/result";
+import {
+  AsyncResult,
+  isErr,
+  Result,
+  UnexpectedError,
+} from "@qlever-llc/result";
 import { ensureBoundUserSession } from "./bind.ts";
 import type { Connection, Session } from "../../state/schemas.ts";
 
@@ -37,6 +42,10 @@ class InMemoryKV<V> {
     return this.#store.get(key);
   }
 
+  entries(): Array<[string, V]> {
+    return [...this.#store.entries()];
+  }
+
   keys(filter: string | string[]) {
     const filters = Array.isArray(filter) ? filter : [filter];
     async function* iter(store: Map<string, V>) {
@@ -50,7 +59,9 @@ class InMemoryKV<V> {
   get(key: string) {
     const v = this.#store.get(key);
     if (v === undefined) {
-      return AsyncResult.lift(Result.err(new UnexpectedError({ context: { key } })));
+      return AsyncResult.lift(
+        Result.err(new UnexpectedError({ context: { key } })),
+      );
     }
     return AsyncResult.lift(Result.ok({ value: v }));
   }
@@ -74,6 +85,33 @@ class InMemoryKV<V> {
     this.#store.delete(key);
     return AsyncResult.lift(Result.ok(undefined));
   }
+}
+
+function sessionStorageFromKV(kv: InMemoryKV<Session>) {
+  return {
+    async listEntriesBySessionKey(sessionKey: string) {
+      const prefix = `${sessionKey}.`;
+      return [...kv.entries()]
+        .filter(([key]) => key.startsWith(prefix))
+        .map(([key, session]) => ({
+          sessionKey,
+          trellisId: key.slice(prefix.length),
+          session,
+        }));
+    },
+    async get(sessionKey: string, trellisId: string) {
+      return kv.getValue(`${sessionKey}.${trellisId}`);
+    },
+    async put(sessionKey: string, session: Session) {
+      const trellisId = session.type === "device"
+        ? session.instanceId
+        : session.trellisId;
+      kv.seed(`${sessionKey}.${trellisId}`, session);
+    },
+    async delete(sessionKey: string, trellisId: string) {
+      kv.delete(`${sessionKey}.${trellisId}`);
+    },
+  };
 }
 
 function userSessionFields() {
@@ -100,7 +138,7 @@ Deno.test("ensureBoundUserSession creates a new session when none exists", async
 
   const now = new Date("2026-01-01T00:00:00.000Z");
   const res = await ensureBoundUserSession({
-    sessionKV,
+    sessionStorage: sessionStorageFromKV(sessionKV),
     connectionsKV,
     kick: async () => {},
     now,
@@ -139,7 +177,7 @@ Deno.test("ensureBoundUserSession recovers when the session already exists for t
 
   const now = new Date("2026-01-02T00:00:00.000Z");
   const res = await ensureBoundUserSession({
-    sessionKV,
+    sessionStorage: sessionStorageFromKV(sessionKV),
     connectionsKV,
     kick: async () => {},
     now,
@@ -157,7 +195,9 @@ Deno.test("ensureBoundUserSession recovers when the session already exists for t
 
   assertEquals(v.createdAt.toISOString(), createdAt.toISOString());
   const updated = sessionKV.getValue("sk.tid");
-  if (!updated || updated.type !== "user") throw new Error("expected updated session");
+  if (!updated || updated.type !== "user") {
+    throw new Error("expected updated session");
+  }
   assertEquals(updated.createdAt.toISOString(), createdAt.toISOString());
   assertEquals(updated.lastAuth.toISOString(), now.toISOString());
   assertEquals(updated.email, "new@example.com");
@@ -183,15 +223,27 @@ Deno.test("ensureBoundUserSession kicks connections and replaces session when bo
     createdAt: new Date("2026-01-01T00:00:00.000Z"),
     lastAuth: new Date("2026-01-01T00:00:00.000Z"),
   });
-  connectionsKV.seed("sk.other.nk1", { serverId: "srv1", clientId: 1, connectedAt: new Date() });
-  connectionsKV.seed("sk.other.nk2", { serverId: "srv2", clientId: 2, connectedAt: new Date() });
-  connectionsKV.seed("sk2.unrelated.nk3", { serverId: "srv3", clientId: 3, connectedAt: new Date() });
+  connectionsKV.seed("sk.other.nk1", {
+    serverId: "srv1",
+    clientId: 1,
+    connectedAt: new Date(),
+  });
+  connectionsKV.seed("sk.other.nk2", {
+    serverId: "srv2",
+    clientId: 2,
+    connectedAt: new Date(),
+  });
+  connectionsKV.seed("sk2.unrelated.nk3", {
+    serverId: "srv3",
+    clientId: 3,
+    connectedAt: new Date(),
+  });
 
   const kicked: Array<{ serverId: string; clientId: number }> = [];
   const now = new Date("2026-01-02T00:00:00.000Z");
 
   const res = await ensureBoundUserSession({
-    sessionKV,
+    sessionStorage: sessionStorageFromKV(sessionKV),
     connectionsKV,
     kick: async (serverId, clientId) => {
       kicked.push({ serverId, clientId });
@@ -237,7 +289,7 @@ Deno.test("ensureBoundUserSession rejects if the sessionKeyId exists with a mism
   });
 
   const res = await ensureBoundUserSession({
-    sessionKV,
+    sessionStorage: sessionStorageFromKV(sessionKV),
     connectionsKV,
     kick: async () => {},
     now: new Date("2026-01-02T00:00:00.000Z"),
@@ -255,7 +307,9 @@ Deno.test("ensureBoundUserSession rejects if the sessionKeyId exists with a mism
   if (!isErr(v)) return;
   assertEquals(v.error.reason, "session_already_bound");
   const rebound = sessionKV.getValue("sk.tid");
-  if (!rebound || rebound.type !== "user") throw new Error("expected rebound session");
+  if (!rebound || rebound.type !== "user") {
+    throw new Error("expected rebound session");
+  }
   assertEquals(rebound.id, "999");
 });
 
@@ -278,7 +332,7 @@ Deno.test("ensureBoundUserSession clears stale app identity when the rebound ses
 
   const now = new Date("2026-01-02T00:00:00.000Z");
   const res = await ensureBoundUserSession({
-    sessionKV,
+    sessionStorage: sessionStorageFromKV(sessionKV),
     connectionsKV,
     kick: async () => {},
     now,
@@ -302,23 +356,26 @@ Deno.test("ensureBoundUserSession clears stale app identity when the rebound ses
   if (isErr(v)) throw v.error;
 
   const updated = sessionKV.getValue("sk.tid");
-  if (!updated || updated.type !== "user") throw new Error("expected updated session");
+  if (!updated || updated.type !== "user") {
+    throw new Error("expected updated session");
+  }
   assertEquals("app" in updated, false);
   assertEquals("appOrigin" in updated, false);
 });
 
-Deno.test("ensureBoundUserSession returns kv_error when listing existing sessions fails", async () => {
-  const sessionKV = {
-    keys: () => AsyncResult.lift(Result.err(new UnexpectedError({ context: { op: "keys" } }))),
-    get: () => AsyncResult.lift(Result.err(new UnexpectedError({ context: { op: "get" } }))),
-    create: () => AsyncResult.lift(Result.ok(undefined)),
-    put: () => AsyncResult.lift(Result.ok(undefined)),
-    delete: () => AsyncResult.lift(Result.ok(undefined)),
+Deno.test("ensureBoundUserSession returns storage_error when listing existing sessions fails", async () => {
+  const sessionStorage = {
+    listEntriesBySessionKey: () => {
+      throw new UnexpectedError({ context: { op: "list" } });
+    },
+    get: () => Promise.resolve(undefined),
+    put: () => Promise.resolve(),
+    delete: () => Promise.resolve(),
   };
   const connectionsKV = new InMemoryKV<Connection>();
 
   const res = await ensureBoundUserSession({
-    sessionKV,
+    sessionStorage,
     connectionsKV,
     kick: async () => {},
     now: new Date("2026-01-02T00:00:00.000Z"),
@@ -334,5 +391,5 @@ Deno.test("ensureBoundUserSession returns kv_error when listing existing session
   const v = res.take();
   assertEquals(isErr(v), true);
   if (!isErr(v)) return;
-  assertEquals(v.error.reason, "kv_error");
+  assertEquals(v.error.reason, "storage_error");
 });

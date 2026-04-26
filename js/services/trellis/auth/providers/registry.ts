@@ -7,7 +7,14 @@ export function createProviders(config: Config): Record<string, Provider> {
   return Object.fromEntries(
     Object.entries(config.oauth.providers).map(([key, provider]) => {
       if (provider.type === "github") {
-        return [key, new GitHub(provider.clientId, provider.clientSecret, provider.displayName)];
+        return [
+          key,
+          new GitHub(
+            provider.clientId,
+            provider.clientSecret,
+            provider.displayName,
+          ),
+        ];
       }
 
       return [

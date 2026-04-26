@@ -9,82 +9,92 @@ import type { ApprovalResolution } from "./support.ts";
 
 function resolutionFixture(): ApprovalResolution {
   return {
-  plan: {
-    digest: "digest-new",
-    contract: {
-      id: "trellis.console@v1",
-      displayName: "Console",
-      description: "Admin app",
-      format: "trellis.contract.v1",
-      kind: "app",
+    plan: {
+      digest: "digest-new",
+      contract: {
+        id: "trellis.console@v1",
+        displayName: "Console",
+        description: "Admin app",
+        format: "trellis.contract.v1",
+        kind: "app",
+      },
+      approval: {
+        contractDigest: "digest-new",
+        contractId: "trellis.console@v1",
+        displayName: "Console",
+        description: "Admin app",
+        participantKind: "app",
+        capabilities: ["admin"],
+      },
+      publishSubjects: ["rpc.v1.Auth.Me"],
+      subscribeSubjects: ["events.v1.Auth.Connect.>"],
     },
-    approval: {
-      contractDigest: "digest-new",
+    app: {
       contractId: "trellis.console@v1",
-      displayName: "Console",
-      description: "Admin app",
+      origin: "https://console.example.com",
+    },
+    trellisId: "tid_123",
+    userOrigin: "github",
+    userId: "123",
+    userEmail: "ada@example.com",
+    userName: "Ada",
+    existingProjection: {
+      origin: "github",
+      id: "123",
+      name: "Ada",
+      email: "ada@example.com",
+      active: true,
       capabilities: ["admin"],
     },
-    publishSubjects: ["rpc.v1.Auth.Me"],
-    subscribeSubjects: ["events.v1.Auth.Connect.>"],
-  },
-  app: {
-    contractId: "trellis.console@v1",
-    origin: "https://console.example.com",
-  },
-  trellisId: "tid_123",
-  userOrigin: "github",
-  userId: "123",
-  userEmail: "ada@example.com",
-  userName: "Ada",
-  existingProjection: {
-    origin: "github",
-    id: "123",
-    name: "Ada",
-    email: "ada@example.com",
-    active: true,
-    capabilities: ["admin"],
-  },
-  existingCapabilities: ["admin"],
-  effectiveCapabilities: ["admin"],
-  missingCapabilities: [],
-  matchedPolicies: [],
-  effectiveApproval: { kind: "none", answer: "none" },
-  storedApproval: null,
+    existingCapabilities: ["admin"],
+    effectiveCapabilities: ["admin"],
+    missingCapabilities: [],
+    matchedPolicies: [],
+    effectiveApproval: { kind: "none", answer: "none" },
+    storedApproval: null,
   };
 }
 
 Deno.test("canAutoApproveFromCurrentSession requires concrete subject and capability subsets", () => {
-  assertEquals(canAutoApproveFromCurrentSession({
-    origin: "github",
-    id: "123",
-    email: "ada@example.com",
-    name: "Ada",
-    contractId: "trellis.console@v1",
-    app: {
+  assertEquals(
+    canAutoApproveFromCurrentSession({
+      origin: "github",
+      id: "123",
+      email: "ada@example.com",
+      name: "Ada",
       contractId: "trellis.console@v1",
-      origin: "https://console.example.com",
-    },
-    approvalSource: "stored_approval",
-    delegatedCapabilities: ["admin", "audit"],
-    delegatedPublishSubjects: ["rpc.v1.Auth.Me", "rpc.v1.Auth.ListApprovals"],
-    delegatedSubscribeSubjects: ["events.v1.Auth.Connect.>", "events.v1.Auth.Disconnect.>"],
-  }, resolutionFixture()), true);
+      app: {
+        contractId: "trellis.console@v1",
+        origin: "https://console.example.com",
+      },
+      approvalSource: "stored_approval",
+      delegatedCapabilities: ["admin", "audit"],
+      delegatedPublishSubjects: ["rpc.v1.Auth.Me", "rpc.v1.Auth.ListApprovals"],
+      delegatedSubscribeSubjects: [
+        "events.v1.Auth.Connect.>",
+        "events.v1.Auth.Disconnect.>",
+      ],
+    }, resolutionFixture()),
+    true,
+  );
 
-  assertEquals(canAutoApproveFromCurrentSession({
-    origin: "github",
-    id: "123",
-    email: "ada@example.com",
-    name: "Ada",
-    contractId: "trellis.console@v1",
-    app: {
+  assertEquals(
+    canAutoApproveFromCurrentSession({
+      origin: "github",
+      id: "123",
+      email: "ada@example.com",
+      name: "Ada",
       contractId: "trellis.console@v1",
-      origin: "https://console.example.com",
-    },
-    delegatedCapabilities: ["admin"],
-    delegatedPublishSubjects: [],
-    delegatedSubscribeSubjects: ["events.v1.Auth.Connect.>"],
-  }, resolutionFixture()), false);
+      app: {
+        contractId: "trellis.console@v1",
+        origin: "https://console.example.com",
+      },
+      delegatedCapabilities: ["admin"],
+      delegatedPublishSubjects: [],
+      delegatedSubscribeSubjects: ["events.v1.Auth.Connect.>"],
+    }, resolutionFixture()),
+    false,
+  );
 });
 
 Deno.test("buildAuthStartSignaturePayload includes provider and contract", () => {
@@ -129,7 +139,10 @@ Deno.test("auth start auto-approves contract changes when current session envelo
       approvalSource: "stored_approval",
       delegatedCapabilities: ["admin", "audit"],
       delegatedPublishSubjects: ["rpc.v1.Auth.Me", "rpc.v1.Auth.ListApprovals"],
-      delegatedSubscribeSubjects: ["events.v1.Auth.Connect.>", "events.v1.Auth.Disconnect.>"],
+      delegatedSubscribeSubjects: [
+        "events.v1.Auth.Connect.>",
+        "events.v1.Auth.Disconnect.>",
+      ],
     }),
     getApprovalResolution: async () => resolutionFixture(),
     planContract: async () => resolutionFixture().plan,
@@ -226,7 +239,10 @@ Deno.test("auth start falls back to normal auth flow when app identity changes",
       approvalSource: "stored_approval",
       delegatedCapabilities: ["admin", "audit"],
       delegatedPublishSubjects: ["rpc.v1.Auth.Me", "rpc.v1.Auth.ListApprovals"],
-      delegatedSubscribeSubjects: ["events.v1.Auth.Connect.>", "events.v1.Auth.Disconnect.>"],
+      delegatedSubscribeSubjects: [
+        "events.v1.Auth.Connect.>",
+        "events.v1.Auth.Disconnect.>",
+      ],
     }),
     getApprovalResolution: async () => resolutionFixture(),
     planContract: async () => resolutionFixture().plan,
@@ -271,14 +287,15 @@ Deno.test("auth start rejects invalid signatures", async () => {
   });
 
   await assertRejects(
-    () => handler({
-      redirectTo: "https://console.example.com/callback",
-      sessionKey: "A".repeat(43),
-      sig: "B".repeat(86),
-      contract: { id: "trellis.console@v1" },
-    }, {
-      authUrl: "https://auth.example.com",
-    }),
+    () =>
+      handler({
+        redirectTo: "https://console.example.com/callback",
+        sessionKey: "A".repeat(43),
+        sig: "B".repeat(86),
+        contract: { id: "trellis.console@v1" },
+      }, {
+        authUrl: "https://auth.example.com",
+      }),
     Error,
     "Invalid signature",
   );

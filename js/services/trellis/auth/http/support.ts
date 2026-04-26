@@ -3,12 +3,12 @@ import type { AsyncResult, BaseError } from "@qlever-llc/result";
 
 import { planUserContractApproval } from "../approval/plan.ts";
 import {
+  type EffectiveApproval,
   effectiveApproval,
   effectiveCapabilities,
   getAppOrigin,
   matchingInstanceGrantPolicies,
   missingCapabilities,
-  type EffectiveApproval,
 } from "../grants/policy.ts";
 import type { Config } from "../../config.ts";
 import type { ContractStore } from "../../catalog/store.ts";
@@ -76,19 +76,29 @@ const BUILTIN_LOGIN_PORTAL_PATH = "/_trellis/portal/users/login";
 const BUILTIN_DEVICE_PORTAL_PATH = "/_trellis/portal/devices/activate";
 
 function enabledPortalById(portals: PortalRecord[]): Map<string, PortalRecord> {
-  return new Map(portals.filter((portal) => !portal.disabled).map((portal) => [portal.portalId, portal]));
+  return new Map(
+    portals.filter((portal) => !portal.disabled).map((
+      portal,
+    ) => [portal.portalId, portal]),
+  );
 }
 
 export function getApprovalResolutionBlocker(
   resolution: ApprovalResolution,
 ): "user_inactive" | null {
-  return resolution.existingProjection?.active === false ? "user_inactive" : null;
+  return resolution.existingProjection?.active === false
+    ? "user_inactive"
+    : null;
 }
 
 export type ApprovalResolutionDeps = {
   loadStoredApproval: (key: string) => Promise<ContractApprovalRecord | null>;
-  loadUserProjection: (trellisId: string) => Promise<UserProjectionEntry | null>;
-  loadInstanceGrantPolicies?: (contractId: string) => Promise<InstanceGrantPolicy[]>;
+  loadUserProjection: (
+    trellisId: string,
+  ) => Promise<UserProjectionEntry | null>;
+  loadInstanceGrantPolicies?: (
+    contractId: string,
+  ) => Promise<InstanceGrantPolicy[]>;
 };
 
 export type WarnLogger = {
@@ -102,7 +112,10 @@ export type CookieContext = {
   redirect: (location: string) => Response;
 };
 
-export function contractApprovalKey(userTrellisId: string, contractDigest: string): string {
+export function contractApprovalKey(
+  userTrellisId: string,
+  contractDigest: string,
+): string {
   return `${userTrellisId}.${contractDigest}`;
 }
 
@@ -135,11 +148,17 @@ export function applyApprovalDecision(args: {
 export function encodeBase64Url(bytes: Uint8Array): string {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(
+    /=+$/g,
+    "",
+  );
 }
 
 function decodeBase64Url(value: string): Uint8Array {
-  const padded = value.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(value.length / 4) * 4, "=");
+  const padded = value.replace(/-/g, "+").replace(/_/g, "/").padEnd(
+    Math.ceil(value.length / 4) * 4,
+    "=",
+  );
   const binary = atob(padded);
   return Uint8Array.from(binary, (char) => char.charCodeAt(0));
 }
@@ -162,9 +181,14 @@ export function decodeOpenObjectQuery(value: string): Record<string, unknown> {
   return parsed as Record<string, unknown>;
 }
 
-export function buildRedirectLocation(target: string, values: Record<string, string>): string {
+export function buildRedirectLocation(
+  target: string,
+  values: Record<string, string>,
+): string {
   const relative = target.startsWith("/");
-  const url = relative ? new URL(target, "http://trellis.local") : new URL(target);
+  const url = relative
+    ? new URL(target, "http://trellis.local")
+    : new URL(target);
   for (const [key, value] of Object.entries(values)) {
     url.searchParams.set(key, value);
   }
@@ -189,7 +213,9 @@ export function resolveLoginPortal(args: {
   selections: LoginPortalSelectionRecord[];
 }): ResolvedPortal {
   const portalById = enabledPortalById(args.portals);
-  const selection = args.selections.find((entry) => entry.contractId === args.contractId);
+  const selection = args.selections.find((entry) =>
+    entry.contractId === args.contractId
+  );
   if (selection) {
     if (selection.portalId === null) return { kind: "builtin" };
     const portal = portalById.get(selection.portalId);
@@ -201,7 +227,9 @@ export function resolveLoginPortal(args: {
   }
 
   const defaultPortal = portalById.get(args.defaultPortalId);
-  return defaultPortal ? { kind: "custom", portal: defaultPortal } : { kind: "builtin" };
+  return defaultPortal
+    ? { kind: "custom", portal: defaultPortal }
+    : { kind: "builtin" };
 }
 
 export function resolveDevicePortal(args: {
@@ -211,7 +239,9 @@ export function resolveDevicePortal(args: {
   selections: DevicePortalSelectionRecord[];
 }): ResolvedPortal {
   const portalById = enabledPortalById(args.portals);
-  const selection = args.selections.find((entry) => entry.profileId === args.profileId);
+  const selection = args.selections.find((entry) =>
+    entry.profileId === args.profileId
+  );
   if (selection) {
     if (selection.portalId === null) return { kind: "builtin" };
     const portal = portalById.get(selection.portalId);
@@ -223,7 +253,9 @@ export function resolveDevicePortal(args: {
   }
 
   const defaultPortal = portalById.get(args.defaultPortalId);
-  return defaultPortal ? { kind: "custom", portal: defaultPortal } : { kind: "builtin" };
+  return defaultPortal
+    ? { kind: "custom", portal: defaultPortal }
+    : { kind: "builtin" };
 }
 
 export function normalizeBuiltinPortalEntryUrl(args: {
@@ -241,7 +273,9 @@ export function normalizeBuiltinPortalEntryUrl(args: {
   try {
     const entryUrl = new URL(args.entryUrl);
     const baseUrl = new URL(args.baseUrl);
-    if (entryUrl.origin !== baseUrl.origin || entryUrl.pathname !== oppositePath) {
+    if (
+      entryUrl.origin !== baseUrl.origin || entryUrl.pathname !== oppositePath
+    ) {
       return args.entryUrl;
     }
 
@@ -266,8 +300,12 @@ export async function getApprovalResolution(
   deps: ApprovalResolutionDeps,
 ): Promise<ApprovalResolution> {
   const plan = await planUserContractApproval(contractStore, pending.contract);
-  const trellisId = await trellisIdFromOriginId(pending.user.origin, pending.user.id);
-  const userEmail = pending.user.email ?? `${pending.user.origin}:${pending.user.id}`;
+  const trellisId = await trellisIdFromOriginId(
+    pending.user.origin,
+    pending.user.id,
+  );
+  const userEmail = pending.user.email ??
+    `${pending.user.origin}:${pending.user.id}`;
   const userName = pending.user.name ?? pending.user.id;
   const app = pending.app ?? buildAppIdentity({
     contractId: plan.contract.id,
@@ -279,7 +317,8 @@ export async function getApprovalResolution(
     contractApprovalKey(trellisId, plan.digest),
   );
   const matchedPolicies = matchingInstanceGrantPolicies({
-    policies: await (deps.loadInstanceGrantPolicies?.(plan.contract.id) ?? Promise.resolve([])),
+    policies: await (deps.loadInstanceGrantPolicies?.(plan.contract.id) ??
+      Promise.resolve([])),
     contractId: plan.contract.id,
     appOrigin: app.origin,
   });
@@ -356,7 +395,7 @@ export function setCookie(
 }
 
 export function shouldUseSecureOauthCookie(
-  currentConfig: Config,
+  currentConfig: Pick<Config, "oauth" | "web"> & Partial<Config>,
   deps: { logger?: WarnLogger } = {},
 ): boolean {
   const configuredLocation = currentConfig.web.publicOrigin ??
@@ -380,5 +419,6 @@ export function shouldUseSecureOauthCookie(
 }
 
 function isLoopbackHostname(hostname: string): boolean {
-  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1" || hostname === "[::1]";
+  return hostname === "localhost" || hostname === "127.0.0.1" ||
+    hostname === "::1" || hostname === "[::1]";
 }

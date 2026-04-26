@@ -30,8 +30,10 @@ bytes.workspace = true
 ed25519-dalek.workspace = true
 sha2.workspace = true
 rand = "0.10.0"
+rusqlite = { version = "0.37.0", features = ["bundled"] }
 tempfile = "3.27.0"
 self_update.workspace = true
+ulid = "1.2.1"
 
 [[bin]]
 name = "trellis"

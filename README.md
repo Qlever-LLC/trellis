@@ -30,6 +30,11 @@ See `docs/generated-artifacts.md` for regeneration details.
 
 See the [Trellis guides](guides/) to get started.
 
+Trellis service deployments need persistent writable storage at
+`/var/lib/trellis` by default. The control-plane SQLite database defaults to
+`/var/lib/trellis/trellis.sqlite` and can be moved with `storage.dbPath` in the
+Trellis service config.
+
 Current TypeScript runtime entrypoints:
 
 - `TrellisClient.connect(...)` for browser and client runtimes

@@ -20,6 +20,11 @@
     "max": 60
   },
 
+  // Durable Trellis runtime storage. Defaults to /var/lib/trellis/trellis.sqlite.
+  "storage": {
+    "dbPath": "/var/lib/trellis/trellis.sqlite"
+  },
+
   // Live TTLs currently used by the auth runtime
   "ttlMs": {
     "sessions": 86400000,
@@ -54,7 +59,7 @@
   "sessionKeySeedFile": ".local/secrets/session-key.seed",
 
   "client": {
-    "natsServers": ["ws://localhost:8080"],
+    "natsServers": ["ws://localhost:8080"]
     // Optional native endpoints to advertise to non-browser clients.
     // When omitted, auth falls back to splitting nats.servers.
     // "nativeNatsServers": ["tls://nats.example.com:4222"]

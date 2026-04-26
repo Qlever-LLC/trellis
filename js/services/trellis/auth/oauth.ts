@@ -1,8 +1,8 @@
 import type { AuthorizationServer, Client } from "oauth4webapi";
 import {
   authorizationCodeGrantRequest,
-  ClientSecretPost,
   calculatePKCECodeChallenge,
+  ClientSecretPost,
   discoveryRequest,
   generateRandomCodeVerifier,
   generateRandomState,
@@ -12,7 +12,11 @@ import {
   refreshTokenGrantRequest,
   validateAuthResponse,
 } from "oauth4webapi";
-import type { OAuth2Provider, OIDCProvider, Provider } from "./providers/index.ts";
+import type {
+  OAuth2Provider,
+  OIDCProvider,
+  Provider,
+} from "./providers/index.ts";
 import type { OAuth2Tokens } from "../state/schemas.ts";
 
 export type IdpFlowParams = {
@@ -29,11 +33,11 @@ export async function discoverProviderConfiguration(
       processDiscoveryResponse(issuer, r)
     );
   }
-    return {
-      issuer: provider.issuer,
-      authorization_endpoint: provider.authorizationEndpoint,
-      token_endpoint: provider.tokenEndpoint,
-    };
+  return {
+    issuer: provider.issuer,
+    authorization_endpoint: provider.authorizationEndpoint,
+    token_endpoint: provider.tokenEndpoint,
+  };
 }
 
 export async function OAuth2CodeRequest(

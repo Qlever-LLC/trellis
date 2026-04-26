@@ -9,10 +9,22 @@ async function withTempConfig(
   const dir = await Deno.makeTempDir();
   try {
     const configPath = `${dir}/config.jsonc`;
-    await Deno.writeTextFile(`${dir}/session.seed`, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n");
-    await Deno.writeTextFile(`${dir}/issuer.seed`, "SAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n");
-    await Deno.writeTextFile(`${dir}/target.seed`, "SBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n");
-    await Deno.writeTextFile(`${dir}/sx.seed`, "SXAOLCT3V3T5EDXAY7KNSJJLN2JM4UVRXKOQPSZTGV27NE3PMHXFENGE4M\n");
+    await Deno.writeTextFile(
+      `${dir}/session.seed`,
+      "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n",
+    );
+    await Deno.writeTextFile(
+      `${dir}/issuer.seed`,
+      "SAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n",
+    );
+    await Deno.writeTextFile(
+      `${dir}/target.seed`,
+      "SBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n",
+    );
+    await Deno.writeTextFile(
+      `${dir}/sx.seed`,
+      "SXAOLCT3V3T5EDXAY7KNSJJLN2JM4UVRXKOQPSZTGV27NE3PMHXFENGE4M\n",
+    );
     await Deno.writeTextFile(`${dir}/github.secret`, "github-secret\n");
     await Deno.writeTextFile(`${dir}/auth0.secret`, "auth0-secret\n");
     await Deno.writeTextFile(configPath, configText);
@@ -95,12 +107,27 @@ Deno.test("auth config loads structured provider map from file", async () => {
       assertEquals(cfg.web.publicOrigin, "http://localhost:3000");
       assertEquals(cfg.httpRateLimit.windowMs, 1234);
       assertEquals(cfg.httpRateLimit.max, 55);
+      assertEquals(cfg.storage.dbPath, "/var/lib/trellis/trellis.sqlite");
       assertEquals(cfg.ttlMs.deviceFlow, 1800000);
-      assertEquals(cfg.sessionKeySeed, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=");
-      assertEquals(cfg.client.natsServers, ["ws://localhost:8080", "wss://nats.example.com"]);
-      assertEquals(cfg.client.nativeNatsServers, ["tls://nats.example.com:4222"]);
-      assertEquals(cfg.nats.authCallout.issuer.signing, "SAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
-      assertEquals(cfg.oauth.redirectBase, "http://localhost:3000/auth/callback");
+      assertEquals(
+        cfg.sessionKeySeed,
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+      );
+      assertEquals(cfg.client.natsServers, [
+        "ws://localhost:8080",
+        "wss://nats.example.com",
+      ]);
+      assertEquals(cfg.client.nativeNatsServers, [
+        "tls://nats.example.com:4222",
+      ]);
+      assertEquals(
+        cfg.nats.authCallout.issuer.signing,
+        "SAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      );
+      assertEquals(
+        cfg.oauth.redirectBase,
+        "http://localhost:3000/auth/callback",
+      );
       assertEquals(cfg.oauth.alwaysShowProviderChooser, true);
       assertEquals(cfg.oauth.providers.github.type, "github");
       assertEquals(cfg.oauth.providers.github.clientSecret, "github-secret");
@@ -111,7 +138,56 @@ Deno.test("auth config loads structured provider map from file", async () => {
       if (cfg.oauth.providers.auth0.type !== "oidc") {
         throw new Error("expected auth0 to be configured as oidc");
       }
-      assertEquals(cfg.oauth.providers.auth0.scopes, ["openid", "profile", "email"]);
+      assertEquals(cfg.oauth.providers.auth0.scopes, [
+        "openid",
+        "profile",
+        "email",
+      ]);
+    },
+  );
+});
+
+Deno.test("auth config loads explicit storage database path", async () => {
+  await withTempConfig(
+    `{
+      "storage": {
+        "dbPath": "/tmp/custom-trellis.sqlite"
+      },
+      "nats": {
+        "servers": "localhost",
+        "auth": { "credsPath": "/tmp/auth.creds" },
+        "trellis": { "credsPath": "/tmp/trellis.creds" },
+        "sentinelCredsPath": "/tmp/sentinel.creds",
+        "authCallout": {
+          "issuer": {
+            "nkey": "AAAUZNB6EFNV5BTZEE3FUNQIZ2OFAD7NALJZ3RQY3TCOSFREMANAGSER",
+            "signingSeedFile": "./issuer.seed"
+          },
+          "target": {
+            "nkey": "ADQCP2XPU3CAS2PLQKLSHQXWR64JEMOXLV53ABO7ERDTDV5QHJ4RUCSY",
+            "signingSeedFile": "./target.seed"
+          },
+          "sxSeedFile": "./sx.seed"
+        }
+      },
+      "sessionKeySeedFile": "./session.seed",
+      "client": {
+        "natsServers": ["ws://localhost:8080"]
+      },
+      "oauth": {
+        "redirectBase": "http://localhost:3000/auth/callback",
+        "providers": {
+          "github": {
+            "type": "github",
+            "clientId": "github-client",
+            "clientSecretFile": "./github.secret"
+          }
+        }
+      }
+    }`,
+    async (configPath) => {
+      const cfg = await loadAuthConfigFromFile(configPath);
+      assertEquals(cfg.storage.dbPath, "/tmp/custom-trellis.sqlite");
     },
   );
 });

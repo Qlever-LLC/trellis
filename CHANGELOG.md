@@ -10,6 +10,10 @@ and this project adheres to
 
 ### Changed
 
+- Changed Trellis control-plane storage so durable auth, catalog, service,
+  device, portal, and session records are SQLite-backed with ULID row IDs while
+  KV remains for OAuth/pending/browser scratch, connection presence, and the
+  public State API; updated CLI bootstrap and docs for the SQL/KV boundary.
 - Changed TypeScript activated-device startup so root `TrellisDevice.connect(...)`
   is runtime-only, Deno devices use `checkDeviceActivation(...)` to learn
   whether activation is ready or still required, hidden Deno activation-state

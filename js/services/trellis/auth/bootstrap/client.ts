@@ -1,7 +1,7 @@
 import type { Context } from "@hono/hono";
-import { AsyncResult, type BaseError, isErr } from "@qlever-llc/result";
+import { AsyncResult } from "@qlever-llc/result";
 import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
-import { Type, type StaticDecode } from "typebox";
+import { type StaticDecode, Type } from "typebox";
 import { Value } from "typebox/value";
 
 import type { ContractStore } from "../../catalog/store.ts";
@@ -13,7 +13,9 @@ import type {
   SentinelCreds,
   Session,
   SessionKey,
+  UserProjectionEntry,
 } from "../../state/schemas.ts";
+import type { SqlSessionRepository } from "../storage.ts";
 import {
   SessionKeySchema,
   SignatureSchema,
@@ -88,41 +90,33 @@ type ClientConnectInfo = {
 
 export type ClientBootstrapResult =
   | {
-     status: "ready";
-     serverNow: number;
-     connectInfo: ClientConnectInfo;
-     contract: ClientBootstrapContractView;
-     user: ClientBootstrapUserView;
-     binding: ClientBootstrapBindingView;
-   }
+    status: "ready";
+    serverNow: number;
+    connectInfo: ClientConnectInfo;
+    contract: ClientBootstrapContractView;
+    user: ClientBootstrapUserView;
+    binding: ClientBootstrapBindingView;
+  }
   | { status: "auth_required"; serverNow: number }
   | {
-      status: "not_ready";
-      serverNow: number;
-      reason:
-        | "contract_not_active"
-        | "insufficient_permissions"
+    status: "not_ready";
+    serverNow: number;
+    reason:
+      | "contract_not_active"
+      | "insufficient_permissions"
       | "service_role_on_user"
       | "user_inactive"
       | "user_not_found";
   };
 
-type SessionStore = {
-  get(key: string): AsyncResult<{ value: Session } | Session, BaseError>;
-  keys(filter: string): AsyncResult<AsyncIterable<string>, BaseError>;
-};
-
-type UserStore = {
-  get(key: string): AsyncResult<unknown, BaseError>;
-};
+type SessionStore = Pick<SqlSessionRepository, "getOneBySessionKey">;
 
 export type ClientBootstrapDeps = {
   contractStore: ContractStore;
   transports: ClientTransports;
   sentinel: SentinelCreds;
-  sessionKV: SessionStore;
-  usersKV: UserStore;
-  servicesKV?: unknown;
+  sessionStorage: SessionStore;
+  loadUserProjection(trellisId: string): Promise<UserProjectionEntry | null>;
   loadStoredApproval(key: string): Promise<ContractApprovalRecord | null>;
   loadInstanceGrantPolicies(contractId: string): Promise<InstanceGrantPolicy[]>;
   verifyIdentityProof(input: {
@@ -133,34 +127,15 @@ export type ClientBootstrapDeps = {
   nowSeconds?(): number;
 };
 
-function unwrapValue<T>(entry: { value: T } | T): T {
-  if (entry && typeof entry === "object" && "value" in entry) {
-    return entry.value;
-  }
-  return entry;
-}
-
 async function loadSessionBySessionKey(
   sessionKey: string,
   sessionStore: SessionStore,
 ): Promise<Session | null> {
-  const keysIter = await sessionStore.keys(`${sessionKey}.>`).take();
-  if (isErr(keysIter)) return null;
-
-  let sessionKeyId: string | undefined;
-  for await (const key of keysIter) {
-    if (!sessionKeyId) {
-      sessionKeyId = key;
-      continue;
-    }
+  try {
+    return await sessionStore.getOneBySessionKey(sessionKey) ?? null;
+  } catch {
     return null;
   }
-
-  if (!sessionKeyId) return null;
-
-  const sessionValue = await sessionStore.get(sessionKeyId).take();
-  if (isErr(sessionValue)) return null;
-  return unwrapValue(sessionValue);
 }
 
 function buildContractView(
@@ -182,32 +157,36 @@ export async function resolveClientBootstrap(
   request: ClientBootstrapRequest,
 ): Promise<ClientBootstrapResult> {
   const nowSeconds = deps.nowSeconds?.() ?? Math.floor(Date.now() / 1_000);
-  const session = await loadSessionBySessionKey(request.sessionKey, deps.sessionKV);
+  const session = await loadSessionBySessionKey(
+    request.sessionKey,
+    deps.sessionStorage,
+  );
   if (!session || session.type !== "user") {
     return { status: "auth_required", serverNow: nowSeconds };
   }
 
   const principal = await resolveSessionPrincipal(session, request.sessionKey, {
-    usersKV: deps.usersKV,
+    loadUserProjection: deps.loadUserProjection,
     loadStoredApproval: deps.loadStoredApproval,
     loadInstanceGrantPolicies: deps.loadInstanceGrantPolicies,
   });
   if (!principal.ok) {
     switch (principal.error.reason) {
-        case "user_not_found":
-        case "user_inactive":
-        case "insufficient_permissions":
-        case "service_role_on_user":
-        return { status: "not_ready", reason: principal.error.reason, serverNow: nowSeconds };
+      case "user_not_found":
+      case "user_inactive":
+      case "insufficient_permissions":
+      case "service_role_on_user":
+        return {
+          status: "not_ready",
+          reason: principal.error.reason,
+          serverNow: nowSeconds,
+        };
       default:
         return { status: "auth_required", serverNow: nowSeconds };
     }
   }
 
-  const activeDigest = deps.contractStore.findActiveDigestById(session.contractId);
-  const activeContract = activeDigest === session.contractDigest
-    ? deps.contractStore.getContract(session.contractDigest)
-    : undefined;
+  const activeContract = deps.contractStore.getContract(session.contractDigest);
   if (!activeContract || activeContract.id !== session.contractId) {
     return {
       status: "not_ready",
@@ -215,7 +194,10 @@ export async function resolveClientBootstrap(
       serverNow: nowSeconds,
     };
   }
-  const contractView = buildContractView(activeContract, session.contractDigest);
+  const contractView = buildContractView(
+    activeContract,
+    session.contractDigest,
+  );
 
   return {
     status: "ready",

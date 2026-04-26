@@ -81,7 +81,9 @@ export async function buildPortalFlowState(args: {
       origin: args.resolution.userOrigin,
       id: args.resolution.userId,
       ...(args.resolution.userName ? { name: args.resolution.userName } : {}),
-      ...(args.resolution.userEmail ? { email: args.resolution.userEmail } : {}),
+      ...(args.resolution.userEmail
+        ? { email: args.resolution.userEmail }
+        : {}),
     },
     approval: approvalView,
   };

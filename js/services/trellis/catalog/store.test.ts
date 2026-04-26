@@ -86,7 +86,10 @@ function makeJobsContract(id: string, displayName = "Jobs"): TrellisContractV1 {
   };
 }
 
-function makeStoreContract(id: string, displayName = "Store"): TrellisContractV1 {
+function makeStoreContract(
+  id: string,
+  displayName = "Store",
+): TrellisContractV1 {
   return {
     format: "trellis.contract.v1",
     id,
@@ -103,7 +106,10 @@ function makeStoreContract(id: string, displayName = "Store"): TrellisContractV1
   };
 }
 
-function makeStateContract(id: string, displayName = "State App"): TrellisContractV1 {
+function makeStateContract(
+  id: string,
+  displayName = "State App",
+): TrellisContractV1 {
   return {
     format: "trellis.contract.v1",
     id,

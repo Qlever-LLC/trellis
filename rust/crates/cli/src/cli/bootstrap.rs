@@ -17,10 +17,10 @@ pub enum BootstrapSubcommand {
 }
 
 #[derive(Debug, Args)]
-/// Bootstrap the NATS buckets and subjects required by Trellis services.
+/// Bootstrap the NATS stream and KV buckets required by Trellis services.
 ///
-/// This command is expected to stay aligned with the auth/runtime bucket set so
-/// a fresh install can start without creating missing state on first request.
+/// This command is expected to stay aligned with the runtime KV bucket set so a
+/// fresh install can start without creating missing KV state on first request.
 pub struct NatsBootstrapArgs {
     #[arg(long)]
     /// Trellis service credentials file used to create the shared event stream.
@@ -36,7 +36,7 @@ pub struct NatsBootstrapArgs {
 }
 
 #[derive(Debug, Args)]
-/// Seed an initial admin identity and bootstrap connection settings.
+/// Seed an initial admin identity in Trellis service storage.
 pub struct BootstrapAdminArgs {
     #[arg(long)]
     /// Identity origin namespace for the first admin account.
@@ -53,11 +53,7 @@ pub struct BootstrapAdminArgs {
     )]
     pub capabilities: Vec<String>,
 
-    #[arg(long)]
-    /// Credentials file used to connect directly during bootstrap.
-    pub creds: Option<PathBuf>,
-
-    #[arg(long)]
-    /// Direct server list used only for bootstrap-time transport setup.
-    pub servers: Option<String>,
+    #[arg(long, default_value = "/var/lib/trellis/trellis.sqlite")]
+    /// Trellis service SQLite database path.
+    pub db_path: PathBuf,
 }

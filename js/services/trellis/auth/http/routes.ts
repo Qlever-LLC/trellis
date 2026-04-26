@@ -10,26 +10,16 @@ import { hashKey, randomToken, verifyDomainSig } from "../crypto.ts";
 import { ensureBoundUserSession } from "../session/bind.ts";
 import { getConfig } from "../../config.ts";
 import type { ContractStore } from "../../catalog/store.ts";
+import type { SqlContractStorageRepository } from "../../catalog/storage.ts";
 import {
   browserFlowsKV,
   connectionsKV,
-  contractApprovalsKV,
-  contractsKV,
-  deviceActivationsKV,
-  deviceInstancesKV,
-  deviceProfilesKV,
   logger,
-  loginPortalSelectionsKV,
   natsTrellis,
   oauthStateKV,
   pendingAuthKV,
-  portalDefaultsKV,
-  portalsKV,
   sentinelCreds,
-  serviceInstancesKV,
-  serviceProfilesKV,
-  sessionKV,
-  usersKV,
+  sessionStorage,
 } from "../../bootstrap/globals.ts";
 import { getApprovalResolutionErrorMessage } from "./approval_errors.ts";
 import { planUserContractApproval } from "../approval/plan.ts";
@@ -38,7 +28,6 @@ import {
   applyApprovalDecision,
   buildAppIdentity,
   buildRedirectLocation,
-  contractApprovalKey,
   type CookieContext,
   decodeContractQuery,
   decodeOpenObjectQuery,
@@ -60,7 +49,6 @@ import {
   createDeviceBootstrapHandler,
   verifyDeviceBootstrapIdentityProof,
 } from "../bootstrap/device.ts";
-import { serviceInstanceId } from "../admin/shared.ts";
 import { registerDeviceActivationHttpRoutes } from "../device_activation/http.ts";
 import { kick } from "../callout/kick.ts";
 import { buildClientTransports } from "../transports.ts";
@@ -76,7 +64,20 @@ import {
   type SessionApprovalSource,
   type UserSession,
 } from "../../state/schemas.ts";
-import { upsertUserProjection } from "../session/projection.ts";
+import { upsertUserProjectionInSql } from "../session/projection.ts";
+import type {
+  SqlContractApprovalRepository,
+  SqlDeviceActivationRepository,
+  SqlDeviceInstanceRepository,
+  SqlDevicePortalSelectionRepository,
+  SqlDeviceProfileRepository,
+  SqlLoginPortalSelectionRepository,
+  SqlPortalDefaultRepository,
+  SqlPortalRepository,
+  SqlServiceInstanceRepository,
+  SqlServiceProfileRepository,
+  SqlUserProjectionRepository,
+} from "../storage.ts";
 import {
   type AuthStartBoundResponse,
   buildAuthStartSignaturePayload,
@@ -93,6 +94,18 @@ function splitNatsServers(value: string): string[] {
 export function registerHttpRoutes(
   app: Hono,
   opts: {
+    contractStorage: SqlContractStorageRepository;
+    userStorage: SqlUserProjectionRepository;
+    contractApprovalStorage: SqlContractApprovalRepository;
+    portalStorage: SqlPortalRepository;
+    portalDefaultStorage: SqlPortalDefaultRepository;
+    loginPortalSelectionStorage: SqlLoginPortalSelectionRepository;
+    devicePortalSelectionStorage: SqlDevicePortalSelectionRepository;
+    serviceProfileStorage: SqlServiceProfileRepository;
+    serviceInstanceStorage: SqlServiceInstanceRepository;
+    deviceProfileStorage: SqlDeviceProfileRepository;
+    deviceInstanceStorage: SqlDeviceInstanceRepository;
+    deviceActivationStorage: SqlDeviceActivationRepository;
     contractStore: ContractStore;
     refreshActiveContracts?: () => Promise<void>;
     providers?: Record<string, Provider>;
@@ -102,17 +115,31 @@ export function registerHttpRoutes(
   const providers = opts.providers ?? createProviders(config);
   const approvalResolutionDeps = {
     loadStoredApproval: async (key: string) => {
-      const entry = await contractApprovalsKV.get(key).take();
-      return isErr(entry) ? null : entry.value;
+      const approvalKey = parseContractApprovalKey(key);
+      if (!approvalKey) return null;
+      return await opts.contractApprovalStorage.get(
+        approvalKey.userTrellisId,
+        approvalKey.contractDigest,
+      ) ?? null;
     },
     loadUserProjection: async (trellisId: string) => {
-      const entry = await usersKV.get(trellisId).take();
-      return isErr(entry) ? null : entry.value;
+      return await opts.userStorage.get(trellisId) ?? null;
     },
     loadInstanceGrantPolicies: async (contractId: string) => {
       return await loadEffectiveGrantPolicies(contractId);
     },
   };
+
+  function parseContractApprovalKey(
+    key: string,
+  ): { userTrellisId: string; contractDigest: string } | null {
+    const separator = key.lastIndexOf(".");
+    if (separator <= 0 || separator >= key.length - 1) return null;
+    return {
+      userTrellisId: key.slice(0, separator),
+      contractDigest: key.slice(separator + 1),
+    };
+  }
 
   async function requireApprovalResolution(pending: PendingAuth) {
     try {
@@ -187,50 +214,19 @@ export function registerHttpRoutes(
   async function listPortals(): Promise<
     Array<{ portalId: string; entryUrl: string; disabled?: boolean }>
   > {
-    const iter = await portalsKV.keys(">").take();
-    if (isErr(iter)) return [];
-    const portals: Array<
-      { portalId: string; entryUrl: string; disabled?: boolean }
-    > = [];
-    for await (const key of iter) {
-      const entry = await portalsKV.get(key).take();
-      if (!isErr(entry)) {
-        portals.push(
-          entry.value as {
-            portalId: string;
-            entryUrl: string;
-            disabled?: boolean;
-          },
-        );
-      }
-    }
-    return portals;
+    return await opts.portalStorage.list();
   }
 
   async function listLoginPortalSelections(): Promise<
     Array<{ contractId: string; portalId: string | null }>
   > {
-    const iter = await loginPortalSelectionsKV.keys(">").take();
-    if (isErr(iter)) return [];
-    const selections: Array<{ contractId: string; portalId: string | null }> =
-      [];
-    for await (const key of iter) {
-      const entry = await loginPortalSelectionsKV.get(key).take();
-      if (!isErr(entry)) {
-        selections.push(
-          entry.value as { contractId: string; portalId: string | null },
-        );
-      }
-    }
-    return selections;
+    return await opts.loginPortalSelectionStorage.list();
   }
 
   async function loadLoginPortalDefaultId(): Promise<
     string | null | undefined
   > {
-    const entry = await portalDefaultsKV.get("login.default").take();
-    if (isErr(entry)) return undefined;
-    return (entry.value as { portalId: string | null }).portalId;
+    return (await opts.portalDefaultStorage.getLogin())?.portalId;
   }
 
   async function resolvePortalEntryUrlForContract(
@@ -257,19 +253,13 @@ export function registerHttpRoutes(
   async function loadCurrentUserSession(
     sessionKey: string,
   ): Promise<CurrentUserSession | null> {
-    const iter = await sessionKV.keys(`${sessionKey}.>`).take();
-    if (isErr(iter)) return null;
-
-    let sessionKeyId: string | undefined;
-    for await (const key of iter) {
-      if (sessionKeyId) return null;
-      sessionKeyId = key;
+    let session: Session | undefined;
+    try {
+      session = await sessionStorage.getOneBySessionKey(sessionKey);
+    } catch {
+      return null;
     }
-    if (!sessionKeyId) return null;
-
-    const entry = await sessionKV.get(sessionKeyId).take();
-    if (isErr(entry)) return null;
-    const session = entry.value as Session;
+    if (!session) return null;
     if (session.type !== "user") return null;
     return {
       origin: session.origin,
@@ -300,9 +290,11 @@ export function registerHttpRoutes(
     const validatedContract = await opts.contractStore.validate(
       args.resolution.plan.contract,
     );
-    const existingContract = await contractsKV.get(validatedContract.digest).take();
-    if (isErr(existingContract)) {
-      await contractsKV.put(validatedContract.digest, {
+    const existingContract = await opts.contractStorage.get(
+      validatedContract.digest,
+    );
+    if (!existingContract) {
+      await opts.contractStorage.put({
         digest: validatedContract.digest,
         id: validatedContract.contract.id,
         displayName: validatedContract.contract.displayName,
@@ -311,9 +303,12 @@ export function registerHttpRoutes(
         contract: validatedContract.canonical,
       });
     }
-    opts.contractStore.activate(validatedContract.digest, validatedContract.contract);
+    opts.contractStore.activate(
+      validatedContract.digest,
+      validatedContract.contract,
+    );
     const trellisId = args.resolution.trellisId;
-    const projectionUpsert = await upsertUserProjection(usersKV, {
+    await upsertUserProjectionInSql(opts.userStorage, {
       origin: args.pendingValue.user.origin,
       id: args.pendingValue.user.id,
       name: args.resolution.userName,
@@ -321,14 +316,6 @@ export function registerHttpRoutes(
       active: true,
       capabilities: args.resolution.existingCapabilities,
     });
-    const projectionUpsertValue = projectionUpsert.take();
-    if (isErr(projectionUpsertValue)) {
-      logger.error(
-        { error: projectionUpsertValue.error, trellisId },
-        "Failed to refresh user projection during bind",
-      );
-      throw new HTTPException(500, { message: "Failed to update user" });
-    }
 
     if (args.consumePending) {
       const consumed = await args.consumePending();
@@ -346,27 +333,11 @@ export function registerHttpRoutes(
         approved: true,
         answeredAt: now,
       });
-      await contractApprovalsKV.put(
-        contractApprovalKey(
-          args.resolution.trellisId,
-          args.resolution.plan.digest,
-        ),
-        {
-          userTrellisId: updatedResolution.storedApproval.userTrellisId,
-          origin: updatedResolution.storedApproval.origin,
-          id: updatedResolution.storedApproval.id,
-          answer: updatedResolution.storedApproval.answer,
-          answeredAt: updatedResolution.storedApproval.answeredAt,
-          updatedAt: updatedResolution.storedApproval.updatedAt,
-          approval: updatedResolution.storedApproval.approval,
-          publishSubjects: updatedResolution.storedApproval.publishSubjects,
-          subscribeSubjects: updatedResolution.storedApproval.subscribeSubjects,
-        },
-      );
+      await opts.contractApprovalStorage.put(updatedResolution.storedApproval);
     }
 
     const sessionEnsured = await ensureBoundUserSession({
-      sessionKV,
+      sessionStorage,
       connectionsKV,
       kick,
       now,
@@ -378,17 +349,17 @@ export function registerHttpRoutes(
       name: args.resolution.userName,
       image: args.pendingValue.user.image,
       participantKind: (
-        args.resolution.plan.approval as typeof args.resolution.plan.approval & {
-          participantKind: "app" | "agent";
-        }
+        args.resolution.plan.approval as
+          & typeof args.resolution.plan.approval
+          & {
+            participantKind: "app" | "agent";
+          }
       ).participantKind,
       contractDigest: args.resolution.plan.digest,
       contractId: args.resolution.plan.contract.id,
       contractDisplayName: args.resolution.plan.contract.displayName,
       contractDescription: args.resolution.plan.contract.description,
-      ...(args.resolution.app
-        ? { app: args.resolution.app }
-        : {}),
+      ...(args.resolution.app ? { app: args.resolution.app } : {}),
       ...(args.resolution.app?.origin
         ? { appOrigin: args.resolution.app.origin }
         : {}),
@@ -579,11 +550,17 @@ export function registerHttpRoutes(
       contractStore: opts.contractStore,
       transports: buildClientTransports(config),
       sentinel: sentinelCreds,
-      sessionKV,
-      usersKV,
+      sessionStorage,
+      loadUserProjection: async (trellisId) => {
+        return await opts.userStorage.get(trellisId) ?? null;
+      },
       loadStoredApproval: async (key) => {
-        const entry = await contractApprovalsKV.get(key).take();
-        return isErr(entry) ? null : entry.value;
+        const approvalKey = parseContractApprovalKey(key);
+        if (!approvalKey) return null;
+        return await opts.contractApprovalStorage.get(
+          approvalKey.userTrellisId,
+          approvalKey.contractDigest,
+        ) ?? null;
       },
       loadInstanceGrantPolicies: async (contractId: string) => {
         return await loadEffectiveGrantPolicies(contractId);
@@ -601,16 +578,19 @@ export function registerHttpRoutes(
       transports: buildClientTransports(config),
       sentinel: sentinelCreds,
       loadServiceInstance: async (sessionKey) => {
-        const entry =
-          await serviceInstancesKV.get(serviceInstanceId(sessionKey)).take();
-        return isErr(entry) ? null : entry.value;
+        return await opts.serviceInstanceStorage.getBySessionKey(sessionKey) ??
+          null;
       },
       saveServiceInstance: async (instance) => {
-        await serviceInstancesKV.put(instance.instanceId, instance);
+        await opts.serviceInstanceStorage.put({
+          ...instance,
+          createdAt: instance.createdAt instanceof Date
+            ? instance.createdAt.toISOString()
+            : instance.createdAt,
+        });
       },
       loadServiceProfile: async (profileId) => {
-        const entry = await serviceProfilesKV.get(profileId).take();
-        return isErr(entry) ? null : entry.value;
+        return await opts.serviceProfileStorage.get(profileId) ?? null;
       },
       refreshActiveContracts: opts.refreshActiveContracts ?? (async () => {}),
       verifyIdentityProof: ({ sessionKey, iat, sig }) =>
@@ -624,26 +604,27 @@ export function registerHttpRoutes(
       transports: buildClientTransports(config),
       sentinel: sentinelCreds,
       loadDeviceInstance: async (instanceId) => {
-        const entry = await deviceInstancesKV.get(instanceId).take();
-        return isErr(entry) ? null : entry.value;
+        return await opts.deviceInstanceStorage.get(instanceId) ?? null;
       },
       loadDeviceActivation: async (instanceId) => {
-        const entry = await deviceActivationsKV.get(instanceId).take();
-        return isErr(entry) ? null : entry.value;
+        return await opts.deviceActivationStorage.get(instanceId) ?? null;
       },
       loadDeviceProfile: async (profileId) => {
-        const entry = await deviceProfilesKV.get(profileId).take();
-        return isErr(entry) ? null : entry.value as unknown as {
-          profileId: string;
-          disabled: boolean;
-          appliedContracts: Array<
-            { contractId: string; allowedDigests: string[] }
-          >;
-          reviewMode?: "none" | "required";
-        };
+        return await opts.deviceProfileStorage.get(profileId) ?? null;
       },
       saveDeviceInstance: async (instance) => {
-        await deviceInstancesKV.put(instance.instanceId, instance);
+        await opts.deviceInstanceStorage.put({
+          ...instance,
+          createdAt: instance.createdAt instanceof Date
+            ? instance.createdAt.toISOString()
+            : instance.createdAt,
+          activatedAt: instance.activatedAt instanceof Date
+            ? instance.activatedAt.toISOString()
+            : instance.activatedAt,
+          revokedAt: instance.revokedAt instanceof Date
+            ? instance.revokedAt.toISOString()
+            : instance.revokedAt,
+        });
       },
       refreshActiveContracts: opts.refreshActiveContracts ?? (async () => {}),
       verifyIdentityProof: verifyDeviceBootstrapIdentityProof,
@@ -953,7 +934,7 @@ export function registerHttpRoutes(
     const user = await provider.getUserInfo(accessToken);
     logger.debug({ user: user.id }, "Authentication successful.");
 
-    const projectionUpsert = await upsertUserProjection(usersKV, {
+    await upsertUserProjectionInSql(opts.userStorage, {
       origin: user.provider,
       id: user.id,
       name: user.name,
@@ -961,18 +942,6 @@ export function registerHttpRoutes(
       active: true,
       capabilities: [],
     });
-    const projectionUpsertValue = projectionUpsert.take();
-    if (isErr(projectionUpsertValue)) {
-      logger.error(
-        {
-          error: projectionUpsertValue.error,
-          origin: user.provider,
-          id: user.id,
-        },
-        "Failed to provision user after OAuth callback",
-      );
-      throw new HTTPException(500, { message: "Failed to provision user" });
-    }
 
     const authToken = randomToken(32);
     const authTokenHash = await hashKey(authToken);
@@ -1041,8 +1010,9 @@ export function registerHttpRoutes(
     let redirectLocation = undefined;
     let returnLocation = undefined;
     if (flow.authToken) {
-      const pendingEntry =
-        await pendingAuthKV.get(await hashKey(flow.authToken)).take();
+      const pendingEntry = await pendingAuthKV.get(
+        await hashKey(flow.authToken),
+      ).take();
       if (!isErr(pendingEntry)) {
         const pending = pendingEntry.value as PendingAuth;
         resolution = await requireApprovalResolution(pending);
@@ -1196,20 +1166,7 @@ export function registerHttpRoutes(
       approved,
       answeredAt: now,
     });
-    await contractApprovalsKV.put(
-      contractApprovalKey(resolution.trellisId, resolution.plan.digest),
-      {
-        userTrellisId: updatedResolution.storedApproval.userTrellisId,
-        origin: updatedResolution.storedApproval.origin,
-        id: updatedResolution.storedApproval.id,
-        answer: updatedResolution.storedApproval.answer,
-        answeredAt: updatedResolution.storedApproval.answeredAt,
-        updatedAt: updatedResolution.storedApproval.updatedAt,
-        approval: updatedResolution.storedApproval.approval,
-        publishSubjects: updatedResolution.storedApproval.publishSubjects,
-        subscribeSubjects: updatedResolution.storedApproval.subscribeSubjects,
-      },
-    );
+    await opts.contractApprovalStorage.put(updatedResolution.storedApproval);
 
     if (!approved) {
       return c.json(
@@ -1236,7 +1193,11 @@ export function registerHttpRoutes(
     );
   });
 
-  registerDeviceActivationHttpRoutes(app);
+  registerDeviceActivationHttpRoutes(app, {
+    portalStorage: opts.portalStorage,
+    portalDefaultStorage: opts.portalDefaultStorage,
+    devicePortalSelectionStorage: opts.devicePortalSelectionStorage,
+  });
 
   app.post("/auth/flow/:flowId/bind", async (c) => {
     const flowId = c.req.param("flowId");
@@ -1258,8 +1219,8 @@ export function registerHttpRoutes(
       sessionKey: string;
       sig: string;
     };
-    const pendingEntry =
-      await pendingAuthKV.get(await hashKey(flow.authToken)).take();
+    const pendingEntry = await pendingAuthKV.get(await hashKey(flow.authToken))
+      .take();
     if (isErr(pendingEntry)) {
       return c.json({ status: "expired" });
     }

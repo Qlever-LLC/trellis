@@ -5,10 +5,6 @@ import {
   Result,
 } from "@qlever-llc/result";
 import { AuthError } from "@qlever-llc/trellis";
-import type {
-  AuthListUserGrantsInput,
-  AuthListUserGrantsOutput,
-} from "@qlever-llc/trellis/sdk/auth";
 
 import type {
   Connection,
@@ -16,6 +12,11 @@ import type {
   Session,
   UserParticipantKind,
 } from "../../state/schemas.ts";
+import type {
+  SqlContractApprovalRepository,
+  SqlSessionRepository,
+} from "../storage.ts";
+import { parseConnectionKey } from "../session/connections.ts";
 
 type KVLike = {
   get: (key: string) => AsyncResult<unknown, BaseError>;
@@ -23,6 +24,11 @@ type KVLike = {
     filter: string,
   ) => AsyncResult<AsyncIterable<string> | unknown, BaseError>;
   delete: (key: string) => AsyncResult<unknown, BaseError>;
+};
+
+type SessionStore = {
+  listEntriesByUser: SqlSessionRepository["listEntriesByUser"];
+  delete: SqlSessionRepository["delete"];
 };
 
 type RpcUser = {
@@ -86,11 +92,12 @@ function toUserGrant(approval: ContractApprovalRecord) {
   };
 }
 
+/** Revokes active sessions and connections for a user contract grant. */
 export async function revokeGrantSessions(args: {
   userTrellisId: string;
   contractDigest: string;
   participantKind?: UserParticipantKind;
-  sessionKV: KVLike;
+  sessionStorage: SessionStore;
   connectionsKV: KVLike;
   kick: (serverId: string, clientId: number) => Promise<void>;
   publishSessionRevoked: (
@@ -103,13 +110,11 @@ export async function revokeGrantSessions(args: {
   ) => Promise<void>;
   revokedBy: string;
 }): Promise<void> {
-  const iter = await takeValue(args.sessionKV.keys(`>.${args.userTrellisId}`));
-  if (isErr(iter)) return;
-
-  for await (const key of iter as AsyncIterable<string>) {
-    const entry = await takeValue(args.sessionKV.get(key));
-    if (isErr(entry)) continue;
-    const session = unwrapValue(entry) as Session;
+  const entries = await args.sessionStorage.listEntriesByUser(
+    args.userTrellisId,
+  );
+  for (const entry of entries) {
+    const session = entry.session;
     if (
       session.type !== "user" || session.contractDigest !== args.contractDigest
     ) continue;
@@ -117,14 +122,18 @@ export async function revokeGrantSessions(args: {
       args.participantKind && session.participantKind !== args.participantKind
     ) continue;
 
-    const sessionKey = key.split(".")[0];
-    if (!sessionKey) continue;
+    const sessionKey = entry.sessionKey;
 
     const connIter = await takeValue(
-      args.connectionsKV.keys(`${sessionKey}.${args.userTrellisId}.>`),
+      args.connectionsKV.keys(">"),
     );
     if (!isErr(connIter)) {
       for await (const connKey of connIter as AsyncIterable<string>) {
+        const parsedKey = parseConnectionKey(connKey);
+        if (
+          !parsedKey || parsedKey.sessionKey !== sessionKey ||
+          parsedKey.scopeId !== args.userTrellisId
+        ) continue;
         const connection = await takeValue(args.connectionsKV.get(connKey));
         if (!isErr(connection)) {
           const connectionValue = unwrapValue(connection) as Connection;
@@ -140,12 +149,13 @@ export async function revokeGrantSessions(args: {
       sessionKey,
       revokedBy: args.revokedBy,
     });
-    await takeValue(args.sessionKV.delete(key));
+    await args.sessionStorage.delete(entry.sessionKey, entry.trellisId);
   }
 }
 
+/** Creates the Auth.ListUserGrants RPC handler backed by SQL approval storage. */
 export function createAuthListUserGrantsHandler(deps: {
-  contractApprovalsKV: Pick<KVLike, "get" | "keys">;
+  contractApprovalStorage: SqlContractApprovalRepository;
 }) {
   return async (
     {
@@ -162,30 +172,23 @@ export function createAuthListUserGrantsHandler(deps: {
     },
   ) => {
     const user = requireUserCaller(caller);
-    const iter = await takeValue(
-      deps.contractApprovalsKV.keys(`${user.trellisId}.>`),
-    );
-    if (isErr(iter)) return Result.ok({ grants: [] });
-
-    const grants = [] as Array<ReturnType<typeof toUserGrant>>;
-    for await (const key of iter as AsyncIterable<string>) {
-      const entry = await takeValue(deps.contractApprovalsKV.get(key));
-      if (isErr(entry)) continue;
-      const approval = unwrapValue(entry) as ContractApprovalRecord;
-      if (approval.answer !== "approved") continue;
-      grants.push(toUserGrant(approval));
-    }
+    const grants = (await deps.contractApprovalStorage.listByUser(
+      user.trellisId,
+    ))
+      .filter((approval) => approval.answer === "approved")
+      .map((approval) => toUserGrant(approval));
 
     grants.sort((left, right) =>
       left.displayName.localeCompare(right.displayName)
     );
-    return Result.ok<AuthListUserGrantsOutput, never>({ grants });
+    return Result.ok({ grants });
   };
 }
 
+/** Creates an Auth.RevokeUserGrant handler using SQL grants and KV sessions. */
 export function createAuthRevokeUserGrantHandler(deps: {
-  contractApprovalsKV: KVLike;
-  sessionKV: KVLike;
+  contractApprovalStorage: SqlContractApprovalRepository;
+  sessionStorage: SessionStore;
   connectionsKV: KVLike;
   kick: (serverId: string, clientId: number) => Promise<void>;
   publishSessionRevoked: (
@@ -220,15 +223,20 @@ export function createAuthRevokeUserGrantHandler(deps: {
       return Result.err(new AuthError({ reason: "invalid_request" }));
     }
 
-    const approvalKey = `${user.trellisId}.${req.contractDigest}`;
-    const existing = await takeValue(deps.contractApprovalsKV.get(approvalKey));
-    if (isErr(existing)) return Result.ok({ success: false });
+    const existing = await deps.contractApprovalStorage.get(
+      user.trellisId,
+      req.contractDigest,
+    );
+    if (existing === undefined) return Result.ok({ success: false });
 
-    await takeValue(deps.contractApprovalsKV.delete(approvalKey));
+    await deps.contractApprovalStorage.delete(
+      user.trellisId,
+      req.contractDigest,
+    );
     await revokeGrantSessions({
       userTrellisId: user.trellisId,
       contractDigest: req.contractDigest,
-      sessionKV: deps.sessionKV,
+      sessionStorage: deps.sessionStorage,
       connectionsKV: deps.connectionsKV,
       kick: deps.kick,
       publishSessionRevoked: deps.publishSessionRevoked,

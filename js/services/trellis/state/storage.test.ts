@@ -14,7 +14,10 @@ function unwrapOk<T, E extends BaseError>(value: Result<T, E>): T {
 
 Deno.test("StateStore put/get/list returns lexicographic pages for map stores", async () => {
   const kv = new FakeStateKV();
-  const store = new StateStore({ kv, now: () => new Date("2026-01-01T00:00:00.000Z") });
+  const store = new StateStore({
+    kv,
+    now: () => new Date("2026-01-01T00:00:00.000Z"),
+  });
   const target = {
     ownerType: "user" as const,
     contractId: "acme.notes@v1",
@@ -31,7 +34,9 @@ Deno.test("StateStore put/get/list returns lexicographic pages for map stores", 
   const got = unwrapOk(await store.get(target, { key: "a" }));
   assertEquals(got.found, true);
 
-  const listed = unwrapOk(await store.list(target, { prefix: "", offset: 0, limit: 2 }));
+  const listed = unwrapOk(
+    await store.list(target, { prefix: "", offset: 0, limit: 2 }),
+  );
   assertEquals(listed.entries.map((entry) => entry.key), ["a", "b"]);
   assertEquals(listed.count, 3);
   assertEquals(listed.next, 2);
@@ -39,7 +44,10 @@ Deno.test("StateStore put/get/list returns lexicographic pages for map stores", 
 
 Deno.test("StateStore put supports conditional writes for value stores", async () => {
   const kv = new FakeStateKV();
-  const store = new StateStore({ kv, now: () => new Date("2026-01-01T00:00:00.000Z") });
+  const store = new StateStore({
+    kv,
+    now: () => new Date("2026-01-01T00:00:00.000Z"),
+  });
   const target = {
     ownerType: "user" as const,
     contractId: "acme.notes@v1",
@@ -49,33 +57,41 @@ Deno.test("StateStore put supports conditional writes for value stores", async (
     schema: Type.Object({ theme: Type.String() }),
   };
 
-  const created = unwrapOk(await store.put(target, {
-    expectedRevision: null,
-    value: { theme: "light" },
-  }));
+  const created = unwrapOk(
+    await store.put(target, {
+      expectedRevision: null,
+      value: { theme: "light" },
+    }),
+  );
   assertEquals(created.applied, true);
   if (!created.entry) throw new Error("expected created entry");
   assertEquals(created.entry.value, { theme: "light" });
   assertEquals(created.entry.key, undefined);
 
-  const duplicate = unwrapOk(await store.put(target, {
-    expectedRevision: null,
-    value: { theme: "dark" },
-  }));
+  const duplicate = unwrapOk(
+    await store.put(target, {
+      expectedRevision: null,
+      value: { theme: "dark" },
+    }),
+  );
   assertEquals(duplicate.applied, false);
   assertEquals("found" in duplicate ? duplicate.found : undefined, true);
 
-  const mismatch = unwrapOk(await store.put(target, {
-    expectedRevision: "999",
-    value: { theme: "dark" },
-  }));
+  const mismatch = unwrapOk(
+    await store.put(target, {
+      expectedRevision: "999",
+      value: { theme: "dark" },
+    }),
+  );
   assertEquals(mismatch.applied, false);
   assertEquals("found" in mismatch ? mismatch.found : undefined, true);
 
-  const updated = unwrapOk(await store.put(target, {
-    expectedRevision: created.entry.revision,
-    value: { theme: "dark" },
-  }));
+  const updated = unwrapOk(
+    await store.put(target, {
+      expectedRevision: created.entry.revision,
+      value: { theme: "dark" },
+    }),
+  );
   assertEquals(updated.applied, true);
   if (!updated.entry) throw new Error("expected updated entry");
   assertEquals(updated.entry.value, { theme: "dark" });
@@ -97,11 +113,13 @@ Deno.test("StateStore treats expired entries as absent and supports conditional 
     schema: Type.Object({ ok: Type.Boolean() }),
   };
 
-  const created = unwrapOk(await store.put(target, {
-    key: "page-1",
-    ttlMs: 1_000,
-    value: { ok: true },
-  }));
+  const created = unwrapOk(
+    await store.put(target, {
+      key: "page-1",
+      ttlMs: 1_000,
+      value: { ok: true },
+    }),
+  );
   if (!created.entry) throw new Error("expected created entry");
 
   now = new Date("2026-01-01T00:00:02.000Z");
@@ -109,30 +127,39 @@ Deno.test("StateStore treats expired entries as absent and supports conditional 
   const expired = unwrapOk(await store.get(target, { key: "page-1" }));
   assertEquals(expired, { found: false });
 
-  const recreated = unwrapOk(await store.put(target, {
-    key: "page-1",
-    expectedRevision: null,
-    value: { ok: false },
-  }));
+  const recreated = unwrapOk(
+    await store.put(target, {
+      key: "page-1",
+      expectedRevision: null,
+      value: { ok: false },
+    }),
+  );
   assertEquals(recreated.applied, true);
   if (!recreated.entry) throw new Error("expected recreated entry");
 
-  const wrongDelete = unwrapOk(await store.delete(target, {
-    key: "page-1",
-    expectedRevision: created.entry.revision,
-  }));
+  const wrongDelete = unwrapOk(
+    await store.delete(target, {
+      key: "page-1",
+      expectedRevision: created.entry.revision,
+    }),
+  );
   assertEquals(wrongDelete.deleted, false);
 
-  const deleted = unwrapOk(await store.delete(target, {
-    key: "page-1",
-    expectedRevision: recreated.entry.revision,
-  }));
+  const deleted = unwrapOk(
+    await store.delete(target, {
+      key: "page-1",
+      expectedRevision: recreated.entry.revision,
+    }),
+  );
   assertEquals(deleted.deleted, true);
 });
 
 Deno.test("StateStore encodes contract ids and caller keys for KV-safe storage", async () => {
   const kv = new FakeStateKV();
-  const store = new StateStore({ kv, now: () => new Date("2026-01-01T00:00:00.000Z") });
+  const store = new StateStore({
+    kv,
+    now: () => new Date("2026-01-01T00:00:00.000Z"),
+  });
   const target = {
     ownerType: "device" as const,
     contractId: "trellis.demo-state-device@v1",
@@ -142,19 +169,25 @@ Deno.test("StateStore encodes contract ids and caller keys for KV-safe storage",
     schema: Type.Object({ label: Type.String() }),
   };
 
-  const written = unwrapOk(await store.put(target, {
-    key: "inspection.v1/open",
-    value: { label: "draft" },
-  }));
+  const written = unwrapOk(
+    await store.put(target, {
+      key: "inspection.v1/open",
+      value: { label: "draft" },
+    }),
+  );
   assertEquals(written.applied, true);
 
   const got = unwrapOk(await store.get(target, { key: "inspection.v1/open" }));
   assertEquals(got.found, true);
 
-  const listed = unwrapOk(await store.list(target, {
-    prefix: "inspection.v1/",
-    offset: 0,
-    limit: 10,
-  }));
-  assertEquals(listed.entries.map((entry) => entry.key), ["inspection.v1/open"]);
+  const listed = unwrapOk(
+    await store.list(target, {
+      prefix: "inspection.v1/",
+      offset: 0,
+      limit: 10,
+    }),
+  );
+  assertEquals(listed.entries.map((entry) => entry.key), [
+    "inspection.v1/open",
+  ]);
 });

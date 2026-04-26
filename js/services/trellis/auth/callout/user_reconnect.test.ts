@@ -1,6 +1,9 @@
 import { assertEquals } from "@std/assert";
 
-import type { ContractApprovalRecord, UserSession } from "../../state/schemas.ts";
+import type {
+  ContractApprovalRecord,
+  UserSession,
+} from "../../state/schemas.ts";
 import { ContractStore } from "../../catalog/store.ts";
 import { resolveUserReconnectSession } from "./user_reconnect.ts";
 
@@ -107,8 +110,12 @@ Deno.test("resolveUserReconnectSession refreshes delegated envelope from the pre
   assertEquals(result.session.contractDigest, digest);
   assertEquals(result.session.approvalSource, "admin_policy");
   assertEquals(result.session.delegatedCapabilities, ["audit"]);
-  assertEquals(result.session.delegatedPublishSubjects, ["trellis.console.audit"]);
-  assertEquals(result.session.delegatedSubscribeSubjects, ["trellis.console.audit"]);
+  assertEquals(result.session.delegatedPublishSubjects, [
+    "trellis.console.audit",
+  ]);
+  assertEquals(result.session.delegatedSubscribeSubjects, [
+    "trellis.console.audit",
+  ]);
 });
 
 Deno.test("resolveUserReconnectSession returns approval_required when current approval no longer applies", async () => {

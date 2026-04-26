@@ -48,10 +48,6 @@ pub(crate) struct KvBucketSpec {
 
 pub(crate) const AUTH_BOOTSTRAP_BUCKETS: &[KvBucketSpec] = &[
     KvBucketSpec {
-        name: "trellis_sessions",
-        ttl_ms: 24 * 60 * 60_000_u64,
-    },
-    KvBucketSpec {
         name: "trellis_oauth_states",
         ttl_ms: 5 * 60_000_u64,
     },
@@ -60,76 +56,12 @@ pub(crate) const AUTH_BOOTSTRAP_BUCKETS: &[KvBucketSpec] = &[
         ttl_ms: 5 * 60_000_u64,
     },
     KvBucketSpec {
-        name: "trellis_contract_approvals",
-        ttl_ms: 0,
-    },
-    KvBucketSpec {
-        name: "trellis_portals",
-        ttl_ms: 0,
-    },
-    KvBucketSpec {
-        name: "trellis_portal_profiles",
-        ttl_ms: 0,
-    },
-    KvBucketSpec {
-        name: "trellis_portal_defaults",
-        ttl_ms: 0,
-    },
-    KvBucketSpec {
-        name: "trellis_portal_login_selections",
-        ttl_ms: 0,
-    },
-    KvBucketSpec {
-        name: "trellis_instance_grant_policies",
-        ttl_ms: 0,
-    },
-    KvBucketSpec {
-        name: "trellis_portal_device_selections",
-        ttl_ms: 0,
-    },
-    KvBucketSpec {
         name: "trellis_browser_flows",
-        ttl_ms: 5 * 60_000_u64,
-    },
-    KvBucketSpec {
-        name: "trellis_device_profiles_v2",
-        ttl_ms: 0,
-    },
-    KvBucketSpec {
-        name: "trellis_device_instances_v2",
-        ttl_ms: 0,
-    },
-    KvBucketSpec {
-        name: "trellis_device_provisioning_secrets_v2",
-        ttl_ms: 0,
-    },
-    KvBucketSpec {
-        name: "trellis_device_activations_v2",
-        ttl_ms: 0,
-    },
-    KvBucketSpec {
-        name: "trellis_device_activation_reviews_v2",
-        ttl_ms: 0,
+        ttl_ms: 30 * 60_000_u64,
     },
     KvBucketSpec {
         name: "trellis_connections",
         ttl_ms: 2 * 60 * 60_000_u64,
-    },
-    KvBucketSpec {
-        name: "trellis_service_profiles",
-        ttl_ms: 0,
-    },
-    KvBucketSpec {
-        name: "trellis_service_instances",
-        ttl_ms: 0,
-    },
-    KvBucketSpec {
-        name: "trellis_contracts",
-        ttl_ms: 0,
-    },
-    KvBucketSpec {
-        name: "trellis_users",
-        ttl_ms: 0,
     },
     KvBucketSpec {
         name: "trellis_state",
@@ -696,12 +628,4 @@ pub(crate) async fn resolve_contract_lineage_id(
 
 pub(crate) fn release_channel(prerelease: bool) -> ReleaseChannel {
     ReleaseChannel::from_prerelease_flag(prerelease)
-}
-
-pub(crate) fn resolve_servers(global: Option<String>, local: Option<String>) -> String {
-    local
-        .or(global)
-        .or_else(|| env::var("TRELLIS_NATS_SERVERS").ok())
-        .or_else(|| env::var("NATS_SERVERS").ok())
-        .unwrap_or_else(|| "localhost".to_string())
 }

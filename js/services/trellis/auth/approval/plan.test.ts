@@ -13,8 +13,19 @@ Deno.test("planUserContractApproval derives exact app capabilities and subjects"
     schemas: {
       EmptyInput: { type: "object" },
       EmptyOutput: { type: "object" },
+      DownloadRequest: { type: "object" },
+      DownloadResponse: { type: "object" },
       AuthConnectEvent: { type: "object" },
       AuthAuditMessage: { type: "object" },
+      EvidenceUploadRequest: {
+        type: "object",
+        properties: {
+          key: { type: "string" },
+          contentType: { type: "string" },
+        },
+        required: ["key", "contentType"],
+      },
+      EvidenceUploadResponse: { type: "object" },
     },
     rpc: {
       "Auth.Me": {
@@ -23,6 +34,14 @@ Deno.test("planUserContractApproval derives exact app capabilities and subjects"
         input: { schema: "EmptyInput" },
         output: { schema: "EmptyOutput" },
         capabilities: { call: ["users:read"] },
+      },
+      "Evidence.Download": {
+        version: "v1",
+        subject: "rpc.v1.example.Evidence.Download",
+        input: { schema: "DownloadRequest" },
+        output: { schema: "DownloadResponse" },
+        capabilities: { call: ["evidence:read"] },
+        transfer: { direction: "receive" },
       },
     },
     events: {
@@ -40,9 +59,27 @@ Deno.test("planUserContractApproval derives exact app capabilities and subjects"
         capabilities: { publish: ["audit:write"], subscribe: ["audit:read"] },
       },
     },
+    operations: {
+      "Evidence.Upload": {
+        version: "v1",
+        subject: "operations.v1.example.Evidence.Upload",
+        input: { schema: "EvidenceUploadRequest" },
+        output: { schema: "EvidenceUploadResponse" },
+        capabilities: { call: ["evidence:write"] },
+        transfer: {
+          direction: "send",
+          store: "uploads",
+          key: "/key",
+          contentType: "/contentType",
+        },
+      },
+    },
   };
 
-  const store = new ContractStore([{ digest: "dep-digest", contract: dependency }]);
+  const store = new ContractStore([{
+    digest: "dep-digest",
+    contract: dependency,
+  }]);
 
   const plan = await planUserContractApproval(store, {
     format: "trellis.contract.v1",
@@ -53,7 +90,8 @@ Deno.test("planUserContractApproval derives exact app capabilities and subjects"
     uses: {
       auth: {
         contract: "example.auth@v1",
-        rpc: { call: ["Auth.Me"] },
+        rpc: { call: ["Auth.Me", "Evidence.Download"] },
+        operations: { call: ["Evidence.Upload"] },
         events: { subscribe: ["Auth.Connect"] },
         subjects: { subscribe: ["AuthAudit"] },
       },
@@ -61,8 +99,20 @@ Deno.test("planUserContractApproval derives exact app capabilities and subjects"
   });
 
   assertEquals(plan.approval.contractId, "example.console@v1");
-  assertEquals(plan.approval.capabilities, ["audit:read", "users:read"]);
-  assertEquals(plan.publishSubjects, ["rpc.v1.example.Auth.Me"]);
+  assertEquals(plan.approval.capabilities, [
+    "audit:read",
+    "evidence:read",
+    "evidence:write",
+    "users:read",
+  ]);
+  assertEquals(plan.publishSubjects, [
+    "operations.v1.example.Evidence.Upload",
+    "operations.v1.example.Evidence.Upload.control",
+    "rpc.v1.example.Auth.Me",
+    "rpc.v1.example.Evidence.Download",
+    "transfer.v1.download.*.*",
+    "transfer.v1.upload.*.*",
+  ]);
   assertEquals(plan.subscribeSubjects, [
     "events.v1.example.Auth.Connect",
     "nats.example.audit",
@@ -113,7 +163,10 @@ Deno.test("planUserContractApproval still rejects invalid active dependencies", 
     },
   };
 
-  const store = new ContractStore([{ digest: "dep-digest", contract: dependency }]);
+  const store = new ContractStore([{
+    digest: "dep-digest",
+    contract: dependency,
+  }]);
 
   await assertRejects(
     () =>

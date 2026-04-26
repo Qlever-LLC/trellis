@@ -14,7 +14,8 @@ const baseTrellisHealth = defineServiceContract(
   (ref) => ({
     id: "trellis.health@v1",
     displayName: "Trellis Health",
-    description: "Expose shared Trellis heartbeat events for service observability.",
+    description:
+      "Expose shared Trellis heartbeat events for service observability.",
     events: {
       "Health.Heartbeat": {
         version: "v1",
@@ -30,17 +31,20 @@ type TrellisHealthOwnedApi = typeof baseTrellisHealth.API.owned;
 type TrellisHealthUseSpec = UseSpec<TrellisHealthOwnedApi>;
 type TrellisHealthDefaultEventPublish = typeof DEFAULT_HEALTH_EVENT_PUBLISH;
 
-type WithDefaultHealthEventPublish<TSpec extends TrellisHealthUseSpec | undefined> =
-  TSpec extends { events?: { publish?: infer TPublish extends readonly string[] } }
-    ? readonly [...TrellisHealthDefaultEventPublish, ...TPublish]
-    : TrellisHealthDefaultEventPublish;
+type WithDefaultHealthEventPublish<
+  TSpec extends TrellisHealthUseSpec | undefined,
+> = TSpec extends
+  { events?: { publish?: infer TPublish extends readonly string[] } }
+  ? readonly [...TrellisHealthDefaultEventPublish, ...TPublish]
+  : TrellisHealthDefaultEventPublish;
 
 type WithDefaultHealthUseSpec<TSpec extends TrellisHealthUseSpec | undefined> =
   & (TSpec extends TrellisHealthUseSpec ? Omit<TSpec, "events"> : {})
   & {
     events: {
       publish: WithDefaultHealthEventPublish<TSpec>;
-      subscribe: TSpec extends { events?: { subscribe?: infer TSubscribe extends readonly string[] } }
+      subscribe: TSpec extends
+        { events?: { subscribe?: infer TSubscribe extends readonly string[] } }
         ? TSubscribe
         : readonly [];
     };
@@ -75,7 +79,9 @@ function mergeHealthUseDefaults(
     events: {
       ...spec?.events,
       publish,
-      ...(spec?.events?.subscribe ? { subscribe: [...spec.events.subscribe] } : {}),
+      ...(spec?.events?.subscribe
+        ? { subscribe: [...spec.events.subscribe] }
+        : {}),
     },
   };
 }

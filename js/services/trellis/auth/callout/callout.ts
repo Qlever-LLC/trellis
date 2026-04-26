@@ -15,17 +15,15 @@ import { buildAuthCalloutPermissions } from "./permissions.ts";
 import { getConfig } from "../../config.ts";
 import { getResourcePermissionGrants } from "../../catalog/resources.ts";
 import type { ContractStore } from "../../catalog/store.ts";
+import type { SqlContractStorageRepository } from "../../catalog/storage.ts";
 import {
   connectionsKV,
-  contractApprovalsKV,
-  contractsKV,
-  deviceActivationsKV,
-  deviceProfilesKV,
+  deviceActivationStorage,
+  deviceProfileStorage,
   logger,
   natsAuth,
-  sessionKV,
+  sessionStorage,
   trellis,
-  usersKV,
 } from "../../bootstrap/globals.ts";
 import { kick } from "./kick.ts";
 import { resolveUserReconnectSession } from "./user_reconnect.ts";
@@ -40,7 +38,6 @@ import {
 import type {
   AuthCalloutClaims,
   Connection,
-  ContractRecord,
   DeviceActivationRecordSchema,
   DeviceProfileSchema,
   NatsAuthRequest,
@@ -52,12 +49,24 @@ import {
   NatsDisconnectEventSchema,
 } from "../../state/schemas.ts";
 import { resolveSessionPrincipal } from "../session/principal.ts";
+import {
+  connectionFilterForSession,
+  connectionFilterForUserNkey,
+  connectionKey,
+  parseConnectionKey,
+} from "../session/connections.ts";
 import { deviceInstanceId } from "../admin/shared.ts";
 import { loadEffectiveGrantPolicies } from "../grants/store.ts";
 import {
   loadServiceInstanceByKey,
   loadServiceProfile,
 } from "../admin/service_rpc.ts";
+import type {
+  SqlContractApprovalRepository,
+  SqlDeviceActivationRepository,
+  SqlDeviceProfileRepository,
+  SqlUserProjectionRepository,
+} from "../storage.ts";
 
 type DeviceActivationRecord =
   & StaticDecode<typeof DeviceActivationRecordSchema>
@@ -85,13 +94,24 @@ function extractClientIp(natsReq: NatsAuthRequest): string | undefined {
   return undefined;
 }
 
+function parseContractApprovalKey(
+  key: string,
+): { userTrellisId: string; contractDigest: string } | null {
+  const separator = key.lastIndexOf(".");
+  if (separator <= 0 || separator >= key.length - 1) return null;
+  return {
+    userTrellisId: key.slice(0, separator),
+    contractDigest: key.slice(separator + 1),
+  };
+}
+
 type DeviceRuntimeGrant = ReturnType<typeof deriveDeviceRuntimeAccess> & {
   activation: {
     instanceId: string;
     publicIdentityKey: string;
     profileId: string;
     activatedBy?: { origin: string; id: string };
-    state: string;
+    state: "activated" | "revoked";
     activatedAt: string | null;
     revokedAt: string | null;
   };
@@ -105,15 +125,16 @@ type DeviceRuntimeGrant = ReturnType<typeof deriveDeviceRuntimeAccess> & {
 async function findDeviceActivationByIdentityKey(
   publicIdentityKey: string,
 ): Promise<DeviceActivationRecord | null> {
-  const activationEntry =
-    await deviceActivationsKV.get(deviceInstanceId(publicIdentityKey)).take();
-  if (isErr(activationEntry)) return null;
-  const activation = activationEntry.value as DeviceActivationRecord;
+  const activation = await deviceActivationStorage.get(
+    deviceInstanceId(publicIdentityKey),
+  );
+  if (!activation) return null;
   return activation.publicIdentityKey === publicIdentityKey ? activation : null;
 }
 
 async function resolveDeviceRuntimeGrant(
   publicIdentityKey: string,
+  contractStorage: SqlContractStorageRepository,
   contractDigest?: string,
   contractStore?: ContractStore,
 ): Promise<DeviceRuntimeGrant> {
@@ -123,9 +144,8 @@ async function resolveDeviceRuntimeGrant(
     throw new Error("device_activation_revoked");
   }
 
-  const profileEntry = await deviceProfilesKV.get(activation.profileId).take();
-  if (isErr(profileEntry)) throw new Error("device_profile_not_found");
-  const profile = profileEntry.value as unknown as DeviceProfile;
+  const profile = await deviceProfileStorage.get(activation.profileId);
+  if (!profile) throw new Error("device_profile_not_found");
   if (profile.disabled) throw new Error("device_profile_disabled");
 
   const effectiveContractDigest = resolveDeviceContractDigest(
@@ -134,9 +154,8 @@ async function resolveDeviceRuntimeGrant(
   );
   const activationActor = (activation as DeviceActivationRecord).activatedBy;
 
-  const contractEntry = await contractsKV.get(effectiveContractDigest).take();
-  if (isErr(contractEntry)) throw new Error("device_contract_not_found");
-  const contractRecord = contractEntry.value as ContractRecord;
+  const contractRecord = await contractStorage.get(effectiveContractDigest);
+  if (!contractRecord) throw new Error("device_contract_not_found");
   const access = deriveDeviceRuntimeAccess(
     profile,
     contractRecord,
@@ -182,24 +201,32 @@ export function startDisconnectCleanup(): BackgroundTaskHandle {
         );
         if (typeof userNkey !== "string" || userNkey.length === 0) continue;
 
-        const keys = await connectionsKV.keys(`>.>.${userNkey}`).take();
+        const userNkeyFilter = connectionFilterForUserNkey(userNkey) ?? ">";
+        const keys = await connectionsKV.keys(userNkeyFilter).take();
         if (isErr(keys)) continue;
 
         for await (const key of keys) {
-          const parts = key.split(".");
-          const sessionKey = parts[0];
-          const trellisId = parts[1];
-          if (!sessionKey || !trellisId) continue;
+          const parsedKey = parseConnectionKey(key);
+          if (!parsedKey) {
+            logger.warn(
+              { key },
+              "Skipping unparsable disconnect connection key",
+            );
+            continue;
+          }
+          if (parsedKey.userNkey !== userNkey) continue;
 
-          const session = await sessionKV.get(`${sessionKey}.${trellisId}`).take();
-          if (!isErr(session)) {
-            const sessionValue = session.value as Session;
+          const sessionValue = await sessionStorage.get(
+            parsedKey.sessionKey,
+            parsedKey.scopeId,
+          );
+          if (sessionValue) {
             if (sessionValue.type !== "device") {
               (
                 await trellis.publish("Auth.Disconnect", {
                   origin: sessionValue.origin,
                   id: sessionValue.id,
-                  sessionKey,
+                  sessionKey: parsedKey.sessionKey,
                   userNkey,
                 })
               ).inspectErr((error) =>
@@ -208,7 +235,12 @@ export function startDisconnectCleanup(): BackgroundTaskHandle {
             }
           }
 
-          await connectionsKV.delete(key);
+          (await connectionsKV.delete(key)).inspectErr((error) =>
+            logger.warn(
+              { error, key },
+              "Failed to delete disconnect connection",
+            )
+          );
         }
       }
     } catch (error) {
@@ -228,7 +260,12 @@ export function startDisconnectCleanup(): BackgroundTaskHandle {
 }
 
 export function startAuthCallout(
-  opts?: { contractStore?: ContractStore },
+  opts: {
+    contractStorage: SqlContractStorageRepository;
+    userStorage: SqlUserProjectionRepository;
+    contractApprovalStorage: SqlContractApprovalRepository;
+    contractStore?: ContractStore;
+  },
 ): BackgroundTaskHandle {
   const xkp = fromSeed(
     new TextEncoder().encode(config.nats.authCallout.sxSeed),
@@ -368,14 +405,17 @@ export function startAuthCallout(
         throw new Error("invalid_auth_token");
       }
 
+      let sessionEntry = await sessionStorage.listEntriesBySessionKey(
+        sessionKey,
+      );
       let sessionKeyId: string | undefined;
-      const iter = await sessionKV.keys(`${sessionKey}.>`).take();
-      if (!isErr(iter)) {
-        const matches: string[] = [];
-        for await (const key of iter) matches.push(key);
+      if (sessionEntry.length > 0) {
+        const matches = sessionEntry;
 
         if (matches.length > 1) {
-          const connIter = await connectionsKV.keys(`${sessionKey}.>.>`).take();
+          const connIter = await connectionsKV.keys(
+            connectionFilterForSession(sessionKey),
+          ).take();
           if (!isErr(connIter)) {
             for await (const key of connIter) {
               const entry = await connectionsKV.get(key).take();
@@ -386,24 +426,25 @@ export function startAuthCallout(
             }
           }
 
-          for (const key of matches) {
-            await sessionKV.delete(key);
+          for (const entry of matches) {
+            await sessionStorage.delete(entry.sessionKey, entry.trellisId);
           }
           throw new Error("session_corrupted");
         }
 
-        if (matches.length === 1) sessionKeyId = matches[0];
+        if (matches.length === 1) {
+          sessionKeyId = `${matches[0].sessionKey}.${matches[0].trellisId}`;
+        }
       }
 
       if (!sessionKeyId) {
         const service = await loadServiceInstanceByKey(sessionKey);
-        let putResult;
         if (service) {
           const profile = await loadServiceProfile(service.profileId);
           const trellisId = await trellisIdFromOriginId("service", sessionKey);
           const displayName = profile?.profileId ?? service.instanceId;
           sessionKeyId = `${sessionKey}.${trellisId}`;
-          putResult = await sessionKV.put(sessionKeyId, {
+          await sessionStorage.put(sessionKey, {
             type: "service",
             trellisId,
             origin: "service",
@@ -417,17 +458,18 @@ export function startAuthCallout(
             currentContractDigest: service.currentContractDigest ?? null,
             createdAt: now,
             lastAuth: now,
-          }).take();
+          });
         } else if (usesIat) {
           deviceGrant = await resolveDeviceRuntimeGrant(
             sessionKey,
+            opts.contractStorage,
             authToken.contractDigest,
-            opts?.contractStore,
+            opts.contractStore,
           );
           sessionKeyId = `${sessionKey}.${deviceGrant.activation.instanceId}`;
           // The first successful runtime auth marks when an approved device was
           // actually used, which is distinct from the earlier review timestamp.
-          putResult = await sessionKV.put(sessionKeyId, {
+          await sessionStorage.put(sessionKey, {
             type: "device",
             instanceId: deviceGrant.activation.instanceId,
             publicIdentityKey: deviceGrant.activation.publicIdentityKey,
@@ -445,22 +487,17 @@ export function startAuthCallout(
             revokedAt: deviceGrant.activation.revokedAt
               ? new Date(deviceGrant.activation.revokedAt)
               : null,
-          }).take();
+          });
         } else {
           throw new Error("session_not_found");
         }
-        if (isErr(putResult)) {
-          logger.error(
-            { error: putResult.error, sessionKeyId },
-            "Failed to create service session",
-          );
-          throw new Error("session_create_failed");
-        }
+        sessionEntry = await sessionStorage.listEntriesBySessionKey(sessionKey);
       }
 
-      const sessionEntry = await sessionKV.get(sessionKeyId).take();
-      if (isErr(sessionEntry)) throw new Error("session_not_found");
-      let session = sessionEntry.value as Session;
+      let session = sessionEntry.find((entry) =>
+        `${entry.sessionKey}.${entry.trellisId}` === sessionKeyId
+      )?.session;
+      if (!session) throw new Error("session_not_found");
 
       if (session.type === "device") {
         const presentedContractDigest = usesIat
@@ -468,8 +505,9 @@ export function startAuthCallout(
           : session.contractDigest;
         const currentGrant = deviceGrant ?? await resolveDeviceRuntimeGrant(
           sessionKey,
+          opts.contractStorage,
           presentedContractDigest,
-          opts?.contractStore,
+          opts.contractStore,
         );
         let activatedAt = currentGrant.activation.activatedAt
           ? new Date(currentGrant.activation.activatedAt)
@@ -477,7 +515,7 @@ export function startAuthCallout(
         if (activatedAt === null) {
           const activatedAtIso = now.toISOString();
           activatedAt = now;
-          await deviceActivationsKV.put(currentGrant.activation.instanceId, {
+          await deviceActivationStorage.put({
             ...currentGrant.activation,
             activatedAt: activatedAtIso,
           });
@@ -513,12 +551,15 @@ export function startAuthCallout(
           presentedContractDigest: authToken.contractDigest,
           contractStore: opts.contractStore,
           loadUserProjection: async (trellisId) => {
-            const entry = await usersKV.get(trellisId).take();
-            return isErr(entry) ? null : entry.value;
+            return await opts.userStorage.get(trellisId) ?? null;
           },
           loadStoredApproval: async (key) => {
-            const entry = await contractApprovalsKV.get(key).take();
-            return isErr(entry) ? null : entry.value;
+            const approvalKey = parseContractApprovalKey(key);
+            if (!approvalKey) return null;
+            return await opts.contractApprovalStorage.get(
+              approvalKey.userTrellisId,
+              approvalKey.contractDigest,
+            ) ?? null;
           },
           loadInstanceGrantPolicies: async (contractId) => {
             return await loadEffectiveGrantPolicies(contractId);
@@ -541,18 +582,18 @@ export function startAuthCallout(
       const principal = await resolveSessionPrincipal(session, sessionKey, {
         loadServiceInstance: loadServiceInstanceByKey,
         loadServiceProfile,
-        usersKV: {
-          get: (key) => AsyncResult.lift(usersKV.get(key)),
+        loadUserProjection: async (trellisId) => {
+          return await opts.userStorage.get(trellisId) ?? null;
         },
-        deviceActivationsKV: {
-          get: (key) => AsyncResult.lift(deviceActivationsKV.get(key)),
-        },
-        deviceProfilesKV: {
-          get: (key) => AsyncResult.lift(deviceProfilesKV.get(key)),
-        },
+        deviceActivationStorage,
+        deviceProfileStorage,
         loadStoredApproval: async (key) => {
-          const entry = await contractApprovalsKV.get(key).take();
-          return isErr(entry) ? null : entry.value;
+          const approvalKey = parseContractApprovalKey(key);
+          if (!approvalKey) return null;
+          return await opts.contractApprovalStorage.get(
+            approvalKey.userTrellisId,
+            approvalKey.contractDigest,
+          ) ?? null;
         },
         loadInstanceGrantPolicies: async (contractId: string) => {
           return await loadEffectiveGrantPolicies(contractId);
@@ -568,7 +609,7 @@ export function startAuthCallout(
         );
       }
 
-      await sessionKV.put(sessionKeyId, { ...session, lastAuth: now }).take();
+      await sessionStorage.put(sessionKey, { ...session, lastAuth: now });
 
       const serverId = natsReq.server_id?.id ?? serverName;
       const clientId = natsReq.client_info?.id;
@@ -577,11 +618,14 @@ export function startAuthCallout(
         : session.trellisId;
       if (serverId && typeof clientId === "number") {
         (
-          await connectionsKV.put(`${sessionKey}.${sessionScope}.${userNkey}`, {
-            serverId,
-            clientId,
-            connectedAt: now,
-          })
+          await connectionsKV.put(
+            connectionKey(sessionKey, sessionScope, userNkey),
+            {
+              serverId,
+              clientId,
+              connectedAt: now,
+            },
+          )
         ).inspectErr((error) =>
           logger.warn({ error }, "Failed to track connection")
         );

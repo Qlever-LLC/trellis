@@ -19,6 +19,9 @@ export type UserContractApprovalPlan = {
   subscribeSubjects: string[];
 };
 
+const TRANSFER_UPLOAD_SUBJECT = "transfer.v1.upload.*.*";
+const TRANSFER_DOWNLOAD_SUBJECT = "transfer.v1.download.*.*";
+
 export async function planUserContractApproval(
   contractStore: ContractStore,
   rawContract: unknown,
@@ -27,7 +30,9 @@ export async function planUserContractApproval(
   const uses = resolveContractUsesFromStore(contractStore, validated.contract, {
     ignoreInactiveContracts: true,
   });
-  if (validated.contract.kind !== "app" && validated.contract.kind !== "agent") {
+  if (
+    validated.contract.kind !== "app" && validated.contract.kind !== "agent"
+  ) {
     throw new Error(
       `User approval requires an app or agent contract, got ${validated.contract.kind}`,
     );
@@ -62,6 +67,9 @@ export async function planUserContractApproval(
 
   for (const method of uses.rpcCalls) {
     publishSubjects.add(templateToWildcard(method.method.subject));
+    if (method.method.transfer?.direction === "receive") {
+      publishSubjects.add(TRANSFER_DOWNLOAD_SUBJECT);
+    }
     for (const capability of method.method.capabilities?.call ?? []) {
       capabilities.add(capability);
     }
@@ -72,6 +80,9 @@ export async function planUserContractApproval(
     publishSubjects.add(
       templateToWildcard(`${operation.operation.subject}.control`),
     );
+    if (operation.operation.transfer?.direction === "send") {
+      publishSubjects.add(TRANSFER_UPLOAD_SUBJECT);
+    }
     for (const capability of operation.operation.capabilities?.call ?? []) {
       capabilities.add(capability);
     }

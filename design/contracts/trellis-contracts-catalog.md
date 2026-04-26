@@ -47,7 +47,7 @@ Those needs apply across multiple repos and multiple implementation languages.
 
 - Defining one required human authoring language for every service.
 - Making AsyncAPI the canonical runtime model.
-- Describing migration from earlier in-repo experiments.
+- Documenting historical implementation paths.
 
 ## Design
 

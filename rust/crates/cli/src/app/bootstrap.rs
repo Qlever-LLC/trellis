@@ -1,17 +1,17 @@
 use std::env;
+use std::fs;
 use std::path::PathBuf;
 
 use crate::app::{
-    connect_with_creds, ensure_bucket, ensure_stream, resolve_servers, trellis_id_from_origin_id,
-    BucketEnsureStatus, AUTH_BOOTSTRAP_BUCKETS,
+    ensure_bucket, ensure_stream, trellis_id_from_origin_id, BucketEnsureStatus,
+    AUTH_BOOTSTRAP_BUCKETS,
 };
 use crate::cli::*;
 use crate::output;
-use async_nats::jetstream;
-use async_nats::jetstream::kv;
-use bytes::Bytes;
 use miette::IntoDiagnostic;
+use rusqlite::{params, Connection};
 use serde_json::json;
+use ulid::Ulid;
 
 pub(super) async fn run(command: BootstrapCommand) -> miette::Result<()> {
     match command.command {
@@ -59,13 +59,6 @@ async fn nats_bootstrap_command(args: &NatsBootstrapArgs) -> miette::Result<()> 
 }
 
 async fn bootstrap_admin_command(args: &BootstrapAdminArgs) -> miette::Result<()> {
-    let servers = resolve_servers(None, args.servers.clone());
-    let creds = args
-        .creds
-        .clone()
-        .or_else(|| env::var("TRELLIS_NATS_CREDS").ok().map(PathBuf::from))
-        .or_else(|| env::var("NATS_CREDS").ok().map(PathBuf::from))
-        .ok_or_else(|| miette::miette!("missing creds path"))?;
     let capabilities = if args.capabilities.is_empty() {
         vec![
             "admin".to_string(),
@@ -76,38 +69,76 @@ async fn bootstrap_admin_command(args: &BootstrapAdminArgs) -> miette::Result<()
         args.capabilities.clone()
     };
 
-    let client = connect_with_creds(&servers, &creds).await?;
-    let js = jetstream::new(client);
-    let users = match js.get_key_value("trellis_users").await {
-        Ok(store) => store,
-        Err(_) => js
-            .create_key_value(kv::Config {
-                bucket: "trellis_users".to_string(),
-                history: 1,
-                ..Default::default()
-            })
-            .await
-            .into_diagnostic()?,
-    };
-
     let trellis_id = trellis_id_from_origin_id(&args.origin, &args.id);
-    let payload = json!({
-        "origin": args.origin,
-        "id": args.id,
-        "active": true,
-        "capabilities": capabilities,
-    });
-    users
-        .put(
-            &trellis_id,
-            Bytes::from(serde_json::to_vec_pretty(&payload).into_diagnostic()?),
-        )
-        .await
-        .into_diagnostic()?;
+    seed_admin_user(
+        &args.db_path,
+        &trellis_id,
+        &args.origin,
+        &args.id,
+        &capabilities,
+    )?;
 
     output::print_success("bootstrapped admin user");
+    output::print_info(&format!("dbPath={}", args.db_path.display()));
     output::print_info(&format!("trellisId={trellis_id}"));
-    output::print_info(&format!("payload={payload}"));
+    output::print_info(&format!(
+        "payload={}",
+        json!({
+            "origin": args.origin,
+            "id": args.id,
+            "active": true,
+            "capabilities": capabilities,
+        })
+    ));
+    Ok(())
+}
+
+fn seed_admin_user(
+    db_path: &PathBuf,
+    trellis_id: &str,
+    origin: &str,
+    external_id: &str,
+    capabilities: &[String],
+) -> miette::Result<()> {
+    if let Some(parent) = db_path.parent() {
+        fs::create_dir_all(parent).into_diagnostic()?;
+    }
+
+    let conn = Connection::open(db_path).into_diagnostic()?;
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS users (
+          id TEXT PRIMARY KEY,
+          trellis_id TEXT NOT NULL UNIQUE,
+          origin TEXT NOT NULL,
+          external_id TEXT NOT NULL,
+          name TEXT,
+          email TEXT,
+          active INTEGER NOT NULL,
+          capabilities TEXT NOT NULL
+        )",
+        [],
+    )
+    .into_diagnostic()?;
+
+    let capabilities_json = serde_json::to_string(capabilities).into_diagnostic()?;
+    conn.execute(
+        "INSERT INTO users (id, trellis_id, origin, external_id, name, email, active, capabilities)
+         VALUES (?1, ?2, ?3, ?4, NULL, NULL, 1, ?5)
+         ON CONFLICT(trellis_id) DO UPDATE SET
+           origin = excluded.origin,
+           external_id = excluded.external_id,
+           active = excluded.active,
+           capabilities = excluded.capabilities",
+        params![
+            Ulid::new().to_string(),
+            trellis_id,
+            origin,
+            external_id,
+            capabilities_json
+        ],
+    )
+    .into_diagnostic()?;
+
     Ok(())
 }
 
@@ -190,6 +221,7 @@ mod tests {
             "0" => 0,
             "config.ttlMs.sessions" => 24 * 60 * 60_000_u64,
             "config.ttlMs.oauth" => 5 * 60_000_u64,
+            "Math.max(config.ttlMs.oauth, config.ttlMs.deviceFlow)" => 30 * 60_000_u64,
             "config.ttlMs.deviceFlow" => 30 * 60_000_u64,
             "config.ttlMs.pendingAuth" => 5 * 60_000_u64,
             "config.ttlMs.connections" => 2 * 60 * 60_000_u64,

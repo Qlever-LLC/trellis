@@ -1,18 +1,25 @@
 import { UnexpectedError, ValidationError } from "@qlever-llc/trellis";
-import { type AsyncResult, type BaseError, isErr, Result } from "@qlever-llc/result";
+import {
+  type AsyncResult,
+  type BaseError,
+  isErr,
+  Result,
+} from "@qlever-llc/result";
 
 import {
   connectionsKV,
   logger,
-  serviceInstancesKV,
-  serviceProfilesKV,
-  sessionKV,
+  serviceInstanceStorage,
+  serviceProfileStorage,
+  sessionStorage,
 } from "../../bootstrap/globals.ts";
-import type { Connection, Session } from "../../state/schemas.ts";
+import type { Connection } from "../../state/schemas.ts";
+import type { SqlSessionRepository } from "../storage.ts";
+import { connectionFilterForSession } from "../session/connections.ts";
+import { createAuthApplyServiceProfileContractHandler as createAuthApplyServiceProfileContractHandlerBase } from "./service_profile_apply.ts";
 import {
   normalizeAppliedContracts,
   type ServiceInstance,
-  serviceInstanceId,
   type ServiceProfile,
   validateServiceProfileRequest,
   validateServiceProvisionRequest,
@@ -20,12 +27,16 @@ import {
 
 type RpcUser = { type: string; id?: string };
 
+type ServiceProfileStorage = typeof serviceProfileStorage;
+type ServiceInstanceStorage = typeof serviceInstanceStorage;
+
 type KVLike<V> = {
   get: (key: string) => AsyncResult<{ value: V } | V | unknown, BaseError>;
   put: (key: string, value: V) => AsyncResult<void | unknown, BaseError>;
   delete: (key: string) => AsyncResult<void | unknown, BaseError>;
-  keys: (filter: string) => AsyncResult<AsyncIterable<string> | unknown, BaseError>;
-  create?: (key: string, value: V) => AsyncResult<void | unknown, BaseError>;
+  keys: (
+    filter: string,
+  ) => AsyncResult<AsyncIterable<string> | unknown, BaseError>;
 };
 
 function unwrapValue<V>(entry: { value: V } | V | unknown): V {
@@ -48,29 +59,19 @@ function invalid(
   );
 }
 
-async function listValues<V extends { [key: string]: unknown }>(
-  store: KVLike<V>,
-): Promise<V[]> {
-  const keys = await store.keys(">").take();
-  if (isErr(keys)) return [];
-  const values: V[] = [];
-  for await (const key of keys as AsyncIterable<string>) {
-    const entry = await store.get(key).take();
-    if (!isErr(entry)) values.push(unwrapValue<V>(entry));
-  }
-  return values;
-}
-
 async function kickInstanceRuntimeAccess(args: {
   instanceKey: string;
   connectionsKV?: KVLike<Connection>;
-  sessionKV?: KVLike<Session>;
+  sessionStorage?: Pick<SqlSessionRepository, "deleteByInstanceKey">;
   kick: (serverId: string, clientId: number) => Promise<void>;
 }): Promise<void> {
   const connectionStore = args.connectionsKV ?? connectionsKV;
-  const sessionStore = args.sessionKV ?? sessionKV;
+  const sessionStore = args.sessionStorage ?? sessionStorage;
 
-  const connectionKeys = await connectionStore.keys(`${args.instanceKey}.>.>`).take();
+  const connectionKeys = await connectionStore.keys(
+    connectionFilterForSession(args.instanceKey),
+  )
+    .take();
   if (!isErr(connectionKeys)) {
     for await (const key of connectionKeys as AsyncIterable<string>) {
       const entry = await connectionStore.get(key).take();
@@ -82,32 +83,43 @@ async function kickInstanceRuntimeAccess(args: {
     }
   }
 
-  const sessionKeys = await sessionStore.keys(`${args.instanceKey}.>`).take();
-  if (!isErr(sessionKeys)) {
-    for await (const key of sessionKeys as AsyncIterable<string>) {
-      await sessionStore.delete(key);
-    }
-  }
+  await sessionStore.deleteByInstanceKey(args.instanceKey);
 }
 
 async function instancesForProfile(
   profileId: string,
-  store: KVLike<ServiceInstance>,
+  store: ServiceInstanceStorage = serviceInstanceStorage,
 ): Promise<ServiceInstance[]> {
-  return (await listValues(store)).filter((instance) =>
-    instance.profileId === profileId);
+  return await store.listByProfile(profileId);
+}
+
+async function refreshActiveContracts(
+  refresh: () => Promise<void>,
+): Promise<Result<void, UnexpectedError>> {
+  try {
+    await refresh();
+    return Result.ok(undefined);
+  } catch (error) {
+    return Result.err(new UnexpectedError({ cause: toError(error) }));
+  }
+}
+
+function toError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
 }
 
 export const authListServiceProfilesHandler = async (
   { input: req }: { input: { disabled?: boolean } },
 ): Promise<Result<{ profiles: ServiceProfile[] }, UnexpectedError>> => {
   logger.trace({ rpc: "Auth.ListServiceProfiles" }, "RPC request");
-  const profiles = (await listValues<ServiceProfile>(
-    serviceProfilesKV as unknown as KVLike<ServiceProfile>,
-  )).filter((profile) =>
-      req.disabled === undefined || profile.disabled === req.disabled)
-    .sort((left, right) => left.profileId.localeCompare(right.profileId));
-  return Result.ok({ profiles });
+  try {
+    const profiles = (await serviceProfileStorage.list()).filter((profile) =>
+      req.disabled === undefined || profile.disabled === req.disabled
+    );
+    return Result.ok({ profiles });
+  } catch (error) {
+    return Result.err(new UnexpectedError({ cause: toError(error) }));
+  }
 };
 
 export function createAuthCreateServiceProfileHandler() {
@@ -129,19 +141,17 @@ export function createAuthCreateServiceProfileHandler() {
     if (isErr(validated)) return Result.err(validated.error);
     const { profile } = validated;
 
-    const existing = await serviceProfilesKV.get(profile.profileId).take();
-    if (!isErr(existing)) {
+    const existing = await serviceProfileStorage.get(profile.profileId);
+    if (existing) {
       return invalid("/profileId", "service profile already exists", {
         profileId: profile.profileId,
       });
     }
 
-    const created =
-      await serviceProfilesKV.create!(profile.profileId, profile).take();
-    if (isErr(created)) {
-      return Result.err(
-        new UnexpectedError({ cause: created.error as BaseError }),
-      );
+    try {
+      await serviceProfileStorage.put(profile);
+    } catch (error) {
+      return Result.err(new UnexpectedError({ cause: toError(error) }));
     }
     return Result.ok({ profile });
   };
@@ -155,62 +165,28 @@ export function createAuthApplyServiceProfileContractHandler(deps: {
     description: string;
     usedNamespaces: string[];
   }>;
+  refreshActiveContracts: () => Promise<void>;
 }) {
-  return async (
-    {
-      input: req,
-      context: { caller },
-    }: {
-      input: { profileId: string; contract: unknown };
-      context: { caller: RpcUser };
-    },
-  ) => {
+  const handler = createAuthApplyServiceProfileContractHandlerBase({
+    ...deps,
+    serviceProfileStorage,
+  });
+  return async (args: {
+    input: { profileId: string; contract: unknown };
+    context: { caller: RpcUser };
+  }) => {
     logger.trace({
       rpc: "Auth.ApplyServiceProfileContract",
-      caller,
-      profileId: req.profileId,
+      caller: args.context.caller,
+      profileId: args.input.profileId,
     }, "RPC request");
-    const entry = await serviceProfilesKV.get(req.profileId).take();
-    if (isErr(entry)) {
-      return invalid("/profileId", "service profile not found", {
-        profileId: req.profileId,
-      });
-    }
-    const profile = unwrapValue<ServiceProfile>(entry);
-
-    const installed = await deps.installServiceContract(req.contract);
-    const nextProfile: ServiceProfile = {
-      ...profile,
-      namespaces: [
-        ...new Set([...profile.namespaces, ...installed.usedNamespaces]),
-      ]
-        .sort((left, right) => left.localeCompare(right)),
-      appliedContracts: normalizeAppliedContracts([
-        ...profile.appliedContracts,
-        { contractId: installed.id, allowedDigests: [installed.digest] },
-      ]),
-    };
-    const put =
-      await serviceProfilesKV.put(nextProfile.profileId, nextProfile).take();
-    if (isErr(put)) {
-      return Result.err(new UnexpectedError({ cause: put.error as BaseError }));
-    }
-
-    return Result.ok({
-      profile: nextProfile,
-      contract: {
-        digest: installed.digest,
-        id: installed.id,
-        displayName: installed.displayName,
-        description: installed.description,
-        installedAt: new Date().toISOString(),
-      },
-    });
+    return await handler(args);
   };
 }
 
 export function createAuthUnapplyServiceProfileContractHandler(deps: {
   kick: (serverId: string, clientId: number) => Promise<void>;
+  refreshActiveContracts: () => Promise<void>;
 }) {
   return async (
     {
@@ -226,42 +202,46 @@ export function createAuthUnapplyServiceProfileContractHandler(deps: {
       caller,
       profileId: req.profileId,
     }, "RPC request");
-    const entry = await serviceProfilesKV.get(req.profileId).take();
-    if (isErr(entry)) {
+    const profile = await serviceProfileStorage.get(req.profileId);
+    if (!profile) {
       return invalid("/profileId", "service profile not found", {
         profileId: req.profileId,
       });
     }
-    const profile = unwrapValue<ServiceProfile>(entry);
 
     const removeDigests = new Set(req.digests ?? []);
     const nextContracts = profile.appliedContracts
-      .map((applied) => {
+      .map((applied: ServiceProfile["appliedContracts"][number]) => {
         if (applied.contractId !== req.contractId) return applied;
         if (removeDigests.size === 0) return null;
-        const remaining = applied.allowedDigests.filter((digest) =>
+        const remaining = applied.allowedDigests.filter((digest: string) =>
           !removeDigests.has(digest)
         );
         return remaining.length > 0
           ? { ...applied, allowedDigests: remaining }
           : null;
       })
-      .filter((value): value is NonNullable<typeof value> => value !== null);
+      .filter((
+        value: ServiceProfile["appliedContracts"][number] | null,
+      ): value is ServiceProfile["appliedContracts"][number] => value !== null);
 
     const nextProfile: ServiceProfile = {
       ...profile,
       appliedContracts: normalizeAppliedContracts(nextContracts),
     };
-    const put =
-      await serviceProfilesKV.put(nextProfile.profileId, nextProfile).take();
-    if (isErr(put)) {
-      return Result.err(new UnexpectedError({ cause: put.error as BaseError }));
+    try {
+      await serviceProfileStorage.put(nextProfile);
+    } catch (error) {
+      return Result.err(new UnexpectedError({ cause: toError(error) }));
     }
+
+    const refreshed = await refreshActiveContracts(deps.refreshActiveContracts);
+    if (isErr(refreshed)) return refreshed;
 
     for (
       const instance of await instancesForProfile(
         profile.profileId,
-        serviceInstancesKV,
+        serviceInstanceStorage,
       )
     ) {
       if (instance.currentContractId !== req.contractId) continue;
@@ -288,27 +268,30 @@ function toggleProfileDisabled(
 
 export function createAuthDisableServiceProfileHandler(deps: {
   kick: (serverId: string, clientId: number) => Promise<void>;
+  refreshActiveContracts: () => Promise<void>;
 }) {
   return async ({ input: req }: { input: { profileId: string } }) => {
-    const entry = await serviceProfilesKV.get(req.profileId).take();
-    if (isErr(entry)) {
+    const profile = await serviceProfileStorage.get(req.profileId);
+    if (!profile) {
       return invalid("/profileId", "service profile not found", {
         profileId: req.profileId,
       });
     }
     const nextProfile = toggleProfileDisabled(
-      unwrapValue<ServiceProfile>(entry),
+      profile,
       true,
     );
-    const put =
-      await serviceProfilesKV.put(nextProfile.profileId, nextProfile).take();
-    if (isErr(put)) {
-      return Result.err(new UnexpectedError({ cause: put.error as BaseError }));
+    try {
+      await serviceProfileStorage.put(nextProfile);
+    } catch (error) {
+      return Result.err(new UnexpectedError({ cause: toError(error) }));
     }
+    const refreshed = await refreshActiveContracts(deps.refreshActiveContracts);
+    if (isErr(refreshed)) return refreshed;
     for (
       const instance of await instancesForProfile(
         nextProfile.profileId,
-        serviceInstancesKV,
+        serviceInstanceStorage,
       )
     ) {
       await kickInstanceRuntimeAccess({
@@ -320,48 +303,68 @@ export function createAuthDisableServiceProfileHandler(deps: {
   };
 }
 
-export const authEnableServiceProfileHandler = async (
-  { input: req }: { input: { profileId: string } },
-): Promise<
-  Result<{ profile: ServiceProfile }, ValidationError | UnexpectedError>
-> => {
-  const entry = await serviceProfilesKV.get(req.profileId).take();
-  if (isErr(entry)) {
-    return invalid("/profileId", "service profile not found", {
-      profileId: req.profileId,
-    });
-  }
-  const nextProfile = toggleProfileDisabled(
-    unwrapValue<ServiceProfile>(entry),
-    false,
-  );
-  const put = await serviceProfilesKV.put(nextProfile.profileId, nextProfile).take();
-  if (isErr(put)) {
-    return Result.err(new UnexpectedError({ cause: put.error as BaseError }));
-  }
-  return Result.ok({ profile: nextProfile });
-};
-
-export const authRemoveServiceProfileHandler = async (
-  { input: req }: { input: { profileId: string } },
-): Promise<Result<{ success: boolean }, ValidationError | UnexpectedError>> => {
-  const instances = await instancesForProfile(
-    req.profileId,
-    serviceInstancesKV,
-  );
-  if (instances.length > 0) {
-    return invalid("/profileId", "service profile still has instances", {
-      profileId: req.profileId,
-    });
-  }
-  const deleted = await serviceProfilesKV.delete(req.profileId).take();
-  if (isErr(deleted)) {
-    return Result.err(
-      new UnexpectedError({ cause: deleted.error as BaseError }),
+export function createAuthEnableServiceProfileHandler(deps: {
+  refreshActiveContracts: () => Promise<void>;
+}) {
+  return async (
+    { input: req }: { input: { profileId: string } },
+  ): Promise<
+    Result<{ profile: ServiceProfile }, ValidationError | UnexpectedError>
+  > => {
+    const profile = await serviceProfileStorage.get(req.profileId);
+    if (!profile) {
+      return invalid("/profileId", "service profile not found", {
+        profileId: req.profileId,
+      });
+    }
+    const nextProfile = toggleProfileDisabled(
+      profile,
+      false,
     );
-  }
-  return Result.ok({ success: true });
-};
+    try {
+      await serviceProfileStorage.put(nextProfile);
+    } catch (error) {
+      return Result.err(new UnexpectedError({ cause: toError(error) }));
+    }
+    const refreshed = await refreshActiveContracts(deps.refreshActiveContracts);
+    if (isErr(refreshed)) return refreshed;
+    return Result.ok({ profile: nextProfile });
+  };
+}
+
+export function createAuthRemoveServiceProfileHandler(deps: {
+  refreshActiveContracts: () => Promise<void>;
+}) {
+  return async (
+    { input: req }: { input: { profileId: string } },
+  ): Promise<
+    Result<{ success: boolean }, ValidationError | UnexpectedError>
+  > => {
+    const instances = await instancesForProfile(
+      req.profileId,
+      serviceInstanceStorage,
+    );
+    if (instances.length > 0) {
+      return invalid("/profileId", "service profile still has instances", {
+        profileId: req.profileId,
+      });
+    }
+    const existing = await serviceProfileStorage.get(req.profileId);
+    if (!existing) {
+      return invalid("/profileId", "service profile not found", {
+        profileId: req.profileId,
+      });
+    }
+    try {
+      await serviceProfileStorage.delete(req.profileId);
+    } catch (error) {
+      return Result.err(new UnexpectedError({ cause: toError(error) }));
+    }
+    const refreshed = await refreshActiveContracts(deps.refreshActiveContracts);
+    if (isErr(refreshed)) return refreshed;
+    return Result.ok({ success: true });
+  };
+}
 
 export function createAuthProvisionServiceInstanceHandler() {
   return async (
@@ -378,13 +381,12 @@ export function createAuthProvisionServiceInstanceHandler() {
       caller,
       profileId: req.profileId,
     }, "RPC request");
-    const profileEntry = await serviceProfilesKV.get(req.profileId).take();
-    if (isErr(profileEntry)) {
+    const profile = await serviceProfileStorage.get(req.profileId);
+    if (!profile) {
       return invalid("/profileId", "service profile not found", {
         profileId: req.profileId,
       });
     }
-    const profile = unwrapValue<ServiceProfile>(profileEntry);
     if (profile.disabled) {
       return invalid("/profileId", "service profile is disabled", {
         profileId: req.profileId,
@@ -395,19 +397,17 @@ export function createAuthProvisionServiceInstanceHandler() {
     if (isErr(validated)) return Result.err(validated.error);
     const { instance } = validated;
 
-    const existing = await serviceInstancesKV.get(instance.instanceId).take();
-    if (!isErr(existing)) {
+    const existing = await serviceInstanceStorage.get(instance.instanceId);
+    if (existing) {
       return invalid("/instanceKey", "service instance already exists", {
         instanceId: instance.instanceId,
       });
     }
 
-    const created =
-      await serviceInstancesKV.create!(instance.instanceId, instance).take();
-    if (isErr(created)) {
-      return Result.err(
-        new UnexpectedError({ cause: created.error as BaseError }),
-      );
+    try {
+      await serviceInstanceStorage.put(instance);
+    } catch (error) {
+      return Result.err(new UnexpectedError({ cause: toError(error) }));
     }
     return Result.ok({ instance });
   };
@@ -417,15 +417,17 @@ export const authListServiceInstancesHandler = async (
   { input: req }: { input: { profileId?: string; disabled?: boolean } },
 ): Promise<Result<{ instances: ServiceInstance[] }, UnexpectedError>> => {
   logger.trace({ rpc: "Auth.ListServiceInstances" }, "RPC request");
-  const instances = (await listValues<ServiceInstance>(
-    serviceInstancesKV as unknown as KVLike<ServiceInstance>,
-  )).filter((instance) =>
-      req.profileId === undefined || instance.profileId === req.profileId)
-    .filter((instance) =>
-      req.disabled === undefined || instance.disabled === req.disabled
-    )
-    .sort((left, right) => left.instanceId.localeCompare(right.instanceId));
-  return Result.ok({ instances });
+  try {
+    const instances = (req.profileId === undefined
+      ? await serviceInstanceStorage.list()
+      : await serviceInstanceStorage.listByProfile(req.profileId))
+      .filter((instance) =>
+        req.disabled === undefined || instance.disabled === req.disabled
+      );
+    return Result.ok({ instances });
+  } catch (error) {
+    return Result.err(new UnexpectedError({ cause: toError(error) }));
+  }
 };
 
 async function setInstanceDisabled(args: {
@@ -435,18 +437,17 @@ async function setInstanceDisabled(args: {
 }): Promise<
   Result<{ instance: ServiceInstance }, ValidationError | UnexpectedError>
 > {
-  const entry = await serviceInstancesKV.get(args.instanceId).take();
-  if (isErr(entry)) {
+  const instance = await serviceInstanceStorage.get(args.instanceId);
+  if (!instance) {
     return invalid("/instanceId", "service instance not found", {
       instanceId: args.instanceId,
     });
   }
-  const instance = unwrapValue<ServiceInstance>(entry);
   const nextInstance = { ...instance, disabled: args.disabled };
-  const put =
-    await serviceInstancesKV.put(nextInstance.instanceId, nextInstance).take();
-  if (isErr(put)) {
-    return Result.err(new UnexpectedError({ cause: put.error as BaseError }));
+  try {
+    await serviceInstanceStorage.put(nextInstance);
+  } catch (error) {
+    return Result.err(new UnexpectedError({ cause: toError(error) }));
   }
   await kickInstanceRuntimeAccess({
     instanceKey: nextInstance.instanceKey,
@@ -474,24 +475,23 @@ export function createAuthRemoveServiceInstanceHandler(deps: {
   refreshActiveContracts: () => Promise<void>;
 }) {
   return async ({ input: req }: { input: { instanceId: string } }) => {
-    const entry = await serviceInstancesKV.get(req.instanceId).take();
-    if (isErr(entry)) {
+    const instance = await serviceInstanceStorage.get(req.instanceId);
+    if (!instance) {
       return invalid("/instanceId", "service instance not found", {
         instanceId: req.instanceId,
       });
     }
-    const instance = unwrapValue<ServiceInstance>(entry);
     await kickInstanceRuntimeAccess({
       instanceKey: instance.instanceKey,
       kick: deps.kick,
     });
-    const deleted = await serviceInstancesKV.delete(req.instanceId).take();
-    if (isErr(deleted)) {
-      return Result.err(
-        new UnexpectedError({ cause: deleted.error as BaseError }),
-      );
+    try {
+      await serviceInstanceStorage.delete(req.instanceId);
+    } catch (error) {
+      return Result.err(new UnexpectedError({ cause: toError(error) }));
     }
-    await deps.refreshActiveContracts();
+    const refreshed = await refreshActiveContracts(deps.refreshActiveContracts);
+    if (isErr(refreshed)) return refreshed;
     return Result.ok({ success: true });
   };
 }
@@ -499,16 +499,11 @@ export function createAuthRemoveServiceInstanceHandler(deps: {
 export async function loadServiceInstanceByKey(
   instanceKey: string,
 ): Promise<ServiceInstance | null> {
-  const entry = await serviceInstancesKV.get(serviceInstanceId(instanceKey)).take();
-  if (isErr(entry)) return null;
-  const instance = unwrapValue<ServiceInstance>(entry);
-  return instance.instanceKey === instanceKey ? instance : null;
+  return await serviceInstanceStorage.getByInstanceKey(instanceKey) ?? null;
 }
 
 export async function loadServiceProfile(
   profileId: string,
 ): Promise<ServiceProfile | null> {
-  const entry = await serviceProfilesKV.get(profileId).take();
-  if (isErr(entry)) return null;
-  return unwrapValue<ServiceProfile>(entry);
+  return await serviceProfileStorage.get(profileId) ?? null;
 }

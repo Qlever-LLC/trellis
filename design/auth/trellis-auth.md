@@ -31,6 +31,39 @@ must preserve Trellis's contract-driven permission model.
 
 ## Design
 
+### 0) Auth state has explicit persistence boundaries
+
+Trellis auth separates durable authorization/control-plane records from short-lived
+flow and presence state.
+
+Durable SQL-backed records:
+
+- users and admin-managed user capabilities
+- contract approval decisions and deployment-wide grant policies
+- portal routes, portal profiles, portal defaults, and portal selections
+- service profiles and service instances
+- device profiles, device instances, provisioning secrets, activations, and review
+  records
+- installed contract records and resource bindings
+- sessions bound to a principal, session key, contract context, and `lastAuth`
+
+KV-backed runtime records:
+
+- OAuth state
+- pending authenticated bind records
+- browser login and device-activation flow state
+- active NATS connection presence
+- public Trellis State API entries
+
+Rules:
+
+- durable auth and catalog records are owned by the Trellis service storage layer
+- KV flow records are scratch state and must be safe to expire
+- connection records describe live transport presence and are not durable
+  authority
+- session TTL is enforced from the session's `lastAuth` timestamp using the
+  deployment `ttlMs.sessions` setting
+
 ### 1) Trellis uses a two-layer auth model
 
 Authentication operates at two separate layers:
@@ -256,6 +289,14 @@ Rules:
   scope system
 - operation, RPC, event, and subject access are all contract-level authorization
   concerns
+- transfer permissions MUST be derived from explicit contract transfer
+  declarations rather than broad transfer or download subject grants
+- operations that declare `transfer: { direction: "send", ... }` authorize the
+  runtime subjects needed for the caller to send bytes to the service-owned
+  transfer endpoint
+- RPCs that declare `transfer: { direction: "receive" }` authorize the runtime
+  subjects needed for a caller to consume the specific receive transfer grant
+  issued by that RPC
 - devices may subscribe to auth events only when their contracts explicitly declare them in `uses`
 
 ### 11) Reply subjects and operation streams are part of the auth model

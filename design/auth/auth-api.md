@@ -298,8 +298,8 @@ Behavior:
 ### POST /auth/bind
 
 Binds a session key to an authenticated identity and approved contract digest.
-This is the lower-level auth-token bind path retained for non-portal or legacy
-callers. Normal browser flows SHOULD use `POST /auth/flow/:flowId/bind`.
+This is the lower-level auth-token bind path for non-portal callers. Normal
+browser flows SHOULD use `POST /auth/flow/:flowId/bind`.
 
 Request:
 

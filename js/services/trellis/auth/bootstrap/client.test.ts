@@ -1,6 +1,6 @@
 import { Hono } from "@hono/hono";
 import { assertEquals } from "@std/assert";
-import { AsyncResult, UnexpectedError } from "@qlever-llc/result";
+import { AsyncResult, isErr, UnexpectedError } from "@qlever-llc/result";
 import {
   base64urlEncode,
   createAuth,
@@ -40,7 +40,9 @@ class InMemoryKV<V> {
 
   keys(filter: string): AsyncResult<AsyncIterable<string>, UnexpectedError> {
     const prefix = filter.endsWith(">") ? filter.slice(0, -1) : filter;
-    const entries = [...this.#values.keys()].filter((key) => key.startsWith(prefix));
+    const entries = [...this.#values.keys()].filter((key) =>
+      key.startsWith(prefix)
+    );
     return AsyncResult.ok({
       async *[Symbol.asyncIterator]() {
         for (const key of entries) {
@@ -56,13 +58,37 @@ class InMemoryKV<V> {
   }
 }
 
+function sessionStorageFromKV(sessionKV: InMemoryKV<Session>) {
+  return {
+    async getOneBySessionKey(sessionKey: string): Promise<Session | undefined> {
+      const keys = await sessionKV.keys(`${sessionKey}.>`).take();
+      if (isErr(keys)) return undefined;
+
+      let match: Session | undefined;
+      for await (const key of keys) {
+        const entry = await sessionKV.get(key).take();
+        if (isErr(entry)) continue;
+        if (match !== undefined) return undefined;
+        match = entry.value;
+      }
+      return match;
+    },
+  };
+}
+
 async function createTestContractStore() {
   const store = new ContractStore();
-  const validated = await store.validate({
+  const validated = await store.validate(testClientContract());
+  store.activate(validated.digest, validated.contract);
+  return { store, validated };
+}
+
+function testClientContract(description = "Example browser client contract") {
+  return {
     format: "trellis.contract.v1",
     id: "client.example@v1",
     displayName: "Example Client",
-    description: "Example browser client contract",
+    description,
     kind: "app",
     schemas: {
       JobPayload: { type: "object" },
@@ -81,9 +107,7 @@ async function createTestContractStore() {
         },
       },
     },
-  });
-  store.activate(validated.digest, validated.contract);
-  return { store, validated };
+  };
 }
 
 async function signClientBootstrapProof(
@@ -110,7 +134,6 @@ async function createVerifiedApp(args?: {
 
   const sessionKV = new InMemoryKV<Session>();
   const usersKV = new InMemoryKV<UserProjectionEntry>();
-  const servicesKV = new InMemoryKV<{ active: boolean; capabilities: string[]; displayName: string; description: string; createdAt: Date }>();
   const sentinel: SentinelCreds = { jwt: "jwt", seed: "seed" };
 
   sessionKV.seed(`${auth.sessionKey}.user-1`, {
@@ -131,50 +154,56 @@ async function createVerifiedApp(args?: {
     createdAt: new Date("2026-01-01T00:00:00.000Z"),
     lastAuth: new Date("2026-01-01T00:01:00.000Z"),
   });
-  usersKV.seed("user-1", args?.userProjection ?? {
-    origin: "github",
-    id: "123",
-    name: "Example User",
-    email: "user@example.com",
-    active: true,
-    capabilities: ["read:profile"],
-  });
-
-  const app = new Hono();
-  app.post("/bootstrap/client", createClientBootstrapHandler({
-    contractStore,
-    transports: {
-      native: { natsServers: ["nats://127.0.0.1:4222"] },
-      websocket: { natsServers: ["ws://localhost:8080"] },
-    },
-    sentinel,
-    sessionKV,
-    usersKV,
-    servicesKV,
-    loadStoredApproval: async () => ({
-      userTrellisId: "user-1",
+  usersKV.seed(
+    "user-1",
+    args?.userProjection ?? {
       origin: "github",
       id: "123",
-      answer: "approved",
-      answeredAt: new Date("2026-01-01T00:00:00.000Z"),
-      updatedAt: new Date("2026-01-01T00:00:00.000Z"),
-      approval: {
-        contractDigest: validated.digest,
-        contractId: validated.contract.id,
-        displayName: validated.contract.displayName,
-        description: validated.contract.description,
-        participantKind: "app",
-        capabilities: ["read:profile"],
+      name: "Example User",
+      email: "user@example.com",
+      active: true,
+      capabilities: ["read:profile"],
+    },
+  );
+
+  const app = new Hono();
+  app.post(
+    "/bootstrap/client",
+    createClientBootstrapHandler({
+      contractStore,
+      transports: {
+        native: { natsServers: ["nats://127.0.0.1:4222"] },
+        websocket: { natsServers: ["ws://localhost:8080"] },
       },
-      publishSubjects: ["events.profile.updated"],
-      subscribeSubjects: ["events.profile.*"],
+      sentinel,
+      sessionStorage: sessionStorageFromKV(sessionKV),
+      loadUserProjection: async (trellisId) =>
+        usersKV.getValue(trellisId) ?? null,
+      loadStoredApproval: async () => ({
+        userTrellisId: "user-1",
+        origin: "github",
+        id: "123",
+        answer: "approved",
+        answeredAt: new Date("2026-01-01T00:00:00.000Z"),
+        updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+        approval: {
+          contractDigest: validated.digest,
+          contractId: validated.contract.id,
+          displayName: validated.contract.displayName,
+          description: validated.contract.description,
+          participantKind: "app",
+          capabilities: ["read:profile"],
+        },
+        publishSubjects: ["events.profile.updated"],
+        subscribeSubjects: ["events.profile.*"],
+      }),
+      loadInstanceGrantPolicies: async () => [],
+      verifyIdentityProof: async ({ sessionKey, iat, sig }) =>
+        sessionKey === auth.sessionKey &&
+        sig === await signClientBootstrapProof(TEST_SEED, iat),
+      nowSeconds: () => args?.nowSeconds ?? TEST_IAT,
     }),
-    loadInstanceGrantPolicies: async () => [],
-    verifyIdentityProof: async ({ sessionKey, iat, sig }) =>
-      sessionKey === auth.sessionKey &&
-      sig === await signClientBootstrapProof(TEST_SEED, iat),
-    nowSeconds: () => args?.nowSeconds ?? TEST_IAT,
-  }));
+  );
 
   return { app, auth, contract: validated };
 }
@@ -233,6 +262,105 @@ Deno.test("POST /bootstrap/client returns runtime bootstrap info for bound brows
   });
 });
 
+Deno.test("POST /bootstrap/client accepts the exact session digest when multiple digests share a contract id", async () => {
+  const auth = await createAuth({ sessionKeySeed: TEST_SEED });
+  const contractStore = new ContractStore();
+  const first = await contractStore.validate(
+    testClientContract("First revision"),
+  );
+  const second = await contractStore.validate(
+    testClientContract("Second revision"),
+  );
+  const [otherContract, sessionContract] = [first, second].sort((left, right) =>
+    left.digest.localeCompare(right.digest)
+  );
+  contractStore.activate(otherContract.digest, otherContract.contract);
+  contractStore.activate(sessionContract.digest, sessionContract.contract);
+
+  const sessionKV = new InMemoryKV<Session>();
+  const usersKV = new InMemoryKV<UserProjectionEntry>();
+  sessionKV.seed(`${auth.sessionKey}.user-1`, {
+    type: "user",
+    participantKind: "app",
+    trellisId: "user-1",
+    origin: "github",
+    id: "123",
+    email: "user@example.com",
+    name: "Example User",
+    contractDigest: sessionContract.digest,
+    contractId: sessionContract.contract.id,
+    contractDisplayName: sessionContract.contract.displayName,
+    contractDescription: sessionContract.contract.description,
+    delegatedCapabilities: ["read:profile"],
+    delegatedPublishSubjects: ["events.profile.updated"],
+    delegatedSubscribeSubjects: ["events.profile.*"],
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    lastAuth: new Date("2026-01-01T00:01:00.000Z"),
+  });
+  usersKV.seed("user-1", {
+    origin: "github",
+    id: "123",
+    name: "Example User",
+    email: "user@example.com",
+    active: true,
+    capabilities: ["read:profile"],
+  });
+
+  const app = new Hono();
+  app.post(
+    "/bootstrap/client",
+    createClientBootstrapHandler({
+      contractStore,
+      transports: {
+        native: { natsServers: ["nats://127.0.0.1:4222"] },
+        websocket: { natsServers: ["ws://localhost:8080"] },
+      },
+      sentinel: { jwt: "jwt", seed: "seed" },
+      sessionStorage: sessionStorageFromKV(sessionKV),
+      loadUserProjection: async (trellisId) =>
+        usersKV.getValue(trellisId) ?? null,
+      loadStoredApproval: async () => ({
+        userTrellisId: "user-1",
+        origin: "github",
+        id: "123",
+        answer: "approved",
+        answeredAt: new Date("2026-01-01T00:00:00.000Z"),
+        updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+        approval: {
+          contractDigest: sessionContract.digest,
+          contractId: sessionContract.contract.id,
+          displayName: sessionContract.contract.displayName,
+          description: sessionContract.contract.description,
+          participantKind: "app",
+          capabilities: ["read:profile"],
+        },
+        publishSubjects: ["events.profile.updated"],
+        subscribeSubjects: ["events.profile.*"],
+      }),
+      loadInstanceGrantPolicies: async () => [],
+      verifyIdentityProof: async ({ sessionKey, iat, sig }) =>
+        sessionKey === auth.sessionKey &&
+        sig === await signClientBootstrapProof(TEST_SEED, iat),
+      nowSeconds: () => TEST_IAT,
+    }),
+  );
+
+  const response = await app.request("http://trellis/bootstrap/client", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sessionKey: auth.sessionKey,
+      iat: TEST_IAT,
+      sig: await signClientBootstrapProof(TEST_SEED, TEST_IAT),
+    }),
+  });
+
+  const payload = await response.json();
+  assertEquals(response.status, 200);
+  assertEquals(payload.status, "ready");
+  assertEquals(payload.connectInfo.contractDigest, sessionContract.digest);
+});
+
 Deno.test("POST /bootstrap/client returns auth_required when no bound user session exists", async () => {
   const auth = await createAuth({ sessionKeySeed: TEST_SEED });
   const { validated } = await createTestContractStore();
@@ -240,23 +368,25 @@ Deno.test("POST /bootstrap/client returns auth_required when no bound user sessi
   contractStore.activate(validated.digest, validated.contract);
 
   const app = new Hono();
-  app.post("/bootstrap/client", createClientBootstrapHandler({
-    contractStore,
-    transports: {
-      native: { natsServers: ["nats://127.0.0.1:4222"] },
-      websocket: { natsServers: ["ws://localhost:8080"] },
-    },
-    sentinel: { jwt: "jwt", seed: "seed" },
-    sessionKV: new InMemoryKV<Session>(),
-    usersKV: new InMemoryKV<UserProjectionEntry>(),
-    servicesKV: new InMemoryKV<{ active: boolean; capabilities: string[]; displayName: string; description: string; createdAt: Date }>(),
-    loadStoredApproval: async () => null,
-    loadInstanceGrantPolicies: async () => [],
-    verifyIdentityProof: async ({ sessionKey, iat, sig }) =>
-      sessionKey === auth.sessionKey &&
-      sig === await signClientBootstrapProof(TEST_SEED, iat),
-    nowSeconds: () => TEST_IAT,
-  }));
+  app.post(
+    "/bootstrap/client",
+    createClientBootstrapHandler({
+      contractStore,
+      transports: {
+        native: { natsServers: ["nats://127.0.0.1:4222"] },
+        websocket: { natsServers: ["ws://localhost:8080"] },
+      },
+      sentinel: { jwt: "jwt", seed: "seed" },
+      sessionStorage: sessionStorageFromKV(new InMemoryKV<Session>()),
+      loadUserProjection: async () => null,
+      loadStoredApproval: async () => null,
+      loadInstanceGrantPolicies: async () => [],
+      verifyIdentityProof: async ({ sessionKey, iat, sig }) =>
+        sessionKey === auth.sessionKey &&
+        sig === await signClientBootstrapProof(TEST_SEED, iat),
+      nowSeconds: () => TEST_IAT,
+    }),
+  );
 
   const response = await app.request("http://trellis/bootstrap/client", {
     method: "POST",
@@ -269,7 +399,10 @@ Deno.test("POST /bootstrap/client returns auth_required when no bound user sessi
   });
 
   assertEquals(response.status, 200);
-  assertEquals(await response.json(), { status: "auth_required", serverNow: TEST_IAT });
+  assertEquals(await response.json(), {
+    status: "auth_required",
+    serverNow: TEST_IAT,
+  });
 });
 
 Deno.test("POST /bootstrap/client returns not_ready when the bound user is inactive", async () => {
@@ -324,7 +457,9 @@ Deno.test("POST /bootstrap/client returns serverNow when bootstrap proof iat is 
 Deno.test("POST /bootstrap/client rejects invalid bootstrap signatures", async () => {
   const { app, auth } = await createVerifiedApp();
   const validSig = await signClientBootstrapProof(TEST_SEED, TEST_IAT);
-  const invalidSig = `${validSig.slice(0, -1)}${validSig.endsWith("A") ? "B" : "A"}`;
+  const invalidSig = `${validSig.slice(0, -1)}${
+    validSig.endsWith("A") ? "B" : "A"
+  }`;
   const response = await app.request("http://trellis/bootstrap/client", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -340,7 +475,9 @@ Deno.test("POST /bootstrap/client rejects invalid bootstrap signatures", async (
 });
 
 Deno.test("POST /bootstrap/client returns contract_not_active when the session digest is no longer active", async () => {
-  const { app, auth, contract } = await createVerifiedApp({ activateContract: false });
+  const { app, auth, contract } = await createVerifiedApp({
+    activateContract: false,
+  });
   const response = await app.request("http://trellis/bootstrap/client", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

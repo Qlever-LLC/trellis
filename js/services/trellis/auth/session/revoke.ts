@@ -1,35 +1,46 @@
-import { type AsyncResult, type BaseError, isErr, Result } from "@qlever-llc/result";
+import {
+  type AsyncResult,
+  type BaseError,
+  isErr,
+  Result,
+} from "@qlever-llc/result";
 import { AuthError } from "@qlever-llc/trellis";
 
 import { revokeGrantSessions } from "../approval/user_grants.ts";
 import type { ContractApprovalRecord, Session } from "../../state/schemas.ts";
+import type {
+  SqlContractApprovalRepository,
+  SqlDeviceActivationRepository,
+  SqlServiceInstanceRepository,
+  SqlSessionRepository,
+} from "../storage.ts";
+import { connectionFilterForSession } from "./connections.ts";
 
 type SessionStore = {
-  keys: (filter: string) => AsyncResult<AsyncIterable<string> | unknown, BaseError>;
-  get: (key: string) => AsyncResult<unknown, BaseError>;
-  delete: (key: string) => AsyncResult<unknown, BaseError>;
+  listEntriesBySessionKey: SqlSessionRepository["listEntriesBySessionKey"];
+  listEntriesByUser: SqlSessionRepository["listEntriesByUser"];
+  delete: SqlSessionRepository["delete"];
 };
 
 type ConnectionsStore = {
-  keys: (filter: string) => AsyncResult<AsyncIterable<string> | unknown, BaseError>;
+  keys: (
+    filter: string,
+  ) => AsyncResult<AsyncIterable<string> | unknown, BaseError>;
   get: (key: string) => AsyncResult<unknown, BaseError>;
   delete: (key: string) => AsyncResult<unknown, BaseError>;
 };
 
-type ContractApprovalsStore = {
-  get: (key: string) => AsyncResult<unknown, BaseError>;
-  delete: (key: string) => AsyncResult<unknown, BaseError>;
-};
+type ContractApprovalStorage = Pick<
+  SqlContractApprovalRepository,
+  "get" | "delete"
+>;
 
-type DeviceActivationsStore<T = unknown> = {
-  get: (key: string) => AsyncResult<unknown, BaseError>;
-  put: (key: string, value: T) => AsyncResult<unknown, BaseError>;
-};
+type DeviceActivationStorage = Pick<
+  SqlDeviceActivationRepository,
+  "get" | "put"
+>;
 
-type ServiceInstancesStore<T = unknown> = {
-  get: (key: string) => AsyncResult<unknown, BaseError>;
-  put: (key: string, value: T) => AsyncResult<unknown, BaseError>;
-};
+type ServiceInstanceStorage = Pick<SqlServiceInstanceRepository, "get" | "put">;
 
 type SessionCaller = {
   type: string;
@@ -49,7 +60,9 @@ function requireUserCaller(caller: SessionCaller): {
   origin: string;
   id: string;
 } {
-  if (caller.type !== "user" || !caller.trellisId || !caller.origin || !caller.id) {
+  if (
+    caller.type !== "user" || !caller.trellisId || !caller.origin || !caller.id
+  ) {
     throw new AuthError({ reason: "insufficient_permissions" });
   }
 
@@ -68,26 +81,32 @@ function unwrapValue<V>(entry: { value: V } | V): V {
 }
 
 function isApprovedAgentGrant(approval: ContractApprovalRecord): boolean {
-  const contractApproval = approval.approval as ContractApprovalRecord["approval"] & {
-    participantKind: "app" | "agent";
-  };
+  const contractApproval = approval.approval as
+    & ContractApprovalRecord["approval"]
+    & {
+      participantKind: "app" | "agent";
+    };
   return approval.answer === "approved" && (
     contractApproval.participantKind === "app" ||
     contractApproval.participantKind === "agent"
   );
 }
 
-export function createAuthRevokeSessionHandler<
-  TDeviceActivation = unknown,
-  TServiceInstance = unknown,
->(deps: {
-  sessionKV: SessionStore;
+export function createAuthRevokeSessionHandler(deps: {
+  sessionStorage: SessionStore;
   connectionsKV: ConnectionsStore;
-  contractApprovalsKV: ContractApprovalsStore;
-  deviceActivationsKV?: DeviceActivationsStore<TDeviceActivation>;
-  serviceInstancesKV?: ServiceInstancesStore<TServiceInstance>;
+  contractApprovalStorage: ContractApprovalStorage;
+  deviceActivationStorage?: DeviceActivationStorage;
+  serviceInstanceStorage?: ServiceInstanceStorage;
   kick: (serverId: string, clientId: number) => Promise<void>;
-  publishSessionRevoked: (event: { origin: string; id: string; sessionKey: string; revokedBy: string }) => Promise<void>;
+  publishSessionRevoked: (
+    event: {
+      origin: string;
+      id: string;
+      sessionKey: string;
+      revokedBy: string;
+    },
+  ) => Promise<void>;
 }) {
   return async (
     req: { sessionKey: string },
@@ -98,28 +117,30 @@ export function createAuthRevokeSessionHandler<
       return Result.err(new AuthError({ reason: "invalid_request" }));
     }
 
-    const sessionIter = await takeValue(deps.sessionKV.keys(`${req.sessionKey}.>`));
-    if (isErr(sessionIter)) {
+    let sessionsToDelete;
+    try {
+      sessionsToDelete = await deps.sessionStorage.listEntriesBySessionKey(
+        req.sessionKey,
+      );
+    } catch {
       return Result.ok({ success: false });
-    }
-
-    const sessionsToDelete: string[] = [];
-    for await (const key of sessionIter as AsyncIterable<string>) {
-      sessionsToDelete.push(key);
     }
     if (sessionsToDelete.length === 0) return Result.ok({ success: false });
 
     const kickedBy = `${user.origin}.${user.id}`;
-    const firstSessionEntry = await takeValue(deps.sessionKV.get(sessionsToDelete[0]));
-    if (!isErr(firstSessionEntry)) {
-      const firstSession = unwrapValue(firstSessionEntry) as Session;
+    const firstSession = sessionsToDelete[0]?.session;
+    if (firstSession) {
       if (firstSession.type === "user") {
-        const approvalKey = `${firstSession.trellisId}.${firstSession.contractDigest}`;
-        const approvalEntry = await takeValue(deps.contractApprovalsKV.get(approvalKey));
-        if (!isErr(approvalEntry)) {
-          const approval = unwrapValue(approvalEntry) as ContractApprovalRecord;
+        const approval = await deps.contractApprovalStorage.get(
+          firstSession.trellisId,
+          firstSession.contractDigest,
+        );
+        if (approval) {
           if (isApprovedAgentGrant(approval)) {
-            await takeValue(deps.contractApprovalsKV.delete(approvalKey));
+            await deps.contractApprovalStorage.delete(
+              firstSession.trellisId,
+              firstSession.contractDigest,
+            );
           }
         }
 
@@ -127,7 +148,7 @@ export function createAuthRevokeSessionHandler<
           userTrellisId: firstSession.trellisId,
           contractDigest: firstSession.contractDigest,
           participantKind: firstSession.participantKind,
-          sessionKV: deps.sessionKV,
+          sessionStorage: deps.sessionStorage,
           connectionsKV: deps.connectionsKV,
           kick: deps.kick,
           publishSessionRevoked: deps.publishSessionRevoked,
@@ -136,69 +157,60 @@ export function createAuthRevokeSessionHandler<
         return Result.ok({ success: true });
       }
 
-      if (firstSession.type === "device" && deps.deviceActivationsKV) {
-        const activationEntry = await takeValue(
-          deps.deviceActivationsKV.get(firstSession.instanceId),
+      if (firstSession.type === "device" && deps.deviceActivationStorage) {
+        const activation = await deps.deviceActivationStorage.get(
+          firstSession.instanceId,
         );
-        if (!isErr(activationEntry)) {
-          const activation = unwrapValue(activationEntry) as {
-            state: string;
-            revokedAt: string | Date | null;
-          } & Record<string, unknown>;
-          await takeValue(
-            deps.deviceActivationsKV.put(firstSession.instanceId, {
-              ...activation,
-              state: "revoked",
-              revokedAt: new Date().toISOString(),
-            } as TDeviceActivation),
-          );
+        if (activation) {
+          await deps.deviceActivationStorage.put({
+            ...activation,
+            state: "revoked",
+            revokedAt: new Date().toISOString(),
+          });
         }
       }
 
-      if (firstSession.type === "service" && deps.serviceInstancesKV) {
-        const serviceEntry = await takeValue(
-          deps.serviceInstancesKV.get(firstSession.instanceId),
+      if (firstSession.type === "service" && deps.serviceInstanceStorage) {
+        const serviceInstance = await deps.serviceInstanceStorage.get(
+          firstSession.instanceId,
         );
-        if (!isErr(serviceEntry)) {
-          const serviceInstance = unwrapValue(serviceEntry) as {
-            disabled: boolean;
-          } & Record<string, unknown>;
-          await takeValue(
-            deps.serviceInstancesKV.put(firstSession.instanceId, {
-              ...serviceInstance,
-              disabled: true,
-            } as TServiceInstance),
-          );
+        if (serviceInstance) {
+          await deps.serviceInstanceStorage.put({
+            ...serviceInstance,
+            disabled: true,
+          });
         }
       }
     }
 
-    const connIter = await takeValue(deps.connectionsKV.keys(`${req.sessionKey}.>.>`));
+    const connIter = await takeValue(
+      deps.connectionsKV.keys(connectionFilterForSession(req.sessionKey)),
+    );
     if (!isErr(connIter)) {
       for await (const key of connIter as AsyncIterable<string>) {
         const entry = await takeValue(deps.connectionsKV.get(key));
         if (!isErr(entry)) {
-          const connection = unwrapValue(entry) as { serverId: string; clientId: number };
+          const connection = unwrapValue(entry) as {
+            serverId: string;
+            clientId: number;
+          };
           await deps.kick(connection.serverId, connection.clientId);
         }
         await deps.connectionsKV.delete(key);
       }
     }
 
-    for (const sessionKeyId of sessionsToDelete) {
-      const entry = await takeValue(deps.sessionKV.get(sessionKeyId));
-      if (!isErr(entry)) {
-        const session = unwrapValue(entry) as Session;
-        if (session.type !== "device") {
-          await deps.publishSessionRevoked({
-            origin: session.origin,
-            id: session.id,
-            sessionKey: req.sessionKey,
-            revokedBy: kickedBy,
-          });
-        }
+    for (const entry of sessionsToDelete) {
+      const session = entry.session;
+      if (session.type !== "device") {
+        await deps.publishSessionRevoked({
+          origin: session.origin,
+          id: session.id,
+          sessionKey: req.sessionKey,
+          revokedBy: kickedBy,
+        });
       }
-      await deps.sessionKV.delete(sessionKeyId);
+      await deps.sessionStorage.delete(entry.sessionKey, entry.trellisId);
     }
 
     return Result.ok({ success: true });

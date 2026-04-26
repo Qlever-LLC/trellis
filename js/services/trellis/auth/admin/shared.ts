@@ -82,6 +82,12 @@ export type ServiceInstance = {
   createdAt: string;
 };
 
+export type InstalledServiceProfileContract = {
+  id: string;
+  digest: string;
+  usedNamespaces: string[];
+};
+
 export type DeviceProfile = {
   profileId: string;
   reviewMode?: "none" | "required";
@@ -240,6 +246,24 @@ export function normalizeAppliedContracts(
         left.localeCompare(right)
       ),
     }));
+}
+
+/** Builds the persisted service profile state after applying a contract. */
+export function applyInstalledServiceProfileContract(
+  profile: ServiceProfile,
+  installed: InstalledServiceProfileContract,
+): ServiceProfile {
+  return {
+    ...profile,
+    namespaces: [
+      ...new Set([...profile.namespaces, ...installed.usedNamespaces]),
+    ]
+      .sort((left, right) => left.localeCompare(right)),
+    appliedContracts: normalizeAppliedContracts([
+      ...profile.appliedContracts,
+      { contractId: installed.id, allowedDigests: [installed.digest] },
+    ]),
+  };
 }
 
 export function normalizeStringList(values: string[]): string[] {

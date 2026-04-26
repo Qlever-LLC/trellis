@@ -4,23 +4,22 @@ import { isErr, Result } from "@qlever-llc/result";
 import {
   browserFlowsKV,
   connectionsKV,
-  contractApprovalsKV,
-  contractsKV,
-  deviceActivationReviewsKV,
-  deviceActivationsKV,
-  deviceInstancesKV,
-  devicePortalSelectionsKV,
-  deviceProfilesKV,
-  deviceProvisioningSecretsKV,
-  instanceGrantPoliciesKV,
+  contractApprovalStorage,
+  deviceActivationReviewStorage,
+  deviceActivationStorage,
+  deviceInstanceStorage,
+  devicePortalSelectionStorage,
+  deviceProfileStorage,
+  deviceProvisioningSecretStorage,
+  instanceGrantPolicyStorage,
   logger,
-  loginPortalSelectionsKV,
-  portalDefaultsKV,
-  portalProfilesKV,
-  portalsKV,
-  sessionKV,
+  loginPortalSelectionStorage,
+  portalDefaultStorage,
+  portalProfileStorage,
+  portalStorage,
+  sessionStorage,
   trellis,
-  usersKV,
+  userStorage,
 } from "../../bootstrap/globals.ts";
 import {
   type CreateDeviceProfileRequest,
@@ -36,9 +35,9 @@ import {
   type LoginPortalSelectionRequest,
   normalizeAppliedContracts,
   type Portal,
-  type PortalProfile,
   type PortalDefault,
   type PortalDefaultRequest,
+  type PortalProfile,
   type ProvisionDeviceInstanceRequest,
   type SetPortalProfileRequest,
   type UpsertInstanceGrantPolicyRequest,
@@ -54,6 +53,7 @@ import {
 import { deriveDeviceConfirmationCode } from "@qlever-llc/trellis/auth";
 import { kick } from "../callout/kick.ts";
 import type { ContractStore } from "../../catalog/store.ts";
+import type { SqlContractStorageRepository } from "../../catalog/storage.ts";
 import { planUserContractApproval } from "../approval/plan.ts";
 import {
   matchingInstanceGrantPolicies,
@@ -65,6 +65,10 @@ import type {
   Session,
   UserProjectionEntry,
 } from "../../state/schemas.ts";
+import {
+  connectionFilterForSession,
+  parseConnectionKey,
+} from "../session/connections.ts";
 
 type RpcUser = { capabilities?: string[]; origin?: string; id?: string };
 type DeviceActivation = {
@@ -149,66 +153,44 @@ function invalidRequest(context?: Record<string, unknown>) {
   return Result.err(new AuthError({ reason: "invalid_request", context }));
 }
 
-function loginSelectionKey(contractId: string): string {
-  return `contract.${contractId}`;
-}
-
-function deviceSelectionKey(profileId: string): string {
-  return `profile.${profileId}`;
-}
-
 async function loadPortal(portalId: string): Promise<Portal | null> {
-  const entry = await portalsKV.get(portalId).take();
-  if (isErr(entry)) return null;
-  return entry.value as Portal;
+  return await portalStorage.get(portalId) ?? null;
 }
 
 async function loadInstanceGrantPolicy(
   contractId: string,
 ): Promise<InstanceGrantPolicy | null> {
-  const entry = await instanceGrantPoliciesKV.get(contractId).take();
-  if (isErr(entry)) return null;
-  return entry.value as InstanceGrantPolicy;
+  return await instanceGrantPolicyStorage.get(contractId) ?? null;
 }
 
 async function loadPortalProfile(
   portalId: string,
 ): Promise<PortalProfile | null> {
-  const entry = await portalProfilesKV.get(portalId).take();
-  if (isErr(entry)) return null;
-  return entry.value as PortalProfile;
+  return await portalProfileStorage.get(portalId) ?? null;
 }
 
 async function loadDeviceProfile(
   profileId: string,
 ): Promise<DeviceProfile | null> {
-  const entry = await deviceProfilesKV.get(profileId).take();
-  if (isErr(entry)) return null;
-  return entry.value as unknown as DeviceProfile;
+  return await deviceProfileStorage.get(profileId) ?? null;
 }
 
 async function loadDeviceInstance(
   instanceId: string,
 ): Promise<DeviceInstance | null> {
-  const entry = await deviceInstancesKV.get(instanceId).take();
-  if (isErr(entry)) return null;
-  return entry.value as unknown as DeviceInstance;
+  return await deviceInstanceStorage.get(instanceId) ?? null;
 }
 
 async function loadDeviceProvisioningSecret(
   instanceId: string,
 ): Promise<DeviceProvisioningSecret | null> {
-  const entry = await deviceProvisioningSecretsKV.get(instanceId).take();
-  if (isErr(entry)) return null;
-  return entry.value as DeviceProvisioningSecret;
+  return await deviceProvisioningSecretStorage.get(instanceId) ?? null;
 }
 
 async function loadDeviceActivationReview(
   reviewId: string,
 ): Promise<DeviceActivationReviewRecord | null> {
-  const entry = await deviceActivationReviewsKV.get(reviewId).take();
-  if (isErr(entry)) return null;
-  return entry.value as unknown as DeviceActivationReviewRecord;
+  return await deviceActivationReviewStorage.get(reviewId) ?? null;
 }
 
 async function loadDeviceActivationFlow(
@@ -229,7 +211,9 @@ async function loadDeviceActivationFlow(
     createdAt: Date | string;
     expiresAt: Date | string;
   };
-  if (flow.kind !== "device_activation" || !flow.deviceActivation || !flow.flowId) {
+  if (
+    flow.kind !== "device_activation" || !flow.deviceActivation || !flow.flowId
+  ) {
     return null;
   }
   return {
@@ -247,145 +231,64 @@ async function loadDeviceActivationFlow(
 async function loadDeviceActivation(
   instanceId: string,
 ): Promise<DeviceActivation | null> {
-  const entry = await deviceActivationsKV.get(instanceId).take();
-  if (isErr(entry)) return null;
-  return entry.value as unknown as DeviceActivation;
+  return await deviceActivationStorage.get(instanceId) ?? null;
 }
 
 async function loadPortalDefault(key: string): Promise<PortalDefault | null> {
-  const entry = await portalDefaultsKV.get(key).take();
-  if (isErr(entry)) return null;
-  return entry.value as PortalDefault;
+  const defaultPortal = key === "login.default"
+    ? await portalDefaultStorage.getLogin()
+    : await portalDefaultStorage.getDevice();
+  return defaultPortal ?? null;
 }
 
 async function loadLoginPortalSelection(
   contractId: string,
 ): Promise<LoginPortalSelection | null> {
-  const entry =
-    await loginPortalSelectionsKV.get(loginSelectionKey(contractId)).take();
-  if (isErr(entry)) return null;
-  return entry.value as LoginPortalSelection;
+  return await loginPortalSelectionStorage.get(contractId) ?? null;
 }
 
 async function loadDevicePortalSelection(
   profileId: string,
 ): Promise<DevicePortalSelection | null> {
-  const entry =
-    await devicePortalSelectionsKV.get(deviceSelectionKey(profileId)).take();
-  if (isErr(entry)) return null;
-  return entry.value as DevicePortalSelection;
+  return await devicePortalSelectionStorage.get(profileId) ?? null;
 }
 
 async function listPortals(): Promise<Portal[]> {
-  const iter = await portalsKV.keys(">").take();
-  if (isErr(iter)) return [];
-  const values: Portal[] = [];
-  for await (const key of iter) {
-    const entry = await portalsKV.get(key).take();
-    if (!isErr(entry)) values.push(entry.value as Portal);
-  }
-  values.sort((left, right) => left.portalId.localeCompare(right.portalId));
-  return values;
+  return await portalStorage.list();
 }
 
 async function listPortalProfiles(): Promise<PortalProfile[]> {
-  const iter = await portalProfilesKV.keys(">").take();
-  if (isErr(iter)) return [];
-  const values: PortalProfile[] = [];
-  for await (const key of iter) {
-    const entry = await portalProfilesKV.get(key).take();
-    if (!isErr(entry)) values.push(entry.value as PortalProfile);
-  }
-  values.sort((left, right) => left.portalId.localeCompare(right.portalId));
-  return values;
+  return await portalProfileStorage.list();
 }
 
 async function listInstanceGrantPolicies(): Promise<InstanceGrantPolicy[]> {
-  const iter = await instanceGrantPoliciesKV.keys(">").take();
-  if (isErr(iter)) return [];
-  const values: InstanceGrantPolicy[] = [];
-  for await (const key of iter) {
-    const entry = await instanceGrantPoliciesKV.get(key).take();
-    if (!isErr(entry)) values.push(entry.value as InstanceGrantPolicy);
-  }
-  values.sort((left, right) => left.contractId.localeCompare(right.contractId));
-  return values;
+  return await instanceGrantPolicyStorage.list();
 }
 
 async function listLoginPortalSelections(): Promise<LoginPortalSelection[]> {
-  const iter = await loginPortalSelectionsKV.keys(">").take();
-  if (isErr(iter)) return [];
-  const values: LoginPortalSelection[] = [];
-  for await (const key of iter) {
-    const entry = await loginPortalSelectionsKV.get(key).take();
-    if (!isErr(entry)) values.push(entry.value as LoginPortalSelection);
-  }
-  values.sort((left, right) => left.contractId.localeCompare(right.contractId));
-  return values;
+  return await loginPortalSelectionStorage.list();
 }
 
 async function listDevicePortalSelections(): Promise<DevicePortalSelection[]> {
-  const iter = await devicePortalSelectionsKV.keys(">").take();
-  if (isErr(iter)) return [];
-  const values: DevicePortalSelection[] = [];
-  for await (const key of iter) {
-    const entry = await devicePortalSelectionsKV.get(key).take();
-    if (!isErr(entry)) values.push(entry.value as DevicePortalSelection);
-  }
-  values.sort((left, right) => left.profileId.localeCompare(right.profileId));
-  return values;
+  return await devicePortalSelectionStorage.list();
 }
 
 async function listDeviceProfiles(): Promise<DeviceProfile[]> {
-  const iter = await deviceProfilesKV.keys(">").take();
-  if (isErr(iter)) return [];
-  const values: DeviceProfile[] = [];
-  for await (const key of iter) {
-    const entry = await deviceProfilesKV.get(key).take();
-    if (!isErr(entry)) values.push(entry.value as unknown as DeviceProfile);
-  }
-  values.sort((left, right) => left.profileId.localeCompare(right.profileId));
-  return values;
+  return await deviceProfileStorage.list();
 }
 
 async function listDeviceInstances(): Promise<DeviceInstance[]> {
-  const iter = await deviceInstancesKV.keys(">").take();
-  if (isErr(iter)) return [];
-  const values: DeviceInstance[] = [];
-  for await (const key of iter) {
-    const entry = await deviceInstancesKV.get(key).take();
-    if (!isErr(entry)) values.push(entry.value as unknown as DeviceInstance);
-  }
-  values.sort((left, right) => left.instanceId.localeCompare(right.instanceId));
-  return values;
+  return await deviceInstanceStorage.list();
 }
 
 async function listDeviceActivations(): Promise<DeviceActivation[]> {
-  const iter = await deviceActivationsKV.keys(">").take();
-  if (isErr(iter)) return [];
-  const values: DeviceActivation[] = [];
-  for await (const key of iter) {
-    const entry = await deviceActivationsKV.get(key).take();
-    if (!isErr(entry)) values.push(entry.value as unknown as DeviceActivation);
-  }
-  values.sort((left, right) => left.instanceId.localeCompare(right.instanceId));
-  return values;
+  return await deviceActivationStorage.list();
 }
 
 async function listDeviceActivationReviews(): Promise<
   DeviceActivationReviewRecord[]
 > {
-  const iter = await deviceActivationReviewsKV.keys(">").take();
-  if (isErr(iter)) return [];
-  const values: DeviceActivationReviewRecord[] = [];
-  for await (const key of iter) {
-    const entry = await deviceActivationReviewsKV.get(key).take();
-    if (!isErr(entry)) {
-      values.push(entry.value as unknown as DeviceActivationReviewRecord);
-    }
-  }
-  values.sort((left, right) => left.reviewId.localeCompare(right.reviewId));
-  return values;
+  return await deviceActivationReviewStorage.list();
 }
 
 function toPublicReview(
@@ -415,9 +318,7 @@ function policyActor(caller: RpcUser): InstanceGrantPolicyActor | undefined {
 async function loadUserProjection(
   trellisId: string,
 ): Promise<UserProjectionEntry | null> {
-  const entry = await usersKV.get(trellisId).take();
-  if (isErr(entry)) return null;
-  return entry.value as UserProjectionEntry;
+  return await userStorage.get(trellisId) ?? null;
 }
 
 async function revokeUserSessionByKey(
@@ -428,10 +329,14 @@ async function revokeUserSessionByKey(
   const sessionKey = sessionKeyId.split(".")[0];
   if (!sessionKey) return;
 
-  const connIter =
-    await connectionsKV.keys(`${sessionKey}.${session.trellisId}.>`).take();
+  const connIter = await connectionsKV.keys(
+    connectionFilterForSession(sessionKey),
+  )
+    .take();
   if (!isErr(connIter)) {
     for await (const connKey of connIter) {
+      const parsedKey = parseConnectionKey(connKey);
+      if (!parsedKey || parsedKey.scopeId !== session.trellisId) continue;
       const entry = await connectionsKV.get(connKey).take();
       if (!isErr(entry)) {
         await kick(entry.value.serverId, entry.value.clientId);
@@ -442,18 +347,22 @@ async function revokeUserSessionByKey(
 
   if (revokedBy) {
     await trellis.publish("Auth.SessionRevoked", {
-        origin: session.origin,
-        id: session.id,
-        sessionKey,
-        revokedBy,
-      }).inspectErr((error: unknown) =>
-      logger.warn({ error }, "Failed to publish Auth.SessionRevoked"));
+      origin: session.origin,
+      id: session.id,
+      sessionKey,
+      revokedBy,
+    }).inspectErr((error: unknown) =>
+      logger.warn({ error }, "Failed to publish Auth.SessionRevoked")
+    );
   }
-  await sessionKV.delete(sessionKeyId);
+  await sessionStorage.delete(sessionKey, session.trellisId);
 }
 
 async function kickInstanceRuntimeAccess(instanceKey: string): Promise<void> {
-  const connIter = await connectionsKV.keys(`${instanceKey}.>.>`).take();
+  const connIter = await connectionsKV.keys(
+    connectionFilterForSession(instanceKey),
+  )
+    .take();
   if (!isErr(connIter)) {
     for await (const connKey of connIter) {
       const entry = await connectionsKV.get(connKey).take();
@@ -464,12 +373,7 @@ async function kickInstanceRuntimeAccess(instanceKey: string): Promise<void> {
     }
   }
 
-  const sessionIter = await sessionKV.keys(`${instanceKey}.>`).take();
-  if (!isErr(sessionIter)) {
-    for await (const sessionKeyId of sessionIter) {
-      await sessionKV.delete(sessionKeyId);
-    }
-  }
+  await sessionStorage.deleteByInstanceKey(instanceKey);
 }
 
 async function revokeInvalidatedInstanceGrantSessions(args: {
@@ -477,23 +381,16 @@ async function revokeInvalidatedInstanceGrantSessions(args: {
   policies: InstanceGrantPolicy[];
   revokedBy?: string;
 }): Promise<void> {
-  const iter = await sessionKV.keys(">").take();
-  if (isErr(iter)) return;
-
-  for await (const key of iter) {
-    const entry = await sessionKV.get(key).take();
-    if (isErr(entry)) continue;
-    const session = entry.value as Session;
+  for (const entry of await sessionStorage.listEntries()) {
+    const session = entry.session;
     if (session.type !== "user") continue;
     if (session.contractId !== args.contractId) continue;
 
     const projection = await loadUserProjection(session.trellisId);
-    const storedApprovalEntry = await contractApprovalsKV.get(
-      `${session.trellisId}.${session.contractDigest}`,
-    ).take();
-    const storedApproval = isErr(storedApprovalEntry)
-      ? null
-      : storedApprovalEntry.value;
+    const storedApproval = await contractApprovalStorage.get(
+      session.trellisId,
+      session.contractDigest,
+    ) ?? null;
     const matchedPolicies = matchingInstanceGrantPolicies({
       policies: args.policies,
       contractId: session.contractId,
@@ -509,7 +406,11 @@ async function revokeInvalidatedInstanceGrantSessions(args: {
       });
     if (sessionAllowed) continue;
 
-    await revokeUserSessionByKey(key, session, args.revokedBy);
+    await revokeUserSessionByKey(
+      `${entry.sessionKey}.${entry.trellisId}`,
+      session,
+      args.revokedBy,
+    );
   }
 }
 
@@ -537,20 +438,14 @@ async function ensurePortalReference(portalId: string | null) {
   return Result.ok(undefined);
 }
 
-async function loadInstalledContractPayloads(contractId: string): Promise<
+async function loadInstalledContractPayloads(
+  contractStorage: SqlContractStorageRepository,
+  contractId: string,
+): Promise<
   Record<string, unknown>[]
 > {
-  const iter = await contractsKV.keys(">").take();
-  if (isErr(iter)) return [];
-
   const contracts: Record<string, unknown>[] = [];
-  for await (const key of iter) {
-    const entry = await contractsKV.get(key).take();
-    if (isErr(entry)) continue;
-    const record = entry.value as {
-      id: string;
-      contract: string;
-    };
+  for (const record of await contractStorage.list()) {
     if (record.id !== contractId) continue;
 
     let contract: Record<string, unknown>;
@@ -571,10 +466,14 @@ async function loadInstalledContractPayloads(contractId: string): Promise<
 }
 
 async function derivePortalProfileCapabilities(args: {
+  contractStorage: SqlContractStorageRepository;
   contractStore: ContractStore;
   contractId: string;
 }) {
-  const installedContracts = await loadInstalledContractPayloads(args.contractId);
+  const installedContracts = await loadInstalledContractPayloads(
+    args.contractStorage,
+    args.contractId,
+  );
   if (installedContracts.length === 0) {
     return invalidRequest({
       contractId: args.contractId,
@@ -618,8 +517,12 @@ function adminPolicyActors(policy: InstanceGrantPolicy | null | undefined): {
 } {
   return policy?.source.kind === "admin_policy"
     ? {
-      ...(policy.source.createdBy ? { createdBy: policy.source.createdBy } : {}),
-      ...(policy.source.updatedBy ? { updatedBy: policy.source.updatedBy } : {}),
+      ...(policy.source.createdBy
+        ? { createdBy: policy.source.createdBy }
+        : {}),
+      ...(policy.source.updatedBy
+        ? { updatedBy: policy.source.updatedBy }
+        : {}),
     }
     : {};
 }
@@ -653,7 +556,7 @@ export function createAuthCreatePortalHandler() {
     const validation = validatePortalRequest(req);
     if (validation.isErr()) return validation;
     const { portal } = validation.take() as { portal: Portal };
-    await portalsKV.put(portal.portalId, portal);
+    await portalStorage.put(portal);
     return Result.ok({ portal });
   };
 }
@@ -666,16 +569,19 @@ export const authListPortalsHandler = async (
 };
 
 export const authDisablePortalHandler = async (
-  { input: req, context: { caller } }: { input: { portalId: string }; context: { caller: RpcUser } },
+  { input: req, context: { caller } }: {
+    input: { portalId: string };
+    context: { caller: RpcUser };
+  },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   const portal = await loadPortal(req.portalId);
   if (!portal) return Result.ok({ success: false });
-  await portalsKV.put(req.portalId, { ...portal, disabled: true });
+  await portalStorage.put({ ...portal, disabled: true });
 
   const profile = await loadPortalProfile(req.portalId);
   if (profile && !profile.disabled) {
-    await portalProfilesKV.put(req.portalId, {
+    await portalProfileStorage.put({
       ...profile,
       disabled: true,
       updatedAt: new Date().toISOString(),
@@ -698,6 +604,7 @@ export const authListPortalProfilesHandler = async (
 };
 
 export function createAuthSetPortalProfileHandler(deps: {
+  contractStorage: SqlContractStorageRepository;
   contractStore: ContractStore;
 }) {
   return async (
@@ -719,6 +626,7 @@ export function createAuthSetPortalProfileHandler(deps: {
       >;
     };
     const derived = await derivePortalProfileCapabilities({
+      contractStorage: deps.contractStorage,
       contractStore: deps.contractStore,
       contractId: normalizedProfile.contractId,
     });
@@ -742,8 +650,8 @@ export function createAuthSetPortalProfileHandler(deps: {
       updatedAt: now,
     };
     const existingPortal = await loadPortal(profile.portalId);
-    await portalProfilesKV.put(profile.portalId, profile);
-    await portalsKV.put(profile.portalId, {
+    await portalProfileStorage.put(profile);
+    await portalStorage.put({
       portalId: profile.portalId,
       entryUrl: profile.entryUrl,
       disabled: existingPortal?.disabled ?? false,
@@ -764,7 +672,10 @@ export function createAuthSetPortalProfileHandler(deps: {
 }
 
 export const authDisablePortalProfileHandler = async (
-  { input: req, context: { caller } }: { input: { portalId: string }; context: { caller: RpcUser } },
+  { input: req, context: { caller } }: {
+    input: { portalId: string };
+    context: { caller: RpcUser };
+  },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   const existing = await loadPortalProfile(req.portalId);
@@ -779,7 +690,7 @@ export const authDisablePortalProfileHandler = async (
     disabled: true,
     updatedAt: new Date().toISOString(),
   };
-  await portalProfilesKV.put(profile.portalId, profile);
+  await portalProfileStorage.put(profile);
 
   await revokeInvalidatedEffectiveGrantSessions({
     contractId: profile.contractId,
@@ -850,7 +761,7 @@ export const authUpsertInstanceGrantPolicyHandler = async (
         : {}),
     },
   };
-  await instanceGrantPoliciesKV.put(policy.contractId, policy);
+  await instanceGrantPolicyStorage.put(policy);
   await revokeInvalidatedEffectiveGrantSessions({
     contractId: policy.contractId,
     revokedBy: actor ? `${actor.origin}.${actor.id}` : undefined,
@@ -859,7 +770,10 @@ export const authUpsertInstanceGrantPolicyHandler = async (
 };
 
 export const authDisableInstanceGrantPolicyHandler = async (
-  { input: req, context: { caller } }: { input: { contractId: string }; context: { caller: RpcUser } },
+  { input: req, context: { caller } }: {
+    input: { contractId: string };
+    context: { caller: RpcUser };
+  },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   if (!req.contractId) return invalidRequest({ contractId: req.contractId });
@@ -881,7 +795,7 @@ export const authDisableInstanceGrantPolicyHandler = async (
       ...(actor ? { updatedBy: actor } : {}),
     },
   };
-  await instanceGrantPoliciesKV.put(policy.contractId, policy);
+  await instanceGrantPolicyStorage.put(policy);
   await revokeInvalidatedEffectiveGrantSessions({
     contractId: policy.contractId,
     revokedBy: actor ? `${actor.origin}.${actor.id}` : undefined,
@@ -890,7 +804,10 @@ export const authDisableInstanceGrantPolicyHandler = async (
 };
 
 export const authSetLoginPortalDefaultHandler = async (
-  { input: req, context: { caller } }: { input: PortalDefaultRequest; context: { caller: RpcUser } },
+  { input: req, context: { caller } }: {
+    input: PortalDefaultRequest;
+    context: { caller: RpcUser };
+  },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   const validation = validatePortalDefaultRequest(req);
@@ -900,7 +817,7 @@ export const authSetLoginPortalDefaultHandler = async (
   };
   const referenceCheck = await ensurePortalReference(defaultPortal.portalId);
   if (referenceCheck.isErr()) return referenceCheck;
-  await portalDefaultsKV.put(LOGIN_DEFAULT_KEY, defaultPortal);
+  await portalDefaultStorage.putLogin(defaultPortal);
   return Result.ok({ defaultPortal });
 };
 
@@ -912,7 +829,10 @@ export const authListLoginPortalSelectionsHandler = async (
 };
 
 export const authSetLoginPortalSelectionHandler = async (
-  { input: req, context: { caller } }: { input: LoginPortalSelectionRequest; context: { caller: RpcUser } },
+  { input: req, context: { caller } }: {
+    input: LoginPortalSelectionRequest;
+    context: { caller: RpcUser };
+  },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   const validation = validateLoginPortalSelectionRequest(req);
@@ -922,20 +842,20 @@ export const authSetLoginPortalSelectionHandler = async (
   };
   const referenceCheck = await ensurePortalReference(selection.portalId);
   if (referenceCheck.isErr()) return referenceCheck;
-  await loginPortalSelectionsKV.put(
-    loginSelectionKey(selection.contractId),
-    selection,
-  );
+  await loginPortalSelectionStorage.put(selection);
   return Result.ok({ selection });
 };
 
 export const authClearLoginPortalSelectionHandler = async (
-  { input: req, context: { caller } }: { input: { contractId: string }; context: { caller: RpcUser } },
+  { input: req, context: { caller } }: {
+    input: { contractId: string };
+    context: { caller: RpcUser };
+  },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   const selection = await loadLoginPortalSelection(req.contractId);
   if (!selection) return Result.ok({ success: false });
-  await loginPortalSelectionsKV.delete(loginSelectionKey(req.contractId));
+  await loginPortalSelectionStorage.delete(req.contractId);
   return Result.ok({ success: true });
 };
 
@@ -950,7 +870,10 @@ export const authGetDevicePortalDefaultHandler = async (
 };
 
 export const authSetDevicePortalDefaultHandler = async (
-  { input: req, context: { caller } }: { input: PortalDefaultRequest; context: { caller: RpcUser } },
+  { input: req, context: { caller } }: {
+    input: PortalDefaultRequest;
+    context: { caller: RpcUser };
+  },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   const validation = validatePortalDefaultRequest(req);
@@ -960,7 +883,7 @@ export const authSetDevicePortalDefaultHandler = async (
   };
   const referenceCheck = await ensurePortalReference(defaultPortal.portalId);
   if (referenceCheck.isErr()) return referenceCheck;
-  await portalDefaultsKV.put(DEVICE_DEFAULT_KEY, defaultPortal);
+  await portalDefaultStorage.putDevice(defaultPortal);
   return Result.ok({ defaultPortal });
 };
 
@@ -972,7 +895,10 @@ export const authListDevicePortalSelectionsHandler = async (
 };
 
 export const authSetDevicePortalSelectionHandler = async (
-  { input: req, context: { caller } }: { input: DevicePortalSelectionRequest; context: { caller: RpcUser } },
+  { input: req, context: { caller } }: {
+    input: DevicePortalSelectionRequest;
+    context: { caller: RpcUser };
+  },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   const validation = validateDevicePortalSelectionRequest(req);
@@ -989,20 +915,20 @@ export const authSetDevicePortalSelectionHandler = async (
   }
   const referenceCheck = await ensurePortalReference(selection.portalId);
   if (referenceCheck.isErr()) return referenceCheck;
-  await devicePortalSelectionsKV.put(
-    deviceSelectionKey(selection.profileId),
-    selection,
-  );
+  await devicePortalSelectionStorage.put(selection);
   return Result.ok({ selection });
 };
 
 export const authClearDevicePortalSelectionHandler = async (
-  { input: req, context: { caller } }: { input: { profileId: string }; context: { caller: RpcUser } },
+  { input: req, context: { caller } }: {
+    input: { profileId: string };
+    context: { caller: RpcUser };
+  },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   const selection = await loadDevicePortalSelection(req.profileId);
   if (!selection) return Result.ok({ success: false });
-  await devicePortalSelectionsKV.delete(deviceSelectionKey(req.profileId));
+  await devicePortalSelectionStorage.delete(req.profileId);
   return Result.ok({ success: true });
 };
 
@@ -1027,13 +953,16 @@ export function createAuthCreateDeviceProfileHandler(deps: {
     const validation = validateDeviceProfileRequest(req);
     if (validation.isErr()) return validation;
     const { profile } = validation.take() as { profile: DeviceProfile };
-    await deviceProfilesKV.put(profile.profileId, profile);
+    await deviceProfileStorage.put(profile);
     return Result.ok({ profile });
   };
 }
 
 export const authListDeviceProfilesHandler = async (
-  { input: req, context: { caller } }: { input: { disabled?: boolean }; context: { caller: RpcUser } },
+  { input: req, context: { caller } }: {
+    input: { disabled?: boolean };
+    context: { caller: RpcUser };
+  },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   let profiles = await listDeviceProfiles();
@@ -1083,7 +1012,7 @@ export function createAuthApplyDeviceProfileContractHandler(deps: {
         { contractId: installed.id, allowedDigests: [installed.digest] },
       ]),
     };
-    await deviceProfilesKV.put(nextProfile.profileId, nextProfile);
+    await deviceProfileStorage.put(nextProfile);
     return Result.ok({
       profile: nextProfile,
       contract: {
@@ -1135,9 +1064,10 @@ export function createAuthUnapplyDeviceProfileContractHandler() {
           ),
       ),
     };
-    await deviceProfilesKV.put(nextProfile.profileId, nextProfile);
+    await deviceProfileStorage.put(nextProfile);
     const instances = (await listDeviceInstances()).filter((instance) =>
-      instance.profileId === profile.profileId);
+      instance.profileId === profile.profileId
+    );
     for (const instance of instances) {
       if (instance.currentContractId !== req.contractId) continue;
       if (
@@ -1151,7 +1081,10 @@ export function createAuthUnapplyDeviceProfileContractHandler() {
 }
 
 export const authDisableDeviceProfileHandler = async (
-  { input: req, context: { caller } }: { input: { profileId: string }; context: { caller: RpcUser } },
+  { input: req, context: { caller } }: {
+    input: { profileId: string };
+    context: { caller: RpcUser };
+  },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   const profile = await loadDeviceProfile(req.profileId);
@@ -1162,10 +1095,11 @@ export const authDisableDeviceProfileHandler = async (
     });
   }
   const nextProfile = { ...profile, disabled: true };
-  await deviceProfilesKV.put(req.profileId, nextProfile);
+  await deviceProfileStorage.put(nextProfile);
   for (
     const instance of (await listDeviceInstances()).filter((entry) =>
-      entry.profileId === req.profileId)
+      entry.profileId === req.profileId
+    )
   ) {
     await kickInstanceRuntimeAccess(instance.publicIdentityKey);
   }
@@ -1173,7 +1107,10 @@ export const authDisableDeviceProfileHandler = async (
 };
 
 export const authEnableDeviceProfileHandler = async (
-  { input: req, context: { caller } }: { input: { profileId: string }; context: { caller: RpcUser } },
+  { input: req, context: { caller } }: {
+    input: { profileId: string };
+    context: { caller: RpcUser };
+  },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   const profile = await loadDeviceProfile(req.profileId);
@@ -1184,23 +1121,27 @@ export const authEnableDeviceProfileHandler = async (
     });
   }
   const nextProfile = { ...profile, disabled: false };
-  await deviceProfilesKV.put(req.profileId, nextProfile);
+  await deviceProfileStorage.put(nextProfile);
   return Result.ok({ profile: nextProfile });
 };
 
 export const authRemoveDeviceProfileHandler = async (
-  { input: req, context: { caller } }: { input: { profileId: string }; context: { caller: RpcUser } },
+  { input: req, context: { caller } }: {
+    input: { profileId: string };
+    context: { caller: RpcUser };
+  },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   const inUse = (await listDeviceInstances()).some((instance) =>
-    instance.profileId === req.profileId);
+    instance.profileId === req.profileId
+  );
   if (inUse) {
     return invalidRequest({
       profileId: req.profileId,
       reason: "device_profile_in_use",
     });
   }
-  await deviceProfilesKV.delete(req.profileId);
+  await deviceProfileStorage.delete(req.profileId);
   return Result.ok({ success: true });
 };
 
@@ -1228,17 +1169,17 @@ export function createAuthProvisionDeviceInstanceHandler() {
         reason: "device_profile_not_found",
       });
     }
-    await deviceInstancesKV.put(instance.instanceId, instance);
-    await deviceProvisioningSecretsKV.put(
-      instance.instanceId,
-      provisioningSecret,
-    );
+    await deviceInstanceStorage.put(instance);
+    await deviceProvisioningSecretStorage.put(provisioningSecret);
     return Result.ok({ instance });
   };
 }
 
 export const authListDeviceInstancesHandler = async (
-  { input: req, context: { caller } }: { input: { profileId?: string; state?: string }; context: { caller: RpcUser } },
+  { input: req, context: { caller } }: {
+    input: { profileId?: string; state?: string };
+    context: { caller: RpcUser };
+  },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   let instances = await listDeviceInstances();
@@ -1254,7 +1195,10 @@ export const authListDeviceInstancesHandler = async (
 };
 
 export const authDisableDeviceInstanceHandler = async (
-  { input: req, context: { caller } }: { input: { instanceId: string }; context: { caller: RpcUser } },
+  { input: req, context: { caller } }: {
+    input: { instanceId: string };
+    context: { caller: RpcUser };
+  },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   const instance = await loadDeviceInstance(req.instanceId);
@@ -1265,13 +1209,16 @@ export const authDisableDeviceInstanceHandler = async (
     });
   }
   const nextInstance = { ...instance, state: "disabled" as const };
-  await deviceInstancesKV.put(req.instanceId, nextInstance);
+  await deviceInstanceStorage.put(nextInstance);
   await kickInstanceRuntimeAccess(instance.publicIdentityKey);
   return Result.ok({ instance: nextInstance });
 };
 
 export const authEnableDeviceInstanceHandler = async (
-  { input: req, context: { caller } }: { input: { instanceId: string }; context: { caller: RpcUser } },
+  { input: req, context: { caller } }: {
+    input: { instanceId: string };
+    context: { caller: RpcUser };
+  },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   const instance = await loadDeviceInstance(req.instanceId);
@@ -1288,12 +1235,15 @@ export const authEnableDeviceInstanceHandler = async (
       ? "activated"
       : "registered";
   const nextInstance = { ...instance, state: nextState };
-  await deviceInstancesKV.put(req.instanceId, nextInstance);
+  await deviceInstanceStorage.put(nextInstance);
   return Result.ok({ instance: nextInstance });
 };
 
 export const authRemoveDeviceInstanceHandler = async (
-  { input: req, context: { caller } }: { input: { instanceId: string }; context: { caller: RpcUser } },
+  { input: req, context: { caller } }: {
+    input: { instanceId: string };
+    context: { caller: RpcUser };
+  },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   const instance = await loadDeviceInstance(req.instanceId);
@@ -1304,14 +1254,17 @@ export const authRemoveDeviceInstanceHandler = async (
     });
   }
   await kickInstanceRuntimeAccess(instance.publicIdentityKey);
-  await deviceInstancesKV.delete(req.instanceId);
-  await deviceProvisioningSecretsKV.delete(req.instanceId);
-  await deviceActivationsKV.delete(req.instanceId);
+  await deviceInstanceStorage.delete(req.instanceId);
+  await deviceProvisioningSecretStorage.delete(req.instanceId);
+  await deviceActivationStorage.delete(req.instanceId);
   return Result.ok({ success: true });
 };
 
 export const authListDeviceActivationsHandler = async (
-  { input: req, context: { caller } }: { input: { instanceId?: string; profileId?: string; state?: string }; context: { caller: RpcUser } },
+  { input: req, context: { caller } }: {
+    input: { instanceId?: string; profileId?: string; state?: string };
+    context: { caller: RpcUser };
+  },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   let activations = await listDeviceActivations();
@@ -1334,23 +1287,29 @@ export const authListDeviceActivationsHandler = async (
 };
 
 export const authRevokeDeviceActivationHandler = async (
-  { input: req, context: { caller } }: { input: { instanceId: string }; context: { caller: RpcUser } },
+  { input: req, context: { caller } }: {
+    input: { instanceId: string };
+    context: { caller: RpcUser };
+  },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
-  const activation = await deviceActivationsKV.get(req.instanceId).take();
-  if (isErr(activation)) return Result.ok({ success: false });
+  const activation = await deviceActivationStorage.get(req.instanceId);
+  if (!activation) return Result.ok({ success: false });
   const nextActivation = {
-    ...(activation.value as unknown as DeviceActivation),
-    state: "revoked",
+    ...activation,
+    state: "revoked" as const,
     revokedAt: new Date().toISOString(),
   };
-  await deviceActivationsKV.put(req.instanceId, nextActivation);
+  await deviceActivationStorage.put(nextActivation);
   await kickInstanceRuntimeAccess(nextActivation.publicIdentityKey);
   return Result.ok({ success: true });
 };
 
 export const authListDeviceActivationReviewsHandler = async (
-  { input: req, context: { caller } }: { input: { instanceId?: string; profileId?: string; state?: string }; context: { caller: RpcUser } },
+  { input: req, context: { caller } }: {
+    input: { instanceId?: string; profileId?: string; state?: string };
+    context: { caller: RpcUser };
+  },
 ) => {
   if (!canReview(caller)) return insufficientPermissions();
   const allowedProfiles = reviewableProfiles(caller);
@@ -1381,7 +1340,11 @@ export const authDecideDeviceActivationReviewHandler = async (
     input: req,
     context: { caller },
   }: {
-    input: { reviewId: string; decision: "approve" | "reject"; reason?: string };
+    input: {
+      reviewId: string;
+      decision: "approve" | "reject";
+      reason?: string;
+    };
     context: { caller: RpcUser };
   },
 ) => {
@@ -1420,7 +1383,7 @@ export const authDecideDeviceActivationReviewHandler = async (
   };
 
   if (req.decision === "reject") {
-    await deviceActivationReviewsKV.put(updatedReview.reviewId, updatedReview);
+    await deviceActivationReviewStorage.put(updatedReview);
     return Result.ok({ review: toPublicReview(updatedReview) });
   }
 
@@ -1449,14 +1412,14 @@ export const authDecideDeviceActivationReviewHandler = async (
     activatedAt,
     revokedAt: null,
   };
-  await deviceActivationsKV.put(activation.instanceId, activation);
-  await deviceInstancesKV.put(instance.instanceId, {
+  await deviceActivationStorage.put(activation);
+  await deviceInstanceStorage.put({
     ...instance,
     state: "activated",
     activatedAt,
     revokedAt: null,
   });
-  await deviceActivationReviewsKV.put(updatedReview.reviewId, updatedReview);
+  await deviceActivationReviewStorage.put(updatedReview);
   const confirmationCode = await confirmationCodeForReview(updatedReview);
   return Result.ok({
     review: toPublicReview(updatedReview),
