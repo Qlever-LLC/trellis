@@ -17,7 +17,7 @@ import type {
   OIDCProvider,
   Provider,
 } from "./providers/index.ts";
-import type { OAuth2Tokens } from "../state/schemas.ts";
+import type { OAuth2Tokens } from "./schemas.ts";
 
 export type IdpFlowParams = {
   state: string;

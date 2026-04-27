@@ -13,13 +13,10 @@ import type {
   SentinelCreds,
   Session,
   SessionKey,
-  UserProjectionEntry,
-} from "../../state/schemas.ts";
+} from "../schemas.ts";
+import type { UserProjectionEntry } from "../schemas.ts";
 import type { SqlSessionRepository } from "../storage.ts";
-import {
-  SessionKeySchema,
-  SignatureSchema,
-} from "../../state/schemas/auth_state.ts";
+import { SessionKeySchema, SignatureSchema } from "../schemas.ts";
 
 export const DEFAULT_CLIENT_BOOTSTRAP_IAT_SKEW_SECONDS = 30;
 
@@ -35,7 +32,7 @@ export const ClientBootstrapRequestSchema = Type.Object({
   sessionKey: SessionKeySchema,
   iat: Type.Number(),
   sig: SignatureSchema,
-}, { additionalProperties: false });
+});
 
 type ClientBootstrapRequest = StaticDecode<typeof ClientBootstrapRequestSchema>;
 

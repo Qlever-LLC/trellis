@@ -9,11 +9,8 @@ import {
 } from "@qlever-llc/trellis/auth";
 
 import { ContractStore } from "../../catalog/store.ts";
-import type {
-  SentinelCreds,
-  Session,
-  UserProjectionEntry,
-} from "../../state/schemas.ts";
+import type { SentinelCreds, Session } from "../schemas.ts";
+import type { UserProjectionEntry } from "../schemas.ts";
 import { createClientBootstrapHandler } from "./client.ts";
 
 const TEST_SEED = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";

@@ -186,6 +186,28 @@ function createContractStore() {
         } as const;
       }
 
+      if (digest === "acme.boolean@v1-digest") {
+        return {
+          id: "acme.boolean@v1",
+          displayName: "Boolean Schema",
+          description: "Test boolean JSON schemas.",
+          format: "trellis.contract.v1",
+          kind: "app",
+          schemas: {
+            AnyValue: true,
+            LegacyValue: true,
+          },
+          state: {
+            anything: {
+              kind: "value",
+              schema: { schema: "AnyValue" },
+              stateVersion: "any.v2",
+              acceptedVersions: { "any.v1": { schema: "LegacyValue" } },
+            },
+          },
+        } as const;
+      }
+
       return undefined;
     },
   };
@@ -468,6 +490,40 @@ Deno.test("State RPC derives store metadata and enforces value versus map key se
     ) instanceof ValidationError,
     true,
   );
+});
+
+Deno.test("State RPC accepts boolean JSON schemas for state stores", async () => {
+  const sessionKV = new FakeSessionKV();
+  const state = new StateStore({
+    kv: new FakeStateKV(),
+    now: () => new Date("2026-01-01T00:00:00.000Z"),
+  });
+  const handlers = createStateHandlers({
+    sessionStorage: sessionKV,
+    state,
+    contractStore: createContractStore(),
+  });
+
+  sessionKV.seed(
+    "boolean-session",
+    makeUserSession({
+      trellisId: "user-1",
+      contractId: "acme.boolean@v1",
+      contractDigest: "acme.boolean@v1-digest",
+    }),
+  );
+
+  const written = unwrapOk(
+    await handlers.put(
+      { store: "anything", value: { nested: [true, false] } },
+      {
+        caller: { type: "user", origin: "github", id: "123" },
+        sessionKey: "boolean-session",
+      },
+    ),
+  );
+
+  assertEquals(written.applied, true);
 });
 
 Deno.test("State RPC derives normal caller ownership from the session", async () => {

@@ -7,7 +7,7 @@ import {
 } from "@qlever-llc/result";
 
 import { type AuthRuntimeDeps, authRuntimeDeps } from "../runtime_deps.ts";
-import type { Connection } from "../../state/schemas.ts";
+import type { Connection } from "../schemas.ts";
 import type { SqlSessionRepository } from "../storage.ts";
 import { connectionFilterForSession } from "../session/connections.ts";
 import { createAuthApplyServiceDeploymentContractHandler as createAuthApplyServiceDeploymentContractHandlerBase } from "./service_deployment_apply.ts";
@@ -35,31 +35,33 @@ type ServiceInstanceStorage = Pick<
   | "listByDeployment"
 >;
 
-const logger = {
-  trace: (fields: Record<string, unknown>, message: string) =>
-    authRuntimeDeps().logger.trace(fields, message),
-};
-
-const serviceDeploymentStorage: ServiceDeploymentStorage = {
-  get: (deploymentId) =>
-    authRuntimeDeps().serviceDeploymentStorage.get(deploymentId),
-  put: (record) => authRuntimeDeps().serviceDeploymentStorage.put(record),
-  delete: (deploymentId) =>
-    authRuntimeDeps().serviceDeploymentStorage.delete(deploymentId),
-  list: () => authRuntimeDeps().serviceDeploymentStorage.list(),
-};
-
-const serviceInstanceStorage: ServiceInstanceStorage = {
-  get: (instanceId) => authRuntimeDeps().serviceInstanceStorage.get(instanceId),
-  getByInstanceKey: (instanceKey) =>
-    authRuntimeDeps().serviceInstanceStorage.getByInstanceKey(instanceKey),
-  put: (record) => authRuntimeDeps().serviceInstanceStorage.put(record),
-  delete: (instanceId) =>
-    authRuntimeDeps().serviceInstanceStorage.delete(instanceId),
-  list: () => authRuntimeDeps().serviceInstanceStorage.list(),
-  listByDeployment: (deploymentId) =>
-    authRuntimeDeps().serviceInstanceStorage.listByDeployment(deploymentId),
-};
+function serviceRpcDeps(): {
+  logger: Pick<AuthRuntimeDeps["logger"], "trace">;
+  serviceDeploymentStorage: ServiceDeploymentStorage;
+  serviceInstanceStorage: ServiceInstanceStorage;
+} {
+  const deps = authRuntimeDeps();
+  return {
+    logger: deps.logger,
+    serviceDeploymentStorage: {
+      get: (deploymentId) => deps.serviceDeploymentStorage.get(deploymentId),
+      put: (record) => deps.serviceDeploymentStorage.put(record),
+      delete: (deploymentId) =>
+        deps.serviceDeploymentStorage.delete(deploymentId),
+      list: () => deps.serviceDeploymentStorage.list(),
+    },
+    serviceInstanceStorage: {
+      get: (instanceId) => deps.serviceInstanceStorage.get(instanceId),
+      getByInstanceKey: (instanceKey) =>
+        deps.serviceInstanceStorage.getByInstanceKey(instanceKey),
+      put: (record) => deps.serviceInstanceStorage.put(record),
+      delete: (instanceId) => deps.serviceInstanceStorage.delete(instanceId),
+      list: () => deps.serviceInstanceStorage.list(),
+      listByDeployment: (deploymentId) =>
+        deps.serviceInstanceStorage.listByDeployment(deploymentId),
+    },
+  };
+}
 
 type KVLike<V> = {
   get: (key: string) => AsyncResult<{ value: V } | V | unknown, BaseError>;
@@ -120,7 +122,7 @@ async function kickInstanceRuntimeAccess(args: {
 
 async function instancesForDeployment(
   deploymentId: string,
-  store: ServiceInstanceStorage = authRuntimeDeps().serviceInstanceStorage,
+  store: ServiceInstanceStorage = serviceRpcDeps().serviceInstanceStorage,
 ): Promise<ServiceInstance[]> {
   return await store.listByDeployment(deploymentId);
 }
@@ -143,6 +145,7 @@ function toError(error: unknown): Error {
 export const authListServiceDeploymentsHandler = async (
   { input: req }: { input: { disabled?: boolean } },
 ): Promise<Result<{ deployments: ServiceDeployment[] }, UnexpectedError>> => {
+  const { logger, serviceDeploymentStorage } = serviceRpcDeps();
   logger.trace({ rpc: "Auth.ListServiceDeployments" }, "RPC request");
   try {
     const deployments = (await serviceDeploymentStorage.list()).filter((
@@ -164,6 +167,8 @@ export function createAuthCreateServiceDeploymentHandler() {
       context: { caller: RpcUser };
     },
   ) => {
+    const { logger, serviceDeploymentStorage, serviceInstanceStorage } =
+      serviceRpcDeps();
     logger.trace({
       rpc: "Auth.CreateServiceDeployment",
       caller,
@@ -201,6 +206,7 @@ export function createAuthApplyServiceDeploymentContractHandler(deps: {
   }>;
   refreshActiveContracts: () => Promise<void>;
 }) {
+  const { logger, serviceDeploymentStorage } = serviceRpcDeps();
   const handler = createAuthApplyServiceDeploymentContractHandlerBase({
     ...deps,
     serviceDeploymentStorage,
@@ -231,6 +237,8 @@ export function createAuthUnapplyServiceDeploymentContractHandler(deps: {
       context: { caller: RpcUser };
     },
   ) => {
+    const { logger, serviceDeploymentStorage, serviceInstanceStorage } =
+      serviceRpcDeps();
     logger.trace({
       rpc: "Auth.UnapplyServiceDeploymentContract",
       caller,
@@ -307,6 +315,8 @@ export function createAuthDisableServiceDeploymentHandler(deps: {
   refreshActiveContracts: () => Promise<void>;
 }) {
   return async ({ input: req }: { input: { deploymentId: string } }) => {
+    const { serviceDeploymentStorage, serviceInstanceStorage } =
+      serviceRpcDeps();
     const deployment = await serviceDeploymentStorage.get(req.deploymentId);
     if (!deployment) {
       return invalid("/deploymentId", "service deployment not found", {
@@ -347,6 +357,7 @@ export function createAuthEnableServiceDeploymentHandler(deps: {
   ): Promise<
     Result<{ deployment: ServiceDeployment }, ValidationError | UnexpectedError>
   > => {
+    const { serviceDeploymentStorage } = serviceRpcDeps();
     const deployment = await serviceDeploymentStorage.get(req.deploymentId);
     if (!deployment) {
       return invalid("/deploymentId", "service deployment not found", {
@@ -376,6 +387,8 @@ export function createAuthRemoveServiceDeploymentHandler(deps: {
   ): Promise<
     Result<{ success: boolean }, ValidationError | UnexpectedError>
   > => {
+    const { serviceDeploymentStorage, serviceInstanceStorage } =
+      serviceRpcDeps();
     const instances = await instancesForDeployment(
       req.deploymentId,
       serviceInstanceStorage,
@@ -416,6 +429,8 @@ export function createAuthProvisionServiceInstanceHandler() {
       context: { caller: RpcUser };
     },
   ) => {
+    const { logger, serviceDeploymentStorage, serviceInstanceStorage } =
+      serviceRpcDeps();
     logger.trace({
       rpc: "Auth.ProvisionServiceInstance",
       caller,
@@ -456,6 +471,7 @@ export function createAuthProvisionServiceInstanceHandler() {
 export const authListServiceInstancesHandler = async (
   { input: req }: { input: { deploymentId?: string; disabled?: boolean } },
 ): Promise<Result<{ instances: ServiceInstance[] }, UnexpectedError>> => {
+  const { logger, serviceInstanceStorage } = serviceRpcDeps();
   logger.trace({ rpc: "Auth.ListServiceInstances" }, "RPC request");
   try {
     const instances = (req.deploymentId === undefined
@@ -478,6 +494,7 @@ async function setInstanceDisabled(args: {
 }): Promise<
   Result<{ instance: ServiceInstance }, ValidationError | UnexpectedError>
 > {
+  const { serviceInstanceStorage } = serviceRpcDeps();
   const instance = await serviceInstanceStorage.get(args.instanceId);
   if (!instance) {
     return invalid("/instanceId", "service instance not found", {
@@ -530,6 +547,7 @@ export function createAuthRemoveServiceInstanceHandler(deps: {
   refreshActiveContracts: () => Promise<void>;
 }) {
   return async ({ input: req }: { input: { instanceId: string } }) => {
+    const { serviceInstanceStorage } = serviceRpcDeps();
     const instance = await serviceInstanceStorage.get(req.instanceId);
     if (!instance) {
       return invalid("/instanceId", "service instance not found", {
@@ -554,11 +572,13 @@ export function createAuthRemoveServiceInstanceHandler(deps: {
 export async function loadServiceInstanceByKey(
   instanceKey: string,
 ): Promise<ServiceInstance | null> {
+  const { serviceInstanceStorage } = serviceRpcDeps();
   return await serviceInstanceStorage.getByInstanceKey(instanceKey) ?? null;
 }
 
 export async function loadServiceDeployment(
   deploymentId: string,
 ): Promise<ServiceDeployment | null> {
+  const { serviceDeploymentStorage } = serviceRpcDeps();
   return await serviceDeploymentStorage.get(deploymentId) ?? null;
 }

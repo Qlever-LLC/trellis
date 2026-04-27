@@ -32,7 +32,7 @@ import type {
   Session,
   UserProjectionEntry,
   UserSession,
-} from "../state/schemas.ts";
+} from "./schemas.ts";
 import {
   DeviceActivationRecordSchema,
   DeviceActivationReviewRecordSchema,
@@ -48,7 +48,7 @@ import {
   PortalSchema,
   ServiceDeploymentSchema,
   ServiceInstanceSchema,
-} from "../state/schemas.ts";
+} from "./schemas.ts";
 import {
   SqlContractApprovalRepository,
   SqlDeviceActivationRepository,

@@ -7,7 +7,7 @@ import {
 import { AuthError } from "@qlever-llc/trellis";
 
 import { revokeGrantSessions } from "../approval/user_grants.ts";
-import type { ContractApprovalRecord, Session } from "../../state/schemas.ts";
+import type { ContractApprovalRecord, Session } from "../schemas.ts";
 import type {
   SqlContractApprovalRepository,
   SqlDeviceActivationRepository,

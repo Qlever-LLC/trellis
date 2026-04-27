@@ -95,6 +95,19 @@ Deno.test("StateStore put/get/list returns lexicographic pages for map stores", 
   assertEquals(listed.entries.map(listedKey), ["a", "b"]);
   assertEquals(listed.count, 3);
   assertEquals(listed.next, 2);
+  assertEquals(listed.prev, undefined);
+
+  const secondPage = unwrapOk(
+    await store.list(target, { prefix: "", offset: 2, limit: 2 }),
+  );
+  assertEquals(secondPage.entries.map(listedKey), ["c"]);
+  assertEquals(secondPage.prev, 0);
+
+  const emptyPage = unwrapOk(
+    await store.list(target, { prefix: "", offset: 0, limit: 0 }),
+  );
+  assertEquals(emptyPage.entries, []);
+  assertEquals(emptyPage.next, undefined);
 });
 
 Deno.test("StateStore put supports conditional writes for value stores", async () => {

@@ -20,7 +20,6 @@ import {
   PendingAuthSchema,
   PortalProfileSchema,
   PortalSchema,
-  ServiceRegistrySchema,
   SessionKeySchema,
   SessionSchema,
   SignatureSchema,
@@ -297,29 +296,6 @@ Deno.test("BindResponseSchema validates bound responses with explicit transports
       },
     }),
   );
-});
-
-Deno.test("ServiceRegistrySchema validates createdAt field", () => {
-  const service = {
-    displayName: "test-service",
-    active: true,
-    capabilities: ["service"],
-    description: "Test service",
-    createdAt: new Date().toISOString(),
-  };
-
-  assert(Value.Check(ServiceRegistrySchema, service));
-});
-
-Deno.test("ServiceRegistrySchema requires createdAt", () => {
-  const service = {
-    displayName: "test-service",
-    active: true,
-    capabilities: ["service"],
-    description: "Test service",
-  };
-
-  assertFalse(Value.Check(ServiceRegistrySchema, service));
 });
 
 Deno.test("AuthValidateRequestRequestSchema validates ADR auth request", () => {

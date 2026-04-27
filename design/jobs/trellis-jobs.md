@@ -253,10 +253,11 @@ requiring a separate manual jobs install step.
   consumers at runtime
 - the runtime should consume those bindings, rather than hard-coding an
   imperative infrastructure setup path
-- resolved runtime bindings may still include internal work-stream and
-  projected-state details needed by the host runtime, but public service-author
-  APIs should use `service.jobs.<queue>.handle(...)`, `service.wait()`, and
-  `JobRef` helpers rather than runtime stream bindings directly
+- resolved runtime bindings may still include internal work-stream details
+  needed by the host runtime, but they do not expose the projected-state KV
+  bucket to ordinary services. Public service-author APIs should use
+  `service.jobs.<queue>.handle(...)`, `service.wait()`, and `JobRef` helpers
+  rather than runtime stream bindings directly
 
 This document depends on the contract resource model in
 `../contracts/trellis-contracts-catalog.md` supporting JetStream streams, stream
@@ -270,7 +271,9 @@ infrastructure install step.
 
 Resolved service bindings may still include internal runtime-generated work
 stream details such as `JOBS_WORK`, but ordinary service code should treat those
-as Trellis internals rather than as public contract-authored stream aliases.
+as Trellis internals rather than as public contract-authored stream aliases. The
+`trellis_jobs` projected-state KV bucket remains Trellis-owned infrastructure
+and is not part of the service-visible jobs binding.
 
 **Stream: `JOBS`**
 

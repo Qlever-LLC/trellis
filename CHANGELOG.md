@@ -10,6 +10,11 @@ and this project adheres to
 
 ### Changed
 
+- Tightened Trellis service v1 behavior by validating contract `uses` before
+  persistence, scoping operation control permissions to read/cancel grants,
+  keeping jobs projection buckets runtime-owned, requiring NATS for jobs
+  provisioning, accepting boolean State JSON schemas, and making startup and
+  shutdown cleanup attempt every registered path.
 - Changed contract identity to hash a normalized runtime/interface digest
   projection instead of human-facing manifest metadata, and removed
   service-declared stream resources from the v1 contract/resource model.

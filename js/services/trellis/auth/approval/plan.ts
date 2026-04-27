@@ -9,7 +9,7 @@ import {
   templateToWildcard,
 } from "../../catalog/uses.ts";
 import type { ContractStore } from "../../catalog/store.ts";
-import type { ContractApproval } from "../../state/schemas.ts";
+import type { ContractApproval } from "../schemas.ts";
 
 export type UserContractApprovalPlan = {
   digest: string;

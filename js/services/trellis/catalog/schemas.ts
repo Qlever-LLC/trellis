@@ -124,16 +124,6 @@ export const ContractRecordSchema = Type.Object({
 }, { additionalProperties: false });
 export type ContractRecord = StaticDecode<typeof ContractRecordSchema>;
 
-export const UserProjectionSchema = Type.Object({
-  origin: Type.String(),
-  id: Type.String(),
-  name: Type.Optional(Type.String()),
-  email: Type.Optional(Type.String()),
-  active: Type.Boolean(),
-  capabilities: Type.Array(Type.String()),
-}, { additionalProperties: false });
-export type UserProjectionEntry = StaticDecode<typeof UserProjectionSchema>;
-
 export const ServiceRegistrySchema = Type.Object({
   displayName: Type.String({ minLength: 1 }),
   active: Type.Boolean(),

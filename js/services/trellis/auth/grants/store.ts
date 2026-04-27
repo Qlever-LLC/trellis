@@ -1,8 +1,5 @@
 import { authRuntimeDeps } from "../runtime_deps.ts";
-import type {
-  InstanceGrantPolicy,
-  PortalProfile,
-} from "../../state/schemas.ts";
+import type { InstanceGrantPolicy, PortalProfile } from "../schemas.ts";
 import { portalProfileToGrantPolicy } from "./policy.ts";
 
 async function listPortalProfiles(): Promise<PortalProfile[]> {

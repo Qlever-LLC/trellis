@@ -6,7 +6,7 @@ import {
   Result,
 } from "@qlever-llc/result";
 import Type, { type Static } from "typebox";
-import type { Connection, Session, UserSession } from "../../state/schemas.ts";
+import type { Connection, Session, UserSession } from "../schemas.ts";
 import { connectionFilterForSession } from "./connections.ts";
 
 type Taken<T> = T | Result<never, BaseError>;

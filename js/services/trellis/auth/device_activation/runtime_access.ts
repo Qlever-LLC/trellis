@@ -5,7 +5,7 @@ import {
   resolveContractUsesFromStore,
   templateToWildcard,
 } from "../../catalog/uses.ts";
-import type { ContractRecord } from "../../state/schemas.ts";
+import type { ContractRecord } from "../../catalog/schemas.ts";
 
 type DeviceDeployment = {
   deploymentId: string;

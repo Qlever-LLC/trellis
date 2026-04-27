@@ -1,6 +1,6 @@
 import { assertEquals, assertThrows } from "@std/assert";
 
-import type { ContractRecord } from "../../state/schemas.ts";
+import type { ContractRecord } from "../../catalog/schemas.ts";
 
 import {
   deriveDeviceRuntimeAccess,

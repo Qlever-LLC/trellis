@@ -117,10 +117,11 @@ type ResourceBindingJobsQueue = {
 
 type ResourceBindingJobs = {
   namespace: string;
-  jobsStateBucket?: string;
   workStream?: string;
   queues: Record<string, ResourceBindingJobsQueue>;
 };
+
+const TRELLIS_JOBS_STATE_BUCKET = "trellis_jobs";
 
 const ClientTransportEndpointsSchema = Type.Object({
   natsServers: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
@@ -1223,12 +1224,12 @@ function sleep(ms: number): Promise<void> {
 
 function readProjectedJob<TPayload, TResult>(
   nc: NatsConnection,
-  jobsStateBucket: string,
+  bucket: string,
   jobId: string,
 ): AsyncResult<JobSnapshot<TPayload, TResult> | null, BaseError> {
   return AsyncResult.from((async () => {
     try {
-      const kv = await new Kvm(nc).open(jobsStateBucket);
+      const kv = await new Kvm(nc).open(bucket);
       const entry = await kv.get(jobId);
       if (!entry) {
         return Result.ok(null);
@@ -1247,24 +1248,13 @@ function createJobRef<TPayload, TResult>(args: {
   queueBinding: ResourceBindingJobsQueue;
   seed: JobSnapshot<TPayload, TResult>;
 }): JobRef<TPayload, TResult> {
-  const projectedStateUnavailable = (): UnexpectedError =>
-    toUnexpectedError(
-      new Error(
-        `Projected job state is unavailable for queue '${args.queueType}'. ` +
-          "Re-bootstrap this service so Trellis provides jobs state bindings before using wait() or cancel().",
-      ),
-    );
-
   const readLatest = (): AsyncResult<
     JobSnapshot<TPayload, TResult> | null,
     BaseError
   > => {
-    if (!args.jobsBinding.jobsStateBucket) {
-      return AsyncResult.ok(null);
-    }
     return readProjectedJob<TPayload, TResult>(
       args.nc,
-      args.jobsBinding.jobsStateBucket,
+      TRELLIS_JOBS_STATE_BUCKET,
       args.seed.id,
     );
   };
@@ -1286,9 +1276,6 @@ function createJobRef<TPayload, TResult>(args: {
         })()),
       wait: () =>
         AsyncResult.from((async () => {
-          if (!args.jobsBinding.jobsStateBucket) {
-            return Result.err(projectedStateUnavailable());
-          }
           for (;;) {
             const latest = await readLatest().take();
             if (isErr(latest)) {
@@ -1303,9 +1290,6 @@ function createJobRef<TPayload, TResult>(args: {
         })()),
       cancel: () =>
         AsyncResult.from((async () => {
-          if (!args.jobsBinding.jobsStateBucket) {
-            return Result.err(projectedStateUnavailable());
-          }
           const latest = await readLatest().take();
           if (isErr(latest)) {
             return Result.err(latest.error);

@@ -2,9 +2,9 @@ import type { ContractStore } from "../../catalog/store.ts";
 import type {
   ContractApprovalRecord,
   InstanceGrantPolicy,
-  UserProjectionEntry,
   UserSession,
-} from "../../state/schemas.ts";
+} from "../schemas.ts";
+import type { UserProjectionEntry } from "../schemas.ts";
 import { planUserContractApproval } from "../approval/plan.ts";
 import {
   effectiveApproval,

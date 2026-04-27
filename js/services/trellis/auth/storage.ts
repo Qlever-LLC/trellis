@@ -42,7 +42,7 @@ import {
   SessionSchema,
   type UserProjectionEntry,
   UserProjectionSchema,
-} from "../state/schemas.ts";
+} from "./schemas.ts";
 
 type Portal = StaticDecode<typeof PortalSchema>;
 type PortalProfile = StaticDecode<typeof PortalProfileSchema>;

@@ -6,7 +6,7 @@ import {
 } from "../storage/db.ts";
 import type { TrellisStorage } from "../storage/db.ts";
 import { contracts } from "../storage/schema.ts";
-import type { ContractRecord } from "../state/schemas/catalog_state.ts";
+import type { ContractRecord } from "./schemas.ts";
 import { SqlContractStorageRepository } from "./storage.ts";
 
 async function withRepository(

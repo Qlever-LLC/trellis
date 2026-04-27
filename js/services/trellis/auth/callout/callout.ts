@@ -28,18 +28,20 @@ import {
   resolveDeviceContractDigest,
 } from "../device_activation/runtime_access.ts";
 import type {
-  AuthCalloutClaims,
   Connection,
   DeviceActivationRecordSchema,
   DeviceDeploymentSchema,
+  Session,
+} from "../schemas.ts";
+import type {
+  AuthCalloutClaims,
   NatsAuthRequest,
   NatsConnectOpts,
-  Session,
-} from "../../state/schemas.ts";
+} from "../nats_schemas.ts";
 import {
   AuthCalloutClaimsSchema,
   NatsDisconnectEventSchema,
-} from "../../state/schemas.ts";
+} from "../nats_schemas.ts";
 import { resolveSessionPrincipal } from "../session/principal.ts";
 import {
   connectionFilterForSession,
@@ -49,6 +51,7 @@ import {
 } from "../session/connections.ts";
 import { deviceInstanceId } from "../admin/shared.ts";
 import { loadEffectiveGrantPolicies } from "../grants/store.ts";
+import { parseContractApprovalKey } from "../http/support.ts";
 import {
   loadServiceDeployment,
   loadServiceInstanceByKey,
@@ -67,6 +70,14 @@ type DeviceActivationRecord =
   };
 type DeviceDeployment = StaticDecode<typeof DeviceDeploymentSchema>;
 type ParsedNatsAuthToken = StaticDecode<typeof NatsAuthTokenV1Schema>;
+type AuthCalloutDenialCode =
+  | "auth_token_required"
+  | "invalid_auth_token"
+  | "unsupported_protocol_version"
+  | "missing_session_key"
+  | "missing_sig"
+  | "iat_out_of_range"
+  | "invalid_signature";
 
 const config = getConfig();
 export type BackgroundTaskHandle = {
@@ -84,17 +95,6 @@ function extractClientIp(natsReq: NatsAuthRequest): string | undefined {
     }
   }
   return undefined;
-}
-
-function parseContractApprovalKey(
-  key: string,
-): { userTrellisId: string; contractDigest: string } | null {
-  const separator = key.lastIndexOf(".");
-  if (separator <= 0 || separator >= key.length - 1) return null;
-  return {
-    userTrellisId: key.slice(0, separator),
-    contractDigest: key.slice(separator + 1),
-  };
 }
 
 type DeviceRuntimeGrant = ReturnType<typeof deriveDeviceRuntimeAccess> & {
@@ -295,6 +295,33 @@ export function startAuthCallout(
     let serverName: string | undefined;
     let serverIdNkey: string | undefined;
 
+    async function deny(code: AuthCalloutDenialCode): Promise<void> {
+      logger.warn(
+        {
+          denial: code,
+          serverName,
+          userNkey: userNkey ? `${userNkey.substring(0, 8)}...` : undefined,
+        },
+        "Auth callout denied",
+      );
+      if (userNkey && serverIdNkey && serverXkey) {
+        const response = await encodeAuthorizationResponse(
+          userNkey,
+          serverIdNkey,
+          config.nats.authCallout.issuer.signing,
+          { error: code },
+          { aud: "trellis" },
+        );
+        message.respond(
+          xkp.seal(new TextEncoder().encode(response), serverXkey),
+        );
+      } else {
+        message.respond("");
+      }
+      limiterRelease?.();
+      limiterRelease = null;
+    }
+
     try {
       serverXkey = message.headers?.get("Nats-Server-Xkey");
       if (!serverXkey) {
@@ -351,7 +378,7 @@ export function startAuthCallout(
       }
 
       const rawAuthToken = connectOpts.auth_token;
-      if (!rawAuthToken) throw new Error("auth_token required");
+      if (!rawAuthToken) return await deny("auth_token_required");
 
       let authToken: ParsedNatsAuthToken;
       try {
@@ -360,10 +387,12 @@ export function startAuthCallout(
           JSON.parse(rawAuthToken),
         ) as ParsedNatsAuthToken;
       } catch {
-        throw new Error("invalid_auth_token");
+        return await deny("invalid_auth_token");
       }
 
-      if (authToken.v !== 1) throw new Error("unsupported_protocol_version");
+      if (authToken.v !== 1) {
+        return await deny("unsupported_protocol_version");
+      }
 
       const sessionKey = authToken.sessionKey;
       const sig = authToken.sig;
@@ -380,21 +409,23 @@ export function startAuthCallout(
 
       const now = new Date();
       if (typeof sessionKey !== "string" || sessionKey.length === 0) {
-        throw new Error("missing_session_key");
+        return await deny("missing_session_key");
       }
       if (typeof sig !== "string" || sig.length === 0) {
-        throw new Error("missing_sig");
+        return await deny("missing_sig");
       }
 
       let deviceGrant: DeviceRuntimeGrant | null = null;
       const iat = authToken.iat;
-      if (typeof iat !== "number") throw new Error("invalid_auth_token");
+      if (typeof iat !== "number") return await deny("invalid_auth_token");
       const nowSec = Math.floor(now.getTime() / 1000);
-      if (Math.abs(nowSec - iat) > 30) throw new Error("iat_out_of_range");
+      if (Math.abs(nowSec - iat) > 30) {
+        return await deny("iat_out_of_range");
+      }
       if (
         !(await verifyDomainSig(sessionKey, "nats-connect", String(iat), sig))
       ) {
-        throw new Error("invalid_signature");
+        return await deny("invalid_signature");
       }
 
       const service = await loadServiceInstanceByKey(sessionKey);

@@ -151,9 +151,26 @@ function shutdown(signal: string): Promise<void> {
   shuttingDown = (async () => {
     logger.info({ signal }, "Shutting down Trellis service");
     serverAbort.abort();
-    await waitForServerDrain();
-    await backgroundTasks.stop();
-    await shutdownGlobals();
+    const cleanupResults = await Promise.allSettled([
+      waitForServerDrain(),
+      backgroundTasks.stop(),
+      shutdownGlobals(),
+    ]);
+    const failures: unknown[] = [];
+    for (const result of cleanupResults) {
+      if (result.status !== "rejected") continue;
+      failures.push(result.reason);
+      logger.error(
+        { error: result.reason, signal },
+        "Trellis shutdown cleanup step failed",
+      );
+    }
+    if (failures.length > 0) {
+      throw new AggregateError(
+        failures,
+        `Failed to clean up ${failures.length} Trellis shutdown step(s)`,
+      );
+    }
     logger.info({ signal }, "Trellis service stopped");
   })();
 

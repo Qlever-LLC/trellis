@@ -180,6 +180,7 @@ const TEST_CONTRACTS: Array<{ digest: string; contract: TrellisContractV1 }> = [
           subject: "operations.v1.Billing.Refund",
           input: { schema: "EmptyInput" },
           output: { schema: "EmptyOutput" },
+          cancel: true,
           capabilities: {
             call: ["billing.refund"],
             read: ["billing.read"],
@@ -235,7 +236,7 @@ Deno.test("user permissions include event and raw subject capabilities", () => {
     assertEquals(publishSubjects.includes("operations.v1.Partner.Sync"), true);
     assertEquals(
       publishSubjects.includes("operations.v1.Partner.Sync.control"),
-      true,
+      false,
     );
     assertEquals(publishSubjects.includes("transfer.v1.upload.*.*"), true);
     assertEquals(publishSubjects.includes("transfer.v1.download.*.*"), true);
@@ -346,6 +347,7 @@ Deno.test("service permissions include owned RPCs and declared dependencies", ()
         "trellis.catalog.read",
         "service:events:auth",
         "billing.refund",
+        "billing.read",
       ],
       {
         sessionKey: "graph-key",
@@ -401,6 +403,52 @@ Deno.test("service permissions include owned RPCs and declared dependencies", ()
     );
     assertEquals(
       subscribeSubjects.includes("transfer.v1.download.graph-key.*"),
+      true,
+    );
+  });
+});
+
+Deno.test("operation control publish uses read and cancel capabilities", () => {
+  withContracts(TEST_CONTRACTS, () => {
+    const caller = { contractDigest: "portal-digest" };
+
+    const callOnly = getUserPublishSubjects(["partners:write"], caller);
+    assertEquals(callOnly.includes("operations.v1.Partner.Sync"), true);
+    assertEquals(
+      callOnly.includes("operations.v1.Partner.Sync.control"),
+      false,
+    );
+
+    const readOnly = getUserPublishSubjects(["partners:read"], caller);
+    assertEquals(readOnly.includes("operations.v1.Partner.Sync"), false);
+    assertEquals(readOnly.includes("operations.v1.Partner.Sync.control"), true);
+
+    const graphCallOnly = getServicePublishSubjects([
+      "service",
+      "billing.refund",
+    ], {
+      sessionKey: "graph-key",
+      contractDigest: "graph-digest",
+    });
+    assertEquals(graphCallOnly.includes("operations.v1.Billing.Refund"), true);
+    assertEquals(
+      graphCallOnly.includes("operations.v1.Billing.Refund.control"),
+      false,
+    );
+
+    const graphCancelOnly = getServicePublishSubjects([
+      "service",
+      "billing.cancel",
+    ], {
+      sessionKey: "graph-key",
+      contractDigest: "graph-digest",
+    });
+    assertEquals(
+      graphCancelOnly.includes("operations.v1.Billing.Refund"),
+      false,
+    );
+    assertEquals(
+      graphCancelOnly.includes("operations.v1.Billing.Refund.control"),
       true,
     );
   });

@@ -24,7 +24,7 @@ import {
   PortalSchema,
   ServiceDeploymentSchema,
   ServiceInstanceSchema,
-} from "../../../../packages/trellis/auth/protocol.ts";
+} from "../../../packages/trellis/auth/protocol.ts";
 import { IsoDateSchema } from "@qlever-llc/trellis/contracts";
 import type { StaticDecode } from "typebox";
 
@@ -215,6 +215,16 @@ export type ContractApprovalRecord = StaticDecode<
 export type BindSuccessResponse = StaticDecode<
   typeof BindSuccessResponseSchema
 >;
+
+export const UserProjectionSchema = Type.Object({
+  origin: Type.String(),
+  id: Type.String(),
+  name: Type.Optional(Type.String()),
+  email: Type.Optional(Type.String()),
+  active: Type.Boolean(),
+  capabilities: Type.Array(Type.String()),
+}, { additionalProperties: false });
+export type UserProjectionEntry = StaticDecode<typeof UserProjectionSchema>;
 
 const SessionBaseFields = {
   trellisId: Type.String(),

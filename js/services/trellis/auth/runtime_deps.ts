@@ -1,7 +1,7 @@
 import type { AsyncResult, BaseError, Result } from "@qlever-llc/result";
 import type { NatsConnection } from "@nats-io/transport-deno";
 import type { Msg } from "@nats-io/nats-core";
-import type { Connection, SentinelCreds } from "../state/schemas.ts";
+import type { Connection, SentinelCreds } from "./schemas.ts";
 import type {
   SqlContractApprovalRepository,
   SqlDeviceActivationRepository,

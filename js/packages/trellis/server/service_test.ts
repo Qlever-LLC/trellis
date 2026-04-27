@@ -132,7 +132,6 @@ async function connectJobsHandlerTestService(opts?: {
               store: {},
               jobs: {
                 namespace: "jobs_handler_test",
-                jobsStateBucket: "trellis_jobs",
                 ...(includeWorkStream ? { workStream: "JOBS_WORK" } : {}),
                 queues: {
                   refreshSummaries: {

@@ -11,11 +11,8 @@ import {
 } from "./rpc.ts";
 import { connectionKey } from "./connections.ts";
 import { createAuthRevokeSessionHandler } from "./revoke.ts";
-import type {
-  ContractApprovalRecord,
-  Session,
-  UserProjectionEntry,
-} from "../../state/schemas.ts";
+import type { ContractApprovalRecord, Session } from "../schemas.ts";
+import type { UserProjectionEntry } from "../schemas.ts";
 import {
   initializeTrellisStorageSchema,
   openTrellisStorageDb,

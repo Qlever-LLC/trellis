@@ -11,7 +11,7 @@ import { ensureBoundUserSession } from "../session/bind.ts";
 import { getConfig } from "../../config.ts";
 import type { ContractStore } from "../../catalog/store.ts";
 import type { SqlContractStorageRepository } from "../../catalog/storage.ts";
-import { authRuntimeDeps } from "../runtime_deps.ts";
+import { type AuthRuntimeDeps, authRuntimeDeps } from "../runtime_deps.ts";
 import { getApprovalResolutionErrorMessage } from "./approval_errors.ts";
 import { planUserContractApproval } from "../approval/plan.ts";
 import { loadEffectiveGrantPolicies } from "../grants/store.ts";
@@ -24,6 +24,7 @@ import {
   getApprovalResolutionBlocker,
   getCookie,
   type OAuthStateEntry,
+  parseContractApprovalKey,
   type PendingAuthEntry,
   resolveLoginPortal,
   setCookie,
@@ -48,7 +49,7 @@ import {
   type Session,
   type SessionApprovalSource,
   type UserSession,
-} from "../../state/schemas.ts";
+} from "../schemas.ts";
 import { upsertUserProjectionInSql } from "../session/projection.ts";
 import type {
   SqlContractApprovalRepository,
@@ -88,6 +89,18 @@ function parseApprovalRequest(value: unknown): boolean | undefined {
   return typeof approved === "boolean" ? approved : undefined;
 }
 
+type HttpRouteRuntimeDeps = Pick<
+  AuthRuntimeDeps,
+  | "browserFlowsKV"
+  | "connectionsKV"
+  | "logger"
+  | "natsTrellis"
+  | "oauthStateKV"
+  | "pendingAuthKV"
+  | "sentinelCreds"
+  | "sessionStorage"
+>;
+
 export function registerHttpRoutes(
   app: Hono,
   opts: {
@@ -106,6 +119,7 @@ export function registerHttpRoutes(
     contractStore: ContractStore;
     refreshActiveContracts?: () => Promise<void>;
     providers?: Record<string, Provider>;
+    runtimeDeps?: HttpRouteRuntimeDeps;
   },
 ): void {
   const config = getConfig();
@@ -118,7 +132,7 @@ export function registerHttpRoutes(
     pendingAuthKV,
     sentinelCreds,
     sessionStorage,
-  } = authRuntimeDeps();
+  } = opts.runtimeDeps ?? authRuntimeDeps();
   const providers = opts.providers ?? createProviders(config);
   const approvalResolutionDeps = {
     loadStoredApproval: async (key: string) => {
@@ -136,17 +150,6 @@ export function registerHttpRoutes(
       return await loadEffectiveGrantPolicies(contractId);
     },
   };
-
-  function parseContractApprovalKey(
-    key: string,
-  ): { userTrellisId: string; contractDigest: string } | null {
-    const separator = key.lastIndexOf(".");
-    if (separator <= 0 || separator >= key.length - 1) return null;
-    return {
-      userTrellisId: key.slice(0, separator),
-      contractDigest: key.slice(separator + 1),
-    };
-  }
 
   async function requireApprovalResolution(pending: PendingAuth) {
     try {
@@ -218,33 +221,15 @@ export function registerHttpRoutes(
     return new URL(pathname, base).toString();
   }
 
-  async function listPortals(): Promise<
-    Array<{ portalId: string; entryUrl: string; disabled?: boolean }>
-  > {
-    return await opts.portalStorage.list();
-  }
-
-  async function listLoginPortalSelections(): Promise<
-    Array<{ contractId: string; portalId: string | null }>
-  > {
-    return await opts.loginPortalSelectionStorage.list();
-  }
-
-  async function loadLoginPortalDefaultId(): Promise<
-    string | null | undefined
-  > {
-    return (await opts.portalDefaultStorage.getLogin())?.portalId;
-  }
-
   async function resolvePortalEntryUrlForContract(
     contract: Record<string, unknown>,
   ): Promise<string | null> {
     const contractId = typeof contract.id === "string" ? contract.id : null;
     const resolved = resolveLoginPortal({
       contractId: contractId ?? "",
-      portals: await listPortals(),
-      defaultPortalId: await loadLoginPortalDefaultId(),
-      selections: await listLoginPortalSelections(),
+      portals: await opts.portalStorage.list(),
+      defaultPortalId: (await opts.portalDefaultStorage.getLogin())?.portalId,
+      selections: await opts.loginPortalSelectionStorage.list(),
     });
     if (resolved.kind === "custom") {
       return resolved.portal.entryUrl;
@@ -451,7 +436,7 @@ export function registerHttpRoutes(
   const FlowBindRequestSchema = Type.Object({
     sessionKey: Type.String({ minLength: 1 }),
     sig: Type.String({ minLength: 1 }),
-  }, { additionalProperties: false });
+  });
 
   const AuthStartRequestSchema = Type.Object({
     provider: Type.Optional(Type.String({ minLength: 1 })),
@@ -460,7 +445,7 @@ export function registerHttpRoutes(
     sig: Type.String({ minLength: 1 }),
     contract: Type.Object({}, { additionalProperties: true }),
     context: Type.Optional(Type.Object({}, { additionalProperties: true })),
-  }, { additionalProperties: false });
+  });
 
   async function completePendingBind(args: {
     pending: PendingAuthEntry;
@@ -523,23 +508,25 @@ export function registerHttpRoutes(
     );
   }
 
-  app.use(
-    "/auth/*",
-    rateLimiter({
-      windowMs: config.httpRateLimit.windowMs,
-      limit: config.httpRateLimit.max,
-      keyGenerator: (c) => {
-        const forwarded = c.req.header("x-forwarded-for");
-        if (forwarded) {
-          const first = forwarded.split(",")[0]?.trim();
-          if (first) return first;
-        }
-        return c.req.header("x-real-ip") ??
-          c.req.header("cf-connecting-ip") ??
-          "unknown";
-      },
-    }),
-  );
+  if (config.httpRateLimit.max > 0) {
+    app.use(
+      "/auth/*",
+      rateLimiter({
+        windowMs: config.httpRateLimit.windowMs,
+        limit: config.httpRateLimit.max,
+        keyGenerator: (c) => {
+          const forwarded = c.req.header("x-forwarded-for");
+          if (forwarded) {
+            const first = forwarded.split(",")[0]?.trim();
+            if (first) return first;
+          }
+          return c.req.header("x-real-ip") ??
+            c.req.header("cf-connecting-ip") ??
+            "unknown";
+        },
+      }),
+    );
+  }
 
   app.post(
     "/bootstrap/client",

@@ -131,7 +131,7 @@ const snapshot = await op.cancel();
 The cancellation signal flows to the active job worker via `job.cancelled`. The worker checks it cooperatively:
 
 ```ts
-await service.jobs.reserveInventory.handle(async (job) => {
+service.jobs.reserveInventory.handle(async ({ job }) => {
   if (job.cancelled) {
     return Result.err({ type: "JobCancelledError", message: "Cancelled" });
   }

@@ -7,11 +7,8 @@ import { Value } from "typebox/value";
 import type { ContractStore } from "../../catalog/store.ts";
 import { provisionContractResourceBindings } from "../../catalog/resources.ts";
 import { resolveContractUsesFromStore } from "../../catalog/uses.ts";
-import {
-  SessionKeySchema,
-  SignatureSchema,
-} from "../../state/schemas/auth_state.ts";
-import type { SentinelCreds } from "../../state/schemas.ts";
+import { SessionKeySchema, SignatureSchema } from "../schemas.ts";
+import type { SentinelCreds } from "../schemas.ts";
 
 export const DEFAULT_SERVICE_BOOTSTRAP_IAT_SKEW_SECONDS = 30;
 
@@ -31,7 +28,7 @@ export const ServiceBootstrapRequestSchema = Type.Object({
   contractDigest: DigestSchema,
   iat: Type.Number(),
   sig: SignatureSchema,
-}, { additionalProperties: false });
+});
 
 export type ServiceBootstrapDeps = {
   contractStore: ContractStore;

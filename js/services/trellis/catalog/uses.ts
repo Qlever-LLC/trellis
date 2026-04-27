@@ -384,6 +384,24 @@ export function resolveContractUsesFromStore(
   });
 }
 
+export function resolveContractUsesFromKnownStore(
+  contractStore: ContractStore,
+  contract: TrellisContractV1,
+): ResolvedContractUses {
+  return resolveContractUses(contract, (alias, use) => {
+    const target = mergeCompatibleContractSurfaces(
+      contractStore.getKnownContractsById(use.contract),
+    );
+    if (!target) {
+      throw new Error(
+        `Dependency '${alias}' references unknown contract '${use.contract}'`,
+      );
+    }
+
+    return target;
+  });
+}
+
 export function createActiveContractLookup(
   entries: ContractEntry[],
 ): Map<string, TrellisContractV1> {

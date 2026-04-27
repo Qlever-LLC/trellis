@@ -10,7 +10,10 @@ import { addCurrentContractDigests } from "./active_contracts.ts";
 import { analyzeContract } from "./analysis.ts";
 import { setContracts as setPermissionContracts } from "./permissions.ts";
 import { ContractStore } from "./store.ts";
-import { resolveContractUsesFromStore } from "./uses.ts";
+import {
+  resolveContractUsesFromKnownStore,
+  resolveContractUsesFromStore,
+} from "./uses.ts";
 import type { SqlContractStorageRepository } from "./storage.ts";
 
 type CatalogLogger = {
@@ -157,6 +160,7 @@ function getRequiredServiceCapabilities(
 async function collectInstalledContractRecords(
   contractStorage: SqlContractStorageRepository,
   logger: CatalogLogger,
+  options?: { failOnListError?: boolean },
 ): Promise<{
   byDigest: Map<string, InstalledContractRecord>;
 }> {
@@ -171,6 +175,9 @@ async function collectInstalledContractRecords(
       byDigest.set(entry.digest, record);
     }
   } catch (error) {
+    if (options?.failOnListError) {
+      throw new Error("Failed to list installed contracts", { cause: error });
+    }
     logger.warn({ error }, "Failed to list installed contracts");
     return { byDigest };
   }
@@ -190,6 +197,41 @@ export function createContractsModule(opts: {
   const logger = opts.logger ?? consoleLogger;
   const contractStore = new ContractStore(opts.builtinContracts);
 
+  async function loadPersistedContractsIntoStore(): Promise<void> {
+    const installedContracts = await collectInstalledContractRecords(
+      opts.contractStorage,
+      logger,
+      { failOnListError: true },
+    );
+    for (const installed of installedContracts.byDigest.values()) {
+      if (
+        contractStore.getContract(installed.digest, { includeInactive: true })
+      ) {
+        continue;
+      }
+      try {
+        const parsed = JSON.parse(installed.contract);
+        if (!isJsonValue(parsed)) {
+          throw new Error("stored contract is not valid JSON value");
+        }
+        const validated = await contractStore.validate(parsed);
+        if (validated.digest !== installed.digest) {
+          throw new Error(
+            "stored contract digest does not match persisted digest",
+          );
+        }
+        contractStore.add(validated.digest, validated.contract);
+      } catch (error) {
+        logger.warn({
+          digest: installed.digest,
+          contractId: installed.id,
+          err: error instanceof Error ? error : undefined,
+          errorMessage: getErrorMessage(error),
+        }, "Failed to hydrate persisted contract");
+      }
+    }
+  }
+
   async function validateManagedContract(args: {
     contract: unknown;
   }): Promise<{
@@ -204,7 +246,9 @@ export function createContractsModule(opts: {
       throw new Error("contract must be an object");
     }
 
+    await loadPersistedContractsIntoStore();
     const validated = await contractStore.validate(args.contract);
+    resolveContractUsesFromKnownStore(contractStore, validated.contract);
 
     const usedNamespaces = new Set<string>();
     for (const method of Object.values(validated.contract.rpc ?? {})) {

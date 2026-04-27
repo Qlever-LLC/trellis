@@ -1,7 +1,7 @@
 import { AsyncResult, Result } from "@qlever-llc/result";
 import { KVError } from "@qlever-llc/trellis";
 
-import type { Session } from "../state/schemas.ts";
+import type { Session } from "../auth/schemas.ts";
 import type { StoredStateEntry } from "./model.ts";
 
 type StoredCell = {

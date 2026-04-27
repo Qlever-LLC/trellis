@@ -5,7 +5,7 @@ import { Value } from "typebox/value";
 
 import { verifyDeviceWaitSignature } from "@qlever-llc/trellis/auth";
 import { deviceInstanceId } from "../admin/shared.ts";
-import { SignatureSchema } from "../../state/schemas/auth_state.ts";
+import { SignatureSchema } from "../schemas.ts";
 import { isDeviceProofIatFresh } from "../device_activation/shared.ts";
 
 const DigestSchema = Type.String({ pattern: "^[A-Za-z0-9_-]+$" });
@@ -22,7 +22,7 @@ export const DeviceBootstrapRequestSchema = Type.Object({
   contractDigest: DigestSchema,
   iat: Type.Number(),
   sig: SignatureSchema,
-}, { additionalProperties: false });
+});
 
 type DeviceInstance = {
   instanceId: string;

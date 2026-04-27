@@ -334,6 +334,14 @@ export class ContractStore {
     return contracts;
   }
 
+  getKnownContractsById(id: string): TrellisContractV1[] {
+    const contracts: TrellisContractV1[] = [];
+    for (const contract of this.#contractsByDigest.values()) {
+      if (contract.id === id) contracts.push(contract);
+    }
+    return contracts;
+  }
+
   setActiveDigests(digests: Iterable<string>): void {
     this.#activeDigests.clear();
     for (const d of digests) {

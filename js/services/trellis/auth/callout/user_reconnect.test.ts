@@ -1,9 +1,6 @@
 import { assertEquals } from "@std/assert";
 
-import type {
-  ContractApprovalRecord,
-  UserSession,
-} from "../../state/schemas.ts";
+import type { ContractApprovalRecord, UserSession } from "../schemas.ts";
 import { ContractStore } from "../../catalog/store.ts";
 import { resolveUserReconnectSession } from "./user_reconnect.ts";
 

@@ -12,7 +12,7 @@ import type {
   Connection,
   ContractApprovalRecord,
   Session,
-} from "../../state/schemas.ts";
+} from "../schemas.ts";
 import type {
   SqlContractApprovalRepository,
   SqlSessionRepository,

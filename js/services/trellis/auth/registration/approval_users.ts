@@ -16,7 +16,7 @@ import type {
 } from "../storage.ts";
 import type { AuthLogger, RuntimeKV } from "../runtime_deps.ts";
 import type { RpcRegistrar } from "./types.ts";
-import type { Connection } from "../../state/schemas.ts";
+import type { Connection } from "../schemas.ts";
 
 export async function registerApprovalAndUserRpcs(deps: {
   trellis: RpcRegistrar;

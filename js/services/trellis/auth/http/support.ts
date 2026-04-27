@@ -19,7 +19,7 @@ import type {
   OAuthState,
   PendingAuth,
   UserProjectionEntry,
-} from "../../state/schemas.ts";
+} from "../schemas.ts";
 
 export type OAuthStateEntry = {
   value: OAuthState;
@@ -114,6 +114,17 @@ export function contractApprovalKey(
   contractDigest: string,
 ): string {
   return `${userTrellisId}.${contractDigest}`;
+}
+
+export function parseContractApprovalKey(
+  key: string,
+): { userTrellisId: string; contractDigest: string } | null {
+  const separator = key.lastIndexOf(".");
+  if (separator <= 0 || separator >= key.length - 1) return null;
+  return {
+    userTrellisId: key.slice(0, separator),
+    contractDigest: key.slice(separator + 1),
+  };
 }
 
 export function applyApprovalDecision(args: {

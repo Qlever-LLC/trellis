@@ -2,10 +2,7 @@ import { assertEquals } from "@std/assert";
 import { trellisIdFromOriginId } from "@qlever-llc/trellis/auth";
 
 import { ContractStore } from "../../catalog/store.ts";
-import type {
-  ContractApprovalRecord,
-  PendingAuth,
-} from "../../state/schemas.ts";
+import type { ContractApprovalRecord, PendingAuth } from "../schemas.ts";
 import { getApprovalResolutionErrorMessage } from "./approval_errors.ts";
 import {
   applyApprovalDecision,

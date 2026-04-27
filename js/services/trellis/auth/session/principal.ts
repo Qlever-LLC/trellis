@@ -2,11 +2,9 @@ import type {
   ContractApprovalRecord,
   InstanceGrantPolicy,
   Session,
-  UserProjectionEntry,
-} from "../../state/schemas.ts";
+} from "../schemas.ts";
+import type { UserProjectionEntry } from "../schemas.ts";
 import {
-  effectiveApproval,
-  effectiveCapabilities,
   matchingInstanceGrantPolicies,
   userDelegationAllowed,
 } from "../grants/policy.ts";
@@ -46,10 +44,6 @@ export type SessionPrincipalError = {
 type SessionPrincipalResult =
   | { ok: true; value: SessionPrincipal }
   | { ok: false; error: SessionPrincipalError };
-
-function hasAllCapabilities(granted: string[], required: string[]): boolean {
-  return required.every((capability) => granted.includes(capability));
-}
 
 function hasServiceOnlyCapability(capabilities: string[]): boolean {
   return capabilities.some((capability) =>
@@ -252,14 +246,6 @@ export async function resolveSessionPrincipal(
       `${session.trellisId}.${session.contractDigest}`,
     )
     : null;
-  const resolvedCapabilities = effectiveCapabilities({
-    explicitCapabilities: currentCapabilities,
-    matchedPolicies,
-  });
-  const resolvedApproval = effectiveApproval({
-    storedApproval,
-    matchedPolicies,
-  });
   if (
     !userDelegationAllowed({
       active: projection.active,

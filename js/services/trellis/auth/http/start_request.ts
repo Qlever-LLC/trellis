@@ -1,9 +1,6 @@
 import { HTTPException } from "@hono/hono/http-exception";
 
-import type {
-  PendingAuth,
-  SessionApprovalSource,
-} from "../../state/schemas.ts";
+import type { PendingAuth, SessionApprovalSource } from "../schemas.ts";
 import {
   type ApprovalResolution,
   buildAppIdentity,

@@ -45,7 +45,7 @@ import type {
   InstanceGrantPolicy,
   Session,
   UserProjectionEntry,
-} from "../../state/schemas.ts";
+} from "../schemas.ts";
 import {
   connectionFilterForSession,
   parseConnectionKey,

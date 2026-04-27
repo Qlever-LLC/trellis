@@ -80,8 +80,8 @@ function makePaginated(
     count,
     offset,
     limit,
-    next: offset + limit >= count ? undefined : offset + limit,
-    prev: offset - limit <= 0 ? undefined : offset - limit,
+    next: limit <= 0 || offset + limit >= count ? undefined : offset + limit,
+    prev: offset > 0 ? Math.max(0, offset - limit) : undefined,
   };
 }
 

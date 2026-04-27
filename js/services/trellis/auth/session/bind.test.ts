@@ -6,7 +6,7 @@ import {
   UnexpectedError,
 } from "@qlever-llc/result";
 import { ensureBoundUserSession } from "./bind.ts";
-import type { Connection, Session } from "../../state/schemas.ts";
+import type { Connection, Session } from "../schemas.ts";
 
 function matchFilter(filter: string, key: string): boolean {
   const f = filter.split(".");

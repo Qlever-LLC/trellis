@@ -316,9 +316,9 @@ Rules:
   operation/RPC/event/subject names, not by raw capability strings
 - a service contract MUST NOT receive cross-contract runtime permissions unless
   that access is declared in `uses`
-- install or upgrade MUST fail if a referenced contract is unavailable or if any
-  referenced operation, RPC, event, or subject name does not exist on that
-  contract
+- validation, install, or upgrade MUST fail if a referenced contract is
+  unavailable or if any referenced operation, RPC, event, or subject name does
+  not exist on that contract
 - higher-level consent scopes for user-facing applications MAY be derived from
   `uses`, but runtime enforcement remains operation-level
 - any user approval or consent record for a client contract MUST be bound to the
@@ -965,6 +965,9 @@ Rules:
 - each capability list is an all-of requirement
 - operation control subjects MUST be derived deterministically from the declared
   operation subject so auth and SDK generation remain contract-driven
+- operation control publish grants use `capabilities.read` and
+  `capabilities.cancel` as applicable; holding only `capabilities.call` does not
+  grant broad control-subject access
 - if a capability list is empty or omitted, that specific action does not
   require additional capability grants
 - templated event subjects are authorized using wildcard subjects derived by

@@ -124,10 +124,10 @@ await service.trellis.mount("Orders.Create", async (req) => {
 
 ## 4. Register job workers
 
-Register workers for each job type. Call all `handle()` registrations before `startWorkers()`:
+Register workers for each job type before calling `service.wait()`. Handler registration is synchronous; the connected service owns worker startup and shutdown as part of its lifecycle:
 
 ```ts
-await service.jobs.reserveInventory.handle(async (job) => {
+service.jobs.reserveInventory.handle(async ({ job }) => {
   await job.progress({ step: "reserving", message: "Checking inventory" });
 
   if (job.cancelled) {
@@ -151,7 +151,7 @@ await service.jobs.reserveInventory.handle(async (job) => {
   return Result.ok({ reserved: true });
 });
 
-await service.jobs.chargePayment.handle(async (job) => {
+service.jobs.chargePayment.handle(async ({ job }) => {
   await job.progress({ step: "charging", message: "Processing payment" });
 
   if (job.cancelled) {
@@ -170,7 +170,7 @@ await service.jobs.chargePayment.handle(async (job) => {
   return Result.ok({ chargeId });
 });
 
-await service.jobs.notifyWarehouse.handle(async (job) => {
+service.jobs.notifyWarehouse.handle(async ({ job }) => {
   await job.progress({ step: "notifying", message: "Notifying warehouse" });
 
   if (job.cancelled) {
@@ -189,13 +189,12 @@ await service.jobs.notifyWarehouse.handle(async (job) => {
 });
 ```
 
-## 5. Start workers
+## 5. Run the service
 
-Call `startWorkers()` **after** all `handle()` registrations. This is a once-at-startup call that activates workers for all registered job types:
+Call `service.wait()` after all `handle()` registrations. The service starts registered workers, keeps them running, and stops them when `service.stop()` or process shutdown runs:
 
 ```ts
-const host = await service.jobs.startWorkers();
-if (host.isErr()) throw host.error;
+await service.wait();
 ```
 
 ## 6. Retry and failure
@@ -209,7 +208,7 @@ To prevent retry for a specific job type, set `maxDeliver: 1` in the contract qu
 If a job may run longer than the configured `ackWaitMs` (default 5 minutes), call `job.heartbeat()` periodically to extend the deadline:
 
 ```ts
-await service.jobs.chargePayment.handle(async (job) => {
+service.jobs.chargePayment.handle(async ({ job }) => {
   while (processing) {
     await job.heartbeat();
     // continue work

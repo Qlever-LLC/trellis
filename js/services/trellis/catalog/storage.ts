@@ -3,10 +3,7 @@ import Value from "typebox/value";
 
 import type { TrellisStorageDb } from "../storage/db.ts";
 import { contracts } from "../storage/schema.ts";
-import {
-  type ContractRecord,
-  ContractRecordSchema,
-} from "../state/schemas/catalog_state.ts";
+import { type ContractRecord, ContractRecordSchema } from "./schemas.ts";
 
 type ContractRow = typeof contracts.$inferSelect;
 type ContractInsert = typeof contracts.$inferInsert;

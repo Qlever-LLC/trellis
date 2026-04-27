@@ -80,6 +80,17 @@ function dedupe(subjects: Iterable<string>): string[] {
   return [...new Set(subjects)];
 }
 
+function operationControlCapabilityRules(
+  operation: ContractOperation,
+): string[][] {
+  return [
+    operation.capabilities?.read ?? operation.capabilities?.call ?? [],
+    ...(operation.cancel && operation.capabilities?.cancel !== undefined
+      ? [operation.capabilities.cancel]
+      : []),
+  ];
+}
+
 function resolvedUses(entry: ContractEntry) {
   return resolveContractUses(entry.contract, (alias, use) => {
     const target = state.activeById.get(use.contract);
@@ -134,16 +145,23 @@ function usedPublishRules(entries: ContractEntry[]): PermissionRule[] {
         subject: templateToWildcard(method.method.subject),
         requiredCapabilities: method.method.capabilities?.call ?? [],
       })),
-      ...uses.operationCalls.flatMap((operation) => [
-        {
-          subject: templateToWildcard(operation.operation.subject),
-          requiredCapabilities: operation.operation.capabilities?.call ?? [],
-        },
-        {
-          subject: templateToWildcard(`${operation.operation.subject}.control`),
-          requiredCapabilities: operation.operation.capabilities?.call ?? [],
-        },
-      ]),
+      ...uses.operationCalls.flatMap((operation) => {
+        const controlSubject = templateToWildcard(
+          `${operation.operation.subject}.control`,
+        );
+        return [
+          {
+            subject: templateToWildcard(operation.operation.subject),
+            requiredCapabilities: operation.operation.capabilities?.call ?? [],
+          },
+          ...operationControlCapabilityRules(operation.operation).map(
+            (requiredCapabilities) => ({
+              subject: controlSubject,
+              requiredCapabilities,
+            }),
+          ),
+        ];
+      }),
       ...uses.eventPublishes.map((event) => ({
         subject: templateToWildcard(event.event.subject),
         requiredCapabilities: event.event.capabilities?.publish ?? [],

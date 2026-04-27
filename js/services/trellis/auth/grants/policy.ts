@@ -2,7 +2,7 @@ import type {
   ContractApprovalRecord,
   InstanceGrantPolicy,
   PortalProfile,
-} from "../../state/schemas.ts";
+} from "../schemas.ts";
 
 export type EffectiveApproval =
   | { kind: "admin_policy"; answer: "approved" }

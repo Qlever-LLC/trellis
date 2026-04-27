@@ -15,7 +15,8 @@ Built with SvelteKit, Tailwind CSS v4 + DaisyUI, and
 Expects Auth at `http://localhost:3000` and NATS WebSocket at
 `ws://localhost:8080`.
 
-`prepare` generates the console app SDK under `generated/js/sdks/console/`. The
-local Trellis context binds `createTrellisApp` to `TrellisConsoleClient` from
-that generated `client.ts` facade, so console pages call `getTrellis()` with
-explicit RPC, event, and state types.
+`prepare` refreshes generated Trellis contract artifacts. The local Trellis
+context binds `createTrellisApp` to the console contract and derives
+`TrellisConsoleClient` with `TrellisClientFor<typeof contract>`, so console
+pages call `getTrellis()` with explicit RPC, event, and state types without
+importing a generated `client.ts` facade.

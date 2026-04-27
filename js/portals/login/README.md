@@ -5,9 +5,10 @@ activation route.
 
 The app has two distinct roles:
 
-- `/_trellis/portal/login` renders auth-owned browser flow state from Trellis.
-- `/_trellis/portal/activate` resumes a preserved `flowId` after sign-in and
-  starts `Auth.ActivateDevice` over the Trellis runtime.
+- `/_trellis/portal/users/login` renders auth-owned browser flow state from
+  Trellis.
+- `/_trellis/portal/devices/activate` resumes a preserved `flowId` after sign-in
+  and starts `Auth.ActivateDevice` over the Trellis runtime.
 - SvelteKit runtime assets are served under `/_trellis/assets/*` to keep the
   built-in portal's asset namespace inside the Trellis-owned prefix.
 

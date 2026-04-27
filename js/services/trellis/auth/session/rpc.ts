@@ -11,7 +11,7 @@ import type {
   AuthListSessionsInput,
   AuthListSessionsOutput,
 } from "@qlever-llc/trellis/sdk/auth";
-import type { Session } from "../../state/schemas.ts";
+import type { Session } from "../schemas.ts";
 import { resolveSessionPrincipal } from "./principal.ts";
 import {
   connectionFilterForSession,
@@ -27,6 +27,7 @@ import type {
   SqlUserProjectionRepository,
 } from "../storage.ts";
 import { authRuntimeDeps, maybeAuthRuntimeDeps } from "../runtime_deps.ts";
+import { parseContractApprovalKey } from "../http/support.ts";
 
 const logger = {
   trace: (fields: Record<string, unknown>, message: string) =>
@@ -786,17 +787,6 @@ export const authMeHandler = async (
     loadServiceDeployment,
   })(args);
 };
-
-function parseContractApprovalKey(
-  key: string,
-): { userTrellisId: string; contractDigest: string } | null {
-  const separator = key.lastIndexOf(".");
-  if (separator <= 0 || separator >= key.length - 1) return null;
-  return {
-    userTrellisId: key.slice(0, separator),
-    contractDigest: key.slice(separator + 1),
-  };
-}
 
 /** Creates the Auth.ValidateRequest RPC handler backed by SQL auth projections. */
 export function createAuthValidateRequestHandler(deps: {

@@ -5,7 +5,7 @@ import type {
   PortalFlowState,
 } from "@qlever-llc/trellis/auth";
 
-import type { AuthBrowserFlow } from "../../state/schemas.ts";
+import type { AuthBrowserFlow } from "../schemas.ts";
 import { type ApprovalResolution as PortalFlowResolution } from "./support.ts";
 
 export async function buildPortalFlowState(args: {

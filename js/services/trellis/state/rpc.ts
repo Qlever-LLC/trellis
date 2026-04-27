@@ -16,7 +16,7 @@ import type { StateGetInput } from "../../../packages/trellis/models/trellis/rpc
 import type { StateListInput } from "../../../packages/trellis/models/trellis/rpc/StateList.ts";
 import type { StatePutInput } from "../../../packages/trellis/models/trellis/rpc/StatePut.ts";
 import type { StateStoreKind } from "../../../packages/trellis/models/trellis/State.ts";
-import type { Session } from "../state/schemas.ts";
+import type { Session } from "../auth/schemas.ts";
 import type { ResolvedStateStore } from "./model.ts";
 import { StateStore } from "./storage.ts";
 import type { SqlSessionRepository } from "../auth/storage.ts";
@@ -128,13 +128,20 @@ function requireStoreDefinition(
   return definition;
 }
 
+function isSchemaLike(
+  schema: unknown,
+): schema is Parameters<typeof parseUnknownSchema>[0] {
+  return typeof schema === "boolean" ||
+    (schema !== null && typeof schema === "object");
+}
+
 function requireStoreSchema(
   contract: StateContractLike | undefined,
   definition: ContractStateStore,
   store: string,
 ): Parameters<typeof parseUnknownSchema>[0] {
   const schema = contract?.schemas?.[definition.schema.schema];
-  if (schema === null || typeof schema !== "object") {
+  if (!isSchemaLike(schema)) {
     throw new ValidationError({
       errors: [{
         path: "/store",
@@ -155,7 +162,7 @@ function requireAcceptedVersionSchemas(
     const [version, ref] of Object.entries(definition.acceptedVersions ?? {})
   ) {
     const schema = contract?.schemas?.[ref.schema];
-    if (schema === null || typeof schema !== "object") {
+    if (!isSchemaLike(schema)) {
       throw new ValidationError({
         errors: [{
           path: "/store",

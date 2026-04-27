@@ -252,7 +252,7 @@ Deno.test("jobs resource requests apply queue defaults", () => {
   ]);
 });
 
-Deno.test("jobs provisioning returns queue bindings and grants worker heartbeat subjects", async () => {
+Deno.test("jobs provisioning requires NATS", async () => {
   const contract = {
     ...CONTRACT,
     schemas: {
@@ -266,37 +266,43 @@ Deno.test("jobs provisioning returns queue bindings and grants worker heartbeat 
     },
   } as TrellisContractV1;
 
-  const bindings = await provisionContractResourceBindings(
-    undefined,
-    contract,
-    "documents.default",
+  await assertRejects(
+    () =>
+      provisionContractResourceBindings(
+        undefined,
+        contract,
+        "documents.default",
+      ),
+    Error,
+    "NATS connection is required to provision jobs resources",
   );
+});
 
-  assertEquals(bindings.jobs, {
-    namespace: "document_activity_25c0dcc8dbcd",
-    jobsStateBucket: "trellis_jobs",
-    workStream: "JOBS_WORK",
-    queues: {
-      "document-process": {
-        queueType: "document-process",
-        publishPrefix:
-          "trellis.jobs.document_activity_25c0dcc8dbcd.document-process",
-        workSubject:
-          "trellis.work.document_activity_25c0dcc8dbcd.document-process",
-        consumerName: "document_activity_25c0dcc8dbcd-document-process",
-        payload: { schema: "Payload" },
-        maxDeliver: 5,
-        backoffMs: [5000, 30000, 120000, 600000, 1800000],
-        ackWaitMs: 300000,
-        progress: true,
-        logs: true,
-        dlq: true,
-        concurrency: 1,
+Deno.test("jobs resource grants use service-visible queue bindings", () => {
+  const grants = getResourcePermissionGrants({
+    jobs: {
+      namespace: "document_activity_25c0dcc8dbcd",
+      workStream: "JOBS_WORK",
+      queues: {
+        "document-process": {
+          queueType: "document-process",
+          publishPrefix:
+            "trellis.jobs.document_activity_25c0dcc8dbcd.document-process",
+          workSubject:
+            "trellis.work.document_activity_25c0dcc8dbcd.document-process",
+          consumerName: "document_activity_25c0dcc8dbcd-document-process",
+          payload: { schema: "Payload" },
+          maxDeliver: 5,
+          backoffMs: [5000, 30000, 120000, 600000, 1800000],
+          ackWaitMs: 300000,
+          progress: true,
+          logs: true,
+          dlq: true,
+          concurrency: 1,
+        },
       },
     },
   });
-
-  const grants = getResourcePermissionGrants(bindings);
   assertEquals(
     grants.publish.includes(
       "trellis.jobs.workers.document_activity_25c0dcc8dbcd.>",

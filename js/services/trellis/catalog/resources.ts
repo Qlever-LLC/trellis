@@ -81,7 +81,6 @@ export type ContractResourceBindings = {
   }>;
   jobs?: {
     namespace: string;
-    jobsStateBucket?: string;
     workStream: string;
     queues: Record<string, {
       queueType: string;
@@ -581,13 +580,15 @@ export async function provisionContractResourceBindings(
   }
 
   if (jobs.length > 0) {
-    if (nats) {
-      await ensureBuiltinJobsInfrastructure(nats);
+    if (!nats) {
+      throw new Error(
+        "NATS connection is required to provision jobs resources",
+      );
     }
+    await ensureBuiltinJobsInfrastructure(nats);
     const namespace = buildJobsNamespace(serviceDeploymentId, contract.id);
     bindings.jobs = {
       namespace,
-      jobsStateBucket: BUILTIN_JOBS_STATE_BUCKET,
       workStream: "JOBS_WORK",
       queues: Object.fromEntries(
         jobs.map((queue) => {

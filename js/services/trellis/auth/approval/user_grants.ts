@@ -11,7 +11,7 @@ import type {
   ContractApprovalRecord,
   Session,
   UserParticipantKind,
-} from "../../state/schemas.ts";
+} from "../schemas.ts";
 import type {
   SqlContractApprovalRepository,
   SqlSessionRepository,

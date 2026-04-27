@@ -22,7 +22,7 @@ import type {
   Connection,
   ContractApprovalRecord,
   Session,
-} from "../../state/schemas.ts";
+} from "../schemas.ts";
 
 class InMemoryKV<V> {
   #store = new Map<string, V>();

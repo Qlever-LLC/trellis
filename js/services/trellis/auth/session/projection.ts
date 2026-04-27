@@ -1,6 +1,6 @@
 import { trellisIdFromOriginId } from "@qlever-llc/trellis/auth";
 import type { SqlUserProjectionRepository } from "../storage.ts";
-import type { UserProjectionEntry } from "../../state/schemas.ts";
+import type { UserProjectionEntry } from "../schemas.ts";
 
 /** Inserts or updates a user projection in SQL while preserving admin-managed fields. */
 export async function upsertUserProjectionInSql(

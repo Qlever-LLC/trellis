@@ -13,7 +13,15 @@ import {
   openTrellisStorageDb,
 } from "../storage/db.ts";
 import type { ContractsModule } from "./runtime.ts";
+import type { ContractRecord } from "./schemas.ts";
 import { SqlContractStorageRepository } from "./storage.ts";
+
+class FailingListContractStorageRepository
+  extends SqlContractStorageRepository {
+  override async list(): Promise<ContractRecord[]> {
+    throw new Error("contract list failed");
+  }
+}
 
 async function withContractsModule(
   test: (
@@ -116,6 +124,117 @@ Deno.test("contracts runtime rejects operation subject version mismatches", asyn
 
     assertEquals(await contractStorage.list(), []);
   });
+});
+
+Deno.test("contracts runtime rejects uses dependencies before persistence", async () => {
+  await withContractsModule(async (module, contractStorage) => {
+    const consumer = {
+      format: "trellis.contract.v1",
+      id: "portal@v1",
+      displayName: "Portal",
+      description: "Calls billing operations.",
+      kind: "app",
+      uses: {
+        billing: {
+          contract: "billing@v1",
+          operations: { call: ["Billing.Missing"] },
+        },
+      },
+    } satisfies TrellisContractV1;
+
+    await assertRejects(
+      () => module.installServiceContract(consumer),
+      Error,
+      "unknown contract 'billing@v1'",
+    );
+
+    assertEquals(await contractStorage.list(), []);
+  });
+});
+
+Deno.test("contracts runtime validates uses against known persisted contracts", async () => {
+  await withContractsModule(async (module, contractStorage) => {
+    await module.installServiceContract(
+      makeOperationContract("billing@v1", "operations.v1.Billing.Refund"),
+    );
+
+    const badConsumer = {
+      format: "trellis.contract.v1",
+      id: "portal@v1",
+      displayName: "Portal",
+      description: "Calls billing operations.",
+      kind: "app",
+      uses: {
+        billing: {
+          contract: "billing@v1",
+          operations: { call: ["Billing.Missing"] },
+        },
+      },
+    } satisfies TrellisContractV1;
+
+    await assertRejects(
+      () => module.installServiceContract(badConsumer),
+      Error,
+      "missing operation 'Billing.Missing'",
+    );
+
+    const goodConsumer = {
+      ...badConsumer,
+      uses: {
+        billing: {
+          contract: "billing@v1",
+          operations: { call: ["Refund"] },
+        },
+      },
+    } satisfies TrellisContractV1;
+
+    await module.installServiceContract(goodConsumer);
+
+    assertEquals(
+      (await contractStorage.list()).map((entry) => entry.id).sort(),
+      [
+        "billing@v1",
+        "portal@v1",
+      ],
+    );
+  });
+});
+
+Deno.test("contracts runtime fails closed when persisted contract context cannot be loaded", async () => {
+  const dbPath = await Deno.makeTempFile({
+    dir: "/tmp",
+    prefix: "trellis-catalog-runtime-list-fail-",
+    suffix: ".sqlite",
+  });
+  const storage = await openTrellisStorageDb(dbPath);
+
+  try {
+    const { createContractsModule } = await import("./runtime.ts");
+    await initializeTrellisStorageSchema(storage);
+    const contractStorage = new FailingListContractStorageRepository(
+      storage.db,
+    );
+    const module = createContractsModule({
+      builtinContracts: [],
+      contractStorage,
+      serviceInstanceStorage: new SqlServiceInstanceRepository(storage.db),
+      serviceDeploymentStorage: new SqlServiceDeploymentRepository(storage.db),
+      deviceDeploymentStorage: new SqlDeviceDeploymentRepository(storage.db),
+      deviceInstanceStorage: new SqlDeviceInstanceRepository(storage.db),
+    });
+
+    await assertRejects(
+      () =>
+        module.installServiceContract(
+          makeOperationContract("billing@v1", "operations.v1.Billing.Refund"),
+        ),
+      Error,
+      "Failed to list installed contracts",
+    );
+  } finally {
+    storage.client.close();
+    await Deno.remove(dbPath).catch(() => undefined);
+  }
 });
 
 Deno.test("contracts runtime does not activate contracts from user sessions", async () => {
