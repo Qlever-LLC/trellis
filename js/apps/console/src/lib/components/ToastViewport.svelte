@@ -8,10 +8,12 @@
   <div class="toast toast-end toast-bottom z-50">
     {#each notifications.items as item (item.id)}
       <div
-        class="alert shadow-lg max-w-sm"
-        class:alert-success={item.tone === "success"}
-        class:alert-error={item.tone === "error"}
-        class:alert-info={item.tone === "info"}
+        class={[
+          "alert max-w-sm border border-base-300 shadow-sm",
+          item.tone === "success" && "alert-success",
+          item.tone === "error" && "alert-error",
+          item.tone === "info" && "alert-info",
+        ]}
         role="status"
         aria-live="polite"
       >

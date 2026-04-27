@@ -1,10 +1,13 @@
 import type { AuthMeOutput } from "@qlever-llc/trellis/sdk/auth";
+import type { AppTypes } from "$app/types";
 
 type Profile = AuthMeOutput["user"] | null | undefined;
+type AppPathname = ReturnType<AppTypes["Pathname"]>;
 
 export type NavItem = {
-  href: string;
+  href: AppPathname;
   label: string;
+  icon: string;
   adminOnly?: boolean;
 };
 
@@ -16,42 +19,30 @@ export type NavSection = {
 
 const navSections: NavSection[] = [
   {
-    title: "Personal",
-    items: [{ href: "/profile", label: "Profile" }],
-  },
-  {
-    title: "Operations",
+    title: "Operate",
     adminOnly: true,
     items: [
-      { href: "/admin", label: "Overview" },
-      { href: "/admin/users", label: "Users" },
-      { href: "/admin/app-grants", label: "App Grants" },
-      { href: "/admin/sessions", label: "Sessions" },
-      { href: "/admin/services", label: "Service Deployments" },
-      { href: "/admin/services/instances", label: "Service Instances" },
-      { href: "/admin/health-events", label: "Health" },
-      { href: "/admin/contracts", label: "Contracts" },
-      { href: "/admin/apps", label: "Approved Apps" },
-      { href: "/admin/jobs", label: "Jobs" },
+      { href: "/admin", label: "Overview", icon: "users" },
+      { href: "/admin/health-events", label: "Health Events", icon: "alert" },
+      { href: "/admin/sessions", label: "Sessions", icon: "activity" },
+      { href: "/admin/jobs", label: "Jobs", icon: "clipboard" },
+      { href: "/admin/contracts", label: "Contracts", icon: "shield" },
     ],
   },
   {
-    title: "Portals",
+    title: "Manage",
     adminOnly: true,
     items: [
-      { href: "/admin/portals", label: "Registry" },
-      { href: "/admin/portals/login", label: "Login Policy" },
-      { href: "/admin/portals/devices", label: "Device Policy" },
-    ],
-  },
-  {
-    title: "Devices",
-    adminOnly: true,
-    items: [
-      { href: "/admin/devices/profiles", label: "Deployments" },
-      { href: "/admin/devices/instances", label: "Instances" },
-      { href: "/admin/devices/activations", label: "Activations" },
-      { href: "/admin/devices/reviews", label: "Reviews" },
+      { href: "/admin/services", label: "Service Deployments", icon: "server" },
+      { href: "/admin/services/instances", label: "Service Instances", icon: "box" },
+      { href: "/admin/devices/profiles", label: "Device Deployments", icon: "shield" },
+      { href: "/admin/devices/instances", label: "Devices", icon: "phone" },
+      { href: "/admin/devices/activations", label: "Device Activations", icon: "activity" },
+      { href: "/admin/devices/reviews", label: "Device Reviews", icon: "clipboard" },
+      { href: "/admin/users", label: "Users", icon: "users" },
+      { href: "/admin/app-grants", label: "Access", icon: "key" },
+      { href: "/admin/portals", label: "Registry", icon: "database" },
+      { href: "/profile", label: "Settings", icon: "settings" },
     ],
   },
 ];
@@ -60,21 +51,42 @@ const routeTitles: Record<string, string> = {
   "/profile": "Profile",
   "/admin": "Overview",
   "/admin/users": "Users",
+  "/admin/users/edit": "Edit User",
   "/admin/app-grants": "App Grants",
+  "/admin/app-grants/edit": "Edit App Grant",
+  "/admin/app-grants/disable": "Disable App Grant",
   "/admin/sessions": "Sessions",
   "/admin/services": "Service Deployments",
+  "/admin/sessions/revoke": "Revoke Session",
+  "/admin/sessions/kick": "Kick Connection",
+  "/admin/services/new": "Create Service Deployment",
+  "/admin/services/contracts": "Service Contracts",
   "/admin/services/instances": "Service Instances",
   "/admin/health-events": "Health",
   "/admin/contracts": "Contracts",
-  "/admin/apps": "Approved Apps",
+  "/admin/apps": "Apps",
+  "/admin/apps/revoke": "Revoke App Approval",
   "/admin/jobs": "Jobs",
-  "/admin/portals": "Portal Registry",
+  "/admin/portals": "Registry",
+  "/admin/portals/profiles/edit": "Edit Portal Profile",
+  "/admin/portals/profiles/disable": "Disable Portal Profile",
   "/admin/portals/login": "Login Portal Policy",
+  "/admin/portals/login/default": "Default Login Portal",
+  "/admin/portals/login/selection": "Login Portal Selection",
   "/admin/portals/devices": "Device Portal Policy",
   "/admin/devices/profiles": "Device Deployments",
+  "/admin/portals/devices/default": "Default Device Portal",
+  "/admin/portals/devices/selection": "Device Portal Selection",
+  "/admin/devices/profiles/new": "Create Device Deployment",
+  "/admin/devices/profiles/disable": "Disable Device Deployment",
   "/admin/devices/instances": "Device Instances",
+  "/admin/devices/instances/provision": "Provision Device Instance",
+  "/admin/devices/instances/disable": "Disable Device Instance",
   "/admin/devices/activations": "Device Activations",
+  "/admin/devices/activations/revoke": "Revoke Device Activation",
   "/admin/devices/reviews": "Device Reviews",
+  "/admin/devices/reviews/decide": "Decide Device Review",
+  "/profile/grants/revoke": "Revoke Profile Grant",
 };
 
 export function requiresAdminRoute(pathname: string): boolean {

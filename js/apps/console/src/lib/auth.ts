@@ -5,7 +5,7 @@ import {
   clearSessionKey,
   getOrCreateSessionKey,
   type SessionKeyHandle,
-} from "@qlever-llc/trellis";
+} from "@qlever-llc/trellis/auth/browser";
 import { startAuthRequest } from "@qlever-llc/trellis/auth";
 import contract from "../../contract.ts";
 import { APP_CONFIG, buildAppCallbackUrl, buildAppLoginUrl } from "./config.ts";
@@ -137,8 +137,18 @@ export function getConsoleRedirectTarget(
   fallback = "/profile",
 ): string {
   const currentUrl = toUrl(location);
+  const redirectTo = currentUrl.searchParams.get("redirectTo");
+  if (!redirectTo) {
+    return resolveConsolePath(fallback, currentUrl);
+  }
+
+  const redirectUrl = new URL(redirectTo, currentUrl);
+  if (redirectUrl.origin !== currentUrl.origin) {
+    return resolveConsolePath(fallback, currentUrl);
+  }
+
   return resolveConsolePath(
-    currentUrl.searchParams.get("redirectTo") ?? fallback,
+    redirectTo,
     currentUrl,
   );
 }

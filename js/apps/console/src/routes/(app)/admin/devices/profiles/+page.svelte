@@ -1,16 +1,18 @@
 <script lang="ts">
+  import { isErr } from "@qlever-llc/result";
   import type {
-    AuthCreateDeviceDeploymentInput,
-    AuthDisableDeviceDeploymentInput,
-    AuthEnableDeviceDeploymentInput,
     AuthListDeviceDeploymentsInput,
     AuthListDeviceDeploymentsOutput,
     AuthListInstalledContractsOutput,
-    AuthRemoveDeviceDeploymentInput,
   } from "@qlever-llc/trellis/sdk/auth";
+  import { resolve } from "$app/paths";
   import { onMount } from "svelte";
+  import EmptyState from "$lib/components/EmptyState.svelte";
+  import Icon from "$lib/components/Icon.svelte";
+  import LoadingState from "$lib/components/LoadingState.svelte";
+  import PageToolbar from "$lib/components/PageToolbar.svelte";
+  import Panel from "$lib/components/Panel.svelte";
   import { errorMessage } from "../../../../../lib/format";
-  import { getNotifications } from "../../../../../lib/notifications.svelte";
   import { getTrellis } from "../../../../../lib/trellis";
 
   type Deployment = AuthListDeviceDeploymentsOutput["deployments"][number];
@@ -18,35 +20,15 @@
   type DisabledFilter = "all" | "active" | "disabled";
 
   const trellis = getTrellis();
-  const notifications = getNotifications();
-  type DeploymentsRequester = {
-    request(method: "Auth.ListDeviceDeployments", input: AuthListDeviceDeploymentsInput): { orThrow(): Promise<AuthListDeviceDeploymentsOutput> };
-    request(method: "Auth.ListInstalledContracts", input: Record<string, never>): { orThrow(): Promise<AuthListInstalledContractsOutput> };
-    request(method: "Auth.CreateDeviceDeployment", input: AuthCreateDeviceDeploymentInput): { orThrow(): Promise<void> };
-    request(method: "Auth.DisableDeviceDeployment", input: AuthDisableDeviceDeploymentInput): { orThrow(): Promise<void> };
-    request(method: "Auth.EnableDeviceDeployment", input: AuthEnableDeviceDeploymentInput): { orThrow(): Promise<void> };
-    request(method: "Auth.RemoveDeviceDeployment", input: AuthRemoveDeviceDeploymentInput): { orThrow(): Promise<void> };
-  };
-  const deploymentsSource: object = trellis;
-  const deploymentsRequester = deploymentsSource as DeploymentsRequester;
 
   let loading = $state(true);
   let error = $state<string | null>(null);
-  let createPending = $state(false);
-  let actionTarget = $state<string | null>(null);
 
   let deployments = $state<Deployment[]>([]);
   let contracts = $state<InstalledContract[]>([]);
 
   let contractFilter = $state("");
   let disabledFilter = $state<DisabledFilter>("all");
-
-  let deploymentId = $state("");
-  let reviewMode = $state<"none" | "required">("none");
-
-  function contractOptions() {
-    return contracts.map((contract) => contract.id);
-  }
 
   function deploymentQuery(): AuthListDeviceDeploymentsInput {
     return {
@@ -71,9 +53,11 @@
     error = null;
     try {
       const [deploymentsResponse, contractsResponse] = await Promise.all([
-        deploymentsRequester.request("Auth.ListDeviceDeployments", deploymentQuery()).orThrow(),
-        deploymentsRequester.request("Auth.ListInstalledContracts", {}).orThrow(),
+        trellis.request("Auth.ListDeviceDeployments", deploymentQuery()).take(),
+        trellis.request("Auth.ListInstalledContracts", {}).take(),
       ]);
+      if (isErr(deploymentsResponse)) { error = errorMessage(deploymentsResponse); return; }
+      if (isErr(contractsResponse)) { error = errorMessage(contractsResponse); return; }
 
       deployments = deploymentsResponse.deployments ?? [];
       contracts = contractsResponse.contracts ?? [];
@@ -84,114 +68,24 @@
     }
   }
 
-  async function createDeployment() {
-    createPending = true;
-    error = null;
-    try {
-      const input: AuthCreateDeviceDeploymentInput = {
-        deploymentId: deploymentId.trim(),
-        reviewMode,
-      };
-
-      await deploymentsRequester.request("Auth.CreateDeviceDeployment", input).orThrow();
-      notifications.success(`Device deployment ${input.deploymentId} created.`, "Created");
-      deploymentId = "";
-      reviewMode = "none";
-      await load();
-    } catch (e) {
-      error = errorMessage(e);
-    } finally {
-      createPending = false;
-    }
-  }
-
-  async function setDeploymentDisabled(deployment: Deployment, disabled: boolean) {
-    const verb = disabled ? "Disable" : "Enable";
-    if (!window.confirm(`${verb} device deployment ${deployment.deploymentId}?`)) return;
-
-    actionTarget = `${deployment.deploymentId}:${verb.toLowerCase()}`;
-    error = null;
-    try {
-      if (disabled) {
-        await deploymentsRequester.request(
-          "Auth.DisableDeviceDeployment",
-          { deploymentId: deployment.deploymentId } satisfies AuthDisableDeviceDeploymentInput,
-        ).orThrow();
-      } else {
-        await deploymentsRequester.request(
-          "Auth.EnableDeviceDeployment",
-          { deploymentId: deployment.deploymentId } satisfies AuthEnableDeviceDeploymentInput,
-        ).orThrow();
-      }
-      notifications.success(`Device deployment ${deployment.deploymentId} ${disabled ? "disabled" : "enabled"}.`, disabled ? "Disabled" : "Enabled");
-      await load();
-    } catch (e) {
-      error = errorMessage(e);
-    } finally {
-      actionTarget = null;
-    }
-  }
-
-  async function removeDeployment(deployment: Deployment) {
-    if (!window.confirm(`Remove device deployment ${deployment.deploymentId}?`)) return;
-    actionTarget = `${deployment.deploymentId}:remove`;
-    error = null;
-    try {
-      await deploymentsRequester.request(
-        "Auth.RemoveDeviceDeployment",
-        { deploymentId: deployment.deploymentId } satisfies AuthRemoveDeviceDeploymentInput,
-      ).orThrow();
-      notifications.success(`Device deployment ${deployment.deploymentId} removed.`, "Removed");
-      await load();
-    } catch (e) {
-      error = errorMessage(e);
-    } finally {
-      actionTarget = null;
-    }
-  }
-
   onMount(() => {
     void load();
   });
 </script>
 
 <section class="space-y-4">
-  <div class="card border border-base-300 bg-base-100">
-    <div class="card-body gap-4">
-      <div>
-        <h2 class="card-title text-base">Create device deployment</h2>
-        <p class="text-sm text-base-content/60">Deployments control applied contracts and whether activation needs review.</p>
-      </div>
-
-      <form class="grid gap-3 lg:grid-cols-2" onsubmit={(event) => { event.preventDefault(); void createDeployment(); }}>
-        <label class="form-control gap-1">
-          <span class="label-text text-xs">Deployment ID</span>
-          <input class="input input-bordered input-sm" bind:value={deploymentId} placeholder="reader.default" required />
-        </label>
-
-        <label class="form-control gap-1">
-          <span class="label-text text-xs">Review mode</span>
-          <select class="select select-bordered select-sm" bind:value={reviewMode}>
-            <option value="none">No review</option>
-            <option value="required">Review required</option>
-          </select>
-        </label>
-
-        <div class="flex items-end justify-end">
-          <button type="submit" class="btn btn-primary btn-sm" disabled={createPending}>
-            {createPending ? "Creating…" : "Create Deployment"}
-          </button>
-        </div>
-
-      </form>
-
-      <datalist id="installed-contract-ids">
-        {#each contractOptions() as id (id)}
-          <option value={id}></option>
-        {/each}
-      </datalist>
-    </div>
-  </div>
+  <PageToolbar title="Device deployments" description="Manage activation review requirements and inspect applied contracts.">
+    {#snippet actions()}
+      <details class="dropdown dropdown-end">
+        <summary class="btn btn-outline btn-sm">Actions <Icon name="chevronDown" size={14} /></summary>
+        <ul class="menu dropdown-content z-10 mt-2 w-72 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl">
+          <li><a href={resolve("/admin/devices/profiles/new")}>Create device deployment</a></li>
+          <li><a href={resolve("/admin/devices/profiles/disable")}>Disable device deployment</a></li>
+        </ul>
+      </details>
+      <button class="btn btn-ghost btn-sm" onclick={load} disabled={loading}>Refresh</button>
+    {/snippet}
+  </PageToolbar>
 
   <div class="flex flex-wrap items-end justify-between gap-3">
     <form class="flex flex-wrap items-end gap-2" onsubmit={(event) => { event.preventDefault(); void load(); }}>
@@ -209,23 +103,29 @@
         </select>
       </label>
 
-      <button type="submit" class="btn btn-primary btn-sm" disabled={loading}>Apply</button>
+      <button type="submit" class="btn btn-outline btn-sm" disabled={loading}>Apply</button>
     </form>
 
-    <button class="btn btn-ghost btn-sm" onclick={load} disabled={loading}>Refresh</button>
   </div>
+
+  <datalist id="installed-contract-ids">
+    {#each contracts as contract (contract.id)}
+      <option value={contract.id}></option>
+    {/each}
+  </datalist>
 
   {#if error}
     <div class="alert alert-error"><span>{error}</span></div>
   {/if}
 
   {#if loading}
-    <div class="flex justify-center py-8"><span class="loading loading-spinner loading-md"></span></div>
+    <Panel><LoadingState label="Loading device deployments" /></Panel>
   {:else if filteredDeployments.length === 0}
-    <p class="text-sm text-base-content/60">No device deployments found.</p>
+    <EmptyState title="No device deployments found" description="No deployments match the current status or contract filter." />
   {:else}
-    <div class="overflow-x-auto">
-      <table class="table table-sm">
+    <Panel title="Deployments" eyebrow="Primary table">
+      <div class="overflow-x-auto">
+      <table class="table table-sm trellis-table">
         <thead>
           <tr>
             <th>Deployment</th>
@@ -239,7 +139,7 @@
         <tbody>
           {#each filteredDeployments as deployment (deployment.deploymentId)}
             <tr>
-              <td class="font-medium">{deployment.deploymentId}</td>
+              <td class="trellis-identifier font-medium">{deployment.deploymentId}</td>
               <td class="text-base-content/60">
                 {#if deployment.appliedContracts.length === 0}
                   <span class="text-base-content/40">None</span>
@@ -267,32 +167,24 @@
               <td class="text-base-content/60">{deployment.reviewMode ?? "none"}</td>
               <td>
                 {#if deployment.disabled}
-                  <span class="badge badge-ghost badge-sm">Disabled</span>
+                  <span class="badge badge-neutral badge-sm">Disabled</span>
                 {:else}
                   <span class="badge badge-success badge-sm">Active</span>
                 {/if}
               </td>
               <td class="text-right">
-                <button
-                  class="btn btn-ghost btn-xs"
-                  onclick={() => setDeploymentDisabled(deployment, !deployment.disabled)}
-                  disabled={actionTarget === `${deployment.deploymentId}:${deployment.disabled ? "enable" : "disable"}`}
-                >
-                  {deployment.disabled ? "Enable" : "Disable"}
-                </button>
-                <button
-                  class="btn btn-ghost btn-xs text-error"
-                  onclick={() => removeDeployment(deployment)}
-                  disabled={actionTarget === `${deployment.deploymentId}:remove`}
-                >
-                  Remove
-                </button>
+                {#if deployment.disabled}
+                  <span class="text-xs text-base-content/40">—</span>
+                {:else}
+                  <a class="btn btn-ghost btn-xs text-error" href={resolve(`/admin/devices/profiles/disable?deployment=${encodeURIComponent(deployment.deploymentId)}`)}>Disable</a>
+                {/if}
               </td>
             </tr>
           {/each}
         </tbody>
       </table>
-    </div>
-    <p class="text-xs text-base-content/50">{filteredDeployments.length} deployment{filteredDeployments.length !== 1 ? "s" : ""}</p>
+      </div>
+      <p class="text-xs text-base-content/50">{filteredDeployments.length} deployment{filteredDeployments.length !== 1 ? "s" : ""}</p>
+    </Panel>
   {/if}
 </section>

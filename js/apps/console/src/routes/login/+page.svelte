@@ -97,10 +97,11 @@
 </svelte:head>
 
 <div class="flex min-h-screen items-center justify-center bg-base-200 px-4">
-  <div class="card w-full max-w-sm bg-base-100 shadow-lg">
+  <div class="card trellis-card w-full max-w-sm border border-base-300 bg-base-100 shadow-none">
     <div class="card-body gap-5">
       <div class="text-center">
-        <h1 class="text-xl font-bold">Trellis Admin Console</h1>
+        <p class="text-[0.65rem] font-semibold uppercase tracking-wider text-base-content/50">Operator control plane</p>
+        <h1 class="mt-1 text-xl font-semibold tracking-tight">Trellis Admin Console</h1>
       </div>
 
       {#if authError}
@@ -128,7 +129,7 @@
               required={requiresAuthUrl}
             />
           </div>
-          <button type="submit" class="btn btn-block gap-2">
+          <button type="submit" class="btn btn-primary btn-block gap-2">
             <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
               <path d="M10 17l5-5-5-5" />

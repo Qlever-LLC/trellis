@@ -99,7 +99,7 @@
 </svelte:head>
 
 <div class="flex min-h-screen items-center justify-center bg-base-200 px-4">
-  <div class="card w-full max-w-sm bg-base-100 shadow-lg">
+  <div class="card trellis-card w-full max-w-sm border border-base-300 bg-base-100 shadow-none">
     <div class="card-body items-center text-center gap-4">
       <h1 class="text-lg font-semibold">{status}</h1>
 

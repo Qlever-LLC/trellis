@@ -1,19 +1,18 @@
 <script lang="ts">
+  import { isErr } from "@qlever-llc/result";
   import type {
     AuthGetInstalledContractOutput,
     AuthListInstalledContractsOutput,
   } from "@qlever-llc/trellis/sdk/auth";
   import { onMount } from "svelte";
+  import EmptyState from "../../../../lib/components/EmptyState.svelte";
+  import LoadingState from "../../../../lib/components/LoadingState.svelte";
+  import PageToolbar from "../../../../lib/components/PageToolbar.svelte";
+  import Panel from "../../../../lib/components/Panel.svelte";
   import { errorMessage, formatDate } from "../../../../lib/format";
   import { getTrellis } from "../../../../lib/trellis";
 
   const trellis = getTrellis();
-  type ContractsRequester = {
-    request(method: "Auth.ListInstalledContracts", input: Record<string, never>): { orThrow(): Promise<AuthListInstalledContractsOutput> };
-    request(method: "Auth.GetInstalledContract", input: { digest: string }): { orThrow(): Promise<AuthGetInstalledContractOutput> };
-  };
-  const contractsSource: object = trellis;
-  const contractsRequester = contractsSource as ContractsRequester;
 
   type ContractSummary = {
     digest: string;
@@ -72,12 +71,16 @@
     );
   });
 
-  async function listInstalledContracts(): Promise<AuthListInstalledContractsOutput> {
-    return await contractsRequester.request("Auth.ListInstalledContracts", {}).orThrow();
+  async function listInstalledContracts(): Promise<AuthListInstalledContractsOutput | null> {
+    const res = await trellis.request("Auth.ListInstalledContracts", {}).take();
+    if (isErr(res)) { error = errorMessage(res); return null; }
+    return res;
   }
 
-  async function getInstalledContract(digest: string): Promise<AuthGetInstalledContractOutput> {
-    return await contractsRequester.request("Auth.GetInstalledContract", { digest }).orThrow();
+  async function getInstalledContract(digest: string): Promise<AuthGetInstalledContractOutput | null> {
+    const res = await trellis.request("Auth.GetInstalledContract", { digest }).take();
+    if (isErr(res)) { error = errorMessage(res); return null; }
+    return res;
   }
 
   async function load() {
@@ -85,6 +88,7 @@
     error = null;
     try {
       const res = await listInstalledContracts();
+      if (!res) return;
       contracts = res.contracts ?? [];
     } catch (e) { error = errorMessage(e); }
     finally { loading = false; }
@@ -96,6 +100,7 @@
     detailLoading = true;
     try {
       const res = await getInstalledContract(digest);
+      if (!res) return;
       detail = res.contract;
     } catch (e) { error = errorMessage(e); detail = null; }
     finally { detailLoading = false; }
@@ -105,51 +110,52 @@
 </script>
 
 <section class="space-y-4">
-  <div class="flex items-center justify-between">
-    <input class="input input-bordered input-sm w-64" placeholder="Search contracts…" bind:value={search} />
-    <button class="btn btn-ghost btn-sm" onclick={load} disabled={loading}>Refresh</button>
-  </div>
+  <PageToolbar title="Contracts" description="Installed contract surfaces, resource bindings, and capability requirements.">
+    {#snippet actions()}
+      <input class="input input-bordered input-sm w-64" placeholder="Search contracts…" bind:value={search} />
+      <button class="btn btn-ghost btn-sm" onclick={load} disabled={loading}>Refresh</button>
+    {/snippet}
+  </PageToolbar>
 
   {#if error}
     <div class="alert alert-error"><span>{error}</span></div>
   {/if}
 
   {#if loading}
-    <div class="flex justify-center py-8"><span class="loading loading-spinner loading-md"></span></div>
+    <LoadingState label="Loading installed contracts" />
   {:else}
-    <div class="grid grid-cols-1 lg:grid-cols-[1fr_1.2fr] gap-4">
-      <div>
+    <div class="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(18rem,0.85fr)_minmax(0,1.35fr)]">
+      <Panel title="Contract List" eyebrow="Primary" class="min-w-0">
         {#if filtered.length === 0}
-          <p class="text-sm text-base-content/60">No contracts found.</p>
+          <EmptyState title="No contracts found" description="Adjust the search query or refresh the installed contract list." />
         {:else}
-          <ul class="space-y-1">
+          <ul class="space-y-1 overflow-y-auto lg:max-h-[70vh]">
             {#each filtered as contract (contract.digest)}
               <li>
                 <button
-                  class="w-full text-left p-3 rounded-lg border transition-colors"
-                  class:border-primary={selectedDigest === contract.digest}
-                  class:bg-base-200={selectedDigest === contract.digest}
-                  class:border-base-300={selectedDigest !== contract.digest}
-                  class:bg-base-100={selectedDigest !== contract.digest}
+                  class={[
+                    "w-full rounded-box border p-3 text-left transition-colors hover:bg-base-200/70",
+                    selectedDigest === contract.digest ? "border-primary bg-base-200" : "border-base-300 bg-base-100",
+                  ]}
                   onclick={() => selectContract(contract.digest)}
                 >
                   <p class="font-medium text-sm">{contract.displayName || contract.id}</p>
-                  <div class="flex gap-2 mt-1">
-                    <span class="text-xs text-base-content/50 font-mono">{contract.digest.slice(0, 12)}…</span>
+                  <div class="mt-1 flex gap-2">
+                    <span class="trellis-identifier text-base-content/50">{contract.digest.slice(0, 12)}…</span>
+                    <span class="badge badge-outline badge-xs">{contract.analysisSummary?.rpcMethods ?? 0} RPC</span>
+                    <span class="badge badge-outline badge-xs">{contract.analysisSummary?.events ?? 0} Events</span>
                   </div>
                 </button>
               </li>
             {/each}
           </ul>
         {/if}
-      </div>
+      </Panel>
 
-      <div>
+      <Panel title="Contract Detail" eyebrow="Secondary" class="min-w-0">
         {#if detailLoading}
-          <div class="flex justify-center py-8"><span class="loading loading-spinner loading-md"></span></div>
+          <LoadingState label="Loading contract detail" class="min-h-40" />
         {:else if detail}
-          <div class="card bg-base-100 border border-base-300">
-            <div class="card-body p-4 space-y-4">
               <div>
                 <h3 class="font-semibold">{detail.displayName || detail.id}</h3>
                 {#if detail.description}
@@ -159,7 +165,7 @@
 
               <div class="grid grid-cols-2 gap-2 text-sm">
                 <div><span class="text-base-content/50">ID:</span> {detail.id}</div>
-                <div class="col-span-2"><span class="text-base-content/50">Digest:</span> <span class="font-mono text-xs">{detail.digest}</span></div>
+                <div class="col-span-2"><span class="text-base-content/50">Digest:</span> <span class="trellis-identifier">{detail.digest}</span></div>
                 <div><span class="text-base-content/50">Installed:</span> {formatDate(detail.installedAt)}</div>
               </div>
 
@@ -167,37 +173,37 @@
                 <div>
                   <h4 class="text-xs font-semibold uppercase text-base-content/50 mb-2">Analysis</h4>
                   <div class="flex flex-wrap gap-2">
-                    <button class="badge badge-outline badge-sm cursor-pointer" class:badge-primary={analysisSection === "rpc"} onclick={() => toggleAnalysis("rpc")}>{detail.analysisSummary.rpcMethods} RPCs</button>
-                    <button class="badge badge-outline badge-sm cursor-pointer" class:badge-primary={analysisSection === "events"} onclick={() => toggleAnalysis("events")}>{detail.analysisSummary.events} Events</button>
-                    <button class="badge badge-outline badge-sm cursor-pointer" class:badge-primary={analysisSection === "kv"} onclick={() => toggleAnalysis("kv")}>{detail.analysisSummary.kvResources} KV</button>
-                    <button class="badge badge-outline badge-sm cursor-pointer" class:badge-primary={analysisSection === "pub"} onclick={() => toggleAnalysis("pub")}>{detail.analysisSummary.natsPublish} Pub</button>
-                    <button class="badge badge-outline badge-sm cursor-pointer" class:badge-primary={analysisSection === "sub"} onclick={() => toggleAnalysis("sub")}>{detail.analysisSummary.natsSubscribe} Sub</button>
+                    <button class={["badge badge-outline badge-sm cursor-pointer", { "badge-primary": analysisSection === "rpc" }]} onclick={() => toggleAnalysis("rpc")}>{detail.analysisSummary.rpcMethods} RPCs</button>
+                    <button class={["badge badge-outline badge-sm cursor-pointer", { "badge-primary": analysisSection === "events" }]} onclick={() => toggleAnalysis("events")}>{detail.analysisSummary.events} Events</button>
+                    <button class={["badge badge-outline badge-sm cursor-pointer", { "badge-primary": analysisSection === "kv" }]} onclick={() => toggleAnalysis("kv")}>{detail.analysisSummary.kvResources} KV</button>
+                    <button class={["badge badge-outline badge-sm cursor-pointer", { "badge-primary": analysisSection === "pub" }]} onclick={() => toggleAnalysis("pub")}>{detail.analysisSummary.natsPublish} Pub</button>
+                    <button class={["badge badge-outline badge-sm cursor-pointer", { "badge-primary": analysisSection === "sub" }]} onclick={() => toggleAnalysis("sub")}>{detail.analysisSummary.natsSubscribe} Sub</button>
                   </div>
                 </div>
 
                 {#if analysisSection && detail.analysis}
                   <div class="bg-base-200 rounded-lg p-3">
                     {#if analysisSection === "rpc" && detail.analysis.rpc?.methods?.length}
-                      <table class="table table-xs">
+                      <table class="table table-xs trellis-table">
                         <thead><tr><th>Method</th><th>Subject</th><th>Capabilities</th></tr></thead>
                         <tbody>
                           {#each detail.analysis.rpc.methods as m (m.key)}
                             <tr>
                               <td class="font-medium">{m.key}</td>
-                              <td class="font-mono text-xs text-base-content/60">{m.subject}</td>
+                               <td class="trellis-identifier text-base-content/60">{m.subject}</td>
                               <td>{m.callerCapabilities.length ? m.callerCapabilities.join(", ") : "—"}</td>
                             </tr>
                           {/each}
                         </tbody>
                       </table>
                     {:else if analysisSection === "events" && detail.analysis.events?.events?.length}
-                      <table class="table table-xs">
+                      <table class="table table-xs trellis-table">
                         <thead><tr><th>Event</th><th>Subject</th><th>Pub</th><th>Sub</th></tr></thead>
                         <tbody>
                           {#each detail.analysis.events.events as e (e.key)}
                             <tr>
                               <td class="font-medium">{e.key}</td>
-                              <td class="font-mono text-xs text-base-content/60">{e.subject}</td>
+                               <td class="trellis-identifier text-base-content/60">{e.subject}</td>
                               <td class="text-xs">{e.publishCapabilities.join(", ") || "—"}</td>
                               <td class="text-xs">{e.subscribeCapabilities.join(", ") || "—"}</td>
                             </tr>
@@ -205,7 +211,7 @@
                         </tbody>
                       </table>
                     {:else if analysisSection === "kv" && detail.analysis.resources?.kv?.length}
-                      <table class="table table-xs">
+                      <table class="table table-xs trellis-table">
                         <thead><tr><th>Alias</th><th>Purpose</th><th>History</th><th>TTL</th><th>Required</th></tr></thead>
                         <tbody>
                           {#each detail.analysis.resources.kv as r (r.alias)}
@@ -220,26 +226,26 @@
                         </tbody>
                       </table>
                     {:else if analysisSection === "pub" && detail.analysis.nats?.publish?.length}
-                      <table class="table table-xs">
+                      <table class="table table-xs trellis-table">
                         <thead><tr><th>Kind</th><th>Subject</th><th>Capabilities</th></tr></thead>
                         <tbody>
                           {#each detail.analysis.nats.publish as p (`${p.kind}:${p.subject}`)}
                             <tr>
                               <td class="font-medium">{p.kind}</td>
-                              <td class="font-mono text-xs text-base-content/60">{p.subject}</td>
+                               <td class="trellis-identifier text-base-content/60">{p.subject}</td>
                               <td class="text-xs">{p.requiredCapabilities.join(", ") || "—"}</td>
                             </tr>
                           {/each}
                         </tbody>
                       </table>
                     {:else if analysisSection === "sub" && detail.analysis.nats?.subscribe?.length}
-                      <table class="table table-xs">
+                      <table class="table table-xs trellis-table">
                         <thead><tr><th>Kind</th><th>Subject</th><th>Capabilities</th></tr></thead>
                         <tbody>
                           {#each detail.analysis.nats.subscribe as s (`${s.kind}:${s.subject}`)}
                             <tr>
                               <td class="font-medium">{s.kind}</td>
-                              <td class="font-mono text-xs text-base-content/60">{s.subject}</td>
+                               <td class="trellis-identifier text-base-content/60">{s.subject}</td>
                               <td class="text-xs">{s.requiredCapabilities.join(", ") || "—"}</td>
                             </tr>
                           {/each}
@@ -259,7 +265,7 @@
                     {#each Object.entries(detail.resourceBindings.kv) as [alias, binding] (alias)}
                       <div class="flex justify-between text-sm p-2 bg-base-200 rounded">
                         <span class="font-medium">{alias}</span>
-                        <span class="font-mono text-xs text-base-content/60">{binding.bucket}</span>
+                         <span class="trellis-identifier text-base-content/60">{binding.bucket}</span>
                       </div>
                     {/each}
                   </div>
@@ -270,15 +276,15 @@
                 <input type="checkbox" />
                 <div class="collapse-title text-xs font-semibold uppercase text-base-content/50">Raw Contract</div>
                 <div class="collapse-content">
-                  <pre class="text-xs font-mono overflow-auto max-h-80">{JSON.stringify(detail.contract, null, 2)}</pre>
+                   <pre class="max-h-80 overflow-auto text-xs font-mono">{JSON.stringify(detail.contract, null, 2)}</pre>
                 </div>
               </div>
-            </div>
-          </div>
         {:else if selectedDigest}
-          <p class="text-sm text-base-content/60">Select a contract to view details.</p>
+          <EmptyState title="Contract detail unavailable" description="Select the contract again or refresh the contract list." />
+        {:else}
+          <EmptyState title="Select a contract" description="Choose an installed contract from the list to inspect RPC methods, events, KV resources, pub/sub surfaces, and capabilities." />
         {/if}
-      </div>
+      </Panel>
     </div>
   {/if}
 </section>

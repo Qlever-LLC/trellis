@@ -1,10 +1,16 @@
 <script lang="ts">
+  import { isErr } from "@qlever-llc/result";
   import type {
     AuthListServiceInstancesOutput,
     AuthListServiceDeploymentsOutput,
   } from "@qlever-llc/trellis/sdk/auth";
   import { resolve } from "$app/paths";
   import { onMount } from "svelte";
+  import EmptyState from "$lib/components/EmptyState.svelte";
+  import LoadingState from "$lib/components/LoadingState.svelte";
+  import PageToolbar from "$lib/components/PageToolbar.svelte";
+  import Panel from "$lib/components/Panel.svelte";
+  import StatusBadge from "$lib/components/StatusBadge.svelte";
   import { errorMessage, formatDate } from "../../../../../lib/format";
   import { getNotifications } from "../../../../../lib/notifications.svelte";
   import { getTrellis } from "../../../../../lib/trellis";
@@ -15,16 +21,6 @@
 
   const trellis = getTrellis();
   const notifications = getNotifications();
-  type ServiceInstancesRequester = {
-    request(method: "Auth.ListServiceInstances", input: ReturnType<typeof query>): { orThrow(): Promise<AuthListServiceInstancesOutput> };
-    request(method: "Auth.ListServiceDeployments", input: Record<string, never>): { orThrow(): Promise<AuthListServiceDeploymentsOutput> };
-    request(method: "Auth.ProvisionServiceInstance", input: { deploymentId: string; instanceKey: string }): { orThrow(): Promise<void> };
-    request(method: "Auth.DisableServiceInstance", input: { instanceId: string }): { orThrow(): Promise<void> };
-    request(method: "Auth.EnableServiceInstance", input: { instanceId: string }): { orThrow(): Promise<void> };
-    request(method: "Auth.RemoveServiceInstance", input: { instanceId: string }): { orThrow(): Promise<void> };
-  };
-  const serviceInstancesSource: object = trellis;
-  const serviceInstancesRequester = serviceInstancesSource as ServiceInstancesRequester;
 
   let loading = $state(true);
   let error = $state<string | null>(null);
@@ -55,9 +51,11 @@
     error = null;
     try {
       const [instancesRes, deploymentsRes] = await Promise.all([
-        serviceInstancesRequester.request("Auth.ListServiceInstances", query()).orThrow(),
-        serviceInstancesRequester.request("Auth.ListServiceDeployments", {}).orThrow(),
+        trellis.request("Auth.ListServiceInstances", query()).take(),
+        trellis.request("Auth.ListServiceDeployments", {}).take(),
       ]);
+      if (isErr(instancesRes)) { error = errorMessage(instancesRes); return; }
+      if (isErr(deploymentsRes)) { error = errorMessage(deploymentsRes); return; }
       instances = instancesRes.instances ?? [];
       deployments = deploymentsRes.deployments ?? [];
       if (!provisionDeploymentId || !provisionDeployments.some((deployment) => deployment.deploymentId === provisionDeploymentId)) {
@@ -74,10 +72,11 @@
     createPending = true;
     error = null;
     try {
-      await serviceInstancesRequester.request("Auth.ProvisionServiceInstance", {
+      const response = await trellis.request("Auth.ProvisionServiceInstance", {
         deploymentId: provisionDeploymentId,
         instanceKey: instanceKey.trim(),
-      }).orThrow();
+      }).take();
+      if (isErr(response)) { error = errorMessage(response); return; }
       notifications.success("Service instance provisioned.", "Provisioned");
       instanceKey = "";
       await load();
@@ -95,9 +94,11 @@
     error = null;
     try {
       if (disabled) {
-        await serviceInstancesRequester.request("Auth.DisableServiceInstance", { instanceId: instance.instanceId }).orThrow();
+        const response = await trellis.request("Auth.DisableServiceInstance", { instanceId: instance.instanceId }).take();
+        if (isErr(response)) { error = errorMessage(response); return; }
       } else {
-        await serviceInstancesRequester.request("Auth.EnableServiceInstance", { instanceId: instance.instanceId }).orThrow();
+        const response = await trellis.request("Auth.EnableServiceInstance", { instanceId: instance.instanceId }).take();
+        if (isErr(response)) { error = errorMessage(response); return; }
       }
       notifications.success(`Service instance ${instance.instanceId} ${disabled ? "disabled" : "enabled"}.`, disabled ? "Disabled" : "Enabled");
       await load();
@@ -113,7 +114,8 @@
     actionTarget = `${instance.instanceId}:remove`;
     error = null;
     try {
-      await serviceInstancesRequester.request("Auth.RemoveServiceInstance", { instanceId: instance.instanceId }).orThrow();
+      const response = await trellis.request("Auth.RemoveServiceInstance", { instanceId: instance.instanceId }).take();
+      if (isErr(response)) { error = errorMessage(response); return; }
       notifications.success(`Service instance ${instance.instanceId} removed.`, "Removed");
       await load();
     } catch (e) {
@@ -129,15 +131,14 @@
 </script>
 
 <section class="space-y-4">
-  <div class="card border border-base-300 bg-base-100">
-    <div class="card-body gap-4">
-      <div class="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 class="card-title text-base">Provision service instance</h2>
-          <p class="text-sm text-base-content/60">Bind a runtime service key to an existing service deployment.</p>
-        </div>
+  <PageToolbar title="Service instances" description="Provision runtime service identities and manage instance lifecycle state.">
+    {#snippet actions()}
         <a href={resolve("/admin/services")} class="btn btn-outline btn-sm">Back to Deployments</a>
-      </div>
+        <button class="btn btn-ghost btn-sm" onclick={load} disabled={loading}>Refresh</button>
+    {/snippet}
+  </PageToolbar>
+
+  <Panel title="Provision service instance" eyebrow="Service identity">
 
       <form class="grid gap-3 lg:grid-cols-[1fr_2fr_auto]" onsubmit={(event) => { event.preventDefault(); void provisionInstance(); }}>
         <label class="form-control gap-1">
@@ -156,13 +157,12 @@
         </label>
 
         <div class="flex items-end">
-          <button type="submit" class="btn btn-primary btn-sm" disabled={!canProvision}>
+          <button type="submit" class="btn btn-outline btn-sm" disabled={!canProvision}>
             {createPending ? "Provisioning…" : "Provision"}
           </button>
         </div>
       </form>
-    </div>
-  </div>
+  </Panel>
 
   <div class="flex flex-wrap items-end justify-between gap-3">
     <form class="flex flex-wrap items-end gap-2" onsubmit={(event) => { event.preventDefault(); void load(); }}>
@@ -185,7 +185,7 @@
         </select>
       </label>
 
-      <button type="submit" class="btn btn-primary btn-sm" disabled={loading}>Apply</button>
+      <button type="submit" class="btn btn-outline btn-sm" disabled={loading}>Apply</button>
     </form>
 
     <div class="flex items-center gap-3">
@@ -199,12 +199,13 @@
   {/if}
 
   {#if loading}
-    <div class="flex justify-center py-8"><span class="loading loading-spinner loading-md"></span></div>
+    <Panel><LoadingState label="Loading service instances" /></Panel>
   {:else if instances.length === 0}
-    <p class="text-sm text-base-content/60">No service instances found.</p>
+    <EmptyState title="No service instances" description="Provision a service instance after creating an active service deployment." />
   {:else}
+    <Panel title="Instances" eyebrow="Primary table">
     <div class="overflow-x-auto">
-      <table class="table table-sm">
+      <table class="table table-sm trellis-table">
         <thead>
           <tr>
             <th>Instance</th>
@@ -220,13 +221,13 @@
           {#each instances as instance (instance.instanceId)}
             <tr>
               <td>
-                <div class="font-medium">{instance.instanceId}</div>
-                <div class="font-mono text-xs text-base-content/60 break-all">{instance.instanceKey}</div>
+                <div class="trellis-identifier font-medium">{instance.instanceId}</div>
+                <div class="trellis-identifier text-base-content/60">{instance.instanceKey}</div>
               </td>
               <td class="text-base-content/60">{instance.deploymentId}</td>
               <td>
-                <div class="text-sm text-base-content/80">{instance.currentContractId ?? "—"}</div>
-                <div class="font-mono text-xs text-base-content/60">{instance.currentContractDigest ?? "—"}</div>
+                <div class="trellis-identifier text-base-content/80">{instance.currentContractId ?? "—"}</div>
+                <div class="trellis-identifier text-base-content/60">{instance.currentContractDigest ?? "—"}</div>
               </td>
               <td>
                 <div class="flex flex-wrap gap-1">
@@ -239,9 +240,9 @@
               </td>
               <td>
                 {#if instance.disabled}
-                  <span class="badge badge-ghost badge-sm">Disabled</span>
+                  <StatusBadge label="Disabled" status="offline" />
                 {:else}
-                  <span class="badge badge-success badge-sm">Active</span>
+                  <StatusBadge label="Active" status="healthy" />
                 {/if}
               </td>
               <td class="text-base-content/60">{formatDate(instance.createdAt)}</td>
@@ -268,5 +269,6 @@
         </tbody>
       </table>
     </div>
+    </Panel>
   {/if}
 </section>

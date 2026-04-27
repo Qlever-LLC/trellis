@@ -19,7 +19,8 @@ export {
   withSpanAsync,
 } from "./telemetry/mod.ts";
 export function initTracing(serviceName: string): void {
-  void import("./telemetry/init.ts").then((mod) =>
-    mod.initTracing(serviceName)
-  );
+  const load = new Function("specifier", "return import(specifier);") as (
+    specifier: string,
+  ) => Promise<{ initTracing(serviceName: string): void }>;
+  void load("./telemetry/init.ts").then((mod) => mod.initTracing(serviceName));
 }

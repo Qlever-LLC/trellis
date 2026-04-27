@@ -1,4 +1,4 @@
-import { defineAppContract } from "@qlever-llc/trellis";
+import { defineAppContract } from "@qlever-llc/trellis/contracts";
 import { auth as trellisAuth } from "@qlever-llc/trellis/sdk/auth";
 import { health as trellisHealth } from "@qlever-llc/trellis/sdk/health";
 import { jobs as trellisJobs } from "@qlever-llc/trellis/sdk/jobs";

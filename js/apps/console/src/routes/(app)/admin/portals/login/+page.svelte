@@ -1,20 +1,20 @@
 <script lang="ts">
+  import { isErr } from "@qlever-llc/result";
   import type {
-    AuthClearLoginPortalSelectionInput,
     AuthGetLoginPortalDefaultOutput,
     AuthListInstalledContractsOutput,
     AuthListLoginPortalSelectionsOutput,
     AuthListPortalsOutput,
-    AuthSetLoginPortalDefaultInput,
-    AuthSetLoginPortalSelectionInput,
   } from "@qlever-llc/trellis/sdk/auth";
+  import { resolve } from "$app/paths";
   import { onMount } from "svelte";
+  import EmptyState from "$lib/components/EmptyState.svelte";
+  import Icon from "$lib/components/Icon.svelte";
+  import LoadingState from "$lib/components/LoadingState.svelte";
+  import PageToolbar from "$lib/components/PageToolbar.svelte";
+  import Panel from "$lib/components/Panel.svelte";
   import { errorMessage } from "../../../../../lib/format";
-  import { getNotifications } from "../../../../../lib/notifications.svelte";
   import { getTrellis } from "../../../../../lib/trellis";
-
-  const BUILTIN_OPTION = "__builtin__";
-  const INHERIT_OPTION = "__inherit__";
 
   type PortalRecord = AuthListPortalsOutput["portals"][number];
   type ContractRecord = AuthListInstalledContractsOutput["contracts"][number];
@@ -22,18 +22,6 @@
   type DefaultPortal = AuthGetLoginPortalDefaultOutput["defaultPortal"];
 
   const trellis = getTrellis();
-  const notifications = getNotifications();
-  type LoginPortalsRequester = {
-    request(method: "Auth.ListPortals", input: Record<string, never>): { orThrow(): Promise<AuthListPortalsOutput> };
-    request(method: "Auth.ListInstalledContracts", input: Record<string, never>): { orThrow(): Promise<AuthListInstalledContractsOutput> };
-    request(method: "Auth.GetLoginPortalDefault", input: Record<string, never>): { orThrow(): Promise<AuthGetLoginPortalDefaultOutput> };
-    request(method: "Auth.ListLoginPortalSelections", input: Record<string, never>): { orThrow(): Promise<AuthListLoginPortalSelectionsOutput> };
-    request(method: "Auth.SetLoginPortalDefault", input: AuthSetLoginPortalDefaultInput): { orThrow(): Promise<void> };
-    request(method: "Auth.ClearLoginPortalSelection", input: AuthClearLoginPortalSelectionInput): { orThrow(): Promise<void> };
-    request(method: "Auth.SetLoginPortalSelection", input: AuthSetLoginPortalSelectionInput): { orThrow(): Promise<void> };
-  };
-  const loginPortalsSource: object = trellis;
-  const loginPortalsRequester = loginPortalsSource as LoginPortalsRequester;
 
   let loading = $state(true);
   let error = $state<string | null>(null);
@@ -43,27 +31,8 @@
   let selections = $state<SelectionRecord[]>([]);
   let defaultPortal = $state<DefaultPortal>({ portalId: null });
 
-  let defaultDraft = $state(BUILTIN_OPTION);
-  let selectionDrafts = $state<Record<string, string>>({});
-
-  let defaultPending = $state(false);
-  let saveTarget = $state<string | null>(null);
-  let clearTarget = $state<string | null>(null);
-
   const portalById = $derived(new Map(portals.map((portal) => [portal.portalId, portal])));
   const selectionByContractId = $derived(new Map(selections.map((selection) => [selection.contractId, selection])));
-
-  function optionToPortalId(option: string): string | null {
-    return option === BUILTIN_OPTION ? null : option;
-  }
-
-  function portalIdToOption(portalId: string | null | undefined): string {
-    return portalId ?? BUILTIN_OPTION;
-  }
-
-  function selectionOption(contractId: string): string {
-    return portalIdToOption(selectionByContractId.get(contractId)?.portalId);
-  }
 
   function portalLabel(portalId: string | null | undefined): string {
     if (portalId == null) return "Built-in portal";
@@ -84,86 +53,24 @@
     error = null;
     try {
       const [portalRes, contractRes, defaultRes, selectionRes] = await Promise.all([
-        loginPortalsRequester.request("Auth.ListPortals", {}).orThrow(),
-        loginPortalsRequester.request("Auth.ListInstalledContracts", {}).orThrow(),
-        loginPortalsRequester.request("Auth.GetLoginPortalDefault", {}).orThrow(),
-        loginPortalsRequester.request("Auth.ListLoginPortalSelections", {}).orThrow(),
+        trellis.request("Auth.ListPortals", {}).take(),
+        trellis.request("Auth.ListInstalledContracts", {}).take(),
+        trellis.request("Auth.GetLoginPortalDefault", {}).take(),
+        trellis.request("Auth.ListLoginPortalSelections", {}).take(),
       ]);
+      if (isErr(portalRes)) { error = errorMessage(portalRes); return; }
+      if (isErr(contractRes)) { error = errorMessage(contractRes); return; }
+      if (isErr(defaultRes)) { error = errorMessage(defaultRes); return; }
+      if (isErr(selectionRes)) { error = errorMessage(selectionRes); return; }
 
       portals = portalRes.portals ?? [];
       contracts = contractRes.contracts ?? [];
       defaultPortal = defaultRes.defaultPortal ?? { portalId: null };
       selections = selectionRes.selections ?? [];
-      defaultDraft = portalIdToOption(defaultRes.defaultPortal?.portalId);
-      selectionDrafts = Object.fromEntries(
-        (contractRes.contracts ?? []).map((contract) => {
-          const selection = (selectionRes.selections ?? []).find((entry) => entry.contractId === contract.id);
-          return [contract.id, selection ? portalIdToOption(selection.portalId) : INHERIT_OPTION];
-        }),
-      );
     } catch (e) {
       error = errorMessage(e);
     } finally {
       loading = false;
-    }
-  }
-
-  async function saveDefault() {
-    defaultPending = true;
-    error = null;
-    try {
-      await loginPortalsRequester.request("Auth.SetLoginPortalDefault", {
-        portalId: optionToPortalId(defaultDraft),
-      } satisfies AuthSetLoginPortalDefaultInput).orThrow();
-      notifications.success("Default login portal updated.", "Updated");
-      await load();
-    } catch (e) {
-      error = errorMessage(e);
-    } finally {
-      defaultPending = false;
-    }
-  }
-
-  async function saveSelection(contractId: string) {
-    saveTarget = contractId;
-    error = null;
-    try {
-      const option = selectionDrafts[contractId] ?? INHERIT_OPTION;
-      if (option === INHERIT_OPTION) {
-        await loginPortalsRequester.request("Auth.ClearLoginPortalSelection", {
-          contractId,
-        } satisfies AuthClearLoginPortalSelectionInput).orThrow();
-        notifications.success(`Login policy cleared for ${contractId}.`, "Cleared");
-      } else {
-        await loginPortalsRequester.request("Auth.SetLoginPortalSelection", {
-          contractId,
-          portalId: optionToPortalId(option),
-        } satisfies AuthSetLoginPortalSelectionInput).orThrow();
-        notifications.success(`Login policy updated for ${contractId}.`, "Updated");
-      }
-      await load();
-    } catch (e) {
-      error = errorMessage(e);
-    } finally {
-      saveTarget = null;
-    }
-  }
-
-  async function clearSelection(contractId: string) {
-    if (!selectionByContractId.get(contractId)) return;
-    if (!window.confirm(`Clear the login portal override for ${contractId}?`)) return;
-    clearTarget = contractId;
-    error = null;
-    try {
-      await loginPortalsRequester.request("Auth.ClearLoginPortalSelection", {
-        contractId,
-      } satisfies AuthClearLoginPortalSelectionInput).orThrow();
-      notifications.success(`Login policy cleared for ${contractId}.`, "Cleared");
-      await load();
-    } catch (e) {
-      error = errorMessage(e);
-    } finally {
-      clearTarget = null;
     }
   }
 
@@ -173,53 +80,45 @@
 </script>
 
 <section class="space-y-4">
-  <div class="flex items-center justify-end">
-    <button class="btn btn-ghost btn-sm" onclick={load} disabled={loading}>Refresh</button>
-  </div>
+  <PageToolbar title="Login portal policy" description="Select default and contract-specific portals for user sign-in.">
+    {#snippet actions()}
+      <details class="dropdown dropdown-end">
+        <summary class="btn btn-outline btn-sm">Actions <Icon name="chevronDown" size={14} /></summary>
+        <ul class="menu dropdown-content z-10 mt-2 w-72 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl">
+          <li><a href={resolve("/admin/portals/login/default")}>Set default login portal</a></li>
+          <li><a href={resolve("/admin/portals/login/selection")}>Manage login portal selections</a></li>
+        </ul>
+      </details>
+      <button class="btn btn-ghost btn-sm" onclick={load} disabled={loading}>Refresh</button>
+    {/snippet}
+  </PageToolbar>
 
-  <div class="card border border-base-300 bg-base-100">
-    <div class="card-body gap-4">
+  <Panel title="Default login portal" eyebrow="Default policy">
+    <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
-        <h2 class="card-title text-base">Default login portal</h2>
-        <p class="text-sm text-base-content/60">Choose the portal used when there is no contract-specific login policy.</p>
+        <div class="text-sm text-base-content/60">Current default</div>
+        <div class="font-medium">{portalLabel(defaultPortal.portalId)}</div>
       </div>
-
-      <form class="flex flex-col gap-3 md:flex-row md:items-end" onsubmit={(event) => { event.preventDefault(); void saveDefault(); }}>
-        <label class="form-control gap-1 md:min-w-96">
-          <span class="label-text text-xs">Default portal</span>
-          <select class="select select-bordered select-sm" bind:value={defaultDraft}>
-            <option value={BUILTIN_OPTION}>Built-in portal</option>
-            {#each portals as portal (portal.portalId)}
-              <option value={portal.portalId} disabled={portal.disabled}>{portalLabel(portal.portalId)}</option>
-            {/each}
-          </select>
-        </label>
-
-        <div class="text-sm text-base-content/60 md:pb-2">Current: {portalLabel(defaultPortal.portalId)}</div>
-
-        <button type="submit" class="btn btn-primary btn-sm" disabled={defaultPending || defaultDraft === portalIdToOption(defaultPortal.portalId)}>
-          {defaultPending ? "Saving…" : "Save Default"}
-        </button>
-      </form>
+      <a class="btn btn-outline btn-sm" href={resolve("/admin/portals/login/default")}>Change default</a>
     </div>
-  </div>
+  </Panel>
 
   {#if error}
     <div class="alert alert-error"><span>{error}</span></div>
   {/if}
 
   {#if loading}
-    <div class="flex justify-center py-8"><span class="loading loading-spinner loading-md"></span></div>
+    <Panel><LoadingState label="Loading login portal policies" /></Panel>
   {:else if contracts.length === 0}
-    <p class="text-sm text-base-content/60">No installed contracts found.</p>
+    <EmptyState title="No installed contracts" description="Install contracts before defining contract-specific login portals." />
   {:else}
+    <Panel title="Contract overrides" eyebrow="Primary table">
     <div class="overflow-x-auto">
-      <table class="table table-sm">
+      <table class="table table-sm trellis-table">
         <thead>
           <tr>
             <th>Contract</th>
             <th>Current</th>
-            <th>Override</th>
             <th></th>
           </tr>
         </thead>
@@ -231,38 +130,24 @@
                 <div class="font-mono text-xs text-base-content/60">{contract.id}</div>
               </td>
               <td class="text-sm text-base-content/60">{effectivePortalLabel(contract.id)}</td>
-              <td>
-                <select class="select select-bordered select-xs w-full max-w-72" bind:value={selectionDrafts[contract.id]}>
-                  <option value={INHERIT_OPTION}>Use default portal</option>
-                  <option value={BUILTIN_OPTION}>Built-in portal</option>
-                  {#each portals as portal (portal.portalId)}
-                    <option value={portal.portalId} disabled={portal.disabled}>{portalLabel(portal.portalId)}</option>
-                  {/each}
-                </select>
-              </td>
               <td class="text-right">
-                <div class="flex justify-end gap-2">
-                  <button
-                    class="btn btn-primary btn-xs"
-                    onclick={() => saveSelection(contract.id)}
-                    disabled={saveTarget === contract.id || clearTarget === contract.id || selectionDrafts[contract.id] === (selectionByContractId.get(contract.id) ? selectionOption(contract.id) : INHERIT_OPTION)}
-                  >
-                    {saveTarget === contract.id ? "Saving…" : "Apply"}
-                  </button>
-
-                  <button
-                    class="btn btn-ghost btn-xs"
-                    onclick={() => clearSelection(contract.id)}
-                    disabled={clearTarget === contract.id || saveTarget === contract.id || !selectionByContractId.get(contract.id)}
-                  >
-                    {clearTarget === contract.id ? "Clearing…" : "Clear"}
-                  </button>
-                </div>
+                <details class="dropdown dropdown-end">
+                  <summary class="btn btn-ghost btn-xs">Actions <Icon name="chevronDown" size={12} /></summary>
+                  <ul class="menu dropdown-content z-10 mt-2 w-60 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl">
+                    <li><a href={resolve(`/admin/portals/login/selection?contract=${encodeURIComponent(contract.id)}`)}>Set selection</a></li>
+                    {#if selectionByContractId.get(contract.id)}
+                      <li><a href={resolve(`/admin/portals/login/selection?contract=${encodeURIComponent(contract.id)}&mode=clear`)}>Clear selection</a></li>
+                    {:else}
+                      <li class="disabled"><span>Clear selection</span></li>
+                    {/if}
+                  </ul>
+                </details>
               </td>
             </tr>
           {/each}
         </tbody>
       </table>
     </div>
+    </Panel>
   {/if}
 </section>

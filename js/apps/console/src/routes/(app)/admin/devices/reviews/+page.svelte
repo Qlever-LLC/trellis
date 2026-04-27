@@ -1,14 +1,21 @@
 <script lang="ts">
+  import { isErr } from "@qlever-llc/result";
   import type {
-    AuthDecideDeviceActivationReviewInput,
     AuthListDeviceActivationReviewsInput,
     AuthListDeviceActivationReviewsOutput,
-    AuthListDeviceDeploymentsOutput,
     AuthListDeviceInstancesOutput,
+    AuthListDeviceDeploymentsOutput,
   } from "@qlever-llc/trellis/sdk/auth";
+  import { resolve } from "$app/paths";
   import { onMount } from "svelte";
+  import EmptyState from "../../../../../lib/components/EmptyState.svelte";
+  import Icon from "../../../../../lib/components/Icon.svelte";
+  import InlineMetricsStrip from "../../../../../lib/components/InlineMetricsStrip.svelte";
+  import LoadingState from "../../../../../lib/components/LoadingState.svelte";
+  import PageToolbar from "../../../../../lib/components/PageToolbar.svelte";
+  import Panel from "../../../../../lib/components/Panel.svelte";
+  import StatusBadge from "../../../../../lib/components/StatusBadge.svelte";
   import { errorMessage, formatDate } from "../../../../../lib/format";
-  import { getNotifications } from "../../../../../lib/notifications.svelte";
   import { getTrellis } from "../../../../../lib/trellis";
 
   type Review = AuthListDeviceActivationReviewsOutput["reviews"][number];
@@ -21,19 +28,9 @@
   const understoodMetadataKeys = ["name", "serialNumber", "modelNumber"] as const;
 
   const trellis = getTrellis();
-  const notifications = getNotifications();
-  type ReviewsRequester = {
-    request(method: "Auth.ListDeviceActivationReviews", input: AuthListDeviceActivationReviewsInput): { orThrow(): Promise<AuthListDeviceActivationReviewsOutput> };
-    request(method: "Auth.ListDeviceInstances", input: Record<string, never>): { orThrow(): Promise<AuthListDeviceInstancesOutput> };
-    request(method: "Auth.ListDeviceDeployments", input: Record<string, never>): { orThrow(): Promise<AuthListDeviceDeploymentsOutput> };
-    request(method: "Auth.DecideDeviceActivationReview", input: AuthDecideDeviceActivationReviewInput): { orThrow(): Promise<void> };
-  };
-  const reviewsSource: object = trellis;
-  const reviewsRequester = reviewsSource as ReviewsRequester;
 
   let loading = $state(true);
   let error = $state<string | null>(null);
-  let decisionTarget = $state<string | null>(null);
 
   let reviews = $state<Review[]>([]);
   let deviceInstances = $state<DeviceInstance[]>([]);
@@ -43,8 +40,19 @@
   let deploymentFilter = $state("");
   let stateFilter = $state<ReviewState>("all");
   let showMetadata = $state(false);
+  let selectedReviewId = $state<string | null>(null);
 
   let deviceInstancesById = $derived.by(() => new Map(deviceInstances.map((instance) => [instance.instanceId, instance])));
+  let selectedReview = $derived(reviews.find((review) => review.reviewId === selectedReviewId) ?? reviews[0] ?? null);
+  const pendingCount = $derived(reviews.filter((review) => review.state === "pending").length);
+  const approvedCount = $derived(reviews.filter((review) => review.state === "approved").length);
+  const rejectedCount = $derived(reviews.filter((review) => review.state === "rejected").length);
+  const metrics = $derived([
+    { label: "Reviews", value: reviews.length, detail: stateFilter === "all" ? "All states" : stateFilter },
+    { label: "Pending", value: pendingCount, detail: "Awaiting decision" },
+    { label: "Approved", value: approvedCount, detail: "Accepted activations" },
+    { label: "Rejected", value: rejectedCount, detail: "Denied activations" },
+  ]);
 
   function reviewQuery(): AuthListDeviceActivationReviewsInput {
     return {
@@ -59,14 +67,20 @@
     error = null;
     try {
       const [reviewsResponse, instancesResponse, deploymentsResponse] = await Promise.all([
-        reviewsRequester.request("Auth.ListDeviceActivationReviews", reviewQuery()).orThrow(),
-        reviewsRequester.request("Auth.ListDeviceInstances", {}).orThrow(),
-        reviewsRequester.request("Auth.ListDeviceDeployments", {}).orThrow(),
+        trellis.request("Auth.ListDeviceActivationReviews", reviewQuery()).take(),
+        trellis.request("Auth.ListDeviceInstances", {}).take(),
+        trellis.request("Auth.ListDeviceDeployments", {}).take(),
       ]);
+      if (isErr(reviewsResponse)) { error = errorMessage(reviewsResponse); return; }
+      if (isErr(instancesResponse)) { error = errorMessage(instancesResponse); return; }
+      if (isErr(deploymentsResponse)) { error = errorMessage(deploymentsResponse); return; }
 
       reviews = reviewsResponse.reviews ?? [];
       deviceInstances = instancesResponse.instances ?? [];
       deployments = deploymentsResponse.deployments ?? [];
+      if (selectedReviewId && !reviews.some((review) => review.reviewId === selectedReviewId)) {
+        selectedReviewId = null;
+      }
     } catch (e) {
       error = errorMessage(e);
     } finally {
@@ -84,51 +98,16 @@
     ) as Array<[string, string]>;
   }
 
-  async function approveReview(review: Review) {
-    if (review.state !== "pending") return;
-    if (!window.confirm(`Approve activation review ${review.reviewId}?`)) return;
-
-    decisionTarget = review.reviewId;
-    error = null;
-    try {
-      await reviewsRequester.request(
-        "Auth.DecideDeviceActivationReview",
-        {
-          reviewId: review.reviewId,
-          decision: "approve",
-        } satisfies AuthDecideDeviceActivationReviewInput,
-      ).orThrow();
-      notifications.success(`Review ${review.reviewId} approved.`, "Approved");
-      await load();
-    } catch (e) {
-      error = errorMessage(e);
-    } finally {
-      decisionTarget = null;
-    }
-  }
-
-  async function rejectReview(review: Review) {
-    if (review.state !== "pending") return;
-    const reason = window.prompt("Optional rejection reason", review.reason ?? "");
-    if (reason === null) return;
-
-    decisionTarget = review.reviewId;
-    error = null;
-    try {
-      await reviewsRequester.request(
-        "Auth.DecideDeviceActivationReview",
-        {
-          reviewId: review.reviewId,
-          decision: "reject",
-          reason: reason.trim() || undefined,
-        } satisfies AuthDecideDeviceActivationReviewInput,
-      ).orThrow();
-      notifications.success(`Review ${review.reviewId} rejected.`, "Rejected");
-      await load();
-    } catch (e) {
-      error = errorMessage(e);
-    } finally {
-      decisionTarget = null;
+  function reviewStatus(state: Review["state"]): "healthy" | "degraded" | "unhealthy" | "offline" {
+    switch (state) {
+      case "approved":
+        return "healthy";
+      case "pending":
+        return "degraded";
+      case "rejected":
+        return "unhealthy";
+      default:
+        return "offline";
     }
   }
 
@@ -138,8 +117,21 @@
 </script>
 
 <section class="space-y-4">
-  <div class="flex flex-wrap items-end justify-between gap-3">
-    <form class="flex flex-wrap items-end gap-2" onsubmit={(event) => { event.preventDefault(); void load(); }}>
+  <PageToolbar title="Device reviews" description="Activation review queue with device metadata and decision workflow links.">
+    {#snippet actions()}
+      <details class="dropdown dropdown-end">
+        <summary class="btn btn-outline btn-sm">Actions <Icon name="chevronDown" size={14} /></summary>
+        <ul class="menu dropdown-content z-10 mt-2 w-72 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl">
+          <li><a href={resolve("/admin/devices/reviews/decide")}>Decide activation review</a></li>
+        </ul>
+      </details>
+      <button class="btn btn-ghost btn-sm" onclick={load} disabled={loading}>Refresh</button>
+    {/snippet}
+  </PageToolbar>
+
+  <Panel title="Review Controls" eyebrow="Filters">
+    <div class="flex flex-wrap items-end justify-between gap-3">
+      <form class="flex flex-wrap items-end gap-2" onsubmit={(event) => { event.preventDefault(); void load(); }}>
       <label class="form-control gap-1">
         <span class="label-text text-xs">Instance</span>
         <input class="input input-bordered input-sm w-52" bind:value={instanceFilter} placeholder="Any instance" />
@@ -165,92 +157,112 @@
         </select>
       </label>
 
-      <button type="submit" class="btn btn-primary btn-sm" disabled={loading}>Apply</button>
-    </form>
+      <button type="submit" class="btn btn-outline btn-sm" disabled={loading}>Apply</button>
+      </form>
 
-    <div class="flex items-center gap-3">
-      <label class="label cursor-pointer gap-2 py-0">
-        <span class="label-text text-sm">Show metadata</span>
-        <input class="toggle toggle-sm" type="checkbox" bind:checked={showMetadata} />
-      </label>
+      <div class="flex items-center gap-3">
+        <label class="label cursor-pointer gap-2 py-0">
+          <span class="label-text text-sm">Show metadata</span>
+          <input class="toggle toggle-sm" type="checkbox" bind:checked={showMetadata} />
+        </label>
 
-      <button class="btn btn-ghost btn-sm" onclick={load} disabled={loading}>Refresh</button>
+      </div>
     </div>
-  </div>
+  </Panel>
+
+  <InlineMetricsStrip {metrics} />
 
   {#if error}
     <div class="alert alert-error"><span>{error}</span></div>
   {/if}
 
   {#if loading}
-    <div class="flex justify-center py-8"><span class="loading loading-spinner loading-md"></span></div>
+    <LoadingState label="Loading device reviews" />
   {:else if reviews.length === 0}
-    <p class="text-sm text-base-content/60">No device reviews found.</p>
+    <Panel title="Review List" eyebrow="Primary">
+      <EmptyState title="No device reviews found" description="No activation reviews match the current filters." />
+    </Panel>
   {:else}
-    <div class="overflow-x-auto">
-      <table class="table table-sm">
-        <thead>
-          <tr>
-            <th>Review</th>
-            <th>Instance</th>
-            <th>Deployment</th>
-            <th>State</th>
-            <th>Requested</th>
-            <th>Reason</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {#each reviews as review (review.reviewId)}
-            <tr>
-              <td class="font-mono text-xs">{review.reviewId}</td>
-              <td>
-                <div class="font-medium">{review.instanceId}</div>
-                <div class="font-mono text-xs text-base-content/60">{review.publicIdentityKey}</div>
-                <div class="mt-1 space-y-0.5 text-xs text-base-content/60">
-                  <div><span class="font-medium text-base-content">Name</span>: {understoodMetadataValue(review.instanceId, "name") ?? "—"}</div>
-                  <div><span class="font-medium text-base-content">Serial</span>: {understoodMetadataValue(review.instanceId, "serialNumber") ?? "—"}</div>
-                  <div><span class="font-medium text-base-content">Model</span>: {understoodMetadataValue(review.instanceId, "modelNumber") ?? "—"}</div>
-                </div>
-                {#if showMetadata}
-                  <div class="mt-2 space-y-1 text-xs text-base-content/60">
-                    {#if opaqueMetadataEntries(review.instanceId).length > 0}
-                      {#each opaqueMetadataEntries(review.instanceId) as [key, value] (key)}
-                        <div><span class="font-medium text-base-content">{key}</span>=<span class="font-mono">{value}</span></div>
-                      {/each}
+    <div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
+      <Panel title="Review List" eyebrow="Primary" class="min-w-0">
+        <div class="overflow-x-auto">
+          <table class="table table-sm trellis-table">
+            <thead>
+              <tr>
+                <th>Review</th>
+                <th>Instance</th>
+                <th>Deployment</th>
+                <th>State</th>
+                <th>Requested</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each reviews as review (review.reviewId)}
+                <tr class={{ "bg-base-200/60": selectedReview?.reviewId === review.reviewId }}>
+                  <td><button class="trellis-identifier text-left hover:underline" onclick={() => (selectedReviewId = review.reviewId)}>{review.reviewId}</button></td>
+                  <td>
+                    <div class="trellis-identifier">{review.instanceId}</div>
+                    <div class="trellis-identifier text-base-content/60">{review.publicIdentityKey}</div>
+                  </td>
+                  <td class="trellis-identifier text-base-content/60">{review.deploymentId}</td>
+                  <td><StatusBadge label={review.state} status={reviewStatus(review.state)} /></td>
+                  <td class="text-base-content/60">{formatDate(review.requestedAt)}</td>
+                  <td class="text-right">
+                    {#if review.state === "pending"}
+                      <a class="btn btn-ghost btn-xs" href={resolve(`/admin/devices/reviews/decide?review=${encodeURIComponent(review.reviewId)}`)}>Decide</a>
                     {:else}
-                      <div>—</div>
+                      <span class="text-xs text-base-content/40">—</span>
                     {/if}
-                  </div>
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+        {#snippet footer()}
+          {reviews.length} review{reviews.length !== 1 ? "s" : ""}
+        {/snippet}
+      </Panel>
+
+      <Panel title="Review Detail" eyebrow="Secondary" class="min-w-0">
+        {#if selectedReview}
+          <div class="space-y-3 text-sm">
+            <div class="flex items-center justify-between gap-3">
+              <span class="trellis-identifier">{selectedReview.reviewId}</span>
+              <StatusBadge label={selectedReview.state} status={reviewStatus(selectedReview.state)} />
+            </div>
+            <div>
+              <p class="text-[0.65rem] font-semibold uppercase tracking-wider text-base-content/50">Instance</p>
+              <p class="trellis-identifier">{selectedReview.instanceId}</p>
+              <p class="trellis-identifier text-base-content/60">{selectedReview.publicIdentityKey}</p>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <div><span class="text-base-content/50">Deployment</span><div class="trellis-identifier">{selectedReview.deploymentId}</div></div>
+              <div><span class="text-base-content/50">Requested</span><div>{formatDate(selectedReview.requestedAt)}</div></div>
+            </div>
+            <div class="space-y-0.5 text-xs text-base-content/60">
+              <div><span class="font-medium text-base-content">Name</span>: {understoodMetadataValue(selectedReview.instanceId, "name") ?? "—"}</div>
+              <div><span class="font-medium text-base-content">Serial</span>: {understoodMetadataValue(selectedReview.instanceId, "serialNumber") ?? "—"}</div>
+              <div><span class="font-medium text-base-content">Model</span>: {understoodMetadataValue(selectedReview.instanceId, "modelNumber") ?? "—"}</div>
+            </div>
+            {#if showMetadata}
+              <div class="space-y-1 rounded-box border border-base-300 bg-base-200/40 p-3 text-xs text-base-content/60">
+                {#if opaqueMetadataEntries(selectedReview.instanceId).length > 0}
+                  {#each opaqueMetadataEntries(selectedReview.instanceId) as [key, value] (key)}
+                    <div><span class="font-medium text-base-content">{key}</span>=<span class="trellis-identifier">{value}</span></div>
+                  {/each}
+                {:else}
+                  <div>No opaque metadata.</div>
                 {/if}
-              </td>
-              <td class="text-base-content/60">{review.deploymentId}</td>
-              <td><span class="badge badge-sm">{review.state}</span></td>
-              <td class="text-base-content/60">{formatDate(review.requestedAt)}</td>
-              <td class="text-base-content/60">{review.reason ?? "—"}</td>
-              <td class="text-right">
-                <div class="flex justify-end gap-2">
-                  <button
-                    class="btn btn-success btn-xs"
-                    onclick={() => approveReview(review)}
-                    disabled={review.state !== "pending" || decisionTarget === review.reviewId}
-                  >
-                    {decisionTarget === review.reviewId ? "Working…" : "Approve"}
-                  </button>
-                  <button
-                    class="btn btn-ghost btn-xs text-error"
-                    onclick={() => rejectReview(review)}
-                    disabled={review.state !== "pending" || decisionTarget === review.reviewId}
-                  >
-                    {decisionTarget === review.reviewId ? "Working…" : "Reject"}
-                  </button>
-                </div>
-              </td>
-            </tr>
-          {/each}
-        </tbody>
-      </table>
+              </div>
+            {/if}
+            <div><span class="text-base-content/50">Reason</span><p class="text-base-content/70">{selectedReview.reason ?? "—"}</p></div>
+          </div>
+        {:else}
+          <EmptyState title="Select a review" description="Choose a review from the list to inspect activation metadata." />
+        {/if}
+      </Panel>
     </div>
-    <p class="text-xs text-base-content/50">{reviews.length} review{reviews.length !== 1 ? "s" : ""}</p>
   {/if}
 </section>

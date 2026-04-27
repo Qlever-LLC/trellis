@@ -1,14 +1,19 @@
 <script lang="ts">
+  import { isErr } from "@qlever-llc/result";
   import type {
     AuthListDeviceActivationsInput,
     AuthListDeviceActivationsOutput,
-    AuthListDeviceDeploymentsOutput,
     AuthListDeviceInstancesOutput,
-    AuthRevokeDeviceActivationInput,
+    AuthListDeviceDeploymentsOutput,
   } from "@qlever-llc/trellis/sdk/auth";
+  import { resolve } from "$app/paths";
   import { onMount } from "svelte";
+  import EmptyState from "$lib/components/EmptyState.svelte";
+  import Icon from "$lib/components/Icon.svelte";
+  import LoadingState from "$lib/components/LoadingState.svelte";
+  import PageToolbar from "$lib/components/PageToolbar.svelte";
+  import Panel from "$lib/components/Panel.svelte";
   import { errorMessage, formatDate } from "../../../../../lib/format";
-  import { getNotifications } from "../../../../../lib/notifications.svelte";
   import { getTrellis } from "../../../../../lib/trellis";
 
   type Activation = AuthListDeviceActivationsOutput["activations"][number];
@@ -21,19 +26,9 @@
   const understoodMetadataKeys = ["name", "serialNumber", "modelNumber"] as const;
 
   const trellis = getTrellis();
-  const notifications = getNotifications();
-  type ActivationsRequester = {
-    request(method: "Auth.ListDeviceActivations", input: AuthListDeviceActivationsInput): { orThrow(): Promise<AuthListDeviceActivationsOutput> };
-    request(method: "Auth.ListDeviceInstances", input: Record<string, never>): { orThrow(): Promise<AuthListDeviceInstancesOutput> };
-    request(method: "Auth.ListDeviceDeployments", input: Record<string, never>): { orThrow(): Promise<AuthListDeviceDeploymentsOutput> };
-    request(method: "Auth.RevokeDeviceActivation", input: AuthRevokeDeviceActivationInput): { orThrow(): Promise<void> };
-  };
-  const activationsSource: object = trellis;
-  const activationsRequester = activationsSource as ActivationsRequester;
 
   let loading = $state(true);
   let error = $state<string | null>(null);
-  let revokeTarget = $state<string | null>(null);
 
   let activations = $state<Activation[]>([]);
   let deviceInstances = $state<DeviceInstance[]>([]);
@@ -59,10 +54,13 @@
     error = null;
     try {
       const [activationsResponse, instancesResponse, deploymentsResponse] = await Promise.all([
-        activationsRequester.request("Auth.ListDeviceActivations", activationQuery()).orThrow(),
-        activationsRequester.request("Auth.ListDeviceInstances", {}).orThrow(),
-        activationsRequester.request("Auth.ListDeviceDeployments", {}).orThrow(),
+        trellis.request("Auth.ListDeviceActivations", activationQuery()).take(),
+        trellis.request("Auth.ListDeviceInstances", {}).take(),
+        trellis.request("Auth.ListDeviceDeployments", {}).take(),
       ]);
+      if (isErr(activationsResponse)) { error = errorMessage(activationsResponse); return; }
+      if (isErr(instancesResponse)) { error = errorMessage(instancesResponse); return; }
+      if (isErr(deploymentsResponse)) { error = errorMessage(deploymentsResponse); return; }
 
       activations = activationsResponse.activations ?? [];
       deviceInstances = instancesResponse.instances ?? [];
@@ -88,32 +86,24 @@
     return `${activation.instanceId}:${activation.activatedAt}:${activation.revokedAt ?? ""}:${activation.state}`;
   }
 
-  async function revokeActivation(activation: Activation) {
-    if (activation.state === "revoked") return;
-    if (!window.confirm(`Revoke activation for ${activation.instanceId}?`)) return;
-
-    revokeTarget = activation.instanceId;
-    error = null;
-    try {
-      await activationsRequester.request(
-        "Auth.RevokeDeviceActivation",
-        { instanceId: activation.instanceId } satisfies AuthRevokeDeviceActivationInput,
-      ).orThrow();
-      notifications.success(`Device activation revoked for ${activation.instanceId}.`, "Revoked");
-      await load();
-    } catch (e) {
-      error = errorMessage(e);
-    } finally {
-      revokeTarget = null;
-    }
-  }
-
   onMount(() => {
     void load();
   });
 </script>
 
 <section class="space-y-4">
+  <PageToolbar title="Device activations" description="Review active and revoked device activations.">
+    {#snippet actions()}
+      <details class="dropdown dropdown-end">
+        <summary class="btn btn-outline btn-sm">Actions <Icon name="chevronDown" size={14} /></summary>
+        <ul class="menu dropdown-content z-10 mt-2 w-72 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl">
+          <li><a href={resolve("/admin/devices/activations/revoke")}>Revoke device activation</a></li>
+        </ul>
+      </details>
+      <button class="btn btn-ghost btn-sm" onclick={load} disabled={loading}>Refresh</button>
+    {/snippet}
+  </PageToolbar>
+
   <div class="flex flex-wrap items-end justify-between gap-3">
     <form class="flex flex-wrap items-end gap-2" onsubmit={(event) => { event.preventDefault(); void load(); }}>
       <label class="form-control gap-1">
@@ -140,7 +130,7 @@
         </select>
       </label>
 
-      <button type="submit" class="btn btn-primary btn-sm" disabled={loading}>Apply</button>
+      <button type="submit" class="btn btn-outline btn-sm" disabled={loading}>Apply</button>
     </form>
 
     <div class="flex items-center gap-3">
@@ -148,8 +138,6 @@
         <span class="label-text text-sm">Show metadata</span>
         <input class="toggle toggle-sm" type="checkbox" bind:checked={showMetadata} />
       </label>
-
-      <button class="btn btn-ghost btn-sm" onclick={load} disabled={loading}>Refresh</button>
     </div>
   </div>
 
@@ -158,12 +146,13 @@
   {/if}
 
   {#if loading}
-    <div class="flex justify-center py-8"><span class="loading loading-spinner loading-md"></span></div>
+    <Panel><LoadingState label="Loading device activations" /></Panel>
   {:else if activations.length === 0}
-    <p class="text-sm text-base-content/60">No device activations found.</p>
+    <EmptyState title="No device activations" description="No activations match the current filters." />
   {:else}
-    <div class="overflow-x-auto">
-      <table class="table table-sm">
+    <Panel title="Activations" eyebrow="Primary table">
+      <div class="overflow-x-auto">
+      <table class="table table-sm trellis-table">
         <thead>
           <tr>
             <th>Instance</th>
@@ -179,7 +168,7 @@
           {#each activations as activation (activationRowKey(activation))}
             <tr>
               <td>
-                <div class="font-medium">{activation.instanceId}</div>
+                <div class="trellis-identifier font-medium">{activation.instanceId}</div>
                 <div class="font-mono text-xs text-base-content/60">{activation.publicIdentityKey}</div>
                 <div class="mt-1 space-y-0.5 text-xs text-base-content/60">
                   <div><span class="font-medium text-base-content">Name</span>: {understoodMetadataValue(activation.instanceId, "name") ?? "—"}</div>
@@ -204,19 +193,18 @@
               <td class="text-base-content/60">{formatDate(activation.activatedAt)}</td>
               <td class="text-base-content/60">{activation.revokedAt ? formatDate(activation.revokedAt) : "—"}</td>
               <td class="text-right">
-                <button
-                  class="btn btn-ghost btn-xs text-error"
-                  onclick={() => revokeActivation(activation)}
-                  disabled={activation.state === "revoked" || revokeTarget === activation.instanceId}
-                >
-                  {revokeTarget === activation.instanceId ? "Revoking…" : "Revoke"}
-                </button>
+                {#if activation.state === "revoked"}
+                  <span class="text-xs text-base-content/40">—</span>
+                {:else}
+                  <a class="btn btn-ghost btn-xs text-error" href={resolve(`/admin/devices/activations/revoke?instance=${encodeURIComponent(activation.instanceId)}`)}>Revoke</a>
+                {/if}
               </td>
             </tr>
           {/each}
         </tbody>
       </table>
-    </div>
-    <p class="text-xs text-base-content/50">{activations.length} activation{activations.length !== 1 ? "s" : ""}</p>
+      </div>
+      <p class="text-xs text-base-content/50">{activations.length} activation{activations.length !== 1 ? "s" : ""}</p>
+    </Panel>
   {/if}
 </section>

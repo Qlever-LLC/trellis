@@ -1,13 +1,18 @@
 <script lang="ts">
+  import { isErr } from "@qlever-llc/result";
   import type {
-    AuthDisableInstanceGrantPolicyInput,
     AuthListInstalledContractsOutput,
     AuthListInstanceGrantPoliciesOutput,
-    AuthUpsertInstanceGrantPolicyInput,
   } from "@qlever-llc/trellis/sdk/auth";
+  import { resolve } from "$app/paths";
   import { onMount } from "svelte";
+  import EmptyState from "$lib/components/EmptyState.svelte";
+  import Icon from "$lib/components/Icon.svelte";
+  import InlineMetricsStrip from "$lib/components/InlineMetricsStrip.svelte";
+  import LoadingState from "$lib/components/LoadingState.svelte";
+  import PageToolbar from "$lib/components/PageToolbar.svelte";
+  import Panel from "$lib/components/Panel.svelte";
   import { errorMessage, formatDate } from "../../../../lib/format";
-  import { getNotifications } from "../../../../lib/notifications.svelte";
   import { getTrellis } from "../../../../lib/trellis";
 
   type PolicyRecord = AuthListInstanceGrantPoliciesOutput["policies"][number];
@@ -19,28 +24,12 @@
   };
 
   const trellis = getTrellis();
-  const notifications = getNotifications();
-  type AppGrantsRequester = {
-    request(method: "Auth.ListInstanceGrantPolicies", input: Record<string, never>): { orThrow(): Promise<AuthListInstanceGrantPoliciesOutput> };
-    request(method: "Auth.ListInstalledContracts", input: Record<string, never>): { orThrow(): Promise<AuthListInstalledContractsOutput> };
-    request(method: "Auth.UpsertInstanceGrantPolicy", input: AuthUpsertInstanceGrantPolicyInput): { orThrow(): Promise<void> };
-    request(method: "Auth.DisableInstanceGrantPolicy", input: AuthDisableInstanceGrantPolicyInput): { orThrow(): Promise<void> };
-  };
-  const appGrantsSource: object = trellis;
-  const appGrantsRequester = appGrantsSource as AppGrantsRequester;
 
   let loading = $state(true);
   let error = $state<string | null>(null);
-  let savePending = $state(false);
-  let disableTarget = $state<string | null>(null);
 
   let policies = $state<PolicyRecord[]>([]);
   let contracts = $state<ContractRecord[]>([]);
-
-  let selectedContractId = $state("");
-  let impliedCapabilitiesText = $state("");
-  let allowedOriginsText = $state("");
-  let editingContractId = $state<string | null>(null);
 
   const lineages = $derived.by(() => {
     const byId: Record<string, ContractLineage> = {};
@@ -72,56 +61,20 @@
   const lineageById = $derived(
     Object.fromEntries(lineages.map((lineage) => [lineage.id, lineage])) as Record<string, ContractLineage>,
   );
-  const policyByContractId = $derived(
-    Object.fromEntries(policies.map((policy) => [policy.contractId, policy])) as Record<string, PolicyRecord>,
-  );
   const activePolicyCount = $derived(
     policies.filter((policy) => !policy.disabled).length,
   );
-  const selectedPolicy = $derived(
-    selectedContractId ? (policyByContractId[selectedContractId] ?? null) : null,
-  );
-  const saveLabel = $derived(
-    selectedPolicy?.disabled
-      ? "Save & Activate"
-      : selectedPolicy
-      ? "Save Changes"
-      : "Create Policy",
-  );
-
-  function parseCsv(value: string): string[] {
-    const values: string[] = [];
-
-    for (const entry of value.split(",").map((part) => part.trim()).filter(Boolean)) {
-      if (values.includes(entry)) continue;
-      values.push(entry);
-    }
-
-    return values;
-  }
-
-  function resetForm() {
-    editingContractId = null;
-    selectedContractId = "";
-    impliedCapabilitiesText = "";
-    allowedOriginsText = "";
-  }
-
-  function loadPolicyIntoForm(policy: PolicyRecord) {
-    editingContractId = policy.contractId;
-    selectedContractId = policy.contractId;
-    impliedCapabilitiesText = policy.impliedCapabilities.join(", ");
-    allowedOriginsText = policy.allowedOrigins?.join(", ") ?? "";
-  }
 
   async function load() {
     loading = true;
     error = null;
     try {
       const [policyRes, contractRes] = await Promise.all([
-        appGrantsRequester.request("Auth.ListInstanceGrantPolicies", {}).orThrow(),
-        appGrantsRequester.request("Auth.ListInstalledContracts", {}).orThrow(),
+        trellis.request("Auth.ListInstanceGrantPolicies", {}).take(),
+        trellis.request("Auth.ListInstalledContracts", {}).take(),
       ]);
+      if (isErr(policyRes)) { error = errorMessage(policyRes); return; }
+      if (isErr(contractRes)) { error = errorMessage(contractRes); return; }
       policies = (policyRes.policies ?? []).slice().sort((left, right) =>
         left.contractId.localeCompare(right.contractId)
       );
@@ -133,146 +86,39 @@
     }
   }
 
-  async function savePolicy() {
-    const contractId = selectedContractId.trim();
-    if (!contractId) return;
-
-    const allowedOrigins = parseCsv(allowedOriginsText);
-
-    savePending = true;
-    error = null;
-    try {
-      await appGrantsRequester.request("Auth.UpsertInstanceGrantPolicy", {
-        contractId,
-        impliedCapabilities: parseCsv(impliedCapabilitiesText),
-        allowedOrigins: allowedOrigins.length ? allowedOrigins : undefined,
-      } satisfies AuthUpsertInstanceGrantPolicyInput).orThrow();
-      notifications.success(`Instance grant policy saved for ${contractId}.`, "Saved");
-      editingContractId = contractId;
-      await load();
-    } catch (e) {
-      error = errorMessage(e);
-    } finally {
-      savePending = false;
-    }
-  }
-
-  async function disablePolicy(policy: PolicyRecord) {
-    if (policy.disabled) return;
-    if (!window.confirm(`Disable the instance grant policy for ${policy.contractId}?`)) return;
-
-    disableTarget = policy.contractId;
-    error = null;
-    try {
-      await appGrantsRequester.request("Auth.DisableInstanceGrantPolicy", {
-        contractId: policy.contractId,
-      } satisfies AuthDisableInstanceGrantPolicyInput).orThrow();
-      notifications.success(`Instance grant policy disabled for ${policy.contractId}.`, "Disabled");
-      await load();
-    } catch (e) {
-      error = errorMessage(e);
-    } finally {
-      disableTarget = null;
-    }
-  }
-
   onMount(() => {
     void load();
   });
 </script>
 
 <section class="space-y-4">
-  <div class="flex items-center justify-between gap-4">
-    <div class="stats shadow border border-base-300">
-      <div class="stat py-2 px-4">
-        <div class="stat-title text-xs">Active policies</div>
-        <div class="stat-value text-xl">{activePolicyCount}</div>
-      </div>
-    </div>
+  <PageToolbar title="App grants" description="Configure instance grant policies for approved app instances.">
+    {#snippet actions()}
+      <button class="btn btn-ghost btn-sm" onclick={load} disabled={loading}>Refresh</button>
+      <details class="dropdown dropdown-end">
+        <summary class="btn btn-outline btn-sm">Actions <Icon name="chevronDown" size={14} /></summary>
+        <ul class="menu dropdown-content z-10 mt-2 w-64 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl">
+          <li><a href={resolve("/admin/app-grants/edit")}>Create or edit policy</a></li>
+          <li><a href={resolve("/admin/app-grants/disable")}>Disable a policy</a></li>
+        </ul>
+      </details>
+    {/snippet}
+  </PageToolbar>
 
-    <button class="btn btn-ghost btn-sm" onclick={load} disabled={loading}>Refresh</button>
-  </div>
-
-  <div class="card border border-base-300 bg-base-100">
-    <div class="card-body gap-4">
-      <div class="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-        <div>
-          <h2 class="card-title text-base">Instance grant policy</h2>
-          <p class="text-sm text-base-content/60">Allow a contract lineage to imply capabilities for approved instances and optionally restrict allowed origins.</p>
-        </div>
-
-        {#if editingContractId}
-          <button type="button" class="btn btn-ghost btn-xs" onclick={resetForm}>New policy</button>
-        {/if}
-      </div>
-
-      <form class="grid gap-3 md:grid-cols-2" onsubmit={(event) => { event.preventDefault(); void savePolicy(); }}>
-        <label class="form-control gap-1 md:col-span-2">
-          <span class="label-text text-xs">Contract lineage</span>
-          <select class="select select-bordered select-sm" bind:value={selectedContractId} required>
-            <option value="">Select a contract lineage</option>
-            {#each lineages as lineage (lineage.id)}
-              <option value={lineage.id}>{lineage.displayName} ({lineage.id})</option>
-            {/each}
-          </select>
-          {#if selectedContractId && lineageById[selectedContractId]}
-            <span class="label-text-alt text-base-content/50">
-              {lineageById[selectedContractId].digests.length} installed digest{lineageById[selectedContractId].digests.length !== 1 ? "s" : ""}
-            </span>
-          {/if}
-        </label>
-
-        <label class="form-control gap-1 md:col-span-2">
-          <span class="label-text text-xs">Implied capabilities</span>
-          <textarea
-            class="textarea textarea-bordered textarea-sm min-h-24 font-mono"
-            bind:value={impliedCapabilitiesText}
-            placeholder="contracts.read, approvals.manage"
-          ></textarea>
-          <span class="label-text-alt text-base-content/50">Comma-separated capability names.</span>
-        </label>
-
-        <label class="form-control gap-1 md:col-span-2">
-          <span class="label-text text-xs">Allowed origins</span>
-          <textarea
-            class="textarea textarea-bordered textarea-sm min-h-24 font-mono"
-            bind:value={allowedOriginsText}
-            placeholder="https://console.example.com, https://portal.example.com"
-          ></textarea>
-          <span class="label-text-alt text-base-content/50">Optional comma-separated origins. Leave blank to allow any origin.</span>
-        </label>
-
-        <div class="md:col-span-2 flex flex-wrap items-center gap-2">
-          <button type="submit" class="btn btn-primary btn-sm" disabled={savePending || !selectedContractId.trim()}>
-            {savePending ? "Saving..." : saveLabel}
-          </button>
-
-          <button type="button" class="btn btn-ghost btn-sm" onclick={resetForm} disabled={savePending}>Clear</button>
-
-          {#if selectedPolicy}
-            <span class={[
-              "badge badge-sm",
-              selectedPolicy.disabled ? "badge-ghost" : "badge-success",
-            ]}>
-              {selectedPolicy.disabled ? "Disabled policy loaded" : "Active policy loaded"}
-            </span>
-          {/if}
-        </div>
-      </form>
-    </div>
-  </div>
+  <InlineMetricsStrip metrics={[{ label: "Active policies", value: activePolicyCount }]} />
 
   {#if error}
     <div class="alert alert-error"><span>{error}</span></div>
   {/if}
 
   {#if loading}
-    <div class="flex justify-center py-8"><span class="loading loading-spinner loading-md"></span></div>
+    <Panel><LoadingState label="Loading app grant policies" /></Panel>
   {:else if policies.length === 0}
-    <p class="text-sm text-base-content/60">No instance grant policies found.</p>
+    <EmptyState title="No instance grant policies" description="Use Actions to open the policy workflow." />
   {:else}
+    <Panel title="Policies" eyebrow="Primary table">
     <div class="overflow-x-auto">
-      <table class="table table-sm">
+      <table class="table table-sm trellis-table">
         <thead>
           <tr>
             <th>Contract lineage</th>
@@ -286,7 +132,7 @@
         <tbody>
           {#each policies as policy (policy.contractId)}
             <tr>
-              <td>
+               <td>
                 <div class="font-medium">{lineageById[policy.contractId]?.displayName ?? policy.contractId}</div>
                 <div class="font-mono text-xs text-base-content/60">{policy.contractId}</div>
               </td>
@@ -315,24 +161,19 @@
               <td>
                 <span class={[
                   "badge badge-sm",
-                  policy.disabled ? "badge-ghost" : "badge-success",
+                    policy.disabled ? "badge-neutral" : "badge-success",
                 ]}>
                   {policy.disabled ? "Disabled" : "Active"}
                 </span>
               </td>
               <td class="text-right">
-                <div class="flex justify-end gap-2">
-                  <button class="btn btn-ghost btn-xs" onclick={() => loadPolicyIntoForm(policy)}>
-                    Edit
-                  </button>
-                  <button
-                    class="btn btn-ghost btn-xs text-error"
-                    onclick={() => disablePolicy(policy)}
-                    disabled={policy.disabled || disableTarget === policy.contractId}
-                  >
-                    {disableTarget === policy.contractId ? "Disabling..." : "Disable"}
-                  </button>
-                </div>
+                <details class="dropdown dropdown-end">
+                  <summary class="btn btn-ghost btn-xs">Actions</summary>
+                  <ul class="menu dropdown-content z-10 mt-2 w-48 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl">
+                    <li><a href={resolve(`/admin/app-grants/edit?contract=${encodeURIComponent(policy.contractId)}`)}>Edit</a></li>
+                    <li><a class={policy.disabled ? "disabled" : "text-error"} href={resolve(`/admin/app-grants/disable?contract=${encodeURIComponent(policy.contractId)}`)}>Disable</a></li>
+                  </ul>
+                </details>
               </td>
             </tr>
           {/each}
@@ -340,5 +181,6 @@
       </table>
     </div>
     <p class="text-xs text-base-content/50">{policies.length} polic{policies.length === 1 ? "y" : "ies"}</p>
+    </Panel>
   {/if}
 </section>

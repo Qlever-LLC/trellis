@@ -61,8 +61,8 @@
     onAuthRequired={redirectToLogin}
   >
     {#snippet loading()}
-      <div class="flex min-h-screen items-center justify-center px-4 py-10">
-        <div class="card w-full max-w-sm bg-base-100 shadow-lg">
+      <div class="flex min-h-screen items-center justify-center bg-base-200 px-4 py-10">
+        <div class="card trellis-card w-full max-w-sm border border-base-300 bg-base-100 shadow-none">
           <div class="card-body text-center gap-3">
             <h1 class="text-lg font-semibold">Connecting</h1>
             <span class="loading loading-spinner loading-md mx-auto"></span>
@@ -76,8 +76,8 @@
     </AuthenticatedApp>
   </ConsoleTrellisProvider>
 {:else}
-  <div class="flex min-h-screen items-center justify-center px-4 py-10">
-    <div class="card w-full max-w-sm bg-base-100 shadow-lg">
+  <div class="flex min-h-screen items-center justify-center bg-base-200 px-4 py-10">
+    <div class="card trellis-card w-full max-w-sm border border-base-300 bg-base-100 shadow-none">
       <div class="card-body text-center gap-3">
         <h1 class="text-lg font-semibold">Redirecting to sign in</h1>
         <span class="loading loading-spinner loading-md mx-auto"></span>

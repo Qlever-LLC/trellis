@@ -1,14 +1,18 @@
 <script lang="ts">
+  import { isErr } from "@qlever-llc/result";
   import type {
-    AuthDisableDeviceInstanceInput,
-    AuthListDeviceDeploymentsOutput,
     AuthListDeviceInstancesInput,
     AuthListDeviceInstancesOutput,
-    AuthProvisionDeviceInstanceInput,
+    AuthListDeviceDeploymentsOutput,
   } from "@qlever-llc/trellis/sdk/auth";
+  import { resolve } from "$app/paths";
   import { onMount } from "svelte";
+  import EmptyState from "$lib/components/EmptyState.svelte";
+  import Icon from "$lib/components/Icon.svelte";
+  import LoadingState from "$lib/components/LoadingState.svelte";
+  import PageToolbar from "$lib/components/PageToolbar.svelte";
+  import Panel from "$lib/components/Panel.svelte";
   import { errorMessage, formatDate } from "../../../../../lib/format";
-  import { getNotifications } from "../../../../../lib/notifications.svelte";
   import { getTrellis } from "../../../../../lib/trellis";
 
   type Instance = AuthListDeviceInstancesOutput["instances"][number] & {
@@ -16,39 +20,18 @@
   };
   type Deployment = AuthListDeviceDeploymentsOutput["deployments"][number];
   type InstanceState = NonNullable<AuthListDeviceInstancesInput["state"]> | "all";
-  type DeviceMetadata = Record<string, string>;
-
   const understoodMetadataKeys = ["name", "serialNumber", "modelNumber"] as const;
 
   const trellis = getTrellis();
-  const notifications = getNotifications();
-  type InstancesRequester = {
-    request(method: "Auth.ListDeviceInstances", input: AuthListDeviceInstancesInput): { orThrow(): Promise<AuthListDeviceInstancesOutput> };
-    request(method: "Auth.ListDeviceDeployments", input: Record<string, never>): { orThrow(): Promise<AuthListDeviceDeploymentsOutput> };
-    request(method: "Auth.ProvisionDeviceInstance", input: AuthProvisionDeviceInstanceInput): { orThrow(): Promise<void> };
-    request(method: "Auth.DisableDeviceInstance", input: AuthDisableDeviceInstanceInput): { orThrow(): Promise<void> };
-  };
-  const instancesSource: object = trellis;
-  const instancesRequester = instancesSource as InstancesRequester;
 
   let loading = $state(true);
   let error = $state<string | null>(null);
-  let createPending = $state(false);
-  let disableTarget = $state<string | null>(null);
 
   let instances = $state<Instance[]>([]);
   let deployments = $state<Deployment[]>([]);
 
   let deploymentFilter = $state("");
   let stateFilter = $state<InstanceState>("all");
-
-  let provisionDeploymentId = $state("");
-  let publicIdentityKey = $state("");
-  let activationKey = $state("");
-  let metadataName = $state("");
-  let metadataSerialNumber = $state("");
-  let metadataModelNumber = $state("");
-  let opaqueMetadata = $state("");
 
   let showMetadata = $state(false);
 
@@ -64,15 +47,14 @@
     error = null;
     try {
       const [instancesResponse, deploymentsResponse] = await Promise.all([
-        instancesRequester.request("Auth.ListDeviceInstances", instanceQuery()).orThrow(),
-        instancesRequester.request("Auth.ListDeviceDeployments", {}).orThrow(),
+        trellis.request("Auth.ListDeviceInstances", instanceQuery()).take(),
+        trellis.request("Auth.ListDeviceDeployments", {}).take(),
       ]);
+      if (isErr(instancesResponse)) { error = errorMessage(instancesResponse); return; }
+      if (isErr(deploymentsResponse)) { error = errorMessage(deploymentsResponse); return; }
 
       instances = instancesResponse.instances ?? [];
       deployments = deploymentsResponse.deployments ?? [];
-      if (!provisionDeploymentId && deploymentsResponse.deployments?.length) {
-        provisionDeploymentId = deploymentsResponse.deployments[0]?.deploymentId ?? "";
-      }
     } catch (e) {
       error = errorMessage(e);
     } finally {
@@ -92,163 +74,24 @@
     return `${instance.instanceId}:${instance.createdAt}:${instance.publicIdentityKey}`;
   }
 
-  function parseProvisionMetadata(): DeviceMetadata | undefined {
-    const metadata: DeviceMetadata = {};
-
-    const understoodEntries = [
-      ["name", metadataName],
-      ["serialNumber", metadataSerialNumber],
-      ["modelNumber", metadataModelNumber],
-    ] as const;
-
-    for (const [key, rawValue] of understoodEntries) {
-      const value = rawValue.trim();
-      if (value) {
-        metadata[key] = value;
-      }
-    }
-
-    for (const [index, rawLine] of opaqueMetadata.split(/\r?\n/).entries()) {
-      const line = rawLine.trim();
-      if (!line) continue;
-
-      const separatorIndex = line.indexOf("=");
-      if (separatorIndex < 0) {
-        throw new Error(`Metadata line ${index + 1} must be key=value.`);
-      }
-
-      const key = line.slice(0, separatorIndex).trim();
-      const value = line.slice(separatorIndex + 1).trim();
-
-      if (!key || !value) {
-        throw new Error(`Metadata line ${index + 1} must have a non-empty key and value.`);
-      }
-      if (key in metadata) {
-        throw new Error(`Metadata key \"${key}\" is duplicated.`);
-      }
-
-      metadata[key] = value;
-    }
-
-    return Object.keys(metadata).length > 0 ? metadata : undefined;
-  }
-
-  async function provisionInstance() {
-    createPending = true;
-    error = null;
-    try {
-      const metadata = parseProvisionMetadata();
-      await instancesRequester.request(
-        "Auth.ProvisionDeviceInstance",
-        {
-          deploymentId: provisionDeploymentId,
-          publicIdentityKey: publicIdentityKey.trim(),
-          activationKey: activationKey.trim(),
-          ...(metadata ? { metadata } : {}),
-        } satisfies AuthProvisionDeviceInstanceInput,
-      ).orThrow();
-      notifications.success("Device instance provisioned.", "Provisioned");
-      publicIdentityKey = "";
-      activationKey = "";
-      metadataName = "";
-      metadataSerialNumber = "";
-      metadataModelNumber = "";
-      opaqueMetadata = "";
-      await load();
-    } catch (e) {
-      error = errorMessage(e);
-    } finally {
-      createPending = false;
-    }
-  }
-
-  async function disableInstance(instance: Instance) {
-    if (instance.state === "disabled") return;
-    if (!window.confirm(`Disable device instance ${instance.instanceId}?`)) return;
-
-    disableTarget = instance.instanceId;
-    error = null;
-    try {
-      await instancesRequester.request(
-        "Auth.DisableDeviceInstance",
-        { instanceId: instance.instanceId } satisfies AuthDisableDeviceInstanceInput,
-      ).orThrow();
-      notifications.success(`Device instance ${instance.instanceId} disabled.`, "Disabled");
-      await load();
-    } catch (e) {
-      error = errorMessage(e);
-    } finally {
-      disableTarget = null;
-    }
-  }
-
   onMount(() => {
     void load();
   });
 </script>
 
 <section class="space-y-4">
-  <div class="card border border-base-300 bg-base-100">
-    <div class="card-body gap-4">
-      <div>
-        <h2 class="card-title text-base">Provision device instance</h2>
-        <p class="text-sm text-base-content/60">Register a known device identity under an existing device deployment.</p>
-      </div>
-
-      <form class="grid gap-3 lg:grid-cols-[1fr_2fr_2fr]" onsubmit={(event) => { event.preventDefault(); void provisionInstance(); }}>
-        <label class="form-control gap-1">
-          <span class="label-text text-xs">Deployment</span>
-          <select class="select select-bordered select-sm" bind:value={provisionDeploymentId} required>
-            <option value="" disabled>Select a deployment</option>
-            {#each deployments as deployment (deployment.deploymentId)}
-              <option value={deployment.deploymentId} disabled={deployment.disabled}>{deployment.deploymentId}</option>
-            {/each}
-          </select>
-        </label>
-
-        <label class="form-control gap-1">
-          <span class="label-text text-xs">Public identity key</span>
-          <input class="input input-bordered input-sm font-mono" bind:value={publicIdentityKey} placeholder="base64url public key" required />
-        </label>
-
-        <label class="form-control gap-1">
-          <span class="label-text text-xs">Activation key</span>
-          <input class="input input-bordered input-sm font-mono" bind:value={activationKey} placeholder="base64url activation key" required />
-        </label>
-
-        <label class="form-control gap-1">
-          <span class="label-text text-xs">Name</span>
-          <input class="input input-bordered input-sm" bind:value={metadataName} placeholder="Optional display name" />
-        </label>
-
-        <label class="form-control gap-1">
-          <span class="label-text text-xs">Serial number</span>
-          <input class="input input-bordered input-sm" bind:value={metadataSerialNumber} placeholder="Optional serial" />
-        </label>
-
-        <label class="form-control gap-1">
-          <span class="label-text text-xs">Model number</span>
-          <input class="input input-bordered input-sm" bind:value={metadataModelNumber} placeholder="Optional model" />
-        </label>
-
-        <label class="form-control gap-1 lg:col-span-2">
-          <span class="label-text text-xs">Metadata</span>
-          <textarea
-            class="textarea textarea-bordered textarea-sm min-h-24 font-mono"
-            bind:value={opaqueMetadata}
-            placeholder="assetTag=asset-42
-location=front-desk"
-          ></textarea>
-        </label>
-
-        <div class="flex items-end lg:justify-end">
-          <button type="submit" class="btn btn-primary btn-sm" disabled={createPending || !provisionDeploymentId}>
-            {createPending ? "Provisioning…" : "Provision"}
-          </button>
-        </div>
-      </form>
-    </div>
-  </div>
+  <PageToolbar title="Device instances" description="Register known device identities and inspect activation state.">
+    {#snippet actions()}
+      <details class="dropdown dropdown-end">
+        <summary class="btn btn-outline btn-sm">Actions <Icon name="chevronDown" size={14} /></summary>
+        <ul class="menu dropdown-content z-10 mt-2 w-72 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl">
+          <li><a href={resolve("/admin/devices/instances/provision")}>Provision device instance</a></li>
+          <li><a href={resolve("/admin/devices/instances/disable")}>Disable device instance</a></li>
+        </ul>
+      </details>
+      <button class="btn btn-ghost btn-sm" onclick={load} disabled={loading}>Refresh</button>
+    {/snippet}
+  </PageToolbar>
 
   <div class="flex flex-wrap items-end justify-between gap-3">
     <form class="flex flex-wrap items-end gap-2" onsubmit={(event) => { event.preventDefault(); void load(); }}>
@@ -273,7 +116,7 @@ location=front-desk"
         </select>
       </label>
 
-      <button type="submit" class="btn btn-primary btn-sm" disabled={loading}>Apply</button>
+      <button type="submit" class="btn btn-outline btn-sm" disabled={loading}>Apply</button>
     </form>
 
     <div class="flex items-center gap-3">
@@ -281,8 +124,6 @@ location=front-desk"
         <span class="label-text text-sm">Show metadata</span>
         <input class="toggle toggle-sm" type="checkbox" bind:checked={showMetadata} />
       </label>
-
-      <button class="btn btn-ghost btn-sm" onclick={load} disabled={loading}>Refresh</button>
     </div>
   </div>
 
@@ -291,12 +132,13 @@ location=front-desk"
   {/if}
 
   {#if loading}
-    <div class="flex justify-center py-8"><span class="loading loading-spinner loading-md"></span></div>
+    <Panel><LoadingState label="Loading device instances" /></Panel>
   {:else if instances.length === 0}
-    <p class="text-sm text-base-content/60">No device instances found.</p>
+    <EmptyState title="No device instances" description="Provision an instance or adjust filters to see existing devices." />
   {:else}
-    <div class="overflow-x-auto">
-      <table class="table table-sm">
+    <Panel title="Instances" eyebrow="Primary table">
+      <div class="overflow-x-auto">
+      <table class="table table-sm trellis-table">
         <thead>
           <tr>
             <th>Instance</th>
@@ -317,7 +159,7 @@ location=front-desk"
         <tbody>
           {#each instances as instance (instanceRowKey(instance))}
             <tr>
-              <td class="font-medium">{instance.instanceId}</td>
+              <td class="trellis-identifier font-medium">{instance.instanceId}</td>
               <td class="text-base-content/60">{instance.deploymentId}</td>
               <td class="font-mono text-xs text-base-content/60">{instance.publicIdentityKey}</td>
               <td class="text-base-content/60">{understoodMetadataValue(instance, "name") ?? "—"}</td>
@@ -340,19 +182,18 @@ location=front-desk"
               <td class="text-base-content/60">{formatDate(instance.createdAt)}</td>
               <td class="text-base-content/60">{instance.activatedAt ? formatDate(instance.activatedAt) : "—"}</td>
               <td class="text-right">
-                <button
-                  class="btn btn-ghost btn-xs text-error"
-                  onclick={() => disableInstance(instance)}
-                  disabled={instance.state === "disabled" || disableTarget === instance.instanceId}
-                >
-                  {disableTarget === instance.instanceId ? "Disabling…" : "Disable"}
-                </button>
+                {#if instance.state === "disabled"}
+                  <span class="text-xs text-base-content/40">—</span>
+                {:else}
+                  <a class="btn btn-ghost btn-xs text-error" href={resolve(`/admin/devices/instances/disable?instance=${encodeURIComponent(instance.instanceId)}`)}>Disable</a>
+                {/if}
               </td>
             </tr>
           {/each}
         </tbody>
       </table>
-    </div>
-    <p class="text-xs text-base-content/50">{instances.length} instance{instances.length !== 1 ? "s" : ""}</p>
+      </div>
+      <p class="text-xs text-base-content/50">{instances.length} instance{instances.length !== 1 ? "s" : ""}</p>
+    </Panel>
   {/if}
 </section>

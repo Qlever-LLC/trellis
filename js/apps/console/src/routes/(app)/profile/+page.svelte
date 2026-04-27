@@ -1,5 +1,7 @@
 <script lang="ts">
+  import { isErr } from "@qlever-llc/result";
   import type { AuthMeOutput } from "@qlever-llc/trellis/sdk/auth";
+  import { resolve } from "$app/paths";
   import { onMount } from "svelte";
   import { getInitials, getRoleLabel } from "../../../lib/control-panel.ts";
   import {
@@ -10,20 +12,16 @@
     type UserGrantRecord,
   } from "../../../lib/auth_display.ts";
   import { errorMessage, formatDate } from "../../../lib/format";
-  import { getNotifications } from "../../../lib/notifications.svelte";
+  import EmptyState from "$lib/components/EmptyState.svelte";
+  import Icon from "$lib/components/Icon.svelte";
+  import InlineMetricsStrip from "$lib/components/InlineMetricsStrip.svelte";
+  import LoadingState from "$lib/components/LoadingState.svelte";
+  import PageToolbar from "$lib/components/PageToolbar.svelte";
+  import Panel from "$lib/components/Panel.svelte";
   import { getAuthenticatedUser, getConnection, getTrellis } from "../../../lib/trellis";
 
   const trellis = getTrellis();
   const connection = getConnection();
-  const notifications = getNotifications();
-  type ProfileRequester = {
-    request(method: "Auth.ListUserGrants", input: Record<string, never>): { orThrow(): Promise<{ grants: UserGrantRecord[] }> };
-    request(method: "Auth.RevokeUserGrant", input: RevokeUserGrantInput): { orThrow(): Promise<void> };
-  };
-  const profileSource: object = trellis;
-  const profileRequester = profileSource as ProfileRequester;
-
-  type RevokeUserGrantInput = { contractDigest: string };
 
   let loading = $state(true);
   let error = $state<string | null>(null);
@@ -31,7 +29,6 @@
   let participantKind = $state<ParticipantKind | null>(null);
   const connectionStatus = $derived(connection.status.phase);
   let grants = $state<UserGrantRecord[]>([]);
-  let revokeTarget = $state<string | null>(null);
 
   async function loadProfile() {
     loading = true;
@@ -40,28 +37,13 @@
       const me = await getAuthenticatedUser(trellis);
       user = me.user ?? null;
       participantKind = me.participantKind;
-      const grantsResponse = await profileRequester.request("Auth.ListUserGrants", {}).orThrow();
+      const grantsResponse = await trellis.request("Auth.ListUserGrants", {}).take();
+      if (isErr(grantsResponse)) { error = errorMessage(grantsResponse); return; }
       grants = grantsResponse.grants ?? [];
     } catch (e) {
       error = errorMessage(e);
     } finally {
       loading = false;
-    }
-  }
-
-  async function revokeGrant(grant: UserGrantRecord) {
-    if (!window.confirm(`Revoke this ${participantKindLabel(grant.participantKind).toLowerCase()} grant? ${grant.displayName || grant.contractId} will lose access to act on your behalf.`)) return;
-    revokeTarget = grant.contractDigest;
-    try {
-      await profileRequester.request("Auth.RevokeUserGrant", {
-        contractDigest: grant.contractDigest,
-      } satisfies RevokeUserGrantInput).orThrow();
-      notifications.success(`${participantKindLabel(grant.participantKind)} grant revoked.`, "Revoked");
-      await loadProfile();
-    } catch (e) {
-      error = errorMessage(e);
-    } finally {
-      revokeTarget = null;
     }
   }
 
@@ -71,13 +53,24 @@
 </script>
 
 {#if loading}
-  <div class="flex justify-center py-12">
-    <span class="loading loading-spinner loading-md"></span>
-  </div>
+  <Panel><LoadingState label="Loading profile" /></Panel>
 {:else if error}
   <div class="alert alert-error mb-4"><span>{error}</span></div>
 {:else if user}
-  <section class="space-y-6">
+  <section class="space-y-4">
+    <PageToolbar title="Profile" description="Review your principal, session state, capabilities, and delegated grants.">
+      {#snippet actions()}
+        <button class="btn btn-ghost btn-sm" onclick={loadProfile}>Refresh</button>
+        <details class="dropdown dropdown-end">
+          <summary class="btn btn-outline btn-sm">Actions <Icon name="chevronDown" size={14} /></summary>
+          <ul class="menu dropdown-content z-10 mt-2 w-56 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl">
+            <li><a href={resolve("/profile/grants/revoke")}>Revoke a delegated grant</a></li>
+          </ul>
+        </details>
+      {/snippet}
+    </PageToolbar>
+
+    <Panel title={user.name} eyebrow="Signed-in principal">
     <div class="flex items-center gap-4">
       {#if user.image}
         <div class="avatar">
@@ -96,67 +89,29 @@
         <h2 class="text-xl font-semibold">{user.name}</h2>
         <p class="text-sm text-base-content/60">{getRoleLabel(user)}</p>
       </div>
-      <div class="ml-auto">
-        <button class="btn btn-ghost btn-sm" onclick={loadProfile}>Refresh</button>
-      </div>
     </div>
+    </Panel>
 
-    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-      <div class="card bg-base-100 border border-base-300">
-        <div class="card-body p-4">
-          <p class="text-xs uppercase font-semibold text-base-content/50">Origin</p>
-          <p class="text-sm mt-1">{user.origin}</p>
-        </div>
-      </div>
-      <div class="card bg-base-100 border border-base-300">
-        <div class="card-body p-4">
-          <p class="text-xs uppercase font-semibold text-base-content/50">Signed in as</p>
-          {#if participantKind}
-            <span class={["badge badge-sm mt-1", participantKindBadgeClass(participantKind)]}>
-              {participantKindLabel(participantKind)}
-            </span>
-          {:else}
-            <p class="text-sm mt-1">—</p>
-          {/if}
-        </div>
-      </div>
-      <div class="card bg-base-100 border border-base-300">
-        <div class="card-body p-4">
-          <p class="text-xs uppercase font-semibold text-base-content/50">Session</p>
-          <p class="text-sm mt-1 flex items-center gap-2">
-            <span class="inline-block w-2 h-2 rounded-full" class:bg-success={connectionStatus === "connected"} class:bg-warning={connectionStatus === "reconnecting"} class:bg-error={connectionStatus !== "connected" && connectionStatus !== "reconnecting"}></span>
-            {connectionStatus === "connected" ? "Connected" : connectionStatus === "reconnecting" ? "Reconnecting" : "Disconnected"}
-          </p>
-        </div>
-      </div>
-    </div>
+    <InlineMetricsStrip metrics={[{ label: "Origin", value: user.origin }, { label: "Signed in as", value: participantKind ? participantKindLabel(participantKind) : "—" }, { label: "Session", value: connectionStatus === "connected" ? "Connected" : connectionStatus === "reconnecting" ? "Reconnecting" : "Disconnected" }]} />
 
     {#if user.capabilities?.length}
-      <div>
+      <Panel title="Capabilities" eyebrow="User grants">
         <h3 class="text-sm font-semibold mb-2">Capabilities</h3>
         <div class="flex flex-wrap gap-2">
           {#each user.capabilities as cap (cap)}
             <span class="badge badge-outline badge-sm">{cap}</span>
           {/each}
         </div>
-      </div>
+      </Panel>
     {/if}
 
-    <div class="divider"></div>
-
-    <div>
-      <div class="flex items-center justify-between mb-3">
-        <div>
-          <h3 class="text-sm font-semibold">Delegated grants</h3>
-          <p class="text-xs text-base-content/50 mt-1">Review the apps and agents that can act on your behalf and revoke access when needed.</p>
-        </div>
-      </div>
+    <Panel title="Delegated grants" eyebrow="Primary table">
 
       {#if grants.length === 0}
-        <p class="text-sm text-base-content/60">No delegated app or agent grants.</p>
+        <EmptyState title="No delegated grants" description="No apps or agents currently act on your behalf." />
       {:else}
         <div class="overflow-x-auto">
-          <table class="table table-sm">
+          <table class="table table-sm trellis-table">
             <thead>
               <tr>
                 <th>Grant</th>
@@ -200,13 +155,12 @@
                     <div>Updated {formatDate(grant.updatedAt)}</div>
                   </td>
                   <td class="text-right">
-                    <button
-                      class="btn btn-ghost btn-xs text-error"
-                      onclick={() => revokeGrant(grant)}
-                      disabled={revokeTarget === grant.contractDigest}
-                    >
-                      {revokeTarget === grant.contractDigest ? "Revoking…" : "Revoke"}
-                    </button>
+                    <details class="dropdown dropdown-end">
+                      <summary class="btn btn-ghost btn-xs">Actions</summary>
+                      <ul class="menu dropdown-content z-10 mt-2 w-48 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl">
+                        <li><a class="text-error" href={resolve(`/profile/grants/revoke?grant=${encodeURIComponent(grant.contractDigest)}`)}>Revoke</a></li>
+                      </ul>
+                    </details>
                   </td>
                 </tr>
               {/each}
@@ -214,6 +168,6 @@
           </table>
         </div>
       {/if}
-    </div>
+    </Panel>
   </section>
 {/if}

@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { AuthMeOutput } from "@qlever-llc/trellis/sdk/auth";
   import { afterNavigate } from "$app/navigation";
-  import { base } from "$app/paths";
+  import { base, resolve } from "$app/paths";
   import { page } from "$app/state";
   import type { Snippet } from "svelte";
   import type { ConnectionStatus } from "../trellis";
@@ -12,6 +12,9 @@
     requiresAdminRoute,
     type NavSection,
   } from "../control-panel.ts";
+  import Icon from "./Icon.svelte";
+  import LoadingState from "./LoadingState.svelte";
+  import StatusBadge from "./StatusBadge.svelte";
   import ToastViewport from "./ToastViewport.svelte";
 
   type Props = {
@@ -34,21 +37,19 @@
     onSignOut,
   }: Props = $props();
 
-  let darkMode = $state(
-    typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches
-  );
+  let darkMode = $state(false);
   let drawerOpen = $state(false);
 
   const routePath = $derived(toRoutePath(page.url.pathname));
   const pageTitle = $derived(getPageTitle(routePath));
-  const statusColor = $derived(
-    connectionStatus === "connected" ? "text-success" :
-    connectionStatus === "reconnecting" ? "text-warning" : "text-error"
+  const connectionLabel = $derived(
+    connectionStatus === "connected" ? "Connected" :
+      connectionStatus === "reconnecting" ? "Reconnecting" : "Offline"
   );
-
-  function resolveAppPath(path: string): string {
-    return `${base}${path}`;
-  }
+  const connectionVariant = $derived(
+    connectionStatus === "connected" ? "healthy" :
+      connectionStatus === "reconnecting" ? "degraded" : "unhealthy"
+  );
 
   function toRoutePath(pathname: string): string {
     if (base && pathname === base) {
@@ -68,7 +69,7 @@
 
   function toggleTheme(): void {
     darkMode = !darkMode;
-    document.documentElement.setAttribute("data-theme", darkMode ? "dracula" : "corporate");
+    document.documentElement.setAttribute("data-theme", darkMode ? "dracula" : "trellis");
   }
 
   afterNavigate(() => {
@@ -82,36 +83,68 @@
 
 <a class="skip-link btn btn-sm btn-primary" href="#trellis-main">Skip to main content</a>
 
-<div class="drawer min-h-screen lg:drawer-open" data-theme={darkMode ? "dracula" : "corporate"}>
+<div class="drawer min-h-screen bg-base-200 lg:drawer-open" data-theme={darkMode ? "dracula" : "trellis"}>
   <input id="trellis-nav" type="checkbox" class="drawer-toggle" bind:checked={drawerOpen} />
 
-  <div class="drawer-content flex flex-col">
-    <header class="navbar bg-base-100 border-b border-base-300 sticky top-0 z-30">
-      <div class="flex-none lg:hidden">
+  <div class="drawer-content flex min-w-0 flex-col">
+    <header class="navbar trellis-topbar sticky top-0 z-30 h-16 min-h-16 border-b border-base-300 bg-base-100/95 px-4 backdrop-blur lg:px-7">
+      <div class="navbar-start gap-3">
         <button
           type="button"
           class="btn btn-square btn-ghost"
-          aria-label="Open navigation"
+          aria-label="Toggle navigation"
           onclick={() => { drawerOpen = !drawerOpen; }}
         >
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="h-5 w-5 fill-none stroke-current" stroke-width="1.8">
-            <path stroke-linecap="round" d="M4 7h16M4 12h16M4 17h16"></path>
-          </svg>
+          <Icon name="menu" size={20} />
         </button>
+        <label class="input input-bordered input-sm hidden w-[420px] items-center gap-2 bg-base-100 shadow-sm md:flex">
+          <Icon name="search" size={16} class="opacity-50" />
+          <input type="search" class="grow" placeholder="Search or run command..." aria-label="Search or run command" readonly />
+          <kbd class="kbd kbd-xs">⌘ K</kbd>
+        </label>
       </div>
-      <div class="flex-1 px-2">
-        <h1 class="text-lg font-semibold">{pageTitle}</h1>
-      </div>
-      <div class="flex-none">
+      <div class="navbar-end gap-2 sm:gap-3">
+        <StatusBadge label={`${connectionLabel}: Trellis`} status={connectionVariant} class="hidden sm:inline-flex px-3" />
+        <div class="divider divider-horizontal mx-0 hidden lg:flex"></div>
         <label class="swap swap-rotate btn btn-ghost btn-square btn-sm">
           <input type="checkbox" checked={darkMode} onchange={toggleTheme} />
-          <svg class="swap-off h-5 w-5 fill-current" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21.64,13a1,1,0,0,0-1.05-.14,8.05,8.05,0,0,1-3.37.73A8.15,8.15,0,0,1,9.08,5.49a8.59,8.59,0,0,1,.25-2A1,1,0,0,0,8,2.36,10.14,10.14,0,1,0,22,14.05,1,1,0,0,0,21.64,13ZM18,22A10.11,10.11,0,0,1,6,13.09,10.28,10.28,0,0,1,11.09,4,12.09,12.09,0,0,0,17,6.86,6.15,6.15,0,0,0,23.14,13,10.11,10.11,0,0,1,18,22Z"/></svg>
-          <svg class="swap-on h-5 w-5 fill-current" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M5.64,17l-.71.71a1,1,0,0,0,0,1.41,1,1,0,0,0,1.41,0l.71-.71A1,1,0,0,0,5.64,17ZM5,12a1,1,0,0,0-1-1H3a1,1,0,0,0,0,2H4A1,1,0,0,0,5,12Zm7-7a1,1,0,0,0,1-1V3a1,1,0,0,0-2,0V4A1,1,0,0,0,12,5ZM5.64,7.05a1,1,0,0,0,.7.29,1,1,0,0,0,.71-.29,1,1,0,0,0,0-1.41l-.71-.71A1,1,0,0,0,4.93,6.34Zm12,.29a1,1,0,0,0,.7-.29l.71-.71a1,1,0,1,0-1.41-1.41L17,5.64a1,1,0,0,0,0,1.41A1,1,0,0,0,17.66,7.34ZM21,11H20a1,1,0,0,0,0,2h1a1,1,0,0,0,0-2Zm-9,8a1,1,0,0,0-1,1v1a1,1,0,0,0,2,0V20A1,1,0,0,0,12,19ZM18.36,17A1,1,0,0,0,17,18.36l.71.71a1,1,0,0,0,1.41,0,1,1,0,0,0,0-1.41ZM12,6.5A5.5,5.5,0,1,0,17.5,12,5.51,5.51,0,0,0,12,6.5Zm0,9A3.5,3.5,0,1,1,15.5,12,3.5,3.5,0,0,1,12,15.5Z"/></svg>
+          <Icon name="sun" size={20} class="swap-off" />
+          <Icon name="sun" size={20} class="swap-on" />
         </label>
+        <button class="btn btn-ghost btn-square btn-sm" aria-label="Notifications">
+          <Icon name="bell" size={20} />
+        </button>
+        {#if profile}
+          <details class="dropdown dropdown-end">
+            <summary class="btn btn-ghost gap-2 rounded-full pr-2" aria-label="Open user menu">
+              {#if profile.image}
+                <div class="avatar">
+                  <div class="w-8 rounded-full">
+                    <img src={profile.image} alt={profile.name} />
+                  </div>
+                </div>
+              {:else}
+                <div class="avatar avatar-placeholder">
+                  <div class="w-8 rounded-full bg-neutral text-neutral-content">
+                    <span class="text-xs">{getInitials(profile)}</span>
+                  </div>
+                </div>
+              {/if}
+              <Icon name="chevronDown" size={16} class="opacity-60" />
+            </summary>
+            <div class="menu dropdown-content z-50 mt-3 w-64 rounded-box border border-base-300 bg-base-100 p-2 shadow-sm">
+              <div class="px-2 py-2">
+                <p class="truncate text-sm font-medium">{profile.name}</p>
+                <p class="text-xs text-base-content/60">{getRoleLabel(profile)}</p>
+              </div>
+              <button type="button" class="btn btn-ghost btn-sm justify-start" onclick={onSignOut}>Sign out</button>
+            </div>
+          </details>
+        {/if}
       </div>
     </header>
 
-    <main id="trellis-main" tabindex="-1" class="flex-1 p-4 lg:p-6 max-w-7xl w-full mx-auto">
+    <main id="trellis-main" tabindex="-1" class="mx-auto w-full max-w-[1500px] flex-1 px-4 py-7 outline-none lg:px-8">
       {#if authFailure}
         <div class="alert alert-error mb-4">
           <span>{authFailure}</span>
@@ -119,9 +152,7 @@
       {/if}
 
       {#if requiresAdminRoute(routePath) && !profileLoaded}
-        <div class="flex items-center justify-center min-h-[40vh]">
-          <span class="loading loading-spinner loading-md"></span>
-        </div>
+        <LoadingState label="Loading operator profile" class="min-h-[40vh]" />
       {:else}
         {@render children()}
       {/if}
@@ -133,36 +164,52 @@
   <div class="drawer-side z-40">
     <label for="trellis-nav" class="drawer-overlay" aria-hidden="true"></label>
 
-    <aside class="bg-base-200 min-h-full w-64 flex flex-col">
-      <div class="p-4 border-b border-base-300">
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-2">
-            <span class="text-lg font-bold">Trellis</span>
-            <span class={`inline-block w-2 h-2 rounded-full ${statusColor}`}></span>
-          </div>
-          <button type="button" class="btn btn-square btn-ghost btn-sm lg:hidden" aria-label="Close navigation" onclick={closeDrawer}>
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="h-4 w-4 fill-none stroke-current" stroke-width="1.8">
-              <path stroke-linecap="round" d="M6 6l12 12M18 6L6 18"></path>
-            </svg>
-          </button>
+    <aside class="trellis-sidebar flex min-h-full w-[251px] flex-col">
+      <div class="flex h-[76px] items-center gap-3 px-6">
+        <div class="grid h-9 w-9 place-items-center rounded-xl border border-success/40 bg-success/10 text-success">
+          <Icon name="cpu" size={22} />
         </div>
+        <div>
+          <div class="text-2xl font-semibold leading-none tracking-tight text-white">Trellis</div>
+          <div class="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">Console</div>
+        </div>
+        <button type="button" class="btn btn-square btn-ghost btn-sm ml-auto lg:hidden" aria-label="Close navigation" onclick={closeDrawer}>
+          <Icon name="menu" size={18} />
+        </button>
       </div>
 
-      <nav class="flex-1 p-4" aria-label="Primary">
+      <div class="hidden border-b border-neutral-content/10"></div>
+
+      <nav class="flex-1 space-y-8 overflow-y-auto px-3 pt-3" aria-label="Primary">
         {#each navSections as section (section.title)}
-          <div class="mb-4">
-            <p class="text-xs font-semibold uppercase tracking-wider text-base-content/50 mb-2 px-2">{section.title}</p>
-            <ul class="menu menu-sm gap-1">
+          <div>
+            <p class="mb-2 px-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">{section.title}</p>
+            <ul class="menu gap-1 p-0">
               {#each section.items as item (item.href)}
                 <li>
-                  <a
-                    href={resolveAppPath(item.href)}
-                    class:active={routePath === item.href}
-                    aria-current={routePath === item.href ? "page" : undefined}
-                    onclick={closeDrawer}
-                  >
-                    {item.label}
-                  </a>
+                  {#if item.href === "/admin"}
+                    <a href={resolve("/admin")} class={{ active: routePath === item.href }} aria-current={routePath === item.href ? "page" : undefined} onclick={closeDrawer}><Icon name={item.icon} size={16} />{item.label}</a>
+                  {:else if item.href === "/admin/health-events"}
+                    <a href={resolve("/admin/health-events")} class={{ active: routePath === item.href }} aria-current={routePath === item.href ? "page" : undefined} onclick={closeDrawer}><Icon name={item.icon} size={16} />{item.label}</a>
+                  {:else if item.href === "/admin/sessions"}
+                    <a href={resolve("/admin/sessions")} class={{ active: routePath === item.href }} aria-current={routePath === item.href ? "page" : undefined} onclick={closeDrawer}><Icon name={item.icon} size={16} />{item.label}</a>
+                  {:else if item.href === "/admin/jobs"}
+                    <a href={resolve("/admin/jobs")} class={{ active: routePath === item.href }} aria-current={routePath === item.href ? "page" : undefined} onclick={closeDrawer}><Icon name={item.icon} size={16} />{item.label}</a>
+                  {:else if item.href === "/admin/contracts"}
+                    <a href={resolve("/admin/contracts")} class={{ active: routePath === item.href }} aria-current={routePath === item.href ? "page" : undefined} onclick={closeDrawer}><Icon name={item.icon} size={16} />{item.label}</a>
+                  {:else if item.href === "/admin/services"}
+                    <a href={resolve("/admin/services")} class={{ active: routePath === item.href }} aria-current={routePath === item.href ? "page" : undefined} onclick={closeDrawer}><Icon name={item.icon} size={16} />{item.label}</a>
+                  {:else if item.href === "/admin/devices/instances"}
+                    <a href={resolve("/admin/devices/instances")} class={{ active: routePath === item.href }} aria-current={routePath === item.href ? "page" : undefined} onclick={closeDrawer}><Icon name={item.icon} size={16} />{item.label}</a>
+                  {:else if item.href === "/admin/users"}
+                    <a href={resolve("/admin/users")} class={{ active: routePath === item.href }} aria-current={routePath === item.href ? "page" : undefined} onclick={closeDrawer}><Icon name={item.icon} size={16} />{item.label}</a>
+                  {:else if item.href === "/admin/app-grants"}
+                    <a href={resolve("/admin/app-grants")} class={{ active: routePath === item.href }} aria-current={routePath === item.href ? "page" : undefined} onclick={closeDrawer}><Icon name={item.icon} size={16} />{item.label}</a>
+                  {:else if item.href === "/admin/portals"}
+                    <a href={resolve("/admin/portals")} class={{ active: routePath === item.href }} aria-current={routePath === item.href ? "page" : undefined} onclick={closeDrawer}><Icon name={item.icon} size={16} />{item.label}</a>
+                  {:else}
+                    <a href={resolve("/profile")} class={{ active: routePath === item.href }} aria-current={routePath === item.href ? "page" : undefined} onclick={closeDrawer}><Icon name={item.icon} size={16} />{item.label}</a>
+                  {/if}
                 </li>
               {/each}
             </ul>
@@ -170,30 +217,14 @@
         {/each}
       </nav>
 
-      {#if profile}
-        <div class="p-4 border-t border-base-300">
-          <div class="flex items-center gap-3 mb-2">
-            {#if profile.image}
-              <div class="avatar">
-                <div class="w-8 rounded-full">
-                  <img src={profile.image} alt={profile.name} />
-                </div>
-              </div>
-            {:else}
-              <div class="avatar avatar-placeholder">
-                <div class="bg-neutral text-neutral-content w-8 rounded-full">
-                  <span class="text-xs">{getInitials(profile)}</span>
-                </div>
-              </div>
-            {/if}
-            <div class="min-w-0">
-              <p class="text-sm font-medium truncate">{profile.name}</p>
-              <p class="text-xs text-base-content/60">{getRoleLabel(profile)}</p>
-            </div>
-          </div>
-          <button class="btn btn-ghost btn-sm btn-block justify-start" onclick={onSignOut}>Sign out</button>
+      <div class="m-3 rounded-box border border-white/10 bg-white/5 p-4 text-sm">
+        <div class="mb-3 flex items-center gap-2 text-slate-100">
+          <span class="h-2.5 w-2.5 rounded-full bg-success"></span>
+          Connected: Trellis
         </div>
-      {/if}
+        <div class="text-slate-400">Trellis Runtime</div>
+        <div class="mt-1 text-xs text-slate-500">v1.12.3</div>
+      </div>
     </aside>
   </div>
 </div>

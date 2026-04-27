@@ -97,7 +97,7 @@ export function participantKindBadgeClass(kind: ParticipantKind): string {
     case "device":
       return "badge-accent";
     case "service":
-      return "badge-ghost";
+      return "badge-outline";
   }
 
   const exhaustive: never = kind;
