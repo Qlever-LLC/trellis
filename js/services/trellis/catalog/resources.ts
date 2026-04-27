@@ -385,6 +385,33 @@ function sanitizeToken(value: string): string {
   return sanitized.length > 0 ? sanitized : "resource";
 }
 
+function stableResourceHash(parts: readonly string[]): string {
+  let hash = 0xcbf29ce484222325n;
+  const prime = 0x100000001b3n;
+  const mask = 0xffffffffffffffffn;
+  for (const byte of new TextEncoder().encode(parts.join("\u001f"))) {
+    hash ^= BigInt(byte);
+    hash = (hash * prime) & mask;
+  }
+  return hash.toString(16).padStart(16, "0").slice(0, 12);
+}
+
+function buildResourceName(
+  serviceDeploymentId: string,
+  contractId: string,
+  alias: string,
+): string {
+  const service = sanitizeToken(serviceDeploymentId).slice(0, 12);
+  const contract = sanitizeToken(contractId).slice(0, 12);
+  const logical = sanitizeToken(alias).slice(0, 20);
+  const hash = stableResourceHash([serviceDeploymentId, contractId, alias]);
+  return `svc_${service}_${contract}_${logical}_${hash}`;
+}
+
+function addSubjects(target: Set<string>, subjects: Iterable<string>): void {
+  for (const subject of subjects) target.add(subject);
+}
+
 export function getKvResourceRequests(
   contract: TrellisContractV1,
 ): KvResourceRequest[] {
@@ -591,42 +618,44 @@ export function getContractResourceSummary(
 }
 
 function buildKvBucketName(
-  serviceSessionKey: string,
+  serviceDeploymentId: string,
   contractId: string,
   alias: string,
 ): string {
-  const service = sanitizeToken(serviceSessionKey).slice(0, 16);
-  const contract = sanitizeToken(contractId).slice(0, 16);
-  const logical = sanitizeToken(alias).slice(0, 24);
-  return `svc_${service}_${contract}_${logical}`;
+  return buildResourceName(serviceDeploymentId, contractId, alias);
 }
 
 function buildStreamName(
-  serviceSessionKey: string,
+  serviceDeploymentId: string,
   contractId: string,
   alias: string,
 ): string {
-  const service = sanitizeToken(serviceSessionKey).slice(0, 16);
-  const contract = sanitizeToken(contractId).slice(0, 16);
-  const logical = sanitizeToken(alias).slice(0, 24);
-  return `svc_${service}_${contract}_${logical}`;
+  return buildResourceName(serviceDeploymentId, contractId, alias);
 }
 
 function buildStoreName(
-  serviceSessionKey: string,
+  serviceDeploymentId: string,
   contractId: string,
   alias: string,
 ): string {
-  const service = sanitizeToken(serviceSessionKey).slice(0, 16);
-  const contract = sanitizeToken(contractId).slice(0, 16);
-  const logical = sanitizeToken(alias).slice(0, 24);
-  return `svc_${service}_${contract}_${logical}`;
+  return buildResourceName(serviceDeploymentId, contractId, alias);
+}
+
+function buildJobsNamespace(
+  serviceDeploymentId: string,
+  contractId: string,
+): string {
+  const service = sanitizeToken(serviceDeploymentId).slice(0, 8);
+  const contract = sanitizeToken(contractId).slice(0, 8);
+  const hash = stableResourceHash([serviceDeploymentId, contractId, "jobs"])
+    .slice(0, 12);
+  return `${service}_${contract}_${hash}`.slice(0, 32);
 }
 
 export async function provisionContractResourceBindings(
   nats: NatsConnection | undefined,
   contract: TrellisContractV1,
-  serviceSessionKey: string,
+  serviceDeploymentId: string,
 ): Promise<ContractResourceBindings> {
   const requests = getKvResourceRequests(contract);
   const stores = getStoreResourceRequests(contract);
@@ -649,7 +678,7 @@ export async function provisionContractResourceBindings(
     }
     for (const request of requests) {
       const bucket = buildKvBucketName(
-        serviceSessionKey,
+        serviceDeploymentId,
         contract.id,
         request.alias,
       );
@@ -680,7 +709,7 @@ export async function provisionContractResourceBindings(
     bindings.store = Object.fromEntries(
       await Promise.all(stores.map(async (store) => {
         const name = buildStoreName(
-          serviceSessionKey,
+          serviceDeploymentId,
           contract.id,
           store.alias,
         );
@@ -703,7 +732,7 @@ export async function provisionContractResourceBindings(
   if (streams.length > 0) {
     const streamBindings = resolveStreamBindings(
       streams,
-      (alias) => buildStreamName(serviceSessionKey, contract.id, alias),
+      (alias) => buildStreamName(serviceDeploymentId, contract.id, alias),
     );
     if (nats) {
       await Promise.all(
@@ -719,7 +748,7 @@ export async function provisionContractResourceBindings(
     if (nats) {
       await ensureBuiltinJobsInfrastructure(nats);
     }
-    const namespace = sanitizeToken(serviceSessionKey).slice(0, 32);
+    const namespace = buildJobsNamespace(serviceDeploymentId, contract.id);
     bindings.jobs = {
       namespace,
       jobsStateBucket: BUILTIN_JOBS_STATE_BUCKET,
@@ -774,12 +803,8 @@ export function getResourcePermissionGrants(
 
   for (const kvBinding of Object.values(bindings?.kv ?? {})) {
     const grants = getKvPermissionGrants(kvBinding.bucket);
-    for (const subject of grants.publish) {
-      publish.add(subject);
-    }
-    for (const subject of grants.subscribe) {
-      subscribe.add(subject);
-    }
+    addSubjects(publish, grants.publish);
+    addSubjects(subscribe, grants.subscribe);
   }
 
   for (const storeBinding of Object.values(bindings?.store ?? {})) {

@@ -6,14 +6,14 @@ import { registerHttpRoutes } from "../http/routes.ts";
 import type {
   SqlContractApprovalRepository,
   SqlDeviceActivationRepository,
+  SqlDeviceDeploymentRepository,
   SqlDeviceInstanceRepository,
   SqlDevicePortalSelectionRepository,
-  SqlDeviceProfileRepository,
   SqlLoginPortalSelectionRepository,
   SqlPortalDefaultRepository,
   SqlPortalRepository,
+  SqlServiceDeploymentRepository,
   SqlServiceInstanceRepository,
-  SqlServiceProfileRepository,
   SqlUserProjectionRepository,
 } from "../storage.ts";
 
@@ -30,10 +30,10 @@ export function registerAuthHttpRoutes(deps: {
   portalDefaultStorage: SqlPortalDefaultRepository;
   loginPortalSelectionStorage: SqlLoginPortalSelectionRepository;
   devicePortalSelectionStorage: SqlDevicePortalSelectionRepository;
-  deviceProfileStorage: SqlDeviceProfileRepository;
+  deviceDeploymentStorage: SqlDeviceDeploymentRepository;
   deviceInstanceStorage: SqlDeviceInstanceRepository;
   deviceActivationStorage: SqlDeviceActivationRepository;
-  serviceProfileStorage: SqlServiceProfileRepository;
+  serviceDeploymentStorage: SqlServiceDeploymentRepository;
   serviceInstanceStorage: SqlServiceInstanceRepository;
 }): void {
   registerBuiltinPortalStaticRoutes(deps.app);
@@ -45,10 +45,10 @@ export function registerAuthHttpRoutes(deps: {
     portalDefaultStorage: deps.portalDefaultStorage,
     loginPortalSelectionStorage: deps.loginPortalSelectionStorage,
     devicePortalSelectionStorage: deps.devicePortalSelectionStorage,
-    deviceProfileStorage: deps.deviceProfileStorage,
+    deviceDeploymentStorage: deps.deviceDeploymentStorage,
     deviceInstanceStorage: deps.deviceInstanceStorage,
     deviceActivationStorage: deps.deviceActivationStorage,
-    serviceProfileStorage: deps.serviceProfileStorage,
+    serviceDeploymentStorage: deps.serviceDeploymentStorage,
     serviceInstanceStorage: deps.serviceInstanceStorage,
     contractStore: deps.contracts.contractStore,
     refreshActiveContracts: deps.contracts.refreshActiveContracts,

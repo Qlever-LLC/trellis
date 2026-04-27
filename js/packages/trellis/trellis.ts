@@ -2273,7 +2273,7 @@ export class Trellis<
         }
         if (caller.type === "device") {
           span.setAttribute("device.id", caller.deviceId);
-          span.setAttribute("device.profile_id", caller.profileId);
+          span.setAttribute("device.deployment_id", caller.deploymentId);
         }
 
         const invokeHandler = fn as (

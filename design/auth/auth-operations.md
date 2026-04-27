@@ -83,7 +83,7 @@ Cluster-wide required state:
 - device activation flow store
 - device activation record store
 - device instance store
-- device profile store
+- device deployment store
 - portal store
 - login portal selection store
 - device portal selection store

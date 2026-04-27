@@ -1,4 +1,4 @@
-This guide walks through building a custom Trellis portal for custom login and onboarding experiences. Trellis already ships with a built-in portal for both user login and generic device onboarding. Custom portals let a Trellis admin replace that built-in experience for all login flows, one browser app, all device flows, or one device profile.
+This guide walks through building a custom Trellis portal for custom login and onboarding experiences. Trellis already ships with a built-in portal for both user login and generic device onboarding. Custom portals let a Trellis admin replace that built-in experience for all login flows, one browser app, all device flows, or one device deployment.
 
 Before starting, read [Trellis Concepts](/guides/concepts) and [Write a SvelteKit app](/guides/writing-sveltekit-apps) for background on contracts, auth flows, and packages.
 
@@ -170,25 +170,21 @@ With the portal deployed, register it with Trellis.
 For a passive portal that only handles sign-in and approval:
 
 ```sh
-trellis portals create \
-  --portal-id my-portal \
-  --entry-url https://my-portal.example.com/login
+trellis portal create my-portal https://my-portal.example.com/login
 ```
 
 For a portal that also talks to Trellis after login:
 
 ```sh
-trellis portals create \
-  --portal-id my-portal \
-  --entry-url https://my-portal.example.com/login \
-  --app-contract-id my-portal@v1
+trellis portal create my-portal https://my-portal.example.com/login
+trellis portal profile set my-portal https://my-portal.example.com/login my-portal@v1
 ```
 
 Flag meanings:
 
-- `--portal-id`: stable deployment-owned identifier for this portal
-- `--entry-url`: browser entry point Trellis redirects into for auth or activation flows
-- `--app-contract-id`: optional browser app contract used only when the portal later calls Trellis as the logged-in user
+- `my-portal`: stable deployment-owned identifier for this portal
+- `https://my-portal.example.com/login`: browser entry point Trellis redirects into for auth or activation flows
+- `trellis portal profile set`: optional browser app contract policy used only when the portal later calls Trellis as the logged-in user
 
 ## 6. Choose where Trellis uses this portal
 
@@ -197,69 +193,61 @@ Once a portal is registered, Trellis trusts it to carry out the flows it is sele
 ### For all browser logins
 
 ```sh
-trellis portals logins default set --portal-id my-portal
+trellis portal login set-default --portal my-portal
 ```
 
 To switch back to the built-in Trellis login portal:
 
 ```sh
-trellis portals logins default set --builtin
+trellis portal login set-default --builtin
 ```
 
 ### For one browser app
 
 ```sh
-trellis portals logins set \
-  --contract-id my-console@v1 \
-  --portal-id my-portal
+trellis portal login set my-console@v1 --portal my-portal
 ```
 
 To force the built-in Trellis login portal for one app, even when a custom login default exists:
 
 ```sh
-trellis portals logins set \
-  --contract-id my-console@v1 \
-  --builtin
+trellis portal login set my-console@v1 --builtin
 ```
 
 To remove the app-specific rule and return to the login default chain:
 
 ```sh
-trellis portals logins clear --contract-id my-console@v1
+trellis portal login clear my-console@v1
 ```
 
 ### For all device onboarding
 
 ```sh
-trellis portals devices default set --portal-id my-portal
+trellis portal device set-default --portal my-portal
 ```
 
 To switch back to the built-in Trellis device portal:
 
 ```sh
-trellis portals devices default set --builtin
+trellis portal device set-default --builtin
 ```
 
-### For one device profile
+### For one device deployment
 
 ```sh
-trellis portals devices set \
-  --profile-id my-device.default \
-  --portal-id my-portal
+trellis portal device set my-device.default --portal my-portal
 ```
 
-To force the built-in Trellis device portal for one profile, even when a custom device default exists:
+To force the built-in Trellis device portal for one deployment, even when a custom device default exists:
 
 ```sh
-trellis portals devices set \
-  --profile-id my-device.default \
-  --builtin
+trellis portal device set my-device.default --builtin
 ```
 
-To remove the profile-specific rule and return to the device default chain:
+To remove the deployment-specific rule and return to the device default chain:
 
 ```sh
-trellis portals devices clear --profile-id my-device.default
+trellis portal device clear my-device.default
 ```
 
 ## 7. Test the flow
@@ -268,35 +256,31 @@ Open the Trellis-connected browser app or device flow you want to test. The brow
 
 ## Updating the portal record
 
-Re-register the portal if the `entryUrl` or optional `appContractId` changes:
+Re-register the portal if the `entryUrl` changes, and update the portal profile if the portal app contract changes:
 
 ```sh
-trellis portals create \
-  --portal-id my-portal \
-  --entry-url https://my-portal.example.com/login \
-  --app-contract-id my-portal@v2
+trellis portal create my-portal https://my-portal.example.com/login
+trellis portal profile set my-portal https://my-portal.example.com/login my-portal@v2
 ```
 
-For a passive portal, leave off `--app-contract-id`.
+For a passive portal, skip the portal profile command.
 
 `create` replaces the existing active portal record.
 
-Updating `appContractId` changes only the user-authenticated browser app contract associated with the portal. It does not install or upgrade a service principal.
+Updating the portal profile changes only the user-authenticated browser app contract associated with the portal. It does not install or upgrade a service principal.
 
 ## Updating login portal policy
 
 Change the login default:
 
 ```sh
-trellis portals logins default set --portal-id my-portal
+trellis portal login set-default --portal my-portal
 ```
 
 Change one app-specific rule:
 
 ```sh
-trellis portals logins set \
-  --contract-id my-console@v1 \
-  --portal-id my-portal
+trellis portal login set my-console@v1 --portal my-portal
 ```
 
 ## Updating device portal policy
@@ -304,15 +288,13 @@ trellis portals logins set \
 Change the device default:
 
 ```sh
-trellis portals devices default set --portal-id my-portal
+trellis portal device set-default --portal my-portal
 ```
 
-Change one device-profile rule:
+Change one device-deployment rule:
 
 ```sh
-trellis portals devices set \
-  --profile-id my-device.default \
-  --portal-id my-portal
+trellis portal device set my-device.default --portal my-portal
 ```
 
 ## Disabling the portal
@@ -320,7 +302,7 @@ trellis portals devices set \
 To disable the custom portal record:
 
 ```sh
-trellis portals disable --portal-id my-portal
+trellis portal disable my-portal
 ```
 
 After disabling it, point any login or device selection rules back to `--builtin` or another custom portal.

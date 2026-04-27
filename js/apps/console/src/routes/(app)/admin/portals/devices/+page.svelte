@@ -2,8 +2,8 @@
   import type {
     AuthClearDevicePortalSelectionInput,
     AuthGetDevicePortalDefaultOutput,
+    AuthListDeviceDeploymentsOutput,
     AuthListDevicePortalSelectionsOutput,
-    AuthListDeviceProfilesOutput,
     AuthListPortalsOutput,
     AuthSetDevicePortalDefaultInput,
     AuthSetDevicePortalSelectionInput,
@@ -17,7 +17,7 @@
   const INHERIT_OPTION = "__inherit__";
 
   type PortalRecord = AuthListPortalsOutput["portals"][number];
-  type ProfileRecord = AuthListDeviceProfilesOutput["profiles"][number];
+  type DeploymentRecord = AuthListDeviceDeploymentsOutput["deployments"][number];
   type SelectionRecord = AuthListDevicePortalSelectionsOutput["selections"][number];
   type DefaultPortal = AuthGetDevicePortalDefaultOutput["defaultPortal"];
 
@@ -25,7 +25,7 @@
   const notifications = getNotifications();
   type DevicePortalsRequester = {
     request(method: "Auth.ListPortals", input: Record<string, never>): { orThrow(): Promise<AuthListPortalsOutput> };
-    request(method: "Auth.ListDeviceProfiles", input: Record<string, never>): { orThrow(): Promise<AuthListDeviceProfilesOutput> };
+    request(method: "Auth.ListDeviceDeployments", input: Record<string, never>): { orThrow(): Promise<AuthListDeviceDeploymentsOutput> };
     request(method: "Auth.GetDevicePortalDefault", input: Record<string, never>): { orThrow(): Promise<AuthGetDevicePortalDefaultOutput> };
     request(method: "Auth.ListDevicePortalSelections", input: Record<string, never>): { orThrow(): Promise<AuthListDevicePortalSelectionsOutput> };
     request(method: "Auth.SetDevicePortalDefault", input: AuthSetDevicePortalDefaultInput): { orThrow(): Promise<void> };
@@ -39,7 +39,7 @@
   let error = $state<string | null>(null);
 
   let portals = $state<PortalRecord[]>([]);
-  let profiles = $state<ProfileRecord[]>([]);
+  let deployments = $state<DeploymentRecord[]>([]);
   let selections = $state<SelectionRecord[]>([]);
   let defaultPortal = $state<DefaultPortal>({ portalId: null });
 
@@ -51,7 +51,7 @@
   let clearTarget = $state<string | null>(null);
 
   const portalById = $derived(new Map(portals.map((portal) => [portal.portalId, portal])));
-  const selectionByProfileId = $derived(new Map(selections.map((selection) => [selection.profileId, selection])));
+  const selectionByDeploymentId = $derived(new Map(selections.map((selection) => [selection.deploymentId, selection])));
 
   function optionToPortalId(option: string): string | null {
     return option === BUILTIN_OPTION ? null : option;
@@ -61,8 +61,8 @@
     return portalId ?? BUILTIN_OPTION;
   }
 
-  function selectionOption(profileId: string): string {
-    return portalIdToOption(selectionByProfileId.get(profileId)?.portalId);
+  function selectionOption(deploymentId: string): string {
+    return portalIdToOption(selectionByDeploymentId.get(deploymentId)?.portalId);
   }
 
   function portalLabel(portalId: string | null | undefined): string {
@@ -72,41 +72,41 @@
     return portal.disabled ? `${portal.portalId} (disabled)` : portal.portalId;
   }
 
-  function effectivePortalLabel(profileId: string): string {
-    const explicit = selectionByProfileId.get(profileId);
+  function effectivePortalLabel(deploymentId: string): string {
+    const explicit = selectionByDeploymentId.get(deploymentId);
     const portalId = explicit?.portalId ?? defaultPortal.portalId;
     const source = explicit ? "selection" : "default";
     return `${portalLabel(portalId)} · ${source}`;
   }
 
-  function profileContractSummary(profile: ProfileRecord): string {
-    if (profile.appliedContracts.length === 0) {
-      return `No contracts · review ${profile.reviewMode ?? "none"}`;
+  function deploymentContractSummary(deployment: DeploymentRecord): string {
+    if (deployment.appliedContracts.length === 0) {
+      return `No contracts · review ${deployment.reviewMode ?? "none"}`;
     }
 
-    return `${profile.appliedContracts.map((entry) => entry.contractId).join(", ")} · review ${profile.reviewMode ?? "none"}`;
+    return `${deployment.appliedContracts.map((entry) => entry.contractId).join(", ")} · review ${deployment.reviewMode ?? "none"}`;
   }
 
   async function load() {
     loading = true;
     error = null;
     try {
-      const [portalRes, profileRes, defaultRes, selectionRes] = await Promise.all([
+      const [portalRes, deploymentRes, defaultRes, selectionRes] = await Promise.all([
         devicePortalsRequester.request("Auth.ListPortals", {}).orThrow(),
-        devicePortalsRequester.request("Auth.ListDeviceProfiles", {}).orThrow(),
+        devicePortalsRequester.request("Auth.ListDeviceDeployments", {}).orThrow(),
         devicePortalsRequester.request("Auth.GetDevicePortalDefault", {}).orThrow(),
         devicePortalsRequester.request("Auth.ListDevicePortalSelections", {}).orThrow(),
       ]);
 
       portals = portalRes.portals ?? [];
-      profiles = profileRes.profiles ?? [];
+      deployments = deploymentRes.deployments ?? [];
       defaultPortal = defaultRes.defaultPortal ?? { portalId: null };
       selections = selectionRes.selections ?? [];
       defaultDraft = portalIdToOption(defaultRes.defaultPortal?.portalId);
       selectionDrafts = Object.fromEntries(
-        (profileRes.profiles ?? []).map((profile) => {
-          const selection = (selectionRes.selections ?? []).find((entry) => entry.profileId === profile.profileId);
-          return [profile.profileId, selection ? portalIdToOption(selection.portalId) : INHERIT_OPTION];
+        (deploymentRes.deployments ?? []).map((deployment) => {
+          const selection = (selectionRes.selections ?? []).find((entry) => entry.deploymentId === deployment.deploymentId);
+          return [deployment.deploymentId, selection ? portalIdToOption(selection.portalId) : INHERIT_OPTION];
         }),
       );
     } catch (e) {
@@ -132,22 +132,22 @@
     }
   }
 
-  async function saveSelection(profileId: string) {
-    saveTarget = profileId;
+  async function saveSelection(deploymentId: string) {
+    saveTarget = deploymentId;
     error = null;
     try {
-      const option = selectionDrafts[profileId] ?? INHERIT_OPTION;
+      const option = selectionDrafts[deploymentId] ?? INHERIT_OPTION;
       if (option === INHERIT_OPTION) {
         await devicePortalsRequester.request("Auth.ClearDevicePortalSelection", {
-          profileId,
+          deploymentId,
         } satisfies AuthClearDevicePortalSelectionInput).orThrow();
-        notifications.success(`Device policy cleared for ${profileId}.`, "Cleared");
+        notifications.success(`Device policy cleared for ${deploymentId}.`, "Cleared");
       } else {
         await devicePortalsRequester.request("Auth.SetDevicePortalSelection", {
-          profileId,
+          deploymentId,
           portalId: optionToPortalId(option),
         } satisfies AuthSetDevicePortalSelectionInput).orThrow();
-        notifications.success(`Device policy updated for ${profileId}.`, "Updated");
+        notifications.success(`Device policy updated for ${deploymentId}.`, "Updated");
       }
       await load();
     } catch (e) {
@@ -157,16 +157,16 @@
     }
   }
 
-  async function clearSelection(profileId: string) {
-    if (!selectionByProfileId.get(profileId)) return;
-    if (!window.confirm(`Clear the device portal override for ${profileId}?`)) return;
-    clearTarget = profileId;
+  async function clearSelection(deploymentId: string) {
+    if (!selectionByDeploymentId.get(deploymentId)) return;
+    if (!window.confirm(`Clear the device portal override for ${deploymentId}?`)) return;
+    clearTarget = deploymentId;
     error = null;
     try {
       await devicePortalsRequester.request("Auth.ClearDevicePortalSelection", {
-        profileId,
+        deploymentId,
       } satisfies AuthClearDevicePortalSelectionInput).orThrow();
-      notifications.success(`Device policy cleared for ${profileId}.`, "Cleared");
+      notifications.success(`Device policy cleared for ${deploymentId}.`, "Cleared");
       await load();
     } catch (e) {
       error = errorMessage(e);
@@ -189,7 +189,7 @@
     <div class="card-body gap-4">
       <div>
         <h2 class="card-title text-base">Default device portal</h2>
-        <p class="text-sm text-base-content/60">Choose the portal used when a device profile does not have an explicit portal policy.</p>
+        <p class="text-sm text-base-content/60">Choose the portal used when a device deployment does not have an explicit portal policy.</p>
       </div>
 
       <form class="flex flex-col gap-3 md:flex-row md:items-end" onsubmit={(event) => { event.preventDefault(); void saveDefault(); }}>
@@ -218,29 +218,29 @@
 
   {#if loading}
     <div class="flex justify-center py-8"><span class="loading loading-spinner loading-md"></span></div>
-  {:else if profiles.length === 0}
-    <p class="text-sm text-base-content/60">No device profiles found.</p>
+  {:else if deployments.length === 0}
+    <p class="text-sm text-base-content/60">No device deployments found.</p>
   {:else}
     <div class="overflow-x-auto">
       <table class="table table-sm">
         <thead>
           <tr>
-            <th>Profile</th>
+            <th>Deployment</th>
             <th>Current</th>
             <th>Override</th>
             <th></th>
           </tr>
         </thead>
         <tbody>
-          {#each profiles as profile (profile.profileId)}
+          {#each deployments as deployment (deployment.deploymentId)}
             <tr>
               <td>
-                <div class="font-medium">{profile.profileId}</div>
-                <div class="text-xs text-base-content/60">{profileContractSummary(profile)}</div>
+                <div class="font-medium">{deployment.deploymentId}</div>
+                <div class="text-xs text-base-content/60">{deploymentContractSummary(deployment)}</div>
               </td>
-              <td class="text-sm text-base-content/60">{effectivePortalLabel(profile.profileId)}</td>
+              <td class="text-sm text-base-content/60">{effectivePortalLabel(deployment.deploymentId)}</td>
               <td>
-                <select class="select select-bordered select-xs w-full max-w-72" bind:value={selectionDrafts[profile.profileId]}>
+                <select class="select select-bordered select-xs w-full max-w-72" bind:value={selectionDrafts[deployment.deploymentId]}>
                   <option value={INHERIT_OPTION}>Use default portal</option>
                   <option value={BUILTIN_OPTION}>Built-in portal</option>
                   {#each portals as portal (portal.portalId)}
@@ -252,18 +252,18 @@
                 <div class="flex justify-end gap-2">
                   <button
                     class="btn btn-primary btn-xs"
-                    onclick={() => saveSelection(profile.profileId)}
-                    disabled={saveTarget === profile.profileId || clearTarget === profile.profileId || selectionDrafts[profile.profileId] === (selectionByProfileId.get(profile.profileId) ? selectionOption(profile.profileId) : INHERIT_OPTION) || profile.disabled}
+                    onclick={() => saveSelection(deployment.deploymentId)}
+                    disabled={saveTarget === deployment.deploymentId || clearTarget === deployment.deploymentId || selectionDrafts[deployment.deploymentId] === (selectionByDeploymentId.get(deployment.deploymentId) ? selectionOption(deployment.deploymentId) : INHERIT_OPTION) || deployment.disabled}
                   >
-                    {saveTarget === profile.profileId ? "Saving…" : "Apply"}
+                    {saveTarget === deployment.deploymentId ? "Saving…" : "Apply"}
                   </button>
 
                   <button
                     class="btn btn-ghost btn-xs"
-                    onclick={() => clearSelection(profile.profileId)}
-                    disabled={clearTarget === profile.profileId || saveTarget === profile.profileId || !selectionByProfileId.get(profile.profileId)}
+                    onclick={() => clearSelection(deployment.deploymentId)}
+                    disabled={clearTarget === deployment.deploymentId || saveTarget === deployment.deploymentId || !selectionByDeploymentId.get(deployment.deploymentId)}
                   >
-                    {clearTarget === profile.profileId ? "Clearing…" : "Clear"}
+                    {clearTarget === deployment.deploymentId ? "Clearing…" : "Clear"}
                   </button>
                 </div>
               </td>

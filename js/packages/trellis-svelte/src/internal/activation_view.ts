@@ -5,7 +5,7 @@ import type { TerminalOperation } from "../../../trellis/operations.ts";
 
 type DeviceActivationProgressInput = {
   instanceId: string;
-  profileId: string;
+  deploymentId: string;
   reviewId: string;
   requestedAt: string | Date;
 };
@@ -20,7 +20,7 @@ function isDeviceActivationProgressInput(
   const record = value as Record<string, unknown>;
   return record.status === "pending_review" &&
     typeof record.instanceId === "string" &&
-    typeof record.profileId === "string" &&
+    typeof record.deploymentId === "string" &&
     typeof record.reviewId === "string" &&
     (typeof record.requestedAt === "string" ||
       record.requestedAt instanceof Date);
@@ -33,7 +33,7 @@ export type DeviceActivationView =
     mode: "pending_review";
     flowId: string;
     instanceId: string;
-    profileId: string;
+    deploymentId: string;
     reviewId: string;
     requestedAt: string;
   }
@@ -41,7 +41,7 @@ export type DeviceActivationView =
     mode: "activated";
     flowId: string;
     instanceId: string;
-    profileId: string;
+    deploymentId: string;
     activatedAt: string;
     confirmationCode?: string;
   }
@@ -124,7 +124,7 @@ export function mapDeviceActivationOutput(
       mode: "activated",
       flowId,
       instanceId: result.instanceId,
-      profileId: result.profileId,
+      deploymentId: result.deploymentId,
       activatedAt: isoString(result.activatedAt),
       ...(result.confirmationCode
         ? { confirmationCode: result.confirmationCode }
@@ -172,7 +172,7 @@ export function mapDeviceActivationProgress(
     mode: "pending_review",
     flowId,
     instanceId: progress.instanceId,
-    profileId: progress.profileId,
+    deploymentId: progress.deploymentId,
     reviewId: progress.reviewId,
     requestedAt: isoString(progress.requestedAt),
   };
@@ -226,12 +226,12 @@ export function mapDeviceActivationFailure(
   }
 
   if (
-    reason === "device_profile_not_found" ||
-    authReason === "device_profile_not_found" ||
-    message.includes("device_profile_not_found")
+    reason === "device_deployment_not_found" ||
+    authReason === "device_deployment_not_found" ||
+    message.includes("device_deployment_not_found")
   ) {
     return createInvalidDeviceActivationView(
-      "This device profile is no longer available.",
+      "This device deployment is no longer available.",
       flowId,
     );
   }

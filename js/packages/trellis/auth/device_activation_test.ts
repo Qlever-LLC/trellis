@@ -61,7 +61,7 @@ Deno.test("device activation start requests return short flow URLs", async () =>
         JSON.stringify({
           flowId: "flow_123",
           instanceId: "dev_123",
-          profileId: "reader.default",
+          deploymentId: "reader.default",
           activationUrl:
             "https://trellis.example.com/_trellis/portal/devices/activate?flowId=flow_123",
         }),
@@ -197,7 +197,7 @@ Deno.test("device activation wait and connect-info helpers parse responses", asy
               activatedAt: "2026-04-08T12:00:00Z",
               connectInfo: {
                 instanceId: "dev_123",
-                profileId: "reader.default",
+                deploymentId: "reader.default",
                 contractId: "acme.reader@v1",
                 contractDigest: "digest-a",
                 transports: {
@@ -234,7 +234,7 @@ Deno.test("device activation wait and connect-info helpers parse responses", asy
               status: "ready",
               connectInfo: {
                 instanceId: "dev_123",
-                profileId: "reader.default",
+                deploymentId: "reader.default",
                 contractId: "acme.reader@v1",
                 contractDigest: "digest-a",
                 transports: {
@@ -344,7 +344,7 @@ Deno.test("device activation wait retries transient fetch failures", async () =>
             activatedAt: "2026-04-08T12:00:00Z",
             connectInfo: {
               instanceId: "dev_123",
-              profileId: "reader.default",
+              deploymentId: "reader.default",
               contractId: "acme.reader@v1",
               contractDigest: "digest-a",
               transports: {
@@ -400,7 +400,7 @@ Deno.test("device activation wait backs off after rate limiting", async () => {
             activatedAt: "2026-04-08T12:00:00Z",
             connectInfo: {
               instanceId: "dev_123",
-              profileId: "reader.default",
+              deploymentId: "reader.default",
               contractId: "acme.reader@v1",
               contractDigest: "digest-a",
               transports: {
@@ -464,7 +464,7 @@ Deno.test("device activation client wrappers hide method strings", async () => {
                     output: {
                       status: "activated",
                       instanceId: "dev_123",
-                      profileId: "reader.default",
+                      deploymentId: "reader.default",
                       activatedAt: "2026-04-08T12:00:00Z",
                     },
                   } satisfies OperationSnapshot<
@@ -487,7 +487,7 @@ Deno.test("device activation client wrappers hide method strings", async () => {
                     output: {
                       status: "activated",
                       instanceId: "dev_123",
-                      profileId: "reader.default",
+                      deploymentId: "reader.default",
                       activatedAt: "2026-04-08T12:00:00Z",
                     },
                   } satisfies TerminalOperation<
@@ -509,7 +509,7 @@ Deno.test("device activation client wrappers hide method strings", async () => {
                       status: "pending_review" as const,
                       reviewId: "dar_123",
                       instanceId: "dev_123",
-                      profileId: "reader.default",
+                      deploymentId: "reader.default",
                       requestedAt: "2026-04-08T11:55:00Z",
                     },
                     snapshot: {
@@ -524,7 +524,7 @@ Deno.test("device activation client wrappers hide method strings", async () => {
                         status: "pending_review" as const,
                         reviewId: "dar_123",
                         instanceId: "dev_123",
-                        profileId: "reader.default",
+                        deploymentId: "reader.default",
                         requestedAt: "2026-04-08T11:55:00Z",
                       },
                     },
@@ -567,7 +567,7 @@ Deno.test("device activation client wrappers hide method strings", async () => {
           status: "ready",
           connectInfo: {
             instanceId: "dev_123",
-            profileId: "reader.default",
+            deploymentId: "reader.default",
             contractId: "acme.reader@v1",
             contractDigest: "digest-a",
             transports: {
@@ -610,7 +610,7 @@ Deno.test("device activation client wrappers hide method strings", async () => {
       status: "pending_review",
       reviewId: "dar_123",
       instanceId: "dev_123",
-      profileId: "reader.default",
+      deploymentId: "reader.default",
       requestedAt: "2026-04-08T11:55:00Z",
     },
   }]);
@@ -626,7 +626,7 @@ Deno.test("device activation client wrappers hide method strings", async () => {
   assertEquals(pendingStatus.output, {
     status: "activated",
     instanceId: "dev_123",
-    profileId: "reader.default",
+    deploymentId: "reader.default",
     activatedAt: "2026-04-08T12:00:00Z",
   });
   assertEquals((await client.listDeviceActivations()).activations, []);
@@ -645,7 +645,7 @@ Deno.test("device activation client wrappers hide method strings", async () => {
       status: "ready",
       connectInfo: {
         instanceId: "dev_123",
-        profileId: "reader.default",
+        deploymentId: "reader.default",
         contractId: "acme.reader@v1",
         contractDigest: "digest-a",
         transports: {

@@ -17,17 +17,17 @@ import {
   DeviceActivationActorSchema,
   DeviceActivationRecordSchema,
   DeviceActivationReviewSchema,
+  DeviceDeploymentSchema,
   DevicePortalDefaultSchema,
   DevicePortalSelectionSchema,
-  DeviceProfileSchema,
   DeviceSchema,
   InstanceGrantPolicySchema,
   LoginPortalDefaultSchema,
   LoginPortalSelectionSchema,
   PortalProfileSchema,
   PortalSchema,
+  ServiceDeploymentSchema,
   ServiceInstanceSchema,
-  ServiceProfileSchema,
 } from "../../../../packages/trellis/auth/protocol.ts";
 import { IsoDateSchema } from "@qlever-llc/trellis/contracts";
 import type { StaticDecode } from "typebox";
@@ -47,9 +47,9 @@ export {
   DeviceActivationActorSchema,
   DeviceActivationRecordSchema,
   DeviceActivationReviewSchema,
+  DeviceDeploymentSchema,
   DevicePortalDefaultSchema,
   DevicePortalSelectionSchema,
-  DeviceProfileSchema,
   DeviceSchema,
   InstanceGrantPolicySchema,
   LoginPortalDefaultSchema,
@@ -58,8 +58,8 @@ export {
   PortalProfileSchema,
   PortalSchema,
   SentinelCredsSchema,
+  ServiceDeploymentSchema,
   ServiceInstanceSchema,
-  ServiceProfileSchema,
 };
 
 export const SessionKeySchema = Type.String({
@@ -127,7 +127,7 @@ export type AuthBrowserFlowKind = StaticDecode<
 
 export const DeviceActivationFlowStateSchema = Type.Object({
   instanceId: Type.String({ minLength: 1 }),
-  profileId: Type.String({ minLength: 1 }),
+  deploymentId: Type.String({ minLength: 1 }),
   publicIdentityKey: Type.String({ minLength: 1 }),
   nonce: Type.String({ minLength: 1 }),
   qrMac: Type.String({ minLength: 1 }),
@@ -166,7 +166,7 @@ export const DeviceActivationReviewRecordSchema = Type.Object({
   flowId: Type.String({ minLength: 1 }),
   instanceId: Type.String({ minLength: 1 }),
   publicIdentityKey: Type.String({ minLength: 1 }),
-  profileId: Type.String({ minLength: 1 }),
+  deploymentId: Type.String({ minLength: 1 }),
   requestedBy: Type.Object({
     origin: Type.String({ minLength: 1 }),
     id: Type.String({ minLength: 1 }),
@@ -253,7 +253,7 @@ export const ServiceSessionSchema = Type.Object({
   type: Type.Literal("service"),
   ...SessionBaseFields,
   instanceId: Type.String({ minLength: 1 }),
-  profileId: Type.String({ minLength: 1 }),
+  deploymentId: Type.String({ minLength: 1 }),
   instanceKey: Type.String({ minLength: 1 }),
   currentContractId: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
   currentContractDigest: Type.Union([
@@ -267,7 +267,7 @@ export const DeviceSessionSchema = Type.Object({
   type: Type.Literal("device"),
   instanceId: Type.String({ minLength: 1 }),
   publicIdentityKey: Type.String({ minLength: 1 }),
-  profileId: Type.String({ minLength: 1 }),
+  deploymentId: Type.String({ minLength: 1 }),
   contractId: Type.String({ minLength: 1 }),
   contractDigest: Type.String({ pattern: "^[A-Za-z0-9_-]+$" }),
   delegatedCapabilities: Type.Array(Type.String()),

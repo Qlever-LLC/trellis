@@ -7,17 +7,17 @@ import {
   contractApprovals,
   deviceActivationReviews,
   deviceActivations,
+  deviceDeployments,
   deviceInstances,
   devicePortalSelections,
-  deviceProfiles,
   deviceProvisioningSecrets,
   instanceGrantPolicies,
   loginPortalSelections,
   portalDefaults,
   portalProfiles,
   portals,
+  serviceDeployments,
   serviceInstances,
-  serviceProfiles,
   sessions,
   users,
 } from "../storage/schema.ts";
@@ -26,9 +26,9 @@ import {
   ContractApprovalRecordSchema,
   DeviceActivationRecordSchema,
   DeviceActivationReviewRecordSchema,
+  DeviceDeploymentSchema,
   DevicePortalDefaultSchema,
   DevicePortalSelectionSchema,
-  DeviceProfileSchema,
   DeviceProvisioningSecretSchema,
   DeviceSchema,
   InstanceGrantPolicySchema,
@@ -36,8 +36,8 @@ import {
   LoginPortalSelectionSchema,
   PortalProfileSchema,
   PortalSchema,
+  ServiceDeploymentSchema,
   ServiceInstanceSchema,
-  ServiceProfileSchema,
   type Session,
   SessionSchema,
   type UserProjectionEntry,
@@ -51,9 +51,9 @@ type DevicePortalDefault = StaticDecode<typeof DevicePortalDefaultSchema>;
 type LoginPortalSelection = StaticDecode<typeof LoginPortalSelectionSchema>;
 type DevicePortalSelection = StaticDecode<typeof DevicePortalSelectionSchema>;
 type InstanceGrantPolicy = StaticDecode<typeof InstanceGrantPolicySchema>;
-type ServiceProfile = StaticDecode<typeof ServiceProfileSchema>;
+type ServiceDeployment = StaticDecode<typeof ServiceDeploymentSchema>;
 type ServiceInstance = StaticDecode<typeof ServiceInstanceSchema>;
-type DeviceProfile = StaticDecode<typeof DeviceProfileSchema>;
+type DeviceDeployment = StaticDecode<typeof DeviceDeploymentSchema>;
 type DeviceInstance = StaticDecode<typeof DeviceSchema>;
 type DeviceProvisioningSecret = {
   instanceId: string;
@@ -66,7 +66,7 @@ type DeviceActivationReviewRecord = {
   flowId: string;
   instanceId: string;
   publicIdentityKey: string;
-  profileId: string;
+  deploymentId: string;
   requestedBy: { origin: string; id: string };
   state: "pending" | "approved" | "rejected";
   requestedAt: string | Date;
@@ -90,12 +90,12 @@ type DevicePortalSelectionRow = typeof devicePortalSelections.$inferSelect;
 type DevicePortalSelectionInsert = typeof devicePortalSelections.$inferInsert;
 type InstanceGrantPolicyRow = typeof instanceGrantPolicies.$inferSelect;
 type InstanceGrantPolicyInsert = typeof instanceGrantPolicies.$inferInsert;
-type ServiceProfileRow = typeof serviceProfiles.$inferSelect;
-type ServiceProfileInsert = typeof serviceProfiles.$inferInsert;
+type ServiceDeploymentRow = typeof serviceDeployments.$inferSelect;
+type ServiceDeploymentInsert = typeof serviceDeployments.$inferInsert;
 type ServiceInstanceRow = typeof serviceInstances.$inferSelect;
 type ServiceInstanceInsert = typeof serviceInstances.$inferInsert;
-type DeviceProfileRow = typeof deviceProfiles.$inferSelect;
-type DeviceProfileInsert = typeof deviceProfiles.$inferInsert;
+type DeviceDeploymentRow = typeof deviceDeployments.$inferSelect;
+type DeviceDeploymentInsert = typeof deviceDeployments.$inferInsert;
 type DeviceInstanceRow = typeof deviceInstances.$inferSelect;
 type DeviceInstanceInsert = typeof deviceInstances.$inferInsert;
 type DeviceProvisioningSecretRow =
@@ -218,8 +218,8 @@ function loginSelectionKey(contractId: string): string {
   return `contract.${contractId}`;
 }
 
-function deviceSelectionKey(profileId: string): string {
-  return `profile.${profileId}`;
+function deviceSelectionKey(deploymentId: string): string {
+  return `deployment.${deploymentId}`;
 }
 
 function decodePortalRow(row: PortalRow): Portal {
@@ -314,7 +314,7 @@ function decodeDevicePortalSelectionRow(
   row: DevicePortalSelectionRow,
 ): DevicePortalSelection {
   return Value.Decode(DevicePortalSelectionSchema, {
-    profileId: row.profileId,
+    deploymentId: row.deploymentId,
     portalId: row.portalId,
   });
 }
@@ -323,8 +323,8 @@ function encodeDevicePortalSelectionRecord(
   record: DevicePortalSelection,
 ): DevicePortalSelectionInsert {
   return {
-    selectionKey: deviceSelectionKey(record.profileId),
-    profileId: record.profileId,
+    selectionKey: deviceSelectionKey(record.deploymentId),
+    deploymentId: record.deploymentId,
     portalId: record.portalId,
   };
 }
@@ -365,23 +365,25 @@ function encodeInstanceGrantPolicyRecord(
   };
 }
 
-function decodeServiceProfileRow(row: ServiceProfileRow): ServiceProfile {
-  return Value.Decode(ServiceProfileSchema, {
-    profileId: row.profileId,
-    namespaces: parseJsonField("service profile namespaces", row.namespaces),
+function decodeServiceDeploymentRow(
+  row: ServiceDeploymentRow,
+): ServiceDeployment {
+  return Value.Decode(ServiceDeploymentSchema, {
+    deploymentId: row.deploymentId,
+    namespaces: parseJsonField("service deployment namespaces", row.namespaces),
     disabled: row.disabled,
     appliedContracts: parseJsonField(
-      "service profile applied contracts",
+      "service deployment applied contracts",
       row.appliedContracts,
     ),
   });
 }
 
-function encodeServiceProfileRecord(
-  record: ServiceProfile,
-): ServiceProfileInsert {
+function encodeServiceDeploymentRecord(
+  record: ServiceDeployment,
+): ServiceDeploymentInsert {
   return {
-    profileId: record.profileId,
+    deploymentId: record.deploymentId,
     namespaces: JSON.stringify(record.namespaces),
     disabled: record.disabled,
     appliedContracts: JSON.stringify(record.appliedContracts),
@@ -391,7 +393,7 @@ function encodeServiceProfileRecord(
 function decodeServiceInstanceRow(row: ServiceInstanceRow): ServiceInstance {
   return Value.Decode(ServiceInstanceSchema, {
     instanceId: row.instanceId,
-    profileId: row.profileId,
+    deploymentId: row.deploymentId,
     instanceKey: row.instanceKey,
     disabled: row.disabled,
     currentContractId: row.currentContractId ?? undefined,
@@ -415,7 +417,7 @@ function encodeServiceInstanceRecord(
 ): ServiceInstanceInsert {
   return {
     instanceId: record.instanceId,
-    profileId: record.profileId,
+    deploymentId: record.deploymentId,
     instanceKey: record.instanceKey,
     disabled: record.disabled,
     currentContractId: record.currentContractId ?? null,
@@ -428,23 +430,23 @@ function encodeServiceInstanceRecord(
   };
 }
 
-function decodeDeviceProfileRow(row: DeviceProfileRow): DeviceProfile {
-  return Value.Decode(DeviceProfileSchema, {
-    profileId: row.profileId,
+function decodeDeviceDeploymentRow(row: DeviceDeploymentRow): DeviceDeployment {
+  return Value.Decode(DeviceDeploymentSchema, {
+    deploymentId: row.deploymentId,
     reviewMode: row.reviewMode ?? undefined,
     disabled: row.disabled,
     appliedContracts: parseJsonField(
-      "device profile applied contracts",
+      "device deployment applied contracts",
       row.appliedContracts,
     ),
   });
 }
 
-function encodeDeviceProfileRecord(
-  record: DeviceProfile,
-): DeviceProfileInsert {
+function encodeDeviceDeploymentRecord(
+  record: DeviceDeployment,
+): DeviceDeploymentInsert {
   return {
-    profileId: record.profileId,
+    deploymentId: record.deploymentId,
     reviewMode: record.reviewMode ?? null,
     disabled: record.disabled,
     appliedContracts: JSON.stringify(record.appliedContracts),
@@ -455,7 +457,7 @@ function decodeDeviceInstanceRow(row: DeviceInstanceRow): DeviceInstance {
   return Value.Decode(DeviceSchema, {
     instanceId: row.instanceId,
     publicIdentityKey: row.publicIdentityKey,
-    profileId: row.profileId,
+    deploymentId: row.deploymentId,
     metadata: row.metadata === null
       ? undefined
       : parseJsonField("device instance metadata", row.metadata),
@@ -474,7 +476,7 @@ function encodeDeviceInstanceRecord(
   return {
     instanceId: record.instanceId,
     publicIdentityKey: record.publicIdentityKey,
-    profileId: record.profileId,
+    deploymentId: record.deploymentId,
     metadata: record.metadata === undefined
       ? null
       : JSON.stringify(record.metadata),
@@ -515,7 +517,7 @@ function decodeDeviceActivationRow(row: DeviceActivationRow): DeviceActivation {
   return Value.Decode(DeviceActivationRecordSchema, {
     instanceId: row.instanceId,
     publicIdentityKey: row.publicIdentityKey,
-    profileId: row.profileId,
+    deploymentId: row.deploymentId,
     activatedBy: row.activatedBy === null
       ? undefined
       : parseJsonField("device activation actor", row.activatedBy),
@@ -531,7 +533,7 @@ function encodeDeviceActivationRecord(
   return {
     instanceId: record.instanceId,
     publicIdentityKey: record.publicIdentityKey,
-    profileId: record.profileId,
+    deploymentId: record.deploymentId,
     activatedBy: record.activatedBy === undefined
       ? null
       : JSON.stringify(record.activatedBy),
@@ -549,7 +551,7 @@ function decodeDeviceActivationReviewRow(
     flowId: row.flowId,
     instanceId: row.instanceId,
     publicIdentityKey: row.publicIdentityKey,
-    profileId: row.profileId,
+    deploymentId: row.deploymentId,
     requestedBy: parseJsonField(
       "device activation review requested by",
       row.requestedBy,
@@ -573,7 +575,7 @@ function encodeDeviceActivationReviewRecord(
     flowId: record.flowId,
     instanceId: record.instanceId,
     publicIdentityKey: record.publicIdentityKey,
-    profileId: record.profileId,
+    deploymentId: record.deploymentId,
     requestedBy: JSON.stringify(record.requestedBy),
     state: record.state,
     requestedAt: isoString(record.requestedAt),
@@ -624,7 +626,7 @@ function encodeSessionRecord(
         contractId: session.contractId,
         participantKind: session.participantKind,
         instanceId: null,
-        profileId: null,
+        deploymentId: null,
         instanceKey: null,
         publicIdentityKey: null,
         revokedAt: null,
@@ -638,7 +640,7 @@ function encodeSessionRecord(
         contractId: session.currentContractId,
         participantKind: null,
         instanceId: session.instanceId,
-        profileId: session.profileId,
+        deploymentId: session.deploymentId,
         instanceKey: session.instanceKey,
         publicIdentityKey: null,
         revokedAt: null,
@@ -652,7 +654,7 @@ function encodeSessionRecord(
         contractId: session.contractId,
         participantKind: null,
         instanceId: session.instanceId,
-        profileId: session.profileId,
+        deploymentId: session.deploymentId,
         instanceKey: null,
         publicIdentityKey: session.publicIdentityKey,
         revokedAt: session.revokedAt === null
@@ -844,7 +846,7 @@ export class SqlSessionRepository {
         contractId: row.contractId,
         participantKind: row.participantKind,
         instanceId: row.instanceId,
-        profileId: row.profileId,
+        deploymentId: row.deploymentId,
         instanceKey: row.instanceKey,
         publicIdentityKey: row.publicIdentityKey,
         createdAt: row.createdAt,
@@ -1130,39 +1132,39 @@ export class SqlDevicePortalSelectionRepository {
     this.#db = db;
   }
 
-  /** Returns a device portal selection by profile id, or undefined when absent. */
-  async get(profileId: string): Promise<DevicePortalSelection | undefined> {
+  /** Returns a device portal selection by deployment id, or undefined when absent. */
+  async get(deploymentId: string): Promise<DevicePortalSelection | undefined> {
     const rows = await this.#db.select().from(devicePortalSelections).where(
-      eq(devicePortalSelections.selectionKey, deviceSelectionKey(profileId)),
+      eq(devicePortalSelections.selectionKey, deviceSelectionKey(deploymentId)),
     ).limit(1);
     const row = rows[0];
     return row === undefined ? undefined : decodeDevicePortalSelectionRow(row);
   }
 
-  /** Inserts or replaces a device portal selection keyed by profile id. */
+  /** Inserts or replaces a device portal selection keyed by deployment id. */
   async put(record: DevicePortalSelection): Promise<void> {
     const row = encodeDevicePortalSelectionRecord(record);
     await this.#db.insert(devicePortalSelections).values(row)
       .onConflictDoUpdate({
         target: devicePortalSelections.selectionKey,
         set: {
-          profileId: row.profileId,
+          deploymentId: row.deploymentId,
           portalId: row.portalId,
         },
       });
   }
 
-  /** Deletes a device portal selection by profile id. */
-  async delete(profileId: string): Promise<void> {
+  /** Deletes a device portal selection by deployment id. */
+  async delete(deploymentId: string): Promise<void> {
     await this.#db.delete(devicePortalSelections).where(
-      eq(devicePortalSelections.selectionKey, deviceSelectionKey(profileId)),
+      eq(devicePortalSelections.selectionKey, deviceSelectionKey(deploymentId)),
     );
   }
 
-  /** Returns device portal selections ordered by profile id. */
+  /** Returns device portal selections ordered by deployment id. */
   async list(): Promise<DevicePortalSelection[]> {
     const rows = await this.#db.select().from(devicePortalSelections).orderBy(
-      devicePortalSelections.profileId,
+      devicePortalSelections.deploymentId,
     );
     return rows.map((row: DevicePortalSelectionRow) =>
       decodeDevicePortalSelectionRow(row)
@@ -1235,29 +1237,29 @@ export class SqlInstanceGrantPolicyRepository {
   }
 }
 
-/** Stores durable service profile records in SQL. */
-export class SqlServiceProfileRepository {
+/** Stores durable service deployment records in SQL. */
+export class SqlServiceDeploymentRepository {
   readonly #db: TrellisStorageDb;
 
-  /** Creates a service profile repository backed by a Trellis storage DB. */
+  /** Creates a service deployment repository backed by a Trellis storage DB. */
   constructor(db: TrellisStorageDb) {
     this.#db = db;
   }
 
-  /** Returns a service profile by profile id, or undefined when absent. */
-  async get(profileId: string): Promise<ServiceProfile | undefined> {
-    const rows = await this.#db.select().from(serviceProfiles).where(
-      eq(serviceProfiles.profileId, profileId),
+  /** Returns a service deployment by deployment id, or undefined when absent. */
+  async get(deploymentId: string): Promise<ServiceDeployment | undefined> {
+    const rows = await this.#db.select().from(serviceDeployments).where(
+      eq(serviceDeployments.deploymentId, deploymentId),
     ).limit(1);
     const row = rows[0];
-    return row === undefined ? undefined : decodeServiceProfileRow(row);
+    return row === undefined ? undefined : decodeServiceDeploymentRow(row);
   }
 
-  /** Inserts or replaces a service profile keyed by profile id. */
-  async put(record: ServiceProfile): Promise<void> {
-    const row = encodeServiceProfileRecord(record);
-    await this.#db.insert(serviceProfiles).values(row).onConflictDoUpdate({
-      target: serviceProfiles.profileId,
+  /** Inserts or replaces a service deployment keyed by deployment id. */
+  async put(record: ServiceDeployment): Promise<void> {
+    const row = encodeServiceDeploymentRecord(record);
+    await this.#db.insert(serviceDeployments).values(row).onConflictDoUpdate({
+      target: serviceDeployments.deploymentId,
       set: {
         namespaces: row.namespaces,
         disabled: row.disabled,
@@ -1266,19 +1268,21 @@ export class SqlServiceProfileRepository {
     });
   }
 
-  /** Deletes a service profile by profile id. */
-  async delete(profileId: string): Promise<void> {
-    await this.#db.delete(serviceProfiles).where(
-      eq(serviceProfiles.profileId, profileId),
+  /** Deletes a service deployment by deployment id. */
+  async delete(deploymentId: string): Promise<void> {
+    await this.#db.delete(serviceDeployments).where(
+      eq(serviceDeployments.deploymentId, deploymentId),
     );
   }
 
-  /** Returns service profiles ordered by profile id. */
-  async list(): Promise<ServiceProfile[]> {
-    const rows = await this.#db.select().from(serviceProfiles).orderBy(
-      serviceProfiles.profileId,
+  /** Returns service deployments ordered by deployment id. */
+  async list(): Promise<ServiceDeployment[]> {
+    const rows = await this.#db.select().from(serviceDeployments).orderBy(
+      serviceDeployments.deploymentId,
     );
-    return rows.map((row: ServiceProfileRow) => decodeServiceProfileRow(row));
+    return rows.map((row: ServiceDeploymentRow) =>
+      decodeServiceDeploymentRow(row)
+    );
   }
 }
 
@@ -1324,7 +1328,7 @@ export class SqlServiceInstanceRepository {
     await this.#db.insert(serviceInstances).values(row).onConflictDoUpdate({
       target: serviceInstances.instanceId,
       set: {
-        profileId: row.profileId,
+        deploymentId: row.deploymentId,
         instanceKey: row.instanceKey,
         disabled: row.disabled,
         currentContractId: row.currentContractId,
@@ -1351,38 +1355,38 @@ export class SqlServiceInstanceRepository {
     return rows.map((row: ServiceInstanceRow) => decodeServiceInstanceRow(row));
   }
 
-  /** Returns service instances for one profile ordered by instance id. */
-  async listByProfile(profileId: string): Promise<ServiceInstance[]> {
+  /** Returns service instances for one deployment ordered by instance id. */
+  async listByDeployment(deploymentId: string): Promise<ServiceInstance[]> {
     const rows = await this.#db.select().from(serviceInstances).where(
-      eq(serviceInstances.profileId, profileId),
+      eq(serviceInstances.deploymentId, deploymentId),
     ).orderBy(serviceInstances.instanceId);
     return rows.map((row: ServiceInstanceRow) => decodeServiceInstanceRow(row));
   }
 }
 
-/** Stores durable device profile records in SQL. */
-export class SqlDeviceProfileRepository {
+/** Stores durable device deployment records in SQL. */
+export class SqlDeviceDeploymentRepository {
   readonly #db: TrellisStorageDb;
 
-  /** Creates a device profile repository backed by a Trellis storage DB. */
+  /** Creates a device deployment repository backed by a Trellis storage DB. */
   constructor(db: TrellisStorageDb) {
     this.#db = db;
   }
 
-  /** Returns a device profile by profile id, or undefined when absent. */
-  async get(profileId: string): Promise<DeviceProfile | undefined> {
-    const rows = await this.#db.select().from(deviceProfiles).where(
-      eq(deviceProfiles.profileId, profileId),
+  /** Returns a device deployment by deployment id, or undefined when absent. */
+  async get(deploymentId: string): Promise<DeviceDeployment | undefined> {
+    const rows = await this.#db.select().from(deviceDeployments).where(
+      eq(deviceDeployments.deploymentId, deploymentId),
     ).limit(1);
     const row = rows[0];
-    return row === undefined ? undefined : decodeDeviceProfileRow(row);
+    return row === undefined ? undefined : decodeDeviceDeploymentRow(row);
   }
 
-  /** Inserts or replaces a device profile keyed by profile id. */
-  async put(record: DeviceProfile): Promise<void> {
-    const row = encodeDeviceProfileRecord(record);
-    await this.#db.insert(deviceProfiles).values(row).onConflictDoUpdate({
-      target: deviceProfiles.profileId,
+  /** Inserts or replaces a device deployment keyed by deployment id. */
+  async put(record: DeviceDeployment): Promise<void> {
+    const row = encodeDeviceDeploymentRecord(record);
+    await this.#db.insert(deviceDeployments).values(row).onConflictDoUpdate({
+      target: deviceDeployments.deploymentId,
       set: {
         reviewMode: row.reviewMode,
         disabled: row.disabled,
@@ -1391,19 +1395,21 @@ export class SqlDeviceProfileRepository {
     });
   }
 
-  /** Deletes a device profile by profile id. */
-  async delete(profileId: string): Promise<void> {
-    await this.#db.delete(deviceProfiles).where(
-      eq(deviceProfiles.profileId, profileId),
+  /** Deletes a device deployment by deployment id. */
+  async delete(deploymentId: string): Promise<void> {
+    await this.#db.delete(deviceDeployments).where(
+      eq(deviceDeployments.deploymentId, deploymentId),
     );
   }
 
-  /** Returns device profiles ordered by profile id. */
-  async list(): Promise<DeviceProfile[]> {
-    const rows = await this.#db.select().from(deviceProfiles).orderBy(
-      deviceProfiles.profileId,
+  /** Returns device deployments ordered by deployment id. */
+  async list(): Promise<DeviceDeployment[]> {
+    const rows = await this.#db.select().from(deviceDeployments).orderBy(
+      deviceDeployments.deploymentId,
     );
-    return rows.map((row: DeviceProfileRow) => decodeDeviceProfileRow(row));
+    return rows.map((row: DeviceDeploymentRow) =>
+      decodeDeviceDeploymentRow(row)
+    );
   }
 }
 
@@ -1443,7 +1449,7 @@ export class SqlDeviceInstanceRepository {
       target: deviceInstances.instanceId,
       set: {
         publicIdentityKey: row.publicIdentityKey,
-        profileId: row.profileId,
+        deploymentId: row.deploymentId,
         metadata: row.metadata,
         state: row.state,
         currentContractId: row.currentContractId,
@@ -1470,10 +1476,10 @@ export class SqlDeviceInstanceRepository {
     return rows.map((row: DeviceInstanceRow) => decodeDeviceInstanceRow(row));
   }
 
-  /** Returns device instances for one profile ordered by instance id. */
-  async listByProfile(profileId: string): Promise<DeviceInstance[]> {
+  /** Returns device instances for one deployment ordered by instance id. */
+  async listByDeployment(deploymentId: string): Promise<DeviceInstance[]> {
     const rows = await this.#db.select().from(deviceInstances).where(
-      eq(deviceInstances.profileId, profileId),
+      eq(deviceInstances.deploymentId, deploymentId),
     ).orderBy(deviceInstances.instanceId);
     return rows.map((row: DeviceInstanceRow) => decodeDeviceInstanceRow(row));
   }
@@ -1556,7 +1562,7 @@ export class SqlDeviceActivationRepository {
       target: deviceActivations.instanceId,
       set: {
         publicIdentityKey: row.publicIdentityKey,
-        profileId: row.profileId,
+        deploymentId: row.deploymentId,
         activatedBy: row.activatedBy,
         state: row.state,
         activatedAt: row.activatedAt,
@@ -1624,7 +1630,7 @@ export class SqlDeviceActivationReviewRepository {
           flowId: row.flowId,
           instanceId: row.instanceId,
           publicIdentityKey: row.publicIdentityKey,
-          profileId: row.profileId,
+          deploymentId: row.deploymentId,
           requestedBy: row.requestedBy,
           state: row.state,
           requestedAt: row.requestedAt,

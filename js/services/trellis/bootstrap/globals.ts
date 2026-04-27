@@ -57,9 +57,10 @@ export const devicePortalSelectionStorage = storageBootstrap
   .devicePortalSelectionStorage;
 export const instanceGrantPolicyStorage = storageBootstrap
   .instanceGrantPolicyStorage;
-export const serviceProfileStorage = storageBootstrap.serviceProfileStorage;
+export const serviceDeploymentStorage =
+  storageBootstrap.serviceDeploymentStorage;
 export const serviceInstanceStorage = storageBootstrap.serviceInstanceStorage;
-export const deviceProfileStorage = storageBootstrap.deviceProfileStorage;
+export const deviceDeploymentStorage = storageBootstrap.deviceDeploymentStorage;
 export const deviceInstanceStorage = storageBootstrap.deviceInstanceStorage;
 export const deviceProvisioningSecretStorage = storageBootstrap
   .deviceProvisioningSecretStorage;

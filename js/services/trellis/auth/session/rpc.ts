@@ -22,7 +22,7 @@ import { createAuthRevokeSessionHandler } from "./revoke.ts";
 import type {
   SqlContractApprovalRepository,
   SqlDeviceActivationRepository,
-  SqlDeviceProfileRepository,
+  SqlDeviceDeploymentRepository,
   SqlSessionRepository,
   SqlUserProjectionRepository,
 } from "../storage.ts";
@@ -59,7 +59,7 @@ type AuthenticatedDevice = {
   deviceId: string;
   deviceType: string;
   runtimePublicKey: string;
-  profileId: string;
+  deploymentId: string;
   active: boolean;
   capabilities: string[];
 };
@@ -73,7 +73,7 @@ type AuthMeResponse = {
 
 type UserProjectionStorage = Pick<SqlUserProjectionRepository, "get">;
 type DeviceActivationStorage = Pick<SqlDeviceActivationRepository, "get">;
-type DeviceProfileStorage = Pick<SqlDeviceProfileRepository, "get">;
+type DeviceDeploymentStorage = Pick<SqlDeviceDeploymentRepository, "get">;
 type SessionStorage = Pick<
   SqlSessionRepository,
   | "getOneBySessionKey"
@@ -85,7 +85,7 @@ type SessionStorage = Pick<
 type DeviceActivationRecord = {
   instanceId: string;
   publicIdentityKey: string;
-  profileId: string;
+  deploymentId: string;
   activatedBy?: {
     origin: string;
     id: string;
@@ -95,9 +95,9 @@ type DeviceActivationRecord = {
   revokedAt: string | Date | null;
 };
 
-function deviceTypeFromProfileId(profileId: string): string {
-  const [deviceType] = profileId.split(".", 1);
-  return deviceType && deviceType.length > 0 ? deviceType : profileId;
+function deviceTypeFromDeploymentId(deploymentId: string): string {
+  const [deviceType] = deploymentId.split(".", 1);
+  return deviceType && deviceType.length > 0 ? deviceType : deploymentId;
 }
 
 type SessionUser = {
@@ -127,7 +127,7 @@ type SessionContext = {
     lastLogin?: string;
     deviceId?: string;
     runtimePublicKey?: string;
-    profileId?: string;
+    deploymentId?: string;
   };
   sessionKey: string;
 };
@@ -198,9 +198,9 @@ function buildSessionRow(session: Session, sessionKey: string): SessionListRow {
       principal: {
         type: "device",
         deviceId: session.instanceId,
-        deviceType: deviceTypeFromProfileId(session.profileId),
+        deviceType: deviceTypeFromDeploymentId(session.deploymentId),
         runtimePublicKey: session.publicIdentityKey,
-        profileId: session.profileId,
+        deploymentId: session.deploymentId,
       },
       contractId: session.contractId,
       createdAt: iso(session.createdAt),
@@ -217,7 +217,7 @@ function buildSessionRow(session: Session, sessionKey: string): SessionListRow {
       id: session.id,
       name: session.name,
       instanceId: session.instanceId,
-      profileId: session.profileId,
+      deploymentId: session.deploymentId,
     },
     createdAt: iso(session.createdAt),
     lastAuth: iso(session.lastAuth),
@@ -266,9 +266,9 @@ function buildConnectionRow(
       principal: {
         type: "device",
         deviceId: session.instanceId,
-        deviceType: deviceTypeFromProfileId(session.profileId),
+        deviceType: deviceTypeFromDeploymentId(session.deploymentId),
         runtimePublicKey: session.publicIdentityKey,
-        profileId: session.profileId,
+        deploymentId: session.deploymentId,
       },
       contractId: session.contractId,
     };
@@ -282,7 +282,7 @@ function buildConnectionRow(
       id: session.id,
       name: session.name,
       instanceId: session.instanceId,
-      profileId: session.profileId,
+      deploymentId: session.deploymentId,
     },
   };
 }
@@ -348,9 +348,9 @@ function formatCaller(
     return {
       type: "device" as const,
       deviceId: session.instanceId,
-      deviceType: deviceTypeFromProfileId(session.profileId),
+      deviceType: deviceTypeFromDeploymentId(session.deploymentId),
       runtimePublicKey: session.publicIdentityKey,
-      profileId: session.profileId,
+      deploymentId: session.deploymentId,
       active: principal.active,
       capabilities: principal.capabilities,
     };
@@ -382,21 +382,21 @@ function formatCaller(
 
 function deviceCallerFields(caller: SessionContext["caller"]): {
   deviceId: string;
-  profileId: string;
+  deploymentId: string;
   runtimePublicKey: string;
   active: boolean;
   capabilities: string[];
 } | null {
   if (
     caller.type !== "device" || !caller.deviceId || !caller.runtimePublicKey ||
-    !caller.profileId || caller.active === undefined
+    !caller.deploymentId || caller.active === undefined
   ) {
     return null;
   }
 
   return {
     deviceId: caller.deviceId,
-    profileId: caller.profileId,
+    deploymentId: caller.deploymentId,
     runtimePublicKey: caller.runtimePublicKey,
     active: caller.active,
     capabilities: caller.capabilities ?? [],
@@ -453,9 +453,9 @@ function responseFromCaller(
       device: {
         type: "device",
         deviceId: deviceCaller.deviceId,
-        deviceType: deviceTypeFromProfileId(deviceCaller.profileId),
+        deviceType: deviceTypeFromDeploymentId(deviceCaller.deploymentId),
         runtimePublicKey: deviceCaller.runtimePublicKey,
-        profileId: deviceCaller.profileId,
+        deploymentId: deviceCaller.deploymentId,
         active: deviceCaller.active,
         capabilities: deviceCaller.capabilities,
       },
@@ -470,7 +470,7 @@ async function responseFromDeviceCaller(args: {
   caller: SessionContext["caller"];
   userStorage: UserProjectionStorage;
   deviceActivationStorage: DeviceActivationStorage;
-  deviceProfileStorage: DeviceProfileStorage;
+  deviceDeploymentStorage: DeviceDeploymentStorage;
 }): Promise<AuthMeResponse | null> {
   const deviceCaller = deviceCallerFields(args.caller);
   if (!deviceCaller) {
@@ -483,14 +483,16 @@ async function responseFromDeviceCaller(args: {
   if (!activation) return null;
   if (
     activation.state !== "activated" ||
-    activation.profileId !== deviceCaller.profileId ||
+    activation.deploymentId !== deviceCaller.deploymentId ||
     activation.revokedAt !== null
   ) {
     return null;
   }
 
-  const profile = await args.deviceProfileStorage.get(activation.profileId);
-  if (!profile || profile.disabled) return null;
+  const deployment = await args.deviceDeploymentStorage.get(
+    activation.deploymentId,
+  );
+  if (!deployment || deployment.disabled) return null;
 
   const user = activation.activatedBy
     ? await loadAuthenticatedUser({
@@ -512,9 +514,9 @@ async function responseFromDeviceCaller(args: {
     device: {
       type: "device",
       deviceId: deviceCaller.deviceId,
-      deviceType: deviceTypeFromProfileId(deviceCaller.profileId),
+      deviceType: deviceTypeFromDeploymentId(deviceCaller.deploymentId),
       runtimePublicKey: deviceCaller.runtimePublicKey,
-      profileId: deviceCaller.profileId,
+      deploymentId: deviceCaller.deploymentId,
       active: deviceCaller.active,
       capabilities: deviceCaller.capabilities,
     },
@@ -610,7 +612,7 @@ async function loadAuthenticatedService(args: {
 async function loadAuthenticatedDevice(args: {
   userStorage: UserProjectionStorage;
   deviceActivationStorage: DeviceActivationStorage;
-  deviceProfileStorage: DeviceProfileStorage;
+  deviceDeploymentStorage: DeviceDeploymentStorage;
   session: Session & { type: "device" };
 }): Promise<{ user: AuthenticatedUser | null; device: AuthenticatedDevice }> {
   const activation = await args.deviceActivationStorage.get(
@@ -628,7 +630,7 @@ async function loadAuthenticatedDevice(args: {
     : null;
   if (
     activation.state !== "activated" ||
-    activation.profileId !== args.session.profileId ||
+    activation.deploymentId !== args.session.deploymentId ||
     revokedAt !== null ||
     args.session.revokedAt !== null
   ) {
@@ -636,23 +638,25 @@ async function loadAuthenticatedDevice(args: {
       reason: "device_activation_revoked",
       context: {
         instanceId: args.session.instanceId,
-        profileId: activation.profileId,
+        deploymentId: activation.deploymentId,
       },
     });
   }
 
-  const profile = await args.deviceProfileStorage.get(activation.profileId);
-  if (!profile) {
+  const deployment = await args.deviceDeploymentStorage.get(
+    activation.deploymentId,
+  );
+  if (!deployment) {
     throw new AuthError({
-      reason: "device_profile_not_found",
-      context: { profileId: activation.profileId },
+      reason: "device_deployment_not_found",
+      context: { deploymentId: activation.deploymentId },
     });
   }
 
-  if (profile.disabled) {
+  if (deployment.disabled) {
     throw new AuthError({
-      reason: "device_profile_disabled",
-      context: { profileId: profile.profileId },
+      reason: "device_deployment_disabled",
+      context: { deploymentId: deployment.deploymentId },
     });
   }
 
@@ -675,9 +679,9 @@ async function loadAuthenticatedDevice(args: {
     device: {
       type: "device",
       deviceId: args.session.instanceId,
-      deviceType: deviceTypeFromProfileId(args.session.profileId),
+      deviceType: deviceTypeFromDeploymentId(args.session.deploymentId),
       runtimePublicKey: args.session.publicIdentityKey,
-      profileId: args.session.profileId,
+      deploymentId: args.session.deploymentId,
       active: true,
       capabilities: args.session.delegatedCapabilities,
     },
@@ -688,7 +692,7 @@ export function createAuthMeHandler(deps: {
   sessionStorage: Pick<SessionStorage, "getOneBySessionKey">;
   userStorage: UserProjectionStorage;
   deviceActivationStorage: DeviceActivationStorage;
-  deviceProfileStorage: DeviceProfileStorage;
+  deviceDeploymentStorage: DeviceDeploymentStorage;
   loadServiceInstance?: (sessionKey: string) => Promise<
     | {
       disabled: boolean;
@@ -721,7 +725,7 @@ export function createAuthMeHandler(deps: {
           caller,
           userStorage: deps.userStorage,
           deviceActivationStorage: deps.deviceActivationStorage,
-          deviceProfileStorage: deps.deviceProfileStorage,
+          deviceDeploymentStorage: deps.deviceDeploymentStorage,
         });
         if (deviceCallerResponse) {
           return Result.ok<AuthMeResponse>(deviceCallerResponse);
@@ -773,7 +777,7 @@ export function createAuthMeHandler(deps: {
       const { user, device } = await loadAuthenticatedDevice({
         userStorage: deps.userStorage,
         deviceActivationStorage: deps.deviceActivationStorage,
-        deviceProfileStorage: deps.deviceProfileStorage,
+        deviceDeploymentStorage: deps.deviceDeploymentStorage,
         session: session as Session & { type: "device" },
       });
       return Result.ok<AuthMeResponse>({
@@ -800,7 +804,7 @@ export const authMeHandler = async (
     sessionStorage: globals.sessionStorage,
     userStorage: globals.userStorage,
     deviceActivationStorage: globals.deviceActivationStorage,
-    deviceProfileStorage: globals.deviceProfileStorage,
+    deviceDeploymentStorage: globals.deviceDeploymentStorage,
     loadServiceInstance: loadServiceInstanceByKey,
   })(args);
 };
@@ -822,7 +826,7 @@ export function createAuthValidateRequestHandler(deps: {
   userStorage: UserProjectionStorage;
   contractApprovalStorage: Pick<SqlContractApprovalRepository, "get">;
   deviceActivationStorage?: DeviceActivationStorage;
-  deviceProfileStorage?: DeviceProfileStorage;
+  deviceDeploymentStorage?: DeviceDeploymentStorage;
 }) {
   return async ({ input: req }: { input: ValidateRequestInput }) => {
     logger.trace({
@@ -860,22 +864,22 @@ export function createAuthValidateRequestHandler(deps: {
       return Result.err(new AuthError({ reason: "session_not_found" }));
     }
     const inboxPrefix = `_INBOX.${req.sessionKey.slice(0, 16)}`;
-    const runtime = deps.deviceActivationStorage && deps.deviceProfileStorage
+    const runtime = deps.deviceActivationStorage && deps.deviceDeploymentStorage
       ? null
       : authRuntimeDeps();
-    const { loadServiceInstanceByKey, loadServiceProfile } = await import(
+    const { loadServiceInstanceByKey, loadServiceDeployment } = await import(
       "../admin/service_rpc.ts"
     );
     const principal = await resolveSessionPrincipal(session, req.sessionKey, {
       loadServiceInstance: loadServiceInstanceByKey,
-      loadServiceProfile,
+      loadServiceDeployment,
       loadUserProjection: async (trellisId) => {
         return await deps.userStorage.get(trellisId) ?? null;
       },
       deviceActivationStorage: deps.deviceActivationStorage ??
         runtime!.deviceActivationStorage,
-      deviceProfileStorage: deps.deviceProfileStorage ??
-        runtime!.deviceProfileStorage,
+      deviceDeploymentStorage: deps.deviceDeploymentStorage ??
+        runtime!.deviceDeploymentStorage,
       loadStoredApproval: async (key) => {
         const approvalKey = parseContractApprovalKey(key);
         if (!approvalKey) return null;
@@ -920,7 +924,7 @@ export const authValidateRequestHandler = async (
     userStorage: globals.userStorage,
     contractApprovalStorage: globals.contractApprovalStorage,
     deviceActivationStorage: globals.deviceActivationStorage,
-    deviceProfileStorage: globals.deviceProfileStorage,
+    deviceDeploymentStorage: globals.deviceDeploymentStorage,
   })(args);
 };
 

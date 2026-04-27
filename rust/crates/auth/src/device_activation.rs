@@ -173,8 +173,8 @@ pub struct DeviceActivationStartResponse {
     pub flow_id: String,
     #[serde(rename = "instanceId")]
     pub instance_id: String,
-    #[serde(rename = "profileId")]
-    pub profile_id: String,
+    #[serde(rename = "deploymentId")]
+    pub deployment_id: String,
     #[serde(rename = "activationUrl")]
     pub activation_url: String,
 }

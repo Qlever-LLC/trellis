@@ -318,10 +318,15 @@ export class ContractStore {
     this.#rebuildActiveSubjectIndex();
   }
 
-  findActiveDigestById(id: string): string | undefined {
+  findSingleActiveDigestById(id: string): string | undefined {
     const digests = this.#activeDigestsById.get(id);
     if (!digests || digests.size === 0) return undefined;
-    return [...digests].sort((left, right) => left.localeCompare(right))[0];
+    if (digests.size > 1) {
+      throw new Error(
+        `Contract '${id}' has multiple active digests; require an exact digest`,
+      );
+    }
+    return digests.values().next().value;
   }
 
   setActiveDigests(digests: Iterable<string>): void {

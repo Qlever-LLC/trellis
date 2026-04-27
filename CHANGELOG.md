@@ -10,6 +10,10 @@ and this project adheres to
 
 ### Changed
 
+- Reworked service and device rollout management around explicit deployments:
+  auth protocol, storage, runtime bootstrap, CLI, portals, docs, guides, and demos
+  now use `ServiceDeployment` / `DeviceDeployment`, `deploymentId`, and
+  `trellis deploy` instead of service/device profile APIs.
 - Changed Trellis State to store author-owned state versions and internal writer
   digest provenance per entry, while keeping durable namespaces scoped by
   contract id lineage. Older declared `acceptedVersions` now surface

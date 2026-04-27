@@ -20,7 +20,7 @@ order: 10
 Trellis needs clear command boundaries for:
 
 - operational bootstrap and admin commands
-- service install and upgrade flows that use locally generated keys
+- service deployment and upgrade flows that use locally generated keys
 - bootstrap-safe contract verification and SDK generation during repo builds
 
 The command model separates those concerns across:
@@ -148,40 +148,26 @@ trellis portal login clear <contractId>
 trellis portal device default
 trellis portal device set-default (--builtin | --portal <portalId>)
 trellis portal device list
-trellis portal device set <profileId> (--builtin | --portal <portalId>)
-trellis portal device clear <profileId>
-trellis device profile list [--contract <contractId>] [--disabled]
-trellis device profile create <id> [--review-mode <none|required>]
-trellis device profile apply <id> (--source <file> | --manifest <file> | --image <ref>) [-f]
-trellis device profile unapply <id> <contractId> [--digest <digest>...]
-trellis device profile disable <id>
-trellis device profile enable <id>
-trellis device profile remove <id> [-f]
-trellis device instance provision <id> [--name <name>] [--serial-number <serial>] [--model-number <model>] [--metadata <key=value>...]
-trellis device instance list [--profile <id>] [--state <registered|activated|revoked|disabled>] [--show-metadata]
-trellis device instance disable <id>
-trellis device instance enable <id>
-trellis device instance remove <id> [-f]
-trellis device activation list [--instance <id>] [--profile <id>] [--state <activated|revoked>]
-trellis device activation revoke <id>
-trellis device activation review list [--instance <id>] [--profile <id>] [--state <pending|approved|rejected>]
-trellis device activation review approve <id> [--reason <code>]
-trellis device activation review reject <id> [--reason <code>]
+trellis portal device set <deploymentId> (--builtin | --portal <portalId>)
+trellis portal device clear <deploymentId>
+trellis deploy list <svc|dev> [--contract <contractId>] [--disabled]
+trellis deploy show <svc/id|dev/id>
+trellis deploy create <svc/id|dev/id> [--namespace <ns>...] [--review-mode <none|required>]
+trellis deploy apply <svc/id|dev/id> (--source <file> | --manifest <file> | --image <ref>) [-f]
+trellis deploy unapply <svc/id|dev/id> <contractId> [--digest <digest>...]
+trellis deploy disable <svc/id|dev/id>
+trellis deploy enable <svc/id|dev/id>
+trellis deploy remove <svc/id|dev/id> [-f]
+trellis deploy instances <svc|dev|svc/id|dev/id> [--disabled] [--state <registered|activated|revoked|disabled>] [--show-metadata]
+trellis deploy provision <svc/id|dev/id> [--instance-seed <seed>] [--name <name>] [--serial-number <serial>] [--model-number <model>] [--metadata <key=value>...]
+trellis deploy activation list [--instance <id>] [--deployment <id>] [--state <activated|revoked>]
+trellis deploy activation revoke <id>
+trellis deploy review list [--instance <id>] [--deployment <id>] [--state <pending|approved|rejected>]
+trellis deploy review approve <id> [--reason <code>]
+trellis deploy review reject <id> [--reason <code>]
 trellis bootstrap nats --trellis-creds <path> --auth-creds <path> [--servers <servers>]
 trellis bootstrap admin --origin <origin> --id <id> [--db-path <path>] [--capability <capability>...]
 trellis keygen ...
-trellis service profile list [--disabled]
-trellis service profile create <id> [--namespace <ns>...]
-trellis service profile apply <id> (--source <file> | --manifest <file> | --image <ref>) [-f]
-trellis service profile unapply <id> <contractId> [--digest <digest>...]
-trellis service profile disable <id>
-trellis service profile enable <id>
-trellis service profile remove <id> [-f]
-trellis service instance provision <id> [--instance-seed <seed>]
-trellis service instance list [--profile <id>] [--disabled]
-trellis service instance disable <id>
-trellis service instance enable <id>
-trellis service instance remove <id> [-f]
 trellis self check [--prerelease]
 trellis self update [--prerelease]
 trellis version
@@ -213,7 +199,7 @@ Operational command behavior:
 - `trellis portal login *` manages deployment-owned login portal policy,
   including the deployment login default and any contract-specific selections
 - `trellis portal device *` manages deployment-owned device portal policy,
-  including the deployment device default and any profile-specific selections
+  including the deployment device default and any device-deployment selections
 - `trellis auth approval list` shows stored delegated approval decisions for app
   and agent contracts from the `trellis` service, with server-side filtering by
   exact contract digest and optionally by user when the caller is an admin
@@ -225,35 +211,34 @@ Operational command behavior:
   contract id or a local contract source path, may optionally restrict matching
   browser origins for app callers, and causes affected delegated sessions to
   reconnect so auth re-evaluates current policy
-- `trellis device profile *` manages device classes, allowed digests, and review
-  policy for activated devices; profile creation is separate from contract
-  application, so `apply` and `unapply` manage the allowed digest set after the
-  profile exists; portal selection for devices is managed under
-  `trellis portal device *`
-- `trellis device instance provision` is the ergonomic provisioning path for
+- `trellis deploy *` manages deployment-owned service and device deployments;
+  service refs use `svc/<id>` and device refs use `dev/<id>`, with `deployment`,
+  `deployments`, `dep`, and `d` as aliases for the top-level command
+- `trellis deploy apply` and `trellis deploy unapply` manage the allowed digest
+  set for one service or device deployment after the deployment exists
+- `trellis deploy provision <dev/id>` is the ergonomic provisioning path for
   device development and deployment: it generates a root secret locally, derives
   the device keys, registers the instance with auth using activation-only secret
   material, optionally captures device metadata such as `name`, `serialNumber`,
   `modelNumber`, and deployment-specific opaque keys, and emits the provisioning
   bundle for the device or operator
-- `trellis device instance *` is the lower-level instance inspection and
-  lifecycle surface; the default table promotes `name`, `serial`, and `model`
-  columns when present, while `--show-metadata` reveals the remaining opaque
-  metadata entries
-- `trellis device activation review *` manages pending device review decisions
+- `trellis deploy instances *` is the lower-level instance inspection surface;
+  the default device table promotes `name`, `serial`, and `model` columns when
+  present, while `--show-metadata` reveals the remaining opaque metadata entries
+- `trellis deploy review *` manages pending device review decisions
   and is intended for `device.review` automation services or admins
-- `trellis service profile *` manages deployment-owned service profile policy:
-  contract digest allowance, namespace allowance, and reversible profile state
-- `trellis service instance *` manages concrete service principals under one
-  profile, including provisioning, inspection, and reversible lifecycle changes
-- profile create flows are intentionally metadata-light; human-facing contract
+- service deployments own contract digest allowance, namespace allowance, and
+  reversible deployment state
+- service instances are concrete service principals under one deployment,
+  including provisioning, inspection, and reversible lifecycle changes
+- deployment create flows are intentionally metadata-light; human-facing contract
   names continue to come from the applied contract manifests rather than from a
-  separate profile-local `displayName` or `description`
+  separate deployment-local `displayName` or `description`
 - deployments may rely on the built-in Trellis portal with no portal setup, or
   register one or more custom portals, optionally configure portal profiles for
   browser portal apps, choose separate login and device default custom portals,
-  assign portals to specific browser contracts or device profiles, then create
-  device profiles and provision device instances for activated-device flows;
+  assign portals to specific browser contracts or device deployments, then create
+  device deployments and provision device instances for activated-device flows;
   install automation may offer convenience wrappers, but the underlying actions
   remain explicit admin calls
 - `trellis bootstrap nats` creates the shared event stream and Trellis-owned KV

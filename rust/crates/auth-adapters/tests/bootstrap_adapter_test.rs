@@ -160,6 +160,7 @@ fn installed_contract_types_deserialize_stream_bindings_and_summary_counts() {
                     "events": 0,
                     "jobsQueues": 1,
                     "kvResources": 2,
+                    "storeResources": 0,
                     "streamResources": 3,
                     "namespaces": ["jobs"],
                     "natsPublish": 4,
@@ -225,6 +226,7 @@ fn installed_contract_types_deserialize_stream_bindings_and_summary_counts() {
                     "kv": {
                         "jobsState": {
                             "purpose": "Projected job state",
+                            "schema": { "schema": "JobState" },
                             "history": 1,
                             "ttlMs": 0
                         }
@@ -257,18 +259,6 @@ fn installed_contract_types_deserialize_stream_bindings_and_summary_counts() {
     let resources = response.contract.resources.expect("resources");
     assert_eq!(
         resources
-            .jobs
-            .as_ref()
-            .expect("jobs resources")
-            .queues
-            .get("document-process")
-            .expect("document-process queue")
-            .payload
-            .schema,
-        "DocumentPayload"
-    );
-    assert_eq!(
-        resources
             .kv
             .as_ref()
             .expect("kv resources")
@@ -293,7 +283,7 @@ fn install_service_response_deserializes_typed_resource_bindings() {
             "instance": {
                 "instanceId": "svc-inst-1",
                 "instanceKey": "svc-key",
-                "profileId": "jobs.default",
+                "deploymentId": "jobs.default",
                 "createdAt": "2026-01-01T00:00:00.000Z",
                 "disabled": false,
                 "capabilities": ["jobs.read"],

@@ -9,7 +9,7 @@ Deno.test("OIDC provider maps userinfo claims using sub as stable id", async () 
     issuer: "https://tenant.example.auth0.com/",
     clientId: "client-id",
     clientSecret: "client-secret",
-    scopes: ["openid", "profile", "email"],
+    scopes: ["openid", "deployment", "email"],
   });
 
   const restore = __testing__.setFetch(

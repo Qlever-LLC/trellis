@@ -6,17 +6,17 @@ import type {
   SqlContractApprovalRepository,
   SqlDeviceActivationRepository,
   SqlDeviceActivationReviewRepository,
+  SqlDeviceDeploymentRepository,
   SqlDeviceInstanceRepository,
   SqlDevicePortalSelectionRepository,
-  SqlDeviceProfileRepository,
   SqlDeviceProvisioningSecretRepository,
   SqlInstanceGrantPolicyRepository,
   SqlLoginPortalSelectionRepository,
   SqlPortalDefaultRepository,
   SqlPortalProfileRepository,
   SqlPortalRepository,
+  SqlServiceDeploymentRepository,
   SqlServiceInstanceRepository,
-  SqlServiceProfileRepository,
   SqlSessionRepository,
   SqlUserProjectionRepository,
 } from "./storage.ts";
@@ -67,7 +67,7 @@ export type AuthRuntimeDeps = {
   deviceActivationStorage: SqlDeviceActivationRepository;
   deviceInstanceStorage: SqlDeviceInstanceRepository;
   devicePortalSelectionStorage: SqlDevicePortalSelectionRepository;
-  deviceProfileStorage: SqlDeviceProfileRepository;
+  deviceDeploymentStorage: SqlDeviceDeploymentRepository;
   deviceProvisioningSecretStorage: SqlDeviceProvisioningSecretRepository;
   instanceGrantPolicyStorage: SqlInstanceGrantPolicyRepository;
   loginPortalSelectionStorage: SqlLoginPortalSelectionRepository;
@@ -75,7 +75,7 @@ export type AuthRuntimeDeps = {
   portalProfileStorage: SqlPortalProfileRepository;
   portalStorage: SqlPortalRepository;
   serviceInstanceStorage: SqlServiceInstanceRepository;
-  serviceProfileStorage: SqlServiceProfileRepository;
+  serviceDeploymentStorage: SqlServiceDeploymentRepository;
   sessionStorage: SqlSessionRepository;
   userStorage: SqlUserProjectionRepository;
 };

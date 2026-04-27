@@ -18,7 +18,7 @@ export type SessionPrincipal = {
   name: string;
   serviceState?: {
     instanceId: string;
-    profileId: string;
+    deploymentId: string;
     instanceKey: string;
     disabled: boolean;
     currentContractId?: string;
@@ -34,8 +34,8 @@ export type SessionPrincipalError = {
     | "service_disabled"
     | "unknown_device"
     | "device_activation_revoked"
-    | "device_profile_not_found"
-    | "device_profile_disabled"
+    | "device_deployment_not_found"
+    | "device_deployment_disabled"
     | "user_not_found"
     | "user_inactive"
     | "insufficient_permissions"
@@ -64,7 +64,7 @@ export async function resolveSessionPrincipal(
     loadServiceInstance?: (instanceKey: string) => Promise<
       {
         instanceId: string;
-        profileId: string;
+        deploymentId: string;
         instanceKey: string;
         disabled: boolean;
         currentContractId?: string;
@@ -73,24 +73,24 @@ export async function resolveSessionPrincipal(
         resourceBindings?: Record<string, unknown>;
       } | null
     >;
-    loadServiceProfile?: (
-      profileId: string,
-    ) => Promise<{ profileId: string; disabled: boolean } | null>;
+    loadServiceDeployment?: (
+      deploymentId: string,
+    ) => Promise<{ deploymentId: string; disabled: boolean } | null>;
     deviceActivationStorage?: {
       get(instanceId: string): Promise<
         {
           instanceId: string;
           publicIdentityKey: string;
-          profileId: string;
+          deploymentId: string;
           state: string;
           revokedAt: string | Date | null;
         } | undefined
       >;
     };
-    deviceProfileStorage?: {
-      get(profileId: string): Promise<
+    deviceDeploymentStorage?: {
+      get(deploymentId: string): Promise<
         {
-          profileId: string;
+          deploymentId: string;
           disabled: boolean;
         } | undefined
       >;
@@ -124,13 +124,13 @@ export async function resolveSessionPrincipal(
       };
     }
 
-    const profile = await deps.loadServiceProfile?.(service.profileId);
-    if (!profile || profile.disabled) {
+    const deployment = await deps.loadServiceDeployment?.(service.deploymentId);
+    if (!deployment || deployment.disabled) {
       return {
         ok: false,
         error: {
           reason: "service_disabled",
-          context: { profileId: service.profileId, sessionKey },
+          context: { deploymentId: service.deploymentId, sessionKey },
         },
       };
     }
@@ -169,7 +169,7 @@ export async function resolveSessionPrincipal(
     if (
       activation.state !== "activated" ||
       activation.publicIdentityKey !== session.publicIdentityKey ||
-      activation.profileId !== session.profileId ||
+      activation.deploymentId !== session.deploymentId ||
       revokedAt !== null ||
       session.revokedAt !== null
     ) {
@@ -179,29 +179,31 @@ export async function resolveSessionPrincipal(
           reason: "device_activation_revoked",
           context: {
             instanceId: session.instanceId,
-            profileId: activation.profileId,
+            deploymentId: activation.deploymentId,
           },
         },
       };
     }
 
-    const profile = await deps.deviceProfileStorage?.get(activation.profileId);
-    if (!profile) {
+    const deployment = await deps.deviceDeploymentStorage?.get(
+      activation.deploymentId,
+    );
+    if (!deployment) {
       return {
         ok: false,
         error: {
-          reason: "device_profile_not_found",
-          context: { profileId: activation.profileId },
+          reason: "device_deployment_not_found",
+          context: { deploymentId: activation.deploymentId },
         },
       };
     }
 
-    if (profile.disabled) {
+    if (deployment.disabled) {
       return {
         ok: false,
         error: {
-          reason: "device_profile_disabled",
-          context: { profileId: profile.profileId },
+          reason: "device_deployment_disabled",
+          context: { deploymentId: deployment.deploymentId },
         },
       };
     }

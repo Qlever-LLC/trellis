@@ -1,6 +1,6 @@
 ---
 title: Trellis Auth
-description: Trellis authentication and authorization architecture, including approvals, session keys, and service install identity.
+description: Trellis authentication and authorization architecture, including approvals, session keys, and service deployment identity.
 order: 10
 ---
 
@@ -41,8 +41,8 @@ Durable SQL-backed records:
 - users and admin-managed user capabilities
 - contract approval decisions and deployment-wide grant policies
 - portal routes, portal profiles, portal defaults, and portal selections
-- service profiles and service instances
-- device profiles, device instances, provisioning secrets, activations, and review
+- service deployments and service instances
+- device deployments, device instances, provisioning secrets, activations, and review
   records
 - installed contract records and resource bindings
 - sessions bound to a principal, session key, contract context, and `lastAuth`
@@ -194,7 +194,7 @@ Rules:
   browser UX surfaces without portal-specific contract machinery
 - a portal MAY also act later as a normal user-authenticated browser app, but
   any such authority is delegated from the logged-in user rather than from a
-  service install record
+  service deployment record
 - browser apps MAY attach opaque portal context to login initiation so custom portals can coordinate UX without introducing portal-specific app APIs
 - the approval key is `user <-> contractDigest`, not merely
   `user <-> contractId`
@@ -254,7 +254,7 @@ type ActivatedDeviceSession = {
   type: "device";
   instanceId: string;
   publicIdentityKey: string;
-  profileId: string;
+  deploymentId: string;
   contractId: string;
   contractDigest: string;
   delegatedCapabilities: string[];
@@ -325,7 +325,7 @@ The auth subsystem maintains Trellis-local state such as:
 - device portal selection records
 - optional login/device default-portal deployment settings
 - auth browser flow records
-- device profiles
+- device deployments
 - device instances
 - device activation flows
 - device activation records

@@ -83,7 +83,7 @@ function testClientContract(description = "Example browser client contract") {
     kind: "app",
     schemas: {
       JobPayload: { type: "object" },
-      ProfileState: { type: "object" },
+      DeploymentState: { type: "object" },
     },
     jobs: {
       process: {
@@ -92,9 +92,9 @@ function testClientContract(description = "Example browser client contract") {
     },
     resources: {
       kv: {
-        profile: {
-          purpose: "Store profile state",
-          schema: { schema: "ProfileState" },
+        deployment: {
+          purpose: "Store deployment state",
+          schema: { schema: "DeploymentState" },
         },
       },
     },
@@ -139,9 +139,9 @@ async function createVerifiedApp(args?: {
     contractId: validated.contract.id,
     contractDisplayName: validated.contract.displayName,
     contractDescription: validated.contract.description,
-    delegatedCapabilities: ["read:profile"],
-    delegatedPublishSubjects: ["events.profile.updated"],
-    delegatedSubscribeSubjects: ["events.profile.*"],
+    delegatedCapabilities: ["read:deployment"],
+    delegatedPublishSubjects: ["events.deployment.updated"],
+    delegatedSubscribeSubjects: ["events.deployment.*"],
     createdAt: new Date("2026-01-01T00:00:00.000Z"),
     lastAuth: new Date("2026-01-01T00:01:00.000Z"),
   });
@@ -153,7 +153,7 @@ async function createVerifiedApp(args?: {
       name: "Example User",
       email: "user@example.com",
       active: true,
-      capabilities: ["read:profile"],
+      capabilities: ["read:deployment"],
     },
   );
 
@@ -183,10 +183,10 @@ async function createVerifiedApp(args?: {
           displayName: validated.contract.displayName,
           description: validated.contract.description,
           participantKind: "app",
-          capabilities: ["read:profile"],
+          capabilities: ["read:deployment"],
         },
-        publishSubjects: ["events.profile.updated"],
-        subscribeSubjects: ["events.profile.*"],
+        publishSubjects: ["events.deployment.updated"],
+        subscribeSubjects: ["events.deployment.*"],
       }),
       loadInstanceGrantPolicies: async () => [],
       verifyIdentityProof: async ({ sessionKey, iat, sig }) =>
@@ -246,9 +246,9 @@ Deno.test("POST /bootstrap/client returns runtime bootstrap info for bound brows
     binding: {
       contractId: contract.contract.id,
       digest: contract.digest,
-      capabilities: ["read:profile"],
-      publishSubjects: ["events.profile.updated"],
-      subscribeSubjects: ["events.profile.*"],
+      capabilities: ["read:deployment"],
+      publishSubjects: ["events.deployment.updated"],
+      subscribeSubjects: ["events.deployment.*"],
     },
   });
 });
@@ -282,9 +282,9 @@ Deno.test("POST /bootstrap/client accepts the exact session digest when multiple
     contractId: sessionContract.contract.id,
     contractDisplayName: sessionContract.contract.displayName,
     contractDescription: sessionContract.contract.description,
-    delegatedCapabilities: ["read:profile"],
-    delegatedPublishSubjects: ["events.profile.updated"],
-    delegatedSubscribeSubjects: ["events.profile.*"],
+    delegatedCapabilities: ["read:deployment"],
+    delegatedPublishSubjects: ["events.deployment.updated"],
+    delegatedSubscribeSubjects: ["events.deployment.*"],
     createdAt: new Date("2026-01-01T00:00:00.000Z"),
     lastAuth: new Date("2026-01-01T00:01:00.000Z"),
   });
@@ -294,7 +294,7 @@ Deno.test("POST /bootstrap/client accepts the exact session digest when multiple
     name: "Example User",
     email: "user@example.com",
     active: true,
-    capabilities: ["read:profile"],
+    capabilities: ["read:deployment"],
   });
 
   const app = new Hono();
@@ -323,10 +323,10 @@ Deno.test("POST /bootstrap/client accepts the exact session digest when multiple
           displayName: sessionContract.contract.displayName,
           description: sessionContract.contract.description,
           participantKind: "app",
-          capabilities: ["read:profile"],
+          capabilities: ["read:deployment"],
         },
-        publishSubjects: ["events.profile.updated"],
-        subscribeSubjects: ["events.profile.*"],
+        publishSubjects: ["events.deployment.updated"],
+        subscribeSubjects: ["events.deployment.*"],
       }),
       loadInstanceGrantPolicies: async () => [],
       verifyIdentityProof: async ({ sessionKey, iat, sig }) =>
@@ -404,7 +404,7 @@ Deno.test("POST /bootstrap/client returns not_ready when the bound user is inact
       name: "Example User",
       email: "user@example.com",
       active: false,
-      capabilities: ["read:profile"],
+      capabilities: ["read:deployment"],
     },
   });
 

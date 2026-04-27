@@ -4,17 +4,17 @@ import {
   SqlContractApprovalRepository,
   SqlDeviceActivationRepository,
   SqlDeviceActivationReviewRepository,
+  SqlDeviceDeploymentRepository,
   SqlDeviceInstanceRepository,
   SqlDevicePortalSelectionRepository,
-  SqlDeviceProfileRepository,
   SqlDeviceProvisioningSecretRepository,
   SqlInstanceGrantPolicyRepository,
   SqlLoginPortalSelectionRepository,
   SqlPortalDefaultRepository,
   SqlPortalProfileRepository,
   SqlPortalRepository,
+  SqlServiceDeploymentRepository,
   SqlServiceInstanceRepository,
-  SqlServiceProfileRepository,
   SqlSessionRepository,
   SqlUserProjectionRepository,
 } from "../auth/storage.ts";
@@ -43,13 +43,15 @@ export const devicePortalSelectionStorage =
 export const instanceGrantPolicyStorage = new SqlInstanceGrantPolicyRepository(
   storage.db,
 );
-export const serviceProfileStorage = new SqlServiceProfileRepository(
+export const serviceDeploymentStorage = new SqlServiceDeploymentRepository(
   storage.db,
 );
 export const serviceInstanceStorage = new SqlServiceInstanceRepository(
   storage.db,
 );
-export const deviceProfileStorage = new SqlDeviceProfileRepository(storage.db);
+export const deviceDeploymentStorage = new SqlDeviceDeploymentRepository(
+  storage.db,
+);
 export const deviceInstanceStorage = new SqlDeviceInstanceRepository(
   storage.db,
 );

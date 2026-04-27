@@ -102,7 +102,7 @@
               Request details
             </p>
             <p class="mono mt-2 break-all text-sm text-base-content">
-              {controller.view.profileId}
+              {controller.view.deploymentId}
             </p>
             <p class="mt-1 text-xs text-base-content/55">
               Device <span class="mono break-all"
@@ -136,10 +136,10 @@
             <p
               class="text-xs font-bold uppercase tracking-widest text-base-content/45"
             >
-              Profile
+              Deployment
             </p>
             <p class="mono mt-2 break-all text-sm text-base-content">
-              {controller.view.profileId}
+              {controller.view.deploymentId}
             </p>
             <p
               class="mt-4 text-xs font-bold uppercase tracking-widest text-base-content/35"

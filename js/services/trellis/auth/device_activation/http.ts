@@ -30,7 +30,7 @@ const config = getConfig();
 type DeviceActivationFlow = {
   flowId: string;
   instanceId: string;
-  profileId: string;
+  deploymentId: string;
   publicIdentityKey: string;
   nonce: string;
   qrMac: string;
@@ -41,7 +41,7 @@ type DeviceActivationFlow = {
 type DeviceInstance = {
   instanceId: string;
   publicIdentityKey: string;
-  profileId: string;
+  deploymentId: string;
   metadata?: Record<string, string>;
   state: "registered" | "activated" | "revoked" | "disabled";
   createdAt: string;
@@ -49,8 +49,8 @@ type DeviceInstance = {
   revokedAt: string | null;
 };
 
-type DeviceProfile = {
-  profileId: string;
+type DeviceDeployment = {
+  deploymentId: string;
   appliedContracts: Array<{ contractId: string; allowedDigests: string[] }>;
   reviewMode?: "none" | "required";
   disabled: boolean;
@@ -67,7 +67,7 @@ type DeviceActivationReview = {
   flowId: string;
   instanceId: string;
   publicIdentityKey: string;
-  profileId: string;
+  deploymentId: string;
   state: "pending" | "approved" | "rejected";
   requestedAt: string | Date;
   decidedAt: string | Date | null;
@@ -91,7 +91,7 @@ type DeviceActivationRequest = {
 type DeviceActivationRequestResponse = {
   flowId: string;
   instanceId: string;
-  profileId: string;
+  deploymentId: string;
   activationUrl: string;
 };
 
@@ -108,11 +108,11 @@ async function loadDeviceInstance(
   return await deviceInstanceStorage.get(instanceId) ?? null;
 }
 
-async function loadDeviceProfile(
-  profileId: string,
-): Promise<DeviceProfile | null> {
-  const { deviceProfileStorage } = authRuntimeDeps();
-  return await deviceProfileStorage.get(profileId) ?? null;
+async function loadDeviceDeployment(
+  deploymentId: string,
+): Promise<DeviceDeployment | null> {
+  const { deviceDeploymentStorage } = authRuntimeDeps();
+  return await deviceDeploymentStorage.get(deploymentId) ?? null;
 }
 
 async function loadDeviceActivation(instanceId: string) {
@@ -139,7 +139,7 @@ function toDeviceActivationFlow(value: {
   kind?: string;
   deviceActivation?: {
     instanceId: string;
-    profileId: string;
+    deploymentId: string;
     publicIdentityKey: string;
     nonce: string;
     qrMac: string;
@@ -157,7 +157,7 @@ function toDeviceActivationFlow(value: {
   return {
     flowId: value.flowId,
     instanceId: value.deviceActivation.instanceId,
-    profileId: value.deviceActivation.profileId,
+    deploymentId: value.deviceActivation.deploymentId,
     publicIdentityKey: value.deviceActivation.publicIdentityKey,
     nonce: value.deviceActivation.nonce,
     qrMac: value.deviceActivation.qrMac,
@@ -182,7 +182,7 @@ async function findDeviceActivationFlow(input: {
         kind?: string;
         deviceActivation?: {
           instanceId: string;
-          profileId: string;
+          deploymentId: string;
           publicIdentityKey: string;
           nonce: string;
           qrMac: string;
@@ -211,7 +211,7 @@ async function listPortals(
 async function listDevicePortalSelections(
   deps: DeviceActivationPortalDeps,
 ): Promise<
-  Array<{ profileId: string; portalId: string | null }>
+  Array<{ deploymentId: string; portalId: string | null }>
 > {
   return await deps.devicePortalSelectionStorage.list();
 }
@@ -229,7 +229,7 @@ function deviceBootstrapDeps() {
     sentinel: sentinelCreds,
     loadDeviceInstance,
     loadDeviceActivation,
-    loadDeviceProfile,
+    loadDeviceDeployment,
     saveDeviceInstance: async (instance: DeviceInstance) => {
       await deviceInstanceStorage.put(instance);
     },
@@ -278,8 +278,10 @@ async function createDeviceActivationRequest(
   if (expectedQrMac !== payload.qrMac) {
     throw new Error("Invalid device activation payload");
   }
-  const profile = await loadDeviceProfile(instance.profileId);
-  if (!profile || profile.disabled) throw new Error("Device profile not found");
+  const deployment = await loadDeviceDeployment(instance.deploymentId);
+  if (!deployment || deployment.disabled) {
+    throw new Error("Device deployment not found");
+  }
 
   const now = new Date();
   const flowId = randomToken(16);
@@ -288,7 +290,7 @@ async function createDeviceActivationRequest(
     kind: "device_activation",
     deviceActivation: {
       instanceId,
-      profileId: profile.profileId,
+      deploymentId: deployment.deploymentId,
       publicIdentityKey: payload.publicIdentityKey,
       nonce: payload.nonce,
       qrMac: payload.qrMac,
@@ -305,7 +307,7 @@ async function createDeviceActivationRequest(
   }
 
   const portalResolution = resolveDevicePortal({
-    profileId: profile.profileId,
+    deploymentId: deployment.deploymentId,
     portals: await listPortals(deps),
     defaultPortalId: await loadDevicePortalDefaultId(deps),
     selections: await listDevicePortalSelections(deps),
@@ -318,7 +320,7 @@ async function createDeviceActivationRequest(
   return {
     flowId,
     instanceId,
-    profileId: profile.profileId,
+    deploymentId: deployment.deploymentId,
     activationUrl: portalUrl.toString(),
   };
 }
@@ -350,7 +352,8 @@ export function registerDeviceActivationHttpRoutes(
       const message = error instanceof Error ? error.message : String(error);
       const status = message === "Failed to create device activation flow"
         ? 500
-        : message === "Unknown device" || message === "Device profile not found"
+        : message === "Unknown device" ||
+            message === "Device deployment not found"
         ? 404
         : 400;
       return c.json({ error: message }, status);
@@ -420,9 +423,12 @@ export function registerDeviceActivationHttpRoutes(
         reason: "device_activation_revoked",
       });
     }
-    const profile = await loadDeviceProfile(activation.profileId);
-    if (!profile || profile.disabled) {
-      return c.json({ status: "rejected", reason: "device_profile_not_found" });
+    const deployment = await loadDeviceDeployment(activation.deploymentId);
+    if (!deployment || deployment.disabled) {
+      return c.json({
+        status: "rejected",
+        reason: "device_deployment_not_found",
+      });
     }
     const bootstrap = await resolveDeviceBootstrap(deviceBootstrapDeps(), {
       publicIdentityKey,
@@ -467,7 +473,7 @@ export function registerDeviceActivationHttpRoutes(
       if (result.reason === "contract_digest_not_allowed") {
         return c.json({ reason: result.reason }, 403);
       }
-      if (result.reason === "device_profile_not_found") {
+      if (result.reason === "device_deployment_not_found") {
         return c.json({ reason: result.reason }, 404);
       }
       return c.json({ reason: "unknown_device" }, 404);

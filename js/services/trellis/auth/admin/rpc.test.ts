@@ -14,15 +14,15 @@ import {
 
 import {
   normalizeDigestList,
+  validateDeviceDeploymentRequest,
   validateDevicePortalSelectionRequest,
-  validateDeviceProfileRequest,
   validateDeviceProvisionRequest,
   validateInstanceGrantPolicyRequest,
   validateLoginPortalSelectionRequest,
   validatePortalDefaultRequest,
   validatePortalProfileRequest,
   validatePortalRequest,
-  validateServiceProfileRequest,
+  validateServiceDeploymentRequest,
 } from "./shared.ts";
 
 Deno.test("normalizeDigestList preserves order and removes duplicates", () => {
@@ -50,13 +50,13 @@ Deno.test("auth contract exposes service, portal, and device admin RPCs", () => 
   assert(methods.includes("Auth.ListDevicePortalSelections"));
   assert(methods.includes("Auth.SetDevicePortalSelection"));
   assert(methods.includes("Auth.ClearDevicePortalSelection"));
-  assert(methods.includes("Auth.CreateDeviceProfile"));
-  assert(methods.includes("Auth.ApplyDeviceProfileContract"));
-  assert(methods.includes("Auth.UnapplyDeviceProfileContract"));
-  assert(methods.includes("Auth.ListDeviceProfiles"));
-  assert(methods.includes("Auth.DisableDeviceProfile"));
-  assert(methods.includes("Auth.EnableDeviceProfile"));
-  assert(methods.includes("Auth.RemoveDeviceProfile"));
+  assert(methods.includes("Auth.CreateDeviceDeployment"));
+  assert(methods.includes("Auth.ApplyDeviceDeploymentContract"));
+  assert(methods.includes("Auth.UnapplyDeviceDeploymentContract"));
+  assert(methods.includes("Auth.ListDeviceDeployments"));
+  assert(methods.includes("Auth.DisableDeviceDeployment"));
+  assert(methods.includes("Auth.EnableDeviceDeployment"));
+  assert(methods.includes("Auth.RemoveDeviceDeployment"));
   assert(methods.includes("Auth.ProvisionDeviceInstance"));
   assert(methods.includes("Auth.ListDeviceInstances"));
   assert(methods.includes("Auth.DisableDeviceInstance"));
@@ -66,13 +66,13 @@ Deno.test("auth contract exposes service, portal, and device admin RPCs", () => 
   assert(methods.includes("Auth.RevokeDeviceActivation"));
   assert(methods.includes("Auth.ListDeviceActivationReviews"));
   assert(methods.includes("Auth.DecideDeviceActivationReview"));
-  assert(methods.includes("Auth.CreateServiceProfile"));
-  assert(methods.includes("Auth.ApplyServiceProfileContract"));
-  assert(methods.includes("Auth.UnapplyServiceProfileContract"));
-  assert(methods.includes("Auth.ListServiceProfiles"));
-  assert(methods.includes("Auth.DisableServiceProfile"));
-  assert(methods.includes("Auth.EnableServiceProfile"));
-  assert(methods.includes("Auth.RemoveServiceProfile"));
+  assert(methods.includes("Auth.CreateServiceDeployment"));
+  assert(methods.includes("Auth.ApplyServiceDeploymentContract"));
+  assert(methods.includes("Auth.UnapplyServiceDeploymentContract"));
+  assert(methods.includes("Auth.ListServiceDeployments"));
+  assert(methods.includes("Auth.DisableServiceDeployment"));
+  assert(methods.includes("Auth.EnableServiceDeployment"));
+  assert(methods.includes("Auth.RemoveServiceDeployment"));
   assert(methods.includes("Auth.ProvisionServiceInstance"));
   assert(methods.includes("Auth.ListServiceInstances"));
   assert(methods.includes("Auth.DisableServiceInstance"));
@@ -137,28 +137,32 @@ Deno.test("session and connection admin schemas expose explicit participant meta
   }));
 });
 
-Deno.test("validateServiceProfileRequest normalizes namespaces without display metadata", () => {
-  const valid = validateServiceProfileRequest({
-    profileId: "billing.default",
+Deno.test("validateServiceDeploymentRequest normalizes namespaces without display metadata", () => {
+  const valid = validateServiceDeploymentRequest({
+    deploymentId: "billing.default",
     namespaces: ["billing", "billing", "audit"],
   });
   assert(!valid.isErr());
-  assertEquals((valid.take() as { profile: Record<string, unknown> }).profile, {
-    profileId: "billing.default",
-    namespaces: ["billing", "audit"],
-    disabled: false,
-    appliedContracts: [],
-  });
+  assertEquals(
+    (valid.take() as { deployment: Record<string, unknown> }).deployment,
+    {
+      deploymentId: "billing.default",
+      namespaces: ["billing", "audit"],
+      disabled: false,
+      appliedContracts: [],
+    },
+  );
 
   assert(
-    validateServiceProfileRequest({ profileId: "", namespaces: [] }).isErr(),
+    validateServiceDeploymentRequest({ deploymentId: "", namespaces: [] })
+      .isErr(),
   );
 });
 
-Deno.test("auth review event is templated by profile", () => {
+Deno.test("auth review event is templated by deployment", () => {
   assertEquals(
     TRELLIS_AUTH_EVENTS["Auth.DeviceActivationReviewRequested"].params,
-    ["/profileId"],
+    ["/deploymentId"],
   );
 });
 
@@ -182,7 +186,7 @@ Deno.test("validatePortalRequest requires portal identity and URL", () => {
   );
 });
 
-Deno.test("validatePortalProfileRequest normalizes origins and allows unrestricted profiles", () => {
+Deno.test("validatePortalProfileRequest normalizes origins and allows unrestricted deployments", () => {
   const valid = validatePortalProfileRequest({
     portalId: "main",
     entryUrl: "https://portal.example.com/auth",
@@ -207,7 +211,8 @@ Deno.test("validatePortalProfileRequest normalizes origins and allows unrestrict
   });
   assert(!unrestricted.isErr());
   assertEquals(
-    (unrestricted.take() as { profile: { allowedOrigins?: string[] } }).profile
+    (unrestricted.take() as { profile: { allowedOrigins?: string[] } })
+      .profile
       .allowedOrigins,
     undefined,
   );
@@ -296,41 +301,43 @@ Deno.test("validateLoginPortalSelectionRequest requires contract identity", () =
   );
 });
 
-Deno.test("validateDevicePortalSelectionRequest requires profile identity", () => {
+Deno.test("validateDevicePortalSelectionRequest requires deployment identity", () => {
   const valid = validateDevicePortalSelectionRequest({
-    profileId: "reader.default",
+    deploymentId: "reader.default",
     portalId: "main",
   });
   assert(!valid.isErr());
   assertEquals(
     (valid.take() as { selection: Record<string, unknown> }).selection,
     {
-      profileId: "reader.default",
+      deploymentId: "reader.default",
       portalId: "main",
     },
   );
 
   assert(
-    validateDevicePortalSelectionRequest({ profileId: "", portalId: null })
+    validateDevicePortalSelectionRequest({ deploymentId: "", portalId: null })
       .isErr(),
   );
 });
 
-Deno.test("validateDeviceProfileRequest dedupes digests and omits preferred digest", () => {
-  const valid = validateDeviceProfileRequest({
-    profileId: "reader.default",
+Deno.test("validateDeviceDeploymentRequest dedupes digests and omits preferred digest", () => {
+  const valid = validateDeviceDeploymentRequest({
+    deploymentId: "reader.default",
     reviewMode: "none",
   });
-  if (valid.isErr()) throw new Error("expected valid device profile request");
-  const { profile } = valid.take() as {
-    profile: { appliedContracts: unknown[] };
+  if (valid.isErr()) {
+    throw new Error("expected valid device deployment request");
+  }
+  const { deployment } = valid.take() as {
+    deployment: { appliedContracts: unknown[] };
   };
-  assertEquals(profile.appliedContracts, []);
+  assertEquals(deployment.appliedContracts, []);
 });
 
 Deno.test("validateDeviceProvisionRequest builds a preregistered instance", () => {
   const valid = validateDeviceProvisionRequest({
-    profileId: "reader.default",
+    deploymentId: "reader.default",
     publicIdentityKey: "A".repeat(43),
     activationKey: "B".repeat(43),
     metadata: {
@@ -342,7 +349,7 @@ Deno.test("validateDeviceProvisionRequest builds a preregistered instance", () =
   });
   assert(!valid.isErr());
   const value = valid.take() as { instance: Record<string, unknown> };
-  assertEquals(value.instance.profileId, "reader.default");
+  assertEquals(value.instance.deploymentId, "reader.default");
   assertEquals(value.instance.publicIdentityKey, "A".repeat(43));
   assertEquals(value.instance.metadata, {
     name: "Front Desk Reader",
@@ -356,7 +363,7 @@ Deno.test("validateDeviceProvisionRequest builds a preregistered instance", () =
 Deno.test("validateDeviceProvisionRequest rejects empty metadata entries", () => {
   assert(
     validateDeviceProvisionRequest({
-      profileId: "reader.default",
+      deploymentId: "reader.default",
       publicIdentityKey: "A".repeat(43),
       activationKey: "B".repeat(43),
       metadata: { assetTag: "" },

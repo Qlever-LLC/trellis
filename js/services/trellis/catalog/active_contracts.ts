@@ -1,19 +1,15 @@
-export type ActiveDigestServiceProfile = {
-  disabled: boolean;
-  appliedContracts: Array<{ allowedDigests: string[] }>;
+export type ActiveContractDigestRecord = {
+  currentContractDigest?: string | null;
 };
 
-/** Adds every enabled service-profile-approved contract digest to the active set. */
-export function addServiceProfileAllowedDigests(
+/** Adds concrete instance contract digests to the active set. */
+export function addCurrentContractDigests<T extends ActiveContractDigestRecord>(
   active: Set<string>,
-  profiles: Iterable<ActiveDigestServiceProfile>,
+  records: Iterable<T>,
+  isActive: (record: T) => boolean,
 ): void {
-  for (const profile of profiles) {
-    if (profile.disabled) continue;
-    for (const applied of profile.appliedContracts) {
-      for (const digest of applied.allowedDigests) {
-        active.add(digest);
-      }
-    }
+  for (const record of records) {
+    if (!isActive(record) || !record.currentContractDigest) continue;
+    active.add(record.currentContractDigest);
   }
 }

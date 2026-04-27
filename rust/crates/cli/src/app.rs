@@ -27,11 +27,10 @@ use trellis_client::{TrellisClient, TrellisClientError};
 
 mod auth;
 mod bootstrap;
-mod devices;
+mod deploy;
 mod portals;
 mod runtime;
 mod self_cmd;
-mod service;
 
 const SELF_UPDATE_TARGET: SelfUpdateTarget = SelfUpdateTarget::new(
     "qlever-llc",
@@ -90,8 +89,7 @@ pub async fn run() -> miette::Result<()> {
         TopLevelCommand::Bootstrap(command) => bootstrap::run(command).await?,
         TopLevelCommand::Keygen(args) => runtime::keygen_command(format, &args)?,
         TopLevelCommand::Portal(command) => portals::run(format, command).await?,
-        TopLevelCommand::Service(command) => service::run(format, command).await?,
-        TopLevelCommand::Device(command) => devices::run(format, command).await?,
+        TopLevelCommand::Deploy(command) => deploy::run(format, command).await?,
         TopLevelCommand::Self_(command) => self_cmd::run(format, command)?,
         TopLevelCommand::Version => runtime::version_command(format)?,
     }

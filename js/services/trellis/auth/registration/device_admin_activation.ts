@@ -1,20 +1,20 @@
 import {
   authDecideDeviceActivationReviewHandler,
-  authDisableDeviceInstanceHandler,
-  authDisableDeviceProfileHandler,
-  authEnableDeviceInstanceHandler,
-  authEnableDeviceProfileHandler,
   authListDeviceActivationReviewsHandler,
   authListDeviceActivationsHandler,
+  authListDeviceDeploymentsHandler,
   authListDeviceInstancesHandler,
-  authListDeviceProfilesHandler,
-  authRemoveDeviceInstanceHandler,
-  authRemoveDeviceProfileHandler,
   authRevokeDeviceActivationHandler,
-  createAuthApplyDeviceProfileContractHandler,
-  createAuthCreateDeviceProfileHandler,
+  createAuthApplyDeviceDeploymentContractHandler,
+  createAuthCreateDeviceDeploymentHandler,
+  createAuthDisableDeviceDeploymentHandler,
+  createAuthDisableDeviceInstanceHandler,
+  createAuthEnableDeviceDeploymentHandler,
+  createAuthEnableDeviceInstanceHandler,
   createAuthProvisionDeviceInstanceHandler,
-  createAuthUnapplyDeviceProfileContractHandler,
+  createAuthRemoveDeviceDeploymentHandler,
+  createAuthRemoveDeviceInstanceHandler,
+  createAuthUnapplyDeviceDeploymentContractHandler,
 } from "../admin/rpc.ts";
 import {
   createActivateDeviceHandler,
@@ -30,37 +30,46 @@ export async function registerDeviceAdminAndActivation(deps: {
   >;
 }): Promise<void> {
   await deps.trellis.mount(
-    "Auth.CreateDeviceProfile",
-    createAuthCreateDeviceProfileHandler({
+    "Auth.CreateDeviceDeployment",
+    createAuthCreateDeviceDeploymentHandler({
       installDeviceContract: deps.contracts.installDeviceContract,
       refreshActiveContracts: deps.contracts.refreshActiveContracts,
     }),
   );
   await deps.trellis.mount(
-    "Auth.ApplyDeviceProfileContract",
-    createAuthApplyDeviceProfileContractHandler({
+    "Auth.ApplyDeviceDeploymentContract",
+    createAuthApplyDeviceDeploymentContractHandler({
       installDeviceContract: deps.contracts.installDeviceContract,
+      refreshActiveContracts: deps.contracts.refreshActiveContracts,
     }),
   );
   await deps.trellis.mount(
-    "Auth.UnapplyDeviceProfileContract",
-    createAuthUnapplyDeviceProfileContractHandler(),
+    "Auth.UnapplyDeviceDeploymentContract",
+    createAuthUnapplyDeviceDeploymentContractHandler({
+      refreshActiveContracts: deps.contracts.refreshActiveContracts,
+    }),
   );
   await deps.trellis.mount(
-    "Auth.ListDeviceProfiles",
-    authListDeviceProfilesHandler,
+    "Auth.ListDeviceDeployments",
+    authListDeviceDeploymentsHandler,
   );
   await deps.trellis.mount(
-    "Auth.DisableDeviceProfile",
-    authDisableDeviceProfileHandler,
+    "Auth.DisableDeviceDeployment",
+    createAuthDisableDeviceDeploymentHandler({
+      refreshActiveContracts: deps.contracts.refreshActiveContracts,
+    }),
   );
   await deps.trellis.mount(
-    "Auth.EnableDeviceProfile",
-    authEnableDeviceProfileHandler,
+    "Auth.EnableDeviceDeployment",
+    createAuthEnableDeviceDeploymentHandler({
+      refreshActiveContracts: deps.contracts.refreshActiveContracts,
+    }),
   );
   await deps.trellis.mount(
-    "Auth.RemoveDeviceProfile",
-    authRemoveDeviceProfileHandler,
+    "Auth.RemoveDeviceDeployment",
+    createAuthRemoveDeviceDeploymentHandler({
+      refreshActiveContracts: deps.contracts.refreshActiveContracts,
+    }),
   );
   await deps.trellis.mount(
     "Auth.ProvisionDeviceInstance",
@@ -72,15 +81,21 @@ export async function registerDeviceAdminAndActivation(deps: {
   );
   await deps.trellis.mount(
     "Auth.DisableDeviceInstance",
-    authDisableDeviceInstanceHandler,
+    createAuthDisableDeviceInstanceHandler({
+      refreshActiveContracts: deps.contracts.refreshActiveContracts,
+    }),
   );
   await deps.trellis.mount(
     "Auth.EnableDeviceInstance",
-    authEnableDeviceInstanceHandler,
+    createAuthEnableDeviceInstanceHandler({
+      refreshActiveContracts: deps.contracts.refreshActiveContracts,
+    }),
   );
   await deps.trellis.mount(
     "Auth.RemoveDeviceInstance",
-    authRemoveDeviceInstanceHandler,
+    createAuthRemoveDeviceInstanceHandler({
+      refreshActiveContracts: deps.contracts.refreshActiveContracts,
+    }),
   );
   await deps.trellis.mount(
     "Auth.ListDeviceActivations",
@@ -95,7 +110,9 @@ export async function registerDeviceAdminAndActivation(deps: {
   );
   await deps.trellis.mount(
     "Auth.GetDeviceConnectInfo",
-    createGetDeviceConnectInfoHandler(),
+    createGetDeviceConnectInfoHandler({
+      refreshActiveContracts: deps.contracts.refreshActiveContracts,
+    }),
   );
   await deps.trellis.mount(
     "Auth.ListDeviceActivationReviews",

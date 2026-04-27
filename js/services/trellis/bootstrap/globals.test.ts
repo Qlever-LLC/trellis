@@ -94,8 +94,8 @@ export const instanceGrantPolicyStorage = testRepository<
   { contractId: string }
 >((value) => value.contractId);
 export const devicePortalSelectionStorage = testRepository<
-  { profileId: string; portalId: string | null }
->((value) => value.profileId);
+  { deploymentId: string; portalId: string | null }
+>((value) => value.deploymentId);
 export const connectionsKV = testKv();
 export const trellisService = {
   trellis: {

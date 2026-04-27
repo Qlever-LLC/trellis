@@ -1,15 +1,15 @@
-import { AuthError } from "@qlever-llc/trellis";
+import { AuthError, UnexpectedError } from "@qlever-llc/trellis";
 import { isErr, Result } from "@qlever-llc/result";
 
 import { authRuntimeDeps } from "../runtime_deps.ts";
 import {
-  type CreateDeviceProfileRequest,
+  type CreateDeviceDeploymentRequest,
   type CreatePortalRequest,
   type DeviceActivationReview,
+  type DeviceDeployment,
   type DeviceInstance,
   type DevicePortalSelection,
   type DevicePortalSelectionRequest,
-  type DeviceProfile,
   type DeviceProvisioningSecret,
   type InstanceGrantPolicyActor,
   type LoginPortalSelection,
@@ -22,8 +22,8 @@ import {
   type ProvisionDeviceInstanceRequest,
   type SetPortalProfileRequest,
   type UpsertInstanceGrantPolicyRequest,
+  validateDeviceDeploymentRequest,
   validateDevicePortalSelectionRequest,
-  validateDeviceProfileRequest,
   validateDeviceProvisionRequest,
   validateInstanceGrantPolicyRequest,
   validateLoginPortalSelectionRequest,
@@ -55,7 +55,7 @@ type RpcUser = { capabilities?: string[]; origin?: string; id?: string };
 type DeviceActivation = {
   instanceId: string;
   publicIdentityKey: string;
-  profileId: string;
+  deploymentId: string;
   activatedBy?: {
     origin: string;
     id: string;
@@ -68,7 +68,7 @@ type DeviceActivation = {
 type DeviceActivationFlow = {
   flowId: string;
   instanceId: string;
-  profileId: string;
+  deploymentId: string;
   publicIdentityKey: string;
   nonce: string;
   qrMac: string;
@@ -81,7 +81,7 @@ type DeviceActivationReviewRecord = {
   flowId: string;
   instanceId: string;
   publicIdentityKey: string;
-  profileId: string;
+  deploymentId: string;
   state: "pending" | "approved" | "rejected";
   requestedAt: string | Date;
   decidedAt: string | Date | null;
@@ -91,6 +91,7 @@ type DeviceActivationReviewRecord = {
     id: string;
   };
 };
+type ActiveContractsDeps = { refreshActiveContracts: () => Promise<void> };
 
 const LOGIN_DEFAULT_KEY = "login.default";
 const DEVICE_DEFAULT_KEY = "device.default";
@@ -141,14 +142,14 @@ const instanceGrantPolicyStorage = {
     authRuntimeDeps().instanceGrantPolicyStorage.put(record),
   list: () => authRuntimeDeps().instanceGrantPolicyStorage.list(),
 };
-const deviceProfileStorage = {
-  get: (profileId: string) =>
-    authRuntimeDeps().deviceProfileStorage.get(profileId),
-  put: (record: DeviceProfile) =>
-    authRuntimeDeps().deviceProfileStorage.put(record),
-  delete: (profileId: string) =>
-    authRuntimeDeps().deviceProfileStorage.delete(profileId),
-  list: () => authRuntimeDeps().deviceProfileStorage.list(),
+const deviceDeploymentStorage = {
+  get: (deploymentId: string) =>
+    authRuntimeDeps().deviceDeploymentStorage.get(deploymentId),
+  put: (record: DeviceDeployment) =>
+    authRuntimeDeps().deviceDeploymentStorage.put(record),
+  delete: (deploymentId: string) =>
+    authRuntimeDeps().deviceDeploymentStorage.delete(deploymentId),
+  list: () => authRuntimeDeps().deviceDeploymentStorage.list(),
 };
 const deviceInstanceStorage = {
   get: (instanceId: string) =>
@@ -203,12 +204,12 @@ const loginPortalSelectionStorage = {
   list: () => authRuntimeDeps().loginPortalSelectionStorage.list(),
 };
 const devicePortalSelectionStorage = {
-  get: (profileId: string) =>
-    authRuntimeDeps().devicePortalSelectionStorage.get(profileId),
+  get: (deploymentId: string) =>
+    authRuntimeDeps().devicePortalSelectionStorage.get(deploymentId),
   put: (record: DevicePortalSelection) =>
     authRuntimeDeps().devicePortalSelectionStorage.put(record),
-  delete: (profileId: string) =>
-    authRuntimeDeps().devicePortalSelectionStorage.delete(profileId),
+  delete: (deploymentId: string) =>
+    authRuntimeDeps().devicePortalSelectionStorage.delete(deploymentId),
   list: () => authRuntimeDeps().devicePortalSelectionStorage.list(),
 };
 const userStorage = {
@@ -226,31 +227,31 @@ function isAdmin(user: RpcUser): boolean {
   return user.capabilities?.includes("admin") ?? false;
 }
 
-function reviewableProfiles(user: RpcUser): Set<string> | null {
+function reviewableDeployments(user: RpcUser): Set<string> | null {
   if (isAdmin(user)) return null;
   const capabilities = user.capabilities ?? [];
   if (capabilities.includes("device.review")) return null;
 
-  const profiles = new Set<string>();
+  const deployments = new Set<string>();
   for (const capability of capabilities) {
     if (!capability.startsWith("device.review.")) continue;
-    const profileId = capability.slice("device.review.".length).trim();
-    if (profileId) profiles.add(profileId);
+    const deploymentId = capability.slice("device.review.".length).trim();
+    if (deploymentId) deployments.add(deploymentId);
   }
 
-  return profiles.size > 0 ? profiles : new Set<string>();
+  return deployments.size > 0 ? deployments : new Set<string>();
 }
 
 function canReview(user: RpcUser): boolean {
-  const profiles = reviewableProfiles(user);
-  return profiles === null || profiles.size > 0;
+  const deployments = reviewableDeployments(user);
+  return deployments === null || deployments.size > 0;
 }
 
-function canReviewProfile(user: RpcUser, profileId: string): boolean {
+function canReviewDeployment(user: RpcUser, deploymentId: string): boolean {
   if (isAdmin(user)) return true;
-  const profiles = reviewableProfiles(user);
-  if (profiles === null) return true;
-  return profiles.has(profileId);
+  const deployments = reviewableDeployments(user);
+  if (deployments === null) return true;
+  return deployments.has(deploymentId);
 }
 
 function unwrapConnection(
@@ -275,6 +276,19 @@ function invalidRequest(context?: Record<string, unknown>) {
   return Result.err(new AuthError({ reason: "invalid_request", context }));
 }
 
+async function refreshActiveContracts(deps: ActiveContractsDeps) {
+  try {
+    await deps.refreshActiveContracts();
+    return Result.ok(undefined);
+  } catch (error) {
+    return Result.err(
+      new UnexpectedError({
+        cause: error instanceof Error ? error : new Error(String(error)),
+      }),
+    );
+  }
+}
+
 async function loadPortal(portalId: string): Promise<Portal | null> {
   return await portalStorage.get(portalId) ?? null;
 }
@@ -291,10 +305,10 @@ async function loadPortalProfile(
   return await portalProfileStorage.get(portalId) ?? null;
 }
 
-async function loadDeviceProfile(
-  profileId: string,
-): Promise<DeviceProfile | null> {
-  return await deviceProfileStorage.get(profileId) ?? null;
+async function loadDeviceDeployment(
+  deploymentId: string,
+): Promise<DeviceDeployment | null> {
+  return await deviceDeploymentStorage.get(deploymentId) ?? null;
 }
 
 async function loadDeviceInstance(
@@ -325,7 +339,7 @@ async function loadDeviceActivationFlow(
     kind?: string;
     deviceActivation?: {
       instanceId: string;
-      profileId: string;
+      deploymentId: string;
       publicIdentityKey: string;
       nonce: string;
       qrMac: string;
@@ -341,7 +355,7 @@ async function loadDeviceActivationFlow(
   return {
     flowId: flow.flowId,
     instanceId: flow.deviceActivation.instanceId,
-    profileId: flow.deviceActivation.profileId,
+    deploymentId: flow.deviceActivation.deploymentId,
     publicIdentityKey: flow.deviceActivation.publicIdentityKey,
     nonce: flow.deviceActivation.nonce,
     qrMac: flow.deviceActivation.qrMac,
@@ -370,9 +384,9 @@ async function loadLoginPortalSelection(
 }
 
 async function loadDevicePortalSelection(
-  profileId: string,
+  deploymentId: string,
 ): Promise<DevicePortalSelection | null> {
-  return await devicePortalSelectionStorage.get(profileId) ?? null;
+  return await devicePortalSelectionStorage.get(deploymentId) ?? null;
 }
 
 async function listPortals(): Promise<Portal[]> {
@@ -395,8 +409,8 @@ async function listDevicePortalSelections(): Promise<DevicePortalSelection[]> {
   return await devicePortalSelectionStorage.list();
 }
 
-async function listDeviceProfiles(): Promise<DeviceProfile[]> {
-  return await deviceProfileStorage.list();
+async function listDeviceDeployments(): Promise<DeviceDeployment[]> {
+  return await deviceDeploymentStorage.list();
 }
 
 async function listDeviceInstances(): Promise<DeviceInstance[]> {
@@ -420,7 +434,7 @@ function toPublicReview(
     reviewId: review.reviewId,
     instanceId: review.instanceId,
     publicIdentityKey: review.publicIdentityKey,
-    profileId: review.profileId,
+    deploymentId: review.deploymentId,
     state: review.state,
     requestedAt: review.requestedAt instanceof Date
       ? review.requestedAt.toISOString()
@@ -1027,11 +1041,11 @@ export const authSetDevicePortalSelectionHandler = async (
   const { selection } = validation.take() as {
     selection: DevicePortalSelection;
   };
-  const profile = await loadDeviceProfile(selection.profileId);
-  if (!profile || profile.disabled) {
+  const deployment = await loadDeviceDeployment(selection.deploymentId);
+  if (!deployment || deployment.disabled) {
     return invalidRequest({
-      profileId: selection.profileId,
-      reason: "device_profile_not_found",
+      deploymentId: selection.deploymentId,
+      reason: "device_deployment_not_found",
     });
   }
   const referenceCheck = await ensurePortalReference(selection.portalId);
@@ -1042,18 +1056,18 @@ export const authSetDevicePortalSelectionHandler = async (
 
 export const authClearDevicePortalSelectionHandler = async (
   { input: req, context: { caller } }: {
-    input: { profileId: string };
+    input: { deploymentId: string };
     context: { caller: RpcUser };
   },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
-  const selection = await loadDevicePortalSelection(req.profileId);
+  const selection = await loadDevicePortalSelection(req.deploymentId);
   if (!selection) return Result.ok({ success: false });
-  await devicePortalSelectionStorage.delete(req.profileId);
+  await devicePortalSelectionStorage.delete(req.deploymentId);
   return Result.ok({ success: true });
 };
 
-export function createAuthCreateDeviceProfileHandler(deps: {
+export function createAuthCreateDeviceDeploymentHandler(deps: {
   installDeviceContract: (
     contract: unknown,
   ) => Promise<
@@ -1066,55 +1080,60 @@ export function createAuthCreateDeviceProfileHandler(deps: {
       input: req,
       context: { caller },
     }: {
-      input: Parameters<typeof validateDeviceProfileRequest>[0];
+      input: Parameters<typeof validateDeviceDeploymentRequest>[0];
       context: { caller: RpcUser };
     },
   ) => {
     if (!isAdmin(caller)) return insufficientPermissions();
-    const validation = validateDeviceProfileRequest(req);
+    const validation = validateDeviceDeploymentRequest(req);
     if (validation.isErr()) return validation;
-    const { profile } = validation.take() as { profile: DeviceProfile };
-    await deviceProfileStorage.put(profile);
-    return Result.ok({ profile });
+    const { deployment } = validation.take() as {
+      deployment: DeviceDeployment;
+    };
+    await deviceDeploymentStorage.put(deployment);
+    return Result.ok({ deployment });
   };
 }
 
-export const authListDeviceProfilesHandler = async (
+export const authListDeviceDeploymentsHandler = async (
   { input: req, context: { caller } }: {
     input: { disabled?: boolean };
     context: { caller: RpcUser };
   },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
-  let profiles = await listDeviceProfiles();
+  let deployments = await listDeviceDeployments();
   if (req.disabled !== undefined) {
-    profiles = profiles.filter((profile) => profile.disabled === req.disabled);
+    deployments = deployments.filter((deployment) =>
+      deployment.disabled === req.disabled
+    );
   }
-  return Result.ok({ profiles });
+  return Result.ok({ deployments });
 };
 
-export function createAuthApplyDeviceProfileContractHandler(deps: {
+export function createAuthApplyDeviceDeploymentContractHandler(deps: {
   installDeviceContract: (
     contract: unknown,
   ) => Promise<
     { id: string; digest: string; displayName: string; description: string }
   >;
+  refreshActiveContracts: () => Promise<void>;
 }) {
   return async (
     {
       input: req,
       context: { caller },
     }: {
-      input: { profileId: string; contract: unknown };
+      input: { deploymentId: string; contract: unknown };
       context: { caller: RpcUser };
     },
   ) => {
     if (!isAdmin(caller)) return insufficientPermissions();
-    const profile = await loadDeviceProfile(req.profileId);
-    if (!profile) {
+    const deployment = await loadDeviceDeployment(req.deploymentId);
+    if (!deployment) {
       return invalidRequest({
-        profileId: req.profileId,
-        reason: "device_profile_not_found",
+        deploymentId: req.deploymentId,
+        reason: "device_deployment_not_found",
       });
     }
     let installed;
@@ -1122,20 +1141,22 @@ export function createAuthApplyDeviceProfileContractHandler(deps: {
       installed = await deps.installDeviceContract(req.contract);
     } catch (error) {
       return invalidRequest({
-        profileId: req.profileId,
+        deploymentId: req.deploymentId,
         message: error instanceof Error ? error.message : String(error),
       });
     }
-    const nextProfile: DeviceProfile = {
-      ...profile,
+    const nextDeployment: DeviceDeployment = {
+      ...deployment,
       appliedContracts: normalizeAppliedContracts([
-        ...profile.appliedContracts,
+        ...deployment.appliedContracts,
         { contractId: installed.id, allowedDigests: [installed.digest] },
       ]),
     };
-    await deviceProfileStorage.put(nextProfile);
+    await deviceDeploymentStorage.put(nextDeployment);
+    const refreshed = await refreshActiveContracts(deps);
+    if (isErr(refreshed)) return refreshed;
     return Result.ok({
-      profile: nextProfile,
+      deployment: nextDeployment,
       contract: {
         digest: installed.digest,
         id: installed.id,
@@ -1147,29 +1168,31 @@ export function createAuthApplyDeviceProfileContractHandler(deps: {
   };
 }
 
-export function createAuthUnapplyDeviceProfileContractHandler() {
+export function createAuthUnapplyDeviceDeploymentContractHandler(
+  deps: ActiveContractsDeps,
+) {
   return async (
     {
       input: req,
       context: { caller },
     }: {
-      input: { profileId: string; contractId: string; digests?: string[] };
+      input: { deploymentId: string; contractId: string; digests?: string[] };
       context: { caller: RpcUser };
     },
   ) => {
     if (!isAdmin(caller)) return insufficientPermissions();
-    const profile = await loadDeviceProfile(req.profileId);
-    if (!profile) {
+    const deployment = await loadDeviceDeployment(req.deploymentId);
+    if (!deployment) {
       return invalidRequest({
-        profileId: req.profileId,
-        reason: "device_profile_not_found",
+        deploymentId: req.deploymentId,
+        reason: "device_deployment_not_found",
       });
     }
     const removeDigests = new Set(req.digests ?? []);
-    const nextProfile: DeviceProfile = {
-      ...profile,
+    const nextDeployment: DeviceDeployment = {
+      ...deployment,
       appliedContracts: normalizeAppliedContracts(
-        profile.appliedContracts
+        deployment.appliedContracts
           .map((applied) => {
             if (applied.contractId !== req.contractId) return applied;
             if (removeDigests.size === 0) return null;
@@ -1185,9 +1208,11 @@ export function createAuthUnapplyDeviceProfileContractHandler() {
           ),
       ),
     };
-    await deviceProfileStorage.put(nextProfile);
+    await deviceDeploymentStorage.put(nextDeployment);
+    const refreshed = await refreshActiveContracts(deps);
+    if (isErr(refreshed)) return refreshed;
     const instances = (await listDeviceInstances()).filter((instance) =>
-      instance.profileId === profile.profileId
+      instance.deploymentId === deployment.deploymentId
     );
     for (const instance of instances) {
       if (instance.currentContractId !== req.contractId) continue;
@@ -1197,74 +1222,86 @@ export function createAuthUnapplyDeviceProfileContractHandler() {
       ) continue;
       await kickInstanceRuntimeAccess(instance.publicIdentityKey);
     }
-    return Result.ok({ profile: nextProfile });
+    return Result.ok({ deployment: nextDeployment });
   };
 }
 
-export const authDisableDeviceProfileHandler = async (
-  { input: req, context: { caller } }: {
-    input: { profileId: string };
+export function createAuthDisableDeviceDeploymentHandler(
+  deps: ActiveContractsDeps,
+) {
+  return async ({ input: req, context: { caller } }: {
+    input: { deploymentId: string };
     context: { caller: RpcUser };
-  },
-) => {
-  if (!isAdmin(caller)) return insufficientPermissions();
-  const profile = await loadDeviceProfile(req.profileId);
-  if (!profile) {
-    return invalidRequest({
-      profileId: req.profileId,
-      reason: "device_profile_not_found",
-    });
-  }
-  const nextProfile = { ...profile, disabled: true };
-  await deviceProfileStorage.put(nextProfile);
-  for (
-    const instance of (await listDeviceInstances()).filter((entry) =>
-      entry.profileId === req.profileId
-    )
-  ) {
-    await kickInstanceRuntimeAccess(instance.publicIdentityKey);
-  }
-  return Result.ok({ profile: nextProfile });
-};
+  }) => {
+    if (!isAdmin(caller)) return insufficientPermissions();
+    const deployment = await loadDeviceDeployment(req.deploymentId);
+    if (!deployment) {
+      return invalidRequest({
+        deploymentId: req.deploymentId,
+        reason: "device_deployment_not_found",
+      });
+    }
+    const nextDeployment = { ...deployment, disabled: true };
+    await deviceDeploymentStorage.put(nextDeployment);
+    const refreshed = await refreshActiveContracts(deps);
+    if (isErr(refreshed)) return refreshed;
+    for (
+      const instance of (await listDeviceInstances()).filter((entry) =>
+        entry.deploymentId === req.deploymentId
+      )
+    ) {
+      await kickInstanceRuntimeAccess(instance.publicIdentityKey);
+    }
+    return Result.ok({ deployment: nextDeployment });
+  };
+}
 
-export const authEnableDeviceProfileHandler = async (
-  { input: req, context: { caller } }: {
-    input: { profileId: string };
+export function createAuthEnableDeviceDeploymentHandler(
+  deps: ActiveContractsDeps,
+) {
+  return async ({ input: req, context: { caller } }: {
+    input: { deploymentId: string };
     context: { caller: RpcUser };
-  },
-) => {
-  if (!isAdmin(caller)) return insufficientPermissions();
-  const profile = await loadDeviceProfile(req.profileId);
-  if (!profile) {
-    return invalidRequest({
-      profileId: req.profileId,
-      reason: "device_profile_not_found",
-    });
-  }
-  const nextProfile = { ...profile, disabled: false };
-  await deviceProfileStorage.put(nextProfile);
-  return Result.ok({ profile: nextProfile });
-};
+  }) => {
+    if (!isAdmin(caller)) return insufficientPermissions();
+    const deployment = await loadDeviceDeployment(req.deploymentId);
+    if (!deployment) {
+      return invalidRequest({
+        deploymentId: req.deploymentId,
+        reason: "device_deployment_not_found",
+      });
+    }
+    const nextDeployment = { ...deployment, disabled: false };
+    await deviceDeploymentStorage.put(nextDeployment);
+    const refreshed = await refreshActiveContracts(deps);
+    if (isErr(refreshed)) return refreshed;
+    return Result.ok({ deployment: nextDeployment });
+  };
+}
 
-export const authRemoveDeviceProfileHandler = async (
-  { input: req, context: { caller } }: {
-    input: { profileId: string };
+export function createAuthRemoveDeviceDeploymentHandler(
+  deps: ActiveContractsDeps,
+) {
+  return async ({ input: req, context: { caller } }: {
+    input: { deploymentId: string };
     context: { caller: RpcUser };
-  },
-) => {
-  if (!isAdmin(caller)) return insufficientPermissions();
-  const inUse = (await listDeviceInstances()).some((instance) =>
-    instance.profileId === req.profileId
-  );
-  if (inUse) {
-    return invalidRequest({
-      profileId: req.profileId,
-      reason: "device_profile_in_use",
-    });
-  }
-  await deviceProfileStorage.delete(req.profileId);
-  return Result.ok({ success: true });
-};
+  }) => {
+    if (!isAdmin(caller)) return insufficientPermissions();
+    const inUse = (await listDeviceInstances()).some((instance) =>
+      instance.deploymentId === req.deploymentId
+    );
+    if (inUse) {
+      return invalidRequest({
+        deploymentId: req.deploymentId,
+        reason: "device_deployment_in_use",
+      });
+    }
+    await deviceDeploymentStorage.delete(req.deploymentId);
+    const refreshed = await refreshActiveContracts(deps);
+    if (isErr(refreshed)) return refreshed;
+    return Result.ok({ success: true });
+  };
+}
 
 export function createAuthProvisionDeviceInstanceHandler() {
   return async (
@@ -1283,11 +1320,11 @@ export function createAuthProvisionDeviceInstanceHandler() {
       instance: DeviceInstance;
       provisioningSecret: DeviceProvisioningSecret;
     };
-    const profile = await loadDeviceProfile(instance.profileId);
-    if (!profile || profile.disabled) {
+    const deployment = await loadDeviceDeployment(instance.deploymentId);
+    if (!deployment || deployment.disabled) {
       return invalidRequest({
-        profileId: instance.profileId,
-        reason: "device_profile_not_found",
+        deploymentId: instance.deploymentId,
+        reason: "device_deployment_not_found",
       });
     }
     await deviceInstanceStorage.put(instance);
@@ -1298,15 +1335,15 @@ export function createAuthProvisionDeviceInstanceHandler() {
 
 export const authListDeviceInstancesHandler = async (
   { input: req, context: { caller } }: {
-    input: { profileId?: string; state?: string };
+    input: { deploymentId?: string; state?: string };
     context: { caller: RpcUser };
   },
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   let instances = await listDeviceInstances();
-  if (req.profileId) {
+  if (req.deploymentId) {
     instances = instances.filter((instance) =>
-      instance.profileId === req.profileId
+      instance.deploymentId === req.deploymentId
     );
   }
   if (req.state) {
@@ -1315,75 +1352,87 @@ export const authListDeviceInstancesHandler = async (
   return Result.ok({ instances });
 };
 
-export const authDisableDeviceInstanceHandler = async (
-  { input: req, context: { caller } }: {
+export function createAuthDisableDeviceInstanceHandler(
+  deps: ActiveContractsDeps,
+) {
+  return async ({ input: req, context: { caller } }: {
     input: { instanceId: string };
     context: { caller: RpcUser };
-  },
-) => {
-  if (!isAdmin(caller)) return insufficientPermissions();
-  const instance = await loadDeviceInstance(req.instanceId);
-  if (!instance) {
-    return invalidRequest({
-      instanceId: req.instanceId,
-      reason: "unknown_device",
-    });
-  }
-  const nextInstance = { ...instance, state: "disabled" as const };
-  await deviceInstanceStorage.put(nextInstance);
-  await kickInstanceRuntimeAccess(instance.publicIdentityKey);
-  return Result.ok({ instance: nextInstance });
-};
+  }) => {
+    if (!isAdmin(caller)) return insufficientPermissions();
+    const instance = await loadDeviceInstance(req.instanceId);
+    if (!instance) {
+      return invalidRequest({
+        instanceId: req.instanceId,
+        reason: "unknown_device",
+      });
+    }
+    const nextInstance = { ...instance, state: "disabled" as const };
+    await deviceInstanceStorage.put(nextInstance);
+    const refreshed = await refreshActiveContracts(deps);
+    if (isErr(refreshed)) return refreshed;
+    await kickInstanceRuntimeAccess(instance.publicIdentityKey);
+    return Result.ok({ instance: nextInstance });
+  };
+}
 
-export const authEnableDeviceInstanceHandler = async (
-  { input: req, context: { caller } }: {
+export function createAuthEnableDeviceInstanceHandler(
+  deps: ActiveContractsDeps,
+) {
+  return async ({ input: req, context: { caller } }: {
     input: { instanceId: string };
     context: { caller: RpcUser };
-  },
-) => {
-  if (!isAdmin(caller)) return insufficientPermissions();
-  const instance = await loadDeviceInstance(req.instanceId);
-  if (!instance) {
-    return invalidRequest({
-      instanceId: req.instanceId,
-      reason: "unknown_device",
-    });
-  }
-  const activation = await loadDeviceActivation(req.instanceId);
-  const nextState: DeviceInstance["state"] =
-    activation && activation.state === "activated" &&
-      activation.revokedAt === null
-      ? "activated"
-      : "registered";
-  const nextInstance = { ...instance, state: nextState };
-  await deviceInstanceStorage.put(nextInstance);
-  return Result.ok({ instance: nextInstance });
-};
+  }) => {
+    if (!isAdmin(caller)) return insufficientPermissions();
+    const instance = await loadDeviceInstance(req.instanceId);
+    if (!instance) {
+      return invalidRequest({
+        instanceId: req.instanceId,
+        reason: "unknown_device",
+      });
+    }
+    const activation = await loadDeviceActivation(req.instanceId);
+    const nextState: DeviceInstance["state"] =
+      activation && activation.state === "activated" &&
+        activation.revokedAt === null
+        ? "activated"
+        : "registered";
+    const nextInstance = { ...instance, state: nextState };
+    await deviceInstanceStorage.put(nextInstance);
+    const refreshed = await refreshActiveContracts(deps);
+    if (isErr(refreshed)) return refreshed;
+    return Result.ok({ instance: nextInstance });
+  };
+}
 
-export const authRemoveDeviceInstanceHandler = async (
-  { input: req, context: { caller } }: {
+export function createAuthRemoveDeviceInstanceHandler(
+  deps: ActiveContractsDeps,
+) {
+  return async ({ input: req, context: { caller } }: {
     input: { instanceId: string };
     context: { caller: RpcUser };
-  },
-) => {
-  if (!isAdmin(caller)) return insufficientPermissions();
-  const instance = await loadDeviceInstance(req.instanceId);
-  if (!instance) {
-    return invalidRequest({
-      instanceId: req.instanceId,
-      reason: "unknown_device",
-    });
-  }
-  await kickInstanceRuntimeAccess(instance.publicIdentityKey);
-  await deviceInstanceStorage.delete(req.instanceId);
-  await deviceProvisioningSecretStorage.delete(req.instanceId);
-  await deviceActivationStorage.delete(req.instanceId);
-  return Result.ok({ success: true });
-};
+  }) => {
+    if (!isAdmin(caller)) return insufficientPermissions();
+    const instance = await loadDeviceInstance(req.instanceId);
+    if (!instance) {
+      return invalidRequest({
+        instanceId: req.instanceId,
+        reason: "unknown_device",
+      });
+    }
+    await kickInstanceRuntimeAccess(instance.publicIdentityKey);
+    await deviceInstanceStorage.delete(req.instanceId);
+    await deviceProvisioningSecretStorage.delete(req.instanceId);
+    await deviceActivationStorage.delete(req.instanceId);
+    const refreshed = await refreshActiveContracts(deps);
+    if (isErr(refreshed)) return refreshed;
+    return Result.ok({ success: true });
+  };
+}
 
 export const authListDeviceActivationsHandler = async (
   { input: req, context: { caller } }: {
-    input: { instanceId?: string; profileId?: string; state?: string };
+    input: { instanceId?: string; deploymentId?: string; state?: string };
     context: { caller: RpcUser };
   },
 ) => {
@@ -1394,9 +1443,9 @@ export const authListDeviceActivationsHandler = async (
       activation.instanceId === req.instanceId
     );
   }
-  if (req.profileId) {
+  if (req.deploymentId) {
     activations = activations.filter((activation) =>
-      activation.profileId === req.profileId
+      activation.deploymentId === req.deploymentId
     );
   }
   if (req.state) {
@@ -1428,15 +1477,15 @@ export const authRevokeDeviceActivationHandler = async (
 
 export const authListDeviceActivationReviewsHandler = async (
   { input: req, context: { caller } }: {
-    input: { instanceId?: string; profileId?: string; state?: string };
+    input: { instanceId?: string; deploymentId?: string; state?: string };
     context: { caller: RpcUser };
   },
 ) => {
   if (!canReview(caller)) return insufficientPermissions();
-  const allowedProfiles = reviewableProfiles(caller);
+  const allowedDeployments = reviewableDeployments(caller);
   if (
-    allowedProfiles !== null && req.profileId &&
-    !allowedProfiles.has(req.profileId)
+    allowedDeployments !== null && req.deploymentId &&
+    !allowedDeployments.has(req.deploymentId)
   ) {
     return insufficientPermissions();
   }
@@ -1444,14 +1493,18 @@ export const authListDeviceActivationReviewsHandler = async (
   if (req.instanceId) {
     reviews = reviews.filter((review) => review.instanceId === req.instanceId);
   }
-  if (req.profileId) {
-    reviews = reviews.filter((review) => review.profileId === req.profileId);
+  if (req.deploymentId) {
+    reviews = reviews.filter((review) =>
+      review.deploymentId === req.deploymentId
+    );
   }
   if (req.state) {
     reviews = reviews.filter((review) => review.state === req.state);
   }
-  if (allowedProfiles !== null) {
-    reviews = reviews.filter((review) => allowedProfiles.has(review.profileId));
+  if (allowedDeployments !== null) {
+    reviews = reviews.filter((review) =>
+      allowedDeployments.has(review.deploymentId)
+    );
   }
   return Result.ok({ reviews: reviews.map(toPublicReview) });
 };
@@ -1476,7 +1529,7 @@ export const authDecideDeviceActivationReviewHandler = async (
       reason: "device_review_not_found",
     });
   }
-  if (!canReviewProfile(caller, review.profileId)) {
+  if (!canReviewDeployment(caller, review.deploymentId)) {
     return insufficientPermissions();
   }
 
@@ -1509,17 +1562,17 @@ export const authDecideDeviceActivationReviewHandler = async (
   }
 
   const instance = await loadDeviceInstance(review.instanceId);
-  const profile = await loadDeviceProfile(review.profileId);
+  const deployment = await loadDeviceDeployment(review.deploymentId);
   if (!instance || instance.state === "disabled") {
     return invalidRequest({
       instanceId: review.instanceId,
       reason: "unknown_device",
     });
   }
-  if (!profile || profile.disabled) {
+  if (!deployment || deployment.disabled) {
     return invalidRequest({
-      profileId: review.profileId,
-      reason: "device_profile_not_found",
+      deploymentId: review.deploymentId,
+      reason: "device_deployment_not_found",
     });
   }
 
@@ -1527,7 +1580,7 @@ export const authDecideDeviceActivationReviewHandler = async (
   const activation: DeviceActivation = {
     instanceId: instance.instanceId,
     publicIdentityKey: instance.publicIdentityKey,
-    profileId: profile.profileId,
+    deploymentId: deployment.deploymentId,
     activatedBy: review.requestedBy,
     state: "activated",
     activatedAt,

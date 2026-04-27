@@ -394,10 +394,12 @@ Regenerate the SDK whenever the contract changes. This is the same pattern that 
 
 ## 11. Install and run
 
-Install the contract into your Trellis environment directly from source during development:
+Apply the contract to a service deployment directly from source during development, then provision one service instance:
 
 ```sh
-trellis service install --source ./contracts/orders_service.ts
+trellis deploy create svc/orders-service
+trellis deploy apply svc/orders-service --source ./contracts/orders_service.ts
+trellis deploy provision svc/orders-service
 ```
 
 If you ship the service as an OCI image, embed the generated contract artifact in the image and label its path so operators can install directly from the image:
@@ -418,8 +420,8 @@ CMD ["deno", "run", "--allow-net", "--allow-env", "main.ts"]
 Then operators can install or upgrade from the image instead of checking out the repo:
 
 ```sh
-trellis service install --image ghcr.io/my-org/orders-service:1.2.3
-trellis service upgrade --image ghcr.io/my-org/orders-service:1.2.4
+trellis deploy apply svc/orders-service --image ghcr.io/my-org/orders-service:1.2.3
+trellis deploy apply svc/orders-service --image ghcr.io/my-org/orders-service:1.2.4
 ```
 
 Trellis looks for the contract at the labeled path first and falls back to `/trellis/contract.json` when no label is present.

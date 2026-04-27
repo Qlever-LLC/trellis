@@ -121,10 +121,10 @@ mod tests {
 
     #[test]
     fn formats_validation_error_payload_human_readably() {
-        let raw = r#"{"context":{"profileId":"demoo"},"issues":[{"message":"service profile not found","path":"/profileId"}],"message":"Validation failed. /profileId: service profile not found.","type":"ValidationError"}"#;
+        let raw = r#"{"context":{"deploymentId":"demo"},"issues":[{"message":"service deployment not found","path":"/deploymentId"}],"message":"Validation failed. /deploymentId: service deployment not found.","type":"ValidationError"}"#;
         assert_eq!(
             format_rpc_error_payload(raw),
-            "profileId: service profile not found (profileId=demoo)"
+            "deploymentId: service deployment not found (deploymentId=demo)"
         );
     }
 

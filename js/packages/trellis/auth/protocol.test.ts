@@ -18,17 +18,17 @@ import {
   AuthClearDevicePortalSelectionSchema,
   AuthClearLoginPortalSelectionResponseSchema,
   AuthClearLoginPortalSelectionSchema,
-  AuthCreateDeviceProfileResponseSchema,
-  AuthCreateDeviceProfileSchema,
+  AuthCreateDeviceDeploymentResponseSchema,
+  AuthCreateDeviceDeploymentSchema,
   AuthCreatePortalResponseSchema,
   AuthCreatePortalSchema,
   AuthDecideDeviceActivationReviewResponseSchema,
   AuthDecideDeviceActivationReviewSchema,
   AuthDeviceActivationReviewRequestedEventSchema,
+  AuthDisableDeviceDeploymentResponseSchema,
+  AuthDisableDeviceDeploymentSchema,
   AuthDisableDeviceInstanceResponseSchema,
   AuthDisableDeviceInstanceSchema,
-  AuthDisableDeviceProfileResponseSchema,
-  AuthDisableDeviceProfileSchema,
   AuthDisableInstanceGrantPolicyResponseSchema,
   AuthDisableInstanceGrantPolicySchema,
   AuthDisablePortalProfileResponseSchema,
@@ -45,12 +45,12 @@ import {
   AuthListDeviceActivationReviewsSchema,
   AuthListDeviceActivationsResponseSchema,
   AuthListDeviceActivationsSchema,
+  AuthListDeviceDeploymentsResponseSchema,
+  AuthListDeviceDeploymentsSchema,
   AuthListDeviceInstancesResponseSchema,
   AuthListDeviceInstancesSchema,
   AuthListDevicePortalSelectionsResponseSchema,
   AuthListDevicePortalSelectionsSchema,
-  AuthListDeviceProfilesResponseSchema,
-  AuthListDeviceProfilesSchema,
   AuthListInstanceGrantPoliciesResponseSchema,
   AuthListInstanceGrantPoliciesSchema,
   AuthListLoginPortalSelectionsResponseSchema,
@@ -212,7 +212,7 @@ Deno.test("AuthValidateRequestResponseSchema validates device caller variants", 
       deviceId: "dev_1",
       deviceType: "reader",
       runtimePublicKey: "A".repeat(43),
-      profileId: "reader.default",
+      deploymentId: "reader.default",
       active: true,
       capabilities: ["device.sync"],
     },
@@ -225,7 +225,7 @@ Deno.test("AuthValidateRequestResponseSchema validates device caller variants", 
       deviceId: "dev_1",
       deviceType: "reader",
       runtimePublicKey: "A".repeat(43),
-      profileId: "",
+      deploymentId: "",
       active: true,
       capabilities: ["device.sync"],
     },
@@ -249,7 +249,9 @@ Deno.test("portal, portal selection, and device admin schemas validate", () => {
   assert(Value.Check(AuthDisablePortalSchema, { portalId: "portal-1" }));
   assert(Value.Check(AuthDisablePortalResponseSchema, { success: true }));
   assert(Value.Check(AuthListPortalProfilesSchema, {}));
-  assert(Value.Check(AuthListPortalProfilesResponseSchema, { profiles: [] }));
+  assert(
+    Value.Check(AuthListPortalProfilesResponseSchema, { profiles: [] }),
+  );
   assert(Value.Check(AuthSetPortalProfileSchema, {
     portalId: "portal-1",
     entryUrl: "https://portal.example.com/auth",
@@ -396,18 +398,18 @@ Deno.test("portal, portal selection, and device admin schemas validate", () => {
     }),
   );
   assert(Value.Check(AuthSetDevicePortalSelectionSchema, {
-    profileId: "reader.default",
+    deploymentId: "reader.default",
     portalId: null,
   }));
   assert(Value.Check(AuthSetDevicePortalSelectionResponseSchema, {
     selection: {
-      profileId: "reader.default",
+      deploymentId: "reader.default",
       portalId: null,
     },
   }));
   assert(
     Value.Check(AuthClearDevicePortalSelectionSchema, {
-      profileId: "reader.default",
+      deploymentId: "reader.default",
     }),
   );
   assert(
@@ -416,29 +418,31 @@ Deno.test("portal, portal selection, and device admin schemas validate", () => {
     }),
   );
 
-  assert(Value.Check(AuthCreateDeviceProfileSchema, {
-    profileId: "reader.default",
+  assert(Value.Check(AuthCreateDeviceDeploymentSchema, {
+    deploymentId: "reader.default",
     reviewMode: "none",
   }));
-  assert(Value.Check(AuthCreateDeviceProfileResponseSchema, {
-    profile: {
-      profileId: "reader.default",
+  assert(Value.Check(AuthCreateDeviceDeploymentResponseSchema, {
+    deployment: {
+      deploymentId: "reader.default",
       reviewMode: "none",
       disabled: false,
       appliedContracts: [],
     },
   }));
-  assert(Value.Check(AuthListDeviceProfilesSchema, {}));
-  assert(Value.Check(AuthListDeviceProfilesResponseSchema, { profiles: [] }));
+  assert(Value.Check(AuthListDeviceDeploymentsSchema, {}));
   assert(
-    Value.Check(AuthDisableDeviceProfileSchema, {
-      profileId: "reader.default",
+    Value.Check(AuthListDeviceDeploymentsResponseSchema, { deployments: [] }),
+  );
+  assert(
+    Value.Check(AuthDisableDeviceDeploymentSchema, {
+      deploymentId: "reader.default",
     }),
   );
   assert(
-    Value.Check(AuthDisableDeviceProfileResponseSchema, {
-      profile: {
-        profileId: "reader.default",
+    Value.Check(AuthDisableDeviceDeploymentResponseSchema, {
+      deployment: {
+        deploymentId: "reader.default",
         reviewMode: "none",
         disabled: true,
         appliedContracts: [],
@@ -447,7 +451,7 @@ Deno.test("portal, portal selection, and device admin schemas validate", () => {
   );
 
   assert(Value.Check(AuthProvisionDeviceInstanceSchema, {
-    profileId: "reader.default",
+    deploymentId: "reader.default",
     publicIdentityKey: "A".repeat(43),
     activationKey: "B".repeat(43),
     metadata: {
@@ -461,7 +465,7 @@ Deno.test("portal, portal selection, and device admin schemas validate", () => {
     instance: {
       instanceId: "dev_1",
       publicIdentityKey: "A".repeat(43),
-      profileId: "reader.default",
+      deploymentId: "reader.default",
       metadata: {
         name: "Front Desk Reader",
         serialNumber: "SN-123",
@@ -482,7 +486,7 @@ Deno.test("portal, portal selection, and device admin schemas validate", () => {
       instance: {
         instanceId: "dev_1",
         publicIdentityKey: "A".repeat(43),
-        profileId: "reader.default",
+        deploymentId: "reader.default",
         state: "disabled",
         createdAt: now,
         activatedAt: null,
@@ -514,7 +518,7 @@ Deno.test("AuthMeResponseSchema validates user, device, and service envelopes", 
       deviceId: "dev_1",
       deviceType: "reader",
       runtimePublicKey: "A".repeat(43),
-      profileId: "reader.default",
+      deploymentId: "reader.default",
       active: true,
       capabilities: ["device.sync"],
     },
@@ -637,7 +641,7 @@ Deno.test("user grant schemas validate self-service grant rows", () => {
 Deno.test("device activation and connect-info schemas validate", () => {
   assert(Value.Check(DeviceConnectInfoSchema, {
     instanceId: "dev_1",
-    profileId: "reader.default",
+    deploymentId: "reader.default",
     contractId: "acme.reader@v1",
     contractDigest: "digest-a",
     transports: {
@@ -657,7 +661,7 @@ Deno.test("device activation and connect-info schemas validate", () => {
   }));
   assert(Value.Check(DeviceConnectInfoSchema, {
     instanceId: "dev_1",
-    profileId: "reader.default",
+    deploymentId: "reader.default",
     contractId: "acme.reader@v1",
     contractDigest: "digest-a",
     transports: {
@@ -686,13 +690,13 @@ Deno.test("device activation and connect-info schemas validate", () => {
     status: "pending_review",
     reviewId: "dar_1",
     instanceId: "dev_1",
-    profileId: "reader.default",
+    deploymentId: "reader.default",
     requestedAt: now,
   }));
   assert(Value.Check(AuthActivateDeviceResponseSchema, {
     status: "activated",
     instanceId: "dev_1",
-    profileId: "reader.default",
+    deploymentId: "reader.default",
     activatedAt: now,
     confirmationCode: "ABCD1234",
   }));
@@ -700,7 +704,7 @@ Deno.test("device activation and connect-info schemas validate", () => {
     status: "pending_review",
     reviewId: "dar_1",
     instanceId: "dev_1",
-    profileId: "reader.default",
+    deploymentId: "reader.default",
     requestedAt: now,
   }));
   assert(Value.Check(AuthActivateDeviceResponseSchema, {
@@ -712,7 +716,7 @@ Deno.test("device activation and connect-info schemas validate", () => {
     flowId: "flow_1",
     instanceId: "dev_1",
     publicIdentityKey: "A".repeat(43),
-    profileId: "sherpa",
+    deploymentId: "sherpa",
     requestedAt: now,
     requestedBy: {
       origin: "github",
@@ -736,7 +740,7 @@ Deno.test("device activation and connect-info schemas validate", () => {
     status: "ready",
     connectInfo: {
       instanceId: "dev_1",
-      profileId: "reader.default",
+      deploymentId: "reader.default",
       contractId: "acme.reader@v1",
       contractDigest: "digest-a",
       transports: {
@@ -769,7 +773,7 @@ Deno.test("device activation and connect-info schemas validate", () => {
     Value.Check(AuthRevokeDeviceActivationResponseSchema, { success: true }),
   );
   assert(Value.Check(AuthListDeviceActivationReviewsSchema, {
-    profileId: "reader.default",
+    deploymentId: "reader.default",
     state: "pending",
   }));
   assert(Value.Check(AuthListDeviceActivationReviewsResponseSchema, {
@@ -785,7 +789,7 @@ Deno.test("device activation and connect-info schemas validate", () => {
       reviewId: "dar_1",
       instanceId: "dev_1",
       publicIdentityKey: "A".repeat(43),
-      profileId: "reader.default",
+      deploymentId: "reader.default",
       state: "approved",
       requestedAt: now,
       decidedAt: now,
@@ -794,7 +798,7 @@ Deno.test("device activation and connect-info schemas validate", () => {
     activation: {
       instanceId: "dev_1",
       publicIdentityKey: "A".repeat(43),
-      profileId: "reader.default",
+      deploymentId: "reader.default",
       state: "activated",
       activatedAt: now,
       revokedAt: null,
@@ -803,11 +807,11 @@ Deno.test("device activation and connect-info schemas validate", () => {
   }));
 });
 
-Deno.test("DeviceSchema validates profile-attached devices", () => {
+Deno.test("DeviceSchema validates deployment-attached devices", () => {
   assert(Value.Check(DeviceSchema, {
     instanceId: "dev_1",
     publicIdentityKey: "A".repeat(43),
-    profileId: "reader.default",
+    deploymentId: "reader.default",
     state: "registered",
     createdAt: now,
     activatedAt: null,

@@ -10,9 +10,9 @@ import {
   ContractApprovalRecordSchema,
   DeviceActivationRecordSchema,
   DeviceActivationReviewRecordSchema,
+  DeviceDeploymentSchema,
   DevicePortalDefaultSchema,
   DevicePortalSelectionSchema,
-  DeviceProfileSchema,
   DeviceSchema,
   InstanceGrantPolicySchema,
   LoginPortalDefaultSchema,
@@ -78,7 +78,7 @@ Deno.test("SessionSchema validates session entries", () => {
       email: "graph@trellis.internal",
       name: "graph",
       instanceId: "svc-1",
-      profileId: "graph.default",
+      deploymentId: "graph.default",
       instanceKey: "graph-instance-key",
       currentContractId: null,
       currentContractDigest: null,
@@ -91,7 +91,7 @@ Deno.test("SessionSchema validates session entries", () => {
       type: "device",
       instanceId: "dev-1",
       publicIdentityKey: sessionKey,
-      profileId: "drive.default",
+      deploymentId: "drive.default",
       contractId: "trellis.device@v1",
       contractDigest: "digest",
       delegatedCapabilities: ["device.sync"],
@@ -128,7 +128,7 @@ Deno.test("Portal and browser-flow schemas validate", () => {
     kind: "device_activation",
     deviceActivation: {
       instanceId: "dev_123",
-      profileId: "reader.default",
+      deploymentId: "reader.default",
       publicIdentityKey: sessionKey,
       nonce: "nonce",
       qrMac: "mac",
@@ -165,11 +165,11 @@ Deno.test("portal and device state schemas validate", () => {
     portalId: "main",
   }));
   assert(Value.Check(DevicePortalSelectionSchema, {
-    profileId: "reader.default",
+    deploymentId: "reader.default",
     portalId: null,
   }));
-  assert(Value.Check(DeviceProfileSchema, {
-    profileId: "reader.default",
+  assert(Value.Check(DeviceDeploymentSchema, {
+    deploymentId: "reader.default",
     appliedContracts: [{
       contractId: "acme.reader@v1",
       allowedDigests: ["digest-a"],
@@ -180,7 +180,7 @@ Deno.test("portal and device state schemas validate", () => {
   assert(Value.Check(DeviceSchema, {
     instanceId: "dev_123",
     publicIdentityKey: sessionKey,
-    profileId: "reader.default",
+    deploymentId: "reader.default",
     metadata: {
       name: "Front Desk Reader",
       serialNumber: "SN-123",
@@ -195,7 +195,7 @@ Deno.test("portal and device state schemas validate", () => {
   assert(Value.Check(DeviceActivationRecordSchema, {
     instanceId: "dev_123",
     publicIdentityKey: sessionKey,
-    profileId: "reader.default",
+    deploymentId: "reader.default",
     activatedBy: {
       origin: "github",
       id: "123",
@@ -209,7 +209,7 @@ Deno.test("portal and device state schemas validate", () => {
     flowId: "flow_123",
     instanceId: "dev_123",
     publicIdentityKey: sessionKey,
-    profileId: "reader.default",
+    deploymentId: "reader.default",
     requestedBy: {
       origin: "github",
       id: "123",

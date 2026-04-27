@@ -170,7 +170,7 @@ export type TrellisDevicePendingActivationState = {
   contractDigest: string;
   publicIdentityKey: string;
   instanceId: string;
-  profileId: string;
+  deploymentId: string;
   nonce: string;
   activationUrl: string;
 };
@@ -180,7 +180,7 @@ export type TrellisDeviceActivatedActivationState = {
   contractDigest: string;
   publicIdentityKey: string;
   instanceId: string;
-  profileId: string;
+  deploymentId: string;
   nonce: string;
   activationUrl: string;
 };
@@ -251,7 +251,7 @@ const DeviceBootstrapReadySchema = Type.Object({
   status: Type.Literal("ready"),
   connectInfo: Type.Object({
     instanceId: Type.String({ minLength: 1 }),
-    profileId: Type.String({ minLength: 1 }),
+    deploymentId: Type.String({ minLength: 1 }),
     contractId: Type.String({ minLength: 1 }),
     contractDigest: Type.String({ minLength: 1 }),
     transports: ClientTransportsSchema,
@@ -581,7 +581,7 @@ async function createActivationSession<
         throw createInvalidConfirmationCodeTransportError({
           publicIdentityKey: args.identity.publicIdentityKey,
           instanceId: args.localState.instanceId,
-          profileId: args.localState.profileId,
+          deploymentId: args.localState.deploymentId,
         });
       }
       return activatedState;
@@ -739,7 +739,7 @@ export async function startDeviceActivationWithDeps<
       contractDigest: args.contract.CONTRACT_DIGEST,
       publicIdentityKey: identity.publicIdentityKey,
       instanceId: activation.instanceId,
-      profileId: activation.profileId,
+      deploymentId: activation.deploymentId,
       nonce,
       activationUrl: activation.activationUrl,
     },
@@ -811,7 +811,7 @@ export async function connectDeviceWithDeps<
       code: "trellis.bootstrap.not_ready",
       message: "Trellis is not ready to connect this device.",
       hint:
-        "Wait for the device to be activated and the requested profile to become available, then try again.",
+        "Wait for the device to be activated and the requested deployment to become available, then try again.",
       context: { reason: bootstrap.reason },
     });
   }
@@ -896,7 +896,7 @@ export async function connectDeviceWithDeps<
   });
   health.setInfo({
     info: {
-      profileId: connectInfo.profileId,
+      deploymentId: connectInfo.deploymentId,
     },
   });
   health.add("nats", () => ({

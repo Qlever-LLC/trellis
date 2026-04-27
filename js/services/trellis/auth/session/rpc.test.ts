@@ -215,14 +215,14 @@ Deno.test("Auth.Me returns user, device, and service envelopes", async () => {
   const deviceActivationsKV = new InMemoryKV<{
     instanceId: string;
     publicIdentityKey: string;
-    profileId: string;
+    deploymentId: string;
     activatedBy?: { origin: string; id: string };
     state: "activated" | "revoked";
     activatedAt: string;
     revokedAt: string | null;
   }>();
-  const deviceProfilesKV = new InMemoryKV<{
-    profileId: string;
+  const deviceDeploymentsKV = new InMemoryKV<{
+    deploymentId: string;
     disabled: boolean;
     appliedContracts: Array<{ contractId: string; allowedDigests: string[] }>;
   }>();
@@ -231,7 +231,7 @@ Deno.test("Auth.Me returns user, device, and service envelopes", async () => {
     sessionStorage: sessionStorageFromKV(sessionKV),
     userStorage,
     deviceActivationStorage: deviceActivationStorageFromKV(deviceActivationsKV),
-    deviceProfileStorage: getStorageFromKV(deviceProfilesKV),
+    deviceDeploymentStorage: getStorageFromKV(deviceDeploymentsKV),
   });
 
   const userTrellisId = await trellisIdFromOriginId("github", "123");
@@ -289,7 +289,7 @@ Deno.test("Auth.Me returns user, device, and service envelopes", async () => {
     type: "device",
     instanceId: "dev_1",
     publicIdentityKey: "A".repeat(43),
-    profileId: "reader.default",
+    deploymentId: "reader.default",
     contractId: "trellis.reader@v1",
     contractDigest: "digest-w",
     delegatedCapabilities: ["device.sync"],
@@ -303,14 +303,14 @@ Deno.test("Auth.Me returns user, device, and service envelopes", async () => {
   deviceActivationsKV.seed("dev_1", {
     instanceId: "dev_1",
     publicIdentityKey: "A".repeat(43),
-    profileId: "reader.default",
+    deploymentId: "reader.default",
     activatedBy: { origin: "github", id: "123" },
     state: "activated",
     activatedAt: "2026-04-10T00:00:00.000Z",
     revokedAt: null,
   });
-  deviceProfilesKV.seed("reader.default", {
-    profileId: "reader.default",
+  deviceDeploymentsKV.seed("reader.default", {
+    deploymentId: "reader.default",
     disabled: false,
     appliedContracts: [],
   });
@@ -335,7 +335,7 @@ Deno.test("Auth.Me returns user, device, and service envelopes", async () => {
       deviceId: "dev_1",
       deviceType: "reader",
       runtimePublicKey: "A".repeat(43),
-      profileId: "reader.default",
+      deploymentId: "reader.default",
       active: true,
       capabilities: ["device.sync"],
     },
@@ -351,7 +351,7 @@ Deno.test("Auth.Me returns user, device, and service envelopes", async () => {
     email: "billing@trellis.internal",
     name: "Billing",
     instanceId: "svc_1",
-    profileId: "billing.default",
+    deploymentId: "billing.default",
     instanceKey: serviceSessionKey,
     currentContractId: null,
     currentContractDigest: null,
@@ -385,14 +385,14 @@ Deno.test("Auth.Me falls back to validated caller context for user sessions", as
       new InMemoryKV<{
         instanceId: string;
         publicIdentityKey: string;
-        profileId: string;
+        deploymentId: string;
         activatedBy?: { origin: string; id: string };
         state: "activated" | "revoked";
         activatedAt: string;
         revokedAt: string | null;
       }>(),
     ),
-    deviceProfileStorage: {
+    deviceDeploymentStorage: {
       get: async () => undefined,
     },
   });
@@ -436,14 +436,14 @@ Deno.test("Auth.Me reflects SQL user active and capability changes", async () =>
     const deviceActivationsKV = new InMemoryKV<{
       instanceId: string;
       publicIdentityKey: string;
-      profileId: string;
+      deploymentId: string;
       activatedBy?: { origin: string; id: string };
       state: "activated" | "revoked";
       activatedAt: string;
       revokedAt: string | null;
     }>();
-    const deviceProfilesKV = new InMemoryKV<{
-      profileId: string;
+    const deviceDeploymentsKV = new InMemoryKV<{
+      deploymentId: string;
       disabled: boolean;
       appliedContracts: Array<{ contractId: string; allowedDigests: string[] }>;
     }>();
@@ -453,7 +453,7 @@ Deno.test("Auth.Me reflects SQL user active and capability changes", async () =>
       deviceActivationStorage: deviceActivationStorageFromKV(
         deviceActivationsKV,
       ),
-      deviceProfileStorage: getStorageFromKV(deviceProfilesKV),
+      deviceDeploymentStorage: getStorageFromKV(deviceDeploymentsKV),
     });
 
     const userTrellisId = await trellisIdFromOriginId("github", "123");
@@ -514,14 +514,14 @@ Deno.test("Auth.Me falls back to device activation context for device sessions",
   const deviceActivationsKV = new InMemoryKV<{
     instanceId: string;
     publicIdentityKey: string;
-    profileId: string;
+    deploymentId: string;
     activatedBy?: { origin: string; id: string };
     state: "activated" | "revoked";
     activatedAt: string;
     revokedAt: string | null;
   }>();
-  const deviceProfilesKV = new InMemoryKV<{
-    profileId: string;
+  const deviceDeploymentsKV = new InMemoryKV<{
+    deploymentId: string;
     disabled: boolean;
     appliedContracts: Array<{ contractId: string; allowedDigests: string[] }>;
   }>();
@@ -530,7 +530,7 @@ Deno.test("Auth.Me falls back to device activation context for device sessions",
     sessionStorage: sessionStorageFromKV(new InMemoryKV<Session>()),
     userStorage,
     deviceActivationStorage: deviceActivationStorageFromKV(deviceActivationsKV),
-    deviceProfileStorage: getStorageFromKV(deviceProfilesKV),
+    deviceDeploymentStorage: getStorageFromKV(deviceDeploymentsKV),
   });
 
   const userTrellisId = await trellisIdFromOriginId("github", "123");
@@ -545,14 +545,14 @@ Deno.test("Auth.Me falls back to device activation context for device sessions",
   deviceActivationsKV.seed("dev_1", {
     instanceId: "dev_1",
     publicIdentityKey: "A".repeat(43),
-    profileId: "reader.default",
+    deploymentId: "reader.default",
     activatedBy: { origin: "github", id: "123" },
     state: "activated",
     activatedAt: "2026-04-10T00:00:00.000Z",
     revokedAt: null,
   });
-  deviceProfilesKV.seed("reader.default", {
-    profileId: "reader.default",
+  deviceDeploymentsKV.seed("reader.default", {
+    deploymentId: "reader.default",
     disabled: false,
     appliedContracts: [],
   });
@@ -564,7 +564,7 @@ Deno.test("Auth.Me falls back to device activation context for device sessions",
         type: "device",
         deviceId: "dev_1",
         runtimePublicKey: "A".repeat(43),
-        profileId: "reader.default",
+        deploymentId: "reader.default",
         active: true,
         capabilities: ["device.sync"],
       },
@@ -588,7 +588,7 @@ Deno.test("Auth.Me falls back to device activation context for device sessions",
       deviceId: "dev_1",
       deviceType: "reader",
       runtimePublicKey: "A".repeat(43),
-      profileId: "reader.default",
+      deploymentId: "reader.default",
       active: true,
       capabilities: ["device.sync"],
     },
@@ -646,7 +646,7 @@ Deno.test("Auth.ListSessions returns explicit participant metadata for app, agen
     type: "device",
     instanceId: "dev_1",
     publicIdentityKey: "A".repeat(43),
-    profileId: "reader.default",
+    deploymentId: "reader.default",
     contractId: "trellis.reader@v1",
     contractDigest: "digest-device",
     delegatedCapabilities: ["device.sync"],
@@ -665,7 +665,7 @@ Deno.test("Auth.ListSessions returns explicit participant metadata for app, agen
     email: "billing@trellis.internal",
     name: "Billing",
     instanceId: "svc_1",
-    profileId: "billing.default",
+    deploymentId: "billing.default",
     instanceKey: "sk_service",
     currentContractId: null,
     currentContractDigest: null,
@@ -1000,14 +1000,14 @@ Deno.test("Auth.RevokeSession cascades app revocation to the grant and sibling u
   const deviceActivationsKV = new InMemoryKV<{
     instanceId: string;
     publicIdentityKey: string;
-    profileId: string;
+    deploymentId: string;
     state: "activated" | "revoked";
     activatedAt: string;
     revokedAt: string | null;
   }>();
   const serviceInstancesKV = new InMemoryKV<{
     instanceId: string;
-    profileId: string;
+    deploymentId: string;
     instanceKey: string;
     disabled: boolean;
     capabilities: string[];
@@ -1246,14 +1246,14 @@ Deno.test("Auth.RevokeSession revokes device activation so the device cannot rec
   const deviceActivationsKV = new InMemoryKV<{
     instanceId: string;
     publicIdentityKey: string;
-    profileId: string;
+    deploymentId: string;
     state: "activated" | "revoked";
     activatedAt: string;
     revokedAt: string | null;
   }>();
   const serviceInstancesKV = new InMemoryKV<{
     instanceId: string;
-    profileId: string;
+    deploymentId: string;
     instanceKey: string;
     disabled: boolean;
     capabilities: string[];
@@ -1268,7 +1268,7 @@ Deno.test("Auth.RevokeSession revokes device activation so the device cannot rec
     type: "device",
     instanceId: "dev_1",
     publicIdentityKey: "A".repeat(43),
-    profileId: "reader.default",
+    deploymentId: "reader.default",
     contractId: "trellis.reader@v1",
     contractDigest: "digest-device",
     delegatedCapabilities: ["device.sync"],
@@ -1282,7 +1282,7 @@ Deno.test("Auth.RevokeSession revokes device activation so the device cannot rec
   deviceActivationsKV.seed("dev_1", {
     instanceId: "dev_1",
     publicIdentityKey: "A".repeat(43),
-    profileId: "reader.default",
+    deploymentId: "reader.default",
     state: "activated",
     activatedAt: "2026-04-10T00:00:00.000Z",
     revokedAt: null,
@@ -1340,14 +1340,14 @@ Deno.test("Auth.RevokeSession disables the service instance so it cannot reconne
   const deviceActivationsKV = new InMemoryKV<{
     instanceId: string;
     publicIdentityKey: string;
-    profileId: string;
+    deploymentId: string;
     state: "activated" | "revoked";
     activatedAt: string;
     revokedAt: string | null;
   }>();
   const serviceInstancesKV = new InMemoryKV<{
     instanceId: string;
-    profileId: string;
+    deploymentId: string;
     instanceKey: string;
     disabled: boolean;
     capabilities: string[];
@@ -1366,7 +1366,7 @@ Deno.test("Auth.RevokeSession disables the service instance so it cannot reconne
     email: "billing@trellis.internal",
     name: "Billing",
     instanceId: "svc_1",
-    profileId: "billing.default",
+    deploymentId: "billing.default",
     instanceKey: "sk_service",
     currentContractId: null,
     currentContractDigest: null,
@@ -1374,7 +1374,7 @@ Deno.test("Auth.RevokeSession disables the service instance so it cannot reconne
   });
   serviceInstancesKV.seed("svc_1", {
     instanceId: "svc_1",
-    profileId: "billing.default",
+    deploymentId: "billing.default",
     instanceKey: "sk_service",
     disabled: false,
     capabilities: ["service"],

@@ -50,21 +50,21 @@ export function matchingInstanceGrantPolicies(args: {
 }
 
 export function portalProfileToGrantPolicy(
-  profile: PortalProfile,
+  deployment: PortalProfile,
 ): InstanceGrantPolicy {
   return {
-    contractId: profile.contractId,
-    ...(profile.allowedOrigins
-      ? { allowedOrigins: profile.allowedOrigins }
+    contractId: deployment.contractId,
+    ...(deployment.allowedOrigins
+      ? { allowedOrigins: deployment.allowedOrigins }
       : {}),
-    impliedCapabilities: profile.impliedCapabilities,
-    disabled: profile.disabled,
-    createdAt: profile.createdAt,
-    updatedAt: profile.updatedAt,
+    impliedCapabilities: deployment.impliedCapabilities,
+    disabled: deployment.disabled,
+    createdAt: deployment.createdAt,
+    updatedAt: deployment.updatedAt,
     source: {
       kind: "portal_profile",
-      portalId: profile.portalId,
-      entryUrl: profile.entryUrl,
+      portalId: deployment.portalId,
+      entryUrl: deployment.entryUrl,
     },
   };
 }

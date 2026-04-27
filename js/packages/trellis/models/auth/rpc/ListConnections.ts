@@ -13,7 +13,7 @@ const ServicePrincipalSchema = Type.Object({
   id: Type.String(),
   name: Type.String(),
   instanceId: Type.String(),
-  profileId: Type.String(),
+  deploymentId: Type.String(),
 });
 
 const DevicePrincipalSchema = Type.Object({
@@ -21,7 +21,7 @@ const DevicePrincipalSchema = Type.Object({
   deviceId: Type.String(),
   deviceType: Type.String(),
   runtimePublicKey: Type.String(),
-  profileId: Type.String(),
+  deploymentId: Type.String(),
 });
 
 const ConnectionRowBaseSchema = {

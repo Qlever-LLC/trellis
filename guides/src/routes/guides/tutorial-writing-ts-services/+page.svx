@@ -96,27 +96,21 @@ console.log("Connected to Trellis!");
 
 `TrellisService.connect(...)` does a lot of heavy lifting. It authenticates your service session, validates that your contract is active in the Trellis catalog, fetches transport details, and hands back a `service` object with all your resources already resolved. If the contract has not been installed yet, it will throw with a clear message telling you exactly what to do.
 
-Before we can run this, we need to do two things.
+Before we can run this, we need to create a deployment, apply the contract, and provision a service instance.
 
-**Generate a session key seed.** Every Trellis service authenticates with a unique session key. Generate one with the CLI:
-
-```sh
-trellis keygen
-```
-
-This prints a long base64url string. Treat it like a private key — never commit it to source control.
-
-**Install the contract** so Trellis knows about it:
+Every Trellis service authenticates with a unique instance key. `trellis deploy provision` prints the private seed for that instance; treat it like a private key and never commit it to source control.
 
 ```sh
-trellis service install --source ./contracts/orders_service.ts
+trellis deploy create svc/orders-service
+trellis deploy apply svc/orders-service --source ./contracts/orders_service.ts
+trellis deploy provision svc/orders-service
 ```
 
 Now you can run your service:
 
 ```sh
 TRELLIS_URL=http://localhost:3000 \
-ORDERS_SERVICE_SESSION_KEY_SEED=<your-generated-seed> \
+ORDERS_SERVICE_SESSION_KEY_SEED=<seed-from-provision> \
 deno run --allow-net --allow-env main.ts
 ```
 
@@ -180,10 +174,10 @@ const ordersKV = kvResult.take();
 
 > The `isErr` / `.take()` pattern shows up throughout Trellis. Rather than throwing exceptions, Trellis returns `Result<T, E>` values. Check `isErr(result)` first; only call `result.take()` once you know it succeeded.
 
-Because we changed the contract, re-install it so Trellis provisions the new bucket:
+Because we changed the contract, apply it again so Trellis provisions the new bucket:
 
 ```sh
-trellis service upgrade --source ./contracts/orders_service.ts
+trellis deploy apply svc/orders-service --source ./contracts/orders_service.ts
 ```
 
 ---
@@ -265,7 +259,7 @@ Handlers return `Result.ok(value)` on success or `Result.err({type, message})` f
 Upgrade the contract, then restart the service:
 
 ```sh
-trellis service upgrade --source ./contracts/orders_service.ts
+trellis deploy apply svc/orders-service --source ./contracts/orders_service.ts
 ```
 
 ---

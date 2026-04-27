@@ -338,7 +338,7 @@ Deno.test("service cannot call undeclared cross-contract RPCs by capability alon
   });
 });
 
-Deno.test("service profile named trellis does not implement Trellis-owned contracts", () => {
+Deno.test("service deployment named trellis does not implement Trellis-owned contracts", () => {
   withContracts(TEST_CONTRACTS, () => {
     const nonTrellisServiceNamedTrellis = {
       sessionKey: "non-trellis-service-key",

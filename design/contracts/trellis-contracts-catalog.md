@@ -864,7 +864,7 @@ Semantics:
 Service install and upgrade are intentionally not part of the runtime discovery
 RPC set.
 
-- initial service installation is a `trellis.auth@v1` admin operation exposed by
+- initial service deployment is a `trellis.auth@v1` admin operation exposed by
   the `trellis` runtime service that takes a service public key and a candidate
   contract
 - service contract upgrade is a `trellis.auth@v1` admin operation exposed by the
@@ -923,7 +923,7 @@ The `trellis` runtime service MUST:
 - bind each installed contract digest to the service principal public key that
   implements it, including Trellis-owned contracts bootstrapped onto the
   `trellis` service principal
-- support deployment-owned device profile records that resolve a device class to
+- support deployment-owned device deployment records that resolve a device class to
   a contract lineage plus an allowed digest set
 - support deployment-owned portal records, portal profiles, and login/device
   portal selection records for browser login and device-activation
@@ -941,8 +941,8 @@ Install or upgrade validation MUST also:
 - provision stream resources idempotently when requested
 - validate the exact `resources` requested by the digest being installed, even
   when other digests in the same lineage remain active
-- when install or activation is profile-driven, validate that the digest being
-  bound is allowed by that profile's contract lineage and allowed digest set
+- when install or activation is deployment-driven, validate that the digest being
+  bound is allowed by that deployment's contract lineage and allowed digest set
 - portal records are deployment-owned routing config for browser UX only; they
   are not a contract kind and do not create portal-specific install or auth
   behavior
@@ -959,7 +959,7 @@ Operationally, install or upgrade fails if any of these conditions is true:
 
 Upgrade rule:
 
-- when a service upgrades from one digest to another for the same contract `id`,
+- when a service rolls from one digest to another for the same contract `id`,
   the `trellis` runtime service MAY keep both digests active during rollout
 - each service principal still points to one exact installed digest at any
   moment

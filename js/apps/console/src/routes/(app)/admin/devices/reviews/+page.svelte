@@ -3,8 +3,8 @@
     AuthDecideDeviceActivationReviewInput,
     AuthListDeviceActivationReviewsInput,
     AuthListDeviceActivationReviewsOutput,
+    AuthListDeviceDeploymentsOutput,
     AuthListDeviceInstancesOutput,
-    AuthListDeviceProfilesOutput,
   } from "@qlever-llc/trellis/sdk/auth";
   import { onMount } from "svelte";
   import { errorMessage, formatDate } from "../../../../../lib/format";
@@ -15,7 +15,7 @@
   type DeviceInstance = AuthListDeviceInstancesOutput["instances"][number] & {
     metadata?: Record<string, string>;
   };
-  type Profile = AuthListDeviceProfilesOutput["profiles"][number];
+  type Deployment = AuthListDeviceDeploymentsOutput["deployments"][number];
   type ReviewState = NonNullable<AuthListDeviceActivationReviewsInput["state"]> | "all";
 
   const understoodMetadataKeys = ["name", "serialNumber", "modelNumber"] as const;
@@ -25,7 +25,7 @@
   type ReviewsRequester = {
     request(method: "Auth.ListDeviceActivationReviews", input: AuthListDeviceActivationReviewsInput): { orThrow(): Promise<AuthListDeviceActivationReviewsOutput> };
     request(method: "Auth.ListDeviceInstances", input: Record<string, never>): { orThrow(): Promise<AuthListDeviceInstancesOutput> };
-    request(method: "Auth.ListDeviceProfiles", input: Record<string, never>): { orThrow(): Promise<AuthListDeviceProfilesOutput> };
+    request(method: "Auth.ListDeviceDeployments", input: Record<string, never>): { orThrow(): Promise<AuthListDeviceDeploymentsOutput> };
     request(method: "Auth.DecideDeviceActivationReview", input: AuthDecideDeviceActivationReviewInput): { orThrow(): Promise<void> };
   };
   const reviewsSource: object = trellis;
@@ -37,10 +37,10 @@
 
   let reviews = $state<Review[]>([]);
   let deviceInstances = $state<DeviceInstance[]>([]);
-  let profiles = $state<Profile[]>([]);
+  let deployments = $state<Deployment[]>([]);
 
   let instanceFilter = $state("");
-  let profileFilter = $state("");
+  let deploymentFilter = $state("");
   let stateFilter = $state<ReviewState>("all");
   let showMetadata = $state(false);
 
@@ -49,7 +49,7 @@
   function reviewQuery(): AuthListDeviceActivationReviewsInput {
     return {
       instanceId: instanceFilter.trim() || undefined,
-      profileId: profileFilter || undefined,
+      deploymentId: deploymentFilter || undefined,
       state: stateFilter === "all" ? undefined : stateFilter,
     };
   }
@@ -58,15 +58,15 @@
     loading = true;
     error = null;
     try {
-      const [reviewsResponse, instancesResponse, profilesResponse] = await Promise.all([
+      const [reviewsResponse, instancesResponse, deploymentsResponse] = await Promise.all([
         reviewsRequester.request("Auth.ListDeviceActivationReviews", reviewQuery()).orThrow(),
         reviewsRequester.request("Auth.ListDeviceInstances", {}).orThrow(),
-        reviewsRequester.request("Auth.ListDeviceProfiles", {}).orThrow(),
+        reviewsRequester.request("Auth.ListDeviceDeployments", {}).orThrow(),
       ]);
 
       reviews = reviewsResponse.reviews ?? [];
       deviceInstances = instancesResponse.instances ?? [];
-      profiles = profilesResponse.profiles ?? [];
+      deployments = deploymentsResponse.deployments ?? [];
     } catch (e) {
       error = errorMessage(e);
     } finally {
@@ -146,11 +146,11 @@
       </label>
 
       <label class="form-control gap-1">
-        <span class="label-text text-xs">Profile</span>
-        <select class="select select-bordered select-sm w-48" bind:value={profileFilter}>
-          <option value="">All profiles</option>
-          {#each profiles as profile (profile.profileId)}
-            <option value={profile.profileId}>{profile.profileId}</option>
+        <span class="label-text text-xs">Deployment</span>
+        <select class="select select-bordered select-sm w-48" bind:value={deploymentFilter}>
+          <option value="">All deployments</option>
+          {#each deployments as deployment (deployment.deploymentId)}
+            <option value={deployment.deploymentId}>{deployment.deploymentId}</option>
           {/each}
         </select>
       </label>
@@ -193,7 +193,7 @@
           <tr>
             <th>Review</th>
             <th>Instance</th>
-            <th>Profile</th>
+            <th>Deployment</th>
             <th>State</th>
             <th>Requested</th>
             <th>Reason</th>
@@ -224,7 +224,7 @@
                   </div>
                 {/if}
               </td>
-              <td class="text-base-content/60">{review.profileId}</td>
+              <td class="text-base-content/60">{review.deploymentId}</td>
               <td><span class="badge badge-sm">{review.state}</span></td>
               <td class="text-base-content/60">{formatDate(review.requestedAt)}</td>
               <td class="text-base-content/60">{review.reason ?? "—"}</td>

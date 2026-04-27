@@ -44,7 +44,7 @@ export type ServiceBootstrapDeps = {
   loadServiceInstance(instanceKey: string): Promise<
     {
       instanceId: string;
-      profileId: string;
+      deploymentId: string;
       instanceKey: string;
       disabled: boolean;
       currentContractId?: string;
@@ -56,7 +56,7 @@ export type ServiceBootstrapDeps = {
   >;
   saveServiceInstance(instance: {
     instanceId: string;
-    profileId: string;
+    deploymentId: string;
     instanceKey: string;
     disabled: boolean;
     currentContractId?: string;
@@ -65,9 +65,9 @@ export type ServiceBootstrapDeps = {
     resourceBindings?: Record<string, unknown>;
     createdAt: string | Date;
   }): Promise<void>;
-  loadServiceProfile(profileId: string): Promise<
+  loadServiceDeployment(deploymentId: string): Promise<
     {
-      profileId: string;
+      deploymentId: string;
       disabled: boolean;
       appliedContracts: Array<{ contractId: string; allowedDigests: string[] }>;
     } | null
@@ -216,44 +216,50 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
         bootstrapFailure(
           "service_disabled",
           `Service instance '${service.instanceId}' is disabled in Trellis. Enable the instance or provision a new one before reconnecting.`,
-          { instanceId: service.instanceId, profileId: service.profileId },
+          {
+            instanceId: service.instanceId,
+            deploymentId: service.deploymentId,
+          },
         ),
         403,
       );
     }
 
-    const profile = await deps.loadServiceProfile(service.profileId);
-    if (!profile || profile.disabled) {
+    const deployment = await deps.loadServiceDeployment(service.deploymentId);
+    if (!deployment || deployment.disabled) {
       return c.json(
         bootstrapFailure(
-          "service_profile_disabled",
-          `Service profile '${service.profileId}' is disabled or missing in Trellis. Enable the profile before reconnecting this instance.`,
-          { instanceId: service.instanceId, profileId: service.profileId },
+          "service_deployment_disabled",
+          `Service deployment '${service.deploymentId}' is disabled or missing in Trellis. Enable the deployment before reconnecting this instance.`,
+          {
+            instanceId: service.instanceId,
+            deploymentId: service.deploymentId,
+          },
         ),
         403,
       );
     }
 
-    const applied = profile.appliedContracts.find((entry) =>
+    const applied = deployment.appliedContracts.find((entry) =>
       entry.allowedDigests.includes(request.contractDigest)
     );
     if (!applied || applied.contractId !== request.contractId) {
-      const matchingLineage = profile.appliedContracts.find((entry) =>
+      const matchingLineage = deployment.appliedContracts.find((entry) =>
         entry.contractId === request.contractId
       );
       const allowedDigests = matchingLineage?.allowedDigests ?? [];
       const message = allowedDigests.length > 0
-        ? `Service instance '${service.instanceId}' under profile '${profile.profileId}' is not allowed to run digest '${request.contractDigest}' for contract '${request.contractId}'. Allowed digests: ${
+        ? `Service instance '${service.instanceId}' under deployment '${deployment.deploymentId}' is not allowed to run digest '${request.contractDigest}' for contract '${request.contractId}'. Allowed digests: ${
           allowedDigests.join(", ")
-        }. Re-apply the current contract to the profile or restart the matching service revision.`
-        : `Service instance '${service.instanceId}' under profile '${profile.profileId}' is not allowed to run contract '${request.contractId}' digest '${request.contractDigest}'. Apply that contract to the profile before starting the service.`;
+        }. Re-apply the current contract to the deployment or restart the matching service revision.`
+        : `Service instance '${service.instanceId}' under deployment '${deployment.deploymentId}' is not allowed to run contract '${request.contractId}' digest '${request.contractDigest}'. Apply that contract to the deployment before starting the service.`;
       return c.json(
         bootstrapFailure(
           "service_contract_mismatch",
           message,
           {
             instanceId: service.instanceId,
-            profileId: profile.profileId,
+            deploymentId: deployment.deploymentId,
             expectedContractId: request.contractId,
             expectedContractDigest: request.contractDigest,
             allowedDigests,
@@ -265,15 +271,17 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
       );
     }
 
-    const contract = deps.contractStore.getContract(request.contractDigest);
+    const contract = deps.contractStore.getContract(request.contractDigest, {
+      includeInactive: true,
+    });
     if (!contract || contract.id !== request.contractId) {
       return c.json(
         bootstrapFailure(
-          "contract_not_active",
-          `Contract '${request.contractId}' digest '${request.contractDigest}' is allowed for profile '${profile.profileId}' but is not active in Trellis. Re-apply the contract to the profile or restart Trellis if contract state was lost.`,
+          "contract_not_installed",
+          `Contract '${request.contractId}' digest '${request.contractDigest}' is allowed for deployment '${deployment.deploymentId}' but is not installed in Trellis. Install the contract before starting the service.`,
           {
             instanceId: service.instanceId,
-            profileId: profile.profileId,
+            deploymentId: deployment.deploymentId,
             contractId: request.contractId,
             contractDigest: request.contractDigest,
           },
@@ -286,7 +294,7 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
       ? await provisionContractResourceBindings(
         deps.nats,
         contract,
-        service.instanceKey,
+        service.deploymentId,
       )
       : service.resourceBindings;
     const capabilities = getRequiredServiceCapabilities(

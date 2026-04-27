@@ -1,9 +1,9 @@
 <script lang="ts">
   import type {
     AuthDisableDeviceInstanceInput,
+    AuthListDeviceDeploymentsOutput,
     AuthListDeviceInstancesInput,
     AuthListDeviceInstancesOutput,
-    AuthListDeviceProfilesOutput,
     AuthProvisionDeviceInstanceInput,
   } from "@qlever-llc/trellis/sdk/auth";
   import { onMount } from "svelte";
@@ -14,7 +14,7 @@
   type Instance = AuthListDeviceInstancesOutput["instances"][number] & {
     metadata?: Record<string, string>;
   };
-  type Profile = AuthListDeviceProfilesOutput["profiles"][number];
+  type Deployment = AuthListDeviceDeploymentsOutput["deployments"][number];
   type InstanceState = NonNullable<AuthListDeviceInstancesInput["state"]> | "all";
   type DeviceMetadata = Record<string, string>;
 
@@ -24,7 +24,7 @@
   const notifications = getNotifications();
   type InstancesRequester = {
     request(method: "Auth.ListDeviceInstances", input: AuthListDeviceInstancesInput): { orThrow(): Promise<AuthListDeviceInstancesOutput> };
-    request(method: "Auth.ListDeviceProfiles", input: Record<string, never>): { orThrow(): Promise<AuthListDeviceProfilesOutput> };
+    request(method: "Auth.ListDeviceDeployments", input: Record<string, never>): { orThrow(): Promise<AuthListDeviceDeploymentsOutput> };
     request(method: "Auth.ProvisionDeviceInstance", input: AuthProvisionDeviceInstanceInput): { orThrow(): Promise<void> };
     request(method: "Auth.DisableDeviceInstance", input: AuthDisableDeviceInstanceInput): { orThrow(): Promise<void> };
   };
@@ -37,12 +37,12 @@
   let disableTarget = $state<string | null>(null);
 
   let instances = $state<Instance[]>([]);
-  let profiles = $state<Profile[]>([]);
+  let deployments = $state<Deployment[]>([]);
 
-  let profileFilter = $state("");
+  let deploymentFilter = $state("");
   let stateFilter = $state<InstanceState>("all");
 
-  let provisionProfileId = $state("");
+  let provisionDeploymentId = $state("");
   let publicIdentityKey = $state("");
   let activationKey = $state("");
   let metadataName = $state("");
@@ -54,7 +54,7 @@
 
   function instanceQuery(): AuthListDeviceInstancesInput {
     return {
-      profileId: profileFilter || undefined,
+      deploymentId: deploymentFilter || undefined,
       state: stateFilter === "all" ? undefined : stateFilter,
     };
   }
@@ -63,15 +63,15 @@
     loading = true;
     error = null;
     try {
-      const [instancesResponse, profilesResponse] = await Promise.all([
+      const [instancesResponse, deploymentsResponse] = await Promise.all([
         instancesRequester.request("Auth.ListDeviceInstances", instanceQuery()).orThrow(),
-        instancesRequester.request("Auth.ListDeviceProfiles", {}).orThrow(),
+        instancesRequester.request("Auth.ListDeviceDeployments", {}).orThrow(),
       ]);
 
       instances = instancesResponse.instances ?? [];
-      profiles = profilesResponse.profiles ?? [];
-      if (!provisionProfileId && profilesResponse.profiles?.length) {
-        provisionProfileId = profilesResponse.profiles[0]?.profileId ?? "";
+      deployments = deploymentsResponse.deployments ?? [];
+      if (!provisionDeploymentId && deploymentsResponse.deployments?.length) {
+        provisionDeploymentId = deploymentsResponse.deployments[0]?.deploymentId ?? "";
       }
     } catch (e) {
       error = errorMessage(e);
@@ -141,7 +141,7 @@
       await instancesRequester.request(
         "Auth.ProvisionDeviceInstance",
         {
-          profileId: provisionProfileId,
+          deploymentId: provisionDeploymentId,
           publicIdentityKey: publicIdentityKey.trim(),
           activationKey: activationKey.trim(),
           ...(metadata ? { metadata } : {}),
@@ -192,16 +192,16 @@
     <div class="card-body gap-4">
       <div>
         <h2 class="card-title text-base">Provision device instance</h2>
-        <p class="text-sm text-base-content/60">Register a known device identity under an existing device profile.</p>
+        <p class="text-sm text-base-content/60">Register a known device identity under an existing device deployment.</p>
       </div>
 
       <form class="grid gap-3 lg:grid-cols-[1fr_2fr_2fr]" onsubmit={(event) => { event.preventDefault(); void provisionInstance(); }}>
         <label class="form-control gap-1">
-          <span class="label-text text-xs">Profile</span>
-          <select class="select select-bordered select-sm" bind:value={provisionProfileId} required>
-            <option value="" disabled>Select a profile</option>
-            {#each profiles as profile (profile.profileId)}
-              <option value={profile.profileId} disabled={profile.disabled}>{profile.profileId}</option>
+          <span class="label-text text-xs">Deployment</span>
+          <select class="select select-bordered select-sm" bind:value={provisionDeploymentId} required>
+            <option value="" disabled>Select a deployment</option>
+            {#each deployments as deployment (deployment.deploymentId)}
+              <option value={deployment.deploymentId} disabled={deployment.disabled}>{deployment.deploymentId}</option>
             {/each}
           </select>
         </label>
@@ -242,7 +242,7 @@ location=front-desk"
         </label>
 
         <div class="flex items-end lg:justify-end">
-          <button type="submit" class="btn btn-primary btn-sm" disabled={createPending || !provisionProfileId}>
+          <button type="submit" class="btn btn-primary btn-sm" disabled={createPending || !provisionDeploymentId}>
             {createPending ? "Provisioning…" : "Provision"}
           </button>
         </div>
@@ -253,11 +253,11 @@ location=front-desk"
   <div class="flex flex-wrap items-end justify-between gap-3">
     <form class="flex flex-wrap items-end gap-2" onsubmit={(event) => { event.preventDefault(); void load(); }}>
       <label class="form-control gap-1">
-        <span class="label-text text-xs">Profile</span>
-        <select class="select select-bordered select-sm w-48" bind:value={profileFilter}>
-          <option value="">All profiles</option>
-          {#each profiles as profile (profile.profileId)}
-            <option value={profile.profileId}>{profile.profileId}</option>
+        <span class="label-text text-xs">Deployment</span>
+        <select class="select select-bordered select-sm w-48" bind:value={deploymentFilter}>
+          <option value="">All deployments</option>
+          {#each deployments as deployment (deployment.deploymentId)}
+            <option value={deployment.deploymentId}>{deployment.deploymentId}</option>
           {/each}
         </select>
       </label>
@@ -300,7 +300,7 @@ location=front-desk"
         <thead>
           <tr>
             <th>Instance</th>
-            <th>Profile</th>
+            <th>Deployment</th>
             <th>Identity Key</th>
             <th>Name</th>
             <th>Serial</th>
@@ -318,7 +318,7 @@ location=front-desk"
           {#each instances as instance (instanceRowKey(instance))}
             <tr>
               <td class="font-medium">{instance.instanceId}</td>
-              <td class="text-base-content/60">{instance.profileId}</td>
+              <td class="text-base-content/60">{instance.deploymentId}</td>
               <td class="font-mono text-xs text-base-content/60">{instance.publicIdentityKey}</td>
               <td class="text-base-content/60">{understoodMetadataValue(instance, "name") ?? "—"}</td>
               <td class="text-base-content/60">{understoodMetadataValue(instance, "serialNumber") ?? "—"}</td>

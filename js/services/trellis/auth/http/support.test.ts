@@ -50,7 +50,7 @@ function storedAppApproval(args: {
 
 Deno.test("buildRedirectLocation appends flowId in the query string", () => {
   const location = buildRedirectLocation(
-    "http://localhost:5173/callback?redirectTo=%2Fprofile",
+    "http://localhost:5173/callback?redirectTo=%2Fdeployment",
     {
       flowId: "flow-123",
     },
@@ -58,17 +58,17 @@ Deno.test("buildRedirectLocation appends flowId in the query string", () => {
 
   const parsed = new URL(location);
   assertEquals(parsed.pathname, "/callback");
-  assertEquals(parsed.searchParams.get("redirectTo"), "/profile");
+  assertEquals(parsed.searchParams.get("redirectTo"), "/deployment");
   assertEquals(parsed.searchParams.get("flowId"), "flow-123");
   assertEquals(parsed.hash, "");
 });
 
 Deno.test("buildRedirectLocation preserves relative redirects", () => {
-  const location = buildRedirectLocation("/callback?redirectTo=%2Fprofile", {
+  const location = buildRedirectLocation("/callback?redirectTo=%2Fdeployment", {
     flowId: "flow-123",
   });
 
-  assertEquals(location, "/callback?redirectTo=%2Fprofile&flowId=flow-123");
+  assertEquals(location, "/callback?redirectTo=%2Fdeployment&flowId=flow-123");
 });
 
 Deno.test("getCookie ignores malformed percent-encoding", () => {
@@ -1049,31 +1049,34 @@ Deno.test("resolveLoginPortal prefers contract selection over default and builti
   assertEquals(builtinFallback, { kind: "builtin" });
 });
 
-Deno.test("resolveDevicePortal prefers profile selection over default and builtin", () => {
+Deno.test("resolveDevicePortal prefers deployment selection over default and builtin", () => {
   const selectedPortal = resolveDevicePortal({
-    profileId: "reader.default",
+    deploymentId: "reader.default",
     portals: [
       { portalId: "default", entryUrl: "https://default.example.com" },
-      { portalId: "profile", entryUrl: "https://profile.example.com" },
+      { portalId: "deployment", entryUrl: "https://deployment.example.com" },
     ],
     defaultPortalId: "default",
-    selections: [{ profileId: "reader.default", portalId: "profile" }],
+    selections: [{ deploymentId: "reader.default", portalId: "deployment" }],
   });
   assertEquals(selectedPortal, {
     kind: "custom",
-    portal: { portalId: "profile", entryUrl: "https://profile.example.com" },
+    portal: {
+      portalId: "deployment",
+      entryUrl: "https://deployment.example.com",
+    },
   });
 
   const forcedBuiltin = resolveDevicePortal({
-    profileId: "reader.default",
+    deploymentId: "reader.default",
     portals: [{ portalId: "default", entryUrl: "https://default.example.com" }],
     defaultPortalId: "default",
-    selections: [{ profileId: "reader.default", portalId: null }],
+    selections: [{ deploymentId: "reader.default", portalId: null }],
   });
   assertEquals(forcedBuiltin, { kind: "builtin" });
 
   const defaultPortal = resolveDevicePortal({
-    profileId: "reader.default",
+    deploymentId: "reader.default",
     portals: [{ portalId: "default", entryUrl: "https://default.example.com" }],
     defaultPortalId: "default",
     selections: [],
@@ -1084,7 +1087,7 @@ Deno.test("resolveDevicePortal prefers profile selection over default and builti
   });
 
   const builtinFallback = resolveDevicePortal({
-    profileId: "reader.default",
+    deploymentId: "reader.default",
     portals: [],
     defaultPortalId: undefined,
     selections: [],

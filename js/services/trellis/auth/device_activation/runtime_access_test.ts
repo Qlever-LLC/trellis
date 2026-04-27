@@ -8,7 +8,7 @@ import {
 } from "./runtime_access.ts";
 
 const PROFILE = {
-  profileId: "reader.default",
+  deploymentId: "reader.default",
   appliedContracts: [{
     contractId: "acme.reader@v1",
     allowedDigests: ["digest-a", "digest-b", "digest-uses"],
@@ -117,7 +117,7 @@ Deno.test("deriveDeviceRuntimeAccess preserves the caller-selected digest", () =
 
 Deno.test("deriveDeviceRuntimeAccess includes publish subjects from contract uses", () => {
   const fakeContractStore = {
-    findActiveDigestById(contractId: string) {
+    findSingleActiveDigestById(contractId: string) {
       if (contractId === "trellis.auth@v1") return "auth-digest";
       if (contractId === "billing@v1") return "billing-digest";
       return null;

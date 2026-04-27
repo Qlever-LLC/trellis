@@ -226,7 +226,7 @@ fn parses_portal_device_set_command() {
         TopLevelCommand::Portal(command) => match command.command {
             PortalSubcommand::Device(device) => match device.command {
                 PortalDeviceSubcommand::Set(args) => {
-                    assert_eq!(args.profile, "reader.standard");
+                    assert_eq!(args.deployment, "reader.standard");
                     assert_eq!(args.target.portal_id.as_deref(), Some("main"));
                     assert!(!args.target.builtin);
                 }
@@ -334,56 +334,103 @@ fn rejects_legacy_auth_login_listen_flag() {
 }
 
 #[test]
-fn parses_device_profile_create_command() {
+fn parses_deploy_device_create_command() {
     let cli = Cli::parse_from([
         "trellis",
-        "device",
-        "profile",
+        "deploy",
         "create",
-        "reader.standard",
+        "dev/reader.standard",
         "--review-mode",
         "required",
     ]);
     match cli.command {
-        TopLevelCommand::Device(command) => match command.command {
-            DeviceSubcommand::Profile(profile) => match profile.command {
-                DeviceProfileSubcommand::Create(args) => {
-                    assert_eq!(args.profile, "reader.standard");
-                    assert_eq!(args.review_mode, DeviceReviewMode::Required);
-                }
-                other => panic!("unexpected device profile command: {other:?}"),
-            },
-            other => panic!("unexpected device command: {other:?}"),
+        TopLevelCommand::Deploy(command) => match command.command {
+            DeploySubcommand::Create(args) => {
+                assert_eq!(args.reference.kind, DeployKind::Device);
+                assert_eq!(args.reference.id, "reader.standard");
+                assert_eq!(args.review_mode, DeviceReviewMode::Required);
+            }
+            other => panic!("unexpected deploy command: {other:?}"),
         },
         other => panic!("unexpected top-level command: {other:?}"),
     }
 }
 
 #[test]
-fn device_profile_create_defaults_review_mode_to_none() {
-    let cli = Cli::parse_from(["trellis", "device", "profile", "create", "reader.standard"]);
-    match cli.command {
-        TopLevelCommand::Device(command) => match command.command {
-            DeviceSubcommand::Profile(profile) => match profile.command {
-                DeviceProfileSubcommand::Create(args) => {
-                    assert_eq!(args.review_mode, DeviceReviewMode::None);
-                }
-                other => panic!("unexpected device profile command: {other:?}"),
-            },
-            other => panic!("unexpected device command: {other:?}"),
-        },
-        other => panic!("unexpected top-level command: {other:?}"),
-    }
-}
-
-#[test]
-fn parses_device_provision_command() {
+fn parses_deploy_create_service_ref() {
     let cli = Cli::parse_from([
         "trellis",
-        "device",
-        "instance",
+        "deploy",
+        "create",
+        "svc/api",
+        "--namespace",
+        "prod,workers",
+    ]);
+    match cli.command {
+        TopLevelCommand::Deploy(command) => match command.command {
+            DeploySubcommand::Create(args) => {
+                assert_eq!(args.reference.kind, DeployKind::Service);
+                assert_eq!(args.reference.id, "api");
+                assert_eq!(args.namespaces, vec!["prod", "workers"]);
+            }
+            other => panic!("unexpected deploy command: {other:?}"),
+        },
+        other => panic!("unexpected top-level command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_deploy_alias_and_device_ref() {
+    let cli = Cli::parse_from(["trellis", "d", "disable", "dev/reader.default"]);
+    match cli.command {
+        TopLevelCommand::Deploy(command) => match command.command {
+            DeploySubcommand::Disable(args) => {
+                assert_eq!(args.reference.kind, DeployKind::Device);
+                assert_eq!(args.reference.id, "reader.default");
+            }
+            other => panic!("unexpected deploy command: {other:?}"),
+        },
+        other => panic!("unexpected top-level command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_deploy_friendly_explicit_ref() {
+    let cli = Cli::parse_from(["trellis", "deployment", "show", "service/api"]);
+    match cli.command {
+        TopLevelCommand::Deploy(command) => match command.command {
+            DeploySubcommand::Show(args) => {
+                assert_eq!(args.reference.kind, DeployKind::Service);
+                assert_eq!(args.reference.id, "api");
+            }
+            other => panic!("unexpected deploy command: {other:?}"),
+        },
+        other => panic!("unexpected top-level command: {other:?}"),
+    }
+}
+
+#[test]
+fn deploy_device_create_defaults_review_mode_to_none() {
+    let cli = Cli::parse_from(["trellis", "deploy", "create", "dev/reader.standard"]);
+    match cli.command {
+        TopLevelCommand::Deploy(command) => match command.command {
+            DeploySubcommand::Create(args) => {
+                assert_eq!(args.reference.kind, DeployKind::Device);
+                assert_eq!(args.review_mode, DeviceReviewMode::None);
+            }
+            other => panic!("unexpected deploy command: {other:?}"),
+        },
+        other => panic!("unexpected top-level command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_deploy_device_provision_command() {
+    let cli = Cli::parse_from([
+        "trellis",
+        "deploy",
         "provision",
-        "reader.standard",
+        "dev/reader.standard",
         "--name",
         "Front Desk Reader",
         "--serial-number",
@@ -396,71 +443,70 @@ fn parses_device_provision_command() {
         "assetTag=42",
     ]);
     match cli.command {
-        TopLevelCommand::Device(command) => match command.command {
-            DeviceSubcommand::Instance(instance) => match instance.command {
-                DeviceInstanceSubcommand::Provision(args) => {
-                    assert_eq!(args.profile, "reader.standard");
-                    assert_eq!(args.name.as_deref(), Some("Front Desk Reader"));
-                    assert_eq!(args.serial_number.as_deref(), Some("SN-123"));
-                    assert_eq!(args.model_number.as_deref(), Some("MX-10"));
-                    assert_eq!(args.metadata, vec!["site=lab-a", "assetTag=42"]);
-                }
-                other => panic!("unexpected device instance command: {other:?}"),
-            },
-            other => panic!("unexpected device command: {other:?}"),
+        TopLevelCommand::Deploy(command) => match command.command {
+            DeploySubcommand::Provision(args) => {
+                assert_eq!(args.reference.kind, DeployKind::Device);
+                assert_eq!(args.reference.id, "reader.standard");
+                assert_eq!(args.name.as_deref(), Some("Front Desk Reader"));
+                assert_eq!(args.serial_number.as_deref(), Some("SN-123"));
+                assert_eq!(args.model_number.as_deref(), Some("MX-10"));
+                assert_eq!(args.metadata, vec!["site=lab-a", "assetTag=42"]);
+            }
+            other => panic!("unexpected deploy command: {other:?}"),
         },
         other => panic!("unexpected top-level command: {other:?}"),
     }
 }
 
 #[test]
-fn parses_device_instance_list_with_enum_state() {
+fn parses_deploy_device_instances_with_enum_state() {
     let cli = Cli::parse_from([
         "trellis",
-        "device",
-        "instance",
-        "list",
+        "deploy",
+        "instances",
+        "dev/reader.standard",
         "--state",
         "activated",
     ]);
     match cli.command {
-        TopLevelCommand::Device(command) => match command.command {
-            DeviceSubcommand::Instance(instance) => match instance.command {
-                DeviceInstanceSubcommand::List(args) => {
-                    assert_eq!(args.state, Some(DeviceInstanceState::Activated));
-                    assert!(!args.show_metadata);
-                }
-                other => panic!("unexpected device instance command: {other:?}"),
-            },
-            other => panic!("unexpected device command: {other:?}"),
+        TopLevelCommand::Deploy(command) => match command.command {
+            DeploySubcommand::Instances(args) => {
+                assert_eq!(
+                    args.target,
+                    DeployInstancesTarget::Ref(DeployRef {
+                        kind: DeployKind::Device,
+                        id: "reader.standard".to_string(),
+                    })
+                );
+                assert_eq!(args.state, Some(DeviceInstanceState::Activated));
+                assert!(!args.show_metadata);
+            }
+            other => panic!("unexpected deploy command: {other:?}"),
         },
         other => panic!("unexpected top-level command: {other:?}"),
     }
 }
 
 #[test]
-fn parses_device_instance_list_show_metadata_flag() {
-    let cli = Cli::parse_from(["trellis", "device", "instance", "list", "--show-metadata"]);
+fn parses_deploy_instances_show_metadata_flag() {
+    let cli = Cli::parse_from(["trellis", "deploy", "instances", "dev", "--show-metadata"]);
     match cli.command {
-        TopLevelCommand::Device(command) => match command.command {
-            DeviceSubcommand::Instance(instance) => match instance.command {
-                DeviceInstanceSubcommand::List(args) => {
-                    assert!(args.show_metadata);
-                }
-                other => panic!("unexpected device instance command: {other:?}"),
-            },
-            other => panic!("unexpected device command: {other:?}"),
+        TopLevelCommand::Deploy(command) => match command.command {
+            DeploySubcommand::Instances(args) => {
+                assert_eq!(args.target, DeployInstancesTarget::Kind(DeployKind::Device));
+                assert!(args.show_metadata);
+            }
+            other => panic!("unexpected deploy command: {other:?}"),
         },
         other => panic!("unexpected top-level command: {other:?}"),
     }
 }
 
 #[test]
-fn parses_device_review_approve_command() {
+fn parses_deploy_review_approve_command() {
     let cli = Cli::parse_from([
         "trellis",
-        "device",
-        "activation",
+        "deploy",
         "review",
         "approve",
         "dar_123",
@@ -468,18 +514,15 @@ fn parses_device_review_approve_command() {
         "approved_by_policy",
     ]);
     match cli.command {
-        TopLevelCommand::Device(command) => match command.command {
-            DeviceSubcommand::Activation(activation) => match activation.command {
-                DeviceActivationSubcommand::Review(review) => match review.command {
-                    DeviceReviewSubcommand::Approve(args) => {
-                        assert_eq!(args.review, "dar_123");
-                        assert_eq!(args.reason.as_deref(), Some("approved_by_policy"));
-                    }
-                    other => panic!("unexpected device review command: {other:?}"),
-                },
-                other => panic!("unexpected device activation command: {other:?}"),
+        TopLevelCommand::Deploy(command) => match command.command {
+            DeploySubcommand::Review(review) => match review.command {
+                DeployReviewSubcommand::Approve(args) => {
+                    assert_eq!(args.review, "dar_123");
+                    assert_eq!(args.reason.as_deref(), Some("approved_by_policy"));
+                }
+                other => panic!("unexpected deploy review command: {other:?}"),
             },
-            other => panic!("unexpected device command: {other:?}"),
+            other => panic!("unexpected deploy command: {other:?}"),
         },
         other => panic!("unexpected top-level command: {other:?}"),
     }
@@ -598,10 +641,9 @@ fn rejects_legacy_device_review_decide_command() {
 fn rejects_invalid_device_review_mode() {
     let error = Cli::try_parse_from([
         "trellis",
-        "device",
-        "profile",
+        "deploy",
         "create",
-        "reader.standard",
+        "dev/reader.standard",
         "--review-mode",
         "manual",
     ])
@@ -612,7 +654,12 @@ fn rejects_invalid_device_review_mode() {
 #[test]
 fn rejects_invalid_device_instance_state() {
     let error = Cli::try_parse_from([
-        "trellis", "device", "instance", "list", "--state", "pending",
+        "trellis",
+        "deploy",
+        "instances",
+        "dev/reader.standard",
+        "--state",
+        "pending",
     ])
     .expect_err("invalid instance state should fail");
     assert_eq!(error.kind(), clap::error::ErrorKind::InvalidValue);

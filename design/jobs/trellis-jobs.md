@@ -246,7 +246,7 @@ requiring a separate manual jobs install step.
   jobs subsystem
 - a separate jobs admin runtime may still run for centralized queries, janitor
   work, and projections, but ordinary service-local workers do not depend on a
-  manual jobs service install to start
+  manual jobs service deployment to start
 - the `trellis` service provisions or binds the shared jobs resources before
   jobs-enabled services start
 - the `jobs` service and service-local workers create only dynamic per-job-type

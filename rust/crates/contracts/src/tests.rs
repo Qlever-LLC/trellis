@@ -86,7 +86,7 @@ fn pack_trellis_owned_contracts_matches_shared_fixture() {
             "format": "trellis.contract.v1",
             "id": "trellis.auth@v1",
             "displayName": "Trellis Auth",
-            "description": "Provide Trellis authentication, session, service install, and admin RPCs.",
+            "description": "Provide Trellis authentication, session, deployment, and admin RPCs.",
             "kind": "service",
             "schemas": {
                 "AuthConnectEvent": {"type": "object", "properties": {}, "additionalProperties": false}
@@ -111,7 +111,7 @@ fn pack_trellis_owned_contracts_matches_shared_fixture() {
                 "id": "trellis.auth@v1",
                 "digest": pack.contracts[0].digest,
                 "displayName": "Trellis Auth",
-                "description": "Provide Trellis authentication, session, service install, and admin RPCs."
+                "description": "Provide Trellis authentication, session, deployment, and admin RPCs."
             },
             {
                 "id": "trellis.core@v1",

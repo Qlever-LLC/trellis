@@ -20,7 +20,7 @@ pub enum PortalSubcommand {
     Profile(PortalProfileCommand),
     /// Manage login portal defaults and contract-specific selections.
     Login(PortalLoginCommand),
-    /// Manage device portal defaults and profile-specific selections.
+    /// Manage device portal defaults and deployment-specific selections.
     Device(PortalDeviceCommand),
 }
 
@@ -78,11 +78,11 @@ pub enum PortalDeviceSubcommand {
     Default,
     /// Update the deployment-wide device portal default.
     SetDefault(PortalDefaultSetArgs),
-    /// List profile-specific device portal selections.
+    /// List deployment-specific device portal selections.
     List,
-    /// Set the device portal for one device profile.
+    /// Set the device portal for one device deployment.
     Set(PortalDeviceSetArgs),
-    /// Clear the device portal selection for one device profile.
+    /// Clear the device portal selection for one device deployment.
     Clear(PortalDeviceClearArgs),
 }
 
@@ -166,20 +166,20 @@ pub struct PortalLoginClearArgs {
 }
 
 #[derive(Debug, Args)]
-/// Set the device portal selection for one device profile.
+/// Set the device portal selection for one device deployment.
 pub struct PortalDeviceSetArgs {
-    #[arg(value_name = "PROFILE")]
-    /// Device profile identifier to map to a portal.
-    pub profile: String,
+    #[arg(value_name = "DEPLOYMENT")]
+    /// Device deployment identifier to map to a portal.
+    pub deployment: String,
 
     #[command(flatten)]
     pub target: PortalTargetArgs,
 }
 
 #[derive(Debug, Args)]
-/// Clear the device portal selection for one device profile.
+/// Clear the device portal selection for one device deployment.
 pub struct PortalDeviceClearArgs {
-    #[arg(value_name = "PROFILE")]
-    /// Device profile identifier whose portal selection should be removed.
-    pub profile: String,
+    #[arg(value_name = "DEPLOYMENT")]
+    /// Device deployment identifier whose portal selection should be removed.
+    pub deployment: String,
 }

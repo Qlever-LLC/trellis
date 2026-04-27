@@ -90,7 +90,7 @@ Deno.test("store resources require NATS during provisioning", async () => {
       provisionContractResourceBindings(
         undefined,
         contract,
-        "svc_test_activity_v1",
+        "activity.default",
       ),
     Error,
     "NATS connection is required to provision store resources",
@@ -270,18 +270,20 @@ Deno.test("jobs provisioning returns queue bindings and grants worker heartbeat 
   const bindings = await provisionContractResourceBindings(
     undefined,
     contract,
-    "svc_test_documents_v1",
+    "documents.default",
   );
 
   assertEquals(bindings.jobs, {
-    namespace: "svc_test_documents_v1",
+    namespace: "document_activity_25c0dcc8dbcd",
     jobsStateBucket: "trellis_jobs",
     queues: {
       "document-process": {
         queueType: "document-process",
-        publishPrefix: "trellis.jobs.svc_test_documents_v1.document-process",
-        workSubject: "trellis.work.svc_test_documents_v1.document-process",
-        consumerName: "svc_test_documents_v1-document-process",
+        publishPrefix:
+          "trellis.jobs.document_activity_25c0dcc8dbcd.document-process",
+        workSubject:
+          "trellis.work.document_activity_25c0dcc8dbcd.document-process",
+        consumerName: "document_activity_25c0dcc8dbcd-document-process",
         payload: { schema: "Payload" },
         maxDeliver: 5,
         backoffMs: [5000, 30000, 120000, 600000, 1800000],
@@ -298,17 +300,19 @@ Deno.test("jobs provisioning returns queue bindings and grants worker heartbeat 
     retention: "workqueue",
     storage: "file",
     numReplicas: 3,
-    subjects: ["trellis.work.svc_test_documents_v1.>"],
+    subjects: ["trellis.work.document_activity_25c0dcc8dbcd.>"],
   });
 
   const grants = getResourcePermissionGrants(bindings);
   assertEquals(
-    grants.publish.includes("trellis.jobs.workers.svc_test_documents_v1.>"),
+    grants.publish.includes(
+      "trellis.jobs.workers.document_activity_25c0dcc8dbcd.>",
+    ),
     true,
   );
   assertEquals(
     grants.subscribe.includes(
-      "trellis.jobs.svc_test_documents_v1.document-process.*.cancelled",
+      "trellis.jobs.document_activity_25c0dcc8dbcd.document-process.*.cancelled",
     ),
     true,
   );
@@ -425,11 +429,11 @@ Deno.test("stream-only contracts produce stream bindings during provisioning", a
   const bindings = await provisionContractResourceBindings(
     undefined,
     contract,
-    "svc_test_activity_v1",
+    "activity.default",
   );
 
   assertEquals(bindings.streams?.activity, {
-    name: "svc_svc_test_activit_activity_v1_activity",
+    name: "svc_activity_def_activity_v1_activity_e53e15ba0840",
     subjects: ["events.v1.Activity.Recorded"],
   });
 });
@@ -465,25 +469,25 @@ Deno.test("stream provisioning resolves source stream names in bindings", async 
   const bindings = await provisionContractResourceBindings(
     undefined,
     contract,
-    "svc_test_jobs_v1",
+    "jobs.default",
   );
 
   assertEquals(bindings.streams?.jobs, {
-    name: "svc_svc_test_jobs_v1_activity_v1_jobs",
+    name: "svc_jobs_default_activity_v1_jobs_b915ee8b08c3",
     retention: "limits",
     storage: "file",
     numReplicas: 3,
     subjects: ["trellis.jobs.>"],
   });
   assertEquals(bindings.streams?.jobsWork, {
-    name: "svc_svc_test_jobs_v1_activity_v1_jobswork",
+    name: "svc_jobs_default_activity_v1_jobswork_0ceb35088468",
     retention: "workqueue",
     storage: "file",
     numReplicas: 3,
     subjects: ["trellis.work.>"],
     sources: [{
       fromAlias: "jobs",
-      streamName: "svc_svc_test_jobs_v1_activity_v1_jobs",
+      streamName: "svc_jobs_default_activity_v1_jobs_b915ee8b08c3",
       filterSubject: "trellis.jobs.*.*.*.created",
       subjectTransformDest: "trellis.work.$1.$2",
     }],
@@ -559,7 +563,7 @@ Deno.test({
         provisionContractResourceBindings(
           nats.nc,
           contract,
-          "svc_test_activity_v1",
+          "activity.default",
         ),
       Error,
       "replicas > 1 not supported in non-clustered mode",
@@ -590,11 +594,11 @@ Deno.test({
     const bindings = await provisionContractResourceBindings(
       nats.nc,
       contract,
-      "svc_test_activity_v1",
+      "activity.default",
     );
 
     assertEquals(bindings.store?.uploads, {
-      name: "svc_svc_test_activit_activity_v1_uploads",
+      name: "svc_activity_def_activity_v1_uploads_4d0bbccb282e",
       ttlMs: 60_000,
       maxObjectBytes: 1024,
       maxTotalBytes: 4096,
@@ -677,14 +681,14 @@ Deno.test({
     const initialBindings = await provisionContractResourceBindings(
       nats.nc,
       initialContract,
-      "svc_test_activity_v1",
+      "activity.default",
     );
     assertEquals(initialBindings.store?.uploads.maxTotalBytes, 4096);
 
     const updatedBindings = await provisionContractResourceBindings(
       nats.nc,
       updatedContract,
-      "svc_test_activity_v1",
+      "activity.default",
     );
     assertEquals(updatedBindings.store?.uploads.maxTotalBytes, 16_384);
 
@@ -719,7 +723,7 @@ Deno.test({
     await provisionContractResourceBindings(
       nats.nc,
       contract,
-      "svc_test_documents_v1",
+      "documents.default",
     );
 
     const jsm = await jetstreamManager(nats.nc);

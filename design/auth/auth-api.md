@@ -492,9 +492,10 @@ Response:
   } | null;
   device: {
     type: "device";
-    instanceId: string;
-    publicIdentityKey: string;
-    profileId: string;
+    deviceId: string;
+    deviceType: string;
+    runtimePublicKey: string;
+    deploymentId: string;
     capabilities: string[];
     active: boolean;
   } | null;
@@ -554,9 +555,10 @@ type CallerView =
   }
   | {
     type: "device";
-    instanceId: string;
-    publicIdentityKey: string;
-    profileId: string;
+    deviceId: string;
+    deviceType: string;
+    runtimePublicKey: string;
+    deploymentId: string;
     capabilities: string[];
     active: boolean;
   };
@@ -583,7 +585,7 @@ Public auth-owned surfaces:
 - HTTP endpoints `POST /auth/devices/activate/requests`,
   `POST /auth/devices/activate/wait`, and `POST /auth/devices/connect-info`
 - operation subject `operations.v1.Auth.ActivateDevice`
-- portal, portal-override, device-profile, device-instance, and device lifecycle
+- portal, portal-override, device-deployment, device-instance, and device lifecycle
   admin RPCs under `rpc.v1.Auth.*`
 - event subject `events.v1.Auth.DeviceActivationReviewRequested`
 
@@ -612,8 +614,8 @@ type LoginPortalSelection = {
 };
 
 type DevicePortalSelection = {
-  profileId: string;
-  portalId: string | null; // null forces the built-in Trellis device portal for this profile
+  deploymentId: string;
+  portalId: string | null; // null forces the built-in Trellis device portal for this deployment
 };
 
 type InstanceGrantPolicy = {
@@ -636,8 +638,8 @@ type InstanceGrantPolicy = {
   };
 };
 
-type ServiceProfile = {
-  profileId: string;
+type ServiceDeployment = {
+  deploymentId: string;
   namespaces: string[];
   disabled: boolean;
   appliedContracts: Array<{
@@ -648,7 +650,7 @@ type ServiceProfile = {
 
 type ServiceInstance = {
   instanceId: string;
-  profileId: string;
+  deploymentId: string;
   instanceKey: string;
   disabled: boolean;
   currentContractId?: string;
@@ -658,20 +660,20 @@ type ServiceInstance = {
   createdAt: string;
 };
 
-type CreateServiceProfileRequest = {
-  profileId: string;
+type CreateServiceDeploymentRequest = {
+  deploymentId: string;
   namespaces: string[];
 };
-type CreateServiceProfileResponse = { profile: ServiceProfile };
+type CreateServiceDeploymentResponse = { deployment: ServiceDeployment };
 
-type ListServiceProfilesResponse = { profiles: ServiceProfile[] };
+type ListServiceDeploymentsResponse = { deployments: ServiceDeployment[] };
 
-type ApplyServiceProfileContractRequest = {
-  profileId: string;
+type ApplyServiceDeploymentContractRequest = {
+  deploymentId: string;
   contract: Record<string, unknown>;
 };
-type ApplyServiceProfileContractResponse = {
-  profile: ServiceProfile;
+type ApplyServiceDeploymentContractResponse = {
+  deployment: ServiceDeployment;
   contract: {
     id: string;
     digest: string;
@@ -681,20 +683,20 @@ type ApplyServiceProfileContractResponse = {
   };
 };
 
-type UnapplyServiceProfileContractRequest = {
-  profileId: string;
+type UnapplyServiceDeploymentContractRequest = {
+  deploymentId: string;
   contractId: string;
   digests?: string[];
 };
-type UnapplyServiceProfileContractResponse = { profile: ServiceProfile };
+type UnapplyServiceDeploymentContractResponse = { deployment: ServiceDeployment };
 
-type DisableServiceProfileRequest = { profileId: string };
-type EnableServiceProfileRequest = { profileId: string };
-type RemoveServiceProfileRequest = { profileId: string };
-type RemoveServiceProfileResponse = { success: boolean };
+type DisableServiceDeploymentRequest = { deploymentId: string };
+type EnableServiceDeploymentRequest = { deploymentId: string };
+type RemoveServiceDeploymentRequest = { deploymentId: string };
+type RemoveServiceDeploymentResponse = { success: boolean };
 
 type ProvisionServiceInstanceRequest = {
-  profileId: string;
+  deploymentId: string;
   instanceKey: string;
 };
 type ProvisionServiceInstanceResponse = { instance: ServiceInstance };
@@ -705,8 +707,8 @@ type EnableServiceInstanceRequest = { instanceId: string };
 type RemoveServiceInstanceRequest = { instanceId: string };
 type RemoveServiceInstanceResponse = { success: boolean };
 
-type DeviceProfile = {
-  profileId: string;
+type DeviceDeployment = {
+  deploymentId: string;
   appliedContracts: Array<{
     contractId: string;
     allowedDigests: string[];
@@ -718,9 +720,11 @@ type DeviceProfile = {
 type DeviceInstance = {
   instanceId: string;
   publicIdentityKey: string;
-  profileId: string;
+  deploymentId: string;
   metadata?: Record<string, string>;
   state: "registered" | "activated" | "revoked" | "disabled";
+  currentContractId?: string;
+  currentContractDigest?: string;
   createdAt: string;
   activatedAt: string | null;
   revokedAt: string | null;
@@ -729,7 +733,7 @@ type DeviceInstance = {
 type DeviceActivationRecord = {
   instanceId: string;
   publicIdentityKey: string;
-  profileId: string;
+  deploymentId: string;
   activatedBy?: {
     origin: string;
     id: string;
@@ -743,7 +747,7 @@ type DeviceActivationReview = {
   reviewId: string;
   instanceId: string;
   publicIdentityKey: string;
-  profileId: string;
+  deploymentId: string;
   state: "pending" | "approved" | "rejected";
   requestedAt: string;
   decidedAt: string | null;
@@ -752,7 +756,7 @@ type DeviceActivationReview = {
 
 type DeviceConnectInfo = {
   instanceId: string;
-  profileId: string;
+  deploymentId: string;
   contractId: string;
   contractDigest: string;
   transport: {
@@ -776,7 +780,7 @@ type ActivateDeviceProgress = {
   status: "pending_review";
   reviewId: string;
   instanceId: string;
-  profileId: string;
+  deploymentId: string;
   requestedAt: string;
 };
 
@@ -784,7 +788,7 @@ type ActivateDeviceResponse =
   | {
     status: "activated";
     instanceId: string;
-    profileId: string;
+    deploymentId: string;
     activatedAt: string;
     confirmationCode?: string;
   }
@@ -854,7 +858,7 @@ type SetDevicePortalDefaultRequest = { portalId: string | null };
 type SetDevicePortalDefaultResponse = { defaultPortal: DevicePortalDefault };
 
 type SetDevicePortalSelectionRequest = {
-  profileId: string;
+  deploymentId: string;
   portalId: string | null;
 };
 type SetDevicePortalSelectionResponse = { selection: DevicePortalSelection };
@@ -862,21 +866,21 @@ type SetDevicePortalSelectionResponse = { selection: DevicePortalSelection };
 type ListDevicePortalSelectionsResponse = {
   selections: DevicePortalSelection[];
 };
-type ClearDevicePortalSelectionRequest = { profileId: string };
+type ClearDevicePortalSelectionRequest = { deploymentId: string };
 
-type CreateDeviceProfileRequest = {
-  profileId: string;
+type CreateDeviceDeploymentRequest = {
+  deploymentId: string;
   reviewMode?: "none" | "required";
 };
-type CreateDeviceProfileResponse = { profile: DeviceProfile };
+type CreateDeviceDeploymentResponse = { deployment: DeviceDeployment };
 
-type ListDeviceProfilesResponse = { profiles: DeviceProfile[] };
-type ApplyDeviceProfileContractRequest = {
-  profileId: string;
+type ListDeviceDeploymentsResponse = { deployments: DeviceDeployment[] };
+type ApplyDeviceDeploymentContractRequest = {
+  deploymentId: string;
   contract: Record<string, unknown>;
 };
-type ApplyDeviceProfileContractResponse = {
-  profile: DeviceProfile;
+type ApplyDeviceDeploymentContractResponse = {
+  deployment: DeviceDeployment;
   contract: {
     id: string;
     digest: string;
@@ -885,19 +889,19 @@ type ApplyDeviceProfileContractResponse = {
     installedAt: string;
   };
 };
-type UnapplyDeviceProfileContractRequest = {
-  profileId: string;
+type UnapplyDeviceDeploymentContractRequest = {
+  deploymentId: string;
   contractId: string;
   digests?: string[];
 };
-type UnapplyDeviceProfileContractResponse = { profile: DeviceProfile };
-type DisableDeviceProfileRequest = { profileId: string };
-type EnableDeviceProfileRequest = { profileId: string };
-type RemoveDeviceProfileRequest = { profileId: string };
-type RemoveDeviceProfileResponse = { success: boolean };
+type UnapplyDeviceDeploymentContractResponse = { deployment: DeviceDeployment };
+type DisableDeviceDeploymentRequest = { deploymentId: string };
+type EnableDeviceDeploymentRequest = { deploymentId: string };
+type RemoveDeviceDeploymentRequest = { deploymentId: string };
+type RemoveDeviceDeploymentResponse = { success: boolean };
 
 type ProvisionDeviceInstanceRequest = {
-  profileId: string;
+  deploymentId: string;
   publicIdentityKey: string;
   activationKey: string;
   metadata?: Record<string, string>;
@@ -955,12 +959,12 @@ Portal selection rules:
 - login portal selection checks an explicit `contractId -> portalId` record
   first, then the deployment login default custom portal, then the built-in
   Trellis login portal
-- device activation checks an explicit `profileId -> portalId` record first,
+- device activation checks an explicit `deploymentId -> portalId` record first,
   then the deployment device default custom portal, then the built-in Trellis
   device portal
 - a selection record with `portalId: null` forces the built-in Trellis portal
-  for that contract or profile, even when a deployment custom default exists
-- clearing a contract or profile selection removes the explicit rule and returns
+  for that contract or device deployment, even when a deployment custom default exists
+- clearing a contract or device-deployment selection removes the explicit rule and returns
   that flow to the default chain
 - most deployments can rely only on the built-in portal or one of the two
   deployment default custom portals
@@ -1008,25 +1012,25 @@ Canonical RPC inventory:
 - `rpc.v1.Auth.ListDevicePortalSelections`
 - `rpc.v1.Auth.SetDevicePortalSelection`
 - `rpc.v1.Auth.ClearDevicePortalSelection`
-- `rpc.v1.Auth.CreateServiceProfile`
-- `rpc.v1.Auth.ListServiceProfiles`
-- `rpc.v1.Auth.ApplyServiceProfileContract`
-- `rpc.v1.Auth.UnapplyServiceProfileContract`
-- `rpc.v1.Auth.DisableServiceProfile`
-- `rpc.v1.Auth.EnableServiceProfile`
-- `rpc.v1.Auth.RemoveServiceProfile`
+- `rpc.v1.Auth.CreateServiceDeployment`
+- `rpc.v1.Auth.ListServiceDeployments`
+- `rpc.v1.Auth.ApplyServiceDeploymentContract`
+- `rpc.v1.Auth.UnapplyServiceDeploymentContract`
+- `rpc.v1.Auth.DisableServiceDeployment`
+- `rpc.v1.Auth.EnableServiceDeployment`
+- `rpc.v1.Auth.RemoveServiceDeployment`
 - `rpc.v1.Auth.ProvisionServiceInstance`
 - `rpc.v1.Auth.ListServiceInstances`
 - `rpc.v1.Auth.DisableServiceInstance`
 - `rpc.v1.Auth.EnableServiceInstance`
 - `rpc.v1.Auth.RemoveServiceInstance`
-- `rpc.v1.Auth.CreateDeviceProfile`
-- `rpc.v1.Auth.ListDeviceProfiles`
-- `rpc.v1.Auth.ApplyDeviceProfileContract`
-- `rpc.v1.Auth.UnapplyDeviceProfileContract`
-- `rpc.v1.Auth.DisableDeviceProfile`
-- `rpc.v1.Auth.EnableDeviceProfile`
-- `rpc.v1.Auth.RemoveDeviceProfile`
+- `rpc.v1.Auth.CreateDeviceDeployment`
+- `rpc.v1.Auth.ListDeviceDeployments`
+- `rpc.v1.Auth.ApplyDeviceDeploymentContract`
+- `rpc.v1.Auth.UnapplyDeviceDeploymentContract`
+- `rpc.v1.Auth.DisableDeviceDeployment`
+- `rpc.v1.Auth.EnableDeviceDeployment`
+- `rpc.v1.Auth.RemoveDeviceDeployment`
 - `rpc.v1.Auth.ProvisionDeviceInstance`
 - `rpc.v1.Auth.ListDeviceInstances`
 - `rpc.v1.Auth.DisableDeviceInstance`

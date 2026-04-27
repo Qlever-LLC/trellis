@@ -13,7 +13,7 @@ type DevicePrincipal = {
   deviceId: string;
   deviceType: string;
   runtimePublicKey: string;
-  profileId: string;
+  deploymentId: string;
 };
 
 type ServicePrincipal = {
@@ -21,7 +21,7 @@ type ServicePrincipal = {
   id: string;
   name: string;
   instanceId: string;
-  profileId: string;
+  deploymentId: string;
 };
 
 type SharedRecord = {
@@ -141,7 +141,7 @@ export function describeSessionPrincipal(
       title: principal.deviceId,
       details: joinDetails([
         principal.deviceType,
-        principal.profileId,
+        principal.deploymentId,
         contract,
       ]),
     };
@@ -151,7 +151,7 @@ export function describeSessionPrincipal(
     title: principal.name,
     details: joinDetails([
       principal.id,
-      principal.profileId,
+      principal.deploymentId,
       principal.instanceId,
     ]),
   };

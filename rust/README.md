@@ -8,7 +8,7 @@ Rust crates for the Trellis platform.
 | ---------------------- | ----------------------------------------------------------------------- |
 | `trellis-auth`         | Browser login and admin-session helpers for Rust clients                |
 | `trellis-auth-adapters`| Auth integration adapters shared by Trellis services                    |
-| `trellis-cli`          | Operator CLI for auth, bootstrap, and service install/upgrade |
+| `trellis-cli`          | Operator CLI for auth, bootstrap, and service deployments      |
 | `trellis-client`       | Rust client runtime                                                     |
 | `trellis-codegen-rust` | Rust SDK code generation                                                |
 | `trellis-codegen-ts`   | TypeScript SDK code generation                                          |

@@ -142,38 +142,37 @@ impl<'a> AuthClient<'a> {
     pub async fn list_device_portal_selections(&self) -> Result<Vec<AuthListDevicePortalSelectionsResponseSelectionsItem>, TrellisAuthError>;
     pub async fn set_device_portal_selection(
         &self,
-        profile_id: &str,
+        deployment_id: &str,
         portal_id: Option<&str>,
     ) -> Result<AuthSetDevicePortalSelectionResponseSelection, TrellisAuthError>;
-    pub async fn clear_device_portal_selection(&self, profile_id: &str) -> Result<bool, TrellisAuthError>;
+    pub async fn clear_device_portal_selection(&self, deployment_id: &str) -> Result<bool, TrellisAuthError>;
 
-    pub async fn list_device_profiles(
+    pub async fn list_device_deployments(
         &self,
         contract_id: Option<&str>,
         disabled: bool,
-    ) -> Result<Vec<AuthListDeviceProfilesResponseProfilesItem>, TrellisAuthError>;
-    pub async fn create_device_profile(
+    ) -> Result<Vec<AuthListDeviceDeploymentsResponseDeploymentsItem>, TrellisAuthError>;
+    pub async fn create_device_deployment(
         &self,
-        profile_id: &str,
-        contract_id: &str,
-        allow_digests: &[String],
+        deployment_id: &str,
         review_mode: Option<&str>,
-    ) -> Result<AuthCreateDeviceProfileResponseProfile, TrellisAuthError>;
-    pub async fn disable_device_profile(
+        contract: Option<BTreeMap<String, Value>>,
+    ) -> Result<AuthCreateDeviceDeploymentResponseDeployment, TrellisAuthError>;
+    pub async fn disable_device_deployment(
         &self,
-        profile_id: &str,
+        deployment_id: &str,
     ) -> Result<bool, TrellisAuthError>;
 
     pub async fn provision_device_instance(
         &self,
-        profile_id: &str,
+        deployment_id: &str,
         public_identity_key: &str,
         activation_key: &str,
         metadata: Option<BTreeMap<String, String>>,
     ) -> Result<AuthProvisionDeviceInstanceResponseInstance, TrellisAuthError>;
     pub async fn list_device_instances(
         &self,
-        profile_id: Option<&str>,
+        deployment_id: Option<&str>,
         state: Option<&str>,
     ) -> Result<Vec<AuthListDeviceInstancesResponseInstancesItem>, TrellisAuthError>;
     pub async fn disable_device_instance(&self, instance_id: &str) -> Result<bool, TrellisAuthError>;
@@ -181,7 +180,7 @@ impl<'a> AuthClient<'a> {
     pub async fn list_device_activations(
         &self,
         instance_id: Option<&str>,
-        profile_id: Option<&str>,
+        deployment_id: Option<&str>,
         state: Option<&str>,
     ) -> Result<Vec<trellis_sdk_auth::AuthListDeviceActivationsResponseActivationsItem>, TrellisAuthError>;
     pub async fn revoke_device_activation(
@@ -191,7 +190,7 @@ impl<'a> AuthClient<'a> {
     pub async fn list_device_activation_reviews(
         &self,
         instance_id: Option<&str>,
-        profile_id: Option<&str>,
+        deployment_id: Option<&str>,
         state: Option<&str>,
     ) -> Result<Vec<trellis_sdk_auth::AuthListDeviceActivationReviewsResponseReviewsItem>, TrellisAuthError>;
     pub async fn decide_device_activation_review(
@@ -201,37 +200,36 @@ impl<'a> AuthClient<'a> {
         reason: Option<&str>,
     ) -> Result<trellis_sdk_auth::AuthDecideDeviceActivationReviewResponse, TrellisAuthError>;
 
-    pub async fn list_service_profiles(
+    pub async fn list_service_deployments(
         &self,
-    ) -> Result<Vec<trellis_sdk_auth::AuthListServiceProfilesResponseProfilesItem>, TrellisAuthError>;
-    pub async fn create_service_profile(
+    ) -> Result<Vec<trellis_sdk_auth::AuthListServiceDeploymentsResponseDeploymentsItem>, TrellisAuthError>;
+    pub async fn create_service_deployment(
         &self,
-        request: &trellis_sdk_auth::AuthCreateServiceProfileRequest,
-    ) -> Result<trellis_sdk_auth::AuthCreateServiceProfileResponse, TrellisAuthError>;
-    pub async fn apply_service_profile_contract(
+        request: &trellis_sdk_auth::AuthCreateServiceDeploymentRequest,
+    ) -> Result<trellis_sdk_auth::AuthCreateServiceDeploymentResponseDeployment, TrellisAuthError>;
+    pub async fn apply_service_deployment_contract(
         &self,
-        request: &trellis_sdk_auth::AuthApplyServiceProfileContractRequest,
-    ) -> Result<trellis_sdk_auth::AuthApplyServiceProfileContractResponse, TrellisAuthError>;
-    pub async fn unapply_service_profile_contract(
+        request: &trellis_sdk_auth::AuthApplyServiceDeploymentContractRequest,
+    ) -> Result<trellis_sdk_auth::AuthApplyServiceDeploymentContractResponse, TrellisAuthError>;
+    pub async fn unapply_service_deployment_contract(
         &self,
-        request: &trellis_sdk_auth::AuthUnapplyServiceProfileContractRequest,
-    ) -> Result<trellis_sdk_auth::AuthUnapplyServiceProfileContractResponse, TrellisAuthError>;
-    pub async fn disable_service_profile(
+        request: &trellis_sdk_auth::AuthUnapplyServiceDeploymentContractRequest,
+    ) -> Result<trellis_sdk_auth::AuthUnapplyServiceDeploymentContractResponse, TrellisAuthError>;
+    pub async fn disable_service_deployment(
         &self,
-        profile_id: &str,
-    ) -> Result<trellis_sdk_auth::AuthDisableServiceProfileResponse, TrellisAuthError>;
-    pub async fn enable_service_profile(
+        deployment_id: &str,
+    ) -> Result<trellis_sdk_auth::AuthDisableServiceDeploymentResponseDeployment, TrellisAuthError>;
+    pub async fn enable_service_deployment(
         &self,
-        profile_id: &str,
-    ) -> Result<trellis_sdk_auth::AuthEnableServiceProfileResponse, TrellisAuthError>;
-    pub async fn remove_service_profile(
+        deployment_id: &str,
+    ) -> Result<trellis_sdk_auth::AuthEnableServiceDeploymentResponseDeployment, TrellisAuthError>;
+    pub async fn remove_service_deployment(
         &self,
-        profile_id: &str,
+        deployment_id: &str,
     ) -> Result<bool, TrellisAuthError>;
     pub async fn list_service_instances(
         &self,
-        instance_id: Option<&str>,
-        profile_id: Option<&str>,
+        deployment_id: Option<&str>,
         disabled: Option<bool>,
     ) -> Result<Vec<trellis_sdk_auth::AuthListServiceInstancesResponseInstancesItem>, TrellisAuthError>;
     pub async fn provision_service_instance(
@@ -328,7 +326,7 @@ Rules enforced by the crate:
 - there is no portal-specific contract kind or portal-specific contract
   machinery in the Rust auth API
 - login portal selections are keyed by `contract_id`
-- device portal selections are keyed by `profile_id`
+- device portal selections are keyed by `deployment_id`
 - selection records may use `portal_id = null` to force the built-in Trellis portal for that scope
 - selection records that name a custom portal must reference an existing enabled portal
 - if a portal later calls Trellis after bind, it does so as a normal

@@ -27,7 +27,7 @@ export const DeviceBootstrapRequestSchema = Type.Object({
 type DeviceInstance = {
   instanceId: string;
   publicIdentityKey: string;
-  profileId: string;
+  deploymentId: string;
   metadata?: Record<string, string>;
   state: "registered" | "activated" | "revoked" | "disabled";
   currentContractId?: string;
@@ -37,8 +37,8 @@ type DeviceInstance = {
   revokedAt: string | Date | null;
 };
 
-type DeviceProfile = {
-  profileId: string;
+type DeviceDeployment = {
+  deploymentId: string;
   appliedContracts: Array<{ contractId: string; allowedDigests: string[] }>;
   reviewMode?: "none" | "required";
   disabled: boolean;
@@ -47,7 +47,7 @@ type DeviceProfile = {
 type DeviceActivation = {
   instanceId: string;
   publicIdentityKey: string;
-  profileId: string;
+  deploymentId: string;
   state: "activated" | "revoked";
   activatedAt: string;
   revokedAt: string | null;
@@ -55,7 +55,7 @@ type DeviceActivation = {
 
 type DeviceConnectInfo = {
   instanceId: string;
-  profileId: string;
+  deploymentId: string;
   contractId: string;
   contractDigest: string;
   transports: {
@@ -92,7 +92,7 @@ export type DeviceBootstrapDeps = {
   loadDeviceActivation(
     instanceId: string,
   ): Promise<DeviceActivation | null>;
-  loadDeviceProfile(profileId: string): Promise<DeviceProfile | null>;
+  loadDeviceDeployment(deploymentId: string): Promise<DeviceDeployment | null>;
   saveDeviceInstance(instance: DeviceInstance): Promise<void>;
   refreshActiveContracts(): Promise<void>;
   verifyIdentityProof(input: {
@@ -106,7 +106,7 @@ export type DeviceBootstrapDeps = {
 
 function buildDeviceConnectInfo(args: {
   instance: DeviceInstance;
-  profile: DeviceProfile;
+  deployment: DeviceDeployment;
   contractDigest: string;
   transports: {
     native?: { natsServers: string[] };
@@ -117,7 +117,7 @@ function buildDeviceConnectInfo(args: {
     seed: string;
   };
 }): DeviceConnectInfo | null {
-  const applied = args.profile.appliedContracts.find((entry) =>
+  const applied = args.deployment.appliedContracts.find((entry) =>
     entry.allowedDigests.includes(args.contractDigest)
   );
   if (!applied) {
@@ -126,7 +126,7 @@ function buildDeviceConnectInfo(args: {
 
   return {
     instanceId: args.instance.instanceId,
-    profileId: args.profile.profileId,
+    deploymentId: args.deployment.deploymentId,
     contractId: applied.contractId,
     contractDigest: args.contractDigest,
     transports: args.transports,
@@ -161,14 +161,14 @@ export async function resolveDeviceBootstrap(
     return { status: "not_ready", reason: "device_activation_revoked" };
   }
 
-  const profile = await deps.loadDeviceProfile(activation.profileId);
-  if (!profile || profile.disabled) {
-    return { status: "not_ready", reason: "device_profile_not_found" };
+  const deployment = await deps.loadDeviceDeployment(activation.deploymentId);
+  if (!deployment || deployment.disabled) {
+    return { status: "not_ready", reason: "device_deployment_not_found" };
   }
 
   const connectInfo = buildDeviceConnectInfo({
     instance,
-    profile,
+    deployment,
     contractDigest: input.contractDigest,
     transports: deps.transports,
     sentinel: deps.sentinel,

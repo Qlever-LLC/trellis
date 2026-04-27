@@ -18,7 +18,7 @@ function createApp(args: {
   instance?: {
     instanceId: string;
     publicIdentityKey: string;
-    profileId: string;
+    deploymentId: string;
     state: "registered" | "activated" | "revoked" | "disabled";
     createdAt: string | Date;
     activatedAt: string | Date | null;
@@ -27,13 +27,13 @@ function createApp(args: {
   activation?: {
     instanceId: string;
     publicIdentityKey: string;
-    profileId: string;
+    deploymentId: string;
     state: "activated" | "revoked";
     activatedAt: string;
     revokedAt: string | null;
   } | null;
-  profile?: {
-    profileId: string;
+  deployment?: {
+    deploymentId: string;
     appliedContracts: Array<{ contractId: string; allowedDigests: string[] }>;
     disabled: boolean;
   } | null;
@@ -50,7 +50,7 @@ function createApp(args: {
       sentinel: { jwt: "jwt", seed: "seed" },
       loadDeviceInstance: async () => args.instance ?? null,
       loadDeviceActivation: async () => args.activation ?? null,
-      loadDeviceProfile: async () => args.profile ?? null,
+      loadDeviceDeployment: async () => args.deployment ?? null,
       saveDeviceInstance: async () => {},
       refreshActiveContracts: async () => {},
       verifyIdentityProof: verifyDeviceBootstrapIdentityProof,
@@ -83,7 +83,7 @@ Deno.test("POST /bootstrap/device returns runtime connect info when device is ac
     instance: {
       instanceId: "dev_1",
       publicIdentityKey: request.publicIdentityKey,
-      profileId: "reader.default",
+      deploymentId: "reader.default",
       state: "activated",
       createdAt: new Date("2026-01-01T00:00:00.000Z"),
       activatedAt: new Date("2026-01-01T00:01:00.000Z"),
@@ -92,13 +92,13 @@ Deno.test("POST /bootstrap/device returns runtime connect info when device is ac
     activation: {
       instanceId: "dev_1",
       publicIdentityKey: request.publicIdentityKey,
-      profileId: "reader.default",
+      deploymentId: "reader.default",
       state: "activated",
       activatedAt: "2026-01-01T00:01:00.000Z",
       revokedAt: null,
     },
-    profile: {
-      profileId: "reader.default",
+    deployment: {
+      deploymentId: "reader.default",
       appliedContracts: [{
         contractId: "example.device@v1",
         allowedDigests: ["digest-a"],
@@ -118,7 +118,7 @@ Deno.test("POST /bootstrap/device returns runtime connect info when device is ac
     status: "ready",
     connectInfo: {
       instanceId: "dev_1",
-      profileId: "reader.default",
+      deploymentId: "reader.default",
       contractId: "example.device@v1",
       contractDigest: "digest-a",
       transports: {
@@ -142,15 +142,15 @@ Deno.test("POST /bootstrap/device returns activation_required when activation is
     instance: {
       instanceId: "dev_1",
       publicIdentityKey: request.publicIdentityKey,
-      profileId: "reader.default",
+      deploymentId: "reader.default",
       state: "registered",
       createdAt: new Date("2026-01-01T00:00:00.000Z"),
       activatedAt: null,
       revokedAt: null,
     },
     activation: null,
-    profile: {
-      profileId: "reader.default",
+    deployment: {
+      deploymentId: "reader.default",
       appliedContracts: [{
         contractId: "example.device@v1",
         allowedDigests: ["digest-a"],
@@ -175,7 +175,7 @@ Deno.test("POST /bootstrap/device returns not_ready for revoked activations", as
     instance: {
       instanceId: "dev_1",
       publicIdentityKey: request.publicIdentityKey,
-      profileId: "reader.default",
+      deploymentId: "reader.default",
       state: "revoked",
       createdAt: new Date("2026-01-01T00:00:00.000Z"),
       activatedAt: new Date("2026-01-01T00:01:00.000Z"),
@@ -184,13 +184,13 @@ Deno.test("POST /bootstrap/device returns not_ready for revoked activations", as
     activation: {
       instanceId: "dev_1",
       publicIdentityKey: request.publicIdentityKey,
-      profileId: "reader.default",
+      deploymentId: "reader.default",
       state: "revoked",
       activatedAt: "2026-01-01T00:01:00.000Z",
       revokedAt: "2026-01-01T00:02:00.000Z",
     },
-    profile: {
-      profileId: "reader.default",
+    deployment: {
+      deploymentId: "reader.default",
       appliedContracts: [{
         contractId: "example.device@v1",
         allowedDigests: ["digest-a"],
@@ -216,7 +216,7 @@ Deno.test("POST /bootstrap/device rejects invalid signatures", async () => {
   const app = createApp({
     instance: null,
     activation: null,
-    profile: null,
+    deployment: null,
   });
 
   const response = await app.request("http://trellis/bootstrap/device", {
@@ -239,7 +239,7 @@ Deno.test("POST /bootstrap/device returns serverNow when bootstrap proof iat is 
   const app = createApp({
     instance: null,
     activation: null,
-    profile: null,
+    deployment: null,
     nowSeconds: TEST_IAT + 31,
   });
 

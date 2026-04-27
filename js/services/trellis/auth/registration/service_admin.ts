@@ -1,17 +1,17 @@
 import { kick } from "../callout/kick.ts";
 import {
+  authListServiceDeploymentsHandler,
   authListServiceInstancesHandler,
-  authListServiceProfilesHandler,
-  createAuthApplyServiceProfileContractHandler,
-  createAuthCreateServiceProfileHandler,
+  createAuthApplyServiceDeploymentContractHandler,
+  createAuthCreateServiceDeploymentHandler,
+  createAuthDisableServiceDeploymentHandler,
   createAuthDisableServiceInstanceHandler,
-  createAuthDisableServiceProfileHandler,
+  createAuthEnableServiceDeploymentHandler,
   createAuthEnableServiceInstanceHandler,
-  createAuthEnableServiceProfileHandler,
   createAuthProvisionServiceInstanceHandler,
+  createAuthRemoveServiceDeploymentHandler,
   createAuthRemoveServiceInstanceHandler,
-  createAuthRemoveServiceProfileHandler,
-  createAuthUnapplyServiceProfileContractHandler,
+  createAuthUnapplyServiceDeploymentContractHandler,
 } from "../admin/service_rpc.ts";
 import type { AuthContractsRuntime, RpcRegistrar } from "./types.ts";
 
@@ -23,43 +23,43 @@ export async function registerServiceAdminRpcs(deps: {
   >;
 }): Promise<void> {
   await deps.trellis.mount(
-    "Auth.CreateServiceProfile",
-    createAuthCreateServiceProfileHandler(),
+    "Auth.CreateServiceDeployment",
+    createAuthCreateServiceDeploymentHandler(),
   );
   await deps.trellis.mount(
-    "Auth.ListServiceProfiles",
-    authListServiceProfilesHandler,
+    "Auth.ListServiceDeployments",
+    authListServiceDeploymentsHandler,
   );
   await deps.trellis.mount(
-    "Auth.ApplyServiceProfileContract",
-    createAuthApplyServiceProfileContractHandler({
+    "Auth.ApplyServiceDeploymentContract",
+    createAuthApplyServiceDeploymentContractHandler({
       installServiceContract: deps.contracts.installServiceContract,
       refreshActiveContracts: deps.contracts.refreshActiveContracts,
     }),
   );
   await deps.trellis.mount(
-    "Auth.UnapplyServiceProfileContract",
-    createAuthUnapplyServiceProfileContractHandler({
+    "Auth.UnapplyServiceDeploymentContract",
+    createAuthUnapplyServiceDeploymentContractHandler({
       kick,
       refreshActiveContracts: deps.contracts.refreshActiveContracts,
     }),
   );
   await deps.trellis.mount(
-    "Auth.DisableServiceProfile",
-    createAuthDisableServiceProfileHandler({
+    "Auth.DisableServiceDeployment",
+    createAuthDisableServiceDeploymentHandler({
       kick,
       refreshActiveContracts: deps.contracts.refreshActiveContracts,
     }),
   );
   await deps.trellis.mount(
-    "Auth.EnableServiceProfile",
-    createAuthEnableServiceProfileHandler({
+    "Auth.EnableServiceDeployment",
+    createAuthEnableServiceDeploymentHandler({
       refreshActiveContracts: deps.contracts.refreshActiveContracts,
     }),
   );
   await deps.trellis.mount(
-    "Auth.RemoveServiceProfile",
-    createAuthRemoveServiceProfileHandler({
+    "Auth.RemoveServiceDeployment",
+    createAuthRemoveServiceDeploymentHandler({
       refreshActiveContracts: deps.contracts.refreshActiveContracts,
     }),
   );
@@ -73,11 +73,17 @@ export async function registerServiceAdminRpcs(deps: {
   );
   await deps.trellis.mount(
     "Auth.DisableServiceInstance",
-    createAuthDisableServiceInstanceHandler({ kick }),
+    createAuthDisableServiceInstanceHandler({
+      kick,
+      refreshActiveContracts: deps.contracts.refreshActiveContracts,
+    }),
   );
   await deps.trellis.mount(
     "Auth.EnableServiceInstance",
-    createAuthEnableServiceInstanceHandler({ kick }),
+    createAuthEnableServiceInstanceHandler({
+      kick,
+      refreshActiveContracts: deps.contracts.refreshActiveContracts,
+    }),
   );
   await deps.trellis.mount(
     "Auth.RemoveServiceInstance",

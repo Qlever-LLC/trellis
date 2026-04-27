@@ -26,7 +26,7 @@ type DeviceActivationActor = {
 type DeviceActivationFlow = {
   flowId: string;
   instanceId: string;
-  profileId: string;
+  deploymentId: string;
   publicIdentityKey: string;
   nonce: string;
   qrMac: string;
@@ -37,7 +37,7 @@ type DeviceActivationFlow = {
 type DeviceInstance = {
   instanceId: string;
   publicIdentityKey: string;
-  profileId: string;
+  deploymentId: string;
   metadata?: Record<string, string>;
   state: "registered" | "activated" | "revoked" | "disabled";
   currentContractId?: string;
@@ -47,8 +47,8 @@ type DeviceInstance = {
   revokedAt: string | null;
 };
 
-type DeviceProfile = {
-  profileId: string;
+type DeviceDeployment = {
+  deploymentId: string;
   appliedContracts: Array<{ contractId: string; allowedDigests: string[] }>;
   reviewMode?: "none" | "required";
   disabled: boolean;
@@ -63,7 +63,7 @@ type DeviceProvisioningSecret = {
 type DeviceActivationRecord = {
   instanceId: string;
   publicIdentityKey: string;
-  profileId: string;
+  deploymentId: string;
   activatedBy?: DeviceActivationActor;
   state: "activated" | "revoked";
   activatedAt: string;
@@ -75,7 +75,7 @@ type DeviceActivationReviewRecord = {
   flowId: string;
   instanceId: string;
   publicIdentityKey: string;
-  profileId: string;
+  deploymentId: string;
   requestedBy: {
     origin: string;
     id: string;
@@ -112,7 +112,7 @@ function toDeviceActivationFlow(value: {
   kind?: string;
   deviceActivation?: {
     instanceId: string;
-    profileId: string;
+    deploymentId: string;
     publicIdentityKey: string;
     nonce: string;
     qrMac: string;
@@ -130,7 +130,7 @@ function toDeviceActivationFlow(value: {
   return {
     flowId: value.flowId,
     instanceId: value.deviceActivation.instanceId,
-    profileId: value.deviceActivation.profileId,
+    deploymentId: value.deviceActivation.deploymentId,
     publicIdentityKey: value.deviceActivation.publicIdentityKey,
     nonce: value.deviceActivation.nonce,
     qrMac: value.deviceActivation.qrMac,
@@ -151,7 +151,7 @@ async function loadDeviceActivationFlow(
       kind?: string;
       deviceActivation?: {
         instanceId: string;
-        profileId: string;
+        deploymentId: string;
         publicIdentityKey: string;
         nonce: string;
         qrMac: string;
@@ -169,11 +169,11 @@ async function loadDeviceInstance(
   return await deviceInstanceStorage.get(instanceId) ?? null;
 }
 
-async function loadDeviceProfile(
-  profileId: string,
-): Promise<DeviceProfile | null> {
-  const { deviceProfileStorage } = authRuntimeDeps();
-  return await deviceProfileStorage.get(profileId) ?? null;
+async function loadDeviceDeployment(
+  deploymentId: string,
+): Promise<DeviceDeployment | null> {
+  const { deviceDeploymentStorage } = authRuntimeDeps();
+  return await deviceDeploymentStorage.get(deploymentId) ?? null;
 }
 
 async function loadDeviceProvisioningSecret(
@@ -211,11 +211,11 @@ async function confirmationCodeFor(
 
 async function buildDeviceConnectInfo(args: {
   instance: DeviceInstance;
-  profile: DeviceProfile;
+  deployment: DeviceDeployment;
   contractDigest: string;
 }) {
   const { sentinelCreds } = authRuntimeDeps();
-  const applied = args.profile.appliedContracts.find((entry) =>
+  const applied = args.deployment.appliedContracts.find((entry) =>
     entry.allowedDigests.includes(args.contractDigest)
   );
   if (!applied) {
@@ -229,7 +229,7 @@ async function buildDeviceConnectInfo(args: {
   }
   return {
     instanceId: args.instance.instanceId,
-    profileId: args.profile.profileId,
+    deploymentId: args.deployment.deploymentId,
     contractId: applied.contractId,
     contractDigest: args.contractDigest,
     transports: buildClientTransports(config),
@@ -246,11 +246,11 @@ async function buildDeviceConnectInfo(args: {
 async function activateInstance(args: {
   flow: DeviceActivationFlow;
   instance: DeviceInstance;
-  profile: DeviceProfile;
+  deployment: DeviceDeployment;
   activatedBy: DeviceActivationActor;
 }): Promise<{
   instanceId: string;
-  profileId: string;
+  deploymentId: string;
   activatedAt: string;
   confirmationCode?: string;
 }> {
@@ -259,7 +259,7 @@ async function activateInstance(args: {
   await deviceActivationStorage.put({
     instanceId: args.instance.instanceId,
     publicIdentityKey: args.instance.publicIdentityKey,
-    profileId: args.profile.profileId,
+    deploymentId: args.deployment.deploymentId,
     activatedBy: args.activatedBy,
     state: "activated",
     activatedAt,
@@ -277,7 +277,7 @@ async function activateInstance(args: {
   );
   return {
     instanceId: args.instance.instanceId,
-    profileId: args.profile.profileId,
+    deploymentId: args.deployment.deploymentId,
     activatedAt,
     ...(confirmationCode ? { confirmationCode } : {}),
   };
@@ -288,7 +288,7 @@ async function activateApprovedReview(
   review: DeviceActivationReviewRecord,
 ): Promise<{
   instanceId: string;
-  profileId: string;
+  deploymentId: string;
   activatedAt: string;
   confirmationCode?: string;
 }> {
@@ -302,12 +302,12 @@ async function activateApprovedReview(
     });
   }
 
-  const profile = await loadDeviceProfile(review.profileId);
-  if (!profile || profile.disabled) {
+  const deployment = await loadDeviceDeployment(review.deploymentId);
+  if (!deployment || deployment.disabled) {
     throw new AuthError({
-      reason: "device_profile_not_found",
+      reason: "device_deployment_not_found",
       context: {
-        profileId: review.profileId,
+        deploymentId: review.deploymentId,
       },
     });
   }
@@ -315,7 +315,7 @@ async function activateApprovedReview(
   return await activateInstance({
     flow,
     instance,
-    profile,
+    deployment,
     activatedBy: review.requestedBy,
   });
 }
@@ -336,7 +336,7 @@ async function currentActivationStatus(flow: DeviceActivationFlow) {
     return {
       status: "activated" as const,
       instanceId: activation.instanceId,
-      profileId: activation.profileId,
+      deploymentId: activation.deploymentId,
       activatedAt: activation.activatedAt,
       ...(confirmationCode ? { confirmationCode } : {}),
     };
@@ -349,7 +349,7 @@ async function currentActivationStatus(flow: DeviceActivationFlow) {
       status: "pending_review" as const,
       reviewId: review.reviewId,
       instanceId: review.instanceId,
-      profileId: review.profileId,
+      deploymentId: review.deploymentId,
       requestedAt: isoString(review.requestedAt),
     };
   }
@@ -367,7 +367,7 @@ function pendingReviewProgress(review: DeviceActivationReviewRecord) {
     status: "pending_review" as const,
     reviewId: review.reviewId,
     instanceId: review.instanceId,
-    profileId: review.profileId,
+    deploymentId: review.deploymentId,
     requestedAt: isoString(review.requestedAt),
   };
 }
@@ -382,7 +382,7 @@ async function waitForTerminalActivationStatus(
   | {
     status: "activated";
     instanceId: string;
-    profileId: string;
+    deploymentId: string;
     activatedAt: string;
     confirmationCode?: string;
   }
@@ -416,7 +416,7 @@ export function createActivateDeviceHandler() {
           status: "pending_review";
           reviewId: string;
           instanceId: string;
-          profileId: string;
+          deploymentId: string;
           requestedAt: string;
         }): PromiseLike<unknown>;
       };
@@ -448,10 +448,10 @@ export function createActivateDeviceHandler() {
         instanceId: flow.instanceId,
       });
     }
-    const profile = await loadDeviceProfile(instance.profileId);
-    if (!profile || profile.disabled) {
-      return activationFailure("device_profile_not_found", {
-        profileId: instance.profileId,
+    const deployment = await loadDeviceDeployment(instance.deploymentId);
+    if (!deployment || deployment.disabled) {
+      return activationFailure("device_deployment_not_found", {
+        deploymentId: instance.deploymentId,
       });
     }
 
@@ -485,14 +485,14 @@ export function createActivateDeviceHandler() {
       }
     }
 
-    if (profile.reviewMode === "required") {
+    if (deployment.reviewMode === "required") {
       const requestedAt = new Date().toISOString();
       const review: DeviceActivationReviewRecord = {
         reviewId: `dar_${randomToken(12)}`,
         flowId: flow.flowId,
         instanceId: instance.instanceId,
         publicIdentityKey: instance.publicIdentityKey,
-        profileId: profile.profileId,
+        deploymentId: deployment.deploymentId,
         requestedBy: {
           origin: caller.origin,
           id: caller.id,
@@ -507,7 +507,7 @@ export function createActivateDeviceHandler() {
         flowId: flow.flowId,
         instanceId: instance.instanceId,
         publicIdentityKey: instance.publicIdentityKey,
-        profileId: profile.profileId,
+        deploymentId: deployment.deploymentId,
         requestedAt,
         requestedBy: review.requestedBy,
       });
@@ -520,7 +520,7 @@ export function createActivateDeviceHandler() {
       ...(await activateInstance({
         flow,
         instance,
-        profile,
+        deployment,
         activatedBy: {
           origin: caller.origin,
           id: caller.id,
@@ -530,7 +530,9 @@ export function createActivateDeviceHandler() {
   };
 }
 
-export function createGetDeviceConnectInfoHandler() {
+export function createGetDeviceConnectInfoHandler(deps: {
+  refreshActiveContracts: () => Promise<void>;
+}) {
   return async ({
     input: req,
   }: {
@@ -570,16 +572,16 @@ export function createGetDeviceConnectInfoHandler() {
         publicIdentityKey: req.publicIdentityKey,
       });
     }
-    const profile = await loadDeviceProfile(activation.profileId);
-    if (!profile || profile.disabled) {
-      return activationFailure("device_profile_not_found", {
-        profileId: activation.profileId,
+    const deployment = await loadDeviceDeployment(activation.deploymentId);
+    if (!deployment || deployment.disabled) {
+      return activationFailure("device_deployment_not_found", {
+        deploymentId: activation.deploymentId,
       });
     }
 
     const connectInfo = await buildDeviceConnectInfo({
       instance,
-      profile,
+      deployment,
       contractDigest: req.contractDigest,
     });
     await deviceInstanceStorage.put({
@@ -587,6 +589,7 @@ export function createGetDeviceConnectInfoHandler() {
       currentContractId: connectInfo.contractId,
       currentContractDigest: connectInfo.contractDigest,
     });
+    await deps.refreshActiveContracts();
     return Result.ok({
       status: "ready" as const,
       connectInfo,

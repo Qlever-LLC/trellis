@@ -190,7 +190,7 @@ export function resolveContractUsesFromStore(
   },
 ): ResolvedContractUses {
   return resolveContractUses(contract, (alias, use) => {
-    const targetDigest = contractStore.findActiveDigestById(use.contract);
+    const targetDigest = contractStore.findSingleActiveDigestById(use.contract);
     if (!targetDigest) {
       if (options?.ignoreInactiveContracts) {
         return null;

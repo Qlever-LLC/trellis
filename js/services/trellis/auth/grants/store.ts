@@ -21,11 +21,11 @@ export async function loadEffectiveGrantPolicies(
     policies.push(instancePolicy);
   }
 
-  for (const profile of await listPortalProfiles()) {
-    if (profile.contractId !== contractId) continue;
-    const portal = await portalStorage.get(profile.portalId);
+  for (const deployment of await listPortalProfiles()) {
+    if (deployment.contractId !== contractId) continue;
+    const portal = await portalStorage.get(deployment.portalId);
     if (portal === undefined || portal.disabled) continue;
-    policies.push(portalProfileToGrantPolicy(profile));
+    policies.push(portalProfileToGrantPolicy(deployment));
   }
 
   return policies;

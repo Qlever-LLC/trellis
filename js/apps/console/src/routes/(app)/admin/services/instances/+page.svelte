@@ -1,7 +1,7 @@
 <script lang="ts">
   import type {
     AuthListServiceInstancesOutput,
-    AuthListServiceProfilesOutput,
+    AuthListServiceDeploymentsOutput,
   } from "@qlever-llc/trellis/sdk/auth";
   import { resolve } from "$app/paths";
   import { onMount } from "svelte";
@@ -10,15 +10,15 @@
   import { getTrellis } from "../../../../../lib/trellis";
 
   type ServiceInstance = AuthListServiceInstancesOutput["instances"][number];
-  type ServiceProfile = AuthListServiceProfilesOutput["profiles"][number];
+  type ServiceDeployment = AuthListServiceDeploymentsOutput["deployments"][number];
   type DisabledFilter = "all" | "active" | "disabled";
 
   const trellis = getTrellis();
   const notifications = getNotifications();
   type ServiceInstancesRequester = {
     request(method: "Auth.ListServiceInstances", input: ReturnType<typeof query>): { orThrow(): Promise<AuthListServiceInstancesOutput> };
-    request(method: "Auth.ListServiceProfiles", input: Record<string, never>): { orThrow(): Promise<AuthListServiceProfilesOutput> };
-    request(method: "Auth.ProvisionServiceInstance", input: { profileId: string; instanceKey: string }): { orThrow(): Promise<void> };
+    request(method: "Auth.ListServiceDeployments", input: Record<string, never>): { orThrow(): Promise<AuthListServiceDeploymentsOutput> };
+    request(method: "Auth.ProvisionServiceInstance", input: { deploymentId: string; instanceKey: string }): { orThrow(): Promise<void> };
     request(method: "Auth.DisableServiceInstance", input: { instanceId: string }): { orThrow(): Promise<void> };
     request(method: "Auth.EnableServiceInstance", input: { instanceId: string }): { orThrow(): Promise<void> };
     request(method: "Auth.RemoveServiceInstance", input: { instanceId: string }): { orThrow(): Promise<void> };
@@ -32,20 +32,20 @@
   let actionTarget = $state<string | null>(null);
 
   let instances = $state<ServiceInstance[]>([]);
-  let profiles = $state<ServiceProfile[]>([]);
+  let deployments = $state<ServiceDeployment[]>([]);
 
-  let profileFilter = $state("");
+  let deploymentFilter = $state("");
   let disabledFilter = $state<DisabledFilter>("all");
 
-  let provisionProfileId = $state("");
+  let provisionDeploymentId = $state("");
   let instanceKey = $state("");
 
-  const provisionProfiles = $derived(profiles.filter((profile) => !profile.disabled));
-  const canProvision = $derived(Boolean(provisionProfileId && instanceKey.trim() && !createPending));
+  const provisionDeployments = $derived(deployments.filter((deployment) => !deployment.disabled));
+  const canProvision = $derived(Boolean(provisionDeploymentId && instanceKey.trim() && !createPending));
 
   function query() {
     return {
-      profileId: profileFilter || undefined,
+      deploymentId: deploymentFilter || undefined,
       disabled: disabledFilter === "all" ? undefined : disabledFilter === "disabled",
     };
   }
@@ -54,14 +54,14 @@
     loading = true;
     error = null;
     try {
-      const [instancesRes, profilesRes] = await Promise.all([
+      const [instancesRes, deploymentsRes] = await Promise.all([
         serviceInstancesRequester.request("Auth.ListServiceInstances", query()).orThrow(),
-        serviceInstancesRequester.request("Auth.ListServiceProfiles", {}).orThrow(),
+        serviceInstancesRequester.request("Auth.ListServiceDeployments", {}).orThrow(),
       ]);
       instances = instancesRes.instances ?? [];
-      profiles = profilesRes.profiles ?? [];
-      if (!provisionProfileId || !provisionProfiles.some((profile) => profile.profileId === provisionProfileId)) {
-        provisionProfileId = provisionProfiles[0]?.profileId ?? "";
+      deployments = deploymentsRes.deployments ?? [];
+      if (!provisionDeploymentId || !provisionDeployments.some((deployment) => deployment.deploymentId === provisionDeploymentId)) {
+        provisionDeploymentId = provisionDeployments[0]?.deploymentId ?? "";
       }
     } catch (e) {
       error = errorMessage(e);
@@ -75,7 +75,7 @@
     error = null;
     try {
       await serviceInstancesRequester.request("Auth.ProvisionServiceInstance", {
-        profileId: provisionProfileId,
+        deploymentId: provisionDeploymentId,
         instanceKey: instanceKey.trim(),
       }).orThrow();
       notifications.success("Service instance provisioned.", "Provisioned");
@@ -134,18 +134,18 @@
       <div class="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 class="card-title text-base">Provision service instance</h2>
-          <p class="text-sm text-base-content/60">Bind a runtime service key to an existing service profile.</p>
+          <p class="text-sm text-base-content/60">Bind a runtime service key to an existing service deployment.</p>
         </div>
-        <a href={resolve("/admin/services")} class="btn btn-outline btn-sm">Back to Profiles</a>
+        <a href={resolve("/admin/services")} class="btn btn-outline btn-sm">Back to Deployments</a>
       </div>
 
       <form class="grid gap-3 lg:grid-cols-[1fr_2fr_auto]" onsubmit={(event) => { event.preventDefault(); void provisionInstance(); }}>
         <label class="form-control gap-1">
-          <span class="label-text text-xs">Profile</span>
-          <select class="select select-bordered select-sm" bind:value={provisionProfileId} required>
-            <option value="" disabled>Select a profile</option>
-            {#each provisionProfiles as profile (profile.profileId)}
-              <option value={profile.profileId}>{profile.profileId}</option>
+          <span class="label-text text-xs">Deployment</span>
+          <select class="select select-bordered select-sm" bind:value={provisionDeploymentId} required>
+            <option value="" disabled>Select a deployment</option>
+            {#each provisionDeployments as deployment (deployment.deploymentId)}
+              <option value={deployment.deploymentId}>{deployment.deploymentId}</option>
             {/each}
           </select>
         </label>
@@ -167,11 +167,11 @@
   <div class="flex flex-wrap items-end justify-between gap-3">
     <form class="flex flex-wrap items-end gap-2" onsubmit={(event) => { event.preventDefault(); void load(); }}>
       <label class="form-control gap-1">
-        <span class="label-text text-xs">Profile</span>
-        <select class="select select-bordered select-sm w-48" bind:value={profileFilter}>
-          <option value="">All profiles</option>
-          {#each profiles as profile (profile.profileId)}
-            <option value={profile.profileId}>{profile.profileId}</option>
+        <span class="label-text text-xs">Deployment</span>
+        <select class="select select-bordered select-sm w-48" bind:value={deploymentFilter}>
+          <option value="">All deployments</option>
+          {#each deployments as deployment (deployment.deploymentId)}
+            <option value={deployment.deploymentId}>{deployment.deploymentId}</option>
           {/each}
         </select>
       </label>
@@ -208,7 +208,7 @@
         <thead>
           <tr>
             <th>Instance</th>
-            <th>Profile</th>
+            <th>Deployment</th>
             <th>Contract</th>
             <th>Capabilities</th>
             <th>Status</th>
@@ -223,7 +223,7 @@
                 <div class="font-medium">{instance.instanceId}</div>
                 <div class="font-mono text-xs text-base-content/60 break-all">{instance.instanceKey}</div>
               </td>
-              <td class="text-base-content/60">{instance.profileId}</td>
+              <td class="text-base-content/60">{instance.deploymentId}</td>
               <td>
                 <div class="text-sm text-base-content/80">{instance.currentContractId ?? "—"}</div>
                 <div class="font-mono text-xs text-base-content/60">{instance.currentContractDigest ?? "—"}</div>

@@ -420,7 +420,7 @@ async fn device_activation_start_posts_to_request_endpoint() {
             "unexpected request line: {request}"
         );
 
-        let body = r#"{"flowId":"flow_123","instanceId":"dev_123","profileId":"reader.default","activationUrl":"https://auth.example.com/_trellis/portal/devices/activate?flowId=flow_123"}"#;
+        let body = r#"{"flowId":"flow_123","instanceId":"dev_123","deploymentId":"reader.default","activationUrl":"https://auth.example.com/_trellis/portal/devices/activate?flowId=flow_123"}"#;
         let response = format!(
             "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
             body.len(),
@@ -443,6 +443,7 @@ async fn device_activation_start_posts_to_request_endpoint() {
         .await
         .expect("start activation request");
     assert_eq!(response.flow_id, "flow_123");
+    assert_eq!(response.deployment_id, "reader.default");
     assert_eq!(
         response.activation_url,
         "https://auth.example.com/_trellis/portal/devices/activate?flowId=flow_123"

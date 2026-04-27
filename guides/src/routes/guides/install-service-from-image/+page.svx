@@ -28,24 +28,26 @@ trellis auth status
 ## 2. Install the contract from the image
 
 ```sh
-trellis service install --image ghcr.io/my-org/my-service:1.2.3
+trellis deploy create svc/my-service
+trellis deploy apply svc/my-service --image ghcr.io/my-org/my-service:1.2.3
+trellis deploy provision svc/my-service
 ```
 
-The CLI pulls the image, reads the contract artifact from it (at the path declared by the `io.trellis.contract.path` label, or `/trellis/contract.json` by default), generates a session key, and installs the contract.
+The CLI pulls the image, reads the contract artifact from it (at the path declared by the `io.trellis.contract.path` label, or `/trellis/contract.json` by default), applies it to the service deployment, generates a service instance key, and provisions an instance.
 
 The CLI will:
 
-- generate a new Ed25519 session seed locally
-- derive the public session key for the service
+- generate a new Ed25519 instance seed locally
+- derive the public session key for the service instance
 - infer defaults such as display name, description, and namespaces from the contract
 - show an installation review before sending the request
 
 ## 3. Store the seed immediately
 
-After a successful install, the CLI prints:
+After a successful provision, the CLI prints:
 
 ```text
-installed service contract
+provisioned service instance
 sessionKey=<public-key>
 contractId=trellis.my-service@v1
 contractDigest=<digest>
@@ -61,7 +63,7 @@ Run the same image you installed from. Pass the session seed and NATS connection
 
 ```sh
 podman run --rm \
-  -e MY_SERVICE_SESSION_KEY_SEED="<seed from install>" \
+  -e MY_SERVICE_SESSION_KEY_SEED="<seed from provision>" \
   -e NATS_SERVERS=host.containers.internal \
   -e NATS_SENTINEL_CREDS=/run/creds/sentinel.creds \
   -v /path/to/sentinel.creds:/run/creds/sentinel.creds:ro \
@@ -74,16 +76,10 @@ For a permanent deployment, create a Quadlet unit for the service similar to the
 ## 5. Upgrade to a new version
 
 ```sh
-trellis service upgrade --image ghcr.io/my-org/my-service:1.2.4
+trellis deploy apply svc/my-service --image ghcr.io/my-org/my-service:1.2.4
 ```
 
-If multiple installed services use the same contract id, target the correct one:
-
-```sh
-trellis service upgrade --image ghcr.io/my-org/my-service:1.2.4 --service-key <public-key>
-```
-
-Upgrade keeps the service key the same and updates the installed contract digest. Restart the container with the new image tag after upgrading.
+Applying the new image keeps service instance keys the same and allows the new digest. Restart the container with the new image tag after applying it.
 
 ## What install actually grants
 
@@ -99,21 +95,18 @@ Trellis derives service access from:
 
 | Flag | Command | What it does |
 | --- | --- | --- |
-| `--display-name` | `service install` | Overrides the default display name inferred from the contract |
-| `--description` | `service install` | Stores an explicit operator-facing description |
-| `--namespace` | `service install` | Adds extra namespaces beyond the ones inferred from the contract |
-| `--inactive` | `service install` | Installs the service in an inactive state |
-| `-f` | both | Skips the interactive confirmation prompt |
-| `--service-key` | `service upgrade` | Targets a specific installed service |
+| `--namespace` | `deploy create svc/...` | Adds namespaces for the service deployment |
+| `-f` | `deploy apply` / `deploy remove` | Skips the interactive confirmation prompt |
+| `--instance-seed` | `deploy provision svc/...` | Uses an existing service instance seed |
 
 ## Practical deploy loop
 
 1. `trellis auth login http://localhost:3000` and follow the printed portal URL or QR code
-2. `trellis service install --image ghcr.io/my-org/my-service:1.2.3`
+2. `trellis deploy create svc/my-service && trellis deploy apply svc/my-service --image ghcr.io/my-org/my-service:1.2.3 && trellis deploy provision svc/my-service`
 3. store the seed
 4. start the container with the right env
 5. confirm the expected RPCs, events, and bindings work
 
-Install or upgrade should always happen before the container starts serving traffic.
+Apply and provisioning should happen before the container starts serving traffic.
 
 If you are building service images, include the generated contract artifact at `/trellis/contract.json`. If the image uses a different path, add an OCI label such as `io.trellis.contract.path=/path/to/contract.json` so the CLI can discover it automatically.

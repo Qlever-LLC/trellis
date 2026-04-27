@@ -23,7 +23,7 @@ services can rely on the catalog, bindings, and auth runtime.
   lookup, catalog access, service registration, session management, approvals,
   and user projection reads.
 - Owns the platform contracts explicitly through top-level `contracts/` modules;
-  service profile display names do not grant Trellis contract ownership.
+  service deployment display names do not grant Trellis contract ownership.
 
 ## Folder layout
 
@@ -122,7 +122,7 @@ in place; delete or recreate them before starting a build that uses the baseline
 migration.
 
 SQL-backed records include users, sessions, approvals, grant policies, portal
-configuration, service profiles and instances, device records, activations,
+configuration, service deployments and instances, device records, activations,
 reviews, installed contracts, and resource bindings. Session expiry is enforced
 from each session's `lastAuth` timestamp using `ttlMs.sessions`.
 

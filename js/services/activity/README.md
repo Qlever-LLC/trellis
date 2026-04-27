@@ -11,16 +11,19 @@ activity feed.
 
 ## Local bootstrap
 
-1. Install with the CLI:
+1. Create a deployment, apply the contract, and provision an instance with the
+   CLI:
 
 ```sh
-trellis service install --source ./contracts/trellis_activity.ts
+trellis deploy create svc/trellis-activity
+trellis deploy apply svc/trellis-activity --source ./contracts/trellis_activity.ts
+trellis deploy provision svc/trellis-activity
 ```
 
 2. Start the service:
 
 ```sh
-ACTIVITY_SESSION_KEY_SEED="<seed from install>"
+ACTIVITY_SESSION_KEY_SEED="<seed from provision>"
 NATS_SERVERS=localhost
 NATS_SENTINEL_CREDS=../../../.local/nats/sentinel.creds
 deno task dev

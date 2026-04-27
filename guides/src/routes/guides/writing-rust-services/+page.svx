@@ -226,10 +226,12 @@ service.stop().await?;
 cargo build --release
 ```
 
-Install the contract into your Trellis environment:
+Apply the contract to a service deployment and provision one service instance:
 
 ```sh
-trellis service install --source ./contracts/orders_service.rs
+trellis deploy create svc/orders-service
+trellis deploy apply svc/orders-service --source ./contracts/orders_service.rs
+trellis deploy provision svc/orders-service
 ```
 
 Then run:

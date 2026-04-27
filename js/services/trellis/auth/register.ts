@@ -15,14 +15,14 @@ import type {
 import type {
   SqlContractApprovalRepository,
   SqlDeviceActivationRepository,
+  SqlDeviceDeploymentRepository,
   SqlDeviceInstanceRepository,
   SqlDevicePortalSelectionRepository,
-  SqlDeviceProfileRepository,
   SqlLoginPortalSelectionRepository,
   SqlPortalDefaultRepository,
   SqlPortalRepository,
+  SqlServiceDeploymentRepository,
   SqlServiceInstanceRepository,
-  SqlServiceProfileRepository,
   SqlSessionRepository,
   SqlUserProjectionRepository,
 } from "./storage.ts";
@@ -39,10 +39,10 @@ type AuthRegistrationDeps =
     portalDefaultStorage: SqlPortalDefaultRepository;
     loginPortalSelectionStorage: SqlLoginPortalSelectionRepository;
     devicePortalSelectionStorage: SqlDevicePortalSelectionRepository;
-    deviceProfileStorage: SqlDeviceProfileRepository;
+    deviceDeploymentStorage: SqlDeviceDeploymentRepository;
     deviceInstanceStorage: SqlDeviceInstanceRepository;
     deviceActivationStorage: SqlDeviceActivationRepository;
-    serviceProfileStorage: SqlServiceProfileRepository;
+    serviceDeploymentStorage: SqlServiceDeploymentRepository;
     serviceInstanceStorage: SqlServiceInstanceRepository;
     sessionStorage: SqlSessionRepository;
   }

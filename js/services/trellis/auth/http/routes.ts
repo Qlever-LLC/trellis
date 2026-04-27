@@ -58,14 +58,14 @@ import { upsertUserProjectionInSql } from "../session/projection.ts";
 import type {
   SqlContractApprovalRepository,
   SqlDeviceActivationRepository,
+  SqlDeviceDeploymentRepository,
   SqlDeviceInstanceRepository,
   SqlDevicePortalSelectionRepository,
-  SqlDeviceProfileRepository,
   SqlLoginPortalSelectionRepository,
   SqlPortalDefaultRepository,
   SqlPortalRepository,
+  SqlServiceDeploymentRepository,
   SqlServiceInstanceRepository,
-  SqlServiceProfileRepository,
   SqlUserProjectionRepository,
 } from "../storage.ts";
 import {
@@ -91,9 +91,9 @@ export function registerHttpRoutes(
     portalDefaultStorage: SqlPortalDefaultRepository;
     loginPortalSelectionStorage: SqlLoginPortalSelectionRepository;
     devicePortalSelectionStorage: SqlDevicePortalSelectionRepository;
-    serviceProfileStorage: SqlServiceProfileRepository;
+    serviceDeploymentStorage: SqlServiceDeploymentRepository;
     serviceInstanceStorage: SqlServiceInstanceRepository;
-    deviceProfileStorage: SqlDeviceProfileRepository;
+    deviceDeploymentStorage: SqlDeviceDeploymentRepository;
     deviceInstanceStorage: SqlDeviceInstanceRepository;
     deviceActivationStorage: SqlDeviceActivationRepository;
     contractStore: ContractStore;
@@ -172,7 +172,7 @@ export function registerHttpRoutes(
     authToken?: string;
     deviceActivation?: {
       instanceId: string;
-      profileId: string;
+      deploymentId: string;
       publicIdentityKey: string;
       nonce: string;
       qrMac: string;
@@ -579,8 +579,8 @@ export function registerHttpRoutes(
             : instance.createdAt,
         });
       },
-      loadServiceProfile: async (profileId) => {
-        return await opts.serviceProfileStorage.get(profileId) ?? null;
+      loadServiceDeployment: async (deploymentId) => {
+        return await opts.serviceDeploymentStorage.get(deploymentId) ?? null;
       },
       refreshActiveContracts: opts.refreshActiveContracts ?? (async () => {}),
       verifyIdentityProof: ({ sessionKey, iat, sig }) =>
@@ -599,8 +599,8 @@ export function registerHttpRoutes(
       loadDeviceActivation: async (instanceId) => {
         return await opts.deviceActivationStorage.get(instanceId) ?? null;
       },
-      loadDeviceProfile: async (profileId) => {
-        return await opts.deviceProfileStorage.get(profileId) ?? null;
+      loadDeviceDeployment: async (deploymentId) => {
+        return await opts.deviceDeploymentStorage.get(deploymentId) ?? null;
       },
       saveDeviceInstance: async (instance) => {
         await opts.deviceInstanceStorage.put({

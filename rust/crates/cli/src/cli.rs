@@ -5,17 +5,15 @@ use clap_complete::Shell;
 
 mod auth;
 mod bootstrap;
-mod devices;
+mod deploy;
 mod portals;
 mod self_cmd;
-mod service;
 
 pub use auth::*;
 pub use bootstrap::*;
-pub use devices::*;
+pub use deploy::*;
 pub use portals::*;
 pub use self_cmd::*;
-pub use service::*;
 
 #[derive(Debug, Parser)]
 #[command(name = "trellis", version, about = "Trellis CLI")]
@@ -53,10 +51,9 @@ pub enum TopLevelCommand {
     Keygen(KeygenArgs),
     /// Manage custom login and device portals.
     Portal(PortalCommand),
-    /// Manage service profiles and instances.
-    Service(ServiceCommand),
-    /// Manage device profiles, instances, and activations.
-    Device(DeviceCommand),
+    /// Manage service and device deployments.
+    #[command(alias = "deployment", aliases = ["deployments", "dep", "d"])]
+    Deploy(DeployCommand),
     /// Check for or install CLI updates.
     #[command(name = "self")]
     Self_(SelfCommand),

@@ -2,9 +2,10 @@ import { assertEquals, assertRejects } from "@std/assert";
 import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 
 import {
+  SqlDeviceDeploymentRepository,
   SqlDeviceInstanceRepository,
+  SqlServiceDeploymentRepository,
   SqlServiceInstanceRepository,
-  SqlServiceProfileRepository,
   SqlSessionRepository,
 } from "../auth/storage.ts";
 import {
@@ -36,7 +37,10 @@ async function withContractsModule(
         builtinContracts: [],
         contractStorage,
         serviceInstanceStorage: new SqlServiceInstanceRepository(storage.db),
-        serviceProfileStorage: new SqlServiceProfileRepository(storage.db),
+        serviceDeploymentStorage: new SqlServiceDeploymentRepository(
+          storage.db,
+        ),
+        deviceDeploymentStorage: new SqlDeviceDeploymentRepository(storage.db),
         deviceInstanceStorage: new SqlDeviceInstanceRepository(storage.db),
       }),
       contractStorage,
@@ -75,11 +79,12 @@ function makeOperationContract(
   };
 }
 
-Deno.test("contracts runtime preflights operation subject collisions before persistence", async () => {
+Deno.test("contracts runtime preflights active operation subject collisions before persistence", async () => {
   await withContractsModule(async (module, contractStorage) => {
-    await module.installServiceContract(
+    const installed = await module.installServiceContract(
       makeOperationContract("billing@v1", "operations.v1.Billing.Refund"),
     );
+    module.contractStore.activateDigest(installed.digest);
 
     await assertRejects(
       async () => {
@@ -126,14 +131,20 @@ Deno.test("contracts runtime does not activate contracts from user sessions", as
     await initializeTrellisStorageSchema(storage);
     const contractStorage = new SqlContractStorageRepository(storage.db);
     const serviceInstanceStorage = new SqlServiceInstanceRepository(storage.db);
-    const serviceProfileStorage = new SqlServiceProfileRepository(storage.db);
+    const serviceDeploymentStorage = new SqlServiceDeploymentRepository(
+      storage.db,
+    );
     const deviceInstanceStorage = new SqlDeviceInstanceRepository(storage.db);
+    const deviceDeploymentStorage = new SqlDeviceDeploymentRepository(
+      storage.db,
+    );
     const sessionStorage = new SqlSessionRepository(storage.db);
     const module = createContractsModule({
       builtinContracts: [],
       contractStorage,
       serviceInstanceStorage,
-      serviceProfileStorage,
+      serviceDeploymentStorage,
+      deviceDeploymentStorage,
       deviceInstanceStorage,
     });
     const installed = await module.installServiceContract(
@@ -163,7 +174,8 @@ Deno.test("contracts runtime does not activate contracts from user sessions", as
       builtinContracts: [],
       contractStorage,
       serviceInstanceStorage,
-      serviceProfileStorage,
+      serviceDeploymentStorage,
+      deviceDeploymentStorage: new SqlDeviceDeploymentRepository(storage.db),
       deviceInstanceStorage,
     });
     await refreshedModule.refreshActiveContracts();
@@ -172,6 +184,227 @@ Deno.test("contracts runtime does not activate contracts from user sessions", as
       refreshedModule.contractStore.getActiveCatalog().contracts,
       [],
     );
+  } finally {
+    storage.client.close();
+    await Deno.remove(dbPath).catch(() => undefined);
+  }
+});
+
+Deno.test("contracts runtime does not activate service deployment allowed digests without active instances", async () => {
+  const dbPath = await Deno.makeTempFile({
+    dir: "/tmp",
+    prefix: "trellis-catalog-runtime-deployment-",
+    suffix: ".sqlite",
+  });
+  const storage = await openTrellisStorageDb(dbPath);
+
+  try {
+    const { createContractsModule } = await import("./runtime.ts");
+    await initializeTrellisStorageSchema(storage);
+    const contractStorage = new SqlContractStorageRepository(storage.db);
+    const serviceInstanceStorage = new SqlServiceInstanceRepository(storage.db);
+    const serviceDeploymentStorage = new SqlServiceDeploymentRepository(
+      storage.db,
+    );
+    const deviceInstanceStorage = new SqlDeviceInstanceRepository(storage.db);
+    const deviceDeploymentStorage = new SqlDeviceDeploymentRepository(
+      storage.db,
+    );
+    const module = createContractsModule({
+      builtinContracts: [],
+      contractStorage,
+      serviceInstanceStorage,
+      serviceDeploymentStorage,
+      deviceDeploymentStorage,
+      deviceInstanceStorage,
+    });
+    const installed = await module.installServiceContract(
+      makeOperationContract("service@v1", "operations.v1.Service.Run"),
+    );
+    await serviceDeploymentStorage.put({
+      deploymentId: "service.default",
+      namespaces: ["Service"],
+      disabled: false,
+      appliedContracts: [{
+        contractId: installed.id,
+        allowedDigests: [installed.digest],
+      }],
+    });
+
+    await module.refreshActiveContracts();
+
+    assertEquals(module.contractStore.getActiveCatalog().contracts, []);
+  } finally {
+    storage.client.close();
+    await Deno.remove(dbPath).catch(() => undefined);
+  }
+});
+
+Deno.test("contracts runtime activates enabled service and activated device current digests", async () => {
+  const dbPath = await Deno.makeTempFile({
+    dir: "/tmp",
+    prefix: "trellis-catalog-runtime-instances-",
+    suffix: ".sqlite",
+  });
+  const storage = await openTrellisStorageDb(dbPath);
+
+  try {
+    const { createContractsModule } = await import("./runtime.ts");
+    await initializeTrellisStorageSchema(storage);
+    const contractStorage = new SqlContractStorageRepository(storage.db);
+    const serviceInstanceStorage = new SqlServiceInstanceRepository(storage.db);
+    const serviceDeploymentStorage = new SqlServiceDeploymentRepository(
+      storage.db,
+    );
+    const deviceInstanceStorage = new SqlDeviceInstanceRepository(storage.db);
+    const deviceDeploymentStorage = new SqlDeviceDeploymentRepository(
+      storage.db,
+    );
+    const module = createContractsModule({
+      builtinContracts: [],
+      contractStorage,
+      serviceInstanceStorage,
+      serviceDeploymentStorage,
+      deviceDeploymentStorage,
+      deviceInstanceStorage,
+    });
+    const service = await module.installServiceContract(
+      makeOperationContract("service@v1", "operations.v1.Service.Run"),
+    );
+    const device = await module.installDeviceContract(
+      makeOperationContract("device@v1", "operations.v1.Device.Run"),
+    );
+    const now = "2026-01-01T00:00:00.000Z";
+    await serviceInstanceStorage.put({
+      instanceId: "svc_1",
+      deploymentId: "service.default",
+      instanceKey: "session-key",
+      disabled: false,
+      currentContractId: service.id,
+      currentContractDigest: service.digest,
+      capabilities: ["service"],
+      createdAt: now,
+    });
+    await serviceDeploymentStorage.put({
+      deploymentId: "service.default",
+      namespaces: ["Service"],
+      disabled: false,
+      appliedContracts: [{
+        contractId: service.id,
+        allowedDigests: [service.digest],
+      }],
+    });
+    await deviceDeploymentStorage.put({
+      deploymentId: "device.default",
+      disabled: false,
+      appliedContracts: [{
+        contractId: device.id,
+        allowedDigests: [device.digest],
+      }],
+    });
+    await deviceInstanceStorage.put({
+      instanceId: "dev_1",
+      publicIdentityKey: "public-key",
+      deploymentId: "device.default",
+      state: "activated",
+      currentContractId: device.id,
+      currentContractDigest: device.digest,
+      createdAt: now,
+      activatedAt: now,
+      revokedAt: null,
+    });
+
+    await module.refreshActiveContracts();
+
+    assertEquals(
+      module.contractStore.getActiveCatalog().contracts.map((entry) =>
+        entry.digest
+      ).sort(),
+      [device.digest, service.digest].sort(),
+    );
+  } finally {
+    storage.client.close();
+    await Deno.remove(dbPath).catch(() => undefined);
+  }
+});
+
+Deno.test("contracts runtime excludes current digests for disabled parent deployments", async () => {
+  const dbPath = await Deno.makeTempFile({
+    dir: "/tmp",
+    prefix: "trellis-catalog-runtime-disabled-parents-",
+    suffix: ".sqlite",
+  });
+  const storage = await openTrellisStorageDb(dbPath);
+
+  try {
+    const { createContractsModule } = await import("./runtime.ts");
+    await initializeTrellisStorageSchema(storage);
+    const contractStorage = new SqlContractStorageRepository(storage.db);
+    const serviceInstanceStorage = new SqlServiceInstanceRepository(storage.db);
+    const serviceDeploymentStorage = new SqlServiceDeploymentRepository(
+      storage.db,
+    );
+    const deviceDeploymentStorage = new SqlDeviceDeploymentRepository(
+      storage.db,
+    );
+    const deviceInstanceStorage = new SqlDeviceInstanceRepository(storage.db);
+    const module = createContractsModule({
+      builtinContracts: [],
+      contractStorage,
+      serviceInstanceStorage,
+      serviceDeploymentStorage,
+      deviceDeploymentStorage,
+      deviceInstanceStorage,
+    });
+    const service = await module.installServiceContract(
+      makeOperationContract("disabled-service@v1", "operations.v1.Service.Off"),
+    );
+    const device = await module.installDeviceContract(
+      makeOperationContract("disabled-device@v1", "operations.v1.Device.Off"),
+    );
+    const now = "2026-01-01T00:00:00.000Z";
+    await serviceDeploymentStorage.put({
+      deploymentId: "service.disabled",
+      namespaces: ["Service"],
+      disabled: true,
+      appliedContracts: [{
+        contractId: service.id,
+        allowedDigests: [service.digest],
+      }],
+    });
+    await serviceInstanceStorage.put({
+      instanceId: "svc_disabled",
+      deploymentId: "service.disabled",
+      instanceKey: "session-key",
+      disabled: false,
+      currentContractId: service.id,
+      currentContractDigest: service.digest,
+      capabilities: ["service"],
+      createdAt: now,
+    });
+    await deviceDeploymentStorage.put({
+      deploymentId: "device.disabled",
+      disabled: true,
+      appliedContracts: [{
+        contractId: device.id,
+        allowedDigests: [device.digest],
+      }],
+    });
+    await deviceInstanceStorage.put({
+      instanceId: "dev_disabled",
+      publicIdentityKey: "public-key",
+      deploymentId: "device.disabled",
+      state: "activated",
+      currentContractId: device.id,
+      currentContractDigest: device.digest,
+      createdAt: now,
+      activatedAt: now,
+      revokedAt: null,
+    });
+
+    await module.refreshActiveContracts();
+
+    assertEquals(module.contractStore.getActiveCatalog().contracts, []);
   } finally {
     storage.client.close();
     await Deno.remove(dbPath).catch(() => undefined);

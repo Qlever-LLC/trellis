@@ -39,13 +39,13 @@ The prepare step generates the service SDK used by both `demos/js/app` and
 
 ## Create And Start The Service
 
-Create one service profile from `demos/js/service/contract.ts`, provision one
+Create one service deployment from `demos/js/service/contract.ts`, provision one
 service instance, then start the service with the provisioned instance seed.
 
 ```sh
-trellis service profile create demo.field-ops
-trellis service profile apply demo.field-ops --source demos/js/service/contract.ts
-trellis service instance provision demo.field-ops --format json
+trellis deploy create svc/demo.field-ops
+trellis deploy apply svc/demo.field-ops --source demos/js/service/contract.ts
+trellis --format json deploy provision svc/demo.field-ops
 deno task -c demos/js/deno.json service http://localhost:3000 <instance-seed>
 ```
 
@@ -53,13 +53,13 @@ Use the `instanceSeed` field from the provision JSON as `<instance-seed>`.
 
 ## Create And Start The Device
 
-Create one device profile from `demos/js/device/contract.ts`, provision one
+Create one device deployment from `demos/js/device/contract.ts`, provision one
 device instance, then start the TUI with the provisioned root secret.
 
 ```sh
-trellis device profile create demo.field-device
-trellis device profile apply demo.field-device --source demos/js/device/contract.ts
-trellis device instance provision demo.field-device --format json
+trellis deploy create dev/demo.field-device
+trellis deploy apply dev/demo.field-device --source demos/js/device/contract.ts
+trellis --format json deploy provision dev/demo.field-device
 deno task -c demos/js/deno.json device http://localhost:3000 <root-secret>
 ```
 
@@ -126,13 +126,12 @@ subscribers can display.
 
 ## Cleanup
 
-Remove the instances and profiles you created when you are done:
+Revoke activated device access and disable the deployments you created when you are done:
 
 ```sh
-trellis service instance remove <service-instance-id> -f
-trellis service profile remove demo.field-ops -f
-trellis device instance remove <device-instance-id> -f
-trellis device profile remove demo.field-device -f
+trellis deploy activation revoke <device-instance-id>
+trellis deploy disable svc/demo.field-ops
+trellis deploy disable dev/demo.field-device
 ```
 
 Use each provision JSON's `instanceId` field for `<service-instance-id>` and

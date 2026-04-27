@@ -1,25 +1,25 @@
 <script lang="ts">
-  import type { AuthListServiceProfilesOutput } from "@qlever-llc/trellis/sdk/auth";
+  import type { AuthListServiceDeploymentsOutput } from "@qlever-llc/trellis/sdk/auth";
   import { onMount } from "svelte";
   import { errorMessage } from "../../../../lib/format";
   import { getNotifications } from "../../../../lib/notifications.svelte";
   import { getTrellis } from "../../../../lib/trellis";
 
-  type Profile = AuthListServiceProfilesOutput["profiles"][number];
+  type Deployment = AuthListServiceDeploymentsOutput["deployments"][number];
 
   const trellis = getTrellis();
   const notifications = getNotifications();
-  type ServiceProfilesRequester = {
-    request(method: "Auth.ListServiceProfiles", input: Record<string, never>): { orThrow(): Promise<AuthListServiceProfilesOutput> };
-    request(method: "Auth.CreateServiceProfile", input: { profileId: string; namespaces: string[] }): { orThrow(): Promise<void> };
-    request(method: "Auth.ApplyServiceProfileContract", input: { profileId: string; contract: Record<string, unknown> }): { orThrow(): Promise<void> };
-    request(method: "Auth.UnapplyServiceProfileContract", input: { profileId: string; contractId: string; digests?: string[] }): { orThrow(): Promise<void> };
-    request(method: "Auth.DisableServiceProfile", input: { profileId: string }): { orThrow(): Promise<void> };
-    request(method: "Auth.EnableServiceProfile", input: { profileId: string }): { orThrow(): Promise<void> };
-    request(method: "Auth.RemoveServiceProfile", input: { profileId: string }): { orThrow(): Promise<void> };
+  type ServiceDeploymentsRequester = {
+    request(method: "Auth.ListServiceDeployments", input: Record<string, never>): { orThrow(): Promise<AuthListServiceDeploymentsOutput> };
+    request(method: "Auth.CreateServiceDeployment", input: { deploymentId: string; namespaces: string[] }): { orThrow(): Promise<void> };
+    request(method: "Auth.ApplyServiceDeploymentContract", input: { deploymentId: string; contract: Record<string, unknown> }): { orThrow(): Promise<void> };
+    request(method: "Auth.UnapplyServiceDeploymentContract", input: { deploymentId: string; contractId: string; digests?: string[] }): { orThrow(): Promise<void> };
+    request(method: "Auth.DisableServiceDeployment", input: { deploymentId: string }): { orThrow(): Promise<void> };
+    request(method: "Auth.EnableServiceDeployment", input: { deploymentId: string }): { orThrow(): Promise<void> };
+    request(method: "Auth.RemoveServiceDeployment", input: { deploymentId: string }): { orThrow(): Promise<void> };
   };
-  const serviceProfilesSource: object = trellis;
-  const serviceProfilesRequester = serviceProfilesSource as ServiceProfilesRequester;
+  const serviceDeploymentsSource: object = trellis;
+  const serviceDeploymentsRequester = serviceDeploymentsSource as ServiceDeploymentsRequester;
 
   let loading = $state(true);
   let error = $state<string | null>(null);
@@ -27,14 +27,14 @@
   let applyPending = $state(false);
   let actionTarget = $state<string | null>(null);
 
-  let profiles = $state<Profile[]>([]);
-  let selectedProfileId = $state("");
+  let deployments = $state<Deployment[]>([]);
+  let selectedDeploymentId = $state("");
 
-  let profileId = $state("");
+  let deploymentId = $state("");
   let namespaces = $state("");
   let contractJson = $state("");
 
-  const selectedProfile = $derived(profiles.find((profile) => profile.profileId === selectedProfileId) ?? null);
+  const selectedDeployment = $derived(deployments.find((deployment) => deployment.deploymentId === selectedDeploymentId) ?? null);
 
   function parseNamespaces(value: string): string[] {
     return value
@@ -43,9 +43,9 @@
       .filter(Boolean);
   }
 
-  function syncSelectedProfile(nextProfiles: Profile[]) {
-    if (nextProfiles.some((profile) => profile.profileId === selectedProfileId)) return;
-    selectedProfileId = nextProfiles[0]?.profileId ?? "";
+  function syncSelectedDeployment(nextDeployments: Deployment[]) {
+    if (nextDeployments.some((deployment) => deployment.deploymentId === selectedDeploymentId)) return;
+    selectedDeploymentId = nextDeployments[0]?.deploymentId ?? "";
     contractJson = "";
   }
 
@@ -53,10 +53,10 @@
     loading = true;
     error = null;
     try {
-      const res = await serviceProfilesRequester.request("Auth.ListServiceProfiles", {}).orThrow();
-      const nextProfiles = res.profiles ?? [];
-      profiles = nextProfiles;
-      syncSelectedProfile(nextProfiles);
+      const res = await serviceDeploymentsRequester.request("Auth.ListServiceDeployments", {}).orThrow();
+      const nextDeployments = res.deployments ?? [];
+      deployments = nextDeployments;
+      syncSelectedDeployment(nextDeployments);
     } catch (e) {
       error = errorMessage(e);
     } finally {
@@ -64,19 +64,19 @@
     }
   }
 
-  async function createProfile() {
+  async function createDeployment() {
     createPending = true;
     error = null;
     try {
-      const nextProfileId = profileId.trim();
-      await serviceProfilesRequester.request("Auth.CreateServiceProfile", {
-        profileId: nextProfileId,
+      const nextDeploymentId = deploymentId.trim();
+      await serviceDeploymentsRequester.request("Auth.CreateServiceDeployment", {
+        deploymentId: nextDeploymentId,
         namespaces: parseNamespaces(namespaces),
       }).orThrow();
-      notifications.success(`Service profile ${nextProfileId} created.`, "Created");
-      profileId = "";
+      notifications.success(`Service deployment ${nextDeploymentId} created.`, "Created");
+      deploymentId = "";
       namespaces = "";
-      selectedProfileId = nextProfileId;
+      selectedDeploymentId = nextDeploymentId;
       await load();
     } catch (e) {
       error = errorMessage(e);
@@ -86,16 +86,16 @@
   }
 
   async function applyContract() {
-    if (!selectedProfile || !contractJson.trim()) return;
+    if (!selectedDeployment || !contractJson.trim()) return;
     applyPending = true;
     error = null;
     try {
       const contract = JSON.parse(contractJson) as Record<string, unknown>;
-      await serviceProfilesRequester.request("Auth.ApplyServiceProfileContract", {
-        profileId: selectedProfile.profileId,
+      await serviceDeploymentsRequester.request("Auth.ApplyServiceDeploymentContract", {
+        deploymentId: selectedDeployment.deploymentId,
         contract,
       }).orThrow();
-      notifications.success(`Contract applied to ${selectedProfile.profileId}.`, "Applied");
+      notifications.success(`Contract applied to ${selectedDeployment.deploymentId}.`, "Applied");
       contractJson = "";
       await load();
     } catch (e) {
@@ -105,19 +105,19 @@
     }
   }
 
-  async function unapplyContract(profile: Profile, contractId: string, digests?: string[]) {
+  async function unapplyContract(deployment: Deployment, contractId: string, digests?: string[]) {
     const target = digests?.length ? `${contractId}:${digests.join(",")}` : `${contractId}:lineage`;
     const scope = digests?.length ? `digest ${digests.join(", ")}` : `lineage ${contractId}`;
-    if (!window.confirm(`Unapply ${scope} from ${profile.profileId}?`)) return;
-    actionTarget = `${profile.profileId}:${target}:unapply`;
+    if (!window.confirm(`Unapply ${scope} from ${deployment.deploymentId}?`)) return;
+    actionTarget = `${deployment.deploymentId}:${target}:unapply`;
     error = null;
     try {
-      await serviceProfilesRequester.request("Auth.UnapplyServiceProfileContract", {
-        profileId: profile.profileId,
+      await serviceDeploymentsRequester.request("Auth.UnapplyServiceDeploymentContract", {
+        deploymentId: deployment.deploymentId,
         contractId,
         digests,
       }).orThrow();
-      notifications.success(`Contracts updated for ${profile.profileId}.`, "Updated");
+      notifications.success(`Contracts updated for ${deployment.deploymentId}.`, "Updated");
       await load();
     } catch (e) {
       error = errorMessage(e);
@@ -126,18 +126,18 @@
     }
   }
 
-  async function setProfileDisabled(profile: Profile, disabled: boolean) {
+  async function setDeploymentDisabled(deployment: Deployment, disabled: boolean) {
     const verb = disabled ? "Disable" : "Enable";
-    if (!window.confirm(`${verb} service profile ${profile.profileId}?`)) return;
-    actionTarget = `${profile.profileId}:${verb.toLowerCase()}`;
+    if (!window.confirm(`${verb} service deployment ${deployment.deploymentId}?`)) return;
+    actionTarget = `${deployment.deploymentId}:${verb.toLowerCase()}`;
     error = null;
     try {
       if (disabled) {
-        await serviceProfilesRequester.request("Auth.DisableServiceProfile", { profileId: profile.profileId }).orThrow();
+        await serviceDeploymentsRequester.request("Auth.DisableServiceDeployment", { deploymentId: deployment.deploymentId }).orThrow();
       } else {
-        await serviceProfilesRequester.request("Auth.EnableServiceProfile", { profileId: profile.profileId }).orThrow();
+        await serviceDeploymentsRequester.request("Auth.EnableServiceDeployment", { deploymentId: deployment.deploymentId }).orThrow();
       }
-      notifications.success(`Service profile ${profile.profileId} ${disabled ? "disabled" : "enabled"}.`, disabled ? "Disabled" : "Enabled");
+      notifications.success(`Service deployment ${deployment.deploymentId} ${disabled ? "disabled" : "enabled"}.`, disabled ? "Disabled" : "Enabled");
       await load();
     } catch (e) {
       error = errorMessage(e);
@@ -146,13 +146,13 @@
     }
   }
 
-  async function removeProfile(profile: Profile) {
-    if (!window.confirm(`Remove service profile ${profile.profileId}?`)) return;
-    actionTarget = `${profile.profileId}:remove`;
+  async function removeDeployment(deployment: Deployment) {
+    if (!window.confirm(`Remove service deployment ${deployment.deploymentId}?`)) return;
+    actionTarget = `${deployment.deploymentId}:remove`;
     error = null;
     try {
-      await serviceProfilesRequester.request("Auth.RemoveServiceProfile", { profileId: profile.profileId }).orThrow();
-      notifications.success(`Service profile ${profile.profileId} removed.`, "Removed");
+      await serviceDeploymentsRequester.request("Auth.RemoveServiceDeployment", { deploymentId: deployment.deploymentId }).orThrow();
+      notifications.success(`Service deployment ${deployment.deploymentId} removed.`, "Removed");
       await load();
     } catch (e) {
       error = errorMessage(e);
@@ -171,8 +171,8 @@
     <div class="card-body gap-4">
       <div class="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 class="card-title text-base">Service profiles</h2>
-          <p class="text-sm text-base-content/60">Create profiles, apply contract JSON, and manage lifecycle state for Trellis services.</p>
+          <h2 class="card-title text-base">Service deployments</h2>
+          <p class="text-sm text-base-content/60">Create deployments, apply contract JSON, and manage lifecycle state for Trellis services.</p>
         </div>
         <div class="flex flex-wrap gap-2">
           <a href="/admin/services/instances" class="btn btn-outline btn-sm">Manage Instances</a>
@@ -180,10 +180,10 @@
         </div>
       </div>
 
-      <form class="grid gap-3 lg:grid-cols-2" onsubmit={(event) => { event.preventDefault(); void createProfile(); }}>
+      <form class="grid gap-3 lg:grid-cols-2" onsubmit={(event) => { event.preventDefault(); void createDeployment(); }}>
         <label class="form-control gap-1">
-          <span class="label-text text-xs">Profile ID</span>
-          <input class="input input-bordered input-sm font-mono" bind:value={profileId} placeholder="billing.worker" required />
+          <span class="label-text text-xs">Deployment ID</span>
+          <input class="input input-bordered input-sm font-mono" bind:value={deploymentId} placeholder="billing.worker" required />
         </label>
 
         <label class="form-control gap-1 lg:col-span-2">
@@ -193,7 +193,7 @@
 
         <div class="lg:col-span-2 flex justify-end">
           <button type="submit" class="btn btn-primary btn-sm" disabled={createPending}>
-            {createPending ? "Creating…" : "Create Profile"}
+            {createPending ? "Creating…" : "Create Deployment"}
           </button>
         </div>
       </form>
@@ -211,19 +211,19 @@
       <div class="card border border-base-300 bg-base-100">
         <div class="card-body gap-3">
           <div class="flex items-center justify-between gap-2">
-            <h3 class="card-title text-sm">Profiles</h3>
-            <span class="text-xs text-base-content/60">{profiles.length} total</span>
+            <h3 class="card-title text-sm">Deployments</h3>
+            <span class="text-xs text-base-content/60">{deployments.length} total</span>
           </div>
 
-          {#if profiles.length === 0}
-            <p class="text-sm text-base-content/60">No service profiles found.</p>
+          {#if deployments.length === 0}
+            <p class="text-sm text-base-content/60">No service deployments found.</p>
           {:else}
             <div class="space-y-2">
-              {#each profiles as profile (profile.profileId)}
+              {#each deployments as deployment (deployment.deploymentId)}
                 <div
                   class={[
                     "rounded-box border p-3 transition-colors",
-                    selectedProfileId === profile.profileId
+                    selectedDeploymentId === deployment.deploymentId
                       ? "border-primary bg-primary/5"
                       : "border-base-300 bg-base-100",
                   ]}
@@ -231,24 +231,24 @@
                   <button
                     class="w-full text-left"
                     onclick={() => {
-                      selectedProfileId = profile.profileId;
+                      selectedDeploymentId = deployment.deploymentId;
                       contractJson = "";
                     }}
                   >
                   <div class="flex flex-wrap items-start justify-between gap-2">
                     <div class="min-w-0">
-                      <div class="font-medium font-mono">{profile.profileId}</div>
+                      <div class="font-medium font-mono">{deployment.deploymentId}</div>
                     </div>
                     <span class={[
                       "badge badge-sm",
-                      profile.disabled ? "badge-ghost" : "badge-success",
+                       deployment.disabled ? "badge-ghost" : "badge-success",
                     ]}>
-                      {profile.disabled ? "Disabled" : "Active"}
+                      {deployment.disabled ? "Disabled" : "Active"}
                     </span>
                   </div>
 
                   <div class="mt-3 flex flex-wrap gap-1">
-                    {#each profile.namespaces as namespace (namespace)}
+                    {#each deployment.namespaces as namespace (namespace)}
                       <span class="badge badge-outline badge-xs">{namespace}</span>
                     {:else}
                       <span class="text-xs text-base-content/60">No namespaces</span>
@@ -261,20 +261,20 @@
                       class="btn btn-ghost btn-xs"
                       onclick={(event) => {
                         event.stopPropagation();
-                        void setProfileDisabled(profile, !profile.disabled);
+                        void setDeploymentDisabled(deployment, !deployment.disabled);
                       }}
-                      disabled={actionTarget === `${profile.profileId}:${profile.disabled ? "enable" : "disable"}`}
+                      disabled={actionTarget === `${deployment.deploymentId}:${deployment.disabled ? "enable" : "disable"}`}
                     >
-                      {profile.disabled ? "Enable" : "Disable"}
+                      {deployment.disabled ? "Enable" : "Disable"}
                     </button>
                     <button
                       type="button"
                       class="btn btn-ghost btn-xs text-error"
                       onclick={(event) => {
                         event.stopPropagation();
-                        void removeProfile(profile);
+                        void removeDeployment(deployment);
                       }}
-                      disabled={actionTarget === `${profile.profileId}:remove`}
+                      disabled={actionTarget === `${deployment.deploymentId}:remove`}
                     >
                       Remove
                     </button>
@@ -292,14 +292,14 @@
             <div class="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h3 class="card-title text-sm">Apply contract</h3>
-                <p class="text-sm text-base-content/60">Paste raw contract JSON and apply it to the selected profile.</p>
+                <p class="text-sm text-base-content/60">Paste raw contract JSON and apply it to the selected deployment.</p>
               </div>
               <label class="form-control gap-1 min-w-56">
-                <span class="label-text text-xs">Selected profile</span>
-                <select class="select select-bordered select-sm" bind:value={selectedProfileId} disabled={profiles.length === 0}>
-                  <option value="" disabled>Select a profile</option>
-                  {#each profiles as profile (profile.profileId)}
-                    <option value={profile.profileId}>{profile.profileId}</option>
+                <span class="label-text text-xs">Selected deployment</span>
+                <select class="select select-bordered select-sm" bind:value={selectedDeploymentId} disabled={deployments.length === 0}>
+                  <option value="" disabled>Select a deployment</option>
+                  {#each deployments as deployment (deployment.deploymentId)}
+                    <option value={deployment.deploymentId}>{deployment.deploymentId}</option>
                   {/each}
                 </select>
               </label>
@@ -309,11 +309,11 @@
               class="textarea textarea-bordered min-h-64 w-full font-mono text-xs"
               bind:value={contractJson}
               placeholder="Paste contract JSON…"
-              disabled={!selectedProfile}
+              disabled={!selectedDeployment}
             ></textarea>
 
             <div class="flex justify-end">
-              <button class="btn btn-primary btn-sm" onclick={applyContract} disabled={applyPending || !selectedProfile || !contractJson.trim()}>
+              <button class="btn btn-primary btn-sm" onclick={applyContract} disabled={applyPending || !selectedDeployment || !contractJson.trim()}>
                 {applyPending ? "Applying…" : "Apply Contract"}
               </button>
             </div>
@@ -323,38 +323,38 @@
         <div class="card border border-base-300 bg-base-100">
           <div class="card-body gap-3">
             <div>
-              <h3 class="card-title text-sm">Selected profile details</h3>
-              <p class="text-sm text-base-content/60">Unapply an entire contract lineage or remove a specific digest from the selected profile.</p>
+              <h3 class="card-title text-sm">Selected deployment details</h3>
+              <p class="text-sm text-base-content/60">Unapply an entire contract lineage or remove a specific digest from the selected deployment.</p>
             </div>
 
-            {#if !selectedProfile}
-              <p class="text-sm text-base-content/60">Select a profile to manage contracts.</p>
+            {#if !selectedDeployment}
+              <p class="text-sm text-base-content/60">Select a deployment to manage contracts.</p>
             {:else}
               <div class="space-y-4">
                 <div class="rounded-box border border-base-300 bg-base-100 p-3">
                   <div class="flex flex-wrap items-start justify-between gap-2">
                     <div>
-                      <div class="font-medium font-mono">{selectedProfile.profileId}</div>
+                      <div class="font-medium font-mono">{selectedDeployment.deploymentId}</div>
                     </div>
                     <span class={[
                       "badge badge-sm",
-                      selectedProfile.disabled ? "badge-ghost" : "badge-success",
+                       selectedDeployment.disabled ? "badge-ghost" : "badge-success",
                     ]}>
-                      {selectedProfile.disabled ? "Disabled" : "Active"}
+                      {selectedDeployment.disabled ? "Disabled" : "Active"}
                     </span>
                   </div>
                   <div class="mt-3 flex flex-wrap gap-1">
-                    {#each selectedProfile.namespaces as namespace (namespace)}
+                    {#each selectedDeployment.namespaces as namespace (namespace)}
                       <span class="badge badge-outline badge-xs">{namespace}</span>
                     {/each}
                   </div>
                 </div>
 
-                {#if selectedProfile.appliedContracts.length === 0}
+                {#if selectedDeployment.appliedContracts.length === 0}
                   <p class="text-sm text-base-content/60">No contracts applied.</p>
                 {:else}
                   <div class="space-y-3">
-                    {#each selectedProfile.appliedContracts as applied (applied.contractId)}
+                    {#each selectedDeployment.appliedContracts as applied (applied.contractId)}
                       <div class="rounded-box border border-base-300 bg-base-100 p-3">
                         <div class="flex flex-wrap items-start justify-between gap-2">
                           <div>
@@ -363,8 +363,8 @@
                           </div>
                           <button
                             class="btn btn-ghost btn-xs text-error"
-                            onclick={() => unapplyContract(selectedProfile, applied.contractId)}
-                            disabled={actionTarget === `${selectedProfile.profileId}:${applied.contractId}:lineage:unapply`}
+                            onclick={() => unapplyContract(selectedDeployment, applied.contractId)}
+                            disabled={actionTarget === `${selectedDeployment.deploymentId}:${applied.contractId}:lineage:unapply`}
                           >
                             Unapply lineage
                           </button>
@@ -376,8 +376,8 @@
                               <span class="font-mono text-xs">{digest}</span>
                               <button
                                 class="btn btn-ghost btn-xs text-error"
-                                onclick={() => unapplyContract(selectedProfile, applied.contractId, [digest])}
-                                disabled={actionTarget === `${selectedProfile.profileId}:${applied.contractId}:${digest}:unapply`}
+                                onclick={() => unapplyContract(selectedDeployment, applied.contractId, [digest])}
+                                disabled={actionTarget === `${selectedDeployment.deploymentId}:${applied.contractId}:${digest}:unapply`}
                                 aria-label={`Unapply digest ${digest}`}
                               >
                                 ×

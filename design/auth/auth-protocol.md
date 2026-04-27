@@ -138,12 +138,12 @@ CASE: ACTIVATED DEVICE CONNECT / RECONNECT (iat)
 - verify sig = sign(hash("nats-connect:" + iat))
 - if sessionKey matches an installed device, follow the installed-device path instead
 - otherwise resolve the activated device instance by public identity key
-- require the presented `contractDigest` to match an allowed digest on the device profile
-- reject if the device is unknown, revoked, or its profile is missing or disabled
+- require the presented `contractDigest` to match an allowed digest on the device deployment
+- reject if the device is unknown, revoked, or its deployment is missing or disabled
 - create or refresh an activated-device session keyed by `sessionKey`
 - record `activatedAt` on the first successful runtime auth
 - compute inboxPrefix
-- derive permissions from the active device profile and issue JWT
+- derive permissions from the active device deployment and issue JWT
 - do not emit `events.v1.Auth.Connect` for activated-device sessions
 ```
 
@@ -371,8 +371,8 @@ All auth errors use `AuthError` with a `reason` code.
 | Service disabled                | `service_disabled`           |
 | Unknown device                  | `unknown_device`             |
 | Device activation revoked       | `device_activation_revoked`  |
-| Device profile not found        | `device_profile_not_found`   |
-| Device profile disabled         | `device_profile_disabled`    |
+| Device deployment not found     | `device_deployment_not_found` |
+| Device deployment disabled      | `device_deployment_disabled` |
 | Service-only capability on user | `service_role_on_user`       |
 | Reply mismatch                  | `reply_subject_mismatch`     |
 | Missing capabilities            | `insufficient_permissions`   |
@@ -462,7 +462,7 @@ device activation.
   contract?: Record<string, unknown>;
   deviceActivation?: {
     instanceId: string;
-    profileId: string;
+    deploymentId: string;
     publicIdentityKey: string;
     nonce: string;
     qrMac: string;
@@ -511,7 +511,7 @@ type ActivatedDeviceSession = {
   type: "device";
   instanceId: string;
   publicIdentityKey: string;
-  profileId: string;
+  deploymentId: string;
   contractId: string;
   contractDigest: string;
   delegatedCapabilities: string[];

@@ -44,24 +44,26 @@ cargo xtask prepare
 ## 3. Install from source
 
 ```sh
-trellis service install --source ./contracts/my_service.ts
+trellis deploy create svc/my-service
+trellis deploy apply svc/my-service --source ./contracts/my_service.ts
+trellis deploy provision svc/my-service
 ```
 
-The CLI reads the contract definition directly from source, generates a session key, and installs the contract.
+The CLI reads the contract definition directly from source, applies it to the service deployment, generates a service instance key, and provisions an instance.
 
 The CLI will:
 
-- generate a new Ed25519 session seed locally
-- derive the public session key for the service
+- generate a new Ed25519 instance seed locally
+- derive the public session key for the service instance
 - infer defaults such as display name, description, and namespaces from the contract
 - show an installation review before sending the request
 
 ## 4. Store the seed immediately
 
-After a successful install, the CLI prints:
+After a successful provision, the CLI prints:
 
 ```text
-installed service contract
+provisioned service instance
 sessionKey=<public-key>
 contractId=trellis.my-service@v1
 contractDigest=<digest>
@@ -76,7 +78,7 @@ Save the seed to your env file or secret store immediately. The CLI will not pri
 Pass the seed and NATS details as environment variables and start the service with your normal command:
 
 ```sh
-export MY_SERVICE_SESSION_KEY_SEED="<seed printed by trellis service install>"
+export MY_SERVICE_SESSION_KEY_SEED="<seed printed by trellis deploy provision>"
 export NATS_SERVERS=localhost
 export NATS_SENTINEL_CREDS=/path/to/sentinel.creds
 ```
@@ -93,19 +95,13 @@ npm run dev
 
 ## 6. Upgrade when the contract changes
 
-When you change the contract, upgrade the installed service identity:
+When you change the contract, apply the new digest to the service deployment:
 
 ```sh
-trellis service upgrade --source ./contracts/my_service.ts
+trellis deploy apply svc/my-service --source ./contracts/my_service.ts
 ```
 
-If you need to target a specific installed service:
-
-```sh
-trellis service upgrade --source ./contracts/my_service.ts --seed <private-seed>
-```
-
-Upgrade keeps the service key the same and updates the installed contract digest. Restart the service process after upgrading.
+Applying a new digest keeps the service instance key the same. Restart the service process after applying the updated contract.
 
 ## What install actually grants
 
@@ -121,18 +117,14 @@ Trellis derives service access from:
 
 | Flag | Command | What it does |
 | --- | --- | --- |
-| `--display-name` | `service install` | Overrides the default display name inferred from the contract |
-| `--description` | `service install` | Stores an explicit operator-facing description |
-| `--namespace` | `service install` | Adds extra namespaces beyond the ones inferred from the contract |
-| `--inactive` | `service install` | Installs the service in an inactive state |
-| `-f` | both | Skips the interactive confirmation prompt |
-| `--service-key` | `service upgrade` | Targets a specific installed service |
-| `--seed` | `service upgrade` | Resolves the service key from a local seed |
+| `--namespace` | `deploy create svc/...` | Adds namespaces for the service deployment |
+| `-f` | `deploy apply` / `deploy remove` | Skips the interactive confirmation prompt |
+| `--instance-seed` | `deploy provision svc/...` | Uses an existing service instance seed |
 
 ## Development loop
 
 1. update schemas and the `defineContract(...)` module
 2. run the repo-local prepare task (`deno task prepare` or `cargo xtask prepare`)
-3. `trellis service upgrade --source`
+3. `trellis deploy apply svc/my-service --source ./contracts/my_service.ts`
 4. restart the service
 5. confirm the expected RPCs, events, and bindings work

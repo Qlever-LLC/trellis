@@ -109,46 +109,42 @@ For Deno devices, the activation helper hides local activation-state persistence
 internally so the same activation attempt can survive restart without the
 application managing pending activation details directly.
 
-## 4. Create the device profile
+## 4. Create the device deployment
 
-Once the code shape is clear, create the server-side device profile.
+Once the code shape is clear, create the server-side device deployment and apply the device contract to it.
 
 ```sh
-trellis device profile create \
-  my-device.standard \
-  ./contracts/my_device.ts \
-  --review-mode none
+trellis deploy create dev/my-device.standard --review-mode none
+trellis deploy apply dev/my-device.standard --source ./contracts/my_device.ts
 ```
 
 Notes:
 
-- the first positional argument is the admin-chosen profile identifier for this device line or rollout policy
-- the second positional argument may be either a contract source path or a contract id
-- when you pass a source path, the CLI resolves the exact digest from that contract source and registers the contract record for devices that are not services
-- when you pass a contract id, the CLI resolves the currently active digests for that contract lineage
+- the `dev/<id>` reference names the admin-chosen deployment for this device line or rollout policy
+- `trellis deploy apply` accepts a contract source path, manifest, or image and stores the resolved digest in the deployment's allowed digest set
 - `--review-mode required` enables the device-review gate instead of immediate activation
 
-If the device profile uses `--review-mode required`, portal completion does not activate the device immediately. Instead, a service with `device.review` capabilities or an admin must first approve the activation.
+If the device deployment uses `--review-mode required`, portal completion does not activate the device immediately. Instead, a service with `device.review` capabilities or an admin must first approve the activation.
 
 An admin can approve a pending activation review using the CLI:
 
 ```sh
 # Find the pending review ID
-trellis device review list
+trellis deploy review list
 
 # Approve it
-trellis device review approve dar_123456789
+trellis deploy review approve dar_123456789
 ```
 
 After approval, the activation flow proceeds as normal.
 
 ## 5. Provision a device instance
 
-A specific device instance can be provisioned with `trellis device provision`. This generates a device root secret, derives the device keys, registers the instance with Trellis, and prints the provisioning values.
+A specific device instance can be provisioned with `trellis deploy provision dev/<id>`. This generates a device root secret, derives the device keys, registers the instance with Trellis, and prints the provisioning values.
 
 ```sh
-trellis device provision \
-  my-device.standard \
+trellis deploy provision \
+  dev/my-device.standard \
   --name "Front Desk Reader" \
   --serial-number SN-123 \
   --model-number MX-10 \
@@ -165,8 +161,8 @@ In the console admin app, the device instances, activations, and reviews pages a
 To inspect provisioned instances later:
 
 ```sh
-trellis device instance list
-trellis device instance list --show-metadata
+trellis deploy instances dev
+trellis deploy instances dev --show-metadata
 ```
 
 The default table shows `name`, `serial`, and `model` when present. `--show-metadata` adds a column for the remaining opaque metadata.
@@ -174,17 +170,14 @@ The default table shows `name`, `serial`, and `model` when present. `--show-meta
 ## 6. Roll out a new contract digest
 
 ```sh
-trellis device profile create \
-  my-device.standard \
-  ./contracts/my_device.ts \
-  --review-mode none
+trellis deploy apply dev/my-device.standard --source ./contracts/my_device.ts
 ```
 
-When a deployment needs to allow multiple active digests for one contract lineage during rollout, Trellis stores those in `allowedDigests` behind the profile. 
+When a deployment needs to allow multiple active digests for one contract lineage during rollout, Trellis stores those in `allowedDigests` behind the device deployment.
 
-> **Warning:** `trellis device profile create` is destructive and overwrites the entire profile record, replacing all `allowedDigests`. If you are rolling out a new version and want to keep old instances connected during the transition, you must manually include both the old and new digests in your command. Since the CLI infers digests from the contract argument, you will need to run the explicit profile-management flow that preserves every digest you still want allowed.
+Use `trellis deploy apply` to allow a new digest and `trellis deploy unapply` to retire old digests after no instances depend on them.
 
-If the device contract has not been installed yet, use the same contract source path with `trellis device profile create`; Trellis will store the digest in the catalog as part of profile creation.
+If the device contract has not been installed yet, use the same contract source path with `trellis deploy apply`; Trellis will store the digest in the catalog as part of application.
 
 ## 7. Revoke an activated device
 
@@ -193,8 +186,8 @@ Revocation also removes the device's ability to reconnect with previously fetche
 
 ```sh
 # Find the instance ID
-trellis device activation list
+trellis deploy activation list
 
 # Revoke the device
-trellis device activation revoke dev_123456789
+trellis deploy activation revoke dev_123456789
 ```

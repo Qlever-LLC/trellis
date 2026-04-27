@@ -224,7 +224,7 @@ export function makeDeviceSession(args: {
     type: "device",
     instanceId: args.deviceId,
     publicIdentityKey: "pubkey",
-    profileId: "reader.default",
+    deploymentId: "reader.default",
     contractId: args.contractId,
     contractDigest: args.contractDigest ?? `${args.contractId}-digest`,
     delegatedCapabilities: [],

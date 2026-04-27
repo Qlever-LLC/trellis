@@ -106,7 +106,7 @@ export const devicePortalSelections = sqliteTable(
   {
     id: text("id").primaryKey().$defaultFn(() => ulid()),
     selectionKey: text("selection_key").notNull().unique(),
-    profileId: text("profile_id").notNull().unique(),
+    deploymentId: text("deployment_id").notNull().unique(),
     portalId: text("portal_id"),
   },
 );
@@ -125,11 +125,11 @@ export const instanceGrantPolicies = sqliteTable(
   },
 );
 
-export const serviceProfiles = sqliteTable(
-  "service_profiles",
+export const serviceDeployments = sqliteTable(
+  "service_deployments",
   {
     id: text("id").primaryKey().$defaultFn(() => ulid()),
-    profileId: text("profile_id").notNull().unique(),
+    deploymentId: text("deployment_id").notNull().unique(),
     namespaces: text("namespaces").notNull(),
     disabled: integer("disabled", { mode: "boolean" }).notNull(),
     appliedContracts: text("applied_contracts").notNull(),
@@ -141,7 +141,7 @@ export const serviceInstances = sqliteTable(
   {
     id: text("id").primaryKey().$defaultFn(() => ulid()),
     instanceId: text("instance_id").notNull().unique(),
-    profileId: text("profile_id").notNull(),
+    deploymentId: text("deployment_id").notNull(),
     instanceKey: text("instance_key").notNull().unique(),
     disabled: integer("disabled", { mode: "boolean" }).notNull(),
     currentContractId: text("current_contract_id"),
@@ -152,11 +152,11 @@ export const serviceInstances = sqliteTable(
   },
 );
 
-export const deviceProfiles = sqliteTable(
-  "device_profiles",
+export const deviceDeployments = sqliteTable(
+  "device_deployments",
   {
     id: text("id").primaryKey().$defaultFn(() => ulid()),
-    profileId: text("profile_id").notNull().unique(),
+    deploymentId: text("deployment_id").notNull().unique(),
     reviewMode: text("review_mode"),
     disabled: integer("disabled", { mode: "boolean" }).notNull(),
     appliedContracts: text("applied_contracts").notNull(),
@@ -169,7 +169,7 @@ export const deviceInstances = sqliteTable(
     id: text("id").primaryKey().$defaultFn(() => ulid()),
     instanceId: text("instance_id").notNull().unique(),
     publicIdentityKey: text("public_identity_key").notNull().unique(),
-    profileId: text("profile_id").notNull(),
+    deploymentId: text("deployment_id").notNull(),
     metadata: text("metadata"),
     state: text("state").notNull(),
     currentContractId: text("current_contract_id"),
@@ -196,7 +196,7 @@ export const deviceActivations = sqliteTable(
     id: text("id").primaryKey().$defaultFn(() => ulid()),
     instanceId: text("instance_id").notNull().unique(),
     publicIdentityKey: text("public_identity_key").notNull().unique(),
-    profileId: text("profile_id").notNull(),
+    deploymentId: text("deployment_id").notNull(),
     activatedBy: text("activated_by"),
     state: text("state").notNull(),
     activatedAt: text("activated_at").notNull(),
@@ -212,7 +212,7 @@ export const deviceActivationReviews = sqliteTable(
     flowId: text("flow_id").notNull().unique(),
     instanceId: text("instance_id").notNull(),
     publicIdentityKey: text("public_identity_key").notNull(),
-    profileId: text("profile_id").notNull(),
+    deploymentId: text("deployment_id").notNull(),
     requestedBy: text("requested_by").notNull(),
     state: text("state").notNull(),
     requestedAt: text("requested_at").notNull(),
@@ -234,7 +234,7 @@ export const sessions = sqliteTable(
     contractId: text("contract_id"),
     participantKind: text("participant_kind"),
     instanceId: text("instance_id"),
-    profileId: text("profile_id"),
+    deploymentId: text("deployment_id"),
     instanceKey: text("instance_key"),
     publicIdentityKey: text("public_identity_key"),
     createdAt: text("created_at").notNull(),
@@ -257,9 +257,9 @@ export const schema = {
   loginPortalSelections,
   devicePortalSelections,
   instanceGrantPolicies,
-  serviceProfiles,
+  serviceDeployments,
   serviceInstances,
-  deviceProfiles,
+  deviceDeployments,
   deviceInstances,
   deviceProvisioningSecrets,
   deviceActivations,

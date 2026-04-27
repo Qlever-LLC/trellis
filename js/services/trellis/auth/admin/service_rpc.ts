@@ -10,19 +10,19 @@ import { type AuthRuntimeDeps, authRuntimeDeps } from "../runtime_deps.ts";
 import type { Connection } from "../../state/schemas.ts";
 import type { SqlSessionRepository } from "../storage.ts";
 import { connectionFilterForSession } from "../session/connections.ts";
-import { createAuthApplyServiceProfileContractHandler as createAuthApplyServiceProfileContractHandlerBase } from "./service_profile_apply.ts";
+import { createAuthApplyServiceDeploymentContractHandler as createAuthApplyServiceDeploymentContractHandlerBase } from "./service_deployment_apply.ts";
 import {
   normalizeAppliedContracts,
+  type ServiceDeployment,
   type ServiceInstance,
-  type ServiceProfile,
-  validateServiceProfileRequest,
+  validateServiceDeploymentRequest,
   validateServiceProvisionRequest,
 } from "./shared.ts";
 
 type RpcUser = { type: string; id?: string };
 
-type ServiceProfileStorage = Pick<
-  AuthRuntimeDeps["serviceProfileStorage"],
+type ServiceDeploymentStorage = Pick<
+  AuthRuntimeDeps["serviceDeploymentStorage"],
   "get" | "put" | "delete" | "list"
 >;
 type ServiceInstanceStorage = Pick<
@@ -33,7 +33,7 @@ type ServiceInstanceStorage = Pick<
   | "put"
   | "delete"
   | "list"
-  | "listByProfile"
+  | "listByDeployment"
 >;
 
 const logger = {
@@ -41,12 +41,13 @@ const logger = {
     authRuntimeDeps().logger.trace(fields, message),
 };
 
-const serviceProfileStorage: ServiceProfileStorage = {
-  get: (profileId) => authRuntimeDeps().serviceProfileStorage.get(profileId),
-  put: (record) => authRuntimeDeps().serviceProfileStorage.put(record),
-  delete: (profileId) =>
-    authRuntimeDeps().serviceProfileStorage.delete(profileId),
-  list: () => authRuntimeDeps().serviceProfileStorage.list(),
+const serviceDeploymentStorage: ServiceDeploymentStorage = {
+  get: (deploymentId) =>
+    authRuntimeDeps().serviceDeploymentStorage.get(deploymentId),
+  put: (record) => authRuntimeDeps().serviceDeploymentStorage.put(record),
+  delete: (deploymentId) =>
+    authRuntimeDeps().serviceDeploymentStorage.delete(deploymentId),
+  list: () => authRuntimeDeps().serviceDeploymentStorage.list(),
 };
 
 const serviceInstanceStorage: ServiceInstanceStorage = {
@@ -59,8 +60,8 @@ const serviceInstanceStorage: ServiceInstanceStorage = {
   delete: (instanceId) =>
     authRuntimeDeps().serviceInstanceStorage.delete(instanceId),
   list: () => authRuntimeDeps().serviceInstanceStorage.list(),
-  listByProfile: (profileId) =>
-    authRuntimeDeps().serviceInstanceStorage.listByProfile(profileId),
+  listByDeployment: (deploymentId) =>
+    authRuntimeDeps().serviceInstanceStorage.listByDeployment(deploymentId),
 };
 
 type KVLike<V> = {
@@ -120,11 +121,11 @@ async function kickInstanceRuntimeAccess(args: {
   await sessionStore.deleteByInstanceKey(args.instanceKey);
 }
 
-async function instancesForProfile(
-  profileId: string,
+async function instancesForDeployment(
+  deploymentId: string,
   store: ServiceInstanceStorage = authRuntimeDeps().serviceInstanceStorage,
 ): Promise<ServiceInstance[]> {
-  return await store.listByProfile(profileId);
+  return await store.listByDeployment(deploymentId);
 }
 
 async function refreshActiveContracts(
@@ -142,56 +143,58 @@ function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
 
-export const authListServiceProfilesHandler = async (
+export const authListServiceDeploymentsHandler = async (
   { input: req }: { input: { disabled?: boolean } },
-): Promise<Result<{ profiles: ServiceProfile[] }, UnexpectedError>> => {
-  logger.trace({ rpc: "Auth.ListServiceProfiles" }, "RPC request");
+): Promise<Result<{ deployments: ServiceDeployment[] }, UnexpectedError>> => {
+  logger.trace({ rpc: "Auth.ListServiceDeployments" }, "RPC request");
   try {
-    const profiles = (await serviceProfileStorage.list()).filter((profile) =>
-      req.disabled === undefined || profile.disabled === req.disabled
-    );
-    return Result.ok({ profiles });
+    const deployments = (await serviceDeploymentStorage.list()).filter((
+      deployment,
+    ) => req.disabled === undefined || deployment.disabled === req.disabled);
+    return Result.ok({ deployments });
   } catch (error) {
     return Result.err(new UnexpectedError({ cause: toError(error) }));
   }
 };
 
-export function createAuthCreateServiceProfileHandler() {
+export function createAuthCreateServiceDeploymentHandler() {
   return async (
     {
       input: req,
       context: { caller },
     }: {
-      input: { profileId: string; namespaces: string[] };
+      input: { deploymentId: string; namespaces: string[] };
       context: { caller: RpcUser };
     },
   ) => {
     logger.trace({
-      rpc: "Auth.CreateServiceProfile",
+      rpc: "Auth.CreateServiceDeployment",
       caller,
-      profileId: req.profileId,
+      deploymentId: req.deploymentId,
     }, "RPC request");
-    const validated = validateServiceProfileRequest(req).take();
+    const validated = validateServiceDeploymentRequest(req).take();
     if (isErr(validated)) return Result.err(validated.error);
-    const { profile } = validated;
+    const { deployment } = validated;
 
-    const existing = await serviceProfileStorage.get(profile.profileId);
+    const existing = await serviceDeploymentStorage.get(
+      deployment.deploymentId,
+    );
     if (existing) {
-      return invalid("/profileId", "service profile already exists", {
-        profileId: profile.profileId,
+      return invalid("/deploymentId", "service deployment already exists", {
+        deploymentId: deployment.deploymentId,
       });
     }
 
     try {
-      await serviceProfileStorage.put(profile);
+      await serviceDeploymentStorage.put(deployment);
     } catch (error) {
       return Result.err(new UnexpectedError({ cause: toError(error) }));
     }
-    return Result.ok({ profile });
+    return Result.ok({ deployment });
   };
 }
 
-export function createAuthApplyServiceProfileContractHandler(deps: {
+export function createAuthApplyServiceDeploymentContractHandler(deps: {
   installServiceContract: (contract: unknown) => Promise<{
     id: string;
     digest: string;
@@ -201,24 +204,24 @@ export function createAuthApplyServiceProfileContractHandler(deps: {
   }>;
   refreshActiveContracts: () => Promise<void>;
 }) {
-  const handler = createAuthApplyServiceProfileContractHandlerBase({
+  const handler = createAuthApplyServiceDeploymentContractHandlerBase({
     ...deps,
-    serviceProfileStorage,
+    serviceDeploymentStorage,
   });
   return async (args: {
-    input: { profileId: string; contract: unknown };
+    input: { deploymentId: string; contract: unknown };
     context: { caller: RpcUser };
   }) => {
     logger.trace({
-      rpc: "Auth.ApplyServiceProfileContract",
+      rpc: "Auth.ApplyServiceDeploymentContract",
       caller: args.context.caller,
-      profileId: args.input.profileId,
+      deploymentId: args.input.deploymentId,
     }, "RPC request");
     return await handler(args);
   };
 }
 
-export function createAuthUnapplyServiceProfileContractHandler(deps: {
+export function createAuthUnapplyServiceDeploymentContractHandler(deps: {
   kick: (serverId: string, clientId: number) => Promise<void>;
   refreshActiveContracts: () => Promise<void>;
 }) {
@@ -227,25 +230,25 @@ export function createAuthUnapplyServiceProfileContractHandler(deps: {
       input: req,
       context: { caller },
     }: {
-      input: { profileId: string; contractId: string; digests?: string[] };
+      input: { deploymentId: string; contractId: string; digests?: string[] };
       context: { caller: RpcUser };
     },
   ) => {
     logger.trace({
-      rpc: "Auth.UnapplyServiceProfileContract",
+      rpc: "Auth.UnapplyServiceDeploymentContract",
       caller,
-      profileId: req.profileId,
+      deploymentId: req.deploymentId,
     }, "RPC request");
-    const profile = await serviceProfileStorage.get(req.profileId);
-    if (!profile) {
-      return invalid("/profileId", "service profile not found", {
-        profileId: req.profileId,
+    const deployment = await serviceDeploymentStorage.get(req.deploymentId);
+    if (!deployment) {
+      return invalid("/deploymentId", "service deployment not found", {
+        deploymentId: req.deploymentId,
       });
     }
 
     const removeDigests = new Set(req.digests ?? []);
-    const nextContracts = profile.appliedContracts
-      .map((applied: ServiceProfile["appliedContracts"][number]) => {
+    const nextContracts = deployment.appliedContracts
+      .map((applied: ServiceDeployment["appliedContracts"][number]) => {
         if (applied.contractId !== req.contractId) return applied;
         if (removeDigests.size === 0) return null;
         const remaining = applied.allowedDigests.filter((digest: string) =>
@@ -256,15 +259,17 @@ export function createAuthUnapplyServiceProfileContractHandler(deps: {
           : null;
       })
       .filter((
-        value: ServiceProfile["appliedContracts"][number] | null,
-      ): value is ServiceProfile["appliedContracts"][number] => value !== null);
+        value: ServiceDeployment["appliedContracts"][number] | null,
+      ): value is ServiceDeployment["appliedContracts"][number] =>
+        value !== null
+      );
 
-    const nextProfile: ServiceProfile = {
-      ...profile,
+    const nextDeployment: ServiceDeployment = {
+      ...deployment,
       appliedContracts: normalizeAppliedContracts(nextContracts),
     };
     try {
-      await serviceProfileStorage.put(nextProfile);
+      await serviceDeploymentStorage.put(nextDeployment);
     } catch (error) {
       return Result.err(new UnexpectedError({ cause: toError(error) }));
     }
@@ -273,8 +278,8 @@ export function createAuthUnapplyServiceProfileContractHandler(deps: {
     if (isErr(refreshed)) return refreshed;
 
     for (
-      const instance of await instancesForProfile(
-        profile.profileId,
+      const instance of await instancesForDeployment(
+        deployment.deploymentId,
         serviceInstanceStorage,
       )
     ) {
@@ -289,42 +294,42 @@ export function createAuthUnapplyServiceProfileContractHandler(deps: {
       });
     }
 
-    return Result.ok({ profile: nextProfile });
+    return Result.ok({ deployment: nextDeployment });
   };
 }
 
-function toggleProfileDisabled(
-  profile: ServiceProfile,
+function toggleDeploymentDisabled(
+  deployment: ServiceDeployment,
   disabled: boolean,
-): ServiceProfile {
-  return { ...profile, disabled };
+): ServiceDeployment {
+  return { ...deployment, disabled };
 }
 
-export function createAuthDisableServiceProfileHandler(deps: {
+export function createAuthDisableServiceDeploymentHandler(deps: {
   kick: (serverId: string, clientId: number) => Promise<void>;
   refreshActiveContracts: () => Promise<void>;
 }) {
-  return async ({ input: req }: { input: { profileId: string } }) => {
-    const profile = await serviceProfileStorage.get(req.profileId);
-    if (!profile) {
-      return invalid("/profileId", "service profile not found", {
-        profileId: req.profileId,
+  return async ({ input: req }: { input: { deploymentId: string } }) => {
+    const deployment = await serviceDeploymentStorage.get(req.deploymentId);
+    if (!deployment) {
+      return invalid("/deploymentId", "service deployment not found", {
+        deploymentId: req.deploymentId,
       });
     }
-    const nextProfile = toggleProfileDisabled(
-      profile,
+    const nextDeployment = toggleDeploymentDisabled(
+      deployment,
       true,
     );
     try {
-      await serviceProfileStorage.put(nextProfile);
+      await serviceDeploymentStorage.put(nextDeployment);
     } catch (error) {
       return Result.err(new UnexpectedError({ cause: toError(error) }));
     }
     const refreshed = await refreshActiveContracts(deps.refreshActiveContracts);
     if (isErr(refreshed)) return refreshed;
     for (
-      const instance of await instancesForProfile(
-        nextProfile.profileId,
+      const instance of await instancesForDeployment(
+        nextDeployment.deploymentId,
         serviceInstanceStorage,
       )
     ) {
@@ -333,64 +338,68 @@ export function createAuthDisableServiceProfileHandler(deps: {
         kick: deps.kick,
       });
     }
-    return Result.ok({ profile: nextProfile });
+    return Result.ok({ deployment: nextDeployment });
   };
 }
 
-export function createAuthEnableServiceProfileHandler(deps: {
+export function createAuthEnableServiceDeploymentHandler(deps: {
   refreshActiveContracts: () => Promise<void>;
 }) {
   return async (
-    { input: req }: { input: { profileId: string } },
+    { input: req }: { input: { deploymentId: string } },
   ): Promise<
-    Result<{ profile: ServiceProfile }, ValidationError | UnexpectedError>
+    Result<{ deployment: ServiceDeployment }, ValidationError | UnexpectedError>
   > => {
-    const profile = await serviceProfileStorage.get(req.profileId);
-    if (!profile) {
-      return invalid("/profileId", "service profile not found", {
-        profileId: req.profileId,
+    const deployment = await serviceDeploymentStorage.get(req.deploymentId);
+    if (!deployment) {
+      return invalid("/deploymentId", "service deployment not found", {
+        deploymentId: req.deploymentId,
       });
     }
-    const nextProfile = toggleProfileDisabled(
-      profile,
+    const nextDeployment = toggleDeploymentDisabled(
+      deployment,
       false,
     );
     try {
-      await serviceProfileStorage.put(nextProfile);
+      await serviceDeploymentStorage.put(nextDeployment);
     } catch (error) {
       return Result.err(new UnexpectedError({ cause: toError(error) }));
     }
     const refreshed = await refreshActiveContracts(deps.refreshActiveContracts);
     if (isErr(refreshed)) return refreshed;
-    return Result.ok({ profile: nextProfile });
+    return Result.ok({ deployment: nextDeployment });
   };
 }
 
-export function createAuthRemoveServiceProfileHandler(deps: {
+export function createAuthRemoveServiceDeploymentHandler(deps: {
   refreshActiveContracts: () => Promise<void>;
 }) {
   return async (
-    { input: req }: { input: { profileId: string } },
+    { input: req }: { input: { deploymentId: string } },
   ): Promise<
     Result<{ success: boolean }, ValidationError | UnexpectedError>
   > => {
-    const instances = await instancesForProfile(
-      req.profileId,
+    const instances = await instancesForDeployment(
+      req.deploymentId,
       serviceInstanceStorage,
     );
     if (instances.length > 0) {
-      return invalid("/profileId", "service profile still has instances", {
-        profileId: req.profileId,
-      });
+      return invalid(
+        "/deploymentId",
+        "service deployment still has instances",
+        {
+          deploymentId: req.deploymentId,
+        },
+      );
     }
-    const existing = await serviceProfileStorage.get(req.profileId);
+    const existing = await serviceDeploymentStorage.get(req.deploymentId);
     if (!existing) {
-      return invalid("/profileId", "service profile not found", {
-        profileId: req.profileId,
+      return invalid("/deploymentId", "service deployment not found", {
+        deploymentId: req.deploymentId,
       });
     }
     try {
-      await serviceProfileStorage.delete(req.profileId);
+      await serviceDeploymentStorage.delete(req.deploymentId);
     } catch (error) {
       return Result.err(new UnexpectedError({ cause: toError(error) }));
     }
@@ -406,24 +415,24 @@ export function createAuthProvisionServiceInstanceHandler() {
       input: req,
       context: { caller },
     }: {
-      input: { profileId: string; instanceKey: string };
+      input: { deploymentId: string; instanceKey: string };
       context: { caller: RpcUser };
     },
   ) => {
     logger.trace({
       rpc: "Auth.ProvisionServiceInstance",
       caller,
-      profileId: req.profileId,
+      deploymentId: req.deploymentId,
     }, "RPC request");
-    const profile = await serviceProfileStorage.get(req.profileId);
-    if (!profile) {
-      return invalid("/profileId", "service profile not found", {
-        profileId: req.profileId,
+    const deployment = await serviceDeploymentStorage.get(req.deploymentId);
+    if (!deployment) {
+      return invalid("/deploymentId", "service deployment not found", {
+        deploymentId: req.deploymentId,
       });
     }
-    if (profile.disabled) {
-      return invalid("/profileId", "service profile is disabled", {
-        profileId: req.profileId,
+    if (deployment.disabled) {
+      return invalid("/deploymentId", "service deployment is disabled", {
+        deploymentId: req.deploymentId,
       });
     }
 
@@ -448,13 +457,13 @@ export function createAuthProvisionServiceInstanceHandler() {
 }
 
 export const authListServiceInstancesHandler = async (
-  { input: req }: { input: { profileId?: string; disabled?: boolean } },
+  { input: req }: { input: { deploymentId?: string; disabled?: boolean } },
 ): Promise<Result<{ instances: ServiceInstance[] }, UnexpectedError>> => {
   logger.trace({ rpc: "Auth.ListServiceInstances" }, "RPC request");
   try {
-    const instances = (req.profileId === undefined
+    const instances = (req.deploymentId === undefined
       ? await serviceInstanceStorage.list()
-      : await serviceInstanceStorage.listByProfile(req.profileId))
+      : await serviceInstanceStorage.listByDeployment(req.deploymentId))
       .filter((instance) =>
         req.disabled === undefined || instance.disabled === req.disabled
       );
@@ -468,6 +477,7 @@ async function setInstanceDisabled(args: {
   instanceId: string;
   disabled: boolean;
   kick: (serverId: string, clientId: number) => Promise<void>;
+  refreshActiveContracts: () => Promise<void>;
 }): Promise<
   Result<{ instance: ServiceInstance }, ValidationError | UnexpectedError>
 > {
@@ -483,6 +493,8 @@ async function setInstanceDisabled(args: {
   } catch (error) {
     return Result.err(new UnexpectedError({ cause: toError(error) }));
   }
+  const refreshed = await refreshActiveContracts(args.refreshActiveContracts);
+  if (isErr(refreshed)) return refreshed;
   await kickInstanceRuntimeAccess({
     instanceKey: nextInstance.instanceKey,
     kick: args.kick,
@@ -492,16 +504,28 @@ async function setInstanceDisabled(args: {
 
 export function createAuthDisableServiceInstanceHandler(deps: {
   kick: (serverId: string, clientId: number) => Promise<void>;
+  refreshActiveContracts: () => Promise<void>;
 }) {
   return async ({ input: req }: { input: { instanceId: string } }) =>
-    await setInstanceDisabled({ ...req, disabled: true, kick: deps.kick });
+    await setInstanceDisabled({
+      ...req,
+      disabled: true,
+      kick: deps.kick,
+      refreshActiveContracts: deps.refreshActiveContracts,
+    });
 }
 
 export function createAuthEnableServiceInstanceHandler(deps: {
   kick: (serverId: string, clientId: number) => Promise<void>;
+  refreshActiveContracts: () => Promise<void>;
 }) {
   return async ({ input: req }: { input: { instanceId: string } }) =>
-    await setInstanceDisabled({ ...req, disabled: false, kick: deps.kick });
+    await setInstanceDisabled({
+      ...req,
+      disabled: false,
+      kick: deps.kick,
+      refreshActiveContracts: deps.refreshActiveContracts,
+    });
 }
 
 export function createAuthRemoveServiceInstanceHandler(deps: {
@@ -536,8 +560,8 @@ export async function loadServiceInstanceByKey(
   return await serviceInstanceStorage.getByInstanceKey(instanceKey) ?? null;
 }
 
-export async function loadServiceProfile(
-  profileId: string,
-): Promise<ServiceProfile | null> {
-  return await serviceProfileStorage.get(profileId) ?? null;
+export async function loadServiceDeployment(
+  deploymentId: string,
+): Promise<ServiceDeployment | null> {
+  return await serviceDeploymentStorage.get(deploymentId) ?? null;
 }

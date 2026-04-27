@@ -33,15 +33,15 @@ model.
 Key decisions:
 
 - `device` is the primary architecture term for this activation model
-- activated devices are preregistered against deployment-owned device profiles
-- the client does not choose a flow type or profile during normal activation
-- Trellis resolves the device instance, device profile, and activation portal
+- activated devices are preregistered against deployment-owned device deployments
+- the client does not choose a flow type or deployment during normal activation
+- Trellis resolves the device instance, device deployment, and activation portal
   policy from preregistered records
 - the activation portal is still a browser web app; if it calls Trellis after
   login, it does so as the logged-in user rather than as a service
-- devices present an exact `contractDigest` at runtime; profiles validate
+- devices present an exact `contractDigest` at runtime; deployments validate
   `allowedDigests`
-- profiles do not carry a separate rollout-target digest field
+- device deployments do not carry a separate rollout-target digest field
 - device review is a first-class optional gate controlled by `reviewMode`
 - the provisioning/admin path may generate the device root secret locally, but
   Trellis stores only `publicIdentityKey` plus activation-only secret material
@@ -57,7 +57,7 @@ The expected lifecycle is:
 
 1. an admin or manufacturing/provisioning process provisions the device instance
    by `publicIdentityKey` and `activationKey`
-2. that instance is attached to a device profile
+2. that instance is attached to a device deployment
 3. a user later activates the device through an authenticated portal flow
 4. the activated device reconnects later by asking Trellis for current connect
    info
@@ -107,14 +107,14 @@ Rules:
 - clients do not pass a separate user-chosen instance identifier in the normal
   path
 
-### 3) Device profiles define rollout and review policy
+### 3) Device deployments define rollout and review policy
 
-`DeviceProfile` is a deployment-owned record used during activation and online
+`DeviceDeployment` is a deployment-owned record used during activation and online
 auth.
 
 ```json
 {
-  "profileId": "reader.default",
+  "deploymentId": "reader.default",
   "appliedContracts": [
     {
       "contractId": "acme.reader@v1",
@@ -128,10 +128,10 @@ auth.
 
 Rules:
 
-- `profileId` is the stable server-side identifier attached to the device
+- `deploymentId` is the stable server-side identifier attached to the device
   instance and activation record
 - `appliedContracts` stores the allowed contract lineages and digest sets for
-  the profile
+  the deployment
 - each `contractId` identifies one contract lineage
 - each `allowedDigests` list may contain multiple active digests in that lineage
   during rollout
@@ -154,7 +154,7 @@ Rules:
 
 ### 5) Portal resolution is handled by Trellis
 
-The client does not pass `flowType`, `profileId`, or `portalId` in the normal
+The client does not pass `flowType`, `deploymentId`, or `portalId` in the normal
 path.
 
 Routing rules:
@@ -164,13 +164,13 @@ Routing rules:
   default custom portal when configured, and finally the built-in Trellis login
   portal
 - activated-device flows resolve a portal from explicit deployment-owned device
-  portal selection records keyed by `profileId`, then the deployment device
+  portal selection records keyed by `deploymentId`, then the deployment device
   default custom portal when configured, and finally the built-in Trellis device
   portal
 
 This is automatic resolution in the sense that callers do not choose the portal
 explicitly. It is still explicit on the server side because Trellis relies on
-stored portal, login-selection, device-selection, and device-profile records
+stored portal, login-selection, device-selection, and device-deployment records
 plus the built-in Trellis fallback.
 
 ### 6) Known-device activation uses one auth-owned operation
@@ -227,7 +227,7 @@ account creation.
   "kind": "device_activation",
   "deviceActivation": {
     "instanceId": "dev_...",
-    "profileId": "reader.default",
+    "deploymentId": "reader.default",
     "publicIdentityKey": "<base64url>",
     "nonce": "<base64url>",
     "qrMac": "<base64url>"
@@ -243,7 +243,7 @@ account creation.
 {
   "instanceId": "dev_...",
   "publicIdentityKey": "<base64url>",
-  "profileId": "reader.default",
+  "deploymentId": "reader.default",
   "metadata": {
     "name": "Front Desk Reader",
     "serialNumber": "SN-123",
@@ -284,7 +284,7 @@ Rules:
   "flowId": "flow_...",
   "instanceId": "dev_...",
   "publicIdentityKey": "<base64url>",
-  "profileId": "reader.default",
+  "deploymentId": "reader.default",
   "state": "pending",
   "requestedAt": "2026-04-05T12:03:00Z",
   "decidedAt": null,
@@ -301,7 +301,7 @@ that user later.
 {
   "instanceId": "dev_...",
   "publicIdentityKey": "<base64url>",
-  "profileId": "reader.default",
+  "deploymentId": "reader.default",
   "activatedBy": {
     "origin": "github",
     "id": "123"
@@ -382,7 +382,7 @@ Recommended shared envelope:
 ```ts
 type DeviceConnectInfo = {
   instanceId: string;
-  profileId: string;
+  deploymentId: string;
   contractId: string;
   contractDigest: string;
   transports: {
@@ -429,8 +429,8 @@ Auth validates:
 
 1. the known device instance by public identity key
 2. activation state is `activated`
-3. the device profile is present and enabled
-4. `contractDigest` is included in `profile.allowedDigests`
+3. the device deployment is present and enabled
+4. `contractDigest` is included in `deployment.allowedDigests`
 
 This lets old and new device digests coexist during rollout while keeping
 validation explicit.
@@ -481,7 +481,7 @@ declare function startDeviceActivationRequest(args: {
 }): Promise<{
   flowId: string;
   instanceId: string;
-  profileId: string;
+  deploymentId: string;
   activationUrl: string;
 }>;
 
@@ -559,13 +559,13 @@ declare function createDeviceActivationClient(client: {
   ): Promise<AuthActivateDeviceOperation>;
   listDeviceActivations(input?: {
     instanceId?: string;
-    profileId?: string;
+    deploymentId?: string;
     state?: "activated" | "revoked";
   }): Promise<{
     activations: Array<{
       instanceId: string;
       publicIdentityKey: string;
-      profileId: string;
+      deploymentId: string;
       state: "activated" | "revoked";
       activatedAt: string;
       revokedAt: string | null;

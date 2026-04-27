@@ -64,7 +64,7 @@ function bootstrapContractStateError(args: {
   const base =
     `Service '${args.serviceName}' could not bootstrap contract '${args.contractId}' (${args.contractDigest}) during ${args.step}. ` +
     "This usually means Trellis has stale or incomplete state for this service session. " +
-    "Re-run the service profile apply or instance provisioning flow so Trellis records the allowed digest, permissions, and resource bindings for this instance key.";
+    "Re-run the service deployment apply or instance provisioning flow so Trellis records the allowed digest, permissions, and resource bindings for this instance key.";
   const cause = args.cause
     ? ` Underlying error: ${getErrorCauseMessage(args.cause)}`
     : "";
@@ -231,7 +231,7 @@ export async function connectTrellisServiceInternal<
           `Service '${name}' received bindings for '${
             resolved.binding.contractId ?? "unknown"
           }' (${resolved.binding.digest ?? "unknown"}) ` +
-            `while bootstrapping '${opts.contractId}' (${opts.contractDigest}). Re-run the service profile apply or instance provisioning flow so Trellis records the correct active contract for this instance key.`,
+            `while bootstrapping '${opts.contractId}' (${opts.contractDigest}). Re-run the service deployment apply or instance provisioning flow so Trellis records the correct active contract for this instance key.`,
         );
       }
 

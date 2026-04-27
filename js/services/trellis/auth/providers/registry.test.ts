@@ -61,7 +61,7 @@ function createConfig(): Config {
           clientId: "auth0-client",
           clientSecret: "auth0-secret",
           displayName: "Company SSO",
-          scopes: ["openid", "profile", "email"],
+          scopes: ["openid", "deployment", "email"],
         },
       },
     },

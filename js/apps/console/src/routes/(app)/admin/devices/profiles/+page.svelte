@@ -1,87 +1,81 @@
 <script lang="ts">
   import type {
-    AuthCreateDeviceProfileInput,
-    AuthDisableDeviceProfileInput,
-    AuthListDeviceProfilesInput,
-    AuthListDeviceProfilesOutput,
+    AuthCreateDeviceDeploymentInput,
+    AuthDisableDeviceDeploymentInput,
+    AuthEnableDeviceDeploymentInput,
+    AuthListDeviceDeploymentsInput,
+    AuthListDeviceDeploymentsOutput,
     AuthListInstalledContractsOutput,
+    AuthRemoveDeviceDeploymentInput,
   } from "@qlever-llc/trellis/sdk/auth";
   import { onMount } from "svelte";
   import { errorMessage } from "../../../../../lib/format";
   import { getNotifications } from "../../../../../lib/notifications.svelte";
   import { getTrellis } from "../../../../../lib/trellis";
 
-  type Profile = AuthListDeviceProfilesOutput["profiles"][number];
+  type Deployment = AuthListDeviceDeploymentsOutput["deployments"][number];
   type InstalledContract = AuthListInstalledContractsOutput["contracts"][number];
   type DisabledFilter = "all" | "active" | "disabled";
 
   const trellis = getTrellis();
   const notifications = getNotifications();
-  type ProfilesRequester = {
-    request(method: "Auth.ListDeviceProfiles", input: AuthListDeviceProfilesInput): { orThrow(): Promise<AuthListDeviceProfilesOutput> };
+  type DeploymentsRequester = {
+    request(method: "Auth.ListDeviceDeployments", input: AuthListDeviceDeploymentsInput): { orThrow(): Promise<AuthListDeviceDeploymentsOutput> };
     request(method: "Auth.ListInstalledContracts", input: Record<string, never>): { orThrow(): Promise<AuthListInstalledContractsOutput> };
-    request(method: "Auth.CreateDeviceProfile", input: AuthCreateDeviceProfileInput): { orThrow(): Promise<void> };
-    request(method: "Auth.DisableDeviceProfile", input: AuthDisableDeviceProfileInput): { orThrow(): Promise<void> };
+    request(method: "Auth.CreateDeviceDeployment", input: AuthCreateDeviceDeploymentInput): { orThrow(): Promise<void> };
+    request(method: "Auth.DisableDeviceDeployment", input: AuthDisableDeviceDeploymentInput): { orThrow(): Promise<void> };
+    request(method: "Auth.EnableDeviceDeployment", input: AuthEnableDeviceDeploymentInput): { orThrow(): Promise<void> };
+    request(method: "Auth.RemoveDeviceDeployment", input: AuthRemoveDeviceDeploymentInput): { orThrow(): Promise<void> };
   };
-  const profilesSource: object = trellis;
-  const profilesRequester = profilesSource as ProfilesRequester;
+  const deploymentsSource: object = trellis;
+  const deploymentsRequester = deploymentsSource as DeploymentsRequester;
 
   let loading = $state(true);
   let error = $state<string | null>(null);
   let createPending = $state(false);
-  let disableTarget = $state<string | null>(null);
+  let actionTarget = $state<string | null>(null);
 
-  let profiles = $state<Profile[]>([]);
+  let deployments = $state<Deployment[]>([]);
   let contracts = $state<InstalledContract[]>([]);
 
   let contractFilter = $state("");
   let disabledFilter = $state<DisabledFilter>("all");
 
-  let profileId = $state("");
-  let contractId = $state("");
-  let allowedDigests = $state("");
+  let deploymentId = $state("");
   let reviewMode = $state<"none" | "required">("none");
-  let contractJson = $state("");
 
   function contractOptions() {
     return contracts.map((contract) => contract.id);
   }
 
-  function profileQuery(): AuthListDeviceProfilesInput {
+  function deploymentQuery(): AuthListDeviceDeploymentsInput {
     return {
       disabled: disabledFilter === "all" ? undefined : disabledFilter === "disabled",
     };
   }
 
-  function matchesContractFilter(profile: Profile): boolean {
+  function matchesContractFilter(deployment: Deployment): boolean {
     const filter = contractFilter.trim().toLowerCase();
     if (!filter) return true;
-    return profile.appliedContracts.some((entry) =>
+    return deployment.appliedContracts.some((entry) =>
       entry.contractId.toLowerCase().includes(filter)
     );
   }
 
-  const filteredProfiles = $derived.by(() =>
-    profiles.filter((profile) => matchesContractFilter(profile))
+  const filteredDeployments = $derived.by(() =>
+    deployments.filter((deployment) => matchesContractFilter(deployment))
   );
-
-  function parseDigestList(value: string): string[] {
-    return value
-      .split(/[\s,]+/)
-      .map((digest) => digest.trim())
-      .filter(Boolean);
-  }
 
   async function load() {
     loading = true;
     error = null;
     try {
-      const [profilesResponse, contractsResponse] = await Promise.all([
-        profilesRequester.request("Auth.ListDeviceProfiles", profileQuery()).orThrow(),
-        profilesRequester.request("Auth.ListInstalledContracts", {}).orThrow(),
+      const [deploymentsResponse, contractsResponse] = await Promise.all([
+        deploymentsRequester.request("Auth.ListDeviceDeployments", deploymentQuery()).orThrow(),
+        deploymentsRequester.request("Auth.ListInstalledContracts", {}).orThrow(),
       ]);
 
-      profiles = profilesResponse.profiles ?? [];
+      deployments = deploymentsResponse.deployments ?? [];
       contracts = contractsResponse.contracts ?? [];
     } catch (e) {
       error = errorMessage(e);
@@ -90,23 +84,19 @@
     }
   }
 
-  async function createProfile() {
+  async function createDeployment() {
     createPending = true;
     error = null;
     try {
-      const digests = parseDigestList(allowedDigests);
-      const input: AuthCreateDeviceProfileInput = {
-        profileId: profileId.trim(),
+      const input: AuthCreateDeviceDeploymentInput = {
+        deploymentId: deploymentId.trim(),
         reviewMode,
       };
 
-      await profilesRequester.request("Auth.CreateDeviceProfile", input).orThrow();
-      notifications.success(`Device profile ${input.profileId} created.`, "Created");
-      profileId = "";
-      contractId = "";
-      allowedDigests = "";
+      await deploymentsRequester.request("Auth.CreateDeviceDeployment", input).orThrow();
+      notifications.success(`Device deployment ${input.deploymentId} created.`, "Created");
+      deploymentId = "";
       reviewMode = "none";
-      contractJson = "";
       await load();
     } catch (e) {
       error = errorMessage(e);
@@ -115,23 +105,48 @@
     }
   }
 
-  async function disableProfile(profile: Profile) {
-    if (profile.disabled) return;
-    if (!window.confirm(`Disable device profile ${profile.profileId}?`)) return;
+  async function setDeploymentDisabled(deployment: Deployment, disabled: boolean) {
+    const verb = disabled ? "Disable" : "Enable";
+    if (!window.confirm(`${verb} device deployment ${deployment.deploymentId}?`)) return;
 
-    disableTarget = profile.profileId;
+    actionTarget = `${deployment.deploymentId}:${verb.toLowerCase()}`;
     error = null;
     try {
-      await profilesRequester.request(
-        "Auth.DisableDeviceProfile",
-        { profileId: profile.profileId } satisfies AuthDisableDeviceProfileInput,
-      ).orThrow();
-      notifications.success(`Device profile ${profile.profileId} disabled.`, "Disabled");
+      if (disabled) {
+        await deploymentsRequester.request(
+          "Auth.DisableDeviceDeployment",
+          { deploymentId: deployment.deploymentId } satisfies AuthDisableDeviceDeploymentInput,
+        ).orThrow();
+      } else {
+        await deploymentsRequester.request(
+          "Auth.EnableDeviceDeployment",
+          { deploymentId: deployment.deploymentId } satisfies AuthEnableDeviceDeploymentInput,
+        ).orThrow();
+      }
+      notifications.success(`Device deployment ${deployment.deploymentId} ${disabled ? "disabled" : "enabled"}.`, disabled ? "Disabled" : "Enabled");
       await load();
     } catch (e) {
       error = errorMessage(e);
     } finally {
-      disableTarget = null;
+      actionTarget = null;
+    }
+  }
+
+  async function removeDeployment(deployment: Deployment) {
+    if (!window.confirm(`Remove device deployment ${deployment.deploymentId}?`)) return;
+    actionTarget = `${deployment.deploymentId}:remove`;
+    error = null;
+    try {
+      await deploymentsRequester.request(
+        "Auth.RemoveDeviceDeployment",
+        { deploymentId: deployment.deploymentId } satisfies AuthRemoveDeviceDeploymentInput,
+      ).orThrow();
+      notifications.success(`Device deployment ${deployment.deploymentId} removed.`, "Removed");
+      await load();
+    } catch (e) {
+      error = errorMessage(e);
+    } finally {
+      actionTarget = null;
     }
   }
 
@@ -144,30 +159,14 @@
   <div class="card border border-base-300 bg-base-100">
     <div class="card-body gap-4">
       <div>
-        <h2 class="card-title text-base">Create device profile</h2>
-        <p class="text-sm text-base-content/60">Profiles control allowed contract digests and whether activation needs review.</p>
+        <h2 class="card-title text-base">Create device deployment</h2>
+        <p class="text-sm text-base-content/60">Deployments control applied contracts and whether activation needs review.</p>
       </div>
 
-      <form class="grid gap-3 lg:grid-cols-2" onsubmit={(event) => { event.preventDefault(); void createProfile(); }}>
+      <form class="grid gap-3 lg:grid-cols-2" onsubmit={(event) => { event.preventDefault(); void createDeployment(); }}>
         <label class="form-control gap-1">
-          <span class="label-text text-xs">Profile ID</span>
-          <input class="input input-bordered input-sm" bind:value={profileId} placeholder="reader.default" required />
-        </label>
-
-        <label class="form-control gap-1">
-          <span class="label-text text-xs">Contract ID</span>
-          <input class="input input-bordered input-sm" bind:value={contractId} list="installed-contract-ids" placeholder="acme.reader@v1" required />
-        </label>
-
-        <label class="form-control gap-1 lg:col-span-2">
-          <span class="label-text text-xs">Allowed digests</span>
-          <textarea
-            class="textarea textarea-bordered text-sm font-mono"
-            rows="3"
-            bind:value={allowedDigests}
-            placeholder="digest-v1, digest-v2"
-            required
-          ></textarea>
+          <span class="label-text text-xs">Deployment ID</span>
+          <input class="input input-bordered input-sm" bind:value={deploymentId} placeholder="reader.default" required />
         </label>
 
         <label class="form-control gap-1">
@@ -180,19 +179,10 @@
 
         <div class="flex items-end justify-end">
           <button type="submit" class="btn btn-primary btn-sm" disabled={createPending}>
-            {createPending ? "Creating…" : "Create Profile"}
+            {createPending ? "Creating…" : "Create Deployment"}
           </button>
         </div>
 
-        <label class="form-control gap-1 lg:col-span-2">
-          <span class="label-text text-xs">Contract JSON (optional)</span>
-          <textarea
-            class="textarea textarea-bordered text-xs font-mono"
-            rows="8"
-            bind:value={contractJson}
-            placeholder="Paste contract JSON if the device contract is not already installed..."
-          ></textarea>
-        </label>
       </form>
 
       <datalist id="installed-contract-ids">
@@ -231,14 +221,14 @@
 
   {#if loading}
     <div class="flex justify-center py-8"><span class="loading loading-spinner loading-md"></span></div>
-  {:else if filteredProfiles.length === 0}
-    <p class="text-sm text-base-content/60">No device profiles found.</p>
+  {:else if filteredDeployments.length === 0}
+    <p class="text-sm text-base-content/60">No device deployments found.</p>
   {:else}
     <div class="overflow-x-auto">
       <table class="table table-sm">
         <thead>
           <tr>
-            <th>Profile</th>
+            <th>Deployment</th>
             <th>Contract</th>
             <th>Allowed Digests</th>
             <th>Review</th>
@@ -247,26 +237,26 @@
           </tr>
         </thead>
         <tbody>
-          {#each filteredProfiles as profile (profile.profileId)}
+          {#each filteredDeployments as deployment (deployment.deploymentId)}
             <tr>
-              <td class="font-medium">{profile.profileId}</td>
+              <td class="font-medium">{deployment.deploymentId}</td>
               <td class="text-base-content/60">
-                {#if profile.appliedContracts.length === 0}
+                {#if deployment.appliedContracts.length === 0}
                   <span class="text-base-content/40">None</span>
                 {:else}
                   <div class="flex flex-col gap-1">
-                    {#each profile.appliedContracts as applied (applied.contractId)}
+                    {#each deployment.appliedContracts as applied (applied.contractId)}
                       <span>{applied.contractId}</span>
                     {/each}
                   </div>
                 {/if}
               </td>
               <td>
-                {#if profile.appliedContracts.length === 0}
+                {#if deployment.appliedContracts.length === 0}
                   <span class="text-base-content/40">None</span>
                 {:else}
                   <div class="flex flex-wrap gap-1">
-                    {#each profile.appliedContracts as applied (applied.contractId)}
+                    {#each deployment.appliedContracts as applied (applied.contractId)}
                       {#each applied.allowedDigests as digest (digest)}
                         <span class="badge badge-outline badge-xs font-mono">{digest}</span>
                       {/each}
@@ -274,9 +264,9 @@
                   </div>
                 {/if}
               </td>
-              <td class="text-base-content/60">{profile.reviewMode ?? "none"}</td>
+              <td class="text-base-content/60">{deployment.reviewMode ?? "none"}</td>
               <td>
-                {#if profile.disabled}
+                {#if deployment.disabled}
                   <span class="badge badge-ghost badge-sm">Disabled</span>
                 {:else}
                   <span class="badge badge-success badge-sm">Active</span>
@@ -284,11 +274,18 @@
               </td>
               <td class="text-right">
                 <button
-                  class="btn btn-ghost btn-xs text-error"
-                  onclick={() => disableProfile(profile)}
-                  disabled={profile.disabled || disableTarget === profile.profileId}
+                  class="btn btn-ghost btn-xs"
+                  onclick={() => setDeploymentDisabled(deployment, !deployment.disabled)}
+                  disabled={actionTarget === `${deployment.deploymentId}:${deployment.disabled ? "enable" : "disable"}`}
                 >
-                  {disableTarget === profile.profileId ? "Disabling…" : "Disable"}
+                  {deployment.disabled ? "Enable" : "Disable"}
+                </button>
+                <button
+                  class="btn btn-ghost btn-xs text-error"
+                  onclick={() => removeDeployment(deployment)}
+                  disabled={actionTarget === `${deployment.deploymentId}:remove`}
+                >
+                  Remove
                 </button>
               </td>
             </tr>
@@ -296,6 +293,6 @@
         </tbody>
       </table>
     </div>
-    <p class="text-xs text-base-content/50">{filteredProfiles.length} profile{filteredProfiles.length !== 1 ? "s" : ""}</p>
+    <p class="text-xs text-base-content/50">{filteredDeployments.length} deployment{filteredDeployments.length !== 1 ? "s" : ""}</p>
   {/if}
 </section>

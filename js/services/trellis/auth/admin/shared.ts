@@ -54,25 +54,25 @@ export type LoginPortalSelection = {
 };
 
 export type DevicePortalSelection = {
-  profileId: string;
+  deploymentId: string;
   portalId: string | null;
 };
 
-export type AppliedProfileContract = {
+export type AppliedDeploymentContract = {
   contractId: string;
   allowedDigests: string[];
 };
 
-export type ServiceProfile = {
-  profileId: string;
+export type ServiceDeployment = {
+  deploymentId: string;
   namespaces: string[];
   disabled: boolean;
-  appliedContracts: AppliedProfileContract[];
+  appliedContracts: AppliedDeploymentContract[];
 };
 
 export type ServiceInstance = {
   instanceId: string;
-  profileId: string;
+  deploymentId: string;
   instanceKey: string;
   disabled: boolean;
   currentContractId?: string;
@@ -82,17 +82,17 @@ export type ServiceInstance = {
   createdAt: string;
 };
 
-export type InstalledServiceProfileContract = {
+export type InstalledServiceDeploymentContract = {
   id: string;
   digest: string;
   usedNamespaces: string[];
 };
 
-export type DeviceProfile = {
-  profileId: string;
+export type DeviceDeployment = {
+  deploymentId: string;
   reviewMode?: "none" | "required";
   disabled: boolean;
-  appliedContracts: AppliedProfileContract[];
+  appliedContracts: AppliedDeploymentContract[];
 };
 
 export type DeviceProvisioningSecret = {
@@ -107,7 +107,7 @@ export type DeviceActivationReview = {
   reviewId: string;
   instanceId: string;
   publicIdentityKey: string;
-  profileId: string;
+  deploymentId: string;
   state: "pending" | "approved" | "rejected";
   requestedAt: string;
   decidedAt: string | null;
@@ -117,7 +117,7 @@ export type DeviceActivationReview = {
 export type DeviceInstance = {
   instanceId: string;
   publicIdentityKey: string;
-  profileId: string;
+  deploymentId: string;
   metadata?: DeviceMetadata;
   state: "registered" | "activated" | "revoked" | "disabled";
   currentContractId?: string;
@@ -155,17 +155,17 @@ export type UpsertInstanceGrantPolicyRequest = {
 };
 
 export type DevicePortalSelectionRequest = {
-  profileId: string;
+  deploymentId: string;
   portalId: string | null;
 };
 
-export type CreateDeviceProfileRequest = {
-  profileId: string;
+export type CreateDeviceDeploymentRequest = {
+  deploymentId: string;
   reviewMode?: "none" | "required";
 };
 
-export type CreateServiceProfileRequest = {
-  profileId: string;
+export type CreateServiceDeploymentRequest = {
+  deploymentId: string;
   namespaces: string[];
 };
 
@@ -177,7 +177,7 @@ export type DeviceActivationActor = {
 export type DeviceActivationRecord = {
   instanceId: string;
   publicIdentityKey: string;
-  profileId: string;
+  deploymentId: string;
   activatedBy?: DeviceActivationActor;
   state: "activated" | "revoked";
   activatedAt: string;
@@ -185,14 +185,14 @@ export type DeviceActivationRecord = {
 };
 
 export type ProvisionDeviceInstanceRequest = {
-  profileId: string;
+  deploymentId: string;
   publicIdentityKey: string;
   activationKey: string;
   metadata?: DeviceMetadata;
 };
 
 export type ProvisionServiceInstanceRequest = {
-  profileId: string;
+  deploymentId: string;
   instanceKey: string;
 };
 
@@ -227,8 +227,8 @@ export function normalizeDigestList(values: string[]): string[] {
 }
 
 export function normalizeAppliedContracts(
-  values: AppliedProfileContract[],
-): AppliedProfileContract[] {
+  values: AppliedDeploymentContract[],
+): AppliedDeploymentContract[] {
   const byId = new Map<string, Set<string>>();
   for (const value of values) {
     if (!value.contractId) continue;
@@ -248,19 +248,19 @@ export function normalizeAppliedContracts(
     }));
 }
 
-/** Builds the persisted service profile state after applying a contract. */
-export function applyInstalledServiceProfileContract(
-  profile: ServiceProfile,
-  installed: InstalledServiceProfileContract,
-): ServiceProfile {
+/** Builds the persisted service deployment state after applying a contract. */
+export function applyInstalledServiceDeploymentContract(
+  deployment: ServiceDeployment,
+  installed: InstalledServiceDeploymentContract,
+): ServiceDeployment {
   return {
-    ...profile,
+    ...deployment,
     namespaces: [
-      ...new Set([...profile.namespaces, ...installed.usedNamespaces]),
+      ...new Set([...deployment.namespaces, ...installed.usedNamespaces]),
     ]
       .sort((left, right) => left.localeCompare(right)),
     appliedContracts: normalizeAppliedContracts([
-      ...profile.appliedContracts,
+      ...deployment.appliedContracts,
       { contractId: installed.id, allowedDigests: [installed.digest] },
     ]),
   };
@@ -324,12 +324,13 @@ export function validatePortalRequest(req: CreatePortalRequest) {
   if (!req.portalId || !entryUrl) {
     return invalidRequest({ portalId: req.portalId, entryUrl: req.entryUrl });
   }
+  const portal: Portal = {
+    portalId: req.portalId,
+    entryUrl,
+    disabled: false,
+  };
   return Result.ok({
-    portal: {
-      portalId: req.portalId,
-      entryUrl,
-      disabled: false,
-    } as Portal,
+    portal,
   });
 }
 
@@ -356,17 +357,17 @@ export function validatePortalProfileRequest(req: SetPortalProfileRequest) {
     return invalidRequest({ allowedOrigins: req.allowedOrigins });
   }
 
-  return Result.ok({
-    profile: {
-      portalId: req.portalId,
-      entryUrl,
-      contractId: req.contractId,
-      allowedOrigins,
-    } as Pick<
-      PortalProfile,
-      "portalId" | "entryUrl" | "contractId" | "allowedOrigins"
-    >,
-  });
+  const profile: Pick<
+    PortalProfile,
+    "portalId" | "entryUrl" | "contractId" | "allowedOrigins"
+  > = {
+    portalId: req.portalId,
+    entryUrl,
+    contractId: req.contractId,
+    allowedOrigins,
+  };
+
+  return Result.ok({ profile });
 }
 
 export function validatePortalDefaultRequest(req: PortalDefaultRequest) {
@@ -404,55 +405,60 @@ export function validateDevicePortalSelectionRequest(
   req: DevicePortalSelectionRequest,
 ) {
   if (
-    !req.profileId ||
+    !req.deploymentId ||
     (req.portalId !== null && (!req.portalId || req.portalId.length === 0))
   ) {
-    return invalidRequest({ profileId: req.profileId, portalId: req.portalId });
+    return invalidRequest({
+      deploymentId: req.deploymentId,
+      portalId: req.portalId,
+    });
   }
   return Result.ok({
     selection: {
-      profileId: req.profileId,
+      deploymentId: req.deploymentId,
       portalId: req.portalId,
     } as DevicePortalSelection,
   });
 }
 
-export function validateDeviceProfileRequest(req: CreateDeviceProfileRequest) {
-  if (!req.profileId) {
-    return invalidRequest({ profileId: req.profileId });
+export function validateDeviceDeploymentRequest(
+  req: CreateDeviceDeploymentRequest,
+) {
+  if (!req.deploymentId) {
+    return invalidRequest({ deploymentId: req.deploymentId });
   }
   return Result.ok({
-    profile: {
-      profileId: req.profileId,
+    deployment: {
+      deploymentId: req.deploymentId,
       reviewMode: req.reviewMode,
       disabled: false,
       appliedContracts: [],
-    } as DeviceProfile,
+    } as DeviceDeployment,
   });
 }
 
-export function validateServiceProfileRequest(
-  req: CreateServiceProfileRequest,
+export function validateServiceDeploymentRequest(
+  req: CreateServiceDeploymentRequest,
 ) {
-  if (!req.profileId) {
-    return invalidRequest({ profileId: req.profileId });
+  if (!req.deploymentId) {
+    return invalidRequest({ deploymentId: req.deploymentId });
   }
   return Result.ok({
-    profile: {
-      profileId: req.profileId,
+    deployment: {
+      deploymentId: req.deploymentId,
       namespaces: normalizeStringList(req.namespaces ?? []),
       disabled: false,
       appliedContracts: [],
-    } as ServiceProfile,
+    } as ServiceDeployment,
   });
 }
 
 export function validateDeviceProvisionRequest(
   req: ProvisionDeviceInstanceRequest,
 ) {
-  if (!req.profileId || !req.publicIdentityKey || !req.activationKey) {
+  if (!req.deploymentId || !req.publicIdentityKey || !req.activationKey) {
     return invalidRequest({
-      profileId: req.profileId,
+      deploymentId: req.deploymentId,
       publicIdentityKey: req.publicIdentityKey,
       activationKey: req.activationKey,
     });
@@ -472,7 +478,7 @@ export function validateDeviceProvisionRequest(
     instance: {
       instanceId: deviceInstanceId(req.publicIdentityKey),
       publicIdentityKey: req.publicIdentityKey,
-      profileId: req.profileId,
+      deploymentId: req.deploymentId,
       ...(req.metadata ? { metadata: { ...req.metadata } } : {}),
       state: "registered",
       currentContractId: undefined,
@@ -492,9 +498,9 @@ export function validateDeviceProvisionRequest(
 export function validateServiceProvisionRequest(
   req: ProvisionServiceInstanceRequest,
 ) {
-  if (!req.profileId || !req.instanceKey) {
+  if (!req.deploymentId || !req.instanceKey) {
     return invalidRequest({
-      profileId: req.profileId,
+      deploymentId: req.deploymentId,
       instanceKey: req.instanceKey,
     });
   }
@@ -502,7 +508,7 @@ export function validateServiceProvisionRequest(
   return Result.ok({
     instance: {
       instanceId: serviceInstanceId(req.instanceKey),
-      profileId: req.profileId,
+      deploymentId: req.deploymentId,
       instanceKey: req.instanceKey,
       disabled: false,
       capabilities: ["service"],

@@ -45,7 +45,7 @@ Rules:
 - a participant with no owned RPCs, operations, events, or resources is normal;
   do not invent owned APIs just to fit a service template
 - only `kind: "service"` participants should use `TrellisService.connect(...)`,
-  service install flows, and service-owned runtime handles such as `service.kv`,
+  service deployment flows, and service-owned runtime handles such as `service.kv`,
   `service.store`, and `service.jobs`
 
 ### Directory structure

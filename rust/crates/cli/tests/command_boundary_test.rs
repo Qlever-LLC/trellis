@@ -80,6 +80,23 @@ fn portal_help_remains_available() {
 }
 
 #[test]
+fn deploy_help_remains_available_with_aliases() {
+    let output = run_cli(&["deploy", "--help"]);
+    assert!(output.status.success(), "deploy help should succeed");
+
+    let alias_output = run_cli(&["d", "--help"]);
+    assert!(
+        alias_output.status.success(),
+        "deploy alias help should succeed"
+    );
+
+    for alias in ["deployment", "deployments", "dep"] {
+        let output = run_cli(&[alias, "--help"]);
+        assert!(output.status.success(), "{alias} alias help should succeed");
+    }
+}
+
+#[test]
 fn top_level_help_hides_transport_flags() {
     let output = run_cli(&["--help"]);
     assert!(output.status.success(), "top-level help should succeed");
@@ -96,9 +113,11 @@ fn portal_device_help_remains_available() {
 }
 
 #[test]
-fn device_help_remains_available() {
+fn top_level_device_command_is_rejected() {
     let output = run_cli(&["device", "--help"]);
-    assert!(output.status.success(), "device help should succeed");
+    assert!(!output.status.success(), "device command should fail");
+    let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
+    assert!(stderr.contains("unrecognized subcommand 'device'"));
 }
 
 #[test]
@@ -180,7 +199,7 @@ fn legacy_device_review_decide_command_is_rejected() {
         "legacy device review decide command should fail"
     );
     let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
-    assert!(stderr.contains("unrecognized subcommand 'decide'"));
+    assert!(stderr.contains("unrecognized subcommand 'device'"));
 }
 
 #[test]
@@ -191,7 +210,7 @@ fn legacy_device_review_command_is_rejected() {
         "legacy top-level device review command should fail"
     );
     let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
-    assert!(stderr.contains("unrecognized subcommand 'review'"));
+    assert!(stderr.contains("unrecognized subcommand 'device'"));
 }
 
 #[test]
@@ -202,7 +221,7 @@ fn legacy_device_provision_command_is_rejected() {
         "legacy top-level device provision command should fail"
     );
     let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
-    assert!(stderr.contains("unrecognized subcommand 'provision'"));
+    assert!(stderr.contains("unrecognized subcommand 'device'"));
 }
 
 #[test]
@@ -218,39 +237,44 @@ fn portal_login_set_help_describes_target_flags() {
 }
 
 #[test]
-fn device_profile_create_help_shows_review_mode_enum_values() {
-    let output = run_cli(&["device", "profile", "create", "--help"]);
+fn portal_device_set_help_uses_deployment_wording() {
+    let output = run_cli(&["portal", "device", "set", "--help"]);
     assert!(
         output.status.success(),
-        "device profile create help should succeed"
+        "portal device set help should succeed"
     );
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    assert!(stdout.contains("<DEPLOYMENT>"));
+    assert!(!stdout.contains("<PROFILE>"));
+    assert!(!stdout.contains("profile"));
+}
+
+#[test]
+fn deploy_create_help_shows_review_mode_enum_values() {
+    let output = run_cli(&["deploy", "create", "dev/example", "--help"]);
+    assert!(output.status.success(), "deploy create help should succeed");
     let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
     assert!(stdout.contains("--review-mode <REVIEW_MODE>"));
     assert!(stdout.contains("possible values: none, required"));
 }
 
 #[test]
-fn device_instance_list_help_shows_state_enum_values() {
-    let output = run_cli(&["device", "instance", "list", "--help"]);
+fn deploy_instances_help_shows_state_enum_values() {
+    let output = run_cli(&["deploy", "instances", "dev/example", "--help"]);
     assert!(
         output.status.success(),
-        "device instance list help should succeed"
+        "deploy instances help should succeed"
     );
     let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
     assert!(stdout.contains("--state <STATE>"));
-    assert!(stdout.contains("registered"));
     assert!(stdout.contains("activated"));
     assert!(stdout.contains("revoked"));
-    assert!(stdout.contains("disabled"));
 }
 
 #[test]
-fn service_install_help_does_not_treat_modifiers_as_primary_inputs() {
-    let output = run_cli(&["service", "profile", "apply", "--help"]);
-    assert!(
-        output.status.success(),
-        "service profile apply help should succeed"
-    );
+fn deploy_service_apply_help_does_not_treat_modifiers_as_primary_inputs() {
+    let output = run_cli(&["deploy", "apply", "svc/example", "--help"]);
+    assert!(output.status.success(), "deploy apply help should succeed");
     let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
     assert!(stdout.contains("--manifest <CONTRACT_JSON>"));
     assert!(stdout.contains("--source <CONTRACT_SOURCE>"));
@@ -265,12 +289,9 @@ fn service_install_help_does_not_treat_modifiers_as_primary_inputs() {
 }
 
 #[test]
-fn device_install_help_does_not_treat_modifiers_as_primary_inputs() {
-    let output = run_cli(&["device", "profile", "apply", "--help"]);
-    assert!(
-        output.status.success(),
-        "device profile apply help should succeed"
-    );
+fn deploy_device_apply_help_does_not_treat_modifiers_as_primary_inputs() {
+    let output = run_cli(&["deploy", "apply", "dev/example", "--help"]);
+    assert!(output.status.success(), "deploy apply help should succeed");
     let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
     assert!(stdout.contains("--manifest <CONTRACT_JSON>"));
     assert!(stdout.contains("--source <CONTRACT_SOURCE>"));
@@ -285,17 +306,16 @@ fn device_install_help_does_not_treat_modifiers_as_primary_inputs() {
 }
 
 #[test]
-fn service_profile_apply_json_requires_force_for_review_skip() {
+fn deploy_apply_json_requires_force_for_review_skip() {
     let temp_dir = write_contract_manifest();
     let manifest_path = temp_dir.path().join("trellis.agent@v1.json");
     let output = Command::new(env!("CARGO_BIN_EXE_trellis"))
         .args([
             "--format",
             "json",
-            "service",
-            "profile",
+            "deploy",
             "apply",
-            "svc.default",
+            "svc/default",
             "--manifest",
             manifest_path.to_str().expect("utf8 manifest path"),
         ])
@@ -305,57 +325,22 @@ fn service_profile_apply_json_requires_force_for_review_skip() {
 
     assert!(
         !output.status.success(),
-        "service profile apply without -f should fail in json mode"
+        "deploy apply without -f should fail in json mode"
     );
     let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
     assert!(stderr.contains("use -f with --format json to skip the interactive apply review"));
 }
 
 #[test]
-fn device_profile_apply_json_requires_force_for_review_skip() {
-    let temp_dir = write_contract_manifest();
-    let manifest_path = temp_dir.path().join("trellis.agent@v1.json");
-    let output = Command::new(env!("CARGO_BIN_EXE_trellis"))
-        .args([
-            "--format",
-            "json",
-            "device",
-            "profile",
-            "apply",
-            "reader.default",
-            "--manifest",
-            manifest_path.to_str().expect("utf8 manifest path"),
-        ])
-        .current_dir(env!("CARGO_MANIFEST_DIR"))
-        .output()
-        .expect("run trellis");
-
-    assert!(
-        !output.status.success(),
-        "device profile apply without -f should fail in json mode"
-    );
-    let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
-    assert!(stderr.contains("use -f with --format json to skip the interactive apply review"));
-}
-
-#[test]
-fn service_profile_create_help_hides_removed_display_flags() {
+fn top_level_service_command_is_rejected() {
     let output = run_cli(&["service", "profile", "create", "--help"]);
-    assert!(
-        output.status.success(),
-        "service profile create help should succeed"
-    );
-    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
-    assert!(stdout.contains("--namespace <NAMESPACES>"));
-    assert!(!stdout.contains("--display-name"));
-    assert!(!stdout.contains("--description"));
+    assert!(!output.status.success(), "service command should fail");
+    let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
+    assert!(stderr.contains("unrecognized subcommand 'service'"));
 }
 
 #[test]
-fn device_activation_review_help_remains_available() {
-    let output = run_cli(&["device", "activation", "review", "--help"]);
-    assert!(
-        output.status.success(),
-        "device activation review help should succeed"
-    );
+fn deploy_review_help_remains_available() {
+    let output = run_cli(&["deploy", "review", "--help"]);
+    assert!(output.status.success(), "deploy review help should succeed");
 }

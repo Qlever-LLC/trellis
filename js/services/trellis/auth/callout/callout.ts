@@ -31,7 +31,7 @@ import type {
   AuthCalloutClaims,
   Connection,
   DeviceActivationRecordSchema,
-  DeviceProfileSchema,
+  DeviceDeploymentSchema,
   NatsAuthRequest,
   NatsConnectOpts,
   Session,
@@ -50,13 +50,13 @@ import {
 import { deviceInstanceId } from "../admin/shared.ts";
 import { loadEffectiveGrantPolicies } from "../grants/store.ts";
 import {
+  loadServiceDeployment,
   loadServiceInstanceByKey,
-  loadServiceProfile,
 } from "../admin/service_rpc.ts";
 import type {
   SqlContractApprovalRepository,
   SqlDeviceActivationRepository,
-  SqlDeviceProfileRepository,
+  SqlDeviceDeploymentRepository,
   SqlUserProjectionRepository,
 } from "../storage.ts";
 
@@ -65,7 +65,7 @@ type DeviceActivationRecord =
   & {
     activatedBy?: { origin: string; id: string };
   };
-type DeviceProfile = StaticDecode<typeof DeviceProfileSchema>;
+type DeviceDeployment = StaticDecode<typeof DeviceDeploymentSchema>;
 type ParsedNatsAuthToken = StaticDecode<typeof NatsAuthTokenV1Schema>;
 
 const config = getConfig();
@@ -101,14 +101,14 @@ type DeviceRuntimeGrant = ReturnType<typeof deriveDeviceRuntimeAccess> & {
   activation: {
     instanceId: string;
     publicIdentityKey: string;
-    profileId: string;
+    deploymentId: string;
     activatedBy?: { origin: string; id: string };
     state: "activated" | "revoked";
     activatedAt: string | null;
     revokedAt: string | null;
   };
-  profile: {
-    profileId: string;
+  deployment: {
+    deploymentId: string;
     appliedContracts: Array<{ contractId: string; allowedDigests: string[] }>;
     disabled: boolean;
   };
@@ -137,13 +137,13 @@ async function resolveDeviceRuntimeGrant(
     throw new Error("device_activation_revoked");
   }
 
-  const { deviceProfileStorage } = authRuntimeDeps();
-  const profile = await deviceProfileStorage.get(activation.profileId);
-  if (!profile) throw new Error("device_profile_not_found");
-  if (profile.disabled) throw new Error("device_profile_disabled");
+  const { deviceDeploymentStorage } = authRuntimeDeps();
+  const deployment = await deviceDeploymentStorage.get(activation.deploymentId);
+  if (!deployment) throw new Error("device_deployment_not_found");
+  if (deployment.disabled) throw new Error("device_deployment_disabled");
 
   const effectiveContractDigest = resolveDeviceContractDigest(
-    profile,
+    deployment,
     contractDigest,
   );
   const activationActor = (activation as DeviceActivationRecord).activatedBy;
@@ -151,7 +151,7 @@ async function resolveDeviceRuntimeGrant(
   const contractRecord = await contractStorage.get(effectiveContractDigest);
   if (!contractRecord) throw new Error("device_contract_not_found");
   const access = deriveDeviceRuntimeAccess(
-    profile,
+    deployment,
     contractRecord,
     contractStore,
   );
@@ -160,13 +160,13 @@ async function resolveDeviceRuntimeGrant(
     activation: {
       instanceId: activation.instanceId,
       publicIdentityKey: activation.publicIdentityKey,
-      profileId: activation.profileId,
+      deploymentId: activation.deploymentId,
       ...(activationActor ? { activatedBy: activationActor } : {}),
       state: activation.state,
       activatedAt: activation.activatedAt,
       revokedAt: activation.revokedAt,
     },
-    profile,
+    deployment,
   };
 }
 
@@ -266,7 +266,7 @@ export function startAuthCallout(
   const {
     connectionsKV,
     deviceActivationStorage,
-    deviceProfileStorage,
+    deviceDeploymentStorage,
     logger,
     natsAuth,
     sessionStorage,
@@ -400,17 +400,19 @@ export function startAuthCallout(
       const service = await loadServiceInstanceByKey(sessionKey);
       if (service) {
         if (service.disabled) throw new Error("service_disabled");
-        const profile = await loadServiceProfile(service.profileId);
-        if (!profile || profile.disabled) throw new Error("service_disabled");
+        const deployment = await loadServiceDeployment(service.deploymentId);
+        if (!deployment || deployment.disabled) {
+          throw new Error("service_disabled");
+        }
       }
 
       let session = await sessionStorage.getOneBySessionKey(sessionKey);
       if (!session) {
         const service = await loadServiceInstanceByKey(sessionKey);
         if (service) {
-          const profile = await loadServiceProfile(service.profileId);
+          const deployment = await loadServiceDeployment(service.deploymentId);
           const trellisId = await trellisIdFromOriginId("service", sessionKey);
-          const displayName = profile?.profileId ?? service.instanceId;
+          const displayName = deployment?.deploymentId ?? service.instanceId;
           await sessionStorage.put(sessionKey, {
             type: "service",
             trellisId,
@@ -419,7 +421,7 @@ export function startAuthCallout(
             email: `${displayName || "service"}@trellis.internal`,
             name: displayName,
             instanceId: service.instanceId,
-            profileId: service.profileId,
+            deploymentId: service.deploymentId,
             instanceKey: service.instanceKey,
             currentContractId: service.currentContractId ?? null,
             currentContractDigest: service.currentContractDigest ?? null,
@@ -439,7 +441,7 @@ export function startAuthCallout(
             type: "device",
             instanceId: deviceGrant.activation.instanceId,
             publicIdentityKey: deviceGrant.activation.publicIdentityKey,
-            profileId: deviceGrant.profile.profileId,
+            deploymentId: deviceGrant.deployment.deploymentId,
             contractId: deviceGrant.contractId,
             contractDigest: deviceGrant.contractDigest,
             delegatedCapabilities: deviceGrant.capabilities,
@@ -481,7 +483,7 @@ export function startAuthCallout(
 
         session = {
           ...session,
-          profileId: currentGrant.profile.profileId,
+          deploymentId: currentGrant.deployment.deploymentId,
           contractId: currentGrant.contractId,
           contractDigest: currentGrant.contractDigest,
           delegatedCapabilities: currentGrant.capabilities,
@@ -539,12 +541,12 @@ export function startAuthCallout(
       };
       const principal = await resolveSessionPrincipal(session, sessionKey, {
         loadServiceInstance: loadServiceInstanceByKey,
-        loadServiceProfile,
+        loadServiceDeployment,
         loadUserProjection: async (trellisId) => {
           return await opts.userStorage.get(trellisId) ?? null;
         },
         deviceActivationStorage,
-        deviceProfileStorage,
+        deviceDeploymentStorage,
         loadStoredApproval: async (key) => {
           const approvalKey = parseContractApprovalKey(key);
           if (!approvalKey) return null;

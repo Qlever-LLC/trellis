@@ -25,7 +25,7 @@ Contracts are the source of truth for authorization. Trellis derives NATS subjec
 | `device` | An activated device participant provisioned through Trellis |
 | `cli` | A command-line tool |
 
-Activated devices use the same contract format as other Trellis participants. Provisioning mode lives in Trellis device profiles and instance records rather than in a special contract field.
+Activated devices use the same contract format as other Trellis participants. Provisioning mode lives in Trellis device deployments and instance records rather than in a special contract field.
 
 ### Contract identity
 
@@ -134,7 +134,7 @@ Deployments can also configure **instance grant policies** for browser apps. An 
 
 While an instance grant policy is enabled, it takes precedence over an older explicit user denial for that app lineage. If the policy changes in a way that removes access, Trellis revokes affected delegated sessions and requires reconnect or re-auth.
 
-Portal trust comes from deployment registration of the portal URL, not from service installation. Some portals stay passive and only render auth flow state. Other portals also continue after login as normal Trellis browser apps acting as the logged-in user. In that case the portal may declare an optional app contract, but it is still never a service-authenticated principal.
+Portal trust comes from deployment registration of the portal URL, not from service deployment. Some portals stay passive and only render auth flow state. Other portals also continue after login as normal Trellis browser apps acting as the logged-in user. In that case the portal may declare an optional app contract, but it is still never a service-authenticated principal.
 
 The built-in Trellis portal is authored in `js/portals/login` and served directly by the Trellis HTTP server from static assets. This ensures that the initial login and default device onboarding flows work out-of-the-box without requiring any portal bootstrapping. Deployments can still add custom portals and assign them to specific login or device flows when they need custom UX. See [Create a custom portal](/guides/creating-custom-portal) for how to build and register one.
 

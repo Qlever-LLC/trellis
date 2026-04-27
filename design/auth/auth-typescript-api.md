@@ -346,7 +346,7 @@ type AuthActivateDeviceProgress = {
   status: "pending_review";
   reviewId: string;
   instanceId: string;
-  profileId: string;
+  deploymentId: string;
   requestedAt: string;
 };
 
@@ -354,7 +354,7 @@ type AuthActivateDeviceOutput =
   | {
       status: "activated";
       instanceId: string;
-      profileId: string;
+      deploymentId: string;
       activatedAt: string;
       confirmationCode?: string;
     }

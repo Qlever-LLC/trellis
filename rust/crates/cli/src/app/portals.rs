@@ -396,12 +396,12 @@ async fn devices_list_command(format: OutputFormat) -> miette::Result<()> {
         .into_iter()
         .map(|selection| {
             vec![
-                selection.profile_id,
+                selection.deployment_id,
                 portal_target_label(selection.portal_id.as_deref()),
             ]
         })
         .collect::<Vec<_>>();
-    println!("{}", output::table(&["profile", "portal"], rows));
+    println!("{}", output::table(&["deployment", "portal"], rows));
     Ok(())
 }
 
@@ -412,7 +412,7 @@ async fn devices_set_command(
     let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
     let selection = auth_client
-        .set_device_portal_selection(&args.profile, portal_target_id(&args.target))
+        .set_device_portal_selection(&args.deployment, portal_target_id(&args.target))
         .await
         .into_diagnostic()?;
     if output::is_json(format) {
@@ -420,7 +420,7 @@ async fn devices_set_command(
         return Ok(());
     }
     output::print_success("device portal selection updated");
-    output::print_info(&format!("profileId={}", selection.profile_id));
+    output::print_info(&format!("deploymentId={}", selection.deployment_id));
     output::print_info(&format!(
         "portal={}",
         portal_target_label(selection.portal_id.as_deref())
@@ -435,11 +435,11 @@ async fn devices_clear_command(
     let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
     let success = auth_client
-        .clear_device_portal_selection(&args.profile)
+        .clear_device_portal_selection(&args.deployment)
         .await
         .into_diagnostic()?;
     if output::is_json(format) {
-        output::print_json(&json!({ "success": success, "profileId": args.profile }))?;
+        output::print_json(&json!({ "success": success, "deploymentId": args.deployment }))?;
         return Ok(());
     }
     if success {

@@ -25,21 +25,21 @@ export const OpenObjectSchema = Type.Unsafe<Record<string, unknown>>({
   type: "object",
 });
 
-export const AppliedProfileContractSchema = Type.Object({
+export const AppliedDeploymentContractSchema = Type.Object({
   contractId: Type.String({ minLength: 1 }),
   allowedDigests: Type.Array(DigestSchema),
 });
 
-export const ServiceProfileSchema = Type.Object({
-  profileId: Type.String({ minLength: 1 }),
+export const ServiceDeploymentSchema = Type.Object({
+  deploymentId: Type.String({ minLength: 1 }),
   namespaces: Type.Array(Type.String({ minLength: 1 })),
   disabled: Type.Boolean(),
-  appliedContracts: Type.Array(AppliedProfileContractSchema),
+  appliedContracts: Type.Array(AppliedDeploymentContractSchema),
 });
 
 export const ServiceInstanceSchema = Type.Object({
   instanceId: Type.String({ minLength: 1 }),
-  profileId: Type.String({ minLength: 1 }),
+  deploymentId: Type.String({ minLength: 1 }),
   instanceKey: Type.String({ minLength: 1 }),
   disabled: Type.Boolean(),
   currentContractId: Type.Optional(Type.String({ minLength: 1 })),
@@ -122,27 +122,27 @@ export const AuthDisableInstanceGrantPolicyResponseSchema = Type.Object({
   policy: InstanceGrantPolicySchema,
 });
 
-export const AuthCreateServiceProfileSchema = Type.Object({
-  profileId: Type.String({ minLength: 1 }),
+export const AuthCreateServiceDeploymentSchema = Type.Object({
+  deploymentId: Type.String({ minLength: 1 }),
   namespaces: Type.Array(Type.String({ minLength: 1 })),
 });
-export const AuthCreateServiceProfileResponseSchema = Type.Object({
-  profile: ServiceProfileSchema,
+export const AuthCreateServiceDeploymentResponseSchema = Type.Object({
+  deployment: ServiceDeploymentSchema,
 });
 
-export const AuthListServiceProfilesSchema = Type.Object({
+export const AuthListServiceDeploymentsSchema = Type.Object({
   disabled: Type.Optional(Type.Boolean()),
 });
-export const AuthListServiceProfilesResponseSchema = Type.Object({
-  profiles: Type.Array(ServiceProfileSchema),
+export const AuthListServiceDeploymentsResponseSchema = Type.Object({
+  deployments: Type.Array(ServiceDeploymentSchema),
 });
 
-export const AuthApplyServiceProfileContractSchema = Type.Object({
-  profileId: Type.String({ minLength: 1 }),
+export const AuthApplyServiceDeploymentContractSchema = Type.Object({
+  deploymentId: Type.String({ minLength: 1 }),
   contract: OpenObjectSchema,
 });
-export const AuthApplyServiceProfileContractResponseSchema = Type.Object({
-  profile: ServiceProfileSchema,
+export const AuthApplyServiceDeploymentContractResponseSchema = Type.Object({
+  deployment: ServiceDeploymentSchema,
   contract: Type.Object({
     digest: DigestSchema,
     id: Type.String({ minLength: 1 }),
@@ -152,38 +152,38 @@ export const AuthApplyServiceProfileContractResponseSchema = Type.Object({
   }),
 });
 
-export const AuthUnapplyServiceProfileContractSchema = Type.Object({
-  profileId: Type.String({ minLength: 1 }),
+export const AuthUnapplyServiceDeploymentContractSchema = Type.Object({
+  deploymentId: Type.String({ minLength: 1 }),
   contractId: Type.String({ minLength: 1 }),
   digests: Type.Optional(Type.Array(DigestSchema)),
 });
-export const AuthUnapplyServiceProfileContractResponseSchema = Type.Object({
-  profile: ServiceProfileSchema,
+export const AuthUnapplyServiceDeploymentContractResponseSchema = Type.Object({
+  deployment: ServiceDeploymentSchema,
 });
 
-export const AuthDisableServiceProfileSchema = Type.Object({
-  profileId: Type.String({ minLength: 1 }),
+export const AuthDisableServiceDeploymentSchema = Type.Object({
+  deploymentId: Type.String({ minLength: 1 }),
 });
-export const AuthDisableServiceProfileResponseSchema = Type.Object({
-  profile: ServiceProfileSchema,
-});
-
-export const AuthEnableServiceProfileSchema = Type.Object({
-  profileId: Type.String({ minLength: 1 }),
-});
-export const AuthEnableServiceProfileResponseSchema = Type.Object({
-  profile: ServiceProfileSchema,
+export const AuthDisableServiceDeploymentResponseSchema = Type.Object({
+  deployment: ServiceDeploymentSchema,
 });
 
-export const AuthRemoveServiceProfileSchema = Type.Object({
-  profileId: Type.String({ minLength: 1 }),
+export const AuthEnableServiceDeploymentSchema = Type.Object({
+  deploymentId: Type.String({ minLength: 1 }),
 });
-export const AuthRemoveServiceProfileResponseSchema = Type.Object({
+export const AuthEnableServiceDeploymentResponseSchema = Type.Object({
+  deployment: ServiceDeploymentSchema,
+});
+
+export const AuthRemoveServiceDeploymentSchema = Type.Object({
+  deploymentId: Type.String({ minLength: 1 }),
+});
+export const AuthRemoveServiceDeploymentResponseSchema = Type.Object({
   success: Type.Boolean(),
 });
 
 export const AuthProvisionServiceInstanceSchema = Type.Object({
-  profileId: Type.String({ minLength: 1 }),
+  deploymentId: Type.String({ minLength: 1 }),
   instanceKey: Type.String({ minLength: 1 }),
 });
 export const AuthProvisionServiceInstanceResponseSchema = Type.Object({
@@ -191,7 +191,7 @@ export const AuthProvisionServiceInstanceResponseSchema = Type.Object({
 });
 
 export const AuthListServiceInstancesSchema = Type.Object({
-  profileId: Type.Optional(Type.String({ minLength: 1 })),
+  deploymentId: Type.Optional(Type.String({ minLength: 1 })),
   disabled: Type.Optional(Type.Boolean()),
 });
 export const AuthListServiceInstancesResponseSchema = Type.Object({
@@ -403,7 +403,7 @@ export const AuthenticatedDeviceSchema = Type.Object({
   deviceId: Type.String({ minLength: 1 }),
   deviceType: Type.String({ minLength: 1 }),
   runtimePublicKey: Type.String({ minLength: 1 }),
-  profileId: Type.String({ minLength: 1 }),
+  deploymentId: Type.String({ minLength: 1 }),
   active: Type.Boolean(),
   capabilities: Type.Array(Type.String()),
 });
@@ -542,7 +542,7 @@ export type LoginPortalSelection = StaticDecode<
 >;
 
 export const DevicePortalSelectionSchema = Type.Object({
-  profileId: Type.String({ minLength: 1 }),
+  deploymentId: Type.String({ minLength: 1 }),
   portalId: NullablePortalIdSchema,
 });
 export type DevicePortalSelection = StaticDecode<
@@ -635,13 +635,13 @@ export type PortalFlowProvider =
 export type PortalFlowApproval = PortalFlowApprovalRequiredState["approval"];
 export type PortalFlowUser = PortalFlowApprovalRequiredState["user"];
 
-export const DeviceProfileSchema = Type.Object({
-  profileId: Type.String({ minLength: 1 }),
+export const DeviceDeploymentSchema = Type.Object({
+  deploymentId: Type.String({ minLength: 1 }),
   reviewMode: Type.Optional(
     Type.Union([Type.Literal("none"), Type.Literal("required")]),
   ),
   disabled: Type.Boolean(),
-  appliedContracts: Type.Array(AppliedProfileContractSchema),
+  appliedContracts: Type.Array(AppliedDeploymentContractSchema),
 });
 
 export const DeviceMetadataSchema = Type.Record(
@@ -652,7 +652,7 @@ export const DeviceMetadataSchema = Type.Record(
 export const DeviceSchema = Type.Object({
   instanceId: Type.String({ minLength: 1 }),
   publicIdentityKey: Type.String({ minLength: 1 }),
-  profileId: Type.String({ minLength: 1 }),
+  deploymentId: Type.String({ minLength: 1 }),
   metadata: Type.Optional(DeviceMetadataSchema),
   state: Type.Union([
     Type.Literal("registered"),
@@ -678,7 +678,7 @@ export type DeviceActivationActor = StaticDecode<
 export const DeviceActivationRecordSchema = Type.Object({
   instanceId: Type.String({ minLength: 1 }),
   publicIdentityKey: Type.String({ minLength: 1 }),
-  profileId: Type.String({ minLength: 1 }),
+  deploymentId: Type.String({ minLength: 1 }),
   activatedBy: Type.Optional(DeviceActivationActorSchema),
   state: Type.Union([Type.Literal("activated"), Type.Literal("revoked")]),
   activatedAt: IsoDateStringSchema,
@@ -692,7 +692,7 @@ export const DeviceActivationReviewSchema = Type.Object({
   reviewId: Type.String({ minLength: 1 }),
   instanceId: Type.String({ minLength: 1 }),
   publicIdentityKey: Type.String({ minLength: 1 }),
-  profileId: Type.String({ minLength: 1 }),
+  deploymentId: Type.String({ minLength: 1 }),
   state: Type.Union([
     Type.Literal("pending"),
     Type.Literal("approved"),
@@ -708,7 +708,7 @@ export const AuthDeviceActivationReviewRequestedEventSchema = Type.Object({
   flowId: Type.String({ minLength: 1 }),
   instanceId: Type.String({ minLength: 1 }),
   publicIdentityKey: Type.String({ minLength: 1 }),
-  profileId: Type.String({ minLength: 1 }),
+  deploymentId: Type.String({ minLength: 1 }),
   requestedAt: IsoDateStringSchema,
   requestedBy: Type.Object({
     origin: Type.String({ minLength: 1 }),
@@ -718,7 +718,7 @@ export const AuthDeviceActivationReviewRequestedEventSchema = Type.Object({
 
 export const DeviceConnectInfoSchema = Type.Object({
   instanceId: Type.String({ minLength: 1 }),
-  profileId: Type.String({ minLength: 1 }),
+  deploymentId: Type.String({ minLength: 1 }),
   contractId: Type.String({ minLength: 1 }),
   contractDigest: DigestSchema,
   transports: ClientTransportsSchema,
@@ -812,40 +812,40 @@ export const AuthListDevicePortalSelectionsResponseSchema = Type.Object({
   selections: Type.Array(DevicePortalSelectionSchema),
 });
 export const AuthSetDevicePortalSelectionSchema = Type.Object({
-  profileId: Type.String({ minLength: 1 }),
+  deploymentId: Type.String({ minLength: 1 }),
   portalId: NullablePortalIdSchema,
 });
 export const AuthSetDevicePortalSelectionResponseSchema = Type.Object({
   selection: DevicePortalSelectionSchema,
 });
 export const AuthClearDevicePortalSelectionSchema = Type.Object({
-  profileId: Type.String({ minLength: 1 }),
+  deploymentId: Type.String({ minLength: 1 }),
 });
 export const AuthClearDevicePortalSelectionResponseSchema = Type.Object({
   success: Type.Boolean(),
 });
 
-export const AuthCreateDeviceProfileSchema = Type.Object({
-  profileId: Type.String({ minLength: 1 }),
+export const AuthCreateDeviceDeploymentSchema = Type.Object({
+  deploymentId: Type.String({ minLength: 1 }),
   reviewMode: Type.Optional(
     Type.Union([Type.Literal("none"), Type.Literal("required")]),
   ),
 });
-export const AuthCreateDeviceProfileResponseSchema = Type.Object({
-  profile: DeviceProfileSchema,
+export const AuthCreateDeviceDeploymentResponseSchema = Type.Object({
+  deployment: DeviceDeploymentSchema,
 });
-export const AuthListDeviceProfilesSchema = Type.Object({
+export const AuthListDeviceDeploymentsSchema = Type.Object({
   disabled: Type.Optional(Type.Boolean()),
 });
-export const AuthListDeviceProfilesResponseSchema = Type.Object({
-  profiles: Type.Array(DeviceProfileSchema),
+export const AuthListDeviceDeploymentsResponseSchema = Type.Object({
+  deployments: Type.Array(DeviceDeploymentSchema),
 });
-export const AuthApplyDeviceProfileContractSchema = Type.Object({
-  profileId: Type.String({ minLength: 1 }),
+export const AuthApplyDeviceDeploymentContractSchema = Type.Object({
+  deploymentId: Type.String({ minLength: 1 }),
   contract: OpenObjectSchema,
 });
-export const AuthApplyDeviceProfileContractResponseSchema = Type.Object({
-  profile: DeviceProfileSchema,
+export const AuthApplyDeviceDeploymentContractResponseSchema = Type.Object({
+  deployment: DeviceDeploymentSchema,
   contract: Type.Object({
     digest: DigestSchema,
     id: Type.String({ minLength: 1 }),
@@ -854,35 +854,35 @@ export const AuthApplyDeviceProfileContractResponseSchema = Type.Object({
     installedAt: IsoDateStringSchema,
   }),
 });
-export const AuthUnapplyDeviceProfileContractSchema = Type.Object({
-  profileId: Type.String({ minLength: 1 }),
+export const AuthUnapplyDeviceDeploymentContractSchema = Type.Object({
+  deploymentId: Type.String({ minLength: 1 }),
   contractId: Type.String({ minLength: 1 }),
   digests: Type.Optional(Type.Array(DigestSchema)),
 });
-export const AuthUnapplyDeviceProfileContractResponseSchema = Type.Object({
-  profile: DeviceProfileSchema,
+export const AuthUnapplyDeviceDeploymentContractResponseSchema = Type.Object({
+  deployment: DeviceDeploymentSchema,
 });
-export const AuthDisableDeviceProfileSchema = Type.Object({
-  profileId: Type.String({ minLength: 1 }),
+export const AuthDisableDeviceDeploymentSchema = Type.Object({
+  deploymentId: Type.String({ minLength: 1 }),
 });
-export const AuthDisableDeviceProfileResponseSchema = Type.Object({
-  profile: DeviceProfileSchema,
+export const AuthDisableDeviceDeploymentResponseSchema = Type.Object({
+  deployment: DeviceDeploymentSchema,
 });
-export const AuthEnableDeviceProfileSchema = Type.Object({
-  profileId: Type.String({ minLength: 1 }),
+export const AuthEnableDeviceDeploymentSchema = Type.Object({
+  deploymentId: Type.String({ minLength: 1 }),
 });
-export const AuthEnableDeviceProfileResponseSchema = Type.Object({
-  profile: DeviceProfileSchema,
+export const AuthEnableDeviceDeploymentResponseSchema = Type.Object({
+  deployment: DeviceDeploymentSchema,
 });
-export const AuthRemoveDeviceProfileSchema = Type.Object({
-  profileId: Type.String({ minLength: 1 }),
+export const AuthRemoveDeviceDeploymentSchema = Type.Object({
+  deploymentId: Type.String({ minLength: 1 }),
 });
-export const AuthRemoveDeviceProfileResponseSchema = Type.Object({
+export const AuthRemoveDeviceDeploymentResponseSchema = Type.Object({
   success: Type.Boolean(),
 });
 
 export const AuthProvisionDeviceInstanceSchema = Type.Object({
-  profileId: Type.String({ minLength: 1 }),
+  deploymentId: Type.String({ minLength: 1 }),
   publicIdentityKey: Type.String({ minLength: 1 }),
   activationKey: Type.String({ minLength: 1 }),
   metadata: Type.Optional(DeviceMetadataSchema),
@@ -891,7 +891,7 @@ export const AuthProvisionDeviceInstanceResponseSchema = Type.Object({
   instance: DeviceSchema,
 });
 export const AuthListDeviceInstancesSchema = Type.Object({
-  profileId: Type.Optional(Type.String({ minLength: 1 })),
+  deploymentId: Type.Optional(Type.String({ minLength: 1 })),
   state: Type.Optional(Type.Union([
     Type.Literal("registered"),
     Type.Literal("activated"),
@@ -928,14 +928,14 @@ export const AuthActivateDeviceProgressSchema = Type.Object({
   status: Type.Literal("pending_review"),
   reviewId: Type.String({ minLength: 1 }),
   instanceId: Type.String({ minLength: 1 }),
-  profileId: Type.String({ minLength: 1 }),
+  deploymentId: Type.String({ minLength: 1 }),
   requestedAt: IsoDateStringSchema,
 });
 export const AuthActivateDeviceResponseSchema = Type.Union([
   Type.Object({
     status: Type.Literal("activated"),
     instanceId: Type.String({ minLength: 1 }),
-    profileId: Type.String({ minLength: 1 }),
+    deploymentId: Type.String({ minLength: 1 }),
     activatedAt: IsoDateStringSchema,
     confirmationCode: Type.Optional(Type.String({ minLength: 1 })),
   }),
@@ -972,7 +972,7 @@ export const AuthGetDeviceConnectInfoResponseSchema = Type.Object({
 
 export const AuthListDeviceActivationsSchema = Type.Object({
   instanceId: Type.Optional(Type.String({ minLength: 1 })),
-  profileId: Type.Optional(Type.String({ minLength: 1 })),
+  deploymentId: Type.Optional(Type.String({ minLength: 1 })),
   state: Type.Optional(
     Type.Union([Type.Literal("activated"), Type.Literal("revoked")]),
   ),
@@ -988,7 +988,7 @@ export const AuthRevokeDeviceActivationResponseSchema = Type.Object({
 });
 export const AuthListDeviceActivationReviewsSchema = Type.Object({
   instanceId: Type.Optional(Type.String({ minLength: 1 })),
-  profileId: Type.Optional(Type.String({ minLength: 1 })),
+  deploymentId: Type.Optional(Type.String({ minLength: 1 })),
   state: Type.Optional(Type.Union([
     Type.Literal("pending"),
     Type.Literal("approved"),

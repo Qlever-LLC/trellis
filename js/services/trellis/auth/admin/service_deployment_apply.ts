@@ -2,15 +2,15 @@ import { UnexpectedError, ValidationError } from "@qlever-llc/trellis";
 import { Result } from "@qlever-llc/result";
 
 import {
-  applyInstalledServiceProfileContract,
-  type ServiceProfile,
+  applyInstalledServiceDeploymentContract,
+  type ServiceDeployment,
 } from "./shared.ts";
 
 type RpcUser = { type: string; id?: string };
 
-export type ServiceProfileStorage = {
-  get(profileId: string): Promise<ServiceProfile | undefined>;
-  put(profile: ServiceProfile): Promise<void>;
+export type ServiceDeploymentStorage = {
+  get(deploymentId: string): Promise<ServiceDeployment | undefined>;
+  put(deployment: ServiceDeployment): Promise<void>;
 };
 
 function invalid(
@@ -26,8 +26,8 @@ function invalid(
   );
 }
 
-/** Creates the Auth.ApplyServiceProfileContract handler with injectable storage. */
-export function createAuthApplyServiceProfileContractHandler(deps: {
+/** Creates the Auth.ApplyServiceDeploymentContract handler with injectable storage. */
+export function createAuthApplyServiceDeploymentContractHandler(deps: {
   installServiceContract: (contract: unknown) => Promise<{
     id: string;
     digest: string;
@@ -36,30 +36,32 @@ export function createAuthApplyServiceProfileContractHandler(deps: {
     usedNamespaces: string[];
   }>;
   refreshActiveContracts: () => Promise<void>;
-  serviceProfileStorage: ServiceProfileStorage;
+  serviceDeploymentStorage: ServiceDeploymentStorage;
 }) {
   return async (
     {
       input: req,
     }: {
-      input: { profileId: string; contract: unknown };
+      input: { deploymentId: string; contract: unknown };
       context: { caller: RpcUser };
     },
   ) => {
-    const profile = await deps.serviceProfileStorage.get(req.profileId);
-    if (!profile) {
-      return invalid("/profileId", "service profile not found", {
-        profileId: req.profileId,
+    const deployment = await deps.serviceDeploymentStorage.get(
+      req.deploymentId,
+    );
+    if (!deployment) {
+      return invalid("/deploymentId", "service deployment not found", {
+        deploymentId: req.deploymentId,
       });
     }
 
     const installed = await deps.installServiceContract(req.contract);
-    const nextProfile = applyInstalledServiceProfileContract(
-      profile,
+    const nextDeployment = applyInstalledServiceDeploymentContract(
+      deployment,
       installed,
     );
     try {
-      await deps.serviceProfileStorage.put(nextProfile);
+      await deps.serviceDeploymentStorage.put(nextDeployment);
     } catch (error) {
       return Result.err(new UnexpectedError({ cause: toError(error) }));
     }
@@ -71,7 +73,7 @@ export function createAuthApplyServiceProfileContractHandler(deps: {
     }
 
     return Result.ok({
-      profile: nextProfile,
+      deployment: nextDeployment,
       contract: {
         digest: installed.digest,
         id: installed.id,

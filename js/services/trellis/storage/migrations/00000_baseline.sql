@@ -82,12 +82,12 @@ CREATE UNIQUE INDEX `login_portal_selections_contract_id_unique` ON `login_porta
 CREATE TABLE `device_portal_selections` (
 	`id` text PRIMARY KEY NOT NULL,
 	`selection_key` text NOT NULL,
-	`profile_id` text NOT NULL,
+	`deployment_id` text NOT NULL,
 	`portal_id` text
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `device_portal_selections_selection_key_unique` ON `device_portal_selections` (`selection_key`);--> statement-breakpoint
-CREATE UNIQUE INDEX `device_portal_selections_profile_id_unique` ON `device_portal_selections` (`profile_id`);--> statement-breakpoint
+CREATE UNIQUE INDEX `device_portal_selections_deployment_id_unique` ON `device_portal_selections` (`deployment_id`);--> statement-breakpoint
 CREATE TABLE `instance_grant_policies` (
 	`id` text PRIMARY KEY NOT NULL,
 	`contract_id` text NOT NULL,
@@ -100,19 +100,19 @@ CREATE TABLE `instance_grant_policies` (
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `instance_grant_policies_contract_id_unique` ON `instance_grant_policies` (`contract_id`);--> statement-breakpoint
-CREATE TABLE `service_profiles` (
+CREATE TABLE `service_deployments` (
 	`id` text PRIMARY KEY NOT NULL,
-	`profile_id` text NOT NULL,
+	`deployment_id` text NOT NULL,
 	`namespaces` text NOT NULL,
 	`disabled` integer NOT NULL,
 	`applied_contracts` text NOT NULL
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `service_profiles_profile_id_unique` ON `service_profiles` (`profile_id`);--> statement-breakpoint
+CREATE UNIQUE INDEX `service_deployments_deployment_id_unique` ON `service_deployments` (`deployment_id`);--> statement-breakpoint
 CREATE TABLE `service_instances` (
 	`id` text PRIMARY KEY NOT NULL,
 	`instance_id` text NOT NULL,
-	`profile_id` text NOT NULL,
+	`deployment_id` text NOT NULL,
 	`instance_key` text NOT NULL,
 	`disabled` integer NOT NULL,
 	`current_contract_id` text,
@@ -124,20 +124,20 @@ CREATE TABLE `service_instances` (
 --> statement-breakpoint
 CREATE UNIQUE INDEX `service_instances_instance_id_unique` ON `service_instances` (`instance_id`);--> statement-breakpoint
 CREATE UNIQUE INDEX `service_instances_instance_key_unique` ON `service_instances` (`instance_key`);--> statement-breakpoint
-CREATE TABLE `device_profiles` (
+CREATE TABLE `device_deployments` (
 	`id` text PRIMARY KEY NOT NULL,
-	`profile_id` text NOT NULL,
+	`deployment_id` text NOT NULL,
 	`review_mode` text,
 	`disabled` integer NOT NULL,
 	`applied_contracts` text NOT NULL
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `device_profiles_profile_id_unique` ON `device_profiles` (`profile_id`);--> statement-breakpoint
+CREATE UNIQUE INDEX `device_deployments_deployment_id_unique` ON `device_deployments` (`deployment_id`);--> statement-breakpoint
 CREATE TABLE `device_instances` (
 	`id` text PRIMARY KEY NOT NULL,
 	`instance_id` text NOT NULL,
 	`public_identity_key` text NOT NULL,
-	`profile_id` text NOT NULL,
+	`deployment_id` text NOT NULL,
 	`metadata` text,
 	`state` text NOT NULL,
 	`current_contract_id` text,
@@ -161,7 +161,7 @@ CREATE TABLE `device_activations` (
 	`id` text PRIMARY KEY NOT NULL,
 	`instance_id` text NOT NULL,
 	`public_identity_key` text NOT NULL,
-	`profile_id` text NOT NULL,
+	`deployment_id` text NOT NULL,
 	`activated_by` text,
 	`state` text NOT NULL,
 	`activated_at` text NOT NULL,
@@ -176,7 +176,7 @@ CREATE TABLE `device_activation_reviews` (
 	`flow_id` text NOT NULL,
 	`instance_id` text NOT NULL,
 	`public_identity_key` text NOT NULL,
-	`profile_id` text NOT NULL,
+	`deployment_id` text NOT NULL,
 	`requested_by` text NOT NULL,
 	`state` text NOT NULL,
 	`requested_at` text NOT NULL,
@@ -197,7 +197,7 @@ CREATE TABLE `sessions` (
 	`contract_id` text,
 	`participant_kind` text,
 	`instance_id` text,
-	`profile_id` text,
+	`deployment_id` text,
 	`instance_key` text,
 	`public_identity_key` text,
 	`created_at` text NOT NULL,

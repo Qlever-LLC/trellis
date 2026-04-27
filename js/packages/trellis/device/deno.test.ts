@@ -49,7 +49,7 @@ Deno.test("checkDeviceActivation starts activation and persists pending state wh
             JSON.stringify({
               flowId: "flow_123",
               instanceId: "dev_123",
-              profileId: "reader.default",
+              deploymentId: "reader.default",
               activationUrl: activationUrl("flow_123"),
             }),
             {
@@ -120,7 +120,7 @@ Deno.test("checkDeviceActivation treats rate-limited pending waits as still pend
             JSON.stringify({
               flowId: "flow_rate_limited",
               instanceId: "dev_123",
-              profileId: "reader.default",
+              deploymentId: "reader.default",
               activationUrl: activationUrl("flow_rate_limited"),
             }),
             {
@@ -212,7 +212,7 @@ Deno.test("checkDeviceActivation retries bootstrap once on iat_out_of_range usin
             JSON.stringify({
               flowId: "flow_retry",
               instanceId: "dev_123",
-              profileId: "reader.default",
+              deploymentId: "reader.default",
               activationUrl: activationUrl("flow_retry"),
             }),
             {
@@ -272,7 +272,7 @@ Deno.test("checkDeviceActivation resumes persisted pending activation and saves 
             JSON.stringify({
               flowId: "flow_456",
               instanceId: "dev_123",
-              profileId: "reader.default",
+              deploymentId: "reader.default",
               activationUrl: activationUrl("flow_456"),
             }),
             {
@@ -364,7 +364,7 @@ Deno.test("checkDeviceActivation retries pending activation status once on iat_o
             JSON.stringify({
               flowId: "flow_wait_retry",
               instanceId: "dev_123",
-              profileId: "reader.default",
+              deploymentId: "reader.default",
               activationUrl: activationUrl("flow_wait_retry"),
             }),
             {
@@ -450,7 +450,7 @@ Deno.test("checkDeviceActivation waits for online approval and persists activate
             JSON.stringify({
               flowId: "flow_789",
               instanceId: "dev_123",
-              profileId: "reader.default",
+              deploymentId: "reader.default",
               activationUrl: activationUrl("flow_789"),
             }),
             {
@@ -484,7 +484,7 @@ Deno.test("checkDeviceActivation waits for online approval and persists activate
               activatedAt: "2026-04-22T12:00:00Z",
               connectInfo: {
                 instanceId: "dev_123",
-                profileId: "reader.default",
+                deploymentId: "reader.default",
                 contractId: "example.device@v1",
                 contractDigest: deviceContract.CONTRACT_DIGEST,
                 transports: {
@@ -550,7 +550,7 @@ Deno.test("checkDeviceActivation rejects ready bootstrap responses for a differe
               status: "ready",
               connectInfo: {
                 instanceId: "dev_123",
-                profileId: "reader.default",
+                deploymentId: "reader.default",
                 contractId: secondDeviceContract.CONTRACT_ID,
                 contractDigest: secondDeviceContract.CONTRACT_DIGEST,
                 transports: {
@@ -622,7 +622,7 @@ Deno.test("checkDeviceActivation returns activated on repeated completion action
             JSON.stringify({
               flowId: "flow_repeat",
               instanceId: "dev_123",
-              profileId: "reader.default",
+              deploymentId: "reader.default",
               activationUrl: activationUrl("flow_repeat"),
             }),
             {
@@ -706,7 +706,7 @@ Deno.test("checkDeviceActivation does not report activated if persistence fails 
             JSON.stringify({
               flowId: "flow_persist_fail",
               instanceId: "dev_123",
-              profileId: "reader.default",
+              deploymentId: "reader.default",
               activationUrl: activationUrl("flow_persist_fail"),
             }),
             {
@@ -725,7 +725,7 @@ Deno.test("checkDeviceActivation does not report activated if persistence fails 
               activatedAt: "2026-04-22T12:00:00Z",
               connectInfo: {
                 instanceId: "dev_123",
-                profileId: "reader.default",
+                deploymentId: "reader.default",
                 contractId: "example.device@v1",
                 contractDigest: deviceContract.CONTRACT_DIGEST,
                 transports: {
@@ -808,7 +808,7 @@ Deno.test("checkDeviceActivation rejects online activation completion for a diff
             JSON.stringify({
               flowId: "flow_wrong_contract",
               instanceId: "dev_123",
-              profileId: "reader.default",
+              deploymentId: "reader.default",
               activationUrl: activationUrl("flow_wrong_contract"),
             }),
             {
@@ -827,7 +827,7 @@ Deno.test("checkDeviceActivation rejects online activation completion for a diff
               activatedAt: "2026-04-22T12:00:00Z",
               connectInfo: {
                 instanceId: "dev_123",
-                profileId: "reader.default",
+                deploymentId: "reader.default",
                 contractId: secondDeviceContract.CONTRACT_ID,
                 contractDigest: secondDeviceContract.CONTRACT_DIGEST,
                 transports: {
@@ -895,7 +895,7 @@ Deno.test("checkDeviceActivation returns activated for ready devices and upgrade
                   status: "ready",
                   connectInfo: {
                     instanceId: "dev_123",
-                    profileId: "reader.default",
+                    deploymentId: "reader.default",
                     contractId: "example.device@v1",
                     contractDigest: deviceContract.CONTRACT_DIGEST,
                     transports: {
@@ -929,7 +929,7 @@ Deno.test("checkDeviceActivation returns activated for ready devices and upgrade
             JSON.stringify({
               flowId: "flow_ready",
               instanceId: "dev_123",
-              profileId: "reader.default",
+              deploymentId: "reader.default",
               activationUrl: activationUrl("flow_ready"),
             }),
             {
@@ -1012,7 +1012,7 @@ Deno.test("checkDeviceActivation refreshes stale pending activation when the sav
             JSON.stringify({
               flowId: activationCalls === 1 ? "flow_old" : "flow_new",
               instanceId: "dev_123",
-              profileId: "reader.default",
+              deploymentId: "reader.default",
               activationUrl: activationUrl(
                 activationCalls === 1 ? "flow_old" : "flow_new",
               ),
@@ -1117,7 +1117,7 @@ Deno.test("checkDeviceActivation surfaces pending activation contract digest cha
             JSON.stringify({
               flowId: "flow_not_ready",
               instanceId: "dev_123",
-              profileId: "reader.default",
+              deploymentId: "reader.default",
               activationUrl: activationUrl("flow_not_ready"),
             }),
             {
@@ -1191,7 +1191,7 @@ Deno.test("checkDeviceActivation keys state files by deployment origin and devic
             JSON.stringify({
               flowId: crypto.randomUUID(),
               instanceId: "dev_123",
-              profileId: "reader.default",
+              deploymentId: "reader.default",
               activationUrl: activationUrl("flow_keyed"),
             }),
             {
@@ -1276,7 +1276,7 @@ Deno.test("checkDeviceActivation rejects overridden statePath data for a differe
             JSON.stringify({
               flowId: "flow_shared",
               instanceId: "dev_123",
-              profileId: "reader.default",
+              deploymentId: "reader.default",
               activationUrl: activationUrl("flow_shared"),
             }),
             {
@@ -1337,7 +1337,7 @@ Deno.test("checkDeviceActivation rejects overridden statePath data for a differe
             JSON.stringify({
               flowId: "flow_contract_shared",
               instanceId: "dev_123",
-              profileId: "reader.default",
+              deploymentId: "reader.default",
               activationUrl: activationUrl("flow_contract_shared"),
             }),
             {

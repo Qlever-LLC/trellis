@@ -34,7 +34,7 @@ These headings are intentionally named for fast human and AI lookup.
 | Document                                 | Read When                                                            | Why                                                                              |
 | ---------------------------------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
 | `core/trellis-patterns.md`               | You need Trellis-wide architecture rules                             | Service categories, platform boundaries, communication patterns                  |
-| `auth/trellis-auth.md`                   | You are changing auth architecture                                   | Identity model, approval model, service install model, auth subsystem boundaries |
+| `auth/trellis-auth.md`                   | You are changing auth architecture                                   | Identity model, approval model, service deployment model, auth subsystem boundaries |
 | `auth/device-activation.md`              | You are changing device preregistration or device activation         | Known-device activation flow, connect info, profiles, online activation          |
 | `contracts/trellis-contracts-catalog.md` | You are changing manifests, codegen inputs, or permission derivation | Canonical contract format, `uses`, subject ownership, activation rules           |
 

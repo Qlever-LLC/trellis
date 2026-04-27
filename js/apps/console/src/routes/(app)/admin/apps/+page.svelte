@@ -4,15 +4,10 @@
   import { errorMessage, formatDate } from "../../../../lib/format";
   import { getNotifications } from "../../../../lib/notifications.svelte";
   import { getTrellis } from "../../../../lib/trellis";
+  import { isErr } from "@qlever-llc/trellis";
 
   const trellis = getTrellis();
   const notifications = getNotifications();
-  type AppsRequester = {
-    request(method: "Auth.ListApprovals", input: { user?: string }): { orThrow(): Promise<AuthListApprovalsOutput> };
-    request(method: "Auth.RevokeApproval", input: { contractDigest: string; user: string }): { orThrow(): Promise<void> };
-  };
-  const appsSource: object = trellis;
-  const appsRequester = appsSource as AppsRequester;
 
   let loading = $state(true);
   let error = $state<string | null>(null);
@@ -20,48 +15,78 @@
   let approvals = $state<AuthListApprovalsOutput["approvals"]>([]);
   let revokeTarget = $state<string | null>(null);
 
-  async function listApprovals(user?: string) {
-    return await appsRequester.request("Auth.ListApprovals", { user }).orThrow();
-  }
-
-  async function revokeApproval(contractDigest: string, user: string) {
-    return appsRequester.request("Auth.RevokeApproval", { contractDigest, user }).orThrow();
-  }
-
   async function load() {
     loading = true;
     error = null;
-    try {
-      const res = await listApprovals(filterUser.trim() || undefined);
-      approvals = res.approvals ?? [];
-    } catch (e) { error = errorMessage(e); }
-    finally { loading = false; }
+
+    const user = filterUser.trim();
+    const res = await trellis.request("Auth.ListApprovals", { user }).take();
+    loading = false;
+    if (isErr(res)) {
+      error = errorMessage(res);
+      return;
+    }
+    approvals = res.approvals;
   }
 
   async function revoke(contractDigest: string, user: string) {
-    if (!window.confirm(`Revoke this approval for ${user}? The app will lose access.`)) return;
+    if (
+      !window.confirm(
+        `Revoke this approval for ${user}? The app will lose access.`,
+      )
+    ) {
+      return;
+    }
+
     const key = `${user}:${contractDigest}`;
     revokeTarget = key;
-    try {
-      await revokeApproval(contractDigest, user);
-      notifications.success(`Approval revoked for ${user}.`, "Revoked");
-      await load();
-    } catch (e) { error = errorMessage(e); }
-    finally { revokeTarget = null; }
+    let res = await trellis
+      .request("Auth.RevokeApproval", { contractDigest, user })
+      .take();
+
+    if (isErr(res)) {
+      error = errorMessage(res);
+      return;
+    }
+
+    notifications.success(`Approval revoked for ${user}.`, "Revoked");
+    await load();
+    revokeTarget = null;
   }
 
-  onMount(() => { void load(); });
+  onMount(load);
 </script>
 
 <section class="space-y-4">
-  <form class="flex gap-2 items-end" onsubmit={(e) => { e.preventDefault(); void load(); }}>
-    <input class="input input-bordered input-sm w-60" placeholder="Filter by user…" bind:value={filterUser} />
-    <button type="submit" class="btn btn-primary btn-sm" disabled={loading}>Apply</button>
+  <form
+    class="flex gap-2 items-end"
+    onsubmit={(e) => {
+      e.preventDefault();
+      void load();
+    }}
+  >
+    <input
+      class="input input-bordered input-sm w-60"
+      placeholder="Filter by user…"
+      bind:value={filterUser}
+    />
+    <button type="submit" class="btn btn-primary btn-sm" disabled={loading}
+      >Apply</button
+    >
     {#if filterUser.trim()}
-      <button type="button" class="btn btn-ghost btn-sm" onclick={() => { filterUser = ""; void load(); }}>Clear</button>
+      <button
+        type="button"
+        class="btn btn-ghost btn-sm"
+        onclick={() => {
+          filterUser = "";
+          void load();
+        }}>Clear</button
+      >
     {/if}
     <div class="flex-1"></div>
-    <button class="btn btn-ghost btn-sm" onclick={load} disabled={loading}>Refresh</button>
+    <button class="btn btn-ghost btn-sm" onclick={load} disabled={loading}
+      >Refresh</button
+    >
   </form>
 
   {#if error}
@@ -69,7 +94,9 @@
   {/if}
 
   {#if loading}
-    <div class="flex justify-center py-8"><span class="loading loading-spinner loading-md"></span></div>
+    <div class="flex justify-center py-8">
+      <span class="loading loading-spinner loading-md"></span>
+    </div>
   {:else if approvals.length === 0}
     <p class="text-sm text-base-content/60">No approvals found.</p>
   {:else}
@@ -88,16 +115,29 @@
           {#each approvals as entry (`${entry.user}:${entry.approval.contractDigest}:${entry.answeredAt}`)}
             <tr>
               <td class="font-medium">{entry.user ?? "—"}</td>
-              <td>{entry.approval.displayName ?? entry.approval.contractId ?? "—"}</td>
-              <td class="font-mono text-xs text-base-content/60">{entry.approval.contractDigest?.slice(0, 12)}…</td>
-              <td class="text-base-content/60">{formatDate(entry.answeredAt)}</td>
+              <td
+                >{entry.approval.displayName ??
+                  entry.approval.contractId ??
+                  "—"}</td
+              >
+              <td class="font-mono text-xs text-base-content/60"
+                >{entry.approval.contractDigest?.slice(0, 12)}…</td
+              >
+              <td class="text-base-content/60"
+                >{formatDate(entry.answeredAt)}</td
+              >
               <td class="text-right">
                 <button
                   class="btn btn-ghost btn-xs text-error"
-                  onclick={() => revoke(entry.approval.contractDigest, entry.user)}
-                  disabled={revokeTarget === `${entry.user}:${entry.approval.contractDigest}`}
+                  onclick={() =>
+                    revoke(entry.approval.contractDigest, entry.user)}
+                  disabled={revokeTarget ===
+                    `${entry.user}:${entry.approval.contractDigest}`}
                 >
-                  {revokeTarget === `${entry.user}:${entry.approval.contractDigest}` ? "Revoking…" : "Revoke"}
+                  {revokeTarget ===
+                  `${entry.user}:${entry.approval.contractDigest}`
+                    ? "Revoking…"
+                    : "Revoke"}
                 </button>
               </td>
             </tr>
@@ -105,6 +145,8 @@
         </tbody>
       </table>
     </div>
-    <p class="text-xs text-base-content/50">{approvals.length} approval{approvals.length !== 1 ? "s" : ""}</p>
+    <p class="text-xs text-base-content/50">
+      {approvals.length} approval{approvals.length !== 1 ? "s" : ""}
+    </p>
   {/if}
 </section>

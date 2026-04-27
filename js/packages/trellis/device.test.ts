@@ -264,7 +264,7 @@ Deno.test("connectDeviceWithDeps maps runtime connection failures to TransportEr
             status: "ready",
             connectInfo: {
               instanceId: "dev_123",
-              profileId: "reader.default",
+              deploymentId: "reader.default",
               contractId: "example.device@v1",
               contractDigest: "digest-a",
               transports: {
@@ -328,7 +328,7 @@ Deno.test("connectDeviceWithDeps rejects bootstrap contract mismatches", async (
             status: "ready",
             connectInfo: {
               instanceId: "dev_123",
-              profileId: "reader.default",
+              deploymentId: "reader.default",
               contractId: "different.device@v1",
               contractDigest: "digest-b",
               transports: {
@@ -408,7 +408,7 @@ Deno.test("connectDeviceWithDeps retries bootstrap once on iat_out_of_range usin
             status: "ready",
             connectInfo: {
               instanceId: "dev_123",
-              profileId: "reader.default",
+              deploymentId: "reader.default",
               contractId: "example.device@v1",
               contractDigest: "digest-a",
               transports: {
@@ -477,7 +477,7 @@ Deno.test("connectDeviceWithDeps logs explicit device NATS lifecycle status even
             status: "ready",
             connectInfo: {
               instanceId: "dev_123",
-              profileId: "reader.default",
+              deploymentId: "reader.default",
               contractId: "example.device@v1",
               contractDigest: "digest-a",
               transports: {
@@ -557,7 +557,7 @@ Deno.test("connectDeviceWithDeps logs explicit device NATS closed outcomes", asy
             status: "ready",
             connectInfo: {
               instanceId: "dev_123",
-              profileId: "reader.default",
+              deploymentId: "reader.default",
               contractId: "example.device@v1",
               contractDigest: "digest-a",
               transports: {
@@ -646,7 +646,7 @@ Deno.test("startDeviceActivationRequest returns a short server-owned activation 
         JSON.stringify({
           flowId: "flow_123",
           instanceId: "dev_123",
-          profileId: "reader.default",
+          deploymentId: "reader.default",
           activationUrl:
             "https://trellis.example.com/_trellis/portal/devices/activate?flowId=flow_123",
         }),

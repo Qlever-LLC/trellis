@@ -231,7 +231,7 @@ Deno.test("DeviceActivationController restores callback flow and maps activation
       return Promise.resolve(createOperationRef({
         status: "activated",
         instanceId: "dev_123",
-        profileId: "reader.default",
+        deploymentId: "reader.default",
         activatedAt: "2026-04-21T12:34:56Z",
         confirmationCode: "1234",
       }));
@@ -282,7 +282,7 @@ Deno.test("DeviceActivationController restores callback flow and maps activation
     mode: "activated",
     flowId: "device-flow",
     instanceId: "dev_123",
-    profileId: "reader.default",
+    deploymentId: "reader.default",
     activatedAt: "2026-04-21T12:34:56Z",
     confirmationCode: "1234",
   });
@@ -346,13 +346,13 @@ Deno.test("DeviceActivationController shows pending review from operation progre
               status: "pending_review",
               reviewId: "dar_123",
               instanceId: "dev_123",
-              profileId: "reader.default",
+              deploymentId: "reader.default",
               requestedAt: "2026-04-21T12:00:01Z",
             },
             output: {
               status: "activated",
               instanceId: "dev_123",
-              profileId: "reader.default",
+              deploymentId: "reader.default",
               activatedAt: "2026-04-21T12:00:03Z",
             },
             onProgress: progressSeen,
@@ -380,7 +380,7 @@ Deno.test("DeviceActivationController shows pending review from operation progre
     flowId: "device-flow",
     reviewId: "dar_123",
     instanceId: "dev_123",
-    profileId: "reader.default",
+    deploymentId: "reader.default",
     requestedAt: "2026-04-21T12:00:01Z",
   });
 
@@ -391,7 +391,7 @@ Deno.test("DeviceActivationController shows pending review from operation progre
     mode: "activated",
     flowId: "device-flow",
     instanceId: "dev_123",
-    profileId: "reader.default",
+    deploymentId: "reader.default",
     activatedAt: "2026-04-21T12:00:03Z",
   });
 });

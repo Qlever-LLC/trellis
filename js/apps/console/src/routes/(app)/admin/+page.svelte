@@ -95,7 +95,7 @@
     </div>
 
     <div class="flex flex-wrap gap-2">
-      <a href={resolve("/admin/services")} class="btn btn-primary btn-sm">Manage Profiles</a>
+      <a href={resolve("/admin/services")} class="btn btn-primary btn-sm">Manage Deployments</a>
       <a href="/admin/services/instances" class="btn btn-outline btn-sm">Manage Instances</a>
       <button class="btn btn-ghost btn-sm" onclick={load}>Refresh</button>
     </div>
@@ -114,7 +114,7 @@
             <thead>
               <tr>
                 <th>Instance</th>
-                <th>Profile</th>
+                <th>Deployment</th>
                 <th>Contract</th>
                 <th>Status</th>
               </tr>
@@ -123,7 +123,7 @@
               {#each instances as instance (instance.instanceId)}
                 <tr>
                   <td class="font-medium">{instance.instanceId}</td>
-                  <td class="text-base-content/60">{instance.profileId}</td>
+                  <td class="text-base-content/60">{instance.deploymentId}</td>
                   <td class="text-base-content/60">{instance.currentContractDigest ?? instance.currentContractId ?? "—"}</td>
                   <td>
                     {#if instance.disabled}

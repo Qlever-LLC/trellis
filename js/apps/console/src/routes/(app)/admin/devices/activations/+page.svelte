@@ -2,8 +2,8 @@
   import type {
     AuthListDeviceActivationsInput,
     AuthListDeviceActivationsOutput,
+    AuthListDeviceDeploymentsOutput,
     AuthListDeviceInstancesOutput,
-    AuthListDeviceProfilesOutput,
     AuthRevokeDeviceActivationInput,
   } from "@qlever-llc/trellis/sdk/auth";
   import { onMount } from "svelte";
@@ -15,7 +15,7 @@
   type DeviceInstance = AuthListDeviceInstancesOutput["instances"][number] & {
     metadata?: Record<string, string>;
   };
-  type Profile = AuthListDeviceProfilesOutput["profiles"][number];
+  type Deployment = AuthListDeviceDeploymentsOutput["deployments"][number];
   type ActivationState = NonNullable<AuthListDeviceActivationsInput["state"]> | "all";
 
   const understoodMetadataKeys = ["name", "serialNumber", "modelNumber"] as const;
@@ -25,7 +25,7 @@
   type ActivationsRequester = {
     request(method: "Auth.ListDeviceActivations", input: AuthListDeviceActivationsInput): { orThrow(): Promise<AuthListDeviceActivationsOutput> };
     request(method: "Auth.ListDeviceInstances", input: Record<string, never>): { orThrow(): Promise<AuthListDeviceInstancesOutput> };
-    request(method: "Auth.ListDeviceProfiles", input: Record<string, never>): { orThrow(): Promise<AuthListDeviceProfilesOutput> };
+    request(method: "Auth.ListDeviceDeployments", input: Record<string, never>): { orThrow(): Promise<AuthListDeviceDeploymentsOutput> };
     request(method: "Auth.RevokeDeviceActivation", input: AuthRevokeDeviceActivationInput): { orThrow(): Promise<void> };
   };
   const activationsSource: object = trellis;
@@ -37,10 +37,10 @@
 
   let activations = $state<Activation[]>([]);
   let deviceInstances = $state<DeviceInstance[]>([]);
-  let profiles = $state<Profile[]>([]);
+  let deployments = $state<Deployment[]>([]);
 
   let instanceFilter = $state("");
-  let profileFilter = $state("");
+  let deploymentFilter = $state("");
   let stateFilter = $state<ActivationState>("all");
   let showMetadata = $state(false);
 
@@ -49,7 +49,7 @@
   function activationQuery(): AuthListDeviceActivationsInput {
     return {
       instanceId: instanceFilter.trim() || undefined,
-      profileId: profileFilter || undefined,
+      deploymentId: deploymentFilter || undefined,
       state: stateFilter === "all" ? undefined : stateFilter,
     };
   }
@@ -58,15 +58,15 @@
     loading = true;
     error = null;
     try {
-      const [activationsResponse, instancesResponse, profilesResponse] = await Promise.all([
+      const [activationsResponse, instancesResponse, deploymentsResponse] = await Promise.all([
         activationsRequester.request("Auth.ListDeviceActivations", activationQuery()).orThrow(),
         activationsRequester.request("Auth.ListDeviceInstances", {}).orThrow(),
-        activationsRequester.request("Auth.ListDeviceProfiles", {}).orThrow(),
+        activationsRequester.request("Auth.ListDeviceDeployments", {}).orThrow(),
       ]);
 
       activations = activationsResponse.activations ?? [];
       deviceInstances = instancesResponse.instances ?? [];
-      profiles = profilesResponse.profiles ?? [];
+      deployments = deploymentsResponse.deployments ?? [];
     } catch (e) {
       error = errorMessage(e);
     } finally {
@@ -122,11 +122,11 @@
       </label>
 
       <label class="form-control gap-1">
-        <span class="label-text text-xs">Profile</span>
-        <select class="select select-bordered select-sm w-48" bind:value={profileFilter}>
-          <option value="">All profiles</option>
-          {#each profiles as profile (profile.profileId)}
-            <option value={profile.profileId}>{profile.profileId}</option>
+        <span class="label-text text-xs">Deployment</span>
+        <select class="select select-bordered select-sm w-48" bind:value={deploymentFilter}>
+          <option value="">All deployments</option>
+          {#each deployments as deployment (deployment.deploymentId)}
+            <option value={deployment.deploymentId}>{deployment.deploymentId}</option>
           {/each}
         </select>
       </label>
@@ -167,7 +167,7 @@
         <thead>
           <tr>
             <th>Instance</th>
-            <th>Profile</th>
+            <th>Deployment</th>
             <th>Activated By</th>
             <th>State</th>
             <th>Activated</th>
@@ -198,7 +198,7 @@
                   </div>
                 {/if}
               </td>
-              <td class="text-base-content/60">{activation.profileId}</td>
+              <td class="text-base-content/60">{activation.deploymentId}</td>
               <td class="text-base-content/60">{activation.activatedBy ? `${activation.activatedBy.origin}:${activation.activatedBy.id}` : "—"}</td>
               <td><span class="badge badge-sm">{activation.state}</span></td>
               <td class="text-base-content/60">{formatDate(activation.activatedAt)}</td>

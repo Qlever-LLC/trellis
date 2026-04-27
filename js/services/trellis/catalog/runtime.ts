@@ -1,17 +1,12 @@
-import type {
-  ContractResources,
-  TrellisContractV1,
-} from "@qlever-llc/trellis/contracts";
+import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 import { isJsonValue } from "@qlever-llc/trellis/contracts";
 import type {
+  SqlDeviceDeploymentRepository,
   SqlDeviceInstanceRepository,
+  SqlServiceDeploymentRepository,
   SqlServiceInstanceRepository,
-  SqlServiceProfileRepository,
 } from "../auth/storage.ts";
-import {
-  type ActiveDigestServiceProfile,
-  addServiceProfileAllowedDigests,
-} from "./active_contracts.ts";
+import { addCurrentContractDigests } from "./active_contracts.ts";
 import { analyzeContract } from "./analysis.ts";
 import { setContracts as setPermissionContracts } from "./permissions.ts";
 import { ContractStore } from "./store.ts";
@@ -76,6 +71,27 @@ function ensureSubjectMatchesVersion(
     );
   }
 }
+
+function checkOwnedSubject(args: {
+  contractStore: ContractStore;
+  validated: ValidatedContract;
+  label: string;
+  subject: string;
+}): void {
+  const prev = args.contractStore.findActiveSubject(args.subject);
+  if (
+    prev && prev.digest !== args.validated.digest &&
+    prev.contractId !== args.validated.contract.id
+  ) {
+    throw new Error(
+      `${args.label} '${args.subject}' already owned by '${
+        describeContract(prev)
+      }'`,
+    );
+  }
+}
+
+type ValidatedContract = Awaited<ReturnType<ContractStore["validate"]>>;
 
 function getRequiredServiceCapabilities(
   contractStore: ContractStore,
@@ -166,14 +182,13 @@ export function createContractsModule(opts: {
   builtinContracts: Array<{ digest: string; contract: TrellisContractV1 }>;
   contractStorage: SqlContractStorageRepository;
   serviceInstanceStorage: SqlServiceInstanceRepository;
-  serviceProfileStorage: SqlServiceProfileRepository;
+  serviceDeploymentStorage: SqlServiceDeploymentRepository;
+  deviceDeploymentStorage: SqlDeviceDeploymentRepository;
   deviceInstanceStorage: SqlDeviceInstanceRepository;
   logger?: CatalogLogger;
 }) {
   const logger = opts.logger ?? consoleLogger;
   const contractStore = new ContractStore(opts.builtinContracts);
-
-  type ValidatedContract = Awaited<ReturnType<typeof contractStore.validate>>;
 
   async function validateManagedContract(args: {
     contract: unknown;
@@ -192,42 +207,23 @@ export function createContractsModule(opts: {
     const validated = await contractStore.validate(args.contract);
 
     const usedNamespaces = new Set<string>();
-    const rpc = (validated.contract as Record<string, unknown>).rpc as
-      | Record<string, unknown>
-      | undefined;
-    const events = (validated.contract as Record<string, unknown>).events as
-      | Record<string, unknown>
-      | undefined;
-    const operations = (validated.contract as Record<string, unknown>)
-      .operations as
-        | Record<string, unknown>
-        | undefined;
-    const subjects = (validated.contract as Record<string, unknown>).subjects as
-      | Record<string, unknown>
-      | undefined;
-
-    for (const value of Object.values(rpc ?? {})) {
-      const method = value as { subject: string; version: string };
+    for (const method of Object.values(validated.contract.rpc ?? {})) {
       ensureNoWildcards(method.subject);
       ensureSubjectMatchesVersion("rpc", method.version, method.subject);
       const ns = subjectNamespace(method.subject);
       if (!ns) throw new Error(`Invalid RPC subject '${method.subject}'`);
       usedNamespaces.add(ns);
-      const prev = contractStore.findActiveSubject(method.subject);
-      if (
-        prev && prev.digest !== validated.digest &&
-        prev.contractId !== validated.contract.id
-      ) {
-        throw new Error(
-          `RPC subject '${method.subject}' already owned by '${
-            describeContract(prev)
-          }'`,
-        );
-      }
+      checkOwnedSubject({
+        contractStore,
+        validated,
+        label: "RPC subject",
+        subject: method.subject,
+      });
     }
 
-    for (const value of Object.values(operations ?? {})) {
-      const operation = value as { subject: string; version: string };
+    for (
+      const operation of Object.values(validated.contract.operations ?? {})
+    ) {
       ensureNoWildcards(operation.subject);
       ensureSubjectMatchesVersion(
         "operations",
@@ -239,52 +235,35 @@ export function createContractsModule(opts: {
         throw new Error(`Invalid operation subject '${operation.subject}'`);
       }
       usedNamespaces.add(ns);
-      const prev = contractStore.findActiveSubject(operation.subject);
-      if (
-        prev && prev.digest !== validated.digest &&
-        prev.contractId !== validated.contract.id
-      ) {
-        throw new Error(
-          `Operation subject '${operation.subject}' already owned by '${
-            describeContract(prev)
-          }'`,
-        );
-      }
+      checkOwnedSubject({
+        contractStore,
+        validated,
+        label: "Operation subject",
+        subject: operation.subject,
+      });
     }
 
-    for (const value of Object.values(events ?? {})) {
-      const event = value as { subject: string; version: string };
+    for (const event of Object.values(validated.contract.events ?? {})) {
       ensureNoWildcards(event.subject);
       ensureSubjectMatchesVersion("events", event.version, event.subject);
       const ns = subjectNamespace(event.subject);
       if (!ns) throw new Error(`Invalid event subject '${event.subject}'`);
       usedNamespaces.add(ns);
-      const prev = contractStore.findActiveSubject(event.subject);
-      if (
-        prev && prev.digest !== validated.digest &&
-        prev.contractId !== validated.contract.id
-      ) {
-        throw new Error(
-          `Event subject '${event.subject}' already owned by '${
-            describeContract(prev)
-          }'`,
-        );
-      }
+      checkOwnedSubject({
+        contractStore,
+        validated,
+        label: "Event subject",
+        subject: event.subject,
+      });
     }
 
-    for (const value of Object.values(subjects ?? {})) {
-      const subject = value as { subject: string };
-      const prev = contractStore.findActiveSubject(subject.subject);
-      if (
-        prev && prev.digest !== validated.digest &&
-        prev.contractId !== validated.contract.id
-      ) {
-        throw new Error(
-          `Subject '${subject.subject}' already owned by '${
-            describeContract(prev)
-          }'`,
-        );
-      }
+    for (const subject of Object.values(validated.contract.subjects ?? {})) {
+      checkOwnedSubject({
+        contractStore,
+        validated,
+        label: "Subject",
+        subject: subject.subject,
+      });
     }
 
     return {
@@ -312,8 +291,7 @@ export function createContractsModule(opts: {
         analyzed.summary.kvResources > 0 ||
         analyzed.summary.streamResources > 0 ||
         analyzed.summary.jobsQueues > 0 ||
-        (validated.contract as TrellisContractV1 & { resources?: unknown })
-            .resources !== undefined
+        validated.contract.resources !== undefined
       )
     ) {
       throw new Error("device contracts may not declare resources");
@@ -321,7 +299,6 @@ export function createContractsModule(opts: {
 
     const existing = await opts.contractStorage.get(validated.digest);
     if (existing) {
-      contractStore.activateDigest(validated.digest);
       return {
         id: validated.contract.id,
         digest: validated.digest,
@@ -341,15 +318,12 @@ export function createContractsModule(opts: {
       description: validated.contract.description,
       installedAt: now,
       contract: validated.canonical,
-      resources: (validated.contract as TrellisContractV1 & {
-        resources?: ContractResources;
-      }).resources,
+      resources: validated.contract.resources,
       analysisSummary: analyzed.summary,
       analysis: analyzed.analysis,
     });
 
     contractStore.add(validated.digest, validated.contract);
-    contractStore.activateDigest(validated.digest);
 
     return {
       id: validated.contract.id,
@@ -400,21 +374,35 @@ export function createContractsModule(opts: {
       }
     }
 
-    for (const instance of await opts.serviceInstanceStorage.list()) {
-      if (!instance.disabled && instance.currentContractDigest) {
-        active.add(instance.currentContractDigest);
-      }
-    }
+    const serviceDeployments = new Map(
+      (await opts.serviceDeploymentStorage.list()).map((deployment) => [
+        deployment.deploymentId,
+        deployment,
+      ]),
+    );
 
-    const profiles: ActiveDigestServiceProfile[] = await opts
-      .serviceProfileStorage.list();
-    addServiceProfileAllowedDigests(active, profiles);
+    addCurrentContractDigests(
+      active,
+      await opts.serviceInstanceStorage.list(),
+      (instance) =>
+        !instance.disabled &&
+        serviceDeployments.get(instance.deploymentId)?.disabled !== true,
+    );
 
-    for (const instance of await opts.deviceInstanceStorage.list()) {
-      if (instance.state === "activated" && instance.currentContractDigest) {
-        active.add(instance.currentContractDigest);
-      }
-    }
+    const deviceDeployments = new Map(
+      (await opts.deviceDeploymentStorage.list()).map((deployment) => [
+        deployment.deploymentId,
+        deployment,
+      ]),
+    );
+
+    addCurrentContractDigests(
+      active,
+      await opts.deviceInstanceStorage.list(),
+      (instance) =>
+        instance.state === "activated" &&
+        deviceDeployments.get(instance.deploymentId)?.disabled !== true,
+    );
 
     for (const digest of active) {
       if (contractStore.getContract(digest, { includeInactive: true })) {

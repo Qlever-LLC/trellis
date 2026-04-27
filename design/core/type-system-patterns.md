@@ -184,7 +184,7 @@ Rules:
 - repository and service code should query by the semantic identifier that
   matches the operation rather than exposing row IDs as public API identifiers
 - schema names should make the distinction clear, for example `id` for row
-  identity and `contract_id`, `trellis_id`, or `profile_id` for domain identity
+  identity and `contract_id`, `trellis_id`, or `deployment_id` for domain identity
 
 ## Result Type
 

@@ -7,8 +7,8 @@ import {
 } from "../../catalog/uses.ts";
 import type { ContractRecord } from "../../state/schemas.ts";
 
-type DeviceProfile = {
-  profileId: string;
+type DeviceDeployment = {
+  deploymentId: string;
   appliedContracts: Array<{ contractId: string; allowedDigests: string[] }>;
   reviewMode?: "none" | "required";
   disabled: boolean;
@@ -39,14 +39,14 @@ const TRANSFER_SUBJECT_PREFIXES = [
 ] as const;
 
 export function resolveDeviceContractDigest(
-  profile: DeviceProfile,
+  deployment: DeviceDeployment,
   contractDigest: string | undefined,
 ): string {
   if (typeof contractDigest !== "string" || contractDigest.length === 0) {
     throw new Error("invalid_auth_token");
   }
   if (
-    !profile.appliedContracts.some((entry) =>
+    !deployment.appliedContracts.some((entry) =>
       entry.allowedDigests.includes(contractDigest)
     )
   ) {
@@ -56,15 +56,15 @@ export function resolveDeviceContractDigest(
 }
 
 export function deriveDeviceRuntimeAccess(
-  profile: DeviceProfile,
+  deployment: DeviceDeployment,
   contractRecord: ContractRecord,
   contractStore?: ContractStore,
 ): DeviceRuntimeAccess {
-  const applied = profile.appliedContracts.find((entry) =>
+  const applied = deployment.appliedContracts.find((entry) =>
     entry.allowedDigests.includes(contractRecord.digest)
   );
   if (!applied || contractRecord.id !== applied.contractId) {
-    throw new Error("device_profile_contract_mismatch");
+    throw new Error("device_deployment_contract_mismatch");
   }
 
   const analysis = contractRecord.analysis;

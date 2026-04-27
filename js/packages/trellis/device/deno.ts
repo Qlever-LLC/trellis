@@ -23,7 +23,7 @@ const PendingActivationStateSchema = Type.Object({
   contractDigest: Type.String({ minLength: 1 }),
   publicIdentityKey: Type.String({ minLength: 1 }),
   instanceId: Type.String({ minLength: 1 }),
-  profileId: Type.String({ minLength: 1 }),
+  deploymentId: Type.String({ minLength: 1 }),
   nonce: Type.String({ minLength: 1 }),
   activationUrl: Type.String({ minLength: 1 }),
 });
@@ -33,7 +33,7 @@ const ActivatedActivationStateSchema = Type.Object({
   contractDigest: Type.String({ minLength: 1 }),
   publicIdentityKey: Type.String({ minLength: 1 }),
   instanceId: Type.String({ minLength: 1 }),
-  profileId: Type.String({ minLength: 1 }),
+  deploymentId: Type.String({ minLength: 1 }),
   nonce: Type.String({ minLength: 1 }),
   activationUrl: Type.String({ minLength: 1 }),
 });
@@ -65,7 +65,7 @@ const DeviceBootstrapReadySchema = Type.Object({
   status: Type.Literal("ready"),
   connectInfo: Type.Object({
     instanceId: Type.String({ minLength: 1 }),
-    profileId: Type.String({ minLength: 1 }),
+    deploymentId: Type.String({ minLength: 1 }),
     contractId: Type.String({ minLength: 1 }),
     contractDigest: Type.String({ minLength: 1 }),
     transports: ClientTransportsSchema,

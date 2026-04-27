@@ -377,7 +377,7 @@ export async function startDeviceActivationRequest(args: {
   {
     flowId: string;
     instanceId: string;
-    profileId: string;
+    deploymentId: string;
     activationUrl: string;
   }
 > {
@@ -402,7 +402,7 @@ export async function startDeviceActivationRequest(args: {
   if (
     typeof parsed.flowId !== "string" ||
     typeof parsed.instanceId !== "string" ||
-    typeof parsed.profileId !== "string" ||
+    typeof parsed.deploymentId !== "string" ||
     typeof parsed.activationUrl !== "string"
   ) {
     throw new Error("Device activation request returned an invalid response");
@@ -411,7 +411,7 @@ export async function startDeviceActivationRequest(args: {
   return {
     flowId: parsed.flowId,
     instanceId: parsed.instanceId,
-    profileId: parsed.profileId,
+    deploymentId: parsed.deploymentId,
     activationUrl: parsed.activationUrl,
   };
 }
