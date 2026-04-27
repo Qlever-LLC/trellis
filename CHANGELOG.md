@@ -10,6 +10,9 @@ and this project adheres to
 
 ### Changed
 
+- Changed Svelte app docs and examples to derive app-local client types from
+  `createTrellisApp` contracts instead of importing generated `client.ts`
+  facades from local `generated/js/sdks/...` paths.
 - Changed local SvelteKit app aliasing so each app owns explicit `kit.alias`
   mappings, with Vite relying on SvelteKit-provided aliases and the old shared
   frontend workspace alias helper removed.
@@ -63,9 +66,9 @@ and this project adheres to
   consumer `client.ts` facade types, SvelteKit-style `src/lib/contract.ts`
   contracts are discovered, and app contracts produce TypeScript SDKs without
   Rust SDK crates.
-- Updated Svelte app integration so `createTrellisApp` can bind generated client
-  facade types and app-local `getTrellis()` helpers return concrete generated
-  clients without app-local casts or handwritten overloads.
+- Updated Svelte app integration so `createTrellisApp` derives app-local client
+  helper types from the supplied contract without app-local casts or handwritten
+  overloads.
 - Simplified portal auth by removing the portal contract kind and portal
   `appContractId`, keeping custom portals as routing config, and moving
   authenticated device activation to a single `Auth.ActivateDevice` operation.

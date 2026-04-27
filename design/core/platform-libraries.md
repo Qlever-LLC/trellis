@@ -187,11 +187,13 @@ Rules:
 
 - browser apps should define one small app-local Trellis module and re-export
   typed helpers for the rest of the app
-- app-local Trellis modules should import the app contract's generated client
-  facade from `generated/js/sdks/<contract>/client.ts` after `prepare`
+- app-local Trellis modules should use
+  `createTrellisApp({ contract, trellisUrl })` and let
+  `@qlever-llc/trellis-svelte` derive the connected client type from the app
+  contract
 - `TrellisProvider` is the primary browser integration surface; app code should
   pass an app-owned `trellisApp` created with
-  `createTrellisApp<typeof contract, GeneratedClient>({ contract, trellisUrl })`
+  `createTrellisApp({ contract, trellisUrl })`
 - `TrellisProvider` delegates runtime bootstrap and reconnect to
   `TrellisClient.connect(...)`; auth behavior is configured through provider
   auth options or `onAuthRequired`

@@ -1,7 +1,11 @@
 import { env } from "$env/dynamic/public";
-import { createTrellisApp } from "@qlever-llc/trellis-svelte";
-import type { TrellisDemoAppClient } from "../../../generated/js/sdks/demo-app/client.ts";
+import {
+  createTrellisApp,
+  type TrellisClientFor,
+} from "@qlever-llc/trellis-svelte";
 import contract from "../../contract.ts";
+
+export type TrellisDemoAppClient = TrellisClientFor<typeof contract>;
 
 if (!env.PUBLIC_TRELLIS_URL) {
   throw new Error("Missing TRELLIS_URL env. Please define it.");
@@ -13,10 +17,7 @@ export const trellisUrl = new URL(env.PUBLIC_TRELLIS_URL.trim())
 
 export { contract };
 
-export const trellisApp = createTrellisApp<
-  typeof contract,
-  TrellisDemoAppClient
->({ contract, trellisUrl });
+export const trellisApp = createTrellisApp({ contract, trellisUrl });
 
 export function getTrellis(): TrellisDemoAppClient {
   return trellisApp.getTrellis();

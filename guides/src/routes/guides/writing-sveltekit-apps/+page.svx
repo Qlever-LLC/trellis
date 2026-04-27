@@ -119,7 +119,7 @@ A simple setup that ensures this:
 }
 ```
 
-`prepare` generates the app SDK under `generated/js/sdks/my-app/`, including a concrete `client.ts` facade type for editor-friendly browser code. Regenerate whenever the contract changes.
+`prepare` generates the app SDK under `generated/js/sdks/my-app/` for consumers that need generated SDK modules. Svelte app-local helpers can derive the connected client type directly from the local contract. Regenerate whenever the contract changes.
 
 For active app or service-contract editing, keep `deno task prepare:watch`
 running in a separate terminal. It watches broadly but only prepares affected
@@ -137,9 +137,13 @@ To keep the Trellis typing in one place, create `src/lib/trellis.ts` for static 
 
 ```ts
 import { env } from "$env/dynamic/public";
-import { createTrellisApp } from "@qlever-llc/trellis-svelte";
-import type { MyAppClient } from "../../generated/js/sdks/my-app/client.ts";
+import {
+  createTrellisApp,
+  type TrellisClientFor,
+} from "@qlever-llc/trellis-svelte";
 import contract from "$lib/contract";
+
+type MyAppClient = TrellisClientFor<typeof contract>;
 
 function publicTrellisUrl(): string {
   return new URL(env.PUBLIC_TRELLIS_URL ?? "http://localhost:3000")
@@ -149,9 +153,7 @@ function publicTrellisUrl(): string {
 
 export const trellisUrl = publicTrellisUrl();
 
-export const trellisApp = createTrellisApp<typeof contract, MyAppClient>(
-  { contract, trellisUrl },
-);
+export const trellisApp = createTrellisApp({ contract, trellisUrl });
 
 export function getTrellis(): MyAppClient {
   return trellisApp.getTrellis();
@@ -166,7 +168,7 @@ export { contract };
 
 For the common case where your browser app talks to one known Trellis server, resolve that fixed `trellisUrl` once and pass it into `createTrellisApp`. If users choose a Trellis instance at runtime, pass a resolver such as `trellisUrl: () => selectedUrl` and update the selected value before rendering `TrellisProvider`.
 
-The `MyAppClient` type is a generated facade over the runtime client. It should come from the same contract passed to `createTrellisApp`.
+The `MyAppClient` alias is contract-derived and local to the app. App code should not import through `generated/js/sdks/.../client.ts` just to type `getTrellis()`.
 
 ## 4. Build the login page
 

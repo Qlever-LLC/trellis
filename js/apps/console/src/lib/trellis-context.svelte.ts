@@ -1,7 +1,11 @@
-import { createTrellisApp } from "@qlever-llc/trellis-svelte";
-import type { TrellisConsoleClient } from "../../../../../generated/js/sdks/console/client.ts";
+import {
+  createTrellisApp,
+  type TrellisClientFor,
+} from "@qlever-llc/trellis-svelte";
 import contract from "../../contract.ts";
 import { APP_CONFIG } from "./config.ts";
+
+export type TrellisConsoleClient = TrellisClientFor<typeof contract>;
 
 let selectedTrellisUrl: string | undefined = APP_CONFIG.authUrl;
 
@@ -10,10 +14,10 @@ export function setSelectedTrellisUrl(trellisUrl: string | undefined): void {
   selectedTrellisUrl = trellisUrl;
 }
 
-export const trellisApp = createTrellisApp<
-  typeof contract,
-  TrellisConsoleClient
->({ contract, trellisUrl: () => selectedTrellisUrl });
+export const trellisApp = createTrellisApp({
+  contract,
+  trellisUrl: () => selectedTrellisUrl,
+});
 
 export function getTrellis(): TrellisConsoleClient {
   return trellisApp.getTrellis();
