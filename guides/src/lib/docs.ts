@@ -57,42 +57,48 @@ const designGroups: DesignGroup[] = [
     slug: "core",
     title: "Core Design",
     section: "Design: Core",
-    description: "Cross-cutting Trellis architecture, storage, typing, service, and observability patterns.",
+    description:
+      "Cross-cutting Trellis architecture, storage, typing, service, and observability patterns.",
     href: "/design/core",
   },
   {
     slug: "auth",
     title: "Auth Design",
     section: "Design: Auth",
-    description: "Identity, approvals, auth protocol, public APIs, and auth operations guidance.",
+    description:
+      "Identity, approvals, auth protocol, public APIs, and auth operations guidance.",
     href: "/design/auth",
   },
   {
     slug: "contracts",
     title: "Contracts Design",
     section: "Design: Contracts",
-    description: "Canonical contract model plus TypeScript and Rust contract/runtime surfaces.",
+    description:
+      "Canonical contract model plus TypeScript and Rust contract/runtime surfaces.",
     href: "/design/contracts",
   },
   {
     slug: "operations",
     title: "Operations Design",
     section: "Design: Operations",
-    description: "Caller-visible async workflows and their TypeScript and Rust API surfaces.",
+    description:
+      "Caller-visible async workflows and their TypeScript and Rust API surfaces.",
     href: "/design/operations",
   },
   {
     slug: "jobs",
     title: "Jobs Design",
     section: "Design: Jobs",
-    description: "Service-private background execution and the TypeScript and Rust jobs APIs.",
+    description:
+      "Service-private background execution and the TypeScript and Rust jobs APIs.",
     href: "/design/jobs",
   },
   {
     slug: "tooling",
     title: "Tooling Design",
     section: "Design: Tooling",
-    description: "Trellis tooling surfaces, currently centered on the CLI design.",
+    description:
+      "Trellis tooling surfaces, currently centered on the CLI design.",
     href: "/design/tooling",
   },
 ];
@@ -131,7 +137,8 @@ function designSlugFromPath(path: string) {
 
 function designFlatSlugFromPath(path: string) {
   const relativePath = designRelativePathFromPath(path);
-  const basename = relativePath.split("/").filter(Boolean).pop() ?? relativePath;
+  const basename = relativePath.split("/").filter(Boolean).pop() ??
+    relativePath;
   return basename.replace(/(?:^|\/)README$/i, "");
 }
 
@@ -219,7 +226,9 @@ function markdownDescriptionFromRaw(raw: string, fallbackSlug: string) {
   }
 
   const bodyWithoutFirstHeading = body.replace(/^#\s+.+$\n*/m, "").trim();
-  const paragraphMatch = bodyWithoutFirstHeading.match(/^([^#\-*`|>\n].*(?:\n(?!\n|#|-|\*|`|\||>).+)*)/m);
+  const paragraphMatch = bodyWithoutFirstHeading.match(
+    /^([^#\-*`|>\n].*(?:\n(?!\n|#|-|\*|`|\||>).+)*)/m,
+  );
   if (!paragraphMatch) {
     return designDescriptionFromSlug(fallbackSlug);
   }
@@ -270,7 +279,8 @@ const designDocs: DocEntry[] = Object.keys(designModules)
     raw: designRawModules[path] ?? "",
   }))
   .sort((a, b) => {
-    const sectionDiff = designSectionOrderIndex(a.section) - designSectionOrderIndex(b.section);
+    const sectionDiff = designSectionOrderIndex(a.section) -
+      designSectionOrderIndex(b.section);
     if (sectionDiff !== 0) return sectionDiff;
     const orderDiff = markdownOrderFromRaw(a.raw) - markdownOrderFromRaw(b.raw);
     if (orderDiff !== 0) return orderDiff;
@@ -278,9 +288,15 @@ const designDocs: DocEntry[] = Object.keys(designModules)
     if (!b.slug) return 1;
     if (!a.flatSlug) return -1;
     if (!b.flatSlug) return 1;
-    if (a.flatSlug.startsWith("trellis-") && !b.flatSlug.startsWith("trellis-")) return -1;
-    if (!a.flatSlug.startsWith("trellis-") && b.flatSlug.startsWith("trellis-")) return 1;
-    return designTitleFromSlug(a.flatSlug).localeCompare(designTitleFromSlug(b.flatSlug));
+    if (
+      a.flatSlug.startsWith("trellis-") && !b.flatSlug.startsWith("trellis-")
+    ) return -1;
+    if (
+      !a.flatSlug.startsWith("trellis-") && b.flatSlug.startsWith("trellis-")
+    ) return 1;
+    return designTitleFromSlug(a.flatSlug).localeCompare(
+      designTitleFromSlug(b.flatSlug),
+    );
   })
   .filter(({ slug }) => slug.length > 0)
   .map(({ slug, flatSlug, section, raw }) => ({
@@ -293,7 +309,8 @@ const designDocs: DocEntry[] = Object.keys(designModules)
 
 const designOverviewDoc: DocEntry = {
   title: "Trellis Design Index",
-  description: "How the Trellis design docs are organized and which ones to read for a given task.",
+  description:
+    "How the Trellis design docs are organized and which ones to read for a given task.",
   href: "/design",
   section: "Design Overview",
   showPageHeader: false,
@@ -405,7 +422,7 @@ export const guideDocs: DocEntry[] = [
   {
     title: "State: TypeScript",
     description:
-      "Use Trellis-managed `State.*` RPCs from TypeScript apps and devices for semi-durable cloud-backed app memory, with `userApp` and `deviceApp` state partitions.",
+      "Use Trellis-managed `State.*` RPCs from TypeScript apps and devices for semi-durable cloud-backed app memory with contract-lineage storage and state-version migrations.",
     href: "/guides/using-state-ts",
     section: "Features",
     sidebarGroup: "Resources",
@@ -494,7 +511,9 @@ export function getGuidePrevNext(pathname: string): {
 }
 
 export function guideDocsBySection(): { section: string; docs: DocEntry[] }[] {
-  const orderedSections = Array.from(new Set(guideDocs.map((doc) => doc.section)));
+  const orderedSections = Array.from(
+    new Set(guideDocs.map((doc) => doc.section)),
+  );
 
   return orderedSections.map((section) => ({
     section,
@@ -529,7 +548,9 @@ function guideSidebarItemsForSection(docs: DocEntry[]): SidebarItem[] {
 }
 
 export function guideSidebarBySection(): GuideSidebarSection[] {
-  const orderedSections = Array.from(new Set(guideDocs.map((doc) => doc.section)));
+  const orderedSections = Array.from(
+    new Set(guideDocs.map((doc) => doc.section)),
+  );
 
   return orderedSections.map((section) => ({
     section,
@@ -560,14 +581,19 @@ export function getDesignPrevNext(pathname: string): {
 
 export function designDocsBySection(): { section: string; docs: DocEntry[] }[] {
   return designGroupOrder
-    .filter((section) => designNavigationDocs.some((doc) => doc.section === section))
+    .filter((section) =>
+      designNavigationDocs.some((doc) => doc.section === section)
+    )
     .map((section) => ({
       section,
       docs: designNavigationDocs.filter((doc) => doc.section === section),
     }));
 }
 
-export function overviewDocsBySection(): { section: string; docs: DocEntry[] }[] {
+export function overviewDocsBySection(): {
+  section: string;
+  docs: DocEntry[];
+}[] {
   return [
     ...guideDocsBySection(),
     {
@@ -582,11 +608,15 @@ export function allPrimaryNavDocs(): DocEntry[] {
 }
 
 export function allDocsByHref(pathname: string): DocEntry | null {
-  return [...guideDocs, ...designNavigationDocs].find((doc) => doc.href === pathname) ?? null;
+  return [...guideDocs, ...designNavigationDocs].find((doc) =>
+    doc.href === pathname
+  ) ?? null;
 }
 
 export function docsForSection(section: string): DocEntry[] {
-  return [...guideDocs, ...designNavigationDocs].filter((doc) => doc.section === section);
+  return [...guideDocs, ...designNavigationDocs].filter((doc) =>
+    doc.section === section
+  );
 }
 
 export function docsBySection(): { section: string; docs: DocEntry[] }[] {

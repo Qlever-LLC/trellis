@@ -40,7 +40,11 @@ are not part of `trellis.state`.
 const contract = defineAppContract(
   {
     schemas: {
-      Preferences: Type.Object({ theme: Type.String() }),
+      PreferencesV1: Type.Object({ theme: Type.String() }),
+      Preferences: Type.Object({
+        theme: Type.String(),
+        compact: Type.Boolean(),
+      }),
       Draft: Type.Object({ title: Type.String() }),
     },
   },
@@ -49,7 +53,14 @@ const contract = defineAppContract(
     displayName: "Notes",
     description: "Notes app",
     state: {
-      preferences: { kind: "value", schema: ref.schema("Preferences") },
+      preferences: {
+        kind: "value",
+        schema: ref.schema("Preferences"),
+        stateVersion: "preferences.v2",
+        acceptedVersions: {
+          "preferences.v1": ref.schema("PreferencesV1"),
+        },
+      },
       drafts: { kind: "map", schema: ref.schema("Draft") },
     },
   }),
@@ -61,6 +72,10 @@ Rules:
 - store names are chosen by the contract author
 - `kind` MUST be `value` or `map`
 - `schema` MUST reference a contract schema
+- `stateVersion` defaults to `"v1"` and should change only when persisted values
+  need migration
+- `acceptedVersions` maps older author-known state versions to schemas that are
+  valid migration inputs
 - the declared store metadata drives both emitted manifest content and the typed
   runtime facade
 
@@ -81,6 +96,14 @@ type StateListOptions = {
   limit?: number;
 };
 
+type StateMigrationRequiredEntry<TEntry> = {
+  migrationRequired: true;
+  entry: TEntry;
+  stateVersion: string;
+  currentStateVersion: string;
+  writerContractDigest: string;
+};
+
 type ValueStateStoreClient<TValue> = {
   get(): AsyncResult<
     | { found: false }
@@ -92,7 +115,13 @@ type ValueStateStoreClient<TValue> = {
         updatedAt: string;
         expiresAt?: string;
       };
-    },
+    }
+    | StateMigrationRequiredEntry<{
+      value: unknown;
+      revision: string;
+      updatedAt: string;
+      expiresAt?: string;
+    }>,
     BaseError
   >;
   put(
@@ -111,16 +140,25 @@ type ValueStateStoreClient<TValue> = {
     | {
       applied: false;
       found: boolean;
-      entry?: {
-        value: TValue;
-        revision: string;
-        updatedAt: string;
-        expiresAt?: string;
-      };
+      entry?:
+        | {
+          value: TValue;
+          revision: string;
+          updatedAt: string;
+          expiresAt?: string;
+        }
+        | StateMigrationRequiredEntry<{
+          value: unknown;
+          revision: string;
+          updatedAt: string;
+          expiresAt?: string;
+        }>;
     },
     BaseError
   >;
-  delete(opts?: StateDeleteOptions): AsyncResult<{ deleted: boolean }, BaseError>;
+  delete(
+    opts?: StateDeleteOptions,
+  ): AsyncResult<{ deleted: boolean }, BaseError>;
 };
 
 type MapStateStoreClient<TValue> = {
@@ -135,7 +173,14 @@ type MapStateStoreClient<TValue> = {
         updatedAt: string;
         expiresAt?: string;
       };
-    },
+    }
+    | StateMigrationRequiredEntry<{
+      key: string;
+      value: unknown;
+      revision: string;
+      updatedAt: string;
+      expiresAt?: string;
+    }>,
     BaseError
   >;
   put(
@@ -156,13 +201,21 @@ type MapStateStoreClient<TValue> = {
     | {
       applied: false;
       found: boolean;
-      entry?: {
-        key: string;
-        value: TValue;
-        revision: string;
-        updatedAt: string;
-        expiresAt?: string;
-      };
+      entry?:
+        | {
+          key: string;
+          value: TValue;
+          revision: string;
+          updatedAt: string;
+          expiresAt?: string;
+        }
+        | StateMigrationRequiredEntry<{
+          key: string;
+          value: unknown;
+          revision: string;
+          updatedAt: string;
+          expiresAt?: string;
+        }>;
     },
     BaseError
   >;
@@ -171,13 +224,22 @@ type MapStateStoreClient<TValue> = {
     opts?: StateDeleteOptions,
   ): AsyncResult<{ deleted: boolean }, BaseError>;
   list(opts?: StateListOptions): AsyncResult<{
-    entries: Array<{
-      key: string;
-      value: TValue;
-      revision: string;
-      updatedAt: string;
-      expiresAt?: string;
-    }>;
+    entries: Array<
+      | {
+        key: string;
+        value: TValue;
+        revision: string;
+        updatedAt: string;
+        expiresAt?: string;
+      }
+      | StateMigrationRequiredEntry<{
+        key: string;
+        value: unknown;
+        revision: string;
+        updatedAt: string;
+        expiresAt?: string;
+      }>
+    >;
     count: number;
     offset: number;
     limit: number;
@@ -223,6 +285,18 @@ const listed = await drafts.list({ limit: 10 }).orThrow();
 - `list(opts?)` lists entries for the current store or prefixed view
 - `prefix(path)` returns another typed map-store client rooted at that path
 
+### State versioning
+
+- compatible schema extensions keep the same `stateVersion` even though the
+  contract digest changes
+- incompatible persisted-state changes increment `stateVersion`
+- older readable versions are declared in `acceptedVersions`
+- reads, lists, and failed conditional puts may return `migrationRequired` with
+  the old value, old state version, current state version, and internal writer
+  digest
+- migration code runs in the app/device runtime and should write the migrated
+  value back with `expectedRevision`
+
 ### Conditional write semantics
 
 - omit `expectedRevision` for unconditional write
@@ -237,6 +311,8 @@ const listed = await drafts.list({ limit: 10 }).orThrow();
   request is sent
 - runtime helpers validate reads against the declared store schema after the
   response is parsed
+- migration-required responses validate the value against the declared older
+  accepted-version schema rather than the current schema
 - invalid state payloads surface as typed validation failures rather than as
   silently accepted values
 

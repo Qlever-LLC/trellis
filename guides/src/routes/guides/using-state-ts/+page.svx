@@ -31,7 +31,8 @@ import { defineAppContract } from "@qlever-llc/trellis/contracts";
 import { Type } from "typebox";
 
 const schemas = {
-  Preferences: Type.Object({ theme: Type.String() }),
+  PreferencesV1: Type.Object({ theme: Type.String() }),
+  Preferences: Type.Object({ theme: Type.String(), compact: Type.Boolean() }),
   Draft: Type.Object({ body: Type.String() }),
 } as const;
 
@@ -43,6 +44,10 @@ export const notesApp = defineAppContract({ schemas }, (ref) => ({
     preferences: {
       kind: "value",
       schema: ref.schema("Preferences"),
+      stateVersion: "preferences.v2",
+      acceptedVersions: {
+        "preferences.v1": ref.schema("PreferencesV1"),
+      },
     },
     drafts: {
       kind: "map",
@@ -54,6 +59,11 @@ export const notesApp = defineAppContract({ schemas }, (ref) => ({
 
 The same pattern works for device contracts with `defineDeviceContract(...)`.
 
+Use `stateVersion` for the logical persisted shape of the store. Adding optional
+fields can keep the same `stateVersion`; incompatible stored-value changes should
+increment it and list the old shape under `acceptedVersions` so the runtime can
+surface migration-required entries.
+
 ## 2. Read and write state from the client
 
 After your app has an authenticated Trellis client, use the generated
@@ -64,8 +74,10 @@ const trellis = getTrellis();
 
 const prefs = await trellis.state.preferences.get().orThrow();
 
-if (!prefs.found) {
-  await trellis.state.preferences.put({ theme: "dark" }).orThrow();
+if ("migrationRequired" in prefs) {
+  // See the migration section below.
+} else if (!prefs.found) {
+  await trellis.state.preferences.put({ theme: "dark", compact: false }).orThrow();
 }
 ```
 
@@ -74,10 +86,36 @@ In a Svelte component, call the app-local `getTrellis()` helper during component
 The runtime derives the app, user, or device namespace from the authenticated
 session and contract id lineage. The active contract digest still validates the
 store declaration and schema, but state follows the same app lineage across
-upgrades. The same user signing into a different app contract does not see these
-entries.
+compatible upgrades. Stored entries also carry internal writer-digest provenance
+and an author-known state version. The same user signing into a different app
+contract does not see these entries.
 
-## 3. Choose the right store kind
+## 3. Handle state migrations
+
+When a stored entry was written under an accepted older state version, `get`,
+`list`, or a failed conditional `put` can return `migrationRequired` instead of a
+current typed entry. Trellis validates the old value against the declared older
+schema but does not run app migration code server-side.
+
+```ts
+const prefs = await trellis.state.preferences.get().orThrow();
+
+type PreferencesV1 = { theme: string };
+
+if ("migrationRequired" in prefs && prefs.stateVersion === "preferences.v1") {
+  const legacy = prefs.entry.value as PreferencesV1;
+  const migrated = {
+    theme: legacy.theme,
+    compact: false,
+  };
+
+  await trellis.state.preferences.put(migrated, {
+    expectedRevision: prefs.entry.revision,
+  }).orThrow();
+}
+```
+
+## 4. Choose the right store kind
 
 v1 supports two store kinds:
 
@@ -93,7 +131,7 @@ of the same app lineage.
 Use `map` for drafts or cached records keyed by id. Device contracts use the same
 facade shape, with the runtime deriving the device-owned namespace.
 
-## 4. Use `expectedRevision` for revision-sensitive writes
+## 5. Use `expectedRevision` for revision-sensitive writes
 
 Every state entry includes a `revision`. Use that revision when you want optimistic concurrency.
 
@@ -115,7 +153,7 @@ if (current.found) {
 
 To create only if absent, pass `expectedRevision: null`.
 
-## 5. List and delete map keys
+## 6. List and delete map keys
 
 Map store `list(...)` returns keys in lexicographic order and supports `offset`
 and `limit` pagination. Value stores do not expose `list(...)`.
@@ -132,7 +170,7 @@ await trellis.state.drafts.delete("old").orThrow();
 `delete(...)` may also include `expectedRevision` when you want a conditional
 delete.
 
-## 6. Optional TTL
+## 7. Optional TTL
 
 If a key is cache-like rather than durable, attach `ttlMs` to `put(...)`.
 
@@ -146,15 +184,18 @@ await trellis.state.drafts.put(
 
 Expired entries behave like missing keys.
 
-## 7. Practical guidelines
+## 8. Practical guidelines
 
 - keep values small
 - keep keys stable and path-like, such as `prefs/theme` or `drafts/report-123`
 - treat `State` as app memory, not as a substitute for large files or service databases
 - store only JSON values; encode unusual payloads yourself when needed
 - use `expectedRevision` when multiple app instances may write the same key
+- keep `stateVersion` stable across compatible additive schema changes
+- write migration code in the app or device runtime when you declare
+  `acceptedVersions`
 
-## 8. Next steps
+## 9. Next steps
 
 - If you need browser auth setup, read [Write a SvelteKit app](/guides/writing-sveltekit-apps)
 - If you need service-private storage instead, read [Store resources: TypeScript](/guides/using-store-resources-ts)

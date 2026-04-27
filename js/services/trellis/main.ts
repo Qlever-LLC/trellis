@@ -40,7 +40,7 @@ import { createContractsModule } from "./catalog/runtime.ts";
 import { getConfig } from "./config.ts";
 import { registerState } from "./state/register.ts";
 import { createStateHandlers } from "./state/rpc.ts";
-import { createStateKvAdapter, StateStore } from "./state/storage.ts";
+import { StateStore } from "./state/storage.ts";
 
 initTracing("trellis");
 
@@ -52,14 +52,13 @@ const contracts = createContractsModule({
   contractStorage,
   deviceInstanceStorage,
   logger,
-  sessionStorage,
   serviceInstanceStorage,
   serviceProfileStorage,
 });
 
 const stateHandlers = createStateHandlers({
   sessionStorage,
-  state: new StateStore({ kv: createStateKvAdapter(stateKV) }),
+  state: new StateStore({ kv: stateKV }),
   contractStore: contracts.contractStore,
 });
 

@@ -13,6 +13,16 @@ export class FakeStateKV {
   readonly #values = new Map<string, StoredCell>();
   #nextRevision = 1;
 
+  seed(key: string, value: StoredStateEntry): number {
+    const revision = this.#nextRevision++;
+    this.#values.set(key, { value, revision });
+    return revision;
+  }
+
+  snapshot(key: string): StoredCell | undefined {
+    return this.#values.get(key);
+  }
+
   create(key: string, value: unknown) {
     return AsyncResult.from((async () => {
       if (this.#values.has(key)) {

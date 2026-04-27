@@ -1,7 +1,11 @@
 import Type, { type Static } from "typebox";
 
-import type { StateEntry } from "../State.ts";
-import { JsonValueSchema, StateEntrySchema } from "../State.ts";
+import type { StateEntry, StateMigrationRequired } from "../State.ts";
+import {
+  JsonValueSchema,
+  StateEntrySchema,
+  StateMigrationRequiredSchema,
+} from "../State.ts";
 
 export const StatePutSchema = Type.Object({
   store: Type.String({ minLength: 1 }),
@@ -23,9 +27,16 @@ export const StatePutResponseSchema = Type.Union([
   Type.Object({
     applied: Type.Literal(false),
     found: Type.Boolean(),
-    entry: Type.Optional(StateEntrySchema),
+    entry: Type.Optional(Type.Union([
+      StateEntrySchema,
+      StateMigrationRequiredSchema,
+    ])),
   }),
 ]);
 export type StatePutResponse =
   | { applied: true; entry: StateEntry }
-  | { applied: false; found: boolean; entry?: StateEntry };
+  | {
+    applied: false;
+    found: boolean;
+    entry?: StateEntry | StateMigrationRequired;
+  };

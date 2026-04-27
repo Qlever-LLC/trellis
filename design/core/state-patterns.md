@@ -25,6 +25,9 @@ Each declared store is named and schema-backed:
 - each store requires `kind: "value" | "map"`
 - each store requires `schema: { schema: "SchemaName" }`
 - the referenced schema must exist in the contract's top-level `schemas` map
+- each store may declare `stateVersion`; it defaults to `"v1"`
+- each store may declare `acceptedVersions`, a map of older author-known state
+  versions to schemas that the current runtime can read for migration
 
 Example:
 
@@ -32,7 +35,11 @@ Example:
 const contract = defineAppContract(
   {
     schemas: {
-      Preferences: Type.Object({ theme: Type.String() }),
+      PreferencesV1: Type.Object({ theme: Type.String() }),
+      Preferences: Type.Object({
+        theme: Type.String(),
+        compact: Type.Boolean(),
+      }),
       Draft: Type.Object({ title: Type.String() }),
     },
   },
@@ -41,7 +48,14 @@ const contract = defineAppContract(
     displayName: "Notes",
     description: "Notes app",
     state: {
-      preferences: { kind: "value", schema: ref.schema("Preferences") },
+      preferences: {
+        kind: "value",
+        schema: ref.schema("Preferences"),
+        stateVersion: "preferences.v2",
+        acceptedVersions: {
+          "preferences.v1": ref.schema("PreferencesV1"),
+        },
+      },
       drafts: { kind: "map", schema: ref.schema("Draft") },
     },
   }),
@@ -117,8 +131,37 @@ Rules:
   compatible app or device upgrades within the same lineage
 - the active `contractDigest` validates the declaration and schema used for the
   current request; it is not the durable state namespace component
+- stored entries carry the writer's internal contract digest and the
+  author-known `stateVersion` that wrote the entry
+- adding optional schema fields may change the contract digest without changing
+  `stateVersion`; the current schema must still accept existing entries
+- incompatible persisted-state changes should increment `stateVersion` and add
+  the previous version under `acceptedVersions`
 - there is no public normal-client generic keyspace API and no public normal-
   client `scope` parameter
+
+## State Versioning And Migration
+
+Contract digests are runtime artifact identities and are not author-facing state
+migration keys. Contract authors use `stateVersion` to describe the logical
+persisted shape of one named store.
+
+Rules:
+
+- keep `stateVersion` unchanged for compatible additive changes, such as adding
+  optional fields that the current schema accepts
+- increment `stateVersion` only when existing stored values are no longer valid
+  or semantically sufficient for the current runtime
+- declare each readable older version in `acceptedVersions`
+- every `acceptedVersions` schema reference must exist in the contract's
+  top-level `schemas` map
+- Trellis validates older entries against the accepted version schema and
+  returns a migration-required result; it does not run app migration code
+  server-side
+- client runtime code is responsible for transforming old values and writing the
+  migrated current value back with revision checks
+- unversioned entries are read as current when the current schema accepts them;
+  otherwise Trellis tries the declared `acceptedVersions`
 
 ## Conditional Writes
 
@@ -142,6 +185,14 @@ Value-store entry shape:
 - `revision`
 - `updatedAt`
 - `expiresAt?`
+
+Migration-required entry shape:
+
+- `migrationRequired: true`
+- `entry` with the old value and normal entry metadata
+- `stateVersion` of the stored value
+- `currentStateVersion` of the current store declaration
+- `writerContractDigest` for internal provenance and auditing
 
 Map-store entry shape:
 
@@ -177,6 +228,8 @@ await drafts.list({ limit: 10 });
   sent
 - reads are validated against the declared store schema after the response is
   parsed
+- migration-required responses validate the old value against the matching
+  accepted-version schema before being returned to the runtime
 - state values must be valid JSON on the wire
 
 ## TTL

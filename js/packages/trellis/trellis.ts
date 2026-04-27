@@ -355,6 +355,8 @@ export type RuntimeStateStoreShape = {
   kind: "value" | "map";
   value: unknown;
   schema?: unknown;
+  stateVersion?: string;
+  acceptedVersions?: Record<string, unknown>;
 };
 export type RuntimeStateStores = Record<string, RuntimeStateStoreShape>;
 export type RuntimeStateStoresForContract<TContract> = TContract extends {
@@ -518,13 +520,24 @@ type StateEntryBase<TValue> = {
 };
 type ValueStateEntry<TValue> = StateEntryBase<TValue>;
 type MapStateEntry<TValue> = StateEntryBase<TValue> & { key: string };
+type StateMigrationRequiredEntry<TEntry> = {
+  migrationRequired: true;
+  entry: TEntry;
+  stateVersion: string;
+  currentStateVersion: string;
+  writerContractDigest: string;
+};
 type StateGetResult<TStore extends RuntimeStateStoreShape> =
   | { found: false }
   | {
     found: true;
     entry: TStore["kind"] extends "map" ? MapStateEntry<TStore["value"]>
       : ValueStateEntry<TStore["value"]>;
-  };
+  }
+  | StateMigrationRequiredEntry<
+    TStore["kind"] extends "map" ? MapStateEntry<unknown>
+      : ValueStateEntry<unknown>
+  >;
 type StatePutResult<TStore extends RuntimeStateStoreShape> =
   | {
     applied: true;
@@ -534,8 +547,13 @@ type StatePutResult<TStore extends RuntimeStateStoreShape> =
   | {
     applied: false;
     found: boolean;
-    entry?: TStore["kind"] extends "map" ? MapStateEntry<TStore["value"]>
-      : ValueStateEntry<TStore["value"]>;
+    entry?:
+      | (TStore["kind"] extends "map" ? MapStateEntry<TStore["value"]>
+        : ValueStateEntry<TStore["value"]>)
+      | StateMigrationRequiredEntry<
+        TStore["kind"] extends "map" ? MapStateEntry<unknown>
+          : ValueStateEntry<unknown>
+      >;
   };
 type StateDeleteOptions = {
   expectedRevision?: string;
@@ -575,7 +593,10 @@ export type MapStateStoreClient<TValue> = {
     opts?: StateDeleteOptions,
   ): AsyncResult<{ deleted: boolean }, BaseError>;
   list(opts?: StateListOptions): AsyncResult<{
-    entries: Array<MapStateEntry<TValue>>;
+    entries: Array<
+      | MapStateEntry<TValue>
+      | StateMigrationRequiredEntry<MapStateEntry<unknown>>
+    >;
     count: number;
     offset: number;
     limit: number;
@@ -1097,14 +1118,43 @@ function validateStateValue(
 }
 
 function validateStateGetResult<TStore extends RuntimeStateStoreShape>(
-  schema: unknown,
+  descriptor: RuntimeStateStoreShape,
   result: StateGetResult<TStore>,
 ): Result<StateGetResult<TStore>, ValidationError | UnexpectedError> {
+  if ("migrationRequired" in result) {
+    const schema = descriptor.acceptedVersions?.[result.stateVersion];
+    if (!schema) {
+      return Result.err(
+        new ValidationError({
+          errors: [{
+            path: "/stateVersion",
+            message:
+              `state version '${result.stateVersion}' is not accepted by the runtime store`,
+          }],
+        }),
+      );
+    }
+    const parsed = validateStateValue(schema, result.entry.value as JsonValue);
+    if (parsed.isErr()) return Result.err(parsed.error);
+    return Result.ok({
+      ...result,
+      entry: {
+        ...result.entry,
+        value: parsed.unwrapOrElse(() => {
+          throw new Error("state value validation unexpectedly failed");
+        }),
+      },
+    });
+  }
+
   if (!result.found) {
     return Result.ok(result);
   }
 
-  const parsed = validateStateValue(schema, result.entry.value as JsonValue);
+  const parsed = validateStateValue(
+    descriptor.schema,
+    result.entry.value as JsonValue,
+  );
   if (parsed.isErr()) {
     return Result.err(parsed.error);
   }
@@ -1121,14 +1171,66 @@ function validateStateGetResult<TStore extends RuntimeStateStoreShape>(
 }
 
 function validateStatePutResult<TStore extends RuntimeStateStoreShape>(
-  schema: unknown,
+  descriptor: RuntimeStateStoreShape,
   result: StatePutResult<TStore>,
 ): Result<StatePutResult<TStore>, ValidationError | UnexpectedError> {
+  if (result.applied) {
+    const parsed = validateStateValue(
+      descriptor.schema,
+      result.entry.value as JsonValue,
+    );
+    if (parsed.isErr()) return Result.err(parsed.error);
+    return Result.ok({
+      ...result,
+      entry: {
+        ...result.entry,
+        value: parsed.unwrapOrElse(() => {
+          throw new Error("state value validation unexpectedly failed");
+        }),
+      },
+    });
+  }
+
   if (!result.entry) {
     return Result.ok(result);
   }
 
-  const parsed = validateStateValue(schema, result.entry.value as JsonValue);
+  if ("migrationRequired" in result.entry) {
+    const schema = descriptor.acceptedVersions?.[result.entry.stateVersion];
+    if (!schema) {
+      return Result.err(
+        new ValidationError({
+          errors: [{
+            path: "/stateVersion",
+            message:
+              `state version '${result.entry.stateVersion}' is not accepted by the runtime store`,
+          }],
+        }),
+      );
+    }
+    const parsed = validateStateValue(
+      schema,
+      result.entry.entry.value as JsonValue,
+    );
+    if (parsed.isErr()) return Result.err(parsed.error);
+    return Result.ok({
+      ...result,
+      entry: {
+        ...result.entry,
+        entry: {
+          ...result.entry.entry,
+          value: parsed.unwrapOrElse(() => {
+            throw new Error("state value validation unexpectedly failed");
+          }),
+        },
+      },
+    });
+  }
+
+  const parsed = validateStateValue(
+    descriptor.schema,
+    result.entry.value as JsonValue,
+  );
   if (parsed.isErr()) {
     return Result.err(parsed.error);
   }
@@ -1145,9 +1247,17 @@ function validateStatePutResult<TStore extends RuntimeStateStoreShape>(
 }
 
 function validateStateListResult(
-  schema: unknown,
+  descriptor: RuntimeStateStoreShape,
   result: {
-    entries: Array<MapStateEntry<unknown>>;
+    entries: Array<
+      MapStateEntry<unknown> | {
+        migrationRequired: true;
+        entry: MapStateEntry<unknown>;
+        stateVersion: string;
+        currentStateVersion: string;
+        writerContractDigest: string;
+      }
+    >;
     count: number;
     offset: number;
     limit: number;
@@ -1155,9 +1265,39 @@ function validateStateListResult(
     prev?: number;
   },
 ): Result<typeof result, ValidationError | UnexpectedError> {
-  const entries: Array<MapStateEntry<unknown>> = [];
+  const entries: typeof result.entries = [];
   for (const entry of result.entries) {
-    const parsed = validateStateValue(schema, entry.value as JsonValue);
+    if ("migrationRequired" in entry) {
+      const schema = descriptor.acceptedVersions?.[entry.stateVersion];
+      if (!schema) {
+        return Result.err(
+          new ValidationError({
+            errors: [{
+              path: "/stateVersion",
+              message:
+                `state version '${entry.stateVersion}' is not accepted by the runtime store`,
+            }],
+          }),
+        );
+      }
+      const parsed = validateStateValue(schema, entry.entry.value as JsonValue);
+      if (parsed.isErr()) return Result.err(parsed.error);
+      entries.push({
+        ...entry,
+        entry: {
+          ...entry.entry,
+          value: parsed.unwrapOrElse(() => {
+            throw new Error("state value validation unexpectedly failed");
+          }),
+        },
+      });
+      continue;
+    }
+
+    const parsed = validateStateValue(
+      descriptor.schema,
+      entry.value as JsonValue,
+    );
     if (parsed.isErr()) {
       return Result.err(parsed.error);
     }
@@ -1369,7 +1509,7 @@ export class Trellis<
   }
 
   #createStateFacade(state: TState | undefined): StateFacade<TState> {
-    const stores = state ?? ({} as TState);
+    const stores = (state ?? {}) as RuntimeStateStores;
     const facade = Object.fromEntries(
       Object.entries(stores).map(([store, descriptor]) => {
         if (descriptor.kind === "value") {
@@ -1385,7 +1525,7 @@ export class Trellis<
                 );
                 if (result.isErr()) return result;
                 return validateStateGetResult(
-                  descriptor.schema,
+                  descriptor,
                   result.unwrapOrElse(() => {
                     throw new Error("state get unexpectedly failed");
                   }),
@@ -1407,7 +1547,7 @@ export class Trellis<
                 );
                 if (result.isErr()) return result;
                 return validateStatePutResult(
-                  descriptor.schema,
+                  descriptor,
                   result.unwrapOrElse(() => {
                     throw new Error("state put unexpectedly failed");
                   }),
@@ -1435,7 +1575,7 @@ export class Trellis<
               );
               if (result.isErr()) return result;
               return validateStateGetResult(
-                descriptor.schema,
+                descriptor,
                 result.unwrapOrElse(() => {
                   throw new Error("state get unexpectedly failed");
                 }),
@@ -1457,7 +1597,7 @@ export class Trellis<
               );
               if (result.isErr()) return result;
               return validateStatePutResult(
-                descriptor.schema,
+                descriptor,
                 result.unwrapOrElse(() => {
                   throw new Error("state put unexpectedly failed");
                 }),
@@ -1472,7 +1612,10 @@ export class Trellis<
           list: (opts) =>
             AsyncResult.from((async () => {
               const result = await this.#requestBuiltRpc<{
-                entries: Array<MapStateEntry<unknown>>;
+                entries: Array<
+                  | MapStateEntry<unknown>
+                  | StateMigrationRequiredEntry<MapStateEntry<unknown>>
+                >;
                 count: number;
                 offset: number;
                 limit: number;
@@ -1490,7 +1633,7 @@ export class Trellis<
               );
               if (result.isErr()) return result;
               return validateStateListResult(
-                descriptor.schema,
+                descriptor,
                 result.unwrapOrElse(() => {
                   throw new Error("state list unexpectedly failed");
                 }),

@@ -63,10 +63,12 @@ const contract = defineDeviceContract(
       selectedSite: {
         kind: "value",
         schema: ref.schema("SelectedSiteState"),
+        stateVersion: "selected-site.v1",
       },
       draftInspections: {
         kind: "map",
         schema: ref.schema("DraftInspectionState"),
+        stateVersion: "draft-inspection.v1",
       },
     },
   }),

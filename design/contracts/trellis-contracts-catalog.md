@@ -688,6 +688,14 @@ Example:
       },
       "required": ["theme"]
     },
+    "PreferencesV2": {
+      "type": "object",
+      "properties": {
+        "theme": { "type": "string" },
+        "compact": { "type": "boolean" }
+      },
+      "required": ["theme", "compact"]
+    },
     "Draft": {
       "type": "object",
       "properties": {
@@ -699,7 +707,11 @@ Example:
   "state": {
     "preferences": {
       "kind": "value",
-      "schema": { "schema": "Preferences" }
+      "schema": { "schema": "PreferencesV2" },
+      "stateVersion": "preferences.v2",
+      "acceptedVersions": {
+        "preferences.v1": { "schema": "Preferences" }
+      }
     },
     "drafts": {
       "kind": "map",
@@ -718,6 +730,13 @@ Rules:
 - `kind` MUST be either `value` or `map`
 - each state store requires `schema`
 - `schema` MUST reference an entry in the top-level contract `schemas` map
+- `stateVersion` is optional and defaults to `"v1"`
+- `stateVersion` is the author-known persisted-state version, not the contract
+  digest
+- `acceptedVersions` is optional and maps older accepted state versions to
+  schema refs in the top-level `schemas` map
+- runtimes MUST validate every `acceptedVersions` schema ref during contract
+  validation
 - state values are JSON on the wire and are validated against the declared store
   schema
 - the named store is the public runtime entrypoint; normal callers do not choose

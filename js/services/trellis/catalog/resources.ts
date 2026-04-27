@@ -127,7 +127,10 @@ export type InstalledServiceContractBinding = {
   resources: ContractResourceBindings;
 };
 
-export function getKvPermissionGrants(bucket: string): {
+export function getKvPermissionGrants(
+  bucket: string,
+  options: { allowCreate?: boolean } = {},
+): {
   publish: string[];
   subscribe: string[];
 } {
@@ -137,10 +140,9 @@ export function getKvPermissionGrants(bucket: string): {
       "$JS.API.INFO",
       `$KV.${bucket}.>`,
       `$JS.API.STREAM.INFO.${stream}`,
-      `$JS.API.STREAM.CREATE.${stream}`,
+      ...(options.allowCreate ? [`$JS.API.STREAM.CREATE.${stream}`] : []),
       `$JS.API.STREAM.MSG.GET.${stream}`,
       `$JS.API.CONSUMER.CREATE.${stream}.>`,
-      `$JS.API.CONSUMER.DURABLE.CREATE.${stream}.>`,
       `$JS.API.CONSUMER.INFO.${stream}.>`,
       `$JS.API.CONSUMER.DELETE.${stream}.>`,
       `$JS.API.CONSUMER.MSG.NEXT.${stream}.>`,
@@ -256,34 +258,13 @@ async function ensureStreamResource(
 ): Promise<void> {
   const jsm = await jetstreamManager(nats);
   const config = toJetStreamStreamConfig(stream);
-  const fallbackConfig = needsSingleReplicaFallback(stream)
-    ? toJetStreamStreamConfig(stream, { numReplicas: 1 })
-    : config;
 
   try {
     await jsm.streams.info(stream.name);
-    try {
-      await jsm.streams.update(stream.name, config);
-    } catch (error) {
-      if (fallbackConfig !== config && isReplicaCountUnsupportedError(error)) {
-        await jsm.streams.update(stream.name, fallbackConfig);
-        return;
-      }
-      throw error;
-    }
+    await jsm.streams.update(stream.name, config);
   } catch (error) {
     if (isStreamNotFoundError(error)) {
-      try {
-        await jsm.streams.add(config);
-      } catch (addError) {
-        if (
-          fallbackConfig !== config && isReplicaCountUnsupportedError(addError)
-        ) {
-          await jsm.streams.add(fallbackConfig);
-          return;
-        }
-        throw addError;
-      }
+      await jsm.streams.add(config);
       return;
     }
     throw error;
@@ -326,15 +307,6 @@ function toJetStreamStreamConfig(
       }
       : {}),
   };
-}
-
-function needsSingleReplicaFallback(stream: StreamResourceBinding): boolean {
-  return (stream.numReplicas ?? 0) > 1;
-}
-
-function isReplicaCountUnsupportedError(error: unknown): boolean {
-  return error instanceof Error &&
-    error.message.includes("replicas > 1 not supported in non-clustered mode");
 }
 
 function isStreamNotFoundError(error: unknown): boolean {
@@ -816,7 +788,6 @@ export function getResourcePermissionGrants(
     publish.add(`$O.${storeBinding.name}.C.>`);
     publish.add(`$O.${storeBinding.name}.M.>`);
     publish.add(`$JS.API.STREAM.INFO.${stream}`);
-    publish.add(`$JS.API.STREAM.CREATE.${stream}`);
     publish.add(`$JS.API.STREAM.MSG.GET.${stream}`);
     publish.add(`$JS.API.STREAM.PURGE.${stream}`);
     publish.add(`$JS.API.CONSUMER.CREATE.${stream}.>`);
@@ -828,7 +799,6 @@ export function getResourcePermissionGrants(
     for (const subject of streamBinding.subjects) {
       publish.add(subject);
     }
-    publish.add(`$JS.API.CONSUMER.CREATE.${streamBinding.name}.>`);
     publish.add(`$JS.API.CONSUMER.DURABLE.CREATE.${streamBinding.name}.>`);
     publish.add(`$JS.API.CONSUMER.INFO.${streamBinding.name}.>`);
     publish.add(`$JS.API.CONSUMER.MSG.NEXT.${streamBinding.name}.>`);

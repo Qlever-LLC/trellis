@@ -616,9 +616,6 @@ export function startAuthCallout(
               sessionKey,
               contractDigest: principal.value.serviceState
                 ?.currentContractDigest,
-              displayName: session.type === "service"
-                ? session.name
-                : "service",
             })
             : delegatedPublish),
           ...resourcePermissions.publish,
@@ -629,9 +626,6 @@ export function startAuthCallout(
               sessionKey,
               contractDigest: principal.value.serviceState
                 ?.currentContractDigest,
-              displayName: session.type === "service"
-                ? session.name
-                : "service",
             }),
             ...resourcePermissions.subscribe,
           ]

@@ -2,7 +2,7 @@
 
 The `trellis` service is the platform control plane for a deployment. It owns
 the browser login flow, the NATS auth callout, the control-plane RPC surface,
-and the builtin `trellis.core@v1` and `trellis.auth@v1` contracts.
+the durable Trellis runtime database, and the builtin Trellis contracts.
 
 This service is the bootstrap exception described in
 `design/core/trellis-patterns.md`: it wires the platform together before other
@@ -17,11 +17,13 @@ services can rely on the catalog, bindings, and auth runtime.
   SQLite.
 - Stores short-lived OAuth, pending auth, browser-flow, connection-presence, and
   public State API entries in NATS KV.
-- Maintains the active contract catalog and derives runtime permissions from the
-  active contract set.
+- Maintains the deployment-active contract catalog and derives runtime
+  permissions from that active contract set.
 - Hosts the RPC handlers for Trellis control-plane operations such as contract
   lookup, catalog access, service registration, session management, approvals,
   and user projection reads.
+- Owns the platform contracts explicitly through top-level `contracts/` modules;
+  service profile display names do not grant Trellis contract ownership.
 
 ## Folder layout
 
@@ -32,7 +34,9 @@ js/services/trellis/
   bootstrap/              # startup wiring and shared runtime singletons
   auth/                   # browser auth, session auth, providers, auth callout
   catalog/                # contract catalog, resource binding, permission derivation
-  state/                  # shared runtime schemas and stored-record types
+  contracts/              # authored builtin Trellis contracts
+  state/                  # public State API RPC, storage, and model code
+  storage/                # SQLite schema, migrations, and database bootstrap
 ```
 
 ### `bootstrap/`
@@ -65,21 +69,45 @@ js/services/trellis/
 
 ### `catalog/`
 
-- `contracts/` contains the authored builtin Trellis contracts.
-- `contracts_store.ts` validates manifests, tracks active digests, and builds
-  the active catalog view.
-- `contracts_rpc.ts` implements catalog and contract retrieval plus contract
-  install preparation.
-- `contract_permissions.ts`, `permissions.ts`, and `contract_resources.ts` turn
-  active contracts into runtime permission and resource binding decisions.
-- `service_registry_rpc.ts` manages installed service records and coordinates
-  catalog refresh after install or upgrade.
+- `store.ts` validates manifests, persists installed contracts, and builds the
+  catalog view.
+- `active_contracts.ts` computes the deployment-active contract set from
+  installed service instances and builtin platform contracts. User sessions do
+  not make contracts active.
+- `rpc.ts` implements catalog, contract lookup, and binding lookup RPCs.
+- `permissions.ts` and `resources.ts` turn active contracts into runtime
+  permission and resource binding decisions.
+- `runtime.ts` wires catalog storage, active-set refresh, and permission
+  publication for the auth callout.
+- `uses.ts` and `analysis.ts` resolve contract dependencies and inspect resource
+  requirements.
+
+### `contracts/`
+
+- `trellis_core.ts`, `trellis_auth.ts`, `trellis_state.ts`, and
+  `trellis_health.ts` are the authored builtin platform contracts hosted by this
+  process.
+- These modules are the source of Trellis-owned contract implementations. The
+  catalog and auth layers no longer infer control-plane ownership from a profile
+  display name.
 
 ### `state/`
 
-- `schemas.ts` is the shared export surface for runtime schemas.
-- `schemas/` contains the concrete stored-record and callout payload schemas
-  used across bootstrap, auth, and catalog code.
+- `rpc.ts` resolves caller/session ownership and implements the public State API
+  plus State admin RPCs.
+- `storage.ts` stores State entries in the `trellis_state` NATS KV bucket.
+- `model.ts` defines the stored State entry envelope: values carry the
+  author-known `stateVersion` and internal `writerContractDigest` provenance so
+  compatible contract-lineage upgrades can report migration-required responses
+  without executing app migration code in Trellis.
+- `schemas.ts` and `schemas/` remain the shared export surface for runtime auth,
+  catalog, session, and callout record schemas.
+
+### `storage/`
+
+- `db.ts` opens the configured SQLite database and applies migrations.
+- `schema.ts` defines the durable Trellis SQL schema.
+- `migrations/` contains the current Drizzle migration baseline.
 
 ## Runtime storage
 
@@ -138,18 +166,30 @@ This follows `design/auth/trellis-auth.md`.
    provisioned resource bindings.
 5. Trellis returns a scoped NATS JWT for that connection.
 
-### Contract install and permission flow
+### Contract install, active catalog, and permission flow
 
 This follows `design/contracts/trellis-contracts-catalog.md`.
 
-1. Contract manifests are validated and canonicalized by
-   `catalog/contracts_store.ts`.
-2. `catalog/contracts_rpc.ts` resolves `uses`, analyzes the contract, and
-   prepares resource bindings.
-3. `catalog/service_registry_rpc.ts` persists service install state.
-4. The active catalog is refreshed.
+1. Contract manifests are validated and canonicalized by `catalog/store.ts`.
+2. Catalog RPC handlers resolve `uses`, analyze the contract, and prepare
+   resource bindings.
+3. Service install state is persisted through the auth/admin service-profile and
+   service-instance repositories.
+4. The active catalog is refreshed from builtin Trellis contracts and installed
+   service instances, not from user sessions.
 5. `catalog/permissions.ts` updates the in-memory permission view consumed by
    the auth callout.
+
+### State entry version flow
+
+1. State writes validate the value against the caller contract's current store
+   schema.
+2. Stored entries are stamped with the current author-known `stateVersion` and
+   the concrete `writerContractDigest` that wrote the value.
+3. Reads validate entries against either the current schema or an explicitly
+   accepted older state version.
+4. Older accepted entries return migration-required metadata to the caller. The
+   service does not run app migration code server-side.
 
 ## Design constraints to keep in mind
 
@@ -158,9 +198,15 @@ This follows `design/contracts/trellis-contracts-catalog.md`.
 - The auth HTTP flow and the NATS auth callout are separate layers and should
   stay organized separately even though they share session-proof helpers.
 - Runtime permissions come from the active installed contract set, not from a
-  handwritten service registry.
-- `trellis.auth@v1` remains logically separate from `trellis.core@v1` even
-  though both are currently hosted by this process.
+  handwritten service registry or from currently bound user sessions.
+- Runtime resource grants are intentionally narrow. Bound resources no longer
+  grant broad stream creation/deletion or durable KV consumer creation unless a
+  current runtime client requires that exact subject.
+- `trellis.auth@v1`, `trellis.core@v1`, `trellis.state@v1`, and
+  `trellis.health@v1` remain logically separate even though they are currently
+  hosted by this process.
+- State versioning and migration semantics are documented in
+  `design/core/state-patterns.md` and `design/state/state-typescript-api.md`.
 
 ## Common commands
 

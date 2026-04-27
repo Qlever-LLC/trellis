@@ -10,6 +10,16 @@ and this project adheres to
 
 ### Changed
 
+- Changed Trellis State to store author-owned state versions and internal writer
+  digest provenance per entry, while keeping durable namespaces scoped by
+  contract id lineage. Older declared `acceptedVersions` now surface
+  migration-required read/list/conditional-put responses for app/device-side
+  migration instead of digest-keyed author APIs.
+- Tightened the Trellis control-plane service for v1 by removing display-name
+  based Trellis-owned contract implementation, keeping user sessions out of the
+  deployment-active catalog, validating State accepted-version schemas at
+  contract validation time, removing hidden stream replica downgrades, and
+  reducing bound resource runtime grants to use-oriented subjects.
 - Changed Svelte app docs and examples to derive app-local client types from
   `createTrellisApp` contracts instead of importing generated `client.ts`
   facades from local `generated/js/sdks/...` paths.

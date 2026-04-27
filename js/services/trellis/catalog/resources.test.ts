@@ -97,7 +97,7 @@ Deno.test("store resources require NATS during provisioning", async () => {
   );
 });
 
-Deno.test("resource permission grants include per-bucket JetStream subjects", () => {
+Deno.test("resource permission grants include only bound KV usage subjects", () => {
   const grants = getResourcePermissionGrants({
     kv: {
       activity: {
@@ -126,7 +126,7 @@ Deno.test("resource permission grants include per-bucket JetStream subjects", ()
     grants.publish.includes(
       "$JS.API.STREAM.CREATE.KV_svc_test_activity_v1_activity",
     ),
-    true,
+    false,
   );
   assertEquals(
     grants.publish.includes(
@@ -136,6 +136,25 @@ Deno.test("resource permission grants include per-bucket JetStream subjects", ()
   );
   assertEquals(
     grants.publish.includes("$JS.API.$KV.svc_test_activity_v1_activity.>"),
+    true,
+  );
+  // KV watches in the current NATS client create and delete ephemeral consumers.
+  assertEquals(
+    grants.publish.includes(
+      "$JS.API.CONSUMER.CREATE.KV_svc_test_activity_v1_activity.>",
+    ),
+    true,
+  );
+  assertEquals(
+    grants.publish.includes(
+      "$JS.API.CONSUMER.DURABLE.CREATE.KV_svc_test_activity_v1_activity.>",
+    ),
+    false,
+  );
+  assertEquals(
+    grants.publish.includes(
+      "$JS.API.CONSUMER.DELETE.KV_svc_test_activity_v1_activity.>",
+    ),
     true,
   );
   assertEquals(
@@ -170,13 +189,32 @@ Deno.test("resource permission grants include store object subjects and subscrib
   );
   assertEquals(
     grants.publish.includes(
+      "$JS.API.STREAM.CREATE.OBJ_svc_test_activity_v1_uploads",
+    ),
+    false,
+  );
+  assertEquals(
+    grants.publish.includes(
       "$JS.API.STREAM.MSG.GET.OBJ_svc_test_activity_v1_uploads",
+    ),
+    true,
+  );
+  // Object store mutations use purge and ephemeral consumers through the NATS client.
+  assertEquals(
+    grants.publish.includes(
+      "$JS.API.STREAM.PURGE.OBJ_svc_test_activity_v1_uploads",
     ),
     true,
   );
   assertEquals(
     grants.publish.includes(
       "$JS.API.CONSUMER.CREATE.OBJ_svc_test_activity_v1_uploads.>",
+    ),
+    true,
+  );
+  assertEquals(
+    grants.publish.includes(
+      "$JS.API.CONSUMER.DELETE.OBJ_svc_test_activity_v1_uploads.>",
     ),
     true,
   );
@@ -275,8 +313,12 @@ Deno.test("jobs provisioning returns queue bindings and grants worker heartbeat 
     true,
   );
   assertEquals(
-    grants.publish.includes("$JS.API.CONSUMER.CREATE.JOBS_WORK.>"),
+    grants.publish.includes("$JS.API.CONSUMER.DURABLE.CREATE.JOBS_WORK.>"),
     true,
+  );
+  assertEquals(
+    grants.publish.includes("$JS.API.CONSUMER.CREATE.JOBS_WORK.>"),
+    false,
   );
 });
 
@@ -448,7 +490,7 @@ Deno.test("stream provisioning resolves source stream names in bindings", async 
   });
 });
 
-Deno.test("resource permission grants include stream subjects and JetStream controls", () => {
+Deno.test("resource permission grants include stream subjects and durable consumer controls", () => {
   const grants = getResourcePermissionGrants({
     streams: {
       activity: {
@@ -463,8 +505,9 @@ Deno.test("resource permission grants include stream subjects and JetStream cont
     grants.publish.includes(
       "$JS.API.CONSUMER.CREATE.svc_svc_test_activit_activity_v1_activity.>",
     ),
-    true,
+    false,
   );
+  // Durable event and jobs consumers are created by the current NATS client.
   assertEquals(
     grants.publish.includes(
       "$JS.API.CONSUMER.DURABLE.CREATE.svc_svc_test_activit_activity_v1_activity.>",
@@ -489,6 +532,39 @@ Deno.test("resource permission grants include stream subjects and JetStream cont
     ),
     true,
   );
+});
+
+Deno.test({
+  name: "stream provisioning does not downgrade unsupported replica counts",
+  ignore: !RUN_NATS_TESTS,
+  async fn() {
+    await using nats = await NatsTest.start();
+
+    const contract = {
+      ...CONTRACT,
+      resources: {
+        streams: {
+          activity: {
+            purpose: "Persist activity events",
+            storage: "file",
+            numReplicas: 3,
+            subjects: ["events.v1.Activity.Recorded"],
+          },
+        },
+      },
+    } as TrellisContractV1;
+
+    await assertRejects(
+      () =>
+        provisionContractResourceBindings(
+          nats.nc,
+          contract,
+          "svc_test_activity_v1",
+        ),
+      Error,
+      "replicas > 1 not supported in non-clustered mode",
+    );
+  },
 });
 
 Deno.test({

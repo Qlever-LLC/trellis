@@ -212,12 +212,15 @@ Like KV, the key (`uploads`) is a logical alias and Trellis assigns the physical
 Not all state belongs in service-owned resources. Trellis also ships a public `trellis.state@v1` contract for semi-durable app memory that should be available across app instances, CLIs, and devices.
 
 - apps and devices call `State.*` over authenticated RPCs
-- state partitions are currently `userApp` and `deviceApp`
+- namespaces are derived from the authenticated user or device, contract id
+  lineage, and named store
 - values are JSON and keys are opaque strings
+- entries carry state-version provenance so apps and devices can migrate older
+  stored values client-side
 - services should still use `resources.kv` directly for private service state or projections
 
-Here, `userApp` and `deviceApp` are state-partition selectors, not OAuth scopes
-and not Trellis capabilities.
+State ownership is derived by Trellis; normal callers do not pass a public scope,
+OAuth scope, or capability to pick a state partition.
 
 Use `State` for things like saved filters, drafts, UI preferences, and app memory that should follow the same user or device across machines. Use `resources.kv` when the state is owned by a service implementation instead of by an app or device participant.
 

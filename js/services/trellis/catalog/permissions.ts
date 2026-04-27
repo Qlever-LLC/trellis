@@ -24,7 +24,6 @@ type PermissionRule = {
 type ServiceDescriptor = {
   sessionKey: string;
   contractDigest?: string;
-  displayName?: string;
 };
 
 type RpcInfo = {
@@ -56,18 +55,12 @@ type PermissionState = {
 
 const JETSTREAM_EVENT_CONTROL_SUBJECTS = [
   "$JS.API.INFO",
-  "$JS.API.CONSUMER.CREATE.trellis.>",
   "$JS.API.CONSUMER.DURABLE.CREATE.trellis.>",
   "$JS.API.CONSUMER.INFO.trellis.>",
   "$JS.API.CONSUMER.MSG.NEXT.trellis.>",
   "$JS.ACK.>",
 ];
 
-const BOOTSTRAP_CONTRACT_IMPLEMENTERS = new Map<string, string>([
-  [trellisCoreContract.id, "trellis"],
-  [trellisAuthContract.id, "trellis"],
-  [trellisStateContract.id, "trellis"],
-]);
 const AUTH_VALIDATE_SUBJECT = trellisAuthContract.rpc?.["Auth.ValidateRequest"]
   ?.subject;
 const TRANSFER_SUBJECT_PREFIXES = [
@@ -120,9 +113,7 @@ function resolvedUses(entry: ContractEntry) {
 
 function implementedContracts(service: ServiceDescriptor): ContractEntry[] {
   return state.contracts.filter((entry) =>
-    service.contractDigest === entry.digest ||
-    BOOTSTRAP_CONTRACT_IMPLEMENTERS.get(entry.contract.id) ===
-      service.displayName
+    service.contractDigest === entry.digest
   );
 }
 
@@ -337,7 +328,9 @@ export function getServicePublishSubjects(
       )
       .map((rule) => rule.subject),
     ...(hasRequiredCapabilities(capabilities, ["service"])
-      ? getKvPermissionGrants(operationStoreBucket(service.sessionKey)).publish
+      ? getKvPermissionGrants(operationStoreBucket(service.sessionKey), {
+        allowCreate: true,
+      }).publish
       : []),
     ...(hasRequiredCapabilities(capabilities, ["service"]) &&
         AUTH_VALIDATE_SUBJECT

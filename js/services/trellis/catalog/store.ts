@@ -77,6 +77,17 @@ function validateSchemaRefs(contract: TrellisContractV1) {
     >
   ) {
     assertSchemaRefExists(contract, store.schema.schema, `state '${name}'`);
+    for (
+      const [version, schema] of Object.entries(
+        store.acceptedVersions ?? {},
+      ) as Array<[string, { schema: string }]>
+    ) {
+      assertSchemaRefExists(
+        contract,
+        schema.schema,
+        `state '${name}' acceptedVersions '${version}'`,
+      );
+    }
   }
 
   for (

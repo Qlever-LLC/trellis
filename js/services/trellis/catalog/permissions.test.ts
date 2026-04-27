@@ -233,7 +233,6 @@ Deno.test("service permissions include owned RPCs and declared dependencies", ()
       {
         sessionKey: "graph-key",
         contractDigest: "graph-digest",
-        displayName: "graph",
       },
     );
     const subscribeSubjects = getServiceSubscribeSubjects(
@@ -241,7 +240,6 @@ Deno.test("service permissions include owned RPCs and declared dependencies", ()
       {
         sessionKey: "graph-key",
         contractDigest: "graph-digest",
-        displayName: "graph",
       },
     );
 
@@ -262,6 +260,7 @@ Deno.test("service permissions include owned RPCs and declared dependencies", ()
       true,
     );
     assertEquals(publishSubjects.includes("$JS.API.INFO"), true);
+    // Operation stores are still created lazily by the service runtime client.
     assertEquals(
       publishSubjects.includes(
         "$JS.API.STREAM.CREATE.KV_trellis_operations_graph-key",
@@ -297,11 +296,14 @@ Deno.test("service event subscriptions include JetStream control subjects", () =
       {
         sessionKey: "graph-key",
         contractDigest: "graph-digest",
-        displayName: "graph",
       },
     );
 
     assertEquals(publishSubjects.includes("$JS.API.INFO"), true);
+    assertEquals(
+      publishSubjects.includes("$JS.API.CONSUMER.CREATE.trellis.>"),
+      false,
+    );
     assertEquals(
       publishSubjects.includes("$JS.API.CONSUMER.DURABLE.CREATE.trellis.>"),
       true,
@@ -325,7 +327,6 @@ Deno.test("service cannot call undeclared cross-contract RPCs by capability alon
       {
         sessionKey: "graph-key",
         contractDigest: "graph-digest",
-        displayName: "graph",
       },
     );
 
@@ -334,5 +335,27 @@ Deno.test("service cannot call undeclared cross-contract RPCs by capability alon
       publishSubjects.includes("rpc.v1.Trellis.Contract.Get"),
       false,
     );
+  });
+});
+
+Deno.test("service profile named trellis does not implement Trellis-owned contracts", () => {
+  withContracts(TEST_CONTRACTS, () => {
+    const nonTrellisServiceNamedTrellis = {
+      sessionKey: "non-trellis-service-key",
+      contractDigest: "graph-digest",
+      displayName: "trellis",
+    };
+    const publishSubjects = getServicePublishSubjects(
+      ["service", "trellis.catalog.read", "service:events:auth"],
+      nonTrellisServiceNamedTrellis,
+    );
+    const subscribeSubjects = getServiceSubscribeSubjects(
+      ["service", "service:events:auth"],
+      nonTrellisServiceNamedTrellis,
+    );
+
+    assertEquals(publishSubjects.includes("rpc.v1.Trellis.Catalog"), true);
+    assertEquals(subscribeSubjects.includes("rpc.v1.Trellis.Catalog"), false);
+    assertEquals(subscribeSubjects.includes("events.v1.Auth.Connect"), true);
   });
 });

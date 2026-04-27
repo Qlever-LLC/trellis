@@ -274,7 +274,8 @@ Example:
 
 ```ts
 const schemas = {
-  Preferences: Type.Object({ theme: Type.String() }),
+  PreferencesV1: Type.Object({ theme: Type.String() }),
+  Preferences: Type.Object({ theme: Type.String(), compact: Type.Boolean() }),
   Draft: Type.Object({ title: Type.String() }),
 } as const;
 
@@ -285,7 +286,14 @@ export const notes = defineAppContract(
     displayName: "Notes",
     description: "Notes app",
     state: {
-      preferences: { kind: "value", schema: ref.schema("Preferences") },
+      preferences: {
+        kind: "value",
+        schema: ref.schema("Preferences"),
+        stateVersion: "preferences.v2",
+        acceptedVersions: {
+          "preferences.v1": ref.schema("PreferencesV1"),
+        },
+      },
       drafts: { kind: "map", schema: ref.schema("Draft") },
     },
   }),
@@ -298,6 +306,12 @@ Rules:
 - each state store requires `kind: "value" | "map"`
 - each state store requires `schema: ref.schema("...")`
 - the referenced schema must exist in the local `schemas` registry
+- each state store may declare `stateVersion`; omit it only when the default
+  `"v1"` is sufficient
+- keep `stateVersion` stable for additive compatible schema changes and bump it
+  only when stored values require migration
+- `acceptedVersions` declares older state versions and schemas that the runtime
+  can surface for app/device-side migration
 - the declared stores project to the runtime surface at `trellis.state.<store>`
 - normal runtime callers do not declare or pass a public `scope`
 - conditional writes use runtime `put(..., { expectedRevision })`, not a

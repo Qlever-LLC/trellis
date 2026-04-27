@@ -24,6 +24,8 @@ import type { SqlSessionRepository } from "../auth/storage.ts";
 type ContractStateStore = {
   kind: StateStoreKind;
   schema: { schema: string };
+  stateVersion?: string;
+  acceptedVersions?: Record<string, { schema: string }>;
 };
 
 type StateContractLike = {
@@ -143,6 +145,30 @@ function requireStoreSchema(
   return schema;
 }
 
+function requireAcceptedVersionSchemas(
+  contract: StateContractLike | undefined,
+  definition: ContractStateStore,
+  store: string,
+): Record<string, Parameters<typeof parseUnknownSchema>[0]> {
+  const schemas: Record<string, Parameters<typeof parseUnknownSchema>[0]> = {};
+  for (
+    const [version, ref] of Object.entries(definition.acceptedVersions ?? {})
+  ) {
+    const schema = contract?.schemas?.[ref.schema];
+    if (schema === null || typeof schema !== "object") {
+      throw new ValidationError({
+        errors: [{
+          path: "/store",
+          message:
+            `state store '${store}' accepted version '${version}' schema is not available`,
+        }],
+      });
+    }
+    schemas[version] = schema;
+  }
+  return schemas;
+}
+
 async function resolveCallerStore(
   store: string,
   ctx: { caller: Caller; sessionKey: string },
@@ -169,13 +195,21 @@ async function resolveCallerStore(
   });
   const definition = requireStoreDefinition(contract, store);
   const schema = requireStoreSchema(contract, definition, store);
+  const acceptedVersions = requireAcceptedVersionSchemas(
+    contract,
+    definition,
+    store,
+  );
   return {
     ownerType: session.type,
     contractId: session.contractId,
+    contractDigest: session.contractDigest,
     ownerKey: session.type === "user" ? session.trellisId : session.instanceId,
     store,
     kind: definition.kind,
     schema,
+    stateVersion: definition.stateVersion ?? "v1",
+    acceptedVersions,
   };
 }
 
@@ -196,24 +230,35 @@ async function resolveAdminStore(
   }
   const definition = requireStoreDefinition(contract, req.store);
   const schema = requireStoreSchema(contract, definition, req.store);
+  const acceptedVersions = requireAcceptedVersionSchemas(
+    contract,
+    definition,
+    req.store,
+  );
   if (req.scope === "userApp") {
     return {
       ownerType: "user",
       contractId: req.contractId,
+      contractDigest: req.contractDigest,
       ownerKey: await trellisIdFromOriginId(req.user.origin, req.user.id),
       store: req.store,
       kind: definition.kind,
       schema,
+      stateVersion: definition.stateVersion ?? "v1",
+      acceptedVersions,
     };
   }
 
   return {
     ownerType: "device",
     contractId: req.contractId,
+    contractDigest: req.contractDigest,
     ownerKey: req.deviceId,
     store: req.store,
     kind: definition.kind,
     schema,
+    stateVersion: definition.stateVersion ?? "v1",
+    acceptedVersions,
   };
 }
 

@@ -72,6 +72,11 @@ export const ContractStateStoreSchema = Type.Object({
     Type.Literal("map"),
   ]),
   schema: ContractSchemaRefSchema,
+  stateVersion: Type.Optional(Type.String({ minLength: 1 })),
+  acceptedVersions: Type.Optional(Type.Record(
+    Type.String({ minLength: 1 }),
+    ContractSchemaRefSchema,
+  )),
 }, { additionalProperties: false });
 
 export type ContractStateStore = Static<typeof ContractStateStoreSchema>;

@@ -199,6 +199,8 @@ export type ContractStateKind = "value" | "map";
 export type ContractStateStore = {
   kind: ContractStateKind;
   schema: ContractSchemaRef;
+  stateVersion?: string;
+  acceptedVersions?: Record<string, ContractSchemaRef>;
 };
 
 export type ContractState = Record<string, ContractStateStore>;
@@ -585,6 +587,8 @@ export type ContractSourceExports<TSchemaName extends string = string> = {
 export type ContractSourceStateStore<TSchemaName extends string = string> = {
   kind: ContractStateKind;
   schema: ContractSchemaRef<TSchemaName>;
+  stateVersion?: string;
+  acceptedVersions?: Record<string, ContractSchemaRef<TSchemaName>>;
 };
 
 export type ContractSourceState<TSchemaName extends string = string> = Record<
@@ -939,6 +943,8 @@ export type ContractStateMetadata = Record<string, {
   kind: ContractStateKind;
   value: unknown;
   schema: unknown;
+  stateVersion: string;
+  acceptedVersions: Record<string, unknown>;
 }>;
 
 type ResolveTypeBoxSchemaFromMap<TSchemas, TRef> = TRef extends {
@@ -971,6 +977,12 @@ type ProjectedState<
         kind: TKind;
         value: ResolveSchemaTypeFromMap<TSchemas, T[K]["schema"]>;
         schema: unknown;
+        stateVersion: T[K] extends
+          { stateVersion: infer TVersion extends string } ? TVersion
+          : "v1";
+        acceptedVersions: T[K] extends { acceptedVersions: infer TVersions }
+          ? TVersions
+          : {};
       }
       : never;
   }
@@ -2060,6 +2072,19 @@ function buildContractStateMetadata(
         store.schema,
         `state store '${storeName}'`,
       ),
+      stateVersion: store.stateVersion ?? "v1",
+      acceptedVersions: Object.fromEntries(
+        Object.entries(store.acceptedVersions ?? {}).map((
+          [version, schema],
+        ) => [
+          version,
+          resolveSchemaRef(
+            schemas,
+            schema,
+            `state store '${storeName}' accepted version '${version}'`,
+          ),
+        ]),
+      ),
     }]),
   ) as ContractStateMetadata;
 }
@@ -2077,6 +2102,12 @@ function emitState(
       {
         kind: store.kind,
         schema: { ...store.schema },
+        ...(store.stateVersion === undefined
+          ? {}
+          : { stateVersion: store.stateVersion }),
+        ...(store.acceptedVersions === undefined
+          ? {}
+          : { acceptedVersions: store.acceptedVersions }),
       } satisfies ContractStateStore,
     ]),
   );

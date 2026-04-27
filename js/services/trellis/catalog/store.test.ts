@@ -317,6 +317,29 @@ Deno.test("contract store rejects KV resource schema names missing from the regi
   );
 });
 
+Deno.test("contract store rejects state accepted version schemas missing from the registry", async () => {
+  const store = new ContractStore();
+  const contract = makeStateContract("state-invalid@v1");
+
+  await assertRejects(
+    async () => {
+      await store.validate({
+        ...contract,
+        state: {
+          preferences: {
+            ...contract.state!.preferences,
+            acceptedVersions: {
+              "preferences.v0": { schema: "MissingSchema" },
+            },
+          },
+        },
+      });
+    },
+    Error,
+    "state 'preferences' acceptedVersions 'preferences.v0': unknown schema 'MissingSchema'",
+  );
+});
+
 Deno.test("contract store preserves top-level jobs when validating contracts", async () => {
   const store = new ContractStore();
 

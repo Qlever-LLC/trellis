@@ -92,7 +92,9 @@ Deno.test("connected runtime exposes typed named state stores", async () => {
   const preferences = preferencesResult.unwrapOrElse(() => {
     throw new Error("expected preferences result");
   });
-  if (!preferences.found) throw new Error("expected preferences entry");
+  if ("migrationRequired" in preferences || !preferences.found) {
+    throw new Error("expected preferences entry");
+  }
   assertEquals(preferences.entry.value.theme, "dark");
 
   const writtenResult = await trellis.state.preferences.put(
@@ -122,7 +124,11 @@ Deno.test("connected runtime exposes typed named state stores", async () => {
   const listed = listedResult.unwrapOrElse(() => {
     throw new Error("expected list result");
   });
-  assertEquals(listed.entries[0]?.value.title, "Draft");
+  const listedEntry = listed.entries[0];
+  if (!listedEntry || "migrationRequired" in listedEntry) {
+    throw new Error("expected listed state entry");
+  }
+  assertEquals(listedEntry.value.title, "Draft");
 
   await trellis.state.preferences.delete();
   await prefixedDrafts.delete("open", { expectedRevision: "3" });
@@ -299,4 +305,118 @@ Deno.test("connected runtime validates store-specific state reads after response
   assertEquals(listResult.isErr(), true);
   if (listResult.isOk()) throw new Error("expected validation error");
   assertEquals(listResult.error instanceof ValidationError, true);
+});
+
+Deno.test("connected runtime surfaces accepted state migrations without running them", async () => {
+  const contract = defineAppContract(
+    {
+      schemas: {
+        Draft: Type.Object({ text: Type.String() }),
+        DraftV0: Type.Object({ title: Type.String() }),
+      },
+    },
+    (ref) => ({
+      id: "acme.state-runtime-migration@v1",
+      displayName: "State Runtime Migration",
+      description: "Exercise facade migration responses.",
+      state: {
+        drafts: {
+          kind: "map",
+          schema: ref.schema("Draft"),
+          stateVersion: "draft.v1",
+          acceptedVersions: { "draft.v0": ref.schema("DraftV0") },
+        },
+      },
+    }),
+  );
+
+  const trellis = createClient(
+    contract,
+    { options: { inboxPrefix: "_INBOX.test" } } as never,
+    { sessionKey: "test", sign: () => new Uint8Array(64) },
+  );
+
+  const nats = Reflect.get(trellis, "nats") as {
+    request(): Promise<{
+      json(): unknown;
+      headers?: { get(name: string): string | null | undefined };
+    }>;
+  };
+  nats.request = async () => ({
+    json: () => ({
+      migrationRequired: true,
+      entry: {
+        key: "old",
+        value: { title: "legacy" },
+        revision: "1",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+      stateVersion: "draft.v0",
+      currentStateVersion: "draft.v1",
+      writerContractDigest: "old-digest",
+    }),
+    headers: { get: () => undefined },
+  });
+
+  const result = await trellis.state.drafts.get("old");
+  if (result.isErr()) throw result.error;
+  const migration = result.unwrapOrElse(() => {
+    throw new Error("expected migration result");
+  });
+  assertEquals(migration, {
+    migrationRequired: true,
+    entry: {
+      key: "old",
+      value: { title: "legacy" },
+      revision: "1",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    },
+    stateVersion: "draft.v0",
+    currentStateVersion: "draft.v1",
+    writerContractDigest: "old-digest",
+  });
+
+  nats.request = async () => ({
+    json: () => ({
+      applied: false,
+      found: true,
+      entry: {
+        migrationRequired: true,
+        entry: {
+          key: "old",
+          value: { title: "legacy" },
+          revision: "1",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        },
+        stateVersion: "draft.v0",
+        currentStateVersion: "draft.v1",
+        writerContractDigest: "old-digest",
+      },
+    }),
+    headers: { get: () => undefined },
+  });
+
+  const putResult = await trellis.state.drafts.put("old", { text: "new" }, {
+    expectedRevision: null,
+  });
+  if (putResult.isErr()) throw putResult.error;
+  const conflict = putResult.unwrapOrElse(() => {
+    throw new Error("expected put conflict");
+  });
+  assertEquals(conflict, {
+    applied: false,
+    found: true,
+    entry: {
+      migrationRequired: true,
+      entry: {
+        key: "old",
+        value: { title: "legacy" },
+        revision: "1",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+      stateVersion: "draft.v0",
+      currentStateVersion: "draft.v1",
+      writerContractDigest: "old-digest",
+    },
+  });
 });

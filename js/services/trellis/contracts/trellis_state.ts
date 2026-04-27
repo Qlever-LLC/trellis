@@ -30,6 +30,7 @@ import {
 import {
   JsonValueSchema,
   StateEntrySchema,
+  StateMigrationRequiredSchema,
   StateScopeSchema,
   StateUserTargetSchema,
 } from "../../../packages/trellis/models/trellis/State.ts";
@@ -38,6 +39,7 @@ const schemas = {
   JsonValue: JsonValueSchema,
   StateScope: StateScopeSchema,
   StateEntry: StateEntrySchema,
+  StateMigrationRequired: StateMigrationRequiredSchema,
   StateUserTarget: StateUserTargetSchema,
   StateGetRequest: StateGetSchema,
   StateGetResponse: StateGetResponseSchema,

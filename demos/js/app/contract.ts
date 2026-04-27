@@ -37,6 +37,7 @@ const contract = defineAppContract({ schemas }, (ref) => ({
     workspaceContext: {
       kind: "map",
       schema: ref.schema("InspectionContextState"),
+      stateVersion: "inspection-context.v1",
     },
   },
 }));

@@ -8,6 +8,7 @@ import type { StatePutResponse } from "../../../packages/trellis/models/trellis/
 import type {
   JsonValue,
   StateEntry,
+  StateMigrationRequired,
 } from "../../../packages/trellis/models/trellis/State.ts";
 import type { ResolvedStateStore, StoredStateEntry } from "./model.ts";
 
@@ -19,17 +20,14 @@ const VALUE_STORE_KEY = "~value";
 
 type StateKvEntryLike = {
   key: string;
-  value: StoredStateEntry;
+  value: unknown;
   revision: number;
   put(value: unknown, vcc?: boolean): AsyncResult<void, KVError>;
   delete(vcc?: boolean): AsyncResult<void, KVError>;
 };
 
-type StateKvLike = {
-  create(key: string, value: unknown): AsyncResult<void, KVError>;
-  put(key: string, value: unknown): AsyncResult<void, KVError>;
-  get(key: string): AsyncResult<StateKvEntryLike, KVError | ValidationError>;
-  keys(filter?: string | string[]): AsyncResult<AsyncIterable<string>, KVError>;
+type LiveStateKvEntry = Omit<StateKvEntryLike, "value"> & {
+  value: StoredStateEntry;
 };
 
 type StateStoreDeps = {
@@ -40,10 +38,10 @@ type StateStoreDeps = {
   maxListLimit?: number;
 };
 
-type TypedStateKvLike = {
+type StateKvLike = {
   create(key: string, value: unknown): AsyncResult<void, KVError>;
   put(key: string, value: unknown): AsyncResult<void, KVError>;
-  get(key: string): AsyncResult<unknown, KVError | ValidationError>;
+  get(key: string): AsyncResult<StateKvEntryLike, KVError | ValidationError>;
   keys(filter?: string | string[]): AsyncResult<AsyncIterable<string>, KVError>;
 };
 
@@ -61,6 +59,16 @@ type StateWrite = {
 type StateDelete = {
   key?: string;
   expectedRevision?: string;
+};
+
+type ListedStateEntry = StateEntry | StateMigrationRequired;
+
+type StoreValueValidation = {
+  value: JsonValue;
+  migration?: {
+    stateVersion: string;
+    writerContractDigest: string;
+  };
 };
 
 function makePaginated(
@@ -123,50 +131,6 @@ function isNotFound(error: unknown): error is KVError {
   return error instanceof KVError && error.getContext().reason === "not found";
 }
 
-function isStateKvEntryLike(value: unknown): value is StateKvEntryLike {
-  return value !== null && typeof value === "object" &&
-    "key" in value && typeof value.key === "string" &&
-    "value" in value && value.value !== null &&
-    typeof value.value === "object" &&
-    "revision" in value && typeof value.revision === "number" &&
-    "put" in value && typeof value.put === "function" &&
-    "delete" in value && typeof value.delete === "function";
-}
-
-export function createStateKvAdapter(kv: TypedStateKvLike): StateKvLike {
-  return {
-    create(key, value) {
-      return kv.create(key, value);
-    },
-    put(key, value) {
-      return kv.put(key, value);
-    },
-    get(key) {
-      return AsyncResult.from((async () => {
-        const result = await kv.get(key);
-        if (result.isErr()) return Result.err(result.error);
-        const entry = result.unwrapOrElse(() => {
-          throw new Error("state KV get unexpectedly failed");
-        });
-        if (!isStateKvEntryLike(entry)) {
-          return Result.err(
-            new ValidationError({
-              errors: [{
-                path: "/entry",
-                message: "state KV entry shape is invalid",
-              }],
-            }),
-          );
-        }
-        return Result.ok(entry);
-      })());
-    },
-    keys(filter) {
-      return kv.keys(filter);
-    },
-  };
-}
-
 export class StateStore {
   readonly #kv: StateKvLike;
   readonly #now: () => Date;
@@ -196,6 +160,8 @@ export class StateStore {
     if (loaded.isErr()) return Result.err(loaded.error);
     const entry = loaded.unwrapOrElse(() => null);
     if (!entry) return Result.ok({ found: false });
+    const migration = this.#toMigrationRequired(target, entry, key);
+    if (migration) return Result.ok(migration);
     return Result.ok({
       found: true,
       entry: this.#toPublicEntry(target, entry, key),
@@ -225,7 +191,7 @@ export class StateStore {
     if (currentResult.isErr()) return Result.err(currentResult.error);
     const current = currentResult.unwrapOrElse(() => null);
 
-    const envelope = this.#createEnvelope(value, write.ttlMs);
+    const envelope = this.#createEnvelope(target, value, write.ttlMs);
     if (write.expectedRevision === undefined) {
       const putResult = await this.#kv.put(
         this.#storageKey(target, key),
@@ -254,7 +220,7 @@ export class StateStore {
         const response: StatePutResponse = {
           applied: false,
           found: true,
-          entry: this.#toPublicEntry(target, current, key),
+          entry: this.#toPutConflictEntry(target, current, key),
         };
         return Result.ok(response);
       }
@@ -273,7 +239,7 @@ export class StateStore {
         const response: StatePutResponse = {
           applied: false,
           found: true,
-          entry: this.#toPublicEntry(target, latest, key),
+          entry: this.#toPutConflictEntry(target, latest, key),
         };
         return Result.ok(response);
       }
@@ -302,7 +268,7 @@ export class StateStore {
       const response: StatePutResponse = {
         applied: false,
         found: true,
-        entry: this.#toPublicEntry(target, current, key),
+        entry: this.#toPutConflictEntry(target, current, key),
       };
       return Result.ok(response);
     }
@@ -319,7 +285,7 @@ export class StateStore {
       const response: StatePutResponse = {
         applied: false,
         found: true,
-        entry: this.#toPublicEntry(target, latest, key),
+        entry: this.#toPutConflictEntry(target, latest, key),
       };
       return Result.ok(response);
     }
@@ -385,7 +351,7 @@ export class StateStore {
       return Result.err(new UnexpectedError({ cause: keys.error }));
     }
 
-    const entries: StateEntry[] = [];
+    const entries: ListedStateEntry[] = [];
     for await (
       const storageKey of keys.unwrapOrElse(() => {
         throw new Error("state KV keys unexpectedly failed");
@@ -402,11 +368,14 @@ export class StateStore {
       if (entryResult.isErr()) return Result.err(entryResult.error);
       const entry = entryResult.unwrapOrElse(() => null);
       if (!entry) continue;
-      entries.push(this.#toPublicEntry(target, entry, key));
+      entries.push(
+        this.#toMigrationRequired(target, entry, key) ??
+          this.#toPublicEntry(target, entry, key),
+      );
     }
 
     entries.sort((left, right) =>
-      (left.key ?? "").localeCompare(right.key ?? "")
+      (this.#entrySortKey(left)).localeCompare(this.#entrySortKey(right))
     );
     return Result.ok({
       ...makePaginated(opts.offset, opts.limit, entries.length),
@@ -414,18 +383,28 @@ export class StateStore {
     });
   }
 
-  #createEnvelope(value: JsonValue, ttlMs?: number): StoredStateEntry {
+  #createEnvelope(
+    target: ResolvedStateStore,
+    value: JsonValue,
+    ttlMs?: number,
+  ): StoredStateEntry {
     const updatedAt = this.#now();
+    const envelope = {
+      value,
+      updatedAt,
+      stateVersion: target.stateVersion,
+      writerContractDigest: target.contractDigest,
+    };
     return ttlMs === undefined
-      ? { value, updatedAt }
-      : { value, updatedAt, expiresAt: new Date(updatedAt.getTime() + ttlMs) };
+      ? envelope
+      : { ...envelope, expiresAt: new Date(updatedAt.getTime() + ttlMs) };
   }
 
   async #loadLiveEntry(
     target: ResolvedStateStore,
     key: string,
   ): Promise<
-    Result<StateKvEntryLike | null, ValidationError | UnexpectedError>
+    Result<LiveStateKvEntry | null, ValidationError | UnexpectedError>
   > {
     const entry = await this.#kv.get(this.#storageKey(target, key));
     if (isErr(entry)) {
@@ -439,14 +418,34 @@ export class StateStore {
     const loaded = entry.unwrapOrElse(() => {
       throw new Error("state KV get unexpectedly failed");
     });
-    const parsedValue = this.#validateStoreValue(target, loaded.value.value);
+    const parsedEntry = this.#parseStoredEntry(loaded.value);
+    if (parsedEntry.isErr()) return Result.err(parsedEntry.error);
+    const storedEntry = parsedEntry.unwrapOrElse(() => {
+      throw new Error("state KV entry validation unexpectedly failed");
+    });
+
+    const parsedValue = this.#validateStoredValue(target, storedEntry);
     if (parsedValue.isErr()) return Result.err(parsedValue.error);
-    loaded.value.value = parsedValue.unwrapOrElse(() => {
+    const validation = parsedValue.unwrapOrElse(() => {
       throw new Error("state value validation unexpectedly failed");
     });
-    if (!this.#isExpired(loaded.value)) return Result.ok(loaded);
+    const liveEntry: LiveStateKvEntry = {
+      key: loaded.key,
+      value: {
+        ...storedEntry,
+        value: validation.value,
+        stateVersion: storedEntry.stateVersion ??
+          validation.migration?.stateVersion ?? target.stateVersion,
+        writerContractDigest: storedEntry.writerContractDigest ??
+          validation.migration?.writerContractDigest ?? target.contractDigest,
+      },
+      revision: loaded.revision,
+      put: (value, vcc) => loaded.put(value, vcc),
+      delete: (vcc) => loaded.delete(vcc),
+    };
+    if (!this.#isExpired(liveEntry.value)) return Result.ok(liveEntry);
 
-    const deleteResult = await loaded.delete(true);
+    const deleteResult = await liveEntry.delete(true);
     if (isErr(deleteResult)) {
       return Result.err(new UnexpectedError({ cause: deleteResult.error }));
     }
@@ -457,7 +456,7 @@ export class StateStore {
   async #requireLiveEntry(
     target: ResolvedStateStore,
     key: string,
-  ): Promise<Result<StateKvEntryLike, ValidationError | UnexpectedError>> {
+  ): Promise<Result<LiveStateKvEntry, ValidationError | UnexpectedError>> {
     const entry = await this.#loadLiveEntry(target, key);
     if (entry.isErr()) return Result.err(entry.error);
     const value = entry.unwrapOrElse(() => null);
@@ -492,7 +491,7 @@ export class StateStore {
 
   #toPublicEntry(
     target: ResolvedStateStore,
-    entry: StateKvEntryLike,
+    entry: LiveStateKvEntry,
     key: string,
   ): StateEntry {
     return {
@@ -504,6 +503,37 @@ export class StateStore {
         ? { expiresAt: entry.value.expiresAt.toISOString() }
         : {}),
     };
+  }
+
+  #toMigrationRequired(
+    target: ResolvedStateStore,
+    entry: LiveStateKvEntry,
+    key: string,
+  ): StateMigrationRequired | undefined {
+    if (entry.value.stateVersion === target.stateVersion) return undefined;
+    const stateVersion = entry.value.stateVersion ?? target.stateVersion;
+    return {
+      migrationRequired: true,
+      entry: this.#toPublicEntry(target, entry, key),
+      stateVersion,
+      currentStateVersion: target.stateVersion,
+      writerContractDigest: entry.value.writerContractDigest ??
+        target.contractDigest,
+    };
+  }
+
+  #toPutConflictEntry(
+    target: ResolvedStateStore,
+    entry: LiveStateKvEntry,
+    key: string,
+  ): StateEntry | StateMigrationRequired {
+    return this.#toMigrationRequired(target, entry, key) ??
+      this.#toPublicEntry(target, entry, key);
+  }
+
+  #entrySortKey(entry: ListedStateEntry): string {
+    if ("migrationRequired" in entry) return entry.entry.key ?? "";
+    return entry.key ?? "";
   }
 
   #resolveKey(
@@ -562,6 +592,142 @@ export class StateStore {
     return Result.ok(parsed.unwrapOrElse(() => {
       throw new Error("state value validation unexpectedly failed");
     }) as JsonValue);
+  }
+
+  #parseStoredEntry(
+    value: unknown,
+  ): Result<StoredStateEntry, ValidationError | UnexpectedError> {
+    if (value === null || typeof value !== "object") {
+      return Result.err(
+        new ValidationError({
+          errors: [{ path: "/entry", message: "state KV entry is invalid" }],
+        }),
+      );
+    }
+
+    const record = value as Record<string, unknown>;
+    if (!(record.updatedAt instanceof Date)) {
+      return Result.err(
+        new ValidationError({
+          errors: [{
+            path: "/updatedAt",
+            message: "state KV entry updatedAt is invalid",
+          }],
+        }),
+      );
+    }
+    if (record.expiresAt !== undefined && !(record.expiresAt instanceof Date)) {
+      return Result.err(
+        new ValidationError({
+          errors: [{
+            path: "/expiresAt",
+            message: "state KV entry expiresAt is invalid",
+          }],
+        }),
+      );
+    }
+    if (
+      record.stateVersion !== undefined &&
+      typeof record.stateVersion !== "string"
+    ) {
+      return Result.err(
+        new ValidationError({
+          errors: [{
+            path: "/stateVersion",
+            message: "state KV entry stateVersion is invalid",
+          }],
+        }),
+      );
+    }
+    if (
+      record.writerContractDigest !== undefined &&
+      typeof record.writerContractDigest !== "string"
+    ) {
+      return Result.err(
+        new ValidationError({
+          errors: [{
+            path: "/writerContractDigest",
+            message: "state KV entry writerContractDigest is invalid",
+          }],
+        }),
+      );
+    }
+
+    return Result.ok({
+      value: record.value as JsonValue,
+      updatedAt: record.updatedAt,
+      ...(record.expiresAt ? { expiresAt: record.expiresAt } : {}),
+      ...(record.stateVersion ? { stateVersion: record.stateVersion } : {}),
+      ...(record.writerContractDigest
+        ? { writerContractDigest: record.writerContractDigest }
+        : {}),
+    });
+  }
+
+  #validateStoredValue(
+    target: ResolvedStateStore,
+    entry: StoredStateEntry,
+  ): Result<StoreValueValidation, ValidationError | UnexpectedError> {
+    if (!entry.stateVersion) {
+      const current = this.#validateStoreValue(target, entry.value);
+      if (current.isOk()) {
+        return current.map((value) => ({ value }));
+      }
+
+      for (
+        const [acceptedVersion, acceptedSchema] of Object.entries(
+          target.acceptedVersions,
+        )
+      ) {
+        const parsed = parseUnknownSchema(acceptedSchema, entry.value);
+        if (parsed.isOk()) {
+          return Result.ok({
+            value: parsed.unwrapOrElse(() => {
+              throw new Error("state value validation unexpectedly failed");
+            }) as JsonValue,
+            migration: {
+              stateVersion: acceptedVersion,
+              writerContractDigest: target.contractDigest,
+            },
+          });
+        }
+      }
+
+      return current.map((value) => ({ value }));
+    }
+
+    const stateVersion = entry.stateVersion;
+    if (stateVersion === target.stateVersion) {
+      return this.#validateStoreValue(target, entry.value).map((value) => ({
+        value,
+      }));
+    }
+
+    const schema = target.acceptedVersions[stateVersion];
+    if (!schema) {
+      return Result.err(
+        new ValidationError({
+          errors: [{
+            path: "/stateVersion",
+            message:
+              `state version '${stateVersion}' is not accepted by store '${target.store}'`,
+          }],
+        }),
+      );
+    }
+
+    const parsed = parseUnknownSchema(schema, entry.value);
+    if (parsed.isErr()) return Result.err(parsed.error);
+    return Result.ok({
+      value: parsed.unwrapOrElse(() => {
+        throw new Error("state value validation unexpectedly failed");
+      }) as JsonValue,
+      migration: {
+        stateVersion,
+        writerContractDigest: entry.writerContractDigest ??
+          target.contractDigest,
+      },
+    });
   }
 
   #validateKey(key: string): Result<void, ValidationError> {

@@ -12,9 +12,7 @@ type CatalogRpcMethod =
   | "Trellis.Bindings.Get";
 
 type RpcRegistrar = {
-  mount: {
-    bivarianceHack(method: CatalogRpcMethod, handler: unknown): Promise<void>;
-  }["bivarianceHack"];
+  mount(method: CatalogRpcMethod, handler: unknown): Promise<void>;
 };
 
 type CatalogRegistrationDeps = {

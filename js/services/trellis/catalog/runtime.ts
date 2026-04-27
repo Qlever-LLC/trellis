@@ -7,7 +7,6 @@ import type {
   SqlDeviceInstanceRepository,
   SqlServiceInstanceRepository,
   SqlServiceProfileRepository,
-  SqlSessionRepository,
 } from "../auth/storage.ts";
 import {
   type ActiveDigestServiceProfile,
@@ -170,7 +169,6 @@ export function createContractsModule(opts: {
   serviceProfileStorage: SqlServiceProfileRepository;
   deviceInstanceStorage: SqlDeviceInstanceRepository;
   logger?: CatalogLogger;
-  sessionStorage?: Pick<SqlSessionRepository, "list">;
 }) {
   const logger = opts.logger ?? consoleLogger;
   const contractStore = new ContractStore(opts.builtinContracts);
@@ -415,14 +413,6 @@ export function createContractsModule(opts: {
     for (const instance of await opts.deviceInstanceStorage.list()) {
       if (instance.state === "activated" && instance.currentContractDigest) {
         active.add(instance.currentContractDigest);
-      }
-    }
-
-    if (opts.sessionStorage) {
-      for (const session of await opts.sessionStorage.list()) {
-        if (session.type === "user" && session.contractDigest) {
-          active.add(session.contractDigest);
-        }
       }
     }
 

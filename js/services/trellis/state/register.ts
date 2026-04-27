@@ -11,9 +11,7 @@ type StateRpcMethod =
   | "State.Admin.Delete";
 
 type RpcRegistrar = {
-  mount: {
-    bivarianceHack(method: StateRpcMethod, handler: unknown): Promise<void>;
-  }["bivarianceHack"];
+  mount(method: StateRpcMethod, handler: unknown): Promise<void>;
 };
 type HandlerEnvelope<Handler> = Handler extends
   (input: infer Input, context: infer Context) => unknown

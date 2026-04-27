@@ -32,6 +32,21 @@ export type StateEntry = {
   expiresAt?: string;
 };
 
+export const StateMigrationRequiredSchema = Type.Object({
+  migrationRequired: Type.Literal(true),
+  entry: StateEntrySchema,
+  stateVersion: Type.String({ minLength: 1 }),
+  currentStateVersion: Type.String({ minLength: 1 }),
+  writerContractDigest: Type.String({ minLength: 1 }),
+});
+export type StateMigrationRequired = {
+  migrationRequired: true;
+  entry: StateEntry;
+  stateVersion: string;
+  currentStateVersion: string;
+  writerContractDigest: string;
+};
+
 export const StateUserTargetSchema = Type.Object({
   origin: Type.String({ minLength: 1 }),
   id: Type.String({ minLength: 1 }),
