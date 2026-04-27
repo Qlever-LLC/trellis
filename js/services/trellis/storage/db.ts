@@ -244,7 +244,7 @@ export async function initializeTrellisStorageSchema(
       last_auth TEXT NOT NULL,
       revoked_at TEXT,
       session TEXT NOT NULL,
-      UNIQUE (session_key, trellis_id)
+      UNIQUE (session_key)
     )
   `);
 }

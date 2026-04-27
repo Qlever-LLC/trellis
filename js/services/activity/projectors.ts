@@ -16,11 +16,14 @@ import {
   AuthSessionRevokedEventSchema,
 } from "../../packages/trellis/models/auth/events/AuthSessionRevoked.ts";
 
-import type { ActivityOwnedApi, ActivityTrellisApi } from "./contracts/trellis_activity.ts";
+import type {
+  ActivityOwnedApi,
+  ActivityTrellisApi,
+} from "./contracts/trellis_activity.ts";
 import {
+  type ActivityEntry,
   ActivityGetRequestSchema,
   ActivityListRequestSchema,
-  type ActivityEntry,
 } from "./schemas.ts";
 import {
   type ActivityStore,
@@ -108,7 +111,9 @@ export async function registerActivityProjection(
         activityKV,
         buildEntry("auth.connect", {
           ...parsedEvent,
-          summary: `${label(parsedEvent.origin, parsedEvent.id)} connected to Trellis`,
+          summary: `${
+            label(parsedEvent.origin, parsedEvent.id)
+          } connected to Trellis`,
         }),
       );
     },
@@ -126,7 +131,9 @@ export async function registerActivityProjection(
         activityKV,
         buildEntry("auth.disconnect", {
           ...parsedEvent,
-          summary: `${label(parsedEvent.origin, parsedEvent.id)} disconnected from Trellis`,
+          summary: `${
+            label(parsedEvent.origin, parsedEvent.id)
+          } disconnected from Trellis`,
         }),
       );
     },
@@ -145,7 +152,9 @@ export async function registerActivityProjection(
         buildEntry("auth.session_revoked", {
           ...parsedEvent,
           actor: parsedEvent.revokedBy,
-          summary: `${label(parsedEvent.origin, parsedEvent.id)} session was revoked`,
+          summary: `${
+            label(parsedEvent.origin, parsedEvent.id)
+          } session was revoked`,
           metadata: { revokedBy: parsedEvent.revokedBy },
         }),
       );
@@ -165,7 +174,9 @@ export async function registerActivityProjection(
         buildEntry("auth.connection_kicked", {
           ...parsedEvent,
           actor: parsedEvent.kickedBy,
-          summary: `${label(parsedEvent.origin, parsedEvent.id)} connection was kicked`,
+          summary: `${
+            label(parsedEvent.origin, parsedEvent.id)
+          } connection was kicked`,
           metadata: { kickedBy: parsedEvent.kickedBy },
         }),
       );

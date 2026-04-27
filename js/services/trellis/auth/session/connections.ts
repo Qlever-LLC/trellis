@@ -35,37 +35,34 @@ export function connectionFilterForSession(sessionKey: string): string {
   return `${sessionKey}.>`;
 }
 
-/** Builds a KV filter for new-format connections for a specific scope ID. */
+/** Builds a KV filter for connections for a specific scope ID. */
 export function connectionFilterForUser(scopeId: string): string {
-  return `>.${encodeConnectionScopeSegment(scopeId)}.>`;
+  return `*.${encodeConnectionScopeSegment(scopeId)}.*`;
 }
 
-/**
- * A safe subject filter cannot match the last token while allowing an arbitrary
- * number of scope tokens in older raw keys, so callers should scan and parse.
- */
-export function connectionFilterForUserNkey(_userNkey: string): null {
-  return null;
+/** Builds a KV filter for connections for a specific NATS user key. */
+export function connectionFilterForUserNkey(userNkey: string): string {
+  return `*.*.${userNkey}`;
 }
 
-/** Parses both encoded connection keys and legacy raw-scope connection keys. */
+/** Parses encoded connection keys. */
 export function parseConnectionKey(
   key: string,
 ): { sessionKey: string; scopeId: string; userNkey: string } | null {
   const parts = key.split(".");
-  if (parts.length < 3) return null;
+  if (parts.length !== 3) return null;
 
   const sessionKey = parts[0];
-  const userNkey = parts[parts.length - 1];
+  const scopeSegment = parts[1];
+  const userNkey = parts[2];
   if (!sessionKey || !userNkey) return null;
-
-  const scopeSegment = parts.slice(1, -1).join(".");
   if (!scopeSegment) return null;
 
   const decodedScope = decodeConnectionScopeSegment(scopeSegment);
+  if (!decodedScope) return null;
   return {
     sessionKey,
-    scopeId: decodedScope ?? scopeSegment,
+    scopeId: decodedScope,
     userNkey,
   };
 }

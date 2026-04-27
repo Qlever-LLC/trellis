@@ -83,7 +83,6 @@ when available.
 ```ts
 import { defineAgentContract, TrellisClient } from "@qlever-llc/trellis";
 import { graph } from "@acme/graph-contract";
-import { auth } from "@qlever-llc/trellis/sdk/auth";
 
 export const agent = defineAgentContract(() => ({
   id: "acme.graph-agent@v1",
@@ -91,7 +90,6 @@ export const agent = defineAgentContract(() => ({
   description:
     "Query the graph service and inspect auth state as delegated tooling.",
   uses: {
-    auth: auth.useDefaults(),
     graph: graph.use({ rpc: { call: ["Graph.Query"] } }),
   },
 }));

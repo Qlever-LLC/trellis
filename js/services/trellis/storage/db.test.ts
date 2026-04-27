@@ -27,6 +27,7 @@ Deno.test("trellis storage opens file-backed SQLite and persists contracts", asy
       natsPublish: 1,
       natsSubscribe: 1,
       kvResources: 1,
+      storeResources: 0,
       streamResources: 0,
       jobsQueues: 0,
     };

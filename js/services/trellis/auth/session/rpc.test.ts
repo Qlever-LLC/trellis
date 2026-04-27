@@ -718,7 +718,6 @@ Deno.test("Auth.ListSessions returns explicit participant metadata for app, agen
     },
     contractId: "trellis.console@v1",
     contractDisplayName: "Console",
-    appOrigin: "https://console.example.com",
     createdAt: "2026-04-10T00:00:00.000Z",
     lastAuth: "2026-04-10T00:00:00.000Z",
   });
@@ -795,7 +794,6 @@ Deno.test("Auth.ListConnections returns explicit participant metadata for user s
       },
       contractId: "trellis.agent@v1",
       contractDisplayName: "Trellis Agent",
-      appOrigin: "https://agent.example.com",
       serverId: "n1",
       clientId: 7,
       connectedAt: "2026-04-10T00:00:00.000Z",
@@ -886,17 +884,23 @@ Deno.test("Auth.RevokeSession cascades agent revocation to the grant and sibling
     ...baseSessionFields(),
   });
 
-  connectionsKV.seed(`sk_agent_1.${userTrellisId}.user_nkey_1`, {
-    serverId: "n1",
-    clientId: 7,
-    connectedAt: new Date("2026-04-11T00:00:00.000Z"),
-  });
-  connectionsKV.seed(`sk_agent_2.${userTrellisId}.user_nkey_2`, {
-    serverId: "n2",
-    clientId: 8,
-    connectedAt: new Date("2026-04-11T00:00:00.000Z"),
-  });
-  connectionsKV.seed(`sk_app.${userTrellisId}.user_nkey_3`, {
+  connectionsKV.seed(
+    connectionKey("sk_agent_1", userTrellisId, "user_nkey_1"),
+    {
+      serverId: "n1",
+      clientId: 7,
+      connectedAt: new Date("2026-04-11T00:00:00.000Z"),
+    },
+  );
+  connectionsKV.seed(
+    connectionKey("sk_agent_2", userTrellisId, "user_nkey_2"),
+    {
+      serverId: "n2",
+      clientId: 8,
+      connectedAt: new Date("2026-04-11T00:00:00.000Z"),
+    },
+  );
+  connectionsKV.seed(connectionKey("sk_app", userTrellisId, "user_nkey_3"), {
     serverId: "n3",
     clientId: 9,
     connectedAt: new Date("2026-04-11T00:00:00.000Z"),
@@ -961,13 +965,17 @@ Deno.test("Auth.RevokeSession cascades agent revocation to the grant and sibling
   );
   assertEquals(
     isErr(
-      await connectionsKV.get(`sk_agent_1.${userTrellisId}.user_nkey_1`).take(),
+      await connectionsKV.get(
+        connectionKey("sk_agent_1", userTrellisId, "user_nkey_1"),
+      ).take(),
     ),
     true,
   );
   assertEquals(
     isErr(
-      await connectionsKV.get(`sk_agent_2.${userTrellisId}.user_nkey_2`).take(),
+      await connectionsKV.get(
+        connectionKey("sk_agent_2", userTrellisId, "user_nkey_2"),
+      ).take(),
     ),
     true,
   );
@@ -977,7 +985,9 @@ Deno.test("Auth.RevokeSession cascades agent revocation to the grant and sibling
   );
   assertEquals(
     isErr(
-      await connectionsKV.get(`sk_app.${userTrellisId}.user_nkey_3`).take(),
+      await connectionsKV.get(
+        connectionKey("sk_app", userTrellisId, "user_nkey_3"),
+      ).take(),
     ),
     false,
   );
@@ -1082,17 +1092,17 @@ Deno.test("Auth.RevokeSession cascades app revocation to the grant and sibling u
     ...baseSessionFields(),
   });
 
-  connectionsKV.seed(`sk_app_1.${userTrellisId}.user_nkey_1`, {
+  connectionsKV.seed(connectionKey("sk_app_1", userTrellisId, "user_nkey_1"), {
     serverId: "n1",
     clientId: 7,
     connectedAt: new Date("2026-04-11T00:00:00.000Z"),
   });
-  connectionsKV.seed(`sk_app_2.${userTrellisId}.user_nkey_2`, {
+  connectionsKV.seed(connectionKey("sk_app_2", userTrellisId, "user_nkey_2"), {
     serverId: "n2",
     clientId: 8,
     connectedAt: new Date("2026-04-11T00:00:00.000Z"),
   });
-  connectionsKV.seed(`sk_agent.${userTrellisId}.user_nkey_3`, {
+  connectionsKV.seed(connectionKey("sk_agent", userTrellisId, "user_nkey_3"), {
     serverId: "n3",
     clientId: 9,
     connectedAt: new Date("2026-04-11T00:00:00.000Z"),
@@ -1280,7 +1290,7 @@ Deno.test("Auth.RevokeSession revokes device activation so the device cannot rec
     activatedAt: "2026-04-10T00:00:00.000Z",
     revokedAt: null,
   });
-  connectionsKV.seed("sk_device.dev_1.user_nkey", {
+  connectionsKV.seed(connectionKey("sk_device", "dev_1", "user_nkey"), {
     serverId: "n1",
     clientId: 7,
     connectedAt: new Date("2026-04-11T00:00:00.000Z"),
@@ -1373,7 +1383,7 @@ Deno.test("Auth.RevokeSession disables the service instance so it cannot reconne
     capabilities: ["service"],
     createdAt: "2026-04-10T00:00:00.000Z",
   });
-  connectionsKV.seed("sk_service.svc_1.user_nkey", {
+  connectionsKV.seed(connectionKey("sk_service", "svc_1", "user_nkey"), {
     serverId: "n1",
     clientId: 7,
     connectedAt: new Date("2026-04-11T00:00:00.000Z"),

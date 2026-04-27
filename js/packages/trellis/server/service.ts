@@ -1095,10 +1095,11 @@ export async function createConnectedService<
     response: () => health.response(),
   });
 
-  const heartbeatEventEnabled = Boolean(
-    (currentApi.events as Record<string, unknown> | undefined)
-      ?.["Health.Heartbeat"],
-  );
+  const heartbeatEventEnabled = args.server.health !== undefined &&
+    Boolean(
+      (currentApi.events as Record<string, unknown> | undefined)
+        ?.["Health.Heartbeat"],
+    );
   let healthPublishTimer: ReturnType<typeof setInterval> | undefined;
   let publishingHeartbeat = false;
   const publishHealthHeartbeat = async (): Promise<void> => {
@@ -1659,6 +1660,10 @@ export class TrellisService<
     this.auth = auth;
     this.nc = nc;
     this.#server = server;
+    Object.defineProperty(this, "server", {
+      value: server,
+      enumerable: false,
+    });
     this.trellis = trellis;
     this.#handlerTrellis = handlerTrellis;
     this.kv = kv;

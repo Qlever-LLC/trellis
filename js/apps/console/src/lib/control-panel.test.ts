@@ -15,7 +15,9 @@ Deno.test("control panel keeps admin navigation focused on active sections", () 
     name: "Ada",
     origin: "github",
   });
-  const labels = sections.flatMap((section) => section.items.map((item) => item.label));
+  const labels = sections.flatMap((section) =>
+    section.items.map((item) => item.label)
+  );
 
   ok(labels.includes("Jobs"));
 });

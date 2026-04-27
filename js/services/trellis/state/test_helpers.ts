@@ -154,9 +154,6 @@ export class FakeSessionKV {
     const matches = [...this.#values.entries()].filter(([key]) =>
       key.startsWith(`${sessionKey}.`)
     );
-    if (matches.length > 1) {
-      throw new Error(`Multiple sessions stored for session key ${sessionKey}`);
-    }
     return matches[0]?.[1];
   }
 

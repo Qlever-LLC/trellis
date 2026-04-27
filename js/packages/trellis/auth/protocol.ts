@@ -226,6 +226,7 @@ export const ContractAnalysisSummarySchema = Type.Object({
   natsPublish: Type.Number(),
   natsSubscribe: Type.Number(),
   kvResources: Type.Number(),
+  storeResources: Type.Number(),
   jobsQueues: Type.Number(),
   streamResources: Type.Number(),
 });
@@ -237,6 +238,15 @@ export const ContractAnalysisKvResourceSchema = Type.Object({
   history: Type.Number(),
   ttlMs: Type.Number(),
   maxValueBytes: Type.Optional(Type.Number()),
+});
+
+export const ContractAnalysisStoreResourceSchema = Type.Object({
+  alias: Type.String({ minLength: 1 }),
+  purpose: Type.String({ minLength: 1 }),
+  required: Type.Boolean(),
+  ttlMs: Type.Number(),
+  maxObjectBytes: Type.Optional(Type.Number()),
+  maxTotalBytes: Type.Optional(Type.Number()),
 });
 
 export const ContractAnalysisJobsQueueSchema = Type.Object({
@@ -317,6 +327,7 @@ export const ContractAnalysisSchema = Type.Object({
   }),
   resources: Type.Object({
     kv: Type.Array(ContractAnalysisKvResourceSchema),
+    store: Type.Array(ContractAnalysisStoreResourceSchema),
     jobs: Type.Array(ContractAnalysisJobsQueueSchema),
     streams: Type.Array(ContractAnalysisStreamResourceSchema),
   }),

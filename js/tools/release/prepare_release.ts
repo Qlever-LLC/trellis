@@ -9,7 +9,10 @@ const repoRoot = fromFileUrl(new URL("../../../", import.meta.url));
 
 async function* walk(dir: string): AsyncGenerator<string> {
   for await (const entry of Deno.readDir(dir)) {
-    if (entry.name === ".git" || entry.name === "node_modules" || entry.name === ".svelte-kit") {
+    if (
+      entry.name === ".git" || entry.name === "node_modules" ||
+      entry.name === ".svelte-kit"
+    ) {
       continue;
     }
 
@@ -27,10 +30,16 @@ async function writeGithubEnv(name: string, value: string): Promise<void> {
   if (!githubEnvPath) {
     return;
   }
-  await Deno.writeTextFile(githubEnvPath, `${name}=${value}\n`, { append: true });
+  await Deno.writeTextFile(githubEnvPath, `${name}=${value}\n`, {
+    append: true,
+  });
 }
 
-async function updateJsonVersions(rootDir: string, releaseVersion: string, baseVersion: string) {
+async function updateJsonVersions(
+  rootDir: string,
+  releaseVersion: string,
+  baseVersion: string,
+) {
   for await (const path of walk(rootDir)) {
     if (!path.endsWith("deno.json")) {
       continue;
@@ -39,9 +48,17 @@ async function updateJsonVersions(rootDir: string, releaseVersion: string, baseV
     const original = await Deno.readTextFile(path);
     let updated: string;
     try {
-      updated = replaceJsonManifestVersion(original, releaseVersion, baseVersion, path);
+      updated = replaceJsonManifestVersion(
+        original,
+        releaseVersion,
+        baseVersion,
+        path,
+      );
     } catch (error) {
-      if (error instanceof Error && error.message.includes("does not declare a string version")) {
+      if (
+        error instanceof Error &&
+        error.message.includes("does not declare a string version")
+      ) {
         continue;
       }
       throw error;
@@ -53,14 +70,22 @@ async function updateJsonVersions(rootDir: string, releaseVersion: string, baseV
   }
 }
 
-async function updateCargoVersions(rootDir: string, releaseVersion: string, baseVersion: string) {
+async function updateCargoVersions(
+  rootDir: string,
+  releaseVersion: string,
+  baseVersion: string,
+) {
   for await (const path of walk(rootDir)) {
     if (!path.endsWith("Cargo.toml")) {
       continue;
     }
 
     const original = await Deno.readTextFile(path);
-    const updated = rewriteCargoManifestVersions(original, releaseVersion, baseVersion);
+    const updated = rewriteCargoManifestVersions(
+      original,
+      releaseVersion,
+      baseVersion,
+    );
     if (updated !== original) {
       await Deno.writeTextFile(path, updated);
     }
@@ -70,15 +95,27 @@ async function updateCargoVersions(rootDir: string, releaseVersion: string, base
 const releaseTag = Deno.env.get("TRELLIS_RELEASE_TAG")?.trim();
 
 if (!releaseTag) {
-  console.log("TRELLIS_RELEASE_TAG is not set; skipping release version preparation.");
+  console.log(
+    "TRELLIS_RELEASE_TAG is not set; skipping release version preparation.",
+  );
   Deno.exit(0);
 }
 
 const release = parseReleaseTag(releaseTag);
 
-await updateJsonVersions(join(repoRoot, "js"), release.version, release.baseVersion);
-await updateCargoVersions(join(repoRoot, "rust"), release.version, release.baseVersion);
+await updateJsonVersions(
+  join(repoRoot, "js"),
+  release.version,
+  release.baseVersion,
+);
+await updateCargoVersions(
+  join(repoRoot, "rust"),
+  release.version,
+  release.baseVersion,
+);
 await writeGithubEnv("TRELLIS_RELEASE_VERSION", release.version);
 await writeGithubEnv("TRELLIS_RELEASE_BASE_VERSION", release.baseVersion);
 
-console.log(`Prepared release version ${release.version} from tag ${releaseTag}.`);
+console.log(
+  `Prepared release version ${release.version} from tag ${releaseTag}.`,
+);

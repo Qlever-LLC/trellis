@@ -80,6 +80,21 @@ function validateSchemaRefs(contract: TrellisContractV1) {
   }
 
   for (
+    const [name, resource] of Object.entries(
+      contract.resources?.kv ?? {},
+    ) as Array<[
+      string,
+      NonNullable<NonNullable<TrellisContractV1["resources"]>["kv"]>[string],
+    ]>
+  ) {
+    assertSchemaRefExists(
+      contract,
+      resource.schema.schema,
+      `resources.kv '${name}'`,
+    );
+  }
+
+  for (
     const [name, rpc] of Object.entries(contract.rpc ?? {}) as Array<
       [string, NonNullable<TrellisContractV1["rpc"]>[string]]
     >

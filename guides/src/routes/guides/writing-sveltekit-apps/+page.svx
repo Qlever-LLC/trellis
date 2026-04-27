@@ -79,25 +79,25 @@ Those approval screens are based on Trellis capabilities derived from the
 contract. They are not the OAuth scopes used between Trellis and an external
 identity provider.
 
-Start by creating `src/lib/contract.ts`. For this example, we only need to use the default Trellis auth features.
+Start by creating `src/lib/contract.ts`. For this example, we only need the
+baseline Trellis auth features that app contracts receive automatically.
 
 ```ts
 import { defineAppContract } from "@qlever-llc/trellis/contracts";
-import { auth } from "@qlever-llc/trellis/sdk/auth";
 
 const contract = defineAppContract(() => ({
   id: "my-app@v1",
   displayName: "My App",
   description: "A browser app that reads auth state.",
-  uses: {
-    auth: auth.useDefaults(),
-  },
 }));
 
 export default contract;
 ```
 
-The defaults include `Auth.Me` and `Auth.Logout`, which most browser apps need. `Auth.Me` returns a `{ user, device, service }` envelope, with the device branch carrying the device identity and the activating user when applicable.
+The implicit app auth surface includes `Auth.Me` and `Auth.Logout`, which most
+browser apps need. `Auth.Me` returns a `{ user, device, service }` envelope, with
+the device branch carrying the device identity and the activating user when
+applicable.
 
 Contract source files should prefer `@qlever-llc/trellis/contracts`; keep runtime and auth helpers on `@qlever-llc/trellis` or `@qlever-llc/trellis-svelte`.
 

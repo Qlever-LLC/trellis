@@ -27,7 +27,10 @@ export type StoredKeyPair = {
   createdAt: number;
 };
 
-export async function storeKeyPair(keyPair: CryptoKeyPair, publicKeyRaw: Uint8Array): Promise<void> {
+export async function storeKeyPair(
+  keyPair: CryptoKeyPair,
+  publicKeyRaw: Uint8Array,
+): Promise<void> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, "readwrite");

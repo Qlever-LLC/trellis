@@ -17,6 +17,7 @@ import {
   createAuthListUserGrantsHandler,
   createAuthRevokeUserGrantHandler,
 } from "./user_grants.ts";
+import { connectionKey } from "../session/connections.ts";
 import type {
   Connection,
   ContractApprovalRecord,
@@ -230,7 +231,7 @@ Deno.test("Auth.RevokeUserGrant deletes the caller grant and matching user sessi
       createdAt: new Date("2026-04-10T00:00:00.000Z"),
       lastAuth: new Date("2026-04-11T00:00:00.000Z"),
     });
-    connectionsKV.seed(`sk_123.${userTrellisId}.user_nkey`, {
+    connectionsKV.seed(connectionKey("sk_123", userTrellisId, "user_nkey"), {
       serverId: "n1",
       clientId: 7,
       connectedAt: new Date("2026-04-11T00:00:00.000Z"),

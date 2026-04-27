@@ -31,16 +31,24 @@ export class WorkerHeartbeatLoopError extends AggregateError {
   }
 }
 
-export function workerHeartbeatSubject(service: string, jobType: string, instanceId: string): string {
+export function workerHeartbeatSubject(
+  service: string,
+  jobType: string,
+  instanceId: string,
+): string {
   return `trellis.jobs.workers.${service}.${jobType}.${instanceId}.heartbeat`;
 }
 
-export function newWorkerHeartbeat(options: WorkerHeartbeatOptions): WorkerHeartbeat {
+export function newWorkerHeartbeat(
+  options: WorkerHeartbeatOptions,
+): WorkerHeartbeat {
   return {
     service: options.service,
     jobType: options.jobType,
     instanceId: options.instanceId,
-    ...(options.concurrency !== undefined ? { concurrency: options.concurrency } : {}),
+    ...(options.concurrency !== undefined
+      ? { concurrency: options.concurrency }
+      : {}),
     ...(options.version !== undefined ? { version: options.version } : {}),
     timestamp: options.timestamp,
   };
@@ -51,7 +59,11 @@ export async function publishWorkerHeartbeat(
   heartbeat: WorkerHeartbeat,
 ): Promise<void> {
   await publisher.publish(
-    workerHeartbeatSubject(heartbeat.service, heartbeat.jobType, heartbeat.instanceId),
+    workerHeartbeatSubject(
+      heartbeat.service,
+      heartbeat.jobType,
+      heartbeat.instanceId,
+    ),
     new TextEncoder().encode(JSON.stringify(heartbeat)),
   );
 }
@@ -65,14 +77,19 @@ export async function startWorkerHeartbeatLoop(
   const inFlight = new Set<Promise<void>>();
 
   const publish = async () => {
-    await publishWorkerHeartbeat(options.publisher, newWorkerHeartbeat({
-      service: options.service,
-      jobType: options.jobType,
-      instanceId: options.instanceId,
-      ...(options.concurrency !== undefined ? { concurrency: options.concurrency } : {}),
-      ...(options.version !== undefined ? { version: options.version } : {}),
-      timestamp: nowIso(),
-    }));
+    await publishWorkerHeartbeat(
+      options.publisher,
+      newWorkerHeartbeat({
+        service: options.service,
+        jobType: options.jobType,
+        instanceId: options.instanceId,
+        ...(options.concurrency !== undefined
+          ? { concurrency: options.concurrency }
+          : {}),
+        ...(options.version !== undefined ? { version: options.version } : {}),
+        timestamp: nowIso(),
+      }),
+    );
   };
 
   const publishSafely = (): void => {

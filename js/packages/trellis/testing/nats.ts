@@ -101,7 +101,9 @@ async function runChecked(command: Array<string>): Promise<string> {
   const stderr = new TextDecoder().decode(result.stderr).trim();
   if (result.code !== 0) {
     throw new Error(
-      `Command failed (${result.code}): ${command.join(" ")}\n${stderr || stdout}`,
+      `Command failed (${result.code}): ${command.join(" ")}\n${
+        stderr || stdout
+      }`,
     );
   }
   if (!stdout) {

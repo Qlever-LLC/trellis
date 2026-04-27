@@ -519,7 +519,6 @@ Deno.test("resolveSessionPrincipal accepts user sessions with matching instance 
         contractId: "trellis.console@v1",
         origin: "https://app.example.com",
       },
-      appOrigin: "https://app.example.com",
       approvalSource: "admin_policy",
       createdAt: new Date(),
       lastAuth: new Date(),
@@ -552,53 +551,4 @@ Deno.test("resolveSessionPrincipal accepts user sessions with matching instance 
   if (result.ok) {
     assertEquals(result.value.capabilities, ["audit"]);
   }
-});
-
-Deno.test("resolveSessionPrincipal still matches instance grant policy from legacy appOrigin", async () => {
-  const result = await resolveSessionPrincipal(
-    {
-      type: "user",
-      trellisId: "tid",
-      origin: "github",
-      id: "123",
-      email: "user@example.com",
-      name: "User",
-      participantKind: "app",
-      contractDigest: "digest-a",
-      contractId: "trellis.console@v1",
-      contractDisplayName: "Console",
-      contractDescription: "Admin app",
-      delegatedCapabilities: ["audit"],
-      delegatedPublishSubjects: [],
-      delegatedSubscribeSubjects: [],
-      appOrigin: "https://app.example.com",
-      approvalSource: "admin_policy",
-      createdAt: new Date(),
-      lastAuth: new Date(),
-    },
-    "A".repeat(43),
-    {
-      loadUserProjection: loadProjectionFromMap({
-        tid: {
-          origin: "github",
-          id: "123",
-          name: "User",
-          email: "user@example.com",
-          active: true,
-          capabilities: [],
-        },
-      }),
-      loadInstanceGrantPolicies: async () => [{
-        contractId: "trellis.console@v1",
-        impliedCapabilities: ["audit"],
-        allowedOrigins: ["https://app.example.com"],
-        disabled: false,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        source: { kind: "admin_policy" },
-      }],
-    },
-  );
-
-  assertEquals(result.ok, true);
 });

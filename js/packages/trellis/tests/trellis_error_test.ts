@@ -1,10 +1,10 @@
 import { assert, assertEquals } from "@std/assert";
 import {
-  ValidationError,
-  RemoteError,
   AuthError,
-  TransportError,
   getBuiltinRpcError,
+  RemoteError,
+  TransportError,
+  ValidationError,
 } from "../errors/index.ts";
 import { Result, UnexpectedError } from "../../result/mod.ts";
 
@@ -39,7 +39,8 @@ Deno.test("Verify errors serialize and validate", async (t) => {
     const error = new TransportError({
       code: "trellis.transport.unavailable",
       message: "Trellis could not reach the requested capability.",
-      hint: "Check that the target service is installed and reachable, then try again.",
+      hint:
+        "Check that the target service is installed and reachable, then try again.",
       context: { subject: "rpc.v1.Example.Run" },
       traceId: "trace-123",
     });

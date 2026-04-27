@@ -691,15 +691,11 @@ Rules:
 import { isErr, TrellisDevice } from "@qlever-llc/trellis";
 import { checkDeviceActivation } from "@qlever-llc/trellis/device/deno";
 import { defineDeviceContract } from "@qlever-llc/trellis/contracts";
-import { auth } from "@qlever-llc/trellis/sdk/auth";
 
 export const device = defineDeviceContract(() => ({
   id: "acme.demo-device@v1",
   displayName: "Demo Device",
   description: "A small activated device used for local Trellis demos.",
-  uses: {
-    auth: auth.useDefaults(),
-  },
 }));
 
 export default device;
@@ -733,8 +729,8 @@ Rules:
 
 - a normal activated-device participant may own no RPCs, operations, events, or
   resources at all; a small `uses`-only contract is valid
-- requesting `Auth.Me` from a device runtime is only valid because the local
-  contract declared auth access through `auth.useDefaults()`
+- requesting `Auth.Me` from a device runtime is valid because device contracts
+  receive baseline auth access automatically
 - device-local UI and review flow handling belong around
   `checkDeviceActivation(...)`, not inside `connect()`
 - demos and applications should check activation status first and then connect

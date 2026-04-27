@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { assertEquals } from "@std/assert";
 import type { BaseError, Result } from "@qlever-llc/result";
 import { Type } from "typebox";
 
@@ -19,6 +19,11 @@ function unwrapOk<T, E extends BaseError>(value: Result<T, E>): T {
   return value.unwrapOrElse((error) => {
     throw error;
   });
+}
+
+function unwrapErr<T, E extends BaseError>(value: Result<T, E>): E {
+  if (!value.isErr()) throw new Error("expected Result.err");
+  return value.error;
 }
 
 function createContractStore() {
@@ -182,49 +187,56 @@ Deno.test("State RPC derives store metadata and enforces value versus map key se
   );
   assertEquals(duplicate.applied, false);
 
-  await assertRejects(
-    async () => {
-      unwrapOk(
-        await handlers.get(
-          { store: "preferences", key: "unexpected" },
-          {
-            caller: { type: "user", origin: "github", id: "123" },
-            sessionKey: "user-session",
-          },
-        ),
-      );
-    },
-    ValidationError,
+  assertEquals(
+    unwrapErr(
+      await handlers.get(
+        { store: "preferences", key: "unexpected" },
+        {
+          caller: { type: "user", origin: "github", id: "123" },
+          sessionKey: "user-session",
+        },
+      ),
+    ) instanceof ValidationError,
+    true,
   );
 
-  await assertRejects(
-    async () => {
-      unwrapOk(
-        await handlers.get(
-          { store: "drafts" },
-          {
-            caller: { type: "user", origin: "github", id: "123" },
-            sessionKey: "user-session",
-          },
-        ),
-      );
-    },
-    ValidationError,
+  assertEquals(
+    unwrapErr(
+      await handlers.list(
+        { store: "preferences", offset: 0, limit: 10 },
+        {
+          caller: { type: "user", origin: "github", id: "123" },
+          sessionKey: "user-session",
+        },
+      ),
+    ) instanceof ValidationError,
+    true,
   );
 
-  await assertRejects(
-    async () => {
-      unwrapOk(
-        await handlers.put(
-          { store: "preferences", value: { theme: 123 } },
-          {
-            caller: { type: "user", origin: "github", id: "123" },
-            sessionKey: "user-session",
-          },
-        ),
-      );
-    },
-    ValidationError,
+  assertEquals(
+    unwrapErr(
+      await handlers.get(
+        { store: "drafts" },
+        {
+          caller: { type: "user", origin: "github", id: "123" },
+          sessionKey: "user-session",
+        },
+      ),
+    ) instanceof ValidationError,
+    true,
+  );
+
+  assertEquals(
+    unwrapErr(
+      await handlers.put(
+        { store: "preferences", value: { theme: 123 } },
+        {
+          caller: { type: "user", origin: "github", id: "123" },
+          sessionKey: "user-session",
+        },
+      ),
+    ) instanceof ValidationError,
+    true,
   );
 });
 
@@ -333,32 +345,35 @@ Deno.test("State admin RPCs inspect and delete named stores", async () => {
   );
   assertEquals(missing, { found: false });
 
-  await assertRejects(
-    () =>
-      handlers.adminGet(
+  assertEquals(
+    unwrapErr(
+      await handlers.adminGet(
         { ...target, store: "missing", key: "draft" },
         adminCaller,
       ),
-    ValidationError,
+    ) instanceof ValidationError,
+    true,
   );
 
-  await assertRejects(
-    () =>
-      handlers.adminGet({ ...target, key: "draft" }, {
+  assertEquals(
+    unwrapErr(
+      await handlers.adminGet({ ...target, key: "draft" }, {
         caller: { type: "user" },
       }),
-    AuthError,
+    ) instanceof AuthError,
+    true,
   );
 
-  await assertRejects(
-    () =>
-      handlers.adminGet(
+  assertEquals(
+    unwrapErr(
+      await handlers.adminGet(
         {
           ...target,
           contractId: "acme.tasks@v1",
         },
         adminCaller,
       ),
-    ValidationError,
+    ) instanceof ValidationError,
+    true,
   );
 });

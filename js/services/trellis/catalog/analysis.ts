@@ -104,6 +104,7 @@ export type ContractAnalysisSummary = {
   natsPublish: number;
   natsSubscribe: number;
   kvResources: number;
+  storeResources: number;
   streamResources: number;
   jobsQueues: number;
 };
@@ -117,7 +118,11 @@ export function analyzeContract(contract: TrellisContractV1): {
   const subjects: ContractAnalysis["subjects"]["subjects"] = [];
   const namespaces = new Set<string>();
 
-  for (const [key, m] of Object.entries(contract.rpc ?? {})) {
+  for (
+    const [key, m] of Object.entries(contract.rpc ?? {}) as Array<
+      [string, NonNullable<TrellisContractV1["rpc"]>[string]]
+    >
+  ) {
     const wildcardSubject = templateToWildcard(m.subject);
     rpcMethods.push({
       key,
@@ -129,7 +134,11 @@ export function analyzeContract(contract: TrellisContractV1): {
     if (ns) namespaces.add(ns);
   }
 
-  for (const [key, e] of Object.entries(contract.events ?? {})) {
+  for (
+    const [key, e] of Object.entries(contract.events ?? {}) as Array<
+      [string, NonNullable<TrellisContractV1["events"]>[string]]
+    >
+  ) {
     const wildcardSubject = templateToWildcard(e.subject);
     events.push({
       key,
@@ -142,7 +151,11 @@ export function analyzeContract(contract: TrellisContractV1): {
     if (ns) namespaces.add(ns);
   }
 
-  for (const [key, s] of Object.entries(contract.subjects ?? {})) {
+  for (
+    const [key, s] of Object.entries(contract.subjects ?? {}) as Array<
+      [string, NonNullable<TrellisContractV1["subjects"]>[string]]
+    >
+  ) {
     subjects.push({
       key,
       subject: s.subject,
@@ -226,6 +239,7 @@ export function analyzeContract(contract: TrellisContractV1): {
     natsPublish: publish.length,
     natsSubscribe: subscribe.length,
     kvResources: resourceSummary.kvResources,
+    storeResources: resourceSummary.storeResources,
     streamResources: resourceSummary.streamResources,
     jobsQueues: resourceSummary.jobsQueues,
   };

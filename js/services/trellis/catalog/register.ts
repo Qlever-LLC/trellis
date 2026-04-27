@@ -1,5 +1,4 @@
-import type { trellis as trellisRuntime } from "../bootstrap/globals.ts";
-import type { createContractsModule } from "./rpc.ts";
+import type { ContractsModule } from "./runtime.ts";
 import type { SqlServiceInstanceRepository } from "../auth/storage.ts";
 import {
   createTrellisBindingsGetHandler,
@@ -7,14 +6,30 @@ import {
   createTrellisContractGetHandler,
 } from "./rpc.ts";
 
-type TrellisRuntime = typeof trellisRuntime;
-type ContractsModule = ReturnType<typeof createContractsModule>;
+type CatalogRpcMethod =
+  | "Trellis.Catalog"
+  | "Trellis.Contract.Get"
+  | "Trellis.Bindings.Get";
+
+type RpcRegistrar = {
+  mount: {
+    bivarianceHack(method: CatalogRpcMethod, handler: unknown): Promise<void>;
+  }["bivarianceHack"];
+};
 
 type CatalogRegistrationDeps = {
-  trellis: TrellisRuntime;
+  trellis: RpcRegistrar;
   contracts: ContractsModule;
   serviceInstanceStorage: SqlServiceInstanceRepository;
 };
+
+type ContractGetInput = Parameters<
+  ReturnType<typeof createTrellisContractGetHandler>
+>[0];
+type BindingsGetHandler = ReturnType<typeof createTrellisBindingsGetHandler>;
+type BindingsGetEnvelope = Parameters<BindingsGetHandler> extends
+  [infer Input, infer Context] ? { input: Input; context: Context }
+  : never;
 
 /**
  * Registers Trellis catalog RPCs.
@@ -34,11 +49,12 @@ export async function registerCatalog(
   );
   await deps.trellis.mount(
     "Trellis.Contract.Get",
-    ({ input }) =>
+    ({ input }: { input: ContractGetInput }) =>
       createTrellisContractGetHandler(deps.contracts.contractStore)(input),
   );
   await deps.trellis.mount(
     "Trellis.Bindings.Get",
-    ({ input, context }) => trellisBindingsGetHandler(input, context),
+    ({ input, context }: BindingsGetEnvelope) =>
+      trellisBindingsGetHandler(input, context),
   );
 }

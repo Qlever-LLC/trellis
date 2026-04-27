@@ -15,31 +15,31 @@ Deno.test({
   name: "Trellis with external NATS connection",
   ignore: !RUN_NATS_TESTS,
   async fn(t) {
-  await using nats = await NatsTest.start();
+    await using nats = await NatsTest.start();
 
-  await t.step("constructor accepts external NATS connection", () => {
-    const trellis = new Trellis("test-client", nats.nc, createMockAuth());
-    assertExists(trellis);
-    assertEquals(trellis.name, "test-client");
-  });
+    await t.step("constructor accepts external NATS connection", () => {
+      const trellis = new Trellis("test-client", nats.nc, createMockAuth());
+      assertExists(trellis);
+      assertEquals(trellis.name, "test-client");
+    });
 
-  await t.step("natsConnection getter returns the connection", () => {
-    const trellis = new Trellis("test-client", nats.nc, createMockAuth());
-    assertExists(trellis.natsConnection);
-    assertEquals(trellis.natsConnection, nats.nc);
-  });
+    await t.step("natsConnection getter returns the connection", () => {
+      const trellis = new Trellis("test-client", nats.nc, createMockAuth());
+      assertExists(trellis.natsConnection);
+      assertEquals(trellis.natsConnection, nats.nc);
+    });
 
-  await t.step("connection lifecycle is managed by caller", async () => {
-    const { connect } = await import("@nats-io/transport-deno");
-    const info = nats.nc.info!;
-    const nc = await connect({ servers: `localhost:${info.port}` });
+    await t.step("connection lifecycle is managed by caller", async () => {
+      const { connect } = await import("@nats-io/transport-deno");
+      const info = nats.nc.info!;
+      const nc = await connect({ servers: `localhost:${info.port}` });
 
-    const trellis = new Trellis("test-client", nc, createMockAuth());
-    assertExists(trellis.natsConnection);
-    assertEquals(nc.isClosed(), false);
+      const trellis = new Trellis("test-client", nc, createMockAuth());
+      assertExists(trellis.natsConnection);
+      assertEquals(nc.isClosed(), false);
 
-    await nc.drain();
-    assertEquals(nc.isClosed(), true);
-  });
+      await nc.drain();
+      assertEquals(nc.isClosed(), true);
+    });
   },
 });

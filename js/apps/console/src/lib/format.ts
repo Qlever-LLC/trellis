@@ -15,14 +15,18 @@ type ErrorLike = {
   };
 };
 
-function formatContextMessage(context: Record<string, unknown> | undefined): string | null {
+function formatContextMessage(
+  context: Record<string, unknown> | undefined,
+): string | null {
   if (!context) return null;
 
   if (typeof context.message === "string" && context.message.length > 0) {
     return context.message;
   }
 
-  if (typeof context.causeMessage === "string" && context.causeMessage.length > 0) {
+  if (
+    typeof context.causeMessage === "string" && context.causeMessage.length > 0
+  ) {
     return context.causeMessage;
   }
 
@@ -33,12 +37,16 @@ function formatContextMessage(context: Record<string, unknown> | undefined): str
   return null;
 }
 
-function formatIssues(issues: Array<{ path?: unknown; message?: unknown }>): string | null {
+function formatIssues(
+  issues: Array<{ path?: unknown; message?: unknown }>,
+): string | null {
   if (issues.length === 0) return null;
   return issues
     .map((issue) => {
       const path = typeof issue.path === "string" ? issue.path : "";
-      const message = typeof issue.message === "string" ? issue.message : "Invalid value";
+      const message = typeof issue.message === "string"
+        ? issue.message
+        : "Invalid value";
       return path ? `${path}: ${message}` : message;
     })
     .join("; ");
@@ -50,7 +58,7 @@ export function formatDate(value: string | null | undefined): string {
   if (Number.isNaN(date.getTime())) return value;
   return new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",
-    timeStyle: "short"
+    timeStyle: "short",
   }).format(date);
 }
 

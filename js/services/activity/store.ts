@@ -10,7 +10,10 @@ export function openActivityStore(
   return service.kv.activity;
 }
 
-export async function putActivityEntry(activityKV: ActivityStore, entry: ActivityEntry) {
+export async function putActivityEntry(
+  activityKV: ActivityStore,
+  entry: ActivityEntry,
+) {
   const existing = await activityKV.get(entry.id).take();
   if (!isErr(existing)) {
     return Result.ok(existing.value);
@@ -46,7 +49,9 @@ export async function listActivityEntries(
     entries.push(entry.value);
   }
 
-  entries.sort((left, right) => right.occurredAt.localeCompare(left.occurredAt));
+  entries.sort((left, right) =>
+    right.occurredAt.localeCompare(left.occurredAt)
+  );
   return Result.ok(entries.slice(0, opts?.limit ?? 50));
 }
 

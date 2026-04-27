@@ -3,7 +3,6 @@ import {
   type TrellisConnectionStatus,
 } from "@qlever-llc/trellis";
 import { Type } from "typebox";
-import { auth } from "../../trellis/sdk/auth.ts";
 import type { TrellisProviderProps } from "./components/TrellisProvider.types.ts";
 import {
   createTrellisApp,
@@ -21,9 +20,6 @@ const testContract = defineAppContract(
     id: "trellis.svelte.context-test@v1",
     displayName: "Trellis Svelte Context Test",
     description: "Typecheck the Svelte context public API.",
-    uses: {
-      auth: auth.useDefaults(),
-    },
     state: {
       preferences: { kind: "value", schema: ref.schema("Preferences") },
     },

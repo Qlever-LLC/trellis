@@ -25,7 +25,10 @@ export function preserveDeviceActivationCallbackState(
   nextState: DeviceActivationCallbackState,
 ): void {
   storage.setItem(PRESERVED_ACTIVATION_FLOW_ID_STORAGE_KEY, nextState.flowId);
-  storage.setItem(ACTIVATION_CALLBACK_TOKEN_STORAGE_KEY, nextState.callbackToken);
+  storage.setItem(
+    ACTIVATION_CALLBACK_TOKEN_STORAGE_KEY,
+    nextState.callbackToken,
+  );
 }
 
 export function clearPreservedDeviceActivationCallbackState(

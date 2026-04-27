@@ -353,14 +353,14 @@ import { auth } from "@qlever-llc/trellis/sdk/auth";
 export const ordersService = defineContract({
   // ...
   uses: {
-    auth: auth.useDefaults({
+    auth: auth.use({
       events: { subscribe: ["Auth.Connect"] },
     }),
   },
   // ...
 ```
 
-`auth.useDefaults(...)` does two things: it grants your service access to the standard auth RPCs (`Auth.Me`, etc.) and, with the `events` option, subscribes you to `Auth.Connect` events from the auth service.
+`auth.use(...)` declares the non-baseline auth surface this service needs. In this example, the service subscribes to `Auth.Connect` events from the auth service.
 
 Now subscribe to the event in `main.ts`:
 

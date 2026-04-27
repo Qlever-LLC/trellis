@@ -3,10 +3,10 @@ import {
   type ContractDependencyUse,
   type ContractExports,
   type ContractJobsMetadata,
-  type ContractStateMetadata,
   type ContractModule,
   type ContractState,
   type ContractStateKind,
+  type ContractStateMetadata,
   type ContractStateStore,
   type ContractUseFn,
   type DefineContractInput,
@@ -57,8 +57,8 @@ export type DefinedContract<
 >;
 
 export {
-  defineAppContract,
   defineAgentContract,
+  defineAppContract,
   defineDeviceContract,
   defineServiceContract,
 } from "./contract_support/mod.ts";

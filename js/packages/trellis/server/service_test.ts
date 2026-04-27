@@ -1073,19 +1073,27 @@ Deno.test("TrellisService mount passes kv and store to handlers", async () => {
 
   let mounted:
     | ((
-      input: unknown,
-      context: { caller: unknown; sessionKey: string },
+      args: {
+        input: unknown;
+        context: { caller: unknown; sessionKey: string };
+      },
     ) => Promise<Result<unknown, BaseError>>)
     | undefined;
 
+  const server = Reflect.get(service, "server");
+  if (typeof server !== "object" || server === null) {
+    throw new Error("expected service server internals for mount test");
+  }
   Reflect.set(
-    service.server as object,
-    "mount",
+    server,
+    "mountRuntime",
     async (
       _method: string,
       fn: (
-        input: unknown,
-        context: { caller: unknown; sessionKey: string },
+        args: {
+          input: unknown;
+          context: { caller: unknown; sessionKey: string };
+        },
       ) => Promise<Result<unknown, BaseError>>,
     ) => {
       mounted = fn;
@@ -1104,10 +1112,10 @@ Deno.test("TrellisService mount passes kv and store to handlers", async () => {
       throw new Error("expected wrapped mount handler to be captured");
     }
 
-    const result = await mounted(
-      { value: "ping" },
-      { caller: { kind: "test" }, sessionKey: "session-key" },
-    );
+    const result = await mounted({
+      input: { value: "ping" },
+      context: { caller: { kind: "test" }, sessionKey: "session-key" },
+    });
 
     assertEquals(result.isErr(), false);
   } finally {

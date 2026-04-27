@@ -1,9 +1,6 @@
 import Type, { type Static } from "typebox";
 
-import {
-  StateEntrySchema,
-  StateUserTargetSchema,
-} from "../State.ts";
+import { StateEntrySchema, StateUserTargetSchema } from "../State.ts";
 
 export const StateAdminGetSchema = Type.Union([
   Type.Object({

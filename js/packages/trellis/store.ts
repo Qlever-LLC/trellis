@@ -1,12 +1,25 @@
-import { Objm, type ObjectInfo, type ObjectResult, type ObjectStore, type ObjectStoreStatus } from "@nats-io/obj";
+import {
+  type ObjectInfo,
+  type ObjectResult,
+  type ObjectStore,
+  type ObjectStoreStatus,
+  Objm,
+} from "@nats-io/obj";
 import type { NatsConnection } from "@nats-io/nats-core/internal";
-import { AsyncResult, Result, type Result as ResultType } from "@qlever-llc/result";
+import {
+  AsyncResult,
+  Result,
+  type Result as ResultType,
+} from "@qlever-llc/result";
 import { StoreError } from "./errors/index.ts";
 
 const INTERNAL_CONTENT_TYPE_METADATA_KEY = "__trellis_content_type";
 const DEFAULT_STORE_WAIT_POLL_INTERVAL_MS = 250;
 
-export type StoreBody = Uint8Array | ReadableStream<Uint8Array> | AsyncIterable<Uint8Array>;
+export type StoreBody =
+  | Uint8Array
+  | ReadableStream<Uint8Array>
+  | AsyncIterable<Uint8Array>;
 
 export type StoreWaitOptions = {
   timeoutMs?: number;
@@ -43,19 +56,24 @@ export type StoreStatus = {
   maxTotalBytes?: number;
 };
 
-function metadataWithContentType(options?: StorePutOptions): Record<string, string> | undefined {
+function metadataWithContentType(
+  options?: StorePutOptions,
+): Record<string, string> | undefined {
   if (!options?.metadata && !options?.contentType) {
     return undefined;
   }
 
   return {
     ...(options?.metadata ?? {}),
-    ...(options?.contentType ? { [INTERNAL_CONTENT_TYPE_METADATA_KEY]: options.contentType } : {}),
+    ...(options?.contentType
+      ? { [INTERNAL_CONTENT_TYPE_METADATA_KEY]: options.contentType }
+      : {}),
   };
 }
 
 function storeInfoFromObjectInfo(info: ObjectInfo): StoreInfo {
-  const { [INTERNAL_CONTENT_TYPE_METADATA_KEY]: contentType, ...metadata } = info.metadata ?? {};
+  const { [INTERNAL_CONTENT_TYPE_METADATA_KEY]: contentType, ...metadata } =
+    info.metadata ?? {};
   return {
     key: info.name,
     size: info.size,
@@ -75,7 +93,9 @@ function streamFromBytes(data: Uint8Array): ReadableStream<Uint8Array> {
   });
 }
 
-function streamFromAsyncIterable(iterable: AsyncIterable<Uint8Array>): ReadableStream<Uint8Array> {
+function streamFromAsyncIterable(
+  iterable: AsyncIterable<Uint8Array>,
+): ReadableStream<Uint8Array> {
   const iterator = iterable[Symbol.asyncIterator]();
   return new ReadableStream<Uint8Array>({
     async pull(controller) {
@@ -135,7 +155,9 @@ function enforceMaxObjectBytes(
   });
 }
 
-async function bytesFromStream(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> {
+async function bytesFromStream(
+  stream: ReadableStream<Uint8Array>,
+): Promise<Uint8Array> {
   const reader = stream.getReader();
   const chunks: Uint8Array[] = [];
   let totalLength = 0;
@@ -163,12 +185,20 @@ function isNotFoundStoreError(error: StoreError): boolean {
 }
 
 function abortedStoreError(key: string, cause: unknown): StoreError {
-  return new StoreError({ operation: "waitFor", cause, context: { key, reason: "aborted" } });
+  return new StoreError({
+    operation: "waitFor",
+    cause,
+    context: { key, reason: "aborted" },
+  });
 }
 
-async function sleepWithSignal(ms: number, signal?: AbortSignal): Promise<void> {
+async function sleepWithSignal(
+  ms: number,
+  signal?: AbortSignal,
+): Promise<void> {
   if (signal?.aborted) {
-    throw signal.reason ?? new DOMException("The operation was aborted", "AbortError");
+    throw signal.reason ??
+      new DOMException("The operation was aborted", "AbortError");
   }
 
   await new Promise<void>((resolve, reject) => {
@@ -179,7 +209,10 @@ async function sleepWithSignal(ms: number, signal?: AbortSignal): Promise<void> 
 
     const onAbort = () => {
       cleanup();
-      reject(signal?.reason ?? new DOMException("The operation was aborted", "AbortError"));
+      reject(
+        signal?.reason ??
+          new DOMException("The operation was aborted", "AbortError"),
+      );
     };
 
     const cleanup = () => {
@@ -191,7 +224,9 @@ async function sleepWithSignal(ms: number, signal?: AbortSignal): Promise<void> 
   });
 }
 
-function streamFromBody(body: Exclude<StoreBody, Uint8Array>): ReadableStream<Uint8Array> {
+function streamFromBody(
+  body: Exclude<StoreBody, Uint8Array>,
+): ReadableStream<Uint8Array> {
   return body instanceof ReadableStream ? body : streamFromAsyncIterable(body);
 }
 
@@ -202,24 +237,37 @@ async function unwrapObjectInfo(
   try {
     const info = await store.info(key);
     if (info === null || info.deleted) {
-      return Result.err(new StoreError({ operation: "get", context: { key, reason: "not_found" } }));
+      return Result.err(
+        new StoreError({
+          operation: "get",
+          context: { key, reason: "not_found" },
+        }),
+      );
     }
     return Result.ok(info);
   } catch (cause) {
-    return Result.err(new StoreError({ operation: "get", cause, context: { key } }));
+    return Result.err(
+      new StoreError({ operation: "get", cause, context: { key } }),
+    );
   }
 }
 
 export class TypedStore {
   readonly #store: ObjectStore;
-  readonly #options: Required<Pick<StoreOpenOptions, "ttlMs">> & Omit<StoreOpenOptions, "ttlMs">;
+  readonly #options:
+    & Required<Pick<StoreOpenOptions, "ttlMs">>
+    & Omit<StoreOpenOptions, "ttlMs">;
 
   private constructor(store: ObjectStore, options: StoreOpenOptions) {
     this.#store = store;
     this.#options = {
       ttlMs: options.ttlMs ?? 0,
-      ...(options.maxObjectBytes !== undefined ? { maxObjectBytes: options.maxObjectBytes } : {}),
-      ...(options.maxTotalBytes !== undefined ? { maxTotalBytes: options.maxTotalBytes } : {}),
+      ...(options.maxObjectBytes !== undefined
+        ? { maxObjectBytes: options.maxObjectBytes }
+        : {}),
+      ...(options.maxTotalBytes !== undefined
+        ? { maxTotalBytes: options.maxTotalBytes }
+        : {}),
       ...(options.bindOnly !== undefined ? { bindOnly: options.bindOnly } : {}),
     };
   }
@@ -235,12 +283,18 @@ export class TypedStore {
         const store = options.bindOnly
           ? await objm.open(name)
           : await objm.create(name, {
-            ...(options.ttlMs && options.ttlMs > 0 ? { ttl: options.ttlMs * 1_000_000 } : {}),
-            ...(options.maxTotalBytes !== undefined ? { max_bytes: options.maxTotalBytes } : {}),
+            ...(options.ttlMs && options.ttlMs > 0
+              ? { ttl: options.ttlMs * 1_000_000 }
+              : {}),
+            ...(options.maxTotalBytes !== undefined
+              ? { max_bytes: options.maxTotalBytes }
+              : {}),
           });
         return Result.ok(new TypedStore(store, options));
       } catch (cause) {
-        return Result.err(new StoreError({ operation: "open", cause, context: { name } }));
+        return Result.err(
+          new StoreError({ operation: "open", cause, context: { name } }),
+        );
       }
     })());
   }
@@ -254,7 +308,10 @@ export class TypedStore {
       const existing = await unwrapObjectInfo(this.#store, key);
       if (existing.isOk()) {
         return Result.err(
-          new StoreError({ operation: "create", context: { key, reason: "already_exists" } }),
+          new StoreError({
+            operation: "create",
+            context: { key, reason: "already_exists" },
+          }),
         );
       }
 
@@ -273,17 +330,23 @@ export class TypedStore {
   get(key: string): AsyncResult<TypedStoreEntry, StoreError> {
     return AsyncResult.from((async () => {
       const info = await unwrapObjectInfo(this.#store, key);
-      return info.map((objectInfo) => new TypedStoreEntry(this.#store, storeInfoFromObjectInfo(objectInfo)));
+      return info.map((objectInfo) =>
+        new TypedStoreEntry(this.#store, storeInfoFromObjectInfo(objectInfo))
+      );
     })());
   }
 
   /**
    * Waits for an object key to appear in the store and returns the resulting entry.
    */
-  waitFor(key: string, options: StoreWaitOptions = {}): AsyncResult<TypedStoreEntry, StoreError> {
+  waitFor(
+    key: string,
+    options: StoreWaitOptions = {},
+  ): AsyncResult<TypedStoreEntry, StoreError> {
     return AsyncResult.from((async () => {
       const startedAt = Date.now();
-      const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_STORE_WAIT_POLL_INTERVAL_MS;
+      const pollIntervalMs = options.pollIntervalMs ??
+        DEFAULT_STORE_WAIT_POLL_INTERVAL_MS;
 
       while (true) {
         if (options.signal?.aborted) {
@@ -302,15 +365,19 @@ export class TypedStore {
           ? undefined
           : options.timeoutMs - (Date.now() - startedAt);
         if (remainingTimeoutMs !== undefined && remainingTimeoutMs <= 0) {
-          return Result.err(new StoreError({
-            operation: "waitFor",
-            context: { key, reason: "timeout", timeoutMs: options.timeoutMs },
-          }));
+          return Result.err(
+            new StoreError({
+              operation: "waitFor",
+              context: { key, reason: "timeout", timeoutMs: options.timeoutMs },
+            }),
+          );
         }
 
         try {
           await sleepWithSignal(
-            remainingTimeoutMs === undefined ? pollIntervalMs : Math.min(pollIntervalMs, remainingTimeoutMs),
+            remainingTimeoutMs === undefined
+              ? pollIntervalMs
+              : Math.min(pollIntervalMs, remainingTimeoutMs),
             options.signal,
           );
         } catch (cause) {
@@ -326,7 +393,9 @@ export class TypedStore {
         await this.#store.delete(key);
         return Result.ok(undefined);
       } catch (cause) {
-        return Result.err(new StoreError({ operation: "delete", cause, context: { key } }));
+        return Result.err(
+          new StoreError({ operation: "delete", cause, context: { key } }),
+        );
       }
     })());
   }
@@ -347,7 +416,9 @@ export class TypedStore {
 
         return Result.ok(iterate());
       } catch (cause) {
-        return Result.err(new StoreError({ operation: "list", cause, context: { prefix } }));
+        return Result.err(
+          new StoreError({ operation: "list", cause, context: { prefix } }),
+        );
       }
     })());
   }
@@ -356,7 +427,9 @@ export class TypedStore {
     return AsyncResult.from((async () => {
       try {
         const status = await this.#store.status();
-        return Result.ok(storeStatusFromObjectStoreStatus(status, this.#options));
+        return Result.ok(
+          storeStatusFromObjectStoreStatus(status, this.#options),
+        );
       } catch (cause) {
         return Result.err(new StoreError({ operation: "status", cause }));
       }
@@ -372,7 +445,10 @@ export class TypedStore {
     try {
       const metadata = metadataWithContentType(options);
       if (body instanceof Uint8Array) {
-        if (this.#options.maxObjectBytes !== undefined && body.length > this.#options.maxObjectBytes) {
+        if (
+          this.#options.maxObjectBytes !== undefined &&
+          body.length > this.#options.maxObjectBytes
+        ) {
           return Result.err(
             new StoreError({
               operation,
@@ -386,7 +462,10 @@ export class TypedStore {
           );
         }
 
-        await this.#store.putBlob({ name: key, ...(metadata ? { metadata } : {}) }, body);
+        await this.#store.putBlob({
+          name: key,
+          ...(metadata ? { metadata } : {}),
+        }, body);
         return Result.ok(undefined);
       }
 
@@ -395,7 +474,10 @@ export class TypedStore {
         this.#options.maxObjectBytes,
       );
 
-      await this.#store.put({ name: key, ...(metadata ? { metadata } : {}) }, limitedStream);
+      await this.#store.put(
+        { name: key, ...(metadata ? { metadata } : {}) },
+        limitedStream,
+      );
       return Result.ok(undefined);
     } catch (cause) {
       return Result.err(new StoreError({ operation, cause, context: { key } }));
@@ -405,14 +487,20 @@ export class TypedStore {
 
 function storeStatusFromObjectStoreStatus(
   status: ObjectStoreStatus,
-  options: Required<Pick<StoreOpenOptions, "ttlMs">> & Omit<StoreOpenOptions, "ttlMs">,
+  options:
+    & Required<Pick<StoreOpenOptions, "ttlMs">>
+    & Omit<StoreOpenOptions, "ttlMs">,
 ): StoreStatus {
   return {
     size: status.size,
     sealed: status.sealed,
     ttlMs: status.ttl > 0 ? Math.floor(status.ttl / 1_000_000) : options.ttlMs,
-    ...(options.maxObjectBytes !== undefined ? { maxObjectBytes: options.maxObjectBytes } : {}),
-    ...(options.maxTotalBytes !== undefined ? { maxTotalBytes: options.maxTotalBytes } : {}),
+    ...(options.maxObjectBytes !== undefined
+      ? { maxObjectBytes: options.maxObjectBytes }
+      : {}),
+    ...(options.maxTotalBytes !== undefined
+      ? { maxTotalBytes: options.maxTotalBytes }
+      : {}),
   };
 }
 
@@ -432,12 +520,23 @@ export class TypedStoreEntry {
       try {
         const result = await this.#store.get(this.key);
         if (result === null) {
-          return Result.err(new StoreError({ operation: "stream", context: { key: this.key, reason: "not_found" } }));
+          return Result.err(
+            new StoreError({
+              operation: "stream",
+              context: { key: this.key, reason: "not_found" },
+            }),
+          );
         }
 
         return Result.ok(streamWithErrorCheck(result));
       } catch (cause) {
-        return Result.err(new StoreError({ operation: "stream", cause, context: { key: this.key } }));
+        return Result.err(
+          new StoreError({
+            operation: "stream",
+            cause,
+            context: { key: this.key },
+          }),
+        );
       }
     })());
   }
@@ -447,17 +546,30 @@ export class TypedStoreEntry {
       try {
         const bytes = await this.#store.getBlob(this.key);
         if (bytes === null) {
-          return Result.err(new StoreError({ operation: "bytes", context: { key: this.key, reason: "not_found" } }));
+          return Result.err(
+            new StoreError({
+              operation: "bytes",
+              context: { key: this.key, reason: "not_found" },
+            }),
+          );
         }
         return Result.ok(bytes);
       } catch (cause) {
-        return Result.err(new StoreError({ operation: "bytes", cause, context: { key: this.key } }));
+        return Result.err(
+          new StoreError({
+            operation: "bytes",
+            cause,
+            context: { key: this.key },
+          }),
+        );
       }
     })());
   }
 }
 
-function streamWithErrorCheck(result: ObjectResult): ReadableStream<Uint8Array> {
+function streamWithErrorCheck(
+  result: ObjectResult,
+): ReadableStream<Uint8Array> {
   const reader = result.data.getReader();
 
   return new ReadableStream<Uint8Array>({

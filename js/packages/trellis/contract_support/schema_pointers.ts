@@ -41,8 +41,8 @@ type ScalarPointerPaths<
   Depth extends number,
 > = Depth extends 0 ? never
   : IsPlainObject<T> extends true ? {
-      [K in Extract<keyof T, string>]-?: NonNullable<T[K]> extends TokenPrimitive
-        ? JoinPointer<Prefix, K>
+      [K in Extract<keyof T, string>]-?: NonNullable<T[K]> extends
+        TokenPrimitive ? JoinPointer<Prefix, K>
         : ScalarPointerPaths<
           NonNullable<T[K]>,
           JoinPointer<Prefix, K>,

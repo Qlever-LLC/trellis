@@ -1,7 +1,4 @@
 import { defineDeviceContract } from "@qlever-llc/trellis";
-import { auth } from "@qlever-llc/trellis/sdk/auth";
-import { health } from "@qlever-llc/trellis/sdk/health";
-import { state } from "@qlever-llc/trellis/sdk/state";
 import { trellisDemoService } from "@trellis-demo/service-sdk";
 import { Type } from "typebox";
 
@@ -60,9 +57,6 @@ const contract = defineDeviceContract(
     displayName: "Field Device Demo",
     description: "Activated Field Device TUI for the consolidated demo.",
     uses: {
-      auth: auth.useDefaults(),
-      health: health.useDefaults(),
-      state: state.useDefaults(),
       fieldOps,
     },
     state: {

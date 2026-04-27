@@ -27,19 +27,15 @@ Deno.test("connection scope encoding round-trips dotted Trellis IDs", () => {
   });
 });
 
-Deno.test("connection key parser supports legacy raw dotted scope IDs", () => {
-  assertEquals(parseConnectionKey("sk.github.user.with.dots.user_nkey"), {
-    sessionKey: "sk",
-    scopeId: "github.user.with.dots",
-    userNkey: "user_nkey",
-  });
+Deno.test("connection key parser rejects raw dotted scope IDs", () => {
+  assertEquals(parseConnectionKey("sk.github.user.with.dots.user_nkey"), null);
 });
 
-Deno.test("connection filters avoid raw dotted scope IDs", () => {
+Deno.test("connection filters use encoded scope IDs", () => {
   assertEquals(connectionFilterForSession("sk"), "sk.>");
   assertEquals(
     connectionFilterForUser("github.user.with.dots"),
-    `>.${encodeConnectionScopeSegment("github.user.with.dots")}.>`,
+    `*.${encodeConnectionScopeSegment("github.user.with.dots")}.*`,
   );
-  assertEquals(connectionFilterForUserNkey("user_nkey"), null);
+  assertEquals(connectionFilterForUserNkey("user_nkey"), "*.*.user_nkey");
 });

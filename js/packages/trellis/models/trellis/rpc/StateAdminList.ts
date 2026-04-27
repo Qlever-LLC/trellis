@@ -1,10 +1,7 @@
 import Type, { type Static } from "typebox";
 
 import { PaginatedSchema } from "../../../contracts.ts";
-import {
-  StateEntrySchema,
-  StateUserTargetSchema,
-} from "../State.ts";
+import { StateEntrySchema, StateUserTargetSchema } from "../State.ts";
 import { PaginateSchema } from "../Paginate.ts";
 
 export const StateAdminListSchema = Type.Intersect([
@@ -36,4 +33,6 @@ export const StateAdminListResponseSchema = Type.Intersect([
     entries: Type.Array(StateEntrySchema, { default: [] }),
   }),
 ]);
-export type StateAdminListResponse = Static<typeof StateAdminListResponseSchema>;
+export type StateAdminListResponse = Static<
+  typeof StateAdminListResponseSchema
+>;

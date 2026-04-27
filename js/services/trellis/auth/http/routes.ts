@@ -269,7 +269,6 @@ export function registerHttpRoutes(
       ...(session.image ? { image: session.image } : {}),
       contractId: session.contractId,
       ...(session.app ? { app: session.app } : {}),
-      ...(session.appOrigin ? { appOrigin: session.appOrigin } : {}),
       delegatedCapabilities: session.delegatedCapabilities,
       delegatedPublishSubjects: session.delegatedPublishSubjects,
       delegatedSubscribeSubjects: session.delegatedSubscribeSubjects,
@@ -360,9 +359,6 @@ export function registerHttpRoutes(
       contractDisplayName: args.resolution.plan.contract.displayName,
       contractDescription: args.resolution.plan.contract.description,
       ...(args.resolution.app ? { app: args.resolution.app } : {}),
-      ...(args.resolution.app?.origin
-        ? { appOrigin: args.resolution.app.origin }
-        : {}),
       ...(args.approvalSource
         ? { approvalSource: args.approvalSource }
         : args.resolution.effectiveApproval.kind !== "none"

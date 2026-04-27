@@ -46,7 +46,6 @@ export const AuthConnectionRowSchema = Type.Union([
     principal: UserPrincipalSchema,
     contractId: Type.String(),
     contractDisplayName: Type.String(),
-    appOrigin: Type.Optional(Type.String()),
   }),
   Type.Object({
     ...ConnectionRowBaseSchema,
@@ -54,7 +53,6 @@ export const AuthConnectionRowSchema = Type.Union([
     principal: UserPrincipalSchema,
     contractId: Type.String(),
     contractDisplayName: Type.String(),
-    appOrigin: Type.Optional(Type.String()),
   }),
   Type.Object({
     ...ConnectionRowBaseSchema,

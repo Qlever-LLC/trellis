@@ -18,12 +18,17 @@ export async function fetchPortalFlowState(
   config: AuthConfig,
   flowId: string,
 ): Promise<PortalFlowState> {
-  const response = await fetch(`${authBaseUrl(config)}/auth/flow/${encodeURIComponent(flowId)}`);
+  const response = await fetch(
+    `${authBaseUrl(config)}/auth/flow/${encodeURIComponent(flowId)}`,
+  );
   if (!response.ok) {
     throw new Error(`Failed to load portal flow (${response.status})`);
   }
 
-  return Value.Parse(PortalFlowStateSchema, await response.json()) as PortalFlowState;
+  return Value.Parse(
+    PortalFlowStateSchema,
+    await response.json(),
+  ) as PortalFlowState;
 }
 
 export function portalProviderLoginUrl(
@@ -31,7 +36,9 @@ export function portalProviderLoginUrl(
   providerId: string,
   flowId: string,
 ): string {
-  const base = `${authBaseUrl(config)}/auth/login/${encodeURIComponent(providerId)}`;
+  const base = `${authBaseUrl(config)}/auth/login/${
+    encodeURIComponent(providerId)
+  }`;
   return `${base}?flowId=${encodeURIComponent(flowId)}`;
 }
 
@@ -53,9 +60,14 @@ export async function submitPortalApproval(
     throw new Error(`Approval request failed (${response.status})`);
   }
 
-  return Value.Parse(PortalFlowStateSchema, await response.json()) as PortalFlowState;
+  return Value.Parse(
+    PortalFlowStateSchema,
+    await response.json(),
+  ) as PortalFlowState;
 }
 
-export function portalRedirectLocation(state: PortalFlowState | null): string | null {
+export function portalRedirectLocation(
+  state: PortalFlowState | null,
+): string | null {
   return state?.status === "redirect" ? state.location : null;
 }

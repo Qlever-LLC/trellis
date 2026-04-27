@@ -55,7 +55,9 @@ export type ServiceHealthCheck = {
 };
 
 export type ServiceHealthCheckFn = () => MaybePromise<ServiceHealthCheck>;
-export type ServiceHealthInfoFn = () => MaybePromise<ServiceHealthInfo | undefined>;
+export type ServiceHealthInfoFn = () => MaybePromise<
+  ServiceHealthInfo | undefined
+>;
 
 export type HealthHeartbeat = {
   header: {
@@ -88,7 +90,9 @@ function summarizeHealthStatus(
   return allOk ? "healthy" : anyOk ? "degraded" : "unhealthy";
 }
 
-function summarizeHealthChecks(results: readonly HealthCheckResult[]): string | undefined {
+function summarizeHealthChecks(
+  results: readonly HealthCheckResult[],
+): string | undefined {
   const failedCount = results.filter((r) => r.status === "failed").length;
   if (failedCount === 0) {
     return undefined;
@@ -97,7 +101,9 @@ function summarizeHealthChecks(results: readonly HealthCheckResult[]): string | 
   return `${failedCount} check${failedCount === 1 ? "" : "s"} failing`;
 }
 
-function normalizeLegacyHealthCheck(check: HealthCheckFn): ServiceHealthCheckFn {
+function normalizeLegacyHealthCheck(
+  check: HealthCheckFn,
+): ServiceHealthCheckFn {
   return async () => {
     const result = await check();
     if (result.isErr()) {
@@ -231,7 +237,9 @@ export async function runAllHealthChecks(
   checks: Record<string, HealthCheckFn>,
 ): Promise<HealthResponse> {
   const normalizedChecks = Object.fromEntries(
-    Object.entries(checks).map(([name, check]) => [name, normalizeLegacyHealthCheck(check)]),
+    Object.entries(checks).map((
+      [name, check],
+    ) => [name, normalizeLegacyHealthCheck(check)]),
   );
   return await runAllServiceHealthChecks(service, normalizedChecks);
 }
@@ -276,7 +284,9 @@ export function createHealthHeartbeat(args: {
       startedAt: args.startedAt,
       publishIntervalMs: args.publishIntervalMs,
       runtime: runtime.runtime,
-      ...(runtime.runtimeVersion ? { runtimeVersion: runtime.runtimeVersion } : {}),
+      ...(runtime.runtimeVersion
+        ? { runtimeVersion: runtime.runtimeVersion }
+        : {}),
       ...(args.info?.version ? { version: args.info.version } : {}),
       ...(args.info?.info ? { info: args.info.info } : {}),
     },

@@ -2,6 +2,7 @@ import type { JsonValue } from "@qlever-llc/trellis/contracts";
 import { isJsonValue } from "@qlever-llc/trellis/contracts";
 import { trellisIdFromOriginId } from "@qlever-llc/trellis/auth";
 import { AuthError, ValidationError } from "@qlever-llc/trellis";
+import { type BaseError, Result } from "@qlever-llc/result";
 import type { parseUnknownSchema } from "../../../packages/trellis/codec.ts";
 import type { SchemaLike } from "../../../packages/trellis/contracts.ts";
 
@@ -86,6 +87,27 @@ function requireJsonValue(value: unknown): JsonValue {
     });
   }
   return value;
+}
+
+function expectedStateRpcError(
+  error: unknown,
+): AuthError | ValidationError | undefined {
+  if (error instanceof AuthError || error instanceof ValidationError) {
+    return error;
+  }
+  return undefined;
+}
+
+async function runStateRpc<T, E extends BaseError>(
+  operation: () => Promise<Result<T, E>>,
+): Promise<Result<T, E | AuthError | ValidationError>> {
+  try {
+    return await operation();
+  } catch (error) {
+    const expected = expectedStateRpcError(error);
+    if (expected) return Result.err(expected);
+    throw error;
+  }
 }
 
 function requireStoreDefinition(
@@ -200,8 +222,10 @@ export function createStateGetHandler(deps: RpcDeps) {
     req: StateGetInput,
     ctx: { caller: Caller; sessionKey: string },
   ) => {
-    const target = await resolveCallerStore(req.store, ctx, deps);
-    return deps.state.get(target, { key: req.key });
+    return await runStateRpc(async () => {
+      const target = await resolveCallerStore(req.store, ctx, deps);
+      return await deps.state.get(target, { key: req.key });
+    });
   };
 }
 
@@ -210,12 +234,14 @@ export function createStatePutHandler(deps: RpcDeps) {
     req: StatePutInput,
     ctx: { caller: Caller; sessionKey: string },
   ) => {
-    const target = await resolveCallerStore(req.store, ctx, deps);
-    return deps.state.put(target, {
-      key: req.key,
-      expectedRevision: req.expectedRevision,
-      value: requireJsonValue(req.value),
-      ttlMs: req.ttlMs,
+    return await runStateRpc(async () => {
+      const target = await resolveCallerStore(req.store, ctx, deps);
+      return await deps.state.put(target, {
+        key: req.key,
+        expectedRevision: req.expectedRevision,
+        value: requireJsonValue(req.value),
+        ttlMs: req.ttlMs,
+      });
     });
   };
 }
@@ -225,10 +251,12 @@ export function createStateDeleteHandler(deps: RpcDeps) {
     req: StateDeleteInput,
     ctx: { caller: Caller; sessionKey: string },
   ) => {
-    const target = await resolveCallerStore(req.store, ctx, deps);
-    return deps.state.delete(target, {
-      key: req.key,
-      expectedRevision: req.expectedRevision,
+    return await runStateRpc(async () => {
+      const target = await resolveCallerStore(req.store, ctx, deps);
+      return await deps.state.delete(target, {
+        key: req.key,
+        expectedRevision: req.expectedRevision,
+      });
     });
   };
 }
@@ -238,42 +266,50 @@ export function createStateListHandler(deps: RpcDeps) {
     req: StateListInput,
     ctx: { caller: Caller; sessionKey: string },
   ) => {
-    const target = await resolveCallerStore(req.store, ctx, deps);
-    return deps.state.list(target, {
-      prefix: req.prefix,
-      offset: req.offset,
-      limit: req.limit,
+    return await runStateRpc(async () => {
+      const target = await resolveCallerStore(req.store, ctx, deps);
+      return await deps.state.list(target, {
+        prefix: req.prefix,
+        offset: req.offset,
+        limit: req.limit,
+      });
     });
   };
 }
 
 export function createStateAdminGetHandler(deps: RpcDeps) {
   return async (req: StateAdminGetInput, ctx: { caller: Caller }) => {
-    requireAdmin(ctx.caller);
-    const target = await resolveAdminStore(req, deps);
-    return deps.state.get(target, { key: req.key });
+    return await runStateRpc(async () => {
+      requireAdmin(ctx.caller);
+      const target = await resolveAdminStore(req, deps);
+      return await deps.state.get(target, { key: req.key });
+    });
   };
 }
 
 export function createStateAdminListHandler(deps: RpcDeps) {
   return async (req: StateAdminListInput, ctx: { caller: Caller }) => {
-    requireAdmin(ctx.caller);
-    const target = await resolveAdminStore(req, deps);
-    return deps.state.list(target, {
-      prefix: req.prefix,
-      offset: req.offset,
-      limit: req.limit,
+    return await runStateRpc(async () => {
+      requireAdmin(ctx.caller);
+      const target = await resolveAdminStore(req, deps);
+      return await deps.state.list(target, {
+        prefix: req.prefix,
+        offset: req.offset,
+        limit: req.limit,
+      });
     });
   };
 }
 
 export function createStateAdminDeleteHandler(deps: RpcDeps) {
   return async (req: StateAdminDeleteInput, ctx: { caller: Caller }) => {
-    requireAdmin(ctx.caller);
-    const target = await resolveAdminStore(req, deps);
-    return deps.state.delete(target, {
-      key: req.key,
-      expectedRevision: req.expectedRevision,
+    return await runStateRpc(async () => {
+      requireAdmin(ctx.caller);
+      const target = await resolveAdminStore(req, deps);
+      return await deps.state.delete(target, {
+        key: req.key,
+        expectedRevision: req.expectedRevision,
+      });
     });
   };
 }

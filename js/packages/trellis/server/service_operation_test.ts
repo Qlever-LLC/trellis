@@ -116,7 +116,9 @@ const natsConnect: NatsConnectFn = async (opts) => {
   return await connect(connectOpts);
 };
 
-function startPermissiveAuthResponder(nc: Awaited<ReturnType<typeof NatsTest.start>>["nc"]): void {
+function startPermissiveAuthResponder(
+  nc: Awaited<ReturnType<typeof NatsTest.start>>["nc"],
+): void {
   const sub = nc.subscribe("rpc.v1.Auth.ValidateRequest");
   void (async () => {
     for await (const msg of sub) {
@@ -133,7 +135,13 @@ function startPermissiveAuthResponder(nc: Awaited<ReturnType<typeof NatsTest.sta
           active: true,
           name: "Test User",
           email: "test@example.com",
-          capabilities: ["billing.refund", "billing.read", "billing.cancel", "uploader", "service"],
+          capabilities: [
+            "billing.refund",
+            "billing.read",
+            "billing.cancel",
+            "uploader",
+            "service",
+          ],
         },
       }));
     }
@@ -223,13 +231,15 @@ Deno.test({
         name: "billing-client",
       });
 
-      await service.operation("Billing.Refund").handle(async ({ input, op, trellis }) => {
-        assertEquals(input.chargeId, "ch_123");
-        assertExists(trellis);
-        await op.started();
-        await op.progress({ message: "working" });
-        return ok({ refundId: "rf_123" });
-      });
+      await service.operation("Billing.Refund").handle(
+        async ({ input, op, trellis }) => {
+          assertEquals(input.chargeId, "ch_123");
+          assertExists(trellis);
+          await op.started();
+          await op.progress({ message: "working" });
+          return ok({ refundId: "rf_123" });
+        },
+      );
 
       const ref = await client.operation("Billing.Refund").input({
         chargeId: "ch_123",
@@ -259,7 +269,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "TrellisService.operation.accept creates a durable operation that a client can resume",
+  name:
+    "TrellisService.operation.accept creates a durable operation that a client can resume",
   ignore: !RUN_NATS_TESTS,
   async fn() {
     await using nats = await NatsTest.start();
@@ -338,7 +349,9 @@ Deno.test({
         throw acceptedValue.error;
       }
 
-      const resumed = client.operation("Billing.Refund").resume(acceptedValue.ref);
+      const resumed = client.operation("Billing.Refund").resume(
+        acceptedValue.ref,
+      );
       void (async () => {
         await acceptedValue.started();
         await acceptedValue.progress({ message: "working" });
@@ -363,7 +376,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "TrellisService.operation handles transfer-capable workflows with caller and provider updates",
+  name:
+    "TrellisService.operation handles transfer-capable workflows with caller and provider updates",
   ignore: !RUN_NATS_TESTS,
   async fn() {
     await using nats = await NatsTest.start();
@@ -422,11 +436,15 @@ Deno.test({
         );
       }) as typeof fetch;
 
-      const createdStore = await TypedStore.open(nats.nc, "demo-files-upload-store", {
-        ttlMs: 60_000,
-        maxObjectBytes: 1024 * 1024,
-        maxTotalBytes: 4 * 1024 * 1024,
-      });
+      const createdStore = await TypedStore.open(
+        nats.nc,
+        "demo-files-upload-store",
+        {
+          ttlMs: 60_000,
+          maxObjectBytes: 1024 * 1024,
+          maxTotalBytes: 4 * 1024 * 1024,
+        },
+      );
       if (createdStore.isErr()) {
         throw createdStore.error;
       }
@@ -454,31 +472,33 @@ Deno.test({
       const providerUpdates: Array<number> = [];
       const callerUpdates: Array<number> = [];
       const callerEvents: Array<string> = [];
-      await service.operation("Demo.Files.Upload").handle(async ({ input, op, transfer, trellis }) => {
-        assertEquals(input satisfies UploadInput, input);
-        assertExists(trellis);
-        const watchProviderUpdates = (async () => {
-          for await (const update of transfer.updates()) {
-            providerUpdates.push(update.transferredBytes);
+      await service.operation("Demo.Files.Upload").handle(
+        async ({ input, op, transfer, trellis }) => {
+          assertEquals(input satisfies UploadInput, input);
+          assertExists(trellis);
+          const watchProviderUpdates = (async () => {
+            for await (const update of transfer.updates()) {
+              providerUpdates.push(update.transferredBytes);
+            }
+          })();
+
+          const transferred = await transfer.completed();
+          const storedInfo = transferred.match({
+            ok: (value) => value,
+            err: (error) => {
+              throw error;
+            },
+          });
+
+          await watchProviderUpdates;
+          await new Promise((resolve) => setTimeout(resolve, 25));
+          const started = await op.started();
+          if (started.isErr()) {
+            throw started.error;
           }
-        })();
-
-        const transferred = await transfer.completed();
-        const storedInfo = transferred.match({
-          ok: (value) => value,
-          err: (error) => {
-            throw error;
-          },
-        });
-
-        await watchProviderUpdates;
-        await new Promise((resolve) => setTimeout(resolve, 25));
-        const started = await op.started();
-        if (started.isErr()) {
-          throw started.error;
-        }
-        return ok({ key: input.key, size: storedInfo.size });
-      });
+          return ok({ key: input.key, size: storedInfo.size });
+        },
+      );
 
       const upload = await client.operation("Demo.Files.Upload").input({
         key: "incoming/test.txt",
@@ -499,11 +519,11 @@ Deno.test({
           callerEvents.push("completed");
         })
         .start().match({
-        ok: (value) => value,
-        err: (error) => {
-          throw error;
-        },
-      });
+          ok: (value) => value,
+          err: (error) => {
+            throw error;
+          },
+        });
 
       const terminal = await upload.wait();
       const terminalValue = terminal.match({
@@ -513,7 +533,8 @@ Deno.test({
         },
       });
       await waitFor(
-        () => providerUpdates.at(-1) === 14 && callerEvents.at(-1) === "completed",
+        () =>
+          providerUpdates.at(-1) === 14 && callerEvents.at(-1) === "completed",
         { description: "transfer completion callbacks" },
       );
 

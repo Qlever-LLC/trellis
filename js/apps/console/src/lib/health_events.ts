@@ -29,7 +29,11 @@ export type HealthInstanceView = {
   checks: HealthHeartbeat["checks"];
 };
 
-export type HealthServiceStatus = "healthy" | "degraded" | "unhealthy" | "offline";
+export type HealthServiceStatus =
+  | "healthy"
+  | "degraded"
+  | "unhealthy"
+  | "offline";
 
 export type HealthServiceView = {
   key: string;
@@ -98,7 +102,8 @@ export function isHealthInstanceStale(
   instance: Pick<HealthInstanceView, "lastSeenAt" | "publishIntervalMs">,
   now = Date.now(),
 ): boolean {
-  return now - instance.lastSeenAt > instance.publishIntervalMs * HEALTH_STALE_MULTIPLIER;
+  return now - instance.lastSeenAt >
+    instance.publishIntervalMs * HEALTH_STALE_MULTIPLIER;
 }
 
 export function isHealthInstanceExpired(
@@ -153,7 +158,9 @@ export function summarizeHealthServices(
     let status: HealthServiceStatus;
     if (liveInstances.length === 0) {
       status = "offline";
-    } else if (liveInstances.some((instance) => instance.status === "unhealthy")) {
+    } else if (
+      liveInstances.some((instance) => instance.status === "unhealthy")
+    ) {
       status = "unhealthy";
     } else if (
       liveInstances.some((instance) => instance.status === "degraded") ||

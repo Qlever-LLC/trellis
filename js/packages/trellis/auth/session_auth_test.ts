@@ -13,7 +13,9 @@ import {
 
 function authTokenFromAuthenticatorResult(value: unknown): string {
   if (!value || typeof value !== "object") {
-    throw new Error("Expected NATS authenticator to return an auth token payload");
+    throw new Error(
+      "Expected NATS authenticator to return an auth token payload",
+    );
   }
 
   const record = value as { auth_token?: unknown };
@@ -46,7 +48,7 @@ Deno.test("oauthInitSig signs the auth-start payload including provider, contrac
 
   const digest = await sha256(
     utf8(
-      "oauth-init:https://example.com/app:github:{\"id\":\"trellis.console@v1\",\"origin\":\"https://console.example.com\"}:{\"subtitle\":\"Welcome back\"}",
+      'oauth-init:https://example.com/app:github:{"id":"trellis.console@v1","origin":"https://console.example.com"}:{"subtitle":"Welcome back"}',
     ),
   );
   const pub = await crypto.subtle.importKey(
@@ -71,7 +73,9 @@ Deno.test("proof creation and verification match ADR format", async () => {
   const auth = await createAuth({ sessionKeySeed: seed });
 
   const subject = "rpc.v1.User.Find";
-  const payloadHash = await sha256(utf8(JSON.stringify({ userId: { origin: "github", id: "1" } })));
+  const payloadHash = await sha256(
+    utf8(JSON.stringify({ userId: { origin: "github", id: "1" } })),
+  );
   const proof = await auth.createProof(subject, payloadHash);
 
   const ok = await verifyProof(
@@ -83,7 +87,11 @@ Deno.test("proof creation and verification match ADR format", async () => {
 
   const bad = await verifyProof(
     auth.sessionKey,
-    { sessionKey: auth.sessionKey, subject, payloadHash: await sha256(utf8("different")) },
+    {
+      sessionKey: auth.sessionKey,
+      subject,
+      payloadHash: await sha256(utf8("different")),
+    },
     proof,
   );
   assertEquals(bad, false);
@@ -109,7 +117,9 @@ Deno.test("natsConnectOptions returns a reconnect-safe authenticator with fresh 
     Date.now = () => nowMs;
 
     const options = await auth.natsConnectOptions();
-    const firstToken = JSON.parse(authTokenFromAuthenticatorResult(options.authenticator())) as {
+    const firstToken = JSON.parse(
+      authTokenFromAuthenticatorResult(options.authenticator()),
+    ) as {
       sessionKey: string;
       iat: number;
       sig: string;
@@ -117,7 +127,9 @@ Deno.test("natsConnectOptions returns a reconnect-safe authenticator with fresh 
 
     nowMs += 31_000;
 
-    const secondToken = JSON.parse(authTokenFromAuthenticatorResult(options.authenticator())) as {
+    const secondToken = JSON.parse(
+      authTokenFromAuthenticatorResult(options.authenticator()),
+    ) as {
       sessionKey: string;
       iat: number;
       sig: string;
@@ -126,8 +138,14 @@ Deno.test("natsConnectOptions returns a reconnect-safe authenticator with fresh 
     assertEquals(options.inboxPrefix, `_INBOX.${auth.sessionKey.slice(0, 16)}`);
     assertEquals(firstToken.sessionKey, auth.sessionKey);
     assertEquals(secondToken.sessionKey, auth.sessionKey);
-    assertEquals(firstToken.sig, await auth.natsConnectSigForIat(firstToken.iat));
-    assertEquals(secondToken.sig, await auth.natsConnectSigForIat(secondToken.iat));
+    assertEquals(
+      firstToken.sig,
+      await auth.natsConnectSigForIat(firstToken.iat),
+    );
+    assertEquals(
+      secondToken.sig,
+      await auth.natsConnectSigForIat(secondToken.iat),
+    );
     assertEquals(secondToken.iat - firstToken.iat, 31);
     assertNotEquals(firstToken.sig, secondToken.sig);
   } finally {
@@ -147,7 +165,9 @@ Deno.test("createAuth applies server clock offsets to current iat and reconnect 
     assertEquals(auth.currentIat(), correctedIatSeconds(Date.now(), 900));
 
     const options = await auth.natsConnectOptions();
-    const token = JSON.parse(authTokenFromAuthenticatorResult(options.authenticator())) as {
+    const token = JSON.parse(
+      authTokenFromAuthenticatorResult(options.authenticator()),
+    ) as {
       iat: number;
       sig: string;
     };

@@ -14,15 +14,31 @@ body {
 body {
   min-height: 100vh;
   background:
-    radial-gradient(circle at 20% 0%, color-mix(in oklch, var(--color-primary) 14%, transparent), transparent 34rem),
-    linear-gradient(135deg, color-mix(in oklch, var(--color-base-200) 90%, transparent), var(--color-base-100) 48%, var(--color-base-200));
+    radial-gradient(
+      circle at 20% 0%,
+      color-mix(in oklch, var(--color-primary) 14%, transparent),
+      transparent 34rem
+    ),
+    linear-gradient(
+    135deg,
+    color-mix(in oklch, var(--color-base-200) 90%, transparent),
+    var(--color-base-100) 48%,
+    var(--color-base-200)
+  );
   background-attachment: fixed;
 }
 
 .field-console {
   background-image:
-    linear-gradient(color-mix(in oklch, var(--color-base-content) 5%, transparent) 1px, transparent 1px),
-    linear-gradient(90deg, color-mix(in oklch, var(--color-base-content) 5%, transparent) 1px, transparent 1px);
+    linear-gradient(
+      color-mix(in oklch, var(--color-base-content) 5%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+    90deg,
+    color-mix(in oklch, var(--color-base-content) 5%, transparent) 1px,
+    transparent 1px
+  );
   background-size: 28px 28px;
 }
 
@@ -36,6 +52,11 @@ body {
   inset: auto 1rem 0;
   height: 2px;
   content: "";
-  background: linear-gradient(90deg, transparent, var(--color-primary), transparent);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--color-primary),
+    transparent
+  );
   opacity: 0.55;
 }

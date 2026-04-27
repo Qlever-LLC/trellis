@@ -5,15 +5,11 @@ runtime error types.
 
 ```typescript
 import { defineAppContract, TrellisClient } from "@qlever-llc/trellis";
-import { auth } from "@qlever-llc/trellis/sdk/auth";
 
 const app = defineAppContract(() => ({
   id: "example.app@v1",
   displayName: "Example App",
   description: "Example Trellis browser client.",
-  uses: {
-    auth: auth.useDefaults(),
-  },
 }));
 
 const client = await TrellisClient.connect({

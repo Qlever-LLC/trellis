@@ -4,8 +4,8 @@ import {
   type Span,
   SpanKind,
   SpanStatusCode,
-  type Tracer,
   trace,
+  type Tracer,
 } from "@opentelemetry/api";
 
 export function getTracer(scope = "@qlever-llc/trellis/tracing"): Tracer {
@@ -20,7 +20,10 @@ export function withSpan<T>(span: Span, fn: () => T): T {
   return context.with(trace.setSpan(context.active(), span), fn);
 }
 
-export async function withSpanAsync<T>(span: Span, fn: () => Promise<T>): Promise<T> {
+export async function withSpanAsync<T>(
+  span: Span,
+  fn: () => Promise<T>,
+): Promise<T> {
   return context.with(trace.setSpan(context.active(), span), fn);
 }
 

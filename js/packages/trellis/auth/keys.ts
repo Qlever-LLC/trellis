@@ -24,7 +24,9 @@ const ED25519_PKCS8_PREFIX = Uint8Array.from([
 
 export function pkcs8FromEd25519Seed(seed32: Uint8Array): Uint8Array {
   if (seed32.length !== 32) {
-    throw new Error(`Invalid Ed25519 seed length: ${seed32.length} (expected 32)`);
+    throw new Error(
+      `Invalid Ed25519 seed length: ${seed32.length} (expected 32)`,
+    );
   }
   const pkcs8 = new Uint8Array(ED25519_PKCS8_PREFIX.length + seed32.length);
   pkcs8.set(ED25519_PKCS8_PREFIX, 0);
@@ -34,7 +36,9 @@ export function pkcs8FromEd25519Seed(seed32: Uint8Array): Uint8Array {
 
 function validateEd25519Seed(seed32: Uint8Array): Uint8Array {
   if (seed32.length !== 32) {
-    throw new Error(`Invalid Ed25519 seed length: ${seed32.length} (expected 32)`);
+    throw new Error(
+      `Invalid Ed25519 seed length: ${seed32.length} (expected 32)`,
+    );
   }
   return seed32;
 }
@@ -47,12 +51,21 @@ export function publicKeyBase64urlFromSeed(seed32: Uint8Array): string {
   return base64urlEncode(ed25519KeyPairFromSeed(seed32).publicKey);
 }
 
-export function signEd25519SeedDetached(seed32: Uint8Array, data: Uint8Array): Uint8Array {
+export function signEd25519SeedDetached(
+  seed32: Uint8Array,
+  data: Uint8Array,
+): Uint8Array {
   return nacl.sign.detached(data, ed25519KeyPairFromSeed(seed32).secretKey);
 }
 
-export function signEd25519SeedSha256(seed32: Uint8Array, data: Uint8Array): Uint8Array {
-  return signEd25519SeedDetached(seed32, new Uint8Array(sha256.arrayBuffer(data)));
+export function signEd25519SeedSha256(
+  seed32: Uint8Array,
+  data: Uint8Array,
+): Uint8Array {
+  return signEd25519SeedDetached(
+    seed32,
+    new Uint8Array(sha256.arrayBuffer(data)),
+  );
 }
 
 export async function importEd25519PrivateKeyFromSeedBase64url(
@@ -60,7 +73,9 @@ export async function importEd25519PrivateKeyFromSeedBase64url(
 ): Promise<CryptoKey> {
   const seed = base64urlDecode(seedBase64url);
   if (seed.length !== 32) {
-    throw new Error(`Invalid Ed25519 seed length: ${seed.length} (expected 32)`);
+    throw new Error(
+      `Invalid Ed25519 seed length: ${seed.length} (expected 32)`,
+    );
   }
   const pkcs8 = pkcs8FromEd25519Seed(seed);
   return await crypto.subtle.importKey(
@@ -87,7 +102,9 @@ export async function importEd25519PublicKeyFromBase64url(
 ): Promise<CryptoKey> {
   const raw = base64urlDecode(publicKeyBase64url);
   if (raw.length !== 32) {
-    throw new Error(`Invalid Ed25519 public key length: ${raw.length} (expected 32)`);
+    throw new Error(
+      `Invalid Ed25519 public key length: ${raw.length} (expected 32)`,
+    );
   }
   return await crypto.subtle.importKey(
     "raw",

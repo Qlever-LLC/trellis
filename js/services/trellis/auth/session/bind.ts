@@ -105,14 +105,11 @@ export async function ensureBoundUserSession(args: {
   contractDisplayName: string;
   contractDescription: string;
   app?: UserSession["app"];
-  appOrigin?: string;
   approvalSource?: UserSession["approvalSource"];
   delegatedCapabilities: string[];
   delegatedPublishSubjects: string[];
   delegatedSubscribeSubjects: string[];
 }): Promise<Result<{ createdAt: Date }, EnsureBoundUserSessionError>> {
-  const sessionKeyId = `${args.sessionKey}.${args.trellisId}`;
-
   let existingEntries: Array<{
     sessionKey: string;
     trellisId: string;
@@ -136,10 +133,9 @@ export async function ensureBoundUserSession(args: {
     s.origin === args.origin &&
     s.id === args.id;
 
-  const existingKeyMismatch = existingEntries.some((entry) =>
-    `${entry.sessionKey}.${entry.trellisId}` !== sessionKeyId
-  );
-  const needsReset = existingEntries.length > 1 || existingKeyMismatch;
+  const existingEntry = existingEntries[0];
+  const needsReset = existingEntry !== undefined &&
+    !expectedIdentityMatches(existingEntry.session);
 
   if (needsReset) {
     // Kick and delete any tracked connections for this sessionKey.
@@ -211,7 +207,6 @@ export async function ensureBoundUserSession(args: {
     contractDisplayName: args.contractDisplayName,
     contractDescription: args.contractDescription,
     ...(args.app ? { app: args.app } : {}),
-    ...(args.appOrigin ? { appOrigin: args.appOrigin } : {}),
     ...(args.approvalSource ? { approvalSource: args.approvalSource } : {}),
     delegatedCapabilities: args.delegatedCapabilities,
     delegatedPublishSubjects: args.delegatedPublishSubjects,
@@ -227,7 +222,7 @@ export async function ensureBoundUserSession(args: {
     } catch (error) {
       return Result.err(
         new EnsureBoundUserSessionError("storage_error", {
-          context: { op: "put", key: sessionKeyId, error },
+          context: { op: "put", sessionKey: args.sessionKey, error },
         }),
       );
     }
@@ -240,7 +235,7 @@ export async function ensureBoundUserSession(args: {
   if (!existingSession) {
     return Result.err(
       new EnsureBoundUserSessionError("storage_error", {
-        context: { op: "get", key: sessionKeyId },
+        context: { op: "get", sessionKey: args.sessionKey },
       }),
     );
   }
@@ -249,11 +244,7 @@ export async function ensureBoundUserSession(args: {
   }
 
   // Update lastAuth + user fields, but preserve createdAt.
-  const {
-    app: _existingApp,
-    appOrigin: _existingAppOrigin,
-    ...existingSessionBase
-  } = existingSession;
+  const { app: _existingApp, ...existingSessionBase } = existingSession;
   const updated: UserSession = {
     ...existingSessionBase,
     email: args.email,
@@ -265,7 +256,6 @@ export async function ensureBoundUserSession(args: {
     contractDisplayName: args.contractDisplayName,
     contractDescription: args.contractDescription,
     ...(args.app ? { app: args.app } : {}),
-    ...(args.appOrigin ? { appOrigin: args.appOrigin } : {}),
     ...(args.approvalSource ? { approvalSource: args.approvalSource } : {}),
     delegatedCapabilities: args.delegatedCapabilities,
     delegatedPublishSubjects: args.delegatedPublishSubjects,
@@ -277,7 +267,7 @@ export async function ensureBoundUserSession(args: {
   } catch (error) {
     return Result.err(
       new EnsureBoundUserSessionError("storage_error", {
-        context: { op: "put", key: sessionKeyId, error },
+        context: { op: "put", sessionKey: args.sessionKey, error },
       }),
     );
   }

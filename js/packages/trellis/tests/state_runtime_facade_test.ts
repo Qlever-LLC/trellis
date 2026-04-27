@@ -95,9 +95,12 @@ Deno.test("connected runtime exposes typed named state stores", async () => {
   if (!preferences.found) throw new Error("expected preferences entry");
   assertEquals(preferences.entry.value.theme, "dark");
 
-  const writtenResult = await trellis.state.preferences.put({ theme: "light" }, {
-    expectedRevision: null,
-  });
+  const writtenResult = await trellis.state.preferences.put(
+    { theme: "light" },
+    {
+      expectedRevision: null,
+    },
+  );
   if (writtenResult.isErr()) throw writtenResult.error;
   const written = writtenResult.unwrapOrElse(() => {
     throw new Error("expected put result");
@@ -189,12 +192,24 @@ Deno.test("connected runtime validates store-specific state writes before reques
 
   let requestCount = 0;
   const nats = Reflect.get(trellis, "nats") as {
-    request(): Promise<{ json(): unknown; headers?: { get(name: string): string | null | undefined } }>;
+    request(): Promise<
+      {
+        json(): unknown;
+        headers?: { get(name: string): string | null | undefined };
+      }
+    >;
   };
   nats.request = async () => {
     requestCount += 1;
     return {
-      json: () => ({ applied: true, entry: { value: { theme: "dark" }, revision: "1", updatedAt: "2026-01-01T00:00:00.000Z" } }),
+      json: () => ({
+        applied: true,
+        entry: {
+          value: { theme: "dark" },
+          revision: "1",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        },
+      }),
       headers: { get: () => undefined },
     };
   };
@@ -241,29 +256,37 @@ Deno.test("connected runtime validates store-specific state reads after response
   );
 
   const nats = Reflect.get(trellis, "nats") as {
-    request(subject: string): Promise<{ json(): unknown; headers?: { get(name: string): string | null | undefined } }>;
+    request(
+      subject: string,
+    ): Promise<
+      {
+        json(): unknown;
+        headers?: { get(name: string): string | null | undefined };
+      }
+    >;
   };
   nats.request = async (subject: string) => ({
-    json: () => subject === "rpc.v1.State.Get"
-      ? {
-        found: true,
-        entry: {
-          value: { theme: 123 },
-          revision: "1",
-          updatedAt: "2026-01-01T00:00:00.000Z",
+    json: () =>
+      subject === "rpc.v1.State.Get"
+        ? {
+          found: true,
+          entry: {
+            value: { theme: 123 },
+            revision: "1",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+          },
+        }
+        : {
+          entries: [{
+            key: "open/one",
+            value: { title: 123 },
+            revision: "2",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+          }],
+          count: 1,
+          offset: 0,
+          limit: 100,
         },
-      }
-      : {
-        entries: [{
-          key: "open/one",
-          value: { title: 123 },
-          revision: "2",
-          updatedAt: "2026-01-01T00:00:00.000Z",
-        }],
-        count: 1,
-        offset: 0,
-        limit: 100,
-      },
     headers: { get: () => undefined },
   });
 

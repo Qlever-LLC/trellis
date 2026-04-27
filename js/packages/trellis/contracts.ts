@@ -1,7 +1,7 @@
 export * from "./contract_support/mod.ts";
 export {
-  defineAppContract,
   defineAgentContract,
+  defineAppContract,
   defineDeviceContract,
   defineServiceContract,
 } from "./contract.ts";

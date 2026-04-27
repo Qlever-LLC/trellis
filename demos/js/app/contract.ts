@@ -1,7 +1,5 @@
 import { defineAppContract } from "@qlever-llc/trellis/contracts";
 
-import { auth } from "@qlever-llc/trellis/sdk/auth";
-import { state } from "@qlever-llc/trellis/sdk/state";
 import { trellisDemoService } from "@trellis-demo/service-sdk";
 import * as schemas from "./schemas/index.ts";
 
@@ -10,8 +8,6 @@ const contract = defineAppContract({ schemas }, (ref) => ({
   displayName: "Field Ops Console",
   description: "Browser console for the consolidated Field Ops demo.",
   uses: {
-    auth: auth.useDefaults(),
-    state: state.useDefaults(),
     fieldOps: trellisDemoService.use({
       rpc: {
         call: [

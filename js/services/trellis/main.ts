@@ -25,7 +25,7 @@ import {
 } from "./bootstrap/globals.ts";
 import { stateKV } from "./bootstrap/globals.ts";
 import { registerCatalog } from "./catalog/register.ts";
-import { createContractsModule } from "./catalog/rpc.ts";
+import { createContractsModule } from "./catalog/runtime.ts";
 import { getConfig } from "./config.ts";
 import { registerState } from "./state/register.ts";
 import { createStateHandlers } from "./state/rpc.ts";

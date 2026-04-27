@@ -21,95 +21,89 @@ Do not use `State` for:
 
 For service-private state, keep using `resources.kv`.
 
-## 1. Add `trellis.state@v1` to the contract
+## 1. Declare named state stores in the contract
 
-Apps and devices access `State` through `uses`, just like any other Trellis-owned contract.
+Apps and devices declare Trellis-managed state with top-level `state` entries.
+The `State` runtime API is derived from those declarations automatically.
 
 ```ts
-import { defineContract } from "@qlever-llc/trellis/contracts";
-import { auth } from "@qlever-llc/trellis/sdk/auth";
-import { state } from "@qlever-llc/trellis/sdk/state";
+import { defineAppContract } from "@qlever-llc/trellis/contracts";
+import { Type } from "typebox";
 
-export const notesApp = defineContract({
+const schemas = {
+  Preferences: Type.Object({ theme: Type.String() }),
+  Draft: Type.Object({ body: Type.String() }),
+} as const;
+
+export const notesApp = defineAppContract({ schemas }, (ref) => ({
   id: "notes-app@v1",
   displayName: "Notes App",
   description: "A browser app with cloud-backed drafts and preferences.",
-  kind: "app",
-  uses: {
-    auth: auth.useDefaults(),
-    state: state.use({
-      rpc: {
-        call: [
-          "State.Get",
-          "State.Put",
-          "State.Delete",
-          "State.CompareAndSet",
-          "State.List",
-        ],
-      },
-    }),
+  state: {
+    preferences: {
+      kind: "value",
+      schema: ref.schema("Preferences"),
+    },
+    drafts: {
+      kind: "map",
+      schema: ref.schema("Draft"),
+    },
   },
-});
+}));
 ```
 
-The same pattern works for device contracts. A device that needs `deviceApp` state still declares `State.*` through `uses`.
+The same pattern works for device contracts with `defineDeviceContract(...)`.
 
 ## 2. Read and write state from the client
 
-After your app has an authenticated Trellis client, call `State.*` with the
-state partition you need.
+After your app has an authenticated Trellis client, use the generated
+`trellis.state.<store>` facade.
 
 ```ts
 const trellis = getTrellis();
 
-const prefs = await trellis.request("State.Get", {
-  scope: "userApp",
-  key: "prefs/theme",
-}).orThrow();
+const prefs = await trellis.state.preferences.get().orThrow();
 
 if (!prefs.found) {
-  await trellis.request("State.Put", {
-    scope: "userApp",
-    key: "prefs/theme",
-    value: { theme: "dark" },
-  }).orThrow();
+  await trellis.state.preferences.put({ theme: "dark" }).orThrow();
 }
 ```
 
 In a Svelte component, call the app-local `getTrellis()` helper during component initialization and reuse the returned client from handlers and async helpers.
 
-`userApp` means one authenticated user inside one app contract namespace. The same user signing into a different app contract does not see these keys.
+The runtime derives the app, user, or device namespace from the authenticated
+session and active contract digest. The same user signing into a different app
+contract does not see these entries.
 
-## 3. Choose the right state partition
+## 3. Choose the right store kind
 
-v1 supports two scopes:
+v1 supports two store kinds:
 
-- `userApp` for per-user app state
-- `deviceApp` for per-device app state when the caller is an authenticated device participant
+- `value` for one value per authenticated caller and contract
+- `map` for many values under caller-provided keys
 
-These are state partitions, not OAuth scopes and not Trellis capabilities.
+These are contract-owned state stores, not OAuth scopes and not Trellis
+capabilities.
 
-Use `userApp` for settings and drafts that should follow the same user across browsers or CLIs of the same app lineage.
+Use `value` for settings that should follow the same user across browsers or CLIs
+of the same app lineage.
 
-Use `deviceApp` for state that belongs to one authenticated device instance, such as on-device calibration choices or local workflow checkpoints that should still sync through Trellis.
+Use `map` for drafts or cached records keyed by id. Device contracts use the same
+facade shape, with the runtime deriving the device-owned namespace.
 
-## 4. Use `CompareAndSet` for revision-sensitive writes
+## 4. Use `expectedRevision` for revision-sensitive writes
 
 Every state entry includes a `revision`. Use that revision when you want optimistic concurrency.
 
 ```ts
-const current = await trellis.request("State.Get", {
-  scope: "userApp",
-  key: "drafts/current",
-}).orThrow();
+const current = await trellis.state.drafts.get("current").orThrow();
 
 if (current.found) {
-  const updated = await trellis.request("State.CompareAndSet", {
-    scope: "userApp",
-    key: "drafts/current",
-    expectedRevision: current.entry.revision,
-    value: { body: "updated text" },
-  }).orThrow();
+  const updated = await trellis.state.drafts.put(
+    "current",
+    { body: "updated text" },
+    { expectedRevision: current.entry.revision },
+  ).orThrow();
 
   if (!updated.applied) {
     // Another instance wrote a newer revision first.
@@ -119,37 +113,33 @@ if (current.found) {
 
 To create only if absent, pass `expectedRevision: null`.
 
-## 5. List and delete keys
+## 5. List and delete map keys
 
-`State.List` returns keys in lexicographic order and supports `offset` and `limit` pagination.
+Map store `list(...)` returns keys in lexicographic order and supports `offset`
+and `limit` pagination. Value stores do not expose `list(...)`.
 
 ```ts
-const page = await trellis.request("State.List", {
-  scope: "userApp",
-  prefix: "drafts/",
-  offset: 0,
-  limit: 20,
-}).orThrow();
+const page = await trellis.state.drafts
+  .prefix("reports/")
+  .list({ offset: 0, limit: 20 })
+  .orThrow();
 
-await trellis.request("State.Delete", {
-  scope: "userApp",
-  key: "drafts/old",
-}).orThrow();
+await trellis.state.drafts.delete("old").orThrow();
 ```
 
-`State.Delete` may also include `expectedRevision` when you want a conditional delete.
+`delete(...)` may also include `expectedRevision` when you want a conditional
+delete.
 
 ## 6. Optional TTL
 
-If a key is cache-like rather than durable, attach `ttlMs` on `State.Put` or `State.CompareAndSet`.
+If a key is cache-like rather than durable, attach `ttlMs` to `put(...)`.
 
 ```ts
-await trellis.request("State.Put", {
-  scope: "userApp",
-  key: "search/last-results",
-  value: { ids: ["a", "b", "c"] },
-  ttlMs: 5 * 60_000,
-}).orThrow();
+await trellis.state.drafts.put(
+  "search/last-results",
+  { body: "cached ids: a,b,c" },
+  { ttlMs: 5 * 60_000 },
+).orThrow();
 ```
 
 Expired entries behave like missing keys.
@@ -160,7 +150,7 @@ Expired entries behave like missing keys.
 - keep keys stable and path-like, such as `prefs/theme` or `drafts/report-123`
 - treat `State` as app memory, not as a substitute for large files or service databases
 - store only JSON values; encode unusual payloads yourself when needed
-- use `CompareAndSet` when multiple app instances may write the same key
+- use `expectedRevision` when multiple app instances may write the same key
 
 ## 8. Next steps
 

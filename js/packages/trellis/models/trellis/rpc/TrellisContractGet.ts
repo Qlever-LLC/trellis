@@ -1,8 +1,14 @@
 import Type, { type Static } from "typebox";
 
-import { ContractJobsSchema, ContractResourcesSchema } from "../ContractResources.ts";
+import { ContractStateSchema } from "../../../contracts.ts";
+import {
+  ContractJobsSchema,
+  ContractResourcesSchema,
+} from "../ContractResources.ts";
 
-const OpenValueSchema = Type.Unsafe<Record<string, unknown>>({ type: "object" });
+const OpenValueSchema = Type.Unsafe<Record<string, unknown>>({
+  type: "object",
+});
 const OpenSchemaValueSchema = Type.Unsafe<Record<string, unknown> | boolean>({
   anyOf: [{ type: "object" }, { type: "boolean" }],
 });
@@ -19,13 +25,28 @@ export const TrellisContractSchema = Type.Object({
     Type.Literal("device"),
     Type.Literal("agent"),
   ]),
-  schemas: Type.Optional(Type.Record(Type.String({ minLength: 1 }), OpenSchemaValueSchema)),
-  uses: Type.Optional(Type.Record(Type.String({ minLength: 1 }), OpenValueSchema)),
-  rpc: Type.Optional(Type.Record(Type.String({ minLength: 1 }), OpenValueSchema)),
-  operations: Type.Optional(Type.Record(Type.String({ minLength: 1 }), OpenValueSchema)),
-  events: Type.Optional(Type.Record(Type.String({ minLength: 1 }), OpenValueSchema)),
-  subjects: Type.Optional(Type.Record(Type.String({ minLength: 1 }), OpenValueSchema)),
-  errors: Type.Optional(Type.Record(Type.String({ minLength: 1 }), OpenValueSchema)),
+  schemas: Type.Optional(
+    Type.Record(Type.String({ minLength: 1 }), OpenSchemaValueSchema),
+  ),
+  uses: Type.Optional(
+    Type.Record(Type.String({ minLength: 1 }), OpenValueSchema),
+  ),
+  state: Type.Optional(ContractStateSchema),
+  rpc: Type.Optional(
+    Type.Record(Type.String({ minLength: 1 }), OpenValueSchema),
+  ),
+  operations: Type.Optional(
+    Type.Record(Type.String({ minLength: 1 }), OpenValueSchema),
+  ),
+  events: Type.Optional(
+    Type.Record(Type.String({ minLength: 1 }), OpenValueSchema),
+  ),
+  subjects: Type.Optional(
+    Type.Record(Type.String({ minLength: 1 }), OpenValueSchema),
+  ),
+  errors: Type.Optional(
+    Type.Record(Type.String({ minLength: 1 }), OpenValueSchema),
+  ),
   jobs: Type.Optional(ContractJobsSchema),
   resources: Type.Optional(ContractResourcesSchema),
 });

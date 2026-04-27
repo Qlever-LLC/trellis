@@ -46,7 +46,6 @@ export type CurrentUserSession = {
   image?: string;
   contractId: string;
   app?: PendingAuth["app"];
-  appOrigin?: string;
   delegatedCapabilities: string[];
   delegatedPublishSubjects: string[];
   delegatedSubscribeSubjects: string[];
@@ -96,7 +95,7 @@ function sameAppIdentity(
   resolution: ApprovalResolution,
 ): boolean {
   const sessionContractId = session.app?.contractId ?? session.contractId;
-  const sessionOrigin = session.app?.origin ?? session.appOrigin;
+  const sessionOrigin = session.app?.origin;
   return sessionContractId === resolution.app?.contractId &&
     sessionOrigin === resolution.app?.origin;
 }

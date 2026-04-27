@@ -627,8 +627,8 @@ Deno.test({
         );
         const response = await waitFor<{ user: { id: string } | null }>(
           () =>
-            client.request("Auth.Me", {}, { timeout: 500 }).orThrow().catch(() =>
-              null
+            client.request("Auth.Me", {}, { timeout: 500 }).orThrow().catch(
+              () => null,
             ),
           { description: "Me responder ready for request().orThrow()" },
         );
@@ -717,8 +717,7 @@ Deno.test({
         return v;
       },
       {
-        description:
-          "Me responder ready after transient auth validation miss",
+        description: "Me responder ready after transient auth validation miss",
       },
     );
 

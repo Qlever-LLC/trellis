@@ -15,6 +15,8 @@ export function getEnv(key: string): string | undefined {
     return deno.Deno.env.get(key);
   }
 
-  const processGlobal = globalThis as typeof globalThis & { process?: ProcessLike };
+  const processGlobal = globalThis as typeof globalThis & {
+    process?: ProcessLike;
+  };
   return processGlobal.process?.env?.[key];
 }

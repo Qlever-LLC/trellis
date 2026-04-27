@@ -1,11 +1,13 @@
 # @qlever-llc/result
 
-Class-based `Result<T, E>` and `AsyncResult<T, E>` types for TypeScript, inspired by Rust.
+Class-based `Result<T, E>` and `AsyncResult<T, E>` types for TypeScript,
+inspired by Rust.
 
-Provides explicit error handling with method chaining and the `take()` pattern for early returns, without relying on exceptions.
+Provides explicit error handling with method chaining and the `take()` pattern
+for early returns, without relying on exceptions.
 
 ```typescript
-import { Result, AsyncResult } from "@qlever-llc/result";
+import { AsyncResult, Result } from "@qlever-llc/result";
 
 const user = await fetchUser(id).take();
 if (Result.isErr(user)) return user;
@@ -14,7 +16,8 @@ if (Result.isErr(user)) return user;
 Key surface area:
 
 - `Result.ok(value)` / `Result.err(error)` — construction
-- `Result.try(() => ...)` / `AsyncResult.try(async () => ...)` — wrap throwing code
+- `Result.try(() => ...)` / `AsyncResult.try(async () => ...)` — wrap throwing
+  code
 - `.map()`, `.mapErr()`, `.andThen()` — transforms
 - `.take()` — early return pattern (Rust's `?` operator equivalent)
 - `.match({ ok, err })` — pattern matching

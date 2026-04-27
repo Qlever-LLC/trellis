@@ -1,9 +1,5 @@
 import { assert, assertEquals } from "@std/assert";
-import {
-  ValidationError,
-  RemoteError,
-  AuthError,
-} from "../errors/index.ts";
+import { AuthError, RemoteError, ValidationError } from "../errors/index.ts";
 import { Result } from "../../result/mod.ts";
 
 Deno.test("AuthError", async (t) => {
@@ -96,7 +92,6 @@ Deno.test("ValidationError", async (t) => {
     }
   });
 });
-
 
 Deno.test("RemoteError", async (t) => {
   await t.step("wraps validated remote error", () => {

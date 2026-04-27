@@ -11,7 +11,6 @@ import {
   TrellisDevice,
 } from "../index.ts";
 import { checkDeviceActivation } from "../device/deno.ts";
-import { auth } from "../sdk/auth.ts";
 import { jobs } from "../sdk/jobs.ts";
 import { TrellisService } from "../service/deno.ts";
 
@@ -45,7 +44,6 @@ const selectionContract = defineServiceContract(
 );
 
 const appUses = {
-  auth: auth.useDefaults(),
   jobs: jobs.use({
     rpc: { call: ["Jobs.List", "Jobs.ListServices"] },
   }),
@@ -75,9 +73,6 @@ const deviceContract = defineDeviceContract(() => ({
   id: "trellis.connect-typing-device@v1",
   displayName: "Connect Typing Device",
   description: "Typecheck the public device connect helper.",
-  uses: {
-    auth: auth.useDefaults(),
-  },
 }));
 
 const serviceContract = defineServiceContract({}, () => ({

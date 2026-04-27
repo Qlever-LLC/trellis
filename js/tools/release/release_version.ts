@@ -1,7 +1,9 @@
 import { parse as parseJsonc } from "jsonc-parser";
 
-const SEMVER_RE = /^(?<base>\d+\.\d+\.\d+)(?<suffix>-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
-const RELEASE_TAG_RE = /^v(?<version>\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)$/;
+const SEMVER_RE =
+  /^(?<base>\d+\.\d+\.\d+)(?<suffix>-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+const RELEASE_TAG_RE =
+  /^v(?<version>\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)$/;
 
 const INTERNAL_RUST_CRATES = new Set([
   "trellis-auth",
@@ -29,10 +31,16 @@ export type ParsedReleaseVersion = {
   prerelease: boolean;
 };
 
-function requiredMatch(regex: RegExp, value: string, label: string): RegExpMatchArray {
+function requiredMatch(
+  regex: RegExp,
+  value: string,
+  label: string,
+): RegExpMatchArray {
   const match = value.match(regex);
   if (!match?.groups) {
-    throw new Error(`Invalid ${label} '${value}'. Expected semver like v0.7.0 or v0.7.0-rc.1.`);
+    throw new Error(
+      `Invalid ${label} '${value}'. Expected semver like v0.7.0 or v0.7.0-rc.1.`,
+    );
   }
   return match;
 }
@@ -93,12 +101,22 @@ function replaceDependencyVersionSpec(
   releaseVersion: string,
   expectedBaseVersion: string,
 ): string {
-  const match = currentSpec.match(/^(?<prefix>[~^<>= ]*)(?<version>\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)(?<suffix>.*)$/);
+  const match = currentSpec.match(
+    /^(?<prefix>[~^<>= ]*)(?<version>\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)(?<suffix>.*)$/,
+  );
   if (!match?.groups) {
     return currentSpec;
   }
-  const groups = match.groups as { prefix: string; version: string; suffix: string };
-  validateVersionBase(groups.version, expectedBaseVersion, `${packageName} dependency`);
+  const groups = match.groups as {
+    prefix: string;
+    version: string;
+    suffix: string;
+  };
+  validateVersionBase(
+    groups.version,
+    expectedBaseVersion,
+    `${packageName} dependency`,
+  );
   return `${groups.prefix}${releaseVersion}${groups.suffix}`;
 }
 
@@ -118,7 +136,12 @@ export function rewriteInternalNpmDependencies(
       }
       return [
         packageName,
-        replaceDependencyVersionSpec(packageName, spec, releaseVersion, expectedBaseVersion),
+        replaceDependencyVersionSpec(
+          packageName,
+          spec,
+          releaseVersion,
+          expectedBaseVersion,
+        ),
       ];
     }),
   );
@@ -131,7 +154,8 @@ export function resolvePackageBuildVersion(checkedInVersion: string): string {
   }
 
   const expectedBaseVersion =
-    Deno.env.get("TRELLIS_RELEASE_BASE_VERSION")?.trim() || parseReleaseVersion(releaseVersion).baseVersion;
+    Deno.env.get("TRELLIS_RELEASE_BASE_VERSION")?.trim() ||
+    parseReleaseVersion(releaseVersion).baseVersion;
   validateVersionBase(checkedInVersion, expectedBaseVersion, "package version");
   return releaseVersion;
 }
@@ -145,8 +169,13 @@ export function resolveInternalNpmDependenciesForBuild(
   }
 
   const expectedBaseVersion =
-    Deno.env.get("TRELLIS_RELEASE_BASE_VERSION")?.trim() || parseReleaseVersion(releaseVersion).baseVersion;
-  return rewriteInternalNpmDependencies(dependencies, releaseVersion, expectedBaseVersion);
+    Deno.env.get("TRELLIS_RELEASE_BASE_VERSION")?.trim() ||
+    parseReleaseVersion(releaseVersion).baseVersion;
+  return rewriteInternalNpmDependencies(
+    dependencies,
+    releaseVersion,
+    expectedBaseVersion,
+  );
 }
 
 export function rewriteCargoManifestVersions(
@@ -165,14 +194,24 @@ export function rewriteCargoManifestVersions(
     }
 
     if (inWorkspacePackage) {
-      const workspaceVersionMatch = line.match(/^(\s*version\s*=\s*")([^"]+)("\s*)$/);
+      const workspaceVersionMatch = line.match(
+        /^(\s*version\s*=\s*")([^"]+)("\s*)$/,
+      );
       if (workspaceVersionMatch) {
-        validateVersionBase(workspaceVersionMatch[2], expectedBaseVersion, "rust workspace version");
-        return `${workspaceVersionMatch[1]}${releaseVersion}${workspaceVersionMatch[3]}`;
+        validateVersionBase(
+          workspaceVersionMatch[2],
+          expectedBaseVersion,
+          "rust workspace version",
+        );
+        return `${workspaceVersionMatch[1]}${releaseVersion}${
+          workspaceVersionMatch[3]
+        }`;
       }
     }
 
-    const dependencyMatch = line.match(/^([\w-]+\s*=\s*\{.*\bversion\s*=\s*")([^"]+)(".*\}\s*)$/);
+    const dependencyMatch = line.match(
+      /^([\w-]+\s*=\s*\{.*\bversion\s*=\s*")([^"]+)(".*\}\s*)$/,
+    );
     if (!dependencyMatch) {
       return line;
     }
@@ -182,7 +221,11 @@ export function rewriteCargoManifestVersions(
       return line;
     }
 
-    validateVersionBase(dependencyMatch[2], expectedBaseVersion, `${crateName} dependency`);
+    validateVersionBase(
+      dependencyMatch[2],
+      expectedBaseVersion,
+      `${crateName} dependency`,
+    );
     return `${dependencyMatch[1]}${releaseVersion}${dependencyMatch[3]}`;
   }).join("\n");
 }

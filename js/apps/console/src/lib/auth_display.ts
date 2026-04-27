@@ -29,7 +29,6 @@ type SharedRecord = {
   principal: UserPrincipal | DevicePrincipal | ServicePrincipal;
   contractDisplayName?: string;
   contractId?: string;
-  appOrigin?: string;
 };
 
 export type SessionRecord = SharedRecord & {
@@ -65,7 +64,10 @@ export function formatOriginId(origin: string, id: string): string {
   return `${origin}.${id}`;
 }
 
-export function formatShortKey(value: string | null | undefined, size = 12): string {
+export function formatShortKey(
+  value: string | null | undefined,
+  size = 12,
+): string {
   if (!value) return "—";
   return value.length <= size ? value : `${value.slice(0, size)}…`;
 }
@@ -102,7 +104,9 @@ export function participantKindBadgeClass(kind: ParticipantKind): string {
   return exhaustive;
 }
 
-function contractLabel(record: { contractDisplayName?: string; contractId?: string }): string | null {
+function contractLabel(
+  record: { contractDisplayName?: string; contractId?: string },
+): string | null {
   if (record.contractDisplayName && record.contractId) {
     return `${record.contractDisplayName} (${record.contractId})`;
   }
@@ -110,10 +114,14 @@ function contractLabel(record: { contractDisplayName?: string; contractId?: stri
 }
 
 function joinDetails(details: Array<string | null | undefined>): string {
-  return details.filter((detail): detail is string => Boolean(detail && detail.length > 0)).join(" • ");
+  return details.filter((detail): detail is string =>
+    Boolean(detail && detail.length > 0)
+  ).join(" • ");
 }
 
-export function describeSessionPrincipal(record: SessionLike): { title: string; details: string } {
+export function describeSessionPrincipal(
+  record: SessionLike,
+): { title: string; details: string } {
   const contract = contractLabel(record);
   const principal = record.principal;
 
@@ -123,7 +131,6 @@ export function describeSessionPrincipal(record: SessionLike): { title: string; 
       title: principal.name?.trim() || handle,
       details: joinDetails([
         principal.name?.trim() ? handle : null,
-        record.appOrigin ? `origin ${record.appOrigin}` : null,
         contract,
       ]),
     };
@@ -150,7 +157,9 @@ export function describeSessionPrincipal(record: SessionLike): { title: string; 
   };
 }
 
-export function describeUserGrant(grant: UserGrantRecord): { title: string; details: string } {
+export function describeUserGrant(
+  grant: UserGrantRecord,
+): { title: string; details: string } {
   return {
     title: grant.displayName || grant.contractId,
     details: joinDetails([

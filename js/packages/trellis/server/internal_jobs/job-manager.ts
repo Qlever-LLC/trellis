@@ -1,6 +1,10 @@
 import { ulid } from "ulid";
 
-import { ActiveJob, ActiveJobRuntimeError, JobCancellationToken } from "./active-job.ts";
+import {
+  ActiveJob,
+  ActiveJobRuntimeError,
+  JobCancellationToken,
+} from "./active-job.ts";
 import type { JobsBinding, JobsQueueBinding } from "./bindings.ts";
 import type { Job, JobEvent, JobLogEntry, JobProgress } from "./types.ts";
 
@@ -24,7 +28,10 @@ type ActiveJobRuntimeMetadata = {
 };
 
 type JobProcessValidation<TPayload, TResult> = {
-  validateResult?: (result: TResult, job: Job<TPayload, TResult>) => Promise<void> | void;
+  validateResult?: (
+    result: TResult,
+    job: Job<TPayload, TResult>,
+  ) => Promise<void> | void;
 };
 
 export class JobProcessError extends Error {
@@ -134,9 +141,16 @@ export class JobManager<TPayload = unknown, TResult = unknown> {
     metadata: ActiveJobRuntimeMetadata = {},
     validation: JobProcessValidation<TPayload, TResult> = {},
   ): Promise<JobProcessOutcome<TResult>> {
-    return this.processWithHeartbeat(job, cancellation, () => {
-      throw new ActiveJobRuntimeError("worker heartbeat unavailable");
-    }, handler, metadata, validation);
+    return this.processWithHeartbeat(
+      job,
+      cancellation,
+      () => {
+        throw new ActiveJobRuntimeError("worker heartbeat unavailable");
+      },
+      handler,
+      metadata,
+      validation,
+    );
   }
 
   async processWithHeartbeat(
@@ -177,9 +191,15 @@ export class JobManager<TPayload = unknown, TResult = unknown> {
         return { outcome: "cancelled", tries };
       }
       try {
-        await validation.validateResult?.(result, { ...job, state: "active", tries });
+        await validation.validateResult?.(result, {
+          ...job,
+          state: "active",
+          tries,
+        });
       } catch (error) {
-        throw JobProcessError.failed(error instanceof Error ? error.message : String(error));
+        throw JobProcessError.failed(
+          error instanceof Error ? error.message : String(error),
+        );
       }
 
       await this.#publishJobEvent(job.type, job.id, {
@@ -243,10 +263,14 @@ export class JobManager<TPayload = unknown, TResult = unknown> {
   ): Promise<void> {
     const queue = this.#getQueueBinding(job.type);
     if (!queue.progress) {
-      throw new Error(`Feature 'progress' is disabled for queue '${queue.queueType}'`);
+      throw new Error(
+        `Feature 'progress' is disabled for queue '${queue.queueType}'`,
+      );
     }
     if (job.state !== "active") {
-      throw new Error(`Cannot emit progress for job '${job.id}' in state '${job.state}'`);
+      throw new Error(
+        `Cannot emit progress for job '${job.id}' in state '${job.state}'`,
+      );
     }
 
     await this.#publishJobEvent(job.type, job.id, {
@@ -265,10 +289,14 @@ export class JobManager<TPayload = unknown, TResult = unknown> {
   async emitLog(job: Job<TPayload, TResult>, log: JobLogEntry): Promise<void> {
     const queue = this.#getQueueBinding(job.type);
     if (!queue.logs) {
-      throw new Error(`Feature 'logs' is disabled for queue '${queue.queueType}'`);
+      throw new Error(
+        `Feature 'logs' is disabled for queue '${queue.queueType}'`,
+      );
     }
     if (job.state !== "active") {
-      throw new Error(`Cannot emit log for job '${job.id}' in state '${job.state}'`);
+      throw new Error(
+        `Cannot emit log for job '${job.id}' in state '${job.state}'`,
+      );
     }
 
     await this.#publishJobEvent(job.type, job.id, {
@@ -318,7 +346,9 @@ export class JobManager<TPayload = unknown, TResult = unknown> {
           if (error instanceof ActiveJobRuntimeError) {
             throw error;
           }
-          throw new ActiveJobRuntimeError(error instanceof Error ? error.message : String(error));
+          throw new ActiveJobRuntimeError(
+            error instanceof Error ? error.message : String(error),
+          );
         }
       },
     }, {

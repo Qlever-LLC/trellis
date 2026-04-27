@@ -42,7 +42,10 @@ function toHex(bytes: Uint8Array): string {
 Deno.test("shared auth-proof vectors match JS implementation", async () => {
   const fixtures = JSON.parse(
     await Deno.readTextFile(
-      new URL("../../../../conformance/auth-proof/vectors.json", import.meta.url),
+      new URL(
+        "../../../../conformance/auth-proof/vectors.json",
+        import.meta.url,
+      ),
     ),
   ) as Fixture[];
 
@@ -64,7 +67,10 @@ Deno.test("shared auth-proof vectors match JS implementation", async () => {
 
     const payloadBytes = utf8(fixture.rpcProof.payload);
     const payloadHash = await sha256(payloadBytes);
-    assertEquals(base64urlEncode(payloadHash), fixture.rpcProof.payloadHashBase64url);
+    assertEquals(
+      base64urlEncode(payloadHash),
+      fixture.rpcProof.payloadHashBase64url,
+    );
 
     const proofInput = buildProofInput(
       fixture.sessionKey,
@@ -74,7 +80,10 @@ Deno.test("shared auth-proof vectors match JS implementation", async () => {
     assertEquals(toHex(proofInput), fixture.rpcProof.proofInputHex);
 
     const proofDigest = await sha256(proofInput);
-    assertEquals(base64urlEncode(proofDigest), fixture.rpcProof.proofDigestBase64url);
+    assertEquals(
+      base64urlEncode(proofDigest),
+      fixture.rpcProof.proofDigestBase64url,
+    );
 
     assertEquals(
       await auth.createProof(fixture.rpcProof.subject, payloadHash),

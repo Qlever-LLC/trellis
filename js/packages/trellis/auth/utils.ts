@@ -20,7 +20,11 @@ export function canonicalizeJson(value: JsonValue): string {
   }
 
   const keys = Object.keys(value).sort();
-  return `{${keys.map((key) => `${JSON.stringify(key)}:${canonicalizeJson(value[key] as JsonValue)}`).join(",")}}`;
+  return `{${
+    keys.map((key) =>
+      `${JSON.stringify(key)}:${canonicalizeJson(value[key] as JsonValue)}`
+    ).join(",")
+  }}`;
 }
 
 export function toArrayBuffer(data: Uint8Array): ArrayBuffer {
@@ -61,10 +65,18 @@ function canonicalizeUnknownJsonValue(value: unknown): string {
     return JSON.stringify(value);
   }
   if (typeof value === "string") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(canonicalizeUnknownJsonValue).join(",")}]`;
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalizeUnknownJsonValue).join(",")}]`;
+  }
   if (typeof value === "object") {
     const keys = Object.keys(value).sort();
-    return `{${keys.map((key) => `${JSON.stringify(key)}:${canonicalizeUnknownJsonValue((value as Record<string, unknown>)[key])}`).join(",")}}`;
+    return `{${
+      keys.map((key) =>
+        `${JSON.stringify(key)}:${
+          canonicalizeUnknownJsonValue((value as Record<string, unknown>)[key])
+        }`
+      ).join(",")
+    }}`;
   }
 
   throw new Error("Value is not JSON-serializable");

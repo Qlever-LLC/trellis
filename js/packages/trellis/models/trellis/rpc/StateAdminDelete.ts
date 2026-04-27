@@ -27,4 +27,6 @@ export type StateAdminDeleteInput = Static<typeof StateAdminDeleteSchema>;
 export const StateAdminDeleteResponseSchema = Type.Object({
   deleted: Type.Boolean(),
 });
-export type StateAdminDeleteResponse = Static<typeof StateAdminDeleteResponseSchema>;
+export type StateAdminDeleteResponse = Static<
+  typeof StateAdminDeleteResponseSchema
+>;

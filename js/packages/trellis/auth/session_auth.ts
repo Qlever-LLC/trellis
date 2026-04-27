@@ -45,7 +45,9 @@ export async function createAuth(
   opts: { sessionKeySeed: string },
 ): Promise<TrellisAuth> {
   const seed = base64urlDecode(opts.sessionKeySeed);
-  const privateKey = await importEd25519PrivateKeyFromSeedBase64url(opts.sessionKeySeed);
+  const privateKey = await importEd25519PrivateKeyFromSeedBase64url(
+    opts.sessionKeySeed,
+  );
   const sessionKey = publicKeyBase64urlFromSeed(seed);
   let serverClockOffsetMs = 0;
 
@@ -58,7 +60,10 @@ export async function createAuth(
     return new Uint8Array(sig);
   };
 
-  const signDomainHash = async (prefix: string, value: string): Promise<string> => {
+  const signDomainHash = async (
+    prefix: string,
+    value: string,
+  ): Promise<string> => {
     const digest = await sha256(utf8(`${prefix}:${value}`));
     const sigBytes = await sign(digest);
     return base64urlEncode(sigBytes);
@@ -73,7 +78,9 @@ export async function createAuth(
     const canonicalContext = canonicalizeJsonValue(context ?? null);
     const payload = contract === undefined
       ? `${redirectTo}:${canonicalContext}`
-      : `${redirectTo}:${provider ?? ""}:${canonicalizeJsonValue(contract)}:${canonicalContext}`;
+      : `${redirectTo}:${provider ?? ""}:${
+        canonicalizeJsonValue(contract)
+      }:${canonicalContext}`;
     return await signDomainHash("oauth-init", payload);
   };
 
@@ -82,7 +89,9 @@ export async function createAuth(
       v: 1,
       sessionKey,
       iat,
-      sig: base64urlEncode(signEd25519SeedSha256(seed, utf8(`nats-connect:${iat}`))),
+      sig: base64urlEncode(
+        signEd25519SeedSha256(seed, utf8(`nats-connect:${iat}`)),
+      ),
     };
   };
 

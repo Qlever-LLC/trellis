@@ -796,7 +796,7 @@ export class SqlContractApprovalRepository {
   }
 }
 
-/** Stores durable auth sessions in SQL using the existing session key shape. */
+/** Stores durable auth sessions in SQL with one active session per session key. */
 export class SqlSessionRepository {
   readonly #db: TrellisStorageDb;
   readonly #sessionTtlMs: number;
@@ -841,10 +841,6 @@ export class SqlSessionRepository {
   async getOneBySessionKey(sessionKey: string): Promise<Session | undefined> {
     const rows = await this.listEntriesBySessionKey(sessionKey, 2);
 
-    if (rows.length > 1) {
-      throw new Error(`Multiple sessions stored for session key ${sessionKey}`);
-    }
-
     const row = rows[0];
     return row === undefined ? undefined : row.session;
   }
@@ -865,12 +861,13 @@ export class SqlSessionRepository {
     return rows.map((row: SessionRow) => decodeSessionEntry(row));
   }
 
-  /** Inserts or replaces a session keyed by session key and Trellis/session id. */
+  /** Inserts or replaces a session keyed by session key. */
   async put(sessionKey: string, session: Session): Promise<void> {
     const row = encodeSessionRecord(sessionKey, session);
     await this.#db.insert(sessions).values(row).onConflictDoUpdate({
-      target: [sessions.sessionKey, sessions.trellisId],
+      target: sessions.sessionKey,
       set: {
+        trellisId: row.trellisId,
         type: row.type,
         origin: row.origin,
         externalId: row.externalId,

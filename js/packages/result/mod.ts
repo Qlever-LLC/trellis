@@ -52,8 +52,14 @@
 
 import { Result as ResultClass } from "./result.ts";
 
-export { Result, AsyncResult } from "./result.ts";
-export type { OkValue, ErrValue, Infer, InferErr, MaybeAsync } from "./result.ts";
+export { AsyncResult, Result } from "./result.ts";
+export type {
+  ErrValue,
+  Infer,
+  InferErr,
+  MaybeAsync,
+  OkValue,
+} from "./result.ts";
 
 export const ok = ResultClass.ok;
 export const err = ResultClass.err;
@@ -66,7 +72,7 @@ export {
   UnexpectedErrorDataSchema,
 } from "./error.ts";
 export type {
-  BaseErrorSchema,
   BaseErrorOptions,
+  BaseErrorSchema,
   UnexpectedErrorData,
 } from "./error.ts";

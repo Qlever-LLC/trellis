@@ -31,23 +31,50 @@ Deno.test("selected auth url prefers query param and persists it", () => {
   );
 
   assertEquals(selected, "http://localhost:4000");
-  assertEquals(storage.getItem("trellis.console.authUrl"), "http://localhost:4000");
+  assertEquals(
+    storage.getItem("trellis.console.authUrl"),
+    "http://localhost:4000",
+  );
 });
 
 Deno.test("build app urls preserve selected auth url when it is provided", () => {
-  const loginUrl = buildAppLoginUrl("/profile", new URL("http://localhost:5173/"), undefined, "http://localhost:4000");
-  const callbackUrl = buildAppCallbackUrl("/profile", new URL("http://localhost:5173/"), "http://localhost:4000");
+  const loginUrl = buildAppLoginUrl(
+    "/profile",
+    new URL("http://localhost:5173/"),
+    undefined,
+    "http://localhost:4000",
+  );
+  const callbackUrl = buildAppCallbackUrl(
+    "/profile",
+    new URL("http://localhost:5173/"),
+    "http://localhost:4000",
+  );
 
-  assertEquals(loginUrl, "http://localhost:5173/login?redirectTo=%2Fprofile&authUrl=http%3A%2F%2Flocalhost%3A4000");
-  assertEquals(callbackUrl, "http://localhost:5173/callback?redirectTo=%2Fprofile&authUrl=http%3A%2F%2Flocalhost%3A4000");
+  assertEquals(
+    loginUrl,
+    "http://localhost:5173/login?redirectTo=%2Fprofile&authUrl=http%3A%2F%2Flocalhost%3A4000",
+  );
+  assertEquals(
+    callbackUrl,
+    "http://localhost:5173/callback?redirectTo=%2Fprofile&authUrl=http%3A%2F%2Flocalhost%3A4000",
+  );
 });
 
 Deno.test("build app urls omit auth url when none is selected", () => {
-  const loginUrl = buildAppLoginUrl("/profile", new URL("http://localhost:5173/"));
-  const callbackUrl = buildAppCallbackUrl("/profile", new URL("http://localhost:5173/"));
+  const loginUrl = buildAppLoginUrl(
+    "/profile",
+    new URL("http://localhost:5173/"),
+  );
+  const callbackUrl = buildAppCallbackUrl(
+    "/profile",
+    new URL("http://localhost:5173/"),
+  );
 
   assertEquals(loginUrl, "http://localhost:5173/login?redirectTo=%2Fprofile");
-  assertEquals(callbackUrl, "http://localhost:5173/callback?redirectTo=%2Fprofile");
+  assertEquals(
+    callbackUrl,
+    "http://localhost:5173/callback?redirectTo=%2Fprofile",
+  );
 });
 
 Deno.test("build app urls accept base-aware login and callback paths", () => {
@@ -65,13 +92,22 @@ Deno.test("build app urls accept base-aware login and callback paths", () => {
     "/current/console/callback",
   );
 
-  assertEquals(loginUrl, "http://localhost:5173/current/console/login?redirectTo=%2Fcurrent%2Fconsole%2Fprofile&authUrl=http%3A%2F%2Flocalhost%3A4000");
-  assertEquals(callbackUrl, "http://localhost:5173/current/console/callback?redirectTo=%2Fcurrent%2Fconsole%2Fprofile&authUrl=http%3A%2F%2Flocalhost%3A4000");
+  assertEquals(
+    loginUrl,
+    "http://localhost:5173/current/console/login?redirectTo=%2Fcurrent%2Fconsole%2Fprofile&authUrl=http%3A%2F%2Flocalhost%3A4000",
+  );
+  assertEquals(
+    callbackUrl,
+    "http://localhost:5173/current/console/callback?redirectTo=%2Fcurrent%2Fconsole%2Fprofile&authUrl=http%3A%2F%2Flocalhost%3A4000",
+  );
 });
 
 Deno.test("selected auth url stays undefined when nothing is configured", () => {
   const storage = createMemoryStorage();
-  const selected = getSelectedAuthUrl(new URL("http://localhost:5173/login"), storage);
+  const selected = getSelectedAuthUrl(
+    new URL("http://localhost:5173/login"),
+    storage,
+  );
 
   assertEquals(APP_CONFIG.authUrl, undefined);
   assertEquals(selected, undefined);

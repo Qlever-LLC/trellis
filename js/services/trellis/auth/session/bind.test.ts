@@ -100,9 +100,13 @@ function sessionStorageFromKV(kv: InMemoryKV<Session>) {
         }));
     },
     async get(sessionKey: string, trellisId: string) {
-      return kv.getValue(`${sessionKey}.${trellisId}`);
+      const entries = await this.listEntriesBySessionKey(sessionKey);
+      return entries.find((entry) => entry.trellisId === trellisId)?.session;
     },
     async put(sessionKey: string, session: Session) {
+      for (const entry of await this.listEntriesBySessionKey(sessionKey)) {
+        kv.delete(`${entry.sessionKey}.${entry.trellisId}`);
+      }
       const trellisId = session.type === "device"
         ? session.instanceId
         : session.trellisId;
@@ -125,7 +129,6 @@ function userSessionFields() {
       contractId: "trellis.console@v1",
       origin: "https://app.example.com",
     },
-    appOrigin: "https://app.example.com",
     delegatedCapabilities: ["admin"],
     delegatedPublishSubjects: ["rpc.v1.Auth.ListServices"],
     delegatedSubscribeSubjects: ["events.v1.Auth.Connect"],
@@ -272,7 +275,7 @@ Deno.test("ensureBoundUserSession kicks connections and replaces session when bo
   assertEquals(connectionsKV.has("sk2.unrelated.nk3"), true);
 });
 
-Deno.test("ensureBoundUserSession rejects if the sessionKeyId exists with a mismatched identity", async () => {
+Deno.test("ensureBoundUserSession replaces an existing session key with a mismatched identity", async () => {
   const sessionKV = new InMemoryKV<Session>();
   const connectionsKV = new InMemoryKV<Connection>();
 
@@ -303,14 +306,12 @@ Deno.test("ensureBoundUserSession rejects if the sessionKeyId exists with a mism
   });
 
   const v = res.take();
-  assertEquals(isErr(v), true);
-  if (!isErr(v)) return;
-  assertEquals(v.error.reason, "session_already_bound");
+  if (isErr(v)) throw v.error;
   const rebound = sessionKV.getValue("sk.tid");
   if (!rebound || rebound.type !== "user") {
     throw new Error("expected rebound session");
   }
-  assertEquals(rebound.id, "999");
+  assertEquals(rebound.id, "123");
 });
 
 Deno.test("ensureBoundUserSession clears stale app identity when the rebound session omits it", async () => {
@@ -360,7 +361,6 @@ Deno.test("ensureBoundUserSession clears stale app identity when the rebound ses
     throw new Error("expected updated session");
   }
   assertEquals("app" in updated, false);
-  assertEquals("appOrigin" in updated, false);
 });
 
 Deno.test("ensureBoundUserSession returns storage_error when listing existing sessions fails", async () => {

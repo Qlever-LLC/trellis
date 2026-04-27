@@ -44,7 +44,9 @@ Deno.test("device activation callback state round-trips through storage", () => 
 Deno.test("device activation auth callback only matches explicit callback markers", () => {
   assertEquals(
     isDeviceActivationAuthCallback(
-      new URL("https://auth.example.com/_trellis/portal/devices/activate?flowId=device-flow"),
+      new URL(
+        "https://auth.example.com/_trellis/portal/devices/activate?flowId=device-flow",
+      ),
       { flowId: "device-flow", callbackToken: "callback-token" },
     ),
     false,

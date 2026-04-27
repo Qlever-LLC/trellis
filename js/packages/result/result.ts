@@ -31,11 +31,15 @@ export interface ErrValue<E extends BaseError> {
  */
 type ResultValue<T, E extends BaseError> = OkValue<T> | ErrValue<E>;
 
-function isOkValue<T, E extends BaseError>(value: ResultValue<T, E>): value is OkValue<T> {
+function isOkValue<T, E extends BaseError>(
+  value: ResultValue<T, E>,
+): value is OkValue<T> {
   return value.success;
 }
 
-function isErrValue<T, E extends BaseError>(value: ResultValue<T, E>): value is ErrValue<E> {
+function isErrValue<T, E extends BaseError>(
+  value: ResultValue<T, E>,
+): value is ErrValue<E> {
   return !value.success;
 }
 
@@ -45,8 +49,8 @@ function isErrValue<T, E extends BaseError>(value: ResultValue<T, E>): value is 
  * For `string | Result<never, E1> | Result<never, E2>`, returns `Result<never, E1> | Result<never, E2>`.
  * The distribution over union members is key to preserving specific error types.
  */
-type ExtractErrResult<U> =
-  U extends Result<never, infer E> ? Result<never, E> : never;
+type ExtractErrResult<U> = U extends Result<never, infer E> ? Result<never, E>
+  : never;
 
 /**
  * Extracts the Ok type T from a Result<T, E>.
@@ -488,12 +492,10 @@ export class Result<T, E extends BaseError> {
   take(): [T] extends [never] ? Result<never, E> : T | Result<never, E> {
     const value = this._value;
     if (isOkValue(value)) {
-      return value.value as [T] extends [never]
-        ? Result<never, E>
+      return value.value as [T] extends [never] ? Result<never, E>
         : T | Result<never, E>;
     }
-    return Result.err(value.error) as [T] extends [never]
-      ? Result<never, E>
+    return Result.err(value.error) as [T] extends [never] ? Result<never, E>
       : T | Result<never, E>;
   }
 
@@ -756,8 +758,7 @@ export class Result<T, E extends BaseError> {
  * ```
  */
 export class AsyncResult<T, E extends BaseError>
-  implements PromiseLike<Result<T, E>>
-{
+  implements PromiseLike<Result<T, E>> {
   constructor(private readonly promise: Promise<Result<T, E>>) {}
 
   /**

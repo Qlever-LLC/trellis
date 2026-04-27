@@ -5,11 +5,10 @@
  */
 
 export {
+  type AuthConfig,
   type AuthStartFlowResponse,
   type AuthStartRequest,
   type AuthStartResponse,
-  type AuthConfig,
-  startAuthRequest,
   bindFlow,
   type BindResponse,
   bindSession,
@@ -17,6 +16,7 @@ export {
   buildLoginUrl,
   isBindSuccessResponse,
   type SentinelCreds,
+  startAuthRequest,
 } from "./browser/login.ts";
 export {
   type ApprovalDecision,
@@ -44,13 +44,13 @@ export {
 export { deleteKeyPair, hasKeyPair } from "./browser/storage.ts";
 export {
   type ApprovalDecision as ApprovalDecisionData,
+  ApprovalDecisionSchema,
   type AuthStartFlowResponse as AuthStartFlowResponseData,
   AuthStartFlowResponseSchema,
   type AuthStartRequest as AuthStartRequestData,
   AuthStartRequestSchema,
   type AuthStartResponse as AuthStartResponseData,
   AuthStartResponseSchema,
-  ApprovalDecisionSchema,
   type BindResponse as BindResponseData,
   BindResponseSchema,
   type BindSuccessResponse as BindSuccessResponseData,

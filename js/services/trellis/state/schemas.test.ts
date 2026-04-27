@@ -61,7 +61,6 @@ Deno.test("SessionSchema validates session entries", () => {
         contractId: "trellis.console@v1",
         origin: "https://app.example.com",
       },
-      appOrigin: "https://app.example.com",
       approvalSource: "admin_policy",
       delegatedCapabilities: ["admin"],
       delegatedPublishSubjects: ["rpc.v1.Auth.ListServices"],

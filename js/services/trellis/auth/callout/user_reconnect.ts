@@ -68,7 +68,7 @@ export async function resolveUserReconnectSession(args: {
   const matchedPolicies = matchingInstanceGrantPolicies({
     policies: await args.loadInstanceGrantPolicies(plan.contract.id),
     contractId: plan.contract.id,
-    appOrigin: args.session.app?.origin ?? args.session.appOrigin,
+    appOrigin: args.session.app?.origin,
   });
   const storedApproval = await args.loadStoredApproval(
     contractApprovalKey(args.session.trellisId, plan.digest),

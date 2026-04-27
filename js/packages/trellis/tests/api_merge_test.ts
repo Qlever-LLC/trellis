@@ -12,7 +12,7 @@ Deno.test("createClient prefers trellis API for app contracts", () => {
     displayName: "App Test",
     description: "Exercise runtime API selection for app contracts.",
     uses: {
-      auth: auth.useDefaults({
+      auth: auth.use({
         rpc: {
           call: ["Auth.ListApprovals"],
         },

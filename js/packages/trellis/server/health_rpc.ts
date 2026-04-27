@@ -1,7 +1,11 @@
 import type { TrellisAPI } from "@qlever-llc/trellis/contracts";
 
 import { Result } from "@qlever-llc/result";
-import { type HealthCheckFn, type HealthResponse, runAllHealthChecks } from "./health.ts";
+import {
+  type HealthCheckFn,
+  type HealthResponse,
+  runAllHealthChecks,
+} from "./health.ts";
 
 type HealthRpcServer = {
   name: string;
@@ -30,7 +34,8 @@ export async function mountStandardHealthRpc(
   },
 ): Promise<void> {
   const rpcName = opts?.rpcName ?? `${pascalCase(server.name)}.Health`;
-  const rpc = (server.api.rpc as Record<string, unknown> | undefined)?.[rpcName];
+  const rpc = (server.api.rpc as Record<string, unknown> | undefined)
+    ?.[rpcName];
   if (!rpc) return;
 
   const method = rpcName as keyof TrellisAPI["rpc"] & string;

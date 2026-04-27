@@ -322,13 +322,10 @@ async function loadUserProjection(
 }
 
 async function revokeUserSessionByKey(
-  sessionKeyId: string,
+  sessionKey: string,
   session: Extract<Session, { type: "user" }>,
   revokedBy?: string,
 ): Promise<void> {
-  const sessionKey = sessionKeyId.split(".")[0];
-  if (!sessionKey) return;
-
   const connIter = await connectionsKV.keys(
     connectionFilterForSession(sessionKey),
   )
@@ -394,7 +391,7 @@ async function revokeInvalidatedInstanceGrantSessions(args: {
     const matchedPolicies = matchingInstanceGrantPolicies({
       policies: args.policies,
       contractId: session.contractId,
-      appOrigin: session.app?.origin ?? session.appOrigin,
+      appOrigin: session.app?.origin,
     });
     const sessionAllowed = projection !== null &&
       userDelegationAllowed({
@@ -407,7 +404,7 @@ async function revokeInvalidatedInstanceGrantSessions(args: {
     if (sessionAllowed) continue;
 
     await revokeUserSessionByKey(
-      `${entry.sessionKey}.${entry.trellisId}`,
+      entry.sessionKey,
       session,
       args.revokedBy,
     );

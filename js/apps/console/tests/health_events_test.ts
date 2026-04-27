@@ -25,7 +25,9 @@ function heartbeat(overrides?: Partial<HealthHeartbeat>): HealthHeartbeat {
       ...(overrides?.service?.runtimeVersion
         ? { runtimeVersion: overrides.service.runtimeVersion }
         : {}),
-      ...(overrides?.service?.version ? { version: overrides.service.version } : {}),
+      ...(overrides?.service?.version
+        ? { version: overrides.service.version }
+        : {}),
       ...(overrides?.service?.info ? { info: overrides.service.info } : {}),
     },
     status: overrides?.status ?? "healthy",
@@ -35,9 +37,24 @@ function heartbeat(overrides?: Partial<HealthHeartbeat>): HealthHeartbeat {
 }
 
 Deno.test("appendHealthEvent keeps newest events first within the fixed window", () => {
-  const events = appendHealthEvent([], heartbeat({ header: { id: "a", time: "2026-01-01T00:00:00.000Z" } }), 10, 2);
-  const next = appendHealthEvent(events, heartbeat({ header: { id: "b", time: "2026-01-01T00:00:01.000Z" } }), 20, 2);
-  const finalEvents = appendHealthEvent(next, heartbeat({ header: { id: "c", time: "2026-01-01T00:00:02.000Z" } }), 30, 2);
+  const events = appendHealthEvent(
+    [],
+    heartbeat({ header: { id: "a", time: "2026-01-01T00:00:00.000Z" } }),
+    10,
+    2,
+  );
+  const next = appendHealthEvent(
+    events,
+    heartbeat({ header: { id: "b", time: "2026-01-01T00:00:01.000Z" } }),
+    20,
+    2,
+  );
+  const finalEvents = appendHealthEvent(
+    next,
+    heartbeat({ header: { id: "c", time: "2026-01-01T00:00:02.000Z" } }),
+    30,
+    2,
+  );
 
   assertEquals(finalEvents.length, 2);
   assertEquals(finalEvents[0].heartbeat.header.id, "c");
@@ -56,7 +73,11 @@ Deno.test("summarizeHealthServices marks services offline when all instances are
 });
 
 Deno.test("summarizeHealthServices keeps live unhealthy instances unhealthy", () => {
-  let instances = upsertHealthInstance({}, heartbeat({ status: "healthy" }), 10_000);
+  let instances = upsertHealthInstance(
+    {},
+    heartbeat({ status: "healthy" }),
+    10_000,
+  );
   instances = upsertHealthInstance(
     instances,
     heartbeat({

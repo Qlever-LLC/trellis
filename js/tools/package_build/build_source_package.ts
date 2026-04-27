@@ -34,8 +34,12 @@ export async function buildSourcePackage(options: BuildSourcePackageOptions) {
   const name = denoConfig.name as string;
   const version = resolvePackageBuildVersion(denoConfig.version as string);
   const outDir = "./npm";
-  const dependencies = resolveInternalNpmDependenciesForBuild(options.dependencies);
-  const peerDependencies = resolveInternalNpmDependenciesForBuild(options.peerDependencies);
+  const dependencies = resolveInternalNpmDependenciesForBuild(
+    options.dependencies,
+  );
+  const peerDependencies = resolveInternalNpmDependenciesForBuild(
+    options.peerDependencies,
+  );
 
   await emptyDir(outDir);
 

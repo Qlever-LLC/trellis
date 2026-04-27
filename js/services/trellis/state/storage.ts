@@ -594,12 +594,12 @@ export class StateStore {
     prefix: string | undefined,
     limit: number,
   ): Result<void, ValidationError> {
-    if (target.kind === "value" && prefix !== undefined) {
+    if (target.kind === "value") {
       return Result.err(
         new ValidationError({
           errors: [{
-            path: "/prefix",
-            message: "value stores do not support prefix",
+            path: "/store",
+            message: "value stores do not support list",
           }],
         }),
       );

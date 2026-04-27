@@ -2,7 +2,12 @@ const AUTH_URL_STORAGE_KEY = "trellis.console.authUrl";
 const AUTH_URL_QUERY_PARAM = "authUrl";
 
 const CANONICAL_LOOPBACK_HOST = "localhost";
-const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1", "[::1]", CANONICAL_LOOPBACK_HOST]);
+const LOOPBACK_HOSTS = new Set([
+  "127.0.0.1",
+  "::1",
+  "[::1]",
+  CANONICAL_LOOPBACK_HOST,
+]);
 
 type RuntimeAppConfig = {
   authUrl?: string;
@@ -33,7 +38,9 @@ function normalizeConfiguredUrl(value: string): string {
   return url.toString().replace(/\/$/, "");
 }
 
-function tryNormalizeConfiguredUrl(value: string | null | undefined): string | null {
+function tryNormalizeConfiguredUrl(
+  value: string | null | undefined,
+): string | null {
   if (!value) return null;
   try {
     return normalizeConfiguredUrl(value.trim());
@@ -50,7 +57,10 @@ function getStorage(
   return globalThis.localStorage;
 }
 
-function applySelectedAuthUrl(url: URL, authUrl: string | null | undefined): void {
+function applySelectedAuthUrl(
+  url: URL,
+  authUrl: string | null | undefined,
+): void {
   const normalized = tryNormalizeConfiguredUrl(authUrl);
   if (!normalized) {
     url.searchParams.delete(AUTH_URL_QUERY_PARAM);
@@ -69,13 +79,17 @@ export function getSelectedAuthUrl(
 ): string | undefined {
   const current = toUrl(location);
   const store = getStorage(storage);
-  const fromQuery = tryNormalizeConfiguredUrl(current.searchParams.get(AUTH_URL_QUERY_PARAM));
+  const fromQuery = tryNormalizeConfiguredUrl(
+    current.searchParams.get(AUTH_URL_QUERY_PARAM),
+  );
   if (fromQuery) {
     store?.setItem(AUTH_URL_STORAGE_KEY, fromQuery);
     return fromQuery;
   }
 
-  const fromStorage = tryNormalizeConfiguredUrl(store?.getItem(AUTH_URL_STORAGE_KEY));
+  const fromStorage = tryNormalizeConfiguredUrl(
+    store?.getItem(AUTH_URL_STORAGE_KEY),
+  );
   if (fromStorage) {
     return fromStorage;
   }
@@ -100,7 +114,9 @@ export function persistSelectedAuthUrl(
 }
 
 function toUrl(location: URL | Location): URL {
-  return location instanceof URL ? new URL(location.toString()) : new URL(location.href);
+  return location instanceof URL
+    ? new URL(location.toString())
+    : new URL(location.href);
 }
 
 function isLoopbackHost(hostname: string): boolean {
@@ -117,11 +133,15 @@ export function getCanonicalLoopbackUrl(location: URL | Location): URL {
   return url;
 }
 
-export function getCanonicalLoopbackRedirectUrl(location: URL | Location = globalThis.location): string | null {
+export function getCanonicalLoopbackRedirectUrl(
+  location: URL | Location = globalThis.location,
+): string | null {
   const current = toUrl(location);
   const canonical = getCanonicalLoopbackUrl(current);
 
-  return canonical.toString() === current.toString() ? null : canonical.toString();
+  return canonical.toString() === current.toString()
+    ? null
+    : canonical.toString();
 }
 
 export function buildAppLoginUrl(

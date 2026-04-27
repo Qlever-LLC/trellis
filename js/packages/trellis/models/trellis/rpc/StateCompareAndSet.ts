@@ -1,6 +1,10 @@
 import Type, { type Static } from "typebox";
 
-import { JsonValueSchema, StateEntrySchema, StateScopeSchema } from "../State.ts";
+import {
+  JsonValueSchema,
+  StateEntrySchema,
+  StateScopeSchema,
+} from "../State.ts";
 
 export const StateCompareAndSetSchema = Type.Object({
   scope: StateScopeSchema,
@@ -25,4 +29,6 @@ export const StateCompareAndSetResponseSchema = Type.Union([
     entry: Type.Optional(StateEntrySchema),
   }),
 ]);
-export type StateCompareAndSetResponse = Static<typeof StateCompareAndSetResponseSchema>;
+export type StateCompareAndSetResponse = Static<
+  typeof StateCompareAndSetResponseSchema
+>;

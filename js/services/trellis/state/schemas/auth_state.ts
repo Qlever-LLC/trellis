@@ -242,7 +242,6 @@ export const UserSessionSchema = Type.Object({
   contractDisplayName: Type.String({ minLength: 1 }),
   contractDescription: Type.String({ minLength: 1 }),
   app: Type.Optional(AppIdentitySchema),
-  appOrigin: Type.Optional(Type.String({ minLength: 1 })),
   approvalSource: Type.Optional(SessionApprovalSourceSchema),
   delegatedCapabilities: Type.Array(Type.String()),
   delegatedPublishSubjects: Type.Array(Type.String()),

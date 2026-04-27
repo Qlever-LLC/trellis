@@ -47,7 +47,9 @@ export function parseSchema<S extends SchemaLike>(
 ): Result<InferSchemaType<S>, ValidationError | UnexpectedError> {
   const raw = unwrapSchema(schema);
   try {
-    return Result.ok(parseWithSchema(raw as TSchema, data) as InferSchemaType<S>);
+    return Result.ok(
+      parseWithSchema(raw as TSchema, data) as InferSchemaType<S>,
+    );
   } catch (cause) {
     if (cause instanceof ParseError) {
       const errors = Value.Errors(raw as TSchema, data);

@@ -5,7 +5,9 @@ export interface NatsHeadersLike {
   set(key: string, value: string): void;
 }
 
-export function createNatsHeaderCarrier(headers: NatsHeadersLike): HeaderCarrier {
+export function createNatsHeaderCarrier(
+  headers: NatsHeadersLike,
+): HeaderCarrier {
   return {
     get: (key: string) => headers.get(key),
     set: (key: string, value: string) => headers.set(key, value),

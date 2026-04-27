@@ -11,7 +11,9 @@ import {
 
 const RUN_NATS_TESTS = Deno.env.get("TRELLIS_TEST_NATS") === "1";
 
-async function readAll(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> {
+async function readAll(
+  stream: ReadableStream<Uint8Array>,
+): Promise<Uint8Array> {
   const reader = stream.getReader();
   const chunks: Uint8Array[] = [];
   let totalLength = 0;
@@ -221,23 +223,36 @@ Deno.test({
     });
     const body = await entry.bytes();
     assertEquals(body.isOk(), true);
-    assertEquals(decode(body.match({ ok: (value) => value, err: (error) => { throw error; } })), "ready");
+    assertEquals(
+      decode(body.match({
+        ok: (value) => value,
+        err: (error) => {
+          throw error;
+        },
+      })),
+      "ready",
+    );
 
     await writer;
   },
 });
 
 Deno.test({
-  name: "TypedStore.waitFor returns a timeout error when the object never appears",
+  name:
+    "TypedStore.waitFor returns a timeout error when the object never appears",
   ignore: !RUN_NATS_TESTS,
   async fn() {
     await using nats = await NatsTest.start();
 
-    const opened = await TypedStore.open(nats.nc, "typed-store-wait-timeout-test", {
-      ttlMs: 60_000,
-      maxObjectBytes: 1024,
-      maxTotalBytes: 4096,
-    });
+    const opened = await TypedStore.open(
+      nats.nc,
+      "typed-store-wait-timeout-test",
+      {
+        ttlMs: 60_000,
+        maxObjectBytes: 1024,
+        maxTotalBytes: 4096,
+      },
+    );
     const store = opened.match({
       ok: (value) => value,
       err: (error) => {
@@ -264,16 +279,21 @@ Deno.test({
 });
 
 Deno.test({
-  name: "TypedStore.waitFor returns an aborted error when the signal is cancelled",
+  name:
+    "TypedStore.waitFor returns an aborted error when the signal is cancelled",
   ignore: !RUN_NATS_TESTS,
   async fn() {
     await using nats = await NatsTest.start();
 
-    const opened = await TypedStore.open(nats.nc, "typed-store-wait-abort-test", {
-      ttlMs: 60_000,
-      maxObjectBytes: 1024,
-      maxTotalBytes: 4096,
-    });
+    const opened = await TypedStore.open(
+      nats.nc,
+      "typed-store-wait-abort-test",
+      {
+        ttlMs: 60_000,
+        maxObjectBytes: 1024,
+        maxTotalBytes: 4096,
+      },
+    );
     const store = opened.match({
       ok: (value) => value,
       err: (error) => {

@@ -20,7 +20,7 @@ type BuildDntPackageOptions = {
   denoConfigPath?: string;
   importMap?: string;
   entryPoints: string[];
-    description: string;
+  description: string;
   dependencies?: Record<string, string>;
   outDir?: string;
   peerDependencies?: Record<string, string>;
@@ -62,8 +62,14 @@ async function externalizeCopiedPackageDir(
   dirName: string,
   packageName: string,
 ) {
-  const matcher = new RegExp(`(["'])((?:../)+)${dirName}/(?:mod|index)\\.js\\1`, "g");
-  const requireMatcher = new RegExp(`require\\((["'])((?:../)+)${dirName}/(?:mod|index)\\.js\\1\\)`, "g");
+  const matcher = new RegExp(
+    `(["'])((?:../)+)${dirName}/(?:mod|index)\\.js\\1`,
+    "g",
+  );
+  const requireMatcher = new RegExp(
+    `require\\((["'])((?:../)+)${dirName}/(?:mod|index)\\.js\\1\\)`,
+    "g",
+  );
 
   for await (const filePath of walkFiles(outDir)) {
     if (!filePath.endsWith(".js") && !filePath.endsWith(".d.ts")) {
@@ -92,15 +98,27 @@ async function externalizeCopiedPackageDir(
 
 export async function buildDntPackage(options: BuildDntPackageOptions) {
   const packageDir = Deno.cwd();
-  const buildRoot = options.buildRoot ? join(packageDir, options.buildRoot) : packageDir;
-  const denoConfigPath = options.denoConfigPath ? join(packageDir, options.denoConfigPath) : join(packageDir, "deno.json");
+  const buildRoot = options.buildRoot
+    ? join(packageDir, options.buildRoot)
+    : packageDir;
+  const denoConfigPath = options.denoConfigPath
+    ? join(packageDir, options.denoConfigPath)
+    : join(packageDir, "deno.json");
   const denoConfig = JSON.parse(await Deno.readTextFile(denoConfigPath));
   const name = denoConfig.name as string;
   const version = resolvePackageBuildVersion(denoConfig.version as string);
-  const outDir = options.outDir ? join(packageDir, options.outDir) : join(packageDir, "npm");
-  const npmInstallDeps = resolveInternalNpmDependenciesForBuild(options.npmInstallDeps);
-  const dependencies = resolveInternalNpmDependenciesForBuild(options.dependencies);
-  const peerDependencies = resolveInternalNpmDependenciesForBuild(options.peerDependencies);
+  const outDir = options.outDir
+    ? join(packageDir, options.outDir)
+    : join(packageDir, "npm");
+  const npmInstallDeps = resolveInternalNpmDependenciesForBuild(
+    options.npmInstallDeps,
+  );
+  const dependencies = resolveInternalNpmDependenciesForBuild(
+    options.dependencies,
+  );
+  const peerDependencies = resolveInternalNpmDependenciesForBuild(
+    options.peerDependencies,
+  );
 
   await emptyDir(outDir);
 
@@ -131,7 +149,9 @@ export async function buildDntPackage(options: BuildDntPackageOptions) {
         peerDependencies,
       },
       mappings: options.mappings,
-      importMap: options.importMap ? join(packageDir, options.importMap) : undefined,
+      importMap: options.importMap
+        ? join(packageDir, options.importMap)
+        : undefined,
     });
   } finally {
     Deno.chdir(previousCwd);
@@ -157,14 +177,24 @@ export async function buildDntPackage(options: BuildDntPackageOptions) {
   if (peerDependencies && Object.keys(peerDependencies).length) {
     packageJson.peerDependencies = peerDependencies;
   }
-  await Deno.writeTextFile(packageJsonPath, JSON.stringify(packageJson, null, 2) + "\n");
+  await Deno.writeTextFile(
+    packageJsonPath,
+    JSON.stringify(packageJson, null, 2) + "\n",
+  );
 
-  for (const [dirName, packageName] of Object.entries(options.externalizePackageDirs ?? {})) {
+  for (
+    const [dirName, packageName] of Object.entries(
+      options.externalizePackageDirs ?? {},
+    )
+  ) {
     await externalizeCopiedPackageDir(outDir, dirName, packageName);
   }
 
   try {
-    await Deno.copyFile(join(packageDir, "README.md"), join(outDir, "README.md"));
+    await Deno.copyFile(
+      join(packageDir, "README.md"),
+      join(outDir, "README.md"),
+    );
   } catch (error) {
     if (!(error instanceof Deno.errors.NotFound)) {
       throw error;

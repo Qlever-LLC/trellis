@@ -74,6 +74,9 @@ and this project adheres to
   service-author entrypoints, hiding raw runtime and NATS transport internals
   from root and generated client facades, and using `TrellisConnection` for
   lifecycle control.
+- Changed TypeScript contract authoring so baseline app, agent, device, and
+  top-level state Trellis-owned dependencies are derived automatically, while
+  non-baseline Auth surfaces use explicit `auth.use(...)` declarations.
 
 ### Added
 
@@ -122,6 +125,8 @@ and this project adheres to
   metadata, refreshing device reconnect permissions from the presented digest,
   and encoding state KV keys safely so the JavaScript state demo runs
   end-to-end.
+- Fixed standalone login portal builds by defaulting the portal Trellis URL to
+  `http://localhost:3000` when `PUBLIC_TRELLIS_URL` is not set.
 
 ## [0.8.0] - 2026-04-19
 

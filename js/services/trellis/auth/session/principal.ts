@@ -243,7 +243,7 @@ export async function resolveSessionPrincipal(
     policies: await (deps.loadInstanceGrantPolicies?.(session.contractId) ??
       Promise.resolve([])),
     contractId: session.contractId,
-    appOrigin: session.app?.origin ?? session.appOrigin,
+    appOrigin: session.app?.origin,
   });
   const storedApproval = deps.loadStoredApproval
     ? await deps.loadStoredApproval(

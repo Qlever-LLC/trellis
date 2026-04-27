@@ -43,7 +43,6 @@ export const AuthSessionRowSchema = Type.Union([
     principal: UserPrincipalSchema,
     contractId: Type.String(),
     contractDisplayName: Type.String(),
-    appOrigin: Type.Optional(Type.String()),
   }),
   Type.Object({
     ...SessionRowBaseSchema,
@@ -51,7 +50,6 @@ export const AuthSessionRowSchema = Type.Union([
     principal: UserPrincipalSchema,
     contractId: Type.String(),
     contractDisplayName: Type.String(),
-    appOrigin: Type.Optional(Type.String()),
   }),
   Type.Object({
     ...SessionRowBaseSchema,

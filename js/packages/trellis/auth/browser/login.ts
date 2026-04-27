@@ -1,8 +1,8 @@
 import { Value } from "typebox/value";
 import {
   type AuthStartRequest,
-  type AuthStartResponse,
   AuthStartRequestSchema,
+  type AuthStartResponse,
   AuthStartResponseSchema,
   type BindResponse,
   BindResponseSchema,
@@ -10,7 +10,12 @@ import {
   type SentinelCreds,
 } from "../schemas.ts";
 import type { SessionKeyHandle } from "./session.ts";
-import { bindFlowSig, bindSig, getPublicSessionKey, oauthInitSig } from "./session.ts";
+import {
+  bindFlowSig,
+  bindSig,
+  getPublicSessionKey,
+  oauthInitSig,
+} from "./session.ts";
 
 export type {
   AuthStartFlowResponse,
@@ -98,7 +103,14 @@ export async function buildLoginUrl(
       contract: argsOrConfig.contract,
       context: argsOrConfig.context,
     }
-    : buildLoginUrlArgsFromPositional(argsOrConfig, provider, redirectTo, handle, contract, context);
+    : buildLoginUrlArgsFromPositional(
+      argsOrConfig,
+      provider,
+      redirectTo,
+      handle,
+      contract,
+      context,
+    );
   const response = await startAuthRequest({
     authUrl: resolved.config.authUrl,
     provider: resolved.provider,
@@ -148,7 +160,10 @@ export async function startAuthRequest(args: {
     throw new Error(`Auth request failed: ${response.status} ${text}`);
   }
 
-  return Value.Parse(AuthStartResponseSchema, await response.json()) as AuthStartResponse;
+  return Value.Parse(
+    AuthStartResponseSchema,
+    await response.json(),
+  ) as AuthStartResponse;
 }
 
 function buildLoginUrlArgsFromPositional(
@@ -159,8 +174,12 @@ function buildLoginUrlArgsFromPositional(
   contract: Record<string, unknown> | undefined,
   context: unknown,
 ): BuildLoginUrlArgs {
-  if (redirectTo === undefined || handle === undefined || contract === undefined) {
-    throw new TypeError("buildLoginUrl requires redirectTo, handle, and contract");
+  if (
+    redirectTo === undefined || handle === undefined || contract === undefined
+  ) {
+    throw new TypeError(
+      "buildLoginUrl requires redirectTo, handle, and contract",
+    );
   }
   return {
     config,
@@ -181,10 +200,13 @@ function isNestedBuildLoginUrlArgs(
 function isFlatBuildLoginUrlArgs(
   value: BuildLoginUrlArgs | BuildLoginUrlFlatArgs | AuthConfig,
 ): value is BuildLoginUrlFlatArgs {
-  return "authUrl" in value && "redirectTo" in value && "handle" in value && "contract" in value;
+  return "authUrl" in value && "redirectTo" in value && "handle" in value &&
+    "contract" in value;
 }
 
-export function isBindSuccessResponse(response: BindResponse): response is BindSuccessResponse {
+export function isBindSuccessResponse(
+  response: BindResponse,
+): response is BindSuccessResponse {
   return response.status === "bound";
 }
 

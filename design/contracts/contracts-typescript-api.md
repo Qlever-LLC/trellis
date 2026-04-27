@@ -237,7 +237,7 @@ export const activity = defineServiceContract(
           call: ["Trellis.Catalog", "Trellis.Bindings.Get"],
         },
       }),
-      auth: auth.useDefaults({
+      auth: auth.use({
         events: {
           subscribe: ["Auth.Connect", "Auth.Disconnect"],
         },
@@ -310,8 +310,8 @@ Rules:
   `schemas` registry and `ref.schema(...)`
 - `uses` entries are expressed through SDK `use(...)` helpers rather than
   handwritten dependency objects in normal TypeScript code
-- SDK-specific convenience helpers such as `auth.useDefaults(...)` are allowed
-  when they still produce a normal `uses` declaration
+- SDK `use(...)` helpers are the normal way to declare non-baseline remote
+  dependencies
 - local transportable service RPC errors are declared through top-level `errors`
   entries created with `defineError(...)`
 - RPC `errors: [...]` entries should usually use `ref.error(...)` for both local

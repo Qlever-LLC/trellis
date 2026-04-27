@@ -20,10 +20,13 @@ import {
   type HealthCheckFn,
   type HealthCheckResult,
   runAllHealthChecks,
-  ServiceHealth,
   runHealthCheck,
+  ServiceHealth,
 } from "./health.ts";
-import { HealthHeartbeatSchema, HealthResponseSchema } from "./health_schemas.ts";
+import {
+  HealthHeartbeatSchema,
+  HealthResponseSchema,
+} from "./health_schemas.ts";
 
 /**
  * A simple TrellisError subclass for testing.
@@ -111,12 +114,15 @@ Deno.test("runHealthCheck", async (t) => {
     );
   });
 
-  await t.step("returns status 'ok' when check succeeds with true", async () => {
-    const result = await runHealthCheck("healthy-service", successCheck());
+  await t.step(
+    "returns status 'ok' when check succeeds with true",
+    async () => {
+      const result = await runHealthCheck("healthy-service", successCheck());
 
-    assertEquals(result.status, "ok");
-    assertEquals(result.error, undefined);
-  });
+      assertEquals(result.status, "ok");
+      assertEquals(result.error, undefined);
+    },
+  );
 
   await t.step("returns status 'failed' when check returns false", async () => {
     const result = await runHealthCheck("unhealthy-service", falseCheck());
@@ -124,16 +130,19 @@ Deno.test("runHealthCheck", async (t) => {
     assertEquals(result.status, "failed");
   });
 
-  await t.step("returns status 'failed' with error message when check fails", async () => {
-    const errorMessage = "Connection refused";
-    const result = await runHealthCheck(
-      "broken-service",
-      failCheck(errorMessage),
-    );
+  await t.step(
+    "returns status 'failed' with error message when check fails",
+    async () => {
+      const errorMessage = "Connection refused";
+      const result = await runHealthCheck(
+        "broken-service",
+        failCheck(errorMessage),
+      );
 
-    assertEquals(result.status, "failed");
-    assertEquals(result.error, errorMessage);
-  });
+      assertEquals(result.status, "failed");
+      assertEquals(result.error, errorMessage);
+    },
+  );
 });
 
 Deno.test("runAllHealthChecks", async (t) => {
@@ -200,25 +209,28 @@ Deno.test("runAllHealthChecks", async (t) => {
     );
   });
 
-  await t.step("returns 'degraded' when some checks pass and some fail", async () => {
-    const response = await runAllHealthChecks("partial-service", {
-      database: successCheck(),
-      cache: failCheck("Cache unreachable"),
-      queue: successCheck(),
-    });
+  await t.step(
+    "returns 'degraded' when some checks pass and some fail",
+    async () => {
+      const response = await runAllHealthChecks("partial-service", {
+        database: successCheck(),
+        cache: failCheck("Cache unreachable"),
+        queue: successCheck(),
+      });
 
-    assertEquals(response.status, "degraded");
-    assertEquals(response.checks.length, 3);
+      assertEquals(response.status, "degraded");
+      assertEquals(response.checks.length, 3);
 
-    const okCount = response.checks.filter(
-      (c: HealthCheckResult) => c.status === "ok",
-    ).length;
-    const failedCount = response.checks.filter(
-      (c: HealthCheckResult) => c.status === "failed",
-    ).length;
-    assertEquals(okCount, 2);
-    assertEquals(failedCount, 1);
-  });
+      const okCount = response.checks.filter(
+        (c: HealthCheckResult) => c.status === "ok",
+      ).length;
+      const failedCount = response.checks.filter(
+        (c: HealthCheckResult) => c.status === "failed",
+      ).length;
+      assertEquals(okCount, 2);
+      assertEquals(failedCount, 1);
+    },
+  );
 
   await t.step("returns 'healthy' when there are no checks", async () => {
     const response = await runAllHealthChecks("empty-service", {});
@@ -228,25 +240,28 @@ Deno.test("runAllHealthChecks", async (t) => {
     assertEquals(response.status, "healthy");
   });
 
-  await t.step("includes individual check results with correct names", async () => {
-    const response = await runAllHealthChecks("named-service", {
-      "primary-db": successCheck(),
-      "redis-cache": failCheck("Connection failed"),
-    });
+  await t.step(
+    "includes individual check results with correct names",
+    async () => {
+      const response = await runAllHealthChecks("named-service", {
+        "primary-db": successCheck(),
+        "redis-cache": failCheck("Connection failed"),
+      });
 
-    const dbCheck = response.checks.find(
-      (c: HealthCheckResult) => c.name === "primary-db",
-    );
-    const cacheCheck = response.checks.find(
-      (c: HealthCheckResult) => c.name === "redis-cache",
-    );
+      const dbCheck = response.checks.find(
+        (c: HealthCheckResult) => c.name === "primary-db",
+      );
+      const cacheCheck = response.checks.find(
+        (c: HealthCheckResult) => c.name === "redis-cache",
+      );
 
-    assert(dbCheck !== undefined, "primary-db check should exist");
-    assert(cacheCheck !== undefined, "redis-cache check should exist");
-    assertEquals(dbCheck.status, "ok");
-    assertEquals(cacheCheck.status, "failed");
-    assertEquals(cacheCheck.error, "Connection failed");
-  });
+      assert(dbCheck !== undefined, "primary-db check should exist");
+      assert(cacheCheck !== undefined, "redis-cache check should exist");
+      assertEquals(dbCheck.status, "ok");
+      assertEquals(cacheCheck.status, "failed");
+      assertEquals(cacheCheck.error, "Connection failed");
+    },
+  );
 });
 
 Deno.test("createHealthHeartbeat includes baseline service metadata", () => {

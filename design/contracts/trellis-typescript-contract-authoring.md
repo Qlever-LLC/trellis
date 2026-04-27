@@ -260,10 +260,10 @@ The `use(...)` helper:
 This makes imported SDK modules the source of truth for remote dependency names
 in TypeScript authoring.
 
-Some SDKs may also expose convenience wrappers around `use(...)`. For example,
-`@qlever-llc/trellis/sdk/auth` exposes `auth.useDefaults(...)`, which adds the
-baseline user-session RPC declarations `Auth.Me` and `Auth.Logout` before
-merging any additional requested auth surfaces.
+Some Trellis-owned surfaces are derived from the participant kind or local
+contract features. App, agent, and device contracts receive baseline auth RPCs
+such as `Auth.Me` and `Auth.Logout` without authoring boilerplate; contracts
+that need non-baseline auth surfaces still declare them with `auth.use(...)`.
 
 ### 3b) Named contract state stores
 
@@ -314,9 +314,9 @@ The TypeScript type system must enforce both of these rules:
 
 This makes two important guarantees in normal authoring: if an SDK does not
 expose `Auth.Nope`, then `auth.use({ events: { subscribe: ["Auth.Nope"] } })` is
-a type error, and if `Auth.Me` exists in the imported SDK but the local contract
-did not declare it in `uses` directly or through `auth.useDefaults(...)`, then
-`trellis.request("Auth.Me", ...)` is a type error for that participant.
+a type error, and if a non-baseline remote surface exists in an imported SDK but
+the local contract did not declare it in `uses`, then the corresponding runtime
+call is a type error for that participant.
 
 No separate linting or external analysis tool is required for this workflow. The
 contract object itself defines the allowed TypeScript runtime surface.
@@ -495,8 +495,8 @@ Expected type behavior:
 
 - `service.request("Trellis.Catalog", {})` is valid because it is declared in
   `uses`
-- `service.request("Auth.Me", {})` is a type error unless it is also declared in
-  `uses` directly or through `auth.useDefaults(...)`
+- `service.request("Auth.Me", {})` is a type error unless the service contract
+  explicitly declares that auth RPC in `uses`
 - `service.trellis.mount("Trellis.Catalog", ...)` is a type error because that
   RPC is used, not owned
 - `auth.use({ rpc: { call: ["Trellis.Catalog"] } })` is a type error because

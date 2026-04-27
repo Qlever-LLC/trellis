@@ -1,10 +1,10 @@
 import {
+  type AuthConfig,
+  type BrowserPortalFlowState as PortalFlowState,
   fetchPortalFlowState,
   portalFlowIdFromUrl,
   portalProviderLoginUrl,
-  type BrowserPortalFlowState as PortalFlowState,
   submitPortalApproval,
-  type AuthConfig,
 } from "../../trellis/auth/browser.ts";
 
 export type CreatePortalFlowConfig = AuthConfig & {
@@ -74,7 +74,9 @@ export class PortalFlowController {
     return this.#submit("denied");
   }
 
-  async #submit(decision: "approved" | "denied"): Promise<PortalFlowState | null> {
+  async #submit(
+    decision: "approved" | "denied",
+  ): Promise<PortalFlowState | null> {
     if (!this.flowId) {
       this.error = "Missing flow id.";
       return null;
@@ -84,7 +86,11 @@ export class PortalFlowController {
     this.error = null;
 
     try {
-      const state = await submitPortalApproval(this.#config, this.flowId, decision);
+      const state = await submitPortalApproval(
+        this.#config,
+        this.flowId,
+        decision,
+      );
       this.state = state;
       return state;
     } catch (error) {
@@ -96,6 +102,8 @@ export class PortalFlowController {
   }
 }
 
-export function createPortalFlow(config: CreatePortalFlowConfig): PortalFlowController {
+export function createPortalFlow(
+  config: CreatePortalFlowConfig,
+): PortalFlowController {
   return new PortalFlowController(config);
 }

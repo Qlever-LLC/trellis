@@ -32,7 +32,8 @@ export const activity = defineServiceContract(
   (ref) => ({
     id: "trellis.activity@v1",
     displayName: "Trellis Activity",
-    description: "Project authentication activity into queryable audit records.",
+    description:
+      "Project authentication activity into queryable audit records.",
     uses: {
       auth: trellisAuth.useDefaults({
         events: {
@@ -54,7 +55,8 @@ export const activity = defineServiceContract(
     resources: {
       kv: {
         activity: {
-          purpose: "Store normalized audit activity entries for the service projection.",
+          purpose:
+            "Store normalized audit activity entries for the service projection.",
           schema: ref.schema("ActivityEntry"),
           history: 1,
           ttlMs: 0,

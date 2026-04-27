@@ -78,7 +78,7 @@ uses: {
   core: core.use({
     rpc: { call: ["Trellis.Catalog"] },
   }),
-  auth: auth.useDefaults({
+  auth: auth.use({
     events: { subscribe: ["Auth.Connect"] },
   }),
 },

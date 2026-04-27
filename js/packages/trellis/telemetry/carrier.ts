@@ -1,4 +1,10 @@
-import { type Context, context, propagation, type Span, trace } from "@opentelemetry/api";
+import {
+  type Context,
+  context,
+  propagation,
+  type Span,
+  trace,
+} from "@opentelemetry/api";
 
 export interface HeaderCarrier {
   get(key: string): string | undefined;

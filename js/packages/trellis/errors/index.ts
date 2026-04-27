@@ -1,7 +1,7 @@
 import {
   UnexpectedError,
-  UnexpectedErrorDataSchema,
   type UnexpectedErrorData,
+  UnexpectedErrorDataSchema,
 } from "@qlever-llc/result";
 import { schema } from "../contract_support/mod.ts";
 import { AuthError } from "./AuthError.ts";
@@ -50,8 +50,14 @@ export {
 export { type RemoteErrorData, RemoteErrorDataSchema } from "./RemoteError.ts";
 export { type KVErrorData, KVErrorDataSchema } from "./KVError.ts";
 export { type StoreErrorData, StoreErrorDataSchema } from "./StoreError.ts";
-export { type TransportErrorData, TransportErrorDataSchema } from "./TransportError.ts";
-export { type TransferErrorData, TransferErrorDataSchema } from "./TransferError.ts";
+export {
+  type TransportErrorData,
+  TransportErrorDataSchema,
+} from "./TransportError.ts";
+export {
+  type TransferErrorData,
+  TransferErrorDataSchema,
+} from "./TransferError.ts";
 
 /**
  * Single source of truth for all Trellis errors.

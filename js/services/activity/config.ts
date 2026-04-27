@@ -46,7 +46,10 @@ export function getConfig(): ActivityConfig {
     sessionKeySeed: requireEnv("ACTIVITY_SESSION_KEY_SEED"),
     bootstrap: {
       pollMs: parseNumberEnv("ACTIVITY_BOOTSTRAP_POLL_MS", 4000),
-      timeoutMs: parseNumberEnv("ACTIVITY_BOOTSTRAP_TIMEOUT_MS", 15 * 60 * 1000),
+      timeoutMs: parseNumberEnv(
+        "ACTIVITY_BOOTSTRAP_TIMEOUT_MS",
+        15 * 60 * 1000,
+      ),
     },
   }) as ActivityConfig;
 }

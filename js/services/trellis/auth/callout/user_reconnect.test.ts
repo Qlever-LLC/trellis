@@ -35,7 +35,6 @@ function createSession(overrides: Partial<UserSession> = {}): UserSession {
       contractId: "trellis.console@v1",
       origin: "https://app.example.com",
     },
-    appOrigin: "https://app.example.com",
     approvalSource: "stored_approval",
     delegatedCapabilities: ["admin"],
     delegatedPublishSubjects: ["rpc.v1.Auth.Old"],

@@ -188,7 +188,6 @@ function buildSessionRow(session: Session, sessionKey: string): SessionListRow {
       },
       contractId: session.contractId,
       contractDisplayName: session.contractDisplayName,
-      ...(session.app?.origin ? { appOrigin: session.app.origin } : {}),
       createdAt: iso(session.createdAt),
       lastAuth: iso(session.lastAuth),
     };
@@ -260,7 +259,6 @@ function buildConnectionRow(
       },
       contractId: session.contractId,
       contractDisplayName: session.contractDisplayName,
-      ...(session.app?.origin ? { appOrigin: session.app.origin } : {}),
     };
   }
 
@@ -915,8 +913,6 @@ export const authLogoutHandler = async (
     { rpc: "Auth.Logout", sessionKey, userId: user.id },
     "RPC request",
   );
-  const sessionKeyId = `${sessionKey}.${user.trellisId}`;
-
   await sessionStorage.delete(sessionKey, user.trellisId);
 
   const connKeys = await connectionsKV.keys(

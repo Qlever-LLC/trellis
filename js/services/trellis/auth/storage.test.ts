@@ -1,9 +1,4 @@
-import {
-  assertEquals,
-  assertInstanceOf,
-  assertMatch,
-  assertRejects,
-} from "@std/assert";
+import { assertEquals, assertInstanceOf, assertMatch } from "@std/assert";
 import { eq } from "drizzle-orm";
 import type { StaticDecode } from "typebox";
 
@@ -695,13 +690,6 @@ Deno.test("session storage deletes by exact key and by session key prefix", asyn
     await sessionRepo.put("shared-session-key", second);
     await sessionRepo.put("service-session-key", service);
 
-    await assertRejects(
-      () => sessionRepo.getOneBySessionKey("shared-session-key"),
-      Error,
-      "Multiple sessions stored",
-    );
-
-    await sessionRepo.delete("shared-session-key", "github.user-1");
     assertEquals(
       await sessionRepo.get("shared-session-key", "github.user-1"),
       undefined,

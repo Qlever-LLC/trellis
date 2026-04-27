@@ -22,13 +22,12 @@ Deno.test("describeSessionPrincipal renders explicit user app and agent metadata
       },
       contractId: "trellis.console@v1",
       contractDisplayName: "Trellis Console",
-      appOrigin: "https://console.example.test",
       createdAt: "2026-04-10T00:00:00.000Z",
       lastAuth: "2026-04-10T01:00:00.000Z",
     }),
     {
       title: "Ada Lovelace",
-      details: "github.123 • origin https://console.example.test • Trellis Console (trellis.console@v1)",
+      details: "github.123 • Trellis Console (trellis.console@v1)",
     },
   );
 

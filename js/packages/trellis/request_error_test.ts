@@ -109,7 +109,10 @@ Deno.test("Trellis.request maps unavailable capability routes to TransportError"
     err: (error) => {
       assertInstanceOf(error, TransportError);
       assertEquals(error.code, "trellis.request.unavailable");
-      assertEquals(error.message, "Trellis could not reach the requested capability.");
+      assertEquals(
+        error.message,
+        "Trellis could not reach the requested capability.",
+      );
     },
   });
 });
@@ -139,7 +142,10 @@ Deno.test("Trellis.request maps denied request routes to TransportError", async 
     err: (error) => {
       assertInstanceOf(error, TransportError);
       assertEquals(error.code, "trellis.request.denied");
-      assertEquals(error.hint, "Sign in with a profile that has the required capability, then try again.");
+      assertEquals(
+        error.hint,
+        "Sign in with a profile that has the required capability, then try again.",
+      );
     },
   });
 });
@@ -205,7 +211,10 @@ Deno.test("Trellis.operation start maps unavailable capability routes to Transpo
     err: (error) => {
       assertInstanceOf(error, TransportError);
       assertEquals(error.code, "trellis.request.unavailable");
-      assertEquals(error.message, "Trellis could not reach the requested capability.");
+      assertEquals(
+        error.message,
+        "Trellis could not reach the requested capability.",
+      );
     },
   });
 });

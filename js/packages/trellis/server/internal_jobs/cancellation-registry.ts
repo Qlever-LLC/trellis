@@ -6,7 +6,11 @@ export class ActiveJobCancellationGuard {
   readonly #registry: ActiveJobCancellationRegistry;
   #disposed = false;
 
-  constructor(key: string, token: JobCancellationToken, registry: ActiveJobCancellationRegistry) {
+  constructor(
+    key: string,
+    token: JobCancellationToken,
+    registry: ActiveJobCancellationRegistry,
+  ) {
     this.#key = key;
     this.#token = token;
     this.#registry = registry;
@@ -25,7 +29,10 @@ export class ActiveJobCancellationRegistry {
   readonly #tokens = new Map<string, Set<JobCancellationToken>>();
   readonly #pending = new Set<string>();
 
-  register(key: string, token: JobCancellationToken): ActiveJobCancellationGuard {
+  register(
+    key: string,
+    token: JobCancellationToken,
+  ): ActiveJobCancellationGuard {
     const tokens = this.#tokens.get(key) ?? new Set<JobCancellationToken>();
     tokens.add(token);
     this.#tokens.set(key, tokens);

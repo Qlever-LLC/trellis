@@ -16,7 +16,11 @@ export type JobState = StaticDecode<typeof JobStateSchema>;
 
 export const JobLogEntrySchema = Type.Object({
   timestamp: Type.String({ format: "date-time" }),
-  level: Type.Union([Type.Literal("info"), Type.Literal("warn"), Type.Literal("error")]),
+  level: Type.Union([
+    Type.Literal("info"),
+    Type.Literal("warn"),
+    Type.Literal("error"),
+  ]),
   message: Type.String(),
 });
 
@@ -50,10 +54,12 @@ export const JobSchema = Type.Object({
   logs: Type.Optional(Type.Array(JobLogEntrySchema)),
 });
 
-export type Job<TPayload = unknown, TResult = unknown> = Omit<StaticDecode<typeof JobSchema>, "payload" | "result"> & {
-  payload: TPayload;
-  result?: TResult;
-};
+export type Job<TPayload = unknown, TResult = unknown> =
+  & Omit<StaticDecode<typeof JobSchema>, "payload" | "result">
+  & {
+    payload: TPayload;
+    result?: TResult;
+  };
 
 export const JobEventSchema = Type.Object({
   jobId: Type.String({ minLength: 1 }),
@@ -87,7 +93,8 @@ export const JobEventSchema = Type.Object({
 });
 
 export type JobEvent<TPayload = unknown, TResult = unknown> =
-  Omit<StaticDecode<typeof JobEventSchema>, "payload" | "result"> & {
+  & Omit<StaticDecode<typeof JobEventSchema>, "payload" | "result">
+  & {
     payload?: TPayload;
     result?: TResult;
   };

@@ -94,8 +94,8 @@ reviews, installed contracts, and resource bindings. Session expiry is enforced
 from each session's `lastAuth` timestamp using `ttlMs.sessions`.
 
 KV-backed records are limited to short-lived OAuth state, pending auth, browser
-flows, active connection presence, and entries exposed through the public Trellis
-State API.
+flows, active connection presence, and entries exposed through the public
+Trellis State API.
 
 ## Main runtime flows
 

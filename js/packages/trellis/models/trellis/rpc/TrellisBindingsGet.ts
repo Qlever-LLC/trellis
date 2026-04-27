@@ -7,10 +7,14 @@ export const TrellisBindingsGetRequestSchema = Type.Object({
   digest: Type.Optional(Type.String({ pattern: "^[A-Za-z0-9_-]+$" })),
 });
 
-export type TrellisBindingsGetRequest = Static<typeof TrellisBindingsGetRequestSchema>;
+export type TrellisBindingsGetRequest = Static<
+  typeof TrellisBindingsGetRequestSchema
+>;
 
 export const TrellisBindingsGetResponseSchema = Type.Object({
   binding: Type.Optional(InstalledServiceContractSchema),
 });
 
-export type TrellisBindingsGetResponse = Static<typeof TrellisBindingsGetResponseSchema>;
+export type TrellisBindingsGetResponse = Static<
+  typeof TrellisBindingsGetResponseSchema
+>;

@@ -1,5 +1,8 @@
 import type { JsMsg } from "@nats-io/jetstream";
-import type { InferSchemaType, TrellisAPI } from "@qlever-llc/trellis/contracts";
+import type {
+  InferSchemaType,
+  TrellisAPI,
+} from "@qlever-llc/trellis/contracts";
 
 /**
  * Context provided to event handlers with message metadata and acknowledgment controls.
@@ -33,11 +36,14 @@ export type SubscribeOpts = {
   consumerName?: string;
 };
 
-export type Events<TA extends TrellisAPI = TrellisAPI> = keyof TA["events"] & string;
+export type Events<TA extends TrellisAPI = TrellisAPI> =
+  & keyof TA["events"]
+  & string;
 
-export type Event<TA extends TrellisAPI, E extends Events<TA>> = InferSchemaType<
-  TA["events"][E]["event"]
->;
+export type Event<TA extends TrellisAPI, E extends Events<TA>> =
+  InferSchemaType<
+    TA["events"][E]["event"]
+  >;
 
 /**
  * Handler function for processing events.

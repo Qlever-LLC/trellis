@@ -60,7 +60,9 @@ export const UserParticipantKindSchema = Type.Union([
   Type.Literal("agent"),
 ]);
 
-export type UserParticipantKind = StaticDecode<typeof UserParticipantKindSchema>;
+export type UserParticipantKind = StaticDecode<
+  typeof UserParticipantKindSchema
+>;
 
 export const ContractApprovalSchema = Type.Object({
   contractDigest: ContractDigestSchema,

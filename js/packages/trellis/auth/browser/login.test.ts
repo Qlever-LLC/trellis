@@ -38,7 +38,8 @@ Deno.test("buildLoginUrl targets auth chooser when provider is omitted", async (
       return new Response(JSON.stringify({
         status: "flow_started",
         flowId: "flow-1",
-        loginUrl: "http://localhost:3000/_trellis/portal/users/login?flowId=flow-1",
+        loginUrl:
+          "http://localhost:3000/_trellis/portal/users/login?flowId=flow-1",
       }));
     }) as typeof fetch;
 
@@ -50,7 +51,10 @@ Deno.test("buildLoginUrl targets auth chooser when provider is omitted", async (
       context: { subtitle: "Welcome back" },
     });
 
-    assertEquals(url, "http://localhost:3000/_trellis/portal/users/login?flowId=flow-1");
+    assertEquals(
+      url,
+      "http://localhost:3000/_trellis/portal/users/login?flowId=flow-1",
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -86,15 +90,16 @@ Deno.test("buildLoginUrl preserves explicit provider selection through flow crea
 Deno.test("startAuthRequest returns bound immediately when auth auto-approves", async () => {
   const originalFetch = globalThis.fetch;
   try {
-    globalThis.fetch = (async () => new Response(JSON.stringify({
-      status: "bound",
-      inboxPrefix: "_INBOX.abc123",
-      expires: "2026-01-01T00:00:00.000Z",
-      sentinel: { jwt: "jwt", seed: "seed" },
-      transports: {
-        native: { natsServers: ["nats://localhost:4222"] },
-      },
-    }))) as typeof fetch;
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        status: "bound",
+        inboxPrefix: "_INBOX.abc123",
+        expires: "2026-01-01T00:00:00.000Z",
+        sentinel: { jwt: "jwt", seed: "seed" },
+        transports: {
+          native: { natsServers: ["nats://localhost:4222"] },
+        },
+      }))) as typeof fetch;
 
     const response = await startAuthRequest({
       authUrl: "http://localhost:3000",
@@ -118,7 +123,8 @@ Deno.test("startAuthRequest omits scalar context from both request body and sign
       return new Response(JSON.stringify({
         status: "flow_started",
         flowId: "flow-ctx",
-        loginUrl: "http://localhost:3000/_trellis/portal/users/login?flowId=flow-ctx",
+        loginUrl:
+          "http://localhost:3000/_trellis/portal/users/login?flowId=flow-ctx",
       }));
     }) as typeof fetch;
 
@@ -144,7 +150,7 @@ Deno.test("startAuthRequest signs provider, contract, and canonical context", as
       const body = JSON.parse(String(init?.body));
       const digest = await sha256(
         utf8(
-          "oauth-init:http://localhost:5173/profile:github:{\"capabilities\":[\"admin\"],\"id\":\"demo.app@v1\"}:{\"subtitle\":\"Welcome back\"}",
+          'oauth-init:http://localhost:5173/profile:github:{"capabilities":["admin"],"id":"demo.app@v1"}:{"subtitle":"Welcome back"}',
         ),
       );
       const verified = await crypto.subtle.verify(
@@ -188,12 +194,12 @@ Deno.test("bindFlow posts a flow-scoped bind request", async () => {
       assertEquals(body.sessionKey.length, 43);
       assertEquals(typeof body.sig, "string");
       assertEquals("authToken" in body, false);
-        return new Response(
-          JSON.stringify({
-            status: "bound",
-            inboxPrefix: "_INBOX.abc123",
-            expires: "2026-01-01T00:00:00.000Z",
-            sentinel: { jwt: "jwt", seed: "seed" },
+      return new Response(
+        JSON.stringify({
+          status: "bound",
+          inboxPrefix: "_INBOX.abc123",
+          expires: "2026-01-01T00:00:00.000Z",
+          sentinel: { jwt: "jwt", seed: "seed" },
           transports: {
             native: { natsServers: ["nats://localhost:4222"] },
             websocket: { natsServers: ["ws://localhost:8080"] },
@@ -238,11 +244,12 @@ Deno.test("bindFlow surfaces expired flow responses without a parse error", asyn
     }) as typeof fetch;
 
     await assertRejects(
-      () => bindFlow(
-        { authUrl: "http://localhost:3000" },
-        handle,
-        "flow-expired",
-      ),
+      () =>
+        bindFlow(
+          { authUrl: "http://localhost:3000" },
+          handle,
+          "flow-expired",
+        ),
       Error,
       "Bind failed: expired",
     );

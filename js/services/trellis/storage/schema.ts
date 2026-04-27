@@ -243,10 +243,7 @@ export const sessions = sqliteTable(
     session: text("session").notNull(),
   },
   (table) => [
-    unique("sessions_session_key_trellis_id_unique").on(
-      table.sessionKey,
-      table.trellisId,
-    ),
+    unique("sessions_session_key_unique").on(table.sessionKey),
   ],
 );
 

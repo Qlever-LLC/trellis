@@ -10,7 +10,9 @@ Deno.test("result package is published as @qlever-llc/result", async () => {
 });
 
 Deno.test("result package readme uses the standalone result package name", async () => {
-  const source = await Deno.readTextFile(new URL("../README.md", import.meta.url));
+  const source = await Deno.readTextFile(
+    new URL("../README.md", import.meta.url),
+  );
 
   assertStringIncludes(source, "@qlever-llc/result");
 });

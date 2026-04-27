@@ -81,31 +81,33 @@ function mergeUnknown(target: unknown, source: unknown): unknown {
 /**
  * Represents a watch event emitted when a KV entry changes.
  */
-export type WatchEvent<S extends TSchema> = {
-  /** The key that changed */
-  key: string;
-  /** The revision number of this change */
-  revision: number;
-  /** The timestamp when this change occurred */
-  timestamp: Date;
-} & (
-  | {
-    /** The type of change: "update" for new/modified values */
-    type: "update";
-    value: StaticDecode<S>;
+export type WatchEvent<S extends TSchema> =
+  & {
+    /** The key that changed */
+    key: string;
+    /** The revision number of this change */
+    revision: number;
+    /** The timestamp when this change occurred */
+    timestamp: Date;
   }
-  | {
-    /** The type of change: "delete" for deletions */
-    type: "delete";
-    value?: undefined;
-  }
-  | {
-    /** The type of change: "error" for invalid stored values */
-    type: "error";
-    error: ValidationError;
-    value?: undefined;
-  }
-);
+  & (
+    | {
+      /** The type of change: "update" for new/modified values */
+      type: "update";
+      value: StaticDecode<S>;
+    }
+    | {
+      /** The type of change: "delete" for deletions */
+      type: "delete";
+      value?: undefined;
+    }
+    | {
+      /** The type of change: "error" for invalid stored values */
+      type: "error";
+      error: ValidationError;
+      value?: undefined;
+    }
+  );
 
 /**
  * Options for the watch() method.
@@ -144,7 +146,9 @@ export class TypedKV<S extends TSchema> {
           : await kvm.create(name, {
             history: options.history ?? 1,
             ttl: options.ttl ?? 0,
-            ...(options.maxValueBytes ? { maxValueSize: options.maxValueBytes } : {}),
+            ...(options.maxValueBytes
+              ? { maxValueSize: options.maxValueBytes }
+              : {}),
           });
 
         if (!options.bindOnly) {
@@ -365,7 +369,9 @@ export class TypedKVEntry<S extends TSchema> {
     vcc?: boolean,
   ): AsyncResult<void, KVError | ValidationError> {
     const mergedData = mergeUnknown(this.#value, value);
-    const mergeResult = Result.try(() => serializeExternalValue(this.schema, mergedData));
+    const mergeResult = Result.try(() =>
+      serializeExternalValue(this.schema, mergedData)
+    );
     if (mergeResult.isErr()) {
       const cause = mergeResult.error.cause;
       if (cause instanceof ParseError) {
@@ -373,7 +379,11 @@ export class TypedKVEntry<S extends TSchema> {
         return AsyncResult.err(new ValidationError({ errors, cause }));
       }
       return AsyncResult.err(
-        new KVError({ operation: "merge", cause: mergeResult.error, context: { key: this.key } }),
+        new KVError({
+          operation: "merge",
+          cause: mergeResult.error,
+          context: { key: this.key },
+        }),
       );
     }
     return this.put(mergedData, vcc);
@@ -407,7 +417,11 @@ export class TypedKVEntry<S extends TSchema> {
         return Result.ok(undefined);
       } catch (cause) {
         return Result.err(
-          new KVError({ operation: "delete", cause, context: { key: this.key } }),
+          new KVError({
+            operation: "delete",
+            cause,
+            context: { key: this.key },
+          }),
         );
       }
     })());
@@ -433,7 +447,9 @@ async function createTypedKvEntry<S extends TSchema>(
     return Value.Parse(schema, json);
   });
   if (parseResult.isErr()) {
-    return Result.err(createValidationError(schema, entry, parseResult.error, json));
+    return Result.err(
+      createValidationError(schema, entry, parseResult.error, json),
+    );
   }
 
   const typedEntry = new TypedKVEntry(
@@ -464,7 +480,10 @@ function createValidationError(
 
   const error = cause instanceof Error ? cause : new Error(String(cause));
   return new ValidationError({
-    errors: [{ path: "", message: `Failed to decode KV value: ${error.message}` }],
+    errors: [{
+      path: "",
+      message: `Failed to decode KV value: ${error.message}`,
+    }],
     cause: error,
     context: {
       key: decodeSubject(entry.key),

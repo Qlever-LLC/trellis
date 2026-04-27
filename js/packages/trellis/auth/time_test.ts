@@ -1,9 +1,6 @@
 import { assertEquals } from "@std/assert";
 
-import {
-  correctedIatSeconds,
-  estimateMidpointClockOffsetMs,
-} from "./time.ts";
+import { correctedIatSeconds, estimateMidpointClockOffsetMs } from "./time.ts";
 
 Deno.test("estimateMidpointClockOffsetMs uses the request midpoint", () => {
   assertEquals(

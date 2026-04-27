@@ -201,8 +201,9 @@ export function startDisconnectCleanup(): BackgroundTaskHandle {
         );
         if (typeof userNkey !== "string" || userNkey.length === 0) continue;
 
-        const userNkeyFilter = connectionFilterForUserNkey(userNkey) ?? ">";
-        const keys = await connectionsKV.keys(userNkeyFilter).take();
+        const keys = await connectionsKV.keys(
+          connectionFilterForUserNkey(userNkey),
+        ).take();
         if (isErr(keys)) continue;
 
         for await (const key of keys) {
@@ -405,45 +406,13 @@ export function startAuthCallout(
         throw new Error("invalid_auth_token");
       }
 
-      let sessionEntry = await sessionStorage.listEntriesBySessionKey(
-        sessionKey,
-      );
-      let sessionKeyId: string | undefined;
-      if (sessionEntry.length > 0) {
-        const matches = sessionEntry;
-
-        if (matches.length > 1) {
-          const connIter = await connectionsKV.keys(
-            connectionFilterForSession(sessionKey),
-          ).take();
-          if (!isErr(connIter)) {
-            for await (const key of connIter) {
-              const entry = await connectionsKV.get(key).take();
-              if (!isErr(entry)) {
-                await kick(entry.value.serverId, entry.value.clientId);
-              }
-              await connectionsKV.delete(key);
-            }
-          }
-
-          for (const entry of matches) {
-            await sessionStorage.delete(entry.sessionKey, entry.trellisId);
-          }
-          throw new Error("session_corrupted");
-        }
-
-        if (matches.length === 1) {
-          sessionKeyId = `${matches[0].sessionKey}.${matches[0].trellisId}`;
-        }
-      }
-
-      if (!sessionKeyId) {
+      let session = await sessionStorage.getOneBySessionKey(sessionKey);
+      if (!session) {
         const service = await loadServiceInstanceByKey(sessionKey);
         if (service) {
           const profile = await loadServiceProfile(service.profileId);
           const trellisId = await trellisIdFromOriginId("service", sessionKey);
           const displayName = profile?.profileId ?? service.instanceId;
-          sessionKeyId = `${sessionKey}.${trellisId}`;
           await sessionStorage.put(sessionKey, {
             type: "service",
             trellisId,
@@ -466,7 +435,6 @@ export function startAuthCallout(
             authToken.contractDigest,
             opts.contractStore,
           );
-          sessionKeyId = `${sessionKey}.${deviceGrant.activation.instanceId}`;
           // The first successful runtime auth marks when an approved device was
           // actually used, which is distinct from the earlier review timestamp.
           await sessionStorage.put(sessionKey, {
@@ -491,12 +459,9 @@ export function startAuthCallout(
         } else {
           throw new Error("session_not_found");
         }
-        sessionEntry = await sessionStorage.listEntriesBySessionKey(sessionKey);
+        session = await sessionStorage.getOneBySessionKey(sessionKey);
       }
 
-      let session = sessionEntry.find((entry) =>
-        `${entry.sessionKey}.${entry.trellisId}` === sessionKeyId
-      )?.session;
       if (!session) throw new Error("session_not_found");
 
       if (session.type === "device") {

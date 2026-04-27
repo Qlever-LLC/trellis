@@ -295,6 +295,28 @@ Deno.test("contract store rejects exported schema names missing from the registr
   );
 });
 
+Deno.test("contract store rejects KV resource schema names missing from the registry", async () => {
+  const store = new ContractStore();
+
+  await assertRejects(
+    async () => {
+      await store.validate({
+        ...makeContract("kv-invalid@v1", "rpc.v1.Kv.Ping", "kv"),
+        resources: {
+          kv: {
+            cache: {
+              purpose: "Cache values",
+              schema: { schema: "MissingSchema" },
+            },
+          },
+        },
+      });
+    },
+    Error,
+    "resources.kv 'cache': unknown schema 'MissingSchema'",
+  );
+});
+
 Deno.test("contract store preserves top-level jobs when validating contracts", async () => {
   const store = new ContractStore();
 

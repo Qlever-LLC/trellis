@@ -15,7 +15,12 @@ export class NotificationsController {
   #nextId = 1;
   #timers = new SvelteMap<number, ReturnType<typeof globalThis.setTimeout>>();
 
-  push(title: string, message: string, tone: ToastTone = "info", duration = 4200): number {
+  push(
+    title: string,
+    message: string,
+    tone: ToastTone = "info",
+    duration = 4200,
+  ): number {
     const id = this.#nextId++;
     this.items = [...this.items, { id, title, message, tone }];
 
@@ -63,4 +68,6 @@ export class NotificationsController {
   }
 }
 
-export const [getNotifications, setNotifications] = createContext<NotificationsController>();
+export const [getNotifications, setNotifications] = createContext<
+  NotificationsController
+>();

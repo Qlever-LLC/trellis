@@ -315,7 +315,33 @@ Deno.test("defineAppContract emits top-level named state declarations", async ()
         schema: { schema: "Draft" },
       },
     },
+    uses: {
+      auth: {
+        contract: "trellis.auth@v1",
+        rpc: { call: ["Auth.Me", "Auth.Logout"] },
+      },
+      state: {
+        contract: "trellis.state@v1",
+        rpc: {
+          call: ["State.Get", "State.Put", "State.Delete", "State.List"],
+        },
+      },
+    },
   });
+
+  assertEquals(dashboard.API.used.rpc["Auth.Me"].subject, "rpc.v1.Auth.Me");
+  assertEquals(
+    dashboard.API.used.rpc["Auth.Logout"].subject,
+    "rpc.v1.Auth.Logout",
+  );
+  assertEquals(
+    dashboard.API.used.rpc["State.Get"].subject,
+    "rpc.v1.State.Get",
+  );
+  assertEquals(
+    dashboard.API.trellis.rpc["State.Put"].subject,
+    "rpc.v1.State.Put",
+  );
 
   assertEquals(
     dashboard.CONTRACT_DIGEST,

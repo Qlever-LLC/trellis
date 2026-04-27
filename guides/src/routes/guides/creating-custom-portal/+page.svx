@@ -41,22 +41,20 @@ deno add @qlever-llc/trellis @qlever-llc/trellis-svelte
 
 Passive portals that only handle sign-in and approval do not need a Trellis app contract, so this step can be skipped.
 
-Portals that keep going after login and call Trellis for the user need their own portal contract. Keep it in `contracts/portal.ts` next to your project manifest:
+Portals that keep going after login and call Trellis for the user need their own app contract. Keep it in `contracts/portal.ts` next to your project manifest:
 
 ```ts
-import { defineContract } from "@qlever-llc/trellis/contracts";
-import { auth } from "@qlever-llc/trellis/sdk/auth";
+import { defineAppContract } from "@qlever-llc/trellis/contracts";
 
-export const portalContract = defineContract({
+export const portalContract = defineAppContract(() => ({
   id: "my-portal@v1",
   displayName: "My Portal",
   description: "Portal-hosted app routes used after login.",
-  kind: "portal",
-  uses: {
-    auth: auth.useDefaults(),
-  },
-});
+}));
 ```
+
+Baseline app auth such as `Auth.Me` and `Auth.Logout` is derived automatically.
+Declare only additional Trellis-owned surfaces that the portal app needs.
 
 ## 3. Implement the portal flow
 

@@ -50,7 +50,11 @@ Deno.test("browser exports - TypedKVEntry class is exported", () => {
 
 Deno.test("browser exports - TypedStore class is exported", () => {
   assertExists(TypedStore, "TypedStore class should be exported");
-  assertEquals(typeof TypedStore, "function", "TypedStore should be a constructor");
+  assertEquals(
+    typeof TypedStore,
+    "function",
+    "TypedStore should be a constructor",
+  );
 });
 
 Deno.test("browser exports - TypedStoreEntry class is exported", () => {
@@ -121,8 +125,16 @@ Deno.test("browser exports - Error types are exported", () => {
     "RemoteError should be a constructor",
   );
   assertEquals(typeof KVError, "function", "KVError should be a constructor");
-  assertEquals(typeof StoreError, "function", "StoreError should be a constructor");
-  assertEquals(typeof TransferError, "function", "TransferError should be a constructor");
+  assertEquals(
+    typeof StoreError,
+    "function",
+    "StoreError should be a constructor",
+  );
+  assertEquals(
+    typeof TransferError,
+    "function",
+    "TransferError should be a constructor",
+  );
   assertEquals(
     typeof UnexpectedError,
     "function",

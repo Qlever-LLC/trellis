@@ -59,7 +59,8 @@ Deno.test("rewriteInternalNpmDependencies updates internal package specs", () =>
 });
 
 Deno.test("rewriteCargoManifestVersions updates workspace and internal dependency versions", () => {
-  const manifest = `[workspace.package]\nversion = "0.7.0"\n\n[dependencies]\ntrellis-client = { path = "../client", version = "0.7.0" }\nserde = { version = "1.0.228", features = ["derive"] }\n`;
+  const manifest =
+    `[workspace.package]\nversion = "0.7.0"\n\n[dependencies]\ntrellis-client = { path = "../client", version = "0.7.0" }\nserde = { version = "1.0.228", features = ["derive"] }\n`;
 
   assertEquals(
     rewriteCargoManifestVersions(manifest, "0.7.0-rc.1", "0.7.0"),
@@ -68,7 +69,8 @@ Deno.test("rewriteCargoManifestVersions updates workspace and internal dependenc
 });
 
 Deno.test("rewriteCargoManifestVersions fails when a checked-in dependency base version diverges", () => {
-  const manifest = `[dependencies]\ntrellis-client = { path = "../client", version = "0.6.0" }\n`;
+  const manifest =
+    `[dependencies]\ntrellis-client = { path = "../client", version = "0.6.0" }\n`;
   assertThrows(
     () => rewriteCargoManifestVersions(manifest, "0.7.0-rc.1", "0.7.0"),
     Error,

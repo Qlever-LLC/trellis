@@ -3,8 +3,7 @@ export function estimateMidpointClockOffsetMs(args: {
   responseReceivedAtMs: number;
   serverNowSeconds: number;
 }): number {
-  const midpointMs =
-    (args.requestStartedAtMs + args.responseReceivedAtMs) / 2;
+  const midpointMs = (args.requestStartedAtMs + args.responseReceivedAtMs) / 2;
   return args.serverNowSeconds * 1_000 - midpointMs;
 }
 

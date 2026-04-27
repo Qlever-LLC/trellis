@@ -5,7 +5,28 @@ import Type, {
   type TSchema,
 } from "typebox";
 import type { BaseError } from "@qlever-llc/result";
+import type { AuthMeResponse } from "../auth/protocol.ts";
 import { TrellisError } from "../errors/TrellisError.ts";
+import type {
+  AuthLogoutInput,
+  AuthLogoutResponse,
+} from "../models/auth/rpc/Logout.ts";
+import type {
+  StateDeleteInput,
+  StateDeleteResponse,
+} from "../models/trellis/rpc/StateDelete.ts";
+import type {
+  StateGetInput,
+  StateGetResponse,
+} from "../models/trellis/rpc/StateGet.ts";
+import type {
+  StateListInput,
+  StateListResponse,
+} from "../models/trellis/rpc/StateList.ts";
+import type {
+  StatePutInput,
+  StatePutResponse,
+} from "../models/trellis/rpc/StatePut.ts";
 import {
   canonicalizeJson,
   digestJson,
@@ -736,6 +757,34 @@ export type EmptyApi = {
   subjects: {};
 };
 
+type BaselineAuthApi = {
+  rpc: {
+    "Auth.Me": RPCDesc<Schema<Record<string, never>>, Schema<AuthMeResponse>>;
+    "Auth.Logout": RPCDesc<
+      Schema<AuthLogoutInput>,
+      Schema<AuthLogoutResponse>
+    >;
+  };
+  operations: {};
+  events: {};
+  subjects: {};
+};
+
+type BaselineStateApi = {
+  rpc: {
+    "State.Get": RPCDesc<Schema<StateGetInput>, Schema<StateGetResponse>>;
+    "State.Put": RPCDesc<Schema<StatePutInput>, Schema<StatePutResponse>>;
+    "State.Delete": RPCDesc<
+      Schema<StateDeleteInput>,
+      Schema<StateDeleteResponse>
+    >;
+    "State.List": RPCDesc<Schema<StateListInput>, Schema<StateListResponse>>;
+  };
+  operations: {};
+  events: {};
+  subjects: {};
+};
+
 export type ContractApiViews<
   TOwnedApi extends ApiShape,
   TUsedApi extends ApiShape,
@@ -1016,6 +1065,64 @@ type BuiltRpcDesc = {
   runtimeErrors?: readonly BuiltRuntimeErrorDesc[];
 };
 
+const TRELLIS_AUTH_CONTRACT_ID = "trellis.auth@v1";
+const TRELLIS_STATE_CONTRACT_ID = "trellis.state@v1";
+
+const BASELINE_AUTH_RPC_CALL = ["Auth.Me", "Auth.Logout"] as const;
+const BASELINE_STATE_RPC_CALL = [
+  "State.Get",
+  "State.Put",
+  "State.Delete",
+  "State.List",
+] as const;
+
+const UnknownRuntimeSchema = schema(Type.Unknown());
+
+function typedUnknownRuntimeSchema<T>(): Schema<T> {
+  return UnknownRuntimeSchema as Schema<T>;
+}
+
+function trellisRpcDesc<TInput, TOutput>(
+  name: string,
+): RPCDesc<Schema<TInput>, Schema<TOutput>> {
+  return {
+    subject: rpcSubject(name, "v1"),
+    input: typedUnknownRuntimeSchema<TInput>(),
+    output: typedUnknownRuntimeSchema<TOutput>(),
+    callerCapabilities: [],
+  };
+}
+
+const BASELINE_AUTH_API: BaselineAuthApi = {
+  rpc: {
+    "Auth.Me": trellisRpcDesc<Record<string, never>, AuthMeResponse>(
+      "Auth.Me",
+    ),
+    "Auth.Logout": trellisRpcDesc<AuthLogoutInput, AuthLogoutResponse>(
+      "Auth.Logout",
+    ),
+  },
+  operations: {},
+  events: {},
+  subjects: {},
+};
+
+const BASELINE_STATE_API: BaselineStateApi = {
+  rpc: {
+    "State.Get": trellisRpcDesc<StateGetInput, StateGetResponse>("State.Get"),
+    "State.Put": trellisRpcDesc<StatePutInput, StatePutResponse>("State.Put"),
+    "State.Delete": trellisRpcDesc<StateDeleteInput, StateDeleteResponse>(
+      "State.Delete",
+    ),
+    "State.List": trellisRpcDesc<StateListInput, StateListResponse>(
+      "State.List",
+    ),
+  },
+  operations: {},
+  events: {},
+  subjects: {},
+};
+
 type ProjectedRpc<
   T extends Readonly<Record<string, ContractSourceRpcMethod>> | undefined,
   TSchemas,
@@ -1120,6 +1227,23 @@ export type UsedApiFromUses<TUses> = [TUses] extends [undefined] ? EmptyApi
       >;
     }
   : EmptyApi;
+
+type ImplicitAuthApiForKind<TKind> = TKind extends "app" | "agent" | "device"
+  ? BaselineAuthApi
+  : EmptyApi;
+
+type ImplicitStateApiForSource<T> = [StateFromSource<T>] extends [undefined]
+  ? EmptyApi
+  : BaselineStateApi;
+
+type ImplicitTrellisApiFromSource<T> = T extends { kind: infer TKind }
+  ? MergeApis<ImplicitAuthApiForKind<TKind>, ImplicitStateApiForSource<T>>
+  : EmptyApi;
+
+export type UsedApiFromSource<T extends { uses?: unknown }> = MergeApis<
+  UsedApiFromUses<T["uses"]>,
+  ImplicitTrellisApiFromSource<T>
+>;
 
 export type MergeApis<TOwnedApi extends ApiShape, TUsedApi extends ApiShape> = {
   rpc: Simplify<TUsedApi["rpc"] & TOwnedApi["rpc"]>;
@@ -2806,6 +2930,179 @@ function normalizeUses(
   return { manifestUses, usedApi };
 }
 
+type NormalizedUse = {
+  manifestUse: ContractSourceUse;
+  api: TrellisApiLike;
+};
+
+function emptyApi(): TrellisApiLike {
+  return { rpc: {}, operations: {}, events: {}, subjects: {} };
+}
+
+function addUniqueStrings(target: string[], values: readonly string[]): void {
+  for (const value of values) {
+    if (!target.includes(value)) {
+      target.push(value);
+    }
+  }
+}
+
+function mergeUseIntoManifest(
+  manifestUses: Record<string, ContractSourceUse>,
+  alias: string,
+  use: ContractSourceUse,
+): void {
+  const existing = manifestUses[alias];
+  if (!existing) {
+    manifestUses[alias] = use;
+    return;
+  }
+
+  if (existing.contract !== use.contract) {
+    throw new Error(
+      `Contract use '${alias}' references both '${existing.contract}' and '${use.contract}'`,
+    );
+  }
+
+  const rpcCall = [...(existing.rpc?.call ?? [])];
+  addUniqueStrings(rpcCall, use.rpc?.call ?? []);
+  const operationsCall = [...(existing.operations?.call ?? [])];
+  addUniqueStrings(operationsCall, use.operations?.call ?? []);
+  const eventsPublish = [...(existing.events?.publish ?? [])];
+  addUniqueStrings(eventsPublish, use.events?.publish ?? []);
+  const eventsSubscribe = [...(existing.events?.subscribe ?? [])];
+  addUniqueStrings(eventsSubscribe, use.events?.subscribe ?? []);
+  const subjectsPublish = [...(existing.subjects?.publish ?? [])];
+  addUniqueStrings(subjectsPublish, use.subjects?.publish ?? []);
+  const subjectsSubscribe = [...(existing.subjects?.subscribe ?? [])];
+  addUniqueStrings(subjectsSubscribe, use.subjects?.subscribe ?? []);
+
+  manifestUses[alias] = {
+    contract: existing.contract,
+    ...(rpcCall.length > 0 ? { rpc: { call: rpcCall } } : {}),
+    ...(operationsCall.length > 0
+      ? { operations: { call: operationsCall } }
+      : {}),
+    ...((eventsPublish.length > 0 || eventsSubscribe.length > 0)
+      ? {
+        events: {
+          ...(eventsPublish.length > 0 ? { publish: eventsPublish } : {}),
+          ...(eventsSubscribe.length > 0 ? { subscribe: eventsSubscribe } : {}),
+        },
+      }
+      : {}),
+    ...((subjectsPublish.length > 0 || subjectsSubscribe.length > 0)
+      ? {
+        subjects: {
+          ...(subjectsPublish.length > 0 ? { publish: subjectsPublish } : {}),
+          ...(subjectsSubscribe.length > 0
+            ? { subscribe: subjectsSubscribe }
+            : {}),
+        },
+      }
+      : {}),
+  };
+}
+
+function mergeApiAllowDuplicateSubject(
+  kind: "rpc" | "operations" | "events" | "subjects",
+  out: Record<string, unknown>,
+  next: Record<string, unknown>,
+): void {
+  for (const [key, value] of Object.entries(next)) {
+    const existing = out[key];
+    if (existing !== undefined) {
+      const existingSubject = typeof existing === "object" && existing !== null
+        ? (existing as { subject?: unknown }).subject
+        : undefined;
+      const nextSubject = typeof value === "object" && value !== null
+        ? (value as { subject?: unknown }).subject
+        : undefined;
+      if (
+        typeof existingSubject === "string" && existingSubject === nextSubject
+      ) {
+        continue;
+      }
+      throw new Error(
+        `Duplicate ${kind} key '${key}' while deriving contract API`,
+      );
+    }
+    out[key] = value;
+  }
+}
+
+function mergeUseIntoApi(target: TrellisApiLike, api: TrellisApiLike): void {
+  mergeApiAllowDuplicateSubject("rpc", target.rpc, api.rpc);
+  mergeApiAllowDuplicateSubject(
+    "operations",
+    target.operations,
+    api.operations,
+  );
+  mergeApiAllowDuplicateSubject("events", target.events, api.events);
+  mergeApiAllowDuplicateSubject("subjects", target.subjects, api.subjects);
+}
+
+function baselineUse(
+  contract: string,
+  use: Omit<ContractSourceUse, "contract">,
+  api: TrellisApiLike,
+): NormalizedUse {
+  return { manifestUse: { contract, ...use }, api };
+}
+
+function deriveImplicitTrellisUses(source: DefineContractSource): Record<
+  string,
+  NormalizedUse
+> {
+  const uses: Record<string, NormalizedUse> = {};
+
+  if (
+    source.kind === "app" || source.kind === "agent" || source.kind === "device"
+  ) {
+    uses.auth = baselineUse(
+      TRELLIS_AUTH_CONTRACT_ID,
+      { rpc: { call: [...BASELINE_AUTH_RPC_CALL] } },
+      BASELINE_AUTH_API,
+    );
+  }
+
+  if (source.state) {
+    uses.state = baselineUse(
+      TRELLIS_STATE_CONTRACT_ID,
+      { rpc: { call: [...BASELINE_STATE_RPC_CALL] } },
+      BASELINE_STATE_API,
+    );
+  }
+
+  return uses;
+}
+
+function normalizeContractUses(source: DefineContractSource): {
+  manifestUses: Record<string, ContractSourceUse> | undefined;
+  usedApi: TrellisApiLike;
+} {
+  const explicit = normalizeUses(source.uses);
+  const manifestUses: Record<string, ContractSourceUse> = {
+    ...(explicit.manifestUses ?? {}),
+  };
+  const usedApi = emptyApi();
+  mergeUseIntoApi(usedApi, explicit.usedApi);
+
+  for (
+    const [alias, use] of Object.entries(deriveImplicitTrellisUses(source))
+  ) {
+    mergeUseIntoManifest(manifestUses, alias, use.manifestUse);
+    mergeUseIntoApi(usedApi, use.api);
+  }
+
+  return {
+    manifestUses: Object.keys(manifestUses).length > 0
+      ? manifestUses
+      : undefined,
+    usedApi,
+  };
+}
+
 function selectedKeys(keys: readonly string[] | undefined): readonly string[] {
   return keys ?? [];
 }
@@ -2886,7 +3183,7 @@ function defineContract(
   };
   assertExportedSchemasExist(source.schemas, source.exports);
 
-  const { manifestUses, usedApi } = normalizeUses(source.uses);
+  const { manifestUses, usedApi } = normalizeContractUses(source);
   const emittedSource: TrellisContractSource = {
     id: source.id,
     displayName: source.displayName,
@@ -3012,12 +3309,14 @@ export function defineServiceContract<
   OwnedApiFromSource<
     BuiltContractSource<TRegistry, WithKind<TBody, "service">>
   >,
-  UsedApiFromUses<TBody["uses"]>,
+  UsedApiFromSource<BuiltContractSource<TRegistry, WithKind<TBody, "service">>>,
   MergeApis<
     OwnedApiFromSource<
       BuiltContractSource<TRegistry, WithKind<TBody, "service">>
     >,
-    UsedApiFromUses<TBody["uses"]>
+    UsedApiFromSource<
+      BuiltContractSource<TRegistry, WithKind<TBody, "service">>
+    >
   >,
   TBody["id"],
   ProjectedJobs<
@@ -3051,12 +3350,16 @@ export function defineServiceContract<
     OwnedApiFromSource<
       BuiltContractSource<TRegistry, WithKind<TBody, "service">>
     >,
-    UsedApiFromUses<TBody["uses"]>,
+    UsedApiFromSource<
+      BuiltContractSource<TRegistry, WithKind<TBody, "service">>
+    >,
     MergeApis<
       OwnedApiFromSource<
         BuiltContractSource<TRegistry, WithKind<TBody, "service">>
       >,
-      UsedApiFromUses<TBody["uses"]>
+      UsedApiFromSource<
+        BuiltContractSource<TRegistry, WithKind<TBody, "service">>
+      >
     >,
     TBody["id"],
     ProjectedJobs<
@@ -3104,7 +3407,12 @@ function defineClientContract<
       WithKind<TBody, TKind>
     >
   >,
-  UsedApiFromUses<TBody["uses"]>,
+  UsedApiFromSource<
+    BuiltContractSource<
+      ClientContractRegistry<TSchemas>,
+      WithKind<TBody, TKind>
+    >
+  >,
   MergeApis<
     OwnedApiFromSource<
       BuiltContractSource<
@@ -3112,7 +3420,12 @@ function defineClientContract<
         WithKind<TBody, TKind>
       >
     >,
-    UsedApiFromUses<TBody["uses"]>
+    UsedApiFromSource<
+      BuiltContractSource<
+        ClientContractRegistry<TSchemas>,
+        WithKind<TBody, TKind>
+      >
+    >
   >,
   TBody["id"],
   {},
@@ -3141,7 +3454,12 @@ function defineClientContract<
         WithKind<TBody, TKind>
       >
     >,
-    UsedApiFromUses<TBody["uses"]>,
+    UsedApiFromSource<
+      BuiltContractSource<
+        ClientContractRegistry<TSchemas>,
+        WithKind<TBody, TKind>
+      >
+    >,
     MergeApis<
       OwnedApiFromSource<
         BuiltContractSource<
@@ -3149,7 +3467,12 @@ function defineClientContract<
           WithKind<TBody, TKind>
         >
       >,
-      UsedApiFromUses<TBody["uses"]>
+      UsedApiFromSource<
+        BuiltContractSource<
+          ClientContractRegistry<TSchemas>,
+          WithKind<TBody, TKind>
+        >
+      >
     >,
     TBody["id"],
     {},
@@ -3186,7 +3509,12 @@ export function defineAppContract<
       WithKind<TBody, "app">
     >
   >,
-  UsedApiFromUses<TBody["uses"]>,
+  UsedApiFromSource<
+    BuiltContractSource<
+      ClientContractRegistry<TSchemas>,
+      WithKind<TBody, "app">
+    >
+  >,
   MergeApis<
     OwnedApiFromSource<
       BuiltContractSource<
@@ -3194,7 +3522,12 @@ export function defineAppContract<
         WithKind<TBody, "app">
       >
     >,
-    UsedApiFromUses<TBody["uses"]>
+    UsedApiFromSource<
+      BuiltContractSource<
+        ClientContractRegistry<TSchemas>,
+        WithKind<TBody, "app">
+      >
+    >
   >,
   TBody["id"],
   {},
@@ -3220,10 +3553,10 @@ export function defineAppContract<
   const TBody extends ClientContractBodyInput<undefined, TUses>,
 >(build: () => TBody): DefinedContract<
   OwnedApiFromSource<WithKind<TBody, "app">>,
-  UsedApiFromUses<TBody["uses"]>,
+  UsedApiFromSource<WithKind<TBody, "app">>,
   MergeApis<
     OwnedApiFromSource<WithKind<TBody, "app">>,
-    UsedApiFromUses<TBody["uses"]>
+    UsedApiFromSource<WithKind<TBody, "app">>
   >,
   TBody["id"],
   {},
@@ -3268,7 +3601,12 @@ export function defineAgentContract<
       WithKind<TBody, "agent">
     >
   >,
-  UsedApiFromUses<TBody["uses"]>,
+  UsedApiFromSource<
+    BuiltContractSource<
+      ClientContractRegistry<TSchemas>,
+      WithKind<TBody, "agent">
+    >
+  >,
   MergeApis<
     OwnedApiFromSource<
       BuiltContractSource<
@@ -3276,7 +3614,12 @@ export function defineAgentContract<
         WithKind<TBody, "agent">
       >
     >,
-    UsedApiFromUses<TBody["uses"]>
+    UsedApiFromSource<
+      BuiltContractSource<
+        ClientContractRegistry<TSchemas>,
+        WithKind<TBody, "agent">
+      >
+    >
   >,
   TBody["id"],
   {},
@@ -3302,10 +3645,10 @@ export function defineAgentContract<
   const TBody extends ClientContractBodyInput<undefined, TUses>,
 >(build: () => TBody): DefinedContract<
   OwnedApiFromSource<WithKind<TBody, "agent">>,
-  UsedApiFromUses<TBody["uses"]>,
+  UsedApiFromSource<WithKind<TBody, "agent">>,
   MergeApis<
     OwnedApiFromSource<WithKind<TBody, "agent">>,
-    UsedApiFromUses<TBody["uses"]>
+    UsedApiFromSource<WithKind<TBody, "agent">>
   >,
   TBody["id"],
   {},
@@ -3350,7 +3693,12 @@ export function defineDeviceContract<
       WithKind<TBody, "device">
     >
   >,
-  UsedApiFromUses<TBody["uses"]>,
+  UsedApiFromSource<
+    BuiltContractSource<
+      ClientContractRegistry<TSchemas>,
+      WithKind<TBody, "device">
+    >
+  >,
   MergeApis<
     OwnedApiFromSource<
       BuiltContractSource<
@@ -3358,7 +3706,12 @@ export function defineDeviceContract<
         WithKind<TBody, "device">
       >
     >,
-    UsedApiFromUses<TBody["uses"]>
+    UsedApiFromSource<
+      BuiltContractSource<
+        ClientContractRegistry<TSchemas>,
+        WithKind<TBody, "device">
+      >
+    >
   >,
   TBody["id"],
   {},
@@ -3384,10 +3737,10 @@ export function defineDeviceContract<
   const TBody extends ClientContractBodyInput<undefined, TUses>,
 >(build: () => TBody): DefinedContract<
   OwnedApiFromSource<WithKind<TBody, "device">>,
-  UsedApiFromUses<TBody["uses"]>,
+  UsedApiFromSource<WithKind<TBody, "device">>,
   MergeApis<
     OwnedApiFromSource<WithKind<TBody, "device">>,
-    UsedApiFromUses<TBody["uses"]>
+    UsedApiFromSource<WithKind<TBody, "device">>
   >,
   TBody["id"],
   {},

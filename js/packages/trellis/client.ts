@@ -4,10 +4,7 @@ import type { ContractStateMetadata } from "./contract_support/mod.ts";
 import type { TrellisAPI } from "./contracts.ts";
 
 import type { LoggerLike } from "./globals.ts";
-import type {
-  RuntimeStateStoresForContract,
-  TrellisAuth,
-} from "./trellis.ts";
+import type { RuntimeStateStoresForContract, TrellisAuth } from "./trellis.ts";
 import { Trellis } from "./trellis.ts";
 
 type CoreSdkModule = {

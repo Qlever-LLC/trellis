@@ -167,6 +167,13 @@ preferencesApp.CONTRACT.state?.preferences.kind;
 preferencesApp.CONTRACT.state?.preferences.schema.schema;
 preferencesApp.CONTRACT.state?.drafts.kind;
 preferencesApp.CONTRACT.state?.drafts.schema.schema;
+preferencesApp.API.used.rpc["Auth.Me"].subject;
+preferencesApp.API.used.rpc["Auth.Logout"].subject;
+preferencesApp.API.used.rpc["State.Get"].subject;
+preferencesApp.API.used.rpc["State.Put"].subject;
+preferencesApp.API.used.rpc["State.Delete"].subject;
+preferencesApp.API.used.rpc["State.List"].subject;
+preferencesApp.API.trellis.rpc["State.Get"].subject;
 
 if (false) {
   defineAppContract(
@@ -436,6 +443,7 @@ const appContract = defineAppContract(() => ({
 }));
 
 appContract.API.used.rpc["Auth.Me"].subject;
+appContract.API.used.rpc["Auth.Logout"].subject;
 
 const deviceContract = defineDeviceContract(() => ({
   id: "trellis.builder-device@v1",
@@ -447,6 +455,7 @@ const deviceContract = defineDeviceContract(() => ({
 }));
 
 deviceContract.API.used.rpc["Auth.Logout"].subject;
+deviceContract.API.used.rpc["Auth.Me"].subject;
 
 if (false) {
   const invalidRpcSchemas = {

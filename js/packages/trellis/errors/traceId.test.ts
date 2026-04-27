@@ -38,180 +38,183 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn(t) {
-  await t.step("AuthError includes traceId when span is active", () => {
-    const tracer = getTracer();
-    const span = tracer.startSpan("test-span");
+    await t.step("AuthError includes traceId when span is active", () => {
+      const tracer = getTracer();
+      const span = tracer.startSpan("test-span");
 
-    withSpan(span, () => {
-      const error = new AuthError({ reason: "invalid_request" });
-      const serialized = error.toSerializable();
+      withSpan(span, () => {
+        const error = new AuthError({ reason: "invalid_request" });
+        const serialized = error.toSerializable();
 
-      assertExists(
-        serialized.traceId,
-        "traceId should be present when span is active",
-      );
-      assertEquals(typeof serialized.traceId, "string");
-      // TraceId should be a 32-character hex string
-      assertEquals(serialized.traceId?.length, 32);
+        assertExists(
+          serialized.traceId,
+          "traceId should be present when span is active",
+        );
+        assertEquals(typeof serialized.traceId, "string");
+        // TraceId should be a 32-character hex string
+        assertEquals(serialized.traceId?.length, 32);
+      });
+
+      span.end();
     });
 
-    span.end();
-  });
+    await t.step("ValidationError includes traceId when span is active", () => {
+      const tracer = getTracer();
+      const span = tracer.startSpan("test-span");
 
-  await t.step("ValidationError includes traceId when span is active", () => {
-    const tracer = getTracer();
-    const span = tracer.startSpan("test-span");
+      withSpan(span, () => {
+        const error = new ValidationError({
+          errors: [{ path: "/field", message: "required" }],
+        });
+        const serialized = error.toSerializable();
 
-    withSpan(span, () => {
+        assertExists(
+          serialized.traceId,
+          "traceId should be present when span is active",
+        );
+        assertEquals(typeof serialized.traceId, "string");
+      });
+
+      span.end();
+    });
+
+    await t.step("KVError includes traceId when span is active", () => {
+      const tracer = getTracer();
+      const span = tracer.startSpan("test-span");
+
+      withSpan(span, () => {
+        const error = new KVError({ operation: "get" });
+        const serialized = error.toSerializable();
+
+        assertExists(
+          serialized.traceId,
+          "traceId should be present when span is active",
+        );
+        assertEquals(typeof serialized.traceId, "string");
+      });
+
+      span.end();
+    });
+
+    await t.step("UnexpectedError includes traceId when span is active", () => {
+      const tracer = getTracer();
+      const span = tracer.startSpan("test-span");
+
+      withSpan(span, () => {
+        const error = new UnexpectedError();
+        const serialized = error.toSerializable();
+
+        assertExists(
+          serialized.traceId,
+          "traceId should be present when span is active",
+        );
+        assertEquals(typeof serialized.traceId, "string");
+      });
+
+      span.end();
+    });
+
+    await t.step("RemoteError includes traceId when span is active", () => {
+      const tracer = getTracer();
+      const span = tracer.startSpan("test-span");
+
+      withSpan(span, () => {
+        const error = new RemoteError({
+          error: {
+            id: "remote-123",
+            type: "AuthError",
+            message: "Auth failed: forbidden",
+            reason: "forbidden",
+          },
+        });
+        const serialized = error.toSerializable();
+
+        assertExists(
+          serialized.traceId,
+          "traceId should be present when span is active",
+        );
+        assertEquals(typeof serialized.traceId, "string");
+      });
+
+      span.end();
+    });
+
+    await t.step("AuthError omits traceId when no span is active", () => {
+      // Ensure no span is active by running outside any span context
+      const activeSpan = getActiveSpan();
+      assertEquals(
+        activeSpan,
+        undefined,
+        "No span should be active for this test",
+      );
+
+      const error = new AuthError({ reason: "session_expired" });
+      const serialized = error.toSerializable();
+
+      assertEquals(
+        serialized.traceId,
+        undefined,
+        "traceId should be undefined when no span active",
+      );
+    });
+
+    await t.step("ValidationError omits traceId when no span is active", () => {
       const error = new ValidationError({
-        errors: [{ path: "/field", message: "required" }],
+        errors: [{ path: "/name", message: "too short" }],
       });
       const serialized = error.toSerializable();
 
-      assertExists(
+      assertEquals(
         serialized.traceId,
-        "traceId should be present when span is active",
+        undefined,
+        "traceId should be undefined when no span active",
       );
-      assertEquals(typeof serialized.traceId, "string");
     });
 
-    span.end();
-  });
+    await t.step("traceId is included in JSON serialization", () => {
+      const tracer = getTracer();
+      const span = tracer.startSpan("test-span");
 
-  await t.step("KVError includes traceId when span is active", () => {
-    const tracer = getTracer();
-    const span = tracer.startSpan("test-span");
+      withSpan(span, () => {
+        const error = new AuthError({ reason: "forbidden" });
+        const json = error.toJSON();
+        const parsed = JSON.parse(json);
 
-    withSpan(span, () => {
-      const error = new KVError({ operation: "get" });
-      const serialized = error.toSerializable();
-
-      assertExists(
-        serialized.traceId,
-        "traceId should be present when span is active",
-      );
-      assertEquals(typeof serialized.traceId, "string");
-    });
-
-    span.end();
-  });
-
-  await t.step("UnexpectedError includes traceId when span is active", () => {
-    const tracer = getTracer();
-    const span = tracer.startSpan("test-span");
-
-    withSpan(span, () => {
-      const error = new UnexpectedError();
-      const serialized = error.toSerializable();
-
-      assertExists(
-        serialized.traceId,
-        "traceId should be present when span is active",
-      );
-      assertEquals(typeof serialized.traceId, "string");
-    });
-
-    span.end();
-  });
-
-  await t.step("RemoteError includes traceId when span is active", () => {
-    const tracer = getTracer();
-    const span = tracer.startSpan("test-span");
-
-    withSpan(span, () => {
-      const error = new RemoteError({
-        error: {
-          id: "remote-123",
-          type: "AuthError",
-          message: "Auth failed: forbidden",
-          reason: "forbidden",
-        },
+        assertExists(parsed.traceId, "traceId should be in JSON output");
+        assertEquals(typeof parsed.traceId, "string");
       });
-      const serialized = error.toSerializable();
 
-      assertExists(
-        serialized.traceId,
-        "traceId should be present when span is active",
-      );
-      assertEquals(typeof serialized.traceId, "string");
+      span.end();
     });
 
-    span.end();
-  });
+    await t.step("existing serialization fields are preserved", () => {
+      const tracer = getTracer();
+      const span = tracer.startSpan("test-span");
 
-  await t.step("AuthError omits traceId when no span is active", () => {
-    // Ensure no span is active by running outside any span context
-    const activeSpan = getActiveSpan();
-    assertEquals(
-      activeSpan,
-      undefined,
-      "No span should be active for this test",
-    );
+      withSpan(span, () => {
+        const error = new AuthError({
+          reason: "insufficient_permissions",
+          context: { resource: "documents" },
+          id: "test-error-id",
+        });
+        const serialized = error.toSerializable();
 
-    const error = new AuthError({ reason: "session_expired" });
-    const serialized = error.toSerializable();
-
-    assertEquals(
-      serialized.traceId,
-      undefined,
-      "traceId should be undefined when no span active",
-    );
-  });
-
-  await t.step("ValidationError omits traceId when no span is active", () => {
-    const error = new ValidationError({
-      errors: [{ path: "/name", message: "too short" }],
-    });
-    const serialized = error.toSerializable();
-
-    assertEquals(
-      serialized.traceId,
-      undefined,
-      "traceId should be undefined when no span active",
-    );
-  });
-
-  await t.step("traceId is included in JSON serialization", () => {
-    const tracer = getTracer();
-    const span = tracer.startSpan("test-span");
-
-    withSpan(span, () => {
-      const error = new AuthError({ reason: "forbidden" });
-      const json = error.toJSON();
-      const parsed = JSON.parse(json);
-
-      assertExists(parsed.traceId, "traceId should be in JSON output");
-      assertEquals(typeof parsed.traceId, "string");
-    });
-
-    span.end();
-  });
-
-  await t.step("existing serialization fields are preserved", () => {
-    const tracer = getTracer();
-    const span = tracer.startSpan("test-span");
-
-    withSpan(span, () => {
-      const error = new AuthError({
-        reason: "insufficient_permissions",
-        context: { resource: "documents" },
-        id: "test-error-id",
+        // Verify all existing fields still work
+        assertEquals(serialized.id, "test-error-id");
+        assertEquals(serialized.type, "AuthError");
+        assertEquals(
+          serialized.message,
+          "Auth failed: insufficient_permissions",
+        );
+        assertEquals(serialized.reason, "insufficient_permissions");
+        assertEquals(serialized.context?.resource, "documents");
+        // And traceId is added
+        assertExists(serialized.traceId);
       });
-      const serialized = error.toSerializable();
 
-      // Verify all existing fields still work
-      assertEquals(serialized.id, "test-error-id");
-      assertEquals(serialized.type, "AuthError");
-      assertEquals(serialized.message, "Auth failed: insufficient_permissions");
-      assertEquals(serialized.reason, "insufficient_permissions");
-      assertEquals(serialized.context?.resource, "documents");
-      // And traceId is added
-      assertExists(serialized.traceId);
+      span.end();
     });
 
-    span.end();
-  });
-
-  await testProvider.shutdown();
+    await testProvider.shutdown();
   },
 });

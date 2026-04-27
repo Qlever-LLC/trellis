@@ -1,6 +1,17 @@
-import { base64urlEncode, canonicalizeJsonValue, sha256, toArrayBuffer, utf8 } from "../utils.ts";
+import {
+  base64urlEncode,
+  canonicalizeJsonValue,
+  sha256,
+  toArrayBuffer,
+  utf8,
+} from "../utils.ts";
 import { createProof } from "../proof.ts";
-import { deleteKeyPair, hasKeyPair, loadKeyPair, storeKeyPair } from "./storage.ts";
+import {
+  deleteKeyPair,
+  hasKeyPair,
+  loadKeyPair,
+  storeKeyPair,
+} from "./storage.ts";
 
 export type SessionKeyHandle = {
   privateKey: CryptoKey;
@@ -16,12 +27,19 @@ export async function generateSessionKey(): Promise<SessionKeyHandle> {
     ["sign", "verify"],
   ) as CryptoKeyPair;
 
-  const publicKeyRaw = new Uint8Array(await crypto.subtle.exportKey("raw", keyPair.publicKey));
+  const publicKeyRaw = new Uint8Array(
+    await crypto.subtle.exportKey("raw", keyPair.publicKey),
+  );
   const sessionKey = base64urlEncode(publicKeyRaw);
 
   await storeKeyPair(keyPair, publicKeyRaw);
 
-  return { privateKey: keyPair.privateKey, publicKey: keyPair.publicKey, publicKeyRaw, sessionKey };
+  return {
+    privateKey: keyPair.privateKey,
+    publicKey: keyPair.publicKey,
+    publicKeyRaw,
+    sessionKey,
+  };
 }
 
 export async function loadSessionKey(): Promise<SessionKeyHandle | null> {
@@ -41,7 +59,10 @@ export async function getOrCreateSessionKey(): Promise<SessionKeyHandle> {
   return await generateSessionKey();
 }
 
-export async function signBytes(handle: SessionKeyHandle, data: Uint8Array): Promise<Uint8Array> {
+export async function signBytes(
+  handle: SessionKeyHandle,
+  data: Uint8Array,
+): Promise<Uint8Array> {
   const sig = await crypto.subtle.sign(
     { name: "Ed25519" },
     handle.privateKey,
@@ -64,19 +85,27 @@ export async function oauthInitSig(
   const canonicalContext = canonicalizeJsonValue(context ?? null);
   const payload = contract === undefined
     ? `${redirectTo}:${canonicalContext}`
-    : `${redirectTo}:${provider ?? ""}:${canonicalizeJsonValue(contract)}:${canonicalContext}`;
+    : `${redirectTo}:${provider ?? ""}:${
+      canonicalizeJsonValue(contract)
+    }:${canonicalContext}`;
   const digest = await sha256(utf8(`oauth-init:${payload}`));
   const sig = await signBytes(handle, digest);
   return base64urlEncode(sig);
 }
 
-export async function bindSig(handle: SessionKeyHandle, authToken: string): Promise<string> {
+export async function bindSig(
+  handle: SessionKeyHandle,
+  authToken: string,
+): Promise<string> {
   const digest = await sha256(utf8(`bind:${authToken}`));
   const sig = await signBytes(handle, digest);
   return base64urlEncode(sig);
 }
 
-export async function bindFlowSig(handle: SessionKeyHandle, flowId: string): Promise<string> {
+export async function bindFlowSig(
+  handle: SessionKeyHandle,
+  flowId: string,
+): Promise<string> {
   const digest = await sha256(utf8(`bind-flow:${flowId}`));
   const sig = await signBytes(handle, digest);
   return base64urlEncode(sig);
@@ -97,7 +126,11 @@ export async function createRpcProof(
   payload: Uint8Array,
 ): Promise<string> {
   const payloadHash = await sha256(payload);
-  return await createProof(handle.privateKey, { sessionKey: handle.sessionKey, subject, payloadHash });
+  return await createProof(handle.privateKey, {
+    sessionKey: handle.sessionKey,
+    subject,
+    payloadHash,
+  });
 }
 
 export async function clearSessionKey(): Promise<void> {
