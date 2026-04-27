@@ -122,18 +122,21 @@ Rules:
 
 - installed registry packages do not need aliases; let the package manager and
   normal resolver handle them
-- local generated service SDK packages need SvelteKit and Vite aliases unless
-  they are installed packages
+- local generated service SDK packages need SvelteKit aliases unless they are
+  installed packages
 - if Trellis itself is local-linked, alias the package root
   `@qlever-llc/trellis` and every Trellis subpath the app or generated SDKs
   import
-- do not rely on Vite regex aliases alone; SvelteKit's `kit.alias` generates the
-  `.svelte-kit/tsconfig.json` path mappings used by editor tooling and
-  `svelte-check`
-- prefer deriving aliases from the same Deno `imports` map used by the local
-  workspace instead of maintaining an independent frontend-only alias list
+- keep local frontend aliases in the app's `svelte.config.js` `kit.alias`
+  object; SvelteKit generates the `.svelte-kit/tsconfig.json` path mappings used
+  by editor tooling and `svelte-check`, and passes those aliases to Vite for
+  SvelteKit builds
+- do not duplicate the same local package mappings in `vite.config.js`
+- order explicit alias entries from most specific to least specific, with
+  Trellis subpaths before the `@qlever-llc/trellis` package root, because Vite
+  resolves aliases by prefix
 
-The Trellis repo's local frontend apps use `frontendWorkspaceAliases()` for Vite
-and `frontendWorkspaceSvelteAliases()` for SvelteKit. App workspaces that define
-their own local generated SDK package names should include those prefixes when
-building aliases, for example `@trellis-demo/` in the demo workspace.
+The Trellis repo's local frontend apps keep explicit `kit.alias` objects in each
+SvelteKit config. App workspaces that define their own local generated SDK
+package names should add those package names to their app-local aliases, for
+example `@trellis-demo/service-sdk` in the demo workspace.

@@ -72,6 +72,9 @@ root secret should reconnect without another approval step.
 ## Start The Browser App
 
 Start the Svelte Field Inspection Desk after prepare has generated the app SDK.
+The app keeps local Trellis package and generated SDK aliases explicitly in
+`demos/js/app/svelte.config.js`; `vite.config.js` should not duplicate those
+local package mappings.
 
 ```sh
 deno task -c demos/js/deno.json app
@@ -93,9 +96,8 @@ desk workflow:
   context.
 - `Assignments`: inspection queue backed by `Assignments.List` and `Sites.Get`
   RPC requests.
-- `Sites`: site status board backed by `Sites.List` and `Sites.Get` RPC
-  requests plus the `Sites.Refresh`
-  operation.
+- `Sites`: site status board backed by `Sites.List` and `Sites.Get` RPC requests
+  plus the `Sites.Refresh` operation.
 - `Reports`: report run workflow with `Reports.Generate` operation progress,
   completion, and cancel.
 - `Evidence`: evidence locker with `Evidence.Upload` send transfer and

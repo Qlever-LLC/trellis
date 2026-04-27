@@ -63,13 +63,13 @@ const config = {
 export default config;
 ```
 
-Mirror the same local package mapping in `vite.config.js` under
-`resolve.alias`, or generate both configs from a shared helper.
+Keep local package mappings in `svelte.config.js` under `kit.alias`. SvelteKit
+uses those aliases for generated TypeScript path mappings and for SvelteKit Vite
+builds, so do not duplicate the same local package aliases in `vite.config.js`.
 
-In Deno workspaces, prefer generating these aliases from the same `deno.json`
-`imports` map used by the workspace rather than maintaining a separate hand-written
-list. The Trellis repo's local apps use `frontendWorkspaceAliases()` and
-`frontendWorkspaceSvelteAliases()` as that shared source of truth.
+When aliasing a local Trellis checkout, list the specific subpaths before the
+`@qlever-llc/trellis` package root so Vite resolves the most specific match
+first.
 
 ## 2. Define the app contract
 
