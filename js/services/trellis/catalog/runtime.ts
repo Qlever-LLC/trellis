@@ -289,7 +289,6 @@ export function createContractsModule(opts: {
       persistOpts?.device &&
       (
         analyzed.summary.kvResources > 0 ||
-        analyzed.summary.streamResources > 0 ||
         analyzed.summary.jobsQueues > 0 ||
         validated.contract.resources !== undefined
       )

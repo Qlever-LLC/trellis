@@ -47,7 +47,6 @@ export {
   type ResourceBindingKV,
   type ResourceBindings,
   type ResourceBindingStore,
-  type ResourceBindingStream,
   type RpcHandler,
   type ServiceContract,
   type ServiceTrellis,

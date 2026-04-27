@@ -4,7 +4,8 @@ import type {
 } from "@qlever-llc/trellis/contracts";
 
 import {
-  digestJson,
+  canonicalizeJson,
+  digestContractManifest,
   isJsonValue,
   type JsonValue,
 } from "@qlever-llc/trellis/contracts";
@@ -387,7 +388,9 @@ export class ContractStore {
         description: contract.description,
       });
     }
-    entries.sort((a, b) => a.id.localeCompare(b.id));
+    entries.sort((a, b) =>
+      a.id.localeCompare(b.id) || a.digest.localeCompare(b.digest)
+    );
     return { format: "trellis.catalog.v1", contracts: entries };
   }
 
@@ -412,7 +415,8 @@ export class ContractStore {
     assertValidContractValue(raw);
     const contract = normalizeContract(raw);
     validateSchemaRefs(contract);
-    const { digest, canonical } = await digestJson(raw as JsonValue);
+    const canonical = canonicalizeJson(raw as JsonValue);
+    const digest = digestContractManifest(contract);
 
     return { digest, canonical, contract };
   }

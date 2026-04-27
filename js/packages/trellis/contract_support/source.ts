@@ -3,7 +3,7 @@ import { resolve, toFileUrl } from "@std/path";
 
 import {
   canonicalizeJson,
-  digestJson,
+  digestContractManifest,
   isJsonValue,
   type JsonValue,
   type TrellisContractV1,
@@ -47,7 +47,7 @@ export async function emitContractFromSource(
   const contract = await loadContractFromSource(sourcePath);
   const json = contract as JsonValue;
   const canonical = canonicalizeJson(json);
-  const { digest } = await digestJson(json);
+  const digest = digestContractManifest(contract);
   return { contract, canonical, digest };
 }
 

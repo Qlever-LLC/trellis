@@ -75,12 +75,6 @@ export type ContractAnalysis = {
       maxObjectBytes?: number;
       maxTotalBytes?: number;
     }>;
-    streams: Array<{
-      alias: string;
-      purpose: string;
-      required: boolean;
-      subjects: string[];
-    }>;
     jobs: Array<{
       queueType: string;
       payload: { schema: string };
@@ -105,7 +99,6 @@ export type ContractAnalysisSummary = {
   natsSubscribe: number;
   kvResources: number;
   storeResources: number;
-  streamResources: number;
   jobsQueues: number;
 };
 
@@ -240,7 +233,6 @@ export function analyzeContract(contract: TrellisContractV1): {
     natsSubscribe: subscribe.length,
     kvResources: resourceSummary.kvResources,
     storeResources: resourceSummary.storeResources,
-    streamResources: resourceSummary.streamResources,
     jobsQueues: resourceSummary.jobsQueues,
   };
 

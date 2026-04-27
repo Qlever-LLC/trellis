@@ -23,9 +23,9 @@ Deno.test("trellisAuth.useDefaults adds baseline auth rpc uses once", () => {
     contract: "trellis.auth@v1",
     rpc: {
       call: [
-        "Auth.Me",
-        "Auth.Logout",
         "Auth.ListApprovals",
+        "Auth.Logout",
+        "Auth.Me",
       ],
     },
   });

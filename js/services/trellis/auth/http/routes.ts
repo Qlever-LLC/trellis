@@ -76,6 +76,18 @@ function splitNatsServers(value: string): string[] {
   );
 }
 
+function parseApprovalRequest(value: unknown): boolean | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const entries = Object.entries(value);
+  if (entries.length !== 1 || entries[0]?.[0] !== "approved") {
+    return undefined;
+  }
+  const approved = entries[0][1];
+  return typeof approved === "boolean" ? approved : undefined;
+}
+
 export function registerHttpRoutes(
   app: Hono,
   opts: {
@@ -938,19 +950,8 @@ export function registerHttpRoutes(
     if (bodyResult.isErr()) {
       return c.json({ error: "Invalid JSON body" }, 400);
     }
-    const body = bodyResult.take() as {
-      approved?: boolean;
-      decision?: string;
-      reason?: string;
-    };
-    const approved = typeof body.approved === "boolean"
-      ? body.approved
-      : body.decision === "approved"
-      ? true
-      : body.decision === "denied"
-      ? false
-      : null;
-    if (approved === null) {
+    const approved = parseApprovalRequest(bodyResult.take());
+    if (approved === undefined) {
       return c.json({ error: "Invalid approval request" }, 400);
     }
 

@@ -130,21 +130,10 @@ async function connectJobsHandlerTestService(opts?: {
             resources: {
               kv: {},
               store: {},
-              streams: includeWorkStream
-                ? {
-                  jobsWork: {
-                    name: "JOBS_WORK",
-                    retention: "workqueue",
-                    storage: "file",
-                    subjects: [
-                      "trellis.work.jobs_handler_test.refreshSummaries",
-                    ],
-                  },
-                }
-                : {},
               jobs: {
                 namespace: "jobs_handler_test",
                 jobsStateBucket: "trellis_jobs",
+                ...(includeWorkStream ? { workStream: "JOBS_WORK" } : {}),
                 queues: {
                   refreshSummaries: {
                     queueType: "refreshSummaries",
@@ -442,7 +431,6 @@ Deno.test("TrellisService.connect uses bootstrap response transport details", as
               digest: core.CONTRACT_DIGEST,
               resources: {
                 kv: {},
-                streams: {},
                 jobs: {
                   namespace: "jobs",
                   queues: {},
@@ -547,7 +535,6 @@ Deno.test("TrellisService.connect retries once on iat_out_of_range using server 
             digest: core.CONTRACT_DIGEST,
             resources: {
               kv: {},
-              streams: {},
             },
           },
         }),

@@ -1,11 +1,11 @@
-import { assertEquals, assertThrows } from "@std/assert";
+import { assertEquals, assertNotEquals, assertThrows } from "@std/assert";
 import { Type } from "typebox";
 
-import { digestJson } from "./canonical.ts";
 import {
   defineAppContract,
   defineError,
   defineServiceContract,
+  digestContractManifest,
 } from "./mod.ts";
 import { unwrapSchema } from "./runtime.ts";
 
@@ -157,7 +157,7 @@ Deno.test("kind-specific helpers preserve emitted manifest shape and digest", as
   assertEquals(activity.API.trellis.rpc["Auth.Me"].subject, "rpc.v1.Auth.Me");
   assertEquals(
     activity.CONTRACT_DIGEST,
-    (await digestJson(activity.CONTRACT)).digest,
+    digestContractManifest(activity.CONTRACT),
   );
   assertEquals(auth.CONTRACT.exports, {
     schemas: ["StringValue"],
@@ -318,12 +318,12 @@ Deno.test("defineAppContract emits top-level named state declarations", async ()
     uses: {
       auth: {
         contract: "trellis.auth@v1",
-        rpc: { call: ["Auth.Me", "Auth.Logout"] },
+        rpc: { call: ["Auth.Logout", "Auth.Me"] },
       },
       state: {
         contract: "trellis.state@v1",
         rpc: {
-          call: ["State.Get", "State.Put", "State.Delete", "State.List"],
+          call: ["State.Delete", "State.Get", "State.List", "State.Put"],
         },
       },
     },
@@ -345,8 +345,246 @@ Deno.test("defineAppContract emits top-level named state declarations", async ()
 
   assertEquals(
     dashboard.CONTRACT_DIGEST,
-    (await digestJson(dashboard.CONTRACT)).digest,
+    digestContractManifest(dashboard.CONTRACT),
   );
+});
+
+Deno.test("contract digest ignores display metadata, exports, and unused schemas", () => {
+  const schemas = {
+    Used: Type.Object({ value: Type.String() }),
+    Unused: Type.Object({ label: Type.String() }),
+  } as const;
+
+  const first = defineServiceContract({ schemas }, (ref) => ({
+    id: "digest.projection@v1",
+    displayName: "Digest Projection",
+    description: "First description.",
+    exports: { schemas: ["Unused"] },
+    rpc: {
+      "Digest.Read": {
+        version: "v1",
+        input: ref.schema("Used"),
+        output: ref.schema("Used"),
+      },
+    },
+  }));
+
+  const second = defineServiceContract({
+    schemas: {
+      Used: schemas.Used,
+      Unused: Type.Object({ changed: Type.Boolean() }),
+    },
+  }, (ref) => ({
+    id: "digest.projection@v1",
+    displayName: "Renamed Digest Projection",
+    description: "Second description.",
+    exports: { schemas: ["Used", "Unused"] },
+    rpc: {
+      "Digest.Read": {
+        version: "v1",
+        input: ref.schema("Used"),
+        output: ref.schema("Used"),
+      },
+    },
+  }));
+
+  assertNotEquals(first.CONTRACT.displayName, second.CONTRACT.displayName);
+  assertNotEquals(first.CONTRACT.description, second.CONTRACT.description);
+  assertNotEquals(first.CONTRACT.exports, second.CONTRACT.exports);
+  assertNotEquals(
+    first.CONTRACT.schemas?.Unused,
+    second.CONTRACT.schemas?.Unused,
+  );
+  assertEquals(first.CONTRACT_DIGEST, second.CONTRACT_DIGEST);
+});
+
+Deno.test("contract digest normalizes capability order and duplicates", () => {
+  const first = defineServiceContract({ schemas: baseSchemas }, (ref) => ({
+    id: "digest.capabilities@v1",
+    displayName: "Digest Capabilities",
+    description: "Verify capability normalization.",
+    rpc: {
+      "Digest.Read": {
+        version: "v1",
+        input: ref.schema("Empty"),
+        output: ref.schema("StringValue"),
+        capabilities: { call: ["b", "a", "a"] },
+      },
+    },
+    events: {
+      "Digest.Changed": {
+        version: "v1",
+        event: ref.schema("StringValue"),
+        capabilities: {
+          publish: ["events.write", "events.admin", "events.write"],
+          subscribe: ["events.read", "events.audit", "events.read"],
+        },
+      },
+    },
+  }));
+
+  const second = defineServiceContract({ schemas: baseSchemas }, (ref) => ({
+    id: "digest.capabilities@v1",
+    displayName: "Digest Capabilities",
+    description: "Verify capability normalization.",
+    rpc: {
+      "Digest.Read": {
+        version: "v1",
+        input: ref.schema("Empty"),
+        output: ref.schema("StringValue"),
+        capabilities: { call: ["a", "b"] },
+      },
+    },
+    events: {
+      "Digest.Changed": {
+        version: "v1",
+        event: ref.schema("StringValue"),
+        capabilities: {
+          publish: ["events.admin", "events.write"],
+          subscribe: ["events.audit", "events.read"],
+        },
+      },
+    },
+  }));
+
+  assertEquals(first.CONTRACT.rpc?.["Digest.Read"]?.capabilities?.call, [
+    "a",
+    "b",
+  ]);
+  assertEquals(first.CONTRACT_DIGEST, second.CONTRACT_DIGEST);
+});
+
+Deno.test("contract digest normalizes uses logical-name order and duplicates", () => {
+  const dependency = defineServiceContract(
+    { schemas: baseSchemas },
+    (ref) => ({
+      id: "digest.dependency@v1",
+      displayName: "Digest Dependency",
+      description: "Expose dependency surfaces for use normalization.",
+      rpc: {
+        "Dependency.A": {
+          version: "v1",
+          input: ref.schema("Empty"),
+          output: ref.schema("StringValue"),
+        },
+        "Dependency.B": {
+          version: "v1",
+          input: ref.schema("Empty"),
+          output: ref.schema("StringValue"),
+        },
+      },
+    }),
+  );
+
+  const first = defineServiceContract({}, () => ({
+    id: "digest.uses@v1",
+    displayName: "Digest Uses",
+    description: "Verify uses normalization.",
+    uses: {
+      dependency: dependency.use({
+        rpc: { call: ["Dependency.B", "Dependency.A", "Dependency.A"] },
+      }),
+    },
+  }));
+
+  const second = defineServiceContract({}, () => ({
+    id: "digest.uses@v1",
+    displayName: "Digest Uses",
+    description: "Verify uses normalization.",
+    uses: {
+      dependency: dependency.use({
+        rpc: { call: ["Dependency.A", "Dependency.B"] },
+      }),
+    },
+  }));
+
+  assertEquals(first.CONTRACT.uses?.dependency.rpc?.call, [
+    "Dependency.A",
+    "Dependency.B",
+  ]);
+  assertEquals(first.CONTRACT_DIGEST, second.CONTRACT_DIGEST);
+});
+
+Deno.test("contract digest normalizes RPC error order and duplicates", () => {
+  const NotFoundError = defineError({
+    type: "NotFoundError",
+    fields: {},
+    message: "Not found",
+  });
+
+  const registry = {
+    schemas: { Empty: EmptySchema },
+    errors: { NotFoundError },
+  } as const;
+
+  const first = defineServiceContract(registry, (ref) => ({
+    id: "digest.errors@v1",
+    displayName: "Digest Errors",
+    description: "Verify RPC error normalization.",
+    rpc: {
+      "Digest.Read": {
+        version: "v1",
+        input: ref.schema("Empty"),
+        output: ref.schema("Empty"),
+        errors: [
+          ref.error("UnexpectedError"),
+          ref.error("NotFoundError"),
+          ref.error("UnexpectedError"),
+        ],
+      },
+    },
+  }));
+
+  const second = defineServiceContract(registry, (ref) => ({
+    id: "digest.errors@v1",
+    displayName: "Digest Errors",
+    description: "Verify RPC error normalization.",
+    rpc: {
+      "Digest.Read": {
+        version: "v1",
+        input: ref.schema("Empty"),
+        output: ref.schema("Empty"),
+        errors: [ref.error("NotFoundError"), ref.error("UnexpectedError")],
+      },
+    },
+  }));
+
+  assertEquals(first.CONTRACT.rpc?.["Digest.Read"]?.errors, [
+    { type: "NotFoundError" },
+    { type: "UnexpectedError" },
+  ]);
+  assertEquals(first.CONTRACT_DIGEST, second.CONTRACT_DIGEST);
+});
+
+Deno.test("contract digest changes for meaningful interface changes", () => {
+  const first = defineServiceContract({ schemas: baseSchemas }, (ref) => ({
+    id: "digest.meaningful@v1",
+    displayName: "Digest Meaningful",
+    description: "First interface.",
+    rpc: {
+      "Digest.Read": {
+        version: "v1",
+        input: ref.schema("Empty"),
+        output: ref.schema("StringValue"),
+      },
+    },
+  }));
+
+  const second = defineServiceContract({ schemas: baseSchemas }, (ref) => ({
+    id: "digest.meaningful@v1",
+    displayName: "Digest Meaningful",
+    description: "First interface.",
+    rpc: {
+      "Digest.Read": {
+        version: "v1",
+        input: ref.schema("Empty"),
+        output: ref.schema("StringValue"),
+        capabilities: { call: ["digest.read"] },
+      },
+    },
+  }));
+
+  assertNotEquals(first.CONTRACT_DIGEST, second.CONTRACT_DIGEST);
 });
 
 Deno.test("defineServiceContract derives local error schemas from defineError runtime metadata", () => {
@@ -575,28 +813,6 @@ Deno.test("defineServiceContract validates use(...) provenance and selected keys
   );
 });
 
-Deno.test("defineServiceContract emits stream resources with defaults", () => {
-  const contract = defineServiceContract({}, () => ({
-    id: "streams.example@v1",
-    displayName: "Streams Example",
-    description: "Expose stream resource declarations in emitted manifests.",
-    resources: {
-      streams: {
-        activity: {
-          purpose: "Persist activity events",
-          subjects: ["events.v1.Activity.Recorded"],
-        },
-      },
-    },
-  }));
-
-  assertEquals(contract.CONTRACT.resources?.streams?.activity, {
-    purpose: "Persist activity events",
-    required: true,
-    subjects: ["events.v1.Activity.Recorded"],
-  });
-});
-
 Deno.test("defineServiceContract emits KV resources with schema-backed defaults", () => {
   const kvSchemas = {
     Item: Type.Object({ value: Type.String() }),
@@ -625,68 +841,6 @@ Deno.test("defineServiceContract emits KV resources with schema-backed defaults"
     required: true,
     history: 1,
     ttlMs: 0,
-  });
-});
-
-Deno.test("defineServiceContract preserves rich stream resource configuration", () => {
-  const contract = defineServiceContract({}, () => ({
-    id: "streams.rich@v1",
-    displayName: "Rich Streams Example",
-    description:
-      "Expose advanced stream resource declarations in emitted manifests.",
-    resources: {
-      streams: {
-        jobs: {
-          purpose: "Store job events",
-          retention: "limits",
-          storage: "file",
-          numReplicas: 3,
-          maxAgeMs: 0,
-          maxBytes: -1,
-          maxMsgs: -1,
-          discard: "old",
-          subjects: ["trellis.jobs.>"],
-        },
-        jobsWork: {
-          purpose: "Store sourced work messages",
-          retention: "workqueue",
-          storage: "file",
-          numReplicas: 3,
-          subjects: ["trellis.work.>"],
-          sources: [{
-            fromAlias: "jobs",
-            filterSubject: "trellis.jobs.*.*.*.created",
-            subjectTransformDest: "trellis.work.$1.$2",
-          }],
-        },
-      },
-    },
-  }));
-
-  assertEquals(contract.CONTRACT.resources?.streams?.jobs, {
-    purpose: "Store job events",
-    required: true,
-    retention: "limits",
-    storage: "file",
-    numReplicas: 3,
-    maxAgeMs: 0,
-    maxBytes: -1,
-    maxMsgs: -1,
-    discard: "old",
-    subjects: ["trellis.jobs.>"],
-  });
-  assertEquals(contract.CONTRACT.resources?.streams?.jobsWork, {
-    purpose: "Store sourced work messages",
-    required: true,
-    retention: "workqueue",
-    storage: "file",
-    numReplicas: 3,
-    subjects: ["trellis.work.>"],
-    sources: [{
-      fromAlias: "jobs",
-      filterSubject: "trellis.jobs.*.*.*.created",
-      subjectTransformDest: "trellis.work.$1.$2",
-    }],
   });
 });
 

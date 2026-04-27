@@ -197,7 +197,6 @@ Deno.test({
                 digest: billing.CONTRACT_DIGEST,
                 resources: {
                   kv: {},
-                  streams: {},
                 },
               },
             }),
@@ -309,7 +308,6 @@ Deno.test({
                 digest: billing.CONTRACT_DIGEST,
                 resources: {
                   kv: {},
-                  streams: {},
                 },
               },
             }),
@@ -424,7 +422,6 @@ Deno.test({
                       maxTotalBytes: 4 * 1024 * 1024,
                     },
                   },
-                  streams: {},
                 },
               },
             }),

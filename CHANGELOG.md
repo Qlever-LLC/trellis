@@ -10,6 +10,9 @@ and this project adheres to
 
 ### Changed
 
+- Changed contract identity to hash a normalized runtime/interface digest
+  projection instead of human-facing manifest metadata, and removed
+  service-declared stream resources from the v1 contract/resource model.
 - Reworked service and device rollout management around explicit deployments:
   auth protocol, storage, runtime bootstrap, CLI, portals, docs, guides, and
   demos now use `ServiceDeployment` / `DeviceDeployment`, `deploymentId`, and

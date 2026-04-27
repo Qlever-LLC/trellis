@@ -28,7 +28,6 @@ Deno.test("trellis storage opens file-backed SQLite and persists contracts", asy
       natsSubscribe: 1,
       kvResources: 1,
       storeResources: 0,
-      streamResources: 0,
       jobsQueues: 0,
     };
     const analysis = {
@@ -73,7 +72,6 @@ Deno.test("trellis storage opens file-backed SQLite and persists contracts", asy
           ttlMs: 86_400_000,
         }],
         store: [],
-        streams: [],
         jobs: [],
       },
     };

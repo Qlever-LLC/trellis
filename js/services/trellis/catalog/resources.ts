@@ -40,32 +40,14 @@ export type JobsQueueRequest = {
   concurrency: number;
 };
 
-export type StreamResourceSourceRequest = {
+type StreamResourceSourceBinding = {
   fromAlias: string;
+  streamName: string;
   filterSubject?: string;
   subjectTransformDest?: string;
 };
 
-export type StreamResourceRequest = {
-  alias: string;
-  purpose: string;
-  required: boolean;
-  retention?: StreamRetentionPolicy;
-  storage?: StreamStorageType;
-  numReplicas?: number;
-  maxAgeMs?: number;
-  maxBytes?: number;
-  maxMsgs?: number;
-  discard?: StreamDiscardPolicy;
-  subjects: string[];
-  sources?: StreamResourceSourceRequest[];
-};
-
-export type StreamResourceSourceBinding = StreamResourceSourceRequest & {
-  streamName: string;
-};
-
-export type StreamResourceBinding = {
+type BuiltinStreamBinding = {
   name: string;
   retention?: StreamRetentionPolicy;
   storage?: StreamStorageType;
@@ -81,7 +63,6 @@ export type StreamResourceBinding = {
 export type ContractResourceAnalysis = {
   kv: KvResourceRequest[];
   store: StoreResourceRequest[];
-  streams: StreamResourceRequest[];
   jobs: JobsQueueRequest[];
 };
 
@@ -98,10 +79,10 @@ export type ContractResourceBindings = {
     maxObjectBytes?: number;
     maxTotalBytes?: number;
   }>;
-  streams?: Record<string, StreamResourceBinding>;
   jobs?: {
     namespace: string;
     jobsStateBucket?: string;
+    workStream: string;
     queues: Record<string, {
       queueType: string;
       publishPrefix: string;
@@ -154,7 +135,7 @@ export function getKvPermissionGrants(
 }
 
 const BUILTIN_JOBS_STATE_BUCKET = "trellis_jobs";
-const BUILTIN_JOBS_STREAMS: Record<string, StreamResourceBinding> = {
+const BUILTIN_JOBS_STREAMS: Record<string, BuiltinStreamBinding> = {
   jobs: {
     name: "JOBS",
     retention: "limits",
@@ -254,7 +235,7 @@ async function ensureStoreResource(
 
 async function ensureStreamResource(
   nats: NatsConnection,
-  stream: StreamResourceBinding,
+  stream: BuiltinStreamBinding,
 ): Promise<void> {
   const jsm = await jetstreamManager(nats);
   const config = toJetStreamStreamConfig(stream);
@@ -272,7 +253,7 @@ async function ensureStreamResource(
 }
 
 function toJetStreamStreamConfig(
-  stream: StreamResourceBinding,
+  stream: BuiltinStreamBinding,
   overrides?: { numReplicas?: number },
 ) {
   return {
@@ -313,53 +294,6 @@ function isStreamNotFoundError(error: unknown): boolean {
   return error instanceof Error && (
     error.name === "StreamNotFoundError" ||
     error.message.includes("stream not found")
-  );
-}
-
-function resolveStreamBindings(
-  streams: StreamResourceRequest[],
-  nameForAlias: (alias: string) => string,
-): Record<string, StreamResourceBinding> {
-  const names = Object.fromEntries(
-    streams.map((stream) => [stream.alias, nameForAlias(stream.alias)]),
-  );
-
-  return Object.fromEntries(
-    streams.map((stream) => [stream.alias, {
-      name: names[stream.alias],
-      ...(stream.retention ? { retention: stream.retention } : {}),
-      ...(stream.storage ? { storage: stream.storage } : {}),
-      ...(stream.numReplicas !== undefined
-        ? { numReplicas: stream.numReplicas }
-        : {}),
-      ...(stream.maxAgeMs !== undefined ? { maxAgeMs: stream.maxAgeMs } : {}),
-      ...(stream.maxBytes !== undefined ? { maxBytes: stream.maxBytes } : {}),
-      ...(stream.maxMsgs !== undefined ? { maxMsgs: stream.maxMsgs } : {}),
-      ...(stream.discard ? { discard: stream.discard } : {}),
-      subjects: [...stream.subjects],
-      ...(stream.sources
-        ? {
-          sources: stream.sources.map((source) => {
-            const streamName = names[source.fromAlias];
-            if (!streamName) {
-              throw new Error(
-                `Stream resource '${stream.alias}' references missing source alias '${source.fromAlias}'`,
-              );
-            }
-            return {
-              fromAlias: source.fromAlias,
-              streamName,
-              ...(source.filterSubject
-                ? { filterSubject: source.filterSubject }
-                : {}),
-              ...(source.subjectTransformDest
-                ? { subjectTransformDest: source.subjectTransformDest }
-                : {}),
-            };
-          }),
-        }
-        : {}),
-    }]),
   );
 }
 
@@ -520,83 +454,12 @@ export function getStoreResourceRequests(
     .sort((left, right) => left.alias.localeCompare(right.alias));
 }
 
-export function getStreamResourceRequests(
-  contract: TrellisContractV1,
-): StreamResourceRequest[] {
-  const resources = (contract as TrellisContractV1 & {
-    resources?: {
-      streams?: Record<string, {
-        purpose: string;
-        required?: boolean;
-        retention?: StreamRetentionPolicy;
-        storage?: StreamStorageType;
-        numReplicas?: number;
-        maxAgeMs?: number;
-        maxBytes?: number;
-        maxMsgs?: number;
-        discard?: StreamDiscardPolicy;
-        subjects: string[];
-        sources?: StreamResourceSourceRequest[];
-      }>;
-    };
-  }).resources;
-  const entries = Object.entries(resources?.streams ?? {}) as Array<[string, {
-    purpose: string;
-    required?: boolean;
-    retention?: StreamRetentionPolicy;
-    storage?: StreamStorageType;
-    numReplicas?: number;
-    maxAgeMs?: number;
-    maxBytes?: number;
-    maxMsgs?: number;
-    discard?: StreamDiscardPolicy;
-    subjects: string[];
-    sources?: StreamResourceSourceRequest[];
-  }]>;
-
-  return entries
-    .map(([alias, resource]) => ({
-      alias,
-      purpose: resource.purpose,
-      required: resource.required ?? true,
-      ...(resource.retention ? { retention: resource.retention } : {}),
-      ...(resource.storage ? { storage: resource.storage } : {}),
-      ...(resource.numReplicas !== undefined
-        ? { numReplicas: resource.numReplicas }
-        : {}),
-      ...(resource.maxAgeMs !== undefined
-        ? { maxAgeMs: resource.maxAgeMs }
-        : {}),
-      ...(resource.maxBytes !== undefined
-        ? { maxBytes: resource.maxBytes }
-        : {}),
-      ...(resource.maxMsgs !== undefined ? { maxMsgs: resource.maxMsgs } : {}),
-      ...(resource.discard ? { discard: resource.discard } : {}),
-      subjects: [...resource.subjects],
-      ...(resource.sources
-        ? {
-          sources: resource.sources.map((source) => ({
-            fromAlias: source.fromAlias,
-            ...(source.filterSubject
-              ? { filterSubject: source.filterSubject }
-              : {}),
-            ...(source.subjectTransformDest
-              ? { subjectTransformDest: source.subjectTransformDest }
-              : {}),
-          })),
-        }
-        : {}),
-    }))
-    .sort((left, right) => left.alias.localeCompare(right.alias));
-}
-
 export function getContractResourceAnalysis(
   contract: TrellisContractV1,
 ): ContractResourceAnalysis {
   return {
     kv: getKvResourceRequests(contract),
     store: getStoreResourceRequests(contract),
-    streams: getStreamResourceRequests(contract),
     jobs: getJobsQueueRequests(contract),
   };
 }
@@ -606,26 +469,16 @@ export function getContractResourceSummary(
 ): {
   kvResources: number;
   storeResources: number;
-  streamResources: number;
   jobsQueues: number;
 } {
   return {
     kvResources: getKvResourceRequests(contract).length,
     storeResources: getStoreResourceRequests(contract).length,
-    streamResources: getStreamResourceRequests(contract).length,
     jobsQueues: getJobsQueueRequests(contract).length,
   };
 }
 
 function buildKvBucketName(
-  serviceDeploymentId: string,
-  contractId: string,
-  alias: string,
-): string {
-  return buildResourceName(serviceDeploymentId, contractId, alias);
-}
-
-function buildStreamName(
   serviceDeploymentId: string,
   contractId: string,
   alias: string,
@@ -659,12 +512,10 @@ export async function provisionContractResourceBindings(
 ): Promise<ContractResourceBindings> {
   const requests = getKvResourceRequests(contract);
   const stores = getStoreResourceRequests(contract);
-  const streams = getStreamResourceRequests(contract);
   const jobs = getJobsQueueRequests(contract);
   if (
     requests.length === 0 &&
     stores.length === 0 &&
-    streams.length === 0 &&
     jobs.length === 0
   ) {
     return {};
@@ -729,21 +580,6 @@ export async function provisionContractResourceBindings(
     );
   }
 
-  if (streams.length > 0) {
-    const streamBindings = resolveStreamBindings(
-      streams,
-      (alias) => buildStreamName(serviceDeploymentId, contract.id, alias),
-    );
-    if (nats) {
-      await Promise.all(
-        Object.values(streamBindings).map((stream) =>
-          ensureStreamResource(nats, stream)
-        ),
-      );
-    }
-    bindings.streams = streamBindings;
-  }
-
   if (jobs.length > 0) {
     if (nats) {
       await ensureBuiltinJobsInfrastructure(nats);
@@ -752,6 +588,7 @@ export async function provisionContractResourceBindings(
     bindings.jobs = {
       namespace,
       jobsStateBucket: BUILTIN_JOBS_STATE_BUCKET,
+      workStream: "JOBS_WORK",
       queues: Object.fromEntries(
         jobs.map((queue) => {
           const queueToken = sanitizeToken(queue.queueType).slice(0, 48);
@@ -775,17 +612,6 @@ export async function provisionContractResourceBindings(
           }];
         }),
       ),
-    };
-
-    bindings.streams = {
-      ...(bindings.streams ?? {}),
-      jobsWork: {
-        name: "JOBS_WORK",
-        retention: BUILTIN_JOBS_STREAMS.jobsWork.retention,
-        storage: BUILTIN_JOBS_STREAMS.jobsWork.storage,
-        numReplicas: BUILTIN_JOBS_STREAMS.jobsWork.numReplicas,
-        subjects: [`trellis.work.${namespace}.>`],
-      },
     };
   }
 
@@ -820,21 +646,16 @@ export function getResourcePermissionGrants(
     publish.add(`$JS.FC.${stream}.>`);
   }
 
-  for (const streamBinding of Object.values(bindings?.streams ?? {})) {
-    for (const subject of streamBinding.subjects) {
-      publish.add(subject);
-    }
-    publish.add(`$JS.API.CONSUMER.DURABLE.CREATE.${streamBinding.name}.>`);
-    publish.add(`$JS.API.CONSUMER.INFO.${streamBinding.name}.>`);
-    publish.add(`$JS.API.CONSUMER.MSG.NEXT.${streamBinding.name}.>`);
-    publish.add(`$JS.ACK.${streamBinding.name}.>`);
-  }
-
   if (bindings?.jobs) {
     const namespace = bindings.jobs.namespace;
+    const workStream = bindings.jobs.workStream;
     publish.add(`trellis.jobs.${namespace}.>`);
     publish.add(`trellis.jobs.workers.${namespace}.>`);
     publish.add(`trellis.work.${namespace}.>`);
+    publish.add(`$JS.API.CONSUMER.DURABLE.CREATE.${workStream}.>`);
+    publish.add(`$JS.API.CONSUMER.INFO.${workStream}.>`);
+    publish.add(`$JS.API.CONSUMER.MSG.NEXT.${workStream}.>`);
+    publish.add(`$JS.ACK.${workStream}.>`);
     for (const queue of Object.values(bindings.jobs.queues)) {
       publish.add(queue.publishPrefix + ".>");
       publish.add(queue.workSubject);

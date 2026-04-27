@@ -63,7 +63,6 @@ function makeRecord(overrides: Partial<ContractRecord> = {}): ContractRecord {
       natsSubscribe: 1,
       kvResources: 1,
       storeResources: 0,
-      streamResources: 0,
       jobsQueues: 0,
     },
     analysis: {
@@ -108,7 +107,6 @@ function makeRecord(overrides: Partial<ContractRecord> = {}): ContractRecord {
           ttlMs: 86_400_000,
         }],
         store: [],
-        streams: [],
         jobs: [],
       },
     },

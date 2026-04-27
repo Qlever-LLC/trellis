@@ -28,6 +28,9 @@ export const TrellisContractSchema = Type.Object({
   schemas: Type.Optional(
     Type.Record(Type.String({ minLength: 1 }), OpenSchemaValueSchema),
   ),
+  exports: Type.Optional(Type.Object({
+    schemas: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+  })),
   uses: Type.Optional(
     Type.Record(Type.String({ minLength: 1 }), OpenValueSchema),
   ),

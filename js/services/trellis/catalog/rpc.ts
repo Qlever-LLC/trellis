@@ -52,6 +52,7 @@ function toRpcContract(
         ),
       }
       : {}),
+    ...(contract.exports ? { exports: contract.exports } : {}),
     ...(contract.uses ? { uses: contract.uses } : {}),
     ...(contract.state ? { state: contract.state } : {}),
     ...(contract.rpc ? { rpc: contract.rpc } : {}),

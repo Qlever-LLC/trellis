@@ -11,7 +11,6 @@ import {
   getKvResourceRequests,
   getResourcePermissionGrants,
   getStoreResourceRequests,
-  getStreamResourceRequests,
   provisionContractResourceBindings,
 } from "./resources.ts";
 
@@ -276,6 +275,7 @@ Deno.test("jobs provisioning returns queue bindings and grants worker heartbeat 
   assertEquals(bindings.jobs, {
     namespace: "document_activity_25c0dcc8dbcd",
     jobsStateBucket: "trellis_jobs",
+    workStream: "JOBS_WORK",
     queues: {
       "document-process": {
         queueType: "document-process",
@@ -294,13 +294,6 @@ Deno.test("jobs provisioning returns queue bindings and grants worker heartbeat 
         concurrency: 1,
       },
     },
-  });
-  assertEquals(bindings.streams?.jobsWork, {
-    name: "JOBS_WORK",
-    retention: "workqueue",
-    storage: "file",
-    numReplicas: 3,
-    subjects: ["trellis.work.document_activity_25c0dcc8dbcd.>"],
   });
 
   const grants = getResourcePermissionGrants(bindings);
@@ -324,251 +317,6 @@ Deno.test("jobs provisioning returns queue bindings and grants worker heartbeat 
     grants.publish.includes("$JS.API.CONSUMER.CREATE.JOBS_WORK.>"),
     false,
   );
-});
-
-Deno.test("stream resource requests apply defaults", () => {
-  const contract = {
-    ...CONTRACT,
-    resources: {
-      ...CONTRACT.resources,
-      streams: {
-        activity: {
-          purpose: "Persist activity events",
-          subjects: ["events.v1.Activity.Recorded"],
-        },
-      },
-    },
-  } as TrellisContractV1;
-
-  assertEquals(getStreamResourceRequests(contract), [
-    {
-      alias: "activity",
-      purpose: "Persist activity events",
-      required: true,
-      subjects: ["events.v1.Activity.Recorded"],
-    },
-  ]);
-});
-
-Deno.test("stream resource requests preserve advanced stream configuration", () => {
-  const contract = {
-    ...CONTRACT,
-    resources: {
-      streams: {
-        jobs: {
-          purpose: "Store job events",
-          retention: "limits",
-          storage: "file",
-          numReplicas: 3,
-          maxAgeMs: 0,
-          maxBytes: -1,
-          maxMsgs: -1,
-          discard: "old",
-          subjects: ["trellis.jobs.>"],
-        },
-        jobsWork: {
-          purpose: "Store sourced work messages",
-          retention: "workqueue",
-          storage: "file",
-          numReplicas: 3,
-          subjects: ["trellis.work.>"],
-          sources: [{
-            fromAlias: "jobs",
-            filterSubject: "trellis.jobs.*.*.*.created",
-            subjectTransformDest: "trellis.work.$1.$2",
-          }],
-        },
-      },
-    },
-  } as TrellisContractV1;
-
-  assertEquals(getStreamResourceRequests(contract), [
-    {
-      alias: "jobs",
-      purpose: "Store job events",
-      required: true,
-      retention: "limits",
-      storage: "file",
-      numReplicas: 3,
-      maxAgeMs: 0,
-      maxBytes: -1,
-      maxMsgs: -1,
-      discard: "old",
-      subjects: ["trellis.jobs.>"],
-    },
-    {
-      alias: "jobsWork",
-      purpose: "Store sourced work messages",
-      required: true,
-      retention: "workqueue",
-      storage: "file",
-      numReplicas: 3,
-      subjects: ["trellis.work.>"],
-      sources: [{
-        fromAlias: "jobs",
-        filterSubject: "trellis.jobs.*.*.*.created",
-        subjectTransformDest: "trellis.work.$1.$2",
-      }],
-    },
-  ]);
-});
-
-Deno.test("stream-only contracts produce stream bindings during provisioning", async () => {
-  const contract = {
-    ...CONTRACT,
-    resources: {
-      streams: {
-        activity: {
-          purpose: "Persist activity events",
-          subjects: ["events.v1.Activity.Recorded"],
-        },
-      },
-    },
-  } as TrellisContractV1;
-
-  const bindings = await provisionContractResourceBindings(
-    undefined,
-    contract,
-    "activity.default",
-  );
-
-  assertEquals(bindings.streams?.activity, {
-    name: "svc_activity_def_activity_v1_activity_e53e15ba0840",
-    subjects: ["events.v1.Activity.Recorded"],
-  });
-});
-
-Deno.test("stream provisioning resolves source stream names in bindings", async () => {
-  const contract = {
-    ...CONTRACT,
-    resources: {
-      streams: {
-        jobs: {
-          purpose: "Store job events",
-          retention: "limits",
-          storage: "file",
-          numReplicas: 3,
-          subjects: ["trellis.jobs.>"],
-        },
-        jobsWork: {
-          purpose: "Store sourced work messages",
-          retention: "workqueue",
-          storage: "file",
-          numReplicas: 3,
-          subjects: ["trellis.work.>"],
-          sources: [{
-            fromAlias: "jobs",
-            filterSubject: "trellis.jobs.*.*.*.created",
-            subjectTransformDest: "trellis.work.$1.$2",
-          }],
-        },
-      },
-    },
-  } as TrellisContractV1;
-
-  const bindings = await provisionContractResourceBindings(
-    undefined,
-    contract,
-    "jobs.default",
-  );
-
-  assertEquals(bindings.streams?.jobs, {
-    name: "svc_jobs_default_activity_v1_jobs_b915ee8b08c3",
-    retention: "limits",
-    storage: "file",
-    numReplicas: 3,
-    subjects: ["trellis.jobs.>"],
-  });
-  assertEquals(bindings.streams?.jobsWork, {
-    name: "svc_jobs_default_activity_v1_jobswork_0ceb35088468",
-    retention: "workqueue",
-    storage: "file",
-    numReplicas: 3,
-    subjects: ["trellis.work.>"],
-    sources: [{
-      fromAlias: "jobs",
-      streamName: "svc_jobs_default_activity_v1_jobs_b915ee8b08c3",
-      filterSubject: "trellis.jobs.*.*.*.created",
-      subjectTransformDest: "trellis.work.$1.$2",
-    }],
-  });
-});
-
-Deno.test("resource permission grants include stream subjects and durable consumer controls", () => {
-  const grants = getResourcePermissionGrants({
-    streams: {
-      activity: {
-        name: "svc_svc_test_activit_activity_v1_activity",
-        subjects: ["events.v1.Activity.Recorded"],
-      },
-    },
-  });
-
-  assertEquals(grants.publish.includes("events.v1.Activity.Recorded"), true);
-  assertEquals(
-    grants.publish.includes(
-      "$JS.API.CONSUMER.CREATE.svc_svc_test_activit_activity_v1_activity.>",
-    ),
-    false,
-  );
-  // Durable event and jobs consumers are created by the current NATS client.
-  assertEquals(
-    grants.publish.includes(
-      "$JS.API.CONSUMER.DURABLE.CREATE.svc_svc_test_activit_activity_v1_activity.>",
-    ),
-    true,
-  );
-  assertEquals(
-    grants.publish.includes(
-      "$JS.API.CONSUMER.INFO.svc_svc_test_activit_activity_v1_activity.>",
-    ),
-    true,
-  );
-  assertEquals(
-    grants.publish.includes(
-      "$JS.API.CONSUMER.MSG.NEXT.svc_svc_test_activit_activity_v1_activity.>",
-    ),
-    true,
-  );
-  assertEquals(
-    grants.publish.includes(
-      "$JS.ACK.svc_svc_test_activit_activity_v1_activity.>",
-    ),
-    true,
-  );
-});
-
-Deno.test({
-  name: "stream provisioning does not downgrade unsupported replica counts",
-  ignore: !RUN_NATS_TESTS,
-  async fn() {
-    await using nats = await NatsTest.start();
-
-    const contract = {
-      ...CONTRACT,
-      resources: {
-        streams: {
-          activity: {
-            purpose: "Persist activity events",
-            storage: "file",
-            numReplicas: 3,
-            subjects: ["events.v1.Activity.Recorded"],
-          },
-        },
-      },
-    } as TrellisContractV1;
-
-    await assertRejects(
-      () =>
-        provisionContractResourceBindings(
-          nats.nc,
-          contract,
-          "activity.default",
-        ),
-      Error,
-      "replicas > 1 not supported in non-clustered mode",
-    );
-  },
 });
 
 Deno.test({

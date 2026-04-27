@@ -1,15 +1,11 @@
-import type {
-  JsonValue,
-  TrellisContractV1,
-} from "@qlever-llc/trellis/contracts";
-import { digestJson } from "@qlever-llc/trellis/contracts";
+import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
+import { digestContractManifest } from "@qlever-llc/trellis/contracts";
 import { assertEquals, assertRejects } from "@std/assert";
 
 import { ContractStore } from "./store.ts";
 
-async function digestContract(contract: TrellisContractV1): Promise<string> {
-  const json: JsonValue = JSON.parse(JSON.stringify(contract));
-  return (await digestJson(json)).digest;
+function digestContract(contract: TrellisContractV1): string {
+  return digestContractManifest(contract);
 }
 
 function makeContract(
@@ -229,6 +225,33 @@ Deno.test("contract store catalog includes active contracts in id order", async 
       },
     ],
   });
+});
+
+Deno.test("contract store catalog orders active contracts by id then digest", () => {
+  const store = new ContractStore();
+  const graph = makeContract("graph@v1", "rpc.v1.Graph.Ping", "graph");
+  const graphNewer = makeContract(
+    "graph@v1",
+    "rpc.v1.Graph.Ping2",
+    "graph",
+  );
+  const auth = makeContract("auth@v1", "rpc.v1.Auth.Ping", "auth");
+
+  store.activate("graph-b", graphNewer);
+  store.activate("auth-a", auth);
+  store.activate("graph-a", graph);
+
+  assertEquals(
+    store.getActiveCatalog().contracts.map(({ id, digest }) => ({
+      id,
+      digest,
+    })),
+    [
+      { id: "auth@v1", digest: "auth-a" },
+      { id: "graph@v1", digest: "graph-a" },
+      { id: "graph@v1", digest: "graph-b" },
+    ],
+  );
 });
 
 Deno.test("contract store ignores unknown top-level contract fields", async () => {

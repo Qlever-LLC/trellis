@@ -192,8 +192,8 @@ Rules:
 - `kind` drives discovery behavior in bootstrap-safe generation flows: `service`
   contracts generate manifests and SDKs, while `app`, `agent`, and `device`
   contracts are verified.
-- `displayName` and `description` are part of the canonical manifest and
-  therefore part of the digest.
+- `displayName` and `description` are human-facing manifest metadata for
+  catalog, docs, and approval UI. They are not part of contract digest identity.
 - runtime service identity, install routing, and authorization boundaries MUST
   NOT be inferred from manifest metadata.
 - top-level object members not defined by the current runtime MAY be present for
@@ -535,40 +535,6 @@ Example:
         "maxObjectBytes": 104857600,
         "maxTotalBytes": 10737418240
       }
-    },
-    "streams": {
-      "jobs": {
-        "purpose": "Append-only job lifecycle stream",
-        "required": true,
-        "subjects": ["trellis.jobs.>"],
-        "retention": "limits",
-        "storage": "file",
-        "numReplicas": 3,
-        "discard": "old",
-        "maxMsgs": -1,
-        "maxBytes": -1,
-        "maxAgeMs": 0
-      },
-      "jobsWork": {
-        "purpose": "Work queue derived from created and retried jobs",
-        "required": true,
-        "subjects": ["trellis.work.>"],
-        "retention": "workqueue",
-        "storage": "file",
-        "numReplicas": 3,
-        "sources": [
-          {
-            "fromAlias": "jobs",
-            "filterSubject": "trellis.jobs.*.*.*.created",
-            "subjectTransformDest": "trellis.work.$1.$2"
-          },
-          {
-            "fromAlias": "jobs",
-            "filterSubject": "trellis.jobs.*.*.*.retried",
-            "subjectTransformDest": "trellis.work.$1.$2"
-          }
-        ]
-      }
     }
   }
 }
@@ -581,8 +547,7 @@ Rules:
 - aliases are part of the contract and are stable API surface for the service
 - the contract requests logical resources; Trellis assigns physical names and
   backing infrastructure at install or upgrade time
-- the v1 resource surface supports `resources.kv`, `resources.store`, and
-  `resources.streams`
+- the v1 resource surface supports `resources.kv` and `resources.store`
 - a KV request declares:
   - `purpose`: required human-facing explanation of why the service needs the
     resource
@@ -601,28 +566,6 @@ Rules:
     automatic expiry requested
   - `maxObjectBytes`: optional desired per-object maximum in bytes
   - `maxTotalBytes`: optional desired total-store maximum in bytes
-- a stream request declares:
-  - `purpose`: required human-facing explanation of why the service needs the
-    resource
-  - `required`: whether activation depends on successful provisioning; default
-    `true`
-  - `subjects`: one or more subjects bound to the stream
-  - `retention`: one of `limits`, `interest`, or `workqueue`
-  - `storage`: `file` or `memory`; default `file`
-  - `numReplicas`: desired replica count; default `1`
-  - `discard`: `old` or `new`; default `old`
-  - `maxMsgs`: message limit; default `-1`
-  - `maxBytes`: byte limit; default `-1`
-  - `maxAgeMs`: age limit in milliseconds; default `0`
-  - `sources`: optional list of source-stream descriptors
-- a source-stream descriptor declares:
-  - `fromAlias`: another stream alias in the same contract
-  - `filterSubject`: optional source filter subject
-  - `subjectTransformDest`: optional transformed destination subject
-- stream aliases are logical names, just like KV aliases; contracts do not
-  hard-code physical stream names
-- dynamic consumers are not part of the contract resource model in v1 and remain
-  runtime-created
 - install or upgrade approves the requested alias/type/spec, not general
   infrastructure-management credentials for the service
 
@@ -775,26 +718,38 @@ Rules:
 
 ### 12) Canonicalization and digest
 
-Contracts are content-addressed by canonical JSON digest.
+Contracts are content-addressed by the digest of a normalized runtime/interface
+projection derived from the canonical manifest.
 
 Canonicalization rules for v1:
 
 - the manifest must be a pure JSON value
 - numbers must be finite and must not use negative zero
 - object keys are sorted lexicographically during canonicalization
-- arrays preserve source order
+- arrays preserve source order during generic JSON canonicalization
 - the canonical JSON string contains no insignificant whitespace
 
 Digest rules for v1:
 
-- algorithm: SHA-256 over the canonical JSON string
+- algorithm: SHA-256 over the canonical JSON string for the digest projection
 - encoding: base64url without padding
+- the digest projection includes runtime identity and behavior: `format`, `id`,
+  `kind`, `state`, `uses`, `rpc`, `operations`, `events`, `subjects`, `jobs`,
+  `resources.kv`, `resources.store`, reachable schemas, and RPC-declared
+  reachable errors
+- the digest projection excludes `displayName`, `description`, `exports`, unused
+  schemas, and unused error declarations
+- set-like arrays such as capabilities, `uses.*` logical-name lists, and RPC
+  error lists are sorted and deduplicated before digesting
+- order-sensitive arrays such as event params, job backoff schedules, and JSON
+  Schema arrays keep their source order
 
 The digest is the deployment/runtime identity of one concrete contract artifact.
 
-This means different formatting does not change the digest, semantically
-different manifests produce different digests, and catalogs and registration
-workflows refer to contracts by digest.
+This means different formatting, display metadata changes, export-only changes,
+and unused local schema changes do not change the digest. Runtime/interface
+changes do change the digest, and catalogs and registration workflows refer to
+contracts by digest.
 
 ### 13) Catalog format
 
@@ -808,7 +763,9 @@ Shape:
   "contracts": [
     {
       "id": "graph@v1",
-      "digest": "<base64url-sha256>"
+      "digest": "<base64url-sha256>",
+      "displayName": "Graph Service",
+      "description": "Serve graph RPCs and publish graph change events."
     }
   ]
 }
@@ -817,7 +774,7 @@ Shape:
 Catalog rules:
 
 - the catalog contains only active contracts for the current deployment
-- entries are keyed by digest and include `id`
+- entries are keyed by digest and include `id`, `displayName`, and `description`
 - a catalog MAY contain multiple digests for the same `id`
 - when multiple digests share one `id`, the catalog still treats each digest as
   a separate active contract record
@@ -923,8 +880,8 @@ The `trellis` runtime service MUST:
 - bind each installed contract digest to the service principal public key that
   implements it, including Trellis-owned contracts bootstrapped onto the
   `trellis` service principal
-- support deployment-owned device deployment records that resolve a device class to
-  a contract lineage plus an allowed digest set
+- support deployment-owned device deployment records that resolve a device class
+  to a contract lineage plus an allowed digest set
 - support deployment-owned portal records, portal profiles, and login/device
   portal selection records for browser login and device-activation
   customization, with built-in Trellis portal paths as the fallback
@@ -935,14 +892,12 @@ The `trellis` runtime service MUST:
 
 Install or upgrade validation MUST also:
 
-- validate intra-contract resource references such as
-  `streams.*.sources[*].fromAlias`
 - reject impossible or unsafe resource combinations before provisioning begins
-- provision stream resources idempotently when requested
 - validate the exact `resources` requested by the digest being installed, even
   when other digests in the same lineage remain active
-- when install or activation is deployment-driven, validate that the digest being
-  bound is allowed by that deployment's contract lineage and allowed digest set
+- when install or activation is deployment-driven, validate that the digest
+  being bound is allowed by that deployment's contract lineage and allowed
+  digest set
 - portal records are deployment-owned routing config for browser UX only; they
   are not a contract kind and do not create portal-specific install or auth
   behavior

@@ -228,7 +228,6 @@ export const ContractAnalysisSummarySchema = Type.Object({
   kvResources: Type.Number(),
   storeResources: Type.Number(),
   jobsQueues: Type.Number(),
-  streamResources: Type.Number(),
 });
 
 export const ContractAnalysisKvResourceSchema = Type.Object({
@@ -263,26 +262,6 @@ export const ContractAnalysisJobsQueueSchema = Type.Object({
   logs: Type.Boolean(),
   dlq: Type.Boolean(),
   concurrency: Type.Number(),
-});
-
-export const ContractAnalysisStreamResourceSchema = Type.Object({
-  alias: Type.String({ minLength: 1 }),
-  purpose: Type.String({ minLength: 1 }),
-  required: Type.Boolean(),
-  retention: Type.Optional(Type.String({ minLength: 1 })),
-  storage: Type.Optional(Type.String({ minLength: 1 })),
-  numReplicas: Type.Optional(Type.Number()),
-  maxAgeMs: Type.Optional(Type.Number()),
-  maxBytes: Type.Optional(Type.Number()),
-  maxMsgs: Type.Optional(Type.Number()),
-  discard: Type.Optional(Type.String({ minLength: 1 })),
-  subjects: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
-  sources: Type.Optional(Type.Array(Type.Object({
-    fromAlias: Type.String({ minLength: 1 }),
-    streamName: Type.String({ minLength: 1 }),
-    filterSubject: Type.Optional(Type.String({ minLength: 1 })),
-    subjectTransformDest: Type.Optional(Type.String({ minLength: 1 })),
-  }))),
 });
 
 export const ContractAnalysisRpcMethodSchema = Type.Object({
@@ -329,7 +308,6 @@ export const ContractAnalysisSchema = Type.Object({
     kv: Type.Array(ContractAnalysisKvResourceSchema),
     store: Type.Array(ContractAnalysisStoreResourceSchema),
     jobs: Type.Array(ContractAnalysisJobsQueueSchema),
-    streams: Type.Array(ContractAnalysisStreamResourceSchema),
   }),
 });
 

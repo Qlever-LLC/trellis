@@ -27,7 +27,6 @@ export const ContractRecordSchema = Type.Object({
     natsSubscribe: Type.Number(),
     kvResources: Type.Number({ default: 0 }),
     storeResources: Type.Number({ default: 0 }),
-    streamResources: Type.Number({ default: 0 }),
     jobsQueues: Type.Number({ default: 0 }),
   }, { additionalProperties: false })),
   analysis: Type.Optional(Type.Object({
@@ -94,15 +93,6 @@ export const ContractRecordSchema = Type.Object({
         }, { additionalProperties: false }),
         { default: [] },
       ),
-      streams: Type.Array(
-        Type.Object({
-          alias: Type.String({ minLength: 1 }),
-          purpose: Type.String({ minLength: 1 }),
-          required: Type.Boolean(),
-          subjects: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
-        }, { additionalProperties: false }),
-        { default: [] },
-      ),
       jobs: Type.Array(
         Type.Object({
           queueType: Type.String({ minLength: 1 }),
@@ -127,7 +117,7 @@ export const ContractRecordSchema = Type.Object({
       ),
     }, {
       additionalProperties: false,
-      default: { kv: [], store: [], streams: [], jobs: [] },
+      default: { kv: [], store: [], jobs: [] },
     }),
   }, { additionalProperties: false })),
   resources: Type.Optional(ContractResourcesSchema),

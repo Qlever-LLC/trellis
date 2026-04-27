@@ -73,7 +73,6 @@ export function deriveDeviceRuntimeAccess(
   }
   if (
     analysis.resources.kv.length > 0 ||
-    analysis.resources.streams.length > 0 ||
     analysis.resources.jobs.length > 0 ||
     contractRecord.resources !== undefined
   ) {

@@ -1,5 +1,5 @@
 import {
-  digestJson,
+  digestContractManifest,
   type TrellisContractV1,
 } from "@qlever-llc/trellis/contracts";
 
@@ -21,20 +21,23 @@ import type {
 type BuiltinContract = { digest: string; contract: TrellisContractV1 };
 
 export async function resolveBuiltinContracts(): Promise<BuiltinContract[]> {
-  const [coreDigest, authDigest, healthDigest, stateDigest] = await Promise.all(
-    [
-      digestJson(trellisCoreContract),
-      digestJson(trellisAuthContract),
-      digestJson(trellisHealthContract),
-      digestJson(trellisStateContract),
-    ],
-  );
-
   return [
-    { digest: coreDigest.digest, contract: trellisCoreContract },
-    { digest: authDigest.digest, contract: trellisAuthContract },
-    { digest: healthDigest.digest, contract: trellisHealthContract },
-    { digest: stateDigest.digest, contract: trellisStateContract },
+    {
+      digest: digestContractManifest(trellisCoreContract),
+      contract: trellisCoreContract,
+    },
+    {
+      digest: digestContractManifest(trellisAuthContract),
+      contract: trellisAuthContract,
+    },
+    {
+      digest: digestContractManifest(trellisHealthContract),
+      contract: trellisHealthContract,
+    },
+    {
+      digest: digestContractManifest(trellisStateContract),
+      contract: trellisStateContract,
+    },
   ];
 }
 

@@ -143,7 +143,7 @@ export async function connectTrellisServiceInternal<
   });
 
   try {
-    let bindings: ResourceBindings = { kv: {}, store: {}, streams: {} };
+    let bindings: ResourceBindings = { kv: {}, store: {} };
     const contractKv = opts.contractKv ?? ({} as TKv);
 
     if (opts.contractId && opts.contractDigest) {
@@ -238,7 +238,6 @@ export async function connectTrellisServiceInternal<
       bindings = {
         kv: resolved.binding.resources?.kv ?? {},
         store: resolved.binding.resources?.store ?? {},
-        streams: resolved.binding.resources?.streams ?? {},
         ...(resolved.binding.resources?.jobs
           ? { jobs: resolved.binding.resources.jobs }
           : {}),

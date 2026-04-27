@@ -44,28 +44,6 @@ export const ContractStoreResourceSchema = Type.Object({
 
 export type ContractStoreResource = Static<typeof ContractStoreResourceSchema>;
 
-export const ContractStreamResourceSchema = Type.Object({
-  purpose: Type.String({ minLength: 1 }),
-  required: Type.Optional(Type.Boolean({ default: true })),
-  retention: Type.Optional(Type.String({ minLength: 1 })),
-  storage: Type.Optional(Type.String({ minLength: 1 })),
-  numReplicas: Type.Optional(Type.Integer({ minimum: 1 })),
-  maxAgeMs: Type.Optional(Type.Integer({ minimum: 0 })),
-  maxBytes: Type.Optional(Type.Integer()),
-  maxMsgs: Type.Optional(Type.Integer()),
-  discard: Type.Optional(Type.String({ minLength: 1 })),
-  subjects: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
-  sources: Type.Optional(Type.Array(Type.Object({
-    fromAlias: Type.String({ minLength: 1 }),
-    filterSubject: Type.Optional(Type.String({ minLength: 1 })),
-    subjectTransformDest: Type.Optional(Type.String({ minLength: 1 })),
-  }, { additionalProperties: false }))),
-}, { additionalProperties: false });
-
-export type ContractStreamResource = Static<
-  typeof ContractStreamResourceSchema
->;
-
 export const ContractStateStoreSchema = Type.Object({
   kind: Type.Union([
     Type.Literal("value"),
@@ -117,9 +95,6 @@ export const ContractResourcesSchema = Type.Object({
   store: Type.Optional(
     Type.Record(Type.String({ minLength: 1 }), ContractStoreResourceSchema),
   ),
-  streams: Type.Optional(
-    Type.Record(Type.String({ minLength: 1 }), ContractStreamResourceSchema),
-  ),
 }, { additionalProperties: false });
 
 export type ContractResources = Static<typeof ContractResourcesSchema>;
@@ -141,26 +116,6 @@ export const StoreResourceBindingSchema = Type.Object({
 });
 
 export type StoreResourceBinding = Static<typeof StoreResourceBindingSchema>;
-
-export const StreamResourceBindingSchema = Type.Object({
-  name: Type.String({ minLength: 1 }),
-  retention: Type.Optional(Type.String({ minLength: 1 })),
-  storage: Type.Optional(Type.String({ minLength: 1 })),
-  numReplicas: Type.Optional(Type.Integer({ minimum: 1 })),
-  maxAgeMs: Type.Optional(Type.Integer({ minimum: 0 })),
-  maxBytes: Type.Optional(Type.Integer()),
-  maxMsgs: Type.Optional(Type.Integer()),
-  discard: Type.Optional(Type.String({ minLength: 1 })),
-  subjects: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
-  sources: Type.Optional(Type.Array(Type.Object({
-    fromAlias: Type.String({ minLength: 1 }),
-    streamName: Type.String({ minLength: 1 }),
-    filterSubject: Type.Optional(Type.String({ minLength: 1 })),
-    subjectTransformDest: Type.Optional(Type.String({ minLength: 1 })),
-  }))),
-});
-
-export type StreamResourceBinding = Static<typeof StreamResourceBindingSchema>;
 
 export const JobsQueueBindingSchema = Type.Object({
   queueType: Type.String({ minLength: 1 }),
@@ -184,6 +139,7 @@ export type JobsQueueBinding = Static<typeof JobsQueueBindingSchema>;
 export const JobsResourceBindingSchema = Type.Object({
   namespace: Type.String({ minLength: 1 }),
   jobsStateBucket: Type.Optional(Type.String({ minLength: 1 })),
+  workStream: Type.Optional(Type.String({ minLength: 1 })),
   queues: Type.Record(Type.String({ minLength: 1 }), JobsQueueBindingSchema),
 });
 
@@ -195,9 +151,6 @@ export const ContractResourceBindingsSchema = Type.Object({
   ),
   store: Type.Optional(
     Type.Record(Type.String({ minLength: 1 }), StoreResourceBindingSchema),
-  ),
-  streams: Type.Optional(
-    Type.Record(Type.String({ minLength: 1 }), StreamResourceBindingSchema),
   ),
   jobs: Type.Optional(JobsResourceBindingSchema),
 });

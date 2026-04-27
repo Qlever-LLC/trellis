@@ -8,7 +8,6 @@ export {
   type OperationRegistration,
   type ResourceBindingKV,
   type ResourceBindings,
-  type ResourceBindingStream,
   type RpcHandler,
   type ServiceContract,
   type ServiceTrellis,

@@ -15,55 +15,6 @@
         },
         "ttlMs": 0
       }
-    },
-    "streams": {
-      "jobs": {
-        "discard": "old",
-        "maxAgeMs": 0,
-        "maxBytes": -1,
-        "maxMsgs": -1,
-        "numReplicas": 3,
-        "purpose": "Store append-only job lifecycle events for projection and replay.",
-        "required": true,
-        "retention": "limits",
-        "storage": "file",
-        "subjects": [
-          "trellis.jobs.>"
-        ]
-      },
-      "jobsAdvisories": {
-        "maxAgeMs": 604800000,
-        "numReplicas": 1,
-        "purpose": "Store max-deliver advisory events for durable dead-letter mapping.",
-        "required": true,
-        "retention": "limits",
-        "storage": "file",
-        "subjects": [
-          "$JS.EVENT.ADVISORY.CONSUMER.MAX_DELIVERIES.JOBS_WORK.>"
-        ]
-      },
-      "jobsWork": {
-        "numReplicas": 3,
-        "purpose": "Store sourced work-queue messages for per-job-type consumers.",
-        "required": true,
-        "retention": "workqueue",
-        "sources": [
-          {
-            "filterSubject": "trellis.jobs.*.*.*.created",
-            "fromAlias": "jobs",
-            "subjectTransformDest": "trellis.work.$1.$2"
-          },
-          {
-            "filterSubject": "trellis.jobs.*.*.*.retried",
-            "fromAlias": "jobs",
-            "subjectTransformDest": "trellis.work.$1.$2"
-          }
-        ],
-        "storage": "file",
-        "subjects": [
-          "trellis.work.>"
-        ]
-      }
     }
   },
   "rpc": {

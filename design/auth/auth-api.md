@@ -264,6 +264,14 @@ Rules:
 - auth trusts only the active browser flow identified by `flowId` and the
   server-owned state attached to that flow
 
+Request:
+
+```ts
+{
+  approved: boolean;
+}
+```
+
 ### POST /auth/flow/:flowId/bind
 
 Binds a session key to an authenticated identity and approved contract digest

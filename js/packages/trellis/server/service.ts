@@ -118,6 +118,7 @@ type ResourceBindingJobsQueue = {
 type ResourceBindingJobs = {
   namespace: string;
   jobsStateBucket?: string;
+  workStream?: string;
   queues: Record<string, ResourceBindingJobsQueue>;
 };
 
@@ -220,15 +221,9 @@ export type ResourceBindingStore = {
   maxTotalBytes?: number;
 };
 
-export type ResourceBindingStream = {
-  name: string;
-  [key: string]: unknown;
-};
-
 export type ResourceBindings = {
   kv: Record<string, ResourceBindingKV>;
   store: Record<string, ResourceBindingStore>;
-  streams: Record<string, ResourceBindingStream>;
   jobs?: ResourceBindingJobs;
 };
 
@@ -1627,7 +1622,6 @@ export class TrellisService<
   readonly #handlerTrellis: Trellis<TTrellisApi, TKv, TJobs>;
   readonly kv: ServiceKvFacade<TKv>;
   readonly store: Record<string, StoreHandle>;
-  readonly streams: Record<string, ResourceBindingStream>;
   readonly jobs: JobsFacadeOf<TJobs, TTrellisApi, TKv>;
   readonly health: ServiceHealth;
   /** Framework-neutral lifecycle handle for the service runtime connection. */
@@ -1654,7 +1648,6 @@ export class TrellisService<
     connection: TrellisConnection,
   ) {
     const storeBindings = bindings.store ?? {};
-    const streamBindings = bindings.streams ?? {};
 
     this.name = name;
     this.auth = auth;
@@ -1673,14 +1666,13 @@ export class TrellisService<
       ) => [alias, new StoreHandle(nc, binding)]),
     );
     this.#operationTransfer = operationTransfer;
-    this.streams = streamBindings;
     const jobs = createJobsFacade<TJobs, TTrellisApi, TKv>({
       serviceName: name,
       nc,
       contractJobs,
       trellis: handlerTrellis,
       jobsBinding: bindings.jobs,
-      workStream: bindings.streams?.jobsWork?.name,
+      workStream: bindings.jobs?.workStream,
     });
     this.jobs = jobs;
     this.#managedJobWorkers = jobs[MANAGED_JOB_WORKERS];
