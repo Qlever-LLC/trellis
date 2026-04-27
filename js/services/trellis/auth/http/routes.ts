@@ -11,16 +11,7 @@ import { ensureBoundUserSession } from "../session/bind.ts";
 import { getConfig } from "../../config.ts";
 import type { ContractStore } from "../../catalog/store.ts";
 import type { SqlContractStorageRepository } from "../../catalog/storage.ts";
-import {
-  browserFlowsKV,
-  connectionsKV,
-  logger,
-  natsTrellis,
-  oauthStateKV,
-  pendingAuthKV,
-  sentinelCreds,
-  sessionStorage,
-} from "../../bootstrap/globals.ts";
+import { authRuntimeDeps } from "../runtime_deps.ts";
 import { getApprovalResolutionErrorMessage } from "./approval_errors.ts";
 import { planUserContractApproval } from "../approval/plan.ts";
 import { loadEffectiveGrantPolicies } from "../grants/store.ts";
@@ -35,7 +26,6 @@ import {
   getApprovalResolution,
   getApprovalResolutionBlocker,
   getCookie,
-  normalizeBuiltinPortalEntryUrl,
   type OAuthStateEntry,
   type PendingAuthEntry,
   resolveLoginPortal,
@@ -112,6 +102,16 @@ export function registerHttpRoutes(
   },
 ): void {
   const config = getConfig();
+  const {
+    browserFlowsKV,
+    connectionsKV,
+    logger,
+    natsTrellis,
+    oauthStateKV,
+    pendingAuthKV,
+    sentinelCreds,
+    sessionStorage,
+  } = authRuntimeDeps();
   const providers = opts.providers ?? createProviders(config);
   const approvalResolutionDeps = {
     loadStoredApproval: async (key: string) => {
@@ -240,11 +240,7 @@ export function registerHttpRoutes(
       selections: await listLoginPortalSelections(),
     });
     if (resolved.kind === "custom") {
-      return normalizeBuiltinPortalEntryUrl({
-        entryUrl: resolved.portal.entryUrl,
-        baseUrl: config.web.publicOrigin ?? config.oauth.redirectBase,
-        expectedKind: "login",
-      });
+      return resolved.portal.entryUrl;
     }
 
     return builtinPortalEntryUrl("/_trellis/portal/users/login");
@@ -281,7 +277,6 @@ export function registerHttpRoutes(
   async function bindResolvedUserSession(args: {
     pendingValue: PendingAuth;
     resolution: Awaited<ReturnType<typeof requireApprovalResolution>>;
-    tokenKind: "initial" | "renew";
     approvalSource?: SessionApprovalSource;
     consumePending?: () => Promise<boolean>;
   }): Promise<AuthStartBoundResponse> {
@@ -495,7 +490,6 @@ export function registerHttpRoutes(
     return bindResolvedUserSession({
       pendingValue: args.pendingValue,
       resolution,
-      tokenKind: "initial",
       consumePending: async () => {
         const pendingDeleted = await args.pending.delete(true);
         return !isErr(pendingDeleted);

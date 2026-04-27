@@ -10,10 +10,17 @@ import { Value } from "typebox/value";
 import type { TrellisCatalog } from "../../../packages/trellis/models/trellis/rpc/TrellisCatalog.ts";
 import { TrellisCatalogSchema } from "../../../packages/trellis/models/trellis/rpc/TrellisCatalog.ts";
 import type { TrellisContractGetResponse } from "../../../packages/trellis/models/trellis/rpc/TrellisContractGet.ts";
-import { logger } from "../bootstrap/globals.ts";
 import { ContractStore } from "./store.ts";
 import type { SqlContractStorageRepository } from "./storage.ts";
 import type { SqlServiceInstanceRepository } from "../auth/storage.ts";
+
+type CatalogLogger = {
+  trace: (fields: Record<string, unknown>, message: string) => void;
+};
+
+const noopLogger: CatalogLogger = {
+  trace: () => {},
+};
 
 function toOpenSchemaValue(
   value: NonNullable<TrellisContractV1["schemas"]>[string],
@@ -66,7 +73,10 @@ type DigestRequest = { digest: string };
 type BindingsRequest = { contractId?: string; digest?: string };
 type ListInstalledContractsRequest = {};
 
-export function createTrellisCatalogHandler(contractStore: ContractStore) {
+export function createTrellisCatalogHandler(
+  contractStore: ContractStore,
+  logger: CatalogLogger = noopLogger,
+) {
   return async () => {
     logger.trace({ rpc: "Trellis.Catalog" }, "RPC request");
     try {
@@ -81,7 +91,10 @@ export function createTrellisCatalogHandler(contractStore: ContractStore) {
   };
 }
 
-export function createTrellisContractGetHandler(contractStore: ContractStore) {
+export function createTrellisContractGetHandler(
+  contractStore: ContractStore,
+  logger: CatalogLogger = noopLogger,
+) {
   return async (
     req: DigestRequest,
   ): Promise<Result<TrellisContractGetResponse, ValidationError>> => {
@@ -106,7 +119,9 @@ export function createTrellisContractGetHandler(contractStore: ContractStore) {
 
 export function createTrellisBindingsGetHandler(opts: {
   serviceInstanceStorage: SqlServiceInstanceRepository;
+  logger?: CatalogLogger;
 }) {
+  const logger = opts.logger ?? noopLogger;
   return async (
     req: BindingsRequest | undefined,
     { caller, sessionKey }: ServiceContext,
@@ -168,6 +183,7 @@ type InstalledContractDetail = Static<typeof InstalledContractDetailSchema>;
 
 export function createAuthListInstalledContractsHandler(
   contractStorage: SqlContractStorageRepository,
+  logger: CatalogLogger = noopLogger,
 ) {
   return async (
     _req: ListInstalledContractsRequest,
@@ -196,6 +212,7 @@ export function createAuthListInstalledContractsHandler(
 
 export function createAuthGetInstalledContractHandler(
   contractStorage: SqlContractStorageRepository,
+  logger: CatalogLogger = noopLogger,
 ) {
   return async (
     req: DigestRequest,

@@ -141,7 +141,7 @@ export const NatsAuthTokenV1Schema = Type.Object({
   v: Type.Literal(1),
   sessionKey: SessionKeySchema,
   sig: SignatureSchema,
-  iat: Type.Optional(Type.Integer()),
+  iat: Type.Integer(),
   contractDigest: Type.Optional(ContractDigestSchema),
 }, { additionalProperties: false });
 

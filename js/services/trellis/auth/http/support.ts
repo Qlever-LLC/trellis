@@ -72,9 +72,6 @@ export type ResolvedPortal =
   | { kind: "builtin" }
   | { kind: "custom"; portal: PortalRecord };
 
-const BUILTIN_LOGIN_PORTAL_PATH = "/_trellis/portal/users/login";
-const BUILTIN_DEVICE_PORTAL_PATH = "/_trellis/portal/devices/activate";
-
 function enabledPortalById(portals: PortalRecord[]): Map<string, PortalRecord> {
   return new Map(
     portals.filter((portal) => !portal.disabled).map((
@@ -256,33 +253,6 @@ export function resolveDevicePortal(args: {
   return defaultPortal
     ? { kind: "custom", portal: defaultPortal }
     : { kind: "builtin" };
-}
-
-export function normalizeBuiltinPortalEntryUrl(args: {
-  entryUrl: string;
-  baseUrl: string;
-  expectedKind: "login" | "device";
-}): string {
-  const expectedPath = args.expectedKind === "login"
-    ? BUILTIN_LOGIN_PORTAL_PATH
-    : BUILTIN_DEVICE_PORTAL_PATH;
-  const oppositePath = args.expectedKind === "login"
-    ? BUILTIN_DEVICE_PORTAL_PATH
-    : BUILTIN_LOGIN_PORTAL_PATH;
-
-  try {
-    const entryUrl = new URL(args.entryUrl);
-    const baseUrl = new URL(args.baseUrl);
-    if (
-      entryUrl.origin !== baseUrl.origin || entryUrl.pathname !== oppositePath
-    ) {
-      return args.entryUrl;
-    }
-
-    return new URL(expectedPath, baseUrl).toString();
-  } catch {
-    return args.entryUrl;
-  }
 }
 
 function escapeHtml(value: string): string {

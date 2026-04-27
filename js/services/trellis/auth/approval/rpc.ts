@@ -7,12 +7,7 @@ import {
 } from "@qlever-llc/result";
 import { AuthError } from "@qlever-llc/trellis";
 
-import {
-  connectionsKV,
-  logger,
-  sessionStorage,
-  trellis,
-} from "../../bootstrap/globals.ts";
+import { type AuthLogger, authRuntimeDeps } from "../runtime_deps.ts";
 import type {
   Connection,
   ContractApprovalRecord,
@@ -54,7 +49,7 @@ type KVLike<V> = {
 
 type SessionStore = {
   listEntriesByUser: SqlSessionRepository["listEntriesByUser"];
-  delete: SqlSessionRepository["delete"];
+  deleteBySessionKey: SqlSessionRepository["deleteBySessionKey"];
 };
 
 async function takeValue<T>(
@@ -181,7 +176,7 @@ async function revokeApprovalSessions(
       sessionKey,
       revokedBy: deps.revokedBy,
     });
-    await deps.sessionStorage.delete(entry.sessionKey, entry.trellisId);
+    await deps.sessionStorage.deleteBySessionKey(entry.sessionKey);
   }
 }
 
@@ -207,6 +202,7 @@ export function createAuthListApprovalsHandler(deps: {
     },
   ) => {
     const user = requireUserCaller(caller);
+    const { logger } = authRuntimeDeps();
     logger.trace(
       {
         rpc: "Auth.ListApprovals",
@@ -329,6 +325,8 @@ export function createAuthRevokeApprovalHandler(opts: {
     },
   ) => {
     const user = requireUserCaller(caller);
+    const { connectionsKV, logger, sessionStorage, trellis } =
+      authRuntimeDeps();
     logger.trace({
       rpc: "Auth.RevokeApproval",
       user: req.user,
@@ -363,10 +361,9 @@ export function createAuthRevokeApprovalHandler(opts: {
           connectionsKV,
           kick: opts.kick,
           publishSessionRevoked: async (event) => {
-            await trellis.publish("Auth.SessionRevoked", event).inspectErr((
-              error,
-            ) =>
-              logger.warn({ error }, "Failed to publish Auth.SessionRevoked")
+            (await trellis.publish("Auth.SessionRevoked", event)).inspectErr(
+              (error) =>
+                logger.warn({ error }, "Failed to publish Auth.SessionRevoked"),
             );
           },
           revokedBy: formatOriginId(user.origin, user.id),
@@ -384,18 +381,27 @@ export function createAuthRevokeApprovalHandler(opts: {
 
 /** Creates the Auth.RevokeUserGrant RPC handler with KV session revocation. */
 export function createAuthRevokeUserGrantRpcHandler(deps: {
+  connectionsKV: KVLike<Connection>;
   contractApprovalStorage: SqlContractApprovalRepository;
   kick: (serverId: string, clientId: number) => Promise<void>;
+  logger: Pick<AuthLogger, "warn">;
+  publishSessionRevoked: (event: {
+    origin: string;
+    id: string;
+    sessionKey: string;
+    revokedBy: string;
+  }) => Promise<void>;
+  sessionStorage: SessionStore;
 }) {
   return createAuthRevokeUserGrantHandler({
+    connectionsKV: deps.connectionsKV,
     contractApprovalStorage: deps.contractApprovalStorage,
-    sessionStorage,
-    connectionsKV,
     kick: deps.kick,
+    sessionStorage: deps.sessionStorage,
     publishSessionRevoked: async (event) => {
-      await trellis.publish("Auth.SessionRevoked", event).inspectErr((error) =>
-        logger.warn({ error }, "Failed to publish Auth.SessionRevoked")
-      );
+      await deps.publishSessionRevoked(event).catch((error) => {
+        deps.logger.warn({ error }, "Failed to publish Auth.SessionRevoked");
+      });
     },
   });
 }

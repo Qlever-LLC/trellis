@@ -99,11 +99,11 @@ Deno.test("State RPC isolates named store state by contract id without caller sc
   });
 
   sessionKV.seed(
-    "session-one.user-1",
+    "session-one",
     makeUserSession({ trellisId: "user-1", contractId: "acme.notes@v1" }),
   );
   sessionKV.seed(
-    "session-two.user-1",
+    "session-two",
     makeUserSession({ trellisId: "user-1", contractId: "acme.tasks@v1" }),
   );
 
@@ -151,7 +151,7 @@ Deno.test("State RPC derives store metadata and enforces value versus map key se
   });
 
   sessionKV.seed(
-    "user-session.user-1",
+    "user-session",
     makeUserSession({ trellisId: "user-1", contractId: "acme.notes@v1" }),
   );
 
@@ -253,11 +253,11 @@ Deno.test("State RPC derives normal caller ownership from the session", async ()
   });
 
   sessionKV.seed(
-    "device-session.device-1",
+    "device-session",
     makeDeviceSession({ deviceId: "device-1", contractId: "acme.reader@v1" }),
   );
   sessionKV.seed(
-    "user-session.user-1",
+    "user-session",
     makeUserSession({ trellisId: "user-1", contractId: "acme.reader@v1" }),
   );
 
@@ -298,7 +298,7 @@ Deno.test("State admin RPCs inspect and delete named stores", async () => {
   const trellisId = await trellisIdFromOriginId("github", "123");
 
   sessionKV.seed(
-    "session-one.user-1",
+    "session-one",
     makeUserSession({ trellisId, contractId: "acme.notes@v1" }),
   );
 

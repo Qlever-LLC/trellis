@@ -91,10 +91,10 @@ function sessionStorageFromKV(kv: InMemoryKV<Session>) {
     for await (const key of iter) {
       const entry = await kv.get(key).take();
       if (isErr(entry)) continue;
-      const [sessionKey, ...trellisIdParts] = key.split(".");
-      const trellisId = trellisIdParts.join(".");
-      if (!sessionKey || !trellisId) continue;
-      result.push({ sessionKey, trellisId, session: entry.value });
+      const session = entry.value;
+      const trellisId = session.type === "user" ? session.trellisId : "";
+      if (!key || !trellisId) continue;
+      result.push({ sessionKey: key, trellisId, session });
     }
     return result;
   }
@@ -102,8 +102,8 @@ function sessionStorageFromKV(kv: InMemoryKV<Session>) {
   return {
     listEntriesByUser: async (trellisId: string) =>
       (await entries(">")).filter((entry) => entry.trellisId === trellisId),
-    delete: async (sessionKey: string, trellisId: string) => {
-      await kv.delete(`${sessionKey}.${trellisId}`).take();
+    deleteBySessionKey: async (sessionKey: string) => {
+      await kv.delete(sessionKey).take();
     },
   };
 }
@@ -213,7 +213,7 @@ Deno.test("Auth.RevokeUserGrant deletes the caller grant and matching user sessi
 
     await contractApprovalStorage.put(makeApproval(userTrellisId));
 
-    sessionKV.seed(`sk_123.${userTrellisId}`, {
+    sessionKV.seed("sk_123", {
       type: "user",
       trellisId: userTrellisId,
       origin: "github",
@@ -268,7 +268,7 @@ Deno.test("Auth.RevokeUserGrant deletes the caller grant and matching user sessi
       undefined,
     );
     assertEquals(
-      isErr(await sessionKV.get(`sk_123.${userTrellisId}`).take()),
+      isErr(await sessionKV.get("sk_123").take()),
       true,
     );
   });

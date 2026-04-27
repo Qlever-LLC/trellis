@@ -13,6 +13,7 @@
     "@libsql/client": "npm:@libsql/client@0.15.15",
     "drizzle-orm": "npm:drizzle-orm@0.44.7",
     "drizzle-orm/libsql": "npm:drizzle-orm@0.44.7/libsql",
+    "drizzle-orm/libsql/migrator": "npm:drizzle-orm@0.44.7/libsql/migrator",
     "drizzle-orm/sqlite-core": "npm:drizzle-orm@0.44.7/sqlite-core",
     "set-cookie-parser": "npm:set-cookie-parser@^3.1.0",
     "ulid": "npm:ulid@^3.0.2"

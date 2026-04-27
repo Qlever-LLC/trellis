@@ -17,9 +17,9 @@ import type {
 import { connectionFilterForSession } from "./connections.ts";
 
 type SessionStore = {
-  listEntriesBySessionKey: SqlSessionRepository["listEntriesBySessionKey"];
+  getOneBySessionKey: SqlSessionRepository["getOneBySessionKey"];
   listEntriesByUser: SqlSessionRepository["listEntriesByUser"];
-  delete: SqlSessionRepository["delete"];
+  deleteBySessionKey: SqlSessionRepository["deleteBySessionKey"];
 };
 
 type ConnectionsStore = {
@@ -117,69 +117,66 @@ export function createAuthRevokeSessionHandler(deps: {
       return Result.err(new AuthError({ reason: "invalid_request" }));
     }
 
-    let sessionsToDelete;
+    let sessionToDelete: Session | undefined;
     try {
-      sessionsToDelete = await deps.sessionStorage.listEntriesBySessionKey(
+      sessionToDelete = await deps.sessionStorage.getOneBySessionKey(
         req.sessionKey,
       );
     } catch {
       return Result.ok({ success: false });
     }
-    if (sessionsToDelete.length === 0) return Result.ok({ success: false });
+    if (!sessionToDelete) return Result.ok({ success: false });
 
     const kickedBy = `${user.origin}.${user.id}`;
-    const firstSession = sessionsToDelete[0]?.session;
-    if (firstSession) {
-      if (firstSession.type === "user") {
-        const approval = await deps.contractApprovalStorage.get(
-          firstSession.trellisId,
-          firstSession.contractDigest,
-        );
-        if (approval) {
-          if (isApprovedAgentGrant(approval)) {
-            await deps.contractApprovalStorage.delete(
-              firstSession.trellisId,
-              firstSession.contractDigest,
-            );
-          }
+    if (sessionToDelete.type === "user") {
+      const approval = await deps.contractApprovalStorage.get(
+        sessionToDelete.trellisId,
+        sessionToDelete.contractDigest,
+      );
+      if (approval) {
+        if (isApprovedAgentGrant(approval)) {
+          await deps.contractApprovalStorage.delete(
+            sessionToDelete.trellisId,
+            sessionToDelete.contractDigest,
+          );
         }
+      }
 
-        await revokeGrantSessions({
-          userTrellisId: firstSession.trellisId,
-          contractDigest: firstSession.contractDigest,
-          participantKind: firstSession.participantKind,
-          sessionStorage: deps.sessionStorage,
-          connectionsKV: deps.connectionsKV,
-          kick: deps.kick,
-          publishSessionRevoked: deps.publishSessionRevoked,
-          revokedBy: kickedBy,
+      await revokeGrantSessions({
+        userTrellisId: sessionToDelete.trellisId,
+        contractDigest: sessionToDelete.contractDigest,
+        participantKind: sessionToDelete.participantKind,
+        sessionStorage: deps.sessionStorage,
+        connectionsKV: deps.connectionsKV,
+        kick: deps.kick,
+        publishSessionRevoked: deps.publishSessionRevoked,
+        revokedBy: kickedBy,
+      });
+      return Result.ok({ success: true });
+    }
+
+    if (sessionToDelete.type === "device" && deps.deviceActivationStorage) {
+      const activation = await deps.deviceActivationStorage.get(
+        sessionToDelete.instanceId,
+      );
+      if (activation) {
+        await deps.deviceActivationStorage.put({
+          ...activation,
+          state: "revoked",
+          revokedAt: new Date().toISOString(),
         });
-        return Result.ok({ success: true });
       }
+    }
 
-      if (firstSession.type === "device" && deps.deviceActivationStorage) {
-        const activation = await deps.deviceActivationStorage.get(
-          firstSession.instanceId,
-        );
-        if (activation) {
-          await deps.deviceActivationStorage.put({
-            ...activation,
-            state: "revoked",
-            revokedAt: new Date().toISOString(),
-          });
-        }
-      }
-
-      if (firstSession.type === "service" && deps.serviceInstanceStorage) {
-        const serviceInstance = await deps.serviceInstanceStorage.get(
-          firstSession.instanceId,
-        );
-        if (serviceInstance) {
-          await deps.serviceInstanceStorage.put({
-            ...serviceInstance,
-            disabled: true,
-          });
-        }
+    if (sessionToDelete.type === "service" && deps.serviceInstanceStorage) {
+      const serviceInstance = await deps.serviceInstanceStorage.get(
+        sessionToDelete.instanceId,
+      );
+      if (serviceInstance) {
+        await deps.serviceInstanceStorage.put({
+          ...serviceInstance,
+          disabled: true,
+        });
       }
     }
 
@@ -200,18 +197,15 @@ export function createAuthRevokeSessionHandler(deps: {
       }
     }
 
-    for (const entry of sessionsToDelete) {
-      const session = entry.session;
-      if (session.type !== "device") {
-        await deps.publishSessionRevoked({
-          origin: session.origin,
-          id: session.id,
-          sessionKey: req.sessionKey,
-          revokedBy: kickedBy,
-        });
-      }
-      await deps.sessionStorage.delete(entry.sessionKey, entry.trellisId);
+    if (sessionToDelete.type !== "device") {
+      await deps.publishSessionRevoked({
+        origin: sessionToDelete.origin,
+        id: sessionToDelete.id,
+        sessionKey: req.sessionKey,
+        revokedBy: kickedBy,
+      });
     }
+    await deps.sessionStorage.deleteBySessionKey(req.sessionKey);
 
     return Result.ok({ success: true });
   };

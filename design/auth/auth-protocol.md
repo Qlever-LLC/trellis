@@ -9,8 +9,10 @@ order: 20
 ## Prerequisites
 
 - [trellis-auth.md](./trellis-auth.md) - auth architecture and trust model
-- [../contracts/trellis-contracts-catalog.md](./../contracts/trellis-contracts-catalog.md) - contract-driven permission derivation
-- [../operations/trellis-operations.md](./../operations/trellis-operations.md) - operation watch and streaming reply semantics
+- [../contracts/trellis-contracts-catalog.md](./../contracts/trellis-contracts-catalog.md) -
+  contract-driven permission derivation
+- [../operations/trellis-operations.md](./../operations/trellis-operations.md) -
+  operation watch and streaming reply semantics
 
 ## Scope
 
@@ -26,14 +28,15 @@ It covers:
 - reply-subject validation and streaming reply rules
 - internal auth state records required for protocol behavior
 
-It does not define public HTTP and RPC endpoint schemas; those live in `auth-api.md` and, for the activated-device lifecycle, `device-activation.md`.
+It does not define public HTTP and RPC endpoint schemas; those live in
+`auth-api.md` and, for the activated-device lifecycle, `device-activation.md`.
 
 ## Cryptographic Primitives
 
-| Notation    | Definition                              |
-| ----------- | --------------------------------------- |
-| `hash(x)`   | SHA-256 digest of x                     |
-| `sign(k,x)` | Ed25519 signature of x using key k      |
+| Notation    | Definition                                     |
+| ----------- | ---------------------------------------------- |
+| `hash(x)`   | SHA-256 digest of x                            |
+| `sign(k,x)` | Ed25519 signature of x using key k             |
 | Encoding    | base64url without padding (RFC 4648 section 5) |
 
 Canonical byte encoding for signatures:
@@ -41,10 +44,11 @@ Canonical byte encoding for signatures:
 | Value type      | Encoding                                                                   |
 | --------------- | -------------------------------------------------------------------------- |
 | Strings         | UTF-8 bytes via `TextEncoder`                                              |
-| Numbers (`iat`) | ASCII decimal string (e.g. `"1735689600"`)                                |
+| Numbers (`iat`) | ASCII decimal string (e.g. `"1735689600"`)                                 |
 | Concatenation   | `sign(hash("prefix:" + value))` means UTF-8 bytes of literal concatenation |
 
-All Trellis clients, including Rust CLIs and future non-TypeScript clients, must match this encoding exactly.
+All Trellis clients, including Rust CLIs and future non-TypeScript clients, must
+match this encoding exactly.
 
 Identity encoding:
 
@@ -52,11 +56,13 @@ Identity encoding:
 trellisId = base64url(SHA256(origin + ":" + id)).slice(0, 22);
 ```
 
-The signed value is always the exact UTF-8 bytes as transmitted. No URL normalization is applied before signing.
+The signed value is always the exact UTF-8 bytes as transmitted. No URL
+normalization is applied before signing.
 
 ## Connect Token Shapes
 
-After identity binding, clients connect to NATS with sentinel credentials plus a Trellis `auth_token` JSON payload.
+After identity binding, clients connect to NATS with sentinel credentials plus a
+Trellis `auth_token` JSON payload.
 
 User/session-key runtime auth:
 
@@ -85,8 +91,10 @@ Rules:
 
 - `v` is mandatory and unknown versions are rejected
 - contract-bearing user runtimes MUST send `contractDigest`
-- reconnect uses freshly generated `iat`-based proofs rather than renewable binding tokens
-- clients with unstable local clocks SHOULD derive `iat` from server-relative time using bootstrap `serverNow`
+- reconnect uses freshly generated `iat`-based proofs rather than renewable
+  binding tokens
+- clients with unstable local clocks SHOULD derive `iat` from server-relative
+  time using bootstrap `serverNow`
 
 ## Auth Callout Behavior
 
@@ -108,8 +116,7 @@ Detailed behavior:
 CASE: USER CONNECT / RECONNECT (`sessionKey + contractDigest + iat + sig`)
 - reject if abs(now - iat) > 30s
 - verify sig = sign(hash("nats-connect:" + iat))
-- lookup sessions by sessionKey prefix
-- reject and revoke on multi-match corruption
+- lookup the session keyed by `sessionKey`
 - verify the bound session is still valid for the same app identity
 - verify user active
 - verify the presented `contractDigest` is currently allowed for that bound
@@ -120,8 +127,7 @@ CASE: USER CONNECT / RECONNECT (`sessionKey + contractDigest + iat + sig`)
 CASE: SERVICE CONNECT / RECONNECT (iat)
 - reject if abs(now - iat) > 30s
 - verify sig = sign(hash("nats-connect:" + iat))
-- lookup sessions by sessionKey prefix
-- reject and revoke on multi-match corruption
+- lookup the session keyed by `sessionKey`
 - if existing session: verify service still active
 - if no session: create service session from registry policy
 - compute inboxPrefix
@@ -134,7 +140,7 @@ CASE: ACTIVATED DEVICE CONNECT / RECONNECT (iat)
 - otherwise resolve the activated device instance by public identity key
 - require the presented `contractDigest` to match an allowed digest on the device profile
 - reject if the device is unknown, revoked, or its profile is missing or disabled
-- create or refresh an activated-device session keyed by `<sessionKey>.<instanceId>`
+- create or refresh an activated-device session keyed by `sessionKey`
 - record `activatedAt` on the first successful runtime auth
 - compute inboxPrefix
 - derive permissions from the active device profile and issue JWT
@@ -143,7 +149,8 @@ CASE: ACTIVATED DEVICE CONNECT / RECONNECT (iat)
 
 ## Server-Relative Time
 
-Bootstrap and connect-info responses that expect `iat`-based runtime auth SHOULD return `serverNow`.
+Bootstrap and connect-info responses that expect `iat`-based runtime auth SHOULD
+return `serverNow`.
 
 Clients SHOULD:
 
@@ -163,7 +170,8 @@ Auth callout payload field names use canonical snake_case names such as:
 
 CamelCase aliases are not part of the Trellis protocol.
 
-The auth-callout request and response MUST be XKey-encrypted. Plaintext auth-callout payloads are not supported.
+The auth-callout request and response MUST be XKey-encrypted. Plaintext
+auth-callout payloads are not supported.
 
 ## Permission Derivation
 
@@ -177,9 +185,11 @@ The auth callout derives permissions from:
 Rules:
 
 - inbox subscribe permission always includes `${inboxPrefix}.>`
-- services receive only the resource-derived publish/subscribe permissions appropriate to their installed bindings
+- services receive only the resource-derived publish/subscribe permissions
+  appropriate to their installed bindings
 - operation streaming replies use `jwt.resp.max = OPERATION_RESPONSE_MAX`
-- `OPERATION_RESPONSE_MAX` MUST be greater than `1` and SHOULD default to `65535`
+- `OPERATION_RESPONSE_MAX` MUST be greater than `1` and SHOULD default to
+  `65535`
 
 ## RPC Message Signing
 
@@ -198,7 +208,8 @@ function buildProofInput(
   const subjectBytes = enc.encode(subject);
 
   const buf = new Uint8Array(
-    4 + sessionKeyBytes.length + 4 + subjectBytes.length + 4 + payloadHash.length,
+    4 + sessionKeyBytes.length + 4 + subjectBytes.length + 4 +
+      payloadHash.length,
   );
   const view = new DataView(buf.buffer);
 
@@ -219,12 +230,16 @@ function buildProofInput(
 }
 
 payloadHash = SHA256(payload);
-proof = ed25519_sign(sessionKeyPrivate, SHA256(buildProofInput(sessionKey, subject, payloadHash)));
+proof = ed25519_sign(
+  sessionKeyPrivate,
+  SHA256(buildProofInput(sessionKey, subject, payloadHash)),
+);
 ```
 
 Rules:
 
-- receivers MUST compute `payloadHash` from the raw request body they actually received
+- receivers MUST compute `payloadHash` from the raw request body they actually
+  received
 - receivers MUST NOT trust a caller-supplied payload hash header
 - length-prefixing is mandatory and prevents boundary attacks
 
@@ -239,12 +254,15 @@ Verification steps:
 
 1. Extract `session-key`
 2. Compute `payloadHash = SHA256(raw_request_body)`
-3. Reconstruct proof input and verify signature using `session-key` as the public key
+3. Reconstruct proof input and verify signature using `session-key` as the
+   public key
 4. Call `rpc.Auth.ValidateRequest` for session lookup and capability checking
 
 ## Pre-Auth Device Wait Verification
 
-Before an activated device is activated it cannot use normal authenticated RPCs, but an online device may still wait for activation completion by calling `POST /auth/devices/activate/wait`.
+Before an activated device is activated it cannot use normal authenticated RPCs,
+but an online device may still wait for activation completion by calling
+`POST /auth/devices/activate/wait`.
 
 That endpoint uses an identity-key proof rather than a session-key proof.
 
@@ -263,8 +281,8 @@ function buildDeviceWaitProofInput(
 
   const buf = new Uint8Array(
     4 + publicIdentityKeyBytes.length +
-    4 + nonceBytes.length +
-    4 + iatBytes.length,
+      4 + nonceBytes.length +
+      4 + iatBytes.length,
   );
   const view = new DataView(buf.buffer);
 
@@ -296,9 +314,12 @@ Rules:
 
 - the endpoint MUST reject if `abs(now - iat) > 30s`
 - the endpoint MUST verify `sig` using the supplied `publicIdentityKey`
-- the endpoint MUST match the request against a pending or activated device-activation flow using `publicIdentityKey` and `nonce`
-- the endpoint MUST NOT create a device session or issue transport credentials directly
-- the endpoint is a bounded long poll for setup only; it is not a general pre-auth RPC mechanism
+- the endpoint MUST match the request against a pending or activated
+  device-activation flow using `publicIdentityKey` and `nonce`
+- the endpoint MUST NOT create a device session or issue transport credentials
+  directly
+- the endpoint is a bounded long poll for setup only; it is not a general
+  pre-auth RPC mechanism
 
 ## Reply-Subject Validation
 
@@ -314,46 +335,50 @@ This prevents confused deputy attacks.
 
 ## Operation Streaming Replies
 
-Unary RPCs use one reply. Operations may use multiple replies to the same validated caller inbox subject.
+Unary RPCs use one reply. Operations may use multiple replies to the same
+validated caller inbox subject.
 
 Rules:
 
-- Trellis MUST permit bounded multi-response publishing to a reply subject that was supplied on an authenticated request and passed reply-subject validation
-- this capability applies only to a reply subject derived from a request the service actually received
+- Trellis MUST permit bounded multi-response publishing to a reply subject that
+  was supplied on an authenticated request and passed reply-subject validation
+- this capability applies only to a reply subject derived from a request the
+  service actually received
 - it is not a general publish grant to arbitrary inbox subjects
 - operation `watch()` and streamed `wait()` responses use this mechanism
-- ordinary unary RPCs still respond once by convention even when the transport permission can support more than one response
+- ordinary unary RPCs still respond once by convention even when the transport
+  permission can support more than one response
 
 ## Error Codes
 
 All auth errors use `AuthError` with a `reason` code.
 
-| Scenario | Reason Code |
-| --- | --- |
-| SessionKey header missing | `missing_session_key` |
-| Session not found | `session_not_found` |
-| Session expired | `session_expired` |
-| Invalid signature | `invalid_signature` |
-| SessionKey mismatch in OAuth | `oauth_session_key_mismatch` |
-| Session already bound | `session_already_bound` |
-| AuthToken already used | `authtoken_already_used` |
-| Timestamp out of range | `iat_out_of_range` |
-| Approval required | `approval_required` |
-| Contract changed | `contract_changed` |
-| User inactive | `user_inactive` |
-| User not found | `user_not_found` |
-| Unknown service | `unknown_service` |
-| Service disabled | `service_disabled` |
-| Unknown device | `unknown_device` |
-| Device activation revoked | `device_activation_revoked` |
-| Device profile not found | `device_profile_not_found` |
-| Device profile disabled | `device_profile_disabled` |
-| Service-only capability on user | `service_role_on_user` |
-| Reply mismatch | `reply_subject_mismatch` |
-| Missing capabilities | `insufficient_permissions` |
-| Multiple sessions for key | `session_corrupted` |
+| Scenario                        | Reason Code                  |
+| ------------------------------- | ---------------------------- |
+| SessionKey header missing       | `missing_session_key`        |
+| Session not found               | `session_not_found`          |
+| Session expired                 | `session_expired`            |
+| Invalid signature               | `invalid_signature`          |
+| SessionKey mismatch in OAuth    | `oauth_session_key_mismatch` |
+| Session already bound           | `session_already_bound`      |
+| AuthToken already used          | `authtoken_already_used`     |
+| Timestamp out of range          | `iat_out_of_range`           |
+| Approval required               | `approval_required`          |
+| Contract changed                | `contract_changed`           |
+| User inactive                   | `user_inactive`              |
+| User not found                  | `user_not_found`             |
+| Unknown service                 | `unknown_service`            |
+| Service disabled                | `service_disabled`           |
+| Unknown device                  | `unknown_device`             |
+| Device activation revoked       | `device_activation_revoked`  |
+| Device profile not found        | `device_profile_not_found`   |
+| Device profile disabled         | `device_profile_disabled`    |
+| Service-only capability on user | `service_role_on_user`       |
+| Reply mismatch                  | `reply_subject_mismatch`     |
+| Missing capabilities            | `insufficient_permissions`   |
 
-Detailed errors are acceptable because callers only reach them after passing connection-level auth.
+Detailed errors are acceptable because callers only reach them after passing
+connection-level auth.
 
 ## Internal State Model
 
@@ -362,49 +387,61 @@ Detailed errors are acceptable because callers only reach them after passing con
 The portal-owned browser login UX uses `flowId` as the browser-visible
 identifier and keeps `authToken` internal to the auth service. Trellis ships a
 built-in portal served by the Trellis HTTP server from static assets.
-Deployments may register custom portals and assign them to login or device
-flows through deployment-owned selection records. Device activation uses the
-same browser-visible `flowId` concept with `kind: "device_activation"` flow
-records rather than a separate public identifier.
-Portals are web apps, not service-authenticated principals; if a portal later
-continues as a Trellis app after login, it does so under a normal user session.
+Deployments may register custom portals and assign them to login or device flows
+through deployment-owned selection records. Device activation uses the same
+browser-visible `flowId` concept with `kind: "device_activation"` flow records
+rather than a separate public identifier. Portals are web apps, not
+service-authenticated principals; if a portal later continues as a Trellis app
+after login, it does so under a normal user session.
 
 Flow summary:
 
-1. `POST /auth/requests` validates the signed login-init request, validates the initiating contract, and either returns `bound` immediately or creates an auth-owned browser flow plus a short `flowId`-based `loginUrl`.
-2. `GET /auth/login/:provider` requires `flowId` and stores the provider choice in the same browser flow.
-3. `GET /auth/callback/:provider` provisions or refreshes the auth-local user projection, stores the resulting `authToken` server-side against the browser flow, and redirects back to the portal with the same `flowId`.
+1. `POST /auth/requests` validates the signed login-init request, validates the
+   initiating contract, and either returns `bound` immediately or creates an
+   auth-owned browser flow plus a short `flowId`-based `loginUrl`.
+2. `GET /auth/login/:provider` requires `flowId` and stores the provider choice
+   in the same browser flow.
+3. `GET /auth/callback/:provider` provisions or refreshes the auth-local user
+   projection, stores the resulting `authToken` server-side against the browser
+   flow, and redirects back to the portal with the same `flowId`.
 4. `GET /auth/flow/:flowId` returns `PortalFlowState`.
-5. `POST /auth/flow/:flowId/approval` records the approval decision in the auth-owned flow.
-6. `POST /auth/flow/:flowId/bind` completes the browser bind from `{ sessionKey, sig }`.
+5. `POST /auth/flow/:flowId/approval` records the approval decision in the
+   auth-owned flow.
+6. `POST /auth/flow/:flowId/bind` completes the browser bind from
+   `{ sessionKey, sig }`.
 
-When a caller's local contract digest changes, it starts the normal auth
-request flow again with the current contract body. Auth may bind immediately
-when the requested subjects and capabilities are a strict subset of the
-caller's current delegated envelope for the same app identity and contract
-lineage; otherwise it returns a normal browser flow.
+When a caller's local contract digest changes, it starts the normal auth request
+flow again with the current contract body. Auth may bind immediately when the
+requested subjects and capabilities are a strict subset of the caller's current
+delegated envelope for the same app identity and contract lineage; otherwise it
+returns a normal browser flow.
 
 Bind proof rules:
 
-- login-init uses `sig = sign(hash("oauth-init:" + redirectTo + ":" + canonicalJson(context ?? null)))`
+- login-init uses
+  `sig = sign(hash("oauth-init:" + redirectTo + ":" + canonicalJson(context ?? null)))`
 - browser `flowId` bind uses `sig = sign(hash("bind-flow:" + flowId))`
-- `/auth/bind` remains the lower-level auth-token bind path used by current non-portal callers
-- browser clients SHOULD treat `authToken` as internal auth-service state rather than a fragment-delivered public contract
+- `/auth/bind` remains the lower-level auth-token bind path used by current
+  non-portal callers
+- browser clients SHOULD treat `authToken` as internal auth-service state rather
+  than a fragment-delivered public contract
 
 Runtime storage responsibilities:
 
-| Storage | Logical contents | TTL |
-| --- | --- | --- |
-| SQL | Users, sessions, approval decisions, grant policies, portals, service records, device records, and installed contract records | Durable, with session expiry from `lastAuth` |
-| `trellis_oauth_states` KV | OAuth state mapping keyed by `hash(state)` | 5 min |
-| `trellis_pending_auth` KV | Pending authenticated bind keyed by `hash(authToken)` | 5 min |
-| `trellis_browser_flows` KV | Browser flow record keyed by `flowId`, including `kind: "login"` and `kind: "device_activation"` | Browser-flow TTL |
-| `trellis_connections` KV | Active connection presence keyed by session, principal, and NATS user key | Connection TTL |
+| Storage                    | Logical contents                                                                                                              | TTL                                          |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| SQL                        | Users, sessions, approval decisions, grant policies, portals, service records, device records, and installed contract records | Durable, with session expiry from `lastAuth` |
+| `trellis_oauth_states` KV  | OAuth state mapping keyed by `hash(state)`                                                                                    | 5 min                                        |
+| `trellis_pending_auth` KV  | Pending authenticated bind keyed by `hash(authToken)`                                                                         | 5 min                                        |
+| `trellis_browser_flows` KV | Browser flow record keyed by `flowId`, including `kind: "login"` and `kind: "device_activation"`                              | Browser-flow TTL                             |
+| `trellis_connections` KV   | Active connection presence keyed by session, principal, and NATS user key                                                     | Connection TTL                               |
 
 Ephemeral tokens (`state`, `authToken`) are stored by `hash(token)` rather than
 raw token value.
 
-Browser flows are keyed by raw `flowId` because the flow identifier is browser-visible and used to fetch auth-owned portal state. Device activation records persist for the lifetime of the activated device unless revoked. Login
+Browser flows are keyed by raw `flowId` because the flow identifier is
+browser-visible and used to fetch auth-owned portal state. Device activation
+records persist for the lifetime of the activated device unless revoked. Login
 portal selections, device portal selections, optional default-portal settings,
 and portal profiles are deployment-owned SQL records used by browser login and
 device activation.
@@ -440,7 +477,7 @@ device activation.
 ### Session Object
 
 ```ts
-UserSession | ServiceSession | ActivatedDeviceSession
+UserSession | ServiceSession | ActivatedDeviceSession;
 
 type UserSession = {
   origin: string;
@@ -489,12 +526,13 @@ type ActivatedDeviceSession = {
 
 Rules:
 
-- the key is `<sessionKey>.<trellisId>`
+- the durable session key is `sessionKey`
 - user sessions bind user identity, explicit app identity, and the last
   delegated contract envelope together; reconnect re-evaluates current digest
   authorization for that app context
-- activated-device sessions use the key `<sessionKey>.<instanceId>`
-- if multiple sessions match a sessionKey prefix, Trellis MUST revoke them and return `session_corrupted`
+- activated-device sessions use the same `sessionKey` storage identity as user
+  and service sessions; the device instance identity remains part of the stored
+  session value
 
 ### Contract Approval Object
 
@@ -566,12 +604,13 @@ Portal profiles are projected into the same effective-policy matching path using
 Rules:
 
 - the key is the target `contractId` lineage
-- matching enabled policies imply approval and additional effective
-  capabilities dynamically; they do not mutate the user projection
+- matching enabled policies imply approval and additional effective capabilities
+  dynamically; they do not mutate the user projection
 - matching policy takes precedence over stored user denial while the policy is
   enabled
 - optional `allowedOrigins` further restrict the policy to browser sessions that
-  present that app origin; they are separate from the deployment redirect allowlist
+  present that app origin; they are separate from the deployment redirect
+  allowlist
 
 ### Users Projection
 
@@ -601,7 +640,9 @@ the separate instance grant policy bucket.
 
 Rules:
 
-- key is `<sessionKey>.<scopeId>.<user_nkey>` where `scopeId` is `trellisId` for user and installed-device sessions and `instanceId` for activated-device sessions
+- key is `<sessionKey>.<scopeId>.<user_nkey>` where `scopeId` is `trellisId` for
+  user sessions, service or installed-device identity for installed runtime
+  sessions, and `instanceId` for activated-device sessions
 - disconnect cleanup is best-effort plus TTL-backed self-healing
 
 ## Event Authorization
@@ -622,7 +663,8 @@ Events:
 
 Rules:
 
-- services may subscribe only if their installed contract explicitly declares the events in `uses`
+- services may subscribe only if their installed contract explicitly declares
+  the events in `uses`
 - extra manual capability flags are not the contract boundary
 - user sessions must never receive service-only capabilities
 

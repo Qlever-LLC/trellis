@@ -90,28 +90,25 @@ function sessionStorageFromKV(kv: InMemoryKV<Session>) {
     for await (const key of iter) {
       const entry = await kv.get(key).take();
       if (isErr(entry)) continue;
-      const [sessionKey, ...trellisIdParts] = key.split(".");
-      const trellisId = trellisIdParts.join(".");
-      if (!sessionKey || !trellisId) continue;
+      const sessionKey = key;
+      const session = entry.value;
+      const trellisId = session.type === "device"
+        ? session.instanceId
+        : session.trellisId;
       result.push({ sessionKey, trellisId, session: entry.value });
     }
     return result;
   }
   return {
-    get: async (sessionKey: string, trellisId: string) => {
-      const entry = await kv.get(`${sessionKey}.${trellisId}`).take();
+    getOneBySessionKey: async (sessionKey: string) => {
+      const entry = await kv.get(sessionKey).take();
       return isErr(entry) ? undefined : entry.value;
     },
-    getOneBySessionKey: async (sessionKey: string) => {
-      const rows = await entries(`${sessionKey}.>`);
-      return rows.length === 1 ? rows[0].session : undefined;
-    },
     listEntries: () => entries(">"),
-    listEntriesBySessionKey: (sessionKey: string) => entries(`${sessionKey}.>`),
     listEntriesByUser: async (trellisId: string) =>
       (await entries(">")).filter((entry) => entry.trellisId === trellisId),
-    delete: async (sessionKey: string, trellisId: string) => {
-      await kv.delete(`${sessionKey}.${trellisId}`).take();
+    deleteBySessionKey: async (sessionKey: string) => {
+      await kv.delete(sessionKey).take();
     },
   };
 }
@@ -248,7 +245,7 @@ Deno.test("Auth.Me returns user, device, and service envelopes", async () => {
   });
 
   const userSessionKey = "sk_user";
-  sessionKV.seed(`${userSessionKey}.${userTrellisId}`, {
+  sessionKV.seed(userSessionKey, {
     type: "user",
     trellisId: userTrellisId,
     origin: "github",
@@ -288,7 +285,7 @@ Deno.test("Auth.Me returns user, device, and service envelopes", async () => {
   });
 
   const deviceSessionKey = "sk_device";
-  sessionKV.seed(`${deviceSessionKey}.dev_1`, {
+  sessionKV.seed(deviceSessionKey, {
     type: "device",
     instanceId: "dev_1",
     publicIdentityKey: "A".repeat(43),
@@ -346,7 +343,7 @@ Deno.test("Auth.Me returns user, device, and service envelopes", async () => {
   });
 
   const serviceSessionKey = "sk_service";
-  sessionKV.seed(`${serviceSessionKey}.svc_1`, {
+  sessionKV.seed(serviceSessionKey, {
     type: "service",
     trellisId: "svc_1",
     origin: "service",
@@ -460,7 +457,7 @@ Deno.test("Auth.Me reflects SQL user active and capability changes", async () =>
     });
 
     const userTrellisId = await trellisIdFromOriginId("github", "123");
-    sessionKV.seed(`sk_user.${userTrellisId}`, {
+    sessionKV.seed("sk_user", {
       type: "user",
       trellisId: userTrellisId,
       origin: "github",
@@ -603,7 +600,7 @@ Deno.test("Auth.ListSessions returns explicit participant metadata for app, agen
   const sessionKV = new InMemoryKV<Session>();
   const userTrellisId = await trellisIdFromOriginId("github", "123");
 
-  sessionKV.seed(`sk_app.${userTrellisId}`, {
+  sessionKV.seed("sk_app", {
     type: "user",
     trellisId: userTrellisId,
     origin: "github",
@@ -624,7 +621,7 @@ Deno.test("Auth.ListSessions returns explicit participant metadata for app, agen
     delegatedSubscribeSubjects: [],
     ...baseSessionFields(),
   });
-  sessionKV.seed(`sk_agent.${userTrellisId}`, {
+  sessionKV.seed("sk_agent", {
     type: "user",
     trellisId: userTrellisId,
     origin: "github",
@@ -645,7 +642,7 @@ Deno.test("Auth.ListSessions returns explicit participant metadata for app, agen
     delegatedSubscribeSubjects: [],
     ...baseSessionFields(),
   });
-  sessionKV.seed("sk_device.dev_1", {
+  sessionKV.seed("sk_device", {
     type: "device",
     instanceId: "dev_1",
     publicIdentityKey: "A".repeat(43),
@@ -660,7 +657,7 @@ Deno.test("Auth.ListSessions returns explicit participant metadata for app, agen
     activatedAt: null,
     revokedAt: null,
   });
-  sessionKV.seed("sk_service.svc_1", {
+  sessionKV.seed("sk_service", {
     type: "service",
     trellisId: "svc_1",
     origin: "service",
@@ -742,7 +739,7 @@ Deno.test("Auth.ListConnections returns explicit participant metadata for user s
   >();
   const userTrellisId = await trellisIdFromOriginId("github", "123");
 
-  sessionKV.seed(`sk_agent.${userTrellisId}`, {
+  sessionKV.seed("sk_agent", {
     type: "user",
     trellisId: userTrellisId,
     origin: "github",
@@ -832,7 +829,7 @@ Deno.test("Auth.RevokeSession cascades agent revocation to the grant and sibling
     subscribeSubjects: [],
   });
 
-  sessionKV.seed(`sk_agent_1.${userTrellisId}`, {
+  sessionKV.seed("sk_agent_1", {
     type: "user",
     trellisId: userTrellisId,
     origin: "github",
@@ -849,7 +846,7 @@ Deno.test("Auth.RevokeSession cascades agent revocation to the grant and sibling
     delegatedSubscribeSubjects: [],
     ...baseSessionFields(),
   });
-  sessionKV.seed(`sk_agent_2.${userTrellisId}`, {
+  sessionKV.seed("sk_agent_2", {
     type: "user",
     trellisId: userTrellisId,
     origin: "github",
@@ -866,7 +863,7 @@ Deno.test("Auth.RevokeSession cascades agent revocation to the grant and sibling
     delegatedSubscribeSubjects: [],
     ...baseSessionFields(),
   });
-  sessionKV.seed(`sk_app.${userTrellisId}`, {
+  sessionKV.seed("sk_app", {
     type: "user",
     trellisId: userTrellisId,
     origin: "github",
@@ -956,11 +953,11 @@ Deno.test("Auth.RevokeSession cascades agent revocation to the grant and sibling
     undefined,
   );
   assertEquals(
-    isErr(await sessionKV.get(`sk_agent_1.${userTrellisId}`).take()),
+    isErr(await sessionKV.get("sk_agent_1").take()),
     true,
   );
   assertEquals(
-    isErr(await sessionKV.get(`sk_agent_2.${userTrellisId}`).take()),
+    isErr(await sessionKV.get("sk_agent_2").take()),
     true,
   );
   assertEquals(
@@ -980,7 +977,7 @@ Deno.test("Auth.RevokeSession cascades agent revocation to the grant and sibling
     true,
   );
   assertEquals(
-    isErr(await sessionKV.get(`sk_app.${userTrellisId}`).take()),
+    isErr(await sessionKV.get("sk_app").take()),
     false,
   );
   assertEquals(
@@ -1040,7 +1037,7 @@ Deno.test("Auth.RevokeSession cascades app revocation to the grant and sibling u
     subscribeSubjects: [],
   });
 
-  sessionKV.seed(`sk_app_1.${userTrellisId}`, {
+  sessionKV.seed("sk_app_1", {
     type: "user",
     trellisId: userTrellisId,
     origin: "github",
@@ -1057,7 +1054,7 @@ Deno.test("Auth.RevokeSession cascades app revocation to the grant and sibling u
     delegatedSubscribeSubjects: [],
     ...baseSessionFields(),
   });
-  sessionKV.seed(`sk_app_2.${userTrellisId}`, {
+  sessionKV.seed("sk_app_2", {
     type: "user",
     trellisId: userTrellisId,
     origin: "github",
@@ -1074,7 +1071,7 @@ Deno.test("Auth.RevokeSession cascades app revocation to the grant and sibling u
     delegatedSubscribeSubjects: [],
     ...baseSessionFields(),
   });
-  sessionKV.seed(`sk_agent.${userTrellisId}`, {
+  sessionKV.seed("sk_agent", {
     type: "user",
     trellisId: userTrellisId,
     origin: "github",
@@ -1158,15 +1155,15 @@ Deno.test("Auth.RevokeSession cascades app revocation to the grant and sibling u
     undefined,
   );
   assertEquals(
-    isErr(await sessionKV.get(`sk_app_1.${userTrellisId}`).take()),
+    isErr(await sessionKV.get("sk_app_1").take()),
     true,
   );
   assertEquals(
-    isErr(await sessionKV.get(`sk_app_2.${userTrellisId}`).take()),
+    isErr(await sessionKV.get("sk_app_2").take()),
     true,
   );
   assertEquals(
-    isErr(await sessionKV.get(`sk_agent.${userTrellisId}`).take()),
+    isErr(await sessionKV.get("sk_agent").take()),
     false,
   );
 });
@@ -1197,7 +1194,7 @@ Deno.test("Auth.RevokeSession deletes app approvals from SQL", async () => {
     const connectionsKV = new InMemoryKV<
       { serverId: string; clientId: number; connectedAt: Date }
     >();
-    sessionKV.seed(`sk_app.${userTrellisId}`, {
+    sessionKV.seed("sk_app", {
       type: "user",
       trellisId: userTrellisId,
       origin: "github",
@@ -1267,7 +1264,7 @@ Deno.test("Auth.RevokeSession revokes device activation so the device cannot rec
     { origin: string; id: string; sessionKey: string; revokedBy: string }
   > = [];
 
-  sessionKV.seed("sk_device.dev_1", {
+  sessionKV.seed("sk_device", {
     type: "device",
     instanceId: "dev_1",
     publicIdentityKey: "A".repeat(43),
@@ -1332,7 +1329,7 @@ Deno.test("Auth.RevokeSession revokes device activation so the device cannot rec
   if (isErr(activationEntry)) throw activationEntry.error;
   assertEquals(activationEntry.value.state, "revoked");
   assert(activationEntry.value.revokedAt !== null);
-  assertEquals(isErr(await sessionKV.get("sk_device.dev_1").take()), true);
+  assertEquals(isErr(await sessionKV.get("sk_device").take()), true);
 });
 
 Deno.test("Auth.RevokeSession disables the service instance so it cannot reconnect", async () => {
@@ -1361,7 +1358,7 @@ Deno.test("Auth.RevokeSession disables the service instance so it cannot reconne
     { origin: string; id: string; sessionKey: string; revokedBy: string }
   > = [];
 
-  sessionKV.seed("sk_service.svc_1", {
+  sessionKV.seed("sk_service", {
     type: "service",
     trellisId: "svc_1",
     origin: "service",
@@ -1435,5 +1432,5 @@ Deno.test("Auth.RevokeSession disables the service instance so it cannot reconne
   const serviceEntry = await serviceInstancesKV.get("svc_1").take();
   if (isErr(serviceEntry)) throw serviceEntry.error;
   assertEquals(serviceEntry.value.disabled, true);
-  assertEquals(isErr(await sessionKV.get("sk_service.svc_1").take()), true);
+  assertEquals(isErr(await sessionKV.get("sk_service").take()), true);
 });

@@ -16,15 +16,7 @@ import { getConfig } from "../../config.ts";
 import { getResourcePermissionGrants } from "../../catalog/resources.ts";
 import type { ContractStore } from "../../catalog/store.ts";
 import type { SqlContractStorageRepository } from "../../catalog/storage.ts";
-import {
-  connectionsKV,
-  deviceActivationStorage,
-  deviceProfileStorage,
-  logger,
-  natsAuth,
-  sessionStorage,
-  trellis,
-} from "../../bootstrap/globals.ts";
+import { authRuntimeDeps } from "../runtime_deps.ts";
 import { kick } from "./kick.ts";
 import { resolveUserReconnectSession } from "./user_reconnect.ts";
 import {
@@ -125,6 +117,7 @@ type DeviceRuntimeGrant = ReturnType<typeof deriveDeviceRuntimeAccess> & {
 async function findDeviceActivationByIdentityKey(
   publicIdentityKey: string,
 ): Promise<DeviceActivationRecord | null> {
+  const { deviceActivationStorage } = authRuntimeDeps();
   const activation = await deviceActivationStorage.get(
     deviceInstanceId(publicIdentityKey),
   );
@@ -144,6 +137,7 @@ async function resolveDeviceRuntimeGrant(
     throw new Error("device_activation_revoked");
   }
 
+  const { deviceProfileStorage } = authRuntimeDeps();
   const profile = await deviceProfileStorage.get(activation.profileId);
   if (!profile) throw new Error("device_profile_not_found");
   if (profile.disabled) throw new Error("device_profile_disabled");
@@ -177,6 +171,8 @@ async function resolveDeviceRuntimeGrant(
 }
 
 export function startDisconnectCleanup(): BackgroundTaskHandle {
+  const { connectionsKV, logger, natsAuth, sessionStorage, trellis } =
+    authRuntimeDeps();
   const disconnectSub = natsAuth.subscribe("$SYS.ACCOUNT.*.DISCONNECT");
   let stopping = false;
   const task = (async () => {
@@ -217,9 +213,8 @@ export function startDisconnectCleanup(): BackgroundTaskHandle {
           }
           if (parsedKey.userNkey !== userNkey) continue;
 
-          const sessionValue = await sessionStorage.get(
+          const sessionValue = await sessionStorage.getOneBySessionKey(
             parsedKey.sessionKey,
-            parsedKey.scopeId,
           );
           if (sessionValue) {
             if (sessionValue.type !== "device") {
@@ -268,6 +263,15 @@ export function startAuthCallout(
     contractStore?: ContractStore;
   },
 ): BackgroundTaskHandle {
+  const {
+    connectionsKV,
+    deviceActivationStorage,
+    deviceProfileStorage,
+    logger,
+    natsAuth,
+    sessionStorage,
+    trellis,
+  } = authRuntimeDeps();
   const xkp = fromSeed(
     new TextEncoder().encode(config.nats.authCallout.sxSeed),
   );
@@ -383,27 +387,21 @@ export function startAuthCallout(
       }
 
       let deviceGrant: DeviceRuntimeGrant | null = null;
-      const usesIat = typeof authToken.iat === "number";
+      const iat = authToken.iat;
+      if (typeof iat !== "number") throw new Error("invalid_auth_token");
+      const nowSec = Math.floor(now.getTime() / 1000);
+      if (Math.abs(nowSec - iat) > 30) throw new Error("iat_out_of_range");
+      if (
+        !(await verifyDomainSig(sessionKey, "nats-connect", String(iat), sig))
+      ) {
+        throw new Error("invalid_signature");
+      }
 
-      if (usesIat) {
-        const iat = authToken.iat;
-        if (typeof iat !== "number") throw new Error("invalid_auth_token");
-        const nowSec = Math.floor(now.getTime() / 1000);
-        if (Math.abs(nowSec - iat) > 30) throw new Error("iat_out_of_range");
-        if (
-          !(await verifyDomainSig(sessionKey, "nats-connect", String(iat), sig))
-        ) {
-          throw new Error("invalid_signature");
-        }
-
-        const service = await loadServiceInstanceByKey(sessionKey);
-        if (service) {
-          if (service.disabled) throw new Error("service_disabled");
-          const profile = await loadServiceProfile(service.profileId);
-          if (!profile || profile.disabled) throw new Error("service_disabled");
-        }
-      } else {
-        throw new Error("invalid_auth_token");
+      const service = await loadServiceInstanceByKey(sessionKey);
+      if (service) {
+        if (service.disabled) throw new Error("service_disabled");
+        const profile = await loadServiceProfile(service.profileId);
+        if (!profile || profile.disabled) throw new Error("service_disabled");
       }
 
       let session = await sessionStorage.getOneBySessionKey(sessionKey);
@@ -428,7 +426,7 @@ export function startAuthCallout(
             createdAt: now,
             lastAuth: now,
           });
-        } else if (usesIat) {
+        } else {
           deviceGrant = await resolveDeviceRuntimeGrant(
             sessionKey,
             opts.contractStorage,
@@ -456,8 +454,6 @@ export function startAuthCallout(
               ? new Date(deviceGrant.activation.revokedAt)
               : null,
           });
-        } else {
-          throw new Error("session_not_found");
         }
         session = await sessionStorage.getOneBySessionKey(sessionKey);
       }
@@ -465,13 +461,10 @@ export function startAuthCallout(
       if (!session) throw new Error("session_not_found");
 
       if (session.type === "device") {
-        const presentedContractDigest = usesIat
-          ? authToken.contractDigest
-          : session.contractDigest;
         const currentGrant = deviceGrant ?? await resolveDeviceRuntimeGrant(
           sessionKey,
           opts.contractStorage,
-          presentedContractDigest,
+          authToken.contractDigest,
           opts.contractStore,
         );
         let activatedAt = currentGrant.activation.activatedAt
@@ -500,7 +493,7 @@ export function startAuthCallout(
             ? new Date(currentGrant.activation.revokedAt)
             : null,
         };
-      } else if (session.type === "user" && usesIat) {
+      } else if (session.type === "user") {
         if (!opts?.contractStore) {
           throw new Error("contract_changed");
         }

@@ -191,3 +191,41 @@ Deno.test("StateStore encodes contract ids and caller keys for KV-safe storage",
     "inspection.v1/open",
   ]);
 });
+
+Deno.test("StateStore lists map keys that look like value-store sentinels", async () => {
+  const kv = new FakeStateKV();
+  const store = new StateStore({
+    kv,
+    now: () => new Date("2026-01-01T00:00:00.000Z"),
+  });
+  const target = {
+    ownerType: "user" as const,
+    contractId: "acme.notes@v1",
+    ownerKey: "user-1",
+    store: "drafts",
+    kind: "map" as const,
+    schema: Type.Object({ label: Type.String() }),
+  };
+
+  unwrapOk(
+    await store.put(target, {
+      key: "__value",
+      value: { label: "old sentinel" },
+    }),
+  );
+  unwrapOk(
+    await store.put(target, {
+      key: "~value",
+      value: { label: "new sentinel text" },
+    }),
+  );
+
+  const listed = unwrapOk(
+    await store.list(target, { offset: 0, limit: 10 }),
+  );
+
+  assertEquals(listed.entries.map((entry) => entry.key), [
+    "__value",
+    "~value",
+  ]);
+});

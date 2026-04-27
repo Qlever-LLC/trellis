@@ -22,14 +22,9 @@ type KVLike<V> = {
 };
 
 type SessionStore = {
-  listEntriesBySessionKey: (
-    sessionKey: string,
-  ) => Promise<
-    Array<{ sessionKey: string; trellisId: string; session: Session }>
-  >;
-  get: (sessionKey: string, trellisId: string) => Promise<Session | undefined>;
+  getOneBySessionKey: (sessionKey: string) => Promise<Session | undefined>;
   put: (sessionKey: string, session: Session) => Promise<void>;
-  delete: (sessionKey: string, trellisId: string) => Promise<void>;
+  deleteBySessionKey: (sessionKey: string) => Promise<void>;
 };
 
 function unwrapValue<V>(entry: { value: V } | V): V {
@@ -110,19 +105,15 @@ export async function ensureBoundUserSession(args: {
   delegatedPublishSubjects: string[];
   delegatedSubscribeSubjects: string[];
 }): Promise<Result<{ createdAt: Date }, EnsureBoundUserSessionError>> {
-  let existingEntries: Array<{
-    sessionKey: string;
-    trellisId: string;
-    session: Session;
-  }>;
+  let existingSession: Session | undefined;
   try {
-    existingEntries = await args.sessionStorage.listEntriesBySessionKey(
+    existingSession = await args.sessionStorage.getOneBySessionKey(
       args.sessionKey,
     );
   } catch (error) {
     return Result.err(
       new EnsureBoundUserSessionError("storage_error", {
-        context: { op: "listEntriesBySessionKey", error },
+        context: { op: "getOneBySessionKey", error },
       }),
     );
   }
@@ -133,9 +124,8 @@ export async function ensureBoundUserSession(args: {
     s.origin === args.origin &&
     s.id === args.id;
 
-  const existingEntry = existingEntries[0];
-  const needsReset = existingEntry !== undefined &&
-    !expectedIdentityMatches(existingEntry.session);
+  const needsReset = existingSession !== undefined &&
+    !expectedIdentityMatches(existingSession);
 
   if (needsReset) {
     // Kick and delete any tracked connections for this sessionKey.
@@ -174,22 +164,18 @@ export async function ensureBoundUserSession(args: {
       }
     }
 
-    // Delete all existing session entries for this sessionKey prefix.
-    for (const entry of existingEntries) {
-      try {
-        await args.sessionStorage.delete(entry.sessionKey, entry.trellisId);
-      } catch (error) {
-        return Result.err(
-          new EnsureBoundUserSessionError("storage_error", {
-            context: {
-              op: "session_delete",
-              sessionKey: entry.sessionKey,
-              trellisId: entry.trellisId,
-              error,
-            },
-          }),
-        );
-      }
+    try {
+      await args.sessionStorage.deleteBySessionKey(args.sessionKey);
+    } catch (error) {
+      return Result.err(
+        new EnsureBoundUserSessionError("storage_error", {
+          context: {
+            op: "session_delete",
+            sessionKey: args.sessionKey,
+            error,
+          },
+        }),
+      );
     }
   }
 
@@ -215,7 +201,7 @@ export async function ensureBoundUserSession(args: {
     lastAuth: args.now,
   };
 
-  if (existingEntries.length === 0 || needsReset) {
+  if (existingSession === undefined || needsReset) {
     try {
       await args.sessionStorage.put(args.sessionKey, session);
       return Result.ok({ createdAt: args.now });
@@ -228,17 +214,6 @@ export async function ensureBoundUserSession(args: {
     }
   }
 
-  const existingSession = await args.sessionStorage.get(
-    args.sessionKey,
-    args.trellisId,
-  );
-  if (!existingSession) {
-    return Result.err(
-      new EnsureBoundUserSessionError("storage_error", {
-        context: { op: "get", sessionKey: args.sessionKey },
-      }),
-    );
-  }
   if (!expectedIdentityMatches(existingSession)) {
     return Result.err(new EnsureBoundUserSessionError("session_already_bound"));
   }

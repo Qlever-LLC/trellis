@@ -14,16 +14,7 @@ import {
 } from "../bootstrap/device.ts";
 import { buildClientTransports } from "../transports.ts";
 import { getConfig } from "../../config.ts";
-import {
-  browserFlowsKV,
-  deviceActivationReviewStorage,
-  deviceActivationStorage,
-  deviceInstanceStorage,
-  deviceProfileStorage,
-  deviceProvisioningSecretStorage,
-  logger,
-  sentinelCreds,
-} from "../../bootstrap/globals.ts";
+import { authRuntimeDeps } from "../runtime_deps.ts";
 import type {
   SqlDevicePortalSelectionRepository,
   SqlPortalDefaultRepository,
@@ -31,10 +22,7 @@ import type {
 } from "../storage.ts";
 import { randomToken } from "../crypto.ts";
 import { deviceInstanceId } from "../admin/shared.ts";
-import {
-  normalizeBuiltinPortalEntryUrl,
-  resolveDevicePortal,
-} from "../http/support.ts";
+import { resolveDevicePortal } from "../http/support.ts";
 import { isDeviceProofIatFresh } from "./shared.ts";
 
 const config = getConfig();
@@ -116,28 +104,33 @@ type DeviceActivationPortalDeps = {
 async function loadDeviceInstance(
   instanceId: string,
 ): Promise<DeviceInstance | null> {
+  const { deviceInstanceStorage } = authRuntimeDeps();
   return await deviceInstanceStorage.get(instanceId) ?? null;
 }
 
 async function loadDeviceProfile(
   profileId: string,
 ): Promise<DeviceProfile | null> {
+  const { deviceProfileStorage } = authRuntimeDeps();
   return await deviceProfileStorage.get(profileId) ?? null;
 }
 
 async function loadDeviceActivation(instanceId: string) {
+  const { deviceActivationStorage } = authRuntimeDeps();
   return await deviceActivationStorage.get(instanceId) ?? null;
 }
 
 async function loadDeviceProvisioningSecret(
   instanceId: string,
 ): Promise<DeviceProvisioningSecret | null> {
+  const { deviceProvisioningSecretStorage } = authRuntimeDeps();
   return await deviceProvisioningSecretStorage.get(instanceId) ?? null;
 }
 
 async function findDeviceActivationReviewByFlowId(
   flowId: string,
 ): Promise<DeviceActivationReview | null> {
+  const { deviceActivationReviewStorage } = authRuntimeDeps();
   return await deviceActivationReviewStorage.getByFlowId(flowId) ?? null;
 }
 
@@ -177,6 +170,7 @@ async function findDeviceActivationFlow(input: {
   publicIdentityKey: string;
   nonce: string;
 }): Promise<DeviceActivationFlow | null> {
+  const { browserFlowsKV } = authRuntimeDeps();
   const iter = await browserFlowsKV.keys(">").take();
   if (isErr(iter)) return null;
   for await (const key of iter) {
@@ -229,6 +223,7 @@ async function loadDevicePortalDefaultId(
 }
 
 function deviceBootstrapDeps() {
+  const { deviceInstanceStorage, sentinelCreds } = authRuntimeDeps();
   return {
     transports: buildClientTransports(config),
     sentinel: sentinelCreds,
@@ -266,6 +261,7 @@ async function createDeviceActivationRequest(
   deps: DeviceActivationPortalDeps,
   payload: { publicIdentityKey: string; nonce: string; qrMac: string },
 ): Promise<DeviceActivationRequestResponse> {
+  const { browserFlowsKV, logger } = authRuntimeDeps();
   const instanceId = deviceInstanceId(payload.publicIdentityKey);
   const instance = await loadDeviceInstance(instanceId);
   if (!instance) throw new Error("Unknown device");
@@ -315,11 +311,7 @@ async function createDeviceActivationRequest(
     selections: await listDevicePortalSelections(deps),
   });
   const portalEntryUrl = portalResolution.kind === "custom"
-    ? normalizeBuiltinPortalEntryUrl({
-      entryUrl: portalResolution.portal.entryUrl,
-      baseUrl: builtinPortalEntryUrl(),
-      expectedKind: "device",
-    })
+    ? portalResolution.portal.entryUrl
     : builtinPortalEntryUrl();
   const portalUrl = new URL(portalEntryUrl);
   portalUrl.searchParams.set("flowId", flowId);

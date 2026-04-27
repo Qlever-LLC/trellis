@@ -42,10 +42,6 @@ class InMemoryKV<V> {
     return this.#store.get(key);
   }
 
-  entries(): Array<[string, V]> {
-    return [...this.#store.entries()];
-  }
-
   keys(filter: string | string[]) {
     const filters = Array.isArray(filter) ? filter : [filter];
     async function* iter(store: Map<string, V>) {
@@ -89,31 +85,14 @@ class InMemoryKV<V> {
 
 function sessionStorageFromKV(kv: InMemoryKV<Session>) {
   return {
-    async listEntriesBySessionKey(sessionKey: string) {
-      const prefix = `${sessionKey}.`;
-      return [...kv.entries()]
-        .filter(([key]) => key.startsWith(prefix))
-        .map(([key, session]) => ({
-          sessionKey,
-          trellisId: key.slice(prefix.length),
-          session,
-        }));
-    },
-    async get(sessionKey: string, trellisId: string) {
-      const entries = await this.listEntriesBySessionKey(sessionKey);
-      return entries.find((entry) => entry.trellisId === trellisId)?.session;
+    async getOneBySessionKey(sessionKey: string) {
+      return kv.getValue(sessionKey);
     },
     async put(sessionKey: string, session: Session) {
-      for (const entry of await this.listEntriesBySessionKey(sessionKey)) {
-        kv.delete(`${entry.sessionKey}.${entry.trellisId}`);
-      }
-      const trellisId = session.type === "device"
-        ? session.instanceId
-        : session.trellisId;
-      kv.seed(`${sessionKey}.${trellisId}`, session);
+      kv.seed(sessionKey, session);
     },
-    async delete(sessionKey: string, trellisId: string) {
-      kv.delete(`${sessionKey}.${trellisId}`);
+    async deleteBySessionKey(sessionKey: string) {
+      kv.delete(sessionKey);
     },
   };
 }
@@ -158,7 +137,7 @@ Deno.test("ensureBoundUserSession creates a new session when none exists", async
   if (isErr(v)) throw v.error;
 
   assertEquals(v.createdAt.toISOString(), now.toISOString());
-  assertEquals(sessionKV.has("sk.tid"), true);
+  assertEquals(sessionKV.has("sk"), true);
 });
 
 Deno.test("ensureBoundUserSession recovers when the session already exists for the same identity", async () => {
@@ -166,7 +145,7 @@ Deno.test("ensureBoundUserSession recovers when the session already exists for t
   const connectionsKV = new InMemoryKV<Connection>();
 
   const createdAt = new Date("2026-01-01T00:00:00.000Z");
-  sessionKV.seed("sk.tid", {
+  sessionKV.seed("sk", {
     type: "user",
     trellisId: "tid",
     origin: "github",
@@ -197,7 +176,7 @@ Deno.test("ensureBoundUserSession recovers when the session already exists for t
   if (isErr(v)) throw v.error;
 
   assertEquals(v.createdAt.toISOString(), createdAt.toISOString());
-  const updated = sessionKV.getValue("sk.tid");
+  const updated = sessionKV.getValue("sk");
   if (!updated || updated.type !== "user") {
     throw new Error("expected updated session");
   }
@@ -215,7 +194,7 @@ Deno.test("ensureBoundUserSession kicks connections and replaces session when bo
   const sessionKV = new InMemoryKV<Session>();
   const connectionsKV = new InMemoryKV<Connection>();
 
-  sessionKV.seed("sk.other", {
+  sessionKV.seed("sk", {
     type: "user",
     trellisId: "other",
     origin: "github",
@@ -268,8 +247,7 @@ Deno.test("ensureBoundUserSession kicks connections and replaces session when bo
     { serverId: "srv1", clientId: 1 },
     { serverId: "srv2", clientId: 2 },
   ]);
-  assertEquals(sessionKV.has("sk.other"), false);
-  assertEquals(sessionKV.has("sk.tid"), true);
+  assertEquals(sessionKV.has("sk"), true);
   assertEquals(connectionsKV.has("sk.other.nk1"), false);
   assertEquals(connectionsKV.has("sk.other.nk2"), false);
   assertEquals(connectionsKV.has("sk2.unrelated.nk3"), true);
@@ -279,7 +257,7 @@ Deno.test("ensureBoundUserSession replaces an existing session key with a mismat
   const sessionKV = new InMemoryKV<Session>();
   const connectionsKV = new InMemoryKV<Connection>();
 
-  sessionKV.seed("sk.tid", {
+  sessionKV.seed("sk", {
     type: "user",
     trellisId: "tid",
     origin: "github",
@@ -307,7 +285,7 @@ Deno.test("ensureBoundUserSession replaces an existing session key with a mismat
 
   const v = res.take();
   if (isErr(v)) throw v.error;
-  const rebound = sessionKV.getValue("sk.tid");
+  const rebound = sessionKV.getValue("sk");
   if (!rebound || rebound.type !== "user") {
     throw new Error("expected rebound session");
   }
@@ -319,7 +297,7 @@ Deno.test("ensureBoundUserSession clears stale app identity when the rebound ses
   const connectionsKV = new InMemoryKV<Connection>();
 
   const createdAt = new Date("2026-01-01T00:00:00.000Z");
-  sessionKV.seed("sk.tid", {
+  sessionKV.seed("sk", {
     type: "user",
     trellisId: "tid",
     origin: "github",
@@ -356,7 +334,7 @@ Deno.test("ensureBoundUserSession clears stale app identity when the rebound ses
   const v = res.take();
   if (isErr(v)) throw v.error;
 
-  const updated = sessionKV.getValue("sk.tid");
+  const updated = sessionKV.getValue("sk");
   if (!updated || updated.type !== "user") {
     throw new Error("expected updated session");
   }
@@ -365,12 +343,11 @@ Deno.test("ensureBoundUserSession clears stale app identity when the rebound ses
 
 Deno.test("ensureBoundUserSession returns storage_error when listing existing sessions fails", async () => {
   const sessionStorage = {
-    listEntriesBySessionKey: () => {
+    getOneBySessionKey: () => {
       throw new UnexpectedError({ context: { op: "list" } });
     },
-    get: () => Promise.resolve(undefined),
     put: () => Promise.resolve(),
-    delete: () => Promise.resolve(),
+    deleteBySessionKey: () => Promise.resolve(),
   };
   const connectionsKV = new InMemoryKV<Connection>();
 

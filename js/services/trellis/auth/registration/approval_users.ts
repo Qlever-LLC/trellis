@@ -11,12 +11,26 @@ import {
 } from "../session/users.ts";
 import type {
   SqlContractApprovalRepository,
+  SqlSessionRepository,
   SqlUserProjectionRepository,
 } from "../storage.ts";
+import type { AuthLogger, RuntimeKV } from "../runtime_deps.ts";
 import type { RpcRegistrar } from "./types.ts";
+import type { Connection } from "../../state/schemas.ts";
 
 export async function registerApprovalAndUserRpcs(deps: {
   trellis: RpcRegistrar;
+  connectionsKV: RuntimeKV<Connection>;
+  logger: AuthLogger;
+  sessionStorage: SqlSessionRepository;
+  publishSessionRevoked: (
+    event: {
+      origin: string;
+      id: string;
+      sessionKey: string;
+      revokedBy: string;
+    },
+  ) => Promise<void>;
   userStorage: SqlUserProjectionRepository;
   contractApprovalStorage: SqlContractApprovalRepository;
 }): Promise<void> {
@@ -42,17 +56,21 @@ export async function registerApprovalAndUserRpcs(deps: {
   await deps.trellis.mount(
     "Auth.RevokeUserGrant",
     createAuthRevokeUserGrantRpcHandler({
+      connectionsKV: deps.connectionsKV,
       contractApprovalStorage: deps.contractApprovalStorage,
       kick,
+      logger: deps.logger,
+      publishSessionRevoked: deps.publishSessionRevoked,
+      sessionStorage: deps.sessionStorage,
     }),
   );
 
   await deps.trellis.mount(
     "Auth.ListUsers",
-    createAuthListUsersHandler(deps.userStorage),
+    createAuthListUsersHandler(deps.userStorage, deps.logger),
   );
   await deps.trellis.mount(
     "Auth.UpdateUser",
-    createAuthUpdateUserHandler(deps.userStorage),
+    createAuthUpdateUserHandler(deps.userStorage, deps.logger),
   );
 }

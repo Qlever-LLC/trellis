@@ -2,7 +2,7 @@ import { trellisIdFromOriginId } from "@qlever-llc/trellis/auth";
 import { Result } from "@qlever-llc/result";
 import { AuthError } from "@qlever-llc/trellis";
 
-import { logger } from "../../bootstrap/globals.ts";
+import type { AuthLogger } from "../runtime_deps.ts";
 import type { SqlUserProjectionRepository } from "../storage.ts";
 
 type RpcUser = { id: string; origin: string; capabilities?: string[] };
@@ -26,6 +26,7 @@ function requireUserCaller(caller: {
 /** Creates the Auth.ListUsers RPC handler backed by SQL user storage. */
 export function createAuthListUsersHandler(
   userStorage: SqlUserProjectionRepository,
+  logger: Pick<AuthLogger, "trace">,
 ) {
   return async (
     {
@@ -66,6 +67,7 @@ export function createAuthListUsersHandler(
 /** Creates the Auth.UpdateUser RPC handler backed by SQL user storage. */
 export function createAuthUpdateUserHandler(
   userStorage: SqlUserProjectionRepository,
+  logger: Pick<AuthLogger, "trace">,
 ) {
   return async (
     {

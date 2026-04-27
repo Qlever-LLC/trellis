@@ -141,7 +141,6 @@ export function createAuthStartRequestHandler(deps: {
   bindApprovedSession: (args: {
     pendingValue: PendingAuth;
     resolution: ApprovalResolution;
-    tokenKind: "renew";
     approvalSource: SessionApprovalSource;
   }) => Promise<AuthStartBoundResponse>;
   createFlow: (args: {
@@ -199,7 +198,6 @@ export function createAuthStartRequestHandler(deps: {
         return await deps.bindApprovedSession({
           pendingValue,
           resolution,
-          tokenKind: "renew",
           approvalSource: resolution.effectiveApproval.answer === "approved"
             ? resolution.effectiveApproval.kind
             : existingSession.approvalSource ?? "stored_approval",

@@ -80,6 +80,12 @@ and this project adheres to
 - Changed TypeScript contract authoring so baseline app, agent, device, and
   top-level state Trellis-owned dependencies are derived automatically, while
   non-baseline Auth surfaces use explicit `auth.use(...)` declarations.
+- Simplified the Trellis control-plane service for pre-v1 by removing old auth
+  reconnect compatibility paths, making `sessionKey` the durable session storage
+  identity, validating operation subjects before contract persistence, scoping
+  State entries by contract id lineage, and replacing raw SQLite bootstrap with
+  a Drizzle baseline migration named `00000_baseline`. Existing pre-baseline
+  development databases must be deleted or recreated.
 
 ### Added
 

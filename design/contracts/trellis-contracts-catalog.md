@@ -132,6 +132,9 @@ A `trellis.contract.v1` manifest has this top-level structure:
   "schemas": {
     "Checkpoint": { "type": "object" }
   },
+  "exports": {
+    "schemas": ["Checkpoint"]
+  },
   "uses": {},
   "jobs": {},
   "operations": {},
@@ -164,6 +167,7 @@ Top-level fields:
 | `description` | yes      | string | Human-facing explanation of the contract's purpose                 |
 | `kind`        | yes      | string | Contract role such as `service`, `app`, `agent`, or `device`       |
 | `schemas`     | no       | object | Reusable self-contained JSON Schema values keyed by schema name    |
+| `exports`     | no       | object | Canonical public exports made available to dependent contracts     |
 | `uses`        | no       | object | Explicit cross-contract operation/RPC/event/subject dependencies   |
 | `jobs`        | no       | object | Map of first-class service-private job queue descriptors           |
 | `operations`  | no       | object | Map of logical operation names to operation descriptors            |
@@ -177,8 +181,14 @@ Top-level fields:
 Rules:
 
 - `format`, `id`, `displayName`, `description`, and `kind` are required.
-- `schemas` is the contract-level schema registry referenced by RPC,
-  operations, events, jobs, state declarations, and schema-backed KV resources.
+- `schemas` is the contract-level schema registry referenced by RPC, operations,
+  events, jobs, state declarations, and schema-backed KV resources.
+- `exports.schemas` is the canonical list of schema names exported from the
+  contract-level `schemas` registry for other contracts and generated APIs to
+  reference.
+- every name in `exports.schemas` MUST resolve to a top-level `schemas` entry;
+  exported schemas follow the same self-contained schema rules as all other
+  contract schema refs.
 - `kind` drives discovery behavior in bootstrap-safe generation flows: `service`
   contracts generate manifests and SDKs, while `app`, `agent`, and `device`
   contracts are verified.

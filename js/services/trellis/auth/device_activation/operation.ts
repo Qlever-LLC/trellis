@@ -1,17 +1,7 @@
 import { AuthError } from "@qlever-llc/trellis";
 import { isErr, Result } from "@qlever-llc/result";
 
-import {
-  browserFlowsKV,
-  deviceActivationReviewStorage,
-  deviceActivationStorage,
-  deviceInstanceStorage,
-  deviceProfileStorage,
-  deviceProvisioningSecretStorage,
-  logger,
-  sentinelCreds,
-  trellis,
-} from "../../bootstrap/globals.ts";
+import { authRuntimeDeps } from "../runtime_deps.ts";
 import { randomToken } from "../crypto.ts";
 import {
   deriveDeviceConfirmationCode,
@@ -103,6 +93,7 @@ function activationFailure(
   reason: AuthError["reason"],
   context?: Record<string, unknown>,
 ) {
+  const { logger } = authRuntimeDeps();
   logger.warn(
     { reason, ...(context ? { context } : {}) },
     "Device activation failed",
@@ -151,6 +142,7 @@ function toDeviceActivationFlow(value: {
 async function loadDeviceActivationFlow(
   flowId: string,
 ): Promise<DeviceActivationFlow | null> {
+  const { browserFlowsKV } = authRuntimeDeps();
   const entry = await browserFlowsKV.get(flowId).take();
   if (isErr(entry)) return null;
   return toDeviceActivationFlow(
@@ -173,30 +165,35 @@ async function loadDeviceActivationFlow(
 async function loadDeviceInstance(
   instanceId: string,
 ): Promise<DeviceInstance | null> {
+  const { deviceInstanceStorage } = authRuntimeDeps();
   return await deviceInstanceStorage.get(instanceId) ?? null;
 }
 
 async function loadDeviceProfile(
   profileId: string,
 ): Promise<DeviceProfile | null> {
+  const { deviceProfileStorage } = authRuntimeDeps();
   return await deviceProfileStorage.get(profileId) ?? null;
 }
 
 async function loadDeviceProvisioningSecret(
   instanceId: string,
 ): Promise<DeviceProvisioningSecret | null> {
+  const { deviceProvisioningSecretStorage } = authRuntimeDeps();
   return await deviceProvisioningSecretStorage.get(instanceId) ?? null;
 }
 
 async function loadDeviceActivation(
   instanceId: string,
 ): Promise<DeviceActivationRecord | null> {
+  const { deviceActivationStorage } = authRuntimeDeps();
   return await deviceActivationStorage.get(instanceId) ?? null;
 }
 
 async function findReviewByFlowId(
   flowId: string,
 ): Promise<DeviceActivationReviewRecord | null> {
+  const { deviceActivationReviewStorage } = authRuntimeDeps();
   return await deviceActivationReviewStorage.getByFlowId(flowId) ?? null;
 }
 
@@ -217,6 +214,7 @@ async function buildDeviceConnectInfo(args: {
   profile: DeviceProfile;
   contractDigest: string;
 }) {
+  const { sentinelCreds } = authRuntimeDeps();
   const applied = args.profile.appliedContracts.find((entry) =>
     entry.allowedDigests.includes(args.contractDigest)
   );
@@ -256,6 +254,7 @@ async function activateInstance(args: {
   activatedAt: string;
   confirmationCode?: string;
 }> {
+  const { deviceActivationStorage, deviceInstanceStorage } = authRuntimeDeps();
   const activatedAt = new Date().toISOString();
   await deviceActivationStorage.put({
     instanceId: args.instance.instanceId,
@@ -423,6 +422,8 @@ export function createActivateDeviceHandler() {
       };
     },
   ) => {
+    const { deviceActivationReviewStorage, logger, trellis } =
+      authRuntimeDeps();
     logger.trace(
       { operation: "Auth.ActivateDevice", flowId: input.flowId },
       "Operation request",
@@ -540,6 +541,7 @@ export function createGetDeviceConnectInfoHandler() {
       sig: string;
     };
   }) => {
+    const { deviceInstanceStorage, logger } = authRuntimeDeps();
     logger.trace({
       rpc: "Auth.GetDeviceConnectInfo",
       publicIdentityKey: req.publicIdentityKey,

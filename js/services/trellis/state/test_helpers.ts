@@ -151,10 +151,7 @@ export class FakeSessionKV {
   }
 
   async getOneBySessionKey(sessionKey: string): Promise<Session | undefined> {
-    const matches = [...this.#values.entries()].filter(([key]) =>
-      key.startsWith(`${sessionKey}.`)
-    );
-    return matches[0]?.[1];
+    return this.#values.get(sessionKey);
   }
 
   keys(filter: string | string[] = ">") {

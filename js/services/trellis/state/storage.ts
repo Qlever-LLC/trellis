@@ -15,7 +15,7 @@ export const MAX_STATE_KEY_BYTES = 512;
 export const MAX_STATE_VALUE_BYTES = 64 * 1024;
 export const MAX_STATE_LIST_LIMIT = 100;
 
-const VALUE_STORE_KEY = "__value";
+const VALUE_STORE_KEY = "~value";
 
 type StateKvEntryLike = {
   key: string;
@@ -376,19 +376,6 @@ export class StateStore {
     const valid = this.#validateList(target, opts.prefix, opts.limit);
     if (isErr(valid)) return valid;
 
-    if (target.kind === "value") {
-      const current = await this.get(target);
-      if (current.isErr()) return Result.err(current.error);
-      const currentValue = current.unwrapOrElse(() => {
-        throw new Error("state get unexpectedly failed");
-      });
-      const entries = currentValue.found ? [currentValue.entry] : [];
-      return Result.ok({
-        ...makePaginated(opts.offset, opts.limit, entries.length),
-        entries: entries.slice(opts.offset, opts.offset + opts.limit),
-      });
-    }
-
     const namespacePrefix = this.#namespacePrefix(target);
     const encodedPrefix = opts.prefix === undefined
       ? undefined
@@ -497,6 +484,9 @@ export class StateStore {
   }
 
   #storageKey(target: ResolvedStateStore, key: string): string {
+    if (target.kind === "value") {
+      return `${this.#namespacePrefix(target)}.${VALUE_STORE_KEY}`;
+    }
     return `${this.#namespacePrefix(target)}.${encodeStateComponent(key)}`;
   }
 

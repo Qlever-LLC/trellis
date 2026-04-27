@@ -7,8 +7,8 @@ should be available across authenticated app and device sessions.
 
 - provide cloud-backed contract state similar to app-local preferences or drafts
 - preserve state across upgrades within one contract lineage
-- keep raw KV resources service-owned while exposing a Trellis-owned public state
-  surface to normal callers
+- keep raw KV resources service-owned while exposing a Trellis-owned public
+  state surface to normal callers
 
 `State` is not a replacement for service-owned `resources.kv`. Services that
 need private projections or internal checkpoints should continue to use
@@ -112,8 +112,11 @@ Rules:
 - the store name comes from the contract's top-level `state` map
 - normal callers do not provide `contractId`, `scope`, user identity, or device
   identity
-- the runtime derives the target namespace from the authenticated session and the
-  active contract digest
+- the runtime derives the target namespace from the authenticated session and
+  the contract id/lineage plus authenticated principal, so state follows
+  compatible app or device upgrades within the same lineage
+- the active `contractDigest` validates the declaration and schema used for the
+  current request; it is not the durable state namespace component
 - there is no public normal-client generic keyspace API and no public normal-
   client `scope` parameter
 

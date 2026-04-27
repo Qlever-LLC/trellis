@@ -21,6 +21,7 @@ type CatalogRegistrationDeps = {
   trellis: RpcRegistrar;
   contracts: ContractsModule;
   serviceInstanceStorage: SqlServiceInstanceRepository;
+  logger: { trace: (fields: Record<string, unknown>, message: string) => void };
 };
 
 type ContractGetInput = Parameters<
@@ -39,18 +40,24 @@ export async function registerCatalog(
 ): Promise<void> {
   const trellisBindingsGetHandler = createTrellisBindingsGetHandler({
     serviceInstanceStorage: deps.serviceInstanceStorage,
+    logger: deps.logger,
   });
 
   await deps.contracts.refreshActiveContracts();
 
   await deps.trellis.mount(
     "Trellis.Catalog",
-    createTrellisCatalogHandler(deps.contracts.contractStore),
+    createTrellisCatalogHandler(deps.contracts.contractStore, deps.logger),
   );
   await deps.trellis.mount(
     "Trellis.Contract.Get",
     ({ input }: { input: ContractGetInput }) =>
-      createTrellisContractGetHandler(deps.contracts.contractStore)(input),
+      createTrellisContractGetHandler(
+        deps.contracts.contractStore,
+        deps.logger,
+      )(
+        input,
+      ),
   );
   await deps.trellis.mount(
     "Trellis.Bindings.Get",

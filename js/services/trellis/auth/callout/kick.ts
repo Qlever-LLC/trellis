@@ -1,8 +1,9 @@
 import { AsyncResult } from "@qlever-llc/result";
 
-import { logger, natsAuth } from "../../bootstrap/globals.ts";
+import { authRuntimeDeps } from "../runtime_deps.ts";
 
 export async function kick(serverId: string, clientId: number): Promise<void> {
+  const { logger, natsAuth } = authRuntimeDeps();
   logger.debug({ serverId, clientId }, "Kicking connection");
   const result = await AsyncResult.try(() =>
     natsAuth.request(

@@ -820,45 +820,14 @@ export class SqlSessionRepository {
     );
   }
 
-  /** Returns one session by session key and Trellis/session id. */
-  async get(
-    sessionKey: string,
-    trellisId: string,
-  ): Promise<Session | undefined> {
-    await this.#deleteExpiredSessions();
-    const rows = await this.#db.select().from(sessions).where(
-      and(
-        eq(sessions.sessionKey, sessionKey),
-        eq(sessions.trellisId, trellisId),
-      ),
-    ).limit(1);
-
-    const row = rows[0];
-    return row === undefined ? undefined : decodeSessionRow(row);
-  }
-
   /** Returns the only session for a session key, or undefined when absent. */
   async getOneBySessionKey(sessionKey: string): Promise<Session | undefined> {
-    const rows = await this.listEntriesBySessionKey(sessionKey, 2);
-
-    const row = rows[0];
-    return row === undefined ? undefined : row.session;
-  }
-
-  /** Returns sessions for one session key ordered by Trellis/session id. */
-  async listEntriesBySessionKey(
-    sessionKey: string,
-    limit?: number,
-  ): Promise<SessionStorageEntry[]> {
     await this.#deleteExpiredSessions();
-    const rows = limit === undefined
-      ? await this.#db.select().from(sessions).where(
-        eq(sessions.sessionKey, sessionKey),
-      ).orderBy(sessions.trellisId)
-      : await this.#db.select().from(sessions).where(
-        eq(sessions.sessionKey, sessionKey),
-      ).orderBy(sessions.trellisId).limit(limit);
-    return rows.map((row: SessionRow) => decodeSessionEntry(row));
+    const rows = await this.#db.select().from(sessions).where(
+      eq(sessions.sessionKey, sessionKey),
+    ).limit(1);
+    const row = rows[0];
+    return row === undefined ? undefined : decodeSessionRow(row);
   }
 
   /** Inserts or replaces a session keyed by session key. */
@@ -886,17 +855,7 @@ export class SqlSessionRepository {
     });
   }
 
-  /** Deletes one session by session key and Trellis/session id. */
-  async delete(sessionKey: string, trellisId: string): Promise<void> {
-    await this.#db.delete(sessions).where(
-      and(
-        eq(sessions.sessionKey, sessionKey),
-        eq(sessions.trellisId, trellisId),
-      ),
-    );
-  }
-
-  /** Deletes all sessions for a session key. */
+  /** Deletes the session for a session key. */
   async deleteBySessionKey(sessionKey: string): Promise<void> {
     await this.#db.delete(sessions).where(eq(sessions.sessionKey, sessionKey));
   }

@@ -61,17 +61,8 @@ class InMemoryKV<V> {
 function sessionStorageFromKV(sessionKV: InMemoryKV<Session>) {
   return {
     async getOneBySessionKey(sessionKey: string): Promise<Session | undefined> {
-      const keys = await sessionKV.keys(`${sessionKey}.>`).take();
-      if (isErr(keys)) return undefined;
-
-      let match: Session | undefined;
-      for await (const key of keys) {
-        const entry = await sessionKV.get(key).take();
-        if (isErr(entry)) continue;
-        if (match !== undefined) return undefined;
-        match = entry.value;
-      }
-      return match;
+      const entry = await sessionKV.get(sessionKey).take();
+      return isErr(entry) ? undefined : entry.value;
     },
   };
 }
@@ -136,7 +127,7 @@ async function createVerifiedApp(args?: {
   const usersKV = new InMemoryKV<UserProjectionEntry>();
   const sentinel: SentinelCreds = { jwt: "jwt", seed: "seed" };
 
-  sessionKV.seed(`${auth.sessionKey}.user-1`, {
+  sessionKV.seed(auth.sessionKey, {
     type: "user",
     participantKind: "app",
     trellisId: "user-1",
@@ -279,7 +270,7 @@ Deno.test("POST /bootstrap/client accepts the exact session digest when multiple
 
   const sessionKV = new InMemoryKV<Session>();
   const usersKV = new InMemoryKV<UserProjectionEntry>();
-  sessionKV.seed(`${auth.sessionKey}.user-1`, {
+  sessionKV.seed(auth.sessionKey, {
     type: "user",
     participantKind: "app",
     trellisId: "user-1",

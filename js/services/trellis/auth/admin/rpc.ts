@@ -1,26 +1,7 @@
 import { AuthError } from "@qlever-llc/trellis";
 import { isErr, Result } from "@qlever-llc/result";
 
-import {
-  browserFlowsKV,
-  connectionsKV,
-  contractApprovalStorage,
-  deviceActivationReviewStorage,
-  deviceActivationStorage,
-  deviceInstanceStorage,
-  devicePortalSelectionStorage,
-  deviceProfileStorage,
-  deviceProvisioningSecretStorage,
-  instanceGrantPolicyStorage,
-  logger,
-  loginPortalSelectionStorage,
-  portalDefaultStorage,
-  portalProfileStorage,
-  portalStorage,
-  sessionStorage,
-  trellis,
-  userStorage,
-} from "../../bootstrap/globals.ts";
+import { authRuntimeDeps } from "../runtime_deps.ts";
 import {
   type CreateDeviceProfileRequest,
   type CreatePortalRequest,
@@ -114,6 +95,133 @@ type DeviceActivationReviewRecord = {
 const LOGIN_DEFAULT_KEY = "login.default";
 const DEVICE_DEFAULT_KEY = "device.default";
 
+const logger = {
+  trace: (fields: Record<string, unknown>, message: string) =>
+    authRuntimeDeps().logger.trace(fields, message),
+  warn: (fields: Record<string, unknown>, message: string) =>
+    authRuntimeDeps().logger.warn(fields, message),
+};
+
+const browserFlowsKV = {
+  get: (key: string) => authRuntimeDeps().browserFlowsKV.get(key),
+};
+const connectionsKV = {
+  get: (key: string) => authRuntimeDeps().connectionsKV.get(key),
+  delete: (key: string) => authRuntimeDeps().connectionsKV.delete(key),
+  keys: (filter: string | string[]) =>
+    authRuntimeDeps().connectionsKV.keys(filter),
+};
+const trellis = {
+  publish: (event: string, payload: unknown) =>
+    authRuntimeDeps().trellis.publish(event, payload),
+};
+const contractApprovalStorage = {
+  get: (userTrellisId: string, contractDigest: string) =>
+    authRuntimeDeps().contractApprovalStorage.get(
+      userTrellisId,
+      contractDigest,
+    ),
+};
+const portalStorage = {
+  get: (portalId: string) => authRuntimeDeps().portalStorage.get(portalId),
+  put: (record: Portal) => authRuntimeDeps().portalStorage.put(record),
+  list: () => authRuntimeDeps().portalStorage.list(),
+};
+const portalProfileStorage = {
+  get: (portalId: string) =>
+    authRuntimeDeps().portalProfileStorage.get(portalId),
+  put: (record: PortalProfile) =>
+    authRuntimeDeps().portalProfileStorage.put(record),
+  list: () => authRuntimeDeps().portalProfileStorage.list(),
+};
+const instanceGrantPolicyStorage = {
+  get: (contractId: string) =>
+    authRuntimeDeps().instanceGrantPolicyStorage.get(contractId),
+  put: (record: InstanceGrantPolicy) =>
+    authRuntimeDeps().instanceGrantPolicyStorage.put(record),
+  list: () => authRuntimeDeps().instanceGrantPolicyStorage.list(),
+};
+const deviceProfileStorage = {
+  get: (profileId: string) =>
+    authRuntimeDeps().deviceProfileStorage.get(profileId),
+  put: (record: DeviceProfile) =>
+    authRuntimeDeps().deviceProfileStorage.put(record),
+  delete: (profileId: string) =>
+    authRuntimeDeps().deviceProfileStorage.delete(profileId),
+  list: () => authRuntimeDeps().deviceProfileStorage.list(),
+};
+const deviceInstanceStorage = {
+  get: (instanceId: string) =>
+    authRuntimeDeps().deviceInstanceStorage.get(instanceId),
+  put: (record: DeviceInstance) =>
+    authRuntimeDeps().deviceInstanceStorage.put(record),
+  delete: (instanceId: string) =>
+    authRuntimeDeps().deviceInstanceStorage.delete(instanceId),
+  list: () => authRuntimeDeps().deviceInstanceStorage.list(),
+};
+const deviceProvisioningSecretStorage = {
+  get: (instanceId: string) =>
+    authRuntimeDeps().deviceProvisioningSecretStorage.get(instanceId),
+  put: (record: DeviceProvisioningSecret) =>
+    authRuntimeDeps().deviceProvisioningSecretStorage.put(record),
+  delete: (instanceId: string) =>
+    authRuntimeDeps().deviceProvisioningSecretStorage.delete(instanceId),
+};
+const deviceActivationReviewStorage = {
+  get: (reviewId: string) =>
+    authRuntimeDeps().deviceActivationReviewStorage.get(reviewId),
+  getByFlowId: (flowId: string) =>
+    authRuntimeDeps().deviceActivationReviewStorage.getByFlowId(flowId),
+  put: (record: DeviceActivationReviewRecord) =>
+    authRuntimeDeps().deviceActivationReviewStorage.put(record),
+  list: () => authRuntimeDeps().deviceActivationReviewStorage.list(),
+};
+const deviceActivationStorage = {
+  get: (instanceId: string) =>
+    authRuntimeDeps().deviceActivationStorage.get(instanceId),
+  put: (record: DeviceActivation) =>
+    authRuntimeDeps().deviceActivationStorage.put(record),
+  delete: (instanceId: string) =>
+    authRuntimeDeps().deviceActivationStorage.delete(instanceId),
+  list: () => authRuntimeDeps().deviceActivationStorage.list(),
+};
+const portalDefaultStorage = {
+  getLogin: () => authRuntimeDeps().portalDefaultStorage.getLogin(),
+  getDevice: () => authRuntimeDeps().portalDefaultStorage.getDevice(),
+  putLogin: (record: PortalDefault) =>
+    authRuntimeDeps().portalDefaultStorage.putLogin(record),
+  putDevice: (record: PortalDefault) =>
+    authRuntimeDeps().portalDefaultStorage.putDevice(record),
+};
+const loginPortalSelectionStorage = {
+  get: (contractId: string) =>
+    authRuntimeDeps().loginPortalSelectionStorage.get(contractId),
+  put: (record: LoginPortalSelection) =>
+    authRuntimeDeps().loginPortalSelectionStorage.put(record),
+  delete: (contractId: string) =>
+    authRuntimeDeps().loginPortalSelectionStorage.delete(contractId),
+  list: () => authRuntimeDeps().loginPortalSelectionStorage.list(),
+};
+const devicePortalSelectionStorage = {
+  get: (profileId: string) =>
+    authRuntimeDeps().devicePortalSelectionStorage.get(profileId),
+  put: (record: DevicePortalSelection) =>
+    authRuntimeDeps().devicePortalSelectionStorage.put(record),
+  delete: (profileId: string) =>
+    authRuntimeDeps().devicePortalSelectionStorage.delete(profileId),
+  list: () => authRuntimeDeps().devicePortalSelectionStorage.list(),
+};
+const userStorage = {
+  get: (trellisId: string) => authRuntimeDeps().userStorage.get(trellisId),
+};
+const sessionStorage = {
+  deleteBySessionKey: (sessionKey: string) =>
+    authRuntimeDeps().sessionStorage.deleteBySessionKey(sessionKey),
+  deleteByInstanceKey: (instanceKey: string) =>
+    authRuntimeDeps().sessionStorage.deleteByInstanceKey(instanceKey),
+  listEntries: () => authRuntimeDeps().sessionStorage.listEntries(),
+};
+
 function isAdmin(user: RpcUser): boolean {
   return user.capabilities?.includes("admin") ?? false;
 }
@@ -143,6 +251,20 @@ function canReviewProfile(user: RpcUser, profileId: string): boolean {
   const profiles = reviewableProfiles(user);
   if (profiles === null) return true;
   return profiles.has(profileId);
+}
+
+function unwrapConnection(
+  entry: unknown,
+): { serverId: string; clientId: number } | null {
+  if (!entry || typeof entry !== "object" || !("value" in entry)) return null;
+  const value = entry.value;
+  if (!value || typeof value !== "object") return null;
+  const serverId = "serverId" in value ? value.serverId : undefined;
+  const clientId = "clientId" in value ? value.clientId : undefined;
+  if (typeof serverId !== "string" || typeof clientId !== "number") {
+    return null;
+  }
+  return { serverId, clientId };
 }
 
 function insufficientPermissions() {
@@ -336,23 +458,24 @@ async function revokeUserSessionByKey(
       if (!parsedKey || parsedKey.scopeId !== session.trellisId) continue;
       const entry = await connectionsKV.get(connKey).take();
       if (!isErr(entry)) {
-        await kick(entry.value.serverId, entry.value.clientId);
+        const connection = unwrapConnection(entry);
+        if (connection) await kick(connection.serverId, connection.clientId);
       }
       await connectionsKV.delete(connKey);
     }
   }
 
   if (revokedBy) {
-    await trellis.publish("Auth.SessionRevoked", {
+    (await trellis.publish("Auth.SessionRevoked", {
       origin: session.origin,
       id: session.id,
       sessionKey,
       revokedBy,
-    }).inspectErr((error: unknown) =>
+    })).inspectErr((error: unknown) =>
       logger.warn({ error }, "Failed to publish Auth.SessionRevoked")
     );
   }
-  await sessionStorage.delete(sessionKey, session.trellisId);
+  await sessionStorage.deleteBySessionKey(sessionKey);
 }
 
 async function kickInstanceRuntimeAccess(instanceKey: string): Promise<void> {
@@ -364,7 +487,8 @@ async function kickInstanceRuntimeAccess(instanceKey: string): Promise<void> {
     for await (const connKey of connIter) {
       const entry = await connectionsKV.get(connKey).take();
       if (!isErr(entry)) {
-        await kick(entry.value.serverId, entry.value.clientId);
+        const connection = unwrapConnection(entry);
+        if (connection) await kick(connection.serverId, connection.clientId);
       }
       await connectionsKV.delete(connKey);
     }

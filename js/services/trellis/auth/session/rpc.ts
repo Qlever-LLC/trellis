@@ -26,15 +26,14 @@ import type {
   SqlSessionRepository,
   SqlUserProjectionRepository,
 } from "../storage.ts";
+import { authRuntimeDeps, maybeAuthRuntimeDeps } from "../runtime_deps.ts";
 
 const logger = {
-  trace: (..._args: unknown[]) => {},
-  warn: (..._args: unknown[]) => {},
+  trace: (fields: Record<string, unknown>, message: string) =>
+    maybeAuthRuntimeDeps()?.logger.trace(fields, message),
+  warn: (fields: Record<string, unknown>, message: string) =>
+    maybeAuthRuntimeDeps()?.logger.warn(fields, message),
 };
-
-async function getRuntimeGlobals() {
-  return await import("../../bootstrap/globals.ts");
-}
 
 type AuthenticatedUser = {
   id: string;
@@ -77,9 +76,7 @@ type DeviceActivationStorage = Pick<SqlDeviceActivationRepository, "get">;
 type DeviceProfileStorage = Pick<SqlDeviceProfileRepository, "get">;
 type SessionStorage = Pick<
   SqlSessionRepository,
-  | "get"
   | "getOneBySessionKey"
-  | "delete"
   | "listEntries"
   | "listEntriesByUser"
   | "deleteBySessionKey"
@@ -287,6 +284,29 @@ function buildConnectionRow(
       instanceId: session.instanceId,
       profileId: session.profileId,
     },
+  };
+}
+
+function unwrapConnectionEntry(entry: unknown): {
+  serverId: string;
+  clientId: number;
+  connectedAt?: string | Date;
+} | null {
+  if (!entry || typeof entry !== "object" || !("value" in entry)) return null;
+  const value = entry.value;
+  if (!value || typeof value !== "object") return null;
+  const serverId = "serverId" in value ? value.serverId : undefined;
+  const clientId = "clientId" in value ? value.clientId : undefined;
+  const connectedAt = "connectedAt" in value ? value.connectedAt : undefined;
+  if (typeof serverId !== "string" || typeof clientId !== "number") {
+    return null;
+  }
+  return {
+    serverId,
+    clientId,
+    ...(typeof connectedAt === "string" || connectedAt instanceof Date
+      ? { connectedAt }
+      : {}),
   };
 }
 
@@ -774,7 +794,7 @@ export const authMeHandler = async (
     ReturnType<typeof createAuthMeHandler>
   >[0],
 ) => {
-  const globals = await getRuntimeGlobals();
+  const globals = authRuntimeDeps();
   const { loadServiceInstanceByKey } = await import("../admin/service_rpc.ts");
   return await createAuthMeHandler({
     sessionStorage: globals.sessionStorage,
@@ -842,7 +862,7 @@ export function createAuthValidateRequestHandler(deps: {
     const inboxPrefix = `_INBOX.${req.sessionKey.slice(0, 16)}`;
     const runtime = deps.deviceActivationStorage && deps.deviceProfileStorage
       ? null
-      : await getRuntimeGlobals();
+      : authRuntimeDeps();
     const { loadServiceInstanceByKey, loadServiceProfile } = await import(
       "../admin/service_rpc.ts"
     );
@@ -894,7 +914,7 @@ export const authValidateRequestHandler = async (
     ReturnType<typeof createAuthValidateRequestHandler>
   >[0],
 ) => {
-  const globals = await getRuntimeGlobals();
+  const globals = authRuntimeDeps();
   return await createAuthValidateRequestHandler({
     sessionStorage: globals.sessionStorage,
     userStorage: globals.userStorage,
@@ -907,13 +927,13 @@ export const authValidateRequestHandler = async (
 export const authLogoutHandler = async (
   { context: { caller, sessionKey } }: { context: SessionContext },
 ) => {
-  const { connectionsKV, natsAuth, sessionStorage } = await getRuntimeGlobals();
+  const { connectionsKV, natsAuth, sessionStorage } = authRuntimeDeps();
   const user = requireUserCaller(caller);
   logger.trace(
     { rpc: "Auth.Logout", sessionKey, userId: user.id },
     "RPC request",
   );
-  await sessionStorage.delete(sessionKey, user.trellisId);
+  await sessionStorage.deleteBySessionKey(sessionKey);
 
   const connKeys = await connectionsKV.keys(
     connectionFilterForSession(sessionKey),
@@ -925,10 +945,12 @@ export const authLogoutHandler = async (
       if (!parsedKey || parsedKey.scopeId !== user.trellisId) continue;
       const entry = await connectionsKV.get(key).take();
       if (!isErr(entry)) {
+        const connection = unwrapConnectionEntry(entry);
+        if (!connection) continue;
         await AsyncResult.try(() =>
           natsAuth.request(
-            `$SYS.REQ.SERVER.${entry.value.serverId}.KICK`,
-            JSON.stringify({ cid: entry.value.clientId }),
+            `$SYS.REQ.SERVER.${connection.serverId}.KICK`,
+            JSON.stringify({ cid: connection.clientId }),
           )
         );
       }
@@ -974,14 +996,14 @@ export const authListSessionsHandler = async (
     ReturnType<typeof createAuthListSessionsHandler>
   >[0],
 ) => {
-  const { sessionStorage } = await getRuntimeGlobals();
+  const { sessionStorage } = authRuntimeDeps();
   return await createAuthListSessionsHandler({ sessionStorage })(args);
 };
 
 export const authRevokeSessionHandler = async (
   ...args: Parameters<ReturnType<typeof createAuthRevokeSessionHandler>>
 ) => {
-  const globals = await getRuntimeGlobals();
+  const globals = authRuntimeDeps();
   return await createAuthRevokeSessionHandler({
     sessionStorage: globals.sessionStorage,
     connectionsKV: globals.connectionsKV,
@@ -994,7 +1016,7 @@ export const authRevokeSessionHandler = async (
       );
     },
     publishSessionRevoked: async (event) => {
-      await globals.trellis.publish("Auth.SessionRevoked", event).inspectErr(
+      (await globals.trellis.publish("Auth.SessionRevoked", event)).inspectErr(
         (error: unknown) =>
           logger.warn({ error }, "Failed to publish Auth.SessionRevoked"),
       );
@@ -1003,7 +1025,7 @@ export const authRevokeSessionHandler = async (
 };
 
 export function createAuthListConnectionsHandler(deps: {
-  sessionStorage: Pick<SessionStorage, "get">;
+  sessionStorage: Pick<SessionStorage, "getOneBySessionKey">;
   connectionsKV: {
     keys: (
       filter: string,
@@ -1061,9 +1083,8 @@ export function createAuthListConnectionsHandler(deps: {
       }
       if (userTrellisId && parsedKey.scopeId !== userTrellisId) continue;
 
-      const session = await deps.sessionStorage.get(
+      const session = await deps.sessionStorage.getOneBySessionKey(
         parsedKey.sessionKey,
-        parsedKey.scopeId,
       );
       if (!session) continue;
 
@@ -1107,7 +1128,7 @@ export const authListConnectionsHandler = async (
     ReturnType<typeof createAuthListConnectionsHandler>
   >[0],
 ) => {
-  const { sessionStorage, connectionsKV } = await getRuntimeGlobals();
+  const { sessionStorage, connectionsKV } = authRuntimeDeps();
   return await createAuthListConnectionsHandler({
     sessionStorage,
     connectionsKV,
@@ -1138,8 +1159,7 @@ export function createAuthKickConnectionHandler(opts: {
       return Result.err(new AuthError({ reason: "invalid_request" }));
     }
 
-    const { connectionsKV, sessionStorage, trellis } =
-      await getRuntimeGlobals();
+    const { connectionsKV, sessionStorage, trellis } = authRuntimeDeps();
     const iter = await connectionsKV.keys(">").take();
     if (isErr(iter)) {
       return Result.ok({ success: false });
@@ -1153,24 +1173,26 @@ export function createAuthKickConnectionHandler(opts: {
       if (!parsedKey || parsedKey.userNkey !== req.userNkey) continue;
       const entry = await connectionsKV.get(key).take();
       if (!isErr(entry)) {
-        await opts.kick(entry.value.serverId, entry.value.clientId);
+        const connection = unwrapConnectionEntry(entry);
+        if (connection) {
+          await opts.kick(connection.serverId, connection.clientId);
+        }
       }
 
       if (parsedKey.sessionKey && parsedKey.scopeId) {
-        const session = await sessionStorage.get(
+        const session = await sessionStorage.getOneBySessionKey(
           parsedKey.sessionKey,
-          parsedKey.scopeId,
         );
         if (session) {
           if (session.type === "device") {
             continue;
           }
-          await trellis.publish("Auth.ConnectionKicked", {
+          (await trellis.publish("Auth.ConnectionKicked", {
             origin: session.origin,
             id: session.id,
             userNkey: req.userNkey,
             kickedBy,
-          }).inspectErr((error: unknown) =>
+          })).inspectErr((error: unknown) =>
             logger.warn({ error }, "Failed to publish Auth.ConnectionKicked")
           );
         }

@@ -88,6 +88,11 @@ database path is `/var/lib/trellis/trellis.sqlite`; deployments can override it
 with `storage.dbPath` in the Trellis service config. The containing directory
 must be writable by the service and should be persisted across restarts.
 
+Pre-v1 storage uses a clean Drizzle baseline migration named `00000_baseline`.
+Existing development databases created by older bootstrap code are not upgraded
+in place; delete or recreate them before starting a build that uses the baseline
+migration.
+
 SQL-backed records include users, sessions, approvals, grant policies, portal
 configuration, service profiles and instances, device records, activations,
 reviews, installed contracts, and resource bindings. Session expiry is enforced

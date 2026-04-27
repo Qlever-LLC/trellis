@@ -1,8 +1,4 @@
-import {
-  instanceGrantPolicyStorage,
-  portalProfileStorage,
-  portalStorage,
-} from "../../bootstrap/globals.ts";
+import { authRuntimeDeps } from "../runtime_deps.ts";
 import type {
   InstanceGrantPolicy,
   PortalProfile,
@@ -10,12 +6,14 @@ import type {
 import { portalProfileToGrantPolicy } from "./policy.ts";
 
 async function listPortalProfiles(): Promise<PortalProfile[]> {
+  const { portalProfileStorage } = authRuntimeDeps();
   return await portalProfileStorage.list();
 }
 
 export async function loadEffectiveGrantPolicies(
   contractId: string,
 ): Promise<InstanceGrantPolicy[]> {
+  const { instanceGrantPolicyStorage, portalStorage } = authRuntimeDeps();
   const policies: InstanceGrantPolicy[] = [];
 
   const instancePolicy = await instanceGrantPolicyStorage.get(contractId);

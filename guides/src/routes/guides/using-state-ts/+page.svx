@@ -72,8 +72,10 @@ if (!prefs.found) {
 In a Svelte component, call the app-local `getTrellis()` helper during component initialization and reuse the returned client from handlers and async helpers.
 
 The runtime derives the app, user, or device namespace from the authenticated
-session and active contract digest. The same user signing into a different app
-contract does not see these entries.
+session and contract id lineage. The active contract digest still validates the
+store declaration and schema, but state follows the same app lineage across
+upgrades. The same user signing into a different app contract does not see these
+entries.
 
 ## 3. Choose the right store kind
 

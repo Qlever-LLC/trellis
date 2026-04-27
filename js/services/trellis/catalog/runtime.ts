@@ -3,7 +3,6 @@ import type {
   TrellisContractV1,
 } from "@qlever-llc/trellis/contracts";
 import { isJsonValue } from "@qlever-llc/trellis/contracts";
-import { logger } from "../bootstrap/globals.ts";
 import type {
   SqlDeviceInstanceRepository,
   SqlServiceInstanceRepository,
@@ -19,6 +18,16 @@ import { setContracts as setPermissionContracts } from "./permissions.ts";
 import { ContractStore } from "./store.ts";
 import { resolveContractUsesFromStore } from "./uses.ts";
 import type { SqlContractStorageRepository } from "./storage.ts";
+
+type CatalogLogger = {
+  warn: (fields: Record<string, unknown>, message: string) => void;
+  error: (fields: Record<string, unknown>, message: string) => void;
+};
+
+const consoleLogger: CatalogLogger = {
+  warn: (fields, message) => console.warn(message, fields),
+  error: (fields, message) => console.error(message, fields),
+};
 
 type InstalledContractRecord = {
   digest: string;
@@ -42,7 +51,10 @@ function getErrorMessage(error: unknown): string {
 function subjectNamespace(subject: string): string | null {
   const parts = subject.split(".");
   if (parts.length < 3) return null;
-  if (parts[0] !== "rpc" && parts[0] !== "events") return null;
+  if (
+    parts[0] !== "rpc" && parts[0] !== "operations" &&
+    parts[0] !== "events"
+  ) return null;
   if (!parts[1]?.startsWith("v")) return null;
   return parts[2] ?? null;
 }
@@ -54,7 +66,7 @@ function ensureNoWildcards(subject: string): void {
 }
 
 function ensureSubjectMatchesVersion(
-  kind: "rpc" | "events",
+  kind: "rpc" | "operations" | "events",
   version: string,
   subject: string,
 ): void {
@@ -129,6 +141,7 @@ function getRequiredServiceCapabilities(
 
 async function collectInstalledContractRecords(
   contractStorage: SqlContractStorageRepository,
+  logger: CatalogLogger,
 ): Promise<{
   byDigest: Map<string, InstalledContractRecord>;
 }> {
@@ -156,8 +169,10 @@ export function createContractsModule(opts: {
   serviceInstanceStorage: SqlServiceInstanceRepository;
   serviceProfileStorage: SqlServiceProfileRepository;
   deviceInstanceStorage: SqlDeviceInstanceRepository;
+  logger?: CatalogLogger;
   sessionStorage?: Pick<SqlSessionRepository, "list">;
 }) {
+  const logger = opts.logger ?? consoleLogger;
   const contractStore = new ContractStore(opts.builtinContracts);
 
   type ValidatedContract = Awaited<ReturnType<typeof contractStore.validate>>;
@@ -185,6 +200,10 @@ export function createContractsModule(opts: {
     const events = (validated.contract as Record<string, unknown>).events as
       | Record<string, unknown>
       | undefined;
+    const operations = (validated.contract as Record<string, unknown>)
+      .operations as
+        | Record<string, unknown>
+        | undefined;
     const subjects = (validated.contract as Record<string, unknown>).subjects as
       | Record<string, unknown>
       | undefined;
@@ -203,6 +222,32 @@ export function createContractsModule(opts: {
       ) {
         throw new Error(
           `RPC subject '${method.subject}' already owned by '${
+            describeContract(prev)
+          }'`,
+        );
+      }
+    }
+
+    for (const value of Object.values(operations ?? {})) {
+      const operation = value as { subject: string; version: string };
+      ensureNoWildcards(operation.subject);
+      ensureSubjectMatchesVersion(
+        "operations",
+        operation.version,
+        operation.subject,
+      );
+      const ns = subjectNamespace(operation.subject);
+      if (!ns) {
+        throw new Error(`Invalid operation subject '${operation.subject}'`);
+      }
+      usedNamespaces.add(ns);
+      const prev = contractStore.findActiveSubject(operation.subject);
+      if (
+        prev && prev.digest !== validated.digest &&
+        prev.contractId !== validated.contract.id
+      ) {
+        throw new Error(
+          `Operation subject '${operation.subject}' already owned by '${
             describeContract(prev)
           }'`,
         );
@@ -333,6 +378,7 @@ export function createContractsModule(opts: {
 
     const installedContracts = await collectInstalledContractRecords(
       opts.contractStorage,
+      logger,
     );
     for (const installed of installedContracts.byDigest.values()) {
       try {

@@ -106,7 +106,7 @@ All three share the same post-auth authorization pipeline. Installed and activat
 
 ### Session keys
 
-Every client has a local Ed25519 session key. The private seed never leaves the client. Authentication works by proving ownership of the session key in every RPC and runtime connect request. For user runtime reconnects, Trellis uses fresh signed proofs over the session key, active contract digest, and `iat` timestamp rather than renewable binding tokens.
+Every client has a local Ed25519 session key. The private seed never leaves the client. Authentication works by proving ownership of the session key in every RPC and runtime connect request. For user runtime reconnects, Trellis uses fresh signed proofs over the session key, presented contract digest, and `iat` timestamp rather than renewable binding tokens.
 
 - **Installed devices** receive their identity when an operator installs the device contract against the device's public key
 - **Browser apps** store the session key in IndexedDB via WebCrypto (non-extractable)

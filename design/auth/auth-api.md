@@ -51,31 +51,30 @@ Activated-device endpoints are defined in
 
 `POST /auth/devices/activate/requests` validates the outbound device activation
 payload, creates a short-lived auth-owned browser flow with
-`kind: "device_activation"`, resolves the activation portal, and returns a
-short `flowId`-based `activationUrl`.
-Portal resolution comes from the preregistered device instance and
-deployment-owned device portal policy, with fallback to the deployment device
-default custom portal when configured and finally to the built-in Trellis
-device portal. Callers do not provide portal ids or profile ids in the normal
-path.
+`kind: "device_activation"`, resolves the activation portal, and returns a short
+`flowId`-based `activationUrl`. Portal resolution comes from the preregistered
+device instance and deployment-owned device portal policy, with fallback to the
+deployment device default custom portal when configured and finally to the
+built-in Trellis device portal. Callers do not provide portal ids or profile ids
+in the normal path.
 
 ### POST /auth/requests
 
 Starts the normal auth flow for an `app` or `agent` participant. The caller
 sends the initiating contract in the request body so auth can either
-auto-complete reauth immediately or create an auth-owned browser flow and
-return a short `flowId`-based login URL.
+auto-complete reauth immediately or create an auth-owned browser flow and return
+a short `flowId`-based login URL.
 
 Request body:
 
-| Name         | Required | Description                                                                                     |
-| ------------ | -------- | ----------------------------------------------------------------------------------------------- |
-| `provider`   | no       | Preferred provider id for direct provider continuation                                          |
-| `redirectTo` | yes      | Post-login redirect URL                                                                         |
-| `sessionKey` | yes      | Client public session key                                                                       |
+| Name         | Required | Description                                                                                                                                              |
+| ------------ | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `provider`   | no       | Preferred provider id for direct provider continuation                                                                                                   |
+| `redirectTo` | yes      | Post-login redirect URL                                                                                                                                  |
+| `sessionKey` | yes      | Client public session key                                                                                                                                |
 | `sig`        | yes      | `sign(hash("oauth-init:" + redirectTo + ":" + (provider ?? "") + ":" + canonicalJson(contract) + ":" + canonicalJson(context ?? null)))` by `sessionKey` |
-| `contract`   | yes      | Initiating browser-app contract manifest JSON for portal routing and approval planning          |
-| `context`    | no       | Opaque JSON payload for app and portal coordination                                             |
+| `contract`   | yes      | Initiating browser-app contract manifest JSON for portal routing and approval planning                                                                   |
+| `context`    | no       | Opaque JSON payload for app and portal coordination                                                                                                      |
 
 Behavior:
 
@@ -135,8 +134,10 @@ Behavior:
 Rules:
 
 - the OAuth state cookie is `Secure` for HTTPS public origins
-- loopback HTTP origins remain allowed without extra configuration for local development
-- non-loopback HTTP public origins MUST be explicitly allowlisted with `web.allowInsecureOrigins`
+- loopback HTTP origins remain allowed without extra configuration for local
+  development
+- non-loopback HTTP public origins MUST be explicitly allowlisted with
+  `web.allowInsecureOrigins`
 
 ### GET /auth/callback/:provider
 
@@ -290,7 +291,7 @@ Behavior:
    check approval
 6. Reject the bind if the user projection is inactive
 7. Consume the pending auth state
-8. Create or recover the session record for `<sessionKey>.<trellisId>`
+8. Create or recover the session record keyed by `sessionKey`
 9. Compute `inboxPrefix = _INBOX.${sessionKey.slice(0, 16)}`
 10. Return transport bootstrap details for the bound session (`inboxPrefix`,
     `expires`, `sentinel`, `transports`)
@@ -355,19 +356,19 @@ Behavior:
    check approval
 5. Reject the bind if the user projection is inactive
 6. CAS-delete `pendingAuth[authToken]`
-7. Create or recover the session record for `<sessionKey>.<trellisId>`
+7. Create or recover the session record keyed by `sessionKey`
 8. Persist delegated contract metadata and delegated publish/subscribe subjects
    into the session
 9. Compute `inboxPrefix = _INBOX.${sessionKey.slice(0, 16)}`
 10. Refresh the Trellis-local auth projection entry without overwriting
-     admin-managed `active` state or granted capabilities
+    admin-managed `active` state or granted capabilities
 11. Return the bind response with `inboxPrefix`, `expires`, `sentinel`, and
     `transports`
 
 Rules:
 
-- normal browser and detached agent flows reach `/auth/bind` only after Trellis has already
-  recorded an approval decision
+- normal browser and detached agent flows reach `/auth/bind` only after Trellis
+  has already recorded an approval decision
 - `/auth/bind` still rechecks approval and capabilities defensively
 - portal is a browser UX surface only; bind remains auth-owned
 
@@ -466,8 +467,8 @@ Behavior:
 
 Digest changes are handled by restarting the normal auth request flow with the
 current contract body. Runtime reconnect auth is regenerated locally from
-`sessionKey + contractDigest + iat + sig`; auth does not issue renewable
-binding tokens.
+`sessionKey + contractDigest + iat + sig`; auth does not issue renewable binding
+tokens.
 
 ### rpc.Auth.Me
 
@@ -781,16 +782,16 @@ type ActivateDeviceProgress = {
 
 type ActivateDeviceResponse =
   | {
-     status: "activated";
-     instanceId: string;
-     profileId: string;
-     activatedAt: string;
-     confirmationCode?: string;
-   }
-   | {
-     status: "rejected";
-     reason?: ActivationDecisionReason;
-   };
+    status: "activated";
+    instanceId: string;
+    profileId: string;
+    activatedAt: string;
+    confirmationCode?: string;
+  }
+  | {
+    status: "rejected";
+    reason?: ActivationDecisionReason;
+  };
 
 type WaitForDeviceActivationResponse =
   | { status: "pending" }
@@ -936,10 +937,10 @@ Portal rules:
   from static assets and is not represented as a mutable portal record
 - portals are per-instance deployments by default, and built-in or custom portal
   apps should use explicit Trellis URL config rather than same-origin inference
-- a portal record registers only custom browser routing config:
-  `portalId`, `entryUrl`, and `disabled`
-- a portal profile is the auth-owned portal trust policy keyed by `portalId`;
-  it binds one browser app contract lineage and optional allowed origins to one
+- a portal record registers only custom browser routing config: `portalId`,
+  `entryUrl`, and `disabled`
+- a portal profile is the auth-owned portal trust policy keyed by `portalId`; it
+  binds one browser app contract lineage and optional allowed origins to one
   routed portal entry point and stores the server-derived implied capabilities
 - custom portals remain first-class, but there is no portal-specific contract
   kind or portal-specific auth machinery

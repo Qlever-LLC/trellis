@@ -6,13 +6,7 @@ import {
   Result,
 } from "@qlever-llc/result";
 
-import {
-  connectionsKV,
-  logger,
-  serviceInstanceStorage,
-  serviceProfileStorage,
-  sessionStorage,
-} from "../../bootstrap/globals.ts";
+import { type AuthRuntimeDeps, authRuntimeDeps } from "../runtime_deps.ts";
 import type { Connection } from "../../state/schemas.ts";
 import type { SqlSessionRepository } from "../storage.ts";
 import { connectionFilterForSession } from "../session/connections.ts";
@@ -27,8 +21,47 @@ import {
 
 type RpcUser = { type: string; id?: string };
 
-type ServiceProfileStorage = typeof serviceProfileStorage;
-type ServiceInstanceStorage = typeof serviceInstanceStorage;
+type ServiceProfileStorage = Pick<
+  AuthRuntimeDeps["serviceProfileStorage"],
+  "get" | "put" | "delete" | "list"
+>;
+type ServiceInstanceStorage = Pick<
+  AuthRuntimeDeps["serviceInstanceStorage"],
+  | "get"
+  | "getByInstanceKey"
+  | "getBySessionKey"
+  | "put"
+  | "delete"
+  | "list"
+  | "listByProfile"
+>;
+
+const logger = {
+  trace: (fields: Record<string, unknown>, message: string) =>
+    authRuntimeDeps().logger.trace(fields, message),
+};
+
+const serviceProfileStorage: ServiceProfileStorage = {
+  get: (profileId) => authRuntimeDeps().serviceProfileStorage.get(profileId),
+  put: (record) => authRuntimeDeps().serviceProfileStorage.put(record),
+  delete: (profileId) =>
+    authRuntimeDeps().serviceProfileStorage.delete(profileId),
+  list: () => authRuntimeDeps().serviceProfileStorage.list(),
+};
+
+const serviceInstanceStorage: ServiceInstanceStorage = {
+  get: (instanceId) => authRuntimeDeps().serviceInstanceStorage.get(instanceId),
+  getByInstanceKey: (instanceKey) =>
+    authRuntimeDeps().serviceInstanceStorage.getByInstanceKey(instanceKey),
+  getBySessionKey: (sessionKey) =>
+    authRuntimeDeps().serviceInstanceStorage.getBySessionKey(sessionKey),
+  put: (record) => authRuntimeDeps().serviceInstanceStorage.put(record),
+  delete: (instanceId) =>
+    authRuntimeDeps().serviceInstanceStorage.delete(instanceId),
+  list: () => authRuntimeDeps().serviceInstanceStorage.list(),
+  listByProfile: (profileId) =>
+    authRuntimeDeps().serviceInstanceStorage.listByProfile(profileId),
+};
 
 type KVLike<V> = {
   get: (key: string) => AsyncResult<{ value: V } | V | unknown, BaseError>;
@@ -65,8 +98,9 @@ async function kickInstanceRuntimeAccess(args: {
   sessionStorage?: Pick<SqlSessionRepository, "deleteByInstanceKey">;
   kick: (serverId: string, clientId: number) => Promise<void>;
 }): Promise<void> {
-  const connectionStore = args.connectionsKV ?? connectionsKV;
-  const sessionStore = args.sessionStorage ?? sessionStorage;
+  const runtime = authRuntimeDeps();
+  const connectionStore = args.connectionsKV ?? runtime.connectionsKV;
+  const sessionStore = args.sessionStorage ?? runtime.sessionStorage;
 
   const connectionKeys = await connectionStore.keys(
     connectionFilterForSession(args.instanceKey),
@@ -88,7 +122,7 @@ async function kickInstanceRuntimeAccess(args: {
 
 async function instancesForProfile(
   profileId: string,
-  store: ServiceInstanceStorage = serviceInstanceStorage,
+  store: ServiceInstanceStorage = authRuntimeDeps().serviceInstanceStorage,
 ): Promise<ServiceInstance[]> {
   return await store.listByProfile(profileId);
 }

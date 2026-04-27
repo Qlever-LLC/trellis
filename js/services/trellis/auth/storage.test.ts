@@ -561,19 +561,22 @@ Deno.test("session storage upserts user, service, and device sessions", async ()
     assertEquals(rows[2].participantKind, "app");
 
     assertEquals(
-      await sessionRepo.get("user-session-key", "github.user-1"),
+      await sessionRepo.getOneBySessionKey("user-session-key"),
       user,
     );
     assertInstanceOf(
-      (await sessionRepo.get("user-session-key", "github.user-1"))?.createdAt,
+      (await sessionRepo.getOneBySessionKey("user-session-key"))?.createdAt,
       Date,
     );
     assertEquals(
-      await sessionRepo.get("service-session-key", "svc_1"),
+      await sessionRepo.getOneBySessionKey("service-session-key"),
       service,
     );
-    assertEquals(await sessionRepo.get("device-session-key", "dev_1"), device);
-    assertEquals(await sessionRepo.get("missing", "github.user-1"), undefined);
+    assertEquals(
+      await sessionRepo.getOneBySessionKey("device-session-key"),
+      device,
+    );
+    assertEquals(await sessionRepo.getOneBySessionKey("missing"), undefined);
 
     const updated = makeUserSession({
       name: "Ada Updated",
@@ -583,7 +586,7 @@ Deno.test("session storage upserts user, service, and device sessions", async ()
     await sessionRepo.put("user-session-key", updated);
 
     assertEquals(
-      await sessionRepo.get("user-session-key", "github.user-1"),
+      await sessionRepo.getOneBySessionKey("user-session-key"),
       updated,
     );
     assertEquals((await storage.db.select().from(sessions)).length, 3);
@@ -614,14 +617,6 @@ Deno.test("session storage supports one-by-key and list filters", async () => {
     assertEquals(await sessionRepo.listByInstanceKey("svc-session-key"), [
       service,
     ]);
-    assertEquals(
-      await sessionRepo.listEntriesBySessionKey("user-session-key"),
-      [{
-        sessionKey: "user-session-key",
-        trellisId: "github.user-1",
-        session: user,
-      }],
-    );
     assertEquals(await sessionRepo.listEntriesByUser("github.user-1"), [{
       sessionKey: "user-session-key",
       trellisId: "github.user-1",
@@ -664,11 +659,11 @@ Deno.test("session storage expires sessions from last auth when TTL is configure
     await sessionRepo.put("fresh-session-key", fresh);
 
     assertEquals(
-      await sessionRepo.get("expired-session-key", "github.user-1"),
+      await sessionRepo.getOneBySessionKey("expired-session-key"),
       undefined,
     );
     assertEquals(
-      await sessionRepo.get("fresh-session-key", "github.user-2"),
+      await sessionRepo.getOneBySessionKey("fresh-session-key"),
       fresh,
     );
     const rows = await storage.db.select().from(sessions);
@@ -677,7 +672,7 @@ Deno.test("session storage expires sessions from last auth when TTL is configure
   });
 });
 
-Deno.test("session storage deletes by exact key and by session key prefix", async () => {
+Deno.test("session storage deletes by session key", async () => {
   await withRepositories(async ({ sessions: sessionRepo }) => {
     const first = makeUserSession();
     const second = makeUserSession({
@@ -686,28 +681,24 @@ Deno.test("session storage deletes by exact key and by session key prefix", asyn
       contractDigest: "sha256-other-user-contract",
     });
     const service = makeServiceSession();
-    await sessionRepo.put("shared-session-key", first);
-    await sessionRepo.put("shared-session-key", second);
+    await sessionRepo.put("first-session-key", first);
+    await sessionRepo.put("second-session-key", second);
     await sessionRepo.put("service-session-key", service);
 
     assertEquals(
-      await sessionRepo.get("shared-session-key", "github.user-1"),
-      undefined,
-    );
-    assertEquals(
-      await sessionRepo.getOneBySessionKey("shared-session-key"),
-      second,
+      await sessionRepo.getOneBySessionKey("first-session-key"),
+      first,
     );
 
-    await sessionRepo.deleteBySessionKey("shared-session-key");
+    await sessionRepo.deleteBySessionKey("first-session-key");
     assertEquals(
-      await sessionRepo.get("shared-session-key", "github.user-2"),
+      await sessionRepo.getOneBySessionKey("first-session-key"),
       undefined,
     );
-    assertEquals(await sessionRepo.list(), [service]);
+    assertEquals(await sessionRepo.list(), [second, service]);
 
     await sessionRepo.deleteByInstanceKey("svc-session-key");
-    assertEquals(await sessionRepo.list(), []);
+    assertEquals(await sessionRepo.list(), [second]);
   });
 });
 

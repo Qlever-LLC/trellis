@@ -28,7 +28,7 @@ type KVLike = {
 
 type SessionStore = {
   listEntriesByUser: SqlSessionRepository["listEntriesByUser"];
-  delete: SqlSessionRepository["delete"];
+  deleteBySessionKey: SqlSessionRepository["deleteBySessionKey"];
 };
 
 type RpcUser = {
@@ -149,7 +149,7 @@ export async function revokeGrantSessions(args: {
       sessionKey,
       revokedBy: args.revokedBy,
     });
-    await args.sessionStorage.delete(entry.sessionKey, entry.trellisId);
+    await args.sessionStorage.deleteBySessionKey(entry.sessionKey);
   }
 }
 
