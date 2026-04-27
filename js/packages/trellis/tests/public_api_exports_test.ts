@@ -27,6 +27,21 @@ import {
 } from "../index.ts";
 import * as trellis from "../index.ts";
 
+// @ts-expect-error Raw transport types must not be root exports.
+import type { NatsConnection } from "../index.ts";
+// @ts-expect-error Raw runtime state types must not be root exports.
+import type { RuntimeStateStores } from "../index.ts";
+// @ts-expect-error Raw auth internals must not be root exports.
+import type { TrellisAuth } from "../index.ts";
+// @ts-expect-error Raw auth internals must not be root exports.
+import type { TrellisSigner } from "../index.ts";
+// @ts-expect-error Low-level operation transports must not be root exports.
+import type { OperationTransport } from "../index.ts";
+// @ts-expect-error Service runtime internals must not be root exports.
+import type { TrellisServiceRuntime } from "../index.ts";
+// @ts-expect-error Legacy server names must not be root exports.
+import type { TrellisServer } from "../index.ts";
+
 Deno.test("root public API includes core runtime, contracts, and result helpers", () => {
   assertEquals("defineContract" in trellis, false);
   assertEquals(typeof defineAppContract, "function");
@@ -124,7 +139,15 @@ Deno.test("defineError creates a typed runtime class", () => {
 });
 
 Deno.test("root public API stays browser-safe and excludes server runtime exports", () => {
+  assertEquals("TrellisServiceRuntime" in trellis, false);
   assert(!("TrellisServer" in trellis));
+  assertEquals("NatsConnection" in trellis, false);
+  assertEquals("RuntimeStateStores" in trellis, false);
+  assertEquals("TrellisAuth" in trellis, false);
+  assertEquals("TrellisSigner" in trellis, false);
+  assertEquals("OperationTransport" in trellis, false);
+  assertEquals("observeNatsTrellisConnection" in trellis, false);
+  assertEquals("observeTrellisConnection" in trellis, false);
   assertEquals("runAllHealthChecks" in trellis, true);
   assertEquals("buildLoginUrl" in trellis, false);
   assertEquals("fetchPortalFlowState" in trellis, false);

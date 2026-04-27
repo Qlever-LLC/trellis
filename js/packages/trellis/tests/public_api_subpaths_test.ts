@@ -16,12 +16,19 @@ import * as coreSdk from "@qlever-llc/trellis/sdk/core";
 import * as stateSdk from "@qlever-llc/trellis/sdk/state";
 import * as healthSurface from "@qlever-llc/trellis/health";
 import * as deviceDeno from "@qlever-llc/trellis/device/deno";
+import * as serviceSurface from "@qlever-llc/trellis/service";
+import type { TrellisService as TrellisServiceType } from "@qlever-llc/trellis/service";
 import { TrellisService as DenoTrellisService } from "@qlever-llc/trellis/service/deno";
 import { TrellisService as NodeTrellisService } from "@qlever-llc/trellis/service/node";
-import { TrellisServer } from "@qlever-llc/trellis/service";
+
+// @ts-expect-error Service runtime internals must not be public fields.
+type ServiceServerField = TrellisServiceType["server"];
+// @ts-expect-error Service runtime internals must not be public fields.
+type ServiceOperationsField = TrellisServiceType["operations"];
 
 Deno.test("service, health, and SDK subpaths expose the canonical wrapper API", () => {
-  assertEquals(typeof TrellisServer, "function");
+  assertEquals("TrellisServer" in serviceSurface, false);
+  assertEquals(typeof serviceSurface.TrellisService, "function");
   assertEquals(typeof DenoTrellisService, "function");
   assertEquals(typeof NodeTrellisService, "function");
   assertEquals("connectInternal" in DenoTrellisService, false);

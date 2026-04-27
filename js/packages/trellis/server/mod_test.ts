@@ -38,9 +38,9 @@ import {
   StoreHandle,
   type SubscribeOpts,
   type Trellis as ServiceTrellisHandler,
-  TrellisServer,
   type TrellisService,
   TrellisService as TrellisServiceClass,
+  TrellisServiceRuntime,
 } from "./mod.ts";
 
 const typeTestSchemas = {
@@ -184,9 +184,9 @@ const operationsTypeTestContract = defineServiceContract(
   }),
 );
 
-Deno.test("TrellisServer export exists", () => {
-  assertExists(TrellisServer);
-  assertEquals(typeof TrellisServer, "function");
+Deno.test("TrellisServiceRuntime export exists", () => {
+  assertExists(TrellisServiceRuntime);
+  assertEquals(typeof TrellisServiceRuntime, "function");
   assertEquals(typeof TrellisServiceClass, "function");
   assertEquals(
     Reflect.has(TrellisServiceClass as object, "connectInternal"),

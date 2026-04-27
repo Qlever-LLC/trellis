@@ -7,7 +7,8 @@
  * @module
  */
 
-export { TrellisServer } from "../server.ts";
+export { TrellisServiceRuntime } from "../server.ts";
+export type { TrellisServiceRuntimeFor } from "../server.ts";
 // Re-export health types
 export {
   createHealthHeartbeat,

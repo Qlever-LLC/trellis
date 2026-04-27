@@ -1793,7 +1793,10 @@
       "jsr:@qlever-llc/trellis-service-activity@0.7.0": {},
       "jsr:@qlever-llc/trellis-service-trellis@0.7.0": {
         "dependencies": [
-          "npm:set-cookie-parser@^3.1.0"
+          "npm:@libsql/client@0.15.15",
+          "npm:drizzle-orm@0.44.7",
+          "npm:set-cookie-parser@^3.1.0",
+          "npm:ulid@^3.0.2"
         ]
       },
       "jsr:@qlever-llc/trellis-svelte@0.7.0": {},

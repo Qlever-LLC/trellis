@@ -4,7 +4,7 @@ import { Type } from "typebox";
 import { defineServiceContract } from "../contract.ts";
 import { auth } from "@qlever-llc/trellis/sdk/auth";
 import { ok } from "../index.ts";
-import { TrellisServer } from "../server/mod.ts";
+import { TrellisServiceRuntime } from "../server/mod.ts";
 import { createClient } from "../client.ts";
 import { NatsTest } from "../testing/nats.ts";
 import type { TrellisAuth } from "../trellis.ts";
@@ -138,7 +138,7 @@ Deno.test({
       inboxPrefix,
     });
 
-    const server1 = TrellisServer.create(
+    const server1 = TrellisServiceRuntime.create(
       "billing-server",
       serverNc1,
       auth,
@@ -194,7 +194,7 @@ Deno.test({
       servers: `localhost:${info.port}`,
       inboxPrefix,
     });
-    const server2 = TrellisServer.create(
+    const server2 = TrellisServiceRuntime.create(
       "billing-server",
       serverNc2,
       auth,

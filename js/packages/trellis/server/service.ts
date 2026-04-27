@@ -11,7 +11,10 @@ import {
   TypedStoreEntry,
 } from "@qlever-llc/trellis";
 import { auth as trellisAuth } from "@qlever-llc/trellis/sdk/auth";
-import { TrellisServer, type TrellisServerFor } from "../server.ts";
+import {
+  TrellisServiceRuntime,
+  type TrellisServiceRuntimeFor,
+} from "../server.ts";
 import {
   createAuth,
   estimateMidpointClockOffsetMs,
@@ -167,7 +170,7 @@ type RpcMethodInput<TA extends TrellisAPI, M extends RpcMethodName<TA>> =
 type RpcMethodOutput<TA extends TrellisAPI, M extends RpcMethodName<TA>> =
   InferSchemaType<TA["rpc"][M]["output"]>;
 
-type TrellisServerCreateOpts<
+type TrellisServiceRuntimeCreateOpts<
   TOwnedApi extends TrellisAPI,
   TTrellisApi extends TrellisAPI = TOwnedApi,
 > = {
@@ -569,7 +572,7 @@ type TrellisServiceRuntimeConnectOpts<
     options?: ExtraNatsConnectOpts;
   };
 
-  server: TrellisServerCreateOpts<TOwnedApi, TTrellisApi>;
+  server: TrellisServiceRuntimeCreateOpts<TOwnedApi, TTrellisApi>;
 };
 
 export type TrellisServiceConnectOpts<
@@ -936,7 +939,7 @@ export async function createConnectedService<
   contractDigest?: string;
   contractJobs: TJobs;
   contractKv: TKv;
-  server: TrellisServerCreateOpts<TOwnedApi, TTrellisApi>;
+  server: TrellisServiceRuntimeCreateOpts<TOwnedApi, TTrellisApi>;
   bindings: ResourceBindings;
 }): Promise<TrellisService<TOwnedApi, TTrellisApi, TJobs, TKv>> {
   const resolvedLog = resolveServiceLogger(args.server.log);
@@ -958,9 +961,9 @@ export async function createConnectedService<
       ...trellisAuth.API.owned.rpc,
       ...currentApi.rpc,
     },
-  } as unknown as TOwnedApi & TTrellisApi;
+  } as TOwnedApi & TTrellisApi;
 
-  const server = TrellisServer.create(
+  const server = TrellisServiceRuntime.create(
     args.name,
     args.nc,
     { sessionKey: args.auth.sessionKey, sign: args.auth.sign },
@@ -1037,7 +1040,6 @@ export async function createConnectedService<
       return getHandlerResources().jobs;
     },
   };
-
   const trellis = Object.assign(
     outbound,
     {
@@ -1063,7 +1065,7 @@ export async function createConnectedService<
             RpcHandlerErrorOf<TOwnedApi, M>
           >,
       ) =>
-        (server as unknown as TrellisServer).mount(
+        server.mountRuntime(
           method as string,
           async ({ input, context }) =>
             await Promise.resolve(
@@ -1075,7 +1077,7 @@ export async function createConnectedService<
             ) as Result<unknown, BaseError>,
         ),
     },
-  ) as unknown as ServiceTrellis<TOwnedApi, TTrellisApi, TKv, TJobs>;
+  ) as ServiceTrellis<TOwnedApi, TTrellisApi, TKv, TJobs>;
 
   const health = new ServiceHealth({
     serviceName: args.name,
@@ -1619,8 +1621,7 @@ export class TrellisService<
   readonly name: string;
   readonly auth: SessionAuth;
   readonly nc: NatsConnection;
-  readonly server: TrellisServerFor<TOwnedApi & TTrellisApi>;
-  readonly operations: TrellisServerFor<TOwnedApi & TTrellisApi>["operations"];
+  readonly #server: TrellisServiceRuntimeFor<TOwnedApi & TTrellisApi>;
   readonly trellis: ServiceTrellis<TOwnedApi, TTrellisApi, TKv, TJobs>;
   readonly #handlerTrellis: Trellis<TTrellisApi, TKv, TJobs>;
   readonly kv: ServiceKvFacade<TKv>;
@@ -1640,7 +1641,7 @@ export class TrellisService<
     name: string,
     auth: SessionAuth,
     nc: NatsConnection,
-    server: TrellisServerFor<TOwnedApi & TTrellisApi>,
+    server: TrellisServiceRuntimeFor<TOwnedApi & TTrellisApi>,
     trellis: ServiceTrellis<TOwnedApi, TTrellisApi, TKv, TJobs>,
     handlerTrellis: Trellis<TTrellisApi, TKv, TJobs>,
     kv: ServiceKvFacade<TKv>,
@@ -1657,8 +1658,7 @@ export class TrellisService<
     this.name = name;
     this.auth = auth;
     this.nc = nc;
-    this.server = server;
-    this.operations = server.operations;
+    this.#server = server;
     this.trellis = trellis;
     this.#handlerTrellis = handlerTrellis;
     this.kv = kv;
@@ -1849,7 +1849,7 @@ export class TrellisService<
           try {
             await this.#operationTransfer.stop();
           } finally {
-            await this.server.stop();
+            await this.#server.stop();
           }
         }
       }
@@ -1879,7 +1879,7 @@ export class TrellisService<
   operation<O extends keyof TOwnedApi["operations"] & string>(
     operation: O,
   ): OperationRegistration<TOwnedApi, TTrellisApi, O, TKv, TJobs> {
-    const registration = this.server.operation(
+    const registration = this.#server.operation(
       operation,
     ) as RootOperationRegistration<
       InferSchemaType<TOwnedApi["operations"][O]["input"]>,

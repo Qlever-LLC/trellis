@@ -77,7 +77,7 @@ async function main(): Promise<void> {
       }
     }
   } finally {
-    await device.natsConnection.close();
+    await device.connection.close();
   }
 }
 

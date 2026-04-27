@@ -52,11 +52,15 @@ libraries.
   transport/bootstrap details
 - browser-safe public runtime APIs and the kind-specific contract builders
   belong on `@qlever-llc/trellis`
+- the root package should expose Trellis-owned lifecycle handles such as
+  `TrellisConnection`, not raw transport handles such as `NatsConnection`
 - browser-only login and portal-flow helpers belong on
   `@qlever-llc/trellis/auth` and the narrower `@qlever-llc/trellis/auth/browser`
   facade
 - service-only resource handles and bootstrap helpers belong on
   `@qlever-llc/trellis/service*`
+- `@qlever-llc/trellis/service` is a service-author surface and must not
+  re-export low-level runtime/server internals
 - public TypeScript jobs helpers belong on `@qlever-llc/trellis` and
   `@qlever-llc/trellis/service*`, not on a standalone jobs package
 

@@ -59,7 +59,7 @@ import {
 } from "./trellis.ts";
 import type { SendTransferGrant } from "./transfer.ts";
 
-type TrellisServerOpts<TA extends AnyTrellisAPI> =
+type TrellisServiceRuntimeOpts<TA extends AnyTrellisAPI> =
   & Omit<TrellisOpts<TA>, "api">
   & {
     api: TA;
@@ -67,8 +67,8 @@ type TrellisServerOpts<TA extends AnyTrellisAPI> =
     version?: string;
   };
 
-export type TrellisServerFor<TA extends AnyTrellisAPI = TrellisAPI> =
-  & Omit<TrellisServer, "mount" | "operation">
+export type TrellisServiceRuntimeFor<TA extends AnyTrellisAPI = TrellisAPI> =
+  & Omit<TrellisServiceRuntime, "mount" | "operation">
   & {
     mount<M extends MethodsOf<TA>>(
       method: M,
@@ -180,7 +180,7 @@ function asOptionalStringRecordPointerValue(
   return ok(Object.fromEntries(entries) as Record<string, string>);
 }
 
-export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
+export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
   #version?: string;
   #log: LoggerLike;
   #operations = new Map<string, RuntimeOperationRecord>();
@@ -193,7 +193,7 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
     name: string,
     nats: NatsConnection,
     auth: TrellisAuth,
-    opts?: TrellisServerOpts<TrellisAPI>,
+    opts?: TrellisServiceRuntimeOpts<TrellisAPI>,
   ) {
     super(name, nats, auth, { ...opts, log: opts?.log ?? serverLogger });
     this.#version = opts?.version;
@@ -695,18 +695,26 @@ export class TrellisServer extends Trellis<TrellisAPI, TrellisMode> {
     })();
   }
 
+  mountRuntime(
+    method: string,
+    fn: Parameters<Trellis<TrellisAPI, TrellisMode>["mount"]>[1],
+  ): Promise<void> {
+    return super.mount(method, fn);
+  }
+
   static create<TA extends AnyTrellisAPI>(
     name: string,
     nats: NatsConnection,
     auth: TrellisAuth,
-    opts: TrellisServerOpts<TA>,
-  ): TrellisServerFor<TA> {
-    return new TrellisServer(
+    opts: TrellisServiceRuntimeOpts<TA>,
+  ): TrellisServiceRuntimeFor<TA> {
+    const runtime = new TrellisServiceRuntime(
       name,
       nats,
       auth,
-      opts as TrellisServerOpts<TrellisAPI>,
-    ) as unknown as TrellisServerFor<TA>;
+      opts as TrellisServiceRuntimeOpts<TrellisAPI>,
+    );
+    return runtime as TrellisServiceRuntime & TrellisServiceRuntimeFor<TA>;
   }
 
   override operation(

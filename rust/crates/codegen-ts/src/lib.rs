@@ -1427,7 +1427,7 @@ fn render_client_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String
     let mut lines = vec![
         format!("// Generated from {}", escape_js_string(&source_reference)),
         format!(
-            "import type {{ AsyncResult, BaseError, EventOpts, MapStateStoreClient, MaybeAsync, NatsConnection, OperationInputBuilder, OperationRef, OperationRefData, ReceiveTransferGrant, ReceiveTransferHandle, RequestOpts, SendTransferGrant, SendTransferHandle, TransferCapableOperationInputBuilder, TrellisConnection, UnexpectedError, ValidationError, ValueStateStoreClient }} from {};",
+            "import type {{ AsyncResult, BaseError, EventOpts, MapStateStoreClient, MaybeAsync, OperationInputBuilder, OperationRef, OperationRefData, ReceiveTransferGrant, ReceiveTransferHandle, RequestOpts, SendTransferGrant, SendTransferHandle, TransferCapableOperationInputBuilder, TrellisConnection, UnexpectedError, ValidationError, ValueStateStoreClient }} from {};",
             js_string(&trellis_import)
         ),
         "import type { API } from \"./api.ts\";".to_string(),
@@ -1497,7 +1497,6 @@ fn render_client_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String
         "  readonly api: typeof API.trellis;".to_string(),
         format!("  readonly state: {state_type_name};"),
         "  readonly connection: TrellisConnection;".to_string(),
-        "  readonly natsConnection: NatsConnection;".to_string(),
         "  transfer(grant: SendTransferGrant): SendTransferHandle;".to_string(),
         "  transfer(grant: ReceiveTransferGrant): ReceiveTransferHandle;".to_string(),
     ]);

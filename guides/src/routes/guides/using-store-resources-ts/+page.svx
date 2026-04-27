@@ -57,7 +57,7 @@ The intended runtime shape mirrors the KV handle pattern:
 
 ```ts
 import { isErr } from "@qlever-llc/trellis";
-import { TrellisService } from "@qlever-llc/trellis/server/deno";
+import { TrellisService } from "@qlever-llc/trellis/service/deno";
 import { documentsService } from "./contracts/documents_service.ts";
 
 const service = await TrellisService.connect({

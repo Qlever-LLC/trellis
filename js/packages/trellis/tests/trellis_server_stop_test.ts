@@ -1,5 +1,5 @@
 /**
- * TDD tests for TrellisServer.stop() with NATS draining behavior.
+ * TDD tests for TrellisServiceRuntime.stop() with NATS draining behavior.
  *
  * These tests verify that:
  * 1. stop() clears any refresh timers
@@ -12,7 +12,7 @@ import { core as trellisCore } from "@qlever-llc/trellis/sdk/core";
 import { assertEquals, assertExists } from "@std/assert";
 import { NatsTest } from "../testing/nats.ts";
 import type { TrellisAuth } from "../trellis.ts";
-import { TrellisServer } from "../server.ts";
+import { TrellisServiceRuntime } from "../server.ts";
 
 const RUN_NATS_TESTS = Deno.env.get("TRELLIS_TEST_NATS") === "1";
 
@@ -24,7 +24,7 @@ function createMockAuth(): TrellisAuth {
 }
 
 Deno.test({
-  name: "TrellisServer.stop() drains NATS connection",
+  name: "TrellisServiceRuntime.stop() drains NATS connection",
   ignore: !RUN_NATS_TESTS,
   async fn(t) {
     await using natsTest = await NatsTest.start();
@@ -36,7 +36,7 @@ Deno.test({
         const info = natsTest.nc.info!;
         const nc = await connect({ servers: `localhost:${info.port}` });
 
-        const server = TrellisServer.create(
+        const server = TrellisServiceRuntime.create(
           "test-server",
           nc,
           createMockAuth(),
@@ -59,7 +59,7 @@ Deno.test({
       const info = natsTest.nc.info!;
       const nc = await connect({ servers: `localhost:${info.port}` });
 
-      const server = TrellisServer.create(
+      const server = TrellisServiceRuntime.create(
         "test-server-multiple-stop",
         nc,
         createMockAuth(),
@@ -79,7 +79,7 @@ Deno.test({
       const info = natsTest.nc.info!;
       const nc = await connect({ servers: `localhost:${info.port}` });
 
-      const server = TrellisServer.create(
+      const server = TrellisServiceRuntime.create(
         "test-server-concurrent-stop",
         nc,
         createMockAuth(),

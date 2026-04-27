@@ -28,22 +28,8 @@ export {
   unwrapSchema,
 } from "./contracts.ts";
 export type { InferSchemaType, JsonValue, TrellisAPI } from "./contracts.ts";
-export {
-  observeNatsTrellisConnection,
-  observeTrellisConnection,
-  TrellisConnection,
-} from "./connection.ts";
-export type {
-  ObserveNatsTrellisConnectionOptions,
-  ObserveTrellisConnectionOptions,
-  TrellisConnectionKind,
-  TrellisConnectionOptions,
-  TrellisConnectionPhase,
-  TrellisConnectionStatus,
-  TrellisConnectionStatusListener,
-  TrellisConnectionStatusTransport,
-  TrellisConnectionTransportMetadata,
-} from "./connection.ts";
+export { TrellisConnection } from "./connection.ts";
+export type { TrellisConnectionStatus } from "./connection.ts";
 export type {
   HealthCheckFn,
   HealthCheckResult,
@@ -186,7 +172,6 @@ export type {
   OperationSnapshot,
   OperationState,
   OperationTransferProgress,
-  OperationTransport,
   ProgressOperationEvent,
   ProgressOperationSnapshot,
   StartedOperationEvent,
@@ -214,7 +199,6 @@ export type {
   HandlerTrellis,
   HandlerTrellisForContract,
   MapStateStoreClient,
-  NatsConnection,
   OperationHandlerContext,
   OperationRegistration,
   OperationTransferContextOf,
@@ -229,13 +213,10 @@ export type {
   RpcOutputOf,
   RpcRequestErrorOf,
   RpcResult,
-  RuntimeStateStores,
   RuntimeStateStoresForContract,
   RuntimeStateStoreShape,
   StateFacade,
-  TrellisAuth,
   TrellisFor,
-  TrellisSigner,
   ValueStateStoreClient,
 } from "./trellis.ts";
 export { Trellis } from "./trellis.ts";

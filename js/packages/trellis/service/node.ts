@@ -1,1 +1,18 @@
-export * from "../server/node.ts";
+export {
+  type JobArgs,
+  type JobHandler,
+  type JobQueue,
+  type JobResult,
+  type JobsFacadeOf,
+  type OperationHandler,
+  type OperationRegistration,
+  type ResourceBindingKV,
+  type ResourceBindings,
+  type ResourceBindingStream,
+  type RpcHandler,
+  type ServiceContract,
+  type ServiceTrellis,
+  type Trellis,
+  TrellisService,
+  type TrellisServiceConnectOpts,
+} from "../server/service.ts";

@@ -79,7 +79,7 @@ That keeps handler modules ergonomic without making the service consume its own 
 Now let's write the code that actually runs the service. Open `main.ts` (created by `deno init`) and replace it with:
 
 ```ts
-import { TrellisService } from "@qlever-llc/trellis/server/deno";
+import { TrellisService } from "@qlever-llc/trellis/service/deno";
 import { ordersService } from "./contracts/orders_service.ts";
 
 const service = await TrellisService.connect({
@@ -92,7 +92,7 @@ const service = await TrellisService.connect({
 console.log("Connected to Trellis!");
 ```
 
-> **Node.js users:** Import from `@qlever-llc/trellis/server/node` and replace `Deno.env.get(...)` with `process.env`.
+> **Node.js users:** Import from `@qlever-llc/trellis/service/node` and replace `Deno.env.get(...)` with `process.env`.
 
 `TrellisService.connect(...)` does a lot of heavy lifting. It authenticates your service session, validates that your contract is active in the Trellis catalog, fetches transport details, and hands back a `service` object with all your resources already resolved. If the contract has not been installed yet, it will throw with a clear message telling you exactly what to do.
 

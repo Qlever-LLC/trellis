@@ -100,7 +100,7 @@ Create `contracts/orders_service.ts`. The contract declares every RPC, event, de
 
 ```ts
 import { defineContract } from "@qlever-llc/trellis/contracts";
-import { HealthResponseSchema, HealthRpcSchema } from "@qlever-llc/trellis/server/health";
+import { HealthResponseSchema, HealthRpcSchema } from "@qlever-llc/trellis/health";
 import { auth } from "@qlever-llc/trellis/sdk/auth";
 import { core } from "@qlever-llc/trellis/sdk/core";
 import {
@@ -204,7 +204,7 @@ Key things to note:
 Create `main.ts`:
 
 ```ts
-import { TrellisService } from "@qlever-llc/trellis/server/deno";
+import { TrellisService } from "@qlever-llc/trellis/service/deno";
 import { ordersService } from "./contracts/orders_service.ts";
 
 const service = await TrellisService.connect({
@@ -218,7 +218,7 @@ const service = await TrellisService.connect({
 
 `TrellisService.connect(...)` automatically verifies that the contract is active in the Trellis catalog and resolves all resource bindings declared in the contract. If the contract is not installed, it throws with a clear error message.
 
-For Node, change the import to `@qlever-llc/trellis/server/node` and replace `Deno.env.get(...)` with `process.env`.
+For Node, change the import to `@qlever-llc/trellis/service/node` and replace `Deno.env.get(...)` with `process.env`.
 
 ## 5. Open KV stores
 

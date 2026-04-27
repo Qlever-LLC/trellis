@@ -98,12 +98,17 @@ export const devicePortalSelectionStorage = testRepository<
 >((value) => value.profileId);
 export const connectionsKV = testKv();
 export const trellisService = {
-  server: {
+  trellis: {
     mount: () => {},
-    operation: () => ({ handle: async () => {} }),
+    publish: () => ({ inspectErr: () => {} }),
   },
+  operation: () => ({ handle: async () => {} }),
   stop: async () => {},
 };
-export const trellis = trellisService.server;
+export const trellis = {
+  mount: trellisService.trellis.mount.bind(trellisService.trellis),
+  publish: trellisService.trellis.publish.bind(trellisService.trellis),
+  operation: trellisService.operation.bind(trellisService),
+};
 
 export async function shutdownGlobals(): Promise<void> {}

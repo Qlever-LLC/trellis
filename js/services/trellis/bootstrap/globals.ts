@@ -183,7 +183,11 @@ trellisService.health.setInfo({
   },
 });
 
-export const trellis = trellisService.server;
+export const trellis = {
+  mount: trellisService.trellis.mount.bind(trellisService.trellis),
+  publish: trellisService.trellis.publish.bind(trellisService.trellis),
+  operation: trellisService.operation.bind(trellisService),
+};
 
 export async function shutdownGlobals(): Promise<void> {
   await trellisService.stop();

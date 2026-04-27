@@ -66,6 +66,11 @@ and this project adheres to
 - Simplified portal auth by removing the portal contract kind and portal
   `appContractId`, keeping custom portals as routing config, and moving
   authenticated device activation to a single `Auth.ActivateDevice` operation.
+- Made the TypeScript service runtime surface v1-clean by removing the legacy
+  `TrellisServer` public name, making `@qlever-llc/trellis/service*` explicit
+  service-author entrypoints, hiding raw runtime and NATS transport internals
+  from root and generated client facades, and using `TrellisConnection` for
+  lifecycle control.
 
 ### Added
 
