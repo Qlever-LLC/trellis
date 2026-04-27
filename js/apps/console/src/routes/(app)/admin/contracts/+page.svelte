@@ -19,7 +19,6 @@
     id: string;
     displayName: string;
     description: string;
-    sessionKey?: string;
     installedAt: string;
     analysisSummary?: {
       events: number;

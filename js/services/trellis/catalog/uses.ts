@@ -55,6 +55,185 @@ export type ResolvedContractUses = {
   subjectSubscribes: ResolvedSubjectUse[];
 };
 
+function unionCapabilities(
+  left: string[] | undefined,
+  right: string[] | undefined,
+): string[] | undefined {
+  const merged = sortUniqueStrings([...(left ?? []), ...(right ?? [])]);
+  return merged.length === 0 ? undefined : merged;
+}
+
+function requireSameSubject(
+  key: string,
+  left: string,
+  right: string,
+): void {
+  if (left !== right) {
+    throw new Error(
+      `Active compatible digests define '${key}' with different subjects`,
+    );
+  }
+}
+
+function mergeRpcMethod(
+  key: string,
+  left: ContractRpcMethod,
+  right: ContractRpcMethod,
+): ContractRpcMethod {
+  requireSameSubject(key, left.subject, right.subject);
+  const call = unionCapabilities(
+    left.capabilities?.call,
+    right.capabilities?.call,
+  );
+  return {
+    ...left,
+    ...(left.transfer ?? right.transfer
+      ? { transfer: left.transfer ?? right.transfer }
+      : {}),
+    ...(call ? { capabilities: { call } } : {}),
+  };
+}
+
+function mergeOperation(
+  key: string,
+  left: ContractOperation,
+  right: ContractOperation,
+): ContractOperation {
+  requireSameSubject(key, left.subject, right.subject);
+  const call = unionCapabilities(
+    left.capabilities?.call,
+    right.capabilities?.call,
+  );
+  const read = unionCapabilities(
+    left.capabilities?.read,
+    right.capabilities?.read,
+  );
+  const cancel = unionCapabilities(
+    left.capabilities?.cancel,
+    right.capabilities?.cancel,
+  );
+  return {
+    ...left,
+    ...(left.transfer ?? right.transfer
+      ? { transfer: left.transfer ?? right.transfer }
+      : {}),
+    ...(left.cancel || right.cancel ? { cancel: true } : {}),
+    ...(call || read || cancel
+      ? {
+        capabilities: {
+          ...(call ? { call } : {}),
+          ...(read ? { read } : {}),
+          ...(cancel ? { cancel } : {}),
+        },
+      }
+      : {}),
+  };
+}
+
+function mergeEvent(
+  key: string,
+  left: ContractEvent,
+  right: ContractEvent,
+): ContractEvent {
+  requireSameSubject(key, left.subject, right.subject);
+  const publish = unionCapabilities(
+    left.capabilities?.publish,
+    right.capabilities?.publish,
+  );
+  const subscribe = unionCapabilities(
+    left.capabilities?.subscribe,
+    right.capabilities?.subscribe,
+  );
+  return {
+    ...left,
+    ...(publish || subscribe
+      ? {
+        capabilities: {
+          ...(publish ? { publish } : {}),
+          ...(subscribe ? { subscribe } : {}),
+        },
+      }
+      : {}),
+  };
+}
+
+function mergeSubject(
+  key: string,
+  left: ContractSubject,
+  right: ContractSubject,
+): ContractSubject {
+  requireSameSubject(key, left.subject, right.subject);
+  const publish = unionCapabilities(
+    left.capabilities?.publish,
+    right.capabilities?.publish,
+  );
+  const subscribe = unionCapabilities(
+    left.capabilities?.subscribe,
+    right.capabilities?.subscribe,
+  );
+  return {
+    ...left,
+    ...(publish || subscribe
+      ? {
+        capabilities: {
+          ...(publish ? { publish } : {}),
+          ...(subscribe ? { subscribe } : {}),
+        },
+      }
+      : {}),
+  };
+}
+
+function mergeRecords<T>(
+  records: Array<Record<string, T> | undefined>,
+  mergeValue: (key: string, left: T, right: T) => T,
+): Record<string, T> | undefined {
+  const merged: Record<string, T> = {};
+  let hasValues = false;
+  for (const record of records) {
+    if (!record) continue;
+    for (const [key, value] of Object.entries(record)) {
+      const existing = merged[key];
+      merged[key] = existing === undefined
+        ? value
+        : mergeValue(key, existing, value);
+      hasValues = true;
+    }
+  }
+  return hasValues ? merged : undefined;
+}
+
+function mergeCompatibleContractSurfaces(
+  contracts: TrellisContractV1[],
+): TrellisContractV1 | undefined {
+  const first = contracts[0];
+  if (!first) return undefined;
+  const rpc = mergeRecords(
+    contracts.map((contract) => contract.rpc),
+    mergeRpcMethod,
+  );
+  const operations = mergeRecords(
+    contracts.map((contract) => contract.operations),
+    mergeOperation,
+  );
+  const events = mergeRecords(
+    contracts.map((contract) => contract.events),
+    mergeEvent,
+  );
+  const subjects = mergeRecords(
+    contracts.map((contract) => contract.subjects),
+    mergeSubject,
+  );
+
+  return {
+    ...first,
+    ...(rpc ? { rpc } : {}),
+    ...(operations ? { operations } : {}),
+    ...(events ? { events } : {}),
+    ...(subjects ? { subjects } : {}),
+  };
+}
+
 function contractUses(
   contract: TrellisContractV1,
 ): Record<string, ContractUseRef> {
@@ -190,22 +369,14 @@ export function resolveContractUsesFromStore(
   },
 ): ResolvedContractUses {
   return resolveContractUses(contract, (alias, use) => {
-    const targetDigest = contractStore.findSingleActiveDigestById(use.contract);
-    if (!targetDigest) {
+    const targets = contractStore.getActiveContractsById(use.contract);
+    const target = mergeCompatibleContractSurfaces(targets);
+    if (!target) {
       if (options?.ignoreInactiveContracts) {
         return null;
       }
       throw new Error(
         `Dependency '${alias}' references inactive contract '${use.contract}'`,
-      );
-    }
-
-    const target = contractStore.getContract(targetDigest, {
-      includeInactive: true,
-    });
-    if (!target) {
-      throw new Error(
-        `Dependency '${alias}' references unknown contract '${use.contract}'`,
       );
     }
 
@@ -216,5 +387,17 @@ export function resolveContractUsesFromStore(
 export function createActiveContractLookup(
   entries: ContractEntry[],
 ): Map<string, TrellisContractV1> {
-  return new Map(entries.map((entry) => [entry.contract.id, entry.contract]));
+  const entriesById = new Map<string, TrellisContractV1[]>();
+  for (const entry of entries) {
+    const contracts = entriesById.get(entry.contract.id) ?? [];
+    contracts.push(entry.contract);
+    entriesById.set(entry.contract.id, contracts);
+  }
+
+  const lookup = new Map<string, TrellisContractV1>();
+  for (const [id, contracts] of entriesById) {
+    const merged = mergeCompatibleContractSurfaces(contracts);
+    if (merged) lookup.set(id, merged);
+  }
+  return lookup;
 }

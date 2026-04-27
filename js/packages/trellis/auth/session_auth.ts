@@ -34,7 +34,7 @@ export type TrellisAuth = {
     provider?: string,
     contract?: Record<string, unknown>,
   ) => Promise<string>;
-  bindSig: (authToken: string) => Promise<string>;
+  bindFlowSig: (flowId: string) => Promise<string>;
   natsConnectSigForIat: (iat: number) => Promise<string>;
 
   createProof: (subject: string, payloadHash: Uint8Array) => Promise<string>;
@@ -106,7 +106,7 @@ export async function createAuth(
       serverClockOffsetMs = clockOffsetMs;
     },
     oauthInitSig: signOauthInit,
-    bindSig: (authToken) => signDomainHash("bind", authToken),
+    bindFlowSig: (flowId) => signDomainHash("bind-flow", flowId),
     natsConnectSigForIat: (iat) => signDomainHash("nats-connect", String(iat)),
     createProof: (subject, payloadHash) =>
       createProof(privateKey, { sessionKey, subject, payloadHash }),

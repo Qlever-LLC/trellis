@@ -31,7 +31,7 @@ services can rely on the catalog, bindings, and auth runtime.
 js/services/trellis/
   main.ts                 # service entrypoint
   config.ts               # config loading and validation
-  bootstrap/              # startup wiring and shared runtime singletons
+  bootstrap/              # startup factories, control-plane API, storage wiring
   auth/                   # browser auth, session auth, providers, auth callout
   catalog/                # contract catalog, resource binding, permission derivation
   contracts/              # authored builtin Trellis contracts
@@ -43,13 +43,14 @@ js/services/trellis/
 
 - `control_plane.ts` registers builtin contracts, RPC handlers, and background
   loops.
-- `control_plane_api.ts` merges the owned APIs from `trellis.core` and
-  `trellis.auth`.
-- `globals.ts` creates shared runtime singletons: logger, NATS connections, KV
-  handles, auth helpers, SQL repositories, and the local `TrellisService`
-  instance.
-- `storage.ts` opens the configured SQLite database, initializes the schema, and
-  constructs concrete storage repositories.
+- `control_plane_api.ts` merges the owned APIs from `trellis.core`,
+  `trellis.auth`, `trellis.state`, and `trellis.health`.
+- `globals.ts` exposes `createRuntimeGlobals(config)`, which creates the logger,
+  NATS connections, KV handles, auth helpers, SQL repositories, and local
+  `TrellisService` instance in explicit startup order.
+- `storage.ts` exposes `createStorage(config)`, which opens the configured
+  SQLite database, initializes the schema, and constructs concrete storage
+  repositories.
 
 ### `auth/`
 
@@ -63,17 +64,17 @@ js/services/trellis/
   handlers, and user projection updates.
 - `callout/` contains the NATS auth callout loop, connection cleanup, kick
   support, and rate limiting.
-- top-level helpers such as `auth_utils.ts`, `oauth.ts`, and `redirect_to.ts`
-  support the different auth layers without forcing HTTP and callout code into
-  the same directory.
+- `bootstrap/`, `registration/`, `admin/`, `grants/`, and `device_activation/`
+  keep service/device startup, RPC registration, admin policy, and activation
+  flows out of the browser-login and callout modules.
+- top-level helpers such as `oauth.ts`, `redirect.ts`, `transports.ts`, and
+  `keys.ts` support the different auth layers without forcing HTTP and callout
+  code into the same directory.
 
 ### `catalog/`
 
 - `store.ts` validates manifests, persists installed contracts, and builds the
   catalog view.
-- `active_contracts.ts` computes the deployment-active contract set from
-  installed service instances and builtin platform contracts. User sessions do
-  not make contracts active.
 - `rpc.ts` implements catalog, contract lookup, and binding lookup RPCs.
 - `permissions.ts` and `resources.ts` turn active contracts into runtime
   permission and resource binding decisions.
@@ -134,7 +135,8 @@ Trellis State API.
 
 ### Startup flow
 
-1. `main.ts` initializes tracing, loads config, and creates the Hono app.
+1. `main.ts` initializes tracing, loads config, creates runtime globals, and
+   creates the Hono app.
 2. `bootstrap/control_plane.ts` registers builtin contracts and RPC handlers.
 3. The control plane refreshes the active contract catalog and publishes the
    permission model used by the auth callout.
@@ -145,21 +147,21 @@ Trellis State API.
 
 This follows `design/auth/trellis-auth.md`.
 
-1. A browser starts at `/auth/login` or `/auth/login/:provider` with a signed
-   `redirectTo`, `sessionKey`, and contract payload.
-2. The provider flow completes in `auth/http/http_routes.ts`, which stores
-   pending auth state and resolves the authenticated Trellis user identity.
-3. Approval planning in `auth/approval/app_approval.ts` inspects the exact
-   contract digest and determines whether the user already approved the
-   requested capabilities.
+1. A browser starts auth through `/auth/requests`, which creates a browser flow
+   for a signed `redirectTo`, `sessionKey`, and contract payload.
+2. Provider routes in `auth/http/routes.ts` complete the external login, store
+   pending auth state, and resolve the authenticated Trellis user identity.
+3. Approval planning in `auth/approval/plan.ts` inspects the exact contract
+   digest and determines whether the user already approved the requested
+   capabilities.
 4. If approval is needed, the user is shown the auth-hosted approval page.
-5. `/auth/bind` creates or refreshes the bound session and returns the binding
-   token, inbox prefix, NATS servers, and sentinel credentials.
+5. `/auth/flow/:flowId/bind` creates or refreshes the bound session and returns
+   the binding token, inbox prefix, NATS servers, and sentinel credentials.
 
 ### NATS auth callout flow
 
 1. A client connects to NATS with sentinel credentials and a Trellis auth token.
-2. `auth/callout/auth_callout.ts` verifies the binding token and session proof.
+2. `auth/callout/callout.ts` verifies the binding token and session proof.
 3. The current principal is resolved from SQL-backed sessions, service/device
    records, and user projections.
 4. Runtime permissions are derived from the active contract set plus any
@@ -177,8 +179,14 @@ This follows `design/contracts/trellis-contracts-catalog.md`.
    service-instance repositories.
 4. The active catalog is refreshed from builtin Trellis contracts and installed
    service instances, not from user sessions.
-5. `catalog/permissions.ts` updates the in-memory permission view consumed by
-   the auth callout.
+5. Multiple compatible digests may be active for the same contract id during
+   rollouts, mixed firmware, or externally controlled service deployments; this
+   is expected v1 behavior, not compatibility debt.
+6. User/app runtime permissions are derived from the approved caller contract
+   digest and its declared `uses`; a user capability alone does not grant access
+   to unrelated active contracts.
+7. Service/device runtime permissions are derived from the active installed
+   contract set plus provisioned resource bindings.
 
 ### State entry version flow
 
@@ -197,8 +205,14 @@ This follows `design/contracts/trellis-contracts-catalog.md`.
   contract id.
 - The auth HTTP flow and the NATS auth callout are separate layers and should
   stay organized separately even though they share session-proof helpers.
-- Runtime permissions come from the active installed contract set, not from a
-  handwritten service registry or from currently bound user sessions.
+- Multiple active compatible digests per contract id are required. Trellis
+  admins may not control every remote service or device firmware rollout, so
+  catalog and permission code must tolerate concurrent active revisions in one
+  lineage.
+- User/app runtime permissions come from the approved exact digest plus declared
+  `uses`; service/device runtime permissions come from active installed digests.
+  Neither path uses a handwritten service registry or currently bound user
+  sessions as the active-contract source.
 - Runtime resource grants are intentionally narrow. Bound resources no longer
   grant broad stream creation/deletion or durable KV consumer creation unless a
   current runtime client requires that exact subject.

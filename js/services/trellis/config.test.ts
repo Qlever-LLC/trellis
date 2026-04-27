@@ -1,6 +1,6 @@
 import { assertEquals } from "@std/assert";
 
-import { loadAuthConfigFromFile } from "./config.ts";
+import { __testing__, loadAuthConfigFromFile } from "./config.ts";
 
 async function withTempConfig(
   configText: string,
@@ -100,6 +100,7 @@ Deno.test("auth config loads structured provider map from file", async () => {
       const cfg = await loadAuthConfigFromFile(configPath);
 
       assertEquals(cfg.port, 3000);
+      assertEquals(cfg.instanceName, "Trellis");
       assertEquals(cfg.web.origins, [
         "http://localhost:5173",
         "https://app.example.com",
@@ -145,6 +146,16 @@ Deno.test("auth config loads structured provider map from file", async () => {
       ]);
     },
   );
+});
+
+Deno.test("config path uses TRELLIS_CONFIG or the default path", () => {
+  assertEquals(
+    __testing__.resolveConfigPath({
+      TRELLIS_CONFIG: "/tmp/trellis.jsonc",
+    }),
+    "/tmp/trellis.jsonc",
+  );
+  assertEquals(__testing__.resolveConfigPath({}), "/etc/trellis/config.jsonc");
 });
 
 Deno.test("auth config loads explicit storage database path", async () => {

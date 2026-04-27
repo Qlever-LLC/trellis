@@ -5,7 +5,20 @@ import {
   resolveBuiltinContracts,
   startControlPlaneBackgroundTasks,
 } from "./bootstrap/control_plane.ts";
-import {
+import { createRuntimeGlobals } from "./bootstrap/globals.ts";
+import { registerCatalog } from "./catalog/register.ts";
+import { createContractsModule } from "./catalog/runtime.ts";
+import { getConfig } from "./config.ts";
+import { registerState } from "./state/register.ts";
+import { createStateHandlers } from "./state/rpc.ts";
+import { StateStore } from "./state/storage.ts";
+
+initTracing("trellis");
+
+const config = getConfig();
+const app = new Hono();
+const runtime = await createRuntimeGlobals(config);
+const {
   browserFlowsKV,
   connectionsKV,
   contractApprovalStorage,
@@ -31,21 +44,10 @@ import {
   serviceInstanceStorage,
   sessionStorage,
   shutdownGlobals,
+  stateKV,
   trellis,
   userStorage,
-} from "./bootstrap/globals.ts";
-import { stateKV } from "./bootstrap/globals.ts";
-import { registerCatalog } from "./catalog/register.ts";
-import { createContractsModule } from "./catalog/runtime.ts";
-import { getConfig } from "./config.ts";
-import { registerState } from "./state/register.ts";
-import { createStateHandlers } from "./state/rpc.ts";
-import { StateStore } from "./state/storage.ts";
-
-initTracing("trellis");
-
-const config = getConfig();
-const app = new Hono();
+} = runtime;
 
 const contracts = createContractsModule({
   builtinContracts: await resolveBuiltinContracts(),

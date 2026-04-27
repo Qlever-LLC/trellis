@@ -5,7 +5,6 @@ import {
   AppIdentitySchema,
   AuthBrowserFlowSchema,
   AuthValidateRequestRequestSchema,
-  BindRequestSchema,
   BindResponseSchema,
   ContractApprovalRecordSchema,
   DeviceActivationRecordSchema,
@@ -17,7 +16,6 @@ import {
   InstanceGrantPolicySchema,
   LoginPortalDefaultSchema,
   LoginPortalSelectionSchema,
-  LoginQuerySchema,
   OAuthStateSchema,
   PendingAuthSchema,
   PortalProfileSchema,
@@ -229,29 +227,6 @@ Deno.test("portal and device state schemas validate", () => {
   }));
 });
 
-Deno.test("LoginQuerySchema validates login params", () => {
-  assert(
-    Value.Check(LoginQuerySchema, {
-      provider: "github",
-      redirectTo: "https://app.example.com/dashboard",
-      sessionKey,
-      sig,
-      contract: "eyJpZCI6InRyZWxsaXMuY2xpQHYxIn0",
-      context: "eyJzdWJ0aXRsZSI6IldlbGNvbWUifQ",
-    }),
-  );
-  assertFalse(
-    Value.Check(LoginQuerySchema, {
-      provider: "github",
-      redirectTo: "https://app.example.com/dashboard",
-      sessionKey,
-      sig,
-      contract: "eyJpZCI6InRyZWxsaXMuY2xpQHYxIn0",
-      rollout: "canary",
-    }),
-  );
-});
-
 Deno.test("OAuthStateSchema validates browser flow linkage", () => {
   assert(Value.Check(OAuthStateSchema, {
     provider: "github",
@@ -286,34 +261,6 @@ Deno.test("PendingAuthSchema validates explicit app identity", () => {
     contract: { id: "trellis.console@v1" },
     createdAt: new Date().toISOString(),
   }));
-});
-
-Deno.test("LoginQuerySchema requires a contract payload", () => {
-  assertFalse(
-    Value.Check(LoginQuerySchema, {
-      redirectTo: "https://app.example.com/dashboard",
-      sessionKey,
-      sig,
-    }),
-  );
-});
-
-Deno.test("BindRequestSchema validates bind params", () => {
-  assert(
-    Value.Check(BindRequestSchema, {
-      authToken: "token",
-      sessionKey,
-      sig,
-    }),
-  );
-  assertFalse(
-    Value.Check(BindRequestSchema, {
-      authToken: "token",
-      sessionKey,
-      sig,
-      rollout: "canary",
-    }),
-  );
 });
 
 Deno.test("BindResponseSchema validates insufficient-capabilities responses", () => {

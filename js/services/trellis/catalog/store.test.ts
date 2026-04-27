@@ -153,7 +153,7 @@ Deno.test("contract store allows multiple digests for one contract id when only 
     store.getContract(digest2, { includeInactive: true }),
     contract2,
   );
-  assertEquals(store.findSingleActiveDigestById("graph@v1"), digest1);
+  assertEquals(store.getActiveContractsById("graph@v1"), [contract1]);
 });
 
 Deno.test("contract store allows two active digests for one contract id during rollout", async () => {
@@ -178,11 +178,10 @@ Deno.test("contract store allows two active digests for one contract id during r
     store.findActiveSubject("rpc.v1.Graph.Ping2")?.contractId,
     "graph@v1",
   );
-  assertRejects(
-    async () => store.findSingleActiveDigestById("graph@v1"),
-    Error,
-    "multiple active digests",
-  );
+  assertEquals(store.getActiveContractsById("graph@v1"), [
+    contract1,
+    contract2,
+  ]);
 });
 
 Deno.test("contract store rejects activating duplicate subjects", async () => {

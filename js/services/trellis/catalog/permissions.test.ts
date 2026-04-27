@@ -138,6 +138,31 @@ const TEST_CONTRACTS: Array<{ digest: string; contract: TrellisContractV1 }> = [
     },
   },
   {
+    digest: "portal-digest",
+    contract: {
+      format: "trellis.contract.v1",
+      id: "portal@v1",
+      displayName: "Portal",
+      description: "User-facing portal app.",
+      kind: "app",
+      uses: {
+        graph: {
+          contract: "graph@v1",
+          rpc: { call: ["Partner.List"] },
+          operations: { call: ["Partner.Sync"] },
+          events: {
+            publish: ["Partner.Changed"],
+            subscribe: ["Partner.Changed"],
+          },
+          subjects: {
+            publish: ["Jobs.Stream"],
+            subscribe: ["Jobs.Stream"],
+          },
+        },
+      },
+    },
+  },
+  {
     digest: "billing-digest",
     contract: {
       format: "trellis.contract.v1",
@@ -179,8 +204,9 @@ function withContracts(contracts: typeof TEST_CONTRACTS, fn: () => void) {
 Deno.test("user permissions do not include RPC subscribe", () => {
   withContracts(TEST_CONTRACTS, () => {
     const userRoles = ["partners:read"];
-    const pubSubjects = getUserPublishSubjects(userRoles);
-    const subSubjects = getUserSubscribeSubjects(userRoles);
+    const caller = { contractDigest: "portal-digest" };
+    const pubSubjects = getUserPublishSubjects(userRoles, caller);
+    const subSubjects = getUserSubscribeSubjects(userRoles, caller);
 
     assertEquals(pubSubjects.includes("rpc.v1.Partner.List"), true);
     assertEquals(subSubjects.includes("rpc.v1.Partner.List"), false);
@@ -191,14 +217,15 @@ Deno.test("user permissions do not include RPC subscribe", () => {
 
 Deno.test("user permissions include event and raw subject capabilities", () => {
   withContracts(TEST_CONTRACTS, () => {
+    const caller = { contractDigest: "portal-digest" };
     const publishSubjects = getUserPublishSubjects([
       "partners:write",
       "jobs.publish",
-    ]);
+    ], caller);
     const subscribeSubjects = getUserSubscribeSubjects([
       "partners:read",
       "jobs.subscribe",
-    ]);
+    ], caller);
 
     assertEquals(
       publishSubjects.includes("events.v1.Partner.Changed.*.*"),
@@ -217,6 +244,96 @@ Deno.test("user permissions include event and raw subject capabilities", () => {
       true,
     );
     assertEquals(subscribeSubjects.includes("trellis.jobs.>"), true);
+  });
+});
+
+Deno.test("user cannot call unrelated active RPC by capability alone", () => {
+  withContracts(TEST_CONTRACTS, () => {
+    const publishSubjects = getUserPublishSubjects(
+      ["trellis.contract.read"],
+      { contractDigest: "portal-digest" },
+    );
+
+    assertEquals(
+      publishSubjects.includes("rpc.v1.Trellis.Contract.Get"),
+      false,
+    );
+  });
+});
+
+Deno.test("user uses resolution allows multiple active compatible digests", () => {
+  const newerCore = {
+    digest: "trellis-core-newer-digest",
+    contract: {
+      ...TEST_CONTRACTS[0].contract,
+      rpc: {
+        ...TEST_CONTRACTS[0].contract.rpc,
+        "Trellis.Health": {
+          version: "v1" as const,
+          subject: "rpc.v1.Trellis.Health",
+          input: { schema: "EmptyInput" },
+          output: { schema: "EmptyOutput" },
+          capabilities: { call: ["trellis.health.read"] },
+        },
+      },
+    },
+  } satisfies { digest: string; contract: TrellisContractV1 };
+  const healthApp = {
+    digest: "health-app-digest",
+    contract: {
+      format: "trellis.contract.v1",
+      id: "health-app@v1",
+      displayName: "Health App",
+      description: "Reads Trellis health.",
+      kind: "app",
+      uses: {
+        core: {
+          contract: "trellis.core@v1",
+          rpc: { call: ["Trellis.Health"] },
+        },
+      },
+    },
+  } satisfies { digest: string; contract: TrellisContractV1 };
+
+  withContracts([...TEST_CONTRACTS, newerCore, healthApp], () => {
+    const publishSubjects = getUserPublishSubjects(
+      ["trellis.health.read"],
+      { contractDigest: "health-app-digest" },
+    );
+
+    assertEquals(publishSubjects.includes("rpc.v1.Trellis.Health"), true);
+  });
+});
+
+Deno.test("user uses resolution merges duplicate active surface capabilities conservatively", () => {
+  const stricterGraph = {
+    digest: "graph-stricter-digest",
+    contract: {
+      ...TEST_CONTRACTS[2].contract,
+      rpc: {
+        "Partner.List": {
+          version: "v1" as const,
+          subject: "rpc.v1.Partner.List",
+          input: { schema: "EmptyInput" },
+          output: { schema: "EmptyOutput" },
+          capabilities: { call: ["partners:read", "partners:sensitive"] },
+        },
+      },
+    },
+  } satisfies { digest: string; contract: TrellisContractV1 };
+
+  withContracts([...TEST_CONTRACTS, stricterGraph], () => {
+    const readOnly = getUserPublishSubjects(
+      ["partners:read"],
+      { contractDigest: "portal-digest" },
+    );
+    assertEquals(readOnly.includes("rpc.v1.Partner.List"), false);
+
+    const fullAccess = getUserPublishSubjects(
+      ["partners:read", "partners:sensitive"],
+      { contractDigest: "portal-digest" },
+    );
+    assertEquals(fullAccess.includes("rpc.v1.Partner.List"), true);
   });
 });
 

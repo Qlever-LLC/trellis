@@ -10,7 +10,7 @@ Before starting, read [Trellis Concepts](/guides/concepts) and [Write a SvelteKi
 
 ## How the portal fits in
 
-When a browser app starts a Trellis login with `GET /auth/login`, Trellis creates a unique `flowId` for that login and redirects the browser into the best matching portal for that flow.
+When a browser app starts a Trellis login with `POST /auth/requests`, Trellis creates a unique `flowId` for that login and returns the best matching portal URL for that flow.
 
 For a normal user login, the portal usually shows the supported identity providers, starts the chosen provider flow, and then shows the approval screen so the user can allow the original app to access their account.
 

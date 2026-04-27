@@ -1,9 +1,12 @@
 import { assertEquals } from "@std/assert";
 import type { BaseError, Result } from "@qlever-llc/result";
 import { Type } from "typebox";
+import Value from "typebox/value";
 
 import { trellisIdFromOriginId } from "@qlever-llc/trellis/auth";
 import { AuthError, ValidationError } from "@qlever-llc/trellis";
+import { StateAdminGetResponseSchema } from "../../../packages/trellis/models/trellis/rpc/StateAdminGet.ts";
+import { StateAdminListResponseSchema } from "../../../packages/trellis/models/trellis/rpc/StateAdminList.ts";
 
 import { createStateHandlers } from "./rpc.ts";
 import { StateStore } from "./storage.ts";
@@ -307,6 +310,61 @@ Deno.test("State RPC uses contract id lineage and state versions for migration d
   assertEquals(oldVersion.stateVersion, "draft.v0");
   assertEquals(oldVersion.currentStateVersion, "draft.v1");
   assertEquals(oldVersion.writerContractDigest, "acme.notes@v0-digest");
+});
+
+Deno.test("State admin RPC schemas accept migration-required entries", async () => {
+  const sessionKV = new FakeSessionKV();
+  const state = new StateStore({
+    kv: new FakeStateKV(),
+    now: () => new Date("2026-01-01T00:00:00.000Z"),
+  });
+  const handlers = createStateHandlers({
+    sessionStorage: sessionKV,
+    state,
+    contractStore: createContractStore(),
+  });
+  const trellisId = await trellisIdFromOriginId("github", "123");
+
+  sessionKV.seed(
+    "old-version-session",
+    makeUserSession({
+      trellisId,
+      contractId: "acme.notes@v1",
+      contractDigest: "acme.notes@v0-digest",
+    }),
+  );
+
+  await handlers.put(
+    { store: "drafts", key: "old", value: { title: "legacy" } },
+    {
+      caller: { type: "user", origin: "github", id: "123" },
+      sessionKey: "old-version-session",
+    },
+  );
+
+  const adminCaller = { caller: { type: "user", capabilities: ["admin"] } };
+  const target = {
+    scope: "userApp" as const,
+    contractId: "acme.notes@v1",
+    contractDigest: "acme.notes@v1-digest",
+    store: "drafts",
+    user: { origin: "github", id: "123" },
+  };
+
+  const got = unwrapOk(
+    await handlers.adminGet({ ...target, key: "old" }, adminCaller),
+  );
+  if (!isMigrationRequired(got)) throw new Error("expected migration");
+  assertEquals(Value.Check(StateAdminGetResponseSchema, got), true);
+
+  const listed = unwrapOk(
+    await handlers.adminList({ ...target, offset: 0, limit: 10 }, adminCaller),
+  );
+  assertEquals(listed.entries.length, 1);
+  if (!isMigrationRequired(listed.entries[0])) {
+    throw new Error("expected listed migration");
+  }
+  assertEquals(Value.Check(StateAdminListResponseSchema, listed), true);
 });
 
 Deno.test("State RPC derives store metadata and enforces value versus map key semantics", async () => {

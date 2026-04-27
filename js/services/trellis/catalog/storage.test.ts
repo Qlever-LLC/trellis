@@ -37,7 +37,6 @@ function makeRecord(overrides: Partial<ContractRecord> = {}): ContractRecord {
     id: "graph@v1",
     displayName: "Graph",
     description: "Graph test contract",
-    sessionKey: "service-session",
     installedAt: new Date("2026-04-26T00:00:00.000Z"),
     contract: JSON.stringify({
       id: "graph@v1",
@@ -135,7 +134,6 @@ Deno.test("contract storage upserts and gets records by digest", async () => {
     const updated = makeRecord({
       displayName: "Graph API",
       description: "Updated graph test contract",
-      sessionKey: undefined,
       installedAt: new Date("2026-04-26T01:00:00.000Z"),
     });
     await repo.put(updated);

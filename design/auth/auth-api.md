@@ -40,7 +40,6 @@ Browser auth endpoints:
 - `GET /auth/flow/:flowId`
 - `POST /auth/flow/:flowId/approval`
 - `POST /auth/flow/:flowId/bind`
-- `POST /auth/bind`
 
 Activated-device endpoints are defined in
 [device-activation.md](./device-activation.md):
@@ -279,39 +278,6 @@ Request:
 }
 ```
 
-Response: `BindResponse`
-
-Behavior:
-
-1. Load the browser flow by `flowId`
-2. Load the pending authenticated state already attached to that flow
-3. Verify `sessionKey` and `sig`
-4. Read the contract already associated with the pending login
-5. Validate the contract, compute digest, derive required capabilities, and
-   check approval
-6. Reject the bind if the user projection is inactive
-7. Consume the pending auth state
-8. Create or recover the session record keyed by `sessionKey`
-9. Compute `inboxPrefix = _INBOX.${sessionKey.slice(0, 16)}`
-10. Return transport bootstrap details for the bound session (`inboxPrefix`,
-    `expires`, `sentinel`, `transports`)
-
-### POST /auth/bind
-
-Binds a session key to an authenticated identity and approved contract digest.
-This is the lower-level auth-token bind path for non-portal callers. Normal
-browser flows SHOULD use `POST /auth/flow/:flowId/bind`.
-
-Request:
-
-```ts
-{
-  authToken: string;
-  sessionKey: string;
-  sig: string; // sign(hash("bind:" + authToken))
-}
-```
-
 Response:
 
 ```ts
@@ -349,27 +315,28 @@ type BindResponse =
 
 Behavior:
 
-1. Lookup and validate `pendingAuth[authToken]`
-2. Verify `sessionKey` and `sig`
-3. Read the contract already associated with the pending login
-4. Validate the contract, compute digest, derive required capabilities, and
+1. Load the browser flow by `flowId`
+2. Load the pending authenticated state already attached to that flow
+3. Verify `sessionKey` and `sig`
+4. Read the contract already associated with the pending login
+5. Validate the contract, compute digest, derive required capabilities, and
    check approval
-5. Reject the bind if the user projection is inactive
-6. CAS-delete `pendingAuth[authToken]`
-7. Create or recover the session record keyed by `sessionKey`
-8. Persist delegated contract metadata and delegated publish/subscribe subjects
+6. Reject the bind if the user projection is inactive
+7. Consume the pending auth state
+8. Create or recover the session record keyed by `sessionKey`
+9. Persist delegated contract metadata and delegated publish/subscribe subjects
    into the session
-9. Compute `inboxPrefix = _INBOX.${sessionKey.slice(0, 16)}`
-10. Refresh the Trellis-local auth projection entry without overwriting
+10. Compute `inboxPrefix = _INBOX.${sessionKey.slice(0, 16)}`
+11. Refresh the Trellis-local auth projection entry without overwriting
     admin-managed `active` state or granted capabilities
-11. Return the bind response with `inboxPrefix`, `expires`, `sentinel`, and
+12. Return the bind response with `inboxPrefix`, `expires`, `sentinel`, and
     `transports`
 
 Rules:
 
-- normal browser and detached agent flows reach `/auth/bind` only after Trellis
-  has already recorded an approval decision
-- `/auth/bind` still rechecks approval and capabilities defensively
+- normal browser and detached agent flows bind only through the auth-owned
+  browser flow after Trellis has already recorded an approval decision
+- flow bind still rechecks approval and capabilities defensively
 - portal is a browser UX surface only; bind remains auth-owned
 
 ## Approval Management RPCs
@@ -585,8 +552,8 @@ Public auth-owned surfaces:
 - HTTP endpoints `POST /auth/devices/activate/requests`,
   `POST /auth/devices/activate/wait`, and `POST /auth/devices/connect-info`
 - operation subject `operations.v1.Auth.ActivateDevice`
-- portal, portal-override, device-deployment, device-instance, and device lifecycle
-  admin RPCs under `rpc.v1.Auth.*`
+- portal, portal-override, device-deployment, device-instance, and device
+  lifecycle admin RPCs under `rpc.v1.Auth.*`
 - event subject `events.v1.Auth.DeviceActivationReviewRequested`
 
 Shared request and response types:
@@ -688,7 +655,9 @@ type UnapplyServiceDeploymentContractRequest = {
   contractId: string;
   digests?: string[];
 };
-type UnapplyServiceDeploymentContractResponse = { deployment: ServiceDeployment };
+type UnapplyServiceDeploymentContractResponse = {
+  deployment: ServiceDeployment;
+};
 
 type DisableServiceDeploymentRequest = { deploymentId: string };
 type EnableServiceDeploymentRequest = { deploymentId: string };
@@ -963,9 +932,10 @@ Portal selection rules:
   then the deployment device default custom portal, then the built-in Trellis
   device portal
 - a selection record with `portalId: null` forces the built-in Trellis portal
-  for that contract or device deployment, even when a deployment custom default exists
-- clearing a contract or device-deployment selection removes the explicit rule and returns
-  that flow to the default chain
+  for that contract or device deployment, even when a deployment custom default
+  exists
+- clearing a contract or device-deployment selection removes the explicit rule
+  and returns that flow to the default chain
 - most deployments can rely only on the built-in portal or one of the two
   deployment default custom portals
 

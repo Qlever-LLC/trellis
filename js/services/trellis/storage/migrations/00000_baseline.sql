@@ -4,7 +4,6 @@ CREATE TABLE `contracts` (
 	`contract_id` text NOT NULL,
 	`display_name` text NOT NULL,
 	`description` text NOT NULL,
-	`session_key` text,
 	`installed_at` text NOT NULL,
 	`contract` text NOT NULL,
 	`resources` text,

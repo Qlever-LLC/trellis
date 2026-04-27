@@ -318,15 +318,19 @@ export class ContractStore {
     this.#rebuildActiveSubjectIndex();
   }
 
-  findSingleActiveDigestById(id: string): string | undefined {
+  /**
+   * Return every active compatible contract digest for a contract lineage.
+   */
+  getActiveContractsById(id: string): TrellisContractV1[] {
     const digests = this.#activeDigestsById.get(id);
-    if (!digests || digests.size === 0) return undefined;
-    if (digests.size > 1) {
-      throw new Error(
-        `Contract '${id}' has multiple active digests; require an exact digest`,
-      );
+    if (!digests) return [];
+
+    const contracts: TrellisContractV1[] = [];
+    for (const digest of digests) {
+      const contract = this.#contractsByDigest.get(digest);
+      if (contract) contracts.push(contract);
     }
-    return digests.values().next().value;
+    return contracts;
   }
 
   setActiveDigests(digests: Iterable<string>): void {

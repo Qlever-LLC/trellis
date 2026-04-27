@@ -970,7 +970,7 @@ Deno.test("service instance storage upserts, deletes, and looks up by instance k
 
     assertEquals(await instances.get("svc_instance_b"), updated);
     assertEquals(await instances.getByInstanceKey("session-key-c"), updated);
-    assertEquals(await instances.getBySessionKey("session-key-c"), updated);
+    assertEquals(await instances.getByInstanceKey("session-key-c"), updated);
     assertEquals(await instances.list(), [second, updated]);
     assertEquals(await instances.listByDeployment("svc-deployment-a"), [
       updated,

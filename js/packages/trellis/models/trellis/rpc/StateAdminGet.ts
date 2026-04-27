@@ -1,6 +1,11 @@
 import Type, { type Static } from "typebox";
 
-import { StateEntrySchema, StateUserTargetSchema } from "../State.ts";
+import type { StateEntry, StateMigrationRequired } from "../State.ts";
+import {
+  StateEntrySchema,
+  StateMigrationRequiredSchema,
+  StateUserTargetSchema,
+} from "../State.ts";
 
 export const StateAdminGetSchema = Type.Union([
   Type.Object({
@@ -30,5 +35,9 @@ export const StateAdminGetResponseSchema = Type.Union([
     found: Type.Literal(true),
     entry: StateEntrySchema,
   }),
+  StateMigrationRequiredSchema,
 ]);
-export type StateAdminGetResponse = Static<typeof StateAdminGetResponseSchema>;
+export type StateAdminGetResponse =
+  | { found: false }
+  | { found: true; entry: StateEntry }
+  | StateMigrationRequired;

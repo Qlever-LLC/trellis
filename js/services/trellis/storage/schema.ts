@@ -9,7 +9,6 @@ export const contracts = sqliteTable(
     contractId: text("contract_id").notNull(),
     displayName: text("display_name").notNull(),
     description: text("description").notNull(),
-    sessionKey: text("session_key"),
     installedAt: text("installed_at").notNull(),
     contract: text("contract").notNull(),
     resources: text("resources"),

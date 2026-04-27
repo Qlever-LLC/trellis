@@ -13,7 +13,7 @@ struct AuthProofFixture {
     seed: String,
     session_key: String,
     oauth_init: DomainSigFixture,
-    bind: DomainSigFixture,
+    flow_bind: DomainSigFixture,
     nats_connect: NatsConnectFixture,
     rpc_proof: RpcProofFixture,
 }
@@ -22,7 +22,7 @@ struct AuthProofFixture {
 #[serde(rename_all = "camelCase")]
 struct DomainSigFixture {
     redirect_to: Option<String>,
-    auth_token: Option<String>,
+    flow_id: Option<String>,
     sig: String,
 }
 
@@ -80,8 +80,8 @@ fn auth_proof_matches_shared_conformance_vectors() {
             fixture.oauth_init.sig
         );
         assert_eq!(
-            auth.sign_sha256_domain("bind", fixture.bind.auth_token.as_deref().unwrap()),
-            fixture.bind.sig
+            auth.sign_sha256_domain("bind-flow", fixture.flow_bind.flow_id.as_deref().unwrap()),
+            fixture.flow_bind.sig
         );
         assert_eq!(
             auth.sign_sha256_domain("nats-connect", &fixture.nats_connect.iat.to_string()),

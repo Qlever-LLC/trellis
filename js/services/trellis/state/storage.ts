@@ -91,7 +91,7 @@ function byteLength(value: string): number {
 
 function encodeStateComponent(value: string): string {
   return [...value].map((char) => {
-    if (/^[A-Za-z0-9_./-]$/.test(char)) {
+    if (/^[A-Za-z0-9_/-]$/.test(char)) {
       return char;
     }
 

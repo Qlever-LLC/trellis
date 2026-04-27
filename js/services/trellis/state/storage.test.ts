@@ -12,8 +12,20 @@ function unwrapOk<T, E extends BaseError>(value: Result<T, E>): T {
   });
 }
 
-function assertFound(value: { found: boolean } | { migrationRequired: true }) {
-  if ("migrationRequired" in value || !value.found) {
+function assertFound(value: unknown): asserts value is {
+  found: true;
+  entry: {
+    key?: string;
+    value: unknown;
+    revision: string;
+    updatedAt: string;
+    expiresAt?: string;
+  };
+} {
+  if (
+    value === null || typeof value !== "object" ||
+    "migrationRequired" in value || !("found" in value) || value.found !== true
+  ) {
     throw new Error("expected found state entry");
   }
 }
@@ -248,6 +260,55 @@ Deno.test("StateStore encodes contract ids and caller keys for KV-safe storage",
   ]);
 });
 
+Deno.test("StateStore encoding prevents dotted component tuple collisions", async () => {
+  const kv = new FakeStateKV();
+  const store = new StateStore({
+    kv,
+    now: () => new Date("2026-01-01T00:00:00.000Z"),
+  });
+  const baseTarget = {
+    ownerType: "user" as const,
+    contractDigest: "digest-v1",
+    kind: "map" as const,
+    schema: Type.Object({ label: Type.String() }),
+    stateVersion: "v1",
+    acceptedVersions: {},
+  };
+  const leftTarget = {
+    ...baseTarget,
+    ownerKey: "one.two",
+    contractId: "three",
+    store: "four",
+  };
+  const rightTarget = {
+    ...baseTarget,
+    ownerKey: "one",
+    contractId: "two.three",
+    store: "four",
+  };
+
+  unwrapOk(
+    await store.put(leftTarget, {
+      key: "five.six",
+      value: { label: "left" },
+    }),
+  );
+  unwrapOk(
+    await store.put(rightTarget, {
+      key: "five.six",
+      value: { label: "right" },
+    }),
+  );
+
+  const left = unwrapOk(await store.get(leftTarget, { key: "five.six" }));
+  assertFound(left);
+  assertEquals(left.entry.value, { label: "left" });
+
+  const right = unwrapOk(await store.get(rightTarget, { key: "five.six" }));
+  assertFound(right);
+  assertEquals(right.entry.value, { label: "right" });
+});
+
 Deno.test("StateStore lists map keys that look like value-store sentinels", async () => {
   const kv = new FakeStateKV();
   const store = new StateStore({
@@ -316,7 +377,9 @@ Deno.test("StateStore stamps state provenance and keeps namespace contract-id sc
   const got = unwrapOk(await store.get(currentDigestTarget));
   assertFound(got);
 
-  const stored = kv.snapshot("user.user-1.acme.notes=40v1.preferences.~value");
+  const stored = kv.snapshot(
+    "user.user-1.acme=2Enotes=40v1.preferences.~value",
+  );
   assertEquals(stored?.value.stateVersion, "prefs.v2");
   assertEquals(stored?.value.writerContractDigest, "digest-a");
 });
@@ -437,7 +500,7 @@ Deno.test("StateStore infers migration for unversioned entries only when current
     },
   };
 
-  kv.seed("user.user-1.acme.notes=40v1.preferences.~value", {
+  kv.seed("user.user-1.acme=2Enotes=40v1.preferences.~value", {
     value: { theme: "dark" },
     updatedAt: new Date("2026-01-01T00:00:00.000Z"),
   });
@@ -457,4 +520,33 @@ Deno.test("StateStore infers migration for unversioned entries only when current
   };
   const compatible = unwrapOk(await store.get(compatibleTarget));
   assertFound(compatible);
+});
+
+Deno.test("StateStore returns normal validation errors for unreadable unversioned entries", async () => {
+  const kv = new FakeStateKV();
+  const store = new StateStore({
+    kv,
+    now: () => new Date("2026-01-01T00:00:00.000Z"),
+  });
+  const target = {
+    ownerType: "user" as const,
+    contractId: "acme.notes@v1",
+    contractDigest: "digest-v2",
+    ownerKey: "user-1",
+    store: "preferences",
+    kind: "value" as const,
+    schema: Type.Object({ theme: Type.String(), done: Type.Boolean() }),
+    stateVersion: "prefs.v2",
+    acceptedVersions: {
+      "prefs.v1": Type.Object({ theme: Type.String() }),
+    },
+  };
+
+  kv.seed("user.user-1.acme=2Enotes=40v1.preferences.~value", {
+    value: { theme: 123 },
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+  });
+
+  const got = await store.get(target);
+  assertEquals(got.isErr(), true);
 });

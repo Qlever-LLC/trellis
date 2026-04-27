@@ -117,14 +117,9 @@ Deno.test("deriveDeviceRuntimeAccess preserves the caller-selected digest", () =
 
 Deno.test("deriveDeviceRuntimeAccess includes publish subjects from contract uses", () => {
   const fakeContractStore = {
-    findSingleActiveDigestById(contractId: string) {
-      if (contractId === "trellis.auth@v1") return "auth-digest";
-      if (contractId === "billing@v1") return "billing-digest";
-      return null;
-    },
-    getContract(digest: string) {
-      if (digest === "auth-digest") {
-        return {
+    getActiveContractsById(contractId: string) {
+      if (contractId === "trellis.auth@v1") {
+        return [{
           id: "trellis.auth@v1",
           displayName: "Auth",
           description: "Auth API",
@@ -137,10 +132,10 @@ Deno.test("deriveDeviceRuntimeAccess includes publish subjects from contract use
               response: { schema: "object" },
             },
           },
-        };
+        }];
       }
-      if (digest === "billing-digest") {
-        return {
+      if (contractId === "billing@v1") {
+        return [{
           id: "billing@v1",
           displayName: "Billing",
           description: "Billing API",
@@ -153,9 +148,9 @@ Deno.test("deriveDeviceRuntimeAccess includes publish subjects from contract use
               output: { schema: "object" },
             },
           },
-        };
+        }];
       }
-      return null;
+      return [];
     },
   };
 

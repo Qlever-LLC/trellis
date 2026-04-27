@@ -353,29 +353,29 @@ Rules:
 
 All auth errors use `AuthError` with a `reason` code.
 
-| Scenario                        | Reason Code                  |
-| ------------------------------- | ---------------------------- |
-| SessionKey header missing       | `missing_session_key`        |
-| Session not found               | `session_not_found`          |
-| Session expired                 | `session_expired`            |
-| Invalid signature               | `invalid_signature`          |
-| SessionKey mismatch in OAuth    | `oauth_session_key_mismatch` |
-| Session already bound           | `session_already_bound`      |
-| AuthToken already used          | `authtoken_already_used`     |
-| Timestamp out of range          | `iat_out_of_range`           |
-| Approval required               | `approval_required`          |
-| Contract changed                | `contract_changed`           |
-| User inactive                   | `user_inactive`              |
-| User not found                  | `user_not_found`             |
-| Unknown service                 | `unknown_service`            |
-| Service disabled                | `service_disabled`           |
-| Unknown device                  | `unknown_device`             |
-| Device activation revoked       | `device_activation_revoked`  |
+| Scenario                        | Reason Code                   |
+| ------------------------------- | ----------------------------- |
+| SessionKey header missing       | `missing_session_key`         |
+| Session not found               | `session_not_found`           |
+| Session expired                 | `session_expired`             |
+| Invalid signature               | `invalid_signature`           |
+| SessionKey mismatch in OAuth    | `oauth_session_key_mismatch`  |
+| Session already bound           | `session_already_bound`       |
+| AuthToken already used          | `authtoken_already_used`      |
+| Timestamp out of range          | `iat_out_of_range`            |
+| Approval required               | `approval_required`           |
+| Contract changed                | `contract_changed`            |
+| User inactive                   | `user_inactive`               |
+| User not found                  | `user_not_found`              |
+| Unknown service                 | `unknown_service`             |
+| Service disabled                | `service_disabled`            |
+| Unknown device                  | `unknown_device`              |
+| Device activation revoked       | `device_activation_revoked`   |
 | Device deployment not found     | `device_deployment_not_found` |
-| Device deployment disabled      | `device_deployment_disabled` |
-| Service-only capability on user | `service_role_on_user`       |
-| Reply mismatch                  | `reply_subject_mismatch`     |
-| Missing capabilities            | `insufficient_permissions`   |
+| Device deployment disabled      | `device_deployment_disabled`  |
+| Service-only capability on user | `service_role_on_user`        |
+| Reply mismatch                  | `reply_subject_mismatch`      |
+| Missing capabilities            | `insufficient_permissions`    |
 
 Detailed errors are acceptable because callers only reach them after passing
 connection-level auth.
@@ -419,10 +419,8 @@ returns a normal browser flow.
 Bind proof rules:
 
 - login-init uses
-  `sig = sign(hash("oauth-init:" + redirectTo + ":" + canonicalJson(context ?? null)))`
+  `sig = sign(hash("oauth-init:" + redirectTo + ":" + (provider ?? "") + ":" + canonicalJson(contract) + ":" + canonicalJson(context ?? null)))`
 - browser `flowId` bind uses `sig = sign(hash("bind-flow:" + flowId))`
-- `/auth/bind` remains the lower-level auth-token bind path used by current
-  non-portal callers
 - browser clients SHOULD treat `authToken` as internal auth-service state rather
   than a fragment-delivered public contract
 

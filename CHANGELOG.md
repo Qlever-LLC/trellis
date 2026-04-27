@@ -11,8 +11,8 @@ and this project adheres to
 ### Changed
 
 - Reworked service and device rollout management around explicit deployments:
-  auth protocol, storage, runtime bootstrap, CLI, portals, docs, guides, and demos
-  now use `ServiceDeployment` / `DeviceDeployment`, `deploymentId`, and
+  auth protocol, storage, runtime bootstrap, CLI, portals, docs, guides, and
+  demos now use `ServiceDeployment` / `DeviceDeployment`, `deploymentId`, and
   `trellis deploy` instead of service/device profile APIs.
 - Changed Trellis State to store author-owned state versions and internal writer
   digest provenance per entry, while keeping durable namespaces scoped by
@@ -100,6 +100,11 @@ and this project adheres to
   State entries by contract id lineage, and replacing raw SQLite bootstrap with
   a Drizzle baseline migration named `00000_baseline`. Existing pre-baseline
   development databases must be deleted or recreated.
+- Removed undocumented pre-v1 Trellis auth compatibility paths, including the
+  query-init `/auth/login` flow, public `/auth/bind` token bind endpoint,
+  `TRELLIS_AUTH_CONFIG`, contract `sessionKey` records, and single-active digest
+  assumptions, while keeping flow-owned bind and multi-active compatible
+  contract rollout support.
 
 ### Added
 

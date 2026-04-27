@@ -119,8 +119,8 @@ Browser login flows route through a Trellis **portal**. A portal is a browser we
 
 The flow:
 
-1. An app redirects the browser to `GET /auth/login` with its session key, contract, and optional portal context
-2. Trellis creates a browser flow record, resolves any contract-specific login portal selection, otherwise falls back to the deployment login default custom portal when configured and then to the built-in Trellis login portal, and redirects into that portal
+1. An app sends a signed `POST /auth/requests` request with its session key, contract, redirect target, and optional portal context
+2. Trellis creates a browser flow record, resolves any contract-specific login portal selection, otherwise falls back to the deployment login default custom portal when configured and then to the built-in Trellis login portal, and returns that portal URL
 3. The portal fetches `GET /auth/flow/:flowId` and renders UX based on the flow state — provider chooser, approval screen, optional app context, or a terminal redirect
 4. After the user authenticates and approval is satisfied, Trellis provisions the user immediately and the browser bind/bootstrap flow returns the approved session metadata, transport endpoints, and sentinel credentials for the app session.
 5. The app connects through `TrellisClient.connect(...)`, which generates fresh signed runtime auth proofs from the local session key and current contract digest during connect and reconnect.

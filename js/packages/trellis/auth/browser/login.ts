@@ -10,12 +10,7 @@ import {
   type SentinelCreds,
 } from "../schemas.ts";
 import type { SessionKeyHandle } from "./session.ts";
-import {
-  bindFlowSig,
-  bindSig,
-  getPublicSessionKey,
-  oauthInitSig,
-} from "./session.ts";
+import { bindFlowSig, getPublicSessionKey, oauthInitSig } from "./session.ts";
 
 export type {
   AuthStartFlowResponse,
@@ -238,30 +233,4 @@ export async function bindFlow(
   }
 
   return Value.Parse(BindResponseSchema, payload) as BindResponse;
-}
-
-export async function bindSession(
-  config: AuthConfig,
-  handle: SessionKeyHandle,
-  authToken: string,
-): Promise<BindResponse> {
-  const sessionKey = getPublicSessionKey(handle);
-  const sig = await bindSig(handle, authToken);
-
-  const response = await fetch(`${config.authUrl}/auth/bind`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      authToken,
-      sessionKey,
-      sig,
-    }),
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Bind failed: ${response.status} ${text}`);
-  }
-
-  return Value.Parse(BindResponseSchema, await response.json()) as BindResponse;
 }

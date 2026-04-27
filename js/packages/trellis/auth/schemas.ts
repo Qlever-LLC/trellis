@@ -13,17 +13,6 @@ export const ContractDigestSchema = Type.String({
   pattern: "^[A-Za-z0-9_-]+$",
 });
 
-export const LoginQuerySchema = Type.Object({
-  provider: Type.Optional(Type.String({ minLength: 1 })),
-  redirectTo: Type.String(),
-  sessionKey: SessionKeySchema,
-  sig: SignatureSchema,
-  contract: Type.String({ minLength: 1 }),
-  context: Type.Optional(Type.String({ minLength: 1 })),
-}, { additionalProperties: false });
-
-export type LoginQuery = StaticDecode<typeof LoginQuerySchema>;
-
 const OpenObjectSchema = Type.Object({}, { additionalProperties: true });
 
 export const SentinelCredsSchema = Type.Object({
@@ -74,14 +63,6 @@ export const ContractApprovalSchema = Type.Object({
 });
 
 export type ContractApproval = StaticDecode<typeof ContractApprovalSchema>;
-
-export const BindRequestSchema = Type.Object({
-  authToken: Type.String(),
-  sessionKey: SessionKeySchema,
-  sig: SignatureSchema,
-}, { additionalProperties: false });
-
-export type BindRequest = StaticDecode<typeof BindRequestSchema>;
 
 export const BindSuccessResponseSchema = Type.Object({
   status: Type.Literal("bound"),

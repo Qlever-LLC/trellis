@@ -11,7 +11,6 @@ export {
   type AuthStartResponse,
   bindFlow,
   type BindResponse,
-  bindSession,
   type BindSuccessResponse,
   buildLoginUrl,
   isBindSuccessResponse,

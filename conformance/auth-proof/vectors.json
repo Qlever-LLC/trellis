@@ -7,9 +7,9 @@
       "redirectTo": "https://example.com/app",
       "sig": "jSsWjEry0Ll5RaljT4KXT-DkRdMCedgzgEGsq5qS9GJGRD9610RDK_pz8OT_rQdZ9f6TsA80H_wrTuHfBVHHAg"
     },
-    "bind": {
-      "authToken": "auth-token-123",
-      "sig": "KUKkjqZwKsT52w50KB9odID2YAAZZ9084ZcY6jjDY2mxJS40UkDn4QJA9-wzBCxtjTp2GIauJOCIA6QA2p-GAQ"
+    "flowBind": {
+      "flowId": "flow-123",
+      "sig": "Z9ZaqMVzYTgT9Sw2C_pNgDNu0WphiAsJSgMTAcbCJSYZr-kZq3_T51E9ekFoRP9tModU_Mu6Br8Q315hWQlgBw"
     },
     "natsConnect": {
       "contractDigest": "digest-alpha",
@@ -34,9 +34,9 @@
       "redirectTo": "http://localhost:3000/callback?next=%2Fdash",
       "sig": "4ECM8wrZOqv-ufVDi7S9gorR89YaFvf8TeuzqR3TSnUnb9UMwuVK_fiQ91PJHjBeHrK0G0wvykm-vyJcdKqDDQ"
     },
-    "bind": {
-      "authToken": "bind-xyz",
-      "sig": "xwnSZQCULYOzezGQb0sQ-yhmYxCxWazr48ntyowaSjw53EfABv1jtuotmZ-xIvLTFAm-r7kCjzwdBJgxZvNgCw"
+    "flowBind": {
+      "flowId": "flow-local",
+      "sig": "kOm1Rps3utLm1lhfMjDZvgq0zZIXi8ULIro1WCg05oFomSgXPv0sKIK2pcuycQWoxHz2X3rIQXGq5K986DaZBA"
     },
     "natsConnect": {
       "contractDigest": "digest-local",

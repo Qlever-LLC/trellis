@@ -169,7 +169,7 @@ Edit `js/services/trellis/config.jsonc` and fill in the values. When running fro
 }
 ```
 
-`client.natsServers` is the websocket endpoint list the auth service returns to browser clients after `/auth/bind`, so apps can discover the correct realtime connection settings from the instance they signed into.
+`client.natsServers` is the websocket endpoint list the auth service returns to browser clients after browser auth/bootstrap, so apps can discover the correct realtime connection settings from the instance they signed into.
 
 Then start the runtime with the config path override:
 
@@ -198,10 +198,10 @@ The runtime starts on `http://localhost:3000` with file watching enabled. Code c
 Test it:
 
 ```sh
-curl -i http://localhost:3000/auth/login/github
+curl -i http://localhost:3000/_trellis/portal
 ```
 
-An HTTP 400 is expected — it confirms the runtime is serving.
+An HTTP 200 is expected — it confirms the runtime is serving the built-in portal.
 
 ## 10. Start the console app
 
@@ -243,7 +243,7 @@ This CLI flow is detached-only. The command prints a portal URL and QR code for 
 
 ```sh
 curl http://127.0.0.1:8222/healthz
-curl -i http://localhost:3000/auth/login/github
+curl -i http://localhost:3000/_trellis/portal
 curl -I http://localhost:5173/
 trellis auth status
 ```

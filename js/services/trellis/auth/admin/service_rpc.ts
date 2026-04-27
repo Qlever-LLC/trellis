@@ -29,7 +29,6 @@ type ServiceInstanceStorage = Pick<
   AuthRuntimeDeps["serviceInstanceStorage"],
   | "get"
   | "getByInstanceKey"
-  | "getBySessionKey"
   | "put"
   | "delete"
   | "list"
@@ -54,8 +53,6 @@ const serviceInstanceStorage: ServiceInstanceStorage = {
   get: (instanceId) => authRuntimeDeps().serviceInstanceStorage.get(instanceId),
   getByInstanceKey: (instanceKey) =>
     authRuntimeDeps().serviceInstanceStorage.getByInstanceKey(instanceKey),
-  getBySessionKey: (sessionKey) =>
-    authRuntimeDeps().serviceInstanceStorage.getBySessionKey(sessionKey),
   put: (record) => authRuntimeDeps().serviceInstanceStorage.put(record),
   delete: (instanceId) =>
     authRuntimeDeps().serviceInstanceStorage.delete(instanceId),

@@ -74,6 +74,9 @@ type AuthMeResponse = {
 type UserProjectionStorage = Pick<SqlUserProjectionRepository, "get">;
 type DeviceActivationStorage = Pick<SqlDeviceActivationRepository, "get">;
 type DeviceDeploymentStorage = Pick<SqlDeviceDeploymentRepository, "get">;
+type ServiceDeploymentLoader = (
+  deploymentId: string,
+) => Promise<{ disabled: boolean } | null | undefined>;
 type SessionStorage = Pick<
   SqlSessionRepository,
   | "getOneBySessionKey"
@@ -403,48 +406,9 @@ function deviceCallerFields(caller: SessionContext["caller"]): {
   };
 }
 
-function responseFromCaller(
+function deviceResponseFromCaller(
   caller: SessionContext["caller"],
 ): AuthMeResponse | null {
-  if (
-    caller.type === "user" && caller.id && caller.origin && caller.email &&
-    caller.name && caller.active !== undefined
-  ) {
-    return {
-      participantKind: caller.participantKind ?? "app",
-      user: {
-        id: caller.id,
-        origin: caller.origin,
-        active: caller.active,
-        name: caller.name,
-        email: caller.email,
-        ...(caller.image ? { image: caller.image } : {}),
-        capabilities: caller.capabilities ?? [],
-        ...(caller.lastLogin ? { lastLogin: caller.lastLogin } : {}),
-      },
-      device: null,
-      service: null,
-    };
-  }
-
-  if (
-    caller.type === "service" && caller.id && caller.name &&
-    caller.active !== undefined
-  ) {
-    return {
-      participantKind: "service",
-      user: null,
-      device: null,
-      service: {
-        type: "service",
-        id: caller.id,
-        name: caller.name,
-        active: caller.active,
-        capabilities: caller.capabilities ?? [],
-      },
-    };
-  }
-
   const deviceCaller = deviceCallerFields(caller);
   if (deviceCaller) {
     return {
@@ -545,7 +509,7 @@ async function loadAuthenticatedUser(args: {
   fallback:
     & Pick<AuthenticatedUser, "name" | "email" | "capabilities">
     & Partial<Pick<AuthenticatedUser, "image" | "lastLogin" | "active">>;
-}): Promise<AuthenticatedUser> {
+}): Promise<AuthenticatedUser | null> {
   const trellisId = await trellisIdFromOriginId(args.origin, args.id);
   const projection = await args.userStorage.get(trellisId);
   if (projection) {
@@ -563,49 +527,57 @@ async function loadAuthenticatedUser(args: {
     };
   }
 
-  return {
-    id: args.id,
-    origin: args.origin,
-    active: args.fallback.active ?? true,
-    name: args.fallback.name,
-    email: args.fallback.email,
-    ...(args.fallback.image ? { image: args.fallback.image } : {}),
-    capabilities: args.fallback.capabilities,
-    ...(args.fallback.lastLogin ? { lastLogin: args.fallback.lastLogin } : {}),
-  };
+  return null;
 }
 
 async function loadAuthenticatedService(args: {
   loadServiceInstance?: (sessionKey: string) => Promise<
     | {
+      deploymentId: string;
       disabled: boolean;
       capabilities?: string[];
     }
     | null
     | undefined
   >;
+  loadServiceDeployment?: (
+    deploymentId: string,
+  ) => Promise<{ disabled: boolean } | null | undefined>;
   sessionKey: string;
   session: Session & { type: "service" };
 }): Promise<AuthenticatedService> {
   const service = args.loadServiceInstance
     ? await args.loadServiceInstance(args.sessionKey)
     : null;
-  if (service) {
-    return {
-      type: "service",
-      id: args.session.id,
-      name: args.session.name,
-      active: !service.disabled,
-      capabilities: service.capabilities ?? [],
-    };
+  if (!service) {
+    throw new AuthError({
+      reason: "unknown_service",
+      context: { sessionKey: args.sessionKey },
+    });
+  }
+  if (service.disabled) {
+    throw new AuthError({
+      reason: "service_disabled",
+      context: { sessionKey: args.sessionKey },
+    });
+  }
+
+  const deployment = await args.loadServiceDeployment?.(
+    service.deploymentId,
+  );
+  if (!deployment || deployment.disabled) {
+    throw new AuthError({
+      reason: "service_disabled",
+      context: { deploymentId: service.deploymentId },
+    });
   }
 
   return {
     type: "service",
     id: args.session.id,
     name: args.session.name,
-    active: false,
-    capabilities: [],
+    active: true,
+    capabilities: service.capabilities ?? [],
   };
 }
 
@@ -695,12 +667,14 @@ export function createAuthMeHandler(deps: {
   deviceDeploymentStorage: DeviceDeploymentStorage;
   loadServiceInstance?: (sessionKey: string) => Promise<
     | {
+      deploymentId: string;
       disabled: boolean;
       capabilities?: string[];
     }
     | null
     | undefined
   >;
+  loadServiceDeployment?: ServiceDeploymentLoader;
 }) {
   return async (
     { context: { sessionKey, caller } }: { context: SessionContext },
@@ -708,19 +682,11 @@ export function createAuthMeHandler(deps: {
     logger.trace({ rpc: "Auth.Me", sessionKey }, "RPC request");
 
     try {
-      const callerResponse = responseFromCaller(caller);
-      if (callerResponse && (callerResponse.user || callerResponse.service)) {
-        return Result.ok<AuthMeResponse>(callerResponse);
-      }
-
       const session = await loadSessionBySessionKey(
         sessionKey,
         deps.sessionStorage,
       );
       if (!session) {
-        if (callerResponse && (callerResponse.user || callerResponse.service)) {
-          return Result.ok<AuthMeResponse>(callerResponse);
-        }
         const deviceCallerResponse = await responseFromDeviceCaller({
           caller,
           userStorage: deps.userStorage,
@@ -752,6 +718,14 @@ export function createAuthMeHandler(deps: {
             active: true,
           },
         });
+        if (!user) {
+          return Result.err(
+            new AuthError({
+              reason: "user_not_found",
+              context: { origin: session.origin, id: session.id },
+            }),
+          );
+        }
         return Result.ok<AuthMeResponse>({
           participantKind: session.participantKind,
           user,
@@ -763,8 +737,9 @@ export function createAuthMeHandler(deps: {
       if (session.type === "service") {
         const service = await loadAuthenticatedService({
           loadServiceInstance: deps.loadServiceInstance,
+          loadServiceDeployment: deps.loadServiceDeployment,
           sessionKey,
-          session: session as Session & { type: "service" },
+          session,
         });
         return Result.ok<AuthMeResponse>({
           participantKind: "service",
@@ -778,7 +753,7 @@ export function createAuthMeHandler(deps: {
         userStorage: deps.userStorage,
         deviceActivationStorage: deps.deviceActivationStorage,
         deviceDeploymentStorage: deps.deviceDeploymentStorage,
-        session: session as Session & { type: "device" },
+        session,
       });
       return Result.ok<AuthMeResponse>({
         participantKind: "device",
@@ -799,13 +774,16 @@ export const authMeHandler = async (
   >[0],
 ) => {
   const globals = authRuntimeDeps();
-  const { loadServiceInstanceByKey } = await import("../admin/service_rpc.ts");
+  const { loadServiceDeployment, loadServiceInstanceByKey } = await import(
+    "../admin/service_rpc.ts"
+  );
   return await createAuthMeHandler({
     sessionStorage: globals.sessionStorage,
     userStorage: globals.userStorage,
     deviceActivationStorage: globals.deviceActivationStorage,
     deviceDeploymentStorage: globals.deviceDeploymentStorage,
     loadServiceInstance: loadServiceInstanceByKey,
+    loadServiceDeployment,
   })(args);
 };
 

@@ -1,5 +1,4 @@
 import type {
-  ContractEvent,
   ContractOperation,
   ContractRpcMethod,
   ContractSubject,
@@ -26,26 +25,8 @@ type ServiceDescriptor = {
   contractDigest?: string;
 };
 
-type RpcInfo = {
-  subject: string;
-  callCapabilities: string[];
-};
-
-type EventInfo = {
-  subject: string;
-  publishCapabilities: string[];
-  subscribeCapabilities: string[];
-};
-
-type OperationInfo = {
-  subject: string;
-  callCapabilities: string[];
-};
-
-type SubjectInfo = {
-  subject: string;
-  publishCapabilities: string[];
-  subscribeCapabilities: string[];
+type CallerContractDescriptor = {
+  contractDigest: string;
 };
 
 type PermissionState = {
@@ -117,47 +98,9 @@ function implementedContracts(service: ServiceDescriptor): ContractEntry[] {
   );
 }
 
-function collectAllRpc(): RpcInfo[] {
-  return state.contracts.flatMap((entry) =>
-    Object.values<ContractRpcMethod>(entry.contract.rpc ?? {}).map((
-      method,
-    ) => ({
-      subject: method.subject,
-      callCapabilities: method.capabilities?.call ?? [],
-    }))
-  );
-}
-
-function collectAllEvents(): EventInfo[] {
-  return state.contracts.flatMap((entry) =>
-    Object.values<ContractEvent>(entry.contract.events ?? {}).map((event) => ({
-      subject: event.subject,
-      publishCapabilities: event.capabilities?.publish ?? [],
-      subscribeCapabilities: event.capabilities?.subscribe ?? [],
-    }))
-  );
-}
-
-function collectAllOperations(): OperationInfo[] {
-  return state.contracts.flatMap((entry) =>
-    Object.values<ContractOperation>(entry.contract.operations ?? {}).map((
-      operation,
-    ) => ({
-      subject: operation.subject,
-      callCapabilities: operation.capabilities?.call ?? [],
-    }))
-  );
-}
-
-function collectAllSubjects(): SubjectInfo[] {
-  return state.contracts.flatMap((entry) =>
-    Object.values<ContractSubject>(entry.contract.subjects ?? {}).map((
-      subject,
-    ) => ({
-      subject: subject.subject,
-      publishCapabilities: subject.capabilities?.publish ?? [],
-      subscribeCapabilities: subject.capabilities?.subscribe ?? [],
-    }))
+function callerContracts(caller: CallerContractDescriptor): ContractEntry[] {
+  return state.contracts.filter((entry) =>
+    caller.contractDigest === entry.digest
   );
 }
 
@@ -270,47 +213,42 @@ export function getContracts(): ContractEntry[] {
   return state.contracts;
 }
 
-export function getUserPublishSubjects(capabilities: string[]): string[] {
+/**
+ * Derive publish subjects for a user/app session from the approved caller digest.
+ */
+export function getUserPublishSubjects(
+  capabilities: string[],
+  caller: CallerContractDescriptor,
+): string[] {
+  const entries = callerContracts(caller);
+  const rules = usedPublishRules(entries);
+
   return dedupe([
     ...TRANSFER_SUBJECT_PREFIXES.map((prefix) => `${prefix}.*.*`),
-    ...collectAllRpc()
-      .filter((method) =>
-        hasRequiredCapabilities(capabilities, method.callCapabilities)
+    ...rules
+      .filter((rule) =>
+        hasRequiredCapabilities(capabilities, rule.requiredCapabilities)
       )
-      .map((method) => templateToWildcard(method.subject)),
-    ...collectAllOperations()
-      .filter((operation) =>
-        hasRequiredCapabilities(capabilities, operation.callCapabilities)
-      )
-      .flatMap((operation) => [
-        templateToWildcard(operation.subject),
-        templateToWildcard(`${operation.subject}.control`),
-      ]),
-    ...collectAllEvents()
-      .filter((event) =>
-        hasRequiredCapabilities(capabilities, event.publishCapabilities)
-      )
-      .map((event) => templateToWildcard(event.subject)),
-    ...collectAllSubjects()
-      .filter((subject) =>
-        hasRequiredCapabilities(capabilities, subject.publishCapabilities)
-      )
-      .map((subject) => subject.subject),
+      .map((rule) => rule.subject),
   ]);
 }
 
-export function getUserSubscribeSubjects(capabilities: string[]): string[] {
+/**
+ * Derive subscribe subjects for a user/app session from the approved caller digest.
+ */
+export function getUserSubscribeSubjects(
+  capabilities: string[],
+  caller: CallerContractDescriptor,
+): string[] {
+  const entries = callerContracts(caller);
+  const rules = usedSubscribeRules(entries);
+
   return dedupe([
-    ...collectAllEvents()
-      .filter((event) =>
-        hasRequiredCapabilities(capabilities, event.subscribeCapabilities)
+    ...rules
+      .filter((rule) =>
+        hasRequiredCapabilities(capabilities, rule.requiredCapabilities)
       )
-      .map((event) => templateToWildcard(event.subject)),
-    ...collectAllSubjects()
-      .filter((subject) =>
-        hasRequiredCapabilities(capabilities, subject.subscribeCapabilities)
-      )
-      .map((subject) => subject.subject),
+      .map((rule) => rule.subject),
   ]);
 }
 

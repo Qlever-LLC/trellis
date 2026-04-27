@@ -93,15 +93,6 @@ export async function oauthInitSig(
   return base64urlEncode(sig);
 }
 
-export async function bindSig(
-  handle: SessionKeyHandle,
-  authToken: string,
-): Promise<string> {
-  const digest = await sha256(utf8(`bind:${authToken}`));
-  const sig = await signBytes(handle, digest);
-  return base64urlEncode(sig);
-}
-
 export async function bindFlowSig(
   handle: SessionKeyHandle,
   flowId: string,

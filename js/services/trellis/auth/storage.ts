@@ -1304,7 +1304,7 @@ export class SqlServiceInstanceRepository {
     return row === undefined ? undefined : decodeServiceInstanceRow(row);
   }
 
-  /** Returns a service instance by instance key/session key, or undefined. */
+  /** Returns a service instance by instance key, or undefined. */
   async getByInstanceKey(
     instanceKey: string,
   ): Promise<ServiceInstance | undefined> {
@@ -1313,13 +1313,6 @@ export class SqlServiceInstanceRepository {
     ).limit(1);
     const row = rows[0];
     return row === undefined ? undefined : decodeServiceInstanceRow(row);
-  }
-
-  /** Returns a service instance by session key, or undefined when absent. */
-  async getBySessionKey(
-    sessionKey: string,
-  ): Promise<ServiceInstance | undefined> {
-    return await this.getByInstanceKey(sessionKey);
   }
 
   /** Inserts or replaces a service instance keyed by instance id. */

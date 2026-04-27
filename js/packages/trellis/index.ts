@@ -1,6 +1,5 @@
 export {
   bindFlow,
-  bindSession,
   clearSessionKey,
   createAuth,
   createRpcProof,

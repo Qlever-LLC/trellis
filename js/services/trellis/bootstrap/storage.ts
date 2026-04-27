@@ -1,4 +1,3 @@
-import { getConfig } from "../config.ts";
 import { SqlContractStorageRepository } from "../catalog/storage.ts";
 import {
   SqlContractApprovalRepository,
@@ -22,46 +21,45 @@ import {
   initializeTrellisStorageSchema,
   openTrellisStorageDb,
 } from "../storage/db.ts";
+import type { Config } from "../config.ts";
 
-const config = getConfig();
+/** Opens Trellis durable storage and constructs the service repositories. */
+export async function createStorage(config: Config) {
+  const storage = await openTrellisStorageDb(config.storage.dbPath);
+  await initializeTrellisStorageSchema(storage);
 
-export const storage = await openTrellisStorageDb(config.storage.dbPath);
-await initializeTrellisStorageSchema(storage);
+  return {
+    storage,
+    contractStorage: new SqlContractStorageRepository(storage.db),
+    userStorage: new SqlUserProjectionRepository(storage.db),
+    contractApprovalStorage: new SqlContractApprovalRepository(storage.db),
+    portalStorage: new SqlPortalRepository(storage.db),
+    portalProfileStorage: new SqlPortalProfileRepository(storage.db),
+    portalDefaultStorage: new SqlPortalDefaultRepository(storage.db),
+    loginPortalSelectionStorage: new SqlLoginPortalSelectionRepository(
+      storage.db,
+    ),
+    devicePortalSelectionStorage: new SqlDevicePortalSelectionRepository(
+      storage.db,
+    ),
+    instanceGrantPolicyStorage: new SqlInstanceGrantPolicyRepository(
+      storage.db,
+    ),
+    serviceDeploymentStorage: new SqlServiceDeploymentRepository(storage.db),
+    serviceInstanceStorage: new SqlServiceInstanceRepository(storage.db),
+    deviceDeploymentStorage: new SqlDeviceDeploymentRepository(storage.db),
+    deviceInstanceStorage: new SqlDeviceInstanceRepository(storage.db),
+    deviceProvisioningSecretStorage: new SqlDeviceProvisioningSecretRepository(
+      storage.db,
+    ),
+    deviceActivationStorage: new SqlDeviceActivationRepository(storage.db),
+    deviceActivationReviewStorage: new SqlDeviceActivationReviewRepository(
+      storage.db,
+    ),
+    sessionStorage: new SqlSessionRepository(storage.db, {
+      sessionTtlMs: config.ttlMs.sessions,
+    }),
+  };
+}
 
-export const contractStorage = new SqlContractStorageRepository(storage.db);
-export const userStorage = new SqlUserProjectionRepository(storage.db);
-export const contractApprovalStorage = new SqlContractApprovalRepository(
-  storage.db,
-);
-export const portalStorage = new SqlPortalRepository(storage.db);
-export const portalProfileStorage = new SqlPortalProfileRepository(storage.db);
-export const portalDefaultStorage = new SqlPortalDefaultRepository(storage.db);
-export const loginPortalSelectionStorage =
-  new SqlLoginPortalSelectionRepository(storage.db);
-export const devicePortalSelectionStorage =
-  new SqlDevicePortalSelectionRepository(storage.db);
-export const instanceGrantPolicyStorage = new SqlInstanceGrantPolicyRepository(
-  storage.db,
-);
-export const serviceDeploymentStorage = new SqlServiceDeploymentRepository(
-  storage.db,
-);
-export const serviceInstanceStorage = new SqlServiceInstanceRepository(
-  storage.db,
-);
-export const deviceDeploymentStorage = new SqlDeviceDeploymentRepository(
-  storage.db,
-);
-export const deviceInstanceStorage = new SqlDeviceInstanceRepository(
-  storage.db,
-);
-export const deviceProvisioningSecretStorage =
-  new SqlDeviceProvisioningSecretRepository(storage.db);
-export const deviceActivationStorage = new SqlDeviceActivationRepository(
-  storage.db,
-);
-export const deviceActivationReviewStorage =
-  new SqlDeviceActivationReviewRepository(storage.db);
-export const sessionStorage = new SqlSessionRepository(storage.db, {
-  sessionTtlMs: config.ttlMs.sessions,
-});
+export type StorageBootstrap = Awaited<ReturnType<typeof createStorage>>;

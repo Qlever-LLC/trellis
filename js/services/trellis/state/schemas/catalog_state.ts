@@ -17,7 +17,6 @@ export const ContractRecordSchema = Type.Object({
   id: Type.String({ minLength: 1 }),
   displayName: Type.String({ minLength: 1 }),
   description: Type.String({ minLength: 1 }),
-  sessionKey: Type.Optional(Type.String({ minLength: 1 })),
   installedAt: IsoDateSchema,
   contract: Type.String({ minLength: 1 }),
   analysisSummary: Type.Optional(Type.Object({

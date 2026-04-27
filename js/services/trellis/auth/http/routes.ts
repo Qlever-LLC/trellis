@@ -20,9 +20,6 @@ import {
   buildAppIdentity,
   buildRedirectLocation,
   type CookieContext,
-  decodeContractQuery,
-  decodeOpenObjectQuery,
-  encodeBase64Url,
   getApprovalResolution,
   getApprovalResolutionBlocker,
   getCookie,
@@ -47,8 +44,6 @@ import type { Provider } from "../providers/index.ts";
 import { createProviders } from "../providers/registry.ts";
 import { resolveCorsOrigin, validateRedirectTo } from "../redirect.ts";
 import {
-  BindRequestSchema,
-  LoginQuerySchema,
   type PendingAuth,
   type Session,
   type SessionApprovalSource,
@@ -567,8 +562,10 @@ export function registerHttpRoutes(
       nats: natsTrellis,
       transports: buildClientTransports(config),
       sentinel: sentinelCreds,
-      loadServiceInstance: async (sessionKey) => {
-        return await opts.serviceInstanceStorage.getBySessionKey(sessionKey) ??
+      loadServiceInstance: async (instanceKey) => {
+        return await opts.serviceInstanceStorage.getByInstanceKey(
+          instanceKey,
+        ) ??
           null;
       },
       saveServiceInstance: async (instance) => {
@@ -696,128 +693,6 @@ export function registerHttpRoutes(
         authUrl: new URL(c.req.url).origin,
       }),
     );
-  });
-
-  app.get("/auth/login", async (c) => {
-    const query = {
-      provider: c.req.query("provider") ?? undefined,
-      redirectTo: c.req.query("redirectTo"),
-      sessionKey: c.req.query("sessionKey"),
-      sig: c.req.query("sig"),
-      contract: c.req.query("contract"),
-      context: c.req.query("context") ?? undefined,
-    };
-    if (!Value.Check(LoginQuerySchema, query)) {
-      const errors = [...Value.Errors(LoginQuerySchema, query)];
-      throw new HTTPException(400, {
-        message: `Invalid request: ${
-          errors[0]?.message ?? "validation failed"
-        }`,
-      });
-    }
-
-    const requestedProviderValue = query["provider"];
-    const requestedProvider = typeof requestedProviderValue === "string"
-      ? requestedProviderValue
-      : undefined;
-    const {
-      redirectTo: rawRedirectTo,
-      sessionKey,
-      sig,
-      contract: rawContract,
-      context: rawContext,
-    } = query;
-    const redirectToResult = validateRedirectTo(
-      rawRedirectTo,
-      config.web.origins,
-    );
-    if (!redirectToResult.ok) {
-      throw new HTTPException(400, { message: redirectToResult.error });
-    }
-    const redirectTo = redirectToResult.value;
-    if (!redirectTo || !sessionKey || !sig || !rawContract) {
-      throw new HTTPException(400, { message: "Invalid request" });
-    }
-    if (requestedProvider && !providers[requestedProvider]) {
-      throw new HTTPException(400, { message: "Unknown OAuth Provider" });
-    }
-    let decodedContract: Record<string, unknown>;
-    let decodedContext: Record<string, unknown> | undefined;
-    try {
-      decodedContract = decodeContractQuery(rawContract);
-      decodedContext = rawContext
-        ? decodeOpenObjectQuery(rawContext)
-        : undefined;
-    } catch {
-      throw new HTTPException(400, { message: "Invalid request" });
-    }
-    if (
-      !(await verifyDomainSig(
-        sessionKey,
-        "oauth-init",
-        buildAuthStartSignaturePayload({
-          provider: requestedProvider,
-          redirectTo,
-          sessionKey,
-          sig,
-          contract: decodedContract,
-          ...(decodedContext ? { context: decodedContext } : {}),
-        }),
-        sig,
-      ))
-    ) {
-      throw new HTTPException(400, { message: "Invalid signature" });
-    }
-
-    const portalEntryUrl = await resolvePortalEntryUrlForContract(
-      decodedContract,
-    );
-    if (!portalEntryUrl) {
-      throw new HTTPException(503, {
-        message: "Auth portal is not configured",
-      });
-    }
-
-    let plan: Awaited<ReturnType<typeof planUserContractApproval>>;
-    try {
-      plan = await planUserContractApproval(
-        opts.contractStore,
-        decodedContract,
-      );
-    } catch (error) {
-      const message = getApprovalResolutionErrorMessage(error);
-      if (message) {
-        throw new HTTPException(409, { message });
-      }
-      throw error;
-    }
-    const flowId = randomToken(16);
-    await saveBrowserFlow({
-      flowId,
-      kind: "login",
-      sessionKey,
-      redirectTo,
-      app: buildAppIdentity({
-        contractId: plan.contract.id,
-        redirectTo,
-      }),
-      ...(decodedContext ? { context: decodedContext } : {}),
-      contract: plan.contract,
-      createdAt: new Date(),
-      expiresAt: new Date(Date.now() + config.ttlMs.oauth),
-    });
-    if (requestedProvider) {
-      const providerUrl = new URL(c.req.url);
-      providerUrl.pathname = `/auth/login/${
-        encodeURIComponent(requestedProvider)
-      }`;
-      providerUrl.search = "";
-      providerUrl.searchParams.set("flowId", flowId);
-      return c.redirect(providerUrl.toString());
-    }
-    const portalUrl = new URL(portalEntryUrl);
-    portalUrl.searchParams.set("flowId", flowId);
-    return c.redirect(portalUrl.toString());
   });
 
   app.get("/auth/login/:provider", async (c) => {
@@ -1224,42 +1099,6 @@ export function registerHttpRoutes(
       throw new HTTPException(400, { message: "Invalid signature" });
     }
 
-    return c.json(
-      await completePendingBind({ pending, pendingValue, sessionKey }),
-    );
-  });
-
-  app.post("/auth/bind", async (c) => {
-    const bodyResult = await AsyncResult.try(() => c.req.json());
-    if (bodyResult.isErr()) {
-      return c.json({ error: "Invalid JSON body" }, 400);
-    }
-    const body = bodyResult.take();
-
-    if (!Value.Check(BindRequestSchema, body)) {
-      const errors = [...Value.Errors(BindRequestSchema, body)];
-      throw new HTTPException(400, {
-        message: `Invalid request: ${
-          errors[0]?.message ?? "validation failed"
-        }`,
-      });
-    }
-
-    const { authToken, sessionKey, sig } = body;
-    const authTokenHash = await hashKey(authToken);
-    const pendingEntry = await pendingAuthKV.get(authTokenHash).take();
-    if (isErr(pendingEntry)) {
-      throw new HTTPException(400, { message: "Invalid or expired authToken" });
-    }
-    const pending = pendingEntry as PendingAuthEntry;
-    const pendingValue = pending.value as PendingAuth;
-
-    if (pendingValue.sessionKey !== sessionKey) {
-      throw new HTTPException(400, { message: "Session key mismatch" });
-    }
-    if (!(await verifyDomainSig(sessionKey, "bind", authToken, sig))) {
-      throw new HTTPException(400, { message: "Invalid signature" });
-    }
     return c.json(
       await completePendingBind({ pending, pendingValue, sessionKey }),
     );

@@ -1,14 +1,10 @@
 import {
   ApprovalDecisionSchema,
   AuthValidateRequestSchema as AuthValidateRequestRequestSchema,
-  type BindRequest,
-  BindRequestSchema,
   type BindResponse,
   BindResponseSchema,
   BindSuccessResponseSchema,
   ContractApprovalSchema,
-  type LoginQuery,
-  LoginQuerySchema,
   type SentinelCreds,
   SentinelCredsSchema,
 } from "@qlever-llc/trellis/auth";
@@ -37,10 +33,9 @@ export const UserParticipantKindSchema = Type.Union([
   Type.Literal("agent"),
 ]);
 
-export type { BindRequest, BindResponse, LoginQuery, SentinelCreds };
+export type { BindResponse, SentinelCreds };
 export {
   ApprovalDecisionSchema,
-  BindRequestSchema,
   BindResponseSchema,
   BindSuccessResponseSchema,
   ContractApprovalSchema,
@@ -54,7 +49,6 @@ export {
   InstanceGrantPolicySchema,
   LoginPortalDefaultSchema,
   LoginPortalSelectionSchema,
-  LoginQuerySchema,
   PortalProfileSchema,
   PortalSchema,
   SentinelCredsSchema,

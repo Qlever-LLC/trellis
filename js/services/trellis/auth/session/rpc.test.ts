@@ -232,6 +232,16 @@ Deno.test("Auth.Me returns user, device, and service envelopes", async () => {
     userStorage,
     deviceActivationStorage: deviceActivationStorageFromKV(deviceActivationsKV),
     deviceDeploymentStorage: getStorageFromKV(deviceDeploymentsKV),
+    loadServiceInstance: async (sessionKey: string) =>
+      sessionKey === "sk_service"
+        ? {
+          deploymentId: "billing.default",
+          disabled: false,
+          capabilities: ["service"],
+        }
+        : null,
+    loadServiceDeployment: async (deploymentId: string) =>
+      deploymentId === "billing.default" ? { disabled: false } : undefined,
   });
 
   const userTrellisId = await trellisIdFromOriginId("github", "123");
@@ -371,13 +381,74 @@ Deno.test("Auth.Me returns user, device, and service envelopes", async () => {
       type: "service",
       id: "billing",
       name: "Billing",
-      active: false,
-      capabilities: [],
+      active: true,
+      capabilities: ["service"],
     },
   });
 });
 
-Deno.test("Auth.Me falls back to validated caller context for user sessions", async () => {
+Deno.test("Auth.Me validates services with the durable instance deployment", async () => {
+  const sessionKV = new InMemoryKV<Session>();
+  const handler = createAuthMeHandler({
+    sessionStorage: sessionStorageFromKV(sessionKV),
+    userStorage: new InMemoryUserStorage(),
+    deviceActivationStorage: deviceActivationStorageFromKV(
+      new InMemoryKV<{
+        instanceId: string;
+        publicIdentityKey: string;
+        deploymentId: string;
+        activatedBy?: { origin: string; id: string };
+        state: "activated" | "revoked";
+        activatedAt: string;
+        revokedAt: string | null;
+      }>(),
+    ),
+    deviceDeploymentStorage: getStorageFromKV(
+      new InMemoryKV<{
+        deploymentId: string;
+        disabled: boolean;
+        appliedContracts: Array<
+          { contractId: string; allowedDigests: string[] }
+        >;
+      }>(),
+    ),
+    loadServiceInstance: async (sessionKey: string) =>
+      sessionKey === "sk_service"
+        ? {
+          deploymentId: "billing.current",
+          disabled: false,
+          capabilities: ["service"],
+        }
+        : null,
+    loadServiceDeployment: async (deploymentId: string) =>
+      deploymentId === "billing.current" ? { disabled: false } : undefined,
+  });
+
+  sessionKV.seed("sk_service", {
+    type: "service",
+    trellisId: "svc_1",
+    origin: "service",
+    id: "billing",
+    email: "billing@trellis.internal",
+    name: "Billing",
+    instanceId: "svc_1",
+    deploymentId: "billing.stale",
+    instanceKey: "sk_service",
+    currentContractId: null,
+    currentContractDigest: null,
+    createdAt: baseSessionFields().createdAt,
+    lastAuth: baseSessionFields().lastAuth,
+  });
+
+  const result = await handler({
+    context: { sessionKey: "sk_service", caller: { type: "unknown" } },
+  });
+  const value = result.take();
+  if (isErr(value)) throw value.error;
+  assertEquals(value.service?.active, true);
+});
+
+Deno.test("Auth.Me rejects deleted user sessions despite caller context", async () => {
   const handler = createAuthMeHandler({
     sessionStorage: sessionStorageFromKV(new InMemoryKV<Session>()),
     userStorage: new InMemoryUserStorage(),
@@ -413,21 +484,8 @@ Deno.test("Auth.Me falls back to validated caller context for user sessions", as
     },
   });
   const value = result.take();
-  if (isErr(value)) throw value.error;
-
-  assertEquals(value, {
-    participantKind: "app",
-    user: {
-      id: "123",
-      origin: "github",
-      active: true,
-      name: "Ada",
-      email: "ada@example.com",
-      capabilities: ["admin"],
-    },
-    device: null,
-    service: null,
-  });
+  assert(isErr(value));
+  assertEquals(value.error.reason, "session_not_found");
 });
 
 Deno.test("Auth.Me reflects SQL user active and capability changes", async () => {
@@ -507,6 +565,72 @@ Deno.test("Auth.Me reflects SQL user active and capability changes", async () =>
     assertEquals(value.user?.active, false);
     assertEquals(value.user?.capabilities, ["users.write"]);
   });
+});
+
+Deno.test("Auth.Me rejects user sessions when the durable projection is missing", async () => {
+  const sessionKV = new InMemoryKV<Session>();
+  const userTrellisId = await trellisIdFromOriginId("github", "123");
+  sessionKV.seed("sk_user", {
+    type: "user",
+    trellisId: userTrellisId,
+    origin: "github",
+    id: "123",
+    email: "ada@example.com",
+    name: "Ada",
+    participantKind: "app",
+    contractDigest: "digest-a",
+    contractId: "trellis.console@v1",
+    contractDisplayName: "Console",
+    contractDescription: "Admin app",
+    delegatedCapabilities: ["fallback"],
+    delegatedPublishSubjects: [],
+    delegatedSubscribeSubjects: [],
+    ...baseSessionFields(),
+  });
+
+  const handler = createAuthMeHandler({
+    sessionStorage: sessionStorageFromKV(sessionKV),
+    userStorage: new InMemoryUserStorage(),
+    deviceActivationStorage: deviceActivationStorageFromKV(
+      new InMemoryKV<{
+        instanceId: string;
+        publicIdentityKey: string;
+        deploymentId: string;
+        activatedBy?: { origin: string; id: string };
+        state: "activated" | "revoked";
+        activatedAt: string;
+        revokedAt: string | null;
+      }>(),
+    ),
+    deviceDeploymentStorage: getStorageFromKV(
+      new InMemoryKV<{
+        deploymentId: string;
+        disabled: boolean;
+        appliedContracts: Array<
+          { contractId: string; allowedDigests: string[] }
+        >;
+      }>(),
+    ),
+  });
+
+  const result = await handler({
+    context: {
+      sessionKey: "sk_user",
+      caller: {
+        type: "user",
+        trellisId: userTrellisId,
+        id: "123",
+        origin: "github",
+        active: true,
+        name: "Ada",
+        email: "ada@example.com",
+        capabilities: ["admin"],
+      },
+    },
+  });
+  const value = result.take();
+  assert(isErr(value));
+  assertEquals(value.error.reason, "user_not_found");
 });
 
 Deno.test("Auth.Me falls back to device activation context for device sessions", async () => {

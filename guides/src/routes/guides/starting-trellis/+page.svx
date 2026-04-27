@@ -229,10 +229,10 @@ systemctl --user start console.service
 Test the auth endpoint:
 
 ```sh
-curl -i http://localhost:3000/auth/login/github
+curl -i http://localhost:3000/_trellis/portal
 ```
 
-An HTTP 400 is expected before signed login parameters are sent — it confirms the runtime is serving.
+An HTTP 200 is expected — it confirms the runtime is serving the built-in portal.
 
 ## 9. Create the first admin
 
@@ -268,7 +268,7 @@ Check that all services are responding:
 
 ```sh
 curl http://127.0.0.1:8222/healthz
-curl -i http://localhost:3000/auth/login/github
+curl -i http://localhost:3000/_trellis/portal
 curl -I http://localhost:5173/
 trellis auth status
 ```

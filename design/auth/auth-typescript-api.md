@@ -11,11 +11,14 @@ order: 40
 - [trellis-auth.md](./trellis-auth.md) - auth architecture and flow model
 - [auth-protocol.md](./auth-protocol.md) - proof and connect token rules
 - [auth-api.md](./auth-api.md) - public HTTP and RPC endpoints
-- [../core/type-system-patterns.md](./../core/type-system-patterns.md) - Result and error-model guidance
+- [../core/type-system-patterns.md](./../core/type-system-patterns.md) - Result
+  and error-model guidance
 
 ## Scope
 
-This document defines the normative TypeScript public API surface across `@qlever-llc/trellis`, `@qlever-llc/trellis/auth`, `@qlever-llc/trellis-svelte`, and the portal/browser clients.
+This document defines the normative TypeScript public API surface across
+`@qlever-llc/trellis`, `@qlever-llc/trellis/auth`, `@qlever-llc/trellis-svelte`,
+and the portal/browser clients.
 
 It covers:
 
@@ -28,12 +31,17 @@ It covers:
 
 ## Design Rules
 
-- browser and service helpers expose the same proof model through different ergonomics
+- browser and service helpers expose the same proof model through different
+  ergonomics
 - session-key seeds remain protected from normal browser code where possible
-- browser login clients preserve and consume `flowId`; they do not treat fragment-delivered `authToken` as the main UX path
+- browser login clients preserve and consume `flowId`; they do not treat
+  fragment-delivered `authToken` as the main UX path
 - device activation portal clients preserve and consume `flowId`
-- high-level runtime entrypoints use `trellisUrl`; lower-level auth-only helpers may still use `authUrl`
-- portal redirects in the default model preserve `flowId` but do not need to carry `trellisUrl`; portal and app deployments should already know their target Trellis URL from explicit instance config
+- high-level runtime entrypoints use `trellisUrl`; lower-level auth-only helpers
+  may still use `authUrl`
+- portal redirects in the default model preserve `flowId` but do not need to
+  carry `trellisUrl`; portal and app deployments should already know their
+  target Trellis URL from explicit instance config
 
 ## Browser Surface
 
@@ -52,10 +60,10 @@ declare function getPublicSessionKey(handle: SessionKeyHandle): string;
 type AuthStartResponse =
   | BindSuccessResponse
   | {
-      status: "flow_started";
-      flowId: string;
-      loginUrl: string;
-    };
+    status: "flow_started";
+    flowId: string;
+    loginUrl: string;
+  };
 
 declare function startAuthRequest(args: {
   authUrl: string;
@@ -79,12 +87,6 @@ declare function bindFlow(
   flowId: string,
 ): Promise<BindResponse>;
 
-declare function bindSession(
-  config: AuthConfig,
-  handle: SessionKeyHandle,
-  authToken: string,
-): Promise<BindResponse>;
-
 type BrowserSignInOptions = {
   redirectTo?: string;
   landingPath?: string;
@@ -98,23 +100,31 @@ type AuthState = {
 
 Rules:
 
-- browser session keys SHOULD be stored in IndexedDB via WebCrypto with `extractable=false`
+- browser session keys SHOULD be stored in IndexedDB via WebCrypto with
+  `extractable=false`
 - `startAuthRequest(...)` is the normal login and reauth entry point; it sends
   the contract in a `POST /auth/requests` body and may return `bound`
   immediately when auth can auto-approve the current contract change
 - `buildLoginUrl(...)` is a convenience wrapper over `startAuthRequest(...)`
   that expects `flow_started` and returns only the resulting `loginUrl`
 - browser clients MUST preserve `flowId` in redirects and callback URLs
-- browser and portal redirects in the default model SHOULD rely on deployment-local Trellis URL config rather than echoing `trellisUrl` through auth-owned redirect URLs
+- browser and portal redirects in the default model SHOULD rely on
+  deployment-local Trellis URL config rather than echoing `trellisUrl` through
+  auth-owned redirect URLs
 - portal state comes from `GET /auth/flow/:flowId`
 - the final browser bind proof is `sign(hash("bind-flow:" + flowId))`
-- `bindSession(..., authToken)` still exists as a lower-level path, but `bindFlow(..., flowId)` is the primary browser UX path
-- higher-level browser helpers such as `AuthState.signIn(...)` SHOULD hide low-level provider placeholders and redirect URL assembly from app code
-- `AuthState.signIn()` with no explicit `redirectTo` SHOULD first use a `redirectTo` query parameter from the current page when present
-- if no explicit or query-derived `redirectTo` exists, `AuthState.signIn()` SHOULD fall back to `landingPath` and then to the current browser location
-- `context` is an opaque JSON value for app and portal coordination; auth stores it on the browser flow and portals receive it back in `PortalFlowState`
-- `context` is not an authorization input and portals MUST tolerate unknown shapes
-- login-init proofs SHOULD cover both `redirectTo` and canonicalized `context` so the browser flow cannot be retargeted or recontextualized after signing
+- higher-level browser helpers such as `AuthState.signIn(...)` SHOULD hide
+  low-level provider placeholders and redirect URL assembly from app code
+- `AuthState.signIn()` with no explicit `redirectTo` SHOULD first use a
+  `redirectTo` query parameter from the current page when present
+- if no explicit or query-derived `redirectTo` exists, `AuthState.signIn()`
+  SHOULD fall back to `landingPath` and then to the current browser location
+- `context` is an opaque JSON value for app and portal coordination; auth stores
+  it on the browser flow and portals receive it back in `PortalFlowState`
+- `context` is not an authorization input and portals MUST tolerate unknown
+  shapes
+- login-init proofs SHOULD cover both `redirectTo` and canonicalized `context`
+  so the browser flow cannot be retargeted or recontextualized after signing
 - browser and session-key runtime reconnect uses freshly generated auth payloads
   carrying `sessionKey + contractDigest + iat + sig`
 - browser runtimes SHOULD estimate and store `serverClockOffsetMs` from
@@ -141,29 +151,29 @@ type PortalFlowApp = {
 
 type PortalFlowState =
   | {
-      status: "choose_provider";
-      flowId: string;
-      app: PortalFlowApp;
-      providers: Array<{ id: string; displayName: string }>;
-    }
+    status: "choose_provider";
+    flowId: string;
+    app: PortalFlowApp;
+    providers: Array<{ id: string; displayName: string }>;
+  }
   | {
-      status: "approval_required";
-      flowId: string;
-      user: { origin: string; id: string; name?: string; email?: string };
-      approval: PortalFlowApproval;
-    }
+    status: "approval_required";
+    flowId: string;
+    user: { origin: string; id: string; name?: string; email?: string };
+    approval: PortalFlowApproval;
+  }
   | {
-      status: "approval_denied";
-      flowId: string;
-      approval: PortalFlowApproval;
-    }
+    status: "approval_denied";
+    flowId: string;
+    approval: PortalFlowApproval;
+  }
   | {
-      status: "insufficient_capabilities";
-      flowId: string;
-      approval: PortalFlowApproval;
-      missingCapabilities: string[];
-      userCapabilities: string[];
-    }
+    status: "insufficient_capabilities";
+    flowId: string;
+    approval: PortalFlowApproval;
+    missingCapabilities: string[];
+    userCapabilities: string[];
+  }
   | { status: "redirect"; location: string }
   | { status: "expired" };
 ```
@@ -174,14 +184,17 @@ Portal/browser route rules:
 - approval submission is `POST /auth/flow/:flowId/approval`
 - normal browser bind is `POST /auth/flow/:flowId/bind`
 - the portal redirects using the `location` returned by auth-owned flow state
-- portal customization data comes from `flowState.app.context`, not from portal-local query conventions
-- SvelteKit portal apps SHOULD read their Trellis URL from public env such as `PUBLIC_TRELLIS_URL`
-- a portal may later continue as a normal user-authenticated browser app route, but that uses a standard browser app contract rather than service auth
+- portal customization data comes from `flowState.app.context`, not from
+  portal-local query conventions
+- SvelteKit portal apps SHOULD read their Trellis URL from public env such as
+  `PUBLIC_TRELLIS_URL`
+- a portal may later continue as a normal user-authenticated browser app route,
+  but that uses a standard browser app contract rather than service auth
 
 ## Portal Helper Surface
 
-Portal authors should not need to reassemble auth-owned flow URLs and `fetch(...)`
-calls by hand. The intended public helper split is:
+Portal authors should not need to reassemble auth-owned flow URLs and
+`fetch(...)` calls by hand. The intended public helper split is:
 
 - low-level framework-neutral browser helpers in `@qlever-llc/trellis/auth`
 - browser-only facade helpers in `@qlever-llc/trellis/auth/browser`
@@ -234,9 +247,11 @@ declare function createPortalFlow(args: {
 
 Rules:
 
-- portal helper APIs SHOULD treat `flowId` as browser URL state rather than forcing server-side loader glue
+- portal helper APIs SHOULD treat `flowId` as browser URL state rather than
+  forcing server-side loader glue
 - Svelte portal apps SHOULD be able to remain static SPAs
-- high-level portal helpers SHOULD own the low-level fetch URL construction, approval payload shape, and auth redirect handling
+- high-level portal helpers SHOULD own the low-level fetch URL construction,
+  approval payload shape, and auth redirect handling
 - framework-neutral helpers MUST remain usable by non-Svelte custom portals
 
 ## Service Surface
@@ -249,12 +264,14 @@ type CreateAuthOptions = {
 type AuthHandle = {
   sessionKey: string;
   oauthInitSig(redirectTo: string, context?: unknown): Promise<string>;
-  bindSig(authToken: string): Promise<string>;
+  bindFlowSig(flowId: string): Promise<string>;
   natsConnectSigForIat(iat: number): Promise<string>;
   createProof(subject: string, payload: Uint8Array | string): Promise<string>;
   currentIat(): number;
   setServerClockOffsetMs(clockOffsetMs: number): void;
-  natsConnectOptions(): Promise<{ authenticator: Authenticator; inboxPrefix: string }>;
+  natsConnectOptions(): Promise<
+    { authenticator: Authenticator; inboxPrefix: string }
+  >;
 };
 
 declare function createAuth(options: CreateAuthOptions): Promise<AuthHandle>;
@@ -262,16 +279,18 @@ declare function createAuth(options: CreateAuthOptions): Promise<AuthHandle>;
 
 Rules:
 
-- service helpers expose the same proof domains as browser helpers, but return direct values rather than fragment/callback-oriented flows
-- service NATS auth tokens use the session-key proof model described in `auth-protocol.md`
+- service helpers expose the same proof domains as browser helpers, but return
+  direct values rather than fragment/callback-oriented flows
+- service NATS auth tokens use the session-key proof model described in
+  `auth-protocol.md`
 - `TrellisClient.connect(...)` owns runtime bootstrap, `serverNow` handling,
   corrected-`iat` retry, and reconnect-safe auth-token generation; bind
   responses no longer carry a reusable runtime binding token
 
 ## Device Activation Surface
 
-`@qlever-llc/trellis/auth` also exposes the normal TypeScript integration surface
-for activated devices.
+`@qlever-llc/trellis/auth` also exposes the normal TypeScript integration
+surface for activated devices.
 
 ```ts
 type DeviceIdentity = {
@@ -282,7 +301,9 @@ type DeviceIdentity = {
   activationKeyBase64url: string;
 };
 
-declare function deriveDeviceIdentity(deviceRootSecret: Uint8Array): Promise<DeviceIdentity>;
+declare function deriveDeviceIdentity(
+  deviceRootSecret: Uint8Array,
+): Promise<DeviceIdentity>;
 
 declare function buildDeviceActivationPayload(args: {
   activationKey: Uint8Array | string;
@@ -352,20 +373,22 @@ type AuthActivateDeviceProgress = {
 
 type AuthActivateDeviceOutput =
   | {
-      status: "activated";
-      instanceId: string;
-      deploymentId: string;
-      activatedAt: string;
-      confirmationCode?: string;
-    }
+    status: "activated";
+    instanceId: string;
+    deploymentId: string;
+    activatedAt: string;
+    confirmationCode?: string;
+  }
   | {
-      status: "rejected";
-      reason?: string;
-    };
+    status: "rejected";
+    reason?: string;
+  };
 
 type AuthActivateDeviceOperation = {
   watch(): AsyncResult<
-    AsyncIterable<OperationEvent<AuthActivateDeviceProgress, AuthActivateDeviceOutput>>,
+    AsyncIterable<
+      OperationEvent<AuthActivateDeviceProgress, AuthActivateDeviceOutput>
+    >,
     BaseError
   >;
   wait(): AsyncResult<
@@ -375,19 +398,29 @@ type AuthActivateDeviceOperation = {
 };
 
 declare function createDeviceActivationClient(client: {
-  request(method: string, input: unknown, opts?: unknown): AsyncResult<unknown, BaseError>;
+  request(
+    method: string,
+    input: unknown,
+    opts?: unknown,
+  ): AsyncResult<unknown, BaseError>;
   operation(method: "Auth.ActivateDevice"): {
     input(input: { flowId: string }): {
       start(): AsyncResult<AuthActivateDeviceOperation, BaseError>;
     };
   };
 }): {
-  activateDevice(input: { flowId: string }): Promise<AuthActivateDeviceOperation>;
+  activateDevice(
+    input: { flowId: string },
+  ): Promise<AuthActivateDeviceOperation>;
   listDeviceActivations(input?: Record<string, unknown>): Promise<{
     activations: DeviceActivationRecord[];
   }>;
-  revokeDeviceActivation(input: { instanceId: string }): Promise<{ success: boolean }>;
-  getDeviceConnectInfo(input: GetDeviceConnectInfoRequest): Promise<GetDeviceConnectInfoResponse>;
+  revokeDeviceActivation(
+    input: { instanceId: string },
+  ): Promise<{ success: boolean }>;
+  getDeviceConnectInfo(
+    input: GetDeviceConnectInfoRequest,
+  ): Promise<GetDeviceConnectInfoResponse>;
 };
 
 declare const TrellisDevice: {
@@ -396,40 +429,45 @@ declare const TrellisDevice: {
     contract: TrellisClientContract<TApi>;
     rootSecret: Uint8Array | string;
     log?: LoggerLike | false;
-  }): AsyncResult<TrellisDeviceConnection<TApi>, TransportError | UnexpectedError>;
+  }): AsyncResult<
+    TrellisDeviceConnection<TApi>,
+    TransportError | UnexpectedError
+  >;
 };
 ```
 
 ```ts
 declare module "@qlever-llc/trellis/device/deno" {
-type TrellisDeviceActivatedStatus = {
-  status: "activated";
-};
+  type TrellisDeviceActivatedStatus = {
+    status: "activated";
+  };
 
-type TrellisDeviceNotReadyStatus = {
-  status: "not_ready";
-  reason: string;
-};
+  type TrellisDeviceNotReadyStatus = {
+    status: "not_ready";
+    reason: string;
+  };
 
-type TrellisDeviceActivationRequiredStatus = {
-  status: "activation_required";
-  activationUrl: string;
-  waitForOnlineApproval(opts?: { signal?: AbortSignal }): Promise<TrellisDeviceActivatedStatus>;
-  acceptConfirmationCode(code: string): Promise<TrellisDeviceActivatedStatus>;
-};
+  type TrellisDeviceActivationRequiredStatus = {
+    status: "activation_required";
+    activationUrl: string;
+    waitForOnlineApproval(
+      opts?: { signal?: AbortSignal },
+    ): Promise<TrellisDeviceActivatedStatus>;
+    acceptConfirmationCode(code: string): Promise<TrellisDeviceActivatedStatus>;
+  };
 
-type TrellisDeviceActivationStatus =
-  | TrellisDeviceActivatedStatus
-  | TrellisDeviceNotReadyStatus
-  | TrellisDeviceActivationRequiredStatus;
+  type TrellisDeviceActivationStatus =
+    | TrellisDeviceActivatedStatus
+    | TrellisDeviceNotReadyStatus
+    | TrellisDeviceActivationRequiredStatus;
 
-declare function checkDeviceActivation<TApi extends TrellisAPI>(args: {
-  trellisUrl: string;
-  contract: TrellisClientContract<TApi>;
-  rootSecret: Uint8Array | string;
-  stateDir?: string;
-  statePath?: string;
-}): Promise<TrellisDeviceActivationStatus>;
+  declare function checkDeviceActivation<TApi extends TrellisAPI>(args: {
+    trellisUrl: string;
+    contract: TrellisClientContract<TApi>;
+    rootSecret: Uint8Array | string;
+    stateDir?: string;
+    statePath?: string;
+  }): Promise<TrellisDeviceActivationStatus>;
 }
 ```
 
@@ -437,10 +475,16 @@ Rules:
 
 - activated-device code SHOULD prefer these helpers over hand-written HKDF,
   HMAC, polling, proof-signing, and connect-info refresh logic
-- `buildDeviceActivationUrl(...)` targets Trellis auth directly; callers do not choose a portal URL because device portal resolution is deployment-owned server policy
-- `waitForDeviceActivation(...)` owns the polling loop for `POST /auth/devices/activate/wait`
-- if the wait endpoint returns `{ status: "rejected" }`, `waitForDeviceActivation(...)` SHOULD throw rather than returning a rejected union branch
-- `getDeviceConnectInfo(...)` owns the connect-info proof/signature step for `POST /auth/devices/connect-info`
+- `buildDeviceActivationUrl(...)` targets Trellis auth directly; callers do not
+  choose a portal URL because device portal resolution is deployment-owned
+  server policy
+- `waitForDeviceActivation(...)` owns the polling loop for
+  `POST /auth/devices/activate/wait`
+- if the wait endpoint returns `{ status: "rejected" }`,
+  `waitForDeviceActivation(...)` SHOULD throw rather than returning a rejected
+  union branch
+- `getDeviceConnectInfo(...)` owns the connect-info proof/signature step for
+  `POST /auth/devices/connect-info`
 - portal and admin apps SHOULD prefer `createDeviceActivationClient(...)` over
   repeated raw string `request(...).orThrow()` calls and manual plumbing
 - authenticated portal-side activation starts the `Auth.ActivateDevice`
@@ -449,13 +493,26 @@ Rules:
 - `TrellisDevice.connect(...)` is a pure runtime entrypoint; it does not accept
   `onActivationRequired(...)` and does not start activation on the caller's
   behalf
-- `TrellisDevice.connect(...)` accepts `rootSecret` directly as bytes or a string form; storage/loading policy belongs to the application, not the helper
-- `TrellisDevice.connect(...)` accepts `log?: LoggerLike | false` using the same convention as service runtime helpers; device NATS lifecycle logs should emit distinct messages for disconnect, reconnect attempts, reconnect success, stale connections, and connection errors
-- `TrellisDevice.connect(...)` SHOULD fetch connect info on startup rather than persisting stale connect info across restarts
-- `@qlever-llc/trellis/device/deno` exposes the high-level activation-status helper for Deno device runtimes; callers check activation status first and then call plain `TrellisDevice.connect(...)`
-- `checkDeviceActivation(...)` returns `activated`, `activation_required`, or `not_ready`; callers do not manage serialized local activation state directly
-- Deno file-backed activation persistence is internal to `checkDeviceActivation(...)`; callers work only with the returned status plus activation actions, with optional `stateDir` and `statePath` overrides when they need to control the storage location
-- offline confirmation through `acceptConfirmationCode(...)` transitions the Deno helper to later `activated` status; callers still connect with a separate `TrellisDevice.connect(...)` call
+- `TrellisDevice.connect(...)` accepts `rootSecret` directly as bytes or a
+  string form; storage/loading policy belongs to the application, not the helper
+- `TrellisDevice.connect(...)` accepts `log?: LoggerLike | false` using the same
+  convention as service runtime helpers; device NATS lifecycle logs should emit
+  distinct messages for disconnect, reconnect attempts, reconnect success, stale
+  connections, and connection errors
+- `TrellisDevice.connect(...)` SHOULD fetch connect info on startup rather than
+  persisting stale connect info across restarts
+- `@qlever-llc/trellis/device/deno` exposes the high-level activation-status
+  helper for Deno device runtimes; callers check activation status first and
+  then call plain `TrellisDevice.connect(...)`
+- `checkDeviceActivation(...)` returns `activated`, `activation_required`, or
+  `not_ready`; callers do not manage serialized local activation state directly
+- Deno file-backed activation persistence is internal to
+  `checkDeviceActivation(...)`; callers work only with the returned status plus
+  activation actions, with optional `stateDir` and `statePath` overrides when
+  they need to control the storage location
+- offline confirmation through `acceptConfirmationCode(...)` transitions the
+  Deno helper to later `activated` status; callers still connect with a separate
+  `TrellisDevice.connect(...)` call
 - when the connected device contract uses the shared `Health.Heartbeat` event,
   `TrellisDevice.connect(...)` publishes baseline heartbeats automatically and
   exposes a `health` helper for adding callback-based heartbeat metadata

@@ -43,7 +43,7 @@ const ttlSchema = z.object({
 const rawSchema = z.object({
   logLevel: z.string().default("info"),
   port: z.coerce.number().default(3000),
-  instanceName: z.string().default("Trellis Auth"),
+  instanceName: z.string().default("Trellis"),
   web: z
     .object({
       origins: z.array(z.string()).default(["*"]),
@@ -375,11 +375,7 @@ export function loadAuthConfigFromFileSync(configPath: string): Config {
 function resolveConfigPath(
   environment: Record<string, string | undefined>,
 ): string {
-  return (
-    environment["TRELLIS_CONFIG"] ??
-      environment["TRELLIS_AUTH_CONFIG"] ??
-      DEFAULT_TRELLIS_CONFIG_PATH
-  );
+  return environment["TRELLIS_CONFIG"] ?? DEFAULT_TRELLIS_CONFIG_PATH;
 }
 
 let cachedConfig: Config | undefined;

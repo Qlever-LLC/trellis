@@ -9,7 +9,8 @@ order: 60
 ## Prerequisites
 
 - [trellis-auth.md](./trellis-auth.md) - auth architecture and trust model
-- [auth-protocol.md](./auth-protocol.md) - internal state and auth-callout protocol
+- [auth-protocol.md](./auth-protocol.md) - internal state and auth-callout
+  protocol
 
 ## Scope
 
@@ -29,48 +30,49 @@ It covers:
 
 ### TTL Defaults
 
-| Variable | Default | Description |
-| --- | --- | --- |
-| `SESSION_TIMEOUT` | 24h | Session expires after inactivity |
-| `NATS_JWT_TTL` | 1h | NATS JWT expiry; triggers reconnect |
+| Variable          | Default | Description                         |
+| ----------------- | ------- | ----------------------------------- |
+| `SESSION_TIMEOUT` | 24h     | Session expires after inactivity    |
+| `NATS_JWT_TTL`    | 1h      | NATS JWT expiry; triggers reconnect |
 
 Relationship: `NATS_JWT_TTL < SESSION_TIMEOUT`.
 
-Reducing `NATS_JWT_TTL` increases reconnect frequency but does not change RPC replay window.
+Reducing `NATS_JWT_TTL` increases reconnect frequency but does not change RPC
+replay window.
 
 ### Per-service Secrets
 
-| Variable | Description |
-| --- | --- |
+| Variable                   | Description            |
+| -------------------------- | ---------------------- |
 | `TRELLIS_SESSION_KEY_SEED` | Base64url Ed25519 seed |
-| `NATS_SERVERS` | NATS server URL(s) |
-| `NATS_SENTINEL_CREDS` | Path to sentinel creds |
+| `NATS_SERVERS`             | NATS server URL(s)     |
+| `NATS_SENTINEL_CREDS`      | Path to sentinel creds |
 
 Additional `trellis` service config:
 
-| Variable | Description |
-| --- | --- |
-| `NATS_AUTH_CREDS_FILE` | Auth account credentials |
+| Variable                  | Description                 |
+| ------------------------- | --------------------------- |
+| `NATS_AUTH_CREDS_FILE`    | Auth account credentials    |
 | `NATS_TRELLIS_CREDS_FILE` | Trellis account credentials |
 
 ### Store TTLs
 
-| Store | TTL |
-| --- | --- |
-| sessions | `SESSION_TIMEOUT` |
-| users | None |
-| oauthStates | 5 min |
-| pendingAuth | 5 min |
-| deviceActivationFlows | 30 min |
-| deviceActivations | None |
-| deviceInstances | None |
-| deviceProfiles | None |
-| portals | None |
-| portalLoginSelections | None |
-| portalDeviceSelections | None |
-| portalDefaults | None |
-| services | None |
-| connections | 2h |
+| Store                  | TTL               |
+| ---------------------- | ----------------- |
+| sessions               | `SESSION_TIMEOUT` |
+| users                  | None              |
+| oauthStates            | 5 min             |
+| pendingAuth            | 5 min             |
+| deviceActivationFlows  | 30 min            |
+| deviceActivations      | None              |
+| deviceInstances        | None              |
+| deviceProfiles         | None              |
+| portals                | None              |
+| portalLoginSelections  | None              |
+| portalDeviceSelections | None              |
+| portalDefaults         | None              |
+| services               | None              |
+| connections            | 2h                |
 
 ## Deployment Checklist
 
@@ -101,8 +103,10 @@ Production requirements:
 ## Operational Concerns
 
 - run multiple `trellis` auth-callout instances with shared KV state
-- the `trellis` service is a critical dependency for all authenticated operations and must be deployed HA
-- the `trellis` service requires `$SYS.ACCOUNT.TRELLIS.DISCONNECT` subscribe and `$SYS.REQ.SERVER.*.KICK` publish permissions
+- the `trellis` service is a critical dependency for all authenticated
+  operations and must be deployed HA
+- the `trellis` service requires `$SYS.ACCOUNT.TRELLIS.DISCONNECT` subscribe and
+  `$SYS.REQ.SERVER.*.KICK` publish permissions
 - no other services should receive broad `$SYS.*` access
 
 Secrets that MUST NOT be logged:
@@ -112,11 +116,13 @@ Secrets that MUST NOT be logged:
 - session key seeds
 - RPC `proof` header
 
-`sessionKey` itself may be logged because it is an identifier rather than a credential.
+`sessionKey` itself may be logged because it is an identifier rather than a
+credential.
 
 ## Connection Revocation Model
 
-Connection revocation is performed by kicking live NATS clients and deleting KV state.
+Connection revocation is performed by kicking live NATS clients and deleting KV
+state.
 
 Illustrative behavior:
 
@@ -125,7 +131,10 @@ async function revokeSession(sessionKey: string) {
   const connections = await connectionsKv.keys(`${sessionKey}.*.*`);
   for await (const connKey of connections) {
     const { serverId, clientId } = await connectionsKv.get(connKey);
-    await nc.request(`$SYS.REQ.SERVER.${serverId}.KICK`, JSON.stringify({ cid: clientId }));
+    await nc.request(
+      `$SYS.REQ.SERVER.${serverId}.KICK`,
+      JSON.stringify({ cid: clientId }),
+    );
     await connectionsKv.delete(connKey);
   }
 
@@ -145,9 +154,12 @@ Rate limiting is a production gate.
 Minimum targets:
 
 - the auth callout, per source IP or equivalent edge identity
+- `/auth/requests`
 - `/auth/login/:provider`
 - `/auth/callback/:provider`
-- `/auth/bind`
+- `/auth/flow/:flowId`
+- `/auth/flow/:flowId/approval`
+- `/auth/flow/:flowId/bind`
 - `/auth/devices/activate`
 - `/auth/devices/activate/wait`
 - `/auth/devices/connect-info`
@@ -210,7 +222,8 @@ Mitigations:
 - non-extractable browser keys prevent key theft
 - CSP and standard XSS mitigations remain primary defenses
 
-Accepted because non-extractable keys still reduce blast radius compared with extractable browser secrets.
+Accepted because non-extractable keys still reduce blast radius compared with
+extractable browser secrets.
 
 ## Non-Goals
 

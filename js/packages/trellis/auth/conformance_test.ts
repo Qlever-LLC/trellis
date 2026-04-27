@@ -17,8 +17,8 @@ type Fixture = {
     redirectTo: string;
     sig: string;
   };
-  bind: {
-    authToken: string;
+  flowBind: {
+    flowId: string;
     sig: string;
   };
   natsConnect: {
@@ -59,7 +59,10 @@ Deno.test("shared auth-proof vectors match JS implementation", async () => {
       await auth.oauthInitSig(fixture.oauthInit.redirectTo),
       fixture.oauthInit.sig,
     );
-    assertEquals(await auth.bindSig(fixture.bind.authToken), fixture.bind.sig);
+    assertEquals(
+      await auth.bindFlowSig(fixture.flowBind.flowId),
+      fixture.flowBind.sig,
+    );
     assertEquals(
       await auth.natsConnectSigForIat(fixture.natsConnect.iat),
       fixture.natsConnect.iatSig,
