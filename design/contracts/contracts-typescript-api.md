@@ -304,7 +304,8 @@ Rules:
 - `uses` entries are expressed through SDK `use(...)` helpers rather than
   handwritten dependency objects in normal TypeScript code
 - SDK `use(...)` helpers are the normal way to declare non-baseline remote
-  dependencies
+  dependencies; Trellis-defined baseline surfaces may be derived from the
+  participant kind or runtime feature set
 - local transportable service RPC errors are declared through top-level `errors`
   entries created with `defineError(...)`
 - RPC `errors: [...]` entries should usually use `ref.error(...)` for both local
@@ -452,8 +453,10 @@ Rules:
 - a referenced remote operation, RPC, or event must exist on the imported SDK
   module
 - a participant may only invoke, call, publish, or subscribe to remote APIs
-  explicitly declared in local `uses`
+  explicitly declared in local `uses`, except for Trellis-defined baseline
+  surfaces automatically available to that participant kind
 - omitted `uses` entries remove the corresponding generated runtime methods
+  for non-baseline surfaces
 - SDK-backed `use(...)` declarations are the source of compile-time allowed-API
   filtering
 

@@ -1,5 +1,5 @@
 import { jetstreamManager } from "@nats-io/jetstream";
-import { Kvm } from "@nats-io/kv";
+import { type KV, Kvm } from "@nats-io/kv";
 import type { NatsConnection } from "@nats-io/nats-core/internal";
 import { Objm } from "@nats-io/obj";
 import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
@@ -183,8 +183,9 @@ async function ensureKvResource(
   request: Pick<KvResourceRequest, "history" | "ttlMs" | "maxValueBytes">,
 ): Promise<void> {
   const kvm = new Kvm(nats);
+  let kv: KV;
   try {
-    await kvm.create(bucket, {
+    kv = await kvm.create(bucket, {
       history: request.history,
       ttl: request.ttlMs,
       ...(request.maxValueBytes ? { maxValueSize: request.maxValueBytes } : {}),
@@ -196,8 +197,61 @@ async function ensureKvResource(
     ) {
       throw error;
     }
-    await kvm.open(bucket);
+    kv = await kvm.open(bucket);
   }
+  const jsm = await jetstreamManager(nats);
+  await reconcileKvResourceConfig(
+    {
+      update: (name, config) => jsm.streams.update(name, config),
+    },
+    await kv.status(),
+    request,
+  );
+}
+
+type KvResourceStreamConfig = {
+  name: string;
+  max_msgs_per_subject: number;
+  max_age: number;
+  max_msg_size: number;
+} & Record<string, unknown>;
+
+type KvResourceStatus = {
+  streamInfo: {
+    config: KvResourceStreamConfig;
+  };
+};
+
+type KvStreamUpdater = {
+  update(name: string, config: KvResourceStreamConfig): Promise<unknown>;
+};
+
+/**
+ * Updates an existing KV bucket stream so persisted bindings match the requested
+ * lineage/profile-scoped resource settings.
+ */
+export async function reconcileKvResourceConfig(
+  streams: KvStreamUpdater,
+  status: KvResourceStatus,
+  request: Pick<KvResourceRequest, "history" | "ttlMs" | "maxValueBytes">,
+): Promise<void> {
+  const config = status.streamInfo.config;
+  const maxAge = request.ttlMs > 0 ? request.ttlMs * 1_000_000 : 0;
+  const maxMsgSize = request.maxValueBytes ?? -1;
+  if (
+    config.max_msgs_per_subject === request.history &&
+    config.max_age === maxAge &&
+    config.max_msg_size === maxMsgSize
+  ) {
+    return;
+  }
+
+  await streams.update(config.name, {
+    ...config,
+    max_msgs_per_subject: request.history,
+    max_age: maxAge,
+    max_msg_size: maxMsgSize,
+  });
 }
 
 async function ensureStoreResource(

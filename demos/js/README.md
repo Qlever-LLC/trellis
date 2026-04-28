@@ -49,8 +49,10 @@ contract lineage.
 
 ## Create And Start The Service
 
-Create one service deployment from `demos/js/service/contract.ts`, provision one
-service instance, then start the service with the provisioned instance seed.
+Create one service deployment from `demos/js/service/contract.ts`, apply the
+contract so required resources are provisioned before the deployment record is
+updated, provision one service instance, then start the service with the
+provisioned instance seed.
 
 ```sh
 trellis deploy create svc/demo.field-ops

@@ -12,6 +12,7 @@ import {
   getResourcePermissionGrants,
   getStoreResourceRequests,
   provisionContractResourceBindings,
+  reconcileKvResourceConfig,
 } from "./resources.ts";
 
 const CONTRACT = {
@@ -222,6 +223,77 @@ Deno.test("resource permission grants include only bound KV usage subjects", () 
     grants.publish.includes("$JS.ACK.KV_svc_test_activity_v1_activity.>"),
     true,
   );
+});
+
+Deno.test("KV reconciliation updates existing bucket limits", async () => {
+  const updates: Array<
+    {
+      name: string;
+      config: {
+        max_msgs_per_subject: number;
+        max_age: number;
+        max_msg_size: number;
+      };
+    }
+  > = [];
+
+  await reconcileKvResourceConfig(
+    {
+      update(name, config) {
+        updates.push({
+          name,
+          config: {
+            max_msgs_per_subject: config.max_msgs_per_subject,
+            max_age: config.max_age,
+            max_msg_size: config.max_msg_size,
+          },
+        });
+        return Promise.resolve();
+      },
+    },
+    {
+      streamInfo: {
+        config: {
+          name: "KV_activity",
+          subjects: ["$KV.activity.>"],
+          retention: "limits",
+          max_consumers: -1,
+          max_msgs_per_subject: 1,
+          max_msgs: -1,
+          max_age: 0,
+          max_bytes: -1,
+          max_msg_size: -1,
+          storage: "file",
+          discard: "old",
+          num_replicas: 1,
+          duplicate_window: 0,
+          sealed: false,
+          deny_delete: true,
+          deny_purge: false,
+          allow_rollup_hdrs: true,
+          allow_direct: false,
+          mirror_direct: false,
+          discard_new_per_subject: false,
+          first_seq: 0,
+          allow_msg_ttl: false,
+          allow_msg_counter: false,
+          allow_msg_schedules: false,
+          allow_atomic: false,
+          persist_mode: "default",
+        },
+      },
+    },
+    { history: 3, ttlMs: 60_000, maxValueBytes: 1024 },
+  );
+
+  assertEquals(updates, [{
+    name: "KV_activity",
+    config: {
+      max_msgs_per_subject: 3,
+      max_age: 60_000 * 1_000_000,
+      max_msg_size: 1024,
+    },
+  }]);
 });
 
 Deno.test("resource permission grants include store object subjects and subscribe permissions", () => {

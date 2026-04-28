@@ -37,12 +37,12 @@ export async function resolveUserReconnectSession(args: {
     contractId: string,
   ) => Promise<InstanceGrantPolicy[]>;
 }): Promise<ResolveUserReconnectResult> {
-  const activeContract = args.contractStore.getContract(
+  const knownContract = args.contractStore.getKnownContract(
     args.presentedContractDigest,
   );
   const expectedContractId = args.session.app?.contractId ??
     args.session.contractId;
-  if (!activeContract || activeContract.id !== expectedContractId) {
+  if (!knownContract || knownContract.id !== expectedContractId) {
     return { ok: false, reason: "contract_changed" };
   }
 
@@ -56,7 +56,7 @@ export async function resolveUserReconnectSession(args: {
 
   const plan = await planUserContractApproval(
     args.contractStore,
-    activeContract,
+    knownContract,
   );
   if (
     plan.digest !== args.presentedContractDigest ||

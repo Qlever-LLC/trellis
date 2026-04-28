@@ -103,8 +103,10 @@ Rules:
 
 - session-key proof alone is not enough for ordinary user clients
 - contract-bearing clients must present an approved exact `contractDigest`
-- permissions are always derived from active contracts plus current grants,
-  never from hard-coded static ACLs
+- permissions are always derived from the caller's contract context plus current
+  grants, never from hard-coded static ACLs; service/device runtime contracts are
+  active deployment contracts, while app/agent contracts are known approved
+  delegated contracts bound to the user session
 - reconnect authorization is re-evaluated against the presented digest and the
   bound app identity
 
@@ -294,7 +296,9 @@ Rules:
 - users and devices all prove long-lived key ownership before receiving
   authenticated runtime access
 - users and devices all receive transport permissions derived from current
-  grants and active contracts
+  grants and their presented contract context; activated devices use active
+  deployment contracts, while user app/agent sessions use known approved
+  delegated contracts
 - activated devices do not use browser bind or user session flows; they
   establish their session from activation state plus identity-key proof and
   exact digest presentation
@@ -309,7 +313,7 @@ Rules:
 
 Authorization is derived from:
 
-- the active contract set
+- the active service/device contract set and known approved app/agent contracts
 - the caller's grants and approvals
 - declared `operations`, `rpc`, `events`, and `uses`
 - installed resource bindings

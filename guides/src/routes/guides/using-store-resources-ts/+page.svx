@@ -51,7 +51,7 @@ Fields:
 - `maxObjectBytes` limits one stored object
 - `maxTotalBytes` limits the whole store
 
-Like `resources.kv`, the key under `store` (`uploads`) is only a logical alias. Trellis assigns the physical store identity at install time. Optional stores may be omitted from runtime bindings when provisioning fails or object-store support is unavailable.
+Like `resources.kv`, the key under `store` (`uploads`) is only a logical alias. Trellis assigns the physical store identity during service deployment apply/install/upgrade and stores the binding for the exact digest that produced it. Optional stores may be omitted from runtime bindings when provisioning fails or object-store support is unavailable.
 
 ## 2. Connect the service and open the store
 

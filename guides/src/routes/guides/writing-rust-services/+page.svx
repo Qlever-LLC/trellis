@@ -148,7 +148,7 @@ async fn main() -> anyhow::Result<()> {
 }
 ```
 
-`connect_service` verifies the contract is active in the Trellis catalog and resolves all resource bindings.
+`connect_service` verifies the contract is active in the Trellis service catalog and resolves the persisted resource bindings for that exact contract digest.
 
 ## 6. Open KV stores
 

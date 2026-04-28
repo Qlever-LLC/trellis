@@ -71,13 +71,16 @@ async function createTestContractStore() {
   return { store, validated };
 }
 
-function testClientContract(description = "Example browser client contract") {
+function testClientContract(
+  description = "Example browser client contract",
+  kind: "app" | "agent" | "service" | "device" = "app",
+) {
   return {
     format: "trellis.contract.v1",
     id: "client.example@v1",
     displayName: "Example Client",
     description,
-    kind: "app",
+    kind,
     schemas: {
       JobPayload: { type: "object" },
       DeploymentState: { type: "object" },
@@ -110,14 +113,20 @@ async function signClientBootstrapProof(
 
 async function createVerifiedApp(args?: {
   activateContract?: boolean;
+  contract?: ReturnType<typeof testClientContract>;
   nowSeconds?: number;
   userProjection?: UserProjectionEntry;
 }) {
   const auth = await createAuth({ sessionKeySeed: TEST_SEED });
-  const { validated } = await createTestContractStore();
+  const store = new ContractStore();
+  const validated = await store.validate(
+    args?.contract ?? testClientContract(),
+  );
   const contractStore = new ContractStore();
   if (args?.activateContract !== false) {
     contractStore.activate(validated.digest, validated.contract);
+  } else {
+    contractStore.add(validated.digest, validated.contract);
   }
 
   const sessionKV = new InMemoryKV<Session>();
@@ -423,6 +432,29 @@ Deno.test("POST /bootstrap/client returns not_ready when the bound user is inact
   });
 });
 
+Deno.test("POST /bootstrap/client returns not_ready for known non-client contracts", async () => {
+  const { app, auth } = await createVerifiedApp({
+    contract: testClientContract("Example service contract", "service"),
+  });
+
+  const response = await app.request("http://trellis/bootstrap/client", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sessionKey: auth.sessionKey,
+      iat: TEST_IAT,
+      sig: await signClientBootstrapProof(TEST_SEED, TEST_IAT),
+    }),
+  });
+
+  assertEquals(response.status, 200);
+  assertEquals(await response.json(), {
+    status: "not_ready",
+    reason: "contract_not_active",
+    serverNow: TEST_IAT,
+  });
+});
+
 Deno.test("POST /bootstrap/client returns serverNow when bootstrap proof iat is out of range", async () => {
   const { app, auth } = await createVerifiedApp({ nowSeconds: TEST_IAT + 31 });
   const response = await app.request("http://trellis/bootstrap/client", {
@@ -462,7 +494,7 @@ Deno.test("POST /bootstrap/client rejects invalid bootstrap signatures", async (
   assertEquals(await response.json(), { reason: "invalid_signature" });
 });
 
-Deno.test("POST /bootstrap/client returns contract_not_active when the session digest is no longer active", async () => {
+Deno.test("POST /bootstrap/client accepts a known app contract digest that is not active", async () => {
   const { app, auth, contract } = await createVerifiedApp({
     activateContract: false,
   });
@@ -477,9 +509,8 @@ Deno.test("POST /bootstrap/client returns contract_not_active when the session d
   });
 
   assertEquals(response.status, 200);
-  assertEquals(await response.json(), {
-    status: "not_ready",
-    serverNow: TEST_IAT,
-    reason: "contract_not_active",
-  });
+  const payload = await response.json();
+  assertEquals(payload.status, "ready");
+  assertEquals(payload.connectInfo.contractDigest, contract.digest);
+  assertEquals(payload.contract.id, contract.contract.id);
 });

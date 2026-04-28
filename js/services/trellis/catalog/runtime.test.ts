@@ -525,9 +525,21 @@ Deno.test("contracts runtime does not activate contracts from user sessions", as
       deviceDeploymentStorage,
       deviceInstanceStorage,
     });
-    const installed = await module.installServiceContract(
-      makeOperationContract("session-only@v1", "operations.v1.Session.Only"),
-    );
+    const validated = await module.contractStore.validate({
+      format: "trellis.contract.v1",
+      id: "session-only@v1",
+      displayName: "Session Only App",
+      description: "App contract bound only to a user session.",
+      kind: "app",
+    });
+    await contractStorage.put({
+      digest: validated.digest,
+      id: validated.contract.id,
+      displayName: validated.contract.displayName,
+      description: validated.contract.description,
+      installedAt: new Date(),
+      contract: validated.canonical,
+    });
     const now = new Date();
     await sessionStorage.put("user-session", {
       type: "user",
@@ -539,10 +551,10 @@ Deno.test("contracts runtime does not activate contracts from user sessions", as
       createdAt: now,
       lastAuth: now,
       participantKind: "app",
-      contractDigest: installed.digest,
-      contractId: installed.id,
-      contractDisplayName: installed.displayName,
-      contractDescription: installed.description,
+      contractDigest: validated.digest,
+      contractId: validated.contract.id,
+      contractDisplayName: validated.contract.displayName,
+      contractDescription: validated.contract.description,
       delegatedCapabilities: [],
       delegatedPublishSubjects: [],
       delegatedSubscribeSubjects: [],

@@ -9,6 +9,9 @@ import {
   isErr,
   Result,
 } from "@qlever-llc/result";
+import type { NatsConnection } from "@nats-io/nats-core/internal";
+import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
+import type { ContractResourceBindings } from "../../catalog/resources.ts";
 
 import type { AuthRuntimeDeps } from "../runtime_deps.ts";
 import { type Connection, ServiceInstanceSchema } from "../schemas.ts";
@@ -208,7 +211,14 @@ export function createAuthApplyServiceDeploymentContractHandler(deps: {
     displayName: string;
     description: string;
     usedNamespaces: string[];
+    contract: TrellisContractV1;
   }>;
+  nats?: NatsConnection;
+  provisionResourceBindings?: (
+    nats: NatsConnection | undefined,
+    contract: TrellisContractV1,
+    deploymentId: string,
+  ) => Promise<ContractResourceBindings>;
   refreshActiveContracts: () => Promise<void>;
   serviceDeploymentStorage: ServiceDeploymentStorage;
   logger: Pick<AuthRuntimeDeps["logger"], "trace">;
@@ -271,7 +281,15 @@ export function createAuthUnapplyServiceDeploymentContractHandler(
           !removeDigests.has(digest)
         );
         return remaining.length > 0
-          ? { ...applied, allowedDigests: remaining }
+          ? {
+            ...applied,
+            allowedDigests: remaining,
+            resourceBindingsByDigest: Object.fromEntries(
+              Object.entries(applied.resourceBindingsByDigest ?? {}).filter(
+                ([digest]) => remaining.includes(digest),
+              ),
+            ),
+          }
           : null;
       })
       .filter((

@@ -58,9 +58,11 @@ served separately by `POST /auth/devices/connect-info`.
 
 For device activation to succeed, the portal contract digest must be allowed on
 the relevant device deployment through `appliedContracts[].allowedDigests` or an
-empty allowed-digest lineage entry. Trellis validates the selected digest against
-the active catalog and fails the activation path instead of substituting another
-digest when the presented digest is not active or not allowed.
+empty allowed-digest lineage entry. Trellis treats `allowedDigests` as a rollout
+allow-list: the presented digest must be known for the lineage and allowed by the
+deployment, but the list itself is not an active-catalog assertion for every
+digest. Trellis fails the activation path instead of substituting another digest
+when the presented digest is unknown, retired, or not allowed.
 
 If a custom portal needs to call Trellis after login, model that follow-on
 access with a normal `app` contract and a portal profile. Passive portals that

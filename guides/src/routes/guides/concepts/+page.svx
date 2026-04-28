@@ -13,7 +13,7 @@ A contract declares:
 - **dependencies** on other contracts via `uses`
 - **capabilities** required to call each operation
 
-Contracts are the source of truth for authorization. Trellis derives NATS subject permissions directly from the active contract set — if an operation is not explicitly declared in a contract, the service cannot access it.
+Contracts are the source of truth for authorization. Trellis derives NATS subject permissions from deployment-owned service/device catalog entries plus known approved app/agent contracts — if an operation is not explicitly declared in an applicable contract, the participant cannot access it.
 
 ### Contract kinds
 
@@ -126,7 +126,7 @@ The flow:
 1. An app sends a signed `POST /auth/requests` request with its session key, contract, redirect target, and optional portal context
 2. Trellis creates a browser flow record, resolves any contract-specific login portal selection, otherwise falls back to the deployment login default custom portal when configured and then to the built-in Trellis login portal, and returns that portal URL
 3. The portal fetches `GET /auth/flow/:flowId` and renders UX based on the flow state — provider chooser, approval screen, optional app context, or a terminal redirect
-4. After the user authenticates and approval is satisfied, Trellis provisions the user immediately and the browser bind/bootstrap flow returns the approved session metadata, transport endpoints, and sentinel credentials for the app session.
+4. After the user authenticates and approval is satisfied, Trellis records the approved session immediately and the browser bind flow returns the approved session metadata, transport endpoints, and sentinel credentials for the app session.
 5. The app connects through `TrellisClient.connect(...)`, which generates fresh signed runtime auth proofs from the local session key and current contract digest during connect and reconnect.
 
 CLI sessions use the same contract-bearing flow. If the Trellis agent contract's identity digest changes, the CLI starts detached reauthentication with the portal URL or QR code. A generic NATS authorization denial during reconnect does not automatically delete the local CLI session; explicit revoked or missing-session responses still require a fresh `trellis auth login`.
@@ -169,7 +169,7 @@ work across browser apps, CLIs, backend services, activated devices, and NATS
 subject permissions. That is broader than a normal OAuth client-to-API scope
 check.
 
-Capabilities are assigned to users and devices at the deployment level. Authorization changes take effect immediately because Trellis derives NATS permissions from the active contracts and current grants.
+Capabilities are assigned to users and devices at the deployment level. Authorization changes take effect immediately because Trellis derives NATS permissions from the relevant deployment catalog entries, known approved app/agent contracts, and current grants.
 
 For browser-app sessions, Trellis may also apply deployment-owned implied capabilities from a matching instance grant policy. Those implied capabilities are session-time policy, not user-owned grants.
 
@@ -193,7 +193,7 @@ resources: {
 },
 ```
 
-The key (`items`) is a logical alias. Trellis assigns the physical bucket name at install time when the resource is provisioned. `TrellisService.connect(...)` resolves required bindings, plus any optional bindings that were successfully provisioned, and exposes them as `service.kv.items`, which can be opened directly with a schema.
+The key (`items`) is a logical alias. During service deployment apply/install/upgrade, Trellis provisions the resource before mutating the deployment and persists the exact digest's binding. Physical bucket names remain scoped to the deployment/profile/lineage rather than to the digest, so compatible digest rollouts can reuse the same underlying resource. `TrellisService.connect(...)` consumes those persisted bindings, resolves required bindings plus any optional bindings that were successfully provisioned, and exposes them as `service.kv.items`, which can be opened directly with a schema.
 
 ### Store resources
 
@@ -211,7 +211,7 @@ resources: {
 },
 ```
 
-Like KV, the key (`uploads`) is a logical alias and Trellis assigns the physical store identity at install time when the resource is provisioned. The intended service runtime shape mirrors KV closely: `service.store.uploads.open()` resolves a higher-level store object, and its failable methods return `Result` values.
+Like KV, the key (`uploads`) is a logical alias and Trellis assigns the physical store identity when the service deployment is applied, installed, or upgraded. The intended service runtime shape mirrors KV closely: `service.store.uploads.open()` resolves a higher-level store object from the persisted binding, and its failable methods return `Result` values.
 
 These examples use the default `required: true`. Optional KV and store resources may not appear in runtime bindings if provisioning is unavailable or fails.
 

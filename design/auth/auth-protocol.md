@@ -107,9 +107,9 @@ When NATS calls `$SYS.REQ.USER.AUTH`:
    the signed proof.
 3. Resolve the session and principal from the session key, presented proof shape,
    and explicit runtime repositories for users, services, or devices.
-4. Derive permissions from current grants, active contracts, installed bindings,
-   and the resolved principal, then issue a NATS JWT for the server-generated
-   `user_nkey`.
+4. Derive permissions from current grants, the resolved principal's contract
+   context, active service/device contracts, and installed bindings, then issue a
+   NATS JWT for the server-generated `user_nkey`.
 5. Update session liveness and active-connection tracking.
 6. Emit `events.v1.Auth.Connect` for user and service sessions.
 
@@ -126,8 +126,8 @@ CASE: USER CONNECT / RECONNECT (`sessionKey + contractDigest + iat + sig`)
 - lookup the session keyed by `sessionKey`
 - verify the bound session is still valid for the same app identity
 - verify user active
-- verify the presented `contractDigest` is currently allowed for that bound
-  user/app context
+- verify the presented `contractDigest` is a known approved app or agent digest
+  for that bound user/app context
 - derive permissions and issue JWT
 - update session liveness and active-connection tracking
 
@@ -185,7 +185,8 @@ auth-callout payloads are not supported.
 The auth callout derives permissions from:
 
 - current session or service policy grants
-- the deployment's active contracts
+- known approved app/agent contracts for user sessions
+- the deployment's active service/device contracts
 - declared `operations`, `rpc`, `events`, `subjects`, and `uses`
 - installed resource bindings
 

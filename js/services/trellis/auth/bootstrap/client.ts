@@ -183,8 +183,14 @@ export async function resolveClientBootstrap(
     }
   }
 
-  const activeContract = deps.contractStore.getContract(session.contractDigest);
-  if (!activeContract || activeContract.id !== session.contractId) {
+  const knownContract = deps.contractStore.getKnownContract(
+    session.contractDigest,
+  );
+  if (
+    !knownContract ||
+    knownContract.id !== session.contractId ||
+    (knownContract.kind !== "app" && knownContract.kind !== "agent")
+  ) {
     return {
       status: "not_ready",
       reason: "contract_not_active",
@@ -192,7 +198,7 @@ export async function resolveClientBootstrap(
     };
   }
   const contractView = buildContractView(
-    activeContract,
+    knownContract,
     session.contractDigest,
   );
 

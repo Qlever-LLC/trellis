@@ -49,7 +49,7 @@ trellis deploy apply svc/my-service --source ./contracts/my_service.ts
 trellis deploy provision svc/my-service
 ```
 
-The CLI reads the contract definition directly from source, applies it to the service deployment, generates a service instance key, and provisions an instance.
+The CLI reads the contract definition directly from source, applies it to the service deployment, provisions required resources before the deployment record is mutated, then generates a service instance key and provisions an instance.
 
 The CLI will:
 
@@ -101,7 +101,7 @@ When you change the contract, apply the new digest to the service deployment:
 trellis deploy apply svc/my-service --source ./contracts/my_service.ts
 ```
 
-Applying a new digest keeps the service instance key the same. Restart the service process after applying the updated contract.
+Applying a new digest provisions any required resource changes before updating the deployment record and keeps the service instance key the same. Restart the service process after applying the updated contract.
 
 ## What install actually grants
 

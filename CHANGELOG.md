@@ -10,6 +10,13 @@ and this project adheres to
 
 ### Changed
 
+- Aligned the Trellis service v1 deployment model so required resources are
+  provisioned during service deployment apply/install/upgrade before deployment
+  mutation, service bootstrap consumes persisted exact-digest bindings,
+  physical resource names remain deployment/profile/lineage scoped, app/agent
+  contracts are treated as approved-session contracts rather than active catalog
+  entries, baseline `Auth.ValidateRequest` may be auto-granted to service
+  runtimes, and device `allowedDigests` are rollout allow-lists.
 - Changed same-lineage active digest projection to verify duplicate RPC,
   operation, event, and job schema refs by resolved schema compatibility instead
   of ref-name equality: canonically equal schemas and optional additive fields on

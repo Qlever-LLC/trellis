@@ -15,6 +15,7 @@ import {
 
 import {
   normalizeDigestList,
+  type ServiceDeployment,
   validateDeviceDeploymentRequest,
   validateDevicePortalSelectionRequest,
   validateDeviceProvisionRequest,
@@ -328,6 +329,61 @@ Deno.test("validateServiceDeploymentRequest normalizes namespaces without displa
     validateServiceDeploymentRequest({ deploymentId: "", namespaces: [] })
       .isErr(),
   );
+});
+
+Deno.test("Auth.UnapplyServiceDeploymentContract removes only bindings for removed digests", async () => {
+  let stored: ServiceDeployment = {
+    deploymentId: "billing.default",
+    namespaces: ["billing"],
+    disabled: false,
+    appliedContracts: [{
+      contractId: "billing@v1",
+      allowedDigests: ["digest-a", "digest-b"],
+      resourceBindingsByDigest: {
+        "digest-a": { kv: { cache: { bucket: "cache-a", history: 1, ttlMs: 0 } } },
+        "digest-b": { kv: { cache: { bucket: "cache-b", history: 2, ttlMs: 0 } } },
+      },
+    }],
+  };
+  const serviceDeps: ServiceAdminRpcDeps = {
+    logger: { trace: () => {} },
+    serviceDeploymentStorage: {
+      get: async () => stored,
+      put: async (deployment) => {
+        stored = deployment;
+      },
+      delete: async () => throwingStoreAccess(),
+      list: async () => throwingStoreAccess(),
+    },
+    serviceInstanceStorage: {
+      get: async () => throwingStoreAccess(),
+      getByInstanceKey: async () => throwingStoreAccess(),
+      put: async () => throwingStoreAccess(),
+      delete: async () => throwingStoreAccess(),
+      list: async () => throwingStoreAccess(),
+      listByDeployment: async () => [],
+    },
+  };
+
+  const result = await createAuthUnapplyServiceDeploymentContractHandler(
+    kickDeps(serviceDeps),
+  )({
+    input: {
+      deploymentId: "billing.default",
+      contractId: "billing@v1",
+      digests: ["digest-a"],
+    },
+    context: { caller: { type: "user", id: "admin", capabilities: ["admin"] } },
+  });
+
+  assert(!result.isErr());
+  assertEquals(stored.appliedContracts, [{
+    contractId: "billing@v1",
+    allowedDigests: ["digest-b"],
+    resourceBindingsByDigest: {
+      "digest-b": { kv: { cache: { bucket: "cache-b", history: 2, ttlMs: 0 } } },
+    },
+  }]);
 });
 
 Deno.test("auth review event is templated by deployment", () => {

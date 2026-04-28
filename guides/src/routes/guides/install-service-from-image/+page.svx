@@ -33,7 +33,7 @@ trellis deploy apply svc/my-service --image ghcr.io/my-org/my-service:1.2.3
 trellis deploy provision svc/my-service
 ```
 
-The CLI pulls the image, reads the contract artifact from it (at the path declared by the `io.trellis.contract.path` label, or `/trellis/contract.json` by default), applies it to the service deployment, generates a service instance key, and provisions an instance.
+The CLI pulls the image, reads the contract artifact from it (at the path declared by the `io.trellis.contract.path` label, or `/trellis/contract.json` by default), applies it to the service deployment, provisions required resources before the deployment record is mutated, then generates a service instance key and provisions an instance.
 
 The CLI will:
 
@@ -79,7 +79,7 @@ For a permanent deployment, create a Quadlet unit for the service similar to the
 trellis deploy apply svc/my-service --image ghcr.io/my-org/my-service:1.2.4
 ```
 
-Applying the new image keeps service instance keys the same and allows the new digest. Restart the container with the new image tag after applying it.
+Applying the new image provisions any required resource changes before allowing the new digest and keeps service instance keys the same. Restart the container with the new image tag after applying it.
 
 ## What install actually grants
 
@@ -107,6 +107,6 @@ Trellis derives service access from:
 4. start the container with the right env
 5. confirm the expected RPCs, events, and bindings work
 
-Apply and provisioning should happen before the container starts serving traffic.
+Deployment apply and instance provisioning should happen before the container starts serving traffic. Service resource provisioning happens during apply/install/upgrade; service bootstrap only consumes the persisted bindings.
 
 If you are building service images, include the generated contract artifact at `/trellis/contract.json`. If the image uses a different path, add an OCI label such as `io.trellis.contract.path=/path/to/contract.json` so the CLI can discover it automatically.

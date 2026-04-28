@@ -261,8 +261,10 @@ in TypeScript authoring.
 
 Some Trellis-owned surfaces are derived from the participant kind or local
 contract features. App, agent, and device contracts receive baseline auth RPCs
-such as `Auth.Me` and `Auth.Logout` without authoring boilerplate; contracts
-that need non-baseline auth surfaces still declare them with `auth.use(...)`.
+such as `Auth.Me` and `Auth.Logout` without authoring boilerplate; service
+runtimes may also receive baseline auth surfaces such as `Auth.ValidateRequest`
+without each service authoring a `uses` entry. Contracts that need non-baseline
+auth surfaces still declare them with `auth.use(...)`.
 
 ### 3b) Named contract state stores
 
@@ -323,7 +325,9 @@ The TypeScript type system must enforce both of these rules:
 - a referenced remote operation, RPC, or event must exist on the imported SDK
   module
 - a participant may only invoke, call, publish, or subscribe to remote
-  operations that are explicitly declared in its local contract `uses`
+  operations that are explicitly declared in its local contract `uses`, except
+  for Trellis-defined baseline surfaces automatically available to that
+  participant kind
 
 This makes two important guarantees in normal authoring: if an SDK does not
 expose `Auth.Nope`, then `auth.use({ events: { subscribe: ["Auth.Nope"] } })` is
@@ -508,8 +512,10 @@ Expected type behavior:
 
 - `service.request("Trellis.Catalog", {})` is valid because it is declared in
   `uses`
-- `service.request("Auth.Me", {})` is a type error unless the service contract
-  explicitly declares that auth RPC in `uses`
+- non-baseline auth RPCs remain type errors unless the service contract
+  explicitly declares them in `uses`; baseline auth RPCs such as
+  `Auth.ValidateRequest` may be generated or granted automatically by the
+  service runtime
 - `service.trellis.mount("Trellis.Catalog", ...)` is a type error because that
   RPC is used, not owned
 - `auth.use({ rpc: { call: ["Trellis.Catalog"] } })` is a type error because

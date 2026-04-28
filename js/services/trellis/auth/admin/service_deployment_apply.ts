@@ -1,10 +1,14 @@
 import { UnexpectedError, ValidationError } from "@qlever-llc/trellis";
 import { Result } from "@qlever-llc/result";
+import type { NatsConnection } from "@nats-io/nats-core/internal";
+import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 
 import {
   applyInstalledServiceDeploymentContract,
   type ServiceDeployment,
 } from "./shared.ts";
+import { provisionContractResourceBindings } from "../../catalog/resources.ts";
+import type { ContractResourceBindings } from "../../catalog/resources.ts";
 
 type RpcUser = { type: string; id?: string };
 
@@ -34,7 +38,14 @@ export function createAuthApplyServiceDeploymentContractHandler(deps: {
     displayName: string;
     description: string;
     usedNamespaces: string[];
+    contract: TrellisContractV1;
   }>;
+  nats?: NatsConnection;
+  provisionResourceBindings?: (
+    nats: NatsConnection | undefined,
+    contract: TrellisContractV1,
+    deploymentId: string,
+  ) => Promise<ContractResourceBindings>;
   refreshActiveContracts: () => Promise<void>;
   serviceDeploymentStorage: ServiceDeploymentStorage;
 }) {
@@ -56,9 +67,20 @@ export function createAuthApplyServiceDeploymentContractHandler(deps: {
     }
 
     const installed = await deps.installServiceContract(req.contract);
+    let resourceBindings;
+    try {
+      resourceBindings = await (deps.provisionResourceBindings ??
+        provisionContractResourceBindings)(
+          deps.nats,
+          installed.contract,
+          deployment.deploymentId,
+        );
+    } catch (error) {
+      return Result.err(new UnexpectedError({ cause: toError(error) }));
+    }
     const nextDeployment = applyInstalledServiceDeploymentContract(
       deployment,
-      installed,
+      { ...installed, resourceBindings },
     );
     try {
       await deps.serviceDeploymentStorage.put(nextDeployment);

@@ -35,7 +35,7 @@ npm install @qlever-llc/trellis @sinclair/typebox
 
 ## 2. Your first contract
 
-In Trellis, every service is defined by a **contract**. The contract is the authoritative description of what your service does — what databases it needs, what RPCs it handles, what events it emits or consumes, and who is allowed to call it. Trellis reads the contract at install time to provision resources and enforce access control automatically.
+In Trellis, every service is defined by a **contract**. The contract is the authoritative description of what your service does — what databases it needs, what RPCs it handles, what events it emits or consumes, and who is allowed to call it. Trellis reads the contract during service deployment apply/install/upgrade to provision resources and enforce access control automatically.
 
 Let's start with the smallest possible contract. Create `contracts/orders_service.ts`:
 
@@ -94,7 +94,7 @@ console.log("Connected to Trellis!");
 
 > **Node.js users:** Import from `@qlever-llc/trellis/service/node` and replace `Deno.env.get(...)` with `process.env`.
 
-`TrellisService.connect(...)` does a lot of heavy lifting. It authenticates your service session, validates that your contract is active in the Trellis catalog, fetches transport details, and hands back a `service` object with all your resources already resolved. If the contract has not been installed yet, it will throw with a clear message telling you exactly what to do.
+`TrellisService.connect(...)` does a lot of heavy lifting. It authenticates your service session, validates that your contract is active in the Trellis service catalog, fetches transport details, and hands back a `service` object with the deployment's persisted resource bindings already resolved. If the contract has not been installed yet, it will throw with a clear message telling you exactly what to do.
 
 Before we can run this, we need to create a deployment, apply the contract, and provision a service instance.
 
@@ -120,7 +120,7 @@ You should see `Connected to Trellis!`. Our service doesn't do anything yet, but
 
 ## 4. Adding a database (KV store)
 
-Connecting is a good start, but let's actually store some orders. In Trellis, you don't provision databases or juggle connection strings. You just ask for a Key-Value bucket in your contract and Trellis provisions it for you.
+Connecting is a good start, but let's actually store some orders. In Trellis, you don't provision databases or juggle connection strings in service code. You ask for a Key-Value bucket in your contract and Trellis provisions it during deployment apply/install/upgrade.
 
 First, let's define what an `Order` looks like. Create `schemas.ts`:
 
@@ -174,7 +174,7 @@ const ordersKV = kvResult.take();
 
 > The `isErr` / `.take()` pattern shows up throughout Trellis. Rather than throwing exceptions, Trellis returns `Result<T, E>` values. Check `isErr(result)` first; only call `result.take()` once you know it succeeded.
 
-Because we changed the contract, apply it again so Trellis provisions the required new bucket:
+Because we changed the contract, apply it again so Trellis provisions the required new bucket before updating the deployment record:
 
 ```sh
 trellis deploy apply svc/orders-service --source ./contracts/orders_service.ts
@@ -354,7 +354,7 @@ export const ordersService = defineContract({
   // ...
 ```
 
-`auth.use(...)` declares the non-baseline auth surface this service needs. In this example, the service subscribes to `Auth.Connect` events from the auth service.
+`auth.use(...)` declares the non-baseline auth surface this service needs. In this example, the service subscribes to `Auth.Connect` events from the auth service. Baseline auth validation such as `Auth.ValidateRequest` may be made available to service runtimes automatically.
 
 Now subscribe to the event in `main.ts`:
 

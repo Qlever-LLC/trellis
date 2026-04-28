@@ -93,7 +93,10 @@ Rules:
   - `maxObjectBytes`: optional desired per-object size limit in bytes
   - `maxTotalBytes`: optional desired total-store size limit in bytes
 - contracts request logical stores; Trellis chooses the concrete physical store
-  identity at install or upgrade time
+  identity at service apply/install or upgrade time
+- Trellis validates store declarations from the exact applied contract digest,
+  but physical store identity is scoped to the deployment/profile and contract
+  lineage rather than the digest so compatible service updates preserve objects
 - required stores fail install or upgrade when Trellis cannot provision or bind
   them
 - optional stores (`required: false`) may be omitted from bindings if

@@ -235,9 +235,13 @@ communication surface:
 - `uses`, metadata, and other non-owned sections MAY vary by digest as long as
   the exact digest being installed still validates successfully and dependency
   resolution against active catalogs stays unambiguous
-- `resources` are per-digest install data; they do not need to be additive
-  across the lineage, but install or upgrade MUST validate and provision the
-  exact resource set requested by the digest bound to that principal
+- `resources` declarations are validated from the exact digest being installed;
+  they do not need to be additive across the lineage, but Trellis MUST validate
+  and bind the exact resource set requested by the digest bound to that
+  principal
+- physical resource identity is scoped to the deployment/profile and contract
+  lineage, not to the digest, so compatible service updates do not lose durable
+  data solely because the contract digest changed
 - `jobs` are part of the owned execution surface and follow the same additive
   compatibility expectations as other owned contract sections while multiple
   digests in one lineage coexist
@@ -324,7 +328,8 @@ Rules:
 - dependencies are declared by logical contract `id` plus logical
   operation/RPC/event names, not by raw capability strings
 - a service contract MUST NOT receive cross-contract runtime permissions unless
-  that access is declared in `uses`
+  that access is declared in `uses` or is a Trellis-defined baseline surface
+  automatically available to that participant kind
 - validation, install, or upgrade MUST fail if a referenced contract is
   unavailable or if any referenced operation, RPC, or event name does not exist
   on that contract
@@ -540,6 +545,9 @@ Rules:
 - aliases are part of the contract and are stable API surface for the service
 - the contract requests logical resources; Trellis assigns physical names and
   backing infrastructure at install or upgrade time
+- Trellis validates requested resource declarations from the exact applied
+  contract digest, but chooses physical resource identities at the
+  deployment/profile/lineage scope rather than the digest scope
 - the v1 resource surface supports `resources.kv` and `resources.store`
 - a KV request declares:
   - `purpose`: required human-facing explanation of why the service needs the
@@ -895,7 +903,8 @@ The `trellis` runtime service MUST:
 - store installed contracts by digest
 - maintain the active contract set for the deployment
 - reject active subject collisions across operations, RPCs, and events
-- provision or bind required cloud resources before install or upgrade succeeds
+- provision or bind required cloud resources before service apply/install or
+  upgrade succeeds
 - persist resource bindings so installed services can resolve them at runtime
 - bind each installed contract digest to the service principal public key that
   implements it, including Trellis-owned contracts bootstrapped onto the
@@ -915,6 +924,9 @@ Install or upgrade validation MUST also:
 - reject impossible or unsafe resource combinations before provisioning begins
 - validate the exact `resources` requested by the digest being installed, even
   when other digests in the same lineage remain active
+- preserve physical resource identity across compatible digest changes for the
+  same deployment/profile/lineage unless an operator intentionally creates a new
+  lineage or profile
 - when install or activation is deployment-driven, validate that the digest
   being bound is allowed by that deployment's contract lineage and allowed
   digest set
@@ -1002,9 +1014,9 @@ Rules:
   require additional capability grants
 - templated event subjects are authorized using wildcard subjects derived by
   replacing each template token with `*`
-- service sessions receive cross-contract permissions only from explicit `uses`
-  plus installed resource bindings; raw capability grants alone are not
-  sufficient
+- service sessions receive cross-contract permissions only from explicit `uses`,
+  Trellis-defined baseline surfaces, and installed resource bindings; raw
+  capability grants alone are not sufficient
 - service-side transfer subscriptions are scoped to contracts installed on that
   service principal and to the service session prefix, not broad global transfer
   prefixes
@@ -1018,9 +1030,11 @@ Service-side RPC handling rule:
   key
 - runtime ownership is determined by the install record for that public key, not
   by contract metadata
-- the bootstrapped `trellis` runtime service follows the same rule; it simply
-  starts with Trellis-owned contracts such as `trellis.core@v1`,
-  `trellis.auth@v1`, and `trellis.state@v1`
+- the bootstrapped `trellis` runtime service follows the same ownership rule;
+  Trellis-owned contracts such as `trellis.core@v1`, `trellis.auth@v1`, and
+  `trellis.state@v1` are intentionally bootstrap-active on that service
+  principal unless a future SQL install-record model replaces this bootstrap
+  shortcut
 
 This install-record-based subscription rule is separate from caller capability
 checks.

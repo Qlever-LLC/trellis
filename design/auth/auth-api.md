@@ -551,6 +551,10 @@ This RPC is the capability and session lookup service used by other Trellis
 services. The caller shape is a union because users and devices all share the
 same post-auth authorization pipeline.
 
+`Auth.ValidateRequest` is a baseline auth surface for service runtimes. Trellis
+may make it available to services automatically, without requiring every service
+contract to declare an explicit auth `uses` entry for this RPC.
+
 ## Device Activation Public Surface
 
 Detailed activation flow semantics, event ordering, and confirmation-code
@@ -622,8 +626,15 @@ type ServiceDeployment = {
   appliedContracts: Array<{
     contractId: string;
     allowedDigests: string[];
+    resourceBindingsByDigest?: Record<string, Record<string, unknown>>;
   }>;
 };
+
+`resourceBindingsByDigest` is keyed by the exact contract digest that produced
+the binding. Physical resource identity remains scoped to the deployment lineage
+and profile/resource alias rather than to the digest, so re-applying a new digest
+for the same lineage updates the existing physical resource when the underlying
+resource API supports the requested setting change.
 
 type ServiceInstance = {
   instanceId: string;

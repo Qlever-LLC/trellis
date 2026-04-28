@@ -38,6 +38,38 @@ async function createTestContractStore() {
   return validated;
 }
 
+async function createAlternateTestContract() {
+  const store = new ContractStore();
+  return await store.validate({
+    format: "trellis.contract.v1",
+    id: "svc.example@v1",
+    displayName: "Example Service",
+    description: "Example service contract alternate",
+    kind: "service",
+    schemas: {
+      CacheEntry: { type: "object" },
+      JobPayload: { type: "object" },
+    },
+    jobs: {
+      process: {
+        payload: { schema: "JobPayload" },
+      },
+    },
+    resources: {
+      kv: {
+        cache: {
+          purpose: "Store cache entries",
+          schema: { schema: "CacheEntry" },
+        },
+        secondary: {
+          purpose: "Store secondary cache entries",
+          schema: { schema: "CacheEntry" },
+        },
+      },
+    },
+  });
+}
+
 async function createApp(args: {
   service?: {
     displayName: string;
@@ -52,16 +84,37 @@ async function createApp(args: {
   nowSeconds?: number;
   activateContract?: boolean;
   registerInactiveContract?: boolean;
+  appliedResourceBindings?: Record<string, unknown> | null;
+  appliedResourceBindingsByDigest?: Record<string, Record<string, unknown>>;
+  includeAlternateContract?: boolean;
 }) {
   const auth = await createAuth({ sessionKeySeed: TEST_SEED });
   const validated = await createTestContractStore();
+  const alternate = args.includeAlternateContract
+    ? await createAlternateTestContract()
+    : undefined;
   const store = new ContractStore();
   if (args.registerInactiveContract) {
     store.add(validated.digest, validated.contract);
+    if (alternate) store.add(alternate.digest, alternate.contract);
   }
   if (args.activateContract !== false) {
     store.activate(validated.digest, validated.contract);
+    if (alternate) store.activate(alternate.digest, alternate.contract);
   }
+  const savedServices: Array<{
+    resourceBindings?: Record<string, unknown>;
+    currentContractDigest?: string;
+  }> = [];
+  const defaultResourceBindings = {
+    kv: {
+      cache: {
+        bucket: "svc_cache",
+        history: 1,
+        ttlMs: 0,
+      },
+    },
+  };
   const app = new Hono();
   app.post(
     "/bootstrap/service",
@@ -82,15 +135,7 @@ async function createApp(args: {
           description: "Example service",
           contractId: validated.contract.id,
           contractDigest: validated.digest,
-          resourceBindings: {
-            kv: {
-              cache: {
-                bucket: "svc_cache",
-                history: 1,
-                ttlMs: 0,
-              },
-            },
-          },
+          resourceBindings: defaultResourceBindings,
           createdAt: new Date("2026-01-01T00:00:00.000Z"),
         };
 
@@ -106,13 +151,32 @@ async function createApp(args: {
           createdAt: service.createdAt,
         };
       },
-      saveServiceInstance: async () => {},
+      saveServiceInstance: async (service) => {
+        savedServices.push(service);
+      },
       loadServiceDeployment: async () => ({
         deploymentId: "deployment_1",
         disabled: false,
         appliedContracts: [{
           contractId: validated.contract.id,
-          allowedDigests: [validated.digest],
+          allowedDigests: alternate
+            ? [validated.digest, alternate.digest]
+            : [validated.digest],
+          ...(args.appliedResourceBindings === null
+            ? {}
+            : args.appliedResourceBindingsByDigest !== undefined
+            ? { resourceBindingsByDigest: args.appliedResourceBindingsByDigest }
+            : args.appliedResourceBindings !== undefined
+            ? {
+              resourceBindingsByDigest: {
+                [validated.digest]: args.appliedResourceBindings,
+              },
+            }
+            : {
+              resourceBindingsByDigest: {
+                [validated.digest]: defaultResourceBindings,
+              },
+            }),
         }],
       }),
       refreshActiveContracts: async () => {},
@@ -122,7 +186,13 @@ async function createApp(args: {
       nowSeconds: () => args.nowSeconds ?? TEST_IAT,
     }),
   );
-  return { app, auth, contract: validated };
+  return {
+    app,
+    auth,
+    contract: validated,
+    alternateContract: alternate,
+    savedServices,
+  };
 }
 
 Deno.test("POST /bootstrap/service returns runtime bootstrap info and bindings", async () => {
@@ -180,6 +250,130 @@ Deno.test("POST /bootstrap/service returns runtime bootstrap info and bindings",
         },
       },
     },
+  });
+});
+
+Deno.test("POST /bootstrap/service consumes persisted applied-contract bindings", async () => {
+  const appliedResourceBindings = {
+    kv: {
+      cache: {
+        bucket: "applied_cache",
+        history: 3,
+        ttlMs: 60000,
+      },
+    },
+  };
+  const { app, auth, contract, savedServices } = await createApp({
+    service: {
+      displayName: "Example Service",
+      active: true,
+      capabilities: ["service"],
+      description: "Example service",
+      contractDigest: "old_digest",
+      resourceBindings: {
+        kv: { cache: { bucket: "old_cache", history: 1, ttlMs: 0 } },
+      },
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    },
+    appliedResourceBindings,
+  });
+  const response = await app.request("http://trellis/bootstrap/service", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sessionKey: auth.sessionKey,
+      contractId: contract.contract.id,
+      contractDigest: contract.digest,
+      iat: TEST_IAT,
+      sig: await auth.natsConnectSigForIat(TEST_IAT),
+    }),
+  });
+
+  assertEquals(response.status, 200);
+  const body = await response.json();
+  assertEquals(body.binding.resources, appliedResourceBindings);
+  assertEquals(savedServices.length, 1);
+  assertEquals(savedServices[0]?.resourceBindings, appliedResourceBindings);
+});
+
+Deno.test("POST /bootstrap/service selects bindings by exact digest", async () => {
+  const firstBindings = {
+    kv: { cache: { bucket: "applied_cache_a", history: 1, ttlMs: 0 } },
+  };
+  const secondBindings = {
+    kv: { cache: { bucket: "applied_cache_b", history: 2, ttlMs: 1000 } },
+  };
+  const expectedBase = await createTestContractStore();
+  const expectedAlternate = await createAlternateTestContract();
+  const { app, auth, contract, alternateContract } = await createApp({
+    includeAlternateContract: true,
+    appliedResourceBindingsByDigest: {
+      [expectedBase.digest]: firstBindings,
+      [expectedAlternate.digest]: secondBindings,
+    },
+  });
+  if (!alternateContract) throw new Error("expected alternate contract");
+
+  const firstResponse = await app.request(
+    "http://trellis/bootstrap/service",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionKey: auth.sessionKey,
+        contractId: contract.contract.id,
+        contractDigest: contract.digest,
+        iat: TEST_IAT,
+        sig: await auth.natsConnectSigForIat(TEST_IAT),
+      }),
+    },
+  );
+  const secondResponse = await app.request(
+    "http://trellis/bootstrap/service",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionKey: auth.sessionKey,
+        contractId: alternateContract.contract.id,
+        contractDigest: alternateContract.digest,
+        iat: TEST_IAT,
+        sig: await auth.natsConnectSigForIat(TEST_IAT),
+      }),
+    },
+  );
+
+  assertEquals(firstResponse.status, 200);
+  assertEquals((await firstResponse.json()).binding.resources, firstBindings);
+  assertEquals(secondResponse.status, 200);
+  assertEquals((await secondResponse.json()).binding.resources, secondBindings);
+});
+
+Deno.test("POST /bootstrap/service fails clearly when applied resources have no stored bindings", async () => {
+  const { app, auth, contract } = await createApp({
+    appliedResourceBindings: null,
+  });
+  const response = await app.request("http://trellis/bootstrap/service", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sessionKey: auth.sessionKey,
+      contractId: contract.contract.id,
+      contractDigest: contract.digest,
+      iat: TEST_IAT,
+      sig: await auth.natsConnectSigForIat(TEST_IAT),
+    }),
+  });
+
+  assertEquals(response.status, 409);
+  assertEquals(await response.json(), {
+    reason: "service_resource_bindings_missing",
+    message:
+      `Service deployment 'deployment_1' has applied contract '${contract.contract.id}' digest '${contract.digest}' with declared resources or jobs, but no stored resource bindings. Re-apply the contract to the deployment before starting this service.`,
+    instanceId: "svc_1",
+    deploymentId: "deployment_1",
+    contractId: contract.contract.id,
+    contractDigest: contract.digest,
   });
 });
 

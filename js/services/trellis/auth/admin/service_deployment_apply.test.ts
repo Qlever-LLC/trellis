@@ -1,4 +1,5 @@
 import { assert, assertEquals } from "@std/assert";
+import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 
 import {
   createAuthApplyServiceDeploymentContractHandler,
@@ -8,6 +9,7 @@ import type { ServiceDeployment } from "./shared.ts";
 
 class InMemoryServiceDeploymentStorage implements ServiceDeploymentStorage {
   #deployments = new Map<string, ServiceDeployment>();
+  putCount = 0;
 
   seed(deployment: ServiceDeployment): void {
     this.#deployments.set(deployment.deploymentId, deployment);
@@ -24,9 +26,18 @@ class InMemoryServiceDeploymentStorage implements ServiceDeploymentStorage {
 
   async put(deployment: ServiceDeployment): Promise<void> {
     await Promise.resolve();
+    this.putCount += 1;
     this.#deployments.set(deployment.deploymentId, deployment);
   }
 }
+
+const contract: TrellisContractV1 = {
+  format: "trellis.contract.v1",
+  id: "acme.billing@v1",
+  displayName: "Billing",
+  description: "Billing service",
+  kind: "service",
+};
 
 Deno.test("Auth.ApplyServiceDeploymentContract refreshes active contracts after persisting deployment", async () => {
   const serviceDeploymentStorage = new InMemoryServiceDeploymentStorage();
@@ -45,6 +56,7 @@ Deno.test("Auth.ApplyServiceDeploymentContract refreshes active contracts after 
       digest: "digest-a",
       displayName: "Billing",
       description: "Billing service",
+      contract,
       usedNamespaces: ["billing", "audit"],
     }),
     refreshActiveContracts: async () => {
@@ -70,5 +82,165 @@ Deno.test("Auth.ApplyServiceDeploymentContract refreshes active contracts after 
   assertEquals(value.deployment.appliedContracts, [{
     contractId: "acme.billing@v1",
     allowedDigests: ["digest-a"],
+    resourceBindingsByDigest: { "digest-a": {} },
   }]);
+});
+
+Deno.test("Auth.ApplyServiceDeploymentContract provisions resources and persists bindings", async () => {
+  const serviceDeploymentStorage = new InMemoryServiceDeploymentStorage();
+  serviceDeploymentStorage.seed({
+    deploymentId: "billing.default",
+    namespaces: ["billing"],
+    disabled: false,
+    appliedContracts: [],
+  });
+
+  const handler = createAuthApplyServiceDeploymentContractHandler({
+    serviceDeploymentStorage,
+    installServiceContract: async () => ({
+      id: contract.id,
+      digest: "digest-a",
+      displayName: contract.displayName,
+      description: contract.description,
+      contract,
+      usedNamespaces: ["billing"],
+    }),
+    provisionResourceBindings: async (_nats, provisioned, deploymentId) => {
+      assertEquals(provisioned, contract);
+      assertEquals(deploymentId, "billing.default");
+      return {
+        kv: {
+          cache: { bucket: "svc_billing_cache", history: 1, ttlMs: 0 },
+        },
+      };
+    },
+    refreshActiveContracts: async () => {},
+  });
+
+  const result = await handler({
+    input: { deploymentId: "billing.default", contract: {} },
+    context: { caller: { type: "user", id: "admin" } },
+  });
+
+  assert(!result.isErr());
+  assertEquals(serviceDeploymentStorage.getValue("billing.default"), {
+    deploymentId: "billing.default",
+    namespaces: ["billing"],
+    disabled: false,
+    appliedContracts: [{
+      contractId: contract.id,
+      allowedDigests: ["digest-a"],
+      resourceBindingsByDigest: {
+        "digest-a": {
+          kv: {
+            cache: { bucket: "svc_billing_cache", history: 1, ttlMs: 0 },
+          },
+        },
+      },
+    }],
+  });
+});
+
+Deno.test("Auth.ApplyServiceDeploymentContract preserves bindings for multiple same-lineage digests", async () => {
+  const serviceDeploymentStorage = new InMemoryServiceDeploymentStorage();
+  serviceDeploymentStorage.seed({
+    deploymentId: "billing.default",
+    namespaces: ["billing"],
+    disabled: false,
+    appliedContracts: [{
+      contractId: contract.id,
+      allowedDigests: ["digest-a"],
+      resourceBindingsByDigest: {
+        "digest-a": {
+          kv: {
+            cache: { bucket: "svc_billing_cache_a", history: 1, ttlMs: 0 },
+          },
+        },
+      },
+    }],
+  });
+
+  const handler = createAuthApplyServiceDeploymentContractHandler({
+    serviceDeploymentStorage,
+    installServiceContract: async () => ({
+      id: contract.id,
+      digest: "digest-b",
+      displayName: contract.displayName,
+      description: contract.description,
+      contract,
+      usedNamespaces: ["billing"],
+    }),
+    provisionResourceBindings: async () => ({
+      kv: { cache: { bucket: "svc_billing_cache_b", history: 2, ttlMs: 1000 } },
+    }),
+    refreshActiveContracts: async () => {},
+  });
+
+  const result = await handler({
+    input: { deploymentId: "billing.default", contract: {} },
+    context: { caller: { type: "user", id: "admin" } },
+  });
+
+  assert(!result.isErr());
+  assertEquals(
+    serviceDeploymentStorage.getValue("billing.default")
+      ?.appliedContracts,
+    [{
+      contractId: contract.id,
+      allowedDigests: ["digest-a", "digest-b"],
+      resourceBindingsByDigest: {
+        "digest-a": {
+          kv: {
+            cache: { bucket: "svc_billing_cache_a", history: 1, ttlMs: 0 },
+          },
+        },
+        "digest-b": {
+          kv: {
+            cache: { bucket: "svc_billing_cache_b", history: 2, ttlMs: 1000 },
+          },
+        },
+      },
+    }],
+  );
+});
+
+Deno.test("Auth.ApplyServiceDeploymentContract does not mutate deployment when resource provisioning fails", async () => {
+  const serviceDeploymentStorage = new InMemoryServiceDeploymentStorage();
+  const deployment = {
+    deploymentId: "billing.default",
+    namespaces: ["billing"],
+    disabled: false,
+    appliedContracts: [],
+  };
+  serviceDeploymentStorage.seed(deployment);
+
+  const handler = createAuthApplyServiceDeploymentContractHandler({
+    serviceDeploymentStorage,
+    installServiceContract: async () => ({
+      id: contract.id,
+      digest: "digest-a",
+      displayName: contract.displayName,
+      description: contract.description,
+      contract,
+      usedNamespaces: ["billing"],
+    }),
+    provisionResourceBindings: async () => {
+      throw new Error("cannot create bucket");
+    },
+    refreshActiveContracts: async () => {
+      throw new Error("should not refresh");
+    },
+  });
+
+  const result = await handler({
+    input: { deploymentId: "billing.default", contract: {} },
+    context: { caller: { type: "user", id: "admin" } },
+  });
+
+  assert(result.isErr());
+  assertEquals(serviceDeploymentStorage.putCount, 0);
+  assertEquals(
+    serviceDeploymentStorage.getValue("billing.default"),
+    deployment,
+  );
 });

@@ -5,7 +5,7 @@ import { Type } from "typebox";
 import { Value } from "typebox/value";
 
 import type { ContractStore } from "../../catalog/store.ts";
-import { provisionContractResourceBindings } from "../../catalog/resources.ts";
+import { getContractResourceAnalysis } from "../../catalog/resources.ts";
 import { resolveContractUsesFromStore } from "../../catalog/uses.ts";
 import { SessionKeySchema, SignatureSchema } from "../schemas.ts";
 import type { SentinelCreds } from "../schemas.ts";
@@ -32,7 +32,6 @@ export const ServiceBootstrapRequestSchema = Type.Object({
 
 export type ServiceBootstrapDeps = {
   contractStore: ContractStore;
-  nats?: Parameters<typeof provisionContractResourceBindings>[0];
   transports: {
     native?: { natsServers: string[] };
     websocket?: { natsServers: string[] };
@@ -66,7 +65,11 @@ export type ServiceBootstrapDeps = {
     {
       deploymentId: string;
       disabled: boolean;
-      appliedContracts: Array<{ contractId: string; allowedDigests: string[] }>;
+      appliedContracts: Array<{
+        contractId: string;
+        allowedDigests: string[];
+        resourceBindingsByDigest?: Record<string, Record<string, unknown>>;
+      }>;
     } | null
   >;
   refreshActiveContracts(): Promise<void>;
@@ -143,6 +146,12 @@ function getRequiredServiceCapabilities(
 
 function sameJsonRecord(left: unknown, right: unknown): boolean {
   return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+}
+
+function hasDeclaredResourcesOrJobs(contract: TrellisContractV1): boolean {
+  const analysis = getContractResourceAnalysis(contract);
+  return analysis.kv.length > 0 || analysis.store.length > 0 ||
+    analysis.jobs.length > 0;
 }
 
 export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
@@ -261,13 +270,26 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
       );
     }
 
-    const resourceBindings = deps.nats
-      ? await provisionContractResourceBindings(
-        deps.nats,
-        contract,
-        service.deploymentId,
-      )
-      : service.resourceBindings;
+    const resourceBindings = applied.resourceBindingsByDigest?.[
+      request.contractDigest
+    ];
+    if (
+      resourceBindings === undefined && hasDeclaredResourcesOrJobs(contract)
+    ) {
+      return c.json(
+        bootstrapFailure(
+          "service_resource_bindings_missing",
+          `Service deployment '${deployment.deploymentId}' has applied contract '${request.contractId}' digest '${request.contractDigest}' with declared resources or jobs, but no stored resource bindings. Re-apply the contract to the deployment before starting this service.`,
+          {
+            instanceId: service.instanceId,
+            deploymentId: deployment.deploymentId,
+            contractId: request.contractId,
+            contractDigest: request.contractDigest,
+          },
+        ),
+        409,
+      );
+    }
     const capabilities = getRequiredServiceCapabilities(
       deps.contractStore,
       contract,
@@ -286,7 +308,7 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
         currentContractId: request.contractId,
         currentContractDigest: request.contractDigest,
         capabilities,
-        resourceBindings,
+        resourceBindings: resourceBindings ?? {},
       };
       await deps.saveServiceInstance(nextService);
       await deps.refreshActiveContracts();

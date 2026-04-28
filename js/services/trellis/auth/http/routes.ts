@@ -131,7 +131,6 @@ export function registerHttpRoutes(
     browserFlowsKV,
     connectionsKV,
     logger,
-    natsTrellis,
     oauthStateKV,
     pendingAuthKV,
     sentinelCreds,
@@ -293,7 +292,7 @@ export function registerHttpRoutes(
         contract: validatedContract.canonical,
       });
     }
-    opts.contractStore.activate(
+    opts.contractStore.add(
       validatedContract.digest,
       validatedContract.contract,
     );
@@ -562,7 +561,6 @@ export function registerHttpRoutes(
     "/bootstrap/service",
     createServiceBootstrapHandler({
       contractStore: opts.contractStore,
-      nats: natsTrellis,
       transports: buildClientTransports(config),
       sentinel: sentinelCreds,
       loadServiceInstance: async (instanceKey) => {

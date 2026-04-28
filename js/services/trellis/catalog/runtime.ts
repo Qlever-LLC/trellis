@@ -324,6 +324,7 @@ export function createContractsModule(opts: {
     digest: string;
     displayName: string;
     description: string;
+    contract: TrellisContractV1;
     usedNamespaces: string[];
   }> {
     const { validated, usedNamespaces, analyzed } =
@@ -353,6 +354,7 @@ export function createContractsModule(opts: {
         digest: validated.digest,
         displayName: validated.contract.displayName,
         description: validated.contract.description,
+        contract: validated.contract,
         usedNamespaces: [...usedNamespaces].sort((left, right) =>
           left.localeCompare(right)
         ),
@@ -379,6 +381,7 @@ export function createContractsModule(opts: {
       digest: validated.digest,
       displayName: validated.contract.displayName,
       description: validated.contract.description,
+      contract: validated.contract,
       usedNamespaces: [...usedNamespaces].sort((left, right) =>
         left.localeCompare(right)
       ),

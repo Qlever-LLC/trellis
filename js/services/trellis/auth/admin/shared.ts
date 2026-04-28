@@ -1,6 +1,10 @@
 import { AuthError } from "@qlever-llc/trellis";
 import { Result } from "@qlever-llc/result";
+import { ContractResourceBindingsSchema } from "@qlever-llc/trellis/contracts";
+import type { Static } from "typebox";
 import { sha256Base64urlSync } from "../../../../packages/trellis/contract_support/canonical.ts";
+
+type AppliedResourceBindings = Static<typeof ContractResourceBindingsSchema>;
 
 export type Portal = {
   portalId: string;
@@ -61,6 +65,7 @@ export type DevicePortalSelection = {
 export type AppliedDeploymentContract = {
   contractId: string;
   allowedDigests: string[];
+  resourceBindingsByDigest?: Record<string, AppliedResourceBindings>;
 };
 
 export type ServiceDeployment = {
@@ -86,6 +91,7 @@ export type InstalledServiceDeploymentContract = {
   id: string;
   digest: string;
   usedNamespaces: string[];
+  resourceBindings?: AppliedResourceBindings;
 };
 
 export type DeviceDeployment = {
@@ -227,23 +233,55 @@ export function normalizeDigestList(values: string[]): string[] {
 export function normalizeAppliedContracts(
   values: AppliedDeploymentContract[],
 ): AppliedDeploymentContract[] {
-  const byId = new Map<string, Set<string>>();
+  const byId = new Map<
+    string,
+    {
+      digests: Set<string>;
+      resourceBindingsByDigest: Map<string, AppliedResourceBindings>;
+    }
+  >();
   for (const value of values) {
     if (!value.contractId) continue;
-    const digests = byId.get(value.contractId) ?? new Set<string>();
-    for (const digest of normalizeDigestList(value.allowedDigests ?? [])) {
-      digests.add(digest);
+    const entry = byId.get(value.contractId) ?? {
+      digests: new Set<string>(),
+      resourceBindingsByDigest: new Map<string, AppliedResourceBindings>(),
+    };
+    const allowedDigests = normalizeDigestList(value.allowedDigests ?? []);
+    for (const digest of allowedDigests) {
+      entry.digests.add(digest);
     }
-    byId.set(value.contractId, digests);
+    const allowedDigestSet = new Set(allowedDigests);
+    for (
+      const [digest, bindings] of Object.entries(
+        value.resourceBindingsByDigest ?? {},
+      )
+    ) {
+      if (allowedDigestSet.has(digest)) {
+        entry.resourceBindingsByDigest.set(digest, bindings);
+      }
+    }
+    byId.set(value.contractId, entry);
   }
   return [...byId.entries()]
     .sort(([left], [right]) => left.localeCompare(right))
-    .map(([contractId, digests]) => ({
-      contractId,
-      allowedDigests: [...digests].sort((left, right) =>
-        left.localeCompare(right)
-      ),
-    }));
+    .map(([contractId, entry]) => {
+      const applied: AppliedDeploymentContract = {
+        contractId,
+        allowedDigests: [...entry.digests].sort((left, right) =>
+          left.localeCompare(right)
+        ),
+      };
+      const resourceBindingsByDigest = [...entry.resourceBindingsByDigest
+        .entries()]
+        .filter(([digest]) => applied.allowedDigests.includes(digest))
+        .sort(([left], [right]) => left.localeCompare(right));
+      if (resourceBindingsByDigest.length > 0) {
+        applied.resourceBindingsByDigest = Object.fromEntries(
+          resourceBindingsByDigest,
+        );
+      }
+      return applied;
+    });
 }
 
 /** Builds the persisted service deployment state after applying a contract. */
@@ -259,7 +297,17 @@ export function applyInstalledServiceDeploymentContract(
       .sort((left, right) => left.localeCompare(right)),
     appliedContracts: normalizeAppliedContracts([
       ...deployment.appliedContracts,
-      { contractId: installed.id, allowedDigests: [installed.digest] },
+      {
+        contractId: installed.id,
+        allowedDigests: [installed.digest],
+        ...(installed.resourceBindings !== undefined
+          ? {
+            resourceBindingsByDigest: {
+              [installed.digest]: installed.resourceBindings,
+            },
+          }
+          : {}),
+      },
     ]),
   };
 }

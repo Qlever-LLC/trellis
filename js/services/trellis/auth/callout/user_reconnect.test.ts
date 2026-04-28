@@ -13,6 +13,15 @@ async function activateContract(
   return validated.digest;
 }
 
+async function addKnownContract(
+  store: ContractStore,
+  contract: Record<string, unknown>,
+): Promise<string> {
+  const validated = await store.validate(contract);
+  store.add(validated.digest, validated.contract);
+  return validated.digest;
+}
+
 async function activateAuditDependency(store: ContractStore): Promise<void> {
   await activateContract(store, {
     format: "trellis.contract.v1",
@@ -145,6 +154,41 @@ Deno.test("resolveUserReconnectSession refreshes delegated envelope from the pre
   assertEquals(result.session.delegatedSubscribeSubjects, [
     "trellis.console.audit",
   ]);
+});
+
+Deno.test("resolveUserReconnectSession accepts a known app digest that is not active", async () => {
+  const store = new ContractStore();
+  await activateAuditDependency(store);
+  const digest = await addKnownContract(store, consoleAppContract());
+
+  const result = await resolveUserReconnectSession({
+    session: createSession(),
+    presentedContractDigest: digest,
+    contractStore: store,
+    loadUserProjection: async () => ({
+      origin: "github",
+      id: "123",
+      name: "User",
+      email: "user@example.com",
+      active: true,
+      capabilities: [],
+    }),
+    loadStoredApproval: async () => null,
+    loadInstanceGrantPolicies: async () => [{
+      contractId: "trellis.console@v1",
+      impliedCapabilities: ["audit"],
+      allowedOrigins: ["https://app.example.com"],
+      disabled: false,
+      createdAt: new Date("2026-01-01T00:00:00.000Z").toISOString(),
+      updatedAt: new Date("2026-01-01T00:00:00.000Z").toISOString(),
+      source: { kind: "admin_policy" },
+    }],
+  });
+
+  assertEquals(result.ok, true);
+  if (!result.ok) return;
+  assertEquals(result.session.contractDigest, digest);
+  assertEquals(store.isActiveDigest(digest), false);
 });
 
 Deno.test("resolveUserReconnectSession returns approval_required when current approval no longer applies", async () => {

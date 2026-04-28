@@ -28,6 +28,9 @@ export const OpenObjectSchema = Type.Unsafe<Record<string, unknown>>({
 export const AppliedDeploymentContractSchema = Type.Object({
   contractId: Type.String({ minLength: 1 }),
   allowedDigests: Type.Array(DigestSchema),
+  resourceBindingsByDigest: Type.Optional(
+    Type.Record(DigestSchema, ContractResourceBindingsSchema),
+  ),
 });
 
 export const ServiceDeploymentSchema = Type.Object({

@@ -417,6 +417,14 @@ export class ContractStore {
     return this.#contractsByDigest.get(digest);
   }
 
+  /**
+   * Return a validated contract cached by digest, regardless of active catalog
+   * membership.
+   */
+  getKnownContract(digest: string): TrellisContractV1 | undefined {
+    return this.#contractsByDigest.get(digest);
+  }
+
   getActiveContracts(): TrellisContractV1[] {
     const out: TrellisContractV1[] = [];
     for (const digest of this.#activeDigests) {

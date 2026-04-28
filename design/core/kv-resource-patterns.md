@@ -50,6 +50,9 @@ Rules:
 - optional KV resources (`required: false`) may be absent from bindings if
   provisioning is unavailable or fails, so service code must treat the binding
   as optional
+- Trellis validates KV declarations from the exact applied contract digest, but
+  physical bucket identity is scoped to the deployment/profile and contract
+  lineage rather than the digest so compatible service updates preserve data
 - service bootstrap resolves `service.kv.<alias>` and injected handler
   `trellis.kv.<alias>` as direct typed KV stores; service code does not call
   `.open(schema)`

@@ -31,6 +31,9 @@ export async function registerServiceAdminRpcs(deps: {
   natsAuth: {
     request(subject: string, payload?: string): Promise<unknown>;
   };
+  natsTrellis: Parameters<
+    typeof createAuthApplyServiceDeploymentContractHandler
+  >[0]["nats"];
   logger: Pick<AuthRuntimeDeps["logger"], "debug" | "trace" | "warn">;
   contracts: Pick<
     AuthContractsRuntime,
@@ -56,6 +59,7 @@ export async function registerServiceAdminRpcs(deps: {
     "Auth.ApplyServiceDeploymentContract",
     createAuthApplyServiceDeploymentContractHandler({
       installServiceContract: deps.contracts.installServiceContract,
+      nats: deps.natsTrellis,
       refreshActiveContracts: deps.contracts.refreshActiveContracts,
       serviceDeploymentStorage: deps.serviceDeploymentStorage,
       logger: deps.logger,

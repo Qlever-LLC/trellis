@@ -53,11 +53,12 @@ Caller-visible asynchronous APIs are defined separately in
 Jobs remain service-private execution machinery.
 
 The shared streams and projected-state KV bucket used by jobs are Trellis-owned
-runtime infrastructure. Trellis provisions those resources automatically when a
-jobs-enabled service boots. The optional jobs admin surface may still be
-authored in language-specific source alongside its implementation and emitted as
-generated artifacts plus SDKs, but ordinary services and demos should not need
-an extra manual `trellis.jobs@v1` install step just to create or process jobs.
+runtime infrastructure. Trellis provisions or binds those resources during
+service apply/install for jobs-enabled services. The optional jobs admin surface
+may still be authored in language-specific source alongside its implementation
+and emitted as generated artifacts plus SDKs, but ordinary services and demos
+should not need an extra manual `trellis.jobs@v1` install step just to create or
+process jobs.
 
 ### Design Principles
 
@@ -236,9 +237,9 @@ services do not bind to or write any registry KV bucket.
 
 ### Provisioning Model
 
-Shared jobs infrastructure is Trellis-owned runtime state. Trellis provisions it
-automatically during service bootstrap for jobs-enabled environments rather than
-requiring a separate manual jobs install step.
+Shared jobs infrastructure is Trellis-owned runtime state. Trellis provisions or
+binds it during service apply/install for jobs-enabled environments rather than
+requiring a separate manual jobs install step or first-bootstrap side effect.
 
 - normal services declare top-level `jobs` to participate in jobs processing
   without owning the shared stream topology directly
@@ -247,8 +248,8 @@ requiring a separate manual jobs install step.
 - a separate jobs admin runtime may still run for centralized queries, janitor
   work, and projections, but ordinary service-local workers do not depend on a
   manual jobs service deployment to start
-- the `trellis` service provisions or binds the shared jobs resources before
-  jobs-enabled services start
+- the `trellis` service provisions or binds the shared jobs resources during
+  service apply/install before jobs-enabled services start
 - the `jobs` service and service-local workers create only dynamic per-job-type
   consumers at runtime
 - the runtime should consume those bindings, rather than hard-coding an
@@ -268,8 +269,8 @@ service-declared contract resources.
 Normal consuming service contracts should declare top-level `jobs`. The JSON
 examples below show the resolved JetStream or KV configuration the jobs runtime
 expects after binding. Trellis should provision these shared resources during
-bootstrap so service-local workers can rely on the bindings without a separate
-infrastructure install step.
+service apply/install so service-local workers can rely on the bindings without
+a separate infrastructure install step.
 
 Resolved service bindings may still include internal runtime-generated work
 stream details such as `JOBS_WORK`, but ordinary service code should treat those
