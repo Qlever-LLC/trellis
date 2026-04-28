@@ -10,6 +10,11 @@ and this project adheres to
 
 ### Changed
 
+- Changed Rust CLI agent login and reauth to use the same normalized contract
+  identity digest as the TypeScript catalog, so display-only metadata changes no
+  longer cause `contract_changed` reconnect denials, and generic NATS
+  authorization denials no longer clear the saved local CLI session unless auth
+  explicitly reports the session as missing, revoked, or rejected.
 - Browser Trellis clients now treat revoked or missing sessions
   (`session_not_found`) as auth-required, allowing Svelte apps such as the
   console to redirect back through their login page with the current return

@@ -35,7 +35,10 @@ deno task -c demos/js/deno.json prepare:watch
 
 The prepare step generates the service SDK used by both `demos/js/app` and
 `demos/js/device`. Rerun prepare after changing `demos/js/service/contract.ts`,
-`demos/js/device/contract.ts`, or `demos/js/app/contract.ts`.
+`demos/js/device/contract.ts`, or `demos/js/app/contract.ts`. Trellis computes
+approval identity from the normalized contract interface: editing display-only
+metadata such as `displayName` or `description` updates portal/catalog copy but
+does not force a new browser, CLI, or device approval digest.
 
 ## Create And Start The Service
 
@@ -79,6 +82,11 @@ local package mappings.
 ```sh
 deno task -c demos/js/deno.json app
 ```
+
+If you change the app contract's requested RPC, operation, event, or state
+surface, the next browser sign-in may require approval for the new digest. If you
+only rename the demo app or adjust its description, existing approval remains
+valid because that metadata is not part of the contract identity digest.
 
 For ad hoc runs against a non-default Trellis URL, set the env var from the
 shell:

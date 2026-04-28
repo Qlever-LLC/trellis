@@ -20,6 +20,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use trellis_client::SessionAuth;
 
+const TRELLIS_AGENT_CONTRACT_JSON: &str = r#"{"description":"Drive Trellis operator RPC workflows from the Rust agent.","displayName":"Trellis Agent","format":"trellis.contract.v1","id":"trellis.agent@v1","kind":"agent","uses":{"auth":{"contract":"trellis.auth@v1","rpc":{"call":["Auth.ApplyDeviceDeploymentContract","Auth.ApplyServiceDeploymentContract","Auth.ClearDevicePortalSelection","Auth.ClearLoginPortalSelection","Auth.CreateDeviceDeployment","Auth.CreatePortal","Auth.CreateServiceDeployment","Auth.DecideDeviceActivationReview","Auth.DisableDeviceInstance","Auth.DisableDeviceDeployment","Auth.DisableInstanceGrantPolicy","Auth.DisablePortal","Auth.DisablePortalProfile","Auth.DisableServiceInstance","Auth.DisableServiceDeployment","Auth.EnableDeviceInstance","Auth.EnableDeviceDeployment","Auth.EnableServiceInstance","Auth.EnableServiceDeployment","Auth.GetDevicePortalDefault","Auth.GetInstalledContract","Auth.GetLoginPortalDefault","Auth.ListApprovals","Auth.ListDeviceActivationReviews","Auth.ListDeviceActivations","Auth.ListDeviceInstances","Auth.ListDevicePortalSelections","Auth.ListDeviceDeployments","Auth.ListInstanceGrantPolicies","Auth.ListInstalledContracts","Auth.ListLoginPortalSelections","Auth.ListPortalProfiles","Auth.ListPortals","Auth.ListServiceInstances","Auth.ListServiceDeployments","Auth.Logout","Auth.Me","Auth.ProvisionDeviceInstance","Auth.ProvisionServiceInstance","Auth.RemoveDeviceInstance","Auth.RemoveDeviceDeployment","Auth.RemoveServiceInstance","Auth.RemoveServiceDeployment","Auth.RevokeApproval","Auth.RevokeDeviceActivation","Auth.SetDevicePortalDefault","Auth.SetDevicePortalSelection","Auth.SetLoginPortalDefault","Auth.SetLoginPortalSelection","Auth.SetPortalProfile","Auth.UnapplyDeviceDeploymentContract","Auth.UnapplyServiceDeploymentContract","Auth.UpsertInstanceGrantPolicy","Auth.UpdateUser"]}},"core":{"contract":"trellis.core@v1","rpc":{"call":["Trellis.Catalog","Trellis.Contract.Get"]}}}}"#;
+
 fn unique_test_dir(label: &str) -> PathBuf {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -92,6 +94,84 @@ fn contract_digest_matches_canonical_json_not_raw_text() {
     let reordered_digest = contract_digest(reordered_pretty).expect("reordered digest");
 
     assert_eq!(compact_digest, reordered_digest);
+}
+
+#[test]
+fn contract_digest_ignores_display_metadata_changes() {
+    let baseline = r#"{
+      "format": "trellis.contract.v1",
+      "id": "trellis.agent@v1",
+      "kind": "agent",
+      "displayName": "Trellis Agent",
+      "description": "Admin agent",
+      "uses": {
+        "auth": {
+          "contract": "trellis.auth@v1",
+          "rpc": { "call": ["Auth.Me", "Auth.Logout"] }
+        }
+      }
+    }"#;
+    let metadata_changed = r#"{
+      "format": "trellis.contract.v1",
+      "id": "trellis.agent@v1",
+      "kind": "agent",
+      "displayName": "Renamed Agent",
+      "description": "Updated display-only copy",
+      "uses": {
+        "auth": {
+          "contract": "trellis.auth@v1",
+          "rpc": { "call": ["Auth.Me", "Auth.Logout"] }
+        }
+      }
+    }"#;
+
+    assert_eq!(
+        contract_digest(baseline).expect("baseline digest"),
+        contract_digest(metadata_changed).expect("metadata changed digest")
+    );
+}
+
+#[test]
+fn contract_digest_changes_for_identity_fields() {
+    let baseline = r#"{
+      "format": "trellis.contract.v1",
+      "id": "trellis.agent@v1",
+      "kind": "agent",
+      "displayName": "Trellis Agent",
+      "description": "Admin agent",
+      "uses": {
+        "auth": {
+          "contract": "trellis.auth@v1",
+          "rpc": { "call": ["Auth.Me", "Auth.Logout"] }
+        }
+      }
+    }"#;
+    let identity_changed = r#"{
+      "format": "trellis.contract.v1",
+      "id": "trellis.agent@v1",
+      "kind": "agent",
+      "displayName": "Trellis Agent",
+      "description": "Admin agent",
+      "uses": {
+        "auth": {
+          "contract": "trellis.auth@v1",
+          "rpc": { "call": ["Auth.Me", "Auth.Logout", "Auth.ListApprovals"] }
+        }
+      }
+    }"#;
+
+    assert_ne!(
+        contract_digest(baseline).expect("baseline digest"),
+        contract_digest(identity_changed).expect("identity changed digest")
+    );
+}
+
+#[test]
+fn contract_digest_matches_js_projection_for_embedded_trellis_agent_contract() {
+    assert_eq!(
+        contract_digest(TRELLIS_AGENT_CONTRACT_JSON).expect("agent contract digest"),
+        "yXAokZb__8B9sR-bllCe5uY2g6mAckWnPL-Ofn7RCrY"
+    );
 }
 
 #[test]

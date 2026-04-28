@@ -152,6 +152,9 @@ pub(crate) async fn connect_authenticated_cli_client(
 fn map_admin_session_error(error: authlib::TrellisAuthError) -> miette::Report {
     match rejected_admin_session_error_report(&error) {
         Ok(Some(report)) => report,
+        Ok(None) if is_admin_session_authorization_violation_error(&error) => {
+            generic_admin_authorization_violation_report()
+        }
         Ok(None) => miette::miette!(error.to_string()),
         Err(report) => report,
     }
@@ -188,10 +191,28 @@ fn is_rejected_admin_session_error(error: &authlib::TrellisAuthError) -> bool {
 
 fn is_rejected_admin_session_message(message: &str) -> bool {
     let message = message.to_ascii_lowercase();
-    message.contains("authorization violation")
-        || message.contains("revoked")
+    message.contains("revoked")
         || message.contains("rejected")
         || message.contains("session_not_found")
+}
+
+fn is_admin_session_authorization_violation_error(error: &authlib::TrellisAuthError) -> bool {
+    match error {
+        authlib::TrellisAuthError::TrellisClient(
+            TrellisClientError::NatsConnect(message)
+            | TrellisClientError::NatsRequest(message)
+            | TrellisClientError::RpcError(message),
+        ) => message
+            .to_ascii_lowercase()
+            .contains("authorization violation"),
+        _ => false,
+    }
+}
+
+fn generic_admin_authorization_violation_report() -> miette::Report {
+    miette::miette!(
+        "Saved agent session authorization was denied by the server; run `trellis auth login` to reauthenticate."
+    )
 }
 
 fn rejected_admin_session_report() -> miette::Result<miette::Report> {
@@ -207,7 +228,7 @@ fn rejected_admin_session_report() -> miette::Result<miette::Report> {
 #[cfg(test)]
 mod tests {
     use super::{
-        is_rejected_admin_session_error, map_admin_session_result,
+        is_rejected_admin_session_error, map_admin_session_error, map_admin_session_result,
         rejected_admin_session_error_report, rejected_admin_session_report,
     };
     use std::env;
@@ -249,39 +270,39 @@ mod tests {
     }
 
     #[test]
-    fn treats_authorization_violation_as_rejected_session() {
+    fn does_not_treat_generic_connect_authorization_violation_as_rejected_session() {
         let error = TrellisAuthError::TrellisClient(TrellisClientError::NatsConnect(
             "authorization violation".to_string(),
         ));
 
-        assert!(is_rejected_admin_session_error(&error));
+        assert!(!is_rejected_admin_session_error(&error));
     }
 
     #[test]
-    fn treats_request_authorization_violation_as_rejected_session() {
+    fn does_not_treat_generic_request_authorization_violation_as_rejected_session() {
         let error = TrellisAuthError::TrellisClient(TrellisClientError::NatsRequest(
             "authorization violation".to_string(),
         ));
 
-        assert!(is_rejected_admin_session_error(&error));
+        assert!(!is_rejected_admin_session_error(&error));
     }
 
     #[test]
-    fn treats_rpc_error_authorization_violation_as_rejected_session() {
+    fn does_not_treat_generic_rpc_authorization_violation_as_rejected_session() {
         let error = TrellisAuthError::TrellisClient(TrellisClientError::RpcError(
             "authorization violation".to_string(),
         ));
 
-        assert!(is_rejected_admin_session_error(&error));
+        assert!(!is_rejected_admin_session_error(&error));
     }
 
     #[test]
-    fn treats_mixed_case_authorization_violation_as_rejected_session() {
+    fn does_not_treat_mixed_case_authorization_violation_as_rejected_session() {
         let error = TrellisAuthError::TrellisClient(TrellisClientError::NatsRequest(
             "Authorization Violation".to_string(),
         ));
 
-        assert!(is_rejected_admin_session_error(&error));
+        assert!(!is_rejected_admin_session_error(&error));
     }
 
     #[test]
@@ -342,9 +363,9 @@ mod tests {
     }
 
     #[test]
-    fn rejected_session_request_error_clears_local_session_and_requires_explicit_login() {
+    fn generic_rejected_session_request_authorization_violation_does_not_clear_local_session() {
         let _guard = config_env_lock().lock().expect("lock config env");
-        let test_dir = unique_test_dir("rejected-session-request-error");
+        let test_dir = unique_test_dir("generic-rejected-session-request-error");
         fs::create_dir_all(test_dir.join("trellis")).expect("create test config dir");
         unsafe {
             env::set_var("XDG_CONFIG_HOME", &test_dir);
@@ -356,14 +377,14 @@ mod tests {
         let error = TrellisAuthError::TrellisClient(TrellisClientError::NatsRequest(
             "authorization violation".to_string(),
         ));
-        let report = rejected_admin_session_error_report(&error)
-            .expect("map rejected-session request error")
-            .expect("rejected-session request error should map to report");
+        assert!(rejected_admin_session_error_report(&error)
+            .expect("map generic authorization request error")
+            .is_none());
+        let report = map_admin_session_error(error);
 
-        assert!(!admin_session_path(&test_dir).exists());
-        assert!(report
-            .to_string()
-            .contains("run `trellis auth login` explicitly"));
+        assert!(admin_session_path(&test_dir).exists());
+        assert!(report.to_string().contains("run `trellis auth login`"));
+        assert!(report.to_string().contains("reauthenticate"));
 
         unsafe {
             env::remove_var("XDG_CONFIG_HOME");
@@ -398,6 +419,59 @@ mod tests {
             env::remove_var("XDG_CONFIG_HOME");
         }
         let _ = fs::remove_dir_all(test_dir);
+    }
+
+    fn assert_rejected_session_error_clears_local_session(label: &str, error: TrellisAuthError) {
+        let _guard = config_env_lock().lock().expect("lock config env");
+        let test_dir = unique_test_dir(label);
+        fs::create_dir_all(test_dir.join("trellis")).expect("create test config dir");
+        unsafe {
+            env::set_var("XDG_CONFIG_HOME", &test_dir);
+        }
+
+        save_admin_session(&test_admin_session_state()).expect("save admin session");
+        assert!(admin_session_path(&test_dir).exists());
+
+        let report = map_admin_session_result::<()>(Err(error))
+            .expect_err("explicit rejected-session signal should map to report");
+
+        assert!(!admin_session_path(&test_dir).exists());
+        assert!(report
+            .to_string()
+            .contains("run `trellis auth login` explicitly"));
+
+        unsafe {
+            env::remove_var("XDG_CONFIG_HOME");
+        }
+        let _ = fs::remove_dir_all(test_dir);
+    }
+
+    #[test]
+    fn explicit_session_not_found_rejected_session_clears_local_session() {
+        assert_rejected_session_error_clears_local_session(
+            "session-not-found-rejected-session",
+            TrellisAuthError::TrellisClient(TrellisClientError::RpcError(
+                "session_not_found".to_string(),
+            )),
+        );
+    }
+
+    #[test]
+    fn explicit_revoked_rejected_session_clears_local_session() {
+        assert_rejected_session_error_clears_local_session(
+            "revoked-rejected-session",
+            TrellisAuthError::TrellisClient(TrellisClientError::NatsRequest(
+                "session revoked".to_string(),
+            )),
+        );
+    }
+
+    #[test]
+    fn explicit_rejected_session_clears_local_session() {
+        assert_rejected_session_error_clears_local_session(
+            "rejected-rejected-session",
+            TrellisAuthError::AuthRequestHttpFailure(401, "session rejected".to_string()),
+        );
     }
 }
 

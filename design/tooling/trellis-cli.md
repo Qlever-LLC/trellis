@@ -183,12 +183,18 @@ Operational command behavior:
   persisted internally rather than exposed as normal CLI flags
 - normal authenticated CLI commands reconnect with freshly generated runtime auth
   proofs derived from the stored session key, current contract digest, and
-  `iat`; when the local agent contract digest changes, the CLI starts the normal
-  auth request flow with the full agent contract, may complete immediately when
-  the existing delegated grant already covers the new contract, otherwise prints
-  the detached portal login URL, may render a QR code, does not auto-open a
-  browser or start a localhost callback listener, and completes by polling the
-  auth-owned flow before reconnecting NATS and issuing admin RPCs
+  `iat`; the current contract digest is the normalized contract identity digest,
+  not a hash of human-facing display metadata; when the local agent contract
+  digest changes, the CLI starts the normal auth request flow with the full agent
+  contract, may complete immediately when the existing delegated grant already
+  covers the new contract, otherwise prints the detached portal login URL, may
+  render a QR code, does not auto-open a browser or start a localhost callback
+  listener, and completes by polling the auth-owned flow before reconnecting NATS
+  and issuing admin RPCs
+- generic NATS authorization failures during authenticated command reconnects do
+  not by themselves prove the stored local session was revoked; the CLI preserves
+  local session material unless auth returns an explicit `session_not_found`,
+  `revoked`, or `rejected` signal
 - `trellis portal *` manages registered custom portal web apps used to replace
   the built-in Trellis portal for login flows, device flows, or both; portal
   records are routing config only (`portalId`, `entryUrl`, `disabled`)

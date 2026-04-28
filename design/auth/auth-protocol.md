@@ -425,10 +425,12 @@ Flow summary:
    `{ sessionKey, sig }`.
 
 When a caller's local contract digest changes, it starts the normal auth request
-flow again with the current contract body. Auth may bind immediately when the
-requested subjects and capabilities are a strict subset of the caller's current
-delegated envelope for the same app identity and contract lineage; otherwise it
-returns a normal browser flow.
+flow again with the current contract body. Clients MUST compute that digest from
+the same normalized contract identity projection used by the catalog, not from
+human-facing manifest metadata such as `displayName` or `description`. Auth may
+bind immediately when the requested subjects and capabilities are a strict subset
+of the caller's current delegated envelope for the same app identity and contract
+lineage; otherwise it returns a normal browser flow.
 
 Bind proof rules:
 

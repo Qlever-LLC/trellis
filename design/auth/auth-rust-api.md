@@ -84,8 +84,10 @@ the new contract immediately, or `AdminReauthOutcome::Flow(...)` when the CLI
 must continue through the same detached portal flow.
 
 `AdminSessionState` persists the current delegated `contract_digest` together
-with the session seed and sentinel credentials. Rust runtime reconnect
-regenerates the Trellis auth token from the stored session key and
+with the session seed and sentinel credentials. Rust computes this digest from
+the normalized contract identity projection used by the TypeScript catalog, so
+display-only metadata changes do not create a new runtime identity. Rust runtime
+reconnect regenerates the Trellis auth token from the stored session key and
 `contract_digest`; it does not persist or renew a separate binding token.
 
 `connect_admin_client_async(...)` uses reconnect-time auth callbacks. Each

@@ -106,7 +106,7 @@ All three share the same post-auth authorization pipeline. Installed and activat
 
 ### Session keys
 
-Every client has a local Ed25519 session key. The private seed never leaves the client. Authentication works by proving ownership of the session key in every RPC and runtime connect request. For user runtime reconnects, Trellis uses fresh signed proofs over the session key, presented contract digest, and `iat` timestamp rather than renewable binding tokens.
+Every client has a local Ed25519 session key. The private seed never leaves the client. Authentication works by proving ownership of the session key in every RPC and runtime connect request. For user runtime reconnects, Trellis uses fresh signed proofs over the session key, presented contract digest, and `iat` timestamp rather than renewable binding tokens. That digest is the normalized contract identity digest; display-only manifest metadata such as `displayName` and `description` can change without creating a new approval identity.
 
 - **Installed devices** receive their identity when an operator installs the device contract against the device's public key
 - **Browser apps** store the session key in IndexedDB via WebCrypto (non-extractable)
@@ -126,6 +126,8 @@ The flow:
 3. The portal fetches `GET /auth/flow/:flowId` and renders UX based on the flow state — provider chooser, approval screen, optional app context, or a terminal redirect
 4. After the user authenticates and approval is satisfied, Trellis provisions the user immediately and the browser bind/bootstrap flow returns the approved session metadata, transport endpoints, and sentinel credentials for the app session.
 5. The app connects through `TrellisClient.connect(...)`, which generates fresh signed runtime auth proofs from the local session key and current contract digest during connect and reconnect.
+
+CLI sessions use the same contract-bearing flow. If the Trellis agent contract's identity digest changes, the CLI starts detached reauthentication with the portal URL or QR code. A generic NATS authorization denial during reconnect does not automatically delete the local CLI session; explicit revoked or missing-session responses still require a fresh `trellis auth login`.
 
 Provider scopes like `openid`, `profile`, and `email` stay in the external
 identity-provider layer. The approval screen inside Trellis is about the app's

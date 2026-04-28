@@ -12,6 +12,10 @@ The app has two distinct roles:
 - Browser apps should return to their app-local login route when an active
   session is revoked or missing. The built-in portal remains the provider and
   approval UX that app-local login routes start or resume.
+- Detached CLI agent reauthentication uses the same `flowId` portal state as
+  browser apps. When the redirect target resolves back to the current portal
+  page, the portal stays on its completion screen so the user can return to the
+  terminal instead of looping back through browser navigation.
 - `/_trellis/portal/devices/activate` resumes a preserved `flowId` after sign-in
   and starts the `Auth.ActivateDevice` operation over the Trellis runtime.
 - SvelteKit runtime assets are served under `/_trellis/assets/*` to keep the
@@ -56,3 +60,7 @@ empty allowed-digest lineage entry.
 If a custom portal needs to call Trellis after login, model that follow-on
 access with a normal `app` contract and a portal profile. Passive portals that
 only render flow state do not need their own Trellis contract.
+
+Approval decisions are keyed by the normalized contract identity digest. Portal
+copy may show `displayName` and `description`, but edits to that display metadata
+alone do not require users to approve a new app or agent identity.
