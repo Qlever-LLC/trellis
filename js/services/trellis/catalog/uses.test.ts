@@ -1,7 +1,10 @@
 import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 import { assert, assertEquals, assertThrows } from "@std/assert";
 
-import { createActiveContractLookup } from "./uses.ts";
+import {
+  createActiveContractLookup,
+  validateActiveContractUses,
+} from "./uses.ts";
 
 type ContractSchemas = NonNullable<TrellisContractV1["schemas"]>;
 
@@ -115,6 +118,32 @@ Deno.test("active compatible projection rejects subject reuse across logical sur
       ]),
     Error,
     "different logical surfaces",
+  );
+});
+
+Deno.test("active uses validation rejects missing active dependencies", () => {
+  assertThrows(
+    () =>
+      validateActiveContractUses([
+        {
+          digest: "portal-a",
+          contract: {
+            format: "trellis.contract.v1",
+            id: "portal@v1",
+            displayName: "Portal",
+            description: "Portal test contract",
+            kind: "service",
+            uses: {
+              billing: {
+                contract: "billing@v1",
+                operations: { call: ["Refund"] },
+              },
+            },
+          },
+        },
+      ]),
+    Error,
+    "inactive contract 'billing@v1'",
   );
 });
 

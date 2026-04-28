@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onDestroy, onMount } from "svelte";
   import { getTrellis } from "$lib/trellis";
 
   type SiteSummary = {
@@ -38,44 +38,58 @@
   let selectedSite = $state<SiteSummary | null>(null);
   let acceptedId = $state<string | null>(null);
   let progressLog = $state<Array<{ label: string; state: string }>>([]);
+  let mounted = false;
+  let selectionRequestId = 0;
+  let refreshRunId = 0;
 
   async function loadSite(siteId: string): Promise<void> {
+    const requestId = ++selectionRequestId;
     selectedSiteId = siteId;
     error = null;
 
     try {
       const response = await trellis.request("Sites.Get", { siteId }).orThrow();
+      if (!mounted || requestId !== selectionRequestId || selectedSiteId !== siteId) return;
       selectedSite = response.site ?? null;
     } catch (cause) {
+      if (!mounted || requestId !== selectionRequestId) return;
       error = cause instanceof Error ? cause.message : String(cause);
     }
   }
 
   async function loadSites(preferredSiteId?: string): Promise<void> {
+    const requestId = ++selectionRequestId;
     loading = true;
     error = null;
 
     try {
       const response = await trellis.request("Sites.List", {}).orThrow();
+      if (!mounted || requestId !== selectionRequestId) return;
       sites = response.sites;
 
       const siteIdToLoad = preferredSiteId ?? selectedSiteId ?? response.sites[0]?.siteId;
       if (siteIdToLoad) {
-        await loadSite(siteIdToLoad);
+        selectedSiteId = siteIdToLoad;
+        const siteResponse = await trellis.request("Sites.Get", { siteId: siteIdToLoad }).orThrow();
+        if (!mounted || requestId !== selectionRequestId || selectedSiteId !== siteIdToLoad) return;
+        selectedSite = siteResponse.site ?? null;
       } else {
         selectedSiteId = null;
         selectedSite = null;
       }
     } catch (cause) {
+      if (!mounted || requestId !== selectionRequestId) return;
       error = cause instanceof Error ? cause.message : String(cause);
     } finally {
+      if (!mounted || requestId !== selectionRequestId) return;
       loading = false;
     }
   }
 
-  async function watchRefresh(ref: RefreshOperationRef): Promise<void> {
+  async function watchRefresh(ref: RefreshOperationRef, runId: number): Promise<void> {
     const stream = await ref.watch().orThrow();
     for await (const event of stream) {
+      if (!mounted || runId !== refreshRunId) return;
       const label = event.progress ? `${event.progress.stage}: ${event.progress.message}` : `${event.type} update`;
       progressLog = [{ label, state: event.snapshot.state }, ...progressLog].slice(0, 6);
     }
@@ -88,25 +102,40 @@
     error = null;
     acceptedId = null;
     progressLog = [];
+    const runId = ++refreshRunId;
 
     try {
       const ref = await trellis.operation("Sites.Refresh").input({ siteId: selectedSiteId }).start().orThrow();
+      if (!mounted || runId !== refreshRunId) return;
       acceptedId = ref.id;
-      void watchRefresh(ref);
+      void watchRefresh(ref, runId).catch((cause) => {
+        if (!mounted || runId !== refreshRunId) return;
+        error = cause instanceof Error ? cause.message : String(cause);
+      });
       const terminal = await ref.wait().orThrow();
+      if (!mounted || runId !== refreshRunId) return;
       if (terminal.output) {
         selectedSite = terminal.output.site;
         await loadSites(terminal.output.site.siteId);
       }
     } catch (cause) {
+      if (!mounted || runId !== refreshRunId) return;
       error = cause instanceof Error ? cause.message : String(cause);
     } finally {
+      if (!mounted || runId !== refreshRunId) return;
       refreshing = false;
     }
   }
 
   onMount(() => {
+    mounted = true;
     void loadSites();
+  });
+
+  onDestroy(() => {
+    mounted = false;
+    selectionRequestId += 1;
+    refreshRunId += 1;
   });
 </script>
 
@@ -114,37 +143,38 @@
   <title>Site Status · Field Inspection Desk</title>
 </svelte:head>
 
-<section class="flex w-full flex-col gap-6">
-  <header class="rounded-box border border-base-300 bg-base-100/80 p-4 shadow-sm md:p-5">
-    <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-      <div class="space-y-2">
-        <div class="badge badge-primary badge-outline">Sites → Site Status</div>
-        <h1 class="text-2xl font-semibold tracking-tight md:text-3xl">Site Status</h1>
-        <p class="max-w-3xl text-sm text-base-content/70">
+<section class="page-sheet rounded-box p-5 sm:p-7">
+  <div class="flex flex-col gap-6">
+  <header class="pb-1">
+    <div class="flex min-w-0 flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+      <div class="min-w-0 space-y-3">
+        <div class="trellis-kicker">Sites.Refresh</div>
+        <h1 class="break-words text-2xl font-black tracking-tight md:text-3xl">Site status</h1>
+        <p class="max-w-3xl break-words text-sm text-base-content/70">
           Review each inspection location, refresh the active site summary, and watch the operation timeline as the service reconciles status.
         </p>
       </div>
-      <div class="flex flex-wrap gap-3">
-        <button class="btn btn-primary btn-sm" onclick={() => void loadSites()} disabled={loading || refreshing}>
+      <div class="flex min-w-0 flex-wrap gap-3">
+        <button class="btn btn-accent btn-sm" onclick={() => void loadSites()} disabled={loading || refreshing}>
           {loading ? "Loading sites..." : "Refresh board"}
         </button>
         <button class="btn btn-outline btn-sm" onclick={refreshSite} disabled={refreshing || !selectedSiteId}>
           {refreshing ? "Reconciling..." : "Reconcile active site"}
         </button>
-        <div class="badge badge-outline badge-lg">Teaching note: RPC + operation</div>
+        <div class="badge badge-outline badge-lg max-w-full"><span class="truncate">Teaching note: RPC + operation</span></div>
       </div>
     </div>
   </header>
 
-  <div class="stats stats-vertical border border-base-300 bg-base-100 shadow-sm md:stats-horizontal">
+  <div class="stats stats-vertical overflow-hidden border-y border-base-300/80 bg-base-200/35 md:stats-horizontal">
     <div class="stat">
       <div class="stat-title">Sites on board</div>
       <div class="stat-value text-3xl">{sites.length}</div>
       <div class="stat-desc">Sites.List result</div>
     </div>
     <div class="stat">
-      <div class="stat-title">Active status</div>
-      <div class="stat-value text-lg">{selectedSite?.latestStatus ?? "No site selected"}</div>
+      <div class="stat-title min-w-0 break-words">Active status</div>
+      <div class="stat-value min-w-0 break-words text-lg">{selectedSite?.latestStatus ?? "No site selected"}</div>
       <div class="stat-desc">Current summary snapshot</div>
     </div>
   </div>
@@ -153,12 +183,12 @@
     <div role="alert" class="alert alert-error"><span>{error}</span></div>
   {/if}
 
-  <div class="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(20rem,0.9fr)]">
-    <section class="card border border-base-300 bg-base-100 shadow-sm">
-      <div class="card-body gap-4">
-        <div class="flex items-center justify-between gap-3">
-          <h2 class="card-title text-lg">Status board</h2>
-          <span class="badge badge-ghost">Sites.List</span>
+  <div class="section-rule grid gap-7 pt-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(20rem,0.9fr)]">
+    <section class="min-w-0">
+      <div class="flex flex-col gap-5">
+        <div class="flex min-w-0 flex-wrap items-center justify-between gap-3">
+          <h2 class="min-w-0 break-words text-lg font-black tracking-tight">Status board</h2>
+          <span class="badge badge-ghost max-w-full"><span class="truncate">Sites.List</span></span>
         </div>
 
         {#if loading}
@@ -167,22 +197,22 @@
           <div class="alert"><span>No site status records are available.</span></div>
         {:else}
           <div class="overflow-x-auto">
-            <table class="table table-zebra">
+            <table class="table table-zebra executive-table min-w-[48rem]">
               <thead>
-                <tr><th>Site</th><th>Status</th><th>Open</th><th>Overdue</th><th></th></tr>
+                <tr><th>Site</th><th>Status</th><th>Open</th><th>Overdue</th><th><span class="sr-only">Actions</span></th></tr>
               </thead>
               <tbody>
                 {#each sites as siteItem (siteItem.siteId)}
                   <tr class={selectedSiteId === siteItem.siteId ? "bg-base-200" : undefined}>
-                    <td>
-                      <div class="font-medium">{siteItem.siteName}</div>
-                      <div class="font-mono text-xs text-base-content/60">{siteItem.siteId}</div>
-                    </td>
-                    <td><span class="badge badge-outline">{siteItem.latestStatus}</span></td>
+                    <th scope="row">
+                      <div class="break-words font-medium">{siteItem.siteName}</div>
+                      <div class="break-words font-mono text-xs text-base-content/60">{siteItem.siteId}</div>
+                    </th>
+                    <td><span class="badge badge-outline max-w-40"><span class="truncate">{siteItem.latestStatus}</span></span></td>
                     <td>{siteItem.openInspections}</td>
                     <td>{siteItem.overdueInspections}</td>
                     <td class="text-right">
-                      <button class="btn btn-outline btn-sm" onclick={() => loadSite(siteItem.siteId)} disabled={selectedSiteId === siteItem.siteId}>Inspect</button>
+                      <button class="btn btn-outline btn-sm" onclick={() => loadSite(siteItem.siteId)} disabled={selectedSiteId === siteItem.siteId} aria-label={`Inspect ${siteItem.siteName}`}>Inspect</button>
                     </td>
                   </tr>
                 {/each}
@@ -193,26 +223,26 @@
       </div>
     </section>
 
-    <section class="card border border-base-300 bg-base-100 shadow-sm">
-      <div class="card-body gap-4">
-        <div class="flex items-center justify-between gap-3">
-          <h2 class="card-title text-lg">Active site dossier</h2>
+    <section class="min-w-0 border-t border-base-300/80 pt-6 xl:border-l xl:border-t-0 xl:pl-6 xl:pt-0">
+      <div class="flex flex-col gap-5">
+        <div class="flex min-w-0 flex-wrap items-center justify-between gap-3">
+          <h2 class="min-w-0 break-words text-lg font-black tracking-tight">Active site dossier</h2>
           {#if acceptedId}
-            <span class="badge badge-outline font-mono">{acceptedId}</span>
+            <span class="badge badge-outline max-w-full font-mono"><span class="truncate">{acceptedId}</span></span>
           {:else if selectedSiteId}
-            <span class="badge badge-outline">{selectedSiteId}</span>
+            <span class="badge badge-outline max-w-full"><span class="truncate">{selectedSiteId}</span></span>
           {/if}
         </div>
 
         {#if selectedSite}
           <div class="overflow-x-auto">
-            <table class="table table-sm">
+            <table class="table table-sm executive-table min-w-[28rem]">
               <tbody>
-                <tr><th>Site</th><td class="font-medium">{selectedSite.siteName}</td></tr>
-                <tr><th>Field status</th><td>{selectedSite.latestStatus}</td></tr>
-                <tr><th>Open inspections</th><td>{selectedSite.openInspections}</td></tr>
-                <tr><th>Overdue inspections</th><td>{selectedSite.overdueInspections}</td></tr>
-                <tr><th>Last report</th><td class="font-mono text-xs">{selectedSite.lastReportAt}</td></tr>
+                <tr><th scope="row">Site</th><td class="break-words font-medium">{selectedSite.siteName}</td></tr>
+                <tr><th scope="row">Field status</th><td class="break-words">{selectedSite.latestStatus}</td></tr>
+                <tr><th scope="row">Open inspections</th><td>{selectedSite.openInspections}</td></tr>
+                <tr><th scope="row">Overdue inspections</th><td>{selectedSite.overdueInspections}</td></tr>
+                <tr><th scope="row">Last report</th><td class="break-words font-mono text-xs">{selectedSite.lastReportAt}</td></tr>
               </tbody>
             </table>
           </div>
@@ -224,14 +254,15 @@
           <div class="divider my-0">Reconcile timeline</div>
           <div class="space-y-2">
             {#each progressLog as entry, index (`${entry.label}-${index}`)}
-              <div class="rounded-box border border-base-300 bg-base-200/70 px-3 py-2 text-sm">
-                <span class="badge badge-outline badge-sm">{entry.state}</span>
-                <span class="ml-2">{entry.label}</span>
+              <div class="min-w-0 border-t border-base-300/80 bg-base-200/45 px-1 py-3 text-sm">
+                <span class="badge badge-outline badge-sm max-w-full"><span class="truncate">{entry.state}</span></span>
+                <span class="ml-2 break-words">{entry.label}</span>
               </div>
             {/each}
           </div>
         {/if}
       </div>
     </section>
+  </div>
   </div>
 </section>

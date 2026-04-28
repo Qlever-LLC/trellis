@@ -58,7 +58,11 @@ Operations are caller-visible async workflows. Unlike RPCs, they accept a reques
 - Callers receive an `OperationRef` and can call `watch()` for a progress stream or `wait()` to block until completion
 - Operation state is durable — a caller reconnecting after a disconnect can resume watching an in-flight operation
 - Callers see only their own operations; subject permissions prevent cross-caller access
-- Starting an operation is controlled by its `call` capabilities, while watching or cancellation uses the operation's explicit `read` and `cancel` capabilities. A caller that can start an operation does not automatically receive broad control-subject access.
+- Starting an operation is controlled by its `call` capabilities, while watching
+  and cancellation use operation-specific control subjects. If `read` is
+  omitted, Trellis defaults it to `call`; an explicit empty `read` or `cancel`
+  list means no extra capability beyond authentication is required for that
+  action.
 
 Operations are distinct from jobs. An operation is the public async surface that a caller starts and observes. A job is service-private background work, invisible to callers.
 
@@ -86,6 +90,7 @@ uses: {
 ```
 
 If a dependency is not declared in `uses`, Trellis will not grant that cross-contract access at install time.
+Trellis resolves declared dependencies against active contracts during active-catalog refresh and approval planning; inactive or missing dependencies fail closed.
 When a dependency resolves to multiple active digests in the same contract lineage, Trellis only merges additive compatible surfaces. Divergent duplicate RPC, operation, event, or job descriptors fail validation instead of producing ambiguous permissions.
 
 ## Authentication and authorization

@@ -109,6 +109,62 @@ Deno.test("planUserContractApproval derives exact app capabilities and subjects"
   ]);
 });
 
+Deno.test("planUserContractApproval includes operation read and declared cancel capabilities", async () => {
+  const dependency: TrellisContractV1 = {
+    format: "trellis.contract.v1",
+    id: "example.jobs@v1",
+    displayName: "Example Jobs",
+    description: "Job API",
+    kind: "service",
+    schemas: {
+      Empty: { type: "object" },
+    },
+    operations: {
+      "Jobs.Run": {
+        version: "v1",
+        subject: "operations.v1.example.Jobs.Run",
+        input: { schema: "Empty" },
+        output: { schema: "Empty" },
+        cancel: true,
+        capabilities: {
+          call: ["jobs:write"],
+          read: ["jobs:read"],
+          cancel: ["jobs:cancel"],
+        },
+      },
+    },
+  };
+
+  const store = new ContractStore([{
+    digest: "dep-digest",
+    contract: dependency,
+  }]);
+
+  const plan = await planUserContractApproval(store, {
+    format: "trellis.contract.v1",
+    id: "example.console@v1",
+    displayName: "Example Console",
+    description: "Browser app",
+    kind: "app",
+    uses: {
+      jobs: {
+        contract: "example.jobs@v1",
+        operations: { call: ["Jobs.Run"] },
+      },
+    },
+  });
+
+  assertEquals(plan.approval.capabilities, [
+    "jobs:cancel",
+    "jobs:read",
+    "jobs:write",
+  ]);
+  assertEquals(plan.publishSubjects, [
+    "operations.v1.example.Jobs.Run",
+    "operations.v1.example.Jobs.Run.control",
+  ]);
+});
+
 Deno.test("planUserContractApproval rejects app contracts with raw subjects", async () => {
   const store = new ContractStore();
 
@@ -216,27 +272,94 @@ Deno.test("planUserContractApproval maps explicit transfer declarations by direc
   );
 });
 
-Deno.test("planUserContractApproval skips inactive dependencies for app login", async () => {
+Deno.test("planUserContractApproval rejects app contracts with inactive dependencies", async () => {
   const store = new ContractStore();
 
-  const plan = await planUserContractApproval(store, {
+  await assertRejects(
+    () =>
+      planUserContractApproval(store, {
+        format: "trellis.contract.v1",
+        id: "example.console@v1",
+        displayName: "Example Console",
+        description: "Browser app",
+        kind: "app",
+        uses: {
+          auth: {
+            contract: "missing.auth@v1",
+            rpc: { call: ["Auth.Me"] },
+          },
+        },
+      }),
+    Error,
+    "Dependency 'auth' references inactive contract 'missing.auth@v1'",
+  );
+});
+
+Deno.test("planUserContractApproval rejects agent contracts with inactive dependencies", async () => {
+  const store = new ContractStore();
+
+  await assertRejects(
+    () =>
+      planUserContractApproval(store, {
+        format: "trellis.contract.v1",
+        id: "example.cli@v1",
+        displayName: "Example CLI",
+        description: "Agent",
+        kind: "agent",
+        uses: {
+          jobs: {
+            contract: "missing.jobs@v1",
+            operations: { call: ["Jobs.Run"] },
+          },
+        },
+      }),
+    Error,
+    "Dependency 'jobs' references inactive contract 'missing.jobs@v1'",
+  );
+});
+
+Deno.test("planUserContractApproval rejects inactive dependency surfaces even when known", async () => {
+  const dependency: TrellisContractV1 = {
     format: "trellis.contract.v1",
-    id: "example.console@v1",
-    displayName: "Example Console",
-    description: "Browser app",
-    kind: "app",
-    uses: {
-      auth: {
-        contract: "missing.auth@v1",
-        rpc: { call: ["Auth.Me"] },
+    id: "example.auth@v1",
+    displayName: "Example Auth",
+    description: "Auth API",
+    kind: "service",
+    schemas: {
+      EmptyInput: { type: "object" },
+      EmptyOutput: { type: "object" },
+    },
+    rpc: {
+      "Auth.Me": {
+        version: "v1",
+        subject: "rpc.v1.example.Auth.Me",
+        input: { schema: "EmptyInput" },
+        output: { schema: "EmptyOutput" },
       },
     },
-  });
+  };
 
-  assertEquals(plan.approval.contractId, "example.console@v1");
-  assertEquals(plan.approval.capabilities, []);
-  assertEquals(plan.publishSubjects, []);
-  assertEquals(plan.subscribeSubjects, []);
+  const store = new ContractStore();
+  store.add("dep-digest", dependency);
+
+  await assertRejects(
+    () =>
+      planUserContractApproval(store, {
+        format: "trellis.contract.v1",
+        id: "example.console@v1",
+        displayName: "Example Console",
+        description: "Browser app",
+        kind: "app",
+        uses: {
+          auth: {
+            contract: "example.auth@v1",
+            rpc: { call: ["Auth.Me"] },
+          },
+        },
+      }),
+    Error,
+    "Dependency 'auth' references inactive contract 'example.auth@v1'",
+  );
 });
 
 Deno.test("planUserContractApproval still rejects invalid active dependencies", async () => {

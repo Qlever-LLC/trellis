@@ -9,6 +9,7 @@ import {
   sortUniqueStrings,
   templateToWildcard,
 } from "../../catalog/uses.ts";
+import { operationControlCapabilityRules } from "../../catalog/permissions.ts";
 import type { ContractStore } from "../../catalog/store.ts";
 import type { ContractApproval } from "../schemas.ts";
 
@@ -28,9 +29,7 @@ export async function planUserContractApproval(
   rawContract: unknown,
 ): Promise<UserContractApprovalPlan> {
   const validated = await contractStore.validate(rawContract);
-  const uses = resolveContractUsesFromStore(contractStore, validated.contract, {
-    ignoreInactiveContracts: true,
-  });
+  const uses = resolveContractUsesFromStore(contractStore, validated.contract);
   if (
     validated.contract.kind !== "app" && validated.contract.kind !== "agent"
   ) {
@@ -63,14 +62,24 @@ export async function planUserContractApproval(
 
   for (const operation of uses.operationCalls) {
     publishSubjects.add(templateToWildcard(operation.operation.subject));
-    publishSubjects.add(
-      templateToWildcard(`${operation.operation.subject}.control`),
+    const operationControlRules = operationControlCapabilityRules(
+      operation.operation,
     );
+    if (operationControlRules.length > 0) {
+      publishSubjects.add(
+        templateToWildcard(`${operation.operation.subject}.control`),
+      );
+    }
     if (operation.operation.transfer?.direction === "send") {
       publishSubjects.add(TRANSFER_UPLOAD_SUBJECT);
     }
     for (const capability of operation.operation.capabilities?.call ?? []) {
       capabilities.add(capability);
+    }
+    for (const requiredCapabilities of operationControlRules) {
+      for (const capability of requiredCapabilities) {
+        capabilities.add(capability);
+      }
     }
   }
 

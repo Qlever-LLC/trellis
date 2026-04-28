@@ -309,6 +309,9 @@ Rules:
 - browser sessions that are revoked or otherwise missing during runtime RPCs
   surface as `session_not_found` and should re-enter the browser login flow
   rather than displaying a terminal application error
+- session-facing RPCs must not reconstruct a missing durable session from caller
+  context. Missing durable session state is authoritative and returns
+  `session_not_found`.
 - installed device resource permissions may be augmented from installed bindings
 - higher-level runtimes should resolve bindings eagerly and expose typed
   resource handles rather than raw connect details
@@ -326,6 +329,9 @@ Rules:
 
 - Trellis MUST derive permissions from contracts rather than from a parallel
   scope system
+- user approval planning and active-catalog refresh both resolve `uses`
+  dependencies against currently active contracts. Inactive or missing
+  dependencies fail closed instead of being treated as advisory metadata.
 - operation, RPC, and event access are contract-level authorization concerns;
   runtime subject permissions are derived from those surfaces, transfer
   declarations, and installed resource bindings

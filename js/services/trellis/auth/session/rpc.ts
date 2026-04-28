@@ -26,13 +26,10 @@ import type {
   SqlSessionRepository,
   SqlUserProjectionRepository,
 } from "../storage.ts";
-import type { AuthRuntimeDeps } from "../runtime_deps.ts";
+import type { AuthLogger, AuthRuntimeDeps } from "../runtime_deps.ts";
 import { parseContractApprovalKey } from "../http/support.ts";
 
-const logger = {
-  trace: (_fields: Record<string, unknown>, _message: string) => {},
-  warn: (_fields: Record<string, unknown>, _message: string) => {},
-};
+type SessionRpcLogger = Pick<AuthLogger, "trace" | "warn">;
 
 type AuthenticatedUser = {
   id: string;
@@ -382,87 +379,6 @@ function formatCaller(
   };
 }
 
-function deviceCallerFields(caller: SessionContext["caller"]): {
-  deviceId: string;
-  deploymentId: string;
-  runtimePublicKey: string;
-  active: boolean;
-  capabilities: string[];
-} | null {
-  if (
-    caller.type !== "device" || !caller.deviceId || !caller.runtimePublicKey ||
-    !caller.deploymentId || caller.active === undefined
-  ) {
-    return null;
-  }
-
-  return {
-    deviceId: caller.deviceId,
-    deploymentId: caller.deploymentId,
-    runtimePublicKey: caller.runtimePublicKey,
-    active: caller.active,
-    capabilities: caller.capabilities ?? [],
-  };
-}
-
-async function responseFromDeviceCaller(args: {
-  caller: SessionContext["caller"];
-  userStorage: UserProjectionStorage;
-  deviceActivationStorage: DeviceActivationStorage;
-  deviceDeploymentStorage: DeviceDeploymentStorage;
-}): Promise<AuthMeResponse | null> {
-  const deviceCaller = deviceCallerFields(args.caller);
-  if (!deviceCaller) {
-    return null;
-  }
-
-  const activation = await args.deviceActivationStorage.get(
-    deviceCaller.deviceId,
-  );
-  if (!activation) return null;
-  if (
-    activation.state !== "activated" ||
-    activation.deploymentId !== deviceCaller.deploymentId ||
-    activation.revokedAt !== null
-  ) {
-    return null;
-  }
-
-  const deployment = await args.deviceDeploymentStorage.get(
-    activation.deploymentId,
-  );
-  if (!deployment || deployment.disabled) return null;
-
-  const user = activation.activatedBy
-    ? await loadAuthenticatedUser({
-      userStorage: args.userStorage,
-      origin: activation.activatedBy.origin,
-      id: activation.activatedBy.id,
-      fallback: {
-        name: activation.activatedBy.id,
-        email: `${activation.activatedBy.origin}:${activation.activatedBy.id}`,
-        capabilities: [],
-        active: true,
-      },
-    })
-    : null;
-
-  return {
-    participantKind: "device",
-    user,
-    device: {
-      type: "device",
-      deviceId: deviceCaller.deviceId,
-      deviceType: deviceTypeFromDeploymentId(deviceCaller.deploymentId),
-      runtimePublicKey: deviceCaller.runtimePublicKey,
-      deploymentId: deviceCaller.deploymentId,
-      active: deviceCaller.active,
-      capabilities: deviceCaller.capabilities,
-    },
-    service: null,
-  };
-}
-
 async function loadSessionBySessionKey(
   sessionKey: string,
   sessionStore: Pick<SessionStorage, "getOneBySessionKey">,
@@ -636,6 +552,7 @@ async function loadAuthenticatedDevice(args: {
 }
 
 export function createAuthMeHandler(deps: {
+  logger: Pick<SessionRpcLogger, "trace">;
   sessionStorage: Pick<SessionStorage, "getOneBySessionKey">;
   userStorage: UserProjectionStorage;
   deviceActivationStorage: DeviceActivationStorage;
@@ -652,9 +569,9 @@ export function createAuthMeHandler(deps: {
   loadServiceDeployment?: ServiceDeploymentLoader;
 }) {
   return async (
-    { context: { sessionKey, caller } }: { context: SessionContext },
+    { context: { sessionKey } }: { context: SessionContext },
   ) => {
-    logger.trace({ rpc: "Auth.Me", sessionKey }, "RPC request");
+    deps.logger.trace({ rpc: "Auth.Me", sessionKey }, "RPC request");
 
     try {
       const session = await loadSessionBySessionKey(
@@ -662,15 +579,6 @@ export function createAuthMeHandler(deps: {
         deps.sessionStorage,
       );
       if (!session) {
-        const deviceCallerResponse = await responseFromDeviceCaller({
-          caller,
-          userStorage: deps.userStorage,
-          deviceActivationStorage: deps.deviceActivationStorage,
-          deviceDeploymentStorage: deps.deviceDeploymentStorage,
-        });
-        if (deviceCallerResponse) {
-          return Result.ok<AuthMeResponse>(deviceCallerResponse);
-        }
         return Result.err(
           new AuthError({
             reason: "session_not_found",
@@ -745,6 +653,7 @@ export function createAuthMeHandler(deps: {
 
 /** Creates the Auth.ValidateRequest RPC handler backed by SQL auth projections. */
 export function createAuthValidateRequestHandler(deps: {
+  logger: Pick<SessionRpcLogger, "trace">;
   sessionStorage: Pick<SessionStorage, "getOneBySessionKey">;
   userStorage: UserProjectionStorage;
   contractApprovalStorage: Pick<SqlContractApprovalRepository, "get">;
@@ -761,7 +670,7 @@ export function createAuthValidateRequestHandler(deps: {
   ];
 }) {
   return async ({ input: req }: { input: ValidateRequestInput }) => {
-    logger.trace({
+    deps.logger.trace({
       rpc: "Auth.ValidateRequest",
       sessionKey: req.sessionKey,
       subject: req.subject,
@@ -833,6 +742,7 @@ export function createAuthValidateRequestHandler(deps: {
 }
 
 export function createAuthLogoutHandler(deps: {
+  logger: Pick<SessionRpcLogger, "trace">;
   sessionStorage: Pick<SessionStorage, "deleteBySessionKey">;
   connectionsKV: AuthRuntimeDeps["connectionsKV"];
   natsAuth: Pick<AuthRuntimeDeps["natsAuth"], "request">;
@@ -841,7 +751,7 @@ export function createAuthLogoutHandler(deps: {
     { context: { caller, sessionKey } }: { context: SessionContext },
   ) => {
     const user = requireUserCaller(caller);
-    logger.trace(
+    deps.logger.trace(
       { rpc: "Auth.Logout", sessionKey, userId: user.id },
       "RPC request",
     );
@@ -875,13 +785,17 @@ export function createAuthLogoutHandler(deps: {
 }
 
 export function createAuthListSessionsHandler(deps: {
+  logger: Pick<SessionRpcLogger, "trace">;
   sessionStorage: Pick<
     SessionStorage,
     "listEntries" | "listEntriesByUser"
   >;
 }) {
   return async ({ input: req = {} }: { input?: UserRefFilter }) => {
-    logger.trace({ rpc: "Auth.ListSessions", user: req.user }, "RPC request");
+    deps.logger.trace(
+      { rpc: "Auth.ListSessions", user: req.user },
+      "RPC request",
+    );
     const userFilter = typeof req.user === "string" ? req.user : undefined;
     let sessions: SessionListRow[];
     if (userFilter) {
@@ -905,6 +819,7 @@ export function createAuthListSessionsHandler(deps: {
 }
 
 export function createAuthListConnectionsHandler(deps: {
+  logger: Pick<SessionRpcLogger, "trace">;
   sessionStorage: Pick<SessionStorage, "getOneBySessionKey">;
   connectionsKV: {
     keys: (
@@ -923,7 +838,7 @@ export function createAuthListConnectionsHandler(deps: {
   };
 }) {
   return async ({ input: req = {} }: { input?: SessionFilter }) => {
-    logger.trace({
+    deps.logger.trace({
       rpc: "Auth.ListConnections",
       user: req.user,
       sessionKey: req.sessionKey,
@@ -955,6 +870,8 @@ export function createAuthListConnectionsHandler(deps: {
     for await (const key of iter as AsyncIterable<string>) {
       const entry = await deps.connectionsKV.get(key).take();
       if (isErr(entry)) continue;
+      const connection = unwrapConnectionEntry(entry);
+      if (!connection?.connectedAt) continue;
 
       const parsedKey = parseConnectionKey(key);
       if (!parsedKey) continue;
@@ -973,27 +890,9 @@ export function createAuthListConnectionsHandler(deps: {
         parsedKey.sessionKey,
         parsedKey.userNkey,
         {
-          serverId: (entry as {
-            value: {
-              serverId: string;
-              clientId: number;
-              connectedAt: string | Date;
-            };
-          }).value.serverId,
-          clientId: (entry as {
-            value: {
-              serverId: string;
-              clientId: number;
-              connectedAt: string | Date;
-            };
-          }).value.clientId,
-          connectedAt: (entry as {
-            value: {
-              serverId: string;
-              clientId: number;
-              connectedAt: string | Date;
-            };
-          }).value.connectedAt,
+          serverId: connection.serverId,
+          clientId: connection.clientId,
+          connectedAt: connection.connectedAt,
         },
       ));
     }
@@ -1004,6 +903,7 @@ export function createAuthListConnectionsHandler(deps: {
 }
 
 export function createAuthKickConnectionHandler(opts: {
+  logger: SessionRpcLogger;
   kick: (serverId: string, clientId: number) => Promise<void>;
   connectionsKV: AuthRuntimeDeps["connectionsKV"];
   sessionStorage: Pick<SessionStorage, "getOneBySessionKey">;
@@ -1019,7 +919,7 @@ export function createAuthKickConnectionHandler(opts: {
     },
   ) => {
     const user = requireUserCaller(caller);
-    logger.trace({
+    opts.logger.trace({
       rpc: "Auth.KickConnection",
       userNkey: req.userNkey,
       userId: user.id,
@@ -1061,7 +961,10 @@ export function createAuthKickConnectionHandler(opts: {
             userNkey: req.userNkey,
             kickedBy,
           })).inspectErr((error: unknown) =>
-            logger.warn({ error }, "Failed to publish Auth.ConnectionKicked")
+            opts.logger.warn(
+              { error },
+              "Failed to publish Auth.ConnectionKicked",
+            )
           );
         }
       }

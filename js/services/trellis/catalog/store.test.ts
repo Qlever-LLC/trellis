@@ -82,6 +82,46 @@ function makeJobsContract(id: string, displayName = "Jobs"): TrellisContractV1 {
   };
 }
 
+function makeEventContract(
+  subject: string,
+  params?: string[],
+): TrellisContractV1 {
+  return {
+    format: "trellis.contract.v1",
+    id: "partners@v1",
+    displayName: "Partners",
+    description: "Partners test contract",
+    kind: "service",
+    schemas: {
+      PartnerChanged: {
+        type: "object",
+        properties: {
+          partner: {
+            type: "object",
+            properties: {
+              id: {
+                type: "object",
+                properties: {
+                  origin: { type: "string" },
+                  id: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    events: {
+      "Partner.Changed": {
+        version: "v1",
+        subject,
+        ...(params ? { params } : {}),
+        event: { schema: "PartnerChanged" },
+      },
+    },
+  };
+}
+
 function makeStoreContract(
   id: string,
   displayName = "Store",
@@ -421,6 +461,70 @@ Deno.test("contract store rejects exported schema names missing from the registr
   );
 });
 
+Deno.test("contract store rejects embedded schemas that are not Draft 2019-09 schemas", async () => {
+  const store = new ContractStore();
+
+  await assertRejects(
+    () =>
+      store.validate({
+        ...makeContract(
+          "schema-invalid@v1",
+          "rpc.v1.SchemaInvalid.Ping",
+          "schema",
+        ),
+        schemas: {
+          PingInput: { type: "definitely-not-a-json-schema-type" },
+          PingOutput: { type: "object" },
+        },
+      }),
+    Error,
+    "schemas.PingInput",
+  );
+});
+
+Deno.test("contract store rejects remote refs in embedded schemas", async () => {
+  const store = new ContractStore();
+
+  await assertRejects(
+    () =>
+      store.validate({
+        ...makeContract("schema-ref@v1", "rpc.v1.SchemaRef.Ping", "schema"),
+        schemas: {
+          PingInput: { $ref: "https://example.com/schemas/input.json" },
+          PingOutput: { type: "object" },
+        },
+      }),
+    Error,
+    "schemas.PingInput: remote $ref is not supported",
+  );
+});
+
+Deno.test("contract store rejects local refs in embedded schemas", async () => {
+  const store = new ContractStore();
+
+  await assertRejects(
+    () =>
+      store.validate({
+        ...makeContract(
+          "schema-local-ref@v1",
+          "rpc.v1.SchemaLocalRef.Ping",
+          "schema",
+        ),
+        schemas: {
+          PingInput: {
+            $defs: {
+              Payload: { type: "object" },
+            },
+            $ref: "#/$defs/Payload",
+          },
+          PingOutput: { type: "object" },
+        },
+      }),
+    Error,
+    "schemas.PingInput: $ref is not supported in embedded schemas",
+  );
+});
+
 Deno.test("contract store rejects KV resource schema names missing from the registry", async () => {
   const store = new ContractStore();
 
@@ -502,6 +606,117 @@ Deno.test("contract store rejects legacy resources.jobs contracts", async () => 
     },
     Error,
     "/resources/jobs",
+  );
+});
+
+Deno.test("contract store accepts event template params in subject order", async () => {
+  const store = new ContractStore();
+
+  const validated = await store.validate(
+    makeEventContract(
+      "events.v1.Partner.Changed.{/partner/id/origin}.{/partner/id/id}",
+      ["/partner/id/origin", "/partner/id/id"],
+    ),
+  );
+
+  assertEquals(
+    validated.contract.events?.["Partner.Changed"]?.params,
+    ["/partner/id/origin", "/partner/id/id"],
+  );
+});
+
+Deno.test("contract store rejects malformed event subject template tokens", async () => {
+  const store = new ContractStore();
+
+  await assertRejects(
+    () =>
+      store.validate(
+        makeEventContract(
+          "events.v1.Partner.Changed.{partner/id}",
+          ["/partner/id"],
+        ),
+      ),
+    Error,
+    "event 'Partner.Changed' subject template token 'partner/id' must be a JSON Pointer",
+  );
+});
+
+Deno.test("contract store rejects missing event params for template subjects", async () => {
+  const store = new ContractStore();
+
+  await assertRejects(
+    () =>
+      store.validate(
+        makeEventContract(
+          "events.v1.Partner.Changed.{/partner/id/origin}",
+        ),
+      ),
+    Error,
+    "event 'Partner.Changed' params must list subject template pointers in order",
+  );
+});
+
+Deno.test("contract store rejects mismatched event template params", async () => {
+  const store = new ContractStore();
+
+  await assertRejects(
+    () =>
+      store.validate(
+        makeEventContract(
+          "events.v1.Partner.Changed.{/partner/id/origin}",
+          ["/partner/id/id"],
+        ),
+      ),
+    Error,
+    "event 'Partner.Changed' params must list subject template pointers in order",
+  );
+});
+
+Deno.test("contract store rejects reordered event template params", async () => {
+  const store = new ContractStore();
+
+  await assertRejects(
+    () =>
+      store.validate(
+        makeEventContract(
+          "events.v1.Partner.Changed.{/partner/id/origin}.{/partner/id/id}",
+          ["/partner/id/id", "/partner/id/origin"],
+        ),
+      ),
+    Error,
+    "event 'Partner.Changed' params must list subject template pointers in order",
+  );
+});
+
+Deno.test("contract store rejects event template params missing from payload schema", async () => {
+  const store = new ContractStore();
+
+  await assertRejects(
+    () =>
+      store.validate(
+        makeEventContract(
+          "events.v1.Partner.Changed.{/partner/missing}",
+          ["/partner/missing"],
+        ),
+      ),
+    Error,
+    "event 'Partner.Changed' param '/partner/missing' does not resolve against event payload schema",
+  );
+});
+
+Deno.test("contract store rejects event template params through non-object payload properties", async () => {
+  const store = new ContractStore();
+
+  await assertRejects(
+    () =>
+      store.validate(
+        makeEventContract(
+          "events.v1.Partner.Changed.{/partner/id/origin/value}",
+          ["/partner/id/origin/value"],
+        ),
+      ),
+    Error,
+    "event 'Partner.Changed' param '/partner/id/origin/value' does not resolve against event payload schema",
   );
 });
 

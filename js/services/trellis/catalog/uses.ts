@@ -666,3 +666,21 @@ export function validateActiveContractCompatibility(
 ): void {
   createActiveContractLookup(entries);
 }
+
+/** Validates that active contracts only use surfaces from the proposed active set. */
+export function validateActiveContractUses(
+  entries: ContractEntry[],
+): void {
+  const activeById = createActiveContractLookup(entries);
+  for (const entry of entries) {
+    resolveContractUses(entry.contract, (alias, use) => {
+      const target = activeById.get(use.contract);
+      if (!target) {
+        throw new Error(
+          `Dependency '${alias}' references inactive contract '${use.contract}'`,
+        );
+      }
+      return target;
+    });
+  }
+}

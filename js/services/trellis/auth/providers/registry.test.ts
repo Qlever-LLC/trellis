@@ -1,6 +1,6 @@
 import { assertEquals, assertInstanceOf } from "@std/assert";
 
-import { __testing__ as configTesting, type Config } from "../../config.ts";
+import type { Config } from "../../config.ts";
 import { GitHub } from "./github.ts";
 import { OIDC } from "./oidc.ts";
 import { createProviders } from "./registry.ts";
@@ -70,19 +70,14 @@ function createConfig(): Config {
 
 Deno.test("createProviders builds configured GitHub and OIDC providers", () => {
   const config = createConfig();
-  configTesting.setConfig(config);
-  try {
-    const providers = createProviders(config);
+  const providers = createProviders(config);
 
-    assertInstanceOf(providers.github, GitHub);
-    assertInstanceOf(providers.auth0, OIDC);
-    assertEquals(providers.github.displayName, "GitHub");
-    assertEquals(providers.auth0.displayName, "Company SSO");
-    assertEquals(
-      providers.auth0.getRedirectUri(),
-      "http://localhost:3000/auth/callback/auth0",
-    );
-  } finally {
-    configTesting.resetConfig();
-  }
+  assertInstanceOf(providers.github, GitHub);
+  assertInstanceOf(providers.auth0, OIDC);
+  assertEquals(providers.github.displayName, "GitHub");
+  assertEquals(providers.auth0.displayName, "Company SSO");
+  assertEquals(
+    providers.auth0.getRedirectUri(),
+    "http://localhost:3000/auth/callback/auth0",
+  );
 });

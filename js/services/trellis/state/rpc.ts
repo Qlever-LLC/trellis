@@ -64,7 +64,7 @@ type SessionStoreLike = {
 export type StateSessionResolver = {
   resolveSession(
     sessionKey: string,
-  ): Promise<Result<Session | null, AuthError>>;
+  ): Promise<Result<Session | null, AuthError | UnexpectedError>>;
 };
 
 type ContractStoreLike = {
@@ -99,16 +99,20 @@ export function createSessionResolver(
         return Result.ok(
           await sessionStore.getOneBySessionKey(sessionKey) ?? null,
         );
-      } catch {
+      } catch (error) {
         return Result.err(
-          new AuthError({
-            reason: "session_corrupted",
+          new UnexpectedError({
+            cause: toError(error),
             context: { sessionKey },
           }),
         );
       }
     },
   };
+}
+
+function toError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
 }
 
 function isAdmin(caller: Caller): boolean {
@@ -210,7 +214,7 @@ async function resolveCallerStore(
   store: string,
   ctx: { caller: Caller; sessionKey: string },
   deps: RpcDeps,
-): Promise<Result<ResolvedStateStore, AuthError | ValidationError>> {
+): Promise<Result<ResolvedStateStore, StateRpcError>> {
   const sessionResult = await deps.sessionResolver.resolveSession(
     ctx.sessionKey,
   );

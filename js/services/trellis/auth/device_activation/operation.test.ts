@@ -54,11 +54,13 @@ const config: Config = {
 
 function makeDeps(args: {
   now: () => number;
-  sleep: (ms: number) => Promise<void>;
   expiresAtMs: number;
   existingReview?: ReviewRecord;
   activation?: ActivationRecord;
   reviews?: ReviewRecord[];
+  reviewMode?: "none" | "required";
+  reviewReads?: Array<ReviewRecord | undefined>;
+  activationReads?: Array<ActivationRecord | undefined>;
 }): ActivateDeviceDeps {
   let review = args.existingReview;
   let activation = args.activation;
@@ -83,14 +85,20 @@ function makeDeps(args: {
         }),
     },
     deviceActivationReviewStorage: {
-      getByFlowId: async () => review,
+      getByFlowId: async () => {
+        args.reviewReads?.push(review);
+        return review;
+      },
       put: async (record) => {
         review = record;
         args.reviews?.push(record);
       },
     },
     deviceActivationStorage: {
-      get: async () => activation,
+      get: async () => {
+        args.activationReads?.push(activation);
+        return activation;
+      },
       put: async (record) => {
         activation = record;
       },
@@ -99,7 +107,7 @@ function makeDeps(args: {
       get: async () => ({
         deploymentId: "reader.default",
         appliedContracts: [{ contractId: "reader@v1", allowedDigests: ["d1"] }],
-        reviewMode: "required",
+        reviewMode: args.reviewMode ?? "required",
         disabled: false,
       }),
     },
@@ -122,8 +130,6 @@ function makeDeps(args: {
     config,
     reviewWaitTiming: {
       now: args.now,
-      sleep: args.sleep,
-      pollIntervalMs: 1_000,
     },
   };
 }
@@ -138,6 +144,7 @@ function operationContext(progress: unknown[]): ActivateDeviceContext {
       progress: async (value) => {
         progress.push(value);
       },
+      defer: () => ({ kind: "deferred" as const }),
     },
   };
 }
@@ -150,51 +157,37 @@ Deno.test("Auth.ActivateDevice pending review stores source operation id", async
     now: () => nowMs,
     expiresAtMs: baseTimeMs + 1,
     reviews,
-    sleep: async (ms) => {
-      nowMs += ms;
-    },
   });
 
   const result = await createActivateDeviceHandler(deps)(
     operationContext(progress),
   );
 
-  assert(!result.isErr());
+  assertEquals(result, { kind: "deferred" });
   assertEquals(reviews.length, 1);
   assertEquals(reviews[0].operationId, "op_activate_1");
 });
 
-Deno.test("Auth.ActivateDevice pending review wait is bounded by flow expiry", async () => {
-  let nowMs = baseTimeMs;
-  const sleeps: number[] = [];
+Deno.test("Auth.ActivateDevice pending review records progress without local polling", async () => {
   const progress: unknown[] = [];
+  const activationReads: Array<ActivationRecord | undefined> = [];
   const deps = makeDeps({
-    now: () => nowMs,
-    expiresAtMs: baseTimeMs + 2_500,
-    sleep: async (ms) => {
-      sleeps.push(ms);
-      nowMs += ms;
-    },
+    now: () => baseTimeMs,
+    expiresAtMs: baseTimeMs + 60_000,
+    activationReads,
   });
 
   const result = await createActivateDeviceHandler(deps)(
     operationContext(progress),
   );
 
-  assert(!result.isErr());
-  assertEquals(result.take(), {
-    status: "rejected",
-    reason: "device_flow_expired",
-  });
-  assertEquals(sleeps, [1_000, 1_000, 500]);
+  assertEquals(result, { kind: "deferred" });
   assertEquals(progress.length, 1);
+  assertEquals(activationReads.length, 1);
 });
 
-Deno.test("Auth.ActivateDevice pending review observes external activation deterministically", async () => {
-  let nowMs = baseTimeMs;
-  const sleeps: number[] = [];
+Deno.test("Auth.ActivateDevice existing pending review records progress without local polling", async () => {
   const progress: unknown[] = [];
-  let activation: ActivationRecord | undefined;
   const review: ReviewRecord = {
     reviewId: "dar_1",
     operationId: "op_activate_1",
@@ -207,45 +200,19 @@ Deno.test("Auth.ActivateDevice pending review observes external activation deter
     requestedAt: new Date(baseTimeMs).toISOString(),
     decidedAt: null,
   };
+  const activationReads: Array<ActivationRecord | undefined> = [];
   const deps = makeDeps({
-    now: () => nowMs,
-    expiresAtMs: baseTimeMs + 10_000,
+    now: () => baseTimeMs,
+    expiresAtMs: baseTimeMs + 60_000,
     existingReview: review,
-    sleep: async (ms) => {
-      sleeps.push(ms);
-      nowMs += ms;
-      activation = {
-        instanceId: "dev_1",
-        publicIdentityKey: "pub_1",
-        deploymentId: "reader.default",
-        activatedBy: { origin: "github", id: "user_1" },
-        state: "activated",
-        activatedAt: new Date(nowMs).toISOString(),
-        revokedAt: null,
-      };
-    },
+    activationReads,
   });
-  const depsWithActivation = {
-    ...deps,
-    deviceActivationStorage: {
-      ...deps.deviceActivationStorage,
-      get: async () => activation,
-    },
-  };
 
-  const result = await createActivateDeviceHandler(depsWithActivation)(
+  const result = await createActivateDeviceHandler(deps)(
     operationContext(progress),
   );
 
-  const value = result.take();
-  if (isErr(value)) throw value.error;
-  assertEquals(value, {
-    status: "activated",
-    instanceId: "dev_1",
-    deploymentId: "reader.default",
-    activatedAt: new Date(baseTimeMs + 1_000).toISOString(),
-  });
-  assertEquals(sleeps, [1_000]);
+  assertEquals(result, { kind: "deferred" });
   assertEquals(progress, [{
     status: "pending_review",
     reviewId: "dar_1",
@@ -253,4 +220,57 @@ Deno.test("Auth.ActivateDevice pending review observes external activation deter
     deploymentId: "reader.default",
     requestedAt: new Date(baseTimeMs).toISOString(),
   }]);
+  assertEquals(activationReads.length, 1);
+});
+
+Deno.test("Auth.ActivateDevice activates immediately when review is not required", async () => {
+  const progress: unknown[] = [];
+  const deps = makeDeps({
+    now: () => baseTimeMs,
+    expiresAtMs: baseTimeMs + 60_000,
+    reviewMode: "none",
+  });
+
+  const result = await createActivateDeviceHandler(deps)(
+    operationContext(progress),
+  );
+
+  assert("take" in result);
+  const value = result.take();
+  if (isErr(value)) throw value.error;
+  assert(value.status === "activated");
+  assertEquals(value.instanceId, "dev_1");
+  assertEquals(value.deploymentId, "reader.default");
+  assertEquals(progress, []);
+});
+
+Deno.test("Auth.ActivateDevice returns already-terminal rejected review", async () => {
+  const progress: unknown[] = [];
+  const deps = makeDeps({
+    now: () => baseTimeMs,
+    expiresAtMs: baseTimeMs + 60_000,
+    existingReview: {
+      reviewId: "dar_1",
+      operationId: "op_activate_1",
+      flowId: "flow_1",
+      instanceId: "dev_1",
+      publicIdentityKey: "pub_1",
+      deploymentId: "reader.default",
+      requestedBy: { origin: "github", id: "user_1" },
+      state: "rejected",
+      requestedAt: new Date(baseTimeMs).toISOString(),
+      decidedAt: new Date(baseTimeMs + 1_000).toISOString(),
+      reason: "not expected",
+    },
+  });
+
+  const result = await createActivateDeviceHandler(deps)(
+    operationContext(progress),
+  );
+
+  assert("take" in result);
+  const value = result.take();
+  if (isErr(value)) throw value.error;
+  assertEquals(value, { status: "rejected", reason: "not expected" });
+  assertEquals(progress, []);
 });

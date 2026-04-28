@@ -195,7 +195,7 @@ Deno.test("deriveDeviceRuntimeAccess includes publish subjects from contract use
     access.value.publishSubjects.includes(
       "operations.v1.Billing.Refund.control",
     ),
-    false,
+    true,
   );
   assertEquals(
     access.value.publishSubjects.includes("transfer.v1.upload.*.*"),
@@ -327,5 +327,64 @@ Deno.test("deriveDeviceRuntimeAccess includes operation control when cancel is e
       "operations.v1.Billing.Refund.control",
     ),
     true,
+  );
+});
+
+Deno.test("deriveDeviceRuntimeAccess ignores cancel capabilities when cancel is disabled", () => {
+  const fakeContractStore = {
+    getActiveContractsById(contractId: string) {
+      if (contractId === "trellis.auth@v1") {
+        return [{
+          id: "trellis.auth@v1",
+          displayName: "Auth",
+          description: "Auth API",
+          rpc: {
+            "Auth.Me": {
+              subject: "rpc.v1.Auth.Me",
+              version: "v1",
+              capabilities: { call: [] },
+              request: { schema: "object" },
+              response: { schema: "object" },
+            },
+          },
+        }];
+      }
+      if (contractId === "billing@v1") {
+        return [{
+          id: "billing@v1",
+          displayName: "Billing",
+          description: "Billing API",
+          operations: {
+            "Billing.Refund": {
+              subject: "operations.v1.Billing.Refund",
+              version: "v1",
+              capabilities: {
+                call: ["billing.cancel"],
+                read: ["billing.read"],
+                cancel: ["billing.cancel"],
+              },
+              input: { schema: "object" },
+              output: { schema: "object" },
+            },
+          },
+        }];
+      }
+      return [];
+    },
+  };
+
+  const access = deriveDeviceRuntimeAccess(
+    PROFILE,
+    makeUsesContractRecord(),
+    fakeContractStore as never,
+  );
+  assertEquals(access.ok, true);
+  if (!access.ok) return;
+
+  assertEquals(
+    access.value.publishSubjects.includes(
+      "operations.v1.Billing.Refund.control",
+    ),
+    false,
   );
 });

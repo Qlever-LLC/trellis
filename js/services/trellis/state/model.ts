@@ -1,4 +1,4 @@
-import Type, { type StaticDecode } from "typebox";
+import Type from "typebox";
 import type { parseUnknownSchema } from "../../../packages/trellis/codec.ts";
 
 import {

@@ -75,6 +75,23 @@ class InMemoryKV<V> {
   }
 }
 
+type CapturedLog = {
+  level: "trace" | "warn";
+  fields: Record<string, unknown>;
+  message: string;
+};
+
+function createTestLogger(logs: CapturedLog[] = []) {
+  return {
+    trace: (fields: Record<string, unknown>, message: string) => {
+      logs.push({ level: "trace", fields, message });
+    },
+    warn: (fields: Record<string, unknown>, message: string) => {
+      logs.push({ level: "warn", fields, message });
+    },
+  };
+}
+
 function sessionStorageFromKV(kv: InMemoryKV<Session>) {
   async function entries(filter: string) {
     const iter = await kv.keys(filter).take();
@@ -225,6 +242,7 @@ Deno.test("Auth.Me returns user, device, and service envelopes", async () => {
   }>();
 
   const handler = createAuthMeHandler({
+    logger: createTestLogger(),
     sessionStorage: sessionStorageFromKV(sessionKV),
     userStorage,
     deviceActivationStorage: deviceActivationStorageFromKV(deviceActivationsKV),
@@ -384,9 +402,28 @@ Deno.test("Auth.Me returns user, device, and service envelopes", async () => {
   });
 });
 
+Deno.test("session RPC handlers log through the injected logger", async () => {
+  const logs: CapturedLog[] = [];
+  const handler = createAuthListSessionsHandler({
+    logger: createTestLogger(logs),
+    sessionStorage: sessionStorageFromKV(new InMemoryKV<Session>()),
+  });
+
+  const result = await handler({ input: { user: "github.123" } });
+  const value = result.take();
+  if (isErr(value)) throw value.error;
+
+  assertEquals(logs, [{
+    level: "trace",
+    fields: { rpc: "Auth.ListSessions", user: "github.123" },
+    message: "RPC request",
+  }]);
+});
+
 Deno.test("Auth.Me validates services with the durable instance deployment", async () => {
   const sessionKV = new InMemoryKV<Session>();
   const handler = createAuthMeHandler({
+    logger: createTestLogger(),
     sessionStorage: sessionStorageFromKV(sessionKV),
     userStorage: new InMemoryUserStorage(),
     deviceActivationStorage: deviceActivationStorageFromKV(
@@ -447,6 +484,7 @@ Deno.test("Auth.Me validates services with the durable instance deployment", asy
 
 Deno.test("Auth.Me rejects deleted user sessions despite caller context", async () => {
   const handler = createAuthMeHandler({
+    logger: createTestLogger(),
     sessionStorage: sessionStorageFromKV(new InMemoryKV<Session>()),
     userStorage: new InMemoryUserStorage(),
     deviceActivationStorage: deviceActivationStorageFromKV(
@@ -503,6 +541,7 @@ Deno.test("Auth.Me reflects SQL user active and capability changes", async () =>
       appliedContracts: Array<{ contractId: string; allowedDigests: string[] }>;
     }>();
     const handler = createAuthMeHandler({
+      logger: createTestLogger(),
       sessionStorage: sessionStorageFromKV(sessionKV),
       userStorage: users,
       deviceActivationStorage: deviceActivationStorageFromKV(
@@ -586,6 +625,7 @@ Deno.test("Auth.Me rejects user sessions when the durable projection is missing"
   });
 
   const handler = createAuthMeHandler({
+    logger: createTestLogger(),
     sessionStorage: sessionStorageFromKV(sessionKV),
     userStorage: new InMemoryUserStorage(),
     deviceActivationStorage: deviceActivationStorageFromKV(
@@ -630,7 +670,7 @@ Deno.test("Auth.Me rejects user sessions when the durable projection is missing"
   assertEquals(value.error.reason, "user_not_found");
 });
 
-Deno.test("Auth.Me falls back to device activation context for device sessions", async () => {
+Deno.test("Auth.Me rejects missing device sessions despite caller context", async () => {
   const userStorage = new InMemoryUserStorage();
   const deviceActivationsKV = new InMemoryKV<{
     instanceId: string;
@@ -648,6 +688,7 @@ Deno.test("Auth.Me falls back to device activation context for device sessions",
   }>();
 
   const handler = createAuthMeHandler({
+    logger: createTestLogger(),
     sessionStorage: sessionStorageFromKV(new InMemoryKV<Session>()),
     userStorage,
     deviceActivationStorage: deviceActivationStorageFromKV(deviceActivationsKV),
@@ -692,29 +733,8 @@ Deno.test("Auth.Me falls back to device activation context for device sessions",
     },
   });
   const value = result.take();
-  if (isErr(value)) throw value.error;
-
-  assertEquals(value, {
-    participantKind: "device",
-    user: {
-      id: "123",
-      origin: "github",
-      active: true,
-      name: "Ada",
-      email: "ada@example.com",
-      capabilities: ["users.read"],
-    },
-    device: {
-      type: "device",
-      deviceId: "dev_1",
-      deviceType: "reader",
-      runtimePublicKey: "A".repeat(43),
-      deploymentId: "reader.default",
-      active: true,
-      capabilities: ["device.sync"],
-    },
-    service: null,
-  });
+  assert(isErr(value));
+  assertEquals(value.error.reason, "session_not_found");
 });
 
 Deno.test("Auth.ListSessions returns explicit participant metadata for app, agent, device, and service sessions", async () => {
@@ -794,6 +814,7 @@ Deno.test("Auth.ListSessions returns explicit participant metadata for app, agen
   });
 
   const handler = createAuthListSessionsHandler({
+    logger: createTestLogger(),
     sessionStorage: sessionStorageFromKV(sessionKV),
   });
   const result = await handler({
@@ -888,6 +909,7 @@ Deno.test("Auth.ListConnections returns explicit participant metadata for user s
   });
 
   const handler = createAuthListConnectionsHandler({
+    logger: createTestLogger(),
     sessionStorage: sessionStorageFromKV(sessionKV),
     connectionsKV,
   });
@@ -917,6 +939,57 @@ Deno.test("Auth.ListConnections returns explicit participant metadata for user s
       connectedAt: "2026-04-10T00:00:00.000Z",
     },
   ]);
+});
+
+Deno.test("Auth.ListConnections skips malformed connection entries", async () => {
+  const sessionKV = new InMemoryKV<Session>();
+  const connectionsKV = new InMemoryKV<
+    | { serverId: string; clientId: number; connectedAt: Date }
+    | { serverId: string; connectedAt: Date }
+  >();
+  const userTrellisId = await trellisIdFromOriginId("github", "123");
+
+  sessionKV.seed("sk_app", {
+    type: "user",
+    trellisId: userTrellisId,
+    origin: "github",
+    id: "123",
+    email: "ada@example.com",
+    name: "Ada",
+    participantKind: "app",
+    contractDigest: "digest-app",
+    contractId: "trellis.console@v1",
+    contractDisplayName: "Console",
+    contractDescription: "Admin app",
+    delegatedCapabilities: ["admin"],
+    delegatedPublishSubjects: [],
+    delegatedSubscribeSubjects: [],
+    ...baseSessionFields(),
+  });
+  connectionsKV.seed(connectionKey("sk_app", userTrellisId, "user_nkey_1"), {
+    serverId: "n1",
+    connectedAt: new Date("2026-04-10T00:00:00.000Z"),
+  });
+  connectionsKV.seed(connectionKey("sk_app", userTrellisId, "user_nkey_2"), {
+    serverId: "n2",
+    clientId: 8,
+    connectedAt: new Date("2026-04-11T00:00:00.000Z"),
+  });
+
+  const handler = createAuthListConnectionsHandler({
+    logger: createTestLogger(),
+    sessionStorage: sessionStorageFromKV(sessionKV),
+    connectionsKV,
+  });
+  const result = await handler({ input: { sessionKey: "sk_app" } });
+  const value = result.take();
+  if (isErr(value)) throw value.error;
+
+  assertEquals(value.connections.map((connection) => connection.userNkey), [
+    "user_nkey_2",
+  ]);
+  assertEquals(value.connections[0]?.serverId, "n2");
+  assertEquals(value.connections[0]?.clientId, 8);
 });
 
 Deno.test("Auth.RevokeSession cascades agent revocation to the grant and sibling agent sessions", async () => {

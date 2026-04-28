@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onDestroy, onMount } from "svelte";
   import { ok } from "@qlever-llc/result";
   import { getTrellis } from "$lib/trellis";
 
@@ -28,9 +28,11 @@
   const trellis = getTrellis();
 
   let listening = $state(false);
+  let starting = $state(false);
   let error = $state<string | null>(null);
   let liveEvents = $state<LiveEvent[]>([]);
   let controller: AbortController | null = null;
+  let mounted = false;
 
   function isActivityRecordedEvent(value: unknown): value is ActivityRecordedEvent {
     return typeof value === "object" && value !== null &&
@@ -48,14 +50,17 @@
   }
 
   function addEvent(event: LiveEvent): void {
+    if (!mounted) return;
     liveEvents = [event, ...liveEvents].slice(0, 20);
   }
 
   async function startListening(): Promise<void> {
-    if (listening) return;
+    if (listening || starting) return;
 
     error = null;
+    starting = true;
     controller = new AbortController();
+    const localController = controller;
 
     try {
       await trellis.event(
@@ -64,7 +69,7 @@
         (event: unknown) => {
           if (isActivityRecordedEvent(event)) {
             addEvent({
-              id: event.activityId,
+              id: `${event.activityId}-${event.occurredAt}`,
               name: "Activity.Recorded",
               title: event.kind,
               detail: event.message,
@@ -73,8 +78,10 @@
           }
           return ok(undefined);
         },
-        { mode: "ephemeral", replay: "new", signal: controller.signal },
+        { mode: "ephemeral", replay: "new", signal: localController.signal },
       ).orThrow();
+
+      if (!mounted || controller !== localController || localController.signal.aborted) return;
 
       await trellis.event(
         "Reports.Published",
@@ -82,7 +89,7 @@
         (event: unknown) => {
           if (isReportsPublishedEvent(event)) {
             addEvent({
-              id: event.reportId,
+              id: `${event.reportId}-${event.publishedAt}`,
               name: "Reports.Published",
               title: "Report published",
               detail: `${event.reportId} for ${event.inspectionId}`,
@@ -91,26 +98,40 @@
           }
           return ok(undefined);
         },
-        { mode: "ephemeral", replay: "new", signal: controller.signal },
+        { mode: "ephemeral", replay: "new", signal: localController.signal },
       ).orThrow();
 
+      if (!mounted || controller !== localController || localController.signal.aborted) return;
       listening = true;
     } catch (cause) {
-      controller.abort();
-      controller = null;
+      localController.abort();
+      if (controller === localController) {
+        controller = null;
+      }
+      if (!mounted || controller !== null) return;
       error = cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      if (controller === localController || controller === null) {
+        starting = false;
+      }
     }
   }
 
   function stopListening(): void {
     controller?.abort();
     controller = null;
+    starting = false;
     listening = false;
   }
 
   onMount(() => {
+    mounted = true;
     void startListening();
-    return stopListening;
+  });
+
+  onDestroy(() => {
+    mounted = false;
+    stopListening();
   });
 </script>
 
@@ -118,23 +139,24 @@
   <title>Live Feed · Field Inspection Desk</title>
 </svelte:head>
 
-<section class="flex w-full flex-col gap-6">
-  <header class="rounded-box border border-base-300 bg-base-100/80 p-4 shadow-sm md:p-5">
-    <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-      <div class="space-y-2">
-        <div class="badge badge-primary badge-outline">Activity → Live Feed</div>
-        <h1 class="text-2xl font-semibold tracking-tight md:text-3xl">Live Feed</h1>
-        <p class="max-w-3xl text-sm text-base-content/70">
+<section class="page-sheet rounded-box p-5 sm:p-7">
+  <div class="flex flex-col gap-6">
+  <header class="pb-1">
+    <div class="flex min-w-0 flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+      <div class="min-w-0 space-y-3">
+        <div class="trellis-kicker">Event watch</div>
+        <h1 class="break-words text-2xl font-black tracking-tight md:text-3xl">Live feed</h1>
+        <p class="max-w-3xl break-words text-sm text-base-content/70">
           Keep a live watch on field activity and report publication events as inspection work moves through the desk.
         </p>
       </div>
-      <div class="flex flex-wrap gap-3">
-        <button class="btn btn-primary btn-sm" onclick={startListening} disabled={listening}>Start feed</button>
-        <button class="btn btn-outline btn-sm" onclick={stopListening} disabled={!listening}>Pause feed</button>
-        <span class={listening ? "badge badge-success badge-outline badge-lg" : "badge badge-warning badge-outline badge-lg"}>
-          {listening ? "live" : "paused"}
+      <div class="flex min-w-0 flex-wrap gap-3">
+        <button class="btn btn-accent btn-sm" onclick={startListening} disabled={listening || starting}>{starting ? "Starting feed..." : "Start feed"}</button>
+        <button class="btn btn-outline btn-sm" onclick={stopListening} disabled={!listening && !starting}>Pause feed</button>
+        <span class={listening ? "badge badge-success badge-outline badge-lg max-w-full" : "badge badge-warning badge-outline badge-lg max-w-full"}>
+          <span class="truncate">{listening ? "live" : starting ? "starting" : "paused"}</span>
         </span>
-        <span class="badge badge-outline badge-lg">Teaching note: events</span>
+        <span class="badge badge-outline badge-lg max-w-full"><span class="truncate">Teaching note: events</span></span>
       </div>
     </div>
   </header>
@@ -143,31 +165,32 @@
     <div role="alert" class="alert alert-error"><span>{error}</span></div>
   {/if}
 
-  <section class="card border border-base-300 bg-base-100 shadow-sm">
-    <div class="card-body gap-4">
-      <div class="flex items-center justify-between gap-3">
-        <h2 class="card-title text-lg">Event timeline</h2>
-        <span class="badge badge-ghost">Activity.Recorded + Reports.Published</span>
+  <section class="section-rule pt-6">
+    <div class="flex flex-col gap-5">
+      <div class="flex min-w-0 flex-wrap items-center justify-between gap-3">
+        <h2 class="min-w-0 break-words text-lg font-black tracking-tight">Event timeline</h2>
+        <span class="badge badge-ghost max-w-full"><span class="truncate">Activity.Recorded + Reports.Published</span></span>
       </div>
 
       {#if liveEvents.length === 0}
         <div class="alert"><span>Run a report or service workflow to see live inspection activity here.</span></div>
       {:else}
-        <div class="space-y-3">
+        <div class="divide-y divide-base-300/80 border-y border-base-300/80" aria-live="polite">
           {#each liveEvents as event (event.id)}
-            <article class="rounded-box border border-base-300 bg-base-200/40 p-4">
-              <div class="mb-2 flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h3 class="font-medium">{event.title}</h3>
-                  <p class="text-sm text-base-content/70">{event.detail}</p>
+            <article class="min-w-0 overflow-hidden bg-base-200/30 px-1 py-4">
+              <div class="mb-2 flex min-w-0 flex-wrap items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <h3 class="break-words font-medium">{event.title}</h3>
+                  <p class="break-words text-sm text-base-content/70">{event.detail}</p>
                 </div>
-                <span class="badge badge-outline">{event.name}</span>
+                <span class="badge badge-outline max-w-full"><span class="truncate">{event.name}</span></span>
               </div>
-              <div class="font-mono text-xs text-base-content/60">{event.occurredAt}</div>
+              <div class="break-words font-mono text-xs text-base-content/60">{event.occurredAt}</div>
             </article>
           {/each}
         </div>
       {/if}
     </div>
   </section>
+  </div>
 </section>

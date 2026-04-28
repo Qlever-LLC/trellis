@@ -9,7 +9,7 @@ import {
   isJsonValue,
   type JsonValue,
 } from "@qlever-llc/trellis/contracts";
-import { compileSchema, draft2019 } from "json-schema-library";
+import { compileSchema, draft2019, type JsonSchema } from "json-schema-library";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 
@@ -52,6 +52,170 @@ function assertValidContractValue(
   value: JsonValue,
 ): asserts value is TrellisContractV1 {
   void value;
+}
+
+function formatSchemaPath(context: string, pointer: string): string {
+  return pointer === "#" || pointer === "" ? context : `${context}${pointer}`;
+}
+
+function assertNoSchemaRefs(schema: JsonValue, context: string): void {
+  if (!schema || typeof schema !== "object") return;
+
+  if (Array.isArray(schema)) {
+    for (const [index, item] of schema.entries()) {
+      assertNoSchemaRefs(item, `${context}/${index}`);
+    }
+    return;
+  }
+
+  for (const [key, value] of Object.entries(schema)) {
+    if (key === "$ref") {
+      if (typeof value === "string" && !value.startsWith("#")) {
+        throw new Error(`${context}: remote $ref is not supported`);
+      }
+      throw new Error(`${context}: $ref is not supported in embedded schemas`);
+    }
+    assertNoSchemaRefs(value, `${context}/${key}`);
+  }
+}
+
+function assertSchemaObjectOrBoolean(
+  schema: JsonValue,
+  context: string,
+): asserts schema is JsonSchema {
+  if (typeof schema === "boolean") return;
+  if (schema && typeof schema === "object" && !Array.isArray(schema)) return;
+  throw new Error(
+    `${context}: embedded schema must be a JSON object or boolean`,
+  );
+}
+
+function validateEmbeddedSchemas(contract: TrellisContractV1): void {
+  for (const [schemaName, schema] of Object.entries(contract.schemas ?? {})) {
+    const context = `schemas.${schemaName}`;
+    assertSchemaObjectOrBoolean(schema, context);
+    assertNoSchemaRefs(schema, context);
+    const compiled = compileSchema(schema, { drafts: [draft2019] });
+    const schemaErrors = compiled.schemaErrors ?? [];
+    if (schemaErrors.length > 0) {
+      const msg = schemaErrors.map((error) =>
+        `${
+          formatSchemaPath(context, error.data.pointer)
+        }: ${error.data.message}`
+      ).join("\n");
+      throw new Error(`Invalid embedded contract schema:\n${msg}`);
+    }
+  }
+}
+
+function isJsonPointer(pointer: string): boolean {
+  if (!pointer.startsWith("/")) return false;
+  for (let index = 0; index < pointer.length; index += 1) {
+    if (pointer[index] !== "~") continue;
+    const escaped = pointer[index + 1];
+    if (escaped !== "0" && escaped !== "1") return false;
+    index += 1;
+  }
+  return true;
+}
+
+function decodeJsonPointerSegment(segment: string): string {
+  return segment.replaceAll("~1", "/").replaceAll("~0", "~");
+}
+
+function isJsonObject(value: JsonValue): value is Record<string, JsonValue> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function getDirectSchemaProperties(
+  schema: JsonValue,
+): Record<string, JsonValue> | undefined {
+  if (!isJsonObject(schema)) return undefined;
+  const properties = schema.properties;
+  if (!isJsonObject(properties)) return undefined;
+  return properties;
+}
+
+function schemaPointerResolves(schema: JsonValue, pointer: string): boolean {
+  let current = schema;
+  for (const rawSegment of pointer.slice(1).split("/")) {
+    const segment = decodeJsonPointerSegment(rawSegment);
+    const properties = getDirectSchemaProperties(current);
+    if (!properties || !Object.hasOwn(properties, segment)) return false;
+    current = properties[segment];
+  }
+  return true;
+}
+
+function extractSubjectTemplatePointers(
+  subject: string,
+  context: string,
+): string[] {
+  const pointers: string[] = [];
+  let index = 0;
+  while (index < subject.length) {
+    const open = subject.indexOf("{", index);
+    const close = subject.indexOf("}", index);
+    if (close !== -1 && (open === -1 || close < open)) {
+      throw new Error(`${context} subject has malformed template token`);
+    }
+    if (open === -1) break;
+
+    const end = subject.indexOf("}", open + 1);
+    if (end === -1) {
+      throw new Error(`${context} subject has malformed template token`);
+    }
+    const token = subject.slice(open + 1, end);
+    if (token.includes("{") || token.includes("}")) {
+      throw new Error(`${context} subject has malformed template token`);
+    }
+    if (!isJsonPointer(token)) {
+      throw new Error(
+        `${context} subject template token '${token}' must be a JSON Pointer`,
+      );
+    }
+    pointers.push(token);
+    index = end + 1;
+  }
+  return pointers;
+}
+
+function validateEventTemplateParams(contract: TrellisContractV1): void {
+  for (
+    const [name, event] of Object.entries(contract.events ?? {}) as Array<
+      [string, NonNullable<TrellisContractV1["events"]>[string]]
+    >
+  ) {
+    const context = `event '${name}'`;
+    const templatePointers = extractSubjectTemplatePointers(
+      event.subject,
+      context,
+    );
+    for (const param of event.params ?? []) {
+      if (!isJsonPointer(param)) {
+        throw new Error(`${context} param '${param}' must be a JSON Pointer`);
+      }
+    }
+
+    const params = event.params ?? [];
+    const matches = params.length === templatePointers.length &&
+      params.every((param, index) => param === templatePointers[index]);
+    if (!matches) {
+      throw new Error(
+        `${context} params must list subject template pointers in order`,
+      );
+    }
+
+    const payloadSchema = contract.schemas?.[event.event.schema];
+    if (!payloadSchema) continue;
+    for (const pointer of templatePointers) {
+      if (!schemaPointerResolves(payloadSchema, pointer)) {
+        throw new Error(
+          `${context} param '${pointer}' does not resolve against event payload schema`,
+        );
+      }
+    }
+  }
 }
 
 function normalizeContract(contract: TrellisContractV1): TrellisContractV1 {
@@ -512,7 +676,9 @@ export class ContractStore {
 
     assertValidContractValue(raw);
     const contract = normalizeContract(raw);
+    validateEmbeddedSchemas(contract);
     validateSchemaRefs(contract);
+    validateEventTemplateParams(contract);
     const canonical = canonicalizeJson(raw as JsonValue);
     const digest = digestContractManifest(contract);
 

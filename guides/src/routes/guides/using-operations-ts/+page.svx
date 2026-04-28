@@ -88,6 +88,27 @@ await service.operation("Orders.Process").handle(async ({ input, op }) => {
 
 `op.attach(job.value)` blocks until the job chain completes. Pass `job.value` — the unwrapped `JobRef` from the `Result<JobRef>`. The framework extracts the typed output from the terminal job snapshot to resolve the caller's `OperationRef`.
 
+### Deferring terminal completion
+
+Most handlers complete by returning `Result.ok(output)`, `op.attach(job)`, or a
+terminal error. If another durable control path will complete the operation later,
+return `op.defer()` instead of keeping the handler promise open forever. This is
+the pattern used by review-gated flows such as device activation: the first
+handler records progress, then an admin decision completes or rejects the same
+operation id.
+
+```ts
+await service.operation("Orders.Process").handle(async ({ input, op }) => {
+  const progress = await op.progress({
+    step: "pending_review",
+    message: `Order ${input.orderId} is waiting for approval`,
+  });
+  if (progress.isErr()) return Result.err(progress.error);
+
+  return op.defer();
+});
+```
+
 ## 3. The job worker — no changes needed
 
 The job workers from [Jobs: TypeScript](/guides/using-jobs-ts) run unchanged. They report progress via `job.progress(...)` and return `Result.ok(result)`. The `op.attach()` wires their results to the operation automatically.
@@ -99,7 +120,9 @@ A caller starts the operation and observes it:
 ```ts
 // Start
 const orders = client; // The connected Trellis client
-const ref = await orders.operation("Orders.Process").start({ orderId: "ord_123" });
+const ref = await orders.operation("Orders.Process")
+  .input({ orderId: "ord_123" })
+  .start();
 if (ref.isErr()) throw ref.error;
 const op = ref.value;
 

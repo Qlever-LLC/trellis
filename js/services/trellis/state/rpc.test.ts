@@ -4,7 +4,11 @@ import { Type } from "typebox";
 import Value from "typebox/value";
 
 import { trellisIdFromOriginId } from "@qlever-llc/trellis/auth";
-import { AuthError, ValidationError } from "@qlever-llc/trellis";
+import {
+  AuthError,
+  UnexpectedError,
+  ValidationError,
+} from "@qlever-llc/trellis";
 import { StateAdminGetResponseSchema } from "../../../packages/trellis/models/trellis/rpc/StateAdminGet.ts";
 import { StateAdminListResponseSchema } from "../../../packages/trellis/models/trellis/rpc/StateAdminList.ts";
 
@@ -246,6 +250,64 @@ Deno.test("State RPC accepts a session resolver without auth session storage met
   );
 
   assertEquals(put.applied, true);
+});
+
+Deno.test("State RPC maps thrown session-storage failures to UnexpectedError", async () => {
+  const state = new StateStore({
+    kv: new FakeStateKV(),
+    now: () => new Date("2026-01-01T00:00:00.000Z"),
+  });
+  const handlers = createStateHandlers({
+    sessionResolver: createSessionResolver({
+      async getOneBySessionKey(
+        _sessionKey: string,
+      ): Promise<Session | undefined> {
+        throw new Error("session storage unavailable");
+      },
+    }),
+    state,
+    contractStore: createContractStore(),
+  });
+
+  const error = unwrapErr(
+    await handlers.get(
+      { store: "preferences" },
+      {
+        caller: { type: "user", origin: "github", id: "123" },
+        sessionKey: "session-one",
+      },
+    ),
+  );
+
+  assertEquals(error instanceof UnexpectedError, true);
+  assertEquals(error instanceof AuthError, false);
+  assertEquals(error.getContext().causeMessage, "session storage unavailable");
+});
+
+Deno.test("State RPC keeps missing sessions on the existing auth error path", async () => {
+  const sessionKV = new FakeSessionKV();
+  const state = new StateStore({
+    kv: new FakeStateKV(),
+    now: () => new Date("2026-01-01T00:00:00.000Z"),
+  });
+  const handlers = createStateHandlers({
+    sessionResolver: createSessionResolver(sessionKV),
+    state,
+    contractStore: createContractStore(),
+  });
+
+  const error = unwrapErr(
+    await handlers.get(
+      { store: "preferences" },
+      {
+        caller: { type: "user", origin: "github", id: "123" },
+        sessionKey: "missing-session",
+      },
+    ),
+  );
+
+  assertEquals(error instanceof AuthError, true);
+  assertEquals(error instanceof UnexpectedError, false);
 });
 
 Deno.test("State RPC isolates named store state by contract id without caller scope", async () => {

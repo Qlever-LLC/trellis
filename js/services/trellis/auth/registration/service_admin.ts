@@ -86,6 +86,7 @@ export async function registerServiceAdminRpcs(deps: {
     createAuthDisableServiceDeploymentHandler({
       kick,
       refreshActiveContracts: deps.contracts.refreshActiveContracts,
+      validateActiveCatalog: deps.contracts.validateActiveCatalog,
       connectionsKV: deps.connectionsKV,
       sessionStorage: deps.sessionStorage,
       serviceDeploymentStorage: deps.serviceDeploymentStorage,
@@ -96,6 +97,7 @@ export async function registerServiceAdminRpcs(deps: {
     "Auth.EnableServiceDeployment",
     createAuthEnableServiceDeploymentHandler({
       refreshActiveContracts: deps.contracts.refreshActiveContracts,
+      validateActiveCatalog: deps.contracts.validateActiveCatalog,
       serviceDeploymentStorage: deps.serviceDeploymentStorage,
     }),
   );
@@ -103,6 +105,7 @@ export async function registerServiceAdminRpcs(deps: {
     "Auth.RemoveServiceDeployment",
     createAuthRemoveServiceDeploymentHandler({
       refreshActiveContracts: deps.contracts.refreshActiveContracts,
+      validateActiveCatalog: deps.contracts.validateActiveCatalog,
       serviceDeploymentStorage: deps.serviceDeploymentStorage,
       serviceInstanceStorage: deps.serviceInstanceStorage,
     }),
@@ -120,6 +123,7 @@ export async function registerServiceAdminRpcs(deps: {
     createAuthDisableServiceInstanceHandler({
       kick,
       refreshActiveContracts: deps.contracts.refreshActiveContracts,
+      validateActiveCatalog: deps.contracts.validateActiveCatalog,
       connectionsKV: deps.connectionsKV,
       sessionStorage: deps.sessionStorage,
       serviceInstanceStorage: deps.serviceInstanceStorage,
@@ -130,6 +134,7 @@ export async function registerServiceAdminRpcs(deps: {
     createAuthEnableServiceInstanceHandler({
       kick,
       refreshActiveContracts: deps.contracts.refreshActiveContracts,
+      validateActiveCatalog: deps.contracts.validateActiveCatalog,
       connectionsKV: deps.connectionsKV,
       sessionStorage: deps.sessionStorage,
       serviceInstanceStorage: deps.serviceInstanceStorage,
@@ -140,6 +145,7 @@ export async function registerServiceAdminRpcs(deps: {
     createAuthRemoveServiceInstanceHandler({
       kick,
       refreshActiveContracts: deps.contracts.refreshActiveContracts,
+      validateActiveCatalog: deps.contracts.validateActiveCatalog,
       connectionsKV: deps.connectionsKV,
       sessionStorage: deps.sessionStorage,
       serviceInstanceStorage: deps.serviceInstanceStorage,

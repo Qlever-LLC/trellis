@@ -194,10 +194,17 @@ Key things to note:
 
 - contract source modules should import `defineContract(...)` from `@qlever-llc/trellis/contracts`; runtime helpers such as `isErr`, `Result`, and `TrellisClient.connect(...)` come from `@qlever-llc/trellis`, while the returned contract object remains usable anywhere a runtime contract is expected
 - contract source modules should export the `defineContract(...)` result directly instead of manually re-exporting `CONTRACT_ID`, `CONTRACT_DIGEST`, `API`, or `use`
+- embedded JSON schemas must be self-contained Draft 2019-09 schemas. Do not use
+  JSON Schema `$ref` inside the schema objects; use Trellis schema references
+  such as `ref.schema("CreateOrderRequest")` at RPC, operation, event, resource,
+  and state declaration sites.
 - `uses` declares cross-contract dependencies — without these, Trellis will not grant access to those RPCs/events
 - `auth.use(...)` declares the non-baseline auth surfaces this service needs, such as `Auth.Connect` event delivery. Baseline auth validation such as `Auth.ValidateRequest` may be made available to service runtimes automatically.
 - `resources.kv.orders` requests a KV bucket with the logical alias `orders` — Trellis assigns the physical name during service deployment apply/install/upgrade
 - `capabilities` controls who can call each operation — `orders.read` and `orders.write` gate the `Orders.Get` and `Orders.Create` RPCs respectively
+- templated event subjects must declare `params` in subject-token order, and each
+  JSON Pointer must resolve through object-schema `properties` in the event
+  payload schema
 
 ## 4. Write the service entry point
 

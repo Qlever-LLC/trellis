@@ -54,6 +54,14 @@ function assertValidationError(
   }
 }
 
+function assertUnexpectedError(
+  error: unknown,
+): asserts error is UnexpectedError {
+  if (!(error instanceof UnexpectedError)) {
+    throw new Error("expected UnexpectedError");
+  }
+}
+
 function listedKey(
   entry:
     | { key?: string }
@@ -606,7 +614,36 @@ Deno.test("StateStore surfaces migration metadata on failed conditional put", as
   assertEquals(conflict.entry.currentStateVersion, "draft.v2");
 });
 
-Deno.test("StateStore rejects unstamped entries instead of treating them as current", async () => {
+Deno.test("StateStore reports malformed stored envelopes as unexpected corruption", async () => {
+  const kv = new FakeStateKV();
+  const store = new StateStore({
+    kv,
+    now: () => new Date("2026-01-01T00:00:00.000Z"),
+  });
+  const target = {
+    ownerType: "user" as const,
+    contractId: "acme.notes@v1",
+    contractDigest: "digest-v1",
+    ownerKey: "user-1",
+    store: "preferences",
+    kind: "value" as const,
+    schema: Type.Object({ theme: Type.String() }),
+    stateVersion: "prefs.v1",
+    acceptedVersions: {},
+  };
+
+  kv.seedRaw(
+    "user.user-1.acme=2Enotes=40v1.preferences.~value",
+    "not-envelope",
+  );
+
+  const got = await store.get(target);
+  assertEquals(got.isErr(), true);
+  if (!got.isErr()) throw new Error("expected stored envelope corruption");
+  assertUnexpectedError(got.error);
+});
+
+Deno.test("StateStore reports malformed stored metadata as unexpected corruption", async () => {
   const kv = new FakeStateKV();
   const store = new StateStore({
     kv,
@@ -633,12 +670,8 @@ Deno.test("StateStore rejects unstamped entries instead of treating them as curr
 
   const got = await store.get(currentTarget);
   assertEquals(got.isErr(), true);
-  if (!got.isErr()) throw new Error("expected metadata validation error");
-  assertValidationError(got.error);
-  assertEquals(got.error.toSerializable().issues, [{
-    path: "/stateVersion",
-    message: "state KV entry stateVersion is required",
-  }]);
+  if (!got.isErr()) throw new Error("expected metadata corruption error");
+  assertUnexpectedError(got.error);
 
   const compatibleTarget = {
     ...currentTarget,
@@ -650,13 +683,33 @@ Deno.test("StateStore rejects unstamped entries instead of treating them as curr
   const compatible = await store.get(compatibleTarget);
   assertEquals(compatible.isErr(), true);
   if (!compatible.isErr()) {
-    throw new Error("expected metadata validation error");
+    throw new Error("expected metadata corruption error");
   }
-  assertValidationError(compatible.error);
-  assertEquals(compatible.error.toSerializable().issues, [{
-    path: "/stateVersion",
-    message: "state KV entry stateVersion is required",
-  }]);
+  assertUnexpectedError(compatible.error);
+});
+
+Deno.test("StateStore keeps caller value schema failures as validation errors", async () => {
+  const kv = new FakeStateKV();
+  const store = new StateStore({
+    kv,
+    now: () => new Date("2026-01-01T00:00:00.000Z"),
+  });
+  const target = {
+    ownerType: "user" as const,
+    contractId: "acme.notes@v1",
+    contractDigest: "digest-v1",
+    ownerKey: "user-1",
+    store: "preferences",
+    kind: "value" as const,
+    schema: Type.Object({ theme: Type.String() }),
+    stateVersion: "prefs.v1",
+    acceptedVersions: {},
+  };
+
+  const written = await store.put(target, { value: { theme: 123 } });
+  assertEquals(written.isErr(), true);
+  if (!written.isErr()) throw new Error("expected caller validation error");
+  assertValidationError(written.error);
 });
 
 Deno.test("StateStore returns unexpected errors for unrecognized create and revision write failures", async () => {
@@ -765,10 +818,6 @@ Deno.test("StateStore rejects unstamped entries before value schema validation",
 
   const got = await store.get(target);
   assertEquals(got.isErr(), true);
-  if (!got.isErr()) throw new Error("expected metadata validation error");
-  assertValidationError(got.error);
-  assertEquals(got.error.toSerializable().issues, [{
-    path: "/stateVersion",
-    message: "state KV entry stateVersion is required",
-  }]);
+  if (!got.isErr()) throw new Error("expected metadata corruption error");
+  assertUnexpectedError(got.error);
 });

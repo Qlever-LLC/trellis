@@ -77,16 +77,37 @@ function dedupe(subjects: Iterable<string>): string[] {
   return [...new Set(subjects)];
 }
 
+/**
+ * Derive the operation control capabilities for get, wait, and watch.
+ */
+export function operationReadCapabilities(
+  operation: ContractOperation,
+): string[] {
+  return operation.capabilities?.read ?? operation.capabilities?.call ?? [];
+}
+
+/**
+ * Derive the operation cancel capabilities when cancel is declared and enabled.
+ */
+export function operationCancelCapabilities(
+  operation: ContractOperation,
+): string[] | undefined {
+  if (!operation.cancel || operation.capabilities?.cancel === undefined) {
+    return undefined;
+  }
+  return operation.capabilities.cancel;
+}
+
+/**
+ * Derive the capability alternatives that grant operation control publishing.
+ */
 export function operationControlCapabilityRules(
   operation: ContractOperation,
 ): string[][] {
+  const cancelCapabilities = operationCancelCapabilities(operation);
   return [
-    ...(operation.capabilities?.read !== undefined
-      ? [operation.capabilities.read]
-      : []),
-    ...(operation.cancel && operation.capabilities?.cancel !== undefined
-      ? [operation.capabilities.cancel]
-      : []),
+    operationReadCapabilities(operation),
+    ...(cancelCapabilities !== undefined ? [cancelCapabilities] : []),
   ];
 }
 

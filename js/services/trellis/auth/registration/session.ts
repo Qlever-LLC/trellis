@@ -72,6 +72,7 @@ export async function registerSessionRpcs(deps: {
   await deps.trellis.mount(
     "Auth.Me",
     createAuthMeHandler({
+      logger: deps.logger,
       sessionStorage: deps.sessionStorage,
       userStorage: deps.userStorage,
       deviceActivationStorage: deps.deviceActivationStorage,
@@ -83,6 +84,7 @@ export async function registerSessionRpcs(deps: {
   await deps.trellis.mount(
     "Auth.ValidateRequest",
     createAuthValidateRequestHandler({
+      logger: deps.logger,
       sessionStorage: deps.sessionStorage,
       userStorage: deps.userStorage,
       contractApprovalStorage: deps.contractApprovalStorage,
@@ -96,6 +98,7 @@ export async function registerSessionRpcs(deps: {
   await deps.trellis.mount(
     "Auth.Logout",
     createAuthLogoutHandler({
+      logger: deps.logger,
       sessionStorage: deps.sessionStorage,
       connectionsKV: deps.connectionsKV,
       natsAuth: deps.natsAuth,
@@ -103,7 +106,10 @@ export async function registerSessionRpcs(deps: {
   );
   await deps.trellis.mount(
     "Auth.ListSessions",
-    createAuthListSessionsHandler({ sessionStorage: deps.sessionStorage }),
+    createAuthListSessionsHandler({
+      logger: deps.logger,
+      sessionStorage: deps.sessionStorage,
+    }),
   );
   await deps.trellis.mount(
     "Auth.RevokeSession",
@@ -113,6 +119,7 @@ export async function registerSessionRpcs(deps: {
   await deps.trellis.mount(
     "Auth.ListConnections",
     createAuthListConnectionsHandler({
+      logger: deps.logger,
       sessionStorage: deps.sessionStorage,
       connectionsKV: deps.connectionsKV,
     }),
@@ -120,6 +127,7 @@ export async function registerSessionRpcs(deps: {
   await deps.trellis.mount(
     "Auth.KickConnection",
     createAuthKickConnectionHandler({
+      logger: deps.logger,
       kick,
       connectionsKV: deps.connectionsKV,
       sessionStorage: deps.sessionStorage,

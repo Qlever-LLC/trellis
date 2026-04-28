@@ -345,7 +345,7 @@ function normalizeConfig(configPath: string, raw: RawConfig): Config {
   };
 }
 
-function parseAuthConfig(configPath: string, text: string): Config {
+export function parseAuthConfig(configPath: string, text: string): Config {
   const errors: Array<{ error: number; offset: number; length: number }> = [];
   const parsed = parseJsonc(text, errors, {
     allowTrailingComma: true,
@@ -366,27 +366,14 @@ export function loadAuthConfigFromFile(configPath: string): Config {
   return parseAuthConfig(configPath, Deno.readTextFileSync(configPath));
 }
 
-function resolveConfigPath(
+export function resolveConfigPath(
   environment: Record<string, string | undefined>,
 ): string {
   return environment["TRELLIS_CONFIG"] ?? DEFAULT_TRELLIS_CONFIG_PATH;
 }
 
-let cachedConfig: Config | undefined;
-
-export function getConfig(): Config {
-  if (cachedConfig) return cachedConfig;
-  cachedConfig = loadAuthConfigFromFile(resolveConfigPath(env));
-  return cachedConfig;
+export function loadConfig(
+  environment: Record<string, string | undefined> = env,
+): Config {
+  return loadAuthConfigFromFile(resolveConfigPath(environment));
 }
-
-export const __testing__ = {
-  resetConfig() {
-    cachedConfig = undefined;
-  },
-  setConfig(config: Config) {
-    cachedConfig = config;
-  },
-  parseAuthConfig,
-  resolveConfigPath,
-};

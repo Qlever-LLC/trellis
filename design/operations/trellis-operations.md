@@ -146,6 +146,10 @@ Owning-service surface:
 - transfer-capable handlers receive provider-side `transfer.updates()` and
   `transfer.completed()` helpers
 - handlers may complete operations directly or attach local jobs to them
+- handlers that intentionally leave terminal completion to another control path
+  return `op.defer()` after recording any durable progress they own. The runtime
+  MUST NOT auto-complete, auto-fail, or keep the handler promise pending for a
+  deferred operation.
 
 Language-specific public API details live in:
 
@@ -246,6 +250,10 @@ Lifecycle rules:
   state, and MUST carry that payload as both `event.progress` and
   `event.snapshot.progress`
 - `completed`, `failed`, and `cancelled` are terminal
+- a service handler may explicitly defer terminal completion only by returning
+  the runtime's operation-deferred sentinel. Deferral means the accepted
+  operation remains durable and non-terminal until another authorized service
+  path completes, fails, or cancels the same operation id.
 
 ### 6) Operations use caller `_INBOX` subjects for live watch streams
 

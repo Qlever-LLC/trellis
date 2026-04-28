@@ -1,5 +1,5 @@
 import { Hono } from "@hono/hono";
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertStringIncludes } from "@std/assert";
 import { AsyncResult } from "@qlever-llc/result";
 import {
   base64urlEncode,
@@ -8,7 +8,7 @@ import {
   utf8,
 } from "@qlever-llc/trellis/auth";
 
-import { __testing__, type Config } from "../../config.ts";
+import type { Config } from "../../config.ts";
 import { ContractStore } from "../../catalog/store.ts";
 import { authHttpRateLimitKey } from "./routes.ts";
 import { buildAuthStartSignaturePayload } from "./start_request.ts";
@@ -67,7 +67,6 @@ Deno.test("auth HTTP rate-limit key ignores spoofable forwarding headers", () =>
 });
 
 async function registerTestRoutes(): Promise<Hono> {
-  __testing__.setConfig(config);
   const { registerHttpRoutes } = await import("./routes.ts");
   const app = new Hono();
   const kv = {
@@ -158,6 +157,75 @@ Deno.test({
 });
 
 Deno.test({
+  name:
+    "auth HTTP start rejects malformed session keys and signatures during request validation",
+  sanitizeResources: false,
+  fn: async () => {
+    const app = await registerTestRoutes();
+    const auth = await createAuth({ sessionKeySeed: "A".repeat(43) });
+    const cases = [
+      {
+        sessionKey: "not-a-session-key",
+        sig: "A".repeat(86),
+      },
+      {
+        sessionKey: auth.sessionKey,
+        sig: "not-a-signature",
+      },
+    ];
+
+    for (const body of cases) {
+      const response = await app.request("http://trellis/auth/requests", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          redirectTo: "http://localhost:5173/app",
+          contract: {},
+          ...body,
+        }),
+      });
+
+      assertEquals(response.status, 400);
+      assertStringIncludes(await response.text(), "Invalid request");
+    }
+  },
+});
+
+Deno.test({
+  name:
+    "auth HTTP bind rejects malformed session keys and signatures during request validation",
+  sanitizeResources: false,
+  fn: async () => {
+    const app = await registerTestRoutes();
+    const auth = await createAuth({ sessionKeySeed: "A".repeat(43) });
+    const cases = [
+      {
+        sessionKey: "not-a-session-key",
+        sig: "A".repeat(86),
+      },
+      {
+        sessionKey: auth.sessionKey,
+        sig: "not-a-signature",
+      },
+    ];
+
+    for (const body of cases) {
+      const response = await app.request(
+        "http://trellis/auth/flow/missing/bind",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        },
+      );
+
+      assertEquals(response.status, 400);
+      assertEquals(await response.json(), { error: "Invalid bind request" });
+    }
+  },
+});
+
+Deno.test({
   name: "auth HTTP routes do not register removed legacy login endpoint",
   sanitizeResources: false,
   fn: async () => {
@@ -196,7 +264,6 @@ Deno.test({
     "auth HTTP bind caches app contracts without activating them in catalog",
   sanitizeResources: false,
   fn: async () => {
-    __testing__.setConfig(config);
     const { registerHttpRoutes } = await import("./routes.ts");
     const auth = await createAuth({
       sessionKeySeed: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",

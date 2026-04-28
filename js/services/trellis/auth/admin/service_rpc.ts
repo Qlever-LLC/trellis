@@ -48,6 +48,10 @@ type RuntimeKickDeps = {
   connectionsKV: KVLike<Connection>;
   sessionStorage: Pick<SqlSessionRepository, "deleteByInstanceKey">;
 };
+type ActiveCatalogValidator = (validationOpts: {
+  stagedServiceDeployments?: Iterable<ServiceDeployment>;
+  stagedServiceInstances?: Iterable<ServiceInstance>;
+}) => Promise<unknown>;
 
 export type ServiceAdminRpcDeps = {
   logger: Pick<AuthRuntimeDeps["logger"], "trace">;
@@ -123,6 +127,37 @@ async function refreshActiveContracts(
   } catch (error) {
     return Result.err(new UnexpectedError({ cause: toError(error) }));
   }
+}
+
+async function validateActiveCatalog(
+  validate: ActiveCatalogValidator,
+  validationOpts: Parameters<ActiveCatalogValidator>[0],
+): Promise<Result<void, UnexpectedError>> {
+  try {
+    await validate(validationOpts);
+    return Result.ok(undefined);
+  } catch (error) {
+    return Result.err(new UnexpectedError({ cause: toError(error) }));
+  }
+}
+
+async function rollbackRefreshFailure<T>(
+  refreshError: UnexpectedError,
+  rollback: () => Promise<void>,
+): Promise<Result<T, UnexpectedError>> {
+  try {
+    await rollback();
+  } catch (rollbackError) {
+    return Result.err(
+      new UnexpectedError({
+        cause: new AggregateError(
+          [refreshError, toError(rollbackError)],
+          "active catalog refresh failed and rollback failed",
+        ),
+      }),
+    );
+  }
+  return Result.err(refreshError);
 }
 
 function toError(error: unknown): Error {
@@ -238,10 +273,7 @@ export function createAuthUnapplyServiceDeploymentContractHandler(
   deps: {
     kick: (serverId: string, clientId: number) => Promise<void>;
     refreshActiveContracts: () => Promise<void>;
-    validateActiveCatalog: (validationOpts?: {
-      stagedServiceDeployments?: Iterable<ServiceDeployment>;
-      stagedServiceInstances?: Iterable<ServiceInstance>;
-    }) => Promise<unknown>;
+    validateActiveCatalog: ActiveCatalogValidator;
     logger: Pick<AuthRuntimeDeps["logger"], "trace">;
     serviceDeploymentStorage: ServiceDeploymentStorage;
     serviceInstanceStorage: ServiceInstanceStorage;
@@ -352,6 +384,7 @@ export function createAuthDisableServiceDeploymentHandler(
   deps: {
     kick: (serverId: string, clientId: number) => Promise<void>;
     refreshActiveContracts: () => Promise<void>;
+    validateActiveCatalog: ActiveCatalogValidator;
     serviceDeploymentStorage: ServiceDeploymentStorage;
     serviceInstanceStorage: ServiceInstanceStorage;
   } & RuntimeKickDeps,
@@ -369,13 +402,22 @@ export function createAuthDisableServiceDeploymentHandler(
       });
     }
     const nextDeployment = { ...deployment, disabled: true };
+    const validated = await validateActiveCatalog(deps.validateActiveCatalog, {
+      stagedServiceDeployments: [nextDeployment],
+    });
+    if (isErr(validated)) return validated;
     try {
       await serviceDeploymentStorage.put(nextDeployment);
     } catch (error) {
       return Result.err(new UnexpectedError({ cause: toError(error) }));
     }
     const refreshed = await refreshActiveContracts(deps.refreshActiveContracts);
-    if (isErr(refreshed)) return refreshed;
+    if (isErr(refreshed)) {
+      return await rollbackRefreshFailure(
+        refreshed.error,
+        () => serviceDeploymentStorage.put(deployment),
+      );
+    }
     for (
       const instance of await instancesForDeployment(
         nextDeployment.deploymentId,
@@ -395,6 +437,7 @@ export function createAuthDisableServiceDeploymentHandler(
 
 export function createAuthEnableServiceDeploymentHandler(deps: {
   refreshActiveContracts: () => Promise<void>;
+  validateActiveCatalog: ActiveCatalogValidator;
   serviceDeploymentStorage: ServiceDeploymentStorage;
 }) {
   return async (
@@ -417,19 +460,29 @@ export function createAuthEnableServiceDeploymentHandler(deps: {
       });
     }
     const nextDeployment = { ...deployment, disabled: false };
+    const validated = await validateActiveCatalog(deps.validateActiveCatalog, {
+      stagedServiceDeployments: [nextDeployment],
+    });
+    if (isErr(validated)) return validated;
     try {
       await serviceDeploymentStorage.put(nextDeployment);
     } catch (error) {
       return Result.err(new UnexpectedError({ cause: toError(error) }));
     }
     const refreshed = await refreshActiveContracts(deps.refreshActiveContracts);
-    if (isErr(refreshed)) return refreshed;
+    if (isErr(refreshed)) {
+      return await rollbackRefreshFailure(
+        refreshed.error,
+        () => serviceDeploymentStorage.put(deployment),
+      );
+    }
     return Result.ok({ deployment: nextDeployment });
   };
 }
 
 export function createAuthRemoveServiceDeploymentHandler(deps: {
   refreshActiveContracts: () => Promise<void>;
+  validateActiveCatalog: ActiveCatalogValidator;
   serviceDeploymentStorage: ServiceDeploymentStorage;
   serviceInstanceStorage: ServiceInstanceStorage;
 }) {
@@ -462,13 +515,26 @@ export function createAuthRemoveServiceDeploymentHandler(deps: {
         deploymentId: req.deploymentId,
       });
     }
+    const validated = await validateActiveCatalog(deps.validateActiveCatalog, {
+      stagedServiceDeployments: [{
+        ...existing,
+        disabled: true,
+        appliedContracts: [],
+      }],
+    });
+    if (isErr(validated)) return validated;
     try {
       await serviceDeploymentStorage.delete(req.deploymentId);
     } catch (error) {
       return Result.err(new UnexpectedError({ cause: toError(error) }));
     }
     const refreshed = await refreshActiveContracts(deps.refreshActiveContracts);
-    if (isErr(refreshed)) return refreshed;
+    if (isErr(refreshed)) {
+      return await rollbackRefreshFailure(
+        refreshed.error,
+        () => serviceDeploymentStorage.put(existing),
+      );
+    }
     return Result.ok({ success: true });
   };
 }
@@ -559,6 +625,7 @@ async function setInstanceDisabled(
     disabled: boolean;
     kick: (serverId: string, clientId: number) => Promise<void>;
     refreshActiveContracts: () => Promise<void>;
+    validateActiveCatalog: ActiveCatalogValidator;
     serviceInstanceStorage: ServiceInstanceStorage;
   } & RuntimeKickDeps,
 ): Promise<
@@ -572,13 +639,22 @@ async function setInstanceDisabled(
     });
   }
   const nextInstance = { ...instance, disabled: args.disabled };
+  const validated = await validateActiveCatalog(args.validateActiveCatalog, {
+    stagedServiceInstances: [nextInstance],
+  });
+  if (isErr(validated)) return validated;
   try {
     await serviceInstanceStorage.put(nextInstance);
   } catch (error) {
     return Result.err(new UnexpectedError({ cause: toError(error) }));
   }
   const refreshed = await refreshActiveContracts(args.refreshActiveContracts);
-  if (isErr(refreshed)) return refreshed;
+  if (isErr(refreshed)) {
+    return await rollbackRefreshFailure(
+      refreshed.error,
+      () => serviceInstanceStorage.put(instance),
+    );
+  }
   await kickInstanceRuntimeAccess({
     instanceKey: nextInstance.instanceKey,
     kick: args.kick,
@@ -592,6 +668,7 @@ export function createAuthDisableServiceInstanceHandler(
   deps: {
     kick: (serverId: string, clientId: number) => Promise<void>;
     refreshActiveContracts: () => Promise<void>;
+    validateActiveCatalog: ActiveCatalogValidator;
     serviceInstanceStorage: ServiceInstanceStorage;
   } & RuntimeKickDeps,
 ) {
@@ -605,6 +682,7 @@ export function createAuthDisableServiceInstanceHandler(
       disabled: true,
       kick: deps.kick,
       refreshActiveContracts: deps.refreshActiveContracts,
+      validateActiveCatalog: deps.validateActiveCatalog,
       connectionsKV: deps.connectionsKV,
       sessionStorage: deps.sessionStorage,
       serviceInstanceStorage: deps.serviceInstanceStorage,
@@ -616,6 +694,7 @@ export function createAuthEnableServiceInstanceHandler(
   deps: {
     kick: (serverId: string, clientId: number) => Promise<void>;
     refreshActiveContracts: () => Promise<void>;
+    validateActiveCatalog: ActiveCatalogValidator;
     serviceInstanceStorage: ServiceInstanceStorage;
   } & RuntimeKickDeps,
 ) {
@@ -629,6 +708,7 @@ export function createAuthEnableServiceInstanceHandler(
       disabled: false,
       kick: deps.kick,
       refreshActiveContracts: deps.refreshActiveContracts,
+      validateActiveCatalog: deps.validateActiveCatalog,
       connectionsKV: deps.connectionsKV,
       sessionStorage: deps.sessionStorage,
       serviceInstanceStorage: deps.serviceInstanceStorage,
@@ -640,6 +720,7 @@ export function createAuthRemoveServiceInstanceHandler(
   deps: {
     kick: (serverId: string, clientId: number) => Promise<void>;
     refreshActiveContracts: () => Promise<void>;
+    validateActiveCatalog: ActiveCatalogValidator;
     serviceInstanceStorage: ServiceInstanceStorage;
   } & RuntimeKickDeps,
 ) {
@@ -655,19 +736,28 @@ export function createAuthRemoveServiceInstanceHandler(
         instanceId: req.instanceId,
       });
     }
-    await kickInstanceRuntimeAccess({
-      instanceKey: instance.instanceKey,
-      kick: deps.kick,
-      connectionsKV: deps.connectionsKV,
-      sessionStorage: deps.sessionStorage,
+    const validated = await validateActiveCatalog(deps.validateActiveCatalog, {
+      stagedServiceInstances: [{ ...instance, disabled: true }],
     });
+    if (isErr(validated)) return validated;
     try {
       await serviceInstanceStorage.delete(req.instanceId);
     } catch (error) {
       return Result.err(new UnexpectedError({ cause: toError(error) }));
     }
     const refreshed = await refreshActiveContracts(deps.refreshActiveContracts);
-    if (isErr(refreshed)) return refreshed;
+    if (isErr(refreshed)) {
+      return await rollbackRefreshFailure(
+        refreshed.error,
+        () => serviceInstanceStorage.put(instance),
+      );
+    }
+    await kickInstanceRuntimeAccess({
+      instanceKey: instance.instanceKey,
+      kick: deps.kick,
+      connectionsKV: deps.connectionsKV,
+      sessionStorage: deps.sessionStorage,
+    });
     return Result.ok({ success: true });
   };
 }

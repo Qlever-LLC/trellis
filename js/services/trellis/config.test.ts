@@ -1,6 +1,10 @@
 import { assertEquals } from "@std/assert";
 
-import { __testing__, loadAuthConfigFromFile } from "./config.ts";
+import {
+  loadAuthConfigFromFile,
+  parseAuthConfig,
+  resolveConfigPath,
+} from "./config.ts";
 
 async function withTempConfig(
   configText: string,
@@ -150,12 +154,65 @@ Deno.test("auth config loads structured provider map from file", async () => {
 
 Deno.test("config path uses TRELLIS_CONFIG or the default path", () => {
   assertEquals(
-    __testing__.resolveConfigPath({
+    resolveConfigPath({
       TRELLIS_CONFIG: "/tmp/trellis.jsonc",
     }),
     "/tmp/trellis.jsonc",
   );
-  assertEquals(__testing__.resolveConfigPath({}), "/etc/trellis/config.jsonc");
+  assertEquals(resolveConfigPath({}), "/etc/trellis/config.jsonc");
+});
+
+Deno.test("auth config parses direct JSONC text without env cache mutation", async () => {
+  await withTempConfig(
+    `{
+      "nats": {
+        "servers": "localhost",
+        "auth": { "credsPath": "/tmp/auth.creds" },
+        "trellis": { "credsPath": "/tmp/trellis.creds" },
+        "sentinelCredsPath": "/tmp/sentinel.creds",
+        "authCallout": {
+          "issuer": {
+            "nkey": "AAAUZNB6EFNV5BTZEE3FUNQIZ2OFAD7NALJZ3RQY3TCOSFREMANAGSER",
+            "signingSeedFile": "./issuer.seed"
+          },
+          "target": {
+            "nkey": "ADQCP2XPU3CAS2PLQKLSHQXWR64JEMOXLV53ABO7ERDTDV5QHJ4RUCSY",
+            "signingSeedFile": "./target.seed"
+          },
+          "sxSeedFile": "./sx.seed"
+        }
+      },
+      "sessionKeySeedFile": "./session.seed",
+      "client": {
+        "natsServers": ["ws://localhost:8080"]
+      },
+      "oauth": {
+        "redirectBase": "http://127.0.0.1:3000/auth/callback",
+        "providers": {
+          "github": {
+            "type": "github",
+            "clientId": "github-client",
+            "clientSecretFile": "./github.secret"
+          }
+        }
+      }
+    }`,
+    async (configPath) => {
+      Deno.env.set("TRELLIS_CONFIG", "/tmp/unused-config.jsonc");
+      try {
+        const text = await Deno.readTextFile(configPath);
+        const cfg = parseAuthConfig(configPath, text);
+
+        assertEquals(cfg.web.origins, ["*"]);
+        assertEquals(
+          cfg.oauth.redirectBase,
+          "http://localhost:3000/auth/callback",
+        );
+      } finally {
+        Deno.env.delete("TRELLIS_CONFIG");
+      }
+    },
+  );
 });
 
 Deno.test("auth config loads explicit storage database path", async () => {
@@ -296,7 +353,6 @@ Deno.test("auth lifecycle modules do not read config during import", async () =>
     "TRELLIS_CONFIG",
     "/tmp/trellis-import-time-config-must-not-exist.jsonc",
   );
-  __testing__.resetConfig();
 
   try {
     const suffix = `?importTimeConfigTest=${crypto.randomUUID()}`;
@@ -304,7 +360,6 @@ Deno.test("auth lifecycle modules do not read config during import", async () =>
     await import(`./auth/device_activation/http.ts${suffix}`);
     await import(`./auth/device_activation/operation.ts${suffix}`);
   } finally {
-    __testing__.resetConfig();
     if (previousConfigPath === undefined) {
       Deno.env.delete("TRELLIS_CONFIG");
     } else {

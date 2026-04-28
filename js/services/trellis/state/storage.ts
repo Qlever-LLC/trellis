@@ -414,7 +414,7 @@ export class StateStore {
     if (isErr(entry)) {
       if (isNotFound(entry.error)) return Result.ok(null);
       if (entry.error instanceof ValidationError) {
-        return Result.err(entry.error);
+        return Result.err(new UnexpectedError({ cause: entry.error }));
       }
       return Result.err(new UnexpectedError({ cause: entry.error }));
     }
@@ -586,10 +586,10 @@ export class StateStore {
 
   #parseStoredEntry(
     value: unknown,
-  ): Result<StoredStateEntry, ValidationError | UnexpectedError> {
+  ): Result<StoredStateEntry, UnexpectedError> {
     if (value === null || typeof value !== "object") {
       return Result.err(
-        new ValidationError({
+        this.#storedEntryCorruption({
           errors: [{ path: "/entry", message: "state KV entry is invalid" }],
         }),
       );
@@ -598,7 +598,7 @@ export class StateStore {
     const record = value as Record<string, unknown>;
     if (!(record.updatedAt instanceof Date)) {
       return Result.err(
-        new ValidationError({
+        this.#storedEntryCorruption({
           errors: [{
             path: "/updatedAt",
             message: "state KV entry updatedAt is invalid",
@@ -608,7 +608,7 @@ export class StateStore {
     }
     if (record.expiresAt !== undefined && !(record.expiresAt instanceof Date)) {
       return Result.err(
-        new ValidationError({
+        this.#storedEntryCorruption({
           errors: [{
             path: "/expiresAt",
             message: "state KV entry expiresAt is invalid",
@@ -618,7 +618,7 @@ export class StateStore {
     }
     if (record.stateVersion === undefined) {
       return Result.err(
-        new ValidationError({
+        this.#storedEntryCorruption({
           errors: [{
             path: "/stateVersion",
             message: "state KV entry stateVersion is required",
@@ -628,7 +628,7 @@ export class StateStore {
     }
     if (typeof record.stateVersion !== "string" || record.stateVersion === "") {
       return Result.err(
-        new ValidationError({
+        this.#storedEntryCorruption({
           errors: [{
             path: "/stateVersion",
             message: "state KV entry stateVersion is invalid",
@@ -638,7 +638,7 @@ export class StateStore {
     }
     if (record.writerContractDigest === undefined) {
       return Result.err(
-        new ValidationError({
+        this.#storedEntryCorruption({
           errors: [{
             path: "/writerContractDigest",
             message: "state KV entry writerContractDigest is required",
@@ -651,7 +651,7 @@ export class StateStore {
       record.writerContractDigest === ""
     ) {
       return Result.err(
-        new ValidationError({
+        this.#storedEntryCorruption({
           errors: [{
             path: "/writerContractDigest",
             message: "state KV entry writerContractDigest is invalid",
@@ -667,6 +667,12 @@ export class StateStore {
       stateVersion: record.stateVersion,
       writerContractDigest: record.writerContractDigest,
     });
+  }
+
+  #storedEntryCorruption(
+    args: ConstructorParameters<typeof ValidationError>[0],
+  ) {
+    return new UnexpectedError({ cause: new ValidationError(args) });
   }
 
   #validateStoredValue(

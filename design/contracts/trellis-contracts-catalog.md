@@ -112,8 +112,9 @@ For v1:
 
 - dialect: JSON Schema Draft 2019-09
 - schema fields MAY be either a JSON object schema or a boolean schema
-- manifests MUST be self-contained; runtime processing MUST NOT require fetching
-  remote `$ref` targets
+- manifests MUST be self-contained; v1 embedded schemas MUST NOT use `$ref`,
+  including local or remote targets. Cross-schema references belong in Trellis
+  schema-ref fields such as `{ "schema": "Name" }`.
 
 ## Specification
 
@@ -490,6 +491,9 @@ Rules:
 - template tokens use the form `{<json-pointer>}` and MUST reference values in
   the event payload
 - if `params` is present, it MUST list the template pointers in subject order
+- every template pointer MUST resolve through direct object-schema `properties`
+  from the referenced event payload schema; pointers through arrays, non-object
+  schemas, or missing properties fail contract validation
 - `event` is a required schema ref into the contract-level `schemas` map
 - `capabilities.publish` and `capabilities.subscribe` are independent all-of
   requirements
@@ -1022,12 +1026,13 @@ Rules:
   operation subject so auth and SDK generation remain contract-driven
 - operation control publish grants use `capabilities.read` and
   `capabilities.cancel` as applicable; holding only `capabilities.call` does not
-  grant broad control-subject access
-- when an operation has no `read` capability grant and is not cancellable,
-  callers receive no control-subject publish permission even if they may start
-  the operation
-- if a capability list is empty or omitted, that specific action does not
-  require additional capability grants
+  grant broad control-subject access beyond the operation-specific control
+  subject
+- omitted `capabilities.read` defaults to `capabilities.call`, so callers that
+  can start an operation can also observe that operation unless the contract
+  declares a different read list
+- an explicit empty `read` or `cancel` capability list means authenticated
+  callers need no additional Trellis capability for that action
 - templated event subjects are authorized using wildcard subjects derived by
   replacing each template token with `*`
 - service sessions receive cross-contract permissions only from explicit `uses`,

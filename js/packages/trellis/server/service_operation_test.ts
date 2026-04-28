@@ -269,6 +269,122 @@ Deno.test({
 
 Deno.test({
   name:
+    "TrellisService.operation can defer external completion without auto-completing",
+  ignore: !RUN_NATS_TESTS,
+  async fn() {
+    await using nats = await NatsTest.start();
+    startPermissiveAuthResponder(nats.nc);
+    const info = nats.nc.info!;
+    const seed = base64urlEncode(crypto.getRandomValues(new Uint8Array(32)));
+    const originalFetch = globalThis.fetch;
+
+    try {
+      globalThis.fetch = (() => {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              status: "ready",
+              serverNow: 1_700_000_000,
+              connectInfo: {
+                sessionKey: "session-key",
+                contractId: billing.CONTRACT_ID,
+                contractDigest: billing.CONTRACT_DIGEST,
+                transports: {
+                  native: {
+                    natsServers: [`localhost:${info.port}`],
+                    tlsRequired: false,
+                  },
+                },
+                transport: {
+                  sentinel: { jwt: "jwt", seed: "seed" },
+                },
+                auth: {
+                  mode: "service_identity",
+                  iatSkewSeconds: 30,
+                },
+              },
+              binding: {
+                contractId: billing.CONTRACT_ID,
+                digest: billing.CONTRACT_DIGEST,
+                resources: {
+                  kv: {},
+                },
+              },
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        );
+      }) as typeof fetch;
+
+      const service = await TrellisService.connect({
+        trellisUrl: "https://trellis.example.com",
+        contract: billing,
+        name: "billing-service",
+        sessionKeySeed: seed,
+        server: {},
+      }, { connect: natsConnect }).orThrow();
+
+      const clientNc = await connect({
+        servers: `localhost:${info.port}`,
+        inboxPrefix: `_INBOX.${service.auth.sessionKey.slice(0, 16)}`,
+      });
+      const clientAuth = {
+        sessionKey: service.auth.sessionKey,
+        sign: service.auth.sign,
+      };
+      const client = createClient(billing, clientNc, clientAuth, {
+        name: "billing-client",
+      });
+
+      let handlerSettled = false;
+      await service.operation("Billing.Refund").handle(
+        async ({ op }) => {
+          await op.started();
+          await op.progress({ message: "waiting for external approval" });
+          handlerSettled = true;
+          return op.defer();
+        },
+      );
+
+      const ref = await client.operation("Billing.Refund").input({
+        chargeId: "ch_123",
+      }).start().match({
+        ok: (value) => value,
+        err: (error) => {
+          throw error;
+        },
+      });
+
+      await waitFor(() => handlerSettled, {
+        description: "deferred operation handler to settle",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 25));
+
+      const snapshot = await ref.get().match({
+        ok: (value) => value,
+        err: (error) => {
+          throw error;
+        },
+      });
+      assertEquals(snapshot.state, "running");
+      assertEquals(snapshot.progress, {
+        message: "waiting for external approval",
+      });
+      assertEquals(snapshot.output, undefined);
+
+      await clientNc.drain();
+      await service.stop();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  },
+});
+
+Deno.test({
+  name:
     "TrellisService.operation.accept creates a durable operation that a client can resume",
   ignore: !RUN_NATS_TESTS,
   async fn() {

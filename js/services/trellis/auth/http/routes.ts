@@ -47,6 +47,8 @@ import {
   type PendingAuth,
   type Session,
   type SessionApprovalSource,
+  SessionKeySchema,
+  SignatureSchema,
   type UserSession,
 } from "../schemas.ts";
 import { upsertUserProjectionInSql } from "../session/projection.ts";
@@ -466,17 +468,20 @@ export function registerHttpRoutes(
   }
 
   const FlowBindRequestSchema = Type.Object({
-    sessionKey: Type.String({ minLength: 1 }),
-    sig: Type.String({ minLength: 1 }),
+    sessionKey: SessionKeySchema,
+    sig: SignatureSchema,
+  });
+  const JsonObjectSchema = Type.Unsafe<Record<string, unknown>>({
+    type: "object",
   });
 
   const AuthStartRequestSchema = Type.Object({
     provider: Type.Optional(Type.String({ minLength: 1 })),
     redirectTo: Type.String(),
-    sessionKey: Type.String({ minLength: 1 }),
-    sig: Type.String({ minLength: 1 }),
-    contract: Type.Object({}, { additionalProperties: true }),
-    context: Type.Optional(Type.Object({}, { additionalProperties: true })),
+    sessionKey: SessionKeySchema,
+    sig: SignatureSchema,
+    contract: JsonObjectSchema,
+    context: Type.Optional(JsonObjectSchema),
   });
 
   async function completePendingBind(args: {
@@ -666,14 +671,7 @@ export function registerHttpRoutes(
     if (body.provider && !providers[body.provider]) {
       throw new HTTPException(400, { message: "Unknown OAuth Provider" });
     }
-    const request = Value.Parse(AuthStartRequestSchema, body) as {
-      provider?: string;
-      redirectTo: string;
-      sessionKey: string;
-      sig: string;
-      contract: Record<string, unknown>;
-      context?: Record<string, unknown>;
-    };
+    const request = Value.Parse(AuthStartRequestSchema, body);
 
     return c.json(
       await authStartRequestHandler({
@@ -1072,10 +1070,7 @@ export function registerHttpRoutes(
       return c.json({ error: "Invalid bind request" }, 400);
     }
 
-    const { sessionKey, sig } = body as {
-      sessionKey: string;
-      sig: string;
-    };
+    const { sessionKey, sig } = Value.Parse(FlowBindRequestSchema, body);
     const pendingEntry = await pendingAuthKV.get(await hashKey(flow.authToken))
       .take();
     if (isErr(pendingEntry)) {

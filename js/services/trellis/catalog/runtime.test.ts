@@ -12,6 +12,7 @@ import {
   initializeTrellisStorageSchema,
   openTrellisStorageDb,
 } from "../storage/db.ts";
+import { getContracts as getPermissionContracts } from "./permissions.ts";
 import type { ContractsModule } from "./runtime.ts";
 import type { ContractRecord } from "./schemas.ts";
 import { SqlContractStorageRepository } from "./storage.ts";
@@ -546,6 +547,122 @@ Deno.test("contracts runtime dry-run rejects incompatible staged active digests 
     );
     assertEquals(await serviceDeploymentStorage.list(), []);
     assertEquals(await serviceInstanceStorage.list(), []);
+  } finally {
+    storage.client.close();
+    await Deno.remove(dbPath).catch(() => undefined);
+  }
+});
+
+Deno.test("contracts runtime refresh rejects active uses dependencies without mutating active permission state", async () => {
+  const dbPath = await Deno.makeTempFile({
+    dir: "/tmp",
+    prefix: "trellis-catalog-runtime-active-uses-",
+    suffix: ".sqlite",
+  });
+  const storage = await openTrellisStorageDb(dbPath);
+
+  try {
+    const { createContractsModule } = await import("./runtime.ts");
+    await initializeTrellisStorageSchema(storage);
+    const contractStorage = new SqlContractStorageRepository(storage.db);
+    const serviceInstanceStorage = new SqlServiceInstanceRepository(storage.db);
+    const serviceDeploymentStorage = new SqlServiceDeploymentRepository(
+      storage.db,
+    );
+    const module = createContractsModule({
+      builtinContracts: [],
+      contractStorage,
+      serviceInstanceStorage,
+      serviceDeploymentStorage,
+      deviceDeploymentStorage: new SqlDeviceDeploymentRepository(storage.db),
+      deviceInstanceStorage: new SqlDeviceInstanceRepository(storage.db),
+    });
+    const billing = await module.installServiceContract(
+      makeOperationContract("billing@v1", "operations.v1.Billing.Refund"),
+    );
+    module.contractStore.activateDigest(billing.digest);
+    const portal = await module.installServiceContract(
+      {
+        format: "trellis.contract.v1",
+        id: "portal@v1",
+        displayName: "Portal",
+        description: "Calls billing operations.",
+        kind: "service",
+        uses: {
+          billing: {
+            contract: "billing@v1",
+            operations: { call: ["Refund"] },
+          },
+        },
+      } satisfies TrellisContractV1,
+    );
+    const now = "2026-01-01T00:00:00.000Z";
+    await serviceDeploymentStorage.put({
+      deploymentId: "billing.default",
+      namespaces: ["Billing"],
+      disabled: false,
+      appliedContracts: [{
+        contractId: billing.id,
+        allowedDigests: [billing.digest],
+      }],
+    });
+    await serviceInstanceStorage.put({
+      instanceId: "svc_billing",
+      deploymentId: "billing.default",
+      instanceKey: "billing-session-key",
+      disabled: false,
+      currentContractId: billing.id,
+      currentContractDigest: billing.digest,
+      capabilities: ["service"],
+      createdAt: now,
+    });
+    await module.refreshActiveContracts();
+
+    await serviceDeploymentStorage.put({
+      deploymentId: "billing.default",
+      namespaces: ["Billing"],
+      disabled: true,
+      appliedContracts: [{
+        contractId: billing.id,
+        allowedDigests: [billing.digest],
+      }],
+    });
+    await serviceDeploymentStorage.put({
+      deploymentId: "portal.default",
+      namespaces: ["Portal"],
+      disabled: false,
+      appliedContracts: [{
+        contractId: portal.id,
+        allowedDigests: [portal.digest],
+      }],
+    });
+    await serviceInstanceStorage.put({
+      instanceId: "svc_portal",
+      deploymentId: "portal.default",
+      instanceKey: "portal-session-key",
+      disabled: false,
+      currentContractId: portal.id,
+      currentContractDigest: portal.digest,
+      capabilities: ["service"],
+      createdAt: now,
+    });
+
+    await assertRejects(
+      () => module.refreshActiveContracts(),
+      Error,
+      "inactive contract 'billing@v1'",
+    );
+
+    assertEquals(
+      module.contractStore.getActiveCatalog().contracts.map((entry) =>
+        entry.digest
+      ),
+      [billing.digest],
+    );
+    assertEquals(
+      getPermissionContracts().map((entry) => entry.digest),
+      [billing.digest],
+    );
   } finally {
     storage.client.close();
     await Deno.remove(dbPath).catch(() => undefined);

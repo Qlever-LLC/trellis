@@ -744,7 +744,7 @@ Deno.test("portal storage upserts, gets, and lists by portal id", async () => {
   });
 });
 
-Deno.test("portal profile storage upserts, disables, deletes, and lists", async () => {
+Deno.test("portal profile storage upserts, deletes, and lists", async () => {
   await withRepositories(async ({ portalProfiles: deployments }, storage) => {
     const first = makePortalProfile({ portalId: "portal-b" });
     const second = makePortalProfile({
@@ -772,10 +772,6 @@ Deno.test("portal profile storage upserts, disables, deletes, and lists", async 
 
     assertEquals(await deployments.get("portal-b"), updated);
     assertEquals(await deployments.list(), [second, updated]);
-    assertEquals(
-      await deployments.disable("portal-b", "2026-04-26T00:00:03.000Z"),
-      { ...updated, disabled: true, updatedAt: "2026-04-26T00:00:03.000Z" },
-    );
     await deployments.delete("portal-a");
     assertEquals(await deployments.get("portal-a"), undefined);
   });
@@ -876,7 +872,7 @@ Deno.test("device portal selection storage upserts, deletes, and lists by deploy
   });
 });
 
-Deno.test("instance grant policy storage upserts, disables, deletes, and lists", async () => {
+Deno.test("instance grant policy storage upserts, deletes, and lists", async () => {
   await withRepositories(async ({ policies }, storage) => {
     const first = makePolicy({ contractId: "zeta@v1" });
     const second = makePolicy({
@@ -908,10 +904,6 @@ Deno.test("instance grant policy storage upserts, disables, deletes, and lists",
 
     assertEquals(await policies.get("zeta@v1"), updated);
     assertEquals(await policies.list(), [second, updated]);
-    assertEquals(
-      await policies.disable("zeta@v1", "2026-04-26T00:00:03.000Z"),
-      { ...updated, disabled: true, updatedAt: "2026-04-26T00:00:03.000Z" },
-    );
     await policies.delete("alpha@v1");
     assertEquals(await policies.get("alpha@v1"), undefined);
   });
@@ -1074,7 +1066,7 @@ Deno.test("device deployment storage omits service-only resource bindings", asyn
   );
 });
 
-Deno.test("device instance storage upserts, deletes, and alternate lookups", async () => {
+Deno.test("device instance storage upserts, deletes, and lists", async () => {
   await withRepositories(async ({ deviceInstances: instances }, storage) => {
     const first = makeDeviceInstance({ instanceId: "dev_instance_b" });
     const second = makeDeviceInstance({
@@ -1101,10 +1093,6 @@ Deno.test("device instance storage upserts, deletes, and alternate lookups", asy
     await instances.put(updated);
 
     assertEquals(await instances.get("dev_instance_b"), updated);
-    assertEquals(
-      await instances.getByPublicIdentityKey("pub_identity_a"),
-      updated,
-    );
     assertEquals(await instances.list(), [second, updated]);
     assertEquals(await instances.listByDeployment("dev-deployment-a"), [
       updated,
@@ -1141,7 +1129,7 @@ Deno.test("device provisioning secret storage upserts and deletes by instance id
   );
 });
 
-Deno.test("device activation storage upserts, deletes, and alternate lookups", async () => {
+Deno.test("device activation storage upserts, deletes, and lists", async () => {
   await withRepositories(
     async ({ deviceActivations: activations }, storage) => {
       const first = makeDeviceActivation({ instanceId: "dev_instance_b" });
@@ -1168,10 +1156,6 @@ Deno.test("device activation storage upserts, deletes, and alternate lookups", a
       await activations.put(updated);
 
       assertEquals(await activations.get("dev_instance_b"), updated);
-      assertEquals(
-        await activations.getByPublicIdentityKey("pub_identity_a"),
-        updated,
-      );
       assertEquals(await activations.list(), [second, updated]);
       await activations.delete("dev_instance_a");
       assertEquals(await activations.get("dev_instance_a"), undefined);

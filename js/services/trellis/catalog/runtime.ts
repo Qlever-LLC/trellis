@@ -16,6 +16,7 @@ import { ContractStore } from "./store.ts";
 import {
   resolveContractUsesFromStore,
   validateActiveContractCompatibility,
+  validateActiveContractUses,
 } from "./uses.ts";
 import type { SqlContractStorageRepository } from "./storage.ts";
 
@@ -496,6 +497,7 @@ export function createContractsModule(opts: {
     const active = await collectProposedActiveDigests(validationOpts);
     const activeEntries = contractStore.validateActiveDigests(active);
     validateActiveContractCompatibility(activeEntries);
+    validateActiveContractUses(activeEntries);
     return activeEntries;
   }
 

@@ -133,7 +133,7 @@ Deno.test("contract analysis includes operation subjects and control metadata", 
   ]);
 });
 
-Deno.test("contract analysis does not grant operation control from call alone", () => {
+Deno.test("contract analysis defaults operation read control to call capabilities", () => {
   const contract: TrellisContractV1 = {
     format: "trellis.contract.v1",
     id: "jobs@v1",
@@ -163,12 +163,68 @@ Deno.test("contract analysis does not grant operation control from call alone", 
     analyzed.analysis.operations.control.map((control) =>
       control.requiredCapabilities
     ),
-    [[], [], []],
+    [["jobs.run"], ["jobs.run"], ["jobs.run"]],
   );
-  assertEquals(analyzed.analysis.nats.publish, [{
-    kind: "operation:call",
-    subject: "operations.v1.Jobs.Run",
-    wildcardSubject: "operations.v1.Jobs.Run",
-    requiredCapabilities: ["jobs.run"],
-  }]);
+  assertEquals(analyzed.analysis.nats.publish, [
+    {
+      kind: "operation:call",
+      subject: "operations.v1.Jobs.Run",
+      wildcardSubject: "operations.v1.Jobs.Run",
+      requiredCapabilities: ["jobs.run"],
+    },
+    {
+      kind: "operation:control",
+      subject: "operations.v1.Jobs.Run.control",
+      wildcardSubject: "operations.v1.Jobs.Run.control",
+      requiredCapabilities: ["jobs.run"],
+    },
+    {
+      kind: "operation:control",
+      subject: "operations.v1.Jobs.Run.control",
+      wildcardSubject: "operations.v1.Jobs.Run.control",
+      requiredCapabilities: ["jobs.run"],
+    },
+    {
+      kind: "operation:control",
+      subject: "operations.v1.Jobs.Run.control",
+      wildcardSubject: "operations.v1.Jobs.Run.control",
+      requiredCapabilities: ["jobs.run"],
+    },
+  ]);
+});
+
+Deno.test("contract analysis grants empty-list operation control without extra capabilities", () => {
+  const contract: TrellisContractV1 = {
+    format: "trellis.contract.v1",
+    id: "jobs@v1",
+    displayName: "Jobs",
+    description: "Jobs test contract",
+    kind: "service",
+    schemas: {
+      Input: { type: "object" },
+      Output: { type: "object" },
+    },
+    operations: {
+      Run: {
+        version: "v1",
+        subject: "operations.v1.Jobs.Run",
+        input: { schema: "Input" },
+        output: { schema: "Output" },
+        capabilities: {
+          call: [],
+          read: [],
+          cancel: [],
+        },
+        cancel: true,
+      },
+    },
+  };
+
+  const analyzed = analyzeContract(contract);
+
+  assertEquals(analyzed.summary.operationControls, 4);
+  assertEquals(
+    analyzed.analysis.nats.publish.map((rule) => rule.requiredCapabilities),
+    [[], [], [], [], []],
+  );
 });

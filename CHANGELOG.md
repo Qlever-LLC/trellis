@@ -10,6 +10,18 @@ and this project adheres to
 
 ### Changed
 
+- Documented the final Trellis service v1 architecture cleanup across design
+  docs, guides, the built-in portal, and demos: active catalog and approval
+  planning now fail closed on inactive dependencies, embedded schemas reject all
+  `$ref`, event template params are schema-checked, operation handlers use
+  `op.defer()` for external completion, service resources are exact-digest
+  install input, missing sessions return `session_not_found`, and malformed
+  internal State or connection storage is treated as runtime noise/corruption
+  rather than caller data.
+- Redesigned the JavaScript browser demo as the Field Inspection Desk demo
+  client, with a Trellis-powered product identity, mostly-light Executive
+  Systems theme, full-height left navigation shell, integrated workflow pages,
+  and clearer live-versus-fixture data handling.
 - Documented and surfaced the final v1 activation/state cleanup across design
   docs, guides, the built-in portal, and console: device activation review
   decisions now complete the original `Auth.ActivateDevice` operation durably,

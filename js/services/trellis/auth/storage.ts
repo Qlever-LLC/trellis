@@ -997,18 +997,6 @@ export class SqlPortalProfileRepository {
     );
   }
 
-  /** Disables a portal profile by portal id and returns the updated record. */
-  async disable(
-    portalId: string,
-    updatedAt: string,
-  ): Promise<PortalProfile | undefined> {
-    const existing = await this.get(portalId);
-    if (existing === undefined) return undefined;
-    const disabled = { ...existing, disabled: true, updatedAt };
-    await this.put(disabled);
-    return disabled;
-  }
-
   /** Returns portal profiles ordered by portal id. */
   async list(): Promise<PortalProfile[]> {
     const rows = await this.#db.select().from(portalProfiles).orderBy(
@@ -1202,18 +1190,6 @@ export class SqlInstanceGrantPolicyRepository {
     await this.#db.delete(instanceGrantPolicies).where(
       eq(instanceGrantPolicies.contractId, contractId),
     );
-  }
-
-  /** Disables an instance grant policy by contract id and returns the updated record. */
-  async disable(
-    contractId: string,
-    updatedAt: string,
-  ): Promise<InstanceGrantPolicy | undefined> {
-    const existing = await this.get(contractId);
-    if (existing === undefined) return undefined;
-    const disabled = { ...existing, disabled: true, updatedAt };
-    await this.put(disabled);
-    return disabled;
   }
 
   /** Returns instance grant policies ordered by contract id. */
@@ -1414,17 +1390,6 @@ export class SqlDeviceInstanceRepository {
     return row === undefined ? undefined : decodeDeviceInstanceRow(row);
   }
 
-  /** Returns a device instance by public identity key, or undefined. */
-  async getByPublicIdentityKey(
-    publicIdentityKey: string,
-  ): Promise<DeviceInstance | undefined> {
-    const rows = await this.#db.select().from(deviceInstances).where(
-      eq(deviceInstances.publicIdentityKey, publicIdentityKey),
-    ).limit(1);
-    const row = rows[0];
-    return row === undefined ? undefined : decodeDeviceInstanceRow(row);
-  }
-
   /** Inserts or replaces a device instance keyed by instance id. */
   async put(record: DeviceInstance): Promise<void> {
     const row = encodeDeviceInstanceRecord(record);
@@ -1520,17 +1485,6 @@ export class SqlDeviceActivationRepository {
   async get(instanceId: string): Promise<DeviceActivation | undefined> {
     const rows = await this.#db.select().from(deviceActivations).where(
       eq(deviceActivations.instanceId, instanceId),
-    ).limit(1);
-    const row = rows[0];
-    return row === undefined ? undefined : decodeDeviceActivationRow(row);
-  }
-
-  /** Returns a device activation by public identity key, or undefined. */
-  async getByPublicIdentityKey(
-    publicIdentityKey: string,
-  ): Promise<DeviceActivation | undefined> {
-    const rows = await this.#db.select().from(deviceActivations).where(
-      eq(deviceActivations.publicIdentityKey, publicIdentityKey),
     ).limit(1);
     const row = rows[0];
     return row === undefined ? undefined : decodeDeviceActivationRow(row);

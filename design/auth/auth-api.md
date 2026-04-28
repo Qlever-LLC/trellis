@@ -680,11 +680,16 @@ durable deployment record:
 
 - `Auth.ApplyServiceDeploymentContract` validates the newly installed digest
   against the proposed active catalog before provisioning external resources,
-  preflights same-lineage resource compatibility, provisions bindings, validates
-  the staged deployment record, then persists and refreshes the active catalog.
+  provisions bindings from the exact digest, validates the staged deployment
+  record, then persists and refreshes the active catalog. Resource declarations
+  are exact-digest install input; Trellis no longer rejects a same-lineage
+  digest solely because its resource settings differ from another active digest.
 - `Auth.UnapplyServiceDeploymentContract` validates the staged deployment before
   persistence, then refreshes the active catalog before kicking affected runtime
   connections.
+- service and device deployment mutations fail closed when the proposed active
+  set has inactive or missing `uses` dependencies; Trellis validates that staged
+  catalog state before exposing it to runtime permissions.
 - if active-catalog refresh fails after persistence, auth rolls the deployment
   record back; if rollback also fails, the RPC returns an unexpected aggregate
   failure rather than reporting a successful apply or unapply.
@@ -1303,6 +1308,9 @@ Response:
   }>;
 }
 ```
+
+Malformed internal connection-presence entries are skipped as runtime storage
+noise rather than surfaced as caller-visible connection records.
 
 ### rpc.Auth.KickConnection
 

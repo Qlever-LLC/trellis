@@ -23,6 +23,9 @@ The app has two distinct roles:
   and starts the `Auth.ActivateDevice` operation over the Trellis runtime.
   Review-required deployments continue watching that same operation; the admin
   review decision completes it with the activated or rejected terminal result.
+  There is no portal-side review polling fallback: the Trellis service records
+  pending-review progress and defers terminal completion durably until the
+  review RPC decides the operation.
 - SvelteKit runtime assets are served under `/_trellis/assets/*` to keep the
   built-in portal's asset namespace inside the Trellis-owned prefix.
 
@@ -86,3 +89,6 @@ digests only when duplicate surfaces resolve to compatible schemas. Optional
 fields may be added or removed while absence remains valid for consumers, but
 closed-object additions, required-field removal, or required-field changes
 produce a new digest that must be handled as an incompatible contract change.
+Embedded schemas are self-contained Draft 2019-09 values; portal/app contract
+authors should use Trellis schema references at surface declaration sites rather
+than JSON Schema `$ref` inside the embedded schemas.

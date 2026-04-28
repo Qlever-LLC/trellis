@@ -1,8 +1,8 @@
 import { fromFileUrl } from "@std/path";
-import { getConfig } from "../config.ts";
+import { loadConfig } from "../config.ts";
 
 function requirePortalPublicTrellisUrl(): string {
-  const value = getConfig().web.publicOrigin?.trim();
+  const value = loadConfig().web.publicOrigin?.trim();
   if (!value) {
     throw new Error(
       "config.web.publicOrigin is required to build the builtin portal for `deno task dev`.",

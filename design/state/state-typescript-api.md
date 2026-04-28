@@ -318,6 +318,9 @@ const listed = await drafts.list({ limit: 10 }).orThrow();
   accepted-version schema rather than the current schema
 - invalid state payloads surface as typed validation failures rather than as
   silently accepted values
+- malformed Trellis-owned stored envelopes or metadata surface as
+  `UnexpectedError` because they indicate runtime storage corruption, not caller
+  input validation failure
 
 ## Non-Goals
 

@@ -85,12 +85,8 @@ type DeviceActivationReviewRecord = {
   reason?: string;
 };
 
-const REVIEW_POLL_INTERVAL_MS = 1_000;
-
 type ReviewWaitTiming = {
   now(): number;
-  sleep(ms: number): Promise<void>;
-  pollIntervalMs: number;
 };
 
 type DeviceActivationOperationDeps = {
@@ -127,9 +123,6 @@ function reviewWaitTiming(
 ): ReviewWaitTiming {
   return {
     now: deps.reviewWaitTiming?.now ?? Date.now,
-    sleep: deps.reviewWaitTiming?.sleep ?? sleep,
-    pollIntervalMs: deps.reviewWaitTiming?.pollIntervalMs ??
-      REVIEW_POLL_INTERVAL_MS,
   };
 }
 
@@ -387,49 +380,11 @@ function pendingReviewProgress(review: DeviceActivationReviewRecord) {
   };
 }
 
-async function sleep(ms: number): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 function remainingFlowLifetimeMs(
   flow: DeviceActivationFlow,
   nowMs: number,
 ): number {
   return Math.max(0, new Date(isoString(flow.expiresAt)).getTime() - nowMs);
-}
-
-async function waitForTerminalActivationStatus(
-  deps: DeviceActivationOperationDeps,
-  flow: DeviceActivationFlow,
-): Promise<
-  | {
-    status: "activated";
-    instanceId: string;
-    deploymentId: string;
-    activatedAt: string;
-    confirmationCode?: string;
-  }
-  | { status: "rejected"; reason?: string }
-> {
-  const timing = reviewWaitTiming(deps);
-  while (true) {
-    const status = await currentActivationStatus(deps, flow);
-    if (status && status.status !== "pending_review") {
-      return status;
-    }
-
-    const remainingMs = remainingFlowLifetimeMs(flow, timing.now());
-    if (remainingMs <= 0) {
-      return {
-        status: "rejected",
-        reason: "device_flow_expired",
-      };
-    }
-
-    // Operation handlers cannot currently be completed by the review-decision
-    // RPC, so the fallback poll path is bounded by the existing flow expiry.
-    await timing.sleep(Math.min(timing.pollIntervalMs, remainingMs));
-  }
 }
 
 export function createActivateDeviceHandler(
@@ -449,6 +404,7 @@ export function createActivateDeviceHandler(
           deploymentId: string;
           requestedAt: string;
         }): PromiseLike<unknown>;
+        defer(): { kind: "deferred" };
       };
     },
   ) => {
@@ -497,7 +453,7 @@ export function createActivateDeviceHandler(
     const existingReview = await findReviewByFlowId(deps, flow.flowId);
     if (existingReview?.state === "pending") {
       await op.progress(pendingReviewProgress(existingReview));
-      return Result.ok(await waitForTerminalActivationStatus(deps, flow));
+      return op.defer();
     }
 
     if (existingReview?.state === "approved") {
@@ -542,7 +498,7 @@ export function createActivateDeviceHandler(
         requestedBy: review.requestedBy,
       });
       await op.progress(pendingReviewProgress(review));
-      return Result.ok(await waitForTerminalActivationStatus(deps, flow));
+      return op.defer();
     }
 
     return Result.ok({

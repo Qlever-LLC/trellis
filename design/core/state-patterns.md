@@ -240,6 +240,9 @@ await drafts.list({ limit: 10 });
 - migration-required responses validate the old value against the matching
   accepted-version schema before being returned to the runtime
 - state values must be valid JSON on the wire
+- malformed Trellis-owned stored envelopes or metadata are internal corruption
+  and surface as `UnexpectedError`; caller-supplied values that fail the
+  declared store schema remain normal validation failures
 
 ## TTL
 

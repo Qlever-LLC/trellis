@@ -1,6 +1,7 @@
 {
   "name": "@trellis-demo/app",
   "version": "0.0.0",
+  "exports": "./contract.ts",
   "extends": "../deno.json",
   "tasks": {
     "prepare": "deno task -c ../deno.json prepare",

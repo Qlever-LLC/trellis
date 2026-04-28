@@ -1,8 +1,83 @@
 @import "tailwindcss";
 
 @plugin "daisyui/index.js" {
-  themes: corporate --default, business --prefersdark;
+  themes: false;
   logs: false;
+}
+
+@plugin "daisyui/theme" {
+  name: "trellis-executive";
+  default: true;
+  prefersdark: false;
+  color-scheme: light;
+  --color-base-100: #fffdf9;
+  --color-base-200: #f5f3ef;
+  --color-base-300: #d8d1c6;
+  --color-base-content: #101828;
+  --color-primary: #101828;
+  --color-primary-content: #f5f3ef;
+  --color-secondary: #243b53;
+  --color-secondary-content: #f5f3ef;
+  --color-accent: #b86b35;
+  --color-accent-content: #fff7ef;
+  --color-neutral: #2a2521;
+  --color-neutral-content: #f5f3ef;
+  --color-info: #243b53;
+  --color-info-content: #f5f3ef;
+  --color-success: #2f7d5c;
+  --color-success-content: #f4fbf6;
+  --color-warning: #b86b35;
+  --color-warning-content: #fff7ef;
+  --color-error: #9f3a31;
+  --color-error-content: #fff7ef;
+  --radius-selector: 0.375rem;
+  --radius-field: 0.375rem;
+  --radius-box: 0.875rem;
+  --border: 1px;
+}
+
+@plugin "daisyui/theme" {
+  name: "trellis-executive-dark";
+  default: false;
+  prefersdark: false;
+  color-scheme: dark;
+  --color-base-100: #101828;
+  --color-base-200: #0b1320;
+  --color-base-300: #243b53;
+  --color-base-content: #f5f3ef;
+  --color-primary: #f5f3ef;
+  --color-primary-content: #101828;
+  --color-secondary: #8da4ba;
+  --color-secondary-content: #101828;
+  --color-accent: #c97a3f;
+  --color-accent-content: #101828;
+  --color-neutral: #2a2521;
+  --color-neutral-content: #f5f3ef;
+  --color-info: #8da4ba;
+  --color-info-content: #101828;
+  --color-success: #69b38d;
+  --color-success-content: #07120d;
+  --color-warning: #c97a3f;
+  --color-warning-content: #101828;
+  --color-error: #d16f64;
+  --color-error-content: #101828;
+  --radius-selector: 0.375rem;
+  --radius-field: 0.375rem;
+  --radius-box: 0.875rem;
+  --border: 1px;
+}
+
+:root {
+  --trellis-deep-ink: #101828;
+  --trellis-oxford: #243b53;
+  --trellis-copper: #b86b35;
+  --trellis-warm-gray: #f5f3ef;
+  --trellis-stone: #c8c2b8;
+  --trellis-espresso: #2a2521;
+  --trellis-paper: #fffdf9;
+  --trellis-shadow:
+    0 1px 1px rgb(16 24 40 / 0.05),
+    0 12px 34px rgb(42 37 33 / 0.08);
 }
 
 html,
@@ -13,33 +88,163 @@ body {
 
 body {
   min-height: 100vh;
+  color: var(--color-base-content);
+  font-family:
+    Inter, "Söhne", "Sohne", ui-sans-serif, system-ui, -apple-system,
+    BlinkMacSystemFont, "Segoe UI", sans-serif;
   background:
     radial-gradient(
-      circle at 20% 0%,
-      color-mix(in oklch, var(--color-primary) 14%, transparent),
-      transparent 34rem
+      circle at 0% 0%,
+      color-mix(in oklch, var(--trellis-stone) 42%, transparent),
+      transparent 32rem
     ),
     linear-gradient(
     135deg,
-    color-mix(in oklch, var(--color-base-200) 90%, transparent),
-    var(--color-base-100) 48%,
-    var(--color-base-200)
+    #fbfaf7 0%,
+    var(--trellis-warm-gray) 52%,
+    #ece7df 100%
   );
   background-attachment: fixed;
 }
 
+body::before {
+  position: fixed;
+  inset: 0 auto 0 0;
+  z-index: -1;
+  width: clamp(15rem, 22vw, 20rem);
+  content: "";
+  background: linear-gradient(
+    180deg,
+    rgb(16 24 40 / 0.08),
+    rgb(36 59 83 / 0.04) 48%,
+    transparent
+  );
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
 .field-console {
   background-image:
-    linear-gradient(
-      color-mix(in oklch, var(--color-base-content) 5%, transparent) 1px,
-      transparent 1px
-    ),
-    linear-gradient(
-    90deg,
-    color-mix(in oklch, var(--color-base-content) 5%, transparent) 1px,
-    transparent 1px
+    linear-gradient(rgb(16 24 40 / 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(16 24 40 / 0.035) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+.executive-panel {
+  border: 1px solid color-mix(in oklch, var(--trellis-stone) 72%, white);
+  background: linear-gradient(
+    180deg,
+    rgb(255 253 249 / 0.94),
+    rgb(245 243 239 / 0.9)
   );
-  background-size: 28px 28px;
+  box-shadow: var(--trellis-shadow);
+}
+
+.app-shell {
+  display: grid;
+  min-height: 100vh;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 1024px) {
+  .app-shell {
+    grid-template-columns: 18rem minmax(0, 1fr);
+  }
+}
+
+.app-sidebar {
+  border-bottom: 1px solid color-mix(in oklch, var(--trellis-stone) 72%, white);
+  background: color-mix(
+    in oklch,
+    var(--trellis-paper) 86%,
+    var(--trellis-warm-gray)
+  );
+}
+
+@media (min-width: 1024px) {
+  .app-sidebar {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    border-right: 1px solid
+      color-mix(in oklch, var(--trellis-stone) 72%, white);
+    border-bottom: 0;
+  }
+}
+
+.app-main {
+  min-width: 0;
+}
+
+.page-workspace {
+  width: min(100%, 72rem);
+}
+
+.page-sheet {
+  border: 1px solid color-mix(in oklch, var(--trellis-stone) 66%, white);
+  background: rgb(255 253 249 / 0.72);
+  box-shadow: 0 1px 1px rgb(16 24 40 / 0.04);
+}
+
+.section-rule {
+  border-top: 1px solid
+    color-mix(in oklch, var(--trellis-stone) 68%, transparent);
+}
+
+.trellis-kicker {
+  color: var(--trellis-copper);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.22em;
+  line-height: 1rem;
+  text-transform: uppercase;
+}
+
+.executive-rule {
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in oklch, var(--trellis-stone) 78%, transparent),
+    transparent
+  );
+}
+
+.executive-table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.executive-table :where(th) {
+  color: color-mix(in oklch, var(--trellis-deep-ink) 62%, transparent);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.executive-table :where(tbody tr) {
+  border-color: color-mix(in oklch, var(--trellis-stone) 65%, transparent);
+}
+
+.executive-nav-link {
+  border: 1px solid transparent;
+  color: color-mix(in oklch, var(--trellis-deep-ink) 72%, transparent);
+}
+
+.executive-nav-link:hover {
+  color: var(--trellis-deep-ink);
+  background: rgb(255 253 249 / 0.58);
+}
+
+.executive-nav-link.menu-active,
+.executive-nav-link[aria-current="page"] {
+  color: var(--trellis-deep-ink);
+  background: rgb(184 107 53 / 0.18);
+  border-color: rgb(184 107 53 / 0.38);
 }
 
 .command-header {
@@ -49,14 +254,14 @@ body {
 
 .command-header::after {
   position: absolute;
-  inset: auto 1rem 0;
+  inset: auto 1.25rem 0;
   height: 2px;
   content: "";
   background: linear-gradient(
     90deg,
     transparent,
-    var(--color-primary),
+    var(--trellis-copper),
     transparent
   );
-  opacity: 0.55;
+  opacity: 0.8;
 }

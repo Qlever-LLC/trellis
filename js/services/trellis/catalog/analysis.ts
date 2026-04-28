@@ -4,6 +4,10 @@ import {
   getContractResourceAnalysis,
   getContractResourceSummary,
 } from "./resources.ts";
+import {
+  operationCancelCapabilities,
+  operationReadCapabilities,
+} from "./permissions.ts";
 
 function templateToWildcard(subject: string): string {
   return subject.replace(/\{[^}]+\}/g, "*");
@@ -19,12 +23,6 @@ function subjectNamespace(subject: string): string | null {
   }
   if (!parts[1]?.startsWith("v")) return null;
   return parts[2] ?? null;
-}
-
-function operationReadCapabilities(operation: {
-  capabilities?: { call?: string[]; read?: string[] };
-}): string[] {
-  return operation.capabilities?.read ?? [];
 }
 
 export type ContractAnalysis = {
@@ -140,6 +138,7 @@ export function analyzeContract(contract: TrellisContractV1): {
   const rpcMethods: ContractAnalysis["rpc"]["methods"] = [];
   const operations: ContractAnalysis["operations"]["operations"] = [];
   const operationControls: ContractAnalysis["operations"]["control"] = [];
+  const cancelControlSubjects = new Set<string>();
   const events: ContractAnalysis["events"]["events"] = [];
   const namespaces = new Set<string>();
 
@@ -171,7 +170,10 @@ export function analyzeContract(contract: TrellisContractV1): {
     const wildcardControlSubject = templateToWildcard(controlSubject);
     const callCapabilities = operation.capabilities?.call ?? [];
     const readCapabilities = operationReadCapabilities(operation);
-    const cancelCapabilities = operation.capabilities?.cancel ?? [];
+    const operationCancelCapabilitiesValue = operationCancelCapabilities(
+      operation,
+    );
+    const cancelCapabilities = operationCancelCapabilitiesValue ?? [];
     operations.push({
       key,
       subject: operation.subject,
@@ -206,7 +208,8 @@ export function analyzeContract(contract: TrellisContractV1): {
         requiredCapabilities: readCapabilities,
       },
     );
-    if (operation.cancel) {
+    if (operationCancelCapabilitiesValue !== undefined) {
+      cancelControlSubjects.add(controlSubject);
       operationControls.push({
         key,
         action: "cancel",
@@ -270,17 +273,15 @@ export function analyzeContract(contract: TrellisContractV1): {
       wildcardSubject: operation.wildcardSubject,
       requiredCapabilities: operation.callCapabilities,
     });
-    if (operation.readCapabilities.length > 0) {
-      for (const _ of ["get", "wait", "watch"]) {
-        publish.push({
-          kind: "operation:control",
-          subject: operation.controlSubject,
-          wildcardSubject: operation.wildcardControlSubject,
-          requiredCapabilities: operation.readCapabilities,
-        });
-      }
+    for (const _ of ["get", "wait", "watch"]) {
+      publish.push({
+        kind: "operation:control",
+        subject: operation.controlSubject,
+        wildcardSubject: operation.wildcardControlSubject,
+        requiredCapabilities: operation.readCapabilities,
+      });
     }
-    if (operation.cancel && operation.cancelCapabilities.length > 0) {
+    if (cancelControlSubjects.has(operation.controlSubject)) {
       publish.push({
         kind: "operation:control",
         subject: operation.controlSubject,

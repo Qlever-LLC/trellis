@@ -7,11 +7,7 @@ import {
   applyInstalledServiceDeploymentContract,
   type ServiceDeployment,
 } from "./shared.ts";
-import {
-  getContractResourceAnalysis,
-  preflightContractResourceCompatibility,
-  provisionContractResourceBindings,
-} from "../../catalog/resources.ts";
+import { provisionContractResourceBindings } from "../../catalog/resources.ts";
 import type { ContractResourceBindings } from "../../catalog/resources.ts";
 
 type RpcUser = { type: string; id?: string };
@@ -25,25 +21,6 @@ type ActiveCatalogValidator = (opts: {
   extraActiveDigests?: Iterable<string>;
   stagedServiceDeployments?: Iterable<ServiceDeployment>;
 }) => Promise<unknown>;
-
-function getExistingResourceBindings(
-  deployment: ServiceDeployment,
-  contractId: string,
-): Record<string, ContractResourceBindings> | undefined {
-  const existing = deployment.appliedContracts.find((applied) =>
-    applied.contractId === contractId
-  )?.resourceBindingsByDigest;
-  if (!existing) return undefined;
-
-  const bindingsByDigest: Record<string, ContractResourceBindings> = {};
-  for (const [digest, bindings] of Object.entries(existing)) {
-    bindingsByDigest[digest] = {
-      ...(bindings.kv ? { kv: bindings.kv } : {}),
-      ...(bindings.store ? { store: bindings.store } : {}),
-    };
-  }
-  return bindingsByDigest;
-}
 
 function invalid(
   path: string,
@@ -96,21 +73,6 @@ export function createAuthApplyServiceDeploymentContractHandler(deps: {
     }
 
     const installed = await deps.installServiceContract(req.contract);
-    try {
-      const analysis = getContractResourceAnalysis(installed.contract);
-      preflightContractResourceCompatibility({
-        serviceDeploymentId: deployment.deploymentId,
-        contractId: installed.id,
-        proposedDigest: installed.digest,
-        proposed: { kv: analysis.kv, store: analysis.store },
-        existingBindingsByDigest: getExistingResourceBindings(
-          deployment,
-          installed.id,
-        ),
-      });
-    } catch (error) {
-      return Result.err(new UnexpectedError({ cause: toError(error) }));
-    }
 
     if (deps.validateActiveCatalog) {
       try {

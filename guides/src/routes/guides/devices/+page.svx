@@ -139,6 +139,9 @@ trellis deploy review approve dar_123456789
 After approval or rejection, Trellis completes the original `Auth.ActivateDevice`
 operation that the portal started. Devices and portals should continue watching or
 waiting on that operation rather than polling a separate review-status RPC.
+Internally, the activation handler records `pending_review` progress and returns
+`op.defer()` so the handler can settle while the durable operation remains open
+for the later review decision.
 
 ## 5. Provision a device instance
 

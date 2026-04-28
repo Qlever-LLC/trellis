@@ -204,6 +204,92 @@ Deno.test("Auth.ApplyServiceDeploymentContract preserves bindings for multiple s
   );
 });
 
+Deno.test("Auth.ApplyServiceDeploymentContract allows same-lineage digest resource setting changes", async () => {
+  const serviceDeploymentStorage = new InMemoryServiceDeploymentStorage();
+  serviceDeploymentStorage.seed({
+    deploymentId: "billing.default",
+    namespaces: ["billing"],
+    disabled: false,
+    appliedContracts: [{
+      contractId: contract.id,
+      allowedDigests: ["digest-a"],
+      resourceBindingsByDigest: {
+        "digest-a": {
+          kv: {
+            cache: { bucket: "svc_billing_cache", history: 1, ttlMs: 0 },
+          },
+        },
+      },
+    }],
+  });
+  let provisionedContract: TrellisContractV1 | undefined;
+
+  const changedResourceContract: TrellisContractV1 = {
+    ...contract,
+    schemas: { CacheEntry: { type: "object" } },
+    resources: {
+      kv: {
+        cache: {
+          purpose: "Cache billing data",
+          schema: { schema: "CacheEntry" },
+          required: true,
+          history: 2,
+          ttlMs: 30_000,
+        },
+      },
+    },
+  };
+
+  const handler = createAuthApplyServiceDeploymentContractHandler({
+    serviceDeploymentStorage,
+    installServiceContract: async () => ({
+      id: contract.id,
+      digest: "digest-b",
+      displayName: contract.displayName,
+      description: contract.description,
+      contract: changedResourceContract,
+      usedNamespaces: ["billing"],
+    }),
+    provisionResourceBindings: async (_nats, provisioned) => {
+      provisionedContract = provisioned;
+      return {
+        kv: {
+          cache: { bucket: "svc_billing_cache", history: 2, ttlMs: 30_000 },
+        },
+      };
+    },
+    validateActiveCatalog: async () => {},
+    refreshActiveContracts: async () => {},
+  });
+
+  const result = await handler({
+    input: { deploymentId: "billing.default", contract: {} },
+    context: { caller: { type: "user", id: "admin" } },
+  });
+
+  assert(!result.isErr());
+  assertEquals(provisionedContract, changedResourceContract);
+  assertEquals(
+    serviceDeploymentStorage.getValue("billing.default")?.appliedContracts,
+    [{
+      contractId: contract.id,
+      allowedDigests: ["digest-a", "digest-b"],
+      resourceBindingsByDigest: {
+        "digest-a": {
+          kv: {
+            cache: { bucket: "svc_billing_cache", history: 1, ttlMs: 0 },
+          },
+        },
+        "digest-b": {
+          kv: {
+            cache: { bucket: "svc_billing_cache", history: 2, ttlMs: 30_000 },
+          },
+        },
+      },
+    }],
+  );
+});
+
 Deno.test("Auth.ApplyServiceDeploymentContract does not mutate deployment when active catalog validation fails", async () => {
   const serviceDeploymentStorage = new InMemoryServiceDeploymentStorage();
   const deployment = {
@@ -305,73 +391,6 @@ Deno.test("Auth.ApplyServiceDeploymentContract restores deployment when active r
   });
 
   assert(result.isErr());
-  assertEquals(
-    serviceDeploymentStorage.getValue("billing.default"),
-    deployment,
-  );
-});
-
-Deno.test("Auth.ApplyServiceDeploymentContract does not provision or mutate when resource preflight fails", async () => {
-  const serviceDeploymentStorage = new InMemoryServiceDeploymentStorage();
-  const deployment = {
-    deploymentId: "billing.default",
-    namespaces: ["billing"],
-    disabled: false,
-    appliedContracts: [{
-      contractId: contract.id,
-      allowedDigests: ["digest-a"],
-      resourceBindingsByDigest: {
-        "digest-a": {
-          kv: {
-            cache: { bucket: "svc_billing_cache", history: 1, ttlMs: 0 },
-          },
-        },
-      },
-    }],
-  };
-  serviceDeploymentStorage.seed(deployment);
-  let provisioned = false;
-
-  const handler = createAuthApplyServiceDeploymentContractHandler({
-    serviceDeploymentStorage,
-    installServiceContract: async () => ({
-      id: contract.id,
-      digest: "digest-b",
-      displayName: contract.displayName,
-      description: contract.description,
-      contract: {
-        ...contract,
-        schemas: { CacheEntry: { type: "object" } },
-        resources: {
-          kv: {
-            cache: {
-              purpose: "Cache billing data",
-              schema: { schema: "CacheEntry" },
-              required: true,
-              history: 2,
-              ttlMs: 0,
-            },
-          },
-        },
-      },
-      usedNamespaces: ["billing"],
-    }),
-    provisionResourceBindings: async () => {
-      provisioned = true;
-      return {};
-    },
-    validateActiveCatalog: async () => {},
-    refreshActiveContracts: async () => {},
-  });
-
-  const result = await handler({
-    input: { deploymentId: "billing.default", contract: {} },
-    context: { caller: { type: "user", id: "admin" } },
-  });
-
-  assert(result.isErr());
-  assertEquals(provisioned, false);
-  assertEquals(serviceDeploymentStorage.putCount, 0);
   assertEquals(
     serviceDeploymentStorage.getValue("billing.default"),
     deployment,

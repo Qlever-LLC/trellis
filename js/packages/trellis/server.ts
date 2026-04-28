@@ -31,6 +31,7 @@ import {
   buildProofInput,
   buildRuntimeOperationSnapshot,
   type HandlerFn,
+  isOperationDeferred,
   isResultLike,
   isTerminalRuntimeOperationSnapshot,
   type MethodsOf,
@@ -362,6 +363,7 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
 
           return ok(finalRuntime.snapshot);
         })()),
+      defer: () => ({ kind: "deferred" as const }),
     };
   }
 
@@ -934,6 +936,7 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
 
                 return ok(finalRuntime.snapshot);
               })()),
+            defer: () => ({ kind: "deferred" as const }),
           };
         };
 
@@ -1220,6 +1223,10 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
                   : handlerResult;
                 if (isErr(handlerOutcome)) {
                   await op.fail(handlerOutcome.error);
+                  return;
+                }
+
+                if (isOperationDeferred(handlerOutcome)) {
                   return;
                 }
 

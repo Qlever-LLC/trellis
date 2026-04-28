@@ -119,6 +119,9 @@ type ActiveCatalogValidator = (opts: {
   stagedDeviceDeployments?: Iterable<DeviceDeployment>;
   stagedDeviceInstances?: Iterable<DeviceInstance>;
 }) => Promise<unknown>;
+type ActiveCatalogDeps = ActiveContractsDeps & {
+  validateActiveCatalog: ActiveCatalogValidator;
+};
 
 export type AdminRpcDeps = {
   browserFlowsKV: RuntimeKV<unknown>;
@@ -262,6 +265,46 @@ async function refreshActiveContracts(deps: ActiveContractsDeps) {
       }),
     );
   }
+}
+
+async function validateActiveCatalog(
+  deps: ActiveCatalogDeps,
+  opts: Parameters<ActiveCatalogValidator>[0],
+) {
+  try {
+    await deps.validateActiveCatalog(opts);
+    return Result.ok(undefined);
+  } catch (error) {
+    return Result.err(
+      new UnexpectedError({
+        cause: error instanceof Error ? error : new Error(String(error)),
+      }),
+    );
+  }
+}
+
+async function rollbackRefreshFailure<T>(
+  refreshError: UnexpectedError,
+  rollback: () => Promise<void>,
+): Promise<Result<T, UnexpectedError>> {
+  try {
+    await rollback();
+  } catch (rollbackError) {
+    return Result.err(
+      new UnexpectedError({
+        cause: new AggregateError(
+          [
+            refreshError,
+            rollbackError instanceof Error
+              ? rollbackError
+              : new Error(String(rollbackError)),
+          ],
+          "active catalog refresh failed and rollback failed",
+        ),
+      }),
+    );
+  }
+  return Result.err(refreshError);
 }
 
 async function loadDeviceDeployment(
@@ -667,7 +710,7 @@ export function createAuthUnapplyDeviceDeploymentContractHandler(
 }
 
 export function createAuthDisableDeviceDeploymentHandler(
-  deps: ActiveContractsDeps,
+  deps: ActiveCatalogDeps,
 ) {
   return async ({ input: req, context: { caller } }: {
     input: { deploymentId: string };
@@ -682,9 +725,18 @@ export function createAuthDisableDeviceDeploymentHandler(
       });
     }
     const nextDeployment = { ...deployment, disabled: true };
+    const validated = await validateActiveCatalog(deps, {
+      stagedDeviceDeployments: [nextDeployment],
+    });
+    if (isErr(validated)) return validated;
     await ctx.deviceDeploymentStorage.put(nextDeployment);
     const refreshed = await refreshActiveContracts(deps);
-    if (isErr(refreshed)) return refreshed;
+    if (isErr(refreshed)) {
+      return await rollbackRefreshFailure(
+        refreshed.error,
+        () => ctx.deviceDeploymentStorage.put(deployment),
+      );
+    }
     for (
       const instance of (await listDeviceInstances(ctx)).filter((entry) =>
         entry.deploymentId === req.deploymentId
@@ -697,7 +749,7 @@ export function createAuthDisableDeviceDeploymentHandler(
 }
 
 export function createAuthEnableDeviceDeploymentHandler(
-  deps: ActiveContractsDeps,
+  deps: ActiveCatalogDeps,
 ) {
   return async ({ input: req, context: { caller } }: {
     input: { deploymentId: string };
@@ -712,15 +764,24 @@ export function createAuthEnableDeviceDeploymentHandler(
       });
     }
     const nextDeployment = { ...deployment, disabled: false };
+    const validated = await validateActiveCatalog(deps, {
+      stagedDeviceDeployments: [nextDeployment],
+    });
+    if (isErr(validated)) return validated;
     await ctx.deviceDeploymentStorage.put(nextDeployment);
     const refreshed = await refreshActiveContracts(deps);
-    if (isErr(refreshed)) return refreshed;
+    if (isErr(refreshed)) {
+      return await rollbackRefreshFailure(
+        refreshed.error,
+        () => ctx.deviceDeploymentStorage.put(deployment),
+      );
+    }
     return Result.ok({ deployment: nextDeployment });
   };
 }
 
 export function createAuthRemoveDeviceDeploymentHandler(
-  deps: ActiveContractsDeps,
+  deps: ActiveCatalogDeps,
 ) {
   return async ({ input: req, context: { caller } }: {
     input: { deploymentId: string };
@@ -736,9 +797,29 @@ export function createAuthRemoveDeviceDeploymentHandler(
         reason: "device_deployment_in_use",
       });
     }
+    const deployment = await loadDeviceDeployment(ctx, req.deploymentId);
+    if (!deployment) {
+      return invalidRequest({
+        deploymentId: req.deploymentId,
+        reason: "device_deployment_not_found",
+      });
+    }
+    const validated = await validateActiveCatalog(deps, {
+      stagedDeviceDeployments: [{
+        ...deployment,
+        disabled: true,
+        appliedContracts: [],
+      }],
+    });
+    if (isErr(validated)) return validated;
     await ctx.deviceDeploymentStorage.delete(req.deploymentId);
     const refreshed = await refreshActiveContracts(deps);
-    if (isErr(refreshed)) return refreshed;
+    if (isErr(refreshed)) {
+      return await rollbackRefreshFailure(
+        refreshed.error,
+        () => ctx.deviceDeploymentStorage.put(deployment),
+      );
+    }
     return Result.ok({ success: true });
   };
 }
@@ -800,7 +881,7 @@ export const authListDeviceInstancesHandler = async (
 };
 
 export function createAuthDisableDeviceInstanceHandler(
-  deps: ActiveContractsDeps,
+  deps: ActiveCatalogDeps,
 ) {
   return async ({ input: req, context: { caller } }: {
     input: { instanceId: string };
@@ -815,16 +896,25 @@ export function createAuthDisableDeviceInstanceHandler(
       });
     }
     const nextInstance = { ...instance, state: "disabled" as const };
+    const validated = await validateActiveCatalog(deps, {
+      stagedDeviceInstances: [nextInstance],
+    });
+    if (isErr(validated)) return validated;
     await ctx.deviceInstanceStorage.put(nextInstance);
     const refreshed = await refreshActiveContracts(deps);
-    if (isErr(refreshed)) return refreshed;
+    if (isErr(refreshed)) {
+      return await rollbackRefreshFailure(
+        refreshed.error,
+        () => ctx.deviceInstanceStorage.put(instance),
+      );
+    }
     await kickDeviceRuntimeAccess(ctx, instance.publicIdentityKey);
     return Result.ok({ instance: nextInstance });
   };
 }
 
 export function createAuthEnableDeviceInstanceHandler(
-  deps: ActiveContractsDeps,
+  deps: ActiveCatalogDeps,
 ) {
   return async ({ input: req, context: { caller } }: {
     input: { instanceId: string };
@@ -845,15 +935,24 @@ export function createAuthEnableDeviceInstanceHandler(
         ? "activated"
         : "registered";
     const nextInstance = { ...instance, state: nextState };
+    const validated = await validateActiveCatalog(deps, {
+      stagedDeviceInstances: [nextInstance],
+    });
+    if (isErr(validated)) return validated;
     await ctx.deviceInstanceStorage.put(nextInstance);
     const refreshed = await refreshActiveContracts(deps);
-    if (isErr(refreshed)) return refreshed;
+    if (isErr(refreshed)) {
+      return await rollbackRefreshFailure(
+        refreshed.error,
+        () => ctx.deviceInstanceStorage.put(instance),
+      );
+    }
     return Result.ok({ instance: nextInstance });
   };
 }
 
 export function createAuthRemoveDeviceInstanceHandler(
-  deps: ActiveContractsDeps,
+  deps: ActiveCatalogDeps,
 ) {
   return async ({ input: req, context: { caller } }: {
     input: { instanceId: string };
@@ -867,12 +966,34 @@ export function createAuthRemoveDeviceInstanceHandler(
         reason: "unknown_device",
       });
     }
-    await kickDeviceRuntimeAccess(ctx, instance.publicIdentityKey);
+    const provisioningSecret = await loadDeviceProvisioningSecret(
+      ctx,
+      req.instanceId,
+    );
+    const activation = await loadDeviceActivation(ctx, req.instanceId);
+    const validated = await validateActiveCatalog(deps, {
+      stagedDeviceInstances: [{ ...instance, state: "disabled" }],
+    });
+    if (isErr(validated)) return validated;
     await ctx.deviceInstanceStorage.delete(req.instanceId);
     await ctx.deviceProvisioningSecretStorage.delete(req.instanceId);
     await ctx.deviceActivationStorage.delete(req.instanceId);
     const refreshed = await refreshActiveContracts(deps);
-    if (isErr(refreshed)) return refreshed;
+    if (isErr(refreshed)) {
+      return await rollbackRefreshFailure(refreshed.error, async () => {
+        await ctx.deviceInstanceStorage.put(instance);
+        if (provisioningSecret) {
+          await ctx.deviceProvisioningSecretStorage.put({
+            ...provisioningSecret,
+            createdAt: provisioningSecret.createdAt instanceof Date
+              ? provisioningSecret.createdAt
+              : new Date(provisioningSecret.createdAt),
+          });
+        }
+        if (activation) await ctx.deviceActivationStorage.put(activation);
+      });
+    }
+    await kickDeviceRuntimeAccess(ctx, instance.publicIdentityKey);
     return Result.ok({ success: true });
   };
 }

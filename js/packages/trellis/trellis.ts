@@ -498,7 +498,22 @@ export type OperationRuntimeHandle<TProgress = unknown, TOutput = unknown> = {
   attach(
     job: { wait(): AsyncResult<unknown, BaseError> },
   ): AsyncResult<RuntimeOperationSnapshot, UnexpectedError>;
+  defer(): OperationDeferred;
 };
+export type OperationDeferred = {
+  kind: "deferred";
+};
+
+/**
+ * Returns true when a handler result explicitly leaves operation completion to
+ * an external control path.
+ */
+export function isOperationDeferred(
+  value: unknown,
+): value is OperationDeferred {
+  return !!value && typeof value === "object" &&
+    "kind" in value && value.kind === "deferred";
+}
 export type AcceptedOperation<TProgress = unknown, TOutput = unknown> =
   & OperationRuntimeHandle<TProgress, TOutput>
   & {
@@ -1024,7 +1039,7 @@ export type HandlerArgs<
   TMountApi extends AnyTrellisAPI,
   M extends MethodsOf<TMountApi>,
   TOutboundApi extends AnyTrellisAPI = TMountApi,
-  TTrellis extends HandlerTrellis<TOutboundApi> = HandlerTrellis<TOutboundApi>,
+  TTrellis = HandlerTrellis<TOutboundApi>,
 > = {
   input: MethodInputOf<TMountApi, M>;
   context: RpcHandlerContext;
@@ -1035,7 +1050,8 @@ export type HandlerFn<
   TMountApi extends AnyTrellisAPI,
   M extends MethodsOf<TMountApi>,
   TOutboundApi extends AnyTrellisAPI = TMountApi,
-> = (args: HandlerArgs<TMountApi, M, TOutboundApi>) => MaybePromise<
+  TTrellis = HandlerTrellis<TOutboundApi>,
+> = (args: HandlerArgs<TMountApi, M, TOutboundApi, TTrellis>) => MaybePromise<
   Result<MethodOutputOf<TMountApi, M>, HandlerErrorOf<TMountApi, M>>
 >;
 export type RpcHandlerFn<
@@ -1995,7 +2011,7 @@ export class Trellis<
     fn: (args: {
       input: unknown;
       context: RpcHandlerContext;
-      trellis: HandlerTrellis<TA>;
+      trellis: HandlerTrellis<TA, TRequests>;
     }) => MaybePromise<Result<unknown, BaseError>>,
   ) {
     const methodName = method as MethodsOf<TA>;
@@ -2005,14 +2021,14 @@ export class Trellis<
     }
     const task = this.#handleRPC(
       methodName,
-      fn as HandlerFn<TA, MethodsOf<TA>>,
+      fn as HandlerFn<TA, MethodsOf<TA>, TA, HandlerTrellis<TA, TRequests>>,
     );
     this.#tasks.add(methodName, task);
   }
 
   #handleRPC(
     method: MethodsOf<TA>,
-    fn: HandlerFn<TA, MethodsOf<TA>>,
+    fn: HandlerFn<TA, MethodsOf<TA>, TA, HandlerTrellis<TA, TRequests>>,
     subjectData: Record<string, unknown> = {},
   ): AsyncResult<void, ValidationError | UnexpectedError> {
     // Get API details
@@ -2023,7 +2039,7 @@ export class Trellis<
       return AsyncResult.lift(subject);
     }
 
-    const handlerTrellis = this as unknown as HandlerTrellis<TA>;
+    const handlerTrellis: HandlerTrellis<TA, TRequests> = this;
 
     this.#log.info(
       { method: String(method) },
@@ -2056,8 +2072,8 @@ export class Trellis<
     method: MethodsOf<TA>,
     ctx: RpcDescriptorOf<TA, MethodsOf<TA>>,
     msg: Msg,
-    fn: HandlerFn<TA, MethodsOf<TA>>,
-    handlerTrellis: HandlerTrellis<TA>,
+    fn: HandlerFn<TA, MethodsOf<TA>, TA, HandlerTrellis<TA, TRequests>>,
+    handlerTrellis: HandlerTrellis<TA, TRequests>,
   ): Promise<Result<string, BaseError>> {
     this.#log.debug(
       { method: String(method), subject: msg.subject },
@@ -2296,7 +2312,7 @@ export class Trellis<
           args: {
             input: unknown;
             context: RpcHandlerContext;
-            trellis: HandlerTrellis<TA>;
+            trellis: HandlerTrellis<TA, TRequests>;
           },
         ) => MaybeAsync<unknown, BaseError>;
         const handlerResultWrapped = await AsyncResult.try(async () =>
@@ -2462,10 +2478,10 @@ export class Trellis<
     })());
   }
 
-  event(
-    event: string,
+  event<E extends EventsOf<TA>>(
+    event: E,
     subjectData: Record<string, unknown>,
-    fn: EventCallback<unknown>,
+    fn: EventCallback<EventOf<TA, E>>,
     opts?: EventOpts,
   ): AsyncResult<void, ValidationError | UnexpectedError> {
     return AsyncResult.from((async () => {
@@ -2499,7 +2515,7 @@ export class Trellis<
         const jsm = await jetstreamManager(this.nats);
 
         const consumerName = opts?.durableName ??
-          `${this.name}-${event.replaceAll(".", "_")}`;
+          `${this.name}-${String(event).replaceAll(".", "_")}`;
         const addResult = await AsyncResult.try(() =>
           jsm.consumers.add(this.stream, {
             durable_name: consumerName,

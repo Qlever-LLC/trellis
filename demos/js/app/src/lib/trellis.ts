@@ -7,11 +7,11 @@ import contract from "../../contract.ts";
 
 export type TrellisDemoAppClient = TrellisClientFor<typeof contract>;
 
-if (!env.PUBLIC_TRELLIS_URL) {
-  throw new Error("Missing TRELLIS_URL env. Please define it.");
-}
+const defaultTrellisUrl = "http://localhost:3000";
 
-export const trellisUrl = new URL(env.PUBLIC_TRELLIS_URL.trim())
+export const trellisUrl = new URL(
+  env.PUBLIC_TRELLIS_URL?.trim() || defaultTrellisUrl,
+)
   .toString()
   .replace(/\/$/, "");
 

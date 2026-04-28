@@ -1,21 +1,13 @@
 import { Hono } from "@hono/hono";
 import { initTracing } from "@qlever-llc/trellis/tracing";
-import { registerAuth } from "./auth/register.ts";
-import {
-  resolveBuiltinContracts,
-  startControlPlaneBackgroundTasks,
-} from "./bootstrap/control_plane.ts";
+import { startControlPlaneBackgroundTasks } from "./bootstrap/control_plane.ts";
 import { createRuntimeGlobals } from "./bootstrap/globals.ts";
-import { registerCatalog } from "./catalog/register.ts";
-import { createContractsModule } from "./catalog/runtime.ts";
-import { getConfig } from "./config.ts";
-import { registerState } from "./state/register.ts";
-import { createSessionResolver, createStateHandlers } from "./state/rpc.ts";
-import { StateStore } from "./state/storage.ts";
+import { registerControlPlane } from "./bootstrap/register.ts";
+import { loadConfig } from "./config.ts";
 
 initTracing("trellis");
 
-const config = getConfig();
+const config = loadConfig();
 const app = new Hono();
 const runtime = await createRuntimeGlobals(config);
 
@@ -50,35 +42,7 @@ async function waitForServerDrain(
 }
 
 async function startTrellisService() {
-  const {
-    browserFlowsKV,
-    connectionsKV,
-    contractApprovalStorage,
-    contractStorage,
-    deviceActivationReviewStorage,
-    deviceActivationStorage,
-    deviceDeploymentStorage,
-    deviceInstanceStorage,
-    devicePortalSelectionStorage,
-    deviceProvisioningSecretStorage,
-    instanceGrantPolicyStorage,
-    logger,
-    loginPortalSelectionStorage,
-    natsAuth,
-    natsTrellis,
-    oauthStateKV,
-    pendingAuthKV,
-    portalDefaultStorage,
-    portalProfileStorage,
-    portalStorage,
-    sentinelCreds,
-    serviceDeploymentStorage,
-    serviceInstanceStorage,
-    sessionStorage,
-    stateKV,
-    trellis,
-    userStorage,
-  } = runtime;
+  const { logger } = runtime;
   let backgroundTasks:
     | ReturnType<typeof startControlPlaneBackgroundTasks>
     | undefined;
@@ -86,82 +50,7 @@ async function startTrellisService() {
   let server: ReturnType<typeof Deno.serve> | undefined;
 
   try {
-    const contracts = createContractsModule({
-      builtinContracts: resolveBuiltinContracts(),
-      contractStorage,
-      deviceDeploymentStorage,
-      deviceInstanceStorage,
-      logger,
-      serviceInstanceStorage,
-      serviceDeploymentStorage,
-    });
-
-    const stateHandlers = createStateHandlers({
-      sessionResolver: createSessionResolver(sessionStorage),
-      state: new StateStore({ kv: stateKV }),
-      contractStore: contracts.contractStore,
-    });
-
-    await registerCatalog({
-      trellis,
-      contracts,
-      serviceInstanceStorage,
-      logger,
-    });
-
-    await registerState({ trellis, stateHandlers });
-
-    await registerAuth({
-      app,
-      config,
-      trellis,
-      contracts,
-      contractStorage,
-      userStorage,
-      contractApprovalStorage,
-      portalStorage,
-      portalDefaultStorage,
-      loginPortalSelectionStorage,
-      devicePortalSelectionStorage,
-      deviceDeploymentStorage,
-      deviceInstanceStorage,
-      deviceActivationStorage,
-      deviceActivationReviewStorage,
-      deviceProvisioningSecretStorage,
-      instanceGrantPolicyStorage,
-      portalProfileStorage,
-      serviceDeploymentStorage,
-      serviceInstanceStorage,
-      sessionStorage,
-      browserFlowsKV,
-      connectionsKV,
-      logger,
-      natsAuth,
-      natsTrellis,
-      oauthStateKV,
-      pendingAuthKV,
-      sentinelCreds,
-    });
-
-    backgroundTasks = startControlPlaneBackgroundTasks({
-      contractStorage,
-      userStorage,
-      contractApprovalStorage,
-      deviceActivationStorage,
-      deviceDeploymentStorage,
-      instanceGrantPolicyStorage,
-      serviceDeploymentStorage,
-      serviceInstanceStorage,
-      portalProfileStorage,
-      portalStorage,
-      connectionsKV,
-      logger,
-      natsAuth,
-      sessionStorage,
-      trellis,
-      contractStore: contracts.contractStore,
-      config,
-    });
+    backgroundTasks = await registerControlPlane({ app, config, runtime });
 
     serverAbort = new AbortController();
     server = Deno.serve(

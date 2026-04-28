@@ -446,7 +446,7 @@ Deno.test("service permissions include owned RPCs and declared dependencies", ()
   });
 });
 
-Deno.test("operation control publish uses read and cancel capabilities", () => {
+Deno.test("operation control publish uses read, call-defaulted read, and cancel capabilities", () => {
   withContracts(TEST_CONTRACTS, () => {
     const caller = { contractDigest: "portal-digest" };
 
@@ -487,6 +487,86 @@ Deno.test("operation control publish uses read and cancel capabilities", () => {
     );
     assertEquals(
       graphCancelOnly.includes("operations.v1.Billing.Refund.control"),
+      true,
+    );
+  });
+});
+
+Deno.test("operation control publish honors empty capability lists and declared cancel", () => {
+  const worker = {
+    digest: "worker-digest",
+    contract: {
+      format: "trellis.contract.v1",
+      id: "worker@v1",
+      displayName: "Worker",
+      description: "Uses open operations.",
+      kind: "app",
+      uses: {
+        jobs: {
+          contract: "jobs@v1",
+          operations: { call: ["Open.Run", "Open.Stop", "Open.CallDefault"] },
+        },
+      },
+    },
+  } satisfies { digest: string; contract: TrellisContractV1 };
+  const jobs = {
+    digest: "jobs-digest",
+    contract: {
+      format: "trellis.contract.v1",
+      id: "jobs@v1",
+      displayName: "Jobs",
+      description: "Open job operations.",
+      kind: "service",
+      schemas: {
+        Empty: { type: "object" },
+      },
+      operations: {
+        "Open.Run": {
+          version: "v1" as const,
+          subject: "operations.v1.Open.Run",
+          input: { schema: "Empty" },
+          output: { schema: "Empty" },
+          capabilities: { call: [], read: [] },
+        },
+        "Open.Stop": {
+          version: "v1" as const,
+          subject: "operations.v1.Open.Stop",
+          input: { schema: "Empty" },
+          output: { schema: "Empty" },
+          cancel: true,
+          capabilities: { call: [], cancel: [] },
+        },
+        "Open.CallDefault": {
+          version: "v1" as const,
+          subject: "operations.v1.Open.CallDefault",
+          input: { schema: "Empty" },
+          output: { schema: "Empty" },
+          capabilities: { call: ["open.call"] },
+        },
+      },
+    },
+  } satisfies { digest: string; contract: TrellisContractV1 };
+
+  withContracts([...TEST_CONTRACTS, worker, jobs], () => {
+    const publishSubjects = getUserPublishSubjects([], {
+      contractDigest: "worker-digest",
+    });
+
+    assertEquals(publishSubjects.includes("operations.v1.Open.Run"), true);
+    assertEquals(
+      publishSubjects.includes("operations.v1.Open.Run.control"),
+      true,
+    );
+    assertEquals(publishSubjects.includes("operations.v1.Open.Stop"), true);
+    assertEquals(
+      publishSubjects.includes("operations.v1.Open.Stop.control"),
+      true,
+    );
+    const callDefaultSubjects = getUserPublishSubjects(["open.call"], {
+      contractDigest: "worker-digest",
+    });
+    assertEquals(
+      callDefaultSubjects.includes("operations.v1.Open.CallDefault.control"),
       true,
     );
   });
