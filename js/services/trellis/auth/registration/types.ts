@@ -1,4 +1,5 @@
 import type { ContractsModule } from "../../catalog/runtime.ts";
+import type { AsyncResult, BaseError } from "@qlever-llc/result";
 import type { AuthRuntimeDeps } from "../runtime_deps.ts";
 
 export type AuthRpcMethod =
@@ -77,6 +78,12 @@ export type OperationRegistrar = {
     handle: {
       bivarianceHack(handler: unknown): Promise<void>;
     }["bivarianceHack"];
+  };
+  operationCompletion: {
+    completeOperation(
+      operationId: string,
+      output: unknown,
+    ): AsyncResult<unknown, BaseError>;
   };
 };
 

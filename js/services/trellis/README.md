@@ -54,19 +54,22 @@ js/services/trellis/
 
 ### `auth/`
 
-- `http/` contains the browser-facing login, callback, approval, and bind routes
-  plus the small HTML renderers and HTTP helpers that support them.
+- `http/` contains the browser-facing login, callback, approval, portal, and
+  bind routes plus the small HTML renderers and HTTP helpers that support them.
 - `providers/` contains pluggable identity provider adapters and the provider
   registry.
 - `approval/` contains contract approval planning and approval-related RPC
   handlers.
-- `session/` contains session binding, principal resolution, session RPC
-  handlers, and user projection updates.
+- `session/` contains session binding, principal resolution, runtime access
+  revocation helpers, session RPC handlers, and user projection updates.
 - `callout/` contains the NATS auth callout loop, connection cleanup, kick
   support, and rate limiting.
 - `bootstrap/`, `registration/`, `admin/`, `grants/`, and `device_activation/`
-  keep service/device startup, RPC registration, admin policy, and activation
-  flows out of the browser-login and callout modules.
+  keep service/device startup, RPC registration, service admin, portal/policy
+  admin, grants, and activation flows out of the browser-login and callout
+  modules. Admin RPCs are split by surface: device administration remains in
+  `auth/admin/rpc.ts`, while portal and policy handlers live in
+  `auth/admin/portal_policy_rpc.ts`.
 - top-level helpers such as `oauth.ts`, `redirect.ts`, `transports.ts`, and
   `keys.ts` support the different auth layers without forcing HTTP and callout
   code into the same directory.
@@ -101,8 +104,9 @@ js/services/trellis/
   author-known `stateVersion` and internal `writerContractDigest` provenance so
   compatible contract-lineage upgrades can report migration-required responses
   without executing app migration code in Trellis.
-- `schemas.ts` and `schemas/` remain the shared export surface for runtime auth,
-  catalog, session, and callout record schemas.
+- Stored entries must include both metadata fields. This v1 service
+  intentionally rejects unstamped pre-v1 State KV entries instead of inferring
+  current metadata.
 
 ### `storage/`
 
@@ -130,6 +134,10 @@ from each session's `lastAuth` timestamp using `ttlMs.sessions`.
 KV-backed records are limited to short-lived OAuth state, pending auth, browser
 flows, active connection presence, and entries exposed through the public
 Trellis State API.
+
+This is a clean-break v1 storage shape. State entries without `stateVersion` and
+`writerContractDigest` are invalid and must be rewritten by a current writer;
+Trellis does not silently upgrade or guess metadata for old KV values.
 
 ## Main runtime flows
 
@@ -190,6 +198,17 @@ This follows `design/contracts/trellis-contracts-catalog.md`.
 7. Service/device runtime permissions are derived from the active installed
    contract set plus provisioned resource bindings.
 
+### Device activation review flow
+
+1. `Auth.ActivateDevice` starts a durable activation operation and records the
+   review linkage needed for an admin decision.
+2. Device activation review records are persisted in SQLite and include the
+   original operation id.
+3. `Auth.DecideDeviceActivationReview` approves or rejects the review and then
+   durably completes the original activation operation with the decision result.
+4. The operation result is therefore available through the operations runtime;
+   activation no longer depends on live polling of the review row.
+
 ### State entry version flow
 
 1. State writes validate the value against the caller contract's current store
@@ -198,7 +217,8 @@ This follows `design/contracts/trellis-contracts-catalog.md`.
    the concrete `writerContractDigest` that wrote the value.
 3. Reads validate entries against either the current schema or an explicitly
    accepted older state version.
-4. Older accepted entries return migration-required metadata to the caller. The
+4. Entries missing `stateVersion` or `writerContractDigest` are rejected. Older
+   accepted entries return migration-required metadata to the caller. The
    service does not run app migration code server-side.
 
 ## Design constraints to keep in mind
@@ -218,6 +238,10 @@ This follows `design/contracts/trellis-contracts-catalog.md`.
 - Runtime resource grants are intentionally narrow. Bound resources no longer
   grant broad stream creation/deletion or durable KV consumer creation unless a
   current runtime client requires that exact subject.
+- Runtime access revocation uses the shared helper in
+  `auth/session/revoke_runtime_access.ts` to delete active connections, delete
+  session records, and kick affected NATS connections consistently across
+  device, service, approval, session, and portal/policy invalidation paths.
 - `trellis.auth@v1`, `trellis.core@v1`, `trellis.state@v1`, and
   `trellis.health@v1` remain logically separate even though they are currently
   hosted by this process.
@@ -227,10 +251,10 @@ This follows `design/contracts/trellis-contracts-catalog.md`.
 ## Common commands
 
 ```bash
+deno task build:builtin-portal
 deno task dev
-deno task test
-deno task verify:contracts
 deno task prepare
+deno task test
 ```
 
 ## Related design docs

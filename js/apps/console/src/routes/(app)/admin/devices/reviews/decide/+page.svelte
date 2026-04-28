@@ -110,7 +110,7 @@
 </script>
 
 <section class="space-y-4">
-  <PageToolbar title="Decide activation review" description="Approve or reject a pending device activation review.">
+  <PageToolbar title="Decide activation review" description="Approve or reject a pending review and complete the original activation operation.">
     {#snippet actions()}
       <a class="btn btn-ghost btn-sm" href={resolve("/admin/devices/reviews")}>Back to reviews</a>
     {/snippet}
@@ -127,6 +127,9 @@
   {:else}
     <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_24rem]">
       <Panel title="Decision" eyebrow="Review workflow">
+        <div class="mb-4 rounded-box border border-base-300 bg-base-200/40 p-3 text-xs text-base-content/60">
+          The decision RPC resolves the activation operation that created this review. Retry a decision only with the same terminal result.
+        </div>
         <form class="space-y-4" onsubmit={(event) => { event.preventDefault(); void decideReview(); }}>
           <label class="form-control gap-1">
             <span class="label-text text-xs">Review</span>

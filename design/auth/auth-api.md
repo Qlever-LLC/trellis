@@ -994,6 +994,10 @@ Device-activation observation rule:
 - portal-side review state is observed through normal operation `progress`,
   `watch()`, and `wait()` semantics on `Auth.ActivateDevice`, not through a
   separate status-poll RPC
+- when `Auth.DecideDeviceActivationReview` approves or rejects a review, it
+  completes the original `Auth.ActivateDevice` operation durably; retrying the
+  decision is accepted only when the existing completed operation output matches
+  the requested terminal result
 
 Capability rule:
 

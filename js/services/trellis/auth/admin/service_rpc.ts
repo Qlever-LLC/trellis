@@ -17,7 +17,7 @@ import type { AuthRuntimeDeps } from "../runtime_deps.ts";
 import { type Connection, ServiceInstanceSchema } from "../schemas.ts";
 import type { SqlSessionRepository } from "../storage.ts";
 import type { StaticDecode } from "typebox";
-import { connectionFilterForSession } from "../session/connections.ts";
+import { revokeRuntimeAccessForSession } from "../session/revoke_runtime_access.ts";
 import { createAuthApplyServiceDeploymentContractHandler as createAuthApplyServiceDeploymentContractHandlerBase } from "./service_deployment_apply.ts";
 import {
   normalizeAppliedContracts,
@@ -98,22 +98,13 @@ async function kickInstanceRuntimeAccess(args: {
   sessionStorage: Pick<SqlSessionRepository, "deleteByInstanceKey">;
   kick: (serverId: string, clientId: number) => Promise<void>;
 }): Promise<void> {
-  const connectionKeys = await args.connectionsKV.keys(
-    connectionFilterForSession(args.instanceKey),
-  )
-    .take();
-  if (!isErr(connectionKeys)) {
-    for await (const key of connectionKeys) {
-      const entry = await args.connectionsKV.get(key).take();
-      if (!isErr(entry)) {
-        const connection = entry.value;
-        await args.kick(connection.serverId, connection.clientId);
-      }
-      await args.connectionsKV.delete(key);
-    }
-  }
-
-  await args.sessionStorage.deleteByInstanceKey(args.instanceKey);
+  await revokeRuntimeAccessForSession({
+    sessionKey: args.instanceKey,
+    connectionsKV: args.connectionsKV,
+    kick: args.kick,
+    deleteSession: () =>
+      args.sessionStorage.deleteByInstanceKey(args.instanceKey),
+  });
 }
 
 async function instancesForDeployment(

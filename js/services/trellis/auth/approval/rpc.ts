@@ -1,26 +1,18 @@
 import { trellisIdFromOriginId } from "@qlever-llc/trellis/auth";
-import {
-  type AsyncResult,
-  type BaseError,
-  isErr,
-  Result,
-} from "@qlever-llc/result";
+import { Result } from "@qlever-llc/result";
 import { AuthError } from "@qlever-llc/trellis";
 
 import type { AuthLogger } from "../runtime_deps.ts";
-import type {
-  Connection,
-  ContractApprovalRecord,
-  Session,
-} from "../schemas.ts";
-import type {
-  SqlContractApprovalRepository,
-  SqlSessionRepository,
-} from "../storage.ts";
-import { parseConnectionKey } from "../session/connections.ts";
+import type { ContractApprovalRecord } from "../schemas.ts";
+import type { SqlContractApprovalRepository } from "../storage.ts";
 import {
+  type ApprovalKVLike,
+  type ApprovalSessionStore,
   createAuthListUserGrantsHandler,
   createAuthRevokeUserGrantHandler,
+  formatOriginId,
+  requireUserCaller,
+  revokeGrantSessions,
 } from "./user_grants.ts";
 
 export {
@@ -39,65 +31,14 @@ type RpcUser = {
 type ListApprovalsRequest = { user?: string; digest?: string };
 type RevokeApprovalRequest = { contractDigest: string; user?: string };
 
-type KVLike<V> = {
-  get: (key: string) => AsyncResult<unknown, BaseError>;
-  keys: (
-    filter: string,
-  ) => AsyncResult<AsyncIterable<string> | unknown, BaseError>;
-  delete: (key: string) => AsyncResult<unknown, BaseError>;
-};
-
-type SessionStore = {
-  listEntriesByUser: SqlSessionRepository["listEntriesByUser"];
-  deleteBySessionKey: SqlSessionRepository["deleteBySessionKey"];
-};
-
-async function takeValue<T>(
-  value: AsyncResult<T, BaseError>,
-): Promise<T | Result<never, BaseError>> {
-  return await value.take();
-}
-
-function unwrapValue<V>(entry: { value: V } | V): V {
-  if (entry && typeof entry === "object" && "value" in entry) {
-    return entry.value;
-  }
-  return entry;
-}
-
 function parseOriginId(value: string): { origin: string; id: string } | null {
   const idx = value.indexOf(".");
   if (idx <= 0 || idx >= value.length - 1) return null;
   return { origin: value.slice(0, idx), id: value.slice(idx + 1) };
 }
 
-function formatOriginId(origin: string, id: string): string {
-  return `${origin}.${id}`;
-}
-
 function isAdmin(user: RpcUser): boolean {
   return user.capabilities?.includes("admin") ?? false;
-}
-
-function requireUserCaller(caller: {
-  type: string;
-  trellisId?: string;
-  origin?: string;
-  id?: string;
-  capabilities?: string[];
-}): RpcUser {
-  if (
-    caller.type !== "user" || !caller.trellisId || !caller.origin || !caller.id
-  ) {
-    throw new AuthError({ reason: "insufficient_permissions" });
-  }
-  return {
-    type: "user",
-    trellisId: caller.trellisId,
-    origin: caller.origin,
-    id: caller.id,
-    capabilities: caller.capabilities,
-  };
 }
 
 async function resolveTargetUser(
@@ -125,59 +66,6 @@ async function resolveTargetUser(
   return {
     trellisId: await trellisIdFromOriginId(parsed.origin, parsed.id),
   };
-}
-
-async function revokeApprovalSessions(
-  userTrellisId: string,
-  contractDigest: string,
-  deps: {
-    sessionStorage: SessionStore;
-    connectionsKV: KVLike<Connection>;
-    kick: (serverId: string, clientId: number) => Promise<void>;
-    publishSessionRevoked: (event: {
-      origin: string;
-      id: string;
-      sessionKey: string;
-      revokedBy: string;
-    }) => Promise<void>;
-    revokedBy: string;
-  },
-): Promise<void> {
-  const entries = await deps.sessionStorage.listEntriesByUser(userTrellisId);
-  for (const entry of entries) {
-    const session = entry.session;
-    if (session.type !== "user") continue;
-    if (session.contractDigest !== contractDigest) continue;
-
-    const sessionKey = entry.sessionKey;
-
-    const connIter = await takeValue(
-      deps.connectionsKV.keys(">"),
-    );
-    if (!isErr(connIter)) {
-      for await (const connKey of connIter as AsyncIterable<string>) {
-        const parsedKey = parseConnectionKey(connKey);
-        if (
-          !parsedKey || parsedKey.sessionKey !== sessionKey ||
-          parsedKey.scopeId !== userTrellisId
-        ) continue;
-        const connection = await takeValue(deps.connectionsKV.get(connKey));
-        if (!isErr(connection)) {
-          const connectionValue = unwrapValue(connection) as Connection;
-          await deps.kick(connectionValue.serverId, connectionValue.clientId);
-        }
-        await deps.connectionsKV.delete(connKey);
-      }
-    }
-
-    await deps.publishSessionRevoked({
-      origin: session.origin,
-      id: session.id,
-      sessionKey,
-      revokedBy: deps.revokedBy,
-    });
-    await deps.sessionStorage.deleteBySessionKey(entry.sessionKey);
-  }
 }
 
 /** Creates the Auth.ListApprovals RPC handler backed by SQL approval storage. */
@@ -304,7 +192,7 @@ async function listApprovalsForRequest(args: {
 
 /** Creates the Auth.RevokeApproval RPC handler backed by SQL approval storage. */
 export function createAuthRevokeApprovalHandler(opts: {
-  connectionsKV: KVLike<Connection>;
+  connectionsKV: ApprovalKVLike;
   contractApprovalStorage: SqlContractApprovalRepository;
   kick: (serverId: string, clientId: number) => Promise<void>;
   logger: Pick<AuthLogger, "trace" | "warn">;
@@ -314,7 +202,7 @@ export function createAuthRevokeApprovalHandler(opts: {
     sessionKey: string;
     revokedBy: string;
   }) => Promise<void>;
-  sessionStorage: SessionStore;
+  sessionStorage: ApprovalSessionStore;
 }) {
   return async (
     {
@@ -360,17 +248,15 @@ export function createAuthRevokeApprovalHandler(opts: {
         target.trellisId,
         req.contractDigest,
       );
-      await revokeApprovalSessions(
-        target.trellisId,
-        req.contractDigest,
-        {
-          sessionStorage: opts.sessionStorage,
-          connectionsKV: opts.connectionsKV,
-          kick: opts.kick,
-          publishSessionRevoked: opts.publishSessionRevoked,
-          revokedBy: formatOriginId(user.origin, user.id),
-        },
-      );
+      await revokeGrantSessions({
+        userTrellisId: target.trellisId,
+        contractDigest: req.contractDigest,
+        sessionStorage: opts.sessionStorage,
+        connectionsKV: opts.connectionsKV,
+        kick: opts.kick,
+        publishSessionRevoked: opts.publishSessionRevoked,
+        revokedBy: formatOriginId(user.origin, user.id),
+      });
       return Result.ok({ success: true });
     } catch (error) {
       if (error instanceof AuthError) {
@@ -383,7 +269,7 @@ export function createAuthRevokeApprovalHandler(opts: {
 
 /** Creates the Auth.RevokeUserGrant RPC handler with KV session revocation. */
 export function createAuthRevokeUserGrantRpcHandler(deps: {
-  connectionsKV: KVLike<Connection>;
+  connectionsKV: ApprovalKVLike;
   contractApprovalStorage: SqlContractApprovalRepository;
   kick: (serverId: string, clientId: number) => Promise<void>;
   logger: Pick<AuthLogger, "warn">;
@@ -393,7 +279,7 @@ export function createAuthRevokeUserGrantRpcHandler(deps: {
     sessionKey: string;
     revokedBy: string;
   }) => Promise<void>;
-  sessionStorage: SessionStore;
+  sessionStorage: ApprovalSessionStore;
 }) {
   return createAuthRevokeUserGrantHandler({
     connectionsKV: deps.connectionsKV,

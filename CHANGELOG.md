@@ -10,6 +10,11 @@ and this project adheres to
 
 ### Changed
 
+- Documented and surfaced the final v1 activation/state cleanup across design
+  docs, guides, the built-in portal, and console: device activation review
+  decisions now complete the original `Auth.ActivateDevice` operation durably,
+  and State rejects unstamped pre-v1 entries instead of inferring current or
+  accepted-version metadata.
 - Documented and surfaced the final Trellis service hardening pass across design
   docs, guides, the built-in portal, and console: active-catalog dry-run
   validation now gates staged apply/bootstrap state, service apply/unapply roll

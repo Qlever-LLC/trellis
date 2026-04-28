@@ -160,9 +160,9 @@ Rules:
   server-side
 - client runtime code is responsible for transforming old values and writing the
   migrated current value back with revision checks
-- unversioned entries are read as current only when the current schema accepts
-  them; Trellis does not infer declared `acceptedVersions` for entries without a
-  stored `stateVersion`
+- stored entries MUST include `stateVersion` and internal
+  `writerContractDigest`; v1 Trellis rejects unstamped pre-v1 entries instead of
+  treating them as current or inferring declared `acceptedVersions`
 
 ## Conditional Writes
 

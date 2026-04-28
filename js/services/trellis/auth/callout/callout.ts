@@ -127,6 +127,46 @@ function stageDeny<T>(
 const AUTH_CALLOUT_DRAIN_TIMEOUT_MS = 5_000;
 const AUTH_CALLOUT_INTERNAL_ERROR = "internal_error";
 
+type AuthCalloutErrorCode =
+  | AuthCalloutDenialCode
+  | "rate_limited"
+  | typeof AUTH_CALLOUT_INTERNAL_ERROR;
+
+type AuthCalloutErrorContext = {
+  userNkey?: string;
+  serverIdNkey?: string;
+  serverXkey?: string;
+};
+
+type AuthCalloutErrorResponder = {
+  respond(payload: string | Uint8Array): boolean;
+};
+
+async function respondAuthCalloutError(args: {
+  message: AuthCalloutErrorResponder;
+  code: AuthCalloutErrorCode;
+  issuerSigningKey: string;
+  context: AuthCalloutErrorContext;
+  seal(payload: Uint8Array, serverXkey: string): Uint8Array;
+}): Promise<void> {
+  const { context } = args;
+  if (context.userNkey && context.serverIdNkey && context.serverXkey) {
+    const response = await encodeAuthorizationResponse(
+      context.userNkey,
+      context.serverIdNkey,
+      args.issuerSigningKey,
+      { error: args.code },
+      { aud: "trellis" },
+    );
+    args.message.respond(
+      args.seal(new TextEncoder().encode(response), context.serverXkey),
+    );
+    return;
+  }
+
+  args.message.respond("");
+}
+
 export type BackgroundTaskHandle = {
   stop: () => Promise<void>;
 };
@@ -824,20 +864,14 @@ export function startAuthCallout(
         },
         "Auth callout denied",
       );
-      if (userNkey && serverIdNkey && serverXkey) {
-        const response = await encodeAuthorizationResponse(
-          userNkey,
-          serverIdNkey,
-          config.nats.authCallout.issuer.signing,
-          { error: code },
-          { aud: "trellis" },
-        );
-        message.respond(
-          xkp.seal(new TextEncoder().encode(response), serverXkey),
-        );
-      } else {
-        message.respond("");
-      }
+      await respondAuthCalloutError({
+        message,
+        code,
+        issuerSigningKey: config.nats.authCallout.issuer.signing,
+        context: { userNkey, serverIdNkey, serverXkey },
+        seal: (payload, responseServerXkey) =>
+          xkp.seal(payload, responseServerXkey),
+      });
       limiterRelease?.();
       limiterRelease = null;
     }
@@ -854,16 +888,18 @@ export function startAuthCallout(
         server: decoded.serverName,
       });
       if (!limiterRelease) {
-        const response = await encodeAuthorizationResponse(
-          decoded.userNkey,
-          decoded.serverIdNkey,
-          config.nats.authCallout.issuer.signing,
-          { error: "rate_limited" },
-          { aud: "trellis" },
-        );
-        message.respond(
-          xkp.seal(new TextEncoder().encode(response), decoded.serverXkey),
-        );
+        await respondAuthCalloutError({
+          message,
+          code: "rate_limited",
+          issuerSigningKey: config.nats.authCallout.issuer.signing,
+          context: {
+            userNkey: decoded.userNkey,
+            serverIdNkey: decoded.serverIdNkey,
+            serverXkey: decoded.serverXkey,
+          },
+          seal: (payload, responseServerXkey) =>
+            xkp.seal(payload, responseServerXkey),
+        });
         return;
       }
 
@@ -950,20 +986,14 @@ export function startAuthCallout(
       );
 
       const respondResult = await AsyncResult.try(async () => {
-        if (userNkey && serverIdNkey && serverXkey) {
-          const response = await encodeAuthorizationResponse(
-            userNkey,
-            serverIdNkey,
-            config.nats.authCallout.issuer.signing,
-            { error: AUTH_CALLOUT_INTERNAL_ERROR },
-            { aud: "trellis" },
-          );
-          message.respond(
-            xkp.seal(new TextEncoder().encode(response), serverXkey),
-          );
-        } else {
-          message.respond("");
-        }
+        await respondAuthCalloutError({
+          message,
+          code: AUTH_CALLOUT_INTERNAL_ERROR,
+          issuerSigningKey: config.nats.authCallout.issuer.signing,
+          context: { userNkey, serverIdNkey, serverXkey },
+          seal: (payload, responseServerXkey) =>
+            xkp.seal(payload, responseServerXkey),
+        });
       });
       if (respondResult.isErr()) {
         logger.error(
@@ -1024,6 +1054,7 @@ export function startAuthCallout(
 
 export const __testing__ = {
   AUTH_CALLOUT_INTERNAL_ERROR,
+  respondAuthCalloutError,
   validateServiceRuntimeDigest,
   verifyRuntimeAuthTokenSignature,
   waitForInFlightHandlers,

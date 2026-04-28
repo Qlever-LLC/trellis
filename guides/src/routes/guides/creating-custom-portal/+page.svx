@@ -22,6 +22,11 @@ For device onboarding, the portal may need to do more than show login screens. F
 
 Some flows may also pause for administrative review before the final step is allowed. That review might be done manually by an admin user or by a local Trellis service that checks some outside condition first.
 
+For device activation, a required review is still part of the original
+`Auth.ActivateDevice` operation. The custom portal should keep watching or
+waiting on that operation; the admin review decision completes the same operation
+with either the activated output or a rejected terminal result.
+
 Trellis trusts a portal because a Trellis admin registered its URL. A portal
 record is routing configuration, not a `portal` contract kind. If the portal also
 talks to Trellis after login, it does so as the logged-in user through a normal

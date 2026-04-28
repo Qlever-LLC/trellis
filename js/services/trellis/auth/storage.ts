@@ -25,15 +25,19 @@ import {
   type ContractApprovalRecord,
   ContractApprovalRecordSchema,
   DeviceActivationRecordSchema,
+  type DeviceActivationReviewRecord,
   DeviceActivationReviewRecordSchema,
   DeviceDeploymentSchema,
   DevicePortalDefaultSchema,
   DevicePortalSelectionSchema,
+  type DeviceProvisioningSecret,
   DeviceProvisioningSecretSchema,
   DeviceSchema,
+  type InstanceGrantPolicy,
   InstanceGrantPolicySchema,
   LoginPortalDefaultSchema,
   LoginPortalSelectionSchema,
+  type PortalProfile,
   PortalProfileSchema,
   PortalSchema,
   ServiceDeploymentSchema,
@@ -45,34 +49,15 @@ import {
 } from "./schemas.ts";
 
 type Portal = StaticDecode<typeof PortalSchema>;
-type PortalProfile = StaticDecode<typeof PortalProfileSchema>;
 type LoginPortalDefault = StaticDecode<typeof LoginPortalDefaultSchema>;
 type DevicePortalDefault = StaticDecode<typeof DevicePortalDefaultSchema>;
 type LoginPortalSelection = StaticDecode<typeof LoginPortalSelectionSchema>;
 type DevicePortalSelection = StaticDecode<typeof DevicePortalSelectionSchema>;
-type InstanceGrantPolicy = StaticDecode<typeof InstanceGrantPolicySchema>;
 type ServiceDeployment = StaticDecode<typeof ServiceDeploymentSchema>;
 type ServiceInstance = StaticDecode<typeof ServiceInstanceSchema>;
 type DeviceDeployment = StaticDecode<typeof DeviceDeploymentSchema>;
 type DeviceInstance = StaticDecode<typeof DeviceSchema>;
-type DeviceProvisioningSecret = {
-  instanceId: string;
-  activationKey: string;
-  createdAt: string | Date;
-};
 type DeviceActivation = StaticDecode<typeof DeviceActivationRecordSchema>;
-type DeviceActivationReviewRecord = {
-  reviewId: string;
-  flowId: string;
-  instanceId: string;
-  publicIdentityKey: string;
-  deploymentId: string;
-  requestedBy: { origin: string; id: string };
-  state: "pending" | "approved" | "rejected";
-  requestedAt: string | Date;
-  decidedAt: string | Date | null;
-  reason?: string;
-};
 
 type UserRow = typeof users.$inferSelect;
 type UserInsert = typeof users.$inferInsert;
@@ -544,6 +529,7 @@ function decodeDeviceActivationReviewRow(
 ): DeviceActivationReviewRecord {
   const record = Value.Decode(DeviceActivationReviewRecordSchema, {
     reviewId: row.reviewId,
+    operationId: row.operationId,
     flowId: row.flowId,
     instanceId: row.instanceId,
     publicIdentityKey: row.publicIdentityKey,
@@ -568,6 +554,7 @@ function encodeDeviceActivationReviewRecord(
 ): DeviceActivationReviewInsert {
   return {
     reviewId: record.reviewId,
+    operationId: record.operationId,
     flowId: record.flowId,
     instanceId: record.instanceId,
     publicIdentityKey: record.publicIdentityKey,
@@ -1622,6 +1609,7 @@ export class SqlDeviceActivationReviewRepository {
         target: deviceActivationReviews.reviewId,
         set: {
           flowId: row.flowId,
+          operationId: row.operationId,
           instanceId: row.instanceId,
           publicIdentityKey: row.publicIdentityKey,
           deploymentId: row.deploymentId,

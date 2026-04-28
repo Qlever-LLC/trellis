@@ -1,9 +1,4 @@
-import {
-  type AsyncResult,
-  type BaseError,
-  isErr,
-  Result,
-} from "@qlever-llc/result";
+import { type AsyncResult, type BaseError, Result } from "@qlever-llc/result";
 import { AuthError } from "@qlever-llc/trellis";
 
 import { revokeGrantSessions } from "../approval/user_grants.ts";
@@ -14,7 +9,7 @@ import type {
   SqlServiceInstanceRepository,
   SqlSessionRepository,
 } from "../storage.ts";
-import { connectionFilterForSession } from "./connections.ts";
+import { revokeRuntimeAccessForSession } from "./revoke_runtime_access.ts";
 
 type SessionStore = {
   getOneBySessionKey: SqlSessionRepository["getOneBySessionKey"];
@@ -49,12 +44,6 @@ type SessionCaller = {
   id?: string;
 };
 
-async function takeValue<T>(
-  value: AsyncResult<T, BaseError>,
-): Promise<T | Result<never, BaseError>> {
-  return await value.take();
-}
-
 function requireUserCaller(caller: SessionCaller): {
   trellisId: string;
   origin: string;
@@ -71,13 +60,6 @@ function requireUserCaller(caller: SessionCaller): {
     origin: caller.origin,
     id: caller.id,
   };
-}
-
-function unwrapValue<V>(entry: { value: V } | V): V {
-  if (entry && typeof entry === "object" && "value" in entry) {
-    return entry.value;
-  }
-  return entry;
 }
 
 function isApprovedAgentGrant(approval: ContractApprovalRecord): boolean {
@@ -180,32 +162,22 @@ export function createAuthRevokeSessionHandler(deps: {
       }
     }
 
-    const connIter = await takeValue(
-      deps.connectionsKV.keys(connectionFilterForSession(req.sessionKey)),
-    );
-    if (!isErr(connIter)) {
-      for await (const key of connIter as AsyncIterable<string>) {
-        const entry = await takeValue(deps.connectionsKV.get(key));
-        if (!isErr(entry)) {
-          const connection = unwrapValue(entry) as {
-            serverId: string;
-            clientId: number;
-          };
-          await deps.kick(connection.serverId, connection.clientId);
+    await revokeRuntimeAccessForSession({
+      sessionKey: req.sessionKey,
+      connectionsKV: deps.connectionsKV,
+      kick: deps.kick,
+      deleteSession: async () => {
+        if (sessionToDelete.type !== "device") {
+          await deps.publishSessionRevoked({
+            origin: sessionToDelete.origin,
+            id: sessionToDelete.id,
+            sessionKey: req.sessionKey,
+            revokedBy: kickedBy,
+          });
         }
-        await deps.connectionsKV.delete(key);
-      }
-    }
-
-    if (sessionToDelete.type !== "device") {
-      await deps.publishSessionRevoked({
-        origin: sessionToDelete.origin,
-        id: sessionToDelete.id,
-        sessionKey: req.sessionKey,
-        revokedBy: kickedBy,
-      });
-    }
-    await deps.sessionStorage.deleteBySessionKey(req.sessionKey);
+        await deps.sessionStorage.deleteBySessionKey(req.sessionKey);
+      },
+    });
 
     return Result.ok({ success: true });
   };

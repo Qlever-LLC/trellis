@@ -222,6 +222,11 @@ export async function createRuntimeGlobals(config: Config) {
       mount: trellisService.trellis.mount.bind(trellisService.trellis),
       publish: trellisService.trellis.publish.bind(trellisService.trellis),
       operation: trellisService.operation.bind(trellisService),
+      operationCompletion: {
+        completeOperation: trellisService.completeOperation.bind(
+          trellisService,
+        ),
+      },
     };
 
     return {

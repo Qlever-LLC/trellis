@@ -10,7 +10,7 @@ import { registerCatalog } from "./catalog/register.ts";
 import { createContractsModule } from "./catalog/runtime.ts";
 import { getConfig } from "./config.ts";
 import { registerState } from "./state/register.ts";
-import { createStateHandlers } from "./state/rpc.ts";
+import { createSessionResolver, createStateHandlers } from "./state/rpc.ts";
 import { StateStore } from "./state/storage.ts";
 
 initTracing("trellis");
@@ -97,7 +97,7 @@ async function startTrellisService() {
     });
 
     const stateHandlers = createStateHandlers({
-      sessionStorage,
+      sessionResolver: createSessionResolver(sessionStorage),
       state: new StateStore({ kv: stateKV }),
       contractStore: contracts.contractStore,
     });

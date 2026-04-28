@@ -21,6 +21,8 @@ The app has two distinct roles:
   terminal instead of looping back through browser navigation.
 - `/_trellis/portal/devices/activate` resumes a preserved `flowId` after sign-in
   and starts the `Auth.ActivateDevice` operation over the Trellis runtime.
+  Review-required deployments continue watching that same operation; the admin
+  review decision completes it with the activated or rejected terminal result.
 - SvelteKit runtime assets are served under `/_trellis/assets/*` to keep the
   built-in portal's asset namespace inside the Trellis-owned prefix.
 

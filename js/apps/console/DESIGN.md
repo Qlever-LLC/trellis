@@ -259,6 +259,7 @@ Structure:
 MUST include:
 
 - approve / reject actions
+- copy that explains review decisions complete the original activation operation
 - metadata visibility toggle
 
 ---

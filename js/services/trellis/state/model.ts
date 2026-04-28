@@ -12,15 +12,15 @@ export const StoredStateEntrySchema = Type.Object({
   value: JsonValueSchema,
   updatedAt: IsoDateSchema,
   expiresAt: Type.Optional(IsoDateSchema),
-  stateVersion: Type.Optional(Type.String({ minLength: 1 })),
-  writerContractDigest: Type.Optional(Type.String({ minLength: 1 })),
+  stateVersion: Type.String({ minLength: 1 }),
+  writerContractDigest: Type.String({ minLength: 1 }),
 }, { additionalProperties: false });
 export type StoredStateEntry = {
   value: JsonValue;
   updatedAt: Date;
   expiresAt?: Date;
-  stateVersion?: string;
-  writerContractDigest?: string;
+  stateVersion: string;
+  writerContractDigest: string;
 };
 
 export type ResolvedStateStore = {

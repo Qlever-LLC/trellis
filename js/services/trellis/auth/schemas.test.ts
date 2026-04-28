@@ -203,6 +203,7 @@ Deno.test("portal and device state schemas validate", () => {
   }));
   assert(Value.Check(DeviceActivationReviewRecordSchema, {
     reviewId: "dar_123",
+    operationId: "op_activate_123",
     flowId: "flow_123",
     instanceId: "dev_123",
     publicIdentityKey: sessionKey,

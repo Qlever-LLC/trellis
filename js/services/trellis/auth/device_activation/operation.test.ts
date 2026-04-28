@@ -58,6 +58,7 @@ function makeDeps(args: {
   expiresAtMs: number;
   existingReview?: ReviewRecord;
   activation?: ActivationRecord;
+  reviews?: ReviewRecord[];
 }): ActivateDeviceDeps {
   let review = args.existingReview;
   let activation = args.activation;
@@ -85,6 +86,7 @@ function makeDeps(args: {
       getByFlowId: async () => review,
       put: async (record) => {
         review = record;
+        args.reviews?.push(record);
       },
     },
     deviceActivationStorage: {
@@ -131,6 +133,7 @@ function operationContext(progress: unknown[]): ActivateDeviceContext {
     input: { flowId: "flow_1" },
     caller: { type: "user", origin: "github", id: "user_1" },
     op: {
+      id: "op_activate_1",
       started: async () => {},
       progress: async (value) => {
         progress.push(value);
@@ -138,6 +141,28 @@ function operationContext(progress: unknown[]): ActivateDeviceContext {
     },
   };
 }
+
+Deno.test("Auth.ActivateDevice pending review stores source operation id", async () => {
+  let nowMs = baseTimeMs;
+  const reviews: ReviewRecord[] = [];
+  const progress: unknown[] = [];
+  const deps = makeDeps({
+    now: () => nowMs,
+    expiresAtMs: baseTimeMs + 1,
+    reviews,
+    sleep: async (ms) => {
+      nowMs += ms;
+    },
+  });
+
+  const result = await createActivateDeviceHandler(deps)(
+    operationContext(progress),
+  );
+
+  assert(!result.isErr());
+  assertEquals(reviews.length, 1);
+  assertEquals(reviews[0].operationId, "op_activate_1");
+});
 
 Deno.test("Auth.ActivateDevice pending review wait is bounded by flow expiry", async () => {
   let nowMs = baseTimeMs;
@@ -172,6 +197,7 @@ Deno.test("Auth.ActivateDevice pending review observes external activation deter
   let activation: ActivationRecord | undefined;
   const review: ReviewRecord = {
     reviewId: "dar_1",
+    operationId: "op_activate_1",
     flowId: "flow_1",
     instanceId: "dev_1",
     publicIdentityKey: "pub_1",

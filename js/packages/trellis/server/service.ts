@@ -1218,6 +1218,32 @@ function isTerminalJobState(
     state === "expired" || state === "dead" || state === "dismissed";
 }
 
+function operationOutputsEqual(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (typeof left !== typeof right || left === null || right === null) {
+    return false;
+  }
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return Array.isArray(left) && Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((value, index) => operationOutputsEqual(value, right[index]));
+  }
+  if (typeof left === "object") {
+    if (Object.getPrototypeOf(left) !== Object.prototype) return false;
+    if (Object.getPrototypeOf(right) !== Object.prototype) return false;
+    const leftRecord = left as Record<string, unknown>;
+    const rightRecord = right as Record<string, unknown>;
+    const leftKeys = Object.keys(leftRecord);
+    const rightKeys = Object.keys(rightRecord);
+    return leftKeys.length === rightKeys.length &&
+      leftKeys.every((key) =>
+        Object.hasOwn(rightRecord, key) &&
+        operationOutputsEqual(leftRecord[key], rightRecord[key])
+      );
+  }
+  return false;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -1683,6 +1709,41 @@ export class TrellisService<
         expiresInMs: args.expiresInMs ?? 60_000,
       }),
     );
+  }
+
+  /**
+   * Completes an operation from Trellis-owned control-plane code that resolves
+   * an operation from a separate RPC handler.
+   *
+   * @internal
+   */
+  completeOperation(
+    operationId: string,
+    output: unknown,
+  ): AsyncResult<unknown, UnexpectedError> {
+    return AsyncResult.from((async () => {
+      const completed = await this.#server.operations.complete(
+        operationId,
+        output,
+      ).take();
+      if (!isErr(completed)) return Result.ok(completed);
+
+      const current = await this.#server.operations.get(operationId).take();
+      if (!isErr(current) && current.state === "completed") {
+        if (!operationOutputsEqual(current.output, output)) {
+          return Result.err(
+            new UnexpectedError({
+              cause: new Error(
+                "operation already completed with different output",
+              ),
+            }),
+          );
+        }
+        return Result.ok(current);
+      }
+
+      return Result.err(completed.error);
+    })());
   }
 
   static connect<

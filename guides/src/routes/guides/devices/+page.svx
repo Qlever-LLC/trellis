@@ -136,7 +136,9 @@ trellis deploy review list
 trellis deploy review approve dar_123456789
 ```
 
-After approval, the activation flow proceeds as normal.
+After approval or rejection, Trellis completes the original `Auth.ActivateDevice`
+operation that the portal started. Devices and portals should continue watching or
+waiting on that operation rather than polling a separate review-status RPC.
 
 ## 5. Provision a device instance
 

@@ -64,10 +64,10 @@ fields can keep the same `stateVersion`; incompatible stored-value changes shoul
 increment it and list the old shape under `acceptedVersions` so the runtime can
 surface migration-required entries.
 
-Unversioned entries remain readable only when the current schema accepts them.
-Trellis no longer infers old accepted versions for entries that lack
-`stateVersion`; declared `acceptedVersions` apply to entries that were stamped
-with that older author-known version.
+Stored entries are stamped with both `stateVersion` and Trellis internal writer
+provenance. v1 Trellis rejects unstamped pre-v1 entries instead of treating them
+as current or inferring old accepted versions. Declared `acceptedVersions` apply
+only to entries that were stamped with that older author-known version.
 
 ## 2. Read and write state from the client
 
@@ -197,8 +197,8 @@ Expired entries behave like missing keys.
 - store only JSON values; encode unusual payloads yourself when needed
 - use `expectedRevision` when multiple app instances may write the same key
 - keep `stateVersion` stable across compatible additive schema changes
-- rely on the current schema for unversioned entries; declare `acceptedVersions`
-  only for stored values that carry an older `stateVersion`
+- do not rely on unversioned entries; v1 State requires stored metadata and uses
+  `acceptedVersions` only for values that carry an older `stateVersion`
 - write migration code in the app or device runtime when you declare
   `acceptedVersions`
 

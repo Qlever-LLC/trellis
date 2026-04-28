@@ -1,4 +1,4 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertThrows } from "@std/assert";
 import { trellisIdFromOriginId } from "@qlever-llc/trellis/auth";
 
 import { ContractStore } from "../../catalog/store.ts";
@@ -8,6 +8,9 @@ import {
   applyApprovalDecision,
   buildRedirectLocation,
   contractApprovalKey,
+  decodeContractQuery,
+  decodeOpenObjectQuery,
+  encodeBase64Url,
   getApprovalResolution,
   getApprovalResolutionBlocker,
   getCookie,
@@ -17,6 +20,10 @@ import {
 } from "./support.ts";
 
 const { buildPortalFlowState } = await import("./portal_flow.ts");
+
+function encodeJsonQueryPayload(value: unknown): string {
+  return encodeBase64Url(new TextEncoder().encode(JSON.stringify(value)));
+}
 
 function storedAppApproval(args: {
   userTrellisId: string;
@@ -79,6 +86,22 @@ Deno.test("getCookie ignores malformed percent-encoding", () => {
   }, "session");
 
   assertEquals(value, null);
+});
+
+Deno.test("decodeContractQuery requires an object payload", () => {
+  assertThrows(
+    () => decodeContractQuery(encodeJsonQueryPayload(["not-object"])),
+    Error,
+    "Invalid contract payload",
+  );
+});
+
+Deno.test("decodeOpenObjectQuery requires an object payload", () => {
+  assertThrows(
+    () => decodeOpenObjectQuery(encodeJsonQueryPayload(["not-object"])),
+    Error,
+    "Invalid JSON payload",
+  );
 });
 
 Deno.test("getApprovalResolutionErrorMessage explains inactive contract dependencies", () => {

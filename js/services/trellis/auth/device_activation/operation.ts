@@ -70,6 +70,7 @@ type DeviceActivationRecord = {
 
 type DeviceActivationReviewRecord = {
   reviewId: string;
+  operationId: string;
   flowId: string;
   instanceId: string;
   publicIdentityKey: string;
@@ -439,6 +440,7 @@ export function createActivateDeviceHandler(
       input: { flowId: string };
       caller: Caller;
       op: {
+        id: string;
         started(): PromiseLike<unknown>;
         progress(value: {
           status: "pending_review";
@@ -516,6 +518,7 @@ export function createActivateDeviceHandler(
       const requestedAt = new Date().toISOString();
       const review: DeviceActivationReviewRecord = {
         reviewId: `dar_${randomToken(12)}`,
+        operationId: op.id,
         flowId: flow.flowId,
         instanceId: instance.instanceId,
         publicIdentityKey: instance.publicIdentityKey,

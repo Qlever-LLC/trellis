@@ -289,6 +289,7 @@ function makeDeviceActivationReview(
 ): DeviceActivationReviewRecord {
   return {
     reviewId: "dar_a",
+    operationId: "op_activate_a",
     flowId: "flow_a",
     instanceId: "dev_instance_a",
     publicIdentityKey: "pub_identity_a",
@@ -1184,6 +1185,7 @@ Deno.test("device activation review storage upserts, deletes, and flow lookup", 
       const first = makeDeviceActivationReview({ reviewId: "dar_b" });
       const second = makeDeviceActivationReview({
         reviewId: "dar_a",
+        operationId: "op_activate_b",
         flowId: "flow_b",
         instanceId: "dev_instance_b",
       });
@@ -1194,6 +1196,7 @@ Deno.test("device activation review storage upserts, deletes, and flow lookup", 
         .where(eq(deviceActivationReviews.reviewId, "dar_b"));
       assertMatch(row.id, /^[0-9A-HJKMNP-TV-Z]{26}$/);
       assertEquals(row.reviewId, first.reviewId);
+      assertEquals(row.operationId, first.operationId);
       assertEquals(row.flowId, first.flowId);
 
       const updated = makeDeviceActivationReview({

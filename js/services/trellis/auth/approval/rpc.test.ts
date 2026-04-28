@@ -13,6 +13,7 @@ import {
 } from "../../storage/db.ts";
 import type { TrellisStorage } from "../../storage/db.ts";
 import { SqlContractApprovalRepository } from "../storage.ts";
+import { createAuthRevokeApprovalHandler } from "./rpc.ts";
 import {
   createAuthListUserGrantsHandler,
   createAuthRevokeUserGrantHandler,
@@ -269,6 +270,98 @@ Deno.test("Auth.RevokeUserGrant deletes the caller grant and matching user sessi
     );
     assertEquals(
       isErr(await sessionKV.get("sk_123").take()),
+      true,
+    );
+  });
+});
+
+Deno.test("Auth.RevokeApproval deletes a self grant and matching user sessions", async () => {
+  await withApprovalRepository(async (contractApprovalStorage) => {
+    const userTrellisId = await trellisIdFromOriginId("github", "123");
+    const sessionKV = new InMemoryKV<Session>();
+    const connectionsKV = new InMemoryKV<Connection>();
+    const kicked: Array<{ serverId: string; clientId: number }> = [];
+    const revoked: Array<{
+      origin: string;
+      id: string;
+      sessionKey: string;
+      revokedBy: string;
+    }> = [];
+
+    await contractApprovalStorage.put(makeApproval(userTrellisId));
+    sessionKV.seed("sk_approval", {
+      type: "user",
+      trellisId: userTrellisId,
+      origin: "github",
+      id: "123",
+      email: "ada@example.com",
+      name: "Ada",
+      participantKind: "agent",
+      contractDigest: "digest-agent",
+      contractId: "trellis.agent@v1",
+      contractDisplayName: "Trellis Agent",
+      contractDescription: "Local delegated tooling",
+      delegatedCapabilities: ["jobs.read"],
+      delegatedPublishSubjects: [],
+      delegatedSubscribeSubjects: [],
+      createdAt: new Date("2026-04-10T00:00:00.000Z"),
+      lastAuth: new Date("2026-04-11T00:00:00.000Z"),
+    });
+    connectionsKV.seed(
+      connectionKey("sk_approval", userTrellisId, "user_nkey"),
+      {
+        serverId: "n1",
+        clientId: 9,
+        connectedAt: new Date("2026-04-11T00:00:00.000Z"),
+      },
+    );
+
+    const handler = createAuthRevokeApprovalHandler({
+      contractApprovalStorage,
+      sessionStorage: sessionStorageFromKV(sessionKV),
+      connectionsKV,
+      kick: async (serverId, clientId) => {
+        kicked.push({ serverId, clientId });
+      },
+      publishSessionRevoked: async (event) => {
+        revoked.push(event);
+      },
+      logger: { trace: () => {}, warn: () => {} },
+    });
+
+    const result = await handler({
+      input: { contractDigest: "digest-agent" },
+      context: {
+        caller: {
+          type: "user",
+          trellisId: userTrellisId,
+          origin: "github",
+          id: "123",
+        },
+      },
+    });
+    const value = result.take();
+    if (isErr(value)) throw value.error;
+
+    assertEquals(value, { success: true });
+    assertEquals(kicked, [{ serverId: "n1", clientId: 9 }]);
+    assertEquals(revoked, [{
+      origin: "github",
+      id: "123",
+      sessionKey: "sk_approval",
+      revokedBy: "github.123",
+    }]);
+    assertEquals(
+      await contractApprovalStorage.get(userTrellisId, "digest-agent"),
+      undefined,
+    );
+    assertEquals(isErr(await sessionKV.get("sk_approval").take()), true);
+    assertEquals(
+      isErr(
+        await connectionsKV.get(
+          connectionKey("sk_approval", userTrellisId, "user_nkey"),
+        ).take(),
+      ),
       true,
     );
   });

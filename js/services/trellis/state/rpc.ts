@@ -42,7 +42,6 @@ import type { StateStoreKind } from "../../../packages/trellis/models/trellis/St
 import type { Session } from "../auth/schemas.ts";
 import type { ResolvedStateStore } from "./model.ts";
 import { StateStore } from "./storage.ts";
-import type { SqlSessionRepository } from "../auth/storage.ts";
 
 type ContractStateStore = {
   kind: StateStoreKind;
@@ -57,8 +56,15 @@ type StateContractLike = {
   state?: Record<string, ContractStateStore | undefined>;
 };
 
-type SessionLike = {
-  getOneBySessionKey: SqlSessionRepository["getOneBySessionKey"];
+type SessionStoreLike = {
+  getOneBySessionKey(sessionKey: string): Promise<Session | undefined>;
+};
+
+/** Resolves normal State RPC caller sessions without exposing auth storage. */
+export type StateSessionResolver = {
+  resolveSession(
+    sessionKey: string,
+  ): Promise<Result<Session | null, AuthError>>;
 };
 
 type ContractStoreLike = {
@@ -76,27 +82,33 @@ type Caller = {
 };
 
 type RpcDeps = {
-  sessionStorage: SessionLike;
+  sessionResolver: StateSessionResolver;
   state: StateStore;
   contractStore: ContractStoreLike;
 };
 
 type StateRpcError = AuthError | UnexpectedError | ValidationError;
 
-async function loadSessionBySessionKey(
-  sessionKey: string,
-  sessionStore: SessionLike,
-): Promise<Result<Session | null, AuthError>> {
-  try {
-    return Result.ok(await sessionStore.getOneBySessionKey(sessionKey) ?? null);
-  } catch {
-    return Result.err(
-      new AuthError({
-        reason: "session_corrupted",
-        context: { sessionKey },
-      }),
-    );
-  }
+/** Creates a State session resolver backed by auth session storage. */
+export function createSessionResolver(
+  sessionStore: SessionStoreLike,
+): StateSessionResolver {
+  return {
+    async resolveSession(sessionKey: string) {
+      try {
+        return Result.ok(
+          await sessionStore.getOneBySessionKey(sessionKey) ?? null,
+        );
+      } catch {
+        return Result.err(
+          new AuthError({
+            reason: "session_corrupted",
+            context: { sessionKey },
+          }),
+        );
+      }
+    },
+  };
 }
 
 function isAdmin(caller: Caller): boolean {
@@ -199,9 +211,8 @@ async function resolveCallerStore(
   ctx: { caller: Caller; sessionKey: string },
   deps: RpcDeps,
 ): Promise<Result<ResolvedStateStore, AuthError | ValidationError>> {
-  const sessionResult = await loadSessionBySessionKey(
+  const sessionResult = await deps.sessionResolver.resolveSession(
     ctx.sessionKey,
-    deps.sessionStorage,
   );
   if (isErr(sessionResult)) return sessionResult;
   const session = sessionResult.orThrow();

@@ -170,6 +170,7 @@ CREATE UNIQUE INDEX `device_activations_public_identity_key_unique` ON `device_a
 CREATE TABLE `device_activation_reviews` (
 	`id` text PRIMARY KEY NOT NULL,
 	`review_id` text NOT NULL,
+	`operation_id` text NOT NULL,
 	`flow_id` text NOT NULL,
 	`instance_id` text NOT NULL,
 	`public_identity_key` text NOT NULL,
@@ -182,6 +183,7 @@ CREATE TABLE `device_activation_reviews` (
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `device_activation_reviews_review_id_unique` ON `device_activation_reviews` (`review_id`);--> statement-breakpoint
+CREATE UNIQUE INDEX `device_activation_reviews_operation_id_unique` ON `device_activation_reviews` (`operation_id`);--> statement-breakpoint
 CREATE UNIQUE INDEX `device_activation_reviews_flow_id_unique` ON `device_activation_reviews` (`flow_id`);--> statement-breakpoint
 CREATE TABLE `sessions` (
 	`id` text PRIMARY KEY NOT NULL,

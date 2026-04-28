@@ -56,6 +56,7 @@ export async function registerDeviceAdminAndActivation(
     ...deps,
     kick: createKick(deps),
     loadEffectiveGrantPolicies: createEffectiveGrantPolicyLoader(deps),
+    operationCompletion: deps.trellis.operationCompletion,
     installDeviceContract: deps.contracts.installDeviceContract,
     refreshActiveContracts: deps.contracts.refreshActiveContracts,
     validateActiveCatalog: deps.contracts.validateActiveCatalog,

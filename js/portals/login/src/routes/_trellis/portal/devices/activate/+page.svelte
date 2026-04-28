@@ -59,8 +59,8 @@
               You are signed in and can approve this exact device deployment and
               contract digest now.
             {:else if controller.view?.mode === "pending_review"}
-              A reviewer still needs to approve this device before setup can
-              continue.
+              A reviewer still needs to approve this device. This page is
+              waiting on the same activation operation the device started.
             {:else if controller.view?.mode === "activated"}
               This exact device deployment and contract digest have been
               approved and can finish setup.
@@ -112,8 +112,9 @@
               >
             </p>
             <p class="mt-3 text-xs text-base-content/55">
-              Activation is bound to this deployment request. Trellis will not
-              choose another allowed contract digest during approval.
+              Activation is bound to this deployment request. A review decision
+              completes this activation operation; Trellis will not choose
+              another allowed contract digest during approval.
             </p>
           </div>
         {:else if controller.view?.mode === "activated"}
@@ -156,8 +157,8 @@
               {controller.view.instanceId}
             </p>
             <p class="mt-3 text-xs text-base-content/55">
-              Approval was bound to this deployment request; no alternate
-              allowed digest was selected.
+              Approval completed the original activation operation for this
+              deployment request; no alternate allowed digest was selected.
             </p>
           </div>
         {:else if controller.view?.mode === "rejected"}

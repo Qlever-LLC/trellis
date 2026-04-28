@@ -432,9 +432,6 @@ export class StateStore {
       value: {
         ...storedEntry,
         value: validation.value,
-        stateVersion: storedEntry.stateVersion ?? target.stateVersion,
-        writerContractDigest: storedEntry.writerContractDigest ??
-          target.contractDigest,
       },
       revision: loaded.revision,
       put: (value, vcc) => loaded.put(value, vcc),
@@ -508,14 +505,12 @@ export class StateStore {
     key: string,
   ): StateMigrationRequired | undefined {
     if (entry.value.stateVersion === target.stateVersion) return undefined;
-    const stateVersion = entry.value.stateVersion ?? target.stateVersion;
     return {
       migrationRequired: true,
       entry: this.#toPublicEntry(target, entry, key),
-      stateVersion,
+      stateVersion: entry.value.stateVersion,
       currentStateVersion: target.stateVersion,
-      writerContractDigest: entry.value.writerContractDigest ??
-        target.contractDigest,
+      writerContractDigest: entry.value.writerContractDigest,
     };
   }
 
@@ -621,10 +616,17 @@ export class StateStore {
         }),
       );
     }
-    if (
-      record.stateVersion !== undefined &&
-      (typeof record.stateVersion !== "string" || record.stateVersion === "")
-    ) {
+    if (record.stateVersion === undefined) {
+      return Result.err(
+        new ValidationError({
+          errors: [{
+            path: "/stateVersion",
+            message: "state KV entry stateVersion is required",
+          }],
+        }),
+      );
+    }
+    if (typeof record.stateVersion !== "string" || record.stateVersion === "") {
       return Result.err(
         new ValidationError({
           errors: [{
@@ -634,10 +636,19 @@ export class StateStore {
         }),
       );
     }
+    if (record.writerContractDigest === undefined) {
+      return Result.err(
+        new ValidationError({
+          errors: [{
+            path: "/writerContractDigest",
+            message: "state KV entry writerContractDigest is required",
+          }],
+        }),
+      );
+    }
     if (
-      record.writerContractDigest !== undefined &&
-      (typeof record.writerContractDigest !== "string" ||
-        record.writerContractDigest === "")
+      typeof record.writerContractDigest !== "string" ||
+      record.writerContractDigest === ""
     ) {
       return Result.err(
         new ValidationError({
@@ -653,10 +664,8 @@ export class StateStore {
       value: record.value as JsonValue,
       updatedAt: record.updatedAt,
       ...(record.expiresAt ? { expiresAt: record.expiresAt } : {}),
-      ...(record.stateVersion ? { stateVersion: record.stateVersion } : {}),
-      ...(record.writerContractDigest
-        ? { writerContractDigest: record.writerContractDigest }
-        : {}),
+      stateVersion: record.stateVersion,
+      writerContractDigest: record.writerContractDigest,
     });
   }
 
@@ -664,12 +673,6 @@ export class StateStore {
     target: ResolvedStateStore,
     entry: StoredStateEntry,
   ): Result<StoreValueValidation, ValidationError | UnexpectedError> {
-    if (!entry.stateVersion) {
-      return this.#validateStoreValue(target, entry.value).map((value) => ({
-        value,
-      }));
-    }
-
     const stateVersion = entry.stateVersion;
     if (stateVersion === target.stateVersion) {
       return this.#validateStoreValue(target, entry.value).map((value) => ({

@@ -1,6 +1,6 @@
 import { assertEquals } from "@std/assert";
 import { AsyncResult, type BaseError, Result } from "@qlever-llc/result";
-import { KVError, UnexpectedError } from "@qlever-llc/trellis";
+import { KVError, UnexpectedError, ValidationError } from "@qlever-llc/trellis";
 import { Type } from "typebox";
 
 import { StateStore } from "./storage.ts";
@@ -43,6 +43,14 @@ function assertStateEntry(entry: unknown): asserts entry is {
     "migrationRequired" in entry
   ) {
     throw new Error("expected state entry");
+  }
+}
+
+function assertValidationError(
+  error: unknown,
+): asserts error is ValidationError {
+  if (!(error instanceof ValidationError)) {
+    throw new Error("expected ValidationError");
   }
 }
 
@@ -598,7 +606,7 @@ Deno.test("StateStore surfaces migration metadata on failed conditional put", as
   assertEquals(conflict.entry.currentStateVersion, "draft.v2");
 });
 
-Deno.test("StateStore validates unversioned entries only against the current schema", async () => {
+Deno.test("StateStore rejects unstamped entries instead of treating them as current", async () => {
   const kv = new FakeStateKV();
   const store = new StateStore({
     kv,
@@ -618,13 +626,19 @@ Deno.test("StateStore validates unversioned entries only against the current sch
     },
   };
 
-  kv.seed("user.user-1.acme=2Enotes=40v1.preferences.~value", {
+  kv.seedRaw("user.user-1.acme=2Enotes=40v1.preferences.~value", {
     value: { theme: "dark" },
     updatedAt: new Date("2026-01-01T00:00:00.000Z"),
   });
 
   const got = await store.get(currentTarget);
   assertEquals(got.isErr(), true);
+  if (!got.isErr()) throw new Error("expected metadata validation error");
+  assertValidationError(got.error);
+  assertEquals(got.error.toSerializable().issues, [{
+    path: "/stateVersion",
+    message: "state KV entry stateVersion is required",
+  }]);
 
   const compatibleTarget = {
     ...currentTarget,
@@ -633,8 +647,16 @@ Deno.test("StateStore validates unversioned entries only against the current sch
       compact: Type.Optional(Type.Boolean()),
     }),
   };
-  const compatible = unwrapOk(await store.get(compatibleTarget));
-  assertFound(compatible);
+  const compatible = await store.get(compatibleTarget);
+  assertEquals(compatible.isErr(), true);
+  if (!compatible.isErr()) {
+    throw new Error("expected metadata validation error");
+  }
+  assertValidationError(compatible.error);
+  assertEquals(compatible.error.toSerializable().issues, [{
+    path: "/stateVersion",
+    message: "state KV entry stateVersion is required",
+  }]);
 });
 
 Deno.test("StateStore returns unexpected errors for unrecognized create and revision write failures", async () => {
@@ -716,7 +738,7 @@ Deno.test("StateStore conditional delete revision races return not deleted", asy
   assertEquals(deleted, { deleted: false });
 });
 
-Deno.test("StateStore returns normal validation errors for unreadable unversioned entries", async () => {
+Deno.test("StateStore rejects unstamped entries before value schema validation", async () => {
   const kv = new FakeStateKV();
   const store = new StateStore({
     kv,
@@ -736,11 +758,17 @@ Deno.test("StateStore returns normal validation errors for unreadable unversione
     },
   };
 
-  kv.seed("user.user-1.acme=2Enotes=40v1.preferences.~value", {
+  kv.seedRaw("user.user-1.acme=2Enotes=40v1.preferences.~value", {
     value: { theme: 123 },
     updatedAt: new Date("2026-01-01T00:00:00.000Z"),
   });
 
   const got = await store.get(target);
   assertEquals(got.isErr(), true);
+  if (!got.isErr()) throw new Error("expected metadata validation error");
+  assertValidationError(got.error);
+  assertEquals(got.error.toSerializable().issues, [{
+    path: "/stateVersion",
+    message: "state KV entry stateVersion is required",
+  }]);
 });

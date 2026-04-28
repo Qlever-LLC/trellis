@@ -231,10 +231,6 @@ export function serviceInstanceId(instanceKey: string): string {
   return `svc_${sha256Base64urlSync(instanceKey).slice(0, 22)}`;
 }
 
-export function normalizeDigestList(values: string[]): string[] {
-  return normalizeStringList(values);
-}
-
 export function normalizeAppliedContracts(
   values: ServiceAppliedDeploymentContract[],
 ): ServiceAppliedDeploymentContract[] {
@@ -251,7 +247,7 @@ export function normalizeAppliedContracts(
       digests: new Set<string>(),
       resourceBindingsByDigest: new Map<string, AppliedResourceBindings>(),
     };
-    const allowedDigests = normalizeDigestList(value.allowedDigests ?? []);
+    const allowedDigests = normalizeStringList(value.allowedDigests ?? []);
     for (const digest of allowedDigests) {
       entry.digests.add(digest);
     }
@@ -296,7 +292,7 @@ export function normalizeDeviceAppliedContracts(
   for (const value of values) {
     if (!value.contractId) continue;
     const digests = byId.get(value.contractId) ?? new Set<string>();
-    for (const digest of normalizeDigestList(value.allowedDigests ?? [])) {
+    for (const digest of normalizeStringList(value.allowedDigests ?? [])) {
       digests.add(digest);
     }
     byId.set(value.contractId, digests);

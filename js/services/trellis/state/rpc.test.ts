@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import type { BaseError, Result } from "@qlever-llc/result";
+import { type BaseError, Result } from "@qlever-llc/result";
 import { Type } from "typebox";
 import Value from "typebox/value";
 
@@ -8,8 +8,9 @@ import { AuthError, ValidationError } from "@qlever-llc/trellis";
 import { StateAdminGetResponseSchema } from "../../../packages/trellis/models/trellis/rpc/StateAdminGet.ts";
 import { StateAdminListResponseSchema } from "../../../packages/trellis/models/trellis/rpc/StateAdminList.ts";
 
-import { createStateHandlers } from "./rpc.ts";
+import { createSessionResolver, createStateHandlers } from "./rpc.ts";
 import { StateStore } from "./storage.ts";
+import type { Session } from "../auth/schemas.ts";
 import {
   FakeSessionKV,
   FakeStateKV,
@@ -213,6 +214,40 @@ function createContractStore() {
   };
 }
 
+Deno.test("State RPC accepts a session resolver without auth session storage methods", async () => {
+  const sessions = new Map<string, Session>();
+  const state = new StateStore({
+    kv: new FakeStateKV(),
+    now: () => new Date("2026-01-01T00:00:00.000Z"),
+  });
+  const handlers = createStateHandlers({
+    sessionResolver: {
+      async resolveSession(sessionKey: string) {
+        return Result.ok(sessions.get(sessionKey) ?? null);
+      },
+    },
+    state,
+    contractStore: createContractStore(),
+  });
+
+  sessions.set(
+    "session-one",
+    makeUserSession({ trellisId: "user-1", contractId: "acme.notes@v1" }),
+  );
+
+  const put = unwrapOk(
+    await handlers.put(
+      { store: "preferences", value: { theme: "dark" } },
+      {
+        caller: { type: "user", origin: "github", id: "123" },
+        sessionKey: "session-one",
+      },
+    ),
+  );
+
+  assertEquals(put.applied, true);
+});
+
 Deno.test("State RPC isolates named store state by contract id without caller scope", async () => {
   const sessionKV = new FakeSessionKV();
   const state = new StateStore({
@@ -220,7 +255,7 @@ Deno.test("State RPC isolates named store state by contract id without caller sc
     now: () => new Date("2026-01-01T00:00:00.000Z"),
   });
   const handlers = createStateHandlers({
-    sessionStorage: sessionKV,
+    sessionResolver: createSessionResolver(sessionKV),
     state,
     contractStore: createContractStore(),
   });
@@ -272,7 +307,7 @@ Deno.test("State RPC uses contract id lineage and state versions for migration d
     now: () => new Date("2026-01-01T00:00:00.000Z"),
   });
   const handlers = createStateHandlers({
-    sessionStorage: sessionKV,
+    sessionResolver: createSessionResolver(sessionKV),
     state,
     contractStore: createContractStore(),
   });
@@ -341,7 +376,7 @@ Deno.test("State admin RPC schemas accept migration-required entries", async () 
     now: () => new Date("2026-01-01T00:00:00.000Z"),
   });
   const handlers = createStateHandlers({
-    sessionStorage: sessionKV,
+    sessionResolver: createSessionResolver(sessionKV),
     state,
     contractStore: createContractStore(),
   });
@@ -396,7 +431,7 @@ Deno.test("State RPC derives store metadata and enforces value versus map key se
     now: () => new Date("2026-01-01T00:00:00.000Z"),
   });
   const handlers = createStateHandlers({
-    sessionStorage: sessionKV,
+    sessionResolver: createSessionResolver(sessionKV),
     state,
     contractStore: createContractStore(),
   });
@@ -499,7 +534,7 @@ Deno.test("State RPC accepts boolean JSON schemas for state stores", async () =>
     now: () => new Date("2026-01-01T00:00:00.000Z"),
   });
   const handlers = createStateHandlers({
-    sessionStorage: sessionKV,
+    sessionResolver: createSessionResolver(sessionKV),
     state,
     contractStore: createContractStore(),
   });
@@ -533,7 +568,7 @@ Deno.test("State RPC derives normal caller ownership from the session", async ()
     now: () => new Date("2026-01-01T00:00:00.000Z"),
   });
   const handlers = createStateHandlers({
-    sessionStorage: sessionKV,
+    sessionResolver: createSessionResolver(sessionKV),
     state,
     contractStore: createContractStore(),
   });
@@ -577,7 +612,7 @@ Deno.test("State admin RPCs inspect and delete named stores", async () => {
     now: () => new Date("2026-01-01T00:00:00.000Z"),
   });
   const handlers = createStateHandlers({
-    sessionStorage: sessionKV,
+    sessionResolver: createSessionResolver(sessionKV),
     state,
     contractStore: createContractStore(),
   });

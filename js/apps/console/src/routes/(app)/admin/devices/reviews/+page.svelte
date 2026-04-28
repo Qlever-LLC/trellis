@@ -117,11 +117,11 @@
 </script>
 
 <section class="space-y-4">
-  <PageToolbar title="Device reviews" description="Activation review queue with device metadata and decision workflow links.">
+  <PageToolbar title="Device reviews" description="Activation review queue. Decisions resolve the original activation operation for each device.">
     {#snippet actions()}
       <details class="dropdown dropdown-end">
         <summary class="btn btn-outline btn-sm">Actions <Icon name="chevronDown" size={14} /></summary>
-        <ul class="menu dropdown-content z-10 mt-2 w-72 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl">
+        <ul class="menu dropdown-content z-10 mt-2 w-72 rounded-box border border-base-300 bg-base-100 p-2 shadow-sm">
           <li><a href={resolve("/admin/devices/reviews/decide")}>Decide activation review</a></li>
         </ul>
       </details>
@@ -240,6 +240,9 @@
             <div class="grid grid-cols-2 gap-2">
               <div><span class="text-base-content/50">Deployment</span><div class="trellis-identifier">{selectedReview.deploymentId}</div></div>
               <div><span class="text-base-content/50">Requested</span><div>{formatDate(selectedReview.requestedAt)}</div></div>
+            </div>
+            <div class="rounded-box border border-base-300 bg-base-200/40 p-3 text-xs text-base-content/60">
+              Approving or rejecting this review completes the activation operation that created it; callers should wait on that operation rather than poll this queue.
             </div>
             <div class="space-y-0.5 text-xs text-base-content/60">
               <div><span class="font-medium text-base-content">Name</span>: {understoodMetadataValue(selectedReview.instanceId, "name") ?? "—"}</div>

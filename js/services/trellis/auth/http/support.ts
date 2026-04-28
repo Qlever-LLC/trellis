@@ -172,19 +172,21 @@ function decodeBase64Url(value: string): Uint8Array {
 }
 
 export function decodeContractQuery(value: string): Record<string, unknown> {
-  const decoded = new TextDecoder().decode(decodeBase64Url(value));
-  const parsed = JSON.parse(decoded);
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("Invalid contract payload");
-  }
-  return parsed as Record<string, unknown>;
+  return decodeBase64JsonObjectQuery(value, "Invalid contract payload");
 }
 
 export function decodeOpenObjectQuery(value: string): Record<string, unknown> {
+  return decodeBase64JsonObjectQuery(value, "Invalid JSON payload");
+}
+
+function decodeBase64JsonObjectQuery(
+  value: string,
+  invalidPayloadMessage: string,
+): Record<string, unknown> {
   const decoded = new TextDecoder().decode(decodeBase64Url(value));
   const parsed = JSON.parse(decoded);
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("Invalid JSON payload");
+    throw new Error(invalidPayloadMessage);
   }
   return parsed as Record<string, unknown>;
 }

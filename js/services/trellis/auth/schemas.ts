@@ -174,6 +174,7 @@ export type DeviceProvisioningSecret = StaticDecode<
 
 export const DeviceActivationReviewRecordSchema = Type.Object({
   reviewId: Type.String({ minLength: 1 }),
+  operationId: Type.String({ minLength: 1 }),
   flowId: Type.String({ minLength: 1 }),
   instanceId: Type.String({ minLength: 1 }),
   publicIdentityKey: Type.String({ minLength: 1 }),

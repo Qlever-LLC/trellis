@@ -1,5 +1,6 @@
 import { assert, assertEquals } from "@std/assert";
 import { AsyncResult, isErr, Result } from "@qlever-llc/result";
+import type { OperationSnapshot } from "@qlever-llc/trellis";
 import Value from "typebox/value";
 import {
   AuthListConnectionsResponseSchema,
@@ -16,7 +17,7 @@ import {
 import {
   type DeviceDeployment,
   type DeviceInstance,
-  normalizeDigestList,
+  normalizeStringList,
   type ServiceDeployment,
   validateDeviceDeploymentRequest,
   validateDevicePortalSelectionRequest,
@@ -101,8 +102,35 @@ async function assertInsufficientPermissions(action: () => Promise<unknown>) {
   assertEquals(result.error.reason, "insufficient_permissions");
 }
 
-Deno.test("normalizeDigestList preserves order and removes duplicates", () => {
-  assertEquals(normalizeDigestList(["b", "a", "b", "c", "a"]), ["b", "a", "c"]);
+type DeviceActivationReviewRecord = Parameters<
+  AdminRpcDeps["deviceActivationReviewStorage"]["put"]
+>[0];
+type DeviceActivationRecord = Parameters<
+  AdminRpcDeps["deviceActivationStorage"]["put"]
+>[0];
+
+function operationSnapshot(
+  operationId: string,
+  output: unknown,
+): OperationSnapshot {
+  return {
+    id: operationId,
+    service: "trellis",
+    operation: "Auth.ActivateDevice",
+    revision: 2,
+    state: "completed",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:01.000Z",
+    completedAt: "2026-01-01T00:00:01.000Z",
+    output,
+  };
+}
+
+Deno.test("normalizeStringList preserves order and removes duplicates", () => {
+  assertEquals(
+    normalizeStringList(["b", "a", "b", "c", "a"]),
+    ["b", "a", "c"],
+  );
 });
 
 Deno.test("auth contract exposes service, portal, and device admin RPCs", () => {
@@ -651,6 +679,10 @@ function deviceAdminDeps(args: {
     },
     loadEffectiveGrantPolicies: async () => [],
     logger: { trace: () => {}, warn: () => {} },
+    operationCompletion: {
+      completeOperation: (operationId, output) =>
+        AsyncResult.ok(operationSnapshot(operationId, output)),
+    },
     loginPortalSelectionStorage: {
       get: async () => undefined,
       put: async () => throwingStoreAccess(),
@@ -883,6 +915,341 @@ Deno.test("auth review event is templated by deployment", () => {
     TRELLIS_AUTH_EVENTS["Auth.DeviceActivationReviewRequested"].params,
     ["/deploymentId"],
   );
+});
+
+Deno.test("Auth.DecideDeviceActivationReview completes approve decision through operation controller", async () => {
+  const review: DeviceActivationReviewRecord = {
+    reviewId: "dar_1",
+    operationId: "op_activate_1",
+    flowId: "flow_1",
+    instanceId: "device_1",
+    publicIdentityKey: "pub_device_1",
+    deploymentId: "reader.default",
+    requestedBy: { origin: "github", id: "user_1" },
+    state: "pending",
+    requestedAt: "2026-01-01T00:00:00.000Z",
+    decidedAt: null,
+  };
+  const deployment: DeviceDeployment = {
+    deploymentId: "reader.default",
+    reviewMode: "required",
+    disabled: false,
+    appliedContracts: [{ contractId: "reader@v1", allowedDigests: ["d1"] }],
+  };
+  const instance: DeviceInstance = {
+    instanceId: "device_1",
+    publicIdentityKey: "pub_device_1",
+    deploymentId: "reader.default",
+    state: "registered",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    activatedAt: null,
+    revokedAt: null,
+  };
+  const completions: Array<{ operationId: string; output: unknown }> = [];
+  const putReviews: DeviceActivationReviewRecord[] = [];
+  const putInstances: DeviceInstance[] = [];
+  const { deps } = deviceAdminDeps({ deployment, instances: [instance] });
+  const result = await createDeviceAdminHandlers({
+    ...deps,
+    operationCompletion: {
+      completeOperation: (operationId, output) => {
+        completions.push({ operationId, output });
+        return AsyncResult.ok(operationSnapshot(operationId, output));
+      },
+    },
+    deviceActivationReviewStorage: {
+      get: async () => review,
+      getByFlowId: async () => review,
+      put: async (record) => {
+        putReviews.push(record);
+      },
+      list: async () => [review],
+    },
+    deviceActivationStorage: {
+      get: async () => undefined,
+      put: async () => {},
+      delete: async () => {},
+      list: async () => [],
+    },
+    deviceInstanceStorage: {
+      ...deps.deviceInstanceStorage,
+      get: async () => instance,
+      put: async (record) => {
+        putInstances.push(record);
+      },
+    },
+  }).decideDeviceActivationReview({
+    input: { reviewId: "dar_1", decision: "approve" },
+    context: { caller: { id: "admin", capabilities: ["admin"] } },
+  });
+
+  assert(!result.isErr());
+  const value = result.take();
+  if (isErr(value)) throw value.error;
+  assertEquals(completions, [{
+    operationId: "op_activate_1",
+    output: {
+      status: "activated",
+      instanceId: "device_1",
+      deploymentId: "reader.default",
+      activatedAt: putReviews[0].decidedAt,
+    },
+  }]);
+  assertEquals(putReviews[0].state, "approved");
+  assertEquals(putInstances[0].state, "activated");
+  assertEquals(value.review.state, "approved");
+});
+
+Deno.test("Auth.DecideDeviceActivationReview completes reject decision through operation controller", async () => {
+  const review: DeviceActivationReviewRecord = {
+    reviewId: "dar_1",
+    operationId: "op_activate_1",
+    flowId: "flow_1",
+    instanceId: "device_1",
+    publicIdentityKey: "pub_device_1",
+    deploymentId: "reader.default",
+    requestedBy: { origin: "github", id: "user_1" },
+    state: "pending",
+    requestedAt: "2026-01-01T00:00:00.000Z",
+    decidedAt: null,
+  };
+  const deployment: DeviceDeployment = {
+    deploymentId: "reader.default",
+    reviewMode: "required",
+    disabled: false,
+    appliedContracts: [{ contractId: "reader@v1", allowedDigests: ["d1"] }],
+  };
+  const completions: Array<{ operationId: string; output: unknown }> = [];
+  const putReviews: DeviceActivationReviewRecord[] = [];
+  const { deps } = deviceAdminDeps({ deployment });
+  const result = await createDeviceAdminHandlers({
+    ...deps,
+    operationCompletion: {
+      completeOperation: (operationId, output) => {
+        completions.push({ operationId, output });
+        return AsyncResult.ok(operationSnapshot(operationId, output));
+      },
+    },
+    deviceActivationReviewStorage: {
+      get: async () => review,
+      getByFlowId: async () => review,
+      put: async (record) => {
+        putReviews.push(record);
+      },
+      list: async () => [review],
+    },
+  }).decideDeviceActivationReview({
+    input: { reviewId: "dar_1", decision: "reject", reason: "not expected" },
+    context: { caller: { id: "admin", capabilities: ["admin"] } },
+  });
+
+  assert(!result.isErr());
+  assertEquals(putReviews[0].state, "rejected");
+  assertEquals(completions, [{
+    operationId: "op_activate_1",
+    output: { status: "rejected", reason: "not expected" },
+  }]);
+});
+
+Deno.test("Auth.DecideDeviceActivationReview retries completion for already-approved review", async () => {
+  const review: DeviceActivationReviewRecord = {
+    reviewId: "dar_1",
+    operationId: "op_activate_1",
+    flowId: "flow_1",
+    instanceId: "device_1",
+    publicIdentityKey: "pub_device_1",
+    deploymentId: "reader.default",
+    requestedBy: { origin: "github", id: "user_1" },
+    state: "approved",
+    requestedAt: "2026-01-01T00:00:00.000Z",
+    decidedAt: "2026-01-01T00:00:01.000Z",
+  };
+  const activation: DeviceActivationRecord = {
+    instanceId: "device_1",
+    publicIdentityKey: "pub_device_1",
+    deploymentId: "reader.default",
+    activatedBy: { origin: "github", id: "user_1" },
+    state: "activated" as const,
+    activatedAt: "2026-01-01T00:00:01.000Z",
+    revokedAt: null,
+  };
+  const completions: Array<{ operationId: string; output: unknown }> = [];
+  const putReviews: DeviceActivationReviewRecord[] = [];
+  const putActivations: DeviceActivationRecord[] = [];
+  const { deps } = deviceAdminDeps({
+    deployment: {
+      deploymentId: "reader.default",
+      reviewMode: "required",
+      disabled: false,
+      appliedContracts: [],
+    },
+  });
+
+  const result = await createDeviceAdminHandlers({
+    ...deps,
+    operationCompletion: {
+      completeOperation: (operationId, output) => {
+        completions.push({ operationId, output });
+        return AsyncResult.ok(operationSnapshot(operationId, output));
+      },
+    },
+    deviceActivationReviewStorage: {
+      get: async () => review,
+      getByFlowId: async () => review,
+      put: async (record) => {
+        putReviews.push(record);
+      },
+      list: async () => [review],
+    },
+    deviceActivationStorage: {
+      get: async () => activation,
+      put: async (record) => {
+        putActivations.push(record);
+      },
+      delete: async () => {},
+      list: async () => [activation],
+    },
+  }).decideDeviceActivationReview({
+    input: { reviewId: "dar_1", decision: "approve" },
+    context: { caller: { id: "admin", capabilities: ["admin"] } },
+  });
+
+  assert(!result.isErr());
+  assertEquals(putReviews, []);
+  assertEquals(putActivations, []);
+  assertEquals(completions, [{
+    operationId: "op_activate_1",
+    output: {
+      status: "activated",
+      instanceId: "device_1",
+      deploymentId: "reader.default",
+      activatedAt: "2026-01-01T00:00:01.000Z",
+    },
+  }]);
+});
+
+Deno.test("Auth.DecideDeviceActivationReview retries completion for already-rejected review", async () => {
+  const review: DeviceActivationReviewRecord = {
+    reviewId: "dar_1",
+    operationId: "op_activate_1",
+    flowId: "flow_1",
+    instanceId: "device_1",
+    publicIdentityKey: "pub_device_1",
+    deploymentId: "reader.default",
+    requestedBy: { origin: "github", id: "user_1" },
+    state: "rejected",
+    requestedAt: "2026-01-01T00:00:00.000Z",
+    decidedAt: "2026-01-01T00:00:01.000Z",
+    reason: "not expected",
+  };
+  const completions: Array<{ operationId: string; output: unknown }> = [];
+  const putReviews: DeviceActivationReviewRecord[] = [];
+  const { deps } = deviceAdminDeps({
+    deployment: {
+      deploymentId: "reader.default",
+      reviewMode: "required",
+      disabled: false,
+      appliedContracts: [],
+    },
+  });
+
+  const result = await createDeviceAdminHandlers({
+    ...deps,
+    operationCompletion: {
+      completeOperation: (operationId, output) => {
+        completions.push({ operationId, output });
+        return AsyncResult.ok(operationSnapshot(operationId, output));
+      },
+    },
+    deviceActivationReviewStorage: {
+      get: async () => review,
+      getByFlowId: async () => review,
+      put: async (record) => {
+        putReviews.push(record);
+      },
+      list: async () => [review],
+    },
+  }).decideDeviceActivationReview({
+    input: { reviewId: "dar_1", decision: "reject" },
+    context: { caller: { id: "admin", capabilities: ["admin"] } },
+  });
+
+  assert(!result.isErr());
+  assertEquals(putReviews, []);
+  assertEquals(completions, [{
+    operationId: "op_activate_1",
+    output: { status: "rejected", reason: "not expected" },
+  }]);
+});
+
+Deno.test("Auth.DecideDeviceActivationReview does not mutate when operation completion is missing", async () => {
+  const review: DeviceActivationReviewRecord = {
+    reviewId: "dar_1",
+    operationId: "op_activate_1",
+    flowId: "flow_1",
+    instanceId: "device_1",
+    publicIdentityKey: "pub_device_1",
+    deploymentId: "reader.default",
+    requestedBy: { origin: "github", id: "user_1" },
+    state: "pending",
+    requestedAt: "2026-01-01T00:00:00.000Z",
+    decidedAt: null,
+  };
+  const deployment: DeviceDeployment = {
+    deploymentId: "reader.default",
+    reviewMode: "required",
+    disabled: false,
+    appliedContracts: [{ contractId: "reader@v1", allowedDigests: ["d1"] }],
+  };
+  const instance: DeviceInstance = {
+    instanceId: "device_1",
+    publicIdentityKey: "pub_device_1",
+    deploymentId: "reader.default",
+    state: "registered",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    activatedAt: null,
+    revokedAt: null,
+  };
+  const putReviews: DeviceActivationReviewRecord[] = [];
+  const putActivations: DeviceActivationRecord[] = [];
+  const putInstances: DeviceInstance[] = [];
+  const { deps } = deviceAdminDeps({ deployment, instances: [instance] });
+
+  const result = await createDeviceAdminHandlers({
+    ...deps,
+    operationCompletion: undefined,
+    deviceActivationReviewStorage: {
+      get: async () => review,
+      getByFlowId: async () => review,
+      put: async (record) => {
+        putReviews.push(record);
+      },
+      list: async () => [review],
+    },
+    deviceActivationStorage: {
+      get: async () => undefined,
+      put: async (record) => {
+        putActivations.push(record);
+      },
+      delete: async () => {},
+      list: async () => [],
+    },
+    deviceInstanceStorage: {
+      ...deps.deviceInstanceStorage,
+      get: async () => instance,
+      put: async (record) => {
+        putInstances.push(record);
+      },
+    },
+  }).decideDeviceActivationReview({
+    input: { reviewId: "dar_1", decision: "approve" },
+    context: { caller: { id: "admin", capabilities: ["admin"] } },
+  });
+
+  assert(result.isErr());
+  assertEquals(putReviews, []);
+  assertEquals(putActivations, []);
+  assertEquals(putInstances, []);
 });
 
 Deno.test("validatePortalRequest requires portal identity and URL", () => {

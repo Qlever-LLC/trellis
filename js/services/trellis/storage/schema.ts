@@ -206,6 +206,7 @@ export const deviceActivationReviews = sqliteTable(
   {
     id: text("id").primaryKey().$defaultFn(() => ulid()),
     reviewId: text("review_id").notNull().unique(),
+    operationId: text("operation_id").notNull().unique(),
     flowId: text("flow_id").notNull().unique(),
     instanceId: text("instance_id").notNull(),
     publicIdentityKey: text("public_identity_key").notNull(),
