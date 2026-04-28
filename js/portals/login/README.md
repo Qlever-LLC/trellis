@@ -5,8 +5,8 @@ activation route.
 
 The app has two distinct roles:
 
-- `/_trellis/portal/users/login` renders auth-owned browser flow state from
-  Trellis.
+- `/_trellis/portal/users/login` renders Trellis-owned browser auth/bootstrap
+  flow state.
 - `/_trellis/portal/devices/activate` resumes a preserved `flowId` after sign-in
   and starts `Auth.ActivateDevice` over the Trellis runtime.
 - SvelteKit runtime assets are served under `/_trellis/assets/*` to keep the
@@ -14,20 +14,20 @@ The app has two distinct roles:
 
 ## Local dev
 
-1. Start NATS and the Trellis auth/runtime services.
+1. Start NATS and the Trellis runtime/control-plane service.
 2. Copy `.env.example` to `.env` if you want to override local defaults.
-3. Set `PUBLIC_TRELLIS_URL` to the Trellis service origin if it is not
-   `http://localhost:3000`.
+3. Set `PUBLIC_TRELLIS_URL` to the Trellis runtime/control-plane service origin
+   if it is not `http://localhost:3000`.
 4. `deno task dev`
 
-`PUBLIC_TRELLIS_URL` is the authoritative Trellis auth/runtime base URL for the
-portal in both dev and build output. Standalone local builds default to
-`http://localhost:3000` when it is unset. Trellis service builds inject the
-configured public origin.
+`PUBLIC_TRELLIS_URL` is the authoritative Trellis runtime/control-plane service
+base URL for the portal in both dev and build output. Standalone local builds
+default to `http://localhost:3000` when it is unset. Trellis
+runtime/control-plane service builds inject the configured public origin.
 
-The example `.env` is suitable for standalone local dev against a Trellis
-service on `http://localhost:3000`. You can also override it directly from the
-shell, for example:
+The example `.env` is suitable for standalone local dev against the Trellis
+runtime/control-plane service on `http://localhost:3000`. You can also override
+it directly from the shell, for example:
 
 ```bash
 PUBLIC_TRELLIS_URL=http://localhost:3000 deno task dev

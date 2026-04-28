@@ -16,7 +16,7 @@
 <div class="flex min-h-screen flex-col items-center justify-center gap-6 px-4 py-10" data-theme="portal">
   <div class="flex items-center gap-2">
     <span class="inline-block h-2 w-2 rounded-full bg-primary"></span>
-    <span class="text-sm font-semibold text-base-content/55">Trellis Auth</span>
+    <span class="text-sm font-semibold text-base-content/55">Trellis</span>
   </div>
   <div class="card w-full max-w-sm border border-base-300 bg-base-100 shadow-md">
     <div class="card-body items-center gap-4 p-6 text-center">

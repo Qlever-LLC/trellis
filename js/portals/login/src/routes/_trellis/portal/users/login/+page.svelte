@@ -85,7 +85,7 @@
 >
   <div class="flex items-center gap-2">
     <span class="inline-block h-2 w-2 rounded-full bg-primary"></span>
-    <span class="text-sm font-semibold text-base-content/55">Trellis Auth</span>
+    <span class="text-sm font-semibold text-base-content/55">Trellis</span>
   </div>
 
   <div
@@ -226,7 +226,7 @@
           </p>
         </div>
         <a class="btn btn-outline btn-block" href={trellisUrl}
-          >Open auth service</a
+          >Open Trellis</a
         >
       {:else if flow.state?.status === "redirect"}
         {#if showDetachedCompletion()}

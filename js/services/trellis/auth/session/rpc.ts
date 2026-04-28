@@ -28,6 +28,9 @@ import type {
 } from "../storage.ts";
 import { authRuntimeDeps, maybeAuthRuntimeDeps } from "../runtime_deps.ts";
 import { parseContractApprovalKey } from "../http/support.ts";
+import { runtimeServiceLookup } from "../admin/service_lookup.ts";
+import { loadEffectiveGrantPolicies } from "../grants/store.ts";
+import { kick as kickConnection } from "../callout/kick.ts";
 
 const logger = {
   trace: (fields: Record<string, unknown>, message: string) =>
@@ -775,9 +778,8 @@ export const authMeHandler = async (
   >[0],
 ) => {
   const globals = authRuntimeDeps();
-  const { loadServiceDeployment, loadServiceInstanceByKey } = await import(
-    "../admin/service_rpc.ts"
-  );
+  const { loadServiceDeployment, loadServiceInstanceByKey } =
+    runtimeServiceLookup();
   return await createAuthMeHandler({
     sessionStorage: globals.sessionStorage,
     userStorage: globals.userStorage,
@@ -793,8 +795,17 @@ export function createAuthValidateRequestHandler(deps: {
   sessionStorage: Pick<SessionStorage, "getOneBySessionKey">;
   userStorage: UserProjectionStorage;
   contractApprovalStorage: Pick<SqlContractApprovalRepository, "get">;
-  deviceActivationStorage?: DeviceActivationStorage;
-  deviceDeploymentStorage?: DeviceDeploymentStorage;
+  deviceActivationStorage: DeviceActivationStorage;
+  deviceDeploymentStorage: DeviceDeploymentStorage;
+  loadServiceInstance: Parameters<typeof resolveSessionPrincipal>[2][
+    "loadServiceInstance"
+  ];
+  loadServiceDeployment: Parameters<typeof resolveSessionPrincipal>[2][
+    "loadServiceDeployment"
+  ];
+  loadInstanceGrantPolicies: Parameters<typeof resolveSessionPrincipal>[2][
+    "loadInstanceGrantPolicies"
+  ];
 }) {
   return async ({ input: req }: { input: ValidateRequestInput }) => {
     logger.trace({
@@ -832,22 +843,14 @@ export function createAuthValidateRequestHandler(deps: {
       return Result.err(new AuthError({ reason: "session_not_found" }));
     }
     const inboxPrefix = `_INBOX.${req.sessionKey.slice(0, 16)}`;
-    const runtime = deps.deviceActivationStorage && deps.deviceDeploymentStorage
-      ? null
-      : authRuntimeDeps();
-    const { loadServiceInstanceByKey, loadServiceDeployment } = await import(
-      "../admin/service_rpc.ts"
-    );
     const principal = await resolveSessionPrincipal(session, req.sessionKey, {
-      loadServiceInstance: loadServiceInstanceByKey,
-      loadServiceDeployment,
+      loadServiceInstance: deps.loadServiceInstance,
+      loadServiceDeployment: deps.loadServiceDeployment,
       loadUserProjection: async (trellisId) => {
         return await deps.userStorage.get(trellisId) ?? null;
       },
-      deviceActivationStorage: deps.deviceActivationStorage ??
-        runtime!.deviceActivationStorage,
-      deviceDeploymentStorage: deps.deviceDeploymentStorage ??
-        runtime!.deviceDeploymentStorage,
+      deviceActivationStorage: deps.deviceActivationStorage,
+      deviceDeploymentStorage: deps.deviceDeploymentStorage,
       loadStoredApproval: async (key) => {
         const approvalKey = parseContractApprovalKey(key);
         if (!approvalKey) return null;
@@ -856,12 +859,7 @@ export function createAuthValidateRequestHandler(deps: {
           approvalKey.contractDigest,
         ) ?? null;
       },
-      loadInstanceGrantPolicies: async (contractId: string) => {
-        const { loadEffectiveGrantPolicies } = await import(
-          "../grants/store.ts"
-        );
-        return await loadEffectiveGrantPolicies(contractId);
-      },
+      loadInstanceGrantPolicies: deps.loadInstanceGrantPolicies,
     });
     if (!principal.ok) {
       return Result.err(new AuthError(principal.error));
@@ -887,12 +885,16 @@ export const authValidateRequestHandler = async (
   >[0],
 ) => {
   const globals = authRuntimeDeps();
+  const serviceLookup = runtimeServiceLookup();
   return await createAuthValidateRequestHandler({
     sessionStorage: globals.sessionStorage,
     userStorage: globals.userStorage,
     contractApprovalStorage: globals.contractApprovalStorage,
     deviceActivationStorage: globals.deviceActivationStorage,
     deviceDeploymentStorage: globals.deviceDeploymentStorage,
+    loadServiceInstance: serviceLookup.loadServiceInstanceByKey,
+    loadServiceDeployment: serviceLookup.loadServiceDeployment,
+    loadInstanceGrantPolicies: loadEffectiveGrantPolicies,
   })(args);
 };
 
@@ -982,11 +984,7 @@ export const authRevokeSessionHandler = async (
     contractApprovalStorage: globals.contractApprovalStorage,
     deviceActivationStorage: globals.deviceActivationStorage,
     serviceInstanceStorage: globals.serviceInstanceStorage,
-    kick: async (serverId, clientId) => {
-      await import("../callout/kick.ts").then(({ kick }) =>
-        kick(serverId, clientId)
-      );
-    },
+    kick: kickConnection,
     publishSessionRevoked: async (event) => {
       (await globals.trellis.publish("Auth.SessionRevoked", event)).inspectErr(
         (error: unknown) =>

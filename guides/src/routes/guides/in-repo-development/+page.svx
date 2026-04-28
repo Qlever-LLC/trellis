@@ -113,7 +113,7 @@ NATS_AUTH_TARGET_SIGNING_SEED=$(cat ~/trellis/keys/trellis-target-signing.nk)
 NATS_AUTH_SXKEY_SEED=$(cat ~/trellis/nkeys/keys/X/${XKEY_PUB:1:2}/${XKEY_PUB}.nk)
 ```
 
-## 7. Configure the auth runtime
+## 7. Configure the Trellis runtime
 
 Copy the example Trellis config in the source tree:
 
@@ -169,7 +169,7 @@ Edit `js/services/trellis/config.jsonc` and fill in the values. When running fro
 }
 ```
 
-`client.natsServers` is the websocket endpoint list the auth service returns to browser clients after browser auth/bootstrap, so apps can discover the correct realtime connection settings from the instance they signed into.
+`client.natsServers` is the websocket endpoint list the Trellis runtime returns to browser clients during browser auth/bootstrap, so apps can discover the correct realtime connection settings from the instance they signed into.
 
 Then start the runtime with the config path override:
 

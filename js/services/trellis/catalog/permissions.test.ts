@@ -1,5 +1,5 @@
 import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertThrows } from "@std/assert";
 
 import {
   getContracts,
@@ -194,8 +194,8 @@ const TEST_CONTRACTS: Array<{ digest: string; contract: TrellisContractV1 }> = [
 
 function withContracts(contracts: typeof TEST_CONTRACTS, fn: () => void) {
   const original = getContracts();
-  setContracts(contracts);
   try {
+    setContracts(contracts);
     fn();
   } finally {
     setContracts(original);
@@ -336,6 +336,40 @@ Deno.test("user uses resolution merges duplicate active surface capabilities con
     );
     assertEquals(fullAccess.includes("rpc.v1.Partner.List"), true);
   });
+});
+
+Deno.test("user uses resolution rejects divergent duplicate active surfaces", () => {
+  const divergentGraph = {
+    digest: "graph-divergent-digest",
+    contract: {
+      ...TEST_CONTRACTS[2].contract,
+      schemas: {
+        ...TEST_CONTRACTS[2].contract.schemas,
+        OtherOutput: { type: "object" },
+      },
+      rpc: {
+        "Partner.List": {
+          version: "v1" as const,
+          subject: "rpc.v1.Partner.List",
+          input: { schema: "EmptyInput" },
+          output: { schema: "OtherOutput" },
+          capabilities: { call: ["partners:read"] },
+        },
+      },
+    },
+  } satisfies { digest: string; contract: TrellisContractV1 };
+
+  assertThrows(
+    () => {
+      withContracts([...TEST_CONTRACTS, divergentGraph], () => {
+        getUserPublishSubjects(["partners:read"], {
+          contractDigest: "portal-digest",
+        });
+      });
+    },
+    Error,
+    "Active compatible digests define 'Partner.List' with different output",
+  );
 });
 
 Deno.test("service permissions include owned RPCs and declared dependencies", () => {

@@ -100,15 +100,22 @@ Rules:
 
 When NATS calls `$SYS.REQ.USER.AUTH`:
 
-1. Require `Nats-Server-Xkey` and decrypt the payload
-2. Extract `user_nkey` and `connect_opts.auth_token`
-3. Parse `{ v, sessionKey, sig, iat, contractDigest? }`
-4. Resolve the principal from the session key plus the presented proof shape
-5. Lookup grants from sessions or service registry
-6. Load active contracts and derive publish/subscribe permissions
-7. Issue a NATS JWT for the server-generated `user_nkey`
-8. Update session liveness
-9. Emit `events.v1.Auth.Connect` for user and service sessions
+1. Decode the encrypted request by requiring `Nats-Server-Xkey`, decrypting the
+   payload, and extracting `user_nkey` plus `connect_opts.auth_token`.
+2. Validate the connect token by parsing `{ v, sessionKey, sig, iat,
+   contractDigest? }`, checking token version and proof freshness, and verifying
+   the signed proof.
+3. Resolve the session and principal from the session key, presented proof shape,
+   and explicit runtime repositories for users, services, or devices.
+4. Derive permissions from current grants, active contracts, installed bindings,
+   and the resolved principal, then issue a NATS JWT for the server-generated
+   `user_nkey`.
+5. Update session liveness and active-connection tracking.
+6. Emit `events.v1.Auth.Connect` for user and service sessions.
+
+Expected auth failures in those stages return typed denials and reason codes,
+such as `invalid_signature`, `iat_out_of_range`, or `service_disabled`. They
+must not escape as generic exceptions in normal denial paths.
 
 Detailed behavior:
 
@@ -385,8 +392,9 @@ connection-level auth.
 ## Browser Flow Protocol
 
 The portal-owned browser login UX uses `flowId` as the browser-visible
-identifier and keeps `authToken` internal to the auth service. Trellis ships a
-built-in portal served by the Trellis HTTP server from static assets.
+identifier and keeps `authToken` internal to the Trellis runtime service.
+Trellis ships a built-in portal served by the Trellis HTTP server from static
+assets.
 Deployments may register custom portals and assign them to login or device flows
 through deployment-owned selection records. Device activation uses the same
 browser-visible `flowId` concept with `kind: "device_activation"` flow records
@@ -397,8 +405,8 @@ after login, it does so under a normal user session.
 Flow summary:
 
 1. `POST /auth/requests` validates the signed login-init request, validates the
-   initiating contract, and either returns `bound` immediately or creates an
-   auth-owned browser flow plus a short `flowId`-based `loginUrl`.
+   initiating contract, and either returns `bound` immediately or creates a
+   Trellis-owned browser flow plus a short `flowId`-based `loginUrl`.
 2. `GET /auth/login/:provider` requires `flowId` and stores the provider choice
    in the same browser flow.
 3. `GET /auth/callback/:provider` provisions or refreshes the auth-local user
@@ -406,7 +414,7 @@ Flow summary:
    flow, and redirects back to the portal with the same `flowId`.
 4. `GET /auth/flow/:flowId` returns `PortalFlowState`.
 5. `POST /auth/flow/:flowId/approval` records the approval decision in the
-   auth-owned flow.
+   Trellis-owned flow.
 6. `POST /auth/flow/:flowId/bind` completes the browser bind from
    `{ sessionKey, sig }`.
 

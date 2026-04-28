@@ -30,6 +30,7 @@ Activated devices use the same contract format as other Trellis participants. Pr
 ### Contract identity
 
 Each contract has a stable `id` like `graph@v1` or `trellis.auth@v1`. The `@vN` suffix is a major version — breaking changes require a new version. Within one lineage, multiple active digests may coexist during rollout as long as they remain semantically compatible.
+Cross-contract `uses` validation must resolve to compatible active surfaces, so additive rollout is allowed but divergent active definitions for the same logical surface are rejected.
 
 Contracts are content-addressed by a SHA-256 digest of a normalized runtime/interface projection derived from their canonical JSON form. Human-facing metadata such as `displayName`, `description`, exported-only schemas, and unused local schemas do not change the digest; callable surfaces, authorization requirements, resources, and reachable schemas do.
 

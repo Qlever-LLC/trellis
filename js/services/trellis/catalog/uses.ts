@@ -5,6 +5,7 @@ import type {
   ContractSubject,
   TrellisContractV1,
 } from "@qlever-llc/trellis/contracts";
+import { canonicalizeJson, isJsonValue } from "@qlever-llc/trellis/contracts";
 
 import type { ContractStore } from "./store.ts";
 
@@ -75,12 +76,43 @@ function requireSameSubject(
   }
 }
 
+function requireSameJsonField(
+  key: string,
+  field: string,
+  left: unknown,
+  right: unknown,
+): void {
+  if (left === undefined && right === undefined) return;
+  if (left === undefined || right === undefined) {
+    throw new Error(
+      `Active compatible digests define '${key}' with different ${field}`,
+    );
+  }
+  if (!isJsonValue(left) || !isJsonValue(right)) {
+    throw new Error(
+      `Active compatible digests define '${key}' with non-JSON ${field}`,
+    );
+  }
+  if (
+    canonicalizeJson(left) !== canonicalizeJson(right)
+  ) {
+    throw new Error(
+      `Active compatible digests define '${key}' with different ${field}`,
+    );
+  }
+}
+
 function mergeRpcMethod(
   key: string,
   left: ContractRpcMethod,
   right: ContractRpcMethod,
 ): ContractRpcMethod {
   requireSameSubject(key, left.subject, right.subject);
+  requireSameJsonField(key, "version", left.version, right.version);
+  requireSameJsonField(key, "input", left.input, right.input);
+  requireSameJsonField(key, "output", left.output, right.output);
+  requireSameJsonField(key, "transfer", left.transfer, right.transfer);
+  requireSameJsonField(key, "errors", left.errors, right.errors);
   const call = unionCapabilities(
     left.capabilities?.call,
     right.capabilities?.call,
@@ -100,6 +132,12 @@ function mergeOperation(
   right: ContractOperation,
 ): ContractOperation {
   requireSameSubject(key, left.subject, right.subject);
+  requireSameJsonField(key, "version", left.version, right.version);
+  requireSameJsonField(key, "input", left.input, right.input);
+  requireSameJsonField(key, "progress", left.progress, right.progress);
+  requireSameJsonField(key, "output", left.output, right.output);
+  requireSameJsonField(key, "transfer", left.transfer, right.transfer);
+  requireSameJsonField(key, "cancel", left.cancel, right.cancel);
   const call = unionCapabilities(
     left.capabilities?.call,
     right.capabilities?.call,
@@ -136,6 +174,9 @@ function mergeEvent(
   right: ContractEvent,
 ): ContractEvent {
   requireSameSubject(key, left.subject, right.subject);
+  requireSameJsonField(key, "version", left.version, right.version);
+  requireSameJsonField(key, "params", left.params, right.params);
+  requireSameJsonField(key, "event", left.event, right.event);
   const publish = unionCapabilities(
     left.capabilities?.publish,
     right.capabilities?.publish,
@@ -163,6 +204,7 @@ function mergeSubject(
   right: ContractSubject,
 ): ContractSubject {
   requireSameSubject(key, left.subject, right.subject);
+  requireSameJsonField(key, "message", left.message, right.message);
   const publish = unionCapabilities(
     left.capabilities?.publish,
     right.capabilities?.publish,

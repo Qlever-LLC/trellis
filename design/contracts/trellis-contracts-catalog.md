@@ -220,6 +220,8 @@ Rules:
 - all concurrently active digests for the same `id` MUST remain semantically
   compatible within that lineage, so mixed-version callers and service instances
   can keep working during rollout
+- multiple active digests for one `id` remain valid only while active compatible
+  digest validation can produce an additive, unambiguous surface projection
 - install records bind one exact digest to one service principal public key,
   even when multiple digests in the same lineage are active at once
 
@@ -234,7 +236,8 @@ communication surface:
 - `rpc`, `operations`, `events`, and owned `subjects` MUST evolve additively
   while multiple digests in the same lineage are active
 - `uses`, metadata, and other non-owned sections MAY vary by digest as long as
-  the exact digest being installed still validates successfully
+  the exact digest being installed still validates successfully and dependency
+  resolution against active catalogs stays unambiguous
 - `resources` are per-digest install data; they do not need to be additive
   across the lineage, but install or upgrade MUST validate and provision the
   exact resource set requested by the digest bound to that principal
@@ -319,6 +322,12 @@ Rules:
 - validation, install, or upgrade MUST fail if a referenced contract is
   unavailable or if any referenced operation, RPC, event, or subject name does
   not exist on that contract
+- validation happens when resolving dependencies against active catalogs: if a
+  `uses` entry targets a contract with multiple active compatible digests,
+  Trellis projects the active surfaces together
+- that active-compatible-digest projection MAY merge additive identical logical
+  surface descriptors, but MUST reject divergent duplicate descriptors for the
+  same operation, RPC, event, or subject name
 - higher-level consent scopes for user-facing applications MAY be derived from
   `uses`, but runtime enforcement remains operation-level
 - any user approval or consent record for a client contract MUST be bound to the
@@ -945,7 +954,8 @@ For each active contract:
 - raw subjects contribute publish permissions via `capabilities.publish`
 - raw subjects contribute subscribe permissions via `capabilities.subscribe`
 - `uses` contributes the exact cross-contract operation/RPC/event/subject
-  permissions the owning service may exercise at runtime
+  permissions the owning service may exercise at runtime after dependency
+  resolution validates the referenced active catalog surfaces
 
 For each installed resource binding:
 

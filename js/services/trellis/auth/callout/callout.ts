@@ -52,10 +52,7 @@ import {
 import { deviceInstanceId } from "../admin/shared.ts";
 import { loadEffectiveGrantPolicies } from "../grants/store.ts";
 import { parseContractApprovalKey } from "../http/support.ts";
-import {
-  loadServiceDeployment,
-  loadServiceInstanceByKey,
-} from "../admin/service_rpc.ts";
+import { runtimeServiceLookup } from "../admin/service_lookup.ts";
 import type {
   SqlContractApprovalRepository,
   SqlDeviceActivationRepository,
@@ -77,12 +74,94 @@ type AuthCalloutDenialCode =
   | "missing_session_key"
   | "missing_sig"
   | "iat_out_of_range"
-  | "invalid_signature";
+  | "invalid_signature"
+  | "unknown_service"
+  | "service_disabled"
+  | "unknown_device"
+  | "device_activation_revoked"
+  | "device_deployment_not_found"
+  | "device_deployment_disabled"
+  | "device_contract_not_found"
+  | "session_not_found"
+  | "contract_changed"
+  | "approval_required"
+  | "user_not_found"
+  | "user_inactive"
+  | "insufficient_permissions"
+  | "service_role_on_user";
+
+type AuthCalloutStageResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; denial: AuthCalloutDenialCode };
+
+type DecodedAuthCalloutRequest = {
+  serverXkey: string;
+  serverName: string;
+  serverIdNkey: string;
+  userNkey: string;
+  natsReq: NatsAuthRequest;
+  connectOpts: NatsConnectOpts;
+  clientIp?: string;
+};
+
+type ValidatedAuthToken = {
+  token: ParsedNatsAuthToken;
+  sessionKey: string;
+};
+
+function stageOk<T>(value: T): AuthCalloutStageResult<T> {
+  return { ok: true, value };
+}
+
+function stageDeny<T>(
+  denial: AuthCalloutDenialCode,
+): AuthCalloutStageResult<T> {
+  return { ok: false, denial };
+}
+
+function isAuthCalloutDenialCode(
+  value: string,
+): value is AuthCalloutDenialCode {
+  switch (value) {
+    case "auth_token_required":
+    case "invalid_auth_token":
+    case "unsupported_protocol_version":
+    case "missing_session_key":
+    case "missing_sig":
+    case "iat_out_of_range":
+    case "invalid_signature":
+    case "unknown_service":
+    case "service_disabled":
+    case "unknown_device":
+    case "device_activation_revoked":
+    case "device_deployment_not_found":
+    case "device_deployment_disabled":
+    case "device_contract_not_found":
+    case "session_not_found":
+    case "contract_changed":
+    case "approval_required":
+    case "user_not_found":
+    case "user_inactive":
+    case "insufficient_permissions":
+    case "service_role_on_user":
+      return true;
+    default:
+      return false;
+  }
+}
 
 const config = getConfig();
 export type BackgroundTaskHandle = {
   stop: () => Promise<void>;
 };
+
+async function loadServiceInstanceByKey(instanceKey: string) {
+  return await runtimeServiceLookup().loadServiceInstanceByKey(instanceKey);
+}
+
+async function loadServiceDeployment(deploymentId: string) {
+  return await runtimeServiceLookup().loadServiceDeployment(deploymentId);
+}
 
 function extractClientIp(natsReq: NatsAuthRequest): string | undefined {
   const clientInfo = natsReq.client_info;
@@ -283,6 +362,355 @@ export function startAuthCallout(
     maxConcurrentPerServer: 16,
   });
 
+  function decodeAuthCalloutRequest(
+    message: Msg,
+  ): DecodedAuthCalloutRequest {
+    const serverXkey = message.headers?.get("Nats-Server-Xkey");
+    if (!serverXkey) {
+      throw new Error("Missing Nats-Server-Xkey in authorization request");
+    }
+    if (!message.data) {
+      throw new Error("No data in authorization request");
+    }
+
+    const decrypted = xkp.open(message.data, serverXkey);
+    if (!decrypted) {
+      throw new Error("Authorization request XKey decrypt failed!");
+    }
+
+    const claims = Value.Parse(
+      AuthCalloutClaimsSchema,
+      decode(new TextDecoder().decode(decrypted)),
+    ) as AuthCalloutClaims;
+    const natsReq = claims.nats;
+    if (!natsReq) {
+      throw new Error("Missing nats payload in authorization request");
+    }
+
+    const userNkey = natsReq.user_nkey;
+    if (!userNkey) {
+      throw new Error("Missing user_nkey in auth request");
+    }
+
+    const serverIdNkey = natsReq.server_id?.id;
+    if (!serverIdNkey) {
+      throw new Error("Missing server_id.id in auth request");
+    }
+
+    const serverName = natsReq.server_id?.name ?? serverIdNkey;
+    return {
+      serverXkey,
+      serverName,
+      serverIdNkey,
+      userNkey,
+      natsReq,
+      connectOpts: natsReq.connect_opts ?? {},
+      clientIp: extractClientIp(natsReq),
+    };
+  }
+
+  async function validateAuthToken(
+    rawAuthToken: string | undefined,
+    now: Date,
+  ): Promise<AuthCalloutStageResult<ValidatedAuthToken>> {
+    if (!rawAuthToken) return stageDeny("auth_token_required");
+
+    let authToken: ParsedNatsAuthToken;
+    try {
+      authToken = Value.Parse(
+        NatsAuthTokenV1Schema,
+        JSON.parse(rawAuthToken),
+      ) as ParsedNatsAuthToken;
+    } catch {
+      return stageDeny("invalid_auth_token");
+    }
+
+    if (authToken.v !== 1) {
+      return stageDeny("unsupported_protocol_version");
+    }
+
+    const sessionKey = authToken.sessionKey;
+    const sig = authToken.sig;
+    if (typeof sessionKey !== "string" || sessionKey.length === 0) {
+      return stageDeny("missing_session_key");
+    }
+    if (typeof sig !== "string" || sig.length === 0) {
+      return stageDeny("missing_sig");
+    }
+
+    const iat = authToken.iat;
+    if (typeof iat !== "number") return stageDeny("invalid_auth_token");
+    const nowSec = Math.floor(now.getTime() / 1000);
+    if (Math.abs(nowSec - iat) > 30) {
+      return stageDeny("iat_out_of_range");
+    }
+    if (
+      !(await verifyDomainSig(sessionKey, "nats-connect", String(iat), sig))
+    ) {
+      return stageDeny("invalid_signature");
+    }
+
+    return stageOk({ token: authToken, sessionKey });
+  }
+
+  async function resolveCalloutSession(
+    auth: ValidatedAuthToken,
+    now: Date,
+  ): Promise<AuthCalloutStageResult<Session>> {
+    const { sessionKey, token: authToken } = auth;
+    const service = await loadServiceInstanceByKey(sessionKey);
+    if (service) {
+      if (service.disabled) return stageDeny("service_disabled");
+      const deployment = await loadServiceDeployment(service.deploymentId);
+      if (!deployment || deployment.disabled) {
+        return stageDeny("service_disabled");
+      }
+    }
+
+    let session = await sessionStorage.getOneBySessionKey(sessionKey);
+    if (!session) {
+      if (service) {
+        const deployment = await loadServiceDeployment(service.deploymentId);
+        const trellisId = await trellisIdFromOriginId("service", sessionKey);
+        const displayName = deployment?.deploymentId ?? service.instanceId;
+        await sessionStorage.put(sessionKey, {
+          type: "service",
+          trellisId,
+          origin: "service",
+          id: sessionKey,
+          email: `${displayName || "service"}@trellis.internal`,
+          name: displayName,
+          instanceId: service.instanceId,
+          deploymentId: service.deploymentId,
+          instanceKey: service.instanceKey,
+          currentContractId: service.currentContractId ?? null,
+          currentContractDigest: service.currentContractDigest ?? null,
+          createdAt: now,
+          lastAuth: now,
+        });
+      } else {
+        let deviceGrant: DeviceRuntimeGrant;
+        try {
+          deviceGrant = await resolveDeviceRuntimeGrant(
+            sessionKey,
+            opts.contractStorage,
+            authToken.contractDigest,
+            opts.contractStore,
+          );
+        } catch (error) {
+          if (
+            error instanceof Error && isAuthCalloutDenialCode(error.message)
+          ) {
+            return stageDeny(error.message);
+          }
+          throw error;
+        }
+        // The first successful runtime auth marks when an approved device was
+        // actually used, which is distinct from the earlier review timestamp.
+        await sessionStorage.put(sessionKey, {
+          type: "device",
+          instanceId: deviceGrant.activation.instanceId,
+          publicIdentityKey: deviceGrant.activation.publicIdentityKey,
+          deploymentId: deviceGrant.deployment.deploymentId,
+          contractId: deviceGrant.contractId,
+          contractDigest: deviceGrant.contractDigest,
+          delegatedCapabilities: deviceGrant.capabilities,
+          delegatedPublishSubjects: deviceGrant.publishSubjects,
+          delegatedSubscribeSubjects: deviceGrant.subscribeSubjects,
+          createdAt: now,
+          lastAuth: now,
+          activatedAt: deviceGrant.activation.activatedAt
+            ? new Date(deviceGrant.activation.activatedAt)
+            : null,
+          revokedAt: deviceGrant.activation.revokedAt
+            ? new Date(deviceGrant.activation.revokedAt)
+            : null,
+        });
+      }
+      session = await sessionStorage.getOneBySessionKey(sessionKey);
+    }
+
+    if (!session) return stageDeny("session_not_found");
+
+    if (session.type === "device") {
+      let currentGrant: DeviceRuntimeGrant;
+      try {
+        currentGrant = await resolveDeviceRuntimeGrant(
+          sessionKey,
+          opts.contractStorage,
+          authToken.contractDigest,
+          opts.contractStore,
+        );
+      } catch (error) {
+        if (error instanceof Error && isAuthCalloutDenialCode(error.message)) {
+          return stageDeny(error.message);
+        }
+        throw error;
+      }
+      let activatedAt = currentGrant.activation.activatedAt
+        ? new Date(currentGrant.activation.activatedAt)
+        : null;
+      if (activatedAt === null) {
+        const activatedAtIso = now.toISOString();
+        activatedAt = now;
+        await deviceActivationStorage.put({
+          ...currentGrant.activation,
+          activatedAt: activatedAtIso,
+        });
+      }
+
+      return stageOk({
+        ...session,
+        deploymentId: currentGrant.deployment.deploymentId,
+        contractId: currentGrant.contractId,
+        contractDigest: currentGrant.contractDigest,
+        delegatedCapabilities: currentGrant.capabilities,
+        delegatedPublishSubjects: currentGrant.publishSubjects,
+        delegatedSubscribeSubjects: currentGrant.subscribeSubjects,
+        lastAuth: now,
+        activatedAt,
+        revokedAt: currentGrant.activation.revokedAt
+          ? new Date(currentGrant.activation.revokedAt)
+          : null,
+      });
+    }
+
+    if (session.type === "user") {
+      if (!opts?.contractStore) return stageDeny("contract_changed");
+      if (
+        typeof authToken.contractDigest !== "string" ||
+        authToken.contractDigest.length === 0
+      ) {
+        return stageDeny("invalid_auth_token");
+      }
+
+      const resolvedReconnect = await resolveUserReconnectSession({
+        session,
+        presentedContractDigest: authToken.contractDigest,
+        contractStore: opts.contractStore,
+        loadUserProjection: async (trellisId) => {
+          return await opts.userStorage.get(trellisId) ?? null;
+        },
+        loadStoredApproval: async (key) => {
+          const approvalKey = parseContractApprovalKey(key);
+          if (!approvalKey) return null;
+          return await opts.contractApprovalStorage.get(
+            approvalKey.userTrellisId,
+            approvalKey.contractDigest,
+          ) ?? null;
+        },
+        loadInstanceGrantPolicies: async (contractId) => {
+          return await loadEffectiveGrantPolicies(contractId);
+        },
+      });
+      if (!resolvedReconnect.ok) {
+        return stageDeny(resolvedReconnect.reason);
+      }
+      return stageOk({
+        ...resolvedReconnect.session,
+        lastAuth: now,
+      });
+    }
+
+    return stageOk(session);
+  }
+
+  async function issuePrincipalPermissions(
+    session: Session,
+    sessionKey: string,
+    userNkey: string,
+    serverIdNkey: string,
+  ): Promise<AuthCalloutStageResult<string>> {
+    let resourcePermissions = {
+      publish: [] as string[],
+      subscribe: [] as string[],
+    };
+    const principal = await resolveSessionPrincipal(session, sessionKey, {
+      loadServiceInstance: loadServiceInstanceByKey,
+      loadServiceDeployment,
+      loadUserProjection: async (trellisId) => {
+        return await opts.userStorage.get(trellisId) ?? null;
+      },
+      deviceActivationStorage,
+      deviceDeploymentStorage,
+      loadStoredApproval: async (key) => {
+        const approvalKey = parseContractApprovalKey(key);
+        if (!approvalKey) return null;
+        return await opts.contractApprovalStorage.get(
+          approvalKey.userTrellisId,
+          approvalKey.contractDigest,
+        ) ?? null;
+      },
+      loadInstanceGrantPolicies: async (contractId: string) => {
+        return await loadEffectiveGrantPolicies(contractId);
+      },
+    });
+    if (!principal.ok) {
+      return stageDeny(principal.error.reason);
+    }
+
+    if (principal.value.serviceState) {
+      resourcePermissions = getResourcePermissionGrants(
+        principal.value.serviceState.resourceBindings,
+      );
+    }
+
+    const inboxPrefix = `_INBOX.${sessionKey.slice(0, 16)}`;
+    const isService = session.type === "service";
+    const delegatedPublish = session.type === "service"
+      ? []
+      : session.delegatedPublishSubjects!;
+    const delegatedSubscribe = session.type === "service"
+      ? []
+      : session.delegatedSubscribeSubjects!;
+    const permissions = buildAuthCalloutPermissions({
+      publishAllow: [
+        ...(isService
+          ? getServicePublishSubjects(principal.value.capabilities, {
+            sessionKey,
+            contractDigest: principal.value.serviceState?.currentContractDigest,
+          })
+          : delegatedPublish),
+        ...resourcePermissions.publish,
+      ],
+      subscribeAllow: isService
+        ? [
+          ...getServiceSubscribeSubjects(principal.value.capabilities, {
+            sessionKey,
+            contractDigest: principal.value.serviceState?.currentContractDigest,
+          }),
+          ...resourcePermissions.subscribe,
+        ]
+        : delegatedSubscribe,
+      inboxPrefix,
+      issuerAccount: config.nats.authCallout.target.nkey,
+      sessionType: session.type,
+    });
+    logger.debug({ permissions }, "issuing permissions");
+
+    const userJwtExp = Math.floor((Date.now() + config.ttlMs.natsJwt) / 1000);
+    const userJwt = await encodeUser(
+      principal.value.email,
+      userNkey,
+      config.nats.authCallout.target.signing,
+      permissions,
+      { aud: "trellis", exp: userJwtExp },
+    );
+
+    return stageOk(
+      await encodeAuthorizationResponse(
+        userNkey,
+        serverIdNkey,
+        config.nats.authCallout.issuer.signing,
+        {
+          jwt: userJwt,
+          issuer_account: config.nats.authCallout.issuer.nkey,
+        },
+        { aud: "trellis" },
+      ),
+    );
+  }
+
   async function handleAuthCallout(message: Msg): Promise<void> {
     logger.trace(
       { event: "AuthCallout", subject: message.subject },
@@ -323,287 +751,68 @@ export function startAuthCallout(
     }
 
     try {
-      serverXkey = message.headers?.get("Nats-Server-Xkey");
-      if (!serverXkey) {
-        throw new Error("Missing Nats-Server-Xkey in authorization request");
-      }
-      if (!message.data) {
-        throw new Error("No data in authorization request");
-      }
-
-      const decrypted = xkp.open(message.data, serverXkey);
-      if (!decrypted) {
-        throw new Error("Authorization request XKey decrypt failed!");
-      }
-
-      const claims = Value.Parse(
-        AuthCalloutClaimsSchema,
-        decode(new TextDecoder().decode(decrypted)),
-      ) as AuthCalloutClaims;
-      const natsReq = claims.nats;
-      if (!natsReq) {
-        throw new Error("Missing nats payload in authorization request");
-      }
-
-      userNkey = natsReq.user_nkey;
-      if (!userNkey) {
-        throw new Error("Missing user_nkey in auth request");
-      }
-
-      serverIdNkey = natsReq.server_id?.id;
-      if (!serverIdNkey) {
-        throw new Error("Missing server_id.id in auth request");
-      }
-      serverName = natsReq.server_id?.name ?? serverIdNkey;
-
-      const connectOpts: NatsConnectOpts = natsReq.connect_opts ?? {};
-      const clientIp = extractClientIp(natsReq);
+      const decoded = decodeAuthCalloutRequest(message);
+      serverXkey = decoded.serverXkey;
+      userNkey = decoded.userNkey;
+      serverIdNkey = decoded.serverIdNkey;
+      serverName = decoded.serverName;
 
       limiterRelease = await calloutLimiter.acquire({
-        ip: clientIp,
-        server: serverName,
+        ip: decoded.clientIp,
+        server: decoded.serverName,
       });
       if (!limiterRelease) {
         const response = await encodeAuthorizationResponse(
-          userNkey,
-          serverIdNkey,
+          decoded.userNkey,
+          decoded.serverIdNkey,
           config.nats.authCallout.issuer.signing,
           { error: "rate_limited" },
           { aud: "trellis" },
         );
         message.respond(
-          xkp.seal(new TextEncoder().encode(response), serverXkey),
+          xkp.seal(new TextEncoder().encode(response), decoded.serverXkey),
         );
         return;
       }
 
-      const rawAuthToken = connectOpts.auth_token;
-      if (!rawAuthToken) return await deny("auth_token_required");
+      const now = new Date();
+      const validatedToken = await validateAuthToken(
+        decoded.connectOpts.auth_token,
+        now,
+      );
+      if (!validatedToken.ok) return await deny(validatedToken.denial);
 
-      let authToken: ParsedNatsAuthToken;
-      try {
-        authToken = Value.Parse(
-          NatsAuthTokenV1Schema,
-          JSON.parse(rawAuthToken),
-        ) as ParsedNatsAuthToken;
-      } catch {
-        return await deny("invalid_auth_token");
-      }
-
-      if (authToken.v !== 1) {
-        return await deny("unsupported_protocol_version");
-      }
-
-      const sessionKey = authToken.sessionKey;
-      const sig = authToken.sig;
+      const { sessionKey } = validatedToken.value;
 
       logger.debug(
         {
-          serverName,
-          clientIp,
-          userNkey: `${userNkey.substring(0, 8)}...`,
+          serverName: decoded.serverName,
+          clientIp: decoded.clientIp,
+          userNkey: `${decoded.userNkey.substring(0, 8)}...`,
           sessionKey: `${sessionKey.substring(0, 8)}...`,
         },
         "Auth callout received",
       );
 
-      const now = new Date();
-      if (typeof sessionKey !== "string" || sessionKey.length === 0) {
-        return await deny("missing_session_key");
-      }
-      if (typeof sig !== "string" || sig.length === 0) {
-        return await deny("missing_sig");
-      }
+      const resolvedSession = await resolveCalloutSession(
+        validatedToken.value,
+        now,
+      );
+      if (!resolvedSession.ok) return await deny(resolvedSession.denial);
+      const session = resolvedSession.value;
 
-      let deviceGrant: DeviceRuntimeGrant | null = null;
-      const iat = authToken.iat;
-      if (typeof iat !== "number") return await deny("invalid_auth_token");
-      const nowSec = Math.floor(now.getTime() / 1000);
-      if (Math.abs(nowSec - iat) > 30) {
-        return await deny("iat_out_of_range");
-      }
-      if (
-        !(await verifyDomainSig(sessionKey, "nats-connect", String(iat), sig))
-      ) {
-        return await deny("invalid_signature");
-      }
-
-      const service = await loadServiceInstanceByKey(sessionKey);
-      if (service) {
-        if (service.disabled) throw new Error("service_disabled");
-        const deployment = await loadServiceDeployment(service.deploymentId);
-        if (!deployment || deployment.disabled) {
-          throw new Error("service_disabled");
-        }
-      }
-
-      let session = await sessionStorage.getOneBySessionKey(sessionKey);
-      if (!session) {
-        const service = await loadServiceInstanceByKey(sessionKey);
-        if (service) {
-          const deployment = await loadServiceDeployment(service.deploymentId);
-          const trellisId = await trellisIdFromOriginId("service", sessionKey);
-          const displayName = deployment?.deploymentId ?? service.instanceId;
-          await sessionStorage.put(sessionKey, {
-            type: "service",
-            trellisId,
-            origin: "service",
-            id: sessionKey,
-            email: `${displayName || "service"}@trellis.internal`,
-            name: displayName,
-            instanceId: service.instanceId,
-            deploymentId: service.deploymentId,
-            instanceKey: service.instanceKey,
-            currentContractId: service.currentContractId ?? null,
-            currentContractDigest: service.currentContractDigest ?? null,
-            createdAt: now,
-            lastAuth: now,
-          });
-        } else {
-          deviceGrant = await resolveDeviceRuntimeGrant(
-            sessionKey,
-            opts.contractStorage,
-            authToken.contractDigest,
-            opts.contractStore,
-          );
-          // The first successful runtime auth marks when an approved device was
-          // actually used, which is distinct from the earlier review timestamp.
-          await sessionStorage.put(sessionKey, {
-            type: "device",
-            instanceId: deviceGrant.activation.instanceId,
-            publicIdentityKey: deviceGrant.activation.publicIdentityKey,
-            deploymentId: deviceGrant.deployment.deploymentId,
-            contractId: deviceGrant.contractId,
-            contractDigest: deviceGrant.contractDigest,
-            delegatedCapabilities: deviceGrant.capabilities,
-            delegatedPublishSubjects: deviceGrant.publishSubjects,
-            delegatedSubscribeSubjects: deviceGrant.subscribeSubjects,
-            createdAt: now,
-            lastAuth: now,
-            activatedAt: deviceGrant.activation.activatedAt
-              ? new Date(deviceGrant.activation.activatedAt)
-              : null,
-            revokedAt: deviceGrant.activation.revokedAt
-              ? new Date(deviceGrant.activation.revokedAt)
-              : null,
-          });
-        }
-        session = await sessionStorage.getOneBySessionKey(sessionKey);
-      }
-
-      if (!session) throw new Error("session_not_found");
-
-      if (session.type === "device") {
-        const currentGrant = deviceGrant ?? await resolveDeviceRuntimeGrant(
-          sessionKey,
-          opts.contractStorage,
-          authToken.contractDigest,
-          opts.contractStore,
-        );
-        let activatedAt = currentGrant.activation.activatedAt
-          ? new Date(currentGrant.activation.activatedAt)
-          : null;
-        if (activatedAt === null) {
-          const activatedAtIso = now.toISOString();
-          activatedAt = now;
-          await deviceActivationStorage.put({
-            ...currentGrant.activation,
-            activatedAt: activatedAtIso,
-          });
-        }
-
-        session = {
-          ...session,
-          deploymentId: currentGrant.deployment.deploymentId,
-          contractId: currentGrant.contractId,
-          contractDigest: currentGrant.contractDigest,
-          delegatedCapabilities: currentGrant.capabilities,
-          delegatedPublishSubjects: currentGrant.publishSubjects,
-          delegatedSubscribeSubjects: currentGrant.subscribeSubjects,
-          lastAuth: now,
-          activatedAt,
-          revokedAt: currentGrant.activation.revokedAt
-            ? new Date(currentGrant.activation.revokedAt)
-            : null,
-        };
-      } else if (session.type === "user") {
-        if (!opts?.contractStore) {
-          throw new Error("contract_changed");
-        }
-        if (
-          typeof authToken.contractDigest !== "string" ||
-          authToken.contractDigest.length === 0
-        ) {
-          throw new Error("invalid_auth_token");
-        }
-
-        const resolvedReconnect = await resolveUserReconnectSession({
-          session,
-          presentedContractDigest: authToken.contractDigest,
-          contractStore: opts.contractStore,
-          loadUserProjection: async (trellisId) => {
-            return await opts.userStorage.get(trellisId) ?? null;
-          },
-          loadStoredApproval: async (key) => {
-            const approvalKey = parseContractApprovalKey(key);
-            if (!approvalKey) return null;
-            return await opts.contractApprovalStorage.get(
-              approvalKey.userTrellisId,
-              approvalKey.contractDigest,
-            ) ?? null;
-          },
-          loadInstanceGrantPolicies: async (contractId) => {
-            return await loadEffectiveGrantPolicies(contractId);
-          },
-        });
-        if (!resolvedReconnect.ok) {
-          throw new Error(resolvedReconnect.reason);
-        }
-        session = {
-          ...resolvedReconnect.session,
-          lastAuth: now,
-        };
-      }
-
-      const inboxPrefix = `_INBOX.${sessionKey.slice(0, 16)}`;
-      let resourcePermissions = {
-        publish: [] as string[],
-        subscribe: [] as string[],
-      };
-      const principal = await resolveSessionPrincipal(session, sessionKey, {
-        loadServiceInstance: loadServiceInstanceByKey,
-        loadServiceDeployment,
-        loadUserProjection: async (trellisId) => {
-          return await opts.userStorage.get(trellisId) ?? null;
-        },
-        deviceActivationStorage,
-        deviceDeploymentStorage,
-        loadStoredApproval: async (key) => {
-          const approvalKey = parseContractApprovalKey(key);
-          if (!approvalKey) return null;
-          return await opts.contractApprovalStorage.get(
-            approvalKey.userTrellisId,
-            approvalKey.contractDigest,
-          ) ?? null;
-        },
-        loadInstanceGrantPolicies: async (contractId: string) => {
-          return await loadEffectiveGrantPolicies(contractId);
-        },
-      });
-      if (!principal.ok) {
-        throw new Error(principal.error.reason);
-      }
-
-      if (principal.value.serviceState) {
-        resourcePermissions = getResourcePermissionGrants(
-          principal.value.serviceState.resourceBindings,
-        );
-      }
+      const issued = await issuePrincipalPermissions(
+        session,
+        sessionKey,
+        decoded.userNkey,
+        decoded.serverIdNkey,
+      );
+      if (!issued.ok) return await deny(issued.denial);
 
       await sessionStorage.put(sessionKey, { ...session, lastAuth: now });
 
-      const serverId = natsReq.server_id?.id ?? serverName;
-      const clientId = natsReq.client_info?.id;
+      const serverId = decoded.natsReq.server_id?.id ?? decoded.serverName;
+      const clientId = decoded.natsReq.client_info?.id;
       const sessionScope = session.type === "device"
         ? session.instanceId
         : session.trellisId;
@@ -628,68 +837,16 @@ export function startAuthCallout(
             origin: session.origin,
             id: session.id,
             sessionKey,
-            userNkey,
+            userNkey: decoded.userNkey,
           })
         ).inspectErr((error) =>
           logger.warn({ error }, "Failed to publish Auth.Connect")
         );
       }
 
-      const isService = session.type === "service";
-      const delegatedPublish = session.type === "service"
-        ? []
-        : session.delegatedPublishSubjects!;
-      const delegatedSubscribe = session.type === "service"
-        ? []
-        : session.delegatedSubscribeSubjects!;
-      const permissions = buildAuthCalloutPermissions({
-        publishAllow: [
-          ...(isService
-            ? getServicePublishSubjects(principal.value.capabilities, {
-              sessionKey,
-              contractDigest: principal.value.serviceState
-                ?.currentContractDigest,
-            })
-            : delegatedPublish),
-          ...resourcePermissions.publish,
-        ],
-        subscribeAllow: isService
-          ? [
-            ...getServiceSubscribeSubjects(principal.value.capabilities, {
-              sessionKey,
-              contractDigest: principal.value.serviceState
-                ?.currentContractDigest,
-            }),
-            ...resourcePermissions.subscribe,
-          ]
-          : delegatedSubscribe,
-        inboxPrefix,
-        issuerAccount: config.nats.authCallout.target.nkey,
-        sessionType: session.type,
-      });
-      logger.debug({ permissions }, "issuing permissions");
-
-      const userJwtExp = Math.floor((Date.now() + config.ttlMs.natsJwt) / 1000);
-      const userJwt = await encodeUser(
-        principal.value.email,
-        userNkey,
-        config.nats.authCallout.target.signing,
-        permissions,
-        { aud: "trellis", exp: userJwtExp },
+      message.respond(
+        xkp.seal(new TextEncoder().encode(issued.value), decoded.serverXkey),
       );
-
-      const response = await encodeAuthorizationResponse(
-        userNkey,
-        serverIdNkey,
-        config.nats.authCallout.issuer.signing,
-        {
-          jwt: userJwt,
-          issuer_account: config.nats.authCallout.issuer.nkey,
-        },
-        { aud: "trellis" },
-      );
-
-      message.respond(xkp.seal(new TextEncoder().encode(response), serverXkey));
     } catch (error) {
       const messageText = error instanceof Error
         ? error.message

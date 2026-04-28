@@ -12,7 +12,7 @@ Built with SvelteKit, Tailwind CSS v4 + DaisyUI, and
 3. `deno task prepare`
 4. `deno task dev`
 
-Expects Auth at `http://localhost:3000` and NATS WebSocket at
+Expects the Trellis runtime at `http://localhost:3000` and NATS WebSocket at
 `ws://localhost:8080`.
 
 `prepare` refreshes generated Trellis contract artifacts. The local Trellis

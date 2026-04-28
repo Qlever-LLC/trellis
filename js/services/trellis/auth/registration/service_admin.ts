@@ -14,9 +14,14 @@ import {
   createAuthUnapplyServiceDeploymentContractHandler,
 } from "../admin/service_rpc.ts";
 import type { AuthContractsRuntime, RpcRegistrar } from "./types.ts";
+import type { RuntimeKV } from "../runtime_deps.ts";
+import type { Connection } from "../schemas.ts";
+import type { SqlSessionRepository } from "../storage.ts";
 
 export async function registerServiceAdminRpcs(deps: {
   trellis: RpcRegistrar;
+  connectionsKV: RuntimeKV<Connection>;
+  sessionStorage: SqlSessionRepository;
   contracts: Pick<
     AuthContractsRuntime,
     "installServiceContract" | "refreshActiveContracts"
@@ -42,6 +47,8 @@ export async function registerServiceAdminRpcs(deps: {
     createAuthUnapplyServiceDeploymentContractHandler({
       kick,
       refreshActiveContracts: deps.contracts.refreshActiveContracts,
+      connectionsKV: deps.connectionsKV,
+      sessionStorage: deps.sessionStorage,
     }),
   );
   await deps.trellis.mount(
@@ -49,6 +56,8 @@ export async function registerServiceAdminRpcs(deps: {
     createAuthDisableServiceDeploymentHandler({
       kick,
       refreshActiveContracts: deps.contracts.refreshActiveContracts,
+      connectionsKV: deps.connectionsKV,
+      sessionStorage: deps.sessionStorage,
     }),
   );
   await deps.trellis.mount(
@@ -76,6 +85,8 @@ export async function registerServiceAdminRpcs(deps: {
     createAuthDisableServiceInstanceHandler({
       kick,
       refreshActiveContracts: deps.contracts.refreshActiveContracts,
+      connectionsKV: deps.connectionsKV,
+      sessionStorage: deps.sessionStorage,
     }),
   );
   await deps.trellis.mount(
@@ -83,6 +94,8 @@ export async function registerServiceAdminRpcs(deps: {
     createAuthEnableServiceInstanceHandler({
       kick,
       refreshActiveContracts: deps.contracts.refreshActiveContracts,
+      connectionsKV: deps.connectionsKV,
+      sessionStorage: deps.sessionStorage,
     }),
   );
   await deps.trellis.mount(
@@ -90,6 +103,8 @@ export async function registerServiceAdminRpcs(deps: {
     createAuthRemoveServiceInstanceHandler({
       kick,
       refreshActiveContracts: deps.contracts.refreshActiveContracts,
+      connectionsKV: deps.connectionsKV,
+      sessionStorage: deps.sessionStorage,
     }),
   );
 }

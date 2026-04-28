@@ -6,6 +6,7 @@ After=trellis.service
 ContainerName=console
 Image=ghcr.io/qlever-llc/console:v0.6.0
 PublishPort=127.0.0.1:5173:80
+# VITE_TRELLIS_AUTH_URL points at the Trellis runtime HTTP origin.
 Environment=VITE_TRELLIS_AUTH_URL=http://host.containers.internal:3000
 Environment=VITE_TRELLIS_NATS_SERVERS=ws://localhost:8080
 Network=trellis.network

@@ -57,10 +57,13 @@ KV-backed runtime records:
 
 Rules:
 
-- durable auth and catalog records are owned by the Trellis service storage layer
+- durable auth and catalog records are owned by the Trellis runtime/control-plane
+  service storage layer
 - KV flow records are scratch state and must be safe to expire
 - connection records describe live transport presence and are not durable
   authority
+- connection-time lookups must use explicit repositories or injected
+  dependencies, not hidden global state
 - session TTL is enforced from the session's `lastAuth` timestamp using the
   deployment `ttlMs.sessions` setting
 
@@ -234,14 +237,14 @@ Rules:
 
 - the installed device public key is the device identity
 - installation records the exact contract digest and any resource bindings
-- the private device seed never crosses the network to Trellis auth
+- the private device seed never crosses the network to the Trellis runtime
 - key rotation is a separate explicit administrative operation
 
 ### 9) Auth remains unified after binding
 
 After identity binding, users and devices share the same auth-callout-based NATS connection model.
 
-Activated devices join that same runtime model after activation is complete. Before that point, device setup uses auth-owned browser flows with `kind: "device_activation"`, the `Auth.ActivateDevice` operation, and pre-auth wait surfaces defined in [device-activation.md](./device-activation.md). Browser auth UX runs through portals selected by explicit login and device portal-selection state; callers do not choose portals directly in the normal path. Normal auth redirects only need to preserve `flowId`; they do not need to carry `trellisUrl` in the default per-instance portal model because the portal deployment already knows which Trellis instance it targets. A portal may later continue as a user-authenticated browser app for onboarding or activation work, but that remains user-delegated app authority rather than service authority.
+Activated devices join that same runtime model after activation is complete. Before that point, device setup uses Trellis-owned browser auth/bootstrap flows with `kind: "device_activation"`, the `Auth.ActivateDevice` operation, and pre-auth wait surfaces defined in [device-activation.md](./device-activation.md). Browser auth UX runs through portals selected by explicit login and device portal-selection state; callers do not choose portals directly in the normal path. Normal auth redirects only need to preserve `flowId`; they do not need to carry `trellisUrl` in the default per-instance portal model because the portal deployment already knows which Trellis instance it targets. A portal may later continue as a user-authenticated browser app for onboarding or activation work, but that remains user-delegated app authority rather than service authority.
 
 The important distinction is that installed and activated devices differ in auth establishment, not in the basic runtime treatment after auth succeeds.
 
@@ -312,9 +315,9 @@ Rules:
 - Trellis MUST NOT grant arbitrary inbox publish rights just to support
   operation streams
 
-### 12) Trellis maintains auth-local state for fast authorization
+### 12) Trellis maintains runtime-local auth state for fast authorization
 
-The auth subsystem maintains Trellis-local state such as:
+The Trellis runtime/control-plane service maintains Trellis-local auth state such as:
 
 - sessions
 - user projections
@@ -333,7 +336,8 @@ The auth subsystem maintains Trellis-local state such as:
 
 Rules:
 
-- these records are part of Trellis auth's internal state model
+- these records are part of the Trellis runtime/control-plane service's internal
+  auth state model
 - auth lookup must remain fast enough for connection-time and request-time
   validation
 - connection revocation is implemented by kicking live NATS connections and

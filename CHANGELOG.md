@@ -10,6 +10,8 @@ and this project adheres to
 
 ### Changed
 
+- Aligned outward-facing auth, catalog, app, and guide docs with the Trellis v1
+  runtime/control-plane cleanup and active-compatible-digest `uses` validation.
 - Tightened Trellis service v1 behavior by validating contract `uses` before
   persistence, scoping operation control permissions to read/cancel grants,
   keeping jobs projection buckets runtime-owned, requiring NATS for jobs

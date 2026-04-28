@@ -34,6 +34,10 @@ type ServiceInstanceStorage = Pick<
   | "list"
   | "listByDeployment"
 >;
+type RuntimeKickDeps = {
+  connectionsKV?: KVLike<Connection>;
+  sessionStorage?: Pick<SqlSessionRepository, "deleteByInstanceKey">;
+};
 
 function serviceRpcDeps(): {
   logger: Pick<AuthRuntimeDeps["logger"], "trace">;
@@ -224,10 +228,12 @@ export function createAuthApplyServiceDeploymentContractHandler(deps: {
   };
 }
 
-export function createAuthUnapplyServiceDeploymentContractHandler(deps: {
-  kick: (serverId: string, clientId: number) => Promise<void>;
-  refreshActiveContracts: () => Promise<void>;
-}) {
+export function createAuthUnapplyServiceDeploymentContractHandler(
+  deps: {
+    kick: (serverId: string, clientId: number) => Promise<void>;
+    refreshActiveContracts: () => Promise<void>;
+  } & RuntimeKickDeps,
+) {
   return async (
     {
       input: req,
@@ -296,6 +302,8 @@ export function createAuthUnapplyServiceDeploymentContractHandler(deps: {
       await kickInstanceRuntimeAccess({
         instanceKey: instance.instanceKey,
         kick: deps.kick,
+        connectionsKV: deps.connectionsKV,
+        sessionStorage: deps.sessionStorage,
       });
     }
 
@@ -310,10 +318,12 @@ function toggleDeploymentDisabled(
   return { ...deployment, disabled };
 }
 
-export function createAuthDisableServiceDeploymentHandler(deps: {
-  kick: (serverId: string, clientId: number) => Promise<void>;
-  refreshActiveContracts: () => Promise<void>;
-}) {
+export function createAuthDisableServiceDeploymentHandler(
+  deps: {
+    kick: (serverId: string, clientId: number) => Promise<void>;
+    refreshActiveContracts: () => Promise<void>;
+  } & RuntimeKickDeps,
+) {
   return async ({ input: req }: { input: { deploymentId: string } }) => {
     const { serviceDeploymentStorage, serviceInstanceStorage } =
       serviceRpcDeps();
@@ -343,6 +353,8 @@ export function createAuthDisableServiceDeploymentHandler(deps: {
       await kickInstanceRuntimeAccess({
         instanceKey: instance.instanceKey,
         kick: deps.kick,
+        connectionsKV: deps.connectionsKV,
+        sessionStorage: deps.sessionStorage,
       });
     }
     return Result.ok({ deployment: nextDeployment });
@@ -486,12 +498,14 @@ export const authListServiceInstancesHandler = async (
   }
 };
 
-async function setInstanceDisabled(args: {
-  instanceId: string;
-  disabled: boolean;
-  kick: (serverId: string, clientId: number) => Promise<void>;
-  refreshActiveContracts: () => Promise<void>;
-}): Promise<
+async function setInstanceDisabled(
+  args: {
+    instanceId: string;
+    disabled: boolean;
+    kick: (serverId: string, clientId: number) => Promise<void>;
+    refreshActiveContracts: () => Promise<void>;
+  } & RuntimeKickDeps,
+): Promise<
   Result<{ instance: ServiceInstance }, ValidationError | UnexpectedError>
 > {
   const { serviceInstanceStorage } = serviceRpcDeps();
@@ -512,40 +526,52 @@ async function setInstanceDisabled(args: {
   await kickInstanceRuntimeAccess({
     instanceKey: nextInstance.instanceKey,
     kick: args.kick,
+    connectionsKV: args.connectionsKV,
+    sessionStorage: args.sessionStorage,
   });
   return Result.ok({ instance: nextInstance });
 }
 
-export function createAuthDisableServiceInstanceHandler(deps: {
-  kick: (serverId: string, clientId: number) => Promise<void>;
-  refreshActiveContracts: () => Promise<void>;
-}) {
+export function createAuthDisableServiceInstanceHandler(
+  deps: {
+    kick: (serverId: string, clientId: number) => Promise<void>;
+    refreshActiveContracts: () => Promise<void>;
+  } & RuntimeKickDeps,
+) {
   return async ({ input: req }: { input: { instanceId: string } }) =>
     await setInstanceDisabled({
       ...req,
       disabled: true,
       kick: deps.kick,
       refreshActiveContracts: deps.refreshActiveContracts,
+      connectionsKV: deps.connectionsKV,
+      sessionStorage: deps.sessionStorage,
     });
 }
 
-export function createAuthEnableServiceInstanceHandler(deps: {
-  kick: (serverId: string, clientId: number) => Promise<void>;
-  refreshActiveContracts: () => Promise<void>;
-}) {
+export function createAuthEnableServiceInstanceHandler(
+  deps: {
+    kick: (serverId: string, clientId: number) => Promise<void>;
+    refreshActiveContracts: () => Promise<void>;
+  } & RuntimeKickDeps,
+) {
   return async ({ input: req }: { input: { instanceId: string } }) =>
     await setInstanceDisabled({
       ...req,
       disabled: false,
       kick: deps.kick,
       refreshActiveContracts: deps.refreshActiveContracts,
+      connectionsKV: deps.connectionsKV,
+      sessionStorage: deps.sessionStorage,
     });
 }
 
-export function createAuthRemoveServiceInstanceHandler(deps: {
-  kick: (serverId: string, clientId: number) => Promise<void>;
-  refreshActiveContracts: () => Promise<void>;
-}) {
+export function createAuthRemoveServiceInstanceHandler(
+  deps: {
+    kick: (serverId: string, clientId: number) => Promise<void>;
+    refreshActiveContracts: () => Promise<void>;
+  } & RuntimeKickDeps,
+) {
   return async ({ input: req }: { input: { instanceId: string } }) => {
     const { serviceInstanceStorage } = serviceRpcDeps();
     const instance = await serviceInstanceStorage.get(req.instanceId);
@@ -557,6 +583,8 @@ export function createAuthRemoveServiceInstanceHandler(deps: {
     await kickInstanceRuntimeAccess({
       instanceKey: instance.instanceKey,
       kick: deps.kick,
+      connectionsKV: deps.connectionsKV,
+      sessionStorage: deps.sessionStorage,
     });
     try {
       await serviceInstanceStorage.delete(req.instanceId);
@@ -567,18 +595,4 @@ export function createAuthRemoveServiceInstanceHandler(deps: {
     if (isErr(refreshed)) return refreshed;
     return Result.ok({ success: true });
   };
-}
-
-export async function loadServiceInstanceByKey(
-  instanceKey: string,
-): Promise<ServiceInstance | null> {
-  const { serviceInstanceStorage } = serviceRpcDeps();
-  return await serviceInstanceStorage.getByInstanceKey(instanceKey) ?? null;
-}
-
-export async function loadServiceDeployment(
-  deploymentId: string,
-): Promise<ServiceDeployment | null> {
-  const { serviceDeploymentStorage } = serviceRpcDeps();
-  return await serviceDeploymentStorage.get(deploymentId) ?? null;
 }

@@ -78,7 +78,7 @@ chmod 600 ./config/secrets/*
 
 The entire `./config/` directory is mounted read-only into the container as `/etc/trellis/`. All `*File` paths in the config are container paths under that mount point.
 
-## 5. Configure the auth runtime
+## 5. Configure the Trellis runtime
 
 Edit `./config/config.jsonc` and fill in your deployment values:
 
@@ -123,7 +123,7 @@ Edit `./config/config.jsonc` and fill in your deployment values:
 }
 ```
 
-`client.natsServers` is the browser-facing websocket endpoint list returned by the auth service during browser auth/bootstrap. This lets the console discover the correct Trellis realtime endpoint from the instance URL it signed into.
+`client.natsServers` is the browser-facing websocket endpoint list returned by the Trellis runtime during browser auth/bootstrap. This lets the console discover the correct Trellis realtime endpoint from the instance URL it signed into.
 
 Create `./config/trellis.env` with a single line pointing the runtime at the config file:
 
