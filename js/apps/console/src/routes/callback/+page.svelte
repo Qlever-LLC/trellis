@@ -75,7 +75,8 @@
       }
 
       if (result.status === "approval_required") {
-        status = "Approval required";
+        status = "Approval still pending";
+        authError = "Return to the Trellis approval page and approve or deny access to continue.";
         return;
       }
 

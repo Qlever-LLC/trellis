@@ -142,7 +142,7 @@ For a SvelteKit portal, the target shape is a page like `src/routes/login/+page.
 {/if}
 ```
 
-The helper shown above is the intended public shape. Under the hood it still uses the auth-owned flow endpoints, but app authors should not need to rebuild those request details by hand.
+The helper shown above is the intended public shape. Under the hood it still uses the auth-owned flow endpoints and maps approve/deny actions to the canonical `approved: boolean` request body, but app authors should not need to rebuild those request details by hand.
 
 `portal.state.approval.capabilities` is the Trellis-side capability list that
 the app contract requested. A portal should present it as application access

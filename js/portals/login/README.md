@@ -7,6 +7,8 @@ contract kind.
 The app has two distinct roles:
 
 - `/_trellis/portal/users/login` renders Trellis-owned browser auth flow state.
+  Approval actions use the shared portal helpers and submit the auth endpoint's
+  canonical `approved: boolean` request body.
 - `/_trellis/portal/devices/activate` resumes a preserved `flowId` after sign-in
   and starts the `Auth.ActivateDevice` operation over the Trellis runtime.
 - SvelteKit runtime assets are served under `/_trellis/assets/*` to keep the
@@ -48,6 +50,6 @@ For device activation to succeed, the portal contract digest must be allowed on
 the relevant device deployment through `appliedContracts[].allowedDigests` or an
 empty allowed-digest lineage entry.
 
-If a custom portal needs to call Trellis after login, model that follow-on access
-with a normal `app` contract and a portal profile. Passive portals that only
-render flow state do not need their own Trellis contract.
+If a custom portal needs to call Trellis after login, model that follow-on
+access with a normal `app` contract and a portal profile. Passive portals that
+only render flow state do not need their own Trellis contract.

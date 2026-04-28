@@ -49,8 +49,12 @@
     initialized = true;
   });
 
-  function redirectToLogin(loginUrl: string): void {
-    window.location.href = loginUrl;
+  function redirectToLogin(_loginUrl: string): void {
+    window.location.href = buildConsoleLoginUrl({
+      redirectTo: currentPath(),
+      location: window.location,
+      authError: "Your session ended. Sign in again.",
+    });
   }
 </script>
 

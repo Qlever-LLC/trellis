@@ -147,6 +147,11 @@ and this project adheres to
 
 ### Fixed
 
+- Fixed browser portal approval submissions so the built-in login portal and
+  shared portal helpers send the auth endpoint's canonical `approved: boolean`
+  request body, preventing console login approval from failing with HTTP 400.
+- Fixed console auth-required redirects to restart the configured console login
+  flow with a session-ended message instead of reusing a stale provider URL.
 - Fixed Trellis local watched restarts to exit cleanly after shutdown, bounded
   HTTP listener drain during Trellis control-plane shutdown, and aligned
   service-author docs and JS demo shutdown examples with that deterministic exit

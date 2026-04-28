@@ -263,6 +263,8 @@ Rules:
 - the portal is not trusted as a service when it submits an approval decision
 - auth trusts only the active browser flow identified by `flowId` and the
   server-owned state attached to that flow
+- public portal helpers may expose decisions as `"approved" | "denied"`, but the
+  HTTP request body remains the canonical boolean shape below
 
 Request:
 
